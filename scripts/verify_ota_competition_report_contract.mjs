@@ -9,6 +9,11 @@ const assertContains = (content, needle, label) => {
     throw new Error(`${label} is missing: ${needle}`);
   }
 };
+const assertNotContains = (content, needle, label) => {
+  if (content.includes(needle)) {
+    throw new Error(`${label} must not remain: ${needle}`);
+  }
+};
 
 const controller = read('app/controller/AiDailyReport.php');
 const reportService = read('app/service/AiDailyReportService.php');
@@ -20,7 +25,9 @@ const wecomVisualCard = read('app/service/WechatCompetitionVisualCardService.php
 const wecomVisualRenderer = read('scripts/render_wechat_competition_visual_card.mjs');
 const cloudAutomation = read('app/service/CloudAutomationService.php');
 const frontend = read('public/app-main.js');
+const deliveryFrontend = read('public/components/system/ai-daily-report-delivery.js');
 const template = read('resources/frontend/templates/fragments/16-page-ai-daily-report.html');
+const ctripTemplate = read('resources/frontend/templates/fragments/24-page-ctrip-ebooking.html');
 const workflow = read('.github/workflows/php.yml');
 const packageJson = JSON.parse(read('package.json'));
 const scripts = packageJson.scripts ?? {};
@@ -47,6 +54,13 @@ const scripts = packageJson.scripts ?? {};
   ["'ctrip_source_trace_unverified'", 'Ctrip source-trace gate'],
   ["'meituan_source_trace_unverified'", 'Meituan source-trace gate'],
   ["'competitor_count' => $competitorCount", 'missing competitor count remains null'],
+  ["'schema_version' => 'suxios.ota_competition_report.v1'", 'interactive report document contract'],
+  ["'schema_version' => 'suxios.xiaohongshu.content_draft.v1'", 'Xiaohongshu draft contract'],
+  ["'commercial_release_ready' => false", 'interactive report commercial boundary'],
+  ["'evidence_contracts' => [", 'platform evidence completeness contracts'],
+  ["'platform_conversion_and_booking_conversion_are_separate' => true", 'Ctrip conversion semantic boundary'],
+  ["'sales_stay_gap_is_not_cancellation_rate' => true", 'Meituan sales/stay semantic boundary'],
+  ["'auto_publish' => false", 'Xiaohongshu manual publication boundary'],
 ].forEach(([needle, label]) => assertContains(bundleService, needle, label));
 
 [
@@ -96,23 +110,50 @@ const scripts = packageJson.scripts ?? {};
 ].forEach(([needle, label]) => assertContains(cloudAutomation, needle, label));
 
 [
-  ["edition: 'lite'", 'frontend lite default'],
-  ["edition: aiDailyReportForm.value.edition || 'lite'", 'edition request payload'],
+  ['aiDailyCompetitionInputRows', 'Ctrip and Meituan competition-source rows'],
+  ['aiDailyCompetitionInputsReady', 'dual competition-source generation gate'],
+  ['aiDailyCompetitionInputStatusText', 'truthful competition-source readiness copy'],
+  ['syncAiDailyCompetitionInputs', 'hotel and date changes automatically refresh competition sources'],
+  ['generateCtripCompetitionReport', 'Ctrip competition toolbar report action'],
+  ["testId: 'ctrip-competition-report-lite'", 'Ctrip toolbar lite report action'],
+  ["testId: 'ctrip-competition-report-flagship'", 'Ctrip toolbar flagship report action'],
+  ["testId: 'ctrip-business-download-button'", 'existing Ctrip data download action'],
+  ['edition: requestedEdition', 'explicit quick-report edition request'],
   ["JSON.stringify({ edition: requestedEdition })", 'WeCom edition request payload'],
   ['aiDailyReportWecomConfirmOpen.value = true', 'in-app WeCom confirmation entry'],
   ['confirmAiDailyReportWecomSend', 'confirmed WeCom delivery action'],
   ['delivery.delivery_parts || {}', 'text and visual delivery receipt binding'],
   ["aiDailyReportWecomEdition.value = 'lite'", 'non-admin WeCom edition reset'],
   ['aiDailyReportCompetitionBundle', 'competition bundle frontend binding'],
+  ['aiDailyReportCompetitionReportDocument', 'saved interactive report binding'],
+  ['downloadAiDailyCompetitionReportHtml', 'offline HTML report export'],
   ["facts.competitor_count ?? '—'", 'missing competitor count display boundary'],
+  ['bundle.evidence_contracts?.[platform]', 'platform evidence contract binding'],
+  ['required_checks_available', 'evidence completeness count binding'],
+  ['caveatText', 'platform metric caveat binding'],
   ['auto_write_ota=false', 'manual execution boundary copy'],
 ].forEach(([needle, label]) => assertContains(frontend, needle, label));
 
 [
-  ['value="lite"', 'lite option'],
-  ['<optgroup v-if="user?.is_super_admin">', 'admin-only flagship options'],
-  ['value="flagship"', 'flagship option'],
-  ['value="both"', 'dual option'],
+  ['const detailSections = flagship', 'lite and flagship HTML structures'],
+  ['suxios-ota-competition-${normalizedEdition}', 'edition-specific report filename'],
+  ['copyAiDailyCompetitionXiaohongshuDraft', 'Xiaohongshu draft copy action'],
+  ['downloadAiDailyCompetitionReportHtml();', 'report delivery is bound to result package action'],
+  ['证据完整度', 'platform evidence completeness output'],
+  ['missing_required_labels', 'missing evidence output'],
+  ['full_circle_platforms', 'management full-circle count'],
+  ["check.result_layer === 'source_fact'", 'source-fact layer label'],
+  ["check.result_layer === 'derived_metric'", 'derived-metric layer label'],
+  ['口径边界', 'metric caveat output'],
+].forEach(([needle, label]) => assertContains(deliveryFrontend, needle, label));
+
+assertNotContains(frontend, 'edition: aiDailyReportForm.value.edition', 'generation edition request payload');
+
+[
+  ['v-for="row in aiDailyCompetitionInputRows"', 'Ctrip and Meituan competition-source status rows'],
+  ['data-testid="ai-daily-competition-input-status"', 'competition-source readiness status'],
+  [':disabled="operationLoading.aiDailyReport || aiDailyReportGenerationTaskPolling || !aiDailyCompetitionInputsReady"', 'generation is gated by both competition sources'],
+  ['>生成分析报告</span>', 'competition report generation action'],
   ['data-testid="ai-daily-report-wecom-edition"', 'WeCom edition selector'],
   ['data-testid="ai-daily-report-wecom-result"', 'WeCom delivery result'],
   ['data-testid="ai-daily-report-wecom-part-results"', 'WeCom part delivery result'],
@@ -121,8 +162,24 @@ const scripts = packageJson.scripts ?? {};
   ["user?.is_super_admin && aiDailyReportWecomEdition === 'flagship'", 'non-admin send button label gate'],
   ['<strong>竞对变化（诊断参考）</strong>', 'always-visible diagnostic heading'],
   ['<pre v-if="aiDailyReportCompetitionSummaryText"', 'competition-circle report entry'],
+  ['data-testid="ai-daily-presentation-generate"', 'user-facing verified report output action'],
   ['v-else-if="!aiDailyReportCompetitorChanges.length"', 'truthful competition empty state'],
 ].forEach(([needle, label]) => assertContains(template, needle, label));
+
+assertNotContains(template, 'v-model="aiDailyReportForm.edition"', 'generation edition selector');
+assertNotContains(template, 'value="both"', 'misleading dual-generation option');
+
+[
+  ['v-for="action in ctripBusinessToolbarActions"', 'Ctrip toolbar action loop'],
+  ['handleCtripBusinessToolbarAction(action)', 'edition-specific toolbar action binding'],
+].forEach(([needle, label]) => assertContains(ctripTemplate, needle, label));
+
+const liteButtonIndex = frontend.indexOf("testId: 'ctrip-competition-report-lite'");
+const flagshipButtonIndex = frontend.indexOf("testId: 'ctrip-competition-report-flagship'");
+const downloadButtonIndex = frontend.indexOf("testId: 'ctrip-business-download-button'");
+if (!(liteButtonIndex < flagshipButtonIndex && flagshipButtonIndex < downloadButtonIndex)) {
+  throw new Error('Ctrip report actions must appear immediately left of data download');
+}
 
 assertContains(
   String(scripts['verify:ota-competition-python'] ?? ''),
@@ -150,6 +207,11 @@ process.stdout.write(JSON.stringify({
     one_bundle_save_readback: true,
     lite_default: true,
     flagship_admin_only: true,
+    competition_sources_auto_read: true,
+    dual_source_generation_gate: true,
+    generation_edition_hidden: true,
+    ctrip_toolbar_report_entry: true,
+    lite_and_flagship_outputs: true,
     synthetic_guard: true,
     no_ota_auto_write: true,
     wecom_lite_for_hotel_user: true,

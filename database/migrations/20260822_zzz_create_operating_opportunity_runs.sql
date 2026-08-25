@@ -1,0 +1,20 @@
+CREATE TABLE IF NOT EXISTS `operating_opportunity_runs` (
+  `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `tenant_id` BIGINT UNSIGNED NOT NULL,
+  `system_hotel_id` BIGINT UNSIGNED NOT NULL,
+  `feature_key` VARCHAR(64) NOT NULL,
+  `business_date` DATE NOT NULL,
+  `source_quality_status` VARCHAR(64) NOT NULL DEFAULT 'unverified',
+  `source_reference` VARCHAR(1000) NULL,
+  `input_json` LONGTEXT NOT NULL,
+  `result_json` LONGTEXT NOT NULL,
+  `input_digest` CHAR(64) NOT NULL,
+  `result_digest` CHAR(64) NOT NULL,
+  `idempotency_key` VARCHAR(128) NOT NULL,
+  `created_by` BIGINT UNSIGNED NOT NULL,
+  `created_at` DATETIME NOT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uniq_operating_opportunity_idempotency` (`tenant_id`, `created_by`, `idempotency_key`),
+  KEY `idx_operating_opportunity_scope_date` (`tenant_id`, `system_hotel_id`, `business_date`, `feature_key`, `id`),
+  KEY `idx_operating_opportunity_history` (`tenant_id`, `system_hotel_id`, `id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

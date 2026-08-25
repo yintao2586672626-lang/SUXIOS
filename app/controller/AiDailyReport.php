@@ -4,6 +4,8 @@ declare(strict_types=1);
 namespace app\controller;
 
 use app\service\AiDailyReportService;
+use app\service\AiDailyReportPresentationArtifactService;
+use app\service\AiDailyReportPresentationSpecService;
 use app\service\AiReportGenerationTaskService;
 use app\service\OtaCompetitionAnalysisBundleService;
 use app\service\P0OtaDownstreamGateService;
@@ -13,12 +15,16 @@ use Throwable;
 class AiDailyReport extends Base
 {
     private AiDailyReportService $service;
+    private AiDailyReportPresentationArtifactService $presentationArtifactService;
+    private AiDailyReportPresentationSpecService $presentationSpecService;
     private AiReportGenerationTaskService $taskService;
 
     public function __construct(\think\App $app)
     {
         parent::__construct($app);
         $this->service = new AiDailyReportService();
+        $this->presentationSpecService = new AiDailyReportPresentationSpecService();
+        $this->presentationArtifactService = new AiDailyReportPresentationArtifactService();
         $this->taskService = new AiReportGenerationTaskService();
     }
 
@@ -152,6 +158,224 @@ class AiDailyReport extends Base
         }
     }
 
+    public function savePresentationSpec(int $id): Response
+    {
+        try {
+            if ($id <= 0) {
+                return $this->error('AI daily report is invalid', 422);
+            }
+            [$hotelIds] = $this->resolveHotelScope();
+            $report = $this->service->read($id, $hotelIds);
+            $hotelId = (int)($report['hotel_id'] ?? 0);
+            if (!is_array($report) || $hotelId <= 0) {
+                return $this->error('AI daily report not found', 404);
+            }
+            if (($denied = $this->hotelCapabilityDeniedResponse(
+                $hotelId,
+                'report.export',
+                'report.export permission is required for this hotel'
+            )) !== null) {
+                return $denied;
+            }
+            $input = $this->requestData();
+            $audience = trim((string)($input['audience'] ?? 'owner'));
+            $userId = (int)($this->currentUser->id ?? 0);
+
+            return $this->success($this->presentationSpecService->saveAndReadback(
+                $report,
+                $audience,
+                $userId
+            ));
+        } catch (Throwable $e) {
+            return $this->error(
+                $this->safeErrorMessage($e, 'AI daily report presentation spec save failed'),
+                $this->statusCode($e)
+            );
+        }
+    }
+
+    public function presentationSpec(int $id): Response
+    {
+        try {
+            if ($id <= 0) {
+                return $this->error('AI daily report is invalid', 422);
+            }
+            [$hotelIds] = $this->resolveHotelScope();
+            $report = $this->service->read($id, $hotelIds);
+            $hotelId = (int)($report['hotel_id'] ?? 0);
+            if (!is_array($report) || $hotelId <= 0) {
+                return $this->error('AI daily report not found', 404);
+            }
+            if (($denied = $this->hotelCapabilityDeniedResponse(
+                $hotelId,
+                'report.export',
+                'report.export permission is required for this hotel'
+            )) !== null) {
+                return $denied;
+            }
+            $tenantId = $this->presentationSpecService->resolveTenantScope($report);
+            $audience = trim((string)$this->request->param('audience', 'owner'));
+            $stored = $this->presentationSpecService->readLatest(
+                $id,
+                $hotelIds,
+                $tenantId,
+                $audience
+            );
+            if (!is_array($stored)) {
+                return $this->error('AI daily report presentation spec not found', 404);
+            }
+
+            return $this->success($stored);
+        } catch (Throwable $e) {
+            return $this->error(
+                $this->safeErrorMessage($e, 'AI daily report presentation spec read failed'),
+                $this->statusCode($e)
+            );
+        }
+    }
+
+    public function savePresentationArtifact(int $id): Response
+    {
+        try {
+            if ($id <= 0) {
+                return $this->error('AI daily report is invalid', 422);
+            }
+            [$hotelIds] = $this->resolveHotelScope();
+            $report = $this->service->read($id, $hotelIds);
+            $hotelId = (int)($report['hotel_id'] ?? 0);
+            if (!is_array($report) || $hotelId <= 0) {
+                return $this->error('AI daily report not found', 404);
+            }
+            if (($denied = $this->hotelCapabilityDeniedResponse(
+                $hotelId,
+                'report.export',
+                'report.export permission is required for this hotel'
+            )) !== null) {
+                return $denied;
+            }
+
+            $input = $this->requestData();
+            $audience = trim((string)($input['audience'] ?? 'owner'));
+            $expectedSpecId = (int)($input['presentation_spec_id'] ?? 0);
+            $expectedSpecFingerprint = strtolower(trim((string)($input['expected_spec_fingerprint'] ?? '')));
+            if ($expectedSpecId <= 0 || preg_match('/^[a-f0-9]{64}$/', $expectedSpecFingerprint) !== 1) {
+                throw new \InvalidArgumentException('verified presentation spec identity is required');
+            }
+            $userId = (int)($this->currentUser->id ?? 0);
+            $storedSpec = $this->presentationSpecService->saveAndReadback($report, $audience, $userId);
+            if ((int)($storedSpec['record_id'] ?? 0) !== $expectedSpecId
+                || !hash_equals(
+                    $expectedSpecFingerprint,
+                    strtolower((string)($storedSpec['spec_fingerprint'] ?? ''))
+                )
+            ) {
+                throw new \RuntimeException('presentation spec stale; refresh the report and retry');
+            }
+
+            return $this->success($this->presentationArtifactService->saveAndReadback(
+                $storedSpec,
+                $userId,
+                true
+            ));
+        } catch (Throwable $e) {
+            return $this->error(
+                $this->safeErrorMessage($e, 'AI daily report presentation artifact save failed'),
+                $this->statusCode($e)
+            );
+        }
+    }
+
+    public function presentationArtifact(int $id): Response
+    {
+        try {
+            if ($id <= 0) {
+                return $this->error('AI daily report is invalid', 422);
+            }
+            [$hotelIds] = $this->resolveHotelScope();
+            $report = $this->service->read($id, $hotelIds);
+            $hotelId = (int)($report['hotel_id'] ?? 0);
+            if (!is_array($report) || $hotelId <= 0) {
+                return $this->error('AI daily report not found', 404);
+            }
+            if (($denied = $this->hotelCapabilityDeniedResponse(
+                $hotelId,
+                'report.export',
+                'report.export permission is required for this hotel'
+            )) !== null) {
+                return $denied;
+            }
+
+            $tenantId = $this->presentationSpecService->resolveTenantScope($report);
+            $audience = trim((string)$this->request->param('audience', 'owner'));
+            $includeBundle = filter_var(
+                $this->request->param('include_bundle', false),
+                FILTER_VALIDATE_BOOL
+            );
+            $stored = $this->presentationArtifactService->readLatest(
+                $id,
+                $hotelIds,
+                $tenantId,
+                $audience,
+                $includeBundle
+            );
+            if (!is_array($stored)) {
+                return $this->error('AI daily report presentation artifact not found', 404);
+            }
+
+            return $this->success($stored);
+        } catch (Throwable $e) {
+            return $this->error(
+                $this->safeErrorMessage($e, 'AI daily report presentation artifact read failed'),
+                $this->statusCode($e)
+            );
+        }
+    }
+
+    public function presentationArtifactById(int $id, int $artifactId): Response
+    {
+        try {
+            if ($id <= 0 || $artifactId <= 0) {
+                return $this->error('AI daily report presentation artifact is invalid', 422);
+            }
+            [$hotelIds] = $this->resolveHotelScope();
+            $report = $this->service->read($id, $hotelIds);
+            $hotelId = (int)($report['hotel_id'] ?? 0);
+            if (!is_array($report) || $hotelId <= 0) {
+                return $this->error('AI daily report not found', 404);
+            }
+            if (($denied = $this->hotelCapabilityDeniedResponse(
+                $hotelId,
+                'report.export',
+                'report.export permission is required for this hotel'
+            )) !== null) {
+                return $denied;
+            }
+
+            $tenantId = $this->presentationSpecService->resolveTenantScope($report);
+            $includeBundle = filter_var(
+                $this->request->param('include_bundle', false),
+                FILTER_VALIDATE_BOOL
+            );
+            $stored = $this->presentationArtifactService->readExact(
+                $id,
+                $artifactId,
+                $hotelIds,
+                $tenantId,
+                $includeBundle
+            );
+            if (!is_array($stored)) {
+                return $this->error('AI daily report presentation artifact not found', 404);
+            }
+
+            return $this->success($stored);
+        } catch (Throwable $e) {
+            return $this->error(
+                $this->safeErrorMessage($e, 'AI daily report presentation artifact read failed'),
+                $this->statusCode($e)
+            );
+        }
+    }
+
     public function createExecutionIntent(int $id, int $actionIndex): Response
     {
         try {
@@ -220,6 +444,9 @@ class AiDailyReport extends Base
         }
         if (str_contains($message, 'not found')) {
             return 404;
+        }
+        if (str_contains($message, 'presentation spec stale')) {
+            return 409;
         }
         if (str_contains($message, 'table does not exist')) {
             return 500;

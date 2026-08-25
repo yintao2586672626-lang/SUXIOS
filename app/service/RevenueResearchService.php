@@ -5,12 +5,24 @@ namespace app\service;
 
 use app\model\AiModelConfig;
 use app\model\User;
+use Closure;
 use RuntimeException;
 use think\facade\Db;
+use Throwable;
 
 class RevenueResearchService
 {
     private const FORECAST_MAX_STALENESS_DAYS = 1;
+
+    private Closure $knowledgeContextLoader;
+
+    public function __construct(?callable $knowledgeContextLoader = null)
+    {
+        $this->knowledgeContextLoader = Closure::fromCallable(
+            $knowledgeContextLoader
+                ?? static fn(array $filters): array => (new RevenueOperationsKnowledgeService())->load($filters)
+        );
+    }
 
     /**
      * @return array<string, mixed>
@@ -30,11 +42,11 @@ class RevenueResearchService
         $localSources = $this->collectLocalSources($product, $hotelIds);
         $businessForecast = $this->buildBusinessForecast($hotelIds);
         $gaps = $this->evaluateGaps($product, $localSources);
-        $retrievedKnowledgeContext = (new RevenueOperationsKnowledgeService())->load([
+        $retrievedKnowledgeContext = ($this->knowledgeContextLoader)([
             'hotel_id' => count($hotelIds) === 1 ? (int)$hotelIds[0] : 0,
             'limit' => 100,
         ]);
-        $knowledgeContext = $this->decisionSafeKnowledgeContext($retrievedKnowledgeContext);
+        $knowledgeContext = $this->decisionSafeKnowledgeContext($retrievedKnowledgeContext, $product);
         $webResult = $modelKey === 'openai_fast'
             ? $this->callOpenAiWebSearch($this->resolveOpenAiConfig($modelKey), $product, $localSources, $gaps, $businessForecast, $knowledgeContext)
             : $this->callConfiguredModel($modelKey, $product, $localSources, $gaps, $businessForecast, $knowledgeContext);
@@ -46,7 +58,8 @@ class RevenueResearchService
             $gaps,
             $businessForecast,
             $localSources,
-            count($hotelIds) === 1 ? (int)$hotelIds[0] : 0
+            count($hotelIds) === 1 ? (int)$hotelIds[0] : 0,
+            $knowledgeContext
         );
         $readiness = $this->buildResearchReadiness($product, $status, $gaps, $businessForecast, $result);
         if (($knowledgeContext['execution_ready'] ?? false) !== true) {
@@ -87,8 +100,14 @@ class RevenueResearchService
             'knowledge_context' => $knowledgeContext,
             'knowledge_context_audit' => [
                 'retrieved_entry_count' => (int)($retrievedKnowledgeContext['entry_count'] ?? 0),
-                'decision_safe_entry_count' => (int)($knowledgeContext['entry_count'] ?? 0),
+                'decision_safe_entry_count' => (int)($knowledgeContext['decision_safe_entry_count'] ?? 0),
+                'task_draft_safe_entry_count' => (int)($knowledgeContext['task_draft_safe_entry_count'] ?? 0),
+                'traceable_task_draft_entry_count' => (int)($knowledgeContext['traceable_task_draft_entry_count'] ?? 0),
+                'module_matched_entry_count' => (int)($knowledgeContext['module_matched_entry_count'] ?? 0),
                 'excluded_for_decision_count' => (int)($knowledgeContext['excluded_for_decision_count'] ?? 0),
+                'excluded_by_task_draft_gate_count' => (int)($knowledgeContext['excluded_by_task_draft_gate_count'] ?? 0),
+                'excluded_by_traceability_gate_count' => (int)($knowledgeContext['excluded_by_traceability_gate_count'] ?? 0),
+                'excluded_by_module_gate_count' => (int)($knowledgeContext['excluded_by_module_gate_count'] ?? 0),
                 'execution_ready' => (bool)($knowledgeContext['execution_ready'] ?? false),
             ],
             'result' => $result,
@@ -291,6 +310,12 @@ class RevenueResearchService
         if ($productKey === '') {
             throw new RuntimeException('product_key is required for revenue research execution intent', 422);
         }
+        $products = $this->products();
+        $product = $products[$productKey] ?? [
+            'key' => $productKey,
+            'knowledge_module_ids' => [],
+            'action_platform' => 'ota',
+        ];
 
         $result = is_array($research['result'] ?? null) ? $research['result'] : [];
         $readiness = is_array($research['readiness'] ?? null) ? $research['readiness'] : [];
@@ -307,10 +332,11 @@ class RevenueResearchService
         }
 
         $recommendedActions = $this->stringList($result['recommended_actions'] ?? []);
-        $decisionRecommendations = array_values(array_filter(
+        $platformOverride = strtolower(trim((string)($overrides['platform'] ?? '')));
+        $decisionRecommendations = $this->applyActionKnowledgeBindings(array_values(array_filter(
             (array)($result['decision_recommendations'] ?? []),
             static fn(mixed $item): bool => is_array($item)
-        ));
+        )), $product, is_array($research['knowledge_context'] ?? null) ? $research['knowledge_context'] : [], $platformOverride);
         $firstExecutable = null;
         foreach ($decisionRecommendations as $recommendation) {
             if (($recommendation['can_create_execution_intent'] ?? false) === true
@@ -324,15 +350,23 @@ class RevenueResearchService
         if ($actionText === '') {
             $actionText = '复核收益研究结论并创建运营动作';
         }
+        $platform = $platformOverride !== ''
+            ? ($this->normalizeActionPlatform($platformOverride) ?: $platformOverride)
+            : trim((string)($firstExecutable['recommendation_knowledge_binding']['action_platform']
+                ?? $product['action_platform']
+                ?? 'ota'));
 
         $dataGaps = $this->executionDataGapCodes($gaps, $result);
+        if ($firstExecutable === null) {
+            $dataGaps[] = 'action_knowledge_binding_missing';
+            $dataGaps = array_values(array_unique($dataGaps));
+        }
         $readinessStage = trim((string)($readiness['stage'] ?? ''));
         $executionReady = (bool)($readiness['execution_ready'] ?? false) && $firstExecutable !== null;
         $executionDates = $this->executionIntentDates($overrides);
-        $platform = strtolower(trim((string)($overrides['platform'] ?? 'ota')));
-        if ($platform === '') {
-            $platform = 'ota';
-        }
+        $knowledgeRefs = $this->stringList(
+            $firstExecutable['recommendation_knowledge_binding']['canonical_refs'] ?? []
+        );
 
         return [
             'source_module' => 'revenue_research',
@@ -359,10 +393,10 @@ class RevenueResearchService
                 'decision_recommendation' => $firstExecutable,
             ],
             'evidence' => [
-                'evidence_refs' => [
+                'evidence_refs' => array_values(array_unique(array_merge([
                     'revenue_research#' . $productKey . '#' . $sourceRecordId,
                     '/api/revenue-research/run',
-                ],
+                ], $knowledgeRefs))),
                 'data_gaps' => $dataGaps,
                 'source_policy' => 'revenue_research_output_to_operation_execution_intent',
                 'protected_boundary' => 'Execution intent records manual review of revenue research output; it does not write OTA prices, inventory, campaigns, or platform data.',
@@ -372,6 +406,9 @@ class RevenueResearchService
                     ? $result['recommendation_quality']
                     : [],
                 'decision_recommendation' => $firstExecutable,
+                'recommendation_knowledge_binding' => is_array($firstExecutable['recommendation_knowledge_binding'] ?? null)
+                    ? $firstExecutable['recommendation_knowledge_binding']
+                    : [],
                 'metric_scope' => 'ota_channel',
                 'model_key' => (string)($research['model_key'] ?? ''),
                 'generation_mode' => (string)($research['generation_mode'] ?? ''),
@@ -391,7 +428,15 @@ class RevenueResearchService
      */
     public function buildReadyExecutionIntentInput(array $research, array $overrides = []): array
     {
-        $this->assertResearchReadyForExecution($research);
+        $validated = $this->assertResearchReadyForExecution($research, $overrides);
+        $research['knowledge_context'] = $validated['knowledge_context'];
+        $result = is_array($research['result'] ?? null) ? $research['result'] : [];
+        $result['decision_recommendations'] = $validated['decision_recommendations'];
+        $result['recommendation_quality'] = (new AiDecisionQualityService())->summarize(
+            $validated['decision_recommendations'],
+            ['scope' => 'ota_channel']
+        );
+        $research['result'] = $result;
 
         return $this->buildExecutionIntentInput($research, $overrides);
     }
@@ -433,27 +478,82 @@ class RevenueResearchService
     /**
      * @param array<string, mixed> $research
      */
-    private function assertResearchReadyForExecution(array $research): void
+    private function assertResearchReadyForExecution(array $research, array $overrides = []): array
     {
         $readiness = is_array($research['readiness'] ?? null) ? $research['readiness'] : [];
         $stage = trim((string)($readiness['stage'] ?? 'unknown'));
         $executionReady = (bool)($readiness['execution_ready'] ?? false);
         $researchStatus = trim((string)($research['status'] ?? ''));
         $result = is_array($research['result'] ?? null) ? $research['result'] : [];
+        $productKey = trim((string)($research['product_key'] ?? ''));
+        $product = $productKey !== '' ? $this->product($productKey) : [];
         $gaps = array_values(array_filter((array)($research['gaps'] ?? []), 'is_array'));
         $dataGapCodes = $this->executionDataGapCodes($gaps, $result);
-        $hasExecutableRecommendation = false;
+        $archivedExecutableRecommendation = false;
         foreach ((array)($result['decision_recommendations'] ?? []) as $recommendation) {
             if (is_array($recommendation)
                 && ($recommendation['can_create_execution_intent'] ?? false) === true
                 && (($recommendation['decision_quality']['contract_version'] ?? '') === AiDecisionQualityService::CONTRACT_VERSION)
                 && (($recommendation['decision_quality']['execution_ready'] ?? false) === true)) {
-                $hasExecutableRecommendation = true;
+                $archivedExecutableRecommendation = true;
                 break;
             }
         }
-        if ($executionReady && $researchStatus === 'done' && $dataGapCodes === [] && $hasExecutableRecommendation) {
-            return;
+
+        $currentKnowledgeContext = [];
+        $currentRecommendations = [];
+        $knowledgeReady = false;
+        $hasExecutableRecommendation = false;
+        if ($executionReady
+            && $researchStatus === 'done'
+            && $dataGapCodes === []
+            && $archivedExecutableRecommendation
+            && $product !== []
+        ) {
+            $hotelScope = is_array($research['hotel_scope'] ?? null) ? $research['hotel_scope'] : [];
+            $hotelId = (int)($overrides['hotel_id'] ?? $hotelScope['hotel_id'] ?? 0);
+            try {
+                $loadedKnowledge = ($this->knowledgeContextLoader)([
+                    'hotel_id' => max(0, $hotelId),
+                    'limit' => 100,
+                ]);
+            } catch (Throwable $exception) {
+                throw new RuntimeException(
+                    'revenue research current action knowledge revalidation failed',
+                    503,
+                    $exception
+                );
+            }
+            $currentKnowledgeContext = $this->decisionSafeKnowledgeContext($loadedKnowledge, $product);
+            $platform = strtolower(trim((string)($overrides['platform'] ?? '')));
+            $currentRecommendations = $this->applyActionKnowledgeBindings(
+                array_values(array_filter((array)($result['decision_recommendations'] ?? []), 'is_array')),
+                $product,
+                $currentKnowledgeContext,
+                $platform
+            );
+            $knowledgeReady = ($currentKnowledgeContext['execution_ready'] ?? false) === true;
+            foreach ($currentRecommendations as $recommendation) {
+                if (($recommendation['can_create_execution_intent'] ?? false) === true
+                    && (($recommendation['decision_quality']['contract_version'] ?? '') === AiDecisionQualityService::CONTRACT_VERSION)
+                    && (($recommendation['decision_quality']['execution_ready'] ?? false) === true)
+                    && (($recommendation['recommendation_knowledge_binding']['status'] ?? '') === 'bound')) {
+                    $hasExecutableRecommendation = true;
+                    break;
+                }
+            }
+        }
+        if ($executionReady
+            && $researchStatus === 'done'
+            && $dataGapCodes === []
+            && $archivedExecutableRecommendation
+            && $hasExecutableRecommendation
+            && $knowledgeReady
+        ) {
+            return [
+                'knowledge_context' => $currentKnowledgeContext,
+                'decision_recommendations' => $currentRecommendations,
+            ];
         }
 
         $missing = array_values(array_filter((array)($readiness['missing_evidence'] ?? []), 'is_array'));
@@ -467,8 +567,13 @@ class RevenueResearchService
         foreach ($dataGapCodes as $gapCode) {
             $missingCodes[] = 'data_gap_' . $gapCode;
         }
-        if (!$hasExecutableRecommendation) {
+        if (!$archivedExecutableRecommendation) {
             $missingCodes[] = 'recommendation_quality_v2';
+        } elseif (!$hasExecutableRecommendation) {
+            $missingCodes[] = 'action_knowledge_binding_missing';
+        }
+        if (!$knowledgeReady) {
+            $missingCodes[] = 'task_draft_safe_knowledge_required';
         }
         $missingCodes = array_values(array_unique($missingCodes));
         $suffix = $missingCodes === [] ? '' : '; missing=' . implode(',', array_slice($missingCodes, 0, 6));
@@ -598,6 +703,12 @@ class RevenueResearchService
                 'name' => '需求预测',
                 'query' => 'hotel demand forecasting stay date lead time WAPE sMAPE OTA revenue management',
                 'module' => '酒店AI工具箱 / 收益管理 / 收益分析',
+                'knowledge_module_ids' => [
+                    'hotel_revenue_success_practices_extension',
+                    'hotel_revenue_success_practices_recent_sources',
+                    'traffic_operation_management_golden_sentences',
+                ],
+                'action_platform' => 'ota',
                 'task' => '基于入住日、提前期、价格、库存、取消修正和节假日，生成酒店 OTA 需求预测的数据字段、模型选择、评估指标和上线验收清单。',
                 'rules' => [
                     ['table' => 'online_daily_data', 'min_count' => 180, 'fields' => ['data_date', 'amount', 'quantity', 'book_order_num'], 'label' => '连续日级订单、价格和间夜数据', 'collect_from' => '平台数据自动获取：携程/美团日级经营数据'],
@@ -609,6 +720,11 @@ class RevenueResearchService
                 'name' => '取消率预测',
                 'query' => 'hotel booking cancellation prediction free cancellation recoverable room nights hazard model',
                 'module' => '待新增：取消风险订单表、预警列表、净需求修正接口',
+                'knowledge_module_ids' => [
+                    'hotel_revenue_success_practices_extension',
+                    'hotel_revenue_success_practices_recent_sources',
+                ],
+                'action_platform' => 'ota',
                 'task' => '设计取消率预测产品：输入特征、标签定义、PR-AUC 与可回收间夜指标、预警阈值、超售控制动作，以及旧订单数据兼容方案。',
                 'rules' => [
                     ['table' => 'online_daily_data', 'min_count' => 1, 'fields' => ['cancel_order_num', 'cancel_rate', 'free_cancel_rule', 'order_id'], 'label' => '订单级取消标签、取消规则和可回收间夜', 'collect_from' => 'OTA订单明细、取消政策、取消流水'],
@@ -619,6 +735,12 @@ class RevenueResearchService
                 'name' => '价格弹性与收益管理',
                 'query' => 'hotel dynamic pricing price elasticity constrained optimization contextual bandit RevPAR',
                 'module' => '酒店AI工具箱 / 收益管理 / 定价建议',
+                'knowledge_module_ids' => [
+                    'traffic_operation_management_golden_sentences',
+                    'hotel_revenue_success_practices_extension',
+                    'hotel_revenue_success_practices_recent_sources',
+                ],
+                'action_platform' => 'ota',
                 'task' => '用酒店价格、库存、竞对价格、节假日和提前期，输出价格弹性建模方案、约束条件、调价策略和人工审批规则。',
                 'rules' => [
                     ['table' => 'online_daily_data', 'min_count' => 90, 'fields' => ['data_date', 'amount', 'quantity', 'book_order_num'], 'label' => '日级价格、销量和间夜数据', 'collect_from' => '平台数据自动获取'],
@@ -630,6 +752,12 @@ class RevenueResearchService
                 'name' => '渠道归因与增量评估',
                 'query' => 'CUPED A/B testing difference in differences hotel OTA channel attribution incrementality',
                 'module' => '酒店AI工具箱 / OTA诊断',
+                'knowledge_module_ids' => [
+                    'traffic_operation_management_golden_sentences',
+                    'hotel_revenue_success_practices_extension',
+                    'hotel_revenue_success_practices_recent_sources',
+                ],
+                'action_platform' => 'ota',
                 'task' => '为酒店 OTA 活动评估设计增量归因方案：实验分组、历史协变量、MDE、ROI、置信区间和不可随机时的 DiD/BSTS 备选。',
                 'rules' => [
                     ['table' => 'online_daily_data', 'min_count' => 30, 'fields' => ['list_exposure', 'detail_exposure', 'flow_rate', 'order_filling_num', 'order_submit_num'], 'label' => '曝光、访问、提交和订单转化链路', 'collect_from' => '携程/美团流量、订单、广告数据采集'],
@@ -640,6 +768,11 @@ class RevenueResearchService
                 'name' => '客群细分',
                 'query' => 'hotel customer segmentation RFM KMeans HDBSCAN propensity model OTA repeat customer',
                 'module' => '待新增：客群特征宽表、分群结果、运营触达动作',
+                'knowledge_module_ids' => [
+                    'hotel_revenue_success_practices_extension',
+                    'hotel_revenue_success_practices_recent_sources',
+                ],
+                'action_platform' => 'ota',
                 'task' => '设计酒店客群细分产品：RFM 字段、聚类特征、分群稳定性、可解释标签、触达策略和用户匿名化权限边界。',
                 'rules' => [
                     ['table' => 'online_daily_data', 'min_count' => 1, 'fields' => ['customer_id', 'guest_id', 'order_id', 'last_stay_date', 'order_amount'], 'label' => '匿名用户主键、订单频次、最近入住和客单价', 'collect_from' => '订单明细、会员系统或脱敏客史'],
@@ -650,6 +783,11 @@ class RevenueResearchService
                 'name' => 'LTV 预测',
                 'query' => 'hotel customer lifetime value BG NBD Gamma Gamma gradient boosting survival regression',
                 'module' => '待新增：用户生命周期表、LTV 预测结果、CAC 联动配置',
+                'knowledge_module_ids' => [
+                    'hotel_revenue_success_practices_extension',
+                    'hotel_revenue_success_practices_recent_sources',
+                ],
+                'action_platform' => 'ota',
                 'task' => '设计酒店 LTV 预测：历史 LTV 与预测 LTV 区分、订单频次/间隔/客单价特征、MAE/RMSE/Decile Lift/Calibration 验收口径。',
                 'rules' => [
                     ['table' => 'online_daily_data', 'min_count' => 1, 'fields' => ['customer_id', 'guest_id', 'order_id', 'order_amount', 'refund_amount', 'acquisition_cost'], 'label' => '用户级订单序列、退款取消和获客成本', 'collect_from' => '订单明细、会员系统、投放成本表'],
@@ -660,6 +798,11 @@ class RevenueResearchService
                 'name' => '异常检测',
                 'query' => 'hotel OTA anomaly detection STL ESD isolation forest conversion rate alert root cause',
                 'module' => '项目AI管理 / 运营管理 / 策见·预警推送',
+                'knowledge_module_ids' => [
+                    'traffic_operation_management_golden_sentences',
+                    'hotel_revenue_success_practices_recent_sources',
+                ],
+                'action_platform' => 'ota',
                 'task' => '设计酒店 OTA 异常检测：订单、库存、价格、转化率、广告投放、服务质量和接口失败码的规则阈值、误报率、发现时间和恢复时间指标。',
                 'rules' => [
                     ['table' => 'online_daily_data', 'min_count' => 30, 'fields' => ['data_date', 'amount', 'quantity', 'book_order_num', 'list_exposure', 'detail_exposure', 'flow_rate', 'order_filling_num', 'order_submit_num', 'raw_data'], 'label' => '日级经营、订单、流量和服务质量指标', 'collect_from' => '携程/美团业务、流量、订单、广告和服务质量数据采集'],
@@ -671,6 +814,12 @@ class RevenueResearchService
                 'name' => '服务质量与转化缺口识别',
                 'query' => 'hotel OTA service quality PSI traffic conversion service gap revenue impact',
                 'module' => '数据配置 / OTA 服务质量 / 运营管理',
+                'knowledge_module_ids' => [
+                    'traffic_operation_management_golden_sentences',
+                    'ctrip_official_help_semantic_contract',
+                    'meituan_official_rules_semantic_contract',
+                ],
+                'action_platform' => 'ota',
                 'task' => '基于可采集的服务质量分、PSI、流量转化、订单和广告数据，输出影响转化的服务质量风险、人工复核规则和整改闭环模板。',
                 'rules' => [
                     ['table' => 'online_daily_data', 'min_count' => 1, 'fields' => ['data_date', 'amount', 'quantity', 'book_order_num', 'list_exposure', 'detail_exposure', 'flow_rate', 'raw_data'], 'label' => '服务质量、流量转化和订单经营数据', 'collect_from' => '携程/美团服务质量、流量、订单和广告浏览器采集'],
@@ -696,15 +845,41 @@ class RevenueResearchService
         ];
     }
 
-    /** @param array<string, mixed> $context @return array<string, mixed> */
-    private function decisionSafeKnowledgeContext(array $context): array
+    /**
+     * @param array<string, mixed> $context
+     * @param array<string, mixed> $product
+     * @return array<string, mixed>
+     */
+    private function decisionSafeKnowledgeContext(array $context, array $product = []): array
     {
-        $entries = array_values(array_filter(
+        $rawEntries = array_values(array_filter(
             (array)($context['entries'] ?? []),
-            static fn(mixed $entry): bool => is_array($entry)
-                && (($entry['knowledge_gate']['decision_safe'] ?? false) === true)
+            'is_array'
         ));
-        $originalCount = (int)($context['entry_count'] ?? count((array)($context['entries'] ?? [])));
+        $decisionSafeEntries = array_values(array_filter(
+            $rawEntries,
+            static fn(array $entry): bool => (($entry['knowledge_gate']['decision_safe'] ?? false) === true)
+        ));
+        $taskDraftSafeEntries = array_values(array_filter(
+            $decisionSafeEntries,
+            static fn(array $entry): bool => (($entry['knowledge_gate']['task_draft_safe'] ?? false) === true)
+        ));
+        $traceableEntries = array_values(array_filter(
+            $taskDraftSafeEntries,
+            fn(array $entry): bool => $this->isTraceableActionKnowledgeEntry($entry)
+        ));
+        $moduleIds = $this->productKnowledgeModuleIds($product);
+        $entries = $moduleIds === []
+            ? $traceableEntries
+            : array_values(array_filter(
+                $traceableEntries,
+                static fn(array $entry): bool => in_array(
+                    trim((string)($entry['module_id'] ?? '')),
+                    $moduleIds,
+                    true
+                )
+            ));
+        $originalCount = (int)($context['entry_count'] ?? count($rawEntries));
         $dataGapCodes = [];
         foreach ((array)($context['data_gaps'] ?? []) as $gap) {
             if (!is_array($gap)) {
@@ -715,11 +890,29 @@ class RevenueResearchService
                 $dataGapCodes[$code] = $code;
             }
         }
-        if ($entries === []) {
+        foreach ($this->stringList($context['data_gap_codes'] ?? []) as $code) {
+            $dataGapCodes[$code] = $code;
+        }
+        if ($decisionSafeEntries === []) {
             $dataGapCodes['decision_safe_knowledge_missing'] = 'decision_safe_knowledge_missing';
         }
-        if ($originalCount > count($entries)) {
+        if ($originalCount > count($decisionSafeEntries)) {
             $dataGapCodes['knowledge_entries_excluded_by_decision_gate'] = 'knowledge_entries_excluded_by_decision_gate';
+        }
+        if ($decisionSafeEntries !== [] && $taskDraftSafeEntries === []) {
+            $dataGapCodes['task_draft_safe_knowledge_missing'] = 'task_draft_safe_knowledge_missing';
+        }
+        if (count($decisionSafeEntries) > count($taskDraftSafeEntries)) {
+            $dataGapCodes['knowledge_entries_excluded_by_task_draft_gate'] = 'knowledge_entries_excluded_by_task_draft_gate';
+        }
+        if (count($taskDraftSafeEntries) > count($traceableEntries)) {
+            $dataGapCodes['action_knowledge_traceability_missing'] = 'action_knowledge_traceability_missing';
+        }
+        if ($moduleIds !== [] && count($traceableEntries) > count($entries)) {
+            $dataGapCodes['action_knowledge_module_mismatch'] = 'action_knowledge_module_mismatch';
+        }
+        if ($entries === []) {
+            $dataGapCodes['action_knowledge_binding_missing'] = 'action_knowledge_binding_missing';
         }
 
         $blockingCodes = [
@@ -728,6 +921,9 @@ class RevenueResearchService
             'knowledge_expired',
             'knowledge_current_verification_required',
             'decision_safe_knowledge_missing',
+            'task_draft_safe_knowledge_missing',
+            'action_knowledge_traceability_missing',
+            'action_knowledge_binding_missing',
         ];
         $executionReady = $entries !== []
             && array_intersect($blockingCodes, array_values($dataGapCodes)) === [];
@@ -736,12 +932,250 @@ class RevenueResearchService
             'status' => $entries === [] ? 'blocked' : ($executionReady ? 'available' : 'partial'),
             'entries' => $entries,
             'entry_count' => count($entries),
-            'decision_safe_entry_count' => count($entries),
-            'excluded_for_decision_count' => max(0, $originalCount - count($entries)),
+            'decision_safe_entry_count' => count($decisionSafeEntries),
+            'task_draft_safe_entry_count' => count($taskDraftSafeEntries),
+            'traceable_task_draft_entry_count' => count($traceableEntries),
+            'module_matched_entry_count' => count($entries),
+            'required_module_ids' => $moduleIds,
+            'excluded_for_decision_count' => max(0, $originalCount - count($decisionSafeEntries)),
+            'excluded_by_task_draft_gate_count' => max(0, count($decisionSafeEntries) - count($taskDraftSafeEntries)),
+            'excluded_by_traceability_gate_count' => max(0, count($taskDraftSafeEntries) - count($traceableEntries)),
+            'excluded_by_module_gate_count' => max(0, count($traceableEntries) - count($entries)),
             'data_gap_codes' => array_values($dataGapCodes),
             'execution_ready' => $executionReady,
-            'protected_boundary' => 'only current A/B decision-safe knowledge may shape model actions; reference-only, review-due, conflicting and known-unknown knowledge is withheld and surfaced as a gap',
+            'protected_boundary' => 'an action can be drafted only from current decision-safe and task-draft-safe knowledge with valid unit/chunk/source traceability, a server-matched product module and platform coverage; model-declared knowledge references never grant execution eligibility',
         ]);
+    }
+
+    /** @param array<string, mixed> $product @return array<int, string> */
+    private function productKnowledgeModuleIds(array $product): array
+    {
+        return array_values(array_unique(array_filter(array_map(
+            static fn(mixed $value): string => is_scalar($value) ? trim((string)$value) : '',
+            (array)($product['knowledge_module_ids'] ?? [])
+        ))));
+    }
+
+    /** @param array<string, mixed> $entry */
+    private function isTraceableActionKnowledgeEntry(array $entry): bool
+    {
+        return (int)($entry['chunk_id'] ?? 0) > 0
+            && (int)($entry['unit_id'] ?? 0) > 0
+            && $this->knowledgeSourceRefs($entry) !== [];
+    }
+
+    /** @param array<string, mixed> $entry @return array<int, string> */
+    private function knowledgeSourceRefs(array $entry): array
+    {
+        $refs = [];
+        foreach ((array)($entry['source_refs'] ?? []) as $value) {
+            $ref = is_string($value) ? trim($value) : '';
+            if ($ref !== '' && mb_strlen($ref) <= 500 && !str_contains($ref, "\0")) {
+                $refs[$ref] = $ref;
+            }
+        }
+        return array_slice(array_values($refs), 0, 20);
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $recommendations
+     * @param array<string, mixed> $product
+     * @param array<string, mixed> $knowledgeContext
+     * @return array<int, array<string, mixed>>
+     */
+    private function applyActionKnowledgeBindings(
+        array $recommendations,
+        array $product,
+        array $knowledgeContext,
+        string $forcedPlatform = ''
+    ): array {
+        $knowledgeContext = $this->decisionSafeKnowledgeContext($knowledgeContext, $product);
+        $bound = [];
+        foreach ($recommendations as $recommendation) {
+            if (!is_array($recommendation)) {
+                continue;
+            }
+            unset($recommendation['knowledge_refs'], $recommendation['recommendation_knowledge_binding']);
+            $actionPlatform = $this->recommendationActionPlatform($recommendation, $product, $forcedPlatform);
+            $binding = $this->actionKnowledgeBinding($product, $knowledgeContext, $actionPlatform);
+            if ($binding === null) {
+                $bound[] = $this->tightenRecommendationForMissingKnowledge($recommendation, $product, $actionPlatform);
+                continue;
+            }
+            $recommendation['recommendation_knowledge_binding'] = $binding;
+            $recommendation['knowledge_refs'] = $binding['canonical_refs'];
+            $bound[] = $recommendation;
+        }
+        return $bound;
+    }
+
+    /**
+     * @param array<string, mixed> $product
+     * @param array<string, mixed> $knowledgeContext
+     * @return array<string, mixed>|null
+     */
+    private function actionKnowledgeBinding(array $product, array $knowledgeContext, string $actionPlatform): ?array
+    {
+        $moduleIds = $this->productKnowledgeModuleIds($product);
+        if ($moduleIds === []) {
+            return null;
+        }
+        $moduleRank = array_flip($moduleIds);
+        $candidates = [];
+        foreach ((array)($knowledgeContext['entries'] ?? []) as $entry) {
+            if (!is_array($entry)
+                || (($entry['knowledge_gate']['decision_safe'] ?? false) !== true)
+                || (($entry['knowledge_gate']['task_draft_safe'] ?? false) !== true)
+                || !$this->isTraceableActionKnowledgeEntry($entry)) {
+                continue;
+            }
+            $moduleId = trim((string)($entry['module_id'] ?? ''));
+            if (!isset($moduleRank[$moduleId])) {
+                continue;
+            }
+            $platforms = $this->normalizeKnowledgePlatforms($entry['platforms'] ?? []);
+            if (!$this->knowledgePlatformsCoverAction($platforms, $actionPlatform)) {
+                continue;
+            }
+            $candidates[] = [
+                'entry' => $entry,
+                'module_rank' => (int)$moduleRank[$moduleId],
+                'platform_rank' => in_array($actionPlatform, $platforms, true) ? 0 : 1,
+            ];
+        }
+        usort($candidates, static function (array $left, array $right): int {
+            return [$left['platform_rank'], $left['module_rank'], (int)($left['entry']['chunk_id'] ?? 0)]
+                <=> [$right['platform_rank'], $right['module_rank'], (int)($right['entry']['chunk_id'] ?? 0)];
+        });
+        if ($candidates === []) {
+            return null;
+        }
+
+        $entry = $candidates[0]['entry'];
+        $chunkId = (int)$entry['chunk_id'];
+        $unitId = (int)$entry['unit_id'];
+        $binding = [
+            'status' => 'bound',
+            'product_key' => trim((string)($product['key'] ?? '')),
+            'action_platform' => $actionPlatform,
+            'module_id' => trim((string)($entry['module_id'] ?? '')),
+            'chunk_id' => $chunkId,
+            'unit_id' => $unitId,
+            'canonical_refs' => [
+                'knowledge_chunks#' . $chunkId,
+                'knowledge_units#' . $unitId,
+            ],
+            'source_refs' => $this->knowledgeSourceRefs($entry),
+            'gate' => [
+                'decision_safe' => true,
+                'task_draft_safe' => true,
+            ],
+        ];
+        $binding['binding_digest'] = hash('sha256', json_encode($binding, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?: '');
+        return $binding;
+    }
+
+    /**
+     * @param array<string, mixed> $recommendation
+     * @param array<string, mixed> $product
+     * @return array<string, mixed>
+     */
+    private function tightenRecommendationForMissingKnowledge(
+        array $recommendation,
+        array $product,
+        string $actionPlatform
+    ): array {
+        $recommendation['recommendation_knowledge_binding'] = [
+            'status' => 'blocked',
+            'reason_code' => 'action_knowledge_binding_missing',
+            'product_key' => trim((string)($product['key'] ?? '')),
+            'action_platform' => $actionPlatform,
+            'required_module_ids' => $this->productKnowledgeModuleIds($product),
+            'canonical_refs' => [],
+        ];
+        $recommendation['knowledge_refs'] = [];
+        $recommendation['can_create_execution_intent'] = false;
+        $quality = is_array($recommendation['decision_quality'] ?? null)
+            ? $recommendation['decision_quality']
+            : [];
+        $quality['contract_version'] = (string)($quality['contract_version'] ?? AiDecisionQualityService::CONTRACT_VERSION);
+        $quality['execution_ready'] = false;
+        if (($quality['status'] ?? '') !== 'incomplete') {
+            $quality['status'] = 'requires_evidence_confirmation';
+        }
+        $missingFields = $this->stringList($quality['missing_fields'] ?? []);
+        $missingFields[] = 'knowledge_binding';
+        $quality['missing_fields'] = array_values(array_unique($missingFields));
+        $recommendation['decision_quality'] = $quality;
+        $knowledgeReason = 'action-specific current knowledge binding is missing or does not cover the product module and action platform';
+        $existingReason = trim((string)($recommendation['blocked_reason'] ?? ''));
+        $recommendation['blocked_reason'] = $existingReason === ''
+            ? $knowledgeReason
+            : ($existingReason . '; ' . $knowledgeReason);
+        return $recommendation;
+    }
+
+    /** @param array<string, mixed> $recommendation @param array<string, mixed> $product */
+    private function recommendationActionPlatform(array $recommendation, array $product, string $forcedPlatform = ''): string
+    {
+        $forced = $this->normalizeActionPlatform($forcedPlatform);
+        if ($forced !== '') {
+            return $forced;
+        }
+        if (trim($forcedPlatform) !== '') {
+            return 'unsupported';
+        }
+        $action = trim((string)($recommendation['action'] ?? $recommendation['detail'] ?? $recommendation['title'] ?? ''));
+        $mentionsCtrip = preg_match('/携程|ctrip/i', $action) === 1;
+        $mentionsMeituan = preg_match('/美团|meituan/i', $action) === 1;
+        if ($mentionsCtrip xor $mentionsMeituan) {
+            return $mentionsCtrip ? 'ctrip' : 'meituan';
+        }
+        return $this->normalizeActionPlatform((string)($product['action_platform'] ?? 'ota')) ?: 'ota';
+    }
+
+    private function normalizeActionPlatform(string $platform): string
+    {
+        $platform = mb_strtolower(trim($platform));
+        return match ($platform) {
+            '携程', 'trip.com' => 'ctrip',
+            '美团' => 'meituan',
+            'ota_generic', 'all_ota' => 'ota',
+            'ota', 'ctrip', 'meituan' => $platform,
+            default => '',
+        };
+    }
+
+    /** @return array<int, string> */
+    private function normalizeKnowledgePlatforms(mixed $platforms): array
+    {
+        $normalized = [];
+        foreach ((array)$platforms as $platform) {
+            $value = is_string($platform) ? mb_strtolower(trim($platform)) : '';
+            $value = match ($value) {
+                '携程', 'trip.com' => 'ctrip',
+                '美团' => 'meituan',
+                default => $value,
+            };
+            if ($value !== '') {
+                $normalized[$value] = $value;
+            }
+        }
+        return array_values($normalized);
+    }
+
+    /** @param array<int, string> $platforms */
+    private function knowledgePlatformsCoverAction(array $platforms, string $actionPlatform): bool
+    {
+        $generic = ['ota', 'ota_generic', 'all_ota'];
+        if ($actionPlatform === 'ota') {
+            return array_intersect($generic, $platforms) !== [];
+        }
+        if (in_array($actionPlatform, ['ctrip', 'meituan'], true)) {
+            return in_array($actionPlatform, $platforms, true)
+                || array_intersect($generic, $platforms) !== [];
+        }
+        return false;
     }
 
     /**
@@ -2279,7 +2713,7 @@ class RevenueResearchService
         array $knowledgeContext = []
     ): string
     {
-        $knowledgeContext = $this->decisionSafeKnowledgeContext($knowledgeContext);
+        $knowledgeContext = $this->decisionSafeKnowledgeContext($knowledgeContext, $product);
         $sourceRule = $requiresWebSources
             ? '引用来源必须来自联网检索，并返回可点击来源。'
             : '当前默认使用 DeepSeek 配置模型，不要求联网引用；不得编造网页来源或假链接。';
@@ -2341,7 +2775,8 @@ class RevenueResearchService
         array $gaps,
         array $businessForecast,
         array $localSources = [],
-        int $hotelId = 0
+        int $hotelId = 0,
+        array $knowledgeContext = []
     ): array
     {
         $forecast7 = (array)($businessForecast['forecast_7d'] ?? []);
@@ -2412,6 +2847,11 @@ class RevenueResearchService
         $decisionRecommendations = (new AiDecisionQualityService())->enrichRecommendations(
             $recommendedActions,
             $qualityContext
+        );
+        $decisionRecommendations = $this->applyActionKnowledgeBindings(
+            $decisionRecommendations,
+            $product,
+            $knowledgeContext
         );
 
         return [

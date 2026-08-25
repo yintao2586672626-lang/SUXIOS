@@ -613,6 +613,26 @@ class OperationManagement extends Base
         }
     }
 
+    public function cancelExecutionIntent(int $id): Response
+    {
+        try {
+            if ($id <= 0) {
+                return $this->error('execution intent id is invalid', 422);
+            }
+            $input = $this->requestData();
+            $reason = trim((string)($input['reason'] ?? $input['remark'] ?? ''));
+            [$hotelIds] = $this->resolveHotelScope(0, 'operation.execute');
+            return $this->success($this->service->cancelExecutionIntent(
+                $id,
+                $reason,
+                (int)($this->currentUser->id ?? 0),
+                $hotelIds
+            ));
+        } catch (Throwable $e) {
+            return $this->error($this->safeErrorMessage($e, 'operation action cancellation failed'), $this->operationThrowableStatus($e));
+        }
+    }
+
     public function executeExecutionTask(int $id): Response
     {
         try {

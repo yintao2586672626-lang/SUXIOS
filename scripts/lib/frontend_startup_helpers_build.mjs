@@ -16,13 +16,17 @@ export const FRONTEND_DEFERRED_HELPER_ARTIFACT = 'app-deferred-helpers.min.js';
 export const FRONTEND_STARTUP_HELPER_SOURCES = Object.freeze([
   'shared-components.js',
   'ctrip-static.js',
-  'meituan-static.js',
   'system-static.js',
   'compass-static.js',
   'home-static.js',
   'dual-ota-home-static.js',
+  'components/system/dual-ota-field-closure-loader.js',
+  'components/system/app-main-components-loader.js',
+  'components/system/operating-intelligence-loader.js',
 ]);
 export const FRONTEND_DEFERRED_HELPER_SOURCES = Object.freeze([
+  'meituan-static.js',
+  'review-match-static.js',
   'data-health-static.js',
   'components/meituan-future-flow.js',
 ]);

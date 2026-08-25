@@ -403,14 +403,14 @@
 
                                 <div v-if="agentTab === 'revenue'">
                                     <div class="flex flex-wrap gap-2 mb-5">
+                                        <button @click="revenueAgentTab = 'analysis'; loadRevenueCockpit({ reloadScope: true })" :class="['px-4 py-2 rounded-lg font-medium transition', revenueAgentTab==='analysis' ? 'bg-green-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200']">
+                                            <i class="fas fa-tachometer-alt mr-2"></i>经营驾驶舱
+                                        </button>
                                         <button @click="revenueAgentTab = 'config'" :class="['px-4 py-2 rounded-lg font-medium transition', revenueAgentTab==='config' ? 'bg-green-500 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200']">
                                             <i class="fas fa-cog mr-2"></i>配置
                                         </button>
                                         <button @click="revenueAgentTab = 'suggestions'; loadPriceSuggestionWorkbench()" :class="['px-4 py-2 rounded-lg font-medium transition', revenueAgentTab==='suggestions' ? 'bg-green-500 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200']">
                                             <i class="fas fa-calendar-alt mr-2"></i>远期定价台账
-                                        </button>
-                                        <button @click="revenueAgentTab = 'analysis'; loadRevenueAnalysisBundle()" :class="['px-4 py-2 rounded-lg font-medium transition', revenueAgentTab==='analysis' ? 'bg-green-500 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200']">
-                                            <i class="fas fa-chart-bar mr-2"></i>收益分析
                                         </button>
                                     </div>
 
@@ -802,7 +802,141 @@
                                         </div>
                                     </div>
 
-                                    <div v-if="revenueAgentTab === 'analysis'" class="space-y-5">
+                                    <div v-if="revenueAgentTab === 'analysis'" class="space-y-5" data-testid="revenue-daily-cockpit" data-contract="pending_approval">
+                                        <section class="overflow-hidden rounded-2xl border text-white shadow-sm" style="border-color:#243d36;background:#102821" data-testid="revenue-cockpit-hero">
+                                            <div class="border-b px-5 py-5 lg:px-6" style="border-color:rgba(255,255,255,.1)">
+                                                <div class="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+                                                    <div class="max-w-3xl">
+                                                        <div class="flex flex-wrap items-center gap-2">
+                                                            <span class="rounded-full border px-2.5 py-1 text-[11px] font-semibold tracking-wide" style="border-color:rgba(215,181,109,.4);background:rgba(215,181,109,.1);color:#f0d99f">DAILY REVENUE COCKPIT</span>
+                                                            <span :class="['rounded-full border px-2.5 py-1 text-[11px] font-semibold', revenueCockpitModel.statusClass]">{{ revenueCockpitModel.statusLabel }}</span>
+                                                        </div>
+                                                        <h2 class="mt-3 text-xl font-bold tracking-tight lg:text-2xl">{{ revenueCockpitModel.headline }}</h2>
+                                                        <p class="mt-2 text-sm leading-6" style="color:rgba(236,253,245,.8)">{{ revenueCockpitModel.summary }}</p>
+                                                        <div class="mt-3 rounded-lg border px-3 py-2 text-sm leading-6" style="border-color:rgba(215,181,109,.25);background:rgba(0,0,0,.1);color:#f5e7c5" data-testid="revenue-cockpit-date-difference">
+                                                            <i class="fas fa-calendar-check mr-2"></i>{{ revenueCockpitModel.dateNotice || '正在确定最近严格可用日期…' }}
+                                                        </div>
+                                                        <p class="mt-3 text-xs leading-5" style="color:rgba(236,253,245,.65)">{{ revenueCockpitModel.scopeBoundary }}</p>
+                                                        <revenue-cockpit-snapshot-status
+                                                            :snapshot="revenueCockpitDecisionSnapshot"
+                                                            :status="revenueCockpitSnapshotReadbackStatus"
+                                                            :error="revenueCockpitSnapshotError"
+                                                        ></revenue-cockpit-snapshot-status>
+                                                    </div>
+                                                    <div class="flex flex-wrap gap-2">
+                                                        <button type="button" @click="loadRevenueCockpit({ reloadScope: true, ignoreSavedSnapshot: true })" :disabled="revenueCockpitLoading" class="rounded-lg border px-3.5 py-2 text-sm font-medium text-white hover:opacity-90 disabled:cursor-wait disabled:opacity-50" style="border-color:rgba(255,255,255,.2);background:rgba(255,255,255,.1)" data-testid="revenue-cockpit-refresh">
+                                                            <i :class="revenueCockpitLoading ? 'fas fa-spinner fa-spin' : 'fas fa-sync-alt'" class="mr-2"></i>{{ revenueCockpitLoading ? '读取中…' : '刷新事实' }}
+                                                        </button>
+                                                        <button type="button" @click="saveRevenueCockpitDecisionSnapshot" :disabled="revenueCockpitSnapshotSaving || !revenueCockpitModel.canSaveSnapshot" class="rounded-lg border px-3.5 py-2 text-sm font-medium hover:opacity-90 disabled:opacity-40" style="border-color:rgba(167,243,208,.35);background:rgba(16,185,129,.12);color:#d1fae5" data-testid="revenue-cockpit-save-snapshot">
+                                                            <i :class="revenueCockpitSnapshotSaving ? 'fas fa-spinner fa-spin' : 'fas fa-save'" class="mr-2"></i>{{ revenueCockpitSnapshotSaving ? '保存并回读中…' : '保存决策快照' }}
+                                                        </button>
+                                                        <button type="button" @click="downloadRevenueCockpit" :disabled="!revenueCockpitModel.visibleSections?.length" class="rounded-lg border px-3.5 py-2 text-sm font-medium hover:opacity-90 disabled:opacity-40" style="border-color:rgba(215,181,109,.45);background:rgba(215,181,109,.15);color:#f7e6bd" data-testid="revenue-cockpit-download">
+                                                            <i class="fas fa-download mr-2"></i>按当前页面下载
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            <div class="grid grid-cols-1 gap-3 px-5 py-4 md:grid-cols-3 lg:px-6" style="background:#0b211b" data-testid="revenue-cockpit-context">
+                                                <label class="block">
+                                                    <span class="mb-1.5 block text-xs font-medium" style="color:rgba(236,253,245,.65)">酒店</span>
+                                                    <select v-model="filterReportHotel" :disabled="revenueCockpitLoading" class="w-full rounded-lg border px-3 py-2 text-sm text-white outline-none focus:border-amber-300 disabled:opacity-50" style="border-color:rgba(255,255,255,.15);background:rgba(255,255,255,.1)" data-testid="revenue-cockpit-hotel">
+                                                        <option value="" class="text-slate-900">请选择酒店</option>
+                                                        <option v-for="item in otaDiagnosisHotelOptions" :key="`cockpit-hotel-${item.value}`" :value="item.value" class="text-slate-900">{{ item.name }}</option>
+                                                    </select>
+                                                </label>
+                                                <label class="block">
+                                                    <span class="mb-1.5 block text-xs font-medium" style="color:rgba(236,253,245,.65)">平台范围</span>
+                                                    <select v-model="revenueCockpitPlatform" @change="handleRevenueCockpitPlatformChange" :disabled="revenueCockpitLoading || !revenueCockpitScope.platformOptions.length" class="w-full rounded-lg border px-3 py-2 text-sm text-white outline-none focus:border-amber-300 disabled:opacity-50" style="border-color:rgba(255,255,255,.15);background:rgba(255,255,255,.1)" data-testid="revenue-cockpit-platform">
+                                                        <option v-if="!revenueCockpitScope.platformOptions.length" value="" class="text-slate-900">无严格可用平台</option>
+                                                        <option v-for="item in revenueCockpitScope.platformOptions" :key="`cockpit-platform-${item.value}`" :value="item.value" class="text-slate-900">{{ item.label }} · {{ item.availableDateCount }} 天</option>
+                                                    </select>
+                                                </label>
+                                                <label class="block">
+                                                    <span class="mb-1.5 block text-xs font-medium" style="color:rgba(236,253,245,.65)">业务日期</span>
+                                                    <select v-model="revenueCockpitBusinessDate" @change="loadRevenueCockpit()" :disabled="revenueCockpitLoading || !revenueCockpitScope.dateOptions.length" class="w-full rounded-lg border px-3 py-2 text-sm text-white outline-none focus:border-amber-300 disabled:opacity-50" style="border-color:rgba(255,255,255,.15);background:rgba(255,255,255,.1)" data-testid="revenue-cockpit-business-date">
+                                                        <option v-if="!revenueCockpitScope.dateOptions.length" value="" class="text-slate-900">无严格可用日期</option>
+                                                        <option v-for="item in revenueCockpitScope.dateOptions" :key="`cockpit-date-${item.value}`" :value="item.value" class="text-slate-900">{{ item.label }}</option>
+                                                    </select>
+                                                </label>
+                                            </div>
+                                        </section>
+
+                                        <dual-ota-field-closure-panel
+                                            :closure="revenueCockpitOverview?.dual_ota_field_closure || null"
+                                            :request="managerCapabilityRequest"
+                                            :hotel-id="filterReportHotel"
+                                            :business-date="revenueCockpitBusinessDate || coreOperationsTargetDate || coreOperationsMaxDate"
+                                            :force-read="true"
+                                            surface="revenue_cockpit"
+                                        ></dual-ota-field-closure-panel>
+
+                                        <revenue-cockpit-action-restore-status
+                                            :intent="revenueCockpitPendingApproval"
+                                            :status="revenueCockpitPendingApprovalReadbackStatus"
+                                            :error="revenueCockpitPendingApprovalError"
+                                            @open="openRevenueCockpitPendingApproval"
+                                        ></revenue-cockpit-action-restore-status>
+
+                                        <div v-if="revenueCockpitModel.status === 'loading'" class="rounded-xl border border-slate-200 bg-white px-5 py-12 text-center text-sm text-slate-500" data-testid="revenue-cockpit-loading">
+                                            <i class="fas fa-spinner fa-spin mr-2 text-emerald-700"></i>正在读取严格日期、当前事实和上一同口径日期…
+                                        </div>
+                                        <div v-else-if="revenueCockpitModel.status === 'failed'" class="rounded-xl border border-rose-200 bg-rose-50 px-5 py-5 text-sm text-rose-800" data-testid="revenue-cockpit-error">
+                                            <div class="font-semibold">加载失败，旧页面数字不会作为回退值</div>
+                                            <div class="mt-1 leading-6">{{ revenueCockpitModel.summary }}</div>
+                                            <button type="button" @click="loadRevenueCockpit({ reloadScope: true })" class="mt-3 rounded-lg border border-rose-200 bg-white px-3 py-2 text-sm font-medium text-rose-700">重新读取</button>
+                                        </div>
+                                        <div v-else-if="revenueCockpitModel.status === 'empty'" class="rounded-xl border border-dashed border-amber-300 bg-amber-50 px-5 py-8 text-center text-sm text-amber-900" data-testid="revenue-cockpit-empty">
+                                            <div class="font-semibold">没有严格可用经营事实</div>
+                                            <div class="mt-2 leading-6">{{ revenueCockpitModel.summary }}</div>
+                                            <div class="mt-2 text-xs text-amber-700">空数据、采集失败或未验证记录不会显示为 0，也不会自动启动采集。</div>
+                                        </div>
+
+                                        <template v-else>
+                                            <section v-for="section in revenueCockpitModel.visibleSections" :key="section.key" :data-testid="`revenue-cockpit-section-${section.key}`" class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm lg:p-5">
+                                                <div class="mb-4 flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+                                                    <div>
+                                                        <h3 class="font-semibold text-slate-900">{{ section.title }}</h3>
+                                                        <p class="mt-1 text-xs leading-5 text-slate-500">{{ section.subtitle }}</p>
+                                                    </div>
+                                                    <span class="text-xs text-slate-400">{{ section.cards.length }} 张当前可见卡片</span>
+                                                </div>
+                                                <div class="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
+                                                    <article v-for="card in section.cards" :key="card.key" class="flex h-full flex-col rounded-xl border border-slate-200 bg-slate-50/60 p-3.5" :data-cockpit-card-key="card.key">
+                                                        <div class="flex items-start justify-between gap-2">
+                                                            <div class="min-w-0 text-sm font-semibold text-slate-800">{{ card.label }}</div>
+                                                            <span :class="['shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-medium', card.statusClass]">{{ card.statusLabel }}</span>
+                                                        </div>
+                                                        <div :class="['mt-3 text-slate-950', ['metric', 'comparison', 'source'].includes(card.kind) ? 'text-2xl font-bold tracking-tight' : 'text-sm font-semibold leading-6']" data-testid="revenue-cockpit-card-display">{{ card.display }}</div>
+                                                        <div class="mt-3 grid grid-cols-1 gap-1 text-[11px] leading-5 text-slate-500">
+                                                            <div><span class="font-medium text-slate-600">来源：</span>{{ card.sourceLabel }}</div>
+                                                            <div><span class="font-medium text-slate-600">日期：</span>{{ card.businessDate || revenueCockpitModel.businessDate || '待确认' }}</div>
+                                                            <div><span class="font-medium text-slate-600">口径：</span>{{ card.scopeLabel }}<span v-if="card.unitLabel"> · {{ card.unitLabel }}</span></div>
+                                                        </div>
+                                                        <p v-if="card.reasonText" class="mt-2 text-xs leading-5 text-slate-600">{{ card.reasonText }}</p>
+                                                        <revenue-cockpit-opportunity-details
+                                                            v-if="card.kind === 'opportunity'"
+                                                            :card="card"
+                                                            :intent="revenueCockpitOpportunityApprovals[card.opportunityKey] || null"
+                                                            :loading-key="revenueCockpitOpportunityApprovalLoadingKey"
+                                                            :snapshot-saving="revenueCockpitSnapshotSaving"
+                                                            :readback-blocked="revenueCockpitPendingApprovalReadbackStatus === 'error'"
+                                                            @create="createRevenueCockpitOpportunityPendingApproval"
+                                                            @open="openRevenueCockpitPendingApproval"
+                                                        ></revenue-cockpit-opportunity-details>
+                                                        <details class="mt-auto pt-3" data-testid="revenue-cockpit-evidence">
+                                                            <summary class="cursor-pointer select-none text-xs font-medium text-emerald-700">为什么这样显示</summary>
+                                                            <ul class="mt-2 space-y-1 rounded-lg border border-emerald-100 bg-emerald-50/70 px-3 py-2 text-[11px] leading-5 text-emerald-950/80">
+                                                                <li v-for="(line, index) in card.evidenceLines" :key="`${card.key}-evidence-${index}`">{{ line }}</li>
+                                                            </ul>
+                                                        </details>
+                                                    </article>
+                                                </div>
+                                            </section>
+
+                                        </template>
+                                    </div>
+
+                                    <div v-if="false &amp;&amp; revenueAgentTab === 'analysis'" class="space-y-5" aria-hidden="true">
                                         <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
                                             <div>
                                                 <h3 class="font-semibold text-gray-900">收益分析看板</h3>

@@ -168,6 +168,16 @@ final class ControllerRouteContractTest extends TestCase
             $source,
             'Ctrip review matching must expose manual bind route'
         );
+        self::assertStringContainsString(
+            "Route::post('/ctrip-review-matches/reject', 'ota.CtripController/rejectCtripReviewOrderMatch')",
+            $source,
+            'Ctrip review matching must expose manual reject route'
+        );
+        self::assertStringContainsString(
+            "Route::post('/ctrip-review-matches/unbind', 'ota.CtripController/unbindCtripReviewOrderMatch')",
+            $source,
+            'Ctrip review matching must expose manual unbind route'
+        );
     }
 
     public function testMeituanReviewOrderMatchRoutes(): void
@@ -190,6 +200,16 @@ final class ControllerRouteContractTest extends TestCase
             'Meituan review matching must expose lookup route'
         );
         self::assertStringContainsString(
+            "Route::post('/meituan-review-matches/run', 'ota.MeituanController/runMeituanReviewOrderMatchAutomation')",
+            $source,
+            'Meituan review matching must expose the safe batch scoring route'
+        );
+        self::assertStringContainsString(
+            "Route::post('/meituan-review-matches/closure', 'ota.MeituanController/checkMeituanReviewOrderMatchClosure')",
+            $source,
+            'Meituan review matching must expose persisted closure readback'
+        );
+        self::assertStringContainsString(
             "Route::post('/meituan-review-matches/bind', 'ota.MeituanController/bindMeituanReviewOrderMatch')",
             $source,
             'Meituan review matching must expose manual bind route'
@@ -198,6 +218,11 @@ final class ControllerRouteContractTest extends TestCase
             "Route::post('/meituan-review-matches/unbind', 'ota.MeituanController/unbindMeituanReviewOrderMatch')",
             $source,
             'Meituan review matching must expose manual unbind route'
+        );
+        self::assertStringContainsString(
+            "Route::post('/meituan-review-matches/reject', 'ota.MeituanController/rejectMeituanReviewOrderMatch')",
+            $source,
+            'Meituan review matching must expose manual reject route'
         );
         self::assertStringContainsString(
             "Route::post('/meituan-orders/phone-state', 'ota.MeituanController/meituanOrderPhoneState')",
@@ -220,12 +245,22 @@ final class ControllerRouteContractTest extends TestCase
             $source,
             'Scheduled execution readback must use the scoped operation service'
         );
+        self::assertStringContainsString(
+            '$this->service->cancelExecutionIntent(',
+            $source,
+            'Managed action cancellation must use the scoped operation service'
+        );
 
         $routes = $this->sourceWithoutPhpComments(__DIR__ . '/../route/app.php');
         self::assertStringContainsString(
             "Route::post('/execution-tasks/:id/reconcile-review', 'OperationManagement/reconcileExecutionTaskReview')",
             $routes,
             'Scheduled execution readback must expose an authenticated operation route'
+        );
+        self::assertStringContainsString(
+            "Route::post('/execution-intents/:id/cancel', 'OperationManagement/cancelExecutionIntent')",
+            $routes,
+            'Managed action cancellation must expose an authenticated operation route'
         );
     }
 

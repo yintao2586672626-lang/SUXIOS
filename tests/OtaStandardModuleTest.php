@@ -406,7 +406,8 @@ final class OtaStandardModuleTest extends TestCase
                     'submit_rate' => 100.0,
                     'raw_data' => [
                         'capture_evidence' => [
-                            'capture_source' => 'dom:traffic:flow_funnel',
+                            'capture_source' => 'dom:traffic:home_summary',
+                            'source_path' => 'dom.traffic.home_summary',
                         ],
                     ],
                     'source_trace' => $trace(81824, 'meituan-dom-81824'),
@@ -485,6 +486,63 @@ final class OtaStandardModuleTest extends TestCase
                 'traffic',
                 'list_exposure'
             )['value']
+        );
+    }
+
+    public function testMeituanExposureToBrowseRateIsVerifiedFromExactStoredCounts(): void
+    {
+        $dataset = (new OtaStandardEtlService())->buildDatasetFromRows([[
+            'id' => 101917,
+            'system_hotel_id' => 80,
+            'hotel_id' => 'meituan-hotel-fixture',
+            'hotel_name' => 'Hotel Meituan Traffic Fixture',
+            'source' => 'meituan',
+            'data_type' => 'traffic',
+            'data_date' => '2026-08-23',
+            'data_period' => 'realtime_snapshot',
+            'list_exposure' => 1083,
+            'detail_exposure' => 206,
+            'flow_rate' => 3.88,
+            'source_trace_id' => 'meituan-traffic-fixture',
+            'data_source_id' => 101,
+            'sync_task_id' => 4352,
+            'ingestion_method' => 'browser_profile',
+            'readback_verified' => 1,
+            'collected_at' => '2026-08-24 00:10:00',
+            'raw_data' => json_encode([
+                'row' => [
+                    '_capture_source' => 'xhr:traffic:traffic',
+                    '_source_path' => 'data.myHotel',
+                    'exposure_to_browse_rate' => 19.02,
+                ],
+            ], JSON_UNESCAPED_UNICODE),
+        ]]);
+
+        $traffic = $dataset['fact_ota_traffic'][0];
+        self::assertSame(19.02, $traffic['flow_rate']);
+        self::assertSame(3.88, $traffic['stored_flow_rate']);
+        self::assertSame(
+            'calculated_detail_exposure_over_list_exposure',
+            $traffic['flow_rate_basis']
+        );
+        self::assertSame(
+            'verified_calculation',
+            $traffic['flow_rate_validation_status']
+        );
+        self::assertContains(
+            'verified_against_platform_exposure_to_browse_rate',
+            $traffic['flow_rate_quality_flags']
+        );
+        self::assertContains(
+            'legacy_stored_flow_rate_semantic_mismatch',
+            $traffic['flow_rate_quality_flags']
+        );
+
+        $metrics = (new OtaRevenueMetricService())->summarizeDataset($dataset);
+        self::assertSame(19.02, $metrics['traffic']['avg_flow_rate']);
+        self::assertSame(
+            [101917],
+            $metrics['metric_trust']['traffic.avg_flow_rate']['source']['row_ids']
         );
     }
 

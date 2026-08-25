@@ -457,6 +457,11 @@ function proxyToBackend(request, response, worker, backendPool, retriesRemaining
   }, (upstreamResponse) => {
     upstreamResponse.once('end', releaseWorkerRequest);
     upstreamResponse.once('close', releaseWorkerRequest);
+    upstreamResponse.once('error', () => {
+      releaseWorkerRequest();
+      backendPool.markUnhealthy(worker);
+      if (!response.destroyed) response.destroy();
+    });
     const responseHeaders = copyProxyHeaders(upstreamResponse.headers);
     responseHeaders['X-SUXIOS-Backend-Pool-Size'] = String(backendPool.size);
     response.writeHead(
@@ -471,7 +476,7 @@ function proxyToBackend(request, response, worker, backendPool, retriesRemaining
     releaseWorkerRequest();
     backendPool.markUnhealthy(worker);
     if (response.headersSent) {
-      response.destroy(error);
+      response.destroy();
       return;
     }
     if (retryableRead && retriesRemaining > 0 && !request.aborted && !response.destroyed) {

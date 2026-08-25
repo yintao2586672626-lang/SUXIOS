@@ -32,9 +32,13 @@ export const FRONTEND_ENTRY_MINIFY_OPTIONS = Object.freeze({
 });
 
 export async function buildFrontendEntry(source) {
+  const options = structuredClone(FRONTEND_ENTRY_MINIFY_OPTIONS);
+  options.toplevel = true;
+  options.compress.toplevel = true;
+  options.mangle.toplevel = true;
   const result = await minify(
     { 'app-main.js': String(source || '') },
-    structuredClone(FRONTEND_ENTRY_MINIFY_OPTIONS)
+    options
   );
   if (!result.code) throw new Error('Terser returned an empty frontend entry artifact.');
   return `${result.code}\n`;
@@ -85,8 +89,11 @@ export async function inspectFrontendEntryBuild({ source, artifact, html }) {
   )?.phase;
   if (phaseFor('app-startup-render.min.js') !== AUTHENTICATED_ASSET_PHASE_STARTUP
     || phaseFor('app-main.min.js') !== AUTHENTICATED_ASSET_PHASE_STARTUP
+    || phaseFor('app-deferred-helpers.min.js') !== AUTHENTICATED_ASSET_PHASE_AFTER_FIRST_PAINT
+    || phaseFor('components/system/app-main-components.js') !== AUTHENTICATED_ASSET_PHASE_AFTER_FIRST_PAINT
+    || phaseFor('components/system/operating-intelligence-components.js') !== AUTHENTICATED_ASSET_PHASE_AFTER_FIRST_PAINT
     || phaseFor('app-render.min.js') !== AUTHENTICATED_ASSET_PHASE_AFTER_FIRST_PAINT) {
-    failures.push('The app entry must use the home startup render before deferring the full render until after first paint.');
+    failures.push('The app entry must keep only the compact home bridge at startup and defer full-page helpers, components, and render code.');
   }
   try {
     new Function(artifact);

@@ -124,6 +124,25 @@ final class OtaLocalCollectorServiceTest extends TestCase
         }
     }
 
+    public function testDevicePermissionResolutionFailsClosedWhenPermissionTableIsUnavailable(): void
+    {
+        Db::execute('DROP TABLE user_hotel_permissions');
+
+        try {
+            $service = new OtaLocalCollectorService();
+            $method = new \ReflectionMethod($service, 'devicePermittedHotelIds');
+            $permitted = $method->invoke($service, [
+                'id' => 900,
+                'tenant_id' => 12,
+                'user_id' => 7,
+            ]);
+
+            self::assertSame([], $permitted);
+        } finally {
+            Db::execute('CREATE TABLE user_hotel_permissions (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER NOT NULL, user_id INTEGER NOT NULL, hotel_id INTEGER NOT NULL, status TEXT NOT NULL, can_view INTEGER, expires_at TEXT)');
+        }
+    }
+
     public function testSensitiveCamelCaseCollectorKeysAreRejectedBeforePersistence(): void
     {
         $service = new OtaLocalCollectorService();
@@ -157,6 +176,32 @@ final class OtaLocalCollectorServiceTest extends TestCase
             'session_status' => 'current_session_verified',
             'profile_key_hash' => str_repeat('a', 64),
         ]);
+        self::addToAssertionCount(1);
+    }
+
+    public function testSensitiveTextEncodingsAreRejectedBeforePersistence(): void
+    {
+        $service = new OtaLocalCollectorService();
+        $method = new \ReflectionMethod(OtaLocalCollectorService::class, 'assertNoSensitiveMaterial');
+        $method->setAccessible(true);
+
+        foreach ([
+            '{\"cookie\":\"fixture-secret\"}',
+            'https://fixture-user:fixture-password@example.invalid/path',
+            '{\"\\u0063\\u006f\\u006f\\u006b\\u0069\\u0065\":\"fixture-secret\"}',
+        ] as $text) {
+            $rejected = false;
+            try {
+                $method->invoke($service, ['message' => $text]);
+            } catch (RuntimeException $exception) {
+                $rejected = true;
+                self::assertSame(422, $exception->getCode());
+                self::assertStringNotContainsString('fixture-secret', $exception->getMessage());
+            }
+            self::assertTrue($rejected, "Expected sensitive text to be rejected: {$text}");
+        }
+
+        $method->invoke($service, ['message' => '美团酒店身份校验通过，共采集 12 行。']);
         self::addToAssertionCount(1);
     }
 

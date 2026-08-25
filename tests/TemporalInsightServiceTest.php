@@ -45,6 +45,57 @@ final class TemporalInsightServiceTest extends TestCase
         }
     }
 
+    public function testFocusedDailyPlanContainsOnlyT1OtaRoomNightsAndReusesDeclaredAlgorithm(): void
+    {
+        $series = [];
+        $start = new \DateTimeImmutable('2026-08-09');
+        for ($day = 0; $day < 14; $day++) {
+            $series[] = [
+                'date' => $start->modify("+{$day} days")->format('Y-m-d'),
+                'ota_revenue' => 1000 + $day * 10,
+                'ota_orders' => 10 + $day,
+                'ota_room_nights' => 14 + ($day % 3),
+            ];
+        }
+
+        $plan = (new TemporalInsightService())->buildFocusedForecastPlan(
+            $series,
+            '2026-08-23',
+            'ota_room_nights',
+            1
+        );
+
+        self::assertSame('ready', $plan['status']);
+        self::assertSame(1, $plan['future_days']);
+        self::assertSame('coarse_trend_v1', $plan['model_version']);
+        self::assertSame('weekday_recent_trend_interval', $plan['method']);
+        self::assertSame('uncalibrated_rule_index', $plan['confidence_type']);
+        self::assertSame('not_calibrated', $plan['calibration_status']);
+        self::assertCount(1, $plan['metrics']);
+        self::assertCount(1, $plan['points']);
+        self::assertSame('ota_room_nights', $plan['points'][0]['metric_key']);
+        self::assertSame(1, $plan['points'][0]['horizon_days']);
+        self::assertSame('2026-08-24', $plan['points'][0]['target_date']);
+        self::assertArrayNotHasKey('price', $plan['points'][0]);
+        self::assertTrue($plan['focus']['observation_only_until_evidence_gate_passes']);
+    }
+
+    public function testFocusedRunIdentityIsStableForSameDayAndChangesWithForecastIdentity(): void
+    {
+        $service = new TemporalInsightService();
+        $method = new \ReflectionMethod($service, 'focusedForecastRunId');
+        $method->setAccessible(true);
+
+        $first = $method->invoke($service, 7, 80, '2026-08-23', 'ota_room_nights', 1);
+        $same = $method->invoke($service, 7, 80, '2026-08-23', 'ota_room_nights', 1);
+        $nextDay = $method->invoke($service, 7, 80, '2026-08-24', 'ota_room_nights', 1);
+
+        self::assertSame($first, $same);
+        self::assertNotSame($first, $nextDay);
+        self::assertStringStartsWith('tf_focus_', $first);
+        self::assertLessThanOrEqual(48, strlen($first));
+    }
+
     public function testMissingMetricsStayUnavailableInsteadOfBecomingZeroForecasts(): void
     {
         $series = [];
@@ -390,6 +441,8 @@ final class TemporalInsightServiceTest extends TestCase
         self::assertSame(105.0, $result['actual_value']);
         self::assertTrue($result['within_range']);
         self::assertSame(5.0, $result['absolute_error']);
+        self::assertSame(4.76, $result['absolute_percentage_error_percent']);
+        self::assertStringContainsString('实际值为0', $result['error_ratio_semantics']);
         self::assertSame([11, 12], $result['source_row_ids']);
         self::assertFalse($result['causality_claimed']);
         self::assertSame('observed_not_attributed', $result['effect_evidence_status']);

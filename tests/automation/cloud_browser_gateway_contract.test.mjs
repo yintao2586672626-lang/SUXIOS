@@ -132,7 +132,12 @@ test('protected Dingdandao collection window validates scope, stays read-only, a
       },
       installReadOnlyPolicy: async () => {
         calls.push(['guard']);
-        return { close: () => calls.push(['guard_close']) };
+        return {
+          requestPolicyEnforced: true,
+          httpCacheDisabled: true,
+          serviceWorkerBypassed: true,
+          close: () => calls.push(['guard_close']),
+        };
       },
     });
     server = gateway.server;
@@ -247,6 +252,113 @@ test('protected Dingdandao collection window validates scope, stays read-only, a
   }
 });
 
+test('OTA collection window requires an exact data source and exposes only controlled CDP readiness', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'suxios-ota-window-'));
+  let server;
+  const calls = [];
+  try {
+    const keyFile = join(root, 'profile.key');
+    const tokenFile = join(root, 'control.token');
+    const token = 'u'.repeat(48);
+    await writeFile(keyFile, randomBytes(32));
+    await writeFile(tokenFile, token);
+    const gateway = await createGateway({
+      SUXIOS_CLOUD_BROWSER_BIND: '127.0.0.1',
+      SUXIOS_CLOUD_BROWSER_PORT: '0',
+      SUXIOS_CLOUD_BROWSER_PROFILE_KEY_FILE: keyFile,
+      SUXIOS_CLOUD_BROWSER_CONTROL_TOKEN_FILE: tokenFile,
+      SUXIOS_CLOUD_BROWSER_ENCRYPTED_ROOT: join(root, 'profiles'),
+      SUXIOS_CLOUD_BROWSER_RUNTIME_ROOT: join(root, 'runtime'),
+      SUXIOS_CLOUD_BROWSER_RECEIPT_CHAIN: join(root, 'receipts', 'chain.jsonl'),
+    }, {
+      bridge: async (action, payload) => {
+        calls.push(['bridge', action, payload]);
+        assert.equal(action, 'validate_ota_collection');
+        return {
+          validated: true,
+          collection_kind: 'ota_channel_profile',
+          access_mode: 'read_only',
+          data_source_id: payload.data_source_id,
+          target_date: payload.target_date,
+          tenant_id: payload.tenant_id,
+          hotel_id: payload.hotel_id,
+          owner_user_id: payload.owner_user_id,
+          platform: payload.platform,
+          profile: { profile_id: payload.profile_id, platform: payload.platform },
+        };
+      },
+      startBrowser: async () => ({ exitCode: null }),
+      stopBrowser: async () => calls.push(['stop']),
+      installReadOnlyPolicy: async () => ({
+        requestPolicyEnforced: false,
+        httpCacheDisabled: true,
+        serviceWorkerBypassed: true,
+        close: () => calls.push(['guard_close']),
+      }),
+    });
+    server = gateway.server;
+    await new Promise((resolvePromise, reject) => {
+      server.once('error', reject);
+      server.listen(0, '127.0.0.1', resolvePromise);
+    });
+    const address = server.address();
+    const base = `http://127.0.0.1:${address.port}`;
+    const body = {
+      profile_id: 'cbp_otaabcdefghijklmnop',
+      platform: 'ctrip',
+      data_source_id: 25,
+      tenant_id: 8,
+      hotel_id: 5,
+      owner_user_id: 7,
+      target_date: '2026-07-27',
+      collection_kind: 'ota_channel_profile',
+      access_mode: 'read_only',
+    };
+    const missingSource = await fetch(`${base}/v1/collection/open`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ ...body, data_source_id: undefined }),
+    });
+    assert.equal(missingSource.status, 422);
+    assert.equal(calls.length, 0);
+
+    const openedResponse = await fetch(`${base}/v1/collection/open`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    assert.equal(openedResponse.status, 201);
+    const opened = await openedResponse.json();
+    assert.equal(opened.data_source_id, 25);
+    assert.equal(opened.read_only_enforced, false);
+    assert.equal(opened.collector_read_only_contract, true);
+    assert.deepEqual(opened.network_freshness_control, {
+      http_cache_disabled: true,
+      service_worker_bypassed: true,
+    });
+    assert.equal('cdp_url' in opened, false);
+    assert.equal('profile_path' in opened, false);
+    assert.equal(calls[0][1], 'validate_ota_collection');
+    assert.equal(calls[0][2].data_source_id, 25);
+
+    const closed = await fetch(`${base}/v1/collection/close`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        collection_session_id: opened.collection_session_id,
+        profile_id: body.profile_id,
+        platform: body.platform,
+        outcome: 'completed',
+      }),
+    });
+    assert.equal(closed.status, 200);
+    assert.equal((await closed.json()).profile_sealed, true);
+  } finally {
+    if (server) await new Promise((resolvePromise) => server.close(resolvePromise));
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test('encrypted Profile archive uses authenticated encryption and profile-scoped AAD', async () => {
   const root = await mkdtemp(join(tmpdir(), 'suxios-cloud-browser-'));
   try {
@@ -350,7 +462,11 @@ test('deployment assets keep all listeners local and never autostart Chromium', 
   assert.match(gateway, /browser_autostart: false/);
   assert.match(gateway, /dingdandao: DINGDANDAO_SOURCE_URL/);
   assert.match(gateway, /validate_dingdandao_collection/);
-  assert.match(gateway, /read_only_enforced: true/);
+  assert.match(gateway, /read_only_enforced: guard\.requestPolicyEnforced === true/);
+  assert.match(gateway, /collection_browser_policy_unverified/);
+  assert.match(gateway, /collector_read_only_contract: OTA_RECEIPT_PLATFORM_PATTERN\.test/);
+  assert.match(gateway, /Runtime\.evaluate/);
+  assert.match(gateway, /read_only_navigation_not_ready/);
   assert.match(gateway, /url\.pathname === '\/v1\/collection\/open'[\s\S]{0,220}!authorized\(request, controlToken\)/);
   assert.match(gateway, /url\.pathname === '\/v1\/collection\/close'[\s\S]{0,220}!authorized\(request, controlToken\)/);
   assert.match(gateway, /sessions\.size > 0[\s\S]{0,120}gateway_login_capacity_busy/);

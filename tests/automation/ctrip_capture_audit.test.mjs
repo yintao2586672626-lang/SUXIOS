@@ -650,6 +650,11 @@ test('Ctrip browser capture supports a login-only profile preparation mode', () 
   assert.match(script, /finalizeLoginOnlyPayload/);
   assert.match(script, /status:\s*probePassed\s*\?\s*'pass'\s*:\s*'fail'/);
   assert.match(script, /reason:\s*'session_probe_only'/);
+  assert.match(
+    script,
+    /if \(!enabled\) \{\s*return currentPage;\s*\}/,
+    'login-only finalization must retain the active page when no post-login hold is requested',
+  );
 });
 
 test('Ctrip browser capture creates the requested output directory', () => {

@@ -228,12 +228,17 @@ window.SUXI_OPERATION_STATIC = (() => {
     const operationIsProtectedSystemAnalysis = (item) => item?.recommendation?.source_module === 'canonical_ota_investigation'
         || item?.execution?.mode === 'analysis_only'
         || item?.approval?.status === 'system_authorized_analysis';
+    const operationUsesIndependentAiReview = (item) => item?.action_management?.contract_version === 'operation_action_card.v1'
+        && String(item?.action_management?.action_card?.approval?.mode || '').trim().toLowerCase()
+            === 'ai_independent_review';
     const operationCanApproveExecution = (item) => !operationIsProtectedSystemAnalysis(item)
+        && !operationUsesIndependentAiReview(item)
         && item?.approval?.status === 'pending_approval';
     const operationCanExecuteWithEvidence = (item) => {
         if (operationIsProtectedSystemAnalysis(item)) return false;
         const status = item?.execution?.status || '';
-        const canStartExecution = ['pending_execute', 'executing'].includes(status);
+        const isManagedAction = item?.action_management?.contract_version === 'operation_action_card.v1';
+        const canStartExecution = status === 'executing' || (status === 'pending_execute' && !isManagedAction);
         const canSupplementManualEvidence = status === 'executed'
             && item?.recommendation?.object_type !== 'price'
             && item?.next_action?.key === 'record_evidence';
@@ -247,7 +252,7 @@ window.SUXI_OPERATION_STATIC = (() => {
         && item?.execution?.status === 'executed'
         && item?.review?.is_available === true
         && item?.evidence_truth?.source_verified !== true
-        && item?.recommendation?.source_module === 'ota_diagnosis_saved'
+        && ['ota_diagnosis_saved', 'operating_question', 'revenue_cockpit_action'].includes(item?.recommendation?.source_module)
         && !['success', 'near_success', 'failed'].includes(item?.review?.status || '')
         && Number(item?.execution?.task_id || 0) > 0;
     const operationExecutionActionAvailable = (item) => operationCanApproveExecution(item)
@@ -302,12 +307,16 @@ window.SUXI_OPERATION_STATIC = (() => {
             return sourceRecordId > 0 ? `${platformText}权威数据核查 · 源行 #${sourceRecordId}` : `${platformText}权威数据核查`;
         }
         if (sourceKey.startsWith('ota_diagnosis_saved')) return 'OTA诊断行动';
+        if (sourceKey.startsWith('operating_question')) return '真实经营问题行动';
         if (sourceKey.startsWith('daily_workbench_patrol')) return '巡检补证任务';
         if (sourceKey.startsWith('ota_diagnosis')) return '历史OTA诊断行动';
         if (sourceKey.startsWith('temporal_forecast_recommendation')) return '预测运营建议';
         return resolved || '来源未返回';
     };
     const operationExecutionActionText = (item, helpers = {}) => {
+        const actionCard = item?.action_management?.action_card || {};
+        const cardTitle = String(actionCard?.action?.title || '').trim();
+        if (cardTitle) return cardTitle;
         const recommendation = item?.recommendation || {};
         const actionType = String(recommendation.action_type || '');
         const legacyOperationCheckTypes = [
@@ -340,6 +349,19 @@ window.SUXI_OPERATION_STATIC = (() => {
         return `${objectText} · ${actionText}`;
     };
     const operationExecutionReviewText = (item, helpers = {}) => {
+        const managedReview = item?.action_management?.latest_review;
+        if (managedReview && typeof managedReview === 'object') {
+            const sufficiency = ({ sufficient: '证据充分', insufficient: '证据不足', mismatched: '口径不匹配' }[
+                String(managedReview.evidence_sufficiency || '')
+            ] || '证据待核验');
+            const change = ({ increased: '指标上升', decreased: '指标下降', unchanged: '指标未变', unknown: '变化未知' }[
+                String(managedReview.metric_change_status || '')
+            ] || '变化未知');
+            const recommendation = ({ continue: '建议继续', adjust: '建议调整', stop: '建议停止' }[
+                String(managedReview.recommendation || '')
+            ] || '建议待定');
+            return `${sufficiency} · ${change} · ${recommendation}`;
+        }
         const review = item?.review || {};
         const statusLabel = typeof helpers.statusLabel === 'function' ? helpers.statusLabel : (status => status || '-');
         const label = statusLabel(review.status);
@@ -640,13 +662,32 @@ window.SUXI_OPERATION_STATIC = (() => {
         };
     };
     const operationExecutionNodeRecordText = (item = {}) => {
+        const evidenceSummary = item?.evidence_summary || {};
+        const evidenceCount = Number(evidenceSummary.count ?? (Array.isArray(item?.evidence) ? item.evidence.length : 0));
+        const evidenceTypes = Array.isArray(evidenceSummary.types)
+            ? evidenceSummary.types.map(value => String(value || '').trim()).filter(Boolean)
+            : [];
+        const evidenceParts = [];
+        if (Number.isInteger(evidenceCount) && evidenceCount > 0) {
+            evidenceParts.push(`执行证据 ${evidenceCount} 条`);
+        }
+        if (evidenceTypes.length) {
+            evidenceParts.push(`类型：${evidenceTypes.join('、')}`);
+        }
+        if (item?.evidence_truth?.source_verified === true) {
+            evidenceParts.push('同口径来源事实已核验');
+        }
         const node = item?.evidence_summary?.node_record || {};
-        if (node.status === 'identity_mismatch') return '节点检查身份不一致，已拒绝回填';
-        if (node.status !== 'available') return '节点检查未记录';
+        if (node.status === 'identity_mismatch') {
+            return [...evidenceParts, '节点检查身份不一致，已拒绝回填'].join('；');
+        }
+        if (node.status !== 'available') {
+            return [...evidenceParts, '节点检查未记录'].join('；');
+        }
         const period = ({ weekday: '周内', weekend: '周末', holiday: '节假日', special_event: '特殊事件' }[node.operating_period] || '周期未回读');
         const alignment = ({ operator_confirmed: '房态人工确认一致', mismatch: '房态不一致', unverified: '房态未核验' }[node.room_status_alignment] || '房态状态未回读');
         const progress = ({ normal: '进度正常', too_fast: '进度过快', too_slow: '进度过慢', insufficient_evidence: '证据不足' }[node.progress_status] || '进度未判断');
-        return `${period} · ${alignment} · ${progress}`;
+        return [...evidenceParts, `${period} · ${alignment} · ${progress}`].join('；');
     };
     const operationExecutionRoiText = (roi, formatters = {}) => {
         const formatter = operationFormatters(formatters);
@@ -670,10 +711,10 @@ window.SUXI_OPERATION_STATIC = (() => {
             },
             {
                 key: 'approval',
-                label: '人工审批',
-                value: total ? `${approved}/${total}` : '待审批',
+                label: '行动评审',
+                value: total ? `${approved}/${total}` : '待评审',
                 className: approved ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : 'bg-amber-50 text-amber-700 border-amber-100',
-                detail: '涉及价格、房态、活动的动作必须先确认，驳回原因应保留在记录中。',
+                detail: '所有受管行动都由用户主动二次确认；AI 只能提供建议，不能批准、建任务或执行外部操作。',
             },
             {
                 key: 'evidence',

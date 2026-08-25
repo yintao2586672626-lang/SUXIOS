@@ -1,0 +1,466 @@
+{
+  "schema_version": "business-page-coverage.v1",
+  "updated_at": "2026-08-22",
+  "source_manifest": "resources/frontend/templates/manifest.json",
+  "included_manifest_domains": [
+    "decision-workbench",
+    "agent-center",
+    "ota-ctrip",
+    "ota-meituan",
+    "ota-data",
+    "operations",
+    "revenue",
+    "ai-decision",
+    "opening",
+    "shared-investment",
+    "investment",
+    "lifecycle"
+  ],
+  "excluded_manifest_domains": [
+    {
+      "domain": "shell",
+      "reason": "应用壳、闭合片段和全局提示不承载独立经营事实。",
+      "covered_by": "前端模板构建与公共入口门禁"
+    },
+    {
+      "domain": "hotel-admin",
+      "reason": "酒店主数据和绑定管理不使用业务日期型经营页面合同。",
+      "covered_by": "酒店权限、PMS绑定和跨酒店隔离回归"
+    },
+    {
+      "domain": "system-admin",
+      "reason": "用户、角色、日志和系统配置属于权限与审计域。",
+      "covered_by": "权限、鉴权和系统管理专项回归"
+    },
+    {
+      "domain": "ai-governance",
+      "reason": "模型配置与治理页面不直接放行酒店经营事实。",
+      "covered_by": "模型配置、凭证保护和AI治理专项回归"
+    },
+    {
+      "domain": "knowledge",
+      "reason": "知识中心使用reference_only与知识证据边界，不直接充当酒店事实页。",
+      "covered_by": "知识中心、来源和reference_only专项回归"
+    }
+  ],
+  "policy": {
+    "new_fragment": "fail_closed_until_registered",
+    "active_surface_enforcement": "strict",
+    "frozen_surface_enforcement": "baseline",
+    "maximum_claim": "unit_contract_pass",
+    "field_validation_claimed": false
+  },
+  "surfaces": [
+    {
+      "id": "decision-workbench",
+      "product_chain_stage": "AI决策工作台",
+      "availability": "active",
+      "enforcement": "strict",
+      "fragment_ids": [
+        "home-shell-open",
+        "page-compass-summary",
+        "page-ai-workbench",
+        "page-compass-detail",
+        "home-shell-card-close",
+        "home-shared-secondary"
+      ],
+      "inherited_fragment_ids": [
+        "home-shell-card-close",
+        "home-shared-secondary"
+      ],
+      "inheritance_reason": "两个片段只负责闭合或承载同一首页壳体，状态和范围合同由工作台父页面统一提供。",
+      "scope_dimensions": ["hotel", "business_date", "source", "fact_status"],
+      "state_requirements": ["loading", "ready", "partial", "unverified", "blocked", "error"],
+      "contract_dimensions": ["scope_identity", "truthful_states", "source_date", "failure_visibility", "focused_regression"],
+      "source_checks": [
+        {
+          "path": "resources/frontend/templates/fragments/23a-page-compass-summary.html",
+          "includes": ["data-testid=\"home-executive-answer\"", ":selected-hotel-id=\"filterReportHotel\""]
+        },
+        {
+          "path": "resources/frontend/templates/fragments/23b-page-ai-workbench.html",
+          "includes": ["data-testid=\"home-temporal-axis\"", "data-testid=\"home-temporal-trial-error\""]
+        }
+      ],
+      "regression_checks": [
+        {
+          "path": "tests/automation/home_evidence_chain_truth.test.mjs",
+          "includes": ["23a-page-compass-summary.html", "23b-page-ai-workbench.html", "23c-page-compass-detail.html"]
+        }
+      ],
+      "evidence_maturity": "unit_contract_pass",
+      "evidence_limit": "代码级首页事实层级与状态合同；不等同于真实账号、生产或经营效果。"
+    },
+    {
+      "id": "ctrip-ebooking",
+      "product_chain_stage": "携程OTA数据",
+      "availability": "active",
+      "enforcement": "strict",
+      "fragment_ids": ["page-ctrip-ebooking", "page-ctrip-fetch-settings", "dialog-ctrip-cookie-editor"],
+      "inherited_fragment_ids": ["page-ctrip-fetch-settings", "dialog-ctrip-cookie-editor"],
+      "inheritance_reason": "采集设置与 Cookie 编辑弹窗是携程页的辅助入口，继承同一门店、平台身份、日期、凭证保护与失败边界。",
+      "scope_dimensions": ["hotel", "business_date", "source", "fact_status"],
+      "state_requirements": ["loading", "ready", "empty", "partial", "unverified", "blocked", "error"],
+      "contract_dimensions": ["scope_identity", "truthful_states", "source_date", "shared_view_model", "failure_visibility", "focused_regression"],
+      "source_checks": [
+        {
+          "path": "resources/frontend/templates/fragments/24-page-ctrip-ebooking.html",
+          "includes": ["data-testid=\"ctrip-overview-fetch-actions\"", "data-testid=\"ctrip-review-order-evidence-tab\"", "ctripLatestMeta?.data_date", "ctripLatestSnapshotText"]
+        },
+        {
+          "path": "public/app-main.js",
+          "includes": ["ctripSummaryDisplayCards", "captureCtripBusinessDownloadSnapshot", "ctripEarlyMorningSourceNotice"]
+        }
+      ],
+      "regression_checks": [
+        {
+          "path": "tests/automation/ctrip_channel_order_breakdown.test.mjs",
+          "includes": ["24-page-ctrip-ebooking.html", "system_hotel_id", "platform_hotel_id"]
+        },
+        {
+          "path": "tests/automation/ctrip_visible_download_snapshot.test.mjs",
+          "includes": ["captureCtripBusinessDownloadSnapshot", "ctrip_visible_download_table_unavailable", "current-visible"]
+        },
+        {
+          "path": "tests/automation/review_order_evidence_closure.test.mjs",
+          "includes": ["ctrip-review-order-evidence-tab", "rejectCtripReviewOrderMatch", "unbindCtripReviewOrderMatch"]
+        }
+      ],
+      "evidence_maturity": "unit_contract_pass",
+      "evidence_limit": "代码级携程展示、下载与身份合同；真实携程账号和目标日期仍需现场验收。"
+    },
+    {
+      "id": "meituan-ebooking",
+      "product_chain_stage": "美团OTA数据",
+      "availability": "active",
+      "enforcement": "strict",
+      "fragment_ids": ["page-meituan-ebooking"],
+      "inherited_fragment_ids": [],
+      "inheritance_reason": "无继承片段。",
+      "scope_dimensions": ["hotel", "business_date", "source", "fact_status"],
+      "state_requirements": ["loading", "ready", "empty", "partial", "unverified", "blocked", "error"],
+      "contract_dimensions": ["scope_identity", "truthful_states", "source_date", "failure_visibility", "focused_regression"],
+      "source_checks": [
+        {
+          "path": "resources/frontend/templates/fragments/26-page-meituan-ebooking.html",
+          "includes": ["data-testid=\"meituan-owner-navigation\"", "data-testid=\"meituan-review-order-evidence-tab\"", "v-model=\"meituanForm.startDate\"", "v-model=\"meituanForm.endDate\""]
+        }
+      ],
+      "regression_checks": [
+        {
+          "path": "tests/automation/online_data_trust_boundary.test.mjs",
+          "includes": ["26-page-meituan-ebooking.html", "unverified"]
+        },
+        {
+          "path": "tests/automation/meituan_ingestion_contract.test.mjs",
+          "includes": ["buildMeituanCapturedPayloadSaveContext", "buildMeituanOrderCsvImportRequestBody", "manual_dom_csv"]
+        },
+        {
+          "path": "tests/automation/review_order_evidence_closure.test.mjs",
+          "includes": ["meituan-review-order-evidence-workbench", "blocked_not_attempted", "accepted_formal_match_statuses"]
+        }
+      ],
+      "evidence_maturity": "unit_contract_pass",
+      "evidence_limit": "代码级美团身份、导入与未核验边界；真实账号采集结果不在本登记表内宣称。"
+    },
+    {
+      "id": "online-data-health",
+      "product_chain_stage": "双OTA事实验真",
+      "availability": "active",
+      "enforcement": "strict",
+      "fragment_ids": ["page-online-data", "dialog-online-data-edit"],
+      "inherited_fragment_ids": ["dialog-online-data-edit"],
+      "inheritance_reason": "线上数据编辑弹窗继承数据健康页的门店、日期、来源、未核验覆盖和保存回读边界。",
+      "scope_dimensions": ["hotel", "business_date", "source", "fact_status"],
+      "state_requirements": ["loading", "ready", "empty", "partial", "stale", "unverified", "blocked", "error"],
+      "contract_dimensions": ["scope_identity", "truthful_states", "source_date", "save_readback", "failure_visibility", "focused_regression"],
+      "source_checks": [
+        {
+          "path": "resources/frontend/templates/fragments/35-page-online-data.html",
+          "includes": ["data-testid=\"data-health-loading-banner\"", "data-testid=\"dual-ota-current-target-date\"", "dualOtaContinuousReceipt(platform)"]
+        }
+      ],
+      "regression_checks": [
+        {
+          "path": "tests/automation/dual_ota_continuous_trust.test.mjs",
+          "includes": ["35-page-online-data.html", "dualOtaContinuousStatusText", "data_source_id"]
+        }
+      ],
+      "evidence_maturity": "unit_contract_pass",
+      "evidence_limit": "代码级双OTA单日收据与页面状态门禁；不代替目标门店目标日的正式保存和精确回读。"
+    },
+    {
+      "id": "operations-foundation",
+      "product_chain_stage": "运营数据与自动化底座",
+      "availability": "active",
+      "enforcement": "strict",
+      "fragment_ids": [
+        "page-ops-source",
+        "page-operating-targets",
+        "page-pms-operating-data",
+        "page-automation-run-monitor",
+        "page-manual-notifications"
+      ],
+      "inherited_fragment_ids": [],
+      "inheritance_reason": "无继承片段；同属经营事实准备层但各自保留独立失败状态。",
+      "scope_dimensions": ["hotel", "business_date", "source", "fact_status"],
+      "state_requirements": ["loading", "ready", "empty", "partial", "unverified", "blocked", "error"],
+      "contract_dimensions": ["scope_identity", "truthful_states", "source_date", "save_readback", "failure_visibility", "focused_regression"],
+      "source_checks": [
+        {
+          "path": "resources/frontend/templates/fragments/15a-page-ops-source.html",
+          "includes": ["data-testid=\"ops-source-hotel\"", "data-testid=\"ops-source-date\"", "data-testid=\"ops-source-error\"", "operationSourceBrief.className"]
+        },
+        {
+          "path": "resources/frontend/templates/fragments/15aab-page-pms-operating-data.html",
+          "includes": ["data-testid=\"pms-operating-data-hotel\"", "data-testid=\"pms-operating-data-date\"", "data-testid=\"pms-operating-data-error\""]
+        },
+        {
+          "path": "resources/frontend/templates/fragments/15aac-page-automation-monitor.html",
+          "includes": ["data-testid=\"automation-monitor-date\"", "data-testid=\"automation-monitor-error\"", "automationMonitor.message"]
+        }
+      ],
+      "regression_checks": [
+        {
+          "path": "tests/automation/operation_frontend_closure.test.mjs",
+          "includes": ["15a-page-ops-source.html", "loadOperationFullData", "operationFullData"]
+        },
+        {
+          "path": "tests/automation/operations_automation_center_ui.test.mjs",
+          "includes": ["15aab-page-pms-operating-data.html", "15aac-page-automation-monitor.html", "15aa-page-operating-targets.html"]
+        },
+        {
+          "path": "tests/automation/pms_realtime_sync_ui.test.mjs",
+          "includes": ["pms-operating-data-load", "syncOperatingPmsRealtime"]
+        }
+      ],
+      "evidence_maturity": "unit_contract_pass",
+      "evidence_limit": "代码级经营范围、PMS保存/同步分离和自动化状态；不证明云端PMS、企微或正式推送成功。"
+    },
+    {
+      "id": "operations-decision-loop",
+      "product_chain_stage": "分析到执行复盘",
+      "availability": "active",
+      "enforcement": "strict",
+      "fragment_ids": [
+        "page-ops-analysis",
+        "page-ops-insight",
+        "page-ops-plan",
+        "page-ai-daily-report",
+        "page-ops-track",
+        "page-operating-growth-archive"
+      ],
+      "inherited_fragment_ids": ["page-ops-plan"],
+      "inheritance_reason": "策略草案页由分析结果和执行跟踪共同约束，真实动作仍必须进入待审批及回读链路。",
+      "scope_dimensions": ["hotel", "business_date", "source", "fact_status"],
+      "state_requirements": ["loading", "ready", "empty", "partial", "unverified", "blocked", "error"],
+      "contract_dimensions": ["scope_identity", "truthful_states", "source_date", "pending_approval", "save_readback", "failure_visibility", "focused_regression"],
+      "source_checks": [
+        {
+          "path": "resources/frontend/templates/fragments/16-page-ai-daily-report.html",
+          "includes": ["data-testid=\"ai-daily-fact-gate\"", "aiDailyFactGate.errorText", "只读取现有状态，不触发OTA采集、不写业务数据"]
+        },
+        {
+          "path": "resources/frontend/templates/fragments/17-page-ops-track.html",
+          "includes": ["data-testid=\"operation-scope-hotel\"", "data-testid=\"operation-action-card\"", "blocked_reason", "<manager-capability-panel"]
+        },
+        {
+          "path": "resources/frontend/templates/fragments/17a-page-operating-growth-archive.html",
+          "includes": ["operating-growth-archive", "operatingGrowthArchiveBindings"]
+        }
+      ],
+      "regression_checks": [
+        {
+          "path": "tests/automation/operation_frontend_closure.test.mjs",
+          "includes": ["15b-page-ops-analysis.html", "15c-page-ops-insight.html", "17-page-ops-track.html"]
+        },
+        {
+          "path": "tests/automation/manager_capability_scoring.test.mjs",
+          "includes": ["manager-capability-followup-queue", "manager-capability-adjustment-form", "manager-capability-score-review-form"]
+        },
+        {
+          "path": "tests/automation/operating_growth_archive_integration.test.mjs",
+          "includes": ["openOperatingGrowthSource", "operatingGrowthArchiveBindings", "source_scope"]
+        },
+        {
+          "path": "tests/automation/ai_daily_report_presentation_artifact_ui.test.mjs",
+          "includes": ["ai-daily-presentation-generate", "artifact_readback_verified", "report.export"]
+        }
+      ],
+      "evidence_maturity": "unit_contract_pass",
+      "evidence_limit": "代码级分析、草案、待审批、执行与档案边界；没有用户审批就不代表任何OTA经营动作已执行。"
+    },
+    {
+      "id": "operating-opportunities",
+      "product_chain_stage": "经营机会证据计算",
+      "availability": "active",
+      "enforcement": "strict",
+      "fragment_ids": ["page-operating-opportunities"],
+      "inherited_fragment_ids": [],
+      "inheritance_reason": "无继承片段。",
+      "scope_dimensions": ["hotel", "business_date", "source", "fact_status"],
+      "state_requirements": ["loading", "ready", "empty", "partial", "unverified", "blocked", "error"],
+      "contract_dimensions": ["scope_identity", "truthful_states", "source_date", "save_readback", "failure_visibility", "focused_regression"],
+      "source_checks": [
+        {
+          "path": "resources/frontend/templates/fragments/19b-page-operating-opportunities.html",
+          "includes": ["data-testid=\"page-operating-opportunities\"", "<operating-opportunity-lab", ":request=\"managerCapabilityRequest\""]
+        },
+        {
+          "path": "public/components/system/operating-opportunity-lab.js",
+          "includes": ["businessDate", "source_quality", "loadOverview", "this.overview = null", "readback_verified"]
+        }
+      ],
+      "regression_checks": [
+        {
+          "path": "tests/automation/operating_opportunity_lab.test.mjs",
+          "includes": ["append-only readback", "source_quality", "readback_verified"]
+        }
+      ],
+      "evidence_maturity": "unit_contract_pass",
+      "evidence_limit": "代码级经营机会计算、同店同日保存与回读合同；不把估算、相关性或人工观察扩大为真实经营因果。"
+    },
+    {
+      "id": "revenue-analysis",
+      "product_chain_stage": "收益分析",
+      "availability": "active",
+      "enforcement": "strict",
+      "fragment_ids": ["page-revenue-research-center", "page-operation-optimizer"],
+      "inherited_fragment_ids": [],
+      "inheritance_reason": "无继承片段。",
+      "scope_dimensions": ["hotel", "business_date", "source", "fact_status"],
+      "state_requirements": ["loading", "ready", "empty", "partial", "unverified", "blocked", "error"],
+      "contract_dimensions": ["scope_identity", "truthful_states", "source_date", "pending_approval", "failure_visibility", "focused_regression"],
+      "source_checks": [
+        {
+          "path": "resources/frontend/templates/fragments/19-page-revenue-research-center.html",
+          "includes": ["button-revenue-research-run-", "revenue-research-execution-bridge-", "decision_recommendations"]
+        },
+        {
+          "path": "resources/frontend/templates/fragments/19a-page-operation-optimizer.html",
+          "includes": ["data-testid=\"page-operation-optimizer\"", "data-testid=\"operation-optimizer-error\"", "operationOptimizerStatusText(row.quality_status)"]
+        }
+      ],
+      "regression_checks": [
+        {
+          "path": "tests/automation/operation_frontend_closure.test.mjs",
+          "includes": ["19-page-revenue-research-center.html", "19a-page-operation-optimizer.html", "operationOptimizerModules"]
+        }
+      ],
+      "evidence_maturity": "unit_contract_pass",
+      "evidence_limit": "代码级收益研究与任务桥接；不把预测、外部引用或OTA渠道数据扩大为全酒店经营事实。"
+    },
+    {
+      "id": "agent-center",
+      "product_chain_stage": "AI经营决策与人工送审",
+      "availability": "active",
+      "enforcement": "strict",
+      "fragment_ids": ["page-agent-center"],
+      "inherited_fragment_ids": [],
+      "inheritance_reason": "无继承片段。",
+      "scope_dimensions": ["hotel", "business_date", "source", "fact_status"],
+      "state_requirements": ["loading", "ready", "partial", "unverified", "blocked", "error"],
+      "contract_dimensions": ["scope_identity", "truthful_states", "source_date", "pending_approval", "save_readback", "failure_visibility", "focused_regression"],
+      "source_checks": [
+        {
+          "path": "resources/frontend/templates/fragments/27-page-agent-center.html",
+          "includes": ["otaDiagnosisForm.hotel_id", "otaDiagnosisForm.start_date", "otaDiagnosisForm.end_date", "data-testid=\"ota-diagnosis-decision-status\"", "data-testid=\"revenue-daily-cockpit\"", "data-testid=\"revenue-cockpit-save-snapshot\"", "ignoreSavedSnapshot: true", "pending_approval", "readback_verified"]
+        }
+      ],
+      "regression_checks": [
+        {
+          "path": "tests/automation/operating_intelligence.test.mjs",
+          "includes": ["27-page-agent-center.html", "readback_verified", "blocked_by_missing_facts", "'ota_write' => false"]
+        },
+        {
+          "path": "tests/automation/revenue_ai_static.test.mjs",
+          "includes": ["daily revenue cockpit shows verified zero, withholds unverified zero, and downloads the exact visible model", "daily revenue cockpit template exposes unified context, evidence, download and human-gated handoffs", "saveRevenueDecisionSnapshotWithReadback", "createRevenueOpportunityPendingApprovalWithReadback"]
+        }
+      ],
+      "evidence_maturity": "unit_contract_pass",
+      "evidence_limit": "代码级同酒店同业务日事实、精确回读与人工送审边界；不代表任何OTA动作已经审批或执行。"
+    },
+    {
+      "id": "downstream-decision-frozen",
+      "product_chain_stage": "阶段一冻结的策略、开业、扩张与投资辅助页",
+      "availability": "frozen_hidden",
+      "enforcement": "baseline",
+      "fragment_ids": [
+        "page-ai-strategy",
+        "page-ai-simulation",
+        "page-ai-feasibility",
+        "page-market-evaluation",
+        "page-benchmark-model",
+        "page-collaboration-efficiency",
+        "shared-expansion-history",
+        "shared-transfer-context",
+        "page-asset-pricing",
+        "page-timing-strategy",
+        "page-decision-board",
+        "shared-transfer-history",
+        "page-opening-overview",
+        "page-opening-checklist",
+        "page-investment-decision"
+      ],
+      "inherited_fragment_ids": [],
+      "inheritance_reason": "无继承片段。",
+      "scope_dimensions": ["project_or_hotel", "source", "fact_status"],
+      "state_requirements": ["hidden", "not_field_validated"],
+      "contract_dimensions": ["truthful_states", "source_boundary", "navigation_freeze", "focused_regression"],
+      "source_checks": [
+        {
+          "path": "resources/frontend/templates/fragments/01-page-ai-strategy.html",
+          "includes": ["currentPage === 'ai-strategy'", "aiStrategy"]
+        },
+        {
+          "path": "resources/frontend/templates/fragments/13-page-opening-overview.html",
+          "includes": ["currentPage === 'opening-overview'", "openingOverview"]
+        },
+        {
+          "path": "resources/frontend/templates/fragments/03-page-ai-feasibility.html",
+          "includes": ["currentPage === 'ai-feasibility'", "aiProject"]
+        },
+        {
+          "path": "resources/frontend/templates/fragments/28-page-investment-decision.html",
+          "includes": ["currentPage === 'investment-decision'", "investmentDecisionLoading", "investmentDecisionSummaryCards"]
+        }
+      ],
+      "regression_checks": [
+        {
+          "path": "tests/automation/phase1_product_scope_reduction.test.mjs",
+          "includes": ["ai-strategy", "ai-simulation", "ai-feasibility", "opening-overview", "opening-checklist", "market-evaluation", "benchmark-model", "collaboration-efficiency", "asset-pricing", "timing-strategy", "decision-board", "investment-decision"]
+        }
+      ],
+      "evidence_maturity": "static_contract_only",
+      "evidence_limit": "当前阶段隐藏下游入口，仅保护模板和冻结边界；不宣称可发现、可操作或现场有效。",
+      "known_limits": ["阶段一导航隐藏", "未执行真实策略、开业或投资项目验收"]
+    },
+    {
+      "id": "lifecycle-frozen",
+      "product_chain_stage": "酒店全生命周期",
+      "availability": "frozen_hidden",
+      "enforcement": "baseline",
+      "fragment_ids": ["page-lifecycle"],
+      "inherited_fragment_ids": [],
+      "inheritance_reason": "无继承片段。",
+      "scope_dimensions": ["hotel_or_project", "source", "fact_status"],
+      "state_requirements": ["hidden", "not_field_validated"],
+      "contract_dimensions": ["truthful_states", "source_boundary", "navigation_freeze", "focused_regression"],
+      "source_checks": [
+        {
+          "path": "resources/frontend/templates/fragments/29-page-lifecycle.html",
+          "includes": ["currentPage === 'lifecycle'", "lifecycleLoading", "lifecycleOverview.stages"]
+        }
+      ],
+      "regression_checks": [
+        {
+          "path": "tests/automation/phase1_product_scope_reduction.test.mjs",
+          "includes": ["lifecycle-auxiliary", "for (const group of ['lifecycle'"]
+        }
+      ],
+      "evidence_maturity": "static_contract_only",
+      "evidence_limit": "当前阶段隐藏辅助入口，仅保护诚实文案与冻结边界；不宣称完整生命周期功能可用。",
+      "known_limits": ["阶段一导航隐藏", "无聚焦真实项目保存回读验收"]
+    }
+  ]
+}

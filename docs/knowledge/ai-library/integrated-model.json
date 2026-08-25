@@ -1,0 +1,299 @@
+{
+  "schema_version": 1,
+  "model_key": "suxios.hotel_operating_knowledge.v1",
+  "model_version": "2026-08-15.1",
+  "title": "宿析酒店经营统一知识模型｜证据—诊断—动作—回读—学习",
+  "derived_at": "2026-08-15",
+  "source_contract": {
+    "source_manifest_sha256": "226b3e7d4be780bf9e97193b821198e04ef1b36442c6d94009e3cc1d90d7a28f",
+    "method_pack_sha256": "76e435b5d31d2c2752e7038e41a2f2825f1430f323e60750d617b4a9a7be1257",
+    "priority_pack_sha256": "ad0c7d3b21ed5f2dd0c83d07c0cbf503efccbd441d1cf83741d124e0c462d39c",
+    "method_entry_count": 33,
+    "priority_entry_count": 3,
+    "synthesis_method": "cross_document_contract_and_conflict_synthesis"
+  },
+  "core_thesis": [
+    "酒店经营不是单点调价，而是流量、页面、价格房态、房型产品、服务履约和复盘学习组成的连续系统。",
+    "任何建议都必须从可追溯事实出发，先确定酒店、平台、业务日期、时间点和库存口径，再区分事实、计算、判断和行动。",
+    "预订进度要同时看远期在手和日内节点；发生团队取消、大额预订或库存变化后，原基线必须失效并重算。",
+    "出租率、满房和单房型改善都不是最终成功；至少同时验收全店OCC、ADR、RevPAR、收入和房型结构。",
+    "历史案例、行业研究和旧平台规则只能形成待验证假设，不能自动变成当前门店事实或外部执行指令。"
+  ],
+  "ontology": {
+    "entities": [
+      "system_hotel",
+      "platform_or_pms_source",
+      "platform_hotel_binding",
+      "business_date",
+      "observation_time",
+      "room_type",
+      "channel",
+      "guest_segment",
+      "competitor_set",
+      "market_event",
+      "weather_event",
+      "observation",
+      "baseline",
+      "diagnosis",
+      "action_proposal",
+      "approval",
+      "execution",
+      "readback",
+      "outcome"
+    ],
+    "time_horizons": {
+      "far_term": "按到店日前置天数观察在手间夜、收入、取消和房型分布；1-99天是可观察窗口，不是固定规律。",
+      "near_term": "临近到店日观察预订速度、价格阶梯、活动叠加、取消和剩余房型结构。",
+      "intraday": "从夜审后到下一次夜审按30、60或120分钟节点记录净增量和关键指标。",
+      "stay_and_post_stay": "履约、投诉修复、点评和复购进入服务与口碑闭环。"
+    },
+    "scope_rule": "OTA证据只证明对应渠道；PMS总盘才能支持全店口径。跨酒店、跨平台、跨业务日期不得静默合并。"
+  },
+  "evidence_model": {
+    "levels": {
+      "E1": "原始事实：PMS、OTA后台、订单、截图或导出中的可追溯记录。",
+      "E2": "计算指标：在同一口径上计算OCC、ADR、RevPAR、份额、差值和分位数。",
+      "E3": "交叉证据：总盘、房型、渠道、订单、页面和服务证据相互对账。",
+      "E4": "干预证据：有动作前基线、单变量或可解释动作、观察期、回读和停止条件。"
+    },
+    "readiness_states": [
+      "not_ready",
+      "pass_with_limits",
+      "ready_for_manual_analysis"
+    ],
+    "causality_rule": "E1-E3最多支持事实、差异和候选原因；没有合格E4时不得声称动作造成结果。单日、单店、无对照案例保持相关性表述。"
+  },
+  "metric_dictionary": {
+    "available_room_nights": "当前口径下可供销售的房间夜；必须说明物理库存、维修、自用、预留和关闭库存的处理。",
+    "sold_room_nights": "已售过夜间夜；钟点房、超售、换房和取消必须单列。",
+    "occupancy_rate": "sold_room_nights / available_room_nights；分母变化时不得直接比较。",
+    "adr": "同口径客房收入 / sold_room_nights；sold_room_nights为0时状态为not_computable，不填0。",
+    "revpar": "同口径客房收入 / available_room_nights。",
+    "gross_pickup": "节点间新产生的预订量。",
+    "net_pickup": "当前节点在手间夜 - 上一节点在手间夜；受取消、改期、换房和库存变化影响，不等于gross_pickup。",
+    "lead_time_days": "预订日期到到店日期的间隔。",
+    "room_type_revpar": "房型收入 / 房型可售间夜；必须与全店RevPAR并列验收。",
+    "exposure_to_view_rate": "有同平台曝光和浏览分母时计算；缺分母只显示原始数量。",
+    "view_to_order_rate": "有同平台浏览和有效订单分母时计算。",
+    "cancellation_rate": "取消间夜或订单 / 同口径预订间夜或订单；必须声明单位。",
+    "channel_share": "渠道间夜或收入 / 全部同口径间夜或收入；份额必须同时展示绝对量。",
+    "channel_net_revenue": "确认的渠道客房收入减去可核验佣金、平台补贴承担和优惠成本；字段缺失时不得估算。"
+  },
+  "operating_loops": {
+    "revenue_loop": [
+      "确认酒店、来源、日期、节点和库存口径",
+      "建立远期与日内可比基线",
+      "比较进度、ADR、RevPAR、库存和房型结构",
+      "从本店、竞对、需求、外部事件四类形成候选原因",
+      "提出价格、库存、房型、渠道或服务的小步动作",
+      "人工审批后执行",
+      "下一节点保存回读",
+      "房型层与全店层双层验收",
+      "把结果、误差和失效条件回流知识库"
+    ],
+    "ota_funnel_loop": [
+      "可售与映射",
+      "曝光",
+      "列表点击",
+      "详情页信任",
+      "房型选择",
+      "价格与政策",
+      "订单",
+      "到店履约",
+      "点评与复购"
+    ],
+    "content_loop": [
+      "账号定位",
+      "选题池",
+      "人工选题",
+      "AI草稿与做图说明",
+      "事实、隐私和口吻审核",
+      "明确授权发布",
+      "记录真实平台数据",
+      "复盘收藏、互动、关注和合规转化"
+    ]
+  },
+  "diagnostic_pipeline": [
+    {
+      "step": 1,
+      "name": "scope_and_data_readiness",
+      "output": "酒店、来源、日期、时间点、房量、币种、质量状态与缺失项"
+    },
+    {
+      "step": 2,
+      "name": "hotel_total",
+      "output": "收入、已售、可售、OCC、ADR、RevPAR及其同口径变化"
+    },
+    {
+      "step": 3,
+      "name": "pace_and_forecast",
+      "output": "起始进度、节点净增量、P25/P50/P75、样本数、回退层级与误差"
+    },
+    {
+      "step": 4,
+      "name": "room_type_and_price_sequences",
+      "output": "物理库存、房型可售、成交ADR、OTA展示价、房型排序与价格错位"
+    },
+    {
+      "step": 5,
+      "name": "channel_and_funnel",
+      "output": "渠道绝对量与份额、曝光、浏览、订单、取消、页面和活动状态"
+    },
+    {
+      "step": 6,
+      "name": "service_and_reputation",
+      "output": "履约、设施、响应、投诉类型、点评与复购证据"
+    },
+    {
+      "step": 7,
+      "name": "cause_candidates",
+      "output": "本店、竞对、需求、外部事件四类候选原因和待补证问题"
+    },
+    {
+      "step": 8,
+      "name": "action_and_readback",
+      "output": "动作合同、审批、停止条件、下一节点回读与双层验收"
+    }
+  ],
+  "decision_rules": {
+    "comparable_baseline": "优先经营周期×具体星期×起始出租率档位；n<5只做描述，样本不足按明确层级回退。",
+    "forecast_validation": "按时间顺序做扩展窗口验证，禁止随机拆分；报告MAE、区间覆盖率、分组误差和漏判。",
+    "pace_state": {
+      "below_p25": "先查可售、流量、价格和房型，不直接连续降价。",
+      "p25_to_p50": "偏慢但在历史区间，保持可售并观察下一节点。",
+      "p50_to_p75": "常态偏强，保护核心库存，必要时小步测试。",
+      "above_p75": "进度快且库存收紧，检查提价和低价库存限制。",
+      "above_p90": "仅作极热风险提醒，复核是否过早售罄，不构成承诺线。"
+    },
+    "material_event_invalidation": [
+      "group_cancel",
+      "large_booking",
+      "inventory_change",
+      "out_of_order_change",
+      "platform_mapping_change",
+      "major_market_event_change"
+    ],
+    "result_states": [
+      "not_executed",
+      "executed_without_readback",
+      "improved",
+      "no_improvement",
+      "mixed_result",
+      "indeterminate"
+    ]
+  },
+  "action_contract": {
+    "required_fields": [
+      "problem",
+      "evidence_refs",
+      "hotel_and_date_scope",
+      "action_type",
+      "target_room_type_or_channel",
+      "owner",
+      "approver",
+      "effective_at",
+      "expires_at",
+      "process_metric",
+      "result_metric",
+      "success_standard",
+      "stop_condition",
+      "rollback",
+      "readback_at"
+    ],
+    "action_types": [
+      "price",
+      "inventory",
+      "room_type_product",
+      "ota_page_or_channel",
+      "service_recovery",
+      "content_draft",
+      "data_repair"
+    ],
+    "execution_rule": "知识模型只生成有证据的人工建议；任何OTA、PMS、小红书、企微或其他外部写入仍需当前对象和本次动作的明确授权。"
+  },
+  "conflict_resolution": [
+    {
+      "conflict": "满房或OCC上升 vs 收益改善",
+      "resolution": "以OCC、ADR、RevPAR、净收入和满房时间联合验收。"
+    },
+    {
+      "conflict": "单房型改善 vs 全店改善",
+      "resolution": "分别计算房型层和全店层；方向相反时使用mixed_result。"
+    },
+    {
+      "conflict": "流量不足 vs 转化不足",
+      "resolution": "沿曝光—浏览—订单漏斗定位；缺少分母时保持indeterminate。"
+    },
+    {
+      "conflict": "OTA展示价 vs PMS成交ADR",
+      "resolution": "执行价格序列、房型序列和客源/贡献/热度三查，不直接涨降价。"
+    },
+    {
+      "conflict": "历史平台经验 vs 当前规则",
+      "resolution": "历史规则只作假设，以当前官方后台和同平台证据为准。"
+    },
+    {
+      "conflict": "宏观市场或竞对信号 vs 本店需求",
+      "resolution": "必须经过本店进度、库存和转化证据验证，不能直接外推。"
+    }
+  ],
+  "golden_cases": [
+    {
+      "case_key": "material_event_requires_rebaseline",
+      "input": {
+        "hotel_identity": "present",
+        "business_date": "present",
+        "baseline_status": "ready",
+        "event": "group_cancel",
+        "occupancy_before": 0.3956,
+        "occupancy_after": 0.2308
+      },
+      "expected": {
+        "decision_state": "rebaseline_required",
+        "old_recommendation_valid": false,
+        "external_write_authorized": false
+      }
+    },
+    {
+      "case_key": "missing_scope_blocks_decision",
+      "input": {
+        "hotel_identity": "missing",
+        "business_date": "missing",
+        "source": "historical_case_only"
+      },
+      "expected": {
+        "readiness": "not_ready",
+        "decision_safe": false,
+        "allowed_output": "reference_and_missing_fields_only",
+        "external_write_authorized": false
+      }
+    },
+    {
+      "case_key": "room_type_gain_hotel_decline_is_mixed",
+      "input": {
+        "room_type_revpar_change": "positive",
+        "hotel_revpar_change": "negative"
+      },
+      "expected": {
+        "result_state": "mixed_result",
+        "causality_claimed": false
+      }
+    }
+  ],
+  "boundary": {
+    "contains_current_hotel_fact": false,
+    "decision_safe": false,
+    "task_draft_safe": false,
+    "external_write_authorized": false,
+    "blocked_uses": [
+      "automatic_pricing",
+      "automatic_inventory_change",
+      "automatic_ota_write",
+      "automatic_pms_write",
+      "automatic_content_publish",
+      "automatic_external_message",
+      "causal_claim_from_historical_case"
+    ]
+  },
+  "body_markdown": "# 宿析酒店经营统一知识模型\n\n## 一句话理解\n\n酒店经营是一个从证据到学习的闭环：先证明酒店、来源、日期和库存口径，再判断经营总盘、预订进度、房型、渠道漏斗与服务断点；提出可回退的小步动作，经人工审批后执行，并用下一节点、房型层和全店层共同回读。\n\n## 两条主链\n\n- 收益链：需求预测 → 价格策略 → 库存与房型控制 → 动作回读 → 模型学习。\n- OTA与内容链：可售/曝光 → 点击 → 详情页信任 → 房型选择 → 订单 → 履约 → 点评/复购；小红书内容也必须经历定位、选题、草稿、人工审核、授权发布和真实数据复盘。\n\n## 统一诊断顺序\n\n1. 数据可用性和事实范围。\n2. 全店收入、间夜、OCC、ADR、RevPAR。\n3. 远期与日内预订进度、P25/P50/P75和样本回退。\n4. 房型库存、成交ADR、OTA展示价和双序列错位。\n5. 渠道绝对量、份额与曝光—浏览—订单漏斗。\n6. 服务、投诉、点评和复购。\n7. 本店、竞对、需求、外部事件四类候选原因。\n8. 动作、审批、停止条件、回滚和保存回读。\n\n## 最关键的纠错\n\n满房不等于收益好；出租率升不等于经营改善；单房型成功不等于全店成功；竞对低价不等于本店建议价；历史平台规则不等于当前规则；单日人工干预不证明因果。团队取消、大额预订和库存变化会使旧基线失效。\n\n## 使用边界\n\n本模型是跨文档方法整合，不含任何当前酒店事实。缺酒店、来源、业务日期、新鲜数据、保存回读或人工复核时，只能返回参考知识和缺失项；不生成自动价格、库存、OTA/PMS、小红书或外部消息写入。"
+}

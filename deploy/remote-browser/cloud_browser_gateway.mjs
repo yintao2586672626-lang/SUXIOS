@@ -32,6 +32,7 @@ const TICKET_PATTERN = /^[A-Za-z0-9_-]{32,96}$/;
 const LOGIN_PLATFORM_PATTERN = /^(ctrip|meituan|dingdandao|meituan_cloud_pms)$/;
 const OTA_RECEIPT_PLATFORM_PATTERN = /^(ctrip|meituan)$/;
 const PMS_PLATFORM_PATTERN = /^(dingdandao|meituan_cloud_pms)$/;
+const COLLECTION_PLATFORM_PATTERN = /^(ctrip|meituan|dingdandao|meituan_cloud_pms)$/;
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const DINGDANDAO_SOURCE_URL =
   'https://www.dingdandao.com/pmsManage/report/pro/dataCenter/accommodationData';
@@ -324,8 +325,8 @@ function loadConfig(env = process.env) {
     viewerUrl: env.SUXIOS_CLOUD_BROWSER_VIEWER_URL || 'http://127.0.0.1:6080/vnc.html?autoconnect=true&resize=scale',
     loginTtlSeconds: Math.min(900, Math.max(60, Number.parseInt(env.SUXIOS_CLOUD_BROWSER_LOGIN_TTL_SECONDS || '900', 10))),
     collectionTtlSeconds: Math.min(
-      600,
-      Math.max(60, Number.parseInt(env.SUXIOS_CLOUD_BROWSER_COLLECTION_TTL_SECONDS || '300', 10)),
+      1800,
+      Math.max(60, Number.parseInt(env.SUXIOS_CLOUD_BROWSER_COLLECTION_TTL_SECONDS || '1200', 10)),
     ),
     profileSessionTtlSeconds: Math.min(
       30 * 86400,
@@ -400,18 +401,30 @@ function positiveInteger(value, reason) {
 }
 
 function validateCollectionOpenRequest(body) {
+  const platform = assertOpaque(body.platform, COLLECTION_PLATFORM_PATTERN, 'platform_invalid');
+  const collectionKind = assertOpaque(
+    body.collection_kind,
+    /^(operating_target_today|ota_channel_profile)$/,
+    'collection_kind_invalid',
+  );
+  const dataSourceId = body.data_source_id == null || String(body.data_source_id).trim() === ''
+    ? 0
+    : positiveInteger(body.data_source_id, 'data_source_id_invalid');
+  const isOta = OTA_RECEIPT_PLATFORM_PATTERN.test(platform);
+  if ((isOta && (collectionKind !== 'ota_channel_profile' || dataSourceId <= 0))
+    || (!isOta && (collectionKind !== 'operating_target_today' || dataSourceId !== 0))
+  ) {
+    throw new Error('collection_scope_invalid');
+  }
   return {
     profileId: assertOpaque(body.profile_id, PROFILE_ID_PATTERN, 'profile_id_invalid'),
-    platform: assertOpaque(body.platform, PMS_PLATFORM_PATTERN, 'platform_invalid'),
+    platform,
+    dataSourceId,
     tenantId: positiveInteger(body.tenant_id, 'tenant_id_invalid'),
     hotelId: positiveInteger(body.hotel_id, 'hotel_id_invalid'),
     ownerUserId: positiveInteger(body.owner_user_id, 'owner_user_id_invalid'),
     targetDate: assertOpaque(body.target_date, DATE_PATTERN, 'target_date_invalid'),
-    collectionKind: assertOpaque(
-      body.collection_kind,
-      /^operating_target_today$/,
-      'collection_kind_invalid',
-    ),
+    collectionKind,
     accessMode: assertOpaque(body.access_mode, /^read_only$/, 'access_mode_invalid'),
   };
 }
@@ -424,7 +437,7 @@ function validateCollectionCloseRequest(body) {
       'collection_session_id_invalid',
     ),
     profileId: assertOpaque(body.profile_id, PROFILE_ID_PATTERN, 'profile_id_invalid'),
-    platform: assertOpaque(body.platform, PMS_PLATFORM_PATTERN, 'platform_invalid'),
+    platform: assertOpaque(body.platform, COLLECTION_PLATFORM_PATTERN, 'platform_invalid'),
     outcome: assertOpaque(
       body.outcome,
       /^(completed|cancelled|session_expired|policy_blocked)$/,
@@ -455,6 +468,25 @@ function platformStartUrl(platform) {
   const url = urls[platform];
   if (!url) throw new Error('platform_start_url_missing');
   return url;
+}
+
+function trustedCollectionPageLocation(value, platform) {
+  let location;
+  let source;
+  try {
+    location = new URL(String(value || ''));
+    source = new URL(platformStartUrl(platform));
+  } catch {
+    return false;
+  }
+  if (location.protocol !== 'https:'
+    || location.origin !== source.origin
+    || location.username !== ''
+    || location.password !== ''
+  ) return false;
+  if (platform === 'ctrip') return location.pathname.startsWith('/home/');
+  if (platform === 'meituan') return location.pathname.startsWith('/ebooking/');
+  return location.pathname === source.pathname;
 }
 
 async function startBrowser(config, profilePath, platform, startUrl = null) {
@@ -575,6 +607,7 @@ async function installPmsReadOnlyPolicy(config, child, platform = 'dingdandao') 
   const pending = new Map();
   let nextId = 1;
   let closed = false;
+  const requestPolicyEnforced = PMS_PLATFORM_PATTERN.test(platform);
 
   await new Promise((resolvePromise, reject) => {
     const timer = setTimeout(() => reject(new Error('read_only_policy_connect_timeout')), 5000);
@@ -615,7 +648,7 @@ async function installPmsReadOnlyPolicy(config, child, platform = 'dingdandao') 
       }
       return;
     }
-    if (message.method !== 'Fetch.requestPaused') return;
+    if (!requestPolicyEnforced || message.method !== 'Fetch.requestPaused') return;
     const paused = message.params || {};
     const allowed = isPmsReadOnlyRequestAllowed({
       url: paused.request?.url,
@@ -640,13 +673,34 @@ async function installPmsReadOnlyPolicy(config, child, platform = 'dingdandao') 
   try {
     await send('Network.enable');
     await send('Network.setCacheDisabled', { cacheDisabled: true });
+    await send('Network.setBypassServiceWorker', { bypass: true });
     await send('Page.enable');
-    await send('Fetch.enable', {
-      patterns: [{ urlPattern: '*', requestStage: 'Request' }],
-    });
+    if (requestPolicyEnforced) {
+      await send('Fetch.enable', {
+        patterns: [{ urlPattern: '*', requestStage: 'Request' }],
+      });
+    }
     await send('Browser.setDownloadBehavior', { behavior: 'deny' });
     const navigation = await send('Page.navigate', { url: platformStartUrl(platform) });
     if (navigation.errorText) throw new Error('read_only_navigation_failed');
+    const navigationDeadline = Date.now() + 12000;
+    let sourcePageReady = false;
+    while (Date.now() < navigationDeadline) {
+      try {
+        const evaluated = await send('Runtime.evaluate', {
+          expression: '({ href: location.href, readyState: document.readyState })',
+          returnByValue: true,
+        });
+        const value = evaluated?.result?.value || {};
+        sourcePageReady = trustedCollectionPageLocation(value.href, platform)
+          && ['interactive', 'complete'].includes(String(value.readyState || ''));
+        if (sourcePageReady) break;
+      } catch {
+        sourcePageReady = false;
+      }
+      await delay(100);
+    }
+    if (!sourcePageReady) throw new Error('read_only_navigation_not_ready');
   } catch (error) {
     closed = true;
     socket.close();
@@ -654,6 +708,9 @@ async function installPmsReadOnlyPolicy(config, child, platform = 'dingdandao') 
   }
 
   return {
+    requestPolicyEnforced,
+    httpCacheDisabled: true,
+    serviceWorkerBypassed: true,
     close() {
       if (closed) return;
       closed = true;
@@ -709,7 +766,7 @@ export async function createGateway(env = process.env, dependencies = {}) {
         const activeLoginSessions = [...sessions.values()]
           .filter((session) => session.kind === 'login').length;
         const activeCollectionSessions = [...sessions.values()]
-          .filter((session) => session.kind === 'pms_collection').length;
+          .filter((session) => session.kind === 'collection').length;
         jsonResponse(response, 200, {
           status: 'ok',
           bind: config.bindAddress,
@@ -826,12 +883,15 @@ export async function createGateway(env = process.env, dependencies = {}) {
         if (sessions.size > 0) {
           throw new GatewayError('gateway_collection_capacity_busy', 409);
         }
-        const validationAction = collection.platform === 'dingdandao'
-          ? 'validate_dingdandao_collection'
-          : 'validate_pms_collection';
+        const validationAction = OTA_RECEIPT_PLATFORM_PATTERN.test(collection.platform)
+          ? 'validate_ota_collection'
+          : (collection.platform === 'dingdandao'
+            ? 'validate_dingdandao_collection'
+            : 'validate_pms_collection');
         const validated = await bridgeCall(validationAction, {
           profile_id: collection.profileId,
           platform: collection.platform,
+          ...(collection.dataSourceId > 0 ? { data_source_id: collection.dataSourceId } : {}),
           tenant_id: collection.tenantId,
           hotel_id: collection.hotelId,
           owner_user_id: collection.ownerUserId,
@@ -847,6 +907,8 @@ export async function createGateway(env = process.env, dependencies = {}) {
           || validated?.target_date !== collection.targetDate
           || validated?.collection_kind !== collection.collectionKind
           || validated?.access_mode !== collection.accessMode
+          || (collection.dataSourceId > 0
+            && validated?.data_source_id !== collection.dataSourceId)
         ) {
           throw new Error('collection_scope_mismatch');
         }
@@ -858,6 +920,14 @@ export async function createGateway(env = process.env, dependencies = {}) {
         try {
           browser = await startBrowserCall(config, profilePath, collection.platform, 'about:blank');
           guard = await installReadOnlyPolicyCall(config, browser, collection.platform);
+          const isOtaCollection = OTA_RECEIPT_PLATFORM_PATTERN.test(collection.platform);
+          if (guard?.httpCacheDisabled !== true
+            || guard?.serviceWorkerBypassed !== true
+            || (isOtaCollection && guard?.requestPolicyEnforced !== false)
+            || (!isOtaCollection && guard?.requestPolicyEnforced !== true)
+          ) {
+            throw new Error('collection_browser_policy_unverified');
+          }
         } catch {
           guard?.close();
           await stopBrowserCall(browser);
@@ -871,7 +941,7 @@ export async function createGateway(env = process.env, dependencies = {}) {
 
         const session = {
           ...collection,
-          kind: 'pms_collection',
+          kind: 'collection',
           key: collectionSessionId,
           collectionSessionId,
           browser,
@@ -889,6 +959,7 @@ export async function createGateway(env = process.env, dependencies = {}) {
               tenant_id: session.tenantId,
               hotel_id: session.hotelId,
               owner_user_id: session.ownerUserId,
+              ...(session.dataSourceId > 0 ? { data_source_id: session.dataSourceId } : {}),
               target_date: session.targetDate,
               access_mode: session.accessMode,
               status: 'expired',
@@ -907,6 +978,7 @@ export async function createGateway(env = process.env, dependencies = {}) {
           tenant_id: collection.tenantId,
           hotel_id: collection.hotelId,
           owner_user_id: collection.ownerUserId,
+          ...(collection.dataSourceId > 0 ? { data_source_id: collection.dataSourceId } : {}),
           target_date: collection.targetDate,
           collection_kind: collection.collectionKind,
           source_url: validated.source_url || platformStartUrl(collection.platform),
@@ -916,7 +988,12 @@ export async function createGateway(env = process.env, dependencies = {}) {
               : 'today_realtime_accommodation'
           ),
           access_mode: 'read_only',
-          read_only_enforced: true,
+          read_only_enforced: guard.requestPolicyEnforced === true,
+          collector_read_only_contract: OTA_RECEIPT_PLATFORM_PATTERN.test(collection.platform),
+          network_freshness_control: {
+            http_cache_disabled: guard.httpCacheDisabled === true,
+            service_worker_bypassed: guard.serviceWorkerBypassed === true,
+          },
           expires_at: session.expiresAt,
           browser_started: true,
         });
@@ -931,7 +1008,7 @@ export async function createGateway(env = process.env, dependencies = {}) {
         const collection = validateCollectionCloseRequest(await jsonBody(request));
         const session = sessions.get(collection.collectionSessionId);
         if (!session
-          || session.kind !== 'pms_collection'
+          || session.kind !== 'collection'
           || session.profileId !== collection.profileId
           || session.platform !== collection.platform
         ) {
@@ -955,6 +1032,7 @@ export async function createGateway(env = process.env, dependencies = {}) {
           tenant_id: session.tenantId,
           hotel_id: session.hotelId,
           owner_user_id: session.ownerUserId,
+          ...(session.dataSourceId > 0 ? { data_source_id: session.dataSourceId } : {}),
           target_date: session.targetDate,
           access_mode: session.accessMode,
           outcome: collection.outcome,

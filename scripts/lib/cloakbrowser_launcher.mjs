@@ -1,8 +1,14 @@
 import { launchPersistentContext } from 'cloakbrowser';
+import { chromium } from 'playwright-core';
 
 const freshOtaNetworkSessions = new WeakMap();
 
 export async function launchOtaPersistentContext(userDataDir, parsedArgs, defaults = {}) {
+  const cdpUrl = resolveOtaCdpUrl(parsedArgs);
+  if (cdpUrl) {
+    return connectOtaCdpContext(cdpUrl);
+  }
+
   const configuredBinary = stringValue(process.env.CLOAKBROWSER_BINARY_PATH);
   const requestedBinary = resolveOtaBrowserBinaryPath(parsedArgs);
   const applyRequestedBinary = configuredBinary === '' && requestedBinary !== '';
@@ -21,6 +27,35 @@ export async function launchOtaPersistentContext(userDataDir, parsedArgs, defaul
       delete process.env.CLOAKBROWSER_BINARY_PATH;
     }
   }
+}
+
+export async function connectOtaCdpContext(cdpUrl, chromiumClient = chromium) {
+  const normalizedCdpUrl = normalizeOtaCdpUrl(cdpUrl);
+  if (!normalizedCdpUrl) {
+    throw new Error('ota_browser_cdp_url_invalid');
+  }
+
+  const browser = await chromiumClient.connectOverCDP(normalizedCdpUrl);
+  const contexts = browser.contexts();
+  if (contexts.length !== 1) {
+    await browser.close().catch(() => null);
+    throw new Error('ota_browser_cdp_context_count_invalid');
+  }
+
+  const context = contexts[0];
+  let closed = false;
+  Object.defineProperty(context, 'close', {
+    configurable: true,
+    value: async () => {
+      if (closed) {
+        return;
+      }
+      closed = true;
+      await browser.close();
+    },
+  });
+
+  return context;
 }
 
 /**
@@ -57,6 +92,18 @@ export async function requireFreshOtaPageNetwork(context, page) {
 
 export function resolveOtaBrowserBinaryPath(parsedArgs = {}) {
   return stringValue(process.env.CLOAKBROWSER_BINARY_PATH) || stringValue(parsedArgs.chromePath);
+}
+
+export function resolveOtaCdpUrl(parsedArgs = {}) {
+  const value = stringValue(parsedArgs.cdpUrl || parsedArgs.cdp_url);
+  if (!value) {
+    return '';
+  }
+  const normalized = normalizeOtaCdpUrl(value);
+  if (!normalized) {
+    throw new Error('ota_browser_cdp_url_invalid');
+  }
+  return normalized;
 }
 
 export function buildOtaPersistentContextOptions(userDataDir, parsedArgs, defaults = {}) {
@@ -106,4 +153,16 @@ function stringValue(value) {
     return '';
   }
   return String(value).trim();
+}
+
+function normalizeOtaCdpUrl(value) {
+  const match = /^http:\/\/127\.0\.0\.1:([1-9]\d{0,4})\/?$/u.exec(stringValue(value));
+  if (!match) {
+    return '';
+  }
+  const port = Number(match[1]);
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    return '';
+  }
+  return `http://127.0.0.1:${port}`;
 }

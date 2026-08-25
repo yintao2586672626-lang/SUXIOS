@@ -3738,6 +3738,151 @@ window.SUXI_CTRIP_STATIC = (() => {
         return limited.length * lineHeight;
     };
 
+    const normalizeCtripVisibleDownloadText = (value, missingText = '-') => {
+        const parts = String(value ?? '')
+            .replace(/\r\n?/g, '\n')
+            .split(/\n+|\s{2,}/)
+            .map(part => part.replace(/[\t ]+/g, ' ').trim())
+            .filter(Boolean);
+        return parts.length ? parts.join(' · ') : missingText;
+    };
+
+    const ctripVisibleDownloadNodeText = (node, missingText = '-') => (
+        normalizeCtripVisibleDownloadText(node?.innerText ?? node?.textContent ?? '', missingText)
+    );
+
+    const ctripVisibleDownloadSpan = (cell, name) => {
+        const value = Number.parseInt(String(cell?.getAttribute?.(name) || '1'), 10);
+        return Number.isFinite(value) && value > 0 ? value : 1;
+    };
+
+    const ctripVisibleDownloadCellWidth = (cell, label = '') => {
+        const measured = Number(cell?.getBoundingClientRect?.()?.width || 0);
+        if (Number.isFinite(measured) && measured > 0) {
+            return Math.min(280, Math.max(58, Math.round(measured)));
+        }
+        const estimated = Array.from(String(label || '')).length * 14 + 28;
+        return Math.min(280, Math.max(90, estimated));
+    };
+
+    const ctripVisibleDownloadCellAlign = (cell, getComputedStyle = null) => {
+        const className = typeof cell?.className === 'string'
+            ? cell.className
+            : String(cell?.getAttribute?.('class') || '');
+        if (/(?:^|\s)text-left(?:\s|$)/.test(className)) return 'left';
+        if (/(?:^|\s)text-right(?:\s|$)/.test(className)) return 'right';
+        if (/(?:^|\s)text-center(?:\s|$)/.test(className)) return 'center';
+        if (typeof getComputedStyle === 'function') {
+            const computedAlign = String(getComputedStyle(cell)?.textAlign || '').toLowerCase();
+            if (['left', 'right', 'center'].includes(computedAlign)) return computedAlign;
+        }
+        return 'center';
+    };
+
+    const captureCtripBusinessDownloadSnapshot = ({
+        root = null,
+        getComputedStyle = null,
+    } = {}) => {
+        if (!root || typeof root.querySelector !== 'function') {
+            throw new Error('ctrip_visible_download_root_unavailable');
+        }
+        const tableElement = root.querySelector('[data-download-table]');
+        if (!tableElement) {
+            throw new Error('ctrip_visible_download_table_unavailable');
+        }
+
+        const headerRows = Array.from(tableElement.querySelectorAll?.('thead tr') || []);
+        const headerGrid = [];
+        headerRows.forEach((row, rowIndex) => {
+            if (!headerGrid[rowIndex]) headerGrid[rowIndex] = [];
+            let columnIndex = 0;
+            Array.from(row.querySelectorAll?.('th') || []).forEach(cell => {
+                while (headerGrid[rowIndex][columnIndex]) columnIndex += 1;
+                const colspan = ctripVisibleDownloadSpan(cell, 'colspan');
+                const rowspan = ctripVisibleDownloadSpan(cell, 'rowspan');
+                const descriptor = {
+                    text: ctripVisibleDownloadNodeText(cell),
+                    cell,
+                    colspan,
+                };
+                for (let rowOffset = 0; rowOffset < rowspan; rowOffset += 1) {
+                    const targetRowIndex = rowIndex + rowOffset;
+                    if (!headerGrid[targetRowIndex]) headerGrid[targetRowIndex] = [];
+                    for (let columnOffset = 0; columnOffset < colspan; columnOffset += 1) {
+                        headerGrid[targetRowIndex][columnIndex + columnOffset] = descriptor;
+                    }
+                }
+                columnIndex += colspan;
+            });
+        });
+
+        const bodyRowElements = Array.from(tableElement.querySelectorAll?.('tbody tr') || []);
+        const rows = bodyRowElements.map(row => (
+            Array.from(row.querySelectorAll?.('td') || []).map(cell => ctripVisibleDownloadNodeText(cell))
+        ));
+        const columnCount = Math.max(
+            0,
+            ...headerGrid.map(row => row.length),
+            ...rows.map(row => row.length),
+        );
+        if (!columnCount) {
+            throw new Error('ctrip_visible_download_columns_unavailable');
+        }
+        if (!rows.length) {
+            throw new Error('ctrip_visible_download_rows_unavailable');
+        }
+
+        const firstBodyCells = Array.from(bodyRowElements[0]?.querySelectorAll?.('td') || []);
+        const columns = Array.from({ length: columnCount }, (_, columnIndex) => {
+            const labels = [];
+            headerGrid.forEach(row => {
+                const text = String(row[columnIndex]?.text || '').trim();
+                if (text && !labels.includes(text)) labels.push(text);
+            });
+            const label = labels.length ? labels.join(' · ') : `第${columnIndex + 1}列`;
+            const leafHeader = [...headerGrid]
+                .reverse()
+                .map(row => row[columnIndex])
+                .find(Boolean);
+            const widthCell = firstBodyCells[columnIndex] || leafHeader?.cell || null;
+            let width = ctripVisibleDownloadCellWidth(widthCell, label);
+            if (!firstBodyCells[columnIndex] && leafHeader?.colspan > 1) {
+                width = Math.max(58, Math.round(width / leafHeader.colspan));
+            }
+            return {
+                label,
+                width,
+                value: row => row?.[columnIndex] ?? '-',
+                align: ctripVisibleDownloadCellAlign(firstBodyCells[columnIndex], getComputedStyle),
+            };
+        });
+
+        const cards = Array.from(root.querySelectorAll?.('[data-testid="ctrip-summary-card"]') || []).map(card => ({
+            value: ctripVisibleDownloadNodeText(card.querySelector?.('.ctrip-summary-card-value')),
+            label: ctripVisibleDownloadNodeText(card.querySelector?.('.ctrip-summary-card-label')),
+            level: ctripVisibleDownloadNodeText(card.querySelector?.('.ctrip-summary-card-level'), ''),
+            panelClass: typeof card.className === 'string'
+                ? card.className
+                : String(card.getAttribute?.('class') || ''),
+        }));
+        const sourceNoticeElement = root.querySelector('[data-testid="ctrip-business-source-notice"]');
+
+        return {
+            cards,
+            sourceNotice: sourceNoticeElement
+                ? ctripVisibleDownloadNodeText(sourceNoticeElement, '')
+                : '',
+            table: {
+                title: normalizeCtripVisibleDownloadText(
+                    tableElement.getAttribute?.('data-download-title') || '',
+                    '当前可见数据',
+                ),
+                columns,
+                rows,
+            },
+        };
+    };
+
     const buildCtripBusinessCanvas = ({
         cards = [],
         table = {},
@@ -4063,6 +4208,7 @@ window.SUXI_CTRIP_STATIC = (() => {
         buildCtripProfileRecheckInterruptedState,
         runCtripProfileRecheckFlow,
         getCtripCookieApiCorePresetEndpoints,
+        captureCtripBusinessDownloadSnapshot,
         buildCtripBusinessCanvas,
     };
 })();

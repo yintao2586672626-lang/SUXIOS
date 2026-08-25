@@ -1448,7 +1448,10 @@ class OtaRevenueMetricService
         ];
         foreach ($captureSources as $source) {
             $source = strtolower(trim((string)($source ?? '')));
-            if ($source === 'dom:traffic:flow_funnel') {
+            if (in_array($source, [
+                'dom:traffic:flow_funnel',
+                'dom:traffic:home_summary',
+            ], true)) {
                 return 'dom_fallback';
             }
             if ($source === 'xhr:traffic:source_breakdown') {

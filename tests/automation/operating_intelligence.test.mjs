@@ -46,6 +46,11 @@ test('unified Agent operating question saves and performs an exact second readba
   assert.match(questions, /readback_verified/);
   assert.match(questions, /blocked_by_missing_facts/);
   assert.match(frontend, /\/agent\/operating-questions/);
+  assert.match(routes, /operating-question-scopes/);
+  assert.match(controller, /questionScopeOptions/);
+  assert.match(questions, /operating_question_scope_options\.v1/);
+  assert.match(frontend, /loadOperatingQuestionScopeOptions/);
+  assert.match(frontend, /loadOperatingQuestionHistory/);
   assert.match(frontend, /operating-question-readback-error/);
   assert.match(frontend, /content_digest/);
   assert.match(agentPage, /<oq><\/oq>/);
@@ -93,6 +98,13 @@ test('professional operating questions remain evidence-gated while the global en
   assert.match(questions, /\(float\)\$value === 0\.0/);
   assert.match(aiAnswers, /unknown_after_client_attempt/);
   assert.match(aiAnswers, /不得改价、改库存、创建任务、外发消息/);
+  assert.match(aiAnswers, /DEFAULT_MODEL_KEY = 'deepseek_v4_pro'/);
+  assert.match(aiAnswers, /operating_question_grounded_ai\.zh-CN\.v4/);
+  assert.match(aiAnswers, /decision_frame 只是用户选择或问题关键词推断的分析组织框架/);
+  assert.match(questions, /RevenueDecisionFrameService/);
+  assert.match(controller, /decision_object/);
+  assert.match(aiAnswers, /deepseek_v4_pro_not_confirmed/);
+  assert.match(questions, /string \$modelKey = 'deepseek_v4_pro'/);
   assert.match(questions, /platform_date_fact_coverage_missing/);
   assert.match(questions, /whereIn\('platform', self::ALL_OTA_REQUIRED_PLATFORMS\)/);
   assert.match(questions, /whereIn\('i\.platform', self::ALL_OTA_REQUIRED_PLATFORMS\)/);
@@ -113,10 +125,14 @@ test('professional operating questions remain evidence-gated while the global en
   assert.match(systemUsageGuideComponent, /system-guide-input/);
   assert.match(systemUsageGuideComponent, /system-guide-submit/);
   assert.match(systemUsageGuideComponent, /system-guide-result/);
-  assert.match(systemUsageGuideComponent, /教你使用 · 给出证据结论 · 生成行动草案/);
+  assert.match(systemUsageGuideComponent, /说出目标，我带你找到入口并核对是否完成/);
   assert.match(frontend, /\/agent\/system-guidance/);
   assert.match(systemUsageGuideComponent, /history: conversationHistory\(\)/);
+  assert.match(systemUsageGuideComponent, /current_scope:/);
   assert.match(systemUsageGuideComponent, /visible_topic_keys: visibleTopicKeys\(\)/);
+  assert.match(systemUsageGuideComponent, /active_journey: activeJourneyContext\(\)/);
+  assert.match(systemUsageGuideComponent, /system-guide-context/);
+  assert.match(systemUsageGuideComponent, /继续当前任务/);
   assert.match(systemUsageGuideComponent, /system-guide-journey-goal/);
   assert.match(systemUsageGuideComponent, /system-guide-active-journey/);
   assert.match(systemUsageGuideComponent, /仅到达页面不会被算作完成/);
@@ -130,24 +146,33 @@ test('professional operating questions remain evidence-gated while the global en
   assert.doesNotMatch(systemUsageGuideComponent, /fa-chevron-up/);
   assert.match(systemUsageGuideComponent, /h\('span', '拖动'\)/);
   assert.match(systemUsageGuideComponent, /h\('span', '收起'\)/);
-  assert.match(systemUsageGuideComponent, /DeepSeek直接生成 · 真实入口约束/);
+  assert.match(systemUsageGuideComponent, /已按目标生成系统路径 · 入口权限已核对/);
   assert.match(systemUsageGuideComponent, /SYSTEM_ASSISTANT_MODE_OPTIONS/);
   assert.match(systemUsageGuideComponent, /system-guide-mode-switcher/);
   assert.match(systemUsageGuideComponent, /runOperatingWorkflow/);
+  assert.match(systemUsageGuideComponent, /form\.model_key = 'local_second_brain'/);
   assert.match(systemUsageGuideComponent, /operating_result/);
   assert.match(systemUsageGuideComponent, /system-guide-operating-result/);
   assert.match(systemUsageGuideComponent, /在页面中指给我看/);
   assert.match(systemUsageGuideComponent, /phase1EmployeeClosureSummary/);
   assert.match(systemUsageGuideComponent, /autoFetchCanonicalOperationStatus/);
   assert.match(systemUsageGuideComponent, /sx-system-guide-anchor-active/);
-  assert.match(systemUsageGuideComponent, /模型只负责理解和说明；导航目标来自系统白名单/);
+  assert.match(systemUsageGuideComponent, /导航目标来自当前账号可用的系统功能/);
+  assert.doesNotMatch(systemUsageGuideComponent, /DeepSeek V4 Pro 正式版 · 教你使用 · 给出证据结论/);
+  assert.doesNotMatch(systemUsageGuideComponent, /DeepSeek V4 Pro 正在理解目标/);
+  assert.doesNotMatch(systemUsageGuideComponent, /DeepSeek V4 Pro直接生成 · 真实入口约束/);
   assert.match(systemUsageGuideComponent, /openOnlineDataTab/);
   assert.match(systemUsageGuideComponent, /openOnlinePlatformAutoTab/);
   assert.doesNotMatch(systemUsageGuideComponent, /request\('\/agent\/operating-questions/);
   assert.doesNotMatch(systemUsageGuideComponent, /operating-question-hotel|operating-question-platform/);
   assert.doesNotMatch(frontend, /const operatingQuestionPanel = \{[\s\S]{0,300}template:/);
   assert.match(style, /\.sx-ai-consultant-panel/);
+  assert.match(style, /\.sx-ai-consultant-context/);
   assert.match(style, /\.sx-ai-consultant-journey-list/);
+  assert.match(systemGuidance, /'key' => 'ctrip-data'/);
+  assert.match(systemGuidance, /'key' => 'meituan-data'/);
+  assert.match(systemGuidance, /'key' => 'operation-optimizer'/);
+  assert.match(systemGuidance, /'key' => 'knowledge-search'/);
   assert.match(style, /\.sx-ai-consultant-header[\s\S]*cursor: grab/);
   assert.match(style, /\.sx-ai-consultant-launcher[\s\S]*touch-action: none/);
   assert.match(style, /\.sx-ai-consultant-answer-summary[\s\S]*font-size: 15px/);
@@ -156,15 +181,17 @@ test('professional operating questions remain evidence-gated while the global en
   assert.match(style, /\.sx-system-guide-coach/);
   assert.match(style, /\.sx-system-guide-anchor-active/);
   assert.match(style, /@media \(max-width: 640px\)/);
+  assert.match(frontend, /operating-question-decision-object/);
+  assert.match(frontend, /operating-question-decision-frame/);
 });
 
 test('system usage assistant maps common work to a real page and falls back to task navigation', () => {
-  const { resolveSystemUsageGuideTopic, SYSTEM_USAGE_GUIDE_TOPICS, SYSTEM_USAGE_GUIDE_SUCCESS_MARKERS } = new Function(
-    `${systemUsageGuideHelpers}\nreturn { resolveSystemUsageGuideTopic, SYSTEM_USAGE_GUIDE_TOPICS, SYSTEM_USAGE_GUIDE_SUCCESS_MARKERS };`,
+  const { resolveSystemUsageGuideTopic, resolveSystemUsageGuideJourney, SYSTEM_USAGE_GUIDE_TOPICS, SYSTEM_USAGE_GUIDE_SUCCESS_MARKERS } = new Function(
+    `${systemUsageGuideHelpers}\nreturn { resolveSystemUsageGuideTopic, resolveSystemUsageGuideJourney, SYSTEM_USAGE_GUIDE_TOPICS, SYSTEM_USAGE_GUIDE_SUCCESS_MARKERS };`,
   )();
 
-  assert.equal(SYSTEM_USAGE_GUIDE_TOPICS.length, 15);
-  assert.equal(Object.keys(SYSTEM_USAGE_GUIDE_SUCCESS_MARKERS).length, 15);
+  assert.equal(SYSTEM_USAGE_GUIDE_TOPICS.length, 25);
+  assert.equal(Object.keys(SYSTEM_USAGE_GUIDE_SUCCESS_MARKERS).length, 25);
   assert.match(SYSTEM_USAGE_GUIDE_SUCCESS_MARKERS['data-health'], /精确回读/);
   assert.equal(resolveSystemUsageGuideTopic('我是第一次使用，今天应该先做什么').key, 'daily-workbench');
   assert.equal(resolveSystemUsageGuideTopic('携程数据缺失去哪里处理').key, 'data-health');
@@ -173,6 +200,14 @@ test('system usage assistant maps common work to a real page and falls back to t
   assert.equal(resolveSystemUsageGuideTopic('自动任务没运行').key, 'automation-monitor');
   assert.equal(resolveSystemUsageGuideTopic('怎么给新员工开账号并分配酒店权限').key, 'team-permissions');
   assert.equal(resolveSystemUsageGuideTopic('怎么生成今天的AI经营日报').key, 'ai-daily-report');
+  assert.equal(resolveSystemUsageGuideTopic('美团订单和流量去哪里看').key, 'meituan-data');
+  const ctripPlan = resolveSystemUsageGuideTopic('先看携程经营数据，再形成运营方案');
+  assert.equal(ctripPlan.key, 'ctrip-data');
+  assert.deepEqual(resolveSystemUsageGuideJourney('先看携程经营数据，再形成运营方案', ctripPlan), [
+    'ctrip-data', 'revenue-report', 'operation-optimizer',
+  ]);
+  assert.equal(resolveSystemUsageGuideTopic('去哪里找系统功能说明').key, 'knowledge-search');
+  assert.equal(resolveSystemUsageGuideTopic('怎么查看操作日志').key, 'operation-audit');
   assert.equal(resolveSystemUsageGuideTopic('这是一个没有目录的陌生请求').key, 'task-navigation');
   assert.equal(resolveSystemUsageGuideTopic('这是一个没有目录的陌生请求', 'compass').key, 'task-navigation');
 });

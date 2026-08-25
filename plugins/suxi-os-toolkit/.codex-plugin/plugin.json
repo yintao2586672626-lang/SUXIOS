@@ -1,6 +1,6 @@
 {
   "name": "suxi-os-toolkit",
-  "version": "0.1.0",
+  "version": "0.1.0+codex.20260823093738",
   "description": "宿析OS项目本地工具包，打包多源能力吸收与复刻、OTA运营、字段闭环、收益语义层、AI报告、投资测算、测试守卫、插件路由、ECC适配、Scrapling和数据驾驶舱UI等项目 Skills。",
   "author": {
     "name": "SUXIOS",

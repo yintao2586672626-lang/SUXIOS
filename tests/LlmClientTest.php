@@ -205,12 +205,12 @@ final class LlmClientTest extends TestCase
 
     public function testDirectStructuredEnvelopeReturnsActualDeepSeekMetadataAndValidatesSchema(): void
     {
-        $primary = ScriptedLlmClient::modelConfig('deepseek_chat', 'deepseek');
-        $primary['model'] = 'deepseek-v4-flash';
+        $primary = ScriptedLlmClient::modelConfig('deepseek_v4_pro', 'deepseek');
+        $primary['model'] = 'deepseek-v4-pro';
         $client = new ScriptedLlmClient($primary, [
             ScriptedLlmClient::modelConfig('backup_model', 'openai'),
         ], [
-            'deepseek_chat' => [ScriptedLlmClient::success(json_encode([
+            'deepseek_v4_pro' => [ScriptedLlmClient::success(json_encode([
                 'summary' => 'ok',
                 'confidence' => 'medium',
             ], JSON_UNESCAPED_UNICODE))],
@@ -231,17 +231,22 @@ final class LlmClientTest extends TestCase
                 'hotel_id' => 20,
                 'user_id' => 7,
             ],
-        ], 'deepseek_v4_default');
+        ], 'deepseek_v4_pro');
 
         self::assertSame('ok', $envelope['data']['summary']);
         self::assertSame('deepseek', $envelope['meta']['provider']);
-        self::assertSame('deepseek_chat', $envelope['meta']['model_key']);
-        self::assertSame('deepseek-v4-flash', $envelope['meta']['model']);
+        self::assertSame('deepseek_v4_pro', $envelope['meta']['model_key']);
+        self::assertSame('deepseek-v4-pro', $envelope['meta']['model']);
         self::assertSame('stop', $envelope['meta']['finish_reason']);
+        self::assertSame('enabled', $envelope['meta']['thinking_mode']);
+        self::assertSame('high', $envelope['meta']['reasoning_effort']);
         self::assertFalse($envelope['meta']['fallback_used']);
         self::assertCount(1, $client->calls);
         self::assertSame(['type' => 'json_object'], $client->calls[0]['payload']['response_format']);
-        self::assertSame(['type' => 'disabled'], $client->calls[0]['payload']['thinking']);
+        self::assertSame(['type' => 'enabled'], $client->calls[0]['payload']['thinking']);
+        self::assertSame('high', $client->calls[0]['payload']['reasoning_effort']);
+        self::assertSame(8192, $client->calls[0]['payload']['max_tokens']);
+        self::assertSame(60, $client->calls[0]['timeout']);
         self::assertMatchesRegularExpression('/^[A-Za-z0-9_-]{1,128}$/', $client->calls[0]['payload']['user_id']);
     }
 
@@ -265,6 +270,8 @@ final class LlmClientTest extends TestCase
             self::fail('missing required field must be rejected');
         } catch (\RuntimeException) {
             self::assertCount(1, $missing->calls);
+            self::assertSame(45, $missing->calls[0]['timeout']);
+            self::assertSame(2048, $missing->calls[0]['payload']['max_tokens']);
         }
 
         $truncated = new ScriptedLlmClient($primary, [], [
@@ -272,6 +279,26 @@ final class LlmClientTest extends TestCase
         ]);
         $this->expectException(\RuntimeException::class);
         $truncated->createJsonResponseEnvelope([], $schema, 'deepseek_chat');
+    }
+
+    public function testDirectStructuredEnvelopeDoesNotRetryAmbiguousTransportFailure(): void
+    {
+        $primary = ScriptedLlmClient::modelConfig('deepseek_v4_pro', 'deepseek');
+        $primary['model'] = 'deepseek-v4-pro';
+        $client = new ScriptedLlmClient($primary, [], [
+            'deepseek_v4_pro' => [ScriptedLlmClient::transportFailure(CURLE_OPERATION_TIMEDOUT)],
+        ]);
+
+        try {
+            $client->createJsonResponseEnvelope([], [
+                'type' => 'object',
+                'required' => ['summary'],
+                'properties' => ['summary' => ['type' => 'string']],
+            ], 'deepseek_v4_pro');
+            self::fail('ambiguous direct transport failure must not be accepted');
+        } catch (\RuntimeException) {
+            self::assertCount(1, $client->calls);
+        }
     }
 
     public function testNormalizeKnowledgeSourcesAcceptsStringLists(): void
@@ -771,6 +798,7 @@ final class ScriptedLlmClient extends LlmClient
         $this->calls[] = [
             'model_key' => $modelKey,
             'request_id' => (string)($options['request_id'] ?? ''),
+            'timeout' => (int)($options['timeout'] ?? 0),
             'payload' => json_decode($payloadJson, true),
         ];
         $response = array_shift($this->scripts[$modelKey]);

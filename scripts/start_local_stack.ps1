@@ -34,6 +34,7 @@ $BackendPorts = @($BackendPort..($BackendPort + $PhpWorkerCount - 1))
 $BackendUrls = @($BackendPorts | ForEach-Object { "http://$BindHost`:$($_)" })
 $StaticProbeUrl = "http://$BindHost`:$Port/vue.global.prod.js?v=startup-static-probe"
 $OriginServerPath = Join-Path $RepoRoot "scripts\local_origin_server.mjs"
+$WecomAibotWorkerPath = Join-Path $RepoRoot "scripts\wecom_aibot_worker.mjs"
 $PublicRoot = Join-Path $RepoRoot "public"
 
 if (($BackendPort + $PhpWorkerCount - 1) -gt 65535) {
@@ -397,6 +398,79 @@ function Start-ThinkPhp {
     throw "Concurrent local origin did not become healthy at $HealthUrl with static assets available within $PhpWaitSeconds seconds."
 }
 
+function Start-WecomAibot {
+    $allowedKeys = @(
+        "SUXIOS_WECOM_AIBOT_ID",
+        "SUXIOS_WECOM_AIBOT_SECRET",
+        "SUXIOS_WECOM_AIBOT_RELAY_TOKEN",
+        "SUXIOS_LOCAL_API_BASE"
+    )
+    $projectEnvPath = Join-Path $RepoRoot ".env"
+    if (Test-Path -LiteralPath $projectEnvPath) {
+        foreach ($line in Get-Content -LiteralPath $projectEnvPath) {
+            $trimmed = [string]$line
+            $trimmed = $trimmed.Trim()
+            if ([string]::IsNullOrWhiteSpace($trimmed) -or $trimmed.StartsWith("#")) { continue }
+            $separator = $trimmed.IndexOf("=")
+            if ($separator -le 0) { continue }
+            $key = $trimmed.Substring(0, $separator).Trim()
+            if ($allowedKeys -notcontains $key) { continue }
+            $existingValue = [Environment]::GetEnvironmentVariable($key, "Process")
+            if (-not [string]::IsNullOrWhiteSpace($existingValue)) { continue }
+            $value = $trimmed.Substring($separator + 1).Trim()
+            if ($value.Length -ge 2 `
+                -and (($value.StartsWith('"') -and $value.EndsWith('"')) `
+                    -or ($value.StartsWith("'") -and $value.EndsWith("'")))) {
+                $value = $value.Substring(1, $value.Length - 2)
+            }
+            [Environment]::SetEnvironmentVariable($key, $value, "Process")
+        }
+    }
+    $botId = [string]$env:SUXIOS_WECOM_AIBOT_ID
+    $botSecret = [string]$env:SUXIOS_WECOM_AIBOT_SECRET
+    $relayToken = [string]$env:SUXIOS_WECOM_AIBOT_RELAY_TOKEN
+    if ([string]::IsNullOrWhiteSpace($botId) `
+        -or [string]::IsNullOrWhiteSpace($botSecret) `
+        -or $relayToken.Length -lt 32) {
+        Write-Host "[SKIP] WeCom AI Bot agent is not configured; local SUXIOS remains available."
+        return
+    }
+    if (-not (Test-Path -LiteralPath $WecomAibotWorkerPath)) {
+        Write-Warning "WeCom AI Bot worker script is missing; local SUXIOS remains available."
+        return
+    }
+
+    $statePath = Join-Path $RepoRoot "runtime\wecom-aibot-state.json"
+    if (Test-Path -LiteralPath $statePath) {
+        try {
+            $state = Get-Content -LiteralPath $statePath -Raw | ConvertFrom-Json -ErrorAction Stop
+            $workerProcess = Get-Process -Id ([int]$state.pid) -ErrorAction SilentlyContinue
+            if ($workerProcess -and $workerProcess.ProcessName -match '^node') {
+                $workerCommand = Get-CimInstance Win32_Process -Filter "ProcessId = $([int]$state.pid)" -ErrorAction SilentlyContinue
+                if ([string]$workerCommand.CommandLine -like '*wecom_aibot_worker.mjs*') {
+                    Write-Host "[OK] WeCom AI Bot agent process is already running (state: $([string]$state.status))."
+                    return
+                }
+            }
+        } catch {
+            Write-Host "[INFO] Existing WeCom AI Bot state is stale; starting a new worker."
+        }
+    }
+
+    $env:SUXIOS_LOCAL_API_BASE = $BaseUrl.TrimEnd('/')
+    $stdout = Join-Path $LogDir "wecom-aibot.out.log"
+    $stderr = Join-Path $LogDir "wecom-aibot.err.log"
+    Write-Host "[INFO] Starting hidden WeCom AI Bot WebSocket agent."
+    Start-Process `
+        -FilePath $NodeExe `
+        -ArgumentList @($WecomAibotWorkerPath) `
+        -WorkingDirectory $RepoRoot `
+        -WindowStyle Hidden `
+        -RedirectStandardOutput $stdout `
+        -RedirectStandardError $stderr `
+        | Out-Null
+}
+
 if (-not (Test-Path (Join-Path $RepoRoot "think"))) {
     throw "Current folder is not the ThinkPHP project root."
 }
@@ -417,6 +491,7 @@ if (-not (Test-Path -LiteralPath $OriginServerPath)) {
 }
 Invoke-OtaRetentionPreview
 Start-ThinkPhp
+Start-WecomAibot
 
 if (-not $NoBrowser) {
     Start-Process $BaseUrl | Out-Null

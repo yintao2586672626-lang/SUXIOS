@@ -93,6 +93,14 @@
                                         </div>
                                         <p class="mt-3 text-[11px] leading-5 text-slate-400">仅统计当前门店、目标日期、Profile/云同步来源且已数据库回读的数据；旧数据、空值或数值 0 不替代缺失证据。</p>
                                     </section>
+                                    <dual-ota-field-closure-panel
+                                        :closure="collectionReliabilityError ? null : (collectionReliability?.dual_ota_field_closure || null)"
+                                        :request="managerCapabilityRequest"
+                                        :hotel-id="coreOperationsHotelId || dashboardHotelId || filterReportHotel"
+                                        :business-date="coreOperationsTargetDate || coreOperationsMaxDate"
+                                        :force-read="true"
+                                        surface="data_health"
+                                    ></dual-ota-field-closure-panel>
                                     <section data-testid="core-operations-loop" class="overflow-hidden rounded-2xl border border-slate-800 bg-white shadow-xl shadow-slate-200/60">
                                         <header class="relative overflow-hidden bg-slate-950 px-5 py-5 text-white sm:px-6">
                                             <div class="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(59,130,246,0.22),transparent_42%),radial-gradient(circle_at_bottom_left,rgba(16,185,129,0.16),transparent_38%)]"></div>
@@ -3385,16 +3393,35 @@ Authorization: Bearer xxx"></textarea>
                                 </div>
                                 <div class="space-y-4 px-6 py-5">
                                     <label class="block">
-                                        <span class="text-xs font-medium text-slate-600">已实际完成的动作 *</span>
+                                        <span class="text-xs font-medium text-slate-600">执行结果 *</span>
+                                        <select v-model="operationEvidenceForm.execution_status" class="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm">
+                                            <option value="executed">已执行，等待效果观察</option>
+                                            <option value="failed">执行失败</option>
+                                        </select>
+                                    </label>
+                                    <label class="block">
+                                        <span class="text-xs font-medium text-slate-600">实际操作说明 {{ operationEvidenceForm.execution_status === 'executed' ? '*' : '' }}</span>
                                         <textarea v-model.trim="operationEvidenceForm.completed_action" rows="4" placeholder="例如：已人工调整主图顺序，并在携程后台复核展示" class="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"></textarea>
+                                    </label>
+                                    <label v-if="operationEvidenceForm.execution_status === 'failed'" class="block">
+                                        <span class="text-xs font-medium text-slate-600">执行失败原因 *</span>
+                                        <textarea v-model.trim="operationEvidenceForm.failure_reason" rows="3" class="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"></textarea>
                                     </label>
                                     <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
                                         <label class="block">
-                                            <span class="text-xs font-medium text-slate-600">截图 / 回执 / 备注编号</span>
+                                            <span class="text-xs font-medium text-slate-600">截图或附件引用</span>
                                             <input v-model.trim="operationEvidenceForm.receipt_path" placeholder="例如 screenshot#20260719-01" class="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm">
                                         </label>
                                         <label class="block">
-                                            <span class="text-xs font-medium text-slate-600">执行人</span>
+                                            <span class="text-xs font-medium text-slate-600">平台回执 / 回执编号</span>
+                                            <input v-model.trim="operationEvidenceForm.platform_receipt" class="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm">
+                                        </label>
+                                        <label class="block">
+                                            <span class="text-xs font-medium text-slate-600">正式记录引用</span>
+                                            <input v-model.trim="operationEvidenceForm.formal_record_ref" class="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm">
+                                        </label>
+                                        <label class="block">
+                                            <span class="text-xs font-medium text-slate-600">执行人 *</span>
                                             <input v-model.trim="operationEvidenceForm.executed_by" class="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm">
                                         </label>
                                         <label class="block">

@@ -12,6 +12,10 @@ const index = fs.readFileSync('public/index.html', 'utf8');
 const bootstrap = fs.readFileSync('public/app-bootstrap.js', 'utf8');
 const bootstrapRuntime = fs.readFileSync('public/app-bootstrap.min.js', 'utf8');
 const appMain = fs.readFileSync('public/app-main.js', 'utf8');
+const appMainComponents = fs.readFileSync('public/components/system/app-main-components.js', 'utf8');
+const appMainComponentsLoader = fs.readFileSync('public/components/system/app-main-components-loader.js', 'utf8');
+const operatingIntelligenceComponents = fs.readFileSync('public/components/system/operating-intelligence-components.js', 'utf8');
+const operatingIntelligenceLoader = fs.readFileSync('public/components/system/operating-intelligence-loader.js', 'utf8');
 const systemStatic = fs.readFileSync('public/system-static.js', 'utf8');
 const style = fs.readFileSync('public/style.css', 'utf8');
 
@@ -25,7 +29,7 @@ test('public login shell defers the authenticated application asset chain', () =
   const styleAssets = entries
     .filter((entry) => entry.type === 'style')
     .map((entry) => stripFrontendAssetQuery(entry.src));
-  assert.deepEqual(styleAssets, ['tailwind.min.css', 'style.min.css', 'ai-custom.css']);
+  assert.deepEqual(styleAssets, ['tailwind.min.css', 'style-startup.min.css', 'style.min.css', 'ai-custom.css']);
   assert.match(index, /<link rel="stylesheet" href="login-critical\.css\?v=[^"]+"/);
   assert.doesNotMatch(index, /<link[^>]+href="(?:tailwind\.min|style|ai-custom)\.css/);
   assert.equal(scriptAssets[0], 'vue.runtime.global.prod.js');
@@ -33,16 +37,21 @@ test('public login shell defers the authenticated application asset chain', () =
   assert.equal(scriptAssets.at(-2), 'app-render.min.js');
   assert.equal(scriptAssets.at(-1), 'app-main.min.js');
   assert.equal(entries.find((entry) => stripFrontendAssetQuery(entry.src) === 'app-render.min.js')?.phase, 'after-first-paint');
+  assert.equal(entries.find((entry) => stripFrontendAssetQuery(entry.src) === 'style-startup.min.css')?.phase, 'startup');
+  assert.equal(entries.find((entry) => stripFrontendAssetQuery(entry.src) === 'style.min.css')?.phase, 'after-first-paint');
+  assert.equal(entries.find((entry) => stripFrontendAssetQuery(entry.src) === 'ai-custom.css')?.phase, 'after-first-paint');
   assert.equal(
     entries.find((entry) => stripFrontendAssetQuery(entry.src) === 'app-deferred-helpers.min.js')?.phase,
-    'startup',
-    'home OTA truth helpers must load before app-main mounts the authenticated landing page',
+    'after-first-paint',
+    'full-page domain helpers must stay off the authenticated first paint',
   );
   assert(
-    scriptAssets.indexOf('app-deferred-helpers.min.js') < scriptAssets.indexOf('app-startup-render.min.js'),
-    'home OTA truth helpers must precede the startup render',
+    scriptAssets.indexOf('app-deferred-helpers.min.js') < scriptAssets.indexOf('app-render.min.js'),
+    'deferred domain helpers must precede the full render',
   );
   for (const deferredAsset of [
+    'components/system/app-main-components.js',
+    'components/system/operating-intelligence-components.js',
     'ctrip-search-opportunity-static.js',
     'user-admin-static.js',
   ]) {
@@ -64,6 +73,8 @@ test('public login shell defers the authenticated application asset chain', () =
     'compass-static.js',
     'home-static.js',
     'dual-ota-home-static.js',
+    'components/system/app-main-components-loader.js',
+    'components/system/operating-intelligence-loader.js',
   ]) {
     assert(!assets.includes(sourceAsset), `${sourceAsset} must stay out of the runtime manifest`);
   }
@@ -163,7 +174,7 @@ test('authenticated interactive readiness is reset and republished for every log
   );
 });
 
-test('authenticated startup keeps the full render off the network until a non-startup page needs it', () => {
+test('authenticated startup paints the compact page before progressively hydrating the current full page', () => {
   assert.match(bootstrap, /assetBaseName\(asset\.src\) === 'vue\.runtime\.global\.prod\.js'/);
   assert.match(bootstrap, /assetBaseName\(asset\.src\) === 'app-main\.min\.js'/);
   assert.match(bootstrap, /asset\.phase === ASSET_PHASE_STARTUP/);
@@ -198,6 +209,8 @@ test('authenticated startup keeps the full render off the network until a non-st
   assert.doesNotMatch(authenticatedLoad, /void loadDeferredAuthenticatedAssets\(/);
   assert.match(authenticatedLoad, /await loadScript\(entry\);/);
   assert.match(appMain, /requestSuxiFullRenderForPage = \(page\) => \{[\s\S]*window\.SUXI_LOAD_DEFERRED_AUTHENTICATED_ASSETS\(\)/);
+  assert.doesNotMatch(appMain, /startupRenderPages\.has\(normalizedPage\)/);
+  assert.match(appMain, /if \(!normalizedPage\s*\|\| document\.documentElement\.dataset\.suxiRenderPhase === 'full'\)/);
   assert.match(
     appMain,
     /const promoteSuxiFullRender = \(\) => \{[\s\S]*!fullRenderRuntimeReady\(\)\) return false;/,
@@ -222,7 +235,17 @@ test('authenticated startup keeps the full render off the network until a non-st
   assert.doesNotMatch(bootstrap, /for \(const src of assets\)/);
 });
 
-test('data-health helper calls stay lazy while their namespace loads before the authenticated shell mounts', () => {
+test('deferred component bridges keep startup components small and preserve full factories', () => {
+  assert.match(appMainComponentsLoader, /window\.SUXI_APP_MAIN_COMPONENTS = Object\.freeze\(\{ create \}\)/);
+  assert.match(appMainComponentsLoader, /window\.SUXI_APP_MAIN_COMPONENTS_FULL/);
+  assert.match(operatingIntelligenceLoader, /window\.SUXI_OPERATING_INTELLIGENCE_COMPONENTS = Object\.freeze\(\{ create \}\)/);
+  assert.match(operatingIntelligenceLoader, /window\.SUXI_OPERATING_INTELLIGENCE_COMPONENTS_FULL/);
+  assert.match(appMainComponents, /window\.SUXI_APP_MAIN_COMPONENTS_FULL = exportedFactory/);
+  assert.match(operatingIntelligenceComponents, /window\.SUXI_OPERATING_INTELLIGENCE_COMPONENTS_FULL = exportedFactory/);
+  assert.match(appMain, /\{\s*Vue, ref, computed, inject, h, nextTick, onMounted, onUnmounted,\s*\}/);
+});
+
+test('data-health helper calls stay lazy until the progressive full-page bundle is ready', () => {
   assert.match(systemStatic, /const requireDeferredStaticFunction = \(namespace, key, missingMessage, onAccess = null\)/);
   assert.match(systemStatic, /const createLazyFactoryMethods = \(factory, methods = \[\]\)/);
   assert.match(
@@ -334,15 +357,12 @@ test('authenticated login lands on the today operating dashboard through one ent
   assert.match(appMain, /if \(options\.skipOtaBackground !== true\) \{[\s\S]*?loadLatestCtripData[\s\S]*?loadCompetitorSummary/);
 });
 
-test('authenticated dashboard defers secondary API requests beyond the first measurement window', () => {
+test('authenticated dashboard defers read-only secondary APIs and never schedules OTA collection', () => {
   const compassLoaderStart = appMain.indexOf('const loadCompassData = async (options = {}) => {');
   const compassLoaderEnd = appMain.indexOf('\n\n            const refreshCompassDashboard', compassLoaderStart);
   const compassLoader = appMain.slice(compassLoaderStart, compassLoaderEnd);
   assert.match(appMain, /const AUTHENTICATED_SECONDARY_REQUEST_DELAY_MS = 4600;/);
-  assert.match(
-    appMain,
-    /const scheduleDualOtaWorkbenchAutoFetch = \(delayMs = 9000\) => \{/,
-  );
+  assert.doesNotMatch(appMain, /scheduleDualOtaWorkbenchAutoFetch/);
   assert.match(
     appMain,
     /const scheduleInitialBackendNotificationRefresh = \(delayMs = AUTHENTICATED_SECONDARY_REQUEST_DELAY_MS\) => \{/,
@@ -360,7 +380,7 @@ test('authenticated dashboard defers secondary API requests beyond the first mea
     /deferUiTask\(async \(\) => \{[\s\S]*?const compassBackgroundJobs = \[/,
   );
   assert.match(appMain, /scheduleStartupHotelListLoad\(\);\s*schedulePublicSystemConfigRefresh\(\);/);
-  assert.doesNotMatch(appMain, /scheduleDualOtaWorkbenchAutoFetch = \(delayMs = 900\)/);
+  assert.match(appMain, /\/\/ 手动触发自动获取\s+const triggerAutoFetch = async/);
   assert.doesNotMatch(appMain, /scheduleInitialBackendNotificationRefresh = \(delayMs = 800\)/);
   assert.doesNotMatch(appMain, /schedulePublicSystemConfigRefresh = \(delayMs = 1800\)/);
 });

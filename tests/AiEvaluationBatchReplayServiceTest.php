@@ -15,10 +15,10 @@ final class AiEvaluationBatchReplayServiceTest extends TestCase
         $client = new class {
             public int $calls = 0;
 
-            public function createJsonResponse(array $messages, array $schema, string $modelKey = 'deepseek_v4_default'): array
+            public function createJsonResponseEnvelope(array $messages, array $schema, string $modelKey = 'deepseek_v4_default'): array
             {
                 $this->calls++;
-                return ['summary' => 'ok'];
+                return ['data' => ['summary' => 'ok'], 'meta' => []];
             }
         };
 
@@ -59,13 +59,13 @@ final class AiEvaluationBatchReplayServiceTest extends TestCase
         $client = new class {
             public array $calls = [];
 
-            public function createJsonResponse(array $messages, array $schema, string $modelKey = 'deepseek_v4_default'): array
+            public function createJsonResponseEnvelope(array $messages, array $schema, string $modelKey = 'deepseek_v4_default'): array
             {
                 $this->calls[] = compact('messages', 'schema', 'modelKey');
                 if (count($this->calls) === 1) {
-                    return ['summary' => 'ok', 'confidence' => 0.91, 'extra' => 'allowed'];
+                    return ['data' => ['summary' => 'ok', 'confidence' => 0.91, 'extra' => 'allowed'], 'meta' => ['provider' => 'ollama', 'model' => 'qwen3:8b']];
                 }
-                return ['summary' => 'wrong', 'confidence' => 0.88];
+                return ['data' => ['summary' => 'wrong', 'confidence' => 0.88], 'meta' => ['provider' => 'ollama', 'model' => 'qwen3:8b']];
             }
         };
 
@@ -105,6 +105,7 @@ final class AiEvaluationBatchReplayServiceTest extends TestCase
         self::assertSame('ai_governance_evaluation', $client->calls[0]['schema']['x-governance']['module']);
         self::assertSame('ota_diagnosis_governance_v1', $client->calls[0]['schema']['x-governance']['evaluation_set']);
         self::assertSame('pass_case', $client->calls[0]['schema']['x-governance']['eval_case_id']);
+        self::assertSame('ollama', $result['cases'][0]['model_meta']['provider']);
     }
 
     public function testExecuteRequiresExplicitExternalModelCallPermission(): void
@@ -112,10 +113,10 @@ final class AiEvaluationBatchReplayServiceTest extends TestCase
         $client = new class {
             public int $calls = 0;
 
-            public function createJsonResponse(array $messages, array $schema, string $modelKey = 'deepseek_v4_default'): array
+            public function createJsonResponseEnvelope(array $messages, array $schema, string $modelKey = 'deepseek_v4_default'): array
             {
                 $this->calls++;
-                return ['summary' => 'ok'];
+                return ['data' => ['summary' => 'ok'], 'meta' => []];
             }
         };
 
@@ -145,10 +146,10 @@ final class AiEvaluationBatchReplayServiceTest extends TestCase
         $client = new class {
             public int $calls = 0;
 
-            public function createJsonResponse(array $messages, array $schema, string $modelKey = 'deepseek_v4_default'): array
+            public function createJsonResponseEnvelope(array $messages, array $schema, string $modelKey = 'deepseek_v4_default'): array
             {
                 $this->calls++;
-                return ['summary' => 'ok'];
+                return ['data' => ['summary' => 'ok'], 'meta' => []];
             }
         };
 
@@ -184,10 +185,10 @@ final class AiEvaluationBatchReplayServiceTest extends TestCase
         $client = new class {
             public int $calls = 0;
 
-            public function createJsonResponse(array $messages, array $schema, string $modelKey = 'deepseek_v4_default'): array
+            public function createJsonResponseEnvelope(array $messages, array $schema, string $modelKey = 'deepseek_v4_default'): array
             {
                 $this->calls++;
-                return ['summary' => 'ok'];
+                return ['data' => ['summary' => 'ok'], 'meta' => []];
             }
         };
 

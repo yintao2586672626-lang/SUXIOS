@@ -16054,6 +16054,62 @@ main[data-current-page="ai-workbench"] .dual-ota-current-data-state-action:hover
     padding: 13px;
 }
 
+.sx-ai-consultant-context {
+    display: grid;
+    grid-template-columns: 28px minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 9px;
+    margin-bottom: 10px;
+    border: 1px solid rgba(20, 58, 49, 0.16);
+    border-radius: 12px;
+    background: linear-gradient(135deg, #edf5f1, #fffdf7);
+    padding: 9px 10px;
+    color: #24483f;
+}
+
+.sx-ai-consultant-context > i {
+    display: inline-flex;
+    width: 28px;
+    height: 28px;
+    align-items: center;
+    justify-content: center;
+    border-radius: 9px;
+    background: #143a31;
+    color: #dcc591;
+    font-size: 13px;
+}
+
+.sx-ai-consultant-context > span {
+    display: grid;
+    min-width: 0;
+    gap: 1px;
+}
+
+.sx-ai-consultant-context small {
+    color: #6b7b75;
+    font-size: 10px;
+    font-weight: 650;
+}
+
+.sx-ai-consultant-context strong {
+    overflow: hidden;
+    font-size: 13px;
+    font-weight: 740;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.sx-ai-consultant-context em {
+    border-radius: 999px;
+    background: rgba(168, 138, 82, 0.13);
+    padding: 5px 8px;
+    color: #745a2d;
+    font-size: 10px;
+    font-style: normal;
+    font-weight: 680;
+    white-space: nowrap;
+}
+
 .sx-ai-consultant-scope {
     border: 1px solid #dfe7e3;
     border-radius: 12px;
@@ -17019,6 +17075,15 @@ main[data-current-page="ai-workbench"] .dual-ota-current-data-state-action:hover
 
     .sx-ai-consultant-mode-switcher {
         grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .sx-ai-consultant-context {
+        grid-template-columns: 28px minmax(0, 1fr);
+    }
+
+    .sx-ai-consultant-context em {
+        grid-column: 2;
+        justify-self: start;
     }
 
     .sx-ai-consultant-field-wide {

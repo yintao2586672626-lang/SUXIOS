@@ -2091,7 +2091,7 @@ if ($provenanceHelperLoaded -and $explicitScopeComplete) {
         $sourceIdValues = [int[]]@($effectiveSourceIds.Split(',') | ForEach-Object { [int]$_ })
         $platformValues = [string[]]@($effectivePlatforms.Split(',') | ForEach-Object { $_.Trim().ToLowerInvariant() })
         $startManifest = Get-SuxiosDispatcherCodeManifest -ProjectRoot $resolvedRoot
-        $runnerSha256 = (Get-FileHash -LiteralPath $PSCommandPath -Algorithm SHA256 -ErrorAction Stop).Hash.ToLowerInvariant()
+        $runnerSha256 = Get-SuxiosFileSha256 -LiteralPath $PSCommandPath
         $effectiveConfigSha256 = Get-SuxiosDispatcherEffectiveConfigHash `
             -Mode $Mode `
             -Timezone 'Asia/Shanghai' `

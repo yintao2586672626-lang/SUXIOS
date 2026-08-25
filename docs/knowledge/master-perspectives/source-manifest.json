@@ -1,0 +1,58 @@
+{
+  "schema_version": "suxios.master_perspectives.source_manifest.v2",
+  "recorded_at": "2026-08-23T00:00:00+08:00",
+  "source": {
+    "label": "165位大师视角Skill(2).zip",
+    "sha256": "32c06de45983119efd6f7cfa9b1e8ca5ce59f8a4e5339267dc383a5fc0ee3970",
+    "binary_duplicate_of_prior_reviewed_package": true,
+    "prior_package_label": "165位大师视角Skill(1).zip",
+    "source_entry_count": 165,
+    "category_count": 18
+  },
+  "prior_static_review": {
+    "previewed": 150,
+    "review_required": 10,
+    "invalid": 5,
+    "bundled_script_count": 0,
+    "requested_tool_permission_count": 0,
+    "declared_license": "MIT in each nested package",
+    "review_limit": "static review is not proof of safety or author authenticity"
+  },
+  "disposition": {
+    "duplicate_archive": "reject_or_quarantine_no_reprocessing",
+    "source_personas": "store_only_reference_lens",
+    "seven_domain_advisory_method": "absorb",
+    "current_hotel_or_ota_facts": "none",
+    "installation_status": "none_of_165_skills_installed",
+    "execution_status": "no_source_instruction_or_script_executed"
+  },
+  "integrated_capability": {
+    "catalog": "app/service/MasterPerspectiveAdvisoryCatalog.php",
+    "runtime": "app/service/OperatingQuestionCouncilService.php",
+    "entry": "经营问答结果 -> 165视角经营顾问团 -> 发起顾问会诊",
+    "selection": "2_to_5_domain_lenses_by_question_and_saved_evidence_gap",
+    "required_lenses": [
+      "evidence_and_uncertainty",
+      "customer_and_value"
+    ],
+    "optional_lenses": [
+      "competition_and_strategy",
+      "operations_and_execution",
+      "risk_and_resilience",
+      "communication_and_alignment",
+      "ethics_and_fairness"
+    ],
+    "fact_gate": "re-read exact online_daily_data ids under tenant_hotel_platform_business_date scope and block source drift",
+    "persistence": "hotel_operating_question_council_runs with content digest and exact run-id readback",
+    "external_action": "not_authorized_user_trigger_required"
+  },
+  "truth_boundaries": {
+    "real_human_consultants": false,
+    "independent_expert_consensus": false,
+    "persona_impersonation": false,
+    "unverified_quote": false,
+    "channel_fact_promoted_to_whole_hotel_fact": false,
+    "automatic_ota_or_pms_write": false,
+    "automatic_message_or_task_creation": false
+  }
+}

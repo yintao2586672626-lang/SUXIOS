@@ -31,6 +31,7 @@ export const FRONTEND_TEMPLATE_FRAGMENT_DEFINITIONS = Object.freeze([
   { id: 'page-hotels', domain: 'hotel-admin', path: 'fragments/18-page-hotels.html', anchor: '<div v-if="currentPage === \'hotels\'" class="space-y-5">' },
   { id: 'page-revenue-research-center', domain: 'revenue', path: 'fragments/19-page-revenue-research-center.html', anchor: '<div v-if="currentPage === \'revenue-research-center\'" class="max-w-7xl mx-auto space-y-4">' },
   { id: 'page-operation-optimizer', domain: 'revenue', path: 'fragments/19a-page-operation-optimizer.html', anchor: '<div v-if="currentPage === \'operation-optimizer\'" class="max-w-7xl mx-auto space-y-5" data-testid="page-operation-optimizer">' },
+  { id: 'page-operating-opportunities', domain: 'operations', path: 'fragments/19b-page-operating-opportunities.html', anchor: '<div v-if="currentPage === \'operating-opportunities\'" class="suxi-dashboard-scope" data-testid="page-operating-opportunities">' },
   { id: 'page-knowledge-center', domain: 'knowledge', path: 'fragments/20-page-knowledge-center.html', anchor: '<div v-if="currentPage === \'knowledge-center\'" class="max-w-6xl mx-auto space-y-4">' },
   { id: 'page-users', domain: 'system-admin', path: 'fragments/21-page-users.html', anchor: '<div v-if="currentPage === \'users\'">' },
   { id: 'page-roles', domain: 'system-admin', path: 'fragments/22-page-roles.html', anchor: '<div v-if="currentPage === \'roles\'">' },
@@ -107,6 +108,22 @@ const BUSINESS_CLOSURE_TEMPLATE_VIEW_DEFINITIONS = Object.freeze([
     start: '        <div v-if="showKnowledgeCenterImportModal" class="fixed inset-0 z-50 flex items-center justify-center modal-overlay">',
     end: '\n        <!--',
     wrapper: '        <knowledge-xlsx-import-dialog-view v-if="showKnowledgeCenterImportModal" :ctx="$root"></knowledge-xlsx-import-dialog-view>\n',
+  }),
+  Object.freeze({
+    id: 'meituan-review-order-evidence',
+    fragmentId: 'page-meituan-ebooking',
+    componentKey: 'MeituanReviewOrderEvidenceBody',
+    start: '                                <div v-if="onlineDataTab === \'meituan-review-match\'" data-testid="meituan-review-order-evidence-workbench"',
+    end: '                                <!-- 榜单数据获取 -->',
+    wrapper: '                                <meituan-review-order-evidence-view v-if="onlineDataTab === \'meituan-review-match\'" :ctx="$root"></meituan-review-order-evidence-view>\n\n',
+  }),
+  Object.freeze({
+    id: 'ai-daily-presentation-delivery',
+    fragmentId: 'page-ai-daily-report',
+    componentKey: 'AiDailyPresentationDeliveryBody',
+    start: '                                    <section data-testid="ai-daily-presentation-delivery"',
+    end: '                                    <section class="rounded-lg border border-gray-100 bg-white p-4">',
+    wrapper: '                                    <ai-daily-presentation-delivery-view :ctx="$root"></ai-daily-presentation-delivery-view>\n',
   }),
 ]);
 

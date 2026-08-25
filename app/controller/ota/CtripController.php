@@ -170,6 +170,16 @@ final class CtripController extends OtaController
         return $this->service()->execute(__FUNCTION__);
     }
 
+    public function rejectCtripReviewOrderMatch(): Response
+    {
+        return $this->service()->execute(__FUNCTION__);
+    }
+
+    public function unbindCtripReviewOrderMatch(): Response
+    {
+        return $this->service()->execute(__FUNCTION__);
+    }
+
     private function service(): CtripService
     {
         return $this->ctripService ??= $this->app->make(

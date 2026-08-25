@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace app\model;
 
 use app\service\SensitiveValueCipher;
+use InvalidArgumentException;
 use RuntimeException;
 use think\Model;
 
@@ -61,10 +62,20 @@ class SystemConfig extends Model
     // 显示设置
     const KEY_THEME = 'theme';
     const KEY_PRIMARY_COLOR = 'primary_color';
+    const KEY_PALETTE_ACCEPTANCE_CANDIDATE = 'palette_acceptance_candidate';
     const KEY_DATE_FORMAT = 'date_format';
     const KEY_TIME_FORMAT = 'time_format';
     const KEY_PAGE_SIZE_OPTIONS = 'page_size_options';
     const KEY_DEFAULT_PAGE_SIZE = 'default_page_size';
+
+    public const PALETTE_ACCEPTANCE_CANDIDATES = [
+        'suxios_anchor' => '宿析品牌基线',
+        'editorial_coral_cyan' => '编辑珊瑚青',
+        'boardroom_navy_gold' => '董事会蓝金',
+        'night_signal' => '夜间信号',
+        'data_neutral' => '数据中性色',
+        'training_warm' => '培训暖色',
+    ];
     
     // 功能开关
     const KEY_ENABLE_LOGIN_LOG = 'enable_login_log';
@@ -128,6 +139,9 @@ class SystemConfig extends Model
         if ($key === '') {
             throw new RuntimeException('System config key cannot be empty.');
         }
+        if ($key === self::KEY_PALETTE_ACCEPTANCE_CANDIDATE) {
+            $value = self::normalizePaletteAcceptanceCandidate($value);
+        }
         $storedValue = self::encodeValueForStorage($key, $value);
         $config = self::where('config_key', $key)->find();
         if ($config) {
@@ -150,6 +164,20 @@ class SystemConfig extends Model
             }
             return $saved;
         }
+    }
+
+    public static function normalizePaletteAcceptanceCandidate($value): string
+    {
+        if (!is_string($value)) {
+            throw new InvalidArgumentException('候选配色无效，请从系统提供的候选中选择');
+        }
+
+        $candidate = strtolower(trim($value));
+        if (!array_key_exists($candidate, self::PALETTE_ACCEPTANCE_CANDIDATES)) {
+            throw new InvalidArgumentException('候选配色无效，请从系统提供的候选中选择');
+        }
+
+        return $candidate;
     }
 
     /**
@@ -394,6 +422,7 @@ class SystemConfig extends Model
             // 显示设置
             self::KEY_THEME => 'light',
             self::KEY_PRIMARY_COLOR => '#3B82F6',
+            self::KEY_PALETTE_ACCEPTANCE_CANDIDATE => 'suxios_anchor',
             self::KEY_DATE_FORMAT => 'Y-m-d',
             self::KEY_TIME_FORMAT => 'H:i:s',
             self::KEY_PAGE_SIZE_OPTIONS => '10,20,50,100',
@@ -466,6 +495,7 @@ class SystemConfig extends Model
                 'keys' => [
                     self::KEY_THEME,
                     self::KEY_PRIMARY_COLOR,
+                    self::KEY_PALETTE_ACCEPTANCE_CANDIDATE,
                     self::KEY_DATE_FORMAT,
                     self::KEY_TIME_FORMAT,
                     self::KEY_PAGE_SIZE_OPTIONS,
@@ -540,6 +570,7 @@ class SystemConfig extends Model
             // 显示设置
             self::KEY_THEME => '主题风格',
             self::KEY_PRIMARY_COLOR => '主题色',
+            self::KEY_PALETTE_ACCEPTANCE_CANDIDATE => '候选配色验收记录（仅记录，不自动应用）',
             self::KEY_DATE_FORMAT => '日期格式',
             self::KEY_TIME_FORMAT => '时间格式',
             self::KEY_PAGE_SIZE_OPTIONS => '分页选项',

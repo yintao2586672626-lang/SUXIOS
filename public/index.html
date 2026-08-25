@@ -117,21 +117,30 @@
     <script type="application/json" id="suxi-authenticated-assets">
         [
             {
-                "src": "tailwind.min.css?v=20260717-login-usability-hafa2553672",
+                "src": "tailwind.min.css?v=20260717-login-usability-h4f981249e7",
                 "type": "style"
             },
             {
-                "src": "style.min.css?v=20260804-authenticated-style-h6c7c9954fe",
+                "src": "style-startup.min.css?v=20260821-startup-style-he04f9492b8",
                 "type": "style"
+            },
+            {
+                "src": "style.min.css?v=20260804-authenticated-style-hfc7926ad49",
+                "type": "style",
+                "phase": "after-first-paint"
             },
             {
                 "src": "ai-custom.css?v=20260628-static-router-fix",
-                "type": "style"
+                "type": "style",
+                "phase": "after-first-paint"
             },
             "vue.runtime.global.prod.js?v=20260713-runtime-h039d03af6b",
-            "app-startup-helpers.min.js?v=20260725-startup-bundle-h0c29d869e1",
-            "components/system/business-closure-loader.js?v=20260803-business-closure-loader-h8ee6775901",
-            "components/online-data/ctrip-order-analysis-loader.js?v=20260813-order-analysis-h4259b4e1fe",
+            "app-startup-helpers.min.js?v=20260725-startup-bundle-h758d02dbf5",
+            "components/system/business-closure-loader.js?v=20260803-business-closure-loader-h8abf2f833f",
+            {
+                "src": "components/online-data/ctrip-order-analysis-loader.js?v=20260813-order-analysis-h4259b4e1fe",
+                "phase": "after-first-paint"
+            },
             {
                 "src": "ctrip-search-opportunity-static.js?v=20260713-percentage-points-h4247608158",
                 "phase": "after-first-paint"
@@ -140,15 +149,28 @@
                 "src": "user-admin-static.js?v=20260810-controlled-partner-hfd90442693",
                 "phase": "after-first-paint"
             },
-            "app-deferred-helpers.min.js?v=20260731-deferred-domain-hda4458b206",
-            "components/system/app-main-components.js?v=20260813-yesterday-closure-h50c6d36cd5",
-            "components/system/operating-intelligence-components.js?v=20260813-yesterday-closure-h45ea5a84e0",
-            "app-startup-render.min.js?v=20260717-home-first-hd89d3d9979",
             {
-                "src": "app-render.min.js?v=20260717-ai-daily-result-hdf3c0f4cf3",
+                "src": "app-deferred-helpers.min.js?v=20260731-deferred-domain-hd073157acb",
                 "phase": "after-first-paint"
             },
-            "app-main.min.js?v=20260716-login-flow-h446a3ec8bb"
+            {
+                "src": "components/system/palette-acceptance-gallery.js?v=20260823-palette-acceptance-h6d889e81f4",
+                "phase": "after-first-paint"
+            },
+            {
+                "src": "components/system/app-main-components.js?v=20260825-manager-capability-daily-hd72fa7fd50",
+                "phase": "after-first-paint"
+            },
+            {
+                "src": "components/system/operating-intelligence-components.js?v=20260823-local-brain-h54721d7951",
+                "phase": "after-first-paint"
+            },
+            "app-startup-render.min.js?v=20260717-home-first-h14e3e618b6",
+            {
+                "src": "app-render.min.js?v=20260717-ai-daily-result-h0036a94653",
+                "phase": "after-first-paint"
+            },
+            "app-main.min.js?v=20260716-login-flow-h0eaf351568"
         ]
     </script>
     <script defer src="app-bootstrap.min.js?v=20260717-login-warmup-h5cbcd7a631" data-suxi-critical-asset="app-bootstrap.js"></script>

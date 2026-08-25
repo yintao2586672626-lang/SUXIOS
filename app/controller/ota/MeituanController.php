@@ -75,7 +75,22 @@ final class MeituanController extends OtaController
         return $this->service()->execute(__FUNCTION__);
     }
 
+    public function runMeituanReviewOrderMatchAutomation(): Response
+    {
+        return $this->service()->execute(__FUNCTION__);
+    }
+
+    public function checkMeituanReviewOrderMatchClosure(): Response
+    {
+        return $this->service()->execute(__FUNCTION__);
+    }
+
     public function bindMeituanReviewOrderMatch(): Response
+    {
+        return $this->service()->execute(__FUNCTION__);
+    }
+
+    public function rejectMeituanReviewOrderMatch(): Response
     {
         return $this->service()->execute(__FUNCTION__);
     }

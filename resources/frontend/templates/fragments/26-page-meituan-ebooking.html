@@ -25,6 +25,9 @@
                                         <button type="button" @click="openMeituanStoredDataTab('reviews')" :class="['rounded-lg px-4 py-2.5 text-sm font-semibold transition', onlineDataTab === 'meituan-download' &amp;&amp; downloadCenterTab === 'reviews' ? 'bg-slate-900 text-white shadow-sm' : 'border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 hover:text-gray-900']">
                                             <i class="fas fa-star-half-alt mr-1.5"></i>美团点评
                                         </button>
+                                        <button type="button" data-testid="meituan-review-order-evidence-tab" @click="openMeituanManualTab('meituan-review-match')" :class="['rounded-lg px-4 py-2.5 text-sm font-semibold transition', onlineDataTab === 'meituan-review-match' ? 'bg-slate-900 text-white shadow-sm' : 'border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 hover:text-gray-900']" title="只匹配当前酒店的授权订单证据，不反查匿名身份或手机号。">
+                                            <i class="fas fa-link mr-1.5"></i>点评订单证据
+                                        </button>
                                         <button type="button" @click="openMeituanStoredDataTab('ads')" :class="['rounded-lg px-4 py-2.5 text-sm font-semibold transition', onlineDataTab === 'meituan-download' &amp;&amp; downloadCenterTab === 'ads' ? 'bg-slate-900 text-white shadow-sm' : 'border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 hover:text-gray-900']">
                                             <i class="fas fa-bullhorn mr-1.5"></i>广告数据
                                         </button>
@@ -45,6 +48,166 @@
                                 </div>
 
                                 <!-- 美团老板工作台主内容 -->
+
+                                <div v-if="onlineDataTab === 'meituan-review-match'" data-testid="meituan-review-order-evidence-workbench" class="space-y-4">
+                                    <div class="border rounded-lg bg-white p-4">
+                                        <div class="flex flex-col xl:flex-row xl:items-start xl:justify-between gap-4">
+                                            <div>
+                                                <h4 class="text-lg font-semibold text-gray-900">美团点评订单证据</h4>
+                                                <p class="mt-1 text-sm text-gray-500">只使用当前酒店授权订单号、入住/离店日期、房型和订单状态；不反查匿名身份，不采集或使用手机号。</p>
+                                                <div class="mt-3 flex flex-wrap gap-2 text-xs">
+                                                    <span class="rounded border border-blue-100 bg-blue-50 px-2 py-1 text-blue-700">候选评分</span>
+                                                    <span class="rounded border border-emerald-100 bg-emerald-50 px-2 py-1 text-emerald-700">人工确认</span>
+                                                    <span class="rounded border border-rose-100 bg-rose-50 px-2 py-1 text-rose-700">否决/撤销可回读</span>
+                                                </div>
+                                            </div>
+                                            <div data-testid="meituan-review-current-hotel" class="w-full xl:w-80 rounded-lg border border-amber-100 bg-amber-50 px-3 py-2">
+                                                <span class="block text-xs text-amber-700">当前美团酒店</span>
+                                                <strong class="mt-1 block text-sm text-amber-950">{{ getHotelNameById(meituanForm.hotelId) || '未选择' }}</strong>
+                                                <span class="mt-1 block text-xs text-amber-800">跟随顶部选择，点评与订单证据只写入该酒店。</span>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div class="border rounded-lg bg-white p-4 space-y-4">
+                                        <div class="flex flex-col xl:flex-row xl:items-start xl:justify-between gap-4">
+                                            <div>
+                                                <h5 class="font-semibold text-gray-900">点评—订单候选工作台</h5>
+                                                <p class="mt-1 text-sm text-gray-500">自动计算只生成证据候选；正式“已匹配”必须由你主动点击人工确认。</p>
+                                            </div>
+                                            <div class="flex flex-wrap gap-2">
+                                                <button type="button" @click="checkMeituanReviewMatchClosure" :disabled="!!meituanReviewMatchLoading" class="rounded-lg border border-gray-300 px-4 py-2 text-sm hover:bg-gray-50 disabled:text-gray-400">
+                                                    <i class="fas fa-sync-alt mr-1"></i>{{ meituanReviewMatchLoading === '刷新完成状态' ? '刷新中' : '刷新状态' }}
+                                                </button>
+                                                <button type="button" @click="runMeituanReviewMatchAutomation" :disabled="!!meituanReviewMatchLoading" class="rounded-lg bg-slate-900 px-4 py-2 text-sm text-white hover:bg-slate-800 disabled:bg-gray-400">
+                                                    <i class="fas fa-project-diagram mr-1"></i>{{ meituanReviewMatchLoading === '运行候选计算' ? '计算中' : '运行候选计算' }}
+                                                </button>
+                                            </div>
+                                        </div>
+
+                                        <div class="flex flex-wrap gap-x-4 gap-y-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
+                                            <span>点评 <b>{{ meituanReviewMatchResult?.data?.summary?.review_count ?? '-' }}</b></span>
+                                            <span>订单 <b>{{ meituanReviewMatchResult?.data?.summary?.order_count ?? '-' }}</b></span>
+                                            <span class="text-emerald-700">人工已确认 <b>{{ meituanReviewMatchResult?.data?.summary?.manual_matched_count ?? '-' }}</b></span>
+                                            <span class="text-blue-700">证据就绪 <b>{{ meituanReviewMatchResult?.data?.summary?.evidence_ready_count ?? '-' }}</b></span>
+                                            <span class="text-amber-700">候选 <b>{{ meituanReviewMatchResult?.data?.summary?.candidate_count ?? '-' }}</b></span>
+                                            <span class="text-rose-700">歧义 <b>{{ meituanReviewMatchResult?.data?.summary?.ambiguous_count ?? '-' }}</b></span>
+                                            <span>未找到 <b>{{ meituanReviewMatchResult?.data?.summary?.not_found_count ?? '-' }}</b></span>
+                                            <span>状态 <b>{{ meituanReviewMatchResult?.data?.status || '未刷新' }}</b></span>
+                                        </div>
+
+                                        <div v-if="meituanReviewMatchResult?.data?.missing_sources?.length" class="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+                                            缺少：{{ meituanReviewMatchResult.data.missing_sources.join(' / ') }}。缺失数据保持未知，不会按 0 或空数组冒充完成。
+                                        </div>
+                                        <div v-if="meituanReviewMatchResult &amp;&amp; Number(meituanReviewMatchResult.code) !== 200" class="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
+                                            {{ meituanReviewMatchResult.message || '美团点评订单证据操作失败' }}
+                                        </div>
+
+                                        <div class="rounded-lg border border-gray-200 bg-gray-50 p-3">
+                                            <label class="block text-xs font-medium text-gray-600">人工否决原因</label>
+                                            <input v-model="meituanReviewMatchForm.decisionReason" class="mt-1 w-full rounded-lg border bg-white px-3 py-2 text-sm" placeholder="否决时必填，例如：房型与入住日期均不一致">
+                                        </div>
+
+                                        <div class="overflow-hidden rounded-lg border border-gray-100">
+                                            <div class="flex items-center justify-between border-b bg-gray-50 px-3 py-2">
+                                                <div class="text-sm font-medium text-gray-900">点评候选与人工决策</div>
+                                                <span class="text-xs text-gray-400">最多显示 30 条</span>
+                                            </div>
+                                            <div v-if="meituanReviewMatchSamples.length" class="divide-y divide-gray-100 bg-white">
+                                                <article v-for="sample in meituanReviewMatchSamples" :key="sample.review_id || sample.updated_at" class="p-3">
+                                                    <div class="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                                                        <div class="min-w-0">
+                                                            <div class="flex flex-wrap items-center gap-2">
+                                                                <strong class="text-sm text-gray-900">点评 {{ sample.review_id }}</strong>
+                                                                <span v-if="sample.score !== null &amp;&amp; sample.score !== undefined" class="text-xs text-amber-700">{{ sample.score }} 分</span>
+                                                                <span v-if="sample.match_score !== null" class="text-xs font-medium text-blue-700">匹配 {{ sample.match_score }} 分</span>
+                                                                <span v-if="sample.score_gap !== null" class="text-xs text-gray-500">分差 {{ sample.score_gap }}</span>
+                                                            </div>
+                                                            <div class="mt-2 flex flex-wrap gap-2 text-xs text-slate-600">
+                                                                <span class="rounded border border-slate-200 bg-slate-50 px-2 py-1">点评日 {{ sample.review_date || '-' }}</span>
+                                                                <span class="rounded border border-slate-200 bg-slate-50 px-2 py-1">入住 {{ sample.checkin_date || '-' }}</span>
+                                                                <span class="rounded border border-slate-200 bg-slate-50 px-2 py-1">{{ sample.room_name || '房型缺失' }}</span>
+                                                            </div>
+                                                            <div v-if="sample.review_flags?.length" class="mt-2 rounded border border-rose-100 bg-rose-50 px-2 py-2 text-xs text-rose-700">重点复核：{{ sample.review_flags.join('；') }}</div>
+                                                            <div v-if="sample.missing_evidence?.length" class="mt-2 rounded border border-amber-100 bg-amber-50 px-2 py-2 text-xs text-amber-700">缺失证据：{{ sample.missing_evidence.join('；') }}</div>
+                                                        </div>
+                                                        <div class="w-full shrink-0 space-y-2 lg:w-72">
+                                                            <div class="flex flex-wrap gap-2">
+                                                                <span :class="meituanReviewMatchStatusClass(sample.status)">{{ sample.status_text || meituanReviewMatchStatusLabel(sample.status) }}</span>
+                                                                <span v-if="sample.order_id" class="rounded border border-emerald-100 bg-emerald-50 px-2 py-1 text-xs text-emerald-700">订单 {{ sample.order_id }}</span>
+                                                                <span v-else-if="sample.candidate_order_id" class="rounded border border-blue-100 bg-blue-50 px-2 py-1 text-xs text-blue-700">候选 {{ sample.candidate_order_id }}</span>
+                                                            </div>
+                                                            <div v-if="Object.keys(sample.score_breakdown || {}).length" class="rounded border border-blue-100 bg-blue-50 px-2 py-2 text-xs leading-5 text-blue-700">
+                                                                房型 {{ sample.score_breakdown.room_score ?? 0 }} / 日期 {{ sample.score_breakdown.date_score ?? 0 }} / 状态 {{ sample.score_breakdown.status_score ?? 0 }} / 详情 {{ sample.score_breakdown.detail_review_score ?? 0 }} / 唯一性 {{ sample.score_breakdown.uniqueness_score ?? 0 }}
+                                                            </div>
+                                                            <div class="grid grid-cols-2 gap-2">
+                                                                <button type="button" @click="lookupMeituanReviewOrderMatch(sample)" :disabled="!!meituanReviewMatchLoading" class="rounded-lg bg-slate-900 px-3 py-2 text-xs text-white hover:bg-slate-800 disabled:bg-gray-400">
+                                                                    {{ meituanReviewMatchLookupLoadingReviewId === sample.review_id ? '计算中' : '重新计算' }}
+                                                                </button>
+                                                                <button type="button" @click="applyMeituanReviewMatchSample(sample)" class="rounded-lg border border-gray-300 px-3 py-2 text-xs hover:bg-gray-50">带入复核</button>
+                                                                <button v-if="sample.status !== 'matched' &amp;&amp; (sample.order_id || sample.candidate_order_id)" type="button" @click="bindMeituanReviewOrderMatch(sample)" :disabled="!!meituanReviewMatchLoading" class="rounded-lg bg-emerald-600 px-3 py-2 text-xs text-white hover:bg-emerald-700 disabled:bg-gray-400">人工确认</button>
+                                                                <button v-if="sample.status !== 'matched'" type="button" @click="rejectMeituanReviewOrderMatch(sample)" :disabled="!!meituanReviewMatchLoading" class="rounded-lg border border-rose-300 px-3 py-2 text-xs text-rose-700 hover:bg-rose-50 disabled:text-gray-400">人工否决</button>
+                                                                <button v-if="['matched', 'rejected'].includes(sample.status)" type="button" @click="unbindMeituanReviewOrderMatch(sample)" :disabled="!!meituanReviewMatchLoading" class="col-span-2 rounded-lg border border-gray-300 px-3 py-2 text-xs text-gray-600 hover:bg-gray-50 disabled:text-gray-400">撤销当前人工决定</button>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                </article>
+                                            </div>
+                                            <div v-else="" class="p-6 text-center text-sm text-gray-400">暂无点评证据。先展开高级补录保存真实授权点评与订单，或等待采集入库。</div>
+                                        </div>
+                                    </div>
+
+                                    <div class="flex justify-end">
+                                        <button type="button" @click="showMeituanReviewMatchManualPanel = !showMeituanReviewMatchManualPanel" class="rounded-lg border px-3 py-2 text-sm hover:bg-gray-50">
+                                            <i class="fas fa-tools mr-1"></i>{{ showMeituanReviewMatchManualPanel ? '收起高级补录' : '展开高级补录/复核' }}
+                                        </button>
+                                    </div>
+
+                                    <div v-if="showMeituanReviewMatchManualPanel" class="grid grid-cols-1 gap-4 xl:grid-cols-2">
+                                        <div class="space-y-3 rounded-lg border bg-white p-4">
+                                            <div class="flex items-start justify-between gap-3">
+                                                <div>
+                                                    <h5 class="font-semibold text-gray-900">1. 保存点评证据</h5>
+                                                    <p class="mt-1 text-xs text-gray-500">只保留点评ID、日期、房型、分数与可见订单号；展示名、正文和用户ID不入库。</p>
+                                                </div>
+                                                <button type="button" @click="saveMeituanReviewForMatch" :disabled="!!meituanReviewMatchLoading" class="rounded-lg bg-blue-600 px-3 py-2 text-sm text-white hover:bg-blue-700 disabled:bg-gray-400">保存点评</button>
+                                            </div>
+                                            <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
+                                                <div><label class="mb-1 block text-xs text-gray-500">点评 ID</label><input v-model="meituanReviewMatchForm.reviewId" class="w-full rounded-lg border px-3 py-2" placeholder="美团点评ID"></div>
+                                                <div><label class="mb-1 block text-xs text-gray-500">点评日期</label><input v-model="meituanReviewMatchForm.reviewDate" type="date" class="w-full rounded-lg border px-3 py-2"></div>
+                                                <div><label class="mb-1 block text-xs text-gray-500">入住日期</label><input v-model="meituanReviewMatchForm.checkinDate" type="date" class="w-full rounded-lg border px-3 py-2"></div>
+                                                <div><label class="mb-1 block text-xs text-gray-500">房型</label><input v-model="meituanReviewMatchForm.reviewRoomName" class="w-full rounded-lg border px-3 py-2" placeholder="如 豪华大床房"></div>
+                                                <div><label class="mb-1 block text-xs text-gray-500">点评分</label><input v-model="meituanReviewMatchForm.reviewScore" type="number" step="0.1" class="w-full rounded-lg border px-3 py-2" placeholder="可选"></div>
+                                                <div><label class="mb-1 block text-xs text-gray-500">点评可见订单号</label><input v-model="meituanReviewMatchForm.visibleOrderId" class="w-full rounded-lg border px-3 py-2" placeholder="平台明确返回时填写"></div>
+                                            </div>
+                                            <textarea v-model="meituanReviewMatchForm.rawReviewJson" rows="4" class="w-full rounded-lg border px-3 py-2 font-mono text-xs" placeholder="可选：粘贴单条授权点评 JSON；身份与正文字段会被服务端丢弃"></textarea>
+                                        </div>
+
+                                        <div class="space-y-3 rounded-lg border bg-white p-4">
+                                            <div class="flex items-start justify-between gap-3">
+                                                <div>
+                                                    <h5 class="font-semibold text-gray-900">2. 保存订单证据</h5>
+                                                    <p class="mt-1 text-xs text-gray-500">只保留订单号、日期、房型、状态和详情复核状态；姓名与手机号不入库。</p>
+                                                </div>
+                                                <button type="button" @click="saveMeituanOrderForMatch" :disabled="!!meituanReviewMatchLoading" class="rounded-lg bg-indigo-600 px-3 py-2 text-sm text-white hover:bg-indigo-700 disabled:bg-gray-400">保存订单</button>
+                                            </div>
+                                            <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
+                                                <div><label class="mb-1 block text-xs text-gray-500">订单 ID</label><input v-model="meituanReviewMatchForm.orderId" class="w-full rounded-lg border px-3 py-2" placeholder="美团订单ID"></div>
+                                                <div><label class="mb-1 block text-xs text-gray-500">订单状态</label><input v-model="meituanReviewMatchForm.orderStatus" class="w-full rounded-lg border px-3 py-2" placeholder="如 已完成"></div>
+                                                <div><label class="mb-1 block text-xs text-gray-500">入住日期</label><input v-model="meituanReviewMatchForm.orderArrivalDate" type="date" class="w-full rounded-lg border px-3 py-2"></div>
+                                                <div><label class="mb-1 block text-xs text-gray-500">离店日期</label><input v-model="meituanReviewMatchForm.orderDepartureDate" type="date" class="w-full rounded-lg border px-3 py-2"></div>
+                                                <div><label class="mb-1 block text-xs text-gray-500">房型</label><input v-model="meituanReviewMatchForm.orderRoomName" class="w-full rounded-lg border px-3 py-2" placeholder="如 豪华大床房"></div>
+                                                <label class="flex items-center gap-2 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700"><input v-model="meituanReviewMatchForm.orderDetailVerified" type="checkbox">订单详情来源已复核</label>
+                                            </div>
+                                            <textarea v-model="meituanReviewMatchForm.rawOrderJson" rows="4" class="w-full rounded-lg border px-3 py-2 font-mono text-xs" placeholder="可选：粘贴单条授权订单 JSON；姓名、手机号、备注和证件字段会被服务端丢弃"></textarea>
+                                            <div class="grid grid-cols-1 gap-2 md:grid-cols-3">
+                                                <button type="button" @click="lookupMeituanReviewOrderMatch" :disabled="!!meituanReviewMatchLoading" class="rounded-lg bg-slate-900 px-3 py-2 text-sm text-white hover:bg-slate-800 disabled:bg-gray-400">计算当前点评</button>
+                                                <button type="button" @click="bindMeituanReviewOrderMatch" :disabled="!!meituanReviewMatchLoading" class="rounded-lg bg-emerald-600 px-3 py-2 text-sm text-white hover:bg-emerald-700 disabled:bg-gray-400">人工确认</button>
+                                                <button type="button" @click="rejectMeituanReviewOrderMatch" :disabled="!!meituanReviewMatchLoading" class="rounded-lg border border-rose-300 px-3 py-2 text-sm text-rose-700 hover:bg-rose-50 disabled:text-gray-400">人工否决</button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
 
                                 <!-- 榜单数据获取 -->
                                 <div v-if="onlineDataTab === 'meituan-ranking'">

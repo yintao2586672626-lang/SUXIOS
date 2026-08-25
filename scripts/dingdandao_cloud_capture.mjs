@@ -458,8 +458,9 @@ export function dingdandaoSessionMaterialFromStorage({
     120,
     /^[A-Za-z0-9_-]+$/,
   );
-  const networkNumNew = validSessionText(
-    items.get('networkNumNew'),
+  const rawNetworkNumNew = String(items.get('networkNumNew') || '').trim();
+  const networkNumNew = rawNetworkNumNew === '' ? null : validSessionText(
+    rawNetworkNumNew,
     120,
     /^[A-Za-z0-9_-]+$/,
   );
@@ -472,7 +473,7 @@ export function dingdandaoSessionMaterialFromStorage({
   );
   if (!ntwNum
     || ntwNum !== ntwInviteCode
-    || ntwNum !== networkNumNew
+    || (rawNetworkNumNew !== '' && ntwNum !== networkNumNew)
     || !token
     || !cookieHeader
     || !normalizedUserAgent
@@ -578,16 +579,22 @@ export async function readDingdandaoSessionMaterial(
       break;
     }
     if (!selectedContext) throw new Error('capture_session_expired');
-    const sameContextPages = pages.filter((target) => (
-      String(target.url || '').startsWith('https://www.dingdandao.com/')
-      && String(target.browserContextId || '') === selectedContext.key
-    ));
+    const sameContextPages = pages.filter((target) => {
+      if (!String(target.url || '').startsWith('https://www.dingdandao.com/')) {
+        return false;
+      }
+      const targetContextId = String(target.browserContextId || '');
+      if (selectedContext.browserContextId) {
+        return targetContextId === selectedContext.key;
+      }
+      return !validContextIds || !validContextIds.has(targetContextId);
+    });
     let pageTarget = sameContextPages.find((target) => (
       String(target.url || '').includes('/pmsManage/report/pro/dataCenter/overview')
     )) || sameContextPages[0];
     if (!pageTarget) {
       const createParams = {
-        url: 'https://www.dingdandao.com/',
+        url: SOURCE_URL,
         background: true,
       };
       if (selectedContext.browserContextId) {

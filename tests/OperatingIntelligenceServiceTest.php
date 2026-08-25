@@ -285,6 +285,52 @@ final class OperatingIntelligenceServiceTest extends TestCase
         );
     }
 
+    public function testScopeOptionsRecommendLatestStrictReadbackWithoutPromotingPartialRows(): void
+    {
+        $today = new \DateTimeImmutable('today', new \DateTimeZone('Asia/Shanghai'));
+        $latestMeituan = $today->modify('-1 day')->format('Y-m-d');
+        $sharedDate = $today->modify('-2 days')->format('Y-m-d');
+        $partialDate = $today->format('Y-m-d');
+        $rows = [];
+        foreach ([
+            ['platform' => 'ctrip', 'date' => $sharedDate, 'history' => 'success', 'validation' => 'verified'],
+            ['platform' => 'meituan', 'date' => $sharedDate, 'history' => 'success', 'validation' => 'verified'],
+            ['platform' => 'meituan', 'date' => $latestMeituan, 'history' => 'success', 'validation' => 'verified'],
+            ['platform' => 'ctrip', 'date' => $partialDate, 'history' => 'partial', 'validation' => 'normal'],
+        ] as $index => $scope) {
+            $rows[] = [
+                'tenant_id' => 10,
+                'system_hotel_id' => 20,
+                'data_date' => $scope['date'],
+                'platform' => $scope['platform'],
+                'source' => $scope['platform'],
+                'data_type' => 'traffic',
+                'dimension' => '',
+                'readback_verified' => 1,
+                'readback_verified_at' => $scope['date'] . ' 10:00:00',
+                'validation_status' => $scope['validation'],
+                'history_status' => $scope['history'],
+                'ingestion_method' => 'browser_profile',
+                'source_trace_id' => 'scope-option-' . $index,
+                'list_exposure' => 100 + $index,
+            ];
+        }
+        Db::name('online_daily_data')->insertAll($rows);
+
+        $result = (new OperatingQuestionService())->scopeOptions(10, 20);
+
+        self::assertSame('operating_question_scope_options.v1', $result['contract_version']);
+        self::assertSame('ready', $result['data_status']);
+        self::assertSame('meituan', $result['recommended']['platform']);
+        self::assertSame($latestMeituan, $result['recommended']['date_start']);
+        self::assertFalse($result['boundary']['silent_date_fallback']);
+        self::assertSame(
+            $sharedDate,
+            $result['platforms'][array_search('all_ota', array_column($result['platforms'], 'platform'), true)]['latest_verified_date']
+        );
+        self::assertNotContains($partialDate, $result['platforms'][array_search('ctrip', array_column($result['platforms'], 'platform'), true)]['available_dates']);
+    }
+
     public function testOperatingQuestionSavesExactEvidenceReadbackAndVisibleMissingState(): void
     {
         $ready = new OperatingQuestionService(static fn(): array => [
@@ -377,8 +423,8 @@ final class OperatingIntelligenceServiceTest extends TestCase
                     ],
                     'meta' => [
                         'provider' => 'deepseek',
-                        'model_key' => 'deepseek_chat',
-                        'model' => 'deepseek-v4-flash',
+                        'model_key' => 'deepseek_v4_pro',
+                        'model' => 'deepseek-v4-pro',
                         'finish_reason' => 'stop',
                         'fallback_used' => false,
                         'cache_hit' => false,
@@ -473,10 +519,12 @@ final class OperatingIntelligenceServiceTest extends TestCase
         self::assertSame(['knowledge_chunks#91'], $saved['question']['knowledge_refs']);
         self::assertSame('matched', $saved['question']['answer']['knowledge_retrieval']['status']);
         self::assertSame('deepseek', $saved['question']['answer']['ai_runtime']['provider']);
-        self::assertSame('deepseek-v4-flash', $saved['question']['answer']['ai_runtime']['model']);
+        self::assertSame('deepseek-v4-pro', $saved['question']['answer']['ai_runtime']['model']);
         self::assertSame('stop', $saved['question']['answer']['ai_runtime']['finish_reason']);
         self::assertCount(1, $saved['question']['answer']['action_drafts']);
-        self::assertSame('ready_for_human_review', $saved['question']['answer']['action_drafts'][0]['status']);
+        self::assertSame('ready_for_ai_review', $saved['question']['answer']['action_drafts'][0]['status']);
+        self::assertFalse($saved['question']['answer']['action_drafts'][0]['boundaries']['human_confirmation_required']);
+        self::assertTrue($saved['question']['answer']['action_drafts'][0]['boundaries']['independent_ai_review_required']);
         self::assertTrue($saved['question']['answer']['action_drafts'][0]['can_create_execution_intent']);
         self::assertSame(
             'ai_recommendation_quality.v2',
@@ -698,8 +746,8 @@ final class OperatingIntelligenceServiceTest extends TestCase
                     ],
                     'meta' => [
                         'provider' => 'deepseek',
-                        'model_key' => 'deepseek_chat',
-                        'model' => 'deepseek-v4-flash',
+                        'model_key' => 'deepseek_v4_pro',
+                        'model' => 'deepseek-v4-pro',
                         'finish_reason' => 'stop',
                         'fallback_used' => false,
                         'cache_hit' => false,
@@ -799,6 +847,71 @@ final class OperatingIntelligenceServiceTest extends TestCase
         self::assertTrue($result['fallback_used']);
         self::assertTrue($result['external_llm_called']);
         self::assertSame('confirmed_non_deepseek_rejected', $result['external_llm_call_status']);
+    }
+
+    public function testOperatingQuestionAcceptsPinnedLocalSecondBrainWithoutReportingExternalCall(): void
+    {
+        $fakeClient = new class extends LlmClient {
+            public function createJsonResponseEnvelope(
+                array $messages,
+                array $schema,
+                string $modelKey = 'deepseek_v4_default'
+            ): array {
+                return [
+                    'data' => [
+                        'answer_summary' => '本机第二大脑仅根据已回读的携程曝光事实给出只读判断。',
+                        'key_points' => ['当前事实只覆盖携程渠道。'],
+                        'missing_information' => [],
+                        'follow_up_questions' => [],
+                        'confidence' => 'medium',
+                        'used_evidence_refs' => ['online_daily_data#9201'],
+                        'action_drafts' => [],
+                    ],
+                    'meta' => [
+                        'provider' => 'ollama',
+                        'model_key' => 'local_second_brain',
+                        'model' => 'qwen3:8b',
+                        'finish_reason' => 'stop',
+                        'fallback_used' => false,
+                        'cache_hit' => false,
+                        'degraded' => false,
+                    ],
+                ];
+            }
+        };
+
+        $result = (new OperatingQuestionAiAnswerService($fakeClient))->generate([
+            'question' => '携程曝光如何？',
+            'scope' => [
+                'tenant_id' => 10,
+                'hotel_id' => 20,
+                'platform' => 'ctrip',
+                'date_start' => '2026-08-10',
+                'date_end' => '2026-08-10',
+            ],
+            'answer' => [
+                'status' => 'evidence_ready',
+                'summary' => '严格证据摘要',
+                'evidence_counts' => ['facts' => 1],
+                'fact_samples' => [[
+                    'ref' => 'online_daily_data#9201',
+                    'data_date' => '2026-08-10',
+                    'platform' => 'ctrip',
+                    'metric_values' => ['list_exposure' => 100],
+                    'metric_units' => ['list_exposure' => 'exposure_count'],
+                ]],
+            ],
+            'evidence' => [],
+            'model_key' => 'local_second_brain',
+            'user_id' => 7,
+        ]);
+
+        self::assertTrue($result['ok']);
+        self::assertSame('ready', $result['status']);
+        self::assertSame('ollama', $result['provider']);
+        self::assertSame('qwen3:8b', $result['model']);
+        self::assertFalse($result['external_llm_called']);
+        self::assertSame('confirmed_local_success', $result['external_llm_call_status']);
     }
 
     public function testKnowledgeContextAloneNeverBypassesMissingVerifiedFacts(): void

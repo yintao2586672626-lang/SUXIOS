@@ -31,6 +31,7 @@ test('Meituan source identity requires one OTA-observed identifier matching the 
   assert.equal(matched.status, 'matched');
   assert.equal(matched.source_validation, true);
   assert.equal(matched.validated_identifier, 'poi-1');
+  assert.equal(matched.sensitive_values_exposed, false);
 
   const mismatch = evaluateMeituanPlatformIdentity(['poi-1'], ['poi-2']);
   assert.equal(mismatch.status, 'mismatch');
@@ -121,6 +122,18 @@ test('headless login check retries the neutral eBooking entry before reporting l
   assert.match(ensureBlock, /if \(await looksLoggedIn\(page\)\) \{[\s\S]*status: 'logged_in'/);
 });
 
+test('Meituan response body capture and pending-response drain are bounded', () => {
+  const source = readFileSync('scripts/meituan_browser_capture.mjs', 'utf8');
+  const waitBlock = source.slice(
+    source.indexOf('async function waitForPendingResponseCaptures'),
+    source.indexOf('function normalizeCaptureSections'),
+  );
+
+  assert.match(source, /readOtaResponseTextWithTimeout\(response\)/);
+  assert.match(waitBlock, /Date\.now\(\) - started < timeoutMs/);
+  assert.doesNotMatch(waitBlock, /Promise\.allSettled/);
+});
+
 test('drops untargeted event summaries while keeping target-date review evidence', () => {
   const payload = filterMeituanEventRowsByTargetDate({
     reviews: [
@@ -196,6 +209,7 @@ test('business date readback accepts only the response bound to the selected cap
   assert.equal(result.businessData.length, 1);
   assert.equal(result.businessData[0].lead_price, 1158);
   assert.equal(result.businessData[0].sales_room_nights, 1);
+  assert.equal(result.businessData[0].data_period, 'realtime_snapshot');
   assert.equal(result.businessData[0].date_source, 'page.business_period_selection.readback');
 });
 
@@ -269,6 +283,7 @@ test('uses today realtime selector readback, not refresh time, for same-day traf
   assert.equal(result.traffic[0].dataDate, '2026-07-28');
   assert.equal(result.traffic[0].data_date, '2026-07-28');
   assert.equal(result.traffic[0].data_updated_at, '2026-07-28');
+  assert.equal(result.traffic[0].data_period, 'realtime_snapshot');
   assert.equal(result.traffic[0].date_source, 'page.traffic_period_selection.readback');
   assert.equal(result.traffic[0].date_scope_evidence, 'meituan_traffic_today_realtime_tab');
   const filtered = filterMeituanCumulativeRowsByTargetDate(result, '2026-07-28');
@@ -377,6 +392,7 @@ test('accepts capture-context funnel date only when response and row share the v
   assert.equal(result.flowAnalysis.length, 1);
   assert.equal(result.flowAnalysis[0].exposureUV, 81);
   assert.equal(result.flowAnalysis[0].dataDate, '2026-08-08');
+  assert.equal(result.flowAnalysis[0].data_period, 'historical_daily');
   assert.equal(result.flowAnalysis[0].date_source, 'page.traffic_period_selection.readback');
   assert.equal(result.flowAnalysis[0].date_scope_evidence, 'meituan_traffic_yesterday_tab');
 });

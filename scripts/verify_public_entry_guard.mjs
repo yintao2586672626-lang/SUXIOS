@@ -162,6 +162,8 @@ if (!fs.existsSync(indexPath)) {
   }
   const meituanStaticPath = path.join(repoRoot, 'public/meituan-static.js');
   const meituanStaticContent = fs.existsSync(meituanStaticPath) ? fs.readFileSync(meituanStaticPath, 'utf8') : '';
+  const reviewMatchStaticPath = path.join(repoRoot, 'public/review-match-static.js');
+  const reviewMatchStaticContent = fs.existsSync(reviewMatchStaticPath) ? fs.readFileSync(reviewMatchStaticPath, 'utf8') : '';
   if (meituanStaticContent.includes('const buildMeituanBookmarkletSuccessState = (response = {}) => ({')
     && meituanStaticContent.includes("toastMessage: response?.data?.message || '旧版美团 Cookie 书签已禁用'")
     && content.includes('const successState = buildMeituanBookmarkletSuccessState(res);')) {
@@ -273,8 +275,11 @@ if (!fs.existsSync(indexPath)) {
   )?.phase;
   if (phaseFor('app-startup-render.min.js') !== AUTHENTICATED_ASSET_PHASE_STARTUP
     || phaseFor('app-main.min.js') !== AUTHENTICATED_ASSET_PHASE_STARTUP
+    || phaseFor('app-deferred-helpers.min.js') !== AUTHENTICATED_ASSET_PHASE_AFTER_FIRST_PAINT
+    || phaseFor('components/system/app-main-components.js') !== AUTHENTICATED_ASSET_PHASE_AFTER_FIRST_PAINT
+    || phaseFor('components/system/operating-intelligence-components.js') !== AUTHENTICATED_ASSET_PHASE_AFTER_FIRST_PAINT
     || phaseFor('app-render.min.js') !== AUTHENTICATED_ASSET_PHASE_AFTER_FIRST_PAINT) {
-    failures.push('public/index.html must load the home startup render and app-main before deferring the full render until after first paint.');
+    failures.push('public/index.html must keep the compact home bridge at startup and defer full-page helpers, components, and render code.');
   }
   failures.push(...inspectPublicEntryRuntimeContracts({
     appBootstrapSource: appBootstrapContent,
@@ -1865,7 +1870,10 @@ if (!runtimeAssetPaths.includes('app-startup-helpers.min.js')
     || !content.includes('v-for="hotel in filteredPlatformHotelOptions"')
     || !content.includes('@mousedown.prevent="selectPlatformHotelOption(hotel)"')
     || !content.includes('const platformHotelOptions = computed(() => {')
-    || !content.includes("if (platformHotelContext.value === 'meituan') return meituanTargetHotelOptions.value;")
+    || !content.includes("if (platformHotelContext.value === 'meituan') {")
+    || !content.includes("return onlineDataTab.value === 'meituan-review-match'")
+    || !content.includes('? meituanReviewMatchHotelOptions.value')
+    || !content.includes(': meituanTargetHotelOptions.value;')
     || !content.includes("if (platformHotelContext.value === 'ctrip') return ctripTargetHotelOptions.value;")
     || !content.includes('const filteredPlatformHotelOptions = computed(() => {')
     || !content.includes('const platformHotelContext = computed(() => currentPage.value')
@@ -2204,12 +2212,19 @@ if (!runtimeAssetPaths.includes('app-startup-helpers.min.js')
     || !content.includes('schedulePlatformCollectionStatusRefresh();')) {
     failures.push('public/index.html must refresh collection-status after collection and platform-source mutations.');
   }
-  const ctripReviewAutomationSource = content.slice(
-    content.indexOf('const runCtripReviewMatchAutomation ='),
-    content.indexOf('const bindCtripReviewOrderMatch =')
-  );
+  const ctripReviewAutomationSource = reviewMatchStaticContent.includes('createCtripReviewMatchActionController')
+    ? reviewMatchStaticContent.slice(
+      reviewMatchStaticContent.indexOf('runAutomation:'),
+      reviewMatchStaticContent.indexOf('bind:', reviewMatchStaticContent.indexOf('runAutomation:'))
+    )
+    : content.slice(
+      content.indexOf('const runCtripReviewMatchAutomation ='),
+      content.indexOf('const bindCtripReviewOrderMatch =')
+    );
   if (!ctripReviewAutomationSource.includes("review_collection_policy: 'explicit_review_match_only'")
-    || /capture-ctrip-browser|comment_review|capture_sections/.test(ctripReviewAutomationSource)) {
+    || /capture-ctrip-browser|comment_review|capture_sections/.test(ctripReviewAutomationSource)
+    || !content.includes('...ctripReviewMatchControllerBindings')
+    || !reviewMatchStaticContent.includes('runCtripReviewMatchAutomation: actionController.runAutomation')) {
     failures.push('public/index.html must keep Ctrip review order matching scoped to the explicit match action, without default capture entrypoints.');
   }
   if (!content.includes('const competitorSummaryRequestPromises = new Map();')

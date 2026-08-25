@@ -379,6 +379,21 @@ final class PlatformDataSyncServiceTest extends TestCase
                 'field_facts' => [],
             ],
         ];
+        $rows[] = [
+            'data_date' => $targetDate,
+            'data_type' => 'traffic',
+            'platform' => 'ctrip',
+            'compare_type' => 'self',
+            'validation_status' => 'quarantined',
+            'list_exposure' => 999999,
+            'source_trace_id' => 'ctrip:traffic:quarantined',
+            'raw_data' => [
+                'platform_hotel_identifier_present' => true,
+                'platform_hotel_identifier_source' => 'hotel_id_family',
+                'platform_hotel_identifier_proof' => 'row_field_present',
+                'field_facts' => [],
+            ],
+        ];
 
         $closure = $method->invoke($service, $rows, 'ctrip', $targetDate);
 
@@ -708,7 +723,9 @@ final class PlatformDataSyncServiceTest extends TestCase
         ];
         $options = [
             'require_current_run_session_probe' => true,
-            'required_platform_hotel_id' => 'hotel-80',
+            // Production OTA hotel identifiers are commonly numeric strings;
+            // PHP must not turn the dedupe key into an int before hash_equals.
+            'required_platform_hotel_id' => '130079194',
         ];
 
         self::assertNull($method->invoke($service, $source, $options, [
@@ -720,7 +737,7 @@ final class PlatformDataSyncServiceTest extends TestCase
                     'schema_version' => 1,
                     'status' => 'matched',
                     'source_validation' => true,
-                    'validated_identifier' => 'hotel-80',
+                    'validated_identifier' => '130079194',
                     'sensitive_values_exposed' => false,
                 ],
             ],
@@ -1355,6 +1372,39 @@ final class PlatformDataSyncServiceTest extends TestCase
         ], $diagnostics['missing_inputs']);
     }
 
+    public function testSyncDiagnosticsKeepMatchedPayloadIdentityWhenTrafficRowsAreMissing(): void
+    {
+        $service = new PlatformDataSyncService();
+        $method = new \ReflectionMethod($service, 'buildSyncDiagnostics');
+        $method->setAccessible(true);
+
+        $diagnostics = $method->invoke($service, [], 0, [
+            'id' => 101,
+            'platform' => 'meituan',
+            'data_type' => 'business',
+            'ingestion_method' => 'browser_profile',
+            'system_hotel_id' => 80,
+            'config' => [
+                'store_id' => '68471',
+            ],
+        ], [
+            'data_date' => '2026-08-23',
+            'capture_sections' => 'orders,traffic',
+        ], [
+            'platform_identity_validation' => [
+                'status' => 'matched',
+                'source_validation' => true,
+                'validated_identifier' => '68471',
+                'sensitive_values_exposed' => false,
+            ],
+        ], 'partial_success', 'target traffic missing');
+
+        self::assertSame('ready', $diagnostics['platform_hotel_identifier_status']);
+        self::assertNotContains('platform_hotel_identifier', $diagnostics['missing_inputs']);
+        self::assertContains('target_date_traffic_rows', $diagnostics['missing_inputs']);
+        self::assertSame('blocked', $diagnostics['p0_status']);
+    }
+
     public function testSyncDiagnosticsDoNotRetainAdapterErrorText(): void
     {
         $service = new PlatformDataSyncService();
@@ -1715,6 +1765,86 @@ final class PlatformDataSyncServiceTest extends TestCase
             'hotel_binding_unverified',
             json_decode($rows[0]['validation_flags'], true)
         );
+    }
+
+    public function testMeituanRequestedPeriodMismatchAndContradictoryZeroRowsAreQuarantined(): void
+    {
+        $rows = (new PlatformDataSyncService())->normalizeRowsFromPayload([
+            'data_date' => '2026-08-23',
+            'data_period' => 'historical_daily',
+            'rows' => [
+                [
+                    'poi_id' => '68471',
+                    'data_date' => '2026-08-23',
+                    'data_period' => 'historical_daily',
+                    'data_type' => 'business',
+                    'compare_type' => 'self',
+                    'amount' => 0,
+                    'quantity' => 0,
+                    'book_order_num' => 0,
+                ],
+                [
+                    'poi_id' => '68471',
+                    'data_date' => '2026-08-23',
+                    'data_period' => 'realtime_snapshot',
+                    'data_type' => 'traffic',
+                    'compare_type' => 'self',
+                    'list_exposure' => 15,
+                    'detail_exposure' => 2,
+                    'flow_rate' => 13.33,
+                ],
+                [
+                    'poi_id' => '68471',
+                    'data_date' => '2026-08-23',
+                    'data_period' => 'historical_daily',
+                    'data_type' => 'traffic',
+                    'compare_type' => '',
+                    'list_exposure' => 0,
+                    'detail_exposure' => 0,
+                    'flow_rate' => 0,
+                ],
+                [
+                    'poi_id' => '68471',
+                    'data_date' => '2026-08-23',
+                    'data_period' => 'historical_daily',
+                    'data_type' => 'order',
+                    'compare_type' => 'self',
+                    'amount' => 7025.14,
+                    'room_nights' => 12,
+                    'orders' => 8,
+                ],
+            ],
+        ], $this->meituanBrowserProfileSource(), 4353);
+
+        self::assertCount(4, $rows);
+        $byTypeAndPeriod = [];
+        foreach ($rows as $row) {
+            $byTypeAndPeriod[$row['data_type'] . ':' . $row['data_period']] = $row;
+        }
+
+        $business = $byTypeAndPeriod['business:historical_daily'];
+        self::assertSame('quarantined', $business['validation_status']);
+        self::assertContains(
+            'same_run_zero_business_conflicts_with_nonzero_orders',
+            json_decode($business['validation_flags'], true, 512, JSON_THROW_ON_ERROR)
+        );
+
+        $realtimeTraffic = $byTypeAndPeriod['traffic:realtime_snapshot'];
+        self::assertSame('quarantined', $realtimeTraffic['validation_status']);
+        self::assertContains(
+            'requested_data_period_mismatch',
+            json_decode($realtimeTraffic['validation_flags'], true, 512, JSON_THROW_ON_ERROR)
+        );
+
+        $historicalTraffic = $byTypeAndPeriod['traffic:historical_daily'];
+        self::assertSame('quarantined', $historicalTraffic['validation_status']);
+        self::assertContains(
+            'same_run_zero_traffic_conflicts_with_nonzero_orders',
+            json_decode($historicalTraffic['validation_flags'], true, 512, JSON_THROW_ON_ERROR)
+        );
+
+        $order = $byTypeAndPeriod['order:historical_daily'];
+        self::assertNotSame('quarantined', $order['validation_status']);
     }
 
     public function testOrderPersistenceIdentityIsDistinctPerOrderAndStableAcrossRetries(): void
@@ -4982,7 +5112,7 @@ final class PlatformDataSyncServiceTest extends TestCase
         self::assertSame(81, $rows[0]['list_exposure']);
         self::assertSame(14, $rows[0]['detail_exposure']);
         self::assertSame(2, $rows[0]['order_submit_num']);
-        self::assertSame(14.29, $rows[0]['flow_rate']);
+        self::assertSame(17.28, $rows[0]['flow_rate']);
         self::assertNull($rows[0]['order_filling_num']);
 
         $raw = json_decode((string)$rows[0]['raw_data'], true);
@@ -4990,7 +5120,9 @@ final class PlatformDataSyncServiceTest extends TestCase
         $facts = array_column($raw['field_facts'] ?? [], null, 'metric_key');
         self::assertSame('data.myHotel.exposureUV', $facts['list_exposure']['source_path'] ?? '');
         self::assertSame('data.myHotel.intentionUV', $facts['detail_exposure']['source_path'] ?? '');
-        self::assertSame('data.myHotel.payOrderPerIntention', $facts['flow_rate']['source_path'] ?? '');
+        self::assertSame('data.myHotel.intentionPerExposure', $facts['flow_rate']['source_path'] ?? '');
+        self::assertSame('data.myHotel.payOrderPerIntention', $facts['browse_to_pay_rate']['source_path'] ?? '');
+        self::assertSame('raw_data.browse_pay_rate', $facts['browse_to_pay_rate']['storage_field'] ?? '');
         self::assertSame('data.myHotel.payOrderCnt', $facts['order_submit_num']['source_path'] ?? '');
         self::assertSame('missing', $facts['order_filling_num']['status'] ?? '');
         self::assertSame([
@@ -5014,6 +5146,7 @@ final class PlatformDataSyncServiceTest extends TestCase
         ], $this->meituanBrowserProfileSource(), 90);
 
         self::assertCount(1, $rows);
+        self::assertSame(17.28, $rows[0]['flow_rate']);
         $raw = json_decode((string)$rows[0]['raw_data'], true, 512, JSON_THROW_ON_ERROR);
         self::assertArrayNotHasKey('_observed_traffic_metric_keys', $raw['row'] ?? []);
     }

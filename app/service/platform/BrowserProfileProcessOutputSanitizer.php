@@ -32,7 +32,7 @@ final class BrowserProfileProcessOutputSanitizer
             if ($line === '') {
                 continue;
             }
-            $safeLine = self::containsSensitiveMaterial($line)
+            $safeLine = self::lineContainsSensitiveMaterial($line)
                 ? self::REDACTED_LOG_LINE
                 : $line;
             if ($safeLines === [] || end($safeLines) !== $safeLine) {
@@ -51,7 +51,7 @@ final class BrowserProfileProcessOutputSanitizer
         if ($value === '') {
             return '';
         }
-        if (self::textContainsSensitiveMaterial($value)) {
+        if (self::containsSensitiveMaterial($value)) {
             return self::REDACTED_SUMMARY;
         }
 
@@ -76,7 +76,7 @@ final class BrowserProfileProcessOutputSanitizer
         if (stripos($text, 'spawn EACCES') !== false) {
             return 'browser_runtime_error=spawn EACCES; check browser executable permission and scheduled-task runtime account.';
         }
-        if (self::textContainsSensitiveMaterial($text)) {
+        if (self::containsSensitiveMaterial($text)) {
             return self::REDACTED_SUMMARY;
         }
 
@@ -97,17 +97,20 @@ final class BrowserProfileProcessOutputSanitizer
         return $lines === [] ? '' : mb_substr((string)end($lines), 0, 240);
     }
 
-    private static function textContainsSensitiveMaterial(string $value): bool
+    /**
+     * Shared fail-closed detector for process output and collector payload text.
+     */
+    public static function containsSensitiveMaterial(string $value): bool
     {
         foreach (preg_split('/\R+/u', $value) ?: [$value] as $line) {
-            if (self::containsSensitiveMaterial((string)$line)) {
+            if (self::lineContainsSensitiveMaterial((string)$line)) {
                 return true;
             }
         }
         return false;
     }
 
-    private static function containsSensitiveMaterial(string $line): bool
+    private static function lineContainsSensitiveMaterial(string $line): bool
     {
         $detectionLine = self::normalizeDetectionView($line);
         $patterns = [

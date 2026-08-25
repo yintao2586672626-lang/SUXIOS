@@ -51,6 +51,7 @@ CREATE TABLE online_daily_data (
     book_order_num INTEGER,
     raw_data TEXT,
     status TEXT,
+    history_status TEXT,
     validation_status TEXT,
     validation_flags TEXT,
     readback_verified INTEGER NOT NULL DEFAULT 0,
@@ -157,6 +158,35 @@ SQL);
         self::assertSame(['qunar'], array_column($qunarDataset['fact_ota_daily'], 'platform_key'));
     }
 
+    public function testStrictReadbackFilterOnlyUsesRowsPassingTheCockpitFactGate(): void
+    {
+        $strictRow = $this->row(4, 400, 1, 'verified');
+        $strictRow['history_status'] = 'success';
+        $partialHistoryRow = $this->row(5, 500, 1, 'verified');
+        $normalValidationRow = $this->row(6, 600, 1, 'normal');
+        $normalValidationRow['history_status'] = 'success';
+        Db::name('online_daily_data')->insertAll([
+            $strictRow,
+            $partialHistoryRow,
+            $normalValidationRow,
+        ]);
+
+        $dataset = (new OtaStandardEtlService())->buildDataset([
+            'system_hotel_id' => 80,
+            'source' => 'ctrip',
+            'start_date' => '2026-07-18',
+            'end_date' => '2026-07-18',
+            'strict_readback_only' => true,
+        ]);
+
+        self::assertSame('ready', $dataset['status']);
+        self::assertSame(
+            [4],
+            array_column(array_column($dataset['fact_ota_daily'], 'source_trace'), 'row_id')
+        );
+        self::assertSame(400.0, $dataset['fact_ota_daily'][0]['revenue']);
+    }
+
     /** @return array<string, mixed> */
     private function row(int $id, float $amount, int $readbackVerified, string $validationStatus): array
     {
@@ -177,6 +207,7 @@ SQL);
             'book_order_num' => 1,
             'raw_data' => '{}',
             'status' => 'success',
+            'history_status' => 'partial',
             'validation_status' => $validationStatus,
             'validation_flags' => '[]',
             'readback_verified' => $readbackVerified,

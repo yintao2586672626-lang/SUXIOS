@@ -4,7 +4,7 @@
                                 <div>
                                     <p class="text-xs font-semibold tracking-[0.22em] text-[#96743f]">运营自动化中心 · 执行闭环</p>
                                     <h2 class="mt-2 text-2xl font-semibold text-slate-900">任务执行与复盘</h2>
-                                    <p class="mt-2 max-w-3xl text-sm leading-6 text-slate-600">建议和人工动作统一经过审批、执行证据与同口径复盘；缺证不生成收入或 ROI。</p>
+                                    <p class="mt-2 max-w-3xl text-sm leading-6 text-slate-600">人工审批、执行证据、同口径复盘；缺证不生成收入或 ROI。</p>
                                 </div>
                                 <label class="w-full lg:w-72">
                                     <span class="mb-1 block text-xs text-slate-500">查看门店</span>
@@ -15,6 +15,10 @@
                                 </label>
                             </div>
                         </div>
+                        <manager-capability-panel
+                            :hotel-id="operationFilters.hotel_id"
+                            :request="managerCapabilityRequest"
+                        ></manager-capability-panel>
                         <div data-testid="operating-goal-intervention-learning" class="overflow-hidden rounded-2xl border border-[#d8e4df] bg-white shadow-sm">
                             <div class="flex flex-col gap-4 border-b border-slate-100 bg-[#f6faf8] px-5 py-4 lg:flex-row lg:items-start lg:justify-between">
                                 <div>
@@ -114,7 +118,7 @@
                                         <tr>
                                             <th class="px-4 py-3 text-left">建议来源</th>
                                             <th class="px-4 py-3 text-left">动作</th>
-                                            <th class="px-4 py-3 text-left">审批</th>
+                                            <th class="px-4 py-3 text-left">评审</th>
                                             <th class="px-4 py-3 text-left">执行</th>
                                             <th class="px-4 py-3 text-left">证据</th>
                                             <th class="px-4 py-3 text-left">复盘</th>
@@ -128,9 +132,16 @@
                                             <td class="px-4 py-3">
                                                 <div class="font-medium text-gray-900">{{ operationExecutionSourceText(item) }}</div>
                                                 <div class="text-xs text-gray-400">任务 #{{ item.id }} · {{ item.recommendation?.platform || '-' }} · {{ item.recommendation?.date_start || '-' }}</div>
+                                                <span v-if="item.action_management" :class="operationExecutionStatusClass(item.action_management.lifecycle?.status)" class="mt-1 inline-flex rounded-full px-2 py-0.5 text-[11px] font-medium">{{ operationExecutionStatusLabel(item.action_management.lifecycle?.status) }}</span>
                                             </td>
                                             <td class="px-4 py-3">
                                                 <div>{{ operationExecutionActionText(item) }}</div>
+                                                <div v-if="item.action_management?.action_card" data-testid="operation-action-card" class="mt-2 max-w-sm space-y-1 rounded-lg border border-[#d8e4df] bg-[#f6faf8] p-2 text-[11px] leading-4 text-slate-600">
+                                                    <div><b class="text-slate-700">原因：</b>{{ item.action_management.action_card.reason || '-' }}</div>
+                                                    <div><b class="text-slate-700">风险：</b>{{ item.action_management.action_card.risk?.summary || '-' }}</div>
+                                                    <div><b class="text-slate-700">事实：</b>{{ (item.action_management.action_card.fact_refs || []).join('、') || '-' }}</div>
+                                                    <div><b class="text-slate-700">指标：</b>{{ item.action_management.action_card.metric_contract?.metric_key || '-' }} · {{ item.action_management.action_card.metric_contract?.unit || '单位缺失' }}</div>
+                                                </div>
                                                 <div class="mt-2 max-w-xs" data-testid="operation-intervention-learning-state">
                                                     <span :class="['inline-flex rounded-full px-2 py-0.5 text-[11px] font-medium', operationInterventionLearningModelForItem(item).className]">{{ operationInterventionLearningModelForItem(item).label }}</span>
                                                     <div class="mt-1 text-[11px] leading-4 text-slate-500">{{ operationInterventionLearningModelForItem(item).summary }}</div>
@@ -144,10 +155,18 @@
                                             <td class="px-4 py-3">
                                                 <span :class="operationExecutionStatusClass(item.approval?.status)" class="px-2 py-1 rounded-full text-xs">{{ operationExecutionStatusLabel(item.approval?.status) }}</span>
                                                 <div v-if="item.approval?.blocked_reason" class="text-xs text-amber-700 mt-1">{{ item.approval.blocked_reason }}</div>
+                                                <div v-if="item.recommendation?.evidence?.ai_independent_review?.contract_version === 'operation_action_ai_independent_review.v1'" data-testid="operation-ai-independent-review" class="mt-2 max-w-xs rounded-lg border border-indigo-100 bg-indigo-50 p-2 text-[11px] leading-4 text-indigo-800">
+                                                    <div class="font-semibold">AI 独立评审 · {{ item.recommendation.evidence.ai_independent_review.status }}</div>
+                                                    <div class="mt-1">{{ item.recommendation.evidence.ai_independent_review.summary || '评审摘要未回读' }}</div>
+                                                    <div class="mt-1 text-indigo-600">{{ item.recommendation.evidence.ai_independent_review.provider || '-' }} · {{ item.recommendation.evidence.ai_independent_review.model || '-' }}</div>
+                                                </div>
                                             </td>
                                             <td class="px-4 py-3">{{ operationExecutionStatusLabel(item.execution?.status) }}</td>
                                             <td class="px-4 py-3">{{ nodeText(item) }}</td>
-                                            <td class="px-4 py-3 text-gray-600">{{ operationExecutionReviewText(item) }}</td>
+                                            <td class="px-4 py-3 text-gray-600">
+                                                <div>{{ operationExecutionReviewText(item) }}</div>
+                                                <div v-if="item.action_management?.latest_review?.non_attribution_reasons?.length" class="mt-1 max-w-xs text-[11px] leading-4 text-amber-700">非归因：{{ item.action_management.latest_review.non_attribution_reasons.join('、') }}</div>
+                                            </td>
                                             <td class="px-4 py-3">
                                                 <span :class="item.roi?.status === 'ready' ? 'text-green-700 font-semibold' : 'text-gray-400'">{{ operationExecutionRoiText(item.roi) }}</span>
                                             </td>
@@ -156,10 +175,12 @@
                                             </td>
                                             <td class="px-4 py-3">
                                                 <div class="flex flex-wrap gap-2">
-                                                    <button v-if="operationCanApproveExecution(item)" @click="approveOperationExecutionIntent(item, true)" class="px-2.5 py-1 rounded-lg bg-green-600 text-white text-xs hover:bg-green-700">审批</button>
-                                                    <button v-if="operationCanApproveExecution(item)" @click="approveOperationExecutionIntent(item, false)" class="px-2.5 py-1 rounded-lg border border-gray-200 text-gray-600 text-xs hover:bg-gray-50">驳回</button>
+                                                    <button v-if="operationCanApproveExecution(item)" data-testid="operation-approve" :data-confirming="operationApprovalConfirming(item)" :disabled="operationLoading.actions" @click="approveOperationExecutionIntent(item, true)" class="px-2.5 py-1 rounded-lg bg-green-600 text-white text-xs hover:bg-green-700 disabled:cursor-wait disabled:opacity-50">{{ operationApprovalText(item) }}</button>
+                                                    <button v-if="operationCanApproveExecution(item)" data-testid="operation-reject" :disabled="operationLoading.actions" @click="rejectOrCancelOperationApproval(item)" class="px-2.5 py-1 rounded-lg border border-gray-200 text-gray-600 text-xs hover:bg-gray-50 disabled:cursor-wait disabled:opacity-50">{{ operationRejectText(item) }}</button>
+                                                    <button v-if="operationCanStartExecution(item)" data-testid="operation-start-task" @click="startOperationExecutionTask(item)" class="rounded-lg bg-[#315d50] px-2.5 py-1 text-xs font-medium text-white hover:bg-[#264a40]">开始任务</button>
                                                     <button v-if="operationCanRecordNodeCheck(item)" data-testid="operation-node-check-action" @click="recordOperationRevenueNodeCheck(item)" class="px-2.5 py-1 rounded-lg border border-blue-200 bg-blue-50 text-blue-700 text-xs hover:bg-blue-100">{{ item.evidence_summary?.node_record?.status === 'available' ? '更新节点' : '节点检查' }}</button>
                                                     <button v-if="operationCanExecuteWithEvidence(item)" @click="recordOperationExecutionEvidence(item)" class="px-2.5 py-1 rounded-lg bg-blue-600 text-white text-xs hover:bg-blue-700">录证据</button>
+                                                    <button v-if="operationCanCancelExecution(item) &amp;&amp; !operationCanApproveExecution(item)" data-testid="operation-cancel-action" @click="cancelOperationExecution(item)" class="rounded-lg border border-rose-200 bg-white px-2.5 py-1 text-xs text-rose-700 hover:bg-rose-50">取消</button>
                                                     <button v-if="operationCanReconcileExecution(item) || operationCanReviewExecution(item)" data-testid="operation-review-action" @click="operationCanReconcileExecution(item) ? reconcileOperationExecutionReview(item) : reviewOperationExecutionTask(item)" class="px-2.5 py-1 rounded-lg bg-gray-900 text-white text-xs hover:bg-gray-700">{{ operationCanReconcileExecution(item) ? '读取事实' : '复盘' }}</button>
                                                     <span v-else-if="item.execution?.status === 'executed' &amp;&amp; item.review?.is_available === false" class="text-xs text-amber-700">{{ item.review.available_at || item.review.available_on || '次日' }} 可读取</span>
                                                     <button v-if="operationCanDefineIntervention(item)" type="button" @click="openOperatingInterventionForm(item)" class="rounded-lg border border-[#315d50] bg-white px-2.5 py-1 text-xs font-medium text-[#315d50] hover:bg-emerald-50">定义干预</button>
@@ -188,7 +209,7 @@
                             <div class="flex flex-col md:flex-row md:items-start md:justify-between gap-3 mb-4">
                                 <div>
                                     <h3 class="font-bold text-gray-900">效果证据汇总</h3>
-                                    <p class="text-sm text-gray-500 mt-1">汇总同口径前后数据、调价命中率、建议采纳率和预警准确率；前后差异不单独证明因果</p>
+                                    <p class="text-sm text-gray-500 mt-1">同口径前后数据不单独证明因果。</p>
                                 </div>
                                 <span :class="operationEffectStatusClass(operationEffectValidation.status)" class="px-3 py-1 rounded-full text-xs font-medium">
                                     {{ operationEffectStatusLabel(operationEffectValidation.status) }}
@@ -252,35 +273,52 @@
                             <section class="w-full max-w-2xl overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl">
                                 <div class="border-b border-slate-100 px-6 py-4">
                                     <h3 id="operation-evidence-modal-title" class="text-lg font-bold text-slate-900">记录执行证据</h3>
-                                    <p class="mt-1 text-xs leading-5 text-slate-500">这里只记录实际完成的动作、人员、时间和回执。收入、成本、指标变化与效果结论统一在“效果复盘”中保存。</p>
+                                    <p class="mt-1 text-xs leading-5 text-slate-500">{{ operationEvidenceBoundaryText }}</p>
                                 </div>
-                                <div class="max-h-[65vh] space-y-4 overflow-y-auto px-6 py-5">
-                                    <div class="rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 text-xs leading-5 text-blue-800">执行证据与效果证据分开保存：本窗口不会接收执行前后收入、成本或 ROI。</div>
-                                    <template>
-                                        <label class="block">
-                                            <span class="text-xs font-medium text-slate-600">实际完成的动作 *</span>
-                                            <textarea v-model.trim="operationEvidenceForm.completed_action" rows="4" placeholder="填写已经执行的动作，不要填写计划或预期效果" class="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"></textarea>
+                                <div class="max-h-[65vh] space-y-4 overflow-y-auto px-6 py-5 text-xs font-medium text-slate-600">
+                                    <label class="block" data-testid="operation-execution-status-field">
+                                            <span>执行结果 *</span>
+                                            <select v-model="operationEvidenceForm.execution_status" class="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm">
+                                                <option value="executed">已执行，等待效果观察</option>
+                                                <option value="failed">执行失败</option>
+                                            </select>
                                         </label>
                                         <label class="block">
-                                            <span class="text-xs font-medium text-slate-600">截图、回执或来源记录</span>
-                                            <input v-model.trim="operationEvidenceForm.receipt_path" placeholder="例如 online_daily_data#记录ID 或内部回执路径" class="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm">
+                                            <span>操作说明 {{ operationEvidenceForm.execution_status === 'executed' ? '*' : '' }}</span>
+                                            <textarea v-model.trim="operationEvidenceForm.completed_action" rows="4" placeholder="填写已执行动作" class="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"></textarea>
+                                        </label>
+                                        <label v-if="operationEvidenceForm.execution_status === 'failed'" class="block" data-testid="operation-execution-failure-reason-field">
+                                            <span>失败原因 *</span>
+                                            <textarea v-model.trim="operationEvidenceForm.failure_reason" rows="3" placeholder="填写实际失败原因" class="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"></textarea>
                                         </label>
                                         <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
                                             <label class="block">
-                                                <span class="text-xs font-medium text-slate-600">执行人</span>
+                                                <span>平台回执</span>
+                                                <input v-model.trim="operationEvidenceForm.platform_receipt" class="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm">
+                                            </label>
+                                            <label class="block">
+                                                <span>正式记录引用</span>
+                                                <input v-model.trim="operationEvidenceForm.formal_record_ref" class="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm">
+                                            </label>
+                                            <label class="block md:col-span-2">
+                                                <span>截图或附件引用</span>
+                                                <input v-model.trim="operationEvidenceForm.receipt_path" class="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm">
+                                            </label>
+                                        </div>
+                                        <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
+                                            <label class="block">
+                                                <span>执行人 *</span>
                                                 <input v-model.trim="operationEvidenceForm.executed_by" class="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm">
                                             </label>
                                             <label class="block">
-                                                <span class="text-xs font-medium text-slate-600">执行时间 *</span>
-                                                <input v-model="operationEvidenceForm.executed_at" type="datetime-local" step="1" class="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm">
+                                                <span>执行时间 *</span>
+                                                <input v-model="operationEvidenceForm.executed_at" type="datetime-local" class="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm">
                                             </label>
                                             <label class="block md:col-span-2">
-                                                <span class="text-xs font-medium text-slate-600">计划读取次日同口径事实的日期</span>
+                                                <span>同口径事实回读日</span>
                                                 <input v-model="operationEvidenceForm.next_review_date" type="date" class="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm">
                                             </label>
                                         </div>
-                                        <div class="rounded-lg border border-amber-100 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800">保存后标记为“已执行、效果待观察”，不会自动生成收入或 ROI。</div>
-                                    </template>
                                 </div>
                                 <div class="flex justify-end gap-3 border-t border-slate-100 bg-slate-50 px-6 py-4">
                                     <button type="button" @click="closeOperationEvidenceModal" :disabled="operationLoading.actions" class="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm text-slate-700 disabled:opacity-60">取消</button>
@@ -293,16 +331,16 @@
                             <section class="w-full max-w-xl overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl">
                                 <div class="border-b border-slate-100 px-6 py-4">
                                     <h3 id="operation-review-modal-title" class="text-lg font-bold text-slate-900">记录效果复盘</h3>
-                                    <p class="mt-1 text-xs leading-5 text-slate-500">没有次日同口径数据时请选择“继续观察”，不要提前判断成功或填写 ROI。</p>
+                                    <p class="mt-1 text-xs leading-5 text-slate-500">缺少行动后同口径事实时不得保存复盘。</p>
                                 </div>
                                 <div class="space-y-4 px-6 py-5">
                                     <label class="block">
                                         <span class="text-xs font-medium text-slate-600">复盘结论</span>
                                         <select v-model="operationReviewForm.status" class="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm">
                                             <option value="observing">继续观察</option>
-                                            <option value="success">达成</option>
-                                            <option value="near_success">接近达成</option>
-                                            <option value="failed">未达成</option>
+                                            <option v-if="operationReviewModalItem?.action_management?.action_card?.metric_contract?.target_type !== 'observation'" value="success">达成</option>
+                                            <option v-if="operationReviewModalItem?.action_management?.action_card?.metric_contract?.target_type !== 'observation'" value="near_success">接近达成</option>
+                                            <option v-if="operationReviewModalItem?.action_management?.action_card?.metric_contract?.target_type !== 'observation'" value="failed">未达成</option>
                                         </select>
                                     </label>
                                     <label class="block">
@@ -310,7 +348,7 @@
                                         <textarea v-model.trim="operationReviewForm.summary" rows="5" placeholder="说明已完成什么、等待什么证据，以及当前不能判断的原因" class="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"></textarea>
                                     </label>
                                     <div v-if="['success', 'near_success', 'failed'].includes(operationReviewForm.status)" class="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-xs leading-5 text-emerald-800" data-testid="operation-review-readback-gate">
-                                        达成、接近达成或未达成只能基于已读取的同酒店、同平台、同指标来源事实。人工在此确认结论；系统会把效果复盘独立保存，不会把人工填值写成来源事实，也不会自动修改 OTA。
+                                        终态只基于同酒店、同平台、同指标来源事实；不会把人工填值写成来源事实，也不会自动修改 OTA。
                                     </div>
                                 </div>
                                 <div class="flex justify-end gap-3 border-t border-slate-100 bg-slate-50 px-6 py-4">

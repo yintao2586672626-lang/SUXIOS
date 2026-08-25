@@ -4,6 +4,7 @@ declare(strict_types=1);
 use app\service\OtaCompetitionAnalysisBundleService;
 
 require dirname(__DIR__) . '/vendor/autoload.php';
+require_once dirname(__DIR__) . '/app/service/OtaCompetitionAnalysisBundleService.php';
 
 function assertContract(bool $condition, string $message): void
 {
@@ -56,6 +57,9 @@ $ctrip = [
             'adr' => 300,
             'detail_visitors' => 1000,
             'conversion_rate' => 0.05,
+            'ari' => 105,
+            'sci' => 98,
+            'ctrip_rating' => 4.7,
         ],
         'competitor_average' => [
             'amount' => 30800,
@@ -164,6 +168,15 @@ assertContract(
     'OTA auto write must stay disabled'
 );
 assertContract(
+    ($syntheticLite['report_document']['status'] ?? '') === 'blocked'
+        && ($syntheticLite['content_drafts']['xiaohongshu']['status'] ?? '') === 'withheld',
+    'synthetic evidence must not create a publishable report or content draft: '
+        . json_encode([
+            'report_status' => $syntheticLite['report_document']['status'] ?? null,
+            'draft_status' => $syntheticLite['content_drafts']['xiaohongshu']['status'] ?? null,
+        ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)
+);
+assertContract(
     ($syntheticLite['source_fingerprint'] ?? '') === ($syntheticFlagship['source_fingerprint'] ?? 'different'),
     'lite and flagship must read the same calculation fingerprint'
 );
@@ -194,6 +207,53 @@ assertContract(
     count((array)($live['recommendations']['items'] ?? [])) === 2,
     'fully traced live inputs must produce at most one manual action per platform'
 );
+assertContract(
+    ($live['report_document']['status'] ?? '') === 'ready_for_review',
+    'verified live evidence must create one interactive report document'
+);
+assertContract(
+    ($live['report_document']['render_contract']['source_fingerprint'] ?? '')
+        === ($live['source_fingerprint'] ?? 'different'),
+    'report rendering must keep the shared bundle fingerprint'
+);
+assertContract(
+    ($live['report_document']['render_contract']['commercial_release_ready'] ?? true) === false,
+    'interactive report must not claim the commercial DOCX/HTML page gates'
+);
+assertContract(
+    ($live['facts']['ctrip']['self']['conversion_rate'] ?? null) === 0.05
+        && ($live['derived_metrics']['ctrip']['booking_conversion_rate'] ?? null) === 5.0,
+    'Ctrip platform conversion must remain a source value while orders/visitors is separately derived'
+);
+assertContract(
+    ($live['evidence_contracts']['ctrip']['full_circle_ready'] ?? false) === true
+        && ($live['evidence_contracts']['ctrip']['required_checks_available'] ?? 0) === 7
+        && ($live['evidence_contracts']['ctrip']['required_checks_total'] ?? 0) === 7,
+    'complete Ctrip snapshot fields must produce a separate full-circle evidence readiness result'
+);
+assertContract(
+    ($live['evidence_contracts']['meituan']['analysis_scope'] ?? '') === 'rank_summary_only'
+        && ($live['evidence_contracts']['meituan']['full_circle_ready'] ?? true) === false
+        && ($live['facts']['meituan']['evidence_group_counts'] ?? []) === [
+            'stay' => null,
+            'sales' => null,
+            'traffic' => null,
+            'conversion' => null,
+        ],
+    'rank-only Meituan evidence must expose four uncollected ranking groups without replacing them with zero'
+);
+assertContract(
+    ($live['evidence_contracts']['meituan']['formula_boundaries']['sales_stay_gap_is_not_cancellation_rate'] ?? false) === true
+        && ($live['report_document']['management_snapshot']['full_circle_platforms'] ?? 0) === 1,
+    'report must expose the sales/stay cancellation boundary and full-circle platform count'
+);
+assertContract(
+    ($live['content_drafts']['xiaohongshu']['status'] ?? '') === 'ready_for_human_review'
+        && count((array)($live['content_drafts']['xiaohongshu']['titles_10'] ?? [])) === 10
+        && count((array)($live['content_drafts']['xiaohongshu']['pages_8'] ?? [])) === 8
+        && ($live['content_drafts']['xiaohongshu']['auto_publish'] ?? true) === false,
+    'verified report must create one complete draft-only Xiaohongshu content packet'
+);
 
 $missingCompetitorCount = $ctrip;
 unset($missingCompetitorCount['business_comparison']['competitor_count']);
@@ -206,6 +266,25 @@ assertContract(
     array_key_exists('competitor_count', $missingCompetitorCountBundle['facts']['ctrip'])
         && $missingCompetitorCountBundle['facts']['ctrip']['competitor_count'] === null,
     'missing competitor count must remain null instead of becoming zero'
+);
+
+$missingVisitor = $ctrip;
+$missingVisitor['business_comparison']['self']['detail_visitors'] = null;
+$missingVisitorBundle = $service->buildFromInputs(80, $date, $missingVisitor, $meituan, [
+    'edition' => 'lite',
+    'dataset_kind' => 'live',
+    'readback_verified' => true,
+]);
+$missingVisitorChecks = array_column(
+    (array)($missingVisitorBundle['evidence_contracts']['ctrip']['checks'] ?? []),
+    null,
+    'key'
+);
+assertContract(
+    array_key_exists('booking_conversion_rate', $missingVisitorBundle['derived_metrics']['ctrip'])
+        && $missingVisitorBundle['derived_metrics']['ctrip']['booking_conversion_rate'] === null
+        && ($missingVisitorChecks['booking_conversion']['status'] ?? '') === 'unavailable',
+    'missing Ctrip visitor denominator must remain null and visibly unavailable'
 );
 
 OtaCompetitionAnalysisBundleService::assertGenerationAllowed('lite', false);
@@ -231,6 +310,12 @@ assertContract(
     ($blocked['quality']['decision_eligible'] ?? true) === false,
     'missing denominator and Meituan source must block executable advice'
 );
+assertContract(
+    ($blocked['report_document']['status'] ?? '') === 'blocked'
+        && ($blocked['content_drafts']['xiaohongshu']['status'] ?? '') === 'withheld'
+        && !array_key_exists('post_text', (array)($blocked['content_drafts']['xiaohongshu'] ?? [])),
+    'blocked evidence must withhold both report actions and Xiaohongshu copy'
+);
 
 echo json_encode([
     'status' => 'passed',
@@ -241,5 +326,14 @@ echo json_encode([
     'candidate_groups' => array_keys($syntheticLite['candidate_competitors']['ctrip']),
     'synthetic_actions' => count($syntheticLite['recommendations']['items']),
     'live_actions' => count($live['recommendations']['items']),
+    'live_report_status' => $live['report_document']['status'],
+    'live_xiaohongshu_status' => $live['content_drafts']['xiaohongshu']['status'],
+    'ctrip_full_circle_ready' => $live['evidence_contracts']['ctrip']['full_circle_ready'],
+    'ctrip_booking_conversion_rate' => $live['derived_metrics']['ctrip']['booking_conversion_rate'],
+    'meituan_analysis_scope' => $live['evidence_contracts']['meituan']['analysis_scope'],
+    'meituan_missing_required_labels' => $live['evidence_contracts']['meituan']['missing_required_labels'],
+    'missing_visitor_booking_conversion_rate' => $missingVisitorBundle['derived_metrics']['ctrip']['booking_conversion_rate'],
+    'blocked_report_status' => $blocked['report_document']['status'],
+    'blocked_xiaohongshu_status' => $blocked['content_drafts']['xiaohongshu']['status'],
     'blocked_codes' => $blockedCodes,
 ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT) . PHP_EOL;

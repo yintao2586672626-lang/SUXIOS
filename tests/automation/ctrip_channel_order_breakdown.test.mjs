@@ -301,7 +301,8 @@ test('Ctrip sales table follows the flat one-row scan pattern used by the traffi
   assert.equal((ctripTemplate.match(/class="ctrip-rank-groups"/g) || []).length, 2);
   assert.equal((ctripTemplate.match(/class="ctrip-rank-head"/g) || []).length, 2);
   assert.equal((ctripTemplate.match(/class="ctrip-rank-table/g) || []).length, 2);
-  assert.equal((ctripTemplate.match(/榜单与排名/g) || []).length, 4);
+  assert.equal((ctripTemplate.match(/榜单与排名/g) || []).length, 6);
+  assert.equal((ctripTemplate.match(/data-download-title="榜单与排名"/g) || []).length, 2);
   assert.doesNotMatch(ctripTemplate, /v-for="group in ctripSalesColumnGroups"/);
   assert.equal((ctripTemplate.match(/v-for="column in ctripSalesMetricColumns"/g) || []).length, 4);
   assert.doesNotMatch(ctripTemplate, /ctripSalesMetricColumns\.slice\(0, 4\)/);
@@ -317,9 +318,10 @@ test('Ctrip sales table follows the flat one-row scan pattern used by the traffi
   assert.equal((ctripTemplate.match(/data-testid="ctrip-ranking-fetch-button"/g) || []).length, 1);
   assert.equal((ctripTemplate.match(/data-testid="ctrip-ranking-fetch-status"/g) || []).length, 1);
   assert.match(ctripTemplate, /data-testid="ctrip-ranking-fetch-status"[\s\S]*获取成功[\s\S]*已保存 \{\{ ctripSavedCount \}\} 条数据到数据库/);
-  assert.equal((ctripTemplate.match(/data-testid="ctrip-business-download-button"/g) || []).length, 1);
+  assert.equal((ctripTemplate.match(/:data-testid="action\.testId"/g) || []).length, 1);
+  assert.match(appMain, /testId: 'ctrip-business-download-button'/);
   assert.equal((ctripTemplate.match(/data-testid="ctrip-business-table-toolbar"/g) || []).length, 1);
-  assert.match(ctripTemplate, /data-testid="ctrip-business-table-toolbar"[\s\S]*data-testid="ctrip-business-table-tabs"[\s\S]*榜单与排名[\s\S]*data-testid="ctrip-business-download-button"/);
+  assert.match(ctripTemplate, /data-testid="ctrip-business-table-toolbar"[\s\S]*data-testid="ctrip-business-table-tabs"[\s\S]*榜单与排名[\s\S]*:data-testid="action\.testId"/);
   assert.doesNotMatch(ctripTemplate, /目标日期数据已保存/);
   assert.doesNotMatch(ctripTemplate, />当前酒店配置</);
   assert.match(salesTable, /v-for="column in ctripSalesOrderColumns"/);
@@ -375,6 +377,19 @@ test('Ctrip sales table follows the flat one-row scan pattern used by the traffi
   assert.doesNotMatch(metricDefinitions, /67\.5%|有效率32\.5%/);
   assert.doesNotMatch(metricDefinitions, /field: 'fullChannelRoomNightsEstimate'/);
   assert.doesNotMatch(metricDefinitions, /平均房价指数\(ARI\)|综合竞争力指数\(SCI\)/);
+  const orderSummaryDefinitions = appMain.slice(
+    appMain.indexOf('const ctripOrderSummaryMetricDefinitions'),
+    appMain.indexOf('const ctripOrderSummaryCards'),
+  );
+  ['携程APP订单', '去哪儿订单', '同程及分销渠道', '总平台订单', '含取消总单'].forEach((label) => {
+    assert.match(orderSummaryDefinitions, new RegExp(`label: '${label}'`));
+  });
+  const summaryDisplayDefinition = appMain.slice(
+    appMain.indexOf('const ctripSummaryDisplayCards'),
+    appMain.indexOf('const ctripSummaryHasCustomOrder'),
+  );
+  assert.match(summaryDisplayDefinition, /\.\.\.ctripBusinessSummaryCards\.value/);
+  assert.match(summaryDisplayDefinition, /\.\.\.ctripOrderSummaryCards\.value/);
   const trafficColumnStart = appMain.indexOf('const ctripTrafficChannelColumns', salesColumnEnd);
   const trafficColumnEnd = appMain.indexOf('const ctripTrafficChannelText', trafficColumnStart);
   const trafficColumnDefinitions = appMain.slice(trafficColumnStart, trafficColumnEnd);
@@ -386,39 +401,16 @@ test('Ctrip sales table follows the flat one-row scan pattern used by the traffi
   });
   assert.doesNotMatch(trafficColumnDefinitions, /label: '(?:携程订单|去哪儿订单|同程)'/);
 
-  const downloadStart = appMain.indexOf('const ctripDownloadRows');
-  const trafficDownloadStart = appMain.indexOf("title: '流量与转化'", downloadStart);
-  const rankDownloadStart = appMain.indexOf("title: '榜单与排名'", trafficDownloadStart);
-  const salesDownloadStart = appMain.indexOf("title: '销售与订单'", rankDownloadStart);
-  const downloadEnd = appMain.indexOf('const buildCtripBusinessCanvas', salesDownloadStart);
-  const trafficDownload = appMain.slice(trafficDownloadStart, rankDownloadStart);
-  const rankDownload = appMain.slice(rankDownloadStart, salesDownloadStart);
-  const salesDownload = appMain.slice(salesDownloadStart, downloadEnd);
-  assert.match(trafficDownload, /label: '携程点评分'/);
-  assert.match(trafficDownload, /label: '去哪儿点评分'/);
-  assert.doesNotMatch(trafficDownload, /label: '(?:携程订单|去哪儿订单|同程)'/);
-  assert.match(rankDownload, /label: '平均房价指数\(ARI\)'/);
-  assert.match(rankDownload, /label: '综合竞争力指数\(SCI\)'/);
-  assert.match(salesDownload, /label: '携程APP订单\(含取消\)'/);
-  assert.match(salesDownload, /label: '去哪儿订单\(含取消\)'/);
-  assert.match(salesDownload, /label: '酒店ID'/);
-  assert.match(salesDownload, /label: '离店销售额（元）'/);
-  assert.match(salesDownload, /label: '离店间夜'/);
-  assert.match(salesDownload, /label: '平均卖价（元）'/);
-  assert.match(salesDownload, /label: '总平台订单'/);
-  assert.match(salesDownload, /label: '其他渠道订单（含取消）'/);
-  assert.match(salesDownload, /label: '总订单（含取消）'/);
-  assert.match(salesDownload, /label: '访客\/转化来源'/);
-  previous = -1;
-  ['酒店ID', '离店销售额（元）', '离店间夜', '平均卖价（元）', '总平台订单', '总订单（含取消）', '携程APP订单(含取消)', '去哪儿订单(含取消)', '其他渠道订单（含取消）', '访客/转化来源'].forEach((label) => {
-    const position = salesDownload.indexOf(label);
-    assert.ok(position > previous, `${label} should follow the preceding exported sales column`);
-    previous = position;
-  });
-  assert.equal((salesDownload.match(/value: row => oneDecimalText\(row\.(?:amount|adr)\)/g) || []).length, 2);
-  assert.doesNotMatch(salesDownload, /Math\.round\(Number\(row\.(?:amount|adr)\)\)|`¥/);
-  assert.doesNotMatch(salesDownload, /label: '(?:平均房价|携程间夜|携程离店间夜量|携程系预订订单数|同程订单数|总间夜|全渠道间夜推算)'/);
-  assert.doesNotMatch(salesDownload, /label: '(?:携程点评分|去哪儿点评分)'/);
+  const canvasStart = appMain.indexOf('const buildCtripBusinessCanvas');
+  const canvasDownload = appMain.slice(canvasStart, appMain.indexOf('const canvasToPngBlob', canvasStart));
+  assert.match(appMain, /requireCtripStatic\('captureCtripBusinessDownloadSnapshot'\)/);
+  assert.match(canvasDownload, /document\.querySelector\('\[data-download-target="ctrip-business"\]'\)/);
+  assert.match(canvasDownload, /cards: visibleSnapshot\.cards/);
+  assert.match(canvasDownload, /table: visibleSnapshot\.table/);
+  assert.match(canvasDownload, /sourceNotice: visibleSnapshot\.sourceNotice/);
+  assert.doesNotMatch(appMain, /const ctripDownloadRows =/);
+  assert.equal((ctripTemplate.match(/data-download-table="current-visible"/g) || []).length, 6);
+  assert.equal((ctripTemplate.match(/data-testid="ctrip-business-source-notice"/g) || []).length, 2);
 
   assert.match(appMain, /channelOrderBreakdownMeta/);
   assert.match(appMain, /formatOptionalNumber\(-Math\.abs\(excessOrders\)\)/);

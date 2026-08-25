@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
   "source_snapshot": "resources/frontend/app-template.html",
-  "source_snapshot_sha256": "d5ebda0ba1ccc84d89b8aab6b207d491cb7985dd12af0ed3142b671fc511f5ed",
-  "source_snapshot_bytes": 2172362,
+  "source_snapshot_sha256": "2281bf80edc031236107c57dd24e265bfd11c13131080f1b57437b99ce72136c",
+  "source_snapshot_bytes": 2201778,
   "fragments": [
     {
       "id": "app-shell",
@@ -177,6 +177,12 @@
       "domain": "revenue",
       "path": "fragments/19a-page-operation-optimizer.html",
       "anchor": "<div v-if=\"currentPage === 'operation-optimizer'\" class=\"max-w-7xl mx-auto space-y-5\" data-testid=\"page-operation-optimizer\">"
+    },
+    {
+      "id": "page-operating-opportunities",
+      "domain": "operations",
+      "path": "fragments/19b-page-operating-opportunities.html",
+      "anchor": "<div v-if=\"currentPage === 'operating-opportunities'\" class=\"suxi-dashboard-scope\" data-testid=\"page-operating-opportunities\">"
     },
     {
       "id": "page-knowledge-center",

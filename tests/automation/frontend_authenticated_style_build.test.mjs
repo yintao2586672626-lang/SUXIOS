@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import postcss from 'postcss';
-import { buildFrontendAuthenticatedStyle } from '../../scripts/lib/frontend_authenticated_style_build.mjs';
+import {
+  buildFrontendAuthenticatedStartupStyle,
+  buildFrontendAuthenticatedStyle,
+} from '../../scripts/lib/frontend_authenticated_style_build.mjs';
 
 test('authenticated stylesheet build removes only non-license comments and formatting whitespace', () => {
   const source = `
@@ -26,4 +29,21 @@ test('authenticated stylesheet build removes only non-license comments and forma
   assert.ok(artifact.length < source.length);
   assert.ok(artifact.endsWith('\n'));
   assert.ok(!artifact.endsWith('\n\n'));
+});
+
+test('authenticated startup stylesheet keeps used selectors and removes deferred-page selectors', async () => {
+  const source = `
+    .compass-dashboard { color: rgb(10, 20, 30); }
+    .deferred-admin-page { color: red; }
+    @media (max-width: 640px) { .compass-dashboard { color: blue; } }
+  `;
+  const artifact = await buildFrontendAuthenticatedStartupStyle(source, [{
+    raw: '<main class="compass-dashboard"></main>',
+    extension: 'html',
+  }]);
+
+  assert.match(artifact, /\.compass-dashboard/);
+  assert.doesNotMatch(artifact, /\.deferred-admin-page/);
+  assert.match(artifact, /@media/);
+  assert.ok(artifact.endsWith('\n'));
 });

@@ -31,6 +31,7 @@
                                                 <div>
                                                     <label class="block text-sm font-medium text-gray-700 mb-1.5">{{ aiModelConfigText('aiModelQuickSetup.providerLabel') }}</label>
                                                     <select v-model="aiQuickSetupForm.provider" class="input-field w-full">
+                                                        <option value="ollama">本机 Ollama（第二大脑）</option>
                                                         <option value="deepseek">DeepSeek</option>
                                                         <option value="openai">OpenAI</option>
                                                         <option value="anthropic">Anthropic Claude</option>
@@ -46,13 +47,13 @@
                                                         <option value="nvidia">NVIDIA Nemotron</option>
                                                     </select>
                                                 </div>
-                                                <div>
+                                                <div v-if="aiQuickSetupForm.provider !== 'ollama'">
                                                     <label class="block text-sm font-medium text-gray-700 mb-1.5">{{ aiModelConfigText('aiModelQuickSetup.apiKeyLabel') }}</label>
                                                     <input v-model="aiQuickSetupForm.api_key" type="password" autocomplete="new-password" class="input-field w-full" :placeholder="aiModelConfigText('aiModelQuickSetup.apiKeyPlaceholder')">
                                                 </div>
                                                 <div>
                                                     <label class="block text-sm font-medium text-gray-700 mb-1.5">{{ aiModelConfigText('aiModelQuickSetup.baseUrlLabel') }}</label>
-                                                    <input v-model="aiQuickSetupForm.base_url" class="input-field w-full" :placeholder="aiModelConfigText('aiModelQuickSetup.baseUrlPlaceholder')">
+                                                    <input v-model="aiQuickSetupForm.base_url" :disabled="aiQuickSetupForm.provider === 'ollama'" class="input-field w-full disabled:bg-gray-100" :placeholder="aiQuickSetupForm.provider === 'ollama' ? 'http://127.0.0.1:11434/v1' : aiModelConfigText('aiModelQuickSetup.baseUrlPlaceholder')">
                                                     <p class="text-xs text-gray-500 mt-1">{{ aiModelConfigText('aiModelQuickSetup.baseUrlHelp') }}</p>
                                                 </div>
                                                 <div class="flex items-end">

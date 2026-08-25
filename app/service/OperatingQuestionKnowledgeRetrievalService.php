@@ -317,7 +317,15 @@ final class OperatingQuestionKnowledgeRetrievalService
             }
         }
         $stops = array_fill_keys(['如何', '什么', '怎么', '为什么', '是否', '可以', '应该', '问题', '情况', '当前', '这个', '那个', '酒店', '我们', '请问', '一下', '帮我', '看看'], true);
-        $segments = preg_split('/[^\p{L}\p{N}_]+/u', $question) ?: [];
+        $rawSegments = preg_split('/[^\p{L}\p{N}_]+/u', $question) ?: [];
+        $segments = [];
+        foreach ($rawSegments as $rawSegment) {
+            if (preg_match_all('/[\x{3400}-\x{9fff}]+|[a-z0-9_]+/u', $rawSegment, $matches) !== false) {
+                foreach ($matches[0] ?? [] as $segment) {
+                    $segments[] = $segment;
+                }
+            }
+        }
         foreach ($segments as $segment) {
             $segment = trim($segment);
             $length = mb_strlen($segment);

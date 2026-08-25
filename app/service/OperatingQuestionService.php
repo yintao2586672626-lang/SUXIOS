@@ -75,7 +75,8 @@ final class OperatingQuestionService
         string $dateStart,
         string $dateEnd,
         int $createdBy,
-        string $modelKey = 'deepseek_v4_default'
+        string $modelKey = 'deepseek_v4_pro',
+        string $decisionObject = ''
     ): array {
         $this->assertTableReady();
         $this->assertHotelIdentity($tenantId, $hotelId);
@@ -231,6 +232,16 @@ final class OperatingQuestionService
                 'excluded_count' => 0,
                 'reason' => '',
             ];
+        $memoryRetrieval = is_array($evidence['memory_retrieval'] ?? null)
+            ? $evidence['memory_retrieval']
+            : [
+                'status' => $evidence['memories'] === [] ? 'no_match' : 'matched',
+                'method' => 'provided_evidence',
+                'matched_count' => count($evidence['memories']),
+                'returned_count' => count($evidence['memories']),
+                'excluded_count' => 0,
+                'reason' => null,
+            ];
         $executionRefs = $this->refs($evidence['executions']);
         $diagnosisRefs = $this->refs($diagnoses);
         $recoveryPlan = $this->buildRecoveryPlan(
@@ -273,6 +284,7 @@ final class OperatingQuestionService
             'fact_samples' => array_slice($facts, 0, 40),
             'diagnosis_refs' => $diagnosisRefs,
             'knowledge_retrieval' => $knowledgeRetrieval,
+            'memory_retrieval' => $memoryRetrieval,
             'knowledge_resources' => $knowledgeResources,
             'action_drafts' => [],
             'data_gaps' => $dataGaps,
@@ -285,6 +297,11 @@ final class OperatingQuestionService
                 'automatic_execution' => false,
             ],
         ];
+        $answer['decision_frame'] = (new RevenueDecisionFrameService())->build(
+            $question,
+            $decisionObject,
+            $answer
+        );
         // Only the already accepted platform facts and current exact diagnoses
         // may enter the model context; rejected rows remain excluded even when
         // a custom evidence loader supplied them.
@@ -300,7 +317,7 @@ final class OperatingQuestionService
             'knowledge_refs' => $knowledgeRefs,
             'execution_refs' => $executionRefs,
         ]);
-        $requestKey = 'operating-question:v3:' . substr($this->digest([
+        $requestKey = 'operating-question:v5:' . substr($this->digest([
             $tenantId,
             $hotelId,
             $platform,
@@ -481,6 +498,141 @@ final class OperatingQuestionService
     }
 
     /** @return array<string,mixed> */
+    public function scopeOptions(int $tenantId, int $hotelId): array
+    {
+        $this->assertHotelIdentity($tenantId, $hotelId);
+        $contractVersion = 'operating_question_scope_options.v1';
+        $boundary = [
+            'source_scope' => 'ota_channel',
+            'strict_gate' => 'history_success+validation_verified+readback_verified',
+            'silent_date_fallback' => false,
+            'pms_included' => false,
+            'whole_hotel_conclusion' => false,
+        ];
+        if (!$this->tableExists('online_daily_data')) {
+            return [
+                'contract_version' => $contractVersion,
+                'data_status' => 'migration_required',
+                'hotel_id' => $hotelId,
+                'recommended' => null,
+                'platforms' => [],
+                'boundary' => $boundary,
+                'data_gaps' => [['code' => 'online_daily_data_missing']],
+            ];
+        }
+        foreach (['history_status', 'readback_verified', 'validation_status'] as $requiredColumn) {
+            if (!$this->columnExists('online_daily_data', $requiredColumn)) {
+                return [
+                    'contract_version' => $contractVersion,
+                    'data_status' => 'migration_required',
+                    'hotel_id' => $hotelId,
+                    'recommended' => null,
+                    'platforms' => [],
+                    'boundary' => $boundary,
+                    'data_gaps' => [[
+                        'code' => 'online_daily_data_truth_column_missing',
+                        'column' => $requiredColumn,
+                    ]],
+                ];
+            }
+        }
+
+        $today = (new \DateTimeImmutable('now', new \DateTimeZone('Asia/Shanghai')))->format('Y-m-d');
+        $dateFloor = '2000-01-01';
+        $platforms = [];
+        $datesByPlatform = [];
+        foreach (self::ALL_OTA_REQUIRED_PLATFORMS as $platform) {
+            $dates = $this->factQuery($tenantId, $hotelId, $platform, $dateFloor, $today)
+                ->group('data_date')
+                ->order('data_date', 'desc')
+                ->limit(30)
+                ->column('data_date');
+            $dates = array_values(array_unique(array_filter(array_map(
+                static fn(mixed $value): string => substr(trim((string)$value), 0, 10),
+                $dates
+            ), static fn(string $value): bool => preg_match('/^\d{4}-\d{2}-\d{2}$/D', $value) === 1)));
+            if ($dates === []) {
+                continue;
+            }
+            $latestDate = $dates[0];
+            $factCount = (int)$this->factQuery(
+                $tenantId,
+                $hotelId,
+                $platform,
+                $latestDate,
+                $latestDate
+            )->count();
+            $datesByPlatform[$platform] = $dates;
+            $platforms[] = [
+                'platform' => $platform,
+                'latest_verified_date' => $latestDate,
+                'verified_fact_count' => $factCount,
+                'available_dates' => $dates,
+                'available_date_count' => count($dates),
+            ];
+        }
+
+        if (isset($datesByPlatform['ctrip'], $datesByPlatform['meituan'])) {
+            $sharedDates = array_values(array_intersect(
+                $datesByPlatform['ctrip'],
+                $datesByPlatform['meituan']
+            ));
+            rsort($sharedDates, SORT_STRING);
+            if ($sharedDates !== []) {
+                $latestDate = $sharedDates[0];
+                $platforms[] = [
+                    'platform' => 'all_ota',
+                    'latest_verified_date' => $latestDate,
+                    'verified_fact_count' => (int)$this->factQuery(
+                        $tenantId,
+                        $hotelId,
+                        'all_ota',
+                        $latestDate,
+                        $latestDate
+                    )->count(),
+                    'available_dates' => array_slice($sharedDates, 0, 30),
+                    'available_date_count' => count($sharedDates),
+                ];
+            }
+        }
+
+        usort($platforms, static function (array $left, array $right): int {
+            $dateOrder = strcmp(
+                (string)($right['latest_verified_date'] ?? ''),
+                (string)($left['latest_verified_date'] ?? '')
+            );
+            if ($dateOrder !== 0) {
+                return $dateOrder;
+            }
+            $priority = ['all_ota' => 0, 'ctrip' => 1, 'meituan' => 2];
+            return ($priority[(string)($left['platform'] ?? '')] ?? 9)
+                <=> ($priority[(string)($right['platform'] ?? '')] ?? 9);
+        });
+        $first = $platforms[0] ?? null;
+        $recommended = is_array($first) ? [
+            'hotel_id' => $hotelId,
+            'platform' => (string)$first['platform'],
+            'date_start' => (string)$first['latest_verified_date'],
+            'date_end' => (string)$first['latest_verified_date'],
+            'verified_fact_count' => (int)$first['verified_fact_count'],
+            'selection_reason' => 'latest_strict_readback',
+            'is_today' => (string)$first['latest_verified_date'] === $today,
+        ] : null;
+
+        return [
+            'contract_version' => $contractVersion,
+            'data_status' => $recommended === null ? 'empty' : 'ready',
+            'hotel_id' => $hotelId,
+            'recommended' => $recommended,
+            'platforms' => $platforms,
+            'boundary' => $boundary,
+            'data_gaps' => $recommended === null
+                ? [['code' => 'strict_readback_fact_scope_missing']]
+                : [],
+        ];
+    }
+
+    /** @return array<string,mixed> */
     private function loadEvidence(
         int $tenantId,
         int $hotelId,
@@ -496,12 +648,21 @@ final class OperatingQuestionService
             $platform,
             $question
         );
+        $memoryRetrieval = (new OperatingMemoryRetrievalService())->retrieve(
+            $tenantId,
+            $hotelId,
+            $platform,
+            $question,
+            $dateStart,
+            $dateEnd
+        );
         return [
             'facts' => $this->loadFacts($tenantId, $hotelId, $platform, $dateStart, $dateEnd),
             'fact_count' => $this->factCount($tenantId, $hotelId, $platform, $dateStart, $dateEnd),
             'fact_platform_counts' => $this->factPlatformCounts($tenantId, $hotelId, $platform, $dateStart, $dateEnd),
             'fact_platform_dates' => $this->factPlatformDates($tenantId, $hotelId, $platform, $dateStart, $dateEnd),
-            'memories' => $this->loadMemories($tenantId, $hotelId, $platform, $dateStart, $dateEnd),
+            'memories' => is_array($memoryRetrieval['items'] ?? null) ? $memoryRetrieval['items'] : [],
+            'memory_retrieval' => array_diff_key($memoryRetrieval, ['items' => true]),
             'diagnoses' => $this->loadDiagnoses($tenantId, $hotelId, $platform, $dateStart, $dateEnd),
             'knowledge' => is_array($knowledge['items'] ?? null) ? $knowledge['items'] : [],
             'knowledge_retrieval' => array_diff_key($knowledge, ['items' => true]),
@@ -898,6 +1059,9 @@ final class OperatingQuestionService
         $evidence['knowledge_retrieval'] = is_array($evidence['knowledge_retrieval'] ?? null)
             ? $evidence['knowledge_retrieval']
             : [];
+        $evidence['memory_retrieval'] = is_array($evidence['memory_retrieval'] ?? null)
+            ? $evidence['memory_retrieval']
+            : [];
         $evidence['fact_count'] = max(0, (int)($evidence['fact_count'] ?? count($evidence['facts'])));
         $evidence['fact_platform_counts'] = $this->factPlatformCountsFromEvidence($evidence);
         $evidence['fact_platform_dates'] = $this->factPlatformDatesFromEvidence($evidence);
@@ -953,6 +1117,8 @@ final class OperatingQuestionService
             'fallback_used' => false,
             'cache_hit' => false,
             'degraded' => false,
+            'thinking_mode' => '',
+            'reasoning_effort' => '',
             'reason' => '',
             'message' => $this->answerGenerator === null
                 ? '当前使用严格回读的证据摘要。'
@@ -1003,6 +1169,8 @@ final class OperatingQuestionService
                 'fallback_used' => false,
                 'cache_hit' => false,
                 'degraded' => false,
+                'thinking_mode' => '',
+                'reasoning_effort' => '',
             ];
         }
 
@@ -1025,6 +1193,8 @@ final class OperatingQuestionService
             'fallback_used' => ($result['fallback_used'] ?? false) === true,
             'cache_hit' => ($result['cache_hit'] ?? false) === true,
             'degraded' => ($result['degraded'] ?? false) === true,
+            'thinking_mode' => mb_substr(trim((string)($result['thinking_mode'] ?? '')), 0, 20),
+            'reasoning_effort' => mb_substr(trim((string)($result['reasoning_effort'] ?? '')), 0, 20),
             'reason' => mb_substr(trim((string)($result['reason'] ?? '')), 0, 120),
             'message' => mb_substr(trim((string)($result['message'] ?? '')), 0, 300),
         ];
@@ -1087,7 +1257,7 @@ final class OperatingQuestionService
     {
         $value = trim($value);
         if ($value === '' || preg_match('/^[a-zA-Z0-9_.:-]{1,100}$/', $value) !== 1) {
-            return 'deepseek_v4_default';
+            return 'deepseek_v4_pro';
         }
         return $value;
     }

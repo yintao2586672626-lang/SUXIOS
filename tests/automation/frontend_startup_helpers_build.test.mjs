@@ -64,7 +64,10 @@ test('startup artifacts are deterministic, current, smaller, and preserve export
   const inspection = await inspectFrontendStartupHelpers(repoRoot);
   assert.deepEqual(inspection.failures, []);
   assert.ok(inspection.metrics.gzip_savings_bytes >= 50_000);
-  assert.equal(inspection.metrics.request_savings, 7);
+  assert.equal(
+    inspection.metrics.request_savings,
+    FRONTEND_STARTUP_HELPER_SOURCES.length + FRONTEND_DEFERRED_HELPER_SOURCES.length - 2,
+  );
 
   const sourceEntries = FRONTEND_STARTUP_HELPER_SOURCES.map((name) => ({
     name,

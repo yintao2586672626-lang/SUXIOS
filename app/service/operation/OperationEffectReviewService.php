@@ -489,8 +489,11 @@ final class OperationEffectReviewService
             throw new InvalidArgumentException('效果复盘范围、日期、指标或审批身份与冻结契约不一致');
         }
         $expectedReviewDate = (new DateTimeImmutable($baselineDate))->modify('+1 day')->format('Y-m-d');
-        if ($reviewDate !== $expectedReviewDate) {
+        if ($sourceModule !== 'operating_question' && $reviewDate !== $expectedReviewDate) {
             throw new InvalidArgumentException('效果复盘经营日期必须是审批基准日的下一日');
+        }
+        if ($sourceModule === 'operating_question' && $reviewDate < $expectedReviewDate) {
+            throw new InvalidArgumentException('经营问答效果复盘日期必须晚于基准经营窗口');
         }
 
         $contractDefinition = $this->arrayValue($contract['metric_definition'] ?? []);
@@ -1000,9 +1003,8 @@ final class OperationEffectReviewService
 
     private function assertReviewDateOrder(string $baselineDate, string $reviewDate): void
     {
-        $expectedReviewDate = (new DateTimeImmutable($baselineDate))->modify('+1 day')->format('Y-m-d');
-        if ($reviewDate !== $expectedReviewDate) {
-            throw new InvalidArgumentException('复盘经营日期必须是基准经营日期的下一日：' . $expectedReviewDate);
+        if ($reviewDate <= $baselineDate) {
+            throw new InvalidArgumentException('复盘经营日期必须晚于基准经营日期');
         }
     }
 

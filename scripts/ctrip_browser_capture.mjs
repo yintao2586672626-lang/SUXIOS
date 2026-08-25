@@ -73,6 +73,7 @@ import {
   normalizeObservedCtripTrafficMetrics,
   observedCtripTrafficMetricKeys,
 } from './lib/ctrip_observed_traffic_metrics.mjs';
+import { isCtripLoggedInPageState } from './lib/ctrip_login_state.mjs';
 import { fail, parseArgs, safeName, timestamp } from './lib/shared_helpers.mjs';
 
 const PAGE_URLS = buildCtripPageUrls();
@@ -627,7 +628,7 @@ async function holdInteractiveLoginWindow(context, currentPage, platformName) {
   )));
   const enabled = booleanArg(args.interactiveLogin) || waitMs > 0;
   if (!enabled) {
-    return;
+    return currentPage;
   }
   const effectiveWaitMs = waitMs > 0 ? waitMs : 120000;
   console.log(`${platformName} login session is ready. Keeping browser open for ${Math.round(effectiveWaitMs / 1000)} seconds.`);
@@ -979,6 +980,9 @@ async function looksLoggedIn(page) {
     return false;
   }
   const text = await page.locator('body').innerText({ timeout: 5000 }).catch(() => '');
+  if (isCtripLoggedInPageState(url, text)) {
+    return true;
+  }
   if (/登录(?:状态|态|会话)?(?:已)?(?:过期|失效|无效)|(?:请|需要|必须|重新|立即|扫码|账号|密码|手机号).{0,8}登录|登录(?:页面|账号|密码)|(?:未|尚未)登录|login\s*(?:required|expired)|sign\s*in|password|captcha|verification/i.test(text)) {
     return false;
   }

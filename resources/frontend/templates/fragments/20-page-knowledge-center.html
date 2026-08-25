@@ -93,20 +93,33 @@
                                     <button type="button" @click="openOnlinePlatformAutoTab({ force: true })" class="knowledge-feature-action mt-auto pt-4 text-left text-sm font-semibold text-yellow-700 hover:text-yellow-800">打开自动采集设置 <i class="fas fa-arrow-right ml-1" aria-hidden="true"></i></button>
                                 </article>
 
-                                <article v-show="!knowledgeCenterFilter.keyword || 'pms 订单来了 经营数据 房态 营收 ota 数据'.includes(knowledgeCenterFilter.keyword.trim().toLowerCase())" data-feature-search="pms 订单来了 经营数据 房态 营收 ota 数据" data-testid="knowledge-feature-pms" class="knowledge-feature-card flex min-h-full flex-col rounded-xl border border-gray-200 bg-gray-50 p-4">
+                                <article v-show="!knowledgeCenterFilter.keyword || 'pms 订单来了 美团云 罗盘 技术储备 经营数据 房态 营收 ota 数据'.includes(knowledgeCenterFilter.keyword.trim().toLowerCase())" data-feature-search="pms 订单来了 美团云 罗盘 技术储备 经营数据 房态 营收 ota 数据" data-testid="knowledge-feature-pms" class="knowledge-feature-card flex min-h-full flex-col rounded-xl border border-gray-200 bg-gray-50 p-4">
                                     <div class="flex items-start justify-between gap-3">
                                         <span class="flex h-9 w-9 items-center justify-center rounded-lg bg-green-100 text-green-700"><i class="fas fa-hotel" aria-hidden="true"></i></span>
-                                        <span class="rounded-full border border-green-100 bg-green-50 px-2 py-0.5 text-xs text-green-700">全酒店口径</span>
+                                        <div class="flex flex-wrap justify-end gap-1.5">
+                                            <span class="rounded-full border border-green-100 bg-green-50 px-2 py-0.5 text-xs text-green-700">全酒店口径</span>
+                                            <span data-testid="knowledge-feature-pms-source-count" data-pms-source-count="3" class="rounded-full border border-amber-100 bg-amber-50 px-2 py-0.5 text-xs text-amber-700">PMS 来源 · 3项</span>
+                                        </div>
                                     </div>
                                     <h4 class="mt-3 font-semibold text-gray-900">查看PMS经营数据</h4>
-                                    <p class="mt-1 text-sm leading-5 text-gray-600">按页面实际日期查看房费、间夜和经营指标，不与OTA渠道口径混加。</p>
+                                    <p class="mt-1 text-sm leading-5 text-gray-600">订单来了、美团云已接入；罗盘已列为技术储备，待真实门店验证。</p>
                                     <button type="button" data-testid="knowledge-feature-pms-scenario" aria-haspopup="dialog" aria-controls="knowledge-feature-pms-dialog" @click="$event.currentTarget.closest('article').querySelector('dialog').showModal()" class="knowledge-feature-scenario-trigger mt-3 flex items-center justify-between rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-700">
                                         <span>使用场景</span><i class="fas fa-expand-alt text-xs text-gray-400" aria-hidden="true"></i>
                                     </button>
                                     <dialog id="knowledge-feature-pms-dialog" data-testid="knowledge-feature-pms-dialog" aria-labelledby="knowledge-feature-pms-dialog-title" @click.self="$event.currentTarget.close()" class="knowledge-feature-dialog">
                                         <div class="knowledge-feature-dialog-panel">
                                             <div class="flex items-start justify-between gap-4 border-b border-gray-100 bg-gray-900 px-5 py-4 text-white"><div><p class="text-xs font-semibold tracking-widest text-yellow-200">全酒店口径</p><h5 id="knowledge-feature-pms-dialog-title" class="mt-1 text-lg font-semibold">查看PMS经营数据</h5></div><button type="button" aria-label="关闭PMS使用场景" @click="$event.currentTarget.closest('dialog').close()" class="rounded-lg p-2 text-gray-300 hover:bg-gray-800 hover:text-white"><i class="fas fa-times" aria-hidden="true"></i></button></div>
-                                            <div class="space-y-4 p-5"><p class="text-sm leading-6 text-gray-600">目标日缺失时保留页面实际日期与质量状态；PMS全酒店事实不与OTA渠道口径混加。</p><div><p class="text-xs font-semibold text-gray-500">三步任务路径</p><ol class="mt-2 grid gap-2 text-sm text-gray-700 sm:grid-cols-3"><li class="rounded-lg bg-gray-50 p-3"><strong>1 · 选定范围</strong><span class="mt-1 block text-xs text-gray-500">确认酒店和页面实际日期。</span></li><li class="rounded-lg bg-gray-50 p-3"><strong>2 · 查看事实</strong><span class="mt-1 block text-xs text-gray-500">读取房费、间夜和经营指标。</span></li><li class="rounded-lg bg-gray-50 p-3"><strong>3 · 保留口径</strong><span class="mt-1 block text-xs text-gray-500">回显来源、日期和质量状态。</span></li></ol></div><div class="flex justify-end"><button type="button" data-testid="knowledge-feature-pms-dialog-close" @click="$event.currentTarget.closest('dialog').close()" class="rounded-lg bg-gray-900 px-4 py-2 text-sm font-semibold text-white hover:bg-gray-800">知道了</button></div></div>
+                                            <div class="space-y-4 p-5">
+                                                <p class="text-sm leading-6 text-gray-600">目标日缺失时保留页面实际日期与质量状态；PMS全酒店事实不与OTA渠道口径混加。</p>
+                                                <div data-testid="knowledge-feature-pms-source-inventory" data-pms-source-count="3" class="grid gap-2 text-sm">
+                                                    <div data-pms-source-item data-pms-source-code="dingdandao_pms" data-pms-source-status="integrated" class="flex items-center justify-between gap-3 rounded-lg border border-emerald-100 bg-emerald-50 px-3 py-2"><span class="font-medium text-emerald-950">订单来了 PMS</span><span class="text-xs text-emerald-700">系统已接入</span></div>
+                                                    <div data-pms-source-item data-pms-source-code="meituan_cloud_pms" data-pms-source-status="integrated" class="flex items-center justify-between gap-3 rounded-lg border border-emerald-100 bg-emerald-50 px-3 py-2"><span class="font-medium text-emerald-950">美团云 PMS</span><span class="text-xs text-emerald-700">系统已接入</span></div>
+                                                    <div data-pms-source-item data-pms-source-code="luopan_pms" data-pms-source-status="technical-reserve" class="flex items-center justify-between gap-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2"><span class="font-medium text-amber-950">罗盘 PMS</span><span class="text-xs text-amber-700">技术储备 · 未实店验证</span></div>
+                                                </div>
+                                                <p class="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800">来源总数已计入罗盘，但技术储备不等于可绑定或已有真实数据；正式门店 PMS 仍只允许选择已经接入并完成验证的来源。</p>
+                                                <div><p class="text-xs font-semibold text-gray-500">三步任务路径</p><ol class="mt-2 grid gap-2 text-sm text-gray-700 sm:grid-cols-3"><li class="rounded-lg bg-gray-50 p-3"><strong>1 · 选定范围</strong><span class="mt-1 block text-xs text-gray-500">确认酒店和页面实际日期。</span></li><li class="rounded-lg bg-gray-50 p-3"><strong>2 · 查看事实</strong><span class="mt-1 block text-xs text-gray-500">读取房费、间夜和经营指标。</span></li><li class="rounded-lg bg-gray-50 p-3"><strong>3 · 保留口径</strong><span class="mt-1 block text-xs text-gray-500">回显来源、日期和质量状态。</span></li></ol></div>
+                                                <div class="flex justify-end"><button type="button" data-testid="knowledge-feature-pms-dialog-close" @click="$event.currentTarget.closest('dialog').close()" class="rounded-lg bg-gray-900 px-4 py-2 text-sm font-semibold text-white hover:bg-gray-800">知道了</button></div>
+                                            </div>
                                         </div>
                                     </dialog>
                                     <button type="button" @click="currentPage = 'pms-operating-data'" class="knowledge-feature-action mt-auto pt-4 text-left text-sm font-semibold text-yellow-700 hover:text-yellow-800">打开PMS经营数据 <i class="fas fa-arrow-right ml-1" aria-hidden="true"></i></button>
@@ -193,7 +206,7 @@
 
                                 <article v-show="!knowledgeCenterFilter.keyword || '设置 通知 企业微信 推送 运营'.includes(knowledgeCenterFilter.keyword.trim().toLowerCase())" data-feature-search="设置 通知 企业微信 推送 运营" data-testid="knowledge-feature-notification" class="knowledge-feature-card flex min-h-full flex-col rounded-xl border border-gray-200 bg-gray-50 p-4">
                                     <div class="flex items-start justify-between gap-3">
-                                        <span class="flex h-9 w-9 items-center justify-center rounded-lg bg-green-100 text-green-700"><i class="fab fa-weixin" aria-hidden="true"></i></span>
+                                        <span class="flex h-9 w-9 items-center justify-center rounded-lg bg-green-100 text-green-700"><i class="fas fa-comment-dots" aria-hidden="true"></i></span>
                                         <span class="rounded-full border border-yellow-100 bg-yellow-50 px-2 py-0.5 text-xs text-yellow-700">外部发送需确认</span>
                                     </div>
                                     <h4 class="mt-3 font-semibold text-gray-900">企业微信通知设置</h4>
@@ -260,6 +273,42 @@
                                         <div class="mt-1 text-xl font-semibold text-gray-900">{{ knowledgePromotionStats.eligible_memories }}</div>
                                     </div>
                                 </div>
+
+                                <section class="rounded-xl border border-emerald-100 bg-emerald-50/40 p-4" data-testid="knowledge-sop-candidate-builder">
+                                    <div class="flex flex-col gap-2 lg:flex-row lg:items-start lg:justify-between">
+                                        <div>
+                                            <h4 class="font-semibold text-gray-900">从已核验复盘生成候选 SOP</h4>
+                                            <p class="text-xs text-gray-500">仅用同店、同平台、同范围的已核验正向复盘；保存后仍是 candidate。</p>
+                                        </div>
+                                        <button @click="createKnowledgeSopCandidate" :disabled="!!knowledgeSopCandidateAction || knowledgeSopCandidateEligibleMemories.length === 0" class="rounded-lg bg-emerald-600 px-3 py-2 text-xs font-medium text-white disabled:opacity-50">
+                                            {{ knowledgeSopCandidateAction === 'save' ? '保存并回读中…' : '保存候选 SOP' }}
+                                        </button>
+                                    </div>
+                                    <div class="mt-3 grid grid-cols-1 gap-3 lg:grid-cols-2">
+                                        <div class="rounded-lg border border-emerald-100 bg-white p-3">
+                                            <div class="text-xs font-medium text-gray-700">选择来源记忆（{{ knowledgeSopCandidateEligibleMemories.length }} 条合格）</div>
+                                            <div v-if="knowledgeSopCandidateEligibleMemories.length" class="mt-2 max-h-44 space-y-2 overflow-y-auto">
+                                                <label v-for="memory in knowledgeSopCandidateEligibleMemories" :key="'sop-memory-' + memory.id" class="flex items-start gap-2 rounded-lg border border-gray-100 p-2 text-xs text-gray-700">
+                                                    <input v-model="knowledgeSopCandidateForm.source_memory_ids" type="checkbox" :value="Number(memory.id)" class="mt-0.5">
+                                                    <span class="min-w-0">
+                                                        <strong class="block truncate">#{{ memory.id }} · {{ memory.title || '执行复盘' }}</strong>
+                                                        <span class="text-[11px] text-gray-500">{{ memory.platform }} · {{ memory.source_scope }} · {{ memory.business_date || '日期缺失' }}</span>
+                                                    </span>
+                                                </label>
+                                            </div>
+                                            <p v-else="" class="mt-2 text-xs text-amber-700">当前门店暂无符合候选条件的已核验正向执行复盘，不会用普通记录代替。</p>
+                                        </div>
+                                        <div class="grid gap-2">
+                                            <input v-model="knowledgeSopCandidateForm.title" maxlength="191" class="input-field w-full" placeholder="候选 SOP 标题">
+                                            <textarea v-model="knowledgeSopCandidateForm.steps_text" rows="5" class="input-field" placeholder="执行步骤，每行一条（必填）"></textarea>
+                                        </div>
+                                    </div>
+                                    <p v-if="knowledgeSopCandidateError" class="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">{{ knowledgeSopCandidateError }}</p>
+                                    <div v-if="knowledgeSopCandidateReadback" class="mt-3 rounded-lg border border-emerald-100 bg-white p-3 text-xs text-emerald-800" data-testid="knowledge-sop-candidate-readback">
+                                        <strong>候选版本 #{{ knowledgeSopCandidateReadback.id }} 已保存并精确回读</strong>
+                                        <div class="mt-1 break-all text-[11px]">digest: {{ knowledgeSopCandidateReadback.content_digest }}</div>
+                                    </div>
+                                </section>
 
                                 <div class="rounded-lg border border-indigo-100 bg-indigo-50/50 p-3">
                                     <div class="flex flex-col lg:flex-row lg:items-center gap-3">

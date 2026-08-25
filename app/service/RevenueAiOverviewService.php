@@ -41,6 +41,9 @@ class RevenueAiOverviewService
             'end_date' => $businessDate,
             'limit' => 5000,
         ];
+        if (in_array($filters['strict_readback_only'] ?? false, [true, 1, '1', 'true'], true)) {
+            $baseFilters['strict_readback_only'] = true;
+        }
         if ($hotelIds !== []) {
             $baseFilters['permitted_hotel_ids'] = $hotelIds;
         }

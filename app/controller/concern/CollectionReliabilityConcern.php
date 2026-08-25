@@ -6,6 +6,7 @@ namespace app\controller\concern;
 use app\model\OperationLog;
 use app\model\SystemConfig;
 use app\service\DualOtaContinuousTrustService;
+use app\service\DualOtaFieldClosureService;
 use app\service\DualOtaPageVerificationService;
 use app\service\HotelCollectionRunReceiptService;
 use app\service\OtaFailureNotificationService;
@@ -2401,24 +2402,69 @@ trait CollectionReliabilityConcern
                 if (!$forceRefresh) {
                     $cached = cache($cacheKey);
                     if (is_array($cached)) {
+                        $cached = $this->withDualOtaFieldClosure(
+                            $cached,
+                            $hotelId,
+                            $endDate
+                        );
                         return $this->success($cached);
                     }
                 }
                 $payload = $this->withPhase1EmployeeQuestions(
                     $this->buildCollectionReliabilityLightPayload($hotelId, $startDate, $endDate)
                 );
+                $payload = $this->withDualOtaFieldClosure($payload, $hotelId, $endDate);
                 cache($cacheKey, $payload, 45);
                 return $this->success($payload);
             }
 
-            return $this->success($this->withPhase1EmployeeQuestions(
+            $payload = $this->withPhase1EmployeeQuestions(
                 $this->buildCollectionReliabilityPayload($hotelId, $startDate, $endDate)
-            ));
+            );
+            return $this->success(
+                $this->withDualOtaFieldClosure($payload, $hotelId, $endDate)
+            );
         } catch (\InvalidArgumentException $e) {
             return $this->error($e->getMessage());
         } catch (\Throwable $e) {
             return $this->error('采集可靠性查询失败: ' . $e->getMessage());
         }
+    }
+
+    /** @param array<string,mixed> $payload @return array<string,mixed> */
+    private function withDualOtaFieldClosure(
+        array $payload,
+        ?int $hotelId,
+        string $targetDate
+    ): array {
+        if (!$hotelId) {
+            $payload['dual_ota_field_closure'] = [
+                'contract_version' => 'dual_ota_field_closure.v1',
+                'status' => 'unscoped',
+                'hotel_id' => null,
+                'business_date' => $targetDate,
+                'platforms' => [],
+                'reason' => 'exact_system_hotel_required',
+                'sensitive_values_exposed' => false,
+            ];
+            return $payload;
+        }
+
+        try {
+            $payload['dual_ota_field_closure'] =
+                (new DualOtaFieldClosureService())->build($hotelId, $targetDate);
+        } catch (\Throwable) {
+            $payload['dual_ota_field_closure'] = [
+                'contract_version' => 'dual_ota_field_closure.v1',
+                'status' => 'unavailable',
+                'hotel_id' => $hotelId,
+                'business_date' => $targetDate,
+                'platforms' => [],
+                'reason' => 'dual_ota_field_closure_read_failed',
+                'sensitive_values_exposed' => false,
+            ];
+        }
+        return $payload;
     }
 
     public function confirmDualOtaPageVerification(): Response

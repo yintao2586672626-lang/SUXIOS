@@ -7,17 +7,21 @@ use InvalidArgumentException;
 use RuntimeException;
 
 /**
- * Promotes one source-verified Q&A action draft into the existing manual
- * approval workflow. It never approves, executes, collects, or writes OTA.
+ * Promotes one source-verified Q&A action draft into a local pending approval.
+ * Only a later authenticated, explicitly confirmed request may create the one
+ * manual task. This bridge never approves, executes, collects, or writes OTA.
  */
 final class OperatingQuestionExecutionBridgeService
 {
     public const SOURCE_MODULE = 'operating_question';
-    public const CONTRACT_VERSION = 'operating_question_execution_bridge.v1';
+    public const CONTRACT_VERSION = 'operating_question_execution_bridge.v5';
+    public const LEGACY_CONTRACT_VERSION = 'operating_question_execution_bridge.v4';
+    public const OLDER_LEGACY_CONTRACT_VERSION = 'operating_question_execution_bridge.v3';
 
     public function __construct(
         private readonly OperatingQuestionService $questionService = new OperatingQuestionService(),
-        private readonly OperationManagementService $operationService = new OperationManagementService()
+        private readonly OperationManagementService $operationService = new OperationManagementService(),
+        ?OperationActionAiReviewService $_deprecatedAiReviewer = null
     ) {
     }
 
@@ -43,11 +47,6 @@ final class OperatingQuestionExecutionBridgeService
         $question = $this->questionService->read($questionId, $tenantId, $hotelIds);
         $action = $this->eligibleAction($question, $actionIndex);
         $hotelId = (int)$question['hotel_id'];
-        $idempotencyKey = $this->idempotencyKey($question, $action, $actionIndex);
-        $existing = $this->operationService->readExecutionIntentByIdempotencyKey(
-            $idempotencyKey,
-            $hotelIds
-        );
         $evidenceRefs = array_values(array_unique([
             'hotel_operating_questions#' . $questionId,
             ...(array)$action['evidence_refs'],
@@ -55,8 +54,36 @@ final class OperatingQuestionExecutionBridgeService
         $decisionQuality = is_array($action['decision_quality'] ?? null)
             ? $action['decision_quality']
             : [];
+        $lifecycle = new OperationActionLifecycleService();
+        $actionCard = $lifecycle->withActionIndex(
+            $lifecycle->buildPendingCard($question, $action, max(1, $userId)),
+            $actionIndex
+        );
+        [$existing, $idempotencyKey] = $this->findExistingIntent(
+            $question,
+            $action,
+            $actionIndex,
+            $hotelIds,
+            $actionCard
+        );
+        $metricBaseline = $this->metricBaseline($question, $action);
+        $baselineValue = $actionCard['metric_contract']['baseline_window']['value'];
+        $workflowSchedule = [
+            'assignee_id' => (int)$actionCard['responsibility']['owner_id'],
+            'due_at' => (string)$actionCard['responsibility']['due_at'],
+            'review_at' => (string)$actionCard['metric_contract']['followup_window']['review_at'],
+            'source_policy' => 'human_assigned_schedule_requires_explicit_confirmation_and_readback_review',
+        ];
+        $taskTarget = $lifecycle->alignManualTaskProjection([
+            'title' => (string)$action['title'],
+            'action_text' => (string)$action['action'],
+            'action_object' => (string)($action['action_object'] ?? ''),
+            'review_window' => (string)$action['review_window'],
+            'assignee_id' => (int)$workflowSchedule['assignee_id'],
+            'workflow_schedule' => $workflowSchedule,
+        ], $actionCard);
 
-        $intent = $this->operationService->createExecutionIntent(
+        $intent = $existing ?? $this->operationService->createExecutionIntent(
             $hotelIds,
             $hotelId,
             [
@@ -72,29 +99,13 @@ final class OperatingQuestionExecutionBridgeService
                     'question_id' => $questionId,
                     'question_content_digest' => (string)$question['content_digest'],
                     'question_scope' => $this->questionScope($question),
-                    'metric_baseline' => $this->metricBaseline($question, $action),
+                    'metric_baseline' => $metricBaseline,
+                    (string)$action['expected_metric'] => $baselineValue,
                 ],
-                'target_value' => [
-                    'title' => (string)$action['title'],
-                    'action_text' => (string)$action['action'],
-                    'action_object' => (string)($action['action_object'] ?? ''),
-                    'steps' => array_values((array)$action['execution_steps']),
-                    'acceptance_criteria' => array_values(array_unique([
-                        '按同酒店、同渠道、同日期口径复核 ' . (string)$action['expected_metric'],
-                        '到期复核窗口：' . (string)$action['review_window'],
-                        ...array_map(
-                            static fn(mixed $item): string => '停止条件：' . trim((string)$item),
-                            (array)$action['stop_conditions']
-                        ),
-                    ])),
-                    'review_window' => (string)$action['review_window'],
-                    'stop_conditions' => array_values((array)$action['stop_conditions']),
-                    'execution_mode' => 'manual',
-                    'auto_write_ota' => false,
-                ],
+                'target_value' => $taskTarget,
                 'evidence' => [
                     'bridge_contract_version' => self::CONTRACT_VERSION,
-                    'source_policy' => 'source_verified_question_action_then_human_approval',
+                    'source_policy' => 'source_verified_question_action_then_explicit_human_confirmation',
                     'question_id' => $questionId,
                     'question_content_digest' => (string)$question['content_digest'],
                     'question_answer_status' => (string)$question['answer_status'],
@@ -107,6 +118,8 @@ final class OperatingQuestionExecutionBridgeService
                     'decision_quality' => $decisionQuality,
                     'ai_runtime' => (array)($question['answer']['ai_runtime'] ?? []),
                     'boundaries' => (array)$action['boundaries'],
+                    'workflow_schedule' => $workflowSchedule,
+                    'action_card' => $actionCard,
                     'automatic_collection' => false,
                     'automatic_execution' => false,
                     'automatic_ota_write' => false,
@@ -122,7 +135,7 @@ final class OperatingQuestionExecutionBridgeService
             $idempotencyKey,
             true
         );
-        $this->assertIntentReadback($intent, $question, $action, $actionIndex);
+        $this->assertIntentReadback($intent, $question, $action, $actionIndex, $actionCard);
 
         return [
             'execution_intent' => $intent,
@@ -130,8 +143,96 @@ final class OperatingQuestionExecutionBridgeService
             'action_index' => $actionIndex,
             'reused_existing_intent' => is_array($existing),
             'idempotency_key' => $idempotencyKey,
+            'ai_review' => null,
             'next_page' => 'ops-track',
-            'source_policy' => 'human_approval_required_no_automatic_ota_write',
+            'source_policy' => 'pending_human_confirmation_no_automatic_approval_execution_or_ota_write',
+        ];
+    }
+
+    /**
+     * Read back already-created approval intents without creating, approving,
+     * collecting, executing, or writing OTA data.
+     *
+     * @param list<int> $hotelIds
+     * @return array<string,mixed>
+     */
+    public function readExistingIntents(
+        int $questionId,
+        int $tenantId,
+        array $hotelIds
+    ): array {
+        $hotelIds = array_values(array_unique(array_filter(array_map(
+            'intval',
+            $hotelIds
+        ), static fn(int $id): bool => $id > 0)));
+        if ($questionId <= 0 || $hotelIds === []) {
+            throw new InvalidArgumentException('经营问答待审批任务回读范围无效');
+        }
+        $question = $this->questionService->read($questionId, $tenantId, $hotelIds);
+        if (!$this->questionDigestMatches($question)) {
+            return [
+                'data_status' => 'invalid',
+                'list' => [],
+                'data_gaps' => [['code' => 'operating_question_content_digest_invalid']],
+            ];
+        }
+        $actions = is_array($question['answer']['action_drafts'] ?? null)
+            ? array_values($question['answer']['action_drafts'])
+            : [];
+        $list = [];
+        $dataGaps = [];
+        foreach (array_slice($actions, 0, 1, true) as $actionIndex => $action) {
+            if (!is_array($action)) {
+                continue;
+            }
+            $actionDigest = strtolower(trim((string)($action['action_digest'] ?? '')));
+            if (preg_match('/^[a-f0-9]{64}$/D', $actionDigest) !== 1
+                || !hash_equals($actionDigest, self::actionDigest($action))
+            ) {
+                $dataGaps[] = ['code' => 'operating_question_action_digest_invalid', 'action_index' => $actionIndex];
+                continue;
+            }
+            try {
+                $expectedCard = (new OperationActionLifecycleService())->withActionIndex(
+                    (new OperationActionLifecycleService())->buildPendingCard(
+                        $question,
+                        $action,
+                        max(1, (int)($question['created_by'] ?? 1))
+                    ),
+                    $actionIndex
+                );
+                [$intent] = $this->findExistingIntent(
+                    $question,
+                    $action,
+                    $actionIndex,
+                    $hotelIds,
+                    $expectedCard
+                );
+            } catch (\Throwable) {
+                return [
+                    'data_status' => 'unavailable',
+                    'list' => [],
+                    'data_gaps' => [['code' => 'operation_execution_intent_readback_unavailable']],
+                ];
+            }
+            if (!is_array($intent)) {
+                continue;
+            }
+            try {
+                $this->assertIntentReadback($intent, $question, $action, $actionIndex, $expectedCard);
+            } catch (\Throwable) {
+                $dataGaps[] = ['code' => 'operation_execution_intent_identity_mismatch', 'action_index' => $actionIndex];
+                continue;
+            }
+            $list[] = [
+                'action_index' => $actionIndex,
+                'execution_intent' => $intent,
+            ];
+        }
+        return [
+            'data_status' => $dataGaps === [] ? 'ok' : 'partial',
+            'list' => $list,
+            'data_gaps' => $dataGaps,
         ];
     }
 
@@ -153,6 +254,7 @@ final class OperatingQuestionExecutionBridgeService
         $question = $this->questionService->read($questionId, $tenantId, [$hotelId]);
         $action = $this->eligibleAction($question, $actionIndex);
         $this->assertIntentReadback($intent, $question, $action, $actionIndex);
+        (new OperationActionLifecycleService())->assertPendingCardCurrent($intent);
         return $action;
     }
 
@@ -191,11 +293,15 @@ final class OperatingQuestionExecutionBridgeService
         }
         $answer = is_array($question['answer'] ?? null) ? $question['answer'] : [];
         $runtime = is_array($answer['ai_runtime'] ?? null) ? $answer['ai_runtime'] : [];
+        $promptVersion = (string)($runtime['prompt_version'] ?? '');
         if ((string)($question['answer_status'] ?? '') !== 'answered_by_grounded_ai'
             || (string)($answer['status'] ?? '') !== 'answered_by_grounded_ai'
             || (string)($runtime['status'] ?? '') !== 'ready'
             || strtolower(trim((string)($runtime['provider'] ?? ''))) !== 'deepseek'
-            || (string)($runtime['prompt_version'] ?? '') !== OperatingQuestionAiAnswerService::PROMPT_VERSION
+            || !in_array($promptVersion, [
+                OperatingQuestionAiAnswerService::PROMPT_VERSION,
+                OperatingQuestionAiAnswerService::LEGACY_PROMPT_VERSION,
+            ], true)
             || strtolower(trim((string)($runtime['finish_reason'] ?? ''))) !== 'stop'
             || !in_array((string)($answer['confidence'] ?? ''), ['medium', 'high'], true)
             || ($runtime['external_llm_called'] ?? false) !== true
@@ -217,13 +323,20 @@ final class OperatingQuestionExecutionBridgeService
         $quality = is_array($action['decision_quality'] ?? null) ? $action['decision_quality'] : [];
         $boundaries = is_array($action['boundaries'] ?? null) ? $action['boundaries'] : [];
         $digest = strtolower(trim((string)($action['action_digest'] ?? '')));
-        if ((string)($action['contract_version'] ?? '') !== OperatingQuestionAiAnswerService::ACTION_DRAFT_CONTRACT_VERSION
-            || (string)($action['status'] ?? '') !== 'ready_for_human_review'
+        $currentAiReviewContract = $promptVersion === OperatingQuestionAiAnswerService::PROMPT_VERSION
+            && (string)($action['contract_version'] ?? '') === OperatingQuestionAiAnswerService::ACTION_DRAFT_CONTRACT_VERSION
+            && (string)($action['status'] ?? '') === 'ready_for_ai_review'
+            && ($boundaries['human_confirmation_required'] ?? true) === false
+            && ($boundaries['independent_ai_review_required'] ?? false) === true;
+        $legacyHumanReviewContract = $promptVersion === OperatingQuestionAiAnswerService::LEGACY_PROMPT_VERSION
+            && (string)($action['contract_version'] ?? '') === OperatingQuestionAiAnswerService::LEGACY_ACTION_DRAFT_CONTRACT_VERSION
+            && (string)($action['status'] ?? '') === 'ready_for_human_review'
+            && ($boundaries['human_confirmation_required'] ?? false) === true;
+        if ((!$currentAiReviewContract && !$legacyHumanReviewContract)
             || ($action['can_create_execution_intent'] ?? false) !== true
             || (string)($quality['contract_version'] ?? '') !== AiDecisionQualityService::CONTRACT_VERSION
             || ($quality['complete'] ?? false) !== true
             || ($quality['execution_ready'] ?? false) !== true
-            || ($boundaries['human_confirmation_required'] ?? false) !== true
             || ($boundaries['automatic_collection'] ?? true) !== false
             || ($boundaries['automatic_execution'] ?? true) !== false
             || ($boundaries['ota_write'] ?? true) !== false
@@ -234,7 +347,7 @@ final class OperatingQuestionExecutionBridgeService
             || !$this->actionEvidenceCoverageReady($question, $action)
             || !$this->currentActionEvidenceMatches($question, $action)
         ) {
-            throw new InvalidArgumentException('行动草案尚未通过当前来源、证据、范围、风险和人工确认门');
+            throw new InvalidArgumentException('行动草案尚未通过当前来源、证据、范围和风险准入门');
         }
         return $action;
     }
@@ -248,15 +361,34 @@ final class OperatingQuestionExecutionBridgeService
         array $intent,
         array $question,
         array $action,
-        int $actionIndex
+        int $actionIndex,
+        array $expectedCard = []
     ): void {
         $evidence = is_array($intent['evidence'] ?? null) ? $intent['evidence'] : [];
         $embedded = is_array($evidence['decision_recommendation'] ?? null)
             ? $evidence['decision_recommendation']
             : [];
+        $target = is_array($intent['target_value'] ?? null) ? $intent['target_value'] : [];
+        $targetCard = is_array($target['action_card'] ?? null) ? $target['action_card'] : [];
+        $evidenceCard = is_array($evidence['action_card'] ?? null) ? $evidence['action_card'] : [];
         $status = (string)($intent['status'] ?? '');
+        if ((string)($intent['source_module'] ?? '') !== self::SOURCE_MODULE
+            || (int)($intent['source_record_id'] ?? 0) !== (int)($question['id'] ?? 0)
+        ) {
+            if ($expectedCard === []
+                || (int)($intent['id'] ?? 0) <= 0
+                || !in_array($status, ['pending_approval', 'approved', 'rejected', 'cancelled'], true)
+                || !is_array($intent['tasks'] ?? null)
+            ) {
+                throw new RuntimeException('跨入口运营行动生命周期回读无效');
+            }
+            (new OperationActionLifecycleService())->assertEquivalentActionIdentity(
+                $expectedCard,
+                $targetCard !== [] ? $targetCard : $evidenceCard
+            );
+            return;
+        }
         if ((int)($intent['id'] ?? 0) <= 0
-            || (string)($intent['source_module'] ?? '') !== self::SOURCE_MODULE
             || (int)($intent['source_record_id'] ?? 0) !== (int)$question['id']
             || (int)($intent['hotel_id'] ?? 0) !== (int)$question['hotel_id']
             || (int)($intent['tenant_id'] ?? 0) !== (int)$question['tenant_id']
@@ -264,11 +396,24 @@ final class OperatingQuestionExecutionBridgeService
             || (string)($intent['date_start'] ?? '') !== (string)$question['date_start']
             || (string)($intent['date_end'] ?? '') !== (string)$question['date_end']
             || (string)($intent['object_type'] ?? '') !== 'operation_checklist'
-            || (string)($intent['action_type'] ?? '') !== 'human_reviewed_operating_check'
-            || !in_array($status, ['pending_approval', 'approved', 'rejected'], true)
+            || !in_array((string)($intent['action_type'] ?? ''), [
+                'ai_reviewed_operating_check',
+                'human_reviewed_operating_check',
+            ], true)
+            || !in_array($status, ['pending_approval', 'approved', 'rejected', 'cancelled'], true)
             || trim((string)($intent['blocked_reason'] ?? '')) !== ''
             || (string)($intent['expected_metric'] ?? '') !== (string)$action['expected_metric']
-            || (string)($evidence['bridge_contract_version'] ?? '') !== self::CONTRACT_VERSION
+            || !in_array((string)($evidence['bridge_contract_version'] ?? ''), [
+                self::CONTRACT_VERSION,
+                self::LEGACY_CONTRACT_VERSION,
+                self::OLDER_LEGACY_CONTRACT_VERSION,
+            ], true)
+            || (string)($targetCard['contract_version'] ?? '') !== OperationActionLifecycleService::CARD_CONTRACT_VERSION
+            || (string)($evidenceCard['contract_version'] ?? '') !== OperationActionLifecycleService::CARD_CONTRACT_VERSION
+            || !hash_equals(
+                strtolower(trim((string)($targetCard['content_digest'] ?? ''))),
+                strtolower(trim((string)($evidenceCard['content_digest'] ?? '')))
+            )
             || (int)($evidence['question_id'] ?? 0) !== (int)$question['id']
             || !hash_equals(
                 strtolower((string)$question['content_digest']),
@@ -282,7 +427,7 @@ final class OperatingQuestionExecutionBridgeService
             || $embedded === []
             || !hash_equals((string)$action['action_digest'], self::actionDigest($embedded))
         ) {
-            throw new RuntimeException('经营问答待审批任务保存后精确回读失败');
+            throw new RuntimeException('经营问答运营行动保存后精确回读失败');
         }
     }
 
@@ -506,11 +651,24 @@ final class OperatingQuestionExecutionBridgeService
     }
 
     /** @param array<string,mixed> $question @param array<string,mixed> $action */
-    private function idempotencyKey(array $question, array $action, int $actionIndex): string
+    private function idempotencyKey(
+        array $question,
+        array $action,
+        int $actionIndex,
+        string $contractVersion = self::CONTRACT_VERSION
+    ): string
     {
+        if ($contractVersion === self::CONTRACT_VERSION) {
+            $lifecycle = new OperationActionLifecycleService();
+            $card = $lifecycle->withActionIndex(
+                $lifecycle->buildPendingCard($question, $action, 1),
+                $actionIndex
+            );
+            return 'operation_action_' . substr($lifecycle->actionIdentityDigest($card), 0, 32);
+        }
         return 'operating_question_action_' . md5(json_encode(
             self::canonicalize([
-                'contract_version' => self::CONTRACT_VERSION,
+                'contract_version' => $contractVersion,
                 'question_id' => (int)$question['id'],
                 'question_content_digest' => (string)$question['content_digest'],
                 'action_index' => $actionIndex,
@@ -518,6 +676,40 @@ final class OperatingQuestionExecutionBridgeService
             ]),
             JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR
         ));
+    }
+
+    /**
+     * @param array<string,mixed> $question
+     * @param array<string,mixed> $action
+     * @param list<int> $hotelIds
+     * @param array<string,mixed> $actionCard
+     * @return array{0:?array<string,mixed>,1:string}
+     */
+    private function findExistingIntent(
+        array $question,
+        array $action,
+        int $actionIndex,
+        array $hotelIds,
+        array $actionCard
+    ): array {
+        $lifecycle = new OperationActionLifecycleService();
+        $currentKey = 'operation_action_' . substr($lifecycle->actionIdentityDigest($actionCard), 0, 32);
+        $equivalentId = $lifecycle->findEquivalentIntentId($actionCard);
+        if ($equivalentId !== null) {
+            return [$this->operationService->readExecutionIntent($equivalentId, $hotelIds), $currentKey];
+        }
+        $intent = $this->operationService->readExecutionIntentByIdempotencyKey($currentKey, $hotelIds);
+        if (is_array($intent)) {
+            return [$intent, $currentKey];
+        }
+        foreach ([self::LEGACY_CONTRACT_VERSION, self::OLDER_LEGACY_CONTRACT_VERSION] as $contractVersion) {
+            $key = $this->idempotencyKey($question, $action, $actionIndex, $contractVersion);
+            $intent = $this->operationService->readExecutionIntentByIdempotencyKey($key, $hotelIds);
+            if (is_array($intent)) {
+                return [$intent, $key];
+            }
+        }
+        return [null, $currentKey];
     }
 
     /** @return list<string> */

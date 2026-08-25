@@ -268,7 +268,8 @@ test('Meituan traffic card response maps to P0 traffic fields', () => {
   assert.equal(rows[0].date_source, 'data.data.cards.rtDataUpdateTime');
   assert.equal(rows[0].listExposure, 120);
   assert.equal(rows[0].detailExposure, 40);
-  assert.equal(rows[0].flowRate, 12.5);
+  assert.equal(rows[0].flowRate, undefined);
+  assert.equal(rows[0].browsePayRate, 12.5);
   assert.equal(rows[0].orderSubmitNum, 5);
   assert.equal(rows[0].orderFillingNum, 5);
   assert.equal(rows[0]._order_filling_source_policy, 'meituan_metric_cards_no_separate_order_filling_step_pay_order_count_used');
@@ -277,9 +278,8 @@ test('Meituan traffic card response maps to P0 traffic fields', () => {
   assert.deepEqual(rows[0]._observed_traffic_metric_keys, [
     'list_exposure',
     'detail_exposure',
-    'flow_rate',
   ]);
-  assert.equal(isImportableMeituanTrafficRow(rows[0]), true);
+  assert.equal(isImportableMeituanTrafficRow(rows[0]), false);
 });
 
 test('Meituan traffic card response maps title aliases and non-value fields', () => {
@@ -301,14 +301,15 @@ test('Meituan traffic card response maps title aliases and non-value fields', ()
   assert.equal(rows[0].date_source, 'request.query.date');
   assert.equal(rows[0].listExposure, 320);
   assert.equal(rows[0].detailExposure, 80);
-  assert.equal(rows[0].flowRate, 6.25);
+  assert.equal(rows[0].flowRate, undefined);
+  assert.equal(rows[0].browsePayRate, 6.25);
   assert.equal(rows[0].orderSubmitNum, 5);
   assert.equal(rows[0].orderFillingNum, 5);
   assert.equal(rows[0]._meituan_card_metric_sources.list_exposure.source_path, 'data.cards.0.valueText');
   assert.equal(rows[0]._meituan_card_metric_sources.detail_exposure.source_path, 'data.cards.1.displayValue');
-  assert.equal(rows[0]._meituan_card_metric_sources.flow_rate.source_path, 'data.cards.2.dataValue');
+  assert.equal(rows[0]._meituan_card_metric_sources.browse_to_pay_rate.source_path, 'data.cards.2.dataValue');
   assert.equal(rows[0]._meituan_card_metric_sources.order_submit_num.source_path, 'data.cards.3.currentValue');
-  assert.equal(isImportableMeituanTrafficRow(rows[0]), true);
+  assert.equal(isImportableMeituanTrafficRow(rows[0]), false);
 });
 
 test('Meituan traffic card placeholders remain non-importable', () => {
@@ -484,7 +485,9 @@ test('Meituan traffic DOM keeps funnel and direct source exposure facts separate
   assert.equal(funnel.listExposure, 720);
   assert.equal(funnel.detailExposure, 121);
   assert.equal(funnel.orderSubmitNum, 3);
-  assert.equal(funnel.flowRate, 2.48);
+  assert.equal(funnel.flowRate, 16.81);
+  assert.equal(funnel.exposure_to_browse_rate, 16.81);
+  assert.equal(funnel.browsePayRate, 2.48);
   assert.equal(funnel.dataDate, '2026-07-29');
   assert.deepEqual(funnel._observed_traffic_metric_keys, [
     'list_exposure',
@@ -531,7 +534,8 @@ test('Meituan flow conversion becomes traffic_analysis supplemental data', () =>
   assert.equal(rows[0].listExposure, 1000);
   assert.equal(rows[0].detailExposure, 200);
   assert.equal(rows[0].orderSubmitNum, 20);
-  assert.equal(rows[0].flowRate, 10);
+  assert.equal(rows[0].flowRate, 20);
+  assert.equal(rows[0].browsePayRate, 10);
   assert.notEqual(rows[0].data_type, 'traffic');
 });
 
@@ -569,6 +573,7 @@ test('Meituan myHotel funnel response becomes a truthful core traffic row', () =
   assert.equal(rows[0].intentionPerExposure, '17.28%');
   assert.equal(rows[0].exposure_to_browse_rate, 17.28);
   assert.equal(rows[0].browse_pay_rate, 14.29);
+  assert.equal(rows[0].flowRate, 17.28);
   assert.equal(rows[0].order_filling_num, undefined);
   assert.equal(rows[0].date_source, 'capture_context.default_data_date');
   assert.equal(rows[0].traffic_capture_epoch, 12);

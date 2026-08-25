@@ -1818,7 +1818,7 @@ test('extracts Ctrip metric-pair response items into catalog facts and standard 
   const metricKeys = new Set(facts.map((fact) => fact.metric_key));
   assert.equal(metricKeys.has('visitor_count'), true);
   assert.equal(metricKeys.has('order_amount'), true);
-  assert.equal(metricKeys.has('avg_price'), true);
+  assert.equal(metricKeys.has('avg_price'), false, 'realtime starting price must never be treated as ADR');
   assert.equal(metricKeys.has('comment_score_summary'), true);
   assert.equal(metricKeys.has('room_nights'), true);
   assert.equal(metricKeys.has('order_count'), true);
@@ -1842,6 +1842,7 @@ test('extracts Ctrip metric-pair response items into catalog facts and standard 
   assert.equal(core.amount, 309);
   assert.equal(core.quantity, 4);
   assert.equal(core.book_order_num, 1);
+  assert.equal(core.order_submit_num, null, 'booking order count must not be copied into a traffic-funnel stage');
   assert.equal(core.detail_exposure, 5);
   assert.equal(core.comment_score, 4.5);
 

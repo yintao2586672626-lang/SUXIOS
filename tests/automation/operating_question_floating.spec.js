@@ -78,13 +78,15 @@ const intelligentResult = (overrides = {}) => ({
   runtime: {
     status: 'ready',
     provider: 'deepseek',
-    model_key: 'deepseek_chat',
-    model: 'deepseek-v4-flash',
+    model_key: 'deepseek_v4_pro',
+    model: 'deepseek-v4-pro',
     finish_reason: 'stop',
     fallback_used: false,
     cache_hit: false,
     degraded: false,
     external_llm_called: true,
+    thinking_mode: 'enabled',
+    reasoning_effort: 'high',
   },
   ...overrides,
 });
@@ -110,6 +112,7 @@ const mockAuthenticatedApi = async (page, apiCalls, guidanceRequests) => {
     }
     if (pathname === '/api/agent/operating-questions' && request.method() === 'POST') {
       const payload = request.postDataJSON();
+      apiCalls[apiCalls.length - 1].payload = payload;
       const digest = 'a'.repeat(64);
       operatingQuestionReadback = {
         id: 901,
@@ -215,7 +218,10 @@ test('intelligent system assistant understands natural language and opens the re
   const panel = page.getByTestId('system-guide-floating-panel');
   await expect(panel).toBeVisible();
   await expect(panel).toContainText('宿析智能使用助手');
-  await expect(panel).toContainText('教你使用 · 给出证据结论 · 生成行动草案');
+  await expect(panel).toContainText('说出目标，我带你找到入口并核对是否完成');
+  await expect(page.getByTestId('system-guide-context')).toBeVisible();
+  await expect(page.getByTestId('system-guide-context')).toContainText('当前页面');
+  await expect(panel.getByRole('button', { name: '这个页面怎么用？' })).toBeVisible();
   await expect(page.getByTestId('system-guide-mode-switcher')).toBeVisible();
   await expect(page.getByTestId('operating-question-hotel')).toHaveCount(0);
   await expect(page.getByTestId('operating-question-platform')).toHaveCount(0);
@@ -227,7 +233,7 @@ test('intelligent system assistant understands natural language and opens the re
 
   const result = page.getByTestId('system-guide-result');
   await expect(result).toBeVisible();
-  await expect(result).toContainText('智能引导 · deepseek-v4-flash');
+  await expect(result).toContainText('已理解目标');
   await expect(result).toContainText('你现在不是要看经营结论');
   await expect(page.getByTestId('system-guide-journey-goal')).toContainText('恢复携程数据后生成一份给店长查看的 AI 经营日报');
   await expect(page.getByTestId('system-guide-journey-step-data-health')).toContainText('检查数据为什么不能用');
@@ -235,12 +241,19 @@ test('intelligent system assistant understands natural language and opens the re
   await expect(page.getByTestId('system-guide-journey-step-data-health')).toContainText('确认标准');
   await expect(result).toContainText('1. 先确认当前系统酒店与携程门店绑定一致');
   await expect(result).toContainText('操作边界');
-  await expect(result).toContainText('模型不能创造页面或在这里写入业务数据');
+  await expect(result).toContainText('助手不会虚构页面或在这里写入业务数据');
+  await expect(panel).not.toContainText(/DeepSeek|deepseek-v4-pro|模型|深度思考/);
 
   expect(guidanceRequests).toHaveLength(1);
   expect(guidanceRequests[0].current_page).toBe('compass');
   expect(guidanceRequests[0].history).toEqual([]);
   expect(guidanceRequests[0].visible_topic_keys).toContain('data-health');
+  expect(guidanceRequests[0].visible_topic_keys).toContain('ctrip-data');
+  expect(guidanceRequests[0].visible_topic_keys).toContain('meituan-data');
+  expect(guidanceRequests[0].visible_topic_keys).toContain('operation-optimizer');
+  expect(guidanceRequests[0].active_journey).toBeNull();
+  expect(guidanceRequests[0].current_scope.hotel_id).toBe(7);
+  expect(guidanceRequests[0].current_scope.platform).toBe('ctrip');
 
   const readableSizes = await panel.evaluate((element) => ({
     title: getComputedStyle(element.querySelector('.sx-ai-consultant-title')).fontSize,
@@ -267,6 +280,7 @@ test('intelligent system assistant understands natural language and opens the re
   await expect(restoredJourney).toContainText('继续上次任务');
   await expect(restoredJourney).toContainText('恢复携程数据后生成一份给店长查看的 AI 经营日报');
   await expect(restoredJourney).toContainText('生成和查看 AI 经营日报');
+  await expect(panel.getByRole('button', { name: '继续当前任务' })).toBeVisible();
   expect(apiCalls.filter(call => call.pathname === '/api/agent/operating-questions')).toEqual([]);
   expect(pageErrors, `page errors: ${pageErrors.join(' | ')}`).toEqual([]);
 });
@@ -287,6 +301,7 @@ test('assistant exposes explicit guide, report and action modes', async ({ page 
 
   await expect(page.getByTestId('system-guide-mode')).toContainText('证据结论');
   expect(guidanceRequests[0].requested_mode).toBe('report');
+  expect(apiCalls.find(call => call.pathname === '/api/agent/operating-questions' && call.method === 'POST')?.payload?.model_key).toBe('deepseek_v4_pro');
 
   await page.getByTestId('system-guide-mode-action').click();
   await expect(page.getByTestId('system-guide-mode-action')).toHaveAttribute('aria-pressed', 'true');
@@ -324,6 +339,12 @@ test('intelligent system assistant keeps conversation context and changes the ne
       content: '你要的是经营报告，不需要在浮窗里拼结论。先进入收益分析中心核对酒店、渠道和日期，缺数时页面会直接告诉你卡在哪里。',
     },
   ]);
+  expect(guidanceRequests[1].active_journey.goal).toBe('查看当前酒店的经营报告和证据缺口');
+  expect(guidanceRequests[1].active_journey.active_key).toBe('revenue-report');
+  expect(guidanceRequests[1].active_journey.journey_keys).toEqual(['revenue-report']);
+  expect(['pending', 'in_progress', 'checking', 'blocked', 'completed']).toContain(
+    guidanceRequests[1].active_journey.current_step_status,
+  );
 
   const latestJourney = page.getByTestId('system-guide-result').getByTestId('system-guide-journey');
   await expect(latestJourney).toContainText('先恢复可用数据，再查看经营报告');
@@ -346,6 +367,7 @@ test('system assistant can be dragged, kept on screen, hidden and restored', asy
   await mockAuthenticatedApi(page, apiCalls, guidanceRequests);
   await page.setViewportSize({ width: 1280, height: 800 });
   await page.goto(appUrl, { waitUntil: 'domcontentloaded' });
+  await expect(page.locator('html')).toHaveAttribute('data-suxi-render-phase', 'full', { timeout: 15000 });
 
   const entry = page.getByTestId('system-guide-floating-entry');
   const launcher = page.getByTestId('system-guide-floating-launcher');
@@ -355,7 +377,7 @@ test('system assistant can be dragged, kept on screen, hidden and restored', asy
   await expect(launcher).toContainText('打开助手');
   await expect(launcher.locator('.fa-chevron-up')).toHaveCount(0);
 
-  const initial = await entry.boundingBox();
+  const initial = await launcher.boundingBox();
   const launcherBox = await launcher.boundingBox();
   expect(initial).toBeTruthy();
   expect(launcherBox).toBeTruthy();
@@ -369,7 +391,7 @@ test('system assistant can be dragged, kept on screen, hidden and restored', asy
   await page.mouse.up();
 
   await expect(entry).not.toHaveAttribute('open', '');
-  const draggedLauncher = await entry.boundingBox();
+  const draggedLauncher = await launcher.boundingBox();
   expect(draggedLauncher.x).toBeLessThan(initial.x - 150);
   expect(draggedLauncher.y).toBeLessThan(initial.y - 90);
   expect(draggedLauncher.x).toBeGreaterThanOrEqual(7);
@@ -378,8 +400,10 @@ test('system assistant can be dragged, kept on screen, hidden and restored', asy
   expect(draggedLauncher.y + draggedLauncher.height).toBeLessThanOrEqual(793);
 
   await page.reload({ waitUntil: 'domcontentloaded' });
+  await expect(page.locator('html')).toHaveAttribute('data-suxi-render-phase', 'full', { timeout: 15000 });
   await expect(launcher).toBeVisible({ timeout: 15000 });
-  const restoredLauncher = await entry.boundingBox();
+  const restoredLauncher = await launcher.boundingBox();
+  expect(restoredLauncher).toBeTruthy();
   expect(Math.abs(restoredLauncher.x - draggedLauncher.x)).toBeLessThanOrEqual(2);
   expect(Math.abs(restoredLauncher.y - draggedLauncher.y)).toBeLessThanOrEqual(2);
 

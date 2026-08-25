@@ -924,7 +924,7 @@ trait PlatformDataSourceExecutionConcern
             }
         }
         if ($identifiers !== []) {
-            return array_keys($identifiers);
+            return array_map('strval', array_keys($identifiers));
         }
 
         $config = is_array($source['config'] ?? null)
@@ -940,7 +940,7 @@ trait PlatformDataSourceExecutionConcern
                 $identifiers[$identifier] = true;
             }
         }
-        return array_keys($identifiers);
+        return array_map('strval', array_keys($identifiers));
     }
 
     /**

@@ -247,7 +247,7 @@ test('root template render and runtime-only Vue are deterministic pinned artifac
   componentSetup.showDataConfigModal = false;
   assert.equal(componentContext.showDataConfigModal, false);
   assert.equal(FRONTEND_TEMPLATE_MINIFY_OPTIONS.compress.booleans_as_integers, true);
-  assert.equal(FRONTEND_TEMPLATE_MINIFY_OPTIONS.compress.conditionals, false);
+  assert.equal(FRONTEND_TEMPLATE_MINIFY_OPTIONS.compress.conditionals, true);
   assert.equal(FRONTEND_TEMPLATE_MINIFY_OPTIONS.compress.unused, false);
   assert.equal(artifact.endsWith('\n'), false);
   });
@@ -292,6 +292,16 @@ test('authenticated asset manifest loads the hashed runtime Vue and render befor
     businessClosureLoaderHash,
   );
   assert.equal(authenticatedEntries.find((entry) => stripFrontendAssetQuery(entry.src) === 'app-render.min.js')?.phase, 'after-first-paint');
+  for (const deferredAsset of [
+    'app-deferred-helpers.min.js',
+    'components/system/app-main-components.js',
+    'components/system/operating-intelligence-components.js',
+  ]) {
+    assert.equal(
+      authenticatedEntries.find((entry) => stripFrontendAssetQuery(entry.src) === deferredAsset)?.phase,
+      'after-first-paint',
+    );
+  }
   assert.match(appMain, /const suxiActiveRender = shallowRef\(requireSuxiAppRender\(\)\)/);
   assert.match(appMain, /return activeRender\.apply\(this, renderArgs\)/);
 

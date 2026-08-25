@@ -1927,6 +1927,8 @@ trait PlatformSyncTaskConcern
             strtolower(trim((string)($source['platform'] ?? ''))),
             $targetDate
         );
+        $platformHotelIdentifierReady = !empty($trafficP0['platform_hotel_identifier_ready'])
+            || $this->syncPayloadPlatformHotelIdentifierReady($source, $payload);
         if ($requiresTraffic) {
             $targetTrafficRows = (int)($trafficP0['traffic_row_count'] ?? 0);
             $targetTrafficFieldFactReady = (int)($trafficP0['field_fact_ready_count'] ?? 0);
@@ -1950,7 +1952,7 @@ trait PlatformSyncTaskConcern
         if ($requiresTraffic && empty($trafficP0['nonzero_required_metric_ready'])) {
             $missingInputs[] = 'target_date_required_traffic_metrics_zero_unverified';
         }
-        if ($requiresTraffic && empty($trafficP0['platform_hotel_identifier_ready'])) {
+        if ($requiresTraffic && !$platformHotelIdentifierReady) {
             $missingInputs[] = 'platform_hotel_identifier';
         }
         if ($requiresTraffic && empty($trafficP0['ui_status_ready'])) {
@@ -2000,7 +2002,7 @@ trait PlatformSyncTaskConcern
             'complete_traffic_metric_keys' => $trafficP0['complete_metric_keys'] ?? [],
             'missing_traffic_metric_keys' => $trafficP0['missing_metric_keys'] ?? [],
             'nonzero_required_metric_rows' => (int)($trafficP0['nonzero_required_metric_rows'] ?? 0),
-            'platform_hotel_identifier_status' => !empty($trafficP0['platform_hotel_identifier_ready']) ? 'ready' : 'unverified',
+            'platform_hotel_identifier_status' => $platformHotelIdentifierReady ? 'ready' : 'unverified',
             'page_field_fact_status' => !empty($trafficP0['ui_status_ready']) ? 'ready' : 'partial',
             'field_fact_status' => $fieldFactStatus,
             'p0_status' => $p0Status,
@@ -2011,6 +2013,45 @@ trait PlatformSyncTaskConcern
             'adapter_status' => $adapterStatus,
             'confirmed_empty' => $confirmedEmpty,
         ];
+    }
+
+    /**
+     * A response-derived identity proof remains valid even when the requested
+     * target date produced no authoritative traffic row. This affects only the
+     * identity diagnostic; traffic rows, explicit field facts and the P0 gate
+     * stay independently required.
+     *
+     * @param array<string,mixed> $source
+     * @param array<string,mixed> $payload
+     */
+    private function syncPayloadPlatformHotelIdentifierReady(array $source, array $payload): bool
+    {
+        $identity = is_array($payload['platform_identity_validation'] ?? null)
+            ? $payload['platform_identity_validation']
+            : [];
+        if ($identity === [] && is_array($payload['data_source_capture']['platform_identity_validation'] ?? null)) {
+            $identity = $payload['data_source_capture']['platform_identity_validation'];
+        }
+        if (strtolower(trim((string)($identity['status'] ?? ''))) !== 'matched'
+            || ($identity['source_validation'] ?? false) !== true
+            || ($identity['sensitive_values_exposed'] ?? false) === true
+        ) {
+            return false;
+        }
+
+        $platform = strtolower(trim((string)($source['platform'] ?? '')));
+        $keys = $this->otaHotelIdentifierKeys($platform);
+        $config = is_array($source['config'] ?? null)
+            ? $source['config']
+            : $this->decodeConfig($source['config_json'] ?? []);
+        $expected = trim((string)$this->stringValue($source, $keys));
+        if ($expected === '') {
+            $expected = trim((string)$this->stringValue($config, $keys));
+        }
+        $observed = trim((string)($identity['validated_identifier'] ?? ''));
+        return $expected !== ''
+            && $observed !== ''
+            && $this->otaHotelIdentifiersMatch($expected, $observed);
     }
 
     /**
@@ -2225,11 +2266,17 @@ trait PlatformSyncTaskConcern
         }
 
         $trafficRows = [];
+        $blockedValidationStatuses = \app\service\OnlineDataTrustStatusService::blockingValidationStatuses();
         foreach ($rows as $row) {
             if (!is_array($row)
                 || $this->normalizeDate($row['data_date'] ?? $row['dataDate'] ?? null) !== $targetDate
                 || $this->normalizeDataType((string)($row['data_type'] ?? $row['dataType'] ?? '')) !== 'traffic'
                 || !OtaTrafficAttributionService::rowBelongsToOwnPlatformTraffic($row, $platform)
+                || in_array(
+                    strtolower(trim((string)($row['validation_status'] ?? ''))),
+                    $blockedValidationStatuses,
+                    true
+                )
             ) {
                 continue;
             }

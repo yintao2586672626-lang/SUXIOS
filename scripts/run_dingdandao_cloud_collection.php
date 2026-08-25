@@ -22,6 +22,7 @@ $options = getopt('', [
     'cdp-url::',
     'control-token-file::',
     'node-binary::',
+    'no-push',
 ]);
 $today = (new DateTimeImmutable('now', new DateTimeZone('Asia/Shanghai')))
     ->format('Y-m-d');
@@ -34,6 +35,7 @@ $cdpUrl = rtrim(trim((string)($options['cdp-url'] ?? 'http://127.0.0.1:9223')), 
 $tokenFile = trim((string)($options['control-token-file']
     ?? '/run/credentials/suxios-dingdandao-collection.service/control-token'));
 $nodeBinary = trim((string)($options['node-binary'] ?? '/usr/bin/node'));
+$noPush = array_key_exists('no-push', $options);
 
 if (!validDate($targetDate)
     || $targetDate !== $today
@@ -175,21 +177,28 @@ try {
         throw new RuntimeException('dingdandao_collection_target_sync_blocked');
     }
 
-    try {
-        $push = $integrationService->dispatchVerifiedCapture(
-            $tenantId,
-            $hotelId,
-            $ownerUserId,
-            $hotelName,
-            $capture,
-            'capture'
-        );
-    } catch (Throwable $pushError) {
-        $push = [
-            'delivery_status' => 'orchestration_failed',
-            'delivery_attempted' => false,
-            'error_summary' => safeReason($pushError->getMessage()),
-        ];
+    $push = [
+        'delivery_status' => 'skipped_no_push',
+        'delivery_attempted' => false,
+        'error_summary' => null,
+    ];
+    if (!$noPush) {
+        try {
+            $push = $integrationService->dispatchVerifiedCapture(
+                $tenantId,
+                $hotelId,
+                $ownerUserId,
+                $hotelName,
+                $capture,
+                'capture'
+            );
+        } catch (Throwable $pushError) {
+            $push = [
+                'delivery_status' => 'orchestration_failed',
+                'delivery_attempted' => false,
+                'error_summary' => safeReason($pushError->getMessage()),
+            ];
+        }
     }
     $closeOutcome = 'completed';
     $result = [
@@ -218,6 +227,7 @@ try {
             true
         ),
         'push_orchestration' => [
+            'disabled_by_invocation' => $noPush,
             'delivery_status' => (string)($push['delivery_status'] ?? 'blocked'),
             'delivery_attempted' => ($push['delivery_attempted'] ?? false) === true,
             'dispatch_id' => (int)($push['id'] ?? 0),
@@ -302,6 +312,7 @@ function runCollector(
 ): array {
     $command = [
         $nodeBinary,
+        '--experimental-websocket',
         $script,
         '--cdp-url=' . $cdpUrl,
         '--target-date=' . $targetDate,

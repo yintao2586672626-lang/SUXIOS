@@ -323,11 +323,11 @@ final class PlatformDataSyncService
             ],
             [
                 'metric_key' => 'browse_to_pay_rate',
-                'normalized_field' => 'flow_rate',
+                'normalized_field' => 'raw_data.browse_pay_rate',
                 'storage_table' => 'online_daily_data',
-                'storage_field' => 'flow_rate',
+                'storage_field' => 'raw_data.browse_pay_rate',
                 'missing_state' => 'optional_missing',
-                'source_keys' => ['browse_to_pay_rate', 'browsePayRate', 'browse_pay_rate', 'payOrderPerIntention', 'flowRate', 'flow_rate'],
+                'source_keys' => ['browse_to_pay_rate', 'browsePayRate', 'browse_pay_rate', 'payOrderPerIntention'],
             ],
         ],
         'order' => [
@@ -447,7 +447,15 @@ final class PlatformDataSyncService
                 'storage_table' => 'online_daily_data',
                 'storage_field' => 'flow_rate',
                 'missing_state' => 'field_missing',
-                'source_keys' => ['browse_to_pay_rate', 'browsePayRate', 'browse_pay_rate', 'payOrderPerIntention', 'flow_rate', 'flowRate', 'cvr', 'conversion_rate', 'conversionRate', 'convertionRate', 'avgConversionsRate', 'orderConversionRate', 'dealRate'],
+                'source_keys' => ['exposure_to_browse_rate', 'exposureToBrowseRate', 'intentionPerExposure', 'expose_visit_rate', 'flow_rate', 'flowRate'],
+            ],
+            [
+                'metric_key' => 'browse_to_pay_rate',
+                'normalized_field' => 'raw_data.browse_pay_rate',
+                'storage_table' => 'online_daily_data',
+                'storage_field' => 'raw_data.browse_pay_rate',
+                'missing_state' => 'optional_missing',
+                'source_keys' => ['browse_to_pay_rate', 'browsePayRate', 'browse_pay_rate', 'payOrderPerIntention', 'visitOrderRate', 'conversion_rate', 'conversionRate', 'orderConversionRate'],
             ],
             [
                 'metric_key' => 'order_filling_num',
@@ -1056,7 +1064,184 @@ final class PlatformDataSyncService
             }
         }
 
-        return $normalized;
+        return $this->applyNormalizedRunConsistencyGuards($normalized, $payload, $source);
+    }
+
+    /**
+     * Keep contradictory rows for traceability, but fail them closed before
+     * persistence consumers can treat an observed zero as a trustworthy zero.
+     *
+     * A selected historical/realtime run may observe responses emitted before
+     * the requested period was applied. Those rows belong to the capture
+     * record, not to the requested business-date fact set. Likewise, a
+     * Meituan order aggregate with positive orders cannot coexist with an
+     * all-zero business or traffic aggregate for the same hotel/date/run
+     * without an explicit caliber conflict.
+     *
+     * @param array<int, array<string, mixed>> $rows
+     * @param array<string, mixed> $payload
+     * @param array<string, mixed> $source
+     * @return array<int, array<string, mixed>>
+     */
+    private function applyNormalizedRunConsistencyGuards(
+        array $rows,
+        array $payload,
+        array $source
+    ): array {
+        if ($rows === []) {
+            return $rows;
+        }
+
+        $platform = strtolower(trim((string)($source['platform'] ?? '')));
+        $requestedPeriod = $this->normalizeDataPeriod(
+            $payload['data_period'] ?? $payload['dataPeriod'] ?? ''
+        );
+        $targetDate = $this->normalizeDate(
+            $payload['data_date'] ?? $payload['dataDate'] ?? null
+        );
+        $coreTypes = ['business', 'traffic', 'order'];
+
+        if ($requestedPeriod !== '' && $targetDate !== null) {
+            foreach ($rows as $index => $row) {
+                $dataType = $this->normalizeDataType((string)($row['data_type'] ?? ''));
+                if (!in_array($dataType, $coreTypes, true)
+                    || (string)($row['data_date'] ?? '') !== $targetDate
+                    || (string)($row['data_period'] ?? '') === $requestedPeriod
+                ) {
+                    continue;
+                }
+                $rows[$index] = $this->quarantineNormalizedConsistencyConflict(
+                    $row,
+                    'requested_data_period_mismatch',
+                    [
+                        'requested_data_period' => $requestedPeriod,
+                        'observed_data_period' => (string)($row['data_period'] ?? ''),
+                        'data_type' => $dataType,
+                    ]
+                );
+            }
+        }
+
+        if ($platform !== 'meituan') {
+            return $rows;
+        }
+
+        $groups = [];
+        foreach ($rows as $index => $row) {
+            $compareType = strtolower(trim((string)($row['compare_type'] ?? '')));
+            if ($compareType !== '' && $compareType !== 'self') {
+                continue;
+            }
+            $date = trim((string)($row['data_date'] ?? ''));
+            if ($date === '') {
+                continue;
+            }
+            $groupKey = implode('|', [
+                (string)($row['tenant_id'] ?? ''),
+                (string)($row['system_hotel_id'] ?? ''),
+                (string)($row['data_source_id'] ?? ''),
+                $date,
+            ]);
+            $groups[$groupKey][] = $index;
+        }
+
+        foreach ($groups as $indexes) {
+            $positiveOrderEvidence = false;
+            foreach ($indexes as $index) {
+                $row = $rows[$index];
+                if ($this->normalizeDataType((string)($row['data_type'] ?? '')) !== 'order') {
+                    continue;
+                }
+                foreach (['amount', 'quantity', 'book_order_num', 'order_submit_num'] as $metricKey) {
+                    if (array_key_exists($metricKey, $row)
+                        && is_numeric($row[$metricKey])
+                        && (float)$row[$metricKey] > 0.000001
+                    ) {
+                        $positiveOrderEvidence = true;
+                        break 2;
+                    }
+                }
+            }
+            if (!$positiveOrderEvidence) {
+                continue;
+            }
+
+            foreach ($indexes as $index) {
+                $row = $rows[$index];
+                $dataType = $this->normalizeDataType((string)($row['data_type'] ?? ''));
+                $metricKeys = match ($dataType) {
+                    'business' => ['amount', 'quantity', 'book_order_num'],
+                    'traffic' => ['list_exposure', 'detail_exposure', 'flow_rate'],
+                    default => [],
+                };
+                if ($metricKeys === [] || !$this->normalizedMetricsAreExplicitZero($row, $metricKeys)) {
+                    continue;
+                }
+                $rows[$index] = $this->quarantineNormalizedConsistencyConflict(
+                    $row,
+                    'same_run_zero_' . $dataType . '_conflicts_with_nonzero_orders',
+                    [
+                        'data_type' => $dataType,
+                        'zero_metric_keys' => $metricKeys,
+                        'conflicting_data_type' => 'order',
+                    ]
+                );
+            }
+        }
+
+        return $rows;
+    }
+
+    /**
+     * @param array<string, mixed> $row
+     * @param array<int, string> $metricKeys
+     */
+    private function normalizedMetricsAreExplicitZero(array $row, array $metricKeys): bool
+    {
+        foreach ($metricKeys as $metricKey) {
+            if (!array_key_exists($metricKey, $row)
+                || !is_numeric($row[$metricKey])
+                || abs((float)$row[$metricKey]) > 0.000001
+            ) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /**
+     * @param array<string, mixed> $row
+     * @param array<string, mixed> $evidence
+     * @return array<string, mixed>
+     */
+    private function quarantineNormalizedConsistencyConflict(
+        array $row,
+        string $reasonCode,
+        array $evidence
+    ): array {
+        $flags = json_decode((string)($row['validation_flags'] ?? '[]'), true);
+        $flags = is_array($flags) ? $flags : [];
+        $flags[] = $reasonCode;
+        $row['validation_flags'] = json_encode(
+            array_values(array_unique(array_map('strval', $flags))),
+            JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES
+        );
+        $row['validation_status'] = 'quarantined';
+
+        $raw = $this->decodeConfig($row['raw_data'] ?? []);
+        $guards = is_array($raw['consistency_guards'] ?? null)
+            ? $raw['consistency_guards']
+            : [];
+        $guards[] = array_merge([
+            'status' => 'quarantined',
+            'reason_code' => $reasonCode,
+        ], $evidence);
+        $raw['consistency_guards'] = $guards;
+        $row['raw_data'] = json_encode(
+            $raw,
+            JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES
+        );
+        return $row;
     }
 
     /**

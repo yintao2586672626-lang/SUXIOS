@@ -5,6 +5,7 @@ namespace app\controller;
 
 use app\model\SystemConfig;
 use app\model\OperationLog;
+use InvalidArgumentException;
 use think\Response;
 use think\facade\Db;
 
@@ -82,6 +83,14 @@ class SystemConfigController extends Base
             $value = $data['config_value'];
             $description = $data['description'] ?? '自定义配置';
 
+            if ($key === SystemConfig::KEY_PALETTE_ACCEPTANCE_CANDIDATE) {
+                try {
+                    $value = SystemConfig::normalizePaletteAcceptanceCandidate($value);
+                } catch (InvalidArgumentException $e) {
+                    return $this->error($e->getMessage(), 422);
+                }
+            }
+
             if (!SystemConfig::shouldPreserveSensitiveInput($key, $value)) {
                 SystemConfig::setValue($key, $value, $description);
             }
@@ -95,6 +104,16 @@ class SystemConfigController extends Base
 
         // 获取所有配置项描述
         $descriptions = SystemConfig::getConfigDescriptions();
+
+        if (array_key_exists(SystemConfig::KEY_PALETTE_ACCEPTANCE_CANDIDATE, $data)) {
+            try {
+                $data[SystemConfig::KEY_PALETTE_ACCEPTANCE_CANDIDATE] = SystemConfig::normalizePaletteAcceptanceCandidate(
+                    $data[SystemConfig::KEY_PALETTE_ACCEPTANCE_CANDIDATE]
+                );
+            } catch (InvalidArgumentException $e) {
+                return $this->error($e->getMessage(), 422);
+            }
+        }
 
         try {
             Db::transaction(function () use ($data, $descriptions): void {

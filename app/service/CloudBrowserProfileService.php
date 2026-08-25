@@ -328,6 +328,136 @@ final class CloudBrowserProfileService
         ];
     }
 
+    /**
+     * Read-only preflight for a same-day OTA channel collection. This proves
+     * the encrypted Profile, data source and registered Profile binding all
+     * belong to the exact tenant/user/hotel/platform tuple. It does not prove
+     * the current page session or authorize persistence; the collector must
+     * establish those from fresh structured responses in the same run.
+     *
+     * @return array<string,mixed>
+     */
+    public function validateOtaCollectionProfile(
+        string $profilePublicId,
+        int $dataSourceId,
+        int $tenantId,
+        int $hotelId,
+        int $ownerUserId,
+        string $targetDate,
+        string $platform
+    ): array {
+        if ($dataSourceId <= 0 || $tenantId <= 0 || $hotelId <= 0 || $ownerUserId <= 0) {
+            throw new RuntimeException('cloud_browser_collection_scope_invalid');
+        }
+        $platform = $this->platform($platform);
+        if (!in_array($platform, ['ctrip', 'meituan'], true)) {
+            throw new RuntimeException('cloud_browser_collection_platform_unsupported');
+        }
+
+        $timezone = new DateTimeZone('Asia/Shanghai');
+        $now = new DateTimeImmutable('now', $timezone);
+        $date = DateTimeImmutable::createFromFormat('!Y-m-d', trim($targetDate), $timezone);
+        if (!$date instanceof DateTimeImmutable
+            || $date->format('Y-m-d') !== trim($targetDate)
+            || $date->format('Y-m-d') !== $now->format('Y-m-d')
+        ) {
+            throw new RuntimeException('cloud_browser_collection_target_date_not_today');
+        }
+
+        $profile = $this->profileByPublicId($profilePublicId, false);
+        if ((int)$profile['tenant_id'] !== $tenantId
+            || (int)$profile['system_hotel_id'] !== $hotelId
+            || (int)$profile['owner_user_id'] !== $ownerUserId
+            || strtolower((string)$profile['platform']) !== $platform
+        ) {
+            throw new RuntimeException('cloud_browser_collection_scope_mismatch');
+        }
+        if (strtolower((string)$profile['authorization_status']) !== self::READY_TO_COLLECT) {
+            throw new RuntimeException('cloud_browser_collection_profile_not_ready');
+        }
+        $readyAt = $this->timestamp(
+            (string)($profile['ready_at'] ?? ''),
+            'cloud_browser_collection_ready_evidence_missing'
+        );
+        if ($readyAt > $now->getTimestamp()) {
+            throw new RuntimeException('cloud_browser_collection_ready_evidence_invalid');
+        }
+        $sessionExpiresAt = $this->timestamp(
+            (string)($profile['session_expires_at'] ?? ''),
+            'cloud_browser_collection_session_expiry_missing'
+        );
+        if ($sessionExpiresAt <= $now->getTimestamp()) {
+            throw new RuntimeException('cloud_browser_collection_session_expired');
+        }
+
+        $hotel = Db::name('hotels')
+            ->field('id,tenant_id,name,status')
+            ->where('id', $hotelId)
+            ->find();
+        if (!is_array($hotel)
+            || (int)($hotel['tenant_id'] ?? 0) !== $tenantId
+            || (int)($hotel['status'] ?? 0) !== 1
+            || trim((string)($hotel['name'] ?? '')) === ''
+        ) {
+            throw new RuntimeException('cloud_browser_collection_hotel_scope_invalid');
+        }
+
+        $source = Db::name('platform_data_sources')
+            ->field('id,tenant_id,user_id,system_hotel_id,platform,ingestion_method,enabled,status,config_json')
+            ->where('id', $dataSourceId)
+            ->find();
+        if (!is_array($source)
+            || (int)($source['tenant_id'] ?? 0) !== $tenantId
+            || (int)($source['user_id'] ?? 0) !== $ownerUserId
+            || (int)($source['system_hotel_id'] ?? 0) !== $hotelId
+            || strtolower(trim((string)($source['platform'] ?? ''))) !== $platform
+            || strtolower(trim((string)($source['ingestion_method'] ?? ''))) !== 'browser_profile'
+            || (int)($source['enabled'] ?? 0) !== 1
+            || strtolower(trim((string)($source['status'] ?? ''))) === 'disabled'
+        ) {
+            throw new RuntimeException('cloud_browser_ota_data_source_scope_mismatch');
+        }
+
+        try {
+            $config = json_decode((string)($source['config_json'] ?? ''), true, 512, JSON_THROW_ON_ERROR);
+        } catch (\JsonException $error) {
+            throw new RuntimeException('cloud_browser_ota_data_source_config_invalid', 0, $error);
+        }
+        if (!is_array($config)) {
+            throw new RuntimeException('cloud_browser_ota_data_source_config_invalid');
+        }
+        $platformHotelId = trim((string)($config['platform_hotel_id'] ?? ''));
+        if ($platformHotelId === '') {
+            throw new RuntimeException('cloud_browser_ota_platform_hotel_id_missing');
+        }
+        $profileBindingKey = $this->otaProfileBindingKey($platform, $config);
+        if ($profileBindingKey === '') {
+            throw new RuntimeException('cloud_browser_ota_profile_binding_key_missing');
+        }
+        (new OtaProfileBindingService())->assertBound($hotelId, $platform, $profileBindingKey);
+
+        $sourceUrl = $platform === 'ctrip'
+            ? 'https://ebooking.ctrip.com/home/mainland'
+            : 'https://me.meituan.com/ebooking/';
+
+        return [
+            'validated' => true,
+            'collection_kind' => 'ota_channel_profile',
+            'access_mode' => 'read_only',
+            'data_source_id' => $dataSourceId,
+            'platform' => $platform,
+            'source_scope' => 'ota_channel',
+            'source_url' => $sourceUrl,
+            'platform_hotel_id' => $platformHotelId,
+            'target_date' => $date->format('Y-m-d'),
+            'tenant_id' => $tenantId,
+            'hotel_id' => $hotelId,
+            'owner_user_id' => $ownerUserId,
+            'expected_hotel_name' => (string)$hotel['name'],
+            'profile' => $this->publicProfile($profile),
+        ];
+    }
+
     /** @return array<string,mixed> */
     public function markReadyToCollect(string $profilePublicId, ?string $sessionExpiresAt = null): array
     {
@@ -415,6 +545,20 @@ final class CloudBrowserProfileService
             throw new RuntimeException($reason);
         }
         return $date->getTimestamp();
+    }
+
+    /** @param array<string,mixed> $config */
+    private function otaProfileBindingKey(string $platform, array $config): string
+    {
+        $keys = $platform === 'meituan'
+            ? ['profile_binding_key', 'stable_profile_id', 'store_id', 'storeId', 'poi_id', 'poiId', 'profile_id', 'profileId']
+            : ['profile_binding_key', 'stable_profile_id', 'profile_id', 'profileId', 'browser_profile_id', 'browserProfileId'];
+        foreach ($keys as $key) {
+            if (is_scalar($config[$key] ?? null) && trim((string)$config[$key]) !== '') {
+                return trim((string)$config[$key]);
+            }
+        }
+        return '';
     }
 
     /** @return array<string,mixed>|null */

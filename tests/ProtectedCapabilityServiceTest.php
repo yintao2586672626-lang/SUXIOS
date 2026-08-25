@@ -514,6 +514,29 @@ final class ProtectedCapabilityServiceTest extends TestCase
         self::assertFalse($service->authorizeContext($executor, $detail, ['hotel_id' => 7])['allowed']);
     }
 
+    public function testManagerCapabilityCaseAndFollowupWritesRequireOperationExecute(): void
+    {
+        $service = new ProtectedCapabilityService([
+            'default_enabled_modules' => ['operation_decision'],
+        ]);
+        $viewer = $this->userWithPermissions(['operation.view']);
+        $executor = $this->userWithPermissions(['operation.execute']);
+
+        foreach ([
+            '/api/operation/manager-capability/cases',
+            '/api/operation/manager-capability/cases/81/followups',
+            '/api/operation/manager-capability/cases/81/adjustments',
+            '/api/operation/manager-capability/cases/81/score-reviews',
+        ] as $path) {
+            $capability = $service->classifyPath('POST', $path);
+            self::assertIsArray($capability, $path);
+            self::assertSame('operation_execution', $capability['key'], $path);
+            self::assertSame('operation.execute', $capability['permission'], $path);
+            self::assertFalse($service->authorizeContext($viewer, $capability, ['hotel_id' => 7])['allowed'], $path);
+            self::assertTrue($service->authorizeContext($executor, $capability, ['hotel_id' => 7])['allowed'], $path);
+        }
+    }
+
     /**
      * @param array<int, string> $permissions
      */

@@ -179,6 +179,24 @@ final class CtripCompetitiveOperationsServiceTest extends TestCase
         self::assertSame(510.0, $result['traffic_funnel_comparison']['self']['list_exposure']);
     }
 
+    public function testCompetitionPlatformIndicesAndRatingRemainSourceFields(): void
+    {
+        $row = $this->businessRow(1, '2026-08-18', '1001', '我的酒店', 'self', 30000, 100, 50, 2);
+        $raw = json_decode((string)$row['raw_data'], true, 512, JSON_THROW_ON_ERROR);
+        $raw['ari'] = 105;
+        $raw['sci'] = 98;
+        $raw['ctripRatingall'] = 4.7;
+        $row['raw_data'] = json_encode($raw, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
+
+        $result = (new CtripCompetitiveOperationsService())->analyzeRows([$row], [], [], '1001');
+        $self = $result['business_comparison']['self'];
+
+        self::assertSame(105.0, $self['ari']);
+        self::assertSame(98.0, $self['sci']);
+        self::assertSame(4.7, $self['ctrip_rating']);
+        self::assertSame(10.0, $self['conversion_rate']);
+    }
+
     /** @return array<string,mixed> */
     private function businessRow(
         int $id,

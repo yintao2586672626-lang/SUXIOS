@@ -9,6 +9,7 @@ namespace app\service;
  */
 final class CtripReviewOrderCandidateScoringService
 {
+    private const MIN_CANDIDATE_SCORE_GAP = 20;
     private const VALID_STATUSES = ['已退房', '已离店', '已完成', '完成', '已入住', 'checkedout', 'completed'];
     private const WEAK_STATUSES = ['进行中', '已预订', '待确认', '预订', 'booked', 'reserved', 'pending'];
     private const INVALID_STATUSES = ['已取消', '已关闭', '取消', '关闭', 'noshow', 'no show', 'cancelled', 'canceled', 'closed'];
@@ -266,7 +267,8 @@ final class CtripReviewOrderCandidateScoringService
 
         $topScore = (int)($preliminary[0]['score'] ?? 0);
         $secondScore = isset($preliminary[1]) ? (int)$preliminary[1]['score'] : null;
-        $closeScores = $secondScore !== null && ($topScore - $secondScore) < 10;
+        $closeScores = $secondScore !== null
+            && ($topScore - $secondScore) < self::MIN_CANDIDATE_SCORE_GAP;
         $clearRoomCount = count(array_filter(
             $preliminary,
             static fn(array $candidate): bool => (int)($candidate['score_breakdown']['room_score'] ?? 0) >= 25
@@ -296,7 +298,8 @@ final class CtripReviewOrderCandidateScoringService
         $rescored = array_slice($rescored, 0, 5);
         $top = $rescored[0];
         $second = $rescored[1] ?? null;
-        $finalGapAmbiguous = is_array($second) && ((int)$top['score'] - (int)$second['score']) < 10;
+        $finalGapAmbiguous = is_array($second)
+            && ((int)$top['score'] - (int)$second['score']) < self::MIN_CANDIDATE_SCORE_GAP;
         $duplicateTop = in_array((string)$top['order_id'], $duplicateOrderIds, true);
         $timeConflict = (bool)($top['score_breakdown']['time_logic_conflict'] ?? false);
         $roomConflict = (int)($top['score_breakdown']['room_score'] ?? 0) === 0;
@@ -310,7 +313,7 @@ final class CtripReviewOrderCandidateScoringService
         }
         $flags = [];
         if ($finalGapAmbiguous) {
-            $flags[] = '前两名候选分差小于10';
+            $flags[] = '前两名候选分差小于' . self::MIN_CANDIDATE_SCORE_GAP;
         }
         if ($duplicateTop) {
             $flags[] = '同一订单命中多条点评';

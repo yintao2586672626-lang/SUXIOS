@@ -1,7 +1,7 @@
 const CARD_METRIC_MAP = new Map([
   ['EXPOSE_PV_CNT', { fields: ['listExposure', 'list_exposure'], label: 'list_exposure' }],
   ['INTENTION_UV', { fields: ['detailExposure', 'detail_exposure'], label: 'detail_exposure' }],
-  ['PAY_ORDER_CNT_UV', { fields: ['flowRate', 'flow_rate'], label: 'flow_rate' }],
+  ['PAY_ORDER_CNT_UV', { fields: ['browsePayRate', 'browse_pay_rate'], label: 'browse_to_pay_rate' }],
   ['PAY_ORDER_CNT', { fields: ['orderSubmitNum', 'order_submit_num'], label: 'order_submit_num' }],
 ]);
 
@@ -266,7 +266,7 @@ const CARD_METRIC_ID_ALIASES = [
   },
   {
     aliases: ['PAY_ORDER_CNT_UV', 'PAY_CVR', 'ORDER_CVR', 'CONVERSION_RATE', 'ORDER_CONVERSION_RATE', 'FLOW_RATE', 'CVR'],
-    config: { fields: ['flowRate', 'flow_rate'], label: 'flow_rate' },
+    config: { fields: ['browsePayRate', 'browse_pay_rate'], label: 'browse_to_pay_rate' },
   },
   {
     aliases: ['ORDER_FILLING_NUM', 'ORDER_FILLING_UV', 'ORDER_SUBMIT_UV', 'SUBMIT_ORDER_UV', 'SUBMIT_ORDER_CNT'],
@@ -301,7 +301,7 @@ const CARD_METRIC_TITLE_RULES = [
     ],
   },
   {
-    config: { fields: ['flowRate', 'flow_rate'], label: 'flow_rate' },
+    config: { fields: ['browsePayRate', 'browse_pay_rate'], label: 'browse_to_pay_rate' },
     patterns: [
       /\u8f6c\u5316\u7387/,
       /conversion.*rate/i,
@@ -601,7 +601,11 @@ export function normalizeMeituanTrafficDomText(value) {
         ...withDate,
         listExposure: exposure,
         detailExposure: visitors,
-        flowRate: Number(flowFunnel[9]),
+        flowRate: Number(flowFunnel[7]),
+        flow_rate: Number(flowFunnel[7]),
+        exposure_to_browse_rate: Number(flowFunnel[7]),
+        browsePayRate: Number(flowFunnel[9]),
+        browse_pay_rate: Number(flowFunnel[9]),
         orderFillingNum: orders,
         orderSubmitNum: orders,
         _order_filling_source_policy: 'meituan_flow_funnel_no_separate_order_filling_step_pay_order_count_used',
@@ -678,11 +682,15 @@ export function normalizeMeituanTrafficDomText(value) {
     const orders = exactNumber([
       /\u652f\u4ed8\u8ba2\u5355\u6570\s*([\d,.]+)\s*(\u4e07)?\s*\u5355/,
     ]);
-    const flowRateMatch = fullText.match(
+    const exposureToBrowseRateMatch = fullText.match(
+      /(?:\u66dd\u5149-\u6d4f\u89c8\s*\u8f6c\u5316\u7387|\u66dd\u5149\u8f6c\u5316\u7387)\s*([\d.]+)\s*%/,
+    );
+    const browseToPayRateMatch = fullText.match(
       /(?:\u652f\u4ed8\u8f6c\u5316\u7387|\u6d4f\u89c8-\u652f\u4ed8\u8f6c\u5316\u7387)\s*([\d.]+)\s*%/,
     );
     if (exposure !== null && visitors !== null && orders !== null) {
-      const flowRate = flowRateMatch ? Number(flowRateMatch[1]) : null;
+      const flowRate = exposureToBrowseRateMatch ? Number(exposureToBrowseRateMatch[1]) : null;
+      const browsePayRate = browseToPayRateMatch ? Number(browseToPayRateMatch[1]) : null;
       rows.push(withObservedMeituanTrafficMetrics({
         _capture_source: 'dom:traffic:home_summary',
         _source_path: 'dom.traffic.home_summary',
@@ -693,6 +701,10 @@ export function normalizeMeituanTrafficDomText(value) {
         listExposure: exposure,
         detailExposure: visitors,
         flowRate,
+        flow_rate: flowRate,
+        exposure_to_browse_rate: flowRate,
+        browsePayRate,
+        browse_pay_rate: browsePayRate,
         orderFillingNum: orders,
         orderSubmitNum: orders,
         _order_filling_source_policy: 'meituan_home_summary_no_separate_order_filling_step_pay_order_count_used',
@@ -729,12 +741,15 @@ export function normalizeMeituanFlowAnalysisRows(value, options = {}) {
         analysis_type: 'conversion_funnel',
         dimension: 'flow_conversion',
         data_value: exposure,
+        flowRate: exposureToVisitRate,
+        flow_rate: exposureToVisitRate,
         exposure_to_browse_rate: exposureToVisitRate,
+        browsePayRate: browseToPayRate,
         browse_pay_rate: browseToPayRate,
       }, 'traffic', 'data.myHotel', options), [
         ...(exposure !== undefined ? ['list_exposure'] : []),
         ...(visitors !== undefined ? ['detail_exposure'] : []),
-        ...(browseToPayRate !== undefined ? ['flow_rate'] : []),
+        ...(exposureToVisitRate !== undefined ? ['flow_rate'] : []),
       ])];
     }
   }
@@ -748,8 +763,11 @@ export function normalizeMeituanFlowAnalysisRows(value, options = {}) {
       detailExposure: numberish(data.visitCount ?? data.visitorCount ?? data.uv),
       orderSubmitNum: numberish(data.orderCount ?? data.payOrderCount ?? data.orders),
       orderFillingNum: numberish(data.orderCount ?? data.payOrderCount ?? data.orders),
-      flowRate: numberish(data.visitOrderRate ?? data.conversionRate ?? data.orderConversionRate),
+      flowRate: numberish(data.exposeVisitRate),
+      flow_rate: numberish(data.exposeVisitRate),
       exposure_to_browse_rate: numberish(data.exposeVisitRate),
+      browsePayRate: numberish(data.visitOrderRate ?? data.conversionRate ?? data.orderConversionRate),
+      browse_pay_rate: numberish(data.visitOrderRate ?? data.conversionRate ?? data.orderConversionRate),
       expose_visit_rate: numberish(data.exposeVisitRate),
     }, 'traffic_analysis', 'data', options)];
   }
@@ -963,7 +981,14 @@ function buildBusinessMetricRow(source, options = {}) {
   row.book_order_num = row.paid_order_count;
   row.listExposure = row.exposure_users;
   row.detailExposure = row.detail_visitors;
-  row.flowRate = row.browse_to_pay_rate;
+  const exposure = trafficMetricNumber(row.exposure_users);
+  const visitors = trafficMetricNumber(row.detail_visitors);
+  row.exposure_to_browse_rate = exposure !== null && exposure > 0 && visitors !== null
+    ? Number(((visitors / exposure) * 100).toFixed(2))
+    : null;
+  row.flowRate = row.exposure_to_browse_rate;
+  row.flow_rate = row.exposure_to_browse_rate;
+  row.browsePayRate = row.browse_to_pay_rate;
   row.browse_pay_rate = row.browse_to_pay_rate;
   row.data_value = row.sales_avg_price;
   const businessCaptureEpoch = Number(options.businessCaptureEpoch || 0);

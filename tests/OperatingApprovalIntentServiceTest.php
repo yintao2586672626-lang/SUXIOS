@@ -52,14 +52,21 @@ final class OperatingApprovalIntentServiceTest extends TestCase
     protected function setUp(): void
     {
         foreach ([
+            'operation_execution_evidence',
             'operation_execution_tasks',
             'operation_execution_intents',
             'user_hotel_permissions',
             'users',
+            'roles',
             'hotels',
         ] as $table) {
             Db::name($table)->delete(true);
         }
+
+        Db::name('roles')->insertAll([
+            ['id' => 1, 'name' => 'admin', 'level' => 1, 'permissions' => '["all"]', 'status' => 1],
+            ['id' => 3, 'name' => 'normal_user', 'level' => 3, 'permissions' => '[]', 'status' => 1],
+        ]);
 
         Db::name('hotels')->insertAll([
             [
@@ -80,9 +87,10 @@ final class OperatingApprovalIntentServiceTest extends TestCase
             ],
         ]);
         Db::name('users')->insertAll([
-            ['id' => 7, 'tenant_id' => 10, 'status' => 1],
-            ['id' => 8, 'tenant_id' => 10, 'status' => 1],
-            ['id' => 9, 'tenant_id' => 11, 'status' => 1],
+            ['id' => 1, 'tenant_id' => 7, 'role_id' => 1, 'status' => 1],
+            ['id' => 7, 'tenant_id' => 10, 'role_id' => 3, 'status' => 1],
+            ['id' => 8, 'tenant_id' => 10, 'role_id' => 3, 'status' => 1],
+            ['id' => 9, 'tenant_id' => 11, 'role_id' => 3, 'status' => 1],
         ]);
         Db::name('user_hotel_permissions')->insert([
             'tenant_id' => 10,
@@ -193,6 +201,120 @@ final class OperatingApprovalIntentServiceTest extends TestCase
         self::assertSame(0, (int)Db::name('operation_execution_tasks')->count());
     }
 
+    public function testVerifiedSuperAdminCanCreateCrossTenantPendingApprovalWithoutExecution(): void
+    {
+        $created = (new OperatingApprovalIntentService())->createPendingApproval(
+            10,
+            20,
+            '2026-08-12',
+            1,
+            self::evidenceRefs()
+        );
+
+        self::assertSame('pending_approval', $created['status']);
+        self::assertSame('readback_verified', $created['persistence_status']);
+        self::assertSame(10, $created['execution_intent']['tenant_id']);
+        self::assertSame(20, $created['execution_intent']['hotel_id']);
+        self::assertSame(1, $created['execution_intent']['created_by']);
+        self::assertSame([], $created['execution_intent']['tasks']);
+        self::assertFalse($created['execution_task_created']);
+        self::assertFalse($created['external_action_triggered']);
+        self::assertSame(0, (int)Db::name('operation_execution_tasks')->count());
+    }
+
+    public function testSavedApprovalCanBeReadBackByItsCurrentEvidenceIdentityWithoutWriting(): void
+    {
+        $service = new OperatingApprovalIntentService();
+        $created = $service->createPendingApproval(10, 20, '2026-08-12', 7, self::evidenceRefs());
+        $intentCountBefore = (int)Db::name('operation_execution_intents')->count();
+        $taskCountBefore = (int)Db::name('operation_execution_tasks')->count();
+
+        $readback = $service->readExistingIntent(10, 20, '2026-08-12', self::evidenceRefs());
+
+        self::assertNotNull($readback);
+        self::assertSame($created['execution_intent']['id'], $readback['id']);
+        self::assertSame('operating_loop_approval', $readback['source_module']);
+        self::assertSame('pending_approval', $readback['status']);
+        self::assertSame([], $readback['tasks']);
+        self::assertSame($intentCountBefore, (int)Db::name('operation_execution_intents')->count());
+        self::assertSame($taskCountBefore, (int)Db::name('operation_execution_tasks')->count());
+    }
+
+    public function testDecisionSnapshotAndRecommendationContextArePartOfTheExactIdentity(): void
+    {
+        $service = new OperatingApprovalIntentService();
+        $baseContext = self::decisionContext();
+        $contexts = [
+            'base' => $baseContext,
+            'snapshot_id' => array_replace($baseContext, ['snapshot_id' => 78]),
+            'snapshot_digest' => array_replace($baseContext, ['snapshot_digest' => str_repeat('b', 64)]),
+            'opportunity_key' => array_replace($baseContext, ['opportunity_key' => 'detail_conversion_shortage']),
+            'recommendation_digest' => array_replace($baseContext, ['recommendation_digest' => str_repeat('c', 64)]),
+        ];
+        $ids = [];
+        $keys = [];
+        foreach ($contexts as $label => $context) {
+            $created = $service->createPendingApproval(
+                10,
+                20,
+                '2026-08-12',
+                7,
+                self::evidenceRefs(),
+                $context
+            );
+            $ids[$label] = (int)$created['execution_intent']['id'];
+            $keys[$label] = (string)$created['idempotency_key'];
+            self::assertSame(
+                $ids[$label],
+                (int)$service->readExistingIntent(
+                    10,
+                    20,
+                    '2026-08-12',
+                    self::evidenceRefs(),
+                    $context
+                )['id']
+            );
+        }
+
+        self::assertCount(count($contexts), array_unique($ids));
+        self::assertCount(count($contexts), array_unique($keys));
+        self::assertSame(count($contexts), (int)Db::name('operation_execution_intents')->count());
+        self::assertSame(0, (int)Db::name('operation_execution_tasks')->count());
+
+        $replayed = $service->createPendingApproval(
+            10,
+            20,
+            '2026-08-12',
+            7,
+            self::evidenceRefs(),
+            $baseContext
+        );
+        self::assertTrue($replayed['reused_existing_intent']);
+        self::assertSame($ids['base'], (int)$replayed['execution_intent']['id']);
+    }
+
+    public function testReadbackReturnsNullWhenCurrentEvidenceIdentityWasNeverSaved(): void
+    {
+        self::assertNull((new OperatingApprovalIntentService())->readExistingIntent(
+            10,
+            20,
+            '2026-08-12',
+            [[
+                'role' => 'supporting_fact',
+                'source_kind' => 'formal_record',
+                'table' => 'online_daily_data',
+                'row_ids' => [999],
+                'platform' => 'meituan',
+                'business_date' => '2026-08-12',
+                'fact_scope' => 'ota_channel',
+                'readback_verified' => true,
+                'verification_status' => 'readback_verified',
+            ]]
+        ));
+        self::assertSame(0, (int)Db::name('operation_execution_intents')->count());
+        self::assertSame(0, (int)Db::name('operation_execution_tasks')->count());
+    }
+
     public function testReplayFailsClosedIfApprovalStateOrTaskHasDrifted(): void
     {
         $service = new OperatingApprovalIntentService();
@@ -242,6 +364,22 @@ final class OperatingApprovalIntentServiceTest extends TestCase
         ];
     }
 
+    /** @return array<string,mixed> */
+    private static function decisionContext(): array
+    {
+        return [
+            'snapshot_id' => 77,
+            'snapshot_digest' => str_repeat('a', 64),
+            'opportunity_key' => 'traffic_entry_shortage',
+            'title' => '核查流量入口',
+            'action_text' => '只核查当前快照对应的流量入口证据。',
+            'priority_band' => 'high',
+            'evidence_level' => 'strict_fact_partial',
+            'platform' => 'ctrip',
+            'recommendation_digest' => str_repeat('d', 64),
+        ];
+    }
+
     private function assertRejected(callable $callback, string $message): void
     {
         try {
@@ -260,8 +398,13 @@ final class OperatingApprovalIntentServiceTest extends TestCase
             . 'owner_user_id INTEGER NOT NULL DEFAULT 0, created_by INTEGER NOT NULL DEFAULT 0)'
         );
         Db::execute(
+            'CREATE TABLE roles ('
+            . 'id INTEGER PRIMARY KEY, name TEXT NOT NULL, level INTEGER NOT NULL, '
+            . 'permissions TEXT NOT NULL, status INTEGER NOT NULL)'
+        );
+        Db::execute(
             'CREATE TABLE users ('
-            . 'id INTEGER PRIMARY KEY, tenant_id INTEGER NOT NULL, status INTEGER NOT NULL)'
+            . 'id INTEGER PRIMARY KEY, tenant_id INTEGER NOT NULL, role_id INTEGER NOT NULL, status INTEGER NOT NULL)'
         );
         Db::execute(
             'CREATE TABLE user_hotel_permissions ('
@@ -288,6 +431,11 @@ final class OperatingApprovalIntentServiceTest extends TestCase
             . 'action_track_id INTEGER NOT NULL DEFAULT 0, result_status TEXT NOT NULL DEFAULT "observing", '
             . 'result_summary TEXT NOT NULL DEFAULT "", status TEXT NOT NULL DEFAULT "pending_execute", '
             . 'executed_at TEXT NULL, created_at TEXT NULL, updated_at TEXT NULL, deleted_at TEXT NULL)'
+        );
+        Db::execute(
+            'CREATE TABLE operation_execution_evidence ('
+            . 'id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER NOT NULL, task_id INTEGER NOT NULL, '
+            . 'hotel_id INTEGER NOT NULL, evidence_type TEXT NOT NULL, created_at TEXT NULL, deleted_at TEXT NULL)'
         );
     }
 }

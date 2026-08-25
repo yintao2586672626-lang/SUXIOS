@@ -300,6 +300,19 @@ test('canonical analysis-only records expose no operator mutation actions', () =
   );
 });
 
+test('managed operating questions expose only the explicit human approval action', () => {
+  const api = loadOperationStaticApi();
+  const item = {
+    recommendation: { source_module: 'operating_question', object_type: 'operation_checklist' },
+    action_management: { contract_version: 'operation_action_card.v1' },
+    approval: { status: 'pending_approval' },
+    execution: { mode: '', status: 'pending_create', task_id: 0 },
+  };
+
+  assert.equal(api.operationCanApproveExecution(item), true);
+  assert.equal(api.operationExecutionActionAvailable(item), true);
+});
+
 test('revenue node record keeps one fixed scope and explicit missing-state validation', () => {
   const api = loadOperationStaticApi();
   const sourceScope = api.operationRevenueNodeDialogFields.find(field => field.name === 'source_scope');

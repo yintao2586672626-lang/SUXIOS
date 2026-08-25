@@ -48,6 +48,266 @@ window.SUXI_MEITUAN_STATIC = (() => {
         }));
     };
 
+    const meituanReviewMatchActionConfig = Object.freeze({
+        save_review: Object.freeze({ label: '保存点评证据', path: '/online-data/meituan-review-matches/reviews', success: '美团点评证据已保存' }),
+        save_order: Object.freeze({ label: '保存订单证据', path: '/online-data/meituan-review-matches/orders', success: '美团订单证据已保存' }),
+        lookup: Object.freeze({ label: '计算单条候选', path: '/online-data/meituan-review-matches/lookup', success: '美团点评订单候选已计算' }),
+        run: Object.freeze({ label: '运行候选计算', path: '/online-data/meituan-review-matches/run', success: '美团点评订单候选计算完成' }),
+        closure: Object.freeze({ label: '刷新完成状态', path: '/online-data/meituan-review-matches/closure', success: '美团点评订单闭环状态已刷新' }),
+        bind: Object.freeze({ label: '人工确认订单', path: '/online-data/meituan-review-matches/bind', success: '美团点评订单已人工确认' }),
+        reject: Object.freeze({ label: '人工否决候选', path: '/online-data/meituan-review-matches/reject', success: '美团点评订单候选已人工否决' }),
+        unbind: Object.freeze({ label: '撤销人工绑定', path: '/online-data/meituan-review-matches/unbind', success: '美团点评订单绑定已撤销' }),
+    });
+
+    const meituanReviewMatchText = value => String(value ?? '').trim();
+    const meituanReviewMatchOptionalNumber = value => {
+        if (value === null || value === undefined || String(value).trim() === '') return null;
+        const number = Number(value);
+        return Number.isFinite(number) ? number : null;
+    };
+    const assignMeituanReviewMatchText = (target, key, value) => {
+        const text = meituanReviewMatchText(value);
+        if (text) target[key] = text;
+    };
+    const parseMeituanReviewMatchJson = (value, label) => {
+        const text = meituanReviewMatchText(value);
+        if (!text) return {};
+        let parsed;
+        try {
+            parsed = JSON.parse(text);
+        } catch (error) {
+            throw new Error(`${label}格式错误: ${error.message}`);
+        }
+        if (!parsed || Array.isArray(parsed) || typeof parsed !== 'object') {
+            throw new Error(`${label}必须是 JSON 对象`);
+        }
+        return parsed;
+    };
+    const meituanReviewMatchReviewId = (sample, form) => meituanReviewMatchText(
+        sample?.review_id || sample?.reviewId || form?.reviewId
+    );
+    const meituanReviewMatchOrderId = (sample, form) => meituanReviewMatchText(
+        sample?.order_id || sample?.orderId || sample?.candidate_order_id || sample?.candidateOrderId || form?.orderId
+    );
+
+    const buildMeituanReviewMatchPayload = (action, {
+        systemHotelId = '', form = {}, sample = null,
+    } = {}) => {
+        const hotelId = meituanReviewMatchText(systemHotelId);
+        if (!hotelId) throw new Error('请先在顶部选择美团当前酒店');
+        const base = { system_hotel_id: hotelId };
+        if (action === 'closure') return { ...base, min_matched: 1 };
+        if (action === 'run') return { ...base, review_limit: 200 };
+        if (action === 'lookup') {
+            const reviewId = meituanReviewMatchReviewId(sample, form);
+            if (!reviewId) throw new Error('请填写美团点评 ID，或从点评卡片发起计算');
+            return { ...base, reviewId };
+        }
+        if (action === 'save_review') {
+            const review = { ...parseMeituanReviewMatchJson(form.rawReviewJson, '美团点评信息') };
+            assignMeituanReviewMatchText(review, 'reviewId', form.reviewId);
+            assignMeituanReviewMatchText(review, 'reviewDate', form.reviewDate);
+            assignMeituanReviewMatchText(review, 'checkInDate', form.checkinDate);
+            assignMeituanReviewMatchText(review, 'roomName', form.reviewRoomName);
+            assignMeituanReviewMatchText(review, 'meituanOrderId', form.visibleOrderId);
+            const score = meituanReviewMatchText(form.reviewScore);
+            if (score) {
+                if (!Number.isFinite(Number(score))) throw new Error('点评分必须是数字');
+                review.score = Number(score);
+            }
+            if (!meituanReviewMatchText(review.reviewId || review.review_id || review.commentId || review.comment_id || review.id)) {
+                throw new Error('请填写美团点评 ID');
+            }
+            return { ...base, review };
+        }
+        if (action === 'save_order') {
+            const order = { ...parseMeituanReviewMatchJson(form.rawOrderJson, '美团订单信息') };
+            assignMeituanReviewMatchText(order, 'orderId', form.orderId);
+            assignMeituanReviewMatchText(order, 'checkInDate', form.orderArrivalDate);
+            assignMeituanReviewMatchText(order, 'checkOutDate', form.orderDepartureDate);
+            assignMeituanReviewMatchText(order, 'roomName', form.orderRoomName);
+            assignMeituanReviewMatchText(order, 'orderStatus', form.orderStatus);
+            order.detailVerified = form.orderDetailVerified === true;
+            order.platform = 'meituan';
+            if (!meituanReviewMatchText(order.orderId || order.order_id || order.meituanOrderId || order.meituan_order_id || order.id)) {
+                throw new Error('请填写美团订单 ID');
+            }
+            return { ...base, order };
+        }
+        const reviewId = meituanReviewMatchReviewId(sample, form);
+        const orderId = meituanReviewMatchOrderId(sample, form);
+        const reason = meituanReviewMatchText(form.decisionReason);
+        if (!reviewId) throw new Error('人工决策需要点评 ID');
+        if (action === 'bind' && !orderId) throw new Error('人工确认需要当前酒店订单 ID');
+        if (action === 'reject' && !reason) throw new Error('人工否决需要填写原因');
+        return { ...base, reviewId, ...(orderId ? { orderId } : {}), ...(reason ? { reason } : {}) };
+    };
+
+    const normalizeMeituanReviewMatchSamples = (response = {}) => {
+        const data = response?.data || {};
+        const rows = Array.isArray(data.review_cards) ? data.review_cards : data.samples;
+        if (!Array.isArray(rows)) return [];
+        return rows.map(sample => ({
+            ...sample,
+            review_id: meituanReviewMatchText(sample.review_id || sample.reviewId),
+            review_date: meituanReviewMatchText(sample.review_date || sample.reviewDate),
+            checkin_date: meituanReviewMatchText(sample.checkin_date || sample.checkinDate),
+            room_name: meituanReviewMatchText(sample.room_name || sample.roomName),
+            status: meituanReviewMatchText(sample.status || sample.match_status || sample.matchStatus || 'unmatched'),
+            status_text: meituanReviewMatchText(sample.status_text || sample.statusText),
+            confidence: meituanReviewMatchText(sample.confidence || 'none'),
+            order_id: meituanReviewMatchText(sample.order_id || sample.orderId),
+            candidate_count: Number(sample.candidate_count || sample.candidateCount || 0),
+            candidate_order_id: meituanReviewMatchText(sample.candidate_order_id || sample.candidateOrderId),
+            candidate_arrival_date: meituanReviewMatchText(sample.candidate_arrival_date || sample.candidateArrivalDate),
+            candidate_room_name: meituanReviewMatchText(sample.candidate_room_name || sample.candidateRoomName),
+            match_score: meituanReviewMatchOptionalNumber(sample.match_score ?? sample.matchScore),
+            score_gap: meituanReviewMatchOptionalNumber(sample.score_gap ?? sample.scoreGap),
+            score_breakdown: sample.score_breakdown && typeof sample.score_breakdown === 'object' ? sample.score_breakdown : {},
+            review_flags: Array.isArray(sample.review_flags) ? sample.review_flags : [],
+            missing_evidence: Array.isArray(sample.missing_evidence) ? sample.missing_evidence : [],
+            window_used: meituanReviewMatchText(sample.window_used || sample.windowUsed),
+            reason: meituanReviewMatchText(sample.reason),
+            updated_at: meituanReviewMatchText(sample.updated_at || sample.updatedAt),
+        }));
+    };
+
+    const meituanReviewMatchStatusLabel = status => ({
+        confirmed: '订单号强证据', high_confidence: '高置信候选', candidate: '候选待复核',
+        ambiguous: '候选有歧义', not_found: '未找到', matched: '人工已确认',
+        rejected: '人工已否决', unbound: '已撤销绑定', unmatched: '尚未计算', unknown: '未知',
+    }[meituanReviewMatchText(status || 'unknown')] || meituanReviewMatchText(status || '未知'));
+    const meituanReviewMatchStatusClass = status => {
+        const normalized = meituanReviewMatchText(status || 'unknown');
+        const base = 'inline-flex items-center px-2 py-1 rounded-full text-xs font-medium border';
+        if (normalized === 'matched') return `${base} border-emerald-100 bg-emerald-50 text-emerald-700`;
+        if (['confirmed', 'high_confidence'].includes(normalized)) return `${base} border-blue-100 bg-blue-50 text-blue-700`;
+        if (normalized === 'candidate') return `${base} border-amber-100 bg-amber-50 text-amber-700`;
+        if (['ambiguous', 'rejected'].includes(normalized)) return `${base} border-rose-100 bg-rose-50 text-rose-700`;
+        return `${base} border-slate-200 bg-slate-50 text-slate-600`;
+    };
+    const buildMeituanReviewMatchFormPatch = (sample = {}, current = {}) => ({
+        reviewId: meituanReviewMatchText(sample.review_id || sample.reviewId || current.reviewId),
+        reviewDate: meituanReviewMatchText(sample.review_date || sample.reviewDate || current.reviewDate),
+        checkinDate: meituanReviewMatchText(sample.checkin_date || sample.checkinDate || current.checkinDate),
+        reviewRoomName: meituanReviewMatchText(sample.room_name || sample.roomName || current.reviewRoomName),
+        orderId: meituanReviewMatchOrderId(sample, current),
+        orderArrivalDate: meituanReviewMatchText(sample.candidate_arrival_date || sample.candidateArrivalDate || current.orderArrivalDate),
+        orderRoomName: meituanReviewMatchText(sample.candidate_room_name || sample.candidateRoomName || current.orderRoomName),
+    });
+
+    const runMeituanReviewMatchRequestFlow = async ({
+        action, sample = null, systemHotelId = '', form = {}, request,
+        captureContext, isContextCurrent, staleResult, notify,
+        loading, lookupLoading, result, nextSequence, isSequenceCurrent,
+    } = {}) => {
+        const config = meituanReviewMatchActionConfig[action];
+        if (!config) throw new Error(`未知美团点评匹配动作: ${action}`);
+        lookupLoading.value = action === 'lookup' ? meituanReviewMatchReviewId(sample, form) : '';
+        if (loading.value) {
+            lookupLoading.value = '';
+            return { status: 'busy' };
+        }
+        const requestContext = captureContext('meituan');
+        if (!requestContext?.hotelId) {
+            lookupLoading.value = '';
+            notify('请先在顶部选择美团当前酒店', 'warning');
+            return { status: 'missing_hotel' };
+        }
+        const sequence = nextSequence();
+        loading.value = config.label;
+        try {
+            const response = await request(config.path, {
+                method: 'POST',
+                body: JSON.stringify(buildMeituanReviewMatchPayload(action, { systemHotelId, form, sample })),
+            });
+            if (!isContextCurrent(requestContext)) return staleResult(requestContext);
+            result.value = response;
+            const ok = Number(response?.code) === 200;
+            notify(response?.message || config.success, ok ? 'success' : 'error');
+            return response;
+        } catch (error) {
+            if (!isContextCurrent(requestContext)) return staleResult(requestContext);
+            const message = error?.message || `${config.label}失败`;
+            result.value = error?.data && typeof error.data === 'object'
+                ? error.data
+                : { code: 500, message, action: config.label };
+            notify(message, 'error');
+            return { status: 'exception', error };
+        } finally {
+            if (isSequenceCurrent(sequence)) {
+                loading.value = '';
+                lookupLoading.value = '';
+            }
+        }
+    };
+
+    const createMeituanReviewMatchController = (
+        ref,
+        computed,
+        request,
+        captureContext,
+        isContextCurrent,
+        staleResult,
+        notify,
+        getSystemHotelId = () => '',
+        state = {},
+    ) => {
+        const form = state.meituanReviewMatchForm || ref({
+            reviewId: '', reviewDate: '', checkinDate: '', reviewRoomName: '', reviewScore: '',
+            visibleOrderId: '', rawReviewJson: '', orderId: '', orderArrivalDate: '',
+            orderDepartureDate: '', orderRoomName: '', orderStatus: '', orderDetailVerified: false,
+            rawOrderJson: '', decisionReason: '',
+        });
+        const loading = state.meituanReviewMatchLoading || ref('');
+        const lookupLoading = state.meituanReviewMatchLookupLoadingReviewId || ref('');
+        const result = state.meituanReviewMatchResult || ref(null);
+        const manualPanel = state.showMeituanReviewMatchManualPanel || ref(false);
+        let sequence = 0;
+        const samples = state.meituanReviewMatchSamples
+            || computed(() => normalizeMeituanReviewMatchSamples(result.value));
+        const run = (action, sample = null) => runMeituanReviewMatchRequestFlow({
+            action, sample, systemHotelId: getSystemHotelId(), form: form.value, request,
+            captureContext, isContextCurrent, staleResult, notify,
+            loading, lookupLoading, result,
+            nextSequence: () => ++sequence,
+            isSequenceCurrent: current => current === sequence,
+        });
+        const closure = () => run('closure');
+        const refreshAfterWrite = response => Number(response?.code) === 200 ? closure() : response;
+        const applySample = sample => {
+            if (!sample || typeof sample !== 'object') return;
+            Object.assign(form.value, buildMeituanReviewMatchFormPatch(sample, form.value));
+            manualPanel.value = true;
+            notify('已带入美团点评复核表单', 'success');
+        };
+        return Object.freeze({
+            meituanReviewMatchForm: form,
+            meituanReviewMatchLoading: loading,
+            meituanReviewMatchLookupLoadingReviewId: lookupLoading,
+            meituanReviewMatchResult: result,
+            showMeituanReviewMatchManualPanel: manualPanel,
+            meituanReviewMatchSamples: samples,
+            meituanReviewMatchStatusLabel,
+            meituanReviewMatchStatusClass,
+            applyMeituanReviewMatchSample: applySample,
+            checkMeituanReviewMatchClosure: closure,
+            saveMeituanReviewForMatch: () => run('save_review').then(refreshAfterWrite),
+            saveMeituanOrderForMatch: () => run('save_order').then(refreshAfterWrite),
+            lookupMeituanReviewOrderMatch: sample => run('lookup', sample),
+            runMeituanReviewMatchAutomation: () => run('run'),
+            bindMeituanReviewOrderMatch: sample => run('bind', sample).then(refreshAfterWrite),
+            rejectMeituanReviewOrderMatch: sample => run('reject', sample).then(refreshAfterWrite),
+            unbindMeituanReviewOrderMatch: sample => run('unbind', sample).then(refreshAfterWrite),
+            invalidateMeituanReviewMatch: () => {
+                sequence += 1;
+                result.value = null;
+                loading.value = '';
+                lookupLoading.value = '';
+            },
+        });
+    };
+
     const resolveMeituanTopSummaryRows = ({
         businessSummary = null,
         rankedRows = [],
@@ -4421,6 +4681,7 @@ window.SUXI_MEITUAN_STATIC = (() => {
         ].slice(0, limit);
     };
 
+
     const buildHomeCompetitorSummaryCards = ({
         competitorSummary = null,
         coreCards = [],
@@ -4466,6 +4727,13 @@ window.SUXI_MEITUAN_STATIC = (() => {
         formatMeituanSortGapValue,
         meituanDisplayRowKey,
         buildMeituanTopSummaryFallbackRows,
+        buildMeituanReviewMatchPayload,
+        normalizeMeituanReviewMatchSamples,
+        meituanReviewMatchStatusLabel,
+        meituanReviewMatchStatusClass,
+        buildMeituanReviewMatchFormPatch,
+        runMeituanReviewMatchRequestFlow,
+        createMeituanReviewMatchController,
         findMeituanDynamicSelfRankRow,
         buildMeituanDisplayedHotelsList,
         resolveMeituanSortState,
