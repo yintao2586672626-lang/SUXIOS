@@ -772,23 +772,34 @@ final class ManualNotificationConditionRuleService
     private function facts(array $candidate): array
     {
         $daily = is_array($candidate['facts'] ?? null) ? $candidate['facts'] : [];
-        $envelope = is_array($candidate['fact_envelope']['facts']['dingdandao_pms'] ?? null)
-            ? $candidate['fact_envelope']['facts']['dingdandao_pms']
+        $factEnvelope = is_array($candidate['fact_envelope'] ?? null)
+            ? $candidate['fact_envelope']
             : [];
+        $pmsSelection = (new RevenuePmsFactSelectorService())
+            ->select($factEnvelope);
+        $envelope = $pmsSelection['data_status'] === 'readback_verified'
+            ? (array)$pmsSelection['facts']
+            : [];
+        $legacyDailyFallback = $factEnvelope === []
+            || ($pmsSelection['legacy_fixture'] ?? false) === true;
         $occupancy = $this->numeric(
-            $daily['pms_occupancy']
+            ($legacyDailyFallback ? $daily['pms_occupancy'] ?? null : null)
             ?? $envelope['occupancy_rate_percent']
             ?? null
         );
         $remaining = $this->numeric($envelope['remaining_sellable_room_nights'] ?? null);
         if ($remaining === null) {
             $sellable = $this->numeric(
-                $daily['pms_sellable_room_nights']
+                ($legacyDailyFallback
+                    ? $daily['pms_sellable_room_nights'] ?? null
+                    : null)
                 ?? $envelope['sellable_room_nights']
                 ?? null
             );
             $sold = $this->numeric(
-                $daily['pms_sold_room_nights']
+                ($legacyDailyFallback
+                    ? $daily['pms_sold_room_nights'] ?? null
+                    : null)
                 ?? $envelope['sold_room_nights']
                 ?? null
             );

@@ -136,6 +136,19 @@ function createAuthenticatedAssetLoaderHarness(timeoutMs = 20, manifestTimeoutMs
   };
 }
 
+test('Meituan helper bindings resolve the deferred bundle at call time', () => {
+  const bindingStart = appMain.indexOf('const currentMeituanStatic =');
+  const bindingEnd = appMain.indexOf('const OTA_BROWSER_ASSIST_STATIC_ASSET', bindingStart);
+  const bindingSource = appMain.slice(bindingStart, bindingEnd);
+  assert.match(bindingSource, /const currentMeituanStatic = \(\) => \(\s*window\.SUXI_MEITUAN_STATIC/);
+  assert.match(
+    bindingSource,
+    /const requireMeituanStatic = \(key\) => \{\s*const fallback = resolveMeituanStaticFallback\(key\);\s*return \(\.\.\.args\) => \{\s*const owner = currentMeituanStatic\(\);/,
+  );
+  assert.match(bindingSource, /if \(meituanDeferredRuntimePending\(\)\) return fallback\(\.\.\.args\);/);
+  assert.doesNotMatch(bindingSource, /const meituanStatic = window\.SUXI_MEITUAN_STATIC/);
+});
+
 test('authenticated asset loads share in-flight work and recover after error or timeout', async () => {
   const loader = createAuthenticatedAssetLoaderHarness(10);
 
@@ -317,7 +330,6 @@ test('public login shell defers the authenticated application asset chain', () =
   );
   for (const deferredAsset of [
     'components/system/app-main-components.js',
-    'components/system/operating-intelligence-components.js',
     'ctrip-search-opportunity-static.js',
     'user-admin-static.js',
   ]) {
@@ -340,6 +352,8 @@ test('public login shell defers the authenticated application asset chain', () =
     'ctrip-static.js',
     'meituan-static.js',
     'data-health-static.js',
+    'platform-profile-login-static.js',
+    'competition-download-static.js',
     'system-static.js',
     'compass-static.js',
     'home-static.js',
@@ -521,7 +535,6 @@ test('authenticated startup paints the compact page before progressively hydrati
     /if \(!normalizedPage\s*\|\| normalizedPage === 'compass'\s*\|\| document\.documentElement\.dataset\.suxiRenderPhase === 'full'\)/,
     'the startup compass must not pull the full-page asset manifest before a real page transition',
   );
-  assert.match(appMain, /if \(!normalizedPage\s*\|\| document\.documentElement\.dataset\.suxiRenderPhase === 'full'\)/);
   assert.match(
     appMain,
     /const promoteSuxiFullRender = \(\) => \{[\s\S]*!fullRenderRuntimeReady\(\)\) return false;/,
@@ -530,7 +543,6 @@ test('authenticated startup paints the compact page before progressively hydrati
   assert.match(
     appMain,
     /const handleSuxiFullRenderReady = \(\) => \{\s*clearSuxiFullRenderAttempt\(\);\s*if \(!fullRenderRuntimeReady\(\)\)[\s\S]*requestSuxiFullRenderForPage\(pendingFullRenderPage\)/,
-    /const handleSuxiFullRenderReady = \(\) => \{\s*if \(!fullRenderRuntimeReady\(\)\)[\s\S]*requestSuxiFullRenderForPage\(pendingFullRenderPage\)/,
     'the completed deferred-asset event must release the full-render barrier',
   );
   assert.match(
@@ -603,7 +615,7 @@ test('data-health helper calls stay lazy until the progressive full-page bundle 
   assert.match(appMain, /const handleSuxiFullRenderReady = \(\) => \{[\s\S]*publishDataHealthStaticReady\(\);/);
 });
 
-test('login intent preloads only the authenticated entry after the public shell paints', () => {
+test('login intent preloads only the authenticated entry before the sequential startup barrier', () => {
   assert.match(bootstrap, /const authenticatedStartupAssets = \(\) => \([\s\S]*asset\.phase === ASSET_PHASE_STARTUP/);
   assert.match(bootstrap, /const preloadAuthenticatedEntry = \(\) => \{/);
   assert.doesNotMatch(bootstrap, /preloadAuthenticatedStartupDependencies/);
@@ -612,12 +624,12 @@ test('login intent preloads only the authenticated entry after the public shell 
   assert.match(bootstrap, /link\.dataset\.suxiAuthenticatedStartupPreload = assetName/);
   assert.match(bootstrap, /preloadAuthenticatedAsset\(entry, 'high'\)/);
   assert.match(bootstrap, /authenticatedStartupPreloadLinks\.delete\(assetName\)/);
-  assert.match(bootstrap, /const scheduled = waitForFirstAuthenticatedPaint\(\)\.then\(preloadAuthenticatedEntry\)/);
-  assert.match(bootstrap, /form\.addEventListener\('focusin', scheduleAuthenticatedEntryPreload\)/);
-  assert.match(bootstrap, /const handleInput = \(\) => \{[\s\S]*?scheduleAuthenticatedEntryPreload\(\)/);
+  assert.doesNotMatch(bootstrap, /scheduleAuthenticatedEntryPreload/);
+  assert.match(bootstrap, /form\.addEventListener\('focusin', preloadAuthenticatedEntry\)/);
+  assert.match(bootstrap, /const handleInput = \(\) => \{[\s\S]*?preloadAuthenticatedEntry\(\)/);
 
   const submitStart = bootstrap.indexOf("form.addEventListener('submit'");
-  const entryPreloadOffset = bootstrap.indexOf('scheduleAuthenticatedEntryPreload();', submitStart);
+  const entryPreloadOffset = bootstrap.indexOf('preloadAuthenticatedEntry();', submitStart);
   const loginRequestOffset = bootstrap.indexOf("fetchJson('/api/auth/login'", submitStart);
   assert(submitStart >= 0 && entryPreloadOffset > submitStart && loginRequestOffset > entryPreloadOffset);
 });
@@ -677,12 +689,12 @@ test('authenticated login lands on the today operating dashboard through one ent
   assert.match(appMain, /if \(options\.skipOtaBackground !== true\) \{[\s\S]*?loadLatestCtripData[\s\S]*?loadCompetitorSummary/);
 });
 
-test('authenticated dashboard defers read-only secondary APIs and never schedules OTA collection', () => {
+test('authenticated dashboard defers read-only secondary APIs and delays OTA collection', () => {
   const compassLoaderStart = appMain.indexOf('const loadCompassData = async (options = {}) => {');
   const compassLoaderEnd = appMain.indexOf('\n\n            const refreshCompassDashboard', compassLoaderStart);
   const compassLoader = appMain.slice(compassLoaderStart, compassLoaderEnd);
   assert.match(appMain, /const AUTHENTICATED_SECONDARY_REQUEST_DELAY_MS = 4600;/);
-  assert.doesNotMatch(appMain, /scheduleDualOtaWorkbenchAutoFetch/);
+  assert.match(appMain, /const scheduleDualOtaWorkbenchAutoFetch = \(delayMs = 9000\) => \{/);
   assert.match(
     appMain,
     /const scheduleInitialBackendNotificationRefresh = \(delayMs = AUTHENTICATED_SECONDARY_REQUEST_DELAY_MS\) => \{/,

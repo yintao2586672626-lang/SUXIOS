@@ -815,6 +815,76 @@ final class ManualNotificationScheduleServiceTest extends TestCase
         );
     }
 
+    public function testFullHouseRuleUsesSelectedMeituanFactsAndNeverFallsBackToLegacyPmsValues(): void
+    {
+        $notificationId = $this->insertRecord([
+            'notification_type' =>
+                ManualNotificationService::OPERATING_DAILY_REPORT_TYPE,
+            'template_type' =>
+                ManualNotificationService::OPERATING_DAILY_REPORT_TYPE,
+            'condition_type' => ManualNotificationConditionRuleService::FULL_HOUSE,
+        ]);
+        $plan = Db::name('manual_notifications')->where('id', $notificationId)->find();
+        self::assertIsArray($plan);
+        $candidate = [
+            'facts' => [
+                'pms_sellable_room_nights' => 20,
+                'pms_sold_room_nights' => 2,
+            ],
+            'fact_envelope' => [
+                'pms_binding' => [
+                    'binding_status' => 'configured',
+                    'effective_provider' => 'meituan_cloud_pms',
+                ],
+                'source_completeness' => [
+                    'meituan_cloud_pms' => 'readback_verified',
+                ],
+                'sources' => [
+                    'meituan_cloud_pms' => [
+                        'data_status' => 'readback_verified',
+                        'facts' => [
+                            'remaining_sellable_room_nights' => 0,
+                            'sellable_room_nights' => 20,
+                            'sold_room_nights' => 20,
+                        ],
+                    ],
+                    'dingdandao_pms' => [
+                        'data_status' => 'readback_verified',
+                        'facts' => [
+                            'remaining_sellable_room_nights' => 18,
+                        ],
+                    ],
+                ],
+            ],
+        ];
+        $rules = new ManualNotificationConditionRuleService();
+        $matched = $rules->evaluate(
+            $plan,
+            $candidate,
+            '2026-07-26',
+            $this->time('2026-07-26 18:00:20')
+        );
+
+        self::assertTrue($matched['matched']);
+        self::assertSame(0.0, $matched['observed_value']);
+
+        unset($candidate['fact_envelope']['sources']['meituan_cloud_pms']);
+        $candidate['fact_envelope']['source_completeness']
+            ['meituan_cloud_pms'] = 'missing';
+        $blocked = $rules->evaluate(
+            $plan,
+            $candidate,
+            '2026-07-26',
+            $this->time('2026-07-26 18:01:20')
+        );
+        self::assertSame('blocked', $blocked['status']);
+        self::assertFalse($blocked['matched']);
+        self::assertSame(
+            'manual_notification_condition_fact_missing',
+            $blocked['reason_code']
+        );
+    }
+
     public function testRuleBucketClaimSerializesWindowsAndOldRetryAfterSuccess(): void
     {
         $notificationId = $this->insertRecord([
@@ -2978,6 +3048,10 @@ final class ManualNotificationScheduleServiceTest extends TestCase
                             'horizons' => $horizons,
                             'daily_rows' => $dailyRows,
                             'room_types' => [],
+                            'source' => [
+                                'provider' => 'dingdandao_pms',
+                                'table' => 'dingdandao_operating_target_captures',
+                            ],
                             'sources' => [
                                 'dingdandao_pms' => [
                                     'data_status' => 'readback_verified',

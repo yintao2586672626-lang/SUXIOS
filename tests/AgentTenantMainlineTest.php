@@ -101,15 +101,26 @@ final class AgentTenantMainlineTest extends TestCase
         self::assertSame(1, (int)$suggestions['pagination']['total']);
         self::assertSame(1, (int)$suggestions['list'][0]['id']);
 
-        $this->responseData($this->controller([
+        $blockedApproval = $this->controller([
             'id' => 1,
             'action' => 'approve',
             'remark' => 'tenant-safe approval',
+        ])->approvePrice();
+        self::assertSame(422, $blockedApproval->getCode(), (string)$blockedApproval->getContent());
+        self::assertStringContainsString('price_suggestion_trusted_input_blocked', (string)$blockedApproval->getContent());
+        $pending = Db::name('price_suggestions')->where('id', 1)->find();
+        self::assertSame(10, (int)$pending['tenant_id']);
+        self::assertSame(PriceSuggestion::STATUS_PENDING, (int)$pending['status']);
+
+        $rejectedPayload = $this->responseData($this->controller([
+            'id' => 1,
+            'action' => 'reject',
+            'remark' => 'legacy route delegates to Revenue AI review',
         ])->approvePrice());
-        $approved = Db::name('price_suggestions')->where('id', 1)->find();
-        self::assertSame(10, (int)$approved['tenant_id']);
-        self::assertSame(PriceSuggestion::STATUS_APPROVED, (int)$approved['status']);
-        self::assertSame(1, (int)$approved['applied_by']);
+        self::assertSame('rejected', $rejectedPayload['status']);
+        $rejected = Db::name('price_suggestions')->where('id', 1)->find();
+        self::assertSame(PriceSuggestion::STATUS_REJECTED, (int)$rejected['status']);
+        self::assertSame(1, (int)$rejected['applied_by']);
 
         $overview = $this->responseData($this->controller(['hotel_id' => 20])->overview());
         self::assertTrue($overview['agents']['revenue']['enabled']);

@@ -7,6 +7,7 @@ use app\model\OperationLog;
 use app\service\BrowserProfileCaptureRequestService;
 use app\service\CtripImplementationExposurePolicy;
 use app\service\MeituanManualIdentityService;
+use app\service\OtaCustomRequestService;
 use app\service\OtaExecutionStageException;
 use app\service\OtaProfileSessionProofService;
 use app\service\OtaTrafficUrlNormalizer;
@@ -2753,7 +2754,7 @@ trait OnlineDataRequestConcern
         } catch (\think\exception\HttpException $e) {
             return $this->error($e->getMessage(), $e->getStatusCode());
         } catch (\InvalidArgumentException $e) {
-            return json(['code' => 400, 'message' => $e->getMessage()]);
+            return json(['code' => 400, 'message' => $e->getMessage()], 400);
         } catch (\Throwable $e) {
             \think\facade\Log::error(sprintf(
                 '保存携程配置异常 [%s]: %s',
@@ -2967,7 +2968,7 @@ trait OnlineDataRequestConcern
     {
         // 仅检查登录状态，不强制要求酒店关联（配置读取不需要绑定酒店）
         if (!$this->currentUser || !$this->currentUser->id) {
-            return json(['code' => 401, 'message' => '未登录']);
+            return json(['code' => 401, 'message' => '未登录'], 401);
         }
 
         try {
@@ -3794,65 +3795,7 @@ trait OnlineDataRequestConcern
 
     private function sendCustomRequest(string $url, string $method, string $headersStr, string $body): array
     {
-        $headers = [];
-        if (!empty($headersStr)) {
-            $headerLines = explode("\n", $headersStr);
-            foreach ($headerLines as $line) {
-                $line = trim($line);
-                if (!empty($line)) {
-                    $headers[] = $line;
-                }
-            }
-        }
-
-        $headerStr = implode("\r\n", $headers);
-
-        $options = [
-            'http' => [
-                'method' => strtoupper($method),
-                'header' => $headerStr,
-                'timeout' => 30,
-                'ignore_errors' => true,
-            ],
-            'ssl' => $this->buildStreamSslOptions(),
-        ];
-
-        if (strtoupper($method) === 'POST' && !empty($body)) {
-            $options['http']['content'] = $body;
-        }
-
-        $context = stream_context_create($options);
-
-        $response = @file_get_contents($url, false, $context);
-
-        if ($response === false) {
-            $error = error_get_last();
-            return [
-                'success' => false,
-                'error' => $error['message'] ?? 'Unknown error',
-            ];
-        }
-
-        // 获取响应头
-        $responseHeaders = '';
-        $status = 200;
-        if (isset($http_response_header)) {
-            $responseHeaders = implode("\r\n", $http_response_header);
-            // 解析HTTP状态码
-            if (preg_match('/HTTP\/\d+\.?\d*\s+(\d+)/', $http_response_header[0] ?? '', $matches)) {
-                $status = (int)$matches[1];
-            }
-        }
-
-        $decoded = json_decode($response, true);
-
-        return [
-            'success' => true,
-            'data' => $decoded,
-            'raw' => $response,
-            'status' => $status,
-            'response_headers' => $responseHeaders,
-        ];
+        return (new OtaCustomRequestService())->request($url, $method, $headersStr, $body);
     }
 
     private function auditUrlWithoutQuery(string $url): string

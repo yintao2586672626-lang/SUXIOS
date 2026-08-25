@@ -388,7 +388,69 @@ final class RevenuePricingRecommendationServiceTest extends TestCase
         self::assertSame(['review_window'], array_column($readiness['missing_evidence'], 'code'));
     }
 
-    public function testEffectReviewReadyRequiresBeforeAndAfterSamples(): void
+    public function testSuggestionEffectAggregationUsesTrustedRepositoryContract(): void
+    {
+        $repository = new class extends TrustedOtaFactRepository {
+            public array $calls = [];
+
+            public function pricingHistory(int $systemHotelId, string $startDate, string $endDate): array
+            {
+                $this->calls[] = [$systemHotelId, $startDate, $endDate];
+
+                return [
+                    'data_status' => 'ready',
+                    'rows' => [[
+                        'amount' => 1000,
+                        'quantity' => 4,
+                        'book_order_num' => 2,
+                    ]],
+                    'data_gaps' => [],
+                    'source_policy' => ['readback_policy' => 'readback_verified_required_equals_1'],
+                    'data_quality' => ['trusted_rows' => 1],
+                ];
+            }
+        };
+        $service = new RevenuePricingRecommendationService($repository);
+
+        $period = $service->aggregateSuggestionEffect(80, '2026-05-25', '2026-05-31');
+
+        self::assertSame([[80, '2026-05-25', '2026-05-31']], $repository->calls);
+        self::assertSame('trusted_deduplicated', $period['evidence_status']);
+        self::assertSame('trusted_ota_fact_repository_canonical', $period['deduplication_policy']);
+        self::assertSame(1, $period['trusted_fact_count']);
+        self::assertSame(['amount' => 1, 'quantity' => 1, 'orders' => 1], $period['metric_observation_counts']);
+        self::assertSame(1000.0, $period['amount']);
+        self::assertSame(4, $period['quantity']);
+        self::assertSame(2, $period['orders']);
+        self::assertSame(250.0, $period['adr']);
+    }
+
+    public function testSuggestionEffectKeepsUnknownAdrAndDeltaNull(): void
+    {
+        $service = new RevenuePricingRecommendationService();
+
+        self::assertNull($service->suggestionEffectAdr(1000.0, 0));
+        self::assertNull($service->suggestionEffectAdr(null, null));
+        self::assertSame(250.0, $service->suggestionEffectAdr(1000.0, 4));
+
+        $delta = $service->suggestionEffectDelta([
+            'amount' => 1000.0,
+            'quantity' => 4,
+            'orders' => 2,
+            'adr' => null,
+        ], [
+            'amount' => 1200.0,
+            'quantity' => 5,
+            'orders' => 3,
+            'adr' => null,
+        ]);
+        self::assertSame(200.0, $delta['amount']);
+        self::assertSame(1, $delta['quantity']);
+        self::assertSame(1, $delta['orders']);
+        self::assertNull($delta['adr']);
+    }
+
+    public function testEffectReviewReadyRequiresTrustedComparableBeforeAndAfterFacts(): void
     {
         $service = new RevenuePricingRecommendationService();
 
@@ -398,11 +460,25 @@ final class RevenuePricingRecommendationServiceTest extends TestCase
         ], [
             'data_status' => 'ok',
             'sample_count' => 7,
+            'trusted_fact_count' => 7,
+            'evidence_status' => 'trusted_deduplicated',
+            'deduplication_policy' => 'trusted_ota_fact_repository_canonical',
+            'metric_observation_counts' => ['amount' => 7, 'quantity' => 7, 'orders' => 7],
+            'amount' => 7000,
+            'quantity' => 35,
+            'orders' => 20,
             'start_date' => '2026-05-25',
             'end_date' => '2026-05-31',
         ], [
             'data_status' => 'ok',
             'sample_count' => 7,
+            'trusted_fact_count' => 7,
+            'evidence_status' => 'trusted_deduplicated',
+            'deduplication_policy' => 'trusted_ota_fact_repository_canonical',
+            'metric_observation_counts' => ['amount' => 7, 'quantity' => 7, 'orders' => 7],
+            'amount' => 7700,
+            'quantity' => 35,
+            'orders' => 22,
             'start_date' => '2026-06-01',
             'end_date' => '2026-06-07',
         ], '2026-06-14');
@@ -410,6 +486,31 @@ final class RevenuePricingRecommendationServiceTest extends TestCase
         self::assertSame('effect_review_ready', $readiness['stage']);
         self::assertTrue($readiness['review_ready']);
         self::assertSame([], $readiness['missing_evidence']);
+        self::assertSame(['amount', 'quantity', 'orders'], $readiness['comparable_metrics']);
+    }
+
+    public function testEffectReviewDoesNotTreatArbitraryRowCountAsTrustedEvidence(): void
+    {
+        $service = new RevenuePricingRecommendationService();
+
+        $readiness = $service->buildEffectReviewReadiness([
+            'status' => 4,
+            'applied_time' => '2026-06-01 10:00:00',
+        ], [
+            'data_status' => 'ok',
+            'sample_count' => 999,
+            'start_date' => '2026-05-25',
+            'end_date' => '2026-05-31',
+        ], [
+            'data_status' => 'ok',
+            'sample_count' => 999,
+            'start_date' => '2026-06-01',
+            'end_date' => '2026-06-07',
+        ], '2026-06-14');
+
+        self::assertSame('effect_review_sample_missing', $readiness['stage']);
+        self::assertFalse($readiness['review_ready']);
+        self::assertSame(['trusted_before_after_facts'], array_column($readiness['missing_evidence'], 'code'));
     }
 
     public function testPricingSummaryPropagatesTrustedHistoryGapsAndSourcePolicy(): void

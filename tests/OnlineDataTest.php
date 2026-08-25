@@ -106,6 +106,51 @@ final class OnlineDataTest extends TestCase
         );
     }
 
+    public function testExplicitZeroTotalOrderNumberDoesNotFallbackToBookOrderNumber(): void
+    {
+        $controller = $this->controller();
+
+        self::assertSame(0, $this->invokeNonPublic($controller, 'resolveOnlineDataTotalOrderNum', [
+            ['totalOrderNum' => 0],
+            9,
+        ]));
+        self::assertSame(0, $this->invokeNonPublic($controller, 'resolveOnlineDataTotalOrderNum', [
+            ['total_order_num' => '0'],
+            9,
+        ]));
+        self::assertSame(9, $this->invokeNonPublic($controller, 'resolveOnlineDataTotalOrderNum', [
+            [],
+            9,
+        ]));
+    }
+
+    public function testAnalysisWithoutDataTypeDefaultsToExplicitBusinessTruthScope(): void
+    {
+        $controller = $this->controller();
+
+        $dataType = $this->invokeNonPublic($controller, 'normalizeOnlineDataAnalysisType', ['']);
+        $scope = $this->invokeNonPublic($controller, 'buildOnlineDataAnalysisScope', [
+            $dataType,
+            true,
+            '2026-08-01',
+            '2026-08-07',
+            '',
+            '80',
+        ]);
+
+        self::assertSame('business', $dataType);
+        self::assertSame('business', $scope['data_type']);
+        self::assertTrue($scope['data_type_defaulted']);
+        self::assertSame('ota_channel_business_operating_facts', $scope['metric_scope']);
+        self::assertSame('readback_verified_and_validation_usable', $scope['truth_policy']);
+        self::assertSame('excluded', $scope['legacy_untyped_rows']);
+        self::assertFalse($scope['cross_type_aggregation']);
+        self::assertSame(
+            ['untyped', 'advertising', 'peer_rank', 'ranking', 'traffic'],
+            $scope['excluded_default_types']
+        );
+    }
+
     public function testStoredForecastDataHasReadableHistoryLabelAndMetric(): void
     {
         $controller = $this->controller();

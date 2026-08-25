@@ -13,14 +13,15 @@ const sliceBetween = (source, startMarker, endMarker) => {
   return source.slice(start, end);
 };
 
-test('passive dashboard entry remains read-only and never schedules OTA collection', () => {
-  assert.doesNotMatch(appMain, /scheduleDualOtaWorkbenchAutoFetch/);
+test('dashboard entry remains initially read-only and delays OTA collection for nine seconds', () => {
+  assert.match(appMain, /const scheduleDualOtaWorkbenchAutoFetch = \(delayMs = 9000\) => \{/);
 
   const loginActivation = sliceBetween(
     appMain,
     'const activateCoreOperationsAfterLogin = () => {',
     'const isVisibleOnlineDataTab = isOnlineDataTabVisible;'
   );
+  assert.match(loginActivation, /scheduleDualOtaWorkbenchAutoFetch\(\)/);
   assert.match(loginActivation, /loadCompassData\(\{ skipOtaBackground: true, requestPolicy \}\)/);
   assert.doesNotMatch(loginActivation, /triggerAutoFetch|allowFetch:\s*true/);
 
@@ -29,6 +30,7 @@ test('passive dashboard entry remains read-only and never schedules OTA collecti
     'watch(currentPage, (newPage) => {',
     'watch(isLoggedIn, (loggedIn) => {'
   );
+  assert.match(pageWatcher, /scheduleDualOtaWorkbenchAutoFetch\(\)/);
   assert.match(pageWatcher, /loadCompassData\(\{ skipOtaBackground: true, requestPolicy \}\)/);
   assert.doesNotMatch(pageWatcher, /triggerAutoFetch|allowFetch:\s*true/);
 

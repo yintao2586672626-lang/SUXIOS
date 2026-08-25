@@ -1489,8 +1489,9 @@ class DailyReport extends Base
             $query->where('report_date', '<=', $endDate);
         }
 
-        $reports = $query->order('report_date', 'asc')->select();
-        $reportCount = count($reports);
+        // Count before materializing rows so an unbounded request cannot load
+        // the full report history merely to be rejected by the export cap.
+        $reportCount = (int)(clone $query)->count();
         if (!$this->isExportBatchAllowed($reportCount)) {
             OperationLog::record(
                 'daily_report',
@@ -1512,6 +1513,12 @@ class DailyReport extends Base
                 'requested_count' => $reportCount,
             ]);
         }
+
+        $reports = $query
+            ->order('report_date', 'asc')
+            ->limit(self::EXPORT_BATCH_LIMIT)
+            ->select();
+        $monthlyTaskContexts = $this->loadMonthlyTaskContexts($reports);
 
         $monthTaskData = [];
         $reportHotelIds = [];
@@ -1544,7 +1551,14 @@ class DailyReport extends Base
 
         foreach ($reports as $report) {
             $reportData = $this->normalizeReportData($report->report_data ?? []);
-            $taskContext = $this->loadMonthlyTaskContext((int)$report->hotel_id, (string)$report->report_date);
+            $monthTaskKey = $this->monthlyTaskKey(
+                (int)$report->hotel_id,
+                (string)$report->report_date
+            );
+            $taskContext = [
+                'key' => $monthTaskKey,
+                'data' => $monthlyTaskContexts[$monthTaskKey] ?? [],
+            ];
 
             if (!$hotelName && $report->hotel) {
                 $hotelName = $report->hotel->name;
@@ -1639,26 +1653,76 @@ class DailyReport extends Base
         return $text === '' ? '' : $this->escapeHtml($text);
     }
 
-    private function loadMonthlyTaskContext(int $hotelId, string $reportDate): array
+    private function monthlyTaskKey(int $hotelId, string $reportDate): string
     {
         $dateParts = explode('-', $reportDate);
         $year = (int)($dateParts[0] ?? 0);
         $month = (int)($dateParts[1] ?? 0);
-        $key = "{$hotelId}-{$year}-{$month}";
+        return "{$hotelId}-{$year}-{$month}";
+    }
 
-        if ($hotelId <= 0 || $year <= 0 || $month <= 0) {
-            return ['key' => $key, 'data' => []];
+    /**
+     * Fetch every distinct hotel/month task needed by a bounded export in one
+     * query. Composite OR predicates avoid loading unrelated cross-product
+     * combinations of hotels, years and months.
+     *
+     * @param iterable<object> $reports
+     * @return array<string, array<string, mixed>>
+     */
+    private function loadMonthlyTaskContexts(iterable $reports): array
+    {
+        $scopes = [];
+        foreach ($reports as $report) {
+            $hotelId = (int)($report->hotel_id ?? 0);
+            $reportDate = (string)($report->report_date ?? '');
+            $dateParts = explode('-', $reportDate);
+            $year = (int)($dateParts[0] ?? 0);
+            $month = (int)($dateParts[1] ?? 0);
+            if ($hotelId <= 0 || $year <= 0 || $month <= 0) {
+                continue;
+            }
+            $key = $this->monthlyTaskKey($hotelId, $reportDate);
+            $scopes[$key] = [
+                'hotel_id' => $hotelId,
+                'year' => $year,
+                'month' => $month,
+            ];
         }
 
-        $monthlyTask = MonthlyTask::where('hotel_id', $hotelId)
-            ->where('year', $year)
-            ->where('month', $month)
-            ->find();
+        if ($scopes === []) {
+            return [];
+        }
 
-        return [
-            'key' => $key,
-            'data' => $monthlyTask ? ($monthlyTask->task_data ?? []) : [],
-        ];
+        $tasks = MonthlyTask::where(function ($query) use ($scopes): void {
+            foreach (array_values($scopes) as $index => $scope) {
+                $predicate = static function ($candidate) use ($scope): void {
+                    $candidate
+                        ->where('hotel_id', $scope['hotel_id'])
+                        ->where('year', $scope['year'])
+                        ->where('month', $scope['month']);
+                };
+                if ($index === 0) {
+                    $query->where($predicate);
+                } else {
+                    $query->whereOr($predicate);
+                }
+            }
+        })->select();
+
+        $contexts = [];
+        foreach ($tasks as $task) {
+            $key = sprintf(
+                '%d-%d-%d',
+                (int)($task->hotel_id ?? 0),
+                (int)($task->year ?? 0),
+                (int)($task->month ?? 0)
+            );
+            if (isset($scopes[$key])) {
+                $contexts[$key] = $task->task_data ?? [];
+            }
+        }
+
+        return $contexts;
     }
 
     private function sumBatchMonthTaskValue(array $reports, string $field, ?float $fallback = null): ?float

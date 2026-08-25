@@ -62,6 +62,115 @@ final class OperatingGoalMetricSnapshotServiceTest extends TestCase
         );
     }
 
+    public function testWholeHotelSnapshotPreservesSelectedMeituanPmsIdentity(): void
+    {
+        $layer = $this->layer('2026-08-01', whole: [
+            'facts' => ['room_revenue' => 7200.0],
+            'source' => [
+                'table' => 'meituan_cloud_pms_captures',
+                'record_id' => 701,
+                'provider_hotel_id' => 'meituan-pms-80',
+            ],
+        ]);
+        $layer['pms_binding'] = [
+            'binding_status' => 'configured',
+            'effective_provider' => 'meituan_cloud_pms',
+        ];
+        $layer['sources']['meituan_cloud_pms'] =
+            $layer['sources']['dingdandao_pms'];
+        unset($layer['sources']['dingdandao_pms']);
+        $layer['sources']['meituan_cloud_pms']['source']['provider'] =
+            'meituan_cloud_pms';
+        $service = new OperatingGoalMetricSnapshotService(
+            static fn(int $hotelId, string $date): array => $layer
+        );
+
+        $result = $service->snapshot(
+            7,
+            80,
+            'room_revenue',
+            '2026-08-01',
+            '2026-08-01'
+        );
+
+        self::assertSame('ready', $result['status']);
+        self::assertSame(
+            'meituan_cloud_pms',
+            $result['snapshot']['platform']
+        );
+        self::assertSame(
+            'meituan-pms-80',
+            $result['snapshot']['platform_hotel_id']
+        );
+        self::assertSame(
+            ['meituan_cloud_pms_captures#701'],
+            $result['snapshot']['evidence_refs']
+        );
+        self::assertSame(
+            'meituan_cloud_pms',
+            $result['snapshot']['daily_readbacks'][0]
+                ['source_readbacks'][0]['source']
+        );
+    }
+
+    public function testWholeHotelSnapshotRejectsSelectedPmsIdentityOrStatusConflict(): void
+    {
+        $base = $this->layer('2026-08-01', whole: [
+            'source' => [
+                'table' => 'meituan_cloud_pms_captures',
+                'provider' => 'meituan_cloud_pms',
+            ],
+        ]);
+        $base['pms_binding'] = [
+            'binding_status' => 'configured',
+            'effective_provider' => 'meituan_cloud_pms',
+        ];
+        $base['sources']['meituan_cloud_pms'] =
+            $base['sources']['dingdandao_pms'];
+        unset($base['sources']['dingdandao_pms']);
+
+        $variants = [];
+        $variants['ding_envelope_under_meituan_key'] = $base;
+        $variants['ding_envelope_under_meituan_key']['sources']
+            ['meituan_cloud_pms']['source']['provider'] = 'dingdandao_pms';
+        $variants['provider_missing'] = $base;
+        unset($variants['provider_missing']['sources']
+            ['meituan_cloud_pms']['source']['provider']);
+        $variants['table_mismatch'] = $base;
+        $variants['table_mismatch']['sources']
+            ['meituan_cloud_pms']['source']['table'] =
+                'dingdandao_operating_target_captures';
+        $variants['status_conflict'] = $base;
+        $variants['status_conflict']['source_completeness'] = [
+            'meituan_cloud_pms' => 'not_verified',
+        ];
+
+        foreach ($variants as $case => $layer) {
+            $service = new OperatingGoalMetricSnapshotService(
+                static fn(int $hotelId, string $date): array => $layer
+            );
+            $result = $service->snapshot(
+                7,
+                80,
+                'room_revenue',
+                '2026-08-01',
+                '2026-08-01'
+            );
+
+            self::assertSame('unavailable', $result['status'], $case);
+            self::assertNull($result['snapshot'], $case);
+            self::assertContains(
+                $case === 'table_mismatch'
+                    ? 'whole_hotel_source_table_mismatch'
+                    : ($case === 'status_conflict'
+                        ? 'whole_hotel_source_not_readback_verified'
+                        : 'whole_hotel_source_provider_mismatch'),
+                $result['reason_codes'],
+                $case
+            );
+        }
+    }
+
     public function testWholeHotelAdrOccupancyAndRevparUseRangeWeightedInputs(): void
     {
         $layers = [

@@ -332,13 +332,25 @@ final class RevenueCockpitApprovalService
             ];
         }
 
-        $pms = is_array($sources['dingdandao_pms'] ?? null) ? $sources['dingdandao_pms'] : [];
+        $pmsSelection = (new RevenuePmsFactSelectorService())->select($factLayer);
+        $pmsSourceKey = (string)$pmsSelection['source_key'];
+        $pms = is_array($pmsSelection['source'] ?? null)
+            ? $pmsSelection['source']
+            : [];
         $pmsProvenance = is_array($pms['source'] ?? null) ? $pms['source'] : [];
         $pmsRecordId = (int)($pmsProvenance['record_id'] ?? 0);
-        if ((string)($pms['data_status'] ?? '') === 'readback_verified'
+        $pmsProvider = trim((string)($pmsProvenance['provider'] ?? ''));
+        $providerIdentityVerified = $pmsProvider === $pmsSourceKey
+            || (($pmsSelection['legacy_fixture'] ?? false) === true
+                && $pmsProvider === '');
+        if ((string)$pmsSelection['data_status'] === 'readback_verified'
             && (string)($pms['business_date'] ?? '') === $businessDate
             && (string)($pms['actual_business_date'] ?? '') === $businessDate
-            && (string)($pmsProvenance['table'] ?? '') === 'dingdandao_operating_target_captures'
+            && (int)($pmsProvenance['tenant_id'] ?? 0) === $tenantId
+            && (int)($pmsProvenance['system_hotel_id'] ?? 0) === $hotelId
+            && (string)($pmsProvenance['table'] ?? '')
+                === (string)($pmsSelection['expected_table'] ?? '')
+            && $providerIdentityVerified
             && (string)($pmsProvenance['data_date'] ?? '') === $businessDate
             && (string)($pmsProvenance['readback_status'] ?? '') === 'readback_verified'
             && $pmsRecordId > 0
@@ -346,21 +358,27 @@ final class RevenueCockpitApprovalService
             $refs[] = [
                 'role' => 'supporting_fact',
                 'source_kind' => 'formal_record',
-                'table' => 'dingdandao_operating_target_captures',
+                'table' => (string)$pmsSelection['expected_table'],
                 'row_ids' => [$pmsRecordId],
-                'platform' => 'dingdandao_pms',
+                'platform' => $pmsSourceKey,
                 'business_date' => $businessDate,
                 'fact_scope' => 'whole_hotel_accommodation',
                 'readback_verified' => true,
                 'verification_status' => 'readback_verified',
                 'fact_content_digest' => $this->digest([
-                    'source_key' => 'dingdandao_pms',
+                    'source_key' => $pmsSourceKey,
+                    'provider' => $pmsProvider,
+                    'pms_binding' => is_array($pmsSelection['binding'] ?? null)
+                        ? $pmsSelection['binding']
+                        : [],
                     'data_status' => (string)($pms['data_status'] ?? ''),
                     'business_date' => (string)($pms['business_date'] ?? ''),
                     'actual_business_date' => (string)($pms['actual_business_date'] ?? ''),
                     'source' => [
                         'table' => (string)($pmsProvenance['table'] ?? ''),
                         'record_id' => $pmsRecordId,
+                        'tenant_id' => (int)($pmsProvenance['tenant_id'] ?? 0),
+                        'system_hotel_id' => (int)($pmsProvenance['system_hotel_id'] ?? 0),
                         'data_date' => (string)($pmsProvenance['data_date'] ?? ''),
                         'readback_status' => (string)($pmsProvenance['readback_status'] ?? ''),
                     ],

@@ -462,17 +462,13 @@
                 return BUSINESS_CONTEXT_ENDPOINT_PREFIXES.some(prefix => path === prefix || path.startsWith(prefix));
             };
             const currentBusinessRequestContext = (overrides = {}) => {
-                const context = { ...(authContext.value || {}), ...(overrides || {}) };
-                const permissionStatus = String(context.permissionStatus || context.permission_status || '').toLowerCase();
-                if (permissionStatus !== 'allowed') return {};
-                const hotelId = context.hotelId || context.hotel_id || context.system_hotel_id || user.value?.hotel_id || '';
-                const tenantId = context.tenantId || context.tenant_id || '';
-                const platform = String(context.platform || '').toLowerCase();
-                const payload = {};
-                if (hotelId) payload.system_hotel_id = String(hotelId);
-                if (tenantId) payload.tenant_id = String(tenantId);
-                if (['ctrip', 'meituan', 'all'].includes(platform)) payload.platform = platform;
-                return payload;
+                return requireAppSystemStatic('resolveBusinessRequestContext')({
+                    authContext: authContext.value,
+                    overrides,
+                    user: user.value,
+                    selectedHotelId: filterReportHotel.value,
+                    hotelPool: permittedHotels.value,
+                });
             };
             const appendContextToRequestUrl = (url, context) => {
                 let targetUrl = String(url || '');
@@ -481,7 +477,12 @@
                 const query = queryStart >= 0 ? targetUrl.slice(queryStart + 1) : '';
                 const params = new URLSearchParams(query);
                 Object.entries(context).forEach(([key, value]) => {
-                    if (value !== undefined && value !== null && String(value) !== '' && !params.has(key)) {
+                    if (value !== undefined
+                        && value !== null
+                        && String(value) !== ''
+                        && !params.has(key)
+                        && !(key === 'system_hotel_id' && params.has('hotel_id'))
+                    ) {
                         params.set(key, String(value));
                     }
                 });
@@ -517,6 +518,7 @@
             const withBusinessRequestContext = (url, options = {}) => {
                 if (!shouldAttachBusinessContext(url, options)) return { url, options };
                 const context = currentBusinessRequestContext(options.businessContext);
+                if (context === null) throw new Error('当前业务访问范围无效，请刷新或重新选择酒店');
                 if (Object.keys(context).length === 0) return { url, options };
                 const method = String(options.method || 'GET').toUpperCase();
                 const nextOptions = { ...options };
@@ -1853,11 +1855,13 @@
                 ];
             });
             const ctripCompetitiveLocalDate = (offsetDays = 0) => {
-                const date = new Date();
-                date.setHours(12, 0, 0, 0);
-                date.setDate(date.getDate() + Number(offsetDays || 0));
-                const pad = value => String(value).padStart(2, '0');
-                return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+                const date = new Date(Date.now() + (Number(offsetDays || 0) * 86400000));
+                return new Intl.DateTimeFormat('en-CA', {
+                    timeZone: appTimeZone,
+                    year: 'numeric',
+                    month: '2-digit',
+                    day: '2-digit',
+                }).format(date);
             };
             const otaPublicPageTaskDateTime = (offsetDays, hour) => {
                 const value = new Date();
@@ -2816,6 +2820,7 @@
             const normalizeCtripAdsApiType = requireCtripStatic('normalizeCtripAdsApiType');
             const ctripFlowOverviewApiKeywords = ctripFlowOverviewApiGroups.map(item => item.keyword);
             const buildCtripSortedHotelRows = requireCtripStatic('buildCtripSortedHotelRows');
+            const ctripRankEligibilityText = requireCtripStatic('ctripRankEligibilityText');
             const buildCtripOverviewMetricCards = requireCtripStatic('buildCtripOverviewMetricCards');
             const buildCtripOverviewTopRankTables = requireCtripStatic('buildCtripOverviewTopRankTables');
             const buildCtripFlowOverviewMetricCards = requireCtripStatic('buildCtripFlowOverviewMetricCards');
@@ -2975,9 +2980,11 @@
             const showCtripCommentSpidertoken = ref(false);
             const showCtripCommentCookies = ref(false);
             const showCtripCommentPayload = ref(false);
-            const meituanStatic = window.SUXI_MEITUAN_STATIC && typeof window.SUXI_MEITUAN_STATIC === 'object'
-                ? window.SUXI_MEITUAN_STATIC
-                : {};
+            const currentMeituanStatic = () => (
+                window.SUXI_MEITUAN_STATIC && typeof window.SUXI_MEITUAN_STATIC === 'object'
+                    ? window.SUXI_MEITUAN_STATIC
+                    : {}
+            );
             const missingMeituanStaticHelpers = [];
             window.SUXI_MISSING_MEITUAN_STATIC_HELPERS = missingMeituanStaticHelpers;
             const meituanConfigSaveHelperKeys = Object.freeze([
@@ -2989,7 +2996,8 @@
                 'buildMeituanConfigSaveFailureState',
             ]);
             const resolveMeituanStaticHelperAvailability = (keys = []) => {
-                const missing = keys.filter((key) => typeof meituanStatic[key] !== 'function');
+                const owner = currentMeituanStatic();
+                const missing = keys.filter((key) => typeof owner[key] !== 'function');
                 return { available: missing.length === 0, missing };
             };
             const meituanStaticUnavailableResult = (key) => ({
@@ -3220,16 +3228,27 @@
                 if (key.startsWith('runMeituan')) return async () => unavailable();
                 return unavailable;
             };
+            const resolveMeituanStaticFallback = (key) => meituanStaticFallbackFor(key);
+            const meituanDeferredRuntimePending = () => (
+                document.documentElement.dataset.suxiFullRenderReady !== '1'
+            );
             const requireMeituanStatic = (key) => {
-                const value = meituanStatic[key];
-                if (typeof value !== 'function') {
+                const fallback = resolveMeituanStaticFallback(key);
+                return (...args) => {
+                    const owner = currentMeituanStatic();
+                    const value = owner[key];
+                    if (typeof value === 'function') {
+                        const missingIndex = missingMeituanStaticHelpers.indexOf(key);
+                        if (missingIndex >= 0) missingMeituanStaticHelpers.splice(missingIndex, 1);
+                        return value.apply(owner, args);
+                    }
+                    if (meituanDeferredRuntimePending()) return fallback(...args);
                     if (!missingMeituanStaticHelpers.includes(key)) {
                         missingMeituanStaticHelpers.push(key);
                     }
                     console.warn(`[meituan-static] 缺少静态展示工具项：${key}；系统入口继续加载，相关美团功能将提示不可用。`);
-                    return meituanStaticFallbackFor(key);
-                }
-                return value;
+                    return fallback(...args);
+                };
             };
             const OTA_BROWSER_ASSIST_STATIC_ASSET = 'ota-browser-assist-static.js?v=20260723-browser-assist-safety-h82e9900cd3';
             let otaBrowserAssistStaticLoadPromise = null;
@@ -4018,6 +4037,7 @@
             const dataHealthStaticVersion = ref(window.SUXI_DATA_HEALTH_STATIC ? 1 : 0);
             publishDataHealthStaticReady = () => !!window.SUXI_DATA_HEALTH_STATIC && !!(dataHealthStaticVersion.value += 1);
             const requireDataHealthStatic = key => requireDeferredStaticFunction('SUXI_DATA_HEALTH_STATIC', key, '缺少数据健康静态展示工具项', () => dataHealthStaticVersion.value);
+            const buildCtripDownloadRowsStatic = requireDeferredStaticFunction('SUXI_COMPETITION_DOWNLOAD_STATIC', 'buildCtripDownloadRows', '缺少竞争圈下载工具');
             const onlineDataQualityStatusText = requireDataHealthStatic('onlineDataQualityStatusText');
             const onlineDataQualityStatusClass = requireDataHealthStatic('onlineDataQualityStatusClass');
             const onlineDataQualityPromptList = requireDataHealthStatic('onlineDataQualityPromptList');
@@ -7301,6 +7321,18 @@
                 return true;
             };
             const AUTHENTICATED_SECONDARY_REQUEST_DELAY_MS = 4600;
+            let dualOtaWorkbenchAutoFetchTimer = null;
+            const scheduleDualOtaWorkbenchAutoFetch = (delayMs = 9000) => {
+                if (dualOtaWorkbenchAutoFetchTimer) {
+                    clearTimeout(dualOtaWorkbenchAutoFetchTimer);
+                    pageLifecycleTimers.delete(dualOtaWorkbenchAutoFetchTimer);
+                }
+                dualOtaWorkbenchAutoFetchTimer = scheduleDelayedPageTask(() => {
+                    dualOtaWorkbenchAutoFetchTimer = null;
+                    if (!token.value || !isCompassDataPage()) return null;
+                    return refreshDualOtaWorkbenchData({ allowFetch: true, silent: true });
+                }, delayMs);
+            };
             const setDualOtaPlatform = (platform, options = {}) => {
                 const value = String(platform || '').trim();
                 const scenarios = dualOtaDashboard.value.lossChain?.scenarios || {};
@@ -10159,7 +10191,12 @@
                         }
                     }
                     const run = (async () => {
-                        const res = await request(`/online-data/data-analysis?${params}`);
+                        const res = await request(`/online-data/data-analysis?${params}`, {
+                            businessContext: {
+                                hotelId: onlineDataFilter.value.hotel_id || '',
+                                tenantId: '',
+                            },
+                        });
                         debugLog('数据分析结果:', res.data);
                         if (res.code === 200) {
                             const data = res.data || { summary: null, chart_data: null, hotel_ranking: [] };
@@ -13299,16 +13336,14 @@
                 );
             };
 
-            const buildPlatformProfileLoginPayload = (platform, item = null) => {
+            const buildPlatformProfileLoginPayload = (platform, item = null, options = {}) => {
                 const hotelId = getAutoFetchHotelId();
                 if (!hotelId) return null;
                 const dataSourceId = Number(item?.data_source_id || item?.dataSourceId || 0);
-                const syncAfterLogin = !!(item?.sync_after_login || item?.syncAfterLogin || dataSourceId > 0);
-                const loginTargetDate = String(item?.data_date || item?.dataDate || item?.target_date || item?.targetDate || formatDate(new Date())).trim();
+                const binding = item?.binding || {};
+                let platformData;
                 if (platform === 'ctrip') {
                     const form = ctripBrowserCaptureForm.value;
-                    const binding = item?.binding || {};
-                    const hotelIdValue = firstNonEmptyText(form.hotelId, binding.ctrip_hotel_id, binding.hotel_id, ctripOverviewForm.value.hotelId);
                     const profileId = resolveCtripBrowserProfileId({ item, hotelId, allowDefault: true });
                     if (profileId && !String(form.profileId || '').trim()) {
                         form.profileId = profileId;
@@ -13316,38 +13351,35 @@
                     if (profileId && !String(ctripCookieApiForm.value.profileId || '').trim()) {
                         ctripCookieApiForm.value.profileId = profileId;
                     }
-                    const sectionSource = Array.isArray(form.sections) ? form.sections : String(form.sections || 'default').split(/[,\s]+/);
-                    const sections = sectionSource.map(item => String(item || '').trim()).filter(Boolean);
-                    return {
-                        system_hotel_id: hotelId,
-                        data_source_id: dataSourceId || undefined,
-                        profile_id: profileId,
-                        hotel_id: hotelIdValue,
-                        hotel_name: getHotelNameById(hotelId),
-                        sections: sections.length ? sections : ['default'],
-                        bind_data_source: true,
-                        sync_after_login: syncAfterLogin || undefined,
-                        data_date: loginTargetDate || undefined,
-                        data_period: 'historical_daily',
+                    platformData = {
+                        profileId,
+                        hotelId: firstNonEmptyText(form.hotelId, binding.ctrip_hotel_id, binding.hotel_id, ctripOverviewForm.value.hotelId),
+                        sections: form.sections,
+                    };
+                } else {
+                    const storeId = String(meituanBrowserCaptureForm.value.storeId
+                        || meituanBrowserCaptureForm.value.poiId
+                        || (dataSourceId ? '' : meituanForm.value.poiId)
+                        || '').trim();
+                    platformData = {
+                        storeId,
+                        poiId: meituanBrowserCaptureForm.value.poiId,
+                        poiName: meituanBrowserCaptureForm.value.poiName,
+                        partnerId: meituanForm.value.partnerId,
+                        adsUrl: meituanBrowserCaptureForm.value.adsUrl,
+                        sections: meituanBrowserCaptureForm.value.captureSections,
                     };
                 }
-
-                const sections = normalizeMeituanCaptureSections(meituanBrowserCaptureForm.value.captureSections);
-                const storeId = String(meituanBrowserCaptureForm.value.storeId || meituanBrowserCaptureForm.value.poiId || (dataSourceId ? '' : meituanForm.value.poiId) || '').trim();
-                return {
-                    system_hotel_id: hotelId,
-                    data_source_id: dataSourceId || undefined,
-                    store_id: storeId,
-                    poi_id: meituanBrowserCaptureForm.value.poiId || storeId,
-                    poi_name: meituanBrowserCaptureForm.value.poiName || getHotelNameById(hotelId),
-                    partner_id: meituanForm.value.partnerId || '',
-                    ads_url: sections.includes('ads') ? (meituanBrowserCaptureForm.value.adsUrl || '') : '',
-                    sections,
-                    bind_data_source: true,
-                    sync_after_login: syncAfterLogin || undefined,
-                    data_date: loginTargetDate || undefined,
-                    data_period: 'historical_daily',
-                };
+                return window.SUXI_OTA.buildPlatformProfileLoginPayload({
+                    platform,
+                    systemHotelId: hotelId,
+                    hotelName: getHotelNameById(hotelId),
+                    item,
+                    options,
+                    businessDate: ctripCompetitiveLocalDate(0),
+                    platformData,
+                    normalizeMeituanSections: normalizeMeituanCaptureSections,
+                });
             };
 
             const pollPlatformProfileLoginStatus = async (platform, taskId) => {
@@ -13442,7 +13474,7 @@
                 if (item) {
                     fillPlatformProfileForms(item);
                 }
-                const payload = buildPlatformProfileLoginPayload(platform, item);
+                const payload = buildPlatformProfileLoginPayload(platform, item, options);
                 if (!payload) {
                     showToast('请先选择酒店', 'error');
                     return;
@@ -15574,6 +15606,7 @@
                 if (!isCompassDataPage(landingPage)) return Promise.resolve();
                 homeSecondaryPanelsReady.value = false;
                 scheduleHomeSecondaryPanelsReady();
+                scheduleDualOtaWorkbenchAutoFetch();
                 scheduleDualOtaSystemMetricDrilldownHydration();
                 const requestPolicy = currentCompassReadPolicy(landingPage, 'current');
                 return runPageLoadOnce(
@@ -16097,6 +16130,7 @@
                 if (isCompassDataPage(newPage)) {
                     homeSecondaryPanelsReady.value = false;
                     scheduleHomeSecondaryPanelsReady();
+                    scheduleDualOtaWorkbenchAutoFetch();
                     scheduleDualOtaSystemMetricDrilldownHydration();
                     const requestPolicy = currentCompassReadPolicy(newPage, 'current');
                     runPageLoadOnce(
@@ -34395,7 +34429,8 @@
             };
 
             const getBrowserProfileDataSourceByHotelAndPlatform = (hotelId, platform) => {
-                return browserProfileDataSourcesByHotelAndPlatform(hotelId, platform)[0] || null;
+                const sources = browserProfileDataSourcesByHotelAndPlatform(hotelId, platform);
+                return window.SUXI_OTA.preferredBrowserProfileDataSource(sources);
             };
 
             const isMeituanAdsNotApplicableForHotel = (hotelId) => {
@@ -35769,7 +35804,9 @@
                 if (platform === 'ctrip') {
                     ctripBrowserCaptureForm.value.profileId = binding.profile_id || defaultCtripBrowserProfileId(hotelId);
                     ctripBrowserCaptureForm.value.hotelId = binding.ctrip_hotel_id || binding.hotel_id || '';
-                    await triggerPlatformProfileLogin('ctrip', loginItem);
+                    await triggerPlatformProfileLogin('ctrip', loginItem, {
+                        captureSections: 'business_overview,traffic_report',
+                    });
                     return;
                 }
                 if (platform === 'meituan') {
@@ -35784,7 +35821,9 @@
                         meituanBrowserCaptureForm.value.storeId = storeId;
                         meituanBrowserCaptureForm.value.poiId = poiId || (dataSourceId ? '' : meituanBrowserCaptureForm.value.poiId || '');
                         meituanBrowserCaptureForm.value.poiName = binding.poi_name || hotel?.name || '';
-                        await triggerPlatformProfileLogin('meituan', loginItem);
+                        await triggerPlatformProfileLogin('meituan', loginItem, {
+                            captureSections: 'traffic,orders',
+                        });
                         return;
                     }
                     openHotelModal(hotel, { expandOta: true });
@@ -50205,6 +50244,7 @@
                 run = (async () => {
                     try {
                         const res = await request('/online-data/get-ctrip-config-list', {
+                            withBusinessContext: false,
                             requestPolicy,
                         });
                         if (!isCurrentRequest()) return [];
@@ -50761,6 +50801,7 @@
                 run = (async () => {
                     try {
                         const res = await request('/online-data/get-meituan-config-list', {
+                            withBusinessContext: false,
                             requestPolicy,
                         });
                         if (!isCurrentRequest()) return [];
@@ -51574,6 +51615,22 @@
                 }, 60000);
             };
 
+            const ctripDownloadRows = () => buildCtripDownloadRowsStatic({
+                tab: ctripTableTab.value,
+                rows: pagedCtripSortedHotelsList.value,
+                rankOffset: ctripTableRankOffset.value,
+                ctripTrafficChannelColumns,
+                ctripSalesOrderColumns,
+                helpers: {
+                    hasDisplayValue,
+                    formatOptionalNumber,
+                    ctripTrafficChannelText,
+                    ctripTrafficChannelSecondaryText,
+                    ctripEarlyMorningTrafficText,
+                    ctripRankEligibilityText,
+                },
+            });
+
             const buildCtripBusinessCanvas = () => {
                 const visibleSnapshot = captureCtripBusinessDownloadSnapshot({
                     root: document.querySelector('[data-download-target="ctrip-business"]'),
@@ -51581,7 +51638,7 @@
                 });
                 return buildCtripBusinessCanvasStatic({
                     cards: visibleSnapshot.cards,
-                    table: visibleSnapshot.table,
+                    table: ctripDownloadRows(),
                     sourceNotice: visibleSnapshot.sourceNotice,
                     latestMeta: ctripLatestMeta.value,
                     createCanvas: () => document.createElement('canvas'),
@@ -55017,6 +55074,7 @@
             });
 
             return {
+                ctripRankEligibilityText,
                 hotelAutomationLifecycleSummary,
                 hotelBusinessProfileEditor,
                 ctripScenarioHotelsList,
@@ -55432,7 +55490,7 @@
         },
     };
     let suxiApp = null;
-    const renderSuxiStartupError = (error) => {
+    const renderSuxiStartupError = (error, { retry = null } = {}) => {
         const appRoot = document.getElementById('app');
         if (!appRoot) return;
         if (appRoot.dataset.startupErrorRendered === '1') return;
@@ -55440,8 +55498,27 @@
         const stack = String(error?.stack || '').split('\n').slice(0, 8).join('\n');
         const message = [String(error?.message || error || 'unknown startup error'), stack].filter(Boolean).join('\n')
             .replace(/[<>&"']/g, (char) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;', "'": '&#39;' }[char]));
-        appRoot.innerHTML = `<div class="min-h-screen flex items-center justify-center bg-slate-50 px-4"><div class="max-w-xl w-full bg-white border border-red-100 rounded-lg shadow-sm p-6"><div class="text-lg font-semibold text-red-700 mb-2">项目启动失败</div><div class="text-sm text-gray-600 mb-4">前端初始化被异常中断，请刷新页面；如果仍失败，请保留下面错误信息。</div><pre class="text-xs whitespace-pre-wrap break-words bg-red-50 text-red-700 border border-red-100 rounded p-3">${message}</pre></div></div>
-        `;
+        const canRetry = typeof retry === 'function';
+        const retryMarkup = canRetry
+            ? '<div class="mt-4 flex items-center gap-3"><button type="button" class="rounded bg-slate-900 px-4 py-2 text-white">重试完整资源</button><span class="text-sm text-slate-600">完整资源加载失败，可在当前页面重试。</span></div>'
+            : '';
+        const helpText = canRetry
+            ? '前端初始化被异常中断，可重试完整资源。'
+            : '前端初始化被异常中断，请刷新页面；如果仍失败，请保留下面错误信息。';
+        appRoot.innerHTML = `<div class="min-h-screen flex items-center justify-center bg-slate-50 px-4"><div class="max-w-xl w-full bg-white border border-red-100 rounded-lg shadow-sm p-6"><div class="text-lg font-semibold text-red-700 mb-2">项目启动失败</div><div class="text-sm text-gray-600 mb-4">${helpText}</div><pre class="text-xs whitespace-pre-wrap break-words bg-red-50 text-red-700 border border-red-100 rounded p-3">${message}</pre>${retryMarkup}</div></div>`;
+        if (!canRetry) return;
+        const retryButton = appRoot.querySelector('button');
+        retryButton.addEventListener('click', async () => {
+            if (retryButton.disabled) return;
+            retryButton.disabled = true;
+            retryButton.nextElementSibling.textContent = '正在重新加载...';
+            delete appRoot.dataset.startupErrorRendered;
+            try {
+                await retry();
+            } finally {
+                if (retryButton.isConnected) retryButton.disabled = false;
+            }
+        });
     };
     let suxiFatalErrorQueued = false;
     const scheduleSuxiStartupError = (error) => {
@@ -55558,6 +55635,7 @@
     requestSuxiFullRenderForPage = (page) => {
         const normalizedPage = String(page || '').trim();
         if (!normalizedPage
+            || normalizedPage === 'compass'
             || document.documentElement.dataset.suxiRenderPhase === 'full') {
             return false;
         }
@@ -55574,6 +55652,15 @@
         }
         return true;
     };
+    const clearSuxiFullRenderAttempt = () => {
+        window.removeEventListener('suxi:full-render-ready', handleSuxiFullRenderReady);
+        window.removeEventListener('suxi:full-render-error', handleSuxiFullRenderError);
+    };
+    const bindSuxiFullRenderAttempt = () => {
+        clearSuxiFullRenderAttempt();
+        window.addEventListener('suxi:full-render-ready', handleSuxiFullRenderReady);
+        window.addEventListener('suxi:full-render-error', handleSuxiFullRenderError);
+    };
     const failSuxiFullRender = (asset, message) => {
         delete document.documentElement.dataset.suxiFullRenderReady;
         document.documentElement.dataset.suxiAuthenticatedInteractiveError = `${asset}: ${message}`;
@@ -55582,9 +55669,11 @@
         } catch (error) {
             console.error('[SUXIOS] Failed to unmount after deferred render error:', error);
         }
-        renderSuxiStartupError(new Error(`${asset}: ${message}`));
+        suxiApp = null;
+        renderSuxiStartupError(new Error(`${asset}: ${message}`), { retry: retrySuxiFullRender });
     };
     const handleSuxiFullRenderReady = () => {
+        clearSuxiFullRenderAttempt();
         if (!fullRenderRuntimeReady()) {
             failSuxiFullRender(
                 'app-deferred-helpers.min.js',
@@ -55592,16 +55681,38 @@
             );
             return;
         }
+        delete document.documentElement.dataset.suxiAuthenticatedInteractiveError;
+        const appRoot = document.getElementById('app');
+        if (appRoot) delete appRoot.dataset.startupErrorRendered;
         publishDataHealthStaticReady();
         if (pendingFullRenderPage) requestSuxiFullRenderForPage(pendingFullRenderPage);
     };
     const handleSuxiFullRenderError = (event) => {
+        clearSuxiFullRenderAttempt();
         const asset = String(event?.detail?.asset || 'app-render.min.js');
         const message = String(event?.detail?.message || '完整页面资源加载失败');
         failSuxiFullRender(asset, message);
     };
-    window.addEventListener('suxi:full-render-ready', handleSuxiFullRenderReady, { once: true });
-    window.addEventListener('suxi:full-render-error', handleSuxiFullRenderError, { once: true });
+    const retrySuxiFullRender = async () => {
+        delete document.documentElement.dataset.suxiAuthenticatedInteractiveError;
+        delete document.documentElement.dataset.suxiFullRenderReady;
+        bindSuxiFullRenderAttempt();
+        try {
+            await window.SUXI_LOAD_DEFERRED_AUTHENTICATED_ASSETS?.();
+            if (!fullRenderRuntimeReady()) {
+                throw new Error('完整页面资源重试完成，但运行时仍不完整');
+            }
+        } catch (error) {
+            if (!document.documentElement.dataset.suxiAuthenticatedInteractiveError) {
+                clearSuxiFullRenderAttempt();
+                failSuxiFullRender('deferred-authenticated-manifest', error?.message || String(error));
+            }
+        }
+    };
+    bindSuxiFullRenderAttempt();
     document.documentElement.dataset.suxiRenderPhase = 'startup';
     mountSuxiApp();
-    if (fullRenderRuntimeReady()) handleSuxiFullRenderReady();
+    if (fullRenderRuntimeReady()) {
+        clearSuxiFullRenderAttempt();
+        handleSuxiFullRenderReady();
+    }

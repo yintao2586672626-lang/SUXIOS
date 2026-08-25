@@ -15,8 +15,10 @@ window.SUXI_MEITUAN_STATIC = (() => {
     }[field] || field);
 
     const meituanSortMetricValue = (row, field) => {
-        const value = Number(row?.[field] || 0);
-        return Number.isFinite(value) ? value : 0;
+        const rawValue = row?.[field];
+        if (rawValue === null || rawValue === undefined || rawValue === '') return null;
+        const value = Number(rawValue);
+        return Number.isFinite(value) ? value : null;
     };
 
     const formatMeituanSortGapValue = (value, field) => {
@@ -42,8 +44,8 @@ window.SUXI_MEITUAN_STATIC = (() => {
             positionText: row?.circlePositionText || '',
             rankTrendText: row?.rankTrendText || '',
             platformTagText: row?.platformTagText || '',
-            roomNights: row?.roomNights || 0,
-            sales: row?.sales || 0,
+            roomNights: row?.roomNights ?? null,
+            sales: row?.sales ?? null,
             gapToNextText: row?.gapToNextText || '',
         }));
     };
@@ -333,6 +335,9 @@ window.SUXI_MEITUAN_STATIC = (() => {
         return [...sourceRows].sort((a, b) => {
             const aVal = meituanSortMetricValue(a, sortField);
             const bVal = meituanSortMetricValue(b, sortField);
+            if (aVal === null && bVal === null) return 0;
+            if (aVal === null) return 1;
+            if (bVal === null) return -1;
             return ascending ? aVal - bVal : bVal - aVal;
         });
     };
@@ -4581,9 +4586,10 @@ window.SUXI_MEITUAN_STATIC = (() => {
         const metricLabel = meituanDisplayMetricLabel(field);
         const ranked = sourceRows
             .map((row, index) => ({ row, index, value: meituanSortMetricValue(row, field) }))
+            .filter(item => item.value !== null)
             .sort((a, b) => b.value - a.value || a.index - b.index);
         const total = ranked.length;
-        const leaderValue = ranked[0]?.value || 0;
+        const leaderValue = ranked[0]?.value ?? null;
         const rowMap = new Map();
         ranked.forEach((item, rankIndex) => {
             const prev = ranked[rankIndex - 1] || null;
@@ -4615,7 +4621,20 @@ window.SUXI_MEITUAN_STATIC = (() => {
             };
             rowMap.set(meituanDisplayRowKey(item.row, item.index), row);
         });
-        return sourceRows.map((row, index) => rowMap.get(meituanDisplayRowKey(row, index)) || row);
+        return sourceRows.map((row, index) => rowMap.get(meituanDisplayRowKey(row, index)) || {
+            ...row,
+            currentPlatformRank: null,
+            circlePositionText: '指标未取得',
+            gapMetric: field,
+            gapMetricLabel: metricLabel,
+            gapToPrev: null,
+            gapToNext: null,
+            gapToLeader: null,
+            gapToPrevText: '指标未取得',
+            gapToNextText: '指标未取得',
+            gapToLeaderText: '指标未取得',
+            rankGapSummaryText: ['指标未取得', row?.rank30RangeText || '近30天未返回'].join(' / '),
+        });
     };
 
     const buildCompetitorSummaryCoreCards = ({

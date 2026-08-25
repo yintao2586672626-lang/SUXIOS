@@ -126,6 +126,122 @@ final class RevenueCockpitApprovalServiceTest extends TestCase
         );
     }
 
+    public function testApprovalPreservesSelectedMeituanCloudPmsEvidenceIdentity(): void
+    {
+        $overview = $this->overview();
+        $factLayer =& $overview['three_source_fact_layer'];
+        $pms = $factLayer['sources']['dingdandao_pms'];
+        unset($factLayer['sources']['dingdandao_pms']);
+        $pms['source']['table'] = 'meituan_cloud_pms_captures';
+        $pms['source']['provider'] = 'meituan_cloud_pms';
+        $factLayer['sources']['meituan_cloud_pms'] = $pms;
+        $factLayer['pms_binding'] = [
+            'binding_status' => 'configured',
+            'effective_provider' => 'meituan_cloud_pms',
+        ];
+        $capturedRefs = [];
+        $service = new RevenueCockpitApprovalService(
+            static function (
+                int $tenantId,
+                int $hotelId,
+                string $businessDate,
+                int $actorId,
+                array $refs
+            ) use (&$capturedRefs): array {
+                $capturedRefs = $refs;
+                return [
+                    'status' => 'pending_approval',
+                    'execution_intent' => [
+                        'id' => 92,
+                        'status' => 'pending_approval',
+                        'tasks' => [],
+                    ],
+                    'persistence_status' => 'readback_verified',
+                    'execution_task_created' => false,
+                    'execution_task_count' => 0,
+                    'external_action_triggered' => false,
+                    'reused_existing_intent' => false,
+                ];
+            }
+        );
+
+        $result = $service->createFromOverview(
+            $overview,
+            10,
+            20,
+            '2026-08-20',
+            'all_ota',
+            7
+        );
+
+        self::assertSame('pending_approval', $result['status']);
+        self::assertSame(5, $result['cockpit_scope']['evidence_ref_count']);
+        self::assertSame('meituan_cloud_pms', $capturedRefs[4]['platform']);
+        self::assertSame(
+            'meituan_cloud_pms_captures',
+            $capturedRefs[4]['table']
+        );
+        self::assertNotContains(
+            'dingdandao_pms',
+            array_column($capturedRefs, 'platform')
+        );
+    }
+
+    public function testApprovalDropsPmsEvidenceWhenItsScopeOrProviderIdentityMismatches(): void
+    {
+        $variants = [
+            'cross_tenant' => ['tenant_id', 99],
+            'cross_hotel' => ['system_hotel_id', 99],
+            'wrong_provider' => ['provider', 'meituan_cloud_pms'],
+        ];
+        foreach ($variants as $case => [$field, $value]) {
+            $overview = $this->overview();
+            $overview['three_source_fact_layer']['sources']['dingdandao_pms']
+                ['source'][$field] = $value;
+            $capturedRefs = [];
+            $service = new RevenueCockpitApprovalService(
+                static function (
+                    int $tenantId,
+                    int $hotelId,
+                    string $businessDate,
+                    int $actorId,
+                    array $refs
+                ) use (&$capturedRefs): array {
+                    $capturedRefs = $refs;
+                    return [
+                        'status' => 'pending_approval',
+                        'execution_intent' => [
+                            'id' => 93,
+                            'status' => 'pending_approval',
+                            'tasks' => [],
+                        ],
+                        'persistence_status' => 'readback_verified',
+                        'execution_task_created' => false,
+                        'execution_task_count' => 0,
+                        'external_action_triggered' => false,
+                        'reused_existing_intent' => false,
+                    ];
+                }
+            );
+
+            $result = $service->createFromOverview(
+                $overview,
+                10,
+                20,
+                '2026-08-20',
+                'all_ota',
+                7
+            );
+
+            self::assertSame(4, $result['cockpit_scope']['evidence_ref_count'], $case);
+            self::assertNotContains(
+                'dingdandao_pms',
+                array_column($capturedRefs, 'platform'),
+                $case
+            );
+        }
+    }
+
     public function testApprovalUsesMetricStrictRowsWhenTheSourceSummaryRowIsDifferent(): void
     {
         $overview = $this->overview();
@@ -598,6 +714,8 @@ final class RevenueCockpitApprovalServiceTest extends TestCase
                             'table' => 'dingdandao_operating_target_captures',
                             'data_date' => '2026-08-20',
                             'record_id' => 301,
+                            'tenant_id' => 10,
+                            'system_hotel_id' => 20,
                             'readback_status' => 'readback_verified',
                         ],
                     ],

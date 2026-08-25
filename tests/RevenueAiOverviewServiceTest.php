@@ -1855,6 +1855,63 @@ final class RevenueAiOverviewServiceTest extends TestCase
         self::assertSame('ok', $gates['revpar_denominator']['status']);
         self::assertSame('blocked', $gates['floor_price']['status']);
         self::assertSame('floor_price_missing', $gates['floor_price']['reason']);
+
+        $meituanFactLayer = $factLayer;
+        $meituanFactLayer['pms_binding'] = [
+            'binding_status' => 'configured',
+            'effective_provider' => 'meituan_cloud_pms',
+        ];
+        unset($meituanFactLayer['sources']['dingdandao_pms']);
+        $meituanFactLayer['sources']['meituan_cloud_pms'] = [
+            'data_status' => 'readback_verified',
+        ];
+        foreach ($meituanFactLayer['analysis_metrics'] as &$factMetric) {
+            $factMetric['source_channels'] = array_map(
+                static fn(string $source): string => $source === 'dingdandao_pms'
+                    ? 'meituan_cloud_pms'
+                    : $source,
+                $factMetric['source_channels']
+            );
+            $factMetric['truth']['platforms'] = $factMetric['source_channels'];
+        }
+        unset($factMetric);
+        $meituanOverview = (new RevenueAiOverviewService())
+            ->buildOverviewFromDataset(
+                $this->dataset([
+                    $this->dailyFact('ctrip', 2168.0, 5, null, ['date_key' => '2026-07-30', 'hotel_key' => 'system:80']),
+                    $this->dailyFact('meituan', 1032.39, 1, null, ['date_key' => '2026-07-30', 'hotel_key' => 'system:80']),
+                ]),
+                [
+                    'ctrip' => $this->dataset([$this->dailyFact('ctrip', 2168.0, 5, null, ['date_key' => '2026-07-30', 'hotel_key' => 'system:80'])]),
+                    'meituan' => $this->dataset([$this->dailyFact('meituan', 1032.39, 1, null, ['date_key' => '2026-07-30', 'hotel_key' => 'system:80'])]),
+                ],
+                [
+                    'ctrip' => ['status' => 'ready'],
+                    'meituan' => ['status' => 'ready'],
+                ],
+                [
+                    'business_date' => '2026-07-30',
+                    'hotel_id' => 80,
+                    'revenue_fact_layer' => $meituanFactLayer,
+                ]
+            );
+
+        self::assertSame(
+            ['meituan_cloud_pms', 'ctrip', 'meituan'],
+            $meituanOverview['source_channels']
+        );
+        self::assertTrue(
+            $meituanOverview['metrics']['ota_contribution_revpar']
+                ['whole_hotel_denominator_verified']
+        );
+        self::assertSame(
+            'ok',
+            array_column(
+                $meituanOverview['pricing_readiness']['gates'],
+                null,
+                'key'
+            )['revpar_denominator']['status']
+        );
     }
 
     /**

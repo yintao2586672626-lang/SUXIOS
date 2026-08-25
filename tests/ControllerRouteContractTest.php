@@ -97,6 +97,48 @@ final class ControllerRouteContractTest extends TestCase
             $source,
             'Revenue AI must expose an approved suggestion execution-intent route'
         );
+        self::assertStringContainsString(
+            "Route::post('/price-suggestions/:id/approve', 'RevenueAi/reviewPriceSuggestion')",
+            $source,
+            'The legacy approve URL must pass through the Revenue AI trusted-input review gate'
+        );
+        self::assertStringNotContainsString(
+            "Route::post('/price-suggestions/:id/approve', 'Agent/approvePrice')",
+            $source,
+            'The legacy approve URL must not retain the direct Agent status mutation path'
+        );
+    }
+
+    public function testRevenueBundleDashboardUsesTheRequestedBusinessDate(): void
+    {
+        $source = $this->sourceWithoutPhpComments(__DIR__ . '/../app/controller/Agent.php');
+
+        self::assertStringContainsString(
+            "'dashboard' => \$this->buildRevenueDashboardPayload(\$hotelId, \$businessDate)",
+            $source
+        );
+        self::assertStringContainsString(
+            "->where('suggestion_date', \$businessDate)",
+            $source
+        );
+        self::assertStringContainsString(
+            "hotelPricingModelSummary(\$hotelId, \$businessDate)",
+            $source
+        );
+        self::assertSame(
+            3,
+            substr_count(
+                $source,
+                "param('business_date', \$this->defaultRevenueBusinessDate())"
+            ),
+            'Bundle, standalone analysis, and standalone dashboard must share the Revenue AI complete-day default'
+        );
+        self::assertStringContainsString("return date('Y-m-d', strtotime('-1 day'));", $source);
+        self::assertStringNotContainsString(
+            '(new RevenueAiOverviewService())->buildOverviewFromDataset([], [], [], [])',
+            $source,
+            'Reading a default business date must not build a complete Revenue AI overview'
+        );
     }
 
     public function testOperationExecutionResourcesExposeHotelScopedReadRoutesBeforeCollection(): void

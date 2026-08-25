@@ -418,6 +418,8 @@ class RevenueAiOverviewService
         $revenueFactLayer = is_array($context['revenue_fact_layer'] ?? null)
             ? $context['revenue_fact_layer']
             : [];
+        $pmsFactSelection = $revenueFactLayer === [] ? []
+            : (new RevenuePmsFactSelectorService())->select($revenueFactLayer);
         $signals = $this->signals($metricsSummary, $actualScopedSourceChannels, $marketSignals, $businessDate, $hotelId);
         $reviewQueue = is_array($context['review_queue'] ?? null)
             ? $context['review_queue']
@@ -612,9 +614,9 @@ class RevenueAiOverviewService
                 : 'Phase 1A 使用 online_daily_data.data_date；尚未等同于入住日 stay_date、下单日 booking_date 或结算日 settlement_date。',
             'business_date' => $businessDate,
             'hotel_id' => $hotelId,
-            'source_channels' => $revenueFactLayer !== []
-                ? ['dingdandao_pms', 'ctrip', 'meituan']
-                : $displaySourceChannels,
+            'source_channels' => $revenueFactLayer === []
+                ? $displaySourceChannels
+                : [(string)$pmsFactSelection['source_key'], 'ctrip', 'meituan'],
             'actual_source_channels' => $actualScopedSourceChannels,
             'source_channel_policy' => 'source_channels follows requested OTA scope; actual_source_channels contains channels with target-scope facts.',
             'last_success_at' => $lastSuccessAt,
@@ -1755,6 +1757,7 @@ class RevenueAiOverviewService
         $rows = is_array($factLayer['analysis_metrics'] ?? null)
             ? $factLayer['analysis_metrics']
             : [];
+        $pmsFactSelection = (new RevenuePmsFactSelectorService())->select($factLayer);
         $metrics = [];
         foreach ($rows as $key => $row) {
             if (!is_array($row)) {
@@ -1827,10 +1830,8 @@ class RevenueAiOverviewService
             ];
             if ($context['scope'] === 'cross_source_comparison') {
                 $context['denominator_scope'] = 'whole_hotel_accommodation';
-                $context['whole_hotel_denominator_verified'] = (
-                    $factLayer['sources']['dingdandao_pms']['data_status']
-                    ?? ''
-                ) === 'readback_verified';
+                $context['whole_hotel_denominator_verified'] =
+                    $pmsFactSelection['data_status'] === 'readback_verified';
             }
             $metrics[(string)$key] = $this->metric(
                 (string)($row['key'] ?? $key),
@@ -5570,10 +5571,9 @@ class RevenueAiOverviewService
         $wholeHotelSellableRoomNights = $this->numeric(
             $wholeHotelFacts['sellable_room_nights'] ?? null
         );
-        $wholeHotelDenominatorReady = (
-            $revenueFactLayer['sources']['dingdandao_pms']['data_status']
-            ?? ''
-        ) === 'readback_verified'
+        $pmsFactSelection = (new RevenuePmsFactSelectorService())->select($revenueFactLayer);
+        $wholeHotelDenominatorReady =
+            $pmsFactSelection['data_status'] === 'readback_verified'
             && $wholeHotelSellableRoomNights !== null
             && $wholeHotelSellableRoomNights > 0;
         $otaAvailableRoomNights = $this->numeric(

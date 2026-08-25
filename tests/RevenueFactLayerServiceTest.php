@@ -5,6 +5,7 @@ namespace Tests;
 
 use app\service\CollectionResultContractService;
 use app\service\DingdandaoOperatingTargetCaptureService;
+use app\service\MeituanCloudPmsCaptureService;
 use app\service\RevenueFactLayerService;
 use PHPUnit\Framework\TestCase;
 
@@ -339,6 +340,17 @@ final class RevenueFactLayerServiceTest extends TestCase
         ))->build(80, '2026-07-30');
 
         self::assertSame('blocked_scope', $layer['date_alignment']['status']);
+        self::assertSame('none', $layer['pms_binding']['effective_provider']);
+        self::assertContains('pms', $layer['date_alignment']['missing_sources']);
+        self::assertNotContains(
+            'dingdandao_pms',
+            $layer['date_alignment']['missing_sources']
+        );
+        self::assertSame('blocked', $layer['source_completeness']['pms']);
+        self::assertArrayNotHasKey(
+            'dingdandao_pms',
+            $layer['source_completeness']
+        );
         self::assertSame('blocked', $layer['reconciliation']['status']);
         self::assertSame(
             ['system_hotel_scope_unavailable'],
@@ -346,9 +358,108 @@ final class RevenueFactLayerServiceTest extends TestCase
         );
         self::assertArrayHasKey('analysis_diagnostics', $layer);
         self::assertSame(
+            'pms',
+            $layer['analysis_diagnostics']['source_checks'][0]['source']
+        );
+        self::assertSame(
             'system_hotel_scope_unavailable',
             $layer['unique_remaining_gap']['code']
         );
+    }
+
+    public function testBuildUsesSelectedMeituanCloudPmsCaptureAndPreservesSourceIdentity(): void
+    {
+        $provider = MeituanCloudPmsCaptureService::PROVIDER;
+        $requestedProvider = null;
+        $layer = $this->buildWithPmsBinding(
+            static fn(int $hotelId): array => [
+                'binding_status' => 'configured',
+                'selected_provider' => $provider,
+                'selected_provider_label' => '美团云 PMS',
+            ],
+            $this->meituanCloudPmsCapture(),
+            $requestedProvider
+        );
+        $pms = $layer['sources'][$provider];
+        $dateSource = $layer['date_alignment']['sources'][$provider];
+
+        self::assertSame($provider, $requestedProvider);
+        self::assertSame($provider, $layer['pms_binding']['effective_provider']);
+        self::assertFalse($layer['pms_binding']['compatibility_fallback']);
+        self::assertArrayNotHasKey(DingdandaoOperatingTargetCaptureService::PROVIDER, $layer['sources']);
+        self::assertSame('readback_verified', $layer['source_completeness'][$provider]);
+        self::assertSame([$provider, 'meituan_cloud_pms_captures'], [$pms['source']['provider'], $pms['source']['table']]);
+        self::assertSame([$provider, 'meituan_cloud_pms_captures'], [$dateSource['nearest_saved_evidence']['provider'], $dateSource['nearest_saved_evidence']['source_table']]);
+        self::assertSame('2026-07-30', $dateSource['observed_date']);
+        self::assertSame(7200.0, $layer['facts']['whole_hotel_accommodation']['room_revenue']);
+        self::assertSame([$provider], $layer['analysis_metrics']['whole_hotel_room_revenue']['source_channels']);
+        self::assertSame([$provider], $layer['analysis_metrics']['whole_hotel_room_revenue']['truth']['platforms']);
+        self::assertSame(
+            '全酒店预计住宿房费',
+            $layer['analysis_metrics']['whole_hotel_room_revenue']['label']
+        );
+        self::assertSame(
+            'ota_room_revenue / pms_estimated_accommodation_room_fee * 100',
+            $layer['derived_metrics']['ota_room_revenue_share_percent']['formula']
+        );
+        self::assertStringContainsString(
+            'PMS预计住宿房费',
+            $layer['derived_metrics']['ota_room_revenue_share_percent']['note']
+        );
+        self::assertStringContainsString(
+            'PMS当前只验证预计住宿房费',
+            $this->reconciliationCheck($layer, 'payment_caliber')['detail']
+        );
+    }
+
+    public function testBuildExplicitlyFallsBackToLegacyDingdandaoWhenPmsIsUnconfigured(): void
+    {
+        $requestedProvider = null;
+        $layer = $this->buildWithPmsBinding(
+            static fn(int $hotelId): array => [
+                'binding_status' => 'unconfigured',
+                'selected_provider' => null,
+                'selected_provider_label' => '未配置 PMS',
+            ],
+            $this->pmsCapture(),
+            $requestedProvider
+        );
+        $binding = $layer['pms_binding'];
+        $pms = $layer['sources'][DingdandaoOperatingTargetCaptureService::PROVIDER];
+
+        self::assertSame(DingdandaoOperatingTargetCaptureService::PROVIDER, $requestedProvider);
+        self::assertSame(['unconfigured', null, DingdandaoOperatingTargetCaptureService::PROVIDER], [$binding['binding_status'], $binding['selected_provider'], $binding['effective_provider']]);
+        self::assertSame('legacy_dingdandao_fallback', $binding['resolution']);
+        self::assertTrue($binding['compatibility_fallback']);
+        self::assertSame('legacy_dingdandao_fallback', $binding['query_scope']['binding_resolution']);
+        self::assertTrue($pms['source']['compatibility_fallback']);
+    }
+
+    public function testPmsBindingReadFailureAndConflictDoNotFallBackToDingdandao(): void
+    {
+        $requestedProvider = null;
+        $layer = $this->buildWithPmsBinding(
+            static fn(int $hotelId): never => throw new \RuntimeException('read failed'),
+            $this->pmsCapture(),
+            $requestedProvider
+        );
+
+        self::assertNull($requestedProvider);
+        self::assertSame('read_failed', $layer['pms_binding']['binding_status']);
+        self::assertFalse($layer['pms_binding']['compatibility_fallback']);
+        self::assertFalse($layer['pms_binding']['query_allowed']);
+        self::assertSame('read_failed', $layer['sources']['pms']['data_status']);
+        self::assertSame('hotel_pms_binding_read_failed', $layer['sources']['pms']['source']['collection_claim_reason_codes'][0]);
+
+        $conflictProvider = null;
+        $conflict = $this->buildWithPmsBinding(
+            static fn(int $hotelId): array => ['binding_status' => 'conflict'],
+            $this->pmsCapture(),
+            $conflictProvider
+        );
+        self::assertNull($conflictProvider);
+        self::assertSame('blocked', $conflict['sources']['pms']['data_status']);
+        self::assertSame('binding_conflict_blocked', $conflict['pms_binding']['resolution']);
     }
 
     public function testMissingOtaSourceStaysNullAndKeepsRevenueAnalysisPartial(): void
@@ -1132,6 +1243,30 @@ final class RevenueFactLayerServiceTest extends TestCase
     }
 
     /** @return array<string,mixed> */
+    private function buildWithPmsBinding(
+        callable $bindingLoader,
+        array $capture,
+        ?string &$requestedProvider
+    ): array {
+        $ota = $this->otaResult();
+        return (new RevenueFactLayerService(
+            fn(int $hotelId): array => $this->hotel(),
+            static function (
+                int $tenantId,
+                int $hotelId,
+                string $date,
+                string $provider
+            ) use ($capture, &$requestedProvider): array {
+                $requestedProvider = $provider;
+                return $capture;
+            },
+            static fn(int $hotelId, string $date): array => $ota,
+            static fn(int $hotelId): array => [],
+            $bindingLoader
+        ))->build(80, '2026-07-30', ['database_loader_skipped' => []]);
+    }
+
+    /** @return array<string,mixed> */
     private function pmsCapture(string $businessDate = '2026-07-30'): array
     {
         $sourceApiPath = '/api/verified';
@@ -1224,6 +1359,41 @@ final class RevenueFactLayerServiceTest extends TestCase
                 'source_trace_id' => $sourceTraceId,
             ],
         ];
+    }
+
+    /** @return array<string,mixed> */
+    private function meituanCloudPmsCapture(
+        string $businessDate = '2026-07-30'
+    ): array {
+        return array_replace($this->pmsCapture($businessDate), [
+            'id' => 17,
+            'provider' => MeituanCloudPmsCaptureService::PROVIDER,
+            'provider_label' => '美团云 PMS',
+            'provider_hotel_id' => 'MT-80',
+            'expected_hotel_name' => '敦煌漠蓝',
+            'identity_evidence_type' => 'verified_api_hotel_identity',
+            'date_evidence_type' => 'verified_api_business_date',
+            'date_status' => 'matched',
+            'source_url' => MeituanCloudPmsCaptureService::SOURCE_URL,
+            'source_scope' => MeituanCloudPmsCaptureService::SOURCE_SCOPE,
+            'capture_method' => 'same_origin_api',
+            'summary' => [
+                'estimated_room_revenue' => 7200.0,
+                'adr' => 480.0,
+                'revpar' => 240.0,
+                'sold_room_nights' => 15,
+                'total_rooms' => 30,
+                'available_rooms' => 15,
+                'room_type_available_rooms' => 15,
+                'occupancy_rate_percent' => 50.0,
+                'sale_order_count' => 15,
+            ],
+            'room_type_count' => 1,
+            'captured_at' => $businessDate . ' 10:30:00',
+            'readback_verified_at' => $businessDate . ' 10:30:01',
+            'source_fingerprint' => str_repeat('m', 64),
+            'gaps' => [],
+        ]);
     }
 
     /** @return array<string,mixed> */

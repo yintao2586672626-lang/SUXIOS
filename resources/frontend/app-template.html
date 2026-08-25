@@ -8351,11 +8351,8 @@
                                                         </td>
                                                         <td class="px-3 py-2 border text-center">{{ hotel.qunarDetailCRRank ? '第' + hotel.qunarDetailCRRank + '名' : '-' }}</td>
                                                         <td class="px-3 py-2 border text-center">
-                                                            <span v-if="hotel.commentScore &gt;= 4.5" class="px-2 py-1 bg-green-100 text-green-800 rounded text-xs">
-                                                                ✓可上榜
-                                                            </span>
-                                                            <span v-else="" class="px-2 py-1 bg-red-100 text-red-800 rounded text-xs">
-                                                                点评不足
+                                                            <span :class="['px-2 py-1 rounded text-xs', ctripRankEligibilityText(hotel.commentScore) === '✓可上榜' ? 'bg-green-100 text-green-800' : (ctripRankEligibilityText(hotel.commentScore) === '点评不足' ? 'bg-red-100 text-red-800' : 'bg-gray-100 text-gray-600')]">
+                                                                {{ ctripRankEligibilityText(hotel.commentScore) }}
                                                             </span>
                                                         </td>
                                                     </tr>
@@ -9721,16 +9718,21 @@
                                                         </td>
                                                         <td class="px-3 py-2 border text-center">{{ hotel.qunarDetailCRRank ? '第' + hotel.qunarDetailCRRank + '名' : '-' }}</td>
                                                         <td class="px-3 py-2 border text-center">
-                                                            <span v-if="hotel.commentScore &gt;= 4.5" class="px-2 py-1 bg-green-100 text-green-800 rounded text-xs">
-                                                                ✓可上榜
-                                                            </span>
-                                                            <span v-else="" class="px-2 py-1 bg-red-100 text-red-800 rounded text-xs">
-                                                                点评不足
+                                                            <span :class="['px-2 py-1 rounded text-xs', ctripRankEligibilityText(hotel.commentScore) === '✓可上榜' ? 'bg-green-100 text-green-800' : (ctripRankEligibilityText(hotel.commentScore) === '点评不足' ? 'bg-red-100 text-red-800' : 'bg-gray-100 text-gray-600')]">
+                                                                {{ ctripRankEligibilityText(hotel.commentScore) }}
                                                             </span>
                                                         </td>
                                                     </tr>
                                                 </tbody>
                                             </table>
+                                        </div>
+                                        <div v-if="ctripTablePagination.total &gt; ctripTablePagination.pageSize" data-testid="ctrip-fetched-pagination" class="mt-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 text-xs text-gray-500">
+                                            <span>已分页渲染，每页 {{ ctripTablePagination.pageSize }} 行，当前 {{ ctripTablePagination.start }}-{{ ctripTablePagination.end }} / {{ ctripTablePagination.total }}</span>
+                                            <div class="flex items-center gap-2">
+                                                <button @click="changeCtripTablePage(ctripTablePage - 1)" :disabled="ctripTablePage &lt;= 1" class="px-3 py-1.5 rounded-lg border border-gray-200 hover:bg-gray-50 disabled:opacity-50">上一页</button>
+                                                <span>{{ ctripTablePagination.page }} / {{ ctripTablePagination.totalPages }}</span>
+                                                <button @click="changeCtripTablePage(ctripTablePage + 1)" :disabled="ctripTablePage &gt;= ctripTablePagination.totalPages" class="px-3 py-1.5 rounded-lg border border-gray-200 hover:bg-gray-50 disabled:opacity-50">下一页</button>
+                                            </div>
                                         </div>
                                         </div>
                                     </div>
@@ -16395,7 +16397,7 @@
                                                         </div>
                                                     </div>
                                                 </div>
-                                                <div v-else="" class="rounded-lg border border-dashed border-gray-200 bg-gray-50 p-4 text-sm text-gray-500">暂无登录/Cookie 到期或失效提醒</div>
+                                                <div v-else="" class="suxi-empty-state">暂无登录/Cookie 到期或失效提醒</div>
                                             </div>
 
                                             <div data-testid="ota-data-quality-task-queue" class="rounded-xl border border-gray-200 bg-white p-4 sm:p-5 shadow-sm">
@@ -16424,7 +16426,7 @@
                                                         </div>
                                                     </div>
                                                 </div>
-                                                <div v-else="" class="rounded-lg border border-dashed border-gray-200 bg-gray-50 p-4 text-sm text-gray-500">暂无待处理数据质量任务</div>
+                                                <div v-else="" class="suxi-empty-state">暂无待处理数据质量任务</div>
                                             </div>
 
                                             <div v-if="dataHealthFullDiagnosticsLoaded" data-testid="operation-high-risk-summary" class="rounded-xl border border-gray-200 bg-white p-4 sm:p-5 shadow-sm">
@@ -16439,7 +16441,7 @@
                                                 </div>
                                                 <div v-if="dataHealthOperationLogLoading" class="rounded-lg border border-gray-200 bg-gray-50 p-4 text-sm text-gray-500">高风险动作加载中...</div>
                                                 <div v-else-if="dataHealthOperationLogError" class="rounded-lg border border-red-100 bg-red-50 p-4 text-sm text-red-700">{{ dataHealthOperationLogError }}</div>
-                                                <div v-else-if="!user?.is_super_admin" class="rounded-lg border border-dashed border-gray-200 bg-gray-50 p-4 text-sm text-gray-500">当前账号无权查看后台高风险动作摘要；未展示不代表暂无风险。</div>
+                                                <div v-else-if="!user?.is_super_admin" class="suxi-empty-state">当前账号无权查看后台高风险动作摘要；未展示不代表暂无风险。</div>
                                                 <div v-else-if="dataHealthHighRiskActionRows.length" class="space-y-2 max-h-72 overflow-y-auto">
                                                     <div v-for="row in dataHealthHighRiskActionRows" :key="`${row.id}-${row.action}`" class="rounded-lg border border-gray-200 bg-gray-50 p-3">
                                                         <div class="flex items-start justify-between gap-3">
@@ -16452,7 +16454,7 @@
                                                         </div>
                                                     </div>
                                                 </div>
-                                                <div v-else="" class="rounded-lg border border-dashed border-gray-200 bg-gray-50 p-4 text-sm text-gray-500">已加载近 7 天摘要，暂无需要重点复核的高风险动作。</div>
+                                                <div v-else="" class="suxi-empty-state">已加载近 7 天摘要，暂无需要重点复核的高风险动作。</div>
                                                 <div v-if="dataHealthOperationLogScope" class="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs leading-5 text-slate-600">
                                                     当前为摘要口径：近 {{ dataHealthOperationLogScope.scanned_count || 0 }} 条操作日志中命中 {{ dataHealthOperationLogScope.matched_count || 0 }} 条，高风险摘要最多扫描 {{ dataHealthOperationLogScope.scan_limit || 100 }} 条，不等同完整审计导出。
                                                 </div>
@@ -16475,7 +16477,7 @@
                                                 </div>
                                                 <div v-if="publicEndpointSecurityLoading" class="rounded-lg border border-gray-200 bg-gray-50 p-4 text-sm text-gray-500">公开入口安全状态加载中...</div>
                                                 <div v-else-if="publicEndpointSecurityError" class="rounded-lg border border-red-100 bg-red-50 p-4 text-sm text-red-700">{{ publicEndpointSecurityError }}</div>
-                                                <div v-else-if="!user?.is_super_admin" class="rounded-lg border border-dashed border-gray-200 bg-gray-50 p-4 text-sm text-gray-500">当前账号无权查看公开 OTA 入口安全摘要；未展示不代表暂无风险。</div>
+                                                <div v-else-if="!user?.is_super_admin" class="suxi-empty-state">当前账号无权查看公开 OTA 入口安全摘要；未展示不代表暂无风险。</div>
                                                 <div v-else-if="publicEndpointSecurityRows.length" class="space-y-3">
                                                     <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
                                                         <div class="rounded-lg border border-gray-200 bg-gray-50 p-3">
@@ -16513,7 +16515,7 @@
                                                         {{ publicEndpointSecurityEvidenceText() }}
                                                     </div>
                                                 </div>
-                                                <div v-else="" class="rounded-lg border border-dashed border-gray-200 bg-gray-50 p-4 text-sm text-gray-500">公开入口安全摘要尚未加载；请刷新数据健康页后再判断。</div>
+                                                <div v-else="" class="suxi-empty-state">公开入口安全摘要尚未加载；请刷新数据健康页后再判断。</div>
                                             </div>
 
                                             <div v-if="dataHealthFullDiagnosticsLoaded" data-testid="release-evidence-panel" class="rounded-xl border border-gray-200 bg-white p-4 sm:p-5 shadow-sm">
@@ -16528,7 +16530,7 @@
                                                 </div>
                                                 <div v-if="releaseEvidenceLoading" class="rounded-lg border border-gray-200 bg-gray-50 p-4 text-sm text-gray-500">Release 证据状态加载中...</div>
                                                 <div v-else-if="releaseEvidenceError" class="rounded-lg border border-red-100 bg-red-50 p-4 text-sm text-red-700">{{ releaseEvidenceError }}</div>
-                                                <div v-else-if="!user?.is_super_admin" class="rounded-lg border border-dashed border-gray-200 bg-gray-50 p-4 text-sm text-gray-500">当前账号无权查看 Release 证据缺口；未展示不代表 release-ready。</div>
+                                                <div v-else-if="!user?.is_super_admin" class="suxi-empty-state">当前账号无权查看 Release 证据缺口；未展示不代表 release-ready。</div>
                                                 <div v-else-if="releaseEvidenceRows.length" class="space-y-3">
                                                     <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
                                                         <div class="rounded-lg border border-gray-200 bg-gray-50 p-3">
@@ -16561,7 +16563,7 @@
                                                         Source: docs/release_readiness_status.json + docs/release_issue_register.md；最终结论仍以 npm run review:release-readiness 为准。
                                                     </div>
                                                 </div>
-                                                <div v-else="" class="rounded-lg border border-dashed border-gray-200 bg-gray-50 p-4 text-sm text-gray-500">Release 证据状态尚未加载；请刷新完整诊断后再判断。</div>
+                                                <div v-else="" class="suxi-empty-state">Release 证据状态尚未加载；请刷新完整诊断后再判断。</div>
                                             </div>
                                         </div>
 
@@ -16895,7 +16897,7 @@
                                                     <h4 class="font-semibold text-gray-900">登录/Cookie 状态</h4>
                                                     <span class="rounded-md bg-gray-100 px-2 py-1 text-xs text-gray-500">{{ collectionHealthAuthorizationRowsReadable.length }} 条</span>
                                                 </div>
-                                                <div v-if="!collectionHealthAuthorizationRowsReadable.length" class="rounded-lg border border-dashed border-gray-200 bg-gray-50 p-4 text-sm text-gray-500">暂无授权记录</div>
+                                                <div v-if="!collectionHealthAuthorizationRowsReadable.length" class="suxi-empty-state">暂无授权记录</div>
                                                 <div v-else="" class="space-y-2 max-h-64 overflow-y-auto">
                                                     <div v-for="row in collectionHealthAuthorizationRowsReadable" :key="`${row.platform}-${row.hotel_id}-${row.name}`" class="flex items-start justify-between gap-3 border-b border-gray-100 pb-2 last:border-b-0">
                                                         <div class="min-w-0">
@@ -16912,7 +16914,7 @@
                                                     <h4 class="font-semibold text-gray-900">失败原因</h4>
                                                     <span class="rounded-md bg-gray-100 px-2 py-1 text-xs text-gray-500">{{ collectionHealthFailureReasons.length }} 条</span>
                                                 </div>
-                                                <div v-if="!collectionHealthFailureReasons.length" class="rounded-lg border border-dashed border-gray-200 bg-gray-50 p-4 text-sm text-gray-500">暂无失败原因</div>
+                                                <div v-if="!collectionHealthFailureReasons.length" class="suxi-empty-state">暂无失败原因</div>
                                                 <div v-else="" class="space-y-4">
                                                     <div class="space-y-2">
                                                         <div class="text-xs font-medium text-gray-500">失败原因排行榜</div>
@@ -16943,7 +16945,7 @@
                                                     <h4 class="font-semibold text-gray-900">字段缺失 / 定义</h4>
                                                     <span class="rounded-md bg-gray-100 px-2 py-1 text-xs text-gray-500">必填字段</span>
                                                 </div>
-                                                <div v-if="!collectionHealthFieldRows.length" class="rounded-lg border border-dashed border-gray-200 bg-gray-50 p-4 text-sm text-gray-500">暂无字段定义</div>
+                                                <div v-if="!collectionHealthFieldRows.length" class="suxi-empty-state">暂无字段定义</div>
                                                 <div v-else="" class="grid grid-cols-1 md:grid-cols-2 gap-2">
                                                     <div v-for="field in collectionHealthFieldRows" :key="`${field.source}-${field.module}-${field.field}`" class="rounded-lg border border-gray-200 bg-gray-50 p-2">
                                                         <div class="flex items-start justify-between gap-2">
@@ -16977,7 +16979,7 @@
                                                         <div v-if="item.evidenceNeededText" class="text-xs text-gray-500 mt-1" :title="item.evidenceNeededRawText || item.evidenceNeededText">所需证据：{{ item.evidenceNeededText }}</div>
                                                         <div v-if="item.protectedBoundaryText" class="text-xs text-amber-700 mt-1" :title="item.protectedBoundaryRawText || item.protectedBoundaryText">边界：{{ item.protectedBoundaryText }}</div>
                                                     </div>
-                                                    <div v-if="!collectionHealthPendingActionRows.length" class="rounded-lg border border-dashed border-gray-200 bg-gray-50 p-4 text-sm text-gray-500">暂无待处理动作</div>
+                                                    <div v-if="!collectionHealthPendingActionRows.length" class="suxi-empty-state">暂无待处理动作</div>
                                                 </div>
                                             </div>
                                         </div>
@@ -17047,7 +17049,7 @@
                                                 </select>
                                             </div>
                                             <div class="flex items-end">
-                                                <button @click="refreshOnlineAnalysis" :disabled="onlineAnalysisLoading" class="w-full px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-300">
+                                                <button @click="refreshOnlineAnalysis({ force: true })" :disabled="onlineAnalysisLoading" class="w-full px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-300">
                                                     <i :class="onlineAnalysisLoading ? 'fas fa-spinner fa-spin mr-2' : 'fas fa-search mr-2'"></i>{{ onlineAnalysisLoading ? '加载中' : '查询' }}
                                                 </button>
                                             </div>

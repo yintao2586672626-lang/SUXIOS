@@ -530,6 +530,48 @@ window.SUXI_SYSTEM_STATIC = (() => {
             end: Math.min(total, startIndex + size),
         };
     };
+    const resolveBusinessRequestContext = ({
+        authContext = {},
+        overrides = {},
+        user = {},
+        selectedHotelId = '',
+        hotelPool = [],
+    } = {}) => {
+        const context = { ...(authContext || {}), ...(overrides || {}) };
+        if (String(authContext?.permissionStatus || authContext?.permission_status || '').toLowerCase() !== 'allowed') {
+            return null;
+        }
+        const explicitValue = (keys) => {
+            let present = false;
+            for (const key of keys) {
+                if (!Object.hasOwn(overrides || {}, key)) continue;
+                present = true;
+                const value = String(overrides[key] ?? '').trim();
+                if (value) return [true, value];
+            }
+            return [present, ''];
+        };
+        const [hasOverrideHotel, overrideHotel] = explicitValue(['hotelId', 'hotel_id', 'system_hotel_id']);
+        const [hasOverrideTenant, overrideTenant] = explicitValue(['tenantId', 'tenant_id']);
+        const selectedId = hasOverrideHotel ? '' : String(selectedHotelId || '').trim();
+        const selectedHotel = selectedId
+            ? (Array.isArray(hotelPool) ? hotelPool : [])
+                .find(hotel => String(hotel?.id || '').trim() === selectedId) || null
+            : null;
+        if (selectedId && !selectedHotel) return null;
+        const hotelId = hasOverrideHotel
+            ? overrideHotel
+            : (selectedHotel?.id || context.hotelId || context.hotel_id || context.system_hotel_id || user?.hotel_id || '');
+        const tenantId = hasOverrideTenant
+            ? overrideTenant
+            : (selectedHotel?.tenant_id || selectedHotel?.tenantId || context.tenantId || context.tenant_id || '');
+        const platform = String(context.platform || '').toLowerCase();
+        const payload = {};
+        if (hotelId) payload.system_hotel_id = String(hotelId);
+        if (tenantId) payload.tenant_id = String(tenantId);
+        if (['ctrip', 'meituan', 'all'].includes(platform)) payload.platform = platform;
+        return payload;
+    };
     const toNumber = (value, fallback = 0) => {
         const num = Number(value);
         return Number.isFinite(num) ? num : fallback;
@@ -2504,6 +2546,7 @@ window.SUXI_SYSTEM_STATIC = (() => {
         saveCachedAuthUser,
         clearCachedAuthUser,
         buildClientPagination,
+        resolveBusinessRequestContext,
         toNumber,
         toFixedSafe,
         safeDivide,

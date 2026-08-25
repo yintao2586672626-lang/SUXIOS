@@ -4727,7 +4727,7 @@ test('Online analysis tab reuses recent analysis and detail reads during tab ret
   assert.match(loadAnalysisData, /const cacheMs = Number\(options\?\.cacheMs \?\? ONLINE_ANALYSIS_PANEL_CACHE_TTL_MS\);/);
   assert.match(loadAnalysisData, /const cached = readOnlineAnalysisResultCache\(onlineAnalysisDataResultCache, requestKey, cacheMs\);/);
   assert.match(loadAnalysisData, /if \(onlineAnalysisDataRequestPromises\.has\(requestKey\)\) \{/);
-  assert.match(loadAnalysisData, /request\(`\/online-data\/data-analysis\?\$\{params\}`\)/);
+  assert.match(loadAnalysisData, /request\(`\/online-data\/data-analysis\?\$\{params\}`,\s*\{\s*businessContext:\s*\{\s*hotelId:\s*onlineDataFilter\.value\.hotel_id\s*\|\|\s*'',\s*tenantId:\s*'',?\s*\},?\s*\}\)/);
   assert.match(loadAnalysisData, /writeOnlineAnalysisResultCache\(onlineAnalysisDataResultCache, requestKey, data, cacheMs\);/);
   assert.match(loadOnlineAnalysisRows, /const cached = readOnlineAnalysisResultCache\(onlineAnalysisRowsResultCache, requestKey, cacheMs\);/);
   assert.match(loadOnlineAnalysisRows, /if \(onlineAnalysisRowsRequestPromises\.has\(requestKey\)\) \{/);
@@ -4740,6 +4740,7 @@ test('Online analysis tab reuses recent analysis and detail reads during tab ret
   assert.match(refreshOnlineAnalysis, /loadOnlineAnalysisRows\(loadOptions\)/);
   assert.match(scheduleOnlineDataTabLoad, /return refreshOnlineAnalysis\(options\);/);
   assert.match(clearOnlineDataReadCaches, /clearOnlineAnalysisReadCaches\(\);/);
+  assert.match(html, /@click="refreshOnlineAnalysis\(\{ force: true \}\)"/);
   assert.match(html, /@click="loadOnlineAnalysisRows\(\{ force: true \}\)"/);
 });
 

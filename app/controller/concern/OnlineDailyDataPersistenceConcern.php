@@ -85,7 +85,7 @@ trait OnlineDailyDataPersistenceConcern
         return OnlineDailyDataPersistenceService::normalizeDateTime($value);
     }
 
-    private function resolveOnlineDataSystemHotelId($input): ?int
+    private function resolveOnlineDataSystemHotelId($input, bool $required = false): ?int
     {
         if ($this->currentUser && !$this->currentUser->isSuperAdmin()) {
             $permittedHotelIds = array_values(array_map('intval', $this->currentUser->getPermittedHotelIds()));
@@ -110,6 +110,10 @@ trait OnlineDailyDataPersistenceConcern
 
         if ($input !== null && $input !== '' && is_numeric($input) && (int)$input > 0) {
             return (int)$input;
+        }
+
+        if ($required) {
+            throw new HttpException(400, '请选择酒店');
         }
 
         return null;

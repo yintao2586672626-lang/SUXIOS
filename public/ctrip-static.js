@@ -3168,34 +3168,11 @@ window.SUXI_CTRIP_STATIC = window.SUXI_CTRIP_STATIC_FULL = (() => {
     );
 
     const ctripSortMetricValue = (row = {}, field = '') => {
-        if (field === 'amount') return row.amount || 0;
-        if (field === 'quantity') return row.quantity || 0;
-        if (field === 'adr') return row.adr || 0;
-        if (field === 'ari') return row.ari || 0;
-        if (field === 'sci') return row.sci || 0;
-        if (field === 'bookOrderNum') return row.bookOrderNum || 0;
-        if (field === 'totalOrderIncludingCancelledEstimate') {
-            return Number.isFinite(Number(row.totalOrderIncludingCancelledEstimate))
-                ? Number(row.totalOrderIncludingCancelledEstimate)
-                : Number.NEGATIVE_INFINITY;
-        }
-        if (field === 'fullChannelRoomNightsEstimate') {
-            return Number.isFinite(Number(row.fullChannelRoomNightsEstimate))
-                ? Number(row.fullChannelRoomNightsEstimate)
-                : Number.NEGATIVE_INFINITY;
-        }
-        if (field === 'totalOrderNum') return row.totalOrderNum || 0;
-        if (field === 'commentScore') return row.commentScore || 0;
-        if (field === 'qunarCommentScore') return row.qunarCommentScore || 0;
-        if (field === 'totalDetailNum') return row.totalDetailNum || 0;
-        if (field === 'convertionRate') return row.convertionRate || 0;
-        if (field === 'qunarDetailVisitors') return row.qunarDetailVisitors || 0;
-        if (field === 'qunarDetailCR') return row.qunarDetailCR || 0;
-        if (field === 'bookRate') return row.bookingRate || 0;
-        if (field === 'amountRank' || field === 'quantityRank' || field === 'commentScoreRank' || field === 'qunarDetailCRRank') {
-            return row[field] || 99999;
-        }
-        return row[field] || 0;
+        const rawValue = field === 'bookRate' ? row.bookingRate : row[field];
+        if (rawValue === null || rawValue === undefined || rawValue === '') return null;
+        const numeric = Number(rawValue);
+        if (!Number.isFinite(numeric)) return null;
+        return field.endsWith('Rank') && numeric <= 0 ? null : numeric;
     };
 
     const buildCtripSortedHotelRows = (rows = [], field = '', order = 'desc') => {
@@ -3204,8 +3181,22 @@ window.SUXI_CTRIP_STATIC = window.SUXI_CTRIP_STATIC_FULL = (() => {
         return [...list].sort((a, b) => {
             const aVal = ctripSortMetricValue(a, field);
             const bVal = ctripSortMetricValue(b, field);
+            if (aVal === null && bVal === null) return 0;
+            if (aVal === null) return 1;
+            if (bVal === null) return -1;
             return order === 'asc' ? aVal - bVal : bVal - aVal;
         });
+    };
+
+    const ctripRankEligibilityText = (commentScore) => {
+        if (commentScore === null
+            || commentScore === undefined
+            || commentScore === ''
+            || typeof commentScore === 'boolean'
+        ) return '未取得';
+        const score = Number(commentScore);
+        if (!Number.isFinite(score)) return '未取得';
+        return score >= 4.5 ? '✓可上榜' : '点评不足';
     };
 
     const buildCtripOverviewMetricCards = (result = {}) => {
@@ -4196,6 +4187,7 @@ window.SUXI_CTRIP_STATIC = window.SUXI_CTRIP_STATIC_FULL = (() => {
         runCtripCookieApiCaptureFlow,
         ctripSortMetricValue,
         buildCtripSortedHotelRows,
+        ctripRankEligibilityText,
         buildCtripOverviewMetricCards,
         buildCtripOverviewTopRankTables,
         buildCtripFlowOverviewMetricCards,

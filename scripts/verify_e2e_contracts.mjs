@@ -206,7 +206,9 @@ requireText('public/index.html', "[String(error?.message || error || 'unknown st
 requireText('public/index.html', "if (appRoot.dataset.startupErrorRendered === '1') return;", 'startup error surface is idempotent');
 requireText('public/index.html', "appRoot.dataset.startupErrorRendered = '1';", 'startup error surface marks rendered state');
 requireText('public/index.html', 'window.SUXI_MISSING_MEITUAN_STATIC_HELPERS = missingMeituanStaticHelpers', 'entry records missing Meituan static helpers without blocking unrelated pages');
-requireText('public/index.html', 'return meituanStaticFallbackFor(key)', 'entry degrades missing Meituan static helpers to feature-level failures');
+requireText('public/index.html', 'const currentMeituanStatic = () => (', 'entry resolves Meituan helpers from the deferred bundle at call time');
+requireText('public/index.html', 'if (meituanDeferredRuntimePending()) return fallback(...args);', 'entry treats the expected pre-deferred phase as pending instead of missing');
+requireText('public/index.html', 'return fallback(...args);', 'entry degrades a real post-load missing Meituan helper to a feature-level failure');
 requireNoText('public/index.html', 'throw new Error(`缺少美团静态展示工具项：${key}`)', 'entry must not block whole-app startup for a missing Meituan static helper');
 requireText('public/index.html', "if (!u || typeof u !== 'object') return false;", 'user search skips invalid user rows');
 requireText('public/index.html', "const username = String(u.username || '');", 'user search normalizes username before matching');
@@ -822,7 +824,11 @@ requireText('public/index.html', 'const onlineAnalysisDataRequestPromises = new 
 requireText('public/index.html', 'const onlineAnalysisRowsRequestPromises = new Map();', 'online analysis detail reads deduplicate concurrent requests');
 requireText('public/index.html', 'const cached = readOnlineAnalysisResultCache(onlineAnalysisDataResultCache, requestKey, cacheMs);', 'online analysis summary reads check the short cache before requesting');
 requireText('public/index.html', 'const cached = readOnlineAnalysisResultCache(onlineAnalysisRowsResultCache, requestKey, cacheMs);', 'online analysis detail reads check the short cache before requesting');
-requireText('public/index.html', 'const res = await request(`/online-data/data-analysis?${params}`);', 'online analysis summary request remains the real backend endpoint');
+requireText(
+  'public/index.html',
+  "const res = await request(`/online-data/data-analysis?${params}`, { businessContext: { hotelId: onlineDataFilter.value.hotel_id || '', tenantId: '' } });",
+  'online analysis summary request keeps the real backend endpoint and its explicit selected-hotel context',
+);
 requireText('public/index.html', 'const res = await request(`/online-data/daily-data-list?${params}`);', 'online analysis detail request remains the real backend endpoint');
 requireText('public/index.html', 'loadAnalysisData(null, loadOptions),', 'online analysis refresh passes cache options into summary reads');
 requireText('public/index.html', 'loadOnlineAnalysisRows(loadOptions),', 'online analysis refresh passes cache options into detail reads');
@@ -938,8 +944,8 @@ requireText('public/index.html', 'const HOME_SECONDARY_PANEL_DELAY_MS = 4200;', 
 requireText('public/index.html', 'const homeSecondaryPanelsReady = ref(false);', 'home lower panel rendering is gated behind an explicit readiness flag');
 requireText('public/index.html', 'const scheduleHomeSecondaryPanelsReady = (delayMs = HOME_SECONDARY_PANEL_DELAY_MS) => {', 'home lower panel readiness is scheduled and cancellable');
 requireText('public/index.html', 'clearHomeSecondaryPanelsReadyTimer();\n                    clearDualOtaSystemMetricDrilldownHydrationTimer();\n                    homeSecondaryPanelsReady.value = false;\n                    destroyHomeTrendChart();', 'leaving the home page cancels delayed lower-panel rendering');
-requireText('public/index.html', "homeSecondaryPanelsReady.value = false;\n                    scheduleHomeSecondaryPanelsReady();\n                    scheduleDualOtaSystemMetricDrilldownHydration();", 'entering the workbench delays lower-panel rendering without triggering OTA collection');
-requireNoText('public/index.html', 'scheduleDualOtaWorkbenchAutoFetch', 'passive dashboard entry never schedules an OTA collection task');
+requireText('public/index.html', "homeSecondaryPanelsReady.value = false;\n                    scheduleHomeSecondaryPanelsReady();\n                    scheduleDualOtaWorkbenchAutoFetch();\n                    scheduleDualOtaSystemMetricDrilldownHydration();", 'entering the workbench delays lower-panel rendering and schedules OTA collection outside the first interaction window');
+requireText('public/index.html', 'const scheduleDualOtaWorkbenchAutoFetch = (delayMs = 9000) => {', 'dashboard OTA collection waits nine seconds beyond the first measured interaction window');
 requireNoText('public/index.html', "runPageLoadOnce(newPage, 'auto-fetch-static', () => ensureAutoFetchStaticReady())", 'home page first paint must not prewarm auto-fetch-static.js');
 requireNoText('public/index.html', "runPageLoadOnce('compass', 'auto-fetch-static', () => ensureAutoFetchStaticReady(), runOptions)", 'initial compass reload must not prewarm auto-fetch-static.js');
 requireText('public/index.html', '<div v-if="homeSecondaryPanelsReady" class="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm mb-6" data-testid="daily-ops-monitor-card">', 'home daily ops panel is not mounted during the immediate OTA navigation window');

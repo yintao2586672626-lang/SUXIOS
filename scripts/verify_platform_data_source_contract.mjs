@@ -397,16 +397,21 @@ for (const [needle, label] of [
 check(
   'public/index.html',
   'frontend does not generate fake randomized business signals',
-  (source) => !source
-    .replaceAll('Math.random().toString(16).slice(2)', '')
-    .includes('Math.random'),
-  'Math.random is allowed only in the manual test-push idempotency-key fallback'
+  (source) => {
+    const requestIdFallbacksRemoved = source
+      .replaceAll('`manual-test:${Date.now()}:${Math.random().toString(16).slice(2)}`', '')
+      .replaceAll('`growth-${Date.now()}-${Math.random().toString(16).slice(2)}`', '')
+      .replaceAll('`knowledge-promotion-${Date.now()}-${Math.random().toString(16).slice(2)}`', '')
+      .replaceAll('`${Date.now()}${Math.random().toString(16).slice(2, 8)}`', '');
+    return !requestIdFallbacksRemoved.includes('Math.random');
+  },
+  'Math.random is allowed only in bounded client request/idempotency-key fallbacks'
 );
 
 for (const [needle, label] of [
   ['function parseImportFile', 'service parses uploaded import files'],
   ['strtolower(pathinfo($originalName ?: $path, PATHINFO_EXTENSION))', 'import parser validates by file extension'],
-  ['filesize($path) > 5 * 1024 * 1024', 'import parser enforces upload size limit'],
+  ['if ((int)filesize($path) > $maxBytes)', 'import parser enforces the extension-aware upload size limit'],
   ["'csv' => $this->parseCsvImportFile($path)", 'import parser supports CSV'],
   ["'json' => $this->parseJsonImportFile($path)", 'import parser supports JSON'],
   ["'xlsx' => $this->parseXlsxImportFile($path)", 'import parser supports XLSX'],
@@ -454,7 +459,8 @@ for (const [needle, label] of [
   ["'source_path' => $sourceKey !== '' ? $this->fieldFactSourcePath($row, $sourceKey) : ''", 'platform sync field facts keep source paths'],
   ["'storage_field' => (string)$definition['storage_field']", 'platform sync field facts keep storage fields'],
   ["'status' => $status", 'platform sync field facts keep captured or missing status'],
-  ["'missing_state' => (string)$definition['missing_state']", 'platform sync field facts keep explicit missing states'],
+  ["$missingState = (string)$definition['missing_state']", 'platform sync initializes explicit field-fact missing states'],
+  ["'missing_state' => $missingState", 'platform sync persists the resolved field-fact missing state'],
   ['appendSafeFieldFactCaptureEvidence', 'platform sync preserves desensitized field fact capture evidence'],
   ['safeFieldFactCaptureEvidenceValue', 'platform sync filters sensitive evidence strings'],
   ["'source_url_hash' => ['source_url_hash', '_source_url_hash', 'url_hash', '_url_hash']", 'platform sync accepts source URL hash aliases from capture rows'],

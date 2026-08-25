@@ -30,6 +30,8 @@ export const FRONTEND_DEFERRED_HELPER_SOURCES = Object.freeze([
   'meituan-static.js',
   'review-match-static.js',
   'data-health-static.js',
+  'platform-profile-login-static.js',
+  'competition-download-static.js',
   'ai-daily-report-static.js',
   'components/meituan-future-flow.js',
 ]);

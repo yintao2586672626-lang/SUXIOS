@@ -140,12 +140,19 @@ try {
         $baseUrl . '/api/operation/manager-capability/profile?hotel_id=' . $hotelId . '&manager_user_id=' . $managerUserId,
         $token
     );
+    $dailySubmission = is_array($profileResponse['body']['data']['daily_submission'] ?? null)
+        ? $profileResponse['body']['data']['daily_submission']
+        : [];
     if ($profileResponse['status'] !== 200
         || (int)($profileResponse['body']['code'] ?? 0) !== 200
         || (int)($profileResponse['body']['data']['hotel_id'] ?? 0) !== $hotelId
         || (int)($profileResponse['body']['data']['manager_user_id'] ?? 0) !== $managerUserId
         || count((array)($profileResponse['body']['data']['dimensions'] ?? [])) !== 6
         || (string)($profileResponse['body']['data']['scoring_contract']['version'] ?? '') !== ManagerCapabilityScoringService::FORMULA_VERSION
+        || (string)($dailySubmission['business_date'] ?? '') !== date('Y-m-d')
+        || !in_array((string)($dailySubmission['status'] ?? ''), ['submitted', 'not_submitted'], true)
+        || ($dailySubmission['closure_inferred'] ?? null) !== false
+        || ($dailySubmission['independent_verification'] ?? null) !== false
     ) {
         $errors[] = 'profile_http_contract_failed:' . $profileResponse['status'];
     }
@@ -314,6 +321,10 @@ try {
         'profile_message' => $profileResponse['body']['message'] ?? null,
         'profile_status' => $profileResponse['body']['data']['profile_status'] ?? null,
         'privacy_scope' => $profileResponse['body']['data']['privacy_scope'] ?? null,
+        'daily_submission_status' => $dailySubmission['status'] ?? null,
+        'daily_submission_case_count' => $dailySubmission['case_count'] ?? null,
+        'daily_submission_truth_boundary_verified' => ($dailySubmission['closure_inferred'] ?? null) === false
+            && ($dailySubmission['independent_verification'] ?? null) === false,
         'followup_queue_http_status' => $queueResponse['status'],
         'followup_queue_data_status' => $queueResponse['body']['data']['data_status'] ?? null,
         'out_of_scope_manager_http_status' => $crossScopeResponse['status'],

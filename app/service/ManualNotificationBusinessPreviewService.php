@@ -35,16 +35,21 @@ final class ManualNotificationBusinessPreviewService
     /** @var callable|null */
     private $forwardRoomStatusLoader;
 
+    /** @var callable|null */
+    private $revenueFactLayerLoader;
+
     public function __construct(
         ?callable $temporalOverviewLoader = null,
         ?callable $trustedOtaFactLoader = null,
         ?callable $collectionStateLoader = null,
-        ?callable $forwardRoomStatusLoader = null
+        ?callable $forwardRoomStatusLoader = null,
+        ?callable $revenueFactLayerLoader = null
     ) {
         $this->temporalOverviewLoader = $temporalOverviewLoader;
         $this->trustedOtaFactLoader = $trustedOtaFactLoader;
         $this->collectionStateLoader = $collectionStateLoader;
         $this->forwardRoomStatusLoader = $forwardRoomStatusLoader;
+        $this->revenueFactLayerLoader = $revenueFactLayerLoader;
     }
 
     /**
@@ -132,7 +137,49 @@ final class ManualNotificationBusinessPreviewService
         $collectionState = is_array($collectionState) ? $collectionState : [];
 
         try {
-            if ($this->forwardRoomStatusLoader === null) {
+            $revenueFactLayer = $this->revenueFactLayerLoader === null
+                ? (new RevenueFactLayerService())->build($hotelId, $businessDate)
+                : call_user_func(
+                    $this->revenueFactLayerLoader,
+                    $hotelId,
+                    $businessDate
+                );
+        } catch (\Throwable $error) {
+            $revenueFactLayer = [
+                'pms_binding' => [
+                    'binding_status' => 'read_failed',
+                    'effective_provider' => 'none',
+                    'compatibility_fallback' => false,
+                ],
+                'source_completeness' => ['pms' => 'read_failed'],
+                'sources' => [],
+                'source_error' => self::safeText($error->getMessage(), 160),
+            ];
+        }
+        $revenueFactLayer = is_array($revenueFactLayer)
+            ? $revenueFactLayer
+            : [];
+        $pmsSelection = (new RevenuePmsFactSelectorService())
+            ->select($revenueFactLayer);
+        $forwardDingdandaoAllowed = $revenueFactLayer === []
+            || $pmsSelection['provider']
+                === DingdandaoOperatingTargetCaptureService::PROVIDER;
+
+        try {
+            if (!$forwardDingdandaoAllowed) {
+                $pmsCapture = [
+                    'status' => 'blocked',
+                    'tenant_id' => $tenantId,
+                    'hotel_id' => $hotelId,
+                    'business_date' => $businessDate,
+                    'provider' => $pmsSelection['provider'],
+                    'forward_room_status' => [
+                        'data_status' => 'blocked',
+                        'readback_status' => 'not_verified',
+                        'gap_codes' => ['dingdandao_forward_provider_not_selected'],
+                    ],
+                ];
+            } elseif ($this->forwardRoomStatusLoader === null) {
                 $captureService = new DingdandaoOperatingTargetCaptureService();
                 $history = $captureService->history(
                     $tenantId,
@@ -177,7 +224,8 @@ final class ManualNotificationBusinessPreviewService
             $temporal,
             $trustedOta,
             $collectionState,
-            $pmsCapture
+            $pmsCapture,
+            $revenueFactLayer
         );
     }
 
@@ -220,7 +268,8 @@ final class ManualNotificationBusinessPreviewService
         array $temporal,
         array $trustedOta = [],
         array $collectionState = [],
-        array $pmsCapture = []
+        array $pmsCapture = [],
+        array $revenueFactLayer = []
     ): array {
         $businessDate = self::normalizeDate($businessDate);
         $hotelId = (int)($hotel['id'] ?? 0);
@@ -243,12 +292,19 @@ final class ManualNotificationBusinessPreviewService
             $hotelId,
             $businessDate
         );
-        $pmsToday = self::pmsTodayFacts(
-            $pmsCapture,
-            $tenantId,
-            $hotelId,
-            $businessDate
-        );
+        $pmsToday = $revenueFactLayer === []
+            ? self::pmsTodayFacts(
+                $pmsCapture,
+                $tenantId,
+                $hotelId,
+                $businessDate
+            )
+            : self::pmsTodayFactsFromRevenueLayer(
+                $revenueFactLayer,
+                $tenantId,
+                $hotelId,
+                $businessDate
+            );
         $future = self::futureSection(
             $temporal,
             $tenantId,
@@ -265,6 +321,16 @@ final class ManualNotificationBusinessPreviewService
             $hotelId,
             $businessDate
         );
+        $pmsSourceKey = (string)(
+            $pmsToday['source_key']
+            ?? DingdandaoOperatingTargetCaptureService::PROVIDER
+        );
+        $pmsBinding = is_array($revenueFactLayer['pms_binding'] ?? null)
+            ? $revenueFactLayer['pms_binding']
+            : [];
+        $dateAlignment = is_array($revenueFactLayer['date_alignment'] ?? null)
+            ? $revenueFactLayer['date_alignment']
+            : [];
 
         $todayFacts = array_merge(
             [
@@ -328,15 +394,28 @@ final class ManualNotificationBusinessPreviewService
             ),
             'business_date' => $businessDate,
             'fact_scope' => 'three_sources_kept_independent',
+            'pms_binding' => $pmsBinding,
+            'date_alignment' => $dateAlignment,
             'sources' => array_merge(
-                ['dingdandao_pms' => $pmsToday['message_data']],
+                [$pmsSourceKey => $pmsToday['message_data']],
                 $otaToday['source_snapshots']
             ),
             'aggregation_policy' => self::messageAggregationPolicy(),
         ];
         if (is_array($future['message_data'] ?? null)) {
+            $futureSource = is_array($future['message_data']['source'] ?? null)
+                ? $future['message_data']['source']
+                : [];
+            $futureSourceKey = in_array(
+                (string)($futureSource['provider'] ?? ''),
+                [
+                    DingdandaoOperatingTargetCaptureService::PROVIDER,
+                    MeituanCloudPmsCaptureService::PROVIDER,
+                ],
+                true
+            ) ? (string)$futureSource['provider'] : 'pms';
             $future['message_data']['sources'] = [
-                'dingdandao_pms' => [
+                $futureSourceKey => [
                     'data_status' => (string)($future['message_data']['data_status'] ?? 'missing'),
                     'business_scope' => 'whole_hotel_forward_room_status',
                     'source' => $future['message_data']['source'] ?? null,
@@ -373,8 +452,10 @@ final class ManualNotificationBusinessPreviewService
                 : 'blocked',
             'business_date' => $businessDate,
             'snapshot_role' => 'latest_verified_snapshot_not_end_of_day_final',
+            'pms_binding' => $pmsBinding,
+            'date_alignment' => $dateAlignment,
             'sources' => array_merge(
-                ['dingdandao_pms' => $pmsToday['message_data']],
+                [$pmsSourceKey => $pmsToday['message_data']],
                 $otaToday['source_snapshots']
             ),
             'review_items' => array_values((array)($review['reviews'] ?? [])),
@@ -634,6 +715,140 @@ final class ManualNotificationBusinessPreviewService
             'gaps' => $gaps,
             'collection' => $collection,
             'source_snapshots' => $sourceSnapshots,
+        ];
+    }
+
+    /**
+     * @return array{
+     *   facts:list<array<string,mixed>>,
+     *   gaps:list<array<string,mixed>>,
+     *   message_data:array<string,mixed>
+     * }
+     */
+    private static function pmsTodayFactsFromRevenueLayer(
+        array $factLayer,
+        int $tenantId,
+        int $hotelId,
+        string $businessDate
+    ): array {
+        $selection = (new RevenuePmsFactSelectorService())
+            ->select($factLayer);
+        $sourceKey = (string)$selection['source_key'];
+        $label = match ($sourceKey) {
+            DingdandaoOperatingTargetCaptureService::PROVIDER => '订单来了',
+            MeituanCloudPmsCaptureService::PROVIDER => '美团云 PMS',
+            default => 'PMS',
+        };
+        $envelope = (array)$selection['source'];
+        $values = (array)$selection['facts'];
+        $statuses = is_array($envelope['fact_statuses'] ?? null)
+            ? $envelope['fact_statuses']
+            : [];
+        $source = is_array($envelope['source'] ?? null)
+            ? $envelope['source']
+            : [];
+        $source['hotel_id'] = $source['system_hotel_id'] ?? $hotelId;
+        $source['business_scope'] = $envelope['business_scope'] ?? null;
+        $required = [
+            'room_revenue',
+            'sold_room_nights',
+            'sellable_room_nights',
+            'occupancy_rate_percent',
+            'adr',
+            'revpar',
+        ];
+        $trusted = $selection['data_status'] === 'readback_verified'
+            && (string)($envelope['business_date'] ?? '') === $businessDate
+            && (string)($envelope['actual_business_date'] ?? '') === $businessDate
+            && (int)($source['tenant_id'] ?? 0) === $tenantId
+            && (int)($source['system_hotel_id'] ?? 0) === $hotelId
+            && (string)($source['data_date'] ?? '') === $businessDate
+            && (string)($source['table'] ?? '')
+                === (string)($selection['expected_table'] ?? '')
+            && (string)($source['provider'] ?? '') === $sourceKey
+            && (string)($source['readback_status'] ?? '')
+                === 'readback_verified';
+        foreach ($required as $key) {
+            $trusted = $trusted && self::numeric($values[$key] ?? null) !== null;
+        }
+        $sold = self::numeric($values['sold_room_nights'] ?? null);
+        $sellable = self::numeric($values['sellable_room_nights'] ?? null);
+        $remaining = $sold !== null && $sellable !== null && $sellable >= $sold
+            ? $sellable - $sold
+            : null;
+        $trusted = $trusted && $remaining !== null;
+        $roomFeeLabel = (string)($envelope['business_scope'] ?? '')
+            === 'estimated_accommodation_room_fee'
+                ? $label . '预计住宿房费'
+                : $label . '住宿房费';
+        $map = [
+            'pms_room_fee' => [$roomFeeLabel, '元', 'room_revenue'],
+            'pms_sold_room_nights' => [$label . '已售间夜', '间夜', 'sold_room_nights'],
+            'pms_sellable_room_nights' => [$label . '可售间夜', '间夜', 'sellable_room_nights'],
+            'pms_occupancy_rate' => [$label . '入住率', '%', 'occupancy_rate_percent'],
+            'pms_adr' => [$label . ' ADR', '元', 'adr'],
+            'pms_revpar' => [$label . ' RevPAR', '元', 'revpar'],
+        ];
+        $facts = [];
+        foreach ($map as $key => [$factLabel, $unit, $field]) {
+            $status = (string)($statuses[$field]['status'] ?? '');
+            $facts[] = self::factField(
+                $key,
+                $factLabel,
+                $trusted ? self::numeric($values[$field] ?? null) : null,
+                $unit,
+                str_contains($status, 'derived') ? 'derived_metric' : 'source_fact',
+                (string)($envelope['business_scope'] ?? 'whole_hotel_accommodation'),
+                $source
+            );
+        }
+        $facts[] = self::factField(
+            'pms_remaining_sellable_room_nights',
+            $label . '剩余可售间夜',
+            $trusted ? $remaining : null,
+            '间夜',
+            'derived_metric',
+            (string)($envelope['business_scope'] ?? 'whole_hotel_accommodation'),
+            $source
+        );
+        $messageFacts = [];
+        foreach ($required as $key) {
+            $messageFacts[$key] = $trusted
+                ? self::numeric($values[$key] ?? null)
+                : null;
+        }
+        $messageFacts['remaining_sellable_room_nights'] = $trusted
+            ? $remaining
+            : null;
+        $status = $trusted
+            ? 'readback_verified'
+            : match ((string)$selection['data_status']) {
+                'read_failed', 'blocked', 'conflict' =>
+                    (string)$selection['data_status'],
+                default => 'not_verified',
+            };
+        return [
+            'source_key' => $sourceKey,
+            'facts' => $facts,
+            'gaps' => $trusted ? [] : [self::gap(
+                $sourceKey . '_today_capture_readback_not_verified',
+                $label . '当天住宿事实尚未通过同酒店、同日期、来源身份和数据库回读门禁。',
+                $status,
+                $selection['expected_table'],
+                $hotelId,
+                $businessDate
+            )],
+            'message_data' => [
+                'contract_version' => 'revenue_fact_pms_today_message_facts.v1',
+                'data_status' => $status,
+                'business_scope' => $envelope['business_scope'] ?? null,
+                'business_date' => $businessDate,
+                'facts' => $messageFacts,
+                'source' => $source,
+                'allowed_uses' => $trusted
+                    ? ['notification_preview', 'cross_source_comparison_without_addition']
+                    : [],
+            ],
         ];
     }
 
@@ -1458,15 +1673,25 @@ final class ManualNotificationBusinessPreviewService
         $forward = is_array($capture['forward_room_status'] ?? null)
             ? $capture['forward_room_status']
             : [];
+        $captureProvider = trim((string)($capture['provider'] ?? ''));
+        if ($captureProvider === '') {
+            $captureProvider = DingdandaoOperatingTargetCaptureService::PROVIDER;
+        }
         $source = [
-            'table' => 'dingdandao_operating_target_captures',
+            'table' => match ($captureProvider) {
+                DingdandaoOperatingTargetCaptureService::PROVIDER =>
+                    'dingdandao_operating_target_captures',
+                MeituanCloudPmsCaptureService::PROVIDER =>
+                    'meituan_cloud_pms_captures',
+                default => null,
+            },
             'record_id' => isset($capture['id']) && is_numeric($capture['id'])
                 ? (int)$capture['id']
                 : null,
             'tenant_id' => $tenantId,
             'hotel_id' => $hotelId,
             'data_date' => $businessDate,
-            'provider' => DingdandaoOperatingTargetCaptureService::PROVIDER,
+            'provider' => $captureProvider,
             'source_api_path' => '/v2/hm-b/pro/web/accom/roomStat/forward/v2',
             'metric_scope' => 'whole_hotel_forward_room_status',
             'quality_status' => 'not_verified',

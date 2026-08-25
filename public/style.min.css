@@ -2044,6 +2044,7 @@ main[data-current-page="ai-workbench"] .suxi-dashboard-scope [data-testid="home-
 }.suxi-app-shell main :where(.border-gray-100, .border-gray-200, .border-slate-100, .border-slate-200),
 .suxi-app-shell main :where(.divide-y > :not([hidden]) ~ :not([hidden])){border-color:var(--color-border) !important
 }.suxi-app-shell main :where(.text-gray-400, .text-gray-500, .text-slate-500){color:var(--color-text-muted) !important
+}.suxi-app-shell main[data-current-page="online-data"] .suxi-empty-state{border:1px dashed var(--color-border) !important;border-radius:.5rem;background:var(--color-surface-warm) !important;padding:1rem;color:var(--color-text-muted) !important;font-size:13px !important;line-height:1.25rem
 }.suxi-app-shell main :where(.text-gray-600, .text-slate-600){color:var(--color-text-subtle) !important
 }.suxi-app-shell main :where(.text-gray-800, .text-gray-900, .text-slate-900, .text-slate-950){color:var(--color-text) !important
 }.suxi-app-shell main :where(.bg-blue-50, .bg-cyan-50, .bg-indigo-50){border-color:rgba(58, 111, 143, .18) !important;background:var(--color-info-soft) !important

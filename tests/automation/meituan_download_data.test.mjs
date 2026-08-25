@@ -11,6 +11,36 @@ const sandbox = { console, window: {} };
 vm.runInNewContext(`${source}\nthis.__api = window.SUXI_MEITUAN_STATIC;`, sandbox);
 const api = sandbox.__api;
 
+test('Meituan missing sort metrics stay below real zero in both directions', () => {
+  const rows = [
+    { poiId: 'missing', sales: null },
+    { poiId: 'zero', sales: 0 },
+    { poiId: 'positive', sales: 10 },
+    { poiId: 'invalid', sales: 'not-a-number' },
+  ];
+  assert.deepEqual(Array.from(api.buildMeituanDisplayedHotelsList(rows, 'sales', 'asc'), row => row.poiId), ['zero', 'positive', 'missing', 'invalid']);
+  assert.deepEqual(Array.from(api.buildMeituanDisplayedHotelsList(rows, 'sales', 'desc'), row => row.poiId), ['positive', 'zero', 'missing', 'invalid']);
+});
+
+test('Meituan ranks only rows with a real selected metric and keeps missing gaps null', () => {
+  const rows = [
+    { poiId: 'positive', hotelName: 'A', sales: 10 },
+    { poiId: 'missing', hotelName: 'B', sales: null },
+    { poiId: 'zero', hotelName: 'C', sales: 0 },
+  ];
+  const ranked = api.buildMeituanRankDisplayRows(rows, 'sales');
+  const byPoi = Object.fromEntries(Array.from(ranked, row => [row.poiId, row]));
+  assert.equal(byPoi.positive.currentPlatformRank, 1);
+  assert.equal(byPoi.zero.currentPlatformRank, 2, 'a genuine zero remains rankable');
+  assert.equal(byPoi.zero.gapToLeader, 10);
+  assert.equal(byPoi.missing.currentPlatformRank, null);
+  assert.equal(byPoi.missing.circlePositionText, '指标未取得');
+  assert.equal(byPoi.missing.gapToPrev, null);
+  assert.equal(byPoi.missing.gapToNext, null);
+  assert.equal(byPoi.missing.gapToLeader, null);
+  assert.deepEqual(Array.from(api.buildMeituanDisplayedHotelsList(ranked, 'sales', 'desc'), row => row.poiId), ['positive', 'zero', 'missing']);
+});
+
 test('Meituan stored-data download keeps each data type in its own tab', () => {
   const rows = [
     { id: 1, source: 'meituan', data_type: 'peer_rank', hotel_name: '同行 A', data_date: '2026-07-14', data_value: 800, rank: 1, rank_percent: 100 },

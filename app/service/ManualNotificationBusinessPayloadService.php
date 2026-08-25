@@ -205,17 +205,38 @@ final class ManualNotificationBusinessPayloadService
         string $templateType,
         array $messageData
     ): ?array {
-        $pms = $templateType === 'future_room_status'
+        $pmsSelection = $templateType === 'future_room_status'
+            ? null
+            : (new RevenuePmsFactSelectorService())->select($messageData);
+        $pms = $pmsSelection === null
             ? $messageData
-            : (
-                is_array($messageData['sources']['dingdandao_pms'] ?? null)
-                    ? $messageData['sources']['dingdandao_pms']
-                    : []
-            );
-        if (($pms['data_status'] ?? '') !== 'readback_verified') {
+            : (array)$pmsSelection['source'];
+        if ($templateType === 'future_room_status') {
+            $source = is_array($messageData['source'] ?? null)
+                ? $messageData['source']
+                : [];
+            if ((string)($source['provider'] ?? '') !== 'dingdandao_pms'
+                || (string)($source['table'] ?? '')
+                    !== 'dingdandao_operating_target_captures'
+            ) {
+                return [
+                    'code' => 'business_message_forward_provider_unsupported',
+                    'message' => '远期房态仅接受已验真的订单来了来源；当前 PMS 来源不匹配。',
+                ];
+            }
+        }
+        $pmsStatus = $pmsSelection === null
+            ? (string)($pms['data_status'] ?? 'missing')
+            : (string)$pmsSelection['data_status'];
+        if ($pmsStatus !== 'readback_verified') {
+            $pmsSourceKey = $pmsSelection === null
+                ? 'dingdandao_pms'
+                : (string)$pmsSelection['source_key'];
             return [
-                'code' => 'business_message_dingdandao_pms_not_verified',
-                'message' => '订单来了同酒店、同日期事实尚未通过保存回读门禁。',
+                'code' => 'business_message_' . $pmsSourceKey
+                    . '_not_verified',
+                'message' => ($pmsSelection['label'] ?? '订单来了 PMS')
+                    . '同酒店、同日期事实尚未通过保存回读门禁。',
             ];
         }
 
@@ -257,7 +278,10 @@ final class ManualNotificationBusinessPayloadService
             return null;
         }
 
-        $facts = is_array($pms['facts'] ?? null) ? $pms['facts'] : [];
+        $facts = is_array($pmsSelection['facts'] ?? null)
+            ? $pmsSelection['facts']
+            : [];
+        $facts['room_fee'] ??= $facts['room_revenue'] ?? null;
         foreach ([
             'room_fee',
             'sold_room_nights',
@@ -270,7 +294,8 @@ final class ManualNotificationBusinessPayloadService
             if (self::numeric($facts[$key] ?? null) === null) {
                 return [
                     'code' => 'business_message_today_fact_incomplete',
-                    'message' => '订单来了当天住宿消息字段不完整。',
+                    'message' => (string)$pmsSelection['label']
+                        . '当天住宿消息字段不完整。',
                 ];
             }
         }
@@ -291,7 +316,27 @@ final class ManualNotificationBusinessPayloadService
         $sources = is_array($messageData['sources'] ?? null)
             ? $messageData['sources']
             : [];
+        if ($templateType === 'future_room_status') {
+            $actualProvider = (string)(
+                $messageData['source']['provider'] ?? 'pms'
+            );
+            if ($actualProvider !== 'dingdandao_pms') {
+                unset($sources['dingdandao_pms']);
+                $actualProvider = $actualProvider === 'meituan_cloud_pms'
+                    ? $actualProvider
+                    : 'pms';
+                $sources[$actualProvider] = [
+                    'data_status' => (string)(
+                        $messageData['data_status'] ?? 'missing'
+                    ),
+                    'business_scope' => 'whole_hotel_forward_room_status',
+                    'source' => $messageData['source'] ?? null,
+                ];
+            }
+        }
         if ($templateType === 'future_room_status'
+            && (string)($messageData['source']['provider'] ?? '')
+                === 'dingdandao_pms'
             && !isset($sources['dingdandao_pms'])
         ) {
             $sources['dingdandao_pms'] = [
@@ -300,6 +345,20 @@ final class ManualNotificationBusinessPayloadService
                 'source' => $messageData['source'] ?? null,
             ];
         }
+        $pmsSelection = (new RevenuePmsFactSelectorService())->select(
+            array_replace($messageData, ['sources' => $sources])
+        );
+        $pmsSourceKey = (string)$pmsSelection['source_key'];
+        if ($templateType !== 'future_room_status') {
+            foreach (['dingdandao_pms', 'meituan_cloud_pms'] as $candidate) {
+                if ($candidate !== $pmsSourceKey) {
+                    unset($sources[$candidate]);
+                }
+            }
+        }
+        $pmsSource = is_array($pmsSelection['source'] ?? null)
+            ? $pmsSelection['source']
+            : [];
         $pmsFacts = $templateType === 'future_room_status'
             ? [
                 'display_horizons' => $messageData['display_horizons'] ?? [],
@@ -315,32 +374,31 @@ final class ManualNotificationBusinessPayloadService
                 'alerts' => $messageData['alerts'] ?? [],
             ]
             : (
-                is_array($sources['dingdandao_pms']['facts'] ?? null)
+                is_array($pmsSelection['facts'] ?? null)
                     ? [
-                        ...$sources['dingdandao_pms']['facts'],
+                        ...$pmsSelection['facts'],
                         'revenue_overview' =>
-                            $sources['dingdandao_pms']['revenue_overview'] ?? null,
+                            $pmsSource['revenue_overview'] ?? null,
                         'temporal_context' =>
-                            $sources['dingdandao_pms']['temporal_context'] ?? null,
+                            $pmsSource['temporal_context'] ?? null,
                         'snapshot_delta' =>
-                            $sources['dingdandao_pms']['snapshot_delta'] ?? null,
-                        'alerts' => $sources['dingdandao_pms']['alerts'] ?? [],
+                            $pmsSource['snapshot_delta'] ?? null,
+                        'alerts' => $pmsSource['alerts'] ?? [],
                     ]
                     : []
             );
         $sourceCompleteness = [];
         $incompleteSources = [];
-        foreach (['dingdandao_pms', 'ctrip_ota', 'meituan_ota'] as $sourceKey) {
-            $sourceStatus = (string)(
-                $sources[$sourceKey]['data_status']
-                ?? 'missing'
-            );
+        foreach ([$pmsSourceKey, 'ctrip_ota', 'meituan_ota'] as $sourceKey) {
+            $sourceStatus = $sourceKey === $pmsSourceKey
+                ? (string)$pmsSelection['data_status']
+                : (string)($sources[$sourceKey]['data_status'] ?? 'missing');
             $sourceCompleteness[$sourceKey] = $sourceStatus;
             if ($sourceStatus !== 'readback_verified') {
                 $incompleteSources[] = $sourceKey;
             }
         }
-        $factCompleteness = $sourceCompleteness['dingdandao_pms']
+        $factCompleteness = $sourceCompleteness[$pmsSourceKey]
             !== 'readback_verified' || $status !== 'ready'
             ? 'blocked'
             : (
@@ -367,6 +425,7 @@ final class ManualNotificationBusinessPayloadService
             'source_completeness' => $sourceCompleteness,
             'incomplete_sources' => $incompleteSources,
             'message_type' => $templateType,
+            'pms_binding' => $pmsSelection['binding'],
             'hotel' => [
                 'tenant_id' => $tenantId,
                 'system_hotel_id' => $hotelId,
@@ -376,8 +435,11 @@ final class ManualNotificationBusinessPayloadService
             'date_role' => $templateType === 'future_room_status'
                 ? 'capture_as_of_date_with_future_stay_dates'
                 : 'operating_business_date',
+            'date_alignment' => is_array($messageData['date_alignment'] ?? null)
+                ? $messageData['date_alignment']
+                : [],
             'sources' => $sources,
-            'facts' => ['dingdandao_pms' => $pmsFacts],
+            'facts' => [$pmsSourceKey => $pmsFacts],
             'gaps' => array_values(array_map(
                 static fn(array $gap): array => [
                     'code' => self::safeText((string)($gap['code'] ?? ''), 100),
@@ -443,10 +505,15 @@ final class ManualNotificationBusinessPayloadService
         array $messageData
     ): string {
         $sources = (array)($messageData['sources'] ?? []);
-        $pms = is_array($sources['dingdandao_pms'] ?? null)
-            ? $sources['dingdandao_pms']
-            : [];
-        $facts = is_array($pms['facts'] ?? null) ? $pms['facts'] : [];
+        $pmsSelection = (new RevenuePmsFactSelectorService())
+            ->select($messageData);
+        $pms = (array)$pmsSelection['source'];
+        $facts = (array)$pmsSelection['facts'];
+        $pmsLabel = $this->pmsDisplayLabel(
+            (string)$pmsSelection['source_key']
+        );
+        $estimatedRoomRevenue = (string)($pms['business_scope'] ?? '')
+            === 'estimated_accommodation_room_fee';
         $revenueOverview = is_array($pms['revenue_overview'] ?? null)
             ? $pms['revenue_overview']
             : (
@@ -482,10 +549,15 @@ final class ManualNotificationBusinessPayloadService
             '> 当前模式：' . self::modeLabel($deliveryMode),
             '> 经营日期：' . $businessDate,
             '> 统计时间：' . ($capturedAt !== '' ? $capturedAt : '未取得'),
-            '> 口径：订单来了为住宿客房事实；携程、美团为OTA渠道，三源不相加。',
+            '> 口径：' . $pmsLabel
+                . '为住宿客房事实；携程、美团为OTA渠道，三源不相加。',
             '',
-            '**订单来了住宿经营**',
-            '房费｜¥' . self::number($facts['room_fee'] ?? null, 2),
+            '**' . $pmsLabel . '住宿经营**',
+            ($estimatedRoomRevenue ? '预计房费' : '房费') . '｜¥'
+                . self::number(
+                    $facts['room_fee'] ?? $facts['room_revenue'] ?? null,
+                    2
+                ),
             '已售/可售｜' . self::number($facts['sold_room_nights'] ?? null, 0)
                 . '/' . self::number($facts['sellable_room_nights'] ?? null, 0)
                 . '间夜',
@@ -624,7 +696,7 @@ final class ManualNotificationBusinessPayloadService
         }
         $lines[] = '';
         $lines[] = '**三源状态**';
-        array_push($lines, ...$this->sourceStatusLines($sources));
+        array_push($lines, ...$this->sourceStatusLines($messageData));
         if ($review) {
             $lines[] = '';
             $lines[] = '> 当前为最近一次已保存快照，并非日终最终定稿标记。';
@@ -732,7 +804,7 @@ final class ManualNotificationBusinessPayloadService
         if ($sources !== []) {
             $lines[] = '';
             $lines[] = '**三源状态**';
-            array_push($lines, ...$this->sourceStatusLines($sources));
+            array_push($lines, ...$this->sourceStatusLines($messageData));
         }
         $gapLines = $this->gapLines($section);
         if ($gapLines !== []) {
@@ -746,10 +818,17 @@ final class ManualNotificationBusinessPayloadService
     }
 
     /** @return list<string> */
-    private function sourceStatusLines(array $sources): array
+    private function sourceStatusLines(array $messageData): array
     {
+        $sources = is_array($messageData['sources'] ?? null)
+            ? $messageData['sources']
+            : [];
+        $pmsSelection = (new RevenuePmsFactSelectorService())
+            ->select($messageData);
         $labels = [
-            'dingdandao_pms' => '订单来了',
+            (string)$pmsSelection['source_key'] => $this->pmsDisplayLabel(
+                (string)$pmsSelection['source_key']
+            ),
             'ctrip_ota' => '携程',
             'meituan_ota' => '美团',
         ];
@@ -760,6 +839,15 @@ final class ManualNotificationBusinessPayloadService
             $lines[] = $label . '｜' . self::statusLabel($status);
         }
         return $lines;
+    }
+
+    private function pmsDisplayLabel(string $sourceKey): string
+    {
+        return match ($sourceKey) {
+            'dingdandao_pms' => '订单来了',
+            'meituan_cloud_pms' => '美团云 PMS',
+            default => 'PMS',
+        };
     }
 
     /** @return list<string> */
@@ -800,12 +888,12 @@ final class ManualNotificationBusinessPayloadService
             'fact_completeness_status' => 'blocked',
             'all_three_sources_readback_verified' => false,
             'source_completeness' => [
-                'dingdandao_pms' => 'missing',
+                'pms' => 'missing',
                 'ctrip_ota' => 'missing',
                 'meituan_ota' => 'missing',
             ],
             'incomplete_sources' => [
-                'dingdandao_pms',
+                'pms',
                 'ctrip_ota',
                 'meituan_ota',
             ],

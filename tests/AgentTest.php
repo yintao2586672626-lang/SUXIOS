@@ -5,6 +5,7 @@ namespace Tests;
 
 use app\controller\Agent;
 use app\service\AiDecisionQualityService;
+use app\service\RevenueAiOverviewService;
 use PHPUnit\Framework\TestCase;
 use ReflectionClass;
 use Tests\Support\ReflectionHelper;
@@ -17,6 +18,65 @@ final class AgentTest extends TestCase
     {
         $reflection = new ReflectionClass(Agent::class);
         return $reflection->newInstanceWithoutConstructor();
+    }
+
+    public function testLegacyRevenueDefaultMatchesRevenueAiMostRecentCompleteBusinessDate(): void
+    {
+        $expected = (new RevenueAiOverviewService())->buildOverviewFromDataset([], [], [], [])['business_date'];
+        $actual = $this->invokeNonPublic($this->controller(), 'defaultRevenueBusinessDate');
+
+        self::assertSame($expected, $actual);
+        self::assertSame(date('Y-m-d', strtotime('-1 day')), $actual);
+    }
+
+    public function testPriceEffectReviewDelegatesTrustedAggregationAndDeltaToPricingService(): void
+    {
+        $source = (string)file_get_contents(__DIR__ . '/../app/controller/Agent.php');
+
+        self::assertStringContainsString('$pricingService->aggregateSuggestionEffect(', $source);
+        self::assertStringContainsString('$pricingService->suggestionEffectDelta($before, $after)', $source);
+        self::assertStringContainsString('$this->assertRevenueHotelPermission((int)$suggestion->hotel_id);', $source);
+        self::assertStringNotContainsString('private function aggregateSuggestionEffect(', $source);
+        self::assertStringNotContainsString('private function suggestionEffectAdr(', $source);
+        self::assertStringNotContainsString('private function suggestionEffectDelta(', $source);
+    }
+
+    public function testLegacyRevenueDashboardUsesOneExplicitBusinessDateAcrossBackendSources(): void
+    {
+        $controller = (string)file_get_contents(__DIR__ . '/../app/controller/Agent.php');
+
+        self::assertStringContainsString(
+            'CompetitorAnalysis::getAlertCompetitors($hotelId, 15, $businessDate)',
+            $controller
+        );
+        self::assertStringContainsString(
+            "'dashboard' => \$this->buildRevenueDashboardPayload(\$hotelId, \$businessDate)",
+            $controller
+        );
+    }
+
+    public function testLegacyRevenueAnalysisAnchorsStrategiesAndHighDemandWindowToBusinessDate(): void
+    {
+        $controller = (string)file_get_contents(__DIR__ . '/../app/controller/Agent.php');
+        $forecastModel = (string)file_get_contents(__DIR__ . '/../app/model/DemandForecast.php');
+
+        self::assertStringContainsString(
+            '$this->generatePricingStrategies($hotelId, $highDemandDates, $businessDate)',
+            $controller
+        );
+        self::assertStringContainsString("->where('analysis_date', \$businessDate)", $controller);
+        self::assertStringContainsString(
+            '$this->revenueHighDemandDates($hotelId, 80, $businessDate)',
+            $controller
+        );
+        self::assertStringContainsString(
+            "\$key = \$hotelId . '|' . \$threshold . '|' . \$anchorDate;",
+            $controller
+        );
+        self::assertStringContainsString(
+            "->whereBetween('forecast_date', [\$anchorDate, \$futureDate])",
+            $forecastModel
+        );
     }
 
     public function testOtaDiagnosisEvidenceActionsAlwaysCarryReferences(): void

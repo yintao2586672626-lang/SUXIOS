@@ -23,7 +23,6 @@
     const ASSET_TYPE_STYLE = 'style';
     let authenticatedAppPromise = null;
     let deferredAuthenticatedAssetsPromise = null;
-    let authenticatedEntryPreloadPromise = null;
     const authenticatedStartupPreloadLinks = new Map();
     const authenticatedAssetLoadPromises = new Map();
     let loginHandoffStartedAt = null;
@@ -380,17 +379,6 @@
         }
         window.requestAnimationFrame(() => window.requestAnimationFrame(finish));
     });
-
-    const scheduleAuthenticatedEntryPreload = () => {
-        if (authenticatedAppPromise) return Promise.resolve(false);
-        if (authenticatedEntryPreloadPromise) return authenticatedEntryPreloadPromise;
-        const scheduled = waitForFirstAuthenticatedPaint().then(preloadAuthenticatedEntry);
-        authenticatedEntryPreloadPromise = scheduled;
-        scheduled.finally(() => {
-            if (authenticatedEntryPreloadPromise === scheduled) authenticatedEntryPreloadPromise = null;
-        });
-        return scheduled;
-    };
 
     const waitForAuthenticatedInteractiveReady = () => new Promise((resolve, reject) => {
         const root = document.documentElement;
@@ -960,7 +948,7 @@
         const handleInput = () => {
             setError('');
             updateSubmit();
-            void scheduleAuthenticatedEntryPreload();
+            preloadAuthenticatedEntry();
         };
         let autofillSyncTimers = [];
         const scheduleLoginAutofillSync = () => {
@@ -983,7 +971,7 @@
         });
         form.addEventListener('focusin', scheduleLoginAutofillSync);
         form.addEventListener('focusin', warmLoginConnection);
-        form.addEventListener('focusin', scheduleAuthenticatedEntryPreload);
+        form.addEventListener('focusin', preloadAuthenticatedEntry);
         window.addEventListener('pageshow', scheduleLoginAutofillSync);
         window.addEventListener('pageshow', warmLoginConnection);
         window.addEventListener('focus', scheduleLoginAutofillSync);
@@ -1073,7 +1061,7 @@
                 password.focus();
                 return;
             }
-            void scheduleAuthenticatedEntryPreload();
+            preloadAuthenticatedEntry();
             loading = true;
             updateSubmit();
             setError('');

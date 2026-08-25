@@ -745,6 +745,113 @@ class RevenuePricingRecommendationService
         };
     }
 
+    /** @return array<string, mixed> */
+    public function aggregateSuggestionEffect(int $hotelId, string $startDate, string $endDate): array
+    {
+        try {
+            $history = $this->trustedOtaFacts->pricingHistory($hotelId, $startDate, $endDate);
+        } catch (\Throwable) {
+            $history = [
+                'data_status' => 'blocked',
+                'rows' => [],
+                'data_gaps' => ['pricing_effect_review_read_failed'],
+                'source_policy' => [],
+                'data_quality' => [],
+            ];
+        }
+
+        $rows = array_values(array_filter(
+            is_array($history['rows'] ?? null) ? $history['rows'] : [],
+            static fn(mixed $row): bool => is_array($row)
+        ));
+        $sums = ['amount' => 0.0, 'quantity' => 0.0, 'orders' => 0.0];
+        $observations = ['amount' => 0, 'quantity' => 0, 'orders' => 0];
+        foreach ($rows as $row) {
+            foreach (['amount' => 'amount', 'quantity' => 'quantity', 'book_order_num' => 'orders'] as $source => $metric) {
+                $value = $row[$source] ?? null;
+                if (!is_numeric($value)) {
+                    continue;
+                }
+                $sums[$metric] += (float)$value;
+                $observations[$metric]++;
+            }
+        }
+
+        $amount = $observations['amount'] > 0 ? round($sums['amount'], 2) : null;
+        $quantity = $observations['quantity'] > 0 ? (int)round($sums['quantity']) : null;
+        $orders = $observations['orders'] > 0 ? (int)round($sums['orders']) : null;
+        $trustedFactCount = count($rows);
+        $historyStatus = strtolower(trim((string)($history['data_status'] ?? 'blocked')));
+        $explainable = $trustedFactCount > 0 && array_sum($observations) > 0;
+        $evidenceStatus = $historyStatus === 'ready' && $explainable
+            ? 'trusted_deduplicated'
+            : ($trustedFactCount > 0 ? 'partial' : 'missing');
+        $dataStatus = $evidenceStatus === 'trusted_deduplicated'
+            ? 'ok'
+            : ($historyStatus === 'blocked' ? 'read_failed' : ($trustedFactCount > 0 ? 'partial' : 'no_sample'));
+        $dataGaps = array_values(array_unique(array_filter(array_map(
+            'strval',
+            is_array($history['data_gaps'] ?? null) ? $history['data_gaps'] : []
+        ))));
+        if ($trustedFactCount === 0) {
+            $dataGaps[] = 'trusted_deduplicated_operating_facts_missing';
+        }
+        if ($trustedFactCount > 0 && array_sum($observations) === 0) {
+            $dataGaps[] = 'explainable_operating_metrics_missing';
+        }
+
+        return [
+            'start_date' => $startDate,
+            'end_date' => $endDate,
+            'source' => 'online_daily_data',
+            'scope' => 'online_ota_operating_sample',
+            'metric_scope' => 'ota_channel',
+            'data_status' => $dataStatus,
+            'evidence_status' => $evidenceStatus,
+            'trust_policy' => 'trusted_ota_fact_repository_readback_verified_canonical',
+            'deduplication_policy' => 'trusted_ota_fact_repository_canonical',
+            'sample_count' => $trustedFactCount,
+            'trusted_fact_count' => $trustedFactCount,
+            'metric_observation_counts' => $observations,
+            'data_gaps' => array_values(array_unique($dataGaps)),
+            'source_policy' => is_array($history['source_policy'] ?? null) ? $history['source_policy'] : [],
+            'data_quality' => is_array($history['data_quality'] ?? null) ? $history['data_quality'] : [],
+            'amount' => $amount,
+            'quantity' => $quantity,
+            'orders' => $orders,
+            'adr' => $this->suggestionEffectAdr($amount, $quantity),
+        ];
+    }
+
+    public function suggestionEffectAdr(int|float|null $amount, int|float|null $quantity): ?float
+    {
+        if (!is_numeric($amount) || !is_numeric($quantity) || (float)$quantity <= 0) {
+            return null;
+        }
+
+        return round((float)$amount / (float)$quantity, 2);
+    }
+
+    /** @return array<string, int|float|null> */
+    public function suggestionEffectDelta(array $before, array $after): array
+    {
+        $delta = [];
+        foreach (['amount', 'quantity', 'orders', 'adr'] as $metric) {
+            $beforeValue = $before[$metric] ?? null;
+            $afterValue = $after[$metric] ?? null;
+            if (!is_numeric($beforeValue) || !is_numeric($afterValue)) {
+                $delta[$metric] = null;
+                continue;
+            }
+            $value = (float)$afterValue - (float)$beforeValue;
+            $delta[$metric] = in_array($metric, ['quantity', 'orders'], true)
+                ? (int)round($value)
+                : round($value, 2);
+        }
+
+        return $delta;
+    }
+
     public function buildEffectReviewReadiness(array $suggestion, array $before, array $after, ?string $today = null): array
     {
         $today = $today ?: date('Y-m-d');
@@ -752,8 +859,8 @@ class RevenuePricingRecommendationService
         $applied = $status === 4 || trim((string)($suggestion['applied_time'] ?? '')) !== '';
         $beforeStatus = (string)($before['data_status'] ?? 'unknown');
         $afterStatus = (string)($after['data_status'] ?? 'unknown');
-        $beforeSamples = (int)($before['sample_count'] ?? 0);
-        $afterSamples = (int)($after['sample_count'] ?? 0);
+        $beforeFacts = (int)($before['trusted_fact_count'] ?? 0);
+        $afterFacts = (int)($after['trusted_fact_count'] ?? 0);
         $afterEnd = substr((string)($after['end_date'] ?? ''), 0, 10);
         $windowClosed = $afterEnd !== '' && $afterEnd <= $today;
 
@@ -775,18 +882,79 @@ class RevenuePricingRecommendationService
             ]);
         }
 
-        if ($beforeSamples <= 0 || $afterSamples <= 0) {
+        if ($beforeFacts <= 0 || $afterFacts <= 0) {
             return $this->effectReviewReadiness('effect_review_sample_missing', '样本不足', 60, false, '补齐应用前后线上经营样本后再判断效果', [
-                $this->missingEvidence('before_after_samples', '应用前后样本', '补齐应用前后线上经营样本'),
+                $this->missingEvidence('trusted_before_after_facts', '应用前后可信经营事实', '补齐经回读、校验和去重的应用前后经营事实'),
             ]);
         }
 
-        return $this->effectReviewReadiness('effect_review_ready', '复盘可用', 100, true, '将复盘结论沉淀到执行证据或 ROI 记录');
+        if (!$this->effectReviewPeriodTrusted($before) || !$this->effectReviewPeriodTrusted($after)) {
+            return $this->effectReviewReadiness('effect_review_evidence_untrusted', '证据未通过', 65, false, '仅使用可信、可解释、已去重的经营事实复盘', [
+                $this->missingEvidence('trusted_deduplicated_operating_facts', '可信去重经营事实', '通过 TrustedOtaFactRepository 回读并保留规范事实'),
+            ]);
+        }
+
+        $comparableMetrics = $this->effectReviewComparableMetrics($before, $after);
+        if ($comparableMetrics === []) {
+            return $this->effectReviewReadiness('effect_review_metric_missing', '口径不可比', 70, false, '补齐应用前后同口径经营指标后再判断效果', [
+                $this->missingEvidence('comparable_operating_metrics', '应用前后同口径指标', '补齐收入、间夜或订单中的至少一个同口径可信指标'),
+            ]);
+        }
+
+        return $this->effectReviewReadiness(
+            'effect_review_ready',
+            '复盘可用',
+            100,
+            true,
+            '将复盘结论沉淀到执行证据或 ROI 记录',
+            [],
+            ['comparable_metrics' => $comparableMetrics]
+        );
     }
 
-    private function effectReviewReadiness(string $stage, string $label, int $score, bool $reviewReady, string $nextAction, array $missingEvidence = []): array
+    private function effectReviewPeriodTrusted(array $period): bool
     {
-        return [
+        return (string)($period['data_status'] ?? '') === 'ok'
+            && (string)($period['evidence_status'] ?? '') === 'trusted_deduplicated'
+            && (string)($period['deduplication_policy'] ?? '') === 'trusted_ota_fact_repository_canonical'
+            && (int)($period['trusted_fact_count'] ?? 0) > 0;
+    }
+
+    /** @return array<int, string> */
+    private function effectReviewComparableMetrics(array $before, array $after): array
+    {
+        $beforeCounts = is_array($before['metric_observation_counts'] ?? null)
+            ? $before['metric_observation_counts']
+            : [];
+        $afterCounts = is_array($after['metric_observation_counts'] ?? null)
+            ? $after['metric_observation_counts']
+            : [];
+        $metrics = [];
+        foreach (['amount', 'quantity', 'orders'] as $metric) {
+            if ((int)($beforeCounts[$metric] ?? 0) <= 0
+                || (int)($afterCounts[$metric] ?? 0) <= 0
+                || !is_numeric($before[$metric] ?? null)
+                || !is_numeric($after[$metric] ?? null)
+            ) {
+                continue;
+            }
+            $metrics[] = $metric;
+        }
+
+        return $metrics;
+    }
+
+    private function effectReviewReadiness(
+        string $stage,
+        string $label,
+        int $score,
+        bool $reviewReady,
+        string $nextAction,
+        array $missingEvidence = [],
+        array $extra = []
+    ): array
+    {
+        return array_merge([
             'stage' => $stage,
             'status_label' => $label,
             'score' => $score,
@@ -796,7 +964,7 @@ class RevenuePricingRecommendationService
             'notice' => $missingEvidence
                 ? '仍缺：' . implode('、', array_map(static fn(array $item): string => (string)($item['label'] ?? $item['code'] ?? '未命名缺口'), $missingEvidence))
                 : '应用前后样本已满足复盘判断；需继续沉淀执行证据或 ROI 记录。',
-        ];
+        ], $extra);
     }
 
     private function missingEvidence(string $code, string $label, string $nextAction): array

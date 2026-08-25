@@ -913,7 +913,9 @@ Route::group('api/agent', function () {
     // 定价建议
     Route::get('/price-suggestions', 'Agent/priceSuggestions');
     Route::post('/price-suggestions/generate', 'Agent/generatePriceSuggestions');
-    Route::post('/price-suggestions/:id/approve', 'Agent/approvePrice');
+    // Legacy URL is retained for compatibility, but must execute the same
+    // trusted-input and hotel-permission review gate as Revenue AI.
+    Route::post('/price-suggestions/:id/approve', 'RevenueAi/reviewPriceSuggestion');
     Route::post('/price-suggestions/:id/apply', 'Agent/applyPrice');
     Route::post('/price-suggestions/:id/execution-intent', 'Agent/createPriceSuggestionExecutionIntent');
     Route::get('/price-suggestions/:id/review', 'Agent/priceSuggestionReview');

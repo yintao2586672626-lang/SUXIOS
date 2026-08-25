@@ -337,9 +337,13 @@ if (!runtimeAssetPaths.includes('app-startup-helpers.min.js')
     failures.push(`public/meituan-static.js export contract could not be evaluated: ${error.message}`);
   }
   if (!content.includes('window.SUXI_MISSING_MEITUAN_STATIC_HELPERS = missingMeituanStaticHelpers')
-    || !content.includes('return meituanStaticFallbackFor(key)')
+    || !content.includes('const currentMeituanStatic = () => (')
+    || !content.includes('const fallback = resolveMeituanStaticFallback(key);')
+    || !content.includes('if (meituanDeferredRuntimePending()) return fallback(...args);')
+    || !content.includes('missingMeituanStaticHelpers.push(key);')
+    || !content.includes('return fallback(...args);')
     || content.includes('throw new Error(`缺少美团静态展示工具项：${key}`)')) {
-    failures.push('public/index.html must not block whole-app startup when a Meituan static helper is missing; it must record the missing helper and degrade the related Meituan feature only.');
+    failures.push('public/index.html must resolve deferred Meituan helpers at call time, suppress expected pre-deferred absence, and record a real post-load missing helper without blocking the whole app.');
   }
   const forbiddenServerLoginCopy = [
     ['public/index.html', content, '上一次登录任务未继续执行，可重新触发登录'],
@@ -3057,7 +3061,7 @@ if (!runtimeAssetPaths.includes('app-startup-helpers.min.js')
     || !content.includes('const clearOnlineAnalysisReadCaches = () => {')
     || !content.includes('const loadAnalysisData = async (dimension = null, options = {}) => {')
     || !content.includes('const loadOnlineAnalysisRows = async (options = {}) => {')
-    || !/const loadAnalysisData = async \(dimension = null, options = \{\}\) => \{[\s\S]*readOnlineAnalysisResultCache\(onlineAnalysisDataResultCache, requestKey, cacheMs\)[\s\S]*onlineAnalysisDataRequestPromises\.has\(requestKey\)[\s\S]*request\(`\/online-data\/data-analysis\?\$\{params\}`\)[\s\S]*writeOnlineAnalysisResultCache\(onlineAnalysisDataResultCache, requestKey, data, cacheMs\)/.test(content)
+    || !/const loadAnalysisData = async \(dimension = null, options = \{\}\) => \{[\s\S]*readOnlineAnalysisResultCache\(onlineAnalysisDataResultCache, requestKey, cacheMs\)[\s\S]*onlineAnalysisDataRequestPromises\.has\(requestKey\)[\s\S]*request\(`\/online-data\/data-analysis\?\$\{params\}`,\s*\{\s*businessContext:\s*\{\s*hotelId:\s*onlineDataFilter\.value\.hotel_id\s*\|\|\s*'',\s*tenantId:\s*'',?\s*\},?\s*\}\)[\s\S]*writeOnlineAnalysisResultCache\(onlineAnalysisDataResultCache, requestKey, data, cacheMs\)/.test(content)
     || !/const loadOnlineAnalysisRows = async \(options = \{\}\) => \{[\s\S]*readOnlineAnalysisResultCache\(onlineAnalysisRowsResultCache, requestKey, cacheMs\)[\s\S]*onlineAnalysisRowsRequestPromises\.has\(requestKey\)[\s\S]*request\(`\/online-data\/daily-data-list\?\$\{params\}`\)[\s\S]*writeOnlineAnalysisResultCache\(onlineAnalysisRowsResultCache, requestKey, data, cacheMs\)/.test(content)
     || !content.includes('const refreshOnlineAnalysis = async (options = {}) => {')
     || !content.includes('cacheMs: ONLINE_ANALYSIS_PANEL_CACHE_TTL_MS,')
@@ -3065,6 +3069,7 @@ if (!runtimeAssetPaths.includes('app-startup-helpers.min.js')
     || !content.includes('loadOnlineDataSummary(loadOptions),')
     || !content.includes('loadOnlineAnalysisRows(loadOptions),')
     || !content.includes('return refreshOnlineAnalysis(options);')
+    || !content.includes('@click="refreshOnlineAnalysis({ force: true })"')
     || !content.includes('@click="loadOnlineAnalysisRows({ force: true })"')
     || !content.includes('clearOnlineAnalysisReadCaches();')) {
     failures.push('public/index.html online-data analysis tab must short-cache and deduplicate analysis summary/detail reads while preserving forced manual refresh.');
@@ -3406,6 +3411,10 @@ if (!runtimeAssetPaths.includes('app-startup-helpers.min.js')
     || !content.includes('schedulePublicSystemConfigRefresh();')
     || content.includes('deferUiTask(() => loadSystemConfig({ publicOnly: true }), 120)')) {
     failures.push('public/index.html must defer, deduplicate, and short-cache public system-config refreshes away from core OTA page switching.');
+  }
+  if (!content.includes('const scheduleDualOtaWorkbenchAutoFetch = (delayMs = 9000) => {')
+    || !content.includes('scheduleDualOtaWorkbenchAutoFetch();')) {
+    failures.push('public/index.html must defer dashboard OTA collection until nine seconds after authenticated entry.');
   }
   if (!/let\s+pageControlTestIdObserverTimer\s*=\s*null;/.test(content)
     || !/const\s+schedulePageControlTestIdObserverStart\s*=\s*\(delayMs\s*=\s*520\)\s*=>\s*\{[\s\S]*deferUiTask\(\(\)\s*=>\s*\{[\s\S]*startPageControlTestIdObserver\(\);[\s\S]*scheduleTestIdRefresh\(\);/.test(content)

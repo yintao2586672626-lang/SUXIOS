@@ -82,6 +82,80 @@ final class ManualNotificationBusinessPayloadServiceTest extends TestCase
         self::assertStringNotContainsString('¥10045.60', $content);
     }
 
+    public function testTodayPayloadUsesSelectedMeituanPmsWithoutDingAliasOrFallback(): void
+    {
+        $preview = $this->sectionFixture(
+            'today_revenue_management',
+            80,
+            '2026-07-26'
+        );
+        $messageData =& $preview['section']['message_data'];
+        $messageData['pms_binding'] = [
+            'binding_status' => 'configured',
+            'effective_provider' => 'meituan_cloud_pms',
+            'compatibility_fallback' => false,
+        ];
+        $pms = $messageData['sources']['dingdandao_pms'];
+        unset($messageData['sources']['dingdandao_pms']);
+        $pms['business_scope'] = 'estimated_accommodation_room_fee';
+        $pms['facts']['room_revenue'] = $pms['facts']['room_fee'];
+        unset($pms['facts']['room_fee']);
+        $pms['source']['provider'] = 'meituan_cloud_pms';
+        $pms['source']['table'] = 'meituan_cloud_pms_captures';
+        $messageData['sources']['meituan_cloud_pms'] = $pms;
+        $result = (new ManualNotificationBusinessPayloadService(
+            static fn(): array => $preview
+        ))->pagePreview(
+            80,
+            80,
+            '敦煌漠蓝新',
+            '2026-07-26',
+            'today_revenue_management'
+        );
+
+        self::assertSame('ready', $result['status']);
+        self::assertSame(
+            8745.6,
+            $result['fact_envelope']['facts']['meituan_cloud_pms']
+                ['room_revenue']
+        );
+        self::assertSame(
+            'readback_verified',
+            $result['fact_envelope']['source_completeness']
+                ['meituan_cloud_pms']
+        );
+        self::assertArrayNotHasKey(
+            'dingdandao_pms',
+            $result['fact_envelope']['facts']
+        );
+        $content = $result['payload']['markdown']['content'];
+        self::assertStringContainsString('美团云 PMS住宿经营', $content);
+        self::assertStringContainsString('预计房费｜¥8745.60', $content);
+        self::assertStringNotContainsString('订单来了住宿经营', $content);
+
+        $stalePreview = $this->sectionFixture(
+            'today_revenue_management',
+            80,
+            '2026-07-26'
+        );
+        $stalePreview['section']['message_data']['pms_binding'] =
+            $messageData['pms_binding'];
+        $blocked = (new ManualNotificationBusinessPayloadService(
+            static fn(): array => $stalePreview
+        ))->pagePreview(
+            80,
+            80,
+            '敦煌漠蓝新',
+            '2026-07-26',
+            'today_revenue_management'
+        );
+        self::assertSame('blocked', $blocked['status']);
+        self::assertSame(
+            'business_message_meituan_cloud_pms_not_verified',
+            $blocked['reason_code']
+        );
+    }
+
     public function testFuturePayloadRendersFourHorizonsAndKeepsDetailsInEnvelope(): void
     {
         $service = new ManualNotificationBusinessPayloadService(
@@ -126,6 +200,39 @@ final class ManualNotificationBusinessPayloadServiceTest extends TestCase
         );
         self::assertStringContainsString('企业微信测试群定时真实投递', $content);
         self::assertStringContainsString('彼此包含、不可相加', $content);
+    }
+
+    public function testFuturePayloadRejectsNonDingProviderIdentity(): void
+    {
+        $preview = $this->sectionFixture(
+            'future_room_status',
+            80,
+            '2026-07-26'
+        );
+        $preview['section']['message_data']['source']['provider'] =
+            'meituan_cloud_pms';
+        $preview['section']['message_data']['source']['table'] =
+            'meituan_cloud_pms_captures';
+        $result = (new ManualNotificationBusinessPayloadService(
+            static fn(): array => $preview
+        ))->pagePreview(
+            80,
+            80,
+            '敦煌漠蓝新',
+            '2026-07-26',
+            'future_room_status'
+        );
+
+        self::assertSame('blocked', $result['status']);
+        self::assertNull($result['payload']);
+        self::assertSame(
+            'business_message_forward_provider_unsupported',
+            $result['reason_code']
+        );
+        self::assertArrayNotHasKey(
+            'dingdandao_pms',
+            $result['fact_envelope']['facts']
+        );
     }
 
     public function testEnvelopeDeclaresCompleteOnlyWhenAllThreeSourcesAreVerified(): void
@@ -486,6 +593,7 @@ final class ManualNotificationBusinessPayloadServiceTest extends TestCase
                 ],
                 'source' => [
                     'table' => 'dingdandao_operating_target_captures',
+                    'provider' => 'dingdandao_pms',
                     'record_id' => 980,
                     'tenant_id' => 80,
                     'hotel_id' => 80,
