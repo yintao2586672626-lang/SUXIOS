@@ -5,6 +5,7 @@ namespace app\controller;
 
 use app\model\AgentLog;
 use app\model\PriceSuggestion;
+use app\service\DualOtaFieldClosureService;
 use app\service\OperationManagementService;
 use app\service\OperatingQuestionService;
 use app\service\RevenueAiOverviewService;
@@ -51,7 +52,16 @@ class RevenueAi extends Base
                 ? $input['visible_model']
                 : [];
             $filters = $this->filters();
+            $hotelId = (int)($filters['hotel_id'] ?? 0);
+            $this->assertRevenueAiHotelCapability($hotelId, self::REVIEW_PERMISSION);
             $context = $this->strictCockpitContext($filters);
+            $this->assertDualOtaCurrentReceiptReady(
+                $context['overview'],
+                $context['tenant_id'],
+                $context['hotel_id'],
+                $context['business_date'],
+                $context['platform']
+            );
             $comparisons = $this->strictCockpitComparisonContexts($context, $filters);
             $snapshot = (new RevenueDecisionSnapshotService())->saveFromOverview(
                 $context['overview'],
@@ -124,7 +134,17 @@ class RevenueAi extends Base
             $id = $this->routeId($id);
             $input = $this->requestData();
             $opportunityKey = trim((string)($input['opportunity_key'] ?? ''));
-            $context = $this->strictCockpitContext($this->filters());
+            $filters = $this->filters();
+            $hotelId = (int)($filters['hotel_id'] ?? 0);
+            $this->assertRevenueAiHotelCapability($hotelId, self::EXECUTION_PERMISSION);
+            $context = $this->strictCockpitContext($filters);
+            $this->assertDualOtaCurrentReceiptReady(
+                $context['overview'],
+                $context['tenant_id'],
+                $context['hotel_id'],
+                $context['business_date'],
+                $context['platform']
+            );
             $payload = (new RevenueDecisionSnapshotService())->createOpportunityPendingApproval(
                 $id,
                 $context['tenant_id'],
@@ -163,9 +183,17 @@ class RevenueAi extends Base
             if (!in_array($platform, ['ctrip', 'meituan', 'all_ota'], true)) {
                 throw new InvalidArgumentException('revenue_cockpit_approval_platform_invalid');
             }
+            $this->assertRevenueAiHotelCapability($hotelId, self::EXECUTION_PERMISSION);
             $filters['strict_readback_only'] = true;
             $overview = (new RevenueAiOverviewService())->overview($filters);
             $overview = $this->withCockpitStrictEvidence($overview, $filters);
+            $this->assertDualOtaCurrentReceiptReady(
+                $overview,
+                (int)($overview['cockpit_strict_evidence']['tenant_id'] ?? 0),
+                $hotelId,
+                $businessDate,
+                $platform
+            );
             $tenantId = (int)($overview['cockpit_strict_evidence']['tenant_id'] ?? 0);
             if ($tenantId <= 0) {
                 throw new RuntimeException('revenue_cockpit_fact_tenant_missing', 422);
@@ -267,7 +295,51 @@ class RevenueAi extends Base
             $businessDate,
             $platform
         );
+        $overview['dual_ota_field_closure'] = (new DualOtaFieldClosureService())->build(
+            $hotelId,
+            $businessDate
+        );
         return $overview;
+    }
+
+    /** @param array<string,mixed> $overview */
+    private function assertDualOtaCurrentReceiptReady(
+        array $overview,
+        int $tenantId,
+        int $hotelId,
+        string $businessDate,
+        string $platform
+    ): void {
+        $closure = is_array($overview['dual_ota_field_closure'] ?? null)
+            ? $overview['dual_ota_field_closure']
+            : [];
+        if ((string)($closure['contract_version'] ?? '') !== 'dual_ota_field_closure.v1'
+            || (int)($closure['tenant_id'] ?? 0) !== $tenantId
+            || (int)($closure['hotel_id'] ?? 0) !== $hotelId
+            || (string)($closure['business_date'] ?? '') !== $businessDate
+        ) {
+            throw new RuntimeException('revenue_cockpit_dual_ota_current_receipt_scope_invalid', 422);
+        }
+        $platforms = $platform === 'all_ota' ? ['ctrip', 'meituan'] : [$platform];
+        foreach ($platforms as $selectedPlatform) {
+            $current = is_array($closure['platforms'][$selectedPlatform] ?? null)
+                ? $closure['platforms'][$selectedPlatform]
+                : [];
+            $receiptRowIds = array_values(array_filter(
+                array_map('intval', (array)($current['current_receipt_record_ids'] ?? [])),
+                static fn(int $rowId): bool => $rowId > 0
+            ));
+            if ((string)($current['status'] ?? '') !== 'ready'
+                || (string)($current['revenue_analysis']['status'] ?? '') !== 'ready'
+                || ($current['current_collection_blocker_status'] ?? null) !== null
+                || $receiptRowIds === []
+            ) {
+                throw new RuntimeException(
+                    'revenue_cockpit_' . $selectedPlatform . '_current_receipt_not_ready',
+                    422
+                );
+            }
+        }
     }
 
     /**

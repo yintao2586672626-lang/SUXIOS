@@ -596,7 +596,7 @@ class OperationManagement extends Base
             }
 
             $input = $this->requestData();
-            [$hotelIds] = $this->resolveHotelScope(0, 'operation.execute');
+            [$hotelIds] = $this->resolveRequiredWriteHotelScope($input);
             if (!array_key_exists('approved', $input)) {
                 return $this->error('approved must be explicitly provided', 422);
             }
@@ -621,7 +621,7 @@ class OperationManagement extends Base
             }
             $input = $this->requestData();
             $reason = trim((string)($input['reason'] ?? $input['remark'] ?? ''));
-            [$hotelIds] = $this->resolveHotelScope(0, 'operation.execute');
+            [$hotelIds] = $this->resolveRequiredWriteHotelScope($input);
             return $this->success($this->service->cancelExecutionIntent(
                 $id,
                 $reason,
@@ -640,10 +640,11 @@ class OperationManagement extends Base
                 return $this->error('execution task id is invalid', 422);
             }
 
-            [$hotelIds] = $this->resolveHotelScope(0, 'operation.execute');
+            $input = $this->requestData();
+            [$hotelIds] = $this->resolveRequiredWriteHotelScope($input);
             $userId = (int)($this->currentUser->id ?? 0);
 
-            return $this->success($this->service->executeExecutionTask($id, $hotelIds, $this->requestData(), $userId));
+            return $this->success($this->service->executeExecutionTask($id, $hotelIds, $input, $userId));
         } catch (Throwable $e) {
             return $this->error($this->safeErrorMessage($e, 'execution task update failed'), $this->operationThrowableStatus($e));
         }
@@ -656,10 +657,11 @@ class OperationManagement extends Base
                 return $this->error('execution task id is invalid', 422);
             }
 
-            [$hotelIds] = $this->resolveHotelScope(0, 'operation.execute');
+            $input = $this->requestData();
+            [$hotelIds] = $this->resolveRequiredWriteHotelScope($input);
             $userId = (int)($this->currentUser->id ?? 0);
 
-            return $this->success($this->service->addExecutionEvidence($id, $hotelIds, $this->requestData(), $userId));
+            return $this->success($this->service->addExecutionEvidence($id, $hotelIds, $input, $userId));
         } catch (Throwable $e) {
             return $this->error($this->safeErrorMessage($e, 'execution evidence save failed'), $this->operationThrowableStatus($e));
         }
@@ -672,11 +674,12 @@ class OperationManagement extends Base
                 return $this->error('execution task id is invalid', 422);
             }
 
-            [$hotelIds] = $this->resolveHotelScope(0, 'operation.execute');
+            $input = $this->requestData();
+            [$hotelIds] = $this->resolveRequiredWriteHotelScope($input);
             return $this->success($this->service->reviewExecutionTask(
                 $id,
                 $hotelIds,
-                $this->requestData(),
+                $input,
                 (int)($this->currentUser->id ?? 0)
             ));
         } catch (Throwable $e) {
@@ -691,7 +694,8 @@ class OperationManagement extends Base
                 return $this->error('execution task id is invalid', 422);
             }
 
-            [$hotelIds] = $this->resolveHotelScope(0, 'operation.execute');
+            $input = $this->requestData();
+            [$hotelIds] = $this->resolveRequiredWriteHotelScope($input);
             return $this->success($this->service->reconcileScheduledExecutionTask($id, $hotelIds));
         } catch (Throwable $e) {
             return $this->error(
@@ -707,7 +711,16 @@ class OperationManagement extends Base
             throw new \RuntimeException('未登录');
         }
 
-        $hotelId = $inputHotelId > 0 ? $inputHotelId : (int)$this->request->param('hotel_id', 0);
+        $requestHotelId = (int)$this->request->param('hotel_id', 0);
+        $requestSystemHotelId = (int)$this->request->param('system_hotel_id', 0);
+        $declaredHotelIds = array_values(array_unique(array_filter(
+            [$inputHotelId, $requestHotelId, $requestSystemHotelId],
+            static fn(int $hotelId): bool => $hotelId > 0
+        )));
+        if (count($declaredHotelIds) > 1) {
+            throw new \InvalidArgumentException('hotel_id 与 system_hotel_id 不一致');
+        }
+        $hotelId = $declaredHotelIds[0] ?? 0;
         $permitted = array_values(array_filter(
             array_map('intval', $this->currentUser->getPermittedHotelIds()),
             fn(int $hotelId): bool => $hotelId > 0 && $this->currentUser->hasHotelPermission($hotelId, $capability)
@@ -724,6 +737,31 @@ class OperationManagement extends Base
         }
 
         return [$permitted, count($permitted) === 1 ? $permitted[0] : null];
+    }
+
+    /**
+     * Every lifecycle write is bound to one explicitly declared hotel.
+     *
+     * @param array<string,mixed> $input
+     * @return array{0:list<int>,1:int}
+     */
+    private function resolveRequiredWriteHotelScope(array $input): array
+    {
+        $hotelId = (int)($input['hotel_id'] ?? 0);
+        $systemHotelId = (int)($input['system_hotel_id'] ?? 0);
+        if ($hotelId > 0 && $systemHotelId > 0 && $hotelId !== $systemHotelId) {
+            throw new \InvalidArgumentException('hotel_id 与 system_hotel_id 不一致');
+        }
+        $explicitHotelId = $hotelId > 0 ? $hotelId : $systemHotelId;
+        if ($explicitHotelId <= 0) {
+            throw new \InvalidArgumentException('运营写入必须明确指定 hotel_id');
+        }
+
+        [$hotelIds, $resolvedHotelId] = $this->resolveHotelScope($explicitHotelId, 'operation.execute');
+        if ($resolvedHotelId !== $explicitHotelId || $hotelIds !== [$explicitHotelId]) {
+            throw new \InvalidArgumentException('运营写入酒店作用域不明确');
+        }
+        return [$hotelIds, $explicitHotelId];
     }
 
     private function normalizeDate(string $date): string

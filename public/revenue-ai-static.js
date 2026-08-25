@@ -5289,19 +5289,30 @@
             || String(strict.contract_version || '') !== 'revenue_cockpit_strict_evidence.v1'
             || Number(strict.hotel_id || 0) !== Number(expected.hotelId || 0)
             || String(strict.business_date || '') !== String(expected.businessDate || '')
+            || String(strict.platform || '').toLowerCase() !== platform
             || Number(strict.tenant_id || 0) <= 0
             || requiredPlatforms.length === 0
             || requiredPlatforms.some((item) => {
                 const source = factLayer?.sources?.[`${item}_ota`] || {};
                 const provenance = source?.source || {};
                 const strictPlatform = strict?.platforms?.[item] || {};
+                const acceptedIds = Array.isArray(strictPlatform.accepted_row_ids)
+                    ? strictPlatform.accepted_row_ids.map(Number).filter((id) => id > 0)
+                    : [];
+                const metrics = strictPlatform.metrics && typeof strictPlatform.metrics === 'object'
+                    ? strictPlatform.metrics
+                    : {};
+                const hasAcceptedStrictMetric = Object.values(metrics).some((metric) => metric
+                    && metric.strict_readback === true
+                    && Array.isArray(metric.accepted_row_ids)
+                    && metric.accepted_row_ids.some((id) => acceptedIds.includes(Number(id))));
                 return String(source.business_date || '') !== String(expected.businessDate || '')
                     || String(source.actual_business_date || '') !== String(expected.businessDate || '')
                     || String(provenance.platform || '') !== item
                     || String(provenance.table || '') !== 'online_daily_data'
-                    || strictPlatform.source_strict_readback !== true
-                    || !(Array.isArray(strictPlatform.accepted_row_ids)
-                        && strictPlatform.accepted_row_ids.some((id) => Number(id) > 0));
+                    || String(strictPlatform.business_date || '') !== String(expected.businessDate || '')
+                    || acceptedIds.length === 0
+                    || !hasAcceptedStrictMetric;
             })
         ) {
             return { ok: false, overview: null, message: '经营驾驶舱回读的酒店、平台、业务日期或严格事实合同与当前筛选不一致' };

@@ -8,6 +8,7 @@ const controller = readFileSync('app/controller/OperationManagement.php', 'utf8'
 const routes = readFileSync('route/app.php', 'utf8');
 const dailyReport = readFileSync('app/service/AiDailyReportService.php', 'utf8');
 const frontend = readFileSync('public/app-main.js', 'utf8');
+const operationStatic = readFileSync('public/operation-static.js', 'utf8');
 
 const block = (source, start, end) => {
   const startIndex = source.indexOf(start);
@@ -143,17 +144,26 @@ test('mutation readbacks use and cross-check the resource id returned by POST', 
   const approval = block(frontend, 'const approveOperationExecutionIntent', 'const recordOperationExecutionEvidence');
   const priceExecution = block(frontend, 'const recordOperationExecutionEvidence', 'const submitOperationExecutionEvidence');
   const generalExecution = block(frontend, 'const submitOperationExecutionEvidence', 'const recordOperationRoiEvidence');
-  const reconcile = block(frontend, 'const reconcileOperationExecutionReview', 'const closeOperationReviewModal');
+  const reconcile = block(operationStatic, 'const reconcileOperationExecutionReviewMutation', '    return {');
   const review = block(frontend, 'const submitOperationExecutionReview', 'const finishOperationAction');
 
-  assertMatches(approval, /res\.data\?\.id[\s\S]*?readOperationExecutionIntent\(responseIntentId\)/, 'approval must read the returned intent id');
-  for (const fn of [priceExecution, generalExecution, review]) {
+  assertMatches(
+    approval,
+    /res\.data\?\.id[\s\S]*?responseIntentId\s*!==\s*mutationContext\.intentId[\s\S]*?readOperationExecutionIntent\(responseIntentId,\s*mutationContext\.hotelId\)/,
+    'approval must cross-check and read the returned intent id in the frozen hotel context'
+  );
+  for (const fn of [priceExecution, generalExecution]) {
     assertMatches(fn, /res\.data\?\.id[\s\S]*?readOperationExecutionTask\(responseTaskId(?:,\s*executionHotelId)?\)/, 'task mutation must read the returned task id');
     assertMatches(fn, /responseTaskId\s*!==\s*taskId/, 'task mutation must reject a mismatched returned id');
   }
   assertMatches(
+    review,
+    /res\.data\?\.id[\s\S]*?responseTaskId\s*!==\s*mutationContext\.taskId[\s\S]*?readOperationExecutionTask\(responseTaskId,\s*mutationContext\.hotelId\)/,
+    'review must cross-check and read the returned task id in the frozen hotel context'
+  );
+  assertMatches(
     reconcile,
-    /const result = res\.data \|\| \{\};[\s\S]*Number\(result\.task_id \|\| 0\) !== taskId[\s\S]*readOperationExecutionTask\(taskId\)/,
-    'reconcile must cross-check returned task_id before exact task readback'
+    /const result = res\.data \|\| \{\};[\s\S]*Number\(result\.task_id \|\| 0\) !== mutationContext\.taskId[\s\S]*readOperationExecutionTask\(ctx\.request,\s*mutationContext\.taskId,\s*mutationContext\.hotelId\)/,
+    'reconcile must cross-check returned task_id before exact task and hotel readback'
   );
 });

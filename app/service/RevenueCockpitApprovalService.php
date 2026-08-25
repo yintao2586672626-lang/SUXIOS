@@ -221,6 +221,19 @@ final class RevenueCockpitApprovalService
             throw new RuntimeException('revenue_cockpit_strict_evidence_missing', 422);
         }
 
+        $dualClosure = is_array($overview['dual_ota_field_closure'] ?? null)
+            ? $overview['dual_ota_field_closure']
+            : [];
+        $closureDigest = strtolower(trim((string)($dualClosure['closure_digest'] ?? '')));
+        if ((string)($dualClosure['contract_version'] ?? '') !== 'dual_ota_field_closure.v1'
+            || (int)($dualClosure['tenant_id'] ?? 0) !== $tenantId
+            || (int)($dualClosure['hotel_id'] ?? 0) !== $hotelId
+            || (string)($dualClosure['business_date'] ?? '') !== $businessDate
+            || preg_match('/^[a-f0-9]{64}$/D', $closureDigest) !== 1
+        ) {
+            throw new RuntimeException('revenue_cockpit_dual_ota_current_receipt_scope_invalid', 422);
+        }
+
         $strictPlatforms = is_array($strictEvidence['platforms'] ?? null)
             ? $strictEvidence['platforms']
             : [];
@@ -233,8 +246,14 @@ final class RevenueCockpitApprovalService
             $strictPlatform = is_array($strictPlatforms[$selectedPlatform] ?? null)
                 ? $strictPlatforms[$selectedPlatform]
                 : [];
+            $closurePlatform = is_array($dualClosure['platforms'][$selectedPlatform] ?? null)
+                ? $dualClosure['platforms'][$selectedPlatform]
+                : [];
             $rowIds = $this->positiveIds($strictPlatform['accepted_row_ids'] ?? []);
             $provenanceRowIds = $this->positiveIds($provenance['row_ids'] ?? []);
+            $currentReceiptRowIds = $this->positiveIds(
+                $closurePlatform['current_receipt_record_ids'] ?? []
+            );
             if ((string)($source['data_status'] ?? '') !== 'readback_verified'
                 || (string)($source['business_date'] ?? '') !== $businessDate
                 || (string)($source['actual_business_date'] ?? '') !== $businessDate
@@ -247,6 +266,17 @@ final class RevenueCockpitApprovalService
             ) {
                 throw new RuntimeException(
                     'revenue_cockpit_' . $selectedPlatform . '_evidence_not_readback_verified',
+                    422
+                );
+            }
+            if ((string)($closurePlatform['status'] ?? '') !== 'ready'
+                || (string)($closurePlatform['revenue_analysis']['status'] ?? '') !== 'ready'
+                || ($closurePlatform['current_collection_blocker_status'] ?? null) !== null
+                || $currentReceiptRowIds === []
+                || array_diff($rowIds, $currentReceiptRowIds) !== []
+            ) {
+                throw new RuntimeException(
+                    'revenue_cockpit_' . $selectedPlatform . '_current_receipt_not_ready',
                     422
                 );
             }
@@ -275,6 +305,29 @@ final class RevenueCockpitApprovalService
                     'facts' => is_array($source['facts'] ?? null) ? $source['facts'] : [],
                     'fact_statuses' => is_array($source['fact_statuses'] ?? null) ? $source['fact_statuses'] : [],
                     'strict_evidence' => $strictPlatform,
+                ]),
+            ];
+            $refs[] = [
+                'role' => 'current_collection_receipt',
+                'source_kind' => 'formal_record',
+                'table' => 'online_daily_data',
+                'row_ids' => $currentReceiptRowIds,
+                'platform' => $selectedPlatform,
+                'business_date' => $businessDate,
+                'fact_scope' => 'ota_current_collection_receipt',
+                'readback_verified' => true,
+                'verification_status' => 'readback_verified',
+                'fact_content_digest' => $this->digest([
+                    'closure_digest' => $closureDigest,
+                    'platform' => $selectedPlatform,
+                    'business_date' => $businessDate,
+                    'current_receipt_record_ids' => $currentReceiptRowIds,
+                    'latest_collection' => is_array($closurePlatform['latest_collection'] ?? null)
+                        ? $closurePlatform['latest_collection']
+                        : [],
+                    'revenue_analysis' => is_array($closurePlatform['revenue_analysis'] ?? null)
+                        ? $closurePlatform['revenue_analysis']
+                        : [],
                 ]),
             ];
         }

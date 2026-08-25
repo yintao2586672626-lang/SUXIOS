@@ -16,7 +16,7 @@ const helpers = context.window.SUXI_REVENUE_AI_STATIC;
 const dataHealthHelpers = context.window.SUXI_DATA_HEALTH_STATIC;
 const indexHtml = readFileSync('public/index.html', 'utf8');
 const systemStatic = readFileSync('public/system-static.js', 'utf8');
-const appMain = `${readFileSync('public/components/system/app-main-components.js', 'utf8')}\n${readFileSync('public/app-main.js', 'utf8')}`;
+const appMain = `${readFileSync('public/components/system/app-main-components.js', 'utf8')}\n${readFileSync('public/operation-static.js', 'utf8')}\n${readFileSync('public/app-main.js', 'utf8')}`;
 const appTemplate = readFileSync('resources/frontend/app-template.html', 'utf8');
 const aiDailyReportFragment = readFileSync('resources/frontend/templates/fragments/16-page-ai-daily-report.html', 'utf8');
 const routeApp = readFileSync('route/app.php', 'utf8');
@@ -3337,7 +3337,8 @@ test('daily revenue cockpit shows verified zero, withholds unverified zero, and 
     ...ready(['revenue', 'orders', 'room_nights', 'list_exposure', 'detail_exposure', 'flow_rate_percent', 'submit_rate_percent', 'cancellation_rate_percent']),
     adr: { status: 'derived_verified', formula: 'ota_room_revenue / ota_room_nights' },
   };
-  const strictPlatform = (rowIds) => ({
+  const strictPlatform = (rowIds, businessDate) => ({
+    business_date: businessDate,
     source_strict_readback: true,
     accepted_row_ids: rowIds,
     rejected_row_ids: [],
@@ -3360,9 +3361,10 @@ test('daily revenue cockpit shows verified zero, withholds unverified zero, and 
       tenant_id: 9,
       hotel_id: 80,
       business_date: date,
+      platform: 'all_ota',
       platforms: {
-        ctrip: strictPlatform([101, 102]),
-        meituan: strictPlatform([201]),
+        ctrip: strictPlatform([101, 102], date),
+        meituan: strictPlatform([201], date),
       },
     },
     three_source_fact_layer: {
@@ -3485,6 +3487,37 @@ test('daily revenue cockpit shows verified zero, withholds unverified zero, and 
     code: 200,
     data: overviewFor('2026-08-18', 200, 300),
   }, { hotelId: 80, businessDate: '2026-08-20', platform: 'all_ota' }).ok, false);
+  const partialStrictOverview = overviewFor('2026-08-20', 200, 300);
+  partialStrictOverview.cockpit_strict_evidence.platform = 'meituan';
+  partialStrictOverview.cockpit_strict_evidence.platforms.meituan = {
+    ...partialStrictOverview.cockpit_strict_evidence.platforms.meituan,
+    business_date: '2026-08-20',
+    source_strict_readback: false,
+    accepted_row_ids: [201],
+    rejected_row_ids: [202],
+    metrics: {
+      ...partialStrictOverview.cockpit_strict_evidence.platforms.meituan.metrics,
+      revenue: {
+        strict_readback: false,
+        accepted_row_ids: [],
+        rejected_row_ids: [202],
+      },
+      list_exposure: {
+        strict_readback: true,
+        accepted_row_ids: [201],
+        rejected_row_ids: [],
+      },
+    },
+  };
+  assert.equal(helpers.resolveRevenueCockpitOverviewResponse({
+    code: 200,
+    data: partialStrictOverview,
+  }, { hotelId: 80, businessDate: '2026-08-20', platform: 'meituan' }).ok, true);
+  partialStrictOverview.cockpit_strict_evidence.platforms.meituan.accepted_row_ids = [];
+  assert.equal(helpers.resolveRevenueCockpitOverviewResponse({
+    code: 200,
+    data: partialStrictOverview,
+  }, { hotelId: 80, businessDate: '2026-08-20', platform: 'meituan' }).ok, false);
   assert.equal(helpers.resolveRevenueCockpitScopeResponse({
     code: 200,
     data: {
@@ -3931,7 +3964,7 @@ test('daily revenue cockpit template exposes unified context, evidence, download
   assert.match(cockpitRuntime, /buildRevenueCockpitCsv/);
   assert.match(appMain, /loadRevenueCockpitSnapshot/);
   assert.match(cockpitRuntime, /buildRevenueCockpitOverviewEndpoint/);
-  assert.match(cockpitRuntime, /cockpit:\s*'1'/);
+  assert.match(cockpitRuntime, /cockpit:\s*['"]1['"]/);
   assert.match(appMain, /saveRevenueDecisionSnapshotWithReadback/);
   assert.match(appMain, /restoreRevenueDecisionSnapshotWithReadback/);
   assert.match(appMain, /createRevenueOpportunityPendingApprovalWithReadback/);
@@ -3983,6 +4016,11 @@ test('daily revenue cockpit template exposes unified context, evidence, download
   assert.match(appMain, /自动审批\/调价\/OTA 写入：否/);
   assert.match(systemStatic, /name: '可信收益分析', path: 'trusted-revenue-analysis'/);
   assert.match(appMain, /item\?\.path === 'trusted-revenue-analysis'/);
+  assert.match(appMain, /SUXI_INITIAL_AGENT_CONTEXT_OVERRIDE/);
+  assert.match(appMain, /const agentTab = ref\(initialAgentTabOverride \|\| 'overview'\)/);
+  assert.match(appMain, /const revenueAgentTab = ref\(initialRevenueAgentTabOverride \|\| 'analysis'\)/);
+  assert.match(appMain, /visibleAgentTabKeys\.includes\(agentTab\.value\)/);
+  assert.match(appMain, /nextTick\(\(\) => switchAgentTab\('revenue'\)\)/);
   assert.match(appMain, /sourcePath: 'trusted-revenue-analysis', overrides: \{ name: '可信收益分析' \}/);
   assert.ok(
     routeApp.indexOf("Route::post('/cockpit/decision-snapshots/:id/pending-approval'")

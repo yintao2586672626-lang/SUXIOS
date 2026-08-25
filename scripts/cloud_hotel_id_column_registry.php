@@ -140,6 +140,7 @@ function cloudHotelIdColumnRegistry(): array
         ['hotel_automation_lifecycles', 'system_hotel_id', 'canonical_foreign_key'],
         ['hotel_collection_quality_judgments', 'system_hotel_id', 'canonical_foreign_key'],
         ['operating_opportunity_runs', 'system_hotel_id', 'canonical_foreign_key'],
+        ['revenue_decision_snapshots', 'system_hotel_id', 'canonical_foreign_key'],
         ['manager_capability_cases', 'hotel_id', 'hotel_id'],
         ['manager_capability_score_snapshots', 'hotel_id', 'hotel_id'],
         ['manager_capability_case_adjustments', 'hotel_id', 'hotel_id'],

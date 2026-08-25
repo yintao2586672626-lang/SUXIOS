@@ -198,6 +198,10 @@ $targetDateReadbackCount = $taskId > 0
     ? (int)Db::name('online_daily_data')
         ->where('sync_task_id', $taskId)
         ->where('data_source_id', $sourceId)
+        ->where('tenant_id', $sourceTenantId)
+        ->where('system_hotel_id', $sourceHotelId)
+        ->where('platform', $sourcePlatform)
+        ->where('source', $sourcePlatform)
         ->where('data_date', $dataDate)
         ->where('data_period', $dataPeriod)
         ->where('readback_verified', 1)
@@ -224,7 +228,8 @@ $exactReadbackVerified = ($receipt['readback_verified'] ?? false) === true
     && (string)($receipt['data_period'] ?? '') === $dataPeriod
     && $targetRowIds !== []
     && (int)($receipt['readback_count'] ?? 0) === count($targetRowIds)
-    && $receiptRowReadbackCount === count($targetRowIds);
+    && $receiptRowReadbackCount === count($targetRowIds)
+    && $targetDateReadbackCount === count($targetRowIds);
 $summary = [
     'status' => (string)($result['status'] ?? ''),
     'message' => (string)($result['message'] ?? ''),

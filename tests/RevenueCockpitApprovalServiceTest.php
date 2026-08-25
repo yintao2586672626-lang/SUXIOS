@@ -47,9 +47,18 @@ final class RevenueCockpitApprovalServiceTest extends TestCase
         self::assertSame('readback_verified', $result['persistence_status']);
         self::assertFalse($result['execution_task_created']);
         self::assertFalse($result['external_action_triggered']);
-        self::assertSame(['ctrip', 'meituan', 'dingdandao_pms'], array_column($captured['refs'], 'platform'));
-        self::assertSame([[101, 102], [201], [301]], array_column($captured['refs'], 'row_ids'));
-        self::assertSame(['ota_channel', 'ota_channel', 'whole_hotel_accommodation'], array_column($captured['refs'], 'fact_scope'));
+        self::assertSame(
+            ['ctrip', 'ctrip', 'meituan', 'meituan', 'dingdandao_pms'],
+            array_column($captured['refs'], 'platform')
+        );
+        self::assertSame(
+            [[101, 102], [101, 102], [201], [201], [301]],
+            array_column($captured['refs'], 'row_ids')
+        );
+        self::assertSame(
+            ['ota_channel', 'ota_current_collection_receipt', 'ota_channel', 'ota_current_collection_receipt', 'whole_hotel_accommodation'],
+            array_column($captured['refs'], 'fact_scope')
+        );
         self::assertTrue($result['boundaries']['human_approval_required']);
         self::assertFalse($result['boundaries']['automatic_execution']);
         self::assertFalse($result['boundaries']['ota_write']);
@@ -79,6 +88,42 @@ final class RevenueCockpitApprovalServiceTest extends TestCase
         $this->expectException(RuntimeException::class);
         $this->expectExceptionMessage('revenue_cockpit_meituan_evidence_not_readback_verified');
         $service->createFromOverview($overview, 10, 20, '2026-08-20', 'meituan', 7);
+    }
+
+    public function testLatestSameDayCollectionFailureCannotBorrowAnOlderStrictSuccess(): void
+    {
+        $overview = $this->overview();
+        $overview['dual_ota_field_closure']['platforms']['meituan']['status'] = 'partial';
+        $overview['dual_ota_field_closure']['platforms']['meituan']['current_collection_blocker_status'] = 'collection_failed';
+        $overview['dual_ota_field_closure']['platforms']['meituan']['current_receipt_record_ids'] = [];
+        $overview['dual_ota_field_closure']['platforms']['meituan']['revenue_analysis']['status'] = 'blocked';
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('revenue_cockpit_meituan_current_receipt_not_ready');
+        (new RevenueCockpitApprovalService(static fn(): array => []))->createFromOverview(
+            $overview,
+            10,
+            20,
+            '2026-08-20',
+            'meituan',
+            7
+        );
+    }
+
+    public function testStrictRowsMustBelongToTheCurrentAcceptedReceipt(): void
+    {
+        $overview = $this->overview();
+        $overview['dual_ota_field_closure']['platforms']['meituan']['current_receipt_record_ids'] = [299];
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('revenue_cockpit_meituan_current_receipt_not_ready');
+        (new RevenueCockpitApprovalService())->evidenceContext(
+            $overview,
+            10,
+            20,
+            '2026-08-20',
+            'meituan'
+        );
     }
 
     public function testApprovalUsesMetricStrictRowsWhenTheSourceSummaryRowIsDifferent(): void
@@ -181,7 +226,14 @@ final class RevenueCockpitApprovalServiceTest extends TestCase
         self::assertSame('approved', $result['status']);
         self::assertSame(92, $result['execution_intent']['id']);
         self::assertSame(1, $result['execution_task_count']);
-        self::assertSame(['meituan', 'dingdandao_pms'], array_column($captured['refs'], 'platform'));
+        self::assertSame(
+            ['meituan', 'meituan', 'dingdandao_pms'],
+            array_column($captured['refs'], 'platform')
+        );
+        self::assertSame(
+            ['ota_channel', 'ota_current_collection_receipt', 'whole_hotel_accommodation'],
+            array_column($captured['refs'], 'fact_scope')
+        );
         self::assertTrue($result['boundaries']['read_only']);
         self::assertFalse($result['boundaries']['automatic_approval']);
         self::assertFalse($result['boundaries']['ota_write']);
@@ -345,7 +397,7 @@ final class RevenueCockpitApprovalServiceTest extends TestCase
         );
     }
 
-    public function testSameOpportunityGetsNewIdentityWhenDecisionEvidenceChanges(): void
+    public function testSameOpportunityKeepsIdentityAcrossDecisionSnapshotRefresh(): void
     {
         $lifecycle = new OperationActionLifecycleService();
         $base = [
@@ -378,34 +430,17 @@ final class RevenueCockpitApprovalServiceTest extends TestCase
             'decision_snapshot_digest' => str_repeat('a', 64),
             'opportunity_digest' => str_repeat('1', 64),
         ]), 7);
-        $firstIdentity = $lifecycle->actionIdentityDigest($first);
-        $changes = [
-            'opportunity digest' => [
-                'opportunity_digest' => str_repeat('2', 64),
-            ],
-            'decision snapshot id' => [
-                'decision_snapshot_id' => 88,
-            ],
-            'decision snapshot digest' => [
-                'decision_snapshot_digest' => str_repeat('b', 64),
-            ],
-        ];
+        $refreshed = $lifecycle->buildRevenueCockpitObservationCard(array_merge($base, [
+            'source_record_id' => 202,
+            'decision_snapshot_id' => 88,
+            'decision_snapshot_digest' => str_repeat('b', 64),
+            'opportunity_digest' => str_repeat('2', 64),
+        ]), 8);
 
-        foreach ($changes as $label => $change) {
-            $changed = $lifecycle->buildRevenueCockpitObservationCard(
-                array_merge($base, [
-                    'decision_snapshot_id' => 77,
-                    'decision_snapshot_digest' => str_repeat('a', 64),
-                    'opportunity_digest' => str_repeat('1', 64),
-                ], $change),
-                7
-            );
-            self::assertNotSame(
-                $firstIdentity,
-                $lifecycle->actionIdentityDigest($changed),
-                $label . ' must produce a new action identity'
-            );
-        }
+        self::assertSame(
+            $lifecycle->actionIdentityDigest($first),
+            $lifecycle->actionIdentityDigest($refreshed)
+        );
     }
 
     public function testSingleRecommendationRequiresCompleteDecisionSnapshotLineage(): void
@@ -474,6 +509,24 @@ final class RevenueCockpitApprovalServiceTest extends TestCase
             'rejected_row_ids' => [],
             'strict_readback' => true,
         ];
+        $closurePlatform = static fn(array $rowIds): array => [
+            'status' => 'ready',
+            'identity_status' => 'verified',
+            'business_date' => '2026-08-20',
+            'latest_collection' => [
+                'status' => 'accepted',
+                'claim_allowed' => true,
+                'exact_run_readback_status' => 'verified',
+                'receipt_record_ids' => $rowIds,
+                'accepted_record_ids' => $rowIds,
+            ],
+            'current_collection_blocker_status' => null,
+            'current_receipt_record_ids' => $rowIds,
+            'revenue_analysis' => [
+                'status' => 'ready',
+                'blocked_reason' => null,
+            ],
+        ];
         return [
             'hotel_id' => 20,
             'business_date' => '2026-08-20',
@@ -505,6 +558,17 @@ final class RevenueCockpitApprovalServiceTest extends TestCase
                             'detail_exposure' => $metricEvidence([201]),
                         ],
                     ],
+                ],
+            ],
+            'dual_ota_field_closure' => [
+                'contract_version' => 'dual_ota_field_closure.v1',
+                'tenant_id' => 10,
+                'hotel_id' => 20,
+                'business_date' => '2026-08-20',
+                'closure_digest' => str_repeat('d', 64),
+                'platforms' => [
+                    'ctrip' => $closurePlatform([101, 102]),
+                    'meituan' => $closurePlatform([201]),
                 ],
             ],
             'three_source_fact_layer' => [

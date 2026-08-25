@@ -1008,7 +1008,9 @@
                 ? normalizeCanonicalPage(requestedInitialPage)
                 : '';
             const requestedInitialPmsContext = window.SUXI_INITIAL_PMS_CONTEXT_OVERRIDE;
+            const requestedInitialAgentContext = window.SUXI_INITIAL_AGENT_CONTEXT_OVERRIDE;
             delete window.SUXI_INITIAL_PMS_CONTEXT_OVERRIDE;
+            delete window.SUXI_INITIAL_AGENT_CONTEXT_OVERRIDE;
             const initialPmsHotelOverride = initialPageOverride === 'pms-operating-data'
                 && /^\d+$/.test(String(requestedInitialPmsContext?.hotelId || '').trim())
                 ? String(requestedInitialPmsContext.hotelId).trim()
@@ -1016,6 +1018,14 @@
             const initialPmsTargetDateOverride = initialPageOverride === 'pms-operating-data'
                 && /^\d{4}-\d{2}-\d{2}$/.test(String(requestedInitialPmsContext?.targetDate || '').trim())
                 ? String(requestedInitialPmsContext.targetDate).trim()
+                : '';
+            const initialAgentTabOverride = initialPageOverride === 'agent-center'
+                && ['overview', 'revenue', 'logs'].includes(String(requestedInitialAgentContext?.agentTab || '').trim())
+                ? String(requestedInitialAgentContext.agentTab).trim()
+                : '';
+            const initialRevenueAgentTabOverride = initialAgentTabOverride === 'revenue'
+                && ['analysis', 'suggestions', 'config'].includes(String(requestedInitialAgentContext?.revenueAgentTab || '').trim())
+                ? String(requestedInitialAgentContext.revenueAgentTab).trim()
                 : '';
             const currentPage = ref(initialPageOverride || 'compass');
             const SUPER_ADMIN_ONLY_PAGES = new Set([
@@ -8372,7 +8382,7 @@
             let revenueAiOverviewRequestSeq = 0;
             const revenueAiOverviewRequestPromises = new Map();
             const revenueAiStaticScript = 'revenue-ai-static.js';
-            const revenueAiStaticVersion = '20260824-operation-action-lifecycle-he2fbe8ac71';
+            const revenueAiStaticVersion = '20260824-integrated-strict-readback-ha118a79b6b';
             const revenueAiStaticNotLoadedText = 'Revenue AI 展示工具尚未加载';
             const revenueAiStaticNotLoadedClass = 'border-slate-200 bg-slate-100 text-slate-600';
             const revenueAiStaticReady = ref(!!window.SUXI_REVENUE_AI_STATIC);
@@ -16920,6 +16930,12 @@
                     const alreadyOpen = currentPage.value === 'agent-center'
                         && agentTab.value === 'revenue'
                         && revenueAgentTab.value === 'analysis';
+                    if (document.documentElement.dataset.suxiRenderPhase !== 'full') {
+                        window.SUXI_INITIAL_AGENT_CONTEXT_OVERRIDE = {
+                            agentTab: 'revenue',
+                            revenueAgentTab: 'analysis',
+                        };
+                    }
                     agentTab.value = 'revenue';
                     revenueAgentTab.value = 'analysis';
                     currentPage.value = 'agent-center';
@@ -23052,29 +23068,59 @@
             const platformSyncActionText = (message) => autoFetchStatic.value?.platformSyncActionText?.(message) || '';
 
             const operationStaticScript = 'operation-static.js';
-            const operationStaticScriptVersion = '20260824-operation-action-lifecycle-h7454a7d67c';
+            const operationStaticScriptVersion = '20260824-operation-hotel-freeze-h7ae331f1d4';
+            const operationStaticIntegrityKeys = [
+                'operationAlertFilters',
+                'operationStrategyTypes',
+                'buildOperatingGoalContractPayload',
+                'buildOpeningAiOutputResult',
+                'captureOperationExecutionMutationContext',
+                'readOperationExecutionIntent',
+                'cancelOperationExecutionMutation',
+                'reconcileOperationExecutionReviewMutation',
+            ];
+            const operationStaticMissingIntegrityKeys = staticConfig => operationStaticIntegrityKeys
+                .filter(key => staticConfig?.[key] === undefined || staticConfig?.[key] === null);
             let operationStaticLoadPromise = null;
             const loadOperationStatic = () => {
                 const currentStatic = window.SUXI_OPERATION_STATIC;
-                if (currentStatic && typeof currentStatic === 'object') {
+                if (currentStatic
+                    && typeof currentStatic === 'object'
+                    && operationStaticMissingIntegrityKeys(currentStatic).length === 0
+                ) {
                     return Promise.resolve(currentStatic);
                 }
                 if (operationStaticLoadPromise) {
                     return operationStaticLoadPromise;
                 }
                 operationStaticLoadPromise = new Promise((resolve, reject) => {
-                    const script = document.createElement('script');
-                    script.src = operationStaticScript + '?v=' + operationStaticScriptVersion;
-                    script.onload = () => {
-                        const loadedStatic = window.SUXI_OPERATION_STATIC;
-                        if (loadedStatic && typeof loadedStatic === 'object') {
-                            resolve(loadedStatic);
-                            return;
-                        }
-                        reject(new Error('缺少运营管理静态配置：operation-static.js 未加载'));
+                    const appendOperationStaticScript = (repair = false) => {
+                        const script = document.createElement('script');
+                        const repairQuery = repair ? `&repair=${Date.now()}` : '';
+                        script.src = operationStaticScript + '?v=' + operationStaticScriptVersion + repairQuery;
+                        script.onload = () => {
+                            const loadedStatic = window.SUXI_OPERATION_STATIC;
+                            const missingKeys = operationStaticMissingIntegrityKeys(loadedStatic);
+                            if (loadedStatic && typeof loadedStatic === 'object' && missingKeys.length === 0) {
+                                resolve(loadedStatic);
+                                return;
+                            }
+                            if (!repair) {
+                                appendOperationStaticScript(true);
+                                return;
+                            }
+                            reject(new Error(`运营管理静态配置缺失：${missingKeys.join('、') || 'operation-static.js 未加载'}`));
+                        };
+                        script.onerror = () => {
+                            if (!repair) {
+                                appendOperationStaticScript(true);
+                                return;
+                            }
+                            reject(new Error('缺少运营管理静态配置：operation-static.js 未加载'));
+                        };
+                        document.head.appendChild(script);
                     };
-                    script.onerror = () => reject(new Error('缺少运营管理静态配置：operation-static.js 未加载'));
-                    document.head.appendChild(script);
+                    appendOperationStaticScript();
                 }).catch((error) => {
                     operationStaticLoadPromise = null;
                     throw error;
@@ -23791,6 +23837,7 @@
             });
             const operationReviewModalOpen = ref(false);
             const operationReviewModalItem = ref(null);
+            const operationReviewMutationContext = ref(null);
             const operationReviewForm = ref({
                 status: 'observing',
                 summary: '',
@@ -29503,53 +29550,42 @@
                 }
             };
 
-            const readOperationExecutionIntent = async (intentId) => {
-                const normalizedId = Number(intentId || 0);
-                if (!Number.isInteger(normalizedId) || normalizedId <= 0) {
-                    throw new Error('执行意图回读ID无效');
-                }
-                const res = await apiRequest(`/operation/execution-intents/${intentId}`);
-                if (res.code !== 200) throw new Error(res.message || '执行意图回读失败');
-                const intent = res.data || {};
-                if (Number(intent.id || 0) !== normalizedId) {
-                    throw new Error('执行意图回读资源不一致');
-                }
-                return intent;
-            };
-
             const operationExecutionHotelId = (item) => Number(
-                item?.hotel_id
+                window.SUXI_OPERATION_STATIC?.operationExecutionHotelId?.(item)
+                || item?.hotel_id
                 || item?.system_hotel_id
                 || item?.execution?.hotel_id
                 || item?.execution?.system_hotel_id
+                || item?.action_management?.action_card?.hotel?.hotel_id
+                || item?.target_value?.action_card?.hotel?.hotel_id
+                || item?.action_management?.action_card?.scope?.hotel_id
+                || item?.target_value?.action_card?.scope?.hotel_id
                 || 0
             );
-
-            const readOperationExecutionTask = async (taskId, expectedHotelId = 0) => {
-                const normalizedId = Number(taskId || 0);
-                if (!Number.isInteger(normalizedId) || normalizedId <= 0) {
-                    throw new Error('执行任务回读ID无效');
-                }
-                const normalizedHotelId = Number(expectedHotelId || 0);
-                const params = new URLSearchParams();
-                if (normalizedHotelId > 0) {
-                    params.set('hotel_id', String(normalizedHotelId));
-                    params.set('system_hotel_id', String(normalizedHotelId));
-                }
-                const query = params.toString() ? `?${params.toString()}` : '';
-                const res = await apiRequest(`/operation/execution-tasks/${taskId}${query}`, normalizedHotelId > 0
-                    ? { businessContext: { hotelId: normalizedHotelId } }
-                    : {});
-                if (res.code !== 200) throw new Error(res.message || '执行任务回读失败');
-                const task = res.data || {};
-                if (Number(task.id || 0) !== normalizedId) {
-                    throw new Error('执行任务回读资源不一致');
-                }
-                if (normalizedHotelId > 0 && operationExecutionHotelId(task) !== normalizedHotelId) {
-                    throw new Error('执行任务回读酒店身份不一致');
-                }
-                return task;
-            };
+            const operationLifecycleStatic = key => requireOperationStatic(window.SUXI_OPERATION_STATIC, key);
+            const captureOperationExecutionMutationContext = (item, options = {}) => operationLifecycleStatic('captureOperationExecutionMutationContext')(
+                item,
+                Number(operationFilters.value.hotel_id || 0),
+                options
+            );
+            const assertOperationExecutionMutationContextCurrent = (context, item) => operationLifecycleStatic('assertOperationExecutionMutationContextCurrent')(
+                context,
+                item,
+                Number(operationFilters.value.hotel_id || 0)
+            );
+            const assertOperationExecutionMutationDigestReadback = (entity, context, allowPrevious = false) => operationLifecycleStatic('assertOperationExecutionMutationDigestReadback')(
+                entity,
+                context,
+                allowPrevious
+            );
+            const readOperationExecutionIntent = async (intentId, expectedHotelId = 0) => requireOperationStatic(
+                await loadOperationStatic(),
+                'readOperationExecutionIntent'
+            )(apiRequest, intentId, expectedHotelId);
+            const readOperationExecutionTask = async (taskId, expectedHotelId = 0) => requireOperationStatic(
+                await loadOperationStatic(),
+                'readOperationExecutionTask'
+            )(apiRequest, taskId, expectedHotelId);
 
             const operationExecutionEvidenceCount = (task = {}) => Math.max(
                 Array.isArray(task.evidence) ? task.evidence.length : 0,
@@ -40280,7 +40316,7 @@
 
             // ==================== AI Agent 中心 ====================
             // Agent Tab
-            const agentTab = ref('overview');
+            const agentTab = ref(initialAgentTabOverride || 'overview');
             const createEmptyAgentOverview = () => ({
                 agents: {},
                 recent_logs: []
@@ -43827,7 +43863,7 @@
             const agentConfigs = ref(createDefaultAgentConfigs());
 
             // 收益管理Agent
-            const revenueAgentTab = ref('analysis');
+            const revenueAgentTab = ref(initialRevenueAgentTabOverride || 'analysis');
             const priceSuggestions = ref([]);
             const createPriceSuggestionFilter = () => {
                 const today = formatDate(new Date());
@@ -46439,6 +46475,12 @@
 
             const switchAgentTab = async (tabKey) => {
                 if (!agentTabs.value.some(tab => tab.key === tabKey)) return;
+                if (document.documentElement.dataset.suxiRenderPhase !== 'full') {
+                    window.SUXI_INITIAL_AGENT_CONTEXT_OVERRIDE = {
+                        agentTab: tabKey,
+                        revenueAgentTab: tabKey === 'revenue' ? 'analysis' : revenueAgentTab.value,
+                    };
+                }
                 agentTab.value = tabKey;
                 if (tabKey === 'overview') {
                     await loadAgentOverview();
@@ -53082,6 +53124,19 @@
                             applyDefaultReportHotel({ suppressDashboardRefresh: true });
                             isLoggedIn.value = true;
                             loadData();
+                            if (currentPage.value === 'agent-center') {
+                                if (!guardSuperAdminPageAccess('agent-center', { notify: false })) {
+                                    agentTab.value = 'overview';
+                                } else {
+                                    const visibleAgentTabKeys = agentTabs.value.map(tab => tab.key);
+                                    if (!visibleAgentTabKeys.includes(agentTab.value)) {
+                                        agentTab.value = visibleAgentTabKeys[0] || 'revenue';
+                                    }
+                                    if (agentTab.value === 'revenue') {
+                                        void nextTick(() => switchAgentTab('revenue'));
+                                    }
+                                }
+                            }
                             if (['wechat-notification', 'manual-notifications'].includes(currentPage.value)
                                 && !manualNotificationForm.value.hotel_id
                             ) {

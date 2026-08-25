@@ -42,28 +42,21 @@ test('operator sync reads identity proof from bounded full Ctrip captures', () =
 
 test('operator sync reports and exits from the exact run readback instead of aggregate task counts', () => {
   assert.match(source, /\$receipt = is_array\(\$taskStats\['run_readback'\]/);
-  assert.match(source, /->where\('data_period', \$dataPeriod\)/);
-  assert.match(source, /\$receiptRowReadbackCount = \$taskId > 0 && \$targetRowIds !== \[\]/);
-  assert.match(source, /->whereIn\('id', \$targetRowIds\)/);
-  assert.match(source, /->where\('system_hotel_id', \(int\)\(\$receipt\['system_hotel_id'\]/);
-  assert.match(source, /->where\('platform', \(string\)\(\$receipt\['platform'\]/);
-  assert.match(source, /\$exactReadbackVerified =/);
-  assert.match(source, /&& \$receiptRowReadbackCount === count\(\$targetRowIds\)/);
-  assert.doesNotMatch(source, /&& \$targetDateReadbackCount === count\(\$targetRowIds\)/);
-  assert.match(source, /'task_saved_count' =>/);
-  assert.match(source, /'target_saved_count' => count\(\$targetRowIds\)/);
-  assert.match(source, /'target_readback_count' => \$receiptRowReadbackCount/);
-  assert.match(source, /'target_date_readback_count' => \$targetDateReadbackCount/);
   assert.match(source, /->where\('tenant_id', \$sourceTenantId\)/);
   assert.match(source, /->where\('system_hotel_id', \$sourceHotelId\)/);
   assert.match(source, /->where\('platform', \$sourcePlatform\)/);
   assert.match(source, /->where\('source', \$sourcePlatform\)/);
   assert.match(source, /->where\('data_period', \$dataPeriod\)/);
+  assert.match(source, /\$receiptRowReadbackCount = \$taskId > 0 && \$targetRowIds !== \[\]/);
+  assert.match(source, /->whereIn\('id', \$targetRowIds\)/);
   assert.match(source, /\$exactReadbackVerified =/);
   assert.match(source, /\(int\)\(\$receipt\['system_hotel_id'\] \?\? 0\) === \$sourceHotelId/);
   assert.match(source, /\(string\)\(\$receipt\['platform'\] \?\? ''\)/);
+  assert.match(source, /&& \$receiptRowReadbackCount === count\(\$targetRowIds\)/);
+  assert.match(source, /&& \$targetDateReadbackCount === count\(\$targetRowIds\)/);
   assert.match(source, /'task_saved_count' =>/);
   assert.match(source, /'target_saved_count' => count\(\$targetRowIds\)/);
-  assert.match(source, /'target_readback_count' => \$targetDateReadbackCount/);
+  assert.match(source, /'target_readback_count' => \$receiptRowReadbackCount/);
+  assert.match(source, /'target_date_readback_count' => \$targetDateReadbackCount/);
   assert.match(source, /&& \$exactReadbackVerified \? 0 : 2/);
 });

@@ -380,6 +380,42 @@ final class RevenueAiControllerTest extends TestCase
         }
     }
 
+    public function testDecisionSnapshotChecksReviewPermissionBeforeStrictOverview(): void
+    {
+        $source = (string)file_get_contents(dirname(__DIR__) . '/app/controller/RevenueAi.php');
+        self::assertMatchesRegularExpression(
+            '/function createCockpitDecisionSnapshot\(\): Response[\s\S]*?assertRevenueAiHotelCapability\(\$hotelId, self::REVIEW_PERMISSION\);[\s\S]*?strictCockpitContext\(\$filters\)/',
+            $source
+        );
+
+        $controller = $this->controllerWithPermissions(['operation.execute']);
+        try {
+            $this->invokeNonPublic($controller, 'assertRevenueAiHotelCapability', [7, 'can_use_ai_decision']);
+            self::fail('Execution-only user unexpectedly received decision snapshot permission');
+        } catch (RuntimeException $e) {
+            self::assertSame(403, $e->getCode());
+            self::assertSame('revenue_ai_permission_denied:can_use_ai_decision', $e->getMessage());
+        }
+    }
+
+    public function testOpportunitySubmissionChecksExecutionPermissionBeforeStrictOverview(): void
+    {
+        $source = (string)file_get_contents(dirname(__DIR__) . '/app/controller/RevenueAi.php');
+        self::assertMatchesRegularExpression(
+            '/function createCockpitOpportunityPendingApproval\(int \$id = 0\): Response[\s\S]*?assertRevenueAiHotelCapability\(\$hotelId, self::EXECUTION_PERMISSION\);[\s\S]*?strictCockpitContext\(\$filters\)/',
+            $source
+        );
+    }
+
+    public function testCockpitOverviewAttachesAndDecisionWritesRecheckDualOtaCurrentReceipt(): void
+    {
+        $source = (string)file_get_contents(dirname(__DIR__) . '/app/controller/RevenueAi.php');
+        self::assertStringContainsString("(new DualOtaFieldClosureService())->build(", $source);
+        self::assertStringContainsString("'dual_ota_field_closure'", $source);
+        self::assertSame(3, substr_count($source, '$this->assertDualOtaCurrentReceiptReady('));
+        self::assertStringContainsString('_current_receipt_not_ready', $source);
+    }
+
     /** @param array<int, string> $permissions */
     private function controllerWithPermissions(array $permissions): RevenueAi
     {

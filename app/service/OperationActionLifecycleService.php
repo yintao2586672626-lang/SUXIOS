@@ -882,56 +882,128 @@ final class OperationActionLifecycleService
         if ($tenantId <= 0 || $hotelId <= 0 || $intentId <= 0) {
             throw new InvalidArgumentException('运营行动生命周期身份无效');
         }
-        $latest = Db::name(self::EVENT_TABLE)
-            ->where('tenant_id', $tenantId)
-            ->where('hotel_id', $hotelId)
-            ->where('intent_id', $intentId)
-            ->order('sequence_no', 'desc')
-            ->lock(true)
-            ->find();
-        $sequence = (int)($latest['sequence_no'] ?? 0) + 1;
-        $previousDigest = strtolower(trim((string)($latest['content_digest'] ?? '')));
-        if ($fromStatus !== '' && is_array($latest)
-            && (string)($latest['to_status'] ?? '') !== $fromStatus
-        ) {
-            throw new InvalidArgumentException('运营行动生命周期已变化，请刷新后重试');
-        }
-        $createdAt = date('Y-m-d H:i:s');
-        $digestPayload = [
-            'tenant_id' => $tenantId,
-            'hotel_id' => $hotelId,
-            'intent_id' => $intentId,
-            'task_id' => max(0, $taskId),
-            'sequence_no' => $sequence,
-            'event_type' => trim($eventType),
-            'from_status' => $fromStatus,
-            'to_status' => $toStatus,
-            'actor_id' => max(0, $actorId),
-            'event_payload' => $payload,
-            'previous_digest' => $previousDigest,
-            'created_at' => $createdAt,
-        ];
-        $digest = hash('sha256', $this->canonicalJson($digestPayload));
-        $id = (int)Db::name(self::EVENT_TABLE)->insertGetId([
-            'tenant_id' => $tenantId,
-            'hotel_id' => $hotelId,
-            'intent_id' => $intentId,
-            'task_id' => max(0, $taskId),
-            'sequence_no' => $sequence,
-            'event_type' => trim($eventType),
-            'from_status' => $fromStatus,
-            'to_status' => $toStatus,
-            'actor_id' => max(0, $actorId),
-            'event_payload_json' => $this->canonicalJson($payload),
-            'previous_digest' => $previousDigest,
-            'content_digest' => $digest,
-            'created_at' => $createdAt,
-        ]);
-        $row = Db::name(self::EVENT_TABLE)->where('id', $id)->find();
-        if (!is_array($row) || !hash_equals($digest, strtolower(trim((string)($row['content_digest'] ?? ''))))) {
-            throw new RuntimeException('运营行动生命周期事件保存后回读失败');
-        }
-        return $this->normalizeEvent($row);
+        $eventType = trim($eventType);
+        $taskId = max(0, $taskId);
+        $actorId = max(0, $actorId);
+        $payloadJson = $this->canonicalJson($payload);
+
+        return Db::transaction(function () use (
+            $tenantId,
+            $hotelId,
+            $intentId,
+            $taskId,
+            $fromStatus,
+            $toStatus,
+            $eventType,
+            $actorId,
+            $payload,
+            $payloadJson
+        ): array {
+            $lockedIntent = Db::name('operation_execution_intents')
+                ->where('id', $intentId)
+                ->where('tenant_id', $tenantId)
+                ->where('hotel_id', $hotelId)
+                ->lock(true)
+                ->find();
+            if (!is_array($lockedIntent)) {
+                throw new RuntimeException('运营行动执行意图不存在或范围已变化');
+            }
+
+            $existingEvents = array_map(
+                [$this, 'normalizeEvent'],
+                Db::name(self::EVENT_TABLE)
+                    ->where('tenant_id', $tenantId)
+                    ->where('hotel_id', $hotelId)
+                    ->where('intent_id', $intentId)
+                    ->order('sequence_no', 'asc')
+                    ->lock(true)
+                    ->select()
+                    ->toArray()
+            );
+            $integrity = $this->verifyEventChain($existingEvents, $tenantId, $hotelId, $intentId);
+            if ($integrity['status'] === 'invalid') {
+                throw new RuntimeException('运营行动生命周期事件链损坏：' . $integrity['failure_reason']);
+            }
+            $latest = $existingEvents === [] ? null : $existingEvents[count($existingEvents) - 1];
+
+            $replayed = Db::name(self::EVENT_TABLE)
+                ->where('tenant_id', $tenantId)
+                ->where('hotel_id', $hotelId)
+                ->where('intent_id', $intentId)
+                ->where('task_id', $taskId)
+                ->where('event_type', $eventType)
+                ->where('from_status', $fromStatus)
+                ->where('to_status', $toStatus)
+                ->where('actor_id', $actorId)
+                ->where('event_payload_json', $payloadJson)
+                ->order('sequence_no', 'desc')
+                ->find();
+            if (is_array($replayed)) {
+                return $this->normalizeEvent($replayed);
+            }
+
+            if (is_array($latest)) {
+                if ($fromStatus === '' || (string)($latest['to_status'] ?? '') !== $fromStatus) {
+                    throw new InvalidArgumentException('运营行动生命周期已变化，请刷新后重试');
+                }
+            } elseif ($fromStatus !== '') {
+                throw new InvalidArgumentException('运营行动生命周期尚未初始化');
+            }
+
+            $sequence = (int)($latest['sequence_no'] ?? 0) + 1;
+            $previousDigest = strtolower(trim((string)($latest['content_digest'] ?? '')));
+            $createdAt = date('Y-m-d H:i:s');
+            $digestPayload = [
+                'tenant_id' => $tenantId,
+                'hotel_id' => $hotelId,
+                'intent_id' => $intentId,
+                'task_id' => $taskId,
+                'sequence_no' => $sequence,
+                'event_type' => $eventType,
+                'from_status' => $fromStatus,
+                'to_status' => $toStatus,
+                'actor_id' => $actorId,
+                'event_payload' => $payload,
+                'previous_digest' => $previousDigest,
+                'created_at' => $createdAt,
+            ];
+            $digest = hash('sha256', $this->canonicalJson($digestPayload));
+            $id = (int)Db::name(self::EVENT_TABLE)->insertGetId([
+                'tenant_id' => $tenantId,
+                'hotel_id' => $hotelId,
+                'intent_id' => $intentId,
+                'task_id' => $taskId,
+                'sequence_no' => $sequence,
+                'event_type' => $eventType,
+                'from_status' => $fromStatus,
+                'to_status' => $toStatus,
+                'actor_id' => $actorId,
+                'event_payload_json' => $payloadJson,
+                'previous_digest' => $previousDigest,
+                'content_digest' => $digest,
+                'created_at' => $createdAt,
+            ]);
+            $row = Db::name(self::EVENT_TABLE)
+                ->where('id', $id)
+                ->where('tenant_id', $tenantId)
+                ->where('hotel_id', $hotelId)
+                ->where('intent_id', $intentId)
+                ->find();
+            $normalized = is_array($row) ? $this->normalizeEvent($row) : [];
+            $postAppendIntegrity = $this->verifyEventChain(
+                [...$existingEvents, $normalized],
+                $tenantId,
+                $hotelId,
+                $intentId
+            );
+            if ((int)($normalized['id'] ?? 0) !== $id
+                || !hash_equals($digest, strtolower(trim((string)($normalized['content_digest'] ?? ''))))
+                || $postAppendIntegrity['status'] !== 'verified'
+            ) {
+                throw new RuntimeException('运营行动生命周期事件保存后回读失败');
+            }
+            return $normalized;
+        });
     }
 
     /**
@@ -955,6 +1027,50 @@ final class OperationActionLifecycleService
         $this->assertSchemaReady();
         if ($reviewedBy <= 0) {
             throw new InvalidArgumentException('运营行动复盘必须由已登录用户主动确认');
+        }
+        return Db::transaction(function () use (
+            $intent,
+            $task,
+            $evidenceRows,
+            $resultStatus,
+            $resultSummary,
+            $reviewedBy,
+            $reviewedAt
+        ): array {
+        $tenantId = (int)($intent['tenant_id'] ?? 0);
+        $hotelId = (int)($intent['hotel_id'] ?? 0);
+        $intentId = (int)($intent['id'] ?? 0);
+        $taskId = (int)($task['id'] ?? 0);
+        if ($tenantId <= 0 || $hotelId <= 0 || $intentId <= 0 || $taskId <= 0
+            || (int)($task['tenant_id'] ?? 0) !== $tenantId
+            || (int)($task['hotel_id'] ?? 0) !== $hotelId
+            || (int)($task['intent_id'] ?? 0) !== $intentId
+        ) {
+            throw new InvalidArgumentException('运营行动统一复盘身份或任务范围无效');
+        }
+        $lockedIntent = Db::name('operation_execution_intents')
+            ->where('id', $intentId)
+            ->where('tenant_id', $tenantId)
+            ->where('hotel_id', $hotelId)
+            ->lock(true)
+            ->find();
+        if (!is_array($lockedIntent)) {
+            throw new RuntimeException('运营行动执行意图不存在或范围已变化');
+        }
+        $existingReviews = array_map(
+            [$this, 'normalizeReview'],
+            Db::name(self::REVIEW_TABLE)
+                ->where('tenant_id', $tenantId)
+                ->where('hotel_id', $hotelId)
+                ->where('intent_id', $intentId)
+                ->order('id', 'asc')
+                ->lock(true)
+                ->select()
+                ->toArray()
+        );
+        $reviewIntegrity = $this->verifyReviewChain($existingReviews, $tenantId, $hotelId, $intentId);
+        if ($reviewIntegrity['status'] === 'invalid') {
+            throw new RuntimeException('运营行动统一复盘链损坏：' . $reviewIntegrity['failure_reason']);
         }
         $card = $this->cardFromIntent($intent);
         $metricKey = strtolower(trim((string)($intent['expected_metric'] ?? '')));
@@ -1050,14 +1166,7 @@ final class OperationActionLifecycleService
             }
         }
         $executionRefs = array_values(array_unique($executionRefs));
-        $previous = Db::name(self::REVIEW_TABLE)
-            ->where('tenant_id', (int)$intent['tenant_id'])
-            ->where('hotel_id', (int)$intent['hotel_id'])
-            ->where('intent_id', (int)$intent['id'])
-            ->where('task_id', (int)$task['id'])
-            ->order('id', 'desc')
-            ->lock(true)
-            ->find();
+        $previous = $existingReviews === [] ? null : $existingReviews[count($existingReviews) - 1];
         $baselineWindow = [
             'date_start' => (string)($card['business_window']['date_start'] ?? $intent['date_start'] ?? ''),
             'date_end' => (string)($sourceContext['baseline_date'] ?? $card['business_window']['date_end'] ?? $intent['date_end'] ?? ''),
@@ -1132,10 +1241,17 @@ final class OperationActionLifecycleService
         if ((int)($normalized['id'] ?? 0) !== $id
             || !hash_equals($digest, strtolower(trim((string)($normalized['content_digest'] ?? ''))))
             || $this->reviewDigest($normalized) !== $digest
+            || $this->verifyReviewChain(
+                [...$existingReviews, $normalized],
+                $tenantId,
+                $hotelId,
+                $intentId
+            )['status'] !== 'verified'
         ) {
             throw new RuntimeException('运营行动效果复盘保存后精确回读失败');
         }
         return $normalized;
+        });
     }
 
     /** @param array<string,mixed> $intent @return array<string,mixed> */
@@ -1204,7 +1320,12 @@ final class OperationActionLifecycleService
             ->order('sequence_no', 'asc')
             ->select()
             ->toArray();
-        return array_map([$this, 'normalizeEvent'], $rows);
+        $events = array_map([$this, 'normalizeEvent'], $rows);
+        $integrity = $this->verifyEventChain($events, $tenantId, $hotelId, $intentId);
+        if ($integrity['status'] === 'invalid') {
+            throw new RuntimeException('运营行动生命周期事件链损坏：' . $integrity['failure_reason']);
+        }
+        return $events;
     }
 
     /** @return list<array<string,mixed>> */
@@ -1217,16 +1338,30 @@ final class OperationActionLifecycleService
             ->where('tenant_id', $tenantId)
             ->where('hotel_id', $hotelId)
             ->where('intent_id', $intentId)
-            ->order('id', 'desc')
+            ->order('id', 'asc')
             ->select()
             ->toArray();
-        return array_map([$this, 'normalizeReview'], $rows);
+        $reviews = array_map([$this, 'normalizeReview'], $rows);
+        $integrity = $this->verifyReviewChain($reviews, $tenantId, $hotelId, $intentId);
+        if ($integrity['status'] === 'invalid') {
+            throw new RuntimeException('运营行动统一复盘链损坏：' . $integrity['failure_reason']);
+        }
+        return array_reverse($reviews);
     }
 
     /** @param array<string,mixed> $intent */
     public function currentStatus(array $intent, array $events = []): string
     {
         if ($events !== []) {
+            $integrity = $this->verifyEventChain(
+                $events,
+                (int)($intent['tenant_id'] ?? 0),
+                (int)($intent['hotel_id'] ?? 0),
+                (int)($intent['id'] ?? 0)
+            );
+            if ($integrity['status'] !== 'verified') {
+                throw new RuntimeException('运营行动生命周期状态不可用：' . $integrity['failure_reason']);
+            }
             $latest = $events[count($events) - 1];
             $status = strtolower(trim((string)($latest['to_status'] ?? '')));
             if (in_array($status, self::STATUSES, true)) {
@@ -1267,7 +1402,18 @@ final class OperationActionLifecycleService
         array $taskIds,
         array $evidenceIds
     ): array {
-        $integrity = $this->verifyEventChain($events);
+        $integrity = $this->verifyEventChain(
+            $events,
+            (int)($intent['tenant_id'] ?? 0),
+            (int)($intent['hotel_id'] ?? 0),
+            (int)($intent['id'] ?? 0)
+        );
+        $reviewIntegrity = $this->verifyReviewChain(
+            array_reverse($reviews),
+            (int)($intent['tenant_id'] ?? 0),
+            (int)($intent['hotel_id'] ?? 0),
+            (int)($intent['id'] ?? 0)
+        );
         $card = $this->cardFromIntent($intent);
         $questionRef = trim((string)($card['trace']['question_ref'] ?? ''));
         $questionId = preg_match('/#([1-9][0-9]*)$/D', $questionRef, $matches) === 1
@@ -1285,6 +1431,16 @@ final class OperationActionLifecycleService
                 'integrity_status' => $integrity['status'],
                 'integrity_failure_reason' => $integrity['failure_reason'],
             ],
+            'integrity' => [
+                'status' => $integrity['status'] === 'verified'
+                    && in_array($reviewIntegrity['status'], ['verified', 'missing'], true)
+                    ? 'verified'
+                    : 'invalid',
+                'event_chain_status' => $integrity['status'],
+                'event_chain_failure_reason' => $integrity['failure_reason'],
+                'review_chain_status' => $reviewIntegrity['status'],
+                'review_chain_failure_reason' => $reviewIntegrity['failure_reason'],
+            ],
             'traceability' => [
                 'question_ref' => $questionId > 0 ? 'hotel_operating_questions#' . $questionId : null,
                 'answer_ref' => $questionId > 0 ? 'hotel_operating_questions#' . $questionId . ':answer' : null,
@@ -1298,31 +1454,109 @@ final class OperationActionLifecycleService
                 ? 'none'
                 : ($taskCount === 1 ? 'exactly_one' : 'invalid_multiple'),
             'reviews' => $reviews,
-            'latest_review' => $reviews[0] ?? null,
+            'review_integrity_status' => $reviewIntegrity['status'],
+            'review_integrity_failure_reason' => $reviewIntegrity['failure_reason'],
+            'latest_review' => $reviewIntegrity['status'] === 'invalid' ? null : ($reviews[0] ?? null),
             'historical_records_mutated' => false,
             'external_action_performed' => false,
         ];
     }
 
     /** @return array{status:string,failure_reason:?string} */
-    private function verifyEventChain(array $events): array
-    {
+    private function verifyEventChain(
+        array $events,
+        int $tenantId = 0,
+        int $hotelId = 0,
+        int $intentId = 0
+    ): array {
         $previous = '';
+        $previousStatus = '';
         $expectedSequence = 1;
+        $referencedTaskIds = [];
         foreach ($events as $event) {
             if ((int)($event['sequence_no'] ?? 0) !== $expectedSequence
-                || (string)($event['previous_digest'] ?? '') !== $previous
+                || ($tenantId > 0 && (int)($event['tenant_id'] ?? 0) !== $tenantId)
+                || ($hotelId > 0 && (int)($event['hotel_id'] ?? 0) !== $hotelId)
+                || ($intentId > 0 && (int)($event['intent_id'] ?? 0) !== $intentId)
+                || (string)($event['from_status'] ?? '') !== $previousStatus
+                || !in_array((string)($event['to_status'] ?? ''), self::STATUSES, true)
+                || strtolower(trim((string)($event['previous_digest'] ?? ''))) !== $previous
                 || !$this->isDigest((string)($event['content_digest'] ?? ''))
-                || !hash_equals((string)$event['content_digest'], $this->eventDigest($event))
+                || !hash_equals(strtolower((string)$event['content_digest']), $this->eventDigest($event))
             ) {
                 return ['status' => 'invalid', 'failure_reason' => 'event_chain_digest_or_sequence_mismatch'];
             }
-            $previous = (string)$event['content_digest'];
+            $previous = strtolower((string)$event['content_digest']);
+            $previousStatus = (string)$event['to_status'];
+            $eventTaskId = (int)($event['task_id'] ?? 0);
+            if ($eventTaskId > 0) {
+                $referencedTaskIds[$eventTaskId] = true;
+            }
             $expectedSequence++;
+        }
+        foreach (array_keys($referencedTaskIds) as $referencedTaskId) {
+            if (!$this->taskScopeExists($tenantId, $hotelId, $intentId, (int)$referencedTaskId)) {
+                return ['status' => 'invalid', 'failure_reason' => 'event_chain_task_scope_mismatch'];
+            }
         }
         return $events === []
             ? ['status' => 'missing', 'failure_reason' => 'lifecycle_events_missing']
             : ['status' => 'verified', 'failure_reason' => null];
+    }
+
+    /** @return array{status:string,failure_reason:?string} */
+    private function verifyReviewChain(
+        array $reviews,
+        int $tenantId = 0,
+        int $hotelId = 0,
+        int $intentId = 0
+    ): array {
+        $previousId = null;
+        $previousDigest = '';
+        $taskId = null;
+        foreach ($reviews as $review) {
+            $currentTaskId = (int)($review['task_id'] ?? 0);
+            $storedPreviousId = ($review['previous_review_id'] ?? null) === null
+                ? null
+                : (int)$review['previous_review_id'];
+            $digest = strtolower(trim((string)($review['content_digest'] ?? '')));
+            if (($tenantId > 0 && (int)($review['tenant_id'] ?? 0) !== $tenantId)
+                || ($hotelId > 0 && (int)($review['hotel_id'] ?? 0) !== $hotelId)
+                || ($intentId > 0 && (int)($review['intent_id'] ?? 0) !== $intentId)
+                || $currentTaskId <= 0
+                || ($taskId !== null && $currentTaskId !== $taskId)
+                || $storedPreviousId !== $previousId
+                || strtolower(trim((string)($review['previous_digest'] ?? ''))) !== $previousDigest
+                || !$this->isDigest($digest)
+                || !hash_equals($digest, $this->reviewDigest($review))
+            ) {
+                return ['status' => 'invalid', 'failure_reason' => 'review_chain_digest_identity_or_link_mismatch'];
+            }
+            $taskId ??= $currentTaskId;
+            $previousId = (int)($review['id'] ?? 0);
+            $previousDigest = $digest;
+        }
+        if ($taskId !== null && !$this->taskScopeExists($tenantId, $hotelId, $intentId, $taskId)) {
+            return ['status' => 'invalid', 'failure_reason' => 'review_chain_task_scope_mismatch'];
+        }
+        return $reviews === []
+            ? ['status' => 'missing', 'failure_reason' => 'lifecycle_reviews_missing']
+            : ['status' => 'verified', 'failure_reason' => null];
+    }
+
+    private function taskScopeExists(int $tenantId, int $hotelId, int $intentId, int $taskId): bool
+    {
+        if ($tenantId <= 0 || $hotelId <= 0 || $intentId <= 0 || $taskId <= 0
+            || !$this->tableExists('operation_execution_tasks')
+        ) {
+            return false;
+        }
+        return is_array(Db::name('operation_execution_tasks')
+            ->where('id', $taskId)
+            ->where('tenant_id', $tenantId)
+            ->where('hotel_id', $hotelId)
+            ->where('intent_id', $intentId)
+            ->find());
     }
 
     /** @param array<string,mixed> $question @param array<string,mixed> $action */
@@ -1484,12 +1718,10 @@ final class OperationActionLifecycleService
                 'metric_unit' => strtolower(trim((string)($card['metric_contract']['unit'] ?? ''))),
                 'target_type' => strtolower(trim((string)($card['metric_contract']['target_type'] ?? 'observation'))),
             ],
-            'decision_context' => [
-                'opportunity_key' => trim((string)($card['trace']['opportunity_key'] ?? '')),
-                'opportunity_digest' => strtolower(trim((string)($card['trace']['opportunity_digest'] ?? ''))),
-                'decision_snapshot_id' => max(0, (int)($card['trace']['decision_snapshot_id'] ?? 0)),
-                'decision_snapshot_digest' => strtolower(trim((string)($card['trace']['decision_snapshot_digest'] ?? ''))),
-            ],
+            // The opportunity is the durable business identity. Snapshot and
+            // evidence digests attest a particular observation, but refreshing
+            // them must not create a second execution intent for the same work.
+            'opportunity_key' => trim((string)($card['trace']['opportunity_key'] ?? '')),
         ]));
     }
 

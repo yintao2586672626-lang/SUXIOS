@@ -534,6 +534,8 @@ test('business chain: OTA import to revenue, operation task, and tracking', asyn
       expect(intent.tasks || []).toHaveLength(0);
 
       const approved = await api.post(`/api/operation/execution-intents/${intent.id}/approve`, {
+        hotel_id: hotelContext.hotelId,
+        system_hotel_id: hotelContext.hotelId,
         approved: true,
         remark: `${hotelContext.objectPrefix}_manual_approval`,
       }, { label: 'human approval creates execution task' });
@@ -543,6 +545,8 @@ test('business chain: OTA import to revenue, operation task, and tracking', asyn
       expect(task.status).toBe('pending_execute');
 
       const executed = await api.post(`/api/operation/execution-tasks/${task.id}/execute`, {
+        hotel_id: hotelContext.hotelId,
+        system_hotel_id: hotelContext.hotelId,
         status: 'executed',
         evidence_type: 'manual_execution',
         evidence: {
@@ -560,6 +564,8 @@ test('business chain: OTA import to revenue, operation task, and tracking', asyn
       expect(Number(executed.evidence_summary?.count || 0), JSON.stringify(executed)).toBeGreaterThan(0);
 
       const rejectedSuccessReview = await api.post(`/api/operation/execution-tasks/${task.id}/review`, {
+        hotel_id: hotelContext.hotelId,
+        system_hotel_id: hotelContext.hotelId,
         result_status: 'success',
         result_summary: `${hotelContext.objectPrefix}_manual_effect_review`,
         readback_evidence: {
@@ -579,6 +585,8 @@ test('business chain: OTA import to revenue, operation task, and tracking', asyn
 
       const observingSummary = `${hotelContext.objectPrefix}_awaiting_source_verified_readback`;
       const reviewed = await api.post(`/api/operation/execution-tasks/${task.id}/review`, {
+        hotel_id: hotelContext.hotelId,
+        system_hotel_id: hotelContext.hotelId,
         result_status: 'observing',
         result_summary: observingSummary,
         readback_evidence: {

@@ -383,4 +383,32 @@ final class RevenueDecisionSnapshotServiceTest extends TestCase
             );
         }
     }
+
+    public function testAttestationStrictlyBindsSectionAndTopLevelPresentationText(): void
+    {
+        $source = (string)file_get_contents(
+            dirname(__DIR__) . '/app/service/RevenueDecisionViewModelAttestationService.php'
+        );
+
+        self::assertStringContainsString("'title' => \$sectionMeta['title']", $source);
+        self::assertStringContainsString("'subtitle' => \$sectionMeta['subtitle']", $source);
+        self::assertStringContainsString("'dateNotice' => \$scopeNotice", $source);
+        self::assertStringContainsString("'selectedPlatformLabel' => (string)(\$comparisons['selected_platform_label']", $source);
+        self::assertStringContainsString("\$this->assertFields(\$model, \$expectedTop, 'top_semantics')", $source);
+    }
+
+    public function testAttestationCanonicalizesNestedObjectKeysBeforePersistence(): void
+    {
+        $canonicalize = new ReflectionMethod(
+            RevenueDecisionViewModelAttestationService::class,
+            'canonicalize'
+        );
+        $normalized = $canonicalize->invoke(
+            new RevenueDecisionViewModelAttestationService(),
+            ['z' => 1, 'a' => ['y' => 2, 'b' => 3]]
+        );
+
+        self::assertSame(['a', 'z'], array_keys($normalized));
+        self::assertSame(['b', 'y'], array_keys($normalized['a']));
+    }
 }
