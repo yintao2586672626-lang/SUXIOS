@@ -2,6 +2,163 @@
     'use strict';
 
     const create = ({ Vue, h }) => {
+    const resolveRevenueCockpitIntentLifecycle = (intent = {}) => {
+        const tasks = Array.isArray(intent?.tasks) ? intent.tasks : [];
+        const latestTask = tasks.length ? tasks[tasks.length - 1] : {};
+        const intentStatus = String(intent?.status || '');
+        const taskStatus = String(latestTask?.status || '');
+        const latestReview = intent?.action_management?.latest_review || null;
+        const label = intentStatus === 'cancelled' || intentStatus === 'rejected' || taskStatus === 'cancelled'
+            ? '已取消'
+            : latestReview && Number(latestReview.id || 0) > 0
+                ? '复盘完成'
+                : taskStatus === 'failed'
+                    ? '执行失败'
+                    : taskStatus === 'executed'
+                        ? '观察中'
+                        : taskStatus === 'executing'
+                            ? '执行中'
+                            : taskStatus === 'pending_execute'
+                                ? '已审批·待执行'
+                                : intentStatus === 'approved'
+                                    ? '已审批'
+                                    : '待审批';
+        return {
+            label,
+            intentId: Number(intent?.id || 0),
+            taskCount: tasks.length,
+            latestTask,
+            latestReview,
+        };
+    };
+    const RevenueCockpitOpportunityDetails = {
+        name: 'RevenueCockpitOpportunityDetails',
+        props: {
+            card: { type: Object, default: () => ({}) },
+            intent: { type: Object, default: null },
+            loadingKey: { type: String, default: '' },
+            snapshotSaving: { type: Boolean, default: false },
+            readbackBlocked: { type: Boolean, default: false },
+        },
+        emits: ['create', 'open'],
+        render() {
+            const card = this.card || {};
+            const row = (label, value) => h('div', null, [
+                h('span', { class: 'font-semibold text-slate-800' }, `${label}：`),
+                String(value || '无'),
+            ]);
+            const lifecycle = resolveRevenueCockpitIntentLifecycle(this.intent || {});
+            const intentId = lifecycle.intentId;
+            const tasks = Array.isArray(this.intent?.tasks) ? this.intent.tasks : [];
+            const lifecycleLabel = lifecycle.label;
+            const busy = String(this.loadingKey || '') === String(card.opportunityKey || '');
+            const button = intentId > 0
+                ? h('button', {
+                    type: 'button',
+                    class: 'mt-1 rounded-lg border border-emerald-200 bg-white px-3 py-2 text-xs font-medium text-emerald-800 hover:bg-emerald-50',
+                    'data-testid': `revenue-cockpit-opportunity-open-${card.opportunityKey}`,
+                    onClick: () => this.$emit('open', this.intent),
+                }, `${lifecycleLabel} · 行动 #${intentId} · 任务 ${tasks.length} 个 · 进入查看`)
+                : h('button', {
+                    type: 'button',
+                    disabled: card.canCreatePendingApproval !== true || this.snapshotSaving || !!this.loadingKey || this.readbackBlocked,
+                    class: 'mt-1 rounded-lg px-3 py-2 text-xs font-medium text-white hover:opacity-90 disabled:opacity-40',
+                    style: 'background:#173f34',
+                    'data-testid': `revenue-cockpit-opportunity-approval-${card.opportunityKey}`,
+                    onClick: () => this.$emit('create', card),
+                }, [
+                    h('i', { class: `${busy ? 'fas fa-spinner fa-spin' : 'fas fa-clipboard-check'} mr-1.5` }),
+                    busy
+                        ? '保存快照并送审中…'
+                        : (this.readbackBlocked
+                            ? '生命周期恢复失败，禁止重复送审'
+                            : (card.canCreatePendingApproval ? '转为 pending_approval' : '证据不足，暂不可送审')),
+                ]);
+            return h('div', {
+                class: 'mt-3 space-y-2 rounded-lg border border-amber-100 bg-amber-50/60 p-3 text-[11px] leading-5 text-slate-700',
+                'data-testid': 'revenue-cockpit-opportunity-chain',
+            }, [
+                row('事实变化', card.factChange),
+                row('可能原因', card.possibleCause),
+                row('证据支持', `${card.evidenceSupport || '无'} · ${card.evidenceLevel || 'unknown'}`),
+                row('尚缺证据', Array.isArray(card.missingEvidence) ? card.missingEvidence.join('、') : '无'),
+                row('建议核查', card.recommendedCheckAction),
+                h('div', { class: 'border-t border-amber-100 pt-2 text-amber-900' },
+                    `关系类型：${card.relationshipType || 'unknown'} · 相关性 ${card.correlationStatus || 'unknown'} · 因果结论：${card.causalityClaimed ? '已声明' : '未声明'} · 自动审批/调价/OTA 写入：否`),
+                button,
+            ]);
+        },
+    };
+    const RevenueCockpitSnapshotStatus = {
+        name: 'RevenueCockpitSnapshotStatus',
+        props: {
+            snapshot: { type: Object, default: null },
+            status: { type: String, default: 'not_saved' },
+            error: { type: String, default: '' },
+        },
+        render() {
+            if (this.snapshot) {
+                const stale = this.status === 'stale_current_evidence';
+                return h('div', {
+                    class: 'mt-3 rounded-lg border px-3 py-2 text-xs leading-5',
+                    style: stale
+                        ? 'border-color:rgba(251,191,36,.45);background:rgba(120,53,15,.2);color:#fde68a'
+                        : 'border-color:rgba(52,211,153,.35);background:rgba(6,78,59,.22);color:#d1fae5',
+                    'data-testid': 'revenue-cockpit-snapshot-readback',
+                }, `快照 #${this.snapshot.id} 已精确回读 · 内容 ${String(this.snapshot.content_digest || '').slice(0, 12)} · 证据 ${String(this.snapshot.evidence_digest || '').slice(0, 12)}${stale ? ' · 当前事实身份已变化，页面保留原快照；点击“刷新事实”可查看当前模型' : ''}`);
+            }
+            if (this.error) {
+                return h('div', {
+                    class: 'mt-3 rounded-lg border px-3 py-2 text-xs leading-5',
+                    style: 'border-color:rgba(251,113,133,.45);background:rgba(127,29,29,.18);color:#fecdd3',
+                    'data-testid': 'revenue-cockpit-snapshot-error',
+                }, `快照回读失败：${this.error}`);
+            }
+            return this.status === 'not_saved'
+                ? h('div', {
+                    class: 'mt-3 text-xs leading-5',
+                    style: 'color:rgba(236,253,245,.65)',
+                    'data-testid': 'revenue-cockpit-snapshot-not-saved',
+                }, '当前酒店、平台、营业日尚未保存决策快照。')
+                : null;
+        },
+    };
+    const RevenueCockpitActionRestoreStatus = {
+        name: 'RevenueCockpitActionRestoreStatus',
+        props: {
+            intent: { type: Object, default: null },
+            status: { type: String, default: 'idle' },
+            error: { type: String, default: '' },
+        },
+        emits: ['open'],
+        render() {
+            if (this.intent) {
+                const lifecycle = resolveRevenueCockpitIntentLifecycle(this.intent);
+                return h('section', {
+                    class: 'rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-950',
+                    'data-testid': 'revenue-cockpit-restored-action',
+                }, [h('div', { class: 'flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between' }, [
+                    h('div', null, [
+                        h('div', { class: 'font-semibold' }, `已恢复同一运营行动 #${lifecycle.intentId}`),
+                        h('div', { class: 'mt-1 text-xs leading-5 text-emerald-800' }, `${lifecycle.label} · 真实任务 ${lifecycle.taskCount} 个 · 当前状态来自保存后精确回读，不会重新创建行动。`),
+                    ]),
+                    h('button', {
+                        type: 'button',
+                        class: 'shrink-0 rounded-lg border border-emerald-300 bg-white px-3 py-2 text-xs font-medium text-emerald-800 hover:bg-emerald-100',
+                        'data-testid': 'revenue-cockpit-restored-action-open',
+                        onClick: () => this.$emit('open', this.intent),
+                    }, '进入运营管理'),
+                ])]);
+            }
+            if (this.status === 'error') {
+                return h('section', {
+                    class: 'rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800',
+                    'data-testid': 'revenue-cockpit-restored-action-error',
+                }, `已保存运营行动恢复失败：${this.error || '未知错误'}。为防止重复创建，当前送审入口保持关闭，请刷新事实后重试。`);
+            }
+            return null;
+        },
+    };
     const AiDecisionQualityDetails = {
         name: 'AiDecisionQualityDetails',
         props: {
@@ -2219,7 +2376,7 @@
         },
     };
 
-        return Object.freeze({ AiDecisionQualityDetails, OnlineTruthSummary, DualOtaAcceptanceReceipt, DualOtaPageVerificationPanel, onlineDataComponents, loadOnlineDataComponentScript, readOnlineDataComponent, requireOnlineDataComponent, systemComponents, CtripOrderAnalysisPanel, requireSystemComponent, operatingOpportunityLabScript, OperatingOpportunityLab, platformAutoPanelsScript, ctripProfileFieldConfigPanelScript, competitorDeviceManagementScript, dataConfigDialogsScript, automationCollectionContractScript, PlatformAutoSettingsPanels, PlatformAutoSecondaryPanels, CtripProfileFieldConfigPanel, CompetitorDeviceManagement, DataConfigDialogs, aiDailyReportTaskPositiveInteger, aiDailyReportModelIsLimited, normalizeAiDailyReportGenerationTask, formatAiDailyReportGenerationStage, resolveAiDailyReportGenerationOutcome, pollAiDailyReportGenerationTask, SessionProofNotice, LocalCollectorLoginHandoff, PmsRealtimeSyncResult, HotelThreeSourceOnboardingPanel, OperatingLoopAuthority, ManagerCapabilityPanel });
+        return Object.freeze({ AiDecisionQualityDetails, OnlineTruthSummary, DualOtaAcceptanceReceipt, DualOtaPageVerificationPanel, resolveRevenueCockpitIntentLifecycle, RevenueCockpitOpportunityDetails, RevenueCockpitSnapshotStatus, RevenueCockpitActionRestoreStatus, onlineDataComponents, loadOnlineDataComponentScript, readOnlineDataComponent, requireOnlineDataComponent, systemComponents, CtripOrderAnalysisPanel, requireSystemComponent, operatingOpportunityLabScript, OperatingOpportunityLab, platformAutoPanelsScript, ctripProfileFieldConfigPanelScript, competitorDeviceManagementScript, dataConfigDialogsScript, automationCollectionContractScript, PlatformAutoSettingsPanels, PlatformAutoSecondaryPanels, CtripProfileFieldConfigPanel, CompetitorDeviceManagement, DataConfigDialogs, aiDailyReportTaskPositiveInteger, aiDailyReportModelIsLimited, normalizeAiDailyReportGenerationTask, formatAiDailyReportGenerationStage, resolveAiDailyReportGenerationOutcome, pollAiDailyReportGenerationTask, SessionProofNotice, LocalCollectorLoginHandoff, PmsRealtimeSyncResult, HotelThreeSourceOnboardingPanel, OperatingLoopAuthority, ManagerCapabilityPanel });
     };
     const exportedFactory = Object.freeze({ create });
     window.SUXI_APP_MAIN_COMPONENTS_FULL = exportedFactory;

@@ -71,6 +71,17 @@ $overview['cockpit_strict_evidence'] = $strictEvidenceService->build(
     $businessDate,
     $platform
 );
+$intentCountBefore = (int)\think\facade\Db::name('operation_execution_intents')->count();
+$taskCountBefore = (int)\think\facade\Db::name('operation_execution_tasks')->count();
+$approvalReadback = (new \app\service\RevenueCockpitApprovalService())->readFromOverview(
+    $overview,
+    $tenantId,
+    $hotelId,
+    $businessDate,
+    $platform
+);
+$intentCountAfter = (int)\think\facade\Db::name('operation_execution_intents')->count();
+$taskCountAfter = (int)\think\facade\Db::name('operation_execution_tasks')->count();
 $comparisonOverview = $previousDate !== null
     ? $overviewService->overview(array_replace($filters, ['business_date' => $previousDate]))
     : null;
@@ -112,6 +123,13 @@ echo json_encode([
     'hotel_id' => $hotelId,
     'scope' => $scope,
     'overview' => $overview,
+    'approval_readback' => $approvalReadback,
+    'approval_read_counts' => [
+        'operation_execution_intents_before' => $intentCountBefore,
+        'operation_execution_intents_after' => $intentCountAfter,
+        'operation_execution_tasks_before' => $taskCountBefore,
+        'operation_execution_tasks_after' => $taskCountAfter,
+    ],
     'comparison_overview' => $comparisonOverview,
     'strict_rows' => $strictRows,
 ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
@@ -170,13 +188,14 @@ const expectedSections = [
   '3. 渠道流量和转化',
   '4. 同口径变化',
   '5. 异常原因',
-  '6. 建议动作',
+  '6. 八类经营机会排序',
   '7. 数据缺口',
+  '8. 其他核查动作',
 ];
 assert.deepEqual(
   Array.from(model.visibleSections, (section) => section.title),
   expectedSections,
-  'live cockpit must preserve the seven-section operating order',
+  'live cockpit must preserve the eight-section operating order',
 );
 assert.match(model.scopeBoundary, /OTA 渠道结论|OTA渠道结论/);
 assert.match(model.scopeBoundary, /不同来源收入不相加/);
@@ -223,6 +242,47 @@ const numericCards = cards.filter((card) => card.value !== null);
 const missingCards = cards.filter((card) => card.value === null && card.display === '—');
 const strictRowIds = Array.from(payload.strict_rows || [], (row) => Number(row.id)).filter((id) => id > 0);
 assert.ok(strictRowIds.length > 0, 'selected scope must retain strict source row ids');
+const approvalReadback = payload.approval_readback || {};
+const approvalIntent = approvalReadback.execution_intent || {};
+const approvalCounts = payload.approval_read_counts || {};
+const approvalTasks = Array.from(approvalIntent.tasks || []);
+const actionCard = approvalIntent.target_value?.action_card || approvalIntent.evidence?.action_card || {};
+const actionFactRefs = Array.from(actionCard.fact_refs || [], (ref) => String(ref));
+assert.equal(approvalReadback.found, true, 'selected real cockpit scope must restore its saved operating intent');
+assert.equal(approvalReadback.persistence_status, 'readback_verified');
+assert.ok(Number(approvalIntent.id) > 0, 'restored operating intent must have a persisted id');
+assert.equal(Number(approvalIntent.tenant_id), Number(payload.tenant_id));
+assert.equal(Number(approvalIntent.hotel_id), Number(payload.hotel_id));
+assert.equal(approvalIntent.source_module, 'revenue_cockpit_action');
+assert.equal(actionCard.contract_version, 'operation_action_card.v1');
+assert.match(String(actionCard.content_digest || ''), /^[a-f0-9]{64}$/);
+assert.ok(
+  actionFactRefs.some((ref) => strictRowIds.some((id) => ref === `online_daily_data#${id}`)),
+  'restored cockpit action must retain at least one strict OTA source row reference',
+);
+assert.equal(approvalIntent.date_start, model.businessDate);
+assert.equal(approvalIntent.date_end, model.businessDate);
+assert.equal(approvalReadback.status, approvalIntent.status, 'page restore must expose the current lifecycle status');
+assert.equal(approvalReadback.execution_task_count, approvalTasks.length);
+assert.equal(
+  helpers.revenueCockpitTaskCardinalityIsValid(approvalIntent.status, approvalTasks),
+  true,
+  'restored lifecycle must retain the exact task cardinality for its status',
+);
+assert.equal(approvalReadback.boundaries?.read_only, true);
+assert.equal(approvalReadback.boundaries?.automatic_approval, false);
+assert.equal(approvalReadback.boundaries?.automatic_execution, false);
+assert.equal(approvalReadback.boundaries?.ota_write, false);
+assert.equal(
+  Number(approvalCounts.operation_execution_intents_before),
+  Number(approvalCounts.operation_execution_intents_after),
+  'restore must not create an execution intent',
+);
+assert.equal(
+  Number(approvalCounts.operation_execution_tasks_before),
+  Number(approvalCounts.operation_execution_tasks_after),
+  'restore must not create an execution task',
+);
 assert.ok(numericCards.length > 0, 'selected real date must expose at least one strict user-visible metric');
 for (const card of numericCards) {
   assert.equal(card.missingState, '有值', `${card.key} numeric display must be explicitly verified`);
@@ -239,7 +299,7 @@ for (const card of numericCards) {
 }
 
 const summary = {
-  verifier: 'revenue_cockpit_live_readback.v1',
+  verifier: 'revenue_cockpit_live_readback.v3',
   status: 'passed',
   scope: {
     tenant_id: payload.tenant_id,
@@ -270,6 +330,17 @@ const summary = {
   can_ask_question: model.canAskQuestion,
   can_create_pending_approval: model.canCreatePendingApproval,
   action_disabled_reason: model.actionDisabledReason,
+  approval_restore: {
+    found: approvalReadback.found,
+    persistence_status: approvalReadback.persistence_status,
+    intent_id: Number(approvalIntent.id),
+    lifecycle_status: approvalIntent.status,
+    source_record_id: Number(approvalIntent.source_record_id),
+    fact_refs: actionFactRefs,
+    task_count: approvalReadback.execution_task_count,
+    counts: approvalCounts,
+    boundaries: approvalReadback.boundaries,
+  },
   download_row_count: downloadRows.length,
   download_sha256: crypto.createHash('sha256').update(csv).digest('hex'),
 };

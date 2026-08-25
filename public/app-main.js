@@ -258,7 +258,7 @@
     if (!appMainComponents) {
         throw new Error('缺少主应用领域组件：app-main-components.js 未加载');
     }
-    const { AiDecisionQualityDetails, OnlineTruthSummary, DualOtaAcceptanceReceipt, DualOtaPageVerificationPanel, onlineDataComponents, loadOnlineDataComponentScript, readOnlineDataComponent, requireOnlineDataComponent, systemComponents, CtripOrderAnalysisPanel, requireSystemComponent, operatingOpportunityLabScript, OperatingOpportunityLab, platformAutoPanelsScript, ctripProfileFieldConfigPanelScript, competitorDeviceManagementScript, dataConfigDialogsScript, automationCollectionContractScript, PlatformAutoSettingsPanels, PlatformAutoSecondaryPanels, CtripProfileFieldConfigPanel, CompetitorDeviceManagement, DataConfigDialogs, aiDailyReportTaskPositiveInteger, aiDailyReportModelIsLimited, normalizeAiDailyReportGenerationTask, formatAiDailyReportGenerationStage, resolveAiDailyReportGenerationOutcome, pollAiDailyReportGenerationTask, SessionProofNotice, LocalCollectorLoginHandoff, PmsRealtimeSyncResult, HotelThreeSourceOnboardingPanel, OperatingLoopAuthority, ManagerCapabilityPanel } = appMainComponents;
+    const { AiDecisionQualityDetails, OnlineTruthSummary, DualOtaAcceptanceReceipt, DualOtaPageVerificationPanel, resolveRevenueCockpitIntentLifecycle, RevenueCockpitOpportunityDetails, RevenueCockpitSnapshotStatus, RevenueCockpitActionRestoreStatus, onlineDataComponents, loadOnlineDataComponentScript, readOnlineDataComponent, requireOnlineDataComponent, systemComponents, CtripOrderAnalysisPanel, requireSystemComponent, operatingOpportunityLabScript, OperatingOpportunityLab, platformAutoPanelsScript, ctripProfileFieldConfigPanelScript, competitorDeviceManagementScript, dataConfigDialogsScript, automationCollectionContractScript, PlatformAutoSettingsPanels, PlatformAutoSecondaryPanels, CtripProfileFieldConfigPanel, CompetitorDeviceManagement, DataConfigDialogs, aiDailyReportTaskPositiveInteger, aiDailyReportModelIsLimited, normalizeAiDailyReportGenerationTask, formatAiDailyReportGenerationStage, resolveAiDailyReportGenerationOutcome, pollAiDailyReportGenerationTask, SessionProofNotice, LocalCollectorLoginHandoff, PmsRealtimeSyncResult, HotelThreeSourceOnboardingPanel, OperatingLoopAuthority, ManagerCapabilityPanel } = appMainComponents;
 
     let recoverSuxiRuntimeError = null;
     let requestSuxiFullRenderForPage = () => false;
@@ -302,6 +302,7 @@
             OperatingLoopAuthority,
             ManagerCapabilityPanel,
             OperatingOpportunityLab,
+            RevenueCockpitOpportunityDetails, RevenueCockpitSnapshotStatus, RevenueCockpitActionRestoreStatus,
             CtripProfileFieldConfigPanel,
             CompetitorDeviceManagement,
             DataConfigDialogs, ...systemComponents,
@@ -1006,8 +1007,7 @@
             const initialPageOverride = /^[a-z0-9-]+$/.test(requestedInitialPage)
                 ? normalizeCanonicalPage(requestedInitialPage)
                 : '';
-            const requestedInitialPmsContext = window.SUXI_INITIAL_PMS_CONTEXT_OVERRIDE;
-            delete window.SUXI_INITIAL_PMS_CONTEXT_OVERRIDE;
+            const requestedInitialPmsContext = window.SUXI_INITIAL_PMS_CONTEXT_OVERRIDE; const requestedInitialAgentContext = window.SUXI_INITIAL_AGENT_CONTEXT_OVERRIDE; delete window.SUXI_INITIAL_PMS_CONTEXT_OVERRIDE; delete window.SUXI_INITIAL_AGENT_CONTEXT_OVERRIDE;
             const initialPmsHotelOverride = initialPageOverride === 'pms-operating-data'
                 && /^\d+$/.test(String(requestedInitialPmsContext?.hotelId || '').trim())
                 ? String(requestedInitialPmsContext.hotelId).trim()
@@ -1016,6 +1016,8 @@
                 && /^\d{4}-\d{2}-\d{2}$/.test(String(requestedInitialPmsContext?.targetDate || '').trim())
                 ? String(requestedInitialPmsContext.targetDate).trim()
                 : '';
+            const initialAgentTabOverride = initialPageOverride === 'agent-center' && ['overview', 'revenue', 'logs'].includes(String(requestedInitialAgentContext?.agentTab || '').trim()) ? String(requestedInitialAgentContext.agentTab).trim() : '';
+            const initialRevenueAgentTabOverride = initialAgentTabOverride === 'revenue' && ['analysis', 'suggestions', 'config'].includes(String(requestedInitialAgentContext?.revenueAgentTab || '').trim()) ? String(requestedInitialAgentContext.revenueAgentTab).trim() : '';
             const currentPage = ref(initialPageOverride || 'compass');
             const SUPER_ADMIN_ONLY_PAGES = new Set([
                 'users',
@@ -8277,7 +8279,7 @@
             let homeRevenueFactLayerRequestSeq = 0;
             const homeRevenueFactLayerRequestPromises = new Map();
             const revenueAiStaticScript = 'revenue-ai-static.js';
-            const revenueAiStaticVersion = '20260822-extreme-review-h7978dc75d5';
+            const revenueAiStaticVersion = '20260824-production-candidate-haaf53c84fa';
             const revenueAiStaticNotLoadedText = 'Revenue AI 展示工具尚未加载';
             const revenueAiStaticNotLoadedClass = 'border-slate-200 bg-slate-100 text-slate-600';
             const revenueAiStaticReady = ref(!!window.SUXI_REVENUE_AI_STATIC);
@@ -13769,6 +13771,7 @@
                         end_date: targetDate,
                         limit: '5000',
                         include_missing_state: '1',
+                        strict_readback_only: '1',
                     });
                     try {
                         const res = await request(`/ota-standard/revenue-metrics?${params.toString()}`);
@@ -14605,8 +14608,7 @@
                     loadPlatformCollectionResources,
                 });
                 jobs.push(refreshCoreOperationsLoop({
-                    includeDailyWorkbench: false,
-                    includeCollectionReliability: normalizedMode !== 'full',
+                    includeDailyWorkbench: false, includeCollectionReliability: normalizedMode !== 'full', forceCollectionReliability: force,
                 }));
                 jobs.push(loadManualOneClickFetchEvidence());
                 const run = Promise.allSettled(jobs).then((results) => {
@@ -15894,6 +15896,7 @@
 
             // 监听页面切换
             let previousPageLifecycleKey = currentPage.value;
+            let suppressNextOpsTrackAutoLoad = false;
             watch(currentPage, (newPage) => {
                 const canonicalPage = normalizeCanonicalPage(newPage);
                 if (canonicalPage !== newPage) {
@@ -16093,6 +16096,9 @@
                     ]));
                     runPageLoadOnce(newPage, 'ota-diagnosis-static', () => new Promise(resolve => setTimeout(resolve, 420))
                         .then(() => currentPage.value === 'agent-center' ? ensureOtaDiagnosisStaticReady() : null));
+                    if (agentTab.value === 'revenue' && revenueAgentTab.value === 'analysis') {
+                        runPageLoadOnce(newPage, 'revenue-cockpit-lifecycle', () => nextTick().then(() => loadRevenueCockpit({ reloadScope: true, resetContext: false })));
+                    }
                 }
                 if (newPage === 'revenue-research-center') {
                     runPageLoadOnce(newPage, 'revenue-research-static', () => ensureRevenueResearchReady());
@@ -16201,13 +16207,8 @@
                     });
                 }
                 if (newPage === 'ops-track') {
-                    runPageLoadOnce(newPage, 'main', async () => {
-                        await ensureOperationStaticReady();
-                        return Promise.allSettled([
-                            loadOperationActions(),
-                            loadAiDailyReport(),
-                        ]);
-                    });
+                    if (suppressNextOpsTrackAutoLoad) suppressNextOpsTrackAutoLoad = false;
+                    else runPageLoadOnce(newPage, 'main', async () => { await ensureOperationStaticReady(); return Promise.allSettled([loadOperationActions(), loadAiDailyReport()]); });
                 }
                 if (newPage === 'operating-growth-archive') {
                     runPageLoadOnce(newPage, 'main', async () => {
@@ -16549,6 +16550,7 @@
                     icon: 'fas fa-chart-line',
                     testid: 'nav-lean-business-loop',
                     children: [
+                        { type: 'source', sourcePath: 'trusted-revenue-analysis', overrides: { name: '可信收益分析' } },
                         {
                             type: 'source',
                             sourcePath: 'online-data',
@@ -16683,6 +16685,7 @@
                 }
             };
             const isSidebarMenuItemActive = (item = {}) => {
+                if (item?.path === 'trusted-revenue-analysis') return currentPage.value === 'agent-center' && agentTab.value === 'revenue' && revenueAgentTab.value === 'analysis';
                 if (!item?.path || currentPage.value !== item.path) return false;
                 if (item.path !== 'online-data') return true;
                 const itemTab = String(item.tab || 'data-health').trim();
@@ -16754,6 +16757,7 @@
             };
 
             const pageTitle = computed(() => {
+                if (currentPage.value === 'agent-center' && agentTab.value === 'revenue' && revenueAgentTab.value === 'analysis') return '可信收益分析';
                 if (BOSS_PAGE_TITLE_OVERRIDES[currentPage.value]) {
                     return BOSS_PAGE_TITLE_OVERRIDES[currentPage.value];
                 }
@@ -16762,6 +16766,13 @@
             });
 
             const handleMenuClick = (item) => {
+                if (item?.path === 'trusted-revenue-analysis') {
+                    if (!guardSuperAdminPageAccess('agent-center')) return;
+                    const alreadyOpen = currentPage.value === 'agent-center' && agentTab.value === 'revenue' && revenueAgentTab.value === 'analysis'; if (document.documentElement.dataset.suxiRenderPhase !== 'full') window.SUXI_INITIAL_AGENT_CONTEXT_OVERRIDE = { agentTab: 'revenue', revenueAgentTab: 'analysis' };
+                    agentTab.value = 'revenue'; revenueAgentTab.value = 'analysis'; currentPage.value = 'agent-center';
+                    if (alreadyOpen) void nextTick(() => loadRevenueCockpit({ reloadScope: true, resetContext: false }));
+                    return;
+                }
                 const targetPath = normalizeCanonicalPage(item?.path);
                 if (targetPath && !guardSuperAdminPageAccess(targetPath)) return;
                 if (item.path === 'online-data') {
@@ -23731,12 +23742,13 @@
             const platformSyncActionText = (message) => autoFetchStatic.value?.platformSyncActionText?.(message) || '';
 
             const operationStaticScript = 'operation-static.js';
-            const operationStaticScriptVersion = '20260822-extreme-review-h6bce7d5bed';
+            const operationStaticScriptVersion = '20260824-operation-hotel-freeze-h7ae331f1d4';
             const operationStaticIntegrityKeys = [
                 'operationAlertFilters',
                 'operationStrategyTypes',
                 'buildOperatingGoalContractPayload',
                 'buildOpeningAiOutputResult',
+                'captureOperationExecutionMutationContext', 'readOperationExecutionIntent', 'cancelOperationExecutionMutation', 'reconcileOperationExecutionReviewMutation',
             ];
             const operationStaticMissingIntegrityKeys = staticConfig => operationStaticIntegrityKeys
                 .filter(key => staticConfig?.[key] === undefined || staticConfig?.[key] === null);
@@ -24492,6 +24504,7 @@
             });
             const operationReviewModalOpen = ref(false);
             const operationReviewModalItem = ref(null);
+            const operationReviewMutationContext = ref(null);
             const operationReviewForm = ref({
                 status: 'observing',
                 summary: '',
@@ -30194,54 +30207,17 @@
                 }
             };
 
-            const readOperationExecutionIntent = async (intentId) => {
-                const normalizedId = Number(intentId || 0);
-                if (!Number.isInteger(normalizedId) || normalizedId <= 0) {
-                    throw new Error('执行意图回读ID无效');
-                }
-                const res = await apiRequest(`/operation/execution-intents/${intentId}`);
-                if (res.code !== 200) throw new Error(res.message || '执行意图回读失败');
-                const intent = res.data || {};
-                if (Number(intent.id || 0) !== normalizedId) {
-                    throw new Error('执行意图回读资源不一致');
-                }
-                return intent;
-            };
-
             const operationExecutionHotelId = (item) => Number(
-                item?.hotel_id
-                || item?.system_hotel_id
-                || item?.execution?.hotel_id
-                || item?.execution?.system_hotel_id
-                || 0
+                window.SUXI_OPERATION_STATIC?.operationExecutionHotelId?.(item)
+                || item?.hotel_id || item?.system_hotel_id
+                || item?.execution?.hotel_id || item?.execution?.system_hotel_id || 0
             );
-
-            const readOperationExecutionTask = async (taskId, expectedHotelId = 0) => {
-                const normalizedId = Number(taskId || 0);
-                if (!Number.isInteger(normalizedId) || normalizedId <= 0) {
-                    throw new Error('执行任务回读ID无效');
-                }
-                const normalizedHotelId = Number(expectedHotelId || 0);
-                const params = new URLSearchParams();
-                if (normalizedHotelId > 0) {
-                    params.set('hotel_id', String(normalizedHotelId));
-                    params.set('system_hotel_id', String(normalizedHotelId));
-                }
-                const query = params.toString() ? `?${params.toString()}` : '';
-                const res = await apiRequest(`/operation/execution-tasks/${taskId}${query}`, normalizedHotelId > 0
-                    ? { businessContext: { hotelId: normalizedHotelId } }
-                    : {});
-                if (res.code !== 200) throw new Error(res.message || '执行任务回读失败');
-                const task = res.data || {};
-                if (Number(task.id || 0) !== normalizedId) {
-                    throw new Error('执行任务回读资源不一致');
-                }
-                if (normalizedHotelId > 0 && operationExecutionHotelId(task) !== normalizedHotelId) {
-                    throw new Error('执行任务回读酒店身份不一致');
-                }
-                return task;
-            };
-
+            const operationLifecycleStatic = key => requireOperationStatic(window.SUXI_OPERATION_STATIC, key);
+            const captureOperationExecutionMutationContext = (item, options = {}) => operationLifecycleStatic('captureOperationExecutionMutationContext')(item, Number(operationFilters.value.hotel_id || 0), options);
+            const assertOperationExecutionMutationContextCurrent = (context, item) => operationLifecycleStatic('assertOperationExecutionMutationContextCurrent')(context, item, Number(operationFilters.value.hotel_id || 0));
+            const assertOperationExecutionMutationDigestReadback = (entity, context, allowPrevious = false) => operationLifecycleStatic('assertOperationExecutionMutationDigestReadback')(entity, context, allowPrevious);
+            const readOperationExecutionIntent = async (intentId, expectedHotelId = 0) => requireOperationStatic(await loadOperationStatic(), 'readOperationExecutionIntent')(apiRequest, intentId, expectedHotelId);
+            const readOperationExecutionTask = async (taskId, expectedHotelId = 0) => requireOperationStatic(await loadOperationStatic(), 'readOperationExecutionTask')(apiRequest, taskId, expectedHotelId);
             const operationExecutionEvidenceCount = (task = {}) => Math.max(
                 Array.isArray(task.evidence) ? task.evidence.length : 0,
                 Number(task?.evidence_summary?.count || 0)
@@ -31593,6 +31569,8 @@
             };
 
             const operationApprovalConfirmingIntentId = ref(0);
+            const operationApprovalConfirmingContext = ref(null);
+            const clearOperationApprovalConfirmation = () => { operationApprovalConfirmingIntentId.value = 0; operationApprovalConfirmingContext.value = null; };
             const operationApprovalConfirming = (item) => Number(item?.id || 0) > 0
                 && operationApprovalConfirmingIntentId.value === Number(item.id);
             const operationApprovalText = (item) => operationApprovalConfirming(item)
@@ -31606,8 +31584,30 @@
                 if (!item?.id) return;
                 if (operationLoading.value.actions) return;
                 if (approved && !operationApprovalConfirming(item)) {
+                    try {
+                        operationApprovalConfirmingContext.value = captureOperationExecutionMutationContext(item, {
+                            requireDigest: operationIsManagedAction(item),
+                        });
+                    } catch (error) {
+                        clearOperationApprovalConfirmation();
+                        showToast(operationErrorMessage(error, '执行意图身份校验失败'), 'error');
+                        return;
+                    }
                     operationApprovalConfirmingIntentId.value = Number(item.id);
                     showToast('请再次点击“确认审批”', 'warning');
+                    return;
+                }
+                let mutationContext;
+                try {
+                    mutationContext = approved
+                        ? operationApprovalConfirmingContext.value
+                        : captureOperationExecutionMutationContext(item, {
+                            requireDigest: operationIsManagedAction(item),
+                        });
+                    assertOperationExecutionMutationContextCurrent(mutationContext, item);
+                } catch (error) {
+                    clearOperationApprovalConfirmation();
+                    showToast(operationErrorMessage(error, '执行意图身份校验失败'), 'error');
                     return;
                 }
                 let remark = '';
@@ -31755,22 +31755,50 @@
                         submitText: '确认驳回',
                         fields: [{ name: 'remark', label: '驳回原因', type: 'textarea', required: true, value: '' }],
                     });
-                    if (formValues === null) return;
+                    if (formValues === null) {
+                        clearOperationApprovalConfirmation();
+                        return;
+                    }
                     remark = String(formValues.remark || '').trim();
                 }
-                operationApprovalConfirmingIntentId.value = 0;
+                try {
+                    assertOperationExecutionMutationContextCurrent(mutationContext, item);
+                } catch (error) {
+                    clearOperationApprovalConfirmation();
+                    showToast(operationErrorMessage(error, '执行意图身份校验失败'), 'error');
+                    return;
+                }
+                clearOperationApprovalConfirmation();
                 operationLoading.value.actions = true;
                 try {
-                    const res = await apiRequest(`/operation/execution-intents/${item.id}/approve`, {
+                    const res = await apiRequest(`/operation/execution-intents/${mutationContext.intentId}/approve`, {
                         method: 'POST',
-                        body: JSON.stringify({ approved, remark, ...approvalTarget }),
+                        businessContext: { hotelId: mutationContext.hotelId },
+                        body: JSON.stringify({
+                            approved,
+                            remark,
+                            hotel_id: mutationContext.hotelId,
+                            system_hotel_id: mutationContext.hotelId,
+                            ...approvalTarget,
+                            ...(approved && mutationContext.actionDigest ? {
+                                confirmed: true,
+                                confirmation_version: 'operation_action_approval_confirmation.v1',
+                                confirmed_intent_id: mutationContext.intentId,
+                                confirmed_action_digest: mutationContext.actionDigest,
+                            } : {}),
+                        }),
                     });
                     if (res.code !== 200) throw new Error(res.message || '执行意图审批失败');
                     const responseIntentId = Number(res.data?.id || 0);
-                    if (!Number.isInteger(responseIntentId) || responseIntentId !== Number(item.id)) {
+                    if (!Number.isInteger(responseIntentId) || responseIntentId !== mutationContext.intentId) {
                         throw new Error('执行意图审批返回的资源ID不一致');
                     }
-                    const persistedIntent = await readOperationExecutionIntent(responseIntentId);
+                    const persistedIntent = await readOperationExecutionIntent(responseIntentId, mutationContext.hotelId);
+                    assertOperationExecutionMutationDigestReadback(
+                        persistedIntent,
+                        mutationContext,
+                        approved && operationIsManagedAction(item)
+                    );
                     const expectedStatus = approved
                         ? 'approved'
                         : (operationIsManagedAction(item) ? 'cancelled' : 'rejected');
@@ -31781,6 +31809,9 @@
                         || !persistedIntent.tasks.some(task => Number(task?.id || 0) > 0)
                     )) {
                         throw new Error('执行意图已审批但未回读到执行任务');
+                    }
+                    if (approved && persistedIntent.tasks.some(task => operationExecutionHotelId(task) !== mutationContext.hotelId)) {
+                        throw new Error('执行意图任务回读酒店身份不一致');
                     }
                     if (approved && Object.keys(approvalTarget).length > 0) {
                         const persistedContract = persistedIntent?.evidence?.approval_target || {};
@@ -31815,7 +31846,7 @@
             };
             const rejectOrCancelOperationApproval = async (item) => {
                 if (operationApprovalConfirming(item)) {
-                    operationApprovalConfirmingIntentId.value = 0;
+                    clearOperationApprovalConfirmation();
                     showToast('已取消审批确认', 'info');
                     return;
                 }
@@ -31831,7 +31862,7 @@
                     const res = await apiRequest(`/operation/execution-tasks/${taskId}/execute`, {
                         method: 'POST',
                         businessContext: { hotelId: executionHotelId },
-                        body: JSON.stringify({ status: 'executing' }),
+                        body: JSON.stringify({ hotel_id: executionHotelId, system_hotel_id: executionHotelId, status: 'executing' }),
                     });
                     if (res.code !== 200 || Number(res.data?.id || 0) !== taskId) {
                         throw new Error(res.message || '运营任务启动失败');
@@ -31851,41 +31882,23 @@
                 }
             };
 
-            const cancelOperationExecution = async (item) => {
-                if (!operationCanCancelExecution(item) || operationLoading.value.actions) return;
-                const values = await openWorkflowFormDialog({
-                    title: '取消运营行动',
-                    description: '取消原因会追加到行动历史；已保存的审批、任务和证据不会被改写。',
-                    submitText: '确认取消',
-                    fields: [{ name: 'reason', label: '取消原因', type: 'textarea', required: true, value: '' }],
-                });
-                if (values === null) return;
-                const reason = String(values.reason || '').trim();
-                if (!reason) return;
-                operationLoading.value.actions = true;
-                try {
-                    const res = await apiRequest(`/operation/execution-intents/${Number(item.id)}/cancel`, {
-                        method: 'POST',
-                        body: JSON.stringify({ reason }),
-                    });
-                    if (res.code !== 200 || Number(res.data?.id || 0) !== Number(item.id)) {
-                        throw new Error(res.message || '运营行动取消失败');
-                    }
-                    const persistedIntent = await readOperationExecutionIntent(Number(item.id));
-                    if (String(persistedIntent?.status || '') !== 'cancelled'
-                        || String(persistedIntent?.action_management?.lifecycle?.status || '') !== 'cancelled'
-                    ) {
-                        throw new Error('运营行动未按 ID 回读到已取消状态');
-                    }
-                    showToast('运营行动已取消，历史版本仍完整保留');
-                    await loadOperationActions({ focusIntentId: Number(item.id || 0) });
-                } catch (error) {
-                    showToast(operationErrorMessage(error, '运营行动取消失败'), 'error');
-                } finally {
-                    operationLoading.value.actions = false;
-                }
-            };
-
+            const operationLifecycleMutationDependencies = () => ({
+                selectedHotelId: () => Number(operationFilters.value.hotel_id || 0),
+                loading: operationLoading,
+                canCancel: operationCanCancelExecution,
+                isManagedAction: operationIsManagedAction,
+                openDialog: openWorkflowFormDialog,
+                request: apiRequest,
+                toast: showToast,
+                errorMessage: operationErrorMessage,
+                loadActions: loadOperationActions,
+                hasEvidenceType: operationExecutionHasEvidenceType,
+                reconcilePath: taskId => `/operation/execution-tasks/${taskId}/reconcile-review`,
+            });
+            const cancelOperationExecution = async (item) =>
+                requireOperationStatic(await loadOperationStatic(), 'cancelOperationExecutionMutation')(
+                    item, operationLifecycleMutationDependencies()
+                );
             const recordOperationRevenueNodeCheck = async (item) => {
                 const taskId = Number(item?.execution?.task_id || 0);
                 const executionHotelId = operationExecutionHotelId(item);
@@ -31919,7 +31932,7 @@
                         method: 'POST',
                         businessContext: { hotelId: executionHotelId },
                         body: JSON.stringify({
-                            evidence_type: 'revenue_node_check',
+                            hotel_id: executionHotelId, system_hotel_id: executionHotelId, evidence_type: 'revenue_node_check',
                             evidence: {
                                 before: {},
                                 after: {},
@@ -32044,7 +32057,7 @@
                             method: 'POST',
                             businessContext: { hotelId: executionHotelId },
                             body: JSON.stringify({
-                                status: 'executed',
+                                hotel_id: executionHotelId, system_hotel_id: executionHotelId, status: 'executed',
                                 evidence_type: 'manual_price_execution',
                                 current_value: operationEvidenceCleanObject({ ...currentValue, executed_before_price: beforePrice }),
                                 target_value: operationEvidenceCleanObject({ ...targetValue, executed_after_price: afterPrice }),
@@ -32131,7 +32144,7 @@
                         }
                         const receiptPath = String(form.receipt_path || '').trim();
                         payload = {
-                            status: 'executed',
+                            hotel_id: executionHotelId, system_hotel_id: executionHotelId, status: 'executed',
                             evidence_type: 'manual_operation_execution',
                             evidence: {
                                 before: {},
@@ -32208,6 +32221,16 @@
             const reviewOperationExecutionTask = async (item) => {
                 const taskId = Number(item?.execution?.task_id || 0);
                 if (!taskId) return;
+                try {
+                    operationReviewMutationContext.value = captureOperationExecutionMutationContext(item, {
+                        requireTask: true,
+                        requireDigest: operationIsManagedAction(item),
+                    });
+                } catch (error) {
+                    operationReviewMutationContext.value = null;
+                    showToast(operationErrorMessage(error, '运营复盘身份校验失败'), 'error');
+                    return;
+                }
                 const defaultStatus = ['success', 'near_success', 'failed', 'observing'].includes(String(item?.review?.status || ''))
                     ? String(item.review.status)
                     : 'observing';
@@ -32219,76 +32242,46 @@
                 operationReviewModalOpen.value = true;
             };
 
-            const reconcileOperationExecutionReview = async (item) => {
-                const taskId = Number(item?.execution?.task_id || 0);
-                if (!taskId) return;
-                operationLoading.value.actions = true;
-                try {
-                    const res = await apiRequest(`/operation/execution-tasks/${taskId}/reconcile-review`, {
-                        method: 'POST',
-                        body: JSON.stringify({}),
-                    });
-                    if (res.code !== 200) throw new Error(res.message || '到期复盘事实读取失败');
-                    const result = res.data || {};
-                    if (Number(result.task_id || 0) !== taskId) {
-                        throw new Error('到期复盘事实返回的任务ID不一致');
-                    }
-                    const persistedTask = await readOperationExecutionTask(taskId);
-                    if (result.status === 'source_readback_verified') {
-                        if (persistedTask?.evidence_truth?.source_verified !== true
-                            || !operationExecutionHasEvidenceType(persistedTask, 'source_verified_metric_readback')
-                        ) {
-                            throw new Error('来源核验复盘事实严格回读失败');
-                        }
-                        showToast('同酒店、同渠道、同指标复盘事实已读取；请人工确认复盘结论', 'success');
-                    } else if (result.status === 'source_readback_missing') {
-                        if (persistedTask?.evidence_truth?.source_verified === true) {
-                            throw new Error('复盘事实缺失状态与任务回读不一致');
-                        }
-                        showToast('约定窗口暂无同口径可信事实，任务继续观察', 'warning');
-                    } else if (result.status === 'already_reviewed') {
-                        showToast('该任务已完成复盘，无需重复读取', 'info');
-                    } else {
-                        throw new Error('到期复盘事实返回未知状态');
-                    }
-                    await loadOperationActions();
-                } catch (error) {
-                    showToast(operationErrorMessage(error, error.message || '到期复盘事实读取失败'), 'error');
-                } finally {
-                    operationLoading.value.actions = false;
-                }
-            };
-
+            const reconcileOperationExecutionReview = async (item) =>
+                requireOperationStatic(await loadOperationStatic(), 'reconcileOperationExecutionReviewMutation')(
+                    item, operationLifecycleMutationDependencies()
+                );
             const closeOperationReviewModal = () => {
                 if (operationLoading.value.actions) return;
                 operationReviewModalOpen.value = false;
                 operationReviewModalItem.value = null;
+                operationReviewMutationContext.value = null;
             };
 
             const submitOperationExecutionReview = async () => {
                 const item = operationReviewModalItem.value;
-                const taskId = Number(item?.execution?.task_id || 0);
-                if (!taskId) return;
+                const mutationContext = operationReviewMutationContext.value;
+                if (!item || !mutationContext) return;
                 try {
+                    assertOperationExecutionMutationContextCurrent(mutationContext, item);
                     const resultStatus = normalizeOperationReviewStatus(operationReviewForm.value?.status);
                     const resultSummary = String(operationReviewForm.value?.summary || '').trim();
                     if (['success', 'near_success', 'failed'].includes(resultStatus) && !resultSummary) {
                         throw new Error('复盘结论为达成/接近达成/未达成时必须填写说明');
                     }
                     operationLoading.value.actions = true;
-                    const res = await apiRequest(`/operation/execution-tasks/${taskId}/review`, {
+                    const res = await apiRequest(`/operation/execution-tasks/${mutationContext.taskId}/review`, {
                         method: 'POST',
+                        businessContext: { hotelId: mutationContext.hotelId },
                         body: JSON.stringify({
+                            hotel_id: mutationContext.hotelId,
+                            system_hotel_id: mutationContext.hotelId,
                             result_status: resultStatus,
                             result_summary: resultSummary || '继续观察，等待次日收益或ROI证据',
                         }),
                     });
                     if (res.code !== 200) throw new Error(res.message || '执行复盘失败');
                     const responseTaskId = Number(res.data?.id || 0);
-                    if (!Number.isInteger(responseTaskId) || responseTaskId !== taskId) {
+                    if (!Number.isInteger(responseTaskId) || responseTaskId !== mutationContext.taskId) {
                         throw new Error('执行复盘返回的任务ID不一致');
                     }
-                    const persistedTask = await readOperationExecutionTask(responseTaskId);
+                    const persistedTask = await readOperationExecutionTask(responseTaskId, mutationContext.hotelId);
+                    assertOperationExecutionMutationDigestReadback(persistedTask, mutationContext);
                     if (String(persistedTask.result_status || '') !== resultStatus) {
                         throw new Error('执行复盘 result_status 严格回读不一致');
                     }
@@ -32314,6 +32307,7 @@
                     }
                     operationReviewModalOpen.value = false;
                     operationReviewModalItem.value = null;
+                    operationReviewMutationContext.value = null;
                     showToast(resultStatus === 'observing'
                         ? '执行复盘已记录为继续观察'
                         : (requiresSeparateEffectReview ? '效果复盘已独立保存并严格回读' : '执行复盘结论已保存'));
@@ -40751,7 +40745,7 @@
 
             // ==================== AI Agent 中心 ====================
             // Agent Tab
-            const agentTab = ref('overview');
+            const agentTab = ref(initialAgentTabOverride || 'overview');
             const createEmptyAgentOverview = () => ({
                 agents: {},
                 recent_logs: []
@@ -42063,18 +42057,19 @@
                         scope_label: 'OTA渠道指标，不代表全酒店经营',
                         failure_reason: '指标可信证据未返回',
                     };
-                const calculationStatus = rawValue === null ? 'missing' : 'calculated';
+                const truthStatus = String(truth.status || 'unverified').toLowerCase(); const verifiedValue = truthStatus === 'verified' ? rawValue : null;
+                const calculationStatus = verifiedValue === null ? 'missing' : 'calculated';
                 return {
                     key: definition.key,
                     label: definition.label,
                     metricTrustKey: candidate.trustKey,
-                    rawValue,
-                    value: coreOperationsMetricCardValueText(rawValue, definition.format || {}),
+                    rawValue: verifiedValue,
+                    value: coreOperationsMetricCardValueText(verifiedValue, definition.format || {}),
                     calculationStatus,
                     calculationStatusText: coreOperationsMetricCalculationStatusText(calculationStatus),
                     calculationStatusClass: coreOperationsMetricCalculationStatusClass(calculationStatus),
                     truth,
-                    truthStatus: String(truth.status || 'unverified').toLowerCase(),
+                    truthStatus,
                     requiredForLoop: definition.requiredForLoop !== false,
                 };
             };
@@ -44274,7 +44269,7 @@
             const agentConfigs = ref(createDefaultAgentConfigs());
 
             // 收益管理Agent
-            const revenueAgentTab = ref('analysis');
+            const revenueAgentTab = ref(initialRevenueAgentTabOverride || 'analysis');
             const priceSuggestions = ref([]);
             const createPriceSuggestionFilter = () => {
                 const today = formatDate(new Date());
@@ -44463,26 +44458,18 @@
             const revenueCockpitBusinessDate = ref('');
             const revenueCockpitOverview = ref(null);
             const revenueCockpitComparisonOverview = ref(null);
+            const revenueCockpitSameWeekdayOverview = ref(null);
             const revenueCockpitLoading = ref(false);
-            const revenueCockpitPendingApprovalLoading = ref(false);
-            const revenueCockpitPendingApproval = ref(null);
+            const revenueCockpitDecisionSnapshot = ref(null), revenueCockpitSnapshotSaving = ref(false), revenueCockpitSnapshotError = ref(''), revenueCockpitSnapshotReadbackStatus = ref('not_saved');
+            const revenueCockpitOpportunityApprovalLoadingKey = ref(''), revenueCockpitOpportunityApprovals = ref({});
+            const revenueCockpitPendingApprovalLoading = ref(false), revenueCockpitPendingApproval = ref(null), revenueCockpitPendingApprovalError = ref(''), revenueCockpitPendingApprovalReadbackStatus = ref('idle');
+            const revenueCockpitLifecycleSummary = computed(() => resolveRevenueCockpitIntentLifecycle(revenueCockpitPendingApproval.value || {}));
             let revenueCockpitRequestSeq = 0;
-            const revenueCockpitScope = computed(() => revenueAiResolveCockpitScope({
-                scopePayload: revenueCockpitScopePayload.value,
-                requestedPlatform: revenueCockpitPlatform.value,
-                requestedDate: revenueCockpitBusinessDate.value,
-                today: formatDate(new Date()),
-            }));
-            const revenueCockpitModel = computed(() => revenueAiBuildCockpitModel({
-                overview: revenueCockpitOverview.value,
-                comparisonOverview: revenueCockpitComparisonOverview.value,
-                scope: revenueCockpitScope.value,
-                selectedPlatform: revenueCockpitPlatform.value,
-                businessDate: revenueCockpitBusinessDate.value,
-                today: formatDate(new Date()), canExecuteOperation: userHasPermission('can_execute_operation'),
-                loading: revenueCockpitLoading.value,
-                error: revenueLoadState.value.cockpit?.error || '',
-            }));
+            const captureRevenueCockpitMutationContext = () => ({ requestSeq: revenueCockpitRequestSeq, session: captureAuthSession(), hotelId: String(filterReportHotel.value || '').trim(), platform: String(revenueCockpitPlatform.value || '').trim(), businessDate: String(revenueCockpitBusinessDate.value || '').trim() });
+            const isRevenueCockpitMutationCurrent = (context = {}) => (Number(context.requestSeq) === revenueCockpitRequestSeq && isAuthSessionCurrent(context.session) && String(filterReportHotel.value || '').trim() === String(context.hotelId || '') && String(revenueCockpitPlatform.value || '').trim() === String(context.platform || '') && String(revenueCockpitBusinessDate.value || '').trim() === String(context.businessDate || ''));
+            const revenueCockpitScope = computed(() => revenueAiResolveCockpitScope({ scopePayload: revenueCockpitScopePayload.value, requestedPlatform: revenueCockpitPlatform.value, requestedDate: revenueCockpitBusinessDate.value, today: formatDate(new Date()) }));
+            const revenueCockpitLiveModel = computed(() => revenueAiBuildCockpitModel({ overview: revenueCockpitOverview.value, comparisonOverview: revenueCockpitComparisonOverview.value, sameWeekdayOverview: revenueCockpitSameWeekdayOverview.value, scope: revenueCockpitScope.value, selectedPlatform: revenueCockpitPlatform.value, businessDate: revenueCockpitBusinessDate.value, today: formatDate(new Date()), loading: revenueCockpitLoading.value, error: revenueLoadState.value.cockpit?.error || '' }));
+            const revenueCockpitModel = computed(() => { const snapshot = revenueCockpitDecisionSnapshot.value, stored = snapshot?.visible_model; const matchedCurrent = String(snapshot?.evidence_identity_status || '') === 'matched_current' && revenueCockpitSnapshotReadbackStatus.value === 'matched_current'; return matchedCurrent && stored && typeof stored === 'object' ? stored : revenueCockpitLiveModel.value; });
             const setRevenueLoadState = (key, status, error = '') => {
                 revenueLoadState.value = {
                     ...revenueLoadState.value,
@@ -44565,11 +44552,11 @@
                 revenueCockpitScopePayload.value = null;
                 revenueCockpitPlatform.value = '';
                 revenueCockpitBusinessDate.value = '';
-                revenueCockpitOverview.value = null;
-                revenueCockpitComparisonOverview.value = null;
+                revenueCockpitOverview.value = null; revenueCockpitComparisonOverview.value = null; revenueCockpitSameWeekdayOverview.value = null;
                 revenueCockpitLoading.value = false;
-                revenueCockpitPendingApprovalLoading.value = false;
-                revenueCockpitPendingApproval.value = null;
+                revenueCockpitDecisionSnapshot.value = null; revenueCockpitSnapshotSaving.value = false; revenueCockpitSnapshotError.value = ''; revenueCockpitSnapshotReadbackStatus.value = 'not_saved';
+                revenueCockpitOpportunityApprovalLoadingKey.value = ''; revenueCockpitOpportunityApprovals.value = {};
+                revenueCockpitPendingApprovalLoading.value = false; revenueCockpitPendingApproval.value = null; revenueCockpitPendingApprovalError.value = ''; revenueCockpitPendingApprovalReadbackStatus.value = 'idle';
                 revenueLoadState.value = createRevenueLoadState();
                 debugLog('[agent-session] state reset', options.reason || 'unspecified');
             };
@@ -46377,62 +46364,71 @@
 
             const loadRevenueCockpit = async (options = {}) => {
                 if (!token.value) return null;
-                const requestSeq = ++revenueCockpitRequestSeq;
-                const requestSession = captureAuthSession();
+                const requestSeq = ++revenueCockpitRequestSeq, requestSession = captureAuthSession();
                 const hotelId = String(filterReportHotel.value || '').trim();
-                const isCurrentRequest = () => requestSeq === revenueCockpitRequestSeq
-                    && isAuthSessionCurrent(requestSession)
-                    && hotelId === String(filterReportHotel.value || '').trim();
-                revenueCockpitLoading.value = true;
-                revenueCockpitPendingApproval.value = null;
+                const isCurrentRequest = () => requestSeq === revenueCockpitRequestSeq && isAuthSessionCurrent(requestSession) && hotelId === String(filterReportHotel.value || '').trim();
+                revenueCockpitLoading.value = true; revenueCockpitDecisionSnapshot.value = null; revenueCockpitSnapshotError.value = ''; revenueCockpitSnapshotReadbackStatus.value = 'loading';
+                revenueCockpitOpportunityApprovals.value = {}; revenueCockpitOpportunityApprovalLoadingKey.value = ''; revenueCockpitPendingApproval.value = null; revenueCockpitPendingApprovalError.value = ''; revenueCockpitPendingApprovalReadbackStatus.value = 'not_saved';
                 setRevenueLoadState('cockpit', 'loading');
                 try {
                     await ensureRevenueAiStaticReady();
                     if (!isCurrentRequest()) return null;
                     if (!hotelId || !reportHotelOptionExists(hotelId)) {
-                        revenueCockpitScopePayload.value = null;
-                        revenueCockpitOverview.value = null;
-                        revenueCockpitComparisonOverview.value = null;
-                        revenueCockpitPlatform.value = '';
-                        revenueCockpitBusinessDate.value = '';
-                        setRevenueLoadState('cockpit', 'empty');
-                        return null;
+                        revenueCockpitScopePayload.value = null; revenueCockpitOverview.value = null; revenueCockpitComparisonOverview.value = null; revenueCockpitSameWeekdayOverview.value = null;
+                        revenueCockpitPlatform.value = ''; revenueCockpitBusinessDate.value = ''; revenueCockpitSnapshotReadbackStatus.value = 'not_saved'; revenueCockpitPendingApprovalReadbackStatus.value = 'idle';
+                        setRevenueLoadState('cockpit', 'empty'); return null;
                     }
-
                     const snapshot = await revenueAiRunCockpitHelper('loadRevenueCockpitSnapshot', {
-                        hotelId,
-                        scopePayload: revenueCockpitScopePayload.value,
-                        scopeHotelId: revenueCockpitScopePayload.value?.hotel_id,
-                        selectedPlatform: revenueCockpitPlatform.value,
-                        selectedDate: revenueCockpitBusinessDate.value,
-                        reloadScope: options.reloadScope === true,
-                        resetContext: options.resetContext === true,
-                        resetDate: options.resetDate === true,
-                        today: formatDate(new Date()),
-                        request,
-                        isCurrent: isCurrentRequest,
+                        hotelId, scopePayload: revenueCockpitScopePayload.value, scopeHotelId: revenueCockpitScopePayload.value?.hotel_id,
+                        selectedPlatform: revenueCockpitPlatform.value, selectedDate: revenueCockpitBusinessDate.value,
+                        reloadScope: options.reloadScope === true, resetContext: options.resetContext === true, resetDate: options.resetDate === true,
+                        today: formatDate(new Date()), request, isCurrent: isCurrentRequest,
                     });
                     if (snapshot.status === 'superseded' || !isCurrentRequest()) return null;
                     revenueCockpitScopePayload.value = snapshot.scopePayload;
                     const selection = snapshot.selection || {};
-                    revenueCockpitPlatform.value = String(selection.selectedPlatform || '');
-                    revenueCockpitBusinessDate.value = String(selection.selectedDate || '');
+                    revenueCockpitPlatform.value = String(selection.selectedPlatform || ''); revenueCockpitBusinessDate.value = String(selection.selectedDate || '');
                     if (snapshot.status === 'empty') {
-                        revenueCockpitOverview.value = null;
-                        revenueCockpitComparisonOverview.value = null;
-                        setRevenueLoadState('cockpit', 'empty');
-                        return null;
+                        revenueCockpitOverview.value = null; revenueCockpitComparisonOverview.value = null; revenueCockpitSameWeekdayOverview.value = null;
+                        revenueCockpitSnapshotReadbackStatus.value = 'not_saved'; revenueCockpitPendingApprovalReadbackStatus.value = 'idle';
+                        setRevenueLoadState('cockpit', 'empty'); return null;
                     }
-                    revenueCockpitOverview.value = snapshot.overview;
-                    revenueCockpitComparisonOverview.value = snapshot.comparisonOverview;
-                    setRevenueLoadState('cockpit', 'ready');
-                    return snapshot.overview;
+                    revenueCockpitOverview.value = snapshot.overview; revenueCockpitComparisonOverview.value = snapshot.comparisonOverview; revenueCockpitSameWeekdayOverview.value = snapshot.sameWeekdayOverview; revenueCockpitLoading.value = false;
+                    if (options.ignoreSavedSnapshot === true) {
+                        revenueCockpitDecisionSnapshot.value = null; revenueCockpitSnapshotError.value = ''; revenueCockpitSnapshotReadbackStatus.value = 'not_saved';
+                    } else {
+                        try {
+                            const restored = await revenueAiRunCockpitHelper('restoreRevenueDecisionSnapshotWithReadback', { request, model: revenueCockpitLiveModel.value || {}, hotelId: Number(hotelId) });
+                            if (!isCurrentRequest()) return null;
+                            if (!restored.ok) throw new Error(restored.message);
+                            revenueCockpitDecisionSnapshot.value = restored.snapshot; revenueCockpitSnapshotReadbackStatus.value = restored.status;
+                        } catch (error) {
+                            if (!isCurrentRequest()) return null;
+                            revenueCockpitDecisionSnapshot.value = null; revenueCockpitSnapshotError.value = error?.message || '收益决策快照恢复失败'; revenueCockpitSnapshotReadbackStatus.value = 'error';
+                        }
+                    }
+                    if (options.ignoreSavedSnapshot === true) {
+                        revenueCockpitPendingApproval.value = null; revenueCockpitOpportunityApprovals.value = {}; revenueCockpitPendingApprovalError.value = ''; revenueCockpitPendingApprovalReadbackStatus.value = 'idle';
+                    } else {
+                        try {
+                            const restored = await revenueAiRunCockpitHelper('restoreRevenueCockpitPendingApprovalWithReadback', { request, model: revenueCockpitLiveModel.value || {}, hotelId: Number(hotelId), snapshot: revenueCockpitDecisionSnapshot.value });
+                            if (!isCurrentRequest()) return null;
+                            if (!restored.ok) throw new Error(restored.message);
+                            revenueCockpitPendingApproval.value = restored.intent; revenueCockpitPendingApprovalReadbackStatus.value = restored.status;
+                            const keys = new Set((revenueCockpitLiveModel.value?.opportunities || []).map(item => String(item?.opportunityKey || '')).filter(Boolean)), mapped = {};
+                            (restored.intents || (restored.intent ? [restored.intent] : [])).forEach((intent) => { const key = String((intent?.target_value?.action_card || intent?.evidence?.action_card)?.trace?.opportunity_key || ''); if (key && keys.has(key)) mapped[key] = intent; });
+                            revenueCockpitOpportunityApprovals.value = mapped;
+                        } catch (error) {
+                            if (!isCurrentRequest()) return null;
+                            revenueCockpitPendingApproval.value = null; revenueCockpitOpportunityApprovals.value = {}; revenueCockpitPendingApprovalError.value = error?.message || '已保存运营行动恢复失败'; revenueCockpitPendingApprovalReadbackStatus.value = 'error';
+                        }
+                    }
+                    setRevenueLoadState('cockpit', 'ready'); return snapshot.overview;
                 } catch (error) {
                     if (!isCurrentRequest()) return null;
-                    revenueCockpitOverview.value = null;
-                    revenueCockpitComparisonOverview.value = null;
-                    setRevenueLoadState('cockpit', 'failed', error?.message || '经营驾驶舱读取失败');
-                    return null;
+                    revenueCockpitOverview.value = null; revenueCockpitComparisonOverview.value = null; revenueCockpitSameWeekdayOverview.value = null; revenueCockpitDecisionSnapshot.value = null;
+                    revenueCockpitSnapshotReadbackStatus.value = 'error'; revenueCockpitSnapshotError.value = error?.message || '经营驾驶舱读取失败'; revenueCockpitPendingApprovalReadbackStatus.value = 'idle';
+                    setRevenueLoadState('cockpit', 'failed', error?.message || '经营驾驶舱读取失败'); return null;
                 } finally {
                     if (isCurrentRequest()) revenueCockpitLoading.value = false;
                 }
@@ -46486,46 +46482,51 @@
                 return true;
             };
 
-            const createRevenueCockpitPendingApproval = async () => {
-                if (revenueCockpitPendingApprovalLoading.value) return null;
-                const model = revenueCockpitModel.value || {};
-                const hotelId = Number(filterReportHotel.value || 0);
-                revenueCockpitPendingApprovalLoading.value = true;
+            const saveRevenueCockpitDecisionSnapshot = async () => {
+                if (revenueCockpitSnapshotSaving.value) return null;
+                const mutationContext = captureRevenueCockpitMutationContext(); revenueCockpitSnapshotSaving.value = true; revenueCockpitSnapshotError.value = '';
                 try {
-                    const result = await revenueAiRunCockpitHelper('createRevenueCockpitPendingApprovalWithReadback', { request, model, hotelId });
-                    if (!result.ok) {
-                        showToast(result.message, 'warning');
-                        return null;
-                    }
-                    revenueCockpitPendingApproval.value = result.intent;
-                    showToast(result.message);
-                    return result.intent;
+                    const result = await revenueAiRunCockpitHelper('saveRevenueDecisionSnapshotWithReadback', { request, model: revenueCockpitLiveModel.value || {}, hotelId: Number(filterReportHotel.value || 0) });
+                    if (!isRevenueCockpitMutationCurrent(mutationContext)) return null;
+                    if (!result.ok || !result.snapshot) { showToast(result.message || '当前事实不足，无法保存收益决策快照', 'warning'); return null; }
+                    revenueCockpitDecisionSnapshot.value = result.snapshot; revenueCockpitSnapshotReadbackStatus.value = result.status; revenueCockpitOpportunityApprovals.value = {}; showToast(result.message); return result.snapshot;
                 } catch (error) {
-                    showToast(error?.message || '待审批行动生成失败', 'error');
-                    return null;
+                    if (!isRevenueCockpitMutationCurrent(mutationContext)) return null;
+                    revenueCockpitSnapshotError.value = error?.message || '收益决策快照保存失败'; revenueCockpitSnapshotReadbackStatus.value = 'error'; showToast(revenueCockpitSnapshotError.value, 'error'); return null;
+                } finally { if (isRevenueCockpitMutationCurrent(mutationContext)) revenueCockpitSnapshotSaving.value = false; }
+            };
+
+            const createRevenueCockpitOpportunityPendingApproval = async (card = {}) => {
+                const key = String(card?.opportunityKey || '').trim();
+                if (!key || card?.canCreatePendingApproval !== true || revenueCockpitPendingApprovalError.value || revenueCockpitPendingApprovalReadbackStatus.value === 'error') { showToast('该经营机会尚未达到可送审或回读门槛', 'warning'); return null; }
+                if (revenueCockpitOpportunityApprovalLoadingKey.value) return null;
+                const mutationContext = captureRevenueCockpitMutationContext(); revenueCockpitOpportunityApprovalLoadingKey.value = key; revenueCockpitPendingApprovalLoading.value = true;
+                try {
+                    let snapshot = revenueCockpitDecisionSnapshot.value;
+                    if (!snapshot || String(snapshot.evidence_identity_status || '') !== 'matched_current') snapshot = await saveRevenueCockpitDecisionSnapshot();
+                    if (!isRevenueCockpitMutationCurrent(mutationContext)) return null;
+                    if (!snapshot || String(snapshot.evidence_identity_status || '') !== 'matched_current') { showToast('请先完成当前事实快照的保存与回读', 'warning'); return null; }
+                    const result = await revenueAiRunCockpitHelper('createRevenueOpportunityPendingApprovalWithReadback', { request, snapshot, opportunityKey: key });
+                    if (!isRevenueCockpitMutationCurrent(mutationContext)) return null;
+                    if (!result.ok || !result.intent) { showToast(result.message || '经营机会送审失败', 'warning'); return null; }
+                    revenueCockpitOpportunityApprovals.value = { ...revenueCockpitOpportunityApprovals.value, [key]: result.intent }; revenueCockpitPendingApproval.value = result.intent; revenueCockpitPendingApprovalReadbackStatus.value = 'readback_verified'; showToast(result.message); return result.intent;
+                } catch (error) {
+                    if (isRevenueCockpitMutationCurrent(mutationContext)) showToast(error?.message || '经营机会送审失败', 'error'); return null;
                 } finally {
-                    revenueCockpitPendingApprovalLoading.value = false;
+                    if (isRevenueCockpitMutationCurrent(mutationContext)) { revenueCockpitOpportunityApprovalLoadingKey.value = ''; revenueCockpitPendingApprovalLoading.value = false; }
                 }
             };
 
-            const openRevenueCockpitPendingApproval = async () => {
-                const intent = revenueCockpitPendingApproval.value || {};
-                const intentId = Number(intent.id || 0);
-                const hotelId = Number(intent.hotel_id || 0);
-                if (!intentId || !hotelId || String(intent.source_module || '') !== 'operating_loop_approval') {
-                    showToast('待审批行动尚未完成精确回读', 'warning');
-                    return false;
-                }
-                operationFilters.value.hotel_id = String(hotelId);
-                revenueAiExecutionFocus.value = { intentId };
-                currentPage.value = 'ops-track';
-                await loadOperationActions({ focusIntentId: intentId });
-                await nextTick();
-                return true;
+            const openRevenueCockpitPendingApproval = async (selectedIntent = null) => {
+                const intent = selectedIntent || revenueCockpitPendingApproval.value || {}, intentId = Number(intent.id || 0), hotelId = Number(intent.hotel_id || 0);
+                if (!intentId || !hotelId || !['revenue_cockpit_action', 'operating_question', 'operating_loop_approval'].includes(String(intent.source_module || ''))) { showToast('待审批行动尚未完成精确回读', 'warning'); return false; }
+                operationFilters.value.hotel_id = String(hotelId); revenueAiExecutionFocus.value = { intentId };
+                const changingPage = currentPage.value !== 'ops-track'; if (changingPage) suppressNextOpsTrackAutoLoad = true; currentPage.value = 'ops-track';
+                if (changingPage) await nextTick(); await loadOperationActions({ focusIntentId: intentId }); await nextTick(); return true;
             };
 
             const switchAgentTab = async (tabKey) => {
-                if (!agentTabs.value.some(tab => tab.key === tabKey)) return;
+                if (!agentTabs.value.some(tab => tab.key === tabKey)) return; if (document.documentElement.dataset.suxiRenderPhase !== 'full') window.SUXI_INITIAL_AGENT_CONTEXT_OVERRIDE = { agentTab: tabKey, revenueAgentTab: tabKey === 'revenue' ? 'analysis' : revenueAgentTab.value };
                 agentTab.value = tabKey;
                 if (tabKey === 'overview') {
                     await loadAgentOverview();
@@ -53337,7 +53338,7 @@
                             hotelListSnapshotScope = hotelListSnapshotReady.value ? 'all-active' : '';
                             applyDefaultReportHotel({ suppressDashboardRefresh: true });
                             isLoggedIn.value = true;
-                            loadData();
+                            loadData(); if (currentPage.value === 'agent-center') { if (!guardSuperAdminPageAccess('agent-center', { notify: false })) agentTab.value = 'overview'; else { const visibleAgentTabKeys = agentTabs.value.map(tab => tab.key); if (!visibleAgentTabKeys.includes(agentTab.value)) agentTab.value = visibleAgentTabKeys[0] || 'revenue'; if (agentTab.value === 'revenue') void nextTick(() => switchAgentTab('revenue')); } }
                             if (['wechat-notification', 'manual-notifications'].includes(currentPage.value)
                                 && !manualNotificationForm.value.hotel_id
                             ) {
@@ -55595,9 +55596,8 @@
                 setOtaDiagnosisRange, normalizeOtaDiagnosisList, generateOtaDiagnosis, createOtaDiagnosisExecutionIntent, openSavedOtaDiagnosis, switchAgentTab,
                 revenueAgentTab, priceSuggestions, priceSuggestionFilter, priceSuggestionPagination, priceSuggestionGenerating, priceSuggestionGenerateResult, priceSuggestionReview, priceSuggestionReviewHasComparableSamples, priceSuggestionReviewMetricText, priceSuggestionReviewSampleCountText, competitorAlertPriceText, agentPricingGenerationPreflightSummary,
                 revenueCockpitScope, revenueCockpitPlatform, revenueCockpitBusinessDate,
-                revenueCockpitModel,
-                revenueCockpitLoading,
-                revenueCockpitPendingApprovalLoading, revenueCockpitPendingApproval,
+                revenueCockpitModel, revenueCockpitLoading, revenueCockpitDecisionSnapshot, revenueCockpitSnapshotSaving, revenueCockpitSnapshotError, revenueCockpitSnapshotReadbackStatus,
+                revenueCockpitOpportunityApprovalLoadingKey, revenueCockpitOpportunityApprovals, revenueCockpitPendingApprovalLoading, revenueCockpitPendingApproval, revenueCockpitPendingApprovalError, revenueCockpitPendingApprovalReadbackStatus, revenueCockpitLifecycleSummary,
                 roomTypeConfigList, roomTypeConfigMeta, roomTypeConfigSaving, roomTypeConfigForm,
                 agentLogs, agentLogFilter,
                 loadAgentOverview, saveAgentConfig,
@@ -55612,7 +55612,7 @@
                 loadDemandForecasts, resetDemandForecastForm, saveDemandForecastInput, loadCompetitorAnalysis, resetCompetitorAnalysisView, resetCompetitorPriceForm, saveCompetitorPriceInput, loadRevenueDashboard, loadRevenueAnalysis, loadRevenueAnalysisBundle,
                 loadRevenueCockpit, handleRevenueCockpitPlatformChange,
                 downloadRevenueCockpit, openRevenueCockpitOperatingQuestion,
-                createRevenueCockpitPendingApproval, openRevenueCockpitPendingApproval,
+                saveRevenueCockpitDecisionSnapshot, createRevenueCockpitOpportunityPendingApproval, openRevenueCockpitPendingApproval,
                 // 侧边栏
                 sidebarCollapsed, toggleSidebar,
             };

@@ -491,6 +491,10 @@ Route::group('api/ota-standard', function () {
 // ==================== Revenue AI 首页只读总览 API ====================
 Route::group('api/revenue-ai', function () {
     Route::get('/overview', 'RevenueAi/overview');
+    Route::get('/cockpit/decision-snapshots', 'RevenueAi/readCockpitDecisionSnapshot');
+    Route::post('/cockpit/decision-snapshots/:id/pending-approval', 'RevenueAi/createCockpitOpportunityPendingApproval');
+    Route::post('/cockpit/decision-snapshots', 'RevenueAi/createCockpitDecisionSnapshot');
+    Route::get('/cockpit/pending-approval', 'RevenueAi/readCockpitPendingApproval');
     Route::post('/cockpit/pending-approval', 'RevenueAi/createCockpitPendingApproval');
     Route::post('/price-suggestions/:id/review', 'RevenueAi/reviewPriceSuggestion');
     Route::post('/price-suggestions/:id/execution-intent', 'RevenueAi/createPriceSuggestionExecutionIntent');

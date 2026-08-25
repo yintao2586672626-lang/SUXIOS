@@ -802,7 +802,7 @@
                                         </div>
                                     </div>
 
-                                    <div v-if="revenueAgentTab === 'analysis'" class="space-y-5" data-testid="revenue-daily-cockpit">
+                                    <div v-if="revenueAgentTab === 'analysis'" class="space-y-5" data-testid="revenue-daily-cockpit" data-contract="pending_approval">
                                         <section class="overflow-hidden rounded-2xl border text-white shadow-sm" style="border-color:#243d36;background:#102821" data-testid="revenue-cockpit-hero">
                                             <div class="border-b px-5 py-5 lg:px-6" style="border-color:rgba(255,255,255,.1)">
                                                 <div class="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
@@ -817,10 +817,18 @@
                                                             <i class="fas fa-calendar-check mr-2"></i>{{ revenueCockpitModel.dateNotice || '正在确定最近严格可用日期…' }}
                                                         </div>
                                                         <p class="mt-3 text-xs leading-5" style="color:rgba(236,253,245,.65)">{{ revenueCockpitModel.scopeBoundary }}</p>
+                                                        <revenue-cockpit-snapshot-status
+                                                            :snapshot="revenueCockpitDecisionSnapshot"
+                                                            :status="revenueCockpitSnapshotReadbackStatus"
+                                                            :error="revenueCockpitSnapshotError"
+                                                        ></revenue-cockpit-snapshot-status>
                                                     </div>
                                                     <div class="flex flex-wrap gap-2">
-                                                        <button type="button" @click="loadRevenueCockpit({ reloadScope: true })" :disabled="revenueCockpitLoading" class="rounded-lg border px-3.5 py-2 text-sm font-medium text-white hover:opacity-90 disabled:cursor-wait disabled:opacity-50" style="border-color:rgba(255,255,255,.2);background:rgba(255,255,255,.1)" data-testid="revenue-cockpit-refresh">
+                                                        <button type="button" @click="loadRevenueCockpit({ reloadScope: true, ignoreSavedSnapshot: true })" :disabled="revenueCockpitLoading" class="rounded-lg border px-3.5 py-2 text-sm font-medium text-white hover:opacity-90 disabled:cursor-wait disabled:opacity-50" style="border-color:rgba(255,255,255,.2);background:rgba(255,255,255,.1)" data-testid="revenue-cockpit-refresh">
                                                             <i :class="revenueCockpitLoading ? 'fas fa-spinner fa-spin' : 'fas fa-sync-alt'" class="mr-2"></i>{{ revenueCockpitLoading ? '读取中…' : '刷新事实' }}
+                                                        </button>
+                                                        <button type="button" @click="saveRevenueCockpitDecisionSnapshot" :disabled="revenueCockpitSnapshotSaving || !revenueCockpitModel.canSaveSnapshot" class="rounded-lg border px-3.5 py-2 text-sm font-medium hover:opacity-90 disabled:opacity-40" style="border-color:rgba(167,243,208,.35);background:rgba(16,185,129,.12);color:#d1fae5" data-testid="revenue-cockpit-save-snapshot">
+                                                            <i :class="revenueCockpitSnapshotSaving ? 'fas fa-spinner fa-spin' : 'fas fa-save'" class="mr-2"></i>{{ revenueCockpitSnapshotSaving ? '保存并回读中…' : '保存决策快照' }}
                                                         </button>
                                                         <button type="button" @click="downloadRevenueCockpit" :disabled="!revenueCockpitModel.visibleSections?.length" class="rounded-lg border px-3.5 py-2 text-sm font-medium hover:opacity-90 disabled:opacity-40" style="border-color:rgba(215,181,109,.45);background:rgba(215,181,109,.15);color:#f7e6bd" data-testid="revenue-cockpit-download">
                                                             <i class="fas fa-download mr-2"></i>按当前页面下载
@@ -852,6 +860,22 @@
                                                 </label>
                                             </div>
                                         </section>
+
+                                        <dual-ota-field-closure-panel
+                                            :closure="revenueCockpitOverview?.dual_ota_field_closure || null"
+                                            :request="managerCapabilityRequest"
+                                            :hotel-id="filterReportHotel"
+                                            :business-date="revenueCockpitBusinessDate || coreOperationsTargetDate || coreOperationsMaxDate"
+                                            :force-read="true"
+                                            surface="revenue_cockpit"
+                                        ></dual-ota-field-closure-panel>
+
+                                        <revenue-cockpit-action-restore-status
+                                            :intent="revenueCockpitPendingApproval"
+                                            :status="revenueCockpitPendingApprovalReadbackStatus"
+                                            :error="revenueCockpitPendingApprovalError"
+                                            @open="openRevenueCockpitPendingApproval"
+                                        ></revenue-cockpit-action-restore-status>
 
                                         <div v-if="revenueCockpitModel.status === 'loading'" class="rounded-xl border border-slate-200 bg-white px-5 py-12 text-center text-sm text-slate-500" data-testid="revenue-cockpit-loading">
                                             <i class="fas fa-spinner fa-spin mr-2 text-emerald-700"></i>正在读取严格日期、当前事实和上一同口径日期…
@@ -889,6 +913,16 @@
                                                             <div><span class="font-medium text-slate-600">口径：</span>{{ card.scopeLabel }}<span v-if="card.unitLabel"> · {{ card.unitLabel }}</span></div>
                                                         </div>
                                                         <p v-if="card.reasonText" class="mt-2 text-xs leading-5 text-slate-600">{{ card.reasonText }}</p>
+                                                        <revenue-cockpit-opportunity-details
+                                                            v-if="card.kind === 'opportunity'"
+                                                            :card="card"
+                                                            :intent="revenueCockpitOpportunityApprovals[card.opportunityKey] || null"
+                                                            :loading-key="revenueCockpitOpportunityApprovalLoadingKey"
+                                                            :snapshot-saving="revenueCockpitSnapshotSaving"
+                                                            :readback-blocked="revenueCockpitPendingApprovalReadbackStatus === 'error'"
+                                                            @create="createRevenueCockpitOpportunityPendingApproval"
+                                                            @open="openRevenueCockpitPendingApproval"
+                                                        ></revenue-cockpit-opportunity-details>
                                                         <details class="mt-auto pt-3" data-testid="revenue-cockpit-evidence">
                                                             <summary class="cursor-pointer select-none text-xs font-medium text-emerald-700">为什么这样显示</summary>
                                                             <ul class="mt-2 space-y-1 rounded-lg border border-emerald-100 bg-emerald-50/70 px-3 py-2 text-[11px] leading-5 text-emerald-950/80">

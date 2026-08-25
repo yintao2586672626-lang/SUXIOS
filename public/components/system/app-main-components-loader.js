@@ -1,7 +1,7 @@
 (() => {
     'use strict';
 
-    const fullScript = 'components/system/app-main-components.js?v=20260822-manager-capability-h08c77becc3';
+    const fullScript = 'components/system/app-main-components.js?v=20260822-manager-capability-he5d5f0c8d0';
     let fullScriptPromise = null;
 
     const loadFullScript = () => {
@@ -255,12 +255,15 @@
             'CompetitorDeviceManagement', 'DataConfigDialogs', 'SessionProofNotice',
             'LocalCollectorLoginHandoff', 'PmsRealtimeSyncResult', 'HotelThreeSourceOnboardingPanel',
             'ManagerCapabilityPanel', 'OperatingOpportunityLab',
+            'RevenueCockpitOpportunityDetails', 'RevenueCockpitSnapshotStatus',
+            'RevenueCockpitActionRestoreStatus',
         ];
         const lazyComponents = Object.fromEntries(lazyKeys.map(key => [key, lazyFullComponent(key)]));
         const helperKeys = [
             'aiDailyReportTaskPositiveInteger', 'aiDailyReportModelIsLimited',
             'normalizeAiDailyReportGenerationTask', 'formatAiDailyReportGenerationStage',
             'resolveAiDailyReportGenerationOutcome', 'pollAiDailyReportGenerationTask',
+            'resolveRevenueCockpitIntentLifecycle',
         ];
         const delegatedHelpers = Object.fromEntries(helperKeys.map(key => [key, delegateFullHelper(key)]));
 

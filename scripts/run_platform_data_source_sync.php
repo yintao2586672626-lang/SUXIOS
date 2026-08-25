@@ -53,15 +53,31 @@ if (($dataPeriod === 'historical_daily' && $targetDay >= $today)
     exit(1);
 }
 
+$sourceScope = Db::name('platform_data_sources')
+    ->field('tenant_id,system_hotel_id,platform')
+    ->where('id', $sourceId)
+    ->find();
+$sourceTenantId = max(0, (int)($sourceScope['tenant_id'] ?? 0));
+$sourceHotelId = max(0, (int)($sourceScope['system_hotel_id'] ?? 0));
+$sourcePlatform = strtolower(trim((string)($sourceScope['platform'] ?? '')));
+if ($sourceTenantId <= 0
+    || $sourceHotelId <= 0
+    || !in_array($sourcePlatform, ['ctrip', 'meituan'], true)
+) {
+    fwrite(STDERR, json_encode([
+        'status' => 'failed',
+        'reason' => 'source_scope_invalid',
+        'source_id' => $sourceId,
+    ], JSON_UNESCAPED_SLASHES) . PHP_EOL);
+    exit(1);
+}
+
 $captureSectionsText = strtolower(trim((string)($options['capture-sections'] ?? '')));
 $captureSections = array_values(array_unique(array_filter(array_map(
     static fn(string $section): string => trim($section),
     preg_split('/[,\s]+/', $captureSectionsText) ?: []
 ))));
 if ($captureSectionsText !== '') {
-    $sourcePlatform = strtolower(trim((string)Db::name('platform_data_sources')
-        ->where('id', $sourceId)
-        ->value('platform')));
     $allowedSections = match ($sourcePlatform) {
         'ctrip' => ['business_overview', 'traffic_report'],
         'meituan' => ['orders', 'traffic'],
@@ -174,39 +190,33 @@ $identity = is_array($payload['platform_identity_validation'] ?? null)
 $diagnostics = is_array($payload['sync_diagnostics'] ?? null)
     ? $payload['sync_diagnostics']
     : (is_array($taskStats['sync_diagnostics'] ?? null) ? $taskStats['sync_diagnostics'] : []);
-$targetRowIds = array_values(array_unique(array_filter(array_map(
-    static fn(mixed $value): int => max(0, (int)$value),
-    is_array($receipt['row_ids'] ?? null) ? $receipt['row_ids'] : []
-))));
 $targetDateReadbackCount = $taskId > 0
     ? (int)Db::name('online_daily_data')
         ->where('sync_task_id', $taskId)
         ->where('data_source_id', $sourceId)
+        ->where('tenant_id', $sourceTenantId)
+        ->where('system_hotel_id', $sourceHotelId)
+        ->where('platform', $sourcePlatform)
+        ->where('source', $sourcePlatform)
         ->where('data_date', $dataDate)
         ->where('data_period', $dataPeriod)
         ->where('readback_verified', 1)
         ->count()
     : 0;
-$receiptRowReadbackCount = $taskId > 0 && $targetRowIds !== []
-    ? (int)Db::name('online_daily_data')
-        ->whereIn('id', $targetRowIds)
-        ->where('sync_task_id', $taskId)
-        ->where('data_source_id', $sourceId)
-        ->where('system_hotel_id', (int)($receipt['system_hotel_id'] ?? 0))
-        ->where('platform', (string)($receipt['platform'] ?? ''))
-        ->where('data_date', $dataDate)
-        ->where('data_period', $dataPeriod)
-        ->where('readback_verified', 1)
-        ->count()
-    : 0;
+$targetRowIds = array_values(array_unique(array_filter(array_map(
+    static fn(mixed $value): int => max(0, (int)$value),
+    is_array($receipt['row_ids'] ?? null) ? $receipt['row_ids'] : []
+))));
 $exactReadbackVerified = ($receipt['readback_verified'] ?? false) === true
     && (int)($receipt['sync_task_id'] ?? 0) === $taskId
     && (int)($receipt['data_source_id'] ?? 0) === $sourceId
+    && (int)($receipt['system_hotel_id'] ?? 0) === $sourceHotelId
+    && strtolower(trim((string)($receipt['platform'] ?? ''))) === $sourcePlatform
     && (string)($receipt['target_date'] ?? '') === $dataDate
     && (string)($receipt['data_period'] ?? '') === $dataPeriod
     && $targetRowIds !== []
     && (int)($receipt['readback_count'] ?? 0) === count($targetRowIds)
-    && $receiptRowReadbackCount === count($targetRowIds);
+    && $targetDateReadbackCount === count($targetRowIds);
 $summary = [
     'status' => (string)($result['status'] ?? ''),
     'message' => (string)($result['message'] ?? ''),
@@ -223,7 +233,7 @@ $summary = [
     'readback_verified' => $exactReadbackVerified,
     'readback_count' => (int)($receipt['readback_count'] ?? 0),
     'target_saved_count' => count($targetRowIds),
-    'target_readback_count' => $receiptRowReadbackCount,
+    'target_readback_count' => $targetDateReadbackCount,
     'target_date_readback_count' => $targetDateReadbackCount,
     'run_readback_failure_reason' => (string)($receipt['failure_reason'] ?? ''),
     'inserted_count' => (int)($saveReceipt['inserted_count'] ?? $taskStats['inserted_count'] ?? 0),

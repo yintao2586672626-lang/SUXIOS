@@ -20,9 +20,11 @@ const helpers = context.window.SUXI_REVENUE_AI_STATIC;
 const dataHealthHelpers = context.window.SUXI_DATA_HEALTH_STATIC;
 const aiDailyHelpers = context.window.SUXI_AI_DAILY_REPORT_STATIC;
 const indexHtml = readFileSync('public/index.html', 'utf8');
-const appMain = `${readFileSync('public/components/system/app-main-components.js', 'utf8')}\n${readFileSync('public/app-main.js', 'utf8')}`;
+const systemStatic = readFileSync('public/system-static.js', 'utf8');
+const appMain = `${readFileSync('public/components/system/app-main-components.js', 'utf8')}\n${readFileSync('public/operation-static.js', 'utf8')}\n${readFileSync('public/app-main.js', 'utf8')}`;
 const appTemplate = readFileSync('resources/frontend/app-template.html', 'utf8');
 const aiDailyReportFragment = readFileSync('resources/frontend/templates/fragments/16-page-ai-daily-report.html', 'utf8');
+const routeApp = readFileSync('route/app.php', 'utf8');
 const html = `${indexHtml}\n${appTemplate}\n${appMain}`;
 
 const createRevenueAiGapNavigationHarness = (initialFilter = {}, harnessOptions = {}) => {
@@ -133,9 +135,13 @@ test('Revenue AI static helper exposes the required display contract', () => {
     'resolveRevenueCockpitOverviewResponse',
     'resolveRevenueCockpitScopeResponse',
     'loadRevenueCockpitSnapshot',
+    'resolveRevenueDecisionSnapshot',
+    'saveRevenueDecisionSnapshotWithReadback',
+    'restoreRevenueDecisionSnapshotWithReadback',
+    'createRevenueOpportunityPendingApprovalWithReadback',
     'resolveRevenueCockpitPendingApprovalSave',
     'resolveRevenueCockpitPendingApprovalReadback',
-    'createRevenueCockpitPendingApprovalWithReadback',
+    'restoreRevenueCockpitPendingApprovalWithReadback',
     'buildRevenueAiActionRows',
     'buildRevenueAiEvidenceWorkbenchRows',
     'buildRevenueAiEvidenceWorkbenchSummary',
@@ -308,30 +314,10 @@ test('AI daily report metric cards bind per-metric truth without global OTA prom
 
   const aiDailyReport = { value: null };
   const aiDailyReportMetricTruth = (metric = {}) => {
-    const result = aiDailyHelpers.buildMetricTruth({
-      metric,
-      report: aiDailyReport.value || {},
-      permittedHotels: [{ id: 7, name: '测试酒店' }],
-      hotels: [],
-    });
+    const result = aiDailyHelpers.buildMetricTruth({ metric, report: aiDailyReport.value || {}, permittedHotels: [{ id: 7, name: '测试酒店' }], hotels: [] });
     return { ...result, truthDetailText: dataHealthHelpers.onlineTruthDetailText(result.truth) };
   };
-  const aiDailyReportMetricCards = {
-    get value() {
-      return aiDailyHelpers.objectList(aiDailyReport.value?.yesterday_result?.metrics)
-        .filter(Boolean).slice(0, 10).map(metric => {
-          const truthContext = aiDailyReportMetricTruth(metric);
-          const calculation = aiDailyHelpers.metricCalculation(metric);
-          return {
-            ...metric,
-            ...truthContext,
-            calculationStatus: calculation.code,
-            calculationStatusText: calculation.text,
-            calculationStatusClass: calculation.className,
-          };
-        });
-    },
-  };
+  const aiDailyReportMetricCards = { get value() { return aiDailyHelpers.objectList(aiDailyReport.value?.yesterday_result?.metrics).filter(Boolean).slice(0, 10).map(metric => { const truthContext = aiDailyReportMetricTruth(metric); const calculation = aiDailyHelpers.metricCalculation(metric); return { ...metric, ...truthContext, calculationStatus: calculation.code, calculationStatusText: calculation.text, calculationStatusClass: calculation.className }; }); } };
   const metricHelpers = { aiDailyReport, aiDailyReportMetricTruth, aiDailyReportMetricCards };
   metricHelpers.aiDailyReport.value = {
     hotel_id: 7,
@@ -3354,7 +3340,8 @@ test('daily revenue cockpit shows verified zero, withholds unverified zero, and 
     ...ready(['revenue', 'orders', 'room_nights', 'list_exposure', 'detail_exposure', 'flow_rate_percent', 'submit_rate_percent', 'cancellation_rate_percent']),
     adr: { status: 'derived_verified', formula: 'ota_room_revenue / ota_room_nights' },
   };
-  const strictPlatform = (rowIds) => ({
+  const strictPlatform = (rowIds, businessDate) => ({
+    business_date: businessDate,
     source_strict_readback: true,
     accepted_row_ids: rowIds,
     rejected_row_ids: [],
@@ -3374,9 +3361,13 @@ test('daily revenue cockpit shows verified zero, withholds unverified zero, and 
     cockpit_strict_evidence: {
       contract_version: 'revenue_cockpit_strict_evidence.v1',
       strict_gate: 'history_success+validation_verified+readback_verified',
+      tenant_id: 9,
+      hotel_id: 80,
+      business_date: date,
+      platform: 'all_ota',
       platforms: {
-        ctrip: strictPlatform([101, 102]),
-        meituan: strictPlatform([201]),
+        ctrip: strictPlatform([101, 102], date),
+        meituan: strictPlatform([201], date),
       },
     },
     three_source_fact_layer: {
@@ -3421,19 +3412,22 @@ test('daily revenue cockpit shows verified zero, withholds unverified zero, and 
     selectedPlatform: 'all_ota',
     selectedDate: '2026-08-20',
     previousDate: '2026-08-18',
+    sameWeekdayDate: '2026-08-13',
     notice: '携程 + 美团当前业务日 2026-08-20，比今天早 1 天。',
   };
   const model = helpers.buildRevenueCockpitModel({
     overview: overviewFor('2026-08-20', 200, 300),
     comparisonOverview: overviewFor('2026-08-18', 150, 280),
+    sameWeekdayOverview: overviewFor('2026-08-13', 180, 260),
     scope,
     selectedPlatform: 'all_ota',
     businessDate: '2026-08-20',
     today: '2026-08-21',
-    canExecuteOperation: true,
   });
 
   assert.equal(model.status, 'partial');
+  assert.equal(model.contractVersion, 'revenue_daily_cockpit.v2');
+  assert.equal(model.canSaveSnapshot, true);
   assert.match(model.dateNotice, /比今天早 1 天/);
   assert.match(model.scopeBoundary, /不同来源收入不相加/);
   const allCards = model.visibleSections.flatMap((section) => section.cards);
@@ -3445,19 +3439,22 @@ test('daily revenue cockpit shows verified zero, withholds unverified zero, and 
   assert.equal(allCards.some((card) => card.key.includes('combined')), false);
   assert.equal(allCards.find((card) => card.key === 'compare:ctrip_ota:revenue').display, '+¥50.00（+33.33%）');
   assert.match(allCards.find((card) => card.key === 'compare:ctrip_ota:revenue').reasonText, /同一指标与同一单位/);
+  assert.equal(allCards.find((card) => card.key === 'compare-same_weekday:ctrip_ota:revenue').display, '+¥20.00（+11.11%）');
+  assert.equal(model.comparisonFrames.find((frame) => frame.key === 'same_campaign_stage').status, 'missing_campaign_identity');
+  assert.deepEqual(Array.from(model.opportunities, (item) => item.opportunityKey).sort(), [
+    'bookability_gap',
+    'cancellation_anomaly',
+    'detail_conversion_shortage',
+    'price_competition_position',
+    'promotion_incrementality_evidence',
+    'service_promise_risk',
+    'submit_payment_conversion_shortage',
+    'traffic_entry_shortage',
+  ]);
+  assert.deepEqual(Array.from(model.opportunities, (item) => item.rank), [1, 2, 3, 4, 5, 6, 7, 8]);
+  assert.equal(model.opportunities.every((item) => item.causalityClaimed === false), true);
+  assert.equal(model.opportunities.find((item) => item.opportunityKey === 'promotion_incrementality_evidence').priorityScore, null);
   assert.equal(model.canCreatePendingApproval, true);
-
-  const permissionBlockedModel = helpers.buildRevenueCockpitModel({
-    overview: overviewFor('2026-08-20', 200, 300),
-    comparisonOverview: overviewFor('2026-08-18', 150, 280),
-    scope,
-    selectedPlatform: 'all_ota',
-    businessDate: '2026-08-20',
-    today: '2026-08-21',
-    canExecuteOperation: false,
-  });
-  assert.equal(permissionBlockedModel.canCreatePendingApproval, false);
-  assert.match(permissionBlockedModel.actionDisabledReason, /运营执行权限/);
 
   const expectedLabels = Array.from(model.visibleSections).flatMap(
     (section) => Array.from(section.cards, (card) => card.label),
@@ -3467,7 +3464,7 @@ test('daily revenue cockpit shows verified zero, withholds unverified zero, and 
   assert.equal(rows.every((row) => row.source && row.business_date && row.verification_status && row.missing_state), true);
   const csv = helpers.buildRevenueCockpitCsv(model);
   assert.match(csv, /"页面显示"/);
-  assert.match(csv, /"携程渠道房费收入"/);
+  assert.match(csv, /"携程渠道订单金额"/);
   assert.match(csv, /"¥200.00"/);
   assert.equal(csv.split('\r\n').length, rows.length + 1);
   const download = helpers.buildRevenueCockpitDownloadPayload(model, '备用酒店');
@@ -3487,12 +3484,43 @@ test('daily revenue cockpit shows verified zero, withholds unverified zero, and 
   const overviewResponse = helpers.resolveRevenueCockpitOverviewResponse({
     code: 200,
     data: overviewFor('2026-08-20', 200, 300),
-  }, { hotelId: 80, businessDate: '2026-08-20' });
+  }, { hotelId: 80, businessDate: '2026-08-20', platform: 'all_ota' });
   assert.equal(overviewResponse.ok, true);
   assert.equal(helpers.resolveRevenueCockpitOverviewResponse({
     code: 200,
     data: overviewFor('2026-08-18', 200, 300),
-  }, { hotelId: 80, businessDate: '2026-08-20' }).ok, false);
+  }, { hotelId: 80, businessDate: '2026-08-20', platform: 'all_ota' }).ok, false);
+  const partialStrictOverview = overviewFor('2026-08-20', 200, 300);
+  partialStrictOverview.cockpit_strict_evidence.platform = 'meituan';
+  partialStrictOverview.cockpit_strict_evidence.platforms.meituan = {
+    ...partialStrictOverview.cockpit_strict_evidence.platforms.meituan,
+    business_date: '2026-08-20',
+    source_strict_readback: false,
+    accepted_row_ids: [201],
+    rejected_row_ids: [202],
+    metrics: {
+      ...partialStrictOverview.cockpit_strict_evidence.platforms.meituan.metrics,
+      revenue: {
+        strict_readback: false,
+        accepted_row_ids: [],
+        rejected_row_ids: [202],
+      },
+      list_exposure: {
+        strict_readback: true,
+        accepted_row_ids: [201],
+        rejected_row_ids: [],
+      },
+    },
+  };
+  assert.equal(helpers.resolveRevenueCockpitOverviewResponse({
+    code: 200,
+    data: partialStrictOverview,
+  }, { hotelId: 80, businessDate: '2026-08-20', platform: 'meituan' }).ok, true);
+  partialStrictOverview.cockpit_strict_evidence.platforms.meituan.accepted_row_ids = [];
+  assert.equal(helpers.resolveRevenueCockpitOverviewResponse({
+    code: 200,
+    data: partialStrictOverview,
+  }, { hotelId: 80, businessDate: '2026-08-20', platform: 'meituan' }).ok, false);
   assert.equal(helpers.resolveRevenueCockpitScopeResponse({
     code: 200,
     data: {
@@ -3501,71 +3529,363 @@ test('daily revenue cockpit shows verified zero, withholds unverified zero, and 
       boundary: { silent_date_fallback: false },
     },
   }, 80).ok, true);
-  const savedApproval = helpers.resolveRevenueCockpitPendingApprovalSave({
-    status: 'pending_approval',
+
+  const decisionSnapshot = {
+    id: 777,
+    tenant_id: 9,
+    contract_version: 'revenue_decision_snapshot.v1',
     persistence_status: 'readback_verified',
-    execution_task_created: false,
-    external_action_triggered: false,
-    execution_intent: { id: 901 },
-  });
-  assert.equal(savedApproval.ok, true);
-  assert.equal(savedApproval.intentId, 901);
-  const exactApproval = helpers.resolveRevenueCockpitPendingApprovalReadback({
-    id: 901,
-    hotel_id: 80,
-    source_module: 'operating_loop_approval',
-    date_start: '2026-08-20',
-    date_end: '2026-08-20',
-    status: 'pending_approval',
-    tasks: [],
-  }, { intentId: 901, hotelId: 80, businessDate: '2026-08-20' });
-  assert.equal(exactApproval.ok, true);
-  const pendingRequests = [];
-  const createdApproval = await helpers.createRevenueCockpitPendingApprovalWithReadback({
+    evidence_identity_status: 'matched_current',
+    system_hotel_id: 80,
+    business_date: '2026-08-20',
+    platform: 'all_ota',
+    visible_model: model,
+    visible_model_digest: 'a'.repeat(64),
+    evidence_digest: 'b'.repeat(64),
+    content_digest: 'c'.repeat(64),
+  };
+  const snapshotRequests = [];
+  const savedSnapshot = await helpers.saveRevenueDecisionSnapshotWithReadback({
     model,
     hotelId: 80,
+    request: async (url, options = {}) => {
+      snapshotRequests.push({ url, method: options.method || 'GET' });
+      return options.method === 'POST'
+        ? { code: 200, data: decisionSnapshot }
+        : { code: 200, data: { found: true, persistence_status: 'readback_verified', snapshot: decisionSnapshot } };
+    },
+  });
+  assert.equal(savedSnapshot.ok, true);
+  assert.equal(savedSnapshot.snapshot.id, 777);
+  assert.deepEqual(Array.from(snapshotRequests, (item) => item.method), ['POST', 'GET']);
+  assert.equal(snapshotRequests[0].url, '/revenue-ai/cockpit/decision-snapshots');
+  assert.match(snapshotRequests[1].url, /snapshot_id=777/);
+  const restoredSnapshot = await helpers.restoreRevenueDecisionSnapshotWithReadback({
+    model,
+    hotelId: 80,
+    request: async () => ({
+      code: 200,
+      data: { found: true, persistence_status: 'readback_verified', snapshot: decisionSnapshot },
+    }),
+  });
+  assert.equal(restoredSnapshot.ok, true);
+  assert.equal(restoredSnapshot.status, 'matched_current');
+
+  const opportunityKey = 'promotion_incrementality_evidence';
+  const selectedOpportunity = model.opportunities.find((item) => item.opportunityKey === opportunityKey);
+  const recommendationDigest = 'd'.repeat(64);
+  const managedActionCard = {
+    contract_version: 'operation_action_card.v1',
+    content_digest: 'e'.repeat(64),
+    metric_contract: { target_type: 'observation' },
+    action: {
+      title: selectedOpportunity.title,
+      description: selectedOpportunity.recommendedCheckAction,
+    },
+    trace: {
+      decision_snapshot_id: 777,
+      decision_snapshot_digest: decisionSnapshot.content_digest,
+      opportunity_key: opportunityKey,
+      opportunity_digest: recommendationDigest,
+    },
+  };
+  const genericManagedActionCard = {
+    contract_version: 'operation_action_card.v1',
+    content_digest: 'f'.repeat(64),
+    metric_contract: { target_type: 'observation' },
+    action: { title: '核查经营事实', description: '由负责人核查同店同日事实' },
+    trace: {},
+  };
+  const opportunityRequests = [];
+  const opportunityApproval = await helpers.createRevenueOpportunityPendingApprovalWithReadback({
+    snapshot: decisionSnapshot,
+    opportunityKey,
     request: async (url) => {
-      pendingRequests.push(url);
-      return url === '/revenue-ai/cockpit/pending-approval'
+      opportunityRequests.push(url);
+      return url.includes('/pending-approval')
         ? {
             code: 200,
             data: {
               status: 'pending_approval',
               persistence_status: 'readback_verified',
               execution_task_created: false,
+              execution_task_count: 0,
               external_action_triggered: false,
-              execution_intent: { id: 901 },
+              execution_intent: { id: 990, status: 'pending_approval', tasks: [] },
+              snapshot: { id: 777, content_digest: decisionSnapshot.content_digest },
+              opportunity: {
+                opportunity_key: opportunityKey,
+                recommendation_digest: recommendationDigest,
+                title: selectedOpportunity.title,
+                action_text: selectedOpportunity.recommendedCheckAction,
+              },
             },
           }
         : {
             code: 200,
             data: {
-              id: 901,
+              id: 990,
+              tenant_id: 9,
               hotel_id: 80,
-              source_module: 'operating_loop_approval',
+              platform: 'all_ota',
+              source_module: 'revenue_cockpit_action',
+              object_type: 'operation_checklist',
+              action_type: 'human_reviewed_operating_check',
               date_start: '2026-08-20',
               date_end: '2026-08-20',
               status: 'pending_approval',
               tasks: [],
+              target_value: {
+                decision_context: {
+                  snapshot_id: 777,
+                  snapshot_digest: decisionSnapshot.content_digest,
+                  opportunity_key: opportunityKey,
+                  recommendation_digest: recommendationDigest,
+                },
+                action_card: managedActionCard,
+              },
             },
           };
     },
   });
-  assert.equal(createdApproval.ok, true);
-  assert.deepEqual(Array.from(pendingRequests), [
-    '/revenue-ai/cockpit/pending-approval',
-    '/operation/execution-intents/901',
+  assert.equal(opportunityApproval.ok, true);
+  assert.equal(opportunityApproval.intent.id, 990);
+  assert.deepEqual(Array.from(opportunityRequests), [
+    '/revenue-ai/cockpit/decision-snapshots/777/pending-approval',
+    '/operation/execution-intents/990',
   ]);
+  assert.equal(opportunityApproval.intent.tasks.length, 0);
+  assert.equal(helpers.resolveRevenueDecisionSnapshot({
+    ...decisionSnapshot,
+    content_digest: 'invalid',
+  }, { hotelId: 80, businessDate: '2026-08-20', platform: 'all_ota' }).ok, false);
+
+  const savedApproval = helpers.resolveRevenueCockpitPendingApprovalSave({
+    status: 'pending_approval',
+    persistence_status: 'readback_verified',
+    execution_task_created: false,
+    execution_task_count: 0,
+    external_action_triggered: false,
+    execution_intent: { id: 901, status: 'pending_approval', tasks: [] },
+  });
+  assert.equal(savedApproval.ok, true);
+  assert.equal(savedApproval.intentId, 901);
+  const exactApproval = helpers.resolveRevenueCockpitPendingApprovalReadback({
+    id: 901,
+    tenant_id: 9,
+    hotel_id: 80,
+    platform: 'all_ota',
+    source_module: 'operating_loop_approval',
+    object_type: 'operation_checklist',
+    action_type: 'human_reviewed_operating_check',
+    date_start: '2026-08-20',
+    date_end: '2026-08-20',
+    status: 'pending_approval',
+    tasks: [],
+    target_value: { action_card: genericManagedActionCard },
+  }, {
+    intentId: 901,
+    tenantId: 9,
+    hotelId: 80,
+    platform: 'all_ota',
+    businessDate: '2026-08-20',
+  });
+  assert.equal(exactApproval.ok, true);
+  assert.equal(helpers.revenueCockpitTaskCardinalityIsValid('pending_approval', []), true);
+  assert.equal(helpers.revenueCockpitTaskCardinalityIsValid('pending_approval', [{ id: 1 }]), false);
+  assert.equal(helpers.revenueCockpitTaskCardinalityIsValid('approved', [{ id: 1 }]), true);
+  assert.equal(helpers.revenueCockpitTaskCardinalityIsValid('approved', []), false);
+  assert.equal(helpers.revenueCockpitTaskCardinalityIsValid('approved', [{ id: 1 }, { id: 2 }]), false);
   assert.equal(helpers.resolveRevenueCockpitPendingApprovalSave({ execution_intent: { id: 902 } }).ok, false);
   assert.equal(helpers.resolveRevenueCockpitPendingApprovalReadback({
     id: 901,
+    tenant_id: 9,
     hotel_id: 80,
+    platform: 'all_ota',
     source_module: 'operating_loop_approval',
+    object_type: 'operation_checklist',
+    action_type: 'human_reviewed_operating_check',
     date_start: '2026-08-20',
     date_end: '2026-08-20',
     status: 'pending_approval',
     tasks: [{ id: 1 }],
-  }, { intentId: 901, hotelId: 80, businessDate: '2026-08-20' }).ok, false);
+    target_value: { action_card: genericManagedActionCard },
+  }, {
+    intentId: 901,
+    tenantId: 9,
+    hotelId: 80,
+    platform: 'all_ota',
+    businessDate: '2026-08-20',
+  }).ok, false);
+  assert.equal(helpers.resolveRevenueCockpitPendingApprovalReadback({
+    id: 901,
+    tenant_id: 9,
+    hotel_id: 80,
+    platform: 'all_ota',
+    source_module: 'revenue_cockpit_action',
+    object_type: 'operation_checklist',
+    action_type: 'human_reviewed_operating_check',
+    date_start: '2026-08-20',
+    date_end: '2026-08-20',
+    status: 'approved',
+  }, { intentId: 901, hotelId: 80, businessDate: '2026-08-20', requirePending: false }).ok, false);
+  assert.equal(helpers.resolveRevenueCockpitPendingApprovalReadback({
+    id: 901,
+    tenant_id: 9,
+    hotel_id: 80,
+    platform: 'all_ota',
+    source_module: 'revenue_cockpit_action',
+    object_type: 'operation_checklist',
+    action_type: 'human_reviewed_operating_check',
+    date_start: '2026-08-20',
+    date_end: '2026-08-20',
+    status: 'approved',
+    tasks: [{ id: 501, status: 'pending_execute', result_status: 'observing' }],
+    target_value: { action_card: genericManagedActionCard },
+  }, {
+    intentId: 901,
+    hotelId: 80,
+    businessDate: '2026-08-20',
+    requirePending: false,
+    status: 'approved',
+    taskCount: 1,
+    taskSignatures: [{ id: 999, status: 'pending_execute', result_status: 'observing' }],
+  }).ok, false);
+
+  const restoreRequests = [];
+  const restoredApproval = await helpers.restoreRevenueCockpitPendingApprovalWithReadback({
+    model,
+    hotelId: 80,
+    request: async (url) => {
+      restoreRequests.push(url);
+      if (url.startsWith('/revenue-ai/cockpit/pending-approval?')) {
+        return {
+          code: 200,
+          data: {
+            found: true,
+            status: 'approved',
+            persistence_status: 'readback_verified',
+            execution_task_count: 1,
+            execution_intent_count: 2,
+            cockpit_scope: {
+              tenant_id: 9,
+              hotel_id: 80,
+              business_date: '2026-08-20',
+              platform: 'all_ota',
+            },
+            execution_intent: {
+              id: 901,
+              tenant_id: 9,
+              hotel_id: 80,
+              platform: 'all_ota',
+              source_module: 'revenue_cockpit_action',
+              object_type: 'operation_checklist',
+              action_type: 'human_reviewed_operating_check',
+              date_start: '2026-08-20',
+              date_end: '2026-08-20',
+              status: 'approved',
+              tasks: [{ id: 501, status: 'pending_execute', result_status: 'observing' }],
+              target_value: { action_card: genericManagedActionCard },
+            },
+            execution_intents: [
+              {
+                id: 901,
+                tenant_id: 9,
+                hotel_id: 80,
+                platform: 'all_ota',
+                source_module: 'revenue_cockpit_action',
+                object_type: 'operation_checklist',
+                action_type: 'human_reviewed_operating_check',
+                date_start: '2026-08-20',
+                date_end: '2026-08-20',
+                status: 'approved',
+                tasks: [{ id: 501, status: 'pending_execute', result_status: 'observing' }],
+                target_value: { action_card: genericManagedActionCard },
+              },
+              {
+                id: 902,
+                tenant_id: 9,
+                hotel_id: 80,
+                platform: 'all_ota',
+                source_module: 'operating_question',
+                object_type: 'operation_checklist',
+                action_type: 'human_reviewed_operating_check',
+                date_start: '2026-08-20',
+                date_end: '2026-08-20',
+                status: 'cancelled',
+                tasks: [],
+                target_value: { action_card: genericManagedActionCard },
+              },
+            ],
+          },
+        };
+      }
+      const readbackId = Number(url.split('/').pop());
+      return {
+        code: 200,
+        data: readbackId === 902 ? {
+          id: 902,
+          tenant_id: 9,
+          hotel_id: 80,
+          platform: 'all_ota',
+          source_module: 'operating_question',
+          object_type: 'operation_checklist',
+          action_type: 'human_reviewed_operating_check',
+          date_start: '2026-08-20',
+          date_end: '2026-08-20',
+          status: 'cancelled',
+          tasks: [],
+          target_value: { action_card: genericManagedActionCard },
+        } : {
+          id: 901,
+          tenant_id: 9,
+          hotel_id: 80,
+          platform: 'all_ota',
+          source_module: 'revenue_cockpit_action',
+          object_type: 'operation_checklist',
+          action_type: 'human_reviewed_operating_check',
+          date_start: '2026-08-20',
+          date_end: '2026-08-20',
+          status: 'approved',
+          tasks: [{ id: 501, status: 'pending_execute', result_status: 'observing' }],
+          target_value: { action_card: genericManagedActionCard },
+        },
+      };
+    },
+  });
+  assert.equal(restoredApproval.ok, true);
+  assert.equal(restoredApproval.status, 'readback_verified');
+  assert.equal(restoredApproval.intent.status, 'approved');
+  assert.equal(restoredApproval.intent.tasks.length, 1);
+  assert.equal(restoredApproval.intents.length, 2);
+  assert.equal(restoredApproval.intents[1].status, 'cancelled');
+  assert.match(restoreRequests[0], /^\/revenue-ai\/cockpit\/pending-approval\?/);
+  assert.match(restoreRequests[0], /hotel_id=80/);
+  assert.match(restoreRequests[0], /business_date=2026-08-20/);
+  assert.match(restoreRequests[0], /platform=all_ota/);
+  assert.equal(restoreRequests[1], '/operation/execution-intents/901');
+  assert.equal(restoreRequests[2], '/operation/execution-intents/902');
+
+  const notSavedApproval = await helpers.restoreRevenueCockpitPendingApprovalWithReadback({
+    model,
+    hotelId: 80,
+    request: async () => ({
+      code: 200,
+      data: {
+        found: false,
+        status: 'not_saved',
+        persistence_status: 'not_saved',
+        execution_task_count: 0,
+        execution_intent_count: 0,
+        cockpit_scope: { tenant_id: 9, hotel_id: 80, business_date: '2026-08-20', platform: 'all_ota' },
+        execution_intent: null,
+        execution_intents: [],
+      },
+    }),
+  });
+  assert.equal(notSavedApproval.ok, true);
+  assert.equal(notSavedApproval.status, 'not_saved');
+  assert.equal(notSavedApproval.intent, null);
 
   const rejectedOverview = overviewFor('2026-08-20', 200, 300);
   rejectedOverview.cockpit_strict_evidence.platforms.meituan = {
@@ -3589,7 +3909,6 @@ test('daily revenue cockpit shows verified zero, withholds unverified zero, and 
     selectedPlatform: 'meituan',
     businessDate: '2026-08-20',
     today: '2026-08-21',
-    canExecuteOperation: true,
   });
   const rejectedCards = rejectedModel.visibleSections.flatMap((section) => section.cards);
   const rejectedRevenue = rejectedCards.find((card) => card.key === 'meituan_ota:revenue');
@@ -3598,7 +3917,13 @@ test('daily revenue cockpit shows verified zero, withholds unverified zero, and 
   assert.equal(rejectedRevenue.statusLabel, '未验证');
   assert.match(rejectedRevenue.reasonText, /严格事实闸门/);
   assert.match(rejectedRevenue.evidenceLines.join('；'), /拒绝 #201/);
+  assert.equal(rejectedCards.some((card) => card.key.includes('ctrip_ota')), false);
+  assert.deepEqual(Array.from(rejectedModel.sourceRecords, (record) => record.platform), ['meituan']);
+  assert.equal(rejectedModel.opportunities.every((item) => (
+    item.platformSignals.every((signal) => signal.platform === 'meituan')
+  )), true);
   assert.equal(rejectedModel.canCreatePendingApproval, false);
+
   const loadingModel = helpers.buildRevenueCockpitModel({ loading: true });
   assert.equal(loadingModel.status, 'loading');
   assert.equal(loadingModel.visibleSections.length, 0);
@@ -3618,13 +3943,6 @@ test('daily revenue cockpit shows verified zero, withholds unverified zero, and 
 
 test('daily revenue cockpit template exposes unified context, evidence, download and human-gated handoffs', () => {
   const cockpitRuntime = readFileSync('public/revenue-ai-static.js', 'utf8');
-  const appMain = readFileSync('public/app-main.js', 'utf8');
-  const scopeCallStart = appMain.indexOf('revenueAiResolveCockpitScope({');
-  const modelCallStart = appMain.indexOf('revenueAiBuildCockpitModel({');
-  const scopeCall = appMain.slice(scopeCallStart, appMain.indexOf('}));', scopeCallStart) + 4);
-  const modelCall = appMain.slice(modelCallStart, appMain.indexOf('}));', modelCallStart) + 4);
-  assert.doesNotMatch(scopeCall, /canExecuteOperation/);
-  assert.match(modelCall, /canExecuteOperation:\s*userHasPermission\('can_execute_operation'\)/);
   for (const marker of [
     'data-testid="revenue-daily-cockpit"',
     'data-testid="revenue-cockpit-hotel"',
@@ -3635,20 +3953,78 @@ test('daily revenue cockpit template exposes unified context, evidence, download
     'data-testid="revenue-cockpit-error"',
     'data-testid="revenue-cockpit-empty"',
     'data-testid="revenue-cockpit-evidence"',
-    'data-testid="revenue-cockpit-to-question"',
-    'data-testid="revenue-cockpit-create-approval"',
-    'data-testid="revenue-cockpit-approval-readback"',
+    'data-testid="revenue-cockpit-save-snapshot"',
   ]) {
     assert.ok(appTemplate.includes(marker), `${marker} must remain in the generated template snapshot`);
+  }
+  for (const marker of [
+    "'data-testid': 'revenue-cockpit-restored-action'",
+    "'data-testid': 'revenue-cockpit-restored-action-open'",
+    "'data-testid': 'revenue-cockpit-restored-action-error'",
+  ]) {
+    assert.ok(appMain.includes(marker), `${marker} must remain in the registered restore-status component`);
   }
   assert.match(cockpitRuntime, /buildRevenueCockpitCsv/);
   assert.match(appMain, /loadRevenueCockpitSnapshot/);
   assert.match(cockpitRuntime, /buildRevenueCockpitOverviewEndpoint/);
-  assert.match(cockpitRuntime, /cockpit:\s*'1'/);
-  assert.match(appMain, /createRevenueCockpitPendingApprovalWithReadback/);
+  assert.match(cockpitRuntime, /cockpit:\s*['"]1['"]/);
+  assert.match(appMain, /saveRevenueDecisionSnapshotWithReadback/);
+  assert.match(appMain, /restoreRevenueDecisionSnapshotWithReadback/);
+  assert.match(appMain, /createRevenueOpportunityPendingApprovalWithReadback/);
+  assert.match(appMain, /restoreRevenueCockpitPendingApprovalWithReadback/);
+  assert.match(
+    appTemplate,
+    /loadRevenueCockpit\(\{ reloadScope: true, ignoreSavedSnapshot: true \}\)/,
+    'refresh facts must bypass a restored snapshot and expose the current live model',
+  );
+  assert.match(
+    appMain,
+    /const matchedCurrent = String\(snapshot\?\.evidence_identity_status \|\| ''\) === 'matched_current'\s*&& revenueCockpitSnapshotReadbackStatus\.value === 'matched_current'/,
+    'only a snapshot matched to current evidence may replace the live visible model',
+  );
+  assert.match(appMain, /const captureRevenueCockpitMutationContext = \(\) => \(\{/);
+  assert.match(appMain, /const isRevenueCockpitMutationCurrent = \(context = \{\}\) => \(/);
+  assert.match(
+    appMain,
+    /if \(!isRevenueCockpitMutationCurrent\(mutationContext\)\) return null;/,
+    'snapshot save and opportunity handoff must ignore responses from an obsolete scope',
+  );
+  assert.match(
+    appMain,
+    /if \(options\.ignoreSavedSnapshot === true\) \{\s*revenueCockpitDecisionSnapshot\.value = null;\s*revenueCockpitSnapshotError\.value = '';\s*revenueCockpitSnapshotReadbackStatus\.value = 'not_saved';/,
+  );
+  assert.match(
+    appMain,
+    /if \(options\.ignoreSavedSnapshot === true\) \{\s*revenueCockpitPendingApproval\.value = null;\s*revenueCockpitOpportunityApprovals\.value = \{\};\s*revenueCockpitPendingApprovalError\.value = '';\s*revenueCockpitPendingApprovalReadbackStatus\.value = 'idle';/,
+  );
+  assert.match(appMain, /resolveRevenueCockpitIntentLifecycle/);
+  assert.match(appMain, /let suppressNextOpsTrackAutoLoad = false/);
+  assert.match(appMain, /if \(changingPage\) suppressNextOpsTrackAutoLoad = true/);
+  assert.match(appMain, /loadOperationActions\(\{ focusIntentId: intentId \}\)/);
+  assert.match(appMain, /action_management\?\.latest_review/);
+  assert.match(appMain, /runPageLoadOnce\(newPage, 'revenue-cockpit-lifecycle'/);
   assert.match(cockpitRuntime, /execution_task_created !== false/);
   assert.match(cockpitRuntime, /external_action_triggered !== false/);
-  assert.match(cockpitRuntime, /tasks\.length !== 0/);
+  assert.match(cockpitRuntime, /requirePending && tasks\.length !== 0/);
+  assert.match(appTemplate, /<revenue-cockpit-snapshot-status/);
+  assert.match(appTemplate, /<revenue-cockpit-opportunity-details/);
+  assert.match(appMain, /'data-testid': 'revenue-cockpit-snapshot-readback'/);
+  assert.match(appMain, /'data-testid': 'revenue-cockpit-opportunity-chain'/);
+  assert.match(appMain, /card\.causalityClaimed \? '已声明' : '未声明'/);
+  assert.match(appMain, /自动审批\/调价\/OTA 写入：否/);
+  assert.match(systemStatic, /name: '可信收益分析', path: 'trusted-revenue-analysis'/);
+  assert.match(appMain, /item\?\.path === 'trusted-revenue-analysis'/);
+  assert.match(appMain, /SUXI_INITIAL_AGENT_CONTEXT_OVERRIDE/);
+  assert.match(appMain, /const agentTab = ref\(initialAgentTabOverride \|\| 'overview'\)/);
+  assert.match(appMain, /const revenueAgentTab = ref\(initialRevenueAgentTabOverride \|\| 'analysis'\)/);
+  assert.match(appMain, /visibleAgentTabKeys\.includes\(agentTab\.value\)/);
+  assert.match(appMain, /nextTick\(\(\) => switchAgentTab\('revenue'\)\)/);
+  assert.match(appMain, /sourcePath: 'trusted-revenue-analysis', overrides: \{ name: '可信收益分析' \}/);
+  assert.ok(
+    routeApp.indexOf("Route::post('/cockpit/decision-snapshots/:id/pending-approval'")
+      < routeApp.indexOf("Route::post('/cockpit/decision-snapshots', 'RevenueAi/createCockpitDecisionSnapshot'") ,
+    'the parameterized pending-approval route must be registered before the generic snapshot POST route',
+  );
   assert.match(
     appTemplate,
     /data-testid="revenue-cockpit-hotel"[\s\S]{0,600}\{\{ item\.name \}\}/,

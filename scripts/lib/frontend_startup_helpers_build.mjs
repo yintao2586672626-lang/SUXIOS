@@ -21,6 +21,7 @@ export const FRONTEND_STARTUP_HELPER_SOURCES = Object.freeze([
   'home-static.js',
   'dual-ota-home-static.js',
   'ota-profile-static.js',
+  'components/system/dual-ota-field-closure-loader.js',
   'components/system/app-main-components-loader.js',
   'components/system/operating-intelligence-loader.js',
 ]);

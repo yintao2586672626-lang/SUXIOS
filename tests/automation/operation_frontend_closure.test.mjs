@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
+import vm from 'node:vm';
 
 const read = (file) => readFileSync(file, 'utf8');
 const sourcePage = read('resources/frontend/templates/fragments/15a-page-ops-source.html');
@@ -15,6 +16,11 @@ const operationStatic = read('public/operation-static.js');
 const routes = read('route/app.php');
 const manifest = JSON.parse(read('resources/frontend/templates/manifest.json'));
 const templateSource = read('scripts/lib/frontend_template_source.mjs');
+const loadOperationStaticApi = () => {
+  const context = { window: {}, console, URLSearchParams };
+  vm.runInNewContext(operationStatic, context, { filename: 'public/operation-static.js' });
+  return context.window.SUXI_OPERATION_STATIC;
+};
 
 test('three operation menu targets have source templates with explicit loading error and empty states', () => {
   for (const [page, pageKey, loaderKey] of [
@@ -127,6 +133,7 @@ test('non-price execution evidence can be saved without fabricating revenue or R
   assert.match(evidenceFlow, /effect_status: 'pending_observation'/);
   assert.match(evidenceFlow, /evidence_boundary: 'local_manual_evidence_no_ota_write'/);
   assert.match(evidenceFlow, /businessContext: \{ hotelId: executionHotelId \}/);
+  assert.match(evidenceFlow, /hotel_id: executionHotelId, system_hotel_id: executionHotelId, status: 'executed'/);
   assert.match(evidenceFlow, /readOperationExecutionTask\(responseTaskId, executionHotelId\)/);
   assert.match(evidenceFlow, /不自动生成收入或ROI/);
   assert.match(trackPage, /data-testid="operation-evidence-modal"/);
@@ -146,6 +153,7 @@ test('revenue node check is independent from completed-action evidence and reads
   const end = appMain.indexOf('const recordOperationExecutionEvidence = async', start);
   const nodeFlow = appMain.slice(start, end);
   assert.match(nodeFlow, /evidence_type: 'revenue_node_check'/);
+  assert.match(nodeFlow, /hotel_id: executionHotelId, system_hotel_id: executionHotelId, evidence_type: 'revenue_node_check'/);
   assert.match(nodeFlow, /`\/operation\/execution-tasks\/\$\{taskId\}\/evidence`/);
   assert.match(nodeFlow, /system_hotel_id: executionHotelId/);
   assert.match(nodeFlow, /business_date: businessDate/);
@@ -194,7 +202,93 @@ test('operation execution requests keep the selected hotel identity consistent t
   assert.match(memoryFlow, /params\.set\('system_hotel_id', requestedHotelId\)/);
   assert.match(appMain, /const operationExecutionHotelId = \(item\)/);
   assert.match(appMain, /执行任务与当前酒店身份不一致/);
-  assert.match(appMain, /执行任务回读酒店身份不一致/);
+  assert.match(operationStatic, /执行任务回读酒店身份不一致/);
+});
+
+test('operation lifecycle writes freeze intent task hotel and digest before exact scoped readback', () => {
+  const readIntentStart = operationStatic.indexOf('const readOperationExecutionIntent = async');
+  const readIntentEnd = operationStatic.indexOf('const readOperationExecutionTask = async', readIntentStart);
+  const readIntentFlow = operationStatic.slice(readIntentStart, readIntentEnd);
+  assert.match(readIntentFlow, /expectedHotelId = 0/);
+  assert.match(readIntentFlow, /params\.set\('hotel_id', String\(normalizedHotelId\)\)/);
+  assert.match(readIntentFlow, /params\.set\('system_hotel_id', String\(normalizedHotelId\)\)/);
+  assert.match(readIntentFlow, /operationExecutionHotelId\(intent\) !== normalizedHotelId/);
+
+  const approvalStart = appMain.indexOf('const operationApprovalConfirmingIntentId = ref(0)');
+  const approvalEnd = appMain.indexOf('const rejectOrCancelOperationApproval = async', approvalStart);
+  const approvalFlow = appMain.slice(approvalStart, approvalEnd);
+  assert.match(approvalFlow, /operationApprovalConfirmingContext\.value = captureOperationExecutionMutationContext/);
+  assert.match(approvalFlow, /confirmed_intent_id: mutationContext\.intentId/);
+  assert.match(approvalFlow, /confirmed_action_digest: mutationContext\.actionDigest/);
+  assert.match(approvalFlow, /hotel_id: mutationContext\.hotelId/);
+  assert.match(approvalFlow, /readOperationExecutionIntent\(responseIntentId, mutationContext\.hotelId\)/);
+  assert.match(approvalFlow, /assertOperationExecutionMutationContextCurrent\(mutationContext, item\)/);
+
+  const cancelStart = operationStatic.indexOf('const cancelOperationExecutionMutation = async');
+  const cancelEnd = operationStatic.indexOf('const reconcileOperationExecutionReviewMutation = async', cancelStart);
+  const cancelFlow = operationStatic.slice(cancelStart, cancelEnd);
+  assert.match(cancelFlow, /captureOperationExecutionMutationContext\(item, ctx\.selectedHotelId\(\), \{ requireDigest: true \}\)/);
+  assert.match(cancelFlow, /hotel_id: mutationContext\.hotelId/);
+  assert.match(cancelFlow, /readOperationExecutionIntent\(ctx\.request, mutationContext\.intentId, mutationContext\.hotelId\)/);
+  assert.match(cancelFlow, /assertOperationExecutionMutationContextCurrent\(mutationContext, item, ctx\.selectedHotelId\(\)\)/);
+
+  const reconcileStart = operationStatic.indexOf('const reconcileOperationExecutionReviewMutation = async');
+  const reconcileEnd = operationStatic.indexOf('return {', reconcileStart);
+  const reconcileFlow = operationStatic.slice(reconcileStart, reconcileEnd);
+  assert.match(reconcileFlow, /captureOperationExecutionMutationContext\(item, ctx\.selectedHotelId\(\), \{/);
+  assert.match(reconcileFlow, /requireTask: true/);
+  assert.match(reconcileFlow, /hotel_id: mutationContext\.hotelId/);
+  assert.match(reconcileFlow, /readOperationExecutionTask\(ctx\.request, mutationContext\.taskId, mutationContext\.hotelId\)/);
+  assert.match(reconcileFlow, /assertOperationExecutionMutationContextCurrent\(mutationContext, item, ctx\.selectedHotelId\(\)\)/);
+
+  const reviewOpenStart = appMain.indexOf('const reviewOperationExecutionTask = async');
+  const reviewEnd = appMain.indexOf('const finishOperationAction = async', reviewOpenStart);
+  const reviewFlow = appMain.slice(reviewOpenStart, reviewEnd);
+  assert.match(reviewFlow, /operationReviewMutationContext\.value = captureOperationExecutionMutationContext/);
+  assert.match(reviewFlow, /const mutationContext = operationReviewMutationContext\.value/);
+  assert.match(reviewFlow, /hotel_id: mutationContext\.hotelId/);
+  assert.match(reviewFlow, /readOperationExecutionTask\(responseTaskId, mutationContext\.hotelId\)/);
+  assert.match(reviewFlow, /assertOperationExecutionMutationContextCurrent\(mutationContext, item\)/);
+});
+
+test('operation lifecycle identity helpers reject selected-hotel and action-digest drift at runtime', async () => {
+  const api = loadOperationStaticApi();
+  const digest = 'a'.repeat(64);
+  const item = {
+    id: 41,
+    hotel_id: 80,
+    execution: { task_id: 52, hotel_id: 80 },
+    action_management: { action_card: { content_digest: digest } },
+  };
+  const context = api.captureOperationExecutionMutationContext(item, 80, { requireTask: true, requireDigest: true });
+  assert.equal(context.intentId, 41);
+  assert.equal(context.taskId, 52);
+  assert.equal(context.hotelId, 80);
+  assert.equal(context.actionDigest, digest);
+  assert.equal(api.operationExecutionHotelId({
+    action_management: { action_card: { hotel: { hotel_id: 80 } } },
+  }), 80);
+  assert.throws(() => api.assertOperationExecutionMutationContextCurrent(context, item, 81), /当前筛选酒店已变化/);
+  assert.throws(() => api.assertOperationExecutionMutationContextCurrent(context, {
+    ...item,
+    action_management: { action_card: { content_digest: 'b'.repeat(64) } },
+  }, 80), /运营行动身份已变化/);
+
+  let requestedUrl = '';
+  let requestedOptions = null;
+  const readback = await api.readOperationExecutionIntent(async (url, options) => {
+    requestedUrl = url;
+    requestedOptions = options;
+    return { code: 200, data: { id: 41, hotel_id: 80 } };
+  }, 41, 80);
+  assert.equal(readback.id, 41);
+  assert.match(requestedUrl, /hotel_id=80/);
+  assert.match(requestedUrl, /system_hotel_id=80/);
+  assert.equal(requestedOptions.businessContext.hotelId, 80);
+  await assert.rejects(
+    api.readOperationExecutionIntent(async () => ({ code: 200, data: { id: 41, hotel_id: 81 } }), 41, 80),
+    /执行意图回读酒店身份不一致/,
+  );
 });
 
 test('OTA collection capability readback is not discarded when adjacent operation panels fail', () => {
@@ -296,13 +390,16 @@ test('managed operating actions expose the versioned card lifecycle start cancel
   assert.ok(start > 0 && cancel > start && end > cancel, 'managed lifecycle handlers must be present');
   const startFlow = appMain.slice(start, cancel);
   assert.match(startFlow, /status: 'executing'/);
+  assert.match(startFlow, /hotel_id: executionHotelId, system_hotel_id: executionHotelId, status: 'executing'/);
   assert.match(startFlow, /readOperationExecutionTask\(taskId, executionHotelId\)/);
   assert.match(startFlow, /lifecycle\?\.status \|\| ''\) !== 'in_progress'/);
   assert.doesNotMatch(startFlow, /price-update|inventory-update|automatic_ota_write/i);
 
-  const cancelFlow = appMain.slice(cancel, end);
-  assert.match(cancelFlow, /\/operation\/execution-intents\/\$\{Number\(item\.id\)\}\/cancel/);
-  assert.match(cancelFlow, /readOperationExecutionIntent\(Number\(item\.id\)\)/);
+  const cancelStart = operationStatic.indexOf('const cancelOperationExecutionMutation = async');
+  const cancelEnd = operationStatic.indexOf('const reconcileOperationExecutionReviewMutation = async', cancelStart);
+  const cancelFlow = operationStatic.slice(cancelStart, cancelEnd);
+  assert.match(cancelFlow, /\/operation\/execution-intents\/\$\{mutationContext\.intentId\}\/cancel/);
+  assert.match(cancelFlow, /readOperationExecutionIntent\(ctx\.request, mutationContext\.intentId, mutationContext\.hotelId\)/);
   assert.match(cancelFlow, /lifecycle\?\.status \|\| ''\) !== 'cancelled'/);
   assert.match(cancelFlow, /历史版本仍完整保留/);
 
@@ -325,11 +422,15 @@ test('effect review uses an in-page form and preserves the observing state when 
   const start = appMain.indexOf('const reviewOperationExecutionTask = async');
   const end = appMain.indexOf('const finishOperationAction = async', start);
   const reviewFlow = appMain.slice(start, end);
+  const reconcileStart = operationStatic.indexOf('const reconcileOperationExecutionReviewMutation = async');
+  const reconcileEnd = operationStatic.indexOf('return {', reconcileStart);
+  const reconcileFlow = operationStatic.slice(reconcileStart, reconcileEnd);
   assert.match(reviewFlow, /operationReviewModalOpen\.value = true/);
   assert.match(reviewFlow, /result_summary: resultSummary \|\| '继续观察，等待次日收益或ROI证据'/);
-  assert.match(reviewFlow, /\/reconcile-review/);
-  assert.match(reviewFlow, /source_verified_metric_readback/);
-  assert.match(reviewFlow, /evidence_truth\?\.source_verified !== true/);
+  assert.match(appMain, /reconcilePath: taskId => `\/operation\/execution-tasks\/\$\{taskId\}\/reconcile-review`/);
+  assert.match(reconcileFlow, /ctx\.reconcilePath\(mutationContext\.taskId\)/);
+  assert.match(reconcileFlow, /source_verified_metric_readback/);
+  assert.match(reconcileFlow, /evidence_truth\?\.source_verified !== true/);
   assert.match(reviewFlow, /effect_review_summary\?\.verified_count/);
   assert.match(reviewFlow, /persistence_status \|\| ''\) !== 'readback_verified'/);
   assert.doesNotMatch(reviewFlow, /readback_evidence:|operator_attested/);

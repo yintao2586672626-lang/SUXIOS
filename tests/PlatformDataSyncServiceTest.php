@@ -1446,6 +1446,39 @@ final class PlatformDataSyncServiceTest extends TestCase
         ], $diagnostics['missing_inputs']);
     }
 
+    public function testSyncDiagnosticsKeepMatchedPayloadIdentityWhenTrafficRowsAreMissing(): void
+    {
+        $service = new PlatformDataSyncService();
+        $method = new \ReflectionMethod($service, 'buildSyncDiagnostics');
+        $method->setAccessible(true);
+
+        $diagnostics = $method->invoke($service, [], 0, [
+            'id' => 101,
+            'platform' => 'meituan',
+            'data_type' => 'business',
+            'ingestion_method' => 'browser_profile',
+            'system_hotel_id' => 80,
+            'config' => [
+                'store_id' => '68471',
+            ],
+        ], [
+            'data_date' => '2026-08-23',
+            'capture_sections' => 'orders,traffic',
+        ], [
+            'platform_identity_validation' => [
+                'status' => 'matched',
+                'source_validation' => true,
+                'validated_identifier' => '68471',
+                'sensitive_values_exposed' => false,
+            ],
+        ], 'partial_success', 'target traffic missing');
+
+        self::assertSame('ready', $diagnostics['platform_hotel_identifier_status']);
+        self::assertNotContains('platform_hotel_identifier', $diagnostics['missing_inputs']);
+        self::assertContains('target_date_traffic_rows', $diagnostics['missing_inputs']);
+        self::assertSame('blocked', $diagnostics['p0_status']);
+    }
+
     public function testSyncDiagnosticsDoNotRetainAdapterErrorText(): void
     {
         $service = new PlatformDataSyncService();

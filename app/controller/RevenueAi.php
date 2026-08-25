@@ -5,10 +5,13 @@ namespace app\controller;
 
 use app\model\AgentLog;
 use app\model\PriceSuggestion;
+use app\service\DualOtaFieldClosureService;
 use app\service\OperationManagementService;
+use app\service\OperatingQuestionService;
 use app\service\RevenueAiOverviewService;
 use app\service\RevenueCockpitApprovalService;
 use app\service\RevenueCockpitStrictEvidenceService;
+use app\service\RevenueDecisionSnapshotService;
 use app\service\RevenuePricingRecommendationService;
 use InvalidArgumentException;
 use RuntimeException;
@@ -41,6 +44,131 @@ class RevenueAi extends Base
         }
     }
 
+    public function createCockpitDecisionSnapshot(): Response
+    {
+        try {
+            $input = $this->requestData();
+            $visibleModel = is_array($input['visible_model'] ?? null)
+                ? $input['visible_model']
+                : [];
+            $filters = $this->filters();
+            $hotelId = (int)($filters['hotel_id'] ?? 0);
+            $this->assertRevenueAiHotelCapability($hotelId, self::REVIEW_PERMISSION);
+            $context = $this->strictCockpitContext($filters);
+            $this->assertDualOtaCurrentReceiptReady(
+                $context['overview'],
+                $context['tenant_id'],
+                $context['hotel_id'],
+                $context['business_date'],
+                $context['platform']
+            );
+            $comparisons = $this->strictCockpitComparisonContexts($context, $filters);
+            $snapshot = (new RevenueDecisionSnapshotService())->saveFromOverview(
+                $context['overview'],
+                $context['tenant_id'],
+                $context['hotel_id'],
+                $context['business_date'],
+                $context['platform'],
+                (int)($this->currentUser->id ?? 0),
+                $visibleModel,
+                $comparisons
+            );
+            return $this->success(
+                $snapshot,
+                '收益决策快照已追加保存并按同一内容、同一证据身份精确回读'
+            );
+        } catch (InvalidArgumentException $e) {
+            return $this->error($e->getMessage(), 422);
+        } catch (RuntimeException $e) {
+            return $this->error($e->getMessage(), $this->httpCode($e));
+        } catch (Throwable $e) {
+            return $this->error(
+                $this->safeErrorMessage($e, 'revenue_decision_snapshot_save_failed'),
+                $this->httpCodeFromThrowable($e)
+            );
+        }
+    }
+
+    public function readCockpitDecisionSnapshot(): Response
+    {
+        try {
+            $context = $this->strictCockpitContext($this->filters());
+            $snapshotId = (int)$this->request->param('snapshot_id', 0);
+            $service = new RevenueDecisionSnapshotService();
+            $snapshot = $snapshotId > 0
+                ? $service->readExact(
+                    $snapshotId,
+                    $context['tenant_id'],
+                    $context['hotel_id'],
+                    $context['overview']
+                )
+                : $service->readLatest(
+                    $context['tenant_id'],
+                    $context['hotel_id'],
+                    $context['business_date'],
+                    $context['platform'],
+                    $context['overview']
+                );
+            return $this->success([
+                'found' => is_array($snapshot),
+                'snapshot' => $snapshot,
+                'persistence_status' => is_array($snapshot) ? 'readback_verified' : 'not_saved',
+            ], is_array($snapshot)
+                ? '收益决策快照已按不可变身份精确回读'
+                : '当前酒店、平台和营业日尚未保存收益决策快照');
+        } catch (InvalidArgumentException $e) {
+            return $this->error($e->getMessage(), 422);
+        } catch (RuntimeException $e) {
+            return $this->error($e->getMessage(), $this->httpCode($e));
+        } catch (Throwable $e) {
+            return $this->error(
+                $this->safeErrorMessage($e, 'revenue_decision_snapshot_readback_failed'),
+                $this->httpCodeFromThrowable($e)
+            );
+        }
+    }
+
+    public function createCockpitOpportunityPendingApproval(int $id = 0): Response
+    {
+        try {
+            $id = $this->routeId($id);
+            $input = $this->requestData();
+            $opportunityKey = trim((string)($input['opportunity_key'] ?? ''));
+            $filters = $this->filters();
+            $hotelId = (int)($filters['hotel_id'] ?? 0);
+            $this->assertRevenueAiHotelCapability($hotelId, self::EXECUTION_PERMISSION);
+            $context = $this->strictCockpitContext($filters);
+            $this->assertDualOtaCurrentReceiptReady(
+                $context['overview'],
+                $context['tenant_id'],
+                $context['hotel_id'],
+                $context['business_date'],
+                $context['platform']
+            );
+            $payload = (new RevenueDecisionSnapshotService())->createOpportunityPendingApproval(
+                $id,
+                $context['tenant_id'],
+                $context['hotel_id'],
+                (int)($this->currentUser->id ?? 0),
+                $opportunityKey,
+                $context['overview']
+            );
+            return $this->success(
+                $payload,
+                '所选经营机会已转为 pending_approval 并精确回读；未审批、未调价、未写 OTA'
+            );
+        } catch (InvalidArgumentException $e) {
+            return $this->error($e->getMessage(), 422);
+        } catch (RuntimeException $e) {
+            return $this->error($e->getMessage(), $this->httpCode($e));
+        } catch (Throwable $e) {
+            return $this->error(
+                $this->safeErrorMessage($e, 'revenue_decision_opportunity_approval_failed'),
+                $this->httpCodeFromThrowable($e)
+            );
+        }
+    }
+
     public function createCockpitPendingApproval(): Response
     {
         try {
@@ -59,6 +187,13 @@ class RevenueAi extends Base
             $filters['strict_readback_only'] = true;
             $overview = (new RevenueAiOverviewService())->overview($filters);
             $overview = $this->withCockpitStrictEvidence($overview, $filters);
+            $this->assertDualOtaCurrentReceiptReady(
+                $overview,
+                (int)($overview['cockpit_strict_evidence']['tenant_id'] ?? 0),
+                $hotelId,
+                $businessDate,
+                $platform
+            );
             $tenantId = (int)($overview['cockpit_strict_evidence']['tenant_id'] ?? 0);
             if ($tenantId <= 0) {
                 throw new RuntimeException('revenue_cockpit_fact_tenant_missing', 422);
@@ -82,6 +217,51 @@ class RevenueAi extends Base
         } catch (Throwable $e) {
             return $this->error(
                 $this->safeErrorMessage($e, 'revenue_cockpit_pending_approval_failed'),
+                $this->httpCodeFromThrowable($e)
+            );
+        }
+    }
+
+    public function readCockpitPendingApproval(): Response
+    {
+        try {
+            $filters = $this->filters();
+            $hotelId = (int)($filters['hotel_id'] ?? 0);
+            $businessDate = trim((string)($filters['business_date'] ?? ''));
+            $platform = strtolower(trim((string)($filters['platform'] ?? '')));
+            if ($hotelId <= 0 || $businessDate === '') {
+                throw new InvalidArgumentException('revenue_cockpit_approval_scope_invalid');
+            }
+            if (!in_array($platform, ['ctrip', 'meituan', 'all_ota'], true)) {
+                throw new InvalidArgumentException('revenue_cockpit_approval_platform_invalid');
+            }
+            $filters['strict_readback_only'] = true;
+            $overview = (new RevenueAiOverviewService())->overview($filters);
+            $overview = $this->withCockpitStrictEvidence($overview, $filters);
+            $tenantId = (int)($overview['cockpit_strict_evidence']['tenant_id'] ?? 0);
+            if ($tenantId <= 0) {
+                throw new RuntimeException('revenue_cockpit_fact_tenant_missing', 422);
+            }
+            $payload = (new RevenueCockpitApprovalService())->readFromOverview(
+                $overview,
+                $tenantId,
+                $hotelId,
+                $businessDate,
+                $platform
+            );
+            return $this->success(
+                $payload,
+                ($payload['found'] ?? false) === true
+                    ? '已按当前事实身份恢复运营行动并精确回读当前状态'
+                    : '当前事实身份尚未保存运营行动'
+            );
+        } catch (InvalidArgumentException $e) {
+            return $this->error($e->getMessage(), 422);
+        } catch (RuntimeException $e) {
+            return $this->error($e->getMessage(), $this->httpCode($e));
+        } catch (Throwable $e) {
+            return $this->error(
+                $this->safeErrorMessage($e, 'revenue_cockpit_pending_approval_readback_failed'),
                 $this->httpCodeFromThrowable($e)
             );
         }
@@ -115,7 +295,183 @@ class RevenueAi extends Base
             $businessDate,
             $platform
         );
+        $overview['dual_ota_field_closure'] = (new DualOtaFieldClosureService())->build(
+            $hotelId,
+            $businessDate
+        );
         return $overview;
+    }
+
+    /** @param array<string,mixed> $overview */
+    private function assertDualOtaCurrentReceiptReady(
+        array $overview,
+        int $tenantId,
+        int $hotelId,
+        string $businessDate,
+        string $platform
+    ): void {
+        $closure = is_array($overview['dual_ota_field_closure'] ?? null)
+            ? $overview['dual_ota_field_closure']
+            : [];
+        if ((string)($closure['contract_version'] ?? '') !== 'dual_ota_field_closure.v1'
+            || (int)($closure['tenant_id'] ?? 0) !== $tenantId
+            || (int)($closure['hotel_id'] ?? 0) !== $hotelId
+            || (string)($closure['business_date'] ?? '') !== $businessDate
+        ) {
+            throw new RuntimeException('revenue_cockpit_dual_ota_current_receipt_scope_invalid', 422);
+        }
+        $platforms = $platform === 'all_ota' ? ['ctrip', 'meituan'] : [$platform];
+        foreach ($platforms as $selectedPlatform) {
+            $current = is_array($closure['platforms'][$selectedPlatform] ?? null)
+                ? $closure['platforms'][$selectedPlatform]
+                : [];
+            $receiptRowIds = array_values(array_filter(
+                array_map('intval', (array)($current['current_receipt_record_ids'] ?? [])),
+                static fn(int $rowId): bool => $rowId > 0
+            ));
+            if ((string)($current['status'] ?? '') !== 'ready'
+                || (string)($current['revenue_analysis']['status'] ?? '') !== 'ready'
+                || ($current['current_collection_blocker_status'] ?? null) !== null
+                || $receiptRowIds === []
+            ) {
+                throw new RuntimeException(
+                    'revenue_cockpit_' . $selectedPlatform . '_current_receipt_not_ready',
+                    422
+                );
+            }
+        }
+    }
+
+    /**
+     * @param array<string,mixed> $filters
+     * @return array{overview:array<string,mixed>,tenant_id:int,hotel_id:int,business_date:string,platform:string}
+     */
+    private function strictCockpitContext(array $filters): array
+    {
+        $hotelId = (int)($filters['hotel_id'] ?? 0);
+        $businessDate = trim((string)($filters['business_date'] ?? ''));
+        $platform = strtolower(trim((string)($filters['platform'] ?? '')));
+        if ($hotelId <= 0 || $businessDate === '') {
+            throw new InvalidArgumentException('revenue_decision_snapshot_scope_invalid');
+        }
+        if (!in_array($platform, ['ctrip', 'meituan', 'all_ota'], true)) {
+            throw new InvalidArgumentException('revenue_decision_snapshot_platform_invalid');
+        }
+        unset($filters['visible_model'], $filters['opportunity_key'], $filters['snapshot_id']);
+        $filters['strict_readback_only'] = true;
+        $overview = (new RevenueAiOverviewService())->overview($filters);
+        $overview = $this->withCockpitStrictEvidence($overview, $filters);
+        $tenantId = (int)($overview['cockpit_strict_evidence']['tenant_id'] ?? 0);
+        if ($tenantId <= 0) {
+            throw new RuntimeException('revenue_cockpit_fact_tenant_missing', 422);
+        }
+        return [
+            'overview' => $overview,
+            'tenant_id' => $tenantId,
+            'hotel_id' => $hotelId,
+            'business_date' => $businessDate,
+            'platform' => $platform,
+        ];
+    }
+
+    /**
+     * Resolve both comparison dates from the same server-side strict-date
+     * catalog used by the formal page. Client-declared baseline dates are never
+     * used as authority for a saved decision snapshot.
+     *
+     * @param array{overview:array<string,mixed>,tenant_id:int,hotel_id:int,business_date:string,platform:string} $context
+     * @param array<string,mixed> $filters
+     * @return array{previous_date:string,same_weekday_date:string,previous_overview:array<string,mixed>,same_weekday_overview:array<string,mixed>,selected_platform_label:string,latest_verified_date:string,scope_notice:string}
+     */
+    private function strictCockpitComparisonContexts(array $context, array $filters): array
+    {
+        $scope = (new OperatingQuestionService())->scopeOptions(
+            (int)$context['tenant_id'],
+            (int)$context['hotel_id']
+        );
+        $platformRow = null;
+        foreach ((array)($scope['platforms'] ?? []) as $candidate) {
+            if (is_array($candidate)
+                && strtolower(trim((string)($candidate['platform'] ?? ''))) === (string)$context['platform']
+            ) {
+                $platformRow = $candidate;
+                break;
+            }
+        }
+        if (!is_array($platformRow)) {
+            throw new RuntimeException('revenue_decision_snapshot_comparison_scope_missing', 422);
+        }
+        $dates = array_values(array_unique(array_filter(array_map(
+            static fn(mixed $value): string => substr(trim((string)$value), 0, 10),
+            (array)($platformRow['available_dates'] ?? [])
+        ), static fn(string $value): bool => preg_match('/^\d{4}-\d{2}-\d{2}$/D', $value) === 1)));
+        rsort($dates, SORT_STRING);
+        $currentIndex = array_search((string)$context['business_date'], $dates, true);
+        if ($currentIndex === false) {
+            throw new RuntimeException('revenue_decision_snapshot_business_date_not_strict_available', 422);
+        }
+        $previousDate = (string)($dates[$currentIndex + 1] ?? '');
+        $weekday = (int)(new \DateTimeImmutable(
+            (string)$context['business_date'] . ' 00:00:00',
+            new \DateTimeZone('UTC')
+        ))->format('w');
+        $sameWeekdayDate = '';
+        foreach (array_slice($dates, $currentIndex + 1) as $candidateDate) {
+            $candidateWeekday = (int)(new \DateTimeImmutable(
+                $candidateDate . ' 00:00:00',
+                new \DateTimeZone('UTC')
+            ))->format('w');
+            if ($candidateWeekday === $weekday) {
+                $sameWeekdayDate = $candidateDate;
+                break;
+            }
+        }
+        $load = function (string $date) use ($filters, $context): array {
+            if ($date === '') {
+                return [];
+            }
+            $candidateFilters = $filters;
+            $candidateFilters['hotel_id'] = (int)$context['hotel_id'];
+            $candidateFilters['business_date'] = $date;
+            $candidateFilters['platform'] = (string)$context['platform'];
+            $candidateFilters['enabled_channels'] = (string)$context['platform'] === 'all_ota'
+                ? ['ctrip', 'meituan']
+                : [(string)$context['platform']];
+            return $this->strictCockpitContext($candidateFilters)['overview'];
+        };
+        $previousOverview = $load($previousDate);
+        $sameWeekdayOverview = $sameWeekdayDate !== '' && $sameWeekdayDate === $previousDate
+            ? $previousOverview
+            : $load($sameWeekdayDate);
+        $currentDate = (string)$context['business_date'];
+        $latestVerifiedDate = substr(trim((string)($platformRow['latest_verified_date'] ?? '')), 0, 10);
+        if (preg_match('/^\d{4}-\d{2}-\d{2}$/D', $latestVerifiedDate) !== 1) {
+            $latestVerifiedDate = (string)($dates[0] ?? '');
+        }
+        $today = (new \DateTimeImmutable('now', new \DateTimeZone('Asia/Shanghai')))->format('Y-m-d');
+        $distance = (int)round((strtotime($today . ' UTC') - strtotime($currentDate . ' UTC')) / 86400);
+        $distanceText = $distance === 0
+            ? '就是今天'
+            : ($distance > 0 ? '比今天早 ' . $distance . ' 天' : '比今天晚 ' . abs($distance) . ' 天');
+        $platformLabel = match ((string)$context['platform']) {
+            'ctrip' => '携程',
+            'meituan' => '美团',
+            'all_ota' => '携程 + 美团',
+            default => 'OTA',
+        };
+        $scopeNotice = $platformLabel . '当前业务日 ' . $currentDate . '，' . $distanceText . '；'
+            . ($currentDate === $latestVerifiedDate
+                ? '已默认到该平台最近严格可用日期'
+                : '当前为人工选择的历史严格可用日期') . '。';
+        return [
+            'previous_date' => $previousDate,
+            'same_weekday_date' => $sameWeekdayDate,
+            'previous_overview' => $previousOverview,
+            'same_weekday_overview' => $sameWeekdayOverview,
+            'selected_platform_label' => $platformLabel,
+            'latest_verified_date' => $latestVerifiedDate,
+            'scope_notice' => $scopeNotice,
+        ];
     }
 
     /** @param array<string,mixed> $overview */

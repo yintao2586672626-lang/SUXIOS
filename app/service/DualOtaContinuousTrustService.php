@@ -768,6 +768,14 @@ final class DualOtaContinuousTrustService
             'run_readback_scope' => [
                 'status' => trim((string)($runReadbackScope['status'] ?? '')) ?: 'unverified',
                 'data_period' => trim((string)($runReadbackScope['data_period'] ?? '')) ?: null,
+                'receipt_record_ids' => array_values(array_map(
+                    'intval',
+                    (array)($runReadbackScope['receipt_record_ids'] ?? [])
+                )),
+                'accepted_record_ids' => array_values(array_map(
+                    'intval',
+                    (array)($runReadbackScope['accepted_record_ids'] ?? [])
+                )),
                 'receipt_row_count' => max(0, (int)($runReadbackScope['receipt_row_count'] ?? 0)),
                 'receipt_current_row_count' => max(0, (int)($runReadbackScope['receipt_current_row_count'] ?? 0)),
                 'receipt_missing_row_count' => max(0, (int)($runReadbackScope['receipt_missing_row_count'] ?? 0)),
@@ -803,11 +811,11 @@ final class DualOtaContinuousTrustService
     }
 
     /**
-     * A local Profile task is trustworthy only when every authoritative P0
-     * traffic row is inside the persisted exact-run receipt and uses the
-     * receipt's one declared data period. A task-level saved/readback total is
-     * not a substitute for row membership because one task may persist more
-     * than one period.
+     * Exact-run readback proves receipt identity and current row membership;
+     * it does not prove that every required P0 field was collected. Traffic
+     * completeness remains a separate field-fact/P0 gate below. A task-level
+     * saved/readback total is not a substitute for row membership because one
+     * task may persist more than one period.
      *
      * @param array<int, array<string, mixed>> $trafficRows
      * @param array<int, array<string, mixed>> $targetRows
@@ -831,6 +839,7 @@ final class DualOtaContinuousTrustService
             static fn($value): int => max(0, (int)$value),
             is_array($runReadback['row_ids'] ?? null) ? $runReadback['row_ids'] : []
         ), static fn(int $rowId): bool => $rowId > 0)));
+        sort($receiptRowIds, SORT_NUMERIC);
         $receiptRowIdSet = array_fill_keys($receiptRowIds, true);
         $receiptDate = substr(trim((string)($runReadback['target_date'] ?? '')), 0, 10);
         $identityReady = $tenantId > 0
@@ -872,6 +881,7 @@ final class DualOtaContinuousTrustService
         }
         $missingReceiptRows = 0;
         $identityMismatchRows = 0;
+        $acceptedRecordIds = [];
         foreach ($receiptRowIds as $receiptRowId) {
             $row = $currentRowsById[$receiptRowId] ?? null;
             if (!is_array($row)) {
@@ -881,27 +891,29 @@ final class DualOtaContinuousTrustService
             }
             $rowPeriod = strtolower(trim((string)($row['data_period'] ?? '')));
             $rowDate = substr(trim((string)($row['data_date'] ?? '')), 0, 10);
-            if ((int)($row['tenant_id'] ?? 0) !== $tenantId
-                || (int)($row['system_hotel_id'] ?? 0) !== $hotelId
-                || (int)($row['data_source_id'] ?? 0) !== $sourceId
-                || (int)($row['sync_task_id'] ?? 0) !== $taskId
-                || self::rowPlatform($row) !== $platform
-                || $rowDate !== $date
-                || $rowPeriod === ''
-                || $rowPeriod !== $receiptPeriod
-                || (int)($row['readback_verified'] ?? 0) !== 1
-            ) {
+            $rowIdentityReady = (int)($row['tenant_id'] ?? 0) === $tenantId
+                && (int)($row['system_hotel_id'] ?? 0) === $hotelId
+                && (int)($row['data_source_id'] ?? 0) === $sourceId
+                && (int)($row['sync_task_id'] ?? 0) === $taskId
+                && self::rowPlatform($row) === $platform
+                && $rowDate === $date
+                && $rowPeriod !== ''
+                && $rowPeriod === $receiptPeriod
+                && (int)($row['readback_verified'] ?? 0) === 1;
+            if (!$rowIdentityReady) {
                 $identityMismatchRows++;
                 $mismatchedRowKeys['row:' . $receiptRowId] = true;
+                continue;
             }
+            $acceptedRecordIds[] = $receiptRowId;
         }
+        sort($acceptedRecordIds, SORT_NUMERIC);
         if (!$identityReady) {
             $mismatchedRowKeys['receipt:identity'] = true;
         }
 
         $mismatchedRows = count($mismatchedRowKeys);
         $ready = $identityReady
-            && $trafficRows !== []
             && $missingReceiptRows === 0
             && $identityMismatchRows === 0
             && $mismatchedRows === 0;
@@ -909,6 +921,8 @@ final class DualOtaContinuousTrustService
             'ready' => $ready,
             'status' => $ready ? 'verified' : 'exact_run_readback_scope_mismatch',
             'data_period' => $receiptPeriod !== '' ? $receiptPeriod : null,
+            'receipt_record_ids' => $receiptRowIds,
+            'accepted_record_ids' => $acceptedRecordIds,
             'receipt_row_count' => count($receiptRowIds),
             'receipt_current_row_count' => count($currentRowsById),
             'receipt_missing_row_count' => $missingReceiptRows,

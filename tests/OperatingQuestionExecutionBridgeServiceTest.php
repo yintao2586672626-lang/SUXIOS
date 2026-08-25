@@ -380,7 +380,162 @@ final class OperatingQuestionExecutionBridgeServiceTest extends TestCase
         $readback = (new OperationManagementService())->readExecutionIntent((int)$intent['id'], [20]);
         self::assertSame('pending_approval', $readback['action_management']['lifecycle']['status']);
         self::assertSame('verified', $readback['action_management']['lifecycle']['integrity_status']);
+        self::assertSame('verified', $readback['action_management']['integrity']['status']);
+        self::assertSame('missing', $readback['action_management']['review_integrity_status']);
         self::assertSame(3, $readback['action_management']['lifecycle']['event_count']);
+    }
+
+    public function testCorruptedLifecycleEventChainFailsClosedBeforeReadAndAppend(): void
+    {
+        $questionService = $this->readyQuestionService();
+        $saved = $questionService->create(
+            10,
+            20,
+            '2026-08-12 携程列表曝光用户数应复核什么？',
+            'ctrip',
+            '2026-08-12',
+            '2026-08-12',
+            7
+        );
+        $created = (new OperatingQuestionExecutionBridgeService(
+            $questionService,
+            new OperationManagementService()
+        ))->createIntent((int)$saved['question']['id'], 0, 10, [20], 7);
+        $intent = $created['execution_intent'];
+        $lifecycle = new OperationActionLifecycleService();
+        $events = $lifecycle->eventsForIntent(10, 20, (int)$intent['id']);
+        self::assertCount(2, $events);
+
+        $invalidEvents = $events;
+        $invalidEvents[0]['content_digest'] = str_repeat('0', 64);
+        try {
+            $lifecycle->currentStatus($intent, $invalidEvents);
+            self::fail('a corrupted event chain must never project a lifecycle status');
+        } catch (\RuntimeException $exception) {
+            self::assertStringContainsString('状态不可用', $exception->getMessage());
+        }
+
+        Db::name(OperationActionLifecycleService::EVENT_TABLE)
+            ->where('intent_id', (int)$intent['id'])
+            ->where('sequence_no', 1)
+            ->update(['content_digest' => str_repeat('0', 64)]);
+        try {
+            $lifecycle->eventsForIntent(10, 20, (int)$intent['id']);
+            self::fail('a corrupted event chain must fail closed on read');
+        } catch (\RuntimeException $exception) {
+            self::assertStringContainsString('事件链损坏', $exception->getMessage());
+        }
+        try {
+            $lifecycle->appendEvent(
+                $intent,
+                0,
+                'pending_approval',
+                'cancelled',
+                'cancelled',
+                8,
+                ['reason' => 'must not append after corruption']
+            );
+            self::fail('a corrupted event chain must fail closed before append');
+        } catch (\RuntimeException $exception) {
+            self::assertStringContainsString('事件链损坏', $exception->getMessage());
+        }
+        self::assertSame(
+            2,
+            (int)Db::name(OperationActionLifecycleService::EVENT_TABLE)
+                ->where('intent_id', (int)$intent['id'])
+                ->count()
+        );
+    }
+
+    public function testCorruptedUnifiedReviewChainFailsClosedBeforeReadAndAppend(): void
+    {
+        $questionService = $this->readyQuestionService();
+        $saved = $questionService->create(
+            10,
+            20,
+            '2026-08-12 携程列表曝光用户数应复核什么？',
+            'ctrip',
+            '2026-08-12',
+            '2026-08-12',
+            7
+        );
+        $created = (new OperatingQuestionExecutionBridgeService(
+            $questionService,
+            new OperationManagementService()
+        ))->createIntent((int)$saved['question']['id'], 0, 10, [20], 7);
+        $intent = $created['execution_intent'];
+        $schedule = $intent['target_value']['workflow_schedule'];
+        $approved = (new OperationManagementService())->approveExecutionIntent(
+            (int)$intent['id'],
+            true,
+            '人工批准后建立复盘链',
+            8,
+            [20],
+            [
+                'expected_metric' => 'list_exposure',
+                'expected_direction' => 'increase',
+                'target_type' => 'delta',
+                'expected_delta' => 100,
+                'review_business_date' => substr((string)$schedule['review_at'], 0, 10),
+                'assignee_id' => 8,
+                'due_at' => (string)$schedule['due_at'],
+                'review_at' => (string)$schedule['review_at'],
+            ]
+        );
+        $task = $approved['tasks'][0];
+        $lifecycle = new OperationActionLifecycleService();
+        $reviewedAt = date('Y-m-d H:i:s');
+        $review = $lifecycle->appendReview($approved, $task, [], 'observing', '首次人工复盘', 8, $reviewedAt);
+        self::assertGreaterThan(0, (int)$review['id']);
+        self::assertSame('verified', $approved['action_management']['integrity']['status']);
+
+        $forgedReview = $review;
+        $forgedReview['task_id'] = 999999;
+        $reviewDigest = new \ReflectionMethod(OperationActionLifecycleService::class, 'reviewDigest');
+        $forgedDigest = (string)$reviewDigest->invoke($lifecycle, $forgedReview);
+        Db::name(OperationActionLifecycleService::REVIEW_TABLE)
+            ->where('id', (int)$review['id'])
+            ->update([
+                'task_id' => 999999,
+                'content_digest' => $forgedDigest,
+            ]);
+        try {
+            $lifecycle->reviewsForIntent(10, 20, (int)$intent['id']);
+            self::fail('a corrupted review chain must fail closed on read');
+        } catch (\RuntimeException $exception) {
+            self::assertStringContainsString('复盘链损坏', $exception->getMessage());
+        }
+        try {
+            $lifecycle->appendReview($approved, $task, [], 'observing', '不得追加', 8, $reviewedAt);
+            self::fail('a corrupted review chain must fail closed before append');
+        } catch (\RuntimeException $exception) {
+            self::assertStringContainsString('复盘链损坏', $exception->getMessage());
+        }
+        self::assertSame(1, (int)Db::name(OperationActionLifecycleService::REVIEW_TABLE)->count());
+    }
+
+    public function testLifecycleWriteControllerAndMigrationKeepExactHotelAndDuplicateFailureContracts(): void
+    {
+        $controller = (string)file_get_contents(dirname(__DIR__) . '/app/controller/OperationManagement.php');
+        self::assertSame(6, substr_count($controller, 'resolveRequiredWriteHotelScope($input)'));
+        self::assertStringContainsString('hotel_id 与 system_hotel_id 不一致', $controller);
+        self::assertStringContainsString('运营写入必须明确指定 hotel_id', $controller);
+        self::assertMatchesRegularExpression(
+            '/if \(\$e instanceof \\\\InvalidArgumentException\) \{\s*return 422;/s',
+            $controller
+        );
+
+        $migration = (string)file_get_contents(
+            dirname(__DIR__) . '/database/migrations/20260824_enforce_one_operation_execution_task_per_intent.sql'
+        );
+        self::assertStringContainsString('HAVING COUNT(*) > 1', $migration);
+        self::assertStringContainsString("SIGNAL SQLSTATE '45000'", $migration);
+        self::assertStringContainsString('BEGIN NOT ATOMIC', $migration);
+        self::assertStringNotContainsString('CREATE PROCEDURE', $migration);
+        self::assertStringNotContainsString('DROP PROCEDURE', $migration);
+        self::assertStringContainsString('ADD COLUMN IF NOT EXISTS `unique_intent_id`', $migration);
+        self::assertStringContainsString('ADD UNIQUE INDEX IF NOT EXISTS `uq_operation_execution_tasks_intent_once`', $migration);
+        self::assertDoesNotMatchRegularExpression('/\b(?:DELETE|UPDATE)\s+`?operation_execution_tasks`?/i', $migration);
     }
 
     public function testMissingFactsAndSourceDriftNeverCreateOrApproveAnIntent(): void

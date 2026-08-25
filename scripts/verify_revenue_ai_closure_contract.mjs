@@ -2011,7 +2011,7 @@ includesAll('public/index.html', 'Revenue AI homepage keeps execution evidence l
   'reviewOperationExecutionTask(taskItem)',
   "`/operation/execution-tasks/${taskId}/execute`",
   "`/operation/execution-tasks/${taskId}/evidence`",
-  "`/operation/execution-tasks/${taskId}/review`",
+  "`/operation/execution-tasks/${mutationContext.taskId}/review`",
   "evidence_type: 'manual_price_execution'",
   "evidence_boundary: 'local_manual_evidence_no_ota_write'",
   'operationCanReconcileExecution(item)',
