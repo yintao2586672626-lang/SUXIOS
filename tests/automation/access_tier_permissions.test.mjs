@@ -241,6 +241,8 @@ assert.match(indexHtml, /\['ctrip', 'meituan'\]\.map\(platform/, 'hotel onboardi
 assert.match(indexHtml, /hotelFormChannelSelected\(platform\)[\s\S]*toggleHotelFormChannel\(platform\)/, 'each OTA choice must preserve independent selection and toggling');
 assert.match(indexHtml, /platform === 'ctrip' \? '携程' : '美团'/, 'the fixed OTA choices must retain their user-facing labels');
 assert.match(indexHtml, /创建、授权或保存身份不会自动采集，也不会向企业微信发送消息。/, 'hotel form must not imply that applicability, identity binding, or login starts collection or delivery');
+assert.match(indexHtml, /适用平台（可多选）[\s\S]*hotelFormChannelSelected\('ctrip'\)[\s\S]*toggleHotelFormChannel\('ctrip'\)[\s\S]*携程[\s\S]*hotelFormChannelSelected\('meituan'\)[\s\S]*toggleHotelFormChannel\('meituan'\)[\s\S]*美团/, 'hotel form must expose independently selectable platforms');
+assert.match(indexHtml, /保存后系统会持续检查已选平台；绑定、原设备登录和可信数据齐备后，自动启用采集与分析。/, 'hotel form must explain the gated automation lifecycle without implying that applicability alone starts collection');
 assert.equal((hotelManagementTemplate.match(/data-testid="hotel-pms-selection"/g) || []).length, 2, 'desktop and mobile hotel lists must echo the selected PMS');
 assert.equal((hotelManagementTemplate.match(/@click="openHotelModal\(hotel\)"[^>]*data-testid="hotel-pms-selection"/g) || []).length, 2, 'desktop and mobile PMS badges must open hotel editing');
 assert.match(hotelManagementTemplate, /\{\{ hotel\.pms_provider_label \|\| 'PMS 状态未取得' \}\}/, 'hotel list must show the selected PMS without falling back to OTA applicability');

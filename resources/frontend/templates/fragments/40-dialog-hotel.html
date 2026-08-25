@@ -1,74 +1,155 @@
         <!-- 酒店模态框 -->
         <div v-if="showHotelModal" class="fixed inset-0 z-50 flex items-start sm:items-center justify-center modal-overlay overflow-y-auto px-3 py-4 sm:p-4" @click.self="showHotelModal = false">
-            <div class="bg-white rounded-xl shadow-2xl w-full max-w-3xl transform transition-all max-h-[calc(100vh-2rem)] overflow-hidden flex flex-col">
+            <div class="bg-white rounded-xl shadow-2xl w-full max-w-2xl transform transition-all max-h-[calc(100vh-2rem)] overflow-hidden flex flex-col">
+                <!-- 头部 -->
                 <div class="px-4 sm:px-6 py-4 border-b border-gray-100 flex justify-between items-center bg-gradient-to-r from-blue-50 to-white shrink-0">
                     <div class="flex items-center gap-3">
-                        <div class="w-10 h-10 rounded-lg bg-blue-500 flex items-center justify-center"><i class="fas fa-hotel text-white"></i></div>
+                        <div class="w-10 h-10 rounded-lg bg-blue-500 flex items-center justify-center">
+                            <i class="fas fa-hotel text-white"></i>
+                        </div>
                         <div>
-                            <h3 class="text-lg font-semibold text-gray-800">{{ hotelOnboardingActive ? '新增门店接入' : '编辑门店' }}</h3>
-                            <p class="text-xs text-gray-500">{{ hotelOnboardingActive ? '创建后继续完成三源身份与云端登录' : '修改门店资料与平台范围' }}</p>
+                            <h3 class="text-lg font-semibold text-gray-800">{{ hotelForm.id ? '编辑门店' : '新增门店' }}</h3>
+                            <p class="text-xs text-gray-500">{{ hotelForm.id ? '修改门店资料与平台范围' : '编号自动生成，创建后默认营业' }}</p>
                         </div>
                     </div>
-                    <button type="button" @click="showHotelModal = false" class="text-gray-400 hover:text-gray-600 w-8 h-8 flex items-center justify-center rounded-lg hover:bg-gray-100" aria-label="关闭"><i class="fas fa-times"></i></button>
+                    <button @click="showHotelModal = false" class="text-gray-400 hover:text-gray-600 w-8 h-8 flex items-center justify-center rounded-lg hover:bg-gray-100 transition-colors">
+                        <i class="fas fa-times"></i>
+                    </button>
                 </div>
 
-                <component v-if="hotelOnboardingActive" :is="hotelThreeSourceOnboardingPanel"></component>
-
-                <form v-else @submit.prevent="saveHotel" class="p-4 sm:p-6 overflow-y-auto">
+                <!-- 表单 -->
+                <form @submit.prevent="saveHotel" class="p-4 sm:p-6 overflow-y-auto">
+                    <!-- 基本信息 -->
                     <div class="space-y-4">
                         <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-1.5"><span class="text-red-500">*</span> 门店名称</label>
-                            <input v-model="hotelForm.name" type="text" required="" placeholder="请输入门店名称" class="w-full px-4 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
-                            <p v-if="!hotelForm.id" class="mt-1 text-xs text-slate-500">编号自动生成，创建后默认营业。</p>
+                            <label class="block text-sm font-medium text-gray-700 mb-1.5">
+                                <span class="text-red-500">*</span> 门店名称
+                            </label>
+                            <input v-model="hotelForm.name" type="text" required="" placeholder="请输入门店名称" class="w-full px-4 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all">
                         </div>
-                        <div v-if="hotelForm.id"><label class="block text-sm font-medium text-gray-700 mb-1.5">门店编号</label><input :value="hotelForm.code || '-'" type="text" readonly="" class="w-full px-4 py-2.5 border border-gray-200 rounded-lg bg-gray-50 text-gray-500"></div>
+
+                        <div v-if="hotelForm.id">
+                            <label class="block text-sm font-medium text-gray-700 mb-1.5">门店编号</label>
+                            <input :value="hotelForm.code || '-'" type="text" readonly="" class="w-full px-4 py-2.5 border border-gray-200 rounded-lg bg-gray-50 text-gray-500 cursor-default focus:outline-none">
+                        </div>
+
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1.5">录入人</label>
+                            <div class="relative">
+                                <i class="fas fa-user-check absolute left-3 top-3 text-gray-400"></i>
+                                <input v-model="hotelForm.contact_person" type="text" readonly="" placeholder="当前登录用户" class="w-full pl-10 pr-4 py-2.5 border border-gray-200 rounded-lg bg-gray-50 text-gray-500 cursor-default focus:outline-none">
+                            </div>
+                        </div>
+
                         <div>
                             <label class="block text-sm font-medium text-gray-700 mb-1.5">适用平台（可多选）</label>
                             <div class="grid grid-cols-2 gap-2 text-sm">
-                                <label v-for="platform in ['ctrip', 'meituan']" :key="platform" :class="hotelFormChannelSelected(platform) ? 'border-blue-200 bg-blue-50 text-blue-700' : 'border-gray-200 bg-gray-50 text-gray-600'" class="flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-2.5 font-medium">
-                                    <input type="checkbox" :checked="hotelFormChannelSelected(platform)" @change="toggleHotelFormChannel(platform)" class="h-4 w-4 rounded border-gray-300 text-blue-600">
-                                    <span>{{ platform === 'ctrip' ? '携程' : '美团' }}</span>
+                                <label :class="hotelFormChannelSelected('ctrip') ? 'border-blue-200 bg-blue-50 text-blue-700' : 'border-gray-200 bg-gray-50 text-gray-600'" class="flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-2.5 font-medium transition-colors">
+                                    <input type="checkbox" :checked="hotelFormChannelSelected('ctrip')" @change="toggleHotelFormChannel('ctrip')" class="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500">
+                                    <span>携程</span>
+                                </label>
+                                <label :class="hotelFormChannelSelected('meituan') ? 'border-orange-200 bg-orange-50 text-orange-700' : 'border-gray-200 bg-gray-50 text-gray-600'" class="flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-2.5 font-medium transition-colors">
+                                    <input type="checkbox" :checked="hotelFormChannelSelected('meituan')" @change="toggleHotelFormChannel('meituan')" class="h-4 w-4 rounded border-gray-300 text-orange-600 focus:ring-orange-500">
+                                    <span>美团</span>
                                 </label>
                             </div>
-                            <p class="mt-1 text-xs text-slate-500">创建、授权或保存身份不会自动采集，也不会向企业微信发送消息。</p>
+                            <p class="text-xs text-gray-400 mt-1">保存后系统会持续检查已选平台；绑定、原设备登录和可信数据齐备后，自动启用采集与分析。</p>
                         </div>
+
                         <component :is="hotelBusinessProfileEditor"></component>
 
                         <div id="hotel-pms-configuration" class="pt-3 border-t border-gray-100" data-testid="hotel-pms-configuration">
-                            <div class="rounded-lg border border-[#eadfc9] bg-[#fffdf8] px-3 py-3">
+                            <div class="rounded-lg border border-[#eadfc9] bg-[#fffdf8] px-3 py-2.5">
                                 <div class="flex flex-col gap-2 sm:flex-row sm:items-center">
                                     <h4 class="shrink-0 text-sm font-semibold text-slate-900 sm:w-40">经营系统（PMS）</h4>
-                                    <select v-model="hotelForm.pms_provider" @change="handleHotelPmsProviderChange" :disabled="hotelPmsBindingLoading || !!hotelPmsBindingError" aria-label="当前使用的 PMS" data-testid="hotel-pms-provider" class="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm sm:flex-1">
+                                    <select v-model="hotelForm.pms_provider" @change="handleHotelPmsProviderChange" :disabled="hotelPmsBindingLoading || !!hotelPmsBindingError" aria-label="当前使用的 PMS" data-testid="hotel-pms-provider" class="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm focus:border-[#ad8b52] focus:outline-none focus:ring-2 focus:ring-[#eadfc9] disabled:bg-slate-100 sm:flex-1">
                                         <option v-if="hotelForm.pms_provider === 'conflict'" value="conflict" disabled>历史配置冲突，请重新选择</option>
-                                        <option value="none">暂不配置 PMS</option><option value="dingdandao_pms">订单来了 PMS</option><option value="meituan_cloud_pms">美团云 PMS</option>
+                                        <option value="none">暂不配置 PMS</option>
+                                        <option value="dingdandao_pms">订单来了 PMS</option>
+                                        <option value="meituan_cloud_pms">美团云 PMS</option>
                                     </select>
                                 </div>
-                                <div v-if="['dingdandao_pms', 'meituan_cloud_pms'].includes(hotelForm.pms_provider)" class="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
-                                    <label class="text-xs font-medium text-slate-700"><span class="text-red-500">*</span> 平台公开门店 ID<input v-model="hotelForm.pms_provider_hotel_id" type="text" autocomplete="off" class="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-normal" placeholder="页面显示的公开 ID"></label>
-                                    <label class="text-xs font-medium text-slate-700"><span class="text-red-500">*</span> 平台公开门店名称<input v-model="hotelForm.pms_provider_hotel_name" type="text" autocomplete="off" class="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-normal" placeholder="与 PMS 页面完全一致"></label>
+
+                                <div v-if="hotelPmsBindingLoading" class="mt-2 text-xs text-slate-500">
+                                    <i class="fas fa-spinner fa-spin mr-1"></i>正在读取当前 PMS 配置...
                                 </div>
-                                <p v-if="['dingdandao_pms', 'meituan_cloud_pms'].includes(hotelForm.pms_provider)" class="mt-2 text-xs text-slate-500">只填写平台公开身份；没有账号、密码、Cookie 或验证码字段。</p>
-                                <div v-if="hotelPmsBindingLoading" class="mt-2 text-xs text-slate-500">正在读取当前 PMS 配置...</div>
-                                <div v-else-if="hotelPmsBindingError" class="mt-2 flex items-center justify-between gap-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700"><span>{{ hotelPmsBindingError }}</span><button v-if="hotelForm.id" type="button" @click="loadHotelPmsBindingForModal(hotelForm.id)" class="font-medium underline">重试</button></div>
-                                <div v-if="hotelForm.pms_provider === 'conflict'" class="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800" data-testid="hotel-pms-conflict">历史配置有两套 PMS 同时启用，请明确保留一个来源。</div>
+                                <div v-else-if="hotelPmsBindingError" class="mt-2 flex items-center justify-between gap-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+                                    <span>{{ hotelPmsBindingError }}</span>
+                                    <button v-if="hotelForm.id" type="button" @click="loadHotelPmsBindingForModal(hotelForm.id)" class="shrink-0 font-medium underline">重试</button>
+                                </div>
+
+                                <div v-if="hotelForm.pms_provider === 'conflict'" class="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800" data-testid="hotel-pms-conflict">
+                                    历史配置中“订单来了”和“美团云 PMS”同时启用。宿析OS不会自动选择真值；请在下方明确保留一个来源后保存。
+                                </div>
                             </div>
                         </div>
 
                         <div v-if="hotelForm.id" class="pt-4 border-t border-gray-100">
-                            <button type="button" @click="showHotelOtaConfig = !showHotelOtaConfig" class="w-full flex items-center justify-between text-left rounded-lg border border-gray-200 bg-gray-50 px-4 py-3"><span><span class="block text-sm font-medium text-gray-800">平台账号绑定</span><span class="block text-xs text-gray-500 mt-0.5">{{ hotelAccountSummary(hotelFormAccountHotel()).statusText }}</span></span><i :class="showHotelOtaConfig ? 'fas fa-chevron-up text-gray-400' : 'fas fa-chevron-down text-gray-400'"></i></button>
-                            <div v-if="showHotelOtaConfig" class="mt-4 rounded-lg border border-gray-100 bg-gray-50 p-3">
-                                <div v-if="hotelOtaConfigLoading" class="text-xs text-slate-500">正在加载平台账号配置...</div>
+                            <button type="button" @click="showHotelOtaConfig = !showHotelOtaConfig" class="w-full flex items-center justify-between text-left rounded-lg border border-gray-200 bg-gray-50 px-4 py-3 hover:bg-gray-100 transition-colors">
+                                <span>
+                                    <span class="block text-sm font-medium text-gray-800">平台账号绑定</span>
+                                    <span class="block text-xs text-gray-500 mt-0.5">
+                                        {{ hotelForm.id ? hotelAccountSummary(hotelFormAccountHotel()).statusText : '保存门店后可添加携程/美团账号' }}
+                                    </span>
+                                </span>
+                                <i :class="showHotelOtaConfig ? 'fas fa-chevron-up text-gray-400' : 'fas fa-chevron-down text-gray-400'"></i>
+                            </button>
+                            <div v-if="showHotelOtaConfig" class="mt-4 space-y-3 rounded-lg border border-gray-100 bg-gray-50 p-3 sm:p-4">
+                                <div v-if="hotelOtaConfigLoading" class="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-500">
+                                    正在加载平台账号配置...
+                                </div>
                                 <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-                                    <div v-for="account in hotelApplicablePlatformBindingRows(hotelFormAccountHotel())" :key="`modal-${hotelForm.id}-${account.platform}`" :class="['rounded-xl border p-4', hotelPlatformCardClass(account.platform)]">
-                                        <div class="flex items-start justify-between gap-3"><div><div class="font-semibold text-gray-900">{{ account.label }}</div><div class="text-xs text-gray-500 truncate">{{ account.accountStoreText }}</div></div><span :class="account.statusClass" class="px-2 py-0.5 rounded-md border text-xs">{{ account.statusText }}</span></div>
-                                        <div class="mt-3 text-xs"><div class="text-gray-400">最近登录</div><div class="mt-1 text-gray-800">{{ account.lastLoginText }}</div></div>
-                                        <div class="mt-3 flex flex-wrap gap-2"><button v-if="user?.is_super_admin" type="button" @click="showHotelModal = false; openHotelPlatformAccountAction(hotelFormAccountHotel(), account, { forceLogin: true })" class="px-2.5 py-1.5 rounded-lg bg-white text-xs">{{ account.primaryActionText }}</button><button v-if="canManageOwnHotels()" type="button" @click="showHotelModal = false; openHotelManualFetchConfig(hotelFormAccountHotel(), account.platform)" class="px-2.5 py-1.5 rounded-lg bg-white text-xs">手动配置</button></div>
+                                    <div v-for="account in hotelApplicablePlatformBindingRows(hotelFormAccountHotel())" :key="`modal-${hotelForm.id}-${account.platform}`" :class="['rounded-xl border p-4 min-w-0', hotelPlatformCardClass(account.platform)]">
+                                        <div class="flex items-start justify-between gap-3">
+                                            <div class="flex items-center gap-2 min-w-0">
+                                                <span :class="account.iconClass" class="w-9 h-9 rounded-lg flex items-center justify-center shrink-0">
+                                                    <i :class="account.icon"></i>
+                                                </span>
+                                                <div class="min-w-0">
+                                                    <div class="font-semibold text-gray-900">{{ account.label }}</div>
+                                                    <div class="text-xs text-gray-500 truncate">{{ account.accountStoreText }}</div>
+                                                </div>
+                                            </div>
+                                            <span :class="account.statusClass" class="px-2 py-0.5 rounded-md border text-xs whitespace-nowrap">{{ account.statusText }}</span>
+                                        </div>
+                                        <div class="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+                                            <div class="rounded-lg border border-white bg-white/75 px-3 py-2 min-w-0">
+                                                <div class="text-gray-400">账号/门店</div>
+                                                <div class="mt-1 text-gray-800 truncate">{{ account.accountStoreText }}</div>
+                                            </div>
+                                            <div class="rounded-lg border border-white bg-white/75 px-3 py-2">
+                                                <div class="text-gray-400">最近登录</div>
+                                                <div class="mt-1 text-gray-800">{{ account.lastLoginText }}</div>
+                                            </div>
+                                        </div>
+                                        <div class="mt-3 flex flex-wrap gap-2">
+                                            <button v-if="user?.is_super_admin" type="button" @click="showHotelModal = false; openHotelPlatformAccountAction(hotelFormAccountHotel(), account, { forceLogin: true })" class="px-2.5 py-1.5 rounded-lg border border-white bg-white text-xs text-gray-700 hover:border-blue-200 hover:text-blue-700">
+                                                {{ account.primaryActionText }}
+                                            </button>
+                                            <button v-if="canManageOwnHotels()" type="button" @click="showHotelModal = false; openHotelManualFetchConfig(hotelFormAccountHotel(), account.platform)" class="px-2.5 py-1.5 rounded-lg border border-white bg-white text-xs text-gray-700 hover:border-blue-200 hover:text-blue-700">
+                                                手动配置
+                                            </button>
+                                            <button v-if="user?.is_super_admin &amp;&amp; account.canUnbind" type="button" @click="unbindHotelPlatformAccount(hotelFormAccountHotel(), account)" :disabled="platformDataSourceDeletingId === account.deleteKey" class="px-2.5 py-1.5 rounded-lg border border-red-100 bg-white text-xs text-red-600 hover:border-red-200 hover:bg-red-50 disabled:opacity-60">
+                                                {{ platformDataSourceDeletingId === account.deleteKey ? '解绑中' : '解绑' }}
+                                            </button>
+                                        </div>
                                     </div>
                                 </div>
+
                             </div>
                         </div>
                     </div>
-                    <div class="flex justify-end gap-3 pt-6 mt-6 border-t border-gray-100"><button type="button" @click="showHotelModal = false" class="px-5 py-2.5 border border-gray-200 rounded-lg text-gray-600">取消</button><button type="submit" :disabled="hotelSaving || hotelPmsBindingLoading" class="px-5 py-2.5 bg-blue-500 text-white rounded-lg disabled:opacity-60">{{ hotelSaving ? '保存中' : '保存修改' }}</button></div>
+
+                    <!-- 底部按钮 -->
+                    <div class="flex justify-end gap-3 pt-6 mt-6 border-t border-gray-100">
+                        <button type="button" @click="showHotelModal = false" class="px-5 py-2.5 border border-gray-200 rounded-lg text-gray-600 hover:bg-gray-50 transition-colors">
+                            取消
+                        </button>
+                        <button type="submit" :disabled="hotelSaving || hotelPmsBindingLoading" class="px-5 py-2.5 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors flex items-center gap-2 disabled:cursor-not-allowed disabled:opacity-60">
+                            <i :class="hotelSaving ? 'fas fa-spinner fa-spin' : 'fas fa-save'"></i>
+                            <span>{{ hotelSaving ? '保存中' : (hotelForm.id ? '保存修改' : '创建门店') }}</span>
+                        </button>
+                    </div>
                 </form>
             </div>
         </div>

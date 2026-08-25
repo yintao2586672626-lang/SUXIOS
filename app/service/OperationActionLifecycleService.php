@@ -20,6 +20,7 @@ final class OperationActionLifecycleService
 {
     public const CARD_CONTRACT_VERSION = 'operation_action_card.v1';
     public const REVIEW_CONTRACT_VERSION = 'operation_action_review.v1';
+    public const APPROVAL_CONFIRMATION_VERSION = 'operation_action_approval_confirmation.v1';
     public const EVENT_TABLE = 'operation_action_lifecycle_events';
     public const REVIEW_TABLE = 'operation_action_reviews';
 
@@ -79,7 +80,6 @@ final class OperationActionLifecycleService
 
         $answer = is_array($question['answer'] ?? null) ? $question['answer'] : [];
         $risk = is_array($action['risk'] ?? null) ? $action['risk'] : [];
-        $boundaries = is_array($action['boundaries'] ?? null) ? $action['boundaries'] : [];
         $factRefs = array_values(array_unique(array_filter(array_map(
             'strval',
             (array)($action['evidence_refs'] ?? [])
@@ -123,6 +123,11 @@ final class OperationActionLifecycleService
                 'owner_id' => $ownerId,
                 'due_at' => $dueAt->format('Y-m-d H:i:s'),
             ],
+            'execution_window' => [
+                'start_at' => $now->format('Y-m-d H:i:s'),
+                'end_at' => $dueAt->format('Y-m-d H:i:s'),
+                'timezone' => 'Asia/Shanghai',
+            ],
             'metric_contract' => [
                 'metric_key' => $metric,
                 'unit' => $baseline['unit'],
@@ -138,10 +143,11 @@ final class OperationActionLifecycleService
                     'business_date' => $reviewAt->format('Y-m-d'),
                     'status' => 'pending_source_readback',
                 ],
-                'expected_direction' => null,
-                'target_type' => null,
+                'expected_direction' => 'observe',
+                'target_type' => 'observation',
                 'target_value' => null,
                 'expected_delta' => null,
+                'expected_delta_status' => 'observation_only',
             ],
             'trace' => [
                 'question_ref' => 'hotel_operating_questions#' . $questionId,
@@ -152,9 +158,11 @@ final class OperationActionLifecycleService
             ],
             'approval' => [
                 'required' => true,
-                'trigger_policy' => 'explicit_authenticated_user_action_only',
+                'mode' => 'human_confirmation',
+                'trigger_policy' => 'explicit_user_second_confirmation_after_fact_reread',
                 'fact_reread_required' => true,
                 'approval_expires_at' => $now->modify('+24 hours')->format('Y-m-d H:i:s'),
+                'confirmation_version' => self::APPROVAL_CONFIRMATION_VERSION,
             ],
             'boundaries' => [
                 'automatic_collection' => false,
@@ -162,7 +170,176 @@ final class OperationActionLifecycleService
                 'automatic_ota_write' => false,
                 'external_message' => false,
                 'causality_claimed' => false,
-                'human_confirmation_required' => ($boundaries['human_confirmation_required'] ?? true) === true,
+                'human_confirmation_required' => true,
+                'independent_ai_review_required' => false,
+            ],
+            'created_at' => $now->format('Y-m-d H:i:s'),
+        ];
+        $this->assertCardShape($card);
+        $card['identity_digest'] = $this->identityDigest($card);
+        $card['content_digest'] = $this->cardDigest($card);
+        return $card;
+    }
+
+    /**
+     * Build the smallest truthful action card for a revenue-cockpit handoff.
+     * It is an observation contract: no numeric improvement target is invented,
+     * and every external operation remains a later human action.
+     *
+     * @param array<string,mixed> $context
+     * @return array<string,mixed>
+     */
+    public function buildRevenueCockpitObservationCard(
+        array $context,
+        int $ownerId,
+        ?DateTimeImmutable $now = null
+    ): array {
+        $timezone = new DateTimeZone('Asia/Shanghai');
+        $now = $now?->setTimezone($timezone) ?? new DateTimeImmutable('now', $timezone);
+        $tenantId = (int)($context['tenant_id'] ?? 0);
+        $hotelId = (int)($context['hotel_id'] ?? 0);
+        $sourceRecordId = (int)($context['source_record_id'] ?? 0);
+        $platform = strtolower(trim((string)($context['platform'] ?? '')));
+        $businessDate = substr(trim((string)($context['business_date'] ?? '')), 0, 10);
+        $metricKey = strtolower(trim((string)($context['metric_key'] ?? '')));
+        $metricUnit = trim((string)($context['metric_unit'] ?? ''));
+        $metricValue = $context['metric_value'] ?? null;
+        $metricRows = array_values(array_filter(
+            (array)($context['metric_rows'] ?? []),
+            static fn(mixed $row): bool => is_array($row)
+        ));
+        $factRefs = array_values(array_unique(array_filter(array_map(
+            static fn(mixed $value): string => trim((string)$value),
+            (array)($context['fact_refs'] ?? [])
+        ))));
+        if ($tenantId <= 0 || $hotelId <= 0 || $sourceRecordId <= 0 || $ownerId <= 0) {
+            throw new InvalidArgumentException('收益驾驶舱行动卡缺少租户、酒店、来源或负责人身份');
+        }
+        if (!in_array($platform, ['ctrip', 'meituan', 'all_ota'], true)) {
+            throw new InvalidArgumentException('收益驾驶舱行动卡平台范围无效');
+        }
+        $this->requiredDateRange($businessDate, $businessDate);
+        if ($metricKey === '' || $metricUnit === '' || !is_numeric($metricValue)
+            || $metricRows === [] || $factRefs === []
+        ) {
+            throw new InvalidArgumentException('收益驾驶舱行动卡缺少完整的原始指标事实');
+        }
+
+        $baselineEnd = new DateTimeImmutable($businessDate . ' 00:00:00', $timezone);
+        $minimumReviewAt = $baselineEnd->modify('+1 day')->setTime(10, 0);
+        $reviewAt = $now->modify('+2 days')->setTime(10, 0);
+        if ($minimumReviewAt > $reviewAt) {
+            $reviewAt = $minimumReviewAt;
+        }
+        $dueAt = $reviewAt->modify('-16 hours');
+        if ($dueAt <= $now) {
+            $dueAt = $now->modify('+4 hours');
+        }
+        if ($reviewAt <= $dueAt) {
+            $reviewAt = $dueAt->modify('+16 hours');
+        }
+
+        $card = [
+            'contract_version' => self::CARD_CONTRACT_VERSION,
+            'status' => 'pending_approval',
+            'hotel' => [
+                'tenant_id' => $tenantId,
+                'hotel_id' => $hotelId,
+            ],
+            'source' => [
+                'module' => trim((string)($context['source_module'] ?? RevenueCockpitApprovalService::SOURCE_MODULE)),
+                'record_id' => $sourceRecordId,
+                'platform' => $platform,
+                'source_scope' => 'ota_channel',
+            ],
+            'business_window' => [
+                'date_start' => $businessDate,
+                'date_end' => $businessDate,
+            ],
+            'fact_refs' => $factRefs,
+            'action' => [
+                'type' => 'human_reviewed_metric_observation',
+                'title' => trim((string)($context['action_title'] ?? '观察收益事实并记录人工处理')),
+                'description' => trim((string)($context['action_description'] ?? '由负责人核对当前收益事实，记录实际运营处理，并在计划日期读取同口径事实复盘。')),
+                'object' => trim((string)($context['action_object'] ?? ($platform . ':' . $metricKey))),
+                'steps' => array_values(array_filter(array_map(
+                    static fn(mixed $item): string => trim((string)$item),
+                    (array)($context['action_steps'] ?? [
+                        '复核酒店、平台、营业日、指标和原始事实引用',
+                        '由负责人在授权范围内完成人工运营处理并保存真实执行证据',
+                        '到期重新读取同酒店、同平台、同指标事实并保存效果复盘',
+                    ])
+                ))),
+            ],
+            'reason' => trim((string)($context['reason'] ?? '当前严格回读收益事实需要进入人工运营跟进与同口径复盘。')),
+            'risk' => [
+                'level' => strtolower(trim((string)($context['risk_level'] ?? 'medium'))),
+                'summary' => trim((string)($context['risk_summary'] ?? '原始事实、酒店、平台、日期或指标发生漂移时必须停止并重新生成行动。')),
+                'controls' => array_values((array)($context['risk_controls'] ?? [
+                    '审批前重新读取原始事实并校验作用域',
+                    '系统不自动操作 OTA 或 PMS',
+                    '执行证据与效果证据分开保存',
+                ])),
+                'stop_conditions' => array_values((array)($context['stop_conditions'] ?? [
+                    '酒店、租户、平台、营业日或指标身份不一致',
+                    '原始事实引用缺失、失效或数值漂移',
+                    '人工执行超出已审批的对象、窗口或权限范围',
+                ])),
+            ],
+            'responsibility' => [
+                'owner_id' => $ownerId,
+                'due_at' => $dueAt->format('Y-m-d H:i:s'),
+            ],
+            'execution_window' => [
+                'start_at' => $now->format('Y-m-d H:i:s'),
+                'end_at' => $dueAt->format('Y-m-d H:i:s'),
+                'timezone' => 'Asia/Shanghai',
+            ],
+            'metric_contract' => [
+                'metric_key' => $metricKey,
+                'unit' => $metricUnit,
+                'aggregation' => trim((string)($context['aggregation'] ?? 'sum')),
+                'baseline_window' => [
+                    'date_start' => $businessDate,
+                    'date_end' => $businessDate,
+                    'value' => round((float)$metricValue, 6),
+                    'fact_rows' => $metricRows,
+                ],
+                'followup_window' => [
+                    'review_at' => $reviewAt->format('Y-m-d H:i:s'),
+                    'business_date' => $reviewAt->format('Y-m-d'),
+                    'status' => 'pending_source_readback',
+                ],
+                'expected_direction' => 'observe',
+                'target_type' => 'observation',
+                'target_value' => null,
+                'expected_delta' => null,
+                'expected_delta_status' => 'observation_only',
+            ],
+            'trace' => [
+                'cockpit_identity_digest' => strtolower(trim((string)($context['fact_snapshot_digest'] ?? ''))),
+                'opportunity_key' => trim((string)($context['opportunity_key'] ?? '')),
+                'opportunity_digest' => strtolower(trim((string)($context['opportunity_digest'] ?? ''))),
+                'decision_snapshot_id' => max(0, (int)($context['decision_snapshot_id'] ?? 0)),
+                'decision_snapshot_digest' => strtolower(trim((string)($context['decision_snapshot_digest'] ?? ''))),
+                'action_index' => null,
+            ],
+            'approval' => [
+                'required' => true,
+                'mode' => 'human_confirmation',
+                'trigger_policy' => 'explicit_user_second_confirmation_after_fact_reread',
+                'fact_reread_required' => true,
+                'approval_expires_at' => $now->modify('+24 hours')->format('Y-m-d H:i:s'),
+                'confirmation_version' => self::APPROVAL_CONFIRMATION_VERSION,
+            ],
+            'boundaries' => [
+                'automatic_collection' => false,
+                'automatic_execution' => false,
+                'automatic_ota_write' => false,
+                'external_message' => false,
+                'causality_claimed' => false,
+                'human_confirmation_required' => true,
+                'independent_ai_review_required' => false,
             ],
             'created_at' => $now->format('Y-m-d H:i:s'),
         ];
@@ -242,10 +419,7 @@ final class OperationActionLifecycleService
     public function assertNoActiveDuplicate(array $intent): void
     {
         $card = $this->assertPendingCardCurrent($intent);
-        $identityDigest = strtolower(trim((string)($card['identity_digest'] ?? '')));
-        if (!$this->isDigest($identityDigest)) {
-            throw new InvalidArgumentException('行动卡缺少重复识别摘要');
-        }
+        $identityDigest = $this->actionIdentityDigest($card);
         $rows = Db::name('operation_execution_intents')
             ->where('tenant_id', (int)$intent['tenant_id'])
             ->where('hotel_id', (int)$intent['hotel_id'])
@@ -258,7 +432,7 @@ final class OperationActionLifecycleService
         foreach ($rows as $row) {
             $candidate = $this->cardFromIntent($row);
             if ((string)($candidate['contract_version'] ?? '') !== self::CARD_CONTRACT_VERSION
-                || !hash_equals($identityDigest, strtolower(trim((string)($candidate['identity_digest'] ?? ''))))
+                || !hash_equals($identityDigest, $this->actionIdentityDigest($candidate))
             ) {
                 continue;
             }
@@ -277,6 +451,129 @@ final class OperationActionLifecycleService
     }
 
     /**
+     * Find the one persisted lifecycle represented by the same hotel, channel,
+     * business window, metric contract, decision snapshot and recommendation.
+     * Generated prose and source record IDs are excluded, while changed
+     * decision evidence deliberately receives a new lifecycle identity.
+     *
+     * @param array<string,mixed> $card
+     */
+    public function findEquivalentIntentId(array $card): ?int
+    {
+        $this->assertCardShape($card);
+        $tenantId = (int)($card['hotel']['tenant_id'] ?? 0);
+        $hotelId = (int)($card['hotel']['hotel_id'] ?? 0);
+        $identityDigest = $this->actionIdentityDigest($card);
+        $rows = Db::name('operation_execution_intents')
+            ->where('tenant_id', $tenantId)
+            ->where('hotel_id', $hotelId)
+            ->whereNull('deleted_at')
+            ->order('id', 'desc')
+            ->select()
+            ->toArray();
+        foreach ($rows as $row) {
+            $candidate = $this->cardFromIntent($row);
+            if ((string)($candidate['contract_version'] ?? '') === self::CARD_CONTRACT_VERSION
+                && hash_equals($identityDigest, $this->actionIdentityDigest($candidate))
+            ) {
+                return (int)($row['id'] ?? 0) ?: null;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Return every managed lifecycle in one exact hotel/platform/business-date
+     * scope. This is used for refresh recovery only; it never creates, approves
+     * or mutates an action.
+     *
+     * @return list<int>
+     */
+    public function findManagedIntentIdsForScope(
+        int $tenantId,
+        int $hotelId,
+        string $platform,
+        string $dateStart,
+        string $dateEnd
+    ): array {
+        $platform = strtolower(trim($platform));
+        $dateStart = substr(trim($dateStart), 0, 10);
+        $dateEnd = substr(trim($dateEnd), 0, 10);
+        if ($tenantId <= 0 || $hotelId <= 0
+            || !in_array($platform, ['ctrip', 'meituan', 'all_ota'], true)
+        ) {
+            throw new InvalidArgumentException('运营行动恢复范围无效');
+        }
+        $this->requiredDateRange($dateStart, $dateEnd);
+        $rows = Db::name('operation_execution_intents')
+            ->where('tenant_id', $tenantId)
+            ->where('hotel_id', $hotelId)
+            ->where('platform', $platform)
+            ->where('date_start', $dateStart)
+            ->where('date_end', $dateEnd)
+            ->whereNull('deleted_at')
+            ->order('id', 'desc')
+            ->select()
+            ->toArray();
+        $ids = [];
+        foreach ($rows as $row) {
+            $card = $this->cardFromIntent($row);
+            if ((string)($card['contract_version'] ?? '') !== self::CARD_CONTRACT_VERSION) {
+                continue;
+            }
+            try {
+                $this->assertCardShape($card);
+            } catch (\Throwable) {
+                continue;
+            }
+            $id = (int)($row['id'] ?? 0);
+            if ($id > 0) {
+                $ids[] = $id;
+            }
+        }
+        return array_values(array_unique($ids));
+    }
+
+    /** @param array<string,mixed> $left @param array<string,mixed> $right */
+    public function assertEquivalentActionIdentity(array $left, array $right): void
+    {
+        $this->assertCardShape($left);
+        $this->assertCardShape($right);
+        if (!hash_equals($this->actionIdentityDigest($left), $this->actionIdentityDigest($right))) {
+            throw new InvalidArgumentException('运营行动酒店、平台、营业日或指标身份不一致');
+        }
+    }
+
+    /**
+     * New managed actions can only cross the approval boundary after an
+     * authenticated user confirms the exact current intent and card digest.
+     * Historical AI-reviewed cards remain readable but cannot satisfy this
+     * human confirmation contract accidentally.
+     *
+     * @param array<string,mixed> $intent
+     * @param array<string,mixed> $input
+     */
+    public function assertHumanApprovalConfirmation(array $intent, array $input, int $userId): void
+    {
+        $card = $this->assertPendingCardCurrent($intent);
+        if (strtolower(trim((string)($card['approval']['mode'] ?? ''))) !== 'human_confirmation') {
+            throw new InvalidArgumentException('旧版非人工确认行动不能直接审批，请重新生成当前人工确认行动卡');
+        }
+        $cardDigest = strtolower(trim((string)($card['content_digest'] ?? '')));
+        $confirmedDigest = strtolower(trim((string)($input['confirmed_action_digest'] ?? '')));
+        if ($userId <= 0
+            || ($input['confirmed'] ?? false) !== true
+            || (string)($input['confirmation_version'] ?? '') !== self::APPROVAL_CONFIRMATION_VERSION
+            || (int)($input['confirmed_intent_id'] ?? 0) !== (int)($intent['id'] ?? 0)
+            || !$this->isDigest($cardDigest)
+            || !$this->isDigest($confirmedDigest)
+            || !hash_equals($cardDigest, $confirmedDigest)
+        ) {
+            throw new InvalidArgumentException('请由当前用户二次确认同一待审批行动后再创建任务');
+        }
+    }
+
+    /**
      * @param array<string,mixed> $card
      * @param array<string,mixed> $schedule
      * @param array<string,mixed> $approvalTarget
@@ -287,7 +584,8 @@ final class OperationActionLifecycleService
         array $schedule,
         array $approvalTarget,
         int $approvedBy,
-        string $approvedAt
+        string $approvedAt,
+        array $approvalAuthority = []
     ): array {
         $this->assertCardShape($card);
         $previousDigest = strtolower(trim((string)($card['content_digest'] ?? '')));
@@ -298,6 +596,16 @@ final class OperationActionLifecycleService
         $card['responsibility'] = [
             'owner_id' => (int)($schedule['assignee_id'] ?? 0),
             'due_at' => trim((string)($schedule['due_at'] ?? '')),
+        ];
+        $card['execution_window'] = [
+            'start_at' => trim((string)($schedule['execution_start_at']
+                ?? $card['execution_window']['start_at']
+                ?? $approvedAt)),
+            'end_at' => trim((string)($schedule['execution_end_at']
+                ?? $schedule['due_at']
+                ?? $card['execution_window']['end_at']
+                ?? '')),
+            'timezone' => 'Asia/Shanghai',
         ];
         $card['metric_contract']['followup_window'] = [
             'review_at' => trim((string)($schedule['review_at'] ?? '')),
@@ -313,11 +621,216 @@ final class OperationActionLifecycleService
             'approved_at' => $approvedAt,
             'fact_reread_status' => 'verified_no_drift',
             'approval_target_digest' => strtolower(trim((string)($approvalTarget['content_digest'] ?? ''))),
-        ]);
+        ], $approvalAuthority);
+        if (($approvalAuthority['mode'] ?? '') === 'ai_independent_review') {
+            $card['action']['type'] = 'ai_reviewed_operating_check';
+            $card['boundaries']['human_confirmation_required'] = false;
+            $card['boundaries']['independent_ai_review_required'] = true;
+            $card = $this->applyIndependentAiReviewAuthority($card);
+        }
         $card['previous_card_digest'] = $previousDigest;
+        $card['identity_digest'] = $this->identityDigest($card);
         unset($card['content_digest']);
         $card['content_digest'] = $this->cardDigest($card);
         return $card;
+    }
+
+    /**
+     * Reissue an already approved AI-reviewed card as a new current projection.
+     * The previous digest remains linked and callers must append a lifecycle
+     * event instead of rewriting any historical event payload.
+     *
+     * @param array<string,mixed> $card
+     * @return array<string,mixed>
+     */
+    public function reviseIndependentAiReviewCard(array $card): array
+    {
+        $this->assertCardShape($card);
+        if (strtolower(trim((string)($card['approval']['mode'] ?? ''))) !== 'ai_independent_review') {
+            throw new InvalidArgumentException('行动卡不是独立 AI 评审合同');
+        }
+        $previousDigest = strtolower(trim((string)($card['content_digest'] ?? '')));
+        if (!$this->isDigest($previousDigest) || !hash_equals($previousDigest, $this->cardDigest($card))) {
+            throw new InvalidArgumentException('独立 AI 评审行动卡摘要无效');
+        }
+
+        $revised = $this->applyIndependentAiReviewAuthority($card);
+        $before = $card;
+        $after = $revised;
+        unset($before['content_digest'], $after['content_digest']);
+        if ($this->canonicalJson($before) === $this->canonicalJson($after)) {
+            return $card;
+        }
+
+        $revised['previous_card_digest'] = $previousDigest;
+        $revised['identity_digest'] = $this->identityDigest($revised);
+        unset($revised['content_digest']);
+        $revised['content_digest'] = $this->cardDigest($revised);
+        $this->assertCardShape($revised);
+        return $revised;
+    }
+
+    /**
+     * Keep the mutable task projection aligned with the approved action card.
+     * Source answer/draft evidence is intentionally left untouched.
+     *
+     * @param array<string,mixed> $target
+     * @param array<string,mixed> $card
+     * @return array<string,mixed>
+     */
+    public function alignIndependentAiTaskProjection(array $target, array $card): array
+    {
+        $this->assertCardShape($card);
+        if (strtolower(trim((string)($card['approval']['mode'] ?? ''))) !== 'ai_independent_review') {
+            throw new InvalidArgumentException('行动任务不是独立 AI 评审合同');
+        }
+
+        $target['action_card'] = $card;
+        $target['steps'] = array_values((array)($card['action']['steps'] ?? []));
+        $target['stop_conditions'] = array_values((array)($card['risk']['stop_conditions'] ?? []));
+        $metricKey = trim((string)($card['metric_contract']['metric_key'] ?? ''));
+        $criteria = ['按同酒店、同渠道、同日期口径复核 ' . $metricKey];
+        $reviewWindow = trim((string)($target['review_window'] ?? ''));
+        if ($reviewWindow !== '') {
+            $criteria[] = '到期复核窗口：' . $reviewWindow;
+        }
+        foreach ($target['stop_conditions'] as $condition) {
+            $condition = trim((string)$condition);
+            if ($condition !== '') {
+                $criteria[] = '停止条件：' . $condition;
+            }
+        }
+        $target['acceptance_criteria'] = array_values(array_unique($criteria));
+        $schedule = is_array($target['workflow_schedule'] ?? null)
+            ? $target['workflow_schedule']
+            : [];
+        if ($schedule !== []) {
+            $schedule['source_policy'] = 'independent_ai_reviewed_schedule_manual_execution_and_source_readback';
+            $target['workflow_schedule'] = $schedule;
+        }
+        $target['approval_mode'] = 'ai_independent_review';
+        $target['execution_mode'] = 'manual';
+        $target['auto_write_ota'] = false;
+        return $target;
+    }
+
+    /**
+     * Keep the manual task projection complete and aligned with the immutable
+     * action card used for approval.
+     *
+     * @param array<string,mixed> $target
+     * @param array<string,mixed> $card
+     * @return array<string,mixed>
+     */
+    public function alignManualTaskProjection(array $target, array $card): array
+    {
+        $this->assertCardShape($card);
+        if (strtolower(trim((string)($card['approval']['mode'] ?? ''))) !== 'human_confirmation') {
+            throw new InvalidArgumentException('行动任务不是人工确认合同');
+        }
+        $target['action_card'] = $card;
+        $target['title'] = (string)($card['action']['title'] ?? '');
+        $target['action_text'] = (string)($card['action']['description'] ?? '');
+        $target['action_object'] = (string)($card['action']['object'] ?? '');
+        $target['steps'] = array_values((array)($card['action']['steps'] ?? []));
+        $target['stop_conditions'] = array_values((array)($card['risk']['stop_conditions'] ?? []));
+        $metricKey = trim((string)($card['metric_contract']['metric_key'] ?? ''));
+        $criteria = ['按同酒店、同渠道、同营业日口径复核 ' . $metricKey];
+        foreach ($target['stop_conditions'] as $condition) {
+            $condition = trim((string)$condition);
+            if ($condition !== '') {
+                $criteria[] = '停止条件：' . $condition;
+            }
+        }
+        $target['acceptance_criteria'] = array_values(array_unique($criteria));
+        $target['assignee_id'] = (int)($card['responsibility']['owner_id'] ?? 0);
+        $target['execution_window'] = [
+            'start_at' => (string)($card['execution_window']['start_at'] ?? $card['created_at'] ?? ''),
+            'end_at' => (string)($card['execution_window']['end_at'] ?? $card['responsibility']['due_at'] ?? ''),
+            'timezone' => 'Asia/Shanghai',
+        ];
+        $target['workflow_schedule'] = [
+            'assignee_id' => (int)($card['responsibility']['owner_id'] ?? 0),
+            'due_at' => (string)($card['responsibility']['due_at'] ?? ''),
+            'review_at' => (string)($card['metric_contract']['followup_window']['review_at'] ?? ''),
+            'execution_start_at' => (string)$target['execution_window']['start_at'],
+            'execution_end_at' => (string)$target['execution_window']['end_at'],
+            'source_policy' => 'human_confirmed_manual_execution_then_same_criterion_source_readback',
+        ];
+        $target['approval_mode'] = 'human_confirmation';
+        $target['execution_mode'] = 'manual';
+        $target['auto_write_ota'] = false;
+        return $target;
+    }
+
+    /** @param array<string,mixed> $card @return array<string,mixed> */
+    private function applyIndependentAiReviewAuthority(array $card): array
+    {
+        $approval = is_array($card['approval'] ?? null) ? $card['approval'] : [];
+        $approval['mode'] = 'ai_independent_review';
+        $approval['trigger_policy'] = 'automatic_independent_ai_review_after_fact_reread';
+        $approval['human_confirmation_required'] = false;
+        $card['approval'] = $approval;
+        $card['action']['type'] = 'ai_reviewed_operating_check';
+        $card['action']['steps'] = $this->normalizeIndependentAiReviewTextList(
+            (array)($card['action']['steps'] ?? [])
+        );
+        $card['reason'] = $this->normalizeIndependentAiReviewText((string)($card['reason'] ?? ''));
+        $card['risk']['controls'] = $this->normalizeIndependentAiReviewTextList(
+            (array)($card['risk']['controls'] ?? [])
+        );
+        $card['risk']['stop_conditions'] = $this->normalizeIndependentAiReviewTextList(
+            (array)($card['risk']['stop_conditions'] ?? [])
+        );
+        $card['boundaries']['human_confirmation_required'] = false;
+        $card['boundaries']['independent_ai_review_required'] = true;
+        return $card;
+    }
+
+    /** @param array<int,mixed> $items @return list<string> */
+    private function normalizeIndependentAiReviewTextList(array $items): array
+    {
+        $normalized = [];
+        foreach ($items as $item) {
+            $value = $this->normalizeIndependentAiReviewText((string)$item);
+            if ($value !== '') {
+                $normalized[] = $value;
+            }
+        }
+        return array_values(array_unique($normalized));
+    }
+
+    private function normalizeIndependentAiReviewText(string $value): string
+    {
+        $value = trim($value);
+        if ($value === '') {
+            return '';
+        }
+        $value = str_replace([
+            '负责人未获得用户书面审批前不得执行',
+            '所有步骤需用户审批后执行',
+            '由用户审批本草案，确认负责人和复核窗口。',
+            '需用户审批后由负责人执行',
+            '用户审批后',
+            '用户书面审批',
+            '人工审批',
+            '用户审批',
+        ], [
+            '独立 AI 评审未通过或事实已漂移时不得执行',
+            '仅在独立 AI 评审通过且事实未漂移时创建本地人工任务',
+            '由独立 AI 基于最新事实评审行动卡，评审通过后按已冻结负责人和复核窗口创建本地人工任务。',
+            '经独立 AI 评审通过后由负责人执行',
+            '独立 AI 评审通过后',
+            '独立 AI 评审',
+            '独立 AI 评审',
+            '独立 AI 评审',
+        ], $value);
+        $value = preg_replace(
+            '/\b(?:human|user|written)\s+approval\b/iu',
+            'independent AI review',
+            $value
+        ) ?? $value;
+        return trim($value);
     }
 
     /** @param array<string,mixed> $intent */
@@ -334,7 +847,8 @@ final class OperationActionLifecycleService
         ]);
         $this->appendEvent($intent, 0, 'draft', 'pending_approval', 'submitted', $actorId, [
             'action_card' => $card,
-            'fact_reread_required_before_approval' => true,
+            'fact_reread_required_before_review' => true,
+            'review_mode' => (string)($card['approval']['mode'] ?? 'legacy_human_approval'),
             'external_action_performed' => false,
         ]);
     }
@@ -368,112 +882,56 @@ final class OperationActionLifecycleService
         if ($tenantId <= 0 || $hotelId <= 0 || $intentId <= 0) {
             throw new InvalidArgumentException('运营行动生命周期身份无效');
         }
-        $eventType = trim($eventType);
-        $taskId = max(0, $taskId);
-        $actorId = max(0, $actorId);
-        $payloadJson = $this->canonicalJson($payload);
-
-        return Db::transaction(function () use (
-            $tenantId,
-            $hotelId,
-            $intentId,
-            $taskId,
-            $fromStatus,
-            $toStatus,
-            $eventType,
-            $actorId,
-            $payload,
-            $payloadJson
-        ): array {
-            // Lock the stable parent row before reading the latest event. A
-            // SELECT ... FOR UPDATE on an empty event set does not reliably
-            // serialize two first-event writers across supported databases.
-            $lockedIntent = Db::name('operation_execution_intents')
-                ->where('id', $intentId)
-                ->where('tenant_id', $tenantId)
-                ->where('hotel_id', $hotelId)
-                ->lock(true)
-                ->find();
-            if (!is_array($lockedIntent)) {
-                throw new RuntimeException('运营行动执行意图不存在或范围已变化');
-            }
-
-            $latest = Db::name(self::EVENT_TABLE)
-                ->where('tenant_id', $tenantId)
-                ->where('hotel_id', $hotelId)
-                ->where('intent_id', $intentId)
-                ->order('sequence_no', 'desc')
-                ->lock(true)
-                ->find();
-
-            // Content identity is the retry key. This makes a response-loss
-            // retry safe without accepting a different payload or skipping a
-            // later state transition.
-            $replayed = Db::name(self::EVENT_TABLE)
-                ->where('tenant_id', $tenantId)
-                ->where('hotel_id', $hotelId)
-                ->where('intent_id', $intentId)
-                ->where('task_id', $taskId)
-                ->where('event_type', $eventType)
-                ->where('from_status', $fromStatus)
-                ->where('to_status', $toStatus)
-                ->where('actor_id', $actorId)
-                ->where('event_payload_json', $payloadJson)
-                ->order('sequence_no', 'desc')
-                ->find();
-            if (is_array($replayed)) {
-                return $this->normalizeEvent($replayed);
-            }
-
-            if (is_array($latest)) {
-                if ($fromStatus === '' || (string)($latest['to_status'] ?? '') !== $fromStatus) {
-                    throw new InvalidArgumentException('运营行动生命周期已变化，请刷新后重试');
-                }
-            } elseif ($fromStatus !== '') {
-                throw new InvalidArgumentException('运营行动生命周期尚未初始化');
-            }
-
-            $sequence = (int)($latest['sequence_no'] ?? 0) + 1;
-            $previousDigest = strtolower(trim((string)($latest['content_digest'] ?? '')));
-            $createdAt = date('Y-m-d H:i:s');
-            $digestPayload = [
-                'tenant_id' => $tenantId,
-                'hotel_id' => $hotelId,
-                'intent_id' => $intentId,
-                'task_id' => $taskId,
-                'sequence_no' => $sequence,
-                'event_type' => $eventType,
-                'from_status' => $fromStatus,
-                'to_status' => $toStatus,
-                'actor_id' => $actorId,
-                'event_payload' => $payload,
-                'previous_digest' => $previousDigest,
-                'created_at' => $createdAt,
-            ];
-            $digest = hash('sha256', $this->canonicalJson($digestPayload));
-            $id = (int)Db::name(self::EVENT_TABLE)->insertGetId([
-                'tenant_id' => $tenantId,
-                'hotel_id' => $hotelId,
-                'intent_id' => $intentId,
-                'task_id' => $taskId,
-                'sequence_no' => $sequence,
-                'event_type' => $eventType,
-                'from_status' => $fromStatus,
-                'to_status' => $toStatus,
-                'actor_id' => $actorId,
-                'event_payload_json' => $payloadJson,
-                'previous_digest' => $previousDigest,
-                'content_digest' => $digest,
-                'created_at' => $createdAt,
-            ]);
-            $row = Db::name(self::EVENT_TABLE)->where('id', $id)->find();
-            if (!is_array($row)
-                || !hash_equals($digest, strtolower(trim((string)($row['content_digest'] ?? ''))))
-            ) {
-                throw new RuntimeException('运营行动生命周期事件保存后回读失败');
-            }
-            return $this->normalizeEvent($row);
-        });
+        $latest = Db::name(self::EVENT_TABLE)
+            ->where('tenant_id', $tenantId)
+            ->where('hotel_id', $hotelId)
+            ->where('intent_id', $intentId)
+            ->order('sequence_no', 'desc')
+            ->lock(true)
+            ->find();
+        $sequence = (int)($latest['sequence_no'] ?? 0) + 1;
+        $previousDigest = strtolower(trim((string)($latest['content_digest'] ?? '')));
+        if ($fromStatus !== '' && is_array($latest)
+            && (string)($latest['to_status'] ?? '') !== $fromStatus
+        ) {
+            throw new InvalidArgumentException('运营行动生命周期已变化，请刷新后重试');
+        }
+        $createdAt = date('Y-m-d H:i:s');
+        $digestPayload = [
+            'tenant_id' => $tenantId,
+            'hotel_id' => $hotelId,
+            'intent_id' => $intentId,
+            'task_id' => max(0, $taskId),
+            'sequence_no' => $sequence,
+            'event_type' => trim($eventType),
+            'from_status' => $fromStatus,
+            'to_status' => $toStatus,
+            'actor_id' => max(0, $actorId),
+            'event_payload' => $payload,
+            'previous_digest' => $previousDigest,
+            'created_at' => $createdAt,
+        ];
+        $digest = hash('sha256', $this->canonicalJson($digestPayload));
+        $id = (int)Db::name(self::EVENT_TABLE)->insertGetId([
+            'tenant_id' => $tenantId,
+            'hotel_id' => $hotelId,
+            'intent_id' => $intentId,
+            'task_id' => max(0, $taskId),
+            'sequence_no' => $sequence,
+            'event_type' => trim($eventType),
+            'from_status' => $fromStatus,
+            'to_status' => $toStatus,
+            'actor_id' => max(0, $actorId),
+            'event_payload_json' => $this->canonicalJson($payload),
+            'previous_digest' => $previousDigest,
+            'content_digest' => $digest,
+            'created_at' => $createdAt,
+        ]);
+        $row = Db::name(self::EVENT_TABLE)->where('id', $id)->find();
+        if (!is_array($row) || !hash_equals($digest, strtolower(trim((string)($row['content_digest'] ?? ''))))) {
+            throw new RuntimeException('运营行动生命周期事件保存后回读失败');
+        }
+        return $this->normalizeEvent($row);
     }
 
     /**
@@ -815,6 +1273,7 @@ final class OperationActionLifecycleService
         $questionId = preg_match('/#([1-9][0-9]*)$/D', $questionRef, $matches) === 1
             ? (int)$matches[1]
             : (int)($intent['source_record_id'] ?? 0);
+        $taskCount = count($taskIds);
         return [
             'contract_version' => self::CARD_CONTRACT_VERSION,
             'action_card' => $card,
@@ -834,6 +1293,10 @@ final class OperationActionLifecycleService
                 'evidence_refs' => array_map(static fn(int $id): string => 'operation_execution_evidence#' . $id, $evidenceIds),
                 'review_refs' => array_map(static fn(array $row): string => 'operation_action_reviews#' . (int)$row['id'], $reviews),
             ],
+            'task_count' => $taskCount,
+            'task_cardinality_status' => $taskCount === 0
+                ? 'none'
+                : ($taskCount === 1 ? 'exactly_one' : 'invalid_multiple'),
             'reviews' => $reviews,
             'latest_review' => $reviews[0] ?? null,
             'historical_records_mutated' => false,
@@ -929,13 +1392,20 @@ final class OperationActionLifecycleService
             || trim((string)($card['action']['type'] ?? '')) === ''
             || trim((string)($card['action']['title'] ?? '')) === ''
             || trim((string)($card['action']['description'] ?? '')) === ''
+            || trim((string)($card['action']['object'] ?? '')) === ''
             || trim((string)($card['reason'] ?? '')) === ''
             || trim((string)($card['risk']['level'] ?? '')) === ''
             || trim((string)($card['risk']['summary'] ?? '')) === ''
+            || !is_array($card['risk']['controls'] ?? null)
+            || $card['risk']['controls'] === []
+            || !is_array($card['risk']['stop_conditions'] ?? null)
+            || $card['risk']['stop_conditions'] === []
             || (int)($card['responsibility']['owner_id'] ?? 0) <= 0
             || trim((string)($card['responsibility']['due_at'] ?? '')) === ''
             || trim((string)($card['metric_contract']['metric_key'] ?? '')) === ''
             || trim((string)($card['metric_contract']['unit'] ?? '')) === ''
+            || trim((string)($card['metric_contract']['expected_direction'] ?? '')) === ''
+            || trim((string)($card['metric_contract']['target_type'] ?? '')) === ''
             || !is_numeric($card['metric_contract']['baseline_window']['value'] ?? null)
             || !is_array($card['fact_refs'] ?? null)
             || $card['fact_refs'] === []
@@ -945,7 +1415,14 @@ final class OperationActionLifecycleService
             || ($card['boundaries']['automatic_ota_write'] ?? true) !== false
             || ($card['boundaries']['external_message'] ?? true) !== false
         ) {
-            throw new InvalidArgumentException('行动卡字段不完整或越过人工授权边界');
+            throw new InvalidArgumentException('行动卡字段不完整或越过外部操作授权边界');
+        }
+        if ((string)($card['metric_contract']['target_type'] ?? '') === 'observation'
+            && ((string)($card['metric_contract']['expected_direction'] ?? '') !== 'observe'
+                || ($card['metric_contract']['target_value'] ?? null) !== null
+                || ($card['metric_contract']['expected_delta'] ?? null) !== null)
+        ) {
+            throw new InvalidArgumentException('观察型行动只能保存观察目标，不能编造数值目标');
         }
         $this->requiredDateRange(
             (string)($card['business_window']['date_start'] ?? ''),
@@ -953,6 +1430,21 @@ final class OperationActionLifecycleService
         );
         $this->requiredDateTime($card['responsibility']['due_at'] ?? null, '行动卡截止时间');
         $this->requiredDateTime($card['metric_contract']['followup_window']['review_at'] ?? null, '行动卡复盘时间');
+        if (is_array($card['execution_window'] ?? null)) {
+            $executionStart = $this->requiredDateTime(
+                $card['execution_window']['start_at'] ?? null,
+                '行动卡执行窗口开始时间'
+            );
+            $executionEnd = $this->requiredDateTime(
+                $card['execution_window']['end_at'] ?? null,
+                '行动卡执行窗口结束时间'
+            );
+            if ($executionEnd <= $executionStart
+                || trim((string)($card['execution_window']['timezone'] ?? '')) !== 'Asia/Shanghai'
+            ) {
+                throw new InvalidArgumentException('行动卡执行窗口无效');
+            }
+        }
     }
 
     /** @param array<string,mixed> $intent @return array<string,mixed> */
@@ -971,24 +1463,40 @@ final class OperationActionLifecycleService
     }
 
     /** @param array<string,mixed> $card */
-    private function identityDigest(array $card): string
+    public function actionIdentityDigest(array $card): string
     {
         return hash('sha256', $this->canonicalJson([
             'contract_version' => self::CARD_CONTRACT_VERSION,
-            'hotel' => $card['hotel'] ?? [],
+            'hotel' => [
+                'tenant_id' => (int)($card['hotel']['tenant_id'] ?? 0),
+                'hotel_id' => (int)($card['hotel']['hotel_id'] ?? 0),
+            ],
             'source_scope' => [
-                'platform' => $card['source']['platform'] ?? '',
-                'source_scope' => $card['source']['source_scope'] ?? '',
+                'platform' => strtolower(trim((string)($card['source']['platform'] ?? ''))),
+                'source_scope' => strtolower(trim((string)($card['source']['source_scope'] ?? ''))),
             ],
-            'business_window' => $card['business_window'] ?? [],
-            'action' => [
-                'type' => $card['action']['type'] ?? '',
-                'object' => $card['action']['object'] ?? '',
-                'description' => $card['action']['description'] ?? '',
+            'business_window' => [
+                'date_start' => substr(trim((string)($card['business_window']['date_start'] ?? '')), 0, 10),
+                'date_end' => substr(trim((string)($card['business_window']['date_end'] ?? '')), 0, 10),
             ],
-            'metric_key' => $card['metric_contract']['metric_key'] ?? '',
-            'metric_unit' => $card['metric_contract']['unit'] ?? '',
+            'metric_contract' => [
+                'metric_key' => strtolower(trim((string)($card['metric_contract']['metric_key'] ?? ''))),
+                'metric_unit' => strtolower(trim((string)($card['metric_contract']['unit'] ?? ''))),
+                'target_type' => strtolower(trim((string)($card['metric_contract']['target_type'] ?? 'observation'))),
+            ],
+            'decision_context' => [
+                'opportunity_key' => trim((string)($card['trace']['opportunity_key'] ?? '')),
+                'opportunity_digest' => strtolower(trim((string)($card['trace']['opportunity_digest'] ?? ''))),
+                'decision_snapshot_id' => max(0, (int)($card['trace']['decision_snapshot_id'] ?? 0)),
+                'decision_snapshot_digest' => strtolower(trim((string)($card['trace']['decision_snapshot_digest'] ?? ''))),
+            ],
         ]));
+    }
+
+    /** @param array<string,mixed> $card */
+    private function identityDigest(array $card): string
+    {
+        return $this->actionIdentityDigest($card);
     }
 
     /** @param array<string,mixed> $card */

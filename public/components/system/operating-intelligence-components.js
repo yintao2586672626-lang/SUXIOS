@@ -112,7 +112,6 @@
                 try {
                     const response = await request(`/agent/local-media-extractions?hotel_id=${hotelId}&limit=10`);
                     if (response.code !== 200) throw new Error(response.message || '本地媒体记录读取失败');
-                    if (currentHotelId() !== hotelId) return state.media_history;
                     const list = Array.isArray(response.data?.list) ? response.data.list : [];
                     if (list.some((item) => Number(item?.hotel_id || 0) !== hotelId)) {
                         throw new Error('本地媒体记录返回了其他门店数据');
@@ -160,7 +159,6 @@
                         || exact?.boundaries?.source_file_retained !== false
                         || exact?.boundaries?.hotel_fact_created !== false
                     ) throw new Error('本地媒体提取保存与精确回读不一致');
-                    if (currentHotelId() !== hotelId) throw new Error('门店范围已变化，旧门店提取结果不会显示');
                     state.media_result = exact;
                     await loadMediaHistory();
                     return exact;
@@ -171,12 +169,135 @@
                     state.media_loading = false;
                 }
             };
+            const loadWecom = async () => {
+                const state = currentState();
+                const hotelId = currentHotelId();
+                if (state.wecom_loading) return null;
+                state.wecom_loading = true;
+                state.wecom_error = '';
+                try {
+                    const eventUrl = hotelId > 0
+                        ? `/agent/wecom-inbound/events?hotel_id=${hotelId}&limit=10`
+                        : '/agent/wecom-inbound/events?limit=10';
+                    const [capability, bindings, events] = await Promise.all([
+                        request('/agent/wecom-inbound/capabilities'),
+                        request('/agent/wecom-inbound/bindings'),
+                        request(eventUrl),
+                    ]);
+                    for (const [label, response] of [['能力', capability], ['绑定', bindings], ['事件', events]]) {
+                        if (response.code !== 200) throw new Error(response.message || `企业微信${label}读取失败`);
+                    }
+                    state.wecom_capabilities = capability.data || null;
+                    state.wecom_bindings = (Array.isArray(bindings.data?.list) ? bindings.data.list : [])
+                        .filter((item) => !hotelId || Number(item?.hotel_id || 0) === hotelId);
+                    state.wecom_events = (Array.isArray(events.data?.list) ? events.data.list : [])
+                        .filter((item) => !hotelId || Number(item?.hotel_id || 0) === hotelId);
+                    return state.wecom_capabilities;
+                } catch (error) {
+                    state.wecom_error = error?.message || '企业微信智能机器人工作台读取失败';
+                    return null;
+                } finally {
+                    state.wecom_loading = false;
+                }
+            };
+            const createWecomBindingCode = async () => {
+                const state = currentState();
+                const hotelId = currentHotelId();
+                if (!hotelId || state.wecom_loading) return null;
+                if (String(state.wecom_capabilities?.aibot_websocket?.status || '') !== 'ready') {
+                    state.wecom_error = `企业微信 WebSocket 尚未就绪：${String(state.wecom_capabilities?.aibot_websocket?.error_code || '请先完成 Bot ID、Secret、中继令牌与 Worker 认证')}`;
+                    return null;
+                }
+                state.wecom_loading = true;
+                state.wecom_error = '';
+                state.wecom_binding_code = null;
+                try {
+                    const response = await request('/agent/wecom-inbound/aibot-binding-codes', {
+                        method: 'POST',
+                        body: JSON.stringify({ hotel_id: hotelId, label: '宿析经营追问' }),
+                    });
+                    if (response.code !== 200 || !response.data) throw new Error(response.message || '企微绑定码创建失败');
+                    const code = response.data;
+                    if (Number(code.hotel_id || 0) !== hotelId
+                        || code.persistence_status !== 'readback_verified'
+                        || code.single_use !== true
+                        || !/^[A-Z0-9]{8}$/.test(String(code.binding_code || ''))
+                    ) throw new Error('企微绑定码保存回读凭证不一致');
+                    state.wecom_binding_code = code;
+                    return code;
+                } catch (error) {
+                    state.wecom_error = error?.message || '企微绑定码创建失败';
+                    return null;
+                } finally {
+                    state.wecom_loading = false;
+                }
+            };
+            const setWecomReply = async (binding, enabled) => {
+                const state = currentState();
+                const bindingId = Number(binding?.id || 0);
+                if (!bindingId || state.wecom_reply_loading_id) return null;
+                if (enabled && !window.confirm('确认允许该企微会话接收宿析回答？这只发送只读 OTA 经营问答，不会审批或执行经营动作。')) return null;
+                state.wecom_reply_loading_id = bindingId;
+                state.wecom_error = '';
+                try {
+                    const response = await request(`/agent/wecom-inbound/bindings/${bindingId}/reply-setting`, {
+                        method: 'POST',
+                        body: JSON.stringify({ enabled: Boolean(enabled) }),
+                    });
+                    if (response.code !== 200 || !response.data) throw new Error(response.message || '企微回复开关保存失败');
+                    const exact = response.data;
+                    if (Number(exact.id || 0) !== bindingId
+                        || exact.reply_enabled !== Boolean(enabled)
+                        || exact.persistence_status !== 'readback_verified'
+                        || exact.automatic_execution !== false
+                        || exact.ota_write !== false
+                    ) throw new Error('企微回复开关保存与回读不一致');
+                    await loadWecom();
+                    return exact;
+                } catch (error) {
+                    state.wecom_error = error?.message || '企微回复开关保存失败';
+                    return null;
+                } finally {
+                    state.wecom_reply_loading_id = 0;
+                }
+            };
+            const disableWecomBinding = async (binding) => {
+                const state = currentState();
+                const bindingId = Number(binding?.id || 0);
+                if (!bindingId || state.wecom_reply_loading_id) return null;
+                if (!window.confirm('确认停用并解绑该企微会话？历史事件会保留，但该会话将不能继续收发宿析回答。')) return null;
+                state.wecom_reply_loading_id = bindingId;
+                state.wecom_error = '';
+                try {
+                    const response = await request(`/agent/wecom-inbound/bindings/${bindingId}/disable`, {
+                        method: 'POST',
+                        body: JSON.stringify({}),
+                    });
+                    if (response.code !== 200 || !response.data) throw new Error(response.message || '企微会话解绑失败');
+                    const exact = response.data;
+                    if (Number(exact.id || 0) !== bindingId
+                        || String(exact.status || '') !== 'disabled'
+                        || exact.reply_enabled !== false
+                        || exact.conversation_reference_released !== true
+                        || exact.historical_events_retained !== true
+                        || exact.persistence_status !== 'readback_verified'
+                    ) throw new Error('企微会话解绑与回读不一致');
+                    await loadWecom();
+                    return exact;
+                } catch (error) {
+                    state.wecom_error = error?.message || '企微会话解绑失败';
+                    return null;
+                } finally {
+                    state.wecom_reply_loading_id = 0;
+                }
+            };
             onMounted(() => {
                 ui?.ensureScope?.();
                 void ui?.loadScopeOptions?.({ applyRecommendation: true });
                 void ui?.loadHistory?.();
                 void loadLocalAiCapabilities();
                 void loadMediaHistory();
+                void loadWecom();
             });
             return () => {
                 const state = valueOf(ui?.state);
@@ -186,9 +307,14 @@
                 const result = state.result || null;
                 const evidence = result?.answer?.evidence_counts || {};
                 const localAi = state.local_ai_capabilities || null;
+                const wecom = state.wecom_capabilities || null;
+                const wecomRuntimeReady = String(wecom?.aibot_websocket?.status || '') === 'ready';
                 const updateScope = (field, value) => {
                     const changed = ui?.updateScope?.(field, value);
-                    if (changed && field === 'hotel_id') void loadMediaHistory();
+                    if (changed && field === 'hotel_id') {
+                        void loadMediaHistory();
+                        void loadWecom();
+                    }
                     return changed;
                 };
                 const children = [
@@ -306,67 +432,140 @@
                             : null,
                     ].filter(Boolean)));
                 }
-                children.push(h('section', {
-                    class: 'mt-3 rounded-xl border border-emerald-100 bg-white p-3',
-                    'data-testid': 'local-ai-capability-status',
-                }, [
-                    h('div', { class: 'flex flex-wrap items-center justify-between gap-2' }, [
-                        h('div', [
-                            h('div', { class: 'text-xs font-semibold text-emerald-800' }, '本机第二大脑'),
-                            h('p', { class: 'mt-1 text-[11px] text-slate-500' }, 'Ollama 文本、视觉、向量和本机语音；只作建议与提取，不自动写 OTA。'),
+                children.push(h('div', { class: 'mt-3 grid gap-3 xl:grid-cols-2' }, [
+                    h('section', {
+                        class: 'rounded-xl border border-emerald-100 bg-white p-3',
+                        'data-testid': 'local-ai-capability-status',
+                    }, [
+                        h('div', { class: 'flex flex-wrap items-center justify-between gap-2' }, [
+                            h('div', [
+                                h('div', { class: 'text-xs font-semibold text-emerald-800' }, '本机第二大脑'),
+                                h('p', { class: 'mt-1 text-[11px] text-slate-500' }, 'Ollama 文本、视觉、向量和本机语音；只作建议与提取，不自动写 OTA。'),
+                            ]),
+                            h('button', {
+                                type: 'button',
+                                disabled: Boolean(state.local_ai_loading),
+                                class: 'rounded border border-emerald-200 px-2 py-1 text-xs text-emerald-700 disabled:opacity-50',
+                                onClick: () => loadLocalAiCapabilities(),
+                            }, state.local_ai_loading ? '探测中…' : '刷新能力'),
+                        ]),
+                        state.local_ai_error
+                            ? h('p', { class: 'mt-2 text-xs text-red-700' }, String(state.local_ai_error))
+                            : h('div', { class: 'mt-2 grid grid-cols-2 gap-2 text-xs sm:grid-cols-4' }, [
+                                ['文本', localAi?.text],
+                                ['视觉', localAi?.vision],
+                                ['向量', localAi?.embedding],
+                                ['语音', localAi?.audio],
+                            ].map(([label, capability]) => h('div', {
+                                key: label,
+                                class: ['rounded-lg border px-2 py-2', capability?.ready === true ? 'border-emerald-100 bg-emerald-50 text-emerald-800' : 'border-amber-100 bg-amber-50 text-amber-800'],
+                            }, [
+                                h('strong', label),
+                                h('div', { class: 'mt-1 break-words text-[11px]' }, capability?.ready === true ? 'ready' : String(capability?.error_code || capability?.status || '未探测')),
+                                capability?.model ? h('div', { class: 'mt-0.5 break-all text-[10px] opacity-75' }, String(capability.model)) : null,
+                            ].filter(Boolean)))),
+                        h('div', { class: 'mt-3 border-t border-emerald-100 pt-3' }, [
+                            h('div', { class: 'text-xs font-semibold text-slate-700' }, '本机图片 / 音视频理解'),
+                            h('div', { class: 'mt-2 flex flex-col gap-2 sm:flex-row sm:items-center' }, [
+                                h('input', {
+                                    type: 'file',
+                                    accept: 'image/*,audio/*,video/*',
+                                    disabled: Boolean(state.media_loading),
+                                    class: 'min-w-0 flex-1 text-xs',
+                                    'data-testid': 'local-media-file',
+                                    onChange: (event) => setMediaFile(event?.target?.files?.[0] || null),
+                                }),
+                                h('button', {
+                                    type: 'button',
+                                    disabled: Boolean(state.media_loading || !state.media_file || !form.hotel_id),
+                                    class: 'rounded-lg bg-emerald-600 px-3 py-2 text-xs font-medium text-white disabled:opacity-50',
+                                    'data-testid': 'local-media-extract',
+                                    onClick: () => extractLocalMedia(),
+                                }, state.media_loading ? '本机提取中…' : '提取并回读'),
+                            ]),
+                            state.media_error ? h('p', { class: 'mt-2 text-xs text-red-700' }, String(state.media_error)) : null,
+                            state.media_result ? h('div', {
+                                class: 'mt-2 rounded-lg border border-slate-200 bg-slate-50 p-2 text-xs text-slate-700',
+                                'data-testid': 'local-media-readback',
+                            }, [
+                                h('div', { class: 'font-medium' }, `#${Number(state.media_result.id || 0)} · ${String(state.media_result.media_kind || '')} · ${String(state.media_result.extraction_status || '')}`),
+                                h('p', { class: 'mt-1 whitespace-pre-wrap break-words leading-5' }, String(state.media_result.extracted_text || state.media_result.error_code || '未提取到文本')),
+                                h('p', { class: 'mt-1 text-[10px] text-slate-500' }, `来源文件：${String(state.media_result.source_retention || '未说明')} · 摘要 ${String(state.media_result.content_digest || '').slice(0, 12)}…`),
+                            ]) : null,
+                            Array.isArray(state.media_history) && state.media_history.length
+                                ? h('p', { class: 'mt-2 text-[11px] text-slate-500' }, `该门店已保存并校验 ${state.media_history.length} 条本机提取记录。`)
+                                : null,
+                        ].filter(Boolean)),
+                    ]),
+                    h('section', {
+                        class: 'rounded-xl border border-sky-100 bg-white p-3',
+                        'data-testid': 'wecom-aibot-workbench',
+                    }, [
+                        h('div', { class: 'flex flex-wrap items-center justify-between gap-2' }, [
+                            h('div', [
+                                h('div', { class: 'text-xs font-semibold text-sky-800' }, '企业微信 Agent 接入'),
+                                h('p', { class: 'mt-1 text-[11px] text-slate-500' }, '优先使用官方 AI Bot WebSocket；回复默认关闭，不展示或保存凭证。'),
+                            ]),
+                            h('button', {
+                                type: 'button',
+                                disabled: Boolean(state.wecom_loading),
+                                class: 'rounded border border-sky-200 px-2 py-1 text-xs text-sky-700 disabled:opacity-50',
+                                onClick: () => loadWecom(),
+                            }, state.wecom_loading ? '读取中…' : '刷新'),
+                        ]),
+                        h('div', { class: 'mt-2 rounded-lg bg-sky-50 px-2 py-2 text-xs text-sky-800' }, [
+                            h('strong', String(wecom?.aibot_websocket?.status || '未读取')),
+                            h('span', { class: 'ml-2 break-all text-[11px]' }, String(wecom?.aibot_websocket
+                                ? (wecom.aibot_websocket.error_code || '官方 WebSocket 状态正常')
+                                : '尚未读取运行状态')),
                         ]),
                         h('button', {
                             type: 'button',
-                            disabled: Boolean(state.local_ai_loading),
-                            class: 'rounded border border-emerald-200 px-2 py-1 text-xs text-emerald-700 disabled:opacity-50',
-                            onClick: () => loadLocalAiCapabilities(),
-                        }, state.local_ai_loading ? '探测中…' : '刷新能力'),
-                    ]),
-                    state.local_ai_error
-                        ? h('p', { class: 'mt-2 text-xs text-red-700' }, String(state.local_ai_error))
-                        : h('div', { class: 'mt-2 grid grid-cols-2 gap-2 text-xs sm:grid-cols-4' }, [
-                            ['文本', localAi?.text],
-                            ['视觉', localAi?.vision],
-                            ['向量', localAi?.embedding],
-                            ['语音', localAi?.audio],
-                        ].map(([label, capability]) => h('div', {
-                            key: label,
-                            class: ['rounded-lg border px-2 py-2', capability?.ready === true ? 'border-emerald-100 bg-emerald-50 text-emerald-800' : 'border-amber-100 bg-amber-50 text-amber-800'],
+                            disabled: Boolean(state.wecom_loading || !form.hotel_id || !wecomRuntimeReady),
+                            class: 'mt-2 rounded-lg bg-sky-600 px-3 py-2 text-xs font-medium text-white disabled:opacity-50',
+                            'data-testid': 'wecom-aibot-binding-code',
+                            onClick: () => createWecomBindingCode(),
+                        }, wecomRuntimeReady ? '生成一次性门店绑定码' : 'WebSocket 就绪后可生成绑定码'),
+                        state.wecom_binding_code ? h('div', {
+                            class: 'mt-2 rounded-lg border border-amber-200 bg-amber-50 p-2 text-xs text-amber-900',
+                            'data-testid': 'wecom-aibot-binding-code-readback',
                         }, [
-                            h('strong', label),
-                            h('div', { class: 'mt-1 break-words text-[11px]' }, capability?.ready === true ? 'ready' : String(capability?.error_code || capability?.status || '未探测')),
-                            capability?.model ? h('div', { class: 'mt-0.5 break-all text-[10px] opacity-75' }, String(capability.model)) : null,
-                        ].filter(Boolean)))),
-                    h('div', { class: 'mt-3 border-t border-emerald-100 pt-3' }, [
-                        h('div', { class: 'text-xs font-semibold text-slate-700' }, '本机图片 / 音视频理解'),
-                        h('div', { class: 'mt-2 flex flex-col gap-2 sm:flex-row sm:items-center' }, [
-                            h('input', {
-                                type: 'file',
-                                accept: 'image/*,audio/*,video/*',
-                                disabled: Boolean(state.media_loading),
-                                class: 'min-w-0 flex-1 text-xs',
-                                'data-testid': 'local-media-file',
-                                onChange: (event) => setMediaFile(event?.target?.files?.[0] || null),
-                            }),
-                            h('button', {
-                                type: 'button',
-                                disabled: Boolean(state.media_loading || !state.media_file || !form.hotel_id),
-                                class: 'rounded-lg bg-emerald-600 px-3 py-2 text-xs font-medium text-white disabled:opacity-50',
-                                'data-testid': 'local-media-extract',
-                                onClick: () => extractLocalMedia(),
-                            }, state.media_loading ? '本机提取中…' : '提取并回读'),
-                        ]),
-                        state.media_error ? h('p', { class: 'mt-2 text-xs text-red-700' }, String(state.media_error)) : null,
-                        state.media_result ? h('div', {
-                            class: 'mt-2 rounded-lg border border-slate-200 bg-slate-50 p-2 text-xs text-slate-700',
-                            'data-testid': 'local-media-readback',
-                        }, [
-                            h('div', { class: 'font-medium' }, `#${Number(state.media_result.id || 0)} · ${String(state.media_result.media_kind || '')} · ${String(state.media_result.extraction_status || '')}`),
-                            h('p', { class: 'mt-1 whitespace-pre-wrap break-words leading-5' }, String(state.media_result.extracted_text || state.media_result.error_code || '未提取到文本')),
-                            h('p', { class: 'mt-1 text-[10px] text-slate-500' }, `来源文件：${String(state.media_result.source_retention || '未说明')} · 摘要 ${String(state.media_result.content_digest || '').slice(0, 12)}…`),
+                            h('strong', String(state.wecom_binding_code.instruction || '')),
+                            h('p', { class: 'mt-1 text-[11px]' }, `有效至 ${String(state.wecom_binding_code.expires_at || '')}；一次性显示，刷新后不保留。`),
                         ]) : null,
-                        Array.isArray(state.media_history) && state.media_history.length
-                            ? h('p', { class: 'mt-2 text-[11px] text-slate-500' }, `该门店已保存并校验 ${state.media_history.length} 条本机提取记录。`)
+                        state.wecom_error ? h('p', { class: 'mt-2 text-xs text-red-700' }, String(state.wecom_error)) : null,
+                        Array.isArray(state.wecom_bindings) && state.wecom_bindings.length
+                            ? h('div', { class: 'mt-3 grid gap-2' }, state.wecom_bindings.map((binding) => h('div', {
+                                key: Number(binding?.id || 0),
+                                class: 'flex items-center justify-between gap-2 rounded-lg border border-slate-200 p-2 text-xs',
+                            }, [
+                                h('div', [
+                                    h('strong', String(binding?.label || `绑定 #${Number(binding?.id || 0)}`)),
+                                    h('p', { class: 'mt-1 text-[11px] text-slate-500' }, `${String(binding?.transport || '')} · ${String(binding?.status || '')}`),
+                                ]),
+                                binding?.transport === 'wecom_aibot_websocket' && binding?.status === 'verified'
+                                    ? h('div', { class: 'flex shrink-0 items-center gap-1' }, [
+                                        h('button', {
+                                            type: 'button',
+                                            disabled: Number(state.wecom_reply_loading_id || 0) > 0,
+                                            class: ['rounded px-2 py-1 text-[11px] font-medium', binding?.reply_enabled ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800'],
+                                            onClick: () => setWecomReply(binding, !binding.reply_enabled),
+                                        }, binding?.reply_enabled ? '关闭回复' : '主动开启回复'),
+                                        h('button', {
+                                            type: 'button',
+                                            disabled: Number(state.wecom_reply_loading_id || 0) > 0,
+                                            class: 'rounded bg-red-50 px-2 py-1 text-[11px] font-medium text-red-700 disabled:opacity-50',
+                                            onClick: () => disableWecomBinding(binding),
+                                        }, '停用解绑'),
+                                    ])
+                                    : null,
+                            ].filter(Boolean))))
+                            : h('p', { class: 'mt-3 text-xs text-slate-500' }, '当前门店尚无已验证企微会话绑定。'),
+                        Array.isArray(state.wecom_events) && state.wecom_events.length
+                            ? h('details', { class: 'mt-3 text-xs text-slate-600' }, [
+                                h('summary', { class: 'cursor-pointer font-medium' }, `最近事件（${state.wecom_events.length}）`),
+                                h('ul', { class: 'mt-2 space-y-1' }, state.wecom_events.slice(0, 5).map((event) => h('li', { key: Number(event?.id || 0) }, `#${Number(event?.id || 0)} · ${String(event?.processing_status || '')} · ${String(event?.delivery_status || 'not_sent')}`))),
+                            ])
                             : null,
                     ].filter(Boolean)),
                 ]));
@@ -422,49 +621,87 @@
                     }
                     const council = state.council_run || null;
                     const councilMembers = Array.isArray(council?.members) ? council.members : [];
+                    const councilEvidenceRefs = Array.isArray(council?.evidence_refs) ? council.evidence_refs : [];
                     const synthesis = council?.synthesis && typeof council.synthesis === 'object' ? council.synthesis : {};
+                    const selectedLenses = Array.isArray(synthesis.selected_lenses) ? synthesis.selected_lenses : [];
+                    const advisorySource = synthesis.advisory_source && typeof synthesis.advisory_source === 'object'
+                        ? synthesis.advisory_source
+                        : {};
+                    const executionHandoff = synthesis.execution_handoff && typeof synthesis.execution_handoff === 'object'
+                        ? synthesis.execution_handoff
+                        : {};
                     answerChildren.push(h('section', {
-                        class: 'mt-3 rounded-xl border border-violet-200 bg-violet-50/70 p-3',
+                        class: 'mt-3 rounded-xl border p-3',
+                        style: { borderColor: 'rgba(185,150,91,.36)', background: '#fbf8f0' },
                         'data-testid': 'operating-question-council-readback',
                     }, [
                         h('div', { class: 'flex flex-wrap items-start justify-between gap-2' }, [
                             h('div', [
-                                h('div', { class: 'text-[11px] font-semibold uppercase tracking-wide text-violet-700' }, '本机多角色影子复核'),
-                                h('p', { class: 'mt-1 text-xs text-slate-600' }, '证据审计、收益分析、运营执行三种角色视角；不代表三名独立专家，不覆盖主回答、不创建行动。'),
+                                h('div', { class: 'text-[11px] font-semibold uppercase tracking-wide', style: { color: '#7b6034' } }, '165视角经营顾问团'),
+                                h('p', { class: 'mt-1 text-xs text-slate-600' }, '用户提供的来源包共165个条目；经静态审查后只吸纳七域方法框架，并按问题选2–5个领域视角。由同一本机模型分别审视，不等于165位真人在线或独立专家共识。'),
                             ]),
                             h('button', {
                                 type: 'button',
                                 disabled: Boolean(state.council_loading),
-                                class: 'rounded-lg bg-violet-600 px-3 py-2 text-xs font-medium text-white disabled:opacity-50',
+                                class: 'rounded-lg px-3 py-2 text-xs font-medium text-white disabled:opacity-50',
+                                style: { background: '#173f34' },
                                 'data-testid': 'operating-question-council-run',
                                 onClick: () => ui?.runCouncil?.(),
-                            }, state.council_loading ? '本机复核中…' : (council ? '重新发起影子复核' : '发起影子复核')),
+                            }, state.council_loading ? '本机会诊中…' : (council ? '重新发起顾问会诊' : '发起顾问会诊')),
                         ]),
                         state.council_error ? h('p', { class: 'mt-2 text-xs text-red-700' }, String(state.council_error)) : null,
                         council ? h('div', { class: 'mt-3' }, [
                             h('div', { class: 'flex flex-wrap items-center gap-2 text-xs' }, [
-                                h('strong', { class: 'text-violet-800' }, String(council.status || '未知状态')),
+                                h('strong', { style: { color: '#173f34' } }, String(council.status || '未知状态')),
                                 h('span', { class: 'text-slate-500' }, `记录 #${Number(council.id || 0)} · 摘要 ${String(council.content_digest || '').slice(0, 12)}…`),
                             ]),
-                            councilMembers.length ? h('div', { class: 'mt-2 grid gap-2 md:grid-cols-3' }, councilMembers.map((member) => h('div', {
+                            Number(advisorySource.source_entry_count || 0) > 0 ? h('p', {
+                                class: 'mt-1 text-[11px] text-slate-500',
+                                'data-testid': 'operating-question-council-source',
+                            }, `来源包 ${Number(advisorySource.source_entry_count)} 个条目 · 指纹 ${String(advisorySource.outer_zip_sha256 || '').slice(0, 12)}… · 人物Skill未安装、未执行`) : null,
+                            selectedLenses.length ? h('div', { class: 'mt-2 flex flex-wrap gap-1.5' }, selectedLenses.map((lens) => h('span', {
+                                key: String(lens?.key || lens?.label || ''),
+                                class: 'rounded-full border bg-white px-2 py-1 text-[11px]',
+                                style: { borderColor: 'rgba(185,150,91,.4)', color: '#6f572f' },
+                            }, String(lens?.label || lens?.key || '视角')))) : null,
+                            councilMembers.length ? h('div', { class: 'mt-2 grid gap-2 md:grid-cols-2 xl:grid-cols-3' }, councilMembers.map((member) => h('div', {
                                 key: String(member?.key || member?.label || ''),
-                                class: 'rounded-lg border border-violet-100 bg-white p-2 text-xs',
+                                class: 'rounded-lg border bg-white p-2 text-xs',
+                                style: { borderColor: 'rgba(185,150,91,.28)' },
                             }, [
                                 h('strong', { class: 'text-slate-800' }, `${String(member?.label || member?.key || '角色')} · ${String(member?.status || '')}`),
+                                Array.isArray(member?.source_lenses) && member.source_lenses.length
+                                    ? h('p', { class: 'mt-1 text-[11px] text-slate-500' }, `框架来源：${member.source_lenses.map((source) => String(source?.name || '')).filter(Boolean).join('、')}`)
+                                    : null,
+                                member?.business_question
+                                    ? h('p', { class: 'mt-1 text-[11px] leading-5 text-slate-500' }, String(member.business_question))
+                                    : null,
                                 h('p', { class: 'mt-1 leading-5 text-slate-600' }, String(member?.assessment || member?.error_code || '未形成评估')),
                                 Array.isArray(member?.supported_points) && member.supported_points.length
-                                    ? h('p', { class: 'mt-1 leading-5 text-emerald-700' }, `支持点：${member.supported_points.join('；')}`)
+                                    ? h('p', { class: 'mt-1 text-[11px] leading-5 text-emerald-700' }, `支持观点：${member.supported_points.slice(0, 3).join('；')}`)
+                                    : null,
+                                Array.isArray(member?.supporting_evidence_refs) && member.supporting_evidence_refs.length
+                                    ? h('p', { class: 'mt-1 break-all text-[11px] leading-5 text-emerald-700' }, `支持证据引用：${member.supporting_evidence_refs.join('、')}`)
+                                    : null,
+                                Array.isArray(member?.conflicting_points) && member.conflicting_points.length
+                                    ? h('p', { class: 'mt-1 text-[11px] leading-5 text-amber-700' }, `冲突观点：${member.conflicting_points.slice(0, 3).join('；')}`)
+                                    : null,
+                                Array.isArray(member?.conflicting_evidence_refs) && member.conflicting_evidence_refs.length
+                                    ? h('p', { class: 'mt-1 break-all text-[11px] leading-5 text-amber-700' }, `冲突证据引用：${member.conflicting_evidence_refs.join('、')}`)
                                     : null,
                                 Array.isArray(member?.risks) && member.risks.length
-                                    ? h('p', { class: 'mt-1 leading-5 text-amber-700' }, `风险：${member.risks.join('；')}`)
+                                    ? h('p', { class: 'mt-1 text-[11px] text-amber-700' }, `风险：${member.risks.slice(0, 3).join('；')}`)
                                     : null,
-                                Array.isArray(member?.missing_information) && member.missing_information.length
-                                    ? h('p', { class: 'mt-1 leading-5 text-amber-700' }, `缺口：${member.missing_information.join('；')}`)
+                                member?.falsification_check
+                                    ? h('p', { class: 'mt-1 text-[11px] leading-5', style: { color: '#1f5b63' } }, `可证伪检查：${String(member.falsification_check)}`)
                                     : null,
                             ].filter(Boolean)))) : null,
-                            h('div', { class: 'mt-2 rounded-lg border border-violet-100 bg-white p-2 text-xs text-slate-700' }, [
+                            h('div', { class: 'mt-2 rounded-lg border bg-white p-2 text-xs text-slate-700', style: { borderColor: 'rgba(185,150,91,.28)' } }, [
                                 h('strong', '会商汇总'),
                                 h('p', { class: 'mt-1 leading-5' }, String(synthesis.summary || synthesis.error_code || '未形成汇总')),
+                                councilEvidenceRefs.length
+                                    ? h('p', { class: 'mt-1 break-all text-[11px] leading-5 text-slate-500', 'data-testid': 'operating-question-council-evidence-refs' }, `本次证据引用：${councilEvidenceRefs.join('、')}`)
+                                    : null,
                                 Array.isArray(synthesis.agreements) && synthesis.agreements.length
                                     ? h('p', { class: 'mt-1 leading-5' }, `一致点：${synthesis.agreements.join('；')}`)
                                     : null,
@@ -474,11 +711,17 @@
                                 Array.isArray(synthesis.missing_information) && synthesis.missing_information.length
                                     ? h('p', { class: 'mt-1 leading-5 text-amber-700' }, `缺口：${synthesis.missing_information.join('；')}`)
                                     : null,
+                                Array.isArray(synthesis.falsification_checks) && synthesis.falsification_checks.length
+                                    ? h('p', { class: 'mt-1 leading-5', style: { color: '#1f5b63' } }, `可证伪：${synthesis.falsification_checks.join('；')}`)
+                                    : null,
                                 synthesis.recommended_next_step
-                                    ? h('p', { class: 'mt-1 font-medium leading-5 text-violet-800' }, `建议下一步：${String(synthesis.recommended_next_step)}`)
+                                    ? h('p', { class: 'mt-1 font-medium leading-5', style: { color: '#173f34' } }, `建议下一步：${String(synthesis.recommended_next_step)}`)
+                                    : null,
+                                executionHandoff.message
+                                    ? h('p', { class: 'mt-2 rounded-md bg-slate-50 px-2 py-1.5 text-[11px] leading-5 text-slate-600', 'data-testid': 'operating-question-council-execution-handoff' }, `执行衔接：${String(executionHandoff.message)}`)
                                     : null,
                             ].filter(Boolean)),
-                        ].filter(Boolean)) : h('p', { class: 'mt-2 text-xs text-slate-500' }, '尚未运行；只有你主动点击后才调用本机模型并保存回读。'),
+                        ].filter(Boolean)) : h('p', { class: 'mt-2 text-xs text-slate-500' }, '尚未运行；只有你主动点击后才调用本机模型并保存回读，不会自动创建或执行经营动作。'),
                     ].filter(Boolean)));
                     const actionDrafts = Array.isArray(result.answer?.action_drafts)
                         ? result.answer.action_drafts.slice(0, 1)
@@ -494,7 +737,7 @@
                         const actionChildren = [
                             h('div', { class: 'flex flex-wrap items-start justify-between gap-2' }, [
                                 h('div', [
-                                    h('div', { class: 'text-xs font-semibold uppercase tracking-wide text-[#8c6a2d]' }, 'AI 行动草案 · 待人工确认'),
+                                    h('div', { class: 'text-xs font-semibold uppercase tracking-wide text-[#8c6a2d]' }, 'AI 行动草案 · 独立评审'),
                                     h('h4', { class: 'mt-1 text-sm font-semibold text-slate-900' }, String(action?.title || '运营复核草案')),
                                 ]),
                                 h('span', {
@@ -521,7 +764,7 @@
                             ]),
                             h('div', { class: 'rounded-lg border border-slate-200 bg-white p-2.5' }, [
                                 h('strong', { class: 'text-slate-800' }, '风险与停止条件'),
-                                h('p', { class: 'mt-1 leading-5' }, String(action?.risk?.summary || '执行前仍需人工核对风险。')),
+                                h('p', { class: 'mt-1 leading-5' }, String(action?.risk?.summary || '执行前仍需按风险控制与停止条件核对。')),
                                 controls.length || stops.length
                                     ? h('ul', { class: 'mt-1 list-disc pl-4 leading-5' }, [...controls, ...stops.map(item => `停止：${item}`)].slice(0, 6).map((item, index) => (
                                         h('li', { key: `guard-${index}-${String(item)}` }, String(item))
@@ -537,9 +780,9 @@
                         } else {
                             actionChildren.push(h('div', { class: 'mt-3 flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 pt-3' }, [
                                 h('div', { class: 'text-[11px] leading-5 text-slate-500' }, [
-                                    h('span', `已绑定 ${evidenceRefs.length} 条严格事实引用。`),
+                                    h('span', `已绑定 ${evidenceRefs.length} 条严格证据引用。`),
                                     h('br'),
-                                    h('span', '点击只提交本地待审批意图；不会自动批准、采集或写 OTA。'),
+                                    h('span', '提交后由独立 AI 重新核验事实；通过后只创建本地人工执行任务，不采集或写 OTA。'),
                                 ]),
                                 h('button', {
                                     type: 'button',
@@ -550,8 +793,8 @@
                                         ? ui?.openActionIntent?.(intent)
                                         : ui?.createActionIntent?.(action, actionIndex),
                                 }, state.action_loading === actionKey
-                                    ? '提交并回读中…'
-                                    : (intent ? `查看${String(intent.status || '待审批')}任务 #${Number(intent.id || 0)}` : '确认并提交待审批')),
+                                    ? '独立评审并回读中…'
+                                    : (intent ? `查看${String(intent.status || '待评审')}任务 #${Number(intent.id || 0)}` : '提交独立评审')),
                             ]));
                         }
                         answerChildren.push(h('section', {
@@ -726,14 +969,12 @@
                     })),
                 ];
                 const modelOptions = [
-                    { value: 'local_second_brain', label: '本机第二大脑（Ollama）' },
+                    { value: '', label: 'DeepSeek V4 默认' },
                     ...textList(ctx.availableAiModelOptions).filter((model) => {
                         const value = String(model?.value || '').toLowerCase();
                         const label = String(model?.label || '').toLowerCase();
-                        return value.includes('deepseek')
-                            || value.includes('local_second_brain')
-                            || label.includes('ollama');
-                    }).filter((model) => String(model?.value || '') !== 'local_second_brain').map((model) => ({
+                        return value.includes('deepseek') || value.includes('local_second_brain') || label.includes('ollama');
+                    }).map((model) => ({
                         value: model?.value || '',
                         label: model?.label || model?.value || '模型',
                     })),
@@ -1788,7 +2029,6 @@
         name: 'IntelligentSystemUsageAssistant',
         props: {
             ctx: { type: Object, required: true },
-            openOnMount: { type: Boolean, default: false },
         },
         setup(props) {
             const state = ref({
@@ -2161,11 +2401,6 @@
                 const current = isTopicCurrent(topic);
                 const ctx = props.ctx || {};
                 if (topic.key === 'data-health') {
-                    if (!window.SUXI_DATA_HEALTH_STATIC) {
-                        return current
-                            ? { key: 'checking', label: '待核验', detail: '数据健康完整资源尚未加载，不能判定完成。', complete: false }
-                            : pending;
-                    }
                     const summary = ctx.phase1EmployeeClosureSummary;
                     if (summary?.status === 'complete') {
                         return {
@@ -2184,11 +2419,6 @@
                         : pending;
                 }
                 if (topic.key === 'auto-collect') {
-                    if (!window.SUXI_DATA_HEALTH_STATIC) {
-                        return current
-                            ? { key: 'checking', label: '待核验', detail: '采集状态完整资源尚未加载，不能判定完成。', complete: false }
-                            : pending;
-                    }
                     const runState = ctx.autoFetchRunState || {};
                     const canonical = ctx.autoFetchCanonicalOperationStatus || {};
                     if (runState.active === true) {
@@ -2230,11 +2460,6 @@
                         : pending;
                 }
                 if (topic.key === 'ai-daily-report') {
-                    if (document.documentElement.dataset.suxiRenderPhase !== 'full') {
-                        return current
-                            ? { key: 'checking', label: '待核验', detail: '日报完整页面尚未加载，不能判定结果可用。', complete: false }
-                            : pending;
-                    }
                     const report = ctx.aiDailyReport || null;
                     const readiness = ctx.aiDailyReportResultReadiness || {};
                     if (Number(report?.id || report?.report_id || 0) > 0 && readiness?.usable === true) {
@@ -2842,7 +3067,6 @@
             onMounted(() => {
                 state.value.active_journey = readActiveJourney();
                 readWidgetState();
-                if (props.openOnMount) widgetOpen.value = true;
                 window.addEventListener('resize', handleWidgetViewportResize, { passive: true });
                 nextTick(() => {
                     clampWidgetPosition(false);

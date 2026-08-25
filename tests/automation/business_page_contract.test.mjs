@@ -242,3 +242,23 @@ test('the focused verifier is part of the P0 guard without forcing the full visu
   assert.match(businessPageVerifier, /spawnSync\(process\.execPath, \['--test', \.\.\.testPaths\]/);
   assert.match(businessPageVerifier, /relativeToAutomation\.startsWith/);
 });
+
+test('Ctrip golden sample captures the rendered cards table and source notice for download', () => {
+  const start = appMain.indexOf('const buildCtripBusinessCanvas =');
+  const end = appMain.indexOf('const canvasToPngBlob =', start);
+  assert.ok(start >= 0 && end > start, 'Ctrip business canvas block must exist');
+  const block = appMain.slice(start, end);
+
+  assert.match(block, /captureCtripBusinessDownloadSnapshot/);
+  assert.match(block, /cards: visibleSnapshot\.cards/);
+  assert.match(block, /table: visibleSnapshot\.table/);
+  assert.match(block, /sourceNotice: visibleSnapshot\.sourceNotice/);
+  assert.ok(
+    ctripRegression.includes('assert.match(canvasDownload, /cards: visibleSnapshot\\.cards/);'),
+    'existing Ctrip regression must protect the rendered card source',
+  );
+  assert.ok(
+    ctripRegression.includes('assert.match(canvasDownload, /sourceNotice: visibleSnapshot\\.sourceNotice/);'),
+    'existing Ctrip regression must protect the rendered source notice',
+  );
+});

@@ -790,7 +790,7 @@ test('Ctrip business download canvas is owned by ctrip static helper', () => {
 });
 
 test('Ctrip image download keeps the Blob URL alive for delayed browser handoff', () => {
-  const downloadBlob = sliceBetween(html, 'const downloadBlob =', 'const ctripDownloadRows =');
+  const downloadBlob = sliceBetween(html, 'const downloadBlob =', 'const buildCtripBusinessCanvas =');
 
   assert.match(downloadBlob, /link\.style\.display = 'none'/);
   assert.match(downloadBlob, /window\.setTimeout\(\(\) => \{/);

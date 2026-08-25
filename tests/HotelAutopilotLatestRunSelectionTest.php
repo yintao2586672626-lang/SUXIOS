@@ -488,6 +488,7 @@ final class HotelAutopilotLatestRunSelectionTest extends TestCase
             reconciliation_status TEXT NOT NULL,
             readback_status TEXT NOT NULL,
             detail_row_count INTEGER NOT NULL
+            readback_status TEXT NOT NULL
         )');
         Db::execute('CREATE TABLE hotel_collection_plan_runs (
             id INTEGER PRIMARY KEY AUTOINCREMENT,

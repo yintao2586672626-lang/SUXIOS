@@ -922,4 +922,48 @@ final class HotelAutopilotLifecycleServiceTest extends TestCase
             UNIQUE (tenant_id, system_hotel_id)
         )');
     }
+
+    public function testDispatcherBridgeRequiresExactSafeReadback(): void
+    {
+        $runner = static fn(array $command): array => [
+            'exit_code' => 0,
+            'stdout' => '',
+            'schema_version' => HotelAutopilotDispatcherProvisioningService::SCHEMA_VERSION,
+            'status' => 'ready',
+            'reason_code' => 'task_enabled_and_started',
+            'hotel_id' => 80,
+            'task_name' => 'SUXIOS OTA Dispatcher H80',
+            'task_exists' => true,
+            'enabled' => true,
+            'task_started' => true,
+            'scope' => [
+                'hotel_id' => 80,
+                'source_ids' => [25, 68],
+                'platforms' => ['ctrip', 'meituan'],
+                'mode' => 'daily',
+            ],
+            'scope_verified' => true,
+            'action_verified' => true,
+            'trigger_verified' => true,
+            'principal_verified' => true,
+            'readback_verified' => true,
+            'sensitive_values_exposed' => false,
+            'process_exit_code' => 0,
+        ];
+        $service = new HotelAutopilotDispatcherProvisioningService($runner, dirname(__DIR__));
+
+        $receipt = $service->provision([
+            'hotel_id' => 80,
+            'source_ids' => [25, 68],
+            'platforms' => ['ctrip', 'meituan'],
+            'schedule_time' => '08:30',
+            'start_now' => true,
+        ]);
+
+        self::assertSame('ready', $receipt['status']);
+        self::assertTrue($receipt['readback_verified']);
+        self::assertTrue($receipt['task_started']);
+        self::assertFalse($receipt['auto_write_ota']);
+        self::assertFalse($receipt['sensitive_values_exposed']);
+    }
 }

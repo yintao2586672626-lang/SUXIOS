@@ -166,4 +166,24 @@ final class BrowserProfileCdpAdapterTest extends TestCase
         }
         rmdir($path);
     }
+
+    public function testAdaptersRejectNonLoopbackCdpBeforeStartingCapture(): void
+    {
+        $runnerCalled = false;
+        $runner = static function () use (&$runnerCalled): array {
+            $runnerCalled = true;
+            return [];
+        };
+
+        $ctrip = new CtripBrowserProfileDataSourceAdapter(sys_get_temp_dir(), 'node', $runner);
+        $ctripResult = $ctrip->fetch($this->ctripSource(), ['cdp_url' => 'http://example.test:9223']);
+        self::assertSame('waiting_config', $ctripResult['status']);
+        self::assertSame('invalid_cdp_url', $ctripResult['status_code']);
+
+        $meituan = new MeituanBrowserProfileDataSourceAdapter(sys_get_temp_dir(), 'node', $runner);
+        $meituanResult = $meituan->fetch($this->meituanSource(), ['cdp_url' => 'http://localhost:9223']);
+        self::assertSame('waiting_config', $meituanResult['status']);
+        self::assertSame('invalid_cdp_url', $meituanResult['status_code']);
+        self::assertFalse($runnerCalled);
+    }
 }

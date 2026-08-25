@@ -15,17 +15,9 @@ final class OtaCompetitionAnalysisBundleService
     public const DEFAULT_EDITION = 'lite';
     private const EDITIONS = ['lite', 'flagship', 'both'];
 
-    private CtripCompetitiveOperationsService $ctripService;
-
-    /** @var null|\Closure(int,string,string):array<string,mixed> */
-    private ?\Closure $ctripReader;
-
-    public function __construct(
-        ?CtripCompetitiveOperationsService $ctripService = null,
-        ?callable $ctripReader = null
-    ) {
-        $this->ctripService = $ctripService ?? new CtripCompetitiveOperationsService();
-        $this->ctripReader = $ctripReader === null ? null : \Closure::fromCallable($ctripReader);
+    public function __construct(private ?CtripCompetitiveOperationsService $ctripService = null)
+    {
+        $this->ctripService ??= new CtripCompetitiveOperationsService();
     }
 
     public static function normalizeEdition(mixed $edition): string
@@ -69,11 +61,16 @@ final class OtaCompetitionAnalysisBundleService
         if (is_array($options['ctrip_result'] ?? null)) {
             $ctrip = $options['ctrip_result'];
         } else {
-            // The Ctrip read model returns explicit data_missing/unverified
-            // statuses for ordinary source absence. Technical exceptions are
-            // not source facts and must propagate instead of being disguised
-            // as a collection gap.
-            $ctrip = $this->readCtrip($hotelId, $reportDate);
+            try {
+                $ctrip = $this->ctripService->build($hotelId, $reportDate, $reportDate);
+            } catch (\Throwable) {
+                $ctrip = [
+                    'status' => 'collection_failed',
+                    'context' => ['binding_status' => 'binding_unverified'],
+                    'business_comparison' => [],
+                    'data_coverage' => [],
+                ];
+            }
         }
         $meituan = is_array($options['meituan_summary'] ?? null)
             ? $options['meituan_summary']
@@ -90,18 +87,6 @@ final class OtaCompetitionAnalysisBundleService
                 'readback_verified' => ($snapshot['input_trust']['readback_verified'] ?? false) === true,
             ])
         );
-    }
-
-    /** @return array<string,mixed> */
-    private function readCtrip(int $hotelId, string $reportDate): array
-    {
-        $result = $this->ctripReader !== null
-            ? ($this->ctripReader)($hotelId, $reportDate, $reportDate)
-            : $this->ctripService->build($hotelId, $reportDate, $reportDate);
-        if (!is_array($result)) {
-            throw new \RuntimeException('ctrip_competition_reader_invalid_result');
-        }
-        return $result;
     }
 
     /**
@@ -190,18 +175,19 @@ final class OtaCompetitionAnalysisBundleService
                 'ctrip' => [
                     'facts' => $ctripResult['facts'],
                     'derived_metrics' => $ctripResult['derived_metrics'],
+                    'evidence_contract' => $ctripResult['evidence_contract'],
                     'candidate_competitors' => $ctripResult['candidate_competitors'],
                     'quality' => $ctripResult['quality'],
                 ],
                 'meituan' => [
                     'facts' => $meituanResult['facts'],
                     'derived_metrics' => $meituanResult['derived_metrics'],
+                    'evidence_contract' => $meituanResult['evidence_contract'],
                     'candidate_competitors' => $meituanResult['candidate_competitors'],
                     'quality' => $meituanResult['quality'],
                 ],
             ],
         ]);
-        $bundleId = 'ota-competition-' . $hotelId . '-' . str_replace('-', '', $reportDate) . '-' . substr($sourceFingerprint, 0, 12);
         $recommendations = $this->buildRecommendations($platforms, $decisionEligible);
         $requestedEditions = $edition === 'both' ? ['lite', 'flagship'] : [$edition];
         $quality = [
@@ -215,14 +201,13 @@ final class OtaCompetitionAnalysisBundleService
             $quality,
             $recommendations,
             $source,
-            $bundleId,
             $sourceFingerprint,
             $edition
         );
 
         $bundle = [
             'schema_version' => self::SCHEMA_VERSION,
-            'bundle_id' => $bundleId,
+            'bundle_id' => 'ota-competition-' . $hotelId . '-' . str_replace('-', '', $reportDate) . '-' . substr($sourceFingerprint, 0, 12),
             'source_fingerprint' => $sourceFingerprint,
             'source' => $source,
             'quality' => $quality,
@@ -233,6 +218,10 @@ final class OtaCompetitionAnalysisBundleService
             'derived_metrics' => [
                 'ctrip' => $ctripResult['derived_metrics'],
                 'meituan' => $meituanResult['derived_metrics'],
+            ],
+            'evidence_contracts' => [
+                'ctrip' => $ctripResult['evidence_contract'],
+                'meituan' => $meituanResult['evidence_contract'],
             ],
             'analysis' => [
                 'ctrip' => $ctripResult['analysis'],
@@ -271,8 +260,7 @@ final class OtaCompetitionAnalysisBundleService
 
     /**
      * Canonical digest of the complete persisted bundle. The two digest mirror
-     * fields are excluded from their own checksum, while every other field and
-     * every list position remains part of the exact JSON-value contract.
+     * fields are excluded from their own checksum.
      *
      * @param array<string,mixed> $bundle
      */
@@ -310,7 +298,6 @@ final class OtaCompetitionAnalysisBundleService
         array $quality,
         array $recommendations,
         array $source,
-        string $bundleId,
         string $sourceFingerprint,
         string $edition
     ): array {
@@ -341,15 +328,16 @@ final class OtaCompetitionAnalysisBundleService
                     ? ($result['analysis']['first_conflict'] ?? null)
                     : null,
                 'candidate_group_counts' => $candidateGroups,
+                'evidence_contract' => is_array($result['evidence_contract'] ?? null)
+                    ? $result['evidence_contract']
+                    : [],
                 'source_refs' => [
-                    // JSON Pointers are relative to the canonical bundle root.
-                    // Every reference must resolve against the exact object
-                    // returned by buildFromInputs; no wrapper name is assumed.
-                    'facts' => '/facts/' . $platform,
-                    'derived_metrics' => '/derived_metrics/' . $platform,
-                    'analysis' => '/analysis/' . $platform,
-                    'candidates' => '/candidate_competitors/' . $platform,
-                    'quality' => '/quality',
+                    'facts' => 'competition_circle_bundle.facts.' . $platform,
+                    'derived_metrics' => 'competition_circle_bundle.derived_metrics.' . $platform,
+                    'analysis' => 'competition_circle_bundle.analysis.' . $platform,
+                    'evidence_contract' => 'competition_circle_bundle.evidence_contracts.' . $platform,
+                    'candidates' => 'competition_circle_bundle.candidate_competitors.' . $platform,
+                    'quality' => 'competition_circle_bundle.quality',
                 ],
             ];
         }
@@ -373,6 +361,10 @@ final class OtaCompetitionAnalysisBundleService
                 'decision_eligible' => $decisionEligible,
                 'platforms_ready' => count($eligiblePlatforms),
                 'platforms_total' => 2,
+                'full_circle_platforms' => count(array_filter(
+                    $platformSections,
+                    static fn(array $section): bool => ($section['evidence_contract']['full_circle_ready'] ?? false) === true
+                )),
                 'first_conflicts' => array_values(array_filter(array_map(
                     static fn(string $platform): ?array => isset($platformSections[$platform])
                         ? [
@@ -392,7 +384,6 @@ final class OtaCompetitionAnalysisBundleService
             'render_contract' => [
                 'requested_edition' => $edition,
                 'single_calculation' => true,
-                'bundle_id' => $bundleId,
                 'source_fingerprint' => $sourceFingerprint,
                 'saved_with_daily_report' => true,
                 'exact_readback_required' => true,
@@ -584,6 +575,20 @@ final class OtaCompetitionAnalysisBundleService
         $analysis = $decisionEligible
             ? $this->buildCtripAnalysis($self, $average)
             : $this->withheldAnalysis('ctrip', $gaps, $datasetKind);
+        $bookingConversion = $this->ratioPercent($self['orders'] ?? null, $self['detail_visitors'] ?? null);
+        $competitorBookingConversion = $this->ratioPercent(
+            $average['orders'] ?? null,
+            $average['detail_visitors'] ?? null
+        );
+        $evidenceContract = $this->buildCtripEvidenceContract(
+            $self,
+            $latestDate,
+            $reportDate,
+            $bindingStatus,
+            $platformHotelIdentifierPresent,
+            $decisionEligible,
+            $bookingConversion
+        );
 
         return [
             'quality' => [
@@ -611,7 +616,14 @@ final class OtaCompetitionAnalysisBundleService
                 'adr_gap' => $this->difference($self['adr'] ?? null, $average['adr'] ?? null),
                 'order_gap' => $this->difference($self['orders'] ?? null, $average['orders'] ?? null),
                 'conversion_gap' => $this->difference($self['conversion_rate'] ?? null, $average['conversion_rate'] ?? null),
+                'platform_conversion_gap' => $this->difference(
+                    $self['conversion_rate'] ?? null,
+                    $average['conversion_rate'] ?? null
+                ),
+                'booking_conversion_rate' => $bookingConversion,
+                'competitor_booking_conversion_rate' => $competitorBookingConversion,
             ],
+            'evidence_contract' => $evidenceContract,
             'analysis' => $analysis,
             'candidate_competitors' => $candidates,
         ];
@@ -634,6 +646,12 @@ final class OtaCompetitionAnalysisBundleService
         $sourceEvidenceVerified = strtolower(trim((string)($sourceEvidence['status'] ?? ''))) === 'verified';
         $selfRank = $this->rankNumber($source['self_position_text'] ?? null);
         $topRank = $this->numberOrNull($source['top_rank'] ?? null);
+        $evidenceGroups = is_array($source['evidence_groups'] ?? null) ? $source['evidence_groups'] : [];
+        $evidenceGroupCounts = [];
+        foreach (['stay', 'sales', 'traffic', 'conversion'] as $group) {
+            $rows = array_values(array_filter((array)($evidenceGroups[$group] ?? []), 'is_array'));
+            $evidenceGroupCounts[$group] = $rows === [] ? null : count($rows);
+        }
         $gaps = [];
         if ($source === [] || in_array($dataStatus, ['pending', 'missing', 'data_missing', 'collection_failed'], true)) {
             $gaps[] = $this->gap('meituan_source_missing', '美团目标日竞争来源缺失或读取失败。', 'online_daily_data:meituan');
@@ -689,6 +707,15 @@ final class OtaCompetitionAnalysisBundleService
                 'price_experiment' => null,
             ]
             : $this->withheldAnalysis('meituan', $gaps, $datasetKind);
+        $evidenceContract = $this->buildMeituanEvidenceContract(
+            $latestDate,
+            $reportDate,
+            $targetBound,
+            $rankStatus,
+            $selfRank,
+            $decisionEligible,
+            $evidenceGroupCounts
+        );
 
         return [
             'quality' => [
@@ -711,6 +738,7 @@ final class OtaCompetitionAnalysisBundleService
                 'top1_gap_text' => trim((string)($source['top1_gap_text'] ?? '未返回')),
                 'rank_trend_text' => trim((string)($source['rank_trend_text'] ?? '未返回')),
                 'platform_tag_text' => trim((string)($source['platform_tag_text'] ?? '未返回')),
+                'evidence_group_counts' => $evidenceGroupCounts,
                 'source_evidence' => $sourceEvidence,
             ],
             'derived_metrics' => [
@@ -718,6 +746,7 @@ final class OtaCompetitionAnalysisBundleService
                 'top_rank' => $topRank,
                 'rank_gap_to_top1' => $selfRank !== null && $topRank !== null ? $selfRank - $topRank : null,
             ],
+            'evidence_contract' => $evidenceContract,
             'analysis' => $analysis,
             'candidate_competitors' => $candidates,
         ];
@@ -822,7 +851,7 @@ final class OtaCompetitionAnalysisBundleService
                 'title' => '人工确认携程竞争商圈实验',
                 'action' => '核对本店与直接竞品的ADR、订单和转化差异，确认房型、价型、日期边界后再创建运营执行意图。',
                 'reason' => (string)($analysis['first_conflict'] ?? ''),
-                'source_refs' => ['/analysis/ctrip', '/facts/ctrip', '/quality'],
+                'source_refs' => ['competition_circle_bundle.platforms.ctrip'],
                 'platform' => 'ctrip',
                 'object_type' => 'campaign',
                 'action_type' => 'manual_review',
@@ -846,7 +875,7 @@ final class OtaCompetitionAnalysisBundleService
                 'title' => '人工复核美团榜单差距',
                 'action' => '复核本店、TOP1和前一名位置；平台未返回指标差额时不得直接归因为价格问题。',
                 'reason' => (string)($analysis['first_conflict'] ?? ''),
-                'source_refs' => ['/analysis/meituan', '/facts/meituan', '/quality'],
+                'source_refs' => ['competition_circle_bundle.platforms.meituan'],
                 'platform' => 'meituan',
                 'object_type' => 'campaign',
                 'action_type' => 'manual_review',
@@ -923,6 +952,306 @@ final class OtaCompetitionAnalysisBundleService
     private function positiveNumber(mixed $value): bool
     {
         return is_numeric($value) && (float)$value > 0;
+    }
+
+    private function ratioPercent(mixed $numerator, mixed $denominator): ?float
+    {
+        $numerator = $this->numberOrNull($numerator);
+        $denominator = $this->numberOrNull($denominator);
+        if ($numerator === null || $numerator < 0 || $denominator === null || $denominator <= 0) {
+            return null;
+        }
+        return round($numerator / $denominator * 100, 4);
+    }
+
+    /** @return array<string,mixed> */
+    private function buildCtripEvidenceContract(
+        ?array $self,
+        string $latestDate,
+        string $reportDate,
+        string $bindingStatus,
+        bool $platformHotelIdentifierPresent,
+        bool $decisionEligible,
+        ?float $bookingConversion
+    ): array {
+        $self = is_array($self) ? $self : [];
+        $ari = $this->numberOrNull($self['ari'] ?? null);
+        $sci = $this->numberOrNull($self['sci'] ?? null);
+        $platformConversion = $this->numberOrNull($self['conversion_rate'] ?? null);
+        $orders = $this->numberOrNull($self['orders'] ?? null);
+        $visitors = $this->numberOrNull($self['detail_visitors'] ?? null);
+        $businessValues = [
+            $this->numberOrNull($self['amount'] ?? null),
+            $this->numberOrNull($self['room_nights'] ?? null),
+            $this->numberOrNull($self['adr'] ?? null),
+        ];
+        $businessValueCount = count(array_filter(
+            $businessValues,
+            static fn(?float $value): bool => $value !== null
+        ));
+        $checks = [
+            $this->evidenceCheck(
+                'subject_identity',
+                '本店唯一绑定',
+                $bindingStatus === 'bound' && $platformHotelIdentifierPresent && $self !== [] ? 'available' : 'missing',
+                true,
+                'source_fact',
+                $bindingStatus === 'bound' && $platformHotelIdentifierPresent ? 'bound' : null,
+                '',
+                'ctrip.context.binding_status',
+                '平台酒店ID优先，且必须唯一命中本店。'
+            ),
+            $this->evidenceCheck(
+                'target_date',
+                '目标业务日期',
+                $latestDate === $reportDate ? 'available' : 'missing',
+                true,
+                'source_fact',
+                $latestDate !== '' ? $latestDate : null,
+                '',
+                'ctrip.business_comparison.latest_date',
+                '只使用目标业务日期的同口径快照。'
+            ),
+            $this->evidenceCheck(
+                'sales_room_nights_adr',
+                '销售额/间夜/ADR',
+                $businessValueCount === 3 ? 'available' : ($businessValueCount > 0 ? 'partial' : 'not_collected'),
+                true,
+                'source_fact',
+                ['sales' => $businessValues[0], 'room_nights' => $businessValues[1], 'adr' => $businessValues[2]],
+                '',
+                'ctrip.business_comparison.self',
+                'ADR只在销售额与间夜分母存在时使用。'
+            ),
+            $this->evidenceCheck(
+                'ari_sci',
+                'ARI/SCI平台字段',
+                $ari !== null && $sci !== null ? 'available' : (($ari !== null || $sci !== null) ? 'partial' : 'not_collected'),
+                true,
+                'source_fact',
+                ['ari' => $ari, 'sci' => $sci],
+                'index',
+                'ctrip.business_comparison.self',
+                '仅解读携程来源值，不反推平台私有公式。'
+            ),
+            $this->evidenceCheck(
+                'traffic_orders',
+                'APP访客量/订单量',
+                $visitors !== null && $orders !== null ? 'available' : (($visitors !== null || $orders !== null) ? 'partial' : 'not_collected'),
+                true,
+                'source_fact',
+                ['detail_visitors' => $visitors, 'orders' => $orders],
+                '',
+                'ctrip.business_comparison.self',
+                '访客量和订单量分别保留，缺失时不补零。'
+            ),
+            $this->evidenceCheck(
+                'platform_conversion',
+                '平台转化率',
+                $platformConversion !== null ? 'available' : 'not_collected',
+                true,
+                'source_fact',
+                $platformConversion,
+                'platform_source_value',
+                'ctrip.business_comparison.self.conversion_rate',
+                '保留平台来源原值，不用订单/访客结果覆盖。'
+            ),
+            $this->evidenceCheck(
+                'booking_conversion',
+                '派生预订转化率',
+                $bookingConversion !== null ? 'available' : 'unavailable',
+                true,
+                'derived_metric',
+                $bookingConversion,
+                '%',
+                'competition_circle_bundle.derived_metrics.ctrip.booking_conversion_rate',
+                '订单量 / APP详情页访客量 × 100%；分母缺失时为 null。'
+            ),
+            $this->evidenceCheck(
+                'ctrip_rating',
+                '携程点评分',
+                $this->numberOrNull($self['ctrip_rating'] ?? null) !== null ? 'available' : 'not_collected',
+                false,
+                'source_fact',
+                $this->numberOrNull($self['ctrip_rating'] ?? null),
+                'score',
+                'ctrip.business_comparison.self.ctrip_rating',
+                '可选辅助字段，不作为当前完整度硬门槛。'
+            ),
+        ];
+
+        return $this->finalizeEvidenceContract(
+            'ctrip',
+            $checks,
+            $decisionEligible,
+            'bounded_snapshot',
+            '当前为携程经营快照，未达到完整商圈证据',
+            [
+                'platform_conversion_and_booking_conversion_are_separate' => true,
+                'ari_sci_are_platform_fields_not_reverse_engineered' => true,
+                'single_snapshot_has_no_trend_or_elasticity_claim' => true,
+            ],
+            [
+                '平台转化率是来源字段；订单/访客是派生预订转化率，两者不得互相替代。',
+                'ARI/SCI仅按携程平台字段解读，不反推私有公式。',
+                '本合同只验证目标日快照，未单独验证可比历史序列；不据此输出环比、同比、趋势或已验证价格弹性。',
+            ]
+        );
+    }
+
+    /** @param array<string,?int> $groupCounts @return array<string,mixed> */
+    private function buildMeituanEvidenceContract(
+        string $latestDate,
+        string $reportDate,
+        bool $targetBound,
+        string $rankStatus,
+        ?float $selfRank,
+        bool $decisionEligible,
+        array $groupCounts
+    ): array {
+        $checks = [
+            $this->evidenceCheck(
+                'subject_identity',
+                '本店POI唯一绑定',
+                $targetBound ? 'available' : 'missing',
+                true,
+                'source_fact',
+                $targetBound ? 'bound' : null,
+                '',
+                'meituan.target_poi_bound',
+                '必须先确认本店POI，排名摘要才可用于本店判断。'
+            ),
+            $this->evidenceCheck(
+                'target_date',
+                '目标业务日期',
+                $latestDate === $reportDate ? 'available' : 'missing',
+                true,
+                'source_fact',
+                $latestDate !== '' ? $latestDate : null,
+                '',
+                'meituan.latest_data_date',
+                '只使用目标业务日期的同口径快照。'
+            ),
+            $this->evidenceCheck(
+                'rank_summary',
+                '本店排名摘要',
+                $rankStatus === 'ok' && $selfRank !== null ? 'available' : 'missing',
+                true,
+                'source_fact',
+                $selfRank,
+                'rank',
+                'meituan.self_position_text',
+                '排名摘要仅支持有界的排名研判。'
+            ),
+        ];
+        foreach ([
+            'stay' => ['入住榜全量明细', '入住间夜与客房收入'],
+            'sales' => ['销售榜全量明细', '销售间夜与销售收入'],
+            'traffic' => ['流量榜全量明细', '曝光量与浏览量'],
+            'conversion' => ['转化榜全量明细', '平台浏览、支付与绝对转化字段'],
+        ] as $group => [$label, $definition]) {
+            $count = $groupCounts[$group] ?? null;
+            $checks[] = $this->evidenceCheck(
+                $group . '_ranking',
+                $label,
+                is_int($count) && $count > 0 ? 'available' : 'not_collected',
+                true,
+                'source_fact',
+                $count,
+                'rows',
+                'meituan.evidence_groups.' . $group,
+                $definition . '；必须包含可核对的本店行和竞品行。'
+            );
+        }
+
+        return $this->finalizeEvidenceContract(
+            'meituan',
+            $checks,
+            $decisionEligible,
+            'rank_summary_only',
+            '当前仅有排名摘要，四榜证据未齐',
+            [
+                'sales_stay_gap_is_not_cancellation_rate' => true,
+                'platform_rates_and_derived_rates_are_separate' => true,
+                'single_snapshot_has_no_trend_or_elasticity_claim' => true,
+            ],
+            [
+                '销售榜与入住榜属于不同时间窗口；两者差额不是取消率，缺少取消字段时不得推断取消。',
+                '平台支付/绝对转化率与自行派生率分开，不与携程口径混用。',
+                '本合同只验证目标日快照，未单独验证可比历史序列；不据此输出环比、同比、趋势或已验证价格弹性。',
+            ]
+        );
+    }
+
+    /** @param array<int,array<string,mixed>> $checks @return array<string,mixed> */
+    private function finalizeEvidenceContract(
+        string $platform,
+        array $checks,
+        bool $decisionEligible,
+        string $incompleteScope,
+        string $incompleteLabel,
+        array $formulaBoundaries,
+        array $caveats
+    ): array {
+        $required = array_values(array_filter(
+            $checks,
+            static fn(array $check): bool => ($check['required'] ?? false) === true
+        ));
+        $available = array_values(array_filter(
+            $required,
+            static fn(array $check): bool => ($check['status'] ?? '') === 'available'
+        ));
+        $missingLabels = array_values(array_map(
+            static fn(array $check): string => (string)($check['label'] ?? $check['key'] ?? ''),
+            array_filter($required, static fn(array $check): bool => ($check['status'] ?? '') !== 'available')
+        ));
+        $fieldComplete = count($available) === count($required) && $required !== [];
+        $fullCircleReady = $fieldComplete && $decisionEligible;
+        $analysisScope = $fullCircleReady
+            ? 'full_circle_snapshot'
+            : ($decisionEligible ? $incompleteScope : 'insufficient_evidence');
+        $scopeLabel = $fullCircleReady
+            ? '完整商圈单期快照证据已齐'
+            : ($decisionEligible ? $incompleteLabel : '来源或字段未达到可信研判门槛');
+
+        return [
+            'platform' => $platform,
+            'analysis_scope' => $analysisScope,
+            'scope_label' => $scopeLabel,
+            'field_complete' => $fieldComplete,
+            'full_circle_ready' => $fullCircleReady,
+            'required_checks_available' => count($available),
+            'required_checks_total' => count($required),
+            'missing_required_labels' => $missingLabels,
+            'checks' => $checks,
+            'formula_boundaries' => $formulaBoundaries,
+            'caveats' => $caveats,
+        ];
+    }
+
+    /** @return array<string,mixed> */
+    private function evidenceCheck(
+        string $key,
+        string $label,
+        string $status,
+        bool $required,
+        string $resultLayer,
+        mixed $value,
+        string $unit,
+        string $sourceRef,
+        string $definition
+    ): array {
+        return [
+            'key' => $key,
+            'label' => $label,
+            'status' => $status,
+            'required' => $required,
+            'result_layer' => $resultLayer,
+            'value' => $value,
+            'unit' => $unit,
+            'source_ref' => $sourceRef,
+            'definition' => $definition,
+        ];
     }
 
     private function numberOrNull(mixed $value): ?float

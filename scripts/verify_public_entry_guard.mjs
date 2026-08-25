@@ -162,6 +162,8 @@ if (!fs.existsSync(indexPath)) {
   }
   const meituanStaticPath = path.join(repoRoot, 'public/meituan-static.js');
   const meituanStaticContent = fs.existsSync(meituanStaticPath) ? fs.readFileSync(meituanStaticPath, 'utf8') : '';
+  const reviewMatchStaticPath = path.join(repoRoot, 'public/review-match-static.js');
+  const reviewMatchStaticContent = fs.existsSync(reviewMatchStaticPath) ? fs.readFileSync(reviewMatchStaticPath, 'utf8') : '';
   if (meituanStaticContent.includes('const buildMeituanBookmarkletSuccessState = (response = {}) => ({')
     && meituanStaticContent.includes("toastMessage: response?.data?.message || '旧版美团 Cookie 书签已禁用'")
     && content.includes('const successState = buildMeituanBookmarkletSuccessState(res);')) {
@@ -1132,11 +1134,11 @@ if (!runtimeAssetPaths.includes('app-startup-helpers.min.js')
     || onlineDataDataTabSource.includes('scheduleManualOnlineFetchConfigPrewarm')
     || !/if \(shouldPrewarmManualConfig\) \{\s*scheduleManualOnlineFetchConfigPrewarm\(newTab, options\.configPrewarmDelayMs\);\s*return undefined;\s*\}/.test(onlineDataTabSchedulerSource)
     || /ensureManualOnlineFetchConfigReady\(\);\s*refreshOnlineData\(\{ cacheMs: ONLINE_DATA_PANEL_CACHE_TTL_MS \}\);/.test(onlineDataTabSchedulerSource)
-    || !/item\.path === ['"]online-data['"][\s\S]*openOnlineDataEntryTab\(String\(item\.tab \|\| ['"]data-health['"]\)\)/.test(content)) {
+    || !/item\.path === ['"]online-data['"][\s\S]*openOnlineDataTab\(targetTab\)/.test(content)) {
     failures.push('public/index.html must keep saved platform config prewarm off the online-data data-records first paint and reserve it for manual fetch tabs.');
   }
   if (!content.includes("let pendingOnlineDataEntryTab = '';")
-    || !content.includes("openOnlineDataEntryTab(String(item.tab || 'data-health'));")
+    || !content.includes("pendingOnlineDataEntryTab = String(item.tab || '');")
     || !content.includes("if (requestedOnlineDataTab && requestedOnlineDataTab !== 'data-health') {\n                        return;\n                    }")) {
     failures.push('public/index.html must skip default data-health first-paint loading when menu navigation targets another online-data tab.');
   }
@@ -1146,7 +1148,7 @@ if (!runtimeAssetPaths.includes('app-startup-helpers.min.js')
     || !content.includes("onlineDataTab.value = targetTab;\n                currentPage.value = 'online-data';")
     || !content.includes("const openOnlinePlatformAutoTab = (options = {}) => {\n                return openOnlineDataEntryTab('platform-auto', options);\n            };")
     || !content.includes("const openOnlineDataManualEntry = () => {\n                return openOnlineDataEntryTab('data-health');\n            };")
-    || !/if \(item\.path === 'online-data'\) \{\s*if \(item\.tab\) \{\s*openOnlineDataEntryTab\(String\(item\.tab \|\| 'data-health'\)\);\s*\} else \{\s*openOnlineDataManualEntry\(\);\s*\}\s*return;\s*\}/.test(content)) {
+    || !content.includes("if (item.path === 'online-data' && !item.tab) {\n                    openOnlineDataManualEntry();\n                    return;\n                }")) {
     failures.push('public/index.html online-data menu clicks without an explicit tab must return to the default data-health tab.');
   }
   if (!content.includes('@click="handleParentMenuClick(item)"')
@@ -1870,8 +1872,14 @@ if (!runtimeAssetPaths.includes('app-startup-helpers.min.js')
     || !content.includes('v-for="hotel in filteredPlatformHotelOptions"')
     || !content.includes('@mousedown.prevent="selectPlatformHotelOption(hotel)"')
     || !content.includes('const platformHotelOptions = computed(() => {')
-    || !content.includes("if (platformHotelContext.value === 'meituan') return meituanTargetHotelOptions.value;")
-    || !content.includes("if (platformHotelContext.value === 'ctrip') return ['ctrip-public-profiles', 'ctrip-market-competition'].includes(onlineDataTab.value) ? ctripPublicProfileHotelOptions.value : ctripTargetHotelOptions.value;")
+    || !content.includes("if (platformHotelContext.value === 'meituan') {")
+    || !content.includes("return onlineDataTab.value === 'meituan-review-match'")
+    || !content.includes('? meituanReviewMatchHotelOptions.value')
+    || !content.includes(': meituanTargetHotelOptions.value;')
+    || !content.includes("if (platformHotelContext.value === 'ctrip') {")
+    || !content.includes("return ['ctrip-public-profiles', 'ctrip-market-competition'].includes(onlineDataTab.value)")
+    || !content.includes('? ctripPublicProfileHotelOptions.value')
+    || !content.includes(': ctripTargetHotelOptions.value;')
     || !content.includes('const filteredPlatformHotelOptions = computed(() => {')
     || !content.includes('const platformHotelContext = computed(() => currentPage.value')
     || ctripPlatformPageTemplate.includes('v-model="selectedCtripHotelId"')
@@ -2011,7 +2019,7 @@ if (!runtimeAssetPaths.includes('app-startup-helpers.min.js')
     || !content.includes('const switchToMeituanDownloadCenter = () => {')
     || !meituanStaticContent.includes('const buildMeituanDownloadData = (rows = []) => {')
     || !content.includes('const meituanDownloadData = computed(() => buildMeituanDownloadData(onlineDataList.value));')
-    || !/switchToMeituanDownloadCenter,[^\r\n]*openMeituanStoredBusinessDate,[^\r\n]*openMeituanStoredDataTab,[^\r\n]*queryMeituanStoredData,[^\r\n]*meituanDownloadData,/.test(content)
+    || !/switchToMeituanDownloadCenter,[^\r\n]*openMeituanStoredDataTab,[^\r\n]*queryMeituanStoredData,[^\r\n]*meituanDownloadData,/.test(content)
     || !downloadCenterTabSource.includes("await refreshOnlineHistory({ refreshHotels: false });")
     || !downloadCenterTabSource.includes('scheduleDelayedPageTask(() => {')
     || !downloadCenterTabSource.includes('return loadOnlineHistoryHotelList();')
@@ -2209,12 +2217,19 @@ if (!runtimeAssetPaths.includes('app-startup-helpers.min.js')
     || !content.includes('schedulePlatformCollectionStatusRefresh();')) {
     failures.push('public/index.html must refresh collection-status after collection and platform-source mutations.');
   }
-  const ctripReviewAutomationSource = content.slice(
-    content.indexOf('const runCtripReviewMatchAutomation ='),
-    content.indexOf('const bindCtripReviewOrderMatch =')
-  );
+  const ctripReviewAutomationSource = reviewMatchStaticContent.includes('createCtripReviewMatchActionController')
+    ? reviewMatchStaticContent.slice(
+      reviewMatchStaticContent.indexOf('runAutomation:'),
+      reviewMatchStaticContent.indexOf('bind:', reviewMatchStaticContent.indexOf('runAutomation:'))
+    )
+    : content.slice(
+      content.indexOf('const runCtripReviewMatchAutomation ='),
+      content.indexOf('const bindCtripReviewOrderMatch =')
+    );
   if (!ctripReviewAutomationSource.includes("review_collection_policy: 'explicit_review_match_only'")
-    || /capture-ctrip-browser|comment_review|capture_sections/.test(ctripReviewAutomationSource)) {
+    || /capture-ctrip-browser|comment_review|capture_sections/.test(ctripReviewAutomationSource)
+    || !content.includes('...ctripReviewMatchControllerBindings')
+    || !reviewMatchStaticContent.includes('runCtripReviewMatchAutomation: actionController.runAutomation')) {
     failures.push('public/index.html must keep Ctrip review order matching scoped to the explicit match action, without default capture entrypoints.');
   }
   if (!content.includes('const competitorSummaryRequestPromises = new Map();')

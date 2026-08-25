@@ -77,9 +77,9 @@ final class OnlineDataFieldFactService
             ],
             [
                 'metric_key' => 'browse_to_pay_rate',
-                'normalized_field' => 'flow_rate',
-                'storage_field' => 'flow_rate',
-                'source_keys' => ['browse_to_pay_rate', 'browsePayRate', 'browse_pay_rate', 'payOrderPerIntention', 'flowRate', 'flow_rate', 'PAY_ORDER_CNT_UV'],
+                'normalized_field' => 'raw_data.browse_pay_rate',
+                'storage_field' => 'raw_data.browse_pay_rate',
+                'source_keys' => ['browse_to_pay_rate', 'browsePayRate', 'browse_pay_rate', 'payOrderPerIntention', 'PAY_ORDER_CNT_UV'],
             ],
         ],
         'traffic' => [
@@ -111,13 +111,19 @@ final class OnlineDataFieldFactService
                 'metric_key' => 'flow_rate',
                 'normalized_field' => 'flow_rate',
                 'storage_field' => 'flow_rate',
-                'source_keys' => ['browse_to_pay_rate', 'browsePayRate', 'browse_pay_rate', 'payOrderPerIntention', 'flow_rate', 'flowRate', 'conversion_rate', 'conversionRate', 'convertionRate', 'convertRate', 'transforRate', 'transferRate', 'transRate', 'cvr', 'listTransforDetailRate', 'orderRate'],
+                'source_keys' => ['exposure_to_browse_rate', 'exposureToBrowseRate', 'intentionPerExposure', 'expose_visit_rate', 'flow_rate', 'flowRate', 'listTransforDetailRate'],
             ],
             [
                 'metric_key' => 'exposure_to_browse_rate',
                 'normalized_field' => 'raw_data.exposure_to_browse_rate',
                 'storage_field' => 'raw_data.exposure_to_browse_rate',
                 'source_keys' => ['intentionPerExposure', 'intention_per_exposure', 'exposure_to_browse_rate', 'exposureToBrowseRate', 'expose_visit_rate'],
+            ],
+            [
+                'metric_key' => 'browse_to_pay_rate',
+                'normalized_field' => 'raw_data.browse_pay_rate',
+                'storage_field' => 'raw_data.browse_pay_rate',
+                'source_keys' => ['browse_to_pay_rate', 'browsePayRate', 'browse_pay_rate', 'payOrderPerIntention', 'visitOrderRate', 'conversion_rate', 'conversionRate', 'orderConversionRate'],
             ],
             [
                 'metric_key' => 'order_filling_num',

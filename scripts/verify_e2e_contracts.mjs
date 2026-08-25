@@ -712,7 +712,7 @@ requireText('public/index.html', 'const withBusinessRequestContext = (url, optio
 requireText('public/index.html', 'data-testid="platform-collection-type-breakdown"', 'platform source page exposes data-type collection status breakdown');
 requireText('public/index.html', 'const platformCollectionTypeRows = computed(() => {', 'platform collection type rows are derived from resource and review-policy state');
 requireText('public/index.html', 'schedulePlatformCollectionStatusRefresh();', 'post-fetch actions refresh the unified platform collection status');
-requireText('public/index.html', "review_collection_policy: 'explicit_review_match_only'", 'Ctrip review order automation explicitly scopes review reads to the match action');
+requireText('public/review-match-static.js', "review_collection_policy: 'explicit_review_match_only'", 'Ctrip review order deferred controller explicitly scopes review reads to the match action');
 requireText('app/controller/concern/CtripReviewOrderMatchConcern.php', 'ctrip_comment_browser_capture.mjs', 'Ctrip review order automation can run dedicated authorized review capture');
 requireText('app/controller/concern/CtripReviewOrderMatchConcern.php', 'explicit_review_match_authorized_profile_or_existing_cache', 'Ctrip review order automation reports the explicit review-match collection policy');
 requireText('public/index.html', '携程点评-订单匹配台', 'Ctrip review order main UI exposes the matching workbench');
@@ -745,7 +745,7 @@ requireText('scripts/verify_ctrip_review_match_closure.php', "'accepted_match_st
 requireText('scripts/verify_ctrip_review_match_closure.php', "'next_commands' => $ready ? [] : ctrip_review_match_closure_next_commands($systemHotelId)", 'Ctrip review order closure verifier returns executable next commands when real data is missing');
 requireText('scripts/verify_ctrip_review_match_closure.php', 'npm.cmd run import:ctrip-review-match-payload:preflight', 'Ctrip review order closure verifier points to authorized payload preflight');
 requireText('scripts/verify_ctrip_review_match_closure.php', 'npm.cmd run verify:ctrip-review-match -- --system-hotel-id=', 'Ctrip review order closure verifier points back to the real-data verifier');
-requireText('public/index.html', 'const copyCtripReviewMatchCliCommand =', 'Ctrip review order keeps bounded CLI helper off the main surface');
+requireText('public/review-match-static.js', 'const copyCtripReviewMatchCliCommand =', 'Ctrip review order keeps bounded CLI helper in the deferred controller');
 requireText('route/app.php', "Route::post('/ctrip-review-matches/closure'", 'Ctrip review order route exposes the read-only closure check');
 requireText('app/controller/concern/CtripReviewOrderMatchConcern.php', 'public function checkCtripReviewOrderMatchClosure()', 'Ctrip review order API exposes the read-only closure check action');
 requireText('app/controller/concern/CtripReviewOrderMatchConcern.php', "'policy' => 'real_data_closure_check_only'", 'Ctrip review order closure check is explicitly read-only');
@@ -755,7 +755,7 @@ requireText('route/app.php', "Route::post('/ctrip-review-matches/identity-previe
 requireText('app/controller/concern/CtripReviewOrderMatchConcern.php', 'public function previewCtripReviewOrdererIdentity()', 'Ctrip review order API exposes read-only page identity preview');
 requireText('app/controller/concern/CtripReviewOrderMatchConcern.php', "'policy' => 'authorized_page_identity_preview_only'", 'Ctrip review order page preview is explicitly read-only');
 requireText('public/index.html', '@click="copyCtripReviewMatchPayloadTemplate"', 'Ctrip review order UI exposes a bounded payload-template copy action');
-requireText('public/index.html', '姓名、UID、头像和 IM members 不会入库。', 'Ctrip review order UI explains the identity-storage boundary');
+requireText('public/review-match-static.js', '姓名、UID、头像和 IM members 不会入库。', 'Ctrip review order deferred controller explains the identity-storage boundary');
 requireNoText('public/index.html', 'buildCtripReviewOrdererAssistScript', 'Ctrip review order UI must not build a token-bearing page assist script');
 requireNoText('public/index.html', 'token: authToken', 'Ctrip review order UI must not copy the main login token into OTA page config');
 requireNoText('public/index.html', "Authorization: String(config.token || '')", 'Ctrip review order UI must not generate an Authorization header from copied page config');
@@ -784,11 +784,11 @@ requireText('app/controller/concern/CtripReviewOrderMatchConcern.php', "$data['d
 requireText('app/controller/concern/CtripReviewOrderMatchConcern.php', "'transaction' => $dryRun ? 'rolled_back' : 'not_wrapped'", 'Ctrip review order dry-run response proves rollback');
 requireText('app/controller/concern/CtripReviewOrderMatchConcern.php', "'payload_preflight' => $payloadPreflight", 'Ctrip review order API returns authorized payload preflight evidence');
 requireText('scripts/import_ctrip_review_match_payload.php', "'payload_preflight' => is_array($payloadPreflight) ? $payloadPreflight : []", 'Ctrip review order CLI returns authorized payload preflight evidence');
-requireText('public/index.html', 'const runCtripReviewMatchPreflight = () =>', 'Ctrip review order keeps page preflight helper available');
-requireText('public/index.html', 'payload.preflight_only = true;', 'Ctrip review order page preflight action does not call import mode');
+requireText('public/review-match-static.js', 'runCtripReviewMatchPreflight: actionController.preflight', 'Ctrip review order keeps deferred preflight helper available');
+requireText('public/review-match-static.js', 'payload.preflight_only = true;', 'Ctrip review order deferred controller keeps preflight read-only');
 requireNoText('public/index.html', '@click="runCtripReviewMatchPreflight"', 'Ctrip review order main UI does not expose preflight-only action');
-requireText('public/index.html', 'const runCtripReviewMatchDryRun = () =>', 'Ctrip review order keeps dry-run helper available');
-requireText('public/index.html', 'payload.dry_run = true;', 'Ctrip review order page dry-run action requests rollback mode');
+requireText('public/review-match-static.js', 'runCtripReviewMatchDryRun: actionController.dryRun', 'Ctrip review order keeps deferred dry-run helper available');
+requireText('public/review-match-static.js', 'payload.dry_run = true;', 'Ctrip review order deferred controller requests rollback mode');
 requireNoText('public/index.html', '@click="runCtripReviewMatchDryRun"', 'Ctrip review order main UI does not expose dry-run action');
 requireNoText('public/index.html', "写入 {{ ctripReviewMatchResult.data.source_status.storage_write === false ? '否' : '是' }}", 'Ctrip review order main UI hides storage-write mechanics');
 requireNoText('public/index.html', '授权 payload 预检：{{ ctripReviewMatchResult.data.payload_preflight.status', 'Ctrip review order main UI hides payload preflight mechanics');
@@ -938,7 +938,8 @@ requireText('public/index.html', 'const HOME_SECONDARY_PANEL_DELAY_MS = 4200;', 
 requireText('public/index.html', 'const homeSecondaryPanelsReady = ref(false);', 'home lower panel rendering is gated behind an explicit readiness flag');
 requireText('public/index.html', 'const scheduleHomeSecondaryPanelsReady = (delayMs = HOME_SECONDARY_PANEL_DELAY_MS) => {', 'home lower panel readiness is scheduled and cancellable');
 requireText('public/index.html', 'clearHomeSecondaryPanelsReadyTimer();\n                    clearDualOtaSystemMetricDrilldownHydrationTimer();\n                    homeSecondaryPanelsReady.value = false;\n                    destroyHomeTrendChart();', 'leaving the home page cancels delayed lower-panel rendering');
-requireText('public/index.html', "homeSecondaryPanelsReady.value = false;\n                    scheduleHomeSecondaryPanelsReady();\n                    scheduleDualOtaWorkbenchAutoFetch();", 'entering the workbench delays lower-panel rendering and schedules bounded OTA refreshes');
+requireText('public/index.html', "homeSecondaryPanelsReady.value = false;\n                    scheduleHomeSecondaryPanelsReady();\n                    scheduleDualOtaSystemMetricDrilldownHydration();", 'entering the workbench delays lower-panel rendering without triggering OTA collection');
+requireNoText('public/index.html', 'scheduleDualOtaWorkbenchAutoFetch', 'passive dashboard entry never schedules an OTA collection task');
 requireNoText('public/index.html', "runPageLoadOnce(newPage, 'auto-fetch-static', () => ensureAutoFetchStaticReady())", 'home page first paint must not prewarm auto-fetch-static.js');
 requireNoText('public/index.html', "runPageLoadOnce('compass', 'auto-fetch-static', () => ensureAutoFetchStaticReady(), runOptions)", 'initial compass reload must not prewarm auto-fetch-static.js');
 requireText('public/index.html', '<div v-if="homeSecondaryPanelsReady" class="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm mb-6" data-testid="daily-ops-monitor-card">', 'home daily ops panel is not mounted during the immediate OTA navigation window');
@@ -947,19 +948,6 @@ requireText('public/index.html', '<div v-if="homeSecondaryPanelsReady" class="ov
 requireText('public/index.html', '<div v-if="homeSecondaryPanelsReady && homeTrendCards.length"', 'home trend cards are not mounted during the immediate OTA navigation window');
 requireText('public/index.html', 'homeSecondaryPanelsReady, homeClosedLoopStages', 'home lower-panel readiness flag is returned for template gating');
 requireText('public/index.html', 'const AUTHENTICATED_SECONDARY_REQUEST_DELAY_MS = 4600;', 'authenticated secondary API requests stay outside the first measured interaction window');
-{
-  const source = read('public/index.html');
-  const baselineMatch = source.match(/const AUTHENTICATED_SECONDARY_REQUEST_DELAY_MS = (\d+);/);
-  const dualOtaDelayMatch = source.match(/const scheduleDualOtaWorkbenchAutoFetch = \(delayMs = (\d+)\) => \{/);
-  checks.push({
-    file: 'public/index.html',
-    label: 'startup dual OTA refresh waits until after the first measured interaction window',
-    ok: baselineMatch !== null
-      && dualOtaDelayMatch !== null
-      && Number(dualOtaDelayMatch[1]) >= Number(baselineMatch[1]),
-    detail: 'scheduleDualOtaWorkbenchAutoFetch default delay >= AUTHENTICATED_SECONDARY_REQUEST_DELAY_MS',
-  });
-}
 requireText('public/index.html', 'const scheduleInitialBackendNotificationRefresh = (delayMs = AUTHENTICATED_SECONDARY_REQUEST_DELAY_MS) => {', 'startup backend notifications wait until after the first measured interaction window');
 requireText('public/index.html', 'if (!token.value) return;\n                    refreshGlobalNotifications({ silent: true, backendOnly: true, startupDedupe: true });', 'startup strong-reminder refresh runs once per authenticated startup session');
 requireText('public/index.html', 'if (isLoggedIn.value && token.value && !isCoreOtaPageVisible()) {', 'notification polling is paused while core OTA pages are visible');

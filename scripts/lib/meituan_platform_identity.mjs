@@ -108,6 +108,8 @@ export function evaluateMeituanPlatformIdentity(expectedIdentifiers, observedIde
     matched_identifier_count: matched.length,
     mismatched_identifier_count: mismatched.length,
     validated_identifier: status === 'matched' ? matched[0] : '',
+    // This contract contains only normalized identifiers and aggregate
+    // counts; no request headers, cookies, tokens, or raw response values.
     sensitive_values_exposed: false,
   };
 }

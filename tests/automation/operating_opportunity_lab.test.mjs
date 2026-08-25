@@ -349,3 +349,63 @@ test('frontend independently reads back the same pending intent and keeps manual
   assert.equal(context.overview.approval_links['91'].fact_status, 'manual_unverified');
   assert.equal(context.overview.approval_links['91'].task_count, 0);
 });
+
+test('frontend submits the exact calculator contracts instead of display-only aliases', () => {
+  const context = loadComponent();
+
+  const promise = context.forms.service_promise_risk;
+  Object.assign(promise, {
+    benefit_type: '早餐', promised_quantity: 9, fulfillable_capacity: 6,
+    breach_cost_per_unit: 30, source_quality: 'verified', source_reference: 'receipt#promise',
+  });
+  const promisePayload = context.buildPayload('service_promise_risk');
+  assert.equal(promisePayload.promised_quantity, 9);
+  assert.equal(promisePayload.fulfillable_capacity, 6);
+  assert.equal(promisePayload.source_references[0], 'receipt#promise');
+
+  const promotion = context.forms.promotion_incrementality;
+  Object.assign(promotion, {
+    promotion_name: '连住优惠', treated_before: 20, treated_after: 32,
+    control_before: 18, control_after: 20, discount_cost: 200,
+    contribution_per_room_night: 80, design_quality: 'validated_matched',
+    pretrend_status: 'passed', sample_size: 60, source_quality: 'verified',
+  });
+  const promotionPayload = context.buildPayload('promotion_incrementality');
+  assert.equal(promotionPayload.promotion_name, '连住优惠');
+  assert.equal(promotionPayload.contribution_per_incremental_room_night, 80);
+  assert.ok(!Object.hasOwn(promotionPayload, 'campaign_name'));
+
+  const bookability = context.forms.bookability_gap;
+  Object.assign(bookability, {
+    pms_expected_sellable: 6, adults: 2, children: 1, benefits: '含早、可取消',
+    search_status: 'bookable', detail_status: 'bookable', pre_checkout_status: 'unavailable',
+    real_demand_estimate: 4, source_quality: 'verified', source_reference: 'journey#1',
+  });
+  const bookabilityPayload = context.buildPayload('bookability_gap');
+  assert.equal(bookabilityPayload.pms_expected_sellable, 6);
+  assert.equal(bookabilityPayload.real_demand_estimate, 4);
+  assert.equal(bookabilityPayload.observations.length, 1);
+  assert.deepEqual(bookabilityPayload.observations[0].benefits, ['含早', '可取消']);
+  assert.equal(bookabilityPayload.observations[0].pre_checkout, 'unavailable');
+  assert.match(bookabilityPayload.observations[0].observed_at, /T\d{2}:\d{2}:\d{2}$/);
+
+  const ai = context.forms.ai_guest_acquisition;
+  Object.assign(ai, {
+    intent: '凌晨到店且有停车位的酒店', source_quality: 'manual_verified',
+    source_reference: 'ai-observation-packet#1-3',
+  });
+  ai.repeats.forEach((row, index) => Object.assign(row, {
+    observed_at: `2026-08-22T09:0${index + 1}`,
+    evidence_ref: `ai-observation#${index + 1}`,
+  }));
+  Object.assign(ai.repeats[0], { hotel_identified: true, facts_checked: true, facts_correct: true });
+  const aiPayload = context.buildPayload('ai_guest_acquisition');
+  assert.equal(aiPayload.observations.length, 3);
+  assert.equal(typeof aiPayload.observations[0].facts_checked, 'boolean');
+  assert.equal(typeof aiPayload.observations[0].facts_correct, 'boolean');
+  assert.equal(aiPayload.observations[0].observed_at, '2026-08-22T09:01:00');
+  assert.deepEqual(aiPayload.observations.map(row => row.evidence_ref), [
+    'ai-observation#1', 'ai-observation#2', 'ai-observation#3',
+  ]);
+  assert.equal(new Set(aiPayload.observations.map(row => row.observed_at)).size, 3);
+});

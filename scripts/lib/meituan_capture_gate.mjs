@@ -213,6 +213,7 @@ export function applyMeituanTrafficSelectionDateEvidence(data, targetDate) {
         ...(rowDate && refreshTimestampSource ? { data_updated_at: rowDate } : {}),
         ...(Object.prototype.hasOwnProperty.call(row, 'data_date') ? { data_date: normalizedTargetDate } : {}),
         dataDate: normalizedTargetDate,
+        data_period: relativeRange === '\u6628\u65e5' ? 'historical_daily' : 'realtime_snapshot',
         date_source: 'page.traffic_period_selection.readback',
         date_scope_evidence: expectedMarker,
       };
@@ -299,6 +300,7 @@ export function applyMeituanBusinessSelectionDateEvidence(data, targetDate) {
       ...(rowDate ? { data_updated_at: rowDate } : {}),
       ...(Object.prototype.hasOwnProperty.call(row, 'data_date') ? { data_date: normalizedTargetDate } : {}),
       dataDate: normalizedTargetDate,
+      data_period: relativeRange === '\u6628\u65e5' ? 'historical_daily' : 'realtime_snapshot',
       date_source: 'page.business_period_selection.readback',
       date_scope_evidence: expectedMarker,
     };

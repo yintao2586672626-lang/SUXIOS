@@ -628,4 +628,65 @@ final class LocalSecondBrainContractServiceTest extends TestCase
         ]);
     }
 
+
+    public function testWecomConfirmedDeliveryCannotBeDowngraded(): void
+    {
+        $service = new WecomAibotService();
+        $bindingId = $this->insertWecomBinding();
+        $eventId = $this->insertWecomEvent($service, $bindingId);
+
+        $sent = $service->recordDelivery($eventId, 'sent', 'wecom_aibot:errcode=0');
+        self::assertSame('sent', $sent['delivery_status']);
+        self::assertSame('wecom_aibot:errcode=0', $sent['delivery_reference']);
+        self::assertSame('readback_verified', $sent['persistence_status']);
+        $sentDigest = (string)$sent['content_digest'];
+
+        try {
+            $service->recordDelivery($eventId, 'failed', 'wecom_aibot:reply_failed');
+            self::fail('A confirmed WeCom delivery must not be downgraded to failed.');
+        } catch (RuntimeException $exception) {
+            self::assertSame(409, $exception->getCode());
+            self::assertStringContainsString('不能降级', $exception->getMessage());
+        }
+
+        $row = Db::name('wecom_inbound_events')->where('id', $eventId)->find();
+        self::assertIsArray($row);
+        self::assertSame('sent', $row['delivery_status']);
+        self::assertSame('wecom_aibot:errcode=0', $row['delivery_reference']);
+        self::assertSame($sentDigest, $row['content_digest']);
+
+        $idempotent = $service->recordDelivery($eventId, 'sent', 'wecom_aibot:errcode=0');
+        self::assertSame($sentDigest, $idempotent['content_digest']);
+    }
+
+    public function testWecomDisableBindingReleasesConversationAndRetainsEvents(): void
+    {
+        $service = new WecomAibotService();
+        $bindingId = $this->insertWecomBinding();
+        $this->insertWecomEvent($service, $bindingId);
+        $originalHash = (string)Db::name('wecom_inbound_bindings')
+            ->where('id', $bindingId)
+            ->value('conversation_id_hash');
+
+        $disabled = $service->disableBinding($bindingId, 10, [20]);
+        self::assertSame('disabled', $disabled['status']);
+        self::assertFalse($disabled['reply_enabled']);
+        self::assertTrue($disabled['conversation_reference_released']);
+        self::assertTrue($disabled['historical_events_retained']);
+        self::assertSame('readback_verified', $disabled['persistence_status']);
+
+        $row = Db::name('wecom_inbound_bindings')->where('id', $bindingId)->find();
+        self::assertIsArray($row);
+        self::assertSame('disabled', $row['status']);
+        self::assertSame(0, (int)$row['reply_enabled']);
+        self::assertNotSame($originalHash, $row['conversation_id_hash']);
+        self::assertMatchesRegularExpression('/^[a-f0-9]{64}$/D', (string)$row['conversation_id_hash']);
+        self::assertSame(1, (int)Db::name('wecom_inbound_events')->where('binding_id', $bindingId)->count());
+
+        $replayed = $service->disableBinding($bindingId, 10, [20]);
+        self::assertSame('disabled', $replayed['status']);
+        self::assertSame($row['conversation_id_hash'], Db::name('wecom_inbound_bindings')
+            ->where('id', $bindingId)
+            ->value('conversation_id_hash'));
+    }
 }

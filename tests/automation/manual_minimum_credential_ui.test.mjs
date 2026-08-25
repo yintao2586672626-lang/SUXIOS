@@ -751,7 +751,7 @@ test('Meituan ranking uses selected hotel config without exposing temporary fiel
   const fetchMeituanData = sliceFrom('const fetchMeituanData = async (options = {}) => {', 'const useCtripTrafficDisplayRows');
   const meituanFetchFlow = meituanStatic.slice(
     meituanStatic.indexOf('const runMeituanBatchFetchFlow = async ({'),
-    meituanStatic.indexOf('const useMeituanDisplayModel')
+    meituanStatic.indexOf('const buildMeituanRankDisplayRows')
   );
   const meituanBatchValidation = meituanStatic.slice(
     meituanStatic.indexOf('const validateMeituanBatchFetchInput = ({'),
@@ -4265,7 +4265,10 @@ test('Meituan hotel matching does not wait for all-store competitor summaries', 
   assert.doesNotMatch(resolveMeituanManualDefaultHotelId, /onlineDataFilter\.value\.hotel_id/);
   assert.doesNotMatch(resolveMeituanManualDefaultHotelId, /filterReportHotel\.value/);
   assert.match(resolveMeituanManualDefaultHotelId, /userHotelId: user\.value\?\.hotel_id/);
-  assert.match(resolveMeituanManualDefaultHotelId, /hotelPool: meituanTargetHotelOptions\.value/);
+  assert.match(resolveMeituanManualDefaultHotelId, /hotelPool: onlineDataTab\.value === 'meituan-review-match'/);
+  assert.match(resolveMeituanManualDefaultHotelId, /\? meituanReviewMatchHotelOptions\.value/);
+  assert.match(resolveMeituanManualDefaultHotelId, /: meituanTargetHotelOptions\.value/);
+  assert.doesNotMatch(resolveMeituanManualDefaultHotelId, /loadCompetitorSummary/);
   assert.match(ensureMeituanManualHotelSelected, /suppressNextMeituanHotelConfigApply = true;/);
   assert.match(ensureMeituanManualHotelSelected, /meituanForm\.value\.hotelId = hotelId;/);
   assert.match(scheduleMeituanEbookingDeferredStartupRefresh, /applySelectedConfig: false/);

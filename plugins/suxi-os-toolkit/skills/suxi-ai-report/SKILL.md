@@ -17,6 +17,16 @@ When the requested report artifact matches an installed plugin, use `suxi-plugin
 4. Preserve current report fields and export behavior.
 5. When adding report fields, verify generation, display, export, edit, and old-data fallback.
 
+## Governed Presentation Delivery
+
+For AI daily-report presentation, HTML/PPTX, deck, or slide delivery, read
+`references/governed-presentation-delivery.md`. Start from an already saved
+report, persist and read back one SUXIOS-native PresentationSpec, and make every
+renderer consume that exact fingerprint without recalculation. A valid spec is
+not proof that either output was rendered or reviewed. Keep publishing,
+external sends, and OTA/PMS writes pending until the user explicitly triggers
+the authorized action.
+
 ## Report Style
 
 - Professional, restrained, decision-oriented.

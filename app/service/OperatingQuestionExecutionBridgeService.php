@@ -54,14 +54,6 @@ final class OperatingQuestionExecutionBridgeService
         $question = $this->questionService->read($questionId, $tenantId, $hotelIds);
         $action = $this->eligibleAction($question, $actionIndex);
         $hotelId = (int)$question['hotel_id'];
-        $idempotencyKey = $this->idempotencyKey($question, $action, $actionIndex);
-        $existing = $this->operationService->readExecutionIntentByIdempotencyKey(
-            $idempotencyKey,
-            $hotelIds
-        );
-        if (is_array($existing) && (string)($existing['status'] ?? '') !== 'pending_approval') {
-            throw new InvalidArgumentException('该经营问答行动草案已经结束审批；请重新提问并生成新的待审批草案');
-        }
         $evidenceRefs = array_values(array_unique([
             'hotel_operating_questions#' . $questionId,
             ...(array)$action['evidence_refs'],
@@ -74,6 +66,16 @@ final class OperatingQuestionExecutionBridgeService
             $lifecycle->buildPendingCard($question, $action, max(1, $userId)),
             $actionIndex
         );
+        [$existing, $idempotencyKey] = $this->findExistingIntent(
+            $question,
+            $action,
+            $actionIndex,
+            $hotelIds,
+            $actionCard
+        );
+        if (is_array($existing) && (string)($existing['status'] ?? '') !== 'pending_approval') {
+            throw new InvalidArgumentException('该经营问答行动草案已经结束审批；请重新提问并生成新的待审批草案');
+        }
         $metricBaseline = $this->metricBaseline($question, $action);
         $baselineValue = $actionCard['metric_contract']['baseline_window']['value'];
         $workflowSchedule = [
@@ -83,7 +85,7 @@ final class OperatingQuestionExecutionBridgeService
             'source_policy' => 'human_assigned_schedule_requires_manual_approval_and_readback_review',
         ];
 
-        $intent = $this->operationService->createExecutionIntent(
+        $intent = $existing ?? $this->operationService->createExecutionIntent(
             $hotelIds,
             $hotelId,
             [
@@ -162,7 +164,7 @@ final class OperatingQuestionExecutionBridgeService
             $idempotencyKey,
             true
         );
-        $this->assertIntentReadback($intent, $question, $action, $actionIndex);
+        $this->assertIntentReadback($intent, $question, $action, $actionIndex, $actionCard);
         if ((string)($intent['status'] ?? '') !== 'pending_approval') {
             throw new InvalidArgumentException('经营问答桥接只能返回待人工审批的行动草案');
         }
@@ -225,9 +227,21 @@ final class OperatingQuestionExecutionBridgeService
                 continue;
             }
             try {
-                $intent = $this->operationService->readExecutionIntentByIdempotencyKey(
-                    $this->idempotencyKey($question, $action, $actionIndex),
-                    $hotelIds
+                $lifecycle = new OperationActionLifecycleService();
+                $expectedCard = $lifecycle->withActionIndex(
+                    $lifecycle->buildPendingCard(
+                        $question,
+                        $action,
+                        max(1, (int)($question['created_by'] ?? 1))
+                    ),
+                    $actionIndex
+                );
+                [$intent] = $this->findExistingIntent(
+                    $question,
+                    $action,
+                    $actionIndex,
+                    $hotelIds,
+                    $expectedCard
                 );
             } catch (\Throwable) {
                 return [
@@ -240,7 +254,7 @@ final class OperatingQuestionExecutionBridgeService
                 continue;
             }
             try {
-                $this->assertIntentReadback($intent, $question, $action, $actionIndex);
+                $this->assertIntentReadback($intent, $question, $action, $actionIndex, $expectedCard);
             } catch (\Throwable) {
                 $dataGaps[] = [
                     'code' => 'operation_execution_intent_identity_mismatch',
@@ -395,7 +409,8 @@ final class OperatingQuestionExecutionBridgeService
         array $intent,
         array $question,
         array $action,
-        int $actionIndex
+        int $actionIndex,
+        array $expectedCard = []
     ): void {
         $evidence = is_array($intent['evidence'] ?? null) ? $intent['evidence'] : [];
         $embedded = is_array($evidence['decision_recommendation'] ?? null)
@@ -405,6 +420,28 @@ final class OperatingQuestionExecutionBridgeService
         $targetCard = is_array($target['action_card'] ?? null) ? $target['action_card'] : [];
         $evidenceCard = is_array($evidence['action_card'] ?? null) ? $evidence['action_card'] : [];
         $status = (string)($intent['status'] ?? '');
+        if ((string)($intent['source_module'] ?? '') !== self::SOURCE_MODULE) {
+            $storedCard = $targetCard !== [] ? $targetCard : $evidenceCard;
+            if ($expectedCard === []
+                || $storedCard === []
+                || (int)($intent['id'] ?? 0) <= 0
+                || (int)($intent['hotel_id'] ?? 0) !== (int)$question['hotel_id']
+                || (int)($intent['tenant_id'] ?? 0) !== (int)$question['tenant_id']
+                || (string)($intent['platform'] ?? '') !== (string)$question['platform']
+                || (string)($intent['date_start'] ?? '') !== (string)$question['date_start']
+                || (string)($intent['date_end'] ?? '') !== (string)$question['date_end']
+                || !in_array($status, ['pending_approval', 'approved', 'rejected', 'cancelled'], true)
+                || trim((string)($intent['blocked_reason'] ?? '')) !== ''
+                || (string)($intent['expected_metric'] ?? '') !== (string)$action['expected_metric']
+            ) {
+                throw new RuntimeException('跨入口运营行动生命周期回读无效');
+            }
+            (new OperationActionLifecycleService())->assertEquivalentActionIdentity(
+                $expectedCard,
+                $storedCard
+            );
+            return;
+        }
         if ((int)($intent['id'] ?? 0) <= 0
             || (string)($intent['source_module'] ?? '') !== self::SOURCE_MODULE
             || (int)($intent['source_record_id'] ?? 0) !== (int)$question['id']
@@ -925,6 +962,40 @@ final class OperatingQuestionExecutionBridgeService
             'date_end' => (string)$question['date_end'],
             'source_scope' => 'ota_channel',
         ];
+    }
+
+    /**
+     * Resolve the unified lifecycle identity first, while retaining the legacy
+     * operating-question key for existing readbacks.
+     *
+     * @param array<string,mixed> $question
+     * @param array<string,mixed> $action
+     * @param list<int> $hotelIds
+     * @param array<string,mixed> $actionCard
+     * @return array{0:?array<string,mixed>,1:string}
+     */
+    private function findExistingIntent(
+        array $question,
+        array $action,
+        int $actionIndex,
+        array $hotelIds,
+        array $actionCard
+    ): array {
+        $lifecycle = new OperationActionLifecycleService();
+        $currentKey = 'operation_action_' . substr($lifecycle->actionIdentityDigest($actionCard), 0, 32);
+        $equivalentId = $lifecycle->findEquivalentIntentId($actionCard);
+        if ($equivalentId !== null) {
+            return [$this->operationService->readExecutionIntent($equivalentId, $hotelIds), $currentKey];
+        }
+
+        $intent = $this->operationService->readExecutionIntentByIdempotencyKey($currentKey, $hotelIds);
+        if (is_array($intent)) {
+            return [$intent, $currentKey];
+        }
+
+        $legacyKey = $this->idempotencyKey($question, $action, $actionIndex);
+        $intent = $this->operationService->readExecutionIntentByIdempotencyKey($legacyKey, $hotelIds);
+        return [is_array($intent) ? $intent : null, is_array($intent) ? $legacyKey : $currentKey];
     }
 
     /** @param array<string,mixed> $question @param array<string,mixed> $action */

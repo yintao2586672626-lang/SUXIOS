@@ -2624,4 +2624,69 @@ final class OperatingIntelligenceServiceTest extends TestCase
         }
         return $ids;
     }
+
+    public function testOperatingQuestionAcceptsPinnedLocalSecondBrainWithoutReportingExternalCall(): void
+    {
+        $fakeClient = new class extends LlmClient {
+            public function createJsonResponseEnvelope(
+                array $messages,
+                array $schema,
+                string $modelKey = 'deepseek_v4_default'
+            ): array {
+                return [
+                    'data' => [
+                        'answer_summary' => '本机第二大脑仅根据已回读的携程曝光事实给出只读判断。',
+                        'key_points' => ['当前事实只覆盖携程渠道。'],
+                        'missing_information' => [],
+                        'follow_up_questions' => [],
+                        'confidence' => 'medium',
+                        'used_evidence_refs' => ['online_daily_data#9201'],
+                        'action_drafts' => [],
+                    ],
+                    'meta' => [
+                        'provider' => 'ollama',
+                        'model_key' => 'local_second_brain',
+                        'model' => 'qwen3:8b',
+                        'finish_reason' => 'stop',
+                        'fallback_used' => false,
+                        'cache_hit' => false,
+                        'degraded' => false,
+                    ],
+                ];
+            }
+        };
+
+        $result = (new OperatingQuestionAiAnswerService($fakeClient))->generate([
+            'question' => '携程曝光如何？',
+            'scope' => [
+                'tenant_id' => 10,
+                'hotel_id' => 20,
+                'platform' => 'ctrip',
+                'date_start' => '2026-08-10',
+                'date_end' => '2026-08-10',
+            ],
+            'answer' => [
+                'status' => 'evidence_ready',
+                'summary' => '严格证据摘要',
+                'evidence_counts' => ['facts' => 1],
+                'fact_samples' => [[
+                    'ref' => 'online_daily_data#9201',
+                    'data_date' => '2026-08-10',
+                    'platform' => 'ctrip',
+                    'metric_values' => ['list_exposure' => 100],
+                    'metric_units' => ['list_exposure' => 'exposure_count'],
+                ]],
+            ],
+            'evidence' => [],
+            'model_key' => 'local_second_brain',
+            'user_id' => 7,
+        ]);
+
+        self::assertTrue($result['ok']);
+        self::assertSame('ready', $result['status']);
+        self::assertSame('ollama', $result['provider']);
+        self::assertSame('qwen3:8b', $result['model']);
+        self::assertFalse($result['external_llm_called']);
+        self::assertSame('confirmed_local_success', $result['external_llm_call_status']);
+    }
 }

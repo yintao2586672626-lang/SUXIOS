@@ -31,6 +31,13 @@ test('CDP attach requires a guarded page and its facade closes the owning browse
       throw new Error('guarded page must be reused');
     },
   };
+  assert.throws(() => resolveOtaCdpUrl({ cdpUrl: 'http://localhost:9223' }), /ota_browser_cdp_url_invalid/);
+  assert.throws(() => resolveOtaCdpUrl({ cdpUrl: 'http://127.0.0.1:65536' }), /ota_browser_cdp_url_invalid/);
+  assert.throws(() => resolveOtaCdpUrl({ cdpUrl: 'http://user:secret@127.0.0.1:9223' }), /ota_browser_cdp_url_invalid/);
+});
+
+test('CDP attach returns the unique context and its close shuts down the owning browser', async () => {
+  const context = { pages: () => [] };
   let closeCount = 0;
   const browser = {
     contexts: () => [context],
@@ -47,6 +54,7 @@ test('CDP attach requires a guarded page and its facade closes the owning browse
 
   const attached = await connectOtaCdpContext('http://127.0.0.1:9223', chromiumClient);
   assert.equal(await attached.newPage(), guardedPage);
+  assert.equal(attached, context);
   await attached.close();
   await attached.close();
   assert.equal(closeCount, 1);

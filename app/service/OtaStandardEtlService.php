@@ -1544,7 +1544,54 @@ class OtaStandardEtlService
     {
         $listExposure = $this->nullableNumber($row, $raw, ['list_exposure', 'listExposure', 'exposure_count', 'exposureCount']);
         $detailExposure = $this->nullableNumber($row, $raw, ['detail_exposure', 'detailExposure', 'page_views', 'pageViews']);
-        $flowRate = $this->nullableNumber($row, $raw, ['flow_rate', 'flowRate', 'conversion_rate', 'conversionRate']);
+        $storedFlowRate = $this->nullablePercent($row, $raw, ['flow_rate', 'flowRate', 'conversion_rate', 'conversionRate']);
+        $flowRate = $storedFlowRate;
+        $flowRateBasis = $flowRate !== null ? 'stored_flow_rate' : 'missing';
+        $flowRateValidationStatus = $flowRate !== null ? 'strict_readback' : 'missing';
+        $flowRateQualityFlags = [];
+        if ($source === 'meituan') {
+            $detail = $this->rawDetail($raw);
+            $platformExposureToBrowseRate = $this->nullablePercent([], $detail, [
+                'exposure_to_browse_rate',
+                'exposureToBrowseRate',
+                'intentionPerExposure',
+                'expose_visit_rate',
+                'exposeVisitRate',
+            ]);
+            $calculatedExposureToBrowseRate = $listExposure !== null
+                && $listExposure > 0
+                && $detailExposure !== null
+                && $detailExposure >= 0
+                ? round($detailExposure / $listExposure * 100, 2)
+                : null;
+
+            if ($calculatedExposureToBrowseRate !== null) {
+                $flowRate = $calculatedExposureToBrowseRate;
+                $flowRateBasis = 'calculated_detail_exposure_over_list_exposure';
+                $flowRateValidationStatus = 'verified_calculation';
+                if ($platformExposureToBrowseRate !== null
+                    && abs($platformExposureToBrowseRate - $calculatedExposureToBrowseRate) > 0.05
+                ) {
+                    $flowRate = null;
+                    $flowRateBasis = 'caliber_uncertain';
+                    $flowRateValidationStatus = 'caliber_uncertain';
+                    $flowRateQualityFlags[] = 'platform_exposure_to_browse_rate_mismatch';
+                } elseif ($platformExposureToBrowseRate !== null) {
+                    $flowRateQualityFlags[] = 'verified_against_platform_exposure_to_browse_rate';
+                }
+            } elseif ($platformExposureToBrowseRate !== null) {
+                $flowRate = $platformExposureToBrowseRate;
+                $flowRateBasis = 'platform_exposure_to_browse_rate';
+                $flowRateValidationStatus = 'strict_readback';
+            }
+
+            if ($storedFlowRate !== null
+                && $flowRate !== null
+                && abs($storedFlowRate - $flowRate) > 0.05
+            ) {
+                $flowRateQualityFlags[] = 'legacy_stored_flow_rate_semantic_mismatch';
+            }
+        }
         $orderFilling = $this->nullableNumber($row, $raw, ['order_filling_num', 'orderFillingNum', 'click_count', 'clickCount']);
         $orderSubmit = $this->nullableNumber($row, $raw, ['order_submit_num', 'orderSubmitNum', 'submit_users', 'submitUsers']);
 
@@ -1556,6 +1603,10 @@ class OtaStandardEtlService
             'list_exposure' => $listExposure !== null ? (int)round($listExposure) : null,
             'detail_exposure' => $detailExposure !== null ? (int)round($detailExposure) : null,
             'flow_rate' => $flowRate !== null ? round($flowRate, 2) : null,
+            'stored_flow_rate' => $storedFlowRate !== null ? round($storedFlowRate, 2) : null,
+            'flow_rate_basis' => $flowRateBasis,
+            'flow_rate_validation_status' => $flowRateValidationStatus,
+            'flow_rate_quality_flags' => array_values(array_unique($flowRateQualityFlags)),
             'order_filling_num' => $orderFilling !== null ? (int)round($orderFilling) : null,
             'order_submit_num' => $orderSubmit !== null ? (int)round($orderSubmit) : null,
             'submit_rate' => $orderFilling !== null && $orderFilling > 0 && $orderSubmit !== null

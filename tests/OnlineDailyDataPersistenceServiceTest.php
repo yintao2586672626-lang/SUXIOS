@@ -430,6 +430,7 @@ final class OnlineDailyDataPersistenceServiceTest extends TestCase
         );
         self::assertStringContainsString(
             ': $this->syncBrowserProfileSource(',
+            '$result = $this->syncBrowserProfileSource(',
             $scheduled
         );
         self::assertStringContainsString(

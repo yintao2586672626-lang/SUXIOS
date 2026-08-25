@@ -13,6 +13,7 @@ const ctripCapture = read('scripts/ctrip_browser_capture.mjs');
 
 test('cloud OTA runner binds one source/Profile/date and persists only after current capture proof', () => {
   assert.match(runner, /validateOtaDataSourceCollectionProfile/);
+  assert.match(runner, /validateOtaCollectionProfile/);
   assert.match(runner, /set_exception_handler/);
   assert.match(runner, /'collection_kind'\s*=>\s*'ota_channel_profile'/);
   assert.match(runner, /'data_source_id'\s*=>\s*\$sourceId/);

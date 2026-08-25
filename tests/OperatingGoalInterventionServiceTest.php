@@ -395,6 +395,7 @@ SQL);
             self::assertSame('occupancy_rate', $assessment['guard_observations'][0]['metric_key']);
             self::assertSame('unverified', $assessment['guard_observations'][0]['quality_status']);
             self::assertSame('unverified', $assessment['guard_observations'][0]['readback_status']);
+            self::assertSame('occupancy_rate', $assessment['guard_observations'][0]['metric_key']);
             self::assertSame('fixture_guard_result', $assessment['comparison']['guard_results'][0]['status']);
             self::assertSame('fixture assessment', $assessment['notes']);
             self::assertSame([], $assessment['external_interferences']);

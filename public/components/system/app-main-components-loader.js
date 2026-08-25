@@ -1,7 +1,7 @@
 (() => {
     'use strict';
 
-    const fullScript = 'components/system/app-main-components.js?v=20260822-manager-capability-h08c77becc3';
+    const fullScript = 'components/system/app-main-components.js?v=20260825-manager-capability-daily-hd72fa7fd50';
     let fullScriptPromise = null;
 
     const loadFullScript = () => {
@@ -159,108 +159,24 @@
             },
         };
 
-        const OperatingLoopAuthority = {
-            name: 'OperatingLoopAuthority',
-            render() {
-                const ctx = this.$root || {};
-                const loop = ctx.operatingLoop && typeof ctx.operatingLoop === 'object' ? ctx.operatingLoop : {};
-                const scope = loop.scope && typeof loop.scope === 'object' ? loop.scope : {};
-                const issue = loop.priority_issue && typeof loop.priority_issue === 'object' ? loop.priority_issue : {};
-                const nextAction = loop.next_action && typeof loop.next_action === 'object' ? loop.next_action : {};
-                const owner = nextAction.owner && typeof nextAction.owner === 'object' ? nextAction.owner : {};
-                const result = loop.yesterday_result && typeof loop.yesterday_result === 'object' ? loop.yesterday_result : {};
-                const actors = loop.actors && typeof loop.actors === 'object' ? loop.actors : {};
-                const experience = loop.experience && typeof loop.experience === 'object' ? loop.experience : {};
-                const stages = Array.isArray(loop.stages) ? loop.stages : [];
-                const stateClass = String(ctx.operatingLoopStateClass || 'border-slate-200 bg-slate-50 text-slate-600');
-                const answer = (label, primary, secondary = '') => h('article', {
-                    class: 'rounded-xl border border-slate-200 bg-slate-50 p-3',
-                }, [
-                    h('div', { class: 'text-xs font-semibold text-slate-500' }, label),
-                    h('p', { class: 'mt-2 text-sm font-semibold leading-6 text-slate-900' }, primary),
-                    secondary ? h('p', { class: 'mt-1 text-xs leading-5 text-slate-500' }, secondary) : null,
-                ]);
-                const actor = (label, value) => h('span', `${label}：${Number(value) > 0 ? value : '未记录'}`);
-
-                return h('section', {
-                    class: 'mb-5 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm',
-                    'data-testid': 'operating-loop-authority',
-                }, [
-                    h('div', { class: 'border-b border-slate-100 bg-slate-50/80 px-4 py-4 sm:px-5' }, [
-                        h('div', { class: 'flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between' }, [
-                            h('div', [
-                                h('div', { class: 'flex flex-wrap items-center gap-2' }, [
-                                    h('h2', { class: 'text-lg font-bold text-slate-950' }, '宿析经营闭环内核'),
-                                    h('span', { class: ['rounded-full border px-2.5 py-1 text-xs font-semibold', stateClass] }, String(ctx.operatingLoopStateLabel || '未核验')),
-                                    h('span', {
-                                        class: ['rounded-full border px-2.5 py-1 text-xs', loop.readback_verified
-                                            ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
-                                            : 'border-amber-200 bg-amber-50 text-amber-700'],
-                                    }, loop.readback_verified ? '精确回读通过' : '未通过精确回读'),
-                                ]),
-                                h('p', { class: 'mt-1 text-sm leading-6 text-slate-600' }, '这里只显示唯一权威状态；线上数据、Revenue AI、运营优化、目标、执行和知识均为专业下钻，不能自行宣布成功。'),
-                            ]),
-                            ctx.canReconcileOperatingLoop ? h('button', {
-                                type: 'button',
-                                class: 'inline-flex items-center justify-center gap-2 rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-sm font-semibold text-blue-700 transition hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-60',
-                                disabled: Boolean(ctx.operatingLoopSyncing) || !ctx.filterReportHotel,
-                                onClick: () => ctx.reconcileOperatingLoop?.(),
-                            }, [
-                                h('i', { class: ctx.operatingLoopSyncing ? 'fas fa-spinner fa-spin' : 'fas fa-rotate' }),
-                                ctx.operatingLoopSyncing ? '正在按正式记录同步' : '同步权威状态',
-                            ]) : null,
-                        ]),
-                        h('div', { class: 'mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-500' }, [
-                            h('span', `酒店：${scope.hotel_name || `ID ${scope.system_hotel_id || ctx.filterReportHotel || '未确认'}`}`),
-                            h('span', `业务日：${scope.business_date || ctx.operationYesterday || '未确认'}`),
-                            h('span', `指标版本：${scope.metric_version || '未冻结'}`),
-                            h('span', `Kernel：${loop.kernel_id || '未建立'} · revision ${Number(loop.revision || 0)}`),
-                        ]),
-                        ctx.operatingLoopError ? h('div', { class: 'mt-3 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700' }, ctx.operatingLoopError) : null,
-                    ]),
-                    h('div', { class: 'grid grid-cols-1 gap-3 p-4 sm:px-5 lg:grid-cols-2 xl:grid-cols-4' }, [
-                        answer('什么是真的', loop.what_is_true || '尚无通过权威证据链成立的经营事实。'),
-                        answer('最重要的问题', issue.title || '等待权威事实形成后判断。', issue.detail || ''),
-                        answer('下一步谁做什么', nextAction.action || '先确认酒店、来源门店、业务日和指标版本。', `负责人：${owner.role || (owner.user_id ? `用户 ${owner.user_id}` : '待明确')}`),
-                        answer('昨天动作有没有结果', result.status || 'pending', result.result_summary || '尚无同酒店、同平台、同指标口径的结果回读。'),
-                    ]),
-                    h('div', { class: 'border-t border-slate-100 px-4 py-4 sm:px-5' }, [
-                        h('div', { class: 'mb-2 flex flex-wrap items-center justify-between gap-2' }, [
-                            h('div', { class: 'text-sm font-semibold text-slate-900' }, '唯一八阶段状态链'),
-                            h('div', { class: 'text-xs text-slate-500' }, `证据引用 ${Number(loop.evidence_ref_count || 0)} 条`),
-                        ]),
-                        h('div', { class: 'grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-4' }, stages.map((stage, index) => h('div', {
-                            key: stage.key,
-                            class: ['rounded-xl border px-3 py-2', ctx.operatingLoopStageClass?.(stage.status)],
-                        }, [
-                            h('div', { class: 'flex items-center gap-2' }, [
-                                h('span', { class: 'flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-current text-[10px] font-bold' }, String(index + 1)),
-                                h('span', { class: 'text-xs font-semibold' }, stage.label || stage.key),
-                            ]),
-                            h('div', { class: 'mt-1 pl-7 text-[11px] opacity-80' }, stage.status === 'complete' ? '证据成立' : (stage.status === 'missing' ? '当前阻断' : '尚未证明')),
-                        ]))),
-                        h('div', { class: 'mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-500' }, [
-                            actor('判断人', actors.judged_by), actor('批准人', actors.approved_by),
-                            actor('执行人', actors.executed_by), actor('复盘人', actors.reviewed_by),
-                            h('span', `经验：${experience.status || 'not_reviewed'}`),
-                        ]),
-                    ]),
-                ]);
-            },
-        };
-
         const lazyKeys = [
             'AiDecisionQualityDetails', 'DualOtaAcceptanceReceipt', 'DualOtaPageVerificationPanel',
             'PlatformAutoSettingsPanels', 'PlatformAutoSecondaryPanels', 'CtripProfileFieldConfigPanel',
             'CompetitorDeviceManagement', 'DataConfigDialogs', 'SessionProofNotice',
-            'LocalCollectorLoginHandoff', 'PmsRealtimeSyncResult', 'HotelThreeSourceOnboardingPanel',
+            'LocalCollectorLoginHandoff', 'PmsRealtimeSyncResult', 'OperatingLoopAuthority',
             'ManagerCapabilityPanel', 'OperatingOpportunityLab',
+            'RevenueCockpitOpportunityDetails', 'RevenueCockpitSnapshotStatus',
+            'RevenueCockpitActionRestoreStatus',
         ];
         const lazyComponents = Object.fromEntries(lazyKeys.map(key => [key, lazyFullComponent(key)]));
         const helperKeys = [
             'aiDailyReportTaskPositiveInteger', 'aiDailyReportModelIsLimited',
             'normalizeAiDailyReportGenerationTask', 'formatAiDailyReportGenerationStage',
             'resolveAiDailyReportGenerationOutcome', 'pollAiDailyReportGenerationTask',
+            'resolveRevenueCockpitIntentLifecycle', 'parseOperationEvidenceNumber',
+            'parseOptionalOperationEvidenceNumber', 'operationEvidenceFirstText',
+            'operationEvidenceCleanObject', 'operationEvidenceLocalTimestamp',
+            'normalizeOperationEvidenceDateTime', 'normalizeOperationReviewStatus',
         ];
         const delegatedHelpers = Object.fromEntries(helperKeys.map(key => [key, delegateFullHelper(key)]));
 
@@ -268,7 +184,6 @@
             ...lazyComponents,
             ...delegatedHelpers,
             OnlineTruthSummary,
-            OperatingLoopAuthority,
             onlineDataComponents,
             loadOnlineDataComponentScript,
             readOnlineDataComponent,

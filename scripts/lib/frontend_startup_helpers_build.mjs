@@ -21,12 +21,14 @@ export const FRONTEND_STARTUP_HELPER_SOURCES = Object.freeze([
   'home-static.js',
   'dual-ota-home-static.js',
   'ota-profile-static.js',
+  'components/system/dual-ota-field-closure-loader.js',
   'components/system/app-main-components-loader.js',
   'components/system/operating-intelligence-loader.js',
 ]);
 export const FRONTEND_DEFERRED_HELPER_SOURCES = Object.freeze([
   'ctrip-static.js',
   'meituan-static.js',
+  'review-match-static.js',
   'data-health-static.js',
   'ai-daily-report-static.js',
   'components/meituan-future-flow.js',

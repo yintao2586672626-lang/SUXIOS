@@ -206,6 +206,14 @@ final class CtripCompetitiveOperationsService
             $orders = $this->metricNumber($row, $raw, 'book_order_num', ['bookOrderNum', 'book_order_num', 'orderCount', 'order_count']);
             $visitors = $this->rawNumber($raw, ['totalDetailNum', 'total_detail_num', 'detailVisitors', 'visitorCount']);
             $conversion = $this->rawNumber($raw, ['convertionRate', 'conversionRate', 'conversion_rate']);
+            $ari = $this->metricNumber($row, $raw, 'ari', ['ari', 'ARI']);
+            $sci = $this->metricNumber($row, $raw, 'sci', ['sci', 'SCI']);
+            $ctripRating = $this->metricNumber(
+                $row,
+                $raw,
+                'ctrip_rating',
+                ['ctripRatingall', 'ctripRating', 'commentScore', 'comment_score']
+            );
             $qualityStatus = $this->effectiveQualityStatus($row);
             $usable = $this->isUsableQualityStatus($qualityStatus);
             $normalized[] = [
@@ -220,6 +228,9 @@ final class CtripCompetitiveOperationsService
                 'adr' => $amount !== null && $quantity !== null && $quantity > 0 ? round($amount / $quantity, 2) : null,
                 'detail_visitors' => $visitors !== null ? (int)round($visitors) : null,
                 'conversion_rate' => $conversion,
+                'ari' => $ari,
+                'sci' => $sci,
+                'ctrip_rating' => $ctripRating,
                 'ranks' => [
                     'revenue_rank' => $this->positiveInteger($this->rawNumber($raw, ['amountRank', 'amount_rank', 'bookingGMVrank'])),
                     'room_nights_rank' => $this->positiveInteger($this->rawNumber($raw, ['quantityRank', 'quantity_rank', 'stayInRNrank'])),
@@ -580,7 +591,7 @@ final class CtripCompetitiveOperationsService
             return null;
         }
         $result = [];
-        foreach (['amount', 'room_nights', 'orders', 'detail_visitors', 'conversion_rate'] as $metric) {
+        foreach (['amount', 'room_nights', 'orders', 'detail_visitors', 'conversion_rate', 'ari', 'sci', 'ctrip_rating'] as $metric) {
             $values = array_values(array_filter(
                 array_column($rows, $metric),
                 static fn($value): bool => is_numeric($value)

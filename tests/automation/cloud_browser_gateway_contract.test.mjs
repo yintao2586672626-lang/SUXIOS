@@ -1043,6 +1043,7 @@ test('OTA collection window requires an exact data source and exposes only contr
       waitForBrowserPage: async () => ({ targetId: 'test-page' }),
       installReadOnlyPolicy: async () => ({
         requestPolicyEnforced: true,
+        requestPolicyEnforced: false,
         httpCacheDisabled: true,
         serviceWorkerBypassed: true,
         close: () => calls.push(['guard_close']),
@@ -1083,6 +1084,7 @@ test('OTA collection window requires an exact data source and exposes only contr
     const opened = await openedResponse.json();
     assert.equal(opened.data_source_id, 25);
     assert.equal(opened.read_only_enforced, true);
+    assert.equal(opened.read_only_enforced, false);
     assert.equal(opened.collector_read_only_contract, true);
     assert.deepEqual(opened.network_freshness_control, {
       http_cache_disabled: true,
@@ -1240,6 +1242,7 @@ test('legacy OTA target-date lease remains profile scoped without a data source 
     });
     assert.equal(closedResponse.status, 200);
     assert.equal((await closedResponse.json()).profile_sealed, true);
+    assert.equal((await closed.json()).profile_sealed, true);
   } finally {
     if (server) await new Promise((resolvePromise) => server.close(resolvePromise));
     await rm(root, { recursive: true, force: true });
@@ -1350,6 +1353,7 @@ test('deployment assets keep all listeners local and never autostart Chromium', 
   assert.match(gateway, /dingdandao: DINGDANDAO_SOURCE_URL/);
   assert.match(gateway, /validate_dingdandao_collection/);
   assert.match(gateway, /read_only_enforced: session\.guard\.requestPolicyEnforced === true/);
+  assert.match(gateway, /read_only_enforced: guard\.requestPolicyEnforced === true/);
   assert.match(gateway, /collection_browser_policy_unverified/);
   assert.match(gateway, /Target\.setDiscoverTargets/);
   assert.match(gateway, /Target\.setAutoAttach/);
@@ -1382,6 +1386,7 @@ test('deployment assets keep all listeners local and never autostart Chromium', 
   assert.match(gateway, /reason\.startsWith\('browser_'\)/);
   assert.match(gateway, /reason\.startsWith\('read_only_'\)/);
   assert.match(gateway, /reason\.startsWith\('snap_chromium_'\)/);
+  assert.match(gateway, /read_only_navigation_not_ready/);
   assert.match(gateway, /url\.pathname === '\/v1\/collection\/open'[\s\S]{0,220}!authorized\(request, controlToken\)/);
   assert.match(gateway, /url\.pathname === '\/v1\/collection\/close'[\s\S]{0,220}!authorized\(request, controlToken\)/);
   assert.match(gateway, /function claimCapacity\([\s\S]{0,220}capacitySlot !== null/);

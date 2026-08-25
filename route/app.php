@@ -102,6 +102,13 @@ Route::options('api/:any', function() {
 })->pattern(['any' => '.*']);
 
 // ==================== Auth routes ====================
+// Public WeCom custom-app callback. The controller performs signature verification
+// and AES decryption before any event can reach the operating query adapter.
+Route::get('api/integrations/wecom/callback/:bindingKey', 'WecomInbound/verify');
+Route::post('api/integrations/wecom/callback/:bindingKey', 'WecomInbound/callback');
+Route::post('api/internal/wecom-aibot/events/:id/delivery', 'WecomAibotRelay/delivery');
+Route::post('api/internal/wecom-aibot/events', 'WecomAibotRelay/ingest');
+
 // Public auth endpoints.
 Route::post('api/auth/login', 'Auth/login');
 Route::get('api/auth/login-support', 'Auth/loginSupport');
@@ -233,6 +240,11 @@ Route::group('api/ai-daily-reports', function () {
     Route::get('/tasks/:taskId', 'AiDailyReport/generationTask');
     Route::post('/:id/send-wecom', 'admin.CompetitorWechatRobotController/apiSendAiDailyReport');
     Route::post('/:id/human-judgments', 'AiDailyReport/recordHumanJudgment');
+    Route::post('/:id/presentation-spec', 'AiDailyReport/savePresentationSpec');
+    Route::get('/:id/presentation-spec', 'AiDailyReport/presentationSpec');
+    Route::post('/:id/presentation-artifacts', 'AiDailyReport/savePresentationArtifact');
+    Route::get('/:id/presentation-artifacts', 'AiDailyReport/presentationArtifact');
+    Route::get('/:id/presentation-artifacts/:artifactId', 'AiDailyReport/presentationArtifactById');
     Route::post('/:id/actions/:actionIndex/execution-intent', 'AiDailyReport/createExecutionIntent');
     Route::get('/:id', 'AiDailyReport/read');
     Route::get('/', 'AiDailyReport/index');
@@ -355,10 +367,15 @@ Route::group('api/online-data', function () {
     Route::post('/ctrip-review-matches/run', 'ota.CtripController/runCtripReviewOrderMatchAutomation');
     Route::post('/ctrip-review-matches/closure', 'ota.CtripController/checkCtripReviewOrderMatchClosure');
     Route::post('/ctrip-review-matches/bind', 'ota.CtripController/bindCtripReviewOrderMatch');
+    Route::post('/ctrip-review-matches/reject', 'ota.CtripController/rejectCtripReviewOrderMatch');
+    Route::post('/ctrip-review-matches/unbind', 'ota.CtripController/unbindCtripReviewOrderMatch');
     Route::post('/meituan-review-matches/reviews', 'ota.MeituanController/saveMeituanReviewForMatch');
     Route::post('/meituan-review-matches/orders', 'ota.MeituanController/saveMeituanOrderForMatch');
     Route::post('/meituan-review-matches/lookup', 'ota.MeituanController/lookupMeituanReviewOrderMatch');
+    Route::post('/meituan-review-matches/run', 'ota.MeituanController/runMeituanReviewOrderMatchAutomation');
+    Route::post('/meituan-review-matches/closure', 'ota.MeituanController/checkMeituanReviewOrderMatchClosure');
     Route::post('/meituan-review-matches/bind', 'ota.MeituanController/bindMeituanReviewOrderMatch');
+    Route::post('/meituan-review-matches/reject', 'ota.MeituanController/rejectMeituanReviewOrderMatch');
     Route::post('/meituan-review-matches/unbind', 'ota.MeituanController/unbindMeituanReviewOrderMatch');
     Route::post('/meituan-orders/phone-state', 'ota.MeituanController/meituanOrderPhoneState');
     // 携程配置
@@ -491,6 +508,10 @@ Route::group('api/ota-standard', function () {
 // ==================== Revenue AI 首页只读总览 API ====================
 Route::group('api/revenue-ai', function () {
     Route::get('/overview', 'RevenueAi/overview');
+    Route::get('/cockpit/decision-snapshots', 'RevenueAi/readCockpitDecisionSnapshot');
+    Route::post('/cockpit/decision-snapshots/:id/pending-approval', 'RevenueAi/createCockpitOpportunityPendingApproval');
+    Route::post('/cockpit/decision-snapshots', 'RevenueAi/createCockpitDecisionSnapshot');
+    Route::get('/cockpit/pending-approval', 'RevenueAi/readCockpitPendingApproval');
     Route::post('/cockpit/pending-approval', 'RevenueAi/createCockpitPendingApproval');
     Route::post('/price-suggestions/:id/review', 'RevenueAi/reviewPriceSuggestion');
     Route::post('/price-suggestions/:id/execution-intent', 'RevenueAi/createPriceSuggestionExecutionIntent');
@@ -846,7 +867,10 @@ Route::group('api/agent', function () {
     Route::post('/ota-diagnoses/:id/actions/:actionIndex/execution-intent', 'Agent/createOtaDiagnosisExecutionIntent');
     Route::post('/system-guidance', 'SystemGuidance/guide');
     Route::get('/operating-question-scopes', 'OperatingIntelligence/questionScopeOptions');
+    // Keep nested council routes before the generic /:id read route so the
+    // router cannot truncate a council readback into the parent question.
     Route::get('/operating-questions/:id/council-runs/latest', 'OperatingIntelligence/latestQuestionCouncil');
+    Route::get('/operating-questions/:id/council-runs/:runId', 'OperatingIntelligence/readQuestionCouncil');
     Route::post('/operating-questions/:id/council-runs', 'OperatingIntelligence/runQuestionCouncil');
     Route::post('/operating-questions/:id/action-drafts/:actionIndex/execution-intent', 'OperatingIntelligence/createQuestionExecutionIntent');
     Route::get('/operating-questions/:id', 'OperatingIntelligence/readQuestion');
@@ -856,6 +880,14 @@ Route::group('api/agent', function () {
     Route::get('/local-media-extractions/:id', 'OperatingIntelligence/readLocalMediaExtraction');
     Route::get('/local-media-extractions', 'OperatingIntelligence/localMediaExtractions');
     Route::post('/local-media-extractions', 'OperatingIntelligence/extractLocalMedia');
+    Route::get('/wecom-inbound/capabilities', 'OperatingIntelligence/wecomInboundCapabilities');
+    Route::get('/wecom-inbound/bindings', 'OperatingIntelligence/wecomInboundBindings');
+    Route::post('/wecom-inbound/bindings', 'OperatingIntelligence/saveWecomInboundBinding');
+    Route::post('/wecom-inbound/aibot-binding-codes', 'OperatingIntelligence/createWecomAibotBindingCode');
+    Route::post('/wecom-inbound/bindings/:id/reply-setting', 'OperatingIntelligence/setWecomAibotReplyEnabled');
+    Route::post('/wecom-inbound/bindings/:id/disable', 'OperatingIntelligence/disableWecomAibotBinding');
+    Route::get('/wecom-inbound/events/:id', 'OperatingIntelligence/readWecomInboundEvent');
+    Route::get('/wecom-inbound/events', 'OperatingIntelligence/wecomInboundEvents');
     Route::post('/analyze-captured-ota-data', 'Agent/analyzeCapturedOtaData');
     Route::post('/summarize-captured-ota-analysis', 'Agent/summarizeCapturedOtaAnalysis');
 

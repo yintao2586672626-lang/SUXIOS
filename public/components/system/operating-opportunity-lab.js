@@ -34,29 +34,26 @@
         return Number.isFinite(parsed) ? parsed : null;
     };
     const checked = value => value === true;
-    const MANUAL_UNVERIFIED_SOURCE_QUALITY = 'manual_unverified';
 
     const makeForms = () => ({
         service_promise_risk: {
             benefit_type: 'early_checkin', promised_quantity: '', fulfillable_capacity: '',
-            breach_cost_per_unit: '', source_reference: '',
+            breach_cost_per_unit: '', source_quality: 'manual_unverified', source_reference: '',
         },
         promotion_incrementality: {
             promotion_name: '', treated_before: '', treated_after: '', control_before: '', control_after: '',
-            treated_before_exposure: '', treated_after_exposure: '',
-            control_before_exposure: '', control_after_exposure: '',
             discount_cost: '', contribution_per_room_night: '', design_quality: 'unverified',
-            pretrend_status: 'not_checked', sample_size: '', source_reference: '',
+            pretrend_status: 'not_checked', sample_size: '', source_quality: 'manual_unverified', source_reference: '',
         },
         bookability_gap: {
             platform: 'ctrip', pms_expected_sellable: '', adults: 2, children: 0, benefits: '',
             search_status: 'bookable', detail_status: 'bookable', pre_checkout_status: 'bookable',
             observed_at: nowLocal(), real_demand_estimate: '',
-            source_reference: '',
+            source_quality: 'manual_unverified', source_reference: '',
         },
         ai_guest_acquisition: {
             intent: '', model: 'ChatGPT', region: '中国',
-            source_reference: '',
+            source_quality: 'manual_unverified', source_reference: '',
             repeats: [1, 2, 3].map(repeat_no => ({
                 observed_at: '', evidence_ref: '',
                 repeat_no, hotel_identified: false, facts_checked: false, facts_correct: false,
@@ -80,8 +77,7 @@
         },
         data: () => ({
             hotelId: '', businessDate: today(), activeFeature: 'service_promise_risk',
-            loading: false, savingFeature: '', prioritySaving: false, approvalSavingRunId: 0,
-            approvalUnknownRunId: 0, error: '', overview: null,
+            loading: false, savingFeature: '', prioritySaving: false, error: '', overview: null,
             forms: makeForms(), requestSeq: 0,
         }),
         computed: {
@@ -137,13 +133,6 @@
                 if (['supported', 'capacity_available', 'aligned', 'measured', 'no_action'].includes(status)) return 'border-emerald-200 bg-emerald-50 text-emerald-700';
                 return 'border-amber-200 bg-amber-50 text-amber-800';
             },
-            sourceQualityText(value) {
-                const status = String(value || '').trim().toLowerCase();
-                if (['manual_unverified', 'user_provided', 'unverified'].includes(status)) {
-                    return '用户提供 · 未核验';
-                }
-                return status || '未返回';
-            },
             money(value) {
                 const amount = numberOrNull(value);
                 return amount === null ? '未计算' : `¥${amount.toLocaleString('zh-CN', { maximumFractionDigits: 2 })}`;
@@ -153,137 +142,6 @@
                 return amount === null ? '未计算' : `${amount.toLocaleString('zh-CN', { maximumFractionDigits: 2 })}%`;
             },
             latest(featureKey) { return this.latestByFeature[featureKey] || null; },
-            approvalForRun(run) {
-                const runId = Number(run?.id || 0);
-                if (runId <= 0) return null;
-                return this.overview?.approval_links?.[String(runId)] || null;
-            },
-            approvalStatusText(status) {
-                return ({
-                    pending_approval: '待人工审批', approved: '已人工审批', rejected: '已驳回',
-                })[String(status || '')] || String(status || '状态未知');
-            },
-            canCreatePendingApproval(run, dailyPriority = false) {
-                if (!run || Number(run.id || 0) <= 0 || this.overview?.approval_readback_status !== 'ready') return false;
-                if (run.record_readback_status !== 'readback_verified'
-                    || !/^[a-f0-9]{64}$/i.test(String(run.input_digest || ''))
-                    || !/^[a-f0-9]{64}$/i.test(String(run.result_digest || ''))
-                    || this.approvalForRun(run)) return false;
-                if (!dailyPriority) return run.feature_key !== 'daily_one_thing';
-                return this.overview?.today_state === 'saved_current'
-                    && run.feature_key === 'daily_one_thing'
-                    && run.result?.status === 'action_required'
-                    && Number(run.result?.selected?.run_id || 0) > 0;
-            },
-            assertPendingApprovalReadback(intent, run) {
-                const runId = Number(run?.id || 0);
-                const hotelId = Number(this.hotelId || 0);
-                const tenantId = Number(this.overview?.tenant_id || 0);
-                const refs = Array.isArray(intent?.evidence?.evidence_refs) ? intent.evidence.evidence_refs : [];
-                const hasRunRef = refs.some(ref => ref?.table === 'operating_opportunity_runs'
-                    && Array.isArray(ref?.row_ids)
-                    && ref.row_ids.map(Number).includes(runId)
-                    && ref.readback_verified === true);
-                if (Number(intent?.id || 0) <= 0
-                    || Number(intent?.tenant_id || 0) !== tenantId
-                    || Number(intent?.hotel_id || 0) !== hotelId
-                    || intent?.source_module !== 'operating_loop_approval'
-                    || Number(intent?.source_record_id || 0) !== runId
-                    || intent?.date_start !== this.businessDate
-                    || intent?.date_end !== this.businessDate
-                    || intent?.status !== 'pending_approval'
-                    || Number(intent?.approved_by || 0) !== 0
-                    || intent?.approved_at !== null
-                    || !Array.isArray(intent?.tasks)
-                    || intent.tasks.length !== 0
-                    || intent?.target_value?.auto_write_ota !== false
-                    || intent?.evidence?.boundaries?.automatic_approval !== false
-                    || intent?.evidence?.boundaries?.automatic_execution !== false
-                    || !hasRunRef) {
-                    throw new Error('待审批单没有按经营机会来源、酒店、业务日和零任务边界精确回读');
-                }
-                return true;
-            },
-            async createPendingApproval(run, dailyPriority = false) {
-                const runId = Number(run?.id || 0);
-                const hotelId = Number(this.hotelId || 0);
-                if (!this.canCreatePendingApproval(run, dailyPriority)) {
-                    return this.notify('当前结果尚不满足送人工审批条件，请先刷新确认', 'warning');
-                }
-                let postAccepted = false;
-                let intentId = 0;
-                this.approvalSavingRunId = runId;
-                this.approvalUnknownRunId = 0;
-                this.error = '';
-                try {
-                    const res = await this.request(`/operating-opportunities/runs/${runId}/pending-approval`, {
-                        method: 'POST', businessContext: { hotelId }, body: JSON.stringify({
-                            hotel_id: hotelId,
-                            business_date: this.businessDate,
-                            expected_input_digest: run.input_digest,
-                            expected_result_digest: run.result_digest,
-                        }),
-                    });
-                    if (res.code !== 200) throw new Error(res.message || '创建人工待审批失败');
-                    const data = res.data || {};
-                    const intent = data.execution_intent || {};
-                    if (data.contract_version !== 'operating_opportunity_pending_approval.v1'
-                        || data.status !== 'pending_approval'
-                        || data.persistence_status !== 'readback_verified'
-                        || data.execution_task_created !== false
-                        || data.external_action_triggered !== false
-                        || data.boundaries?.automatic_approval !== false
-                        || data.boundaries?.operation_task_created !== false
-                        || data.boundaries?.ota_write !== false) {
-                        throw new Error('待审批单写入回执缺少人工审批或零外部动作边界');
-                    }
-                    this.assertPendingApprovalReadback(intent, run);
-                    postAccepted = true;
-                    intentId = Number(intent.id || 0);
-
-                    const params = new URLSearchParams({ hotel_id: String(hotelId) });
-                    const readback = await this.request(`/operation/execution-intents/${intentId}?${params}`, {
-                        businessContext: { hotelId },
-                    });
-                    if (readback.code !== 200) throw new Error(readback.message || '待审批单独立回读失败');
-                    this.assertPendingApprovalReadback(readback.data || {}, run);
-                    await this.loadOverview();
-                    const link = this.approvalForRun(run);
-                    if (Number(link?.intent_id || 0) !== intentId
-                        || link?.persistence_status !== 'readback_verified') {
-                        throw new Error('经营机会刷新后没有回显同一待审批单');
-                    }
-                    this.notify(data.reused_existing_intent ? '已回读同一人工待审批单' : '已送人工审批；尚未审批、未创建任务、未写OTA');
-                } catch (error) {
-                    if (postAccepted) {
-                        await this.loadOverview();
-                        const recovered = this.approvalForRun(run);
-                        if (Number(recovered?.intent_id || 0) === intentId
-                            && recovered?.persistence_status === 'readback_verified') {
-                            this.notify('待审批单已保存，并已通过刷新确认', 'success');
-                            return;
-                        }
-                        this.approvalUnknownRunId = runId;
-                        this.error = '待审批单可能已保存，但独立回读未确认；请用同一按钮重试确认，不要重复审批。';
-                    } else {
-                        this.error = error?.message || '创建人工待审批失败';
-                    }
-                    this.notify(this.error, 'error');
-                } finally {
-                    this.approvalSavingRunId = 0;
-                }
-            },
-            async openPendingApproval(link) {
-                const intentId = Number(link?.intent_id || 0);
-                const hotelId = Number(link?.hotel_id || this.hotelId || 0);
-                if (intentId <= 0 || hotelId <= 0) return this.notify('待审批单身份尚未回读', 'warning');
-                if (this.$root?.operationFilters) this.$root.operationFilters.hotel_id = String(hotelId);
-                if (this.$root) this.$root.currentPage = 'ops-track';
-                if (typeof this.$nextTick === 'function') await this.$nextTick();
-                if (typeof this.$root?.loadOperationActions === 'function') {
-                    await this.$root.loadOperationActions({ focusIntentId: intentId });
-                }
-            },
             async loadOverview() {
                 const hotelId = Number(this.hotelId || 0);
                 if (hotelId <= 0 || !this.businessDate) return null;
@@ -316,8 +174,8 @@
             sourcePayload(form) {
                 const sourceReference = String(form.source_reference || '').trim();
                 return {
-                    source_quality: MANUAL_UNVERIFIED_SOURCE_QUALITY,
-                    source_quality_status: MANUAL_UNVERIFIED_SOURCE_QUALITY,
+                    source_quality: form.source_quality,
+                    source_quality_status: form.source_quality,
                     source_reference: sourceReference,
                     source_references: sourceReference ? [sourceReference] : [],
                 };
@@ -344,10 +202,6 @@
                         ...base, ...this.sourcePayload(form), promotion_name: form.promotion_name,
                         treated_before: numberOrNull(form.treated_before), treated_after: numberOrNull(form.treated_after),
                         control_before: numberOrNull(form.control_before), control_after: numberOrNull(form.control_after),
-                        treated_before_exposure: numberOrNull(form.treated_before_exposure),
-                        treated_after_exposure: numberOrNull(form.treated_after_exposure),
-                        control_before_exposure: numberOrNull(form.control_before_exposure),
-                        control_after_exposure: numberOrNull(form.control_after_exposure),
                         discount_cost: numberOrNull(form.discount_cost),
                         contribution_per_room_night: contribution,
                         contribution_per_incremental_room_night: contribution,
@@ -366,7 +220,7 @@
                         children: Number(form.children || 0), benefits,
                         search: form.search_status, detail: form.detail_status,
                         pre_checkout: form.pre_checkout_status,
-                        observed_at: normalizeObservedAt(form.observed_at), source_quality: source.source_quality,
+                        observed_at: normalizeObservedAt(form.observed_at), source_quality: form.source_quality,
                         evidence_ref: source.source_reference,
                     }];
                     const expected = numberOrNull(form.pms_expected_sellable);
@@ -386,7 +240,7 @@
                         repeat_no: Number(row.repeat_no), hotel_identified: checked(row.hotel_identified),
                         facts_checked: checked(row.facts_checked), facts_correct: checked(row.facts_correct),
                         matched: checked(row.matched), bookable_handoff: checked(row.bookable_handoff),
-                        source_quality: source.source_quality, evidence_ref: String(row.evidence_ref || '').trim(),
+                        source_quality: form.source_quality, evidence_ref: String(row.evidence_ref || '').trim(),
                     })),
                 };
             },
@@ -442,28 +296,22 @@
                 }
             },
             resultMetrics(featureKey, result = {}) {
-                const provisional = result.provisional_metrics || {};
                 if (featureKey === 'service_promise_risk') return [
-                    ['短缺数量', result.shortage_quantity ?? provisional.shortage_quantity],
-                    ['剩余容量', result.surplus_quantity ?? provisional.surplus_quantity],
-                    ['预计风险金额', this.money(result.risk_amount ?? provisional.risk_amount)],
+                    ['短缺数量', result.shortage_quantity],
+                    ['剩余容量', result.surplus_quantity],
+                    ['预计风险金额', this.money(result.risk_amount)],
                 ];
                 if (featureKey === 'promotion_incrementality') return [
-                    ['增量率', this.percent({ pass_rate_percent: numberOrNull(result.incremental_rate ?? provisional.incremental_rate) === null ? null : Number(result.incremental_rate ?? provisional.incremental_rate) * 100 })],
-                    ['增量间夜', result.incremental_room_nights ?? result.incremental_effect ?? provisional.incremental_room_nights],
-                    ['增量贡献', this.money(result.incremental_contribution ?? provisional.incremental_contribution)],
-                    ['净增量利润', this.money(result.net_incremental_profit ?? result.incremental_net_profit ?? provisional.net_incremental_profit)],
+                    ['增量间夜', result.incremental_room_nights ?? result.incremental_effect],
+                    ['增量贡献', this.money(result.incremental_contribution)],
+                    ['净增量利润', this.money(result.net_incremental_profit ?? result.incremental_net_profit)],
                 ];
                 if (featureKey === 'bookability_gap') return [
-                    ['受影响条件', (result.affected_conditions || []).length || provisional.affected_condition_count],
+                    ['受影响条件', (result.affected_conditions || []).length],
                     ['最早断点', ({ search: '搜索页', detail: '详情页', pre_checkout: '提交订单前' })[result.earliest_failure_stage] || result.earliest_failure_stage],
-                    ['潜在损失', result.potential_loss === null || result.potential_loss === undefined
-                        ? (provisional.potential_loss === null || provisional.potential_loss === undefined ? '未计算' : `${provisional.potential_loss} 间夜`)
-                        : `${result.potential_loss} 间夜`],
+                    ['潜在损失', result.potential_loss === null || result.potential_loss === undefined ? '未计算' : `${result.potential_loss} 间夜`],
                 ];
-                const gates = result.calculation_status === 'provisional_manual_estimate'
-                    ? (provisional.gate_pass_rates || {})
-                    : (result.gate_pass_rates || provisional.gate_pass_rates || {});
+                const gates = result.gate_pass_rates || {};
                 return [
                     ['酒店被识别', this.percent(gates.hotel_identified)],
                     ['事实正确', this.percent(gates.facts_correct)],
@@ -487,53 +335,16 @@
                 onChange: event => { form[name] = event.target.value; },
             }, options.map(([value, label]) => h('option', { value }, label)));
             const sourceFields = (form, featureKey) => {
-                const help = '本页所有手工输入均作为用户提供 / 未核验（manual_unverified）保存；人工不能将它升级为已核验或已回读事实。';
+                const systemOnly = ['service_promise_risk', 'promotion_incrementality'].includes(featureKey);
+                const options = systemOnly
+                    ? [['manual_unverified', '手工录入 · 未核验'], ['verified', '系统证据已核验'], ['readback_verified', '系统证据保存回读已核验']]
+                    : [['manual_unverified', '手工录入 · 未核验'], ['manual_verified', '人工逐项核对'], ['verified', '系统证据已核验'], ['readback_verified', '系统证据保存回读已核验']];
+                const help = systemOnly
+                    ? '手工未核验可以保存估算，但只有系统核验或保存回读证据才形成结论。'
+                    : '人工核对只描述本次逐项观察；系统不会自动升级为线上采集事实。';
                 return h('div', { class: 'grid gap-3 sm:grid-cols-2' }, [
-                    field('数据状态', h('div', {
-                        class: 'rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-sm font-medium text-amber-800',
-                        'data-testid': `opportunity-source-status-${featureKey}`,
-                    }, '用户提供 · 未核验'), help),
+                    field('数据状态', select(form, 'source_quality', options), help),
                     field(featureKey === 'ai_guest_acquisition' ? '本次证据包引用（可选）' : '来源引用', input(form, 'source_reference', 'text', { maxlength: 1000, placeholder: '文件、回执或页面观察编号' })),
-                ]);
-            };
-            const approvalPanel = (run, dailyPriority = false) => {
-                if (!run) return null;
-                const runId = Number(run.id || 0);
-                const link = this.approvalForRun(run);
-                const unknown = this.approvalUnknownRunId === runId;
-                const canCreate = this.canCreatePendingApproval(run, dailyPriority);
-                if (!link && !canCreate && !unknown && this.overview?.approval_readback_status === 'ready') return null;
-                return h('div', {
-                    class: 'mt-3 rounded-xl border border-[#d9c79f] bg-[#fffaf0] p-3',
-                    'data-testid': `opportunity-pending-approval-${runId}`,
-                }, [
-                    h('div', { class: 'flex flex-wrap items-center justify-between gap-2' }, [
-                        h('div', [
-                            h('div', { class: 'text-xs font-semibold text-[#6f572f]' }, dailyPriority ? '行动审批边界' : '证据人工复核'),
-                            h('p', { class: 'mt-1 text-[11px] leading-5 text-slate-500' }, '记录回读不代表底层事实已核验；用户主动批准前，不创建任务、不写 OTA/PMS、不发外部消息。'),
-                        ]),
-                        link ? h('span', { class: 'rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-800' }, `${this.approvalStatusText(link.status)} #${link.intent_id}`) : null,
-                    ]),
-                    this.overview?.approval_readback_status === 'unavailable'
-                        ? h('p', { class: 'mt-2 text-xs text-rose-700', 'data-state': 'unknown_after_write_attempt' }, this.overview.approval_readback_gap || '待审批状态暂不可回读，请勿重复送审。')
-                        : null,
-                    unknown ? h('p', { class: 'mt-2 text-xs text-rose-700', 'data-state': 'unknown_after_write_attempt' }, '保存结果待确认；使用同一按钮重试只会回读同一记录。') : null,
-                    h('div', { class: 'mt-2 flex flex-wrap gap-2' }, [
-                        canCreate ? h('button', {
-                            type: 'button',
-                            disabled: this.approvalSavingRunId === runId,
-                            class: 'rounded-lg bg-[#6f572f] px-3 py-2 text-xs font-semibold text-white disabled:opacity-50',
-                            'data-testid': `opportunity-pending-approval-submit-${runId}`,
-                            onClick: () => this.createPendingApproval(run, dailyPriority),
-                        }, this.approvalSavingRunId === runId ? '保存并回读中…' : (dailyPriority ? '送人工审批' : '送人工复核')) : null,
-                        link ? h('button', {
-                            type: 'button',
-                            class: 'rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-medium text-slate-700',
-                            'data-testid': `opportunity-pending-approval-open-${runId}`,
-                            onClick: () => this.openPendingApproval(link),
-                        }, '打开运营管理') : null,
-                    ]),
-                    link ? h('p', { class: 'mt-2 text-[11px] text-slate-500' }, `状态：${this.approvalStatusText(link.status)} · 本地任务 ${Number(link.task_count || 0)} 条 · 事实状态 ${this.sourceQualityText(link.fact_status)}`) : null,
                 ]);
             };
             const latest = this.latest(this.activeFeature);
@@ -559,12 +370,6 @@
                         field('参与组·活动后间夜', input(form, 'treated_after', 'number', { min: 0, step: '0.01', required: true })),
                         field('对照组·活动前间夜', input(form, 'control_before', 'number', { min: 0, step: '0.01', required: true })),
                         field('对照组·活动后间夜', input(form, 'control_after', 'number', { min: 0, step: '0.01', required: true })),
-                    ]),
-                    h('div', { class: 'grid gap-3 sm:grid-cols-2 lg:grid-cols-4' }, [
-                        field('参与组·活动前可售间夜', input(form, 'treated_before_exposure', 'number', { min: '0.01', step: '0.01', required: true }), '用于把间夜转为可比较的占用率。'),
-                        field('参与组·活动后可售间夜', input(form, 'treated_after_exposure', 'number', { min: '0.01', step: '0.01', required: true })),
-                        field('对照组·活动前可售间夜', input(form, 'control_before_exposure', 'number', { min: '0.01', step: '0.01', required: true })),
-                        field('对照组·活动后可售间夜', input(form, 'control_after_exposure', 'number', { min: '0.01', step: '0.01', required: true })),
                     ]),
                     h('div', { class: 'grid gap-3 sm:grid-cols-2 lg:grid-cols-4' }, [
                         field('活动折扣总成本', input(form, 'discount_cost', 'number', { min: 0, step: '0.01', required: true })),
@@ -651,7 +456,6 @@
                         h('div', { class: 'mt-3 text-xl font-semibold text-slate-900' }, this.todayResult.headline || '尚未形成优先事项'),
                         this.todayResult.selected ? h('div', { class: 'mt-2 text-sm leading-6 text-slate-600' }, `${this.todayResult.selected.reason || ''}。下一步：${this.todayResult.selected.next_step || '核对详情后决定'}。`) : null,
                         h('p', { class: 'mt-3 text-xs text-slate-400' }, this.todayResult.selection_boundary || '仅排序，不自动执行。'),
-                        approvalPanel(this.overview?.today_saved_run || null, true),
                     ] : [h('p', { class: 'text-sm text-slate-500' }, '先完成下面任意一项计算，再生成今日一件事。')]),
                 ]),
                 h('section', { class: 'overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm' }, [
@@ -671,11 +475,7 @@
                                 h('span', { class: `rounded-full border px-2 py-1 text-xs font-semibold ${this.statusClass(this.status(result))}` }, this.statusText(this.status(result))),
                             ]),
                             h('div', { class: 'mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-1' }, this.resultMetrics(this.activeFeature, result).map(([label, value]) => h('div', { class: 'rounded-xl border border-slate-200 bg-white px-3 py-2.5' }, [h('div', { class: 'text-[11px] text-slate-400' }, label), h('div', { class: 'mt-1 break-words text-sm font-semibold text-slate-800' }, value === null || value === undefined || value === '' ? '未计算' : String(value))]))),
-                            result.calculation_status === 'provisional_manual_estimate'
-                                ? h('div', { class: 'mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800' }, '以上数值为人工输入估算，仅供核对；不形成正式结论，也不能执行经营动作。')
-                                : null,
-                            h('div', { class: 'mt-3 text-xs leading-5 text-slate-500' }, `来源：${this.sourceQualityText(latest.source_quality_status)} · ${latest.source_reference || '未填写引用'}`),
-                            approvalPanel(latest, false),
+                            h('div', { class: 'mt-3 text-xs leading-5 text-slate-500' }, `来源：${latest.source_quality_status} · ${latest.source_reference || '未填写引用'}`),
                             h('details', { class: 'mt-3' }, [h('summary', { class: 'cursor-pointer text-xs font-medium text-[#315d50]' }, '查看完整计算结果'), h('pre', { class: 'mt-2 max-h-72 overflow-auto whitespace-pre-wrap rounded-xl bg-slate-900 p-3 text-[11px] leading-5 text-slate-100' }, JSON.stringify(result, null, 2))]),
                         ] : [h('div', { class: 'py-10 text-center text-sm text-slate-500' }, '当前门店和日期暂无该项结果。完成左侧计算后，这里会显示保存回读结果。')]),
                     ]),
@@ -688,7 +488,7 @@
                             h('td', { class: 'px-3 py-2.5 font-medium text-slate-800' }, `${run.feature_label} #${run.id}`),
                             h('td', { class: 'px-3 py-2.5 text-slate-600' }, run.business_date),
                             h('td', { class: 'px-3 py-2.5' }, h('span', { class: `rounded-full border px-2 py-0.5 ${this.statusClass(this.status(run.result))}` }, this.statusText(this.status(run.result)))),
-                            h('td', { class: 'px-3 py-2.5 text-slate-500' }, this.sourceQualityText(run.source_quality_status)),
+                            h('td', { class: 'px-3 py-2.5 text-slate-500' }, run.source_quality_status),
                             h('td', { class: 'px-3 py-2.5 text-slate-500' }, run.created_at),
                         ]))),
                     ])]) : h('p', { class: 'mt-3 text-sm text-slate-500' }, '暂无保存记录。'),

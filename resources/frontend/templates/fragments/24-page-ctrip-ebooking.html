@@ -523,11 +523,11 @@
                                                 <div v-for="card in ctripSummaryDisplayCards" :key="card.key" draggable="true" data-testid="ctrip-summary-card" :class="['ctrip-summary-card rounded-lg p-3 text-center responsive-metric-card', card.panelClass || 'bg-white border border-gray-200', ctripSummaryDraggedCardKey === String(card.key) ? 'is-dragging' : '', ctripSummaryDragOverCardKey === String(card.key) &amp;&amp; ctripSummaryDraggedCardKey !== String(card.key) ? 'is-drag-over' : '']" @dragstart="startCtripSummaryCardDrag($event, card.key)" @dragenter.prevent="enterCtripSummaryCardDrag(card.key)" @dragover.prevent @drop.prevent="dropCtripSummaryCard(card.key)" @dragend="clearCtripSummaryCardDragState">
                                                     <span class="ctrip-summary-card-handle" aria-hidden="true"><i class="fas fa-grip-vertical"></i></span>
                                                     <div :class="['ctrip-summary-card-value text-2xl font-bold', card.valueClass || 'text-gray-900']">{{ card.value ?? '-' }}</div>
-                                                    <div class="text-xs text-gray-500">{{ card.label }}</div>
-                                                    <div v-if="card.level" :class="['text-sm font-bold', card.levelClass || 'text-gray-500']">{{ card.level }}</div>
+                                                    <div class="ctrip-summary-card-label text-xs text-gray-500">{{ card.label }}</div>
+                                                    <div v-if="card.level" :class="['ctrip-summary-card-level text-sm font-bold', card.levelClass || 'text-gray-500']">{{ card.level }}</div>
                                                 </div>
                                             </div>
-                                            <div v-if="ctripEarlyMorningSourceNotice" class="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800">
+                                            <div v-if="ctripEarlyMorningSourceNotice" data-testid="ctrip-business-source-notice" class="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800">
                                                 <i class="fas fa-clock mr-1"></i>{{ ctripEarlyMorningSourceNotice }}
                                             </div>
                                         </div>
@@ -553,7 +553,7 @@
 
                                         <!-- 销售与订单表格 -->
                                         <div v-if="ctripTableTab === 'sales'" class="ctrip-sales-table-wrap table-container">
-                                            <table class="ctrip-sales-table w-full bg-white border text-sm table-striped">
+                                            <table data-download-table="current-visible" data-download-title="销售与订单" class="ctrip-sales-table w-full bg-white border text-sm table-striped">
                                                 <colgroup>
                                                     <col class="ctrip-sales-col-rank">
                                                     <col class="ctrip-sales-col-hotel">
@@ -602,7 +602,7 @@
 
                                         <!-- 流量与转化表格 -->
                                         <div v-if="ctripTableTab === 'traffic'" class="overflow-x-auto table-container">
-                                            <table class="min-w-full bg-white border text-sm table-striped">
+                                            <table data-download-table="current-visible" data-download-title="流量与转化" class="min-w-full bg-white border text-sm table-striped">
                                                 <thead>
                                                     <tr class="bg-gray-50">
                                                         <th class="px-3 py-2 text-center border text-xs">排名</th>
@@ -652,7 +652,7 @@
 
                                         <!-- 榜单与排名表格 -->
                                         <div v-if="ctripTableTab === 'rank'" class="overflow-x-auto table-container">
-                                            <table class="ctrip-rank-table w-full bg-white border text-sm table-striped" style="width:100%;table-layout:fixed">
+                                            <table data-download-table="current-visible" data-download-title="榜单与排名" class="ctrip-rank-table w-full bg-white border text-sm table-striped" style="width:100%;table-layout:fixed">
                                                 <thead>
                                                     <tr class="ctrip-rank-groups">
                                                         <th rowspan="2" style="width:54px">排名</th>
@@ -1603,7 +1603,8 @@
                                         <div class="flex flex-wrap gap-x-4 gap-y-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
                                             <span>点评 <b>{{ ctripReviewMatchResult?.data?.summary?.review_count ?? '-' }}</b></span>
                                             <span>订单 <b>{{ ctripReviewMatchResult?.data?.summary?.order_count ?? '-' }}</b></span>
-                                            <span class="text-emerald-700">定案 <b>{{ ctripReviewMatchResult?.data?.summary?.matched_count ?? '-' }}</b></span>
+                                            <span class="text-emerald-700">人工已确认 <b>{{ ctripReviewMatchResult?.data?.summary?.manual_matched_count ?? ctripReviewMatchResult?.data?.summary?.matched_count ?? '-' }}</b></span>
+                                            <span class="text-blue-700">证据就绪 <b>{{ ctripReviewMatchResult?.data?.summary?.evidence_ready_count ?? '-' }}</b></span>
                                             <span class="text-blue-700">候选 <b>{{ ctripReviewMatchResult?.data?.summary?.candidate_count ?? '-' }}</b></span>
                                             <span class="text-rose-700">歧义 <b>{{ ctripReviewMatchResult?.data?.summary?.ambiguous_count ?? '-' }}</b></span>
                                             <span>未找到 <b>{{ ctripReviewMatchResult?.data?.summary?.not_found_count ?? '-' }}</b></span>
@@ -1613,6 +1614,10 @@
 
                                         <div v-if="ctripReviewMatchResult?.data?.missing_sources?.length" class="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-700">
                                             缺少数据：{{ ctripReviewMatchResult.data.missing_sources.join(' / ') }}。先同步点评和携程订单池；PMS详情与IM订单链接不是运行前提。
+                                        </div>
+                                        <div class="rounded-lg border border-gray-200 bg-gray-50 p-3">
+                                            <label class="block text-xs font-medium text-gray-600">人工否决原因</label>
+                                            <input v-model="ctripReviewMatchForm.decisionReason" class="mt-1 w-full rounded-lg border bg-white px-3 py-2 text-sm" placeholder="否决时必填，例如：入住日期与房型均不一致">
                                         </div>
                                         <pre v-if="ctripReviewMatchResult?.data?.auto_capture?.capture_source_status" class="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-600 whitespace-pre-wrap">{{ JSON.stringify(ctripReviewMatchResult.data.auto_capture.capture_source_status, null, 2) }}</pre>
                                         <div v-if="ctripReviewMatchResult?.data?.governance_rule_checks?.length" class="rounded-lg border border-violet-200 bg-violet-50 px-3 py-2 text-sm text-violet-800">
@@ -1669,6 +1674,11 @@
                                                             <button type="button" @click="lookupCtripReviewOrderMatch(sample)" :disabled="!!ctripReviewMatchLoading || !sample.comment_id" class="w-full px-3 py-2 bg-gray-900 text-white rounded-lg text-sm hover:bg-gray-800 disabled:bg-gray-400">
                                                                 <i class="fas fa-search mr-1"></i>{{ ctripReviewMatchLookupLoadingCommentId === sample.comment_id ? '查询中' : (sample.order_id ? '已查到订单' : (sample.candidate_order_id ? '复核候选订单' : '查订单')) }}
                                                             </button>
+                                                            <div class="grid grid-cols-2 gap-2">
+                                                                <button v-if="sample.status !== 'matched' &amp;&amp; (sample.order_id || sample.candidate_order_id)" type="button" @click="bindCtripReviewOrderMatch(sample)" :disabled="!!ctripReviewMatchLoading" class="rounded-lg bg-emerald-600 px-3 py-2 text-xs text-white hover:bg-emerald-700 disabled:bg-gray-400">人工确认</button>
+                                                                <button v-if="sample.status !== 'matched'" type="button" @click="rejectCtripReviewOrderMatch(sample)" :disabled="!!ctripReviewMatchLoading" class="rounded-lg border border-rose-300 px-3 py-2 text-xs text-rose-700 hover:bg-rose-50 disabled:text-gray-400">人工否决</button>
+                                                                <button v-if="['matched', 'rejected'].includes(sample.status)" type="button" @click="unbindCtripReviewOrderMatch(sample)" :disabled="!!ctripReviewMatchLoading" class="col-span-2 rounded-lg border border-gray-300 px-3 py-2 text-xs text-gray-600 hover:bg-gray-50 disabled:text-gray-400">撤销当前人工决定</button>
+                                                            </div>
                                                             <div v-if="sample.window_used || sample.reason" class="rounded border border-slate-200 bg-slate-50 px-2 py-2 text-xs text-slate-600">
                                                                 <div v-if="sample.window_used">窗口：{{ sample.window_used }}</div>
                                                                 <div v-if="sample.reason" class="mt-1">原因：{{ sample.reason }}</div>
@@ -1811,12 +1821,22 @@
                                                 <h5 class="font-semibold text-gray-900">4. 治理校验与边界</h5>
                                                 <p class="text-xs text-gray-500 mt-1">只返回规则和边界结果，不反查匿名身份或扩展采集。</p>
                                             </div>
+                                            <div>
+                                                <label class="block text-xs text-gray-500 mb-1">人工否决原因</label>
+                                                <input v-model="ctripReviewMatchForm.decisionReason" class="w-full rounded-lg border px-3 py-2 text-sm" placeholder="否决时必填">
+                                            </div>
                                             <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
                                                 <button type="button" @click="lookupCtripReviewOrderMatch" :disabled="!!ctripReviewMatchLoading" class="px-4 py-2 bg-gray-900 text-white rounded-lg text-sm hover:bg-gray-800 disabled:bg-gray-400">
                                                     <i class="fas fa-search mr-1"></i>匹配订单证据
                                                 </button>
                                                 <button type="button" @click="bindCtripReviewOrderMatch" :disabled="!!ctripReviewMatchLoading" class="px-4 py-2 border border-gray-300 rounded-lg text-sm hover:bg-gray-50 disabled:text-gray-400">
-                                                    <i class="fas fa-link mr-1"></i>人工绑定
+                                                    <i class="fas fa-link mr-1"></i>人工确认
+                                                </button>
+                                                <button type="button" @click="rejectCtripReviewOrderMatch" :disabled="!!ctripReviewMatchLoading" class="px-4 py-2 border border-rose-300 text-rose-700 rounded-lg text-sm hover:bg-rose-50 disabled:text-gray-400">
+                                                    <i class="fas fa-times-circle mr-1"></i>人工否决
+                                                </button>
+                                                <button type="button" @click="unbindCtripReviewOrderMatch" :disabled="!!ctripReviewMatchLoading" class="px-4 py-2 border border-gray-300 text-gray-600 rounded-lg text-sm hover:bg-gray-50 disabled:text-gray-400">
+                                                    <i class="fas fa-unlink mr-1"></i>撤销决定
                                                 </button>
                                             </div>
                                             <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -1880,11 +1900,11 @@
                                                 <div v-for="card in ctripSummaryDisplayCards" :key="card.key" draggable="true" data-testid="ctrip-summary-card" :class="['ctrip-summary-card rounded-lg p-3 text-center responsive-metric-card', card.panelClass || 'bg-white border border-gray-200', ctripSummaryDraggedCardKey === String(card.key) ? 'is-dragging' : '', ctripSummaryDragOverCardKey === String(card.key) &amp;&amp; ctripSummaryDraggedCardKey !== String(card.key) ? 'is-drag-over' : '']" @dragstart="startCtripSummaryCardDrag($event, card.key)" @dragenter.prevent="enterCtripSummaryCardDrag(card.key)" @dragover.prevent @drop.prevent="dropCtripSummaryCard(card.key)" @dragend="clearCtripSummaryCardDragState">
                                                     <span class="ctrip-summary-card-handle" aria-hidden="true"><i class="fas fa-grip-vertical"></i></span>
                                                     <div :class="['ctrip-summary-card-value text-2xl font-bold', card.valueClass || 'text-gray-900']">{{ card.value ?? '-' }}</div>
-                                                    <div class="text-xs text-gray-500">{{ card.label }}</div>
-                                                    <div v-if="card.level" :class="['text-sm font-bold', card.levelClass || 'text-gray-500']">{{ card.level }}</div>
+                                                    <div class="ctrip-summary-card-label text-xs text-gray-500">{{ card.label }}</div>
+                                                    <div v-if="card.level" :class="['ctrip-summary-card-level text-sm font-bold', card.levelClass || 'text-gray-500']">{{ card.level }}</div>
                                                 </div>
                                             </div>
-                                            <div v-if="ctripEarlyMorningSourceNotice" class="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800">
+                                            <div v-if="ctripEarlyMorningSourceNotice" data-testid="ctrip-business-source-notice" class="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800">
                                                 <i class="fas fa-clock mr-1"></i>{{ ctripEarlyMorningSourceNotice }}
                                             </div>
                                         </div>
@@ -1903,7 +1923,7 @@
 
                                         <!-- 销售与订单表格 -->
                                         <div v-if="ctripTableTab === 'sales'" class="ctrip-sales-table-wrap table-container">
-                                            <table class="ctrip-sales-table w-full bg-white border text-sm table-striped">
+                                            <table data-download-table="current-visible" data-download-title="销售与订单" class="ctrip-sales-table w-full bg-white border text-sm table-striped">
                                                 <colgroup>
                                                     <col class="ctrip-sales-col-rank">
                                                     <col class="ctrip-sales-col-hotel">
@@ -1952,7 +1972,7 @@
 
                                         <!-- 流量与转化表格 -->
                                         <div v-if="ctripTableTab === 'traffic'" class="overflow-x-auto table-container">
-                                            <table class="min-w-full bg-white border text-sm table-striped">
+                                            <table data-download-table="current-visible" data-download-title="流量与转化" class="min-w-full bg-white border text-sm table-striped">
                                                 <thead>
                                                     <tr class="bg-gray-50">
                                                         <th class="px-3 py-2 text-center border text-xs">排名</th>
@@ -2002,7 +2022,7 @@
 
                                         <!-- 榜单与排名表格 -->
                                         <div v-if="ctripTableTab === 'rank'" class="overflow-x-auto table-container">
-                                            <table class="ctrip-rank-table w-full bg-white border text-sm table-striped" style="width:100%;table-layout:fixed">
+                                            <table data-download-table="current-visible" data-download-title="榜单与排名" class="ctrip-rank-table w-full bg-white border text-sm table-striped" style="width:100%;table-layout:fixed">
                                                 <thead>
                                                     <tr class="ctrip-rank-groups">
                                                         <th rowspan="2" style="width:54px">排名</th>

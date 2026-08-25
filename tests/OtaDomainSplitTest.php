@@ -33,6 +33,11 @@ final class OtaDomainSplitTest extends TestCase
     private const LEGACY_ROUTE_SURFACE_SHA256 = '0715b449024fbf30d7df784751aa6e3c54546882d2330f2a1e3b86eae99e101f';
     private const ADDITIVE_ROUTE_ACTIONS = [
         'ctripOrderAnalysis',
+        'rejectCtripReviewOrderMatch',
+        'unbindCtripReviewOrderMatch',
+        'runMeituanReviewOrderMatchAutomation',
+        'checkMeituanReviewOrderMatchClosure',
+        'rejectMeituanReviewOrderMatch',
         // Concurrent additive action already present in this shared worktree.
         'enableWindowsOtaDispatcher',
     ];

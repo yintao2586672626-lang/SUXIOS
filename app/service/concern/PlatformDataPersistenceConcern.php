@@ -484,10 +484,48 @@ trait PlatformDataPersistenceConcern
     private function flowRateValue(array $row, string $dataType, bool $preserveMissing = false): ?float
     {
         $dataType = $this->normalizeDataType($dataType);
-        $keys = $dataType === 'advertising'
-            ? ['flow_rate', 'flowRate', 'ctr']
-            : ['browse_to_pay_rate', 'browsePayRate', 'browse_pay_rate', 'payOrderPerIntention', 'flow_rate', 'flowRate', 'cvr', 'conversion_rate', 'conversionRate', 'convertionRate', 'avgConversionsRate', 'orderConversionRate', 'dealRate'];
-        return $this->nullableNumericValue($row, $keys) ?? ($preserveMissing ? null : 0.0);
+        if ($dataType === 'advertising') {
+            return $this->nullableNumericValue(
+                $row,
+                ['flow_rate', 'flowRate', 'ctr']
+            ) ?? ($preserveMissing ? null : 0.0);
+        }
+
+        $explicitExposureToBrowse = $this->nullableNumericValue($row, [
+            'exposure_to_browse_rate',
+            'exposureToBrowseRate',
+            'intentionPerExposure',
+            'expose_visit_rate',
+            'flow_rate',
+            'flowRate',
+        ]);
+        if ($explicitExposureToBrowse !== null) {
+            return $explicitExposureToBrowse;
+        }
+
+        $listExposure = $this->nullableNumericValue($row, [
+            'mt_exposure',
+            'list_exposure',
+            'listExposure',
+            'exposure_users',
+            'exposureUsers',
+            'exposureUV',
+        ]);
+        $detailExposure = $this->nullableNumericValue($row, [
+            'mt_intention_uv',
+            'detail_exposure',
+            'detailExposure',
+            'detail_visitors',
+            'detailVisitors',
+            'intentionUV',
+        ]);
+        if ($listExposure !== null && $listExposure > 0
+            && $detailExposure !== null && $detailExposure >= 0
+        ) {
+            return round($detailExposure / $listExposure * 100, 2);
+        }
+
+        return $preserveMissing ? null : 0.0;
     }
 
     /**

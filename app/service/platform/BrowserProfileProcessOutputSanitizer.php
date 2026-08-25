@@ -32,7 +32,7 @@ final class BrowserProfileProcessOutputSanitizer
             if ($line === '') {
                 continue;
             }
-            $safeLine = self::containsSensitiveMaterial($line)
+            $safeLine = self::lineContainsSensitiveMaterial($line)
                 ? self::REDACTED_LOG_LINE
                 : $line;
             if ($safeLines === [] || end($safeLines) !== $safeLine) {
@@ -130,14 +130,20 @@ final class BrowserProfileProcessOutputSanitizer
     private static function textContainsSensitiveMaterial(string $value): bool
     {
         foreach (preg_split('/\R+/u', $value) ?: [$value] as $line) {
-            if (self::containsSensitiveMaterial((string)$line)) {
+            if (self::lineContainsSensitiveMaterial((string)$line)) {
                 return true;
             }
         }
         return false;
     }
 
-    private static function containsSensitiveMaterial(string $line): bool
+    /** Shared fail-closed detector for collector payload text. */
+    public static function containsSensitiveMaterial(string $value): bool
+    {
+        return self::textContainsSensitiveMaterial($value);
+    }
+
+    private static function lineContainsSensitiveMaterial(string $line): bool
     {
         $detectionLine = self::normalizeDetectionView($line);
         $patterns = [

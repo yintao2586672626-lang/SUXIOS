@@ -98,6 +98,8 @@ test('lifecycle next actions only route to existing human-facing surfaces', () =
   assert.match(action, /openHotelModal\(hotel, \{ onboarding: true, startStep: 'authorization' \}\)/);
   assert.match(action, /next_action_code === 'open_hotel_binding'/);
   assert.match(action, /openHotelModal\(hotel, \{ onboarding: true, startStep: 'verification' \}\)/);
+  assert.match(action, /open_hotel_binding', 'open_hotel_login/);
+  assert.match(action, /openHotelModal\(hotel, \{ expandOta: true \}\)/);
   assert.match(action, /next_action_code === 'provide_business_profile'[\s\S]*?openHotelModal\(hotel\)/);
   assert.match(action, /automationMonitorContractHotelId\.value = hotelId/);
   assert.match(action, /currentPage\.value = 'automation-monitor'/);

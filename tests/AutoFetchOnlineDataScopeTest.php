@@ -437,6 +437,12 @@ final class AutoFetchOnlineDataScopeTest extends TestCase
         $platformCatch = strpos($source, '} catch (\Throwable $e) {', (int)$sync);
 
         self::assertNotFalse($method);
+        $loop = strpos($source, 'foreach ($sources as $source)');
+        $platformTry = strpos($source, 'try {', (int)$loop);
+        $planner = strpos($source, '$orderedExecution = $this->orderedBrowserProfileExecution(', (int)$loop);
+        $sync = strpos($source, '$result = $this->syncBrowserProfileSource(', (int)$planner);
+        $platformCatch = strpos($source, '} catch (\Throwable $e) {', (int)$sync);
+
         self::assertNotFalse($loop);
         self::assertNotFalse($platformTry);
         self::assertNotFalse($planner);
@@ -448,6 +454,9 @@ final class AutoFetchOnlineDataScopeTest extends TestCase
         self::assertLessThan($sync, $planner);
         self::assertLessThan($leasedSync, $sync);
         self::assertLessThan($fallbackSync, $leasedSync);
+        self::assertNotFalse($platformCatch);
+        self::assertLessThan($planner, $platformTry);
+        self::assertLessThan($sync, $planner);
         self::assertLessThan($platformCatch, $sync);
         self::assertStringContainsString("'message' => 'ordered_profile_capture_failed'", $source);
     }

@@ -82,6 +82,7 @@ final class HotelCollectionPlanServiceTest extends TestCase
         self::assertStringContainsString('ADD COLUMN `active_slot`', $versionMigration);
         self::assertStringContainsString('ADD UNIQUE KEY', $versionMigration);
         self::assertStringNotContainsString('IF EXISTS', $versionMigration);
+        self::assertStringContainsString('ADD COLUMN `active_slot`', $versionMigration);
         self::assertStringContainsString('`uq_hotel_collection_plan_version`', $versionMigration);
         self::assertStringContainsString('`uq_hotel_collection_plan_active`', $versionMigration);
     }
@@ -832,6 +833,7 @@ final class HotelCollectionPlanServiceTest extends TestCase
             reconciliation_status TEXT NOT NULL,
             readback_status TEXT NOT NULL,
             detail_row_count INTEGER NOT NULL
+            readback_status TEXT NOT NULL
         )');
     }
 }

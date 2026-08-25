@@ -9,6 +9,7 @@ const ctripTemplate = readFileSync('resources/frontend/templates/fragments/24-pa
 const meituanTemplate = readFileSync('resources/frontend/templates/fragments/26-page-meituan-ebooking.html', 'utf8');
 const ctripStaticSource = readFileSync('public/ctrip-static.js', 'utf8');
 const meituanStaticSource = readFileSync('public/meituan-static.js', 'utf8');
+const reviewMatchStaticSource = readFileSync('public/review-match-static.js', 'utf8');
 
 const sliceFrom = (source, start, end) => {
   const startIndex = source.indexOf(start);
@@ -47,6 +48,10 @@ test('platform pages expose one sticky header hotel context switcher', () => {
   assert.match(appShell, /class="platform-hotel-context-config"/);
   assert.match(appShell, /v-if="platformHotelContext"/);
   assert.match(appShell, /platformHotelOptions/);
+  assert.match(appMain, /onlineDataTab\.value === 'meituan-review-match'/);
+  assert.match(appMain, /\? meituanReviewMatchHotelOptions\.value/);
+  assert.match(appMain, /: meituanTargetHotelOptions\.value/);
+  assert.match(appMain, /if \(platformHotelContext\.value === 'ctrip'\) return ctripTargetHotelOptions\.value;/);
   assert.match(appShell, /@click="openPlatformHotelContextConfig"/);
   assert.match(appShell, /fetchingData \|\| ctripTrafficBundleLoading/);
   assert.match(appShell, /ctripCommentBrowserCaptureRunning/);
@@ -130,12 +135,12 @@ test('Ctrip review evidence always resolves the shared Ctrip hotel and never an 
   const resolverSource = sliceFrom(
     appMain,
     'const resolveCtripReviewMatchSystemHotelId = () =>',
-    '\n            const parseCtripReviewMatchJsonValue',
+    '\n            const buildCtripReviewMatchBasePayload',
   );
   const basePayloadSource = sliceFrom(
     appMain,
     'const buildCtripReviewMatchBasePayload = () => {',
-    '\n            const buildCtripReviewMatchReviewPayload',
+    '\n            const ctripReviewMatchControllerBindings =',
   );
   const sandbox = {
     selectedCtripHotelId: { value: '80' },
@@ -161,19 +166,14 @@ test('Ctrip review evidence always resolves the shared Ctrip hotel and never an 
   );
 
   const actionSource = sliceFrom(
-    appMain,
-    'const runCtripReviewMatchAction = async',
-    '\n            const mergeCtripReviewMatchLookupResult',
+    reviewMatchStaticSource,
+    'const createCtripReviewMatchActionController = ({',
+    '\n\n    const createCtripReviewMatchController',
   );
-  const lookupSource = sliceFrom(
-    appMain,
-    'const lookupCtripReviewOrderMatch = async',
-    '\n            const runCtripReviewMatchPreflight',
-  );
-  assert.match(actionSource, /capturePlatformHotelRequestContext\('ctrip'\)/);
-  assert.match(actionSource, /isPlatformHotelRequestContextCurrent\(requestContext\)/);
-  assert.match(lookupSource, /capturePlatformHotelRequestContext\('ctrip'\)/);
-  assert.match(lookupSource, /isPlatformHotelRequestContextCurrent\(requestContext\)/);
+  assert.match(actionSource, /captureRequestContext\('ctrip'\)/);
+  assert.match(actionSource, /isRequestContextCurrent\(requestContext\)/);
+  assert.match(appMain, /captureRequestContext: capturePlatformHotelRequestContext/);
+  assert.match(appMain, /isRequestContextCurrent: isPlatformHotelRequestContextCurrent/);
 });
 
 test('global report context excludes platform workbench selections', () => {

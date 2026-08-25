@@ -117,13 +117,13 @@ trait CtripReviewOrderMatchConcern
             $row = [
                 'system_hotel_id' => $systemHotelId,
                 'comment_id' => $commentId,
-                'source_username' => $this->firstCtripReviewMatchText($review, ['userName', 'user_name', 'sourceUsername', 'source_username', 'username', 'nickName', 'nick_name', 'user_name_masked']),
+                'source_username' => '',
                 'user_avatar_url' => '',
                 'review_date' => $this->nullableCtripReviewMatchDate($this->firstCtripReviewMatchText($review, ['addtime', 'commentTime', 'comment_time', 'reviewTime', 'review_time', 'reviewDate', 'review_date', 'createTime', 'create_time', 'submitTime', 'submit_time', 'date'])),
                 'checkin_date' => $this->nullableCtripReviewMatchDate($this->firstCtripReviewMatchText($review, ['checkinTimeStr', 'checkInDate', 'check_in_date', 'checkinDate', 'arrivalDate', 'arrival_date', 'stayDate', 'stay_date'])),
                 'room_name' => $this->firstCtripReviewMatchText($review, ['hotelRoomInfo', 'hotel_room_info', 'roomName', 'room_name', 'roomType', 'room_type', 'room_type_name', 'productName', 'product_name', 'ratePlanName', 'rate_plan_name']),
                 'score' => $this->firstCtripReviewMatchNumber($review, ['avgScore', 'avg_score', 'score', 'rating', 'rate', 'totalScore', 'total_score', 'overallScore', 'overall_score', 'commentScore', 'comment_score', 'star']),
-                'content' => $this->firstCtripReviewMatchText($review, ['content', 'comment', 'commentContent', 'comment_content', 'reviewContent', 'review_content', 'contentText', 'content_text', 'commentText', 'comment_text', 'reviewText', 'review_text', 'text', '_dom_text']),
+                'content' => '',
                 'raw_review_json' => $this->encodeCtripReviewMatchJson([
                     'source' => 'authorized_ctrip_review',
                     'scope' => 'ctrip_ota_channel',
@@ -139,23 +139,31 @@ trait CtripReviewOrderMatchConcern
                 'update_time' => date('Y-m-d H:i:s'),
             ];
 
-            $existing = Db::name('ota_ctrip_reviews')
-                ->where('system_hotel_id', $systemHotelId)
-                ->where('comment_id', $commentId)
-                ->find();
-            if ($existing) {
-                $row['raw_review_json'] = $this->mergeCtripReviewMatchReviewRawJson(
-                    (string)($row['raw_review_json'] ?? '{}'),
-                    (string)($existing['raw_review_json'] ?? '{}')
-                );
-                Db::name('ota_ctrip_reviews')->where('id', (int)$existing['id'])->update($row);
-                $id = (int)$existing['id'];
-            } else {
-                $row['create_time'] = date('Y-m-d H:i:s');
-                $id = (int)Db::name('ota_ctrip_reviews')->insertGetId($row);
-            }
+            $readback = $this->upsertCtripReviewEvidenceWithReadback(
+                'ota_ctrip_reviews',
+                $systemHotelId,
+                'comment_id',
+                $commentId,
+                $row,
+                ['comment_id', 'source_username', 'user_avatar_url', 'review_date', 'checkin_date', 'room_name', 'score', 'content', 'raw_review_json'],
+                function (array $incoming, array $existing): array {
+                    $incoming['raw_review_json'] = $this->mergeCtripReviewMatchReviewRawJson(
+                        (string)($incoming['raw_review_json'] ?? '{}'),
+                        (string)($existing['raw_review_json'] ?? '{}')
+                    );
+                    return $incoming;
+                }
+            );
 
-            return $this->success(['id' => $id, 'comment_id' => $commentId], '携程评价已保存');
+            OperationLog::record('online_data', 'save_ctrip_review_for_match', 'Save Ctrip review evidence: ' . $commentId, $this->currentUser->id ?? null, $systemHotelId);
+            return $this->success([
+                'id' => (int)$readback['id'],
+                'comment_id' => $commentId,
+                'save_status' => 'saved_and_readback_verified',
+                'data_status' => 'ready',
+                'readback' => $this->publicCtripReviewEvidenceReadback($readback),
+                'source_status' => $this->ctripReviewMatchWriteSourceStatus('authorized_review_evidence'),
+            ], '携程评价证据已保存并完成回读');
         } catch (\think\exception\HttpException $e) {
             return $this->error($e->getMessage(), $this->safeHttpCode($e->getStatusCode()));
         } catch (\Throwable $e) {
@@ -212,20 +220,25 @@ trait CtripReviewOrderMatchConcern
                 'update_time' => date('Y-m-d H:i:s'),
             ];
 
-            $existing = Db::name('ota_ctrip_orders')
-                ->where('system_hotel_id', $systemHotelId)
-                ->where('order_id', $orderId)
-                ->find();
-            if ($existing) {
-                $row = $this->mergeCtripReviewMatchOrderRow($row, $existing);
-                Db::name('ota_ctrip_orders')->where('id', (int)$existing['id'])->update($row);
-                $id = (int)$existing['id'];
-            } else {
-                $row['create_time'] = date('Y-m-d H:i:s');
-                $id = (int)Db::name('ota_ctrip_orders')->insertGetId($row);
-            }
+            $readback = $this->upsertCtripReviewEvidenceWithReadback(
+                'ota_ctrip_orders',
+                $systemHotelId,
+                'order_id',
+                $orderId,
+                $row,
+                ['order_id', 'guest_uid', 'guest_name', 'arrival_date', 'departure_date', 'room_name', 'room_name_prefix', 'order_status', 'source_platform', 'raw_order_json'],
+                fn(array $incoming, array $existing): array => $this->mergeCtripReviewMatchOrderRow($incoming, $existing)
+            );
 
-            return $this->success(['id' => $id, 'order_id' => $orderId], '携程订单已保存');
+            OperationLog::record('online_data', 'save_ctrip_order_for_review_match', 'Save Ctrip order evidence: ' . $orderId, $this->currentUser->id ?? null, $systemHotelId);
+            return $this->success([
+                'id' => (int)$readback['id'],
+                'order_id' => $orderId,
+                'save_status' => 'saved_and_readback_verified',
+                'data_status' => 'ready',
+                'readback' => $this->publicCtripOrderEvidenceReadback($readback),
+                'source_status' => $this->ctripReviewMatchWriteSourceStatus('authorized_order_evidence'),
+            ], '携程订单证据已保存并完成回读');
         } catch (\think\exception\HttpException $e) {
             return $this->error($e->getMessage(), $this->safeHttpCode($e->getStatusCode()));
         } catch (\Throwable $e) {
@@ -258,9 +271,16 @@ trait CtripReviewOrderMatchConcern
                 $this->buildCtripReviewScoringOptions($data, $systemHotelId)
             );
 
+            $attemptReadback = $this->saveCtripReviewMatchAttempt($systemHotelId, $review, $result, 'manual_lookup');
+            $publicResult = $this->buildCtripReviewOrderMatchPublicResult($review, $result);
+            $publicResult['save_status'] = 'saved_and_readback_verified';
+            $publicResult['storage_write'] = true;
+            $publicResult['attempt_readback'] = $this->publicCtripReviewMatchAttemptReadback($attemptReadback);
+            $publicResult['review_cards'] = $this->loadCtripReviewMatchReviewCards($systemHotelId, 30);
+
             return $this->success(
-                $this->buildCtripReviewOrderMatchPublicResult($review, $result),
-                '携程评价订单证据匹配完成'
+                $publicResult,
+                '携程评价订单候选已计算并完成保存回读'
             );
         } catch (\think\exception\HttpException $e) {
             return $this->error($e->getMessage(), $this->safeHttpCode($e->getStatusCode()));
@@ -437,9 +457,9 @@ trait CtripReviewOrderMatchConcern
                     'missing_evidence' => ['batch_match_result'],
                     'candidates' => [],
                 ];
-                $status = (string)($result['status'] ?? 'unknown');
+                $readback = $this->saveCtripReviewMatchAttempt($systemHotelId, $review, $result, 'automation');
+                $status = (string)($readback['match_status'] ?? $result['status'] ?? 'unknown');
                 $statusCounts[$status] = ($statusCounts[$status] ?? 0) + 1;
-                $this->saveCtripReviewMatchAttempt($systemHotelId, $review, $result, 'automation');
                 if (count($samples) < 20) {
                     $candidateOrder = $this->firstPublicCtripReviewCandidateOrder(
                         is_array($result['candidates'] ?? null) ? $result['candidates'] : []
@@ -447,19 +467,19 @@ trait CtripReviewOrderMatchConcern
                     $candidateCount = is_array($result['candidates'] ?? null) ? count($result['candidates']) : 0;
                     $samples[] = [
                         'comment_id' => $this->extractCtripReviewCommentId($review),
-                        'source_username' => $this->firstCtripReviewMatchText($review, ['userName', 'user_name', 'sourceUsername', 'source_username', 'username', 'nickName', 'nick_name', 'user_name_masked']),
+                        'source_username' => '',
                         'status' => $status,
                         'status_text' => $this->publicCtripReviewMatchStatusText(
                             $status,
-                            (string)($result['order']['order_id'] ?? ''),
-                            (string)($result['identity']['guest_name'] ?? $result['person_name'] ?? ''),
+                            (string)($readback['order_id'] ?? $result['order']['order_id'] ?? ''),
+                            '',
                             $candidateCount
                         ),
-                        'order_id' => (string)($result['order']['order_id'] ?? ''),
-                        'guest_name' => (string)($result['identity']['guest_name'] ?? $result['person_name'] ?? ''),
+                        'order_id' => (string)($readback['order_id'] ?? $result['order']['order_id'] ?? ''),
+                        'guest_name' => '',
                         'candidate_count' => $candidateCount,
                         'candidate_order_id' => (string)($candidateOrder['order_id'] ?? ''),
-                        'candidate_guest_name' => (string)($candidateOrder['guest_name'] ?? ''),
+                        'candidate_guest_name' => '',
                         'candidate_arrival_date' => (string)($candidateOrder['arrival_date'] ?? ''),
                         'match_score' => isset($result['score']) && is_numeric($result['score']) ? (int)$result['score'] : null,
                         'score_breakdown' => is_array($result['score_breakdown'] ?? null) ? $result['score_breakdown'] : [],
@@ -467,6 +487,7 @@ trait CtripReviewOrderMatchConcern
                         'missing_evidence' => is_array($result['missing_evidence'] ?? null) ? $result['missing_evidence'] : [],
                         'window_used' => (string)($result['window_used'] ?? ''),
                         'reason' => (string)($result['reason'] ?? ''),
+                        'manual_decision_preserved' => (bool)($readback['manual_decision_preserved'] ?? false),
                     ];
                 }
             }
@@ -488,11 +509,15 @@ trait CtripReviewOrderMatchConcern
                     'im_session_count' => count($imSessions),
                     'order_count' => count($orders),
                     'matched_count' => (int)($statusCounts['confirmed'] ?? 0) + (int)($statusCounts['high_confidence'] ?? 0),
+                    'manual_matched_count' => (int)($statusCounts['matched'] ?? 0),
+                    'evidence_ready_count' => (int)($statusCounts['confirmed'] ?? 0) + (int)($statusCounts['high_confidence'] ?? 0) + (int)($statusCounts['found'] ?? 0),
                     'confirmed_count' => (int)($statusCounts['confirmed'] ?? 0),
                     'high_confidence_count' => (int)($statusCounts['high_confidence'] ?? 0),
                     'candidate_count' => (int)($statusCounts['candidate'] ?? 0),
                     'ambiguous_count' => (int)($statusCounts['ambiguous'] ?? 0),
                     'not_found_count' => (int)($statusCounts['not_found'] ?? 0),
+                    'rejected_count' => (int)($statusCounts['rejected'] ?? 0),
+                    'unbound_count' => (int)($statusCounts['unbound'] ?? 0),
                     'multi_review_resolved_count' => (int)($multiReviewResolution['resolved_count'] ?? 0),
                 ],
                 'status_counts' => $statusCounts,
@@ -581,10 +606,23 @@ trait CtripReviewOrderMatchConcern
                 return $this->error('缺少 commentId 或 orderId', 422);
             }
 
+            $review = Db::name('ota_ctrip_reviews')
+                ->where('system_hotel_id', $systemHotelId)
+                ->where('comment_id', $commentId)
+                ->find();
+            if (!$review) {
+                return $this->error('当前酒店不存在该携程评价，不能人工绑定', 404);
+            }
+
             $order = Db::name('ota_ctrip_orders')
                 ->where('system_hotel_id', $systemHotelId)
                 ->where('order_id', $orderId)
-                ->find() ?: [];
+                ->find();
+            if (!$order) {
+                return $this->error('当前酒店不存在该携程订单，不能人工绑定', 404);
+            }
+
+            $boundAt = date('Y-m-d H:i:s');
 
             $row = [
                 'system_hotel_id' => $systemHotelId,
@@ -604,28 +642,303 @@ trait CtripReviewOrderMatchConcern
                     'identity_fields_stored' => false,
                 ]),
                 'bound_by' => $this->currentUser->id ?? null,
-                'bound_at' => date('Y-m-d H:i:s'),
-                'update_time' => date('Y-m-d H:i:s'),
+                'bound_at' => $boundAt,
+                'update_time' => $boundAt,
             ];
 
-            $existing = Db::name('ota_ctrip_review_order_matches')
-                ->where('system_hotel_id', $systemHotelId)
-                ->where('comment_id', $commentId)
-                ->find();
-            if ($existing) {
-                Db::name('ota_ctrip_review_order_matches')->where('id', (int)$existing['id'])->update($row);
-                $id = (int)$existing['id'];
-            } else {
-                $row['create_time'] = date('Y-m-d H:i:s');
-                $id = (int)Db::name('ota_ctrip_review_order_matches')->insertGetId($row);
+            Db::startTrans();
+            try {
+                $existing = Db::name('ota_ctrip_review_order_matches')
+                    ->where('system_hotel_id', $systemHotelId)
+                    ->where('comment_id', $commentId)
+                    ->lock(true)
+                    ->find();
+                if ($existing) {
+                    Db::name('ota_ctrip_review_order_matches')->where('id', (int)$existing['id'])->update($row);
+                    $id = (int)$existing['id'];
+                } else {
+                    $row['create_time'] = $boundAt;
+                    $id = (int)Db::name('ota_ctrip_review_order_matches')->insertGetId($row);
+                }
+
+                $readback = Db::name('ota_ctrip_review_order_matches')
+                    ->where('id', $id)
+                    ->where('system_hotel_id', $systemHotelId)
+                    ->where('comment_id', $commentId)
+                    ->field('id,system_hotel_id,comment_id,order_id,match_status,match_method,confidence,bound_by,bound_at,update_time')
+                    ->find();
+                if (
+                    !$readback
+                    || (string)($readback['order_id'] ?? '') !== $orderId
+                    || (string)($readback['match_status'] ?? '') !== 'matched'
+                    || (string)($readback['match_method'] ?? '') !== 'manual'
+                ) {
+                    throw new \RuntimeException('携程评价订单绑定保存回读不一致');
+                }
+
+                OperationLog::record('online_data', 'bind_ctrip_review_order_match', '人工绑定携程评价订单: ' . $commentId . ' -> ' . $orderId, $this->currentUser->id ?? null, $systemHotelId);
+                Db::commit();
+            } catch (\Throwable $writeError) {
+                Db::rollback();
+                throw $writeError;
             }
 
-            OperationLog::record('online_data', 'bind_ctrip_review_order_match', '人工绑定携程评价订单: ' . $commentId . ' -> ' . $orderId, $this->currentUser->id ?? null, $systemHotelId);
-            return $this->success(['id' => $id, 'comment_id' => $commentId, 'order_id' => $orderId], '携程评价订单已绑定');
+            return $this->success([
+                'id' => (int)$readback['id'],
+                'system_hotel_id' => (int)$readback['system_hotel_id'],
+                'platform' => 'ctrip',
+                'comment_id' => (string)$readback['comment_id'],
+                'order_id' => (string)$readback['order_id'],
+                'match_status' => (string)$readback['match_status'],
+                'match_method' => (string)$readback['match_method'],
+                'confidence' => (string)$readback['confidence'],
+                'bound_by' => $readback['bound_by'] !== null ? (int)$readback['bound_by'] : null,
+                'bound_at' => (string)$readback['bound_at'],
+                'update_time' => (string)$readback['update_time'],
+                'save_status' => 'saved_and_readback_verified',
+                'data_status' => 'ready',
+                'review_cards' => $this->loadCtripReviewMatchReviewCards($systemHotelId, 30),
+                'source_status' => [
+                    'scope' => 'ctrip_ota_channel',
+                    'source_method' => 'manual_operator_confirmation',
+                    'identity_resolution' => 'blocked_not_attempted',
+                    'same_hotel_review_verified' => true,
+                    'same_hotel_order_verified' => true,
+                ],
+            ], '携程评价订单已绑定并完成保存回读');
         } catch (\think\exception\HttpException $e) {
             return $this->error($e->getMessage(), $this->safeHttpCode($e->getStatusCode()));
         } catch (\Throwable $e) {
             return $this->error('绑定携程评价订单失败: ' . $e->getMessage(), 500);
+        }
+    }
+
+    public function rejectCtripReviewOrderMatch(): Response
+    {
+        $this->checkPermission();
+        $this->checkActionPermission('can_fetch_online_data');
+
+        try {
+            $data = $this->requestData();
+            $systemHotelId = $this->resolveCtripReviewMatchHotelId($data);
+            if (!$systemHotelId) {
+                return $this->error('请选择酒店', 400);
+            }
+
+            $commentId = trim((string)($data['commentId'] ?? $data['comment_id'] ?? ''));
+            $orderId = trim((string)($data['orderId'] ?? $data['order_id'] ?? ''));
+            $reason = trim((string)($data['reason'] ?? $data['decision_reason'] ?? $data['decisionReason'] ?? ''));
+            if ($commentId === '') {
+                return $this->error('缺少 commentId', 422);
+            }
+            if ($reason === '') {
+                return $this->error('人工否决必须填写原因', 422);
+            }
+
+            $review = Db::name('ota_ctrip_reviews')
+                ->where('system_hotel_id', $systemHotelId)
+                ->where('comment_id', $commentId)
+                ->find();
+            if (!$review) {
+                return $this->error('当前酒店不存在该携程评价，不能人工否决', 404);
+            }
+            if ($orderId !== '') {
+                $order = Db::name('ota_ctrip_orders')
+                    ->where('system_hotel_id', $systemHotelId)
+                    ->where('order_id', $orderId)
+                    ->find();
+                if (!$order) {
+                    return $this->error('当前酒店不存在该携程订单，不能作为否决对象', 404);
+                }
+            }
+
+            $decidedAt = date('Y-m-d H:i:s');
+            Db::startTrans();
+            try {
+                $existing = Db::name('ota_ctrip_review_order_matches')
+                    ->where('system_hotel_id', $systemHotelId)
+                    ->where('comment_id', $commentId)
+                    ->lock(true)
+                    ->find();
+                $row = [
+                    'system_hotel_id' => $systemHotelId,
+                    'comment_id' => $commentId,
+                    'order_id' => '',
+                    'guest_uid' => '',
+                    'guest_name' => '',
+                    'match_status' => 'rejected',
+                    'match_method' => 'manual_reject',
+                    'confidence' => 'none',
+                    'candidate_orders_json' => $this->encodeCtripReviewMatchJson([]),
+                    'evidence_json' => $this->encodeCtripReviewMatchJson([
+                        'source' => 'manual_reject',
+                        'scope' => 'ctrip_ota_channel',
+                        'operator_user_id' => $this->currentUser->id ?? null,
+                        'rejected_order_id' => $orderId,
+                        'previous_order_id' => (string)($existing['order_id'] ?? ''),
+                        'reason' => $this->shortCtripReviewMatchText($reason, 300),
+                        'identity_resolution' => 'blocked_not_attempted',
+                        'identity_fields_stored' => false,
+                    ]),
+                    'bound_by' => $this->currentUser->id ?? null,
+                    'bound_at' => $decidedAt,
+                    'update_time' => $decidedAt,
+                ];
+                if ($existing) {
+                    Db::name('ota_ctrip_review_order_matches')->where('id', (int)$existing['id'])->update($row);
+                    $id = (int)$existing['id'];
+                } else {
+                    $row['create_time'] = $decidedAt;
+                    $id = (int)Db::name('ota_ctrip_review_order_matches')->insertGetId($row);
+                }
+                $readback = Db::name('ota_ctrip_review_order_matches')
+                    ->where('id', $id)
+                    ->where('system_hotel_id', $systemHotelId)
+                    ->where('comment_id', $commentId)
+                    ->field('id,system_hotel_id,comment_id,order_id,match_status,match_method,confidence,bound_by,bound_at,update_time')
+                    ->find();
+                if (
+                    !$readback
+                    || (string)($readback['order_id'] ?? '') !== ''
+                    || (string)($readback['match_status'] ?? '') !== 'rejected'
+                    || (string)($readback['match_method'] ?? '') !== 'manual_reject'
+                ) {
+                    throw new \RuntimeException('携程评价订单否决保存回读不一致');
+                }
+                Db::commit();
+            } catch (\Throwable $writeError) {
+                Db::rollback();
+                throw $writeError;
+            }
+
+            OperationLog::record('online_data', 'reject_ctrip_review_order_match', '人工否决携程评价订单候选: ' . $commentId, $this->currentUser->id ?? null, $systemHotelId);
+            return $this->success([
+                'id' => (int)$readback['id'],
+                'system_hotel_id' => (int)$readback['system_hotel_id'],
+                'platform' => 'ctrip',
+                'comment_id' => (string)$readback['comment_id'],
+                'order_id' => '',
+                'match_status' => 'rejected',
+                'match_method' => 'manual_reject',
+                'confidence' => 'none',
+                'bound_by' => $readback['bound_by'] !== null ? (int)$readback['bound_by'] : null,
+                'bound_at' => (string)$readback['bound_at'],
+                'update_time' => (string)$readback['update_time'],
+                'save_status' => 'saved_and_readback_verified',
+                'data_status' => 'ready',
+                'review_cards' => $this->loadCtripReviewMatchReviewCards($systemHotelId, 30),
+                'source_status' => [
+                    'scope' => 'ctrip_ota_channel',
+                    'source_method' => 'manual_operator_rejection',
+                    'identity_resolution' => 'blocked_not_attempted',
+                    'same_hotel_review_verified' => true,
+                    'same_hotel_order_verified' => $orderId !== '',
+                ],
+            ], '携程评价订单候选已否决并完成保存回读');
+        } catch (\think\exception\HttpException $e) {
+            return $this->error($e->getMessage(), $this->safeHttpCode($e->getStatusCode()));
+        } catch (\Throwable $e) {
+            return $this->error('否决携程评价订单候选失败: ' . $e->getMessage(), 500);
+        }
+    }
+
+    public function unbindCtripReviewOrderMatch(): Response
+    {
+        $this->checkPermission();
+        $this->checkActionPermission('can_fetch_online_data');
+
+        try {
+            $data = $this->requestData();
+            $systemHotelId = $this->resolveCtripReviewMatchHotelId($data);
+            if (!$systemHotelId) {
+                return $this->error('请选择酒店', 400);
+            }
+            $commentId = trim((string)($data['commentId'] ?? $data['comment_id'] ?? ''));
+            if ($commentId === '') {
+                return $this->error('缺少 commentId', 422);
+            }
+
+            $updatedAt = date('Y-m-d H:i:s');
+            Db::startTrans();
+            try {
+                $existing = Db::name('ota_ctrip_review_order_matches')
+                    ->where('system_hotel_id', $systemHotelId)
+                    ->where('comment_id', $commentId)
+                    ->lock(true)
+                    ->find();
+                if (!$existing) {
+                    throw new \RuntimeException('当前酒店不存在该携程点评匹配记录');
+                }
+                $row = [
+                    'order_id' => '',
+                    'guest_uid' => '',
+                    'guest_name' => '',
+                    'match_status' => 'unbound',
+                    'match_method' => 'manual_unbind',
+                    'confidence' => 'none',
+                    'candidate_orders_json' => $this->encodeCtripReviewMatchJson([]),
+                    'evidence_json' => $this->encodeCtripReviewMatchJson([
+                        'source' => 'manual_unbind',
+                        'scope' => 'ctrip_ota_channel',
+                        'previous_order_id' => (string)($existing['order_id'] ?? ''),
+                        'previous_status' => (string)($existing['match_status'] ?? ''),
+                        'operator_user_id' => $this->currentUser->id ?? null,
+                        'identity_resolution' => 'blocked_not_attempted',
+                    ]),
+                    'bound_by' => null,
+                    'bound_at' => null,
+                    'update_time' => $updatedAt,
+                ];
+                Db::name('ota_ctrip_review_order_matches')->where('id', (int)$existing['id'])->update($row);
+                $readback = Db::name('ota_ctrip_review_order_matches')
+                    ->where('id', (int)$existing['id'])
+                    ->where('system_hotel_id', $systemHotelId)
+                    ->where('comment_id', $commentId)
+                    ->field('id,system_hotel_id,comment_id,order_id,match_status,match_method,confidence,bound_by,bound_at,update_time')
+                    ->find();
+                if (
+                    !$readback
+                    || (string)($readback['order_id'] ?? '') !== ''
+                    || (string)($readback['match_status'] ?? '') !== 'unbound'
+                    || (string)($readback['match_method'] ?? '') !== 'manual_unbind'
+                ) {
+                    throw new \LogicException('携程评价订单撤销保存回读不一致');
+                }
+                Db::commit();
+            } catch (\Throwable $writeError) {
+                Db::rollback();
+                throw $writeError;
+            }
+
+            OperationLog::record('online_data', 'unbind_ctrip_review_order_match', '撤销携程评价订单绑定: ' . $commentId, $this->currentUser->id ?? null, $systemHotelId);
+            return $this->success([
+                'id' => (int)$readback['id'],
+                'system_hotel_id' => (int)$readback['system_hotel_id'],
+                'platform' => 'ctrip',
+                'comment_id' => (string)$readback['comment_id'],
+                'order_id' => '',
+                'match_status' => 'unbound',
+                'match_method' => 'manual_unbind',
+                'confidence' => 'none',
+                'bound_by' => null,
+                'bound_at' => '',
+                'update_time' => (string)$readback['update_time'],
+                'save_status' => 'saved_and_readback_verified',
+                'data_status' => 'ready',
+                'review_cards' => $this->loadCtripReviewMatchReviewCards($systemHotelId, 30),
+                'source_status' => [
+                    'scope' => 'ctrip_ota_channel',
+                    'source_method' => 'manual_operator_unbind',
+                    'identity_resolution' => 'blocked_not_attempted',
+                    'same_hotel_review_verified' => true,
+                ],
+            ], '携程评价订单绑定已撤销并完成保存回读');
+        } catch (\think\exception\HttpException $e) {
+            return $this->error($e->getMessage(), $this->safeHttpCode($e->getStatusCode()));
+        } catch (\RuntimeException $e) {
+            return $this->error($e->getMessage(), 404);
+        } catch (\Throwable $e) {
+            return $this->error('撤销携程评价订单绑定失败: ' . $e->getMessage(), 500);
         }
     }
 
@@ -681,9 +994,9 @@ trait CtripReviewOrderMatchConcern
             $statusCounts[$status !== '' ? $status : 'unknown'] = (int)($row['total'] ?? 0);
         }
 
-        $matchedCount = (int)($statusCounts['confirmed'] ?? 0)
+        $matchedCount = (int)($statusCounts['matched'] ?? 0);
+        $evidenceReadyCount = (int)($statusCounts['confirmed'] ?? 0)
             + (int)($statusCounts['high_confidence'] ?? 0)
-            + (int)($statusCounts['matched'] ?? 0)
             + (int)($statusCounts['found'] ?? 0);
         $missingSources = [];
         foreach (['ctrip_reviews', 'ctrip_orders'] as $key) {
@@ -705,11 +1018,15 @@ trait CtripReviewOrderMatchConcern
                 'im_session_count' => $sourceTables['ctrip_im_sessions'],
                 'order_count' => $sourceTables['ctrip_orders'],
                 'matched_count' => $matchedCount,
+                'manual_matched_count' => $matchedCount,
+                'evidence_ready_count' => $evidenceReadyCount,
                 'confirmed_count' => (int)($statusCounts['confirmed'] ?? 0),
                 'high_confidence_count' => (int)($statusCounts['high_confidence'] ?? 0),
                 'candidate_count' => (int)($statusCounts['candidate'] ?? 0),
                 'ambiguous_count' => (int)($statusCounts['ambiguous'] ?? 0),
                 'not_found_count' => (int)($statusCounts['not_found'] ?? 0),
+                'rejected_count' => (int)($statusCounts['rejected'] ?? 0),
+                'unbound_count' => (int)($statusCounts['unbound'] ?? 0),
             ],
             'status_counts' => $statusCounts,
             'samples' => $this->loadCtripReviewMatchRecentSamples($systemHotelId, 20),
@@ -727,12 +1044,13 @@ trait CtripReviewOrderMatchConcern
                 'min_matched' => $minMatched,
                 'required_sources' => ['ctrip_reviews', 'ctrip_orders'],
                 'optional_sources' => ['ctrip_im_sessions', 'pms_order_details'],
-                'accepted_match_statuses' => ['confirmed', 'high_confidence', 'matched', 'found'],
+                'accepted_match_statuses' => ['matched'],
+                'evidence_ready_statuses' => ['confirmed', 'high_confidence', 'found'],
             ],
             'next_commands' => $ready ? [] : $this->buildCtripReviewMatchClosureNextCommands($systemHotelId),
             'next_action' => $ready
-                ? '携程评价匹配闭环已由真实入库数据证明'
-                : '导入真实授权的携程评价和携程订单池后重跑；PMS订单详情与IM订单链接是可选增强证据，不是运行前提',
+                ? '携程评价匹配闭环已由真实入库数据、人工确认和保存回读证明'
+                : '导入真实授权的携程评价和订单池后重跑，并人工确认至少一条；PMS详情与IM订单链接是可选增强证据',
         ];
     }
 
@@ -964,7 +1282,7 @@ trait CtripReviewOrderMatchConcern
     {
         return [
             'comment_id' => $this->extractCtripReviewCommentId($review),
-            'source_username' => $this->firstCtripReviewMatchText($review, ['userName', 'user_name', 'sourceUsername', 'source_username', 'username', 'nickName', 'nick_name', 'user_name_masked']),
+            'source_username' => '',
             'avatar_url' => $this->firstCtripReviewMatchText($review, ['userIcon', 'user_icon', 'userAvatarUrl', 'user_avatar_url', 'avatarUrl', 'avatar_url']),
             'review_date' => $this->firstCtripReviewMatchText($review, ['reviewDate', 'review_date', 'addtime', 'addTime', 'publishTime', 'publish_time', 'commentTime', 'comment_time']),
             'checkin_date' => $this->firstCtripReviewMatchText($review, ['checkinTimeStr', 'checkInDate', 'check_in_date', 'checkinDate', 'checkin_date', 'arrivalDate', 'arrival_date', 'stayDate', 'stay_date']),
@@ -1008,6 +1326,12 @@ trait CtripReviewOrderMatchConcern
         }
         if ($status === 'unmatched') {
             return '未查到订单';
+        }
+        if ($status === 'rejected') {
+            return '已人工否决';
+        }
+        if ($status === 'unbound') {
+            return '已撤销绑定';
         }
         return '待查询';
     }
@@ -1778,7 +2102,7 @@ trait CtripReviewOrderMatchConcern
             'checkin_date' => $this->nullableCtripReviewMatchDate($this->firstCtripReviewMatchText($review, ['checkinTimeStr', 'checkInDate', 'check_in_date', 'checkinDate', 'arrivalDate', 'arrival_date', 'stayDate', 'stay_date'])),
             'room_name' => $this->firstCtripReviewMatchText($review, ['hotelRoomInfo', 'hotel_room_info', 'roomName', 'room_name', 'roomType', 'room_type', 'room_type_name', 'productName', 'product_name', 'ratePlanName', 'rate_plan_name']),
             'score' => $this->firstCtripReviewMatchNumber($review, ['avgScore', 'avg_score', 'score', 'rating', 'rate', 'totalScore', 'total_score', 'overallScore', 'overall_score', 'commentScore', 'comment_score', 'star']),
-            'content' => $this->firstCtripReviewMatchText($review, ['content', 'comment', 'commentContent', 'comment_content', 'reviewContent', 'review_content', 'contentText', 'content_text', 'commentText', 'comment_text', 'reviewText', 'review_text', 'text', '_dom_text']),
+            'content' => '',
             'raw_review_json' => $this->encodeCtripReviewMatchJson([
                 'source' => 'authorized_ctrip_review',
                 'scope' => 'ctrip_ota_channel',
@@ -1809,6 +2133,116 @@ trait CtripReviewOrderMatchConcern
 
         $row['create_time'] = date('Y-m-d H:i:s');
         return (int)Db::name('ota_ctrip_reviews')->insertGetId($row);
+    }
+
+    /**
+     * @param array<string,mixed> $row
+     * @param array<int,string> $verifyFields
+     * @return array<string,mixed>
+     */
+    private function upsertCtripReviewEvidenceWithReadback(
+        string $table,
+        int $systemHotelId,
+        string $keyField,
+        string $keyValue,
+        array $row,
+        array $verifyFields,
+        ?callable $mergeExisting = null
+    ): array {
+        Db::startTrans();
+        try {
+            $existing = Db::name($table)
+                ->where('system_hotel_id', $systemHotelId)
+                ->where($keyField, $keyValue)
+                ->lock(true)
+                ->find();
+            if ($existing) {
+                if ($mergeExisting !== null) {
+                    $row = $mergeExisting($row, $existing);
+                }
+                Db::name($table)->where('id', (int)$existing['id'])->update($row);
+                $id = (int)$existing['id'];
+            } else {
+                $row['create_time'] = $row['update_time'] ?? date('Y-m-d H:i:s');
+                $id = (int)Db::name($table)->insertGetId($row);
+            }
+
+            $readback = Db::name($table)
+                ->where('id', $id)
+                ->where('system_hotel_id', $systemHotelId)
+                ->where($keyField, $keyValue)
+                ->find();
+            if (!$readback) {
+                throw new \LogicException('携程点评订单证据保存后精确回读失败');
+            }
+            foreach ($verifyFields as $field) {
+                $actual = $readback[$field] ?? null;
+                $expected = $row[$field] ?? null;
+                if ($actual === null || $expected === null) {
+                    if ($actual === $expected) {
+                        continue;
+                    }
+                } elseif (is_numeric($actual) && is_numeric($expected)) {
+                    if ((float)$actual === (float)$expected) {
+                        continue;
+                    }
+                } elseif ((string)$actual === (string)$expected) {
+                    continue;
+                }
+                throw new \LogicException('携程点评订单证据保存后字段回读不一致: ' . $field);
+            }
+            Db::commit();
+            return $readback;
+        } catch (\Throwable $e) {
+            Db::rollback();
+            throw $e;
+        }
+    }
+
+    /** @param array<string,mixed> $row @return array<string,mixed> */
+    private function publicCtripReviewEvidenceReadback(array $row): array
+    {
+        return [
+            'id' => (int)$row['id'],
+            'system_hotel_id' => (int)$row['system_hotel_id'],
+            'comment_id' => (string)$row['comment_id'],
+            'review_date' => (string)($row['review_date'] ?? ''),
+            'checkin_date' => (string)($row['checkin_date'] ?? ''),
+            'room_name' => (string)($row['room_name'] ?? ''),
+            'score' => isset($row['score']) && is_numeric($row['score']) ? (float)$row['score'] : null,
+            'identity_fields_stored' => false,
+            'review_content_stored' => false,
+            'update_time' => (string)($row['update_time'] ?? ''),
+        ];
+    }
+
+    /** @param array<string,mixed> $row @return array<string,mixed> */
+    private function publicCtripOrderEvidenceReadback(array $row): array
+    {
+        return [
+            'id' => (int)$row['id'],
+            'system_hotel_id' => (int)$row['system_hotel_id'],
+            'order_id' => (string)$row['order_id'],
+            'arrival_date' => (string)($row['arrival_date'] ?? ''),
+            'departure_date' => (string)($row['departure_date'] ?? ''),
+            'room_name' => (string)($row['room_name'] ?? ''),
+            'order_status' => (string)($row['order_status'] ?? ''),
+            'identity_fields_stored' => false,
+            'update_time' => (string)($row['update_time'] ?? ''),
+        ];
+    }
+
+    /** @return array<string,mixed> */
+    private function ctripReviewMatchWriteSourceStatus(string $sourceMethod): array
+    {
+        return [
+            'scope' => 'ctrip_ota_channel',
+            'source_method' => $sourceMethod,
+            'storage_write' => true,
+            'readback_verified' => true,
+            'identity_resolution' => 'blocked_not_attempted',
+            'identity_fields_stored' => false,
+        ];
     }
 
     private function mergeCtripReviewMatchReviewRawJson(string $incomingJson, string $existingJson): string
@@ -2307,11 +2741,11 @@ trait CtripReviewOrderMatchConcern
      * @param array<string, mixed> $review
      * @param array<string, mixed> $result
      */
-    private function saveCtripReviewMatchAttempt(int $systemHotelId, array $review, array $result, string $source): void
+    private function saveCtripReviewMatchAttempt(int $systemHotelId, array $review, array $result, string $source): array
     {
         $commentId = $this->extractCtripReviewCommentId($review);
         if ($commentId === '') {
-            return;
+            throw new \RuntimeException('携程点评匹配结果缺少 commentId，未写入');
         }
 
         $order = is_array($result['order'] ?? null) ? $result['order'] : [];
@@ -2328,22 +2762,72 @@ trait CtripReviewOrderMatchConcern
             'evidence_json' => $this->encodeCtripReviewMatchJson([
                 'source' => $source,
                 'scope' => 'ctrip_ota_channel',
+                'identity_resolution' => 'blocked_not_attempted',
+                'identity_fields_stored' => false,
                 'result' => $result,
             ]),
+            'bound_by' => null,
+            'bound_at' => null,
             'update_time' => date('Y-m-d H:i:s'),
         ];
 
-        $existing = Db::name('ota_ctrip_review_order_matches')
-            ->where('system_hotel_id', $systemHotelId)
-            ->where('comment_id', $commentId)
-            ->find();
-        if ($existing) {
-            Db::name('ota_ctrip_review_order_matches')->where('id', (int)$existing['id'])->update($row);
-            return;
+        Db::startTrans();
+        try {
+            $existing = Db::name('ota_ctrip_review_order_matches')
+                ->where('system_hotel_id', $systemHotelId)
+                ->where('comment_id', $commentId)
+                ->lock(true)
+                ->find();
+            if ($existing && in_array((string)($existing['match_status'] ?? ''), ['matched', 'rejected', 'unbound'], true)) {
+                Db::commit();
+                return $existing + ['manual_decision_preserved' => true];
+            }
+            if ($existing) {
+                Db::name('ota_ctrip_review_order_matches')->where('id', (int)$existing['id'])->update($row);
+                $id = (int)$existing['id'];
+            } else {
+                $row['create_time'] = $row['update_time'];
+                $id = (int)Db::name('ota_ctrip_review_order_matches')->insertGetId($row);
+            }
+            $readback = Db::name('ota_ctrip_review_order_matches')
+                ->where('id', $id)
+                ->where('system_hotel_id', $systemHotelId)
+                ->where('comment_id', $commentId)
+                ->find();
+            if (
+                !$readback
+                || (string)($readback['order_id'] ?? '') !== (string)$row['order_id']
+                || (string)($readback['match_status'] ?? '') !== (string)$row['match_status']
+                || (string)($readback['match_method'] ?? '') !== (string)$row['match_method']
+                || (string)($readback['confidence'] ?? '') !== (string)$row['confidence']
+                || (string)($readback['candidate_orders_json'] ?? '') !== (string)$row['candidate_orders_json']
+                || (string)($readback['evidence_json'] ?? '') !== (string)$row['evidence_json']
+            ) {
+                throw new \LogicException('携程点评订单候选保存后精确回读失败');
+            }
+            Db::commit();
+            return $readback;
+        } catch (\Throwable $e) {
+            Db::rollback();
+            throw $e;
         }
+    }
 
-        $row['create_time'] = date('Y-m-d H:i:s');
-        Db::name('ota_ctrip_review_order_matches')->insert($row);
+    /** @param array<string,mixed> $row @return array<string,mixed> */
+    private function publicCtripReviewMatchAttemptReadback(array $row): array
+    {
+        return [
+            'id' => (int)($row['id'] ?? 0),
+            'system_hotel_id' => (int)($row['system_hotel_id'] ?? 0),
+            'comment_id' => (string)($row['comment_id'] ?? ''),
+            'order_id' => (string)($row['order_id'] ?? ''),
+            'match_status' => (string)($row['match_status'] ?? ''),
+            'match_method' => (string)($row['match_method'] ?? ''),
+            'confidence' => (string)($row['confidence'] ?? 'none'),
+            'manual_decision_preserved' => (bool)($row['manual_decision_preserved'] ?? false),
+            'identity_fields_stored' => false,
+            'update_time' => (string)($row['update_time'] ?? ''),
+        ];
     }
 
     /**

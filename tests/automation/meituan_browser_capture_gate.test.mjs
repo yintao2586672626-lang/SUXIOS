@@ -212,6 +212,7 @@ test('business date readback accepts only the response bound to the selected cap
   assert.equal(result.businessData.length, 1);
   assert.equal(result.businessData[0].lead_price, 1158);
   assert.equal(result.businessData[0].sales_room_nights, 1);
+  assert.equal(result.businessData[0].data_period, 'realtime_snapshot');
   assert.equal(result.businessData[0].date_source, 'page.business_period_selection.readback');
 });
 
@@ -285,6 +286,7 @@ test('uses today realtime selector readback, not refresh time, for same-day traf
   assert.equal(result.traffic[0].dataDate, '2026-07-28');
   assert.equal(result.traffic[0].data_date, '2026-07-28');
   assert.equal(result.traffic[0].data_updated_at, '2026-07-28');
+  assert.equal(result.traffic[0].data_period, 'realtime_snapshot');
   assert.equal(result.traffic[0].date_source, 'page.traffic_period_selection.readback');
   assert.equal(result.traffic[0].date_scope_evidence, 'meituan_traffic_today_realtime_tab');
   const filtered = filterMeituanCumulativeRowsByTargetDate(result, '2026-07-28');
@@ -393,6 +395,7 @@ test('accepts capture-context funnel date only when response and row share the v
   assert.equal(result.flowAnalysis.length, 1);
   assert.equal(result.flowAnalysis[0].exposureUV, 81);
   assert.equal(result.flowAnalysis[0].dataDate, '2026-08-08');
+  assert.equal(result.flowAnalysis[0].data_period, 'historical_daily');
   assert.equal(result.flowAnalysis[0].date_source, 'page.traffic_period_selection.readback');
   assert.equal(result.flowAnalysis[0].date_scope_evidence, 'meituan_traffic_yesterday_tab');
 });

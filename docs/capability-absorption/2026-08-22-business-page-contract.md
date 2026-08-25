@@ -37,7 +37,7 @@
 
 ## 现有黄金样例
 
-携程 eBooking 下载当前复用 `ctripSummaryDisplayCards`、`ctripDownloadRows`、`ctripEarlyMorningSourceNotice` 并由 `ctrip_channel_order_breakdown.test.mjs` 保护。它用于证明“页面与下载同源”的代码级合同，不提升为真实账号、生产或现场证据。
+携程 eBooking 下载当前直接读取竞争圈页面已经渲染出的卡片、当前标签表头、当前排序与分页行、来源提示和缺失状态，不再维护独立的 `ctripDownloadRows` 字段表；由 `ctrip_visible_download_snapshot.test.mjs` 与 `ctrip_channel_order_breakdown.test.mjs` 保护。它用于证明“页面与下载同源”的代码级合同，不提升为真实账号、生产或现场证据。
 
 ## 现有页面补齐
 

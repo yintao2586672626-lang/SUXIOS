@@ -1545,6 +1545,7 @@ test('collection child timeout is internal, non-zero, and leaves the exact run r
     // keep a generous outer ceiling so host load does not make the safety
     // contract flaky while a genuinely stuck runner still fails promptly.
     assert.ok(elapsed < 20_000, `timeout took ${elapsed}ms`);
+    assert.ok(elapsed < 8_000, `timeout took ${elapsed}ms`);
     assert.match(result.log, /dispatcher_child=timed_out;timeout_seconds=2;exit_code=124/);
     const state = JSON.parse(readFileSync(collectionStateFiles(fixture)[0], 'utf8'));
     assert.equal(state.status, 'started');

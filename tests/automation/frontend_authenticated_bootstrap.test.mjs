@@ -317,6 +317,7 @@ test('public login shell defers the authenticated application asset chain', () =
   );
   for (const deferredAsset of [
     'components/system/app-main-components.js',
+    'components/system/operating-intelligence-components.js',
     'ctrip-search-opportunity-static.js',
     'user-admin-static.js',
   ]) {
@@ -520,6 +521,7 @@ test('authenticated startup paints the compact page before progressively hydrati
     /if \(!normalizedPage\s*\|\| normalizedPage === 'compass'\s*\|\| document\.documentElement\.dataset\.suxiRenderPhase === 'full'\)/,
     'the startup compass must not pull the full-page asset manifest before a real page transition',
   );
+  assert.match(appMain, /if \(!normalizedPage\s*\|\| document\.documentElement\.dataset\.suxiRenderPhase === 'full'\)/);
   assert.match(
     appMain,
     /const promoteSuxiFullRender = \(\) => \{[\s\S]*!fullRenderRuntimeReady\(\)\) return false;/,
@@ -528,6 +530,7 @@ test('authenticated startup paints the compact page before progressively hydrati
   assert.match(
     appMain,
     /const handleSuxiFullRenderReady = \(\) => \{\s*clearSuxiFullRenderAttempt\(\);\s*if \(!fullRenderRuntimeReady\(\)\)[\s\S]*requestSuxiFullRenderForPage\(pendingFullRenderPage\)/,
+    /const handleSuxiFullRenderReady = \(\) => \{\s*if \(!fullRenderRuntimeReady\(\)\)[\s\S]*requestSuxiFullRenderForPage\(pendingFullRenderPage\)/,
     'the completed deferred-asset event must release the full-render barrier',
   );
   assert.match(
@@ -674,15 +677,12 @@ test('authenticated login lands on the today operating dashboard through one ent
   assert.match(appMain, /if \(options\.skipOtaBackground !== true\) \{[\s\S]*?loadLatestCtripData[\s\S]*?loadCompetitorSummary/);
 });
 
-test('authenticated dashboard defers secondary API requests beyond the first measurement window', () => {
+test('authenticated dashboard defers read-only secondary APIs and never schedules OTA collection', () => {
   const compassLoaderStart = appMain.indexOf('const loadCompassData = async (options = {}) => {');
   const compassLoaderEnd = appMain.indexOf('\n\n            const refreshCompassDashboard', compassLoaderStart);
   const compassLoader = appMain.slice(compassLoaderStart, compassLoaderEnd);
   assert.match(appMain, /const AUTHENTICATED_SECONDARY_REQUEST_DELAY_MS = 4600;/);
-  assert.match(
-    appMain,
-    /const scheduleDualOtaWorkbenchAutoFetch = \(delayMs = 9000\) => \{/,
-  );
+  assert.doesNotMatch(appMain, /scheduleDualOtaWorkbenchAutoFetch/);
   assert.match(
     appMain,
     /const scheduleInitialBackendNotificationRefresh = \(delayMs = AUTHENTICATED_SECONDARY_REQUEST_DELAY_MS\) => \{/,
@@ -700,7 +700,7 @@ test('authenticated dashboard defers secondary API requests beyond the first mea
     /deferUiTask\(async \(\) => \{[\s\S]*?const compassBackgroundJobs = \[/,
   );
   assert.match(appMain, /scheduleStartupHotelListLoad\(\);\s*schedulePublicSystemConfigRefresh\(\);/);
-  assert.doesNotMatch(appMain, /scheduleDualOtaWorkbenchAutoFetch = \(delayMs = 900\)/);
+  assert.match(appMain, /\/\/ 手动触发自动获取\s+const triggerAutoFetch = async/);
   assert.doesNotMatch(appMain, /scheduleInitialBackendNotificationRefresh = \(delayMs = 800\)/);
   assert.doesNotMatch(appMain, /schedulePublicSystemConfigRefresh = \(delayMs = 1800\)/);
 });
@@ -784,4 +784,53 @@ test('dual OTA loss-chain grid follows the actual node count', () => {
     style,
     /grid-template-columns:\s*repeat\(var\(--dual-ota-loss-columns,\s*5\),\s*minmax\(0,\s*1fr\)\)/,
   );
+});
+
+test('authenticated dashboard defers secondary API requests beyond the first measurement window', () => {
+  const compassLoaderStart = appMain.indexOf('const loadCompassData = async (options = {}) => {');
+  const compassLoaderEnd = appMain.indexOf('\n\n            const refreshCompassDashboard', compassLoaderStart);
+  const compassLoader = appMain.slice(compassLoaderStart, compassLoaderEnd);
+  assert.match(appMain, /const AUTHENTICATED_SECONDARY_REQUEST_DELAY_MS = 4600;/);
+  assert.match(
+    appMain,
+    /const scheduleDualOtaWorkbenchAutoFetch = \(delayMs = 9000\) => \{/,
+  );
+  assert.match(
+    appMain,
+    /const scheduleInitialBackendNotificationRefresh = \(delayMs = AUTHENTICATED_SECONDARY_REQUEST_DELAY_MS\) => \{/,
+  );
+  assert.match(
+    appMain,
+    /const schedulePublicSystemConfigRefresh = \(delayMs = AUTHENTICATED_SECONDARY_REQUEST_DELAY_MS\) => \{/,
+  );
+  assert.match(
+    compassLoader,
+    /scheduleDelayedPageTask\(async \(\) => \{[\s\S]*?const compassBackgroundJobs = \[[\s\S]*?\}, 6200\);/,
+  );
+  assert.doesNotMatch(
+    compassLoader,
+    /deferUiTask\(async \(\) => \{[\s\S]*?const compassBackgroundJobs = \[/,
+  );
+  assert.match(appMain, /scheduleStartupHotelListLoad\(\);\s*schedulePublicSystemConfigRefresh\(\);/);
+  assert.doesNotMatch(appMain, /scheduleDualOtaWorkbenchAutoFetch = \(delayMs = 900\)/);
+  assert.doesNotMatch(appMain, /scheduleInitialBackendNotificationRefresh = \(delayMs = 800\)/);
+  assert.doesNotMatch(appMain, /schedulePublicSystemConfigRefresh = \(delayMs = 1800\)/);
+});
+
+test('login intent preloads only the authenticated entry before the sequential startup barrier', () => {
+  assert.match(bootstrap, /const authenticatedStartupAssets = \(\) => \([\s\S]*asset\.phase === ASSET_PHASE_STARTUP/);
+  assert.match(bootstrap, /const preloadAuthenticatedEntry = \(\) => \{/);
+  assert.doesNotMatch(bootstrap, /preloadAuthenticatedStartupDependencies/);
+  assert.match(bootstrap, /link\.rel = 'preload'/);
+  assert.match(bootstrap, /link\.as = asset\.type === ASSET_TYPE_STYLE \? 'style' : 'script'/);
+  assert.match(bootstrap, /link\.dataset\.suxiAuthenticatedStartupPreload = assetName/);
+  assert.match(bootstrap, /preloadAuthenticatedAsset\(entry, 'high'\)/);
+  assert.match(bootstrap, /authenticatedStartupPreloadLinks\.delete\(assetName\)/);
+  assert.match(bootstrap, /form\.addEventListener\('focusin', preloadAuthenticatedEntry\)/);
+  assert.match(bootstrap, /const handleInput = \(\) => \{[\s\S]*?preloadAuthenticatedEntry\(\)/);
+
+  const submitStart = bootstrap.indexOf("form.addEventListener('submit'");
+  const entryPreloadOffset = bootstrap.indexOf('preloadAuthenticatedEntry();', submitStart);
+  const loginRequestOffset = bootstrap.indexOf("fetchJson('/api/auth/login'", submitStart);
+  assert(submitStart >= 0 && entryPreloadOffset > submitStart && loginRequestOffset > entryPreloadOffset);
 });

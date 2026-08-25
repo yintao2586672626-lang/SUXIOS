@@ -70,9 +70,16 @@ test('Ctrip display removes unsupported estimates and refuses to invent full-cha
   assert.doesNotMatch(appMain, /field: 'fullChannelRoomNightsEstimate'|label: '全渠道间夜'|fullChannelRoomNightText/);
   assert.doesNotMatch(ctripStaticSource, /deriveCtripFullChannelRoomNightMultiplier|1\.15\s*\+|scenario_estimate/);
 
-  const downloadTable = sliceBetween(appMain, 'const ctripDownloadRows', 'const buildCtripBusinessCanvas');
+  const downloadAdapter = sliceBetween(appMain, 'const buildCtripBusinessCanvas', 'const canvasToPngBlob');
+  assert.match(downloadAdapter, /captureCtripBusinessDownloadSnapshot/);
+  assert.match(downloadAdapter, /cards: visibleSnapshot\.cards/);
+  assert.match(downloadAdapter, /table: visibleSnapshot\.table/);
+  assert.doesNotMatch(appMain, /const ctripDownloadRows/);
+  assert.match(appTemplate, /hasDisplayValue\(hotel\.amount\)[\s\S]*Number\(hotel\.amount\)\.toLocaleString\('zh-CN', \{ minimumFractionDigits: 1, maximumFractionDigits: 1 \}\)/);
+  assert.match(appTemplate, /hasDisplayValue\(hotel\.adr\)[\s\S]*Number\(hotel\.adr\)\.toLocaleString\('zh-CN', \{ minimumFractionDigits: 1, maximumFractionDigits: 1 \}\)/);
   for (const field of ['quantity', 'bookOrderNum', 'commentScore', 'qunarCommentScore']) {
     assert.match(downloadTable, new RegExp(`formatOptionalNumber\\(row\\.${field}\\)`), `${field} must preserve zero while keeping missing values explicit`);
+    assert.match(appTemplate, new RegExp(`formatOptionalNumber\\(hotel\\.${field}\\)`), `${field} must preserve the visible zero/missing state`);
   }
   assert.match(appTemplate, /hasDisplayValue\(hotel\.amount\)[\s\S]*Number\(hotel\.amount\)\.toLocaleString\('zh-CN', \{ minimumFractionDigits: 1, maximumFractionDigits: 1 \}\)/);
   assert.match(appTemplate, /hasDisplayValue\(hotel\.adr\)[\s\S]*Number\(hotel\.adr\)\.toLocaleString\('zh-CN', \{ minimumFractionDigits: 1, maximumFractionDigits: 1 \}\)/);
@@ -84,6 +91,8 @@ test('Ctrip display removes unsupported estimates and refuses to invent full-cha
   assert.match(appMain, /const formatOptionalPercent = \(value, missingText = '未返回'\) => \{[\s\S]*Number\.isFinite\(numeric\) \? `\$\{toFixedSafe\(numeric, 2, '0\.00'\)\}%` : missingText/);
   assert.match(downloadTable, /: formatOptionalNumber\(value\)/);
   assert.doesNotMatch(downloadTable, /`≈\$\{formatNumber\(value\)\}`/);
+  assert.match(ctripStaticSource, /ctripVisibleDownloadNodeText/);
+  assert.match(ctripStaticSource, /row => row\?\.\[columnIndex\] \?\? '-'/);
 });
 
 test('Ctrip templates expose source boundaries and no unsupported full-channel room-night formula', () => {

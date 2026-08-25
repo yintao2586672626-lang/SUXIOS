@@ -233,6 +233,40 @@ final class CtripReviewOrderMatchServiceTest extends TestCase
         self::assertContains('点评时间与离店时间硬冲突', $result['review_flags']);
     }
 
+    public function testCandidateGapBelowTwentyIsAmbiguous(): void
+    {
+        $service = new CtripReviewOrderMatchService();
+
+        $result = $service->matchReviewToOrder([
+            'commentId' => 'comment-gap-13',
+            'publishTime' => '2026-07-10 16:00:00',
+            'hotelRoomInfo' => '景观大床房',
+        ], [], [[
+            'orderId' => 'ctrip-gap-top',
+            'departureDate' => '2026-07-08',
+            'arrivalDate' => '2026-07-06',
+            'roomName' => '景观大床房',
+            'orderStatus' => '已退房',
+            'amount' => 688,
+            'detailVerified' => true,
+            'platform' => 'ctrip',
+        ], [
+            'orderId' => 'ctrip-gap-second',
+            'departureDate' => '2026-07-04',
+            'arrivalDate' => '2026-07-02',
+            'roomName' => '景观大床房',
+            'orderStatus' => '已退房',
+            'amount' => 688,
+            'detailVerified' => false,
+            'platform' => 'ctrip',
+        ]], ['store_mapping_verified' => true]);
+
+        self::assertSame('ambiguous', $result['status']);
+        self::assertSame(13, $result['candidates'][0]['score'] - $result['candidates'][1]['score']);
+        self::assertContains('前两名候选分差小于20', $result['review_flags']);
+        self::assertNull($result['order']);
+    }
+
     public function testNotFoundRequiresAllConfiguredWindowsToBeExhausted(): void
     {
         $service = new CtripReviewOrderMatchService();

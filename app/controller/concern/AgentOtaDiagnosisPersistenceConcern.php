@@ -154,12 +154,36 @@ trait AgentOtaDiagnosisPersistenceConcern
         }
 
         if ($result['decision_status'] === 'no_action') {
-            $platformLabel = $this->otaDiagnosisPlatformLabel($result['platform'] ?? null);
+            $platformLabel = match (strtolower((string)($result['platform'] ?? ''))) {
+                'ctrip' => '携程',
+                'meituan' => '美团',
+                default => 'OTA',
+            };
             $summary = sprintf(
                 '本次%s渠道已覆盖的入库核心字段通过校验，未发现达到当前诊断阈值的异常；该结论仅限本次渠道数据，“无需新增行动”，继续观察下一数据日。',
                 $platformLabel
             );
-            $priorityRecommendation = $this->otaDiagnosisNoActionPriorityRecommendation($result);
+            $trafficGapLabels = [
+                'metric_missing:list_exposure' => '列表曝光',
+                'metric_missing:detail_visitors' => '详情访问',
+                'metric_missing:flow_rate' => '流量转化率',
+                'metric_missing:order_visitors' => '下单访问用户',
+                'metric_missing:submit_users' => '提交用户',
+            ];
+            $missingTrafficLabels = [];
+            foreach ((array)($result['optional_data_gaps'] ?? []) as $gap) {
+                $code = is_array($gap) ? trim((string)($gap['code'] ?? '')) : trim((string)$gap);
+                if (isset($trafficGapLabels[$code])) {
+                    $missingTrafficLabels[] = $trafficGapLabels[$code];
+                }
+            }
+            $missingTrafficLabels = array_values(array_unique($missingTrafficLabels));
+            $priorityRecommendation = $missingTrafficLabels !== []
+                ? sprintf(
+                    '最重要建议：暂不依据单日收入、间夜和ADR调整渠道价格或页面；先补齐本营业日的%s，再判断价格或转化优化方向。',
+                    implode('、', $missingTrafficLabels)
+                )
+                : '最重要建议：保持当前渠道策略，继续保存下一营业日同口径收入、间夜、订单和ADR，再用连续事实判断是否需要调整。';
             $result['diagnosis']['summary'] = $summary;
             $result['diagnosis']['abnormal_metrics'] = [];
             $result['diagnosis']['actions'] = [];
@@ -1778,11 +1802,30 @@ trait AgentOtaDiagnosisPersistenceConcern
                 $this->addNullableOtaDiagnosisMetric($summary['daily'][$date], $key, $value);
             }
 
-            $coreValueState = $this->otaDiagnosisCoreValueState($dataType, [$amount, $quantity, $bookOrderNum], array_values($traffic));
-            if ($coreValueState === 'missing') {
-                $missingCoreValueCount++;
-            } elseif ($coreValueState === 'zero') {
-                $zeroValueCount++;
+            if (in_array($dataType, ['business', 'order', 'traffic'], true)) {
+                $revenueCoreValues = [$amount, $quantity, $bookOrderNum];
+                $trafficCoreValues = array_values($traffic);
+                $knownCoreValues = array_values(array_filter(
+                    array_merge($revenueCoreValues, $trafficCoreValues),
+                    static fn(?float $value): bool => $value !== null
+                ));
+                if ($knownCoreValues === []) {
+                    $missingCoreValueCount++;
+                } else {
+                    $revenueGroupComplete = count(array_filter(
+                        $revenueCoreValues,
+                        static fn(?float $value): bool => $value !== null
+                    )) === count($revenueCoreValues);
+                    $trafficGroupComplete = count(array_filter(
+                        $trafficCoreValues,
+                        static fn(?float $value): bool => $value !== null
+                    )) === count($trafficCoreValues);
+                    if (($revenueGroupComplete || $trafficGroupComplete)
+                        && count(array_filter($knownCoreValues, static fn(float $value): bool => $value > 0)) === 0
+                    ) {
+                        $zeroValueCount++;
+                    }
+                }
             }
         }
 

@@ -229,7 +229,8 @@ window.SUXI_OPERATION_STATIC = (() => {
         || item?.execution?.mode === 'analysis_only'
         || item?.approval?.status === 'system_authorized_analysis';
     const operationUsesIndependentAiReview = (item) => item?.action_management?.contract_version === 'operation_action_card.v1'
-        && item?.recommendation?.source_module === 'operating_question';
+        && String(item?.action_management?.action_card?.approval?.mode || '').trim().toLowerCase()
+            === 'ai_independent_review';
     const operationCanApproveExecution = (item) => !operationIsProtectedSystemAnalysis(item)
         && !operationUsesIndependentAiReview(item)
         && item?.approval?.status === 'pending_approval';
@@ -251,7 +252,7 @@ window.SUXI_OPERATION_STATIC = (() => {
         && item?.execution?.status === 'executed'
         && item?.review?.is_available === true
         && item?.evidence_truth?.source_verified !== true
-        && ['ota_diagnosis_saved', 'operating_question'].includes(item?.recommendation?.source_module)
+        && ['ota_diagnosis_saved', 'operating_question', 'revenue_cockpit_action'].includes(item?.recommendation?.source_module)
         && !['success', 'near_success', 'failed'].includes(item?.review?.status || '')
         && Number(item?.execution?.task_id || 0) > 0;
     const operationExecutionActionAvailable = (item) => operationCanApproveExecution(item)
@@ -661,13 +662,32 @@ window.SUXI_OPERATION_STATIC = (() => {
         };
     };
     const operationExecutionNodeRecordText = (item = {}) => {
+        const evidenceSummary = item?.evidence_summary || {};
+        const evidenceCount = Number(evidenceSummary.count ?? (Array.isArray(item?.evidence) ? item.evidence.length : 0));
+        const evidenceTypes = Array.isArray(evidenceSummary.types)
+            ? evidenceSummary.types.map(value => String(value || '').trim()).filter(Boolean)
+            : [];
+        const evidenceParts = [];
+        if (Number.isInteger(evidenceCount) && evidenceCount > 0) {
+            evidenceParts.push(`执行证据 ${evidenceCount} 条`);
+        }
+        if (evidenceTypes.length) {
+            evidenceParts.push(`类型：${evidenceTypes.join('、')}`);
+        }
+        if (item?.evidence_truth?.source_verified === true) {
+            evidenceParts.push('同口径来源事实已核验');
+        }
         const node = item?.evidence_summary?.node_record || {};
-        if (node.status === 'identity_mismatch') return '节点检查身份不一致，已拒绝回填';
-        if (node.status !== 'available') return '节点检查未记录';
+        if (node.status === 'identity_mismatch') {
+            return [...evidenceParts, '节点检查身份不一致，已拒绝回填'].join('；');
+        }
+        if (node.status !== 'available') {
+            return [...evidenceParts, '节点检查未记录'].join('；');
+        }
         const period = ({ weekday: '周内', weekend: '周末', holiday: '节假日', special_event: '特殊事件' }[node.operating_period] || '周期未回读');
         const alignment = ({ operator_confirmed: '房态人工确认一致', mismatch: '房态不一致', unverified: '房态未核验' }[node.room_status_alignment] || '房态状态未回读');
         const progress = ({ normal: '进度正常', too_fast: '进度过快', too_slow: '进度过慢', insufficient_evidence: '证据不足' }[node.progress_status] || '进度未判断');
-        return `${period} · ${alignment} · ${progress}`;
+        return [...evidenceParts, `${period} · ${alignment} · ${progress}`].join('；');
     };
     const operationExecutionRoiText = (roi, formatters = {}) => {
         const formatter = operationFormatters(formatters);
@@ -694,7 +714,7 @@ window.SUXI_OPERATION_STATIC = (() => {
                 label: '行动评审',
                 value: total ? `${approved}/${total}` : '待评审',
                 className: approved ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : 'bg-amber-50 text-amber-700 border-amber-100',
-                detail: '经营问答行动由独立 AI 评审；其他外部操作仍按对应人工授权规则处理，驳回原因保留在记录中。',
+                detail: '所有受管行动都由用户主动二次确认；AI 只能提供建议，不能批准、建任务或执行外部操作。',
             },
             {
                 key: 'evidence',

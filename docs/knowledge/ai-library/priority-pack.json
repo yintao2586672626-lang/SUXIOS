@@ -1,0 +1,122 @@
+{
+  "schema_version": 1,
+  "seed_version": "2026-08-14.1",
+  "reviewed_at": "2026-08-15",
+  "source_count": 4,
+  "entry_count": 3,
+  "sources": [
+    {
+      "title": "酒店预订进度日常运营方法论0713.pdf",
+      "source_paths": [
+        "D:\\桌面\\SUXIOS\\AI知识库资料\\酒店预订进度日常运营方法论0713.pdf",
+        "F:\\wx\\wenjian\\xwechat_files\\wxid_l89br9o85qih21_3b01\\temp\\RWTemp\\2026-08\\d4c90a7a9dd6f3c17b8eeeef118b08a4\\酒店预订进度日常运营方法论0713.pdf"
+      ],
+      "source_sha256": "c9be631e1f2cc7905259ecaa005ccbe18c89c9e49dd9817dcddf7e5ea7131fa4",
+      "source_date": "2022-05-02",
+      "extraction_status": "extracted",
+      "classification": "industry_method_reference"
+    },
+    {
+      "title": "墨客5月24日长龙店数据分析(06061730) 2.docx",
+      "source_paths": [
+        "F:\\wx\\wenjian\\xwechat_files\\wxid_l89br9o85qih21_3b01\\temp\\RWTemp\\2026-08\\d4c90a7a9dd6f3c17b8eeeef118b08a4\\墨客5月24日长龙店数据分析(06061730) 2.docx"
+      ],
+      "source_sha256": "c1d7e9099de1a618a31667124ebee89b981f24da7ac8621319888b5c11681307",
+      "source_date": "2024-05-26",
+      "extraction_status": "extracted",
+      "classification": "internal_hotel_case_sensitive_reference"
+    },
+    {
+      "title": "小红书内容工作流-SKILL.md",
+      "source_paths": [
+        "F:\\wx\\wenjian\\xwechat_files\\wxid_l89br9o85qih21_3b01\\temp\\RWTemp\\2026-08\\d4c90a7a9dd6f3c17b8eeeef118b08a4\\小红书内容工作流-SKILL.md"
+      ],
+      "source_sha256": "a17e29b87cd568a37a80089f92c6e0752bcf54f6204b7fa428acb35052ec4301",
+      "source_date": null,
+      "extraction_status": "static_review_only_not_installed",
+      "classification": "untrusted_third_party_skill_reference",
+      "asset_review": {
+        "declared_name": "xiaohongshu-workflow",
+        "declared_version": "1.0.0",
+        "declared_author": "Hermes Agent",
+        "declared_license": "MIT",
+        "declared_platforms": ["macos", "linux"],
+        "executable_or_script_files": 0,
+        "referenced_dependencies": [],
+        "requested_actions": ["write_project_files", "prepare_content", "publish_and_review"],
+        "installation_status": "not_installed",
+        "compatibility": "conceptual_workflow_only"
+      }
+    },
+    {
+      "title": "酒店小红书操作手册.html",
+      "source_paths": [
+        "F:\\wx\\wenjian\\xwechat_files\\wxid_l89br9o85qih21_3b01\\temp\\RWTemp\\2026-08\\d4c90a7a9dd6f3c17b8eeeef118b08a4\\酒店小红书操作手册.html"
+      ],
+      "source_sha256": "f722739e2912f14d463746d4288da7349bfee24eb8045a9d31a139bf8ac912fa",
+      "source_date": null,
+      "extraction_status": "extracted",
+      "classification": "internal_training_reference"
+    }
+  ],
+  "entries": [
+    {
+      "key": "ai_priority:booking_progress_daily_operating_loop:v1",
+      "title": "重点｜酒店预订进度日常运营闭环（远期—日内—动作—回读）",
+      "source_filename": "酒店预订进度日常运营方法论0713.pdf",
+      "source_sha256": "c9be631e1f2cc7905259ecaa005ccbe18c89c9e49dd9817dcddf7e5ea7131fa4",
+      "topic": "预订进度",
+      "classification": "priority_method_reference",
+      "body_markdown": "# 酒店预订进度日常运营闭环\n\n## 核心吸收\n\n把预订进度拆成两个时间尺度：远期 1–99 天的需求形态，以及当日从夜审后到夜审前的节点变化。先识别酒店和商圈类型，再用同酒店、同经营周期的可比历史形成基线，比较当前节点的在手预订、出租率、ADR、RevPAR、剩余库存、房型空置、预订增量和取消增量。只有在差异有来源证据时，才提出价格、库存、房型、流量或服务动作。动作必须保存原因、预期、有效期，并在下一节点回读结果。\n\n## 宿析标准流程\n\n1. 固定事实范围：系统酒店、平台或 PMS、业务日期、采集时间、总房量与可售口径。\n2. 远期看板：按到店日前置天数查看在手间夜、收入、取消和房型分布；1–99 天只是观察窗口，不是所有酒店的固定预订周期。\n3. 日内节点：依据预订波动选择 30、60 或 120 分钟粒度；每个节点记录 pickup、取消、OCC、ADR、RevPAR、剩余库存和房型可售率。\n4. 可比基线：优先同星期、同季节、同活动或天气条件；明确排除节假日、团队取消、超售等异常，并同时展示样本数与离散程度。\n5. 四类原因：本酒店因素、竞争对手因素、市场与客人需求、天气或事件等其他因素。缺任何关键来源时标记 evidence_missing，不生成肯定原因。\n6. 动作建议：价格、开关房与库存、房型升级或置换、渠道流量与内容、前台服务；每条都必须给证据、影响房型、保护条件、截止时间和人工确认。\n7. 保存回读：记录动作前快照、建议、审批、执行状态和动作后节点；区分未执行、执行未回读、有效、无效和结论不确定。\n\n## 保护条件\n\n不得把竞对最低价直接当建议价；不得以单一出租率判断涨降价；不得在房量、渠道价格口径或成交价缺失时推荐外部操作；不得自动写 OTA、PMS 或向外发送。原文中的提前预订天数、温度阈值、调价经验和案例增幅均属于历史经验，需要用当前酒店数据重新验证。",
+      "evidence_grade": "D",
+      "decision_policy": "priority_reference_only_human_review_required",
+      "decision_safe": false,
+      "external_write_authorized": false
+    },
+    {
+      "key": "ai_priority:booking_progress_case_evidence_calibration:v1",
+      "title": "重点｜预订进度案例的事件重算与房型/全店双层验收",
+      "source_filename": "墨客5月24日长龙店数据分析(06061730) 2.docx",
+      "source_sha256": "c1d7e9099de1a618a31667124ebee89b981f24da7ac8621319888b5c11681307",
+      "topic": "预订进度",
+      "classification": "priority_internal_case_synthesis",
+      "body_markdown": "# 预订进度案例的证据校准\n\n## 可迁移方法\n\n重大订单或库存事件发生后必须重新建基线。案例中团队订单取消使同一业务日的起始出租率从 39.56% 变为 23.08%，原预测和动作条件随即失效；宿析应把 group_cancel、large_booking、inventory_change、out_of_order_change 作为重新计算触发器，而不是沿用旧建议。\n\n可比日不能只按起始出租率 ±5% 机械筛选，还要匹配星期、节假日、市场事件、天气、可售房量和客源结构，并显示样本数、均值或中位数、范围及被排除日期。\n\n## 双层验收\n\n案例当日全店 OCC 69.23%、ADR 168.90、RevPAR 116.93；可比样本均值为 OCC 68.01%、ADR 186.06、RevPAR 128.19。某个麻将双床房达到满售且该房型 RevPAR 高于近期均值，不代表全店收益同步改善。宿析必须同时验收：\n\n- 房型层：可售、已售、OCC、ADR、房型 RevPAR、价格与库存动作。\n- 全店层：OCC、ADR、RevPAR、客房收入、渠道净收入和取消影响。\n\n若房型改善而全店关键收益指标下降，结论应为 mixed_result，而不是 success。单日、非随机、人工干预案例只能说明相关性和可操作假设，不能宣称因果或可复制增幅。\n\n## 数据边界\n\n原文是 2024 年单店内部案例，含内部与个人信息；宿析只吸收匿名化方法和历史指标，不把酒店身份、联系方式、地址或当日价格当作当前事实，不自动生成定价任务。",
+      "evidence_grade": "D",
+      "decision_policy": "historical_case_reference_only_no_causal_claim",
+      "decision_safe": false,
+      "external_write_authorized": false
+    },
+    {
+      "key": "ai_priority:hotel_xiaohongshu_content_review_loop:v1",
+      "title": "重点｜酒店小红书内容生产—发布—数据复盘闭环",
+      "source_filename": "小红书内容工作流-SKILL.md + 酒店小红书操作手册.html",
+      "source_sha256": "a17e29b87cd568a37a80089f92c6e0752bcf54f6204b7fa428acb35052ec4301",
+      "source_sha256_refs": [
+        "a17e29b87cd568a37a80089f92c6e0752bcf54f6204b7fa428acb35052ec4301",
+        "f722739e2912f14d463746d4288da7349bfee24eb8045a9d31a139bf8ac912fa"
+      ],
+      "topic": "内容运营",
+      "classification": "priority_workflow_synthesis",
+      "body_markdown": "# 酒店小红书内容闭环\n\n## 可复用流程\n\n账号定位 → 选题池 → 本周筛选 → 人工选定一题 → 8 页图文初稿与做图说明 → 人工事实和口吻审核 → 明确授权后发布 → 记录平台真实数据 → 复盘并更新选题池。AI 负责结构化和草稿，不代替真实经验、事实核验与发布审批。\n\n建议保存字段：账号、内容 ID、选题类型、标题与封面版本、发布时间、曝光或阅读、点赞、收藏、评论、关注、转发、私信或合规转化、数据采集时间和平台来源。复盘至少同时看收藏率、互动率、关注转化率及样本量；分母缺失时只展示原始计数，不编造比率。\n\n## 内容保护\n\n禁止虚构酒店经营数据、客户案例、效果增幅和收益承诺；禁止未经授权披露住客、员工、酒店内部数据或贬损竞对；AI 稿必须人工复核。发布时段、首小时推流、固定页数和标题公式是待验证启发式，不是平台当前规则或必然结果。任何账号登录、发布、评论或私信动作都需要明确的账号与本次外部写入授权。\n\n## 外来 Skill 审阅\n\n`xiaohongshu-workflow` v1.0.0 声明作者 Hermes Agent、MIT 许可、macOS/Linux；文件中无脚本和依赖安装，但包含写项目文件与发布复盘指令。本次仅吸收其流程思想，未安装、未执行，也未授予任何平台写权限。",
+      "evidence_grade": "D",
+      "decision_policy": "workflow_reference_draft_only_explicit_publish_authorization_required",
+      "decision_safe": false,
+      "external_write_authorized": false
+    }
+  ],
+  "boundary": {
+    "scope": "user_prioritized_method_and_historical_case_reference",
+    "contains_current_hotel_fact": false,
+    "decision_safe": false,
+    "task_draft_safe": false,
+    "external_write_authorized": false,
+    "required_before_business_use": [
+      "system_hotel_identity",
+      "platform_or_pms_source",
+      "business_date",
+      "fresh_collection_or_verified_import",
+      "save_readback",
+      "human_review"
+    ]
+  }
+}

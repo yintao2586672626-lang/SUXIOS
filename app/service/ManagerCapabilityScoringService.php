@@ -1209,6 +1209,7 @@ final class ManagerCapabilityScoringService
         $coachingSuggestions = $this->buildCoachingSuggestions($aggregate);
         $confidenceSummary = $this->buildEvidenceConfidenceSummary($activeCases);
         $pilotReadiness = $this->buildPilotReadiness($activeCases);
+        $dailySubmission = $this->summarizeDailySubmission($publicCases, $to);
         $scanComplete = ($scan['metadata']['complete'] ?? false) === true;
         $profileDataGaps = array_values((array)$aggregate['data_gaps']);
         if (!$scanComplete) {
@@ -1239,6 +1240,7 @@ final class ManagerCapabilityScoringService
             'coaching_suggestions' => $coachingSuggestions,
             'evidence_confidence_summary' => $confidenceSummary,
             'pilot_readiness' => $pilotReadiness,
+            'daily_submission' => $dailySubmission,
             'privacy_scope' => $includePrivateDetails ? 'evidence_detail' : 'aggregate_only',
             'recent_cases' => $includePrivateDetails ? array_slice($publicCases, 0, 10) : [],
             'scoring_contract' => [
@@ -1268,6 +1270,94 @@ final class ManagerCapabilityScoringService
                 '不自动审批、建任务、操作OTA或PMS',
                 '人工录入事实尚未被系统独立核验',
             ],
+        ];
+    }
+
+    /**
+     * Projects a single business day's three-question submission state without
+     * treating submission as proof that the underlying case is closed.
+     *
+     * @param array<int, array<string, mixed>> $cases
+     * @return array<string, mixed>
+     */
+    public function summarizeDailySubmission(array $cases, string $asOfDate): array
+    {
+        $asOfDate = $this->validDate($asOfDate, '三问提交状态日期');
+        $timezone = new \DateTimeZone('Asia/Shanghai');
+        $asOf = new \DateTimeImmutable($asOfDate, $timezone);
+        $today = new \DateTimeImmutable('today', $timezone);
+        $sameDayCases = [];
+        $lastSubmissionDate = null;
+        $activeScannedCount = 0;
+        $invalidDateCount = 0;
+
+        foreach ($cases as $case) {
+            if (!is_array($case) || ($case['is_voided'] ?? false) === true) {
+                continue;
+            }
+            $businessDate = trim((string)($case['business_date'] ?? ''));
+            $parsed = \DateTimeImmutable::createFromFormat('!Y-m-d', $businessDate, $timezone);
+            $errors = \DateTimeImmutable::getLastErrors();
+            if ($parsed === false
+                || ($errors !== false && (($errors['warning_count'] ?? 0) > 0 || ($errors['error_count'] ?? 0) > 0))
+                || $parsed->format('Y-m-d') !== $businessDate
+            ) {
+                $invalidDateCount++;
+                continue;
+            }
+            if ($businessDate > $asOfDate) {
+                continue;
+            }
+
+            $activeScannedCount++;
+            if ($lastSubmissionDate === null || $businessDate > $lastSubmissionDate) {
+                $lastSubmissionDate = $businessDate;
+            }
+            if ($businessDate === $asOfDate) {
+                $sameDayCases[] = $case;
+            }
+        }
+
+        $caseIds = array_values(array_unique(array_filter(array_map(
+            static fn(array $case): int => (int)($case['id'] ?? 0),
+            $sameDayCases
+        ), static fn(int $caseId): bool => $caseId > 0)));
+        $caseCount = count($sameDayCases);
+        $isCurrentDay = $asOfDate === $today->format('Y-m-d');
+        $status = $caseCount > 0 ? 'submitted' : 'not_submitted';
+        $missingDays = null;
+        $attentionStatus = 'none';
+
+        if ($status === 'submitted') {
+            $missingDays = 0;
+        } elseif ($lastSubmissionDate === null) {
+            $attentionStatus = 'no_history';
+        } else {
+            $lastSubmission = new \DateTimeImmutable($lastSubmissionDate, $timezone);
+            $missingDays = (int)$lastSubmission->diff($asOf)->days;
+            $attentionStatus = $missingDays >= 3 ? 'three_day_missing' : 'due';
+        }
+
+        return [
+            'business_date' => $asOfDate,
+            'timezone' => 'Asia/Shanghai',
+            'status' => $status,
+            'label' => $status === 'submitted'
+                ? ($isCurrentDay ? '今日已提交' : '当日已提交')
+                : ($isCurrentDay ? '今日尚未提交' : '当日未提交'),
+            'case_count' => $caseCount,
+            'case_ids' => $caseIds,
+            'last_submission_date' => $lastSubmissionDate,
+            'consecutive_missing_days' => $missingDays,
+            'attention_status' => $attentionStatus,
+            'history_status' => $lastSubmissionDate === null ? 'empty' : 'available',
+            'active_case_scan_count' => $activeScannedCount,
+            'invalid_business_date_count' => $invalidDateCount,
+            'source_quality_status' => 'manual_declared',
+            'independent_verification' => false,
+            'closure_inferred' => false,
+            'closure_note' => '已提交不等于已闭环；仍以复查事件和可核对的验证结果为准',
+            'automation_policy' => '状态只供人工查看，不自动提醒、建任务、处罚或外发',
         ];
     }
 
