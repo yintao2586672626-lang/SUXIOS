@@ -15452,7 +15452,7 @@
                 return timer;
             };
             const currentPageReadPolicy = (pageKey = currentPage.value, priority = 'current') => {
-                const businessContext = currentBusinessRequestContext();
+                const businessContext = currentBusinessRequestContext() || {};
                 const tenantId = String(
                     businessContext.tenant_id
                     || businessContext.tenantId

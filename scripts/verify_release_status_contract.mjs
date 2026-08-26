@@ -154,7 +154,7 @@ const requiredWorkflowCommands = [
   'composer audit --no-interaction',
   'npm audit --audit-level=moderate',
   'composer test',
-  'npm run verify:p0-guards',
+  'npm run verify:integration',
   'npm run review:functional-readiness',
   'npm run verify:release-evidence-intake',
   'npm run verify:release-readiness-contract',

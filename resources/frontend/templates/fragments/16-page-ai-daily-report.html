@@ -296,7 +296,10 @@
                                         </div>
                                     </div>
                                     <div class="rounded-lg border border-gray-100 p-4">
-                                        <strong>竞对变化（诊断参考）</strong>
+                                        <div class="flex flex-wrap items-center justify-between gap-2">
+                                            <strong>竞对变化（诊断参考）</strong>
+                                            <button type="button" @click="downloadAiDailyCompetitionReportHtml()" :disabled="!aiDailyReportCompetitionReportReady" class="rounded-md border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50">产出报告</button>
+                                        </div>
                                         <pre v-if="aiDailyReportCompetitionSummaryText" class="whitespace-pre-wrap">{{ aiDailyReportCompetitionSummaryText }}</pre>
                                         <div v-else-if="!aiDailyReportCompetitorChanges.length" class="text-sm text-gray-400">暂无竞对变化样本</div>
                                         <div v-for="(item, index) in aiDailyReportCompetitorChanges" :key="(item.label || 'competitor') + index" class="mb-3 last:mb-0">

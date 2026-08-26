@@ -25,7 +25,7 @@ const extractPageBlock = (pageName) => {
 };
 const pageBlockSource = extractPageBlock('ai-model-config');
 const modalMatch = html.match(/<div v-if="showAiModelConfigModal"[\s\S]*?<!-- 系统配置模态框 -->/);
-const scriptMatch = html.match(/const loadAiModelConfigs = async \(\) => \{[\s\S]*?const handleLogin = async \(\) => \{/);
+const scriptMatch = html.match(/const loadAiModelConfigs = async \(\) => \{[\s\S]*?const aiGovernanceStatusText =/);
 const failures = [];
 const localeSwitchCount = (contractSource.match(/data-locale-switch/g) || []).length;
 const appHeaderMatch = html.match(/<header class="header px-6 py-4 sticky top-0 z-10">[\s\S]*?<\/header>/);

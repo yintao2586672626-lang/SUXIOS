@@ -15,9 +15,20 @@ final class OtaCompetitionAnalysisBundleService
     public const DEFAULT_EDITION = 'lite';
     private const EDITIONS = ['lite', 'flagship', 'both'];
 
-    public function __construct(private ?CtripCompetitiveOperationsService $ctripService = null)
+    private CtripCompetitiveOperationsService $ctripService;
+
+    /** @var \Closure(int,string,string):array<string,mixed> */
+    private \Closure $ctripReader;
+
+    public function __construct(
+        ?CtripCompetitiveOperationsService $ctripService = null,
+        ?callable $ctripReader = null
+    )
     {
-        $this->ctripService ??= new CtripCompetitiveOperationsService();
+        $this->ctripService = $ctripService ?? new CtripCompetitiveOperationsService();
+        $this->ctripReader = $ctripReader !== null
+            ? \Closure::fromCallable($ctripReader)
+            : \Closure::fromCallable([$this->ctripService, 'build']);
     }
 
     public static function normalizeEdition(mixed $edition): string
@@ -61,16 +72,7 @@ final class OtaCompetitionAnalysisBundleService
         if (is_array($options['ctrip_result'] ?? null)) {
             $ctrip = $options['ctrip_result'];
         } else {
-            try {
-                $ctrip = $this->ctripService->build($hotelId, $reportDate, $reportDate);
-            } catch (\Throwable) {
-                $ctrip = [
-                    'status' => 'collection_failed',
-                    'context' => ['binding_status' => 'binding_unverified'],
-                    'business_comparison' => [],
-                    'data_coverage' => [],
-                ];
-            }
+            $ctrip = ($this->ctripReader)($hotelId, $reportDate, $reportDate);
         }
         $meituan = is_array($options['meituan_summary'] ?? null)
             ? $options['meituan_summary']
@@ -188,6 +190,8 @@ final class OtaCompetitionAnalysisBundleService
                 ],
             ],
         ]);
+        $bundleId = 'ota-competition-' . $hotelId . '-' . str_replace('-', '', $reportDate)
+            . '-' . substr($sourceFingerprint, 0, 12);
         $recommendations = $this->buildRecommendations($platforms, $decisionEligible);
         $requestedEditions = $edition === 'both' ? ['lite', 'flagship'] : [$edition];
         $quality = [
@@ -202,12 +206,13 @@ final class OtaCompetitionAnalysisBundleService
             $recommendations,
             $source,
             $sourceFingerprint,
+            $bundleId,
             $edition
         );
 
         $bundle = [
             'schema_version' => self::SCHEMA_VERSION,
-            'bundle_id' => 'ota-competition-' . $hotelId . '-' . str_replace('-', '', $reportDate) . '-' . substr($sourceFingerprint, 0, 12),
+            'bundle_id' => $bundleId,
             'source_fingerprint' => $sourceFingerprint,
             'source' => $source,
             'quality' => $quality,
@@ -299,6 +304,7 @@ final class OtaCompetitionAnalysisBundleService
         array $recommendations,
         array $source,
         string $sourceFingerprint,
+        string $bundleId,
         string $edition
     ): array {
         $eligiblePlatforms = array_values(array_filter(
@@ -332,12 +338,11 @@ final class OtaCompetitionAnalysisBundleService
                     ? $result['evidence_contract']
                     : [],
                 'source_refs' => [
-                    'facts' => 'competition_circle_bundle.facts.' . $platform,
-                    'derived_metrics' => 'competition_circle_bundle.derived_metrics.' . $platform,
-                    'analysis' => 'competition_circle_bundle.analysis.' . $platform,
-                    'evidence_contract' => 'competition_circle_bundle.evidence_contracts.' . $platform,
-                    'candidates' => 'competition_circle_bundle.candidate_competitors.' . $platform,
-                    'quality' => 'competition_circle_bundle.quality',
+                    'facts' => '/facts/' . $platform,
+                    'derived_metrics' => '/derived_metrics/' . $platform,
+                    'analysis' => '/analysis/' . $platform,
+                    'candidates' => '/candidate_competitors/' . $platform,
+                    'quality' => '/quality',
                 ],
             ];
         }
@@ -384,6 +389,7 @@ final class OtaCompetitionAnalysisBundleService
             'render_contract' => [
                 'requested_edition' => $edition,
                 'single_calculation' => true,
+                'bundle_id' => $bundleId,
                 'source_fingerprint' => $sourceFingerprint,
                 'saved_with_daily_report' => true,
                 'exact_readback_required' => true,
@@ -851,7 +857,7 @@ final class OtaCompetitionAnalysisBundleService
                 'title' => '人工确认携程竞争商圈实验',
                 'action' => '核对本店与直接竞品的ADR、订单和转化差异，确认房型、价型、日期边界后再创建运营执行意图。',
                 'reason' => (string)($analysis['first_conflict'] ?? ''),
-                'source_refs' => ['competition_circle_bundle.platforms.ctrip'],
+                'source_refs' => ['/analysis/ctrip', '/facts/ctrip', '/quality'],
                 'platform' => 'ctrip',
                 'object_type' => 'campaign',
                 'action_type' => 'manual_review',
@@ -875,7 +881,7 @@ final class OtaCompetitionAnalysisBundleService
                 'title' => '人工复核美团榜单差距',
                 'action' => '复核本店、TOP1和前一名位置；平台未返回指标差额时不得直接归因为价格问题。',
                 'reason' => (string)($analysis['first_conflict'] ?? ''),
-                'source_refs' => ['competition_circle_bundle.platforms.meituan'],
+                'source_refs' => ['/analysis/meituan', '/facts/meituan', '/quality'],
                 'platform' => 'meituan',
                 'object_type' => 'campaign',
                 'action_type' => 'manual_review',

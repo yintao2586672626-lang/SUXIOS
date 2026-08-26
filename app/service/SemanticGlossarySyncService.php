@@ -662,6 +662,9 @@ final class SemanticGlossarySyncService
             }
             $relative = str_replace('/', DIRECTORY_SEPARATOR, (string)$source['path']);
             $path = $this->resolveLocalSourcePath($relative);
+            if ($path === null && $this->isExternalProvenancePath($relative)) {
+                continue;
+            }
             if ($path === null
                 || !hash_equals(strtolower((string)$source['sha256']), strtolower((string)hash_file('sha256', $path)))
                 || (int)filesize($path) !== (int)$source['bytes']
@@ -669,6 +672,12 @@ final class SemanticGlossarySyncService
                 throw new RuntimeException('semantic_glossary_source_fingerprint_mismatch:' . (string)($source['role'] ?? 'unknown'));
             }
         }
+    }
+
+    private function isExternalProvenancePath(string $relative): bool
+    {
+        $normalized = str_replace(DIRECTORY_SEPARATOR, '/', ltrim($relative, '/\\'));
+        return str_starts_with($normalized, 'outputs/');
     }
 
     private function resolveLocalSourcePath(string $relative): ?string

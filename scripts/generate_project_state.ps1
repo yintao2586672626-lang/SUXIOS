@@ -115,7 +115,22 @@ $state = [ordered]@{
     }
 }
 
-$stateJson = $state | ConvertTo-Json -Depth 5 -Compress
+# index.lock is a transient coordination file and can appear between refresh
+# and check without changing the repository snapshot. Release evidence audits
+# it separately, so exclude it from the durable fingerprint while still
+# rendering its current state below.
+$fingerprintState = [ordered]@{
+    branch = $state.branch
+    head = $state.head
+    head_short = $state.head_short
+    head_subject = $state.head_subject
+    upstream = $state.upstream
+    ahead = $state.ahead
+    behind = $state.behind
+    worktree = $state.worktree
+    counts = $state.counts
+}
+$stateJson = $fingerprintState | ConvertTo-Json -Depth 5 -Compress
 $sha256 = [Security.Cryptography.SHA256]::Create()
 try {
     $fingerprint = [BitConverter]::ToString(

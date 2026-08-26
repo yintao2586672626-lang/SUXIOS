@@ -84,7 +84,9 @@ test(
       assert.match(currentState, /\| Upstream \| not configured \|/);
       assert.match(currentState, /\| Worktree \| clean \|/);
 
+      writeFileSync(path.join(root, '.git', 'index.lock'), 'transient-test-lock', 'utf8');
       const check = run(powershell, [...shellArgs, '-Check'], root);
+      rmSync(path.join(root, '.git', 'index.lock'), { force: true });
       assert.match(check.stdout, /Project state snapshot is current/);
     } finally {
       rmSync(root, { recursive: true, force: true });

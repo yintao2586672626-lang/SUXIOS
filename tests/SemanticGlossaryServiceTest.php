@@ -92,6 +92,42 @@ final class SemanticGlossaryServiceTest extends TestCase
         self::assertSame($metadata['pack_sha256'], $validated['pack_sha256']);
     }
 
+    public function testExternalBuildSourcesMayBeAbsentAfterTrackedArtifactsAreFrozen(): void
+    {
+        $root = dirname(__DIR__);
+        $manifestPath = $root . '/docs/knowledge/semantic-glossary/source-manifest.json';
+        $manifest = json_decode((string)file_get_contents($manifestPath), true, flags: JSON_THROW_ON_ERROR);
+        foreach ($manifest['sources'] as &$source) {
+            if (is_array($source)
+                && is_string($source['path'] ?? null)
+                && str_starts_with((string)$source['path'], 'outputs/')
+            ) {
+                $source['path'] = 'outputs/ci-unavailable/' . basename((string)$source['path']);
+            }
+        }
+        unset($source);
+        $temporaryManifest = sys_get_temp_dir() . DIRECTORY_SEPARATOR
+            . 'semantic-glossary-manifest-' . bin2hex(random_bytes(6)) . '.json';
+        file_put_contents(
+            $temporaryManifest,
+            json_encode($manifest, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR)
+        );
+
+        try {
+            $validated = (new SemanticGlossarySyncService(
+                $root . '/docs/knowledge/semantic-glossary/semantic-glossary-pack.json',
+                $temporaryManifest,
+                $root . '/docs/knowledge/semantic-glossary/exports/Typeless_语音简洁词库_2026-08-25.csv'
+            ))->sync(false);
+        } finally {
+            @unlink($temporaryManifest);
+        }
+
+        self::assertSame('validated', $validated['status']);
+        self::assertSame(2990, $validated['source_term_count']);
+        self::assertSame(3000, $validated['export_term_count']);
+    }
+
     public function testPlatformScopedExposureUsesOnlyMappedStrictFacts(): void
     {
         $glossary = new SemanticGlossaryService();

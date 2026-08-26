@@ -22,6 +22,7 @@ final class HotelAutopilotDispatcherProvisioningService
     /** @var Closure(array<int,string>):array<string,mixed> */
     private Closure $runner;
     private string $projectRoot;
+    private bool $runtimeRequired;
 
     public function __construct(?callable $runner = null, ?string $projectRoot = null)
     {
@@ -29,6 +30,7 @@ final class HotelAutopilotDispatcherProvisioningService
             $projectRoot !== null && trim($projectRoot) !== '' ? $projectRoot : dirname(__DIR__, 2),
             '/\\'
         );
+        $this->runtimeRequired = $runner === null;
         $this->runner = $runner !== null
             ? Closure::fromCallable($runner)
             : fn(array $command): array => $this->runProcess($command);
@@ -82,7 +84,7 @@ final class HotelAutopilotDispatcherProvisioningService
         bool $replaceExisting,
         bool $startNow
     ): array {
-        if (PHP_OS_FAMILY !== 'Windows') {
+        if ($this->runtimeRequired && PHP_OS_FAMILY !== 'Windows') {
             throw new RuntimeException('hotel_autopilot_dispatcher_windows_required');
         }
         $script = $this->projectRoot . DIRECTORY_SEPARATOR . 'scripts'
@@ -91,7 +93,7 @@ final class HotelAutopilotDispatcherProvisioningService
         $powershell = ($systemRoot !== '' ? $systemRoot : 'C:\\Windows')
             . '\\System32\\WindowsPowerShell\\v1.0\\powershell.exe';
         $php = 'C:\\xampp\\php\\php.exe';
-        if (!is_file($script) || !is_file($powershell) || !is_file($php)) {
+        if ($this->runtimeRequired && (!is_file($script) || !is_file($powershell) || !is_file($php))) {
             throw new RuntimeException('hotel_autopilot_dispatcher_runtime_missing');
         }
         $command = [
