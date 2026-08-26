@@ -71,6 +71,7 @@ test(
       writeFileSync(path.join(root, 'README.md'), '# Fixture\n', 'utf8');
 
       run('git', ['init'], root);
+      run('git', ['config', 'core.autocrlf', 'true'], root);
       run('git', ['config', 'user.name', 'SUXIOS Test'], root);
       run('git', ['config', 'user.email', 'test@suxios.local'], root);
       run('git', ['add', '.'], root);
@@ -89,6 +90,7 @@ test(
       );
       assert.match(currentState, /\| Upstream \| not configured \|/);
       assert.match(currentState, /\| Worktree \| clean \|/);
+      assert.match(currentState, /^Snapshot state: `[A-Za-z0-9+/=]+`$/m);
 
       const check = run(powershell, [...shellArgs, '-Check'], root);
       assert.match(check.stdout, /Project state snapshot is current/);
