@@ -1,5 +1,28 @@
 const text = (value) => String(value ?? '').trim();
 
+const LOOPBACK_RELAY_HOSTS = new Set(['127.0.0.1', 'localhost', '[::1]']);
+
+export function normalizeWecomAibotRelayBase(value) {
+  const candidate = text(value) || 'http://127.0.0.1:8080';
+  let url;
+  try {
+    url = new URL(candidate);
+  } catch {
+    throw new TypeError('wecom_aibot_relay_base_invalid');
+  }
+  if (url.protocol !== 'http:'
+    || !LOOPBACK_RELAY_HOSTS.has(url.hostname.toLowerCase())
+    || url.username !== ''
+    || url.password !== ''
+    || url.pathname !== '/'
+    || url.search !== ''
+    || url.hash !== ''
+  ) {
+    throw new TypeError('wecom_aibot_relay_base_not_loopback_http_origin');
+  }
+  return url.origin;
+}
+
 export function wecomAibotCredentialError(botId, secret, relayToken) {
   if (text(botId) === '' || text(secret) === '') return 'wecom_aibot_credentials_missing';
   if (text(relayToken).length < 32) return 'wecom_aibot_relay_token_missing';

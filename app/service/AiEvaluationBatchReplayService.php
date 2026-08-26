@@ -25,6 +25,10 @@ class AiEvaluationBatchReplayService
         $modelKey = mb_substr(trim((string)($options['model_key'] ?? 'deepseek_v4_default')), 0, 100);
         $dryRun = $this->resolveDryRun($options);
         $allowExternalModelCall = $this->boolValue($options['allow_external_model_call'] ?? null, false);
+        $heartbeat = $options['heartbeat'] ?? null;
+        if ($heartbeat !== null && !is_callable($heartbeat)) {
+            throw new \InvalidArgumentException('AI评测批次 heartbeat 无效');
+        }
         $localModelCall = $modelKey === LocalAiRuntimeService::TEXT_MODEL_KEY;
         $localRuntimeReady = true;
         if (!$dryRun && $localModelCall) {
@@ -85,6 +89,16 @@ class AiEvaluationBatchReplayService
                 $summary['blocked']++;
                 $cases[] = $this->publicCaseResult($planned);
                 continue;
+            }
+
+            if ($heartbeat !== null) {
+                try {
+                    if ($heartbeat($planned) !== true) {
+                        throw new \RuntimeException('heartbeat_rejected');
+                    }
+                } catch (Throwable $error) {
+                    throw new \RuntimeException('AI评测批次 reservation 续租失败', 409, $error);
+                }
             }
 
             $summary['executed']++;

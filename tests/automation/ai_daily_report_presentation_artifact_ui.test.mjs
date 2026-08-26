@@ -225,6 +225,7 @@ test('artifact API is hotel scoped, export gated and exact-spec bound', () => {
     'presentationArtifactService->saveAndReadback',
     'presentationArtifactService->readLatest',
     'presentationSpecService->resolveTenantScope($report)',
+    'presentationSpecService->readLatest',
     "input['presentation_spec_id']",
     "input['expected_spec_fingerprint']",
     'presentation spec stale',
@@ -255,6 +256,8 @@ test('artifact API is hotel scoped, export gated and exact-spec bound', () => {
     'Db::transaction',
     "Db::name('ai_report_presentation_specs')",
     "->where('tenant_id'",
+    "->where('presentation_spec_id', $presentationSpecId)",
+    "->where('spec_fingerprint', $expectedSpecFingerprint)",
     'presentation tenant scope is required',
   ]) {
     assert.ok(artifactService.includes(marker), marker);

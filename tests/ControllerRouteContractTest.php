@@ -12,6 +12,25 @@ use Tests\Support\RouteContractSource;
 
 final class ControllerRouteContractTest extends TestCase
 {
+    public function testLocalMediaExtractionWriteRequiresOperationExecuteWhileReadbackStaysViewOnly(): void
+    {
+        $source = $this->sourceWithoutPhpComments(__DIR__ . '/../app/controller/OperatingIntelligence.php');
+        $extractStart = strpos($source, 'public function extractLocalMedia');
+        $listStart = strpos($source, 'public function localMediaExtractions');
+        $readStart = strpos($source, 'public function readLocalMediaExtraction');
+
+        self::assertNotFalse($extractStart);
+        self::assertNotFalse($listStart);
+        self::assertNotFalse($readStart);
+
+        $extractMethod = substr($source, (int)$extractStart, (int)$listStart - (int)$extractStart);
+        $listMethod = substr($source, (int)$listStart, (int)$readStart - (int)$listStart);
+
+        self::assertStringContainsString("'operation.execute'", $extractMethod);
+        self::assertStringNotContainsString("'operation.view'", $extractMethod);
+        self::assertStringContainsString("'operation.view'", $listMethod);
+    }
+
     public function testEveryRouteHandlerResolvesToPublicControllerMethod(): void
     {
         $handlers = $this->routeHandlers();

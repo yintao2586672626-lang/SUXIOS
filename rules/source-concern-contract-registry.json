@@ -18,6 +18,7 @@
       "app/service/concern/PlatformDataSourceExecutionConcern.php",
       "app/service/concern/PlatformSyncTaskConcern.php",
       "app/service/concern/PlatformSyncTaskReadbackConcern.php",
+      "app/service/concern/PlatformSyncTaskReadbackCoverageConcern.php",
       "app/service/concern/PlatformDataPersistenceConcern.php",
       "app/service/concern/PlatformDataImportParsingConcern.php"
     ],

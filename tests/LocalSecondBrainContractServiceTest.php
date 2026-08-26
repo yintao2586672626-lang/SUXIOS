@@ -136,6 +136,216 @@ final class LocalSecondBrainContractServiceTest extends TestCase
         }
     }
 
+    public function testEvaluationRunReservationBlocksActiveClaimTakesOverExpiredClaimAndFinalizesOnce(): void
+    {
+        $service = new AiEvaluationRunService();
+        $filters = ['scenario' => '', 'prompt_version' => '', 'case_keys' => [], 'limit' => 50];
+        $firstNow = new \DateTimeImmutable('2026-08-26 00:00:00', new \DateTimeZone('Asia/Shanghai'));
+        $first = $service->reserve(
+            'eval-concurrent-lease-0001',
+            'ota_local_second_brain_v1',
+            'local_second_brain',
+            $filters,
+            true,
+            false,
+            17,
+            $firstNow,
+            30
+        );
+        self::assertSame('claimed', $first['state']);
+        self::assertSame('readback_verified', $first['persistence_status']);
+        self::assertTrue($first['run']['readback_verified']);
+        self::assertSame('running', $first['run']['status']);
+        self::assertMatchesRegularExpression('/^[a-f0-9]{64}$/', $first['claim_token']);
+        $row = Db::name(AiEvaluationRunService::TABLE)->where('id', (int)$first['reservation_id'])->find();
+        self::assertIsArray($row);
+        self::assertNotSame($first['claim_token'], (string)$row['claim_token_hash']);
+        self::assertSame(hash('sha256', $first['claim_token']), (string)$row['claim_token_hash']);
+
+        try {
+            $service->reserve(
+                'eval-concurrent-lease-0001',
+                'ota_local_second_brain_v1',
+                'local_second_brain',
+                $filters,
+                true,
+                false,
+                17,
+                $firstNow->modify('+1 second'),
+                30
+            );
+            self::fail('An active persistent claim must block a sequential retry before model invocation.');
+        } catch (RuntimeException $exception) {
+            self::assertSame(409, $exception->getCode());
+            self::assertStringContainsString('正在执行', $exception->getMessage());
+        }
+
+        $takeover = $service->reserve(
+            'eval-concurrent-lease-0001',
+            'ota_local_second_brain_v1',
+            'local_second_brain',
+            $filters,
+            true,
+            false,
+            17,
+            $firstNow->modify('+31 seconds'),
+            30
+        );
+        self::assertSame('claimed', $takeover['state']);
+        self::assertSame($first['reservation_id'], $takeover['reservation_id']);
+        self::assertNotSame($first['claim_token'], $takeover['claim_token']);
+
+        try {
+            $service->finalizeReservation(
+                (int)$first['reservation_id'],
+                (string)$first['claim_token'],
+                $this->evaluationResult(),
+                $firstNow->modify('+32 seconds')
+            );
+            self::fail('The previous claim token must not finalize after an expired-claim takeover.');
+        } catch (RuntimeException $exception) {
+            self::assertSame(409, $exception->getCode());
+            self::assertStringContainsString('claim 已失效', $exception->getMessage());
+        }
+
+        $driftedResult = $this->evaluationResult();
+        $driftedResult['allow_external_model_call'] = true;
+        try {
+            $service->finalizeReservation(
+                (int)$takeover['reservation_id'],
+                (string)$takeover['claim_token'],
+                $driftedResult,
+                $firstNow->modify('+32 seconds')
+            );
+            self::fail('Final result authority must match the reserved external-model boundary.');
+        } catch (RuntimeException $exception) {
+            self::assertSame(409, $exception->getCode());
+            self::assertStringContainsString('finalize 参数与 reservation 不一致', $exception->getMessage());
+        }
+
+        $final = $service->finalizeReservation(
+            (int)$takeover['reservation_id'],
+            (string)$takeover['claim_token'],
+            $this->evaluationResult(),
+            $firstNow->modify('+32 seconds')
+        );
+        self::assertSame('planned', $final['status']);
+        self::assertTrue($final['readback_verified']);
+        self::assertSame('readback_verified', $final['persistence_status']);
+        $finalRow = Db::name(AiEvaluationRunService::TABLE)->where('id', (int)$final['id'])->find();
+        self::assertNull($finalRow['claim_token_hash']);
+        self::assertNull($finalRow['lease_expires_at']);
+
+        $replayed = $service->reserve(
+            'eval-concurrent-lease-0001',
+            'ota_local_second_brain_v1',
+            'local_second_brain',
+            $filters,
+            true,
+            false,
+            17,
+            $firstNow->modify('+33 seconds'),
+            30
+        );
+        self::assertSame('completed', $replayed['state']);
+        self::assertNull($replayed['claim_token']);
+        self::assertSame($final['id'], $replayed['run']['id']);
+        self::assertSame(1, (int)Db::name(AiEvaluationRunService::TABLE)->count());
+    }
+
+    public function testEvaluationErrorsExposeOnlyExplicit409And422BusinessMessages(): void
+    {
+        $reflection = new ReflectionClass(AiGovernance::class);
+        $controller = $reflection->newInstanceWithoutConstructor();
+        $method = $reflection->getMethod('evaluationErrorMessage');
+        $method->setAccessible(true);
+        self::assertSame(
+            'client_run_key 评测批次正在执行',
+            $method->invoke($controller, new RuntimeException('client_run_key 评测批次正在执行', 409))
+        );
+        foreach ([
+            new RuntimeException('SQLSTATE[42S22] unknown column at C:\\secret\\path.php', 500),
+            new RuntimeException('database unavailable at /srv/private/app.php', 503),
+            new RuntimeException('unlisted conflict detail', 409),
+        ] as $error) {
+            self::assertSame('AI评测批次处理失败', $method->invoke($controller, $error));
+        }
+
+        $migration = (string)file_get_contents(
+            __DIR__ . '/../database/migrations/20260826_add_ai_evaluation_run_reservation_lease.sql'
+        );
+        self::assertStringContainsString('ADD COLUMN IF NOT EXISTS `claim_token_hash` CHAR(64)', $migration);
+        self::assertStringContainsString('ADD COLUMN IF NOT EXISTS `lease_expires_at` DATETIME', $migration);
+        self::assertStringNotContainsString('GET_LOCK', (string)file_get_contents(
+            __DIR__ . '/../app/service/AiEvaluationRunService.php'
+        ));
+        $controllerSource = (string)file_get_contents(__DIR__ . '/../app/controller/AiGovernance.php');
+        self::assertStringContainsString("'heartbeat' => static function", $controllerSource);
+        $postBatchHeartbeat = strrpos($controllerSource, '$runService->renewReservation');
+        $finalize = strpos($controllerSource, '$runService->finalizeReservation');
+        self::assertIsInt($postBatchHeartbeat);
+        self::assertIsInt($finalize);
+        self::assertLessThan($finalize, $postBatchHeartbeat);
+    }
+
+    public function testEvaluationReservationHeartbeatKeepsOriginalClaimPastInitialLease(): void
+    {
+        $service = new AiEvaluationRunService();
+        $filters = ['scenario' => 'heartbeat', 'prompt_version' => '', 'case_keys' => [], 'limit' => 1];
+        $start = new \DateTimeImmutable('2026-08-26 02:00:00', new \DateTimeZone('Asia/Shanghai'));
+        $reservation = $service->reserve(
+            'eval-heartbeat-lease-0001',
+            'heartbeat_v1',
+            'local_second_brain',
+            $filters,
+            true,
+            false,
+            17,
+            $start,
+            30
+        );
+        $initialDigest = (string)$reservation['run']['result_digest'];
+        $renewed = $service->renewReservation(
+            (int)$reservation['reservation_id'],
+            (string)$reservation['claim_token'],
+            $start->modify('+20 seconds'),
+            30
+        );
+        self::assertSame('claimed', $renewed['state']);
+        self::assertTrue($renewed['run']['readback_verified']);
+        self::assertSame('2026-08-26 02:00:50', $renewed['run']['lease_expires_at']);
+        self::assertNotSame($initialDigest, $renewed['run']['result_digest']);
+
+        try {
+            $service->reserve(
+                'eval-heartbeat-lease-0001',
+                'heartbeat_v1',
+                'local_second_brain',
+                $filters,
+                true,
+                false,
+                17,
+                $start->modify('+31 seconds'),
+                30
+            );
+            self::fail('Heartbeat must keep the original claim active beyond its initial lease.');
+        } catch (RuntimeException $error) {
+            self::assertSame(409, $error->getCode());
+            self::assertStringContainsString('正在执行', $error->getMessage());
+        }
+
+        $result = $this->evaluationResult();
+        $result['evaluation_set'] = 'heartbeat_v1';
+        $final = $service->finalizeReservation(
+            (int)$reservation['reservation_id'],
+            (string)$reservation['claim_token'],
+            $result,
+            $start->modify('+32 seconds')
+        );
+        self::assertSame('planned', $final['status']);
+        self::assertTrue($final['readback_verified']);
+    }
+
     public function testEvaluationRunReadRejectsRunKeyAndPayloadTampering(): void
     {
         $service = new AiEvaluationRunService();
@@ -551,7 +761,8 @@ final class LocalSecondBrainContractServiceTest extends TestCase
             'CREATE TABLE ai_evaluation_runs ('
             . 'id INTEGER PRIMARY KEY AUTOINCREMENT, client_run_key TEXT NOT NULL UNIQUE, '
             . 'evaluation_set TEXT NOT NULL, model_key TEXT NOT NULL, filters_json TEXT NULL, '
-            . 'dry_run INTEGER NOT NULL DEFAULT 1, status TEXT NOT NULL, summary_json TEXT NULL, '
+            . 'dry_run INTEGER NOT NULL DEFAULT 1, status TEXT NOT NULL, claim_token_hash TEXT NULL, '
+            . 'lease_expires_at TEXT NULL, summary_json TEXT NULL, '
             . 'cases_json TEXT NULL, result_json TEXT NOT NULL, result_digest TEXT NOT NULL, '
             . 'created_by INTEGER NOT NULL DEFAULT 0, readback_verified INTEGER NOT NULL DEFAULT 0, '
             . 'created_at TEXT NOT NULL, completed_at TEXT NULL)'

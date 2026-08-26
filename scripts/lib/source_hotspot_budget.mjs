@@ -36,6 +36,7 @@ export const SOURCE_HOTSPOT_BUDGETS = Object.freeze([
   { path: 'app/service/concern/PlatformDataSourceExecutionConcern.php', max_lines: 1_100, boundary: 'platform source execution' },
   { path: 'app/service/concern/PlatformSyncTaskConcern.php', max_lines: 1_900, boundary: 'platform sync task lifecycle and finalization' },
   { path: 'app/service/concern/PlatformSyncTaskReadbackConcern.php', max_lines: 700, boundary: 'exact-run task readback, metric verification, and capture-strategy evidence' },
+  { path: 'app/service/concern/PlatformSyncTaskReadbackCoverageConcern.php', max_lines: 250, boundary: 'complete save-receipt and exact target-date readback coverage' },
   { path: 'app/service/concern/PlatformDataPersistenceConcern.php', max_lines: 1_700, boundary: 'platform persistence' },
   { path: 'app/service/concern/PlatformDataImportParsingConcern.php', max_lines: 300, boundary: 'bounded JSON, CSV, and XLSX import parsing' },
   { path: 'app/service/operation/OperationSnapshotConcern.php', max_lines: 2_300, boundary: 'operation snapshots' },

@@ -48,7 +48,15 @@ try {
     $storedSpec = $specService->saveAndReadback($report, 'owner', 0);
     $first = $artifactService->saveAndReadback($storedSpec, 0, true);
     $second = $artifactService->saveAndReadback($storedSpec, 0, false);
-    $latest = $artifactService->readLatest($reportId, [$hotelId], $tenantId, 'owner', true);
+    $latest = $artifactService->readLatest(
+        $reportId,
+        [$hotelId],
+        $tenantId,
+        'owner',
+        true,
+        (int)$storedSpec['record_id'],
+        (string)$storedSpec['spec_fingerprint']
+    );
     $exact = $artifactService->readExact(
         $reportId,
         (int)($first['artifact_id'] ?? 0),

@@ -2347,7 +2347,7 @@ final class PlatformDataSyncService
             $rows = $this->normalizeRowsFromPayload(is_array($payload) ? $payload : [], $source, $taskId);
             $timing['normalize_elapsed_ms'] = $this->elapsedMilliseconds($phaseStartedAt);
             $phaseStartedAt = microtime(true);
-            $saveReceipt = $this->saveNormalizedRows($rows);
+            $saveReceipt = $this->saveNormalizedRowsWithTargetDateExpectation($rows, $source, $payload);
             $saved = (int)$saveReceipt['saved_count'];
             $payload['_save_receipt'] = $saveReceipt;
             $timing['daily_rows_save_elapsed_ms'] = $this->elapsedMilliseconds($phaseStartedAt);
@@ -2887,7 +2887,6 @@ final class PlatformDataSyncService
         if ($flowStats !== []) {
             $safe = array_merge($safe, $flowStats);
         }
-
         if (is_array($stats['sync_diagnostics'] ?? null)) {
             $safe['sync_diagnostics'] = $this->sanitizeSyncDiagnosticsForResponse($stats['sync_diagnostics'], $status);
         }
@@ -2912,7 +2911,6 @@ final class PlatformDataSyncService
                 $safe['ordered_collection'] = $safeOrdered;
             }
         }
-
         $period = $this->normalizeDataPeriod($stats['data_period'] ?? '');
         if ($period !== '') {
             $safe['data_period'] = $period;
@@ -2925,13 +2923,11 @@ final class PlatformDataSyncService
         if (preg_match('/^\d{8,12}$/', $snapshotBucket) === 1) {
             $safe['snapshot_bucket'] = $snapshotBucket;
         }
-
         $timing = $this->normalizeSyncTiming(is_array($stats['timing'] ?? null) ? $stats['timing'] : $stats);
         $safe['timing'] = $timing;
         foreach ($timing as $key => $value) {
             $safe[$key] = $value;
         }
-
         return $safe;
     }
 
@@ -2941,7 +2937,6 @@ final class PlatformDataSyncService
         if (!is_array($value) || ($value['sensitive_values_exposed'] ?? true) !== false) {
             return [];
         }
-
         $responseObserved = min(20, max(0, (int)($value['response_observed_count'] ?? 0)));
         $blocked = min(20, max(0, (int)($value['blocked_count'] ?? 0)));
         $failed = min(20, max(0, (int)($value['failed_count'] ?? 0)));
@@ -2950,7 +2945,6 @@ final class PlatformDataSyncService
         $status = $responseObserved > 0
             ? (($blocked + $failed) > 0 ? 'partial' : 'response_observed')
             : ($failed > 0 ? 'failed' : ($blocked > 0 ? 'blocked' : 'not_needed'));
-
         return [
             'status' => $status,
             'diagnostic_count' => $diagnosticCount,
@@ -3024,10 +3018,12 @@ final class PlatformDataSyncService
         if (preg_match('/^[A-Za-z0-9._:-]{1,120}$/D', $observedPlatformHotelId) !== 1) {
             $observedPlatformHotelId = '';
         }
-
         $readbackCount = max(0, (int)($receipt['readback_count'] ?? 0));
         $rowIdLimitExceeded = count($rowIds) > CloudOtaBundleCodec::MAX_ROWS;
         $rowIds = array_slice($rowIds, 0, CloudOtaBundleCodec::MAX_ROWS);
+        $targetExpectedRowIds = $this->readbackCoverageRowIds($receipt['target_date_expected_row_ids'] ?? []);
+        $targetExpectedRowCount = max(0, (int)($receipt['target_date_expected_row_count'] ?? 0));
+        $targetExactCoverage = $this->targetDateExactCoverage($targetExpectedRowIds, $rowIds);
         $failureReason = mb_substr(trim((string)($receipt['failure_reason'] ?? '')), 0, 120);
         if ($rowIdLimitExceeded) {
             $failureReason = 'run_readback_row_limit_exceeded';
@@ -3081,11 +3077,11 @@ final class PlatformDataSyncService
         $recipeCount = isset($receipt['recipe_count']) && is_numeric($receipt['recipe_count'])
             ? max(0, (int)$receipt['recipe_count'])
             : null;
-
         $safeReceipt = [
             'readback_verified' => ($receipt['readback_verified'] ?? false) === true
                 && !$rowIdLimitExceeded
-                && $readbackCount === count($rowIds),
+                && $readbackCount === count($rowIds)
+                && ($targetExpectedRowIds === [] || ($targetExpectedRowCount === count($targetExpectedRowIds) && $targetExactCoverage['complete'] === true)),
             'sync_task_id' => max(0, (int)($receipt['sync_task_id'] ?? 0)),
             'data_source_id' => max(0, (int)($receipt['data_source_id'] ?? 0)),
             'system_hotel_id' => max(0, (int)($receipt['system_hotel_id'] ?? 0)),
@@ -3094,6 +3090,9 @@ final class PlatformDataSyncService
             'data_period' => $dataPeriod,
             'started_at' => $startedAt,
             'row_ids' => $rowIds,
+            'target_date_expected_row_ids' => $targetExpectedRowIds,
+            'target_date_expected_row_count' => $targetExpectedRowCount,
+            'exact_coverage' => $targetExactCoverage,
             'source_trace_ids' => array_slice(array_values(array_unique($traceIds)), 0, 50),
             'observed_platform_hotel_id' => $observedPlatformHotelId,
             'verified_metric_keys' => $metricKeys,

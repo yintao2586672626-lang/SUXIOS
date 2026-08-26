@@ -138,14 +138,22 @@ final class AiDailyReportPresentationArtifactService
         array $hotelIds,
         int $tenantId,
         string $audience = 'owner',
-        bool $includeBundle = false
+        bool $includeBundle = false,
+        int $presentationSpecId = 0,
+        string $expectedSpecFingerprint = ''
     ): ?array {
         $audience = strtolower(trim($audience));
+        $expectedSpecFingerprint = strtolower(trim($expectedSpecFingerprint));
         $hotelIds = array_values(array_unique(array_filter(array_map('intval', $hotelIds), static fn(int $id): bool => $id > 0)));
         if ($tenantId <= 0) {
             throw new \InvalidArgumentException('presentation tenant scope is required');
         }
-        if ($reportId <= 0 || $hotelIds === [] || !in_array($audience, ['owner', 'expert', 'training'], true)) {
+        if ($reportId <= 0
+            || $hotelIds === []
+            || !in_array($audience, ['owner', 'expert', 'training'], true)
+            || $presentationSpecId <= 0
+            || preg_match('/^[a-f0-9]{64}$/D', $expectedSpecFingerprint) !== 1
+        ) {
             return null;
         }
 
@@ -154,6 +162,8 @@ final class AiDailyReportPresentationArtifactService
             ->where('report_id', $reportId)
             ->whereIn('hotel_id', $hotelIds)
             ->where('audience', $audience)
+            ->where('presentation_spec_id', $presentationSpecId)
+            ->where('spec_fingerprint', $expectedSpecFingerprint)
             ->order('id', 'desc')
             ->find();
         if (!is_array($row)) {
@@ -165,6 +175,7 @@ final class AiDailyReportPresentationArtifactService
             'hotel_ids' => $hotelIds,
             'report_id' => $reportId,
             'audience' => $audience,
+            'presentation_spec_id' => $presentationSpecId,
         ]);
     }
 

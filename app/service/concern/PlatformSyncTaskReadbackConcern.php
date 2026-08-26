@@ -15,6 +15,8 @@ use think\facade\Db;
  */
 trait PlatformSyncTaskReadbackConcern
 {
+    use PlatformSyncTaskReadbackCoverageConcern;
+
     private function persistedSyncTaskResult(int $taskId, array $source, array $task): array
     {
         $status = strtolower(trim((string)($task['status'] ?? '')));
@@ -173,6 +175,9 @@ trait PlatformSyncTaskReadbackConcern
             'platform_hotel_identifier_status' => strtolower(trim((string)($diagnostics['platform_hotel_identifier_status'] ?? 'unverified'))),
             'page_field_fact_status' => strtolower(trim((string)($diagnostics['page_field_fact_status'] ?? 'partial'))),
             'readback_count' => 0,
+            'target_date_expected_row_ids' => [],
+            'target_date_expected_row_count' => 0,
+            'exact_coverage' => $this->targetDateExactCoverage([], []),
             'failure_reason' => '',
         ];
         if ($dispatcherRunId !== '') {
@@ -182,20 +187,12 @@ trait PlatformSyncTaskReadbackConcern
             $receipt['trigger_type'] = $triggerType;
         }
 
-        $expectedReadbackCount = max(0, (int)($saveReceipt['readback_count'] ?? $saveReceipt['saved_count'] ?? 0));
-        $expectedRowIds = array_values(array_unique(array_filter(array_map(
-            static fn($value): int => max(0, (int)$value),
-            is_array($saveReceipt['row_ids'] ?? null) ? $saveReceipt['row_ids'] : []
-        ))));
         if ($taskId <= 0 || $sourceId <= 0 || $hotelId <= 0 || !in_array($platform, ['ctrip', 'meituan'], true)
             || $targetDate === '' || $dataPeriod === '' || $startedAt === ''
-            || ($saveReceipt['readback_verified'] ?? false) !== true || $expectedReadbackCount <= 0
-            || $expectedRowIds === []
         ) {
             $receipt['failure_reason'] = 'run_identity_or_persistence_readback_missing';
             return $receipt;
         }
-
         try {
             $columns = $this->tableColumns('online_daily_data');
             foreach (['id', 'sync_task_id', 'data_source_id', 'system_hotel_id', 'data_date', 'data_period', 'readback_verified', 'source_trace_id'] as $requiredColumn) {
@@ -216,6 +213,25 @@ trait PlatformSyncTaskReadbackConcern
                 'list_exposure', 'detail_exposure', 'flow_rate', 'order_filling_num', 'order_submit_num',
                 'raw_data',
             ], static fn(string $field): bool => isset($columns[$field])));
+            $expectation = $this->resolveTargetDateReadbackExpectation(
+                $saveReceipt,
+                $columns,
+                $taskId,
+                $sourceId,
+                $hotelId,
+                $platform,
+                $targetDate,
+                $dataPeriod,
+                $this->isOtaBrowserProfileSource($source)
+            );
+            $receipt['target_date_expected_row_ids'] = $expectation['target_date_expected_row_ids'];
+            $receipt['target_date_expected_row_count'] = $expectation['target_date_expected_row_count'];
+            $receipt['exact_coverage'] = $expectation['exact_coverage'];
+            if (($expectation['ok'] ?? false) !== true) {
+                $receipt['failure_reason'] = (string)($expectation['failure_reason'] ?? 'run_readback_receipt_mismatch');
+                return $receipt;
+            }
+            $expectedTargetRowIds = $expectation['target_date_expected_row_ids'];
             $query = Db::name('online_daily_data')
                 ->field(implode(',', $fields))
                 ->where('sync_task_id', $taskId)
@@ -246,6 +262,7 @@ trait PlatformSyncTaskReadbackConcern
             static fn(array $row): int => max(0, (int)($row['id'] ?? 0)),
             $rows
         ))));
+        sort($rowIds, SORT_NUMERIC);
         $traceIds = [];
         $allRowsReadbackVerified = $rows !== [];
         $allRowsHaveTrace = $rows !== [];
@@ -293,14 +310,14 @@ trait PlatformSyncTaskReadbackConcern
         );
         $receipt['readback_count'] = count($rows);
 
-        // A Profile run may also persist forecast or realtime rows. Verify the
-        // target-day subset against the exact row IDs returned by this save
-        // receipt instead of requiring every row from the run to share one
-        // date and period.
+        // A Profile run may also persist forecast or realtime rows. Derive the
+        // target-day expectation from every exact ID in the save receipt, then
+        // require the scoped query to cover that set exactly. A returned subset
+        // or an unrelated extra row cannot prove persistence readback.
+        $receipt['exact_coverage'] = $this->targetDateExactCoverage($expectedTargetRowIds, $rowIds);
         $receiptRowsBound = $rows !== []
-            && count($rows) <= $expectedReadbackCount
             && count($rowIds) === count($rows)
-            && array_diff($rowIds, $expectedRowIds) === [];
+            && ($receipt['exact_coverage']['complete'] ?? false) === true;
         $receipt['readback_verified'] = $receiptRowsBound && $allRowsReadbackVerified && $allRowsHaveTrace;
         if (!$receipt['readback_verified']) {
             $receipt['failure_reason'] = !$receiptRowsBound

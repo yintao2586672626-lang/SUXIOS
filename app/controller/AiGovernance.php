@@ -18,6 +18,22 @@ use Throwable;
 
 class AiGovernance extends Base
 {
+    private const SAFE_EVALUATION_BUSINESS_ERRORS = [
+        'client_run_key 格式无效',
+        'evaluation_set 必填且不能超过120字',
+        'model_key 必填且不能超过100字',
+        'client_run_key 已被不同参数的评测批次占用',
+        'client_run_key 评测批次正在执行',
+        'client_run_key 评测批次状态已变化，请重试',
+        'AI评测批次 claim 无效',
+        'AI评测批次 claim 已失效',
+        'AI评测批次 claim 已过期',
+        'AI评测批次 reservation 续租失败',
+        'AI评测批次 finalize 参数与 reservation 不一致',
+        'AI评测批次 finalize 竞争校验失败',
+        'AI评测批次 reservation 未通过精确回读',
+    ];
+
     private function checkSuperAdmin(): void
     {
         if (!$this->currentUser || !$this->currentUser->isSuperAdmin()) {
@@ -311,16 +327,17 @@ class AiGovernance extends Base
         ];
         $runService = new AiEvaluationRunService();
         try {
-            $existingRun = $runService->findByClientRunKey($clientRunKey);
-            if (is_array($existingRun)) {
-                if ((string)$existingRun['evaluation_set'] !== $evaluationSet
-                    || (string)$existingRun['model_key'] !== $modelKey
-                    || (array)$existingRun['filters'] !== $runFilters
-                    || (($existingRun['result']['dry_run'] ?? null) !== $dryRun)
-                    || (($existingRun['result']['allow_external_model_call'] ?? null) !== $allowExternalModelCall)
-                ) {
-                    return $this->error('client_run_key 已被不同参数的评测批次占用', 409);
-                }
+            $reservation = $runService->reserve(
+                $clientRunKey,
+                $evaluationSet,
+                $modelKey,
+                $runFilters,
+                $dryRun,
+                $allowExternalModelCall,
+                (int)($this->currentUser->id ?? 0)
+            );
+            if (($reservation['state'] ?? '') === 'completed') {
+                $existingRun = (array)($reservation['run'] ?? []);
                 return $this->success([
                     'run' => $existingRun,
                     'result' => $existingRun['result'],
@@ -332,46 +349,56 @@ class AiGovernance extends Base
             return $this->error($this->evaluationErrorMessage($e), $this->evaluationStatus($e));
         }
 
-        $query = AiEvaluationCase::where('status', 'active')->where('evaluation_set', $evaluationSet);
-        if ($scenario !== '') {
-            $query->where('scenario', $scenario);
+        $reservationId = (int)($reservation['reservation_id'] ?? 0);
+        $claimToken = (string)($reservation['claim_token'] ?? '');
+        if (($reservation['persistence_status'] ?? '') !== 'readback_verified'
+            || ($reservation['run']['readback_verified'] ?? false) !== true
+            || $reservationId <= 0
+            || preg_match('/^[a-f0-9]{64}$/D', $claimToken) !== 1
+        ) {
+            return $this->error('AI评测批次 reservation 未通过精确回读', 409);
         }
-        if ($promptVersion !== '') {
-            $query->where('prompt_version', $promptVersion);
-        }
-        if (!empty($caseKeys)) {
-            $query->whereIn('case_key', $caseKeys);
-        }
-
-        $rows = $query->order('id', 'asc')
-            ->limit($limit)
-            ->select()
-            ->toArray();
 
         try {
+            $query = AiEvaluationCase::where('status', 'active')->where('evaluation_set', $evaluationSet);
+            if ($scenario !== '') {
+                $query->where('scenario', $scenario);
+            }
+            if ($promptVersion !== '') {
+                $query->where('prompt_version', $promptVersion);
+            }
+            if ($caseKeys !== []) {
+                $query->whereIn('case_key', $caseKeys);
+            }
+            $rows = $query->order('id', 'asc')->limit($limit)->select()->toArray();
             $result = (new AiEvaluationBatchReplayService())->run($rows, [
                 'evaluation_set' => $evaluationSet,
                 'model_key' => $modelKey,
                 'dry_run' => $dryRun,
                 'allow_external_model_call' => $allowExternalModelCall,
+                'heartbeat' => static function (array $planned) use (
+                    $runService,
+                    $reservationId,
+                    $claimToken
+                ): bool {
+                    $renewed = $runService->renewReservation($reservationId, $claimToken);
+                    return ($renewed['state'] ?? '') === 'claimed'
+                        && ($renewed['persistence_status'] ?? '') === 'readback_verified'
+                        && ($renewed['run']['readback_verified'] ?? false) === true;
+                },
             ]);
-            $run = $runService->save(
-                $clientRunKey,
-                $evaluationSet,
-                $modelKey,
-                $runFilters,
-                $result,
-                (int)($this->currentUser->id ?? 0)
-            );
-            $payload = [
-                'run' => $run,
-                'result' => $result,
-                'persistence_status' => 'readback_verified',
-                'replayed' => false,
-            ];
+            $runService->renewReservation($reservationId, $claimToken);
+            $run = $runService->finalizeReservation($reservationId, $claimToken, $result);
         } catch (Throwable $e) {
             return $this->error($this->evaluationErrorMessage($e), $this->evaluationStatus($e));
         }
+
+        $payload = [
+            'run' => $run,
+            'result' => $result,
+            'persistence_status' => 'readback_verified',
+            'replayed' => false,
+        ];
 
         if (!$dryRun && !$allowExternalModelCall && $modelKey !== LocalAiRuntimeService::TEXT_MODEL_KEY) {
             return $this->success($payload, '评估集回放已阻断并保存回读：未授权模型调用');
@@ -542,10 +569,12 @@ class AiGovernance extends Base
 
     private function evaluationErrorMessage(Throwable $e): string
     {
-        $message = trim($e->getMessage());
-        if ($message === '' || preg_match('/token|secret|password|cookie|authorization/i', $message) === 1) {
+        if (!in_array($this->evaluationStatus($e), [409, 422], true)) {
             return 'AI评测批次处理失败';
         }
-        return mb_substr($message, 0, 300);
+        $message = trim($e->getMessage());
+        return in_array($message, self::SAFE_EVALUATION_BUSINESS_ERRORS, true)
+            ? $message
+            : 'AI评测批次处理失败';
     }
 }

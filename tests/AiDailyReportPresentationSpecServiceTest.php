@@ -260,7 +260,7 @@ final class AiDailyReportPresentationSpecServiceTest extends TestCase
 
         $artifactService = new AiDailyReportPresentationArtifactService();
         try {
-            $artifactService->readLatest(42, [7], 0, 'owner', false);
+            $artifactService->readLatest(42, [7], 0, 'owner', false, 1, str_repeat('a', 64));
             self::fail('artifact latest read must reject a missing tenant scope');
         } catch (InvalidArgumentException $error) {
             self::assertSame('presentation tenant scope is required', $error->getMessage());
@@ -269,6 +269,29 @@ final class AiDailyReportPresentationSpecServiceTest extends TestCase
         $this->expectException(InvalidArgumentException::class);
         $this->expectExceptionMessage('presentation tenant scope is required');
         $artifactService->readExact(42, 9, [7], 0, false);
+    }
+
+    public function testArtifactLatestKeepsLegacyIncludeBundlePositionAndFailsClosedWithoutSpecIdentity(): void
+    {
+        $service = new AiDailyReportPresentationArtifactService();
+        $method = new \ReflectionMethod($service, 'readLatest');
+        self::assertSame([
+            'reportId',
+            'hotelIds',
+            'tenantId',
+            'audience',
+            'includeBundle',
+            'presentationSpecId',
+            'expectedSpecFingerprint',
+        ], array_map(
+            static fn(\ReflectionParameter $parameter): string => $parameter->getName(),
+            $method->getParameters()
+        ));
+
+        self::assertNull(
+            $service->readLatest(42, [7], 3, 'owner', true),
+            'The legacy five-argument call must not throw or fall back to an artifact from an older spec.'
+        );
     }
 
     public function testInvalidAudienceFailsClosed(): void
@@ -281,6 +304,9 @@ final class AiDailyReportPresentationSpecServiceTest extends TestCase
     {
         $route = (string)file_get_contents(__DIR__ . '/../route/app.php');
         $controller = (string)file_get_contents(__DIR__ . '/../app/controller/AiDailyReport.php');
+        $artifactServiceSource = (string)file_get_contents(
+            __DIR__ . '/../app/service/AiDailyReportPresentationArtifactService.php'
+        );
         $migration = (string)file_get_contents(
             __DIR__ . '/../database/migrations/20260823_zz_create_ai_report_presentation_specs.sql'
         );
@@ -298,6 +324,9 @@ final class AiDailyReportPresentationSpecServiceTest extends TestCase
         self::assertStringContainsString("Route::get('/:id/presentation-artifacts/:artifactId', 'AiDailyReport/presentationArtifactById')", $route);
         self::assertStringContainsString('saveAndReadback(', $controller);
         self::assertStringContainsString('readLatest(', $controller);
+        self::assertStringContainsString('presentationSpecService->readLatest', $controller);
+        self::assertStringContainsString("->where('presentation_spec_id', \$presentationSpecId)", $artifactServiceSource);
+        self::assertStringContainsString("->where('spec_fingerprint', \$expectedSpecFingerprint)", $artifactServiceSource);
         self::assertStringContainsString("'report.export'", $controller);
         self::assertStringContainsString('`spec_fingerprint` CHAR(64) NOT NULL', $migration);
         self::assertStringContainsString('`spec_json` JSON NOT NULL', $migration);

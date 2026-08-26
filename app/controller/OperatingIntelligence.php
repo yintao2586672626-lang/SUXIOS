@@ -151,7 +151,7 @@ final class OperatingIntelligence extends Base
     {
         try {
             $input = $this->requestData();
-            [$hotelId, $tenantId] = $this->resolveHotel((int)($input['hotel_id'] ?? 0), 'operation.view');
+            [$hotelId, $tenantId] = $this->resolveHotel((int)($input['hotel_id'] ?? 0), 'operation.execute');
             $file = $this->request->file('file');
             if (!$file) {
                 throw new InvalidArgumentException('请选择图片、音频或视频文件');

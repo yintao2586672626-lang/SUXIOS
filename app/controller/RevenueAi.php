@@ -118,7 +118,10 @@ class RevenueAi extends Base
     public function readCockpitDecisionSnapshot(): Response
     {
         try {
-            $context = $this->strictCockpitContext($this->filters());
+            $filters = $this->filters();
+            $hotelId = (int)($filters['hotel_id'] ?? 0);
+            $this->assertRevenueAiHotelCapability($hotelId, self::REVIEW_PERMISSION);
+            $context = $this->strictCockpitContext($filters);
             $snapshotId = (int)$this->request->param('snapshot_id', 0);
             $service = new RevenueDecisionSnapshotService();
             $snapshot = $snapshotId > 0
@@ -323,10 +326,6 @@ class RevenueAi extends Base
             $businessDate,
             $platform,
             $closure
-        );
-        $overview['dual_ota_field_closure'] = (new DualOtaFieldClosureService())->build(
-            $hotelId,
-            $businessDate
         );
         return $overview;
     }

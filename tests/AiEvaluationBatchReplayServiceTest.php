@@ -147,6 +147,46 @@ final class AiEvaluationBatchReplayServiceTest extends TestCase
         self::assertContains('external_model_call_not_allowed', $result['cases'][0]['blockers']);
     }
 
+    public function testHeartbeatRunsBeforeEveryRealModelCaseAndFailureStopsRemainingCalls(): void
+    {
+        $client = new class {
+            public int $calls = 0;
+
+            public function createJsonResponseEnvelope(array $messages, array $schema, string $modelKey): array
+            {
+                $this->calls++;
+                return [
+                    'data' => ['summary' => 'ok'],
+                    'meta' => ['provider' => 'deepseek', 'model_key' => $modelKey, 'model' => 'deepseek'],
+                ];
+            }
+        };
+        $heartbeats = 0;
+        $service = new AiEvaluationBatchReplayService($client);
+        try {
+            $service->run([
+                $this->caseRow('heartbeat_case_1', ['prompt' => 'one', 'schema' => $this->schema()], ['summary' => 'ok']),
+                $this->caseRow('heartbeat_case_2', ['prompt' => 'two', 'schema' => $this->schema()], ['summary' => 'ok']),
+                $this->caseRow('heartbeat_case_3', ['prompt' => 'three', 'schema' => $this->schema()], ['summary' => 'ok']),
+            ], [
+                'evaluation_set' => 'ota_diagnosis_governance_v1',
+                'model_key' => 'deepseek_chat',
+                'dry_run' => false,
+                'allow_external_model_call' => true,
+                'heartbeat' => static function () use (&$heartbeats): bool {
+                    $heartbeats++;
+                    return $heartbeats < 2;
+                },
+            ]);
+            self::fail('A failed reservation heartbeat must abort the remaining model cases.');
+        } catch (\RuntimeException $error) {
+            self::assertSame(409, $error->getCode());
+            self::assertSame('AI评测批次 reservation 续租失败', $error->getMessage());
+        }
+        self::assertSame(2, $heartbeats);
+        self::assertSame(1, $client->calls);
+    }
+
     public function testDryRunAcceptsPersistedJsonStringsForBackwardCompatibility(): void
     {
         $client = new class {

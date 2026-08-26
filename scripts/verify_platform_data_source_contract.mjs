@@ -16,6 +16,7 @@ const platformSyncImplementationFiles = [
   'app/service/concern/PlatformDataSourceExecutionConcern.php',
   'app/service/concern/PlatformSyncTaskConcern.php',
   'app/service/concern/PlatformSyncTaskReadbackConcern.php',
+  'app/service/concern/PlatformSyncTaskReadbackCoverageConcern.php',
 ];
 const read = (file) => {
   if (file === 'public/index.html') {

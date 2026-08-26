@@ -312,12 +312,25 @@ class AiDailyReport extends Base
                 $this->request->param('include_bundle', false),
                 FILTER_VALIDATE_BOOL
             );
+            $currentSpec = $this->presentationSpecService->readLatest(
+                $id,
+                $hotelIds,
+                $tenantId,
+                $audience
+            );
+            if (!is_array($currentSpec)) {
+                return $this->error('AI daily report presentation spec not found', 404);
+            }
+            $currentSpecId = (int)($currentSpec['record_id'] ?? 0);
+            $currentSpecFingerprint = strtolower(trim((string)($currentSpec['spec_fingerprint'] ?? '')));
             $stored = $this->presentationArtifactService->readLatest(
                 $id,
                 $hotelIds,
                 $tenantId,
                 $audience,
-                $includeBundle
+                $includeBundle,
+                $currentSpecId,
+                $currentSpecFingerprint
             );
             if (!is_array($stored)) {
                 return $this->error('AI daily report presentation artifact not found', 404);

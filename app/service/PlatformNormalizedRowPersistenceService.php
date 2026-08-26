@@ -28,6 +28,7 @@ final class PlatformNormalizedRowPersistenceService
      *   readback_count:int,
      *   readback_verified:bool,
      *   row_ids:array<int, int>,
+     *   persistence_identity_row_ids:array<string, int>,
      *   rolled_back?:bool,
      *   failure_reason?:string,
      *   mismatch_field?:string
@@ -45,6 +46,7 @@ final class PlatformNormalizedRowPersistenceService
                 'readback_count' => 0,
                 'readback_verified' => true,
                 'row_ids' => [],
+                'persistence_identity_row_ids' => [],
             ];
         }
 
@@ -57,6 +59,7 @@ final class PlatformNormalizedRowPersistenceService
                 $updated = 0;
                 $readback = 0;
                 $rowIds = [];
+                $identityRowIds = [];
                 $readbackRows = [];
                 $preparedRows = [];
 
@@ -82,6 +85,10 @@ final class PlatformNormalizedRowPersistenceService
                 $deduplicatedCount = max(0, $attempted - count($preparedRows));
 
                 foreach ($preparedRows as $data) {
+                    $persistenceIdentity = trim((string)($data['persistence_identity_hash'] ?? ''));
+                    if (preg_match('/^[a-f0-9]{64}$/D', $persistenceIdentity) !== 1) {
+                        $persistenceIdentity = $this->identityHash($data);
+                    }
                     $existing = $this->findNormalizedRowByCompleteIdentity($data, $columns);
                     if (is_array($existing)) {
                         $rowId = (int)($existing['id'] ?? 0);
@@ -137,6 +144,7 @@ final class PlatformNormalizedRowPersistenceService
                     }
                     $readback++;
                     $rowIds[] = $rowId;
+                    $identityRowIds[$persistenceIdentity] = $rowId;
                     $readbackRows[] = $readbackRow;
                 }
 
@@ -169,6 +177,7 @@ final class PlatformNormalizedRowPersistenceService
                     // target-date subset. The persisted receipt is bounded by
                     // CloudOtaBundleCodec::MAX_ROWS after that filtering step.
                     'row_ids' => $rowIds,
+                    'persistence_identity_row_ids' => $identityRowIds,
                 ];
             });
         } catch (RuntimeException $e) {
@@ -405,6 +414,7 @@ final class PlatformNormalizedRowPersistenceService
             'failure_reason' => $reason,
             'mismatch_field' => trim((string)$mismatchField),
             'row_ids' => [],
+            'persistence_identity_row_ids' => [],
         ];
     }
 

@@ -5,6 +5,7 @@ import { WSClient, generateReqId } from '@wecom/aibot-node-sdk';
 import {
   createWecomAibotMessageHandler,
   createWecomAibotShutdown,
+  normalizeWecomAibotRelayBase,
   wecomAibotCredentialError,
 } from './lib/wecom_aibot_delivery.mjs';
 
@@ -14,7 +15,13 @@ const statePath = path.join(repoRoot, 'runtime', 'wecom-aibot-state.json');
 const botId = String(process.env.SUXIOS_WECOM_AIBOT_ID || '').trim();
 const secret = String(process.env.SUXIOS_WECOM_AIBOT_SECRET || '').trim();
 const relayToken = String(process.env.SUXIOS_WECOM_AIBOT_RELAY_TOKEN || '').trim();
-const apiBase = String(process.env.SUXIOS_LOCAL_API_BASE || 'http://127.0.0.1:8080').replace(/\/+$/, '');
+let apiBase = '';
+let relayBaseError = null;
+try {
+  apiBase = normalizeWecomAibotRelayBase(process.env.SUXIOS_LOCAL_API_BASE);
+} catch (error) {
+  relayBaseError = error instanceof Error ? error.message : 'wecom_aibot_relay_base_invalid';
+}
 
 let state = {
   contract_version: 'wecom_aibot_worker_state.v1',
@@ -35,8 +42,7 @@ const writeState = (patch = {}) => {
   fs.renameSync(temp, statePath);
 };
 
-const stopWithoutCredentials = () => {
-  const errorCode = wecomAibotCredentialError(botId, secret, relayToken);
+const stopWithoutConfiguration = (errorCode) => {
   writeState({
     status: 'blocked_not_configured',
     authenticated: false,
@@ -45,8 +51,9 @@ const stopWithoutCredentials = () => {
   process.exitCode = 2;
 };
 
-if (wecomAibotCredentialError(botId, secret, relayToken) !== null) {
-  stopWithoutCredentials();
+const startupError = wecomAibotCredentialError(botId, secret, relayToken) || relayBaseError;
+if (startupError !== null) {
+  stopWithoutConfiguration(startupError);
 } else {
   const relay = async (endpoint, body) => {
     const response = await fetch(`${apiBase}${endpoint}`, {

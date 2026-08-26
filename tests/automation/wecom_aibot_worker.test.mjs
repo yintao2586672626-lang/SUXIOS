@@ -1,10 +1,14 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import {
   createWecomAibotMessageHandler,
   createWecomAibotShutdown,
+  normalizeWecomAibotRelayBase,
   wecomAibotCredentialError,
 } from '../../scripts/lib/wecom_aibot_delivery.mjs';
+
+const workerSource = readFileSync(new URL('../../scripts/wecom_aibot_worker.mjs', import.meta.url), 'utf8');
 
 const frame = (content = '请给我昨日经营摘要') => ({
   body: {
@@ -44,6 +48,27 @@ test('credential gate distinguishes missing credentials from a missing relay tok
   assert.equal(wecomAibotCredentialError('bot', '', 'x'.repeat(32)), 'wecom_aibot_credentials_missing');
   assert.equal(wecomAibotCredentialError('bot', 'secret', 'short'), 'wecom_aibot_relay_token_missing');
   assert.equal(wecomAibotCredentialError('bot', 'secret', 'x'.repeat(32)), null);
+});
+
+test('relay base accepts only a bare loopback HTTP origin before authenticated fetch', () => {
+  assert.equal(normalizeWecomAibotRelayBase(undefined), 'http://127.0.0.1:8080');
+  assert.equal(normalizeWecomAibotRelayBase('http://localhost:18080/'), 'http://localhost:18080');
+  assert.equal(normalizeWecomAibotRelayBase('http://[::1]:8080'), 'http://[::1]:8080');
+  for (const value of [
+    'https://127.0.0.1:8080',
+    'http://example.com:8080',
+    'http://localhost.example.com:8080',
+    'http://user:pass@127.0.0.1:8080',
+    'http://127.0.0.1:8080/api',
+    'http://127.0.0.1:8080/?next=external',
+  ]) {
+    assert.throws(
+      () => normalizeWecomAibotRelayBase(value),
+      /wecom_aibot_relay_base_/,
+      value,
+    );
+  }
+  assert.ok(workerSource.indexOf('normalizeWecomAibotRelayBase') < workerSource.indexOf('X-SUXIOS-Relay-Token'));
 });
 
 test('duplicate, already-delivered, disallowed, and empty replies never call the external SDK', async () => {
