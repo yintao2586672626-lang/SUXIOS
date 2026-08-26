@@ -63,6 +63,12 @@ test(
         sourceScript,
         path.join(root, 'scripts', 'generate_project_state.ps1'),
       );
+      const fixtureScript = path.join(root, 'scripts', 'generate_project_state.ps1');
+      writeFileSync(
+        fixtureScript,
+        readFileSync(fixtureScript, 'utf8').replace(/\r?\n/g, '\r\n'),
+        'utf8',
+      );
       writeFileSync(
         path.join(root, '.gitignore'),
         '/vault/current-state.md\n',
@@ -78,7 +84,7 @@ test(
       run('git', ['commit', '-m', 'fixture'], root);
       run('git', ['checkout', '-b', 'review/no-upstream'], root);
 
-      const script = path.join(root, 'scripts', 'generate_project_state.ps1');
+      const script = fixtureScript;
       const shellArgs = process.platform === 'win32'
         ? ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', script]
         : ['-NoProfile', '-File', script];

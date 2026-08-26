@@ -196,9 +196,9 @@ if ($Check) {
         throw "$outputRelativePath is missing; run npm run state:refresh."
     }
     $existing = [IO.File]::ReadAllText($outputPath, [Text.Encoding]::UTF8)
-    $match = [regex]::Match($existing, '(?m)^Snapshot fingerprint: `([a-f0-9]{64})`$')
+    $match = [regex]::Match($existing, '(?m)^Snapshot fingerprint: `([a-f0-9]{64})`\r?$')
     if (-not $match.Success -or $match.Groups[1].Value -ne $fingerprint) {
-        $stateMatch = [regex]::Match($existing, '(?m)^Snapshot state: `([A-Za-z0-9+/=]+)`$')
+        $stateMatch = [regex]::Match($existing, '(?m)^Snapshot state: `([A-Za-z0-9+/=]+)`\r?$')
         $previousState = if ($stateMatch.Success) {
             [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($stateMatch.Groups[1].Value))
         } else {
