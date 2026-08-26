@@ -371,6 +371,7 @@ final class ManualNotificationBusinessPayloadService
                 'horizons' => $messageData['horizons'] ?? [],
                 'daily_rows' => $messageData['daily_rows'] ?? [],
                 'room_types' => $messageData['room_types'] ?? [],
+                'forward_delta' => $messageData['forward_delta'] ?? null,
                 'alerts' => $messageData['alerts'] ?? [],
             ]
             : (
@@ -738,10 +739,136 @@ final class ManualNotificationBusinessPayloadService
                 . self::number($row['occupancy_rate_percent'] ?? null, 2)
                 . '%｜ADR ¥' . self::number($row['adr'] ?? null, 2);
         }
+        $forwardDelta = is_array($messageData['forward_delta'] ?? null)
+            ? $messageData['forward_delta']
+            : [];
+        $lines[] = '';
+        $lines[] = '**本次房态变化**';
+        $deltaStatus = (string)($forwardDelta['data_status'] ?? 'baseline_only');
+        if (in_array($deltaStatus, ['comparable', 'rebaseline_required'], true)) {
+            $timeLine = '时段｜'
+                . self::timeLabel($forwardDelta['captured_from'] ?? null)
+                . ' → ' . self::timeLabel($forwardDelta['captured_to'] ?? null);
+            if (is_numeric($forwardDelta['elapsed_minutes'] ?? null)) {
+                $timeLine .= '（'
+                    . self::number($forwardDelta['elapsed_minutes'], 0)
+                    . '分钟）';
+            }
+            $lines[] = $timeLine;
+        }
+        if ($deltaStatus === 'comparable') {
+            $summary = is_array($forwardDelta['summary'] ?? null)
+                ? $forwardDelta['summary']
+                : [];
+            $lines[] = '未来21天账面净变化｜已订 '
+                . self::signedMetric(
+                    $summary['booked_room_nights_delta'] ?? null,
+                    0,
+                    '',
+                    '间夜'
+                )
+                . '｜剩余可售 '
+                . self::signedMetric(
+                    $summary['remaining_sellable_room_nights_delta'] ?? null,
+                    0,
+                    '',
+                    '间夜'
+                )
+                . '｜不可用 '
+                . self::signedMetric(
+                    $summary['unavailable_room_nights_delta'] ?? null,
+                    0,
+                    '',
+                    '间夜'
+                );
+        } elseif ($deltaStatus === 'rebaseline_required') {
+            $basisChanges = (int)($forwardDelta['inventory_basis_change_count'] ?? 0);
+            $reasonCode = (string)($forwardDelta['reason_code'] ?? '');
+            $lines[] = in_array(
+                $reasonCode,
+                ['room_type_structure_changed', 'room_type_capacity_changed'],
+                true
+            )
+                ? '状态｜房型集合或房量发生变化，需重建比较基线；本次不计算可靠净变化。'
+                : '状态｜检测到' . $basisChanges
+                    . '个房型日库存基数变化，需重建比较基线；本次不计算可靠净变化。';
+        } elseif ($deltaStatus === 'not_comparable') {
+            $lines[] = '状态｜前后快照不可比，未计算房态变化。';
+        } else {
+            $lines[] = '状态｜首次可信快照，等待下一次同门店、同经营日期快照建立变化基线。';
+        }
+        $changes = array_values(array_filter(
+            (array)($forwardDelta['changes'] ?? []),
+            'is_array'
+        ));
+        if (in_array($deltaStatus, ['comparable', 'rebaseline_required'], true)) {
+            if ($changes === []) {
+                if ($deltaStatus === 'comparable') {
+                    $lines[] = '房型日明细｜本次无变化';
+                }
+            } else {
+                $shown = min(3, count($changes));
+                $lines[] = '变化房型日｜' . count($changes)
+                    . '个；展示前' . $shown . '条';
+                foreach (array_slice($changes, 0, 3) as $change) {
+                    $date = self::safeText(
+                        (string)($change['stay_date'] ?? ''),
+                        10
+                    );
+                    $line = substr($date, 5) . '｜'
+                        . self::safeText(
+                            (string)($change['room_type_name'] ?? '未知房型'),
+                            40
+                        )
+                        . '｜已订 '
+                        . self::number($change['booked_rooms_from'] ?? null, 0)
+                        . '→' . self::number($change['booked_rooms_to'] ?? null, 0)
+                        . '（' . self::signedMetric(
+                            $change['booked_rooms_delta'] ?? null,
+                            0,
+                            '',
+                            '间'
+                        ) . '）｜剩余 '
+                        . self::number(
+                            $change['remaining_sellable_rooms_from'] ?? null,
+                            0
+                        )
+                        . '→' . self::number(
+                            $change['remaining_sellable_rooms_to'] ?? null,
+                            0
+                        )
+                        . '（' . self::signedMetric(
+                            $change['remaining_sellable_rooms_delta'] ?? null,
+                            0,
+                            '',
+                            '间'
+                        ) . '）';
+                    if (($change['status'] ?? '') === 'inventory_basis_changed') {
+                        $line .= '｜库存基数 '
+                            . self::number(
+                                $change['inventory_basis_rooms_from'] ?? null,
+                                0
+                            )
+                            . '→' . self::number(
+                                $change['inventory_basis_rooms_to'] ?? null,
+                                0
+                            );
+                    } elseif (($change['status'] ?? '') === 'sold_out') {
+                        $line .= '｜可售归零';
+                    }
+                    $lines[] = $line;
+                }
+                if (count($changes) > 3) {
+                    $lines[] = '其余' . (count($changes) - 3)
+                        . '条｜已保存在事实明细';
+                }
+            }
+            $lines[] = '> 以上仅表示两次可信快照的账面净变动，不直接归因为新订或取消。';
+        }
         $lines[] = '';
         $lines[] = '逐日/房型明细｜已保存'
             . self::number($messageData['display_day_count'] ?? null, 0)
-            . '天；日常消息仅展示累计窗口，异常时展开。';
+            . '天；日常消息展示累计窗口和前3条重点变化，完整明细保留。';
         $alerts = array_values(array_filter(
             (array)($messageData['alerts'] ?? []),
             'is_array'

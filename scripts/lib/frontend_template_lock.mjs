@@ -105,7 +105,17 @@ export async function acquireFrontendTemplateLock(repoRoot, {
       }
       if (error?.code !== 'EEXIST') throw error;
 
-      const observed = readLockRecord(lockPath);
+      let observed;
+      try {
+        observed = readLockRecord(lockPath);
+      } catch (readError) {
+        if (!['EACCES', 'EPERM'].includes(String(readError?.code || ''))) throw readError;
+        if (Date.now() - startedAt >= waitTimeoutMs) {
+          throw new Error('Frontend template workspace is locked by pid unknown (lock metadata is temporarily unavailable).');
+        }
+        await wait(Math.max(10, pollIntervalMs));
+        continue;
+      }
       if (!observed) continue;
       const lockAgeMs = Date.now() - observed.stat.mtimeMs;
       const ownerPid = Number(observed.metadata?.pid || 0);

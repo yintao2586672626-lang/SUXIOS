@@ -426,22 +426,28 @@ final class AutoFetchOnlineDataScopeTest extends TestCase
 
     public function testOrderedPlannerAndCaptureShareThePerPlatformFailureBoundary(): void
     {
-        $source = (string)file_get_contents(dirname(__DIR__) . '/app/command/AutoFetchOnlineData.php');
-        $method = strpos($source, 'private function syncBrowserProfileSources(');
-        $loop = strpos($source, 'foreach ($sources as $source)', (int)$method);
+        $aggregate = SourceAggregate::read(
+            dirname(__DIR__),
+            'app/command/AutoFetchOnlineData.php'
+        );
+        $method = strpos($aggregate, 'private function syncBrowserProfileSources(');
+        $nextMethod = strpos(
+            $aggregate,
+            'protected function orderedBrowserProfileExecution(',
+            (int)$method
+        );
+
+        self::assertNotFalse($method);
+        self::assertNotFalse($nextMethod);
+
+        $source = substr($aggregate, (int)$method, (int)$nextMethod - (int)$method);
+        $loop = strpos($source, 'foreach ($sources as $source)');
         $platformTry = strpos($source, 'try {', (int)$loop);
         $planner = strpos($source, '$orderedExecution = $this->orderedBrowserProfileExecution(', (int)$loop);
         $sync = strpos($source, '$result = $cloudProfileLeases instanceof CloudOtaProfileLeaseService', (int)$planner);
         $leasedSync = strpos($source, 'fn(string $cdpUrl): array => $this->syncBrowserProfileSource(', (int)$sync);
         $fallbackSync = strpos($source, ': $this->syncBrowserProfileSource(', (int)$leasedSync);
-        $platformCatch = strpos($source, '} catch (\Throwable $e) {', (int)$sync);
-
-        self::assertNotFalse($method);
-        $loop = strpos($source, 'foreach ($sources as $source)');
-        $platformTry = strpos($source, 'try {', (int)$loop);
-        $planner = strpos($source, '$orderedExecution = $this->orderedBrowserProfileExecution(', (int)$loop);
-        $sync = strpos($source, '$result = $this->syncBrowserProfileSource(', (int)$planner);
-        $platformCatch = strpos($source, '} catch (\Throwable $e) {', (int)$sync);
+        $platformCatch = strpos($source, '} catch (\Throwable $e) {', (int)$fallbackSync);
 
         self::assertNotFalse($loop);
         self::assertNotFalse($platformTry);
@@ -454,10 +460,7 @@ final class AutoFetchOnlineDataScopeTest extends TestCase
         self::assertLessThan($sync, $planner);
         self::assertLessThan($leasedSync, $sync);
         self::assertLessThan($fallbackSync, $leasedSync);
-        self::assertNotFalse($platformCatch);
-        self::assertLessThan($planner, $platformTry);
-        self::assertLessThan($sync, $planner);
-        self::assertLessThan($platformCatch, $sync);
+        self::assertLessThan($platformCatch, $fallbackSync);
         self::assertStringContainsString("'message' => 'ordered_profile_capture_failed'", $source);
     }
 

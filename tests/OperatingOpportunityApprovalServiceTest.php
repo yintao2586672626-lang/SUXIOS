@@ -3,7 +3,6 @@ declare(strict_types=1);
 
 namespace Tests;
 
-use app\service\DailyOneThingService;
 use app\service\OperatingOpportunityApprovalService;
 use app\service\OperatingOpportunityLabService;
 use InvalidArgumentException;
@@ -220,54 +219,31 @@ final class OperatingOpportunityApprovalServiceTest extends TestCase
         self::assertSame(0, (int)Db::name('operation_execution_intents')->count());
     }
 
-    public function testDailyPriorityRequiresActionAndBindsSelectedCurrentRun(): void
+    public function testLegacyDailyPriorityCannotCreateASecondApprovalLifecycle(): void
     {
-        $sourceRunId = $this->insertRun(
-            'service_promise_risk',
-            'verified',
-            ['business_date' => '2026-08-23'],
-            [
-                'status' => 'risk_detected',
-                'shortage_quantity' => 2,
-                'risk_amount' => 60,
-                'decision_eligible' => true,
-                'recommended_action' => ['summary' => '核对明日权益库存'],
-            ]
-        );
-        $lab = new OperatingOpportunityLabService();
-        $sourceRun = $lab->readRun(10, 20, $sourceRunId);
-        $priorityResult = (new DailyOneThingService())->select([$sourceRun], '2026-08-23');
-        self::assertSame('action_required', $priorityResult['status']);
-        $priorityResult['feature_key'] = 'daily_one_thing';
-        $priorityResult['feature_label'] = '今日一件事';
-        $priorityResult['external_write_allowed'] = false;
-        $priorityRunId = $this->insertRun(
+        $runId = $this->insertRun(
             'daily_one_thing',
             'derived_from_saved_runs',
-            [
-                'business_date' => '2026-08-23',
-                'source_run_ids' => [$sourceRunId],
-                'selection_contract' => DailyOneThingService::CONTRACT_VERSION,
-            ],
-            $priorityResult
+            ['business_date' => '2026-08-23'],
+            ['status' => 'action_required', 'selected' => ['run_id' => 91]]
         );
-        $priorityRun = $lab->readRun(10, 20, $priorityRunId);
+        $run = (new OperatingOpportunityLabService())->readRun(10, 20, $runId);
 
-        $created = (new OperatingOpportunityApprovalService($lab))->createPendingApproval(
-            10,
-            20,
-            $priorityRunId,
-            7,
-            '2026-08-23',
-            (string)$priorityRun['input_digest'],
-            (string)$priorityRun['result_digest']
-        );
-
-        self::assertSame($priorityRunId, $created['execution_intent']['source_record_id']);
-        self::assertSame($sourceRunId, $created['opportunity_scope']['selected_source_run_id']);
-        self::assertSame('service_promise_risk', $created['opportunity_scope']['selected_feature_key']);
-        self::assertSame(2, $created['opportunity_scope']['source_metric']['value']);
-        self::assertSame([], $created['execution_intent']['tasks']);
+        try {
+            (new OperatingOpportunityApprovalService())->createPendingApproval(
+                10,
+                20,
+                $runId,
+                7,
+                '2026-08-23',
+                (string)$run['input_digest'],
+                (string)$run['result_digest']
+            );
+            self::fail('Legacy daily-one-thing approval must not create a second lifecycle.');
+        } catch (InvalidArgumentException $exception) {
+            self::assertStringContainsString('统一优先事项保存链', $exception->getMessage());
+        }
+        self::assertSame(0, (int)Db::name('operation_execution_intents')->count());
     }
 
     public function testBlockedDailyPriorityCannotBeSentForApproval(): void
@@ -297,17 +273,21 @@ final class OperatingOpportunityApprovalServiceTest extends TestCase
         );
         $run = (new OperatingOpportunityLabService())->readRun(10, 20, $priorityRunId);
 
-        $this->expectException(InvalidArgumentException::class);
-        $this->expectExceptionMessage('今日一件事尚未形成可送审事项');
-        (new OperatingOpportunityApprovalService())->createPendingApproval(
-            10,
-            20,
-            $priorityRunId,
-            7,
-            '2026-08-23',
-            (string)$run['input_digest'],
-            (string)$run['result_digest']
-        );
+        try {
+            (new OperatingOpportunityApprovalService())->createPendingApproval(
+                10,
+                20,
+                $priorityRunId,
+                7,
+                '2026-08-23',
+                (string)$run['input_digest'],
+                (string)$run['result_digest']
+            );
+            self::fail('Blocked legacy daily-one-thing run must not create a second lifecycle.');
+        } catch (InvalidArgumentException $exception) {
+            self::assertStringContainsString('统一优先事项保存链', $exception->getMessage());
+        }
+        self::assertSame(0, (int)Db::name('operation_execution_intents')->count());
     }
 
     /** @param array<string,mixed> $input @param array<string,mixed> $result */

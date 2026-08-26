@@ -27,7 +27,12 @@ final class OperatingOpportunity extends Base
         try {
             [$tenantId, $hotelId] = $this->resolveSingleHotelScope('operation.view');
             $businessDate = trim((string)$this->request->param('business_date', date('Y-m-d')));
-            $overview = $this->service->overview($tenantId, $hotelId, $businessDate);
+            $overview = $this->service->overview(
+                $tenantId,
+                $hotelId,
+                $businessDate,
+                (int)($this->currentUser->id ?? 0)
+            );
             $runs = array_values((array)($overview['latest_runs'] ?? []));
             if (is_array($overview['today_saved_run'] ?? null)) {
                 $runs[] = $overview['today_saved_run'];

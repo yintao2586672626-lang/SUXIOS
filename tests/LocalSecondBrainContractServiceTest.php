@@ -11,6 +11,7 @@ use app\service\OperatingMemoryRetrievalService;
 use app\service\OperatingMemoryService;
 use app\service\OperatingQuestionCouncilService;
 use app\service\OperatingQuestionService;
+use app\service\WecomAibotService;
 use InvalidArgumentException;
 use PHPUnit\Framework\TestCase;
 use ReflectionClass;
@@ -67,6 +68,9 @@ final class LocalSecondBrainContractServiceTest extends TestCase
             'hotel_operating_questions',
             'hotel_operating_memories',
             'local_media_extractions',
+            'wecom_inbound_events',
+            'wecom_inbound_bindings',
+            'wecom_aibot_binding_codes',
         ] as $table) {
             Db::execute('DROP TABLE IF EXISTS ' . $table);
         }
@@ -75,6 +79,7 @@ final class LocalSecondBrainContractServiceTest extends TestCase
         $this->createOperatingMemorySchema();
         $this->createLocalMediaSchema();
         $this->createOperatingQuestionCouncilSchema();
+        $this->createWecomSchema();
     }
 
     public function testEvaluationRunExactReadbackCoversRunKeyCreatorAndMarkerRepair(): void
@@ -280,6 +285,16 @@ final class LocalSecondBrainContractServiceTest extends TestCase
                         'risks' => ['单一渠道事实不能外推为全酒店结论。'],
                         'missing_information' => [],
                         'evidence_refs' => ['online_daily_data#501'],
+                        'quantitative_claims' => [[
+                            'claim_text' => '携程列表曝光为100次。',
+                            'value' => '100',
+                            'unit' => 'exposure_count',
+                            'scope' => '{"tenant_id":10,"hotel_id":20,"platform":"ctrip",'
+                                . '"source_scope":"ota_channel","data_type":"traffic",'
+                                . '"dimension":"hotel_daily"}',
+                            'date' => '2026-08-10',
+                            'ref' => 'online_daily_data#501',
+                        ]],
                         'confidence' => 'medium',
                     ]
                     : [
@@ -322,7 +337,26 @@ final class LocalSecondBrainContractServiceTest extends TestCase
             static fn(): array => [
                 'text' => ['ready' => true, 'model' => 'qwen3:4b'],
                 'boundaries' => ['local_only' => true],
-            ]
+            ],
+            null,
+            null,
+            static function (
+                int $tenantId,
+                int $hotelId,
+                string $platform,
+                string $dateStart,
+                string $dateEnd,
+                array $refs
+            ): array {
+                return $tenantId === 10
+                    && $hotelId === 20
+                    && $platform === 'ctrip'
+                    && $dateStart === '2026-08-10'
+                    && $dateEnd === '2026-08-10'
+                    && $refs === ['online_daily_data#501']
+                    ? [self::groundedFactSample()]
+                    : [];
+            }
         );
 
         self::assertSame(0, (int)Db::name(OperatingQuestionCouncilService::TABLE)->count());
@@ -586,13 +620,7 @@ final class LocalSecondBrainContractServiceTest extends TestCase
                 'date_start' => '2026-08-10',
                 'date_end' => '2026-08-10',
             ],
-            'fact_samples' => [[
-                'ref' => 'online_daily_data#501',
-                'platform' => 'ctrip',
-                'data_date' => '2026-08-10',
-                'metric_values' => ['list_exposure' => 100],
-                'metric_units' => ['list_exposure' => 'exposure_count'],
-            ]],
+            'fact_samples' => [self::groundedFactSample()],
             'data_gaps' => [],
         ];
         $factRefs = ['online_daily_data#501'];
@@ -626,6 +654,25 @@ final class LocalSecondBrainContractServiceTest extends TestCase
             'updated_at' => '2026-08-10 10:00:00',
             'deleted_at' => null,
         ]);
+    }
+
+    /** @return array<string,mixed> */
+    private static function groundedFactSample(): array
+    {
+        return [
+            'ref' => 'online_daily_data#501',
+            'platform' => 'ctrip',
+            'data_date' => '2026-08-10',
+            'data_type' => 'traffic',
+            'dimension' => 'hotel_daily',
+            'quality_status' => 'verified',
+            'history_status' => 'success',
+            'readback_status' => 'readback_verified',
+            'ingestion_method' => 'local_browser_profile',
+            'source_trace_id' => 'trace-501',
+            'metric_values' => ['list_exposure' => 100],
+            'metric_units' => ['list_exposure' => 'exposure_count'],
+        ];
     }
 
 
@@ -688,5 +735,94 @@ final class LocalSecondBrainContractServiceTest extends TestCase
         self::assertSame($row['conversation_id_hash'], Db::name('wecom_inbound_bindings')
             ->where('id', $bindingId)
             ->value('conversation_id_hash'));
+    }
+
+    private function createWecomSchema(): void
+    {
+        Db::execute('CREATE TABLE wecom_inbound_bindings ('
+            . 'id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER NOT NULL, hotel_id INTEGER NOT NULL, '
+            . 'binding_key TEXT NOT NULL UNIQUE, conversation_id_hash TEXT NOT NULL UNIQUE, label TEXT NOT NULL, '
+            . 'transport TEXT NOT NULL, status TEXT NOT NULL, reply_enabled INTEGER NOT NULL DEFAULT 0, '
+            . 'created_by INTEGER NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)');
+        Db::execute('CREATE TABLE wecom_aibot_binding_codes ('
+            . 'id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER NOT NULL, hotel_id INTEGER NOT NULL, '
+            . 'code_hash TEXT NOT NULL UNIQUE, code_mask TEXT NOT NULL, label TEXT NOT NULL, status TEXT NOT NULL, '
+            . 'created_by INTEGER NOT NULL, expires_at TEXT NOT NULL, used_at TEXT NULL, '
+            . 'bound_binding_id INTEGER NULL, created_at TEXT NOT NULL)');
+        Db::execute('CREATE TABLE wecom_inbound_events ('
+            . 'id INTEGER PRIMARY KEY AUTOINCREMENT, binding_id INTEGER NOT NULL, tenant_id INTEGER NOT NULL, '
+            . 'hotel_id INTEGER NOT NULL, external_event_id TEXT NOT NULL, payload_digest TEXT NOT NULL, '
+            . 'occurred_at TEXT NULL, message_type TEXT NOT NULL, transport TEXT NOT NULL, sender_id_hash TEXT NOT NULL, '
+            . 'content_text TEXT NULL, archive_status TEXT NOT NULL, processing_status TEXT NOT NULL, '
+            . 'processing_claim_token TEXT NULL, processing_lease_expires_at TEXT NULL, block_code TEXT NULL, '
+            . 'answer_json TEXT NULL, evidence_refs_json TEXT NULL, delivery_status TEXT NOT NULL, '
+            . 'delivery_reference TEXT NULL, content_digest TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, '
+            . 'UNIQUE(binding_id, external_event_id))');
+    }
+
+    private function insertWecomBinding(): int
+    {
+        return (int)Db::name('wecom_inbound_bindings')->insertGetId([
+            'tenant_id' => 10,
+            'hotel_id' => 20,
+            'binding_key' => 'aibot_test_binding_key_0001',
+            'conversation_id_hash' => hash('sha256', 'wecom-conversation-v1|test-conversation'),
+            'label' => 'test binding',
+            'transport' => WecomAibotService::TRANSPORT,
+            'status' => 'verified',
+            'reply_enabled' => 1,
+            'created_by' => 17,
+            'created_at' => '2026-08-25 10:00:00',
+            'updated_at' => '2026-08-25 10:00:00',
+        ]);
+    }
+
+    private function insertWecomEvent(WecomAibotService $service, int $bindingId): int
+    {
+        $record = [
+            'contract_version' => 'wecom_inbound_archive.v1',
+            'binding_id' => $bindingId,
+            'tenant_id' => 10,
+            'hotel_id' => 20,
+            'external_event_id' => 'wecom-delivery-test-event-1',
+            'payload_digest' => hash('sha256', 'wecom-delivery-test-payload-1'),
+            'occurred_at' => '2026-08-25 10:00:00',
+            'message_type' => 'text',
+            'transport' => WecomAibotService::TRANSPORT,
+            'sender_id_hash' => hash('sha256', 'wecom-delivery-test-sender-1'),
+            'content_text' => '测试消息',
+            'archive_status' => 'readback_verified',
+            'processing_status' => 'reply_ready',
+            'block_code' => null,
+            'answer' => ['status' => 'reply_ready', 'reply_text' => '测试回复'],
+            'evidence_refs' => [],
+            'delivery_status' => 'not_sent',
+            'delivery_reference' => null,
+        ];
+        $digest = (string)$this->invokePrivate($service, 'eventDigest', [$record]);
+        return (int)Db::name('wecom_inbound_events')->insertGetId([
+            'binding_id' => $bindingId,
+            'tenant_id' => 10,
+            'hotel_id' => 20,
+            'external_event_id' => $record['external_event_id'],
+            'payload_digest' => $record['payload_digest'],
+            'occurred_at' => $record['occurred_at'],
+            'message_type' => 'text',
+            'transport' => WecomAibotService::TRANSPORT,
+            'sender_id_hash' => $record['sender_id_hash'],
+            'content_text' => $record['content_text'],
+            'archive_status' => 'readback_verified',
+            'processing_status' => 'reply_ready',
+            'processing_claim_token' => null,
+            'processing_lease_expires_at' => null,
+            'block_code' => null,
+            'answer_json' => json_encode($record['answer'], JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR),
+            'evidence_refs_json' => '[]',
+            'delivery_status' => 'not_sent',
+            'delivery_reference' => null,
+            'content_digest' => $digest,
+            'created_at' => '2026-08-25 10:00:00',
+            'updated_at' => '2026-08-25 10:00:00',
+        ]);
     }
 }

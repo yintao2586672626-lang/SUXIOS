@@ -278,10 +278,8 @@ test('Meituan traffic card response maps to P0 traffic fields', () => {
   assert.deepEqual(rows[0]._observed_traffic_metric_keys, [
     'list_exposure',
     'detail_exposure',
-    'flow_rate',
   ]);
   assert.equal(isImportableMeituanTrafficRow(rows[0]), true);
-  assert.equal(isImportableMeituanTrafficRow(rows[0]), false);
 });
 
 test('Meituan traffic card response maps title aliases and non-value fields', () => {
@@ -311,7 +309,28 @@ test('Meituan traffic card response maps title aliases and non-value fields', ()
   assert.equal(rows[0]._meituan_card_metric_sources.detail_exposure.source_path, 'data.cards.1.displayValue');
   assert.equal(rows[0]._meituan_card_metric_sources.browse_to_pay_rate.source_path, 'data.cards.2.dataValue');
   assert.equal(rows[0]._meituan_card_metric_sources.order_submit_num.source_path, 'data.cards.3.currentValue');
-  assert.equal(isImportableMeituanTrafficRow(rows[0]), false);
+  assert.equal(isImportableMeituanTrafficRow(rows[0]), true);
+});
+
+test('Meituan traffic cards do not assign an unqualified conversion rate to either funnel stage', () => {
+  const rows = normalizeMeituanTrafficCardRows({
+    data: {
+      cards: [
+        { id: 'EXPOSE_PV_CNT', value: '120' },
+        { id: 'INTENTION_UV', value: '40' },
+        { id: 'CONVERSION_RATE', title: '\u8f6c\u5316\u7387', value: '12.5%' },
+        { id: 'PAY_ORDER_CNT', value: '5' },
+      ],
+    },
+  }, {
+    requestDateEvidence: { date: '2026-07-04', date_source: 'request.query.date' },
+  });
+
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].flowRate, undefined);
+  assert.equal(rows[0].browsePayRate, undefined);
+  assert.deepEqual(rows[0]._observed_traffic_metric_keys, ['list_exposure', 'detail_exposure']);
+  assert.equal(isImportableMeituanTrafficRow(rows[0]), true);
 });
 
 test('Meituan traffic card placeholders remain non-importable', () => {

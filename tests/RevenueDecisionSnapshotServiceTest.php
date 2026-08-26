@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 use app\service\RevenueDecisionSnapshotService;
 use app\service\RevenueDecisionViewModelAttestationService;
+use app\service\RevenueOverviewDateContract;
 use PHPUnit\Framework\TestCase;
 
 final class RevenueDecisionSnapshotServiceTest extends TestCase
@@ -30,6 +31,8 @@ final class RevenueDecisionSnapshotServiceTest extends TestCase
             'tenantId' => 9,
             'hotelId' => 80,
             'businessDate' => '2026-08-20',
+            'asOfDate' => RevenueOverviewDateContract::serverAsOfDate(),
+            'asOfDateContractVersion' => RevenueOverviewDateContract::VERSION,
             'selectedPlatform' => 'all_ota',
             'visibleSections' => [[
                 'key' => 'opportunity_ranking',
@@ -86,6 +89,32 @@ final class RevenueDecisionSnapshotServiceTest extends TestCase
             '2026-08-20',
             'all_ota'
         );
+    }
+
+    public function testMissingOrInvalidAsOfDateContractIsRejectedBeforeSnapshotPersistence(): void
+    {
+        foreach ([
+            'missing_date' => ['asOfDate' => ''],
+            'impossible_date' => ['asOfDate' => '2026-02-31'],
+            'wrong_contract' => ['asOfDateContractVersion' => 'revenue_overview_as_of_date.v0'],
+        ] as $case => $override) {
+            $model = array_replace($this->visibleModel(), $override);
+            try {
+                (new ReflectionMethod(RevenueDecisionSnapshotService::class, 'validateVisibleModel'))->invoke(
+                    new RevenueDecisionSnapshotService(),
+                    $model,
+                    9,
+                    80,
+                    '2026-08-20',
+                    'all_ota'
+                );
+                self::fail($case . ' must fail closed');
+            } catch (ReflectionException $error) {
+                throw $error;
+            } catch (InvalidArgumentException $error) {
+                self::assertSame('revenue_decision_snapshot_view_model_invalid', $error->getMessage());
+            }
+        }
     }
 
     public function testCausalClaimCannotBeSmuggledIntoSnapshot(): void
@@ -395,6 +424,124 @@ final class RevenueDecisionSnapshotServiceTest extends TestCase
         self::assertStringContainsString("'dateNotice' => \$scopeNotice", $source);
         self::assertStringContainsString("'selectedPlatformLabel' => (string)(\$comparisons['selected_platform_label']", $source);
         self::assertStringContainsString("\$this->assertFields(\$model, \$expectedTop, 'top_semantics')", $source);
+    }
+
+    public function testAttestationUsesTheBoundAsOfDateInsteadOfItsWallClock(): void
+    {
+        $service = new RevenueDecisionViewModelAttestationService();
+        $cards = (new ReflectionMethod($service, 'actionCards'))->invoke(
+            $service,
+            [],
+            '2026-08-20',
+            '2026-08-25'
+        );
+
+        self::assertSame('优先补齐数据基准日的数据', $cards[0]['label']);
+        self::assertStringContainsString('比数据基准日 2026-08-25 早 5 天', $cards[0]['display']);
+        self::assertStringNotContainsString(
+            "new DateTimeImmutable('now'",
+            (string)file_get_contents(dirname(__DIR__) . '/app/service/RevenueDecisionViewModelAttestationService.php')
+        );
+    }
+
+    public function testServerIssuesOneCanonicalModelThatTheSaveAttestationAcceptsExactly(): void
+    {
+        $asOfDate = RevenueOverviewDateContract::serverAsOfDate();
+        $overview = [
+            'business_date' => '2026-08-20',
+            'hotel_id' => 80,
+            'as_of_date' => $asOfDate,
+            'as_of_date_contract_version' => RevenueOverviewDateContract::VERSION,
+            'three_source_fact_layer' => [
+                'business_date' => '2026-08-20',
+                'hotel' => ['tenant_id' => 9, 'system_hotel_id' => 80, 'name' => '测试酒店'],
+                'sources' => [],
+                'data_gaps' => [],
+            ],
+            'cockpit_strict_evidence' => [
+                'contract_version' => 'revenue_cockpit_strict_evidence.v1',
+                'tenant_id' => 9,
+                'hotel_id' => 80,
+                'business_date' => '2026-08-20',
+                'platforms' => [],
+            ],
+        ];
+        $comparisons = [
+            'previous_date' => '',
+            'same_weekday_date' => '',
+            'previous_overview' => [],
+            'same_weekday_overview' => [],
+            'selected_platform_label' => '携程 + 美团',
+            'scope_notice' => '固定测试范围。',
+        ];
+        $service = new RevenueDecisionViewModelAttestationService();
+        $model = $service->issue($overview, $comparisons, [], 9, 80, '2026-08-20', 'all_ota');
+
+        self::assertSame('revenue_daily_cockpit.v2', $model['contractVersion']);
+        self::assertSame($asOfDate, $model['asOfDate']);
+        self::assertCount(8, $model['visibleSections']);
+        self::assertCount(8, $model['opportunities']);
+        self::assertMatchesRegularExpression('/^[a-f0-9]{64}$/D', $service->issuedDigest($model));
+        self::assertSame(
+            $model,
+            $service->attest($model, $overview, $comparisons, [], 9, 80, '2026-08-20', 'all_ota')
+        );
+
+        $staleDate = (new DateTimeImmutable($asOfDate, new DateTimeZone('Asia/Shanghai')))
+            ->modify('-1 day')
+            ->format('Y-m-d');
+        $staleOverview = array_replace($overview, ['as_of_date' => $staleDate]);
+        $staleModel = array_replace($model, ['asOfDate' => $staleDate]);
+        try {
+            $service->attest(
+                $staleModel,
+                $staleOverview,
+                $comparisons,
+                [],
+                9,
+                80,
+                '2026-08-20',
+                'all_ota'
+            );
+            self::fail('A matching but stale client date must not be attested.');
+        } catch (InvalidArgumentException $error) {
+            self::assertSame(
+                'revenue_decision_snapshot_view_model_unattested:as_of_date_currentness',
+                $error->getMessage()
+            );
+        }
+    }
+
+    public function testSnapshotReadbackMarksStaleOrFutureAsOfDatesBeforeEvidenceComparison(): void
+    {
+        $service = new RevenueDecisionSnapshotService();
+        $current = RevenueOverviewDateContract::serverAsOfDate();
+        $version = RevenueOverviewDateContract::VERSION;
+        $status = new ReflectionMethod($service, 'asOfDateCurrentnessStatus');
+
+        self::assertNull($status->invoke(
+            $service,
+            ['as_of_date' => $current, 'as_of_date_contract_version' => $version],
+            ['as_of_date' => $current, 'as_of_date_contract_version' => $version]
+        ));
+
+        $stale = (new DateTimeImmutable($current, new DateTimeZone('Asia/Shanghai')))
+            ->modify('-1 day')
+            ->format('Y-m-d');
+        self::assertSame('stale_current_as_of_date', $status->invoke(
+            $service,
+            ['as_of_date' => $stale, 'as_of_date_contract_version' => $version],
+            ['as_of_date' => $current, 'as_of_date_contract_version' => $version]
+        ));
+
+        $future = (new DateTimeImmutable($current, new DateTimeZone('Asia/Shanghai')))
+            ->modify('+1 day')
+            ->format('Y-m-d');
+        self::assertSame('stale_current_as_of_date', $status->invoke(
+            $service,
+            ['as_of_date' => $current, 'as_of_date_contract_version' => $version],
+            ['as_of_date' => $future, 'as_of_date_contract_version' => $version]
+        ));
     }
 
     public function testAttestationCanonicalizesNestedObjectKeysBeforePersistence(): void

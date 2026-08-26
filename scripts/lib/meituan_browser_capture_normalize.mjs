@@ -3,7 +3,10 @@ import { formatDateOffsetInTimeZone } from './shared_helpers.mjs';
 const CARD_METRIC_MAP = new Map([
   ['EXPOSE_PV_CNT', { fields: ['listExposure', 'list_exposure'], label: 'list_exposure' }],
   ['INTENTION_UV', { fields: ['detailExposure', 'detail_exposure'], label: 'detail_exposure' }],
-  ['PAY_ORDER_CNT_UV', { fields: ['flowRate', 'flow_rate'], label: 'flow_rate' }],
+  ['PAY_ORDER_CNT_UV', {
+    fields: ['browsePayRate', 'browse_pay_rate', 'browse_to_pay_rate'],
+    label: 'browse_to_pay_rate',
+  }],
   ['PAY_ORDER_CNT', { fields: ['orderSubmitNum', 'order_submit_num'], label: 'order_submit_num' }],
 ]);
 
@@ -267,8 +270,15 @@ const CARD_METRIC_ID_ALIASES = [
     config: { fields: ['detailExposure', 'detail_exposure'], label: 'detail_exposure' },
   },
   {
-    aliases: ['PAY_ORDER_CNT_UV', 'PAY_CVR', 'ORDER_CVR', 'CONVERSION_RATE', 'ORDER_CONVERSION_RATE', 'FLOW_RATE', 'CVR'],
-    config: { fields: ['flowRate', 'flow_rate'], label: 'flow_rate' },
+    aliases: ['PAY_ORDER_CNT_UV', 'PAY_CVR', 'ORDER_CVR', 'ORDER_CONVERSION_RATE'],
+    config: {
+      fields: ['browsePayRate', 'browse_pay_rate', 'browse_to_pay_rate'],
+      label: 'browse_to_pay_rate',
+    },
+  },
+  {
+    aliases: ['EXPOSURE_TO_BROWSE_RATE', 'INTENTION_PER_EXPOSURE', 'EXPOSE_VISIT_RATE', 'FLOW_RATE'],
+    config: { fields: ['flowRate', 'flow_rate', 'exposure_to_browse_rate'], label: 'flow_rate' },
   },
   {
     aliases: ['ORDER_FILLING_NUM', 'ORDER_FILLING_UV', 'ORDER_SUBMIT_UV', 'SUBMIT_ORDER_UV', 'SUBMIT_ORDER_CNT'],
@@ -303,12 +313,24 @@ const CARD_METRIC_TITLE_RULES = [
     ],
   },
   {
-    config: { fields: ['flowRate', 'flow_rate'], label: 'flow_rate' },
+    config: {
+      fields: ['browsePayRate', 'browse_pay_rate', 'browse_to_pay_rate'],
+      label: 'browse_to_pay_rate',
+    },
     patterns: [
-      /\u8f6c\u5316\u7387/,
-      /conversion.*rate/i,
-      /\bcvr\b/i,
-      /flow.*rate/i,
+      /\u6d4f\u89c8.*\u652f\u4ed8.*\u8f6c\u5316\u7387/,
+      /\u8be6\u60c5.*\u652f\u4ed8.*\u8f6c\u5316\u7387/,
+      /browse.*pay.*rate/i,
+      /detail.*pay.*rate/i,
+    ],
+  },
+  {
+    config: { fields: ['flowRate', 'flow_rate', 'exposure_to_browse_rate'], label: 'flow_rate' },
+    patterns: [
+      /\u66dd\u5149.*\u6d4f\u89c8.*\u8f6c\u5316\u7387/,
+      /\u66dd\u5149.*\u8f6c\u5316\u7387/,
+      /exposure.*(?:browse|detail).*rate/i,
+      /list.*detail.*rate/i,
     ],
   },
   {
@@ -601,7 +623,10 @@ export function normalizeMeituanTrafficDomText(value) {
         ...withDate,
         listExposure: exposure,
         detailExposure: visitors,
-        flowRate: Number(flowFunnel[9]),
+        flowRate: Number(flowFunnel[7]),
+        exposure_to_browse_rate: Number(flowFunnel[7]),
+        browsePayRate: Number(flowFunnel[9]),
+        browse_pay_rate: Number(flowFunnel[9]),
         orderFillingNum: orders,
         orderSubmitNum: orders,
         _order_filling_source_policy: 'meituan_flow_funnel_no_separate_order_filling_step_pay_order_count_used',
@@ -729,12 +754,17 @@ export function normalizeMeituanFlowAnalysisRows(value, options = {}) {
         analysis_type: 'conversion_funnel',
         dimension: 'flow_conversion',
         data_value: exposure,
+        listExposure: exposure,
+        detailExposure: visitors,
+        orderSubmitNum: paidOrders,
+        flowRate: exposureToVisitRate,
         exposure_to_browse_rate: exposureToVisitRate,
+        browsePayRate: browseToPayRate,
         browse_pay_rate: browseToPayRate,
       }, 'traffic', 'data.myHotel', options), [
         ...(exposure !== undefined ? ['list_exposure'] : []),
         ...(visitors !== undefined ? ['detail_exposure'] : []),
-        ...(browseToPayRate !== undefined ? ['flow_rate'] : []),
+        ...(exposureToVisitRate !== undefined ? ['flow_rate'] : []),
       ])];
     }
   }
@@ -747,9 +777,11 @@ export function normalizeMeituanFlowAnalysisRows(value, options = {}) {
       listExposure: numberish(data.exposeCount ?? data.exposureCount ?? data.exposure),
       detailExposure: numberish(data.visitCount ?? data.visitorCount ?? data.uv),
       orderSubmitNum: numberish(data.orderCount ?? data.payOrderCount ?? data.orders),
-      flowRate: numberish(data.visitOrderRate ?? data.conversionRate ?? data.orderConversionRate),
+      flowRate: numberish(data.exposeVisitRate),
       exposure_to_browse_rate: numberish(data.exposeVisitRate),
       expose_visit_rate: numberish(data.exposeVisitRate),
+      browsePayRate: numberish(data.visitOrderRate ?? data.conversionRate ?? data.orderConversionRate),
+      browse_pay_rate: numberish(data.visitOrderRate ?? data.conversionRate ?? data.orderConversionRate),
     }, 'traffic_analysis', 'data', options)];
   }
 

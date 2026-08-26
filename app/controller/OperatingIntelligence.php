@@ -11,6 +11,7 @@ use app\service\OperatingNetworkService;
 use app\service\OperatingQuestionAiAnswerService;
 use app\service\OperatingQuestionExecutionBridgeService;
 use app\service\OperatingQuestionCouncilService;
+use app\service\OperatingQuestionPreciseQueryService;
 use app\service\OperatingQuestionService;
 use app\service\OperatingSopService;
 use app\service\WecomInboundService;
@@ -33,9 +34,11 @@ final class OperatingIntelligence extends Base
     {
         parent::__construct($app);
         $aiAnswerService = new OperatingQuestionAiAnswerService();
+        $preciseQueryService = new OperatingQuestionPreciseQueryService();
         $this->questionService = new OperatingQuestionService(
             null,
-            static fn(array $payload): array => $aiAnswerService->generate($payload)
+            static fn(array $payload): array => $aiAnswerService->generate($payload),
+            static fn(array $payload): array => $preciseQueryService->finalize($payload)
         );
         $this->questionExecutionBridge = new OperatingQuestionExecutionBridgeService(
             $this->questionService,

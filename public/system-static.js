@@ -1,6 +1,15 @@
 window.SUXI_SYSTEM_STATIC = (() => {
     const CHART_JS_SRC = '/vendor/chart.umd.js';
     let chartJsLoadPromise = null;
+    const resolveInitialPageRequest = (explicitPage = '', search = '') => {
+        const explicit = String(explicitPage || '').trim();
+        if (explicit) return explicit;
+        try {
+            return String(new URLSearchParams(String(search || '')).get('page') || '').trim();
+        } catch (error) {
+            return '';
+        }
+    };
     const loadChartJs = () => {
         if (window.Chart) {
             return Promise.resolve(window.Chart);
@@ -2407,6 +2416,8 @@ window.SUXI_SYSTEM_STATIC = (() => {
         pending_create: '待生成任务',
         pending_execute: '待执行',
         executing: '执行中',
+        evidence_recorded: '执行证据已记录',
+        review_pending: '等待同口径复盘',
         executed: '已执行',
         in_progress: '进行中',
         completed: '已完成',
@@ -2425,6 +2436,8 @@ window.SUXI_SYSTEM_STATIC = (() => {
         pending_approval: 'bg-amber-50 text-amber-700',
         pending_execute: 'bg-blue-50 text-blue-700',
         executing: 'bg-blue-50 text-blue-700',
+        evidence_recorded: 'bg-cyan-50 text-cyan-700',
+        review_pending: 'bg-amber-50 text-amber-700',
         in_progress: 'bg-blue-50 text-blue-700',
         completed: 'bg-indigo-50 text-indigo-700',
         reviewed: 'bg-emerald-50 text-emerald-700',
@@ -2667,6 +2680,7 @@ window.SUXI_SYSTEM_STATIC = (() => {
         operationEffectMetricValue,
         requireDeferredStaticFunction,
         createLazyFactoryMethods,
+        resolveInitialPageRequest,
         loadChartJs,
     };
 })();

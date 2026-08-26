@@ -173,12 +173,13 @@ final class OperatingQuestionKnowledgeRetrievalService
                 continue;
             }
             $currentChunkId = (int)($unit['current_chunk_id'] ?? 0);
+            $isSemanticGlossary = trim((string)($unit['source'] ?? '')) === SemanticGlossarySyncService::SOURCE;
             $isFormal = trim((string)($unit['source'] ?? '')) === 'formal_operating_sop'
                 || trim((string)($unit['stable_key'] ?? '')) !== ''
                 || (int)($row['promotion_candidate_id'] ?? 0) > 0
                 || (int)($row['operating_sop_version_id'] ?? 0) > 0
                 || (int)($row['version_no'] ?? 0) > 0;
-            if ($isFormal && $currentChunkId > 0 && $currentChunkId !== $chunkId) {
+            if ($isFormal && !$isSemanticGlossary && $currentChunkId > 0 && $currentChunkId !== $chunkId) {
                 $excludedCount++;
                 continue;
             }
@@ -353,7 +354,7 @@ final class OperatingQuestionKnowledgeRetrievalService
                 break;
             }
         }
-        return array_slice(array_keys($terms), 0, 48);
+        return array_slice(array_map('strval', array_keys($terms)), 0, 48);
     }
 
     /** @param list<string> $terms */
@@ -361,6 +362,7 @@ final class OperatingQuestionKnowledgeRetrievalService
     {
         $score = 0;
         foreach ($terms as $term) {
+            $term = (string)$term;
             $length = mb_strlen($term);
             if (str_contains($titleText, $term)) {
                 $score += 8 + min(6, $length);

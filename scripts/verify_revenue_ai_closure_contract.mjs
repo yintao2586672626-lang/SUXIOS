@@ -1,11 +1,17 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import vm from 'node:vm';
+import { readRouteContractSource } from './lib/route_contract_source.mjs';
+import { readSourceAggregate } from './lib/source_aggregate.mjs';
 
 const root = process.cwd();
-const read = (file) => fs.readFileSync(path.join(root, file), 'utf8');
+const read = (file) => file === 'route/app.php'
+  ? readRouteContractSource(root)
+  : file === 'app/service/OperationManagementService.php'
+    ? readSourceAggregate(file, { repoRoot: root })
+  : fs.readFileSync(path.join(root, file), 'utf8');
 const readContractSource = (file) => file === 'public/index.html'
-  ? `${read(file)}\n${read('resources/frontend/app-template.html')}\n${read('public/app-main.js')}`
+  ? `${read(file)}\n${read('resources/frontend/app-template.html')}\n${read('public/app-main.js')}\n${read('public/operation-static.js')}`
   : read(file);
 const checks = [];
 
@@ -1869,6 +1875,7 @@ includesAll('app/service/operation/ExecutionOutcomeService.php', 'execution outc
 ]);
 
 includesAll('app/service/OperationManagementService.php', 'operation facade delegates execution-flow read modeling without changing its public API', [
+  'use \\app\\service\\operation\\OperationExecutionPersistenceConcern;',
   'ExecutionFlowReadService',
   'new ExecutionFlowReadService($this->executionOutcomeService)',
   '$this->executionFlowReadService->buildItem(',
@@ -2011,7 +2018,13 @@ includesAll('public/index.html', 'Revenue AI homepage keeps execution evidence l
   'reviewOperationExecutionTask(taskItem)',
   "`/operation/execution-tasks/${taskId}/execute`",
   "`/operation/execution-tasks/${taskId}/evidence`",
-  "`/operation/execution-tasks/${mutationContext.taskId}/review`",
+  "const captureOperationExecutionMutationContext = (item, options = {}) => operationLifecycleStatic('captureOperationExecutionMutationContext')(",
+  'Number(mutationContext.taskId || 0) !== taskId',
+  "const res = await apiRequest(`/operation/execution-tasks/${taskId}/review`, {",
+  'businessContext: { hotelId: mutationContext.hotelId },',
+  'assertOperationExecutionMutationContextCurrent(context, item, selectedHotelId);',
+  'const persistedTask = await readOperationExecutionTask(responseTaskId, mutationContext.hotelId);',
+  'assertOperationExecutionMutationDigestReadback(persistedTask, mutationContext, true);',
   "evidence_type: 'manual_price_execution'",
   "evidence_boundary: 'local_manual_evidence_no_ota_write'",
   'operationCanReconcileExecution(item)',
@@ -2147,6 +2160,9 @@ includesAll('tests/automation/revenue_ai_static.test.mjs', 'static helper tests 
 
 try {
   const context = { window: {} };
+  vm.runInNewContext(read('public/revenue-overview-contract-static.js'), context, {
+    filename: 'public/revenue-overview-contract-static.js',
+  });
   vm.runInNewContext(read('public/revenue-ai-static.js'), context, {
     filename: 'public/revenue-ai-static.js',
   });

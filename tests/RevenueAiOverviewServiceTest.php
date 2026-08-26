@@ -6,9 +6,35 @@ namespace Tests;
 use app\service\RevenueAiOverviewService;
 use app\service\RevenuePricingRecommendationService;
 use PHPUnit\Framework\TestCase;
+use RuntimeException;
 
 final class RevenueAiOverviewServiceTest extends TestCase
 {
+    public function testOverviewPublishesOneVersionedServerAsOfDate(): void
+    {
+        $overview = (new RevenueAiOverviewService())->buildOverviewFromDataset(
+            [],
+            [],
+            [],
+            ['business_date' => '2026-08-20', 'as_of_date' => '2026-08-25']
+        );
+
+        self::assertSame('2026-08-25', $overview['as_of_date']);
+        self::assertSame('revenue_overview_as_of_date.v1', $overview['as_of_date_contract_version']);
+    }
+
+    public function testOverviewRejectsAnImpossibleAsOfDate(): void
+    {
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('Invalid as_of_date');
+        (new RevenueAiOverviewService())->buildOverviewFromDataset(
+            [],
+            [],
+            [],
+            ['business_date' => '2026-08-20', 'as_of_date' => '2026-02-31']
+        );
+    }
+
     public function testOverviewKeepsMetricCompletenessSeparateByPlatform(): void
     {
         $ctripFact = $this->dailyFact('ctrip', 0, 0, null, [

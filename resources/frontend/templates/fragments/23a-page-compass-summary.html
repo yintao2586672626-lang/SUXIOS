@@ -9,8 +9,9 @@
                                             :show-controls="true"
                                             :hotel-options="compassHotelOptions"
                                             :selected-hotel-id="filterReportHotel"
-                                            :refreshing="compassLoading || revenueAiOverviewLoading"
+                                            :refreshing="compassLoading || homeRevenueFactLayerLoading"
                                             @update:selected-hotel-id="filterReportHotel = $event"
+                                            @update:selected-business-date="homeRevenueFactBusinessDate = $event"
                                             @refresh="refreshCompassDashboard">
                                         </home-yesterday-operating-facts>
 

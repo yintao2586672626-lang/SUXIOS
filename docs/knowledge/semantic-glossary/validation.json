@@ -1,0 +1,61 @@
+{
+  "status": "passed",
+  "glossary_version": "2026-08-26.3",
+  "source_term_count": 2990,
+  "concept_count": 2927,
+  "recognition_term_count": 3002,
+  "export_term_count": 3000,
+  "source_sha256": "e6fb5e15e711fc1c1e29202dfabe08c7f69daa5ca3cbe9df9ef9a528e6032e53",
+  "pack_sha256": "fae512f5b76d3be075bb9296f015c072143b446b86a96c0b247c6c11ee3a2294",
+  "export_sha256": "83155ad4e5c914a45c2994fa7d4975e358961391e1c28e1d6185dcfeeab23902",
+  "exact_duplicate_count": 0,
+  "normalization_collision_count": 10,
+  "ambiguous_alias_count": 1,
+  "failed_entry_count": 0,
+  "category_counts": {
+    "personal_common": 176,
+    "suxios_system": 637,
+    "ota_ctrip": 1071,
+    "ota_meituan": 60,
+    "hotel_industry": 792,
+    "metric_alias": 10,
+    "reference_only": 181
+  },
+  "changes": {
+    "added_count": 0,
+    "removed_count": 5,
+    "updated_count": 21,
+    "added": [],
+    "removed": [
+      "term.49233b820253f8ef424c2c63",
+      "term.5ba71283f7176ab9e3c30ab3",
+      "term.cd6362472aea60ef45d556c5",
+      "term.db36e7bd45191ce44c266739",
+      "term.ff3c10b5e28eaaa48c56ff2f"
+    ],
+    "updated": [
+      "route.ctrip",
+      "route.meituan",
+      "term.12917080bb2d4574f4406485",
+      "term.27441db216e07f17b6b08fc1",
+      "term.44cca97855d8eaf53b5ff589",
+      "term.549bef896d115bd01db452e1",
+      "term.64ea4195c589dd30c2b6cc0f",
+      "term.683b9ee2227f4cfa299df58e",
+      "term.7155ea7beeabacdd831b31f0",
+      "term.7a99b22e92457e6421cf0e34",
+      "term.8237c7f7133fa167ee239d97",
+      "term.86e6c3705cb02dbaf1358fb4",
+      "term.8e9806a4da8f57dedddb8e77",
+      "term.98c56436ddd536a526dd2e6d",
+      "term.9bc6170053c815bef03a6232",
+      "term.adcbc18b1e17fd4bf5089df4",
+      "term.d6a15280f579db3a10fb21ce",
+      "term.e3a7e307523ee048d2b8fd53",
+      "term.e4dca945b564d64ac7d8fa73",
+      "term.e9456c0cea2527524125c8c4",
+      "term.f0e8ff86617a1feead70a64d"
+    ],
+    "lists_truncated": false
+  }
+}

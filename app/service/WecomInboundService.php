@@ -15,13 +15,21 @@ final class WecomInboundService
     public const BINDING_TABLE = 'wecom_inbound_bindings';
     public const EVENT_TABLE = 'wecom_inbound_events';
     public const CONTRACT_VERSION = 'wecom_inbound_archive.v1';
+    private const PROCESSING_LEASE_SECONDS = 60;
+    private const TERMINAL_PROCESSING_STATUSES = ['reply_ready', 'blocked', 'failed'];
+    private const EVENT_PROCESSING_COLUMNS = [
+        'processing_status',
+        'processing_claim_token',
+        'processing_lease_expires_at',
+    ];
 
     /** @return array<string,mixed> */
     /** @param list<int> $hotelIds @return array<string,mixed> */
     public function capability(int $tenantId = 0, array $hotelIds = []): array
     {
         $config = $this->callbackConfig();
-        $tablesReady = $this->tablesReady();
+        $schemaStatus = $this->schemaStatus();
+        $tablesReady = $schemaStatus === DatabaseSchemaRequirement::STATUS_PRESENT;
         $cryptoReady = function_exists('openssl_decrypt') && function_exists('simplexml_load_string');
         $publicHost = strtolower((string)(parse_url($config['public_base_url'], PHP_URL_HOST) ?? ''));
         $publicHttpsReady = str_starts_with($config['public_base_url'], 'https://')
@@ -52,13 +60,14 @@ final class WecomInboundService
                 'aes_key_valid' => strlen($config['aes_key']) === 43,
                 'corp_id_present' => $config['corp_id'] !== '',
                 'tables_ready' => $tablesReady,
+                'schema_status' => $schemaStatus,
                 'crypto_runtime_ready' => $cryptoReady,
                 'public_https_ready' => $publicHttpsReady,
                 'verified_binding_count' => $verifiedBindings,
             ],
             'error_code' => $ready ? null : $this->configError(
                 $config,
-                $tablesReady,
+                $schemaStatus,
                 $cryptoReady,
                 $publicHttpsReady,
                 $verifiedBindings
@@ -278,16 +287,6 @@ final class WecomInboundService
             ->where('binding_id', (int)$binding['id'])
             ->where('external_event_id', $externalEventId)
             ->find();
-        if (is_array($existing)) {
-            if (!hash_equals((string)$existing['payload_digest'], $payloadDigest)) {
-                throw new RuntimeException('企业微信事件幂等键内容冲突', 409);
-            }
-            $event = $this->normalizeEvent($existing);
-            $this->assertEventDigest($event);
-            $event['duplicate'] = true;
-            $event['persistence_status'] = 'duplicate_readback_verified';
-            return $event;
-        }
 
         $baseRecord = [
             'contract_version' => self::CONTRACT_VERSION,
@@ -310,8 +309,15 @@ final class WecomInboundService
             'delivery_reference' => null,
         ];
         $now = date('Y-m-d H:i:s');
-        try {
-            $id = (int)Db::name(self::EVENT_TABLE)->insertGetId([
+        $id = is_array($existing) ? (int)($existing['id'] ?? 0) : 0;
+        if (is_array($existing)
+            && !hash_equals((string)($existing['payload_digest'] ?? ''), $payloadDigest)
+        ) {
+            throw new RuntimeException('企业微信事件幂等键内容冲突', 409);
+        }
+        if (!is_array($existing)) {
+            try {
+                $id = (int)Db::name(self::EVENT_TABLE)->insertGetId([
                 'binding_id' => $baseRecord['binding_id'],
                 'tenant_id' => $baseRecord['tenant_id'],
                 'hotel_id' => $baseRecord['hotel_id'],
@@ -324,6 +330,8 @@ final class WecomInboundService
                 'content_text' => $baseRecord['content_text'],
                 'archive_status' => 'readback_verified',
                 'processing_status' => 'pending',
+                'processing_claim_token' => null,
+                'processing_lease_expires_at' => null,
                 'block_code' => null,
                 'answer_json' => $this->encode([]),
                 'evidence_refs_json' => $this->encode([]),
@@ -332,20 +340,17 @@ final class WecomInboundService
                 'content_digest' => $this->digest($baseRecord),
                 'created_at' => $now,
                 'updated_at' => $now,
-            ]);
-        } catch (Throwable $e) {
-            $concurrent = Db::name(self::EVENT_TABLE)
-                ->where('binding_id', (int)$binding['id'])
-                ->where('external_event_id', $externalEventId)
-                ->find();
-            if (!is_array($concurrent) || !hash_equals((string)$concurrent['payload_digest'], $payloadDigest)) {
-                throw $e;
+                ]);
+            } catch (Throwable $e) {
+                $concurrent = Db::name(self::EVENT_TABLE)
+                    ->where('binding_id', (int)$binding['id'])
+                    ->where('external_event_id', $externalEventId)
+                    ->find();
+                if (!is_array($concurrent) || !hash_equals((string)$concurrent['payload_digest'], $payloadDigest)) {
+                    throw $e;
+                }
+                $id = (int)($concurrent['id'] ?? 0);
             }
-            $event = $this->normalizeEvent($concurrent);
-            $this->assertEventDigest($event);
-            $event['duplicate'] = true;
-            $event['persistence_status'] = 'duplicate_readback_verified';
-            return $event;
         }
         if ($id <= 0) {
             throw new RuntimeException('企业微信入站事件归档失败');
@@ -354,6 +359,14 @@ final class WecomInboundService
         if ((string)$archived['archive_status'] !== 'readback_verified') {
             throw new RuntimeException('企业微信入站事件归档后回读失败');
         }
+        $claim = $this->claimEventForProcessing($id, $payloadDigest);
+        if (($claim['terminal'] ?? false) === true) {
+            $event = (array)($claim['event'] ?? []);
+            $event['duplicate'] = true;
+            $event['persistence_status'] = 'duplicate_readback_verified';
+            return $event;
+        }
+        $claimToken = (string)($claim['claim_token'] ?? '');
 
         $answer = [];
         $processingStatus = 'blocked';
@@ -387,15 +400,36 @@ final class WecomInboundService
             'answer' => $answer,
             'evidence_refs' => $evidenceRefs,
         ]);
-        Db::name(self::EVENT_TABLE)->where('id', $id)->update([
+        $affected = Db::name(self::EVENT_TABLE)
+            ->where('id', $id)
+            ->where('payload_digest', $payloadDigest)
+            ->where('processing_status', 'processing')
+            ->where('processing_claim_token', $claimToken)
+            ->update([
             'processing_status' => $processingStatus,
+            'processing_claim_token' => null,
+            'processing_lease_expires_at' => null,
             'block_code' => $blockCode,
             'answer_json' => $this->encode($answer),
             'evidence_refs_json' => $this->encode($evidenceRefs),
             'content_digest' => $this->digest($finalRecord),
             'updated_at' => date('Y-m-d H:i:s'),
         ]);
+        if ($affected !== 1) {
+            throw new RuntimeException('企业微信入站事件终态更新竞争校验失败', 409);
+        }
+        $terminalRow = Db::name(self::EVENT_TABLE)->where('id', $id)->find();
+        if (!is_array($terminalRow)
+            || (string)($terminalRow['processing_status'] ?? '') !== $processingStatus
+            || trim((string)($terminalRow['processing_claim_token'] ?? '')) !== ''
+            || trim((string)($terminalRow['processing_lease_expires_at'] ?? '')) !== ''
+        ) {
+            throw new RuntimeException('企业微信入站事件终态保存后回读失败');
+        }
         $event = $this->readEvent($id, (int)$binding['tenant_id'], [(int)$binding['hotel_id']]);
+        if ((string)($event['processing_status'] ?? '') !== $processingStatus) {
+            throw new RuntimeException('企业微信入站事件终态摘要回读失败');
+        }
         $event['duplicate'] = false;
         $event['persistence_status'] = 'readback_verified';
         return $event;
@@ -439,15 +473,79 @@ final class WecomInboundService
 
     private function assertEventDigest(array $event): void
     {
-        $record = array_intersect_key($event, array_flip([
+        if (!hash_equals((string)$event['content_digest'], $this->eventDigest($event))) {
+            throw new RuntimeException('企业微信入站事件回读摘要不一致');
+        }
+    }
+
+    private function eventDigest(array $event): string
+    {
+        return $this->digest(array_intersect_key($event, array_flip([
             'contract_version', 'binding_id', 'tenant_id', 'hotel_id', 'external_event_id',
             'payload_digest', 'occurred_at', 'message_type', 'transport', 'sender_id_hash', 'content_text',
             'archive_status', 'processing_status', 'block_code', 'answer', 'evidence_refs', 'delivery_status',
             'delivery_reference',
-        ]));
-        if (!hash_equals((string)$event['content_digest'], $this->digest($record))) {
-            throw new RuntimeException('企业微信入站事件回读摘要不一致');
-        }
+        ])));
+    }
+
+    /** @return array{terminal:bool,event?:array<string,mixed>,claim_token?:string} */
+    private function claimEventForProcessing(int $id, string $payloadDigest): array
+    {
+        return Db::transaction(function () use ($id, $payloadDigest): array {
+            $row = Db::name(self::EVENT_TABLE)
+                ->where('id', $id)
+                ->where('payload_digest', $payloadDigest)
+                ->lock(true)
+                ->find();
+            if (!is_array($row)) {
+                throw new RuntimeException('企业微信入站事件占用前回读失败');
+            }
+            $event = $this->normalizeEvent($row);
+            $this->assertEventDigest($event);
+            $status = (string)($row['processing_status'] ?? '');
+            if (in_array($status, self::TERMINAL_PROCESSING_STATUSES, true)) {
+                return ['terminal' => true, 'event' => $event];
+            }
+            if (!in_array($status, ['pending', 'processing'], true)) {
+                throw new RuntimeException('企业微信入站事件处理状态无法恢复', 409);
+            }
+
+            $activeToken = trim((string)($row['processing_claim_token'] ?? ''));
+            $leaseTimestamp = strtotime(trim((string)($row['processing_lease_expires_at'] ?? ''))) ?: 0;
+            if ($activeToken !== '' && $leaseTimestamp > time()) {
+                throw new RuntimeException('企业微信入站事件正在处理，请稍后重试', 409);
+            }
+
+            $claimToken = hash('sha256', random_bytes(32));
+            $leaseExpiresAt = date('Y-m-d H:i:s', time() + self::PROCESSING_LEASE_SECONDS);
+            $event['processing_status'] = 'processing';
+            $event['content_digest'] = $this->eventDigest($event);
+            $affected = Db::name(self::EVENT_TABLE)
+                ->where('id', $id)
+                ->where('payload_digest', $payloadDigest)
+                ->where('processing_status', $status)
+                ->update([
+                    'processing_status' => 'processing',
+                    'processing_claim_token' => $claimToken,
+                    'processing_lease_expires_at' => $leaseExpiresAt,
+                    'content_digest' => (string)$event['content_digest'],
+                    'updated_at' => date('Y-m-d H:i:s'),
+                ]);
+            if ($affected !== 1) {
+                throw new RuntimeException('企业微信入站事件占用竞争校验失败', 409);
+            }
+            $readback = Db::name(self::EVENT_TABLE)->where('id', $id)->find();
+            if (!is_array($readback)
+                || (string)($readback['processing_status'] ?? '') !== 'processing'
+                || !hash_equals($claimToken, (string)($readback['processing_claim_token'] ?? ''))
+                || (string)($readback['processing_lease_expires_at'] ?? '') !== $leaseExpiresAt
+            ) {
+                throw new RuntimeException('企业微信入站事件占用后回读失败');
+            }
+            $this->assertEventDigest($this->normalizeEvent($readback));
+
+            return ['terminal' => false, 'claim_token' => $claimToken];
+        });
     }
 
     /** @return array<string,mixed> */
@@ -518,13 +616,16 @@ final class WecomInboundService
 
     private function configError(
         array $config,
-        bool $tablesReady,
+        string $schemaStatus,
         bool $cryptoReady,
         bool $publicHttpsReady,
         int $verifiedBindings
     ): string
     {
-        if (!$tablesReady) {
+        if ($schemaStatus === DatabaseSchemaRequirement::STATUS_UNREADABLE) {
+            return 'wecom_inbound_schema_unreadable';
+        }
+        if ($schemaStatus !== DatabaseSchemaRequirement::STATUS_PRESENT) {
             return 'wecom_inbound_tables_missing';
         }
         if (!$cryptoReady) {
@@ -634,19 +735,38 @@ final class WecomInboundService
 
     private function tablesReady(): bool
     {
-        try {
-            Db::name(self::BINDING_TABLE)->limit(1)->select();
-            Db::name(self::EVENT_TABLE)->limit(1)->select();
-            return true;
-        } catch (Throwable) {
-            return false;
+        return $this->schemaStatus() === DatabaseSchemaRequirement::STATUS_PRESENT;
+    }
+
+    private function schemaStatus(): string
+    {
+        $statuses = [];
+        foreach ([self::BINDING_TABLE, self::EVENT_TABLE] as $table) {
+            $statuses[] = DatabaseSchemaRequirement::inspectTable($table)['status'];
         }
+        $eventColumns = DatabaseSchemaRequirement::inspectTableColumns(self::EVENT_TABLE);
+        $statuses[] = $eventColumns['status'];
+        if ($eventColumns['status'] === DatabaseSchemaRequirement::STATUS_PRESENT
+            && array_diff(self::EVENT_PROCESSING_COLUMNS, $eventColumns['columns']) !== []
+        ) {
+            $statuses[] = DatabaseSchemaRequirement::STATUS_MISSING;
+        }
+        if (in_array(DatabaseSchemaRequirement::STATUS_UNREADABLE, $statuses, true)) {
+            return DatabaseSchemaRequirement::STATUS_UNREADABLE;
+        }
+        return in_array(DatabaseSchemaRequirement::STATUS_MISSING, $statuses, true)
+            ? DatabaseSchemaRequirement::STATUS_MISSING
+            : DatabaseSchemaRequirement::STATUS_PRESENT;
     }
 
     private function assertTablesReady(): void
     {
-        if (!$this->tablesReady()) {
+        $status = $this->schemaStatus();
+        if ($status === DatabaseSchemaRequirement::STATUS_MISSING) {
             throw new RuntimeException('企业微信入站归档表尚未迁移', 503);
+        }
+        if ($status !== DatabaseSchemaRequirement::STATUS_PRESENT) {
+            throw new RuntimeException('企业微信入站归档表结构检查失败', 503);
         }
     }
 

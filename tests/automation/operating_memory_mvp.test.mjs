@@ -1,12 +1,13 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
+import { readRouteContractSource } from '../../scripts/lib/route_contract_source.mjs';
 
 const read = (path) => readFileSync(path, 'utf8');
 
 const service = read('app/service/OperatingMemoryService.php');
 const controller = read('app/controller/OperationManagement.php');
-const routes = read('route/app.php');
+const routes = readRouteContractSource(process.cwd());
 const migration = read('database/migrations/20260802_create_hotel_operating_memories.sql');
 const frontend = read('public/app-main.js');
 const fragment = read('resources/frontend/templates/fragments/17-page-ops-track.html');

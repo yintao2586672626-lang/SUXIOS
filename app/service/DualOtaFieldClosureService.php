@@ -22,12 +22,41 @@ final class DualOtaFieldClosureService
     private const STATUS_LABELS = [
         'strict_readback' => '已严格回读',
         'verified_calculation' => '已验证计算',
-        'missing' => '缺失',
-        'platform_not_provided' => '平台未提供',
+        'source_missing' => '来源缺失',
+        'field_unavailable' => '字段未取得',
+        'readback_failed' => '回读未闭合',
         'collection_failed' => '采集失败',
         'login_expired' => '登录失效',
         'date_mismatch' => '日期不符',
         'caliber_uncertain' => '口径不确定',
+        // Kept as input aliases for old cached payloads. New evaluations only
+        // emit the four explicit unavailable states above.
+        'missing' => '缺失',
+        'platform_not_provided' => '平台未提供',
+    ];
+    private const CONSUMER_METRIC_KEYS = [
+        'revenue' => ['revenue'],
+        'order_count' => ['orders'],
+        'room_nights' => ['room_nights'],
+        'adr' => ['adr'],
+        'exposure' => ['list_exposure'],
+        'visits' => ['detail_exposure'],
+        'conversion' => ['flow_rate_percent'],
+        'cancellation' => ['cancellation_rate_percent'],
+        'sellable' => ['sellable_room_nights'],
+        'bookable' => ['bookable_room_nights'],
+    ];
+    private const FIELD_FACT_METRIC_KEYS = [
+        'revenue' => ['order_amount', 'sales_amount'],
+        'order_count' => ['order_count', 'paid_order_count'],
+        'room_nights' => ['room_nights', 'sales_room_nights'],
+        'adr' => ['average_price', 'sales_avg_price', 'order_amount', 'room_nights'],
+        'exposure' => ['list_exposure', 'exposure_users', 'total_exposure'],
+        'visits' => ['detail_exposure', 'detail_visitors'],
+        'conversion' => ['flow_rate', 'exposure_to_browse_rate', 'list_exposure', 'detail_exposure'],
+        'cancellation' => ['cancellation_rate'],
+        'sellable' => ['sellable_room_nights'],
+        'bookable' => ['bookable_room_nights'],
     ];
     private const FIELD_DEFINITIONS = [
         'revenue' => ['label' => '收入', 'unit' => 'CNY'],
@@ -132,6 +161,8 @@ final class DualOtaFieldClosureService
             ));
             $platforms[$platform] = self::buildPlatform(
                 $platform,
+                $tenantId,
+                $hotelId,
                 $businessDate,
                 $platformRows,
                 self::trustPlatformDay($trust, $platform, $businessDate)
@@ -142,7 +173,7 @@ final class DualOtaFieldClosureService
         $analysisConsumableFields = 0;
         foreach ($platforms as $platform) {
             foreach ($platform['fields'] as $field) {
-                $status = (string)($field['status'] ?? 'missing');
+                $status = (string)($field['status'] ?? 'source_missing');
                 $statusCounts[$status] = ($statusCounts[$status] ?? 0) + 1;
                 if (($field['revenue_analysis_consumable'] ?? false) === true) {
                     $analysisConsumableFields++;
@@ -175,7 +206,30 @@ final class DualOtaFieldClosureService
             'revenue_analysis_consumable_field_count' => $analysisConsumableFields,
             'closure_digest' => $digest,
             'page_identity' => 'dual_ota_field_closure#' . substr($digest, 0, 16),
-            'same_payload_required_on' => ['data_health', 'revenue_cockpit'],
+            'same_payload_required_on' => [
+                'data_health',
+                'revenue_cockpit',
+                'operating_broadcast',
+                'operating_query',
+                'operation_gate',
+            ],
+            'consumer_contract' => [
+                'contract_version' => 'trusted_ota_daily_fact_consumer.v1',
+                'closure_identity' => 'dual_ota_field_closure#' . substr($digest, 0, 16),
+                'field_source_path' => 'platforms.{platform}.fields',
+                'platform_order' => self::PLATFORMS,
+                'field_order' => array_keys(self::FIELD_DEFINITIONS),
+                'metric_values_duplicated' => false,
+                'missing_value_policy' => 'null_with_explicit_status',
+                'allowed_fact_statuses' => ['strict_readback', 'verified_calculation'],
+                'required_consumers' => [
+                    'data_health',
+                    'revenue_cockpit',
+                    'operating_broadcast',
+                    'operating_query',
+                    'operation_gate',
+                ],
+            ],
             'boundary' => '正式数据库回读、字段口径可信、历史数据最终态和收益分析可消费是四个独立门槛；缺失、失败、日期不符或口径不确定的字段不会被改写成 0。',
             'sensitive_values_exposed' => false,
         ];
@@ -188,12 +242,13 @@ final class DualOtaFieldClosureService
      */
     private static function buildPlatform(
         string $platform,
+        int $tenantId,
+        int $hotelId,
         string $businessDate,
         array $rows,
         array $trustDay
     ): array {
         $collection = self::projectCollectionState($trustDay);
-        $currentBlockerStatus = self::collectionBlockerStatus($collection);
         $currentReceiptEvidenceRows = [];
         $receiptBoundRows = [];
         foreach ($rows as $row) {
@@ -210,6 +265,24 @@ final class DualOtaFieldClosureService
             }
             $receiptBoundRows[] = $row;
         }
+        $acceptedRecordIds = self::positiveIds($collection['accepted_record_ids'] ?? []);
+        $observedReceiptIds = self::positiveIds(array_column($currentReceiptEvidenceRows, 'id'));
+        if ($acceptedRecordIds !== [] && $observedReceiptIds !== $acceptedRecordIds) {
+            $collection['exact_run_readback_status'] = 'readback_failed';
+            $collection['reason_codes'] = self::sortedStrings(array_merge(
+                (array)($collection['reason_codes'] ?? []),
+                ['accepted_receipt_row_readback_mismatch']
+            ));
+            foreach ($currentReceiptEvidenceRows as &$row) {
+                $row['_closure_receipt_scope_status'] = 'readback_failed';
+            }
+            unset($row);
+            foreach ($receiptBoundRows as &$row) {
+                $row['_closure_receipt_scope_status'] = 'readback_failed';
+            }
+            unset($row);
+        }
+        $currentBlockerStatus = self::collectionBlockerStatus($collection);
         $eligibleRows = $currentBlockerStatus === null ? $receiptBoundRows : [];
         $currentReceiptDiagnosticRows = $currentBlockerStatus === null
             ? $currentReceiptEvidenceRows
@@ -316,7 +389,7 @@ final class DualOtaFieldClosureService
         $cleanFields = [];
         $formalRecordIds = [];
         foreach ($fields as $field) {
-            $status = (string)($field['status'] ?? 'missing');
+            $status = (string)($field['status'] ?? 'source_missing');
             $fieldStatusCounts[$status] = ($fieldStatusCounts[$status] ?? 0) + 1;
             $field['identity_binding_verified'] = $identityReady;
             $revenueBlockers = [];
@@ -333,6 +406,15 @@ final class DualOtaFieldClosureService
             $field['revenue_analysis_consumable'] =
                 ($field['revenue_analysis_consumable'] ?? false) === true
                 && $identityReady;
+            $field = self::withFieldIdentity(
+                $field,
+                $tenantId,
+                $hotelId,
+                $platform,
+                $businessDate,
+                $collection,
+                $identityReady
+            );
             if (($field['revenue_analysis_consumable'] ?? false) === true) {
                 $analysisFields[] = (string)$field['key'];
             }
@@ -482,20 +564,76 @@ final class DualOtaFieldClosureService
                 ['same_run_zero_order_count_conflicts_with_nonzero_revenue_or_room_nights']
             )
             : self::fieldOrMissing('order_count', $orderCount, $orders, $collection, 'online_daily_data.book_order_num', '携程预订订单量语义投影。');
+        $revenueField = self::fieldOrMissing(
+            'revenue',
+            $revenue,
+            $market,
+            $collection,
+            'online_daily_data.amount',
+            '携程经营概览中的订单金额。'
+        );
+        $roomNightsField = self::fieldOrMissing(
+            'room_nights',
+            $roomNights,
+            $market,
+            $collection,
+            'online_daily_data.quantity',
+            '携程经营概览中的间夜量。'
+        );
+        $adrRows = [];
+        foreach (array_merge(
+            (array)($revenueField['_rows'] ?? []),
+            (array)($roomNightsField['_rows'] ?? [])
+        ) as $adrRow) {
+            if (is_array($adrRow) && (int)($adrRow['id'] ?? 0) > 0) {
+                $adrRows[(int)$adrRow['id']] = $adrRow;
+            }
+        }
+        ksort($adrRows, SORT_NUMERIC);
+        $adrInputsStrict = (string)($revenueField['status'] ?? '') === 'strict_readback'
+            && (string)($roomNightsField['status'] ?? '') === 'strict_readback';
 
         return [
-            self::fieldOrMissing('revenue', $revenue, $market, $collection, 'online_daily_data.amount', '携程经营概览中的订单金额。'),
+            $revenueField,
             $orderField,
-            self::fieldOrMissing('room_nights', $roomNights, $market, $collection, 'online_daily_data.quantity', '携程经营概览中的间夜量。'),
-            $adr !== null
-                ? self::field('adr', 'verified_calculation', $adr, [$market], 'revenue / room_nights', '仅使用同一条正式经营概览记录中的收入与间夜计算，不回退到页面展示 ADR。')
-                : self::field('adr', self::missingStatus($collection, 'missing'), null, [], 'revenue / room_nights', '收入或间夜缺失，无法计算 ADR。'),
-            self::field('exposure', self::missingStatus($collection, 'missing'), null, [], '携程目标日采集', '本次目标日采集缺少可信曝光事实；不能据此断言平台不提供。'),
+            $roomNightsField,
+            $adr !== null && $adrInputsStrict
+                ? self::field('adr', 'verified_calculation', $adr, array_values($adrRows), 'revenue / room_nights', '仅使用同一批严格经营概览记录中的收入与间夜计算，不回退到页面展示 ADR。')
+                : ($adr !== null && is_array($market)
+                    ? self::field(
+                        'adr',
+                        in_array('readback_failed', [
+                            (string)($revenueField['status'] ?? ''),
+                            (string)($roomNightsField['status'] ?? ''),
+                        ], true) ? 'readback_failed' : 'caliber_uncertain',
+                        null,
+                        array_values($adrRows),
+                        'revenue / room_nights',
+                        '收入与间夜候选来自同一记录，但其历史最终态或字段校验未达到 verified，不生成 ADR 主值。下一步：先验证金额与间夜口径，再重新计算。',
+                        self::observedValues([[$adr, 'revenue / room_nights (candidate)', $market]]),
+                        ['adr_inputs_not_strict_final']
+                    )
+                    : self::field(
+                        'adr',
+                        self::missingStatus($collection, 'field_unavailable'),
+                        null,
+                        [],
+                        'revenue / room_nights',
+                        '收入或间夜缺失，无法计算 ADR。下一步：补齐同一快照的金额与间夜字段。'
+                    )),
+            self::field(
+                'exposure',
+                self::missingStatus($collection, 'field_unavailable'),
+                null,
+                [],
+                '携程目标日采集',
+                '本次目标日采集缺少可信曝光事实；不能据此断言平台不提供。下一步：补采携程数据中心曝光端点并完成同店同日保存回读。'
+            ),
             self::fieldOrMissing('visits', self::numeric($visits['detail_exposure'] ?? null), $visits, $collection, 'online_daily_data.detail_exposure', '携程经营概览中的目标日访问量。'),
-            self::field('conversion', self::missingStatus($collection, 'missing'), null, [], 'exposure -> visits', '本次曝光事实缺失，因此不计算转化率。'),
-            self::field('cancellation', self::platformNotProvidedStatus($collection, $rows !== []), null, [], '携程目标日采集', '本次采集区段未提供取消数据。'),
-            self::field('sellable', self::platformNotProvidedStatus($collection, $rows !== []), null, [], '携程目标日采集', '本次采集区段未提供在售库存。'),
-            self::field('bookable', self::platformNotProvidedStatus($collection, $rows !== []), null, [], '携程目标日采集', '本次采集区段未提供可订库存。'),
+            self::field('conversion', self::missingStatus($collection, 'field_unavailable'), null, [], 'exposure -> visits', '本次曝光事实缺失，因此不计算转化率。下一步：先取得与访问量同一快照的曝光字段。'),
+            self::field('cancellation', self::platformNotProvidedStatus($collection, $rows !== []), null, [], '携程目标日采集', '本次采集区段未取得取消数据。下一步：补采同一营业日的取消/订单状态字段。'),
+            self::field('sellable', self::platformNotProvidedStatus($collection, $rows !== []), null, [], '携程目标日采集', '本次采集区段未取得在售库存。下一步：补采同一营业日的房态库存端点。'),
+            self::field('bookable', self::platformNotProvidedStatus($collection, $rows !== []), null, [], '携程目标日采集', '本次采集区段未取得可订库存。下一步：补采同一营业日的游客侧可订性证据。'),
         ];
     }
 
@@ -557,7 +695,7 @@ final class DualOtaFieldClosureService
                 null,
                 $revenueRows,
                 'distinct_meituan_business_and_order_amount_semantics',
-                '当前回执金额与同营业日另一正式金额语义不同；旧记录只用于阻断错误提升，不会替代当前回执值。',
+                '当前回执金额与同营业日另一正式金额语义不同；旧记录只用于阻断错误提升，不会替代当前回执值。下一步：确认业务卡片金额与订单汇总金额各自定义后再提升收入事实。',
                 self::observedValues([
                     [$businessRevenue, 'business_card_amount', $businessForConflict],
                     [$orderRevenue, 'order_summary_amount', $ordersForConflict],
@@ -610,13 +748,33 @@ final class DualOtaFieldClosureService
                 null,
                 $revenueRows,
                 'distinct_meituan_amount_semantics / room_nights',
-                '两个金额口径不同，导致 ADR 候选值不同。',
+                '两个金额口径不同，导致 ADR 候选值不同。下一步：先确认收入金额口径，再按同一口径金额与间夜重算 ADR。',
                 self::observedValues([
                     [$businessAdr, 'business_card_amount / room_nights', $businessForConflict],
                     [$orderAdr, 'order_summary_amount / room_nights', $ordersForConflict],
                 ])
             )
-            : (($currentOrderAdr ?? $currentBusinessAdr) !== null
+            : ((string)($revenueField['status'] ?? '') !== 'strict_readback'
+                && ($currentOrderAdr ?? $currentBusinessAdr) !== null
+                ? self::field(
+                    'adr',
+                    in_array((string)($revenueField['status'] ?? ''), ['readback_failed', 'source_missing'], true)
+                        ? 'readback_failed'
+                        : 'caliber_uncertain',
+                    null,
+                    array_values(array_filter((array)($revenueField['_rows'] ?? []), 'is_array')),
+                    'strict revenue / room_nights',
+                    '收入字段本身尚未成为严格事实，因此不生成 ADR 主值。下一步：先解决收入口径、重复记录或回读问题。',
+                    self::observedValues([[
+                        $currentOrderAdr ?? $currentBusinessAdr,
+                        'revenue / room_nights (candidate)',
+                        is_array($orders) ? $orders : $business,
+                    ]]),
+                    ['adr_blocked_by_non_strict_revenue']
+                )
+                : (($currentOrderAdr ?? $currentBusinessAdr) !== null
+                    && is_array(is_array($orders) ? $orders : $business)
+                    && self::rowStrictFinalEligible(is_array($orders) ? $orders : $business)
                 ? self::field(
                     'adr',
                     'verified_calculation',
@@ -627,21 +785,49 @@ final class DualOtaFieldClosureService
                         : 'business_card_amount / room_nights',
                     '使用同一条当前回执正式记录计算。'
                 )
-                : self::field('adr', self::missingStatus($collection, 'missing'), null, [], 'revenue / room_nights', '收入或间夜缺失，无法计算 ADR。'));
+                : (($currentOrderAdr ?? $currentBusinessAdr) !== null
+                    ? self::field(
+                        'adr',
+                        self::rowReadbackIdentityReady(is_array($orders) ? $orders : $business)
+                            ? 'caliber_uncertain'
+                            : 'readback_failed',
+                        null,
+                        [is_array($orders) ? $orders : $business],
+                        $currentOrderAdr !== null
+                            ? 'order_summary_amount / room_nights'
+                            : 'business_card_amount / room_nights',
+                        '金额与间夜候选来自同一记录，但字段最终校验未达到 verified，不生成 ADR 主值。下一步：确认金额语义并重新校验。',
+                        self::observedValues([[
+                            $currentOrderAdr ?? $currentBusinessAdr,
+                            'revenue / room_nights (candidate)',
+                            is_array($orders) ? $orders : $business,
+                        ]]),
+                        ['adr_inputs_not_strict_final']
+                    )
+                    : self::field(
+                        'adr',
+                        self::missingStatus($collection, 'field_unavailable'),
+                        null,
+                        [],
+                        'revenue / room_nights',
+                        '收入或间夜缺失，无法计算 ADR。下一步：补齐同一快照的金额与间夜字段。'
+                    ))));
 
         $listExposure = self::numeric($traffic['list_exposure'] ?? null);
         $detailExposure = self::numeric($traffic['detail_exposure'] ?? null);
         $conversion = $listExposure !== null && $listExposure > 0 && $detailExposure !== null
             ? round($detailExposure / $listExposure * 100, 2)
             : null;
+        $calculatedConversion = $conversion;
         $explicitConversion = self::rawNumeric($traffic, [
             'exposure_to_browse_rate', 'exposureToBrowseRate',
             'intentionPerExposure', 'expose_visit_rate', 'exposeVisitRate',
         ]);
         $storedFlowRate = self::numeric($traffic['flow_rate'] ?? null);
         $conversionFlags = [];
-        $conversionStatus = $conversion !== null ? 'verified_calculation' : self::missingStatus($collection, 'missing');
+        $conversionStatus = $conversion !== null ? 'verified_calculation' : self::missingStatus($collection, 'field_unavailable');
         $conversionNote = '使用同一条精确正式流量记录，按访问量 / 曝光量计算。';
+        $conversionObservedValues = [];
         if ($conversion !== null && $explicitConversion !== null
             && abs($conversion - $explicitConversion) > 0.05
         ) {
@@ -656,6 +842,21 @@ final class DualOtaFieldClosureService
             && abs($conversion - $storedFlowRate) > 0.05
         ) {
             $conversionFlags[] = 'legacy_stored_flow_rate_semantic_mismatch';
+        }
+        if ($conversion !== null && is_array($traffic) && !self::rowStrictFinalEligible($traffic)) {
+            $conversionStatus = self::rowReadbackIdentityReady($traffic)
+                ? 'caliber_uncertain'
+                : 'readback_failed';
+            $conversion = null;
+            $conversionObservedValues = self::observedValues([[
+                $calculatedConversion,
+                'detail_exposure / list_exposure (candidate)',
+                $traffic,
+            ]]);
+            $conversionFlags[] = self::rowReadbackIdentityReady($traffic)
+                ? 'conversion_inputs_not_strict_final'
+                : 'conversion_readback_not_verified';
+            $conversionNote = '曝光与访问来自同一快照，但字段最终校验或回读尚未闭合，不生成转化率主值。下一步：先完成该快照的严格校验与回读。';
         }
 
         $trafficConflictFlag = 'same_run_zero_traffic_conflicts_with_nonzero_orders';
@@ -717,7 +918,7 @@ final class DualOtaFieldClosureService
                 is_array($traffic) ? [$traffic] : [],
                 'detail_exposure / list_exposure',
                 $conversionNote,
-                [],
+                $conversionObservedValues,
                 $conversionFlags
             );
         }
@@ -730,9 +931,9 @@ final class DualOtaFieldClosureService
             $exposureField,
             $visitsField,
             $conversionField,
-            self::field('cancellation', self::platformNotProvidedStatus($collection, $rows !== []), null, [], '美团目标日采集', '本次采集区段未提供取消数据。'),
-            self::field('sellable', self::platformNotProvidedStatus($collection, $rows !== []), null, [], '美团目标日采集', '本次采集区段未提供在售库存。'),
-            self::field('bookable', self::platformNotProvidedStatus($collection, $rows !== []), null, [], '美团目标日采集', '本次采集区段未提供可订库存。'),
+            self::field('cancellation', self::platformNotProvidedStatus($collection, $rows !== []), null, [], '美团目标日采集', '本次采集区段未取得取消数据。下一步：补采同一营业日的取消/订单状态字段。'),
+            self::field('sellable', self::platformNotProvidedStatus($collection, $rows !== []), null, [], '美团目标日采集', '本次采集区段未取得在售库存。下一步：补采同一营业日的直连房态库存端点。'),
+            self::field('bookable', self::platformNotProvidedStatus($collection, $rows !== []), null, [], '美团目标日采集', '本次采集区段未取得可订库存。下一步：补采同一营业日的游客侧可订性证据。'),
         ];
     }
 
@@ -745,9 +946,78 @@ final class DualOtaFieldClosureService
         string $basis,
         string $note
     ): array {
-        return $value !== null && is_array($row)
-            ? self::field($key, 'strict_readback', $value, [$row], $basis, $note)
-            : self::field($key, self::missingStatus($collection, 'missing'), null, [], $basis, $note);
+        if ($value === null || !is_array($row)) {
+            return self::field(
+                $key,
+                self::missingStatus($collection, 'field_unavailable'),
+                null,
+                [],
+                $basis,
+                $note . ' 下一步：补齐该字段的当前采集证据并完成正式保存与精确回读。'
+            );
+        }
+        $duplicateRows = array_values(array_filter(
+            (array)($row['_closure_duplicate_rows'] ?? []),
+            'is_array'
+        ));
+        if (count($duplicateRows) > 1) {
+            $duplicateValues = [];
+            $observed = [];
+            foreach ($duplicateRows as $duplicateRow) {
+                $duplicateValue = self::fieldValueFromRow($key, $duplicateRow);
+                if ($duplicateValue !== null) {
+                    $duplicateValues[] = $duplicateValue;
+                    $observed[] = [$duplicateValue, $basis . ' (duplicate candidate)', $duplicateRow];
+                }
+            }
+            $normalizedValues = array_values(array_unique(array_map(
+                static fn(float $candidate): string => number_format($candidate, 6, '.', ''),
+                $duplicateValues
+            )));
+            $allStrict = count(array_filter(
+                $duplicateRows,
+                static fn(array $candidate): bool => self::rowStrictFinalEligible($candidate)
+            )) === count($duplicateRows);
+            if (count($normalizedValues) === 1 && $allStrict) {
+                return self::field(
+                    $key,
+                    'strict_readback',
+                    $duplicateValues[0],
+                    $duplicateRows,
+                    $basis,
+                    $note . ' 当前回执含重复记录，值完全一致，已按记录身份去重且未累加。',
+                    [],
+                    ['duplicate_current_receipt_records_deduplicated']
+                );
+            }
+            return self::field(
+                $key,
+                $allStrict ? 'caliber_uncertain' : 'readback_failed',
+                null,
+                $duplicateRows,
+                $basis,
+                '当前回执包含重复记录且值或严格校验状态不一致；不会选择其中一条冒充事实。下一步：去重并重新保存回读。',
+                self::observedValues($observed),
+                ['duplicate_current_receipt_records_conflicted']
+            );
+        }
+        if (self::rowStrictFinalEligible($row)) {
+            return self::field($key, 'strict_readback', $value, [$row], $basis, $note);
+        }
+
+        $readbackIdentityReady = self::rowReadbackIdentityReady($row);
+        return self::field(
+            $key,
+            $readbackIdentityReady ? 'caliber_uncertain' : 'readback_failed',
+            null,
+            [$row],
+            $basis,
+            $readbackIdentityReady
+                ? $note . ' 正式记录已回读，但历史最终态或字段校验尚未达到 verified；候选值只用于追溯。下一步：补充口径证据并重新校验该字段。'
+                : $note . ' 正式记录存在，但当前采集回执或整批精确回读没有闭合。下一步：重新保存并按当前回执逐条精确回读。',
+            self::observedValues([[$value, $basis . ' (candidate)', $row]]),
+            [$readbackIdentityReady ? 'validation_status_not_verified' : 'exact_readback_not_verified']
+        );
     }
 
     /**
@@ -784,14 +1054,9 @@ final class DualOtaFieldClosureService
                 $row['_closure_receipt_scope_status'] ?? ''
             ))) === 'verified'
         )) === count($rows);
-        $strictFinal = $readbackVerified
-            && $receiptBindingVerified
-            && $exactRunScopeVerified
-            && count(array_filter(
+        $strictFinal = $rows !== [] && count(array_filter(
             $rows,
-            static fn(array $row): bool =>
-                strtolower(trim((string)($row['history_status'] ?? ''))) === 'success'
-                && strtolower(trim((string)($row['validation_status'] ?? ''))) === 'verified'
+            static fn(array $row): bool => self::rowStrictFinalEligible($row)
         )) === count($rows);
         $statusAllowsConsumption = in_array($status, ['strict_readback', 'verified_calculation'], true);
 
@@ -799,8 +1064,8 @@ final class DualOtaFieldClosureService
             'key' => $key,
             'label' => (string)$definition['label'],
             'unit' => (string)$definition['unit'],
-            'status' => array_key_exists($status, self::STATUS_LABELS) ? $status : 'missing',
-            'status_label' => self::STATUS_LABELS[$status] ?? self::STATUS_LABELS['missing'],
+            'status' => array_key_exists($status, self::STATUS_LABELS) ? $status : 'source_missing',
+            'status_label' => self::STATUS_LABELS[$status] ?? self::STATUS_LABELS['source_missing'],
             'value' => $value,
             'observed_values' => $observedValues,
             'basis' => $basis,
@@ -827,6 +1092,185 @@ final class DualOtaFieldClosureService
             'history_statuses' => self::stringValues($rows, 'history_status'),
             'validation_statuses' => self::stringValues($rows, 'validation_status'),
             '_rows' => $rows,
+        ];
+    }
+
+    /**
+     * Attach the complete non-sensitive identity chain required by every
+     * visible/downloaded/downstream field. Profile hashes, credentials and raw
+     * responses are deliberately excluded.
+     *
+     * @param array<string,mixed> $field
+     * @param array<string,mixed> $collection
+     * @return array<string,mixed>
+     */
+    private static function withFieldIdentity(
+        array $field,
+        int $tenantId,
+        int $hotelId,
+        string $platform,
+        string $businessDate,
+        array $collection,
+        bool $profileBindingVerified
+    ): array {
+        $rows = array_values(array_filter(
+            (array)($field['_rows'] ?? []),
+            'is_array'
+        ));
+        $key = (string)($field['key'] ?? '');
+        $provenance = self::fieldProvenance($key, $rows);
+        $sourceIds = self::positiveIds($field['data_source_ids'] ?? []);
+        $taskIds = self::positiveIds($field['sync_task_ids'] ?? []);
+        $recordIds = self::positiveIds($field['source_record_ids'] ?? []);
+        $effectiveSourceId = $sourceIds[0] ?? max(0, (int)($collection['data_source_id'] ?? 0));
+        $effectiveTaskId = $taskIds[0] ?? max(0, (int)($collection['sync_task_id'] ?? 0));
+        $formalSaved = $recordIds !== [];
+        $readbackVerified = ($field['formal_readback_verified'] ?? false) === true
+            && ($field['current_receipt_binding_verified'] ?? false) === true
+            && ($field['exact_run_scope_verified'] ?? false) === true;
+        $fieldOrder = array_search($key, array_keys(self::FIELD_DEFINITIONS), true);
+        $note = (string)($field['note'] ?? '');
+        $nextAction = '';
+        if (preg_match('/下一步：(.+)$/u', $note, $matches) === 1) {
+            $nextAction = trim((string)$matches[1]);
+        }
+        if ($nextAction === '' && ($field['revenue_analysis_consumable'] ?? false) !== true) {
+            $nextAction = match ((string)($field['status'] ?? '')) {
+                'readback_failed' => '重新保存当前采集结果，并按当前回执逐条精确回读。',
+                'caliber_uncertain' => '补充平台字段定义或同口径证据后重新校验。',
+                'source_missing' => '建立当前门店的平台来源并重新采集。',
+                'field_unavailable' => '补采该字段对应端点并保存回读。',
+                default => '补齐严格事实证据后再供下游消费。',
+            };
+        }
+
+        return $field + [
+            'metric_key' => $key,
+            'display_order' => $fieldOrder === false ? 999 : $fieldOrder + 1,
+            'tenant_id' => $tenantId,
+            'system_hotel_id' => $hotelId,
+            'platform' => $platform,
+            'platform_store_id' => trim((string)($collection['platform_hotel_id'] ?? '')) ?: null,
+            'store_profile_status' => $profileBindingVerified ? 'verified' : 'unverified',
+            'data_source_id' => $effectiveSourceId > 0 ? $effectiveSourceId : null,
+            'store_profile_ref' => $effectiveSourceId > 0
+                ? 'platform_data_source#' . $effectiveSourceId
+                : null,
+            'business_date' => $businessDate,
+            'capture_id' => $effectiveTaskId > 0 ? $effectiveTaskId : null,
+            'capture_ref' => $effectiveTaskId > 0
+                ? 'platform_data_sync_task#' . $effectiveTaskId
+                : null,
+            'source_method' => trim((string)($collection['source_method'] ?? ''))
+                ?: ($provenance['source_methods'][0] ?? null),
+            'endpoint_ids' => $provenance['endpoint_ids'],
+            'source_paths' => $provenance['source_paths'],
+            'raw_metric_keys' => $provenance['metric_keys'],
+            'storage_fields' => $provenance['storage_fields'],
+            'source_trace_refs' => $provenance['source_trace_refs'],
+            'validation_status' => match ((string)($field['status'] ?? 'source_missing')) {
+                'strict_readback' => ($field['strict_final_gate'] ?? false) === true
+                    ? 'verified'
+                    : 'readback_verified',
+                'verified_calculation' => 'derived_verified',
+                default => (string)($field['status'] ?? 'source_missing'),
+            },
+            'source_validation_statuses' => (array)($field['validation_statuses'] ?? []),
+            'persistence_status' => $formalSaved ? 'formally_saved' : 'not_saved',
+            'readback_status' => $readbackVerified
+                ? 'readback_verified'
+                : ($formalSaved ? 'readback_failed' : 'not_attempted'),
+            'formal_saved' => $formalSaved,
+            'same_snapshot_verified' => (string)($field['status'] ?? '') === 'verified_calculation'
+                && count($recordIds) === 1,
+            'snapshot_refs' => (array)($field['source_record_refs'] ?? []),
+            'consumer_metric_keys' => self::CONSUMER_METRIC_KEYS[$key] ?? [],
+            'next_action' => $nextAction,
+            'sensitive_values_exposed' => false,
+        ];
+    }
+
+    /**
+     * @param array<int,array<string,mixed>> $rows
+     * @return array{endpoint_ids:array<int,string>,source_paths:array<int,string>,metric_keys:array<int,string>,storage_fields:array<int,string>,source_trace_refs:array<int,string>,source_methods:array<int,string>}
+     */
+    private static function fieldProvenance(string $fieldKey, array $rows): array
+    {
+        $endpointIds = [];
+        $sourcePaths = [];
+        $metricKeys = [];
+        $storageFields = [];
+        $sourceTraceRefs = [];
+        $sourceMethods = [];
+        $requestedMetricKeys = self::FIELD_FACT_METRIC_KEYS[$fieldKey] ?? [];
+
+        foreach ($rows as $row) {
+            $raw = self::decodeArray($row['raw_data'] ?? []);
+            $detail = is_array($raw['row'] ?? null) ? $raw['row'] : $raw;
+            $capture = is_array($raw['capture_evidence'] ?? null)
+                ? $raw['capture_evidence']
+                : (is_array($detail['capture_evidence'] ?? null) ? $detail['capture_evidence'] : []);
+            foreach ([
+                $detail['endpoint_id'] ?? null,
+                $detail['capture_section'] ?? null,
+                $capture['endpoint_id'] ?? null,
+                $capture['capture_source'] ?? null,
+                $detail['_capture_source'] ?? null,
+            ] as $candidate) {
+                $value = trim((string)($candidate ?? ''));
+                if ($value !== '') {
+                    $endpointIds[] = $value;
+                    break;
+                }
+            }
+            foreach ([
+                $row['source_trace_id'] ?? null,
+                $capture['source_trace_id'] ?? null,
+            ] as $candidate) {
+                $value = trim((string)($candidate ?? ''));
+                if ($value !== '') {
+                    $sourceTraceRefs[] = $value;
+                    break;
+                }
+            }
+            $method = trim((string)($row['ingestion_method'] ?? $detail['acquisition_method'] ?? ''));
+            if ($method !== '') {
+                $sourceMethods[] = $method;
+            }
+            if ($requestedMetricKeys === []) {
+                continue;
+            }
+            $metricStatus = OnlineDataFieldFactService::buildMetricStatus(
+                $row,
+                $raw,
+                $requestedMetricKeys
+            );
+            foreach ((array)($metricStatus['sample_facts'] ?? []) as $fact) {
+                if (!is_array($fact) || (string)($fact['status'] ?? '') === 'missing') {
+                    continue;
+                }
+                $metricKey = trim((string)($fact['metric_key'] ?? ''));
+                $sourcePath = trim((string)($fact['source_path'] ?? ''));
+                $storageField = trim((string)($fact['storage_field'] ?? ''));
+                if ($metricKey !== '') {
+                    $metricKeys[] = $metricKey;
+                }
+                if ($sourcePath !== '') {
+                    $sourcePaths[] = $sourcePath;
+                }
+                if ($storageField !== '') {
+                    $storageFields[] = $storageField;
+                }
+            }
+        }
+
+        return [
+            'endpoint_ids' => self::sortedStrings($endpointIds),
+            'source_paths' => self::sortedStrings($sourcePaths),
+            'metric_keys' => self::sortedStrings($metricKeys),
+            'storage_fields' => self::sortedStrings($storageFields),
+            'source_trace_refs' => self::sortedStrings($sourceTraceRefs),
+            'source_methods' => self::sortedStrings($sourceMethods),
         ];
     }
 
@@ -858,7 +1302,27 @@ final class DualOtaFieldClosureService
             $rightTime = self::rowCollectionTime($right) ?? '';
             return [$rightTime, (int)($right['id'] ?? 0)] <=> [$leftTime, (int)($left['id'] ?? 0)];
         });
-        return $candidates[0] ?? null;
+        if ($candidates === []) {
+            return null;
+        }
+        $selected = $candidates[0];
+        if (count($candidates) > 1) {
+            $selected['_closure_duplicate_rows'] = $candidates;
+        }
+        return $selected;
+    }
+
+    /** @param array<string,mixed> $row */
+    private static function fieldValueFromRow(string $key, array $row): ?float
+    {
+        return match ($key) {
+            'revenue' => self::numeric($row['amount'] ?? null),
+            'order_count' => self::numeric($row['book_order_num'] ?? null),
+            'room_nights' => self::numeric($row['quantity'] ?? null),
+            'exposure' => self::numeric($row['list_exposure'] ?? null),
+            'visits' => self::numeric($row['detail_exposure'] ?? null),
+            default => null,
+        };
     }
 
     /** @param array<string,mixed> $row */
@@ -886,6 +1350,22 @@ final class DualOtaFieldClosureService
             }
         }
         return true;
+    }
+
+    /** @param array<string,mixed> $row */
+    private static function rowReadbackIdentityReady(array $row): bool
+    {
+        return (int)($row['readback_verified'] ?? 0) === 1
+            && ($row['_closure_current_receipt_bound'] ?? false) === true
+            && strtolower(trim((string)($row['_closure_receipt_scope_status'] ?? ''))) === 'verified';
+    }
+
+    /** @param array<string,mixed> $row */
+    private static function rowStrictFinalEligible(array $row): bool
+    {
+        return self::rowReadbackIdentityReady($row)
+            && strtolower(trim((string)($row['history_status'] ?? ''))) === 'success'
+            && strtolower(trim((string)($row['validation_status'] ?? ''))) === 'verified';
     }
 
     /** @param array<string,mixed> $row */
@@ -935,12 +1415,13 @@ final class DualOtaFieldClosureService
     /** @param array<string,mixed> $collection */
     private static function collectionBlockerStatus(array $collection): ?string
     {
-        $status = self::missingStatus($collection, 'missing');
+        $status = self::collectionFailureReason($collection);
         if (in_array($status, ['login_expired', 'date_mismatch'], true)) {
             return $status;
         }
         if ($status === 'collection_failed'
-            && self::positiveIds($collection['accepted_record_ids'] ?? []) === []
+            && (self::positiveIds($collection['accepted_record_ids'] ?? []) === []
+                || strtolower(trim((string)($collection['exact_run_readback_status'] ?? ''))) !== 'verified')
         ) {
             return 'collection_failed';
         }
@@ -991,6 +1472,32 @@ final class DualOtaFieldClosureService
     /** @param array<string,mixed> $collection */
     private static function missingStatus(array $collection, string $fallback): string
     {
+        $failureReason = self::collectionFailureReason($collection);
+        if (in_array($failureReason, ['login_expired', 'date_mismatch', 'collection_failed'], true)) {
+            return 'source_missing';
+        }
+        $exactRunStatus = strtolower(trim((string)($collection['exact_run_readback_status'] ?? '')));
+        if ($exactRunStatus !== ''
+            && $exactRunStatus !== 'verified'
+            && ((int)($collection['sync_task_id'] ?? 0) > 0
+                || self::positiveIds($collection['receipt_record_ids'] ?? []) !== [])
+        ) {
+            return 'readback_failed';
+        }
+        if ((int)($collection['data_source_id'] ?? 0) <= 0
+            || (int)($collection['sync_task_id'] ?? 0) <= 0
+            || self::positiveIds($collection['accepted_record_ids'] ?? []) === []
+        ) {
+            return 'source_missing';
+        }
+        return in_array($fallback, ['field_unavailable', 'source_missing', 'readback_failed'], true)
+            ? $fallback
+            : 'field_unavailable';
+    }
+
+    /** @param array<string,mixed> $collection */
+    private static function collectionFailureReason(array $collection): ?string
+    {
         $codes = array_map('strtolower', array_map('strval', (array)($collection['reason_codes'] ?? [])));
         $taskStatus = strtolower(trim((string)($collection['sync_task_status'] ?? '')));
         foreach ($codes as $code) {
@@ -1019,7 +1526,7 @@ final class DualOtaFieldClosureService
         ], true)) {
             return str_contains($taskStatus, 'session') ? 'login_expired' : 'collection_failed';
         }
-        return array_key_exists($fallback, self::STATUS_LABELS) ? $fallback : 'missing';
+        return null;
     }
 
     /** @param array<string,mixed> $collection */
@@ -1028,14 +1535,11 @@ final class DualOtaFieldClosureService
         bool $hasCurrentReceiptEvidence
     ): string
     {
-        $status = self::missingStatus($collection, 'platform_not_provided');
-        if (in_array($status, ['login_expired', 'date_mismatch'], true)) {
-            return $status;
-        }
+        $status = self::missingStatus($collection, 'field_unavailable');
         return $hasCurrentReceiptEvidence
             && strtolower(trim((string)($collection['exact_run_readback_status'] ?? ''))) === 'verified'
             && self::positiveIds($collection['accepted_record_ids'] ?? []) !== []
-                ? 'platform_not_provided'
+                ? 'field_unavailable'
                 : $status;
     }
 
@@ -1079,9 +1583,14 @@ final class DualOtaFieldClosureService
             'p0_status' => (string)($trustDay['p0_status'] ?? 'blocked'),
             'target_date' => $receipt['target_date'] ?? $trustDay['target_date'] ?? null,
             'target_date_status' => (string)($receipt['target_date_status'] ?? 'unverified'),
+            'platform_hotel_id' => $receipt['platform_hotel_id'] ?? null,
             'platform_hotel_status' => (string)($receipt['platform_hotel_status'] ?? 'unverified'),
             'captured_at' => $receipt['captured_at'] ?? null,
             'finished_at' => $receipt['finished_at'] ?? null,
+            'source_method' => $receipt['source_method'] ?? null,
+            'capture_strategy' => is_array($receipt['capture_strategy'] ?? null)
+                ? $receipt['capture_strategy']
+                : [],
             'data_period' => $receipt['data_period'] ?? null,
             'data_source_id' => isset($receipt['data_source_id']) ? (int)$receipt['data_source_id'] : null,
             'sync_task_id' => isset($receipt['sync_task_id']) ? (int)$receipt['sync_task_id'] : null,
@@ -1233,8 +1742,8 @@ final class DualOtaFieldClosureService
     {
         $value = strtolower(trim((string)($row['platform'] ?? $row['source'] ?? '')));
         return match (true) {
-            str_contains($value, 'ctrip'), str_contains($value, 'xiecheng') => 'ctrip',
-            str_contains($value, 'meituan') => 'meituan',
+            in_array($value, ['ctrip', 'ctrip_ebooking', 'xiecheng'], true) => 'ctrip',
+            in_array($value, ['meituan', 'meituan_ebooking'], true) => 'meituan',
             default => $value,
         };
     }

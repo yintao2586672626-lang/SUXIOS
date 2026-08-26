@@ -5,8 +5,10 @@ declare(strict_types=1);
 namespace app\service\operation;
 
 use app\service\OperatingNetworkService;
+use app\service\OperatingOpportunityLabService;
 use app\service\OperatingQuestionExecutionBridgeService;
 use app\service\OperationActionLifecycleService;
+use app\service\RevenueCockpitActionContract;
 use DateTimeImmutable;
 use think\facade\Db;
 
@@ -34,6 +36,7 @@ trait OperationActionLifecycleConcern
                 if (!$lifecycle->isManagedIntent($intent)) {
                     throw new \InvalidArgumentException('only versioned managed operation actions use the cancellation endpoint');
                 }
+                $dailyManagedAction = $lifecycle->isDailyOneThingIntent($intent);
                 $events = $lifecycle->eventsForIntent(
                     (int)$intent['tenant_id'],
                     (int)$intent['hotel_id'],
@@ -41,7 +44,10 @@ trait OperationActionLifecycleConcern
                 );
                 $tasks = array_map([$this, 'normalizeExecutionTaskRow'], (array)$authorization['tasks']);
                 $fromStatus = $lifecycle->currentStatus(array_merge($intent, ['tasks' => $tasks]), $events);
-                if (!in_array($fromStatus, ['draft', 'pending_approval', 'approved', 'in_progress'], true)) {
+                $cancellableStatuses = $dailyManagedAction
+                    ? ['draft', 'pending_approval', 'approved', 'executing']
+                    : ['draft', 'pending_approval', 'approved', 'in_progress'];
+                if (!in_array($fromStatus, $cancellableStatuses, true)) {
                     throw new \InvalidArgumentException('completed or reviewed operation action cannot be cancelled');
                 }
                 foreach ($tasks as $task) {
@@ -57,7 +63,10 @@ trait OperationActionLifecycleConcern
                     ->whereIn('status', ['draft', 'pending_approval', 'approved'])
                     ->whereNull('deleted_at')
                     ->update([
-                        'status' => 'cancelled',
+                        'status' => $dailyManagedAction ? 'blocked' : 'cancelled',
+                        'blocked_reason' => $dailyManagedAction
+                            ? $reason
+                            : (string)($intent['blocked_reason'] ?? ''),
                         'review_remark' => $reason,
                         'updated_at' => $now,
                     ]);
@@ -72,7 +81,7 @@ trait OperationActionLifecycleConcern
                         ->whereIn('status', ['pending_execute', 'executing', 'blocked'])
                         ->whereNull('deleted_at')
                         ->update([
-                            'status' => 'cancelled',
+                            'status' => $dailyManagedAction ? 'blocked' : 'cancelled',
                             'blocked_reason' => $reason,
                             'updated_at' => $now,
                         ]);
@@ -82,8 +91,8 @@ trait OperationActionLifecycleConcern
                     $intent,
                     (int)($task['id'] ?? 0),
                     $fromStatus,
-                    'cancelled',
-                    'cancelled',
+                    $dailyManagedAction ? 'blocked' : 'cancelled',
+                    $dailyManagedAction ? 'blocked' : 'cancelled',
                     $userId,
                     [
                         'reason' => $reason,
@@ -109,17 +118,53 @@ trait OperationActionLifecycleConcern
         $sourceMetric = strtolower(trim((string)($intent['expected_metric'] ?? '')));
         $approvalSourceModule = strtolower(trim((string)($intent['source_module'] ?? '')));
         $isOperatingQuestion = $approvalSourceModule === OperatingQuestionExecutionBridgeService::SOURCE_MODULE;
+        $isManagedObservation = $isOperatingQuestion
+            || $approvalSourceModule === RevenueCockpitActionContract::SOURCE_MODULE
+            || $approvalSourceModule === OperatingOpportunityLabService::DAILY_SOURCE_MODULE;
+        $approvalMode = strtolower(trim((string)($input['_approval_mode'] ?? 'human')));
+        $aiReviewDigest = strtolower(trim((string)($input['_ai_review_digest'] ?? '')));
+        if ($approvalMode === 'ai_independent_review') {
+            if (!$isOperatingQuestion
+                || $approvedBy !== 0
+                || preg_match('/^[a-f0-9]{64}$/D', $aiReviewDigest) !== 1
+            ) {
+                throw new \InvalidArgumentException('AI independent review approval identity is invalid');
+            }
+        } elseif ($approvalMode !== 'human') {
+            throw new \InvalidArgumentException('execution approval mode is not supported');
+        }
         if ($expectedMetric === '' || $sourceMetric === '' || $expectedMetric !== $sourceMetric) {
             throw new \InvalidArgumentException('approval expected_metric must match the saved execution-intent metric');
         }
 
         $direction = strtolower(trim((string)($input['expected_direction'] ?? '')));
-        if (!in_array($direction, ['increase', 'decrease'], true)) {
-            throw new \InvalidArgumentException('approval expected_direction must be increase or decrease');
-        }
         $targetType = strtolower(trim((string)($input['target_type'] ?? '')));
-        if (!in_array($targetType, ['absolute', 'delta'], true)) {
-            throw new \InvalidArgumentException('approval target_type must be absolute or delta');
+        $observationOnly = $direction === 'observe' || $targetType === 'observation';
+        if ($observationOnly) {
+            if (!$isManagedObservation
+                || $direction !== 'observe'
+                || $targetType !== 'observation'
+                || !$this->managedActionDeclaresObservationTarget($intent)
+            ) {
+                throw new \InvalidArgumentException(
+                    'observation approval is allowed only for a managed verification target'
+                );
+            }
+            foreach (['target_value', 'expected_delta'] as $field) {
+                $raw = $input[$field] ?? null;
+                if ($raw !== null && trim((string)$raw) !== '') {
+                    throw new \InvalidArgumentException(
+                        'observation approval must not declare a numeric target or expected delta'
+                    );
+                }
+            }
+        } else {
+            if (!in_array($direction, ['increase', 'decrease'], true)) {
+                throw new \InvalidArgumentException('approval expected_direction must be increase or decrease');
+            }
+            if (!in_array($targetType, ['absolute', 'delta'], true)) {
+                throw new \InvalidArgumentException('approval target_type must be absolute or delta');
+            }
         }
 
         $targetValue = is_array($intent['target_value'] ?? null) ? $intent['target_value'] : [];
@@ -134,12 +179,12 @@ trait OperationActionLifecycleConcern
         $expectedReviewBusinessDate = (new DateTimeImmutable($baselineDate))
             ->modify('+1 day')
             ->format('Y-m-d');
-        if (!$isOperatingQuestion && $reviewBusinessDate !== $expectedReviewBusinessDate) {
+        if (!$isManagedObservation && $reviewBusinessDate !== $expectedReviewBusinessDate) {
             throw new \InvalidArgumentException(
                 'review_business_date must be exactly the next calendar business date: ' . $expectedReviewBusinessDate
             );
         }
-        if ($isOperatingQuestion && $reviewBusinessDate < $expectedReviewBusinessDate) {
+        if ($isManagedObservation && $reviewBusinessDate < $expectedReviewBusinessDate) {
             throw new \InvalidArgumentException(
                 'operating-question review_business_date must be later than the baseline business window'
             );
@@ -152,7 +197,8 @@ trait OperationActionLifecycleConcern
             && is_numeric($currentValue['list_exposure'])
             ? (float)$currentValue['list_exposure']
             : null;
-        if ($sourceMetric === 'list_exposure'
+        if (!$observationOnly
+            && $sourceMetric === 'list_exposure'
             && ($intentPlatform !== 'ctrip'
                 || $direction !== 'increase'
                 || $listExposureBaseline === null
@@ -166,7 +212,10 @@ trait OperationActionLifecycleConcern
 
         $absoluteTarget = null;
         $expectedDelta = null;
-        if ($targetType === 'absolute') {
+        if ($observationOnly) {
+            // A verification target freezes the metric and observation window,
+            // not a fabricated uplift promise.
+        } elseif ($targetType === 'absolute') {
             $rawTarget = $input['target_value'] ?? null;
             if (!is_numeric($rawTarget) || (float)$rawTarget < 0) {
                 throw new \InvalidArgumentException('approval target_value must be a non-negative number');
@@ -182,7 +231,7 @@ trait OperationActionLifecycleConcern
                 throw new \InvalidArgumentException('approval expected_delta must remain positive after 6-decimal normalization');
             }
         }
-        if ($sourceMetric === 'list_exposure') {
+        if (!$observationOnly && $sourceMetric === 'list_exposure') {
             $approvedNumber = $targetType === 'absolute' ? $absoluteTarget : $expectedDelta;
             $projectedTarget = $targetType === 'absolute'
                 ? $absoluteTarget
@@ -209,10 +258,10 @@ trait OperationActionLifecycleConcern
             ? $matches[1]
             : '10:00:00';
         $reviewAt = $reviewBusinessDate . ' ' . $reviewTime;
-        if ($isOperatingQuestion
+        if ($isManagedObservation
             && substr(trim((string)($workflowSchedule['review_at'] ?? '')), 0, 10) !== $reviewBusinessDate
         ) {
-            throw new \InvalidArgumentException('operating-question review date must match the approved workflow schedule');
+            throw new \InvalidArgumentException('managed action review date must match the approved workflow schedule');
         }
         if ($dueAt !== '' && strtotime($dueAt) !== false && strtotime($reviewAt) < strtotime($dueAt)) {
             throw new \InvalidArgumentException('review_business_date cannot be earlier than the execution due date');
@@ -221,13 +270,20 @@ trait OperationActionLifecycleConcern
         $targetValue['review_at'] = $reviewAt;
         $targetValue['workflow_schedule'] = $workflowSchedule;
 
-        $metricDefinition = $this->savedOtaDiagnosisMetricDefinition($sourceMetric, $intentPlatform);
+        $metricDefinition = $this->savedOtaDiagnosisMetricDefinition(
+            $sourceMetric,
+            $intentPlatform,
+            $approvalSourceModule
+        );
         $metricDefinitionDigest = $this->savedOtaDiagnosisMetricDefinitionDigest(
             $sourceMetric,
             $metricDefinition
         );
+        $expectedDeltaStatus = $observationOnly ? 'observation_only' : 'manual_confirmed';
         $contract = [
-            'version' => 'ota_execution_approval_target.v1',
+            'version' => $observationOnly
+                ? 'operation_observation_approval_target.v1'
+                : 'ota_execution_approval_target.v1',
             'intent_id' => (int)($intent['id'] ?? 0),
             'tenant_id' => (int)($intent['tenant_id'] ?? 0),
             'hotel_id' => (int)($intent['hotel_id'] ?? 0),
@@ -243,7 +299,9 @@ trait OperationActionLifecycleConcern
             'target_type' => $targetType,
             'target_value' => $absoluteTarget === null ? null : number_format($absoluteTarget, 6, '.', ''),
             'expected_delta' => $expectedDelta === null ? null : number_format($expectedDelta, 6, '.', ''),
-            'expected_delta_status' => 'manual_confirmed',
+            'expected_delta_status' => $expectedDeltaStatus,
+            'approval_mode' => $approvalMode,
+            'ai_review_digest' => $approvalMode === 'ai_independent_review' ? $aiReviewDigest : null,
             'approved_by' => $approvedBy,
             'approved_at' => $approvedAt,
             'diagnosis_recommendation_digest' => (string)($evidence['decision_recommendation_digest'] ?? ''),
@@ -251,7 +309,17 @@ trait OperationActionLifecycleConcern
                 OperatingNetworkService::EXECUTION_SOURCE_MODULE =>
                     'operating_network_replication_and_human_target_frozen_before_task_creation',
                 OperatingQuestionExecutionBridgeService::SOURCE_MODULE =>
-                    'operating_question_fact_reread_and_human_target_frozen_before_task_creation',
+                    $approvalMode === 'ai_independent_review'
+                        ? ($observationOnly
+                            ? 'operating_question_fact_reread_and_independent_ai_observation_frozen_before_task_creation'
+                            : 'operating_question_fact_reread_and_independent_ai_target_frozen_before_task_creation')
+                        : ($observationOnly
+                            ? 'operating_question_fact_reread_and_human_observation_frozen_before_task_creation'
+                            : 'operating_question_fact_reread_and_human_target_frozen_before_task_creation'),
+                RevenueCockpitActionContract::SOURCE_MODULE =>
+                    'revenue_cockpit_fact_reread_and_human_observation_frozen_before_task_creation',
+                OperatingOpportunityLabService::DAILY_SOURCE_MODULE =>
+                    'daily_one_thing_fact_snapshot_and_human_observation_frozen_before_task_creation',
                 default => 'saved_diagnosis_metric_and_human_target_frozen_before_task_creation',
             },
         ];
@@ -259,7 +327,7 @@ trait OperationActionLifecycleConcern
 
         $targetValue['expected_direction'] = $direction;
         $targetValue['target_type'] = $targetType;
-        $targetValue['expected_delta_status'] = 'manual_confirmed';
+        $targetValue['expected_delta_status'] = $expectedDeltaStatus;
         $targetValue['review_business_date'] = $reviewBusinessDate;
         $targetValue['metric_definition'] = $metricDefinition;
         $targetValue['metric_definition_digest'] = $metricDefinitionDigest;
@@ -267,13 +335,13 @@ trait OperationActionLifecycleConcern
         unset($targetValue['expected_target'], $targetValue['expected_delta'], $targetValue['target'], $targetValue['value']);
         if ($targetType === 'absolute') {
             $targetValue['expected_target'] = $absoluteTarget;
-        } else {
+        } elseif ($targetType === 'delta') {
             $targetValue['expected_delta'] = $expectedDelta;
         }
 
         $evidence['expected_direction'] = $direction;
         $evidence['target_type'] = $targetType;
-        $evidence['expected_delta_status'] = 'manual_confirmed';
+        $evidence['expected_delta_status'] = $expectedDeltaStatus;
         $evidence['target_value'] = $absoluteTarget;
         $evidence['expected_delta'] = $expectedDelta;
         $evidence['review_business_date'] = $reviewBusinessDate;

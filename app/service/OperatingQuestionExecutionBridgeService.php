@@ -274,6 +274,19 @@ final class OperatingQuestionExecutionBridgeService
         ];
     }
 
+    /**
+     * Read-only eligibility adapter for the daily-one-thing selector.
+     * It reuses the exact same source, scope, model, digest and evidence gates
+     * as intent creation, but never creates, approves or executes anything.
+     *
+     * @param array<string,mixed> $question
+     * @return array<string,mixed>
+     */
+    public function eligibleActionForDailyOneThing(array $question, int $actionIndex = 0): array
+    {
+        return $this->eligibleAction($question, $actionIndex);
+    }
+
     /** @param array<string,mixed> $intent @return array<string,mixed> */
     public function assertIntentCurrent(array $intent): array
     {

@@ -16,6 +16,13 @@ export function readAppMainContractSource() {
   ].join('\n');
 }
 
+export function readOperationLifecycleContractSource() {
+  return [
+    readAppMainContractSource(),
+    read('public/operation-static.js'),
+  ].join('\n');
+}
+
 export function readFrontendContractSource() {
   return [
     read('public/index.html'),

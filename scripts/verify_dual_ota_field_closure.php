@@ -28,6 +28,14 @@ try {
     ) {
         throw new RuntimeException('dual_ota_field_closure_refresh_identity_mismatch');
     }
+    if ((string)($first['consumer_contract']['contract_version'] ?? '')
+            !== 'trusted_ota_daily_fact_consumer.v1'
+        || (string)($first['consumer_contract']['closure_identity'] ?? '')
+            !== (string)($first['page_identity'] ?? '')
+        || ($first['consumer_contract']['metric_values_duplicated'] ?? true) !== false
+    ) {
+        throw new RuntimeException('dual_ota_field_closure_consumer_contract_mismatch');
+    }
     foreach (['ctrip', 'meituan'] as $platform) {
         $fields = $first['platforms'][$platform]['fields'] ?? null;
         if (!is_array($fields) || count($fields) !== 13) {
@@ -39,17 +47,34 @@ try {
             }
             $status = (string)($field['status'] ?? '');
             if (!in_array($status, [
-                'strict_readback', 'verified_calculation', 'missing',
-                'platform_not_provided', 'collection_failed', 'login_expired',
-                'date_mismatch', 'caliber_uncertain',
+                'strict_readback', 'verified_calculation',
+                'source_missing', 'field_unavailable', 'readback_failed',
+                'caliber_uncertain',
             ], true)) {
                 throw new RuntimeException('dual_ota_field_closure_status_invalid:' . $platform);
             }
             if (in_array($status, [
-                'missing', 'platform_not_provided', 'collection_failed',
-                'login_expired', 'date_mismatch', 'caliber_uncertain',
+                'source_missing', 'field_unavailable', 'readback_failed',
+                'caliber_uncertain',
             ], true) && ($field['value'] ?? null) !== null) {
                 throw new RuntimeException('dual_ota_field_closure_unknown_value_not_null:' . $platform);
+            }
+            foreach ([
+                'metric_key', 'tenant_id', 'system_hotel_id', 'platform',
+                'platform_store_id', 'store_profile_status', 'data_source_id',
+                'business_date', 'capture_id', 'source_method', 'endpoint_ids', 'source_paths',
+                'unit', 'validation_status',
+                'persistence_status', 'readback_status',
+            ] as $requiredIdentityKey) {
+                if (!array_key_exists($requiredIdentityKey, $field)) {
+                    throw new RuntimeException(
+                        'dual_ota_field_closure_identity_missing:'
+                        . $platform . ':' . $requiredIdentityKey
+                    );
+                }
+            }
+            if (($field['sensitive_values_exposed'] ?? true) !== false) {
+                throw new RuntimeException('dual_ota_field_closure_sensitive_identity_exposed:' . $platform);
             }
         }
     }

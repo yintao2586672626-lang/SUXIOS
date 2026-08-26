@@ -20,6 +20,7 @@ final class ManualNotificationScheduleService
     public const MODE_FORMAL = 'formal';
     private const TIMEZONE = 'Asia/Shanghai';
     private const DUE_GRACE_SECONDS = 300;
+    private const CANDIDATE_SCAN_BATCH_SIZE = 200;
 
     /** @var callable|null */
     private $sender;
@@ -191,79 +192,143 @@ final class ManualNotificationScheduleService
             if ($scopeRobotId > 0) {
                 $query->where('test_robot_id', $scopeRobotId);
             }
-            $rows = $query->select()->toArray();
-
             $results = [];
+            $candidateCount = 0;
             $dueCount = 0;
             $newWorkCount = 0;
             $sentCount = 0;
             $failedCount = 0;
             $blockedCount = 0;
-            foreach ($rows as $row) {
-                $window = $this->scheduleRules()->dueWindow(
-                    $row,
-                    $now,
-                    self::DUE_GRACE_SECONDS
-                );
-                if ($window === null) {
+            $scopeGroups = [];
+            $afterId = 0;
+            $workLimitReached = false;
+            while (true) {
+                $rows = (clone $query)
+                    ->where('id', '>', $afterId)
+                    ->limit(self::CANDIDATE_SCAN_BATCH_SIZE)
+                    ->select()
+                    ->toArray();
+                if ($rows === []) {
+                    break;
+                }
+                $afterId = max(array_map(
+                    static fn(array $row): int => (int)($row['id'] ?? 0),
+                    $rows
+                ));
+                $scopeKeys = [];
+                foreach ($rows as $index => $row) {
+                    $candidateCount++;
+                    $scopeKeys[$index] = $this->observeCandidateScope(
+                        $scopeGroups,
+                        $row
+                    );
+                }
+                if ($workLimitReached) {
                     continue;
                 }
-                $result = $this->operatingDailyLoopBlock(
-                    $row,
-                    $window,
-                    $now,
-                    $mode,
-                    $runId
-                );
-                if ($result === null && $dispatch) {
-                    $existingDispatch = $this->dispatchLedger()->existingDispatch(
-                        (int)($row['id'] ?? 0),
-                        $window,
-                        $mode
+
+                $dueRows = [];
+                $dispatchSlots = [];
+                foreach ($rows as $index => $row) {
+                    $window = $this->scheduleRules()->dueWindow(
+                        $row,
+                        $now,
+                        self::DUE_GRACE_SECONDS
                     );
-                    if ($existingDispatch !== null
-                        && !$this->preparationReservationRetryDue(
-                            $existingDispatch,
-                            $now
-                        )
-                    ) {
-                        $result = $this->existingDispatchResult(
-                            $this->dueResultBase(
-                                $row,
-                                $window,
-                                $now,
-                                $mode,
-                                $runId
-                            ),
-                            $existingDispatch
-                        );
+                    if ($window === null) {
+                        continue;
                     }
-                }
-                if ($result === null) {
-                    if ($newWorkCount >= $limit) {
-                        break;
-                    }
-                    $newWorkCount++;
-                    $result = $this->processDueRecord(
+                    $result = $this->operatingDailyLoopBlock(
                         $row,
                         $window,
                         $now,
-                        $dispatch,
                         $mode,
-                        $scopeRobotId,
                         $runId
                     );
+                    $dueRows[] = [
+                        'row' => $row,
+                        'window' => $window,
+                        'result' => $result,
+                        'scope_key' => $scopeKeys[$index] ?? null,
+                    ];
+                    if ($dispatch && $result === null) {
+                        $dispatchSlots[] = [
+                            'notification_id' => (int)($row['id'] ?? 0),
+                            'dispatch_window' => $window,
+                        ];
+                    }
                 }
-                $dueCount++;
-                $status = (string)($result['status'] ?? '');
-                if ($status === 'sent') {
-                    $sentCount++;
-                } elseif (in_array($status, ['failed', 'outcome_unknown'], true)) {
-                    $failedCount++;
-                } elseif ($status === 'blocked') {
-                    $blockedCount++;
+                $existingDispatches = $dispatch && $dispatchSlots !== []
+                    ? $this->dispatchLedger()->existingDispatches(
+                        $dispatchSlots,
+                        $mode
+                    )
+                    : [];
+
+                foreach ($dueRows as $dueRow) {
+                    $row = $dueRow['row'];
+                    $window = (string)$dueRow['window'];
+                    $result = $dueRow['result'];
+                    if ($result === null && $dispatch) {
+                        $existingDispatch = $existingDispatches[
+                            $this->dispatchSlotKey(
+                                (int)($row['id'] ?? 0),
+                                $window
+                            )
+                        ] ?? null;
+                        if ($existingDispatch !== null
+                            && !$this->preparationReservationRetryDue(
+                                $existingDispatch,
+                                $now
+                            )
+                        ) {
+                            $result = $this->existingDispatchResult(
+                                $this->dueResultBase(
+                                    $row,
+                                    $window,
+                                    $now,
+                                    $mode,
+                                    $runId
+                                ),
+                                $existingDispatch
+                            );
+                        }
+                    }
+                    if ($result === null) {
+                        if ($newWorkCount >= $limit) {
+                            $workLimitReached = true;
+                            break;
+                        }
+                        $newWorkCount++;
+                        $result = $this->processDueRecord(
+                            $row,
+                            $window,
+                            $now,
+                            $dispatch,
+                            $mode,
+                            $scopeRobotId,
+                            $runId
+                        );
+                    }
+                    $dueCount++;
+                    $status = (string)($result['status'] ?? '');
+                    if ($status === 'sent') {
+                        $sentCount++;
+                    } elseif (in_array($status, ['failed', 'outcome_unknown'], true)) {
+                        $failedCount++;
+                    } elseif ($status === 'blocked') {
+                        $blockedCount++;
+                    }
+                    $results[] = $result;
+                    $this->observeResultScope(
+                        $scopeGroups,
+                        is_string($dueRow['scope_key'] ?? null)
+                            ? $dueRow['scope_key']
+                            : null,
+                        $result,
+                        $dispatch
+                    );
                 }
-                $results[] = $result;
             }
 
             $runStatus = $failedCount > 0 || $recoveredUnknownCount > 0
@@ -279,7 +344,7 @@ final class ManualNotificationScheduleService
                 'dispatch_requested' => $dispatch,
                 'timezone' => self::TIMEZONE,
                 'observed_at' => $now->format('Y-m-d H:i:s'),
-                'candidate_count' => count($rows),
+                'candidate_count' => $candidateCount,
                 'due_count' => $dueCount,
                 'sent_count' => $sentCount,
                 'failed_count' => $failedCount,
@@ -288,7 +353,7 @@ final class ManualNotificationScheduleService
                 'schedule_run_id' => $runId,
                 'results' => $results,
             ];
-            $this->recordScopeObservations($runId, $rows, $results, $mode, $dispatch, $now);
+            $this->recordScopeObservations($runId, $scopeGroups, $mode, $dispatch, $now);
             $this->finishRun($runId, $runStatus, $summary, $now);
             return $summary;
         } catch (\Throwable $exception) {
@@ -2157,13 +2222,11 @@ final class ManualNotificationScheduleService
      * the many timer minutes where no notification is due. Dispatch rows remain
      * immutable delivery provenance and are not reused as health heartbeats.
      *
-     * @param array<int, array<string,mixed>> $rows
-     * @param array<int, array<string,mixed>> $results
+     * @param array<string,array<string,int>> $groups
      */
     private function recordScopeObservations(
         ?int $runId,
-        array $rows,
-        array $results,
+        array $groups,
         string $mode,
         bool $dispatch,
         DateTimeImmutable $now
@@ -2173,52 +2236,6 @@ final class ManualNotificationScheduleService
             || !$this->tableExists('manual_notification_schedule_run_scopes')
         ) {
             return;
-        }
-
-        $groups = [];
-        $notificationScopes = [];
-        foreach ($rows as $row) {
-            $tenantId = (int)($row['tenant_id'] ?? 0);
-            $hotelId = (int)($row['hotel_id'] ?? 0);
-            $robotId = (int)($row['test_robot_id'] ?? 0);
-            $notificationId = (int)($row['id'] ?? 0);
-            if ($tenantId <= 0 || $hotelId <= 0 || $robotId <= 0 || $notificationId <= 0) {
-                continue;
-            }
-            $key = $tenantId . ':' . $hotelId . ':' . $robotId;
-            $notificationScopes[$notificationId] = $key;
-            if (!isset($groups[$key])) {
-                $groups[$key] = [
-                    'tenant_id' => $tenantId,
-                    'hotel_id' => $hotelId,
-                    'robot_id' => $robotId,
-                    'candidate_count' => 0,
-                    'due_count' => 0,
-                    'sent_count' => 0,
-                    'failed_count' => 0,
-                    'blocked_count' => 0,
-                ];
-            }
-            $groups[$key]['candidate_count']++;
-        }
-
-        foreach ($results as $result) {
-            $notificationId = (int)($result['notification_id'] ?? 0);
-            $key = $notificationScopes[$notificationId] ?? null;
-            if (!is_string($key) || !isset($groups[$key])) {
-                continue;
-            }
-            $groups[$key]['due_count']++;
-            $status = strtolower(trim((string)($result['status'] ?? '')));
-            if ($status === 'sent') {
-                $groups[$key]['sent_count']++;
-            } elseif (in_array($status, ['failed', 'outcome_unknown'], true)) {
-                $groups[$key]['failed_count']++;
-            } elseif ($status === 'blocked') {
-                $groups[$key]['blocked_count']++;
-            } elseif ($dispatch && !in_array($status, ['preview', 'skipped'], true)) {
-                $groups[$key]['failed_count']++;
-            }
         }
 
         $timestamp = $now->format('Y-m-d H:i:s');
@@ -2248,6 +2265,61 @@ final class ManualNotificationScheduleService
         if ($values !== []) {
             Db::name('manual_notification_schedule_run_scopes')->insertAll($values);
         }
+    }
+
+    /** @param array<string,array<string,int>> $groups */
+    private function observeCandidateScope(array &$groups, array $row): ?string
+    {
+        $tenantId = (int)($row['tenant_id'] ?? 0);
+        $hotelId = (int)($row['hotel_id'] ?? 0);
+        $robotId = (int)($row['test_robot_id'] ?? 0);
+        $notificationId = (int)($row['id'] ?? 0);
+        if ($tenantId <= 0 || $hotelId <= 0 || $robotId <= 0 || $notificationId <= 0) {
+            return null;
+        }
+        $key = $tenantId . ':' . $hotelId . ':' . $robotId;
+        if (!isset($groups[$key])) {
+            $groups[$key] = [
+                'tenant_id' => $tenantId,
+                'hotel_id' => $hotelId,
+                'robot_id' => $robotId,
+                'candidate_count' => 0,
+                'due_count' => 0,
+                'sent_count' => 0,
+                'failed_count' => 0,
+                'blocked_count' => 0,
+            ];
+        }
+        $groups[$key]['candidate_count']++;
+        return $key;
+    }
+
+    /** @param array<string,array<string,int>> $groups */
+    private function observeResultScope(
+        array &$groups,
+        ?string $key,
+        array $result,
+        bool $dispatch
+    ): void {
+        if ($key === null || !isset($groups[$key])) {
+            return;
+        }
+        $groups[$key]['due_count']++;
+        $status = strtolower(trim((string)($result['status'] ?? '')));
+        if ($status === 'sent') {
+            $groups[$key]['sent_count']++;
+        } elseif (in_array($status, ['failed', 'outcome_unknown'], true)) {
+            $groups[$key]['failed_count']++;
+        } elseif ($status === 'blocked') {
+            $groups[$key]['blocked_count']++;
+        } elseif ($dispatch && !in_array($status, ['preview', 'skipped'], true)) {
+            $groups[$key]['failed_count']++;
+        }
+    }
+
+    private function dispatchSlotKey(int $notificationId, string $window): string
+    {
+        return $notificationId . '|' . $window;
     }
 
     private function targetPayloads(): OperatingTargetNotificationPayloadService

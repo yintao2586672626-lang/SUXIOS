@@ -252,7 +252,7 @@
                                 <span class="platform-hotel-context-select-wrap">
                                     <span v-if="(platformHotelContext === 'meituan' ? meituanConfigListLoading : ctripConfigListLoading) || platformHotelOptions.length" class="platform-hotel-context-search-wrap">
                                         <i class="fas fa-search platform-hotel-context-search-icon" aria-hidden="true"></i>
-                                        <input type="text" data-testid="platform-hotel-context-search" class="platform-hotel-context-search" role="combobox" autocomplete="off" placeholder="搜索名称、城市或ID" aria-label="搜索并选择当前平台酒店" aria-controls="platform-hotel-context-options" :aria-expanded="platformHotelPickerOpen ? 'true' : 'false'" :value="platformHotelPickerOpen ? platformHotelSearchKeyword : platformHotelSelectedName" :disabled="fetchingData || ctripTrafficBundleLoading || (platformHotelContext === 'meituan' ? fetchingCommentData || meituanConfigListLoading || !platformHotelOptions.length : ctripCommentBrowserCaptureRunning || ctripDiagnosisSnapshotLoading || !!ctripReviewMatchLoading || ctripConfigListLoading || !ctripTargetHotelOptions.length)" @focus="openPlatformHotelPicker" @input="platformHotelSearchKeyword = $event.target.value; platformHotelPickerOpen = true" @keydown.esc.prevent="clearPlatformHotelSearch" @blur="clearPlatformHotelSearch">
+                                        <input type="text" data-testid="platform-hotel-context-search" class="platform-hotel-context-search" role="combobox" autocomplete="off" placeholder="搜索名称、城市或ID" aria-label="搜索并选择当前平台酒店" aria-controls="platform-hotel-context-options" :aria-expanded="platformHotelPickerOpen ? 'true' : 'false'" :value="platformHotelPickerOpen ? platformHotelSearchKeyword : platformHotelSelectedName" :disabled="fetchingData || ctripTrafficBundleLoading || (platformHotelContext === 'meituan' ? fetchingCommentData || meituanConfigListLoading : ctripCommentBrowserCaptureRunning || ctripDiagnosisSnapshotLoading || !!ctripReviewMatchLoading || ctripConfigListLoading) || !platformHotelOptions.length" @focus="openPlatformHotelPicker" @input="platformHotelSearchKeyword = $event.target.value; platformHotelPickerOpen = true" @keydown.esc.prevent="clearPlatformHotelSearch" @blur="clearPlatformHotelSearch">
                                         <i class="fas fa-chevron-down platform-hotel-context-chevron" aria-hidden="true"></i>
                                         <span v-if="platformHotelPickerOpen" id="platform-hotel-context-options" class="platform-hotel-context-options" role="listbox">
                                             <button v-for="hotel in filteredPlatformHotelOptions" :key="hotel.id" type="button" role="option" :aria-selected="String(hotel.id) === platformHotelSelectedId ? 'true' : 'false'" :class="['platform-hotel-context-option', String(hotel.id) === platformHotelSelectedId ? 'is-selected' : '']" @mousedown.prevent="selectPlatformHotelOption(hotel)">{{ hotel.name }} · ID {{ hotel.id }}</button>
@@ -4347,6 +4347,7 @@
                                 </div>
                             </template>
                         </section>
+                        <ai-daily-trusted-broadcast-view :ctx="$root"></ai-daily-trusted-broadcast-view>
                         <div class="bg-white rounded-xl border border-gray-100 p-5 shadow-sm">
                             <div class="flex flex-col xl:flex-row xl:items-start xl:justify-between gap-4 mb-4">
                                 <div>
@@ -4751,7 +4752,7 @@
                                         <tr v-for="item in operationExecutionFilteredItems" :key="item.id" :data-operation-execution-intent-id="item.id" :class="operationExecutionRowClass(item)">
                                             <td class="px-4 py-3">
                                                 <div class="font-medium text-gray-900">{{ operationExecutionSourceText(item) }}</div>
-                                                <div class="text-xs text-gray-400">任务 #{{ item.id }} · {{ item.recommendation?.platform || '-' }} · {{ item.recommendation?.date_start || '-' }}</div>
+                                                <div class="text-xs text-gray-400">行动 #{{ item.id }} · 任务 #{{ item.execution?.task_id || '尚未创建' }} · {{ item.recommendation?.platform || '-' }} · {{ item.recommendation?.date_start || '-' }}</div>
                                                 <span v-if="item.action_management" :class="operationExecutionStatusClass(item.action_management.lifecycle?.status)" class="mt-1 inline-flex rounded-full px-2 py-0.5 text-[11px] font-medium">{{ operationExecutionStatusLabel(item.action_management.lifecycle?.status) }}</span>
                                             </td>
                                             <td class="px-4 py-3">
@@ -5810,9 +5811,12 @@
                         <operating-opportunity-lab
                             :hotels="hotels"
                             :request="managerCapabilityRequest"
+                            :selected-hotel-id="filterReportHotel"
+                            :open-task="openHomeOperatingScheduleItem"
+                            @update:selected-hotel-id="filterReportHotel = String($event || '')"
+                            @open-operations="openHomeOperatingScheduleItem"
                         ></operating-opportunity-lab>
                     </div>
-
                     <div v-if="currentPage === 'knowledge-center'" class="max-w-6xl mx-auto space-y-4">
                         <div class="bg-white rounded-xl p-5 shadow-sm border border-gray-100">
                             <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
@@ -6433,8 +6437,9 @@
                                             :show-controls="true"
                                             :hotel-options="compassHotelOptions"
                                             :selected-hotel-id="filterReportHotel"
-                                            :refreshing="compassLoading || revenueAiOverviewLoading"
+                                            :refreshing="compassLoading || homeRevenueFactLayerLoading"
                                             @update:selected-hotel-id="filterReportHotel = $event"
+                                            @update:selected-business-date="homeRevenueFactBusinessDate = $event"
                                             @refresh="refreshCompassDashboard">
                                         </home-yesterday-operating-facts>
 
@@ -7034,6 +7039,9 @@
                                             <div>
                                                 <div class="text-sm font-semibold text-slate-900">只读经营信号</div>
                                                 <div class="mt-1 text-xs text-slate-500">未具备数据时显示缺口原因，不生成预测或假建议。</div>
+                                                <div class="mt-1 text-xs text-slate-500" data-testid="revenue-ai-overview-as-of-date">
+                                                    数据基准日：{{ revenueAiOverviewAsOfDate.ok ? revenueAiOverviewAsOfDate.asOfDate : '未取得' }} · {{ revenueAiOverviewAsOfDate.ok ? revenueAiOverviewAsOfDate.contractVersion : revenueAiOverviewAsOfDate.message }}
+                                                </div>
                                             </div>
                                             <span :class="['rounded-full border px-2 py-0.5 text-xs whitespace-nowrap', revenueAiOverviewLoading ? revenueAiStatusClass('unknown') : revenueAiStatusClass(revenueAiOverview?.data_status || 'unknown')]">{{ revenueAiOverviewLoading ? '加载中' : revenueAiStatusLabel(revenueAiOverview?.data_status || 'unknown') }}</span>
                                         </div>
@@ -12751,13 +12759,13 @@
                                                 <div class="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
                                                     <div class="max-w-3xl">
                                                         <div class="flex flex-wrap items-center gap-2">
-                                                            <span class="rounded-full border px-2.5 py-1 text-[11px] font-semibold tracking-wide" style="border-color:rgba(215,181,109,.4);background:rgba(215,181,109,.1);color:#f0d99f">DAILY REVENUE COCKPIT</span>
                                                             <span :class="['rounded-full border px-2.5 py-1 text-[11px] font-semibold', revenueCockpitModel.statusClass]">{{ revenueCockpitModel.statusLabel }}</span>
                                                         </div>
                                                         <h2 class="mt-3 text-xl font-bold tracking-tight lg:text-2xl">{{ revenueCockpitModel.headline }}</h2>
                                                         <p class="mt-2 text-sm leading-6" style="color:rgba(236,253,245,.8)">{{ revenueCockpitModel.summary }}</p>
                                                         <div class="mt-3 rounded-lg border px-3 py-2 text-sm leading-6" style="border-color:rgba(215,181,109,.25);background:rgba(0,0,0,.1);color:#f5e7c5" data-testid="revenue-cockpit-date-difference">
                                                             <i class="fas fa-calendar-check mr-2"></i>{{ revenueCockpitModel.dateNotice || '正在确定最近严格可用日期…' }}
+                                                            <div class="mt-1 text-xs" data-testid="revenue-cockpit-as-of-date">数据基准日：{{ revenueCockpitModel.asOfDate || '未取得' }} · {{ revenueCockpitModel.asOfDateContractVersion || '合同未取得' }}</div>
                                                         </div>
                                                         <p class="mt-3 text-xs leading-5" style="color:rgba(236,253,245,.65)">{{ revenueCockpitModel.scopeBoundary }}</p>
                                                         <revenue-cockpit-snapshot-status
@@ -12768,13 +12776,13 @@
                                                     </div>
                                                     <div class="flex flex-wrap gap-2">
                                                         <button type="button" @click="loadRevenueCockpit({ reloadScope: true, ignoreSavedSnapshot: true })" :disabled="revenueCockpitLoading" class="rounded-lg border px-3.5 py-2 text-sm font-medium text-white hover:opacity-90 disabled:cursor-wait disabled:opacity-50" style="border-color:rgba(255,255,255,.2);background:rgba(255,255,255,.1)" data-testid="revenue-cockpit-refresh">
-                                                            <i :class="revenueCockpitLoading ? 'fas fa-spinner fa-spin' : 'fas fa-sync-alt'" class="mr-2"></i>{{ revenueCockpitLoading ? '读取中…' : '刷新事实' }}
+                                                            {{ revenueCockpitLoading ? '读取中…' : '刷新事实' }}
                                                         </button>
                                                         <button type="button" @click="saveRevenueCockpitDecisionSnapshot" :disabled="revenueCockpitSnapshotSaving || !revenueCockpitModel.canSaveSnapshot" class="rounded-lg border px-3.5 py-2 text-sm font-medium hover:opacity-90 disabled:opacity-40" style="border-color:rgba(167,243,208,.35);background:rgba(16,185,129,.12);color:#d1fae5" data-testid="revenue-cockpit-save-snapshot">
-                                                            <i :class="revenueCockpitSnapshotSaving ? 'fas fa-spinner fa-spin' : 'fas fa-save'" class="mr-2"></i>{{ revenueCockpitSnapshotSaving ? '保存并回读中…' : '保存决策快照' }}
+                                                            {{ revenueCockpitSnapshotSaving ? '保存并回读中…' : '保存决策快照' }}
                                                         </button>
                                                         <button type="button" @click="downloadRevenueCockpit" :disabled="!revenueCockpitModel.visibleSections?.length" class="rounded-lg border px-3.5 py-2 text-sm font-medium hover:opacity-90 disabled:opacity-40" style="border-color:rgba(215,181,109,.45);background:rgba(215,181,109,.15);color:#f7e6bd" data-testid="revenue-cockpit-download">
-                                                            <i class="fas fa-download mr-2"></i>按当前页面下载
+                                                            按当前页面下载
                                                         </button>
                                                     </div>
                                                 </div>
@@ -18259,37 +18267,6 @@
                                     </div>
                                 </div>
 
-                                <!-- 自定义请求 -->
-                                <div v-if="onlineDataTab === 'custom'">
-                                    <div class="mb-4">
-                                        <label class="block text-sm font-medium text-gray-700 mb-1">请求URL</label>
-                                        <input v-model="customForm.url" type="text" class="w-full px-3 py-2 border rounded-lg" placeholder="https://api.example.com/data">
-                                    </div>
-                                    <div class="grid grid-cols-4 gap-4 mb-4">
-                                        <div>
-                                            <label class="block text-sm font-medium text-gray-700 mb-1">请求方法</label>
-                                            <select v-model="customForm.method" class="w-full px-3 py-2 border rounded-lg">
-                                                <option value="GET">GET</option>
-                                                <option value="POST">POST</option>
-                                            </select>
-                                        </div>
-                                    </div>
-                                    <div class="mb-4">
-                                        <label class="block text-sm font-medium text-gray-700 mb-1">请求头 (每行一个)</label>
-                                        <textarea v-model="customForm.headers" rows="4" class="w-full px-3 py-2 border rounded-lg font-mono text-sm" placeholder="Content-Type: application/json
-Authorization: Bearer xxx"></textarea>
-                                    </div>
-                                    <div class="mb-4" v-if="customForm.method === 'POST'">
-                                        <label class="block text-sm font-medium text-gray-700 mb-1">请求体</label>
-                                        <textarea v-model="customForm.body" rows="4" class="w-full px-3 py-2 border rounded-lg font-mono text-sm" placeholder="{&quot;key&quot;: &quot;value&quot;}"></textarea>
-                                    </div>
-                                    <div class="flex gap-3">
-                                        <button @click="fetchCustomData" :disabled="fetchingData" class="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:bg-gray-400">
-                                            <i class="fas fa-paper-plane mr-2"></i>{{ fetchingData ? '请求中...' : '发送请求' }}
-                                        </button>
-                                    </div>
-                                </div>
-
                                 <!-- 平台自动获取 -->
                                 <div v-if="onlineDataTab === 'platform-auto'">
                                     <!-- 平台数据自动获取控制台 -->
@@ -19346,8 +19323,8 @@ Authorization: Bearer xxx"></textarea>
                             <i class="fas fa-hotel text-white"></i>
                         </div>
                         <div>
-                            <h3 class="text-lg font-semibold text-gray-800">{{ hotelForm.id ? '编辑门店' : '新增门店' }}</h3>
-                            <p class="text-xs text-gray-500">{{ hotelForm.id ? '修改门店资料与平台范围' : '编号自动生成，创建后默认营业' }}</p>
+                            <h3 class="text-lg font-semibold text-gray-800">{{ hotelOnboardingActive ? '新增门店接入' : '编辑门店' }}</h3>
+                            <p class="text-xs text-gray-500">{{ hotelOnboardingActive ? '创建后继续完成三源身份与云端登录' : '修改门店资料与平台范围' }}</p>
                         </div>
                     </div>
                     <button @click="showHotelModal = false" class="text-gray-400 hover:text-gray-600 w-8 h-8 flex items-center justify-center rounded-lg hover:bg-gray-100 transition-colors">
@@ -19355,8 +19332,10 @@ Authorization: Bearer xxx"></textarea>
                     </button>
                 </div>
 
+                <component v-if="hotelOnboardingActive" :is="hotelThreeSourceOnboardingPanel"></component>
+
                 <!-- 表单 -->
-                <form @submit.prevent="saveHotel" class="p-4 sm:p-6 overflow-y-auto">
+                <form v-else @submit.prevent="saveHotel" class="p-4 sm:p-6 overflow-y-auto">
                     <!-- 基本信息 -->
                     <div class="space-y-4">
                         <div>

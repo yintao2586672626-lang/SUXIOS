@@ -5,6 +5,9 @@ window.SUXI_DUAL_OTA_FIELD_CLOSURE = (() => {
     const statusText = status => ({
         strict_readback: '已严格回读',
         verified_calculation: '已验证计算',
+        source_missing: '来源缺失',
+        field_unavailable: '字段未取得',
+        readback_failed: '回读未闭合',
         missing: '缺失',
         platform_not_provided: '平台未提供',
         collection_failed: '采集失败',
@@ -18,9 +21,10 @@ window.SUXI_DUAL_OTA_FIELD_CLOSURE = (() => {
         if (value === 'strict_readback') return 'border-emerald-200 bg-emerald-50 text-emerald-800';
         if (value === 'verified_calculation') return 'border-blue-200 bg-blue-50 text-blue-800';
         if (value === 'caliber_uncertain') return 'border-amber-200 bg-amber-50 text-amber-900';
-        if (['collection_failed', 'login_expired', 'date_mismatch'].includes(value)) {
+        if (['readback_failed', 'collection_failed', 'login_expired', 'date_mismatch'].includes(value)) {
             return 'border-rose-200 bg-rose-50 text-rose-800';
         }
+        if (value === 'source_missing') return 'border-orange-200 bg-orange-50 text-orange-800';
         return 'border-slate-200 bg-slate-50 text-slate-700';
     };
 
@@ -90,6 +94,12 @@ window.SUXI_DUAL_OTA_FIELD_CLOSURE = (() => {
         return refs.length ? refs.join('、') : '无正式记录';
     };
 
+    const fieldNoteText = field => {
+        const note = String(field?.note || '').trim();
+        const marker = note.indexOf('下一步：');
+        return (marker >= 0 ? note.slice(0, marker) : note).trim();
+    };
+
     const normalizeRecordRefs = values => Array.isArray(values)
         ? [...new Set(values.map(value => {
             const normalized = String(value ?? '').trim();
@@ -111,6 +121,90 @@ window.SUXI_DUAL_OTA_FIELD_CLOSURE = (() => {
     const platformRows = closure => ['ctrip', 'meituan']
         .map(platform => closure?.platforms?.[platform])
         .filter(row => row && typeof row === 'object');
+
+    const buildVisibleRows = closure => {
+        let order = 0;
+        return platformRows(closure).flatMap(platform => (
+            (Array.isArray(platform.fields) ? platform.fields : []).map(field => {
+                order += 1;
+                return {
+                    order,
+                    platform: String(platform.platform || ''),
+                    platform_label: String(platform.platform_label || platform.platform || ''),
+                    field_key: String(field?.metric_key || field?.key || ''),
+                    field_label: String(field?.label || field?.key || ''),
+                    display: valueText(field),
+                    unit: String(field?.unit || ''),
+                    status: String(field?.status || 'source_missing'),
+                    status_label: statusText(field?.status),
+                    formal_saved: field?.formal_saved === true ? 'true' : 'false',
+                    readback_status: String(field?.readback_status || 'not_attempted'),
+                    validation_status: String(field?.validation_status || field?.status || 'source_missing'),
+                    source_record_refs: (Array.isArray(field?.source_record_refs)
+                        ? field.source_record_refs
+                        : []).join('、'),
+                    data_source_ids: (Array.isArray(field?.data_source_ids)
+                        ? field.data_source_ids
+                        : []).join('、'),
+                    capture_ref: String(field?.capture_ref || ''),
+                    endpoint_ids: (Array.isArray(field?.endpoint_ids) ? field.endpoint_ids : []).join('、'),
+                    source_paths: (Array.isArray(field?.source_paths) ? field.source_paths : []).join('、'),
+                    metric_key: String(field?.metric_key || field?.key || ''),
+                    business_date: String(field?.business_date || closure?.business_date || ''),
+                    next_action: String(field?.next_action || ''),
+                    field,
+                };
+            })
+        ));
+    };
+
+    const closureCsvCell = value => `"${String(value ?? '').replace(/"/g, '""')}"`;
+
+    const buildClosureDownloadRows = closure => buildVisibleRows(closure).map(({ field, ...row }) => row);
+
+    const buildClosureCsv = closure => {
+        const headers = [
+            ['order', '顺序'],
+            ['platform_label', '平台'],
+            ['field_label', '字段'],
+            ['field_key', '字段键'],
+            ['display', '页面显示'],
+            ['unit', '单位'],
+            ['status_label', '闭环状态'],
+            ['validation_status', '验证状态'],
+            ['formal_saved', '是否正式保存'],
+            ['readback_status', '回读状态'],
+            ['source_record_refs', '正式记录'],
+            ['data_source_ids', '数据源ID'],
+            ['capture_ref', '采集批次'],
+            ['endpoint_ids', '端点'],
+            ['source_paths', '字段路径'],
+            ['metric_key', '指标键'],
+            ['business_date', '业务日期'],
+            ['next_action', '下一步'],
+        ];
+        const rows = buildClosureDownloadRows(closure);
+        return `\uFEFF${[
+            headers.map(([, label]) => closureCsvCell(label)).join(','),
+            ...rows.map(row => headers.map(([key]) => closureCsvCell(row[key])).join(',')),
+        ].join('\r\n')}`;
+    };
+
+    const buildClosureDownloadPayload = closure => {
+        const rows = buildClosureDownloadRows(closure);
+        if (!rows.length) {
+            return { ok: false, rows, csv: '', fileName: '', message: '当前没有可见字段可下载' };
+        }
+        const hotelId = Number(closure?.hotel_id || 0);
+        const businessDate = String(closure?.business_date || '').trim() || 'unknown-date';
+        return {
+            ok: true,
+            rows,
+            csv: buildClosureCsv(closure),
+            fileName: `可信OTA事实底座_Hotel${hotelId || 'unknown'}_${businessDate}.csv`,
+            message: '已按当前可见字段、状态和顺序生成下载',
+        };
+    };
 
     const closureRequestPath = ({ hotelId, businessDate, force = true } = {}) => {
         const normalizedHotelId = Number(hotelId || 0);
@@ -177,12 +271,13 @@ window.SUXI_DUAL_OTA_FIELD_CLOSURE = (() => {
                 closureLoading: false,
                 closureError: '',
                 closureRequestSeq: 0,
+                closureRequestScope: '',
             }),
             computed: {
                 activeClosure() {
                     const expectedHotelId = Number(this.hotelId || this.closure?.hotel_id || 0);
                     const expectedDate = String(this.businessDate || this.closure?.business_date || '').trim();
-                    const candidates = [this.closure, this.fetchedClosure];
+                    const candidates = [this.fetchedClosure, this.closure];
                     return candidates.find(candidate => candidate
                         && typeof candidate === 'object'
                         && Number(candidate.hotel_id || 0) === expectedHotelId
@@ -213,12 +308,14 @@ window.SUXI_DUAL_OTA_FIELD_CLOSURE = (() => {
                         this.fetchedClosure = null;
                         this.closureLoading = false;
                         this.closureError = '';
+                        this.closureRequestScope = '';
                         return this.closure;
                     }
                     if (typeof this.request !== 'function') {
                         this.closureRequestSeq += 1;
                         this.fetchedClosure = null;
                         this.closureLoading = false;
+                        this.closureRequestScope = '';
                         this.closureError = hotelId > 0 && /^\d{4}-\d{2}-\d{2}$/.test(businessDate)
                             ? '字段闭环读取函数未就绪'
                             : '请先确定酒店和营业日';
@@ -231,14 +328,25 @@ window.SUXI_DUAL_OTA_FIELD_CLOSURE = (() => {
                         this.closureRequestSeq += 1;
                         this.fetchedClosure = null;
                         this.closureLoading = false;
+                        this.closureRequestScope = '';
                         this.closureError = '请先确定酒店和营业日';
                         return null;
                     }
+                    const requestScope = `${hotelId}|${businessDate}|${this.forceRead === true ? 'force' : 'normal'}`;
+                    if (this.closureLoading && this.closureRequestScope === requestScope) {
+                        return this.fetchedClosure;
+                    }
                     const requestSeq = ++this.closureRequestSeq;
+                    this.closureRequestScope = requestScope;
                     this.closureLoading = true;
                     this.closureError = '';
                     try {
-                        const response = await this.request(path);
+                        const response = await this.request(path, {
+                            requestPolicy: {
+                                scope: 'session',
+                                priority: 'current',
+                            },
+                        });
                         if (requestSeq !== this.closureRequestSeq) return null;
                         const resolved = resolveClosureResponse(response, { hotelId, businessDate });
                         if (!resolved.ok) {
@@ -254,12 +362,32 @@ window.SUXI_DUAL_OTA_FIELD_CLOSURE = (() => {
                         this.closureError = error?.message || '字段闭环读取失败';
                         return null;
                     } finally {
-                        if (requestSeq === this.closureRequestSeq) this.closureLoading = false;
+                        if (requestSeq === this.closureRequestSeq) {
+                            this.closureLoading = false;
+                            this.closureRequestScope = '';
+                        }
                     }
+                },
+                downloadClosure() {
+                    const closure = this.activeClosure || this.closure;
+                    const payload = buildClosureDownloadPayload(closure);
+                    if (!payload.ok) {
+                        this.closureError = payload.message;
+                        return payload;
+                    }
+                    const anchor = document.createElement('a');
+                    anchor.href = `data:text/csv;charset=utf-8,${encodeURIComponent(payload.csv)}`;
+                    anchor.download = payload.fileName;
+                    document.body.appendChild(anchor);
+                    anchor.click();
+                    window.setTimeout(() => {
+                        anchor.remove();
+                    }, 5000);
+                    return payload;
                 },
             },
             render() {
-                const candidate = this.activeClosure || this.closure;
+                const candidate = this.activeClosure;
                 const closure = candidate && typeof candidate === 'object'
                     ? candidate
                     : null;
@@ -282,8 +410,8 @@ window.SUXI_DUAL_OTA_FIELD_CLOSURE = (() => {
                 const consumableCount = parsedConsumableCount !== null && parsedConsumableCount >= 0
                     ? parsedConsumableCount
                     : null;
+                const visibleRows = buildVisibleRows(closure);
                 const platformSections = platformRows(closure).map(platform => {
-                    const fields = Array.isArray(platform.fields) ? platform.fields : [];
                     const collection = platform.latest_collection || {};
                     const eligibleRecordRefs = normalizeRecordRefs(platform.current_receipt_record_refs);
                     const projectedAllRecordRefs = normalizeRecordRefs(platform.current_receipt_all_record_refs);
@@ -297,7 +425,9 @@ window.SUXI_DUAL_OTA_FIELD_CLOSURE = (() => {
                     const semanticVetoRefs = Array.isArray(platform.semantic_veto_record_refs)
                         ? platform.semantic_veto_record_refs.join('、')
                         : '';
-                    const rows = fields.map(field => h('tr', {
+                    const rows = visibleRows.filter(row => row.platform === platform.platform).map(row => {
+                        const field = row.field;
+                        return h('tr', {
                         key: `${platform.platform}:${field.key}`,
                         class: 'border-t border-slate-100 align-top',
                         'data-testid': `dual-ota-field-row-${this.surface}-${platform.platform}-${field.key}`,
@@ -305,14 +435,14 @@ window.SUXI_DUAL_OTA_FIELD_CLOSURE = (() => {
                         'data-source-record-ids': Array.isArray(field.source_record_ids)
                             ? field.source_record_ids.join(',')
                             : '',
-                    }, [
+                        }, [
                         h('td', { class: 'whitespace-nowrap px-3 py-3' }, [
                             h('div', { class: 'font-medium text-slate-900' }, String(field.label || field.key || '字段')),
                             h('div', { class: 'mt-0.5 text-[10px] text-slate-400' }, String(field.key || '')),
                         ]),
-                        h('td', { class: 'min-w-[150px] px-3 py-3 font-mono text-xs font-semibold text-slate-900' }, valueText(field)),
+                        h('td', { class: 'min-w-[150px] px-3 py-3 font-mono text-xs font-semibold text-slate-900' }, row.display),
                         h('td', { class: 'whitespace-nowrap px-3 py-3' }, badge(
-                            statusText(field.status),
+                            row.status_label,
                             statusClass(field.status),
                             { 'data-testid': `dual-ota-field-status-${this.surface}-${platform.platform}-${field.key}` }
                         )),
@@ -332,12 +462,16 @@ window.SUXI_DUAL_OTA_FIELD_CLOSURE = (() => {
                         h('td', { class: 'min-w-[180px] px-3 py-3 text-[11px] leading-5 text-slate-600' }, sourceRefsText(field)),
                         h('td', { class: 'min-w-[260px] px-3 py-3 text-[11px] leading-5 text-slate-600' }, [
                             h('div', { class: 'font-medium text-slate-700' }, String(field.basis || '未声明口径')),
-                            h('div', { class: 'mt-1 text-slate-500' }, String(field.note || '')),
+                            h('div', { class: 'mt-1 text-slate-500' }, fieldNoteText(field)),
                             Array.isArray(field.quality_flags) && field.quality_flags.length
                                 ? h('div', { class: 'mt-1 text-amber-700' }, `校验：${field.quality_flags.join('、')}`)
                                 : null,
+                            field.next_action
+                                ? h('div', { class: 'mt-1 font-medium text-slate-700' }, `下一步：${field.next_action}`)
+                                : null,
                         ]),
-                    ]));
+                        ]);
+                    });
 
                     return h('article', {
                         key: platform.platform,
@@ -397,9 +531,17 @@ window.SUXI_DUAL_OTA_FIELD_CLOSURE = (() => {
                             ]),
                             h('p', { class: 'mt-1 text-xs leading-5 text-slate-600' }, '同一合同同时供数据健康页与收益驾驶舱使用；缺失、失败、错日期和口径不确定不会显示成 0。'),
                         ]),
-                        h('div', { class: 'rounded-lg border border-[#dcc591]/40 bg-[#06110d] px-3 py-2 text-[11px] leading-5 text-slate-100' }, [
-                            h('div', { class: 'font-semibold text-[#dcc591]' }, `${businessDate} · Hotel #${closure.hotel_id || '—'}`),
-                            h('div', null, `合同 ${identity || '未生成'} · 收益可消费字段 ${consumableCount === null ? '—' : consumableCount}`),
+                        h('div', { class: 'flex flex-col items-stretch gap-2 sm:items-end' }, [
+                            h('div', { class: 'rounded-lg border border-[#dcc591]/40 bg-[#06110d] px-3 py-2 text-[11px] leading-5 text-slate-100' }, [
+                                h('div', { class: 'font-semibold text-[#dcc591]' }, `${businessDate} · Hotel #${closure.hotel_id || '—'}`),
+                                h('div', null, `合同 ${identity || '未生成'} · 收益可消费字段 ${consumableCount === null ? '—' : consumableCount}`),
+                            ]),
+                            h('button', {
+                                type: 'button',
+                                class: 'rounded-lg border border-[#a88a52] bg-[#fffaf0] px-3 py-2 text-xs font-semibold text-[#6f572f] transition hover:bg-[#f8edcf]',
+                                'data-testid': `dual-ota-field-download-${this.surface}`,
+                                onClick: this.downloadClosure,
+                            }, '按当前字段与顺序下载 CSV'),
                         ]),
                     ]),
                     h('div', { class: 'space-y-4' }, platformSections),
@@ -415,9 +557,14 @@ window.SUXI_DUAL_OTA_FIELD_CLOSURE = (() => {
         exactScopeText,
         valueText,
         sourceRefsText,
+        fieldNoteText,
         normalizeRecordRefs,
         recordRefsSummary,
         platformRows,
+        buildVisibleRows,
+        buildClosureDownloadRows,
+        buildClosureCsv,
+        buildClosureDownloadPayload,
         closureRequestPath,
         resolveClosureResponse,
         createPanel,

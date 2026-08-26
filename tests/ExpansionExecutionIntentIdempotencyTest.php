@@ -460,7 +460,11 @@ final class ExpansionExecutionIntentIdempotencyTest extends TestCase
                     $read();
                     self::fail($label . ' must fail closed when hotel scope lookup raises an error.');
                 } catch (RuntimeException $exception) {
-                    self::assertStringContainsString('migration_required', $exception->getMessage(), $label);
+                    self::assertStringContainsString(
+                        'database_table_probe_failed:hotels',
+                        $exception->getMessage(),
+                        $label
+                    );
                 }
             }
             Db::execute('DROP VIEW hotels');

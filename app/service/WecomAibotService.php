@@ -38,7 +38,8 @@ final class WecomAibotService
         $authenticated = ($state['authenticated'] ?? false) === true
             && ($state['status'] ?? '') === 'authenticated'
             && $heartbeat >= time() - 90;
-        $tablesReady = $this->tablesReady();
+        $schemaStatus = $this->schemaStatus();
+        $tablesReady = $schemaStatus === DatabaseSchemaRequirement::STATUS_PRESENT;
         $bindingCount = 0;
         $replyEnabledCount = 0;
         if ($tablesReady) {
@@ -77,6 +78,7 @@ final class WecomAibotService
                 'secret_present' => $secret !== '',
                 'relay_token_valid' => strlen($relayToken) >= 32,
                 'tables_ready' => $tablesReady,
+                'schema_status' => $schemaStatus,
             ],
             'worker' => [
                 'status' => (string)($state['status'] ?? 'not_running'),
@@ -92,7 +94,7 @@ final class WecomAibotService
                 $installedVersion,
                 $configured,
                 $authenticated,
-                $tablesReady
+                $schemaStatus
             ),
             'boundaries' => [
                 'outbound_websocket_only' => true,
@@ -251,7 +253,7 @@ final class WecomAibotService
         $conversationId = trim((string)($input['conversation_id'] ?? ''));
         $senderId = trim((string)($input['sender_id'] ?? ''));
         $messageType = strtolower(trim((string)($input['message_type'] ?? '')));
-        $content = $this->safeText((string)($input['content'] ?? ''), 1000);
+        $rawContent = $this->safeText((string)($input['content'] ?? ''), 1000);
         if ($eventId === '' || $conversationId === '' || $senderId === '') {
             throw new InvalidArgumentException('企业微信智能机器人事件身份字段不完整');
         }
@@ -263,7 +265,7 @@ final class WecomAibotService
                 'delivery_status' => 'not_sent',
             ];
         }
-        if ($content === '') {
+        if ($rawContent === '') {
             return [
                 'status' => 'blocked',
                 'block_code' => 'message_content_empty',
@@ -271,6 +273,10 @@ final class WecomAibotService
                 'delivery_status' => 'not_sent',
             ];
         }
+        $bindingCode = $this->bindingCodeFromContent($rawContent);
+        $isBindingCommand = $bindingCode !== '';
+        $storedContent = $isBindingCommand ? '绑定门店 ********' : $rawContent;
+        $contentIdentityDigest = hash('sha256', 'wecom-aibot-event-content-v1|' . $rawContent);
         $conversationHash = $this->conversationHash($conversationId);
         $binding = Db::name(self::BINDING_TABLE)
             ->where('conversation_id_hash', $conversationHash)
@@ -279,8 +285,7 @@ final class WecomAibotService
             ->find();
         $bindingConfirmation = false;
         if (!is_array($binding)) {
-            $code = $this->bindingCodeFromContent($content);
-            if ($code === '') {
+            if (!$isBindingCommand) {
                 return [
                     'status' => 'blocked_not_bound',
                     'block_code' => 'wecom_conversation_not_bound',
@@ -288,9 +293,10 @@ final class WecomAibotService
                     'delivery_status' => 'not_sent',
                 ];
             }
-            $binding = $this->consumeBindingCode($code, $conversationHash);
+            $binding = $this->consumeBindingCode($bindingCode, $conversationHash);
             $bindingConfirmation = true;
-            $content = '绑定门店 ********';
+        } elseif ($isBindingCommand) {
+            $bindingConfirmation = $this->bindingCodeBelongsToBinding($bindingCode, (int)$binding['id']);
         }
 
         $answer = $bindingConfirmation
@@ -302,15 +308,27 @@ final class WecomAibotService
                 'sources' => [],
                 'data_gaps' => [],
             ]
-            : $this->answer((int)$binding['hotel_id'], $content);
+            : ($isBindingCommand
+                ? [
+                    'status' => 'blocked',
+                    'intent' => 'hotel_binding_confirmation',
+                    'metric_scope' => 'ota_channel',
+                    'reply_text' => '',
+                    'sources' => [],
+                    'data_gaps' => [],
+                    'code' => 'binding_code_not_applicable',
+                ]
+                : $this->answer((int)$binding['hotel_id'], $rawContent));
         $event = $this->archive(
             $binding,
             $eventId,
             $messageType,
             $senderId,
-            $content,
+            $storedContent,
+            $contentIdentityDigest,
             $this->normalizeOccurredAt($input['create_time'] ?? null),
-            $answer
+            $answer,
+            $bindingConfirmation || !$isBindingCommand
         );
         $eventAnswer = is_array($event['answer'] ?? null) ? $event['answer'] : [];
         $event['reply_allowed'] = ($event['duplicate'] ?? false) !== true
@@ -408,9 +426,11 @@ final class WecomAibotService
         string $eventId,
         string $messageType,
         string $senderId,
-        string $content,
+        string $storedContent,
+        string $contentIdentityDigest,
         ?string $occurredAt,
-        array $answer
+        array $answer,
+        bool $allowLegacyStoredContentDigest
     ): array {
         $senderHash = hash('sha256', 'wecom-sender-v1|' . $senderId);
         $payloadDigest = $this->digest([
@@ -418,7 +438,7 @@ final class WecomAibotService
             'message_type' => $messageType,
             'transport' => self::TRANSPORT,
             'sender_id_hash' => $senderHash,
-            'content_text' => $content,
+            'content_identity_digest' => $contentIdentityDigest,
             'occurred_at' => $occurredAt,
         ]);
         $existing = Db::name(self::EVENT_TABLE)
@@ -426,7 +446,11 @@ final class WecomAibotService
             ->where('external_event_id', $eventId)
             ->find();
         if (is_array($existing)) {
-            if (!hash_equals((string)$existing['payload_digest'], $payloadDigest)) {
+            if (!$this->eventPayloadMatches(
+                $existing,
+                $payloadDigest,
+                $allowLegacyStoredContentDigest ? $storedContent : null
+            )) {
                 throw new RuntimeException('企业微信智能机器人事件幂等键内容冲突', 409);
             }
             $readback = $this->normalizeEvent($existing);
@@ -452,7 +476,7 @@ final class WecomAibotService
             'message_type' => $messageType,
             'transport' => self::TRANSPORT,
             'sender_id_hash' => $senderHash,
-            'content_text' => $content,
+            'content_text' => $storedContent,
             'archive_status' => 'readback_verified',
             'processing_status' => $processingStatus,
             'block_code' => $blockCode,
@@ -473,7 +497,7 @@ final class WecomAibotService
                 'message_type' => $messageType,
                 'transport' => self::TRANSPORT,
                 'sender_id_hash' => $senderHash,
-                'content_text' => $content,
+                'content_text' => $storedContent,
                 'archive_status' => 'readback_verified',
                 'processing_status' => $processingStatus,
                 'block_code' => $blockCode,
@@ -490,7 +514,11 @@ final class WecomAibotService
                 ->where('binding_id', (int)$binding['id'])
                 ->where('external_event_id', $eventId)
                 ->find();
-            if (!is_array($concurrent) || !hash_equals((string)$concurrent['payload_digest'], $payloadDigest)) {
+            if (!is_array($concurrent) || !$this->eventPayloadMatches(
+                $concurrent,
+                $payloadDigest,
+                $allowLegacyStoredContentDigest ? $storedContent : null
+            )) {
                 throw $e;
             }
             $readback = $this->normalizeEvent($concurrent);
@@ -554,6 +582,40 @@ final class WecomAibotService
         });
     }
 
+    private function bindingCodeBelongsToBinding(string $plainCode, int $bindingId): bool
+    {
+        if ($bindingId <= 0) {
+            return false;
+        }
+        $row = Db::name(self::CODE_TABLE)
+            ->where('code_hash', $this->codeHash($plainCode))
+            ->where('status', 'used')
+            ->where('bound_binding_id', $bindingId)
+            ->find();
+        return is_array($row);
+    }
+
+    private function eventPayloadMatches(array $row, string $payloadDigest, ?string $legacyContent): bool
+    {
+        $storedDigest = (string)($row['payload_digest'] ?? '');
+        if (hash_equals($storedDigest, $payloadDigest)) {
+            return true;
+        }
+        if ($legacyContent === null) {
+            return false;
+        }
+
+        $legacyDigest = $this->digest([
+            'external_event_id' => (string)($row['external_event_id'] ?? ''),
+            'message_type' => (string)($row['message_type'] ?? ''),
+            'transport' => (string)($row['transport'] ?? ''),
+            'sender_id_hash' => (string)($row['sender_id_hash'] ?? ''),
+            'content_text' => $legacyContent,
+            'occurred_at' => isset($row['occurred_at']) ? (string)$row['occurred_at'] : null,
+        ]);
+        return hash_equals($storedDigest, $legacyDigest);
+    }
+
     /** @return array<string,mixed> */
     private function normalizeEvent(array $row): array
     {
@@ -610,12 +672,15 @@ final class WecomAibotService
         return is_array($decoded) ? $decoded : [];
     }
 
-    private function capabilityError(string $installedVersion, bool $configured, bool $authenticated, bool $tablesReady): string
+    private function capabilityError(string $installedVersion, bool $configured, bool $authenticated, string $schemaStatus): string
     {
         if ($installedVersion !== self::SDK_VERSION) {
             return 'wecom_aibot_sdk_missing_or_mismatched';
         }
-        if (!$tablesReady) {
+        if ($schemaStatus === DatabaseSchemaRequirement::STATUS_UNREADABLE) {
+            return 'wecom_aibot_schema_unreadable';
+        }
+        if ($schemaStatus !== DatabaseSchemaRequirement::STATUS_PRESENT) {
             return 'wecom_aibot_tables_missing';
         }
         if (!$configured) {
@@ -678,20 +743,31 @@ final class WecomAibotService
 
     private function tablesReady(): bool
     {
-        try {
-            Db::name(self::CODE_TABLE)->limit(1)->select();
-            Db::name(self::BINDING_TABLE)->limit(1)->select();
-            Db::name(self::EVENT_TABLE)->limit(1)->select();
-            return true;
-        } catch (Throwable) {
-            return false;
+        return $this->schemaStatus() === DatabaseSchemaRequirement::STATUS_PRESENT;
+    }
+
+    private function schemaStatus(): string
+    {
+        $statuses = [];
+        foreach ([self::CODE_TABLE, self::BINDING_TABLE, self::EVENT_TABLE] as $table) {
+            $statuses[] = DatabaseSchemaRequirement::inspectTable($table)['status'];
         }
+        if (in_array(DatabaseSchemaRequirement::STATUS_UNREADABLE, $statuses, true)) {
+            return DatabaseSchemaRequirement::STATUS_UNREADABLE;
+        }
+        return in_array(DatabaseSchemaRequirement::STATUS_MISSING, $statuses, true)
+            ? DatabaseSchemaRequirement::STATUS_MISSING
+            : DatabaseSchemaRequirement::STATUS_PRESENT;
     }
 
     private function assertTablesReady(): void
     {
-        if (!$this->tablesReady()) {
+        $status = $this->schemaStatus();
+        if ($status === DatabaseSchemaRequirement::STATUS_MISSING) {
             throw new RuntimeException('企业微信智能机器人表尚未迁移', 503);
+        }
+        if ($status !== DatabaseSchemaRequirement::STATUS_PRESENT) {
+            throw new RuntimeException('企业微信智能机器人表结构检查失败', 503);
         }
     }
 

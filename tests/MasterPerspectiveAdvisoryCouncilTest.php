@@ -224,6 +224,106 @@ final class MasterPerspectiveAdvisoryCouncilTest extends TestCase
         }
     }
 
+    public function testCouncilRejectsEveryUnboundAmountCountDateAndUnitClaim(): void
+    {
+        $question = $this->readyQuestion();
+        $cases = [
+            'amount' => '渠道收入为1200元。',
+            'count' => '携程曝光为1200次。',
+            'date' => '数据日期为2026-08-22。',
+            'unit' => '携程曝光单位为次。',
+        ];
+
+        foreach ($cases as $name => $claim) {
+            $client = $this->quantitativeClient($claim, []);
+            $service = new OperatingQuestionCouncilService(
+                $client,
+                static fn(): array => ['text' => ['ready' => true]],
+                static fn(int $questionId, int $tenantId, array $hotelIds): array => $question,
+                null,
+                $this->strictFactReader($question)
+            );
+
+            $saved = $service->runShadow(41, 10, [20], 7, 'quant-unbound-' . $name);
+
+            self::assertSame('failed', $saved['status'], $name);
+            self::assertSame(5, $client->calls, $name);
+            self::assertSame(
+                ['ungrounded_quantitative_claim'],
+                array_values(array_unique(array_column($saved['members'], 'error_code'))),
+                $name
+            );
+            self::assertNotContains(
+                'verified_scope_guard_passed',
+                array_column($saved['members'], 'grounding_status'),
+                $name
+            );
+        }
+    }
+
+    public function testCouncilRejectsQuantitativeBindingWithWrongFactUnit(): void
+    {
+        $question = $this->readyQuestion();
+        $claim = '携程曝光为1200次。';
+        $client = $this->quantitativeClient($claim, [[
+            'claim_text' => $claim,
+            'value' => '1200',
+            'unit' => 'currency_cny',
+            'scope' => $this->quantitativeScope(),
+            'date' => '2026-08-22',
+            'ref' => 'online_daily_data#9001',
+        ]]);
+        $service = new OperatingQuestionCouncilService(
+            $client,
+            static fn(): array => ['text' => ['ready' => true]],
+            static fn(int $questionId, int $tenantId, array $hotelIds): array => $question,
+            null,
+            $this->strictFactReader($question)
+        );
+
+        $saved = $service->runShadow(41, 10, [20], 7, 'quant-wrong-unit');
+
+        self::assertSame('failed', $saved['status']);
+        self::assertSame(
+            ['ungrounded_quantitative_binding'],
+            array_values(array_unique(array_column($saved['members'], 'error_code')))
+        );
+        self::assertNotContains(
+            'verified_scope_guard_passed',
+            array_column($saved['members'], 'grounding_status')
+        );
+    }
+
+    public function testCouncilAcceptsQuantitativeClaimOnlyWithExactValueUnitScopeDateAndRef(): void
+    {
+        $question = $this->readyQuestion();
+        $claim = '携程曝光为1200次。';
+        $bindings = [[
+            'claim_text' => $claim,
+            'value' => '1200',
+            'unit' => 'exposure_count',
+            'scope' => $this->quantitativeScope(),
+            'date' => '2026-08-22',
+            'ref' => 'online_daily_data#9001',
+        ]];
+        $client = $this->quantitativeClient($claim, $bindings);
+        $service = new OperatingQuestionCouncilService(
+            $client,
+            static fn(): array => ['text' => ['ready' => true]],
+            static fn(int $questionId, int $tenantId, array $hotelIds): array => $question,
+            null,
+            $this->strictFactReader($question)
+        );
+
+        $saved = $service->runShadow(41, 10, [20], 7, 'quant-exact-binding');
+
+        self::assertSame('completed', $saved['status']);
+        self::assertSame(6, $client->calls);
+        self::assertSame('verified_scope_guard_passed', $saved['members'][0]['grounding_status']);
+        self::assertSame($bindings, $saved['members'][0]['quantitative_claims']);
+        self::assertSame($bindings, $saved['synthesis']['quantitative_claims']);
+    }
+
     public function testCouncilFailsClosedWithoutVerifiedFactAndStillExplainsSelectedFrameworks(): void
     {
         $fakeClient = $this->fakeClient();
@@ -365,6 +465,16 @@ final class MasterPerspectiveAdvisoryCouncilTest extends TestCase
             'list_exposure' => 1200,
         ]);
         $question = $this->readyQuestion();
+        $strictReadback = (new \app\service\OperatingQuestionService())
+            ->readCurrentVerifiedFactsForRefs(
+                10,
+                20,
+                'ctrip',
+                '2026-08-22',
+                '2026-08-22',
+                ['online_daily_data#9001']
+            );
+        $question['answer']['fact_samples'] = $strictReadback;
         $readyClient = $this->fakeClient();
         $service = new OperatingQuestionCouncilService(
             $readyClient,
@@ -439,6 +549,68 @@ final class MasterPerspectiveAdvisoryCouncilTest extends TestCase
                 ];
             }
         };
+    }
+
+    /** @param list<array<string,string>> $bindings */
+    private function quantitativeClient(string $claim, array $bindings): object
+    {
+        return new class($claim, $bindings) {
+            public int $calls = 0;
+
+            /** @param list<array<string,string>> $bindings */
+            public function __construct(private string $claim, private array $bindings)
+            {
+            }
+
+            public function createJsonResponseEnvelope(array $messages, array $schema, string $modelKey): array
+            {
+                $this->calls++;
+                $scenario = (string)($schema['x-governance']['scenario'] ?? '');
+                $data = $scenario === 'synthesis_chair'
+                    ? [
+                        'summary' => $this->claim,
+                        'agreements' => [],
+                        'conflicts' => [],
+                        'missing_information' => [],
+                        'falsification_checks' => ['继续核对同口径事实。'],
+                        'recommended_next_step' => '仅作人工核对。',
+                        'evidence_refs' => ['online_daily_data#9001'],
+                        'quantitative_claims' => $this->bindings,
+                    ]
+                    : [
+                        'assessment' => $this->claim,
+                        'supported_points' => ['已取得严格回读事实。'],
+                        'conflicting_points' => [],
+                        'risks' => [],
+                        'missing_information' => [],
+                        'falsification_check' => '继续核对同口径事实。',
+                        'supporting_evidence_refs' => ['online_daily_data#9001'],
+                        'conflicting_evidence_refs' => [],
+                        'evidence_refs' => ['online_daily_data#9001'],
+                        'quantitative_claims' => $this->bindings,
+                        'confidence' => 'high',
+                    ];
+
+                return [
+                    'data' => $data,
+                    'meta' => [
+                        'provider' => 'ollama',
+                        'model_key' => $modelKey,
+                        'model' => LocalAiRuntimeService::TEXT_MODEL,
+                        'finish_reason' => 'stop',
+                        'fallback_used' => false,
+                        'cache_hit' => false,
+                        'degraded' => false,
+                    ],
+                ];
+            }
+        };
+    }
+
+    private function quantitativeScope(): string
+    {
+        return '{"tenant_id":10,"hotel_id":20,"platform":"ctrip","source_scope":"ota_channel",'
+            . '"data_type":"traffic","dimension":"hotel_daily"}';
     }
 
     private function strictFactReader(array $question): callable

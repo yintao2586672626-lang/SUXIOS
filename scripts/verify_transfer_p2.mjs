@@ -2,6 +2,7 @@ import { readFileSync, existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { extractPhpMethod } from './lib/shared_helpers.mjs';
+import { readRouteContractSource } from './lib/route_contract_source.mjs';
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 
@@ -77,7 +78,9 @@ for (const check of checks) {
     continue;
   }
 
-  const content = readFileSync(path, 'utf8');
+  const content = check.file === 'route/app.php'
+    ? readRouteContractSource(root)
+    : readFileSync(path, 'utf8');
   for (const needle of check.contains) {
     if (!content.includes(needle)) {
       failures.push(`${check.file} missing contract: ${needle}`);

@@ -4,12 +4,21 @@ declare(strict_types=1);
 namespace app\controller\concern;
 
 use app\model\OperationLog;
+use app\service\ApiExceptionMapper;
 use app\service\MeituanReviewOrderMatchService;
 use think\Response;
 use think\facade\Db;
 
 trait MeituanReviewOrderMatchConcern
 {
+    private const MEITUAN_REVIEW_MATCH_BUSINESS_EXCEPTIONS = [
+        '当前酒店不存在该美团点评，不能人工确认' => 404,
+        '当前酒店不存在该美团订单，不能人工确认' => 404,
+        '当前酒店不存在该美团点评，不能人工否决' => 404,
+        '当前酒店不存在该美团订单，不能作为否决对象' => 404,
+        '当前酒店不存在该美团点评匹配记录' => 404,
+    ];
+
     public function saveMeituanReviewForMatch(): Response
     {
         $this->checkPermission();
@@ -70,9 +79,9 @@ trait MeituanReviewOrderMatchConcern
                 'source_status' => $this->meituanReviewMatchWriteSourceStatus('authorized_review_evidence'),
             ], '美团点评证据已保存并完成回读');
         } catch (\think\exception\HttpException $e) {
-            return $this->error($e->getMessage(), $this->safeHttpCode($e->getStatusCode()));
+            return ApiExceptionMapper::response($e, '保存美团点评证据失败');
         } catch (\Throwable $e) {
-            return $this->error('保存美团点评证据失败: ' . $e->getMessage(), 500);
+            return ApiExceptionMapper::response($e, '保存美团点评证据失败');
         }
     }
 
@@ -139,9 +148,9 @@ trait MeituanReviewOrderMatchConcern
                 'source_status' => $this->meituanReviewMatchWriteSourceStatus('authorized_order_evidence'),
             ], '美团订单证据已保存并完成回读');
         } catch (\think\exception\HttpException $e) {
-            return $this->error($e->getMessage(), $this->safeHttpCode($e->getStatusCode()));
+            return ApiExceptionMapper::response($e, '保存美团订单证据失败');
         } catch (\Throwable $e) {
-            return $this->error('保存美团订单证据失败: ' . $e->getMessage(), 500);
+            return ApiExceptionMapper::response($e, '保存美团订单证据失败');
         }
     }
 
@@ -175,9 +184,9 @@ trait MeituanReviewOrderMatchConcern
 
             return $this->success($result, '美团点评订单候选已计算并完成保存回读');
         } catch (\think\exception\HttpException $e) {
-            return $this->error($e->getMessage(), $this->safeHttpCode($e->getStatusCode()));
+            return ApiExceptionMapper::response($e, '计算美团点评订单候选失败');
         } catch (\Throwable $e) {
-            return $this->error('计算美团点评订单候选失败: ' . $e->getMessage(), 500);
+            return ApiExceptionMapper::response($e, '计算美团点评订单候选失败');
         }
     }
 
@@ -281,9 +290,9 @@ trait MeituanReviewOrderMatchConcern
                 $ready ? '美团点评订单候选计算完成' : '美团点评订单候选计算未完成：缺少必要数据源'
             );
         } catch (\think\exception\HttpException $e) {
-            return $this->error($e->getMessage(), $this->safeHttpCode($e->getStatusCode()));
+            return ApiExceptionMapper::response($e, '运行美团点评订单候选计算失败');
         } catch (\Throwable $e) {
-            return $this->error('运行美团点评订单候选计算失败: ' . $e->getMessage(), 500);
+            return ApiExceptionMapper::response($e, '运行美团点评订单候选计算失败');
         }
     }
 
@@ -304,9 +313,9 @@ trait MeituanReviewOrderMatchConcern
 
             return $this->success($payload, $ready ? '美团点评订单人工确认闭环已完成' : '美团点评订单人工确认闭环未完成');
         } catch (\think\exception\HttpException $e) {
-            return $this->error($e->getMessage(), $this->safeHttpCode($e->getStatusCode()));
+            return ApiExceptionMapper::response($e, '检查美团点评订单闭环失败');
         } catch (\Throwable $e) {
-            return $this->error('检查美团点评订单闭环失败: ' . $e->getMessage(), 500);
+            return ApiExceptionMapper::response($e, '检查美团点评订单闭环失败');
         }
     }
 
@@ -377,13 +386,12 @@ trait MeituanReviewOrderMatchConcern
                 $id = $this->upsertMeituanReviewMatchRowWithinTransaction($existing, $row);
                 $readback = $this->readMeituanReviewMatchRow($id, $systemHotelId, $reviewId);
                 $this->assertMeituanReviewReadback($readback, $row, ['order_id', 'match_status', 'match_method', 'confidence', 'bound_by', 'bound_at']);
+                OperationLog::record('online_data', 'bind_meituan_review_order_match', 'Confirm Meituan review order: ' . $reviewId . ' -> ' . $orderId, $this->currentUser->id ?? null, $systemHotelId);
                 Db::commit();
             } catch (\Throwable $e) {
                 Db::rollback();
                 throw $e;
             }
-
-            OperationLog::record('online_data', 'bind_meituan_review_order_match', 'Confirm Meituan review order: ' . $reviewId . ' -> ' . $orderId, $this->currentUser->id ?? null, $systemHotelId);
             return $this->success([
                 'id' => (int)$readback['id'],
                 'review_id' => $reviewId,
@@ -396,11 +404,9 @@ trait MeituanReviewOrderMatchConcern
                 'review_cards' => $this->loadMeituanReviewMatchReviewCards($systemHotelId, 30),
             ], '美团点评订单已人工确认并完成保存回读');
         } catch (\think\exception\HttpException $e) {
-            return $this->error($e->getMessage(), $this->safeHttpCode($e->getStatusCode()));
-        } catch (\RuntimeException $e) {
-            return $this->error($e->getMessage(), 404);
+            return ApiExceptionMapper::response($e, '人工确认美团点评订单失败');
         } catch (\Throwable $e) {
-            return $this->error('人工确认美团点评订单失败: ' . $e->getMessage(), 500);
+            return ApiExceptionMapper::response($e, '人工确认美团点评订单失败', self::MEITUAN_REVIEW_MATCH_BUSINESS_EXCEPTIONS);
         }
     }
 
@@ -478,13 +484,12 @@ trait MeituanReviewOrderMatchConcern
                 $id = $this->upsertMeituanReviewMatchRowWithinTransaction($existing, $row);
                 $readback = $this->readMeituanReviewMatchRow($id, $systemHotelId, $reviewId);
                 $this->assertMeituanReviewReadback($readback, $row, ['order_id', 'match_status', 'match_method', 'confidence', 'bound_by', 'bound_at']);
+                OperationLog::record('online_data', 'reject_meituan_review_order_match', 'Reject Meituan review order candidate: ' . $reviewId, $this->currentUser->id ?? null, $systemHotelId);
                 Db::commit();
             } catch (\Throwable $e) {
                 Db::rollback();
                 throw $e;
             }
-
-            OperationLog::record('online_data', 'reject_meituan_review_order_match', 'Reject Meituan review order candidate: ' . $reviewId, $this->currentUser->id ?? null, $systemHotelId);
             return $this->success([
                 'id' => (int)$readback['id'],
                 'review_id' => $reviewId,
@@ -496,11 +501,9 @@ trait MeituanReviewOrderMatchConcern
                 'review_cards' => $this->loadMeituanReviewMatchReviewCards($systemHotelId, 30),
             ], '美团点评订单候选已否决并完成保存回读');
         } catch (\think\exception\HttpException $e) {
-            return $this->error($e->getMessage(), $this->safeHttpCode($e->getStatusCode()));
-        } catch (\RuntimeException $e) {
-            return $this->error($e->getMessage(), 404);
+            return ApiExceptionMapper::response($e, '否决美团点评订单候选失败');
         } catch (\Throwable $e) {
-            return $this->error('否决美团点评订单候选失败: ' . $e->getMessage(), 500);
+            return ApiExceptionMapper::response($e, '否决美团点评订单候选失败', self::MEITUAN_REVIEW_MATCH_BUSINESS_EXCEPTIONS);
         }
     }
 
@@ -553,13 +556,12 @@ trait MeituanReviewOrderMatchConcern
                 Db::name('ota_meituan_review_order_matches')->where('id', (int)$existing['id'])->update($row);
                 $readback = $this->readMeituanReviewMatchRow((int)$existing['id'], $systemHotelId, $reviewId);
                 $this->assertMeituanReviewReadback($readback, $row, ['order_id', 'match_status', 'match_method', 'confidence', 'bound_by', 'bound_at']);
+                OperationLog::record('online_data', 'unbind_meituan_review_order_match', 'Unbind Meituan review order: ' . $reviewId, $this->currentUser->id ?? null, $systemHotelId);
                 Db::commit();
             } catch (\Throwable $e) {
                 Db::rollback();
                 throw $e;
             }
-
-            OperationLog::record('online_data', 'unbind_meituan_review_order_match', 'Unbind Meituan review order: ' . $reviewId, $this->currentUser->id ?? null, $systemHotelId);
             return $this->success([
                 'id' => (int)$readback['id'],
                 'review_id' => $reviewId,
@@ -571,11 +573,9 @@ trait MeituanReviewOrderMatchConcern
                 'review_cards' => $this->loadMeituanReviewMatchReviewCards($systemHotelId, 30),
             ], '美团点评订单绑定已撤销并完成保存回读');
         } catch (\think\exception\HttpException $e) {
-            return $this->error($e->getMessage(), $this->safeHttpCode($e->getStatusCode()));
-        } catch (\RuntimeException $e) {
-            return $this->error($e->getMessage(), 404);
+            return ApiExceptionMapper::response($e, '撤销美团点评订单绑定失败');
         } catch (\Throwable $e) {
-            return $this->error('撤销美团点评订单绑定失败: ' . $e->getMessage(), 500);
+            return ApiExceptionMapper::response($e, '撤销美团点评订单绑定失败', self::MEITUAN_REVIEW_MATCH_BUSINESS_EXCEPTIONS);
         }
     }
 

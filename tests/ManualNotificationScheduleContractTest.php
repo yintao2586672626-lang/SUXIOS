@@ -30,6 +30,11 @@ final class ManualNotificationScheduleContractTest extends TestCase
         self::assertStringContainsString('resolvePlanRobot(', $service);
         self::assertStringContainsString('scheduleRules()->dueWindow(', $service);
         self::assertStringContainsString('scheduleRules()->resolveBusinessDate(', $service);
+        self::assertStringContainsString('CANDIDATE_SCAN_BATCH_SIZE', $service);
+        self::assertStringContainsString("->where('id', '>', \$afterId)", $service);
+        self::assertStringContainsString('->limit(self::CANDIDATE_SCAN_BATCH_SIZE)', $service);
+        self::assertStringContainsString('->existingDispatches(', $service);
+        self::assertStringNotContainsString('->existingDispatch(', $service);
         self::assertStringNotContainsString('formal_delivery_not_authorized', $service);
         self::assertStringNotContainsString('--dispatch', $unit);
         self::assertStringContainsString('--preview', $unit);

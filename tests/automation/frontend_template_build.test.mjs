@@ -301,7 +301,6 @@ test('authenticated asset manifest loads the hashed runtime Vue and render befor
   for (const deferredAsset of [
     'app-deferred-helpers.min.js',
     'components/system/app-main-components.js',
-    'components/system/operating-intelligence-components.js',
   ]) {
     assert.equal(
       authenticatedEntries.find((entry) => stripFrontendAssetQuery(entry.src) === deferredAsset)?.phase,

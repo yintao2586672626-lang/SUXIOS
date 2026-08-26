@@ -10,60 +10,43 @@ final class RevenueCockpitStrictEvidenceServiceTest extends TestCase
 {
     public function testMetricAndSourceFailClosedWhenCanonicalRowsMissTheStrictGate(): void
     {
-        $capturedRefs = [];
-        $service = new RevenueCockpitStrictEvidenceService(
-            static function (
-                int $tenantId,
-                int $hotelId,
-                string $platform,
-                string $businessDate,
-                array $refs
-            ) use (&$capturedRefs): array {
-                $capturedRefs = $refs;
-                self::assertSame(10, $tenantId);
-                self::assertSame(20, $hotelId);
-                self::assertSame('meituan', $platform);
-                self::assertSame('2026-08-20', $businessDate);
-                return [
-                    ['ref' => 'online_daily_data#101'],
-                    ['ref' => 'online_daily_data#103'],
-                ];
-            }
+        $service = new RevenueCockpitStrictEvidenceService();
+        $closure = $this->closure(false);
+
+        $evidence = $service->build(
+            $this->overview(),
+            10,
+            20,
+            '2026-08-20',
+            'meituan',
+            $closure
         );
 
-        $evidence = $service->build($this->overview(), 10, 20, '2026-08-20', 'meituan');
-
-        self::assertSame(
-            ['online_daily_data#101', 'online_daily_data#102', 'online_daily_data#103'],
-            $capturedRefs
-        );
         self::assertSame('blocked', $evidence['status']);
         self::assertFalse($evidence['all_selected_ota_sources_strict']);
         self::assertFalse($evidence['platforms']['meituan']['source_strict_readback']);
-        self::assertSame([101, 103], $evidence['platforms']['meituan']['accepted_row_ids']);
-        self::assertSame([102], $evidence['platforms']['meituan']['rejected_row_ids']);
+        self::assertSame([103], $evidence['platforms']['meituan']['accepted_row_ids']);
+        self::assertSame([101, 102], $evidence['platforms']['meituan']['rejected_row_ids']);
         self::assertFalse($evidence['platforms']['meituan']['metrics']['revenue']['strict_readback']);
-        self::assertSame([102], $evidence['platforms']['meituan']['metrics']['revenue']['rejected_row_ids']);
+        self::assertSame([101, 102], $evidence['platforms']['meituan']['metrics']['revenue']['rejected_row_ids']);
         self::assertTrue($evidence['platforms']['meituan']['metrics']['list_exposure']['strict_readback']);
         self::assertFalse($evidence['metric_values_recalculated']);
+        self::assertSame('dual_ota_field_closure', $evidence['field_source']);
+        self::assertSame($closure['page_identity'], $evidence['closure_identity']);
     }
 
     public function testSourceIsReadyOnlyWhenEveryDisplayedMetricRowPassesExactReadback(): void
     {
-        $service = new RevenueCockpitStrictEvidenceService(
-            static fn(
-                int $tenantId,
-                int $hotelId,
-                string $platform,
-                string $businessDate,
-                array $refs
-            ): array => array_map(
-                static fn(string $ref): array => ['ref' => $ref],
-                $refs
-            )
+        $service = new RevenueCockpitStrictEvidenceService();
+        $closure = $this->closure(true);
+        $evidence = $service->build(
+            $this->overview(),
+            10,
+            20,
+            '2026-08-20',
+            'meituan',
+            $closure
         );
-
-        $evidence = $service->build($this->overview(), 10, 20, '2026-08-20', 'meituan');
 
         self::assertSame('ready', $evidence['status']);
         self::assertTrue($evidence['all_selected_ota_sources_strict']);
@@ -77,10 +60,6 @@ final class RevenueCockpitStrictEvidenceServiceTest extends TestCase
     /** @return array<string,mixed> */
     private function overview(): array
     {
-        $status = static fn(string $state, array $rowIds): array => [
-            'status' => $state,
-            'source_provenance' => ['row_ids' => $rowIds],
-        ];
         return [
             'hotel_id' => 20,
             'business_date' => '2026-08-20',
@@ -91,16 +70,49 @@ final class RevenueCockpitStrictEvidenceServiceTest extends TestCase
                     'system_hotel_id' => 20,
                     'name' => '测试酒店',
                 ],
-                'sources' => [
-                    'meituan_ota' => [
-                        'data_status' => 'readback_verified',
-                        'business_date' => '2026-08-20',
-                        'actual_business_date' => '2026-08-20',
-                        'fact_statuses' => [
-                            'revenue' => $status('readback_verified', [102, 101]),
-                            'list_exposure' => $status('readback_verified', [103]),
-                            'cancellation_rate_percent' => $status('missing', []),
-                        ],
+                'sources' => [],
+            ],
+        ];
+    }
+
+    /** @return array<string,mixed> */
+    private function closure(bool $revenueReady): array
+    {
+        $field = static function (
+            string $key,
+            array $consumerKeys,
+            array $ids,
+            bool $ready,
+            string $status = 'strict_readback'
+        ): array {
+            return [
+                'key' => $key,
+                'metric_key' => $key,
+                'consumer_metric_keys' => $consumerKeys,
+                'status' => $ready ? $status : 'caliber_uncertain',
+                'source_record_ids' => $ids,
+                'readback_status' => 'readback_verified',
+                'strict_final_gate' => $ready,
+                'revenue_analysis_consumable' => $ready,
+            ];
+        };
+        return [
+            'contract_version' => 'dual_ota_field_closure.v1',
+            'tenant_id' => 10,
+            'hotel_id' => 20,
+            'business_date' => '2026-08-20',
+            'page_identity' => 'dual_ota_field_closure#strict-test',
+            'consumer_contract' => [
+                'contract_version' => 'trusted_ota_daily_fact_consumer.v1',
+            ],
+            'platforms' => [
+                'ctrip' => ['status' => 'partial', 'fields' => [], 'revenue_analysis' => ['status' => 'blocked']],
+                'meituan' => [
+                    'status' => $revenueReady ? 'ready' : 'partial',
+                    'revenue_analysis' => ['status' => $revenueReady ? 'ready' : 'blocked'],
+                    'fields' => [
+                        $field('revenue', ['revenue'], [101, 102], $revenueReady),
+                        $field('exposure', ['list_exposure'], [103], true),
                     ],
                 ],
             ],

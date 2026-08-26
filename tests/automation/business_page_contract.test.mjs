@@ -201,16 +201,16 @@ test('Ctrip golden sample keeps page cards table and source notice in the downlo
   assert.ok(start >= 0 && end > start, 'Ctrip business canvas block must exist');
   const block = appMain.slice(start, end);
 
-  assert.match(block, /cards: ctripSummaryDisplayCards\.value/);
-  assert.match(block, /table: ctripDownloadRows\(\)/);
-  assert.match(block, /sourceNotice: ctripEarlyMorningSourceNotice\.value/);
+  assert.match(block, /cards: visibleSnapshot\.cards/);
+  assert.match(block, /table: visibleSnapshot\.table/);
+  assert.match(block, /sourceNotice: visibleSnapshot\.sourceNotice/);
   assert.ok(
-    ctripRegression.includes('assert.match(canvasDownload, /cards: ctripSummaryDisplayCards\\.value/);'),
-    'existing Ctrip regression must protect the visible card source',
+    ctripRegression.includes('assert.match(canvasDownload, /table: visibleSnapshot\\.table/);'),
+    'existing Ctrip regression must protect the exact rendered table source',
   );
   assert.ok(
-    ctripRegression.includes('assert.match(canvasDownload, /sourceNotice: ctripEarlyMorningSourceNotice\\.value/);'),
-    'existing Ctrip regression must protect the visible source notice',
+    ctripRegression.includes('assert.doesNotMatch(appMain, /table: ctripDownloadRows\\(\\)/);'),
+    'existing Ctrip regression must reject the legacy reconstructed table source',
   );
 });
 

@@ -202,6 +202,10 @@ final class ManualNotificationBusinessPreviewServiceTest extends TestCase
         self::assertSame(21, $future['message_data']['display_day_count']);
         self::assertCount(4, $future['message_data']['horizons']);
         self::assertCount(1, $future['message_data']['room_types']);
+        self::assertSame(
+            'baseline_only',
+            $future['message_data']['forward_delta']['data_status']
+        );
         self::assertSame('forecast_available', $future['forecasts'][0]['status']);
         self::assertSame('ota_channel', $future['forecasts'][0]['scope']);
         self::assertStringContainsString('不是全酒店远期房态事实', $future['forecasts'][0]['note']);
@@ -361,6 +365,63 @@ final class ManualNotificationBusinessPreviewServiceTest extends TestCase
                 ['message_data']['sources']['dingdandao_pms']
                 ['snapshot_delta']['data_status']
         );
+    }
+
+    public function testForwardDeltaUsesRoomTypeStayDateAndRebaselinesCapacityChanges(): void
+    {
+        $pms = $this->pmsForwardFixture(80, 80, '2026-07-26');
+        $previous = $pms;
+        $previous['id'] = 979;
+        $previous['captured_at'] = '2026-07-26 17:35:00';
+        $previous['forward_room_status']['room_types'][0]['daily_rows'][1]
+            ['booked_rooms'] = 8;
+        $previous['forward_room_status']['room_types'][0]['daily_rows'][1]
+            ['remaining_sellable_rooms'] = 7;
+        $pms['previous_comparable_capture'] = $previous;
+
+        $preview = ManualNotificationBusinessPreviewService::buildPreview(
+            ['id' => 80, 'tenant_id' => 80, 'name' => '敦煌漠蓝新'],
+            '2026-07-26',
+            null,
+            $this->temporalFixture(80, '2026-07-26'),
+            $this->trustedOtaFixture(80, '2026-07-26'),
+            [],
+            $pms
+        );
+        $delta = $preview['sections']['future_room_status']
+            ['message_data']['forward_delta'];
+        self::assertSame('comparable', $delta['data_status']);
+        self::assertTrue($delta['net_change_reliable']);
+        self::assertSame(60, $delta['elapsed_minutes']);
+        self::assertSame(1, $delta['changed_cell_count']);
+        self::assertSame(0, $delta['inventory_basis_change_count']);
+        self::assertSame(1, $delta['summary']['booked_room_nights_delta']);
+        self::assertSame(-1, $delta['summary']['remaining_sellable_room_nights_delta']);
+        self::assertSame('2026-07-27', $delta['changes'][0]['stay_date']);
+        self::assertSame('全部房型', $delta['changes'][0]['room_type_name']);
+        self::assertSame('booked_increase', $delta['changes'][0]['status']);
+
+        $pms['previous_comparable_capture']['forward_room_status']
+            ['room_types'][0]['daily_rows'][1]['remaining_sellable_rooms'] = 8;
+        $rebaselinePreview = ManualNotificationBusinessPreviewService::buildPreview(
+            ['id' => 80, 'tenant_id' => 80, 'name' => '敦煌漠蓝新'],
+            '2026-07-26',
+            null,
+            $this->temporalFixture(80, '2026-07-26'),
+            $this->trustedOtaFixture(80, '2026-07-26'),
+            [],
+            $pms
+        );
+        $rebaseline = $rebaselinePreview['sections']['future_room_status']
+            ['message_data']['forward_delta'];
+        self::assertSame('rebaseline_required', $rebaseline['data_status']);
+        self::assertFalse($rebaseline['net_change_reliable']);
+        self::assertSame('inventory_basis_changed', $rebaseline['reason_code']);
+        self::assertSame(1, $rebaseline['inventory_basis_change_count']);
+        self::assertNull($rebaseline['summary']);
+        self::assertSame('inventory_basis_changed', $rebaseline['changes'][0]['status']);
+        self::assertSame(17, $rebaseline['changes'][0]['inventory_basis_rooms_from']);
+        self::assertSame(16, $rebaseline['changes'][0]['inventory_basis_rooms_to']);
     }
 
     public function testPartialTemporalContextCreatesExplicitGapWithoutDroppingCoreFacts(): void

@@ -997,7 +997,7 @@ SQL);
         return $value;
     }
 
-    public function testApprovalReadbackFailureRollsBackIntentWhenExistingTaskTargetDrifted(): void
+    public function testApprovalRejectsAndRollsBackWhenPendingIntentAlreadyHasADriftedTask(): void
     {
         $intentId = $this->seedPendingApprovalIntent();
         Db::name('operation_execution_tasks')->insert([
@@ -1031,12 +1031,17 @@ SQL);
                 ]
             );
             self::fail('A drifted pre-existing task must fail atomic approval readback.');
-        } catch (RuntimeException $exception) {
-            self::assertStringContainsString('readback verification failed', $exception->getMessage());
+        } catch (InvalidArgumentException $exception) {
+            self::assertStringContainsString(
+                'pending execution intent must have zero tasks before human approval',
+                $exception->getMessage()
+            );
         }
 
         self::assertSame('pending_approval', Db::name('operation_execution_intents')
             ->where('id', $intentId)->value('status'));
+        self::assertSame(1, Db::name('operation_execution_tasks')
+            ->where('intent_id', $intentId)->count());
         self::assertSame('{}', Db::name('operation_execution_tasks')
             ->where('intent_id', $intentId)->value('target_value_json'));
     }

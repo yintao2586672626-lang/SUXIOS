@@ -152,6 +152,8 @@ final class RevenueDecisionSnapshotService
         if ((string)$snapshot['content_digest'] !== $contentDigest
             || (string)$snapshot['visible_model_digest'] !== $visibleModelDigest
             || (string)$snapshot['evidence_digest'] !== $evidenceDigest
+            || (string)$snapshot['as_of_date'] !== (string)$visibleModel['asOfDate']
+            || (string)$snapshot['as_of_date_contract_version'] !== (string)$visibleModel['asOfDateContractVersion']
         ) {
             throw new RuntimeException('revenue_decision_snapshot_exact_readback_drift', 409);
         }
@@ -374,22 +376,43 @@ final class RevenueDecisionSnapshotService
     {
         $status = 'not_checked';
         if (is_array($currentOverview)) {
-            $context = (new RevenueCockpitApprovalService())->evidenceContext(
-                $currentOverview,
-                (int)$snapshot['tenant_id'],
-                (int)$snapshot['system_hotel_id'],
-                (string)$snapshot['business_date'],
-                (string)$snapshot['platform']
-            );
-            $currentRefs = $this->canonicalRefs((array)($context['evidence_refs'] ?? []));
-            $status = hash_equals((string)$snapshot['evidence_digest'], self::digest($currentRefs))
-                ? 'matched_current'
-                : 'stale_current_evidence';
+            $asOfDateStatus = $this->asOfDateCurrentnessStatus($snapshot, $currentOverview);
+            if ($asOfDateStatus !== null) {
+                $status = $asOfDateStatus;
+            } else {
+                $context = (new RevenueCockpitApprovalService())->evidenceContext(
+                    $currentOverview,
+                    (int)$snapshot['tenant_id'],
+                    (int)$snapshot['system_hotel_id'],
+                    (string)$snapshot['business_date'],
+                    (string)$snapshot['platform']
+                );
+                $currentRefs = $this->canonicalRefs((array)($context['evidence_refs'] ?? []));
+                $status = hash_equals((string)$snapshot['evidence_digest'], self::digest($currentRefs))
+                    ? 'matched_current'
+                    : 'stale_current_evidence';
+            }
         }
         $snapshot['persistence_status'] = 'readback_verified';
         $snapshot['evidence_identity_status'] = $status;
         $snapshot['boundaries'] = $this->boundaries();
         return $snapshot;
+    }
+
+    /** @param array<string,mixed> $snapshot @param array<string,mixed> $currentOverview */
+    private function asOfDateCurrentnessStatus(array $snapshot, array $currentOverview): ?string
+    {
+        $snapshotDate = trim((string)($snapshot['as_of_date'] ?? ''));
+        $snapshotVersion = trim((string)($snapshot['as_of_date_contract_version'] ?? ''));
+        $overviewDate = trim((string)($currentOverview['as_of_date'] ?? ''));
+        $overviewVersion = trim((string)($currentOverview['as_of_date_contract_version'] ?? ''));
+        if (!RevenueOverviewDateContract::isCurrentAsOfDate($snapshotDate, $snapshotVersion)
+            || !RevenueOverviewDateContract::isCurrentAsOfDate($overviewDate, $overviewVersion)
+            || !hash_equals($snapshotDate, $overviewDate)
+        ) {
+            return 'stale_current_as_of_date';
+        }
+        return null;
     }
 
     /** @return array<string,mixed> */
@@ -407,6 +430,8 @@ final class RevenueDecisionSnapshotService
             || (int)($model['tenantId'] ?? 0) !== $tenantId
             || (int)($model['hotelId'] ?? 0) !== $hotelId
             || (string)($model['businessDate'] ?? '') !== $businessDate
+            || !$this->isExactDate((string)($model['asOfDate'] ?? ''))
+            || (string)($model['asOfDateContractVersion'] ?? '') !== RevenueAiOverviewService::AS_OF_DATE_CONTRACT_VERSION
             || (string)($model['selectedPlatform'] ?? '') !== $platform
             || !is_array($model['visibleSections'] ?? null)
             || !array_is_list($model['visibleSections'])
@@ -629,6 +654,8 @@ final class RevenueDecisionSnapshotService
             'system_hotel_id' => (int)$row['system_hotel_id'],
             'platform' => (string)$row['platform'],
             'business_date' => (string)$row['business_date'],
+            'as_of_date' => (string)($visibleModel['asOfDate'] ?? ''),
+            'as_of_date_contract_version' => (string)($visibleModel['asOfDateContractVersion'] ?? ''),
             'source_refs' => $sourceRefs,
             'metric_definitions' => $metricDefinitions,
             'visible_model' => $visibleModel,
@@ -797,11 +824,16 @@ final class RevenueDecisionSnapshotService
     private function date(string $value): string
     {
         $value = trim($value);
-        $date = \DateTimeImmutable::createFromFormat('!Y-m-d', $value);
-        if ($date === false || $date->format('Y-m-d') !== $value) {
+        if (!$this->isExactDate($value)) {
             throw new InvalidArgumentException('revenue_decision_snapshot_business_date_invalid');
         }
         return $value;
+    }
+
+    private function isExactDate(string $value): bool
+    {
+        $date = \DateTimeImmutable::createFromFormat('!Y-m-d', $value);
+        return $date !== false && $date->format('Y-m-d') === $value;
     }
 
     private function platform(string $value): string

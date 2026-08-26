@@ -1,6 +1,8 @@
 <?php
 declare(strict_types=1);
 
+require_once __DIR__ . '/lib/route_contract_source.php';
+
 require_once __DIR__ . '/../vendor/autoload.php';
 
 use app\service\QuantSimulationService;
@@ -135,7 +137,7 @@ $publicIndexSource = implode("\n", [
     file_get_contents(__DIR__ . '/../resources/frontend/app-template.html'),
     file_get_contents(__DIR__ . '/../public/app-main.js'),
 ]);
-$routeSource = file_get_contents(__DIR__ . '/../route/app.php');
+$routeSource = suxi_read_registered_route_contract_source(dirname(__DIR__));
 $ctripBrowserAdapterSource = file_get_contents(__DIR__ . '/../app/service/platform/CtripBrowserProfileDataSourceAdapter.php');
 $meituanBrowserAdapterSource = file_get_contents(__DIR__ . '/../app/service/platform/MeituanBrowserProfileDataSourceAdapter.php');
 $platformProfileCaptureSource = file_get_contents(__DIR__ . '/../app/controller/concern/PlatformProfileCaptureConcern.php');

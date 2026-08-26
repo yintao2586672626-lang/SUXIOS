@@ -8,8 +8,8 @@
                             <i class="fas fa-hotel text-white"></i>
                         </div>
                         <div>
-                            <h3 class="text-lg font-semibold text-gray-800">{{ hotelForm.id ? '编辑门店' : '新增门店' }}</h3>
-                            <p class="text-xs text-gray-500">{{ hotelForm.id ? '修改门店资料与平台范围' : '编号自动生成，创建后默认营业' }}</p>
+                            <h3 class="text-lg font-semibold text-gray-800">{{ hotelOnboardingActive ? '新增门店接入' : '编辑门店' }}</h3>
+                            <p class="text-xs text-gray-500">{{ hotelOnboardingActive ? '创建后继续完成三源身份与云端登录' : '修改门店资料与平台范围' }}</p>
                         </div>
                     </div>
                     <button @click="showHotelModal = false" class="text-gray-400 hover:text-gray-600 w-8 h-8 flex items-center justify-center rounded-lg hover:bg-gray-100 transition-colors">
@@ -17,8 +17,10 @@
                     </button>
                 </div>
 
+                <component v-if="hotelOnboardingActive" :is="hotelThreeSourceOnboardingPanel"></component>
+
                 <!-- 表单 -->
-                <form @submit.prevent="saveHotel" class="p-4 sm:p-6 overflow-y-auto">
+                <form v-else @submit.prevent="saveHotel" class="p-4 sm:p-6 overflow-y-auto">
                     <!-- 基本信息 -->
                     <div class="space-y-4">
                         <div>

@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { readRouteContractSource } from './lib/route_contract_source.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -22,7 +23,7 @@ function capabilityBlock(source, capabilityName) {
   return source.slice(start, next >= 0 ? next : source.length);
 }
 
-const route = read('route/app.php');
+const route = readRouteContractSource(root);
 const service = read('app/service/ProtectedCapabilityService.php');
 const auth = read('app/middleware/Auth.php');
 const roleController = read('app/controller/RoleController.php');
@@ -122,7 +123,7 @@ const routeMarkers = [
 ];
 
 for (const marker of routeMarkers) {
-  assertContract(route.includes(marker), `${marker} must remain in route/app.php`);
+  assertContract(route.includes(marker), `${marker} must remain in the registered route manifest set`);
 }
 
 const sensitiveKeys = [

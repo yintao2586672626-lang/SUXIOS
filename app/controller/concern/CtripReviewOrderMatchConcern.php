@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace app\controller\concern;
 
 use app\model\OperationLog;
+use app\service\ApiExceptionMapper;
 use app\service\BrowserProfileCaptureRequestService;
 use app\service\CtripReviewOrderMatchService;
 use think\Response;
@@ -11,6 +12,10 @@ use think\facade\Db;
 
 trait CtripReviewOrderMatchConcern
 {
+    private const CTRIP_REVIEW_MATCH_BUSINESS_EXCEPTIONS = [
+        '当前酒店不存在该携程点评匹配记录' => 404,
+    ];
+
     public function saveCtripReviewImSession(): Response
     {
         $this->checkPermission();
@@ -90,9 +95,9 @@ trait CtripReviewOrderMatchConcern
                 'order_cache_status' => $orderCacheId > 0 ? 'synced' : 'not_available',
             ], '携程 IM 会话缓存已保存');
         } catch (\think\exception\HttpException $e) {
-            return $this->error($e->getMessage(), $this->safeHttpCode($e->getStatusCode()));
+            return ApiExceptionMapper::response($e, '保存携程 IM 会话缓存失败');
         } catch (\Throwable $e) {
-            return $this->error('保存携程 IM 会话缓存失败: ' . $e->getMessage(), 500);
+            return ApiExceptionMapper::response($e, '保存携程 IM 会话缓存失败');
         }
     }
 
@@ -165,9 +170,9 @@ trait CtripReviewOrderMatchConcern
                 'source_status' => $this->ctripReviewMatchWriteSourceStatus('authorized_review_evidence'),
             ], '携程评价证据已保存并完成回读');
         } catch (\think\exception\HttpException $e) {
-            return $this->error($e->getMessage(), $this->safeHttpCode($e->getStatusCode()));
+            return ApiExceptionMapper::response($e, '保存携程评价失败');
         } catch (\Throwable $e) {
-            return $this->error('保存携程评价失败: ' . $e->getMessage(), 500);
+            return ApiExceptionMapper::response($e, '保存携程评价失败');
         }
     }
 
@@ -240,9 +245,9 @@ trait CtripReviewOrderMatchConcern
                 'source_status' => $this->ctripReviewMatchWriteSourceStatus('authorized_order_evidence'),
             ], '携程订单证据已保存并完成回读');
         } catch (\think\exception\HttpException $e) {
-            return $this->error($e->getMessage(), $this->safeHttpCode($e->getStatusCode()));
+            return ApiExceptionMapper::response($e, '保存携程订单失败');
         } catch (\Throwable $e) {
-            return $this->error('保存携程订单失败: ' . $e->getMessage(), 500);
+            return ApiExceptionMapper::response($e, '保存携程订单失败');
         }
     }
 
@@ -283,9 +288,9 @@ trait CtripReviewOrderMatchConcern
                 '携程评价订单候选已计算并完成保存回读'
             );
         } catch (\think\exception\HttpException $e) {
-            return $this->error($e->getMessage(), $this->safeHttpCode($e->getStatusCode()));
+            return ApiExceptionMapper::response($e, '携程评价订单证据匹配失败');
         } catch (\Throwable $e) {
-            return $this->error('携程评价订单证据匹配失败: ' . $e->getMessage(), 500);
+            return ApiExceptionMapper::response($e, '携程评价订单证据匹配失败');
         }
     }
 
@@ -356,9 +361,9 @@ trait CtripReviewOrderMatchConcern
                 ],
             ], '携程评价疑似下单人预览完成');
         } catch (\think\exception\HttpException $e) {
-            return $this->error($e->getMessage(), $this->safeHttpCode($e->getStatusCode()));
+            return ApiExceptionMapper::response($e, '携程评价疑似下单人预览失败');
         } catch (\Throwable $e) {
-            return $this->error('携程评价疑似下单人预览失败: ' . $e->getMessage(), 500);
+            return ApiExceptionMapper::response($e, '携程评价疑似下单人预览失败');
         }
     }
 
@@ -574,17 +579,17 @@ trait CtripReviewOrderMatchConcern
             if ($dryRunTransactionStarted) {
                 Db::rollback();
             }
-            return $this->error($e->getMessage(), $this->safeHttpCode($e->getStatusCode()));
+            return ApiExceptionMapper::response($e, '携程评价订单自动匹配失败');
         } catch (\InvalidArgumentException $e) {
             if ($dryRunTransactionStarted) {
                 Db::rollback();
             }
-            return $this->error($e->getMessage(), 422);
+            return ApiExceptionMapper::response($e, '携程评价订单自动匹配失败');
         } catch (\Throwable $e) {
             if ($dryRunTransactionStarted) {
                 Db::rollback();
             }
-            return $this->error('携程评价订单自动匹配失败: ' . $e->getMessage(), 500);
+            return ApiExceptionMapper::response($e, '携程评价订单自动匹配失败');
         }
     }
 
@@ -707,9 +712,9 @@ trait CtripReviewOrderMatchConcern
                 ],
             ], '携程评价订单已绑定并完成保存回读');
         } catch (\think\exception\HttpException $e) {
-            return $this->error($e->getMessage(), $this->safeHttpCode($e->getStatusCode()));
+            return ApiExceptionMapper::response($e, '绑定携程评价订单失败');
         } catch (\Throwable $e) {
-            return $this->error('绑定携程评价订单失败: ' . $e->getMessage(), 500);
+            return ApiExceptionMapper::response($e, '绑定携程评价订单失败');
         }
     }
 
@@ -805,13 +810,12 @@ trait CtripReviewOrderMatchConcern
                 ) {
                     throw new \RuntimeException('携程评价订单否决保存回读不一致');
                 }
+                OperationLog::record('online_data', 'reject_ctrip_review_order_match', '人工否决携程评价订单候选: ' . $commentId, $this->currentUser->id ?? null, $systemHotelId);
                 Db::commit();
             } catch (\Throwable $writeError) {
                 Db::rollback();
                 throw $writeError;
             }
-
-            OperationLog::record('online_data', 'reject_ctrip_review_order_match', '人工否决携程评价订单候选: ' . $commentId, $this->currentUser->id ?? null, $systemHotelId);
             return $this->success([
                 'id' => (int)$readback['id'],
                 'system_hotel_id' => (int)$readback['system_hotel_id'],
@@ -836,9 +840,9 @@ trait CtripReviewOrderMatchConcern
                 ],
             ], '携程评价订单候选已否决并完成保存回读');
         } catch (\think\exception\HttpException $e) {
-            return $this->error($e->getMessage(), $this->safeHttpCode($e->getStatusCode()));
+            return ApiExceptionMapper::response($e, '否决携程评价订单候选失败');
         } catch (\Throwable $e) {
-            return $this->error('否决携程评价订单候选失败: ' . $e->getMessage(), 500);
+            return ApiExceptionMapper::response($e, '否决携程评价订单候选失败');
         }
     }
 
@@ -904,13 +908,12 @@ trait CtripReviewOrderMatchConcern
                 ) {
                     throw new \LogicException('携程评价订单撤销保存回读不一致');
                 }
+                OperationLog::record('online_data', 'unbind_ctrip_review_order_match', '撤销携程评价订单绑定: ' . $commentId, $this->currentUser->id ?? null, $systemHotelId);
                 Db::commit();
             } catch (\Throwable $writeError) {
                 Db::rollback();
                 throw $writeError;
             }
-
-            OperationLog::record('online_data', 'unbind_ctrip_review_order_match', '撤销携程评价订单绑定: ' . $commentId, $this->currentUser->id ?? null, $systemHotelId);
             return $this->success([
                 'id' => (int)$readback['id'],
                 'system_hotel_id' => (int)$readback['system_hotel_id'],
@@ -934,11 +937,9 @@ trait CtripReviewOrderMatchConcern
                 ],
             ], '携程评价订单绑定已撤销并完成保存回读');
         } catch (\think\exception\HttpException $e) {
-            return $this->error($e->getMessage(), $this->safeHttpCode($e->getStatusCode()));
-        } catch (\RuntimeException $e) {
-            return $this->error($e->getMessage(), 404);
+            return ApiExceptionMapper::response($e, '撤销携程评价订单绑定失败');
         } catch (\Throwable $e) {
-            return $this->error('撤销携程评价订单绑定失败: ' . $e->getMessage(), 500);
+            return ApiExceptionMapper::response($e, '撤销携程评价订单绑定失败', self::CTRIP_REVIEW_MATCH_BUSINESS_EXCEPTIONS);
         }
     }
 
@@ -963,9 +964,9 @@ trait CtripReviewOrderMatchConcern
                 $ready ? '携程评价订单匹配闭环已完成' : '携程评价订单匹配闭环未完成'
             );
         } catch (\think\exception\HttpException $e) {
-            return $this->error($e->getMessage(), $this->safeHttpCode($e->getStatusCode()));
+            return ApiExceptionMapper::response($e, '携程评价订单匹配闭环检查失败');
         } catch (\Throwable $e) {
-            return $this->error('携程评价订单匹配闭环检查失败: ' . $e->getMessage(), 500);
+            return ApiExceptionMapper::response($e, '携程评价订单匹配闭环检查失败');
         }
     }
 

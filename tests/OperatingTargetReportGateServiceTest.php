@@ -49,6 +49,13 @@ final class OperatingTargetReportGateServiceTest extends TestCase
         self::assertContains('actual_revenue_missing', $codes);
         self::assertContains('unresolved_data_gaps', $codes);
 
+        $blockedPage = $service->pagePreview($preview, '宿析测试酒店');
+        $blockedContent = (string)$blockedPage['payload']['markdown']['content'];
+        self::assertStringContainsString('当前阻断', $blockedContent);
+        foreach (['10000元', '4000元', '20间夜', '40间夜', '40%'] as $forbiddenValue) {
+            self::assertStringNotContainsString($forbiddenValue, $blockedContent);
+        }
+
         $preview['status'] = 'ready';
         $preview['facts']['actual_revenue'] = 4000;
         $preview['facts']['quality_status'] = 'verified';
@@ -220,6 +227,13 @@ final class OperatingTargetReportGateServiceTest extends TestCase
             'meituan_delivery_evidence_missing',
             array_column($gate['blockers'], 'code')
         );
+
+        $page = $service->pagePreview($preview, '敦煌漠蓝新');
+        $content = (string)$page['payload']['markdown']['content'];
+        self::assertStringContainsString('美团来源证据未通过', $content);
+        foreach (['8275.67元', '1318元', '1071次', '16.25%', '0单'] as $forbiddenValue) {
+            self::assertStringNotContainsString($forbiddenValue, $content);
+        }
     }
 
     public function testAdapterHasNoNetworkDatabaseOrSessionAccess(): void

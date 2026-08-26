@@ -240,10 +240,12 @@ final class AiEvaluationRunService
 
     private function assertReady(): void
     {
-        try {
-            Db::name(self::TABLE)->limit(1)->select();
-        } catch (\Throwable) {
+        $inspection = DatabaseSchemaRequirement::inspectTable(self::TABLE);
+        if ($inspection['status'] === DatabaseSchemaRequirement::STATUS_MISSING) {
             throw new RuntimeException('AI评测批次表尚未迁移', 503);
+        }
+        if ($inspection['status'] !== DatabaseSchemaRequirement::STATUS_PRESENT) {
+            throw new RuntimeException('AI评测批次表结构检查失败', 503);
         }
     }
 

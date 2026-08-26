@@ -503,8 +503,9 @@ trait OperationExecutionTenantConcern
         }
 
         $managedActionCard = is_array($payload['target_value']['action_card'] ?? null)
-            && (string)($payload['target_value']['action_card']['contract_version'] ?? '')
-                === \app\service\OperationActionLifecycleService::CARD_CONTRACT_VERSION;
+            && \app\service\OperationActionLifecycleService::isManagedCard(
+                (array)$payload['target_value']['action_card']
+            );
         try {
             $persist = function () use ($insert, $payload, $hotelIds, $createdBy): array {
                 $id = (int)Db::name('operation_execution_intents')->insertGetId(

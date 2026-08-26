@@ -8,6 +8,8 @@ use think\facade\Db;
 
 class RevenueAiOverviewService
 {
+    public const AS_OF_DATE_CONTRACT_VERSION = RevenueOverviewDateContract::VERSION;
+
     private const CHANNELS = ['ctrip', 'meituan'];
     private const CTRIP_COMPETITOR_PLATFORM_VALUES = [1, '1', 'ctrip'];
 
@@ -26,7 +28,7 @@ class RevenueAiOverviewService
      */
     public function overview(array $filters = []): array
     {
-        $businessDate = $this->businessDate($filters['business_date'] ?? null);
+        $businessDate = RevenueOverviewDateContract::businessDate($filters['business_date'] ?? null);
         $hotelScope = $this->resolveHotelScope($filters);
         $hotelId = $hotelScope['hotel_id'];
         $hotelIds = $hotelScope['permitted_hotel_ids'];
@@ -68,6 +70,7 @@ class RevenueAiOverviewService
 
         $context = [
                 'business_date' => $businessDate,
+                'as_of_date' => RevenueOverviewDateContract::serverAsOfDate(),
                 'hotel_id' => $hotelId,
                 'enabled_channels' => $enabledChannels,
                 'require_p0_downstream_gate' => true,
@@ -330,7 +333,8 @@ class RevenueAiOverviewService
      */
     public function buildOverviewFromDataset(array $dataset, array $channelDatasets = [], array $sourceStatuses = [], array $context = []): array
     {
-        $businessDate = $this->businessDate($context['business_date'] ?? null);
+        $businessDate = RevenueOverviewDateContract::businessDate($context['business_date'] ?? null);
+        $asOfDate = RevenueOverviewDateContract::asOfDate($context['as_of_date'] ?? null);
         $hotelId = $this->hotelId($context['hotel_id'] ?? null);
         $enabledChannels = $this->enabledChannels($context['enabled_channels'] ?? null);
         $scopeChannels = $enabledChannels !== [] ? $enabledChannels : self::CHANNELS;
@@ -613,6 +617,8 @@ class RevenueAiOverviewService
                 )
                 : 'Phase 1A 使用 online_daily_data.data_date；尚未等同于入住日 stay_date、下单日 booking_date 或结算日 settlement_date。',
             'business_date' => $businessDate,
+            'as_of_date' => $asOfDate,
+            'as_of_date_contract_version' => self::AS_OF_DATE_CONTRACT_VERSION,
             'hotel_id' => $hotelId,
             'source_channels' => $revenueFactLayer === []
                 ? $displaySourceChannels
@@ -800,21 +806,6 @@ class RevenueAiOverviewService
                     ? 'local_25_column_layout_and_readback_verified'
                     : 'compatible_layout_readback_verified'),
         ];
-    }
-
-    /**
-     * @param mixed $value
-     */
-    private function businessDate(mixed $value): string
-    {
-        $text = trim((string)($value ?? ''));
-        if ($text === '') {
-            return date('Y-m-d', strtotime('-1 day'));
-        }
-        if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $text) !== 1) {
-            throw new RuntimeException('Invalid business_date, expected YYYY-MM-DD', 422);
-        }
-        return $text;
     }
 
     /**

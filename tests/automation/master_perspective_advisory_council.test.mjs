@@ -9,6 +9,7 @@ const council = read('app/service/OperatingQuestionCouncilService.php');
 const controller = read('app/controller/OperatingIntelligence.php');
 const routes = read('route/app.php');
 const component = read('public/components/system/operating-intelligence-components.js');
+const componentLoader = read('public/components/system/operating-intelligence-loader.js');
 const appMain = read('public/app-main.js');
 const index = read('public/index.html');
 const manifest = JSON.parse(read('docs/knowledge/master-perspectives/source-manifest.json'));
@@ -106,7 +107,12 @@ test('UI tells the truth about source, disagreement, falsification and execution
 test('deferred council component uses an exact content fingerprint', () => {
   const hash = crypto.createHash('sha256').update(component).digest('hex').slice(0, 10);
   assert.match(
-    index,
+    componentLoader,
     new RegExp(`components/system/operating-intelligence-components\\.js\\?v=[^'"]*-h${hash}`),
+  );
+  assert.doesNotMatch(
+    index,
+    /components\/system\/operating-intelligence-components\.js/,
+    'the full advisory component must remain outside the global startup manifest',
   );
 });

@@ -228,7 +228,9 @@ window.SUXI_OPERATION_STATIC = (() => {
     const operationIsProtectedSystemAnalysis = (item) => item?.recommendation?.source_module === 'canonical_ota_investigation'
         || item?.execution?.mode === 'analysis_only'
         || item?.approval?.status === 'system_authorized_analysis';
-    const operationUsesIndependentAiReview = (item) => item?.action_management?.contract_version === 'operation_action_card.v1'
+    const operationIsManagedAction = (item) => ['operation_action_card.v1', 'operation_action_card.v2']
+        .includes(String(item?.action_management?.contract_version || ''));
+    const operationUsesIndependentAiReview = (item) => operationIsManagedAction(item)
         && String(item?.action_management?.action_card?.approval?.mode || '').trim().toLowerCase()
             === 'ai_independent_review';
     const operationCanApproveExecution = (item) => !operationIsProtectedSystemAnalysis(item)
@@ -237,7 +239,7 @@ window.SUXI_OPERATION_STATIC = (() => {
     const operationCanExecuteWithEvidence = (item) => {
         if (operationIsProtectedSystemAnalysis(item)) return false;
         const status = item?.execution?.status || '';
-        const isManagedAction = item?.action_management?.contract_version === 'operation_action_card.v1';
+        const isManagedAction = operationIsManagedAction(item);
         const canStartExecution = status === 'executing' || (status === 'pending_execute' && !isManagedAction);
         const canSupplementManualEvidence = status === 'executed'
             && item?.recommendation?.object_type !== 'price'
@@ -245,6 +247,7 @@ window.SUXI_OPERATION_STATIC = (() => {
         return (canStartExecution || canSupplementManualEvidence) && Number(item?.execution?.task_id || 0) > 0;
     };
     const operationCanRecordNodeCheck = (item) => !operationIsProtectedSystemAnalysis(item)
+        && item?.recommendation?.source_module !== 'daily_one_thing'
         && ['pending_execute', 'executing', 'executed'].includes(item?.execution?.status || '')
         && Number(item?.execution?.task_id || 0) > 0;
     const operationCanReviewExecution = (item) => !operationIsProtectedSystemAnalysis(item) && item?.execution?.status === 'executed' && item?.review?.is_available !== false && !['success', 'near_success', 'failed'].includes(item?.review?.status || '') && Number(item?.execution?.task_id || 0) > 0;
@@ -252,7 +255,7 @@ window.SUXI_OPERATION_STATIC = (() => {
         && item?.execution?.status === 'executed'
         && item?.review?.is_available === true
         && item?.evidence_truth?.source_verified !== true
-        && ['ota_diagnosis_saved', 'operating_question', 'revenue_cockpit_action'].includes(item?.recommendation?.source_module)
+        && ['ota_diagnosis_saved', 'operating_question', 'revenue_cockpit_action', 'daily_one_thing'].includes(item?.recommendation?.source_module)
         && !['success', 'near_success', 'failed'].includes(item?.review?.status || '')
         && Number(item?.execution?.task_id || 0) > 0;
     const operationExecutionActionAvailable = (item) => operationCanApproveExecution(item)
@@ -308,6 +311,7 @@ window.SUXI_OPERATION_STATIC = (() => {
         }
         if (sourceKey.startsWith('ota_diagnosis_saved')) return 'OTA诊断行动';
         if (sourceKey.startsWith('operating_question')) return '真实经营问题行动';
+        if (sourceKey.startsWith('daily_one_thing')) return '每日一件事';
         if (sourceKey.startsWith('daily_workbench_patrol')) return '巡检补证任务';
         if (sourceKey.startsWith('ota_diagnosis')) return '历史OTA诊断行动';
         if (sourceKey.startsWith('temporal_forecast_recommendation')) return '预测运营建议';
@@ -1528,8 +1532,10 @@ window.SUXI_OPERATION_STATIC = (() => {
             if (res.code !== 200 || Number(res.data?.id || 0) !== mutationContext.intentId) throw new Error(res.message || '运营行动取消失败');
             const intent = await readOperationExecutionIntent(ctx.request, mutationContext.intentId, mutationContext.hotelId);
             assertOperationExecutionMutationDigestReadback(intent, mutationContext);
-            if (String(intent?.status || '') !== 'cancelled'
-                || String(intent?.action_management?.lifecycle?.status || '') !== 'cancelled') throw new Error('运营行动未按 ID 回读到已取消状态');
+            const isDailyV2 = String(item?.action_management?.contract_version || '') === 'operation_action_card.v2';
+            const expectedIntentStatus = isDailyV2 ? 'blocked' : 'cancelled';
+            if (String(intent?.status || '') !== expectedIntentStatus
+                || String(intent?.action_management?.lifecycle?.status || '') !== expectedIntentStatus) throw new Error('运营行动未按 ID 回读到已取消状态');
             ctx.toast('运营行动已取消，历史版本仍完整保留');
             await ctx.loadActions({ focusIntentId: mutationContext.intentId });
         } catch (error) {

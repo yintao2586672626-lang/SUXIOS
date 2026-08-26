@@ -425,7 +425,62 @@ final class OperatingIntelligenceServiceTest extends TestCase
         }
         Db::name('online_daily_data')->insertAll($rows);
 
-        $result = (new OperatingQuestionService())->scopeOptions(10, 20);
+        $closureReader = static function (int $hotelId, string $businessDate) use (
+            $sharedDate,
+            $latestMeituan,
+            $partialDate
+        ): array {
+            $field = static function (
+                string $platform,
+                bool $consumable,
+                int $value,
+                string $businessDate
+            ): array {
+                return [
+                    'key' => 'exposure',
+                    'status' => $consumable ? 'strict_readback' : 'caliber_uncertain',
+                    'value' => $consumable ? $value : null,
+                    'strict_final_gate' => $consumable,
+                    'revenue_analysis_consumable' => $consumable,
+                    'readback_status' => 'readback_verified',
+                    'tenant_id' => 10,
+                    'system_hotel_id' => 20,
+                    'platform' => $platform,
+                    'business_date' => $businessDate,
+                ];
+            };
+            $ctripConsumable = $businessDate === $sharedDate;
+            $meituanConsumable = in_array($businessDate, [$sharedDate, $latestMeituan], true);
+            $identity = 'dual_ota_field_closure#' . substr(hash('sha256', $businessDate), 0, 16);
+            return [
+                'contract_version' => 'dual_ota_field_closure.v1',
+                'tenant_id' => 10,
+                'hotel_id' => $hotelId,
+                'business_date' => $businessDate,
+                'page_identity' => $identity,
+                'consumer_contract' => [
+                    'contract_version' => 'trusted_ota_daily_fact_consumer.v1',
+                    'closure_identity' => $identity,
+                    'field_source_path' => 'platforms.{platform}.fields',
+                    'metric_values_duplicated' => false,
+                    'allowed_fact_statuses' => ['strict_readback', 'verified_calculation'],
+                ],
+                'platforms' => [
+                    'ctrip' => [
+                        'fields' => [$field('ctrip', $ctripConsumable, 101, $businessDate)],
+                    ],
+                    'meituan' => [
+                        'fields' => [$field('meituan', $meituanConsumable, 202, $businessDate)],
+                    ],
+                ],
+            ];
+        };
+        $result = (new OperatingQuestionService(
+            null,
+            null,
+            null,
+            $closureReader
+        ))->scopeOptions(10, 20);
 
         self::assertSame('operating_question_scope_options.v1', $result['contract_version']);
         self::assertSame('ready', $result['data_status']);
@@ -437,6 +492,10 @@ final class OperatingIntelligenceServiceTest extends TestCase
             $result['platforms'][array_search('all_ota', array_column($result['platforms'], 'platform'), true)]['latest_verified_date']
         );
         self::assertNotContains($partialDate, $result['platforms'][array_search('ctrip', array_column($result['platforms'], 'platform'), true)]['available_dates']);
+        self::assertSame(
+            'trusted_ota_daily_fact_consumer.v1',
+            $result['boundary']['fact_authority']
+        );
     }
 
     public function testOperatingQuestionSavesExactEvidenceReadbackAndVisibleMissingState(): void
@@ -2635,23 +2694,18 @@ final class OperatingIntelligenceServiceTest extends TestCase
             ): array {
                 return [
                     'data' => [
-                        'answer_summary' => '本机第二大脑仅根据已回读的携程曝光事实给出只读判断。',
-                        'key_points' => ['当前事实只覆盖携程渠道。'],
-                        'missing_information' => [],
+                        'fact_claims' => [[
+                            'evidence_ref' => 'online_daily_data#9201',
+                            'metric_key' => 'list_exposure',
+                            'metric_definition_id' => 'ota_list_exposure.v1',
+                            'value' => 100,
+                            'unit' => 'exposure_count',
+                        ]],
                         'follow_up_questions' => [],
                         'confidence' => 'medium',
-                        'used_evidence_refs' => ['online_daily_data#9201'],
                         'action_drafts' => [],
                     ],
-                    'meta' => [
-                        'provider' => 'ollama',
-                        'model_key' => 'local_second_brain',
-                        'model' => 'qwen3:8b',
-                        'finish_reason' => 'stop',
-                        'fallback_used' => false,
-                        'cache_hit' => false,
-                        'degraded' => false,
-                    ],
+                    'meta' => OperatingIntelligenceServiceTest::localMeta(),
                 ];
             }
         };
@@ -2669,13 +2723,18 @@ final class OperatingIntelligenceServiceTest extends TestCase
                 'status' => 'evidence_ready',
                 'summary' => '严格证据摘要',
                 'evidence_counts' => ['facts' => 1],
-                'fact_samples' => [[
-                    'ref' => 'online_daily_data#9201',
-                    'data_date' => '2026-08-10',
-                    'platform' => 'ctrip',
-                    'metric_values' => ['list_exposure' => 100],
-                    'metric_units' => ['list_exposure' => 'exposure_count'],
-                ]],
+                'fact_samples' => [self::substantiveFact(9201, '2026-08-10')],
+                'question_metric_contract' => [
+                    'contract_version' => OperatingQuestionService::METRIC_INTENT_CONTRACT_VERSION,
+                    'mode' => 'metric_lookup',
+                    'requested_metrics' => [[
+                        'metric_key' => 'list_exposure',
+                        'definition_ids' => ['ota_list_exposure.v1'],
+                    ]],
+                    'required_platforms' => ['ctrip'],
+                    'required_dates' => ['2026-08-10'],
+                    'action_draft_allowed' => true,
+                ],
             ],
             'evidence' => [],
             'model_key' => 'local_second_brain',
@@ -2685,8 +2744,12 @@ final class OperatingIntelligenceServiceTest extends TestCase
         self::assertTrue($result['ok']);
         self::assertSame('ready', $result['status']);
         self::assertSame('ollama', $result['provider']);
-        self::assertSame('qwen3:8b', $result['model']);
+        self::assertSame('qwen3:4b', $result['model']);
+        self::assertTrue($result['local_llm_called']);
         self::assertFalse($result['external_llm_called']);
-        self::assertSame('confirmed_local_success', $result['external_llm_call_status']);
+        self::assertSame(
+            OperatingQuestionAiAnswerService::LOCAL_CALL_STATUS,
+            $result['external_llm_call_status']
+        );
     }
 }

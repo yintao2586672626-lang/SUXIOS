@@ -1,7 +1,7 @@
 (() => {
     const registry = window.SUXI_SYSTEM_COMPONENTS || (window.SUXI_SYSTEM_COMPONENTS = {});
-    const bodyScript = 'business-closure-views.js?v=20260803-business-closure-template-split-v1-hbc6902eef8';
-    const aiDailyDeliveryScript = 'ai-daily-report-delivery.js?v=20260824-ai-daily-report-delivery-v1-hc7c72f2962';
+    const bodyScript = 'business-closure-views.js?v=20260803-business-closure-template-split-v1-hfa0b561cab';
+    const aiDailyDeliveryScript = 'ai-daily-report-delivery.js?v=20260824-ai-daily-report-delivery-v1-h7b7d913022';
     let loadPromise = null;
 
     const loadScript = (source) => new Promise((resolve, reject) => {
@@ -60,6 +60,7 @@
         ['HomeTemporalTrialView', 'HomeTemporalTrialBody'],
         ['KnowledgeXlsxImportDialogView', 'KnowledgeXlsxImportDialogBody'],
         ['MeituanReviewOrderEvidenceView', 'MeituanReviewOrderEvidenceBody'],
+        ['AiDailyTrustedBroadcastView', 'AiDailyTrustedBroadcastBody'],
         ['AiDailyPresentationDeliveryView', 'AiDailyPresentationDeliveryBody'],
     ];
     for (const [viewKey, bodyKey] of definitions) {

@@ -517,15 +517,24 @@ test('intervention learning exposes latest intent assessment with three-state an
   );
 });
 
-test('managed operating questions never expose the human approval action', () => {
+test('human-reviewed questions expose approval while independent-review cards do not impersonate human approval', () => {
   const api = loadOperationStaticApi();
-  const item = {
+  const humanReviewedItem = {
     recommendation: { source_module: 'operating_question', object_type: 'operation_checklist' },
     action_management: { contract_version: 'operation_action_card.v1' },
     approval: { status: 'pending_approval' },
     execution: { mode: '', status: 'pending_create', task_id: 0 },
   };
+  const independentReviewItem = {
+    ...humanReviewedItem,
+    action_management: {
+      contract_version: 'operation_action_card.v1',
+      action_card: { approval: { mode: 'ai_independent_review' } },
+    },
+  };
 
-  assert.equal(api.operationCanApproveExecution(item), false);
-  assert.equal(api.operationExecutionActionAvailable(item), false);
+  assert.equal(api.operationCanApproveExecution(humanReviewedItem), true);
+  assert.equal(api.operationExecutionActionAvailable(humanReviewedItem), true);
+  assert.equal(api.operationCanApproveExecution(independentReviewItem), false);
+  assert.equal(api.operationExecutionActionAvailable(independentReviewItem), false);
 });

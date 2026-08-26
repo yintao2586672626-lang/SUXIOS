@@ -48,6 +48,8 @@ final class DualOtaFieldClosureServiceTest extends TestCase
                 'list_exposure' => 1083,
                 'detail_exposure' => 206,
                 'flow_rate' => 3.88,
+                'history_status' => 'success',
+                'validation_status' => 'verified',
                 'raw_data' => json_encode(['row' => [
                     '_capture_source' => 'xhr:traffic:traffic',
                     'exposure_to_browse_rate' => 19.02,
@@ -75,18 +77,21 @@ final class DualOtaFieldClosureServiceTest extends TestCase
         );
 
         $ctrip = $this->fields($closure['platforms']['ctrip']['fields']);
-        self::assertSame(5921.18, $ctrip['revenue']['value']);
-        self::assertSame('strict_readback', $ctrip['revenue']['status']);
+        self::assertNull($ctrip['revenue']['value']);
+        self::assertSame('caliber_uncertain', $ctrip['revenue']['status']);
+        self::assertSame(5921.18, $ctrip['revenue']['observed_values'][0]['value']);
         self::assertSame([101519], $ctrip['revenue']['source_record_ids']);
         self::assertTrue($ctrip['revenue']['current_receipt_binding_verified']);
         self::assertTrue($ctrip['revenue']['exact_run_scope_verified']);
-        self::assertSame(4.0, $ctrip['order_count']['value']);
+        self::assertNull($ctrip['order_count']['value']);
+        self::assertSame('caliber_uncertain', $ctrip['order_count']['status']);
         self::assertSame([101810], $ctrip['order_count']['source_record_ids']);
-        self::assertSame(8.0, $ctrip['room_nights']['value']);
-        self::assertSame(740.15, $ctrip['adr']['value']);
-        self::assertSame('verified_calculation', $ctrip['adr']['status']);
-        self::assertSame(43.0, $ctrip['visits']['value']);
-        self::assertSame('missing', $ctrip['exposure']['status']);
+        self::assertNull($ctrip['room_nights']['value']);
+        self::assertNull($ctrip['adr']['value']);
+        self::assertSame('caliber_uncertain', $ctrip['adr']['status']);
+        self::assertNull($ctrip['visits']['value']);
+        self::assertSame('caliber_uncertain', $ctrip['visits']['status']);
+        self::assertSame('field_unavailable', $ctrip['exposure']['status']);
         self::assertFalse($ctrip['revenue']['revenue_analysis_consumable']);
         self::assertSame('verified', $closure['platforms']['ctrip']['identity_status']);
 
@@ -95,8 +100,10 @@ final class DualOtaFieldClosureServiceTest extends TestCase
         self::assertSame('caliber_uncertain', $meituan['revenue']['status']);
         self::assertSame([101874, 101919], $meituan['revenue']['source_record_ids']);
         self::assertCount(2, $meituan['revenue']['observed_values']);
-        self::assertSame(8.0, $meituan['order_count']['value']);
-        self::assertSame(12.0, $meituan['room_nights']['value']);
+        self::assertNull($meituan['order_count']['value']);
+        self::assertSame('caliber_uncertain', $meituan['order_count']['status']);
+        self::assertNull($meituan['room_nights']['value']);
+        self::assertSame('caliber_uncertain', $meituan['room_nights']['status']);
         self::assertNull($meituan['adr']['value']);
         self::assertSame('caliber_uncertain', $meituan['adr']['status']);
         self::assertSame(1083.0, $meituan['exposure']['value']);
@@ -108,6 +115,12 @@ final class DualOtaFieldClosureServiceTest extends TestCase
             $meituan['conversion']['quality_flags']
         );
         self::assertSame([101917], $meituan['conversion']['source_record_ids']);
+        self::assertSame('verified', $meituan['exposure']['validation_status']);
+        self::assertSame('readback_verified', $meituan['exposure']['readback_status']);
+        self::assertSame('platform_data_sync_task#4352', $meituan['exposure']['capture_ref']);
+        self::assertSame(['list_exposure'], $meituan['exposure']['consumer_metric_keys']);
+        self::assertSame('trusted_ota_daily_fact_consumer.v1', $closure['consumer_contract']['contract_version']);
+        self::assertFalse($closure['consumer_contract']['metric_values_duplicated']);
         self::assertContains(101931, $closure['platforms']['meituan']['formal_record_ids']);
         self::assertContains(101931, $closure['platforms']['meituan']['current_receipt_all_record_ids']);
         self::assertContains(101931, $closure['platforms']['meituan']['current_receipt_non_eligible_record_ids']);
@@ -145,13 +158,14 @@ final class DualOtaFieldClosureServiceTest extends TestCase
         );
         $ctrip = $this->fields($closure['platforms']['ctrip']['fields']);
 
-        self::assertSame('login_expired', $ctrip['revenue']['status']);
+        self::assertSame('source_missing', $ctrip['revenue']['status']);
         self::assertNull($ctrip['revenue']['value']);
         self::assertSame([], $ctrip['revenue']['source_record_ids']);
-        self::assertSame('login_expired', $ctrip['source_record_id']['status']);
-        self::assertSame('login_expired', $ctrip['cancellation']['status']);
-        self::assertSame('login_expired', $ctrip['sellable']['status']);
-        self::assertSame('login_expired', $ctrip['bookable']['status']);
+        self::assertSame('source_missing', $ctrip['source_record_id']['status']);
+        self::assertSame('source_missing', $ctrip['cancellation']['status']);
+        self::assertSame('source_missing', $ctrip['sellable']['status']);
+        self::assertSame('source_missing', $ctrip['bookable']['status']);
+        self::assertSame('login_expired', $closure['platforms']['ctrip']['current_collection_blocker_status']);
     }
 
     public function testCurrentFailedReceiptCannotBorrowOlderSameDayRows(): void
@@ -187,7 +201,7 @@ final class DualOtaFieldClosureServiceTest extends TestCase
         );
         $ctrip = $this->fields($closure['platforms']['ctrip']['fields']);
 
-        self::assertSame('login_expired', $ctrip['revenue']['status']);
+        self::assertSame('source_missing', $ctrip['revenue']['status']);
         self::assertNull($ctrip['revenue']['value']);
         self::assertFalse($ctrip['revenue']['revenue_analysis_consumable']);
         self::assertSame('partial', $closure['platforms']['ctrip']['identity_status']);
@@ -219,12 +233,14 @@ final class DualOtaFieldClosureServiceTest extends TestCase
         $ctripFields = $this->fields($closure['platforms']['ctrip']['fields']);
         $meituanFields = $this->fields($closure['platforms']['meituan']['fields']);
 
-        self::assertSame('collection_failed', $ctripFields['revenue']['status']);
+        self::assertSame('source_missing', $ctripFields['revenue']['status']);
         self::assertNull($ctripFields['revenue']['value']);
-        self::assertSame('collection_failed', $ctripFields['cancellation']['status']);
-        self::assertSame('date_mismatch', $meituanFields['revenue']['status']);
+        self::assertSame('source_missing', $ctripFields['cancellation']['status']);
+        self::assertSame('source_missing', $meituanFields['revenue']['status']);
         self::assertNull($meituanFields['revenue']['value']);
-        self::assertSame('date_mismatch', $meituanFields['cancellation']['status']);
+        self::assertSame('source_missing', $meituanFields['cancellation']['status']);
+        self::assertSame('collection_failed', $closure['platforms']['ctrip']['current_collection_blocker_status']);
+        self::assertSame('date_mismatch', $closure['platforms']['meituan']['current_collection_blocker_status']);
     }
 
     public function testStructuredPartialCollectionKeepsAcceptedRowsButMarksAbsentFieldsFailed(): void
@@ -233,6 +249,11 @@ final class DualOtaFieldClosureServiceTest extends TestCase
         $ctrip = &$trust['days'][0]['platforms'][0];
         $ctrip['status'] = 'collection_failed';
         $ctrip['acceptance_receipt']['reason_codes'] = [];
+        $ctrip['acceptance_receipt']['run_readback_scope'] = [
+            'status' => 'verified',
+            'receipt_record_ids' => [101519],
+            'accepted_record_ids' => [101519],
+        ];
         unset($ctrip);
         $accepted = $this->row(101519, 'ctrip', 'business', [
             'dimension' => 'catalog:business_overview:business_market_overview:order_amount+order_amount_last_week+amount_rank:data.amount',
@@ -248,9 +269,10 @@ final class DualOtaFieldClosureServiceTest extends TestCase
         );
         $fields = $this->fields($closure['platforms']['ctrip']['fields']);
 
-        self::assertSame('strict_readback', $fields['revenue']['status']);
-        self::assertSame(5921.18, $fields['revenue']['value']);
-        self::assertSame('collection_failed', $fields['exposure']['status']);
+        self::assertSame('caliber_uncertain', $fields['revenue']['status']);
+        self::assertNull($fields['revenue']['value']);
+        self::assertSame(5921.18, $fields['revenue']['observed_values'][0]['value']);
+        self::assertSame('source_missing', $fields['exposure']['status']);
         self::assertNull($fields['exposure']['value']);
     }
 
@@ -260,6 +282,11 @@ final class DualOtaFieldClosureServiceTest extends TestCase
         $ctrip = &$trust['days'][0]['platforms'][0];
         $ctrip['steps']['account_profile_binding'] = false;
         $ctrip['acceptance_receipt']['platform_hotel_status'] = 'unverified';
+        $ctrip['acceptance_receipt']['run_readback_scope'] = [
+            'status' => 'verified',
+            'receipt_record_ids' => [101519],
+            'accepted_record_ids' => [101519],
+        ];
         unset($ctrip);
         $row = $this->row(101519, 'ctrip', 'business', [
             'dimension' => 'catalog:business_overview:business_market_overview:order_amount+order_amount_last_week+amount_rank:data.amount',
@@ -309,9 +336,9 @@ final class DualOtaFieldClosureServiceTest extends TestCase
         );
         $ctrip = $this->fields($closure['platforms']['ctrip']['fields']);
 
-        self::assertSame('missing', $ctrip['revenue']['status']);
+        self::assertSame('readback_failed', $ctrip['revenue']['status']);
         self::assertNull($ctrip['revenue']['value']);
-        self::assertSame('missing', $ctrip['order_count']['status']);
+        self::assertSame('readback_failed', $ctrip['order_count']['status']);
         self::assertSame([], $closure['platforms']['ctrip']['formal_record_ids']);
     }
 
@@ -490,6 +517,8 @@ final class DualOtaFieldClosureServiceTest extends TestCase
             'amount' => 7025.14,
             'quantity' => 12,
             'book_order_num' => 8,
+            'history_status' => 'success',
+            'validation_status' => 'verified',
             'sync_task_id' => 4364,
             'data_period' => 'historical_daily',
             'raw_data' => json_encode(['row' => [
@@ -523,7 +552,7 @@ final class DualOtaFieldClosureServiceTest extends TestCase
         self::assertFalse($fields['revenue']['current_receipt_binding_verified']);
         self::assertFalse($fields['revenue']['revenue_analysis_consumable']);
         self::assertSame('caliber_uncertain', $fields['adr']['status']);
-        self::assertSame('missing', $fields['exposure']['status']);
+        self::assertSame('readback_failed', $fields['exposure']['status']);
         self::assertSame(
             ['online_daily_data#101926'],
             $fields['source_record_id']['value']
@@ -553,6 +582,8 @@ final class DualOtaFieldClosureServiceTest extends TestCase
             'amount' => 7025.14,
             'quantity' => 12,
             'book_order_num' => 8,
+            'history_status' => 'success',
+            'validation_status' => 'verified',
             'sync_task_id' => 4364,
             'data_period' => 'historical_daily',
             'raw_data' => json_encode(['row' => [
@@ -663,9 +694,9 @@ final class DualOtaFieldClosureServiceTest extends TestCase
         self::assertSame([], $platform['semantic_veto_record_refs']);
         self::assertContains(102432, $platform['formal_record_ids']);
         self::assertSame('blocked', $platform['revenue_analysis']['status']);
-        self::assertSame('platform_not_provided', $fields['cancellation']['status']);
-        self::assertSame('platform_not_provided', $fields['sellable']['status']);
-        self::assertSame('platform_not_provided', $fields['bookable']['status']);
+        self::assertSame('field_unavailable', $fields['cancellation']['status']);
+        self::assertSame('field_unavailable', $fields['sellable']['status']);
+        self::assertSame('field_unavailable', $fields['bookable']['status']);
     }
 
     public function testCurrentCtripZeroOrderProjectionConflictingWithBusinessSummaryIsUncertain(): void
@@ -713,6 +744,223 @@ final class DualOtaFieldClosureServiceTest extends TestCase
             $field['quality_flags']
         );
         self::assertFalse($field['revenue_analysis_consumable']);
+    }
+
+    public function testHotel80VerifiedMeituanTrafficCarriesTheCompleteCanonicalIdentityChain(): void
+    {
+        $raw = [
+            'source_trace_id' => 'meituan:test-trace',
+            'source_url_hash' => str_repeat('a', 64),
+            'row' => [
+                '_capture_source' => 'xhr:traffic:traffic',
+                '_source_path' => 'data.myHotel',
+                'exposure_to_browse_rate' => 14.49,
+            ],
+            'field_facts' => [
+                [
+                    'metric_key' => 'list_exposure',
+                    'source_path' => 'data.myHotel.exposureUV',
+                    'storage_field' => 'online_daily_data.list_exposure',
+                    'status' => 'captured',
+                    'stored_value_present' => true,
+                    'capture_evidence' => [
+                        'capture_source' => 'xhr:traffic:traffic',
+                        'source_trace_id' => 'meituan:test-trace',
+                        'source_url_hash' => str_repeat('a', 64),
+                    ],
+                ],
+                [
+                    'metric_key' => 'detail_exposure',
+                    'source_path' => 'data.myHotel.intentionUV',
+                    'storage_field' => 'online_daily_data.detail_exposure',
+                    'status' => 'captured',
+                    'stored_value_present' => true,
+                    'capture_evidence' => [
+                        'capture_source' => 'xhr:traffic:traffic',
+                        'source_trace_id' => 'meituan:test-trace',
+                        'source_url_hash' => str_repeat('a', 64),
+                    ],
+                ],
+                [
+                    'metric_key' => 'flow_rate',
+                    'source_path' => 'data.myHotel.exposure_to_browse_rate',
+                    'storage_field' => 'online_daily_data.flow_rate',
+                    'status' => 'captured',
+                    'stored_value_present' => true,
+                    'capture_evidence' => [
+                        'capture_source' => 'xhr:traffic:traffic',
+                        'source_trace_id' => 'meituan:test-trace',
+                        'source_url_hash' => str_repeat('a', 64),
+                    ],
+                ],
+            ],
+        ];
+        $row = $this->row(102476, 'meituan', 'traffic', [
+            'data_period' => 'historical_daily',
+            'history_status' => 'success',
+            'validation_status' => 'verified',
+            'list_exposure' => 1422,
+            'detail_exposure' => 206,
+            'flow_rate' => 14.49,
+            'sync_task_id' => 4427,
+            'source_trace_id' => 'meituan:test-trace',
+            'raw_data' => json_encode($raw, JSON_THROW_ON_ERROR),
+        ]);
+        $trust = $this->trust();
+        $meituan = &$trust['days'][0]['platforms'][1];
+        $meituan['sync_task_id'] = 4427;
+        $meituan['acceptance_receipt']['sync_task_id'] = 4427;
+        $meituan['acceptance_receipt']['data_period'] = 'historical_daily';
+        $meituan['acceptance_receipt']['platform_hotel_id'] = '1029642156589279';
+        $meituan['acceptance_receipt']['source_method'] = 'browser_profile';
+        $meituan['acceptance_receipt']['run_readback_scope'] = [
+            'status' => 'verified',
+            'receipt_record_ids' => [102476],
+            'accepted_record_ids' => [102476],
+        ];
+        unset($meituan);
+
+        $closure = DualOtaFieldClosureService::evaluate(
+            ['id' => 80, 'tenant_id' => 7, 'name' => 'Hotel 80'],
+            '2026-08-23',
+            [$row],
+            $trust
+        );
+        $fields = $this->fields($closure['platforms']['meituan']['fields']);
+
+        self::assertSame(1422.0, $fields['exposure']['value']);
+        self::assertSame(206.0, $fields['visits']['value']);
+        self::assertSame(14.49, $fields['conversion']['value']);
+        self::assertSame('strict_readback', $fields['exposure']['status']);
+        self::assertSame('verified_calculation', $fields['conversion']['status']);
+        self::assertSame([102476], $fields['exposure']['source_record_ids']);
+        self::assertSame([102476], $fields['visits']['source_record_ids']);
+        self::assertSame([102476], $fields['conversion']['source_record_ids']);
+        self::assertSame(7, $fields['exposure']['tenant_id']);
+        self::assertSame(80, $fields['exposure']['system_hotel_id']);
+        self::assertSame('meituan', $fields['exposure']['platform']);
+        self::assertSame('1029642156589279', $fields['exposure']['platform_store_id']);
+        self::assertSame('verified', $fields['exposure']['store_profile_status']);
+        self::assertSame('2026-08-23', $fields['exposure']['business_date']);
+        self::assertSame('platform_data_sync_task#4427', $fields['exposure']['capture_ref']);
+        self::assertSame(['xhr:traffic:traffic'], $fields['exposure']['endpoint_ids']);
+        self::assertSame(['data.myHotel.exposureUV'], $fields['exposure']['source_paths']);
+        self::assertSame('exposure', $fields['exposure']['metric_key']);
+        self::assertSame('users', $fields['exposure']['unit']);
+        self::assertSame('verified', $fields['exposure']['validation_status']);
+        self::assertSame('readback_verified', $fields['exposure']['readback_status']);
+        self::assertTrue($fields['conversion']['same_snapshot_verified']);
+        self::assertSame(
+            $closure['page_identity'],
+            $closure['consumer_contract']['closure_identity']
+        );
+    }
+
+    public function testDuplicateCurrentReceiptRecordsAreNeverSummedAndConflictsFailClosed(): void
+    {
+        $base = [
+            'amount' => 7025.14,
+            'quantity' => 12,
+            'book_order_num' => 8,
+            'data_period' => 'historical_daily',
+            'history_status' => 'success',
+            'validation_status' => 'verified',
+            'sync_task_id' => 5001,
+            'raw_data' => json_encode(['row' => [
+                '_capture_source' => 'xhr:orders:daily_summary',
+            ]], JSON_THROW_ON_ERROR),
+        ];
+        $first = $this->row(201, 'meituan', 'order', $base);
+        $same = $this->row(202, 'meituan', 'order', $base + ['snapshot_time' => '2026-08-24 01:00:00']);
+        $trust = $this->trust();
+        $meituan = &$trust['days'][0]['platforms'][1];
+        $meituan['sync_task_id'] = 5001;
+        $meituan['acceptance_receipt']['sync_task_id'] = 5001;
+        $meituan['acceptance_receipt']['data_period'] = 'historical_daily';
+        $meituan['acceptance_receipt']['run_readback_scope'] = [
+            'status' => 'verified',
+            'receipt_record_ids' => [201, 202],
+            'accepted_record_ids' => [201, 202],
+        ];
+        unset($meituan);
+
+        $deduplicated = DualOtaFieldClosureService::evaluate(
+            ['id' => 80, 'tenant_id' => 7],
+            '2026-08-23',
+            [$first, $same],
+            $trust
+        );
+        $deduplicatedRevenue = $this->fields(
+            $deduplicated['platforms']['meituan']['fields']
+        )['revenue'];
+        self::assertSame(7025.14, $deduplicatedRevenue['value']);
+        self::assertSame([201, 202], $deduplicatedRevenue['source_record_ids']);
+        self::assertContains(
+            'duplicate_current_receipt_records_deduplicated',
+            $deduplicatedRevenue['quality_flags']
+        );
+
+        $conflicting = $same;
+        $conflicting['amount'] = 7100.00;
+        $conflict = DualOtaFieldClosureService::evaluate(
+            ['id' => 80, 'tenant_id' => 7],
+            '2026-08-23',
+            [$first, $conflicting],
+            $trust
+        );
+        $conflictedRevenue = $this->fields($conflict['platforms']['meituan']['fields'])['revenue'];
+        self::assertNull($conflictedRevenue['value']);
+        self::assertSame('caliber_uncertain', $conflictedRevenue['status']);
+        self::assertCount(2, $conflictedRevenue['observed_values']);
+        self::assertContains(
+            'duplicate_current_receipt_records_conflicted',
+            $conflictedRevenue['quality_flags']
+        );
+    }
+
+    public function testOldDateWrongHotelWrongPlatformAndEmptyResponseCannotEnterCurrentScope(): void
+    {
+        $wrongDate = $this->row(301, 'meituan', 'traffic', [
+            'data_date' => '2026-08-22',
+            'list_exposure' => 999,
+        ]);
+        $wrongHotel = $this->row(302, 'meituan', 'traffic', [
+            'system_hotel_id' => 81,
+            'list_exposure' => 999,
+        ]);
+        $wrongPlatform = $this->row(303, 'ctrip-copy', 'traffic', [
+            'list_exposure' => 999,
+        ]);
+        $trust = $this->trust();
+        $meituan = &$trust['days'][0]['platforms'][1];
+        $meituan['acceptance_receipt']['run_readback_scope'] = [
+            'status' => 'exact_run_readback_scope_mismatch',
+            'receipt_record_ids' => [9999],
+            'accepted_record_ids' => [9999],
+        ];
+        unset($meituan);
+
+        $closure = DualOtaFieldClosureService::evaluate(
+            ['id' => 80, 'tenant_id' => 7],
+            '2026-08-23',
+            [$wrongDate, $wrongHotel, $wrongPlatform],
+            $trust
+        );
+        $fields = $this->fields($closure['platforms']['meituan']['fields']);
+        self::assertNull($fields['exposure']['value']);
+        self::assertSame('readback_failed', $fields['exposure']['status']);
+        self::assertSame([], $fields['exposure']['source_record_ids']);
+
+        $empty = DualOtaFieldClosureService::evaluate(
+            ['id' => 80, 'tenant_id' => 7],
+            '2026-08-23',
+            [],
+            ['days' => []]
+        );
+        self::assertSame(
+            'source_missing',
+            $this->fields($empty['platforms']['meituan']['fields'])['exposure']['status']
+        );
     }
 
     /** @param array<string,mixed> $overrides @return array<string,mixed> */

@@ -107,8 +107,8 @@ export async function buildDataConfigDialogsComponent(template) {
 }
 
 export async function buildBusinessClosureViewsComponent(views) {
-  if (!Array.isArray(views) || views.length !== 7) {
-    throw new Error('Business closure component build requires exactly seven extracted views.');
+  if (!Array.isArray(views) || views.length !== 8) {
+    throw new Error('Business closure component build requires exactly eight extracted views.');
   }
   const componentKeys = new Set();
   const definitions = views.map((view) => {
@@ -118,8 +118,10 @@ export async function buildBusinessClosureViewsComponent(views) {
     }
     componentKeys.add(componentKey);
     const compiled = compileFrontendTemplate(view.template);
-    const setup = componentKey === 'AiDailyPresentationDeliveryBody'
-      ? 'setup(props){const factory=window.SUXI_AI_DAILY_REPORT_DELIVERY?.setup;if(typeof factory!=="function")throw new Error("AI日报交付组件未加载");return factory(props)}'
+    const setup = componentKey === 'AiDailyTrustedBroadcastBody'
+      ? 'setup(props){const factory=window.SUXI_AI_DAILY_REPORT_DELIVERY?.setupBroadcast;if(typeof factory!=="function")throw new Error("可信经营播报组件未加载");return factory(props)}'
+      : componentKey === 'AiDailyPresentationDeliveryBody'
+        ? 'setup(props){const factory=window.SUXI_AI_DAILY_REPORT_DELIVERY?.setup;if(typeof factory!=="function")throw new Error("AI日报交付组件未加载");return factory(props)}'
       : 'setup(props){return new Proxy({},{get(target,key){if(key==="ctx")return props.ctx;return props.ctx?.[key]??target[key]},set(target,key,value){if(props.ctx){props.ctx[key]=value;return true}target[key]=value;return true},has(target,key){return key in target||!!props.ctx},ownKeys(target){return Reflect.ownKeys(target)},getOwnPropertyDescriptor(){return{enumerable:true,configurable:true}}})}';
     return `components[${JSON.stringify(componentKey)}]={name:${JSON.stringify(componentKey)},props:{ctx:{type:Object,required:true}},${setup},render:(function(Vue){${compiled}})(Vue)};`;
   }).join('');
@@ -306,6 +308,7 @@ async function inspectFrontendTemplateBuildUnlocked(repoRoot) {
     '<home-temporal-trial-view v-if="!dualOtaPmsSelected" :ctx="$root"></home-temporal-trial-view>',
     '<knowledge-xlsx-import-dialog-view v-if="showKnowledgeCenterImportModal" :ctx="$root"></knowledge-xlsx-import-dialog-view>',
     '<meituan-review-order-evidence-view v-if="onlineDataTab === \'meituan-review-match\'" :ctx="$root"></meituan-review-order-evidence-view>',
+    '<ai-daily-trusted-broadcast-view :ctx="$root"></ai-daily-trusted-broadcast-view>',
     '<ai-daily-presentation-delivery-view :ctx="$root"></ai-daily-presentation-delivery-view>',
   ]) {
     if (!templateSnapshot.includes(wrapper)) {
@@ -319,6 +322,7 @@ async function inspectFrontendTemplateBuildUnlocked(repoRoot) {
     'HomeTemporalTrialBody',
     'KnowledgeXlsxImportDialogBody',
     'MeituanReviewOrderEvidenceBody',
+    'AiDailyTrustedBroadcastBody',
     'AiDailyPresentationDeliveryBody',
   ]) {
     if (!businessClosureViewsArtifact.includes(componentKey)) {

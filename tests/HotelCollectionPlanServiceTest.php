@@ -833,7 +833,6 @@ final class HotelCollectionPlanServiceTest extends TestCase
             reconciliation_status TEXT NOT NULL,
             readback_status TEXT NOT NULL,
             detail_row_count INTEGER NOT NULL
-            readback_status TEXT NOT NULL
         )');
     }
 }

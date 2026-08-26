@@ -78,19 +78,11 @@ test('Ctrip display removes unsupported estimates and refuses to invent full-cha
   assert.match(appTemplate, /hasDisplayValue\(hotel\.amount\)[\s\S]*Number\(hotel\.amount\)\.toLocaleString\('zh-CN', \{ minimumFractionDigits: 1, maximumFractionDigits: 1 \}\)/);
   assert.match(appTemplate, /hasDisplayValue\(hotel\.adr\)[\s\S]*Number\(hotel\.adr\)\.toLocaleString\('zh-CN', \{ minimumFractionDigits: 1, maximumFractionDigits: 1 \}\)/);
   for (const field of ['quantity', 'bookOrderNum', 'commentScore', 'qunarCommentScore']) {
-    assert.match(downloadTable, new RegExp(`formatOptionalNumber\\(row\\.${field}\\)`), `${field} must preserve zero while keeping missing values explicit`);
     assert.match(appTemplate, new RegExp(`formatOptionalNumber\\(hotel\\.${field}\\)`), `${field} must preserve the visible zero/missing state`);
   }
-  assert.match(appTemplate, /hasDisplayValue\(hotel\.amount\)[\s\S]*Number\(hotel\.amount\)\.toLocaleString\('zh-CN', \{ minimumFractionDigits: 1, maximumFractionDigits: 1 \}\)/);
-  assert.match(appTemplate, /hasDisplayValue\(hotel\.adr\)[\s\S]*Number\(hotel\.adr\)\.toLocaleString\('zh-CN', \{ minimumFractionDigits: 1, maximumFractionDigits: 1 \}\)/);
-  assert.match(downloadTable, /const oneDecimalText = \(value\) => hasDisplayValue\(value\)[\s\S]*minimumFractionDigits: 1, maximumFractionDigits: 1/);
-  assert.match(downloadTable, /value: row => oneDecimalText\(row\.amount\)/);
-  assert.match(downloadTable, /value: row => oneDecimalText\(row\.adr\)/);
-  assert.doesNotMatch(downloadTable, /row\.(?:quantity|bookOrderNum|commentScore|qunarCommentScore)\s*\|\|\s*'-'/);
-  assert.match(downloadTable, /value: row => ctripEarlyMorningTrafficText\(row, 'convertionRate', true\)/);
   assert.match(appMain, /const formatOptionalPercent = \(value, missingText = '未返回'\) => \{[\s\S]*Number\.isFinite\(numeric\) \? `\$\{toFixedSafe\(numeric, 2, '0\.00'\)\}%` : missingText/);
-  assert.match(downloadTable, /: formatOptionalNumber\(value\)/);
-  assert.doesNotMatch(downloadTable, /`≈\$\{formatNumber\(value\)\}`/);
+  assert.match(ctripStaticSource, /normalizeCtripVisibleDownloadText\(node\?\.innerText \?\? node\?\.textContent \?\? '', missingText\)/);
+  assert.match(ctripStaticSource, /Array\.from\(row\.querySelectorAll\?\.\('td'\) \|\| \[\]\)\.map\(cell => ctripVisibleDownloadNodeText\(cell\)\)/);
   assert.match(ctripStaticSource, /ctripVisibleDownloadNodeText/);
   assert.match(ctripStaticSource, /row => row\?\.\[columnIndex\] \?\? '-'/);
 });

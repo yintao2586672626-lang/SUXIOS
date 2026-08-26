@@ -690,6 +690,128 @@ final class OperatingQuestionExecutionBridgeServiceTest extends TestCase
         self::assertSame(1, (int)Db::name(OperationActionLifecycleService::REVIEW_TABLE)->count());
     }
 
+    public function testAggregateLifecycleReadReusesLoadedTaskScopeWhileIncompleteAndDirectReadsStayFailClosed(): void
+    {
+        $questionService = $this->readyQuestionService();
+        $saved = $questionService->create(
+            10,
+            20,
+            '2026-08-12 携程列表曝光用户数应复核什么？',
+            'ctrip',
+            '2026-08-12',
+            '2026-08-12',
+            7
+        );
+        $management = new OperationManagementService();
+        $intent = (new OperatingQuestionExecutionBridgeService(
+            $questionService,
+            $management
+        ))->createIntent((int)$saved['question']['id'], 0, 10, [20], 7)['execution_intent'];
+        $schedule = $intent['target_value']['workflow_schedule'];
+        $approved = $management->approveExecutionIntent(
+            (int)$intent['id'],
+            true,
+            '人工批准后验证聚合读取查询数',
+            8,
+            [20],
+            $this->humanApprovalInput($intent, [
+                'expected_metric' => 'list_exposure',
+                'expected_direction' => 'increase',
+                'target_type' => 'delta',
+                'expected_delta' => 100,
+                'review_business_date' => substr((string)$schedule['review_at'], 0, 10),
+                'assignee_id' => 8,
+                'due_at' => (string)$schedule['due_at'],
+                'review_at' => (string)$schedule['review_at'],
+            ])
+        );
+        $task = $approved['tasks'][0];
+        $lifecycle = new OperationActionLifecycleService();
+        $lifecycle->appendReview(
+            $approved,
+            $task,
+            [],
+            'observing',
+            '查询数回归夹具',
+            8,
+            date('Y-m-d H:i:s')
+        );
+
+        $queries = [];
+        Db::listen(static function ($sql) use (&$queries): void {
+            if (!str_starts_with((string)$sql, 'CONNECT:')) {
+                $queries[] = (string)$sql;
+            }
+        });
+        $taskPointSelects = static fn(array $logged): array => array_values(array_filter(
+            $logged,
+            static fn(string $sql): bool => preg_match(
+                '/\bfrom\s+[`"]?operation_execution_tasks[`"]?\b/i',
+                $sql
+            ) === 1 && preg_match(
+                '/(?:^|[^a-z0-9_])[`"]?id[`"]?\s*=\s*\d+/i',
+                $sql
+            ) === 1
+        ));
+
+        $readback = $management->readExecutionIntent((int)$intent['id'], [20]);
+        $aggregateTaskPointSelects = $taskPointSelects($queries);
+        self::assertCount(
+            0,
+            $aggregateTaskPointSelects,
+            "complete aggregate read must not point-query already loaded task scope:\n"
+                . implode("\n", $aggregateTaskPointSelects)
+        );
+        self::assertSame('verified', $readback['action_management']['integrity']['status']);
+        self::assertSame('verified', $readback['action_management']['review_integrity_status']);
+
+        $foreignTask = array_replace($task, ['id' => 999999, 'tenant_id' => 11]);
+        $foreignExcluded = $lifecycle->decorateIntent(array_replace($readback, [
+            'tasks' => [$task, $foreignTask],
+        ]));
+        self::assertSame(1, $foreignExcluded['action_management']['task_count']);
+        self::assertNotContains(
+            'operation_execution_tasks#999999',
+            $foreignExcluded['action_management']['traceability']['task_refs']
+        );
+
+        $beforeIncomplete = count($queries);
+        $incomplete = $lifecycle->decorateIntent(array_replace($readback, ['tasks' => []]));
+        $incompleteTaskPointSelects = $taskPointSelects(array_slice($queries, $beforeIncomplete));
+        self::assertCount(
+            2,
+            $incompleteTaskPointSelects,
+            "an incomplete intent must verify event and review task scope in the database:\n"
+                . implode("\n", $incompleteTaskPointSelects)
+        );
+        self::assertSame('verified', $incomplete['action_management']['integrity']['status']);
+
+        $beforeDirect = count($queries);
+        self::assertNotEmpty($lifecycle->eventsForIntent(10, 20, (int)$intent['id']));
+        self::assertNotEmpty($lifecycle->reviewsForIntent(10, 20, (int)$intent['id']));
+        $directTaskPointSelects = $taskPointSelects(array_slice($queries, $beforeDirect));
+        self::assertCount(
+            2,
+            $directTaskPointSelects,
+            "direct chain reads must retain database task-scope verification:\n"
+                . implode("\n", $directTaskPointSelects)
+        );
+
+        Db::name('operation_execution_tasks')->where('id', (int)$task['id'])->update(['tenant_id' => 11]);
+        try {
+            $lifecycle->decorateIntent(array_replace($readback, ['tasks' => []]));
+            self::fail('an incomplete aggregate must fail closed after task scope drifts');
+        } catch (\RuntimeException $exception) {
+            self::assertStringContainsString('事件链损坏', $exception->getMessage());
+        }
+        try {
+            $lifecycle->eventsForIntent(10, 20, (int)$intent['id']);
+            self::fail('a direct event read must fail closed after task scope drifts');
+        } catch (\RuntimeException $exception) {
+            self::assertStringContainsString('事件链损坏', $exception->getMessage());
+        }
+    }
+
     public function testLifecycleWriteControllerAndMigrationKeepExactHotelAndDuplicateFailureContracts(): void
     {
         $controller = (string)file_get_contents(dirname(__DIR__) . '/app/controller/OperationManagement.php');

@@ -292,33 +292,33 @@
     },
     {
       "id": "operating-opportunities",
-      "product_chain_stage": "经营机会证据计算",
+      "product_chain_stage": "每日一件事经营执行闭环",
       "availability": "active",
       "enforcement": "strict",
       "fragment_ids": ["page-operating-opportunities"],
       "inherited_fragment_ids": [],
       "inheritance_reason": "无继承片段。",
-      "scope_dimensions": ["hotel", "business_date", "source", "fact_status", "approval_intent"],
-      "state_requirements": ["loading", "ready", "empty", "partial", "unverified", "blocked", "pending_approval", "unknown_after_write_attempt", "error"],
-      "contract_dimensions": ["scope_identity", "truthful_states", "source_date", "save_readback", "pending_approval_readback", "no_automatic_execution", "failure_visibility", "focused_regression"],
+      "scope_dimensions": ["tenant", "hotel", "business_date", "platform", "metric_scope", "source", "fact_status", "source_snapshot"],
+      "state_requirements": ["loading", "draft", "pending_approval", "approved", "executing", "evidence_recorded", "review_pending", "reviewed", "blocked", "error"],
+      "contract_dimensions": ["scope_identity", "truthful_states", "source_date", "save_readback", "pending_approval", "single_task", "manual_evidence", "same_scope_review", "zero_external_write", "failure_visibility", "focused_regression"],
       "source_checks": [
         {
           "path": "resources/frontend/templates/fragments/19b-page-operating-opportunities.html",
-          "includes": ["data-testid=\"page-operating-opportunities\"", "currentPage === 'operating-opportunities'", "<operating-opportunity-lab", ":hotels=\"hotels\"", ":request=\"managerCapabilityRequest\""]
+          "includes": ["data-testid=\"page-operating-opportunities\"", "<operating-opportunity-lab", ":request=\"managerCapabilityRequest\"", ":open-task=\"openHomeOperatingScheduleItem\"", "@open-operations=\"openHomeOperatingScheduleItem\""]
         },
         {
           "path": "public/components/system/operating-opportunity-lab.js",
-          "includes": ["timeZone: 'Asia/Shanghai'", "MANUAL_UNVERIFIED_SOURCE_QUALITY", "businessDate", "source_quality", "loadOverview", "this.overview = null", "readback_verified !== true", "opportunity-source-status-", "opportunity-pending-approval-", "unknown_after_write_attempt"]
+          "includes": ["businessDate", "daily_one_thing.v2", "loadOverview", "this.overview = null", "readback_verified", "external_write_count", "open-operations", "review_pending"]
         }
       ],
       "regression_checks": [
         {
           "path": "tests/automation/operating_opportunity_lab.test.mjs",
-          "includes": ["append-only readback", "source_quality", "readback_verified", "cannot promote manual facts to trusted status", "manual_unverified", "page-operating-opportunities"]
+          "includes": ["v2 lifecycle", "zero writes", "exact refresh recovery", "ctrip_target_date_source_rows_missing"]
         }
       ],
       "evidence_maturity": "unit_contract_pass",
-      "evidence_limit": "代码级门店、业务日、人工未核验来源、保存回读与人工待审批合同；批准前不创建任务，不证明计算输入是线上真实事实、已写OTA或已产生经营效果。"
+      "evidence_limit": "代码级每日唯一选择、待审批、原任务、人工证据和同范围复盘合同；真实人工执行与自然后续事实仍需另行现场验收。"
     },
     {
       "id": "revenue-analysis",
@@ -374,7 +374,7 @@
         },
         {
           "path": "tests/automation/revenue_ai_static.test.mjs",
-          "includes": ["daily revenue cockpit shows verified zero, withholds unverified zero, and downloads the exact visible model", "daily revenue cockpit template exposes unified context, evidence, download and human-gated handoffs", "saveRevenueDecisionSnapshotWithReadback", "createRevenueOpportunityPendingApprovalWithReadback"]
+          "includes": ["daily revenue cockpit accepts only the exact server-issued canonical model and digest", "daily revenue cockpit template exposes unified context, evidence, download and human-gated handoffs", "saveRevenueDecisionSnapshotWithReadback", "createRevenueOpportunityPendingApprovalWithReadback"]
         }
       ],
       "evidence_maturity": "unit_contract_pass",

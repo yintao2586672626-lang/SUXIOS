@@ -235,9 +235,7 @@ Route::group('api/manual-notifications', function () {
 })->middleware(\app\middleware\Auth::class);
 
 Route::group('api/ai-daily-reports', function () {
-    Route::get('/latest', 'AiDailyReport/latest');
-    Route::post('/generate', 'AiDailyReport/generate');
-    Route::get('/tasks/:taskId', 'AiDailyReport/generationTask');
+    require __DIR__ . '/domain/ai_daily_reports.php';
     Route::post('/:id/send-wecom', 'admin.CompetitorWechatRobotController/apiSendAiDailyReport');
     Route::post('/:id/human-judgments', 'AiDailyReport/recordHumanJudgment');
     Route::post('/:id/presentation-spec', 'AiDailyReport/savePresentationSpec');
@@ -517,31 +515,9 @@ Route::group('api/revenue-ai', function () {
     Route::post('/price-suggestions/:id/execution-intent', 'RevenueAi/createPriceSuggestionExecutionIntent');
 })->middleware(\app\middleware\Auth::class);
 
-// ==================== AI模型配置 API ====================
-Route::group('api/ai-config', function () {
-    Route::get('/models', 'AiConfig/models');
-    Route::post('/providers/quick-setup', 'AiConfig/quickSetupProvider');
-    Route::post('/models/<id>/test', 'AiConfig/testModel');
-    Route::post('/models', 'AiConfig/createModel');
-    Route::put('/models/<id>', 'AiConfig/updateModel');
-    Route::delete('/models/<id>', 'AiConfig/deleteModel');
-})->middleware(\app\middleware\Auth::class);
-
-// ==================== AI治理 API ====================
-Route::group('api/ai-governance', function () {
-    Route::get('/summary', 'AiGovernance/summary');
-    Route::get('/logs/:id', 'AiGovernance/logDetail');
-    Route::post('/logs/:id/confirm', 'AiGovernance/confirmLog');
-    Route::get('/logs', 'AiGovernance/logs');
-    Route::get('/prompt-versions', 'AiGovernance/promptVersions');
-    Route::post('/prompt-versions', 'AiGovernance/savePromptVersion');
-    Route::post('/evaluation-cases/replay', 'AiGovernance/replayEvaluationCases');
-    Route::get('/evaluation-runs/:id', 'AiGovernance/evaluationRunDetail');
-    Route::get('/evaluation-runs', 'AiGovernance/evaluationRuns');
-    Route::delete('/evaluation-cases/:id', 'AiGovernance/archiveEvaluationCase');
-    Route::get('/evaluation-cases', 'AiGovernance/evaluationCases');
-    Route::post('/evaluation-cases', 'AiGovernance/saveEvaluationCase');
-})->middleware(\app\middleware\Auth::class);
+// AI model configuration and governance routes are kept in one authenticated
+// domain manifest. Requiring it here preserves the original registration order.
+require __DIR__ . '/domain/ai_governance.php';
 
 // ==================== 节假期收益倒计时 API ====================
 Route::group('api/holiday-revenue', function () {
@@ -593,117 +569,9 @@ Route::group('api/simulation', function () {
     Route::get('/records/:id', 'Simulation/detail');
     Route::get('/records', 'Simulation/records');
 })->middleware(\app\middleware\Auth::class);
-// ==================== 运营管理 API ====================
-Route::group('api/operating-loop', function () {
-    Route::get('/current', 'OperatingLoop/current');
-    Route::post('/reconcile', 'OperatingLoop/reconcile');
-    Route::post('/', 'OperatingLoop/open');
-    Route::post('/:id/transitions', 'OperatingLoop/transition');
-    Route::get('/:id', 'OperatingLoop/read');
-})->middleware(\app\middleware\Auth::class);
-
-// Five user-visible operating opportunity features. Writes are scoped
-// calculation records or human pending approvals; none execute OTA/PMS actions.
-Route::group('api/operating-opportunities', function () {
-    Route::get('/overview', 'OperatingOpportunity/overview');
-    Route::get('/runs/:id', 'OperatingOpportunity/read');
-    Route::post('/runs/:id/pending-approval', 'OperatingOpportunity/pendingApproval');
-    Route::post('/evaluate', 'OperatingOpportunity/evaluate');
-    Route::post('/priority', 'OperatingOpportunity/priority');
-})->middleware(\app\middleware\Auth::class);
-
-Route::group('api/operation', function () {
-    Route::get('/full-data', 'OperationManagement/fullData');
-    Route::post('/root-cause', 'OperationManagement/rootCause');
-    Route::get('/manager-capability/managers', 'ManagerCapability/managers');
-    Route::get('/manager-capability/profile', 'ManagerCapability/profile');
-    Route::get('/manager-capability/followup-queue', 'ManagerCapability/followupQueue');
-    Route::get('/manager-capability/cases/:id', 'ManagerCapability/readCase');
-    Route::post('/manager-capability/cases/:id/followups', 'ManagerCapability/createFollowup');
-    Route::post('/manager-capability/cases/:id/adjustments', 'ManagerCapability/createAdjustment');
-    Route::post('/manager-capability/cases/:id/score-reviews', 'ManagerCapability/createScoreReview');
-    Route::post('/manager-capability/cases', 'ManagerCapability/createCase');
-    Route::get('/goal-intervention-overview', 'OperationManagement/operatingGoalInterventionOverview');
-    Route::post('/goal-contracts', 'OperationManagement/createOperatingGoalContract');
-    Route::post('/interventions', 'OperationManagement/createManualIntervention');
-    Route::get('/alerts', 'OperationManagement/alerts');
-    Route::post('/alerts/read', 'OperationManagement/alertsRead');
-    Route::post('/alerts/:id/execution-intent', 'OperationManagement/alertExecutionIntent');
-    Route::post('/strategy-simulation', 'OperationManagement/strategySimulation');
-    Route::post('/execution-intents/:id/approve', 'OperationManagement/approveExecutionIntent');
-    Route::post('/execution-intents/:id/cancel', 'OperationManagement/cancelExecutionIntent');
-    Route::post('/execution-tasks/:id/execute', 'OperationManagement/executeExecutionTask');
-    Route::post('/execution-tasks/:id/evidence', 'OperationManagement/executionTaskEvidence');
-    Route::post('/execution-tasks/:id/intervention-assessments', 'OperationManagement/assessExecutionTaskIntervention');
-    Route::post('/execution-tasks/:id/reconcile-review', 'OperationManagement/reconcileExecutionTaskReview');
-    Route::post('/execution-tasks/:id/review', 'OperationManagement/reviewExecutionTask');
-    Route::post('/execution-tasks/:id/operating-memory', 'OperationManagement/saveExecutionTaskOperatingMemory');
-    Route::get('/closure-overview', 'OperationManagement/closureOverview');
-    Route::get('/execution-flow', 'OperationManagement/executionFlow');
-    Route::get('/growth-archive/timeline', 'OperationManagement/growthArchiveTimeline');
-    Route::post('/growth-archive/events', 'OperationManagement/createGrowthArchiveEvent');
-    Route::post('/growth-archive/:id/annotations', 'OperationManagement/addGrowthArchiveAnnotation');
-    Route::post('/growth-archive/:id/milestone', 'OperationManagement/markGrowthArchiveMilestone');
-    Route::get('/operating-memories/:id', 'OperationManagement/readOperatingMemory');
-    Route::get('/operating-memories', 'OperationManagement/operatingMemories');
-    Route::get('/operating-network', 'OperatingIntelligence/operatingNetwork');
-    Route::get('/operating-profiles/preview', 'OperatingIntelligence/previewOperatingProfile');
-    Route::post('/operating-profiles', 'OperatingIntelligence/saveOperatingProfile');
-    Route::post('/operating-sop-replications/:id/execution-intent', 'OperatingIntelligence/createReplicationExecutionIntent');
-    Route::get('/operating-sop-replications/:id/reviews', 'OperatingIntelligence/replicationReviews');
-    Route::post('/operating-sop-replications/:id/reviews', 'OperatingIntelligence/reviewReplication');
-    Route::post('/operating-sops/:id/replications', 'OperatingIntelligence/replicateSop');
-    Route::post('/operating-sops/:id/validate', 'OperatingIntelligence/validateSop');
-    Route::get('/operating-sop-replications/:id', 'OperatingIntelligence/readReplication');
-    Route::get('/operating-sops/:id', 'OperatingIntelligence/readSop');
-    Route::get('/operating-sops', 'OperatingIntelligence/sops');
-    Route::post('/operating-sops', 'OperatingIntelligence/createSop');
-    Route::post('/execution-intents/:id/intervention', 'OperationManagement/saveExecutionIntentIntervention');
-    Route::get('/execution-intents/:id', 'OperationManagement/readExecutionIntent');
-    Route::get('/execution-tasks/:id', 'OperationManagement/readExecutionTask');
-    Route::get('/execution-intents', 'OperationManagement/executionIntents');
-    Route::post('/execution-intents', 'OperationManagement/createExecutionIntent');
-    Route::post('/actions/:id/finish', 'OperationManagement/finishAction');
-    Route::post('/actions', 'OperationManagement/actions');
-    Route::get('/action-tracking', 'OperationManagement/actionTracking');
-})->middleware(\app\middleware\Auth::class);
-
-// ==================== 开业管理 API ====================
-Route::group('api/opening', function () {
-    Route::get('/projects/:id/overview', 'Opening/overview');
-    Route::post('/projects/:id/generate-tasks', 'Opening/generateTasks');
-    Route::get('/projects/:id/tasks', 'Opening/tasks');
-    Route::put('/projects/:id', 'Opening/updateProject');
-    Route::delete('/projects/:id', 'Opening/archiveProject');
-    Route::post('/projects/:id/execution-intent', 'Opening/createExecutionIntent');
-    Route::put('/tasks/:id', 'Opening/updateTask');
-    Route::post('/projects/:id/recalculate', 'Opening/recalculate');
-    Route::post('/projects', 'Opening/createProject');
-    Route::get('/projects', 'Opening/projects');
-})->middleware(\app\middleware\Auth::class);
-// ==================== 扩张管理 API ====================
-Route::group('api/expansion', function () {
-    Route::post('/market-evaluation', 'Expansion/marketEvaluation');
-    Route::post('/benchmark-model', 'Expansion/benchmarkModel');
-    Route::post('/collaboration-efficiency', 'Expansion/collaborationEfficiency');
-    Route::post('/records/:id/execution-intent', 'Expansion/createExecutionIntent');
-    Route::delete('/records/market-evaluation', 'Expansion/clearMarketEvaluation');
-    Route::delete('/records/:id', 'Expansion/archive');
-    Route::delete('/records', 'Expansion/clearRecords');
-    Route::get('/records/:id', 'Expansion/detail');
-    Route::get('/records', 'Expansion/records');
-})->middleware(\app\middleware\Auth::class);
-// ==================== 转让管理 API ====================
-Route::group('api/transfer', function () {
-    Route::get('/source', 'TransferDecision/source');
-    Route::post('/pricing', 'TransferDecision/pricing');
-    Route::post('/timing', 'TransferDecision/timing');
-    Route::post('/dashboard', 'TransferDecision/dashboard');
-    Route::post('/records/:id/execution-intent', 'TransferDecision/createExecutionIntent');
-    Route::delete('/records/:id', 'TransferDecision/archive');
-    Route::get('/records/:id', 'TransferDecision/detail');
-    Route::get('/records', 'TransferDecision/records');
-})->middleware(\app\middleware\Auth::class);
+// Operating loop, opportunity, action, opening, expansion and transfer routes.
+// The manifest is required here to preserve the original registration order.
+require __DIR__ . '/domain/operations.php';
 // ==================== 竞对价格监控 API ====================
 Route::get('api/competitor/events', 'CompetitorApi/events')->middleware(\app\middleware\Auth::class);
 Route::get('api/competitor/targets', 'CompetitorApi/targets')->middleware(\app\middleware\Auth::class);
@@ -733,17 +601,8 @@ Route::group('api/admin/competitor-devices', function () {
     Route::put('/:id/status', 'admin.CompetitorDeviceController/updateStatus');
 })->middleware(\app\middleware\Auth::class);
 
-// ==================== 企业微信机器人 ====================
-Route::group('admin/competitor-wechat-robot', function () {
-    Route::get('/', 'admin.CompetitorWechatRobotController/index');
-    Route::get('/add', 'admin.CompetitorWechatRobotController/add');
-    Route::post('/save', 'admin.CompetitorWechatRobotController/save');
-    Route::get('/edit/:id', 'admin.CompetitorWechatRobotController/edit');
-    Route::post('/update/:id', 'admin.CompetitorWechatRobotController/update');
-    Route::post('/delete/:id', 'admin.CompetitorWechatRobotController/delete');
-    Route::post('/test/:id', 'admin.CompetitorWechatRobotController/testSend');
-    Route::post('/test-store/:storeId', 'admin.CompetitorWechatRobotController/testSendStore');
-})->middleware(\app\middleware\Auth::class);
+// Enterprise WeChat server-rendered administration routes.
+require __DIR__ . '/domain/wecom_admin.php';
 
 // ==================== 门店罗盘 ====================
 Route::group('compass', function () {
@@ -757,23 +616,8 @@ Route::group('api/compass', function () {
     Route::post('/layout', 'admin.Compass/apiSaveLayout');
 })->middleware(\app\middleware\Auth::class);
 
-// ==================== 企业微信机器人 API（SPA） ====================
-Route::group('api/admin/competitor-wechat-robot', function () {
-    Route::get('/', 'admin.CompetitorWechatRobotController/apiIndex');
-    Route::get('/detail/:id', 'admin.CompetitorWechatRobotController/apiDetail');
-    Route::post('/save', 'admin.CompetitorWechatRobotController/apiSave');
-    Route::post('/update/:id', 'admin.CompetitorWechatRobotController/apiUpdate');
-    Route::post('/delete/:id', 'admin.CompetitorWechatRobotController/apiDelete');
-    Route::post('/test-store/:storeId', 'admin.CompetitorWechatRobotController/apiTestStore');
-})->middleware(\app\middleware\Auth::class);
-
-// Account self-service enterprise WeChat onboarding. Every request is scoped
-// to the logged-in user's permitted hotel; complete Webhooks are never read.
-Route::group('api/wechat-notification', function () {
-    Route::get('/status', 'WechatNotificationOnboarding/status');
-    Route::post('/bind', 'WechatNotificationOnboarding/bind');
-    Route::post('/test', 'WechatNotificationOnboarding/test');
-})->middleware(\app\middleware\Auth::class);
+// Enterprise WeChat SPA administration and account onboarding API routes.
+require __DIR__ . '/domain/wecom_api.php';
 
 // Customer-facing cloud browser authorization. These routes only issue/read
 // opaque login-entry state; a future protected cloud gateway owns browser I/O.
@@ -865,7 +709,7 @@ Route::group('api/agent', function () {
     Route::get('/ota-diagnosis', 'Agent/latestOtaDiagnosis');
     Route::post('/ota-diagnosis', 'Agent/otaDiagnosis');
     Route::post('/ota-diagnoses/:id/actions/:actionIndex/execution-intent', 'Agent/createOtaDiagnosisExecutionIntent');
-    Route::post('/system-guidance', 'SystemGuidance/guide');
+    require __DIR__ . '/domain/agent_guidance.php';
     Route::get('/operating-question-scopes', 'OperatingIntelligence/questionScopeOptions');
     // Keep nested council routes before the generic /:id read route so the
     // router cannot truncate a council readback into the parent question.

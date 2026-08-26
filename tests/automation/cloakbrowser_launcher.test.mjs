@@ -20,7 +20,22 @@ test('OTA CDP URL accepts only an explicit IPv4 loopback endpoint', () => {
   assert.throws(() => resolveOtaCdpUrl({ cdpUrl: 'http://user:secret@127.0.0.1:9223' }), /CDP URL/);
 });
 
-test('CDP attach requires a guarded page and its facade closes the owning browser', async () => {
+test('CDP attach rejects every non-loopback or malformed endpoint with one stable error', async () => {
+  for (const cdpUrl of [
+    'http://localhost:9223',
+    'http://127.0.0.1:65536',
+    'http://user:secret@127.0.0.1:9223',
+  ]) {
+    await assert.rejects(
+      () => connectOtaCdpContext(cdpUrl, async () => {
+        throw new Error('connector must not be called');
+      }),
+      /ota_browser_cdp_url_invalid/,
+    );
+  }
+});
+
+test('CDP attach returns a guarded facade and its close shuts down the owning browser once', async () => {
   const guardedPage = {
     isClosed: () => false,
     evaluate: async () => 'suxios_profile_lease_guarded',
@@ -31,13 +46,6 @@ test('CDP attach requires a guarded page and its facade closes the owning browse
       throw new Error('guarded page must be reused');
     },
   };
-  assert.throws(() => resolveOtaCdpUrl({ cdpUrl: 'http://localhost:9223' }), /ota_browser_cdp_url_invalid/);
-  assert.throws(() => resolveOtaCdpUrl({ cdpUrl: 'http://127.0.0.1:65536' }), /ota_browser_cdp_url_invalid/);
-  assert.throws(() => resolveOtaCdpUrl({ cdpUrl: 'http://user:secret@127.0.0.1:9223' }), /ota_browser_cdp_url_invalid/);
-});
-
-test('CDP attach returns the unique context and its close shuts down the owning browser', async () => {
-  const context = { pages: () => [] };
   let closeCount = 0;
   const browser = {
     contexts: () => [context],
@@ -54,7 +62,8 @@ test('CDP attach returns the unique context and its close shuts down the owning 
 
   const attached = await connectOtaCdpContext('http://127.0.0.1:9223', chromiumClient);
   assert.equal(await attached.newPage(), guardedPage);
-  assert.equal(attached, context);
+  await assert.rejects(() => attached.newPage(), /ota_browser_cdp_additional_page_blocked/);
+  assert.notEqual(attached, context);
   await attached.close();
   await attached.close();
   assert.equal(closeCount, 1);

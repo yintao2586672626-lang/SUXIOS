@@ -15,6 +15,9 @@ vm.runInNewContext(source, context, { filename: 'dual-ota-field-closure-panel.js
 const panel = context.window.SUXI_DUAL_OTA_FIELD_CLOSURE;
 
 test('field closure formatter keeps missing and formal zero distinct', () => {
+  assert.equal(panel.valueText({ status: 'source_missing', value: 0, unit: 'orders' }), '—');
+  assert.equal(panel.valueText({ status: 'field_unavailable', value: 0, unit: 'orders' }), '—');
+  assert.equal(panel.valueText({ status: 'readback_failed', value: 0, unit: 'orders' }), '—');
   assert.equal(panel.valueText({ status: 'missing', value: 0, unit: 'orders' }), '—');
   assert.equal(panel.valueText({ status: 'platform_not_provided', value: 0, unit: 'orders' }), '—');
   assert.equal(panel.valueText({ status: 'strict_readback', value: 0, unit: 'orders' }), '0');
@@ -41,6 +44,9 @@ test('panel contract exposes all required status labels and safe source refs', (
   for (const [status, label] of Object.entries({
     strict_readback: '已严格回读',
     verified_calculation: '已验证计算',
+    source_missing: '来源缺失',
+    field_unavailable: '字段未取得',
+    readback_failed: '回读未闭合',
     missing: '缺失',
     platform_not_provided: '平台未提供',
     collection_failed: '采集失败',
@@ -67,6 +73,72 @@ test('panel contract exposes all required status labels and safe source refs', (
   );
   assert.equal(panel.exactScopeText('verified'), '整批精确回读通过');
   assert.equal(panel.exactScopeText('exact_run_readback_scope_mismatch'), '整批精确回读未闭合');
+});
+
+test('visible rows and CSV download reuse the exact same fields statuses and order', () => {
+  const closure = {
+    hotel_id: 80,
+    business_date: '2026-08-23',
+    platforms: {
+      ctrip: {
+        platform: 'ctrip',
+        platform_label: '携程',
+        fields: [
+          {
+            key: 'exposure', metric_key: 'exposure', label: '曝光', unit: 'users',
+            status: 'field_unavailable', value: null, formal_saved: false,
+            readback_status: 'not_attempted', validation_status: 'field_unavailable',
+            next_action: '补采携程曝光端点。',
+          },
+        ],
+      },
+      meituan: {
+        platform: 'meituan',
+        platform_label: '美团',
+        fields: [
+          {
+            key: 'exposure', metric_key: 'exposure', label: '曝光', unit: 'users',
+            status: 'strict_readback', value: 1422, formal_saved: true,
+            readback_status: 'readback_verified', validation_status: 'verified',
+            source_record_refs: ['online_daily_data#102476'], data_source_ids: [101],
+            capture_ref: 'platform_data_sync_task#4427', endpoint_ids: ['xhr:traffic:traffic'],
+            source_paths: ['data.myHotel.exposureUV'],
+          },
+          {
+            key: 'visits', metric_key: 'visits', label: '访问', unit: 'users',
+            status: 'strict_readback', value: 206, formal_saved: true,
+            readback_status: 'readback_verified', validation_status: 'verified',
+            source_record_refs: ['online_daily_data#102476'], data_source_ids: [101],
+            capture_ref: 'platform_data_sync_task#4427', endpoint_ids: ['xhr:traffic:traffic'],
+            source_paths: ['data.myHotel.intentionUV'],
+          },
+          {
+            key: 'conversion', metric_key: 'conversion', label: '曝光→访问转化', unit: 'percent',
+            status: 'verified_calculation', value: 14.49, formal_saved: true,
+            readback_status: 'readback_verified', validation_status: 'derived_verified',
+            source_record_refs: ['online_daily_data#102476'], data_source_ids: [101],
+            capture_ref: 'platform_data_sync_task#4427', endpoint_ids: ['xhr:traffic:traffic'],
+            source_paths: ['data.myHotel.exposureUV', 'data.myHotel.intentionUV'],
+          },
+        ],
+      },
+    },
+  };
+  const visible = panel.buildVisibleRows(closure).map(({ field, ...row }) => row);
+  const download = panel.buildClosureDownloadPayload(closure);
+  assert.equal(download.ok, true);
+  assert.equal(JSON.stringify(download.rows), JSON.stringify(visible));
+  assert.deepEqual(Array.from(download.rows, row => row.order), [1, 2, 3, 4]);
+  assert.deepEqual(Array.from(download.rows, row => row.field_key), [
+    'exposure', 'exposure', 'visits', 'conversion',
+  ]);
+  assert.deepEqual(Array.from(download.rows, row => row.display), ['—', '1,422', '206', '14.49%']);
+  assert.deepEqual(Array.from(download.rows, row => row.status), [
+    'field_unavailable', 'strict_readback', 'strict_readback', 'verified_calculation',
+  ]);
+  assert.match(download.csv, /online_daily_data#102476/);
+  assert.match(download.csv, /data\.myHotel\.exposureUV/);
+  assert.equal(download.fileName, '可信OTA事实底座_Hotel80_2026-08-23.csv');
 });
 
 test('rendered panel carries identical closure identity hooks for both surfaces', () => {
@@ -116,7 +188,7 @@ test('rendered panel carries identical closure identity hooks for both surfaces'
     },
   };
   for (const surface of ['data_health', 'revenue_cockpit']) {
-    const tree = component.render.call({ closure, surface });
+    const tree = component.render.call({ closure, activeClosure: closure, surface });
     assert.equal(tree.props['data-testid'], `dual-ota-field-closure-${surface}`);
     assert.equal(tree.props['data-closure-identity'], closure.page_identity);
     assert.equal(tree.props['data-business-date'], closure.business_date);
@@ -125,6 +197,7 @@ test('rendered panel carries identical closure identity hooks for both surfaces'
     assert.match(rendered, /字段可用 1 条/);
     assert.match(rendered, /当前回执中校验隔离或字段不可用/);
     assert.match(rendered, /online_daily_data#102432/);
+    assert.match(rendered, new RegExp(`dual-ota-field-download-${surface}`));
   }
 });
 
@@ -142,9 +215,40 @@ test('missing consumable-count metadata remains unknown instead of becoming zero
     },
   };
 
-  const tree = component.render.call({ closure, surface: 'data_health' });
+  const tree = component.render.call({ closure, activeClosure: closure, surface: 'data_health' });
   assert.match(JSON.stringify(tree), /收益可消费字段 —/);
   assert.doesNotMatch(JSON.stringify(tree), /收益可消费字段 0/);
+});
+
+test('a stale parent payload is never rendered for the newly selected business date', () => {
+  const h = (tag, props, children) => ({ tag, props: props || {}, children });
+  const component = panel.createPanel({ h });
+  const stale = {
+    status: 'partial',
+    hotel_id: 80,
+    business_date: '2026-08-25',
+    page_identity: 'dual_ota_field_closure#stale',
+    platforms: {
+      ctrip: { platform: 'ctrip', platform_label: '携程', fields: [] },
+      meituan: { platform: 'meituan', platform_label: '美团', fields: [] },
+    },
+  };
+  const instance = {
+    closure: stale,
+    fetchedClosure: null,
+    hotelId: 80,
+    businessDate: '2026-08-23',
+    surface: 'data_health',
+    closureLoading: true,
+    closureError: '',
+  };
+  instance.activeClosure = component.computed.activeClosure.call(instance);
+  assert.equal(instance.activeClosure, null);
+  const tree = component.render.call(instance);
+  const rendered = JSON.stringify(tree);
+  assert.match(rendered, /正在读取同酒店、同平台、同营业日/);
+  assert.doesNotMatch(rendered, /2026-08-25/);
+  assert.doesNotMatch(rendered, /dual_ota_field_closure#stale/);
 });
 
 test('cockpit read uses the exact hotel and business date and rejects scope drift', () => {
@@ -198,9 +302,13 @@ test('component performs a scoped read when the parent payload is unavailable', 
     hotelId: 80,
     businessDate: '2026-08-23',
     forceRead: true,
-    request: async requestPath => {
+    request: async (requestPath, options) => {
       assert.match(requestPath, /hotel_id=80/);
       assert.match(requestPath, /end_date=2026-08-23/);
+      assert.equal(options.requestPolicy.scope, 'session');
+      assert.equal(options.requestPolicy.priority, 'current');
+      assert.equal(options.requestPolicy.systemHotelId, undefined);
+      assert.equal(options.requestPolicy.businessDate, undefined);
       return { code: 200, data: { dual_ota_field_closure: closure } };
     },
   };
@@ -209,6 +317,41 @@ test('component performs a scoped read when the parent payload is unavailable', 
   assert.equal(instance.fetchedClosure, closure);
   assert.equal(instance.closureError, '');
   assert.equal(instance.closureLoading, false);
+});
+
+test('same hotel and date watchers share one in-flight closure read', async () => {
+  const h = (tag, props, children) => ({ tag, props: props || {}, children });
+  const component = panel.createPanel({ h });
+  const closure = {
+    contract_version: 'dual_ota_field_closure.v1',
+    hotel_id: 80,
+    business_date: '2026-08-23',
+    platforms: { ctrip: {}, meituan: {} },
+    sensitive_values_exposed: false,
+  };
+  let releaseRequest;
+  let requestCount = 0;
+  const instance = {
+    ...component.data(),
+    closure: null,
+    hotelId: 80,
+    businessDate: '2026-08-23',
+    forceRead: true,
+    request: async () => {
+      requestCount += 1;
+      await new Promise(resolve => { releaseRequest = resolve; });
+      return { code: 200, data: { dual_ota_field_closure: closure } };
+    },
+  };
+  const first = component.methods.refreshClosure.call(instance);
+  await Promise.resolve();
+  const second = component.methods.refreshClosure.call(instance);
+  assert.equal(requestCount, 1);
+  assert.equal(await second, null);
+  releaseRequest();
+  assert.equal(await first, closure);
+  assert.equal(instance.fetchedClosure, closure);
+  assert.equal(instance.closureError, '');
 });
 
 test('startup helper registers the panel in the existing system component registry', () => {
@@ -236,4 +379,6 @@ test('component source never reads platform credentials or replaces unknown with
   assert.match(source, /字段可用/);
   assert.match(source, /保留追溯，不作为字段事实消费/);
   assert.match(source, /只阻断，不替代当前值/);
+  assert.match(source, /buildVisibleRows/);
+  assert.match(source, /buildClosureDownloadRows/);
 });

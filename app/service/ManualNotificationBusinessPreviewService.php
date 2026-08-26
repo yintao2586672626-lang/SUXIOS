@@ -1763,6 +1763,13 @@ final class ManualNotificationBusinessPreviewService
         $facts = [];
         if ($trusted) {
             $source['quality_status'] = 'readback_verified';
+            $forwardDelta = self::pmsForwardDeltaMessage(
+                $capture,
+                $messageRoomTypes,
+                $tenantId,
+                $hotelId,
+                $businessDate
+            );
             foreach ($metricMap as $key => [$label, $unit, $field]) {
                 $fact = self::factField(
                     $key,
@@ -1806,6 +1813,7 @@ final class ManualNotificationBusinessPreviewService
                     'horizons' => $messageHorizons,
                     'daily_rows' => $dailyRows,
                     'room_types' => $messageRoomTypes,
+                    'forward_delta' => $forwardDelta,
                     'alerts' => $alerts,
                     'source' => $source,
                 ],
@@ -1860,6 +1868,26 @@ final class ManualNotificationBusinessPreviewService
                 'horizons' => [],
                 'daily_rows' => [],
                 'room_types' => [],
+                'forward_delta' => [
+                    'contract_version' => 'dingdandao_forward_delta_message.v1',
+                    'data_status' => 'not_comparable',
+                    'reason_code' => 'current_snapshot_not_trusted',
+                    'from_capture_id' => null,
+                    'to_capture_id' => isset($capture['id']) && is_numeric($capture['id'])
+                        ? (int)$capture['id']
+                        : null,
+                    'captured_from' => null,
+                    'captured_to' => self::safeText(
+                        (string)($capture['captured_at'] ?? ''),
+                        32
+                    ),
+                    'elapsed_minutes' => null,
+                    'net_change_reliable' => false,
+                    'changed_cell_count' => 0,
+                    'inventory_basis_change_count' => 0,
+                    'summary' => null,
+                    'changes' => [],
+                ],
                 'alerts' => [],
                 'source' => $source,
             ],
@@ -2184,6 +2212,285 @@ final class ManualNotificationBusinessPreviewService
             ];
         }
         return $result;
+    }
+
+    /**
+     * Compare the two latest trusted forward snapshots at room-type/stay-date
+     * granularity. A changed inventory basis is exposed but never interpreted
+     * as booking pickup.
+     *
+     * @param list<array<string,mixed>> $currentRoomTypes
+     * @return array<string,mixed>
+     */
+    private static function pmsForwardDeltaMessage(
+        array $capture,
+        array $currentRoomTypes,
+        int $tenantId,
+        int $hotelId,
+        string $businessDate
+    ): array {
+        $base = [
+            'contract_version' => 'dingdandao_forward_delta_message.v1',
+            'data_status' => 'baseline_only',
+            'reason_code' => 'previous_snapshot_missing',
+            'change_scope' => 'room_type_stay_date_future_21_days',
+            'from_capture_id' => null,
+            'to_capture_id' => isset($capture['id']) && is_numeric($capture['id'])
+                ? (int)$capture['id']
+                : null,
+            'captured_from' => null,
+            'captured_to' => self::safeText(
+                (string)($capture['captured_at'] ?? ''),
+                32
+            ),
+            'elapsed_minutes' => null,
+            'net_change_reliable' => false,
+            'changed_cell_count' => 0,
+            'inventory_basis_change_count' => 0,
+            'summary' => null,
+            'changes' => [],
+            'note' => '变化仅表示两次可信房态快照的账面净变动，不等同于新订、取消或价格调整原因。',
+        ];
+        $previous = is_array($capture['previous_comparable_capture'] ?? null)
+            ? $capture['previous_comparable_capture']
+            : [];
+        if ($previous === []) {
+            return $base;
+        }
+        $previousForward = is_array($previous['forward_room_status'] ?? null)
+            ? $previous['forward_room_status']
+            : [];
+        if (!self::pmsForwardCaptureTrusted(
+            $previous,
+            $previousForward,
+            $tenantId,
+            $hotelId,
+            $businessDate
+        )) {
+            return [
+                ...$base,
+                'data_status' => 'not_comparable',
+                'reason_code' => 'previous_snapshot_not_trusted',
+            ];
+        }
+
+        $previousCapturedAt = trim((string)($previous['captured_at'] ?? ''));
+        $currentCapturedAt = trim((string)($capture['captured_at'] ?? ''));
+        if ($previousCapturedAt === '' || $currentCapturedAt === '') {
+            return [
+                ...$base,
+                'data_status' => 'not_comparable',
+                'reason_code' => 'snapshot_time_invalid',
+            ];
+        }
+        try {
+            $previousTime = new DateTimeImmutable($previousCapturedAt);
+            $currentTime = new DateTimeImmutable($currentCapturedAt);
+        } catch (\Throwable) {
+            return [
+                ...$base,
+                'data_status' => 'not_comparable',
+                'reason_code' => 'snapshot_time_invalid',
+            ];
+        }
+        $previousId = isset($previous['id']) && is_numeric($previous['id'])
+            ? (int)$previous['id']
+            : 0;
+        $currentId = isset($capture['id']) && is_numeric($capture['id'])
+            ? (int)$capture['id']
+            : 0;
+        if ($previousId <= 0
+            || $currentId <= 0
+            || $previousId === $currentId
+            || $currentTime <= $previousTime
+        ) {
+            return [
+                ...$base,
+                'data_status' => 'not_comparable',
+                'reason_code' => 'snapshot_identity_or_time_mismatch',
+            ];
+        }
+        $elapsedMinutes = (int)round(
+            ($currentTime->getTimestamp() - $previousTime->getTimestamp()) / 60
+        );
+        $comparisonBase = [
+            ...$base,
+            'reason_code' => null,
+            'from_capture_id' => $previousId,
+            'captured_from' => self::safeText($previousCapturedAt, 32),
+            'elapsed_minutes' => $elapsedMinutes,
+        ];
+
+        $previousRoomTypes = self::forwardMessageRoomTypes(
+            $previousForward,
+            $businessDate
+        );
+        if (count($previousRoomTypes)
+            !== (int)($previousForward['source_room_type_count'] ?? 0)
+        ) {
+            return [
+                ...$comparisonBase,
+                'data_status' => 'not_comparable',
+                'reason_code' => 'previous_room_type_grid_invalid',
+            ];
+        }
+        $currentById = [];
+        foreach ($currentRoomTypes as $roomType) {
+            $currentById[(string)$roomType['provider_room_type_id']] = $roomType;
+        }
+        $previousById = [];
+        foreach ($previousRoomTypes as $roomType) {
+            $previousById[(string)$roomType['provider_room_type_id']] = $roomType;
+        }
+        $currentIds = array_keys($currentById);
+        $previousIds = array_keys($previousById);
+        sort($currentIds);
+        sort($previousIds);
+        if ($currentIds !== $previousIds) {
+            return [
+                ...$comparisonBase,
+                'data_status' => 'rebaseline_required',
+                'reason_code' => 'room_type_structure_changed',
+            ];
+        }
+
+        $changes = [];
+        $inventoryBasisChangeCount = 0;
+        $roomTypeCapacityChanged = false;
+        $summary = [
+            'booked_room_nights_delta' => 0,
+            'remaining_sellable_room_nights_delta' => 0,
+            'unavailable_room_nights_delta' => 0,
+        ];
+        foreach ($currentById as $roomTypeId => $currentRoomType) {
+            $previousRoomType = $previousById[$roomTypeId];
+            if ((int)round((float)$currentRoomType['room_count'])
+                !== (int)round((float)$previousRoomType['room_count'])
+            ) {
+                $roomTypeCapacityChanged = true;
+            }
+            $previousDays = [];
+            foreach ((array)$previousRoomType['daily_rows'] as $row) {
+                $previousDays[(string)$row['stay_date']] = $row;
+            }
+            foreach ((array)$currentRoomType['daily_rows'] as $currentDay) {
+                $stayDate = (string)$currentDay['stay_date'];
+                $previousDay = $previousDays[$stayDate] ?? null;
+                if (!is_array($previousDay)) {
+                    return [
+                        ...$comparisonBase,
+                        'data_status' => 'rebaseline_required',
+                        'reason_code' => 'stay_date_grid_changed',
+                    ];
+                }
+                $previousBooked = (int)round((float)$previousDay['booked_rooms']);
+                $currentBooked = (int)round((float)$currentDay['booked_rooms']);
+                $previousRemaining = (int)round(
+                    (float)$previousDay['remaining_sellable_rooms']
+                );
+                $currentRemaining = (int)round(
+                    (float)$currentDay['remaining_sellable_rooms']
+                );
+                $previousUnavailable = (int)round(
+                    (float)$previousDay['unavailable_rooms']
+                );
+                $currentUnavailable = (int)round(
+                    (float)$currentDay['unavailable_rooms']
+                );
+                $bookedDelta = $currentBooked - $previousBooked;
+                $remainingDelta = $currentRemaining - $previousRemaining;
+                $unavailableDelta = $currentUnavailable - $previousUnavailable;
+                $previousBasis = $previousBooked
+                    + $previousRemaining
+                    + $previousUnavailable;
+                $currentBasis = $currentBooked
+                    + $currentRemaining
+                    + $currentUnavailable;
+                $basisDelta = $currentBasis - $previousBasis;
+                $summary['booked_room_nights_delta'] += $bookedDelta;
+                $summary['remaining_sellable_room_nights_delta'] += $remainingDelta;
+                $summary['unavailable_room_nights_delta'] += $unavailableDelta;
+                if ($bookedDelta === 0
+                    && $remainingDelta === 0
+                    && $unavailableDelta === 0
+                ) {
+                    continue;
+                }
+                if ($basisDelta !== 0) {
+                    $inventoryBasisChangeCount++;
+                }
+                $changes[] = [
+                    'stay_date' => $stayDate,
+                    'provider_room_type_id' => $roomTypeId,
+                    'room_type_name' => (string)$currentRoomType['room_type_name'],
+                    'booked_rooms_from' => $previousBooked,
+                    'booked_rooms_to' => $currentBooked,
+                    'booked_rooms_delta' => $bookedDelta,
+                    'remaining_sellable_rooms_from' => $previousRemaining,
+                    'remaining_sellable_rooms_to' => $currentRemaining,
+                    'remaining_sellable_rooms_delta' => $remainingDelta,
+                    'unavailable_rooms_from' => $previousUnavailable,
+                    'unavailable_rooms_to' => $currentUnavailable,
+                    'unavailable_rooms_delta' => $unavailableDelta,
+                    'inventory_basis_rooms_from' => $previousBasis,
+                    'inventory_basis_rooms_to' => $currentBasis,
+                    'inventory_basis_rooms_delta' => $basisDelta,
+                    'status' => $basisDelta !== 0
+                        ? 'inventory_basis_changed'
+                        : (
+                            $currentRemaining <= 0 && $previousRemaining > 0
+                                ? 'sold_out'
+                                : ($bookedDelta > 0
+                                    ? 'booked_increase'
+                                    : ($bookedDelta < 0
+                                        ? 'booked_decrease'
+                                        : 'availability_changed'))
+                        ),
+                ];
+            }
+        }
+        $priority = [
+            'inventory_basis_changed' => 0,
+            'sold_out' => 1,
+            'booked_increase' => 2,
+            'booked_decrease' => 3,
+            'availability_changed' => 4,
+        ];
+        usort($changes, static function (array $left, array $right) use ($priority): int {
+            $priorityDifference = ($priority[$left['status']] ?? 9)
+                <=> ($priority[$right['status']] ?? 9);
+            if ($priorityDifference !== 0) {
+                return $priorityDifference;
+            }
+            $leftMagnitude = abs((int)$left['booked_rooms_delta'])
+                + abs((int)$left['remaining_sellable_rooms_delta'])
+                + abs((int)$left['unavailable_rooms_delta']);
+            $rightMagnitude = abs((int)$right['booked_rooms_delta'])
+                + abs((int)$right['remaining_sellable_rooms_delta'])
+                + abs((int)$right['unavailable_rooms_delta']);
+            if ($leftMagnitude !== $rightMagnitude) {
+                return $rightMagnitude <=> $leftMagnitude;
+            }
+            return [$left['stay_date'], $left['room_type_name']]
+                <=> [$right['stay_date'], $right['room_type_name']];
+        });
+
+        $rebaseline = $roomTypeCapacityChanged
+            || $inventoryBasisChangeCount > 0;
+        return [
+            ...$comparisonBase,
+            'data_status' => $rebaseline ? 'rebaseline_required' : 'comparable',
+            'reason_code' => $rebaseline
+                ? ($roomTypeCapacityChanged
+                    ? 'room_type_capacity_changed'
+                    : 'inventory_basis_changed')
+                : null,
+            'net_change_reliable' => !$rebaseline,
+            'changed_cell_count' => count($changes),
+            'inventory_basis_change_count' => $inventoryBasisChangeCount,
+            'summary' => $rebaseline ? null : $summary,
+            'changes' => $changes,
+        ];
     }
 
     private static function shiftDate(string $date, int $days): string

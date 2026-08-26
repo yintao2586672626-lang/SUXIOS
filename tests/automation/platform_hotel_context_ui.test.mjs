@@ -51,7 +51,10 @@ test('platform pages expose one sticky header hotel context switcher', () => {
   assert.match(appMain, /onlineDataTab\.value === 'meituan-review-match'/);
   assert.match(appMain, /\? meituanReviewMatchHotelOptions\.value/);
   assert.match(appMain, /: meituanTargetHotelOptions\.value/);
-  assert.match(appMain, /if \(platformHotelContext\.value === 'ctrip'\) return ctripTargetHotelOptions\.value;/);
+  assert.match(appMain, /\['ctrip-public-profiles', 'ctrip-market-competition'\]\.includes\(onlineDataTab\.value\)/);
+  assert.match(appMain, /\? ctripPublicProfileHotelOptions\.value/);
+  assert.match(appMain, /: ctripTargetHotelOptions\.value/);
+  assert.match(appMain, /computed\(\(\) => platformHotelOptionsFor\(platformHotelContext\.value\)\)/);
   assert.match(appShell, /@click="openPlatformHotelContextConfig"/);
   assert.match(appShell, /fetchingData \|\| ctripTrafficBundleLoading/);
   assert.match(appShell, /ctripCommentBrowserCaptureRunning/);
@@ -61,6 +64,11 @@ test('platform pages expose one sticky header hotel context switcher', () => {
 });
 
 test('platform hotel picker searches by hotel id and keeps the current hotel first', () => {
+  const optionsForSource = sliceFrom(
+    appMain,
+    'const platformHotelOptionsFor = (platform) => {',
+    '\n            const hasPlatformHotelContext',
+  );
   const pickerSource = sliceFrom(
     appMain,
     "const platformHotelSearchKeyword = ref('');",
@@ -86,10 +94,12 @@ test('platform hotel picker searches by hotel id and keeps the current hotel fir
       ],
     },
     meituanTargetHotelOptions: { value: [] },
+    meituanReviewMatchHotelOptions: { value: [] },
     meituanForm: { value: { hotelId: '' } },
     selectedCtripHotelId: { value: '80' },
   };
   const picker = vm.runInNewContext(`(() => {
+    ${optionsForSource}
     ${pickerSource}
     return { platformHotelSearchKeyword, platformHotelSelectedName, filteredPlatformHotelOptions };
   })()`, sandbox, { filename: 'platform-hotel-picker-search-slice.js' });
@@ -221,6 +231,12 @@ test('platform context reconciliation invalidates removed configs without retain
       ],
     },
     meituanTargetHotelOptions: { value: [{ id: '7', name: 'Meituan configured' }] },
+    meituanReviewMatchHotelOptions: {
+      value: [
+        { id: '7', name: 'Meituan configured' },
+        { id: '8', name: 'Meituan review permitted' },
+      ],
+    },
     localStorage: {
       getItem: key => storage.get(key) || null,
       setItem: (key, value) => storage.set(key, String(value)),
@@ -233,6 +249,10 @@ test('platform context reconciliation invalidates removed configs without retain
   })()`, persistenceSandbox, { filename: 'platform-hotel-context-persistence-slice.js' });
   persistenceApi.persistPlatformHotelContext('meituan', 'not-configured');
   assert.equal(storage.has('phc_42_meituan'), false);
+  persistenceSandbox.onlineDataTab.value = 'meituan-review-match';
+  persistenceApi.persistPlatformHotelContext('meituan', '8');
+  assert.equal(storage.get('phc_42_meituan'), '8');
+  persistenceSandbox.onlineDataTab.value = 'ctrip-traffic';
   persistenceApi.persistPlatformHotelContext('ctrip', '91');
   assert.equal(storage.has('phc_42_ctrip'), false);
   persistenceSandbox.onlineDataTab.value = 'ctrip-public-profiles';

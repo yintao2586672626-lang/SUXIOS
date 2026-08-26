@@ -5,8 +5,8 @@
   "title": "宿析酒店经营统一知识模型｜证据—诊断—动作—回读—学习",
   "derived_at": "2026-08-15",
   "source_contract": {
-    "source_manifest_sha256": "226b3e7d4be780bf9e97193b821198e04ef1b36442c6d94009e3cc1d90d7a28f",
-    "method_pack_sha256": "76e435b5d31d2c2752e7038e41a2f2825f1430f323e60750d617b4a9a7be1257",
+    "source_manifest_sha256": "41cb87a030c03c905394b871d664e8a2d076a42e39ed369b09d44fef58ef9eba",
+    "method_pack_sha256": "acf0e6da2b9d50044c70b1a746f96bdcd576a43194efa0e75c69f40441276788",
     "priority_pack_sha256": "ad0c7d3b21ed5f2dd0c83d07c0cbf503efccbd441d1cf83741d124e0c462d39c",
     "method_entry_count": 33,
     "priority_entry_count": 3,

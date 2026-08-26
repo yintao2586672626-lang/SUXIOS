@@ -136,7 +136,7 @@ final class RevenueDecisionFrameIntegrationTest extends TestCase
         self::assertFalse($saved['question']['answer']['decision_frame']['evidence_gate']['can_execute']);
     }
 
-    public function testSelectedFrameIsSavedExactlyReadBackAndReused(): void
+    public function testRepeatedQuestionCreatesANewAuditRecordWithTheSameDecisionFrameDigest(): void
     {
         $service = new OperatingQuestionService(static fn(): array => [
             'facts' => [[
@@ -184,8 +184,12 @@ final class RevenueDecisionFrameIntegrationTest extends TestCase
             'deepseek_v4_pro',
             'price'
         );
-        self::assertFalse($replay['created']);
-        self::assertSame($readback['id'], $replay['question']['id']);
+        self::assertTrue($replay['created']);
+        self::assertNotSame($readback['id'], $replay['question']['id']);
         self::assertSame($readback['content_digest'], $replay['question']['content_digest']);
+        self::assertSame(
+            $readback['answer']['decision_frame'],
+            $replay['question']['answer']['decision_frame']
+        );
     }
 }

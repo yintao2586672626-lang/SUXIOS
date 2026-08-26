@@ -17,3 +17,5 @@ hotelx_dump.sql export-ignore
 resources/frontend/templates/fragments/*.html whitespace=-blank-at-eof
 database/migrations/20260729_seed_traffic_operation_management_golden_sentences.sql whitespace=-blank-at-eof
 database/migrations/20260730_seed_hotel_revenue_success_practices_extension.sql whitespace=-blank-at-eof
+docs/knowledge/semantic-glossary/exports/*.csv whitespace=trailing-space,cr-at-eol
+database/migrations/20260825_add_wecom_inbound_processing_lease.sql whitespace=-blank-at-eof

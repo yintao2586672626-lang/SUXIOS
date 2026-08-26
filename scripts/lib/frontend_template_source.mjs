@@ -118,6 +118,14 @@ const BUSINESS_CLOSURE_TEMPLATE_VIEW_DEFINITIONS = Object.freeze([
     wrapper: '                                <meituan-review-order-evidence-view v-if="onlineDataTab === \'meituan-review-match\'" :ctx="$root"></meituan-review-order-evidence-view>\n\n',
   }),
   Object.freeze({
+    id: 'ai-daily-trusted-broadcast',
+    fragmentId: 'page-ai-daily-report',
+    componentKey: 'AiDailyTrustedBroadcastBody',
+    start: '                        <section data-testid="ai-daily-operations-broadcast"',
+    end: '                        <div class="bg-white rounded-xl border border-gray-100 p-5 shadow-sm">',
+    wrapper: '                        <ai-daily-trusted-broadcast-view :ctx="$root"></ai-daily-trusted-broadcast-view>\n',
+  }),
+  Object.freeze({
     id: 'ai-daily-presentation-delivery',
     fragmentId: 'page-ai-daily-report',
     componentKey: 'AiDailyPresentationDeliveryBody',

@@ -7,6 +7,13 @@ const scriptPath = fileURLToPath(import.meta.url);
 const projectRoot = path.resolve(path.dirname(scriptPath), '..');
 const partialRuntimeFlag = '--allow-runtime-skip';
 const runtimeRequirementEnv = 'SUXI_REQUIRE_BUSINESS_CHAIN_RUNTIME';
+const fileTimeoutEnv = 'SUXI_NODE_TEST_FILE_TIMEOUT_MS';
+const batchSizeEnv = 'SUXI_NODE_TEST_BATCH_SIZE';
+// The dispatcher registration contract intentionally exercises several real
+// PowerShell child-process/lock lifecycles and can exceed two minutes on the
+// supported Windows workstation. Keep the runner bounded without turning a
+// healthy, deterministic file into a false timeout.
+const defaultFileTimeoutMs = 300_000;
 
 function enabled(value) {
   return ['1', 'true'].includes(String(value || '').trim().toLowerCase());
@@ -35,6 +42,30 @@ export function discoverNodeTests(root) {
 
 export function buildNodeTestArgs(testFiles) {
   return ['--test', '--test-concurrency=1', ...testFiles];
+}
+
+function boundedPositiveInteger(value, fallback, minimum, maximum) {
+  const parsed = Number.parseInt(String(value || '').trim(), 10);
+  return Number.isSafeInteger(parsed) && parsed >= minimum && parsed <= maximum
+    ? parsed
+    : fallback;
+}
+
+export function resolveNodeTestFileTimeoutMs(env = process.env) {
+  return boundedPositiveInteger(env[fileTimeoutEnv], defaultFileTimeoutMs, 1_000, 900_000);
+}
+
+export function resolveNodeTestBatchSize(env = process.env) {
+  return boundedPositiveInteger(env[batchSizeEnv], 1, 1, 20);
+}
+
+export function buildNodeTestBatches(testFiles, batchSize = 1) {
+  const boundedSize = boundedPositiveInteger(batchSize, 1, 1, 20);
+  const batches = [];
+  for (let index = 0; index < testFiles.length; index += boundedSize) {
+    batches.push(testFiles.slice(index, index + boundedSize));
+  }
+  return batches;
 }
 
 export function buildPhpBinaryCandidates(env = process.env, platform = process.platform) {
@@ -73,6 +104,51 @@ export function resolvePhpBinary(candidates, probe = phpBinaryWorks) {
   return candidates.find((candidate) => probe(candidate)) || '';
 }
 
+export function runNodeTestBatches({
+  testFiles,
+  cwd = projectRoot,
+  env = process.env,
+  timeoutMs = resolveNodeTestFileTimeoutMs(env),
+  batchSize = resolveNodeTestBatchSize(env),
+  spawn = spawnSync,
+  log = console.log,
+  logError = console.error,
+}) {
+  const batches = buildNodeTestBatches(testFiles, batchSize);
+  let lastCompleted = 'none';
+  for (let index = 0; index < batches.length; index += 1) {
+    const batch = batches[index];
+    const label = batch.join(', ');
+    log(`[NODE TEST START ${index + 1}/${batches.length}] ${label}`);
+    const result = spawn(process.execPath, buildNodeTestArgs(batch), {
+      cwd,
+      stdio: 'inherit',
+      env,
+      timeout: timeoutMs,
+      killSignal: 'SIGTERM',
+      windowsHide: true,
+    });
+    if (result.error) {
+      const timedOut = result.error.code === 'ETIMEDOUT';
+      logError(
+        timedOut
+          ? `[NODE TEST TIMEOUT] ${label} exceeded ${timeoutMs}ms; last_completed=${lastCompleted}`
+          : `[NODE TEST ERROR] ${label}: ${result.error.message}; last_completed=${lastCompleted}`,
+      );
+      return { status: 1, failedBatch: batch, lastCompleted, timedOut };
+    }
+    if (result.status !== 0) {
+      logError(
+        `[NODE TEST FAILED] ${label}; exit=${result.status ?? 'null'}; signal=${result.signal || 'none'}; last_completed=${lastCompleted}`,
+      );
+      return { status: result.status ?? 1, failedBatch: batch, lastCompleted, timedOut: false };
+    }
+    lastCompleted = label;
+    log(`[NODE TEST COMPLETE ${index + 1}/${batches.length}] ${label}`);
+  }
+  return { status: 0, failedBatch: [], lastCompleted, timedOut: false };
+}
+
 function run() {
   const automationRoot = path.join(projectRoot, 'tests', 'automation');
   const testFiles = discoverNodeTests(automationRoot)
@@ -100,17 +176,19 @@ function run() {
     console.log(`[COMPLETE VERIFICATION] Business-chain runtime tests are required; PHP_BINARY=${phpBinary}`);
   }
 
-  console.log(`Running ${testFiles.length} Node automation test files serially.`);
-  const result = spawnSync(process.execPath, buildNodeTestArgs(testFiles), {
+  const timeoutMs = resolveNodeTestFileTimeoutMs();
+  const batchSize = resolveNodeTestBatchSize();
+  console.log(
+    `Running ${testFiles.length} Node automation test files in bounded serial batches; batch_size=${batchSize}; timeout_ms=${timeoutMs}.`,
+  );
+  const result = runNodeTestBatches({
+    testFiles,
     cwd: projectRoot,
-    stdio: 'inherit',
     env: buildNodeTestEnv(process.env, phpBinary, { allowRuntimeSkip }),
+    timeoutMs,
+    batchSize,
   });
-  if (result.error) {
-    console.error(result.error.message);
-    process.exit(1);
-  }
-  process.exit(result.status ?? 1);
+  process.exit(result.status);
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === scriptPath) {

@@ -1129,7 +1129,7 @@ if (!runtimeAssetPaths.includes('app-startup-helpers.min.js')
     ? onlineDataTabSchedulerSource.slice(onlineDataDataTabStart, onlineDataManualPrewarmStart)
     : '';
   if (!manualOnlineDataConfigPrewarmSource.includes('const MANUAL_ONLINE_DATA_CONFIG_PREWARM_DELAY_MS = 60;')
-    || !manualOnlineDataConfigPrewarmSource.includes("const MANUAL_ONLINE_FETCH_CONFIG_TABS = new Set(['ctrip', 'meituan', 'custom']);")
+    || !manualOnlineDataConfigPrewarmSource.includes("const MANUAL_ONLINE_FETCH_CONFIG_TABS = new Set(['ctrip', 'meituan']);")
     || !manualOnlineDataConfigPrewarmSource.includes("const shouldPrewarmManualOnlineFetchConfig = (newTab) => MANUAL_ONLINE_FETCH_CONFIG_TABS.has(String(newTab || ''));")
     || !manualOnlineDataConfigPrewarmSource.includes('const clearManualOnlineFetchConfigPrewarmTimer = () => {')
     || !manualOnlineDataConfigPrewarmSource.includes('const scheduleManualOnlineFetchConfigPrewarm = (newTab, delayMs = MANUAL_ONLINE_DATA_CONFIG_PREWARM_DELAY_MS) => {')
@@ -1141,21 +1141,21 @@ if (!runtimeAssetPaths.includes('app-startup-helpers.min.js')
     || onlineDataDataTabSource.includes('scheduleManualOnlineFetchConfigPrewarm')
     || !/if \(shouldPrewarmManualConfig\) \{\s*scheduleManualOnlineFetchConfigPrewarm\(newTab, options\.configPrewarmDelayMs\);\s*return undefined;\s*\}/.test(onlineDataTabSchedulerSource)
     || /ensureManualOnlineFetchConfigReady\(\);\s*refreshOnlineData\(\{ cacheMs: ONLINE_DATA_PANEL_CACHE_TTL_MS \}\);/.test(onlineDataTabSchedulerSource)
-    || !/item\.path === ['"]online-data['"][\s\S]*openOnlineDataTab\(targetTab\)/.test(content)) {
+    || !/item\.path === ['"]online-data['"][\s\S]*openOnlineDataEntryTab\(String\(item\.tab \|\| ['"]data-health['"]\)\)/.test(content)) {
     failures.push('public/index.html must keep saved platform config prewarm off the online-data data-records first paint and reserve it for manual fetch tabs.');
   }
   if (!content.includes("let pendingOnlineDataEntryTab = '';")
-    || !content.includes("pendingOnlineDataEntryTab = String(item.tab || '');")
-    || !content.includes("if (requestedOnlineDataTab && requestedOnlineDataTab !== 'data-health') {\n                        return;\n                    }")) {
+    || !/if \(targetTab !== ['"]data-health['"]\) \{\s*pendingOnlineDataEntryTab = targetTab;\s*\}/.test(content)
+    || !/if \(requestedOnlineDataTab && requestedOnlineDataTab !== ['"]data-health['"]\) \{\s*return;\s*\}/.test(content)) {
     failures.push('public/index.html must skip default data-health first-paint loading when menu navigation targets another online-data tab.');
   }
-  if (!content.includes("const openOnlineDataEntryTab = (tab = 'data-health', options = {}) => {\n                const targetTab = String(tab || 'data-health');")
-    || !content.includes("clearDataHealthSecondaryPanelsReadyTimer();\n                dataHealthSecondaryPanelsReady.value = false;\n                clearDataHealthDetailPanelsReadyTimer();\n                dataHealthDetailPanelsReady.value = false;\n                clearDataHealthEmployeePanelsReadyTimer();\n                dataHealthEmployeePanelsReady.value = false;\n                clearPlatformAutoSettingsPanelsReadyTimer();\n                platformAutoSettingsPanelsReady.value = false;\n                clearPlatformAutoSecondaryPanelsReadyTimer();\n                platformAutoSecondaryPanelsReady.value = false;")
+  if (!/const openOnlineDataEntryTab = \(tab = ['"]data-health['"], options = \{\}\) => \{\s*const targetTab = String\(tab \|\| ['"]data-health['"]\);/.test(content)
+    || !/clearDataHealthSecondaryPanelsReadyTimer\(\);\s*dataHealthSecondaryPanelsReady\.value = false;[\s\S]*clearDataHealthDetailPanelsReadyTimer\(\);\s*dataHealthDetailPanelsReady\.value = false;[\s\S]*clearDataHealthEmployeePanelsReadyTimer\(\);\s*dataHealthEmployeePanelsReady\.value = false;[\s\S]*clearPlatformAutoSettingsPanelsReadyTimer\(\);\s*platformAutoSettingsPanelsReady\.value = false;[\s\S]*clearPlatformAutoSecondaryPanelsReadyTimer\(\);\s*platformAutoSecondaryPanelsReady\.value = false;/.test(content)
     || !content.includes("if (targetTab !== 'data-health') {\n                    pendingOnlineDataEntryTab = targetTab;\n                }")
     || !content.includes("onlineDataTab.value = targetTab;\n                currentPage.value = 'online-data';")
     || !content.includes("const openOnlinePlatformAutoTab = (options = {}) => {\n                return openOnlineDataEntryTab('platform-auto', options);\n            };")
     || !content.includes("const openOnlineDataManualEntry = () => {\n                return openOnlineDataEntryTab('data-health');\n            };")
-    || !content.includes("if (item.path === 'online-data' && !item.tab) {\n                    openOnlineDataManualEntry();\n                    return;\n                }")) {
+    || !/if \(item\.path === ['"]online-data['"]\) \{\s*openOnlineDataEntryTab\(String\(item\.tab \|\| ['"]data-health['"]\)\);\s*return;\s*\}/.test(content)) {
     failures.push('public/index.html online-data menu clicks without an explicit tab must return to the default data-health tab.');
   }
   if (!content.includes('@click="handleParentMenuClick(item)"')
@@ -1804,7 +1804,7 @@ if (!runtimeAssetPaths.includes('app-startup-helpers.min.js')
   }
   const generateMeituanBookmarkletSource = content.slice(
     content.indexOf('const generateMeituanBookmarklet = async () => {'),
-    content.indexOf('const fetchCustomData')
+    content.indexOf('const cookieRowKey')
   );
   if (!content.includes("const buildMeituanBookmarkletSuccessState = requireMeituanStatic('buildMeituanBookmarkletSuccessState');")
     || !content.includes("const buildMeituanBookmarkletFailureState = requireMeituanStatic('buildMeituanBookmarkletFailureState');")
@@ -1878,15 +1878,15 @@ if (!runtimeAssetPaths.includes('app-startup-helpers.min.js')
     || !content.includes('id="platform-hotel-context-options"')
     || !content.includes('v-for="hotel in filteredPlatformHotelOptions"')
     || !content.includes('@mousedown.prevent="selectPlatformHotelOption(hotel)"')
-    || !content.includes('const platformHotelOptions = computed(() => {')
-    || !content.includes("if (platformHotelContext.value === 'meituan') {")
+    || !content.includes('const platformHotelOptionsFor = (platform) => {')
+    || !content.includes("if (platform === 'meituan') {")
     || !content.includes("return onlineDataTab.value === 'meituan-review-match'")
     || !content.includes('? meituanReviewMatchHotelOptions.value')
     || !content.includes(': meituanTargetHotelOptions.value;')
-    || !content.includes("if (platformHotelContext.value === 'ctrip') {")
+    || !content.includes("if (platform === 'ctrip') {")
     || !content.includes("return ['ctrip-public-profiles', 'ctrip-market-competition'].includes(onlineDataTab.value)")
-    || !content.includes('? ctripPublicProfileHotelOptions.value')
-    || !content.includes(': ctripTargetHotelOptions.value;')
+    || !/\? ctripPublicProfileHotelOptions\.value\s*: ctripTargetHotelOptions\.value;/.test(content)
+    || !content.includes('const platformHotelOptions = computed(() => platformHotelOptionsFor(platformHotelContext.value));')
     || !content.includes('const filteredPlatformHotelOptions = computed(() => {')
     || !content.includes('const platformHotelContext = computed(() => currentPage.value')
     || ctripPlatformPageTemplate.includes('v-model="selectedCtripHotelId"')

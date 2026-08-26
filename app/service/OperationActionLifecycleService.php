@@ -19,6 +19,7 @@ use think\facade\Db;
 final class OperationActionLifecycleService
 {
     public const CARD_CONTRACT_VERSION = 'operation_action_card.v1';
+    public const DAILY_CARD_CONTRACT_VERSION = 'operation_action_card.v2';
     public const REVIEW_CONTRACT_VERSION = 'operation_action_review.v1';
     public const APPROVAL_CONFIRMATION_VERSION = 'operation_action_approval_confirmation.v1';
     public const EVENT_TABLE = 'operation_action_lifecycle_events';
@@ -33,6 +34,18 @@ final class OperationActionLifecycleService
         'completed',
         'reviewed',
         'cancelled',
+    ];
+
+    /** @var list<string> */
+    public const DAILY_STATUSES = [
+        'draft',
+        'pending_approval',
+        'approved',
+        'executing',
+        'evidence_recorded',
+        'review_pending',
+        'reviewed',
+        'blocked',
     ];
 
     /**
@@ -182,6 +195,183 @@ final class OperationActionLifecycleService
     }
 
     /**
+     * Build the v2 daily-one-thing card. Unlike the historical v1 overlay,
+     * this contract owns the fixed daily lifecycle and freezes the selected
+     * source snapshot before any approval or task exists.
+     *
+     * @param array<string,mixed> $run
+     * @param array<string,mixed> $selected
+     * @return array<string,mixed>
+     */
+    public function buildDailyOneThingPendingCard(
+        array $run,
+        array $selected,
+        int $ownerId,
+        ?DateTimeImmutable $now = null
+    ): array {
+        $timezone = new DateTimeZone('Asia/Shanghai');
+        $now = $now?->setTimezone($timezone) ?? new DateTimeImmutable('now', $timezone);
+        $runId = (int)($run['id'] ?? 0);
+        $tenantId = (int)($run['tenant_id'] ?? 0);
+        $hotelId = (int)($run['system_hotel_id'] ?? 0);
+        $businessDate = substr(trim((string)($run['business_date'] ?? '')), 0, 10);
+        $selectionDigest = strtolower(trim((string)($selected['content_digest'] ?? '')));
+        $resultDigest = strtolower(trim((string)($run['result_digest'] ?? '')));
+        $inputDigest = strtolower(trim((string)($run['input_digest'] ?? '')));
+        if ($runId <= 0 || $tenantId <= 0 || $hotelId <= 0 || $ownerId <= 0
+            || (string)($run['feature_key'] ?? '') !== 'daily_one_thing'
+            || preg_match('/^[a-f0-9]{64}$/D', $selectionDigest) !== 1
+            || preg_match('/^[a-f0-9]{64}$/D', $resultDigest) !== 1
+            || preg_match('/^[a-f0-9]{64}$/D', $inputDigest) !== 1
+        ) {
+            throw new InvalidArgumentException('每日一件事行动卡来源身份无效');
+        }
+        $this->requiredDateRange($businessDate, $businessDate);
+
+        $scope = is_array($selected['scope'] ?? null) ? $selected['scope'] : [];
+        $action = is_array($selected['recommended_action'] ?? null) ? $selected['recommended_action'] : [];
+        $metric = is_array($selected['expected_observation_metric'] ?? null)
+            ? $selected['expected_observation_metric'] : [];
+        $risk = is_array($selected['risk'] ?? null) ? $selected['risk'] : [];
+        $responsibility = is_array($selected['responsibility'] ?? null)
+            ? $selected['responsibility'] : [];
+        $boundaries = is_array($selected['external_write_boundary'] ?? null)
+            ? $selected['external_write_boundary'] : [];
+        if ((int)($scope['tenant_id'] ?? 0) !== $tenantId
+            || (int)($scope['hotel_id'] ?? 0) !== $hotelId
+            || (string)($scope['business_date'] ?? '') !== $businessDate
+            || (int)($responsibility['owner_id'] ?? 0) !== $ownerId
+            || !hash_equals($selectionDigest, DailyOneThingService::digest($selected))
+        ) {
+            throw new InvalidArgumentException('每日一件事行动卡范围或选择摘要已漂移');
+        }
+        $dueAt = $this->requiredDateTime($responsibility['due_at'] ?? null, '每日事项截止时间');
+        $reviewAt = $this->requiredDateTime($responsibility['review_at'] ?? null, '每日事项复盘时间');
+        if ($reviewAt <= $dueAt) {
+            throw new InvalidArgumentException('每日事项复盘时间必须晚于截止时间');
+        }
+        $metricKey = strtolower(trim((string)($metric['key'] ?? '')));
+        $metricUnit = trim((string)($metric['unit'] ?? ''));
+        $baselineValue = $metric['baseline_value'] ?? null;
+        if ($metricKey === '' || $metricUnit === '' || !is_numeric($baselineValue)) {
+            throw new InvalidArgumentException('每日事项观察指标合同无效');
+        }
+
+        $runRef = OperatingOpportunityLabService::RUN_TABLE . '#' . $runId;
+        $factRefs = array_values(array_unique(array_filter(array_map(
+            'strval',
+            array_merge(
+                [$runRef, (string)($selected['source']['record_ref'] ?? '')],
+                (array)($selected['source']['fact_refs'] ?? [])
+            )
+        ))));
+        $card = [
+            'contract_version' => self::DAILY_CARD_CONTRACT_VERSION,
+            'status' => 'pending_approval',
+            'problem' => trim((string)($selected['problem'] ?? '')),
+            'fact_basis' => array_values((array)($selected['fact_basis'] ?? [])),
+            'hotel' => ['tenant_id' => $tenantId, 'hotel_id' => $hotelId],
+            'source' => [
+                'module' => OperatingOpportunityLabService::DAILY_SOURCE_MODULE,
+                'record_id' => $runId,
+                'platform' => strtolower(trim((string)($scope['platform'] ?? ''))),
+                'source_scope' => strtolower(trim((string)($scope['metric_scope'] ?? 'ota_channel'))),
+            ],
+            'business_window' => ['date_start' => $businessDate, 'date_end' => $businessDate],
+            'fact_refs' => $factRefs,
+            'action' => [
+                'type' => trim((string)($action['type'] ?? '')),
+                'title' => trim((string)($action['title'] ?? '')),
+                'description' => trim((string)($action['description'] ?? '')),
+                'object' => trim((string)($action['object'] ?? '')),
+                'steps' => array_values((array)($action['steps'] ?? [])),
+            ],
+            'reason' => trim((string)($selected['problem'] ?? '')),
+            'risk' => [
+                'level' => strtolower(trim((string)($risk['level'] ?? 'medium'))),
+                'summary' => trim((string)($risk['summary'] ?? '')),
+                'controls' => array_values((array)($risk['controls'] ?? [])),
+                'stop_conditions' => array_values((array)($risk['stop_conditions'] ?? [])),
+            ],
+            'responsibility' => [
+                'owner_id' => $ownerId,
+                'owner_label' => trim((string)($responsibility['owner_label'] ?? '当前确认人')),
+                'due_at' => $dueAt->format('Y-m-d H:i:s'),
+            ],
+            'execution_window' => [
+                'start_at' => $now->format('Y-m-d H:i:s'),
+                'end_at' => $dueAt->format('Y-m-d H:i:s'),
+                'timezone' => 'Asia/Shanghai',
+            ],
+            'metric_contract' => [
+                'metric_key' => $metricKey,
+                'label' => trim((string)($metric['label'] ?? $metricKey)),
+                'unit' => $metricUnit,
+                'aggregation' => trim((string)($metric['aggregation'] ?? 'latest')),
+                'baseline_window' => [
+                    'date_start' => $businessDate,
+                    'date_end' => $businessDate,
+                    'value' => round((float)$baselineValue, 6),
+                    'fact_rows' => [[
+                        'ref' => $runRef,
+                        'platform' => strtolower(trim((string)($scope['platform'] ?? ''))),
+                        'business_date' => $businessDate,
+                        'metric_key' => $metricKey,
+                        'value' => round((float)$baselineValue, 6),
+                        'unit' => $metricUnit,
+                    ]],
+                ],
+                'followup_window' => [
+                    'review_at' => $reviewAt->format('Y-m-d H:i:s'),
+                    'business_date' => $reviewAt->format('Y-m-d'),
+                    'status' => 'pending_source_readback',
+                ],
+                'expected_direction' => 'observe',
+                'target_type' => 'observation',
+                'target_value' => null,
+                'expected_delta' => null,
+                'expected_delta_status' => 'observation_only',
+            ],
+            'trace' => [
+                'daily_one_thing_run_ref' => $runRef,
+                'daily_selection_digest' => $selectionDigest,
+                'daily_run_input_digest' => $inputDigest,
+                'daily_run_result_digest' => $resultDigest,
+                'source_snapshot_digest' => strtolower(trim((string)($selected['source']['snapshot_digest'] ?? ''))),
+                'candidate_key' => trim((string)($selected['candidate_key'] ?? '')),
+                'source_type' => trim((string)($selected['source_type'] ?? '')),
+                'underlying_source_record_id' => max(0, (int)($selected['source']['record_id'] ?? 0)),
+            ],
+            'approval' => [
+                'required' => true,
+                'mode' => 'human_confirmation',
+                'trigger_policy' => 'explicit_user_second_confirmation_after_fact_reread',
+                'fact_reread_required' => true,
+                'approval_expires_at' => $now->modify('+24 hours')->format('Y-m-d H:i:s'),
+                'confirmation_version' => self::APPROVAL_CONFIRMATION_VERSION,
+            ],
+            'boundaries' => [
+                'automatic_collection' => false,
+                'automatic_execution' => false,
+                'automatic_ota_write' => false,
+                'automatic_ctrip_write' => false,
+                'automatic_meituan_write' => false,
+                'automatic_pms_write' => false,
+                'external_message' => false,
+                'automatic_wecom_message' => false,
+                'causality_claimed' => false,
+                'human_confirmation_required' => true,
+                'external_write_count_before_approval' => 0,
+            ] + $boundaries,
+            'created_at' => $now->format('Y-m-d H:i:s'),
+        ];
+        $this->assertCardShape($card);
+        $card['identity_digest'] = $this->identityDigest($card);
+        $card['content_digest'] = $this->cardDigest($card);
+        return $card;
+    }
+
+    /**
      * Build the smallest truthful action card for a revenue-cockpit handoff.
      * It is an observation contract: no numeric improvement target is invented,
      * and every external operation remains a later human action.
@@ -247,7 +437,7 @@ final class OperationActionLifecycleService
                 'hotel_id' => $hotelId,
             ],
             'source' => [
-                'module' => trim((string)($context['source_module'] ?? RevenueCockpitApprovalService::SOURCE_MODULE)),
+                'module' => trim((string)($context['source_module'] ?? RevenueCockpitActionContract::SOURCE_MODULE)),
                 'record_id' => $sourceRecordId,
                 'platform' => $platform,
                 'source_scope' => 'ota_channel',
@@ -367,7 +557,25 @@ final class OperationActionLifecycleService
     public function isManagedIntent(array $intent): bool
     {
         $card = $this->cardFromIntent($intent);
-        return (string)($card['contract_version'] ?? '') === self::CARD_CONTRACT_VERSION;
+        return self::isManagedCard($card);
+    }
+
+    /** @param array<string,mixed> $card */
+    public static function isManagedCard(array $card): bool
+    {
+        return in_array((string)($card['contract_version'] ?? ''), [
+            self::CARD_CONTRACT_VERSION,
+            self::DAILY_CARD_CONTRACT_VERSION,
+        ], true);
+    }
+
+    /** @param array<string,mixed> $intent */
+    public function isDailyOneThingIntent(array $intent): bool
+    {
+        $card = $this->cardFromIntent($intent);
+        return (string)($card['contract_version'] ?? '') === self::DAILY_CARD_CONTRACT_VERSION
+            && strtolower(trim((string)($intent['source_module'] ?? $card['source']['module'] ?? '')))
+                === OperatingOpportunityLabService::DAILY_SOURCE_MODULE;
     }
 
     /** @param array<string,mixed> $intent @return array<string,mixed> */
@@ -431,7 +639,8 @@ final class OperationActionLifecycleService
             ->toArray();
         foreach ($rows as $row) {
             $candidate = $this->cardFromIntent($row);
-            if ((string)($candidate['contract_version'] ?? '') !== self::CARD_CONTRACT_VERSION
+            if (!self::isManagedCard($candidate)
+                || (string)($candidate['contract_version'] ?? '') !== (string)($card['contract_version'] ?? '')
                 || !hash_equals($identityDigest, $this->actionIdentityDigest($candidate))
             ) {
                 continue;
@@ -473,7 +682,8 @@ final class OperationActionLifecycleService
             ->toArray();
         foreach ($rows as $row) {
             $candidate = $this->cardFromIntent($row);
-            if ((string)($candidate['contract_version'] ?? '') === self::CARD_CONTRACT_VERSION
+            if (self::isManagedCard($candidate)
+                && (string)($candidate['contract_version'] ?? '') === (string)($card['contract_version'] ?? '')
                 && hash_equals($identityDigest, $this->actionIdentityDigest($candidate))
             ) {
                 return (int)($row['id'] ?? 0) ?: null;
@@ -518,7 +728,7 @@ final class OperationActionLifecycleService
         $ids = [];
         foreach ($rows as $row) {
             $card = $this->cardFromIntent($row);
-            if ((string)($card['contract_version'] ?? '') !== self::CARD_CONTRACT_VERSION) {
+            if (!self::isManagedCard($card)) {
                 continue;
             }
             try {
@@ -593,10 +803,10 @@ final class OperationActionLifecycleService
             throw new InvalidArgumentException('待审批行动卡摘要无效');
         }
         $card['status'] = 'approved';
-        $card['responsibility'] = [
+        $card['responsibility'] = array_merge((array)($card['responsibility'] ?? []), [
             'owner_id' => (int)($schedule['assignee_id'] ?? 0),
             'due_at' => trim((string)($schedule['due_at'] ?? '')),
-        ];
+        ]);
         $card['execution_window'] = [
             'start_at' => trim((string)($schedule['execution_start_at']
                 ?? $card['execution_window']['start_at']
@@ -871,10 +1081,16 @@ final class OperationActionLifecycleService
             return [];
         }
         $this->assertSchemaReady();
-        if (($fromStatus !== '' && !in_array($fromStatus, self::STATUSES, true))
-            || !in_array($toStatus, self::STATUSES, true)
+        $allowedStatuses = $this->isDailyOneThingIntent($intent)
+            ? self::DAILY_STATUSES
+            : self::STATUSES;
+        if (($fromStatus !== '' && !in_array($fromStatus, $allowedStatuses, true))
+            || !in_array($toStatus, $allowedStatuses, true)
         ) {
             throw new InvalidArgumentException('运营行动生命周期状态无效');
+        }
+        if ($this->isDailyOneThingIntent($intent)) {
+            $this->assertDailyTransition($fromStatus, $toStatus);
         }
         $tenantId = (int)($intent['tenant_id'] ?? 0);
         $hotelId = (int)($intent['hotel_id'] ?? 0);
@@ -1135,6 +1351,11 @@ final class OperationActionLifecycleService
         $reasons[] = 'observational_before_after_no_control_group';
         $reasons[] = 'external_market_and_inventory_factors_not_isolated';
         $reasons = array_values(array_unique($reasons));
+        if ($this->isDailyOneThingIntent($intent) && $sufficiency !== 'sufficient') {
+            throw new InvalidArgumentException(
+                '每日一件事缺少同酒店、同平台、同指标的后续自然事实，保持 review_pending'
+            );
+        }
         $delta = $beforeValue !== null && $afterValue !== null
             ? round($afterValue - $beforeValue, 6)
             : null;
@@ -1260,12 +1481,20 @@ final class OperationActionLifecycleService
         if (!$this->isManagedIntent($intent)) {
             return $intent;
         }
-        $events = $this->eventsForIntent((int)$intent['tenant_id'], (int)$intent['hotel_id'], (int)$intent['id']);
-        $reviews = $this->reviewsForIntent((int)$intent['tenant_id'], (int)$intent['hotel_id'], (int)$intent['id']);
-        $taskIds = array_values(array_filter(array_map(
-            static fn(array $task): int => (int)($task['id'] ?? 0),
-            (array)($intent['tasks'] ?? [])
-        )));
+        $tenantId = (int)$intent['tenant_id'];
+        $hotelId = (int)$intent['hotel_id'];
+        $intentId = (int)$intent['id'];
+        $knownTaskScope = $this->knownTaskScopeFromIntent($intent);
+        $eventChain = $this->readEventChain($tenantId, $hotelId, $intentId, $knownTaskScope);
+        $reviewChain = $this->readReviewChain($tenantId, $hotelId, $intentId, $knownTaskScope);
+        $events = $eventChain['events'];
+        $reviews = array_reverse($reviewChain['reviews']);
+        $taskIds = $knownTaskScope === null
+            ? array_values(array_filter(array_map(
+                static fn(array $task): int => (int)($task['id'] ?? 0),
+                (array)($intent['tasks'] ?? [])
+            )))
+            : array_map('intval', array_keys($knownTaskScope));
         $evidenceIds = [];
         if ($taskIds !== []) {
             $evidenceIds = array_map(
@@ -1277,7 +1506,15 @@ final class OperationActionLifecycleService
                     ->column('id')
             );
         }
-        $intent['action_management'] = $this->managementProjection($intent, $events, $reviews, $taskIds, $evidenceIds);
+        $intent['action_management'] = $this->managementProjection(
+            $intent,
+            $events,
+            $reviews,
+            $taskIds,
+            $evidenceIds,
+            $eventChain['integrity'],
+            $reviewChain['integrity']
+        );
         return $intent;
     }
 
@@ -1291,8 +1528,18 @@ final class OperationActionLifecycleService
         if (!$this->isManagedIntent($intent)) {
             return $task;
         }
-        $events = $this->eventsForIntent((int)$intent['tenant_id'], (int)$intent['hotel_id'], (int)$intent['id']);
-        $reviews = $this->reviewsForIntent((int)$intent['tenant_id'], (int)$intent['hotel_id'], (int)$intent['id']);
+        $eventChain = $this->readEventChain(
+            (int)$intent['tenant_id'],
+            (int)$intent['hotel_id'],
+            (int)$intent['id']
+        );
+        $reviewChain = $this->readReviewChain(
+            (int)$intent['tenant_id'],
+            (int)$intent['hotel_id'],
+            (int)$intent['id']
+        );
+        $events = $eventChain['events'];
+        $reviews = array_reverse($reviewChain['reviews']);
         $evidenceIds = array_values(array_filter(array_map(
             static fn(array $row): int => (int)($row['id'] ?? 0),
             (array)($task['evidence'] ?? [])
@@ -1302,7 +1549,9 @@ final class OperationActionLifecycleService
             $events,
             $reviews,
             [(int)$task['id']],
-            $evidenceIds
+            $evidenceIds,
+            $eventChain['integrity'],
+            $reviewChain['integrity']
         );
         return $task;
     }
@@ -1310,43 +1559,13 @@ final class OperationActionLifecycleService
     /** @return list<array<string,mixed>> */
     public function eventsForIntent(int $tenantId, int $hotelId, int $intentId): array
     {
-        if (!$this->tableExists(self::EVENT_TABLE)) {
-            return [];
-        }
-        $rows = Db::name(self::EVENT_TABLE)
-            ->where('tenant_id', $tenantId)
-            ->where('hotel_id', $hotelId)
-            ->where('intent_id', $intentId)
-            ->order('sequence_no', 'asc')
-            ->select()
-            ->toArray();
-        $events = array_map([$this, 'normalizeEvent'], $rows);
-        $integrity = $this->verifyEventChain($events, $tenantId, $hotelId, $intentId);
-        if ($integrity['status'] === 'invalid') {
-            throw new RuntimeException('运营行动生命周期事件链损坏：' . $integrity['failure_reason']);
-        }
-        return $events;
+        return $this->readEventChain($tenantId, $hotelId, $intentId)['events'];
     }
 
     /** @return list<array<string,mixed>> */
     public function reviewsForIntent(int $tenantId, int $hotelId, int $intentId): array
     {
-        if (!$this->tableExists(self::REVIEW_TABLE)) {
-            return [];
-        }
-        $rows = Db::name(self::REVIEW_TABLE)
-            ->where('tenant_id', $tenantId)
-            ->where('hotel_id', $hotelId)
-            ->where('intent_id', $intentId)
-            ->order('id', 'asc')
-            ->select()
-            ->toArray();
-        $reviews = array_map([$this, 'normalizeReview'], $rows);
-        $integrity = $this->verifyReviewChain($reviews, $tenantId, $hotelId, $intentId);
-        if ($integrity['status'] === 'invalid') {
-            throw new RuntimeException('运营行动统一复盘链损坏：' . $integrity['failure_reason']);
-        }
-        return array_reverse($reviews);
+        return array_reverse($this->readReviewChain($tenantId, $hotelId, $intentId)['reviews']);
     }
 
     /** @param array<string,mixed> $intent */
@@ -1362,13 +1581,49 @@ final class OperationActionLifecycleService
             if ($integrity['status'] !== 'verified') {
                 throw new RuntimeException('运营行动生命周期状态不可用：' . $integrity['failure_reason']);
             }
+        }
+        return $this->statusFromVerifiedEvents($intent, $events);
+    }
+
+    /** @param array<string,mixed> $intent */
+    private function statusFromVerifiedEvents(array $intent, array $events): string
+    {
+        $isDaily = $this->isDailyOneThingIntent($intent);
+        $allowedStatuses = $isDaily ? self::DAILY_STATUSES : self::STATUSES;
+        if ($events !== []) {
             $latest = $events[count($events) - 1];
             $status = strtolower(trim((string)($latest['to_status'] ?? '')));
-            if (in_array($status, self::STATUSES, true)) {
+            if (in_array($status, $allowedStatuses, true)) {
                 return $status;
             }
         }
         $intentStatus = strtolower(trim((string)($intent['status'] ?? '')));
+        if ($isDaily) {
+            if (in_array($intentStatus, ['blocked', 'rejected', 'cancelled'], true)) {
+                return 'blocked';
+            }
+            if ($intentStatus === 'draft') {
+                return 'draft';
+            }
+            if ($intentStatus !== 'approved') {
+                return 'pending_approval';
+            }
+            $tasks = array_values((array)($intent['tasks'] ?? []));
+            $task = $tasks === [] ? [] : $tasks[count($tasks) - 1];
+            $taskStatus = strtolower(trim((string)($task['status'] ?? '')));
+            if ($taskStatus === 'executing') {
+                return 'executing';
+            }
+            if (in_array($taskStatus, ['blocked', 'failed', 'cancelled'], true)) {
+                return 'blocked';
+            }
+            if ($taskStatus === 'executed') {
+                return in_array(strtolower(trim((string)($task['result_status'] ?? ''))), ['success', 'near_success', 'failed'], true)
+                    ? 'reviewed'
+                    : 'review_pending';
+            }
+            return 'approved';
+        }
         if (in_array($intentStatus, ['cancelled', 'rejected'], true)) {
             return 'cancelled';
         }
@@ -1395,37 +1650,52 @@ final class OperationActionLifecycleService
         return 'approved';
     }
 
+    private function assertDailyTransition(string $fromStatus, string $toStatus): void
+    {
+        $allowed = [
+            '' => ['draft'],
+            'draft' => ['pending_approval', 'blocked'],
+            'pending_approval' => ['pending_approval', 'approved', 'blocked'],
+            'approved' => ['approved', 'executing', 'blocked'],
+            'executing' => ['evidence_recorded', 'blocked'],
+            'evidence_recorded' => ['review_pending', 'blocked'],
+            'review_pending' => ['review_pending', 'reviewed', 'blocked'],
+            'reviewed' => ['reviewed'],
+            'blocked' => ['blocked'],
+        ];
+        if (!in_array($toStatus, $allowed[$fromStatus] ?? [], true)) {
+            throw new InvalidArgumentException(
+                '每日一件事生命周期不允许从 ' . ($fromStatus !== '' ? $fromStatus : '初始') . ' 跳到 ' . $toStatus
+            );
+        }
+    }
+
     private function managementProjection(
         array $intent,
         array $events,
         array $reviews,
         array $taskIds,
-        array $evidenceIds
+        array $evidenceIds,
+        array $integrity,
+        array $reviewIntegrity
     ): array {
-        $integrity = $this->verifyEventChain(
-            $events,
-            (int)($intent['tenant_id'] ?? 0),
-            (int)($intent['hotel_id'] ?? 0),
-            (int)($intent['id'] ?? 0)
-        );
-        $reviewIntegrity = $this->verifyReviewChain(
-            array_reverse($reviews),
-            (int)($intent['tenant_id'] ?? 0),
-            (int)($intent['hotel_id'] ?? 0),
-            (int)($intent['id'] ?? 0)
-        );
         $card = $this->cardFromIntent($intent);
         $questionRef = trim((string)($card['trace']['question_ref'] ?? ''));
-        $questionId = preg_match('/#([1-9][0-9]*)$/D', $questionRef, $matches) === 1
-            ? (int)$matches[1]
-            : (int)($intent['source_record_id'] ?? 0);
+        $isOperatingQuestion = strtolower(trim((string)($intent['source_module'] ?? '')))
+            === OperatingQuestionExecutionBridgeService::SOURCE_MODULE;
+        $questionId = $isOperatingQuestion
+            ? (preg_match('/#([1-9][0-9]*)$/D', $questionRef, $matches) === 1
+                ? (int)$matches[1]
+                : (int)($intent['source_record_id'] ?? 0))
+            : 0;
+        $isDaily = $this->isDailyOneThingIntent($intent);
         $taskCount = count($taskIds);
         return [
-            'contract_version' => self::CARD_CONTRACT_VERSION,
+            'contract_version' => (string)($card['contract_version'] ?? self::CARD_CONTRACT_VERSION),
             'action_card' => $card,
             'lifecycle' => [
-                'status' => $this->currentStatus($intent, $events),
-                'allowed_statuses' => self::STATUSES,
+                'status' => $this->statusFromVerifiedEvents($intent, $events),
+                'allowed_statuses' => $isDaily ? self::DAILY_STATUSES : self::STATUSES,
                 'event_count' => count($events),
                 'events' => $events,
                 'integrity_status' => $integrity['status'],
@@ -1444,6 +1714,10 @@ final class OperationActionLifecycleService
             'traceability' => [
                 'question_ref' => $questionId > 0 ? 'hotel_operating_questions#' . $questionId : null,
                 'answer_ref' => $questionId > 0 ? 'hotel_operating_questions#' . $questionId . ':answer' : null,
+                'source_ref' => trim((string)($card['trace']['daily_one_thing_run_ref'] ?? ''))
+                    ?: ((int)($intent['source_record_id'] ?? 0) > 0
+                        ? (string)($intent['source_module'] ?? 'source') . '#' . (int)$intent['source_record_id']
+                        : null),
                 'action_ref' => 'operation_execution_intents#' . (int)$intent['id'],
                 'task_refs' => array_map(static fn(int $id): string => 'operation_execution_tasks#' . $id, $taskIds),
                 'evidence_refs' => array_map(static fn(int $id): string => 'operation_execution_evidence#' . $id, $evidenceIds),
@@ -1458,6 +1732,8 @@ final class OperationActionLifecycleService
             'review_integrity_failure_reason' => $reviewIntegrity['failure_reason'],
             'latest_review' => $reviewIntegrity['status'] === 'invalid' ? null : ($reviews[0] ?? null),
             'historical_records_mutated' => false,
+            'external_action_performed_by_system' => false,
+            'human_execution_evidence_recorded' => $evidenceIds !== [],
             'external_action_performed' => false,
         ];
     }
@@ -1467,7 +1743,8 @@ final class OperationActionLifecycleService
         array $events,
         int $tenantId = 0,
         int $hotelId = 0,
-        int $intentId = 0
+        int $intentId = 0,
+        ?array $knownTaskScope = null
     ): array {
         $previous = '';
         $previousStatus = '';
@@ -1495,7 +1772,13 @@ final class OperationActionLifecycleService
             $expectedSequence++;
         }
         foreach (array_keys($referencedTaskIds) as $referencedTaskId) {
-            if (!$this->taskScopeExists($tenantId, $hotelId, $intentId, (int)$referencedTaskId)) {
+            if (!$this->taskScopeVerified(
+                $tenantId,
+                $hotelId,
+                $intentId,
+                (int)$referencedTaskId,
+                $knownTaskScope
+            )) {
                 return ['status' => 'invalid', 'failure_reason' => 'event_chain_task_scope_mismatch'];
             }
         }
@@ -1509,7 +1792,8 @@ final class OperationActionLifecycleService
         array $reviews,
         int $tenantId = 0,
         int $hotelId = 0,
-        int $intentId = 0
+        int $intentId = 0,
+        ?array $knownTaskScope = null
     ): array {
         $previousId = null;
         $previousDigest = '';
@@ -1536,12 +1820,139 @@ final class OperationActionLifecycleService
             $previousId = (int)($review['id'] ?? 0);
             $previousDigest = $digest;
         }
-        if ($taskId !== null && !$this->taskScopeExists($tenantId, $hotelId, $intentId, $taskId)) {
+        if ($taskId !== null && !$this->taskScopeVerified(
+            $tenantId,
+            $hotelId,
+            $intentId,
+            $taskId,
+            $knownTaskScope
+        )) {
             return ['status' => 'invalid', 'failure_reason' => 'review_chain_task_scope_mismatch'];
         }
         return $reviews === []
             ? ['status' => 'missing', 'failure_reason' => 'lifecycle_reviews_missing']
             : ['status' => 'verified', 'failure_reason' => null];
+    }
+
+    /**
+     * @param array<string,mixed> $intent
+     * @return array<int,true>|null
+     */
+    private function knownTaskScopeFromIntent(array $intent): ?array
+    {
+        if (!array_key_exists('tasks', $intent) || !is_array($intent['tasks'])) {
+            return null;
+        }
+        $tenantId = (int)($intent['tenant_id'] ?? 0);
+        $hotelId = (int)($intent['hotel_id'] ?? 0);
+        $intentId = (int)($intent['id'] ?? 0);
+        $known = [];
+        foreach ($intent['tasks'] as $task) {
+            if (!is_array($task)) {
+                continue;
+            }
+            $taskId = (int)($task['id'] ?? 0);
+            if ($taskId > 0
+                && (int)($task['tenant_id'] ?? 0) === $tenantId
+                && (int)($task['hotel_id'] ?? 0) === $hotelId
+                && (int)($task['intent_id'] ?? 0) === $intentId
+            ) {
+                $known[$taskId] = true;
+            }
+        }
+        return $known;
+    }
+
+    /** @param array<int,true>|null $knownTaskScope */
+    private function taskScopeVerified(
+        int $tenantId,
+        int $hotelId,
+        int $intentId,
+        int $taskId,
+        ?array $knownTaskScope
+    ): bool {
+        if ($knownTaskScope !== null && ($knownTaskScope[$taskId] ?? false) === true) {
+            return true;
+        }
+        return $this->taskScopeExists($tenantId, $hotelId, $intentId, $taskId);
+    }
+
+    /**
+     * @param array<int,true>|null $knownTaskScope
+     * @return array{events:list<array<string,mixed>>,integrity:array{status:string,failure_reason:?string}}
+     */
+    private function readEventChain(
+        int $tenantId,
+        int $hotelId,
+        int $intentId,
+        ?array $knownTaskScope = null
+    ): array {
+        if (!$this->tableExists(self::EVENT_TABLE)) {
+            return [
+                'events' => [],
+                'integrity' => ['status' => 'missing', 'failure_reason' => 'lifecycle_events_missing'],
+            ];
+        }
+        $events = array_map(
+            [$this, 'normalizeEvent'],
+            Db::name(self::EVENT_TABLE)
+                ->where('tenant_id', $tenantId)
+                ->where('hotel_id', $hotelId)
+                ->where('intent_id', $intentId)
+                ->order('sequence_no', 'asc')
+                ->select()
+                ->toArray()
+        );
+        $integrity = $this->verifyEventChain(
+            $events,
+            $tenantId,
+            $hotelId,
+            $intentId,
+            $knownTaskScope
+        );
+        if ($integrity['status'] === 'invalid') {
+            throw new RuntimeException('运营行动生命周期事件链损坏：' . $integrity['failure_reason']);
+        }
+        return ['events' => $events, 'integrity' => $integrity];
+    }
+
+    /**
+     * @param array<int,true>|null $knownTaskScope
+     * @return array{reviews:list<array<string,mixed>>,integrity:array{status:string,failure_reason:?string}}
+     */
+    private function readReviewChain(
+        int $tenantId,
+        int $hotelId,
+        int $intentId,
+        ?array $knownTaskScope = null
+    ): array {
+        if (!$this->tableExists(self::REVIEW_TABLE)) {
+            return [
+                'reviews' => [],
+                'integrity' => ['status' => 'missing', 'failure_reason' => 'lifecycle_reviews_missing'],
+            ];
+        }
+        $reviews = array_map(
+            [$this, 'normalizeReview'],
+            Db::name(self::REVIEW_TABLE)
+                ->where('tenant_id', $tenantId)
+                ->where('hotel_id', $hotelId)
+                ->where('intent_id', $intentId)
+                ->order('id', 'asc')
+                ->select()
+                ->toArray()
+        );
+        $integrity = $this->verifyReviewChain(
+            $reviews,
+            $tenantId,
+            $hotelId,
+            $intentId,
+            $knownTaskScope
+        );
+        if ($integrity['status'] === 'invalid') {
+            throw new RuntimeException('运营行动统一复盘链损坏：' . $integrity['failure_reason']);
+        }
+        return ['reviews' => $reviews, 'integrity' => $integrity];
     }
 
     private function taskScopeExists(int $tenantId, int $hotelId, int $intentId, int $taskId): bool
@@ -1616,7 +2027,7 @@ final class OperationActionLifecycleService
     /** @param array<string,mixed> $card */
     private function assertCardShape(array $card): void
     {
-        if ((string)($card['contract_version'] ?? '') !== self::CARD_CONTRACT_VERSION
+        if (!self::isManagedCard($card)
             || !in_array((string)($card['status'] ?? ''), ['draft', 'pending_approval', 'approved'], true)
             || (int)($card['hotel']['tenant_id'] ?? 0) <= 0
             || (int)($card['hotel']['hotel_id'] ?? 0) <= 0
@@ -1700,7 +2111,7 @@ final class OperationActionLifecycleService
     public function actionIdentityDigest(array $card): string
     {
         return hash('sha256', $this->canonicalJson([
-            'contract_version' => self::CARD_CONTRACT_VERSION,
+            'contract_version' => (string)($card['contract_version'] ?? self::CARD_CONTRACT_VERSION),
             'hotel' => [
                 'tenant_id' => (int)($card['hotel']['tenant_id'] ?? 0),
                 'hotel_id' => (int)($card['hotel']['hotel_id'] ?? 0),

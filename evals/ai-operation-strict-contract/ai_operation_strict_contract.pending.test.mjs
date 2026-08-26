@@ -1,13 +1,15 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { readRouteContractSource } from '../../scripts/lib/route_contract_source.mjs';
 import { readSourceAggregate } from '../../scripts/lib/source_aggregate.mjs';
+import { readOperationLifecycleContractSource } from '../../tests/automation/helpers/frontend_source.mjs';
 
 const service = readSourceAggregate('app/service/OperationManagementService.php');
 const controller = readFileSync('app/controller/OperationManagement.php', 'utf8');
-const routes = readFileSync('route/app.php', 'utf8');
+const routes = readRouteContractSource();
 const dailyReport = readFileSync('app/service/AiDailyReportService.php', 'utf8');
-const frontend = readFileSync('public/app-main.js', 'utf8');
+const frontend = readOperationLifecycleContractSource();
 const operationStatic = readFileSync('public/operation-static.js', 'utf8');
 
 const block = (source, start, end) => {
@@ -136,8 +138,18 @@ test('both execution submit paths verify executed task with evidence before succ
 
 test('review verifies persisted result status before success toast', () => {
   const fn = block(frontend, 'const submitOperationExecutionReview', 'const finishOperationAction');
-  assertBefore(fn, 'await readOperationExecutionTask', 'showToast(', 'review readback must happen before success toast');
-  assertMatches(fn, /result_status/, 'review flow must verify result_status');
+  assertBefore(
+    fn,
+    'const persistedTask = await readOperationExecutionTask(responseTaskId, mutationContext.hotelId);',
+    "showToast(resultStatus === 'observing'",
+    'review exact task readback must happen before its success toast'
+  );
+  assertBefore(
+    fn,
+    "if (String(persistedTask.result_status || '') !== resultStatus)",
+    "showToast(resultStatus === 'observing'",
+    'review result_status identity must be checked before its success toast'
+  );
 });
 
 test('mutation readbacks use and cross-check the resource id returned by POST', () => {
@@ -149,6 +161,16 @@ test('mutation readbacks use and cross-check the resource id returned by POST', 
 
   assertMatches(
     approval,
+    /mutationContext\s*=\s*captureOperationExecutionMutationContext\(item,[\s\S]*?assertOperationExecutionMutationContextCurrent\(mutationContext,\s*item\)/,
+    'approval must freeze and revalidate the mutation identity around operator input'
+  );
+  assertMatches(
+    approval,
+    /execution-intents\/\$\{mutationContext\.intentId\}\/approve[\s\S]*?businessContext:\s*\{\s*hotelId:\s*mutationContext\.hotelId\s*\}/,
+    'approval POST must use the frozen intent and hotel identity'
+  );
+  assertMatches(
+    approval,
     /res\.data\?\.id[\s\S]*?responseIntentId\s*!==\s*mutationContext\.intentId[\s\S]*?readOperationExecutionIntent\(responseIntentId,\s*mutationContext\.hotelId\)/,
     'approval must cross-check and read the returned intent id in the frozen hotel context'
   );
@@ -158,7 +180,7 @@ test('mutation readbacks use and cross-check the resource id returned by POST', 
   }
   assertMatches(
     review,
-    /res\.data\?\.id[\s\S]*?responseTaskId\s*!==\s*mutationContext\.taskId[\s\S]*?readOperationExecutionTask\(responseTaskId,\s*mutationContext\.hotelId\)/,
+    /Number\(mutationContext\.taskId \|\| 0\) !== taskId[\s\S]*?res\.data\?\.id[\s\S]*?responseTaskId\s*!==\s*taskId[\s\S]*?readOperationExecutionTask\(responseTaskId,\s*mutationContext\.hotelId\)/,
     'review must cross-check and read the returned task id in the frozen hotel context'
   );
   assertMatches(

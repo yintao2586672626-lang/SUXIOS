@@ -7,6 +7,7 @@ use app\service\AiDailyReportService;
 use app\service\AiDailyReportPresentationArtifactService;
 use app\service\AiDailyReportPresentationSpecService;
 use app\service\AiReportGenerationTaskService;
+use app\service\ApiExceptionMapper;
 use app\service\OtaCompetitionAnalysisBundleService;
 use app\service\P0OtaDownstreamGateService;
 use think\Response;
@@ -14,6 +15,15 @@ use Throwable;
 
 class AiDailyReport extends Base
 {
+    private const API_BUSINESS_EXCEPTIONS = [
+        'not logged in' => 401,
+        'no permitted hotel' => 403,
+        'hotel_id is not permitted' => 403,
+        'flagship_generation_requires_admin' => 403,
+        'AI daily report not found' => 404,
+        'presentation spec stale; refresh the report and retry' => 409,
+    ];
+
     private AiDailyReportService $service;
     private AiDailyReportPresentationArtifactService $presentationArtifactService;
     private AiDailyReportPresentationSpecService $presentationSpecService;
@@ -34,7 +44,7 @@ class AiDailyReport extends Base
             [$hotelIds, $hotelId] = $this->resolveHotelScope((int)$this->request->param('hotel_id', 0));
             return $this->success($this->service->list($hotelIds, $hotelId, $this->request->get()));
         } catch (Throwable $e) {
-            return $this->error($this->safeErrorMessage($e, 'AI daily reports query failed'), $this->statusCode($e));
+            return ApiExceptionMapper::response($e, 'AI daily reports query failed', self::API_BUSINESS_EXCEPTIONS);
         }
     }
 
@@ -44,7 +54,7 @@ class AiDailyReport extends Base
             [$hotelIds, $hotelId] = $this->resolveHotelScope((int)$this->request->param('hotel_id', 0));
             return $this->success($this->service->latest($hotelIds, $hotelId));
         } catch (Throwable $e) {
-            return $this->error($this->safeErrorMessage($e, 'AI daily report query failed'), $this->statusCode($e));
+            return ApiExceptionMapper::response($e, 'AI daily report query failed', self::API_BUSINESS_EXCEPTIONS);
         }
     }
 
@@ -59,7 +69,7 @@ class AiDailyReport extends Base
 
             return $this->success($report);
         } catch (Throwable $e) {
-            return $this->error($this->safeErrorMessage($e, 'AI daily report read failed'), $this->statusCode($e));
+            return ApiExceptionMapper::response($e, 'AI daily report read failed', self::API_BUSINESS_EXCEPTIONS);
         }
     }
 
@@ -118,7 +128,7 @@ class AiDailyReport extends Base
 
             return $this->success($this->service->generate($hotelIds, $hotelId, $date, $userId, $options));
         } catch (Throwable $e) {
-            return $this->error($this->safeErrorMessage($e, 'AI daily report generate failed'), $this->statusCode($e));
+            return ApiExceptionMapper::response($e, 'AI daily report generate failed', self::API_BUSINESS_EXCEPTIONS);
         }
     }
 
@@ -132,7 +142,7 @@ class AiDailyReport extends Base
             }
             return $this->success($task);
         } catch (Throwable $e) {
-            return $this->error($this->safeErrorMessage($e, 'AI report task query failed'), $this->statusCode($e));
+            return ApiExceptionMapper::response($e, 'AI report task query failed', self::API_BUSINESS_EXCEPTIONS);
         }
     }
 
@@ -154,7 +164,7 @@ class AiDailyReport extends Base
                 $userLabel
             ));
         } catch (Throwable $e) {
-            return $this->error($this->safeErrorMessage($e, 'AI daily report judgment save failed'), $this->statusCode($e));
+            return ApiExceptionMapper::response($e, 'AI daily report judgment save failed', self::API_BUSINESS_EXCEPTIONS);
         }
     }
 
@@ -187,10 +197,7 @@ class AiDailyReport extends Base
                 $userId
             ));
         } catch (Throwable $e) {
-            return $this->error(
-                $this->safeErrorMessage($e, 'AI daily report presentation spec save failed'),
-                $this->statusCode($e)
-            );
+            return ApiExceptionMapper::response($e, 'AI daily report presentation spec save failed', self::API_BUSINESS_EXCEPTIONS);
         }
     }
 
@@ -227,10 +234,7 @@ class AiDailyReport extends Base
 
             return $this->success($stored);
         } catch (Throwable $e) {
-            return $this->error(
-                $this->safeErrorMessage($e, 'AI daily report presentation spec read failed'),
-                $this->statusCode($e)
-            );
+            return ApiExceptionMapper::response($e, 'AI daily report presentation spec read failed', self::API_BUSINESS_EXCEPTIONS);
         }
     }
 
@@ -278,10 +282,7 @@ class AiDailyReport extends Base
                 true
             ));
         } catch (Throwable $e) {
-            return $this->error(
-                $this->safeErrorMessage($e, 'AI daily report presentation artifact save failed'),
-                $this->statusCode($e)
-            );
+            return ApiExceptionMapper::response($e, 'AI daily report presentation artifact save failed', self::API_BUSINESS_EXCEPTIONS);
         }
     }
 
@@ -324,10 +325,7 @@ class AiDailyReport extends Base
 
             return $this->success($stored);
         } catch (Throwable $e) {
-            return $this->error(
-                $this->safeErrorMessage($e, 'AI daily report presentation artifact read failed'),
-                $this->statusCode($e)
-            );
+            return ApiExceptionMapper::response($e, 'AI daily report presentation artifact read failed', self::API_BUSINESS_EXCEPTIONS);
         }
     }
 
@@ -369,10 +367,7 @@ class AiDailyReport extends Base
 
             return $this->success($stored);
         } catch (Throwable $e) {
-            return $this->error(
-                $this->safeErrorMessage($e, 'AI daily report presentation artifact read failed'),
-                $this->statusCode($e)
-            );
+            return ApiExceptionMapper::response($e, 'AI daily report presentation artifact read failed', self::API_BUSINESS_EXCEPTIONS);
         }
     }
 
@@ -400,7 +395,7 @@ class AiDailyReport extends Base
 
             return $this->success($this->service->createExecutionIntentFromAction($id, $actionIndex, $hotelIds, $userId));
         } catch (Throwable $e) {
-            return $this->error($this->safeErrorMessage($e, 'AI daily report action create failed'), $this->statusCode($e));
+            return ApiExceptionMapper::response($e, 'AI daily report action create failed', self::API_BUSINESS_EXCEPTIONS);
         }
     }
 
@@ -426,38 +421,4 @@ class AiDailyReport extends Base
         return [$permitted, count($permitted) === 1 ? $permitted[0] : null];
     }
 
-    private function statusCode(Throwable $e): int
-    {
-        if ($e instanceof \InvalidArgumentException) {
-            return 422;
-        }
-
-        $message = $e->getMessage();
-        if (str_contains($message, 'not logged in')) {
-            return 401;
-        }
-        if (str_contains($message, 'permitted') || str_contains($message, 'no permitted hotel')) {
-            return 403;
-        }
-        if (str_contains($message, 'flagship_generation_requires_admin')) {
-            return 403;
-        }
-        if (str_contains($message, 'not found')) {
-            return 404;
-        }
-        if (str_contains($message, 'presentation spec stale')) {
-            return 409;
-        }
-        if (str_contains($message, 'table does not exist')) {
-            return 500;
-        }
-
-        return 500;
-    }
-
-    private function safeErrorMessage(Throwable $e, string $fallback): string
-    {
-        $message = trim($e->getMessage());
-        return $message !== '' ? $message : $fallback;
-    }
 }

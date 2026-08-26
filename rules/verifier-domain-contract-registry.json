@@ -1,0 +1,62 @@
+{
+  "schema_version": "suxios.verifier_domain_registry.v1",
+  "policy": {
+    "large_script_lines": 3000,
+    "unregistered_large_script": "fail_closed",
+    "maximum_default_claim": "contract_only"
+  },
+  "domains": [
+    {
+      "id": "ota_field_loop",
+      "entrypoints": ["scripts/verify_p0_ota_field_loop_closure.php"],
+      "owners": ["OTA evidence", "field persistence", "visible readback"],
+      "evidence_kinds": ["static_contract", "local_database_readback"],
+      "claim_limit": "local_integration_no_field"
+    },
+    {
+      "id": "cross_domain_e2e",
+      "entrypoints": ["scripts/verify_e2e_contracts.mjs"],
+      "owners": ["legacy cross-domain regression tokens"],
+      "evidence_kinds": ["static_contract"],
+      "claim_limit": "contract_only"
+    },
+    {
+      "id": "phase1_live_closure",
+      "entrypoints": [
+        "scripts/inspect_phase1_ota_live_closure.php",
+        "scripts/build_phase1_ota_live_closure_evidence.php"
+      ],
+      "owners": ["phase-one OTA evidence inspection", "evidence packet construction"],
+      "evidence_kinds": ["local_evidence_inspection", "digest_bound_packet"],
+      "claim_limit": "local_integration_no_field"
+    },
+    {
+      "id": "ctrip_capture_catalog",
+      "entrypoints": ["scripts/lib/ctrip_capture_catalog.mjs"],
+      "owners": ["Ctrip page-family catalog", "selector provenance"],
+      "evidence_kinds": ["static_contract", "capture_catalog"],
+      "claim_limit": "contract_only"
+    },
+    {
+      "id": "public_entry",
+      "entrypoints": ["scripts/verify_public_entry_guard.mjs"],
+      "owners": ["authenticated entry", "asset identity", "startup budget"],
+      "evidence_kinds": ["static_contract", "generated_asset_digest"],
+      "claim_limit": "local_integration_no_field"
+    },
+    {
+      "id": "revenue_ctrip_operator_bundle",
+      "entrypoints": ["scripts/export_revenue_ai_ctrip_operator_bundle.php"],
+      "owners": ["revenue operator packet export"],
+      "evidence_kinds": ["digest_bound_packet"],
+      "claim_limit": "contract_only"
+    },
+    {
+      "id": "business_chain_status",
+      "entrypoints": ["scripts/report_business_chain_status.php"],
+      "owners": ["verified OTA to operations status report"],
+      "evidence_kinds": ["local_database_readback", "status_report"],
+      "claim_limit": "local_integration_no_field"
+    }
+  ]
+}

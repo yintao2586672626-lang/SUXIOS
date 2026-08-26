@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Tests;
 
 use PHPUnit\Framework\TestCase;
+use Tests\Support\RouteContractSource;
 
 final class OperatingGoalInterventionContractTest extends TestCase
 {
@@ -24,7 +25,7 @@ final class OperatingGoalInterventionContractTest extends TestCase
 
     public function testAuthenticatedRoutesExposeOverviewAndThreeWrites(): void
     {
-        $routes = $this->read('route/app.php');
+        $routes = RouteContractSource::read(dirname(__DIR__));
 
         self::assertStringContainsString("Route::get('/goal-intervention-overview', 'OperationManagement/operatingGoalInterventionOverview');", $routes);
         self::assertStringContainsString("Route::post('/goal-contracts', 'OperationManagement/createOperatingGoalContract');", $routes);

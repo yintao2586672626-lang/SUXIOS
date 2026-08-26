@@ -52,6 +52,7 @@ final class AiKnowledgeLibrarySyncService
             'boundary' => $validation['boundary'],
         ];
         if (!$persist) {
+            $result['semantic_glossary'] = (new SemanticGlossarySyncService())->sync(false);
             return $result;
         }
 
@@ -78,6 +79,10 @@ final class AiKnowledgeLibrarySyncService
         $result['status'] = ($readback['readback_verified'] ?? false) === true ? 'success' : 'partial_success';
         $result['persisted'] = true;
         $result['readback'] = $readback;
+        $result['semantic_glossary'] = (new SemanticGlossarySyncService())->sync(true);
+        if (($result['semantic_glossary']['status'] ?? '') !== 'success') {
+            $result['status'] = 'partial_success';
+        }
         return $result;
     }
 
@@ -438,7 +443,7 @@ final class AiKnowledgeLibrarySyncService
             'category_id' => 7,
             'title' => self::UNIT_NAME,
             'content' => $content,
-            'keywords' => mb_substr(implode(',', array_merge(['AI知识库资料', '收益管理', 'OTA运营', '预订进度', '小红书', '内容运营'], $titles)), 0, 2000),
+            'keywords' => mb_substr(implode(',', array_merge(['AI知识库资料', '收益管理', 'OTA运营', '预订进度', '小红书', '内容运营'], $titles)), 0, 255),
             'tags' => $this->json(['AI知识库资料', '收益管理', 'OTA运营', '预订进度', '小红书', 'reference_only']),
             'sort_order' => 0,
             'is_enabled' => 1,

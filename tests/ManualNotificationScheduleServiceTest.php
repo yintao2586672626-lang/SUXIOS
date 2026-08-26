@@ -2670,6 +2670,26 @@ final class ManualNotificationScheduleServiceTest extends TestCase
         self::assertNotSame($notDueId, $result['results'][0]['notification_id']);
     }
 
+    public function testBoundedKeysetScanFindsDuePlanBeyondFirstCandidatePage(): void
+    {
+        for ($index = 0; $index < 205; $index++) {
+            $this->insertRecord([
+                'planned_send_at' => '2026-07-26 17:30:00',
+            ]);
+        }
+        $dueId = $this->insertRecord([
+            'planned_send_at' => '2026-07-26 18:00:00',
+        ]);
+
+        $result = (new ManualNotificationScheduleService())
+            ->runDue($this->time('2026-07-26 18:02:00'), false, 'test', 1);
+
+        self::assertSame(206, $result['candidate_count']);
+        self::assertSame(1, $result['due_count']);
+        self::assertCount(1, $result['results']);
+        self::assertSame($dueId, $result['results'][0]['notification_id']);
+    }
+
     /** @param array<string, mixed> $overrides */
     private function insertRecord(array $overrides = []): int
     {

@@ -6,6 +6,7 @@ const read = (path) => readFileSync(new URL(`../../${path}`, import.meta.url), '
 
 const appMain = read('public/app-main.js');
 const schedulePanel = read('public/wechat-notification-static.js');
+const notificationOrchestration = read('public/manual-notification-orchestration-static.js');
 const notificationPage = read(
   'resources/frontend/templates/fragments/15ab-page-manual-notifications.html'
 );
@@ -59,12 +60,13 @@ test('dispatch history expands a factual attempt timeline without replacing the 
   const notificationUi = `${notificationPage}\n${schedulePanel}`;
   assert.match(notificationUi, /manual-notification-dispatch-history/);
   assert.match(notificationUi, /manual-notification-dispatch-timeline/);
-  assert.match(appMain, /const manualNotificationDispatchTimeline = \(item = \{\}\) => \{/);
-  assert.match(appMain, /Array\.isArray\(item\?\.attempts\) \? item\.attempts : \[\]/);
-  assert.match(appMain, /attempted_at/);
-  assert.match(appMain, /claimed_at/);
-  assert.match(appMain, /dispatched_at/);
-  assert.doesNotMatch(appMain, /manualNotificationDispatchTimeline[\s\S]{0,1800}http.*成功/i);
+  assert.match(appMain, /const manualNotificationDispatchTimeline = \(\.\.\.args\) => requireManualNotificationOrchestrationController\(\)\.manualNotificationDispatchTimeline\(\.\.\.args\)/);
+  assert.match(notificationOrchestration, /const manualNotificationDispatchTimeline = \(item = \{\}\) => \{/);
+  assert.match(notificationOrchestration, /Array\.isArray\(item\?\.attempts\) \? item\.attempts : \[\]/);
+  assert.match(notificationOrchestration, /attempted_at/);
+  assert.match(notificationOrchestration, /claimed_at/);
+  assert.match(notificationOrchestration, /dispatched_at/);
+  assert.doesNotMatch(notificationOrchestration, /manualNotificationDispatchTimeline[\s\S]{0,1800}http.*成功/i);
 });
 
 test('execution stage cards filter the existing task pool without changing backend counts', () => {

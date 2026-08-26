@@ -57,13 +57,11 @@ const publicEntryVerifierChanged = changed.some(isPublicEntryPath);
 const tasteChanged = publicEntryChanged || changed.includes('public/style.css');
 const ctripChanged = changed.some((file) => /ctrip|OnlineData\.php|route\/app\.php/u.test(file));
 const contextChanged = changed.some((file) => /AGENTS\.md|\.agents\/skills|vault\/|evals\/|rules\/|hooks\//u.test(file));
-const needsSnapshot = Boolean(contextVerifier)
-  || managedFrontendChanged
-  || publicEntryChanged
-  || publicEntryVerifierChanged
-  || tasteChanged
-  || ctripChanged
-  || contextChanged;
+// The canonical staged integration gate owns repository-wide source-hotspot
+// and verifier-registry checks, so every non-empty staged change must be
+// materialized from the index. Feature-specific verifiers below remain
+// conditional, but backend-only changes may no longer bypass the shared gate.
+const needsSnapshot = Boolean(contextVerifier) || changed.length > 0;
 
 if (!needsSnapshot) {
   console.log('No staged project verifier inputs; index verification skipped.');
@@ -118,6 +116,7 @@ try {
   }
   if (!contextOnly && ctripChanged) runNpmVerifier('verify:ctrip-capture-catalog');
   if (!contextOnly && contextChanged && !contextVerifier) runNpmVerifier('verify:context-assets');
+  if (!contextOnly) runNpmVerifier('verify:integration:staged');
 
   console.log('Staged project index verification passed.');
 } catch (error) {

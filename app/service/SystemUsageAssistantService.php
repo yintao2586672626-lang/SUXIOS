@@ -20,8 +20,10 @@ final class SystemUsageAssistantService
     private const MODEL_KEY = 'deepseek_v4_pro';
     private const EXPECTED_MODEL = 'deepseek-v4-pro';
 
-    public function __construct(private readonly ?LlmClient $llmClient = null)
-    {
+    public function __construct(
+        private readonly ?LlmClient $llmClient = null,
+        private readonly ?SemanticGlossaryService $semanticGlossary = null
+    ) {
     }
 
     /** @param array<string,mixed> $payload @return array<string,mixed> */
@@ -32,7 +34,8 @@ final class SystemUsageAssistantService
             throw new InvalidArgumentException('请说出你想在系统里完成什么');
         }
 
-        $catalog = self::catalog();
+        $glossary = $this->semanticGlossary ?? new SemanticGlossaryService();
+        $catalog = $glossary->augmentFeatureCatalog(self::catalog());
         $allowedKeys = $this->allowedTopicKeys($payload['visible_topic_keys'] ?? [], $catalog);
         $allowedCatalog = array_intersect_key($catalog, array_fill_keys($allowedKeys, true));
         if ($allowedCatalog === []) {
@@ -43,8 +46,19 @@ final class SystemUsageAssistantService
         $pageTitle = mb_substr(trim((string)($payload['page_title'] ?? '')), 0, 80);
         $history = $this->history($payload['history'] ?? []);
         $currentScope = $this->currentScope($payload['current_scope'] ?? []);
+        $semanticResolution = $glossary->resolve($query, (string)$currentScope['platform']);
         $activeJourney = $this->activeJourney($payload['active_journey'] ?? [], $allowedCatalog);
         $requestedMode = $this->requestedAssistantMode($payload['requested_mode'] ?? 'auto');
+        if (($payload['deterministic_only'] ?? false) === true) {
+            return $this->withSemanticResolution($this->fallbackResult(
+                $query,
+                $currentPage,
+                $allowedCatalog,
+                'deterministic_router',
+                $requestedMode,
+                $activeJourney
+            ), $semanticResolution);
+        }
         $schema = $this->schema($allowedKeys, max(0, (int)($payload['user_id'] ?? 0)));
         $messages = $this->messages(
             $query,
@@ -67,16 +81,19 @@ final class SystemUsageAssistantService
             $meta = is_array($envelope['meta'] ?? null) ? $envelope['meta'] : [];
             $this->assertDirectDeepSeek($meta);
             $this->assertNoRuntimeIdentityDisclosure($data);
-            return $this->intelligentResult($data, $allowedCatalog, $meta, $query, $requestedMode);
+            return $this->withSemanticResolution(
+                $this->intelligentResult($data, $allowedCatalog, $meta, $query, $requestedMode),
+                $semanticResolution
+            );
         } catch (Throwable) {
-            return $this->fallbackResult(
+            return $this->withSemanticResolution($this->fallbackResult(
                 $query,
                 $currentPage,
                 $allowedCatalog,
                 'model_unavailable',
                 $requestedMode,
                 $activeJourney
-            );
+            ), $semanticResolution);
         }
     }
 
@@ -236,8 +253,8 @@ final class SystemUsageAssistantService
                 'action_key' => 'page',
                 'action_label' => '打开 AI 经营日报',
                 'summary' => '基于已验证数据生成日报草稿，预览事实、建议和缺口后再决定是否交付。',
-                'keywords' => ['经营日报', 'ai日报', '生成日报', '日报草稿', '日报预览', '日报发送'],
-                'steps' => ['选择酒店和报告日期', '确认数据可用性后生成日报', '预览内容并人工决定是否发送'],
+                'keywords' => ['经营日报', 'ai日报', '生成日报', '日报草稿', '日报预览', '日报发送', '可信播报', '可信经营播报', '复制播报稿'],
+                'steps' => ['选择酒店和报告日期', '确认数据可用性后生成日报', '在“经营播报与结果交付”中点击“复制播报稿”，外发仍需人工决定'],
                 'boundary' => '生成成功不等于内容已确认或已经发送，外部交付必须另有真实回执。',
             ],
             [
@@ -263,6 +280,18 @@ final class SystemUsageAssistantService
                 'keywords' => ['知识库', '知识中心', '操作手册', '功能说明', '使用说明', '怎么用系统', '制度', 'sop', '经验', '以前怎么做', '案例'],
                 'steps' => ['输入业务问题或操作关键词', '核对知识来源、适用酒店和有效期', '把知识作为参考并进入真实业务页面执行'],
                 'boundary' => '知识和历史案例是参考材料，不能替代当前酒店、平台和日期的来源事实。',
+            ],
+            [
+                'key' => 'typeless-dictionary',
+                'title' => '维护 Typeless 总词库',
+                'category' => '个人词库维护',
+                'target_page' => 'knowledge-center',
+                'action_key' => 'knowledge-search',
+                'action_label' => '打开词库维护说明',
+                'summary' => '从可追溯词源生成单列、UTF-8 BOM、无表头 CSV，去重验证后再导入 Typeless。',
+                'keywords' => ['typeless', 'typeless词典', 'typeless词库', 'typeless新词', '总词库', '个人词典', '新词导入', '导入csv', '词库更新'],
+                'steps' => ['在知识中心搜索“个人工作语境与宿析OS酒店词汇层”核对词源与版本', '合并新词并按精确字符串去重，生成单列 UTF-8 BOM 无表头 CSV', '导入 Typeless 后核对总数、重复项报告和首尾词条'],
+                'boundary' => '词条只用于识别与检索，属于 reference_only；不得把个人词、资料词或工具名写成酒店经营事实。',
             ],
             [
                 'key' => 'team-permissions',
@@ -618,6 +647,7 @@ final class SystemUsageAssistantService
         array $activeJourney = []
     ): array
     {
+        $deterministic = $reason === 'deterministic_router';
         $assistantMode = $this->resolveAssistantMode($query, $requestedMode);
         $continuing = $this->isContinuationQuery($query)
             && is_array($activeJourney['journey_keys'] ?? null)
@@ -628,9 +658,11 @@ final class SystemUsageAssistantService
         if ($topic === null) {
             return [
                 'status' => 'clarification_required',
-                'mode' => 'fallback',
+                'mode' => $deterministic ? 'deterministic' : 'fallback',
                 'assistant_mode' => $assistantMode,
-                'assistant_message' => '智能理解暂时不可用，我还不能确定你要完成哪一类任务。',
+                'assistant_message' => $deterministic
+                    ? '当前问题仍缺少一个明确的系统功能目标。'
+                    : '智能理解暂时不可用，我还不能确定你要完成哪一类任务。',
                 'intent_summary' => '',
                 'goal' => '',
                 'topic_key' => 'clarify',
@@ -642,7 +674,7 @@ final class SystemUsageAssistantService
                 'confidence' => 'low',
                 'boundary' => '本次仅询问目标，没有执行任何业务动作。',
                 'action' => null,
-                'runtime' => $this->fallbackRuntime($reason),
+                'runtime' => $deterministic ? $this->deterministicRuntime() : $this->fallbackRuntime($reason),
             ];
         }
 
@@ -658,11 +690,13 @@ final class SystemUsageAssistantService
 
         return [
             'status' => 'ready',
-            'mode' => 'fallback',
+            'mode' => $deterministic ? 'deterministic' : 'fallback',
             'assistant_mode' => $assistantMode,
-            'assistant_message' => $continuing
-                ? sprintf('智能理解暂时不可用，我继续按已保留的任务路线，先带你处理“%s”。', $topic['title'])
-                : sprintf('智能理解暂时不可用，我先按“%s”带你进入最接近的功能。', $topic['title']),
+            'assistant_message' => $deterministic
+                ? sprintf('已按宿析OS已登记功能目录定位到“%s”。', $topic['title'])
+                : ($continuing
+                    ? sprintf('智能理解暂时不可用，我继续按已保留的任务路线，先带你处理“%s”。', $topic['title'])
+                    : sprintf('智能理解暂时不可用，我先按“%s”带你进入最接近的功能。', $topic['title'])),
             'intent_summary' => (string)$topic['title'],
             'goal' => $goal,
             'topic_key' => (string)$topic['key'],
@@ -671,10 +705,10 @@ final class SystemUsageAssistantService
             'steps' => array_slice($topic['steps'], 0, 4),
             'clarifying_question' => '',
             'follow_up_questions' => [],
-            'confidence' => 'low',
+            'confidence' => $deterministic ? 'high' : 'low',
             'boundary' => (string)$topic['boundary'],
             'action' => $this->action($topic),
-            'runtime' => $this->fallbackRuntime($reason),
+            'runtime' => $deterministic ? $this->deterministicRuntime() : $this->fallbackRuntime($reason),
         ];
     }
 
@@ -983,6 +1017,28 @@ final class SystemUsageAssistantService
         ];
     }
 
+    /** @return array<string,mixed> */
+    private function deterministicRuntime(): array
+    {
+        return [
+            'status' => 'not_attempted',
+            'provider' => '',
+            'model_key' => '',
+            'model' => '',
+            'finish_reason' => '',
+            'prompt_version' => self::PROMPT_VERSION,
+            'model_attempted' => false,
+            'llm_client_invoked' => false,
+            'fallback_used' => false,
+            'cache_hit' => false,
+            'degraded' => false,
+            'external_llm_called' => false,
+            'reason' => 'deterministic_server_catalog',
+            'thinking_mode' => '',
+            'reasoning_effort' => '',
+        ];
+    }
+
     /**
      * @param mixed $value
      * @param array<string,array<string,mixed>> $catalog
@@ -1038,6 +1094,13 @@ final class SystemUsageAssistantService
             'date_start' => $dateStart,
             'date_end' => $dateEnd,
         ];
+    }
+
+    /** @param array<string,mixed> $result @param array<string,mixed> $resolution @return array<string,mixed> */
+    private function withSemanticResolution(array $result, array $resolution): array
+    {
+        $result['semantic_resolution'] = $resolution;
+        return $result;
     }
 
     private function pageKey(string $value): string

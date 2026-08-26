@@ -27,6 +27,9 @@ export const FRONTEND_STARTUP_HELPER_SOURCES = Object.freeze([
 ]);
 export const FRONTEND_DEFERRED_HELPER_SOURCES = Object.freeze([
   'ctrip-static.js',
+  'hotel-three-source-onboarding-static.js',
+  'manual-notification-orchestration-static.js',
+  'revenue-overview-contract-static.js',
   'meituan-static.js',
   'review-match-static.js',
   'data-health-static.js',

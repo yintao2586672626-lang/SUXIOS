@@ -29,9 +29,159 @@ test('AI daily report exposes separate JSON and verified presentation bundle act
     '培训草案（需复核）',
     '自由文本仍需人工复核后才能用于培训',
     '不发布、不发消息、不写 OTA/PMS',
+    'data-testid="ai-daily-operations-broadcast"',
+    'data-testid="ai-daily-operations-broadcast-copy"',
+    'data-testid="ai-daily-operations-broadcast-speak"',
+    '只采用有数值、已验证并带保存回读来源的指标',
+    '不会自动发送企业微信，也不会写入 OTA/PMS',
   ]) {
     assert.ok(template.includes(marker), marker);
   }
+});
+
+test('operations broadcast includes only verified same-scope metrics and declares gaps', () => {
+  const sandbox = {
+    window: {},
+    Vue: {},
+    console,
+    URL,
+    Blob,
+  };
+  vm.runInNewContext(deliveryClient, sandbox);
+  const broadcast = sandbox.window.SUXI_AI_DAILY_REPORT_DELIVERY.buildAiDailyOperationsBroadcast({
+    aiDailyReport: {
+      id: 88,
+      hotel_id: 80,
+      report_date: '2026-08-23',
+    },
+    aiDailyReportWecomHotelName: 'Hotel 80',
+    aiDailyReportMetricCards: [
+      {
+        key: 'exposure',
+        label: 'OTA曝光',
+        value: 1422,
+        calculationStatus: 'available',
+        scopeCode: 'ota_channel',
+        truth: { status: 'verified', source_refs: ['online_daily_data#102476'] },
+      },
+      {
+        key: 'visitors',
+        label: 'OTA访客',
+        value: 206,
+        calculationStatus: 'available',
+        scopeCode: 'ota_channel',
+        truth: { status: 'verified', source_refs: ['online_daily_data#102476'] },
+      },
+      {
+        key: 'flow_rate',
+        label: '曝光→详情',
+        value: 14.49,
+        unit: '%',
+        calculationStatus: 'calculated',
+        scopeCode: 'ota_channel',
+        truth: { status: 'verified', source_refs: ['online_daily_data#102476'] },
+      },
+      {
+        key: 'revenue',
+        label: '营收',
+        value: 9999,
+        calculationStatus: 'available',
+        scopeCode: 'ota_channel',
+        truth: { status: 'partial', source_refs: ['online_daily_data#102477'] },
+      },
+      {
+        key: 'manual_estimate',
+        label: '人工估算',
+        value: 77,
+        calculationStatus: 'available',
+        scopeCode: 'user_input',
+        truth: { status: 'verified', source_refs: ['manual_input#1'] },
+      },
+    ],
+    aiDailyReportDataGaps: [
+      { code: 'revenue_semantics_conflict', message: '营收口径仍需核对' },
+    ],
+  });
+
+  assert.equal(broadcast.status, 'ready');
+  assert.equal(broadcast.verifiedMetricCount, 3);
+  assert.equal(broadcast.excludedMetricCount, 2);
+  assert.equal(broadcast.sourceRefCount, 1);
+  assert.match(broadcast.text, /Hotel 80，2026年8月23日/);
+  assert.match(broadcast.text, /OTA曝光1,422/);
+  assert.match(broadcast.text, /OTA访客206/);
+  assert.match(broadcast.text, /曝光→详情14\.49%/);
+  assert.match(broadcast.text, /OTA渠道口径，不代表全酒店经营/);
+  assert.match(broadcast.text, /营收口径仍需核对/);
+  assert.doesNotMatch(broadcast.text, /营收.*9,999/);
+  assert.doesNotMatch(broadcast.text, /人工估算77/);
+});
+
+test('operations broadcast can be copied and toggled through local browser speech', async () => {
+  let copiedText = '';
+  let spokenUtterance = null;
+  let cancelCount = 0;
+  const notices = [];
+  class SpeechSynthesisUtterance {
+    constructor(text) {
+      this.text = text;
+    }
+  }
+  const sandbox = {
+    window: {
+      SpeechSynthesisUtterance,
+      speechSynthesis: {
+        speak: utterance => { spokenUtterance = utterance; },
+        cancel: () => { cancelCount += 1; },
+      },
+    },
+    navigator: {
+      clipboard: {
+        writeText: async text => { copiedText = text; },
+      },
+    },
+    Vue: {
+      ref: value => ({ __v_isRef: true, value }),
+      watch: (_sources, callback, options) => {
+        if (options?.immediate) callback();
+      },
+      onBeforeUnmount: () => {},
+    },
+    console,
+    URL,
+    Blob,
+  };
+  vm.runInNewContext(deliveryClient, sandbox);
+  const state = sandbox.window.SUXI_AI_DAILY_REPORT_DELIVERY.setup({
+    ctx: {
+      aiDailyReport: { id: 89, hotel_id: 80, report_date: '2026-08-23' },
+      aiDailyReportWecomHotelName: 'Hotel 80',
+      aiDailyReportMetricCards: [{
+        key: 'exposure',
+        label: 'OTA曝光',
+        value: 1422,
+        calculationStatus: 'available',
+        scopeCode: 'ota_channel',
+        truth: { status: 'verified', source_refs: ['online_daily_data#102476'] },
+      }],
+      aiDailyReportDataGaps: [],
+      aiDailyReportDeliveryRequest: async () => ({ code: 404 }),
+      showToast: (message, type) => notices.push({ message, type }),
+    },
+  });
+
+  assert.equal(await state.copyAiDailyOperationsBroadcast(), true);
+  assert.match(copiedText, /OTA曝光1,422/);
+  assert.equal(state.toggleAiDailyOperationsBroadcast(), true);
+  assert.equal(state.aiDailyReportBroadcastSpeaking, true);
+  assert.match(spokenUtterance.text, /OTA渠道口径，不代表全酒店经营/);
+  assert.equal(spokenUtterance.lang, 'zh-CN');
+  assert.equal(spokenUtterance.rate, 0.95);
+  assert.equal(state.toggleAiDailyOperationsBroadcast(), false);
+  assert.equal(state.aiDailyReportBroadcastSpeaking, false);
+  assert.equal(cancelCount, 1);
+  assert.ok(notices.some(item => item.message === '可信经营播报稿已复制' && item.type === 'success'));
+  assert.ok(notices.some(item => item.message === '正在朗读可信经营播报' && item.type === 'success'));
 });
 
 test('browser refuses download until server readback, byte length and SHA-256 all match', () => {

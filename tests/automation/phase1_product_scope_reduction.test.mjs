@@ -1,13 +1,14 @@
 import assert from 'node:assert/strict';
 import { existsSync, readFileSync } from 'node:fs';
 import test from 'node:test';
+import { readRouteContractSource } from '../../scripts/lib/route_contract_source.mjs';
 import { readFrontendContractSource } from './helpers/frontend_source.mjs';
 
 const html = readFrontendContractSource();
 const style = readFileSync('public/style.css', 'utf8');
 const systemStatic = readFileSync('public/system-static.js', 'utf8');
 const homeStatic = readFileSync('public/home-static.js', 'utf8');
-const routes = readFileSync('route/app.php', 'utf8');
+const routes = readRouteContractSource(process.cwd());
 const missingModulesVerifier = readFileSync('scripts/verify_missing_modules.php', 'utf8');
 const fullAutomation = readFileSync('tests/automation/suxi_full_automation_test.mjs', 'utf8');
 

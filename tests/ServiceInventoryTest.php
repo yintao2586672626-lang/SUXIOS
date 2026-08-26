@@ -23,7 +23,7 @@ final class ServiceInventoryTest extends TestCase
         }
     }
 
-    public function testServicePublicMethodsAreDeclaredOnConcreteServices(): void
+    public function testServiceInventoryEntriesDeclareBehaviorOrAnImmutableConstantContract(): void
     {
         foreach ($this->serviceClasses() as $class) {
             $reflection = new ReflectionClass($class);
@@ -34,8 +34,60 @@ final class ServiceInventoryTest extends TestCase
                 static fn (ReflectionMethod $method): bool => $method->class === $class && !str_starts_with($method->name, '__')
             );
 
-            self::assertNotEmpty($publicMethods, "Service has no public behavior: {$class}");
+            self::assertTrue(
+                $publicMethods !== [] || $this->isImmutableConstantContract($reflection),
+                "Service inventory entry has neither public behavior nor a strict immutable contract: {$class}"
+            );
         }
+    }
+
+    /**
+     * A dependency-free identity contract belongs in the service inventory, but
+     * it must not gain state or executable behavior merely to satisfy discovery.
+     * The strict shape prevents an arbitrary behaviorless service from passing.
+     *
+     * @param ReflectionClass<object> $reflection
+     */
+    private function isImmutableConstantContract(ReflectionClass $reflection): bool
+    {
+        if (!$reflection->isFinal() || !str_ends_with($reflection->getShortName(), 'Contract')) {
+            return false;
+        }
+
+        $constructor = $reflection->getConstructor();
+        if ($constructor === null || !$constructor->isPrivate()) {
+            return false;
+        }
+
+        $declaredProperties = array_filter(
+            $reflection->getProperties(),
+            static fn ($property): bool => $property->class === $reflection->getName()
+        );
+        if ($declaredProperties !== []) {
+            return false;
+        }
+
+        $declaredBehavior = array_filter(
+            $reflection->getMethods(),
+            static fn (ReflectionMethod $method): bool => $method->class === $reflection->getName()
+                && $method->name !== '__construct'
+        );
+        if ($declaredBehavior !== []) {
+            return false;
+        }
+
+        $declaredConstants = array_filter(
+            $reflection->getReflectionConstants(),
+            static fn ($constant): bool => $constant->getDeclaringClass()->getName()
+                === $reflection->getName()
+        );
+
+        $publicConstants = array_filter(
+            $declaredConstants,
+            static fn ($constant): bool => $constant->isPublic()
+        );
+
+        return $declaredConstants !== [] && count($publicConstants) === count($declaredConstants);
     }
 
     /**

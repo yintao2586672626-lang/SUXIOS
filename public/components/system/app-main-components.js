@@ -574,8 +574,8 @@
         }
         return component;
     };
-    const operatingOpportunityLabScript = 'components/system/operating-opportunity-lab.js?v=20260822-selling-points-v3';
-    const OperatingOpportunityLab = systemComponents.OperatingOpportunityLabBody || Vue.defineAsyncComponent({
+    const operatingOpportunityLabScript = 'components/system/operating-opportunity-lab.js?v=20260826-daily-one-thing-h28c8446f9e';
+    const OperatingOpportunityLabAsync = systemComponents.OperatingOpportunityLabBody || Vue.defineAsyncComponent({
         loader: () => loadOnlineDataComponentScript(operatingOpportunityLabScript)
             .then(() => requireSystemComponent('OperatingOpportunityLabBody')),
         delay: 0,
@@ -595,6 +595,28 @@
             }, '经营机会功能加载失败，请刷新页面重试。'),
         },
     });
+    const OperatingOpportunityLab = {
+        name: 'OperatingOpportunityLab',
+        inheritAttrs: false,
+        props: {
+            hotels: { type: Array, default: () => [] },
+            request: { type: Function, required: true },
+            selectedHotelId: { type: [String, Number], default: '' },
+            openTask: { type: Function, default: null },
+        },
+        emits: ['open-operations', 'update:selected-hotel-id'],
+        render() {
+            return h(OperatingOpportunityLabAsync, {
+                ...this.$attrs,
+                hotels: this.hotels,
+                request: this.request,
+                selectedHotelId: this.selectedHotelId,
+                openTask: this.openTask,
+                onOpenOperations: payload => this.$emit('open-operations', payload),
+                'onUpdate:selectedHotelId': value => this.$emit('update:selected-hotel-id', value),
+            });
+        },
+    };
     const platformAutoPanelsScript = 'components/online-data/platform-auto-settings-panels.js?v=20260811-windows-scheduler-h80-v3';
     const ctripProfileFieldConfigPanelScript = 'components/online-data/ctrip-profile-field-config-panel.js?v=20260613-profile-template-split';
     const competitorDeviceManagementScript = 'components/admin/competitor-device-management.js?v=20260719-device-lifecycle-v3';
@@ -1023,6 +1045,346 @@
             ]);
         },
     };
+
+    const HotelThreeSourceOnboardingPanel = {
+        name: 'HotelThreeSourceOnboardingPanel',
+        render() {
+            const ctx = this.$root || {};
+                    const primaryButton = 'rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50';
+                    const secondaryButton = 'rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 hover:border-blue-200 hover:text-blue-700 disabled:cursor-not-allowed disabled:opacity-50';
+                    const smallPrimaryButton = 'rounded-lg bg-blue-600 px-3 py-2 text-xs font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50';
+                    const smallSecondaryButton = 'rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:border-blue-200 hover:text-blue-700 disabled:cursor-not-allowed disabled:opacity-50';
+                    const inputClass = 'mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-normal focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-100';
+                    const renderInput = ({ label, value, onInput, placeholder = '', required = false, readonly = false, testid = '' }) => h('label', {
+                        class: 'block text-xs font-medium text-slate-700',
+                    }, [
+                        required ? h('span', { class: 'text-red-500' }, '* ') : null,
+                        label,
+                        h('input', {
+                            value,
+                            type: 'text',
+                            autocomplete: 'off',
+                            placeholder,
+                            readonly,
+                            'data-testid': testid || undefined,
+                            class: [inputClass, readonly ? 'bg-slate-50 text-slate-500' : ''],
+                            onInput,
+                        }),
+                    ]);
+                    const renderSteps = () => h('div', {
+                        class: 'border-b border-slate-100 bg-white px-4 py-3 sm:px-6',
+                        'data-testid': 'hotel-onboarding-steps',
+                    }, [
+                        h('div', { class: 'grid grid-cols-4 gap-2 text-center text-xs' }, [
+                            ['hotel', '1 门店资料'],
+                            ['authorization', '2 云端登录'],
+                            ['verification', '3 身份回读'],
+                            ['complete', '4 完成'],
+                        ].map(([key, label]) => h('div', {
+                            key,
+                            class: [
+                                'rounded-lg border px-2 py-2 font-semibold',
+                                ctx.hotelOnboardingStep === key
+                                    ? 'border-blue-300 bg-blue-50 text-blue-700'
+                                    : 'border-slate-200 bg-slate-50 text-slate-500',
+                            ],
+                        }, label))),
+                        ctx.hotelOnboardingHotelId
+                            ? h('p', {
+                                class: 'mt-2 text-xs text-slate-500',
+                                'data-testid': 'hotel-onboarding-exact-id',
+                            }, `当前精确门店 ID：${ctx.hotelOnboardingHotelId}`)
+                            : null,
+                    ]);
+                    const renderHotelStep = () => {
+                        const pmsSelected = ['dingdandao_pms', 'meituan_cloud_pms'].includes(ctx.hotelForm.pms_provider);
+                        return h('section', {
+                            class: 'space-y-4',
+                            'data-testid': 'hotel-onboarding-hotel-step',
+                        }, [
+                            renderInput({
+                                label: '门店名称',
+                                value: ctx.hotelForm.name,
+                                required: true,
+                                placeholder: '请输入门店名称',
+                                onInput: event => { ctx.hotelForm.name = event.target.value; },
+                            }),
+                            h('p', {
+                                class: 'rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 text-xs leading-5 text-blue-800',
+                                'data-testid': 'hotel-onboarding-server-defaults',
+                            }, '门店编号自动生成，创建后默认营业；编号与状态均由服务端控制。'),
+                            h('div', [
+                                h('div', { class: 'mb-1.5 text-sm font-medium text-slate-700' }, '适用平台（可多选）'),
+                                h('div', { class: 'grid grid-cols-2 gap-2 text-sm' }, ['ctrip', 'meituan'].map(platform => h('label', {
+                                    key: platform,
+                                    class: [
+                                        'flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-2.5 font-medium',
+                                        ctx.hotelFormChannelSelected(platform)
+                                            ? (platform === 'ctrip' ? 'border-blue-200 bg-blue-50 text-blue-700' : 'border-orange-200 bg-orange-50 text-orange-700')
+                                            : 'border-slate-200 bg-slate-50 text-slate-600',
+                                    ],
+                                }, [
+                                    h('input', {
+                                        type: 'checkbox',
+                                        checked: ctx.hotelFormChannelSelected(platform),
+                                        class: 'h-4 w-4 rounded border-slate-300',
+                                        onChange: () => ctx.toggleHotelFormChannel(platform),
+                                    }),
+                                    platform === 'ctrip' ? '携程' : '美团',
+                                ]))),
+                                h('p', { class: 'mt-1.5 text-xs text-slate-500' }, '这里只确定接入范围。创建、授权或保存身份不会自动采集，也不会向企业微信发送消息。'),
+                            ]),
+                            h(ctx.hotelBusinessProfileEditor),
+                            h('div', {
+                                class: 'rounded-xl border border-[#eadfc9] bg-[#fffdf8] p-3',
+                                'data-testid': 'hotel-pms-configuration',
+                            }, [
+                                h('label', { class: 'block text-xs font-medium text-slate-700' }, [
+                                    '经营系统（PMS）',
+                                    h('select', {
+                                        value: ctx.hotelForm.pms_provider,
+                                        'data-testid': 'hotel-pms-provider',
+                                        'aria-label': '当前使用的 PMS',
+                                        disabled: ctx.hotelPmsBindingLoading || !!ctx.hotelPmsBindingError,
+                                        class: inputClass,
+                                        onChange: event => {
+                                            ctx.hotelForm.pms_provider = event.target.value;
+                                            ctx.handleHotelPmsProviderChange();
+                                        },
+                                    }, [
+                                        h('option', { value: 'none' }, '暂不配置 PMS'),
+                                        h('option', { value: 'dingdandao_pms' }, '订单来了 PMS'),
+                                        h('option', { value: 'meituan_cloud_pms' }, '美团云 PMS'),
+                                    ]),
+                                ]),
+                                pmsSelected ? h('div', {
+                                    class: 'mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2',
+                                    'data-testid': 'hotel-pms-public-identity',
+                                }, [
+                                    renderInput({
+                                        label: '平台公开门店 ID',
+                                        value: ctx.hotelForm.pms_provider_hotel_id,
+                                        required: true,
+                                        placeholder: '页面显示的公开 ID',
+                                        onInput: event => { ctx.hotelForm.pms_provider_hotel_id = event.target.value; },
+                                    }),
+                                    renderInput({
+                                        label: '平台公开门店名称',
+                                        value: ctx.hotelForm.pms_provider_hotel_name,
+                                        required: true,
+                                        placeholder: '与 PMS 页面完全一致',
+                                        onInput: event => { ctx.hotelForm.pms_provider_hotel_name = event.target.value; },
+                                    }),
+                                ]) : null,
+                                pmsSelected ? h('p', { class: 'mt-2 text-xs text-slate-500' }, '这里只填写平台页面公开的门店身份；没有账号、密码、Cookie 或验证码输入。') : null,
+                                ctx.hotelPmsBindingError ? h('p', { class: 'mt-2 text-xs text-red-700' }, ctx.hotelPmsBindingError) : null,
+                            ]),
+                            h('div', { class: 'flex justify-end gap-3 border-t border-slate-100 pt-5' }, [
+                                h('button', {
+                                    type: 'button',
+                                    class: secondaryButton,
+                                    onClick: () => { ctx.showHotelModal = false; },
+                                }, '稍后完成'),
+                                h('button', {
+                                    type: 'button',
+                                    class: primaryButton,
+                                    disabled: ctx.hotelSaving || ctx.hotelPmsBindingLoading,
+                                    'data-testid': 'hotel-onboarding-create',
+                                    onClick: ctx.saveHotel,
+                                }, ctx.hotelSaving ? '保存并回读中' : (ctx.hotelOnboardingHotelId ? '保存并继续' : '创建门店并继续')),
+                            ]),
+                        ]);
+                    };
+                    const renderSourceHeader = row => h('div', {
+                        class: 'flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between',
+                    }, [
+                        h('div', { class: 'flex items-center gap-3' }, [
+                            h('span', { class: 'flex h-9 w-9 items-center justify-center rounded-lg bg-white text-slate-700' }, [h('i', { class: row.icon })]),
+                            h('div', [
+                                h('div', { class: 'font-semibold text-slate-900' }, row.label),
+                                h('div', { class: 'mt-0.5 text-xs text-slate-600' }, row.detail || '等待正式状态回读'),
+                            ]),
+                        ]),
+                        h('span', {
+                            class: ['self-start rounded-full border px-2.5 py-1 text-xs font-semibold sm:self-auto', ctx.hotelOnboardingStatusClass(row)],
+                        }, ctx.hotelOnboardingStatusText(row)),
+                    ]);
+                    const renderAuthorizationStep = () => {
+                        const rows = ctx.hotelOnboardingSourceRows;
+                        const profilesReady = rows.length > 0 && rows.every(row => row.profileReady === true);
+                        return h('section', {
+                            class: 'space-y-4',
+                            'data-testid': 'hotel-onboarding-authorization-step',
+                        }, [
+                            h('div', { class: 'rounded-xl border border-blue-100 bg-blue-50 px-4 py-3 text-sm text-blue-900' }, [
+                                h('div', { class: 'font-semibold' }, '逐一打开云端可视浏览器登录'),
+                                h('p', { class: 'mt-1 text-xs leading-5 text-blue-800' }, '一次只处理一个来源。账号、密码和验证码只在平台自己的云端浏览器页面输入，宿析OS没有这些输入框。'),
+                            ]),
+                            rows.length === 0 ? h('div', { class: 'rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800' }, '尚未选择携程、美团或 PMS 来源，请返回补充。') : null,
+                            ...rows.map(row => h('article', {
+                                key: row.platform,
+                                class: ['rounded-xl border p-4', row.accent],
+                                'data-testid': `hotel-onboarding-source-${row.platform}`,
+                            }, [
+                                renderSourceHeader(row),
+                                h('div', { class: 'mt-3 flex flex-wrap gap-2' }, [
+                                    !ctx.hotelOnboardingLoginSessions[row.platform]
+                                        ? h('button', {
+                                            type: 'button',
+                                            class: smallPrimaryButton,
+                                            disabled: ctx.hotelOnboardingLoading || !!ctx.hotelOnboardingBusyPlatform,
+                                            onClick: () => ctx.openHotelOnboardingCloudLogin(row),
+                                        }, '打开云端登录')
+                                        : h('button', {
+                                            type: 'button',
+                                            class: smallPrimaryButton,
+                                            disabled: ctx.hotelOnboardingLoading,
+                                            onClick: () => ctx.completeHotelOnboardingCloudLogin(row),
+                                        }, '我已在云端页面完成登录'),
+                                    h('button', {
+                                        type: 'button',
+                                        class: smallSecondaryButton,
+                                        disabled: ctx.hotelOnboardingLoading || !!ctx.hotelOnboardingBusyPlatform,
+                                        onClick: () => ctx.loadHotelThreeSourceOnboarding({ silent: false }),
+                                    }, '刷新状态'),
+                                ]),
+                            ])),
+                            h('p', { class: 'text-xs text-slate-500' }, '完成登录只更新授权状态；本向导不会自动开始采集，也不会发送企业微信消息。'),
+                            h('div', { class: 'flex justify-between gap-3 border-t border-slate-100 pt-5' }, [
+                                h('button', {
+                                    type: 'button',
+                                    class: secondaryButton,
+                                    disabled: !!ctx.hotelOnboardingBusyPlatform,
+                                    onClick: () => { ctx.hotelOnboardingStep = 'hotel'; },
+                                }, '返回门店资料'),
+                                h('button', {
+                                    type: 'button',
+                                    class: primaryButton,
+                                    disabled: ctx.hotelOnboardingLoading || !!ctx.hotelOnboardingBusyPlatform || !profilesReady,
+                                    onClick: ctx.goToHotelOnboardingVerification,
+                                }, profilesReady ? '继续核对身份' : '全部登录就绪后继续'),
+                            ]),
+                        ]);
+                    };
+                    const renderVerificationStep = () => h('section', {
+                        class: 'space-y-4',
+                        'data-testid': 'hotel-onboarding-verification-step',
+                    }, [
+                        h('div', { class: 'rounded-xl border border-slate-200 bg-slate-50 px-4 py-3' }, [
+                            h('div', { class: 'text-sm font-semibold text-slate-900' }, '核对平台公开门店身份'),
+                            h('p', { class: 'mt-1 text-xs leading-5 text-slate-600' }, '公开门店 ID 和名称都必须填写，保存后立即按当前精确门店 ID 回读；缺失或不一致不会标记完成。'),
+                        ]),
+                        ...ctx.hotelOnboardingSourceRows.map(row => h('article', {
+                            key: row.platform,
+                            class: ['rounded-xl border p-4', row.accent],
+                        }, [
+                            renderSourceHeader(row),
+                            h('div', { class: 'mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2' }, [
+                                renderInput({
+                                    label: '平台公开门店 ID',
+                                    value: row.form.platform_hotel_id,
+                                    required: true,
+                                    placeholder: '页面显示的公开 ID',
+                                    onInput: event => ctx.setHotelOnboardingBindingField(row.platform, 'platform_hotel_id', event.target.value),
+                                }),
+                                renderInput({
+                                    label: '平台公开门店名称',
+                                    value: row.form.platform_hotel_name,
+                                    required: true,
+                                    placeholder: '与平台页面完全一致',
+                                    onInput: event => ctx.setHotelOnboardingBindingField(row.platform, 'platform_hotel_name', event.target.value),
+                                }),
+                            ]),
+                            h('button', {
+                                type: 'button',
+                                class: ['mt-3', smallSecondaryButton],
+                                disabled: ctx.hotelOnboardingLoading || !!ctx.hotelOnboardingBusyPlatform,
+                                onClick: () => ctx.saveHotelOnboardingBinding(row),
+                            }, '保存并回读此来源'),
+                        ])),
+                        ctx.hotelOnboardingError ? h('div', {
+                            class: 'rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700',
+                            'data-testid': 'hotel-onboarding-error',
+                        }, ctx.hotelOnboardingError) : null,
+                        h('p', { class: 'text-xs text-slate-500' }, '本页没有账号、密码、Cookie 或验证码字段；身份回读通过也不会自动采集或发送。'),
+                        ctx.hotelOnboardingCollectionPlanStatus === 'active'
+                            ? h('div', {
+                                class: 'rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-700',
+                                'data-testid': 'hotel-onboarding-collection-active',
+                            }, '三源采集计划已启用，并通过执行授权与计划状态回读；云端定时器运行状态需单独确认。')
+                            : h('div', { class: 'rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-left' }, [
+                                h('div', { class: 'text-sm font-semibold text-slate-900' }, '启用三源采集计划'),
+                                h('p', { class: 'mt-1 text-xs leading-5 text-slate-600' }, ctx.hotelOnboardingCollectionPlanEligible
+                                    ? '三源授权和门店身份已就绪。启用后会保存并精确回读计划；此操作本身不采集，也不发送企业微信。'
+                                    : '请先让携程、美团和 PMS 的 Profile、公开门店 ID 与名称全部就绪。'),
+                                h('button', {
+                                    type: 'button',
+                                    class: ['mt-3', primaryButton],
+                                    disabled: !ctx.hotelOnboardingCollectionPlanEligible || ctx.hotelOnboardingCollectionPlanStatus === 'saving',
+                                    'data-testid': 'hotel-onboarding-enable-collection',
+                                    onClick: ctx.enableHotelOnboardingHourlyCollection,
+                                }, ctx.hotelOnboardingCollectionPlanStatus === 'saving' ? '启用并回读中' : '启用三源采集计划'),
+                                ctx.hotelOnboardingCollectionPlanError ? h('p', { class: 'mt-2 text-xs text-red-700' }, ctx.hotelOnboardingCollectionPlanError) : null,
+                            ]),
+                        h('div', { class: 'flex flex-wrap justify-between gap-3 border-t border-slate-100 pt-5' }, [
+                            h('button', {
+                                type: 'button',
+                                class: secondaryButton,
+                                onClick: () => { ctx.hotelOnboardingStep = 'authorization'; },
+                            }, '返回云端登录'),
+                            h('div', { class: 'flex gap-2' }, [
+                                h('button', {
+                                    type: 'button',
+                                    class: secondaryButton,
+                                    disabled: ctx.hotelOnboardingLoading,
+                                    onClick: () => ctx.loadHotelThreeSourceOnboarding({ silent: false }),
+                                }, '刷新回读'),
+                                h('button', {
+                                    type: 'button',
+                                    class: primaryButton,
+                                    disabled: ctx.hotelOnboardingLoading || !ctx.hotelOnboardingReady,
+                                    onClick: ctx.finishHotelOnboarding,
+                                }, '完成设置'),
+                            ]),
+                        ]),
+                    ]);
+                    const renderCompleteStep = () => h('section', {
+                        class: 'space-y-4 text-center',
+                        'data-testid': 'hotel-onboarding-complete-step',
+                    }, [
+                        h('div', { class: 'mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-emerald-100 text-emerald-700' }, [h('i', { class: 'fas fa-check text-xl' })]),
+                        h('div', [
+                            h('h4', { class: 'text-lg font-semibold text-slate-900' }, '已选来源接入状态已通过回读'),
+                            h('p', { class: 'mt-2 text-sm text-slate-600' }, `门店 ID ${ctx.hotelOnboardingHotelId} 的已选来源均返回可用状态。`),
+                        ]),
+                        h('div', { class: 'rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-left text-xs leading-5 text-amber-800' }, '这一步没有启动采集，也没有发送任何企业微信消息。下一步可进入企业微信配置，选择发送范围与启用时间。'),
+                        h('div', {
+                            class: 'rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-700',
+                            'data-testid': 'hotel-onboarding-collection-active',
+                        }, '三源采集计划已启用，并通过执行授权与计划状态回读；云端定时器运行状态需单独确认。'),
+                        h('div', { class: 'flex justify-between gap-3 border-t border-slate-100 pt-5' }, [
+                            h('button', { type: 'button', class: secondaryButton, onClick: () => { ctx.showHotelModal = false; } }, '关闭'),
+                            h('button', {
+                                type: 'button',
+                                class: primaryButton,
+                                'data-testid': 'hotel-onboarding-open-wechat',
+                                onClick: ctx.openHotelOnboardingWechatConfig,
+                            }, '进入企业微信配置'),
+                        ]),
+                    ]);
+                    return h('div', { class: 'flex min-h-0 flex-1 flex-col overflow-hidden' }, [
+                        renderSteps(),
+                        h('div', { class: 'overflow-y-auto p-4 sm:p-6' }, [
+                            ctx.hotelOnboardingStep === 'hotel' ? renderHotelStep() : null,
+                            ctx.hotelOnboardingStep === 'authorization' ? renderAuthorizationStep() : null,
+                            ctx.hotelOnboardingStep === 'verification' ? renderVerificationStep() : null,
+                            ctx.hotelOnboardingStep === 'complete' ? renderCompleteStep() : null,
+                            ctx.hotelOnboardingLoading ? h('p', { class: 'mt-4 text-xs text-slate-500' }, '正在按精确门店 ID 保存或回读...') : null,
+                        ]),
+                    ]);
+        },
+    };
+
 
     const OperatingLoopAuthority = {
         name: 'OperatingLoopAuthority',
@@ -2155,7 +2517,7 @@
         },
     };
 
-        return Object.freeze({ AiDecisionQualityDetails, OnlineTruthSummary, DualOtaAcceptanceReceipt, DualOtaPageVerificationPanel, resolveRevenueCockpitIntentLifecycle, parseOperationEvidenceNumber, parseOptionalOperationEvidenceNumber, operationEvidenceFirstText, operationEvidenceCleanObject, operationEvidenceLocalTimestamp, normalizeOperationEvidenceDateTime, normalizeOperationReviewStatus, RevenueCockpitOpportunityDetails, RevenueCockpitSnapshotStatus, RevenueCockpitActionRestoreStatus, onlineDataComponents, loadOnlineDataComponentScript, readOnlineDataComponent, requireOnlineDataComponent, systemComponents, CtripOrderAnalysisPanel, requireSystemComponent, operatingOpportunityLabScript, OperatingOpportunityLab, platformAutoPanelsScript, ctripProfileFieldConfigPanelScript, competitorDeviceManagementScript, dataConfigDialogsScript, automationCollectionContractScript, PlatformAutoSettingsPanels, PlatformAutoSecondaryPanels, CtripProfileFieldConfigPanel, CompetitorDeviceManagement, DataConfigDialogs, aiDailyReportTaskPositiveInteger, aiDailyReportModelIsLimited, normalizeAiDailyReportGenerationTask, formatAiDailyReportGenerationStage, resolveAiDailyReportGenerationOutcome, pollAiDailyReportGenerationTask, SessionProofNotice, LocalCollectorLoginHandoff, PmsRealtimeSyncResult, OperatingLoopAuthority, ManagerCapabilityPanel });
+        return Object.freeze({ AiDecisionQualityDetails, OnlineTruthSummary, DualOtaAcceptanceReceipt, DualOtaPageVerificationPanel, resolveRevenueCockpitIntentLifecycle, parseOperationEvidenceNumber, parseOptionalOperationEvidenceNumber, operationEvidenceFirstText, operationEvidenceCleanObject, operationEvidenceLocalTimestamp, normalizeOperationEvidenceDateTime, normalizeOperationReviewStatus, RevenueCockpitOpportunityDetails, RevenueCockpitSnapshotStatus, RevenueCockpitActionRestoreStatus, onlineDataComponents, loadOnlineDataComponentScript, readOnlineDataComponent, requireOnlineDataComponent, systemComponents, CtripOrderAnalysisPanel, requireSystemComponent, operatingOpportunityLabScript, OperatingOpportunityLab, platformAutoPanelsScript, ctripProfileFieldConfigPanelScript, competitorDeviceManagementScript, dataConfigDialogsScript, automationCollectionContractScript, PlatformAutoSettingsPanels, PlatformAutoSecondaryPanels, CtripProfileFieldConfigPanel, CompetitorDeviceManagement, DataConfigDialogs, aiDailyReportTaskPositiveInteger, aiDailyReportModelIsLimited, normalizeAiDailyReportGenerationTask, formatAiDailyReportGenerationStage, resolveAiDailyReportGenerationOutcome, pollAiDailyReportGenerationTask, SessionProofNotice, LocalCollectorLoginHandoff, PmsRealtimeSyncResult, HotelThreeSourceOnboardingPanel, OperatingLoopAuthority, ManagerCapabilityPanel });
     };
 
     const exportedFactory = Object.freeze({ create });

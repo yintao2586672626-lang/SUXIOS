@@ -2,6 +2,9 @@
                         <operating-opportunity-lab
                             :hotels="hotels"
                             :request="managerCapabilityRequest"
+                            :selected-hotel-id="filterReportHotel"
+                            :open-task="openHomeOperatingScheduleItem"
+                            @update:selected-hotel-id="filterReportHotel = String($event || '')"
+                            @open-operations="openHomeOperatingScheduleItem"
                         ></operating-opportunity-lab>
                     </div>
-

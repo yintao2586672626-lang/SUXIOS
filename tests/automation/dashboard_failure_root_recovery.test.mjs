@@ -1,12 +1,17 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
+import vm from 'node:vm';
+import { readRouteContractSource } from '../../scripts/lib/route_contract_source.mjs';
 
 const appMain = readFileSync('public/app-main.js', 'utf8');
 const homeStatic = readFileSync('public/home-static.js', 'utf8');
 const compassSummary = readFileSync('resources/frontend/templates/fragments/23a-page-compass-summary.html', 'utf8');
-const routes = readFileSync('route/app.php', 'utf8');
+const routes = readRouteContractSource(process.cwd());
 const reliability = readFileSync('app/controller/concern/CollectionReliabilityConcern.php', 'utf8');
+const homeContext = { window: {}, URLSearchParams };
+vm.runInNewContext(homeStatic, homeContext, { filename: 'public/home-static.js' });
+const { createHomeRevenueFactLayerController } = homeContext.window.SUXI_HOME_STATIC;
 
 const sliceBetween = (source, start, end) => {
   const startIndex = source.indexOf(start);
@@ -31,16 +36,30 @@ test('dashboard reads the base fact layer without changing Revenue AI permission
   assert.match(reliability, /public function dashboardRevenueFacts\(\): Response/);
   assert.match(reliability, /RevenueFactLayerService\(\)\)->build\(\(int\)\$hotelId, \$businessDate\)/);
 
-  const factLoader = sliceBetween(
+  const factController = sliceBetween(
+    homeStatic,
+    'const createHomeRevenueFactLayerController =',
+    'const buildHomeBusinessTimeModel =',
+  );
+  assert.match(factController, /request\(`\/dashboard\/revenue-facts\?\$\{params\.toString\(\)\}`/);
+  assert.match(factController, /layer\.hotel\?\.system_hotel_id/);
+  assert.match(factController, /layer\.business_date/);
+  assert.doesNotMatch(factController, /canUseRevenueAi|revenueAiOverview/);
+  assert.doesNotMatch(factController, /method:\s*['"](?:POST|PUT|PATCH|DELETE)['"]/);
+  const factBridge = sliceBetween(
     appMain,
-    'const loadHomeRevenueFactLayer = async',
+    'homeRevenueFactLayerController = createHomeRevenueFactLayerController',
     'const loadRevenueAiOverview = async',
   );
-  assert.match(factLoader, /request\(\`\/dashboard\/revenue-facts\?\$\{params\.toString\(\)\}\`/);
-  assert.doesNotMatch(factLoader, /canUseRevenueAi|revenueAiOverview/);
+  assert.match(factBridge, /active: !!token\.value && isCompassDataPage\(\)/);
+  assert.match(factBridge, /businessDate: homeRevenueFactBusinessDate\.value/);
+  assert.match(factBridge, /homeRevenueFactLayer\.value = state\.layer/);
+  assert.doesNotMatch(factBridge, /canUseRevenueAi|revenueAiOverview/);
   assert.match(appMain, /revenueFactLayer: homeRevenueFactLayer\.value/);
   assert.match(appMain, /revenueFactLayerError: homeRevenueFactLayerError\.value/);
   assert.doesNotMatch(appMain, /revenueFactLayerError: revenueAiOverviewError\.value/);
+  assert.match(homeStatic, /动作需经过审批、执行证据和 ROI 复盘/);
+  assert.match(homeStatic, /不自动执行/);
 
   const permissionGate = sliceBetween(
     appMain,
@@ -71,57 +90,35 @@ test('dashboard endpoint rejects missing or malformed explicit hotel scope befor
 });
 
 test('late fact responses cannot overwrite a newer hotel and business date', async () => {
-  const loaderSource = sliceBetween(
-    appMain,
-    'const loadHomeRevenueFactLayer = async',
-    'const loadRevenueAiOverview = async',
-  );
-  const token = { value: 'test-token' };
-  const currentPage = { value: 'compass' };
-  const filterReportHotel = { value: '80' };
-  const homeRevenueFactBusinessDate = { value: '2026-08-14' };
-  const homeRevenueFactLayer = { value: null };
-  const homeRevenueFactLayerLoading = { value: false };
-  const homeRevenueFactLayerError = { value: '' };
+  const scope = {
+    active: true,
+    sessionKey: 'session-7',
+    hotelId: '80',
+    businessDate: '2026-08-14',
+  };
+  let visibleState = null;
   const pending = new Map();
-  const request = (url) => {
+  const requestOptions = new Map();
+  const request = (url, options) => {
     const task = deferred();
     pending.set(url, task);
+    requestOptions.set(url, options);
     return task.promise;
   };
-  const context = {
-    token,
-    isCompassDataPage: () => true,
-    captureAuthSession: () => ({ epoch: 7, token: token.value }),
-    currentPage,
-    filterReportHotel,
-    homeRevenueFactBusinessDate,
-    homeRevenueFactLayer,
-    homeRevenueFactLayerLoading,
-    homeRevenueFactLayerError,
-    authSessionEpoch: 7,
-    isAuthSessionCurrent: () => true,
+  const controller = createHomeRevenueFactLayerController({
     request,
-    currentPageReadPolicy: () => ({}),
-    URLSearchParams,
-    console,
-  };
-  const names = Object.keys(context);
-  const createHarness = Function(
-    ...names,
-    `let homeRevenueFactLayerRequestSeq = 0;
-     const homeRevenueFactLayerRequestPromises = new Map();
-     ${loaderSource}
-     return { loadHomeRevenueFactLayer };`,
-  );
-  const { loadHomeRevenueFactLayer } = createHarness(
-    ...names.map(name => context[name]),
-  );
+    readContext: () => ({ ...scope }),
+    isContextCurrent: context => context.sessionKey === scope.sessionKey
+      && context.hotelId === scope.hotelId
+      && context.businessDate === scope.businessDate,
+    requestPolicyFor: () => ({ scope: 'page', priority: 'current' }),
+    onStateChange: state => { visibleState = state; },
+  });
 
-  const oldRequest = loadHomeRevenueFactLayer();
-  filterReportHotel.value = '81';
-  homeRevenueFactBusinessDate.value = '2026-08-13';
-  const newRequest = loadHomeRevenueFactLayer();
+  const oldRequest = controller.load();
+  scope.hotelId = '81';
+  scope.businessDate = '2026-08-13';
+  const newRequest = controller.load();
 
   const newUrl = '/dashboard/revenue-facts?hotel_id=81&business_date=2026-08-13';
   const oldUrl = '/dashboard/revenue-facts?hotel_id=80&business_date=2026-08-14';
@@ -144,10 +141,41 @@ test('late fact responses cannot overwrite a newer hotel and business date', asy
   });
   await oldRequest;
 
-  assert.equal(homeRevenueFactLayer.value.hotel.system_hotel_id, 81);
-  assert.equal(homeRevenueFactLayer.value.business_date, '2026-08-13');
-  assert.equal(homeRevenueFactLayerLoading.value, false);
-  assert.equal(homeRevenueFactLayerError.value, '');
+  assert.equal(visibleState.layer.hotel.system_hotel_id, 81);
+  assert.equal(visibleState.layer.business_date, '2026-08-13');
+  assert.equal(visibleState.loading, false);
+  assert.equal(visibleState.error, '');
+  assert.equal(requestOptions.get(newUrl).method, undefined);
+
+  scope.businessDate = '2026-08-12';
+  controller.reset();
+  const mismatchedRead = controller.load({ force: true });
+  const mismatchUrl = '/dashboard/revenue-facts?hotel_id=81&business_date=2026-08-12';
+  pending.get(mismatchUrl).resolve({
+    code: 200,
+    data: {
+      hotel: { system_hotel_id: 81 },
+      business_date: '2026-08-11',
+      status: 'ready',
+    },
+  });
+  await mismatchedRead;
+  assert.equal(visibleState.layer, null);
+  assert.match(visibleState.error, /回读范围不一致/);
+  assert.equal(visibleState.loading, false);
+
+  const recoveredRead = controller.load({ force: true });
+  pending.get(mismatchUrl).resolve({
+    code: 200,
+    data: {
+      hotel: { system_hotel_id: 81 },
+      business_date: '2026-08-12',
+      status: 'partial',
+    },
+  });
+  await recoveredRead;
+  assert.equal(visibleState.layer.business_date, '2026-08-12');
+  assert.equal(visibleState.error, '');
 });
 
 test('home exposes an explicit business date control and one visible blocker', () => {
@@ -158,8 +186,9 @@ test('home exposes an explicit business date control and one visible blocker', (
   assert.match(homeStatic, /'当前唯一阻塞'/);
   assert.match(homeStatic, /下方指标受其影响，不重复计为独立故障/);
   assert.match(compassSummary, /@update:selected-business-date="homeRevenueFactBusinessDate = \$event"/);
-  assert.match(appMain, /businessDate === String\(homeRevenueFactBusinessDate\.value \|\| ''\)\.trim\(\)/);
+  assert.match(appMain, /String\(homeRevenueFactBusinessDate\.value \|\| ''\)\.trim\(\) === String\(context\.businessDate \|\| ''\)\.trim\(\)/);
   assert.match(appMain, /watch\(homeRevenueFactBusinessDate/);
+  assert.match(appMain, /homeRevenueFactLayerController\.reset\(\)/);
 });
 
 test('operation static loader performs only one cache-busted integrity repair attempt', () => {

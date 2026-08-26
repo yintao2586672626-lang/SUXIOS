@@ -6,6 +6,7 @@ const read = path => readFileSync(new URL(`../../${path}`, import.meta.url), 'ut
 const appMain = read('public/app-main.js');
 const appMainComponents = read('public/components/system/app-main-components.js');
 const appMainComponentsLoader = read('public/components/system/app-main-components-loader.js');
+const hotelOnboardingStatic = read('public/hotel-three-source-onboarding-static.js');
 const dialog = read('resources/frontend/templates/fragments/40-dialog-hotel.html');
 const hotelController = read('app/controller/Hotel.php');
 
@@ -68,40 +69,40 @@ test('create response is pinned to savedHotelId and exact readback before advanc
 });
 
 test('cloud logins are serialized and only complete with opaque profile and session ids', () => {
-  const opener = sliceBetween(appMain, 'const openHotelOnboardingCloudLogin = async', 'const completeHotelOnboardingCloudLogin = async');
-  const completer = sliceBetween(appMain, 'const completeHotelOnboardingCloudLogin = async', 'const saveHotelOnboardingBinding = async');
+  const opener = sliceBetween(hotelOnboardingStatic, 'const openHotelOnboardingCloudLogin = async', 'const completeHotelOnboardingCloudLogin = async');
+  const completer = sliceBetween(hotelOnboardingStatic, 'const completeHotelOnboardingCloudLogin = async', 'const saveHotelOnboardingBinding = async');
   assert.match(opener, /hotelOnboardingBusyPlatform\.value\) return false/);
   assert.match(opener, /request\('\/cloud-browser-profiles\/open-login'/);
   assert.match(opener, /data\.browser_started !== true/);
   assert.match(opener, /hotelOnboardingViewerUrl\(data\.viewer_url\)/);
-  assert.match(appMain, /url\.origin !== window\.location\.origin/);
-  assert.match(appMain, /!url\.pathname\.startsWith\('\/cloud-browser-viewer\/'\)/);
+  assert.match(hotelOnboardingStatic, /url\.origin !== runtimeWindow\.location\.origin/);
+  assert.match(hotelOnboardingStatic, /!url\.pathname\.startsWith\('\/cloud-browser-viewer\/'\)/);
   assert.match(opener, /viewerWindow\.location\.replace\(viewerUrl\)/);
   assert.match(completer, /request\('\/cloud-browser-profiles\/complete-login'/);
   assert.match(completer, /profile_id: session\.profile_id/);
   assert.match(completer, /session_id: session\.session_id/);
   assert.match(completer, /delete nextSessions\[platform\]/);
   assert.match(completer, /hotelOnboardingBusyPlatform\.value = ''/);
-  assert.match(appMain, /row\.profileReady === true/);
+  assert.match(hotelOnboardingStatic, /row\.profileReady === true/);
   assert.match(panel, /rows\.every\(row => row\.profileReady === true\)/);
 });
 
 test('platform identities save and read back through the exact hotel-scoped contract', () => {
-  assert.match(appMain, /`\/hotels\/\$\{encodeURIComponent\(exactHotelId\)\}\/three-source-onboarding`/);
-  assert.match(appMain, /`\/hotels\/\$\{encodeURIComponent\(exactHotelId\)\}\/platform-bindings\/\$\{encodeURIComponent\(platform\)\}`/);
-  assert.match(appMain, /`\/hotels\/\$\{encodeURIComponent\(exactHotelId\)\}\/pms-binding`/);
-  assert.match(appMain, /provider_hotel_id: platformHotelId/);
-  assert.match(appMain, /provider_hotel_name: platformHotelName/);
-  assert.match(appMain, /platform_hotel_id: platformHotelId/);
-  assert.match(appMain, /platform_hotel_name: platformHotelName/);
-  assert.match(appMain, /!platformHotelId \|\| !platformHotelName/);
-  assert.match(appMain, /binding\.readback_verified === true/);
-  assert.match(appMain, /门店回读串店/);
+  assert.match(hotelOnboardingStatic, /`\/hotels\/\$\{encodeURIComponent\(exactHotelId\)\}\/three-source-onboarding`/);
+  assert.match(hotelOnboardingStatic, /`\/hotels\/\$\{encodeURIComponent\(exactHotelId\)\}\/platform-bindings\/\$\{encodeURIComponent\(platform\)\}`/);
+  assert.match(hotelOnboardingStatic, /`\/hotels\/\$\{encodeURIComponent\(exactHotelId\)\}\/pms-binding`/);
+  assert.match(hotelOnboardingStatic, /provider_hotel_id: platformHotelId/);
+  assert.match(hotelOnboardingStatic, /provider_hotel_name: platformHotelName/);
+  assert.match(hotelOnboardingStatic, /platform_hotel_id: platformHotelId/);
+  assert.match(hotelOnboardingStatic, /platform_hotel_name: platformHotelName/);
+  assert.match(hotelOnboardingStatic, /!platformHotelId \|\| !platformHotelName/);
+  assert.match(hotelOnboardingStatic, /binding\.readback_verified === true/);
+  assert.match(hotelOnboardingStatic, /门店回读串店/);
   assert.match(appMain, /statusClass: statusMeta\[1\]/);
 });
 
 test('hourly collection remains an explicit dual-OTA plus PMS action with strict response readback', () => {
-  const enabler = sliceBetween(appMain, 'const enableHotelOnboardingHourlyCollection = async', 'const openHotelOnboardingWechatConfig =');
+  const enabler = sliceBetween(hotelOnboardingStatic, 'const enableHotelOnboardingHourlyCollection = async', 'const openHotelOnboardingWechatConfig =');
   const planWriter = sliceBetween(hotelController, 'public function updateCollectionPlan', 'public function updatePmsBinding');
   assert.match(enabler, /hotelOnboardingCollectionPlanEligible\.value/);
   assert.match(enabler, /当前统一三源队列要求携程\+美团\+PMS/);
@@ -130,12 +131,12 @@ test('collection plan can be enabled before onboarding is allowed to finish', ()
   assert.match(verification, /'data-testid': 'hotel-onboarding-enable-collection'/);
   assert.match(verification, /onClick: ctx\.enableHotelOnboardingHourlyCollection/);
   assert.match(verification, /disabled: ctx\.hotelOnboardingLoading \|\| !ctx\.hotelOnboardingReady/);
-  assert.match(appMain, /await loadHotelThreeSourceOnboarding\(\{ hotelId: exactHotelId, silent: true \}\)/);
+  assert.match(hotelOnboardingStatic, /await loadHotelThreeSourceOnboarding\(\{ hotelId: exactHotelId, silent: true \}\)/);
 });
 
 test('page completion never overrides a backend blocker when visible source rows look ready', () => {
   const readyProjection = sliceBetween(
-    appMain,
+    hotelOnboardingStatic,
     'const hotelOnboardingReady = computed(() => {',
     'const hotelOnboardingCollectionPlanEligible = computed(() => {'
   );

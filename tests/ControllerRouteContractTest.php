@@ -8,6 +8,7 @@ use RecursiveDirectoryIterator;
 use RecursiveIteratorIterator;
 use ReflectionMethod;
 use SplFileInfo;
+use Tests\Support\RouteContractSource;
 
 final class ControllerRouteContractTest extends TestCase
 {
@@ -45,7 +46,7 @@ final class ControllerRouteContractTest extends TestCase
 
     public function testExpansionRecordDeleteRoutesKeepSpecificHandlersBeforeCollectionClear(): void
     {
-        $source = $this->sourceWithoutPhpComments(__DIR__ . '/../route/app.php');
+        $source = $this->allRouteSourceWithoutPhpComments();
         $marketClear = strpos($source, "Route::delete('/records/market-evaluation', 'Expansion/clearMarketEvaluation')");
         $singleArchive = strpos($source, "Route::delete('/records/:id', 'Expansion/archive')");
         $collectionClear = strpos($source, "Route::delete('/records', 'Expansion/clearRecords')");
@@ -59,7 +60,7 @@ final class ControllerRouteContractTest extends TestCase
 
     public function testRevenueResearchCanCreateExecutionIntentRoute(): void
     {
-        $source = $this->sourceWithoutPhpComments(__DIR__ . '/../route/app.php');
+        $source = $this->allRouteSourceWithoutPhpComments();
 
         self::assertStringContainsString(
             "Route::post('/execution-intent', 'RevenueResearch/createExecutionIntent')",
@@ -85,7 +86,7 @@ final class ControllerRouteContractTest extends TestCase
 
     public function testRevenueAiPriceSuggestionManualReviewRoutes(): void
     {
-        $source = $this->sourceWithoutPhpComments(__DIR__ . '/../route/app.php');
+        $source = $this->allRouteSourceWithoutPhpComments();
 
         self::assertStringContainsString(
             "Route::post('/price-suggestions/:id/review', 'RevenueAi/reviewPriceSuggestion')",
@@ -143,7 +144,7 @@ final class ControllerRouteContractTest extends TestCase
 
     public function testOperationExecutionResourcesExposeHotelScopedReadRoutesBeforeCollection(): void
     {
-        $source = $this->sourceWithoutPhpComments(__DIR__ . '/../route/app.php');
+        $source = $this->allRouteSourceWithoutPhpComments();
         $intentRead = strpos($source, "Route::get('/execution-intents/:id', 'OperationManagement/readExecutionIntent')");
         $taskRead = strpos($source, "Route::get('/execution-tasks/:id', 'OperationManagement/readExecutionTask')");
         $collection = strpos($source, "Route::get('/execution-intents', 'OperationManagement/executionIntents')");
@@ -157,7 +158,7 @@ final class ControllerRouteContractTest extends TestCase
 
     public function testAgentSavedOtaDiagnosisCanCreateManualExecutionIntentRoute(): void
     {
-        $source = $this->sourceWithoutPhpComments(__DIR__ . '/../route/app.php');
+        $source = $this->allRouteSourceWithoutPhpComments();
 
         self::assertStringContainsString(
             "Route::post('/ota-diagnoses/:id/actions/:actionIndex/execution-intent', 'Agent/createOtaDiagnosisExecutionIntent')",
@@ -168,7 +169,7 @@ final class ControllerRouteContractTest extends TestCase
 
     public function testCtripReviewOrderMatchRoutes(): void
     {
-        $source = $this->sourceWithoutPhpComments(__DIR__ . '/../route/app.php');
+        $source = $this->allRouteSourceWithoutPhpComments();
 
         self::assertStringContainsString(
             "Route::post('/ctrip-review-matches/im-sessions', 'ota.CtripController/saveCtripReviewImSession')",
@@ -224,7 +225,7 @@ final class ControllerRouteContractTest extends TestCase
 
     public function testMeituanReviewOrderMatchRoutes(): void
     {
-        $source = $this->sourceWithoutPhpComments(__DIR__ . '/../route/app.php');
+        $source = $this->allRouteSourceWithoutPhpComments();
 
         self::assertStringContainsString(
             "Route::post('/meituan-review-matches/reviews', 'ota.MeituanController/saveMeituanReviewForMatch')",
@@ -293,7 +294,7 @@ final class ControllerRouteContractTest extends TestCase
             'Managed action cancellation must use the scoped operation service'
         );
 
-        $routes = $this->sourceWithoutPhpComments(__DIR__ . '/../route/app.php');
+        $routes = $this->allRouteSourceWithoutPhpComments();
         self::assertStringContainsString(
             "Route::post('/execution-tasks/:id/reconcile-review', 'OperationManagement/reconcileExecutionTaskReview')",
             $routes,
@@ -315,7 +316,7 @@ final class ControllerRouteContractTest extends TestCase
         self::assertStringContainsString('$this->memoryService->markMilestone(', $controller);
         self::assertStringContainsString("'operation.execute'", $controller);
 
-        $routes = $this->sourceWithoutPhpComments(__DIR__ . '/../route/app.php');
+        $routes = $this->allRouteSourceWithoutPhpComments();
         self::assertStringContainsString(
             "Route::get('/growth-archive/timeline', 'OperationManagement/growthArchiveTimeline')",
             $routes
@@ -336,7 +337,7 @@ final class ControllerRouteContractTest extends TestCase
 
     public function testStrategyAndQuantRecordsCanCreateExecutionIntentRoutes(): void
     {
-        $source = $this->sourceWithoutPhpComments(__DIR__ . '/../route/app.php');
+        $source = $this->allRouteSourceWithoutPhpComments();
 
         self::assertStringContainsString(
             "Route::post('/records/:id/execution-intent', 'StrategySimulation/createExecutionIntent')",
@@ -379,7 +380,7 @@ final class ControllerRouteContractTest extends TestCase
 
     public function testReleaseEvidenceStatusRouteStaysAuthenticatedAndNonClosing(): void
     {
-        $routes = $this->sourceWithoutPhpComments(__DIR__ . '/../route/app.php');
+        $routes = $this->allRouteSourceWithoutPhpComments();
         $otaHandler = $this->sourceWithoutPhpComments(__DIR__ . '/../app/service/Ota/OtaActionHandler.php');
         $concern = $this->sourceWithoutPhpComments(__DIR__ . '/../app/controller/concern/ReleaseEvidenceConcern.php');
 
@@ -415,7 +416,7 @@ final class ControllerRouteContractTest extends TestCase
      */
     private function routeHandlers(): array
     {
-        $source = $this->sourceWithoutPhpComments(__DIR__ . '/../route/app.php');
+        $source = $this->allRouteSourceWithoutPhpComments();
         preg_match_all("/['\"]((?:[A-Z][A-Za-z0-9_]*|admin\\.[A-Za-z0-9_.]+))\\/([A-Za-z0-9_]+)['\"]/", $source, $matches, PREG_SET_ORDER);
 
         $handlers = [];
@@ -424,6 +425,11 @@ final class ControllerRouteContractTest extends TestCase
         }
 
         return array_values($handlers);
+    }
+
+    private function allRouteSourceWithoutPhpComments(): string
+    {
+        return $this->sourceTextWithoutPhpComments(RouteContractSource::read(dirname(__DIR__)));
     }
 
     /**
@@ -454,6 +460,12 @@ final class ControllerRouteContractTest extends TestCase
     {
         $source = file_get_contents($path);
         self::assertIsString($source);
+
+        return $this->sourceTextWithoutPhpComments($source);
+    }
+
+    private function sourceTextWithoutPhpComments(string $source): string
+    {
 
         $output = '';
         foreach (token_get_all($source) as $token) {

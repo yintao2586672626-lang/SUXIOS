@@ -41,7 +41,10 @@ test('Ctrip and Meituan expose a findable review-order evidence workbench', () =
     'manual_matched_count',
     'evidence_ready_count',
   ]) assert.ok(meituanPage.includes(marker), `Meituan page missing ${marker}`);
-  assert.ok(appShell.includes("platformHotelContext === 'meituan' ? fetchingCommentData || meituanConfigListLoading || !platformHotelOptions.length"));
+  assert.match(
+    appShell,
+    /:disabled="[^"]*platformHotelContext === 'meituan' \? fetchingCommentData \|\| meituanConfigListLoading[^"]*\|\| !platformHotelOptions\.length"/,
+  );
 });
 
 test('frontend connects save, candidate calculation, manual decision and closure readback', () => {

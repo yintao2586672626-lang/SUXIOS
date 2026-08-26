@@ -159,6 +159,9 @@
                         || exact?.boundaries?.source_file_retained !== false
                         || exact?.boundaries?.hotel_fact_created !== false
                     ) throw new Error('本地媒体提取保存与精确回读不一致');
+                    if (currentHotelId() !== hotelId) {
+                        throw new Error('酒店范围已变化，本次媒体提取结果不再展示。');
+                    }
                     state.media_result = exact;
                     await loadMediaHistory();
                     return exact;
@@ -1446,13 +1449,13 @@
             title: '生成和查看 AI 经营日报',
             category: '经营报告',
             example: '怎么生成今天的 AI 经营日报？',
-            keywords: ['经营日报', 'ai日报', '生成日报', '日报草稿', '日报预览', '日报发送'],
+            keywords: ['经营日报', 'ai日报', '生成日报', '日报草稿', '日报预览', '日报发送', '可信播报', '可信经营播报', '复制播报稿'],
             context_pages: ['ai-daily-report', 'compass'],
             target_page: 'ai-daily-report',
             action_key: 'page',
             action_label: '打开 AI 经营日报',
             summary: '基于已验证数据生成日报草稿，预览事实、建议和缺口后再决定是否交付。',
-            steps: ['选择酒店和报告日期。', '确认数据可用性后生成日报。', '预览内容并人工决定是否发送。'],
+            steps: ['选择酒店和报告日期。', '确认数据可用性后生成日报。', '在“经营播报与结果交付”中点击“复制播报稿”，外发仍需人工决定。'],
             boundary: '生成成功不等于内容已确认或已经发送，外部交付必须另有真实回执。',
         },
         {
@@ -1482,6 +1485,20 @@
             summary: '按业务问题查找制度、SOP、历史经验和适用边界，再进入对应功能处理。',
             steps: ['输入业务问题或操作关键词。', '核对知识来源、适用酒店和有效期。', '把知识作为参考并进入真实业务页面执行。'],
             boundary: '知识和历史案例是参考材料，不能替代当前酒店、平台和日期的来源事实。',
+        },
+        {
+            key: 'typeless-dictionary',
+            title: '维护 Typeless 总词库',
+            category: '个人词库维护',
+            example: 'Typeless 总词库怎么更新？',
+            keywords: ['typeless', 'typeless词典', 'typeless词库', 'typeless新词', '总词库', '个人词典', '新词导入', '导入csv', '词库更新'],
+            context_pages: ['knowledge-center'],
+            target_page: 'knowledge-center',
+            action_key: 'knowledge-search',
+            action_label: '打开词库维护说明',
+            summary: '从可追溯词源生成单列、UTF-8 BOM、无表头 CSV，去重验证后再导入 Typeless。',
+            steps: ['在知识中心搜索“个人工作语境与宿析OS酒店词汇层”核对词源与版本。', '合并新词并按精确字符串去重，生成单列 UTF-8 BOM 无表头 CSV。', '导入 Typeless 后核对总数、重复项报告和首尾词条。'],
+            boundary: '词条只用于识别与检索，属于 reference_only；不得把个人词、资料词或工具名写成酒店经营事实。',
         },
         {
             key: 'team-permissions',
@@ -1648,6 +1665,7 @@
         'ai-daily-report': '日报草稿已基于当前可用证据生成并预览；是否外发仍由人工确认。',
         'growth-archive': '已看到动作、执行和结果证据，并明确经验是否具备复用条件。',
         'knowledge-search': '已找到有来源和适用边界的知识，并明确应进入哪个真实业务功能。',
+        'typeless-dictionary': '词源、去重结果、CSV格式和导入后总数均已核对；词条仍保持 reference_only。',
         'team-permissions': '目标账号的角色、酒店范围和实际可见入口已经核对。',
         'role-permissions': '岗位角色、功能权限和目标账号的实际入口已经核对。',
         'system-settings': '配置已经保存，并在刷新后的实际页面完成回显核对。',
@@ -1670,6 +1688,7 @@
         guide: '使用指导',
         report: '证据结论',
         action: '行动草案',
+        term: '术语释义',
     });
     const SYSTEM_USAGE_GUIDE_ANCHORS = Object.freeze({
         'daily-workbench': ['[data-testid="page-compass"]'],
@@ -1687,6 +1706,7 @@
         'ai-daily-report': ['[data-testid="ai-daily-fact-gate"]', '[data-testid="page-ai-daily-report"]'],
         'growth-archive': ['[data-testid="page-operating-growth-archive"]'],
         'knowledge-search': ['[data-testid="page-knowledge-center"]'],
+        'typeless-dictionary': ['[data-testid="page-knowledge-center"]'],
         'team-permissions': ['[data-testid="page-users"]'],
         'role-permissions': ['[data-testid="page-roles"]'],
         'system-settings': ['[data-testid="page-system-config"]'],
@@ -2029,6 +2049,7 @@
         name: 'IntelligentSystemUsageAssistant',
         props: {
             ctx: { type: Object, required: true },
+            openOnMount: { type: Boolean, default: false },
         },
         setup(props) {
             const state = ref({
@@ -2040,10 +2061,12 @@
                 active_journey: null,
                 selected_mode: 'auto',
                 coach: null,
+                restoring_precise_query: false,
             });
             const journeyStorageVersion = 1;
             const widgetStorageVersion = 1;
             const pendingCoachStorageVersion = 1;
+            const preciseQueryStorageVersion = 1;
             const widgetRoot = ref(null);
             const widgetOpen = ref(false);
             const widgetDragging = ref(false);
@@ -2063,6 +2086,7 @@
             };
             let suppressLauncherToggle = false;
             let resizeFrame = 0;
+            let preciseRestoreTimer = 0;
             let coachTarget = null;
             let coachRequestId = 0;
             const icon = (name) => h('i', { class: `fas ${name}`, 'aria-hidden': 'true' });
@@ -2098,6 +2122,76 @@
             const pendingCoachStorageKey = () => {
                 const userId = Number(props.ctx?.user?.id || 0);
                 return `suxios_system_usage_pending_coach_v1:${userId > 0 ? userId : 'session'}`;
+            };
+            const preciseQueryStorageKey = () => {
+                const userId = Number(props.ctx?.user?.id || 0);
+                return `suxios_precise_query_last_v1:${userId > 0 ? userId : 'session'}`;
+            };
+            const savePreciseQueryPointer = (readback) => {
+                const id = Number(readback?.id || 0);
+                const digest = String(readback?.content_digest || '');
+                if (!id || !digest) return false;
+                try {
+                    localStorage.setItem(preciseQueryStorageKey(), JSON.stringify({
+                        version: preciseQueryStorageVersion,
+                        id,
+                        content_digest: digest,
+                        saved_at: Date.now(),
+                    }));
+                    return true;
+                } catch (error) {
+                    return false;
+                }
+            };
+            const readPreciseQueryPointer = () => {
+                try {
+                    const raw = JSON.parse(localStorage.getItem(preciseQueryStorageKey()) || 'null');
+                    if (!raw
+                        || Number(raw.version || 0) !== preciseQueryStorageVersion
+                        || Number(raw.id || 0) <= 0
+                        || !String(raw.content_digest || '')
+                    ) return null;
+                    return raw;
+                } catch (error) {
+                    return null;
+                }
+            };
+            const preciseQueryRequest = (...args) => {
+                const handler = props.ctx?.managerCapabilityRequest;
+                if (typeof handler !== 'function') throw new Error('宿析精准查数请求通道未就绪');
+                return handler(...args);
+            };
+            const askPreciseQuery = async (payload = {}) => {
+                const response = await preciseQueryRequest('/agent/precise-queries', {
+                    method: 'POST',
+                    body: JSON.stringify(payload && typeof payload === 'object' ? payload : {}),
+                });
+                if (response.code !== 200 || !response.data || typeof response.data !== 'object') {
+                    throw new Error(response.message || '宿析精准查数没有返回有效结果');
+                }
+                const saved = response.data;
+                const id = Number(saved.id || 0);
+                if (!id || saved.persistence_status !== 'readback_verified') {
+                    throw new Error('宿析精准查数没有返回保存回读编号');
+                }
+                const exact = await readPreciseQuery(id);
+                if (String(exact.content_digest || '') !== String(saved.content_digest || '')
+                    || String(exact.question || '') !== String(saved.question || '')
+                    || String(exact.route_type || '') !== String(saved.route_type || '')
+                ) throw new Error('宿析精准查数保存与按编号回读不一致');
+                return exact;
+            };
+            const readPreciseQuery = async (id) => {
+                const questionId = Number(id || 0);
+                if (!questionId) throw new Error('宿析精准查数问题编号无效');
+                const response = await preciseQueryRequest(`/agent/precise-queries/${questionId}`);
+                if (response.code !== 200 || !response.data || typeof response.data !== 'object') {
+                    throw new Error(response.message || '宿析精准查数按编号回读失败');
+                }
+                if (Number(response.data.id || 0) !== questionId
+                    || String(response.data.persistence_status || '') !== 'readback_verified'
+                ) throw new Error('宿析精准查数编号回读凭证不一致');
+                return response.data;
             };
             const savePendingCoach = (topic) => {
                 try {
@@ -2567,6 +2661,18 @@
                     key: 'current-page',
                     label: '这个页面怎么用？',
                     query: `我现在在“${currentPageText()}”，这里主要能完成什么，第一步该做什么？`,
+                }, {
+                    key: 'precise-exposure',
+                    label: '查美团曝光',
+                    query: 'Hotel 80 8月23日美团曝光多少？',
+                }, {
+                    key: 'precise-missing',
+                    label: '问携程缺失',
+                    query: '携程为什么没有曝光转化率？',
+                }, {
+                    key: 'precise-navigation',
+                    label: '找可信播报',
+                    query: '可信播报怎么复制？',
                 }];
                 const activeGoal = String(state.value.active_journey?.goal || '').trim();
                 if (activeGoal) {
@@ -2618,6 +2724,18 @@
                     { role: 'assistant', content: String(turn.result?.assistant_message || '') },
                 ])
                 .filter((message) => message.content);
+            const latestPreciseOperatingScope = () => {
+                for (let index = state.value.turns.length - 1; index >= 0; index -= 1) {
+                    const result = state.value.turns[index]?.result;
+                    const scope = result?.precise_query_scope;
+                    if (result?.route_type === 'operating_query'
+                        && scope && typeof scope === 'object'
+                        && Number(scope.hotel_id || 0) > 0
+                        && String(scope.business_date || '')
+                    ) return scope;
+                }
+                return null;
+            };
             const setAssistantMode = (mode) => {
                 const normalized = String(mode || 'auto').trim().toLowerCase();
                 state.value.selected_mode = ['auto', 'guide', 'report', 'action'].includes(normalized)
@@ -2749,6 +2867,91 @@
                     original_query: query,
                 };
             };
+            const normalizePreciseQueryResult = (raw, query) => {
+                if (!raw || typeof raw !== 'object'
+                    || Number(raw.id || 0) <= 0
+                    || String(raw.persistence_status || '') !== 'readback_verified'
+                ) throw new Error('宿析精准查数没有返回可回读记录');
+                const routeType = String(raw.route_type || '');
+                const common = {
+                    precise_query_id: Number(raw.id || 0),
+                    precise_query_digest: String(raw.content_digest || ''),
+                    precise_query_status: String(raw.status || ''),
+                    precise_query_scope: raw.parsed_scope && typeof raw.parsed_scope === 'object' ? raw.parsed_scope : {},
+                    precise_query_lexicon: raw.lexicon && typeof raw.lexicon === 'object' ? raw.lexicon : {},
+                    knowledge_refs: Array.isArray(raw.knowledge_refs) ? raw.knowledge_refs : [],
+                    fact_refs: Array.isArray(raw.fact_refs) ? raw.fact_refs : [],
+                    persistence_status: 'readback_verified',
+                    original_query: query,
+                };
+                if (routeType === 'system_navigation') {
+                    return {
+                        ...normalizeResult(raw.answer || {}, query),
+                        ...common,
+                        route_type: routeType,
+                    };
+                }
+                if (routeType === 'operating_query') {
+                    const topic = topicByKey('revenue-report');
+                    return {
+                        ...common,
+                        status: 'ready',
+                        mode: 'deterministic',
+                        route_type: routeType,
+                        assistant_mode: 'report',
+                        assistant_message: String(raw.answer_summary || '已按数据库严格回读事实完成确定性查数。'),
+                        intent_summary: '经营查数',
+                        goal: query,
+                        topic_key: topic?.key || 'revenue-report',
+                        topic: topic ? { key: topic.key, title: topic.title, category: topic.category } : null,
+                        journey: [],
+                        steps: [],
+                        clarifying_question: '',
+                        operating_result: raw.operating_question || null,
+                        operating_error: raw.operating_question ? '' : String(raw.answer_summary || '没有取得可回读经营记录。'),
+                        boundary: '数值只来自数据库严格回读事实或公开公式的确定性计算；模型不能在自由文本中生成数字。',
+                    };
+                }
+                if (routeType === 'term_definition') {
+                    const topic = topicByKey('knowledge-search');
+                    return {
+                        ...common,
+                        status: 'ready',
+                        mode: 'deterministic',
+                        route_type: routeType,
+                        assistant_mode: 'term',
+                        assistant_message: String(raw.answer_summary || raw.answer?.definition || ''),
+                        intent_summary: '术语查询',
+                        goal: query,
+                        topic_key: topic?.key || 'knowledge-search',
+                        topic: topic ? { key: topic.key, title: topic.title, category: topic.category } : null,
+                        journey: [],
+                        steps: [],
+                        clarifying_question: '',
+                        term_result: raw.answer || {},
+                        boundary: '术语定义保持 reference_only，不进入酒店经营事实。',
+                    };
+                }
+                if (routeType === 'clarification') {
+                    return {
+                        ...common,
+                        status: 'clarification_required',
+                        mode: 'deterministic',
+                        route_type: routeType,
+                        assistant_mode: 'auto',
+                        assistant_message: '为了避免猜错范围，我只确认一个会改变答案的条件。',
+                        intent_summary: '需要确认范围',
+                        goal: query,
+                        topic_key: 'clarify',
+                        topic: null,
+                        journey: [],
+                        steps: [],
+                        clarifying_question: String(raw.answer?.clarifying_question || raw.answer_summary || ''),
+                        boundary: '酒店、平台或业务日期会改变答案时不自行猜测。',
+                    };
+                }
+                throw new Error('宿析精准查数返回了未知路由');
+            };
             const applySuggestion = (item) => {
                 state.value.query = String(item?.query || item?.example || item?.title || '');
                 state.value.error = '';
@@ -2768,30 +2971,40 @@
                 state.value.loading = true;
                 state.value.query = '';
                 const requestedMode = String(state.value.selected_mode || 'auto');
+                const conversationScope = latestPreciseOperatingScope();
+                const requestPayload = {
+                    query,
+                    requested_mode: requestedMode,
+                    current_page: String(props.ctx?.currentPage || ''),
+                    page_title: currentPageText(),
+                    current_scope: {
+                        hotel_id: Number(
+                            conversationScope?.hotel_id
+                            ||
+                            props.ctx?.operatingQuestionForm?.hotel_id
+                            || props.ctx?.filterReportHotel
+                            || props.ctx?.user?.hotel_id
+                            || 0
+                        ),
+                        hotel_name: String(conversationScope?.hotel_name || props.ctx?.operatingQuestionSelectedHotel?.name || ''),
+                        platform: String(conversationScope?.platform || props.ctx?.operatingQuestionForm?.platform || ''),
+                        date_start: String(conversationScope?.business_date || props.ctx?.operatingQuestionForm?.date_start || ''),
+                        date_end: String(conversationScope?.business_date || props.ctx?.operatingQuestionForm?.date_end || ''),
+                    },
+                    visible_topic_keys: visibleTopicKeys(),
+                    active_journey: activeJourneyContext(),
+                    history: conversationHistory(),
+                };
                 let result;
                 try {
-                    result = normalizeResult(await props.ctx?.askSystemUsageGuide?.({
-                        query,
-                        requested_mode: requestedMode,
-                        current_page: String(props.ctx?.currentPage || ''),
-                        page_title: currentPageText(),
-                        current_scope: {
-                            hotel_id: Number(
-                                props.ctx?.operatingQuestionForm?.hotel_id
-                                || props.ctx?.filterReportHotel
-                                || props.ctx?.user?.hotel_id
-                                || 0
-                            ),
-                            hotel_name: String(props.ctx?.operatingQuestionSelectedHotel?.name || ''),
-                            platform: String(props.ctx?.operatingQuestionForm?.platform || ''),
-                            date_start: String(props.ctx?.operatingQuestionForm?.date_start || ''),
-                            date_end: String(props.ctx?.operatingQuestionForm?.date_end || ''),
-                        },
-                        visible_topic_keys: visibleTopicKeys(),
-                        active_journey: activeJourneyContext(),
-                        history: conversationHistory(),
-                    }), query);
-                    result = await runOperatingWorkflow(result, query);
+                    if (typeof props.ctx?.managerCapabilityRequest === 'function') {
+                        const exact = await askPreciseQuery(requestPayload);
+                        result = normalizePreciseQueryResult(exact, query);
+                        savePreciseQueryPointer(exact);
+                    } else {
+                        result = normalizeResult(await props.ctx?.askSystemUsageGuide?.(requestPayload), query);
+                        result = await runOperatingWorkflow(result, query);
+                    }
                 } catch (error) {
                     result = localFallbackResult(query, 'request_failed', requestedMode);
                     result = await runOperatingWorkflow(result, query);
@@ -2803,13 +3016,38 @@
                     query,
                     result,
                 });
-                if (result.topic_key !== 'clarify') {
+                if (result.topic_key !== 'clarify' && result.route_type !== 'term_definition' && result.route_type !== 'operating_query') {
                     saveActiveJourney(result, query, result.topic_key);
                 }
                 if (state.value.turns.length > 6) {
                     state.value.turns.splice(0, state.value.turns.length - 6);
                 }
                 return true;
+            };
+            const restorePreciseQueryReadback = async () => {
+                if (state.value.turns.length || state.value.restoring_precise_query) return false;
+                const pointer = readPreciseQueryPointer();
+                if (!pointer || typeof props.ctx?.managerCapabilityRequest !== 'function') return false;
+                state.value.restoring_precise_query = true;
+                try {
+                    const exact = await readPreciseQuery(pointer.id);
+                    if (String(exact?.content_digest || '') !== String(pointer.content_digest || '')) {
+                        throw new Error('刷新后的问题摘要与上次保存不一致');
+                    }
+                    const query = String(exact?.question || '');
+                    const result = normalizePreciseQueryResult(exact, query);
+                    state.value.turns.push({
+                        id: `restored-${Number(exact.id || 0)}`,
+                        query,
+                        result,
+                    });
+                    return true;
+                } catch (error) {
+                    state.value.error = error?.message || '刷新后按编号回读失败';
+                    return false;
+                } finally {
+                    state.value.restoring_precise_query = false;
+                }
             };
             const openTopic = async (event, topic, turn) => {
                 if (!topic || state.value.opening_key) return false;
@@ -2849,6 +3087,8 @@
                 }
             };
             const runtimeText = (result) => {
+                if (Number(result?.precise_query_id || 0) > 0) return '统一路由';
+                if (result?.mode === 'deterministic') return '确定性路由';
                 if (result?.mode !== 'intelligent') return '基础引导';
                 if (result?.status === 'clarification_required') return '需要确认目标';
                 return '已理解目标';
@@ -2904,18 +3144,58 @@
                 const evidence = answer.evidence_counts && typeof answer.evidence_counts === 'object'
                     ? answer.evidence_counts
                     : {};
-                const blocked = String(exact.answer_status || '') === 'blocked_by_missing_facts';
+                const blocked = String(exact.answer_status || '').startsWith('blocked');
                 const children = [
                     h('div', { class: 'sx-ai-consultant-operating-result-head' }, [
                         h('span', {
                             class: ['sx-ai-consultant-status', blocked ? 'is-blocked' : ''],
-                        }, String(props.ctx?.operatingQuestionAnswerStatusText?.(exact.answer_status) || (blocked ? '缺少可信事实' : '已严格回读'))),
+                        }, blocked
+                            ? '缺少可信事实'
+                            : String(props.ctx?.operatingQuestionAnswerStatusText?.(exact.answer_status) || '已严格回读')),
                         h('span', assistantMode === 'action' ? '行动草案模式' : '证据结论模式'),
                     ]),
                     h('p', { class: 'sx-ai-consultant-operating-scope' }, operatingScopeText(exact)),
                     h('p', { class: 'sx-ai-consultant-answer-summary' }, String(exact.answer_summary || '当前严格回读没有返回摘要。')),
                 ];
-                const decisionFrame = renderRevenueDecisionFrame(answer.decision_frame, isLatest ? 'system-guide-decision-frame' : '');
+                const precise = answer.precise_result && typeof answer.precise_result === 'object'
+                    ? answer.precise_result
+                    : null;
+                if (precise) {
+                    const valueText = precise.value === null || precise.value === undefined || precise.value === ''
+                        ? '--'
+                        : `${String(precise.value)}${precise.unit ? ` ${String(precise.unit)}` : ''}`;
+                    const fields = [
+                        ['酒店', String(precise.hotel?.name || `Hotel ${Number(precise.hotel?.id || 0) || '--'}`)],
+                        ['平台', String(precise.platform?.name || precise.platform?.key || '--')],
+                        ['业务日期', String(precise.business_date || '--')],
+                        ['指标名称', String(precise.metric?.name || precise.metric?.key || '--')],
+                        ['数值与单位', valueText],
+                        ['来源记录', String(precise.source_record || '--')],
+                        ['采集时间', String(precise.collected_at || '未记录，不用回读时间代替')],
+                        ['验证状态', String(precise.verification_status || '--')],
+                        ['回读状态', String(precise.readback_status || '--')],
+                        ['数据范围', String(precise.data_scope || '--')],
+                    ];
+                    children.push(h('section', {
+                        class: 'mt-3 rounded-xl border border-emerald-200 bg-emerald-50/70 p-3',
+                        'data-testid': isLatest ? 'precise-query-fact-card' : undefined,
+                    }, [
+                        h('div', { class: 'mb-2 flex flex-wrap items-center justify-between gap-2' }, [
+                            h('strong', { class: 'text-sm text-emerald-950' }, '可核对经营结果'),
+                            h('span', { class: 'rounded-full bg-white px-2 py-1 text-[11px] text-emerald-800' }, blocked ? '明确阻塞' : '数据库确定性结果'),
+                        ]),
+                        h('dl', { class: 'grid grid-cols-1 gap-2 text-xs sm:grid-cols-2' }, fields.map(([label, value], index) => h('div', {
+                            key: `precise-field-${index}`,
+                            class: ['rounded-lg border border-emerald-100 bg-white px-2.5 py-2', label === '数据范围' ? 'sm:col-span-2' : ''],
+                        }, [
+                            h('dt', { class: 'text-[11px] text-slate-500' }, label),
+                            h('dd', { class: 'mt-0.5 break-words font-medium text-slate-800' }, value),
+                        ]))),
+                        precise.formula ? h('p', { class: 'mt-2 text-xs leading-5 text-emerald-900' }, `计算：${String(precise.formula)}`) : null,
+                        precise.blocked_reason ? h('p', { class: 'mt-2 text-xs leading-5 text-amber-800' }, `阻塞原因：${String(precise.blocked_reason)}`) : null,
+                    ].filter(Boolean)));
+                }
+                const decisionFrame = precise ? null : renderRevenueDecisionFrame(answer.decision_frame, isLatest ? 'system-guide-decision-frame' : '');
                 if (decisionFrame) children.push(decisionFrame);
                 if (keyPoints.length) {
                     children.push(h('ul', { class: 'sx-ai-consultant-key-points' }, keyPoints.map((point, index) => (
@@ -2980,6 +3260,28 @@
                     class: ['sx-ai-consultant-operating-result', blocked ? 'is-blocked' : 'is-ready'],
                     'data-testid': isLatest ? 'system-guide-operating-result' : undefined,
                 }, children);
+            };
+            const renderTermResult = (guideResult, isLatest = false) => {
+                if (String(guideResult?.assistant_mode || '') !== 'term') return null;
+                const term = guideResult?.term_result && typeof guideResult.term_result === 'object'
+                    ? guideResult.term_result
+                    : {};
+                return h('section', {
+                    class: 'sx-ai-consultant-operating-result is-ready',
+                    'data-testid': isLatest ? 'precise-query-term-result' : undefined,
+                }, [
+                    h('div', { class: 'sx-ai-consultant-operating-result-head' }, [
+                        h('span', { class: 'sx-ai-consultant-status' }, 'reference_only'),
+                        h('span', '不进入经营事实'),
+                    ]),
+                    h('p', { class: 'sx-ai-consultant-answer-summary' }, String(term.term || '术语释义')),
+                    h('p', String(term.definition || guideResult.assistant_message || '当前没有可核对定义。')),
+                    term.source ? h('p', { class: 'mt-2 text-xs text-slate-500' }, `来源：${String(term.source)}`) : null,
+                    h('div', { class: 'sx-ai-consultant-evidence' }, [
+                        h('span', `知识引用 ${Array.isArray(guideResult?.knowledge_refs) ? guideResult.knowledge_refs.length : 0}`),
+                        h('span', `已保存并按编号回读 #${Number(guideResult?.precise_query_id || 0)}`),
+                    ]),
+                ].filter(Boolean));
             };
             const renderJourney = (result, turn = null, persistent = false) => {
                 const journey = normalizeJourney(result?.journey, topicByKey(result?.topic_key));
@@ -3067,6 +3369,14 @@
             onMounted(() => {
                 state.value.active_journey = readActiveJourney();
                 readWidgetState();
+                if (props.openOnMount) widgetOpen.value = true;
+                preciseRestoreTimer = window.setTimeout(() => {
+                    preciseRestoreTimer = 0;
+                    if (String(state.value.error || '').includes('Authentication session changed')) {
+                        state.value.error = '';
+                    }
+                    void restorePreciseQueryReadback();
+                }, 900);
                 window.addEventListener('resize', handleWidgetViewportResize, { passive: true });
                 nextTick(() => {
                     clampWidgetPosition(false);
@@ -3076,6 +3386,7 @@
             onUnmounted(() => {
                 window.removeEventListener('resize', handleWidgetViewportResize);
                 if (resizeFrame) window.cancelAnimationFrame(resizeFrame);
+                if (preciseRestoreTimer) window.clearTimeout(preciseRestoreTimer);
                 clearTopicCoach();
             });
 
@@ -3088,8 +3399,8 @@
                     conversation.push(h('div', { class: 'sx-ai-consultant-welcome' }, [
                         h('div', { class: 'sx-ai-consultant-message-avatar', 'aria-hidden': 'true' }, [icon('fa-sparkles')]),
                         h('div', [
-                            h('strong', '直接说你想完成什么，不用记模块名。'),
-                            h('p', '我会结合当前页面和前面的对话理解你的目标；不确定时先问清楚，再带你进入真实功能。'),
+                            h('strong', '直接查数、问缺失原因、找功能或查术语。'),
+                            h('p', '例如“Hotel 80 8月23日美团曝光多少”“可信播报怎么复制”。数值只读数据库，不让模型自由生成。'),
                         ]),
                     ]));
                 }
@@ -3127,7 +3438,11 @@
                     ];
                     const operatingResult = renderOperatingResult(result, turn, isLatest);
                     if (operatingResult) answerChildren.push(operatingResult);
-                    const journeyCard = renderJourney(result, turn);
+                    const termResult = renderTermResult(result, isLatest);
+                    if (termResult) answerChildren.push(termResult);
+                    const journeyCard = ['operating_query', 'term_definition'].includes(String(result.route_type || ''))
+                        ? null
+                        : renderJourney(result, turn);
                     if (journeyCard) answerChildren.push(journeyCard);
                     if (result.clarifying_question) {
                         answerChildren.push(h('div', {
@@ -3152,7 +3467,7 @@
                             h('p', String(result.boundary)),
                         ]));
                     }
-                    if (topic && !journeyCard) {
+                    if (topic && !journeyCard && !['operating_query', 'term_definition'].includes(String(result.route_type || ''))) {
                         answerChildren.push(h('section', { class: 'sx-ai-consultant-recovery' }, [
                             h('div', { class: 'sx-ai-consultant-recovery-title' }, [
                                 icon('fa-location-arrow'),
@@ -3189,9 +3504,11 @@
                     }
                     answerChildren.push(h('div', { class: 'sx-ai-consultant-evidence' }, [
                         h('span', `当前页面：${currentPageText()}`),
-                        h('span', result.mode === 'intelligent'
-                            ? (assistantMode === 'guide' ? '已按目标生成系统路径 · 入口权限已核对' : '目标已识别 · 结论使用严格证据回读')
-                            : '智能理解暂时不可用 · 已切换基础引导'),
+                        h('span', Number(result.precise_query_id || 0) > 0
+                            ? `统一路由已保存并按编号回读 #${Number(result.precise_query_id || 0)}`
+                            : (result.mode === 'intelligent'
+                                ? (assistantMode === 'guide' ? '已按目标生成系统路径 · 入口权限已核对' : '目标已识别 · 结论使用严格证据回读')
+                                : '智能理解暂时不可用 · 已切换基础引导')),
                     ]));
                     conversation.push(h('article', {
                         key: `${turn.id}-answer`,
@@ -3249,7 +3566,7 @@
                             ? '例如：给我这家酒店今天携程经营情况的结论和证据缺口'
                             : (state.value.selected_mode === 'action'
                                 ? '例如：根据今天的可信事实，帮我生成待人工确认的行动草案'
-                                : '例如：我刚接手这家店，携程数据没进来，应该先做什么？'),
+                                : '例如：Hotel 80 8月23日美团曝光多少？'),
                         'data-testid': 'system-guide-input',
                         onInput: (event) => {
                             state.value.query = String(event?.target?.value || '');
@@ -3265,7 +3582,7 @@
                         type: 'submit',
                         disabled: state.value.loading || !String(state.value.query || '').trim(),
                         'data-testid': 'system-guide-submit',
-                        'aria-label': '让智能助手理解并引导',
+                        'aria-label': '提交宿析精准查数',
                     }, [icon(state.value.loading ? 'fa-spinner fa-spin' : 'fa-arrow-up')]),
                     h('p', state.value.selected_mode === 'guide'
                         ? '页面内教用 + 真实状态核验'
@@ -3317,8 +3634,8 @@
                     h('summary', {
                         class: 'sx-ai-consultant-launcher',
                         'data-testid': 'system-guide-floating-launcher',
-                        'aria-label': widgetOpen.value ? '收起宿析智能使用助手' : '打开宿析智能使用助手',
-                        title: widgetOpen.value ? '收起为悬浮按钮' : '打开助手；按住可移动',
+                        'aria-label': widgetOpen.value ? '收起宿析精准查数' : '打开宿析精准查数',
+                        title: widgetOpen.value ? '收起为悬浮按钮' : '打开宿析精准查数；按住可移动',
                         onPointerdown: (event) => startWidgetDrag(event, 'launcher'),
                         onPointermove: moveWidgetDrag,
                         onPointerup: endWidgetDrag,
@@ -3326,7 +3643,7 @@
                         onClick: handleLauncherClick,
                     }, [
                         h('span', { class: 'sx-ai-consultant-avatar', 'aria-hidden': 'true' }, [icon('fa-sparkles')]),
-                        h('span', { class: 'sx-ai-consultant-launcher-label' }, '打开助手'),
+                        h('span', { class: 'sx-ai-consultant-launcher-label' }, '精准查数'),
                         h('span', { class: 'sx-ai-consultant-close' }, [
                             icon('fa-chevron-down'),
                             h('span', '收起'),
@@ -3335,7 +3652,7 @@
                     h('section', {
                         class: 'sx-ai-consultant-panel',
                         role: 'dialog',
-                        'aria-label': '宿析OS智能使用助手',
+                        'aria-label': '宿析精准查数统一入口',
                         'data-testid': 'system-guide-floating-panel',
                     }, [
                         h('header', {
@@ -3349,8 +3666,8 @@
                         }, [
                             h('div', { class: 'sx-ai-consultant-header-avatar', 'aria-hidden': 'true' }, [icon('fa-sparkles')]),
                             h('div', { class: 'sx-ai-consultant-header-copy' }, [
-                                h('div', { class: 'sx-ai-consultant-title' }, '宿析智能使用助手'),
-                                h('p', '说出目标，我带你找到入口并核对是否完成'),
+                                h('div', { class: 'sx-ai-consultant-title' }, '宿析精准查数'),
+                                h('p', '查经营事实 · 解释缺失 · 找功能 · 查术语'),
                             ]),
                             h('span', { class: 'sx-ai-consultant-drag-hint', 'aria-hidden': 'true' }, [
                                 icon('fa-grip-lines'),

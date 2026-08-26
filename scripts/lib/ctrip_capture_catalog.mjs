@@ -215,7 +215,8 @@ const revenueFields = [
   field('order_count', '预订订单数', ['orderQuantity', 'synchronizationOrderQuantity', 'bookOrderNum', 'orderCount', 'orderNum', 'ordquantity', 'bookingCount'], 'OTA预订订单量'),
   field('room_nights', '间夜量', ['quantity', 'bookQuantity', 'synchronizationBookQuantity', 'roomNights', 'nightNum', 'occupiedRooms', 'checkOutQuantity'], 'OTA间夜或在店间夜'),
   field('order_amount', '预订销售额', ['amount', 'bookAmount', 'synchronizationBookAmount', 'orderAmount', 'saleAmount', 'ordamount', 'totalAmount', 'bookingAmount'], 'OTA预订或离店销售额', { unit: 'CNY' }),
-  field('avg_price', '平均卖价', ['averagePrice', 'synchronizationAveragePrice', 'avgPrice', 'adr', 'minPrice'], 'OTA均价或起价', { unit: 'CNY' }),
+  field('avg_price', '平均卖价', ['averagePrice', 'synchronizationAveragePrice', 'avgPrice', 'adr'], 'OTA已成交平均卖价', { unit: 'CNY' }),
+  field('min_price', '实时起价', ['minPrice'], 'OTA当前展示起价；不得替代ADR或已成交平均卖价', { unit: 'CNY' }),
   field('conversion_rate', '成交/下单转化率', ['orderConversionRate', 'closeRate', 'conversionRate', 'convertionRate', 'cvr'], '从流量到订单的转化'),
   field('occupancy_rate', '出租率', ['rentalRate', 'occupancyRate']),
   field('tensity', '紧张度', ['tensityScore', 'tensity', 'Tensity', 'nowTensityDetail']),
@@ -3808,7 +3809,8 @@ function metricPairField(fields, metricText) {
     ['order_amount', /orderamount|saleamount|ordamount|销售额|订单金额|预订金额|营业额|收益/],
     ['order_count', /orderquantity|bookordernum|ordercount|ordquantity|预订订单|订单数|订单量|订单/],
     ['room_nights', /occupiedrooms|roomnight|nightnum|间夜|房晚|在店间夜/],
-    ['avg_price', /minprice|averageprice|avgprice|adr|起价|均价|平均卖价/],
+    ['min_price', /minprice|实时起价|最低价|起价/],
+    ['avg_price', /averageprice|avgprice|adr|均价|平均卖价/],
     ['page_views', /pvdata|pageview|浏览量/],
     ['visitor_count', /^uv$|访客量|访客|访问量|visitor/],
     ['list_exposure', /曝光|listexposure|impression|showcount/],
@@ -4622,9 +4624,6 @@ function applyFactToStandardRow(row, fact) {
     case 'loss_order_count':
     case 'ad_orders':
       row.book_order_num = Math.round(number);
-      if (row.order_submit_num === 0) {
-        row.order_submit_num = Math.round(number);
-      }
       break;
     case 'visitor_count':
     case 'detail_visitor':

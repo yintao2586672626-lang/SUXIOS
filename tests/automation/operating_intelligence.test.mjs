@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
+import { readRouteContractSource } from '../../scripts/lib/route_contract_source.mjs';
 
 const read = (path) => readFileSync(path, 'utf8');
 const migration = read('database/migrations/20260802_extend_operating_intelligence.sql');
@@ -12,10 +13,13 @@ const systemGuidanceController = read('app/controller/SystemGuidance.php');
 const llmClient = read('app/service/LlmClient.php');
 const agent = read('app/controller/Agent.php');
 const agentBuild = read('app/controller/concern/AgentOtaDiagnosisBuildConcern.php');
-const agentPersistence = read('app/controller/concern/AgentOtaDiagnosisPersistenceConcern.php');
+const agentPersistence = [
+  read('app/controller/concern/AgentOtaDiagnosisPersistenceConcern.php'),
+  read('app/controller/concern/AgentOtaDiagnosisReadbackConcern.php'),
+].join('\n');
 const sops = read('app/service/OperatingSopService.php');
 const controller = read('app/controller/OperatingIntelligence.php');
-const routes = read('route/app.php');
+const routes = readRouteContractSource(process.cwd());
 const operatingIntelligenceComponents = read('public/components/system/operating-intelligence-components.js');
 const appMain = read('public/app-main.js');
 const frontend = `${appMain}\n${operatingIntelligenceComponents}`;
@@ -120,10 +124,12 @@ test('professional operating questions remain evidence-gated while the global en
   assert.match(questions, /whereIn\('platform', self::ALL_OTA_REQUIRED_PLATFORMS\)/);
   assert.match(questions, /whereIn\('i\.platform', self::ALL_OTA_REQUIRED_PLATFORMS\)/);
   assert.match(questions, /where\('quality_status', 'verified'\)/);
-  assert.match(operatingIntelligenceComponents, /AI 行动草案 · 待人工确认/);
-  assert.match(operatingIntelligenceComponents, /点击只提交本地待审批意图/);
-  assert.match(operatingIntelligenceComponents, /不会自动批准、采集或写 OTA/);
-  assert.doesNotMatch(operatingIntelligenceComponents, /提交独立评审|AI 独立评审已通过/);
+  assert.match(operatingIntelligenceComponents, /AI 行动草案 · 独立评审/);
+  assert.match(operatingIntelligenceComponents, /ready \? '证据门已通过' : '需补齐后提交'/);
+  assert.match(operatingIntelligenceComponents, /行动草案缺少完整证据、步骤或停止条件，暂不能提交/);
+  assert.match(operatingIntelligenceComponents, /提交后由独立 AI 重新核验事实；通过后只创建本地人工执行任务，不采集或写 OTA/);
+  assert.match(appMain, /新运营行动必须保持待人工审批且不得提前创建任务/);
+  assert.match(appMain, /行动已保存为待人工审批；尚未创建执行任务，也未写 OTA/);
 
   assert.match(globalShell, /<operating-question-consultant v-if="isLoggedIn" :ctx="\$root"><\/operating-question-consultant>/);
   assert.match(routes, /Route::post\('\/system-guidance', 'SystemGuidance\/guide'\)/);
@@ -140,7 +146,7 @@ test('professional operating questions remain evidence-gated while the global en
   assert.match(systemUsageGuideComponent, /system-guide-input/);
   assert.match(systemUsageGuideComponent, /system-guide-submit/);
   assert.match(systemUsageGuideComponent, /system-guide-result/);
-  assert.match(systemUsageGuideComponent, /说出目标，我带你找到入口并核对是否完成/);
+  assert.match(systemUsageGuideComponent, /查经营事实 · 解释缺失 · 找功能 · 查术语/);
   assert.match(frontend, /\/agent\/system-guidance/);
   assert.match(systemUsageGuideComponent, /history: conversationHistory\(\)/);
   assert.match(systemUsageGuideComponent, /current_scope:/);
@@ -156,8 +162,8 @@ test('professional operating questions remain evidence-gated while the global en
   assert.match(systemUsageGuideComponent, /system-guide-drag-handle/);
   assert.match(systemUsageGuideComponent, /startWidgetDrag/);
   assert.match(systemUsageGuideComponent, /clampWidgetPosition/);
-  assert.match(systemUsageGuideComponent, /收起宿析智能使用助手/);
-  assert.match(systemUsageGuideComponent, /打开宿析智能使用助手/);
+  assert.match(systemUsageGuideComponent, /收起宿析精准查数/);
+  assert.match(systemUsageGuideComponent, /打开宿析精准查数/);
   assert.doesNotMatch(systemUsageGuideComponent, /fa-chevron-up/);
   assert.match(systemUsageGuideComponent, /h\('span', '拖动'\)/);
   assert.match(systemUsageGuideComponent, /h\('span', '收起'\)/);
@@ -205,8 +211,8 @@ test('system usage assistant maps common work to a real page and falls back to t
     `${systemUsageGuideHelpers}\nreturn { resolveSystemUsageGuideTopic, resolveSystemUsageGuideJourney, SYSTEM_USAGE_GUIDE_TOPICS, SYSTEM_USAGE_GUIDE_SUCCESS_MARKERS };`,
   )();
 
-  assert.equal(SYSTEM_USAGE_GUIDE_TOPICS.length, 25);
-  assert.equal(Object.keys(SYSTEM_USAGE_GUIDE_SUCCESS_MARKERS).length, 25);
+  assert.equal(SYSTEM_USAGE_GUIDE_TOPICS.length, 26);
+  assert.equal(Object.keys(SYSTEM_USAGE_GUIDE_SUCCESS_MARKERS).length, 26);
   assert.match(SYSTEM_USAGE_GUIDE_SUCCESS_MARKERS['data-health'], /精确回读/);
   assert.equal(resolveSystemUsageGuideTopic('我是第一次使用，今天应该先做什么').key, 'daily-workbench');
   assert.equal(resolveSystemUsageGuideTopic('携程数据缺失去哪里处理').key, 'data-health');
@@ -222,6 +228,7 @@ test('system usage assistant maps common work to a real page and falls back to t
     'ctrip-data', 'revenue-report', 'operation-optimizer',
   ]);
   assert.equal(resolveSystemUsageGuideTopic('去哪里找系统功能说明').key, 'knowledge-search');
+  assert.equal(resolveSystemUsageGuideTopic('Typeless 总词库怎么更新').key, 'typeless-dictionary');
   assert.equal(resolveSystemUsageGuideTopic('怎么查看操作日志').key, 'operation-audit');
   assert.equal(resolveSystemUsageGuideTopic('这是一个没有目录的陌生请求').key, 'task-navigation');
   assert.equal(resolveSystemUsageGuideTopic('这是一个没有目录的陌生请求', 'compass').key, 'task-navigation');

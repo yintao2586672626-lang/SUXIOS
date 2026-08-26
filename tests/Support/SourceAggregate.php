@@ -5,6 +5,9 @@ namespace Tests\Support;
 
 final class SourceAggregate
 {
+    /** @var array<string,array<string,list<string>>> */
+    private static array $registryByRoot = [];
+
     /**
      * Read a concrete source together with its behavior-preserving concern files.
      *
@@ -16,7 +19,7 @@ final class SourceAggregate
         $relativePath = str_replace('\\', '/', ltrim($relativePath, '\\/'));
         $paths = [
             $relativePath,
-            ...self::concernsFor($relativePath),
+            ...self::concernsFor($root, $relativePath),
         ];
 
         $sources = [];
@@ -35,30 +38,39 @@ final class SourceAggregate
     /**
      * @return list<string>
      */
-    private static function concernsFor(string $relativePath): array
+    private static function concernsFor(string $root, string $relativePath): array
     {
-        return match ($relativePath) {
-            'app/controller/Agent.php' => [
-                'app/controller/concern/AgentOtaExecutionIntentConcern.php',
-                'app/controller/concern/AgentCapturedOtaAnalysisConcern.php',
-                'app/controller/concern/AgentOtaDiagnosisBuildConcern.php',
-                'app/controller/concern/AgentOtaDiagnosisPersistenceConcern.php',
-            ],
-            'app/controller/concern/AutoFetchConcern.php' => [
-                'app/controller/concern/AutoFetchProfileSyncConcern.php',
-                'app/controller/concern/CtripAutoFetchExecutionConcern.php',
-                'app/controller/concern/MeituanAutoFetchExecutionConcern.php',
-            ],
-            'app/service/PlatformDataSyncService.php' => [
-                'app/service/concern/PlatformDataSourceExecutionConcern.php',
-                'app/service/concern/PlatformSyncTaskConcern.php',
-                'app/service/concern/PlatformDataPersistenceConcern.php',
-            ],
-            'app/service/OperationManagementService.php' => [
-                'app/service/operation/OperationSnapshotConcern.php',
-                'app/service/operation/OperationAlertConcern.php',
-            ],
-            default => [],
-        };
+        $root = rtrim($root, '\\/');
+        if (!isset(self::$registryByRoot[$root])) {
+            $registryPath = $root . DIRECTORY_SEPARATOR . 'rules'
+                . DIRECTORY_SEPARATOR . 'source-concern-contract-registry.json';
+            if (!is_file($registryPath)) {
+                throw new \RuntimeException('Source concern registry is missing.');
+            }
+            $registry = json_decode((string)file_get_contents($registryPath), true);
+            if (!is_array($registry)
+                || ($registry['schema_version'] ?? null) !== 'suxios.source_concern_registry.v1'
+                || !is_array($registry['aggregates'] ?? null)
+            ) {
+                throw new \RuntimeException('Source concern registry is invalid.');
+            }
+            $aggregates = [];
+            foreach ($registry['aggregates'] as $parent => $members) {
+                if (!is_string($parent) || !is_array($members)) {
+                    throw new \RuntimeException('Source concern registry aggregate is invalid.');
+                }
+                $normalizedMembers = [];
+                foreach ($members as $member) {
+                    if (!is_string($member) || trim($member) === '') {
+                        throw new \RuntimeException("Source concern registry member is invalid: {$parent}");
+                    }
+                    $normalizedMembers[] = str_replace('\\', '/', ltrim($member, '\\/'));
+                }
+                $aggregates[str_replace('\\', '/', ltrim($parent, '\\/'))] = $normalizedMembers;
+            }
+            self::$registryByRoot[$root] = $aggregates;
+        }
+
+        return self::$registryByRoot[$root][$relativePath] ?? [];
     }
 }

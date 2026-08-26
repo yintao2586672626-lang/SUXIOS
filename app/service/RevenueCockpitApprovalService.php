@@ -13,8 +13,8 @@ use RuntimeException;
  */
 final class RevenueCockpitApprovalService
 {
-    public const CONTRACT_VERSION = 'revenue_cockpit_operation_action.v1';
-    public const SOURCE_MODULE = 'revenue_cockpit_action';
+    public const CONTRACT_VERSION = RevenueCockpitActionContract::VERSION;
+    public const SOURCE_MODULE = RevenueCockpitActionContract::SOURCE_MODULE;
 
     /** @var Closure(int,int,string,int,array<int,array<string,mixed>>):array<string,mixed> */
     private ?Closure $creator;
@@ -829,47 +829,13 @@ final class RevenueCockpitApprovalService
     /** @param array<string,mixed> $intent @return array<string,mixed> */
     public function assertIntentCurrent(array $intent): array
     {
-        if ((string)($intent['source_module'] ?? '') !== self::SOURCE_MODULE) {
-            throw new InvalidArgumentException('收益驾驶舱行动来源身份无效');
-        }
-        $tenantId = (int)($intent['tenant_id'] ?? 0);
-        $hotelId = (int)($intent['hotel_id'] ?? 0);
-        $businessDate = substr(trim((string)($intent['date_start'] ?? '')), 0, 10);
-        $platform = strtolower(trim((string)($intent['platform'] ?? '')));
-        if ($tenantId <= 0 || $hotelId <= 0 || $businessDate === '') {
-            throw new InvalidArgumentException('收益驾驶舱行动酒店、租户或营业日无效');
-        }
-        $enabledChannels = $platform === 'all_ota' ? ['ctrip', 'meituan'] : [$platform];
-        $filters = [
-            'hotel_id' => $hotelId,
-            'business_date' => $businessDate,
-            'platform' => $platform,
-            'enabled_channels' => $enabledChannels,
-            'strict_readback_only' => true,
-            'permitted_hotel_ids' => [$hotelId],
-            'is_super_admin' => true,
-        ];
-        $overview = (new RevenueAiOverviewService())->overview($filters);
-        $overview['cockpit_strict_evidence'] = (new RevenueCockpitStrictEvidenceService())->build(
-            $overview,
-            $tenantId,
-            $hotelId,
-            $businessDate,
-            $platform
-        );
-        $context = $this->evidenceContext($overview, $tenantId, $hotelId, $businessDate, $platform);
-        return $this->assertManagedIntentReadback($intent, $overview, $context, true);
+        return (new RevenueCockpitIntentProvenanceService())->assertIntentCurrent($intent);
     }
 
     /** @param array<string,mixed> $intent */
     public function isIntentCurrent(array $intent): bool
     {
-        try {
-            $this->assertIntentCurrent($intent);
-            return true;
-        } catch (\Throwable) {
-            return false;
-        }
+        return (new RevenueCockpitIntentProvenanceService())->isIntentCurrent($intent);
     }
 
     private function metricUnit(string $metric, string $platform): string

@@ -17,6 +17,8 @@ final class SingleHotelOperatingBriefServiceTest extends TestCase
         self::assertFalse($preview['message_sent']);
         self::assertFalse($preview['external_delivery_authorized']);
         self::assertTrue($preview['source_gate_passed']);
+        self::assertTrue($preview['formal_values_rendered']);
+        self::assertFalse($preview['debug_unverified_values_included']);
         self::assertSame('not_set', $preview['operating_target_status']);
         self::assertStringContainsString('经营目标：未设置', $preview['content']);
         self::assertStringContainsString('订单来了PMS', $preview['content']);
@@ -75,8 +77,15 @@ final class SingleHotelOperatingBriefServiceTest extends TestCase
         self::assertSame('blocked', $preview['status']);
         self::assertFalse($preview['source_gate_passed']);
         self::assertFalse($preview['message_sent']);
+        self::assertFalse($preview['formal_values_rendered']);
+        self::assertFalse($preview['debug_unverified_values_included']);
         self::assertStringContainsString('当前阻断', $preview['content']);
         self::assertStringContainsString('订单来了PMS证据未通过完整门禁', $preview['content']);
+        foreach (['¥8,275.67', '¥1,318.00', '1071', '16.25%', '2026-07-27'] as $forbiddenValue) {
+            self::assertStringNotContainsString($forbiddenValue, $preview['content']);
+        }
+        self::assertStringNotContainsString('住宿经营指标', $preview['content']);
+        self::assertStringNotContainsString('流量、转化与成交事实', $preview['content']);
     }
 
     /** @return array<string,mixed> */

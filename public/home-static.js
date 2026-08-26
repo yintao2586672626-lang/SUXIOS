@@ -385,7 +385,7 @@ window.SUXI_HOME_STATIC = (() => {
 
     const homeFactStatusText = (ready, loading, loadError) => {
         if (loading) return '正在读取';
-        if (loadError) return '读取失败';
+        if (loadError) return '受上游阻断';
         return ready ? '已验证' : '未取得';
     };
 
@@ -406,6 +406,107 @@ window.SUXI_HOME_STATIC = (() => {
         partial: '部分可对照',
     }[String(status || '')] || '待核验');
 
+    const createHomeRevenueFactLayerController = ({
+        request,
+        readContext,
+        isContextCurrent,
+        requestPolicyFor = () => ({}),
+        onStateChange = () => {},
+        logError = () => {},
+    } = {}) => {
+        if (typeof request !== 'function'
+            || typeof readContext !== 'function'
+            || typeof isContextCurrent !== 'function'
+        ) {
+            throw new Error('基础经营事实控制器缺少运行时依赖');
+        }
+        let requestSeq = 0;
+        const requests = new Map();
+        let state = {
+            layer: null,
+            loading: false,
+            error: '',
+            hotelId: '',
+            businessDate: '',
+        };
+        const publish = (patch = {}) => {
+            state = { ...state, ...patch };
+            onStateChange({ ...state });
+            return state;
+        };
+        const reset = ({ error = '' } = {}) => {
+            requestSeq += 1;
+            requests.clear();
+            const context = readContext() || {};
+            publish({
+                layer: null,
+                loading: false,
+                error: String(error || ''),
+                hotelId: String(context.hotelId || '').trim(),
+                businessDate: String(context.businessDate || '').trim(),
+            });
+        };
+        const load = (options = {}) => {
+            const context = readContext() || {};
+            if (context.active !== true) return Promise.resolve(null);
+            const hotelId = String(context.hotelId || '').trim();
+            const businessDate = String(context.businessDate || '').trim();
+            if (!hotelId || !/^\d{4}-\d{2}-\d{2}$/.test(businessDate)) {
+                reset({ error: hotelId ? '目标业务日尚未确认' : '' });
+                return Promise.resolve(null);
+            }
+            const force = options.force === true;
+            const scopeKey = `${String(context.sessionKey || '')}|${hotelId}|${businessDate}`;
+            if (!force && requests.has(scopeKey)) return requests.get(scopeKey);
+            if (force) requests.delete(scopeKey);
+            const seq = ++requestSeq;
+            const isCurrent = () => seq === requestSeq && isContextCurrent(context);
+            publish({
+                layer: state.hotelId === hotelId && state.businessDate === businessDate ? state.layer : null,
+                loading: true,
+                error: '',
+                hotelId,
+                businessDate,
+            });
+            let run = null;
+            run = (async () => {
+                try {
+                    const params = new URLSearchParams({ hotel_id: hotelId, business_date: businessDate });
+                    const response = await request(`/dashboard/revenue-facts?${params.toString()}`, {
+                        requestPolicy: requestPolicyFor(context, force),
+                    });
+                    if (!isCurrent()) return state.layer;
+                    const layer = response?.data;
+                    if (response?.code !== 200 || !layer || typeof layer !== 'object') {
+                        throw new Error(response?.message || '基础经营事实读取失败');
+                    }
+                    if (String(layer.hotel?.system_hotel_id || '') !== hotelId
+                        || String(layer.business_date || '') !== businessDate
+                    ) {
+                        throw new Error('基础经营事实回读范围不一致');
+                    }
+                    publish({ layer, error: '' });
+                    return layer;
+                } catch (error) {
+                    if (!isCurrent()) return state.layer;
+                    publish({ layer: null, error: error?.message || '基础经营事实读取失败' });
+                    logError(error);
+                    return null;
+                } finally {
+                    if (isCurrent()) publish({ loading: false });
+                    if (requests.get(scopeKey) === run) requests.delete(scopeKey);
+                }
+            })();
+            requests.set(scopeKey, run);
+            return run;
+        };
+        return Object.freeze({
+            load,
+            reset,
+            snapshot: () => ({ ...state }),
+        });
+    };
+
     const buildHomeBusinessTimeModel = ({
         temporalData = {},
         hotelName = '',
@@ -414,6 +515,7 @@ window.SUXI_HOME_STATIC = (() => {
         revenueOverviewScope = '',
         revenueFactLayer = null,
         selectedHotelId = '',
+        selectedBusinessDate = '',
         revenueFactLayerLoading = false,
         revenueFactLayerError = '',
         loading = false,
@@ -443,7 +545,7 @@ window.SUXI_HOME_STATIC = (() => {
             : (value) => Number(value).toLocaleString('zh-CN', { maximumFractionDigits: 0 });
         const loadError = String(error || '').trim();
         const targetDate = String(
-            past?.period?.end_date || factLayerDate || ''
+            selectedBusinessDate || past?.period?.end_date || factLayerDate || ''
         ).trim();
         const pastSeries = Array.isArray(past.series) ? past.series : [];
         const yesterdayRow = targetDate
@@ -553,13 +655,15 @@ window.SUXI_HOME_STATIC = (() => {
                 label,
                 value: factLayerLoading
                     ? '读取中'
-                    : (factLayerError ? '读取失败' : homeFactValueText(valueReady ? value : null, format, formatNumber)),
+                    : (factLayerError ? '未读取' : homeFactValueText(valueReady ? value : null, format, formatNumber)),
                 status,
                 statusClass: homeBusinessStatusClass(status),
                 ready: valueReady,
                 detail: valueReady
                     ? detail
-                    : `${targetDate || '目标日待确认'}未取得${label}${reason ? `：${reason}` : ''}；不使用0、旧日期或另一口径补齐。`,
+                    : (factLayerError
+                        ? '基础事实接口未返回可核验结果；具体原因见上方根因，不使用旧数据或 0 补齐。'
+                        : `${targetDate || '目标日待确认'}未取得${label}${reason ? `：${reason}` : ''}；不使用0、旧日期或另一口径补齐。`),
             };
         };
         const wholeHotelFacts = [
@@ -714,7 +818,7 @@ window.SUXI_HOME_STATIC = (() => {
             const platformStatus = factLayerLoading
                 ? '正在读取'
                 : (factLayerError
-                    ? '读取失败'
+                    ? '受上游阻断'
                     : (
                         String(source.data_status || '') === 'readback_verified'
                             ? (
@@ -910,6 +1014,60 @@ window.SUXI_HOME_STATIC = (() => {
             yesterdayStatus = '未取得';
             yesterdaySummary = `${targetDate || '目标日'}未取得同日PMS与OTA严格事实；当前回读日 ${factLayerDate} 不用于替代或计入完成度。`;
         }
+        if (factLayerError && !anyStrictFactReady) {
+            yesterdayStatus = '读取失败';
+            yesterdaySummary = `基础经营事实读取失败：${factLayerError}。各指标暂不重复报错，恢复后按同酒店、同日期重新读取。`;
+        }
+
+        const blockingIssues = [];
+        const reviewGaps = Array.isArray(factLayer.ai_review_gaps) ? factLayer.ai_review_gaps : [];
+        const analysisGaps = Array.isArray(factLayer.analysis_gaps) ? factLayer.analysis_gaps : [];
+        const primaryGap = factLayer.unique_remaining_gap || reviewGaps[0] || analysisGaps[0] || null;
+        const sourceLabels = {
+            dingdandao_pms: 'PMS',
+            ctrip_ota: '携程',
+            meituan_ota: '美团',
+            pricing_guard: '最低保护价',
+            hotel: '酒店',
+        };
+        if (factLayerError) {
+            blockingIssues.push({
+                key: 'fact-layer-request',
+                title: '基础经营事实接口读取失败',
+                detail: factLayerError,
+            });
+        } else if (factLayerHotelMismatch) {
+            blockingIssues.push({
+                key: 'hotel-scope-mismatch',
+                title: '返回事实与当前酒店不一致',
+                detail: '已阻止跨酒店沿用，需重新读取当前酒店。',
+            });
+        } else if (primaryGap && typeof primaryGap === 'object') {
+            const gapSource = String(primaryGap.source || '').trim();
+            const gapCode = String(primaryGap.code || 'fact_gate_incomplete').trim();
+            blockingIssues.push({
+                key: `primary-${gapCode}`,
+                title: gapCode === 'system_hotel_scope_unavailable'
+                    ? '酒店身份范围未验证'
+                    : `${sourceLabels[gapSource] || '经营事实'}门槛未闭合`,
+                detail: String(
+                    primaryGap.display_reason
+                    || primaryGap.next_action
+                    || `${targetDate || '目标业务日'}仍缺少可核验保存与精确回读（${gapCode}）。`
+                ),
+            });
+        } else if (!factLayerLoading && targetDate) {
+            const missingRows = dateSourceRows.filter(
+                row => !['同日已验证', '同日部分已验证'].includes(String(row?.status || ''))
+            );
+            if (missingRows.length) {
+                blockingIssues.push({
+                    key: 'three-source-readback-incomplete',
+                    title: '三源同日保存与回读未闭合',
+                    detail: `${targetDate}仍缺${missingRows.map(row => row.label).join('、')}；缺失事实保持未读取。`,
+                });
+            }
+        }
 
         const presentRowCount = Number.isFinite(Number(present.snapshot_row_count))
             ? Number(present.snapshot_row_count)
@@ -1004,6 +1162,7 @@ window.SUXI_HOME_STATIC = (() => {
             ),
             dateAlignmentStatus: String(dateAlignment.status || 'incomplete'),
             dateAlignmentMessage: String(dateAlignment.message || '尚未取得三源同日证据。'),
+            blockingIssues,
             dualScopeReady,
             requiresHotelSelection: selectedHotelKey === '',
             hotelScopeMismatch: factLayerHotelMismatch,
@@ -1028,6 +1187,10 @@ window.SUXI_HOME_STATIC = (() => {
         };
         return {
             hotelName: hotelName && hotelName !== '全部门店' ? hotelName : '全部可见门店汇总',
+            selectedBusinessDate: targetDate,
+            maxBusinessDate: String(past?.period?.end_date || ''),
+            isHistoricalBusinessDate: !!selectedBusinessDate
+                && String(selectedBusinessDate) !== String(past?.period?.end_date || ''),
             yesterday,
             today,
             future: futureStage,
@@ -1036,7 +1199,10 @@ window.SUXI_HOME_STATIC = (() => {
                 {
                     key: 'yesterday',
                     testid: 'home-yesterday-stage',
-                    label: '昨天事实',
+                    label: selectedBusinessDate
+                        && String(selectedBusinessDate) !== String(past?.period?.end_date || '')
+                        ? '业务日事实'
+                        : '昨天事实',
                     value: yesterday.date,
                     detail: '只读取目标日已定稿事实；旧日期不替代，缺失不显示为 0。',
                     status: yesterday.status,
@@ -1443,7 +1609,7 @@ window.SUXI_HOME_STATIC = (() => {
             selectedHotelId: { type: [String, Number], default: '' },
             refreshing: { type: Boolean, default: false },
         },
-        emits: ['update:selectedHotelId', 'refresh'],
+        emits: ['update:selectedHotelId', 'update:selectedBusinessDate', 'refresh'],
         render() {
             const h = window.Vue?.h;
             const Fragment = window.Vue?.Fragment;
@@ -1574,6 +1740,17 @@ window.SUXI_HOME_STATIC = (() => {
                         value: String(hotel?.id || ''),
                     }, hotel?.name || `门店 ${hotel?.id || ''}`)),
                 ]),
+                h('input', {
+                    type: 'date',
+                    class: 'input-field',
+                    value: String(model.selectedBusinessDate || ''),
+                    max: String(model.maxBusinessDate || ''),
+                    'aria-label': '经营事实业务日期',
+                    onChange: event => this.$emit(
+                        'update:selectedBusinessDate',
+                        String(event?.target?.value || '')
+                    ),
+                }),
                 h('button', {
                     type: 'button',
                     class: 'compass-primary-cta disabled:opacity-60',
@@ -1585,7 +1762,9 @@ window.SUXI_HOME_STATIC = (() => {
                 class: 'flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between',
             }, [
                 h('div', { class: 'min-w-0' }, [
-                    h('p', { class: 'text-xs font-semibold uppercase tracking-wide text-amber-700' }, '昨日经营事实'),
+                    h('p', { class: 'text-xs font-semibold uppercase tracking-wide text-amber-700' }, (
+                        model.isHistoricalBusinessDate ? '历史经营事实' : '昨日经营事实'
+                    )),
                     h('h2', { class: 'mt-1 text-xl font-semibold text-slate-900' }, `${model.hotelName || '门店'} · ${yesterday.date || '目标日待确认'}`),
                     h('p', { class: 'mt-1 text-sm leading-6 text-slate-600' }, yesterday.summary || '等待读取经营事实。'),
                 ]),
@@ -1594,12 +1773,32 @@ window.SUXI_HOME_STATIC = (() => {
                     controls,
                 ]),
             ]) : null;
+            const blockingIssues = Array.isArray(yesterday.blockingIssues)
+                ? yesterday.blockingIssues
+                : [];
+            const blockerSummary = blockingIssues.length ? h('article', {
+                class: 'mt-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3',
+                'data-testid': 'home-yesterday-root-blockers',
+            }, [
+                h('div', { class: 'flex flex-wrap items-center justify-between gap-2' }, [
+                    h('strong', { class: 'text-sm text-amber-950' }, '当前唯一阻塞'),
+                    h('span', { class: 'text-xs text-amber-800' }, '下方指标受其影响，不重复计为独立故障'),
+                ]),
+                h('div', { class: 'mt-2 grid gap-2 md:grid-cols-2 xl:grid-cols-3' }, blockingIssues.map(issue => h('div', {
+                    key: issue?.key,
+                    class: 'rounded-lg border border-amber-100 bg-white/80 px-3 py-2',
+                }, [
+                    h('div', { class: 'text-xs font-semibold text-slate-800' }, issue?.title || '数据根因待处理'),
+                    h('p', { class: 'mt-1 text-xs leading-5 text-slate-600' }, issue?.detail || '等待重新读取。'),
+                ]))),
+            ]) : null;
             const body = yesterday.requiresHotelSelection
                 ? h('div', {
                     class: 'mt-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900',
                     'data-testid': 'home-yesterday-hotel-required',
                 }, '请选择一个具体门店后读取事实。PMS 与 OTA 不允许跨门店汇总后对账。')
                 : h(Fragment, null, [
+                    blockerSummary,
                     h('div', {
                         class: 'mt-4 grid gap-4 lg:grid-cols-2',
                         'data-testid': 'home-yesterday-dual-scope',
@@ -2182,6 +2381,7 @@ window.SUXI_HOME_STATIC = (() => {
     }[readiness?.status] || 'bg-gray-50 text-gray-500 border-gray-200');
 
     return {
+        createHomeRevenueFactLayerController,
         buildHomeClosedLoopStages,
         buildHomeAiTraceRows,
         buildHomeOperatingResultCards,

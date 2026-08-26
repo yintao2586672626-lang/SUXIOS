@@ -12,6 +12,7 @@ use app\service\RevenueAiOverviewService;
 use app\service\RevenueCockpitApprovalService;
 use app\service\RevenueCockpitStrictEvidenceService;
 use app\service\RevenueDecisionSnapshotService;
+use app\service\RevenueDecisionViewModelAttestationService;
 use app\service\RevenuePricingRecommendationService;
 use InvalidArgumentException;
 use RuntimeException;
@@ -35,6 +36,7 @@ class RevenueAi extends Base
             $overview = (new RevenueAiOverviewService())->overview($filters);
             if ($cockpitMode) {
                 $overview = $this->withCockpitStrictEvidence($overview, $filters);
+                $overview = $this->withCanonicalCockpitViewModel($overview, $filters);
             }
             return $this->success($overview, 'success');
         } catch (InvalidArgumentException $e) {
@@ -51,6 +53,7 @@ class RevenueAi extends Base
             $visibleModel = is_array($input['visible_model'] ?? null)
                 ? $input['visible_model']
                 : [];
+            $visibleModelDigest = strtolower(trim((string)($input['visible_model_digest'] ?? '')));
             $filters = $this->filters();
             $hotelId = (int)($filters['hotel_id'] ?? 0);
             $this->assertRevenueAiHotelCapability($hotelId, self::REVIEW_PERMISSION);
@@ -63,6 +66,29 @@ class RevenueAi extends Base
                 $context['platform']
             );
             $comparisons = $this->strictCockpitComparisonContexts($context, $filters);
+            $issuer = new RevenueDecisionViewModelAttestationService();
+            $canonicalModel = $issuer->issue(
+                $context['overview'],
+                $comparisons,
+                (new RevenueCockpitApprovalService())->evidenceContext(
+                    $context['overview'],
+                    $context['tenant_id'],
+                    $context['hotel_id'],
+                    $context['business_date'],
+                    $context['platform']
+                ),
+                $context['tenant_id'],
+                $context['hotel_id'],
+                $context['business_date'],
+                $context['platform']
+            );
+            $canonicalDigest = $issuer->issuedDigest($canonicalModel);
+            if (preg_match('/^[a-f0-9]{64}$/D', $visibleModelDigest) !== 1
+                || !hash_equals($canonicalDigest, $visibleModelDigest)
+                || !hash_equals($canonicalDigest, $issuer->issuedDigest($visibleModel))
+            ) {
+                throw new InvalidArgumentException('revenue_cockpit_canonical_view_model_digest_mismatch');
+            }
             $snapshot = (new RevenueDecisionSnapshotService())->saveFromOverview(
                 $context['overview'],
                 $context['tenant_id'],
@@ -70,7 +96,7 @@ class RevenueAi extends Base
                 $context['business_date'],
                 $context['platform'],
                 (int)($this->currentUser->id ?? 0),
-                $visibleModel,
+                $canonicalModel,
                 $comparisons
             );
             return $this->success(
@@ -288,12 +314,15 @@ class RevenueAi extends Base
                 ? 'all_ota'
                 : (string)($enabled[0] ?? '');
         }
+        $closure = (new DualOtaFieldClosureService())->build($hotelId, $businessDate);
+        $overview['dual_ota_field_closure'] = $closure;
         $overview['cockpit_strict_evidence'] = (new RevenueCockpitStrictEvidenceService())->build(
             $overview,
             $tenantId,
             $hotelId,
             $businessDate,
-            $platform
+            $platform,
+            $closure
         );
         $overview['dual_ota_field_closure'] = (new DualOtaFieldClosureService())->build(
             $hotelId,
@@ -357,7 +386,12 @@ class RevenueAi extends Base
         if (!in_array($platform, ['ctrip', 'meituan', 'all_ota'], true)) {
             throw new InvalidArgumentException('revenue_decision_snapshot_platform_invalid');
         }
-        unset($filters['visible_model'], $filters['opportunity_key'], $filters['snapshot_id']);
+        unset(
+            $filters['visible_model'],
+            $filters['visible_model_digest'],
+            $filters['opportunity_key'],
+            $filters['snapshot_id']
+        );
         $filters['strict_readback_only'] = true;
         $overview = (new RevenueAiOverviewService())->overview($filters);
         $overview = $this->withCockpitStrictEvidence($overview, $filters);
@@ -472,6 +506,56 @@ class RevenueAi extends Base
             'latest_verified_date' => $latestVerifiedDate,
             'scope_notice' => $scopeNotice,
         ];
+    }
+
+    /**
+     * @param array<string,mixed> $overview
+     * @param array<string,mixed> $filters
+     * @return array<string,mixed>
+     */
+    private function withCanonicalCockpitViewModel(array $overview, array $filters): array
+    {
+        $tenantId = (int)($overview['cockpit_strict_evidence']['tenant_id'] ?? 0);
+        $hotelId = (int)($overview['hotel_id'] ?? $filters['hotel_id'] ?? 0);
+        $businessDate = trim((string)($overview['business_date'] ?? $filters['business_date'] ?? ''));
+        $platform = strtolower(trim((string)($filters['platform'] ?? '')));
+        if ($tenantId <= 0 || $hotelId <= 0 || $businessDate === '') {
+            throw new RuntimeException('revenue_cockpit_canonical_model_scope_invalid', 422);
+        }
+        if (!in_array($platform, ['ctrip', 'meituan', 'all_ota'], true)) {
+            throw new InvalidArgumentException('revenue_cockpit_canonical_model_platform_invalid');
+        }
+
+        $context = [
+            'overview' => $overview,
+            'tenant_id' => $tenantId,
+            'hotel_id' => $hotelId,
+            'business_date' => $businessDate,
+            'platform' => $platform,
+        ];
+        $comparisons = $this->strictCockpitComparisonContexts($context, $filters);
+        $evidenceContext = (new RevenueCockpitApprovalService())->evidenceContext(
+            $overview,
+            $tenantId,
+            $hotelId,
+            $businessDate,
+            $platform
+        );
+        $issuer = new RevenueDecisionViewModelAttestationService();
+        $model = $issuer->issue(
+            $overview,
+            $comparisons,
+            $evidenceContext,
+            $tenantId,
+            $hotelId,
+            $businessDate,
+            $platform
+        );
+        $overview['canonical_view_model'] = $model;
+        $overview['canonical_view_model_digest'] = $issuer->issuedDigest($model);
+        $overview['canonical_view_model_contract_version'] = (string)$model['contractVersion'];
+        $overview['canonical_view_model_status'] = 'server_issued';
+        return $overview;
     }
 
     /** @param array<string,mixed> $overview */
@@ -678,8 +762,19 @@ class RevenueAi extends Base
         }
 
         $data = $this->requestData();
-        unset($data['p0_downstream_gate']);
-        foreach (['business_date', 'hotel_id', 'platform', 'channel', 'enabled_channels', 'portfolio'] as $key) {
+        unset(
+            $data['p0_downstream_gate'],
+            $data['as_of_date'],
+            $data['as_of_date_contract_version']
+        );
+        foreach ([
+            'business_date',
+            'hotel_id',
+            'platform',
+            'channel',
+            'enabled_channels',
+            'portfolio',
+        ] as $key) {
             $value = $this->request->param($key, null);
             if ($value !== null && $value !== '') {
                 $data[$key] = $value;

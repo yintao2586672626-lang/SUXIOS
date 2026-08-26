@@ -131,7 +131,7 @@
                                         <tr v-for="item in operationExecutionFilteredItems" :key="item.id" :data-operation-execution-intent-id="item.id" :class="operationExecutionRowClass(item)">
                                             <td class="px-4 py-3">
                                                 <div class="font-medium text-gray-900">{{ operationExecutionSourceText(item) }}</div>
-                                                <div class="text-xs text-gray-400">任务 #{{ item.id }} · {{ item.recommendation?.platform || '-' }} · {{ item.recommendation?.date_start || '-' }}</div>
+                                                <div class="text-xs text-gray-400">行动 #{{ item.id }} · 任务 #{{ item.execution?.task_id || '尚未创建' }} · {{ item.recommendation?.platform || '-' }} · {{ item.recommendation?.date_start || '-' }}</div>
                                                 <span v-if="item.action_management" :class="operationExecutionStatusClass(item.action_management.lifecycle?.status)" class="mt-1 inline-flex rounded-full px-2 py-0.5 text-[11px] font-medium">{{ operationExecutionStatusLabel(item.action_management.lifecycle?.status) }}</span>
                                             </td>
                                             <td class="px-4 py-3">

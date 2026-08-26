@@ -513,8 +513,10 @@ test('Ctrip sales table follows the flat one-row scan pattern used by the traffi
   assert.doesNotMatch(salesDownload, /label: '(?:平均房价|携程间夜|携程离店间夜量|携程系预订订单数|同程订单数|总间夜|全渠道间夜推算)'/);
   assert.doesNotMatch(salesDownload, /label: '(?:携程点评分|去哪儿点评分)'/);
   assert.match(canvasDownload, /cards: visibleSnapshot\.cards/);
-  assert.match(canvasDownload, /table: ctripDownloadRows\(\)/);
+  assert.match(canvasDownload, /table: visibleSnapshot\.table/);
   assert.match(canvasDownload, /sourceNotice: visibleSnapshot\.sourceNotice/);
+  assert.match(appMain, /captureCtripBusinessDownloadSnapshot\(\{/);
+  assert.doesNotMatch(appMain, /table: ctripDownloadRows\(\)/);
   assert.doesNotMatch(canvasDownload, /cards: ctripBusinessSummaryCards\.value/);
 
   assert.match(appMain, /channelOrderBreakdownMeta/);

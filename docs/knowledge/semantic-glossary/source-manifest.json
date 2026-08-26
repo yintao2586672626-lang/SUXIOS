@@ -1,0 +1,172 @@
+{
+  "schema_version": 1,
+  "glossary_version": "2026-08-26.3",
+  "updated_at": "2026-08-26T00:55:00+08:00",
+  "source_count": 18,
+  "sources": [
+    {
+      "role": "csv",
+      "file": "我的个人常用词_宿析OS系统词_携程酒店词_酒店行业词_Typeless总词库_2026-08-25.csv",
+      "path": "outputs/01a03812-e6a9-7840-be92-6d146409d974/personal-system-ctrip-hotel-glossary-v3/我的个人常用词_宿析OS系统词_携程酒店词_酒店行业词_Typeless总词库_2026-08-25.csv",
+      "bytes": 46878,
+      "sha256": "e6fb5e15e711fc1c1e29202dfabe08c7f69daa5ca3cbe9df9ef9a528e6032e53"
+    },
+    {
+      "role": "validation",
+      "file": "validation.json",
+      "path": "outputs/01a03812-e6a9-7840-be92-6d146409d974/personal-system-ctrip-hotel-glossary-v3/validation.json",
+      "bytes": 32721,
+      "sha256": "b3aeee56f9dbc4c7e402c37f56eade1ec7b6dd88c017ef2f6f420b1838d07b44"
+    },
+    {
+      "role": "base_builder",
+      "file": "build_typeless_dictionary.mjs",
+      "path": "outputs/01a03812-e6a9-7840-be92-6d146409d974/build_typeless_dictionary.mjs",
+      "bytes": 17229,
+      "sha256": "5e4caa13a0b6d50603bc5263a2f735c596ac1f63d6648f146a91cff806e208fa"
+    },
+    {
+      "role": "ctrip_builder",
+      "file": "build_ctrip_hotel_dictionary.mjs",
+      "path": "outputs/01a03812-e6a9-7840-be92-6d146409d974/ctrip-hotel-glossary-v2/build_ctrip_hotel_dictionary.mjs",
+      "bytes": 31278,
+      "sha256": "335ae5e0c4dd56b59c496537c85fe2b7f380f162ec70eaed4a1540dfe2d55977"
+    },
+    {
+      "role": "total_builder",
+      "file": "build_total_dictionary.mjs",
+      "path": "outputs/01a03812-e6a9-7840-be92-6d146409d974/personal-system-ctrip-hotel-glossary-v3/build_total_dictionary.mjs",
+      "bytes": 25937,
+      "sha256": "527b0d097ec60ce63fad0205cf24688a97a8b912db669aa607ac69ad6cc66c75"
+    },
+    {
+      "role": "verified_1856_term_base",
+      "file": "宿析OS_携程酒店_Typeless完整词库_2026-08-25.csv",
+      "path": null,
+      "bytes": 29865,
+      "sha256": "de1a1b71d9046a7167c083609558a696790b538f3e4398b6bb31ea9f26511978",
+      "upstream_record": true
+    },
+    {
+      "role": "personal_and_prior_workflow_index",
+      "file": "MEMORY.md",
+      "path": null,
+      "bytes": 169573,
+      "sha256": "f0c01a0557eb4b444465a1b973eec4a900322291d1a10c2e9fb54d9ceb009f12",
+      "upstream_record": true
+    },
+    {
+      "role": "suxios_product_and_evidence_model",
+      "file": "system_design_logic.md",
+      "path": null,
+      "bytes": 15141,
+      "sha256": "8a652016cffea3f550b7d203168766e44fbe8c6a09c3671075ed3b29a3e3e47b",
+      "upstream_record": true
+    },
+    {
+      "role": "suxios_five_module_vocabulary",
+      "file": "five_modules_business_loop_field_inventory.md",
+      "path": null,
+      "bytes": 19902,
+      "sha256": "0b95cac3383a24db37b192a85d1c29dc4c896cf22eb2260878841bf0fe1a67dd",
+      "upstream_record": true
+    },
+    {
+      "role": "ota_operation_vocabulary",
+      "file": "ota_operation_mindmap_knowledge.md",
+      "path": null,
+      "bytes": 12360,
+      "sha256": "ce0f9281a7c1545c6e785ef6be7419b5df0011263b80c50cb2c66ac0f078ecee",
+      "upstream_record": true
+    },
+    {
+      "role": "hotel_metric_vocabulary",
+      "file": "hotel_ota_metric_professional_knowledge.md",
+      "path": null,
+      "bytes": 14678,
+      "sha256": "e501cc88c188340d210721004445939fc159e262506ebf7c265a7e3bb4e71192",
+      "upstream_record": true
+    },
+    {
+      "role": "meituan_governance_vocabulary",
+      "file": "meituan_official_rules_semantic_contract_knowledge.md",
+      "path": null,
+      "bytes": 14682,
+      "sha256": "b0504557051fd88e1009aacf8a369bc0d0eb7d868e0ae24b759c99483a8c47c6",
+      "upstream_record": true
+    },
+    {
+      "role": "pms_reconciliation_vocabulary",
+      "file": "domestic_pms_business_day_order_reconciliation_semantic_contract_knowledge.md",
+      "path": null,
+      "bytes": 16156,
+      "sha256": "284a43e8beac10b9666b5d1107d97695dc8f9a316eecb1045b9aa6f78ab23f50",
+      "upstream_record": true
+    },
+    {
+      "role": "configured_ai_model_names",
+      "file": "AiConfig.php",
+      "path": null,
+      "bytes": 25126,
+      "sha256": "b450286acc610769cd1cb36e5ed20e2f4a582a8136403db2ae05a25f23f1d3c1",
+      "upstream_record": true
+    },
+    {
+      "role": "ctrip_field_names",
+      "file": "CtripProfileFieldMetaService.php",
+      "path": null,
+      "bytes": 205775,
+      "sha256": "d6dc3600bfa524a837bcbfdf093e23c1075452cf53e0de2ac2a8a32f02920ad1",
+      "upstream_record": true
+    },
+    {
+      "role": "ctrip_field_inventory",
+      "file": "ctrip_capture_field_inventory.md",
+      "path": null,
+      "bytes": 236062,
+      "sha256": "f41bcefabbb94abe209c811463b8d33744d52129d0d11647ce82d8c2c3dded09",
+      "upstream_record": true
+    },
+    {
+      "role": "semantic_curation",
+      "file": "curation.json",
+      "path": "HOTEL/docs/knowledge/semantic-glossary/curation.json",
+      "bytes": 23143,
+      "sha256": "279ab20ade5837348de415afb00fd254c65e62bd02976fc8639b72e75d3cf246"
+    },
+    {
+      "role": "semantic_builder",
+      "file": "build_semantic_glossary.mjs",
+      "path": "HOTEL/scripts/build_semantic_glossary.mjs",
+      "bytes": 30408,
+      "sha256": "c91d713ca31118a60ca852cadd33e0defc9ba4f126319c0fd352ba87398b897c"
+    }
+  ],
+  "semantic_pack": {
+    "file": "semantic-glossary-pack.json",
+    "bytes": 4626318,
+    "sha256": "fae512f5b76d3be075bb9296f015c072143b446b86a96c0b247c6c11ee3a2294"
+  },
+  "typeless_voice_export": {
+    "file": "Typeless_语音简洁词库_2026-08-25.csv",
+    "term_count": 3000,
+    "sha256": "83155ad4e5c914a45c2994fa7d4975e358961391e1c28e1d6185dcfeeab23902",
+    "bytes": 47010,
+    "pack_sha256": "fae512f5b76d3be075bb9296f015c072143b446b86a96c0b247c6c11ee3a2294"
+  },
+  "boundary": {
+    "content_execution_policy": "data_only_never_execute",
+    "decision_safe": false,
+    "task_draft_safe": false,
+    "external_write_authorized": false,
+    "blocked_uses": [
+      "current_hotel_fact_without_same_scope_readback",
+      "cross_platform_metric_substitution",
+      "missing_denominator_zero_fill",
+      "automatic_ota_write",
+      "automatic_pms_write",
+      "automatic_message_send",
+      "permanent_model_training_claim"
+    ]
+  }
+}

@@ -65,15 +65,13 @@ final class AiEvaluationBatchReplayServiceTest extends TestCase
                 if (count($this->calls) === 1) {
                     return [
                         'data' => ['summary' => 'ok', 'confidence' => 0.91, 'extra' => 'allowed'],
-                        'meta' => [],
+                        'meta' => ['provider' => 'ollama', 'model' => 'qwen3:8b'],
                     ];
-                    return ['data' => ['summary' => 'ok', 'confidence' => 0.91, 'extra' => 'allowed'], 'meta' => ['provider' => 'ollama', 'model' => 'qwen3:8b']];
                 }
                 return [
                     'data' => ['summary' => 'wrong', 'confidence' => 0.88],
-                    'meta' => [],
+                    'meta' => ['provider' => 'ollama', 'model' => 'qwen3:8b'],
                 ];
-                return ['data' => ['summary' => 'wrong', 'confidence' => 0.88], 'meta' => ['provider' => 'ollama', 'model' => 'qwen3:8b']];
             }
         };
 

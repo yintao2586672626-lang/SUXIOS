@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import vm from 'node:vm';
+import { readRouteContractSource } from './lib/route_contract_source.mjs';
 
 const root = process.cwd();
 const sourceCache = new Map();
@@ -12,6 +13,8 @@ const readRaw = (file) => {
 };
 const read = (file) => file === 'public/index.html'
   ? `${readRaw(file)}\n${readRaw('resources/frontend/app-template.html')}\n${readRaw('public/app-main.js')}`
+  : file === 'route/app.php'
+    ? readRouteContractSource(root)
   : readRaw(file);
 const failures = [];
 

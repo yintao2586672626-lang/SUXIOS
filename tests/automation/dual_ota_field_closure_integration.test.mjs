@@ -10,6 +10,10 @@ const panel = read('public/components/system/dual-ota-field-closure-panel.js');
 const appMain = read('public/app-main.js');
 const dataHealth = read('resources/frontend/templates/fragments/35-page-online-data.html');
 const revenueCockpit = read('resources/frontend/templates/fragments/27-page-agent-center.html');
+const revenueController = read('app/controller/RevenueAi.php');
+const strictEvidence = read('app/service/RevenueCockpitStrictEvidenceService.php');
+const approvalService = read('app/service/RevenueCockpitApprovalService.php');
+const intentProvenance = read('app/service/RevenueCockpitIntentProvenanceService.php');
 
 test('collection reliability returns the same exact-date closure on cached, light and full reads', () => {
   assert.match(concern, /use app\\service\\DualOtaFieldClosureService;/);
@@ -52,6 +56,22 @@ test('data health and revenue cockpit mount one shared scoped field-table contra
   assert.match(panel, /\/online-data\/collection-reliability\?/);
   assert.match(panel, /data-closure-identity/);
   assert.match(panel, /data-business-date/);
+  assert.match(panel, /dual-ota-field-download-/);
+  assert.match(panel, /buildClosureDownloadPayload/);
+});
+
+test('revenue and operation gates consume the canonical closure instead of rereading a second metric map', () => {
+  assert.match(revenueController, /\$closure = \(new DualOtaFieldClosureService\(\)\)->build\(\$hotelId, \$businessDate\)/);
+  assert.match(revenueController, /\$overview\['dual_ota_field_closure'\] = \$closure/);
+  assert.match(revenueController, /RevenueCockpitStrictEvidenceService\(\)\)->build\([\s\S]*\$platform,[\s\S]*\$closure/);
+  assert.match(approvalService, /RevenueCockpitIntentProvenanceService\(\)\)->assertIntentCurrent\(\$intent\)/);
+  assert.match(intentProvenance, /\$closure = \(new DualOtaFieldClosureService\(\)\)->build\(\$hotelId, \$businessDate\)/);
+  assert.match(intentProvenance, /\$overview\['dual_ota_field_closure'\] = \$closure/);
+  assert.match(intentProvenance, /RevenueCockpitStrictEvidenceService\(\)\)->build\([\s\S]*\$platform,[\s\S]*\$closure/);
+  assert.match(strictEvidence, /field_source' => 'dual_ota_field_closure'/);
+  assert.match(strictEvidence, /consumer_metric_keys/);
+  assert.doesNotMatch(strictEvidence, /readCurrentVerifiedFactsForRefs/);
+  assert.doesNotMatch(strictEvidence, /\$factLayer\['sources'\]/);
 });
 
 test('legacy health cards cannot contradict the strict field table with unverified numbers', () => {

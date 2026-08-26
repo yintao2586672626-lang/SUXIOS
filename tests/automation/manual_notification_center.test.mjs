@@ -5,7 +5,12 @@ import test from 'node:test';
 import vm from 'node:vm';
 
 const systemStaticSource = fs.readFileSync('public/system-static.js', 'utf8');
-const appMainSource = fs.readFileSync('public/app-main.js', 'utf8');
+const appMainEntrySource = fs.readFileSync('public/app-main.js', 'utf8');
+const manualNotificationOrchestrationSource = fs.readFileSync(
+  'public/manual-notification-orchestration-static.js',
+  'utf8',
+);
+const appMainSource = `${appMainEntrySource}\n${manualNotificationOrchestrationSource}`;
 const serviceSource = fs.readFileSync('app/service/ManualNotificationService.php', 'utf8');
 const scheduleRuleSource = fs.readFileSync(
   'app/service/ManualNotificationScheduleRuleService.php',
@@ -659,5 +664,5 @@ test('operating daily keeps fixed-time default and exposes hotel-80 strict three
     schedulePanelSource,
     /strictThreeSourceIntervalAvailable[\s\S]*每 30 分钟（三源严格计划）/,
   );
-  assert.match(schedulePanelSource, /严格计划配置待修正/);
+  assert.match(schedulePanelSource, /三源计划配置待修正/);
 });

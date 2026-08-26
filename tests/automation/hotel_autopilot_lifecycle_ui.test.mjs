@@ -78,7 +78,7 @@ test('desktop and mobile hotel cards show lifecycle status, progress and a truth
 });
 
 test('final backend lifecycle states have explicit non-fallback labels', () => {
-  assert.match(appMain, /awaiting_login: '等待平台授权登录'/);
+  assert.match(appMain, /awaiting_login: '等待原设备登录'/);
   assert.match(appMain, /scheduled_waiting_first_collection: '已排期，等待首次可信采集'/);
   assert.match(appMain, /awaiting_analysis: '等待自动分析'/);
   assert.match(appMain, /awaiting_profile: '等待画像基础资料'/);
@@ -98,8 +98,8 @@ test('lifecycle next actions only route to existing human-facing surfaces', () =
   assert.match(action, /openHotelModal\(hotel, \{ onboarding: true, startStep: 'authorization' \}\)/);
   assert.match(action, /next_action_code === 'open_hotel_binding'/);
   assert.match(action, /openHotelModal\(hotel, \{ onboarding: true, startStep: 'verification' \}\)/);
-  assert.match(action, /open_hotel_binding', 'open_hotel_login/);
-  assert.match(action, /openHotelModal\(hotel, \{ expandOta: true \}\)/);
+  assert.doesNotMatch(action, /\['open_hotel_binding', 'open_hotel_login'\]/);
+  assert.doesNotMatch(action, /expandOta/);
   assert.match(action, /next_action_code === 'provide_business_profile'[\s\S]*?openHotelModal\(hotel\)/);
   assert.match(action, /automationMonitorContractHotelId\.value = hotelId/);
   assert.match(action, /currentPage\.value = 'automation-monitor'/);

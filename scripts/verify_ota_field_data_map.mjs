@@ -228,7 +228,7 @@ function validateMeituanMap(platformServiceSource, errors) {
   const fieldFactSlice = phpArraySlice(
     platformServiceSource,
     'private const NORMALIZED_FIELD_FACT_DEFINITIONS = [',
-    'public function __construct(',
+    'public static function collectionResources(',
   );
 
   const resourceBindings = {
@@ -313,10 +313,13 @@ function validateNoSecrets(errors) {
 export function verifyOtaFieldDataMap({ projectRoot = DEFAULT_PROJECT_ROOT } = {}) {
   const rootDir = resolve(projectRoot);
   const errors = [];
-  const platformServiceSource = readRequired(rootDir, 'app/service/PlatformDataSyncService.php');
+  const platformDefinitionSource = readRequired(
+    rootDir,
+    'app/service/PlatformDataCollectionDefinitionRegistry.php',
+  );
 
   validateCtripMap(errors);
-  const meituanEvidence = validateMeituanMap(platformServiceSource, errors);
+  const meituanEvidence = validateMeituanMap(platformDefinitionSource, errors);
   validateConsumerContracts(rootDir, errors);
   validateStorageContract(rootDir, errors);
   validateNoSecrets(errors);

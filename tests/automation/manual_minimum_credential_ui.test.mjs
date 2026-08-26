@@ -983,7 +983,7 @@ test('Meituan ranking reset state is owned by the static helper', () => {
       ],
       limit: 1,
     }))),
-    [{ poiId: 'fallback-1', hotelName: 'Fallback A', positionText: '第一', rankTrendText: '', platformTagText: '', roomNights: 0, sales: 0, gapToNextText: '' }]
+    [{ poiId: 'fallback-1', hotelName: 'Fallback A', positionText: '第一', rankTrendText: '', platformTagText: '', roomNights: null, sales: null, gapToNextText: '' }]
   );
   const rankRows = [
     { hotelName: 'Self', isSelf: true, roomNights: 3, sales: 200 },
@@ -2904,7 +2904,7 @@ test('Meituan config saves cookie-only and no longer treats room counts as crede
   );
   const generateMeituanBookmarklet = constSlice(
     'const generateMeituanBookmarklet = async () => {',
-    '\n\n            const fetchCustomData'
+    '\n\n            const cookieRowKey'
   );
 
   assert.match(html, /const meituanConfigSaveHelperKeys = Object\.freeze\(\[/);
@@ -4680,7 +4680,7 @@ test('Online data health tab returns the initial light refresh and schedules lat
   assert.match(goAiDailyReportDataGap, /currentPage\.value = 'online-data';\s*onlineDataTab\.value = 'data-health';\s*dataHealthSecondaryPanelsReady\.value = false;\s*scheduleDataHealthSecondaryPanelsReady\(\);\s*dataHealthDetailPanelsReady\.value = false;\s*scheduleDataHealthDetailPanelsReady\(\);\s*dataHealthEmployeePanelsReady\.value = false;\s*scheduleDataHealthEmployeePanelsReady\(\);\s*scheduleDataHealthPanelRefresh\('light'\);/);
   assert.doesNotMatch(goAiDailyReportDataGap, /await loadDataHealthPanel\('light'\);/);
   assert.match(html, /const MANUAL_ONLINE_DATA_CONFIG_PREWARM_DELAY_MS = 60;/);
-  assert.match(html, /const MANUAL_ONLINE_FETCH_CONFIG_TABS = new Set\(\['ctrip', 'meituan', 'custom'\]\);/);
+  assert.match(html, /const MANUAL_ONLINE_FETCH_CONFIG_TABS = new Set\(\['ctrip', 'meituan'\]\);/);
   assert.match(html, /const shouldPrewarmManualOnlineFetchConfig = \(newTab\) => MANUAL_ONLINE_FETCH_CONFIG_TABS\.has\(String\(newTab \|\| ''\)\);/);
   assert.match(html, /const scheduleManualOnlineFetchConfigPrewarm = \(newTab, delayMs = MANUAL_ONLINE_DATA_CONFIG_PREWARM_DELAY_MS\) => \{[\s\S]*if \(!isVisibleOnlineDataTab\(newTab\)\) return;[\s\S]*ensureManualOnlineFetchConfigReady\(\);/);
   assert.match(scheduleOnlineDataTabLoad, /const shouldPrewarmManualConfig = shouldPrewarmManualOnlineFetchConfig\(newTab\);/);

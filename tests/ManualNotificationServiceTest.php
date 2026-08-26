@@ -216,7 +216,7 @@ final class ManualNotificationServiceTest extends TestCase
         self::assertTrue($preview['dynamic_report']);
         self::assertFalse($preview['report_gate']['allowed']);
         self::assertSame(
-            'business_message_dingdandao_pms_not_verified',
+            'business_message_forward_provider_unsupported',
             $preview['reason_code']
         );
         self::assertSame('preview_unavailable', $preview['delivery_status']);

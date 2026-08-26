@@ -3,8 +3,6 @@ declare(strict_types=1);
 
 namespace app\service;
 
-use DateTimeImmutable;
-use DateTimeZone;
 use InvalidArgumentException;
 
 /**
@@ -18,6 +16,7 @@ use InvalidArgumentException;
 final class RevenueDecisionViewModelAttestationService
 {
     private const CONTRACT_VERSION = 'revenue_daily_cockpit.v2';
+    private bool $issuing = false;
 
     /** @var list<string> */
     private const SECTION_KEYS = [
@@ -80,6 +79,8 @@ final class RevenueDecisionViewModelAttestationService
         'selectedPlatform',
         'selectedPlatformLabel',
         'businessDate',
+        'asOfDate',
+        'asOfDateContractVersion',
         'previousDate',
         'sameWeekdayDate',
         'dateDistance',
@@ -187,6 +188,69 @@ final class RevenueDecisionViewModelAttestationService
     ];
 
     /**
+     * Build the versioned canonical presentation directly from server facts.
+     * The browser is no longer an independent author of cockpit semantics.
+     *
+     * @param array<string,mixed> $overview
+     * @param array<string,mixed> $comparisons
+     * @param array<string,mixed> $evidenceContext
+     * @return array<string,mixed>
+     */
+    public function issue(
+        array $overview,
+        array $comparisons,
+        array $evidenceContext,
+        int $tenantId,
+        int $hotelId,
+        string $businessDate,
+        string $platform
+    ): array {
+        if ($this->issuing) {
+            $this->invalid('recursive_issuance');
+        }
+        $sections = array_map(
+            static fn(string $key): array => ['key' => $key, 'cards' => []],
+            self::SECTION_KEYS
+        );
+        $model = [
+            'contractVersion' => self::CONTRACT_VERSION,
+            'tenantId' => $tenantId,
+            'hotelId' => $hotelId,
+            'businessDate' => $businessDate,
+            'asOfDate' => (string)($overview['as_of_date'] ?? ''),
+            'asOfDateContractVersion' => (string)($overview['as_of_date_contract_version'] ?? ''),
+            'selectedPlatform' => $platform,
+            'previousDate' => (string)($comparisons['previous_date'] ?? ''),
+            'sameWeekdayDate' => (string)($comparisons['same_weekday_date'] ?? ''),
+            'sections' => $sections,
+            'visibleSections' => $sections,
+            'opportunities' => [],
+        ];
+
+        $this->issuing = true;
+        try {
+            return $this->attest(
+                $model,
+                $overview,
+                $comparisons,
+                $evidenceContext,
+                $tenantId,
+                $hotelId,
+                $businessDate,
+                $platform
+            );
+        } finally {
+            $this->issuing = false;
+        }
+    }
+
+    /** @param array<string,mixed> $model */
+    public function issuedDigest(array $model): string
+    {
+        return hash('sha256', $this->canonicalJson($model));
+    }
+
+    /**
      * @param array<string,mixed> $model
      * @param array<string,mixed> $overview
      * @param array<string,mixed> $comparisons
@@ -203,6 +267,13 @@ final class RevenueDecisionViewModelAttestationService
         string $businessDate,
         string $platform
     ): array {
+        $asOfDate = trim((string)($overview['as_of_date'] ?? ''));
+        $asOfDateContractVersion = trim((string)($overview['as_of_date_contract_version'] ?? ''));
+        if (!$this->isIsoDate($asOfDate)
+            || !RevenueOverviewDateContract::isCurrentAsOfDate($asOfDate, $asOfDateContractVersion)
+        ) {
+            $this->invalid('as_of_date_currentness');
+        }
         $previousDate = (string)($comparisons['previous_date'] ?? '');
         $sameWeekdayDate = (string)($comparisons['same_weekday_date'] ?? '');
         $previousOverview = is_array($comparisons['previous_overview'] ?? null)
@@ -219,7 +290,9 @@ final class RevenueDecisionViewModelAttestationService
             $businessDate,
             $platform,
             $previousDate,
-            $sameWeekdayDate
+            $sameWeekdayDate,
+            $asOfDate,
+            $asOfDateContractVersion
         );
         $this->assertNoForbiddenClaims($model);
         $this->assertOnlyKeys($model, self::TOP_LEVEL_KEYS, 'top');
@@ -316,7 +389,7 @@ final class RevenueDecisionViewModelAttestationService
             $opportunities,
             'opportunity'
         );
-        if ($this->canonicalJson((array)($model['opportunities'] ?? []))
+        if (!$this->issuing && $this->canonicalJson((array)($model['opportunities'] ?? []))
             !== $this->canonicalJson($actualOpportunities)
         ) {
             $this->invalid('opportunity_projection_drift');
@@ -333,7 +406,7 @@ final class RevenueDecisionViewModelAttestationService
         $gaps = $this->gapCards($factCardsByKey, $rawGaps, $businessDate);
         $actualGaps = $this->assertCardList($sectionMap['data_gaps'], $gaps, 'gap');
 
-        $actions = $this->actionCards($rawGaps, $businessDate);
+        $actions = $this->actionCards($rawGaps, $businessDate, $asOfDate);
         $actualActions = $this->assertCardList($sectionMap['suggested_actions'], $actions, 'action');
 
         $sourceRecords = $this->sourceRecords($overview, $current, $businessDate, $platform);
@@ -383,9 +456,19 @@ final class RevenueDecisionViewModelAttestationService
             'anomaly_chains'
         );
 
+        $cardsBySection = [
+            'data_completeness' => $actualSources,
+            'core_metrics' => $actualCore,
+            'traffic_conversion' => $actualTraffic,
+            'comparable_change' => $actualComparisons,
+            'anomaly_reasons' => $actualAnomalies,
+            'opportunity_ranking' => $actualOpportunities,
+            'data_gaps' => $actualGaps,
+            'suggested_actions' => $actualActions,
+        ];
         $missingItems = [];
-        foreach ($sections as $section) {
-            foreach ($section['cards'] as $card) {
+        foreach ($cardsBySection as $sectionKey => $cards) {
+            foreach ($cards as $card) {
                 if (in_array((string)($card['status'] ?? ''), [
                     'readback_verified', 'derived_verified', 'verified', 'ready', 'ok', 'no_signal',
                 ], true)) {
@@ -394,7 +477,7 @@ final class RevenueDecisionViewModelAttestationService
                 $reasonCode = (string)($card['reasonCode'] ?? '');
                 $sourceKey = (string)($card['sourceKey'] ?? '');
                 $missingItems[] = [
-                    'sectionKey' => (string)$section['key'],
+                    'sectionKey' => $sectionKey,
                     'cardKey' => (string)($card['key'] ?? ''),
                     'label' => (string)($card['label'] ?? ''),
                     'status' => (string)($card['status'] ?? ''),
@@ -421,15 +504,14 @@ final class RevenueDecisionViewModelAttestationService
         $status = $completeSourceCount === count($current['sources']) && $missingFactCount === 0
             ? 'ready'
             : 'partial';
-        $today = (new DateTimeImmutable('now', new DateTimeZone('Asia/Shanghai')))->format('Y-m-d');
-        $dateDistance = $this->dateDistance($businessDate, $today);
+        $dateDistance = $this->dateDistance($businessDate, $asOfDate);
         $oldDateNotice = $dateDistance === null
-            ? '与今天的差异待确认。'
+            ? '与固定数据基准日的差异待确认。'
             : ($dateDistance === 0
-                ? '业务日就是今天。'
+                ? '业务日就是数据基准日 ' . $asOfDate . '。'
                 : ($dateDistance > 0
-                    ? '业务日比今天早 ' . $dateDistance . ' 天，页面展示的是最新严格可用历史事实。'
-                    : '业务日晚于今天 ' . abs($dateDistance) . ' 天，请复核日期。'));
+                    ? '业务日比数据基准日 ' . $asOfDate . ' 早 ' . $dateDistance . ' 天，页面展示的是最新严格可用历史事实。'
+                    : '业务日晚于数据基准日 ' . $asOfDate . ' ' . abs($dateDistance) . ' 天，请复核日期。'));
         $scopeNotice = trim((string)($comparisons['scope_notice'] ?? ''));
         $expectedTop = [
             'status' => $status,
@@ -442,6 +524,8 @@ final class RevenueDecisionViewModelAttestationService
             'dateNotice' => $scopeNotice . ($scopeNotice !== '' ? ' ' : '') . $oldDateNotice,
             'scopeBoundary' => 'PMS 只形成全酒店住宿事实；携程/美团订单金额只形成各自 OTA 渠道结论；不同来源收入不相加，订单金额也不相加，order_amount 不冒充已核验房费收入。',
             'selectedPlatformLabel' => (string)($comparisons['selected_platform_label'] ?? $this->platformLabel($platform)),
+            'asOfDate' => $asOfDate,
+            'asOfDateContractVersion' => $asOfDateContractVersion,
             'hotelName' => (string)($overview['three_source_fact_layer']['hotel']['name'] ?? ''),
             'canAskQuestion' => $hotelId > 0 && $businessDate !== '',
             'canCreatePendingApproval' => $requiredSourcesReady,
@@ -474,16 +558,6 @@ final class RevenueDecisionViewModelAttestationService
         );
 
         $authoritativeSections = [];
-        $cardsBySection = [
-            'data_completeness' => $actualSources,
-            'core_metrics' => $actualCore,
-            'traffic_conversion' => $actualTraffic,
-            'comparable_change' => $actualComparisons,
-            'anomaly_reasons' => $actualAnomalies,
-            'opportunity_ranking' => $actualOpportunities,
-            'data_gaps' => $actualGaps,
-            'suggested_actions' => $actualActions,
-        ];
         foreach (self::SECTION_KEYS as $sectionKey) {
             $sectionMeta = self::SECTION_META[$sectionKey];
             if ($sectionKey === 'comparable_change') {
@@ -509,6 +583,8 @@ final class RevenueDecisionViewModelAttestationService
             'selectedPlatform' => $platform,
             'selectedPlatformLabel' => $expectedTop['selectedPlatformLabel'],
             'businessDate' => $businessDate,
+            'asOfDate' => $asOfDate,
+            'asOfDateContractVersion' => $asOfDateContractVersion,
             'previousDate' => $previousDate,
             'sameWeekdayDate' => $sameWeekdayDate,
             'dateDistance' => $dateDistance,
@@ -543,7 +619,9 @@ final class RevenueDecisionViewModelAttestationService
         string $businessDate,
         string $platform,
         string $previousDate,
-        string $sameWeekdayDate
+        string $sameWeekdayDate,
+        string $asOfDate,
+        string $asOfDateContractVersion
     ): void {
         $factLayer = is_array($overview['three_source_fact_layer'] ?? null)
             ? $overview['three_source_fact_layer']
@@ -556,6 +634,10 @@ final class RevenueDecisionViewModelAttestationService
             || (int)($model['tenantId'] ?? 0) !== $tenantId
             || (int)($model['hotelId'] ?? 0) !== $hotelId
             || (string)($model['businessDate'] ?? '') !== $businessDate
+            || (string)($model['asOfDate'] ?? '') !== $asOfDate
+            || (string)($model['asOfDateContractVersion'] ?? '') !== $asOfDateContractVersion
+            || (string)($overview['as_of_date'] ?? '') !== $asOfDate
+            || (string)($overview['as_of_date_contract_version'] ?? '') !== RevenueAiOverviewService::AS_OF_DATE_CONTRACT_VERSION
             || (string)($model['selectedPlatform'] ?? '') !== $platform
             || (string)($model['previousDate'] ?? '') !== $previousDate
             || (string)($model['sameWeekdayDate'] ?? '') !== $sameWeekdayDate
@@ -1438,18 +1520,17 @@ final class RevenueDecisionViewModelAttestationService
     }
 
     /** @param list<array<string,mixed>> $rawGaps @return list<array<string,mixed>> */
-    private function actionCards(array $rawGaps, string $businessDate): array
+    private function actionCards(array $rawGaps, string $businessDate, string $asOfDate): array
     {
         $cards = [];
-        $today = (new DateTimeImmutable('now', new DateTimeZone('Asia/Shanghai')))->format('Y-m-d');
-        $distance = $this->dateDistance($businessDate, $today);
+        $distance = $this->dateDistance($businessDate, $asOfDate);
         if ($distance !== null && $distance > 0) {
             $cards[] = $this->textCard(
                 'action:refresh-current-date',
                 'action',
-                '优先补齐今天的数据',
-                '当前最近严格可用日为 ' . $businessDate . '，比今天早 ' . $distance
-                    . ' 天；先复核今天是否已采集、保存并严格回读。',
+                '优先补齐数据基准日的数据',
+                '当前最近严格可用日为 ' . $businessDate . '，比数据基准日 ' . $asOfDate . ' 早 ' . $distance
+                    . ' 天；先复核该基准日是否已采集、保存并严格回读。',
                 'cockpit_rule',
                 $businessDate,
                 'partial',
@@ -1643,6 +1724,9 @@ final class RevenueDecisionViewModelAttestationService
     /** @param list<array<string,mixed>> $actual @param list<array<string,mixed>> $expected @return list<array<string,mixed>> */
     private function assertCardList(array $actual, array $expected, string $scope): array
     {
+        if ($this->issuing) {
+            return $expected;
+        }
         if (!array_is_list($actual) || count($actual) !== count($expected)) {
             $this->invalid($scope . '_card_count');
         }
@@ -1668,6 +1752,9 @@ final class RevenueDecisionViewModelAttestationService
     /** @param array<string,mixed> $actual @param list<string> $allowed */
     private function assertOnlyKeys(array $actual, array $allowed, string $scope): void
     {
+        if ($this->issuing) {
+            return;
+        }
         $allowedLookup = array_fill_keys($allowed, true);
         foreach (array_keys($actual) as $field) {
             if (!isset($allowedLookup[(string)$field])) {
@@ -1679,6 +1766,9 @@ final class RevenueDecisionViewModelAttestationService
     /** @param array<string,mixed> $actual @param array<string,mixed> $expected */
     private function assertFields(array $actual, array $expected, string $scope): void
     {
+        if ($this->issuing) {
+            return;
+        }
         foreach ($expected as $field => $value) {
             if (!array_key_exists($field, $actual) || !$this->sameValue($actual[$field], $value)) {
                 $this->invalid($scope . ':' . $field);
@@ -1698,6 +1788,9 @@ final class RevenueDecisionViewModelAttestationService
 
     private function assertCanonicalEqual(array $actual, array $expected, string $scope): void
     {
+        if ($this->issuing) {
+            return;
+        }
         if ($this->canonicalJson($actual) !== $this->canonicalJson($expected)) {
             $this->invalid($scope . ':' . $this->firstDifferencePath($actual, $expected));
         }
@@ -2092,6 +2185,15 @@ final class RevenueDecisionViewModelAttestationService
         return $leftTime === false || $rightTime === false
             ? null
             : (int)round(($rightTime - $leftTime) / 86400);
+    }
+
+    private function isIsoDate(string $value): bool
+    {
+        if (preg_match('/^\d{4}-\d{2}-\d{2}$/D', $value) !== 1) {
+            return false;
+        }
+        [$year, $month, $day] = array_map('intval', explode('-', $value));
+        return checkdate($month, $day, $year);
     }
 
     private function canonicalJson(mixed $value): string

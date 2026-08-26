@@ -2,6 +2,11 @@ import fs from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
 import { WSClient, generateReqId } from '@wecom/aibot-node-sdk';
+import {
+  createWecomAibotMessageHandler,
+  createWecomAibotShutdown,
+  wecomAibotCredentialError,
+} from './lib/wecom_aibot_delivery.mjs';
 
 const SDK_VERSION = '1.0.7';
 const repoRoot = path.resolve(import.meta.dirname, '..');
@@ -31,17 +36,16 @@ const writeState = (patch = {}) => {
 };
 
 const stopWithoutCredentials = () => {
+  const errorCode = wecomAibotCredentialError(botId, secret, relayToken);
   writeState({
     status: 'blocked_not_configured',
     authenticated: false,
-    error_code: botId === '' || secret === ''
-      ? 'wecom_aibot_credentials_missing'
-      : 'wecom_aibot_relay_token_missing',
+    error_code: errorCode,
   });
   process.exitCode = 2;
 };
 
-if (botId === '' || secret === '' || relayToken.length < 32) {
+if (wecomAibotCredentialError(botId, secret, relayToken) !== null) {
   stopWithoutCredentials();
 } else {
   const relay = async (endpoint, body) => {
@@ -87,52 +91,14 @@ if (botId === '' || secret === '' || relayToken.length < 32) {
     }
   };
 
-  const handleMessage = async (frame, messageType) => {
-    const body = frame?.body || {};
-    const content = messageType === 'voice'
-      ? String(body.voice?.content || '').trim()
-      : String(body.text?.content || '').trim();
-    const conversationId = String(body.chatid || body.from?.userid || '').trim();
-    const senderId = String(body.from?.userid || '').trim();
-    const msgId = String(body.msgid || '').trim();
-    if (!content || !conversationId || !senderId || !msgId) return;
-    writeState({ last_event_at: new Date().toISOString() });
-    let result;
-    try {
-      result = await relay('/api/internal/wecom-aibot/events', {
-        aibot_id: String(body.aibotid || botId),
-        msg_id: msgId,
-        conversation_id: conversationId,
-        sender_id: senderId,
-        chat_type: String(body.chattype || ''),
-        create_time: body.create_time ?? null,
-        message_type: messageType,
-        content,
-      });
-    } catch {
-      writeState({ last_delivery_status: 'relay_failed' });
-      return;
-    }
-    if (result?.duplicate === true
-      || result?.delivery_status !== 'not_sent'
-      || result?.reply_allowed !== true
-      || !String(result.reply_text || '').trim()) return;
-    const eventId = Number(result.id || 0);
-    try {
-      const receipt = await client.replyStream(
-        frame,
-        generateReqId('suxios'),
-        String(result.reply_text).slice(0, 12_000),
-        true,
-      );
-      if (!receipt || typeof receipt !== 'object'
-        || !Object.prototype.hasOwnProperty.call(receipt, 'errcode')
-        || Number(receipt.errcode) !== 0) throw new Error('wecom_reply_rejected');
-      await recordDelivery(eventId, 'sent', 'wecom_aibot:errcode=0');
-    } catch {
-      await recordDelivery(eventId, 'outcome_unknown', 'wecom_aibot:outcome_unknown');
-    }
-  };
+  const handleMessage = createWecomAibotMessageHandler({
+    botId,
+    relay,
+    replyStream: client.replyStream.bind(client),
+    requestId: () => generateReqId('suxios'),
+    recordDelivery,
+    writeState,
+  });
 
   client.on('connected', () => writeState({ status: 'connected', authenticated: false, error_code: null }));
   client.on('authenticated', () => writeState({ status: 'authenticated', authenticated: true, error_code: null }));
@@ -145,10 +111,10 @@ if (botId === '' || secret === '' || relayToken.length < 32) {
   client.on('message.video', () => writeState({ last_event_at: new Date().toISOString(), last_delivery_status: 'video_not_ingested' }));
   client.on('error', () => writeState({ status: 'connection_error', authenticated: false, error_code: 'wecom_aibot_connection_error' }));
 
-  const shutdown = () => {
-    writeState({ status: 'stopped', authenticated: false });
-    client.disconnect();
-  };
+  const shutdown = createWecomAibotShutdown({
+    writeState,
+    disconnect: client.disconnect.bind(client),
+  });
   process.on('SIGINT', () => { shutdown(); process.exit(0); });
   process.on('SIGTERM', () => { shutdown(); process.exit(0); });
   setInterval(() => writeState(), 30_000).unref();

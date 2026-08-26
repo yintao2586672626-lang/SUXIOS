@@ -1,10 +1,12 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { readRouteContractSource } from './lib/route_contract_source.mjs';
 
 const root = process.cwd();
 const checks = [];
 
 function read(file) {
+  if (file === 'route/app.php') return readRouteContractSource(root);
   const target = path.join(root, file);
   return fs.existsSync(target) ? fs.readFileSync(target, 'utf8') : '';
 }

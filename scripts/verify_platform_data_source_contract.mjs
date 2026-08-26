@@ -10,9 +10,12 @@ const frontendContractFiles = [
 ];
 const platformSyncImplementationFiles = [
   'app/service/PlatformDataSyncService.php',
+  'app/service/PlatformDataCollectionDefinitionRegistry.php',
   'app/service/concern/PlatformDataPersistenceConcern.php',
+  'app/service/concern/PlatformDataImportParsingConcern.php',
   'app/service/concern/PlatformDataSourceExecutionConcern.php',
   'app/service/concern/PlatformSyncTaskConcern.php',
+  'app/service/concern/PlatformSyncTaskReadbackConcern.php',
 ];
 const read = (file) => {
   if (file === 'public/index.html') {

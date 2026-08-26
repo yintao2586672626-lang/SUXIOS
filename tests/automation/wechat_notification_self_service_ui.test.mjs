@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import test from 'node:test';
+import { readRouteContractSource } from '../../scripts/lib/route_contract_source.mjs';
 
 const appMain = fs.readFileSync('public/app-main.js', 'utf8');
 const systemStatic = fs.readFileSync('public/system-static.js', 'utf8');
@@ -14,7 +15,7 @@ const controller = fs.readFileSync('app/controller/WechatNotificationOnboarding.
 const adminController = fs.readFileSync('app/controller/admin/CompetitorWechatRobotController.php', 'utf8');
 const deliveryService = fs.readFileSync('app/service/WechatRobotDeliveryService.php', 'utf8');
 const service = fs.readFileSync('app/service/WechatNotificationBindingService.php', 'utf8');
-const routes = fs.readFileSync('route/app.php', 'utf8');
+const routes = readRouteContractSource(process.cwd());
 
 test('ordinary accounts receive a permission-gated enterprise WeChat entry', () => {
   assert.match(
