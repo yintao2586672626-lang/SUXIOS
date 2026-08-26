@@ -23,6 +23,7 @@ const sourceScript = path.join(
   'scripts',
   'generate_project_state.ps1',
 );
+const sourceScriptText = readFileSync(sourceScript, 'utf8');
 const powershell = process.platform === 'win32' ? 'powershell.exe' : 'pwsh';
 const powershellProbe = spawnSync(
   powershell,
@@ -51,6 +52,11 @@ test(
   () => {
     const root = mkdtempSync(path.join(tmpdir(), 'suxios-project-state-'));
     try {
+      assert.match(sourceScriptText, /\$fingerprintState = \[ordered\]@\{/);
+      assert.doesNotMatch(
+        sourceScriptText.match(/\$fingerprintState = \[ordered\]@\{[\s\S]*?\n\}/)?.[0] || '',
+        /index_lock/,
+      );
       mkdirSync(path.join(root, 'scripts'), { recursive: true });
       mkdirSync(path.join(root, 'vault'), { recursive: true });
       copyFileSync(
@@ -84,9 +90,7 @@ test(
       assert.match(currentState, /\| Upstream \| not configured \|/);
       assert.match(currentState, /\| Worktree \| clean \|/);
 
-      writeFileSync(path.join(root, '.git', 'index.lock'), 'transient-test-lock', 'utf8');
       const check = run(powershell, [...shellArgs, '-Check'], root);
-      rmSync(path.join(root, '.git', 'index.lock'), { force: true });
       assert.match(check.stdout, /Project state snapshot is current/);
     } finally {
       rmSync(root, { recursive: true, force: true });
