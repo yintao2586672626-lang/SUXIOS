@@ -31,12 +31,14 @@ final class TemporalInsight extends Base
         try {
             $historyDays = (int)$this->request->get('history_days', 30);
             $futureDays = (int)$this->request->get('future_days', 7);
+            $metricKey = trim((string)$this->request->get('metric_key', ''));
             $asOfDate = trim((string)$this->request->get('as_of_date', ''));
             $data = $this->service->overview(
                 $this->resolveHotelIds(),
                 $historyDays,
                 $futureDays,
-                $asOfDate !== '' ? $asOfDate : null
+                $asOfDate !== '' ? $asOfDate : null,
+                $metricKey !== '' ? $metricKey : null
             );
             return $this->success($data, '统一时间视角获取成功');
         } catch (InvalidArgumentException $e) {
@@ -55,13 +57,15 @@ final class TemporalInsight extends Base
                 return $this->error('无权为该酒店生成预测版本。', 403);
             }
             $futureDays = (int)($payload['future_days'] ?? 7);
+            $metricKey = trim((string)($payload['metric_key'] ?? ''));
             $asOfDate = trim((string)($payload['as_of_date'] ?? ''));
             $userId = (int)($this->currentUser->id ?? 0);
             $data = $this->service->generateForecast(
                 $hotelId,
                 $userId,
                 $asOfDate !== '' ? $asOfDate : null,
-                $futureDays
+                $futureDays,
+                $metricKey !== '' ? $metricKey : null
             );
             $message = ($data['status'] ?? '') === 'generated'
                 ? '预测版本已保存并回读'

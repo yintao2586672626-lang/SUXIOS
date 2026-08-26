@@ -1,7 +1,7 @@
 (() => {
     'use strict';
 
-    const fullScript = 'components/system/operating-intelligence-components.js?v=20260822-human-review-hefb4f4c426';
+    const fullScript = 'components/system/operating-intelligence-components.js?v=20260826-precise-query-hc4cb811ee5';
     const fullStyle = 'style.min.css';
     let fullScriptPromise = null;
 
@@ -49,6 +49,10 @@
         });
         return fullScriptPromise;
     };
+    const requestFullComponents = () => {
+        void loadFullScript().catch(() => {});
+    };
+
     const create = (createOptions) => {
         const { h, Vue } = createOptions;
         if (!Vue?.defineAsyncComponent) throw new Error('经营问答启动桥缺少 Vue 运行时');
@@ -73,9 +77,11 @@
         });
         const panelLoading = {
             inheritAttrs: false,
-            render: () => h('div', {
+            render: () => h('button', {
+                type: 'button',
                 class: 'w-full rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm font-semibold text-blue-700',
                 'data-testid': 'operating-question-panel-load',
+                onClick: requestFullComponents,
             }, '加载经营问答'),
         };
         const consultantGate = {

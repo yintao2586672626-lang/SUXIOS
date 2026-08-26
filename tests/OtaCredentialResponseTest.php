@@ -1540,6 +1540,19 @@ final class OtaCredentialResponseTest extends TestCase
         self::assertStringNotContainsString("'获取自定义线上数据: ' . \$url", $source);
         self::assertStringNotContainsString("\$result['error']", $source);
         self::assertStringNotContainsString("\$e->getMessage()", $source);
+        self::assertStringContainsString('strictPositiveOtaConfigHotelId', $source);
+        self::assertStringContainsString('resolveOnlineDataSystemHotelId', $source);
+        self::assertStringContainsString('otaCredentialTenantIdForHotel', $source);
+        self::assertStringContainsString("'tenant_id' => \$tenantId", $source);
+        self::assertStringContainsString("'system_hotel_id' => \$systemHotelId", $source);
+        self::assertStringContainsString(
+            'OtaCustomRequestService::httpStatusForErrorCode',
+            $source
+        );
+        self::assertMatchesRegularExpression(
+            '/OperationLog::record\([\s\S]*?\$this->currentUser->id,\s*\$systemHotelId,/',
+            $source
+        );
     }
 
     public function testSaveCtripConfigReturnsOpaqueHttp500ForThrowable(): void

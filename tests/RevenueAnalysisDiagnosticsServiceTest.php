@@ -128,6 +128,38 @@ final class RevenueAnalysisDiagnosticsServiceTest extends TestCase
         );
     }
 
+    public function testSelectedMeituanPmsProducesProviderAwareSourceDiagnostics(): void
+    {
+        $layer = $this->factLayer();
+        $layer['pms_binding'] = [
+            'binding_status' => 'configured',
+            'effective_provider' => 'meituan_cloud_pms',
+        ];
+        unset($layer['source_completeness']['dingdandao_pms']);
+        $layer['source_completeness']['meituan_cloud_pms'] =
+            'readback_verified';
+        $layer['date_alignment']['status'] = 'aligned';
+        $layer['analysis_metrics']['whole_hotel_revpar']['source_channels'] = [
+            'meituan_cloud_pms',
+        ];
+
+        $diagnostics = (new RevenueAnalysisDiagnosticsService())->build($layer);
+
+        self::assertSame('ready_to_share', $diagnostics['overall_assessment']);
+        self::assertSame('meituan_cloud_pms', $diagnostics['source_checks'][0]['source']);
+        self::assertSame('美团云 PMS 全酒店住宿事实', $diagnostics['source_checks'][0]['label']);
+        self::assertSame('passed', $diagnostics['source_checks'][0]['status']);
+        self::assertNotContains(
+            'dingdandao_pms',
+            array_column($diagnostics['source_checks'], 'source')
+        );
+        self::assertSame(
+            'passed',
+            array_column($diagnostics['checks'], null, 'key')
+                ['target_date_alignment']['status']
+        );
+    }
+
     /** @return array<string,mixed> */
     private function factLayer(): array
     {

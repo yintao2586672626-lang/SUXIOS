@@ -134,35 +134,25 @@ trait AgentOtaDiagnosisBuildConcern
         $usedLatestAvailableData = false;
         $canQueryOnlineRows = !empty($fields)
             && $tenantId > 0
+            && $hotelId > 0
             && isset($columns['tenant_id'])
+            && isset($columns['system_hotel_id'])
+            && isset($columns['platform'])
             && isset($columns['data_date'])
-            && isset($columns['readback_verified'])
-            && (($hotelId > 0 && isset($columns['system_hotel_id'])) || (($hotelIdRaw !== '' || $platformHotelIdRaw !== '') && isset($columns['hotel_id'])));
+            && isset($columns['readback_verified']);
         if ($canQueryOnlineRows) {
-            $applyOnlineScope = function ($query) use ($tenantId, $hotelId, $hotelIdRaw, $platformHotelIdRaw, $platform, $analysisType, $columns) {
+            $applyOnlineScope = function ($query) use ($tenantId, $hotelId, $platform, $analysisType, $columns) {
                 $query->where('tenant_id', $tenantId);
+                // OTA hotel ids supplied by a client are descriptive identities,
+                // not authorization scope. Select rows only through the persisted
+                // SUXIOS hotel identity and fail closed when that column is absent.
+                $query->where('system_hotel_id', $hotelId);
                 if (isset($columns['source'])) {
                     $query->where('source', $this->otaDiagnosisStorageSourceForPlatform($platform));
                 }
-                if (isset($columns['platform'])) {
-                    $query->whereRaw('LOWER(TRIM(`platform`)) = :ota_platform', [
-                        'ota_platform' => strtolower(trim($platform)),
-                    ]);
-                }
-                $query->where(function ($q) use ($hotelId, $hotelIdRaw, $platformHotelIdRaw, $columns) {
-                    $hasWhere = false;
-                    if ($hotelId > 0 && isset($columns['system_hotel_id'])) {
-                        $q->where('system_hotel_id', $hotelId);
-                        $hasWhere = true;
-                    }
-                    if ($hotelIdRaw !== '' && isset($columns['hotel_id'])) {
-                        $hasWhere ? $q->whereOr('hotel_id', $hotelIdRaw) : $q->where('hotel_id', $hotelIdRaw);
-                        $hasWhere = true;
-                    }
-                    if ($platformHotelIdRaw !== '' && $platformHotelIdRaw !== $hotelIdRaw && isset($columns['hotel_id'])) {
-                        $hasWhere ? $q->whereOr('hotel_id', $platformHotelIdRaw) : $q->where('hotel_id', $platformHotelIdRaw);
-                    }
-                });
+                $query->whereRaw('LOWER(TRIM(`platform`)) = :ota_platform', [
+                    'ota_platform' => strtolower(trim($platform)),
+                ]);
 
                 if (isset($columns['data_type']) && $analysisType === 'traffic') {
                     $query->where('data_type', 'traffic');

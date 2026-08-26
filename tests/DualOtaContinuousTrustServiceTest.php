@@ -51,6 +51,11 @@ final class DualOtaContinuousTrustServiceTest extends TestCase
                 self::assertSame(1, $receipt['counts']['target_saved']);
                 self::assertSame(1, $receipt['counts']['target_readback']);
                 self::assertTrue($receipt['counts']['target_saved_readback_match']);
+                self::assertCount(1, $receipt['run_readback_scope']['receipt_record_ids']);
+                self::assertSame(
+                    $receipt['run_readback_scope']['receipt_record_ids'],
+                    $receipt['run_readback_scope']['accepted_record_ids']
+                );
                 self::assertSame([], $receipt['critical_fields']['missing']);
                 self::assertTrue($receipt['claim_allowed']);
                 self::assertSame('not_evaluated', $receipt['live_page_verification_status']);
@@ -981,6 +986,7 @@ final class DualOtaContinuousTrustServiceTest extends TestCase
         self::assertSame('collection_failed', $ctrip['status']);
         self::assertSame('blocked', $ctrip['acceptance_status']);
         self::assertFalse($ctrip['steps']['organized_save']);
+        self::assertSame([], $ctrip['acceptance_receipt']['run_readback_scope']['accepted_record_ids']);
     }
 
     public function testCtripRequiredFieldsCanCloseAcrossRowsFromTheSameExactTask(): void
@@ -1193,7 +1199,44 @@ final class DualOtaContinuousTrustServiceTest extends TestCase
         self::assertSame(0, $scope['receipt_missing_row_count']);
         self::assertSame(1, $scope['receipt_identity_mismatch_count']);
         self::assertSame(1, $scope['mismatched_row_count']);
+        self::assertSame([(int)$remaining['id']], $scope['accepted_record_ids']);
+        self::assertEqualsCanonicalizing(
+            [(int)$original['id'], (int)$remaining['id']],
+            $scope['receipt_record_ids']
+        );
         self::assertFalse($ctrip['acceptance_receipt']['claim_allowed']);
+    }
+
+    public function testExactRunReadbackCanPassWhileRequiredTrafficFactsRemainMissing(): void
+    {
+        [$hotel, $sources, $rows, $tasks, $rawRecords, $bindings] = $this->fixture(['2026-07-22']);
+        foreach ($rows as &$row) {
+            $row['data_type'] = 'business';
+        }
+        unset($row);
+
+        $result = DualOtaContinuousTrustService::evaluate(
+            $hotel,
+            '2026-07-22',
+            '2026-07-22',
+            $rows,
+            $sources,
+            $tasks,
+            true,
+            true,
+            $rawRecords,
+            $bindings
+        );
+
+        foreach ($result['days'][0]['platforms'] as $platform) {
+            $scope = $platform['acceptance_receipt']['run_readback_scope'];
+            self::assertSame('verified', $scope['status']);
+            self::assertSame(0, $scope['authoritative_row_count']);
+            self::assertFalse($platform['steps']['readback']);
+            self::assertFalse($platform['steps']['p0']);
+            self::assertContains('field_facts', $platform['missing_steps']);
+            self::assertNotContains('exact_run_readback_scope_mismatch', $platform['gap_codes']);
+        }
     }
 
     /**

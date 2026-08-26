@@ -854,6 +854,7 @@
         'buildCtripOverviewTopRankTables',
         'buildCtripFlowOverviewMetricCards',
         'buildCtripFlowOverviewInterfaceRows',
+        'ctripRankEligibilityText',
         'buildCtripProfileRecheckInitialState',
         'buildCtripProfileRecheckRunContext',
         'buildCtripProfileRecheckCaptureRefreshState',
@@ -862,6 +863,7 @@
         'buildCtripProfileRecheckInterruptedState',
         'runCtripProfileRecheckFlow',
         'getCtripCookieApiCorePresetEndpoints',
+        'captureCtripBusinessDownloadSnapshot',
         'buildCtripBusinessCanvas',
     ];
     fullOnlyHelperKeys.forEach(key => {

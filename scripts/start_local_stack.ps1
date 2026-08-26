@@ -34,7 +34,53 @@ $BackendPorts = @($BackendPort..($BackendPort + $PhpWorkerCount - 1))
 $BackendUrls = @($BackendPorts | ForEach-Object { "http://$BindHost`:$($_)" })
 $StaticProbeUrl = "http://$BindHost`:$Port/vue.global.prod.js?v=startup-static-probe"
 $OriginServerPath = Join-Path $RepoRoot "scripts\local_origin_server.mjs"
+$WecomAibotWorkerPath = Join-Path $RepoRoot "scripts\wecom_aibot_worker.mjs"
 $PublicRoot = Join-Path $RepoRoot "public"
+$PublicEntryPath = Join-Path $PublicRoot "app-main.min.js"
+
+function Get-Sha256FileDigest {
+    param([Parameter(Mandatory = $true)][string]$LiteralPath)
+
+    $stream = $null
+    $sha = $null
+    try {
+        $stream = [System.IO.File]::OpenRead($LiteralPath)
+        $sha = [System.Security.Cryptography.SHA256]::Create()
+        return ([System.BitConverter]::ToString($sha.ComputeHash($stream))).Replace("-", "").ToLowerInvariant()
+    } finally {
+        if ($sha) { $sha.Dispose() }
+        if ($stream) { $stream.Dispose() }
+    }
+}
+
+function Get-ProjectIdentity {
+    $head = "unavailable"
+    $dirtyState = "unavailable"
+    $gitCommand = Get-Command "git" -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($gitCommand) {
+        $headValue = & $gitCommand.Source -C $RepoRoot rev-parse HEAD 2>$null
+        if ($LASTEXITCODE -eq 0 -and $headValue) {
+            $head = ([string]($headValue | Select-Object -First 1)).Trim()
+        }
+        $status = @(& $gitCommand.Source -C $RepoRoot status --porcelain=v1 2>$null)
+        if ($LASTEXITCODE -eq 0) {
+            $dirtyState = if ($status.Count -gt 0) { "dirty" } else { "clean" }
+        }
+    }
+    if (-not (Test-Path -LiteralPath $PublicEntryPath)) {
+        throw "Authenticated public entry is missing: $PublicEntryPath"
+    }
+    # Keep startup independent from PowerShell module auto-loading. Some npm-launched
+    # Windows PowerShell processes cannot resolve Get-FileHash even though the
+    # Microsoft.PowerShell.Utility module is installed.
+    $publicDigest = Get-Sha256FileDigest -LiteralPath $PublicEntryPath
+    return [pscustomobject]@{
+        RepoRealPath = $RepoRoot
+        Head = $head
+        DirtyState = $dirtyState
+        PublicEntrySha256 = $publicDigest
+    }
+}
 
 if (($BackendPort + $PhpWorkerCount - 1) -gt 65535) {
     throw "PHP worker port range exceeds 65535."
@@ -307,6 +353,23 @@ function Test-StaticAsset {
     }
 }
 
+function Test-RuntimeIdentity {
+    $client = $null
+    $sha = $null
+    try {
+        $client = New-Object System.Net.WebClient
+        $bytes = $client.DownloadData("${BaseUrl}app-main.min.js?v=startup-identity-probe")
+        $sha = [System.Security.Cryptography.SHA256]::Create()
+        $actualDigest = ([System.BitConverter]::ToString($sha.ComputeHash($bytes))).Replace("-", "").ToLowerInvariant()
+        return $actualDigest -eq $ProjectIdentity.PublicEntrySha256
+    } catch {
+        return $false
+    } finally {
+        if ($sha) { $sha.Dispose() }
+        if ($client) { $client.Dispose() }
+    }
+}
+
 function Test-PortListening {
     param([int]$TargetPort)
 
@@ -316,6 +379,9 @@ function Test-PortListening {
 
 function Start-ThinkPhp {
     if ((Test-HttpHealth) -and (Test-StaticAsset)) {
+        if (-not (Test-RuntimeIdentity)) {
+            throw "Local origin on $BaseUrl is healthy but serves a different public/app-main.min.js digest. Stop the stale stack before continuing."
+        }
         $unhealthyExistingPorts = @($BackendPorts | Where-Object { -not (Test-BackendHttpHealth -TargetPort $_) })
         if ($unhealthyExistingPorts.Count -eq 0) {
             Write-Host "[OK] ThinkPHP worker pool is already serving $BaseUrl ($PhpWorkerCount workers)"
@@ -387,7 +453,7 @@ function Start-ThinkPhp {
         | Out-Null
 
     for ($i = 0; $i -lt $PhpWaitSeconds; $i++) {
-        if ((Test-HttpHealth) -and (Test-StaticAsset)) {
+        if ((Test-HttpHealth) -and (Test-StaticAsset) -and (Test-RuntimeIdentity)) {
             Write-Host "[OK] Concurrent local origin started: $BaseUrl"
             return
         }
@@ -395,6 +461,79 @@ function Start-ThinkPhp {
     }
 
     throw "Concurrent local origin did not become healthy at $HealthUrl with static assets available within $PhpWaitSeconds seconds."
+}
+
+function Start-WecomAibot {
+    $allowedKeys = @(
+        "SUXIOS_WECOM_AIBOT_ID",
+        "SUXIOS_WECOM_AIBOT_SECRET",
+        "SUXIOS_WECOM_AIBOT_RELAY_TOKEN",
+        "SUXIOS_LOCAL_API_BASE"
+    )
+    $projectEnvPath = Join-Path $RepoRoot ".env"
+    if (Test-Path -LiteralPath $projectEnvPath) {
+        foreach ($line in Get-Content -LiteralPath $projectEnvPath) {
+            $trimmed = [string]$line
+            $trimmed = $trimmed.Trim()
+            if ([string]::IsNullOrWhiteSpace($trimmed) -or $trimmed.StartsWith("#")) { continue }
+            $separator = $trimmed.IndexOf("=")
+            if ($separator -le 0) { continue }
+            $key = $trimmed.Substring(0, $separator).Trim()
+            if ($allowedKeys -notcontains $key) { continue }
+            $existingValue = [Environment]::GetEnvironmentVariable($key, "Process")
+            if (-not [string]::IsNullOrWhiteSpace($existingValue)) { continue }
+            $value = $trimmed.Substring($separator + 1).Trim()
+            if ($value.Length -ge 2 `
+                -and (($value.StartsWith('"') -and $value.EndsWith('"')) `
+                    -or ($value.StartsWith("'") -and $value.EndsWith("'")))) {
+                $value = $value.Substring(1, $value.Length - 2)
+            }
+            [Environment]::SetEnvironmentVariable($key, $value, "Process")
+        }
+    }
+    $botId = [string]$env:SUXIOS_WECOM_AIBOT_ID
+    $botSecret = [string]$env:SUXIOS_WECOM_AIBOT_SECRET
+    $relayToken = [string]$env:SUXIOS_WECOM_AIBOT_RELAY_TOKEN
+    if ([string]::IsNullOrWhiteSpace($botId) `
+        -or [string]::IsNullOrWhiteSpace($botSecret) `
+        -or $relayToken.Length -lt 32) {
+        Write-Host "[SKIP] WeCom AI Bot agent is not configured; local SUXIOS remains available."
+        return
+    }
+    if (-not (Test-Path -LiteralPath $WecomAibotWorkerPath)) {
+        Write-Warning "WeCom AI Bot worker script is missing; local SUXIOS remains available."
+        return
+    }
+
+    $statePath = Join-Path $RepoRoot "runtime\wecom-aibot-state.json"
+    if (Test-Path -LiteralPath $statePath) {
+        try {
+            $state = Get-Content -LiteralPath $statePath -Raw | ConvertFrom-Json -ErrorAction Stop
+            $workerProcess = Get-Process -Id ([int]$state.pid) -ErrorAction SilentlyContinue
+            if ($workerProcess -and $workerProcess.ProcessName -match '^node') {
+                $workerCommand = Get-CimInstance Win32_Process -Filter "ProcessId = $([int]$state.pid)" -ErrorAction SilentlyContinue
+                if ([string]$workerCommand.CommandLine -like '*wecom_aibot_worker.mjs*') {
+                    Write-Host "[OK] WeCom AI Bot agent process is already running (state: $([string]$state.status))."
+                    return
+                }
+            }
+        } catch {
+            Write-Host "[INFO] Existing WeCom AI Bot state is stale; starting a new worker."
+        }
+    }
+
+    $env:SUXIOS_LOCAL_API_BASE = $BaseUrl.TrimEnd('/')
+    $stdout = Join-Path $LogDir "wecom-aibot.out.log"
+    $stderr = Join-Path $LogDir "wecom-aibot.err.log"
+    Write-Host "[INFO] Starting hidden WeCom AI Bot WebSocket agent."
+    Start-Process `
+        -FilePath $NodeExe `
+        -ArgumentList @($WecomAibotWorkerPath) `
+        -WorkingDirectory $RepoRoot `
+        -WindowStyle Hidden `
+        -RedirectStandardOutput $stdout `
+        -RedirectStandardError $stderr `
+        | Out-Null
 }
 
 if (-not (Test-Path (Join-Path $RepoRoot "think"))) {
@@ -408,6 +547,8 @@ if ($DatabaseOnly) {
     Write-Host "[DONE] Database runtime ready on $DbHost`:$DbPort with schema '$DbName'"
     return
 }
+$ProjectIdentity = Get-ProjectIdentity
+Write-Host "[IDENTITY] repo=$($ProjectIdentity.RepoRealPath) head=$($ProjectIdentity.Head) worktree=$($ProjectIdentity.DirtyState) public_app_main_sha256=$($ProjectIdentity.PublicEntrySha256)"
 $NodeExe = Resolve-CommandSource "node"
 if (-not $NodeExe) {
     throw "Node.js was not found. Install Node.js or add node.exe to PATH."
@@ -417,9 +558,10 @@ if (-not (Test-Path -LiteralPath $OriginServerPath)) {
 }
 Invoke-OtaRetentionPreview
 Start-ThinkPhp
+Start-WecomAibot
 
 if (-not $NoBrowser) {
     Start-Process $BaseUrl | Out-Null
 }
 
-Write-Host "[DONE] Local stack ready: $BaseUrl"
+Write-Host "[DONE] Local stack ready: $BaseUrl identity=$($ProjectIdentity.Head):$($ProjectIdentity.PublicEntrySha256)"

@@ -34,11 +34,11 @@ trait OnlineDataAnalyticsConcern
 
             $this->applyDataTypeFilter($query, $dataType);
 
-            // 非超级管理员只能看自己酒店的数据
-            if (!$currentUser->isSuperAdmin()) {
-                $permittedHotelIds = $currentUser->getPermittedHotelIds();
+            // 非超级管理员只能看有线上数据查看权的酒店。
+            $permittedHotelIds = $this->permittedHotelIdsForAction('can_view_online_data');
+            if ($permittedHotelIds !== null) {
                 if (empty($permittedHotelIds)) {
-                    // 没有酒店关联则返回空列表
+                    // 没有可查看酒店则返回空列表。
                     return $this->success([]);
                 }
                 $query->whereIn('system_hotel_id', $permittedHotelIds);
@@ -113,13 +113,22 @@ trait OnlineDataAnalyticsConcern
         $endDate = $this->request->get('end_date', date('Y-m-d'));
         $source = trim((string)$this->request->get('source', ''));
         $hotelId = trim((string)$this->request->get('system_hotel_id', $this->request->get('hotel_id', '')));
-        $dataType = $this->request->get('data_type', '');
+        $requestedDataType = trim((string)$this->request->get('data_type', ''));
+        $dataType = $this->normalizeOnlineDataAnalysisType($requestedDataType);
+        $analysisScope = $this->buildOnlineDataAnalysisScope(
+            $dataType,
+            $requestedDataType === '',
+            $startDate,
+            $endDate,
+            $source,
+            $hotelId
+        );
 
         $query = Db::name('online_daily_data')
             ->where('data_date', '>=', $startDate)
             ->where('data_date', '<=', $endDate);
 
-        // 非超级管理员只能看自己酒店的数据
+        // 非超级管理员只能看有线上数据查看权的酒店。
         if ($hotelId !== '') {
             $this->applyOnlineDailyDataHotelFilter($query, $hotelId);
         }
@@ -127,20 +136,28 @@ trait OnlineDataAnalyticsConcern
             $query->where('source', $source);
         }
 
-        if (!$this->currentUser->isSuperAdmin()) {
-            $permittedHotelIds = $this->currentUser->getPermittedHotelIds();
+        $permittedHotelIds = $this->permittedHotelIdsForAction('can_view_online_data');
+        if ($permittedHotelIds !== null) {
+            if ($hotelId !== '' && (!ctype_digit($hotelId) || (int)$hotelId <= 0 || !in_array((int)$hotelId, $permittedHotelIds, true))) {
+                return $this->error('无权查看该酒店线上数据', 403);
+            }
             if (empty($permittedHotelIds)) {
+                $truthContext = OnlineDataTrustStatusService::summarizeTruthEnvelopes([], [
+                    'start_date' => $startDate,
+                    'end_date' => $endDate,
+                    'fallback_failure_reason' => '当前账号没有可查看的门店范围',
+                ]);
                 return $this->success([
                     'aggregated' => [],
                     'summary' => [
-                        'truth_context' => OnlineDataTrustStatusService::summarizeTruthEnvelopes([], [
-                            'start_date' => $startDate,
-                            'end_date' => $endDate,
-                            'fallback_failure_reason' => '当前账号没有可查看的门店范围',
-                        ]),
+                        'data_type' => $dataType,
+                        'metric_scope' => $analysisScope['metric_scope'],
+                        'truth_context' => $truthContext,
                     ],
                     'chart_data' => [],
                     'hotel_ranking' => [],
+                    'query_scope' => $analysisScope,
+                    'truth' => $truthContext,
                 ]);
             }
             $query->whereIn('system_hotel_id', $permittedHotelIds);
@@ -213,6 +230,8 @@ trait OnlineDataAnalyticsConcern
             }
         }
         $summary = [
+            'data_type' => $dataType,
+            'metric_scope' => $analysisScope['metric_scope'],
             'total_amount' => $totalAmount,
             'total_quantity' => $totalQuantity,
             'total_data_value' => $totalDataValue,
@@ -261,6 +280,8 @@ trait OnlineDataAnalyticsConcern
             'summary' => $summary,
             'chart_data' => $chartData,
             'hotel_ranking' => $hotelRanking,
+            'query_scope' => $analysisScope,
+            'truth' => $summary['truth_context'],
         ]);
     }
 
@@ -581,17 +602,47 @@ trait OnlineDataAnalyticsConcern
     /**
      * 应用数据类型筛选
      */
+    private function normalizeOnlineDataAnalysisType(?string $dataType): string
+    {
+        $dataType = strtolower(trim((string)$dataType));
+        return $dataType !== '' ? $dataType : 'business';
+    }
+
+    /** @return array<string, mixed> */
+    private function buildOnlineDataAnalysisScope(
+        string $dataType,
+        bool $defaulted,
+        string $startDate,
+        string $endDate,
+        string $source,
+        string $hotelId
+    ): array {
+        return [
+            'data_type' => $dataType,
+            'data_type_defaulted' => $defaulted,
+            'metric_scope' => $dataType === 'business'
+                ? 'ota_channel_business_operating_facts'
+                : 'ota_channel_typed_facts',
+            'truth_policy' => 'readback_verified_and_validation_usable',
+            'legacy_untyped_rows' => 'excluded',
+            'cross_type_aggregation' => false,
+            'excluded_default_types' => $defaulted
+                ? ['untyped', 'advertising', 'peer_rank', 'ranking', 'traffic']
+                : [],
+            'start_date' => $startDate,
+            'end_date' => $endDate,
+            'source' => $source !== '' ? $source : null,
+            'system_hotel_id' => $hotelId !== '' ? $hotelId : null,
+        ];
+    }
+
     private function applyDataTypeFilter($query, ?string $dataType): void
     {
         if (empty($dataType)) {
             return;
         }
         if ($dataType === 'business') {
-            $query->where(function ($q) {
-                $q->whereNull('data_type')
-                    ->whereOr('data_type', '')
-                    ->whereOr('data_type', 'business');
-            });
+            $query->where('data_type', 'business');
             return;
         }
         $query->where('data_type', $dataType);

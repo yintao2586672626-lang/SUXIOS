@@ -5,24 +5,24 @@ import test from 'node:test';
 import vm from 'node:vm';
 
 const context = { window: {}, URLSearchParams };
+vm.runInNewContext(readFileSync('public/revenue-overview-contract-static.js', 'utf8'), context, {
+  filename: 'public/revenue-overview-contract-static.js',
+});
 vm.runInNewContext(readFileSync('public/revenue-ai-static.js', 'utf8'), context, {
   filename: 'public/revenue-ai-static.js',
 });
 vm.runInNewContext(readFileSync('public/data-health-static.js', 'utf8'), context, {
   filename: 'public/data-health-static.js',
 });
-const aiDailyStaticSource = readFileSync('public/ai-daily-report-static.js', 'utf8');
-vm.runInNewContext(aiDailyStaticSource, context, {
-  filename: 'public/ai-daily-report-static.js',
-});
 
 const helpers = context.window.SUXI_REVENUE_AI_STATIC;
 const dataHealthHelpers = context.window.SUXI_DATA_HEALTH_STATIC;
-const aiDailyHelpers = context.window.SUXI_AI_DAILY_REPORT_STATIC;
 const indexHtml = readFileSync('public/index.html', 'utf8');
-const appMain = `${readFileSync('public/components/system/app-main-components.js', 'utf8')}\n${readFileSync('public/app-main.js', 'utf8')}`;
+const systemStatic = readFileSync('public/system-static.js', 'utf8');
+const appMain = `${readFileSync('public/components/system/app-main-components.js', 'utf8')}\n${readFileSync('public/operation-static.js', 'utf8')}\n${readFileSync('public/app-main.js', 'utf8')}`;
 const appTemplate = readFileSync('resources/frontend/app-template.html', 'utf8');
 const aiDailyReportFragment = readFileSync('resources/frontend/templates/fragments/16-page-ai-daily-report.html', 'utf8');
+const routeApp = readFileSync('route/app.php', 'utf8');
 const html = `${indexHtml}\n${appTemplate}\n${appMain}`;
 
 const createRevenueAiGapNavigationHarness = (initialFilter = {}, harnessOptions = {}) => {
@@ -108,6 +108,7 @@ test('Revenue AI static helper exposes the required display contract', () => {
     'revenueAiSeverityClass',
     'buildRevenueAiOverviewQuery',
     'buildRevenueAiOverviewEndpoint',
+    'resolveRevenueOverviewAsOfDate',
     'resolveRevenueAiBusinessDate',
     'resolveRevenueAiOverviewRequest',
     'resolveRevenueAiOverviewResponse',
@@ -124,6 +125,7 @@ test('Revenue AI static helper exposes the required display contract', () => {
     'buildRevenueAiPricingGenerationPreflightSummary',
     'buildRevenueAiPriceSuggestionGenerateResult',
     'resolveRevenueCockpitScope',
+    'resolveRevenueCockpitCanonicalViewModel',
     'buildRevenueCockpitModel',
     'buildRevenueCockpitDownloadRows',
     'buildRevenueCockpitCsv',
@@ -133,9 +135,13 @@ test('Revenue AI static helper exposes the required display contract', () => {
     'resolveRevenueCockpitOverviewResponse',
     'resolveRevenueCockpitScopeResponse',
     'loadRevenueCockpitSnapshot',
+    'resolveRevenueDecisionSnapshot',
+    'saveRevenueDecisionSnapshotWithReadback',
+    'restoreRevenueDecisionSnapshotWithReadback',
+    'createRevenueOpportunityPendingApprovalWithReadback',
     'resolveRevenueCockpitPendingApprovalSave',
     'resolveRevenueCockpitPendingApprovalReadback',
-    'createRevenueCockpitPendingApprovalWithReadback',
+    'restoreRevenueCockpitPendingApprovalWithReadback',
     'buildRevenueAiActionRows',
     'buildRevenueAiEvidenceWorkbenchRows',
     'buildRevenueAiEvidenceWorkbenchSummary',
@@ -268,32 +274,28 @@ test('AI daily explanation stays optional and separate from the rule summary', (
 });
 
 test('AI daily report metric cards bind per-metric truth without global OTA promotion', () => {
-  const truthStart = aiDailyStaticSource.indexOf('const buildMetricTruth');
-  const truthEnd = aiDailyStaticSource.indexOf('const metricCalculation', truthStart);
+  const truthStart = appMain.indexOf('const aiDailyReportTruthStatusLabel');
+  const truthEnd = appMain.indexOf('const aiDailyReportActions', truthStart);
   assert.ok(truthStart >= 0 && truthEnd > truthStart, 'AI daily metric truth block must exist');
-  const truthBlock = aiDailyStaticSource.slice(truthStart, truthEnd);
-  const bindingStart = appMain.indexOf("const buildAiDailyReportMetricTruth = requireAiDailyReportStatic('buildMetricTruth')");
-  const bindingEnd = appMain.indexOf('const aiDailyReportActions', bindingStart);
-  assert.ok(bindingStart >= 0 && bindingEnd > bindingStart, 'AI daily metric truth binding must exist');
-  const bindingBlock = appMain.slice(bindingStart, bindingEnd);
+  const truthBlock = appMain.slice(truthStart, truthEnd);
 
   assert.match(truthBlock, /metric\.truth[\s\S]*metric\.truth_context/);
-  assert.match(truthBlock, /metricSourceRefs\(metric, report\)/);
-  assert.match(aiDailyStaticSource, /metric_keys/);
-  assert.match(aiDailyStaticSource, /metric\.metric_scopes/);
-  assert.match(truthBlock, /sourceRefs/);
+  assert.match(truthBlock, /aiDailyReport\.value\?\.source_refs/);
+  assert.match(truthBlock, /metric_keys/);
+  assert.match(truthBlock, /metric\.metric_scopes/);
+  assert.match(truthBlock, /daily_reports#\\d\+/);
+  assert.match(truthBlock, /online_daily_data#\\d\+/);
   assert.match(truthBlock, /readback_verified/);
   assert.doesNotMatch(truthBlock, /snapshot\?\.(?:source_trust|input_trust)|snapshot\[['"](?:source_trust|input_trust)['"]\]/);
 
   for (const label of ['已验证', '部分数据', '未验证', '采集失败']) {
-    assert.match(aiDailyStaticSource, new RegExp(label));
+    assert.match(truthBlock, new RegExp(label));
   }
   for (const scope of ['ota_channel', 'whole_hotel', 'mixed', 'user_input', 'derived']) {
-    assert.match(aiDailyStaticSource, new RegExp(scope));
+    assert.match(truthBlock, new RegExp(scope));
   }
   assert.match(appMain, /const onlineTruthDetailText = requireDataHealthStatic\('onlineTruthDetailText'\);/);
-  assert.match(bindingBlock, /truthDetailText: onlineTruthDetailText\(result\.truth\)/);
-  assert.match(bindingBlock, /const aiDailyReportMetricCalculation = requireAiDailyReportStatic\('metricCalculation'\)/);
+  assert.match(truthBlock, /truthDetailText: onlineTruthDetailText\(truth\)/);
   assert.match(appMain, /const aiDailyReportMetricValue = \(metric\) => \{[\s\S]*?return '—';/);
   assert.doesNotMatch(truthBlock, /\|\|\s*0/);
 
@@ -306,33 +308,19 @@ test('AI daily report metric cards bind per-metric truth without global OTA prom
   assert.match(aiDailyReportFragment, /:truth="metric\.truth"/);
   assert.doesNotMatch(aiDailyReportFragment, /metric\.sourceRefsText|metric\.truthDetailText/);
 
-  const aiDailyReport = { value: null };
-  const aiDailyReportMetricTruth = (metric = {}) => {
-    const result = aiDailyHelpers.buildMetricTruth({
-      metric,
-      report: aiDailyReport.value || {},
-      permittedHotels: [{ id: 7, name: '测试酒店' }],
-      hotels: [],
-    });
-    return { ...result, truthDetailText: dataHealthHelpers.onlineTruthDetailText(result.truth) };
-  };
-  const aiDailyReportMetricCards = {
-    get value() {
-      return aiDailyHelpers.objectList(aiDailyReport.value?.yesterday_result?.metrics)
-        .filter(Boolean).slice(0, 10).map(metric => {
-          const truthContext = aiDailyReportMetricTruth(metric);
-          const calculation = aiDailyHelpers.metricCalculation(metric);
-          return {
-            ...metric,
-            ...truthContext,
-            calculationStatus: calculation.code,
-            calculationStatusText: calculation.text,
-            calculationStatusClass: calculation.className,
-          };
-        });
-    },
-  };
-  const metricHelpers = { aiDailyReport, aiDailyReportMetricTruth, aiDailyReportMetricCards };
+  const metricHelpers = vm.runInNewContext(`(() => {
+    const aiDailyReport = { value: null };
+    const permittedHotels = { value: [{ id: 7, name: '测试酒店' }] };
+    const hotels = { value: [] };
+    const computed = (factory) => ({ get value() { return factory(); } });
+    const aiDailyReportList = (value) => Array.isArray(value) ? value : [];
+    const aiDailyReportObjectList = (value) => aiDailyReportList(value)
+      .filter(item => item && typeof item === 'object' && !Array.isArray(item));
+    ${truthBlock}
+    return { aiDailyReport, aiDailyReportMetricTruth, aiDailyReportMetricCards };
+  })()`, {
+    onlineTruthDetailText: dataHealthHelpers.onlineTruthDetailText,
+  }, { filename: 'ai-daily-report-metric-truth.js' });
   metricHelpers.aiDailyReport.value = {
     hotel_id: 7,
     report_date: '2026-07-18',
@@ -774,19 +762,18 @@ test('Revenue AI overview endpoint builder keeps query scope explicit', () => {
     'business_date=2026-06-25&platform=meituan',
   );
   assert.equal(
-    helpers.resolveRevenueAiBusinessDate({ overview: { business_date: '2026-06-24' }, now: new Date('2026-06-27T10:00:00') }),
+    helpers.resolveRevenueAiBusinessDate({ overview: { business_date: '2026-06-24' } }),
     '2026-06-24',
   );
   assert.equal(
     helpers.resolveRevenueAiBusinessDate({
       selectedDate: '2026-06-27',
-      now: new Date('2026-06-27T10:00:00'),
     }),
     '2026-06-27',
   );
   assert.equal(
-    helpers.resolveRevenueAiBusinessDate({ now: new Date('2026-06-27T10:00:00') }),
-    '2026-06-26',
+    helpers.resolveRevenueAiBusinessDate({}),
+    '',
   );
   const request = helpers.resolveRevenueAiOverviewRequest({
     hasToken: true,
@@ -806,10 +793,33 @@ test('Revenue AI overview endpoint builder keeps query scope explicit', () => {
   assert.equal(agentCenterRequest.shouldLoad, true);
   assert.equal(agentCenterRequest.endpoint, '/revenue-ai/overview?business_date=2026-06-25&hotel_id=58&platform=ctrip');
   assert.equal(helpers.resolveRevenueAiOverviewRequest({ hasToken: true, currentPage: 'online-data' }).reason, 'not_revenue_ai_surface');
-  const success = helpers.resolveRevenueAiOverviewResponse({ response: { code: 200, data: { data_status: 'ok' } } });
+  const success = helpers.resolveRevenueAiOverviewResponse({ response: { code: 200, data: {
+    data_status: 'ok',
+    as_of_date: '2026-06-27',
+    as_of_date_contract_version: 'revenue_overview_as_of_date.v1',
+  } } });
   assert.equal(success.ok, true);
   assert.equal(success.overview.data_status, 'ok');
   assert.equal(success.errorMessage, '');
+  assert.deepEqual(
+    { ...helpers.resolveRevenueOverviewAsOfDate(success.overview) },
+    {
+      ok: true,
+      status: 'ready',
+      asOfDate: '2026-06-27',
+      contractVersion: 'revenue_overview_as_of_date.v1',
+      message: '数据基准日 2026-06-27（Asia/Shanghai）',
+    },
+  );
+  const blockedAsOf = helpers.resolveRevenueAiOverviewResponse({ response: { code: 200, data: {
+    data_status: 'ok',
+    as_of_date: '2026-02-30',
+    as_of_date_contract_version: 'revenue_overview_as_of_date.v1',
+  } } });
+  assert.equal(blockedAsOf.ok, false);
+  assert.equal(blockedAsOf.status, 'blocked');
+  assert.equal(blockedAsOf.overview, null);
+  assert.match(blockedAsOf.errorMessage, /数据基准日无效/);
   const failed = helpers.resolveRevenueAiOverviewResponse({ response: { code: 500, message: '接口异常' } });
   assert.equal(failed.ok, false);
   assert.equal(failed.overview, null);
@@ -3277,7 +3287,8 @@ test('daily revenue cockpit scope defaults to the latest strict readback and kee
       },
     ],
     boundary: {
-      strict_gate: 'history_success+validation_verified+readback_verified',
+      strict_gate: 'dual_ota_field_closure.v1:revenue_analysis_consumable',
+      fact_authority: 'trusted_ota_daily_fact_consumer.v1',
       silent_date_fallback: false,
       pms_included: false,
     },
@@ -3285,20 +3296,20 @@ test('daily revenue cockpit scope defaults to the latest strict readback and kee
 
   const initial = helpers.resolveRevenueCockpitScope({
     scopePayload,
-    today: '2026-08-21',
+    asOfDate: '2026-08-21',
   });
   assert.equal(initial.selectedPlatform, 'ctrip');
   assert.equal(initial.selectedDate, '2026-08-20');
   assert.equal(initial.previousDate, '2026-08-18');
   assert.equal(initial.dateDistance, 1);
-  assert.match(initial.notice, /比今天早 1 天/);
+  assert.match(initial.notice, /比数据基准日早 1 天/);
 
   const switched = helpers.resolveRevenueCockpitScope({
     scopePayload,
     requestedPlatform: 'all_ota',
     requestedDate: '2026-08-20',
     resetDate: true,
-    today: '2026-08-21',
+    asOfDate: '2026-08-21',
   });
   assert.equal(switched.selectedPlatform, 'all_ota');
   assert.equal(switched.selectedDate, '2026-08-18');
@@ -3309,11 +3320,15 @@ test('daily revenue cockpit scope defaults to the latest strict readback and kee
   const snapshot = await helpers.loadRevenueCockpitSnapshot({
     hotelId: '80',
     reloadScope: true,
-    today: '2026-08-21',
     readScope: async () => ({ code: 200, data: scopePayload }),
     readOverview: async (hotelId, businessDate, platform) => {
       overviewReads.push({ hotelId, businessDate, platform });
-      return { hotel_id: Number(hotelId), business_date: businessDate };
+      return {
+        hotel_id: Number(hotelId),
+        business_date: businessDate,
+        as_of_date: '2026-08-21',
+        as_of_date_contract_version: 'revenue_overview_as_of_date.v1',
+      };
     },
   });
   assert.equal(snapshot.status, 'ready');
@@ -3321,310 +3336,340 @@ test('daily revenue cockpit scope defaults to the latest strict readback and kee
   assert.deepEqual(Array.from(overviewReads, (row) => row.businessDate), ['2026-08-20', '2026-08-18']);
 });
 
-test('daily revenue cockpit shows verified zero, withholds unverified zero, and downloads the exact visible model', async () => {
-  const source = ({ platform, date, facts, statuses, rowIds, dataStatus = 'readback_verified' }) => ({
-    data_status: dataStatus,
-    business_date: date,
-    actual_business_date: date,
-    facts,
-    fact_statuses: statuses,
-    source: {
-      table: platform === 'dingdandao_pms' ? 'dingdandao_operating_target_captures' : 'online_daily_data',
-      data_date: date,
-      platform: platform === 'dingdandao_pms' ? undefined : platform,
-      row_ids: platform === 'dingdandao_pms' ? undefined : rowIds,
-      record_id: platform === 'dingdandao_pms' ? rowIds[0] : undefined,
-      readback_status: dataStatus,
-      source_trace_ids: rowIds.map((id) => `${platform}:${id}`),
+test('daily revenue cockpit accepts only the exact server-issued canonical model and digest', () => {
+  const clone = (value) => JSON.parse(JSON.stringify(value));
+  const actionLabel = '优先补齐数据基准日的数据';
+  const actionDisplay = '当前最近严格可用日为 2026-08-20，比数据基准日 2026-08-21 早 1 天；先复核该基准日是否已采集、保存并严格回读。';
+  const model = {
+    contractVersion: 'revenue_daily_cockpit.v2',
+    status: 'partial',
+    statusLabel: '部分可用',
+    statusClass: 'border-amber-200 bg-amber-50 text-amber-800',
+    headline: '服务端签发经营驾驶舱',
+    summary: '当前只展示服务端签发的严格事实模型。',
+    dateNotice: actionDisplay,
+    scopeBoundary: 'PMS 与 OTA 口径保持分离。',
+    selectedPlatform: 'all_ota',
+    selectedPlatformLabel: '携程 + 美团',
+    businessDate: '2026-08-20',
+    asOfDate: '2026-08-21',
+    asOfDateContractVersion: 'revenue_overview_as_of_date.v1',
+    previousDate: '2026-08-18',
+    sameWeekdayDate: '2026-08-13',
+    dateDistance: 1,
+    tenantId: 9,
+    hotelId: 80,
+    hotelName: '测试酒店',
+    sections: [{
+      key: 'core_metrics',
+      title: '核心指标',
+      cards: [{
+        key: 'verified_zero',
+        label: '已核验零值',
+        display: '0',
+        unitLabel: '元',
+        sourceLabel: '携程严格回读',
+        businessDate: '2026-08-20',
+        statusLabel: '严格回读',
+        scopeLabel: '携程渠道',
+        missingState: '',
+        reasonText: '服务端签发零值；前端不得把缺失伪装成零。',
+        evidenceLines: ['online_daily_data #101'],
+      }],
+    }],
+    visibleSections: [{
+      key: 'core_metrics',
+      title: '核心指标',
+      cards: [{
+        key: 'verified_zero',
+        label: '已核验零值',
+        display: '0',
+        unitLabel: '元',
+        sourceLabel: '携程严格回读',
+        businessDate: '2026-08-20',
+        statusLabel: '严格回读',
+        scopeLabel: '携程渠道',
+        missingState: '',
+        reasonText: '服务端签发零值；前端不得把缺失伪装成零。',
+        evidenceLines: ['online_daily_data #101'],
+      }],
+    }],
+    opportunities: Array.from({ length: 8 }, (_, index) => ({
+      opportunityKey: `opportunity_${index + 1}`,
+      title: index === 0 ? actionLabel : `服务端建议 ${index + 1}`,
+      recommendedCheckAction: index === 0 ? actionDisplay : `复核服务端建议 ${index + 1}`,
+      canCreatePendingApproval: false,
+    })),
+    comparisonFrames: [],
+    anomalyChains: [],
+    sourceRecords: [],
+    metricDefinitions: [],
+    missingItems: [],
+    evidenceSummary: {},
+    canAskQuestion: true,
+    canCreatePendingApproval: false,
+    canSaveSnapshot: true,
+    actionDisabledReason: '',
+  };
+  const digest = 'a'.repeat(64);
+  const source = (platform, rowId) => ({
+    business_date: '2026-08-20',
+    actual_business_date: '2026-08-20',
+    source: { platform, table: 'online_daily_data', row_ids: [rowId] },
+  });
+  const strictPlatform = (rowId) => ({
+    business_date: '2026-08-20',
+    source_strict_readback: true,
+    accepted_row_ids: [rowId],
+    rejected_row_ids: [],
+    metrics: {
+      revenue: { strict_readback: true, accepted_row_ids: [rowId], rejected_row_ids: [] },
     },
   });
-  const ready = (keys) => Object.fromEntries(keys.map((key) => [key, { status: 'readback_verified' }]));
-  const otaFacts = (revenue, orders, roomNights) => ({
-    revenue,
-    orders,
-    room_nights: roomNights,
-    adr: roomNights > 0 ? revenue / roomNights : null,
-    list_exposure: 0,
-    detail_exposure: 25,
-    flow_rate_percent: 0,
-    submit_rate_percent: 4,
-    cancellation_rate_percent: 0,
-  });
-  const otaStatuses = {
-    ...ready(['revenue', 'orders', 'room_nights', 'list_exposure', 'detail_exposure', 'flow_rate_percent', 'submit_rate_percent', 'cancellation_rate_percent']),
-    adr: { status: 'derived_verified', formula: 'ota_room_revenue / ota_room_nights' },
-  };
-  const strictPlatform = (rowIds) => ({
-    source_strict_readback: true,
-    accepted_row_ids: rowIds,
-    rejected_row_ids: [],
-    metrics: Object.fromEntries([
-      'revenue', 'orders', 'room_nights', 'adr', 'list_exposure',
-      'detail_exposure', 'flow_rate_percent', 'submit_rate_percent',
-      'cancellation_rate_percent',
-    ].map((key) => [key, {
-      strict_readback: true,
-      accepted_row_ids: rowIds,
-      rejected_row_ids: [],
-    }])),
-  });
-  const overviewFor = (date, ctripRevenue, meituanRevenue) => ({
+  const overview = {
     hotel_id: 80,
-    business_date: date,
+    business_date: '2026-08-20',
+    as_of_date: '2026-08-21',
+    as_of_date_contract_version: 'revenue_overview_as_of_date.v1',
+    three_source_fact_layer: {
+      business_date: '2026-08-20',
+      hotel: { system_hotel_id: 80, tenant_id: 9 },
+      sources: {
+        ctrip_ota: source('ctrip', 101),
+        meituan_ota: source('meituan', 202),
+      },
+    },
     cockpit_strict_evidence: {
       contract_version: 'revenue_cockpit_strict_evidence.v1',
-      strict_gate: 'history_success+validation_verified+readback_verified',
+      tenant_id: 9,
+      hotel_id: 80,
+      business_date: '2026-08-20',
+      platform: 'all_ota',
       platforms: {
-        ctrip: strictPlatform([101, 102]),
-        meituan: strictPlatform([201]),
+        ctrip: strictPlatform(101),
+        meituan: strictPlatform(202),
       },
     },
-    three_source_fact_layer: {
-      business_date: date,
-      hotel: { tenant_id: 9, system_hotel_id: 80, name: '真实验收酒店' },
-      sources: {
-        dingdandao_pms: source({
-          platform: 'dingdandao_pms',
-          date,
-          facts: { room_revenue: 0, sold_room_nights: 0, occupancy_rate_percent: 0, adr: 0, revpar: 0 },
-          statuses: Object.fromEntries(['room_revenue', 'sold_room_nights', 'occupancy_rate_percent', 'adr', 'revpar'].map((key) => [key, {
-            status: 'not_verified',
-            reason: 'dingdandao_pms_not_readback_verified',
-          }])),
-          rowIds: [],
-          dataStatus: 'not_verified',
-        }),
-        ctrip_ota: source({
-          platform: 'ctrip',
-          date,
-          facts: otaFacts(ctripRevenue, 0, 2),
-          statuses: otaStatuses,
-          rowIds: [101, 102],
-        }),
-        meituan_ota: source({
-          platform: 'meituan',
-          date,
-          facts: otaFacts(meituanRevenue, 2, 3),
-          statuses: otaStatuses,
-          rowIds: [201],
-        }),
-      },
-      analysis_gaps: [{
-        code: 'dingdandao_pms_not_readback_verified',
-        source: 'dingdandao_pms',
-        status: 'not_verified',
-        next_action: '补齐 PMS 同店同日事实并严格回读。',
-      }],
-    },
-  });
-  const scope = {
-    selectedPlatform: 'all_ota',
-    selectedDate: '2026-08-20',
-    previousDate: '2026-08-18',
-    notice: '携程 + 美团当前业务日 2026-08-20，比今天早 1 天。',
+    canonical_view_model: model,
+    canonical_view_model_digest: digest,
+    canonical_view_model_contract_version: 'revenue_daily_cockpit.v2',
+    canonical_view_model_status: 'server_issued',
   };
-  const model = helpers.buildRevenueCockpitModel({
-    overview: overviewFor('2026-08-20', 200, 300),
-    comparisonOverview: overviewFor('2026-08-18', 150, 280),
-    scope,
-    selectedPlatform: 'all_ota',
+  const expected = { hotelId: 80, businessDate: '2026-08-20', platform: 'all_ota' };
+
+  const canonical = helpers.resolveRevenueCockpitCanonicalViewModel({
+    overview,
+    hotelId: 80,
     businessDate: '2026-08-20',
-    today: '2026-08-21',
-    canExecuteOperation: true,
+    platform: 'all_ota',
   });
-
-  assert.equal(model.status, 'partial');
-  assert.match(model.dateNotice, /比今天早 1 天/);
-  assert.match(model.scopeBoundary, /不同来源收入不相加/);
-  const allCards = model.visibleSections.flatMap((section) => section.cards);
-  assert.equal(allCards.find((card) => card.key === 'dingdandao_pms:room_revenue').display, '—');
-  assert.equal(allCards.find((card) => card.key === 'ctrip_ota:orders').display, '0 单');
-  assert.equal(allCards.find((card) => card.key === 'ctrip_ota:list_exposure').display, '0 次');
-  assert.equal(allCards.find((card) => card.key === 'ctrip_ota:revenue').display, '¥200.00');
-  assert.equal(allCards.find((card) => card.key === 'meituan_ota:revenue').display, '¥300.00');
-  assert.equal(allCards.some((card) => card.key.includes('combined')), false);
-  assert.equal(allCards.find((card) => card.key === 'compare:ctrip_ota:revenue').display, '+¥50.00（+33.33%）');
-  assert.match(allCards.find((card) => card.key === 'compare:ctrip_ota:revenue').reasonText, /同一指标与同一单位/);
-  assert.equal(model.canCreatePendingApproval, true);
-
-  const permissionBlockedModel = helpers.buildRevenueCockpitModel({
-    overview: overviewFor('2026-08-20', 200, 300),
-    comparisonOverview: overviewFor('2026-08-18', 150, 280),
-    scope,
-    selectedPlatform: 'all_ota',
-    businessDate: '2026-08-20',
-    today: '2026-08-21',
-    canExecuteOperation: false,
-  });
-  assert.equal(permissionBlockedModel.canCreatePendingApproval, false);
-  assert.match(permissionBlockedModel.actionDisabledReason, /运营执行权限/);
-
-  const expectedLabels = Array.from(model.visibleSections).flatMap(
-    (section) => Array.from(section.cards, (card) => card.label),
+  assert.equal(canonical.ok, true);
+  assert.strictEqual(canonical.model, model, 'the browser must preserve the server-issued model object');
+  assert.equal(canonical.digest, digest);
+  assert.strictEqual(
+    helpers.buildRevenueCockpitModel({
+      overview,
+      selectedPlatform: 'all_ota',
+      businessDate: '2026-08-20',
+    }),
+    model,
+    'the browser must render the canonical model without rebuilding its cards or copy',
   );
-  const rows = helpers.buildRevenueCockpitDownloadRows(model);
-  assert.deepEqual(Array.from(rows, (row) => row.card), expectedLabels);
-  assert.equal(rows.every((row) => row.source && row.business_date && row.verification_status && row.missing_state), true);
-  const csv = helpers.buildRevenueCockpitCsv(model);
-  assert.match(csv, /"页面显示"/);
-  assert.match(csv, /"携程渠道房费收入"/);
-  assert.match(csv, /"¥200.00"/);
-  assert.equal(csv.split('\r\n').length, rows.length + 1);
-  const download = helpers.buildRevenueCockpitDownloadPayload(model, '备用酒店');
+  assert.equal(model.opportunities[0].title, actionLabel);
+  assert.equal(model.opportunities[0].recommendedCheckAction, actionDisplay);
+
+  const accepted = helpers.resolveRevenueCockpitOverviewResponse({ code: 200, data: overview }, expected);
+  assert.equal(accepted.ok, true);
+  assert.strictEqual(accepted.canonicalModel, model);
+  assert.equal(accepted.canonicalDigest, digest);
+
+  const download = helpers.buildRevenueCockpitDownloadPayload(model);
   assert.equal(download.ok, true);
-  assert.deepEqual(Array.from(download.rows, (row) => row.card), expectedLabels);
-  assert.match(download.fileName, /^经营驾驶舱_真实验收酒店_2026-08-20_all_ota\.csv$/);
-  const question = helpers.buildRevenueCockpitQuestionDraft(model, 80);
-  assert.equal(question.ok, true);
-  assert.equal(question.hotelId, '80');
-  assert.equal(question.platform, 'all_ota');
-  assert.equal(question.decisionObject, 'channel');
-  assert.match(question.question, /存在数据缺口/);
-  assert.match(
-    helpers.buildRevenueCockpitOverviewEndpoint(80, '2026-08-20', 'all_ota'),
-    /hotel_id=80&business_date=2026-08-20&cockpit=1&platform=all_ota&enabled_channels=ctrip%2Cmeituan/,
+  assert.equal(download.rows.length, 1);
+  assert.equal(download.rows[0].display, '0');
+  assert.match(download.csv, /已核验零值/);
+
+  for (const mutate of [
+    (candidate) => { candidate.canonical_view_model_status = 'client_generated'; },
+    (candidate) => { candidate.canonical_view_model_contract_version = 'revenue_daily_cockpit.v1'; },
+    (candidate) => { candidate.canonical_view_model_digest = 'not-a-digest'; },
+    (candidate) => { candidate.canonical_view_model.hotelId = 81; },
+    (candidate) => { candidate.canonical_view_model.businessDate = '2026-08-19'; },
+    (candidate) => { candidate.canonical_view_model.asOfDate = '2026-08-20'; },
+    (candidate) => { candidate.as_of_date_contract_version = 'wrong'; },
+  ]) {
+    const invalidOverview = clone(overview);
+    mutate(invalidOverview);
+    const invalid = helpers.resolveRevenueCockpitCanonicalViewModel({
+      overview: invalidOverview,
+      hotelId: 80,
+      businessDate: '2026-08-20',
+      platform: 'all_ota',
+    });
+    assert.equal(invalid.ok, false);
+    const blocked = helpers.buildRevenueCockpitModel({
+      overview: invalidOverview,
+      selectedPlatform: 'all_ota',
+      businessDate: '2026-08-20',
+    });
+    assert.equal(blocked.status, 'blocked');
+    assert.equal(blocked.visibleSections.length, 0);
+    assert.equal(blocked.canSaveSnapshot, false);
+  }
+
+  const missingCanonical = clone(overview);
+  delete missingCanonical.canonical_view_model;
+  assert.equal(
+    helpers.resolveRevenueCockpitOverviewResponse({ code: 200, data: missingCanonical }, expected).ok,
+    false,
   );
   const overviewResponse = helpers.resolveRevenueCockpitOverviewResponse({
     code: 200,
-    data: overviewFor('2026-08-20', 200, 300),
-  }, { hotelId: 80, businessDate: '2026-08-20' });
+    data: clone(overview),
+  }, { hotelId: 80, businessDate: '2026-08-20', platform: 'all_ota' });
   assert.equal(overviewResponse.ok, true);
+  const partialMeituanOverview = clone(overview);
+  partialMeituanOverview.cockpit_strict_evidence.platforms.meituan.source_strict_readback = false;
+  partialMeituanOverview.cockpit_strict_evidence.platforms.meituan.accepted_row_ids = [102476];
+  partialMeituanOverview.cockpit_strict_evidence.platforms.meituan.metrics.revenue.strict_readback = false;
+  partialMeituanOverview.cockpit_strict_evidence.platforms.meituan.metrics.revenue.accepted_row_ids = [];
+  partialMeituanOverview.cockpit_strict_evidence.platforms.meituan.metrics.list_exposure = {
+    strict_readback: true,
+    accepted_row_ids: [102476],
+  };
   assert.equal(helpers.resolveRevenueCockpitOverviewResponse({
     code: 200,
-    data: overviewFor('2026-08-18', 200, 300),
-  }, { hotelId: 80, businessDate: '2026-08-20' }).ok, false);
+    data: partialMeituanOverview,
+  }, { hotelId: 80, businessDate: '2026-08-20', platform: 'all_ota' }).ok, true);
+  Object.values(partialMeituanOverview.cockpit_strict_evidence.platforms.meituan.metrics).forEach((metric) => {
+    metric.strict_readback = false;
+    metric.accepted_row_ids = [];
+  });
+  assert.equal(helpers.resolveRevenueCockpitOverviewResponse({
+    code: 200,
+    data: partialMeituanOverview,
+  }, { hotelId: 80, businessDate: '2026-08-20', platform: 'all_ota' }).ok, false);
+  const staleOverview = clone(overview);
+  staleOverview.business_date = '2026-08-18';
+  assert.equal(helpers.resolveRevenueCockpitOverviewResponse({
+    code: 200,
+    data: staleOverview,
+  }, { hotelId: 80, businessDate: '2026-08-20', platform: 'all_ota' }).ok, false);
   assert.equal(helpers.resolveRevenueCockpitScopeResponse({
     code: 200,
     data: {
       contract_version: 'operating_question_scope_options.v1',
       hotel_id: 80,
-      boundary: { silent_date_fallback: false },
+      boundary: {
+        strict_gate: 'dual_ota_field_closure.v1:revenue_analysis_consumable',
+        fact_authority: 'trusted_ota_daily_fact_consumer.v1',
+        silent_date_fallback: false,
+      },
     },
   }, 80).ok, true);
-  const savedApproval = helpers.resolveRevenueCockpitPendingApprovalSave({
-    status: 'pending_approval',
-    persistence_status: 'readback_verified',
-    execution_task_created: false,
-    external_action_triggered: false,
-    execution_intent: { id: 901 },
-  });
-  assert.equal(savedApproval.ok, true);
-  assert.equal(savedApproval.intentId, 901);
-  const exactApproval = helpers.resolveRevenueCockpitPendingApprovalReadback({
-    id: 901,
-    hotel_id: 80,
-    source_module: 'operating_loop_approval',
-    date_start: '2026-08-20',
-    date_end: '2026-08-20',
-    status: 'pending_approval',
-    tasks: [],
-  }, { intentId: 901, hotelId: 80, businessDate: '2026-08-20' });
-  assert.equal(exactApproval.ok, true);
-  const pendingRequests = [];
-  const createdApproval = await helpers.createRevenueCockpitPendingApprovalWithReadback({
-    model,
-    hotelId: 80,
-    request: async (url) => {
-      pendingRequests.push(url);
-      return url === '/revenue-ai/cockpit/pending-approval'
-        ? {
-            code: 200,
-            data: {
-              status: 'pending_approval',
-              persistence_status: 'readback_verified',
-              execution_task_created: false,
-              external_action_triggered: false,
-              execution_intent: { id: 901 },
-            },
-          }
-        : {
-            code: 200,
-            data: {
-              id: 901,
-              hotel_id: 80,
-              source_module: 'operating_loop_approval',
-              date_start: '2026-08-20',
-              date_end: '2026-08-20',
-              status: 'pending_approval',
-              tasks: [],
-            },
-          };
+  assert.equal(helpers.resolveRevenueCockpitScopeResponse({
+    code: 200,
+    data: {
+      contract_version: 'operating_question_scope_options.v1',
+      hotel_id: 80,
+      boundary: {
+        strict_gate: 'history_success+validation_verified+readback_verified',
+        silent_date_fallback: false,
+      },
     },
-  });
-  assert.equal(createdApproval.ok, true);
-  assert.deepEqual(Array.from(pendingRequests), [
-    '/revenue-ai/cockpit/pending-approval',
-    '/operation/execution-intents/901',
-  ]);
-  assert.equal(helpers.resolveRevenueCockpitPendingApprovalSave({ execution_intent: { id: 902 } }).ok, false);
-  assert.equal(helpers.resolveRevenueCockpitPendingApprovalReadback({
-    id: 901,
-    hotel_id: 80,
-    source_module: 'operating_loop_approval',
-    date_start: '2026-08-20',
-    date_end: '2026-08-20',
-    status: 'pending_approval',
-    tasks: [{ id: 1 }],
-  }, { intentId: 901, hotelId: 80, businessDate: '2026-08-20' }).ok, false);
+  }, 80).ok, false);
 
-  const rejectedOverview = overviewFor('2026-08-20', 200, 300);
-  rejectedOverview.cockpit_strict_evidence.platforms.meituan = {
-    ...rejectedOverview.cockpit_strict_evidence.platforms.meituan,
-    source_strict_readback: false,
-    accepted_row_ids: [],
-    rejected_row_ids: [201],
-    metrics: Object.fromEntries(Object.entries(
-      rejectedOverview.cockpit_strict_evidence.platforms.meituan.metrics,
-    ).map(([key, item]) => [key, {
-      ...item,
-      strict_readback: false,
-      accepted_row_ids: [],
-      rejected_row_ids: [201],
-    }])),
-  };
-  const rejectedModel = helpers.buildRevenueCockpitModel({
-    overview: rejectedOverview,
-    comparisonOverview: null,
-    scope,
-    selectedPlatform: 'meituan',
+  const loading = helpers.buildRevenueCockpitModel({ loading: true });
+  assert.equal(loading.status, 'loading');
+  assert.equal(loading.visibleSections.length, 0);
+});
+
+test('revenue decision snapshot posts and reads back the same canonical model digest', async () => {
+  const digest = 'b'.repeat(64);
+  const model = {
+    contractVersion: 'revenue_daily_cockpit.v2',
+    status: 'ready',
+    hotelId: 80,
+    tenantId: 9,
     businessDate: '2026-08-20',
-    today: '2026-08-21',
-    canExecuteOperation: true,
+    selectedPlatform: 'all_ota',
+    asOfDate: '2026-08-21',
+    asOfDateContractVersion: 'revenue_overview_as_of_date.v1',
+    canSaveSnapshot: true,
+    actionDisabledReason: '',
+    sections: [],
+    visibleSections: [],
+    opportunities: Array.from({ length: 8 }, (_, index) => ({
+      opportunityKey: `opportunity_${index + 1}`,
+      canCreatePendingApproval: false,
+    })),
+  };
+  const snapshot = {
+    id: 33,
+    contract_version: 'revenue_decision_snapshot.v1',
+    persistence_status: 'readback_verified',
+    evidence_identity_status: 'matched_current',
+    system_hotel_id: 80,
+    business_date: '2026-08-20',
+    platform: 'all_ota',
+    as_of_date: '2026-08-21',
+    as_of_date_contract_version: 'revenue_overview_as_of_date.v1',
+    visible_model: model,
+    visible_model_digest: digest,
+    evidence_digest: 'c'.repeat(64),
+    content_digest: 'd'.repeat(64),
+  };
+  const responsePayload = {
+    found: true,
+    persistence_status: 'readback_verified',
+    snapshot,
+  };
+  const requests = [];
+  const request = async (endpoint, options = {}) => {
+    requests.push({ endpoint, options });
+    if (options.method === 'POST') return { code: 200, data: responsePayload };
+    return { code: 200, data: responsePayload };
+  };
+
+  const saved = await helpers.saveRevenueDecisionSnapshotWithReadback({
+    request,
+    model,
+    modelDigest: digest,
+    hotelId: 80,
   });
-  const rejectedCards = rejectedModel.visibleSections.flatMap((section) => section.cards);
-  const rejectedRevenue = rejectedCards.find((card) => card.key === 'meituan_ota:revenue');
-  assert.equal(rejectedRevenue.display, '—');
-  assert.equal(rejectedRevenue.value, null);
-  assert.equal(rejectedRevenue.statusLabel, '未验证');
-  assert.match(rejectedRevenue.reasonText, /严格事实闸门/);
-  assert.match(rejectedRevenue.evidenceLines.join('；'), /拒绝 #201/);
-  assert.equal(rejectedModel.canCreatePendingApproval, false);
-  const loadingModel = helpers.buildRevenueCockpitModel({ loading: true });
-  assert.equal(loadingModel.status, 'loading');
-  assert.equal(loadingModel.visibleSections.length, 0);
-  assert.equal(loadingModel.canCreatePendingApproval, false);
-  const failedModel = helpers.buildRevenueCockpitModel({ error: 'strict readback failed' });
-  assert.equal(failedModel.status, 'failed');
-  assert.match(failedModel.summary, /strict readback failed/);
-  assert.equal(failedModel.visibleSections.length, 0);
-  const emptyModel = helpers.buildRevenueCockpitModel({
-    scope: { notice: '没有严格可用日期' },
-    selectedPlatform: 'meituan',
+  assert.equal(saved.ok, true);
+  assert.equal(saved.status, 'matched_current');
+  assert.strictEqual(saved.snapshot.visible_model, model);
+  assert.equal(requests.length, 2);
+  assert.equal(requests[0].endpoint, '/revenue-ai/cockpit/decision-snapshots');
+  const posted = JSON.parse(requests[0].options.body);
+  assert.deepEqual(posted.visible_model, model);
+  assert.equal(posted.visible_model_digest, digest);
+  assert.equal(posted.as_of_date, '2026-08-21');
+  assert.equal(posted.as_of_date_contract_version, 'revenue_overview_as_of_date.v1');
+  assert.match(requests[1].endpoint, /snapshot_id=33/);
+  assert.match(requests[1].endpoint, /as_of_date=2026-08-21/);
+
+  const rejected = await helpers.saveRevenueDecisionSnapshotWithReadback({
+    request,
+    model,
+    modelDigest: 'not-a-digest',
+    hotelId: 80,
   });
-  assert.equal(emptyModel.status, 'empty');
-  assert.match(emptyModel.summary, /没有严格可用日期/);
-  assert.equal(emptyModel.canAskQuestion, false);
+  assert.equal(rejected.ok, false);
+  assert.equal(requests.length, 2, 'an invalid digest must fail before any write');
+  assert.equal(helpers.resolveRevenueDecisionSnapshot(responsePayload, {
+    hotelId: 80,
+    businessDate: '2026-08-20',
+    platform: 'all_ota',
+    asOfDate: '2026-08-21',
+    asOfDateContractVersion: 'revenue_overview_as_of_date.v1',
+    visibleModelDigest: 'e'.repeat(64),
+  }).ok, false);
 });
 
 test('daily revenue cockpit template exposes unified context, evidence, download and human-gated handoffs', () => {
   const cockpitRuntime = readFileSync('public/revenue-ai-static.js', 'utf8');
-  const appMain = readFileSync('public/app-main.js', 'utf8');
-  const scopeCallStart = appMain.indexOf('revenueAiResolveCockpitScope({');
-  const modelCallStart = appMain.indexOf('revenueAiBuildCockpitModel({');
-  const scopeCall = appMain.slice(scopeCallStart, appMain.indexOf('}));', scopeCallStart) + 4);
-  const modelCall = appMain.slice(modelCallStart, appMain.indexOf('}));', modelCallStart) + 4);
-  assert.doesNotMatch(scopeCall, /canExecuteOperation/);
-  assert.match(modelCall, /canExecuteOperation:\s*userHasPermission\('can_execute_operation'\)/);
   for (const marker of [
     'data-testid="revenue-daily-cockpit"',
     'data-testid="revenue-cockpit-hotel"',
@@ -3635,20 +3680,88 @@ test('daily revenue cockpit template exposes unified context, evidence, download
     'data-testid="revenue-cockpit-error"',
     'data-testid="revenue-cockpit-empty"',
     'data-testid="revenue-cockpit-evidence"',
-    'data-testid="revenue-cockpit-to-question"',
-    'data-testid="revenue-cockpit-create-approval"',
-    'data-testid="revenue-cockpit-approval-readback"',
+    'data-testid="revenue-cockpit-save-snapshot"',
   ]) {
     assert.ok(appTemplate.includes(marker), `${marker} must remain in the generated template snapshot`);
+  }
+  for (const marker of [
+    "'data-testid': 'revenue-cockpit-restored-action'",
+    "'data-testid': 'revenue-cockpit-restored-action-open'",
+    "'data-testid': 'revenue-cockpit-restored-action-error'",
+  ]) {
+    assert.ok(appMain.includes(marker), `${marker} must remain in the registered restore-status component`);
   }
   assert.match(cockpitRuntime, /buildRevenueCockpitCsv/);
   assert.match(appMain, /loadRevenueCockpitSnapshot/);
   assert.match(cockpitRuntime, /buildRevenueCockpitOverviewEndpoint/);
-  assert.match(cockpitRuntime, /cockpit:\s*'1'/);
-  assert.match(appMain, /createRevenueCockpitPendingApprovalWithReadback/);
+  assert.match(cockpitRuntime, /cockpit:\s*['"]1['"]/);
+  assert.match(appMain, /saveRevenueDecisionSnapshotWithReadback/);
+  assert.match(appMain, /restoreRevenueDecisionSnapshotWithReadback/);
+  assert.match(appMain, /createRevenueOpportunityPendingApprovalWithReadback/);
+  assert.match(appMain, /restoreRevenueCockpitPendingApprovalWithReadback/);
+  assert.match(
+    appTemplate,
+    /loadRevenueCockpit\(\{ reloadScope: true, ignoreSavedSnapshot: true \}\)/,
+    'refresh facts must bypass a restored snapshot and expose the current live model',
+  );
+  assert.match(
+    appMain,
+    /const revenueCockpitModel = computed\(\(\) => revenueCockpitLiveModel\.value\);/,
+    'saved snapshots must not replace the server-issued live visible model',
+  );
+  assert.match(appMain, /resolveRevenueCockpitCanonicalViewModel/);
+  assert.match(appMain, /modelDigest: revenueCockpitLiveModelDigest\.value/);
+  assert.match(cockpitRuntime, /canonical_view_model_status/);
+  assert.match(cockpitRuntime, /visible_model_digest: normalizedModelDigest/);
+  assert.doesNotMatch(cockpitRuntime, /const revenueCockpitMetricCard\s*=/);
+  assert.match(appMain, /const captureRevenueCockpitMutationContext = \(\) => \(\{/);
+  assert.match(appMain, /const isRevenueCockpitMutationCurrent = \(context = \{\}\) => \(/);
+  assert.match(
+    appMain,
+    /if \(!isRevenueCockpitMutationCurrent\(mutationContext\)\) return null;/,
+    'snapshot save and opportunity handoff must ignore responses from an obsolete scope',
+  );
+  assert.match(
+    appMain,
+    /const ignoreSavedSnapshot = options\.ignoreSavedSnapshot === true\s*\|\| options\.ignoreSavedSnapshot === 1;/,
+    'compiled template event booleans must be normalized because the render build emits numeric 1',
+  );
+  assert.match(
+    appMain,
+    /if \(ignoreSavedSnapshot\) \{\s*revenueCockpitDecisionSnapshot\.value = null;\s*revenueCockpitSnapshotError\.value = '';\s*revenueCockpitSnapshotReadbackStatus\.value = 'not_saved';/,
+  );
+  assert.match(
+    appMain,
+    /if \(ignoreSavedSnapshot\) \{\s*revenueCockpitPendingApproval\.value = null;\s*revenueCockpitOpportunityApprovals\.value = \{\};\s*revenueCockpitPendingApprovalError\.value = '';\s*revenueCockpitPendingApprovalReadbackStatus\.value = 'idle';/,
+  );
+  assert.match(appMain, /resolveRevenueCockpitIntentLifecycle/);
+  assert.match(appMain, /let suppressNextOpsTrackAutoLoad = false/);
+  assert.match(appMain, /if \(changingPage\) suppressNextOpsTrackAutoLoad = true/);
+  assert.match(appMain, /loadOperationActions\(\{ focusIntentId: intentId \}\)/);
+  assert.match(appMain, /action_management\?\.latest_review/);
+  assert.match(appMain, /runPageLoadOnce\(newPage, 'revenue-cockpit-lifecycle'/);
   assert.match(cockpitRuntime, /execution_task_created !== false/);
   assert.match(cockpitRuntime, /external_action_triggered !== false/);
-  assert.match(cockpitRuntime, /tasks\.length !== 0/);
+  assert.match(cockpitRuntime, /requirePending && tasks\.length !== 0/);
+  assert.match(appTemplate, /<revenue-cockpit-snapshot-status/);
+  assert.match(appTemplate, /<revenue-cockpit-opportunity-details/);
+  assert.match(appMain, /'data-testid': 'revenue-cockpit-snapshot-readback'/);
+  assert.match(appMain, /'data-testid': 'revenue-cockpit-opportunity-chain'/);
+  assert.match(appMain, /card\.causalityClaimed \? '已声明' : '未声明'/);
+  assert.match(appMain, /自动审批\/调价\/OTA 写入：否/);
+  assert.match(systemStatic, /name: '可信收益分析', path: 'trusted-revenue-analysis'/);
+  assert.match(appMain, /item\?\.path === 'trusted-revenue-analysis'/);
+  assert.match(appMain, /SUXI_INITIAL_AGENT_CONTEXT_OVERRIDE/);
+  assert.match(appMain, /const agentTab = ref\(initialAgentTabOverride \|\| 'overview'\)/);
+  assert.match(appMain, /const revenueAgentTab = ref\(initialRevenueAgentTabOverride \|\| 'analysis'\)/);
+  assert.match(appMain, /visibleAgentTabKeys\.includes\(agentTab\.value\)/);
+  assert.match(appMain, /nextTick\(\(\) => switchAgentTab\('revenue'\)\)/);
+  assert.match(appMain, /sourcePath: 'trusted-revenue-analysis', overrides: \{ name: '可信收益分析' \}/);
+  assert.ok(
+    routeApp.indexOf("Route::post('/cockpit/decision-snapshots/:id/pending-approval'")
+      < routeApp.indexOf("Route::post('/cockpit/decision-snapshots', 'RevenueAi/createCockpitDecisionSnapshot'") ,
+    'the parameterized pending-approval route must be registered before the generic snapshot POST route',
+  );
   assert.match(
     appTemplate,
     /data-testid="revenue-cockpit-hotel"[\s\S]{0,600}\{\{ item\.name \}\}/,

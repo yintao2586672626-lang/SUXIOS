@@ -23,6 +23,7 @@ __pycache__/
 # Local OTA collector state stays on the account holder's computer.
 # It can contain device credentials and unsent/failed result packages.
 /storage/local_collector/
+/storage/local-ai/
 *.log
 debug.log
 

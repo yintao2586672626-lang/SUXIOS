@@ -228,15 +228,18 @@ window.SUXI_OPERATION_STATIC = (() => {
     const operationIsProtectedSystemAnalysis = (item) => item?.recommendation?.source_module === 'canonical_ota_investigation'
         || item?.execution?.mode === 'analysis_only'
         || item?.approval?.status === 'system_authorized_analysis';
-    const operationUsesIndependentAiReview = (item) => item?.action_management?.contract_version === 'operation_action_card.v1'
-        && item?.recommendation?.source_module === 'operating_question';
+    const operationIsManagedAction = (item) => ['operation_action_card.v1', 'operation_action_card.v2']
+        .includes(String(item?.action_management?.contract_version || ''));
+    const operationUsesIndependentAiReview = (item) => operationIsManagedAction(item)
+        && String(item?.action_management?.action_card?.approval?.mode || '').trim().toLowerCase()
+            === 'ai_independent_review';
     const operationCanApproveExecution = (item) => !operationIsProtectedSystemAnalysis(item)
         && !operationUsesIndependentAiReview(item)
         && item?.approval?.status === 'pending_approval';
     const operationCanExecuteWithEvidence = (item) => {
         if (operationIsProtectedSystemAnalysis(item)) return false;
         const status = item?.execution?.status || '';
-        const isManagedAction = item?.action_management?.contract_version === 'operation_action_card.v1';
+        const isManagedAction = operationIsManagedAction(item);
         const canStartExecution = status === 'executing' || (status === 'pending_execute' && !isManagedAction);
         const canSupplementManualEvidence = status === 'executed'
             && item?.recommendation?.object_type !== 'price'
@@ -244,6 +247,7 @@ window.SUXI_OPERATION_STATIC = (() => {
         return (canStartExecution || canSupplementManualEvidence) && Number(item?.execution?.task_id || 0) > 0;
     };
     const operationCanRecordNodeCheck = (item) => !operationIsProtectedSystemAnalysis(item)
+        && item?.recommendation?.source_module !== 'daily_one_thing'
         && ['pending_execute', 'executing', 'executed'].includes(item?.execution?.status || '')
         && Number(item?.execution?.task_id || 0) > 0;
     const operationCanReviewExecution = (item) => !operationIsProtectedSystemAnalysis(item) && item?.execution?.status === 'executed' && item?.review?.is_available !== false && !['success', 'near_success', 'failed'].includes(item?.review?.status || '') && Number(item?.execution?.task_id || 0) > 0;
@@ -251,7 +255,7 @@ window.SUXI_OPERATION_STATIC = (() => {
         && item?.execution?.status === 'executed'
         && item?.review?.is_available === true
         && item?.evidence_truth?.source_verified !== true
-        && ['ota_diagnosis_saved', 'operating_question'].includes(item?.recommendation?.source_module)
+        && ['ota_diagnosis_saved', 'operating_question', 'revenue_cockpit_action', 'daily_one_thing'].includes(item?.recommendation?.source_module)
         && !['success', 'near_success', 'failed'].includes(item?.review?.status || '')
         && Number(item?.execution?.task_id || 0) > 0;
     const operationExecutionActionAvailable = (item) => operationCanApproveExecution(item)
@@ -307,6 +311,7 @@ window.SUXI_OPERATION_STATIC = (() => {
         }
         if (sourceKey.startsWith('ota_diagnosis_saved')) return 'OTA诊断行动';
         if (sourceKey.startsWith('operating_question')) return '真实经营问题行动';
+        if (sourceKey.startsWith('daily_one_thing')) return '每日一件事';
         if (sourceKey.startsWith('daily_workbench_patrol')) return '巡检补证任务';
         if (sourceKey.startsWith('ota_diagnosis')) return '历史OTA诊断行动';
         if (sourceKey.startsWith('temporal_forecast_recommendation')) return '预测运营建议';
@@ -528,7 +533,7 @@ window.SUXI_OPERATION_STATIC = (() => {
                 label: '智能监控未运行',
                 detail: '目标可保存，但尚未回读到后台定时监控心跳。',
                 className: 'border-slate-200 bg-slate-50 text-slate-600',
-                iconClass: 'far fa-clock',
+                iconClass: 'fas fa-clock',
             };
         }
         if (status !== 'ready') {
@@ -661,13 +666,32 @@ window.SUXI_OPERATION_STATIC = (() => {
         };
     };
     const operationExecutionNodeRecordText = (item = {}) => {
+        const evidenceSummary = item?.evidence_summary || {};
+        const evidenceCount = Number(evidenceSummary.count ?? (Array.isArray(item?.evidence) ? item.evidence.length : 0));
+        const evidenceTypes = Array.isArray(evidenceSummary.types)
+            ? evidenceSummary.types.map(value => String(value || '').trim()).filter(Boolean)
+            : [];
+        const evidenceParts = [];
+        if (Number.isInteger(evidenceCount) && evidenceCount > 0) {
+            evidenceParts.push(`执行证据 ${evidenceCount} 条`);
+        }
+        if (evidenceTypes.length) {
+            evidenceParts.push(`类型：${evidenceTypes.join('、')}`);
+        }
+        if (item?.evidence_truth?.source_verified === true) {
+            evidenceParts.push('同口径来源事实已核验');
+        }
         const node = item?.evidence_summary?.node_record || {};
-        if (node.status === 'identity_mismatch') return '节点检查身份不一致，已拒绝回填';
-        if (node.status !== 'available') return '节点检查未记录';
+        if (node.status === 'identity_mismatch') {
+            return [...evidenceParts, '节点检查身份不一致，已拒绝回填'].join('；');
+        }
+        if (node.status !== 'available') {
+            return [...evidenceParts, '节点检查未记录'].join('；');
+        }
         const period = ({ weekday: '周内', weekend: '周末', holiday: '节假日', special_event: '特殊事件' }[node.operating_period] || '周期未回读');
         const alignment = ({ operator_confirmed: '房态人工确认一致', mismatch: '房态不一致', unverified: '房态未核验' }[node.room_status_alignment] || '房态状态未回读');
         const progress = ({ normal: '进度正常', too_fast: '进度过快', too_slow: '进度过慢', insufficient_evidence: '证据不足' }[node.progress_status] || '进度未判断');
-        return `${period} · ${alignment} · ${progress}`;
+        return [...evidenceParts, `${period} · ${alignment} · ${progress}`].join('；');
     };
     const operationExecutionRoiText = (roi, formatters = {}) => {
         const formatter = operationFormatters(formatters);
@@ -694,7 +718,7 @@ window.SUXI_OPERATION_STATIC = (() => {
                 label: '行动评审',
                 value: total ? `${approved}/${total}` : '待评审',
                 className: approved ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : 'bg-amber-50 text-amber-700 border-amber-100',
-                detail: '经营问答行动由独立 AI 评审；其他外部操作仍按对应人工授权规则处理，驳回原因保留在记录中。',
+                detail: '所有受管行动都由用户主动二次确认；AI 只能提供建议，不能批准、建任务或执行外部操作。',
             },
             {
                 key: 'evidence',
@@ -1376,6 +1400,195 @@ window.SUXI_OPERATION_STATIC = (() => {
         };
     };
 
+    const operationExecutionHotelId = (item) => Number(
+        item?.hotel_id
+        || item?.system_hotel_id
+        || item?.execution?.hotel_id
+        || item?.execution?.system_hotel_id
+        || item?.action_management?.action_card?.hotel?.hotel_id
+        || item?.target_value?.action_card?.hotel?.hotel_id
+        || item?.action_management?.action_card?.scope?.hotel_id
+        || item?.target_value?.action_card?.scope?.hotel_id
+        || 0
+    );
+    const operationExecutionActionCard = (item) => [
+        item?.action_management?.action_card,
+        item?.execution?.action_management?.action_card,
+        item?.target_value?.action_card,
+        item?.evidence?.action_card,
+        item?.recommendation?.target_value?.action_card,
+        item?.recommendation?.evidence?.action_card,
+    ].find(candidate => candidate && typeof candidate === 'object') || {};
+    const operationExecutionMutationDigest = (item) => String(
+        operationExecutionActionCard(item)?.content_digest
+        || item?.target_value?.approval_target_digest
+        || item?.evidence?.approval_target_digest
+        || item?.recommendation?.target_value?.approval_target_digest
+        || item?.recommendation?.evidence?.approval_target?.content_digest
+        || ''
+    ).trim().toLowerCase();
+    const assertOperationExecutionMutationContextCurrent = (context, item, selectedHotelId) => {
+        if (!context || Number(selectedHotelId || 0) !== Number(context.hotelId || 0)) {
+            throw new Error('当前筛选酒店已变化，已拒绝提交运营写入');
+        }
+        if (Number(item?.id || item?.intent_id || 0) !== Number(context.intentId || 0)
+            || operationExecutionHotelId(item) !== Number(context.hotelId || 0)
+            || (Number(context.taskId || 0) > 0
+                && Number(item?.execution?.task_id || item?.id || 0) !== Number(context.taskId))
+            || (String(context.actionDigest || '') !== ''
+                && operationExecutionMutationDigest(item) !== String(context.actionDigest))
+        ) throw new Error('运营行动身份已变化，请刷新后重试');
+    };
+    const captureOperationExecutionMutationContext = (item, selectedHotelId, options = {}) => {
+        const requireTask = options?.requireTask === true;
+        const context = Object.freeze({
+            intentId: Number(item?.id || item?.intent_id || 0),
+            taskId: Number(item?.execution?.task_id || (requireTask ? item?.id : 0) || 0),
+            hotelId: operationExecutionHotelId(item),
+            actionDigest: operationExecutionMutationDigest(item),
+        });
+        if (!Number.isInteger(context.intentId) || context.intentId <= 0) throw new Error('运营行动意图身份无效，请刷新后重试');
+        if (!Number.isInteger(context.hotelId) || context.hotelId <= 0) throw new Error('运营行动缺少酒店身份，已拒绝写入');
+        if (requireTask && (!Number.isInteger(context.taskId) || context.taskId <= 0)) throw new Error('运营任务身份无效，请刷新后重试');
+        if (options?.requireDigest === true && !/^[a-f0-9]{64}$/.test(context.actionDigest)) throw new Error('运营行动摘要无效，请刷新后重试');
+        assertOperationExecutionMutationContextCurrent(context, item, selectedHotelId);
+        return context;
+    };
+    const assertOperationExecutionMutationDigestReadback = (entity, context, allowPreviousCardDigest = false) => {
+        const expectedDigest = String(context?.actionDigest || '');
+        if (!expectedDigest) return;
+        const card = operationExecutionActionCard(entity);
+        const actualDigest = operationExecutionMutationDigest(entity);
+        const previousDigest = String(card?.previous_card_digest || '').trim().toLowerCase();
+        if (actualDigest !== expectedDigest && (!allowPreviousCardDigest || previousDigest !== expectedDigest)) {
+            throw new Error('运营行动摘要回读不一致');
+        }
+    };
+    const readOperationExecutionIntent = async (request, intentId, expectedHotelId = 0) => {
+        const normalizedId = Number(intentId || 0);
+        if (!Number.isInteger(normalizedId) || normalizedId <= 0) throw new Error('执行意图回读ID无效');
+        const normalizedHotelId = Number(expectedHotelId || 0);
+        const params = new URLSearchParams();
+        if (normalizedHotelId > 0) {
+            params.set('hotel_id', String(normalizedHotelId));
+            params.set('system_hotel_id', String(normalizedHotelId));
+        }
+        const query = params.toString() ? `?${params.toString()}` : '';
+        const res = await request(`/operation/execution-intents/${normalizedId}${query}`, normalizedHotelId > 0 ? { businessContext: { hotelId: normalizedHotelId } } : {});
+        if (res.code !== 200) throw new Error(res.message || '执行意图回读失败');
+        const intent = res.data || {};
+        if (Number(intent.id || 0) !== normalizedId) throw new Error('执行意图回读资源不一致');
+        if (normalizedHotelId > 0 && operationExecutionHotelId(intent) !== normalizedHotelId) throw new Error('执行意图回读酒店身份不一致');
+        return intent;
+    };
+    const readOperationExecutionTask = async (request, taskId, expectedHotelId = 0) => {
+        const normalizedId = Number(taskId || 0);
+        if (!Number.isInteger(normalizedId) || normalizedId <= 0) throw new Error('执行任务回读ID无效');
+        const normalizedHotelId = Number(expectedHotelId || 0);
+        const params = new URLSearchParams();
+        if (normalizedHotelId > 0) {
+            params.set('hotel_id', String(normalizedHotelId));
+            params.set('system_hotel_id', String(normalizedHotelId));
+        }
+        const query = params.toString() ? `?${params.toString()}` : '';
+        const res = await request(`/operation/execution-tasks/${normalizedId}${query}`, normalizedHotelId > 0 ? { businessContext: { hotelId: normalizedHotelId } } : {});
+        if (res.code !== 200) throw new Error(res.message || '执行任务回读失败');
+        const task = res.data || {};
+        if (Number(task.id || 0) !== normalizedId) throw new Error('执行任务回读资源不一致');
+        if (normalizedHotelId > 0 && operationExecutionHotelId(task) !== normalizedHotelId) throw new Error('执行任务回读酒店身份不一致');
+        return task;
+    };
+    const cancelOperationExecutionMutation = async (item, ctx) => {
+        if (!ctx.canCancel(item) || ctx.loading.value.actions) return;
+        let mutationContext;
+        try {
+            mutationContext = captureOperationExecutionMutationContext(item, ctx.selectedHotelId(), { requireDigest: true });
+        } catch (error) {
+            ctx.toast(ctx.errorMessage(error, '运营行动身份校验失败'), 'error');
+            return;
+        }
+        const values = await ctx.openDialog({
+            title: '取消运营行动',
+            description: '取消原因会追加到行动历史；已保存的审批、任务和证据不会被改写。',
+            submitText: '确认取消',
+            fields: [{ name: 'reason', label: '取消原因', type: 'textarea', required: true, value: '' }],
+        });
+        if (values === null) return;
+        const reason = String(values.reason || '').trim();
+        if (!reason) return;
+        try {
+            assertOperationExecutionMutationContextCurrent(mutationContext, item, ctx.selectedHotelId());
+        } catch (error) {
+            ctx.toast(ctx.errorMessage(error, '运营行动身份校验失败'), 'error');
+            return;
+        }
+        ctx.loading.value.actions = true;
+        try {
+            const res = await ctx.request(`/operation/execution-intents/${mutationContext.intentId}/cancel`, {
+                method: 'POST',
+                businessContext: { hotelId: mutationContext.hotelId },
+                body: JSON.stringify({ reason, hotel_id: mutationContext.hotelId, system_hotel_id: mutationContext.hotelId }),
+            });
+            if (res.code !== 200 || Number(res.data?.id || 0) !== mutationContext.intentId) throw new Error(res.message || '运营行动取消失败');
+            const intent = await readOperationExecutionIntent(ctx.request, mutationContext.intentId, mutationContext.hotelId);
+            assertOperationExecutionMutationDigestReadback(intent, mutationContext);
+            const isDailyV2 = String(item?.action_management?.contract_version || '') === 'operation_action_card.v2';
+            const expectedIntentStatus = isDailyV2 ? 'blocked' : 'cancelled';
+            if (String(intent?.status || '') !== expectedIntentStatus
+                || String(intent?.action_management?.lifecycle?.status || '') !== expectedIntentStatus) throw new Error('运营行动未按 ID 回读到已取消状态');
+            ctx.toast('运营行动已取消，历史版本仍完整保留');
+            await ctx.loadActions({ focusIntentId: mutationContext.intentId });
+        } catch (error) {
+            ctx.toast(ctx.errorMessage(error, '运营行动取消失败'), 'error');
+        } finally {
+            ctx.loading.value.actions = false;
+        }
+    };
+    const reconcileOperationExecutionReviewMutation = async (item, ctx) => {
+        let mutationContext;
+        try {
+            mutationContext = captureOperationExecutionMutationContext(item, ctx.selectedHotelId(), {
+                requireTask: true,
+                requireDigest: ctx.isManagedAction(item),
+            });
+            assertOperationExecutionMutationContextCurrent(mutationContext, item, ctx.selectedHotelId());
+        } catch (error) {
+            ctx.toast(ctx.errorMessage(error, '运营复盘身份校验失败'), 'error');
+            return;
+        }
+        ctx.loading.value.actions = true;
+        try {
+            const res = await ctx.request(ctx.reconcilePath(mutationContext.taskId), {
+                method: 'POST',
+                businessContext: { hotelId: mutationContext.hotelId },
+                body: JSON.stringify({ hotel_id: mutationContext.hotelId, system_hotel_id: mutationContext.hotelId }),
+            });
+            if (res.code !== 200) throw new Error(res.message || '到期复盘事实读取失败');
+            const result = res.data || {};
+            if (Number(result.task_id || 0) !== mutationContext.taskId) throw new Error('到期复盘事实返回的任务ID不一致');
+            const task = await readOperationExecutionTask(ctx.request, mutationContext.taskId, mutationContext.hotelId);
+            assertOperationExecutionMutationDigestReadback(task, mutationContext);
+            if (result.status === 'source_readback_verified') {
+                if (task?.evidence_truth?.source_verified !== true || !ctx.hasEvidenceType(task, 'source_verified_metric_readback')) {
+                    throw new Error('来源核验复盘事实严格回读失败');
+                }
+                ctx.toast('同酒店、同渠道、同指标复盘事实已读取；请人工确认复盘结论', 'success');
+            } else if (result.status === 'source_readback_missing') {
+                if (task?.evidence_truth?.source_verified === true) throw new Error('复盘事实缺失状态与任务回读不一致');
+                ctx.toast('约定窗口暂无同口径可信事实，任务继续观察', 'warning');
+            } else if (result.status === 'already_reviewed') {
+                ctx.toast('该任务已完成复盘，无需重复读取', 'info');
+            } else {
+                throw new Error('到期复盘事实返回未知状态');
+            }
+            await ctx.loadActions({ focusIntentId: mutationContext.intentId });
+        } catch (error) {
+            ctx.toast(ctx.errorMessage(error, error.message || '到期复盘事实读取失败'), 'error');
+        } finally {
+            ctx.loading.value.actions = false;
+        }
+    };
+
     return {
         lifecycleMetricLabels,
         lifecycleStageTitles,
@@ -1453,6 +1666,15 @@ window.SUXI_OPERATION_STATIC = (() => {
         pruneOpeningTaskIds,
         mergeOpeningTaskSelection,
         buildOpeningAiOutputResult,
+        operationExecutionHotelId,
+        operationExecutionMutationDigest,
+        captureOperationExecutionMutationContext,
+        assertOperationExecutionMutationContextCurrent,
+        assertOperationExecutionMutationDigestReadback,
+        readOperationExecutionIntent,
+        readOperationExecutionTask,
+        cancelOperationExecutionMutation,
+        reconcileOperationExecutionReviewMutation,
         openingCategories,
         openingStatusOptions,
         openingProgressQuickValues,

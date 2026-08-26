@@ -3168,34 +3168,11 @@ window.SUXI_CTRIP_STATIC = window.SUXI_CTRIP_STATIC_FULL = (() => {
     );
 
     const ctripSortMetricValue = (row = {}, field = '') => {
-        if (field === 'amount') return row.amount || 0;
-        if (field === 'quantity') return row.quantity || 0;
-        if (field === 'adr') return row.adr || 0;
-        if (field === 'ari') return row.ari || 0;
-        if (field === 'sci') return row.sci || 0;
-        if (field === 'bookOrderNum') return row.bookOrderNum || 0;
-        if (field === 'totalOrderIncludingCancelledEstimate') {
-            return Number.isFinite(Number(row.totalOrderIncludingCancelledEstimate))
-                ? Number(row.totalOrderIncludingCancelledEstimate)
-                : Number.NEGATIVE_INFINITY;
-        }
-        if (field === 'fullChannelRoomNightsEstimate') {
-            return Number.isFinite(Number(row.fullChannelRoomNightsEstimate))
-                ? Number(row.fullChannelRoomNightsEstimate)
-                : Number.NEGATIVE_INFINITY;
-        }
-        if (field === 'totalOrderNum') return row.totalOrderNum || 0;
-        if (field === 'commentScore') return row.commentScore || 0;
-        if (field === 'qunarCommentScore') return row.qunarCommentScore || 0;
-        if (field === 'totalDetailNum') return row.totalDetailNum || 0;
-        if (field === 'convertionRate') return row.convertionRate || 0;
-        if (field === 'qunarDetailVisitors') return row.qunarDetailVisitors || 0;
-        if (field === 'qunarDetailCR') return row.qunarDetailCR || 0;
-        if (field === 'bookRate') return row.bookingRate || 0;
-        if (field === 'amountRank' || field === 'quantityRank' || field === 'commentScoreRank' || field === 'qunarDetailCRRank') {
-            return row[field] || 99999;
-        }
-        return row[field] || 0;
+        const rawValue = field === 'bookRate' ? row.bookingRate : row[field];
+        if (rawValue === null || rawValue === undefined || rawValue === '') return null;
+        const numeric = Number(rawValue);
+        if (!Number.isFinite(numeric)) return null;
+        return field.endsWith('Rank') && numeric <= 0 ? null : numeric;
     };
 
     const buildCtripSortedHotelRows = (rows = [], field = '', order = 'desc') => {
@@ -3204,8 +3181,22 @@ window.SUXI_CTRIP_STATIC = window.SUXI_CTRIP_STATIC_FULL = (() => {
         return [...list].sort((a, b) => {
             const aVal = ctripSortMetricValue(a, field);
             const bVal = ctripSortMetricValue(b, field);
+            if (aVal === null && bVal === null) return 0;
+            if (aVal === null) return 1;
+            if (bVal === null) return -1;
             return order === 'asc' ? aVal - bVal : bVal - aVal;
         });
+    };
+
+    const ctripRankEligibilityText = (commentScore) => {
+        if (commentScore === null
+            || commentScore === undefined
+            || commentScore === ''
+            || typeof commentScore === 'boolean'
+        ) return '未取得';
+        const score = Number(commentScore);
+        if (!Number.isFinite(score)) return '未取得';
+        return score >= 4.5 ? '✓可上榜' : '点评不足';
     };
 
     const buildCtripOverviewMetricCards = (result = {}) => {
@@ -3738,6 +3729,151 @@ window.SUXI_CTRIP_STATIC = window.SUXI_CTRIP_STATIC_FULL = (() => {
         return limited.length * lineHeight;
     };
 
+    const normalizeCtripVisibleDownloadText = (value, missingText = '-') => {
+        const parts = String(value ?? '')
+            .replace(/\r\n?/g, '\n')
+            .split(/\n+|\s{2,}/)
+            .map(part => part.replace(/[\t ]+/g, ' ').trim())
+            .filter(Boolean);
+        return parts.length ? parts.join(' · ') : missingText;
+    };
+
+    const ctripVisibleDownloadNodeText = (node, missingText = '-') => (
+        normalizeCtripVisibleDownloadText(node?.innerText ?? node?.textContent ?? '', missingText)
+    );
+
+    const ctripVisibleDownloadSpan = (cell, name) => {
+        const value = Number.parseInt(String(cell?.getAttribute?.(name) || '1'), 10);
+        return Number.isFinite(value) && value > 0 ? value : 1;
+    };
+
+    const ctripVisibleDownloadCellWidth = (cell, label = '') => {
+        const measured = Number(cell?.getBoundingClientRect?.()?.width || 0);
+        if (Number.isFinite(measured) && measured > 0) {
+            return Math.min(280, Math.max(58, Math.round(measured)));
+        }
+        const estimated = Array.from(String(label || '')).length * 14 + 28;
+        return Math.min(280, Math.max(90, estimated));
+    };
+
+    const ctripVisibleDownloadCellAlign = (cell, getComputedStyle = null) => {
+        const className = typeof cell?.className === 'string'
+            ? cell.className
+            : String(cell?.getAttribute?.('class') || '');
+        if (/(?:^|\s)text-left(?:\s|$)/.test(className)) return 'left';
+        if (/(?:^|\s)text-right(?:\s|$)/.test(className)) return 'right';
+        if (/(?:^|\s)text-center(?:\s|$)/.test(className)) return 'center';
+        if (typeof getComputedStyle === 'function') {
+            const computedAlign = String(getComputedStyle(cell)?.textAlign || '').toLowerCase();
+            if (['left', 'right', 'center'].includes(computedAlign)) return computedAlign;
+        }
+        return 'center';
+    };
+
+    const captureCtripBusinessDownloadSnapshot = ({
+        root = null,
+        getComputedStyle = null,
+    } = {}) => {
+        if (!root || typeof root.querySelector !== 'function') {
+            throw new Error('ctrip_visible_download_root_unavailable');
+        }
+        const tableElement = root.querySelector('[data-download-table]');
+        if (!tableElement) {
+            throw new Error('ctrip_visible_download_table_unavailable');
+        }
+
+        const headerRows = Array.from(tableElement.querySelectorAll?.('thead tr') || []);
+        const headerGrid = [];
+        headerRows.forEach((row, rowIndex) => {
+            if (!headerGrid[rowIndex]) headerGrid[rowIndex] = [];
+            let columnIndex = 0;
+            Array.from(row.querySelectorAll?.('th') || []).forEach(cell => {
+                while (headerGrid[rowIndex][columnIndex]) columnIndex += 1;
+                const colspan = ctripVisibleDownloadSpan(cell, 'colspan');
+                const rowspan = ctripVisibleDownloadSpan(cell, 'rowspan');
+                const descriptor = {
+                    text: ctripVisibleDownloadNodeText(cell),
+                    cell,
+                    colspan,
+                };
+                for (let rowOffset = 0; rowOffset < rowspan; rowOffset += 1) {
+                    const targetRowIndex = rowIndex + rowOffset;
+                    if (!headerGrid[targetRowIndex]) headerGrid[targetRowIndex] = [];
+                    for (let columnOffset = 0; columnOffset < colspan; columnOffset += 1) {
+                        headerGrid[targetRowIndex][columnIndex + columnOffset] = descriptor;
+                    }
+                }
+                columnIndex += colspan;
+            });
+        });
+
+        const bodyRowElements = Array.from(tableElement.querySelectorAll?.('tbody tr') || []);
+        const rows = bodyRowElements.map(row => (
+            Array.from(row.querySelectorAll?.('td') || []).map(cell => ctripVisibleDownloadNodeText(cell))
+        ));
+        const columnCount = Math.max(
+            0,
+            ...headerGrid.map(row => row.length),
+            ...rows.map(row => row.length),
+        );
+        if (!columnCount) {
+            throw new Error('ctrip_visible_download_columns_unavailable');
+        }
+        if (!rows.length) {
+            throw new Error('ctrip_visible_download_rows_unavailable');
+        }
+
+        const firstBodyCells = Array.from(bodyRowElements[0]?.querySelectorAll?.('td') || []);
+        const columns = Array.from({ length: columnCount }, (_, columnIndex) => {
+            const labels = [];
+            headerGrid.forEach(row => {
+                const text = String(row[columnIndex]?.text || '').trim();
+                if (text && !labels.includes(text)) labels.push(text);
+            });
+            const label = labels.length ? labels.join(' · ') : `第${columnIndex + 1}列`;
+            const leafHeader = [...headerGrid]
+                .reverse()
+                .map(row => row[columnIndex])
+                .find(Boolean);
+            const widthCell = firstBodyCells[columnIndex] || leafHeader?.cell || null;
+            let width = ctripVisibleDownloadCellWidth(widthCell, label);
+            if (!firstBodyCells[columnIndex] && leafHeader?.colspan > 1) {
+                width = Math.max(58, Math.round(width / leafHeader.colspan));
+            }
+            return {
+                label,
+                width,
+                value: row => row?.[columnIndex] ?? '-',
+                align: ctripVisibleDownloadCellAlign(firstBodyCells[columnIndex], getComputedStyle),
+            };
+        });
+
+        const cards = Array.from(root.querySelectorAll?.('[data-testid="ctrip-summary-card"]') || []).map(card => ({
+            value: ctripVisibleDownloadNodeText(card.querySelector?.('.ctrip-summary-card-value')),
+            label: ctripVisibleDownloadNodeText(card.querySelector?.('.ctrip-summary-card-label')),
+            level: ctripVisibleDownloadNodeText(card.querySelector?.('.ctrip-summary-card-level'), ''),
+            panelClass: typeof card.className === 'string'
+                ? card.className
+                : String(card.getAttribute?.('class') || ''),
+        }));
+        const sourceNoticeElement = root.querySelector('[data-testid="ctrip-business-source-notice"]');
+
+        return {
+            cards,
+            sourceNotice: sourceNoticeElement
+                ? ctripVisibleDownloadNodeText(sourceNoticeElement, '')
+                : '',
+            table: {
+                title: normalizeCtripVisibleDownloadText(
+                    tableElement.getAttribute?.('data-download-title') || '',
+                    '当前可见数据',
+                ),
+                columns,
+                rows,
+            },
+        };
+    };
+
     const buildCtripBusinessCanvas = ({
         cards = [],
         table = {},
@@ -4051,6 +4187,7 @@ window.SUXI_CTRIP_STATIC = window.SUXI_CTRIP_STATIC_FULL = (() => {
         runCtripCookieApiCaptureFlow,
         ctripSortMetricValue,
         buildCtripSortedHotelRows,
+        ctripRankEligibilityText,
         buildCtripOverviewMetricCards,
         buildCtripOverviewTopRankTables,
         buildCtripFlowOverviewMetricCards,
@@ -4063,6 +4200,7 @@ window.SUXI_CTRIP_STATIC = window.SUXI_CTRIP_STATIC_FULL = (() => {
         buildCtripProfileRecheckInterruptedState,
         runCtripProfileRecheckFlow,
         getCtripCookieApiCorePresetEndpoints,
+        captureCtripBusinessDownloadSnapshot,
         buildCtripBusinessCanvas,
     };
 })();

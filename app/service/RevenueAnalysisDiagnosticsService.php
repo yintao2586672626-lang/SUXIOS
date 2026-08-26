@@ -14,8 +14,7 @@ final class RevenueAnalysisDiagnosticsService
     public const METHODOLOGY_VERSION = 'data-analytics.0.2.8-13ceeea1f599';
 
     /** @var array<string,string> */
-    private const REQUIRED_SOURCES = [
-        'dingdandao_pms' => 'PMS全酒店住宿事实',
+    private const REQUIRED_OTA_SOURCES = [
         'ctrip_ota' => '携程OTA渠道事实',
         'meituan_ota' => '美团OTA渠道事实',
     ];
@@ -32,10 +31,20 @@ final class RevenueAnalysisDiagnosticsService
         $sourceCompleteness = is_array($factLayer['source_completeness'] ?? null)
             ? $factLayer['source_completeness']
             : [];
+        $pmsSelection = (new RevenuePmsFactSelectorService())
+            ->select($factLayer);
+        $pmsSourceKey = (string)$pmsSelection['source_key'];
+        $requiredSources = [
+            $pmsSourceKey => (string)$pmsSelection['label']
+                . ' 全酒店住宿事实',
+            ...self::REQUIRED_OTA_SOURCES,
+        ];
         $verifiedSourceCount = 0;
         $sourceChecks = [];
-        foreach (self::REQUIRED_SOURCES as $source => $label) {
-            $sourceStatus = trim((string)($sourceCompleteness[$source] ?? 'missing'));
+        foreach ($requiredSources as $source => $label) {
+            $sourceStatus = $source === $pmsSourceKey
+                ? (string)$pmsSelection['data_status']
+                : trim((string)($sourceCompleteness[$source] ?? 'missing'));
             $verified = $sourceStatus === 'readback_verified';
             if ($verified) {
                 $verifiedSourceCount++;
@@ -82,16 +91,19 @@ final class RevenueAnalysisDiagnosticsService
         $metricCheckStatus = $metricDiagnostics === []
             ? 'blocked'
             : ($allMetricsCalculable ? 'passed' : 'warning');
-        $sourceCheckStatus = $verifiedSourceCount === count(self::REQUIRED_SOURCES)
+        $sourceCheckStatus = $verifiedSourceCount === count($requiredSources)
             ? 'passed'
-            : (($sourceCompleteness['dingdandao_pms'] ?? '') === 'readback_verified'
+            : ($pmsSelection['data_status'] === 'readback_verified'
                 ? 'warning'
                 : 'blocked');
         $dateAlignment = is_array($factLayer['date_alignment'] ?? null)
             ? $factLayer['date_alignment']
             : [];
         $dateAlignmentPassed = $scopeReady
-            && (string)($dateAlignment['status'] ?? '') === 'same_date_key_distinct_source_semantics';
+            && in_array((string)($dateAlignment['status'] ?? ''), [
+                'aligned',
+                'same_date_key_distinct_source_semantics',
+            ], true);
 
         $checks = [
             $this->check(
@@ -116,7 +128,7 @@ final class RevenueAnalysisDiagnosticsService
                 'source_readback',
                 '三源保存与精确回读',
                 $sourceCheckStatus,
-                $verifiedSourceCount . '/' . count(self::REQUIRED_SOURCES) . ' 个必需来源已精确回读。',
+                $verifiedSourceCount . '/' . count($requiredSources) . ' 个必需来源已精确回读。',
                 '未回读来源的事实和依赖指标必须保持为空。'
             ),
             $this->check(
@@ -198,7 +210,7 @@ final class RevenueAnalysisDiagnosticsService
             'issues' => $issues,
             'next_action' => $nextAction,
             'evidence_summary' => [
-                'required_source_count' => count(self::REQUIRED_SOURCES),
+                'required_source_count' => count($requiredSources),
                 'readback_verified_source_count' => $verifiedSourceCount,
                 'metric_count' => count($metricDiagnostics),
                 'calculable_metric_count' => $calculableMetricCount,
@@ -297,7 +309,9 @@ final class RevenueAnalysisDiagnosticsService
     {
         return match ($code) {
             'system_hotel_scope_unavailable' => '未取得系统酒店与租户身份，收益分析已阻断。',
-            'dingdandao_pms_not_readback_verified' => 'PMS 全酒店住宿事实尚未完成目标日精确回读。',
+            'dingdandao_pms_not_readback_verified',
+            'meituan_cloud_pms_not_readback_verified',
+            'pms_not_readback_verified' => 'PMS 全酒店住宿事实尚未完成目标日精确回读。',
             'ctrip_ota_not_readback_verified' => '携程 OTA 渠道事实尚未完成目标日精确回读。',
             'meituan_ota_not_readback_verified' => '美团 OTA 渠道事实尚未完成目标日精确回读。',
             'floor_price_missing' => '三源事实可分析，但最低保护价缺失，不能进入调价审核。',
@@ -338,7 +352,7 @@ final class RevenueAnalysisDiagnosticsService
             return '三源事实可用于收益分析，但需带限制说明：' . $message;
         }
         $message = trim((string)($issues[0]['message'] ?? '必需事实尚未通过验证。'));
-        return $verifiedSourceCount . '/' . count(self::REQUIRED_SOURCES)
+        return $verifiedSourceCount . '/' . (count(self::REQUIRED_OTA_SOURCES) + 1)
             . ' 个必需来源已回读；当前不能形成完整收益结论：' . $message;
     }
 

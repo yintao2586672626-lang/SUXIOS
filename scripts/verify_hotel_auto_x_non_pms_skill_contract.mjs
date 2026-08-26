@@ -339,9 +339,9 @@ requireText('app/controller/concern/MeituanCapturedDataConcern.php', "'spend' =>
 requireText('app/service/OnlineDataFieldFactService.php', "'metric_key' => 'mt_exposure'", 'field facts expose Meituan realtime exposure');
 requireText('app/service/OnlineDataFieldFactService.php', "'metric_key' => 'mt_pay_orders'", 'field facts expose Meituan realtime pay orders');
 requireText('app/service/OnlineDataFieldFactService.php', "'metric_key' => 'ad_spend'", 'field facts expose Meituan ad spend');
-requireText('app/service/PlatformDataSyncService.php', "'metric_key' => 'mt_exposure'", 'platform data-source sync exposes Meituan realtime exposure facts');
-requireText('app/service/PlatformDataSyncService.php', "'metric_key' => 'mt_pay_orders'", 'platform data-source sync exposes Meituan realtime pay-order facts');
-requireText('app/service/PlatformDataSyncService.php', 'review[_-]?id|comment[_-]?id', 'platform data-source sync removes review/comment identifiers from review rows');
+requireText('app/service/PlatformDataCollectionDefinitionRegistry.php', "'metric_key' => 'mt_exposure'", 'platform data-source sync exposes Meituan realtime exposure facts');
+requireText('app/service/PlatformDataCollectionDefinitionRegistry.php', "'metric_key' => 'mt_pay_orders'", 'platform data-source sync exposes Meituan realtime pay-order facts');
+requireText('app/service/concern/PlatformDataPersistenceConcern.php', 'review[_-]?id|comment[_-]?id', 'platform data-source sync removes review/comment identifiers from review rows');
 requireText('app/controller/DailyReport.php', "$mtExposure = $getVal('mt_exposure');", 'daily report keeps nullable Meituan exposure evidence');
 
 requireTextInFiles(onlineControllerFiles, 'function commentCollectionDisabledResponse', 'legacy disallowed review-detail response remains explicit');

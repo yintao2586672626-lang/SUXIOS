@@ -1,6 +1,15 @@
 window.SUXI_SYSTEM_STATIC = (() => {
     const CHART_JS_SRC = '/vendor/chart.umd.js';
     let chartJsLoadPromise = null;
+    const resolveInitialPageRequest = (explicitPage = '', search = '') => {
+        const explicit = String(explicitPage || '').trim();
+        if (explicit) return explicit;
+        try {
+            return String(new URLSearchParams(String(search || '')).get('page') || '').trim();
+        } catch (error) {
+            return '';
+        }
+    };
     const loadChartJs = () => {
         if (window.Chart) {
             return Promise.resolve(window.Chart);
@@ -93,13 +102,13 @@ window.SUXI_SYSTEM_STATIC = (() => {
             'aiModelConfig.testFailed': '模型连接测试失败',
             'aiModelConfig.networkErrorFallback': '网络错误',
             'aiModelQuickSetup.quickTitle': '快速配置AI厂家',
-            'aiModelQuickSetup.quickDescription': '选择厂家并填写 API Key，系统生成模型配置；连接测试通过后才可使用。',
+            'aiModelQuickSetup.quickDescription': '优先配置本机 Ollama；云模型才需要 API Key。连接测试通过后才可使用。',
             'aiModelQuickSetup.providerLabel': '模型厂家',
             'aiModelQuickSetup.apiKeyLabel': 'API Key',
             'aiModelQuickSetup.apiKeyPlaceholder': '请输入 API Key',
             'aiModelQuickSetup.baseUrlLabel': 'Base URL',
             'aiModelQuickSetup.baseUrlPlaceholder': '留空则使用内置兼容地址',
-            'aiModelQuickSetup.baseUrlHelp': 'Meta、Amazon、Microsoft、IBM 等需填写 OpenAI 兼容网关地址。',
+            'aiModelQuickSetup.baseUrlHelp': '本机 Ollama 固定使用 127.0.0.1；Meta、Amazon、Microsoft、IBM 等需填写兼容网关地址。',
             'aiModelQuickSetup.saving': '配置中...',
             'aiModelQuickSetup.saveButton': '保存并自动配置',
             'aiModelQuickSetup.providerRequired': '请选择模型厂家',
@@ -166,13 +175,13 @@ window.SUXI_SYSTEM_STATIC = (() => {
             'aiModelConfig.testFailed': 'Model connection test failed',
             'aiModelConfig.networkErrorFallback': 'Network error',
             'aiModelQuickSetup.quickTitle': 'Quick AI Provider Setup',
-            'aiModelQuickSetup.quickDescription': 'Select a provider and enter an API Key. The system will generate usable model configurations automatically.',
+            'aiModelQuickSetup.quickDescription': 'Configure local Ollama first. API keys are only required for cloud providers.',
             'aiModelQuickSetup.providerLabel': 'Model Provider',
             'aiModelQuickSetup.apiKeyLabel': 'API Key',
             'aiModelQuickSetup.apiKeyPlaceholder': 'Enter API Key',
             'aiModelQuickSetup.baseUrlLabel': 'Base URL',
             'aiModelQuickSetup.baseUrlPlaceholder': 'Leave blank to use the built-in compatible endpoint',
-            'aiModelQuickSetup.baseUrlHelp': 'Meta, Amazon, Microsoft, and IBM require an OpenAI-compatible gateway URL.',
+            'aiModelQuickSetup.baseUrlHelp': 'Local Ollama is pinned to 127.0.0.1. Meta, Amazon, Microsoft, and IBM require a compatible gateway URL.',
             'aiModelQuickSetup.saving': 'Configuring...',
             'aiModelQuickSetup.saveButton': 'Save and Auto-configure',
             'aiModelQuickSetup.providerRequired': 'Please select a model provider',
@@ -235,6 +244,7 @@ window.SUXI_SYSTEM_STATIC = (() => {
             permissions: [],
             children: [
                 { name: '今日经营工作台', path: 'compass', icon: 'fas fa-tachometer-alt', requireSuper: false, permissions: [] },
+                { name: '可信收益分析', path: 'trusted-revenue-analysis', icon: 'fas fa-chart-bar', testid: 'nav-trusted-revenue-analysis', requireSuper: false, permissions: [] },
                 { name: '收益分析中心', path: 'revenue-research-center', icon: 'fas fa-chart-line', testid: 'nav-revenue-research-center', permissions: [] },
                 { name: '运营优化台', path: 'operation-optimizer', icon: 'fas fa-sliders-h', testid: 'nav-operation-optimizer', permissions: [] },
                 { name: '经营机会', path: 'operating-opportunities', icon: 'fas fa-bullseye', testid: 'nav-operating-opportunities', permissions: [] },
@@ -528,6 +538,48 @@ window.SUXI_SYSTEM_STATIC = (() => {
             start: total ? startIndex + 1 : 0,
             end: Math.min(total, startIndex + size),
         };
+    };
+    const resolveBusinessRequestContext = ({
+        authContext = {},
+        overrides = {},
+        user = {},
+        selectedHotelId = '',
+        hotelPool = [],
+    } = {}) => {
+        const context = { ...(authContext || {}), ...(overrides || {}) };
+        if (String(authContext?.permissionStatus || authContext?.permission_status || '').toLowerCase() !== 'allowed') {
+            return null;
+        }
+        const explicitValue = (keys) => {
+            let present = false;
+            for (const key of keys) {
+                if (!Object.hasOwn(overrides || {}, key)) continue;
+                present = true;
+                const value = String(overrides[key] ?? '').trim();
+                if (value) return [true, value];
+            }
+            return [present, ''];
+        };
+        const [hasOverrideHotel, overrideHotel] = explicitValue(['hotelId', 'hotel_id', 'system_hotel_id']);
+        const [hasOverrideTenant, overrideTenant] = explicitValue(['tenantId', 'tenant_id']);
+        const selectedId = hasOverrideHotel ? '' : String(selectedHotelId || '').trim();
+        const selectedHotel = selectedId
+            ? (Array.isArray(hotelPool) ? hotelPool : [])
+                .find(hotel => String(hotel?.id || '').trim() === selectedId) || null
+            : null;
+        if (selectedId && !selectedHotel) return null;
+        const hotelId = hasOverrideHotel
+            ? overrideHotel
+            : (selectedHotel?.id || context.hotelId || context.hotel_id || context.system_hotel_id || user?.hotel_id || '');
+        const tenantId = hasOverrideTenant
+            ? overrideTenant
+            : (selectedHotel?.tenant_id || selectedHotel?.tenantId || context.tenantId || context.tenant_id || '');
+        const platform = String(context.platform || '').toLowerCase();
+        const payload = {};
+        if (hotelId) payload.system_hotel_id = String(hotelId);
+        if (tenantId) payload.tenant_id = String(tenantId);
+        if (['ctrip', 'meituan', 'all'].includes(platform)) payload.platform = platform;
+        return payload;
     };
     const toNumber = (value, fallback = 0) => {
         const num = Number(value);
@@ -1442,6 +1494,7 @@ window.SUXI_SYSTEM_STATIC = (() => {
         return error?.message || '导入失败';
     };
     const aiQuickSetupProviderModelMap = {
+        ollama: ['ollama_qwen3_8b · qwen3:8b'],
         deepseek: ['deepseek-chat', 'deepseek-reasoner'],
         openai: ['openai_gpt', 'openai_fast'],
         anthropic: ['anthropic_claude'],
@@ -2363,6 +2416,8 @@ window.SUXI_SYSTEM_STATIC = (() => {
         pending_create: '待生成任务',
         pending_execute: '待执行',
         executing: '执行中',
+        evidence_recorded: '执行证据已记录',
+        review_pending: '等待同口径复盘',
         executed: '已执行',
         in_progress: '进行中',
         completed: '已完成',
@@ -2381,6 +2436,8 @@ window.SUXI_SYSTEM_STATIC = (() => {
         pending_approval: 'bg-amber-50 text-amber-700',
         pending_execute: 'bg-blue-50 text-blue-700',
         executing: 'bg-blue-50 text-blue-700',
+        evidence_recorded: 'bg-cyan-50 text-cyan-700',
+        review_pending: 'bg-amber-50 text-amber-700',
         in_progress: 'bg-blue-50 text-blue-700',
         completed: 'bg-indigo-50 text-indigo-700',
         reviewed: 'bg-emerald-50 text-emerald-700',
@@ -2502,6 +2559,7 @@ window.SUXI_SYSTEM_STATIC = (() => {
         saveCachedAuthUser,
         clearCachedAuthUser,
         buildClientPagination,
+        resolveBusinessRequestContext,
         toNumber,
         toFixedSafe,
         safeDivide,
@@ -2622,6 +2680,7 @@ window.SUXI_SYSTEM_STATIC = (() => {
         operationEffectMetricValue,
         requireDeferredStaticFunction,
         createLazyFactoryMethods,
+        resolveInitialPageRequest,
         loadChartJs,
     };
 })();

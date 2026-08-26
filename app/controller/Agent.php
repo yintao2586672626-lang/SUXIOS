@@ -1220,11 +1220,12 @@ class Agent extends Base
     /**
      * @return array<int, string>
      */
-    private function revenueHighDemandDates(int $hotelId, float $threshold = 80): array
+    private function revenueHighDemandDates(int $hotelId, float $threshold = 80, ?string $businessDate = null): array
     {
-        $key = $hotelId . '|' . $threshold;
+        $anchorDate = $businessDate ?: date('Y-m-d');
+        $key = $hotelId . '|' . $threshold . '|' . $anchorDate;
         if (!array_key_exists($key, $this->revenueHighDemandDatesCache)) {
-            $this->revenueHighDemandDatesCache[$key] = DemandForecast::getHighDemandDates($hotelId, $threshold);
+            $this->revenueHighDemandDatesCache[$key] = DemandForecast::getHighDemandDates($hotelId, $threshold, $anchorDate);
         }
         return $this->revenueHighDemandDatesCache[$key];
     }
@@ -1260,7 +1261,7 @@ class Agent extends Base
         return [
             'forecasts' => $forecasts,
             'accuracy' => $this->revenueForecastAccuracy($hotelId, 30),
-            'high_demand_dates' => $this->revenueHighDemandDates($hotelId, 80),
+            'high_demand_dates' => $this->revenueHighDemandDates($hotelId, 80, $startDate),
         ];
     }
 
@@ -2023,47 +2024,12 @@ class Agent extends Base
      */
     public function approvePrice(): Response
     {
-        $this->checkAdmin();
-        
         $id = (int) $this->request->param('id', 0);
-        $action = (string) $this->request->param('action', 'approve'); // approve/reject
-        $remark = (string) $this->request->param('remark', '');
-        if (!in_array($action, ['approve', 'reject'], true)) {
-            return $this->error('不支持的定价建议审核动作', 422);
-        }
-        
-        $suggestion = PriceSuggestion::find($id);
-        if (!$suggestion) {
-            return $this->error('定价建议不存在');
-        }
-        
-        try {
-            if ($action === 'approve') {
-                $suggestion = $suggestion->approve((int)($this->currentUser->id ?? 0), $remark);
-                $message = '定价建议已批准';
-            } else {
-                $suggestion = $suggestion->reject((int)($this->currentUser->id ?? 0), $remark);
-                $message = '定价建议已拒绝';
-            }
-        } catch (\RuntimeException $error) {
-            if ($error->getMessage() === 'price_suggestion_not_pending_review') {
-                return $this->error('定价建议已完成审核，请刷新后重试', 409);
-            }
-            throw $error;
-        }
-        
-        // 记录日志
-        AgentLog::record(
-            $suggestion->hotel_id,
-            AgentLog::AGENT_TYPE_REVENUE,
-            'price_' . $action,
-            $message . ': ' . $suggestion->room_type_name,
-            AgentLog::LEVEL_INFO,
-            ['suggestion_id' => $id, 'suggested_price' => $suggestion->suggested_price],
-            $this->currentUser->id ?? 0
-        );
-        
-        return $this->success(null, $message);
+
+        // Keep direct/internal legacy callers safe as well as the route alias.
+        // RevenueAi owns the trusted-input, permission, CAS and manual-review
+        // persistence contract; this method must never mutate status directly.
+        return (new RevenueAi($this->app))->reviewPriceSuggestion($id);
     }
 
     public function generatePriceSuggestions(): Response
@@ -2605,27 +2571,23 @@ class Agent extends Base
 
     public function priceSuggestionReview(): Response
     {
-        $this->checkAdmin();
+        $this->checkLogin();
         $id = (int)$this->request->param('id', 0);
         $suggestion = PriceSuggestion::find($id);
         if (!$suggestion) {
             return $this->error('price suggestion not found', 404);
         }
+        $this->assertRevenueHotelPermission((int)$suggestion->hotel_id);
 
         $anchorDate = $suggestion->applied_time ? date('Y-m-d', strtotime((string)$suggestion->applied_time)) : (string)$suggestion->suggestion_date;
         $beforeStart = date('Y-m-d', strtotime($anchorDate . ' -7 days'));
         $beforeEnd = date('Y-m-d', strtotime($anchorDate . ' -1 day'));
         $afterStart = $anchorDate;
         $afterEnd = date('Y-m-d', strtotime($anchorDate . ' +6 days'));
-        $before = $this->aggregateSuggestionEffect((int)$suggestion->hotel_id, $beforeStart, $beforeEnd);
-        $after = $this->aggregateSuggestionEffect((int)$suggestion->hotel_id, $afterStart, $afterEnd);
-        $delta = [
-            'amount' => round($after['amount'] - $before['amount'], 2),
-            'quantity' => (int)($after['quantity'] - $before['quantity']),
-            'orders' => (int)($after['orders'] - $before['orders']),
-            'adr' => round($after['adr'] - $before['adr'], 2),
-        ];
         $pricingService = new RevenuePricingRecommendationService();
+        $before = $pricingService->aggregateSuggestionEffect((int)$suggestion->hotel_id, $beforeStart, $beforeEnd);
+        $after = $pricingService->aggregateSuggestionEffect((int)$suggestion->hotel_id, $afterStart, $afterEnd);
+        $delta = $pricingService->suggestionEffectDelta($before, $after);
 
         return $this->success([
             'suggestion' => $suggestion,
@@ -2636,41 +2598,6 @@ class Agent extends Base
             'readiness' => $pricingService->buildEffectReviewReadiness($suggestion->toArray(), $before, $after),
             'scope_notice' => '复盘基于 online_daily_data 线上/OTA经营样本，不等同于全酒店经营结论，也不能替代OTA后台执行证据。',
         ]);
-    }
-
-    private function aggregateSuggestionEffect(int $hotelId, string $startDate, string $endDate): array
-    {
-        try {
-            $row = Db::name('online_daily_data')
-                ->where('system_hotel_id', $hotelId)
-                ->whereBetween('data_date', [$startDate, $endDate])
-                ->field('COUNT(*) sample_count, COALESCE(SUM(amount),0) amount, COALESCE(SUM(quantity),0) quantity, COALESCE(SUM(book_order_num),0) orders')
-                ->find();
-        } catch (\Throwable $e) {
-            $row = ['sample_count' => 0, 'amount' => 0, 'quantity' => 0, 'orders' => 0];
-            $dataStatus = 'read_failed';
-            $dataGaps = [['code' => 'online_daily_data_read_failed', 'message' => '复盘样本读取失败']];
-        }
-
-        $amount = (float)($row['amount'] ?? 0);
-        $quantity = (int)($row['quantity'] ?? 0);
-        $sampleCount = (int)($row['sample_count'] ?? 0);
-        $dataStatus ??= $sampleCount > 0 ? 'ok' : 'no_sample';
-        $dataGaps ??= $sampleCount > 0 ? [] : [['code' => 'online_daily_data_no_sample', 'message' => '复盘周期内没有线上经营样本']];
-
-        return [
-            'start_date' => $startDate,
-            'end_date' => $endDate,
-            'source' => 'online_daily_data',
-            'scope' => 'online_ota_operating_sample',
-            'data_status' => $dataStatus,
-            'sample_count' => $sampleCount,
-            'data_gaps' => $dataGaps,
-            'amount' => round($amount, 2),
-            'quantity' => $quantity,
-            'orders' => (int)($row['orders'] ?? 0),
-            'adr' => $quantity > 0 ? round($amount / $quantity, 2) : 0,
-        ];
     }
 
     public function cookieWarnings(): Response
@@ -2769,7 +2696,7 @@ class Agent extends Base
         $hotelId = (int)$this->request->param('hotel_id', 0);
         $startDate = (string)$this->request->param('start_date', date('Y-m-d', strtotime('-7 days')));
         $endDate = (string)$this->request->param('end_date', date('Y-m-d'));
-        $businessDate = (string)$this->request->param('business_date', date('Y-m-d'));
+        $businessDate = (string)$this->request->param('business_date', $this->defaultRevenueBusinessDate());
         $priceDate = (string)$this->request->param('date', $businessDate);
         $priceStartDate = (string)$this->request->param('price_start_date', $priceDate);
         $priceEndDate = (string)$this->request->param('price_end_date', $priceStartDate);
@@ -2829,7 +2756,7 @@ class Agent extends Base
                 $businessDate,
                 $factLayer
             ),
-            'dashboard' => $this->buildRevenueDashboardPayload($hotelId),
+            'dashboard' => $this->buildRevenueDashboardPayload($hotelId, $businessDate),
             'forecasts' => $this->buildDemandForecastsPayload($hotelId, $startDate, $endDate),
             'competitor' => $this->buildCompetitorAnalysisPayload($hotelId, $competitorDate),
             'room_types' => $this->buildRoomTypesPayload($hotelId),
@@ -2980,7 +2907,7 @@ class Agent extends Base
         $hotelId = (int) $this->request->param('hotel_id', 0);
         $startDate = (string) $this->request->param('start_date', date('Y-m-d', strtotime('-7 days')));
         $endDate = (string) $this->request->param('end_date', date('Y-m-d'));
-        $businessDate = (string) $this->request->param('business_date', date('Y-m-d'));
+        $businessDate = (string)$this->request->param('business_date', $this->defaultRevenueBusinessDate());
         if ($hotelId <= 0) {
             return $this->error('hotel_id is required', 422);
         }
@@ -3026,7 +2953,7 @@ class Agent extends Base
         
         // 获取需求预测统计
         $forecastStats = $this->revenueForecastAccuracy($hotelId, 30);
-        $highDemandDates = $this->revenueHighDemandDates($hotelId, 80);
+        $highDemandDates = $this->revenueHighDemandDates($hotelId, 80, $businessDate);
         
         // 计算RevPAR趋势（基于预测和历史数据）
         $revparTrend = [];
@@ -3041,7 +2968,7 @@ class Agent extends Base
         }
         
         // 获取定价策略建议
-        $pricingStrategies = $this->generatePricingStrategies($hotelId, $highDemandDates);
+        $pricingStrategies = $this->generatePricingStrategies($hotelId, $highDemandDates, $businessDate);
         
         return [
             'revenue_analysis_status' => (string)(
@@ -3063,7 +2990,7 @@ class Agent extends Base
     /**
      * 生成定价策略建议
      */
-    private function generatePricingStrategies(int $hotelId, array $highDemandDates): array
+    private function generatePricingStrategies(int $hotelId, array $highDemandDates, string $businessDate): array
     {
         $strategies = [];
         
@@ -3079,7 +3006,7 @@ class Agent extends Base
         
         // 检查竞对价格差距
         $recentAnalysis = CompetitorAnalysis::where('hotel_id', $hotelId)
-            ->where('analysis_date', date('Y-m-d'))
+            ->where('analysis_date', $businessDate)
             ->select();
         
         $higherCount = 0;
@@ -3096,7 +3023,7 @@ class Agent extends Base
             $strategies[] = [
                 'type' => 'competitor_price',
                 'title' => '竞对价差待复核',
-                'description' => '今日竞对分析记录中，我方价格高于竞对的记录较多；价差本身不能证明客源流失。',
+                'description' => $businessDate . ' 竞对分析记录中，我方价格高于竞对的记录较多；价差本身不能证明客源流失。',
                 'suggested_action' => '先核对同日期、同房型、同取消与早餐条件，再结合最低保护价决定是否调整。',
                 'expected_impact' => '尚未评估；不能仅凭竞对价差推算入住率变化。',
             ];
@@ -3111,22 +3038,31 @@ class Agent extends Base
     public function revenueDashboard(): Response
     {
         $hotelId = (int) $this->request->param('hotel_id', 0);
+        $businessDate = (string)$this->request->param('business_date', $this->defaultRevenueBusinessDate());
         if ($hotelId <= 0) {
             return $this->error('hotel_id is required', 422);
         }
+        if (!$this->isDateString($businessDate)) {
+            return $this->error('business_date must be YYYY-MM-DD', 422);
+        }
         $this->assertRevenueHotelPermission($hotelId);
 
-        return $this->success($this->buildRevenueDashboardPayload($hotelId));
+        return $this->success($this->buildRevenueDashboardPayload($hotelId, $businessDate));
+    }
+
+    private function defaultRevenueBusinessDate(): string
+    {
+        return date('Y-m-d', strtotime('-1 day'));
     }
 
     /**
      * @return array<string, mixed>
      */
-    private function buildRevenueDashboardPayload(int $hotelId): array
+    private function buildRevenueDashboardPayload(int $hotelId, string $businessDate): array
     {
-        // 今日定价建议
+        // Business-date anchored pricing suggestions.
         $todaySuggestions = PriceSuggestion::where('hotel_id', $hotelId)
-            ->where('suggestion_date', date('Y-m-d'))
+            ->where('suggestion_date', $businessDate)
             ->with('roomType')
             ->select()
             ->toArray();
@@ -3137,16 +3073,16 @@ class Agent extends Base
         
         // 预测准确率
         $forecastAccuracy = $this->revenueForecastAccuracy($hotelId, 30);
-        $pricingModelSummary = (new RevenuePricingRecommendationService())->hotelPricingModelSummary($hotelId, date('Y-m-d'));
+        $pricingModelSummary = (new RevenuePricingRecommendationService())->hotelPricingModelSummary($hotelId, $businessDate);
         
         // 竞对监控概览
-        $competitorAlerts = CompetitorAnalysis::getAlertCompetitors($hotelId, 15);
+        $competitorAlerts = CompetitorAnalysis::getAlertCompetitors($hotelId, 15, $businessDate);
         
         // 本周RevPAR预测
         $weekForecasts = $this->revenueForecastRange(
             $hotelId,
-            date('Y-m-d'),
-            date('Y-m-d', strtotime('+7 days'))
+            $businessDate,
+            date('Y-m-d', strtotime($businessDate . ' +7 days'))
         );
         
         $revparValues = [];
@@ -3161,13 +3097,14 @@ class Agent extends Base
             : null;
         
         return [
+            'business_date' => $businessDate,
             'today_suggestions' => $todaySuggestions,
             'pending_count' => $pendingCount,
             'forecast_accuracy' => $forecastAccuracy,
             'competitor_alerts' => $competitorAlerts,
             'week_revpar_forecast' => $avgPredictedRevpar,
             'week_revpar_forecast_status' => $avgPredictedRevpar === null ? 'insufficient_data' : 'available',
-            'high_demand_count' => count($this->revenueHighDemandDates($hotelId, 80)),
+            'high_demand_count' => count($this->revenueHighDemandDates($hotelId, 80, $businessDate)),
             'pricing_backtest' => $pricingModelSummary['backtest'] ?? [],
             'pricing_model_summary' => $pricingModelSummary,
         ];

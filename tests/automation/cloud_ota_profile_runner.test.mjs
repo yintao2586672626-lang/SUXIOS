@@ -12,7 +12,19 @@ const profileLease = read('app/service/CloudOtaProfileLeaseService.php');
 const ctripCapture = read('scripts/ctrip_browser_capture.mjs');
 
 test('cloud OTA runner binds one source/Profile/date and persists only after current capture proof', () => {
-  assert.match(runner, /validateOtaDataSourceCollectionProfile/);
+  assert.match(
+    runner,
+    /validateOtaDataSourceCollectionProfile\(\s*\$profileId,\s*\$sourceId,\s*\$tenantId,\s*\$hotelId,\s*\$ownerUserId,\s*\$targetDate,\s*\$platform\s*\)/,
+  );
+  assert.doesNotMatch(runner, /->validateOtaCollectionProfile\(/);
+  assert.match(
+    runner,
+    /\(\$validated\['validated'\] \?\? false\) !== true\s*\|\| \(int\)\(\$validated\['data_source_id'\] \?\? 0\) !== \$sourceId\s*\|\| trim\(\(string\)\(\$validated\['platform_hotel_id'\] \?\? ''\)\) !== \$platformHotelId/,
+  );
+  assert.match(
+    runner,
+    /\(int\)\(\$opened\['data_source_id'\] \?\? 0\) !== \$sourceId\s*\|\| \(string\)\(\$opened\['platform'\] \?\? ''\) !== \$platform\s*\|\| \(string\)\(\$opened\['target_date'\] \?\? ''\) !== \$targetDate/,
+  );
   assert.match(runner, /set_exception_handler/);
   assert.match(runner, /'collection_kind'\s*=>\s*'ota_channel_profile'/);
   assert.match(runner, /'data_source_id'\s*=>\s*\$sourceId/);

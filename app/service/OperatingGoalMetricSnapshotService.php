@@ -199,6 +199,7 @@ final class OperatingGoalMetricSnapshotService
         $unavailableDays = [];
         $allEvidenceRefs = [];
         $totals = [];
+        $wholeHotelPmsSources = [];
 
         foreach ($dates as $businessDate) {
             try {
@@ -258,6 +259,11 @@ final class OperatingGoalMetricSnapshotService
                 continue;
             }
             $allEvidenceRefs = array_merge($allEvidenceRefs, $evidenceRefs);
+            if ($metricScope === self::SCOPE_WHOLE_HOTEL) {
+                $wholeHotelPmsSources[] = (string)(
+                    $daily['pms_source_key'] ?? 'pms'
+                );
+            }
             $dailyReadbacks[] = [
                 'business_date' => $businessDate,
                 'tenant_id' => $tenantId,
@@ -289,6 +295,21 @@ final class OperatingGoalMetricSnapshotService
                 array_values(array_column($unavailableDays, 'business_date')),
                 $tenantId,
                 $unavailableDays
+            );
+        }
+        $wholeHotelPmsSources = array_values(array_unique(
+            $wholeHotelPmsSources
+        ));
+        if ($metricScope === self::SCOPE_WHOLE_HOTEL
+            && count($wholeHotelPmsSources) !== 1
+        ) {
+            return $this->unavailable(
+                $base,
+                ['whole_hotel_pms_provider_changed_within_range'],
+                $dailyReadbacks,
+                $allEvidenceRefs,
+                [],
+                $tenantId
             );
         }
 
@@ -441,8 +462,11 @@ final class OperatingGoalMetricSnapshotService
         string $businessDate,
         array $definition
     ): array {
-        $source = is_array($layer['sources']['dingdandao_pms'] ?? null)
-            ? $layer['sources']['dingdandao_pms']
+        $pmsSelection = (new RevenuePmsFactSelectorService())
+            ->select($layer);
+        $pmsSourceKey = (string)$pmsSelection['source_key'];
+        $source = is_array($pmsSelection['source'] ?? null)
+            ? $pmsSelection['source']
             : [];
         $identityReasons = $this->sourceIdentityReasons(
             $source,
@@ -452,10 +476,22 @@ final class OperatingGoalMetricSnapshotService
             self::SCOPE_WHOLE_HOTEL,
             null
         );
-        if ((string)($source['data_status'] ?? '') !== 'readback_verified') {
+        if ((string)($pmsSelection['data_status'] ?? '') !== 'readback_verified') {
             $identityReasons[] = 'whole_hotel_source_not_readback_verified';
         }
         $sourceMeta = is_array($source['source'] ?? null) ? $source['source'] : [];
+        $expectedTable = (string)($pmsSelection['expected_table'] ?? '');
+        $provider = trim((string)($sourceMeta['provider'] ?? ''));
+        $legacyProviderCompatible = ($pmsSelection['legacy_fixture'] ?? false) === true
+            && $provider === '';
+        if ($provider !== $pmsSourceKey && !$legacyProviderCompatible) {
+            $identityReasons[] = 'whole_hotel_source_provider_mismatch';
+        }
+        if ($expectedTable === ''
+            || (string)($sourceMeta['table'] ?? '') !== $expectedTable
+        ) {
+            $identityReasons[] = 'whole_hotel_source_table_mismatch';
+        }
         if ((string)($sourceMeta['readback_status'] ?? '') !== 'readback_verified') {
             $identityReasons[] = 'whole_hotel_source_readback_status_unverified';
         }
@@ -467,7 +503,7 @@ final class OperatingGoalMetricSnapshotService
             $allowedStatuses = $sourceMetric === 'sellable_room_nights'
                 ? ['readback_verified', 'derived_verified']
                 : ($sourceMetric === 'adr' || $sourceMetric === 'revpar'
-                    ? ['derived_verified']
+                    ? ['readback_verified', 'derived_verified']
                     : ['readback_verified']);
             $status = is_array($statuses[$sourceMetric] ?? null) ? $statuses[$sourceMetric] : [];
             $value = $this->number($facts[$sourceMetric] ?? null);
@@ -501,11 +537,12 @@ final class OperatingGoalMetricSnapshotService
 
         return [
             'ready' => $identityReasons === [],
+            'pms_source_key' => $pmsSourceKey,
             'components' => $components,
             'evidence_refs' => $evidenceRefs,
             'reason_codes' => array_values(array_unique($identityReasons)),
             'source_readbacks' => [[
-                'source' => 'dingdandao_pms',
+                'source' => $pmsSourceKey,
                 'platform' => null,
                 'platform_hotel_id' => trim((string)($sourceMeta['provider_hotel_id'] ?? '')),
                 'business_date' => $businessDate,
@@ -650,6 +687,7 @@ final class OperatingGoalMetricSnapshotService
     ): array {
         $platformHotelIds = [];
         $capturedTimes = [];
+        $sourceKeys = [];
         foreach ((array)($result['daily_readbacks'] ?? []) as $dailyReadback) {
             if (!is_array($dailyReadback)) {
                 continue;
@@ -657,6 +695,10 @@ final class OperatingGoalMetricSnapshotService
             foreach ((array)($dailyReadback['source_readbacks'] ?? []) as $sourceReadback) {
                 if (!is_array($sourceReadback)) {
                     continue;
+                }
+                $sourceKey = trim((string)($sourceReadback['source'] ?? ''));
+                if ($sourceKey !== '') {
+                    $sourceKeys[] = $sourceKey;
                 }
                 $platformHotelId = trim((string)($sourceReadback['platform_hotel_id'] ?? ''));
                 if ($platformHotelId !== '') {
@@ -669,6 +711,7 @@ final class OperatingGoalMetricSnapshotService
             }
         }
         $platformHotelIds = array_values(array_unique($platformHotelIds));
+        $sourceKeys = array_values(array_unique($sourceKeys));
         $capturedTimes = array_values(array_unique($capturedTimes));
         usort(
             $capturedTimes,
@@ -679,7 +722,9 @@ final class OperatingGoalMetricSnapshotService
         $wholeHotel = $metricScope === self::SCOPE_WHOLE_HOTEL;
         return [
             'system_hotel_id' => $hotelId,
-            'platform' => $wholeHotel ? 'dingdandao_pms' : $platform,
+            'platform' => $wholeHotel
+                ? (count($sourceKeys) === 1 ? $sourceKeys[0] : 'pms')
+                : $platform,
             'platform_hotel_id' => count($platformHotelIds) === 1
                 ? $platformHotelIds[0]
                 : '',

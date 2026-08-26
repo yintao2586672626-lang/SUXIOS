@@ -27,6 +27,15 @@ test('Node automation runner discovers nested test files and forces serial execu
       runner.buildNodeTestArgs(['tests/automation/a.test.mjs']),
       ['--test', '--test-concurrency=1', 'tests/automation/a.test.mjs'],
     );
+    assert.equal(runner.resolveNodeTestFileTimeoutMs({}), 300_000);
+    assert.equal(runner.resolveNodeTestFileTimeoutMs({ SUXI_NODE_TEST_FILE_TIMEOUT_MS: '45000' }), 45_000);
+    assert.equal(runner.resolveNodeTestFileTimeoutMs({ SUXI_NODE_TEST_FILE_TIMEOUT_MS: '999' }), 300_000);
+    assert.equal(runner.resolveNodeTestBatchSize({}), 1);
+    assert.equal(runner.resolveNodeTestBatchSize({ SUXI_NODE_TEST_BATCH_SIZE: '4' }), 4);
+    assert.deepEqual(
+      runner.buildNodeTestBatches(['a', 'b', 'c'], 2),
+      [['a', 'b'], ['c']],
+    );
     assert.deepEqual(
       runner.buildPhpBinaryCandidates({ PHP_BINARY: 'D:\\php\\php.exe' }, 'win32'),
       ['D:\\php\\php.exe'],
@@ -61,6 +70,33 @@ test('Node automation runner discovers nested test files and forces serial execu
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+test('Node automation runner reports the exact timed-out batch and last completed file', async () => {
+  const runner = await import(`${pathToFileURL(runnerPath).href}?timeout-test=${Date.now()}`);
+  const messages = [];
+  let call = 0;
+  const result = runner.runNodeTestBatches({
+    testFiles: ['tests/automation/a.test.mjs', 'tests/automation/b.test.mjs'],
+    timeoutMs: 12_345,
+    spawn: (_command, _args, options) => {
+      call += 1;
+      assert.equal(options.timeout, 12_345);
+      assert.equal(options.killSignal, 'SIGTERM');
+      return call === 1
+        ? { status: 0, error: null, signal: null }
+        : { status: null, error: Object.assign(new Error('timed out'), { code: 'ETIMEDOUT' }), signal: 'SIGTERM' };
+    },
+    log: (message) => messages.push(message),
+    logError: (message) => messages.push(message),
+  });
+
+  assert.equal(result.status, 1);
+  assert.equal(result.timedOut, true);
+  assert.equal(result.lastCompleted, 'tests/automation/a.test.mjs');
+  assert.deepEqual(result.failedBatch, ['tests/automation/b.test.mjs']);
+  assert.ok(messages.some((message) => message.includes('[NODE TEST TIMEOUT] tests/automation/b.test.mjs')));
+  assert.ok(messages.some((message) => message.includes('last_completed=tests/automation/a.test.mjs')));
 });
 
 test('package and the isolated CI lane run the complete strict Node automation suite', () => {
@@ -109,16 +145,16 @@ test('package and the isolated CI lane run the complete strict Node automation s
   assert.match(transitionStepSource, /SUXI_E2E_DB_NAME:\s+hotelx_ci_test/);
   assert.match(transitionStepSource, /run:\s+npm run test:e2e:transition/);
   assert.doesNotMatch(nodeJob, /test:node:partial|allow-runtime-skip/);
-  assert.doesNotMatch(nodeJob, /Run project guards/);
-  assert.match(contractsJob, /Run project guards[\s\S]*npm run verify:p0-guards/);
+  assert.doesNotMatch(nodeJob, /Run project guards|verify:source-hotspot-budget/);
+  assert.match(contractsJob, /Run canonical integration gate[\s\S]*npm run verify:integration/);
   assert.match(aggregateJob, /needs:[\s\S]*-\s+node_business_chain/);
 });
 
 test('GitHub Actions pin Node 24 runtime majors without deprecated Node 20 actions', () => {
   const workflow = readFileSync('.github/workflows/php.yml', 'utf8');
   const expectedActionCounts = new Map([
-    ['actions/checkout@v5', 5],
-    ['actions/setup-node@v5', 5],
+    ['actions/checkout@v5', 6],
+    ['actions/setup-node@v5', 6],
     ['actions/setup-python@v6', 1],
     ['actions/upload-artifact@v6', 1],
   ]);

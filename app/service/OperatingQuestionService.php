@@ -30,6 +30,9 @@ final class OperatingQuestionService
     /** @var list<string> */
     private const FACT_METRIC_FIELDS = [
         'amount',
+        'gross_revenue',
+        'sales_amount',
+        'room_revenue',
         'quantity',
         'book_order_num',
         'comment_score',
@@ -223,10 +226,14 @@ final class OperatingQuestionService
     /**
      * @param null|Closure(int,int,string,string,string,string):array<string,mixed> $evidenceLoader
      * @param null|Closure(array<string,mixed>):array<string,mixed> $answerGenerator
+     * @param null|Closure(array<string,mixed>):array<string,mixed> $deterministicAnswerFinalizer
+     * @param null|Closure(int,string):array<string,mixed> $scopeClosureReader
      */
     public function __construct(
         private readonly ?Closure $evidenceLoader = null,
-        private readonly ?Closure $answerGenerator = null
+        private readonly ?Closure $answerGenerator = null,
+        private readonly ?Closure $deterministicAnswerFinalizer = null,
+        private readonly ?Closure $scopeClosureReader = null
     )
     {
     }
@@ -439,6 +446,16 @@ final class OperatingQuestionService
                 'excluded_count' => 0,
                 'reason' => '',
             ];
+        $memoryRetrieval = is_array($evidence['memory_retrieval'] ?? null)
+            ? $evidence['memory_retrieval']
+            : [
+                'status' => $evidence['memories'] === [] ? 'no_match' : 'matched',
+                'method' => 'provided_evidence',
+                'matched_count' => count($evidence['memories']),
+                'returned_count' => count($evidence['memories']),
+                'excluded_count' => 0,
+                'reason' => null,
+            ];
         $executionRefs = $this->refs($evidence['executions']);
         $diagnosisRefs = $this->refs($diagnoses);
         $recoveryPlan = $this->buildRecoveryPlan(
@@ -481,6 +498,7 @@ final class OperatingQuestionService
             'fact_samples' => array_slice($facts, 0, 40),
             'diagnosis_refs' => $diagnosisRefs,
             'knowledge_retrieval' => $knowledgeRetrieval,
+            'memory_retrieval' => $memoryRetrieval,
             'knowledge_resources' => $knowledgeResources,
             'question_metric_contract' => $questionMetricContract,
             'requested_metric_keys' => $requestedMetricKeys,
@@ -500,6 +518,20 @@ final class OperatingQuestionService
             $decisionObject,
             $answer
         );
+        if ($this->deterministicAnswerFinalizer !== null) {
+            $answer = $this->finalizeDeterministicAnswer($answer, [
+                'question' => $question,
+                'scope' => $answer['scope'],
+                'facts' => $facts,
+                'fact_refs' => $factRefs,
+                'knowledge_resources' => $knowledgeResources,
+                'knowledge_refs' => $knowledgeRefs,
+                'base_data_gaps' => $dataGaps,
+            ]);
+            $answerStatus = (string)$answer['status'];
+            $answerSummary = (string)$answer['summary'];
+            $dataGaps = is_array($answer['data_gaps'] ?? null) ? $answer['data_gaps'] : [];
+        }
         // Only the already accepted platform facts and current exact diagnoses
         // may enter the model context; rejected rows remain excluded even when
         // a custom evidence loader supplied them.
@@ -507,6 +539,7 @@ final class OperatingQuestionService
         $evidence['diagnoses'] = $diagnoses;
         $evidence['knowledge'] = $knowledgeResources;
         $evidence['knowledge_retrieval'] = $knowledgeRetrieval;
+        $evidence['memory_retrieval'] = $memoryRetrieval;
         $answer = $this->applyAiAnswer(
             $answer,
             $evidence,
@@ -538,7 +571,10 @@ final class OperatingQuestionService
             'knowledge_refs' => $knowledgeRefs,
             'execution_refs' => $executionRefs,
         ]);
-        $requestKey = 'operating-question:v4:' . substr($this->digest([
+        $deterministicRequest = (string)($answer['mode'] ?? '') === 'deterministic_precise_query'
+            && $this->deterministicAnswerFinalizer !== null
+            && $providerResponseId === '';
+        $requestIdentity = [
             $tenantId,
             $hotelId,
             $platform,
@@ -549,10 +585,38 @@ final class OperatingQuestionService
             OperatingQuestionAiAnswerService::PROMPT_VERSION,
             OperatingQuestionAiAnswerService::ACTION_DRAFT_CONTRACT_VERSION,
             $providerResponseId,
-            microtime(true),
-            bin2hex(random_bytes(16)),
-        ]), 0, 48);
+        ];
+        if ($deterministicRequest) {
+            $requestIdentity[] = $this->digest([
+                'fact_refs' => $factRefs,
+                'facts' => $facts,
+                'requested_metric_keys' => $requestedMetricKeys,
+            ]);
+        } else {
+            $requestIdentity[] = microtime(true);
+            $requestIdentity[] = bin2hex(random_bytes(16));
+        }
+        $requestKey = ($deterministicRequest ? 'operating-question:v5:' : 'operating-question:v4:')
+            . substr($this->digest($requestIdentity), 0, 48);
+        if ($deterministicRequest) {
+            $existing = Db::name(self::TABLE)
+                ->where('tenant_id', $tenantId)
+                ->where('hotel_id', $hotelId)
+                ->where('request_key', $requestKey)
+                ->whereNull('deleted_at')
+                ->find();
+            if (is_array($existing)) {
+                $questionRow = $this->read((int)$existing['id'], $tenantId, [$hotelId]);
+                return [
+                    'question' => $questionRow,
+                    'created' => false,
+                    'persistence_status' => 'readback_verified',
+                    'write_boundaries' => $this->writeBoundaries($questionRow),
+                ];
+            }
+        }
         $now = date('Y-m-d H:i:s');
+        $created = true;
         try {
             $questionRow = Db::transaction(function () use (
                 $tenantId,
@@ -662,20 +726,35 @@ final class OperatingQuestionService
                 return $readback;
             });
         } catch (\Throwable $e) {
-            if ($providerResponseId !== '' && $this->tableExists(self::MODEL_RESPONSE_REGISTRY_TABLE)) {
+            if ($deterministicRequest) {
+                $concurrent = Db::name(self::TABLE)
+                    ->where('tenant_id', $tenantId)
+                    ->where('hotel_id', $hotelId)
+                    ->where('request_key', $requestKey)
+                    ->whereNull('deleted_at')
+                    ->find();
+                if (is_array($concurrent)) {
+                    $questionRow = $this->read((int)$concurrent['id'], $tenantId, [$hotelId]);
+                    $created = false;
+                } else {
+                    throw $e;
+                }
+            } elseif ($providerResponseId !== '' && $this->tableExists(self::MODEL_RESPONSE_REGISTRY_TABLE)) {
                 $existingReceipt = Db::name(self::MODEL_RESPONSE_REGISTRY_TABLE)
                     ->where('provider_response_id', $providerResponseId)
                     ->find();
                 if (is_array($existingReceipt)) {
                     throw new RuntimeException('provider_response_replay_rejected', 0, $e);
                 }
+                throw $e;
+            } else {
+                throw $e;
             }
-            throw $e;
         }
 
         return [
             'question' => $questionRow,
-            'created' => true,
+            'created' => $created,
             'persistence_status' => 'readback_verified',
             'write_boundaries' => $this->writeBoundaries($questionRow),
         ];
@@ -746,7 +825,9 @@ final class OperatingQuestionService
         $contractVersion = 'operating_question_scope_options.v1';
         $boundary = [
             'source_scope' => 'ota_channel',
-            'strict_gate' => 'history_success+validation_verified+readback_verified',
+            'strict_gate' => 'dual_ota_field_closure.v1:revenue_analysis_consumable',
+            'fact_authority' => 'trusted_ota_daily_fact_consumer.v1',
+            'candidate_date_source' => 'online_daily_data_strict_rows',
             'silent_date_fallback' => false,
             'pms_included' => false,
             'whole_hotel_conclusion' => false,
@@ -783,32 +864,53 @@ final class OperatingQuestionService
         $dateFloor = '2000-01-01';
         $platforms = [];
         $datesByPlatform = [];
+        $factCountsByPlatformDate = [];
+        $closureCache = [];
+        $closureReadFailedDates = [];
         foreach (self::ALL_OTA_REQUIRED_PLATFORMS as $platform) {
-            $dates = $this->factQuery($tenantId, $hotelId, $platform, $dateFloor, $today)
+            $candidateDates = $this->factQuery($tenantId, $hotelId, $platform, $dateFloor, $today)
                 ->group('data_date')
                 ->order('data_date', 'desc')
                 ->limit(30)
                 ->column('data_date');
-            $dates = array_values(array_unique(array_filter(array_map(
+            $candidateDates = array_values(array_unique(array_filter(array_map(
                 static fn(mixed $value): string => substr(trim((string)$value), 0, 10),
-                $dates
+                $candidateDates
             ), static fn(string $value): bool => preg_match('/^\d{4}-\d{2}-\d{2}$/D', $value) === 1)));
+            $dates = [];
+            $factCounts = [];
+            foreach ($candidateDates as $candidateDate) {
+                try {
+                    if (!isset($closureCache[$candidateDate])) {
+                        $closureCache[$candidateDate] = $this->readScopeClosure($hotelId, $candidateDate);
+                    }
+                } catch (\Throwable) {
+                    $closureReadFailedDates[$candidateDate] = true;
+                    continue;
+                }
+                $factCount = $this->canonicalScopeFactCount(
+                    $closureCache[$candidateDate],
+                    $tenantId,
+                    $hotelId,
+                    $platform,
+                    $candidateDate
+                );
+                if ($factCount <= 0) {
+                    continue;
+                }
+                $dates[] = $candidateDate;
+                $factCounts[$candidateDate] = $factCount;
+            }
             if ($dates === []) {
                 continue;
             }
             $latestDate = $dates[0];
-            $factCount = (int)$this->factQuery(
-                $tenantId,
-                $hotelId,
-                $platform,
-                $latestDate,
-                $latestDate
-            )->count();
             $datesByPlatform[$platform] = $dates;
+            $factCountsByPlatformDate[$platform] = $factCounts;
             $platforms[] = [
                 'platform' => $platform,
                 'latest_verified_date' => $latestDate,
-                'verified_fact_count' => $factCount,
+                'verified_fact_count' => (int)($factCounts[$latestDate] ?? 0),
                 'available_dates' => $dates,
                 'available_date_count' => count($dates),
             ];
@@ -825,13 +927,9 @@ final class OperatingQuestionService
                 $platforms[] = [
                     'platform' => 'all_ota',
                     'latest_verified_date' => $latestDate,
-                    'verified_fact_count' => (int)$this->factQuery(
-                        $tenantId,
-                        $hotelId,
-                        'all_ota',
-                        $latestDate,
-                        $latestDate
-                    )->count(),
+                    'verified_fact_count' =>
+                        (int)($factCountsByPlatformDate['ctrip'][$latestDate] ?? 0)
+                        + (int)($factCountsByPlatformDate['meituan'][$latestDate] ?? 0),
                     'available_dates' => array_slice($sharedDates, 0, 30),
                     'available_date_count' => count($sharedDates),
                 ];
@@ -861,6 +959,18 @@ final class OperatingQuestionService
             'is_today' => (string)$first['latest_verified_date'] === $today,
         ] : null;
 
+        $dataGaps = $recommended === null
+            ? [['code' => 'strict_readback_fact_scope_missing']]
+            : [];
+        if ($closureReadFailedDates !== []) {
+            $failedDates = array_keys($closureReadFailedDates);
+            rsort($failedDates, SORT_STRING);
+            $dataGaps[] = [
+                'code' => 'canonical_closure_scope_read_failed',
+                'dates' => $failedDates,
+            ];
+        }
+
         return [
             'contract_version' => $contractVersion,
             'data_status' => $recommended === null ? 'empty' : 'ready',
@@ -868,10 +978,80 @@ final class OperatingQuestionService
             'recommended' => $recommended,
             'platforms' => $platforms,
             'boundary' => $boundary,
-            'data_gaps' => $recommended === null
-                ? [['code' => 'strict_readback_fact_scope_missing']]
-                : [],
+            'data_gaps' => $dataGaps,
         ];
+    }
+
+    /** @return array<string,mixed> */
+    private function readScopeClosure(int $hotelId, string $businessDate): array
+    {
+        return $this->scopeClosureReader !== null
+            ? ($this->scopeClosureReader)($hotelId, $businessDate)
+            : (new DualOtaFieldClosureService())->build($hotelId, $businessDate);
+    }
+
+    /** @param array<string,mixed> $closure */
+    private function canonicalScopeFactCount(
+        array $closure,
+        int $tenantId,
+        int $hotelId,
+        string $platform,
+        string $businessDate
+    ): int {
+        $consumer = is_array($closure['consumer_contract'] ?? null)
+            ? $closure['consumer_contract']
+            : [];
+        if ((string)($closure['contract_version'] ?? '') !== 'dual_ota_field_closure.v1'
+            || (int)($closure['tenant_id'] ?? 0) !== $tenantId
+            || (int)($closure['hotel_id'] ?? 0) !== $hotelId
+            || (string)($closure['business_date'] ?? '') !== $businessDate
+            || (string)($consumer['contract_version'] ?? '') !== 'trusted_ota_daily_fact_consumer.v1'
+            || (string)($consumer['closure_identity'] ?? '') !== (string)($closure['page_identity'] ?? '')
+            || (string)($consumer['field_source_path'] ?? '') !== 'platforms.{platform}.fields'
+            || ($consumer['metric_values_duplicated'] ?? true) !== false
+        ) {
+            return 0;
+        }
+        $platformRow = is_array($closure['platforms'][$platform] ?? null)
+            ? $closure['platforms'][$platform]
+            : [];
+        $fields = is_array($platformRow['fields'] ?? null) ? $platformRow['fields'] : [];
+        $allowedStatuses = array_values(array_filter(array_map(
+            static fn(mixed $value): string => trim((string)$value),
+            (array)($consumer['allowed_fact_statuses'] ?? [])
+        )));
+        if ($allowedStatuses === []) {
+            return 0;
+        }
+        $seen = [];
+        $count = 0;
+        foreach ($fields as $field) {
+            if (!is_array($field)) {
+                return 0;
+            }
+            $key = trim((string)($field['key'] ?? ''));
+            if ($key === '' || isset($seen[$key])) {
+                return 0;
+            }
+            $seen[$key] = true;
+            $value = $field['value'] ?? null;
+            $valueIsFiniteNumber = is_int($value)
+                || (is_float($value) && is_finite($value));
+            if (($field['revenue_analysis_consumable'] ?? false) !== true
+                || ($field['strict_final_gate'] ?? false) !== true
+                || !in_array((string)($field['status'] ?? ''), $allowedStatuses, true)
+                || (string)($field['readback_status'] ?? '') !== 'readback_verified'
+                || (int)($field['tenant_id'] ?? 0) !== $tenantId
+                || (int)($field['system_hotel_id'] ?? 0) !== $hotelId
+                || strtolower(trim((string)($field['platform'] ?? ''))) !== $platform
+                || (string)($field['business_date'] ?? '') !== $businessDate
+                || !$valueIsFiniteNumber
+            ) {
+                continue;
+            }
+            $count++;
+        }
+        return $count;
     }
 
     /** @return array<string,mixed> */
@@ -890,12 +1070,21 @@ final class OperatingQuestionService
             $platform,
             $question
         );
+        $memoryRetrieval = (new OperatingMemoryRetrievalService())->retrieve(
+            $tenantId,
+            $hotelId,
+            $platform,
+            $question,
+            $dateStart,
+            $dateEnd
+        );
         return [
             'facts' => $this->loadFacts($tenantId, $hotelId, $platform, $dateStart, $dateEnd),
             'fact_count' => $this->factCount($tenantId, $hotelId, $platform, $dateStart, $dateEnd),
             'fact_platform_counts' => $this->factPlatformCounts($tenantId, $hotelId, $platform, $dateStart, $dateEnd),
             'fact_platform_dates' => $this->factPlatformDates($tenantId, $hotelId, $platform, $dateStart, $dateEnd),
-            'memories' => $this->loadMemories($tenantId, $hotelId, $platform, $dateStart, $dateEnd),
+            'memories' => is_array($memoryRetrieval['items'] ?? null) ? $memoryRetrieval['items'] : [],
+            'memory_retrieval' => array_diff_key($memoryRetrieval, ['items' => true]),
             'diagnoses' => $this->loadDiagnoses($tenantId, $hotelId, $platform, $dateStart, $dateEnd),
             'knowledge' => is_array($knowledge['items'] ?? null) ? $knowledge['items'] : [],
             'knowledge_retrieval' => array_diff_key($knowledge, ['items' => true]),
@@ -963,6 +1152,11 @@ final class OperatingQuestionService
             'validation_status', 'history_status', 'readback_verified', 'readback_verified_at',
             'ingestion_method', 'source_trace_id',
         ];
+        foreach (['collected_at', 'snapshot_time', 'created_at', 'updated_at'] as $timeField) {
+            if ($this->columnExists('online_daily_data', $timeField)) {
+                $fields[] = $timeField;
+            }
+        }
         foreach (self::FACT_METRIC_FIELDS as $metricField) {
             if ($this->columnExists('online_daily_data', $metricField)) {
                 $fields[] = $metricField;
@@ -1041,6 +1235,7 @@ final class OperatingQuestionService
                 'history_status' => (string)($row['history_status'] ?? ''),
                 'readback_status' => 'readback_verified',
                 'readback_verified_at' => $row['readback_verified_at'] ?? null,
+                'collected_at' => self::collectionTimestamp($row),
                 'ingestion_method' => (string)($row['ingestion_method'] ?? ''),
                 'source_trace_id' => (string)($row['source_trace_id'] ?? ''),
                 'metric_values' => $metricValues,
@@ -1251,14 +1446,14 @@ final class OperatingQuestionService
                 return 'exposure_users';
             }
             if ($platform === 'meituan'
-                && in_array($normalizedMetricKey, ['list_exposure', 'mt_exposure'], true)
+                && in_array($normalizedMetricKey, ['list_exposure', 'mt_exposure', 'ota_exposure_volume'], true)
                 && in_array($sourceKey, self::LIST_EXPOSURE_VISITOR_SOURCE_KEYS, true)
             ) {
                 return 'exposure_users';
             }
             return $platform === 'meituan'
                 && in_array($sourceKey, self::LIST_EXPOSURE_COUNT_SOURCE_KEYS, true)
-                && in_array($normalizedMetricKey, ['list_exposure', 'mt_exposure'], true)
+                && in_array($normalizedMetricKey, ['list_exposure', 'mt_exposure', 'ota_exposure_volume'], true)
                     ? 'mt_exposure'
                     : '';
         }
@@ -1274,13 +1469,13 @@ final class OperatingQuestionService
                 return '';
             }
             if ($platform === 'ctrip'
-                && $normalizedMetricKey === 'detail_exposure'
+                && in_array($normalizedMetricKey, ['detail_exposure', 'ctrip_detail_visitors'], true)
                 && in_array($sourceKey, self::DETAIL_EXPOSURE_VISITOR_SOURCE_KEYS, true)
             ) {
                 return 'detail_visitors';
             }
             if ($platform === 'meituan'
-                && in_array($normalizedMetricKey, ['detail_exposure', 'mt_intention_uv'], true)
+                && in_array($normalizedMetricKey, ['detail_exposure', 'mt_intention_uv', 'meituan_detail_visitors'], true)
                 && in_array($sourceKey, self::DETAIL_EXPOSURE_VISITOR_SOURCE_KEYS, true)
             ) {
                 return 'detail_visitors';
@@ -1545,6 +1740,42 @@ final class OperatingQuestionService
         };
     }
 
+    /** @param array<string,mixed> $row */
+    private static function collectionTimestamp(array $row): ?string
+    {
+        $raw = $row['raw_data'] ?? null;
+        if (is_string($raw)) {
+            $decoded = json_decode($raw, true);
+        } elseif (is_array($raw)) {
+            $decoded = $raw;
+        } else {
+            $decoded = null;
+        }
+        $decoded = is_array($decoded) ? $decoded : [];
+        $meta = is_array($decoded['meta'] ?? null) ? $decoded['meta'] : [];
+        $capture = is_array($decoded['capture_evidence'] ?? null) ? $decoded['capture_evidence'] : [];
+        foreach ([
+            $row['collected_at'] ?? null,
+            $row['snapshot_time'] ?? null,
+            $decoded['collected_at'] ?? null,
+            $decoded['collectedAt'] ?? null,
+            $decoded['captured_at'] ?? null,
+            $decoded['capturedAt'] ?? null,
+            $decoded['fetched_at'] ?? null,
+            $decoded['fetch_time'] ?? null,
+            $meta['collected_at'] ?? null,
+            $meta['captured_at'] ?? null,
+            $capture['collected_at'] ?? null,
+            $capture['captured_at'] ?? null,
+        ] as $candidate) {
+            $value = trim((string)($candidate ?? ''));
+            if ($value !== '') {
+                return mb_substr($value, 0, 40);
+            }
+        }
+        return null;
+    }
+
     private function factCount(int $tenantId, int $hotelId, string $platform, string $dateStart, string $dateEnd): int
     {
         if (!$this->tableExists('online_daily_data')) {
@@ -1766,6 +1997,9 @@ final class OperatingQuestionService
         }
         $evidence['knowledge_retrieval'] = is_array($evidence['knowledge_retrieval'] ?? null)
             ? $evidence['knowledge_retrieval']
+            : [];
+        $evidence['memory_retrieval'] = is_array($evidence['memory_retrieval'] ?? null)
+            ? $evidence['memory_retrieval']
             : [];
         $evidence['fact_count'] = max(0, (int)($evidence['fact_count'] ?? count($evidence['facts'])));
         $evidence['fact_platform_counts'] = $this->factPlatformCountsFromEvidence($evidence);
@@ -2389,6 +2623,10 @@ final class OperatingQuestionService
         $answer = is_array($questionRow['answer'] ?? null) ? $questionRow['answer'] : [];
         $boundaries = is_array($answer['boundaries'] ?? null) ? $answer['boundaries'] : [];
         return [
+            'local_llm_called' => is_bool($boundaries['local_llm_called'] ?? null)
+                ? $boundaries['local_llm_called']
+                : null,
+            'local_transport_status' => mb_substr(trim((string)($boundaries['local_transport_status'] ?? '')), 0, 80),
             'external_llm_called' => is_bool($boundaries['external_llm_called'] ?? null)
                 ? $boundaries['external_llm_called']
                 : null,
@@ -2399,6 +2637,75 @@ final class OperatingQuestionService
             'external_message' => ($boundaries['external_message'] ?? false) === true,
             'automatic_execution' => ($boundaries['automatic_execution'] ?? false) === true,
         ];
+    }
+
+    /**
+     * Apply a server-owned deterministic lookup result before persistence.
+     * This hook cannot enable model calls, external writes, messages, action
+     * drafts, or evidence references outside the already accepted fact set.
+     *
+     * @param array<string,mixed> $answer
+     * @param array<string,mixed> $payload
+     * @return array<string,mixed>
+     */
+    private function finalizeDeterministicAnswer(array $answer, array $payload): array
+    {
+        $result = ($this->deterministicAnswerFinalizer)($payload + ['answer' => $answer]);
+        if (!is_array($result)) {
+            throw new RuntimeException('确定性查数结果格式无效');
+        }
+        if (($result['applied'] ?? true) !== true) {
+            if (is_array($result['semantic_resolution'] ?? null)) {
+                $answer['semantic_resolution'] = $result['semantic_resolution'];
+            }
+            return $answer;
+        }
+        $summary = mb_substr(trim((string)($result['summary'] ?? '')), 0, 1500);
+        $status = mb_substr(trim((string)($result['status'] ?? '')), 0, 80);
+        $preciseResult = is_array($result['precise_result'] ?? null) ? $result['precise_result'] : [];
+        $queryRouter = is_array($result['query_router'] ?? null) ? $result['query_router'] : [];
+        if ($summary === '' || $status === '' || $preciseResult === [] || $queryRouter === []) {
+            throw new RuntimeException('确定性查数结果缺少摘要、状态、范围或答案');
+        }
+        if ((string)($queryRouter['contract_version'] ?? '') !== 'suxi_precise_query_router.v1') {
+            throw new RuntimeException('确定性查数路由合同无效');
+        }
+
+        $allowedRefs = array_fill_keys(array_map('strval', (array)($payload['fact_refs'] ?? [])), true);
+        $usedRefs = array_values(array_unique(array_filter(array_map(
+            static fn(mixed $ref): string => trim((string)$ref),
+            is_array($result['used_evidence_refs'] ?? null) ? $result['used_evidence_refs'] : []
+        ), static fn(string $ref): bool => $ref !== '')));
+        foreach ($usedRefs as $ref) {
+            if (!isset($allowedRefs[$ref])) {
+                throw new RuntimeException('确定性查数引用了范围外事实');
+            }
+        }
+
+        $dataGaps = array_values(array_filter(
+            is_array($result['data_gaps'] ?? null) ? $result['data_gaps'] : [],
+            'is_array'
+        ));
+        $answer['mode'] = 'deterministic_precise_query';
+        $answer['status'] = $status;
+        $answer['summary'] = $summary;
+        $answer['precise_result'] = $preciseResult;
+        $answer['query_router'] = $queryRouter;
+        $answer['used_evidence_refs'] = $usedRefs;
+        $answer['data_gaps'] = $dataGaps;
+        $answer['action_drafts'] = [];
+        $answer['boundaries'] = array_replace(
+            is_array($answer['boundaries'] ?? null) ? $answer['boundaries'] : [],
+            [
+                'external_llm_called' => false,
+                'llm_attempted' => false,
+                'llm_client_invoked' => false,
+                'ota_write' => false,
+                'external_message' => false,
+                'automatic_execution' => false,
+            ]
+        );
+        return $answer;
     }
 
     /**
@@ -2424,6 +2731,8 @@ final class OperatingQuestionService
             'prompt_version' => '',
             'model_attempted' => false,
             'llm_client_invoked' => false,
+            'local_llm_called' => false,
+            'local_transport_status' => '',
             'external_llm_called' => false,
             'external_llm_call_status' => 'not_attempted',
             'provider' => '',
@@ -2458,6 +2767,11 @@ final class OperatingQuestionService
         ];
         $answer['boundaries']['llm_client_invoked'] = false;
         $answer['boundaries']['external_llm_call_status'] = 'not_attempted';
+        if ((string)($answer['mode'] ?? '') === 'deterministic_precise_query') {
+            $answer['ai_runtime']['status'] = 'not_called_deterministic';
+            $answer['ai_runtime']['message'] = '已由同范围严格回读事实完成确定性查数，未调用AI模型。';
+            return $answer;
+        }
         if ($this->answerGenerator === null) {
             return $answer;
         }
@@ -2493,6 +2807,8 @@ final class OperatingQuestionService
                 'model_key' => $modelKey,
                 'model_attempted' => true,
                 'llm_client_invoked' => true,
+                'local_llm_called' => null,
+                'local_transport_status' => 'unknown_after_client_attempt',
                 'external_llm_called' => null,
                 'external_llm_call_status' => 'unknown_after_client_attempt',
                 'provider' => '',
@@ -2532,6 +2848,10 @@ final class OperatingQuestionService
             'prompt_version' => (string)($result['prompt_version'] ?? ''),
             'model_attempted' => ($result['model_attempted'] ?? false) === true,
             'llm_client_invoked' => ($result['llm_client_invoked'] ?? false) === true,
+            'local_llm_called' => is_bool($result['local_llm_called'] ?? null)
+                ? $result['local_llm_called']
+                : null,
+            'local_transport_status' => mb_substr(trim((string)($result['local_transport_status'] ?? '')), 0, 80),
             'external_llm_called' => $externalLlmCalled,
             'external_llm_call_status' => mb_substr(trim((string)($result['external_llm_call_status'] ?? (
                 $externalLlmCalled === true ? 'unverified_external_response' : 'unknown_after_client_attempt'
@@ -2566,6 +2886,8 @@ final class OperatingQuestionService
         ];
         $answer['boundaries']['llm_attempted'] = $answer['ai_runtime']['model_attempted'];
         $answer['boundaries']['llm_client_invoked'] = $answer['ai_runtime']['llm_client_invoked'];
+        $answer['boundaries']['local_llm_called'] = $answer['ai_runtime']['local_llm_called'];
+        $answer['boundaries']['local_transport_status'] = $answer['ai_runtime']['local_transport_status'];
         $answer['boundaries']['external_llm_called'] = $answer['ai_runtime']['external_llm_called'];
         $answer['boundaries']['external_llm_call_status'] = $answer['ai_runtime']['external_llm_call_status'];
 
@@ -2575,15 +2897,20 @@ final class OperatingQuestionService
             && preg_match('/^[a-f0-9]{64}$/D', $claimsDigest) === 1
             && hash_equals($claimsDigest, OperatingQuestionAiAnswerService::claimsDigest($factClaims));
         $runtime = $answer['ai_runtime'];
-        $groundedRuntimeReady = (string)($runtime['status'] ?? '') === 'ready'
-            && (string)($answer['question_metric_contract']['contract_version'] ?? '')
-                === self::METRIC_INTENT_CONTRACT_VERSION
-            && OperatingQuestionAiAnswerService::directCallProofReady($runtime)
+        $directDeepSeekReady = OperatingQuestionAiAnswerService::directCallProofReady($runtime)
             && OperatingQuestionAiAnswerService::directCallReceiptFreshNow($runtime)
-            && (string)($runtime['prompt_version'] ?? '') === OperatingQuestionAiAnswerService::PROMPT_VERSION
             && ($runtime['external_llm_called'] ?? false) === true
             && (string)($runtime['external_llm_call_status'] ?? '')
                 === OperatingQuestionAiAnswerService::DIRECT_CALL_STATUS;
+        $localSecondBrainReady = OperatingQuestionAiAnswerService::localCallProofReady($runtime)
+            && ($runtime['external_llm_called'] ?? true) === false
+            && (string)($runtime['external_llm_call_status'] ?? '')
+                === OperatingQuestionAiAnswerService::LOCAL_CALL_STATUS;
+        $groundedRuntimeReady = (string)($runtime['status'] ?? '') === 'ready'
+            && (string)($answer['question_metric_contract']['contract_version'] ?? '')
+                === self::METRIC_INTENT_CONTRACT_VERSION
+            && (string)($runtime['prompt_version'] ?? '') === OperatingQuestionAiAnswerService::PROMPT_VERSION
+            && ($directDeepSeekReady || $localSecondBrainReady);
         if (($result['ok'] ?? false) !== true || !$groundedRuntimeReady || !$claimsDigestReady) {
             if (is_array($result['data_gaps'] ?? null)) {
                 $answer['data_gaps'] = array_values(array_merge(
@@ -2892,6 +3219,12 @@ final class OperatingQuestionService
     private function modelKey(string $value): string
     {
         $value = strtolower(trim($value));
+        if ($value === 'deterministic_lookup'
+            && $this->deterministicAnswerFinalizer !== null
+            && $this->answerGenerator === null
+        ) {
+            return 'deterministic_lookup';
+        }
         if ($value === '') {
             return OperatingQuestionAiAnswerService::DIRECT_MODEL_KEY;
         }
@@ -2903,7 +3236,13 @@ final class OperatingQuestionService
         ], true)) {
             return OperatingQuestionAiAnswerService::DIRECT_MODEL_KEY;
         }
-        throw new InvalidArgumentException('经营问答只允许 DeepSeek V4 Pro 直接模型，已拒绝其他模型或客户端降级选择');
+        if (in_array($value, [
+            LocalAiRuntimeService::TEXT_MODEL_KEY,
+            'ollama_qwen3_4b',
+        ], true)) {
+            return LocalAiRuntimeService::TEXT_MODEL_KEY;
+        }
+        throw new InvalidArgumentException('经营问答只允许 DeepSeek V4 Pro 或已固定的本机第二大脑模型，已拒绝其他模型或客户端降级选择');
     }
 
     private function providerResponseId(mixed $value): string

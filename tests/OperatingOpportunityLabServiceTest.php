@@ -7,6 +7,7 @@ use app\service\OperatingOpportunityLabService;
 use InvalidArgumentException;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
+use Tests\Support\RouteContractSource;
 
 final class OperatingOpportunityLabServiceTest extends TestCase
 {
@@ -110,6 +111,22 @@ final class OperatingOpportunityLabServiceTest extends TestCase
         self::assertTrue($retryable->invoke($service, new \RuntimeException('Lock wait timeout exceeded', 1205)));
         self::assertTrue($retryable->invoke($service, new \RuntimeException('Serialization failure', 40001)));
         self::assertFalse($retryable->invoke($service, new \RuntimeException('ordinary failure', 500)));
+    }
+
+    public function testStrictFactSourceFailureBlocksDailySaveAndApproval(): void
+    {
+        $assert = new \ReflectionMethod(OperatingOpportunityLabService::class, 'assertDailySourceReady');
+
+        try {
+            $assert->invoke(new OperatingOpportunityLabService(), [
+                'strict_fact_status' => 'source_unavailable',
+                'source_errors' => [['code' => 'strict_fact_layer_unavailable']],
+            ]);
+            self::fail('Strict fact source failures must block daily save and approval.');
+        } catch (\RuntimeException $error) {
+            self::assertSame(503, $error->getCode());
+            self::assertSame('每日事项严格事实来源暂不可用，不能保存或送审', $error->getMessage());
+        }
     }
 
     public function testStoredRunDigestIntegrityRejectsContentTampering(): void
@@ -242,7 +259,7 @@ final class OperatingOpportunityLabServiceTest extends TestCase
     public function testControllerEvaluatePathCallsScopedServiceSaveAndReadback(): void
     {
         $controller = (string)file_get_contents(__DIR__ . '/../app/controller/OperatingOpportunity.php');
-        $routes = (string)file_get_contents(__DIR__ . '/../route/app.php');
+        $routes = RouteContractSource::read(dirname(__DIR__));
 
         self::assertStringContainsString("Route::post('/evaluate', 'OperatingOpportunity/evaluate')", $routes);
         self::assertStringContainsString('resolveSingleHotelScope(', $controller);

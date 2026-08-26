@@ -751,7 +751,7 @@ test('Meituan ranking uses selected hotel config without exposing temporary fiel
   const fetchMeituanData = sliceFrom('const fetchMeituanData = async (options = {}) => {', 'const useCtripTrafficDisplayRows');
   const meituanFetchFlow = meituanStatic.slice(
     meituanStatic.indexOf('const runMeituanBatchFetchFlow = async ({'),
-    meituanStatic.indexOf('const useMeituanDisplayModel')
+    meituanStatic.indexOf('const buildMeituanRankDisplayRows')
   );
   const meituanBatchValidation = meituanStatic.slice(
     meituanStatic.indexOf('const validateMeituanBatchFetchInput = ({'),
@@ -983,7 +983,7 @@ test('Meituan ranking reset state is owned by the static helper', () => {
       ],
       limit: 1,
     }))),
-    [{ poiId: 'fallback-1', hotelName: 'Fallback A', positionText: '第一', rankTrendText: '', platformTagText: '', roomNights: 0, sales: 0, gapToNextText: '' }]
+    [{ poiId: 'fallback-1', hotelName: 'Fallback A', positionText: '第一', rankTrendText: '', platformTagText: '', roomNights: null, sales: null, gapToNextText: '' }]
   );
   const rankRows = [
     { hotelName: 'Self', isSelf: true, roomNights: 3, sales: 200 },
@@ -2904,7 +2904,7 @@ test('Meituan config saves cookie-only and no longer treats room counts as crede
   );
   const generateMeituanBookmarklet = constSlice(
     'const generateMeituanBookmarklet = async () => {',
-    '\n\n            const fetchCustomData'
+    '\n\n            const cookieRowKey'
   );
 
   assert.match(html, /const meituanConfigSaveHelperKeys = Object\.freeze\(\[/);
@@ -4265,7 +4265,10 @@ test('Meituan hotel matching does not wait for all-store competitor summaries', 
   assert.doesNotMatch(resolveMeituanManualDefaultHotelId, /onlineDataFilter\.value\.hotel_id/);
   assert.doesNotMatch(resolveMeituanManualDefaultHotelId, /filterReportHotel\.value/);
   assert.match(resolveMeituanManualDefaultHotelId, /userHotelId: user\.value\?\.hotel_id/);
-  assert.match(resolveMeituanManualDefaultHotelId, /hotelPool: meituanTargetHotelOptions\.value/);
+  assert.match(resolveMeituanManualDefaultHotelId, /hotelPool: onlineDataTab\.value === 'meituan-review-match'/);
+  assert.match(resolveMeituanManualDefaultHotelId, /\? meituanReviewMatchHotelOptions\.value/);
+  assert.match(resolveMeituanManualDefaultHotelId, /: meituanTargetHotelOptions\.value/);
+  assert.doesNotMatch(resolveMeituanManualDefaultHotelId, /loadCompetitorSummary/);
   assert.match(ensureMeituanManualHotelSelected, /suppressNextMeituanHotelConfigApply = true;/);
   assert.match(ensureMeituanManualHotelSelected, /meituanForm\.value\.hotelId = hotelId;/);
   assert.match(scheduleMeituanEbookingDeferredStartupRefresh, /applySelectedConfig: false/);
@@ -4677,7 +4680,7 @@ test('Online data health tab returns the initial light refresh and schedules lat
   assert.match(goAiDailyReportDataGap, /currentPage\.value = 'online-data';\s*onlineDataTab\.value = 'data-health';\s*dataHealthSecondaryPanelsReady\.value = false;\s*scheduleDataHealthSecondaryPanelsReady\(\);\s*dataHealthDetailPanelsReady\.value = false;\s*scheduleDataHealthDetailPanelsReady\(\);\s*dataHealthEmployeePanelsReady\.value = false;\s*scheduleDataHealthEmployeePanelsReady\(\);\s*scheduleDataHealthPanelRefresh\('light'\);/);
   assert.doesNotMatch(goAiDailyReportDataGap, /await loadDataHealthPanel\('light'\);/);
   assert.match(html, /const MANUAL_ONLINE_DATA_CONFIG_PREWARM_DELAY_MS = 60;/);
-  assert.match(html, /const MANUAL_ONLINE_FETCH_CONFIG_TABS = new Set\(\['ctrip', 'meituan', 'custom'\]\);/);
+  assert.match(html, /const MANUAL_ONLINE_FETCH_CONFIG_TABS = new Set\(\['ctrip', 'meituan'\]\);/);
   assert.match(html, /const shouldPrewarmManualOnlineFetchConfig = \(newTab\) => MANUAL_ONLINE_FETCH_CONFIG_TABS\.has\(String\(newTab \|\| ''\)\);/);
   assert.match(html, /const scheduleManualOnlineFetchConfigPrewarm = \(newTab, delayMs = MANUAL_ONLINE_DATA_CONFIG_PREWARM_DELAY_MS\) => \{[\s\S]*if \(!isVisibleOnlineDataTab\(newTab\)\) return;[\s\S]*ensureManualOnlineFetchConfigReady\(\);/);
   assert.match(scheduleOnlineDataTabLoad, /const shouldPrewarmManualConfig = shouldPrewarmManualOnlineFetchConfig\(newTab\);/);
@@ -4724,7 +4727,7 @@ test('Online analysis tab reuses recent analysis and detail reads during tab ret
   assert.match(loadAnalysisData, /const cacheMs = Number\(options\?\.cacheMs \?\? ONLINE_ANALYSIS_PANEL_CACHE_TTL_MS\);/);
   assert.match(loadAnalysisData, /const cached = readOnlineAnalysisResultCache\(onlineAnalysisDataResultCache, requestKey, cacheMs\);/);
   assert.match(loadAnalysisData, /if \(onlineAnalysisDataRequestPromises\.has\(requestKey\)\) \{/);
-  assert.match(loadAnalysisData, /request\(`\/online-data\/data-analysis\?\$\{params\}`\)/);
+  assert.match(loadAnalysisData, /request\(`\/online-data\/data-analysis\?\$\{params\}`,\s*\{\s*businessContext:\s*\{\s*hotelId:\s*onlineDataFilter\.value\.hotel_id\s*\|\|\s*'',\s*tenantId:\s*'',?\s*\},?\s*\}\)/);
   assert.match(loadAnalysisData, /writeOnlineAnalysisResultCache\(onlineAnalysisDataResultCache, requestKey, data, cacheMs\);/);
   assert.match(loadOnlineAnalysisRows, /const cached = readOnlineAnalysisResultCache\(onlineAnalysisRowsResultCache, requestKey, cacheMs\);/);
   assert.match(loadOnlineAnalysisRows, /if \(onlineAnalysisRowsRequestPromises\.has\(requestKey\)\) \{/);
@@ -4737,6 +4740,7 @@ test('Online analysis tab reuses recent analysis and detail reads during tab ret
   assert.match(refreshOnlineAnalysis, /loadOnlineAnalysisRows\(loadOptions\)/);
   assert.match(scheduleOnlineDataTabLoad, /return refreshOnlineAnalysis\(options\);/);
   assert.match(clearOnlineDataReadCaches, /clearOnlineAnalysisReadCaches\(\);/);
+  assert.match(html, /@click="refreshOnlineAnalysis\(\{ force: true \}\)"/);
   assert.match(html, /@click="loadOnlineAnalysisRows\(\{ force: true \}\)"/);
 });
 

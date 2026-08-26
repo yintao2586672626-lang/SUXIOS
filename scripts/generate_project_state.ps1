@@ -115,7 +115,23 @@ $state = [ordered]@{
     }
 }
 
-$stateJson = $state | ConvertTo-Json -Depth 5 -Compress
+# index.lock is a transient coordination file and can appear between refresh
+# and check without changing the repository snapshot. Release evidence audits
+# it separately, so exclude it from the durable fingerprint while still
+# rendering its current state below.
+$fingerprintState = [ordered]@{
+    branch = $state.branch
+    head = $state.head
+    head_short = $state.head_short
+    head_subject = $state.head_subject
+    upstream = $state.upstream
+    ahead = $state.ahead
+    behind = $state.behind
+    worktree = $state.worktree
+    counts = $state.counts
+}
+$stateJson = $fingerprintState | ConvertTo-Json -Depth 5 -Compress
+$stateBase64 = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($stateJson))
 $sha256 = [Security.Cryptography.SHA256]::Create()
 try {
     $fingerprint = [BitConverter]::ToString(
@@ -146,6 +162,7 @@ $rendered = @"
 
 Updated: $(Get-ShanghaiTimestamp)
 Snapshot fingerprint: ``$fingerprint``
+Snapshot state: ``$stateBase64``
 
 ## Repository
 
@@ -179,9 +196,16 @@ if ($Check) {
         throw "$outputRelativePath is missing; run npm run state:refresh."
     }
     $existing = [IO.File]::ReadAllText($outputPath, [Text.Encoding]::UTF8)
-    $match = [regex]::Match($existing, '(?m)^Snapshot fingerprint: `([a-f0-9]{64})`$')
+    $match = [regex]::Match($existing, '(?m)^Snapshot fingerprint: `([a-f0-9]{64})`\r?$')
     if (-not $match.Success -or $match.Groups[1].Value -ne $fingerprint) {
-        throw "$outputRelativePath is stale; run npm run state:refresh."
+        $stateMatch = [regex]::Match($existing, '(?m)^Snapshot state: `([A-Za-z0-9+/=]+)`\r?$')
+        $previousState = if ($stateMatch.Success) {
+            [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($stateMatch.Groups[1].Value))
+        } else {
+            'unavailable'
+        }
+        $previousFingerprint = if ($match.Success) { $match.Groups[1].Value } else { 'unavailable' }
+        throw "$outputRelativePath is stale; run npm run state:refresh. expected=$previousFingerprint actual=$fingerprint previous_state=$previousState current_state=$stateJson"
     }
     Write-Output "Project state snapshot is current ($($fingerprint.Substring(0, 12)))."
     exit 0

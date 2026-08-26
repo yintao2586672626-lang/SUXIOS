@@ -6,22 +6,17 @@ namespace Tests;
 use app\service\PlatformDataSyncService;
 use app\service\PlatformNormalizedRowPersistenceService;
 use app\service\OnlineDataFieldFactService;
-use app\service\platform\BrowserProfileProcessOutputSanitizer;
 use app\service\platform\CtripBrowserProfileDataSourceAdapter;
 use app\service\platform\MeituanBrowserProfileDataSourceAdapter;
 use PHPUnit\Framework\TestCase;
+use Tests\Support\PlatformDataSyncBrowserProfileFixture;
 use think\App;
 use think\facade\Config;
 use think\facade\Db;
 
 final class PlatformDataSyncServiceTest extends TestCase
 {
-    private const READY_NETWORK_FRESHNESS = [
-        'status' => 'ready',
-        'http_cache_disabled' => true,
-        'service_worker_bypassed' => true,
-        'sensitive_values_exposed' => false,
-    ];
+    use PlatformDataSyncBrowserProfileFixture;
 
     private static array $originalDatabaseConfig = [];
     private static string $databaseConnection = '';
@@ -372,6 +367,21 @@ final class PlatformDataSyncServiceTest extends TestCase
             'compare_type' => 'self',
             'dimension' => 'catalog:traffic_report:future_search_detail',
             'source_trace_id' => 'ctrip:traffic:future-search',
+            'raw_data' => [
+                'platform_hotel_identifier_present' => true,
+                'platform_hotel_identifier_source' => 'hotel_id_family',
+                'platform_hotel_identifier_proof' => 'row_field_present',
+                'field_facts' => [],
+            ],
+        ];
+        $rows[] = [
+            'data_date' => $targetDate,
+            'data_type' => 'traffic',
+            'platform' => 'ctrip',
+            'compare_type' => 'self',
+            'validation_status' => 'quarantined',
+            'list_exposure' => 999999,
+            'source_trace_id' => 'ctrip:traffic:quarantined',
             'raw_data' => [
                 'platform_hotel_identifier_present' => true,
                 'platform_hotel_identifier_source' => 'hotel_id_family',
@@ -1446,6 +1456,39 @@ final class PlatformDataSyncServiceTest extends TestCase
         ], $diagnostics['missing_inputs']);
     }
 
+    public function testSyncDiagnosticsKeepMatchedPayloadIdentityWhenTrafficRowsAreMissing(): void
+    {
+        $service = new PlatformDataSyncService();
+        $method = new \ReflectionMethod($service, 'buildSyncDiagnostics');
+        $method->setAccessible(true);
+
+        $diagnostics = $method->invoke($service, [], 0, [
+            'id' => 101,
+            'platform' => 'meituan',
+            'data_type' => 'business',
+            'ingestion_method' => 'browser_profile',
+            'system_hotel_id' => 80,
+            'config' => [
+                'store_id' => '68471',
+            ],
+        ], [
+            'data_date' => '2026-08-23',
+            'capture_sections' => 'orders,traffic',
+        ], [
+            'platform_identity_validation' => [
+                'status' => 'matched',
+                'source_validation' => true,
+                'validated_identifier' => '68471',
+                'sensitive_values_exposed' => false,
+            ],
+        ], 'partial_success', 'target traffic missing');
+
+        self::assertSame('ready', $diagnostics['platform_hotel_identifier_status']);
+        self::assertNotContains('platform_hotel_identifier', $diagnostics['missing_inputs']);
+        self::assertContains('target_date_traffic_rows', $diagnostics['missing_inputs']);
+        self::assertSame('blocked', $diagnostics['p0_status']);
+    }
+
     public function testSyncDiagnosticsDoNotRetainAdapterErrorText(): void
     {
         $service = new PlatformDataSyncService();
@@ -1806,6 +1849,86 @@ final class PlatformDataSyncServiceTest extends TestCase
             'hotel_binding_unverified',
             json_decode($rows[0]['validation_flags'], true)
         );
+    }
+
+    public function testMeituanRequestedPeriodMismatchAndContradictoryZeroRowsAreQuarantined(): void
+    {
+        $rows = (new PlatformDataSyncService())->normalizeRowsFromPayload([
+            'data_date' => '2026-08-23',
+            'data_period' => 'historical_daily',
+            'rows' => [
+                [
+                    'poi_id' => '68471',
+                    'data_date' => '2026-08-23',
+                    'data_period' => 'historical_daily',
+                    'data_type' => 'business',
+                    'compare_type' => 'self',
+                    'amount' => 0,
+                    'quantity' => 0,
+                    'book_order_num' => 0,
+                ],
+                [
+                    'poi_id' => '68471',
+                    'data_date' => '2026-08-23',
+                    'data_period' => 'realtime_snapshot',
+                    'data_type' => 'traffic',
+                    'compare_type' => 'self',
+                    'list_exposure' => 15,
+                    'detail_exposure' => 2,
+                    'flow_rate' => 13.33,
+                ],
+                [
+                    'poi_id' => '68471',
+                    'data_date' => '2026-08-23',
+                    'data_period' => 'historical_daily',
+                    'data_type' => 'traffic',
+                    'compare_type' => '',
+                    'list_exposure' => 0,
+                    'detail_exposure' => 0,
+                    'flow_rate' => 0,
+                ],
+                [
+                    'poi_id' => '68471',
+                    'data_date' => '2026-08-23',
+                    'data_period' => 'historical_daily',
+                    'data_type' => 'order',
+                    'compare_type' => 'self',
+                    'amount' => 7025.14,
+                    'room_nights' => 12,
+                    'orders' => 8,
+                ],
+            ],
+        ], $this->meituanBrowserProfileSource(), 4353);
+
+        self::assertCount(4, $rows);
+        $byTypeAndPeriod = [];
+        foreach ($rows as $row) {
+            $byTypeAndPeriod[$row['data_type'] . ':' . $row['data_period']] = $row;
+        }
+
+        $business = $byTypeAndPeriod['business:historical_daily'];
+        self::assertSame('quarantined', $business['validation_status']);
+        self::assertContains(
+            'same_run_zero_business_conflicts_with_nonzero_orders',
+            json_decode($business['validation_flags'], true, 512, JSON_THROW_ON_ERROR)
+        );
+
+        $realtimeTraffic = $byTypeAndPeriod['traffic:realtime_snapshot'];
+        self::assertSame('quarantined', $realtimeTraffic['validation_status']);
+        self::assertContains(
+            'requested_data_period_mismatch',
+            json_decode($realtimeTraffic['validation_flags'], true, 512, JSON_THROW_ON_ERROR)
+        );
+
+        $historicalTraffic = $byTypeAndPeriod['traffic:historical_daily'];
+        self::assertSame('quarantined', $historicalTraffic['validation_status']);
+        self::assertContains(
+            'same_run_zero_traffic_conflicts_with_nonzero_orders',
+            json_decode($historicalTraffic['validation_flags'], true, 512, JSON_THROW_ON_ERROR)
+        );
+
+        $order = $byTypeAndPeriod['order:historical_daily'];
+        self::assertNotSame('quarantined', $order['validation_status']);
     }
 
     public function testOrderPersistenceIdentityIsDistinctPerOrderAndStableAcrossRetries(): void
@@ -5243,7 +5366,7 @@ final class PlatformDataSyncServiceTest extends TestCase
         self::assertSame(81, $rows[0]['list_exposure']);
         self::assertSame(14, $rows[0]['detail_exposure']);
         self::assertSame(2, $rows[0]['order_submit_num']);
-        self::assertSame(14.29, $rows[0]['flow_rate']);
+        self::assertSame(17.28, $rows[0]['flow_rate']);
         self::assertNull($rows[0]['order_filling_num']);
 
         $raw = json_decode((string)$rows[0]['raw_data'], true);
@@ -5251,7 +5374,9 @@ final class PlatformDataSyncServiceTest extends TestCase
         $facts = array_column($raw['field_facts'] ?? [], null, 'metric_key');
         self::assertSame('data.myHotel.exposureUV', $facts['list_exposure']['source_path'] ?? '');
         self::assertSame('data.myHotel.intentionUV', $facts['detail_exposure']['source_path'] ?? '');
-        self::assertSame('data.myHotel.payOrderPerIntention', $facts['flow_rate']['source_path'] ?? '');
+        self::assertSame('data.myHotel.intentionPerExposure', $facts['flow_rate']['source_path'] ?? '');
+        self::assertSame('data.myHotel.payOrderPerIntention', $facts['browse_to_pay_rate']['source_path'] ?? '');
+        self::assertSame('raw_data.browse_pay_rate', $facts['browse_to_pay_rate']['storage_field'] ?? '');
         self::assertSame('data.myHotel.payOrderCnt', $facts['order_submit_num']['source_path'] ?? '');
         self::assertSame('missing', $facts['order_filling_num']['status'] ?? '');
         self::assertSame([
@@ -5275,6 +5400,7 @@ final class PlatformDataSyncServiceTest extends TestCase
         ], $this->meituanBrowserProfileSource(), 90);
 
         self::assertCount(1, $rows);
+        self::assertSame(17.28, $rows[0]['flow_rate']);
         $raw = json_decode((string)$rows[0]['raw_data'], true, 512, JSON_THROW_ON_ERROR);
         self::assertArrayNotHasKey('_observed_traffic_metric_keys', $raw['row'] ?? []);
     }
@@ -6019,316 +6145,5 @@ final class PlatformDataSyncServiceTest extends TestCase
         }
     }
 
-    public function testBrowserProfileCaptureOutputPathsAreRunUniqueWithinTheSameSecond(): void
-    {
-        $ctrip = new CtripBrowserProfileDataSourceAdapter(sys_get_temp_dir(), 'node', static fn(): array => []);
-        $ctripPath = new \ReflectionMethod($ctrip, 'captureOutputPath');
-        $ctripFirst = (string)$ctripPath->invoke($ctrip, sys_get_temp_dir(), 'hotel_001', 'traffic_report');
-        $ctripSecond = (string)$ctripPath->invoke($ctrip, sys_get_temp_dir(), 'hotel_001', 'traffic_report');
 
-        self::assertNotSame($ctripFirst, $ctripSecond);
-        self::assertMatchesRegularExpression('/_[a-f0-9]{32}\.json$/D', $ctripFirst);
-        self::assertMatchesRegularExpression('/_[a-f0-9]{32}\.json$/D', $ctripSecond);
-
-        $meituan = new MeituanBrowserProfileDataSourceAdapter(sys_get_temp_dir(), 'node', static fn(): array => []);
-        $meituanPath = new \ReflectionMethod($meituan, 'captureOutputPath');
-        $meituanFirst = (string)$meituanPath->invoke($meituan, sys_get_temp_dir(), 'store_001');
-        $meituanSecond = (string)$meituanPath->invoke($meituan, sys_get_temp_dir(), 'store_001');
-
-        self::assertNotSame($meituanFirst, $meituanSecond);
-        self::assertMatchesRegularExpression('/_[a-f0-9]{32}\.json$/D', $meituanFirst);
-        self::assertMatchesRegularExpression('/_[a-f0-9]{32}\.json$/D', $meituanSecond);
-    }
-
-    public function testBrowserProfileAdaptersNeverPromoteOutputFromAFailedCollectorProcess(): void
-    {
-        $ctripRoot = $this->createCtripBrowserProfileTestRoot('hotel_001');
-        $meituanRoot = $this->createMeituanBrowserProfileTestRoot('store_001');
-        try {
-            $ctripWriter = $this->captureRunner([
-                'auth_status' => ['ok' => true, 'status' => 'logged_in'],
-                'capture_gate' => ['status' => 'pass'],
-                'standard_rows' => [[
-                    'hotel_id' => '24588',
-                    'data_date' => '2026-08-09',
-                    'data_type' => 'business',
-                    'amount' => 100,
-                    'source_trace_id' => 'current-run-ctrip-row',
-                ]],
-            ]);
-            $ctrip = new CtripBrowserProfileDataSourceAdapter(
-                $ctripRoot,
-                'node',
-                static function (array $args) use ($ctripWriter): array {
-                    $ctripWriter($args);
-                    return [
-                        'success' => false,
-                        'message' => 'collector failed {"\u0063\u006f\u006f\u006b\u0069\u0065\u0073":[{"value":"ctrip-message-secret"}]}',
-                        'stdout' => 'Error URL https\u003a\u002f\u002fuser\u003actrip-stdout-secret\u0040example.invalid\u002fpath',
-                        'stderr' => 'Authorization: Bearer ctrip-stderr-secret',
-                    ];
-                }
-            );
-            $ctripResult = $ctrip->fetch($this->ctripBrowserProfileSource(), [
-                'interactive_browser' => false,
-                'data_date' => '2026-08-09',
-                'capture_sections' => 'business_overview',
-            ]);
-            self::assertSame('failed', $ctripResult['status']);
-            self::assertSame('capture_process_failed', $ctripResult['status_code']);
-            self::assertArrayNotHasKey('rows', $ctripResult['payload']);
-            $ctripFailureJson = json_encode($ctripResult, JSON_UNESCAPED_SLASHES) ?: '';
-            self::assertStringNotContainsString('ctrip-message-secret', $ctripFailureJson);
-            self::assertStringNotContainsString('ctrip-stdout-secret', $ctripFailureJson);
-            self::assertStringNotContainsString('ctrip-stderr-secret', $ctripFailureJson);
-            self::assertStringContainsString('redacted', $ctripFailureJson);
-
-            $meituanWriter = $this->captureRunner([
-                'auth_status' => ['ok' => true, 'status' => 'logged_in'],
-                'capture_gate' => ['status' => 'pass'],
-                'traffic' => [[
-                    'poi_id' => '68471',
-                    'data_date' => '2026-08-09',
-                    'list_exposure' => 10,
-                    'detail_exposure' => 4,
-                    'flow_rate' => 40,
-                ]],
-                'orders' => [],
-            ]);
-            $meituan = new MeituanBrowserProfileDataSourceAdapter(
-                $meituanRoot,
-                'node',
-                static function (array $args) use ($meituanWriter): array {
-                    $meituanWriter($args);
-                    return [
-                        'success' => false,
-                        'message' => 'collector failed {"\u0063\u006f\u006f\u006b\u0069\u0065\u004a\u0061\u0072":{"foo":"meituan-message-secret"}}',
-                        'stdout' => 'Error URL https://example.invalid/?token=meituan-stdout-secret',
-                        'stderr' => 'Cookie: session=meituan-stderr-secret',
-                    ];
-                }
-            );
-            $meituanResult = $meituan->fetch($this->meituanBrowserProfileSource(), [
-                'interactive_browser' => false,
-                'data_date' => '2026-08-09',
-                'capture_sections' => 'traffic',
-            ]);
-            self::assertSame('failed', $meituanResult['status']);
-            self::assertSame('capture_process_failed', $meituanResult['status_code']);
-            self::assertArrayNotHasKey('rows', $meituanResult['payload']);
-            $meituanFailureJson = json_encode($meituanResult, JSON_UNESCAPED_SLASHES) ?: '';
-            self::assertStringNotContainsString('meituan-message-secret', $meituanFailureJson);
-            self::assertStringNotContainsString('meituan-stdout-secret', $meituanFailureJson);
-            self::assertStringNotContainsString('meituan-stderr-secret', $meituanFailureJson);
-            self::assertStringContainsString('redacted', $meituanFailureJson);
-        } finally {
-            $this->removeDirectory($ctripRoot);
-            $this->removeDirectory($meituanRoot);
-        }
-    }
-
-    public function testBrowserProfileProcessDiagnosticsSuppressCredentialBearingLines(): void
-    {
-        $nestedEscape = static fn(string $value): string => str_replace(
-            ['\\', '"', '/'],
-            ['\\\\', '\\"', '\\/'],
-            $value
-        );
-        $tripleEscapedCookie = '{"cookies":[{"value":"live-secret-triple-cookie"}]}';
-        $tripleEscapedUrl = 'https://user:live-secret-triple-userinfo@example.invalid/path';
-        for ($pass = 0; $pass < 3; $pass++) {
-            $tripleEscapedCookie = $nestedEscape($tripleEscapedCookie);
-            $tripleEscapedUrl = $nestedEscape($tripleEscapedUrl);
-        }
-        $cases = [
-            ['Error: access_token=live-secret-123', 'live-secret-123'],
-            ['Exception Authorization: Bearer live-secret-789', 'live-secret-789'],
-            ['failed api_key=live-secret-abc', 'live-secret-abc'],
-            ['failed URL https://example.invalid/?token=live-secret-query', 'live-secret-query'],
-            ['failed Cookie: session=live-secret-cookie', 'live-secret-cookie'],
-            ['failed --refresh-token live-secret-refresh', 'live-secret-refresh'],
-            ['failed mtgsig=live-secret-signature', 'live-secret-signature'],
-            ['Error payload {"access_token":"live-secret-json"}', 'live-secret-json'],
-            [
-                'Error payload {"cookies":[{"name":"foo","value":"live-secret-cookie-jar"}]}',
-                'live-secret-cookie-jar',
-            ],
-            [
-                'failed URL https://user:live-secret-userinfo@example.invalid/path',
-                'live-secret-userinfo',
-            ],
-            [
-                'Error payload {\"cookies\":[{\"value\":\"live-secret-escaped-cookie\"}]}',
-                'live-secret-escaped-cookie',
-            ],
-            [
-                'Error payload {\"cookieJar\":{\"value\":\"live-secret-escaped-jar\"}}',
-                'live-secret-escaped-jar',
-            ],
-            [
-                'failed URL https:\/\/user:live-secret-escaped-userinfo@example.invalid/path',
-                'live-secret-escaped-userinfo',
-            ],
-            ['Error payload ' . $tripleEscapedCookie, 'live-secret-triple-cookie'],
-            ['failed URL ' . $tripleEscapedUrl, 'live-secret-triple-userinfo'],
-            [
-                'Error payload {"\u0063\u006f\u006f\u006b\u0069\u0065\u0073":[{"value":"live-secret-unicode-cookie"}]}',
-                'live-secret-unicode-cookie',
-            ],
-            [
-                'failed URL https\u003a\u002f\u002fuser\u003alive-secret-unicode-userinfo\u0040example.invalid\u002fpath',
-                'live-secret-unicode-userinfo',
-            ],
-            [
-                'failed URL \u0068\u0074\u0074\u0070\u0073\u003a\u002f\u002fuser\u003alive-secret-full-unicode-url\u0040example.invalid',
-                'live-secret-full-unicode-url',
-            ],
-        ];
-
-        foreach ($cases as [$line, $secret]) {
-            $log = BrowserProfileProcessOutputSanitizer::sanitizeLog("safe prelude\n{$line}\nsafe tail");
-            $summary = BrowserProfileProcessOutputSanitizer::summarize($line, '');
-
-            self::assertStringNotContainsString($secret, $log);
-            self::assertStringContainsString('[redacted_sensitive_process_output]', $log);
-            self::assertSame('browser_profile_process_error_redacted', $summary);
-        }
-
-        self::assertSame(
-            'Error: browser process timed out after 60 seconds',
-            BrowserProfileProcessOutputSanitizer::summarize(
-                'Error: browser process timed out after 60 seconds',
-                ''
-            )
-        );
-    }
-
-    private function ctripBrowserProfileSource(): array
-    {
-        return [
-            'id' => 77,
-            'name' => 'Ctrip Profile Source',
-            'platform' => 'ctrip',
-            'data_type' => 'business',
-            'system_hotel_id' => 7,
-            'tenant_id' => 1,
-            'ingestion_method' => 'browser_profile',
-            'config' => [
-                'profile_id' => 'hotel_001',
-                'hotel_id' => '24588',
-                'hotel_name' => 'Ctrip Demo Hotel',
-                'capture_sections' => 'core',
-            ],
-        ];
-    }
-
-    private function meituanBrowserProfileSource(): array
-    {
-        return [
-            'id' => 78,
-            'name' => 'Meituan Profile Source',
-            'platform' => 'meituan',
-            'data_type' => 'business',
-            'system_hotel_id' => 7,
-            'tenant_id' => 1,
-            'ingestion_method' => 'browser_profile',
-            'config' => [
-                'store_id' => 'store_001',
-                'poi_id' => '68471',
-                'poi_name' => 'Meituan Demo Hotel',
-                'partner_id' => 'partner_001',
-                'capture_sections' => 'traffic,orders',
-            ],
-        ];
-    }
-
-    /** @return array<string, mixed> */
-    private function readyNetworkFreshness(): array
-    {
-        return self::READY_NETWORK_FRESHNESS;
-    }
-
-    private function createCtripBrowserProfileTestRoot(?string $profileId = null): string
-    {
-        $root = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'ctrip_browser_profile_adapter_' . bin2hex(random_bytes(4));
-        mkdir($root . DIRECTORY_SEPARATOR . 'scripts', 0775, true);
-        file_put_contents($root . DIRECTORY_SEPARATOR . 'scripts' . DIRECTORY_SEPARATOR . 'ctrip_browser_capture.mjs', '// test script');
-        if ($profileId !== null) {
-            mkdir($root . DIRECTORY_SEPARATOR . 'storage' . DIRECTORY_SEPARATOR . 'ctrip_profile_' . $profileId, 0775, true);
-        }
-
-        return $root;
-    }
-
-    private function createMeituanBrowserProfileTestRoot(?string $storeId = null): string
-    {
-        $root = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'meituan_browser_profile_adapter_' . bin2hex(random_bytes(4));
-        mkdir($root . DIRECTORY_SEPARATOR . 'scripts', 0775, true);
-        file_put_contents($root . DIRECTORY_SEPARATOR . 'scripts' . DIRECTORY_SEPARATOR . 'meituan_browser_capture.mjs', '// test script');
-        if ($storeId !== null) {
-            mkdir($root . DIRECTORY_SEPARATOR . 'storage' . DIRECTORY_SEPARATOR . 'meituan_profile_' . $storeId, 0775, true);
-        }
-
-        return $root;
-    }
-
-    private function captureRunner(array $payload): callable
-    {
-        return static function (array $args) use ($payload): array {
-            $outputPath = '';
-            foreach ($args as $arg) {
-                if (str_starts_with((string)$arg, '--output=')) {
-                    $outputPath = substr((string)$arg, strlen('--output='));
-                    break;
-                }
-            }
-            if ($outputPath === '') {
-                return ['success' => false, 'message' => 'missing output path', 'stdout' => '', 'stderr' => ''];
-            }
-            $capturePayload = $payload;
-            if (!array_key_exists('network_freshness', $capturePayload)) {
-                $capturePayload['network_freshness'] = self::READY_NETWORK_FRESHNESS;
-            }
-            if (!array_key_exists('catalog_facts', $capturePayload)) {
-                foreach (is_array($capturePayload['standard_rows'] ?? null) ? $capturePayload['standard_rows'] : [] as $row) {
-                    $capturedHotelId = trim((string)($row['hotel_id'] ?? $row['hotelId'] ?? ''));
-                    if ($capturedHotelId !== '') {
-                        $capturePayload['catalog_facts'] = [[
-                            'metric_key' => 'hotel_id',
-                            'source_key' => 'masterHotelId',
-                            'value' => $capturedHotelId,
-                        ]];
-                        break;
-                    }
-                }
-            }
-            if (($capturePayload['auth_status']['ok'] ?? false) === true
-                && !array_key_exists('platform_identity_validation', $capturePayload)
-            ) {
-                $capturePayload['platform_identity_validation'] = [
-                    'status' => 'matched',
-                    'source_validation' => true,
-                    'validated_identifier' => '68471',
-                ];
-            }
-            file_put_contents($outputPath, json_encode($capturePayload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
-
-            return ['success' => true, 'message' => 'ok', 'stdout' => '', 'stderr' => ''];
-        };
-    }
-
-    private function removeDirectory(string $path): void
-    {
-        if (!is_dir($path)) {
-            return;
-        }
-        $iterator = new \RecursiveIteratorIterator(
-            new \RecursiveDirectoryIterator($path, \FilesystemIterator::SKIP_DOTS),
-            \RecursiveIteratorIterator::CHILD_FIRST
-        );
-        foreach ($iterator as $item) {
-            $item->isDir() ? rmdir($item->getPathname()) : unlink($item->getPathname());
-        }
-        rmdir($path);
-    }
 }

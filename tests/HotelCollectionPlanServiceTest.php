@@ -82,6 +82,7 @@ final class HotelCollectionPlanServiceTest extends TestCase
         self::assertStringContainsString('ADD COLUMN `active_slot`', $versionMigration);
         self::assertStringContainsString('ADD UNIQUE KEY', $versionMigration);
         self::assertStringNotContainsString('IF EXISTS', $versionMigration);
+        self::assertStringContainsString('ADD COLUMN `active_slot`', $versionMigration);
         self::assertStringContainsString('`uq_hotel_collection_plan_version`', $versionMigration);
         self::assertStringContainsString('`uq_hotel_collection_plan_active`', $versionMigration);
     }

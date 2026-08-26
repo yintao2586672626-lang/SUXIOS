@@ -93,6 +93,14 @@
                                         </div>
                                         <p class="mt-3 text-[11px] leading-5 text-slate-400">仅统计当前门店、目标日期、Profile/云同步来源且已数据库回读的数据；旧数据、空值或数值 0 不替代缺失证据。</p>
                                     </section>
+                                    <dual-ota-field-closure-panel
+                                        :closure="collectionReliabilityError ? null : (collectionReliability?.dual_ota_field_closure || null)"
+                                        :request="managerCapabilityRequest"
+                                        :hotel-id="coreOperationsHotelId || dashboardHotelId || filterReportHotel"
+                                        :business-date="coreOperationsTargetDate || coreOperationsMaxDate"
+                                        :force-read="true"
+                                        surface="data_health"
+                                    ></dual-ota-field-closure-panel>
                                     <section data-testid="core-operations-loop" class="overflow-hidden rounded-2xl border border-slate-800 bg-white shadow-xl shadow-slate-200/60">
                                         <header class="relative overflow-hidden bg-slate-950 px-5 py-5 text-white sm:px-6">
                                             <div class="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(59,130,246,0.22),transparent_42%),radial-gradient(circle_at_bottom_left,rgba(16,185,129,0.16),transparent_38%)]"></div>
@@ -1113,7 +1121,7 @@
                                                         </div>
                                                     </div>
                                                 </div>
-                                                <div v-else="" class="rounded-lg border border-dashed border-gray-200 bg-gray-50 p-4 text-sm text-gray-500">暂无登录/Cookie 到期或失效提醒</div>
+                                                <div v-else="" class="suxi-empty-state">暂无登录/Cookie 到期或失效提醒</div>
                                             </div>
 
                                             <div data-testid="ota-data-quality-task-queue" class="rounded-xl border border-gray-200 bg-white p-4 sm:p-5 shadow-sm">
@@ -1142,7 +1150,7 @@
                                                         </div>
                                                     </div>
                                                 </div>
-                                                <div v-else="" class="rounded-lg border border-dashed border-gray-200 bg-gray-50 p-4 text-sm text-gray-500">暂无待处理数据质量任务</div>
+                                                <div v-else="" class="suxi-empty-state">暂无待处理数据质量任务</div>
                                             </div>
 
                                             <div v-if="dataHealthFullDiagnosticsLoaded" data-testid="operation-high-risk-summary" class="rounded-xl border border-gray-200 bg-white p-4 sm:p-5 shadow-sm">
@@ -1157,7 +1165,7 @@
                                                 </div>
                                                 <div v-if="dataHealthOperationLogLoading" class="rounded-lg border border-gray-200 bg-gray-50 p-4 text-sm text-gray-500">高风险动作加载中...</div>
                                                 <div v-else-if="dataHealthOperationLogError" class="rounded-lg border border-red-100 bg-red-50 p-4 text-sm text-red-700">{{ dataHealthOperationLogError }}</div>
-                                                <div v-else-if="!user?.is_super_admin" class="rounded-lg border border-dashed border-gray-200 bg-gray-50 p-4 text-sm text-gray-500">当前账号无权查看后台高风险动作摘要；未展示不代表暂无风险。</div>
+                                                <div v-else-if="!user?.is_super_admin" class="suxi-empty-state">当前账号无权查看后台高风险动作摘要；未展示不代表暂无风险。</div>
                                                 <div v-else-if="dataHealthHighRiskActionRows.length" class="space-y-2 max-h-72 overflow-y-auto">
                                                     <div v-for="row in dataHealthHighRiskActionRows" :key="`${row.id}-${row.action}`" class="rounded-lg border border-gray-200 bg-gray-50 p-3">
                                                         <div class="flex items-start justify-between gap-3">
@@ -1170,7 +1178,7 @@
                                                         </div>
                                                     </div>
                                                 </div>
-                                                <div v-else="" class="rounded-lg border border-dashed border-gray-200 bg-gray-50 p-4 text-sm text-gray-500">已加载近 7 天摘要，暂无需要重点复核的高风险动作。</div>
+                                                <div v-else="" class="suxi-empty-state">已加载近 7 天摘要，暂无需要重点复核的高风险动作。</div>
                                                 <div v-if="dataHealthOperationLogScope" class="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs leading-5 text-slate-600">
                                                     当前为摘要口径：近 {{ dataHealthOperationLogScope.scanned_count || 0 }} 条操作日志中命中 {{ dataHealthOperationLogScope.matched_count || 0 }} 条，高风险摘要最多扫描 {{ dataHealthOperationLogScope.scan_limit || 100 }} 条，不等同完整审计导出。
                                                 </div>
@@ -1193,7 +1201,7 @@
                                                 </div>
                                                 <div v-if="publicEndpointSecurityLoading" class="rounded-lg border border-gray-200 bg-gray-50 p-4 text-sm text-gray-500">公开入口安全状态加载中...</div>
                                                 <div v-else-if="publicEndpointSecurityError" class="rounded-lg border border-red-100 bg-red-50 p-4 text-sm text-red-700">{{ publicEndpointSecurityError }}</div>
-                                                <div v-else-if="!user?.is_super_admin" class="rounded-lg border border-dashed border-gray-200 bg-gray-50 p-4 text-sm text-gray-500">当前账号无权查看公开 OTA 入口安全摘要；未展示不代表暂无风险。</div>
+                                                <div v-else-if="!user?.is_super_admin" class="suxi-empty-state">当前账号无权查看公开 OTA 入口安全摘要；未展示不代表暂无风险。</div>
                                                 <div v-else-if="publicEndpointSecurityRows.length" class="space-y-3">
                                                     <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
                                                         <div class="rounded-lg border border-gray-200 bg-gray-50 p-3">
@@ -1231,7 +1239,7 @@
                                                         {{ publicEndpointSecurityEvidenceText() }}
                                                     </div>
                                                 </div>
-                                                <div v-else="" class="rounded-lg border border-dashed border-gray-200 bg-gray-50 p-4 text-sm text-gray-500">公开入口安全摘要尚未加载；请刷新数据健康页后再判断。</div>
+                                                <div v-else="" class="suxi-empty-state">公开入口安全摘要尚未加载；请刷新数据健康页后再判断。</div>
                                             </div>
 
                                             <div v-if="dataHealthFullDiagnosticsLoaded" data-testid="release-evidence-panel" class="rounded-xl border border-gray-200 bg-white p-4 sm:p-5 shadow-sm">
@@ -1246,7 +1254,7 @@
                                                 </div>
                                                 <div v-if="releaseEvidenceLoading" class="rounded-lg border border-gray-200 bg-gray-50 p-4 text-sm text-gray-500">Release 证据状态加载中...</div>
                                                 <div v-else-if="releaseEvidenceError" class="rounded-lg border border-red-100 bg-red-50 p-4 text-sm text-red-700">{{ releaseEvidenceError }}</div>
-                                                <div v-else-if="!user?.is_super_admin" class="rounded-lg border border-dashed border-gray-200 bg-gray-50 p-4 text-sm text-gray-500">当前账号无权查看 Release 证据缺口；未展示不代表 release-ready。</div>
+                                                <div v-else-if="!user?.is_super_admin" class="suxi-empty-state">当前账号无权查看 Release 证据缺口；未展示不代表 release-ready。</div>
                                                 <div v-else-if="releaseEvidenceRows.length" class="space-y-3">
                                                     <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
                                                         <div class="rounded-lg border border-gray-200 bg-gray-50 p-3">
@@ -1279,7 +1287,7 @@
                                                         Source: docs/release_readiness_status.json + docs/release_issue_register.md；最终结论仍以 npm run review:release-readiness 为准。
                                                     </div>
                                                 </div>
-                                                <div v-else="" class="rounded-lg border border-dashed border-gray-200 bg-gray-50 p-4 text-sm text-gray-500">Release 证据状态尚未加载；请刷新完整诊断后再判断。</div>
+                                                <div v-else="" class="suxi-empty-state">Release 证据状态尚未加载；请刷新完整诊断后再判断。</div>
                                             </div>
                                         </div>
 
@@ -1613,7 +1621,7 @@
                                                     <h4 class="font-semibold text-gray-900">登录/Cookie 状态</h4>
                                                     <span class="rounded-md bg-gray-100 px-2 py-1 text-xs text-gray-500">{{ collectionHealthAuthorizationRowsReadable.length }} 条</span>
                                                 </div>
-                                                <div v-if="!collectionHealthAuthorizationRowsReadable.length" class="rounded-lg border border-dashed border-gray-200 bg-gray-50 p-4 text-sm text-gray-500">暂无授权记录</div>
+                                                <div v-if="!collectionHealthAuthorizationRowsReadable.length" class="suxi-empty-state">暂无授权记录</div>
                                                 <div v-else="" class="space-y-2 max-h-64 overflow-y-auto">
                                                     <div v-for="row in collectionHealthAuthorizationRowsReadable" :key="`${row.platform}-${row.hotel_id}-${row.name}`" class="flex items-start justify-between gap-3 border-b border-gray-100 pb-2 last:border-b-0">
                                                         <div class="min-w-0">
@@ -1630,7 +1638,7 @@
                                                     <h4 class="font-semibold text-gray-900">失败原因</h4>
                                                     <span class="rounded-md bg-gray-100 px-2 py-1 text-xs text-gray-500">{{ collectionHealthFailureReasons.length }} 条</span>
                                                 </div>
-                                                <div v-if="!collectionHealthFailureReasons.length" class="rounded-lg border border-dashed border-gray-200 bg-gray-50 p-4 text-sm text-gray-500">暂无失败原因</div>
+                                                <div v-if="!collectionHealthFailureReasons.length" class="suxi-empty-state">暂无失败原因</div>
                                                 <div v-else="" class="space-y-4">
                                                     <div class="space-y-2">
                                                         <div class="text-xs font-medium text-gray-500">失败原因排行榜</div>
@@ -1661,7 +1669,7 @@
                                                     <h4 class="font-semibold text-gray-900">字段缺失 / 定义</h4>
                                                     <span class="rounded-md bg-gray-100 px-2 py-1 text-xs text-gray-500">必填字段</span>
                                                 </div>
-                                                <div v-if="!collectionHealthFieldRows.length" class="rounded-lg border border-dashed border-gray-200 bg-gray-50 p-4 text-sm text-gray-500">暂无字段定义</div>
+                                                <div v-if="!collectionHealthFieldRows.length" class="suxi-empty-state">暂无字段定义</div>
                                                 <div v-else="" class="grid grid-cols-1 md:grid-cols-2 gap-2">
                                                     <div v-for="field in collectionHealthFieldRows" :key="`${field.source}-${field.module}-${field.field}`" class="rounded-lg border border-gray-200 bg-gray-50 p-2">
                                                         <div class="flex items-start justify-between gap-2">
@@ -1695,7 +1703,7 @@
                                                         <div v-if="item.evidenceNeededText" class="text-xs text-gray-500 mt-1" :title="item.evidenceNeededRawText || item.evidenceNeededText">所需证据：{{ item.evidenceNeededText }}</div>
                                                         <div v-if="item.protectedBoundaryText" class="text-xs text-amber-700 mt-1" :title="item.protectedBoundaryRawText || item.protectedBoundaryText">边界：{{ item.protectedBoundaryText }}</div>
                                                     </div>
-                                                    <div v-if="!collectionHealthPendingActionRows.length" class="rounded-lg border border-dashed border-gray-200 bg-gray-50 p-4 text-sm text-gray-500">暂无待处理动作</div>
+                                                    <div v-if="!collectionHealthPendingActionRows.length" class="suxi-empty-state">暂无待处理动作</div>
                                                 </div>
                                             </div>
                                         </div>
@@ -1765,7 +1773,7 @@
                                                 </select>
                                             </div>
                                             <div class="flex items-end">
-                                                <button @click="refreshOnlineAnalysis" :disabled="onlineAnalysisLoading" class="w-full px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-300">
+                                                <button @click="refreshOnlineAnalysis({ force: true })" :disabled="onlineAnalysisLoading" class="w-full px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-300">
                                                     <i :class="onlineAnalysisLoading ? 'fas fa-spinner fa-spin mr-2' : 'fas fa-search mr-2'"></i>{{ onlineAnalysisLoading ? '加载中' : '查询' }}
                                                 </button>
                                             </div>
@@ -2975,37 +2983,6 @@
                                     </div>
                                 </div>
 
-                                <!-- 自定义请求 -->
-                                <div v-if="onlineDataTab === 'custom'">
-                                    <div class="mb-4">
-                                        <label class="block text-sm font-medium text-gray-700 mb-1">请求URL</label>
-                                        <input v-model="customForm.url" type="text" class="w-full px-3 py-2 border rounded-lg" placeholder="https://api.example.com/data">
-                                    </div>
-                                    <div class="grid grid-cols-4 gap-4 mb-4">
-                                        <div>
-                                            <label class="block text-sm font-medium text-gray-700 mb-1">请求方法</label>
-                                            <select v-model="customForm.method" class="w-full px-3 py-2 border rounded-lg">
-                                                <option value="GET">GET</option>
-                                                <option value="POST">POST</option>
-                                            </select>
-                                        </div>
-                                    </div>
-                                    <div class="mb-4">
-                                        <label class="block text-sm font-medium text-gray-700 mb-1">请求头 (每行一个)</label>
-                                        <textarea v-model="customForm.headers" rows="4" class="w-full px-3 py-2 border rounded-lg font-mono text-sm" placeholder="Content-Type: application/json
-Authorization: Bearer xxx"></textarea>
-                                    </div>
-                                    <div class="mb-4" v-if="customForm.method === 'POST'">
-                                        <label class="block text-sm font-medium text-gray-700 mb-1">请求体</label>
-                                        <textarea v-model="customForm.body" rows="4" class="w-full px-3 py-2 border rounded-lg font-mono text-sm" placeholder="{&quot;key&quot;: &quot;value&quot;}"></textarea>
-                                    </div>
-                                    <div class="flex gap-3">
-                                        <button @click="fetchCustomData" :disabled="fetchingData" class="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:bg-gray-400">
-                                            <i class="fas fa-paper-plane mr-2"></i>{{ fetchingData ? '请求中...' : '发送请求' }}
-                                        </button>
-                                    </div>
-                                </div>
-
                                 <!-- 平台自动获取 -->
                                 <div v-if="onlineDataTab === 'platform-auto'">
                                     <!-- 平台数据自动获取控制台 -->
@@ -3385,16 +3362,35 @@ Authorization: Bearer xxx"></textarea>
                                 </div>
                                 <div class="space-y-4 px-6 py-5">
                                     <label class="block">
-                                        <span class="text-xs font-medium text-slate-600">已实际完成的动作 *</span>
+                                        <span class="text-xs font-medium text-slate-600">执行结果 *</span>
+                                        <select v-model="operationEvidenceForm.execution_status" class="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm">
+                                            <option value="executed">已执行，等待效果观察</option>
+                                            <option value="failed">执行失败</option>
+                                        </select>
+                                    </label>
+                                    <label class="block">
+                                        <span class="text-xs font-medium text-slate-600">实际操作说明 {{ operationEvidenceForm.execution_status === 'executed' ? '*' : '' }}</span>
                                         <textarea v-model.trim="operationEvidenceForm.completed_action" rows="4" placeholder="例如：已人工调整主图顺序，并在携程后台复核展示" class="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"></textarea>
+                                    </label>
+                                    <label v-if="operationEvidenceForm.execution_status === 'failed'" class="block">
+                                        <span class="text-xs font-medium text-slate-600">执行失败原因 *</span>
+                                        <textarea v-model.trim="operationEvidenceForm.failure_reason" rows="3" class="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"></textarea>
                                     </label>
                                     <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
                                         <label class="block">
-                                            <span class="text-xs font-medium text-slate-600">截图 / 回执 / 备注编号</span>
+                                            <span class="text-xs font-medium text-slate-600">截图或附件引用</span>
                                             <input v-model.trim="operationEvidenceForm.receipt_path" placeholder="例如 screenshot#20260719-01" class="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm">
                                         </label>
                                         <label class="block">
-                                            <span class="text-xs font-medium text-slate-600">执行人</span>
+                                            <span class="text-xs font-medium text-slate-600">平台回执 / 回执编号</span>
+                                            <input v-model.trim="operationEvidenceForm.platform_receipt" class="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm">
+                                        </label>
+                                        <label class="block">
+                                            <span class="text-xs font-medium text-slate-600">正式记录引用</span>
+                                            <input v-model.trim="operationEvidenceForm.formal_record_ref" class="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm">
+                                        </label>
+                                        <label class="block">
+                                            <span class="text-xs font-medium text-slate-600">执行人 *</span>
                                             <input v-model.trim="operationEvidenceForm.executed_by" class="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm">
                                         </label>
                                         <label class="block">

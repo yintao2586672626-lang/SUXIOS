@@ -93,6 +93,8 @@ const intelligentResult = (overrides = {}) => ({
 
 const mockAuthenticatedApi = async (page, apiCalls, guidanceRequests) => {
   let operatingQuestionReadback = null;
+  let nextPreciseQueryId = 9900;
+  const preciseQueryReadbacks = new Map();
   await page.addInitScript((profile) => {
     sessionStorage.setItem('token', 'system-guide-probe-token');
     localStorage.setItem('suxios_auth_user_cache_v1', JSON.stringify({
@@ -104,15 +106,14 @@ const mockAuthenticatedApi = async (page, apiCalls, guidanceRequests) => {
   await page.route('**/api/**', async route => {
     const request = route.request();
     const pathname = new URL(request.url()).pathname;
-    apiCalls.push({ method: request.method(), pathname });
+    const payload = request.method() === 'POST' ? request.postDataJSON?.() || null : null;
+    apiCalls.push({ method: request.method(), pathname, payload });
     let data = { list: [], items: [], total: 0 };
     if (pathname === '/api/auth/info') data = user;
     if (pathname === '/api/hotels') {
       data = { list: user.permitted_hotels, total: user.permitted_hotels.length };
     }
     if (pathname === '/api/agent/operating-questions' && request.method() === 'POST') {
-      const payload = request.postDataJSON();
-      apiCalls[apiCalls.length - 1].payload = payload;
       const digest = 'a'.repeat(64);
       operatingQuestionReadback = {
         id: 901,
@@ -141,12 +142,12 @@ const mockAuthenticatedApi = async (page, apiCalls, guidanceRequests) => {
     if (pathname === '/api/agent/operating-questions/901' && request.method() === 'GET') {
       data = operatingQuestionReadback;
     }
-    if (pathname === '/api/agent/system-guidance' && request.method() === 'POST') {
-      const payload = request.postDataJSON();
+    if (pathname === '/api/agent/precise-queries' && request.method() === 'POST') {
       guidanceRequests.push(payload);
       await new Promise(resolve => setTimeout(resolve, 80));
+      let answer;
       if (String(payload.query || '').includes('报告')) {
-        data = intelligentResult({
+        answer = intelligentResult({
           assistant_mode: 'report',
           assistant_message: '你要的是经营报告，不需要在浮窗里拼结论。先进入收益分析中心核对酒店、渠道和日期，缺数时页面会直接告诉你卡在哪里。',
           intent_summary: '查看经营报告',
@@ -173,7 +174,7 @@ const mockAuthenticatedApi = async (page, apiCalls, guidanceRequests) => {
           },
         });
       } else {
-        data = intelligentResult({
+        answer = intelligentResult({
           assistant_message: payload.history?.length
             ? '接着刚才的报告问题：既然数据还没准备好，先不要生成结论，回到数据健康查清缺的是采集、保存还是回读。'
             : intelligentResult().assistant_message,
@@ -191,6 +192,34 @@ const mockAuthenticatedApi = async (page, apiCalls, guidanceRequests) => {
             : intelligentResult().journey,
         });
       }
+      const id = ++nextPreciseQueryId;
+      data = {
+        id,
+        tenant_id: user.tenant_id,
+        hotel_id: Number(payload.current_scope?.hotel_id || user.hotel_id),
+        question: String(payload.query || ''),
+        route_type: 'system_navigation',
+        status: 'navigation_ready',
+        answer_summary: String(answer.assistant_message || ''),
+        answer,
+        parsed_scope: {
+          hotel_id: Number(payload.current_scope?.hotel_id || user.hotel_id),
+          hotel_name: String(payload.current_scope?.hotel_name || ''),
+          platform: String(payload.current_scope?.platform || ''),
+          date_start: String(payload.current_scope?.date_start || ''),
+          date_end: String(payload.current_scope?.date_end || ''),
+        },
+        lexicon: { runtime_extracted_term_count: 110, business_fact_eligible: false },
+        knowledge_refs: [],
+        fact_refs: [],
+        content_digest: String(id).padStart(64, '0'),
+        persistence_status: 'readback_verified',
+      };
+      preciseQueryReadbacks.set(id, structuredClone(data));
+    }
+    const preciseReadMatch = pathname.match(/^\/api\/agent\/precise-queries\/(\d+)$/);
+    if (preciseReadMatch && request.method() === 'GET') {
+      data = structuredClone(preciseQueryReadbacks.get(Number(preciseReadMatch[1])) || null);
     }
     await route.fulfill({
       status: 200,
@@ -215,7 +244,7 @@ const openDemandLoadedSystemGuide = async (page) => {
   return { entry, launcher, panel };
 };
 
-test('intelligent system assistant understands natural language and opens the real data-health page', async ({ page }) => {
+test('precise query entry understands natural language and opens the real data-health page', async ({ page }) => {
   test.setTimeout(45000);
   const pageErrors = [];
   const apiCalls = [];
@@ -243,8 +272,8 @@ test('intelligent system assistant understands natural language and opens the re
   expect(fullComponentResponses).toHaveLength(1);
   expect(fullComponentResponses[0].status()).toBe(200);
   expect(fullComponentResponses[0].headers()['content-type']).toMatch(/javascript/i);
-  await expect(panel).toContainText('宿析智能使用助手');
-  await expect(panel).toContainText('说出目标，我带你找到入口并核对是否完成');
+  await expect(panel).toContainText('宿析精准查数');
+  await expect(panel).toContainText('查经营事实 · 解释缺失 · 找功能 · 查术语');
   await expect(page.getByTestId('system-guide-context')).toBeVisible();
   await expect(page.getByTestId('system-guide-context')).toContainText('当前页面');
   await expect(panel.getByRole('button', { name: '这个页面怎么用？' })).toBeVisible();
@@ -259,7 +288,7 @@ test('intelligent system assistant understands natural language and opens the re
 
   const result = page.getByTestId('system-guide-result');
   await expect(result).toBeVisible();
-  await expect(result).toContainText('已理解目标');
+  await expect(result).toContainText('统一路由');
   await expect(result).toContainText('你现在不是要看经营结论');
   await expect(page.getByTestId('system-guide-journey-goal')).toContainText('恢复携程数据后生成一份给店长查看的 AI 经营日报');
   await expect(page.getByTestId('system-guide-journey-step-data-health')).toContainText('检查数据为什么不能用');
@@ -305,12 +334,12 @@ test('intelligent system assistant understands natural language and opens the re
   await expect(restoredJourney).toContainText('继续上次任务');
   await expect(restoredJourney).toContainText('恢复携程数据后生成一份给店长查看的 AI 经营日报');
   await expect(restoredJourney).toContainText('生成和查看 AI 经营日报');
-  await expect(panel.getByRole('button', { name: '继续当前任务' })).toBeVisible();
+  await expect(restoredGuide.panel.getByRole('button', { name: '继续当前任务' })).toBeVisible();
   expect(apiCalls.filter(call => call.pathname === '/api/agent/operating-questions')).toEqual([]);
   expect(pageErrors, `page errors: ${pageErrors.join(' | ')}`).toEqual([]);
 });
 
-test('assistant exposes explicit guide, report and action modes', async ({ page }) => {
+test('precise query entry exposes explicit guide, report and action modes', async ({ page }) => {
   test.setTimeout(45000);
   const apiCalls = [];
   const guidanceRequests = [];
@@ -326,13 +355,16 @@ test('assistant exposes explicit guide, report and action modes', async ({ page 
 
   await expect(page.getByTestId('system-guide-mode')).toContainText('证据结论');
   expect(guidanceRequests[0].requested_mode).toBe('report');
-  expect(apiCalls.find(call => call.pathname === '/api/agent/operating-questions' && call.method === 'POST')?.payload?.model_key).toBe('deepseek_v4_pro');
+  expect(apiCalls.filter(call => call.method === 'POST').map(call => call.pathname)).toEqual([
+    '/api/agent/precise-queries',
+  ]);
+  expect(apiCalls.some(call => call.pathname === '/api/agent/operating-questions')).toBe(false);
 
   await page.getByTestId('system-guide-mode-action').click();
   await expect(page.getByTestId('system-guide-mode-action')).toHaveAttribute('aria-pressed', 'true');
 });
 
-test('intelligent system assistant keeps conversation context and changes the next route', async ({ page }) => {
+test('precise query entry keeps conversation context and changes the next route', async ({ page }) => {
   test.setTimeout(45000);
   const pageErrors = [];
   const apiCalls = [];
@@ -374,14 +406,13 @@ test('intelligent system assistant keeps conversation context and changes the ne
   await latestJourney.getByTestId('system-guide-journey-open-data-health').click();
   await expect(page.getByTestId('app-main')).toHaveAttribute('data-current-page', 'online-data');
   expect(apiCalls.filter(call => call.method === 'POST').map(call => call.pathname)).toEqual([
-    '/api/agent/system-guidance',
-    '/api/agent/operating-questions',
-    '/api/agent/system-guidance',
+    '/api/agent/precise-queries',
+    '/api/agent/precise-queries',
   ]);
   expect(pageErrors, `page errors: ${pageErrors.join(' | ')}`).toEqual([]);
 });
 
-test('system assistant can be dragged, kept on screen, hidden and restored', async ({ page }) => {
+test('precise query entry can be dragged, kept on screen, hidden and restored', async ({ page }) => {
   test.setTimeout(45000);
   const pageErrors = [];
   const apiCalls = [];
@@ -396,8 +427,8 @@ test('system assistant can be dragged, kept on screen, hidden and restored', asy
   await launcher.click();
   await expect(entry).not.toHaveAttribute('open', '');
   await expect(panel).not.toBeVisible();
-  await expect(launcher).toHaveAttribute('aria-label', '打开宿析智能使用助手');
-  await expect(launcher).toContainText('打开助手');
+  await expect(launcher).toHaveAttribute('aria-label', '打开宿析精准查数');
+  await expect(launcher).toContainText('精准查数');
   await expect(launcher.locator('.fa-chevron-up')).toHaveCount(0);
 
   const initial = await launcher.boundingBox();
@@ -450,7 +481,7 @@ test('system assistant can be dragged, kept on screen, hidden and restored', asy
   await restoredGuide.launcher.click();
   await expect(restoredGuide.entry).toHaveAttribute('open', '');
   await expect(restoredGuide.panel).toBeVisible();
-  await expect(restoredGuide.launcher).toHaveAttribute('aria-label', '收起宿析智能使用助手');
+  await expect(restoredGuide.launcher).toHaveAttribute('aria-label', '收起宿析精准查数');
   await expect(restoredGuide.launcher).toContainText('收起');
   await expect(page.getByTestId('system-guide-drag-handle')).toContainText('拖动');
 
@@ -472,8 +503,8 @@ test('system assistant can be dragged, kept on screen, hidden and restored', asy
   await expect(restoredGuide.entry).not.toHaveAttribute('open', '');
   await expect(restoredGuide.panel).not.toBeVisible();
   await expect(restoredGuide.launcher).toBeVisible();
-  await expect(restoredGuide.launcher).toHaveAttribute('aria-label', '打开宿析智能使用助手');
-  await expect(restoredGuide.launcher).toContainText('打开助手');
+  await expect(restoredGuide.launcher).toHaveAttribute('aria-label', '打开宿析精准查数');
+  await expect(restoredGuide.launcher).toContainText('精准查数');
 
   await page.reload({ waitUntil: 'domcontentloaded' });
   const finalGuide = await openDemandLoadedSystemGuide(page);

@@ -188,6 +188,8 @@ test('startup artifacts are deterministic, current, smaller, and preserve export
     'SUXI_HOME_STATIC',
     'SUXI_DUAL_OTA_HOME',
     'SUXI_DATA_HEALTH_STATIC',
+    'SUXI_PLATFORM_PROFILE_LOGIN_STATIC',
+    'SUXI_COMPETITION_DOWNLOAD_STATIC',
     'SUXI_AI_DAILY_REPORT_STATIC',
     'SUXI_MEITUAN_FUTURE_FLOW',
   ]) {

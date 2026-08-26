@@ -4,6 +4,8 @@ declare(strict_types=1);
 require_once __DIR__ . '/../vendor/autoload.php';
 
 use app\controller\OnlineData;
+use app\service\OtaCustomRequestService;
+use app\service\OutboundUrlGuard;
 use app\service\TransferDecisionService;
 
 function fail(string $message): void
@@ -274,6 +276,7 @@ $systemConfigModelSource = file_get_contents(__DIR__ . '/../app/model/SystemConf
 $otaConfigConcernSource = file_get_contents(__DIR__ . '/../app/controller/concern/OtaConfigConcern.php');
 $otaMigrationCommandSource = file_get_contents(__DIR__ . '/../app/command/MigrateOtaCredentials.php');
 $otaMigrationServiceSource = file_get_contents(__DIR__ . '/../app/service/OtaCredentialMigrationService.php');
+$otaCustomRequestServiceSource = file_get_contents(__DIR__ . '/../app/service/OtaCustomRequestService.php');
 $packageSource = file_get_contents(__DIR__ . '/../package.json');
 $meituanCapturedPersistenceSource = extract_method_source($onlineSource, 'saveMeituanCapturedDailyRows');
 $competitorTaskSource = extract_method_source($competitorSource, 'task');
@@ -623,6 +626,7 @@ $applyCtripHotelScope = extract_method_source($onlineSource, 'applyCtripHotelSco
 $saveMeituanCommentConfig = extract_method_source($onlineSource, 'saveMeituanCommentConfig');
 $saveCtripCommentConfig = extract_method_source($onlineSource, 'saveCtripCommentConfig');
 $fetchCustom = extract_method_source($onlineSource, 'fetchCustom');
+$sendCustomRequest = extract_method_source($onlineSource, 'sendCustomRequest');
 $sendHttpRequest = extract_method_source($onlineSource, 'sendHttpRequest');
 $sendMeituanRequest = extract_method_source($onlineSource, 'sendMeituanRequest');
 $sendCtripJsonRequest = extract_method_source($onlineSource, 'sendCtripJsonRequest');
@@ -650,7 +654,50 @@ assert_true(!str_contains($saveMeituanCommentConfig, "saveOtaDataConfigValue('me
 assert_true(str_contains($saveCtripCommentConfig, 'return $this->error(') && str_contains($saveCtripCommentConfig, 'Legacy Ctrip comment Cookie/API config storage is disabled.'), 'Ctrip comment Cookie/API config must remain explicitly disabled');
 assert_true(!str_contains($saveCtripCommentConfig, "saveOtaDataConfigValue('ctrip-comments'") && !str_contains($saveCtripCommentConfig, "'cookies'") && !str_contains($saveCtripCommentConfig, "'spidertoken'"), 'Ctrip comment config must not persist reusable credential fields');
 assert_true(str_contains($fetchCustom, "checkActionPermission('can_fetch_online_data')"), 'custom OTA fetch must require online data fetch permission');
-assert_true(str_contains($fetchCustom, 'isAllowedOtaRequestUrl'), 'custom OTA fetch must restrict target hosts');
+assert_true(str_contains($fetchCustom, 'sendCustomRequest($url, $method, $headers, $body)'), 'custom OTA fetch must delegate through the guarded custom request boundary');
+assert_true(
+    str_contains($sendCustomRequest, 'new OtaCustomRequestService()')
+        && str_contains($sendCustomRequest, '->request($url, $method, $headersStr, $body)'),
+    'custom OTA fetch boundary must delegate to OtaCustomRequestService'
+);
+assert_true(
+    str_contains($otaCustomRequestServiceSource, "DISABLED_ERROR_CODE = 'custom_request_disabled'")
+        && !str_contains($otaCustomRequestServiceSource, 'curl_init')
+        && !str_contains($otaCustomRequestServiceSource, 'curl_exec')
+        && !str_contains($otaCustomRequestServiceSource, '$this->transport'),
+    'generic credentialed OTA proxy must remain disabled and contain no outbound transport implementation'
+);
+
+$customOtaTransportCalls = 0;
+$customOtaRequestService = new OtaCustomRequestService(
+    new OutboundUrlGuard(static fn(string $host): array => ['93.184.216.34']),
+    static function () use (&$customOtaTransportCalls): array {
+        $customOtaTransportCalls++;
+        return [
+            'success' => true,
+            'status' => 200,
+            'response_headers' => [
+                'HTTP/1.1 200 OK',
+                'Content-Type: application/json',
+                'X-Request-Id: security-verifier-safe',
+                'Set-Cookie: upstream-secret=must-not-leak',
+                'Authorization: Bearer upstream-secret',
+                'X-Upstream-Debug: internal-only',
+            ],
+            'body' => '{"ok":true}',
+        ];
+    }
+);
+$customOtaDisabled = $customOtaRequestService->request(
+    'https://ebooking.ctrip.com/security-verifier',
+    'GET',
+    'Cookie: must-not-forward',
+    ''
+);
+assert_same(false, $customOtaDisabled['success'] ?? null, 'generic credentialed OTA request must fail closed');
+assert_same('custom_request_disabled', $customOtaDisabled['error_code'] ?? null, 'disabled OTA proxy must have a stable error code');
+assert_same('', $customOtaDisabled['response_headers'] ?? null, 'disabled OTA proxy must expose no upstream headers');
+assert_same(0, $customOtaTransportCalls, 'disabled OTA proxy must never reach transport');
 assert_true(str_contains($sendHttpRequest, 'isAllowedOtaRequestUrl'), 'Ctrip HTTP requests must restrict target hosts');
 assert_true(str_contains($sendCtripJsonRequest, 'isAllowedOtaRequestUrl'), 'Ctrip JSON requests must restrict target hosts');
 assert_true(str_contains($sendMeituanRequest, 'isAllowedOtaRequestUrl'), 'Meituan HTTP requests must restrict target hosts');

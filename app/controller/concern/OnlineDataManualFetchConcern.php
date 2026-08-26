@@ -553,7 +553,7 @@ trait OnlineDataManualFetchConcern
             try {
                 $dateRangePlan = CtripManualFetchRequestService::normalizeDateRange($startDate, $endDate);
             } catch (\InvalidArgumentException $e) {
-                return json(['code' => 400, 'message' => '日期范围无效', 'data' => null]);
+                return json(['code' => 400, 'message' => '日期范围无效', 'data' => null], 400);
             }
             $startDate = $dateRangePlan['start_date'];
             $endDate = $dateRangePlan['end_date'];
@@ -561,7 +561,7 @@ trait OnlineDataManualFetchConcern
             $endTimestamp = $dateRangePlan['end_timestamp'];
 
             if ($startTimestamp === false || $endTimestamp === false || $startTimestamp > $endTimestamp) {
-                return json(['code' => 400, 'message' => '日期范围无效', 'data' => null]);
+                return json(['code' => 400, 'message' => '日期范围无效', 'data' => null], 400);
             }
 
             if ($backgroundRequested && $systemHotelId) {
@@ -615,7 +615,7 @@ trait OnlineDataManualFetchConcern
                         'code' => 500,
                         'message' => $currentDate . ' 请求失败: ' . ($result['error'] ?? '请求失败'),
                         'data' => ['raw_response' => $result['raw'] ?? '']
-                    ]);
+                    ], 500);
                 }
 
                 $dayResponseData = $result['data'];
@@ -628,7 +628,7 @@ trait OnlineDataManualFetchConcern
                             'code' => 400,
                             'message' => $currentDate . ' 携程API错误: ' . $errorMsg,
                             'data' => ['raw_response' => $result['raw']]
-                        ]);
+                        ], 400);
                     }
                     if (isset($dayResponseData['code']) && $dayResponseData['code'] != 0 && $dayResponseData['code'] != 200) {
                         $errorMsg = $dayResponseData['message'] ?? $dayResponseData['msg'] ?? '未知错误';
@@ -636,7 +636,7 @@ trait OnlineDataManualFetchConcern
                             'code' => 400,
                             'message' => $currentDate . ' 携程API返回错误: ' . $errorMsg,
                             'data' => ['raw_response' => $result['raw']]
-                        ]);
+                        ], 400);
                     }
                 }
 
@@ -661,7 +661,7 @@ trait OnlineDataManualFetchConcern
                         'request_start_date' => $startDate,
                         'request_end_date' => $endDate,
                     ],
-                ]);
+                ], 422);
             }
 
             $displayHotels = $this->buildCtripBusinessDisplayHotels(['date_results' => $dateResults]);

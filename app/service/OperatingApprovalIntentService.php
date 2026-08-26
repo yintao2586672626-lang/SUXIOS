@@ -44,25 +44,28 @@ final class OperatingApprovalIntentService
         int $hotelId,
         string $businessDate,
         int $actorId,
-        array $evidenceRefs
+        array $evidenceRefs,
+        array $decisionContext = []
     ): array {
         if ($tenantId <= 0 || $hotelId <= 0 || $actorId <= 0) {
             throw new InvalidArgumentException('operating_approval_scope_invalid');
         }
         $businessDate = $this->date($businessDate);
+        $decisionContext = $this->normalizeDecisionContext($decisionContext);
         $this->assertSchemaReady();
         $this->assertActorScope($tenantId, $hotelId, $actorId);
 
-        $evidenceRefs = $this->normalizeEvidenceRefs($evidenceRefs, $businessDate);
-        $evidenceDigest = self::digest($evidenceRefs);
-        $sourceRecordId = $this->sourceRecordId($evidenceRefs);
-        $idempotencyKey = self::IDEMPOTENCY_PREFIX . md5(self::encode([
-            'contract_version' => self::CONTRACT_VERSION,
-            'tenant_id' => $tenantId,
-            'hotel_id' => $hotelId,
-            'business_date' => $businessDate,
-            'evidence_digest' => $evidenceDigest,
-        ]));
+        $identity = $this->evidenceIdentity(
+            $tenantId,
+            $hotelId,
+            $businessDate,
+            $this->normalizeEvidenceRefs($evidenceRefs, $businessDate),
+            $decisionContext
+        );
+        $evidenceRefs = $identity['evidence_refs'];
+        $evidenceDigest = $identity['evidence_digest'];
+        $sourceRecordId = $identity['source_record_id'];
+        $idempotencyKey = $identity['idempotency_key'];
 
         $metricDefinition = [
             'version' => 'operating_review_decision_metric.v1',
@@ -98,6 +101,62 @@ final class OperatingApprovalIntentService
         $approvalTargetDigest = self::digest($approvalTarget);
         $approvalTarget['content_digest'] = $approvalTargetDigest;
 
+        $currentValue = [
+            'business_date' => $businessDate,
+            'evidence_digest' => $evidenceDigest,
+            'evidence_ref_count' => count($evidenceRefs),
+        ];
+        $targetValue = [
+            'title' => (string)($decisionContext['title'] ?? '经营分析待人工审批'),
+            'action_text' => (string)($decisionContext['action_text'] ?? '核对本业务日经营证据，并决定是否进入人工执行。'),
+            'steps' => $decisionContext === []
+                ? [
+                    '核对租户、酒店、业务日和证据引用',
+                    '由人工选择批准、拒绝或要求补充证据',
+                ]
+                : [
+                    '核对收益决策快照、机会键和证据摘要',
+                    '由人工决定批准、拒绝或要求补充证据',
+                    '批准前不创建任务，不执行调价或 OTA 写入',
+                ],
+            'acceptance_criteria' => [
+                '批准前不创建执行任务',
+                '批准前不触发 OTA 写入或外部消息',
+                '缺少证据时保持待补充或拒绝',
+            ],
+            'baseline_business_date' => $businessDate,
+            'execution_mode' => 'manual',
+            'metric_definition' => $metricDefinition,
+            'metric_definition_digest' => $metricDefinitionDigest,
+            'approval_target_digest' => $approvalTargetDigest,
+            'auto_write_ota' => false,
+        ];
+        $evidence = [
+            'contract_version' => self::CONTRACT_VERSION,
+            'source_policy' => 'formal_evidence_refs_then_human_approval',
+            'business_date' => $businessDate,
+            'evidence_refs' => $evidenceRefs,
+            'evidence_digest' => $evidenceDigest,
+            'metric_definition' => $metricDefinition,
+            'metric_definition_digest' => $metricDefinitionDigest,
+            'approval_target' => $approvalTarget,
+            'approval_target_digest' => $approvalTargetDigest,
+            'boundaries' => [
+                'human_approval_required' => true,
+                'automatic_collection' => false,
+                'automatic_approval' => false,
+                'automatic_execution' => false,
+                'ota_write' => false,
+                'external_message' => false,
+                'causality_claimed' => false,
+            ],
+        ];
+        if ($decisionContext !== []) {
+            $currentValue['decision_context'] = $decisionContext;
+            $targetValue['decision_context'] = $decisionContext;
+            $evidence['decision_context'] = $decisionContext;
+        }
+
         $input = [
             'source_module' => self::SOURCE_MODULE,
             'source_record_id' => $sourceRecordId,
@@ -107,50 +166,9 @@ final class OperatingApprovalIntentService
             'action_type' => self::ACTION_TYPE,
             'date_start' => $businessDate,
             'date_end' => $businessDate,
-            'current_value' => [
-                'business_date' => $businessDate,
-                'evidence_digest' => $evidenceDigest,
-                'evidence_ref_count' => count($evidenceRefs),
-            ],
-            'target_value' => [
-                'title' => '经营分析待人工审批',
-                'action_text' => '核对本业务日经营证据，并决定是否进入人工执行。',
-                'steps' => [
-                    '核对租户、酒店、业务日和证据引用',
-                    '由人工选择批准、拒绝或要求补充证据',
-                ],
-                'acceptance_criteria' => [
-                    '批准前不创建执行任务',
-                    '批准前不触发 OTA 写入或外部消息',
-                    '缺少证据时保持待补充或拒绝',
-                ],
-                'baseline_business_date' => $businessDate,
-                'execution_mode' => 'manual',
-                'metric_definition' => $metricDefinition,
-                'metric_definition_digest' => $metricDefinitionDigest,
-                'approval_target_digest' => $approvalTargetDigest,
-                'auto_write_ota' => false,
-            ],
-            'evidence' => [
-                'contract_version' => self::CONTRACT_VERSION,
-                'source_policy' => 'formal_evidence_refs_then_human_approval',
-                'business_date' => $businessDate,
-                'evidence_refs' => $evidenceRefs,
-                'evidence_digest' => $evidenceDigest,
-                'metric_definition' => $metricDefinition,
-                'metric_definition_digest' => $metricDefinitionDigest,
-                'approval_target' => $approvalTarget,
-                'approval_target_digest' => $approvalTargetDigest,
-                'boundaries' => [
-                    'human_approval_required' => true,
-                    'automatic_collection' => false,
-                    'automatic_approval' => false,
-                    'automatic_execution' => false,
-                    'ota_write' => false,
-                    'external_message' => false,
-                    'causality_claimed' => false,
-                ],
-            ],
+            'current_value' => $currentValue,
+            'target_value' => $targetValue,
+            'evidence' => $evidence,
             'expected_metric' => self::EXPECTED_METRIC,
             'expected_delta' => 0,
             'risk_level' => 'medium',
@@ -258,6 +276,135 @@ final class OperatingApprovalIntentService
         ];
     }
 
+    /**
+     * Reads the lifecycle that was saved for the exact current evidence set.
+     * This path never creates, approves, cancels, or executes an intent.
+     *
+     * @param list<array<string,mixed>|string> $evidenceRefs
+     * @return array<string,mixed>|null
+     */
+    public function readExistingIntent(
+        int $tenantId,
+        int $hotelId,
+        string $businessDate,
+        array $evidenceRefs,
+        array $decisionContext = []
+    ): ?array {
+        if ($tenantId <= 0 || $hotelId <= 0) {
+            throw new InvalidArgumentException('operating_approval_scope_invalid');
+        }
+        $businessDate = $this->date($businessDate);
+        $decisionContext = $this->normalizeDecisionContext($decisionContext);
+        $this->assertSchemaReady();
+        $identity = $this->evidenceIdentity(
+            $tenantId,
+            $hotelId,
+            $businessDate,
+            $this->normalizeEvidenceRefs($evidenceRefs, $businessDate),
+            $decisionContext
+        );
+        $row = $this->rowByKey($tenantId, $hotelId, $identity['idempotency_key']);
+        if (!is_array($row)) {
+            return null;
+        }
+
+        $intent = $this->operations()->readExecutionIntent((int)($row['id'] ?? 0), [$hotelId]);
+        return $this->assertExistingIntentIdentity($intent, $identity);
+    }
+
+    /**
+     * @param list<array<string,mixed>> $evidenceRefs
+     * @param array<string,mixed> $decisionContext
+     * @return array{tenant_id:int,hotel_id:int,business_date:string,evidence_refs:list<array<string,mixed>>,evidence_digest:string,decision_context:array<string,mixed>,decision_context_digest:string,source_record_id:int,idempotency_key:string}
+     */
+    private function evidenceIdentity(
+        int $tenantId,
+        int $hotelId,
+        string $businessDate,
+        array $evidenceRefs,
+        array $decisionContext = []
+    ): array {
+        $evidenceDigest = self::digest($evidenceRefs);
+        $decisionContextDigest = $decisionContext === [] ? '' : self::digest($decisionContext);
+        $idempotencyIdentity = [
+            'contract_version' => self::CONTRACT_VERSION,
+            'tenant_id' => $tenantId,
+            'hotel_id' => $hotelId,
+            'business_date' => $businessDate,
+            'evidence_digest' => $evidenceDigest,
+        ];
+        if ($decisionContextDigest !== '') {
+            $idempotencyIdentity['decision_context_digest'] = $decisionContextDigest;
+        }
+        return [
+            'tenant_id' => $tenantId,
+            'hotel_id' => $hotelId,
+            'business_date' => $businessDate,
+            'evidence_refs' => $evidenceRefs,
+            'evidence_digest' => $evidenceDigest,
+            'decision_context' => $decisionContext,
+            'decision_context_digest' => $decisionContextDigest,
+            'source_record_id' => $this->sourceRecordId($evidenceRefs),
+            'idempotency_key' => self::IDEMPOTENCY_PREFIX . md5(self::encode($idempotencyIdentity)),
+        ];
+    }
+
+    /**
+     * @param array<string,mixed> $intent
+     * @param array{tenant_id:int,hotel_id:int,business_date:string,evidence_refs:list<array<string,mixed>>,evidence_digest:string,decision_context:array<string,mixed>,decision_context_digest:string,source_record_id:int,idempotency_key:string} $identity
+     * @return array<string,mixed>
+     */
+    private function assertExistingIntentIdentity(array $intent, array $identity): array
+    {
+        $expected = [
+            'tenant_id' => $identity['tenant_id'],
+            'source_module' => self::SOURCE_MODULE,
+            'source_record_id' => $identity['source_record_id'],
+            'hotel_id' => $identity['hotel_id'],
+            'platform' => self::PLATFORM,
+            'object_type' => self::OBJECT_TYPE,
+            'action_type' => self::ACTION_TYPE,
+            'date_start' => $identity['business_date'],
+            'date_end' => $identity['business_date'],
+            'expected_metric' => self::EXPECTED_METRIC,
+        ];
+        foreach ($expected as $field => $value) {
+            if ((string)($intent[$field] ?? '') !== (string)$value) {
+                throw new RuntimeException('operating_approval_restore_identity_drift:' . $field, 409);
+            }
+        }
+        if (trim((string)($intent['status'] ?? '')) === '' || !is_array($intent['tasks'] ?? null)) {
+            throw new RuntimeException('operating_approval_restore_lifecycle_invalid', 409);
+        }
+
+        $currentValue = is_array($intent['current_value'] ?? null) ? $intent['current_value'] : [];
+        if ((string)($currentValue['business_date'] ?? '') !== $identity['business_date']
+            || (string)($currentValue['evidence_digest'] ?? '') !== $identity['evidence_digest']
+            || (int)($currentValue['evidence_ref_count'] ?? -1) !== count($identity['evidence_refs'])
+        ) {
+            throw new RuntimeException('operating_approval_restore_identity_drift:current_value', 409);
+        }
+
+        $evidence = is_array($intent['evidence'] ?? null) ? $intent['evidence'] : [];
+        if ((string)($evidence['contract_version'] ?? '') !== self::CONTRACT_VERSION
+            || (string)($evidence['business_date'] ?? '') !== $identity['business_date']
+            || (string)($evidence['evidence_digest'] ?? '') !== $identity['evidence_digest']
+            || self::canonicalize($evidence['evidence_refs'] ?? []) !== self::canonicalize($identity['evidence_refs'])
+        ) {
+            throw new RuntimeException('operating_approval_restore_identity_drift:evidence', 409);
+        }
+        foreach (['current_value', 'target_value', 'evidence'] as $field) {
+            $container = is_array($intent[$field] ?? null) ? $intent[$field] : [];
+            if (self::canonicalize($container['decision_context'] ?? [])
+                !== self::canonicalize($identity['decision_context'])
+            ) {
+                throw new RuntimeException('operating_approval_restore_identity_drift:decision_context', 409);
+            }
+        }
+
+        return $intent;
+    }
+
     private function operations(): OperationManagementService
     {
         return $this->operationService ??= new OperationManagementService();
@@ -317,6 +464,65 @@ final class OperatingApprovalIntentService
         if (!is_array($permission)) {
             throw new InvalidArgumentException('operating_approval_actor_not_permitted');
         }
+    }
+
+    /** @param array<string,mixed> $context @return array<string,mixed> */
+    private function normalizeDecisionContext(array $context): array
+    {
+        if ($context === []) {
+            return [];
+        }
+        $allowed = [
+            'snapshot_id', 'snapshot_digest', 'opportunity_key', 'title',
+            'action_text', 'priority_band', 'evidence_level', 'platform',
+            'recommendation_digest',
+        ];
+        if (array_diff(array_keys($context), $allowed) !== []) {
+            throw new InvalidArgumentException('operating_approval_decision_context_unknown_field');
+        }
+        $snapshotId = (int)($context['snapshot_id'] ?? 0);
+        $snapshotDigest = strtolower(trim((string)($context['snapshot_digest'] ?? '')));
+        $recommendationDigest = strtolower(trim((string)($context['recommendation_digest'] ?? '')));
+        $opportunityKey = strtolower(trim((string)($context['opportunity_key'] ?? '')));
+        $title = trim((string)($context['title'] ?? ''));
+        $actionText = trim((string)($context['action_text'] ?? ''));
+        if ($snapshotId <= 0
+            || preg_match('/^[a-f0-9]{64}$/D', $snapshotDigest) !== 1
+            || preg_match('/^[a-f0-9]{64}$/D', $recommendationDigest) !== 1
+            || preg_match('/^[a-z][a-z0-9_]{0,79}$/D', $opportunityKey) !== 1
+            || $title === ''
+            || $actionText === ''
+        ) {
+            throw new InvalidArgumentException('operating_approval_decision_context_invalid');
+        }
+        $length = static fn(string $value): int => function_exists('mb_strlen')
+            ? mb_strlen($value, 'UTF-8')
+            : strlen($value);
+        if ($length($title) > 120 || $length($actionText) > 500) {
+            throw new InvalidArgumentException('operating_approval_decision_context_invalid');
+        }
+        $tokens = [];
+        foreach (['priority_band', 'evidence_level', 'platform'] as $field) {
+            $value = strtolower(trim((string)($context[$field] ?? '')));
+            if ($value === ''
+                || strlen($value) > 40
+                || preg_match('/^[a-z0-9][a-z0-9_.:-]*$/D', $value) !== 1
+            ) {
+                throw new InvalidArgumentException('operating_approval_decision_context_invalid');
+            }
+            $tokens[$field] = $value;
+        }
+        return [
+            'snapshot_id' => $snapshotId,
+            'snapshot_digest' => $snapshotDigest,
+            'opportunity_key' => $opportunityKey,
+            'title' => $title,
+            'action_text' => $actionText,
+            'priority_band' => $tokens['priority_band'],
+            'evidence_level' => $tokens['evidence_level'],
+            'platform' => $tokens['platform'],
+            'recommendation_digest' => $recommendationDigest,
+        ];
     }
 
     /**

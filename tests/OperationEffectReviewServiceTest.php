@@ -556,7 +556,7 @@ final class OperationEffectReviewServiceTest extends TestCase
         self::assertSame(0, (int)Db::name('operation_execution_tasks')->where('intent_id', $intentId)->count());
     }
 
-    public function testApprovalReadbackFailureRollsBackIntentWhenExistingTaskTargetDrifted(): void
+    public function testApprovalRejectsPreExistingTaskAndLeavesIntentPending(): void
     {
         $intentId = $this->seedPendingApprovalIntent();
         Db::name('operation_execution_tasks')->insert([
@@ -589,15 +589,17 @@ final class OperationEffectReviewServiceTest extends TestCase
                     'review_business_date' => '2026-08-09',
                 ]
             );
-            self::fail('A drifted pre-existing task must fail atomic approval readback.');
-        } catch (RuntimeException $exception) {
-            self::assertStringContainsString('readback verification failed', $exception->getMessage());
+            self::fail('A pending intent with an existing task must fail closed before approval.');
+        } catch (InvalidArgumentException $exception) {
+            self::assertStringContainsString('zero tasks', $exception->getMessage());
         }
 
         self::assertSame('pending_approval', Db::name('operation_execution_intents')
             ->where('id', $intentId)->value('status'));
         self::assertSame('{}', Db::name('operation_execution_tasks')
             ->where('intent_id', $intentId)->value('target_value_json'));
+        self::assertSame(1, (int)Db::name('operation_execution_tasks')
+            ->where('intent_id', $intentId)->count());
     }
 
     private function insertManualExecutionEvidence(): void
@@ -993,5 +995,54 @@ SQL);
             $value[$key] = self::canonicalize($item);
         }
         return $value;
+    }
+
+    public function testApprovalRejectsAndRollsBackWhenPendingIntentAlreadyHasADriftedTask(): void
+    {
+        $intentId = $this->seedPendingApprovalIntent();
+        Db::name('operation_execution_tasks')->insert([
+            'tenant_id' => 42,
+            'intent_id' => $intentId,
+            'hotel_id' => 7,
+            'execution_mode' => 'manual',
+            'target_value_json' => '{}',
+            'current_value_json' => '{}',
+            'result_status' => 'observing',
+            'result_summary' => '',
+            'status' => 'pending_execute',
+            'created_at' => '2026-08-08 12:00:00',
+            'updated_at' => '2026-08-08 12:00:00',
+        ]);
+
+        try {
+            (new OperationManagementService())->approveExecutionIntent(
+                $intentId,
+                true,
+                'must roll back',
+                3,
+                [7],
+                [
+                    'approved' => true,
+                    'expected_metric' => 'orders',
+                    'expected_direction' => 'increase',
+                    'target_type' => 'delta',
+                    'expected_delta' => 1.234567,
+                    'review_business_date' => '2026-08-09',
+                ]
+            );
+            self::fail('A drifted pre-existing task must fail atomic approval readback.');
+        } catch (InvalidArgumentException $exception) {
+            self::assertStringContainsString(
+                'pending execution intent must have zero tasks before human approval',
+                $exception->getMessage()
+            );
+        }
+
+        self::assertSame('pending_approval', Db::name('operation_execution_intents')
+            ->where('id', $intentId)->value('status'));
+        self::assertSame(1, Db::name('operation_execution_tasks')
+            ->where('intent_id', $intentId)->count());
+        self::assertSame('{}', Db::name('operation_execution_tasks')
+            ->where('intent_id', $intentId)->value('target_value_json'));
     }
 }

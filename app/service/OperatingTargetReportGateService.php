@@ -425,6 +425,46 @@ final class OperatingTargetReportGateService
         string $mode,
         array $formalGate
     ): array {
+        $modeLabel = match ($mode) {
+            'authorized_test' => '授权测试推送，禁止作为正式经营结论',
+            'immediate_test' => '企业微信测试群立即真实投递',
+            'scheduled_test' => '企业微信测试群定时真实投递',
+            default => '页面预览，未触发任何外部发送',
+        };
+        if (($formalGate['allowed'] ?? false) !== true) {
+            $lines = [
+                '# 宿析OS 每日经营目标报告',
+                '> 当前模式：' . $modeLabel,
+                '> 正式发送门禁：阻断',
+                '> 正式内容未渲染任何经营数值；仅保留阻断原因。',
+                '',
+                '## 当前阻断',
+                '**数据缺口（不以 0 代替）**',
+            ];
+            $blockers = array_values(array_filter(
+                (array)($formalGate['blockers'] ?? []),
+                'is_array'
+            ));
+            if ($blockers === []) {
+                $blockers[] = [
+                    'message' => '经营事实来源门禁未通过。',
+                ];
+            }
+            foreach (array_slice($blockers, 0, 12) as $blocker) {
+                $lines[] = '- ' . $this->safeText(
+                    (string)($blocker['message'] ?? $blocker['code'] ?? '经营事实来源门禁未通过。'),
+                    180
+                );
+            }
+
+            return [
+                'msgtype' => 'markdown',
+                'markdown' => [
+                    'content' => mb_strcut(implode("\n", $lines), 0, 3800, 'UTF-8'),
+                ],
+            ];
+        }
+
         $report = $this->mapToDailyReport($preview);
         $payload = ($this->renderer ?? new WechatRobotDeliveryService())
             ->buildDailyReportPayload($report, $hotelName);
@@ -436,12 +476,6 @@ final class OperatingTargetReportGateService
             $lines[0] = '# 宿析OS 每日经营目标报告';
         }
 
-        $modeLabel = match ($mode) {
-            'authorized_test' => '授权测试推送，禁止作为正式经营结论',
-            'immediate_test' => '企业微信测试群立即真实投递',
-            'scheduled_test' => '企业微信测试群定时真实投递',
-            default => '页面预览，未触发任何外部发送',
-        };
         $formalLabel = ($formalGate['allowed'] ?? false) === true
             ? '允许（仍需另行取得正式发送授权）'
             : '阻断';

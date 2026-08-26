@@ -90,7 +90,7 @@ test('CI isolates static contracts from runtime performance and preserves authen
   const contractsJob = extractGithubActionsJob(workflow, 'contracts');
   const performanceJob = extractGithubActionsJob(workflow, 'frontend_performance');
   const aggregateJob = extractGithubActionsJob(workflow, 'verify');
-  const projectGuardStep = contractsJob.indexOf('- name: Run project guards');
+  const integrationGateStep = contractsJob.indexOf('- name: Run canonical integration gate');
   const structuralStep = contractsJob.indexOf(
     '- name: Run structural contract checks (not release approval)',
   );
@@ -104,10 +104,10 @@ test('CI isolates static contracts from runtime performance and preserves authen
     '- name: Preserve authenticated frontend performance evidence',
   );
 
-  assert.ok(projectGuardStep >= 0, 'CI must run project guards');
+  assert.ok(integrationGateStep >= 0, 'CI must run the canonical integration gate');
   assert.ok(
-    projectGuardStep < structuralStep,
-    'project guards must run before structural checks',
+    integrationGateStep < structuralStep,
+    'the canonical integration gate must run before structural checks',
   );
   assert.ok(
     structuralStep < staticPerformanceStep,
@@ -118,6 +118,7 @@ test('CI isolates static contracts from runtime performance and preserves authen
     'runtime measurement evidence must be preserved after the gate',
   );
 
+  assert.match(contractsJob, /run: npm run verify:integration/);
   assert.match(contractsJob, /run: npm run verify:performance-budget/);
   assert.match(performanceJob, /SUXI_PHP: php/);
   assert.doesNotMatch(workflow, /PHP_CLI_SERVER_WORKERS/);

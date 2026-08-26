@@ -173,12 +173,13 @@ final class OperatingQuestionKnowledgeRetrievalService
                 continue;
             }
             $currentChunkId = (int)($unit['current_chunk_id'] ?? 0);
+            $isSemanticGlossary = trim((string)($unit['source'] ?? '')) === SemanticGlossarySyncService::SOURCE;
             $isFormal = trim((string)($unit['source'] ?? '')) === 'formal_operating_sop'
                 || trim((string)($unit['stable_key'] ?? '')) !== ''
                 || (int)($row['promotion_candidate_id'] ?? 0) > 0
                 || (int)($row['operating_sop_version_id'] ?? 0) > 0
                 || (int)($row['version_no'] ?? 0) > 0;
-            if ($isFormal && $currentChunkId > 0 && $currentChunkId !== $chunkId) {
+            if ($isFormal && !$isSemanticGlossary && $currentChunkId > 0 && $currentChunkId !== $chunkId) {
                 $excludedCount++;
                 continue;
             }
@@ -317,7 +318,15 @@ final class OperatingQuestionKnowledgeRetrievalService
             }
         }
         $stops = array_fill_keys(['如何', '什么', '怎么', '为什么', '是否', '可以', '应该', '问题', '情况', '当前', '这个', '那个', '酒店', '我们', '请问', '一下', '帮我', '看看'], true);
-        $segments = preg_split('/[^\p{L}\p{N}_]+/u', $question) ?: [];
+        $rawSegments = preg_split('/[^\p{L}\p{N}_]+/u', $question) ?: [];
+        $segments = [];
+        foreach ($rawSegments as $rawSegment) {
+            if (preg_match_all('/[\x{3400}-\x{9fff}]+|[a-z0-9_]+/u', $rawSegment, $matches) !== false) {
+                foreach ($matches[0] ?? [] as $segment) {
+                    $segments[] = $segment;
+                }
+            }
+        }
         foreach ($segments as $segment) {
             $segment = trim($segment);
             $length = mb_strlen($segment);
@@ -345,13 +354,7 @@ final class OperatingQuestionKnowledgeRetrievalService
                 break;
             }
         }
-        // PHP converts numeric-string array keys (for example the year in an
-        // absolute business date) to integers. Keep the declared list<string>
-        // contract so dated operating questions cannot crash retrieval.
-        return array_values(array_map(
-            'strval',
-            array_slice(array_keys($terms), 0, 48)
-        ));
+        return array_slice(array_map('strval', array_keys($terms)), 0, 48);
     }
 
     /** @param list<string> $terms */
@@ -360,9 +363,6 @@ final class OperatingQuestionKnowledgeRetrievalService
         $score = 0;
         foreach ($terms as $term) {
             $term = (string)$term;
-            if ($term === '') {
-                continue;
-            }
             $length = mb_strlen($term);
             if (str_contains($titleText, $term)) {
                 $score += 8 + min(6, $length);

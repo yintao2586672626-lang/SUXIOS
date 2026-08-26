@@ -86,6 +86,68 @@
                                 </div>
                             </template>
                         </section>
+                        <section data-testid="ai-daily-operations-broadcast" class="overflow-hidden rounded-xl border border-emerald-200 bg-white shadow-sm">
+                            <div class="flex flex-col gap-4 border-b border-emerald-100 bg-emerald-950 px-5 py-5 text-white lg:flex-row lg:items-start lg:justify-between">
+                                <div class="min-w-0">
+                                    <div class="flex flex-wrap items-center gap-2">
+                                        <span class="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-white/10 text-emerald-100"><i class="fas fa-volume-high" aria-hidden="true"></i></span>
+                                        <div>
+                                            <h3 class="text-base font-semibold">可信经营播报</h3>
+                                            <p class="mt-1 text-xs leading-5 text-emerald-100/80">只采用有数值、已验证并带保存回读来源的指标；竞争分析缺数据时继续明确阻塞。</p>
+                                        </div>
+                                        <span :class="aiDailyTrustedBroadcast.facts_broadcast_status === 'facts_broadcast_ready' ? 'border-emerald-300/50 bg-emerald-400/15 text-emerald-50' : 'border-amber-300/50 bg-amber-400/15 text-amber-50'" class="rounded-full border px-2 py-0.5 text-[11px]">{{ aiDailyTrustedBroadcast.status_label }}</span>
+                                        <span :class="aiDailyTrustedBroadcast.analysis_status === 'analysis_ready' ? 'border-blue-300/50 bg-blue-400/15 text-blue-50' : 'border-slate-300/40 bg-white/10 text-slate-100'" class="rounded-full border px-2 py-0.5 text-[11px]">{{ aiDailyTrustedBroadcast.analysis_status === 'analysis_ready' ? '竞争分析已就绪' : '竞争分析仍受阻' }}</span>
+                                    </div>
+                                </div>
+                                <div class="flex shrink-0 flex-wrap items-center gap-2">
+                                    <button type="button" @click="loadAiDailyTrustedBroadcast" :disabled="aiDailyTrustedBroadcastLoading || aiDailyTrustedBroadcastGenerating" class="rounded-lg border border-white/20 bg-white/10 px-3 py-2 text-xs text-white hover:bg-white/15 disabled:opacity-50">
+                                        <i :class="aiDailyTrustedBroadcastLoading ? 'fas fa-spinner fa-spin' : 'fas fa-sync-alt'" class="mr-1" aria-hidden="true"></i>刷新快照
+                                    </button>
+                                    <button type="button" data-testid="ai-daily-operations-broadcast-generate" @click="generateAiDailyTrustedBroadcast" :disabled="aiDailyTrustedBroadcastGenerating || aiDailyTrustedBroadcastLoading || !aiDailyTrustedBroadcast.can_generate" :aria-busy="aiDailyTrustedBroadcastGenerating ? 'true' : 'false'" class="rounded-lg bg-amber-200 px-4 py-2 text-xs font-semibold text-emerald-950 hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-50">
+                                        <i :class="aiDailyTrustedBroadcastGenerating ? 'fas fa-spinner fa-spin' : 'fas fa-wand-magic-sparkles'" class="mr-1" aria-hidden="true"></i>{{ aiDailyTrustedBroadcastGenerating ? '保存并回读中…' : '生成可信播报' }}
+                                    </button>
+                                </div>
+                            </div>
+                            <div v-if="aiDailyTrustedBroadcastLoading" class="flex items-center gap-2 px-5 py-6 text-sm text-emerald-800">
+                                <i class="fas fa-spinner fa-spin" aria-hidden="true"></i>正在读取当前门店、业务日期和已保存播报快照
+                            </div>
+                            <div v-else-if="aiDailyTrustedBroadcastError" class="border-b border-red-100 bg-red-50 px-5 py-4 text-sm text-red-700">{{ aiDailyTrustedBroadcastError }}</div>
+                            <div v-else-if="aiDailyTrustedBroadcast.persisted &amp;&amp; aiDailyTrustedBroadcast.readback_verified" class="p-5">
+                                <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                                    <div class="flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-slate-500">
+                                        <span data-testid="ai-daily-operations-broadcast-snapshot-id">快照 #{{ aiDailyTrustedBroadcast.snapshot_id }}</span>
+                                        <span>版本 {{ aiDailyTrustedBroadcast.version_no }}</span>
+                                        <span>{{ aiDailyTrustedBroadcast.view_status === 'pending_view' ? '后台预生成 · 待查看' : '已保存并精确回读' }}</span>
+                                        <span>模板 {{ aiDailyTrustedBroadcast.template_version }}</span>
+                                        <span v-if="aiDailyTrustedBroadcast.snapshot_fingerprint">身份 {{ aiDailyTrustedBroadcast.snapshot_fingerprint.slice(0, 12) }}</span>
+                                    </div>
+                                    <div class="flex shrink-0 flex-wrap gap-2">
+                                        <button type="button" data-testid="ai-daily-operations-broadcast-copy" @click="copyAiDailyTrustedBroadcast" :disabled="!aiDailyTrustedBroadcast.can_use" class="rounded-lg bg-emerald-950 px-3 py-2 text-xs font-medium text-white hover:bg-emerald-900 disabled:opacity-50">
+                                            <i class="fas fa-copy mr-1" aria-hidden="true"></i>复制播报
+                                        </button>
+                                        <button type="button" data-testid="ai-daily-operations-broadcast-speak" @click="toggleAiDailyTrustedBroadcast" :disabled="!aiDailyTrustedBroadcast.can_use || !aiDailyTrustedBroadcastSpeechSupported()" :title="aiDailyTrustedBroadcastSpeechSupported() ? '朗读当前已保存快照' : '当前浏览器不支持本机朗读'" class="rounded-lg border border-emerald-300 bg-white px-3 py-2 text-xs font-medium text-emerald-900 hover:bg-emerald-50 disabled:opacity-50">
+                                            <i :class="aiDailyTrustedBroadcastSpeaking ? 'fas fa-stop' : 'fas fa-play'" class="mr-1" aria-hidden="true"></i>{{ aiDailyTrustedBroadcastSpeaking ? '停止朗读' : '语音播报' }}
+                                        </button>
+                                    </div>
+                                </div>
+                                <p data-testid="ai-daily-operations-broadcast-text" class="mt-4 whitespace-pre-wrap rounded-lg border border-emerald-100 bg-emerald-50/60 px-4 py-4 text-sm leading-7 text-slate-800">{{ aiDailyTrustedBroadcast.final_text }}</p>
+                                <div class="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-slate-500">
+                                    <span>已确认事实 {{ aiDailyTrustedBroadcast.facts.length }} 项</span>
+                                    <span>事实引用 {{ aiDailyTrustedBroadcast.fact_refs.length }} 条</span>
+                                    <span>明确缺失 {{ aiDailyTrustedBroadcast.missing_items.length }} 项</span>
+                                    <span>生成时间 {{ aiDailyTrustedBroadcast.generated_at }}</span>
+                                    <span>数据截止 {{ aiDailyTrustedBroadcast.data_cutoff_at || '未返回' }}</span>
+                                </div>
+                            </div>
+                            <div v-else class="px-5 py-6">
+                                <div class="rounded-lg border border-dashed border-emerald-200 bg-emerald-50/40 px-4 py-5 text-center">
+                                    <div class="text-sm font-medium text-emerald-950">{{ aiDailyTrustedBroadcast.status_message }}</div>
+                                    <div v-if="aiDailyTrustedBroadcast.can_generate" class="mt-2 text-xs text-emerald-800">当前已有 {{ aiDailyTrustedBroadcast.facts.length }} 项严格事实；生成后才会形成正式快照编号和可复制、可朗读文本。</div>
+                                    <div v-else class="mt-2 text-xs text-slate-500">没有严格事实时仅显示等待数据或采集失败，不生成经营建议。</div>
+                                </div>
+                            </div>
+                            <div class="border-t border-emerald-100 bg-slate-50 px-5 py-3 text-[11px] leading-5 text-slate-500">页面显示、复制和语音朗读始终读取同一已保存快照文本；不会自动发送企业微信，也不会写入 OTA/PMS，且不创建定时推送。</div>
+                        </section>
                         <div class="bg-white rounded-xl border border-gray-100 p-5 shadow-sm">
                             <div class="flex flex-col xl:flex-row xl:items-start xl:justify-between gap-4 mb-4">
                                 <div>
@@ -234,7 +296,10 @@
                                         </div>
                                     </div>
                                     <div class="rounded-lg border border-gray-100 p-4">
-                                        <strong>竞对变化（诊断参考）</strong>
+                                        <div class="flex flex-wrap items-center justify-between gap-2">
+                                            <strong>竞对变化（诊断参考）</strong>
+                                            <button type="button" @click="downloadAiDailyCompetitionReportHtml()" :disabled="!aiDailyReportCompetitionReportReady" class="rounded-md border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50">产出报告</button>
+                                        </div>
                                         <pre v-if="aiDailyReportCompetitionSummaryText" class="whitespace-pre-wrap">{{ aiDailyReportCompetitionSummaryText }}</pre>
                                         <div v-else-if="!aiDailyReportCompetitorChanges.length" class="text-sm text-gray-400">暂无竞对变化样本</div>
                                         <div v-for="(item, index) in aiDailyReportCompetitorChanges" :key="(item.label || 'competitor') + index" class="mb-3 last:mb-0">
@@ -331,27 +396,35 @@
                                     </div>
                                 </div>
                                 <div class="mt-4 grid grid-cols-1 gap-4 xl:grid-cols-2">
-                                    <section class="rounded-lg border border-gray-100 bg-white p-4">
+                                    <section data-testid="ai-daily-presentation-delivery" class="rounded-lg border border-gray-100 bg-white p-4">
                                         <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                                             <div>
-                                                <div class="text-sm font-semibold text-gray-900">结果交付件</div>
-                                                <div class="mt-1 text-xs text-gray-500">同一事实底座生成老板摘要、专家证据或脱敏培训案例。</div>
+                                                <div class="text-sm font-semibold text-gray-900">经营播报与结果交付</div>
+                                                <div class="mt-1 text-xs text-gray-500">先把已验证事实变成可直接听、可复制的经营播报；其他交付件包含可编辑 PPTX、离线 HTML、规格与验真清单。</div>
                                             </div>
-                                            <div class="flex items-center gap-2">
+                                            <div class="flex flex-wrap items-center gap-2">
                                                 <select v-model="aiDailyReportAudience" class="rounded-lg border border-gray-200 px-2.5 py-2 text-xs text-gray-700">
                                                     <option value="owner">老板摘要</option>
                                                     <option value="expert">专家证据</option>
-                                                    <option value="training">脱敏培训案例</option>
+                                                    <option value="training">培训草案（需复核）</option>
                                                 </select>
-                                                <button type="button" @click="downloadAiDailyReportPackage" class="rounded-lg bg-slate-900 px-3 py-2 text-xs text-white">产出报告</button>
+                                                <button type="button" @click="downloadAiDailyReportJsonPackage" class="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-600">导出 JSON</button>
+                                                <button type="button" data-testid="ai-daily-presentation-generate" @click="downloadAiDailyReportPackage" :disabled="aiDailyReportPresentationGenerating || aiDailyReportPresentationLoading || !aiDailyReport?.id" :aria-busy="aiDailyReportPresentationGenerating || aiDailyReportPresentationLoading ? 'true' : 'false'" class="rounded-lg bg-slate-900 px-3 py-2 text-xs text-white disabled:cursor-not-allowed disabled:opacity-50">{{ aiDailyReportPresentationGenerating ? '生成并验真中…' : (aiDailyReportPresentationLoading ? '回读中…' : '生成演示包') }}</button>
                                             </div>
                                         </div>
                                         <div class="mt-3 rounded-md bg-slate-50 px-3 py-2 text-xs leading-5 text-slate-600">
                                             <template v-if="aiDailyReportAudience === 'owner'">只保留摘要、关键指标、重点信号、缺失项和最新人工判断。</template>
                                             <template v-else-if="aiDailyReportAudience === 'expert'">包含结果分层、来源证据、参考版本、AI边界和经营进度。</template>
-                                            <template v-else="">移除酒店ID、来源行标识、精确日期、操作者和人工判断记录。</template>
+                                            <template v-else="">移除结构化酒店ID、精确业务日期和人工判断，来源标识改为哈希；自由文本仍需人工复核后才能用于培训。</template>
                                         </div>
-                                        <div class="mt-2 text-[11px] text-slate-400">导出携带结果版本、指标版本、参考版本、缺失项和AI辅助边界；不包含Cookie、令牌或原始敏感快照。</div>
+                                        <div class="mt-2 text-[11px] text-slate-400">演示包在服务端保存并精确回读，浏览器再次核对 SHA-256 后下载；不发布、不发消息、不写 OTA/PMS。</div>
+                                        <div v-if="aiDailyReportPresentationResult" data-testid="ai-daily-presentation-result" :class="['mt-3 rounded-md border px-3 py-2 text-xs leading-5', aiDailyReportPresentationResult.status === 'ready' ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-rose-200 bg-rose-50 text-rose-700']">
+                                            <div class="font-medium">{{ aiDailyReportPresentationResult.message }}</div>
+                                            <div v-if="aiDailyReportPresentationResult.status === 'ready'" class="mt-1 text-[11px] opacity-80">
+                                                产物 #{{ aiDailyReportPresentationResult.artifactId }} · {{ aiDailyReportPresentationResult.contentBytes }} bytes · SHA-256 {{ aiDailyReportPresentationResult.contentSha256 }}
+                                            </div>
+                                            <div v-if="aiDailyReportPresentationResult.status === 'ready'" class="mt-1 text-[11px] opacity-80">PPTX/HTML 已生成；视觉人工复核状态仍为 pending。</div>
+                                        </div>
                                         <div v-if="aiDailyReport.trial_validation" class="mt-3 grid grid-cols-2 gap-2 text-[11px]">
                                             <div class="rounded-md border border-slate-100 px-2 py-1.5">首次可信采集：{{ aiDailyReport.trial_validation.first_trusted_collection?.passed ? '通过' : '待完成' }}</div>
                                             <div class="rounded-md border border-slate-100 px-2 py-1.5">同口径复测：{{ aiDailyReport.trial_validation.second_same_scope_comparison?.passed ? '通过' : '待完成/不可比' }}</div>

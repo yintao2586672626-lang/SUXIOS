@@ -26,7 +26,7 @@ final class RouteCoverageVerifierTest extends TestCase
         $text = implode("\n", $output);
 
         self::assertSame(0, $exitCode, $text);
-        self::assertStringContainsString('All public controller actions are covered by route/app.php.', $text);
+        self::assertStringContainsString('All public controller actions are covered by registered route manifests.', $text);
         self::assertStringNotContainsString('app\\controller\\concern\\', $text);
     }
 }

@@ -31,16 +31,21 @@ final class RevenueFactLayerService
     /** @var callable|null */
     private $pricingGuardLoader;
 
+    /** @var callable|null */
+    private $pmsBindingLoader;
+
     public function __construct(
         ?callable $hotelLoader = null,
         ?callable $pmsLoader = null,
         ?callable $otaLoader = null,
-        ?callable $pricingGuardLoader = null
+        ?callable $pricingGuardLoader = null,
+        ?callable $pmsBindingLoader = null
     ) {
         $this->hotelLoader = $hotelLoader;
         $this->pmsLoader = $pmsLoader;
         $this->otaLoader = $otaLoader;
         $this->pricingGuardLoader = $pricingGuardLoader;
+        $this->pmsBindingLoader = $pmsBindingLoader;
     }
 
     /** @return array<string,mixed> */
@@ -74,21 +79,55 @@ final class RevenueFactLayerService
         }
 
         $tenantId = (int)$hotel['tenant_id'];
+        $pmsBinding = $this->resolvePmsBinding(
+            $tenantId,
+            $hotelId,
+            $businessDate
+        );
+        $pmsProvider = (string)($pmsBinding['effective_provider']
+            ?? HotelPmsBindingService::PROVIDER_NONE);
         try {
-            $pms = $this->pmsLoader === null
-                ? (new DingdandaoOperatingTargetCaptureService())->latest(
-                    $tenantId,
-                    $hotelId,
-                    $businessDate
-                )
-                : call_user_func(
+            if (($pmsBinding['query_allowed'] ?? false) !== true) {
+                $pms = [
+                    'load_status' => (string)($pmsBinding['binding_status'] ?? '')
+                        === 'read_failed'
+                            ? 'read_failed'
+                            : 'blocked',
+                    'provider' => $pmsProvider,
+                ];
+            } elseif ($this->pmsLoader !== null) {
+                $pms = call_user_func(
                     $this->pmsLoader,
                     $tenantId,
                     $hotelId,
-                    $businessDate
+                    $businessDate,
+                    $pmsProvider
                 );
+            } else {
+                $pms = match ($pmsProvider) {
+                    HotelPmsBindingService::PROVIDER_MEITUAN_CLOUD =>
+                        (new MeituanCloudPmsCaptureService())->latest(
+                            $tenantId,
+                            $hotelId,
+                            $businessDate
+                        ),
+                    HotelPmsBindingService::PROVIDER_DINGDANDAO =>
+                        (new DingdandaoOperatingTargetCaptureService())->latest(
+                            $tenantId,
+                            $hotelId,
+                            $businessDate
+                        ),
+                    default => [
+                        'load_status' => 'blocked',
+                        'provider' => $pmsProvider,
+                    ],
+                };
+            }
         } catch (\Throwable) {
-            $pms = ['load_status' => 'read_failed'];
+            $pms = [
+                'load_status' => 'read_failed',
+                'provider' => $pmsProvider,
+            ];
         }
 
         try {
@@ -121,7 +160,9 @@ final class RevenueFactLayerService
         $pmsDateEvidence = $this->nearestPmsDateEvidence(
             $tenantId,
             $hotelId,
-            $businessDate
+            $businessDate,
+            $pmsProvider,
+            $pmsBinding
         );
 
         try {
@@ -146,7 +187,8 @@ final class RevenueFactLayerService
             is_array($ota) ? $ota : [],
             is_array($roomTypes) ? $roomTypes : [],
             $otaOperationalMetrics,
-            $pmsDateEvidence
+            $pmsDateEvidence,
+            $pmsBinding
         );
     }
 
@@ -166,7 +208,8 @@ final class RevenueFactLayerService
         array $otaRepositoryResult,
         array $roomTypes,
         array $otaOperationalMetrics = [],
-        array $pmsDateEvidence = []
+        array $pmsDateEvidence = [],
+        array $pmsBinding = []
     ): array {
         $businessDate = $this->date($businessDate);
         $hotelId = (int)($hotel['id'] ?? 0);
@@ -175,10 +218,38 @@ final class RevenueFactLayerService
             throw new InvalidArgumentException('revenue_fact_layer_scope_invalid');
         }
 
+        if (!isset($pmsBinding['effective_provider'])) {
+            $captureProvider = (string)($pmsCapture['provider'] ?? '');
+            $knownProvider = in_array($captureProvider, [
+                HotelPmsBindingService::PROVIDER_DINGDANDAO,
+                HotelPmsBindingService::PROVIDER_MEITUAN_CLOUD,
+            ], true);
+            $effectiveProvider = $knownProvider
+                ? $captureProvider
+                : HotelPmsBindingService::PROVIDER_DINGDANDAO;
+            $pmsBinding = [
+                'binding_status' => 'not_checked',
+                'selected_provider' => null,
+                'effective_provider' => $effectiveProvider,
+                'resolution' => $knownProvider
+                    ? 'direct_capture_provider'
+                    : 'direct_assembler_legacy_dingdandao',
+                'compatibility_fallback' => !$knownProvider,
+                'query_allowed' => true,
+                'blocker_code' => null,
+            ];
+        }
+        $pmsBinding['query_scope'] ??= $this->pmsQueryScope(
+            $pmsBinding,
+            $tenantId,
+            $hotelId,
+            $businessDate
+        );
         $pms = $this->pmsEnvelope(
             $pmsCapture,
             $hotel,
-            $businessDate
+            $businessDate,
+            $pmsBinding
         );
         $ota = $this->otaEnvelopes(
             $otaRepositoryResult,
@@ -198,8 +269,9 @@ final class RevenueFactLayerService
             $pmsDateEvidence
         );
 
+        $pmsSourceKey = $this->pmsSourceKey($pms);
         $sourceCompleteness = [
-            'dingdandao_pms' => (string)$pms['data_status'],
+            $pmsSourceKey => (string)$pms['data_status'],
             'ctrip_ota' => (string)$ota['ctrip']['data_status'],
             'meituan_ota' => (string)$ota['meituan']['data_status'],
         ];
@@ -226,7 +298,7 @@ final class RevenueFactLayerService
                 $status,
                 'source_identity_or_readback'
             );
-            if ($source === 'dingdandao_pms') {
+            if ($source === $pmsSourceKey) {
                 $currentDate = (new DateTimeImmutable(
                     'now',
                     new \DateTimeZone('Asia/Shanghai')
@@ -304,7 +376,7 @@ final class RevenueFactLayerService
         $revenueAnalysisStatus = $allThreeSourcesReady
             ? 'ready'
             : (
-                $sourceCompleteness['dingdandao_pms'] === 'readback_verified'
+                $sourceCompleteness[$pmsSourceKey] === 'readback_verified'
                     ? 'partial'
                     : 'blocked'
             );
@@ -361,13 +433,14 @@ final class RevenueFactLayerService
                 'name' => $this->text($hotel['name'] ?? null, 120),
             ],
             'business_date' => $businessDate,
+            'pms_binding' => $pmsBinding,
             'date_alignment' => $dateAlignment,
             'source_completeness' => $sourceCompleteness,
             'all_three_sources_readback_verified' =>
                 $allThreeSourcesReadbackVerified,
             'all_ota_analysis_gates_allowed' => $allOtaAnalysisGatesAllowed,
             'sources' => [
-                'dingdandao_pms' => $pms,
+                $pmsSourceKey => $pms,
                 'ctrip_ota' => $ota['ctrip'],
                 'meituan_ota' => $ota['meituan'],
                 'pricing_guard' => $pricingGuard,
@@ -415,46 +488,81 @@ final class RevenueFactLayerService
     private function pmsEnvelope(
         array $capture,
         array $hotel,
-        string $businessDate
+        string $businessDate,
+        array $binding
     ): array {
         $summary = is_array($capture['summary'] ?? null)
             ? $capture['summary']
             : [];
         $tenantId = (int)($hotel['tenant_id'] ?? 0);
         $hotelId = (int)($hotel['id'] ?? 0);
+        $provider = (string)($binding['effective_provider']
+            ?? HotelPmsBindingService::PROVIDER_NONE);
+        $descriptor = $this->pmsDescriptor($provider);
+        $sourceKey = (string)$descriptor['key'];
+        $meituanCloud = $provider
+            === HotelPmsBindingService::PROVIDER_MEITUAN_CLOUD;
         $captureBusinessDate = $this->text(
             $capture['business_date'] ?? null,
             10
         );
-        $roomRevenue = $this->number($summary['total_room_fee'] ?? null);
+        $roomRevenue = $this->number(
+            $summary[$descriptor['revenue_field']] ?? null
+        );
         $sold = $this->integer($summary['sold_room_nights'] ?? null);
         $sellable = $this->integer(
-            $summary['derived_sellable_room_nights'] ?? null
+            $summary[$descriptor['sellable_field']] ?? null
         );
         $occupancy = $this->number(
             $summary['occupancy_rate_percent'] ?? null
         );
         $adr = $this->number($summary['adr'] ?? null);
         $revpar = $this->number($summary['revpar'] ?? null);
-        $collectionValidation = (new CollectionResultContractService())
-            ->validateDingdandaoCaptureClaim($capture, [
-                'tenant_id' => $tenantId,
-                'system_hotel_id' => $hotelId,
-                'business_date' => $businessDate,
-            ]);
-        $collectionResult = is_array($collectionValidation['contract'] ?? null)
-            ? $collectionValidation['contract']
-            : [];
+        $collectionResult = [];
+        $claimReasonCodes = [];
+        if ($provider === HotelPmsBindingService::PROVIDER_DINGDANDAO) {
+            $collectionValidation = (new CollectionResultContractService())
+                ->validateDingdandaoCaptureClaim($capture, [
+                    'tenant_id' => $tenantId,
+                    'system_hotel_id' => $hotelId,
+                    'business_date' => $businessDate,
+                ]);
+            $collectionAllowed = ($collectionValidation['allowed'] ?? false) === true;
+            $collectionResult = is_array($collectionValidation['contract'] ?? null)
+                ? $collectionValidation['contract']
+                : [];
+            $claimReasonCodes = array_values((array)(
+                $collectionValidation['reason_codes'] ?? []
+            ));
+        } elseif ($meituanCloud) {
+            $collectionAllowed = (string)($capture['source_scope'] ?? '')
+                    === MeituanCloudPmsCaptureService::SOURCE_SCOPE
+                && array_values((array)($capture['gaps'] ?? [])) === [];
+            $claimReasonCodes = $collectionAllowed
+                ? []
+                : ['meituan_cloud_pms_capture_not_verified'];
+            $collectionResult = [
+                'provider' => $provider,
+                'validation_basis' =>
+                    'provider_capture_identity_date_reconciliation_readback',
+                'allowed' => $collectionAllowed,
+            ];
+        } else {
+            $collectionAllowed = false;
+            $claimReasonCodes[] = (string)($binding['blocker_code']
+                ?? 'hotel_pms_binding_not_queryable');
+        }
 
-        $trusted = ($collectionValidation['allowed'] ?? false) === true
+        $trusted = $collectionAllowed
             && (int)($capture['tenant_id'] ?? 0) === $tenantId
             && (int)($capture['hotel_id'] ?? 0) === $hotelId
             && (string)($capture['business_date'] ?? '') === $businessDate
-            && (string)($capture['provider'] ?? '')
-                === DingdandaoOperatingTargetCaptureService::PROVIDER
+            && (string)($capture['provider'] ?? '') === $provider
             && (string)($capture['capture_status'] ?? '') === 'verified'
             && (string)($capture['quality_status'] ?? '') === 'verified'
             && (string)($capture['identity_status'] ?? '') === 'matched'
+            && (!$meituanCloud
+                || (string)($capture['date_status'] ?? '') === 'matched')
             && (string)($capture['reconciliation_status'] ?? '') === 'matched'
             && (string)($capture['readback_status'] ?? '') === 'readback_verified'
             && $roomRevenue !== null
@@ -477,10 +585,30 @@ final class RevenueFactLayerService
                 ? round($roomRevenue / $sold, 2)
                 : 0.0;
             $expectedRevpar = round($roomRevenue / $sellable, 2);
-            $trusted = abs($occupancy - $expectedOccupancy) <= 0.02
-                && abs($adr - $expectedAdr) <= 0.02
-                && abs($revpar - $expectedRevpar) <= 0.02;
+            $formulaTrusted = $meituanCloud
+                ? abs($occupancy - $expectedOccupancy) <= 0.2
+                    && abs($roomRevenue - ($adr * $sold))
+                        <= max(2.0, $sold * 0.02)
+                    && abs($roomRevenue - ($revpar * $sellable))
+                        <= max(2.0, $sellable * 0.02)
+                : abs($occupancy - $expectedOccupancy) <= 0.02
+                    && abs($adr - $expectedAdr) <= 0.02
+                    && abs($revpar - $expectedRevpar) <= 0.02;
+            $trusted = $formulaTrusted;
+            if (!$formulaTrusted) {
+                $claimReasonCodes[] = $sourceKey
+                    . '_metric_reconciliation_failed';
+            }
         }
+        if (!$trusted && $claimReasonCodes === []) {
+            $claimReasonCodes[] = $sourceKey . '_capture_not_verified';
+        }
+        $claimReasonCodes = array_values(array_unique(array_map(
+            'strval',
+            $claimReasonCodes
+        )));
+        $notVerifiedReason = $sourceKey . '_not_readback_verified';
+        $bindingStatus = (string)($binding['binding_status'] ?? '');
 
         $facts = [
             'room_revenue' => $trusted ? round($roomRevenue, 2) : null,
@@ -503,20 +631,32 @@ final class RevenueFactLayerService
             'data_status' => $trusted
                 ? 'readback_verified'
                 : (
-                    (string)($capture['load_status'] ?? '') === 'read_failed'
+                    $bindingStatus === 'read_failed'
+                    || (string)($capture['load_status'] ?? '') === 'read_failed'
                         ? 'read_failed'
-                        : 'not_verified'
+                        : (
+                            in_array($bindingStatus, ['conflict', 'invalid'], true)
+                                ? 'blocked'
+                                : 'not_verified'
+                        )
                 ),
+            'source_key' => $sourceKey,
             'metric_scope' => 'whole_hotel_accommodation',
-            'business_scope' => 'accommodation_room_fee',
+            'business_scope' => $meituanCloud
+                ? 'estimated_accommodation_room_fee'
+                : 'accommodation_room_fee',
             'business_date' => $businessDate,
             'actual_business_date' => $captureBusinessDate,
+            'binding' => $binding,
+            'query_scope' => $binding['query_scope'] ?? [],
             'facts' => $facts,
             'fact_statuses' => [
                 'room_revenue' => [
                     'status' => $trusted ? 'readback_verified' : 'not_verified',
-                    'reason' => $trusted ? '' : 'dingdandao_pms_not_readback_verified',
-                    'caliber' => 'PMS住宿房费，不等同支付实收',
+                    'reason' => $trusted ? '' : $notVerifiedReason,
+                    'caliber' => $meituanCloud
+                        ? '美团云 PMS 工作台当日实时预计房费，不等同结算或支付实收'
+                        : 'PMS住宿房费，不等同支付实收',
                 ],
                 'payment_collected_amount' => [
                     'status' => 'missing',
@@ -525,32 +665,44 @@ final class RevenueFactLayerService
                 ],
                 'sold_room_nights' => [
                     'status' => $trusted ? 'readback_verified' : 'not_verified',
-                    'reason' => $trusted ? '' : 'dingdandao_pms_not_readback_verified',
+                    'reason' => $trusted ? '' : $notVerifiedReason,
                 ],
                 'sellable_room_nights' => [
-                    'status' => $trusted ? 'derived_verified' : 'not_calculable',
-                    'reason' => $trusted ? '' : 'dingdandao_pms_not_readback_verified',
-                    'caliber' => '由出租房晚与入住率交叉推导并校验的可售房晚',
-                    'formula' => 'sold_room_nights / occupancy_rate_decimal',
-                    'basis' => 'derived_from_verified_pms_metrics',
+                    'status' => $trusted
+                        ? ($meituanCloud ? 'readback_verified' : 'derived_verified')
+                        : 'not_calculable',
+                    'reason' => $trusted ? '' : $notVerifiedReason,
+                    'caliber' => $meituanCloud
+                        ? '美团云 PMS 工作台首页总房量'
+                        : '由出租房晚与入住率交叉推导并校验的可售房晚',
+                    'formula' => $meituanCloud
+                        ? ''
+                        : 'sold_room_nights / occupancy_rate_decimal',
+                    'basis' => $meituanCloud
+                        ? 'verified_pms_summary_total_rooms'
+                        : 'derived_from_verified_pms_metrics',
                 ],
                 'occupancy_rate_percent' => [
                     'status' => $trusted ? 'readback_verified' : 'not_verified',
-                    'reason' => $trusted ? '' : 'dingdandao_pms_not_readback_verified',
+                    'reason' => $trusted ? '' : $notVerifiedReason,
                 ],
                 'adr' => [
-                    'status' => $trusted ? 'derived_verified' : 'not_calculable',
-                    'reason' => $trusted ? '' : 'dingdandao_pms_not_readback_verified',
+                    'status' => $trusted
+                        ? ($meituanCloud ? 'readback_verified' : 'derived_verified')
+                        : 'not_calculable',
+                    'reason' => $trusted ? '' : $notVerifiedReason,
                     'formula' => 'room_revenue / sold_room_nights',
                 ],
                 'revpar' => [
-                    'status' => $trusted ? 'derived_verified' : 'not_calculable',
-                    'reason' => $trusted ? '' : 'dingdandao_pms_not_readback_verified',
+                    'status' => $trusted
+                        ? ($meituanCloud ? 'readback_verified' : 'derived_verified')
+                        : 'not_calculable',
+                    'reason' => $trusted ? '' : $notVerifiedReason,
                     'formula' => 'room_revenue / sellable_room_nights',
                 ],
             ],
             'source' => [
-                'table' => 'dingdandao_operating_target_captures',
+                'table' => $descriptor['table'],
                 'record_id' => $this->positiveInt($capture['id'] ?? null),
                 'tenant_id' => $tenantId,
                 'system_hotel_id' => $hotelId,
@@ -568,7 +720,18 @@ final class RevenueFactLayerService
                 ),
                 'data_date' => $captureBusinessDate,
                 'target_business_date' => $businessDate,
-                'provider' => DingdandaoOperatingTargetCaptureService::PROVIDER,
+                'provider' => $provider === HotelPmsBindingService::PROVIDER_NONE
+                    ? null
+                    : $provider,
+                'capture_provider' => $this->text(
+                    $capture['provider'] ?? null,
+                    64
+                ),
+                'binding_status' => $bindingStatus,
+                'binding_resolution' => (string)($binding['resolution'] ?? ''),
+                'compatibility_fallback' =>
+                    ($binding['compatibility_fallback'] ?? false) === true,
+                'query_scope' => $binding['query_scope'] ?? [],
                 'capture_source_scope' => $this->text(
                     $capture['source_scope'] ?? null,
                     80
@@ -586,10 +749,9 @@ final class RevenueFactLayerService
                 'collection_result' => $collectionResult,
                 'collection_claim_reason_codes' => $trusted
                     ? []
-                    : array_values((array)(
-                        $collectionValidation['reason_codes'] ?? []
-                    )),
+                    : $claimReasonCodes,
             ],
+            'scope_note' => $this->text($capture['scope_note'] ?? null, 500),
             'allowed_uses' => $trusted
                 ? [
                     'whole_hotel_accommodation_revenue_analysis',
@@ -598,6 +760,134 @@ final class RevenueFactLayerService
                 ]
                 : [],
         ];
+    }
+
+    /** @return array<string,mixed> */
+    private function resolvePmsBinding(
+        int $tenantId,
+        int $hotelId,
+        string $businessDate
+    ): array {
+        try {
+            $summary = $this->pmsBindingLoader !== null
+                ? call_user_func($this->pmsBindingLoader, $hotelId)
+                : ((new HotelPmsBindingService())
+                    ->selectionSummaries([$hotelId])[$hotelId] ?? null);
+        } catch (\Throwable) {
+            $summary = null;
+        }
+        if (is_array($summary)
+            && !isset($summary['binding_status'])
+            && is_array($summary[$hotelId] ?? null)
+        ) {
+            $summary = $summary[$hotelId];
+        }
+
+        $status = is_array($summary)
+            ? strtolower(trim((string)($summary['binding_status'] ?? 'invalid')))
+            : 'read_failed';
+        $selected = is_array($summary)
+            ? trim((string)($summary['selected_provider'] ?? ''))
+            : '';
+        $selected = $selected === '' ? null : $selected;
+        $supported = in_array($selected, [
+            HotelPmsBindingService::PROVIDER_DINGDANDAO,
+            HotelPmsBindingService::PROVIDER_MEITUAN_CLOUD,
+        ], true);
+        $legacy = in_array($status, ['unconfigured', 'not_configured'], true)
+            && $selected === null;
+        $configured = $status === 'configured' && $supported;
+        if (!$configured && !$legacy) {
+            $status = in_array($status, ['conflict', 'read_failed'], true)
+                ? $status
+                : 'invalid';
+        }
+        $effective = $configured
+            ? (string)$selected
+            : ($legacy
+                ? HotelPmsBindingService::PROVIDER_DINGDANDAO
+                : HotelPmsBindingService::PROVIDER_NONE);
+        $resolution = $configured
+            ? 'selected_provider'
+            : ($legacy
+                ? 'legacy_dingdandao_fallback'
+                : ($status === 'conflict'
+                    ? 'binding_conflict_blocked'
+                    : 'binding_' . $status));
+        $binding = [
+            'binding_status' => $status,
+            'selected_provider' => $selected,
+            'effective_provider' => $effective,
+            'resolution' => $resolution,
+            'compatibility_fallback' => $legacy,
+            'query_allowed' => $configured || $legacy,
+            'blocker_code' => match ($status) {
+                'conflict' => 'hotel_pms_multiple_sources_enabled',
+                'read_failed' => 'hotel_pms_binding_read_failed',
+                'invalid' => 'hotel_pms_binding_invalid',
+                default => null,
+            },
+        ];
+        $binding['query_scope'] = $this->pmsQueryScope(
+            $binding,
+            $tenantId,
+            $hotelId,
+            $businessDate
+        );
+        return $binding;
+    }
+
+    /** @return array<string,mixed> */
+    private function pmsQueryScope(
+        array $binding,
+        int $tenantId,
+        int $hotelId,
+        string $businessDate
+    ): array {
+        return [
+            'tenant_id' => $tenantId,
+            'system_hotel_id' => $hotelId,
+            'business_date' => $businessDate,
+            'provider' => $binding['effective_provider'],
+            'binding_status' => $binding['binding_status'],
+            'binding_resolution' => $binding['resolution'],
+            'compatibility_fallback' => $binding['compatibility_fallback'],
+        ];
+    }
+
+    /** @param array<string,mixed> $pms */
+    private function pmsSourceKey(array $pms): string
+    {
+        $sourceKey = trim((string)($pms['source_key'] ?? ''));
+        return $sourceKey !== '' ? $sourceKey : 'pms';
+    }
+
+    /** @return array<string,mixed> */
+    private function pmsDescriptor(string $provider): array
+    {
+        return match ($provider) {
+            HotelPmsBindingService::PROVIDER_DINGDANDAO => [
+                'key' => $provider,
+                'table' => 'dingdandao_operating_target_captures',
+                'label' => '订单来了 PMS',
+                'revenue_field' => 'total_room_fee',
+                'sellable_field' => 'derived_sellable_room_nights',
+            ],
+            HotelPmsBindingService::PROVIDER_MEITUAN_CLOUD => [
+                'key' => $provider,
+                'table' => 'meituan_cloud_pms_captures',
+                'label' => '美团云 PMS',
+                'revenue_field' => 'estimated_room_revenue',
+                'sellable_field' => 'total_rooms',
+            ],
+            default => [
+                'key' => 'pms',
+                'table' => null,
+                'label' => 'PMS',
+                'revenue_field' => 'total_room_fee',
+                'sellable_field' => 'derived_sellable_room_nights',
+            ],
+        };
     }
 
     /**
@@ -1356,20 +1646,46 @@ final class RevenueFactLayerService
     private function nearestPmsDateEvidence(
         int $tenantId,
         int $hotelId,
-        string $businessDate
+        string $businessDate,
+        string $provider,
+        array $binding
     ): array {
+        $table = $this->pmsDescriptor($provider)['table'];
+        $evidenceScope = [
+            'provider' => $provider,
+            'source_table' => $table,
+            'query_scope' => $binding['query_scope'] ?? [],
+        ];
+        if ($table === null || ($binding['query_allowed'] ?? false) !== true) {
+            return $evidenceScope + [
+                'status' => (string)($binding['binding_status'] ?? '')
+                    === 'read_failed'
+                        ? 'read_failed'
+                        : 'not_available',
+                'business_date' => null,
+                'distance_days' => null,
+                'blocker_code' => $binding['blocker_code'] ?? null,
+            ];
+        }
+        $fields = 'id,business_date,captured_at,provider,capture_status,'
+            . 'quality_status,identity_status,reconciliation_status,'
+            . 'readback_status';
+        if ($provider === HotelPmsBindingService::PROVIDER_MEITUAN_CLOUD) {
+            $fields .= ',date_status';
+        }
         try {
-            $rows = Db::name('dingdandao_operating_target_captures')
-                ->field('id,business_date,captured_at,capture_status,quality_status,identity_status,reconciliation_status,readback_status')
+            $rows = Db::name($table)
+                ->field($fields)
                 ->where('tenant_id', $tenantId)
                 ->where('hotel_id', $hotelId)
+                ->where('provider', $provider)
                 ->order('captured_at', 'desc')
                 ->order('id', 'desc')
                 ->limit(50)
                 ->select()
                 ->toArray();
         } catch (\Throwable) {
-            return [
+            return $evidenceScope + [
                 'status' => 'not_available',
                 'business_date' => null,
                 'distance_days' => null,
@@ -1396,7 +1712,7 @@ final class RevenueFactLayerService
             }
         }
         if (!is_array($nearest)) {
-            return [
+            return $evidenceScope + [
                 'status' => 'missing',
                 'business_date' => null,
                 'distance_days' => null,
@@ -1406,10 +1722,12 @@ final class RevenueFactLayerService
         $trusted = (string)($nearest['capture_status'] ?? '') === 'verified'
             && (string)($nearest['quality_status'] ?? '') === 'verified'
             && (string)($nearest['identity_status'] ?? '') === 'matched'
+            && ($provider !== HotelPmsBindingService::PROVIDER_MEITUAN_CLOUD
+                || (string)($nearest['date_status'] ?? '') === 'matched')
             && (string)($nearest['reconciliation_status'] ?? '') === 'matched'
             && (string)($nearest['readback_status'] ?? '') === 'readback_verified';
 
-        return [
+        return $evidenceScope + [
             'status' => $trusted ? 'available' : 'unverified_candidate',
             'record_id' => $this->positiveInt($nearest['id'] ?? null),
             'business_date' => (string)($nearest['business_date'] ?? ''),
@@ -1418,6 +1736,7 @@ final class RevenueFactLayerService
             'capture_status' => (string)($nearest['capture_status'] ?? ''),
             'quality_status' => (string)($nearest['quality_status'] ?? ''),
             'identity_status' => (string)($nearest['identity_status'] ?? ''),
+            'date_status' => (string)($nearest['date_status'] ?? ''),
             'reconciliation_status' => (string)(
                 $nearest['reconciliation_status'] ?? ''
             ),
@@ -1447,9 +1766,10 @@ final class RevenueFactLayerService
         $pmsObservedDate = $pmsRecordId !== null
             ? $this->text($pms['actual_business_date'] ?? null, 10)
             : null;
+        $pmsSourceKey = $this->pmsSourceKey($pms);
 
         $sources = [
-            'dingdandao_pms' => [
+            $pmsSourceKey => [
                 'target_date' => $businessDate,
                 'observed_date' => $pmsObservedDate,
                 'date_basis' => 'pms_business_date',
@@ -1796,10 +2116,20 @@ final class RevenueFactLayerService
         array $crossSource
     ): array {
         $pmsFacts = is_array($pms['facts'] ?? null) ? $pms['facts'] : [];
+        $pmsNotVerifiedReason = $this->pmsSourceKey($pms)
+            . '_not_readback_verified';
         $otaFacts = is_array($combinedOta['facts'] ?? null)
             ? $combinedOta['facts']
             : [];
         $pmsReady = ($pms['data_status'] ?? '') === 'readback_verified';
+        $pmsRevenueEstimated = (string)($pms['business_scope'] ?? '')
+            === 'estimated_accommodation_room_fee';
+        $pmsRevenueShareFormula = $pmsRevenueEstimated
+            ? 'ota_room_revenue / pms_estimated_accommodation_room_fee * 100'
+            : 'ota_room_revenue / pms_accommodation_room_fee * 100';
+        $pmsRevenueShareNote = $pmsRevenueEstimated
+            ? '分母是PMS预计住宿房费（美团云工作台实时估算），不是结算或支付实收；只作同日预计房费结构参考。'
+            : '分母是PMS住宿房费，不是支付实收；只作同日房费结构参考。';
         $combinedStatuses = is_array($combinedOta['fact_statuses'] ?? null)
             ? $combinedOta['fact_statuses']
             : [];
@@ -1885,14 +2215,14 @@ final class RevenueFactLayerService
                 'CNY',
                 'whole_hotel_accommodation',
                 'room_revenue / sold_room_nights',
-                $pmsReady ? '' : 'dingdandao_pms_not_readback_verified'
+                $pmsReady ? '' : $pmsNotVerifiedReason
             ),
             'whole_hotel_revpar' => $this->operatingMetric(
                 $pmsFacts['revpar'] ?? null,
                 'CNY',
                 'whole_hotel_accommodation',
                 'room_revenue / sellable_room_nights',
-                $pmsReady ? '' : 'dingdandao_pms_not_readback_verified'
+                $pmsReady ? '' : $pmsNotVerifiedReason
             ),
             'ota_adr' => $this->operatingMetric(
                 $otaAdr,
@@ -1915,11 +2245,11 @@ final class RevenueFactLayerService
                 $roomRevenueShare,
                 '%',
                 'cross_source_comparison',
-                'ota_room_revenue / pms_accommodation_room_fee * 100',
+                $pmsRevenueShareFormula,
                 $roomRevenueShare === null
                     ? 'pms_room_fee_or_ota_room_revenue_missing'
                     : '',
-                '分母是PMS住宿房费，不是支付实收；只作同日房费结构参考。'
+                $pmsRevenueShareNote
             ),
             'ota_cancellation_rate_percent' => $this->operatingMetric(
                 $cancellationRate,
@@ -2322,6 +2652,10 @@ final class RevenueFactLayerService
         $paymentCollected = $this->number(
             $pms['facts']['payment_collected_amount'] ?? null
         );
+        $pmsRoomFeeDescription = (string)($pms['business_scope'] ?? '')
+            === 'estimated_accommodation_room_fee'
+                ? 'PMS当前只验证预计住宿房费（美团云工作台实时估算），尚未取得结算或支付通道实收；OTA房费/成交额不能替代实收。'
+                : 'PMS当前只验证住宿房费，尚未取得支付通道实收；OTA房费/成交额不能替代实收。';
         $checks[] = [
             'key' => 'payment_caliber',
             'label' => '支付与收入口径',
@@ -2329,7 +2663,7 @@ final class RevenueFactLayerService
                 ? 'not_comparable'
                 : 'available',
             'detail' => $paymentCollected === null
-                ? 'PMS当前只验证住宿房费，尚未取得支付通道实收；OTA房费/成交额不能替代实收。'
+                ? $pmsRoomFeeDescription
                 : 'PMS实收已取得，但仍需按支付、核销、退款和结算日期分别核对。',
         ];
 
@@ -2648,6 +2982,12 @@ final class RevenueFactLayerService
                 : [],
             'adr'
         );
+        $pmsSourceKey = $this->pmsSourceKey($pms);
+        $pmsRevenueLabel = (string)($pms['business_scope'] ?? '')
+            === 'estimated_accommodation_room_fee'
+                ? '全酒店预计住宿房费'
+                : '全酒店住宿房费';
+        $pmsNotVerifiedReason = $pmsSourceKey . '_not_readback_verified';
         $pmsTruth = $this->pmsTruth($hotel, $businessDate, $pms);
         $otaTruth = $this->otaTruth($hotel, $businessDate, $ota);
         $crossTruth = $this->crossSourceTruth(
@@ -2699,16 +3039,16 @@ final class RevenueFactLayerService
             ),
             'whole_hotel_room_revenue' => $this->metricRow(
                 'whole_hotel_room_revenue',
-                '全酒店住宿房费',
+                $pmsRevenueLabel,
                 $pmsFacts['room_revenue'] ?? null,
                 'CNY',
                 'whole_hotel_accommodation',
                 'pms_business_date',
-                ['dingdandao_pms'],
+                [$pmsSourceKey],
                 $pmsTruth,
                 ($pms['data_status'] ?? '') === 'readback_verified'
                     ? ''
-                    : 'dingdandao_pms_not_readback_verified'
+                    : $pmsNotVerifiedReason
             ),
             'whole_hotel_sellable_room_nights' => $this->metricRow(
                 'whole_hotel_sellable_room_nights',
@@ -2717,11 +3057,11 @@ final class RevenueFactLayerService
                 'room_nights',
                 'whole_hotel_accommodation',
                 'pms_business_date',
-                ['dingdandao_pms'],
+                [$pmsSourceKey],
                 $pmsTruth,
                 ($pms['data_status'] ?? '') === 'readback_verified'
                     ? ''
-                    : 'dingdandao_pms_not_readback_verified'
+                    : $pmsNotVerifiedReason
             ),
             'whole_hotel_revpar' => $this->metricRow(
                 'whole_hotel_revpar',
@@ -2730,11 +3070,11 @@ final class RevenueFactLayerService
                 'CNY',
                 'whole_hotel_accommodation',
                 'pms_business_date',
-                ['dingdandao_pms'],
+                [$pmsSourceKey],
                 $pmsTruth,
                 ($pms['data_status'] ?? '') === 'readback_verified'
                     ? ''
-                    : 'dingdandao_pms_not_readback_verified'
+                    : $pmsNotVerifiedReason
             ),
             // Compatibility key for existing consumers. The fact layer replaces
             // the legacy OTA-only denominator with the verified PMS whole-hotel
@@ -2747,7 +3087,7 @@ final class RevenueFactLayerService
                 'CNY',
                 'cross_source_comparison',
                 'same_date_key_distinct_source_semantics',
-                ['dingdandao_pms', 'ctrip', 'meituan'],
+                [$pmsSourceKey, 'ctrip', 'meituan'],
                 $crossTruth,
                 ($crossSource['status'] ?? '') === 'ready'
                     ? ''
@@ -2761,7 +3101,7 @@ final class RevenueFactLayerService
                 'CNY',
                 'cross_source_comparison',
                 'same_date_key_distinct_source_semantics',
-                ['dingdandao_pms', 'ctrip', 'meituan'],
+                [$pmsSourceKey, 'ctrip', 'meituan'],
                 $crossTruth,
                 ($crossSource['status'] ?? '') === 'ready'
                     ? ''
@@ -2805,6 +3145,8 @@ final class RevenueFactLayerService
     ): array {
         $source = is_array($pms['source'] ?? null) ? $pms['source'] : [];
         $verified = ($pms['data_status'] ?? '') === 'readback_verified';
+        $pmsSourceKey = $this->pmsSourceKey($pms);
+        $notVerifiedReason = $pmsSourceKey . '_not_readback_verified';
         return [
             'status' => $verified ? 'verified' : 'unverified',
             'status_label' => $verified ? '已验证' : '未验证',
@@ -2814,19 +3156,20 @@ final class RevenueFactLayerService
                 'system_hotel_id' => (int)($hotel['id'] ?? 0),
                 'name' => $this->text($hotel['name'] ?? null, 120),
             ]],
-            'platforms' => ['dingdandao_pms'],
+            'platforms' => [$pmsSourceKey],
             'date_range' => [
                 'start' => $businessDate,
                 'end' => $businessDate,
             ],
             'source' => [
-                'table' => 'dingdandao_operating_target_captures',
+                'table' => $source['table'] ?? null,
                 'row_ids' => $source['record_id'] === null
                     ? []
                     : [(int)$source['record_id']],
                 'trace_ids' => [],
                 'methods' => ['verified_pms_capture'],
-                'data_types' => ['accommodation_room_fee'],
+                'data_types' => [(string)($pms['business_scope']
+                    ?? 'accommodation_room_fee')],
                 'caliber' => 'PMS whole-hotel accommodation facts',
             ],
             'source_methods' => ['verified_pms_capture'],
@@ -2843,10 +3186,10 @@ final class RevenueFactLayerService
             ],
             'failure_reason' => $verified
                 ? ''
-                : 'dingdandao_pms_not_readback_verified',
+                : $notVerifiedReason,
             'evidence_gap_codes' => $verified
                 ? []
-                : ['dingdandao_pms_not_readback_verified'],
+                : [$notVerifiedReason],
         ];
     }
 
@@ -2939,6 +3282,8 @@ final class RevenueFactLayerService
         array $ota
     ): array {
         $otaTruth = $this->otaTruth($hotel, $businessDate, $ota);
+        $pmsSourceKey = $this->pmsSourceKey($pms);
+        $pmsTable = (string)($pms['source']['table'] ?? '');
         $verified = ($pms['data_status'] ?? '') === 'readback_verified'
             && ($otaTruth['status'] ?? '') === 'verified';
         return [
@@ -2947,10 +3292,11 @@ final class RevenueFactLayerService
             'metric_scope' => 'cross_source_comparison',
             'scope_label' => 'OTA渠道分子/PMS全酒店住宿分母；不是全酒店收入',
             'hotels' => $otaTruth['hotels'],
-            'platforms' => ['dingdandao_pms', 'ctrip', 'meituan'],
+            'platforms' => [$pmsSourceKey, 'ctrip', 'meituan'],
             'date_range' => $otaTruth['date_range'],
             'source' => [
-                'table' => 'online_daily_data + dingdandao_operating_target_captures',
+                'table' => 'online_daily_data'
+                    . ($pmsTable !== '' ? ' + ' . $pmsTable : ''),
                 'row_ids' => $otaTruth['source']['row_ids'] ?? [],
                 'trace_ids' => $otaTruth['source']['trace_ids'] ?? [],
                 'methods' => [
@@ -2958,7 +3304,8 @@ final class RevenueFactLayerService
                     'trusted_ota_canonical_readback',
                 ],
                 'data_types' => [
-                    'accommodation_room_fee',
+                    (string)($pms['business_scope']
+                        ?? 'accommodation_room_fee'),
                     'ota_business',
                 ],
                 'caliber' => 'OTA revenue / PMS whole-hotel sellable room nights',
@@ -3007,6 +3354,15 @@ final class RevenueFactLayerService
                 'name' => null,
             ],
             'business_date' => $businessDate,
+            'pms_binding' => [
+                'binding_status' => 'not_checked',
+                'selected_provider' => null,
+                'effective_provider' => HotelPmsBindingService::PROVIDER_NONE,
+                'resolution' => 'hotel_scope_blocked_before_binding',
+                'compatibility_fallback' => false,
+                'query_allowed' => false,
+                'blocker_code' => 'system_hotel_scope_unavailable',
+            ],
             'date_alignment' => [
                 'status' => 'blocked_scope',
                 'comparison_allowed' => false,
@@ -3015,14 +3371,14 @@ final class RevenueFactLayerService
                 'sources' => [],
                 'mismatches' => [],
                 'missing_sources' => [
-                    'dingdandao_pms',
+                    'pms',
                     'ctrip_ota',
                     'meituan_ota',
                 ],
                 'message' => '酒店身份范围未验证，不能读取或对账经营事实。',
             ],
             'source_completeness' => [
-                'dingdandao_pms' => 'blocked',
+                'pms' => 'blocked',
                 'ctrip_ota' => 'blocked',
                 'meituan_ota' => 'blocked',
             ],

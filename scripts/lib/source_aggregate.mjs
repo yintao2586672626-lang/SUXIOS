@@ -1,37 +1,26 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-export const SOURCE_CONCERN_PATHS = Object.freeze({
-  'app/controller/Agent.php': Object.freeze([
-    'app/controller/concern/AgentOtaExecutionIntentConcern.php',
-    'app/controller/concern/AgentCapturedOtaAnalysisConcern.php',
-    'app/controller/concern/AgentOtaDiagnosisBuildConcern.php',
-    'app/controller/concern/AgentOtaDiagnosisPersistenceConcern.php',
-  ]),
-  'app/controller/concern/AutoFetchConcern.php': Object.freeze([
-    'app/controller/concern/AutoFetchProfileSyncConcern.php',
-    'app/controller/concern/CtripAutoFetchExecutionConcern.php',
-    'app/controller/concern/MeituanAutoFetchExecutionConcern.php',
-  ]),
-  'app/service/PlatformDataSyncService.php': Object.freeze([
-    'app/service/concern/PlatformDataSourceExecutionConcern.php',
-    'app/service/concern/PlatformSyncTaskConcern.php',
-    'app/service/concern/PlatformDataPersistenceConcern.php',
-  ]),
-  'app/service/OperationManagementService.php': Object.freeze([
-    'app/service/operation/OperationSnapshotConcern.php',
-    'app/service/operation/OperationAlertConcern.php',
-    'app/service/operation/OperationExecutionReceiptConcern.php',
-    'app/service/operation/OperationEffectReadbackConcern.php',
-  ]),
-  'app/service/OtaLocalCollectorService.php': Object.freeze([
-    'app/service/concern/OtaLocalCollectorLeaseConcern.php',
-    'app/service/concern/OtaLocalCollectorManualLoginConcern.php',
-  ]),
-  'app/service/AiDailyReportService.php': Object.freeze([
-    'app/service/concern/AiDailyReportReadinessConcern.php',
-  ]),
-});
+const moduleDirectory = path.dirname(fileURLToPath(import.meta.url));
+const registryPath = path.resolve(moduleDirectory, '..', '..', 'rules', 'source-concern-contract-registry.json');
+const registry = JSON.parse(fs.readFileSync(registryPath, 'utf8'));
+if (registry?.schema_version !== 'suxios.source_concern_registry.v1'
+  || registry?.aggregates === null
+  || typeof registry?.aggregates !== 'object'
+  || Array.isArray(registry?.aggregates)
+) {
+  throw new Error('Source concern registry is invalid.');
+}
+
+export const SOURCE_CONCERN_PATHS = Object.freeze(Object.fromEntries(
+  Object.entries(registry.aggregates).map(([parent, members]) => {
+    if (!Array.isArray(members) || members.some((member) => typeof member !== 'string')) {
+      throw new Error(`Source concern registry members are invalid: ${parent}`);
+    }
+    return [parent, Object.freeze([...members])];
+  }),
+));
 
 export function readSourceAggregate(relativePath, options = {}) {
   const repoRoot = path.resolve(options.repoRoot || process.cwd());

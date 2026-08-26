@@ -415,22 +415,76 @@ final class ManualNotificationDispatchLedgerService
         string $dispatchWindow,
         string $deliveryMode
     ): ?array {
+        $dispatches = $this->existingDispatches([[
+            'notification_id' => $notificationId,
+            'dispatch_window' => $dispatchWindow,
+        ]], $deliveryMode);
+        return $dispatches[$this->dispatchSlotKey(
+            $notificationId,
+            $this->dispatchWindow($dispatchWindow)
+        )] ?? null;
+    }
+
+    /**
+     * Batch-read exact idempotency slots for one bounded scheduler page.
+     * Cross-products from the SQL whereIn clauses are filtered back through
+     * the exact requested slot set before any row is returned.
+     *
+     * @param array<int,array{notification_id:int,dispatch_window:string}> $slots
+     * @return array<string,array<string,mixed>>
+     */
+    public function existingDispatches(array $slots, string $deliveryMode): array
+    {
         $this->assertTables();
-        if ($notificationId <= 0) {
-            throw new \InvalidArgumentException('manual_notification_dispatch_scope_invalid');
-        }
-        $dispatchWindow = $this->dispatchWindow($dispatchWindow);
         $deliveryMode = $this->token(
             $deliveryMode,
             16,
             'manual_notification_delivery_mode_invalid'
         );
-        $row = Db::name('manual_notification_schedule_dispatches')
-            ->where('notification_id', $notificationId)
-            ->where('dispatch_window', $dispatchWindow)
+        $requested = [];
+        $notificationIds = [];
+        $dispatchWindows = [];
+        foreach ($slots as $slot) {
+            $notificationId = (int)($slot['notification_id'] ?? 0);
+            if ($notificationId <= 0) {
+                throw new \InvalidArgumentException(
+                    'manual_notification_dispatch_scope_invalid'
+                );
+            }
+            $dispatchWindow = $this->dispatchWindow(
+                (string)($slot['dispatch_window'] ?? '')
+            );
+            $key = $this->dispatchSlotKey($notificationId, $dispatchWindow);
+            $requested[$key] = true;
+            $notificationIds[$notificationId] = $notificationId;
+            $dispatchWindows[$dispatchWindow] = $dispatchWindow;
+        }
+        if ($requested === []) {
+            return [];
+        }
+
+        $rows = Db::name('manual_notification_schedule_dispatches')
+            ->whereIn('notification_id', array_values($notificationIds))
+            ->whereIn('dispatch_window', array_values($dispatchWindows))
             ->where('delivery_mode', $deliveryMode)
-            ->find();
-        return is_array($row) ? $this->present($row) : null;
+            ->select()
+            ->toArray();
+        $result = [];
+        foreach ($rows as $row) {
+            $key = $this->dispatchSlotKey(
+                (int)($row['notification_id'] ?? 0),
+                (string)($row['dispatch_window'] ?? '')
+            );
+            if (isset($requested[$key])) {
+                $result[$key] = $this->present($row);
+            }
+        }
+        return $result;
+    }
+
+    private function dispatchSlotKey(int $notificationId, string $dispatchWindow): string
+    {
+        return $notificationId . '|' . $dispatchWindow;
     }
 
     /**

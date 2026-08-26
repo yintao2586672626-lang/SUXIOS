@@ -273,6 +273,46 @@ test('five focus pages paint their heading within 300ms on first switch and revi
   expect(pageErrors, `page errors: ${pageErrors.join(' | ')}`).toEqual([]);
 });
 
+test('trusted revenue keeps its nested analysis entry across startup-to-full render', async ({ page }) => {
+  test.setTimeout(30000);
+  const pageErrors = [];
+  const manager = {
+    ...user,
+    id: 702,
+    username: 'trusted_revenue_transition_probe',
+    realname: 'Trusted Revenue Transition Probe',
+    role_name: 'Hotel Manager',
+    is_super_admin: false,
+  };
+  page.on('pageerror', error => pageErrors.push(String(error?.message || error)));
+  await page.addInitScript((profile) => {
+    sessionStorage.setItem('token', 'trusted-revenue-transition-probe-token');
+    localStorage.setItem('suxios_auth_user_cache_v1', JSON.stringify({ saved_at: Date.now(), user: profile }));
+  }, manager);
+  await page.route('**/api/**', async route => {
+    const pathname = new URL(route.request().url()).pathname;
+    let data = { list: [], items: [], total: 0 };
+    if (pathname === '/api/auth/info') data = manager;
+    if (pathname === '/api/hotels') data = { list: manager.permitted_hotels, total: 1 };
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ code: 200, data, message: 'ok' }) });
+  });
+
+  await page.goto(appUrl, { waitUntil: 'domcontentloaded' });
+  await expect(page.getByRole('heading', { name: '今日经营看板', exact: true }).first()).toBeVisible({ timeout: 15000 });
+  const nav = page.getByTestId('app-nav');
+  const entry = nav.getByTestId('nav-trusted-revenue-analysis');
+  if (!await entry.isVisible().catch(() => false)) await nav.getByTestId('nav-lean-business-loop').click();
+  await expect(entry).toBeVisible({ timeout: 5000 });
+  await entry.click();
+
+  await expect(page.getByTestId('revenue-cockpit-hero')).toBeVisible({ timeout: 15000 });
+  await expect(page.getByTestId('revenue-cockpit-context')).toBeVisible();
+  await expect(page.getByRole('heading', { name: '可信收益分析', exact: true }).first()).toBeVisible();
+  await expect(page.getByTestId('app-main')).toHaveAttribute('data-current-page', 'agent-center');
+  await expect.poll(() => page.evaluate(() => document.documentElement.dataset.suxiRenderPhase || '')).toBe('full');
+  expect(pageErrors, `page errors: ${pageErrors.join(' | ')}`).toEqual([]);
+});
+
 test('new-hotel three-source wizard loads after demand and renders the truthful first step', async ({ page }) => {
   test.setTimeout(30000);
   const pageErrors = [];

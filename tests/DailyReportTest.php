@@ -713,6 +713,29 @@ final class DailyReportTest extends TestCase
         self::assertStringContainsString('&lt;tester&gt;#7', $watermark);
     }
 
+    public function testBatchExportChecksTheBoundBeforeSelectingAndBulkLoadsMonthTasks(): void
+    {
+        $source = (string)file_get_contents(dirname(__DIR__) . '/app/controller/DailyReport.php');
+        $batchStart = strpos($source, 'private function exportBatch(');
+        $countAt = strpos($source, '(int)(clone $query)->count()', (int)$batchStart);
+        $selectAt = strpos($source, '->limit(self::EXPORT_BATCH_LIMIT)', (int)$batchStart);
+        $bulkLoadAt = strpos($source, '$this->loadMonthlyTaskContexts($reports)', (int)$batchStart);
+        $loopAt = strpos($source, 'foreach ($reports as $report)', (int)$bulkLoadAt);
+
+        self::assertIsInt($batchStart);
+        self::assertIsInt($countAt);
+        self::assertIsInt($selectAt);
+        self::assertIsInt($bulkLoadAt);
+        self::assertIsInt($loopAt);
+        self::assertLessThan($selectAt, $countAt);
+        self::assertLessThan($bulkLoadAt, $selectAt);
+        self::assertLessThan($loopAt, $bulkLoadAt);
+
+        $loop = substr($source, (int)$loopAt, 1800);
+        self::assertStringNotContainsString('MonthlyTask::where(', $loop);
+        self::assertStringNotContainsString('loadMonthlyTaskContext(', $loop);
+    }
+
     public function testDailyImportUploadRejectsUnsafeExcelFiles(): void
     {
         $controller = $this->controller();

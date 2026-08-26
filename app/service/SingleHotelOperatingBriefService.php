@@ -36,6 +36,52 @@ final class SingleHotelOperatingBriefService
             && ($ctrip['delivery_evidence_ready'] ?? false) === true
             && ($meituan['delivery_evidence_ready'] ?? false) === true;
         $status = $sourceGatePassed ? 'preview_ready' : 'blocked';
+        $blockers = array_values(array_filter(
+            (array)($digest['blockers'] ?? []),
+            'is_array'
+        ));
+        if (!$sourceGatePassed) {
+            if ($blockers === []) {
+                $blockers[] = [
+                    'code' => 'single_hotel_source_gate_blocked',
+                    'message' => '单店PMS、携程或美团来源证据未全部通过。',
+                ];
+            }
+            $blockedLines = [
+                '# 宿析OS｜敦煌漠蓝新三源经营简报',
+                '> 状态：来源证据未全部通过；正式内容未渲染任何经营数值。',
+                '',
+                '## 当前阻断',
+            ];
+            foreach (array_slice($blockers, 0, 6) as $blocker) {
+                $blockedLines[] = '- ' . $this->text(
+                    $blocker['message'] ?? $blocker['code'] ?? null,
+                    '来源证据未通过'
+                );
+            }
+
+            return [
+                'contract_version' => self::CONTRACT_VERSION,
+                'status' => $status,
+                'preview_only' => true,
+                'message_sent' => false,
+                'external_delivery_authorized' => false,
+                'source_gate_passed' => false,
+                'formal_values_rendered' => false,
+                'debug_unverified_values_included' => false,
+                'tenant_id' => (int)($digest['tenant_id'] ?? 0),
+                'hotel_id' => (int)($digest['hotel_id'] ?? 0),
+                'hotel_name' => $this->text($digest['hotel_name'] ?? null, ''),
+                'business_date' => $this->text($digest['business_date'] ?? null, ''),
+                'operating_target_status' => (string)($digest['operating_target_status'] ?? 'not_set'),
+                'content' => mb_strcut(implode("\n", $blockedLines), 0, 3800, 'UTF-8'),
+                'blockers' => $blockers,
+                'gaps' => array_values(array_filter(
+                    (array)($digest['gaps'] ?? []),
+                    'is_array'
+                )),
+            ];
+        }
         $targetStatus = (string)($digest['operating_target_status'] ?? 'not_set');
         $targetLine = $targetStatus === 'present'
             ? '经营目标：已设置（本简报仍保持三源事实分列）'
@@ -115,21 +161,6 @@ final class SingleHotelOperatingBriefService
                 . '平台转化率与同日分子/分母自算校验分列；“未获取”不会用0、旧数据'
                 . '或其他漏斗环节代替。',
         ];
-        $blockers = array_values(array_filter(
-            (array)($digest['blockers'] ?? []),
-            'is_array'
-        ));
-        if (!$sourceGatePassed && $blockers !== []) {
-            $lines[] = '';
-            $lines[] = '## 当前阻断';
-            foreach (array_slice($blockers, 0, 6) as $blocker) {
-                $lines[] = '- ' . $this->text(
-                    $blocker['message'] ?? $blocker['code'] ?? null,
-                    '来源证据未通过'
-                );
-            }
-        }
-
         return [
             'contract_version' => self::CONTRACT_VERSION,
             'status' => $status,
@@ -137,6 +168,8 @@ final class SingleHotelOperatingBriefService
             'message_sent' => false,
             'external_delivery_authorized' => false,
             'source_gate_passed' => $sourceGatePassed,
+            'formal_values_rendered' => true,
+            'debug_unverified_values_included' => false,
             'tenant_id' => (int)($digest['tenant_id'] ?? 0),
             'hotel_id' => (int)($digest['hotel_id'] ?? 0),
             'hotel_name' => $this->text($digest['hotel_name'] ?? null, ''),

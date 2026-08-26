@@ -5,6 +5,7 @@ namespace Tests;
 
 use app\controller\Agent;
 use app\service\RevenuePricingRecommendationService;
+use PHPUnit\Framework\Attributes\RunInSeparateProcess;
 use PHPUnit\Framework\TestCase;
 use ReflectionClass;
 use ReflectionMethod;
@@ -57,15 +58,17 @@ final class AgentRawTenantIsolationTest extends TestCase
         Db::connect(null, true);
 
         Db::execute('CREATE TABLE hotels (id INTEGER PRIMARY KEY, tenant_id INTEGER NOT NULL, name VARCHAR(100), status INTEGER)');
-        Db::execute('CREATE TABLE online_daily_data (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER NOT NULL, system_hotel_id INTEGER NOT NULL, data_source_id INTEGER, data_date DATE NOT NULL, source VARCHAR(50), platform VARCHAR(30), data_type VARCHAR(50), amount DECIMAL(12,2), quantity INTEGER, book_order_num INTEGER, list_exposure INTEGER, detail_exposure INTEGER, order_filling_num INTEGER, order_submit_num INTEGER, readback_verified INTEGER, validation_status VARCHAR(30), raw_data TEXT, create_time DATETIME, update_time DATETIME)');
+        Db::execute('CREATE TABLE online_daily_data (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER NOT NULL, system_hotel_id INTEGER NOT NULL, hotel_id VARCHAR(100), data_source_id INTEGER, data_date DATE NOT NULL, source VARCHAR(50), platform VARCHAR(30), data_type VARCHAR(50), amount DECIMAL(12,2), quantity INTEGER, book_order_num INTEGER, list_exposure INTEGER, detail_exposure INTEGER, order_filling_num INTEGER, order_submit_num INTEGER, readback_verified INTEGER, validation_status VARCHAR(30), raw_data TEXT, create_time DATETIME, update_time DATETIME)');
         Db::execute('CREATE TABLE platform_data_sources (id INTEGER PRIMARY KEY, tenant_id INTEGER NOT NULL, system_hotel_id INTEGER NOT NULL, platform VARCHAR(30), config_json TEXT)');
 
         Db::name('hotels')->insert(['id' => 20, 'tenant_id' => 10, 'name' => 'Tenant 10 Hotel', 'status' => 1]);
+        Db::name('hotels')->insert(['id' => 21, 'tenant_id' => 10, 'name' => 'Tenant 10 Other Hotel', 'status' => 1]);
         Db::name('online_daily_data')->insertAll([
             [
                 'id' => 1,
                 'tenant_id' => 10,
                 'system_hotel_id' => 20,
+                'hotel_id' => 'valid-ota',
                 'data_source_id' => 1001,
                 'data_date' => '2026-07-21',
                 'source' => 'ctrip',
@@ -88,6 +91,7 @@ final class AgentRawTenantIsolationTest extends TestCase
                 'id' => 2,
                 'tenant_id' => 99,
                 'system_hotel_id' => 20,
+                'hotel_id' => 'polluted-ota',
                 'data_source_id' => 2002,
                 'data_date' => '2026-07-21',
                 'source' => 'ctrip',
@@ -110,6 +114,7 @@ final class AgentRawTenantIsolationTest extends TestCase
                 'id' => 3,
                 'tenant_id' => 10,
                 'system_hotel_id' => 20,
+                'hotel_id' => 'valid-qunar-ota',
                 'data_source_id' => 1001,
                 'data_date' => '2026-07-21',
                 'source' => 'ctrip',
@@ -128,6 +133,72 @@ final class AgentRawTenantIsolationTest extends TestCase
                     'capture_evidence' => ['endpoint_id' => 'traffic_flow_transform'],
                 ], JSON_THROW_ON_ERROR),
             ],
+            [
+                'id' => 4,
+                'tenant_id' => 10,
+                'system_hotel_id' => 20,
+                'hotel_id' => 'valid-ota',
+                'data_source_id' => 1001,
+                'data_date' => '2026-07-21',
+                'source' => 'ctrip',
+                'platform' => 'ctrip',
+                'data_type' => 'business',
+                'amount' => 110,
+                'quantity' => 11,
+                'book_order_num' => 6,
+                'list_exposure' => null,
+                'detail_exposure' => null,
+                'order_filling_num' => null,
+                'order_submit_num' => null,
+                'readback_verified' => 1,
+                'validation_status' => 'verified',
+                'raw_data' => json_encode(['compareType' => 'self'], JSON_THROW_ON_ERROR),
+            ],
+            [
+                'id' => 5,
+                'tenant_id' => 10,
+                'system_hotel_id' => 21,
+                'hotel_id' => 'same-tenant-other-ota',
+                'data_source_id' => 1002,
+                'data_date' => '2026-07-21',
+                'source' => 'ctrip',
+                'platform' => 'ctrip',
+                'data_type' => 'business',
+                'amount' => 5100,
+                'quantity' => 510,
+                'book_order_num' => 51,
+                'list_exposure' => null,
+                'detail_exposure' => null,
+                'order_filling_num' => null,
+                'order_submit_num' => null,
+                'readback_verified' => 1,
+                'validation_status' => 'verified',
+                'raw_data' => json_encode(['compareType' => 'self'], JSON_THROW_ON_ERROR),
+            ],
+            [
+                'id' => 6,
+                'tenant_id' => 10,
+                'system_hotel_id' => 21,
+                'hotel_id' => 'same-tenant-other-ota',
+                'data_source_id' => 1002,
+                'data_date' => '2026-07-21',
+                'source' => 'ctrip',
+                'platform' => 'ctrip',
+                'data_type' => 'traffic',
+                'amount' => 6100,
+                'quantity' => 610,
+                'book_order_num' => 61,
+                'list_exposure' => 61000,
+                'detail_exposure' => 6100,
+                'order_filling_num' => 610,
+                'order_submit_num' => 61,
+                'readback_verified' => 1,
+                'validation_status' => 'verified',
+                'raw_data' => json_encode([
+                    'compareType' => 'self',
+                    'capture_evidence' => ['endpoint_id' => 'traffic_flow_transform'],
+                ], JSON_THROW_ON_ERROR),
+            ],
         ]);
         Db::name('platform_data_sources')->insertAll([
             [
@@ -143,6 +214,13 @@ final class AgentRawTenantIsolationTest extends TestCase
                 'system_hotel_id' => 20,
                 'platform' => 'ctrip',
                 'config_json' => json_encode(['ota_hotel_id' => 'polluted-ota'], JSON_THROW_ON_ERROR),
+            ],
+            [
+                'id' => 1002,
+                'tenant_id' => 10,
+                'system_hotel_id' => 21,
+                'platform' => 'ctrip',
+                'config_json' => json_encode(['ota_hotel_id' => 'same-tenant-other-ota'], JSON_THROW_ON_ERROR),
             ],
         ]);
     }
@@ -223,6 +301,67 @@ final class AgentRawTenantIsolationTest extends TestCase
             'start_date' => '2026-07-21',
             'end_date' => '2026-07-21',
         ]);
+    }
+
+    public function testSinglePlatformDiagnosisCannotExpandToAnotherHotelThroughPlatformHotelId(): void
+    {
+        $agent = (new ReflectionClass(Agent::class))->newInstanceWithoutConstructor();
+        $method = $this->method(Agent::class, 'queryOtaDiagnosisData');
+
+        $business = $method->invoke(
+            $agent,
+            20,
+            '20',
+            'same-tenant-other-ota',
+            'ctrip',
+            '2026-07-21',
+            '2026-07-21',
+            'business'
+        );
+        self::assertSame([4], array_map('intval', array_column($business['online_rows'], 'id')));
+
+        $traffic = $method->invoke(
+            $agent,
+            20,
+            '20',
+            'same-tenant-other-ota',
+            'ctrip',
+            '2026-07-21',
+            '2026-07-21',
+            'traffic'
+        );
+        self::assertSame([1], array_map('intval', array_column($traffic['online_rows'], 'id')));
+    }
+
+    #[RunInSeparateProcess]
+    public function testDiagnosisFailsClosedWithoutAuthoritativeSystemHotelColumn(): void
+    {
+        Db::execute('DROP TABLE online_daily_data');
+        Db::execute('CREATE TABLE online_daily_data (id INTEGER PRIMARY KEY, tenant_id INTEGER NOT NULL, hotel_id VARCHAR(100), data_date DATE NOT NULL, source VARCHAR(50), platform VARCHAR(30), data_type VARCHAR(50), readback_verified INTEGER)');
+        Db::name('online_daily_data')->insert([
+            'id' => 99,
+            'tenant_id' => 10,
+            'hotel_id' => 'valid-ota',
+            'data_date' => '2026-07-21',
+            'source' => 'ctrip',
+            'platform' => 'ctrip',
+            'data_type' => 'business',
+            'readback_verified' => 1,
+        ]);
+
+        $agent = (new ReflectionClass(Agent::class))->newInstanceWithoutConstructor();
+        $diagnosis = $this->method(Agent::class, 'queryOtaDiagnosisData')->invoke(
+            $agent,
+            20,
+            'valid-ota',
+            'valid-ota',
+            'ctrip',
+            '2026-07-21',
+            '2026-07-21',
+            'business'
+        );
+
+        self::assertSame([], $diagnosis['online_rows']);
     }
 
     private function method(string $class, string $name): ReflectionMethod

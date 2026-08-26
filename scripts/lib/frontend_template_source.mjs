@@ -109,6 +109,30 @@ const BUSINESS_CLOSURE_TEMPLATE_VIEW_DEFINITIONS = Object.freeze([
     end: '\n        <!--',
     wrapper: '        <knowledge-xlsx-import-dialog-view v-if="showKnowledgeCenterImportModal" :ctx="$root"></knowledge-xlsx-import-dialog-view>\n',
   }),
+  Object.freeze({
+    id: 'meituan-review-order-evidence',
+    fragmentId: 'page-meituan-ebooking',
+    componentKey: 'MeituanReviewOrderEvidenceBody',
+    start: '                                <div v-if="onlineDataTab === \'meituan-review-match\'" data-testid="meituan-review-order-evidence-workbench"',
+    end: '                                <!-- 榜单数据获取 -->',
+    wrapper: '                                <meituan-review-order-evidence-view v-if="onlineDataTab === \'meituan-review-match\'" :ctx="$root"></meituan-review-order-evidence-view>\n\n',
+  }),
+  Object.freeze({
+    id: 'ai-daily-trusted-broadcast',
+    fragmentId: 'page-ai-daily-report',
+    componentKey: 'AiDailyTrustedBroadcastBody',
+    start: '                        <section data-testid="ai-daily-operations-broadcast"',
+    end: '                        <div class="bg-white rounded-xl border border-gray-100 p-5 shadow-sm">',
+    wrapper: '                        <ai-daily-trusted-broadcast-view :ctx="$root"></ai-daily-trusted-broadcast-view>\n',
+  }),
+  Object.freeze({
+    id: 'ai-daily-presentation-delivery',
+    fragmentId: 'page-ai-daily-report',
+    componentKey: 'AiDailyPresentationDeliveryBody',
+    start: '                                    <section data-testid="ai-daily-presentation-delivery"',
+    end: '                                    <section class="rounded-lg border border-gray-100 bg-white p-4">',
+    wrapper: '                                    <ai-daily-presentation-delivery-view :ctx="$root"></ai-daily-presentation-delivery-view>\n',
+  }),
 ]);
 
 function extractBusinessClosureTemplateViews(fragments) {

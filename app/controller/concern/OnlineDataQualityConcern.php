@@ -21,7 +21,10 @@ trait OnlineDataQualityConcern
 
         $dataList = $this->request->post('data', []);
         $dataDate = $this->request->post('data_date', date('Y-m-d', strtotime('-1 day')));
-        $systemHotelId = $this->resolveOnlineDataSystemHotelId($this->request->post('system_hotel_id', null));
+        $systemHotelId = $this->resolveOnlineDataSystemHotelId(
+            $this->request->post('system_hotel_id', null),
+            true
+        );
 
         if (empty($dataList)) {
             return $this->error('数据不能为空');
@@ -225,7 +228,7 @@ trait OnlineDataQualityConcern
                     $item['hotel_name'] = $systemHotelName;
                 }
                 $bookOrderNum = intval($item['book_order_num'] ?? 0);
-                $rawTotalOrderNum = 0;
+                $rawTotalOrderNum = null;
                 $rawData = [];
 
                 if (!empty($item['raw_data'])) {
@@ -238,7 +241,7 @@ trait OnlineDataQualityConcern
                         $displayRawData = isset($rawData['row']) && is_array($rawData['row'])
                             ? array_merge($rawData, $rawData['row'])
                             : $rawData;
-                        $rawTotalOrderNum = intval($displayRawData['totalOrderNum'] ?? $displayRawData['total_order_num'] ?? 0);
+                        $rawTotalOrderNum = $this->resolveOnlineDataTotalOrderNum($displayRawData, null);
                         // 添加排名字段
                         $item['amount_rank'] = $displayRawData['amountRank'] ?? null;
                         $item['quantity_rank'] = $displayRawData['quantityRank'] ?? null;
@@ -256,7 +259,7 @@ trait OnlineDataQualityConcern
                         $item['metric_status'] = $displayRawData['metricStatus'] ?? $displayRawData['metric_status'] ?? $item['metric_status'] ?? null;
                     }
                 }
-                $item['total_order_num'] = $rawTotalOrderNum > 0 ? $rawTotalOrderNum : $bookOrderNum;
+                $item['total_order_num'] = $rawTotalOrderNum ?? $bookOrderNum;
                 $storageStatus = $this->buildOnlineDataStorageStatus($item);
                 $item['storage_status'] = $storageStatus['code'];
                 $item['storage_status_label'] = $storageStatus['label'];
@@ -289,6 +292,17 @@ trait OnlineDataQualityConcern
             \think\facade\Log::error('获取线上数据列表失败: ' . $e->getMessage(), ['exception' => $e]);
             return $this->error('获取数据列表失败', 500);
         }
+    }
+
+    private function resolveOnlineDataTotalOrderNum(array $rawData, ?int $fallback): ?int
+    {
+        foreach (['totalOrderNum', 'total_order_num'] as $key) {
+            if (array_key_exists($key, $rawData)) {
+                return is_numeric($rawData[$key]) ? (int)$rawData[$key] : $fallback;
+            }
+        }
+
+        return $fallback;
     }
 
     private function normalizeOnlineDataTypeFilters($dataType, $dataTypes): array

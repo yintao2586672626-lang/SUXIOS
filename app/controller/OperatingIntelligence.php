@@ -5,11 +5,17 @@ namespace app\controller;
 
 use app\service\HotelScopeService;
 use app\service\OperationManagementService;
+use app\service\LocalAiRuntimeService;
+use app\service\LocalMediaExtractionService;
 use app\service\OperatingNetworkService;
 use app\service\OperatingQuestionAiAnswerService;
 use app\service\OperatingQuestionExecutionBridgeService;
+use app\service\OperatingQuestionCouncilService;
+use app\service\OperatingQuestionPreciseQueryService;
 use app\service\OperatingQuestionService;
 use app\service\OperatingSopService;
+use app\service\WecomInboundService;
+use app\service\WecomAibotService;
 use InvalidArgumentException;
 use RuntimeException;
 use think\facade\Db;
@@ -28,9 +34,11 @@ final class OperatingIntelligence extends Base
     {
         parent::__construct($app);
         $aiAnswerService = new OperatingQuestionAiAnswerService();
+        $preciseQueryService = new OperatingQuestionPreciseQueryService();
         $this->questionService = new OperatingQuestionService(
             null,
-            static fn(array $payload): array => $aiAnswerService->generate($payload)
+            static fn(array $payload): array => $aiAnswerService->generate($payload),
+            static fn(array $payload): array => $preciseQueryService->finalize($payload)
         );
         $this->questionExecutionBridge = new OperatingQuestionExecutionBridgeService(
             $this->questionService,
@@ -54,7 +62,7 @@ final class OperatingIntelligence extends Base
                 (string)($input['date_start'] ?? ''),
                 (string)($input['date_end'] ?? ''),
                 (int)($this->currentUser->id ?? 0),
-                OperatingQuestionAiAnswerService::DIRECT_MODEL_KEY,
+                (string)($input['model_key'] ?? 'local_second_brain'),
                 (string)($input['decision_object'] ?? '')
             ));
         } catch (Throwable $e) {
@@ -126,6 +134,263 @@ final class OperatingIntelligence extends Base
             ));
         } catch (Throwable $e) {
             return $this->error($this->safeMessage($e, '经营问答行动草案提交失败'), $this->status($e));
+        }
+    }
+
+    public function localAiCapabilities(): Response
+    {
+        try {
+            $this->accessibleHotels('operation.view');
+            return $this->success((new LocalAiRuntimeService())->capabilities());
+        } catch (Throwable $e) {
+            return $this->error($this->safeMessage($e, '本地第二大脑状态读取失败'), $this->status($e));
+        }
+    }
+
+    public function extractLocalMedia(): Response
+    {
+        try {
+            $input = $this->requestData();
+            [$hotelId, $tenantId] = $this->resolveHotel((int)($input['hotel_id'] ?? 0), 'operation.execute');
+            $file = $this->request->file('file');
+            if (!$file) {
+                throw new InvalidArgumentException('请选择图片、音频或视频文件');
+            }
+            $path = method_exists($file, 'getPathname') ? (string)$file->getPathname() : '';
+            $name = method_exists($file, 'getOriginalName') ? (string)$file->getOriginalName() : '';
+            $mime = method_exists($file, 'getOriginalMime') ? (string)$file->getOriginalMime() : '';
+            try {
+                $result = (new LocalMediaExtractionService())->extract(
+                    $tenantId,
+                    $hotelId,
+                    (int)($this->currentUser->id ?? 0),
+                    $path,
+                    $name,
+                    $mime
+                );
+            } finally {
+                if ($path !== '' && is_uploaded_file($path)) {
+                    @unlink($path);
+                }
+            }
+            return $this->success($result);
+        } catch (Throwable $e) {
+            return $this->error($this->safeMessage($e, '本地媒体提取失败'), $this->status($e));
+        }
+    }
+
+    public function localMediaExtractions(): Response
+    {
+        try {
+            $hotelIds = $this->accessibleHotels('operation.view');
+            $hotelId = (int)$this->request->param('hotel_id', 0);
+            if ($hotelId > 0 && !in_array($hotelId, $hotelIds, true)) {
+                throw new RuntimeException('无权查看该酒店本地媒体提取记录');
+            }
+            $tenantId = $hotelId > 0 ? $this->tenantForHotel($hotelId) : $this->currentTenantId();
+            return $this->success((new LocalMediaExtractionService())->list(
+                $tenantId,
+                $hotelIds,
+                $hotelId > 0 ? $hotelId : null,
+                (int)$this->request->param('limit', 20)
+            ));
+        } catch (Throwable $e) {
+            return $this->error($this->safeMessage($e, '本地媒体提取记录查询失败'), $this->status($e));
+        }
+    }
+
+    public function readLocalMediaExtraction(int $id): Response
+    {
+        try {
+            return $this->success((new LocalMediaExtractionService())->read(
+                $id,
+                $this->currentTenantId(),
+                $this->accessibleHotels('operation.view')
+            ));
+        } catch (Throwable $e) {
+            return $this->error($this->safeMessage($e, '本地媒体提取结果回读失败'), $this->status($e));
+        }
+    }
+
+    public function wecomInboundCapabilities(): Response
+    {
+        try {
+            $hotelIds = $this->accessibleHotels('operation.view');
+            $tenantId = $this->currentTenantId();
+            return $this->success([
+                'preferred_transport' => 'wecom_aibot_websocket',
+                'aibot_websocket' => (new WecomAibotService())->capability($tenantId, $hotelIds),
+                'custom_app_callback_adapter' => (new WecomInboundService())->capability($tenantId, $hotelIds),
+                'robot_webhook_inbound' => 'unsupported',
+            ]);
+        } catch (Throwable $e) {
+            return $this->error($this->safeMessage($e, '企业微信入站能力读取失败'), $this->status($e));
+        }
+    }
+
+    public function saveWecomInboundBinding(): Response
+    {
+        try {
+            $input = $this->requestData();
+            [$hotelId, $tenantId] = $this->resolveHotel((int)($input['hotel_id'] ?? 0), 'operation.execute');
+            return $this->success((new WecomInboundService())->saveBinding(
+                $tenantId,
+                $hotelId,
+                (int)($this->currentUser->id ?? 0),
+                (string)($input['conversation_id'] ?? ''),
+                (string)($input['label'] ?? '宿析经营追问'),
+                (string)($input['binding_key'] ?? '')
+            ));
+        } catch (Throwable $e) {
+            return $this->error($this->safeMessage($e, '企业微信入站绑定保存失败'), $this->status($e));
+        }
+    }
+
+    public function createWecomAibotBindingCode(): Response
+    {
+        try {
+            $input = $this->requestData();
+            [$hotelId, $tenantId] = $this->resolveHotel((int)($input['hotel_id'] ?? 0), 'operation.execute');
+            return $this->success((new WecomAibotService())->createBindingCode(
+                $tenantId,
+                $hotelId,
+                (int)($this->currentUser->id ?? 0),
+                (string)($input['label'] ?? '宿析经营追问')
+            ));
+        } catch (Throwable $e) {
+            return $this->error($this->safeMessage($e, '企业微信智能机器人绑定码创建失败'), $this->status($e));
+        }
+    }
+
+    public function setWecomAibotReplyEnabled(int $id): Response
+    {
+        try {
+            $input = $this->requestData();
+            if (!array_key_exists('enabled', $input)) {
+                throw new InvalidArgumentException('enabled 必填');
+            }
+            $enabled = filter_var($input['enabled'], FILTER_VALIDATE_BOOL, FILTER_NULL_ON_FAILURE);
+            if ($enabled === null) {
+                throw new InvalidArgumentException('enabled 必须是布尔值');
+            }
+            return $this->success((new WecomAibotService())->setReplyEnabled(
+                $id,
+                $this->currentTenantId(),
+                $this->accessibleHotels('operation.execute'),
+                $enabled
+            ));
+        } catch (Throwable $e) {
+            return $this->error($this->safeMessage($e, '企业微信智能机器人回复开关保存失败'), $this->status($e));
+        }
+    }
+
+    public function disableWecomAibotBinding(int $id): Response
+    {
+        try {
+            return $this->success((new WecomAibotService())->disableBinding(
+                $id,
+                $this->currentTenantId(),
+                $this->accessibleHotels('operation.execute')
+            ));
+        } catch (Throwable $e) {
+            return $this->error($this->safeMessage($e, '企业微信智能机器人解绑失败'), $this->status($e));
+        }
+    }
+
+    public function wecomInboundBindings(): Response
+    {
+        try {
+            return $this->success((new WecomInboundService())->bindings(
+                $this->currentTenantId(),
+                $this->accessibleHotels('operation.view')
+            ));
+        } catch (Throwable $e) {
+            return $this->error($this->safeMessage($e, '企业微信入站绑定查询失败'), $this->status($e));
+        }
+    }
+
+    public function wecomInboundEvents(): Response
+    {
+        try {
+            $hotelIds = $this->accessibleHotels('operation.view');
+            $hotelId = (int)$this->request->param('hotel_id', 0);
+            if ($hotelId > 0 && !in_array($hotelId, $hotelIds, true)) {
+                throw new RuntimeException('无权查看该酒店企业微信入站事件');
+            }
+            $tenantId = $hotelId > 0 ? $this->tenantForHotel($hotelId) : $this->currentTenantId();
+            return $this->success((new WecomInboundService())->events(
+                $tenantId,
+                $hotelIds,
+                $hotelId > 0 ? $hotelId : null,
+                (int)$this->request->param('limit', 50)
+            ));
+        } catch (Throwable $e) {
+            return $this->error($this->safeMessage($e, '企业微信入站事件查询失败'), $this->status($e));
+        }
+    }
+
+    public function readWecomInboundEvent(int $id): Response
+    {
+        try {
+            return $this->success((new WecomInboundService())->readEvent(
+                $id,
+                $this->currentTenantId(),
+                $this->accessibleHotels('operation.view')
+            ));
+        } catch (Throwable $e) {
+            return $this->error($this->safeMessage($e, '企业微信入站事件回读失败'), $this->status($e));
+        }
+    }
+
+    public function runQuestionCouncil(int $id): Response
+    {
+        // A five-lens local council performs five bounded reviews plus one
+        // synthesis call. Keep the longer budget scoped to this user-triggered
+        // endpoint instead of raising the application's global PHP limit.
+        if (function_exists('set_time_limit')) {
+            set_time_limit(180);
+        }
+        try {
+            $input = $this->requestData();
+            return $this->success((new OperatingQuestionCouncilService())->runShadow(
+                $id,
+                $this->currentTenantId(),
+                $this->accessibleHotels('operation.view'),
+                (int)($this->currentUser->id ?? 0),
+                (string)($input['client_run_key'] ?? '')
+            ));
+        } catch (Throwable $e) {
+            return $this->error($this->safeMessage($e, '经营顾问会诊失败'), $this->status($e));
+        }
+    }
+
+    public function latestQuestionCouncil(int $id): Response
+    {
+        try {
+            return $this->success((new OperatingQuestionCouncilService())->latest(
+                $id,
+                $this->currentTenantId(),
+                $this->accessibleHotels('operation.view')
+            ));
+        } catch (Throwable $e) {
+            return $this->error($this->safeMessage($e, '经营顾问会诊回读失败'), $this->status($e));
+        }
+    }
+
+    public function readQuestionCouncil(int $id, int $runId): Response
+    {
+        try {
+            $run = (new OperatingQuestionCouncilService())->read(
+                $runId,
+                $this->currentTenantId(),
+                $this->accessibleHotels('operation.view')
+            );
+            if ((int)($run['question_id'] ?? 0) !== $id) {
+                throw new RuntimeException('经营顾问会诊记录不属于当前经营问题', 404);
+            }
+            return $this->success($run);
+        } catch (Throwable $e) {
+            return $this->error($this->safeMessage($e, '经营顾问会诊精确回读失败'), $this->status($e));
         }
     }
 
@@ -384,6 +649,9 @@ final class OperatingIntelligence extends Base
         }
         if (str_contains(strtolower($e->getMessage()), 'not found')) {
             return 404;
+        }
+        if (in_array((int)$e->getCode(), [409, 413, 422, 503], true)) {
+            return (int)$e->getCode();
         }
         return $e instanceof InvalidArgumentException ? 422 : 500;
     }

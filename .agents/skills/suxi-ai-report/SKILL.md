@@ -25,6 +25,17 @@ rendering any report. Default to the lite edition unless the user explicitly
 asks for flagship/deep/HTML output. Dual delivery must render twice from the
 same bundle and must not recalculate.
 
+## Governed Presentation Delivery
+
+For AI daily-report presentation, HTML/PPTX, deck, or slide delivery, read
+`references/governed-presentation-delivery.md`. Start from an already saved
+report, persist and read back one SUXIOS-native PresentationSpec, and make every
+renderer consume that exact fingerprint without recalculation. Formal download
+requires the stored artifact bundle to pass exact database readback and browser
+SHA-256 verification. Rendering is still not visual review: keep human review
+pending, and keep publishing, external sends, and OTA/PMS writes pending until
+the user explicitly triggers the authorized action.
+
 ## Report Style
 
 - Professional, restrained, decision-oriented.

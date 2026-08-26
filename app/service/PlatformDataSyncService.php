@@ -39,617 +39,6 @@ final class PlatformDataSyncService
     private const MANUAL_IMPORT_METHODS = ['manual', 'import_json', 'import_csv', 'import_excel'];
     private const MANUAL_IMPORT_SOURCE_CONTRACT = 'user_provided_unverified.v1';
     private const ACTIVE_SYNC_TASK_STATUSES = ['pending', 'queued', 'running', 'browser_opened', 'syncing', 'syncing_after_login'];
-    private const COLLECTION_RESOURCE_DEFINITIONS = [
-        [
-            'resource' => 'businessData',
-            'data_type' => 'business',
-            'priority' => 'P0',
-            'platforms' => ['meituan', 'ctrip'],
-            'scope' => 'ota_channel',
-            'default_enabled' => true,
-            'requires_explicit_authorization' => false,
-            'privacy_boundary' => 'aggregate_business_metrics_only',
-            'aliases' => ['business', 'business_data', 'businessdata', 'tradeData', 'trade_data', 'overview', 'summary'],
-            'periods' => ['realtime', 'yesterday', 'last_7_days', 'last_30_days'],
-            'fields' => [
-                ['field' => 'amount', 'storage_table' => 'online_daily_data', 'storage_field' => 'amount', 'missing_state' => 'field_missing'],
-                ['field' => 'quantity', 'storage_table' => 'online_daily_data', 'storage_field' => 'quantity', 'missing_state' => 'field_missing'],
-                ['field' => 'book_order_num', 'storage_table' => 'online_daily_data', 'storage_field' => 'book_order_num', 'missing_state' => 'field_missing'],
-                ['field' => 'data_value', 'storage_table' => 'online_daily_data', 'storage_field' => 'data_value', 'missing_state' => 'optional_missing'],
-            ],
-        ],
-        [
-            'resource' => 'peerRank',
-            'data_type' => 'peer_rank',
-            'priority' => 'P0',
-            'platforms' => ['meituan', 'ctrip'],
-            'scope' => 'ota_channel_competition',
-            'default_enabled' => true,
-            'requires_explicit_authorization' => false,
-            'privacy_boundary' => 'competitor_aggregate_only',
-            'aliases' => ['peer_rank', 'peerrank', 'competitor_rank', 'competitorRank', 'competition', 'ranking', 'rankings'],
-            'periods' => ['realtime', 'yesterday', 'last_7_days', 'last_30_days'],
-            'fields' => [
-                ['field' => 'rank', 'storage_table' => 'online_daily_data', 'storage_field' => 'data_value/raw_data', 'missing_state' => 'field_missing'],
-                ['field' => 'hotel_name', 'storage_table' => 'online_daily_data', 'storage_field' => 'hotel_name', 'missing_state' => 'field_missing'],
-                ['field' => 'vip_status', 'storage_table' => 'online_daily_data', 'storage_field' => 'raw_data', 'missing_state' => 'optional_missing'],
-                ['field' => 'rank_type', 'storage_table' => 'online_daily_data', 'storage_field' => 'raw_data/compare_type', 'missing_state' => 'field_missing'],
-            ],
-        ],
-        [
-            'resource' => 'flowData',
-            'data_type' => 'traffic',
-            'priority' => 'P0',
-            'platforms' => ['meituan', 'ctrip'],
-            'scope' => 'ota_channel_traffic',
-            'default_enabled' => true,
-            'requires_explicit_authorization' => false,
-            'privacy_boundary' => 'aggregate_traffic_metrics_only',
-            'aliases' => ['flow', 'flow_data', 'flowdata', 'traffic', 'traffic_data', 'trafficdata'],
-            'periods' => ['realtime', 'yesterday', 'last_7_days', 'last_30_days'],
-            'fields' => [
-                ['field' => 'list_exposure', 'storage_table' => 'online_daily_data', 'storage_field' => 'list_exposure', 'missing_state' => 'field_missing'],
-                ['field' => 'detail_exposure', 'storage_table' => 'online_daily_data', 'storage_field' => 'detail_exposure', 'missing_state' => 'field_missing'],
-                ['field' => 'flow_rate', 'storage_table' => 'online_daily_data', 'storage_field' => 'flow_rate', 'missing_state' => 'field_missing'],
-                ['field' => 'order_submit_num', 'storage_table' => 'online_daily_data', 'storage_field' => 'order_submit_num', 'missing_state' => 'optional_missing'],
-            ],
-        ],
-        [
-            'resource' => 'trafficForecast',
-            'data_type' => 'traffic_forecast',
-            'priority' => 'P1',
-            'platforms' => ['meituan'],
-            'scope' => 'ota_channel_future_demand_signal',
-            'default_enabled' => false,
-            'requires_explicit_authorization' => false,
-            'privacy_boundary' => 'aggregate_forecast_only',
-            'aliases' => ['traffic_forecast', 'trafficForecast', 'flow_forecast', 'flowForecast', 'forecast'],
-            'periods' => ['next_30_days'],
-            'fields' => [
-                ['field' => 'forecast_type', 'storage_table' => 'online_daily_data', 'storage_field' => 'raw_data', 'missing_state' => 'field_missing'],
-                ['field' => 'current', 'storage_table' => 'online_daily_data', 'storage_field' => 'data_value/raw_data', 'missing_state' => 'optional_missing'],
-                ['field' => 'peer_avg', 'storage_table' => 'online_daily_data', 'storage_field' => 'raw_data', 'missing_state' => 'optional_missing'],
-            ],
-        ],
-        [
-            'resource' => 'flowAnalysis',
-            'data_type' => 'traffic_analysis',
-            'priority' => 'P1',
-            'platforms' => ['meituan'],
-            'scope' => 'ota_channel_traffic_analysis',
-            'default_enabled' => false,
-            'requires_explicit_authorization' => false,
-            'privacy_boundary' => 'aggregate_traffic_analysis_only',
-            'aliases' => ['flow_analysis', 'flowAnalysis', 'traffic_analysis', 'trafficAnalysis', 'flowConversion', 'flowTrend', 'flowTrendDetail'],
-            'periods' => ['realtime', 'yesterday', 'last_7_days', 'last_30_days'],
-            'fields' => [
-                ['field' => 'analysis_type', 'storage_table' => 'online_daily_data', 'storage_field' => 'raw_data', 'missing_state' => 'field_missing'],
-                ['field' => 'data_value', 'storage_table' => 'online_daily_data', 'storage_field' => 'data_value/raw_data', 'missing_state' => 'optional_missing'],
-                ['field' => 'peer_rank', 'storage_table' => 'online_daily_data', 'storage_field' => 'raw_data', 'missing_state' => 'optional_missing'],
-            ],
-        ],
-        [
-            'resource' => 'searchKeywords',
-            'data_type' => 'search_keyword',
-            'priority' => 'P1',
-            'platforms' => ['meituan', 'ctrip'],
-            'scope' => 'ota_channel_search',
-            'default_enabled' => true,
-            'requires_explicit_authorization' => false,
-            'privacy_boundary' => 'keyword_aggregate_only',
-            'aliases' => ['search_keyword', 'search_keywords', 'searchkeyword', 'searchkeywords', 'searchKeyWords', 'keyword', 'keywords'],
-            'periods' => ['yesterday', 'last_7_days', 'last_30_days'],
-            'fields' => [
-                ['field' => 'keyword', 'storage_table' => 'online_daily_data', 'storage_field' => 'dimension/raw_data', 'missing_state' => 'field_missing'],
-                ['field' => 'exposure', 'storage_table' => 'online_daily_data', 'storage_field' => 'list_exposure/raw_data', 'missing_state' => 'optional_missing'],
-                ['field' => 'clicks', 'storage_table' => 'online_daily_data', 'storage_field' => 'detail_exposure/raw_data', 'missing_state' => 'optional_missing'],
-            ],
-        ],
-        [
-            'resource' => 'orderData',
-            'data_type' => 'order',
-            'priority' => 'P1',
-            'platforms' => ['meituan', 'ctrip'],
-            'scope' => 'ota_channel_order_aggregate',
-            'default_enabled' => false,
-            'requires_explicit_authorization' => true,
-            'privacy_boundary' => 'aggregate_order_metrics_only_redacted_pii',
-            'aliases' => ['order', 'orders', 'order_data', 'orderdata', 'order_list'],
-            'periods' => ['yesterday', 'last_7_days', 'last_30_days'],
-            'fields' => [
-                ['field' => 'book_order_num', 'storage_table' => 'online_daily_data', 'storage_field' => 'book_order_num', 'missing_state' => 'field_missing'],
-                ['field' => 'quantity', 'storage_table' => 'online_daily_data', 'storage_field' => 'quantity', 'missing_state' => 'field_missing'],
-                ['field' => 'amount', 'storage_table' => 'online_daily_data', 'storage_field' => 'amount', 'missing_state' => 'optional_missing'],
-            ],
-        ],
-        [
-            'resource' => 'orderFlowData',
-            'data_type' => 'order_flow',
-            'priority' => 'P1',
-            'platforms' => ['meituan'],
-            'scope' => 'ota_channel_demand_flow',
-            'default_enabled' => false,
-            'requires_explicit_authorization' => false,
-            'privacy_boundary' => 'aggregate_demand_flow_only_no_order_pii',
-            'aliases' => ['order_flow', 'orderFlow', 'loss_order', 'lossOrder', 'loss_orders', 'lossOrders', 'inflow_order', 'inflowOrder'],
-            'periods' => ['yesterday', 'last_7_days', 'last_30_days', 'custom'],
-            'fields' => [
-                ['field' => 'order_flow_direction', 'storage_table' => 'online_daily_data', 'storage_field' => 'raw_data.order_flow_direction', 'missing_state' => 'field_missing'],
-                ['field' => 'order_flow_period', 'storage_table' => 'online_daily_data', 'storage_field' => 'raw_data.order_flow_period', 'missing_state' => 'field_missing'],
-                ['field' => 'order_count', 'storage_table' => 'online_daily_data', 'storage_field' => 'raw_data.order_count', 'missing_state' => 'field_missing'],
-                ['field' => 'room_nights', 'storage_table' => 'online_daily_data', 'storage_field' => 'raw_data.room_nights', 'missing_state' => 'field_missing'],
-                ['field' => 'amount', 'storage_table' => 'online_daily_data', 'storage_field' => 'raw_data.amount', 'missing_state' => 'field_missing'],
-                ['field' => 'order_ratio', 'storage_table' => 'online_daily_data', 'storage_field' => 'data_value', 'missing_state' => 'optional_missing'],
-            ],
-        ],
-        [
-            'resource' => 'reviewData',
-            'data_type' => 'review',
-            'priority' => 'P2',
-            'platforms' => ['meituan', 'ctrip'],
-            'scope' => 'ota_channel_review_summary',
-            'default_enabled' => false,
-            'requires_explicit_authorization' => true,
-            'privacy_boundary' => 'score_and_tags_only_no_review_text',
-            'aliases' => ['review', 'reviews', 'comment', 'comments', 'review_data', 'reviewdata'],
-            'periods' => ['yesterday', 'last_7_days', 'last_30_days'],
-            'fields' => [
-                ['field' => 'comment_score', 'storage_table' => 'online_daily_data', 'storage_field' => 'comment_score', 'missing_state' => 'field_missing'],
-                ['field' => 'quantity', 'storage_table' => 'online_daily_data', 'storage_field' => 'quantity', 'missing_state' => 'optional_missing'],
-                ['field' => 'tags', 'storage_table' => 'online_daily_data', 'storage_field' => 'raw_data', 'missing_state' => 'optional_missing'],
-            ],
-        ],
-        [
-            'resource' => 'advertisingData',
-            'data_type' => 'advertising',
-            'priority' => 'P1',
-            'platforms' => ['meituan', 'ctrip'],
-            'scope' => 'ota_channel_advertising',
-            'default_enabled' => false,
-            'requires_explicit_authorization' => false,
-            'privacy_boundary' => 'aggregate_campaign_metrics_only',
-            'aliases' => ['ad', 'ads', 'advertising', 'advertisement', 'campaign', 'campaigns', 'ad_data', 'adData'],
-            'periods' => ['realtime', 'yesterday', 'last_7_days', 'last_30_days'],
-            'fields' => [
-                ['field' => 'advertising_spend', 'storage_table' => 'online_daily_data', 'storage_field' => 'amount', 'missing_state' => 'field_missing'],
-                ['field' => 'advertising_order_amount', 'storage_table' => 'online_daily_data', 'storage_field' => 'raw_data.order_amount', 'missing_state' => 'optional_missing'],
-                ['field' => 'advertising_order_count', 'storage_table' => 'online_daily_data', 'storage_field' => 'book_order_num', 'missing_state' => 'optional_missing'],
-                ['field' => 'advertising_impressions', 'storage_table' => 'online_daily_data', 'storage_field' => 'list_exposure', 'missing_state' => 'optional_missing'],
-                ['field' => 'advertising_clicks', 'storage_table' => 'online_daily_data', 'storage_field' => 'detail_exposure', 'missing_state' => 'optional_missing'],
-                ['field' => 'advertising_roas', 'storage_table' => 'online_daily_data', 'storage_field' => 'data_value', 'missing_state' => 'optional_missing'],
-                ['field' => 'advertising_ctr', 'storage_table' => 'online_daily_data', 'storage_field' => 'flow_rate', 'missing_state' => 'optional_missing'],
-            ],
-        ],
-        [
-            'resource' => 'roomTypes',
-            'data_type' => 'room_type',
-            'priority' => 'P1',
-            'platforms' => ['meituan', 'ctrip'],
-            'scope' => 'ota_channel_product_catalog',
-            'default_enabled' => false,
-            'requires_explicit_authorization' => false,
-            'privacy_boundary' => 'room_type_catalog_only_no_room_status_or_mapping',
-            'aliases' => ['room_type', 'room_types', 'roomtype', 'roomtypes', 'product', 'products'],
-            'periods' => ['realtime', 'yesterday'],
-            'fields' => [
-                ['field' => 'room_type_name', 'storage_table' => 'online_daily_data', 'storage_field' => 'dimension/raw_data', 'missing_state' => 'field_missing'],
-                ['field' => 'price', 'storage_table' => 'online_daily_data', 'storage_field' => 'data_value/raw_data', 'missing_state' => 'optional_missing'],
-                ['field' => 'product_status', 'storage_table' => 'online_daily_data', 'storage_field' => 'raw_data', 'missing_state' => 'optional_missing'],
-            ],
-        ],
-        [
-            'resource' => 'platformIdentity',
-            'data_type' => 'platform_identity',
-            'priority' => 'P1',
-            'platforms' => ['meituan'],
-            'scope' => 'ota_channel_platform_identity',
-            'default_enabled' => false,
-            'requires_explicit_authorization' => true,
-            'privacy_boundary' => 'platform_identifier_only_no_cookie_no_token',
-            'aliases' => ['platform_identity', 'platformIdentity', 'identity', 'partner_id', 'partnerId', 'poi_id', 'poiId'],
-            'periods' => ['realtime'],
-            'fields' => [
-                ['field' => 'partner_id', 'storage_table' => 'online_daily_data', 'storage_field' => 'raw_data', 'missing_state' => 'field_missing'],
-                ['field' => 'poi_id', 'storage_table' => 'online_daily_data', 'storage_field' => 'hotel_id/raw_data', 'missing_state' => 'field_missing'],
-            ],
-        ],
-    ];
-
-    private const NORMALIZED_FIELD_FACT_DEFINITIONS = [
-        'business' => [
-            [
-                'metric_key' => 'order_amount',
-                'normalized_field' => 'amount',
-                'storage_table' => 'online_daily_data',
-                'storage_field' => 'amount',
-                'missing_state' => 'field_missing',
-                'source_keys' => ['amount', 'checkoutRevenue', 'checkout_revenue', 'revenue', 'order_amount', 'orderAmount', 'room_revenue', 'bookAmount', 'saleAmount', 'totalAmount'],
-            ],
-            [
-                'metric_key' => 'room_nights',
-                'normalized_field' => 'quantity',
-                'storage_table' => 'online_daily_data',
-                'storage_field' => 'quantity',
-                'missing_state' => 'field_missing',
-                'source_keys' => ['quantity', 'room_nights', 'roomNights', 'nights', 'night_count', 'checkoutRoomNights', 'checkout_room_nights', 'checkOutQuantity', 'bookQuantity'],
-            ],
-            [
-                'metric_key' => 'order_count',
-                'normalized_field' => 'book_order_num',
-                'storage_table' => 'online_daily_data',
-                'storage_field' => 'book_order_num',
-                'missing_state' => 'field_missing',
-                'source_keys' => ['book_order_num', 'orders', 'order_count', 'orderCount', 'bookOrderNum', 'orderNum', 'orderQuantity', 'bookings', 'bookingCount'],
-            ],
-            [
-                'metric_key' => 'data_value',
-                'normalized_field' => 'data_value',
-                'storage_table' => 'online_daily_data',
-                'storage_field' => 'data_value',
-                'missing_state' => 'optional_missing',
-                'source_keys' => ['data_value', 'dataValue', 'value', 'metric_value', 'averagePrice', 'avgPrice', 'avg_price'],
-            ],
-            [
-                'metric_key' => 'lead_price',
-                'normalized_field' => 'raw_data',
-                'storage_table' => 'online_daily_data',
-                'storage_field' => 'raw_data.lead_price',
-                'missing_state' => 'optional_missing',
-                'source_keys' => ['lead_price', 'leadPrice', 'startingPrice', 'realtimeStartingPrice', 'minPrice', 'DAY_ROOM_LOWEST_PRICE_AVG'],
-            ],
-            [
-                'metric_key' => 'sales_avg_price',
-                'normalized_field' => 'data_value',
-                'storage_table' => 'online_daily_data',
-                'storage_field' => 'data_value',
-                'missing_state' => 'optional_missing',
-                'source_keys' => ['sales_avg_price', 'salesAvgPrice', 'avg_price', 'avgPrice', 'averagePrice', 'PAY_ADR'],
-            ],
-            [
-                'metric_key' => 'exposure_users',
-                'normalized_field' => 'list_exposure',
-                'storage_table' => 'online_daily_data',
-                'storage_field' => 'list_exposure',
-                'missing_state' => 'optional_missing',
-                'source_keys' => ['exposure_users', 'exposureUsers', 'listExposure', 'list_exposure', 'exposureUV'],
-            ],
-            [
-                'metric_key' => 'detail_visitors',
-                'normalized_field' => 'detail_exposure',
-                'storage_table' => 'online_daily_data',
-                'storage_field' => 'detail_exposure',
-                'missing_state' => 'optional_missing',
-                'source_keys' => ['detail_visitors', 'detailVisitors', 'detailExposure', 'detail_exposure', 'intentionUV'],
-            ],
-            [
-                'metric_key' => 'browse_to_pay_rate',
-                'normalized_field' => 'flow_rate',
-                'storage_table' => 'online_daily_data',
-                'storage_field' => 'flow_rate',
-                'missing_state' => 'optional_missing',
-                'source_keys' => ['browse_to_pay_rate', 'browsePayRate', 'browse_pay_rate', 'payOrderPerIntention', 'flowRate', 'flow_rate'],
-            ],
-        ],
-        'order' => [
-            [
-                'metric_key' => 'order_amount',
-                'normalized_field' => 'amount',
-                'storage_table' => 'online_daily_data',
-                'storage_field' => 'amount',
-                'missing_state' => 'field_missing',
-                'source_keys' => ['totalAmount', 'orderAmount', 'payAmount', 'roomAmount', 'amount', 'order_amount', 'room_revenue', 'revenue'],
-            ],
-            [
-                'metric_key' => 'room_nights',
-                'normalized_field' => 'quantity',
-                'storage_table' => 'online_daily_data',
-                'storage_field' => 'quantity',
-                'missing_state' => 'field_missing',
-                'source_keys' => ['quantity', 'room_nights', 'roomNights', 'nights', 'night_count', 'nightCount'],
-            ],
-            [
-                'metric_key' => 'order_count',
-                'normalized_field' => 'book_order_num',
-                'storage_table' => 'online_daily_data',
-                'storage_field' => 'book_order_num',
-                'missing_state' => 'field_missing',
-                'source_keys' => ['book_order_num', 'orders', 'order_count', 'orderCount', 'bookOrderNum', 'orderNum', 'orderQuantity', 'bookings', 'bookingCount'],
-            ],
-        ],
-        'peer_rank' => [
-            [
-                'metric_key' => 'peer_rank_value',
-                'normalized_field' => 'raw_data',
-                'storage_table' => 'online_daily_data',
-                'storage_field' => 'raw_data.rank',
-                'missing_state' => 'field_missing',
-                'source_keys' => ['data_value', 'dataValue', 'rank', 'ranking', 'rankValue', 'rank_value', 'rankPercent', 'rank_percent', 'value'],
-            ],
-            [
-                'metric_key' => 'peer_rank_dimension',
-                'normalized_field' => 'dimension',
-                'storage_table' => 'online_daily_data',
-                'storage_field' => 'dimension',
-                'missing_state' => 'field_missing',
-                'source_keys' => ['dimension', 'dim_name', '_dimName', 'rank_type', 'rankType', 'compare_type', 'compareType'],
-            ],
-            [
-                'metric_key' => 'peer_rank_compare_type',
-                'normalized_field' => 'compare_type',
-                'storage_table' => 'online_daily_data',
-                'storage_field' => 'compare_type',
-                'missing_state' => 'field_missing',
-                'source_keys' => ['compare_type', 'compareType', 'rank_type', 'rankType'],
-            ],
-        ],
-        'quality' => [
-            [
-                'metric_key' => 'quality_score',
-                'normalized_field' => 'data_value',
-                'storage_table' => 'online_daily_data',
-                'storage_field' => 'data_value',
-                'missing_state' => 'field_missing',
-                'source_keys' => ['data_value', 'dataValue', 'serviceScore', 'psiScore', 'imScore', 'score'],
-            ],
-            [
-                'metric_key' => 'quality_dimension',
-                'normalized_field' => 'dimension',
-                'storage_table' => 'online_daily_data',
-                'storage_field' => 'dimension',
-                'missing_state' => 'field_missing',
-                'source_keys' => ['dimension', 'dim_name', '_dimName', 'metric_key', 'metricKey'],
-            ],
-            [
-                'metric_key' => 'quality_compare_type',
-                'normalized_field' => 'compare_type',
-                'storage_table' => 'online_daily_data',
-                'storage_field' => 'compare_type',
-                'missing_state' => 'field_missing',
-                'source_keys' => ['compare_type', 'compareType'],
-            ],
-        ],
-        'traffic' => [
-            [
-                'metric_key' => 'list_exposure',
-                'normalized_field' => 'list_exposure',
-                'storage_table' => 'online_daily_data',
-                'storage_field' => 'list_exposure',
-                'missing_state' => 'field_missing',
-                'source_keys' => ['mt_exposure', 'list_exposure', 'listExposure', 'impressions', 'exposure_count', 'exposureCount', 'exposureUV', 'exposure_uv'],
-            ],
-            [
-                'metric_key' => 'mt_exposure',
-                'normalized_field' => 'list_exposure',
-                'storage_table' => 'online_daily_data',
-                'storage_field' => 'list_exposure',
-                'missing_state' => 'field_missing',
-                'source_keys' => ['mt_exposure', 'exposure_count', 'exposureCount', 'listExposure', 'exposureUV', 'exposure_uv'],
-            ],
-            [
-                'metric_key' => 'detail_exposure',
-                'normalized_field' => 'detail_exposure',
-                'storage_table' => 'online_daily_data',
-                'storage_field' => 'detail_exposure',
-                'missing_state' => 'field_missing',
-                'source_keys' => ['mt_intention_uv', 'intentionUV', 'intention_uv', 'detail_exposure', 'detailExposure', 'clicks', 'click_count', 'clickCount', 'visitors', 'visitorTotal', 'pv', 'uv'],
-            ],
-            [
-                'metric_key' => 'mt_intention_uv',
-                'normalized_field' => 'detail_exposure',
-                'storage_table' => 'online_daily_data',
-                'storage_field' => 'detail_exposure',
-                'missing_state' => 'field_missing',
-                'source_keys' => ['mt_intention_uv', 'intentionUV', 'intention_uv', 'detailExposure', 'visitors', 'visitorTotal', 'uv'],
-            ],
-            [
-                'metric_key' => 'flow_rate',
-                'normalized_field' => 'flow_rate',
-                'storage_table' => 'online_daily_data',
-                'storage_field' => 'flow_rate',
-                'missing_state' => 'field_missing',
-                'source_keys' => ['browse_to_pay_rate', 'browsePayRate', 'browse_pay_rate', 'payOrderPerIntention', 'flow_rate', 'flowRate', 'cvr', 'conversion_rate', 'conversionRate', 'convertionRate', 'avgConversionsRate', 'orderConversionRate', 'dealRate'],
-            ],
-            [
-                'metric_key' => 'meituan_detail_to_paid_rate',
-                'normalized_field' => 'raw_data.row.payOrderPerIntention',
-                'storage_table' => 'online_daily_data',
-                'storage_field' => 'raw_data.row.payOrderPerIntention',
-                'missing_state' => 'optional_missing',
-                'source_keys' => ['payOrderPerIntention'],
-            ],
-            [
-                'metric_key' => 'order_filling_num',
-                'normalized_field' => 'order_filling_num',
-                'storage_table' => 'online_daily_data',
-                'storage_field' => 'order_filling_num',
-                'missing_state' => 'optional_missing',
-                'source_keys' => ['order_filling_num', 'orderFillingNum', 'orderVisitors', 'clickCount', 'clicks'],
-            ],
-            [
-                'metric_key' => 'order_submit_num',
-                'normalized_field' => 'order_submit_num',
-                'storage_table' => 'online_daily_data',
-                'storage_field' => 'order_submit_num',
-                'missing_state' => 'optional_missing',
-                'source_keys' => ['mt_pay_orders', 'pay_orders', 'payOrders', 'payOrderCnt', 'pay_order_cnt', 'payOrderCount', 'pay_order_count', 'order_submit_num', 'orderSubmitNum', 'bookings', 'bookingCount', 'orderCount', 'orderQuantity', 'orderNum', 'orders'],
-            ],
-            [
-                'metric_key' => 'mt_pay_orders',
-                'normalized_field' => 'order_submit_num',
-                'storage_table' => 'online_daily_data',
-                'storage_field' => 'order_submit_num',
-                'missing_state' => 'optional_missing',
-                'source_keys' => ['mt_pay_orders', 'pay_orders', 'payOrders', 'payOrderCnt', 'pay_order_cnt', 'payOrderCount', 'pay_order_count', 'orderSubmitNum', 'orderNum', 'orders'],
-            ],
-            [
-                'metric_key' => 'mt_pay_rooms',
-                'normalized_field' => 'quantity',
-                'storage_table' => 'online_daily_data',
-                'storage_field' => 'quantity',
-                'missing_state' => 'optional_missing',
-                'source_keys' => ['mt_pay_rooms', 'pay_rooms', 'payRooms', 'payRoomNum', 'pay_room_num', 'roomNights', 'room_nights', 'quantity'],
-            ],
-        ],
-        'advertising' => [
-            [
-                'metric_key' => 'advertising_spend',
-                'normalized_field' => 'amount',
-                'storage_table' => 'online_daily_data',
-                'storage_field' => 'amount',
-                'missing_state' => 'field_missing',
-                'source_keys' => ['amount', 'todayCost', 'cost', 'cashCost', 'bonusCost', 'ad_cost', 'adCost', 'spend', 'consume', 'consumption'],
-            ],
-            [
-                'metric_key' => 'advertising_order_amount',
-                'normalized_field' => 'raw_data',
-                'storage_table' => 'online_daily_data',
-                'storage_field' => 'raw_data.order_amount',
-                'missing_state' => 'optional_missing',
-                'source_keys' => ['order_amount', 'orderAmount', 'saleAmount', 'salesAmount', 'revenue', 'gmv'],
-            ],
-            [
-                'metric_key' => 'advertising_order_count',
-                'normalized_field' => 'book_order_num',
-                'storage_table' => 'online_daily_data',
-                'storage_field' => 'book_order_num',
-                'missing_state' => 'optional_missing',
-                'source_keys' => ['book_order_num', 'bookOrderNum', 'orderNum', 'order_count', 'orders', 'booking_count', 'bookingCount'],
-            ],
-            [
-                'metric_key' => 'advertising_impressions',
-                'normalized_field' => 'list_exposure',
-                'storage_table' => 'online_daily_data',
-                'storage_field' => 'list_exposure',
-                'missing_state' => 'optional_missing',
-                'source_keys' => ['exposure_count', 'exposureCount', 'impression', 'impressions', 'exposure'],
-            ],
-            [
-                'metric_key' => 'advertising_clicks',
-                'normalized_field' => 'detail_exposure',
-                'storage_table' => 'online_daily_data',
-                'storage_field' => 'detail_exposure',
-                'missing_state' => 'optional_missing',
-                'source_keys' => ['click_count', 'clickCount', 'clickNum', 'clicks', 'click'],
-            ],
-            [
-                'metric_key' => 'advertising_roas',
-                'normalized_field' => 'data_value',
-                'storage_table' => 'online_daily_data',
-                'storage_field' => 'data_value',
-                'missing_state' => 'optional_missing',
-                'source_keys' => ['roas', 'roi'],
-            ],
-            [
-                'metric_key' => 'advertising_ctr',
-                'normalized_field' => 'flow_rate',
-                'storage_table' => 'online_daily_data',
-                'storage_field' => 'flow_rate',
-                'missing_state' => 'optional_missing',
-                'source_keys' => ['flow_rate', 'flowRate', 'ctr'],
-            ],
-        ],
-        'order_flow' => [
-            [
-                'metric_key' => 'order_flow_direction',
-                'normalized_field' => 'raw_data',
-                'storage_table' => 'online_daily_data',
-                'storage_field' => 'raw_data.order_flow_direction',
-                'missing_state' => 'field_missing',
-                'source_keys' => ['order_flow_direction', 'orderFlowDirection', 'direction'],
-            ],
-            [
-                'metric_key' => 'order_flow_row_type',
-                'normalized_field' => 'raw_data',
-                'storage_table' => 'online_daily_data',
-                'storage_field' => 'raw_data.order_flow_row_type',
-                'missing_state' => 'field_missing',
-                'source_keys' => ['order_flow_row_type', 'orderFlowRowType', 'row_type', 'rowType'],
-            ],
-            [
-                'metric_key' => 'order_flow_period',
-                'normalized_field' => 'raw_data',
-                'storage_table' => 'online_daily_data',
-                'storage_field' => 'raw_data.order_flow_period',
-                'missing_state' => 'field_missing',
-                'source_keys' => ['order_flow_period', 'orderFlowPeriod', 'period'],
-            ],
-            [
-                'metric_key' => 'order_flow_order_count',
-                'normalized_field' => 'raw_data',
-                'storage_table' => 'online_daily_data',
-                'storage_field' => 'raw_data.order_count',
-                'missing_state' => 'field_missing',
-                'source_keys' => ['order_count', 'orderCount', 'lossTotalCnt', 'lossOrderCount'],
-            ],
-            [
-                'metric_key' => 'order_flow_room_nights',
-                'normalized_field' => 'raw_data',
-                'storage_table' => 'online_daily_data',
-                'storage_field' => 'raw_data.room_nights',
-                'missing_state' => 'field_missing',
-                'source_keys' => ['room_nights', 'roomNights', 'lossTotalPayRoomNight'],
-            ],
-            [
-                'metric_key' => 'order_flow_amount',
-                'normalized_field' => 'raw_data',
-                'storage_table' => 'online_daily_data',
-                'storage_field' => 'raw_data.amount',
-                'missing_state' => 'field_missing',
-                'source_keys' => ['amount', 'lossTotalPayAmount', 'lossSinglePayAmount'],
-            ],
-            [
-                'metric_key' => 'order_flow_ratio',
-                'normalized_field' => 'data_value',
-                'storage_table' => 'online_daily_data',
-                'storage_field' => 'data_value',
-                'missing_state' => 'optional_missing',
-                'source_keys' => ['order_ratio', 'orderRatio', 'lossOrderRatio'],
-            ],
-        ],
-        'search_keyword' => [
-            ['metric_key' => 'search_keyword', 'normalized_field' => 'dimension', 'storage_table' => 'online_daily_data', 'storage_field' => 'dimension', 'missing_state' => 'field_missing', 'source_keys' => ['keyword', 'search_keyword', 'searchKeyword', 'word']],
-            ['metric_key' => 'search_exposure', 'normalized_field' => 'list_exposure', 'storage_table' => 'online_daily_data', 'storage_field' => 'list_exposure', 'missing_state' => 'optional_missing', 'source_keys' => ['exposure', 'exposures', 'impression', 'impressions', 'listExposure']],
-            ['metric_key' => 'search_clicks', 'normalized_field' => 'detail_exposure', 'storage_table' => 'online_daily_data', 'storage_field' => 'detail_exposure', 'missing_state' => 'optional_missing', 'source_keys' => ['clicks', 'click', 'clickCount', 'detailExposure']],
-        ],
-        'traffic_forecast' => [
-            ['metric_key' => 'forecast_type', 'normalized_field' => 'dimension', 'storage_table' => 'online_daily_data', 'storage_field' => 'dimension', 'missing_state' => 'field_missing', 'source_keys' => ['forecast_type', 'forecastType', 'type', 'dimension']],
-            ['metric_key' => 'forecast_current', 'normalized_field' => 'data_value', 'storage_table' => 'online_daily_data', 'storage_field' => 'data_value', 'missing_state' => 'optional_missing', 'source_keys' => ['current', 'currentValue', 'value', 'data_value', 'dataValue']],
-            ['metric_key' => 'forecast_peer_average', 'normalized_field' => 'raw_data', 'storage_table' => 'online_daily_data', 'storage_field' => 'raw_data.peer_avg', 'missing_state' => 'optional_missing', 'source_keys' => ['peer_avg', 'peerAvg', 'peerAverage', 'competitor_avg', 'competitorAverage', 'average']],
-        ],
-        'traffic_analysis' => [
-            ['metric_key' => 'analysis_type', 'normalized_field' => 'dimension', 'storage_table' => 'online_daily_data', 'storage_field' => 'dimension', 'missing_state' => 'field_missing', 'source_keys' => ['analysis_type', 'analysisType', 'type', 'dimension']],
-            ['metric_key' => 'analysis_value', 'normalized_field' => 'data_value', 'storage_table' => 'online_daily_data', 'storage_field' => 'data_value', 'missing_state' => 'optional_missing', 'source_keys' => ['data_value', 'dataValue', 'value', 'currentValue']],
-            ['metric_key' => 'analysis_peer_rank', 'normalized_field' => 'raw_data', 'storage_table' => 'online_daily_data', 'storage_field' => 'raw_data.peer_rank', 'missing_state' => 'optional_missing', 'source_keys' => ['peer_rank', 'peerRank', 'rank', 'ranking']],
-        ],
-        'review' => [
-            ['metric_key' => 'review_score', 'normalized_field' => 'comment_score', 'storage_table' => 'online_daily_data', 'storage_field' => 'comment_score', 'missing_state' => 'field_missing', 'source_keys' => ['comment_score', 'commentScore', 'score', 'rating']],
-            ['metric_key' => 'review_count', 'normalized_field' => 'quantity', 'storage_table' => 'online_daily_data', 'storage_field' => 'quantity', 'missing_state' => 'optional_missing', 'source_keys' => ['review_count', 'reviewCount', 'comment_count', 'commentCount', 'count', 'quantity']],
-            ['metric_key' => 'review_tags', 'normalized_field' => 'raw_data', 'storage_table' => 'online_daily_data', 'storage_field' => 'raw_data.tags', 'missing_state' => 'optional_missing', 'source_keys' => ['tags', 'tagList', 'labels']],
-        ],
-        'room_type' => [
-            ['metric_key' => 'room_type_name', 'normalized_field' => 'dimension', 'storage_table' => 'online_daily_data', 'storage_field' => 'dimension', 'missing_state' => 'field_missing', 'source_keys' => ['room_type_name', 'roomTypeName', 'room_name', 'roomName', 'name']],
-            ['metric_key' => 'room_type_price', 'normalized_field' => 'data_value', 'storage_table' => 'online_daily_data', 'storage_field' => 'data_value', 'missing_state' => 'optional_missing', 'source_keys' => ['price', 'roomPrice', 'sellPrice', 'data_value', 'dataValue']],
-            ['metric_key' => 'room_type_status', 'normalized_field' => 'raw_data', 'storage_table' => 'online_daily_data', 'storage_field' => 'raw_data.product_status', 'missing_state' => 'optional_missing', 'source_keys' => ['product_status', 'productStatus', 'status', 'saleStatus']],
-        ],
-        'platform_identity' => [
-            [
-                'metric_key' => 'meituan_partner_id',
-                'normalized_field' => 'raw_data',
-                'storage_table' => 'online_daily_data',
-                'storage_field' => 'raw_data.platform_identity.partner_id',
-                'missing_state' => 'field_missing',
-                'source_keys' => ['partner_id', 'partnerId'],
-            ],
-            [
-                'metric_key' => 'meituan_poi_id',
-                'normalized_field' => 'hotel_id',
-                'storage_table' => 'online_daily_data',
-                'storage_field' => 'hotel_id',
-                'missing_state' => 'field_missing',
-                'source_keys' => ['poi_id', 'poiId', 'store_id', 'storeId', 'hotel_id', 'hotelId'],
-            ],
-        ],
-    ];
 
     /** @var array<int, DataSourceAdapter> */
     private array $adapters;
@@ -689,7 +78,7 @@ final class PlatformDataSyncService
      */
     public function collectionResourceDefinitions(): array
     {
-        return array_values(self::COLLECTION_RESOURCE_DEFINITIONS);
+        return PlatformDataCollectionDefinitionRegistry::collectionResources();
     }
 
     /**
@@ -1064,7 +453,174 @@ final class PlatformDataSyncService
             }
         }
 
-        return $normalized;
+        return $this->applyNormalizedRunConsistencyGuards($normalized, $payload, $source);
+    }
+
+    /**
+     * Keep contradictory rows for traceability, but fail them closed before
+     * persistence consumers can treat an observed zero as a trustworthy zero.
+     *
+     * @param array<int, array<string, mixed>> $rows
+     * @param array<string, mixed> $payload
+     * @param array<string, mixed> $source
+     * @return array<int, array<string, mixed>>
+     */
+    private function applyNormalizedRunConsistencyGuards(
+        array $rows,
+        array $payload,
+        array $source
+    ): array {
+        if ($rows === []) {
+            return $rows;
+        }
+
+        $platform = strtolower(trim((string)($source['platform'] ?? '')));
+        $requestedPeriod = $this->normalizeDataPeriod(
+            $payload['data_period'] ?? $payload['dataPeriod'] ?? ''
+        );
+        $targetDate = $this->normalizeDate(
+            $payload['data_date'] ?? $payload['dataDate'] ?? null
+        );
+        $coreTypes = ['business', 'traffic', 'order'];
+
+        if ($requestedPeriod !== '' && $targetDate !== null) {
+            foreach ($rows as $index => $row) {
+                $dataType = $this->normalizeDataType((string)($row['data_type'] ?? ''));
+                if (!in_array($dataType, $coreTypes, true)
+                    || (string)($row['data_date'] ?? '') !== $targetDate
+                    || (string)($row['data_period'] ?? '') === $requestedPeriod
+                ) {
+                    continue;
+                }
+                $rows[$index] = $this->quarantineNormalizedConsistencyConflict(
+                    $row,
+                    'requested_data_period_mismatch',
+                    [
+                        'requested_data_period' => $requestedPeriod,
+                        'observed_data_period' => (string)($row['data_period'] ?? ''),
+                        'data_type' => $dataType,
+                    ]
+                );
+            }
+        }
+
+        if ($platform !== 'meituan') {
+            return $rows;
+        }
+
+        $groups = [];
+        foreach ($rows as $index => $row) {
+            $compareType = strtolower(trim((string)($row['compare_type'] ?? '')));
+            if ($compareType !== '' && $compareType !== 'self') {
+                continue;
+            }
+            $date = trim((string)($row['data_date'] ?? ''));
+            if ($date === '') {
+                continue;
+            }
+            $groupKey = implode('|', [
+                (string)($row['tenant_id'] ?? ''),
+                (string)($row['system_hotel_id'] ?? ''),
+                (string)($row['data_source_id'] ?? ''),
+                $date,
+            ]);
+            $groups[$groupKey][] = $index;
+        }
+
+        foreach ($groups as $indexes) {
+            $positiveOrderEvidence = false;
+            foreach ($indexes as $index) {
+                $row = $rows[$index];
+                if ($this->normalizeDataType((string)($row['data_type'] ?? '')) !== 'order') {
+                    continue;
+                }
+                foreach (['amount', 'quantity', 'book_order_num', 'order_submit_num'] as $metricKey) {
+                    if (array_key_exists($metricKey, $row)
+                        && is_numeric($row[$metricKey])
+                        && (float)$row[$metricKey] > 0.000001
+                    ) {
+                        $positiveOrderEvidence = true;
+                        break 2;
+                    }
+                }
+            }
+            if (!$positiveOrderEvidence) {
+                continue;
+            }
+
+            foreach ($indexes as $index) {
+                $row = $rows[$index];
+                $dataType = $this->normalizeDataType((string)($row['data_type'] ?? ''));
+                $metricKeys = match ($dataType) {
+                    'business' => ['amount', 'quantity', 'book_order_num'],
+                    'traffic' => ['list_exposure', 'detail_exposure', 'flow_rate'],
+                    default => [],
+                };
+                if ($metricKeys === [] || !$this->normalizedMetricsAreExplicitZero($row, $metricKeys)) {
+                    continue;
+                }
+                $rows[$index] = $this->quarantineNormalizedConsistencyConflict(
+                    $row,
+                    'same_run_zero_' . $dataType . '_conflicts_with_nonzero_orders',
+                    [
+                        'data_type' => $dataType,
+                        'zero_metric_keys' => $metricKeys,
+                        'conflicting_data_type' => 'order',
+                    ]
+                );
+            }
+        }
+
+        return $rows;
+    }
+
+    /** @param array<string, mixed> $row @param array<int, string> $metricKeys */
+    private function normalizedMetricsAreExplicitZero(array $row, array $metricKeys): bool
+    {
+        foreach ($metricKeys as $metricKey) {
+            if (!array_key_exists($metricKey, $row)
+                || !is_numeric($row[$metricKey])
+                || abs((float)$row[$metricKey]) > 0.000001
+            ) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /**
+     * @param array<string, mixed> $row
+     * @param array<string, mixed> $evidence
+     * @return array<string, mixed>
+     */
+    private function quarantineNormalizedConsistencyConflict(
+        array $row,
+        string $reasonCode,
+        array $evidence
+    ): array {
+        $flags = json_decode((string)($row['validation_flags'] ?? '[]'), true);
+        $flags = is_array($flags) ? $flags : [];
+        $flags[] = $reasonCode;
+        $row['validation_flags'] = json_encode(
+            array_values(array_unique(array_map('strval', $flags))),
+            JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES
+        );
+        $row['validation_status'] = 'quarantined';
+
+        $raw = $this->decodeConfig($row['raw_data'] ?? []);
+        $guards = is_array($raw['consistency_guards'] ?? null)
+            ? $raw['consistency_guards']
+            : [];
+        $guards[] = array_merge([
+            'status' => 'quarantined',
+            'reason_code' => $reasonCode,
+        ], $evidence);
+        $raw['consistency_guards'] = $guards;
+        $row['raw_data'] = json_encode(
+            $raw,
+            JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES
+        );
+        return $row;
     }
 
     /**
@@ -1146,7 +702,7 @@ final class PlatformDataSyncService
     ): array
     {
         $dataType = $this->normalizeDataType($dataType);
-        $definitions = self::NORMALIZED_FIELD_FACT_DEFINITIONS[$dataType] ?? [];
+        $definitions = PlatformDataCollectionDefinitionRegistry::normalizedFieldFactsFor($dataType);
         if ($definitions === []) {
             return [];
         }
@@ -2791,7 +2347,7 @@ final class PlatformDataSyncService
             $rows = $this->normalizeRowsFromPayload(is_array($payload) ? $payload : [], $source, $taskId);
             $timing['normalize_elapsed_ms'] = $this->elapsedMilliseconds($phaseStartedAt);
             $phaseStartedAt = microtime(true);
-            $saveReceipt = $this->saveNormalizedRows($rows);
+            $saveReceipt = $this->saveNormalizedRowsWithTargetDateExpectation($rows, $source, $payload);
             $saved = (int)$saveReceipt['saved_count'];
             $payload['_save_receipt'] = $saveReceipt;
             $timing['daily_rows_save_elapsed_ms'] = $this->elapsedMilliseconds($phaseStartedAt);
@@ -3331,7 +2887,6 @@ final class PlatformDataSyncService
         if ($flowStats !== []) {
             $safe = array_merge($safe, $flowStats);
         }
-
         if (is_array($stats['sync_diagnostics'] ?? null)) {
             $safe['sync_diagnostics'] = $this->sanitizeSyncDiagnosticsForResponse($stats['sync_diagnostics'], $status);
         }
@@ -3356,7 +2911,6 @@ final class PlatformDataSyncService
                 $safe['ordered_collection'] = $safeOrdered;
             }
         }
-
         $period = $this->normalizeDataPeriod($stats['data_period'] ?? '');
         if ($period !== '') {
             $safe['data_period'] = $period;
@@ -3369,13 +2923,11 @@ final class PlatformDataSyncService
         if (preg_match('/^\d{8,12}$/', $snapshotBucket) === 1) {
             $safe['snapshot_bucket'] = $snapshotBucket;
         }
-
         $timing = $this->normalizeSyncTiming(is_array($stats['timing'] ?? null) ? $stats['timing'] : $stats);
         $safe['timing'] = $timing;
         foreach ($timing as $key => $value) {
             $safe[$key] = $value;
         }
-
         return $safe;
     }
 
@@ -3385,7 +2937,6 @@ final class PlatformDataSyncService
         if (!is_array($value) || ($value['sensitive_values_exposed'] ?? true) !== false) {
             return [];
         }
-
         $responseObserved = min(20, max(0, (int)($value['response_observed_count'] ?? 0)));
         $blocked = min(20, max(0, (int)($value['blocked_count'] ?? 0)));
         $failed = min(20, max(0, (int)($value['failed_count'] ?? 0)));
@@ -3394,7 +2945,6 @@ final class PlatformDataSyncService
         $status = $responseObserved > 0
             ? (($blocked + $failed) > 0 ? 'partial' : 'response_observed')
             : ($failed > 0 ? 'failed' : ($blocked > 0 ? 'blocked' : 'not_needed'));
-
         return [
             'status' => $status,
             'diagnostic_count' => $diagnosticCount,
@@ -3468,10 +3018,12 @@ final class PlatformDataSyncService
         if (preg_match('/^[A-Za-z0-9._:-]{1,120}$/D', $observedPlatformHotelId) !== 1) {
             $observedPlatformHotelId = '';
         }
-
         $readbackCount = max(0, (int)($receipt['readback_count'] ?? 0));
         $rowIdLimitExceeded = count($rowIds) > CloudOtaBundleCodec::MAX_ROWS;
         $rowIds = array_slice($rowIds, 0, CloudOtaBundleCodec::MAX_ROWS);
+        $targetExpectedRowIds = $this->readbackCoverageRowIds($receipt['target_date_expected_row_ids'] ?? []);
+        $targetExpectedRowCount = max(0, (int)($receipt['target_date_expected_row_count'] ?? 0));
+        $targetExactCoverage = $this->targetDateExactCoverage($targetExpectedRowIds, $rowIds);
         $failureReason = mb_substr(trim((string)($receipt['failure_reason'] ?? '')), 0, 120);
         if ($rowIdLimitExceeded) {
             $failureReason = 'run_readback_row_limit_exceeded';
@@ -3525,11 +3077,11 @@ final class PlatformDataSyncService
         $recipeCount = isset($receipt['recipe_count']) && is_numeric($receipt['recipe_count'])
             ? max(0, (int)$receipt['recipe_count'])
             : null;
-
         $safeReceipt = [
             'readback_verified' => ($receipt['readback_verified'] ?? false) === true
                 && !$rowIdLimitExceeded
-                && $readbackCount === count($rowIds),
+                && $readbackCount === count($rowIds)
+                && ($targetExpectedRowIds === [] || ($targetExpectedRowCount === count($targetExpectedRowIds) && $targetExactCoverage['complete'] === true)),
             'sync_task_id' => max(0, (int)($receipt['sync_task_id'] ?? 0)),
             'data_source_id' => max(0, (int)($receipt['data_source_id'] ?? 0)),
             'system_hotel_id' => max(0, (int)($receipt['system_hotel_id'] ?? 0)),
@@ -3538,6 +3090,9 @@ final class PlatformDataSyncService
             'data_period' => $dataPeriod,
             'started_at' => $startedAt,
             'row_ids' => $rowIds,
+            'target_date_expected_row_ids' => $targetExpectedRowIds,
+            'target_date_expected_row_count' => $targetExpectedRowCount,
+            'exact_coverage' => $targetExactCoverage,
             'source_trace_ids' => array_slice(array_values(array_unique($traceIds)), 0, 50),
             'observed_platform_hotel_id' => $observedPlatformHotelId,
             'verified_metric_keys' => $metricKeys,

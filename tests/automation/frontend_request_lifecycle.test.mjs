@@ -168,7 +168,7 @@ const compileCoordinator = (fetchImpl) => {
   return { context, ...context.__coordinator };
 };
 
-const compilePageLoadHarness = () => {
+const compilePageLoadHarness = ({ businessContext = { tenant_id: 'tenant-a', system_hotel_id: '80' } } = {}) => {
   const pageLoadSource = sliceBetween(
     'const currentPageReadPolicy = (pageKey = currentPage.value, priority = \'current\') => {',
     'const activateCoreOperationsAfterLogin = () => {',
@@ -187,7 +187,9 @@ const compilePageLoadHarness = () => {
     authSessionEpoch: 11,
     console: { error() {} },
     coreOperationsTargetDate: { value: '2026-08-02' },
-    currentBusinessRequestContext: () => ({ tenant_id: 'tenant-a', system_hotel_id: filterReportHotel.value }),
+    currentBusinessRequestContext: () => businessContext === null
+      ? null
+      : { ...businessContext, system_hotel_id: filterReportHotel.value },
     currentPage,
     lastLoadedPage: '',
     lastLoadedPageAt: 0,
@@ -209,6 +211,15 @@ const compilePageLoadHarness = () => {
     };`, context);
   return context.__pageLoad;
 };
+
+test('page read policy tolerates the brief post-login interval before business context hydration', () => {
+  const harness = compilePageLoadHarness({ businessContext: null });
+  const policy = harness.currentCompassReadPolicy('compass', 'current');
+
+  assert.equal(policy.tenantId, 'tenant-a');
+  assert.equal(policy.systemHotelId, '80');
+  assert.equal(policy.businessDate, '');
+});
 
 test('same in-flight GET shares one fetch and resolves every consumer', async () => {
   const network = deferred();

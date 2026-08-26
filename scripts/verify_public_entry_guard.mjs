@@ -129,9 +129,13 @@ if (!fs.existsSync(indexPath)) {
   const operatingIntelligenceComponentsContent = fs.existsSync(operatingIntelligenceComponentsPath)
     ? fs.readFileSync(operatingIntelligenceComponentsPath, 'utf8')
     : '';
+  const operationStaticContent = fs.existsSync(operationStaticPath)
+    ? fs.readFileSync(operationStaticPath, 'utf8')
+    : '';
   const appMainContractContent = [
     appMainComponentsContent,
     operatingIntelligenceComponentsContent,
+    operationStaticContent,
     appMainContent,
   ].join('\n');
   const appMainRuntimeContent = fs.existsSync(appMainRuntimePath) ? fs.readFileSync(appMainRuntimePath, 'utf8') : '';
@@ -152,7 +156,6 @@ if (!fs.existsSync(indexPath)) {
   const revenueAiStaticHash = crypto.createHash('sha256').update(revenueAiStaticContent).digest('hex').slice(0, 10);
   const revenueAiServicePath = path.join(repoRoot, 'app/service/RevenueAiOverviewService.php');
   const revenueAiServiceContent = fs.existsSync(revenueAiServicePath) ? fs.readFileSync(revenueAiServicePath, 'utf8') : '';
-  const operationStaticContent = fs.existsSync(operationStaticPath) ? fs.readFileSync(operationStaticPath, 'utf8') : '';
   const ctripStaticPath = path.join(repoRoot, 'public/ctrip-static.js');
   const ctripStaticContent = fs.existsSync(ctripStaticPath) ? fs.readFileSync(ctripStaticPath, 'utf8') : '';
   if (ctripStaticContent.includes('const buildCtripBookmarkletSuccessState = (response = {}) => ({')
@@ -162,6 +165,8 @@ if (!fs.existsSync(indexPath)) {
   }
   const meituanStaticPath = path.join(repoRoot, 'public/meituan-static.js');
   const meituanStaticContent = fs.existsSync(meituanStaticPath) ? fs.readFileSync(meituanStaticPath, 'utf8') : '';
+  const reviewMatchStaticPath = path.join(repoRoot, 'public/review-match-static.js');
+  const reviewMatchStaticContent = fs.existsSync(reviewMatchStaticPath) ? fs.readFileSync(reviewMatchStaticPath, 'utf8') : '';
   if (meituanStaticContent.includes('const buildMeituanBookmarkletSuccessState = (response = {}) => ({')
     && meituanStaticContent.includes("toastMessage: response?.data?.message || '旧版美团 Cookie 书签已禁用'")
     && content.includes('const successState = buildMeituanBookmarkletSuccessState(res);')) {
@@ -332,9 +337,13 @@ if (!runtimeAssetPaths.includes('app-startup-helpers.min.js')
     failures.push(`public/meituan-static.js export contract could not be evaluated: ${error.message}`);
   }
   if (!content.includes('window.SUXI_MISSING_MEITUAN_STATIC_HELPERS = missingMeituanStaticHelpers')
-    || !content.includes('return meituanStaticFallbackFor(key)')
+    || !content.includes('const currentMeituanStatic = () => (')
+    || !content.includes('const fallback = resolveMeituanStaticFallback(key);')
+    || !content.includes('if (meituanDeferredRuntimePending()) return fallback(...args);')
+    || !content.includes('missingMeituanStaticHelpers.push(key);')
+    || !content.includes('return fallback(...args);')
     || content.includes('throw new Error(`缺少美团静态展示工具项：${key}`)')) {
-    failures.push('public/index.html must not block whole-app startup when a Meituan static helper is missing; it must record the missing helper and degrade the related Meituan feature only.');
+    failures.push('public/index.html must resolve deferred Meituan helpers at call time, suppress expected pre-deferred absence, and record a real post-load missing helper without blocking the whole app.');
   }
   const forbiddenServerLoginCopy = [
     ['public/index.html', content, '上一次登录任务未继续执行，可重新触发登录'],
@@ -611,12 +620,12 @@ if (!runtimeAssetPaths.includes('app-startup-helpers.min.js')
     || !revenueAiStaticContent.includes('const canCreateExecutionIntent = canTransferTrusted')
     || !revenueAiStaticContent.includes("trustedDecision.contract_version === 'revenue_ai_trusted_decision.v1'")
     || !revenueAiStaticContent.includes('trustedDecisionRows,')
-    || !revenueAiStaticContent.includes('allowedEndpoints,')
+    || !/\ballowedEndpoints\s*[,}]/.test(revenueAiStaticContent)
     || !revenueAiStaticContent.includes('nextAction: gate.next_action ||')
     || !revenueAiStaticContent.includes('autoWriteOta: summary.auto_write_ota === true')
     || !content.includes('const requireRevenueAiStatic = (key) => {')
     || !revenueAiStaticContent.includes('const buildRevenueAiOverviewEndpoint = (options = {}) => {')
-    || !revenueAiStaticContent.includes("const resolveRevenueAiBusinessDate = ({ overview = null, selectedDate = '', now = new Date() } = {}) => {")
+    || !revenueAiStaticContent.includes('const resolveRevenueAiBusinessDate =')
     || !content.includes("const revenueAiResolveBusinessDate = requireRevenueAiStatic('resolveRevenueAiBusinessDate');")
     || !content.includes("const revenueAiResolveOverviewRequest = requireRevenueAiStatic('resolveRevenueAiOverviewRequest');")
     || !content.includes("const revenueAiResolveOverviewResponse = requireRevenueAiStatic('resolveRevenueAiOverviewResponse');")
@@ -633,7 +642,7 @@ if (!runtimeAssetPaths.includes('app-startup-helpers.min.js')
     || !content.includes("const revenueAiBuildDailyFactGate = requireRevenueAiStatic('buildAiDailyFactGate');")
     || !content.includes('data-testid="ai-daily-fact-gate"')
     || !revenueAiStaticContent.includes('const revenueAiExecutionNeedsRoiEvidence = (row = {}) => {')
-    || !revenueAiStaticContent.includes('const resolveRevenueAiExecutionNavigation = ({ row = {}, fallbackHotelId = 0 } = {}) => {')
+    || !revenueAiStaticContent.includes('const resolveRevenueAiExecutionNavigation =')
     || !content.includes("const revenueAiResolveExecutionAction = requireRevenueAiStatic('resolveRevenueAiExecutionAction');")
     || !content.includes("const revenueAiIsReviewActionLoading = requireRevenueAiStatic('isRevenueAiReviewActionLoadingState');")
     || !content.includes("const revenueAiBuildReviewActionLoadingState = requireRevenueAiStatic('buildRevenueAiReviewActionLoadingState');")
@@ -657,7 +666,7 @@ if (!runtimeAssetPaths.includes('app-startup-helpers.min.js')
     || !content.includes('revenueAiBuildGapRows({')
     || !content.includes('const overviewRequest = revenueAiResolveOverviewRequest({')
     || !/await request\(overviewRequest\.endpoint(?:,\s*\{[\s\S]{0,240}?requestPolicy(?:\s*:|\s*[,}])[\s\S]{0,160}?\})?\);/.test(content)
-    || !revenueAiStaticContent.includes('const resolveRevenueAiOverviewResponse = ({ response = null, error = null } = {}) => {')
+    || !revenueAiStaticContent.includes('const resolveRevenueAiOverviewResponse =')
     || !content.includes('const overviewResult = revenueAiResolveOverviewResponse({ response: res });')
     || !content.includes('const overviewResult = revenueAiResolveOverviewResponse({ error: e });')
     || content.includes("revenueAiOverviewError.value = res.message || 'Revenue AI 总览接口返回失败';")
@@ -690,12 +699,12 @@ if (!runtimeAssetPaths.includes('app-startup-helpers.min.js')
     || !content.includes('v-if="gate.nextAction"')
     || !content.includes('const openRevenueAiGap = async (row = {}) => {')
     || !content.includes('const openRevenueAiDecisionBasis = async (basis = {}) => {')
-    || !revenueAiStaticContent.includes('const resolveRevenueAiDecisionBasisNavigation = (basis = {}) => ({')
+    || !revenueAiStaticContent.includes('const resolveRevenueAiDecisionBasisNavigation =')
     || content.includes('const targetPage = String(basis.targetPage || basis.target_page ||')
     || !content.includes("if (navigation.targetPage === 'ops-track') {")
     || !content.includes('const openRevenueAiExecutionItem = async (row = {}) => {')
-    || !revenueAiStaticContent.includes('const resolveRevenueAiExecutionNavigation = ({ row = {}, fallbackHotelId = 0 } = {}) => {')
-    || !revenueAiStaticContent.includes('const resolveRevenueAiExecutionAction = ({ row = {}, fallbackHotelId = 0 } = {}) => {')
+    || !revenueAiStaticContent.includes('const resolveRevenueAiExecutionNavigation =')
+    || !revenueAiStaticContent.includes('const resolveRevenueAiExecutionAction =')
     || content.includes("const revenueAiExecutionNeedsRoiEvidence = requireRevenueAiStatic('revenueAiExecutionNeedsRoiEvidence');")
     || content.includes("const revenueAiResolveExecutionNavigation = requireRevenueAiStatic('resolveRevenueAiExecutionNavigation');")
     || content.includes("const revenueAiExecutionTaskActionItem = requireRevenueAiStatic('revenueAiExecutionTaskActionItem');")
@@ -708,8 +717,8 @@ if (!runtimeAssetPaths.includes('app-startup-helpers.min.js')
     || content.includes("nextActionKey === 'record_effect_review'")
     || content.includes("nextActionKey === 'review_effect'")
     || content.includes("const revenueAiReviewActionKey = requireRevenueAiStatic('revenueAiReviewActionKey');")
-    || !revenueAiStaticContent.includes('const isRevenueAiReviewActionLoadingState = ({ state = {}, item = {}, action = \'\' } = {}) => {')
-    || !revenueAiStaticContent.includes('const buildRevenueAiReviewActionLoadingState = ({ state = {}, item = {}, action = \'\', loading = false } = {}) => {')
+    || !revenueAiStaticContent.includes('const isRevenueAiReviewActionLoadingState =')
+    || !revenueAiStaticContent.includes('const buildRevenueAiReviewActionLoadingState =')
     || !content.includes('return revenueAiIsReviewActionLoading({')
     || !content.includes('revenueAiReviewActionLoading.value = revenueAiBuildReviewActionLoadingState({')
     || content.includes('revenueAiReviewActionLoading.value[revenueAiReviewActionKey(item, action)]')
@@ -718,7 +727,7 @@ if (!runtimeAssetPaths.includes('app-startup-helpers.min.js')
     || content.includes("const revenueAiReviewEndpoint = requireRevenueAiStatic('revenueAiReviewEndpoint');")
     || content.includes("approve: '批准该调价建议'")
     || content.includes("const endpoints = item.allowedEndpoints || {};")
-    || !revenueAiStaticContent.includes('const resolveRevenueAiReviewActionDraft = ({ item = {}, action = \'\' } = {}) => {')
+    || !revenueAiStaticContent.includes('const resolveRevenueAiReviewActionDraft =')
     || !content.includes('const draft = revenueAiResolveReviewActionDraft({ item, action });')
     || content.includes('const suggestionId = Number(item.id || 0);')
     || content.includes('item.autoWriteOta === true')
@@ -741,9 +750,9 @@ if (!runtimeAssetPaths.includes('app-startup-helpers.min.js')
     || !content.includes('await reconcileOperationExecutionReview(item);')
     || !content.includes('if (operationCanReviewExecution(item)) {')
     || !content.includes('await reviewOperationExecutionTask(item);')
-    || !content.includes('const reconcileOperationExecutionReview = async (item) => {')
+    || !content.includes('const reconcileOperationExecutionReview = async (item) =>')
     || !content.includes('`/operation/execution-tasks/${taskId}/reconcile-review`')
-    || !content.includes("operationExecutionHasEvidenceType(persistedTask, 'source_verified_metric_readback')")
+    || !content.includes("ctx.hasEvidenceType(task, 'source_verified_metric_readback')")
     || !content.includes("result.status === 'source_readback_missing'")
     || !content.includes('不能用人工收入替代')
     || !content.includes('执行证据与效果证据分开保存：本窗口不会接收执行前后收入、成本或 ROI。')
@@ -772,7 +781,7 @@ if (!runtimeAssetPaths.includes('app-startup-helpers.min.js')
     || !content.includes('await openRevenueAiExecutionItem(revenueAiBuildExecutionIntentOpenRow({')
     || !revenueAiStaticContent.includes("targetAction: data.target_action || (taskId > 0 ? 'record_execution' : 'approve_intent')")
     || !revenueAiStaticContent.includes('approve_to_task: true')
-    || !revenueAiStaticContent.includes("const resolveRevenueAiReviewNavigation = ({ item = {}, isSuperAdmin = false } = {}) => {")
+    || !revenueAiStaticContent.includes('const resolveRevenueAiReviewNavigation =')
     || !revenueAiStaticContent.includes('const buildRevenueAiReviewNavigationState = (navigation = {}) => {')
     || !content.includes('const navigationState = revenueAiBuildReviewNavigationState(navigation);')
     || content.includes('filterReportHotel.value = navigation.hotelId')
@@ -1120,7 +1129,7 @@ if (!runtimeAssetPaths.includes('app-startup-helpers.min.js')
     ? onlineDataTabSchedulerSource.slice(onlineDataDataTabStart, onlineDataManualPrewarmStart)
     : '';
   if (!manualOnlineDataConfigPrewarmSource.includes('const MANUAL_ONLINE_DATA_CONFIG_PREWARM_DELAY_MS = 60;')
-    || !manualOnlineDataConfigPrewarmSource.includes("const MANUAL_ONLINE_FETCH_CONFIG_TABS = new Set(['ctrip', 'meituan', 'custom']);")
+    || !manualOnlineDataConfigPrewarmSource.includes("const MANUAL_ONLINE_FETCH_CONFIG_TABS = new Set(['ctrip', 'meituan']);")
     || !manualOnlineDataConfigPrewarmSource.includes("const shouldPrewarmManualOnlineFetchConfig = (newTab) => MANUAL_ONLINE_FETCH_CONFIG_TABS.has(String(newTab || ''));")
     || !manualOnlineDataConfigPrewarmSource.includes('const clearManualOnlineFetchConfigPrewarmTimer = () => {')
     || !manualOnlineDataConfigPrewarmSource.includes('const scheduleManualOnlineFetchConfigPrewarm = (newTab, delayMs = MANUAL_ONLINE_DATA_CONFIG_PREWARM_DELAY_MS) => {')
@@ -1136,17 +1145,17 @@ if (!runtimeAssetPaths.includes('app-startup-helpers.min.js')
     failures.push('public/index.html must keep saved platform config prewarm off the online-data data-records first paint and reserve it for manual fetch tabs.');
   }
   if (!content.includes("let pendingOnlineDataEntryTab = '';")
-    || !content.includes("openOnlineDataEntryTab(String(item.tab || 'data-health'));")
-    || !content.includes("if (requestedOnlineDataTab && requestedOnlineDataTab !== 'data-health') {\n                        return;\n                    }")) {
+    || !/if \(targetTab !== ['"]data-health['"]\) \{\s*pendingOnlineDataEntryTab = targetTab;\s*\}/.test(content)
+    || !/if \(requestedOnlineDataTab && requestedOnlineDataTab !== ['"]data-health['"]\) \{\s*return;\s*\}/.test(content)) {
     failures.push('public/index.html must skip default data-health first-paint loading when menu navigation targets another online-data tab.');
   }
-  if (!content.includes("const openOnlineDataEntryTab = (tab = 'data-health', options = {}) => {\n                const targetTab = String(tab || 'data-health');")
-    || !content.includes("clearDataHealthSecondaryPanelsReadyTimer();\n                dataHealthSecondaryPanelsReady.value = false;\n                clearDataHealthDetailPanelsReadyTimer();\n                dataHealthDetailPanelsReady.value = false;\n                clearDataHealthEmployeePanelsReadyTimer();\n                dataHealthEmployeePanelsReady.value = false;\n                clearPlatformAutoSettingsPanelsReadyTimer();\n                platformAutoSettingsPanelsReady.value = false;\n                clearPlatformAutoSecondaryPanelsReadyTimer();\n                platformAutoSecondaryPanelsReady.value = false;")
+  if (!/const openOnlineDataEntryTab = \(tab = ['"]data-health['"], options = \{\}\) => \{\s*const targetTab = String\(tab \|\| ['"]data-health['"]\);/.test(content)
+    || !/clearDataHealthSecondaryPanelsReadyTimer\(\);\s*dataHealthSecondaryPanelsReady\.value = false;[\s\S]*clearDataHealthDetailPanelsReadyTimer\(\);\s*dataHealthDetailPanelsReady\.value = false;[\s\S]*clearDataHealthEmployeePanelsReadyTimer\(\);\s*dataHealthEmployeePanelsReady\.value = false;[\s\S]*clearPlatformAutoSettingsPanelsReadyTimer\(\);\s*platformAutoSettingsPanelsReady\.value = false;[\s\S]*clearPlatformAutoSecondaryPanelsReadyTimer\(\);\s*platformAutoSecondaryPanelsReady\.value = false;/.test(content)
     || !content.includes("if (targetTab !== 'data-health') {\n                    pendingOnlineDataEntryTab = targetTab;\n                }")
     || !content.includes("onlineDataTab.value = targetTab;\n                currentPage.value = 'online-data';")
     || !content.includes("const openOnlinePlatformAutoTab = (options = {}) => {\n                return openOnlineDataEntryTab('platform-auto', options);\n            };")
     || !content.includes("const openOnlineDataManualEntry = () => {\n                return openOnlineDataEntryTab('data-health');\n            };")
-    || !/if \(item\.path === 'online-data'\) \{\s*if \(item\.tab\) \{\s*openOnlineDataEntryTab\(String\(item\.tab \|\| 'data-health'\)\);\s*\} else \{\s*openOnlineDataManualEntry\(\);\s*\}\s*return;\s*\}/.test(content)) {
+    || !/if \(item\.path === ['"]online-data['"]\) \{\s*openOnlineDataEntryTab\(String\(item\.tab \|\| ['"]data-health['"]\)\);\s*return;\s*\}/.test(content)) {
     failures.push('public/index.html online-data menu clicks without an explicit tab must return to the default data-health tab.');
   }
   if (!content.includes('@click="handleParentMenuClick(item)"')
@@ -1795,7 +1804,7 @@ if (!runtimeAssetPaths.includes('app-startup-helpers.min.js')
   }
   const generateMeituanBookmarkletSource = content.slice(
     content.indexOf('const generateMeituanBookmarklet = async () => {'),
-    content.indexOf('const fetchCustomData')
+    content.indexOf('const cookieRowKey')
   );
   if (!content.includes("const buildMeituanBookmarkletSuccessState = requireMeituanStatic('buildMeituanBookmarkletSuccessState');")
     || !content.includes("const buildMeituanBookmarkletFailureState = requireMeituanStatic('buildMeituanBookmarkletFailureState');")
@@ -1869,9 +1878,15 @@ if (!runtimeAssetPaths.includes('app-startup-helpers.min.js')
     || !content.includes('id="platform-hotel-context-options"')
     || !content.includes('v-for="hotel in filteredPlatformHotelOptions"')
     || !content.includes('@mousedown.prevent="selectPlatformHotelOption(hotel)"')
-    || !content.includes('const platformHotelOptions = computed(() => {')
-    || !content.includes("if (platformHotelContext.value === 'meituan') return meituanTargetHotelOptions.value;")
-    || !content.includes("if (platformHotelContext.value === 'ctrip') return ['ctrip-public-profiles', 'ctrip-market-competition'].includes(onlineDataTab.value) ? ctripPublicProfileHotelOptions.value : ctripTargetHotelOptions.value;")
+    || !content.includes('const platformHotelOptionsFor = (platform) => {')
+    || !content.includes("if (platform === 'meituan') {")
+    || !content.includes("return onlineDataTab.value === 'meituan-review-match'")
+    || !content.includes('? meituanReviewMatchHotelOptions.value')
+    || !content.includes(': meituanTargetHotelOptions.value;')
+    || !content.includes("if (platform === 'ctrip') {")
+    || !content.includes("return ['ctrip-public-profiles', 'ctrip-market-competition'].includes(onlineDataTab.value)")
+    || !/\? ctripPublicProfileHotelOptions\.value\s*: ctripTargetHotelOptions\.value;/.test(content)
+    || !content.includes('const platformHotelOptions = computed(() => platformHotelOptionsFor(platformHotelContext.value));')
     || !content.includes('const filteredPlatformHotelOptions = computed(() => {')
     || !content.includes('const platformHotelContext = computed(() => currentPage.value')
     || ctripPlatformPageTemplate.includes('v-model="selectedCtripHotelId"')
@@ -2011,7 +2026,7 @@ if (!runtimeAssetPaths.includes('app-startup-helpers.min.js')
     || !content.includes('const switchToMeituanDownloadCenter = () => {')
     || !meituanStaticContent.includes('const buildMeituanDownloadData = (rows = []) => {')
     || !content.includes('const meituanDownloadData = computed(() => buildMeituanDownloadData(onlineDataList.value));')
-    || !/switchToMeituanDownloadCenter,[^\r\n]*openMeituanStoredBusinessDate,[^\r\n]*openMeituanStoredDataTab,[^\r\n]*queryMeituanStoredData,[^\r\n]*meituanDownloadData,/.test(content)
+    || !/switchToMeituanDownloadCenter,[^\r\n]*openMeituanStoredDataTab,[^\r\n]*queryMeituanStoredData,[^\r\n]*meituanDownloadData,/.test(content)
     || !downloadCenterTabSource.includes("await refreshOnlineHistory({ refreshHotels: false });")
     || !downloadCenterTabSource.includes('scheduleDelayedPageTask(() => {')
     || !downloadCenterTabSource.includes('return loadOnlineHistoryHotelList();')
@@ -2209,12 +2224,19 @@ if (!runtimeAssetPaths.includes('app-startup-helpers.min.js')
     || !content.includes('schedulePlatformCollectionStatusRefresh();')) {
     failures.push('public/index.html must refresh collection-status after collection and platform-source mutations.');
   }
-  const ctripReviewAutomationSource = content.slice(
-    content.indexOf('const runCtripReviewMatchAutomation ='),
-    content.indexOf('const bindCtripReviewOrderMatch =')
-  );
+  const ctripReviewAutomationSource = reviewMatchStaticContent.includes('createCtripReviewMatchActionController')
+    ? reviewMatchStaticContent.slice(
+      reviewMatchStaticContent.indexOf('runAutomation:'),
+      reviewMatchStaticContent.indexOf('bind:', reviewMatchStaticContent.indexOf('runAutomation:'))
+    )
+    : content.slice(
+      content.indexOf('const runCtripReviewMatchAutomation ='),
+      content.indexOf('const bindCtripReviewOrderMatch =')
+    );
   if (!ctripReviewAutomationSource.includes("review_collection_policy: 'explicit_review_match_only'")
-    || /capture-ctrip-browser|comment_review|capture_sections/.test(ctripReviewAutomationSource)) {
+    || /capture-ctrip-browser|comment_review|capture_sections/.test(ctripReviewAutomationSource)
+    || !content.includes('...ctripReviewMatchControllerBindings')
+    || !reviewMatchStaticContent.includes('runCtripReviewMatchAutomation: actionController.runAutomation')) {
     failures.push('public/index.html must keep Ctrip review order matching scoped to the explicit match action, without default capture entrypoints.');
   }
   if (!content.includes('const competitorSummaryRequestPromises = new Map();')
@@ -3039,7 +3061,7 @@ if (!runtimeAssetPaths.includes('app-startup-helpers.min.js')
     || !content.includes('const clearOnlineAnalysisReadCaches = () => {')
     || !content.includes('const loadAnalysisData = async (dimension = null, options = {}) => {')
     || !content.includes('const loadOnlineAnalysisRows = async (options = {}) => {')
-    || !/const loadAnalysisData = async \(dimension = null, options = \{\}\) => \{[\s\S]*readOnlineAnalysisResultCache\(onlineAnalysisDataResultCache, requestKey, cacheMs\)[\s\S]*onlineAnalysisDataRequestPromises\.has\(requestKey\)[\s\S]*request\(`\/online-data\/data-analysis\?\$\{params\}`\)[\s\S]*writeOnlineAnalysisResultCache\(onlineAnalysisDataResultCache, requestKey, data, cacheMs\)/.test(content)
+    || !/const loadAnalysisData = async \(dimension = null, options = \{\}\) => \{[\s\S]*readOnlineAnalysisResultCache\(onlineAnalysisDataResultCache, requestKey, cacheMs\)[\s\S]*onlineAnalysisDataRequestPromises\.has\(requestKey\)[\s\S]*request\(`\/online-data\/data-analysis\?\$\{params\}`,\s*\{\s*businessContext:\s*\{\s*hotelId:\s*onlineDataFilter\.value\.hotel_id\s*\|\|\s*'',\s*tenantId:\s*'',?\s*\},?\s*\}\)[\s\S]*writeOnlineAnalysisResultCache\(onlineAnalysisDataResultCache, requestKey, data, cacheMs\)/.test(content)
     || !/const loadOnlineAnalysisRows = async \(options = \{\}\) => \{[\s\S]*readOnlineAnalysisResultCache\(onlineAnalysisRowsResultCache, requestKey, cacheMs\)[\s\S]*onlineAnalysisRowsRequestPromises\.has\(requestKey\)[\s\S]*request\(`\/online-data\/daily-data-list\?\$\{params\}`\)[\s\S]*writeOnlineAnalysisResultCache\(onlineAnalysisRowsResultCache, requestKey, data, cacheMs\)/.test(content)
     || !content.includes('const refreshOnlineAnalysis = async (options = {}) => {')
     || !content.includes('cacheMs: ONLINE_ANALYSIS_PANEL_CACHE_TTL_MS,')
@@ -3047,6 +3069,7 @@ if (!runtimeAssetPaths.includes('app-startup-helpers.min.js')
     || !content.includes('loadOnlineDataSummary(loadOptions),')
     || !content.includes('loadOnlineAnalysisRows(loadOptions),')
     || !content.includes('return refreshOnlineAnalysis(options);')
+    || !content.includes('@click="refreshOnlineAnalysis({ force: true })"')
     || !content.includes('@click="loadOnlineAnalysisRows({ force: true })"')
     || !content.includes('clearOnlineAnalysisReadCaches();')) {
     failures.push('public/index.html online-data analysis tab must short-cache and deduplicate analysis summary/detail reads while preserving forced manual refresh.');
@@ -3388,6 +3411,10 @@ if (!runtimeAssetPaths.includes('app-startup-helpers.min.js')
     || !content.includes('schedulePublicSystemConfigRefresh();')
     || content.includes('deferUiTask(() => loadSystemConfig({ publicOnly: true }), 120)')) {
     failures.push('public/index.html must defer, deduplicate, and short-cache public system-config refreshes away from core OTA page switching.');
+  }
+  if (!content.includes('const scheduleDualOtaWorkbenchAutoFetch = (delayMs = 9000) => {')
+    || !content.includes('scheduleDualOtaWorkbenchAutoFetch();')) {
+    failures.push('public/index.html must defer dashboard OTA collection until nine seconds after authenticated entry.');
   }
   if (!/let\s+pageControlTestIdObserverTimer\s*=\s*null;/.test(content)
     || !/const\s+schedulePageControlTestIdObserverStart\s*=\s*\(delayMs\s*=\s*520\)\s*=>\s*\{[\s\S]*deferUiTask\(\(\)\s*=>\s*\{[\s\S]*startPageControlTestIdObserver\(\);[\s\S]*scheduleTestIdRefresh\(\);/.test(content)

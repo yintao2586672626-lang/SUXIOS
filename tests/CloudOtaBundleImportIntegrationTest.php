@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Tests;
 
+use app\model\Role;
 use app\model\User;
 use app\service\CloudOtaBundleCodec;
 use app\service\CloudOtaBundleImportService;
@@ -15,24 +16,26 @@ final class CloudOtaBundleImportIntegrationTest extends TestCase
 {
     public static function setUpBeforeClass(): void
     {
+        $expectedDatabase = trim((string)getenv('SUXI_E2E_DB_NAME'));
+        if (
+            trim((string)getenv('SUXI_E2E_DB_OVERRIDE')) !== '1'
+            || !self::isDedicatedTestDatabaseName($expectedDatabase)
+        ) {
+            self::markTestSkipped(
+                'Cloud OTA bundle integration requires SUXI_E2E_DB_OVERRIDE=1 and a dedicated *_test/*_testing/*_e2e database.'
+            );
+        }
+
         (new App(dirname(__DIR__)))->initialize();
     }
 
     public function testBundleImportIsReadBackVerifiedAndIdempotentInsideRollback(): void
     {
-        $actor = $this->superAdmin();
-        $hotel = Db::name('hotels')
-            ->where('status', 1)
-            ->where('tenant_id', '>', 0)
-            ->order('id', 'asc')
-            ->field('id,tenant_id')
-            ->find();
-        if (!$actor instanceof User || !is_array($hotel)) {
-            self::markTestSkipped('An enabled super-admin and hotel are required for the transactional bridge integration test.');
-        }
+        $this->assertDedicatedTestDatabaseConnection();
 
         Db::startTrans();
         try {
+            [$actor, $hotel] = $this->createFixture();
             $ctripSourceId = $this->createSource((int)$hotel['id'], (int)$hotel['tenant_id'], (int)$actor->id, 'ctrip');
             $meituanSourceId = $this->createSource((int)$hotel['id'], (int)$hotel['tenant_id'], (int)$actor->id, 'meituan');
             $ctripPackage = $this->package('ctrip', 7001, $ctripSourceId, 'ctrip:bridge-integration');
@@ -169,14 +172,106 @@ final class CloudOtaBundleImportIntegrationTest extends TestCase
         }
     }
 
-    private function superAdmin(): ?User
+    private static function isDedicatedTestDatabaseName(string $database): bool
     {
-        foreach (User::where('status', User::STATUS_ENABLED)->order('id', 'asc')->select() as $user) {
-            if ($user instanceof User && $user->isSuperAdmin()) {
-                return $user;
+        return preg_match('/(?:^|[_-])(?:test(?:ing)?|e2e)(?:$|[_-])/iD', $database) === 1;
+    }
+
+    private function assertDedicatedTestDatabaseConnection(): void
+    {
+        $expectedDatabase = trim((string)getenv('SUXI_E2E_DB_NAME'));
+        if (!self::isDedicatedTestDatabaseName($expectedDatabase)) {
+            throw new RuntimeException('A dedicated Cloud OTA bundle integration database is required.');
+        }
+
+        $rows = Db::query('SELECT DATABASE() AS database_name');
+        $actualDatabase = trim((string)($rows[0]['database_name'] ?? ''));
+        if ($actualDatabase !== $expectedDatabase) {
+            throw new RuntimeException(sprintf(
+                'Cloud OTA bundle integration database mismatch: expected %s, connected to %s.',
+                $expectedDatabase,
+                $actualDatabase === '' ? '(none)' : $actualDatabase
+            ));
+        }
+    }
+
+    /** @return array{0:User,1:array{id:int,tenant_id:int}} */
+    private function createFixture(): array
+    {
+        $now = date('Y-m-d H:i:s');
+        $suffix = substr(hash('sha256', getmypid() . '-' . microtime(true) . '-' . random_bytes(8)), 0, 16);
+        $tenantId = (int)Db::name('tenants')->insertGetId($this->tablePayload('tenants', [
+            'name' => 'Cloud OTA integration ' . $suffix,
+            'status' => 1,
+            'plan_id' => null,
+            'created_at' => $now,
+            'updated_at' => $now,
+        ]));
+        self::assertGreaterThan(0, $tenantId);
+
+        $userId = (int)Db::name('users')->insertGetId($this->tablePayload('users', [
+            'tenant_id' => $tenantId,
+            'username' => 'cloud_ota_' . $suffix,
+            'password' => password_hash('cloud-ota-integration-fixture', PASSWORD_DEFAULT),
+            'realname' => 'Cloud OTA integration fixture',
+            'role_id' => Role::SUPER_ADMIN,
+            'status' => User::STATUS_ENABLED,
+            'hotel_id' => null,
+            'default_hotel_id' => null,
+            'create_time' => $now,
+            'update_time' => $now,
+        ]));
+        self::assertGreaterThan(0, $userId);
+
+        $hotelId = (int)Db::name('hotels')->insertGetId($this->tablePayload('hotels', [
+            'tenant_id' => $tenantId,
+            'name' => 'Cloud OTA integration hotel ' . $suffix,
+            'code' => 'CLOUD_' . strtoupper($suffix),
+            'address' => '',
+            'contact_person' => '',
+            'contact_phone' => '',
+            'status' => 1,
+            'description' => 'Transactional integration fixture',
+            'ota_channel_strategy' => 'dual',
+            'owner_user_id' => $userId,
+            'created_by' => $userId,
+            'create_time' => $now,
+            'update_time' => $now,
+        ]));
+        self::assertGreaterThan(0, $hotelId);
+
+        $userScope = $this->tablePayload('users', [
+            'hotel_id' => $hotelId,
+            'default_hotel_id' => $hotelId,
+            'update_time' => $now,
+        ]);
+        self::assertSame(1, Db::name('users')->where('id', $userId)->update($userScope));
+
+        $actor = User::find($userId);
+        self::assertInstanceOf(User::class, $actor);
+        self::assertTrue($actor->isSuperAdmin());
+
+        return [$actor, ['id' => $hotelId, 'tenant_id' => $tenantId]];
+    }
+
+    /** @param array<string, mixed> $payload @return array<string, mixed> */
+    private function tablePayload(string $table, array $payload): array
+    {
+        if (!in_array($table, ['tenants', 'users', 'hotels'], true)) {
+            throw new RuntimeException('Unsupported integration fixture table.');
+        }
+        $columns = [];
+        foreach (Db::query('SHOW COLUMNS FROM `' . $table . '`') as $row) {
+            $field = (string)($row['Field'] ?? $row['field'] ?? '');
+            if ($field !== '') {
+                $columns[$field] = true;
             }
         }
-        return null;
+        if ($columns === []) {
+            throw new RuntimeException('Unable to inspect integration fixture table: ' . $table);
+        }
+
+        return array_intersect_key($payload, $columns);
     }
 
     private function createSource(int $hotelId, int $tenantId, int $actorId, string $platform): int

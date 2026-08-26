@@ -266,17 +266,14 @@
         return `${year}-${month}-${day}`;
     };
 
-    const resolveRevenueAiBusinessDate = ({ overview = null, selectedDate = '', now = new Date() } = {}) => {
-        const overviewDate = String(overview?.business_date || '').trim();
-        if (overviewDate) return overviewDate;
-        const explicitDate = String(selectedDate || '').trim();
-        if (/^\d{4}-\d{2}-\d{2}$/.test(explicitDate)) return explicitDate;
-        const current = now instanceof Date ? new Date(now.getTime()) : new Date(now);
-        if (Number.isNaN(current.getTime())) return '';
-        current.setDate(current.getDate() - 1);
-        return formatRevenueAiDate(current);
-    };
-
+    const revenueOverviewContractStatic = window.SUXI_REVENUE_OVERVIEW_CONTRACT_STATIC;
+    if (!revenueOverviewContractStatic) {
+        throw new Error('Revenue AI 数据基准日合同工具尚未加载');
+    }
+    const REVENUE_OVERVIEW_AS_OF_DATE_CONTRACT_VERSION = revenueOverviewContractStatic.REVENUE_OVERVIEW_AS_OF_DATE_CONTRACT_VERSION;
+    const revenueAiIsoDate = revenueOverviewContractStatic.revenueAiIsoDate;
+    const resolveRevenueOverviewAsOfDate = revenueOverviewContractStatic.resolveRevenueOverviewAsOfDate;
+    const resolveRevenueAiBusinessDate = revenueOverviewContractStatic.resolveRevenueAiBusinessDate;
     const resolveRevenueAiOverviewRequest = ({ hasToken = false, currentPage = '', businessDate = '', hotelId = '', platform = 'ctrip' } = {}) => {
         if (hasToken !== true) {
             return { shouldLoad: false, endpoint: '', reason: 'token_missing' };
@@ -300,9 +297,22 @@
             };
         }
         if (response && Number(response.code) === 200) {
+            const overview = response.data && typeof response.data === 'object'
+                ? response.data
+                : null;
+            const asOfDate = resolveRevenueOverviewAsOfDate(overview);
+            if (!overview || !asOfDate.ok) {
+                return {
+                    overview: null,
+                    errorMessage: asOfDate.message,
+                    status: 'blocked',
+                    ok: false,
+                };
+            }
             return {
-                overview: response.data || null,
+                overview,
                 errorMessage: '',
+                status: 'ready',
                 ok: true,
             };
         }
@@ -3703,7 +3713,7 @@
         requestedPlatform = '',
         requestedDate = '',
         resetDate = false,
-        today = '',
+        asOfDate = '',
     } = {}) => {
         const payload = scopePayload && typeof scopePayload === 'object' ? scopePayload : {};
         const allowedPlatforms = new Set(['all_ota', 'ctrip', 'meituan']);
@@ -3745,9 +3755,10 @@
                 selectedPlatformLabel: '无严格可用平台',
                 selectedDate: '',
                 previousDate: '',
+                sameWeekdayDate: '',
                 latestVerifiedDate: '',
                 dateDistance: null,
-                isToday: false,
+                isAsOfDate: false,
                 isLatest: false,
                 platformOptions: [],
                 dateOptions: [],
@@ -3761,13 +3772,24 @@
             : selectedRow.latestVerifiedDate;
         const selectedIndex = selectedRow.availableDates.indexOf(selectedDate);
         const previousDate = selectedIndex >= 0 ? (selectedRow.availableDates[selectedIndex + 1] || '') : '';
-        const distance = revenueCockpitDateDistance(selectedDate, today);
-        const isToday = distance === 0;
+        const selectedWeekday = (() => {
+            const parts = selectedDate.split('-').map(Number);
+            return parts.length === 3 ? new Date(Date.UTC(parts[0], parts[1] - 1, parts[2])).getUTCDay() : -1;
+        })();
+        const sameWeekdayDate = selectedIndex >= 0
+            ? (selectedRow.availableDates.slice(selectedIndex + 1).find((candidate) => {
+                const parts = candidate.split('-').map(Number);
+                return parts.length === 3
+                    && new Date(Date.UTC(parts[0], parts[1] - 1, parts[2])).getUTCDay() === selectedWeekday;
+            }) || '')
+            : '';
+        const distance = revenueCockpitDateDistance(selectedDate, asOfDate);
+        const isAsOfDate = distance === 0;
         const distanceText = distance === null
-            ? '与今天的差异待确认'
+            ? '与固定数据基准日的差异待确认'
             : (distance === 0
-                ? '就是今天'
-                : (distance > 0 ? `比今天早 ${distance} 天` : `比今天晚 ${Math.abs(distance)} 天`));
+                ? '就是数据基准日'
+                : (distance > 0 ? `比数据基准日早 ${distance} 天` : `比数据基准日晚 ${Math.abs(distance)} 天`));
         return {
             status: 'ready',
             strictGate: String(payload?.boundary?.strict_gate || 'history_success+validation_verified+readback_verified'),
@@ -3775,9 +3797,10 @@
             selectedPlatformLabel: selectedRow.label,
             selectedDate,
             previousDate,
+            sameWeekdayDate,
             latestVerifiedDate: selectedRow.latestVerifiedDate,
             dateDistance: distance,
-            isToday,
+            isAsOfDate,
             isLatest: selectedDate === selectedRow.latestVerifiedDate,
             platformOptions: platformRows.map((row) => ({
                 value: row.platform,
@@ -3795,702 +3818,97 @@
         };
     };
 
-    const revenueCockpitNumber = (value) => {
-        if (value === null || value === undefined || value === '') return null;
-        const number = Number(value);
-        return Number.isFinite(number) ? number : null;
-    };
+    const REVENUE_COCKPIT_VIEW_MODEL_CONTRACT_VERSION = 'revenue_daily_cockpit.v2';
+    const revenueCockpitBlockedModel = (message = '服务端未签发当前经营驾驶舱模型', status = 'blocked') => ({
+        contractVersion: REVENUE_COCKPIT_VIEW_MODEL_CONTRACT_VERSION,
+        status,
+        statusLabel: status === 'loading' ? '读取中' : '已阻断',
+        statusClass: status === 'loading'
+            ? 'border-slate-200 bg-slate-50 text-slate-600'
+            : 'border-rose-200 bg-rose-50 text-rose-700',
+        headline: status === 'loading' ? '正在读取服务端经营驾驶舱' : '经营驾驶舱已阻断',
+        summary: String(message || '服务端未签发当前经营驾驶舱模型'),
+        dateNotice: '',
+        scopeBoundary: 'PMS 与 OTA 口径保持分离。',
+        sections: [],
+        visibleSections: [],
+        opportunities: [],
+        canAskQuestion: false,
+        canCreatePendingApproval: false,
+        canSaveSnapshot: false,
+        actionDisabledReason: String(message || '服务端未签发当前经营驾驶舱模型'),
+    });
 
-    const revenueCockpitMetricReady = (status) => ['readback_verified', 'derived_verified', 'verified'].includes(
-        String(status || '').toLowerCase(),
-    );
-
-    const revenueCockpitStatusText = (status) => ({
-        readback_verified: '已严格回读',
-        derived_verified: '已验证派生',
-        verified: '已验证',
-        partial_readback_verified: '部分指标已回读',
-        partial: '部分数据',
-        missing: '缺失',
-        not_verified: '未验证',
-        not_calculable: '不可计算',
-        analysis_blocked: '分析受阻',
-        read_failed: '读取失败',
-        failed: '加载失败',
-        ready: '可用',
-        ok: '可用',
-    }[String(status || '').toLowerCase()] || '状态待确认');
-
-    const revenueCockpitStatusClass = (status) => {
-        const key = String(status || '').toLowerCase();
-        if (['readback_verified', 'derived_verified', 'verified', 'ready', 'ok'].includes(key)) {
-            return 'border-emerald-200 bg-emerald-50 text-emerald-700';
-        }
-        if (['read_failed', 'failed', 'error', 'blocked'].includes(key)) {
-            return 'border-rose-200 bg-rose-50 text-rose-700';
-        }
-        return 'border-amber-200 bg-amber-50 text-amber-800';
-    };
-
-    const revenueCockpitDisplayValue = (value, unit) => {
-        const number = revenueCockpitNumber(value);
-        if (number === null) return '—';
-        const formatted = number.toLocaleString('zh-CN', {
-            minimumFractionDigits: ['CNY', 'percent'].includes(unit) ? 2 : 0,
-            maximumFractionDigits: ['CNY', 'percent'].includes(unit) ? 2 : 0,
-        });
-        if (unit === 'CNY') return `¥${formatted}`;
-        if (unit === 'percent') return `${formatted}%`;
-        if (unit === 'orders') return `${formatted} 单`;
-        if (unit === 'room_nights') return `${formatted} 间夜`;
-        if (unit === 'exposures') return `${formatted} 次`;
-        return formatted;
-    };
-
-    const revenueCockpitUnitLabel = (unit) => ({
-        CNY: '人民币',
-        percent: '百分比',
-        orders: '订单数',
-        room_nights: '间夜数',
-        exposures: '曝光次数',
-        status: '状态',
-        text: '说明',
-    }[String(unit || '')] || String(unit || ''));
-
-    const revenueCockpitSourceEvidence = (
-        source = {},
-        sourceKey,
-        businessDate,
-        strictEvidence = {},
-        metricKey = '',
-    ) => {
-        const meta = revenueCockpitSourceMeta(sourceKey);
-        const provenance = source?.source && typeof source.source === 'object' ? source.source : {};
-        const rowIds = Array.isArray(provenance.row_ids)
-            ? provenance.row_ids.filter((id) => Number(id) > 0)
-            : (Number(provenance.record_id || 0) > 0 ? [Number(provenance.record_id)] : []);
-        const traceIds = Array.isArray(provenance.source_trace_ids)
-            ? provenance.source_trace_ids.filter(Boolean)
-            : [];
-        const strictMetric = metricKey
-            && strictEvidence?.metrics?.[metricKey]
-            && typeof strictEvidence.metrics[metricKey] === 'object'
-            ? strictEvidence.metrics[metricKey]
-            : null;
-        const strictAcceptedIds = Array.isArray(strictMetric?.accepted_row_ids)
-            ? strictMetric.accepted_row_ids.filter((id) => Number(id) > 0)
-            : (Array.isArray(strictEvidence?.accepted_row_ids)
-                ? strictEvidence.accepted_row_ids.filter((id) => Number(id) > 0)
-                : []);
-        const strictRejectedIds = Array.isArray(strictMetric?.rejected_row_ids)
-            ? strictMetric.rejected_row_ids.filter((id) => Number(id) > 0)
-            : (Array.isArray(strictEvidence?.rejected_row_ids)
-                ? strictEvidence.rejected_row_ids.filter((id) => Number(id) > 0)
-                : []);
-        return [
-            `来源：${meta.label} · ${String(provenance.table || meta.expectedTable || '来源表待确认')}`,
-            `业务日期：${String(source.business_date || provenance.data_date || businessDate || '待确认')} · 实际日期：${String(source.actual_business_date || provenance.data_date || '待确认')}`,
-            `保存记录：${rowIds.length ? rowIds.map((id) => `#${id}`).join('、') : '未返回可追溯记录ID'}`,
-            `严格回读：${revenueCockpitStatusText(provenance.readback_status || source.data_status)}`,
-            `驾驶舱严格事实闸门：${strictAcceptedIds.length ? strictAcceptedIds.map((id) => `#${id}`).join('、') : '未命中可用记录'}${strictRejectedIds.length ? `；拒绝 ${strictRejectedIds.map((id) => `#${id}`).join('、')}` : ''}`,
-            `来源追踪：${traceIds.length ? `${traceIds.length} 条 trace` : '未返回 trace'}`,
-            `口径：${meta.scopeLabel}`,
-        ];
-    };
-
-    const revenueCockpitMetricCard = ({
-        source = {},
-        sourceKey,
-        metricKey,
-        label,
-        unit,
-        businessDate,
-        strictEvidence = {},
-    }) => {
-        const meta = revenueCockpitSourceMeta(sourceKey);
-        const facts = source?.facts && typeof source.facts === 'object' ? source.facts : {};
-        const statuses = source?.fact_statuses && typeof source.fact_statuses === 'object' ? source.fact_statuses : {};
-        const factStatus = statuses[metricKey] && typeof statuses[metricKey] === 'object'
-            ? statuses[metricKey]
-            : {};
-        const rawValue = revenueCockpitNumber(facts[metricKey]);
-        const canonicalReady = revenueCockpitMetricReady(factStatus.status) && rawValue !== null;
-        const otaSource = ['ctrip_ota', 'meituan_ota'].includes(sourceKey);
-        const strictMetric = strictEvidence?.metrics?.[metricKey]
-            && typeof strictEvidence.metrics[metricKey] === 'object'
-            ? strictEvidence.metrics[metricKey]
-            : {};
-        const strictReady = !otaSource || strictMetric.strict_readback === true;
-        const ready = canonicalReady && strictReady;
-        const strictMismatch = canonicalReady && !strictReady;
-        const displayStatus = ready
-            ? String(factStatus.status || 'verified')
-            : (strictMismatch ? 'not_verified' : String(factStatus.status || source.data_status || 'missing'));
-        const reasonCode = ready
-            ? ''
-            : (strictMismatch
-                ? 'cockpit_strict_metric_readback_missing'
-                : String(factStatus.reason || `${sourceKey}_${metricKey}_missing`));
-        const evidenceLines = revenueCockpitSourceEvidence(
-            source,
-            sourceKey,
-            businessDate,
-            strictEvidence,
-            metricKey,
-        );
-        evidenceLines.push(`指标状态：${revenueCockpitStatusText(displayStatus)}${reasonCode ? ` · ${reasonCode}` : ''}`);
-        if (factStatus.formula) evidenceLines.push(`公式：${String(factStatus.formula)}`);
-        if (factStatus.caliber) evidenceLines.push(`口径说明：${String(factStatus.caliber)}`);
-        return {
-            key: `${sourceKey}:${metricKey}`,
-            kind: 'metric',
-            label,
-            display: ready ? revenueCockpitDisplayValue(rawValue, unit) : '—',
-            value: ready ? rawValue : null,
-            unit,
-            unitLabel: revenueCockpitUnitLabel(unit),
-            sourceKey,
-            sourceLabel: meta.label,
-            businessDate: String(source.business_date || businessDate || ''),
-            status: displayStatus,
-            statusLabel: revenueCockpitStatusText(displayStatus),
-            statusClass: revenueCockpitStatusClass(displayStatus),
-            scope: meta.scope,
-            scopeLabel: meta.scopeLabel,
-            missingState: ready ? '有值' : '缺失或未验证',
-            reasonCode,
-            reasonText: ready
-                ? '该指标命中同酒店、同来源、同业务日的验证状态。'
-                : (strictMismatch
-                    ? '指标来源行未通过 history_status=success、validation_status=verified、readback_verified=1 的驾驶舱严格事实闸门，数值保持为空。'
-                    : revenueAiReasonText(reasonCode)),
-            evidenceLines,
-        };
-    };
-
-    const revenueCockpitSourceCard = (source = {}, sourceKey, businessDate, strictEvidence = {}) => {
-        const meta = revenueCockpitSourceMeta(sourceKey);
-        const status = String(source.data_status || 'missing');
-        const otaSource = ['ctrip_ota', 'meituan_ota'].includes(sourceKey);
-        const strictReady = !otaSource || strictEvidence.source_strict_readback === true;
-        const ready = status === 'readback_verified' && strictReady;
-        const displayStatus = status === 'readback_verified' && !strictReady ? 'not_verified' : status;
-        return {
-            key: `source:${sourceKey}`,
-            kind: 'source',
-            label: meta.label,
-            display: revenueCockpitStatusText(displayStatus),
-            value: null,
-            unit: 'status',
-            unitLabel: '来源状态',
-            sourceKey,
-            sourceLabel: meta.label,
-            businessDate: String(source.business_date || businessDate || ''),
-            status: displayStatus,
-            statusLabel: revenueCockpitStatusText(displayStatus),
-            statusClass: revenueCockpitStatusClass(displayStatus),
-            scope: meta.scope,
-            scopeLabel: meta.scopeLabel,
-            missingState: ready ? '完整' : '不完整',
-            reasonCode: ready ? '' : (status === 'readback_verified'
-                ? 'cockpit_strict_source_readback_missing'
-                : `${sourceKey}_not_readback_verified`),
-            reasonText: ready
-                ? '来源身份、业务日期、保存记录和严格回读均已通过。'
-                : (status === 'readback_verified'
-                    ? '来源总览虽标记已回读，但承载当前指标的保存行未通过驾驶舱严格事实闸门。'
-                    : revenueAiReasonText(`${sourceKey}_not_readback_verified`)),
-            evidenceLines: revenueCockpitSourceEvidence(
-                source,
-                sourceKey,
-                businessDate,
-                strictEvidence,
-            ),
-        };
-    };
-
-    const revenueCockpitComparisonCard = (current, previous, previousDate) => {
-        const comparable = current?.value !== null
-            && previous?.value !== null
-            && current?.sourceKey === previous?.sourceKey
-            && current?.unit === previous?.unit;
-        const delta = comparable ? Number((current.value - previous.value).toFixed(2)) : null;
-        const ratio = comparable && previous.value !== 0
-            ? Number((delta / Math.abs(previous.value) * 100).toFixed(2))
-            : null;
-        const display = !comparable
-            ? '—'
-            : `${delta > 0 ? '+' : ''}${revenueCockpitDisplayValue(delta, current.unit)}${ratio === null ? '（基期为 0）' : `（${ratio > 0 ? '+' : ''}${ratio.toFixed(2)}%）`}`;
-        const status = comparable ? 'verified' : 'not_calculable';
-        return {
-            key: `compare:${current?.key || 'unknown'}`,
-            kind: 'comparison',
-            label: `${String(current?.label || '指标')} · 较 ${previousDate || '上一严格日期'}`,
-            display,
-            value: delta,
-            unit: current?.unit || '',
-            unitLabel: current?.unitLabel || '',
-            sourceKey: current?.sourceKey || '',
-            sourceLabel: current?.sourceLabel || '来源待确认',
-            businessDate: current?.businessDate || '',
-            status,
-            statusLabel: comparable ? '同来源同单位可比' : '不可同口径比较',
-            statusClass: revenueCockpitStatusClass(status),
-            scope: current?.scope || 'unknown',
-            scopeLabel: current?.scopeLabel || '口径待确认',
-            missingState: comparable ? '有值' : '缺少同口径基期',
-            reasonCode: comparable ? '' : 'same_source_comparison_missing',
-            reasonText: comparable
-                ? `只比较 ${current.sourceLabel} 的同一指标与同一单位，没有跨来源合并。`
-                : '当前值或上一严格日期的同来源、同单位指标缺失，变化保持为空。',
-            evidenceLines: [
-                `当前：${current?.businessDate || '日期待确认'} · ${current?.display || '—'} · ${current?.statusLabel || '状态待确认'}`,
-                `基期：${previousDate || '无'} · ${previous?.display || '—'} · ${previous?.statusLabel || '状态待确认'}`,
-                `比较规则：同酒店、同来源、同指标、同单位；禁止跨来源或跨单位静默合并。`,
-            ],
-        };
-    };
-
-    const revenueCockpitTextCard = ({
-        key,
-        kind,
-        label,
-        display,
-        sourceKey = 'cockpit_rule',
+    const resolveRevenueCockpitCanonicalViewModel = ({
+        overview = null,
+        hotelId = 0,
         businessDate = '',
-        status = 'partial',
-        reasonCode = '',
-        reasonText = '',
-        evidenceLines = [],
-    }) => {
-        const meta = revenueCockpitSourceMeta(sourceKey);
-        return {
-            key,
-            kind,
-            label,
-            display: String(display || '—'),
-            value: null,
-            unit: 'text',
-            unitLabel: '说明',
-            sourceKey,
-            sourceLabel: meta.label,
-            businessDate,
-            status,
-            statusLabel: revenueCockpitStatusText(status),
-            statusClass: revenueCockpitStatusClass(status),
-            scope: meta.scope,
-            scopeLabel: meta.scopeLabel,
-            missingState: kind === 'gap' ? '数据缺口' : '说明',
-            reasonCode,
-            reasonText: String(reasonText || display || ''),
-            evidenceLines: evidenceLines.length ? evidenceLines : [
-                `来源：${meta.label}`,
-                `业务日期：${businessDate || '待确认'}`,
-                '边界：只生成解释或待审批入口，不自动执行。',
-            ],
-        };
+        platform = '',
+    } = {}) => {
+        const payload = overview && typeof overview === 'object' ? overview : {};
+        const model = payload.canonical_view_model && typeof payload.canonical_view_model === 'object'
+            ? payload.canonical_view_model
+            : null;
+        const digest = String(payload.canonical_view_model_digest || '').trim().toLowerCase();
+        const topContractVersion = String(payload.canonical_view_model_contract_version || '').trim();
+        const topStatus = String(payload.canonical_view_model_status || '').trim();
+        const asOfDate = resolveRevenueOverviewAsOfDate(payload);
+        const factLayer = payload.three_source_fact_layer || {};
+        const strict = payload.cockpit_strict_evidence || {};
+        const expectedHotelId = Number(hotelId || payload.hotel_id || factLayer?.hotel?.system_hotel_id || 0);
+        const expectedBusinessDate = String(businessDate || payload.business_date || '');
+        const expectedPlatform = String(platform || strict.platform || '').toLowerCase();
+        const invalid = !model
+            || topStatus !== 'server_issued'
+            || topContractVersion !== REVENUE_COCKPIT_VIEW_MODEL_CONTRACT_VERSION
+            || !/^[a-f0-9]{64}$/.test(digest)
+            || !asOfDate.ok
+            || String(model.contractVersion || '') !== REVENUE_COCKPIT_VIEW_MODEL_CONTRACT_VERSION
+            || Number(model.hotelId || 0) !== expectedHotelId
+            || expectedHotelId <= 0
+            || String(model.businessDate || '') !== expectedBusinessDate
+            || !expectedBusinessDate
+            || String(model.selectedPlatform || '').toLowerCase() !== expectedPlatform
+            || !['ctrip', 'meituan', 'all_ota'].includes(expectedPlatform)
+            || String(model.asOfDate || '') !== asOfDate.asOfDate
+            || String(model.asOfDateContractVersion || '') !== asOfDate.contractVersion
+            || Number(model.tenantId || 0) <= 0
+            || Number(model.tenantId || 0) !== Number(strict.tenant_id || factLayer?.hotel?.tenant_id || 0)
+            || !Array.isArray(model.sections)
+            || !Array.isArray(model.visibleSections)
+            || !Array.isArray(model.opportunities);
+        if (invalid) {
+            return {
+                ok: false,
+                model: null,
+                digest: '',
+                message: asOfDate.ok
+                    ? '服务端签发的经营驾驶舱模型、摘要、酒店、平台、业务日期或数据基准日身份不一致'
+                    : asOfDate.message,
+            };
+        }
+        return { ok: true, model, digest, message: '' };
     };
 
     const buildRevenueCockpitModel = ({
         overview = null,
-        comparisonOverview = null,
-        scope = null,
         selectedPlatform = '',
         businessDate = '',
-        today = '',
-        canExecuteOperation = false,
         loading = false,
         error = '',
     } = {}) => {
-        const context = scope && typeof scope === 'object' ? scope : {};
-        const platform = String(selectedPlatform || context.selectedPlatform || '').toLowerCase();
-        const date = revenueCockpitIsoDate(businessDate || context.selectedDate || overview?.business_date);
-        const dateDistance = revenueCockpitDateDistance(date, today);
-        const selectedOtaPlatforms = platform === 'all_ota'
-            ? ['ctrip', 'meituan']
-            : (['ctrip', 'meituan'].includes(platform) ? [platform] : []);
-        const emptyModel = (status, summary) => ({
-            contractVersion: 'revenue_daily_cockpit.v1',
-            status,
-            statusLabel: status === 'loading' ? '加载中' : (status === 'failed' ? '加载失败' : '无严格可用数据'),
-            statusClass: revenueCockpitStatusClass(status),
-            headline: status === 'loading' ? '正在读取严格回读事实' : (status === 'failed' ? '经营驾驶舱读取失败' : '暂无严格可用经营日期'),
-            summary,
-            dateNotice: context.notice || '',
-            scopeBoundary: 'PMS 只形成全酒店住宿事实；OTA 只形成渠道结论，二者收入不相加。',
-            selectedPlatform: platform,
-            selectedPlatformLabel: revenueCockpitPlatformLabel(platform),
-            businessDate: date,
-            previousDate: context.previousDate || '',
-            dateDistance,
-            hotelName: '',
-            sections: [],
-            visibleSections: [],
-            canAskQuestion: false,
-            canCreatePendingApproval: false,
-            actionDisabledReason: summary,
+        if (loading) return revenueCockpitBlockedModel('正在读取服务端签发的经营驾驶舱模型', 'loading');
+        const canonical = resolveRevenueCockpitCanonicalViewModel({
+            overview,
+            hotelId: Number(overview?.hotel_id || overview?.three_source_fact_layer?.hotel?.system_hotel_id || 0),
+            businessDate,
+            platform: selectedPlatform,
         });
-        if (loading) return emptyModel('loading', '正在读取可用日期、当前事实和上一同口径日期。');
-        if (error) return emptyModel('failed', String(error));
-        if (!overview || !date || selectedOtaPlatforms.length === 0) {
-            return emptyModel('empty', context.notice || '没有找到可供驾驶舱使用的严格回读事实。');
+        if (!canonical.ok) {
+            return revenueCockpitBlockedModel(error || canonical.message);
         }
-        const factLayer = overview.three_source_fact_layer && typeof overview.three_source_fact_layer === 'object'
-            ? overview.three_source_fact_layer
-            : {};
-        const sources = factLayer.sources && typeof factLayer.sources === 'object' ? factLayer.sources : {};
-        const strictContract = overview.cockpit_strict_evidence
-            && typeof overview.cockpit_strict_evidence === 'object'
-            ? overview.cockpit_strict_evidence
-            : {};
-        const strictPlatforms = strictContract.platforms && typeof strictContract.platforms === 'object'
-            ? strictContract.platforms
-            : {};
-        if (!Object.keys(sources).length) {
-            return emptyModel('empty', '总览接口未返回三源事实层；数值保持为空。');
-        }
-        const previousFactLayer = comparisonOverview?.three_source_fact_layer && typeof comparisonOverview.three_source_fact_layer === 'object'
-            ? comparisonOverview.three_source_fact_layer
-            : {};
-        const previousSources = previousFactLayer.sources && typeof previousFactLayer.sources === 'object'
-            ? previousFactLayer.sources
-            : {};
-        const previousStrictContract = comparisonOverview?.cockpit_strict_evidence
-            && typeof comparisonOverview.cockpit_strict_evidence === 'object'
-            ? comparisonOverview.cockpit_strict_evidence
-            : {};
-        const previousStrictPlatforms = previousStrictContract.platforms
-            && typeof previousStrictContract.platforms === 'object'
-            ? previousStrictContract.platforms
-            : {};
-        const strictEvidenceForSource = (sourceKey, platformRows) => {
-            if (!String(sourceKey || '').endsWith('_ota')) return {};
-            return platformRows[String(sourceKey).replace(/_ota$/, '')] || {};
-        };
-        const sourceKeys = ['dingdandao_pms', ...selectedOtaPlatforms.map((item) => `${item}_ota`)];
-        const sourceCards = sourceKeys.map((sourceKey) => revenueCockpitSourceCard(
-            sources[sourceKey] || {},
-            sourceKey,
-            date,
-            strictEvidenceForSource(sourceKey, strictPlatforms),
-        ));
-        const coreDefinitions = {
-            dingdandao_pms: [
-                ['room_revenue', '全酒店住宿房费', 'CNY'],
-                ['sold_room_nights', '全酒店已售间夜', 'room_nights'],
-                ['occupancy_rate_percent', '全酒店入住率', 'percent'],
-                ['adr', '全酒店住宿 ADR', 'CNY'],
-                ['revpar', '全酒店住宿 RevPAR', 'CNY'],
-            ],
-            ctrip_ota: [
-                ['revenue', '携程渠道房费收入', 'CNY'],
-                ['orders', '携程渠道订单', 'orders'],
-                ['room_nights', '携程渠道间夜', 'room_nights'],
-                ['adr', '携程渠道 ADR', 'CNY'],
-            ],
-            meituan_ota: [
-                ['revenue', '美团渠道房费收入', 'CNY'],
-                ['orders', '美团渠道订单', 'orders'],
-                ['room_nights', '美团渠道间夜', 'room_nights'],
-                ['adr', '美团渠道 ADR', 'CNY'],
-            ],
-        };
-        const trafficDefinitions = [
-            ['list_exposure', '列表曝光', 'exposures'],
-            ['detail_exposure', '详情曝光', 'exposures'],
-            ['flow_rate_percent', '进店转化率', 'percent'],
-            ['submit_rate_percent', '提交转化率', 'percent'],
-            ['cancellation_rate_percent', '取消率', 'percent'],
-        ];
-        const coreCards = sourceKeys.flatMap((sourceKey) => (coreDefinitions[sourceKey] || []).map(
-            ([metricKey, label, unit]) => revenueCockpitMetricCard({
-                source: sources[sourceKey] || {},
-                sourceKey,
-                metricKey,
-                label,
-                unit,
-                businessDate: date,
-                strictEvidence: strictEvidenceForSource(sourceKey, strictPlatforms),
-            }),
-        ));
-        const trafficCards = selectedOtaPlatforms.flatMap((otaPlatform) => {
-            const sourceKey = `${otaPlatform}_ota`;
-            return trafficDefinitions.map(([metricKey, baseLabel, unit]) => revenueCockpitMetricCard({
-                source: sources[sourceKey] || {},
-                sourceKey,
-                metricKey,
-                label: `${revenueCockpitPlatformLabel(otaPlatform)}${baseLabel}`,
-                unit,
-                businessDate: date,
-                strictEvidence: strictEvidenceForSource(sourceKey, strictPlatforms),
-            }));
-        });
-        const previousCoreCards = sourceKeys.flatMap((sourceKey) => (coreDefinitions[sourceKey] || []).map(
-            ([metricKey, label, unit]) => revenueCockpitMetricCard({
-                source: previousSources[sourceKey] || {},
-                sourceKey,
-                metricKey,
-                label,
-                unit,
-                businessDate: context.previousDate || comparisonOverview?.business_date || '',
-                strictEvidence: strictEvidenceForSource(sourceKey, previousStrictPlatforms),
-            }),
-        ));
-        const previousByKey = new Map(previousCoreCards.map((card) => [card.key, card]));
-        const comparisonCards = coreCards.map((card) => revenueCockpitComparisonCard(
-            card,
-            previousByKey.get(card.key),
-            context.previousDate || comparisonOverview?.business_date || '',
-        ));
-
-        const rawGaps = (Array.isArray(factLayer.analysis_gaps) ? factLayer.analysis_gaps : [])
-            .filter((gap) => gap && typeof gap === 'object');
-        const anomalyCards = [];
-        rawGaps.forEach((gap, index) => {
-            const code = String(gap.code || `fact_gap_${index + 1}`);
-            anomalyCards.push(revenueCockpitTextCard({
-                key: `anomaly:${code}:${String(gap.source || index)}`,
-                kind: 'anomaly',
-                label: '事实异常 / 阻断',
-                display: String(gap.display_reason || gap.message || revenueAiReasonText(code)),
-                sourceKey: String(gap.source || 'cockpit_rule'),
-                businessDate: date,
-                status: String(gap.status || 'partial'),
-                reasonCode: code,
-                reasonText: String(gap.next_action || revenueAiReasonText(code)),
-                evidenceLines: [
-                    `异常代码：${code}`,
-                    `来源：${String(gap.source || '三源事实层')}`,
-                    `业务日期：${date}`,
-                    `处理建议：${String(gap.next_action || '补齐同店同日事实并重新回读。')}`,
-                ],
-            }));
-        });
-        selectedOtaPlatforms.forEach((otaPlatform) => {
-            const prefix = `${otaPlatform}_ota`;
-            const cards = Object.fromEntries(coreCards
-                .filter((card) => card.sourceKey === prefix)
-                .map((card) => [card.key.split(':')[1], card]));
-            if (cards.revenue?.value > 0 && cards.orders?.value === 0) {
-                anomalyCards.push(revenueCockpitTextCard({
-                    key: `anomaly:${otaPlatform}:revenue_positive_orders_zero`,
-                    kind: 'anomaly',
-                    label: `${revenueCockpitPlatformLabel(otaPlatform)}收入与订单矛盾`,
-                    display: revenueAiReasonText('revenue_positive_orders_zero'),
-                    sourceKey: prefix,
-                    businessDate: date,
-                    status: 'partial',
-                    reasonCode: 'revenue_positive_orders_zero',
-                }));
-            }
-            if (cards.revenue?.value > 0 && cards.room_nights?.value === 0) {
-                anomalyCards.push(revenueCockpitTextCard({
-                    key: `anomaly:${otaPlatform}:revenue_positive_room_nights_zero`,
-                    kind: 'anomaly',
-                    label: `${revenueCockpitPlatformLabel(otaPlatform)}收入与间夜矛盾`,
-                    display: revenueAiReasonText('revenue_positive_room_nights_zero'),
-                    sourceKey: prefix,
-                    businessDate: date,
-                    status: 'partial',
-                    reasonCode: 'revenue_positive_room_nights_zero',
-                }));
-            }
-        });
-        if (!anomalyCards.length) {
-            anomalyCards.push(revenueCockpitTextCard({
-                key: 'anomaly:none_verified',
-                kind: 'anomaly',
-                label: '异常判断',
-                display: '当前已验证事实未命中可判定异常',
-                businessDate: date,
-                status: 'verified',
-                reasonText: '这不代表经营一定正常，只代表当前已回读字段未命中确定性异常规则。',
-            }));
-        }
-
-        const missingMetricCards = [...sourceCards, ...coreCards, ...trafficCards]
-            .filter((card) => card.missingState !== '有值' && card.missingState !== '完整');
-        const gapCards = [];
-        const seenGapKeys = new Set();
-        missingMetricCards.forEach((card) => {
-            const key = `gap:${card.key}`;
-            if (seenGapKeys.has(key)) return;
-            seenGapKeys.add(key);
-            gapCards.push(revenueCockpitTextCard({
-                key,
-                kind: 'gap',
-                label: `${card.label}缺口`,
-                display: card.reasonText || '该卡片缺少同店同日严格回读事实。',
-                sourceKey: card.sourceKey,
-                businessDate: date,
-                status: card.status,
-                reasonCode: card.reasonCode,
-                reasonText: '补齐相同酒店、来源与业务日的保存记录并完成精确回读；不使用 0、旧日或其他来源代替。',
-                evidenceLines: card.evidenceLines,
-            }));
-        });
-        rawGaps.forEach((gap, index) => {
-            const code = String(gap.code || `fact_gap_${index + 1}`);
-            const key = `gap:fact-layer:${code}:${String(gap.source || index)}`;
-            if (seenGapKeys.has(key)) return;
-            seenGapKeys.add(key);
-            gapCards.push(revenueCockpitTextCard({
-                key,
-                kind: 'gap',
-                label: String(gap.category || '三源事实缺口'),
-                display: String(gap.display_reason || gap.message || revenueAiReasonText(code)),
-                sourceKey: String(gap.source || 'cockpit_rule'),
-                businessDate: date,
-                status: String(gap.status || 'partial'),
-                reasonCode: code,
-                reasonText: String(gap.next_action || '补齐同店同日来源并完成严格回读。'),
-            }));
-        });
-        if (!gapCards.length) {
-            gapCards.push(revenueCockpitTextCard({
-                key: 'gap:none',
-                kind: 'gap',
-                label: '数据缺口',
-                display: '当前可见卡片未发现缺失或未验证字段',
-                businessDate: date,
-                status: 'verified',
-                reasonText: '仅代表当前筛选范围和可见字段，不扩大为其他平台或全酒店完整性结论。',
-            }));
-        }
-
-        const actionCards = [];
-        if (dateDistance !== null && dateDistance > 0) {
-            actionCards.push(revenueCockpitTextCard({
-                key: 'action:refresh-current-date',
-                kind: 'action',
-                label: '优先补齐今天的数据',
-                display: `当前最近严格可用日为 ${date}，比今天早 ${dateDistance} 天；先复核今天是否已采集、保存并严格回读。`,
-                businessDate: date,
-                status: 'partial',
-                reasonText: '入口只提示补数，不自动启动采集。',
-            }));
-        }
-        rawGaps.slice(0, 4).forEach((gap, index) => {
-            const code = String(gap.code || `fact_gap_${index + 1}`);
-            actionCards.push(revenueCockpitTextCard({
-                key: `action:${code}:${index}`,
-                kind: 'action',
-                label: `处理 ${String(gap.category || gap.source || '数据缺口')}`,
-                display: String(gap.next_action || '补齐对应来源并完成同店同日保存回读。'),
-                sourceKey: String(gap.source || 'cockpit_rule'),
-                businessDate: date,
-                status: 'partial',
-                reasonCode: code,
-                reasonText: '建议动作必须经过人工复核；本页不会自动采集、审批或执行。',
-            }));
-        });
-        if (!actionCards.length) {
-            actionCards.push(revenueCockpitTextCard({
-                key: 'action:daily-review',
-                kind: 'action',
-                label: '完成当日人工复核',
-                display: '核对收入、订单、流量转化与变化后，再决定是否生成待审批行动。',
-                businessDate: date,
-                status: 'verified',
-                reasonText: '建议只读，不自动写 OTA 或创建执行任务。',
-            }));
-        }
-
-        const sections = [
-            {
-                key: 'data_completeness',
-                title: '1. 数据是否完整',
-                subtitle: '按来源独立判断；部分数据、读取失败和未验证不会显示成正常。',
-                cards: sourceCards,
-            },
-            {
-                key: 'core_metrics',
-                title: '2. 核心收入与订单指标',
-                subtitle: 'PMS 与各 OTA 独立展示；不同来源或单位禁止静默合并。',
-                cards: coreCards,
-            },
-            {
-                key: 'traffic_conversion',
-                title: '3. 渠道流量和转化',
-                subtitle: '只形成所选 OTA 渠道结论，不扩大为全酒店流量事实。',
-                cards: trafficCards,
-            },
-            {
-                key: 'comparable_change',
-                title: '4. 同口径变化',
-                subtitle: context.previousDate
-                    ? `当前 ${date} 对比上一严格可用日 ${context.previousDate}；仅同来源、同指标、同单位比较。`
-                    : '没有上一严格可用日期，所有变化保持为空。',
-                cards: comparisonCards,
-            },
-            {
-                key: 'anomaly_reasons',
-                title: '5. 异常原因',
-                subtitle: '只陈述已验证字段能支持的异常或阻断，不把缺失推断为正常。',
-                cards: anomalyCards,
-            },
-            {
-                key: 'suggested_actions',
-                title: '6. 建议动作',
-                subtitle: '建议只读，必须人工确认后才能进入待审批或执行流程。',
-                cards: actionCards,
-            },
-            {
-                key: 'data_gaps',
-                title: '7. 数据缺口',
-                subtitle: '逐项保留缺失、未验证、读取失败和无法比较状态。',
-                cards: gapCards,
-            },
-        ];
-        const requiredOtaSourcesReady = selectedOtaPlatforms.every((otaPlatform) => {
-            const strictSource = strictPlatforms[otaPlatform]
-                && typeof strictPlatforms[otaPlatform] === 'object'
-                ? strictPlatforms[otaPlatform]
-                : {};
-            const acceptedIds = Array.isArray(strictSource.accepted_row_ids)
-                ? strictSource.accepted_row_ids
-                : [];
-            return strictSource.source_strict_readback === true
-                && acceptedIds.some((id) => Number(id) > 0);
-        });
-        const completeSourceCount = sourceCards.filter((card) => card.status === 'readback_verified').length;
-        const status = completeSourceCount === sourceCards.length && missingMetricCards.length === 0
-            ? 'ready'
-            : 'partial';
-        const oldDateNotice = dateDistance === null
-            ? '与今天的差异待确认。'
-            : (dateDistance === 0
-                ? '业务日就是今天。'
-                : (dateDistance > 0
-                    ? `业务日比今天早 ${dateDistance} 天，页面展示的是最新严格可用历史事实。`
-                    : `业务日晚于今天 ${Math.abs(dateDistance)} 天，请复核日期。`));
-        return {
-            contractVersion: 'revenue_daily_cockpit.v1',
-            status,
-            statusLabel: status === 'ready' ? '数据完整可读' : '部分数据可读',
-            statusClass: revenueCockpitStatusClass(status),
-            headline: status === 'ready' ? '当前经营状态已有完整可追溯视图' : '当前经营状态可读，但仍有明确数据缺口',
-            summary: `${sourceCards.filter((card) => card.status === 'readback_verified').length}/${sourceCards.length} 个当前来源完成严格回读；缺失项保持为空。`,
-            dateNotice: `${context.notice || ''}${context.notice ? ' ' : ''}${oldDateNotice}`,
-            scopeBoundary: 'PMS 只形成全酒店住宿事实；携程/美团只形成各自 OTA 渠道结论；不同来源收入不相加。',
-            selectedPlatform: platform,
-            selectedPlatformLabel: revenueCockpitPlatformLabel(platform),
-            businessDate: date,
-            previousDate: context.previousDate || '',
-            dateDistance,
-            hotelName: String(factLayer?.hotel?.name || ''),
-            sections,
-            visibleSections: sections,
-            canAskQuestion: Number(factLayer?.hotel?.system_hotel_id || overview?.hotel_id || 0) > 0 && !!date,
-            canCreatePendingApproval: requiredOtaSourcesReady && canExecuteOperation,
-            actionDisabledReason: !canExecuteOperation
-                ? '当前账号没有该酒店的运营执行权限，不能生成待审批行动。'
-                : (requiredOtaSourcesReady
-                    ? ''
-                    : '所选 OTA 范围尚未同时返回可追溯记录ID和严格回读状态，不能生成待审批行动。'),
-        };
+        return canonical.model;
     };
-
     const buildRevenueCockpitDownloadRows = (model = {}) => {
         const sections = Array.isArray(model.visibleSections) ? model.visibleSections : [];
         let order = 0;
@@ -4508,6 +3926,11 @@
                     verification_status: String(card.statusLabel || ''),
                     scope: String(card.scopeLabel || ''),
                     missing_state: String(card.missingState || ''),
+                    opportunity_key: String(card.opportunityKey || ''),
+                    rank: Number(card.rank || 0) || '',
+                    evidence_level: String(card.evidenceLevel || ''),
+                    relationship_type: String(card.relationshipType || ''),
+                    causality_claimed: card.causalityClaimed === true ? 'true' : 'false',
                     explanation: String(card.reasonText || ''),
                     evidence: (Array.isArray(card.evidenceLines) ? card.evidenceLines : []).join('；'),
                 };
@@ -4529,6 +3952,11 @@
             ['verification_status', '验证状态'],
             ['scope', '口径'],
             ['missing_state', '缺失状态'],
+            ['opportunity_key', '机会键'],
+            ['rank', '机会顺序'],
+            ['evidence_level', '证据等级'],
+            ['relationship_type', '关系类型'],
+            ['causality_claimed', '是否因果结论'],
             ['explanation', '说明'],
             ['evidence', '证据'],
         ];
@@ -4594,15 +4022,68 @@
             return { ok: false, overview: null, message: response.message || '经营驾驶舱事实读取失败' };
         }
         const overview = response.data && typeof response.data === 'object' ? response.data : null;
+        const asOfDate = resolveRevenueOverviewAsOfDate(overview);
         const factLayer = overview?.three_source_fact_layer || {};
+        const strict = overview?.cockpit_strict_evidence || {};
+        const platform = String(expected.platform || '').toLowerCase();
+        const requiredPlatforms = platform === 'all_ota'
+            ? ['ctrip', 'meituan']
+            : (['ctrip', 'meituan'].includes(platform) ? [platform] : []);
+        const canonical = resolveRevenueCockpitCanonicalViewModel({
+            overview,
+            hotelId: expected.hotelId,
+            businessDate: expected.businessDate,
+            platform,
+        });
         if (!overview
+            || !asOfDate.ok
+            || !canonical.ok
+            || (expected.asOfDate && asOfDate.asOfDate !== String(expected.asOfDate))
+            || (expected.asOfDateContractVersion
+                && asOfDate.contractVersion !== String(expected.asOfDateContractVersion))
             || String(overview.business_date || '') !== String(expected.businessDate || '')
             || Number(overview.hotel_id || factLayer?.hotel?.system_hotel_id || 0) !== Number(expected.hotelId || 0)
             || String(factLayer.business_date || expected.businessDate || '') !== String(expected.businessDate || '')
+            || String(strict.contract_version || '') !== 'revenue_cockpit_strict_evidence.v1'
+            || Number(strict.hotel_id || 0) !== Number(expected.hotelId || 0)
+            || String(strict.business_date || '') !== String(expected.businessDate || '')
+            || String(strict.platform || '').toLowerCase() !== platform
+            || Number(strict.tenant_id || 0) <= 0
+            || requiredPlatforms.length === 0
+            || requiredPlatforms.some((item) => {
+                const source = factLayer?.sources?.[`${item}_ota`] || {};
+                const provenance = source?.source || {};
+                const strictPlatform = strict?.platforms?.[item] || {};
+                const acceptedIds = Array.isArray(strictPlatform.accepted_row_ids)
+                    ? strictPlatform.accepted_row_ids.map(Number).filter((id) => id > 0)
+                    : [];
+                const metrics = strictPlatform.metrics && typeof strictPlatform.metrics === 'object'
+                    ? strictPlatform.metrics
+                    : {};
+                const hasAcceptedStrictMetric = Object.values(metrics).some((metric) => metric
+                    && metric.strict_readback === true
+                    && Array.isArray(metric.accepted_row_ids)
+                    && metric.accepted_row_ids.some((id) => acceptedIds.includes(Number(id))));
+                return String(source.business_date || '') !== String(expected.businessDate || '')
+                    || String(source.actual_business_date || '') !== String(expected.businessDate || '')
+                    || String(provenance.platform || '') !== item
+                    || String(provenance.table || '') !== 'online_daily_data'
+                    || String(strictPlatform.business_date || '') !== String(expected.businessDate || '')
+                    || acceptedIds.length === 0
+                    || !hasAcceptedStrictMetric;
+            })
         ) {
-            return { ok: false, overview: null, message: '经营驾驶舱回读的酒店或业务日期与当前筛选不一致' };
+            return { ok: false, overview: null, message: asOfDate.ok
+                ? (canonical.message || '经营驾驶舱回读的酒店、平台、业务日期、数据基准日或严格事实合同与当前筛选不一致')
+                : asOfDate.message };
         }
-        return { ok: true, overview, message: '' };
+        return {
+            ok: true,
+            overview,
+            canonicalModel: canonical.model,
+            canonicalDigest: canonical.digest,
+            message: '',
+        };
     };
 
     const resolveRevenueCockpitScopeResponse = (response = {}, hotelId = 0) => {
@@ -4612,6 +4093,10 @@
         const payload = response.data || {};
         if (String(payload.contract_version || '') !== 'operating_question_scope_options.v1'
             || Number(payload.hotel_id || 0) !== Number(hotelId || 0)
+            || String(payload?.boundary?.strict_gate || '')
+                !== 'dual_ota_field_closure.v1:revenue_analysis_consumable'
+            || String(payload?.boundary?.fact_authority || '')
+                !== 'trusted_ota_daily_fact_consumer.v1'
             || payload?.boundary?.silent_date_fallback !== false
         ) {
             return { ok: false, payload: null, message: '严格可用日期回读身份或日期回退边界不一致' };
@@ -4628,7 +4113,6 @@
         reloadScope = false,
         resetContext = false,
         resetDate = false,
-        today = '',
         request,
         readScope,
         readOverview,
@@ -4641,7 +4125,11 @@
             const response = await request(buildRevenueCockpitOverviewEndpoint(id, date, platform), {
                 requestPolicy: { scope: 'action', force: true },
             });
-            const result = resolveRevenueCockpitOverviewResponse(response, { hotelId: id, businessDate: date });
+            const result = resolveRevenueCockpitOverviewResponse(response, {
+                hotelId: id,
+                businessDate: date,
+                platform,
+            });
             if (!result.ok) throw new Error(result.message);
             return result.overview;
         });
@@ -4657,33 +4145,306 @@
             requestedPlatform: resetContext ? '' : selectedPlatform,
             requestedDate: resetContext ? '' : selectedDate,
             resetDate,
-            today,
+            asOfDate: '',
         });
         if (!selection.selectedPlatform || !selection.selectedDate) {
-            return { status: 'empty', scopePayload: nextScope, selection, overview: null, comparisonOverview: null };
+            return {
+                status: 'empty',
+                scopePayload: nextScope,
+                selection,
+                overview: null,
+                comparisonOverview: null,
+                sameWeekdayOverview: null,
+            };
         }
-        const [overview, comparisonOverview] = await Promise.all([
+        const [overview, comparisonOverview, sameWeekdayOverview] = await Promise.all([
             overviewReader(hotelId, selection.selectedDate, selection.selectedPlatform),
             selection.previousDate
-                ? overviewReader(hotelId, selection.previousDate, selection.selectedPlatform).catch(() => null)
+                ? overviewReader(hotelId, selection.previousDate, selection.selectedPlatform)
                 : Promise.resolve(null),
+            selection.sameWeekdayDate && selection.sameWeekdayDate !== selection.previousDate
+                ? overviewReader(hotelId, selection.sameWeekdayDate, selection.selectedPlatform)
+                : (selection.sameWeekdayDate && selection.sameWeekdayDate === selection.previousDate
+                    ? Promise.resolve('__reuse_previous__')
+                    : Promise.resolve(null)),
         ]);
         if (!isCurrent()) return { status: 'superseded' };
+        const currentAsOfDate = resolveRevenueOverviewAsOfDate(overview);
+        const comparisonOverviews = [comparisonOverview, sameWeekdayOverview]
+            .filter(item => item && item !== '__reuse_previous__');
+        if (!currentAsOfDate.ok || comparisonOverviews.some((item) => {
+            const candidate = resolveRevenueOverviewAsOfDate(item);
+            return !candidate.ok
+                || candidate.asOfDate !== currentAsOfDate.asOfDate
+                || candidate.contractVersion !== currentAsOfDate.contractVersion;
+        })) {
+            throw new Error('经营驾驶舱当前与对比总览的数据基准日合同不一致');
+        }
         return {
             status: overview ? 'ready' : 'empty',
             scopePayload: nextScope,
             selection,
             overview,
             comparisonOverview,
+            sameWeekdayOverview: sameWeekdayOverview === '__reuse_previous__'
+                ? comparisonOverview
+                : sameWeekdayOverview,
+        };
+    };
+
+    const revenueDecisionSnapshotParams = (model = {}, hotelId = 0, snapshotId = 0) => {
+        const params = new URLSearchParams({
+            hotel_id: String(Number(hotelId || model.hotelId || 0)),
+            business_date: String(model.businessDate || ''),
+            platform: String(model.selectedPlatform || ''),
+            as_of_date: String(model.asOfDate || ''),
+            as_of_date_contract_version: String(model.asOfDateContractVersion || ''),
+        });
+        if (Number(snapshotId || 0) > 0) params.set('snapshot_id', String(Number(snapshotId)));
+        return params;
+    };
+
+    const resolveRevenueDecisionSnapshot = (payload = {}, expected = {}) => {
+        const wrapper = payload && typeof payload === 'object' ? payload : {};
+        if (wrapper.found === false) {
+            return String(wrapper.persistence_status || '') === 'not_saved'
+                ? { ok: true, status: 'not_saved', snapshot: null, message: '当前范围尚未保存收益决策快照' }
+                : { ok: false, status: 'invalid', snapshot: null, message: '快照未保存状态缺少完整回读凭证' };
+        }
+        const snapshot = wrapper.snapshot && typeof wrapper.snapshot === 'object'
+            ? wrapper.snapshot
+            : wrapper;
+        const model = snapshot.visible_model && typeof snapshot.visible_model === 'object'
+            ? snapshot.visible_model
+            : {};
+        const digestsValid = ['visible_model_digest', 'evidence_digest', 'content_digest'].every(
+            (key) => /^[a-f0-9]{64}$/.test(String(snapshot[key] || '')),
+        );
+        const opportunities = Array.isArray(model.opportunities) ? model.opportunities : [];
+        if (Number(snapshot.id || 0) <= 0
+            || String(snapshot.contract_version || '') !== 'revenue_decision_snapshot.v1'
+            || String(snapshot.persistence_status || wrapper.persistence_status || '') !== 'readback_verified'
+            || !digestsValid
+            || String(model.contractVersion || '') !== 'revenue_daily_cockpit.v2'
+            || Number(snapshot.system_hotel_id || 0) !== Number(expected.hotelId || model.hotelId || 0)
+            || Number(model.hotelId || 0) !== Number(snapshot.system_hotel_id || 0)
+            || String(snapshot.platform || '') !== String(expected.platform || model.selectedPlatform || '')
+            || String(model.selectedPlatform || '') !== String(snapshot.platform || '')
+            || String(snapshot.business_date || '') !== String(expected.businessDate || model.businessDate || '')
+            || String(model.businessDate || '') !== String(snapshot.business_date || '')
+            || String(snapshot.as_of_date || '') !== String(expected.asOfDate || model.asOfDate || '')
+            || String(model.asOfDate || '') !== String(snapshot.as_of_date || '')
+            || String(snapshot.as_of_date_contract_version || '') !== String(expected.asOfDateContractVersion || model.asOfDateContractVersion || '')
+            || String(model.asOfDateContractVersion || '') !== String(snapshot.as_of_date_contract_version || '')
+            || (expected.visibleModelDigest
+                && String(snapshot.visible_model_digest || '') !== String(expected.visibleModelDigest))
+            || opportunities.length !== 8
+            || new Set(opportunities.map((item) => String(item?.opportunityKey || ''))).size !== 8
+        ) {
+            return { ok: false, status: 'invalid', snapshot: null, message: '收益决策快照身份、摘要或八类机会合同不一致' };
+        }
+        if (Number(expected.snapshotId || 0) > 0
+            && Number(snapshot.id) !== Number(expected.snapshotId)
+        ) {
+            return { ok: false, status: 'invalid', snapshot: null, message: '收益决策快照 ID 回读不一致' };
+        }
+        return {
+            ok: true,
+            status: String(snapshot.evidence_identity_status || 'not_checked'),
+            snapshot,
+            message: String(snapshot.evidence_identity_status || '') === 'stale_current_evidence'
+                ? `快照 #${snapshot.id} 已精确回读，但当前事实证据身份已变化`
+                : `快照 #${snapshot.id} 已按同一内容与证据身份精确回读`,
+        };
+    };
+
+    const saveRevenueDecisionSnapshotWithReadback = async ({
+        request,
+        model = {},
+        modelDigest = '',
+        hotelId = 0,
+    } = {}) => {
+        const normalizedHotelId = Number(hotelId || model.hotelId || 0);
+        const normalizedModelDigest = String(modelDigest || '').trim().toLowerCase();
+        if (typeof request !== 'function'
+            || !model.canSaveSnapshot
+            || !normalizedHotelId
+            || String(model.contractVersion || '') !== 'revenue_daily_cockpit.v2'
+            || !/^[a-f0-9]{64}$/.test(normalizedModelDigest)
+            || !model.businessDate
+            || !revenueAiIsoDate(model.asOfDate)
+            || String(model.asOfDateContractVersion || '') !== REVENUE_OVERVIEW_AS_OF_DATE_CONTRACT_VERSION
+            || !['ctrip', 'meituan', 'all_ota'].includes(String(model.selectedPlatform || ''))
+        ) {
+            return { ok: false, snapshot: null, message: model.actionDisabledReason || '当前严格事实不足，不能保存收益决策快照' };
+        }
+        const saved = await request('/revenue-ai/cockpit/decision-snapshots', {
+            method: 'POST',
+            body: JSON.stringify({
+                hotel_id: normalizedHotelId,
+                business_date: model.businessDate,
+                platform: model.selectedPlatform,
+                as_of_date: model.asOfDate,
+                as_of_date_contract_version: model.asOfDateContractVersion,
+                visible_model: model,
+                visible_model_digest: normalizedModelDigest,
+            }),
+        });
+        if (Number(saved?.code || 0) !== 200) throw new Error(saved?.message || '收益决策快照保存失败');
+        const savedResult = resolveRevenueDecisionSnapshot(saved.data, {
+            hotelId: normalizedHotelId,
+            businessDate: model.businessDate,
+            platform: model.selectedPlatform,
+            asOfDate: model.asOfDate,
+            asOfDateContractVersion: model.asOfDateContractVersion,
+            visibleModelDigest: normalizedModelDigest,
+        });
+        if (!savedResult.ok || !savedResult.snapshot) throw new Error(savedResult.message);
+        const params = revenueDecisionSnapshotParams(model, normalizedHotelId, savedResult.snapshot.id);
+        const readback = await request(`/revenue-ai/cockpit/decision-snapshots?${params.toString()}`, {
+            requestPolicy: { scope: 'action', force: true },
+        });
+        if (Number(readback?.code || 0) !== 200) throw new Error(readback?.message || '收益决策快照精确回读失败');
+        const exact = resolveRevenueDecisionSnapshot(readback.data, {
+            snapshotId: savedResult.snapshot.id,
+            hotelId: normalizedHotelId,
+            businessDate: model.businessDate,
+            platform: model.selectedPlatform,
+            asOfDate: model.asOfDate,
+            asOfDateContractVersion: model.asOfDateContractVersion,
+            visibleModelDigest: normalizedModelDigest,
+        });
+        if (!exact.ok || !exact.snapshot
+            || exact.snapshot.content_digest !== savedResult.snapshot.content_digest
+            || exact.snapshot.evidence_digest !== savedResult.snapshot.evidence_digest
+            || exact.snapshot.visible_model_digest !== savedResult.snapshot.visible_model_digest
+        ) {
+            throw new Error(exact.message || '收益决策快照保存与回读摘要不一致');
+        }
+        return { ok: true, status: exact.status, snapshot: exact.snapshot, message: exact.message };
+    };
+
+    const restoreRevenueDecisionSnapshotWithReadback = async ({ request, model = {}, hotelId = 0 } = {}) => {
+        const normalizedHotelId = Number(hotelId || model.hotelId || 0);
+        if (typeof request !== 'function'
+            || !normalizedHotelId
+            || !model.businessDate
+            || !revenueAiIsoDate(model.asOfDate)
+            || String(model.asOfDateContractVersion || '') !== REVENUE_OVERVIEW_AS_OF_DATE_CONTRACT_VERSION
+            || !['ctrip', 'meituan', 'all_ota'].includes(String(model.selectedPlatform || ''))
+        ) {
+            return { ok: false, status: 'invalid', snapshot: null, message: '当前范围不完整，无法恢复收益决策快照' };
+        }
+        const params = revenueDecisionSnapshotParams(model, normalizedHotelId);
+        const response = await request(`/revenue-ai/cockpit/decision-snapshots?${params.toString()}`, {
+            requestPolicy: { scope: 'action', force: true },
+        });
+        if (Number(response?.code || 0) !== 200) throw new Error(response?.message || '收益决策快照恢复失败');
+        return resolveRevenueDecisionSnapshot(response.data, {
+            hotelId: normalizedHotelId,
+            businessDate: model.businessDate,
+            platform: model.selectedPlatform,
+            asOfDate: model.asOfDate,
+            asOfDateContractVersion: model.asOfDateContractVersion,
+        });
+    };
+
+    const createRevenueOpportunityPendingApprovalWithReadback = async ({
+        request,
+        snapshot = null,
+        opportunityKey = '',
+    } = {}) => {
+        const stored = snapshot && typeof snapshot === 'object' ? snapshot : {};
+        const model = stored.visible_model && typeof stored.visible_model === 'object'
+            ? stored.visible_model
+            : {};
+        const opportunity = (Array.isArray(model.opportunities) ? model.opportunities : []).find(
+            (item) => String(item?.opportunityKey || '') === String(opportunityKey || ''),
+        );
+        if (typeof request !== 'function'
+            || Number(stored.id || 0) <= 0
+            || !opportunity
+            || opportunity.canCreatePendingApproval !== true
+            || String(stored.evidence_identity_status || '') !== 'matched_current'
+        ) {
+            return { ok: false, intent: null, message: '请先保存并精确回读当前证据身份，再选择一条可送审建议' };
+        }
+        const response = await request(`/revenue-ai/cockpit/decision-snapshots/${Number(stored.id)}/pending-approval`, {
+            method: 'POST',
+            body: JSON.stringify({
+                hotel_id: Number(stored.system_hotel_id),
+                business_date: String(stored.business_date),
+                platform: String(stored.platform),
+                opportunity_key: String(opportunity.opportunityKey),
+            }),
+        });
+        if (Number(response?.code || 0) !== 200) throw new Error(response?.message || '经营机会送审失败');
+        const payload = response.data || {};
+        const savedResult = resolveRevenueCockpitPendingApprovalSave(payload);
+        const recommendation = payload.opportunity || {};
+        if (!savedResult.ok
+            || savedResult.status !== 'pending_approval'
+            || savedResult.taskCount !== 0
+            || Number(payload?.snapshot?.id || 0) !== Number(stored.id)
+            || String(payload?.snapshot?.content_digest || '') !== String(stored.content_digest || '')
+            || String(recommendation.opportunity_key || '') !== String(opportunity.opportunityKey)
+            || !/^[a-f0-9]{64}$/.test(String(recommendation.recommendation_digest || ''))
+        ) {
+            throw new Error(savedResult.message || '经营机会与收益决策快照绑定不一致');
+        }
+        const readback = await request(`/operation/execution-intents/${savedResult.intentId}`);
+        if (Number(readback?.code || 0) !== 200) throw new Error(readback?.message || '待审批行动精确回读失败');
+        const exact = resolveRevenueCockpitPendingApprovalReadback(readback.data, {
+            intentId: savedResult.intentId,
+            tenantId: Number(stored.tenant_id),
+            hotelId: Number(stored.system_hotel_id),
+            platform: String(stored.platform),
+            businessDate: String(stored.business_date),
+            objectType: 'operation_checklist',
+            actionType: 'human_reviewed_operating_check',
+            requirePending: true,
+            status: 'pending_approval',
+            taskCount: 0,
+            sourceModule: 'revenue_cockpit_action',
+            decisionContext: {
+                snapshotId: Number(stored.id),
+                snapshotDigest: String(stored.content_digest || ''),
+                opportunityKey: String(opportunity.opportunityKey),
+                opportunityDigest: String(recommendation.recommendation_digest || ''),
+            },
+        });
+        const actionCard = exact.intent?.target_value?.action_card || exact.intent?.evidence?.action_card || {};
+        if (!exact.ok
+            || String(actionCard.contract_version || '') !== 'operation_action_card.v1'
+            || !/^[a-f0-9]{64}$/.test(String(actionCard.content_digest || ''))
+            || String(actionCard?.metric_contract?.target_type || '') !== 'observation'
+            || String(actionCard?.action?.title || '') !== String(recommendation.title || '')
+            || String(actionCard?.action?.description || '') !== String(recommendation.action_text || '')
+        ) {
+            throw new Error(exact.message || '经营机会没有精确回读同一受管行动生命周期');
+        }
+        return {
+            ok: true,
+            intent: exact.intent,
+            opportunity,
+            message: `${opportunity.title}已转为 pending_approval；未审批、未调价、未写 OTA`,
         };
     };
 
     const resolveRevenueCockpitPendingApprovalSave = (payload = {}) => {
         const savedIntent = payload?.execution_intent || {};
         const intentId = Number(savedIntent.id || 0);
+        const tasks = savedIntent.tasks;
+        const status = String(payload?.status || savedIntent.status || '');
+        const taskCount = Number(payload?.execution_task_count ?? (Array.isArray(tasks) ? tasks.length : -1));
         if (!intentId
-            || String(payload?.status || '') !== 'pending_approval'
+            || status !== 'pending_approval'
+            || String(savedIntent.status || '') !== 'pending_approval'
             || String(payload?.persistence_status || '') !== 'readback_verified'
+            || !Array.isArray(tasks)
+            || !Number.isInteger(taskCount)
+            || taskCount !== 0
+            || tasks.length !== taskCount
             || payload?.execution_task_created !== false
             || payload?.external_action_triggered !== false
         ) {
@@ -4692,52 +4453,223 @@
         return {
             ok: true,
             intentId,
-            message: payload?.reused_existing_intent
-                ? `已精确回读现有待审批行动 #${intentId}`
-                : `待审批行动 #${intentId} 已生成；未创建执行任务，也未写 OTA`,
+            status,
+            taskCount,
+            reused: payload?.reused_existing_intent === true,
+            message: `待审批行动 #${intentId} 已精确回读；未创建执行任务，也未写 OTA`,
         };
     };
 
     const resolveRevenueCockpitPendingApprovalReadback = (intent = {}, expected = {}) => {
-        const tasks = Array.isArray(intent.tasks) ? intent.tasks : [];
+        if (!Array.isArray(intent.tasks)) {
+            return { ok: false, intent: null, message: '运营行动回读缺少真实任务数组' };
+        }
+        const tasks = intent.tasks;
+        const allowedSources = ['revenue_cockpit_action', 'operating_question', 'operating_loop_approval'];
+        const requirePending = expected.requirePending !== false;
+        const expectedStatus = String(expected.status || '');
+        const expectedTaskCount = Number(expected.taskCount);
+        const actionCard = intent?.target_value?.action_card || intent?.evidence?.action_card || {};
+        const trace = actionCard?.trace || {};
+        const decisionContext = expected?.decisionContext || null;
         if (Number(intent.id || 0) !== Number(expected.intentId || 0)
+            || Number(intent.tenant_id || 0) <= 0
+            || (Number(expected.tenantId || 0) > 0
+                && Number(intent.tenant_id || 0) !== Number(expected.tenantId || 0))
             || Number(intent.hotel_id || 0) !== Number(expected.hotelId || 0)
-            || String(intent.source_module || '') !== 'operating_loop_approval'
+            || !['ctrip', 'meituan', 'all_ota'].includes(String(intent.platform || ''))
+            || (expected.platform && String(intent.platform || '') !== String(expected.platform))
+            || !allowedSources.includes(String(intent.source_module || ''))
+            || (expected.sourceModule && String(intent.source_module || '') !== String(expected.sourceModule))
+            || String(intent.object_type || '') !== String(expected.objectType || 'operation_checklist')
+            || String(intent.action_type || '') !== String(expected.actionType || 'human_reviewed_operating_check')
             || String(intent.date_start || '') !== String(expected.businessDate || '')
             || String(intent.date_end || '') !== String(expected.businessDate || '')
-            || String(intent.status || '') !== 'pending_approval'
-            || tasks.length !== 0
+            || !String(intent.status || '')
+            || (requirePending && String(intent.status || '') !== 'pending_approval')
+            || (requirePending && tasks.length !== 0)
+            || (!requirePending && expectedStatus && String(intent.status || '') !== expectedStatus)
+            || (!requirePending && Number.isInteger(expectedTaskCount) && expectedTaskCount >= 0
+                && tasks.length !== expectedTaskCount)
+            || !revenueCockpitTaskCardinalityIsValid(String(intent.status || ''), tasks)
+            || String(actionCard.contract_version || '') !== 'operation_action_card.v1'
+            || !/^[a-f0-9]{64}$/.test(String(actionCard.content_digest || ''))
+            || (decisionContext && (
+                Number(trace.decision_snapshot_id || 0) !== Number(decisionContext.snapshotId || 0)
+                || String(trace.decision_snapshot_digest || '') !== String(decisionContext.snapshotDigest || '')
+                || String(trace.opportunity_key || '') !== String(decisionContext.opportunityKey || '')
+                || String(trace.opportunity_digest || '') !== String(decisionContext.opportunityDigest || '')
+            ))
+            || (Array.isArray(expected.taskSignatures)
+                && JSON.stringify(tasks.map(task => ({
+                    id: Number(task?.id || 0),
+                    status: String(task?.status || ''),
+                    result_status: String(task?.result_status || ''),
+                })).sort((left, right) => left.id - right.id)) !== JSON.stringify(expected.taskSignatures))
         ) {
             return { ok: false, intent: null, message: '待审批行动保存与精确回读身份不一致' };
         }
         return { ok: true, intent, message: '' };
     };
 
-    const createRevenueCockpitPendingApprovalWithReadback = async ({ request, model = {}, hotelId = 0 } = {}) => {
-        const normalizedHotelId = Number(hotelId || 0);
-        if (!model.canCreatePendingApproval || !normalizedHotelId || !model.businessDate || !model.selectedPlatform) {
-            return { ok: false, intent: null, message: model.actionDisabledReason || '当前严格证据不足，不能生成待审批行动' };
+    const revenueCockpitTaskCardinalityIsValid = (intentStatus = '', tasks = []) => {
+        if (!Array.isArray(tasks) || tasks.some(task => !Number.isInteger(Number(task?.id || 0)) || Number(task.id) <= 0)) {
+            return false;
         }
-        const saved = await request('/revenue-ai/cockpit/pending-approval', {
-            method: 'POST',
-            body: JSON.stringify({
-                hotel_id: normalizedHotelId,
-                business_date: model.businessDate,
-                platform: model.selectedPlatform,
-            }),
+        const status = String(intentStatus || '').trim().toLowerCase();
+        if (['draft', 'pending_approval'].includes(status)) return tasks.length === 0;
+        if (status === 'approved') return tasks.length === 1;
+        if (['cancelled', 'rejected'].includes(status)) return tasks.length <= 1;
+        return false;
+    };
+
+    const restoreRevenueCockpitPendingApprovalWithReadback = async ({
+        request,
+        model = {},
+        hotelId = 0,
+        snapshot = null,
+    } = {}) => {
+        const normalizedHotelId = Number(hotelId || 0);
+        const tenantId = Number(model.tenantId || 0);
+        const businessDate = String(model.businessDate || '').trim();
+        const platform = String(model.selectedPlatform || '').trim().toLowerCase();
+        if (typeof request !== 'function'
+            || !normalizedHotelId
+            || !tenantId
+            || !businessDate
+            || !['ctrip', 'meituan', 'all_ota'].includes(platform)
+        ) {
+            return { ok: false, intent: null, message: '当前经营驾驶舱范围不完整，无法恢复已保存行动' };
+        }
+        const params = new URLSearchParams({
+            hotel_id: String(normalizedHotelId),
+            business_date: businessDate,
+            platform,
         });
-        if (Number(saved.code || 0) !== 200) throw new Error(saved.message || '待审批行动生成失败');
-        const savedResult = resolveRevenueCockpitPendingApprovalSave(saved.data);
-        if (!savedResult.ok) throw new Error(savedResult.message);
-        const readback = await request(`/operation/execution-intents/${savedResult.intentId}`);
-        if (Number(readback.code || 0) !== 200) throw new Error(readback.message || '待审批行动精确回读失败');
-        const exactResult = resolveRevenueCockpitPendingApprovalReadback(readback.data, {
-            intentId: savedResult.intentId,
-            hotelId: normalizedHotelId,
-            businessDate: model.businessDate,
-        });
-        if (!exactResult.ok) throw new Error(exactResult.message);
-        return { ok: true, intent: exactResult.intent, message: savedResult.message };
+        const restored = await request(`/revenue-ai/cockpit/pending-approval?${params.toString()}`);
+        if (Number(restored?.code || 0) !== 200) {
+            throw new Error(restored?.message || '已保存运营行动恢复失败');
+        }
+        const payload = restored?.data || {};
+        const scope = payload?.cockpit_scope || {};
+        if (Number(scope.hotel_id || 0) !== normalizedHotelId
+            || Number(scope.tenant_id || 0) !== tenantId
+            || String(scope.business_date || '') !== businessDate
+            || String(scope.platform || '') !== platform
+        ) {
+            throw new Error('已保存运营行动恢复范围与当前驾驶舱不一致');
+        }
+        if (payload?.found === false) {
+            if (String(payload?.status || '') !== 'not_saved'
+                || String(payload?.persistence_status || '') !== 'not_saved'
+                || payload?.execution_intent !== null
+                || (Array.isArray(payload?.execution_intents) && payload.execution_intents.length !== 0)
+                || Number(payload?.execution_task_count || 0) !== 0
+            ) {
+                throw new Error('未保存状态缺少完整的只读回读凭证');
+            }
+            return {
+                ok: true,
+                status: 'not_saved',
+                intent: null,
+                message: '当前事实范围尚未保存运营行动',
+            };
+        }
+
+        const scopedIntents = Array.isArray(payload?.execution_intents)
+            ? payload.execution_intents
+            : [payload?.execution_intent || {}];
+        const scopedIntent = payload?.execution_intent || scopedIntents[0] || {};
+        const intentId = Number(scopedIntent.id || 0);
+        const taskCount = Number(payload?.execution_task_count);
+        const intentCount = Number(payload?.execution_intent_count ?? scopedIntents.length);
+        const scopedIntentIds = scopedIntents.map(intent => Number(intent?.id || 0));
+        if (payload?.found !== true
+            || String(payload?.persistence_status || '') !== 'readback_verified'
+            || !intentId
+            || !Array.isArray(scopedIntents)
+            || scopedIntents.length < 1
+            || !Number.isInteger(intentCount)
+            || intentCount !== scopedIntents.length
+            || scopedIntentIds.some(id => id <= 0)
+            || new Set(scopedIntentIds).size !== scopedIntentIds.length
+            || Number(scopedIntents[0]?.id || 0) !== intentId
+            || !Number.isInteger(taskCount)
+            || taskCount < 0
+            || !Array.isArray(scopedIntent.tasks)
+            || scopedIntent.tasks.length !== taskCount
+            || String(scopedIntent.status || '') !== String(payload?.status || '')
+            || !revenueCockpitTaskCardinalityIsValid(String(scopedIntent.status || ''), scopedIntent.tasks)
+        ) {
+            throw new Error('已保存运营行动未返回完整的范围回读凭证');
+        }
+
+        const exactIntents = await Promise.all(scopedIntents.map(async (candidate, index) => {
+            if (!Array.isArray(candidate?.tasks) || !String(candidate?.status || '')) {
+                throw new Error('已保存运营行动列表缺少真实状态或任务数组');
+            }
+            if (!revenueCockpitTaskCardinalityIsValid(String(candidate.status || ''), candidate.tasks)) {
+                throw new Error('已保存运营行动任务基数与生命周期状态不一致');
+            }
+            const candidateId = Number(candidate.id || 0);
+            const readback = await request(`/operation/execution-intents/${candidateId}`);
+            if (Number(readback?.code || 0) !== 200) {
+                throw new Error(readback?.message || '已保存运营行动精确回读失败');
+            }
+            const exactResult = resolveRevenueCockpitPendingApprovalReadback(readback.data, {
+                intentId: candidateId,
+                tenantId,
+                hotelId: normalizedHotelId,
+                platform,
+                businessDate,
+                objectType: 'operation_checklist',
+                actionType: 'human_reviewed_operating_check',
+                requirePending: false,
+                status: String(candidate.status || ''),
+                taskCount: candidate.tasks.length,
+                taskSignatures: candidate.tasks.map(task => ({
+                    id: Number(task?.id || 0),
+                    status: String(task?.status || ''),
+                    result_status: String(task?.result_status || ''),
+                })).sort((left, right) => left.id - right.id),
+            });
+            if (!exactResult.ok) throw new Error(exactResult.message);
+            const actionCard = exactResult.intent?.target_value?.action_card
+                || exactResult.intent?.evidence?.action_card
+                || {};
+            const trace = actionCard?.trace || {};
+            const opportunityKey = String(trace.opportunity_key || '').trim();
+            if (opportunityKey) {
+                const storedSnapshot = snapshot && typeof snapshot === 'object' ? snapshot : {};
+                const storedModel = storedSnapshot.visible_model && typeof storedSnapshot.visible_model === 'object'
+                    ? storedSnapshot.visible_model
+                    : {};
+                const opportunity = (Array.isArray(storedModel.opportunities) ? storedModel.opportunities : []).find(
+                    item => String(item?.opportunityKey || '') === opportunityKey,
+                );
+                if (!opportunity
+                    || String(storedSnapshot.evidence_identity_status || '') !== 'matched_current'
+                    || Number(trace.decision_snapshot_id || 0) !== Number(storedSnapshot.id || 0)
+                    || String(trace.decision_snapshot_digest || '') !== String(storedSnapshot.content_digest || '')
+                    || !/^[a-f0-9]{64}$/.test(String(trace.opportunity_digest || ''))
+                    || String(actionCard?.action?.title || '') !== String(opportunity.title || '')
+                    || String(actionCard?.action?.description || '') !== String(opportunity.recommendedCheckAction || '')
+                ) {
+                    throw new Error('已保存经营机会与当前收益决策快照身份不一致');
+                }
+            }
+            if (index === 0 && candidate.tasks.length !== taskCount) {
+                throw new Error('主运营行动任务数与范围回读不一致');
+            }
+            return exactResult.intent;
+        }));
+        return {
+            ok: true,
+            status: 'readback_verified',
+            intent: exactIntents[0],
+            intents: exactIntents,
+            message: `已恢复 ${exactIntents.length} 个运营行动及各自真实任务状态`,
+        };
     };
 
     window.SUXI_REVENUE_AI_STATIC = Object.freeze({
@@ -4756,6 +4688,7 @@
         revenueAiMetricDefinitions,
         buildRevenueAiOverviewQuery,
         buildRevenueAiOverviewEndpoint,
+        resolveRevenueOverviewAsOfDate,
         resolveRevenueAiBusinessDate,
         resolveRevenueAiOverviewRequest,
         resolveRevenueAiOverviewResponse,
@@ -4812,6 +4745,7 @@
         normalizeMeituanCompetitionCircle,
         buildCompetitorMicroscope,
         resolveRevenueCockpitScope,
+        resolveRevenueCockpitCanonicalViewModel,
         buildRevenueCockpitModel,
         buildRevenueCockpitDownloadRows,
         buildRevenueCockpitCsv,
@@ -4821,8 +4755,13 @@
         resolveRevenueCockpitOverviewResponse,
         resolveRevenueCockpitScopeResponse,
         loadRevenueCockpitSnapshot,
+        resolveRevenueDecisionSnapshot,
+        saveRevenueDecisionSnapshotWithReadback,
+        restoreRevenueDecisionSnapshotWithReadback,
+        createRevenueOpportunityPendingApprovalWithReadback,
         resolveRevenueCockpitPendingApprovalSave,
         resolveRevenueCockpitPendingApprovalReadback,
-        createRevenueCockpitPendingApprovalWithReadback,
+        revenueCockpitTaskCardinalityIsValid,
+        restoreRevenueCockpitPendingApprovalWithReadback,
     });
 }());

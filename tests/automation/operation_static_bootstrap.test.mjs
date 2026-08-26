@@ -300,7 +300,7 @@ test('canonical analysis-only records expose no operator mutation actions', () =
   );
 });
 
-test('managed operating questions never expose the human approval action', () => {
+test('managed operating questions expose only the explicit human approval action', () => {
   const api = loadOperationStaticApi();
   const item = {
     recommendation: { source_module: 'operating_question', object_type: 'operation_checklist' },
@@ -309,8 +309,8 @@ test('managed operating questions never expose the human approval action', () =>
     execution: { mode: '', status: 'pending_create', task_id: 0 },
   };
 
-  assert.equal(api.operationCanApproveExecution(item), false);
-  assert.equal(api.operationExecutionActionAvailable(item), false);
+  assert.equal(api.operationCanApproveExecution(item), true);
+  assert.equal(api.operationExecutionActionAvailable(item), true);
 });
 
 test('revenue node record keeps one fixed scope and explicit missing-state validation', () => {
@@ -515,4 +515,26 @@ test('intervention learning exposes latest intent assessment with three-state an
       summary: '尚未登记经营干预',
     },
   );
+});
+
+test('human-reviewed questions expose approval while independent-review cards do not impersonate human approval', () => {
+  const api = loadOperationStaticApi();
+  const humanReviewedItem = {
+    recommendation: { source_module: 'operating_question', object_type: 'operation_checklist' },
+    action_management: { contract_version: 'operation_action_card.v1' },
+    approval: { status: 'pending_approval' },
+    execution: { mode: '', status: 'pending_create', task_id: 0 },
+  };
+  const independentReviewItem = {
+    ...humanReviewedItem,
+    action_management: {
+      contract_version: 'operation_action_card.v1',
+      action_card: { approval: { mode: 'ai_independent_review' } },
+    },
+  };
+
+  assert.equal(api.operationCanApproveExecution(humanReviewedItem), true);
+  assert.equal(api.operationExecutionActionAvailable(humanReviewedItem), true);
+  assert.equal(api.operationCanApproveExecution(independentReviewItem), false);
+  assert.equal(api.operationExecutionActionAvailable(independentReviewItem), false);
 });

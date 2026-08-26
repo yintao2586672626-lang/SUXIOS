@@ -97,7 +97,8 @@ final class ManualNotificationBusinessPreviewServiceTest extends TestCase
                 ],
             ],
             fn(int $tenantId, int $hotelId, string $date): array =>
-                $this->pmsForwardFixture($tenantId, $hotelId, $date)
+                $this->pmsForwardFixture($tenantId, $hotelId, $date),
+            static fn(): array => []
         ))->preview(80, '2026-07-26');
 
         self::assertSame(ManualNotificationBusinessPreviewService::CONTRACT_VERSION, $preview['contract_version']);
@@ -201,6 +202,10 @@ final class ManualNotificationBusinessPreviewServiceTest extends TestCase
         self::assertSame(21, $future['message_data']['display_day_count']);
         self::assertCount(4, $future['message_data']['horizons']);
         self::assertCount(1, $future['message_data']['room_types']);
+        self::assertSame(
+            'baseline_only',
+            $future['message_data']['forward_delta']['data_status']
+        );
         self::assertSame('forecast_available', $future['forecasts'][0]['status']);
         self::assertSame('ota_channel', $future['forecasts'][0]['scope']);
         self::assertStringContainsString('不是全酒店远期房态事实', $future['forecasts'][0]['note']);
@@ -219,6 +224,100 @@ final class ManualNotificationBusinessPreviewServiceTest extends TestCase
             $review['message_data']['snapshot_role']
         );
         self::assertSame('readback_verified', $review['message_data']['data_status']);
+    }
+
+    public function testPreviewUsesSelectedMeituanPmsForTodayAndReviewWithoutLoadingDingForward(): void
+    {
+        $this->insertReport(80, 80, '2026-07-26', 2, [
+            'revenue' => 4200,
+            'room_revenue' => 4000,
+            'total_rooms' => 20,
+            'salable_rooms' => 40,
+        ], 4200, 20, 50);
+        $forwardLoaderCalls = 0;
+        $preview = (new ManualNotificationBusinessPreviewService(
+            fn(int $hotelId, string $date): array =>
+                $this->temporalFixture($hotelId, $date),
+            fn(int $hotelId, string $date): array =>
+                $this->trustedOtaFixture($hotelId, $date),
+            static fn(): array => [
+                'platforms' => [
+                    'ctrip' => ['status' => 'readback_verified', 'task_id' => 701],
+                    'meituan' => ['status' => 'readback_verified', 'task_id' => 702],
+                ],
+            ],
+            function () use (&$forwardLoaderCalls): array {
+                $forwardLoaderCalls++;
+                return [];
+            },
+            fn(int $hotelId, string $date): array =>
+                $this->meituanRevenueFactLayerFixture($hotelId, $date)
+        ))->preview(80, '2026-07-26');
+
+        $today = $preview['sections']['today_revenue_management'];
+        $review = $preview['sections']['daily_review'];
+        self::assertSame(0, $forwardLoaderCalls);
+        self::assertSame(
+            'meituan_cloud_pms',
+            $today['message_data']['pms_binding']['effective_provider']
+        );
+        self::assertArrayHasKey(
+            'meituan_cloud_pms',
+            $today['message_data']['sources']
+        );
+        self::assertArrayNotHasKey(
+            'dingdandao_pms',
+            $today['message_data']['sources']
+        );
+        self::assertEquals(
+            7200.0,
+            $today['message_data']['sources']['meituan_cloud_pms']
+                ['facts']['room_revenue']
+        );
+        self::assertSame(
+            'meituan_cloud_pms_captures',
+            $this->field($today['facts'], 'pms_room_fee')['source']['table']
+        );
+        self::assertSame(
+            '美团云 PMS预计住宿房费',
+            $this->field($today['facts'], 'pms_room_fee')['label']
+        );
+        self::assertArrayHasKey(
+            'meituan_cloud_pms',
+            $review['message_data']['sources']
+        );
+        self::assertSame(
+            'meituan_cloud_pms',
+            $preview['sections']['future_room_status']['message_data']
+                ['source']['provider']
+        );
+    }
+
+    public function testSelectedMeituanPreviewRejectsMismatchedSourceIdentity(): void
+    {
+        $factLayer = $this->meituanRevenueFactLayerFixture(80, '2026-07-26');
+        $factLayer['sources']['meituan_cloud_pms']['source']['table'] =
+            'dingdandao_operating_target_captures';
+        $preview = ManualNotificationBusinessPreviewService::buildPreview(
+            ['id' => 80, 'tenant_id' => 80, 'name' => '敦煌漠蓝新'],
+            '2026-07-26',
+            null,
+            $this->temporalFixture(80, '2026-07-26'),
+            $this->trustedOtaFixture(80, '2026-07-26'),
+            [],
+            [],
+            $factLayer
+        );
+
+        $today = $preview['sections']['today_revenue_management'];
+        $pms = $today['message_data']['sources']['meituan_cloud_pms'];
+        self::assertSame('not_verified', $pms['data_status']);
+        self::assertNull($pms['facts']['room_revenue']);
+        self::assertArrayNotHasKey('dingdandao_pms', $today['message_data']['sources']);
+        self::assertContains(
+            'meituan_cloud_pms_today_capture_readback_not_verified',
+            array_column($today['gaps'], 'code')
+        );
     }
 
     public function testSnapshotDeltaRequiresIndependentVerifiedCapture(): void
@@ -266,6 +365,63 @@ final class ManualNotificationBusinessPreviewServiceTest extends TestCase
                 ['message_data']['sources']['dingdandao_pms']
                 ['snapshot_delta']['data_status']
         );
+    }
+
+    public function testForwardDeltaUsesRoomTypeStayDateAndRebaselinesCapacityChanges(): void
+    {
+        $pms = $this->pmsForwardFixture(80, 80, '2026-07-26');
+        $previous = $pms;
+        $previous['id'] = 979;
+        $previous['captured_at'] = '2026-07-26 17:35:00';
+        $previous['forward_room_status']['room_types'][0]['daily_rows'][1]
+            ['booked_rooms'] = 8;
+        $previous['forward_room_status']['room_types'][0]['daily_rows'][1]
+            ['remaining_sellable_rooms'] = 7;
+        $pms['previous_comparable_capture'] = $previous;
+
+        $preview = ManualNotificationBusinessPreviewService::buildPreview(
+            ['id' => 80, 'tenant_id' => 80, 'name' => '敦煌漠蓝新'],
+            '2026-07-26',
+            null,
+            $this->temporalFixture(80, '2026-07-26'),
+            $this->trustedOtaFixture(80, '2026-07-26'),
+            [],
+            $pms
+        );
+        $delta = $preview['sections']['future_room_status']
+            ['message_data']['forward_delta'];
+        self::assertSame('comparable', $delta['data_status']);
+        self::assertTrue($delta['net_change_reliable']);
+        self::assertSame(60, $delta['elapsed_minutes']);
+        self::assertSame(1, $delta['changed_cell_count']);
+        self::assertSame(0, $delta['inventory_basis_change_count']);
+        self::assertSame(1, $delta['summary']['booked_room_nights_delta']);
+        self::assertSame(-1, $delta['summary']['remaining_sellable_room_nights_delta']);
+        self::assertSame('2026-07-27', $delta['changes'][0]['stay_date']);
+        self::assertSame('全部房型', $delta['changes'][0]['room_type_name']);
+        self::assertSame('booked_increase', $delta['changes'][0]['status']);
+
+        $pms['previous_comparable_capture']['forward_room_status']
+            ['room_types'][0]['daily_rows'][1]['remaining_sellable_rooms'] = 8;
+        $rebaselinePreview = ManualNotificationBusinessPreviewService::buildPreview(
+            ['id' => 80, 'tenant_id' => 80, 'name' => '敦煌漠蓝新'],
+            '2026-07-26',
+            null,
+            $this->temporalFixture(80, '2026-07-26'),
+            $this->trustedOtaFixture(80, '2026-07-26'),
+            [],
+            $pms
+        );
+        $rebaseline = $rebaselinePreview['sections']['future_room_status']
+            ['message_data']['forward_delta'];
+        self::assertSame('rebaseline_required', $rebaseline['data_status']);
+        self::assertFalse($rebaseline['net_change_reliable']);
+        self::assertSame('inventory_basis_changed', $rebaseline['reason_code']);
+        self::assertSame(1, $rebaseline['inventory_basis_change_count']);
+        self::assertNull($rebaseline['summary']);
+        self::assertSame('inventory_basis_changed', $rebaseline['changes'][0]['status']);
+        self::assertSame(17, $rebaseline['changes'][0]['inventory_basis_rooms_from']);
+        self::assertSame(16, $rebaseline['changes'][0]['inventory_basis_rooms_to']);
     }
 
     public function testPartialTemporalContextCreatesExplicitGapWithoutDroppingCoreFacts(): void
@@ -393,7 +549,8 @@ final class ManualNotificationBusinessPreviewServiceTest extends TestCase
                 ],
             ],
             fn(int $tenantId, int $hotelId, string $date): array =>
-                $this->pmsForwardFixture($tenantId, $hotelId, $date)
+                $this->pmsForwardFixture($tenantId, $hotelId, $date),
+            static fn(): array => []
         ))->preview(80, '2026-07-26');
 
         $today = $preview['sections']['today_revenue_management'];
@@ -808,6 +965,71 @@ final class ManualNotificationBusinessPreviewServiceTest extends TestCase
                 'readback_policy' => 'readback_verified_required_equals_1',
             ],
             'data_gaps' => [],
+        ];
+    }
+
+    /** @return array<string,mixed> */
+    private function meituanRevenueFactLayerFixture(
+        int $hotelId,
+        string $date
+    ): array {
+        return [
+            'hotel' => [
+                'tenant_id' => 80,
+                'system_hotel_id' => $hotelId,
+            ],
+            'business_date' => $date,
+            'pms_binding' => [
+                'binding_status' => 'configured',
+                'effective_provider' => 'meituan_cloud_pms',
+                'compatibility_fallback' => false,
+            ],
+            'source_completeness' => [
+                'meituan_cloud_pms' => 'readback_verified',
+                'ctrip_ota' => 'readback_verified',
+                'meituan_ota' => 'readback_verified',
+            ],
+            'date_alignment' => [
+                'status' => 'aligned',
+                'sources' => [
+                    'meituan_cloud_pms' => ['observed_date' => $date],
+                ],
+            ],
+            'sources' => [
+                'meituan_cloud_pms' => [
+                    'data_status' => 'readback_verified',
+                    'business_scope' => 'estimated_accommodation_room_fee',
+                    'business_date' => $date,
+                    'actual_business_date' => $date,
+                    'facts' => [
+                        'room_revenue' => 7200.0,
+                        'sold_room_nights' => 12,
+                        'sellable_room_nights' => 20,
+                        'occupancy_rate_percent' => 60.0,
+                        'adr' => 600.0,
+                        'revpar' => 360.0,
+                    ],
+                    'fact_statuses' => [
+                        'room_revenue' => ['status' => 'readback_verified'],
+                        'sold_room_nights' => ['status' => 'readback_verified'],
+                        'sellable_room_nights' => ['status' => 'readback_verified'],
+                        'occupancy_rate_percent' => ['status' => 'readback_verified'],
+                        'adr' => ['status' => 'readback_verified'],
+                        'revpar' => ['status' => 'readback_verified'],
+                    ],
+                    'source' => [
+                        'table' => 'meituan_cloud_pms_captures',
+                        'record_id' => 501,
+                        'tenant_id' => 80,
+                        'system_hotel_id' => $hotelId,
+                        'provider_hotel_id' => 'meituan-' . $hotelId,
+                        'data_date' => $date,
+                        'provider' => 'meituan_cloud_pms',
+                        'captured_at' => $date . ' 18:35:00',
+                        'readback_status' => 'readback_verified',
+                    ],
+                ],
+            ],
         ];
     }
 

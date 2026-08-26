@@ -9397,6 +9397,18 @@ main[data-current-page="ai-workbench"] .suxi-dashboard-scope [data-testid="home-
     color: var(--color-text-muted) !important;
 }
 
+/* Preserve the former Tailwind utility stack while emitting one reusable
+ * class token for repeated online-data empty states. */
+.suxi-app-shell main[data-current-page="online-data"] .suxi-empty-state {
+    border: 1px dashed var(--color-border) !important;
+    border-radius: .5rem;
+    background: var(--color-surface-warm) !important;
+    padding: 1rem;
+    color: var(--color-text-muted) !important;
+    font-size: 13px !important;
+    line-height: 1.25rem;
+}
+
 .suxi-app-shell main :where(.text-gray-600, .text-slate-600) {
     color: var(--color-text-subtle) !important;
 }

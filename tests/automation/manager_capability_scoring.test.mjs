@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
+import { readRouteContractSource } from '../../scripts/lib/route_contract_source.mjs';
 
 const read = path => readFileSync(path, 'utf8');
 const contentHash = value => crypto.createHash('sha256').update(value).digest('hex').slice(0, 10);
@@ -13,7 +14,7 @@ const componentsLoader = read('public/components/system/app-main-components-load
 const operatingComponents = read('public/components/system/operating-intelligence-components.js');
 const operatingLoader = read('public/components/system/operating-intelligence-loader.js');
 const indexHtml = read('public/index.html');
-const routes = read('route/app.php');
+const routes = readRouteContractSource(process.cwd());
 const controller = read('app/controller/ManagerCapability.php');
 const service = read('app/service/ManagerCapabilityScoringService.php');
 const protectedCapabilities = read('app/service/ProtectedCapabilityService.php');
@@ -44,7 +45,7 @@ test('operations page exposes a scoped three-question manager score loop', () =>
     "textArea('action_taken'",
     'this.form.verification_status',
     "textArea('verification_text'",
-    '保存案例并评分',
+    '保存三问并回读',
     '追加复查',
     '保存本次复查',
     '原始三问不会被覆盖',
@@ -85,9 +86,9 @@ test('frontend persists and verifies exact hotel manager formula and digests', (
   }
   assert.ok(componentsLoader.includes("'ManagerCapabilityPanel'"));
   assert.ok(componentsLoader.includes('const OperatingLoopAuthority = {'));
-  const loaderVersion = `20260822-manager-capability-h${contentHash(components)}`;
-  assert.ok(componentsLoader.includes(`components/system/app-main-components.js?v=${loaderVersion}`));
-  assert.ok(indexHtml.includes(`components/system/app-main-components.js?v=${loaderVersion}`));
+  const pinnedAsset = new RegExp(`components/system/app-main-components\\.js\\?v=[^'\"]*-h${contentHash(components)}`);
+  assert.match(componentsLoader, pinnedAsset);
+  assert.match(indexHtml, pinnedAsset);
 });
 
 test('deferred component bridge resolves the manager score panel and loop authority', async () => {
@@ -111,8 +112,10 @@ test('deferred component bridge resolves the manager score panel and loop author
 
 test('authenticated page dependency receives Vue ref and pins the repaired asset', () => {
   assert.ok(operatingComponents.includes('const create = ({ ref, computed, inject, h, nextTick, onMounted, onUnmounted })'));
-  const loaderVersion = `20260822-human-review-h${contentHash(operatingComponents)}`;
-  assert.ok(operatingLoader.includes(`components/system/operating-intelligence-components.js?v=${loaderVersion}`));
+  assert.match(
+    operatingLoader,
+    new RegExp(`components/system/operating-intelligence-components\\.js\\?v=[^']*-h${contentHash(operatingComponents)}`),
+  );
   assert.ok(!indexHtml.includes('components/system/operating-intelligence-components.js'));
 });
 

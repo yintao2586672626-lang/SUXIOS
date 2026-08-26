@@ -2,8 +2,11 @@
 declare(strict_types=1);
 
 use app\service\CanonicalOtaDailyOperationFinalizer;
+use app\service\CanonicalOtaScheduledAnalysisAuthorizationService;
+use app\service\OtaCollectionAnchorService;
 use app\service\OtaCanonicalHistoryPromotionCoordinator;
 use app\service\OtaCanonicalHistoryPromotionService;
+use app\service\OtaOrderedCollectionPlanner;
 use app\service\P0OtaFieldLoopVerifierRunner;
 use think\App;
 use think\facade\Cache;
@@ -111,6 +114,41 @@ function canonicalExistingDailyOperationSafeReason(Throwable $exception): string
     return 'canonical_existing_daily_operation_unexpected_error';
 }
 
+/** @return array<string,array<string,mixed>> */
+function canonicalExistingDailyOperationAnalysisAuthorizations(int $hotelId): array
+{
+    $status = Cache::get('online_data_auto_fetch_status_' . $hotelId, []);
+    $status = is_array($status) ? $status : [];
+    $grants = is_array($status['canonical_daily_analysis_authorizations'] ?? null)
+        ? $status['canonical_daily_analysis_authorizations']
+        : [];
+    if (is_array($status['canonical_daily_analysis_authorization'] ?? null)) {
+        $grants['ctrip'] = $grants['ctrip']
+            ?? $status['canonical_daily_analysis_authorization'];
+    }
+    return $grants;
+}
+
+/** @param array<string,mixed> $scope @param array<string,array<string,mixed>> $grants */
+function canonicalExistingDailyOperationAnalysisAuthorizationReady(array $scope, array $grants): bool
+{
+    $candidate = $grants[$scope['platform']] ?? null;
+    if (!is_array($candidate)) {
+        return false;
+    }
+    try {
+        $resolved = (new CanonicalOtaScheduledAnalysisAuthorizationService())->assertMatches(
+            $candidate,
+            $scope['tenant_id'],
+            $scope['hotel_id'],
+            $scope['platform']
+        );
+        return $resolved === $candidate;
+    } catch (Throwable) {
+        return false;
+    }
+}
+
 /** @param array<string,mixed> $scope @return array<string,mixed> */
 function canonicalExistingDailyCollectionReceipt(array $scope): array
 {
@@ -145,22 +183,65 @@ function canonicalExistingDailyCollectionReceipt(array $scope): array
     ) {
         throw new RuntimeException('canonical_existing_daily_operation_run_readback_invalid');
     }
+    $rows = Db::name('online_daily_data')
+        ->where('tenant_id', $scope['tenant_id'])
+        ->where('system_hotel_id', $scope['hotel_id'])
+        ->where('data_source_id', $scope['data_source_id'])
+        ->where('sync_task_id', $scope['task_id'])
+        ->where('data_date', $scope['target_date'])
+        ->where('data_period', $scope['data_period'])
+        ->where('platform', $scope['platform'])
+        ->whereIn('id', $rowIds)
+        ->order('id', 'asc')
+        ->select()
+        ->toArray();
+    $rows = array_values(array_filter($rows, 'is_array'));
+    $dbRowIds = array_values(array_unique(array_filter(array_map(
+        'intval',
+        array_column($rows, 'id')
+    ), static fn(int $id): bool => $id > 0)));
+    sort($dbRowIds, SORT_NUMERIC);
+    if ($dbRowIds !== $rowIds) {
+        throw new RuntimeException('canonical_existing_daily_operation_exact_rows_invalid');
+    }
+    foreach ($rows as $row) {
+        if ((int)($row['readback_verified'] ?? 0) !== 1
+            || trim((string)($row['source_trace_id'] ?? '')) === ''
+        ) {
+            throw new RuntimeException('canonical_existing_daily_operation_exact_rows_invalid');
+        }
+    }
+    $requiredCoreMetricKeys = OtaOrderedCollectionPlanner::requiredFieldKeys($scope['platform']);
+    $coreRows = OtaOrderedCollectionPlanner::storedCoreRows($scope['platform'], $rows);
+    $completeCoreMetricKeys = OtaOrderedCollectionPlanner::capturedFieldKeys(
+        $scope['platform'],
+        $coreRows
+    );
+    $missingCoreMetricKeys = array_values(array_diff(
+        $requiredCoreMetricKeys,
+        $completeCoreMetricKeys
+    ));
     $sourceTask = [
         'data_source_id' => $scope['data_source_id'],
         'sync_task_id' => $scope['task_id'],
         'platform' => $scope['platform'],
         'collection_status' => 'success',
         'p0_status' => 'ready',
+        'historical_core_contract_status' => $missingCoreMetricKeys === [] ? 'ready' : 'blocked',
         'row_ids' => $rowIds,
     ];
-    $anchor = hash('sha256', json_encode([$sourceTask], JSON_UNESCAPED_SLASHES));
+    $anchor = OtaCollectionAnchorService::hash([$sourceTask]);
     return [
         'hotel_id' => $scope['hotel_id'],
         'target_date' => $scope['target_date'],
         'data_period' => $scope['data_period'],
         'required_platforms' => [$scope['platform']],
+        'collection_anchor_contract_version' => OtaCollectionAnchorService::CONTRACT_VERSION,
         'source_tasks' => [$sourceTask],
         'collection_anchor_hash' => $anchor,
+        'required_core_metric_keys' => $requiredCoreMetricKeys,
+        'complete_core_metric_keys' => $completeCoreMetricKeys,
+        'missing_core_metric_keys' => $missingCoreMetricKeys,
     ];
 }
 
@@ -172,6 +253,11 @@ try {
     $app = new App(dirname(__DIR__));
     $app->initialize();
     $collection = canonicalExistingDailyCollectionReceipt($scope);
+    $grants = canonicalExistingDailyOperationAnalysisAuthorizations($scope['hotel_id']);
+    $analysisAuthorizationReady = canonicalExistingDailyOperationAnalysisAuthorizationReady(
+        $scope,
+        $grants
+    );
 
     if (!$execute) {
         $verifier = (new P0OtaFieldLoopVerifierRunner())->verify(
@@ -188,13 +274,26 @@ try {
             $scope['hotel_id']
         );
         $ready = ($verifier['authority_ready'] ?? false) === true
-            && ($promotion['status'] ?? '') === 'ready';
+            && ($promotion['status'] ?? '') === 'ready'
+            && $analysisAuthorizationReady;
+        $reason = '';
+        if (!$ready) {
+            $reason = ($verifier['authority_ready'] ?? false) !== true
+                || ($promotion['status'] ?? '') !== 'ready'
+                    ? (string)($promotion['reason'] ?? $verifier['reason'] ?? 'verifier_not_ready')
+                    : 'canonical_daily_operation_authorization_missing';
+        }
         echo json_encode([
             'status' => $ready ? 'ready' : 'blocked',
             'execute' => false,
-            'reason' => $ready ? '' : (string)($promotion['reason'] ?? $verifier['reason'] ?? 'verifier_not_ready'),
+            'reason' => $reason,
             'scope' => $scope,
             'row_ids' => $collection['source_tasks'][0]['row_ids'],
+            'historical_core_contract_status' =>
+                (string)$collection['source_tasks'][0]['historical_core_contract_status'],
+            'required_core_metric_keys' => $collection['required_core_metric_keys'],
+            'complete_core_metric_keys' => $collection['complete_core_metric_keys'],
+            'missing_core_metric_keys' => $collection['missing_core_metric_keys'],
             'verifier_status' => (string)($verifier['status'] ?? ''),
             'promotion_status' => (string)($promotion['status'] ?? ''),
             'would_promote_count' => (int)($promotion['would_promote_count'] ?? 0),
@@ -203,6 +302,7 @@ try {
                 is_array($promotion['row_ids'] ?? null) ? $promotion['row_ids'] : []
             )),
             'selected_operation_row_id' => (int)($promotion['selected_operation_row_id'] ?? 0),
+            'analysis_authorization_ready' => $analysisAuthorizationReady,
             'planned_operational_check_count' => $ready ? 4 : 0,
             'collection_triggered' => false,
             'external_action_triggered' => false,
@@ -211,21 +311,14 @@ try {
         exit($ready ? 0 : 2);
     }
 
+    if (!$analysisAuthorizationReady) {
+        throw new RuntimeException('canonical_daily_operation_authorization_missing');
+    }
     $finalization = (new OtaCanonicalHistoryPromotionCoordinator())->finalize(
         $collection,
         $scope['tenant_id'],
         $scope['hotel_id']
     );
-    $status = Cache::get('online_data_auto_fetch_status_' . $scope['hotel_id'], []);
-    $status = is_array($status) ? $status : [];
-    $grants = is_array($status['canonical_daily_analysis_authorizations'] ?? null)
-        ? $status['canonical_daily_analysis_authorizations']
-        : [];
-    if ($scope['platform'] === 'ctrip'
-        && is_array($status['canonical_daily_analysis_authorization'] ?? null)
-    ) {
-        $grants['ctrip'] = $grants['ctrip'] ?? $status['canonical_daily_analysis_authorization'];
-    }
     $analysis = (new CanonicalOtaDailyOperationFinalizer())->finalize(
         $collection,
         $finalization,

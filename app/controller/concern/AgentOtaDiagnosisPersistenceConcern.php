@@ -32,6 +32,8 @@ use think\facade\Db;
 
 trait AgentOtaDiagnosisPersistenceConcern
 {
+    use AgentOtaDiagnosisReadbackConcern;
+
     private function finalizeAllOtaDiagnosisDecision(array $result): array
     {
         $coverageComplete = ($result['coverage']['complete'] ?? false) === true;
@@ -154,12 +156,36 @@ trait AgentOtaDiagnosisPersistenceConcern
         }
 
         if ($result['decision_status'] === 'no_action') {
-            $platformLabel = $this->otaDiagnosisPlatformLabel($result['platform'] ?? null);
+            $platformLabel = match (strtolower((string)($result['platform'] ?? ''))) {
+                'ctrip' => '携程',
+                'meituan' => '美团',
+                default => 'OTA',
+            };
             $summary = sprintf(
                 '本次%s渠道已覆盖的入库核心字段通过校验，未发现达到当前诊断阈值的异常；该结论仅限本次渠道数据，“无需新增行动”，继续观察下一数据日。',
                 $platformLabel
             );
-            $priorityRecommendation = $this->otaDiagnosisNoActionPriorityRecommendation($result);
+            $trafficGapLabels = [
+                'metric_missing:list_exposure' => '列表曝光',
+                'metric_missing:detail_visitors' => '详情访问',
+                'metric_missing:flow_rate' => '流量转化率',
+                'metric_missing:order_visitors' => '下单访问用户',
+                'metric_missing:submit_users' => '提交用户',
+            ];
+            $missingTrafficLabels = [];
+            foreach ((array)($result['optional_data_gaps'] ?? []) as $gap) {
+                $code = is_array($gap) ? trim((string)($gap['code'] ?? '')) : trim((string)$gap);
+                if (isset($trafficGapLabels[$code])) {
+                    $missingTrafficLabels[] = $trafficGapLabels[$code];
+                }
+            }
+            $missingTrafficLabels = array_values(array_unique($missingTrafficLabels));
+            $priorityRecommendation = $missingTrafficLabels !== []
+                ? sprintf(
+                    '最重要建议：暂不依据单日收入、间夜和ADR调整渠道价格或页面；先补齐本营业日的%s，再判断价格或转化优化方向。',
+                    implode('、', $missingTrafficLabels)
+                )
+                : '最重要建议：保持当前渠道策略，继续保存下一营业日同口径收入、间夜、订单和ADR，再用连续事实判断是否需要调整。';
             $result['diagnosis']['summary'] = $summary;
             $result['diagnosis']['abnormal_metrics'] = [];
             $result['diagnosis']['actions'] = [];
@@ -708,204 +734,6 @@ trait AgentOtaDiagnosisPersistenceConcern
         return $superseded;
     }
 
-    private function normalizeOtaDiagnosisScopeDateRange(array $dateRange): array
-    {
-        $startDate = trim((string)($dateRange['start_date'] ?? $dateRange['start'] ?? ''));
-        $endDate = trim((string)($dateRange['end_date'] ?? $dateRange['end'] ?? $startDate));
-
-        return [
-            'start_date' => $startDate,
-            'end_date' => $endDate,
-        ];
-    }
-
-    private function buildOtaDiagnosisSnapshot(array $result): array
-    {
-        $allowed = [
-            'hotel', 'platform', 'date_range', 'effective_date_range', 'requested_date_range',
-            'coverage', 'evidence_refs', 'platform_summaries', 'metric_comparability',
-            'data_summary', 'metrics',
-            'derived_metric_lineage', 'data_gaps', 'blocking_data_gaps', 'optional_data_gaps',
-            'diagnosis', 'diagnosis_sections', 'core_conclusion', 'main_problems', 'possible_reasons',
-            'recommended_actions', 'priority', 'source_policy', 'source_summary', 'evidence_sources',
-            'action_items', 'ai_governance', 'decision_status', 'decision_closure', 'execution_policy',
-            'evidence_report', 'no_action_reason', 'saved_record', 'record_status', 'superseded_by',
-            'validation_status', 'invalid_reason', 'analysis_runtime', 'decision_route',
-            'workflow_status', 'missing_fact_codes', 'reference_only_history',
-            'operating_radar',
-        ];
-        $snapshot = [];
-        foreach ($allowed as $field) {
-            if (array_key_exists($field, $result)) {
-                $snapshot[$field] = $result[$field];
-            }
-        }
-        if (is_array($snapshot['diagnosis'] ?? null)) {
-            unset($snapshot['diagnosis']['raw_text']);
-        }
-
-        return $snapshot;
-    }
-
-    /** @return array<string,mixed> */
-    private function otaDiagnosisReadbackIdentity(
-        array $snapshot,
-        int $hotelId,
-        string $platform,
-        int $schemaVersion = 1
-    ): array
-    {
-        $requestedRange = $this->normalizeOtaDiagnosisScopeDateRange(
-            is_array($snapshot['requested_date_range'] ?? null)
-                ? $snapshot['requested_date_range']
-                : (array)($snapshot['date_range'] ?? [])
-        );
-        $effectiveRange = $this->normalizeOtaDiagnosisScopeDateRange(
-            is_array($snapshot['effective_date_range'] ?? null)
-                ? $snapshot['effective_date_range']
-                : (array)($snapshot['date_range'] ?? [])
-        );
-        $evidenceRefs = is_array($snapshot['evidence_refs'] ?? null) ? $snapshot['evidence_refs'] : [];
-        if ($evidenceRefs === []) {
-            foreach ((array)($snapshot['evidence_sources'] ?? []) as $source) {
-                if (!is_array($source) || ($source['decision_eligible'] ?? false) !== true) {
-                    continue;
-                }
-                $ref = trim((string)($source['ref'] ?? ''));
-                $sourcePlatform = strtolower(trim((string)($source['platform'] ?? $platform)));
-                if ($ref !== '' && $sourcePlatform !== '') {
-                    $evidenceRefs[$sourcePlatform][] = $ref;
-                }
-            }
-        }
-        foreach ($evidenceRefs as $sourcePlatform => $refs) {
-            $normalizedRefs = array_values(array_unique(array_filter(array_map(
-                'strval',
-                is_array($refs) ? $refs : []
-            ))));
-            sort($normalizedRefs, SORT_STRING);
-            $evidenceRefs[(string)$sourcePlatform] = $normalizedRefs;
-        }
-        ksort($evidenceRefs, SORT_STRING);
-
-        $identity = [
-            'hotel_id' => $hotelId,
-            'platform' => strtolower(trim($platform)),
-            'requested_date_range' => $requestedRange,
-            'effective_date_range' => $effectiveRange,
-            'coverage' => is_array($snapshot['coverage'] ?? null) ? $snapshot['coverage'] : [],
-            'evidence_refs' => $evidenceRefs,
-        ];
-        if ($schemaVersion >= 2) {
-            $identity['decision_route'] = $this->otaDiagnosisDecisionRouteReadbackIdentity(
-                is_array($snapshot['decision_route'] ?? null) ? $snapshot['decision_route'] : []
-            );
-        }
-        if ($schemaVersion >= 3) {
-            $canonicalRadar = $this->canonicalizeOtaDiagnosisReadbackIdentity(
-                is_array($snapshot['operating_radar'] ?? null) ? $snapshot['operating_radar'] : []
-            );
-            $identity['operating_radar_digest'] = hash('sha256', json_encode(
-                $canonicalRadar,
-                // AgentLog JSON storage normalizes integer-valued floats
-                // (for example 200.0 -> 200). Mirror that representation so
-                // an unchanged radar survives the database round trip.
-                JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR
-            ));
-        }
-
-        return $this->canonicalizeOtaDiagnosisReadbackIdentity($identity);
-    }
-
-    /** @return array<string,mixed> */
-    private function otaDiagnosisDecisionRouteReadbackIdentity(array $decisionRoute): array
-    {
-        $stages = [];
-        foreach ((array)($decisionRoute['stages'] ?? []) as $stage) {
-            if (!is_array($stage)) {
-                continue;
-            }
-            $stages[] = [
-                'key' => (string)($stage['key'] ?? ''),
-                'status' => (string)($stage['status'] ?? ''),
-                'status_label' => (string)($stage['status_label'] ?? ''),
-                'detail' => (string)($stage['detail'] ?? ''),
-                'refs' => array_values(array_map(
-                    'strval',
-                    is_array($stage['refs'] ?? null) ? $stage['refs'] : []
-                )),
-            ];
-        }
-
-        return [
-            'version' => (string)($decisionRoute['version'] ?? ''),
-            'policy' => (string)($decisionRoute['policy'] ?? ''),
-            'final_status' => (string)($decisionRoute['final_status'] ?? ''),
-            'stages' => $stages,
-        ];
-    }
-
-    private function otaDiagnosisReadbackIdentityDigest(array $identity): string
-    {
-        return hash('sha256', json_encode(
-            $identity,
-            JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRESERVE_ZERO_FRACTION | JSON_THROW_ON_ERROR
-        ));
-    }
-
-    private function isStoredOtaDiagnosisReadbackVerified(
-        array $context,
-        array $snapshot,
-        int $hotelId,
-        string $platform,
-        array $requestedDateRange
-    ): bool {
-        $storedDigest = trim((string)($context['readback_identity_digest'] ?? ''));
-        $schemaVersion = (int)($context['schema_version'] ?? 0);
-        if ($storedDigest === ''
-            || !in_array($schemaVersion, [1, 2, 3, 4], true)
-            || (string)($context['record_status'] ?? '') !== 'active'
-            || strtolower(trim((string)($context['platform'] ?? ''))) !== strtolower(trim($platform))
-            || $this->normalizeOtaDiagnosisScopeDateRange((array)($context['requested_date_range'] ?? []))
-                !== $this->normalizeOtaDiagnosisScopeDateRange($requestedDateRange)
-        ) {
-            return false;
-        }
-
-        if ($schemaVersion >= 3 && is_array($snapshot['operating_radar'] ?? null)) {
-            try {
-                $this->assertCtripOperatingRadarScope(
-                    $snapshot['operating_radar'],
-                    $snapshot,
-                    $hotelId,
-                    $platform,
-                    $requestedDateRange
-                );
-            } catch (\Throwable) {
-                return false;
-            }
-        }
-
-        $identity = $this->otaDiagnosisReadbackIdentity($snapshot, $hotelId, $platform, $schemaVersion);
-        return hash_equals($storedDigest, $this->otaDiagnosisReadbackIdentityDigest($identity))
-            && ($snapshot['saved_record']['saved'] ?? false) === true
-            && ($snapshot['saved_record']['readback_verified'] ?? false) === true;
-    }
-
-    private function canonicalizeOtaDiagnosisReadbackIdentity(mixed $value): mixed
-    {
-        if (!is_array($value)) {
-            return $value;
-        }
-        if (array_is_list($value)) {
-            return array_map(fn(mixed $item): mixed => $this->canonicalizeOtaDiagnosisReadbackIdentity($item), $value);
-        }
-        ksort($value, SORT_STRING);
-        foreach ($value as $key => $item) {
-            $value[$key] = $this->canonicalizeOtaDiagnosisReadbackIdentity($item);
-        }
-        return $value;
-    }
 
     private function buildOtaDiagnosisExecutionIntentInput(
         array $snapshot,
@@ -1778,11 +1606,30 @@ trait AgentOtaDiagnosisPersistenceConcern
                 $this->addNullableOtaDiagnosisMetric($summary['daily'][$date], $key, $value);
             }
 
-            $coreValueState = $this->otaDiagnosisCoreValueState($dataType, [$amount, $quantity, $bookOrderNum], array_values($traffic));
-            if ($coreValueState === 'missing') {
-                $missingCoreValueCount++;
-            } elseif ($coreValueState === 'zero') {
-                $zeroValueCount++;
+            if (in_array($dataType, ['business', 'order', 'traffic'], true)) {
+                $revenueCoreValues = [$amount, $quantity, $bookOrderNum];
+                $trafficCoreValues = array_values($traffic);
+                $knownCoreValues = array_values(array_filter(
+                    array_merge($revenueCoreValues, $trafficCoreValues),
+                    static fn(?float $value): bool => $value !== null
+                ));
+                if ($knownCoreValues === []) {
+                    $missingCoreValueCount++;
+                } else {
+                    $revenueGroupComplete = count(array_filter(
+                        $revenueCoreValues,
+                        static fn(?float $value): bool => $value !== null
+                    )) === count($revenueCoreValues);
+                    $trafficGroupComplete = count(array_filter(
+                        $trafficCoreValues,
+                        static fn(?float $value): bool => $value !== null
+                    )) === count($trafficCoreValues);
+                    if (($revenueGroupComplete || $trafficGroupComplete)
+                        && count(array_filter($knownCoreValues, static fn(float $value): bool => $value > 0)) === 0
+                    ) {
+                        $zeroValueCount++;
+                    }
+                }
             }
         }
 

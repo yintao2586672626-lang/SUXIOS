@@ -2,12 +2,13 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import test from 'node:test';
 import { readAppMainContractSource } from './helpers/frontend_source.mjs';
+import { readRouteContractSource } from '../../scripts/lib/route_contract_source.mjs';
 
 const appMain = readAppMainContractSource();
 const shell = fs.readFileSync('resources/frontend/templates/fragments/23-page-home-shell-open.html', 'utf8');
 const summary = fs.readFileSync('resources/frontend/templates/fragments/23a-page-compass-summary.html', 'utf8');
 const detail = fs.readFileSync('resources/frontend/templates/fragments/23c-page-compass-detail.html', 'utf8');
-const routes = fs.readFileSync('route/app.php', 'utf8');
+const routes = readRouteContractSource(process.cwd());
 
 test('Compass is the only canonical landing surface while the old workbench remains an alias', () => {
   assert.match(appMain, /const currentPage = ref\(initialPageOverride \|\| 'compass'\)/);

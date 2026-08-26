@@ -263,6 +263,12 @@ test('server contract exposes paired device endpoints and never accepts central 
   assert.match(adapter, /local_collector_verified/);
   assert.doesNotMatch(adapter, /OtaCredentialVault/);
   assert.match(controller, /Authorization/);
+  assert.match(controller, /FixedWindowRateLimiter/);
+  assert.match(controller, /runDeviceEndpoint/);
+  assert.match(controller, /rate_limiter_unavailable/);
+  assert.match(controller, /Retry-After/);
+  assert.match(controller, /hash_equals/);
+  assert.match(controller, /assertRequestBodyWithinLimit/);
   assert.match(controller, /function unbindHotel/);
   assert.match(ctrip, /ctrip_account_profile_/);
   assert.match(localAgent, /--sequential-sections=true/);

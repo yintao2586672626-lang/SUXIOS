@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
+import { readRouteContractSource } from '../../scripts/lib/route_contract_source.mjs';
 
 const appMain = readFileSync('public/app-main.js', 'utf8');
 const pageTemplate = readFileSync('resources/frontend/templates/fragments/20-page-knowledge-center.html', 'utf8');
-const routes = readFileSync('route/app.php', 'utf8');
+const routes = readRouteContractSource(process.cwd());
 const controller = readFileSync('app/controller/OperatingIntelligence.php', 'utf8');
 const networkService = readFileSync('app/service/OperatingNetworkService.php', 'utf8');
 

@@ -69,9 +69,26 @@ test('feature-level route change selects route coverage and contract guard', () 
   assert.ok(!ids.includes('verify-public-entry'));
 });
 
-test('commit level uses the umbrella once and omits nested P0 and E2E commands', () => {
+test('commit flag remains a focused Level 2 alias and never selects full suites', () => {
+  const options = parseSmartVerificationArgs(['--commit']);
   const plan = buildVerificationPlan({
-    level: VERIFICATION_LEVELS.commit,
+    level: options.level,
+    files: ['app/controller/OnlineData.php', 'public/app-main.js'],
+    repoRoot,
+  });
+  const ids = commandIds(plan);
+
+  assert.equal(options.level, VERIFICATION_LEVELS.feature);
+  assert.equal(options.commitAlias, true);
+  assert.ok(ids.includes('verify-e2e-contracts'));
+  assert.ok(!ids.includes('phpunit-full'));
+  assert.ok(!ids.includes('node-full'));
+  assert.ok(!ids.includes('self-check'));
+});
+
+test('full level uses the umbrella once and omits nested P0 and E2E commands', () => {
+  const plan = buildVerificationPlan({
+    level: VERIFICATION_LEVELS.full,
     files: ['app/controller/OnlineData.php', 'public/app-main.js'],
     repoRoot,
   });
@@ -88,6 +105,10 @@ test('commit level uses the umbrella once and omits nested P0 and E2E commands',
 test('conflicting levels and paths outside HOTEL fail clearly', () => {
   assert.throws(
     () => parseSmartVerificationArgs(['--feature', '--commit']),
+    /Choose only one verification level/,
+  );
+  assert.throws(
+    () => parseSmartVerificationArgs(['--commit', '--full']),
     /Choose only one verification level/,
   );
   assert.throws(

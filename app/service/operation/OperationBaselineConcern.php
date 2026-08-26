@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace app\service\operation;
 
+use app\service\DatabaseSchemaRequirement;
 use DateTimeImmutable;
 use DateTimeZone;
 use InvalidArgumentException;
@@ -144,23 +145,30 @@ trait OperationBaselineConcern
     /** @return array<string,mixed>|null */
     private function operationOnlineTenantSchemaGap(): ?array
     {
-        if (!$this->tableExists('online_daily_data')) {
-            return null;
-        }
-        $onlineColumns = $this->operationTableColumnNames('online_daily_data');
-        if ($onlineColumns === null
-            || array_diff(['tenant_id', 'system_hotel_id', 'data_date'], $onlineColumns) !== []
-        ) {
-            return $this->dailyReportGap(
-                'operation_online_daily_data_tenant_schema_missing',
-                'online_daily_data must expose tenant_id, system_hotel_id and data_date before operation facts can be read.'
-            );
-        }
-        $hotelColumns = $this->operationTableColumnNames('hotels');
-        if ($hotelColumns === null || array_diff(['id', 'tenant_id'], $hotelColumns) !== []) {
-            return $this->dailyReportGap(
-                'operation_online_hotels_tenant_schema_missing',
-                'hotels must expose id and tenant_id before OTA operation facts can be read.'
+        try {
+            if (!$this->tableExists('online_daily_data')) {
+                return null;
+            }
+            $onlineColumns = $this->operationTableColumnNames('online_daily_data');
+            if ($onlineColumns === null
+                || array_diff(['tenant_id', 'system_hotel_id', 'data_date'], $onlineColumns) !== []
+            ) {
+                return $this->dailyReportGap(
+                    'operation_online_daily_data_tenant_schema_missing',
+                    'online_daily_data must expose tenant_id, system_hotel_id and data_date before operation facts can be read.'
+                );
+            }
+            $hotelColumns = $this->operationTableColumnNames('hotels');
+            if ($hotelColumns === null || array_diff(['id', 'tenant_id'], $hotelColumns) !== []) {
+                return $this->dailyReportGap(
+                    'operation_online_hotels_tenant_schema_missing',
+                    'hotels must expose id and tenant_id before OTA operation facts can be read.'
+                );
+            }
+        } catch (Throwable) {
+            return $this->dailyReportReadFailureGap(
+                'operation_online_schema_unreadable',
+                'OTA operation fact schema could not be inspected; operation analysis failed closed.'
             );
         }
         return null;
@@ -242,21 +250,28 @@ trait OperationBaselineConcern
     /** @return array<string,mixed>|null */
     private function operationDailyReportTenantSchemaGap(): ?array
     {
-        $dailyColumns = $this->operationTableColumnNames('daily_reports');
-        if ($dailyColumns === null
-            || array_diff(['tenant_id', 'hotel_id', 'report_date'], $dailyColumns) !== []
-        ) {
-            return $this->dailyReportGap(
-                'operation_daily_reports_tenant_schema_missing',
-                'daily_reports must expose tenant_id, hotel_id and report_date before operation evidence can be read.'
-            );
-        }
+        try {
+            $dailyColumns = $this->operationTableColumnNames('daily_reports');
+            if ($dailyColumns === null
+                || array_diff(['tenant_id', 'hotel_id', 'report_date'], $dailyColumns) !== []
+            ) {
+                return $this->dailyReportGap(
+                    'operation_daily_reports_tenant_schema_missing',
+                    'daily_reports must expose tenant_id, hotel_id and report_date before operation evidence can be read.'
+                );
+            }
 
-        $hotelColumns = $this->operationTableColumnNames('hotels');
-        if ($hotelColumns === null || array_diff(['id', 'tenant_id'], $hotelColumns) !== []) {
-            return $this->dailyReportGap(
-                'operation_hotels_tenant_schema_missing',
-                'hotels must expose id and tenant_id before operation evidence can be read.'
+            $hotelColumns = $this->operationTableColumnNames('hotels');
+            if ($hotelColumns === null || array_diff(['id', 'tenant_id'], $hotelColumns) !== []) {
+                return $this->dailyReportGap(
+                    'operation_hotels_tenant_schema_missing',
+                    'hotels must expose id and tenant_id before operation evidence can be read.'
+                );
+            }
+        } catch (Throwable) {
+            return $this->dailyReportReadFailureGap(
+                'operation_daily_report_schema_unreadable',
+                'Daily report schema could not be inspected; operation analysis failed closed.'
             );
         }
 
@@ -266,33 +281,27 @@ trait OperationBaselineConcern
     /** @return array<int,string>|null */
     private function operationTableColumnNames(string $table): ?array
     {
-        $table = str_replace('`', '', $table);
-        try {
-            $rows = Db::query('SHOW COLUMNS FROM `' . $table . '`');
-            if ($rows !== []) {
-                return array_values(array_map(
-                    static fn(array $row): string => (string)($row['Field'] ?? ''),
-                    $rows
-                ));
-            }
-        } catch (Throwable) {
-        }
-
-        try {
-            $rows = Db::query('PRAGMA table_info(`' . $table . '`)');
-            return array_values(array_filter(array_map(
-                static fn(array $row): string => (string)($row['name'] ?? ''),
-                $rows
-            ), static fn(string $column): bool => $column !== ''));
-        } catch (Throwable) {
+        $inspection = DatabaseSchemaRequirement::inspectTableColumns(str_replace('`', '', $table));
+        if ($inspection['status'] === DatabaseSchemaRequirement::STATUS_MISSING) {
             return null;
         }
+        if ($inspection['status'] !== DatabaseSchemaRequirement::STATUS_PRESENT) {
+            throw new \RuntimeException('database_table_columns_probe_failed:' . $table, 503);
+        }
+
+        return $inspection['columns'];
     }
 
     /** @return array<string,mixed> */
     private function dailyReportGap(string $code, string $message): array
     {
         return ['code' => $code, 'message' => $message, 'migration_required' => true];
+    }
+
+    /** @return array<string,mixed> */
+    private function dailyReportReadFailureGap(string $code, string $message): array
+    {
+        return ['code' => $code, 'message' => $message, 'migration_required' => false];
     }
 
     /** @param array<string,mixed>|null $gap */
@@ -302,9 +311,10 @@ trait OperationBaselineConcern
             return $summary;
         }
         $summary['data_gaps'] = array_values(array_merge((array)($summary['data_gaps'] ?? []), [$gap]));
-        $summary['data_status'] = 'migration_required';
+        $dataStatus = ($gap['migration_required'] ?? false) === true ? 'migration_required' : 'read_failed';
+        $summary['data_status'] = $dataStatus;
         if (array_key_exists('source_status', $summary)) {
-            $summary['source_status'] = 'migration_required';
+            $summary['source_status'] = $dataStatus;
         }
 
         return $summary;
@@ -653,7 +663,10 @@ trait OperationBaselineConcern
             'source_scopes' => array_keys($sourceScopes),
             'data_gaps' => $dataGaps,
             'data_status' => $dailyReadGap !== null || $onlineReadGap !== null
-                ? 'migration_required'
+                ? ((($dailyReadGap['migration_required'] ?? false) === true
+                    || ($onlineReadGap['migration_required'] ?? false) === true)
+                    ? 'migration_required'
+                    : 'read_failed')
                 : ($count === 0
                 ? ($rejectedDailyReportCount > 0 ? 'partial' : 'missing')
                 : ($dataGaps === [] ? self::DATA_OK : 'partial')),

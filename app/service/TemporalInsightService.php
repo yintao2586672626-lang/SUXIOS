@@ -23,6 +23,8 @@ final class TemporalInsightService
     private const CONFIDENCE_TYPE = 'uncalibrated_rule_index';
     private const CONFIDENCE_SEMANTICS = '由样本覆盖、稳定性和新鲜度加权形成的规则指数，未经概率校准，不代表预测命中概率。';
     private const SOURCE_REFS_CONTRACT = 'temporal_metric_source.v1';
+    private const FOCUSED_RUN_PREFIX = 'tf_focus_';
+    private const DAILY_ACCURACY_METRIC = 'ota_room_nights';
     private const ALL_OTA_EXPECTED_PLATFORMS = ['ctrip', 'meituan'];
     private const BACKTEST_LOOKBACK_DAYS = 90;
     private const MIN_OPERATIONAL_HISTORY_DAYS = 21;
@@ -50,12 +52,21 @@ final class TemporalInsightService
      * @param array<int, int|string> $hotelIds
      * @return array<string, mixed>
      */
-    public function overview(array $hotelIds, int $historyDays = 30, int $futureDays = 7, ?string $today = null): array
+    public function overview(
+        array $hotelIds,
+        int $historyDays = 30,
+        int $futureDays = 7,
+        ?string $today = null,
+        ?string $futureMetricKey = null
+    ): array
     {
         $scope = $this->hotelScope($hotelIds);
         $todayDate = $this->date($today ?: date('Y-m-d'), 'today');
+        $futureMetricKey = $this->normalizeOptionalMetricKey($futureMetricKey);
         $historyDays = max(7, min(90, $historyDays));
-        $futureDays = max(3, min(14, $futureDays));
+        $futureDays = $futureMetricKey !== null
+            ? max(1, min(14, $futureDays))
+            : max(3, min(14, $futureDays));
         $historyEnd = $this->shiftDate($todayDate, -1);
         $historyStart = $this->shiftDate($historyEnd, -($historyDays - 1));
 
@@ -81,7 +92,7 @@ final class TemporalInsightService
         $past = $this->pastView($pastBundle, $historyStart, $historyEnd);
         $present = $this->presentView($presentBundle, $pastBundle);
         $review = $this->reviewView($scope['ids'], $todayDate);
-        $future = $this->futureView($scope['ids'], $todayDate, $futureDays, $review);
+        $future = $this->futureView($scope['ids'], $todayDate, $futureDays, $review, $futureMetricKey);
 
         return [
             'generated_at' => date('Y-m-d H:i:s'),
@@ -119,7 +130,13 @@ final class TemporalInsightService
      *
      * @return array<string, mixed>
      */
-    public function generateForecast(int $hotelId, int $createdBy = 0, ?string $asOfDate = null, int $futureDays = 7): array
+    public function generateForecast(
+        int $hotelId,
+        int $createdBy = 0,
+        ?string $asOfDate = null,
+        int $futureDays = 7,
+        ?string $metricKey = null
+    ): array
     {
         if ($hotelId <= 0) {
             throw new InvalidArgumentException('生成预测前必须选择一个已授权酒店。');
@@ -145,7 +162,10 @@ final class TemporalInsightService
         }
 
         $asOf = $this->date($asOfDate ?: date('Y-m-d'), 'as_of_date');
-        $futureDays = max(3, min(14, $futureDays));
+        $metricKey = $this->normalizeOptionalMetricKey($metricKey);
+        $futureDays = $metricKey !== null
+            ? max(1, min(14, $futureDays))
+            : max(3, min(14, $futureDays));
         $sourceEnd = $this->shiftDate($asOf, -1);
         $sourceStart = $this->shiftDate($sourceEnd, -27);
         $history = $this->loadPeriodFacts([$hotelId], $sourceStart, $sourceEnd, 'historical_daily', true);
@@ -172,7 +192,9 @@ final class TemporalInsightService
                 'calibration_status' => 'not_calibrated',
             ];
         }
-        $plan = $this->buildForecastPlan($history['series'], $asOf, $futureDays);
+        $plan = $metricKey !== null
+            ? $this->buildFocusedForecastPlan($history['series'], $asOf, $metricKey, $futureDays)
+            : $this->buildForecastPlan($history['series'], $asOf, $futureDays);
 
         if (($plan['points'] ?? []) === []) {
             return [
@@ -195,9 +217,11 @@ final class TemporalInsightService
             ];
         }
 
-        $runId = 'tf_' . date('YmdHis') . '_' . substr(bin2hex(random_bytes(6)), 0, 12);
-        $asOfTime = date('Y-m-d H:i:s');
         $tenantId = $this->tenantIdForHotel($hotelId);
+        $runId = $metricKey !== null
+            ? $this->focusedForecastRunId($tenantId, $hotelId, $asOf, $metricKey, $futureDays)
+            : 'tf_' . date('YmdHis') . '_' . substr(bin2hex(random_bytes(6)), 0, 12);
+        $asOfTime = date('Y-m-d H:i:s');
         $metricMeta = [];
         foreach ($plan['metrics'] as $metric) {
             $metricMeta[(string)$metric['metric_key']] = $metric;
@@ -255,24 +279,48 @@ final class TemporalInsightService
             ];
         }
 
-        [$savedCount, $readbackRows] = Db::transaction(function () use ($rows, $tenantId, $hotelId, $runId): array {
-            $savedCount = (int)Db::name(self::FORECAST_TABLE)->insertAll($rows);
-            $readbackRows = Db::name(self::FORECAST_TABLE)
-                ->where('tenant_id', $tenantId)
-                ->where('system_hotel_id', $hotelId)
-                ->where('forecast_run_id', $runId)
-                ->order('metric_key', 'asc')
-                ->order('target_date', 'asc')
-                ->select()
-                ->toArray();
-            if ($savedCount !== count($rows) || !$this->forecastReadbackMatches($rows, $readbackRows)) {
-                throw new RuntimeException('forecast snapshot persistence readback mismatch; transaction rolled back');
+        $savedCount = 0;
+        $readbackRows = [];
+        $idempotentReplay = false;
+        if ($metricKey !== null) {
+            $readbackRows = $this->forecastRunRows($tenantId, $hotelId, $runId);
+            if ($readbackRows !== []) {
+                if (!$this->forecastReplayIdentityMatches($rows, $readbackRows)) {
+                    throw new RuntimeException('focused forecast idempotency readback mismatch; no new version was written');
+                }
+                $idempotentReplay = true;
             }
-            return [$savedCount, $readbackRows];
-        });
+        }
 
-        if ($savedCount !== count($rows) || count($readbackRows) !== count($rows)) {
+        if (!$idempotentReplay) {
+            try {
+                [$savedCount, $readbackRows] = Db::transaction(function () use ($rows, $tenantId, $hotelId, $runId): array {
+                    $savedCount = (int)Db::name(self::FORECAST_TABLE)->insertAll($rows);
+                    $readbackRows = $this->forecastRunRows($tenantId, $hotelId, $runId);
+                    if ($savedCount !== count($rows) || !$this->forecastReadbackMatches($rows, $readbackRows)) {
+                        throw new RuntimeException('forecast snapshot persistence readback mismatch; transaction rolled back');
+                    }
+                    return [$savedCount, $readbackRows];
+                });
+            } catch (Throwable $e) {
+                if ($metricKey === null) {
+                    throw $e;
+                }
+                $readbackRows = $this->forecastRunRows($tenantId, $hotelId, $runId);
+                if (!$this->forecastReplayIdentityMatches($rows, $readbackRows)) {
+                    throw $e;
+                }
+                $savedCount = 0;
+                $idempotentReplay = true;
+            }
+        }
+
+        if ((!$idempotentReplay && $savedCount !== count($rows)) || count($readbackRows) !== count($rows)) {
             throw new RuntimeException('预测版本保存后回读数量不一致，未将本次结果标记为完成。');
+        }
+
+        if ($idempotentReplay) {
+            $asOfTime = (string)($readbackRows[0]['as_of_time'] ?? $asOfTime);
         }
 
         $review = $this->reviewView([$hotelId], $asOf);
@@ -288,9 +336,11 @@ final class TemporalInsightService
 
         return [
             'status' => 'generated',
-            'message' => $eligiblePointCount > 0
-                ? '预测版本已保存并回读；通过回测门槛的分组只能送人工审核。'
-                : '预测版本已保存并回读，但样本、来源质量或命中率未过门槛，运营结论已停用。',
+            'message' => $idempotentReplay
+                ? '今日同口径预测已存在，已幂等回读原始版本；未重复写入。'
+                : ($eligiblePointCount > 0
+                    ? '预测版本已保存并回读；通过回测门槛的分组只能送人工审核。'
+                    : '预测版本已保存并回读，但样本、来源质量或命中率未过门槛，仅保留观察。'),
             'metric_scope' => 'ota_channel',
             'system_hotel_id' => $hotelId,
             'forecast_run_id' => $runId,
@@ -300,6 +350,12 @@ final class TemporalInsightService
             'source_period' => ['start_date' => $sourceStart, 'end_date' => $sourceEnd],
             'saved_count' => $savedCount,
             'readback_count' => count($readbackRows),
+            'persistence_status' => $idempotentReplay
+                ? 'idempotent_readback_verified'
+                : 'saved_and_readback_verified',
+            'idempotent_replay' => $idempotentReplay,
+            'requested_metric_key' => $metricKey,
+            'requested_horizon_days' => $metricKey !== null ? $futureDays : null,
             'metrics' => $plan['metrics'],
             'points' => $shapedPoints,
             'operational_status' => $eligiblePointCount > 0 ? 'human_review_only' : 'disabled',
@@ -469,6 +525,11 @@ final class TemporalInsightService
             ];
         }
 
+        $absoluteError = abs($actual - $predicted);
+        $absolutePercentageError = $actual > 0
+            ? round($absoluteError / $actual * 100, 2)
+            : ($absoluteError === 0.0 ? 0.0 : null);
+
         return [
             'status' => 'ready',
             'contract_version' => 'temporal_metric_actual.v1',
@@ -483,7 +544,9 @@ final class TemporalInsightService
             'upper_bound' => $upper,
             'actual_value' => $actual,
             'within_range' => $actual >= $lower && $actual <= $upper,
-            'absolute_error' => $this->roundMetric($metricKey, abs($actual - $predicted)),
+            'absolute_error' => $this->roundMetric($metricKey, $absoluteError),
+            'absolute_percentage_error_percent' => $absolutePercentageError,
+            'error_ratio_semantics' => '绝对误差除以实际值；实际值为0且预测非0时保持null。',
             'source_row_ids' => $rowIds,
             'readback_count' => (int)($quality['trusted_fact_rows'] ?? count($rowIds)),
             'readback_at' => date('Y-m-d H:i:s', (int)strtotime($readbackAt)),
@@ -491,6 +554,94 @@ final class TemporalInsightService
             'causality_claimed' => false,
             'effect_evidence_status' => 'observed_not_attributed',
         ];
+    }
+
+    /**
+     * Read the latest matured result produced by the focused daily T+1 OTA
+     * room-night loop. Missing/untrusted actuals remain unavailable, never 0.
+     *
+     * @return array<string, mixed>
+     */
+    public function dailyRoomNightAccuracyReceipt(int $hotelId, ?string $today = null): array
+    {
+        if ($hotelId <= 0) {
+            throw new InvalidArgumentException('读取每日准确率回执前必须选择一个已授权酒店。');
+        }
+        $todayDate = $this->date($today ?: date('Y-m-d'), 'today');
+        try {
+            if (!$this->tableExists(self::FORECAST_TABLE)) {
+                return [
+                    'status' => 'unavailable',
+                    'reason_code' => 'temporal_forecast_schema_missing',
+                    'message' => '预测版本表尚未初始化，无法形成准确率回执。',
+                    'metric_key' => self::DAILY_ACCURACY_METRIC,
+                    'included_in_accuracy_learning' => false,
+                ];
+            }
+            $forecast = Db::name(self::FORECAST_TABLE)
+                ->where('system_hotel_id', $hotelId)
+                ->where('metric_scope', 'ota_channel')
+                ->where('platform', 'all_ota')
+                ->where('metric_key', self::DAILY_ACCURACY_METRIC)
+                ->where('horizon_days', 1)
+                ->where('forecast_run_id', 'like', self::FOCUSED_RUN_PREFIX . '%')
+                ->where('target_date', '<', $todayDate)
+                ->order('target_date', 'desc')
+                ->order('id', 'desc')
+                ->find();
+        } catch (Throwable) {
+            return [
+                'status' => 'blocked',
+                'data_status' => 'read_failed',
+                'reason_code' => 'daily_room_night_accuracy_read_failed',
+                'message' => '上一期预测或实际值读取失败，本次不计算误差。',
+                'metric_key' => self::DAILY_ACCURACY_METRIC,
+                'included_in_accuracy_learning' => false,
+            ];
+        }
+
+        if (!is_array($forecast)) {
+            return [
+                'status' => 'waiting',
+                'reason_code' => 'first_t1_actual_not_due',
+                'message' => '首个 T+1 OTA 间夜实际值将在目标日结束并定稿后自动回读。',
+                'metric_key' => self::DAILY_ACCURACY_METRIC,
+                'included_in_accuracy_learning' => false,
+            ];
+        }
+
+        $receipt = $this->forecastActualReadback(
+            (int)($forecast['id'] ?? 0),
+            $hotelId,
+            self::DAILY_ACCURACY_METRIC,
+            (string)($forecast['target_date'] ?? '')
+        );
+        $status = (string)($receipt['status'] ?? 'unavailable');
+        $reasonCode = (string)($receipt['reason_code'] ?? '');
+        if ($status === 'ready') {
+            $errorPercent = $receipt['absolute_percentage_error_percent'] ?? null;
+            $receipt['message'] = sprintf(
+                '上一期 T+1 OTA 间夜：预测 %s，实际 %s，绝对误差 %s%s。',
+                (string)($receipt['predicted_value'] ?? '未取得'),
+                (string)($receipt['actual_value'] ?? '未取得'),
+                (string)($receipt['absolute_error'] ?? '未取得'),
+                is_numeric($errorPercent) ? '，误差比 ' . (string)$errorPercent . '%' : ''
+            );
+            $receipt['included_in_accuracy_learning'] = true;
+            return $receipt;
+        }
+
+        $receipt['message'] = match ($reasonCode) {
+            'forecast_source_contract_unverified' => '上一期预测生成时来源证据不完整，仅保留观察，不纳入准确率。',
+            'trusted_actual_missing' => '上一期实际 OTA 间夜尚未取得；不以 0 或旧日期替代。',
+            'trusted_actual_quality_incomplete' => '上一期实际 OTA 间夜尚未满足携程与美团同日可信回读条件。',
+            'target_actual_not_final' => '目标日尚未结束，等待实际 OTA 间夜定稿。',
+            default => $status === 'blocked'
+                ? '上一期实际值读取失败，本次不计算误差。'
+                : '上一期实际值尚不满足可信回读条件，本次不计算误差。',
+        };
+        $receipt['included_in_accuracy_learning'] = false;
+        return $receipt;
     }
 
     /**
@@ -614,10 +765,55 @@ final class TemporalInsightService
     }
 
     /**
+     * Build one declared metric/horizon plan while reusing the registered
+     * coarse-trend algorithm. This is the same-day runnable accuracy slice;
+     * it does not invent a new model or bypass the seven-valid-day minimum.
+     *
+     * @param array<int, array<string, mixed>> $dailySeries
+     * @return array<string, mixed>
+     */
+    public function buildFocusedForecastPlan(
+        array $dailySeries,
+        string $asOfDate,
+        string $metricKey,
+        int $futureDays = 1
+    ): array {
+        $metricKey = $this->normalizeOptionalMetricKey($metricKey);
+        if ($metricKey === null) {
+            throw new InvalidArgumentException('聚焦预测必须声明一个 OTA 指标。');
+        }
+        $futureDays = max(1, min(14, $futureDays));
+        $plan = $this->buildForecastPlan($dailySeries, $asOfDate, max(3, $futureDays));
+        $plan['future_days'] = $futureDays;
+        $plan['metrics'] = array_values(array_filter(
+            is_array($plan['metrics'] ?? null) ? $plan['metrics'] : [],
+            static fn(array $metric): bool => (string)($metric['metric_key'] ?? '') === $metricKey
+        ));
+        $plan['points'] = array_values(array_filter(
+            is_array($plan['points'] ?? null) ? $plan['points'] : [],
+            static fn(array $point): bool => (string)($point['metric_key'] ?? '') === $metricKey
+                && (int)($point['horizon_days'] ?? 0) <= $futureDays
+        ));
+        $plan['status'] = $plan['points'] !== [] ? 'ready' : 'insufficient_data';
+        $plan['focus'] = [
+            'metric_key' => $metricKey,
+            'horizon_days' => $futureDays,
+            'observation_only_until_evidence_gate_passes' => true,
+        ];
+        return $plan;
+    }
+
+    /**
      * @param array<int, int> $hotelIds
      * @return array<string, mixed>
      */
-    private function futureView(array $hotelIds, string $today, int $futureDays, array $review = []): array
+    private function futureView(
+        array $hotelIds,
+        string $today,
+        int $futureDays,
+        array $review = [],
+        ?string $metricKey = null
+    ): array
     {
         if (count($hotelIds) !== 1) {
             return [
@@ -649,11 +845,18 @@ final class TemporalInsightService
         $hotelId = $hotelIds[0];
         $startDate = $this->shiftDate($today, 1);
         $endDate = $this->shiftDate($today, $futureDays);
+        $dailyAccuracyReceipt = $metricKey === self::DAILY_ACCURACY_METRIC && $futureDays === 1
+            ? $this->dailyRoomNightAccuracyReceipt($hotelId, $today)
+            : null;
         try {
-            $latest = Db::name(self::FORECAST_TABLE)
+            $latestQuery = Db::name(self::FORECAST_TABLE)
                 ->where('system_hotel_id', $hotelId)
                 ->where('as_of_date', '<=', $today)
-                ->whereBetween('target_date', [$startDate, $endDate])
+                ->whereBetween('target_date', [$startDate, $endDate]);
+            if ($metricKey !== null) {
+                $latestQuery->where('metric_key', $metricKey);
+            }
+            $latest = $latestQuery
                 ->order('as_of_time', 'desc')
                 ->order('id', 'desc')
                 ->find();
@@ -671,14 +874,21 @@ final class TemporalInsightService
                 'label' => '未来可观',
                 'message' => '尚无可用预测版本；可基于最近定稿事实生成一版粗粒度趋势。',
                 'series' => [],
+                'requested_metric_key' => $metricKey,
+                'requested_horizon_days' => $futureDays,
+                'daily_accuracy_receipt' => $dailyAccuracyReceipt,
             ];
         }
 
         try {
-            $rows = Db::name(self::FORECAST_TABLE)
+            $rowsQuery = Db::name(self::FORECAST_TABLE)
                 ->where('system_hotel_id', $hotelId)
                 ->where('forecast_run_id', (string)$latest['forecast_run_id'])
-                ->whereBetween('target_date', [$startDate, $endDate])
+                ->whereBetween('target_date', [$startDate, $endDate]);
+            if ($metricKey !== null) {
+                $rowsQuery->where('metric_key', $metricKey);
+            }
+            $rows = $rowsQuery
                 ->order('target_date', 'asc')
                 ->order('metric_key', 'asc')
                 ->select()
@@ -710,6 +920,9 @@ final class TemporalInsightService
                 'source_end_date' => (string)($latest['source_end_date'] ?? ''),
             ],
             'series' => $series,
+            'requested_metric_key' => $metricKey,
+            'requested_horizon_days' => $futureDays,
+            'daily_accuracy_receipt' => $dailyAccuracyReceipt,
             'confidence_type' => self::CONFIDENCE_TYPE,
             'confidence_semantics' => self::CONFIDENCE_SEMANTICS,
             'calibration_status' => 'not_calibrated',
@@ -2830,6 +3043,98 @@ final class TemporalInsightService
     {
         $modifier = ($days >= 0 ? '+' : '') . $days . ' days';
         return (new DateTimeImmutable($date))->modify($modifier)->format('Y-m-d');
+    }
+
+    private function normalizeOptionalMetricKey(?string $metricKey): ?string
+    {
+        $normalized = strtolower(trim((string)$metricKey));
+        if ($normalized === '') {
+            return null;
+        }
+        if (!array_key_exists($normalized, self::METRICS)) {
+            throw new InvalidArgumentException('metric_key 必须是已登记的 OTA 指标。');
+        }
+        return $normalized;
+    }
+
+    private function focusedForecastRunId(
+        int $tenantId,
+        int $hotelId,
+        string $asOfDate,
+        string $metricKey,
+        int $futureDays
+    ): string {
+        $identity = implode('|', [
+            $tenantId,
+            $hotelId,
+            $asOfDate,
+            $metricKey,
+            $futureDays,
+            self::MODEL_VERSION,
+            self::METHOD,
+        ]);
+        return self::FOCUSED_RUN_PREFIX . substr(hash('sha256', $identity), 0, 32);
+    }
+
+    /** @return array<int, array<string, mixed>> */
+    private function forecastRunRows(int $tenantId, int $hotelId, string $runId): array
+    {
+        return Db::name(self::FORECAST_TABLE)
+            ->where('tenant_id', $tenantId)
+            ->where('system_hotel_id', $hotelId)
+            ->where('forecast_run_id', $runId)
+            ->order('metric_key', 'asc')
+            ->order('target_date', 'asc')
+            ->select()
+            ->toArray();
+    }
+
+    /**
+     * Same-day focused reruns return the immutable stored version. Only its
+     * deterministic identity is compared because later source backfills must
+     * not rewrite the forecast that was actually issued earlier that day.
+     *
+     * @param array<int, array<string, mixed>> $expectedRows
+     * @param array<int, array<string, mixed>> $storedRows
+     */
+    private function forecastReplayIdentityMatches(array $expectedRows, array $storedRows): bool
+    {
+        if (count($expectedRows) !== count($storedRows) || $expectedRows === []) {
+            return false;
+        }
+        $storedByKey = [];
+        foreach ($storedRows as $stored) {
+            if (!is_array($stored)) {
+                return false;
+            }
+            $storedByKey[$this->forecastRowIdentity($stored)] = $stored;
+        }
+        foreach ($expectedRows as $expected) {
+            $stored = $storedByKey[$this->forecastRowIdentity($expected)] ?? null;
+            if (!is_array($stored)) {
+                return false;
+            }
+            foreach ([
+                'tenant_id',
+                'system_hotel_id',
+                'metric_scope',
+                'platform',
+                'metric_key',
+                'forecast_run_id',
+                'as_of_date',
+                'target_date',
+                'horizon_days',
+                'model_version',
+                'method',
+            ] as $field) {
+                if (!array_key_exists($field, $stored)
+                    || !$this->forecastStoredValueMatches($stored[$field], $expected[$field] ?? null)
+                ) {
+                    return false;
+                }
+            }
+        }
+        return true;
     }
 
     private function tenantIdForHotel(int $hotelId): int

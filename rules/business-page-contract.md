@@ -91,10 +91,12 @@
 当前黄金样例是携程 eBooking 的展示/下载同源路径：
 
 ```text
-ctripSummaryDisplayCards
-  + ctripDownloadRows
-  + ctripEarlyMorningSourceNotice
+竞争圈当前已渲染卡片
+  + 当前标签页表头、排序、分页行与缺失状态
+  + 当前来源提示
+  -> captureCtripBusinessDownloadSnapshot
   -> buildCtripBusinessCanvas
+  -> ctrip_visible_download_snapshot.test.mjs
   -> ctrip_channel_order_breakdown.test.mjs
 ```
 

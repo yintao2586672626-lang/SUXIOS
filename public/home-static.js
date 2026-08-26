@@ -352,7 +352,6 @@ window.SUXI_HOME_STATIC = (() => {
         '事实已回读·分析受限': 'border-amber-200 bg-amber-50 text-amber-700',
         '已形成': 'border-emerald-200 bg-emerald-50 text-emerald-700',
         '部分取得': 'border-amber-200 bg-amber-50 text-amber-700',
-        '受上游阻断': 'border-amber-200 bg-amber-50 text-amber-700',
         '正在读取': 'border-blue-200 bg-blue-50 text-blue-700',
         '读取失败': 'border-red-200 bg-red-50 text-red-700',
         '未取得': 'border-slate-200 bg-slate-100 text-slate-600',
@@ -406,6 +405,107 @@ window.SUXI_HOME_STATIC = (() => {
         not_checkable: '不可核验',
         partial: '部分可对照',
     }[String(status || '')] || '待核验');
+
+    const createHomeRevenueFactLayerController = ({
+        request,
+        readContext,
+        isContextCurrent,
+        requestPolicyFor = () => ({}),
+        onStateChange = () => {},
+        logError = () => {},
+    } = {}) => {
+        if (typeof request !== 'function'
+            || typeof readContext !== 'function'
+            || typeof isContextCurrent !== 'function'
+        ) {
+            throw new Error('基础经营事实控制器缺少运行时依赖');
+        }
+        let requestSeq = 0;
+        const requests = new Map();
+        let state = {
+            layer: null,
+            loading: false,
+            error: '',
+            hotelId: '',
+            businessDate: '',
+        };
+        const publish = (patch = {}) => {
+            state = { ...state, ...patch };
+            onStateChange({ ...state });
+            return state;
+        };
+        const reset = ({ error = '' } = {}) => {
+            requestSeq += 1;
+            requests.clear();
+            const context = readContext() || {};
+            publish({
+                layer: null,
+                loading: false,
+                error: String(error || ''),
+                hotelId: String(context.hotelId || '').trim(),
+                businessDate: String(context.businessDate || '').trim(),
+            });
+        };
+        const load = (options = {}) => {
+            const context = readContext() || {};
+            if (context.active !== true) return Promise.resolve(null);
+            const hotelId = String(context.hotelId || '').trim();
+            const businessDate = String(context.businessDate || '').trim();
+            if (!hotelId || !/^\d{4}-\d{2}-\d{2}$/.test(businessDate)) {
+                reset({ error: hotelId ? '目标业务日尚未确认' : '' });
+                return Promise.resolve(null);
+            }
+            const force = options.force === true;
+            const scopeKey = `${String(context.sessionKey || '')}|${hotelId}|${businessDate}`;
+            if (!force && requests.has(scopeKey)) return requests.get(scopeKey);
+            if (force) requests.delete(scopeKey);
+            const seq = ++requestSeq;
+            const isCurrent = () => seq === requestSeq && isContextCurrent(context);
+            publish({
+                layer: state.hotelId === hotelId && state.businessDate === businessDate ? state.layer : null,
+                loading: true,
+                error: '',
+                hotelId,
+                businessDate,
+            });
+            let run = null;
+            run = (async () => {
+                try {
+                    const params = new URLSearchParams({ hotel_id: hotelId, business_date: businessDate });
+                    const response = await request(`/dashboard/revenue-facts?${params.toString()}`, {
+                        requestPolicy: requestPolicyFor(context, force),
+                    });
+                    if (!isCurrent()) return state.layer;
+                    const layer = response?.data;
+                    if (response?.code !== 200 || !layer || typeof layer !== 'object') {
+                        throw new Error(response?.message || '基础经营事实读取失败');
+                    }
+                    if (String(layer.hotel?.system_hotel_id || '') !== hotelId
+                        || String(layer.business_date || '') !== businessDate
+                    ) {
+                        throw new Error('基础经营事实回读范围不一致');
+                    }
+                    publish({ layer, error: '' });
+                    return layer;
+                } catch (error) {
+                    if (!isCurrent()) return state.layer;
+                    publish({ layer: null, error: error?.message || '基础经营事实读取失败' });
+                    logError(error);
+                    return null;
+                } finally {
+                    if (isCurrent()) publish({ loading: false });
+                    if (requests.get(scopeKey) === run) requests.delete(scopeKey);
+                }
+            })();
+            requests.set(scopeKey, run);
+            return run;
+        };
+        return Object.freeze({
+            load,
+            reset,
+            snapshot: () => ({ ...state }),
+        });
+    };
 
     const buildHomeBusinessTimeModel = ({
         temporalData = {},
@@ -888,7 +988,7 @@ window.SUXI_HOME_STATIC = (() => {
         if (loading) yesterdayStatus = '正在读取';
         if (loadError) yesterdayStatus = '读取失败';
         let yesterdaySummary = loadError
-            ? `经营事实读取失败：${loadError}`
+            ? `昨日事实读取失败：${loadError}`
             : (loading
                 ? '正在读取目标日已定稿事实。'
                 : (readyFactCount > 0
@@ -920,16 +1020,9 @@ window.SUXI_HOME_STATIC = (() => {
         }
 
         const blockingIssues = [];
-        const reviewGaps = Array.isArray(factLayer.ai_review_gaps)
-            ? factLayer.ai_review_gaps
-            : [];
-        const analysisGaps = Array.isArray(factLayer.analysis_gaps)
-            ? factLayer.analysis_gaps
-            : [];
-        const primaryGap = factLayer.unique_remaining_gap
-            || reviewGaps[0]
-            || analysisGaps[0]
-            || null;
+        const reviewGaps = Array.isArray(factLayer.ai_review_gaps) ? factLayer.ai_review_gaps : [];
+        const analysisGaps = Array.isArray(factLayer.analysis_gaps) ? factLayer.analysis_gaps : [];
+        const primaryGap = factLayer.unique_remaining_gap || reviewGaps[0] || analysisGaps[0] || null;
         const sourceLabels = {
             dingdandao_pms: 'PMS',
             ctrip_ota: '携程',
@@ -1074,7 +1167,7 @@ window.SUXI_HOME_STATIC = (() => {
             requiresHotelSelection: selectedHotelKey === '',
             hotelScopeMismatch: factLayerHotelMismatch,
             sourceText: factLayerMatchesTarget
-                ? `PMS全酒店住宿事实 + 携程/美团OTA渠道事实 · ${targetDate} · 保存与精确回读证据见经营事实闭环`
+                ? `PMS全酒店住宿事实 + 携程/美团OTA渠道事实 · ${targetDate} · 保存与精确回读证据见昨日经营闭环`
                 : (factLayerDate && !factLayerHotelMismatch
                     ? `严格经营事实层 · 目标日 ${targetDate || '待确认'} 未命中 · 当前回读日 ${factLayerDate} 不作替代`
                     : `${platformText} OTA · ${targetDate || '目标日待确认'}定稿事实 · 入库与回读证据见数据健康`),
@@ -1635,7 +1728,7 @@ window.SUXI_HOME_STATIC = (() => {
                 h('select', {
                     class: 'input-field',
                     value: String(this.selectedHotelId || ''),
-                    'aria-label': '经营事实门店',
+                    'aria-label': '昨日经营事实门店',
                     onChange: event => this.$emit(
                         'update:selectedHotelId',
                         String(event?.target?.value || '')
@@ -2288,6 +2381,7 @@ window.SUXI_HOME_STATIC = (() => {
     }[readiness?.status] || 'bg-gray-50 text-gray-500 border-gray-200');
 
     return {
+        createHomeRevenueFactLayerController,
         buildHomeClosedLoopStages,
         buildHomeAiTraceRows,
         buildHomeOperatingResultCards,

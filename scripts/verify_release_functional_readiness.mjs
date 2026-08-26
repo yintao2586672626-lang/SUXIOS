@@ -1,11 +1,13 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { readRouteContractSource } from './lib/route_contract_source.mjs';
 
 const root = process.cwd();
 const failures = [];
 const passes = [];
 
 function readText(relativePath) {
+  if (relativePath === 'route/app.php') return readRouteContractSource(root);
   return fs.readFileSync(path.join(root, relativePath), 'utf8');
 }
 

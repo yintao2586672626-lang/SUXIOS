@@ -7,6 +7,7 @@ import {
   buildDataConfigDialogsComponent,
   buildFrontendStartupRender,
   buildFrontendTemplateRender,
+  AI_DAILY_REPORT_DELIVERY_RELATIVE_PATH,
   BUSINESS_CLOSURE_LOADER_RELATIVE_PATH,
   BUSINESS_CLOSURE_VIEWS_ARTIFACT_RELATIVE_PATH,
   DATA_CONFIG_DIALOGS_ARTIFACT_RELATIVE_PATH,
@@ -35,9 +36,11 @@ const dataConfigDialogsTemplatePath = path.join(repoRoot, DATA_CONFIG_DIALOGS_TE
 const dataConfigDialogsArtifactPath = path.join(repoRoot, DATA_CONFIG_DIALOGS_ARTIFACT_RELATIVE_PATH);
 const businessClosureViewsArtifactPath = path.join(repoRoot, BUSINESS_CLOSURE_VIEWS_ARTIFACT_RELATIVE_PATH);
 const businessClosureLoaderPath = path.join(repoRoot, BUSINESS_CLOSURE_LOADER_RELATIVE_PATH);
+const aiDailyReportDeliveryPath = path.join(repoRoot, AI_DAILY_REPORT_DELIVERY_RELATIVE_PATH);
 const templateSnapshotBuffer = fs.readFileSync(templatePath);
 const dataConfigDialogsTemplateBuffer = fs.readFileSync(dataConfigDialogsTemplatePath);
 const businessClosureLoaderBuffer = fs.readFileSync(businessClosureLoaderPath);
+const aiDailyReportDeliveryBuffer = fs.readFileSync(aiDailyReportDeliveryPath);
 const source = loadFrontendTemplateSource(repoRoot);
 if (!source.templateBuffer.equals(templateSnapshotBuffer)) {
   throw new Error('Business template fragments do not match resources/frontend/app-template.html; refusing to write runtime artifacts.');
@@ -58,7 +61,12 @@ const businessClosureViewsVersionUpdate = updateFrontendAssetVersion(
   'business-closure-views.js',
   businessClosureViewsArtifact,
 );
-const businessClosureLoaderArtifact = businessClosureViewsVersionUpdate.html;
+const aiDailyReportDeliveryVersionUpdate = updateFrontendAssetVersion(
+  businessClosureViewsVersionUpdate.html,
+  'ai-daily-report-delivery.js',
+  aiDailyReportDeliveryBuffer,
+);
+const businessClosureLoaderArtifact = aiDailyReportDeliveryVersionUpdate.html;
 const runtimeVue = fs.readFileSync(runtimeVueSourcePath);
 const indexSource = fs.readFileSync(indexPath, 'utf8');
 const renderVersionUpdate = updateFrontendAssetVersion(indexSource, 'app-render.min.js', render);
@@ -84,6 +92,7 @@ if (!currentTemplateSnapshotBuffer.equals(templateSnapshotBuffer)
   || !currentSource.templateBuffer.equals(source.templateBuffer)
   || JSON.stringify(currentSource.businessClosureViews) !== JSON.stringify(source.businessClosureViews)
   || !currentDataConfigDialogsTemplateBuffer.equals(dataConfigDialogsTemplateBuffer)
+  || !fs.readFileSync(aiDailyReportDeliveryPath).equals(aiDailyReportDeliveryBuffer)
   || !fs.readFileSync(businessClosureLoaderPath).equals(businessClosureLoaderBuffer)) {
   throw new Error('Frontend template source changed during compilation; refusing to write runtime artifacts.');
 }
@@ -141,6 +150,7 @@ console.log(JSON.stringify({
   data_config_dialogs_artifact_hash: crypto.createHash('sha256').update(dataConfigDialogsArtifact).digest('hex').slice(0, 10),
   business_closure_views_artifact_hash: crypto.createHash('sha256').update(businessClosureViewsArtifact).digest('hex').slice(0, 10),
   business_closure_views_loader_version_hash: businessClosureViewsVersionUpdate.hash,
+  ai_daily_report_delivery_loader_version_hash: aiDailyReportDeliveryVersionUpdate.hash,
   business_closure_loader_hash: businessClosureLoaderVersionUpdate.hash,
   index_changed: indexChanged,
 }, null, 2));

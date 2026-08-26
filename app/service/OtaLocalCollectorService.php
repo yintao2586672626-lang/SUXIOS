@@ -8,6 +8,7 @@ use app\model\base\BaseTenantModel;
 use app\model\User;
 use app\service\concern\OtaLocalCollectorLeaseConcern;
 use app\service\concern\OtaLocalCollectorManualLoginConcern;
+use app\service\platform\BrowserProfileProcessOutputSanitizer;
 use RuntimeException;
 use think\facade\Cache;
 use think\facade\Db;
@@ -33,7 +34,7 @@ final class OtaLocalCollectorService
     private const YESTERDAY_WINDOW_START = '08:30';
     private const YESTERDAY_WINDOW_CUTOFF = '09:00';
     private const MAX_ROWS_PER_RESULT = 2000;
-    private const MAX_RESULT_BYTES = 3_145_728;
+    public const MAX_RESULT_BYTES = 3_145_728;
     private const PLATFORMS = ['ctrip', 'meituan'];
     private const TASK_TYPES = ['login', 'session_probe', 'collect', 'backfill'];
     private const ACTIVE_TASK_STATUSES = [
@@ -4045,10 +4046,8 @@ final class OtaLocalCollectorService
             );
         }
 
-        return array_values(array_map('intval', Db::name('hotels')
-            ->where('tenant_id', $tenantId)
-            ->where('status', 1)
-            ->column('id')));
+        // A missing or unreadable grant table is not evidence of access.
+        return [];
     }
 
     /** @param array<string, mixed> $task */
@@ -6248,9 +6247,7 @@ final class OtaLocalCollectorService
         if (!is_string($value)) {
             return;
         }
-        if (preg_match('/\b(?:cookie|set-cookie|authorization|proxy-authorization|x-api-key)\s*[:=]/i', $value) === 1
-            || preg_match('/\bbearer\s+[A-Za-z0-9._~+\/=:-]{8,}/i', $value) === 1
-        ) {
+        if (BrowserProfileProcessOutputSanitizer::containsSensitiveMaterial($value)) {
             throw new RuntimeException('本机结果文本包含疑似会话凭据，已拒绝上传。', 422);
         }
     }

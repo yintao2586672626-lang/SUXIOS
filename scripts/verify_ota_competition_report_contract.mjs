@@ -25,7 +25,10 @@ const wecomDelivery = read('app/service/WechatCompetitionReportDeliveryService.p
 const wecomVisualCard = read('app/service/WechatCompetitionVisualCardService.php');
 const wecomVisualRenderer = read('scripts/render_wechat_competition_visual_card.mjs');
 const cloudAutomation = read('app/service/CloudAutomationService.php');
-const frontend = read('public/app-main.js');
+const frontend = [
+  read('public/app-main.js'),
+  read('public/components/system/ai-daily-report-delivery.js'),
+].join('\n');
 const aiDailyStatic = read('public/ai-daily-report-static.js');
 const template = read('resources/frontend/templates/fragments/16-page-ai-daily-report.html');
 const ctripTemplate = read('resources/frontend/templates/fragments/24-page-ctrip-ebooking.html');
@@ -144,7 +147,7 @@ assertContains(aiDailyStatic, 'competition_bundle_exact_readback_required', 'off
   ["testId: 'ctrip-competition-report-flagship'", 'Ctrip toolbar flagship report action'],
   ["testId: 'ctrip-business-download-button'", 'existing Ctrip data download action'],
   ['edition: requestedEdition', 'explicit quick-report edition request'],
-  ['requestedEdition: edition', 'explicit edition forwarded to the deferred exporter'],
+  ['downloadCompetitionReport(context(), edition)', 'explicit edition forwarded to the deferred exporter'],
   ["JSON.stringify({ edition: requestedEdition })", 'WeCom edition request payload'],
   ['aiDailyReportWecomConfirmOpen.value = true', 'in-app WeCom confirmation entry'],
   ['confirmAiDailyReportWecomSend', 'confirmed WeCom delivery action'],

@@ -146,7 +146,7 @@ class CompetitorWechatRobotController extends Base
     {
         $this->checkSuperAdmin();
         if ($this->findAdminManagedRobot($id) === null) {
-            return json(['code' => 404, 'message' => '门店共享机器人不存在']);
+            return json(['code' => 404, 'message' => '门店共享机器人不存在'], 404);
         }
         $this->adminManagedRobotQuery()->where('id', $id)->delete();
         OperationLog::record('competitor', 'delete_robot', '删除企业微信机器人', $this->currentUser->id);
@@ -164,15 +164,17 @@ class CompetitorWechatRobotController extends Base
         ];
         $result = $this->testAdminManagedRobot($id, $payload);
         if (($result['eligible'] ?? false) !== true) {
-            return json(['code' => 404, 'message' => '门店共享机器人不存在']);
+            return json(['code' => 404, 'message' => '门店共享机器人不存在'], 404);
         }
         if (($result['success'] ?? false) === true) {
             return json(['code' => 200, 'message' => '发送成功']);
         }
+        $httpCode = (int)($result['http_code'] ?? 500);
+        $httpStatus = $httpCode >= 400 && $httpCode <= 599 ? $httpCode : 500;
         return json([
-            'code' => (int)($result['http_code'] ?? 500),
+            'code' => $httpCode,
             'message' => '发送失败: ' . (string)($result['error'] ?? '企业微信未确认送达'),
-        ]);
+        ], $httpStatus);
     }
 
     /**
@@ -200,7 +202,7 @@ class CompetitorWechatRobotController extends Base
         );
 
         if ($status === 'binding_missing') {
-            return json(['code' => 404, 'message' => '该门店未绑定共享机器人', 'data' => $delivery]);
+            return json(['code' => 404, 'message' => '该门店未绑定共享机器人', 'data' => $delivery], 404);
         }
         if ($status === 'sent') {
             return json(['code' => 200, 'message' => '全部发送成功', 'data' => $delivery]);
@@ -210,7 +212,7 @@ class CompetitorWechatRobotController extends Base
             'code' => 500,
             'message' => $status === 'partial' ? '部分机器人发送失败' : '发送失败',
             'data' => $delivery,
-        ]);
+        ], 500);
     }
 
     /**

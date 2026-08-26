@@ -228,19 +228,18 @@ abstract class BaseTenantModel extends Model
 
     private function resolveHotelTenantId(int $hotelId, ?User $user): int
     {
-        try {
-            if (!$user instanceof User) {
-                return (int)Db::name('hotels')->where('id', $hotelId)->value('tenant_id');
-            }
-
-            $query = $user->isSuperAdmin()
-                ? Hotel::withoutTenantScope()
-                : Hotel::where([]);
-
-            return (int)$query->where('id', $hotelId)->value('tenant_id');
-        } catch (\Throwable) {
-            return 0;
+        if (!$user instanceof User) {
+            return (int)Db::name('hotels')->where('id', $hotelId)->value('tenant_id');
         }
+
+        $query = $user->isSuperAdmin()
+            ? Hotel::withoutTenantScope()
+            : Hotel::where([]);
+
+        // Missing rows still cast to 0 and are handled as scope failures by the
+        // caller. Database, schema and connection failures must keep their real
+        // stage instead of being misreported as authorization failures.
+        return (int)$query->where('id', $hotelId)->value('tenant_id');
     }
 
     private function trustedTenantId(): int

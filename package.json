@@ -6,6 +6,7 @@
   "scripts": {
     "start": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/start_local_stack.ps1",
     "start:local": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/start_local_stack.ps1",
+    "wecom:aibot-agent": "node scripts/wecom_aibot_worker.mjs",
     "ota:local-collector": "node scripts/ota_local_collector.mjs run",
     "competitor:auto-collector": "node scripts/competitor_auto_collector.mjs run",
     "test:competitor-auto-collector": "node --test tests/automation/competitor_auto_collector.test.mjs",
@@ -26,6 +27,9 @@
     "verify:business-chain-report": "node scripts/verify_business_chain_report_contract.mjs && node --test tests/automation/business_chain_status_report.test.mjs",
     "test:node": "node scripts/run_node_automation_tests.mjs",
     "test:node:partial": "node scripts/run_node_automation_tests.mjs --allow-runtime-skip",
+    "verify:integration": "node scripts/verify_integration.mjs",
+    "verify:integration:staged": "node scripts/verify_integration.mjs --staged",
+    "verify:verifier-registry": "node scripts/verify_verifier_domain_registry.mjs",
     "verify:p0-guards": "npm run verify:high-risk-security && npm run verify:business-page-contract && node scripts/verify_worktree_guard.mjs && npm run verify:login-critical-css && npm run verify:authenticated-style && node scripts/verify_public_entry_guard.mjs && npm run verify:core-scope && npm run verify:revenue-ai-static && npm run verify:revenue-ai-closure && npm run verify:e2e-contracts && node scripts/verify_production_entry_hygiene.mjs && node scripts/verify_frontend_display_boundary.mjs && node scripts/verify_protected_core_contract.mjs",
     "verify:high-risk-security": "node scripts/run_php.mjs scripts/verify_high_risk_security.php",
     "verify:business-page-contract": "node scripts/verify_business_page_contract.mjs",
@@ -155,6 +159,7 @@
     "verify:phase1-live-closure": "C:\\xampp\\php\\php.exe scripts\\inspect_phase1_ota_live_closure.php --strict",
     "verify:ota-diagnosis-auto-fetch": "node scripts/verify_ota_diagnosis_auto_fetch.mjs",
     "verify:hotel-auto-x-non-pms-skills": "node scripts/verify_hotel_auto_x_non_pms_skill_contract.mjs && node scripts/verify_hotel_ota_login_eligibility_behavior.mjs",
+    "verify:hotel-geo-forecast-knowledge": "C:\\xampp\\php\\php.exe scripts\\verify_hotel_geo_and_forecast_knowledge.php",
     "verify:hotel-ota-login-eligibility": "C:\\xampp\\php\\php.exe scripts\\verify_hotel_ota_login_eligibility.php",
     "verify:hotel-ota-login-eligibility-behavior": "node scripts/verify_hotel_ota_login_eligibility_behavior.mjs",
     "verify:hotel-auto-x-ctrip-collector": "C:\\xampp\\php\\php.exe scripts\\verify_hotel_auto_x_ctrip_collector_contract.php",
@@ -254,6 +259,7 @@
     "vue": "3.5.32"
   },
   "dependencies": {
+    "@wecom/aibot-node-sdk": "1.0.7",
     "cloakbrowser": "^0.3.31",
     "playwright-core": "^1.60.0"
   },

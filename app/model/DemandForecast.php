@@ -340,13 +340,16 @@ class DemandForecast extends BaseTenantModel
     /**
      * 获取高需求日期（用于动态定价）
      */
-    public static function getHighDemandDates(int $hotelId, float $threshold = 80.0)
+    public static function getHighDemandDates(int $hotelId, float $threshold = 80.0, ?string $businessDate = null)
     {
-        $today = date('Y-m-d');
-        $futureDate = date('Y-m-d', strtotime('+30 days'));
+        $anchorDate = $businessDate ?: date('Y-m-d');
+        if (date('Y-m-d', (int)strtotime($anchorDate)) !== $anchorDate) {
+            throw new \InvalidArgumentException('businessDate must be YYYY-MM-DD');
+        }
+        $futureDate = date('Y-m-d', strtotime($anchorDate . ' +30 days'));
         
         return self::where('hotel_id', $hotelId)
-            ->whereBetween('forecast_date', [$today, $futureDate])
+            ->whereBetween('forecast_date', [$anchorDate, $futureDate])
             ->where('predicted_occupancy', '>=', $threshold)
             ->order('predicted_occupancy', 'desc')
             ->column('forecast_date');

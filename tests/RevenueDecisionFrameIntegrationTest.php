@@ -135,4 +135,61 @@ final class RevenueDecisionFrameIntegrationTest extends TestCase
         self::assertSame('blocked_by_missing_facts', $saved['question']['answer']['decision_frame']['evidence_gate']['status']);
         self::assertFalse($saved['question']['answer']['decision_frame']['evidence_gate']['can_execute']);
     }
+
+    public function testRepeatedQuestionCreatesANewAuditRecordWithTheSameDecisionFrameDigest(): void
+    {
+        $service = new OperatingQuestionService(static fn(): array => [
+            'facts' => [[
+                'ref' => 'online_daily_data#8801',
+                'platform' => 'ctrip',
+                'data_date' => '2026-08-16',
+                'data_type' => 'price',
+                'history_status' => 'success',
+                'readback_status' => 'readback_verified',
+                'metric_values' => ['amount' => 588],
+                'metric_units' => ['amount' => 'CNY'],
+            ]],
+            'fact_count' => 1,
+        ]);
+
+        $saved = $service->create(
+            10,
+            80,
+            '今天价格要复核哪些输入？',
+            'ctrip',
+            '2026-08-16',
+            '2026-08-16',
+            7,
+            'deepseek_v4_pro',
+            'price'
+        );
+
+        self::assertTrue($saved['created']);
+        self::assertSame('readback_verified', $saved['persistence_status']);
+        self::assertSame('price', $saved['question']['answer']['decision_frame']['primary_object']);
+        self::assertSame('price', $saved['question']['answer']['decision_frame']['requested_object']);
+
+        $readback = $service->read((int)$saved['question']['id'], 10, [80]);
+        self::assertSame($saved['question']['content_digest'], $readback['content_digest']);
+        self::assertSame($saved['question']['answer']['decision_frame'], $readback['answer']['decision_frame']);
+
+        $replay = $service->create(
+            10,
+            80,
+            '今天价格要复核哪些输入？',
+            'ctrip',
+            '2026-08-16',
+            '2026-08-16',
+            7,
+            'deepseek_v4_pro',
+            'price'
+        );
+        self::assertTrue($replay['created']);
+        self::assertNotSame($readback['id'], $replay['question']['id']);
+        self::assertSame($readback['content_digest'], $replay['question']['content_digest']);
+        self::assertSame(
+            $readback['answer']['decision_frame'],
+            $replay['question']['answer']['decision_frame']
+        );
+    }
 }

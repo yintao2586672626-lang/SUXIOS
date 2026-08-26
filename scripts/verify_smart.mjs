@@ -15,19 +15,20 @@ const routeCoveragePath = process.platform === 'win32'
 export const VERIFICATION_LEVELS = Object.freeze({
   daily: 1,
   feature: 2,
-  commit: 3,
+  full: 3,
 });
 
 const LEVEL_LABELS = Object.freeze({
-  1: '日常小改',
-  2: '功能闭环',
-  3: '提交/PR/发布候选',
+  1: '简单修改',
+  2: '复杂修改与直接依赖',
+  3: '大型/核心重构或明确全量',
 });
 
 function levelFromToken(token) {
   if (token === '--daily') return VERIFICATION_LEVELS.daily;
   if (token === '--feature') return VERIFICATION_LEVELS.feature;
-  if (token === '--commit') return VERIFICATION_LEVELS.commit;
+  if (token === '--commit') return VERIFICATION_LEVELS.feature;
+  if (token === '--full') return VERIFICATION_LEVELS.full;
   if (token.startsWith('--level=')) {
     const value = Number(token.slice('--level='.length));
     if ([1, 2, 3].includes(value)) return value;
@@ -42,9 +43,10 @@ export function parseSmartVerificationArgs(argv) {
     run: false,
     json: false,
     help: false,
+    commitAlias: false,
     files: [],
   };
-  let explicitLevel = null;
+  let explicitLevelToken = null;
   let positionalOnly = false;
 
   for (const token of argv) {
@@ -71,11 +73,12 @@ export function parseSmartVerificationArgs(argv) {
 
     const parsedLevel = levelFromToken(token);
     if (parsedLevel !== null) {
-      if (explicitLevel !== null && explicitLevel !== parsedLevel) {
-        throw new Error('Choose only one verification level: --daily, --feature, or --commit.');
+      if (explicitLevelToken !== null) {
+        throw new Error('Choose only one verification level: --daily, --feature, --commit, or --full.');
       }
-      explicitLevel = parsedLevel;
+      explicitLevelToken = token;
       options.level = parsedLevel;
+      options.commitAlias = token === '--commit';
       continue;
     }
     if (token.startsWith('-')) {
@@ -221,7 +224,7 @@ export function buildVerificationPlan({
       ));
     }
 
-    if (level < VERIFICATION_LEVELS.commit && isPhpTest(file)) {
+    if (level < VERIFICATION_LEVELS.full && isPhpTest(file)) {
       addCommand(command(
         `phpunit-test:${file}`,
         phpCommand,
@@ -229,7 +232,7 @@ export function buildVerificationPlan({
         `运行所选 PHP 回归测试：${file}`,
       ));
     }
-    if (level < VERIFICATION_LEVELS.commit && isNodeTest(file)) {
+    if (level < VERIFICATION_LEVELS.full && isNodeTest(file)) {
       addCommand(command(
         `node-test:${file}`,
         'node',
@@ -269,13 +272,13 @@ export function buildVerificationPlan({
     }
   }
 
-  if (level === VERIFICATION_LEVELS.commit) {
+  if (level === VERIFICATION_LEVELS.full) {
     if (normalizedFiles.some(isPhpFile)) {
       addCommand(command(
         'phpunit-full',
         phpCommand,
         [phpunitPath, '--colors=never'],
-        '提交范围包含 PHP，运行完整后端测试',
+        '大型/核心重构或明确全量范围包含 PHP，运行一次完整后端测试',
       ));
     }
     if (normalizedFiles.some((file) => isNodeFile(file) || file === 'package.json')) {
@@ -283,21 +286,25 @@ export function buildVerificationPlan({
         'node-full',
         npmCommand,
         ['run', 'test:node'],
-        '提交范围包含 Node/前端代码，运行完整 Node 自动化',
+        '大型/核心重构或明确全量范围包含 Node/前端代码，运行一次完整 Node 自动化',
       ));
     }
     addCommand(command(
       'self-check',
       npmCommand,
       ['run', 'self:check'],
-      '运行仓库自检伞形入口',
+      '大型/核心重构或明确全量门禁：运行一次仓库自检伞形入口',
     ));
+    notes.push('仅在大型/核心重构、影响面无法隔离、用户明确要求或环境明确门禁时使用 Level 3。');
     notes.push('已去重：self:check 已包含 verify:p0-guards，后者已包含 verify:e2e-contracts。');
     notes.push('若 self:check 在进入 P0 前失败，只在隔离该失败时单独补跑 verify:p0-guards。');
   }
 
   if (level === VERIFICATION_LEVELS.daily) {
     notes.push('Level 1 不运行项目级全量守卫；行为改动应显式加入对应测试文件或改用 --feature。');
+  }
+  if (level === VERIFICATION_LEVELS.feature) {
+    notes.push('Level 2 只覆盖涉及模块与直接依赖；commit/PR/发布候选标签本身不升级为全量。');
   }
   if (source === 'worktree') {
     notes.push('当前范围来自整个工作区；混合任务应改为显式传入本次文件。');
@@ -377,7 +384,7 @@ export function runVerificationPlan(plan, {
 
 function helpText() {
   return `用法：
-  node scripts/verify_smart.mjs [--daily|--feature|--commit] [--run] [文件...]
+  node scripts/verify_smart.mjs [--daily|--feature|--commit|--full] [--run] [文件...]
 
 默认行为：
   - Level 1（日常小改）
@@ -387,12 +394,14 @@ function helpText() {
 示例：
   node scripts/verify_smart.mjs public/data-health-static.js
   node scripts/verify_smart.mjs --feature --run public/data-health-static.js
-  node scripts/verify_smart.mjs --commit --run app/service/FooService.php tests/FooServiceTest.php
+  node scripts/verify_smart.mjs --feature --run app/service/FooService.php tests/FooServiceTest.php
+  node scripts/verify_smart.mjs --full --run app/core/SharedKernel.php public/app-main.js
 
 选项：
-  --daily       Level 1，日常单文件或低风险修改
-  --feature     Level 2，一个功能闭环完成
-  --commit      Level 3，提交/PR/发布候选
+  --daily       Level 1，简单单模块或低风险修改
+  --feature     Level 2，复杂修改及直接依赖
+  --commit      兼容别名，等同 --feature；提交/PR 本身不触发全量
+  --full        Level 3，仅大型/核心重构或明确全量门禁
   --run         执行计划；不加时只预览
   --json        以 JSON 输出计划（不能与 --run 同用）
   --help, -h    显示帮助`;
@@ -416,6 +425,9 @@ export function main(argv = process.argv.slice(2)) {
       repoRoot: defaultRepoRoot,
       source,
     });
+    if (options.commitAlias) {
+      plan.notes.unshift('--commit 仅为 --feature 兼容别名；请按实际影响面选择验证深度。');
+    }
 
     if (options.json) {
       console.log(JSON.stringify(plan, null, 2));

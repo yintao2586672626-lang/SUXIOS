@@ -22,6 +22,10 @@ const appMain = readFileSync(
   new URL('../../public/app-main.js', import.meta.url),
   'utf8',
 );
+const reviewMatchStatic = readFileSync(
+  new URL('../../public/review-match-static.js', import.meta.url),
+  'utf8',
+);
 
 test('Ctrip review-order evidence matching is available without anonymous identity lookup', () => {
   const tab = template.match(/<button[^>]*data-testid="ctrip-review-order-evidence-tab"[^>]*>[\s\S]*?<\/button>/)?.[0] ?? '';
@@ -58,9 +62,25 @@ test('Ctrip candidate scoring keeps PMS optional and exposes the five evidence s
   assert.match(scorer, /checkout_0_14_days_before_review/);
   assert.match(scorer, /checkout_15_30_days_before_review/);
   assert.match(scorer, /\$breakdown\['duplicate_penalty'\] = -15/);
+  assert.match(scorer, /MIN_CANDIDATE_SCORE_GAP = 20/);
   for (const status of ['confirmed', 'high_confidence', 'candidate', 'ambiguous', 'not_found']) {
-    assert.match(appMain, new RegExp(`${status}:`));
+    assert.match(reviewMatchStatic, new RegExp(`${status}:`));
   }
+});
+
+test('Ctrip manual binding verifies same-hotel records and exact database readback', () => {
+  assert.match(
+    concern,
+    /Db::name\('ota_ctrip_reviews'\)[\s\S]{0,240}->where\('system_hotel_id', \$systemHotelId\)[\s\S]{0,160}->where\('comment_id', \$commentId\)/,
+  );
+  assert.match(
+    concern,
+    /Db::name\('ota_ctrip_orders'\)[\s\S]{0,240}->where\('system_hotel_id', \$systemHotelId\)[\s\S]{0,160}->where\('order_id', \$orderId\)/,
+  );
+  assert.match(concern, /携程评价订单绑定保存回读不一致/);
+  assert.match(concern, /'save_status' => 'saved_and_readback_verified'/);
+  assert.match(concern, /'same_hotel_review_verified' => true/);
+  assert.match(concern, /'same_hotel_order_verified' => true/);
 });
 
 test('Ctrip review-order tools never fall back to another hotel identity', () => {
@@ -73,11 +93,13 @@ test('Ctrip review-order tools never fall back to another hotel identity', () =>
   assert.match(appMain, /throw new Error\('请先在顶部选择携程当前酒店'\)/);
   assert.match(
     appMain,
-    /system_hotel_id:\s*Number\(buildCtripReviewMatchBasePayload\(\)\.system_hotel_id\)/,
+    /return \{ system_hotel_id: systemHotelId \};/,
   );
   assert.match(
     appMain,
-    /const systemHotelId = buildCtripReviewMatchBasePayload\(\)\.system_hotel_id;/,
+    /buildBasePayload: buildCtripReviewMatchBasePayload/,
   );
+  assert.match(reviewMatchStatic, /captureRequestContext\('ctrip'\)/);
+  assert.match(reviewMatchStatic, /JSON\.stringify\(buildPayload\(\)\)/);
   assert.doesNotMatch(appMain, /resolveCtripReviewMatchSystemHotelId\(\)\s*\|\|\s*['"]58['"]?/);
 });

@@ -3,48 +3,25 @@ declare(strict_types=1);
 
 namespace app\service;
 
-use Closure;
 use InvalidArgumentException;
 use RuntimeException;
 
 /**
- * Reapplies the operating-question strict fact gate to the exact source rows
- * used by revenue metrics. This is evidence filtering, not a second metric
- * calculation: metric values and units continue to come from the canonical
- * three-source fact layer.
+ * Projects the canonical dual-OTA field closure into the legacy cockpit gate.
+ * It never reads or recalculates a second set of OTA facts. Metric values stay
+ * in DualOtaFieldClosureService; this adapter only exposes the consumer keys
+ * already declared on each canonical field.
  */
 final class RevenueCockpitStrictEvidenceService
 {
-    /** @var Closure(int,int,string,string,array<int,string>):array<int,array<string,mixed>> */
-    private Closure $strictFactReader;
-
-    public function __construct(?callable $strictFactReader = null)
-    {
-        $this->strictFactReader = $strictFactReader !== null
-            ? Closure::fromCallable($strictFactReader)
-            : static fn(
-                int $tenantId,
-                int $hotelId,
-                string $platform,
-                string $businessDate,
-                array $refs
-            ): array => (new OperatingQuestionService())->readCurrentVerifiedFactsForRefs(
-                $tenantId,
-                $hotelId,
-                $platform,
-                $businessDate,
-                $businessDate,
-                $refs
-            );
-    }
-
     /** @return array<string,mixed> */
     public function build(
         array $overview,
         int $tenantId,
         int $hotelId,
         string $businessDate,
-        string $platform
+        string $platform,
+        ?array $closure = null
     ): array {
         if ($tenantId <= 0 || $hotelId <= 0) {
             throw new InvalidArgumentException('revenue_cockpit_strict_scope_invalid');
@@ -55,87 +32,82 @@ final class RevenueCockpitStrictEvidenceService
             throw new InvalidArgumentException('revenue_cockpit_strict_platform_invalid');
         }
 
-        $factLayer = is_array($overview['three_source_fact_layer'] ?? null)
-            ? $overview['three_source_fact_layer']
-            : [];
-        $hotel = is_array($factLayer['hotel'] ?? null) ? $factLayer['hotel'] : [];
-        if ((int)($overview['hotel_id'] ?? $hotel['system_hotel_id'] ?? 0) !== $hotelId
-            || (int)($hotel['tenant_id'] ?? 0) !== $tenantId
-            || (int)($hotel['system_hotel_id'] ?? 0) !== $hotelId
-            || (string)($overview['business_date'] ?? '') !== $businessDate
-            || (string)($factLayer['business_date'] ?? '') !== $businessDate
+        $closure = is_array($closure)
+            ? $closure
+            : (is_array($overview['dual_ota_field_closure'] ?? null)
+                ? $overview['dual_ota_field_closure']
+                : (new DualOtaFieldClosureService())->build($hotelId, $businessDate));
+        if ((string)($closure['contract_version'] ?? '') !== 'dual_ota_field_closure.v1'
+            || (int)($closure['tenant_id'] ?? 0) !== $tenantId
+            || (int)($closure['hotel_id'] ?? 0) !== $hotelId
+            || (string)($closure['business_date'] ?? '') !== $businessDate
+            || !is_array($closure['platforms'] ?? null)
+        ) {
+            throw new RuntimeException('revenue_cockpit_strict_closure_scope_mismatch', 422);
+        }
+        $overviewHotelId = (int)($overview['hotel_id']
+            ?? $overview['three_source_fact_layer']['hotel']['system_hotel_id']
+            ?? 0);
+        $overviewDate = (string)($overview['business_date']
+            ?? $overview['three_source_fact_layer']['business_date']
+            ?? '');
+        if (($overviewHotelId > 0 && $overviewHotelId !== $hotelId)
+            || ($overviewDate !== '' && $overviewDate !== $businessDate)
         ) {
             throw new RuntimeException('revenue_cockpit_strict_overview_scope_mismatch', 422);
         }
 
-        $sources = is_array($factLayer['sources'] ?? null) ? $factLayer['sources'] : [];
         $selectedPlatforms = $platform === 'all_ota' ? ['ctrip', 'meituan'] : [$platform];
         $platformEvidence = [];
         foreach ($selectedPlatforms as $selectedPlatform) {
             $sourceKey = $selectedPlatform . '_ota';
-            $source = is_array($sources[$sourceKey] ?? null) ? $sources[$sourceKey] : [];
-            $statuses = is_array($source['fact_statuses'] ?? null) ? $source['fact_statuses'] : [];
-            $metricRequestedIds = [];
+            $source = is_array($closure['platforms'][$selectedPlatform] ?? null)
+                ? $closure['platforms'][$selectedPlatform]
+                : [];
+            $fields = is_array($source['fields'] ?? null) ? $source['fields'] : [];
             $requestedIds = [];
-            foreach ($statuses as $metricKey => $status) {
-                $status = is_array($status) ? $status : [];
-                $provenance = is_array($status['source_provenance'] ?? null)
-                    ? $status['source_provenance']
-                    : [];
-                $ids = $this->positiveIds($provenance['row_ids'] ?? []);
-                $metricRequestedIds[(string)$metricKey] = $ids;
-                if ($this->metricStatusReady((string)($status['status'] ?? ''))) {
-                    $requestedIds = array_merge($requestedIds, $ids);
-                }
-            }
-            $requestedIds = $this->positiveIds($requestedIds);
-            $requestedRefs = array_map(
-                static fn(int $id): string => 'online_daily_data#' . $id,
-                $requestedIds
-            );
-            $verifiedFacts = $requestedRefs === []
-                ? []
-                : ($this->strictFactReader)(
-                    $tenantId,
-                    $hotelId,
-                    $selectedPlatform,
-                    $businessDate,
-                    $requestedRefs
-                );
             $acceptedIds = [];
-            foreach (is_array($verifiedFacts) ? $verifiedFacts : [] as $fact) {
-                if (preg_match('/^online_daily_data#([1-9][0-9]*)$/D', (string)($fact['ref'] ?? ''), $matches) === 1) {
-                    $acceptedIds[] = (int)$matches[1];
-                }
-            }
-            $acceptedIds = $this->positiveIds($acceptedIds);
-            $acceptedLookup = array_fill_keys($acceptedIds, true);
             $metrics = [];
-            foreach ($statuses as $metricKey => $status) {
-                $status = is_array($status) ? $status : [];
-                $ids = $metricRequestedIds[(string)$metricKey] ?? [];
-                $acceptedMetricIds = array_values(array_filter(
-                    $ids,
-                    static fn(int $id): bool => isset($acceptedLookup[$id])
-                ));
-                $rejectedMetricIds = array_values(array_diff($ids, $acceptedMetricIds));
-                $ready = $this->metricStatusReady((string)($status['status'] ?? ''));
-                $metrics[(string)$metricKey] = [
-                    'source_status' => (string)($status['status'] ?? 'missing'),
-                    'requested_row_ids' => $ids,
-                    'accepted_row_ids' => $acceptedMetricIds,
-                    'rejected_row_ids' => $rejectedMetricIds,
-                    'strict_readback' => $ready
-                        && $ids !== []
-                        && $rejectedMetricIds === []
-                        && count($acceptedMetricIds) === count($ids),
-                ];
+            foreach ($fields as $field) {
+                if (!is_array($field)) {
+                    continue;
+                }
+                $consumerKeys = array_values(array_unique(array_filter(array_map(
+                    'strval',
+                    (array)($field['consumer_metric_keys'] ?? [])
+                ))));
+                if ($consumerKeys === []) {
+                    continue;
+                }
+                $ids = $this->positiveIds($field['source_record_ids'] ?? []);
+                $requestedIds = array_merge($requestedIds, $ids);
+                $ready = ($field['revenue_analysis_consumable'] ?? false) === true
+                    && ($field['strict_final_gate'] ?? false) === true
+                    && (string)($field['readback_status'] ?? '') === 'readback_verified'
+                    && $this->metricStatusReady((string)($field['status'] ?? ''))
+                    && $ids !== [];
+                if ($ready) {
+                    $acceptedIds = array_merge($acceptedIds, $ids);
+                }
+                foreach ($consumerKeys as $consumerKey) {
+                    $metrics[$consumerKey] = [
+                        'canonical_field_key' => (string)($field['metric_key'] ?? $field['key'] ?? ''),
+                        'source_status' => (string)($field['status'] ?? 'source_missing'),
+                        'requested_row_ids' => $ids,
+                        'accepted_row_ids' => $ready ? $ids : [],
+                        'rejected_row_ids' => $ready ? [] : $ids,
+                        'strict_readback' => $ready,
+                        'closure_identity' => (string)($closure['page_identity'] ?? ''),
+                    ];
+                }
             }
 
+            $requestedIds = $this->positiveIds($requestedIds);
+            $acceptedIds = $this->positiveIds($acceptedIds);
             $rejectedIds = array_values(array_diff($requestedIds, $acceptedIds));
             $platformEvidence[$selectedPlatform] = [
                 'source_key' => $sourceKey,
-                'source_status' => (string)($source['data_status'] ?? 'missing'),
+                'source_status' => (string)($source['status'] ?? 'partial'),
                 'business_date' => $businessDate,
                 'requested_row_ids' => $requestedIds,
                 'accepted_row_ids' => $acceptedIds,
@@ -144,7 +116,7 @@ final class RevenueCockpitStrictEvidenceService
                     static fn(int $id): string => 'online_daily_data#' . $id,
                     $acceptedIds
                 ),
-                'source_strict_readback' => (string)($source['data_status'] ?? '') === 'readback_verified'
+                'source_strict_readback' => (string)($source['revenue_analysis']['status'] ?? '') === 'ready'
                     && $requestedIds !== []
                     && $rejectedIds === []
                     && count($acceptedIds) === count($requestedIds),
@@ -167,6 +139,9 @@ final class RevenueCockpitStrictEvidenceService
             'platform' => $platform,
             'strict_gate' => 'history_success+validation_verified+readback_verified',
             'metric_values_recalculated' => false,
+            'field_source' => 'dual_ota_field_closure',
+            'closure_identity' => (string)($closure['page_identity'] ?? ''),
+            'consumer_contract_version' => (string)($closure['consumer_contract']['contract_version'] ?? ''),
             'pms_included' => false,
             'all_selected_ota_sources_strict' => $allSelectedSourcesStrict,
             'platforms' => $platformEvidence,
@@ -175,7 +150,13 @@ final class RevenueCockpitStrictEvidenceService
 
     private function metricStatusReady(string $status): bool
     {
-        return in_array(strtolower(trim($status)), ['readback_verified', 'derived_verified', 'verified'], true);
+        return in_array(strtolower(trim($status)), [
+            'strict_readback',
+            'verified_calculation',
+            'readback_verified',
+            'derived_verified',
+            'verified',
+        ], true);
     }
 
     /** @return list<int> */

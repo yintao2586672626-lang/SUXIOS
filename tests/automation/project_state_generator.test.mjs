@@ -23,6 +23,7 @@ const sourceScript = path.join(
   'scripts',
   'generate_project_state.ps1',
 );
+const sourceScriptText = readFileSync(sourceScript, 'utf8');
 const powershell = process.platform === 'win32' ? 'powershell.exe' : 'pwsh';
 const powershellProbe = spawnSync(
   powershell,
@@ -51,11 +52,22 @@ test(
   () => {
     const root = mkdtempSync(path.join(tmpdir(), 'suxios-project-state-'));
     try {
+      assert.match(sourceScriptText, /\$fingerprintState = \[ordered\]@\{/);
+      assert.doesNotMatch(
+        sourceScriptText.match(/\$fingerprintState = \[ordered\]@\{[\s\S]*?\n\}/)?.[0] || '',
+        /index_lock/,
+      );
       mkdirSync(path.join(root, 'scripts'), { recursive: true });
       mkdirSync(path.join(root, 'vault'), { recursive: true });
       copyFileSync(
         sourceScript,
         path.join(root, 'scripts', 'generate_project_state.ps1'),
+      );
+      const fixtureScript = path.join(root, 'scripts', 'generate_project_state.ps1');
+      writeFileSync(
+        fixtureScript,
+        readFileSync(fixtureScript, 'utf8').replace(/\r?\n/g, '\r\n'),
+        'utf8',
       );
       writeFileSync(
         path.join(root, '.gitignore'),
@@ -65,13 +77,14 @@ test(
       writeFileSync(path.join(root, 'README.md'), '# Fixture\n', 'utf8');
 
       run('git', ['init'], root);
+      run('git', ['config', 'core.autocrlf', 'true'], root);
       run('git', ['config', 'user.name', 'SUXIOS Test'], root);
       run('git', ['config', 'user.email', 'test@suxios.local'], root);
       run('git', ['add', '.'], root);
       run('git', ['commit', '-m', 'fixture'], root);
       run('git', ['checkout', '-b', 'review/no-upstream'], root);
 
-      const script = path.join(root, 'scripts', 'generate_project_state.ps1');
+      const script = fixtureScript;
       const shellArgs = process.platform === 'win32'
         ? ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', script]
         : ['-NoProfile', '-File', script];
@@ -83,6 +96,7 @@ test(
       );
       assert.match(currentState, /\| Upstream \| not configured \|/);
       assert.match(currentState, /\| Worktree \| clean \|/);
+      assert.match(currentState, /^Snapshot state: `[A-Za-z0-9+/=]+`$/m);
 
       const check = run(powershell, [...shellArgs, '-Check'], root);
       assert.match(check.stdout, /Project state snapshot is current/);

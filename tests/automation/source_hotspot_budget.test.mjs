@@ -105,10 +105,115 @@ test('every hotspot parent and extracted concern has a committed budget', () => 
   }
 });
 
+test('one source concern registry drives Node, PHP, and the real operation trait boundary', () => {
+  const registry = JSON.parse(fs.readFileSync('rules/source-concern-contract-registry.json', 'utf8'));
+  assert.equal(registry.schema_version, 'suxios.source_concern_registry.v1');
+  assert.deepEqual(
+    Object.fromEntries(Object.entries(SOURCE_CONCERN_PATHS).map(([parent, members]) => [parent, [...members]])),
+    registry.aggregates,
+  );
+
+  const operationSource = fs.readFileSync('app/service/OperationManagementService.php', 'utf8');
+  const actualOperationTraits = [...operationSource.matchAll(/^\s+use \\app\\service\\operation\\([A-Za-z0-9_]+);\s*$/gmu)]
+    .map((match) => `app/service/operation/${match[1]}.php`);
+  assert.deepEqual(
+    registry.aggregates['app/service/OperationManagementService.php'],
+    actualOperationTraits,
+  );
+
+  const phpAggregate = fs.readFileSync('tests/Support/SourceAggregate.php', 'utf8');
+  assert.match(phpAggregate, /source-concern-contract-registry\.json/);
+  assert.doesNotMatch(phpAggregate, /match \(\$relativePath\)/);
+});
+
 test('current source hotspots stay within reviewed no-growth ratchets and expose target debt', () => {
   const result = inspectSourceHotspotBudget(process.cwd());
   assert.deepEqual(result.failures, []);
   assert.ok(result.debts.length > 0);
   assert.ok(result.debts.some((item) => item.path === 'app/service/OtaLocalCollectorService.php'));
   assert.ok(result.debts.some((item) => item.path === 'app/service/RevenueAiOverviewService.php'));
+});
+
+test('operation parent ratchet closes immediately after persistence extraction', () => {
+  const budget = SOURCE_HOTSPOT_BUDGETS.find((item) => item.path === 'app/service/OperationManagementService.php');
+  assert.ok(budget);
+  assert.equal(
+    budget.ratchet_max_lines,
+    sourceLineCount(fs.readFileSync('app/service/OperationManagementService.php', 'utf8')),
+  );
+  assert.match(budget.boundary, /persistence concerns were extracted/);
+});
+
+test('platform-data hotspot extractions stay wired and close each prior overage', () => {
+  const service = fs.readFileSync('app/service/PlatformDataSyncService.php', 'utf8');
+  const registry = fs.readFileSync('app/service/PlatformDataCollectionDefinitionRegistry.php', 'utf8');
+  assert.doesNotMatch(service, /private const (?:COLLECTION_RESOURCE|NORMALIZED_FIELD_FACT)_DEFINITIONS/);
+  assert.match(service, /PlatformDataCollectionDefinitionRegistry::collectionResources\(\)/);
+  assert.match(service, /PlatformDataCollectionDefinitionRegistry::normalizedFieldFactsFor\(\$dataType\)/);
+  assert.match(registry, /private const COLLECTION_RESOURCE_DEFINITIONS = \[/);
+  assert.match(registry, /private const NORMALIZED_FIELD_FACT_DEFINITIONS = \[/);
+
+  const expectedAggregateMembers = [
+    'app/service/PlatformDataCollectionDefinitionRegistry.php',
+    'app/service/concern/PlatformSyncTaskReadbackConcern.php',
+    'app/service/concern/PlatformDataImportParsingConcern.php',
+  ];
+  for (const member of expectedAggregateMembers) {
+    assert.ok(SOURCE_CONCERN_PATHS['app/service/PlatformDataSyncService.php'].includes(member));
+  }
+  assert.ok(
+    SOURCE_CONCERN_PATHS['app/controller/Agent.php']
+      .includes('app/controller/concern/AgentOtaDiagnosisReadbackConcern.php'),
+  );
+
+  const extractedProcessTests = [
+    'testBrowserProfileCaptureOutputPathsAreRunUniqueWithinTheSameSecond',
+    'testBrowserProfileAdaptersNeverPromoteOutputFromAFailedCollectorProcess',
+    'testBrowserProfileProcessDiagnosticsSuppressCredentialBearingLines',
+  ];
+  const integrationTest = fs.readFileSync('tests/PlatformDataSyncServiceTest.php', 'utf8');
+  const processSafetyTest = fs.readFileSync(
+    'tests/PlatformDataSyncBrowserProfileProcessSafetyTest.php',
+    'utf8',
+  );
+  for (const method of extractedProcessTests) {
+    assert.doesNotMatch(integrationTest, new RegExp(method));
+    assert.match(processSafetyTest, new RegExp(method));
+  }
+
+  const result = inspectSourceHotspotBudget(process.cwd());
+  const formerlyFailing = new Set([
+    'app/service/PlatformDataSyncService.php',
+    'tests/PlatformDataSyncServiceTest.php',
+    'app/controller/concern/AgentOtaDiagnosisPersistenceConcern.php',
+    'app/service/concern/PlatformSyncTaskConcern.php',
+    'app/service/concern/PlatformDataPersistenceConcern.php',
+  ]);
+  assert.deepEqual(
+    result.failures.filter((item) => formerlyFailing.has(item.path)),
+    [],
+  );
+});
+
+test('route and verifier scripts are governed instead of living outside source discovery', () => {
+  const routeBudget = SOURCE_HOTSPOT_BUDGETS.find((item) => item.path === 'route/app.php');
+  assert.ok(routeBudget);
+  assert.equal(
+    routeBudget.ratchet_max_lines,
+    sourceLineCount(fs.readFileSync('route/app.php', 'utf8')),
+    'route/app.php ratchet must close immediately after a domain extraction',
+  );
+  assert.ok(routeBudget.ratchet_max_lines < 800);
+  assert.ok(SOURCE_HOTSPOT_BUDGETS.some((item) => item.path === 'scripts/verify_e2e_contracts.mjs'));
+  const result = inspectSourceHotspotBudget(process.cwd());
+  assert.ok(result.discovery.roots.includes('route'));
+  assert.ok(result.discovery.roots.includes('scripts'));
+  assert.equal(
+    result.failures.some((item) => item.path === 'route/app.php' && item.reason === 'unbudgeted_hotspot'),
+    false,
+  );
+  assert.equal(
+    result.failures.some((item) => item.path === 'scripts/verify_e2e_contracts.mjs' && item.reason === 'unbudgeted_hotspot'),
+    false,
+  );
 });

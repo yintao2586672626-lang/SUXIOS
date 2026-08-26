@@ -33,6 +33,21 @@ use think\Request;
 
 final class TenantIsolationTest extends TestCase
 {
+    public function testHotelTenantResolutionDoesNotSwallowDatabaseFailures(): void
+    {
+        $source = (string)file_get_contents(
+            dirname(__DIR__) . '/app/model/base/BaseTenantModel.php'
+        );
+        $start = strpos($source, 'private function resolveHotelTenantId(');
+        $end = strpos($source, 'private function trustedTenantId(', (int)$start);
+
+        self::assertIsInt($start);
+        self::assertIsInt($end);
+        $method = substr($source, (int)$start, (int)$end - (int)$start);
+        self::assertStringNotContainsString('catch (\\Throwable)', $method);
+        self::assertStringContainsString("->value('tenant_id')", $method);
+    }
+
     /** @var array<string, mixed> */
     private static array $originalDatabaseConfig = [];
 

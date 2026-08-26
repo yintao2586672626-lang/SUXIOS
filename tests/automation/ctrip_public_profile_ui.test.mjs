@@ -77,7 +77,7 @@ test('Ctrip public profile UI calls scoped add, read, and refresh endpoints', ()
   assert.match(source, /businessContext: \{ hotelId: systemHotelId, platform: 'ctrip' \}/);
   assert.match(source, /binding_saved_collection_failed/);
   assert.match(source, /const options = ctripPublicProfileHotelOptions\.value;/);
-  assert.match(source, /\['ctrip-public-profiles', 'ctrip-market-competition'\]\.includes\(onlineDataTab\.value\) \? ctripPublicProfileHotelOptions\.value : ctripTargetHotelOptions\.value/);
+  assert.match(source, /\['ctrip-public-profiles', 'ctrip-market-competition'\]\.includes\(onlineDataTab\.value\)\s*\? ctripPublicProfileHotelOptions\.value\s*: ctripTargetHotelOptions\.value/);
   assert.match(read('resources/frontend/templates/fragments/00-app-shell.html'), /\|\| !platformHotelOptions\.length/);
   assert.match(source, /mutationSeq !== ctripPublicProfileMutationSeq[\s\S]*systemHotelId !== String\(selectedCtripHotelId\.value/);
   assert.match(source, /const ctripPublicProfileBusy = computed\(\(\) => ctripPublicProfileLoading\.value[\s\S]*ctripPublicProfileArchivingId\.value\)/);
@@ -181,7 +181,8 @@ test('public-page diagnosis exposes platform/date controls and truthful twelve-d
   assert.match(source, /operationExecutionItems\.value\.some/);
   assert.match(source, /scrollIntoView/);
   assert.match(opsTrackTemplate, /data-operation-execution-intent-id/);
-  assert.match(opsTrackTemplate, /任务 #\{\{ item\.id \}\}/);
+  assert.match(opsTrackTemplate, /行动 #\{\{ item\.id \}\}/);
+  assert.match(opsTrackTemplate, /任务 #\{\{ item\.execution\?\.task_id \|\| '尚未创建' \}\}/);
   assert.match(operationStatic, /data_collection: '证据采集'/);
   assert.match(operationStatic, /complete_public_page_evidence: '补齐公开页证据'/);
   assert.match(operationStatic, /review_public_page_evidence: '复核公开页证据'/);

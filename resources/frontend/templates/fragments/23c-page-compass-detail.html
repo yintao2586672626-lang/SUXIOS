@@ -198,6 +198,9 @@
                                             <div>
                                                 <div class="text-sm font-semibold text-slate-900">只读经营信号</div>
                                                 <div class="mt-1 text-xs text-slate-500">未具备数据时显示缺口原因，不生成预测或假建议。</div>
+                                                <div class="mt-1 text-xs text-slate-500" data-testid="revenue-ai-overview-as-of-date">
+                                                    数据基准日：{{ revenueAiOverviewAsOfDate.ok ? revenueAiOverviewAsOfDate.asOfDate : '未取得' }} · {{ revenueAiOverviewAsOfDate.ok ? revenueAiOverviewAsOfDate.contractVersion : revenueAiOverviewAsOfDate.message }}
+                                                </div>
                                             </div>
                                             <span :class="['rounded-full border px-2 py-0.5 text-xs whitespace-nowrap', revenueAiOverviewLoading ? revenueAiStatusClass('unknown') : revenueAiStatusClass(revenueAiOverview?.data_status || 'unknown')]">{{ revenueAiOverviewLoading ? '加载中' : revenueAiStatusLabel(revenueAiOverview?.data_status || 'unknown') }}</span>
                                         </div>

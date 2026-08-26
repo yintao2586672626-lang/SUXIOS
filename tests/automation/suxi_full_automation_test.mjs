@@ -3,6 +3,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import net from 'node:net';
+import { readRouteContractSource } from '../../scripts/lib/route_contract_source.mjs';
 
 const root = process.cwd();
 const startedAt = new Date();
@@ -235,7 +236,7 @@ function collectInventory() {
   const phpModules = run(php, ['-m']);
   const mysqlPing = run('C:\\xampp\\mysql\\bin\\mysqladmin.exe', ['-h', '127.0.0.1', '-P', '3306', '-u', 'root', 'ping']);
   const routeList = run(php, ['think', 'route:list'], { timeout: 120000 });
-  const routeSource = fs.readFileSync(path.join(root, 'route', 'app.php'), 'utf8');
+  const routeSource = readRouteContractSource(root);
   const html = fs.readFileSync(path.join(root, 'public', 'index.html'), 'utf8');
   const controllerFiles = fs.readdirSync(path.join(root, 'app', 'controller'), { recursive: true })
     .filter((file) => String(file).endsWith('.php'));

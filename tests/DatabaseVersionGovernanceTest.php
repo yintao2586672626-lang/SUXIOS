@@ -91,7 +91,8 @@ final class DatabaseVersionGovernanceTest extends TestCase
         self::assertStringContainsString('@("think", "db:check")', $powerShell);
         self::assertMatchesRegularExpression(
             '/Assert-DatabaseReady\s*\RAssert-DatabaseVersion\s*\Rif \(\$DatabaseOnly\) \{.*?'
-                . '\R\s*return\s*\R\}\s*\R\$NodeExe = Resolve-CommandSource "node".*?'
+                . '\R\s*return\s*\R\}\s*\R\$ProjectIdentity = Get-ProjectIdentity.*?'
+                . '\R\$NodeExe = Resolve-CommandSource "node".*?'
                 . '\RInvoke-OtaRetentionPreview/s',
             $powerShell
         );

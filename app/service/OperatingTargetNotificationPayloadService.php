@@ -37,13 +37,17 @@ final class OperatingTargetNotificationPayloadService
         );
         $page = ($this->gate ?? new OperatingTargetReportGateService())
             ->pagePreview($preview, $hotelName);
+        $formalPreview = $this->formalReportPreview(
+            $preview,
+            is_array($page['formal_send_gate'] ?? null) ? $page['formal_send_gate'] : []
+        );
 
         return $page + [
             'operating_target_status' => (string)($current['status'] ?? 'missing'),
             'operating_target_record_id' => (int)($current['record']['id'] ?? 0),
             'snapshot_revision_no' => (int)($current['record']['revision_no'] ?? 0),
             'business_date' => $businessDate,
-            'report_preview' => $preview,
+            'report_preview' => $formalPreview,
         ];
     }
 
@@ -68,12 +72,42 @@ final class OperatingTargetNotificationPayloadService
         );
         $candidate = ($this->gate ?? new OperatingTargetReportGateService())
             ->deliveryCandidate($preview, $hotelName, $deliveryMode);
+        $formalPreview = $this->formalReportPreview(
+            $preview,
+            is_array($candidate['formal_send_gate'] ?? null) ? $candidate['formal_send_gate'] : []
+        );
 
         return $candidate + [
             'operating_target_status' => (string)($current['status'] ?? 'missing'),
             'operating_target_record_id' => (int)($current['record']['id'] ?? 0),
             'snapshot_revision_no' => (int)($current['record']['revision_no'] ?? 0),
-            'report_preview' => $preview,
+            'report_preview' => $formalPreview,
+        ];
+    }
+
+    /** @param array<string,mixed> $preview @param array<string,mixed> $formalGate @return array<string,mixed> */
+    private function formalReportPreview(array $preview, array $formalGate): array
+    {
+        if (($formalGate['allowed'] ?? false) === true) {
+            return $preview;
+        }
+
+        return [
+            'status' => 'blocked',
+            'hotel_id' => (int)($preview['hotel_id'] ?? 0),
+            'target_date' => (string)($preview['target_date'] ?? ''),
+            'delivery_status' => 'blocked',
+            'source_gate_passed' => false,
+            'formal_values_rendered' => false,
+            'debug_unverified_values_included' => false,
+            'facts' => null,
+            'metrics' => null,
+            'integrated_sources' => null,
+            'gaps' => [],
+            'blockers' => array_values(array_filter(
+                (array)($formalGate['blockers'] ?? []),
+                'is_array'
+            )),
         ];
     }
 

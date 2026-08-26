@@ -172,6 +172,9 @@ final class PlatformDataSyncPreflightL8Test extends TestCase
             self::assertSame(self::TARGET_DATE, $runReadback['target_date'] ?? null, $message);
             self::assertSame('historical_daily', $runReadback['data_period'] ?? null, $message);
             self::assertContains((int)$stored['id'], $runReadback['row_ids'] ?? [], $message);
+            self::assertSame([(int)$stored['id']], $runReadback['target_date_expected_row_ids'] ?? [], $message);
+            self::assertSame(1, $runReadback['target_date_expected_row_count'] ?? 0, $message);
+            self::assertTrue($runReadback['exact_coverage']['complete'] ?? false, $message);
             self::assertNotEmpty($runReadback['source_trace_ids'] ?? [], $message);
         } else {
             self::assertFalse($runReadback['readback_verified'] ?? true, $message);
@@ -274,6 +277,13 @@ final class PlatformDataSyncPreflightL8Test extends TestCase
             'source_trace_id' => 'forecast-run-trace',
             'raw_data' => '{}',
         ]));
+        $wrongPeriodTargetRowId = (int)Db::name('online_daily_data')->insertGetId(array_merge($common, [
+            'data_date' => self::TARGET_DATE,
+            'data_period' => 'next_30_days',
+            'data_type' => 'business',
+            'source_trace_id' => 'target-row-wrong-period-trace',
+            'raw_data' => '{}',
+        ]));
         self::assertCount(1, Db::name('online_daily_data')
             ->field('id,sync_task_id,data_source_id,system_hotel_id,data_date,data_period,readback_verified,source_trace_id,platform,source,hotel_id,hotel_name,data_type,dimension,compare_type,amount,quantity,data_value,raw_data')
             ->where('sync_task_id', $taskId)
@@ -302,6 +312,8 @@ final class PlatformDataSyncPreflightL8Test extends TestCase
                 'readback_verified' => true,
                 'readback_count' => 2,
                 'row_ids' => [$targetRowId, $forecastRowId],
+                'target_date_expected_row_ids' => [$targetRowId],
+                'target_date_expected_row_count' => 1,
             ],
             ['data_date' => self::TARGET_DATE, 'data_period' => 'historical_daily'],
             ['started_at' => '2026-07-15 08:00:00']
@@ -313,14 +325,62 @@ final class PlatformDataSyncPreflightL8Test extends TestCase
         );
         self::assertSame([$targetRowId], $receipt['row_ids']);
         self::assertSame(1, $receipt['readback_count']);
+        self::assertSame([$targetRowId], $receipt['target_date_expected_row_ids']);
+        self::assertSame(1, $receipt['target_date_expected_row_count']);
+        self::assertSame([
+            'complete' => true,
+            'expected_count' => 1,
+            'readback_count' => 1,
+            'missing_row_ids' => [],
+            'unexpected_row_ids' => [],
+        ], $receipt['exact_coverage']);
         self::assertSame('CTRIP-TC145-101', $receipt['observed_platform_hotel_id']);
         self::assertSame(['revenue', 'room_nights', 'adr'], $receipt['verified_metric_keys']);
+
+        $wrongPeriodTargetCoverage = $method->invoke(
+            $service,
+            $taskId,
+            $source,
+            [
+                'readback_verified' => true,
+                'readback_count' => 3,
+                'row_ids' => [$targetRowId, $wrongPeriodTargetRowId, $forecastRowId],
+                'target_date_expected_row_ids' => [$targetRowId, $wrongPeriodTargetRowId],
+                'target_date_expected_row_count' => 2,
+            ],
+            ['data_date' => self::TARGET_DATE, 'data_period' => 'historical_daily'],
+            ['started_at' => '2026-07-15 08:00:00']
+        );
+        self::assertFalse(
+            $wrongPeriodTargetCoverage['readback_verified'],
+            'A target row persisted under the wrong period must not disappear from exact coverage.'
+        );
+        self::assertSame(
+            'run_readback_receipt_mismatch',
+            $wrongPeriodTargetCoverage['failure_reason']
+        );
+        self::assertSame(
+            [$targetRowId, $wrongPeriodTargetRowId],
+            $wrongPeriodTargetCoverage['target_date_expected_row_ids']
+        );
+        self::assertSame(2, $wrongPeriodTargetCoverage['target_date_expected_row_count']);
+        self::assertFalse($wrongPeriodTargetCoverage['exact_coverage']['complete']);
+        self::assertSame(
+            [$wrongPeriodTargetRowId],
+            $wrongPeriodTargetCoverage['exact_coverage']['missing_row_ids']
+        );
 
         $missingTargetReceipt = $method->invoke(
             $service,
             $taskId,
             $source,
-            ['readback_verified' => true, 'readback_count' => 1, 'row_ids' => [$forecastRowId]],
+            [
+                'readback_verified' => true,
+                'readback_count' => 1,
+                'row_ids' => [$forecastRowId],
+                'target_date_expected_row_ids' => [$targetRowId],
+                'target_date_expected_row_count' => 1,
+            ],
             ['data_date' => self::TARGET_DATE, 'data_period' => 'historical_daily'],
             ['started_at' => '2026-07-15 08:00:00']
         );
@@ -441,6 +501,8 @@ final class PlatformDataSyncPreflightL8Test extends TestCase
                 'readback_verified' => true,
                 'readback_count' => 2,
                 'row_ids' => [$structuredRowId, $domRowId],
+                'target_date_expected_row_ids' => [$structuredRowId, $domRowId],
+                'target_date_expected_row_count' => 2,
             ],
             [
                 'data_date' => self::TARGET_DATE,

@@ -503,4 +503,34 @@ final class SystemUsageAssistantServiceTest extends TestCase
         $prompt = json_decode($client->messages[1]['content'], true, 512, JSON_THROW_ON_ERROR);
         self::assertSame('action', $prompt['requested_assistant_mode']);
     }
+
+    public function testDeterministicRouterUsesServerCatalogWithoutCallingTheModel(): void
+    {
+        $client = new class extends LlmClient {
+            public int $calls = 0;
+
+            public function createJsonResponseEnvelope(
+                array $messages,
+                array $schema,
+                string $modelKey = 'deepseek_v4_default'
+            ): array {
+                $this->calls++;
+                throw new RuntimeException('model_must_not_be_called');
+            }
+        };
+
+        $result = (new SystemUsageAssistantService($client))->guide([
+            'query' => '可信播报怎么复制？',
+            'requested_mode' => 'guide',
+            'deterministic_only' => true,
+            'visible_topic_keys' => ['ai-daily-report'],
+        ]);
+
+        self::assertSame(0, $client->calls);
+        self::assertSame('deterministic', $result['mode']);
+        self::assertSame('ai-daily-report', $result['topic_key']);
+        self::assertFalse($result['runtime']['model_attempted']);
+        self::assertFalse($result['runtime']['external_llm_called']);
+        self::assertStringContainsString('已登记功能目录', $result['assistant_message']);
+    }
 }

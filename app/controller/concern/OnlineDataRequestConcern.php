@@ -7,6 +7,7 @@ use app\model\OperationLog;
 use app\service\BrowserProfileCaptureRequestService;
 use app\service\CtripImplementationExposurePolicy;
 use app\service\MeituanManualIdentityService;
+use app\service\OtaCustomRequestService;
 use app\service\OtaExecutionStageException;
 use app\service\OtaProfileSessionProofService;
 use app\service\OtaTrafficUrlNormalizer;
@@ -2619,40 +2620,94 @@ trait OnlineDataRequestConcern
         $this->checkPermission();
         $this->checkActionPermission('can_fetch_online_data');
 
-        $url = $this->request->post('url', '');
-        $method = $this->request->post('method', 'GET');
-        $headers = $this->request->post('headers', '');
-        $body = $this->request->post('body', '');
-
-        if (empty($url)) {
-            return $this->error('请提供URL');
-        }
-        if (!$this->isAllowedOtaRequestUrl($url, ['ctrip.com', 'ctripbiz.com', 'ctripbiz.cn', 'meituan.com'])) {
-            return $this->error('仅允许请求携程、携程商旅或美团官方域名');
-        }
-
         try {
+            $requestedHotelId = $this->strictPositiveOtaConfigHotelId(
+                $this->request->post('system_hotel_id', null)
+            );
+            $systemHotelId = $this->resolveOnlineDataSystemHotelId($requestedHotelId, true);
+            if ($systemHotelId === null || $systemHotelId <= 0) {
+                return $this->error('请选择有效的系统酒店', 422, [
+                    'reason' => 'system_hotel_id_invalid',
+                ]);
+            }
+            try {
+                $tenantId = $this->otaCredentialTenantIdForHotel($systemHotelId);
+            } catch (\RuntimeException) {
+                return $this->error('系统酒店租户绑定无效', 422, [
+                    'reason' => 'system_hotel_tenant_binding_invalid',
+                ]);
+            }
+            $url = trim((string)$this->request->post('url', ''));
+            $method = strtoupper(trim((string)$this->request->post('method', 'GET')));
+            $headers = (string)$this->request->post('headers', '');
+            $body = (string)$this->request->post('body', '');
             $result = $this->sendCustomRequest($url, $method, $headers, $body);
-
-            if ($result['success']) {
-                $auditUrl = $this->auditUrlWithoutQuery((string)$url);
-                OperationLog::record('online_data', 'fetch_custom', '获取自定义线上数据: ' . $auditUrl, $this->currentUser->id, null, null, [
+            $auditUrl = $this->auditUrlWithoutQuery($url);
+            $errorCode = trim((string)($result['error_code'] ?? ''));
+            $controllerStatus = ($result['success'] ?? false) === true
+                ? 200
+                : OtaCustomRequestService::httpStatusForErrorCode($errorCode);
+            $deniedCodes = [
+                'custom_request_disabled',
+                'body_not_allowed',
+                'headers_not_allowed',
+                'method_not_allowed',
+                'url_not_allowed',
+            ];
+            OperationLog::record(
+                'online_data',
+                'fetch_custom',
+                '获取自定义线上数据: ' . $auditUrl,
+                $this->currentUser->id,
+                $systemHotelId,
+                null,
+                [
                     'audit_type' => 'acquisition',
-                    'outcome' => 'success',
-                    'method' => strtoupper((string)$method),
+                    'actor_id' => (int)$this->currentUser->id,
+                    'tenant_id' => $tenantId,
+                    'system_hotel_id' => $systemHotelId,
+                    'outcome' => ($result['success'] ?? false) === true
+                        ? 'success'
+                        : (in_array($errorCode, $deniedCodes, true) ? 'denied' : 'failed'),
+                    'method' => mb_substr($method, 0, 16),
                     'target_url' => $auditUrl,
                     'http_status' => (int)($result['status'] ?? 0),
-                ]);
+                    'controller_http_status' => $controllerStatus,
+                    'reason_code' => $errorCode !== '' ? $errorCode : 'none',
+                ]
+            );
+
+            if (($result['success'] ?? false) === true) {
                 return $this->success([
                     'data' => $result['data'],
                     'status' => $result['status'],
                     'headers' => $result['response_headers'],
                 ]);
-            } else {
-                return $this->error('请求失败，请核对平台接口状态', 502, [
-                    'reason' => 'ota_custom_request_failed',
-                ]);
             }
+
+            $message = match ($controllerStatus) {
+                410 => '通用 OTA 请求已停用，请使用固定业务采集入口',
+                405 => '自定义 OTA 请求仅允许 GET 方法',
+                422 => '自定义 OTA 只读请求参数无效',
+                503 => '自定义 OTA 只读请求服务暂不可用',
+                default => '请求失败，请核对平台接口状态',
+            };
+            return $this->error($message, $controllerStatus, [
+                'reason' => $errorCode !== '' ? $errorCode : 'ota_custom_request_failed',
+                'tenant_id' => $tenantId,
+                'system_hotel_id' => $systemHotelId,
+            ]);
+        } catch (\InvalidArgumentException) {
+            return $this->error('请选择有效的系统酒店', 422, [
+                'reason' => 'system_hotel_id_invalid',
+            ]);
+        } catch (\think\exception\HttpException $e) {
+            $status = $e->getStatusCode() === 403 ? 403 : 422;
+            return $this->error(
+                $status === 403 ? '无权访问该酒店' : '请选择有效的系统酒店',
+                $status,
+                ['reason' => $status === 403 ? 'system_hotel_forbidden' : 'system_hotel_id_invalid']
+            );
         } catch (\Throwable $e) {
             \think\facade\Log::warning('OTA custom request failed.', [
                 'exception_type' => get_debug_type($e),
@@ -2753,7 +2808,7 @@ trait OnlineDataRequestConcern
         } catch (\think\exception\HttpException $e) {
             return $this->error($e->getMessage(), $e->getStatusCode());
         } catch (\InvalidArgumentException $e) {
-            return json(['code' => 400, 'message' => $e->getMessage()]);
+            return json(['code' => 400, 'message' => $e->getMessage()], 400);
         } catch (\Throwable $e) {
             \think\facade\Log::error(sprintf(
                 '保存携程配置异常 [%s]: %s',
@@ -2967,7 +3022,7 @@ trait OnlineDataRequestConcern
     {
         // 仅检查登录状态，不强制要求酒店关联（配置读取不需要绑定酒店）
         if (!$this->currentUser || !$this->currentUser->id) {
-            return json(['code' => 401, 'message' => '未登录']);
+            return json(['code' => 401, 'message' => '未登录'], 401);
         }
 
         try {
@@ -3794,65 +3849,7 @@ trait OnlineDataRequestConcern
 
     private function sendCustomRequest(string $url, string $method, string $headersStr, string $body): array
     {
-        $headers = [];
-        if (!empty($headersStr)) {
-            $headerLines = explode("\n", $headersStr);
-            foreach ($headerLines as $line) {
-                $line = trim($line);
-                if (!empty($line)) {
-                    $headers[] = $line;
-                }
-            }
-        }
-
-        $headerStr = implode("\r\n", $headers);
-
-        $options = [
-            'http' => [
-                'method' => strtoupper($method),
-                'header' => $headerStr,
-                'timeout' => 30,
-                'ignore_errors' => true,
-            ],
-            'ssl' => $this->buildStreamSslOptions(),
-        ];
-
-        if (strtoupper($method) === 'POST' && !empty($body)) {
-            $options['http']['content'] = $body;
-        }
-
-        $context = stream_context_create($options);
-
-        $response = @file_get_contents($url, false, $context);
-
-        if ($response === false) {
-            $error = error_get_last();
-            return [
-                'success' => false,
-                'error' => $error['message'] ?? 'Unknown error',
-            ];
-        }
-
-        // 获取响应头
-        $responseHeaders = '';
-        $status = 200;
-        if (isset($http_response_header)) {
-            $responseHeaders = implode("\r\n", $http_response_header);
-            // 解析HTTP状态码
-            if (preg_match('/HTTP\/\d+\.?\d*\s+(\d+)/', $http_response_header[0] ?? '', $matches)) {
-                $status = (int)$matches[1];
-            }
-        }
-
-        $decoded = json_decode($response, true);
-
-        return [
-            'success' => true,
-            'data' => $decoded,
-            'raw' => $response,
-            'status' => $status,
-            'response_headers' => $responseHeaders,
-        ];
+        return (new OtaCustomRequestService())->request($url, $method, $headersStr, $body);
     }
 
     private function auditUrlWithoutQuery(string $url): string

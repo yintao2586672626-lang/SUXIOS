@@ -327,14 +327,73 @@ test('AI daily competition export stays identity-bound and escapes rendered fact
   assert.equal(mismatch.code, 'competition_report_identity_mismatch');
 });
 
-test('AI daily competition export caller forwards the persisted exact-readback receipt', async () => {
-  const source = await readFile(new URL('../../public/app-main.js', import.meta.url), 'utf8');
-  const start = source.indexOf('const downloadAiDailyCompetitionReportHtml =');
-  const end = source.indexOf('const copyAiDailyCompetitionXiaohongshuDraft =', start);
+test('AI daily lazy competition export caller forwards canonical identity and exact-readback inputs', async () => {
+  const source = await readFile(
+    new URL('../../public/components/system/ai-daily-report-delivery.js', import.meta.url),
+    'utf8',
+  );
+  const start = source.indexOf('const downloadCompetitionReport =');
+  const end = source.indexOf('const setup =', start);
   assert.ok(start >= 0 && end > start, 'competition export caller must stay discoverable');
   const caller = source.slice(start, end);
+
   assert.match(
     caller,
-    /readbackReceipt:\s*aiDailyReport\.value\?\.competition_bundle_readback\s*\|\|\s*\{\}/,
+    /SUXI_AI_DAILY_REPORT_STATIC\?\.buildAiDailyCompetitionReportExport/,
   );
+  assert.match(caller, /const report = ctx\.aiDailyReportCompetitionReportDocument\s*\|\|\s*\{\}/);
+  assert.match(caller, /buildExport\(\{\s*report,/);
+  assert.match(caller, /reportId:\s*Number\(currentReport\.id\s*\|\|\s*0\)/);
+  assert.match(caller, /bundle:\s*ctx\.aiDailyReportCompetitionBundle\s*\|\|\s*\{\}/);
+  assert.match(
+    caller,
+    /readbackReceipt:\s*currentReport\.competition_bundle_readback\s*\|\|\s*\{\}/,
+  );
+  assert.match(caller, /requestedEdition/);
+  assert.match(caller, /platforms:\s*ctx\.aiDailyReportCompetitionPlatforms\s*\|\|\s*\[\]/);
+  assert.match(caller, /groups:\s*ctx\.aiDailyReportCompetitionGroups\s*\|\|\s*\[\]/);
+  assert.match(caller, /qualityText:\s*String\(ctx\.aiDailyReportCompetitionQualityText\s*\|\|\s*''\)/);
+  assert.match(caller, /fallbackReportDate:\s*currentReport\.report_date\s*\|\|\s*''/);
+  assert.match(caller, /if \(exportResult\?\.ok !== true\)/);
+  assert.ok(
+    caller.indexOf('downloadBlob(') > caller.indexOf('if (exportResult?.ok !== true)'),
+    'download must remain after the canonical fail-closed gate',
+  );
+  assert.doesNotMatch(caller, /<!doctype html>/i, 'lazy caller must not duplicate canonical HTML rendering');
+
+  const receipt = { status: 'exact_readback_verified', exact_readback_verified: true };
+  const platforms = [{ platform: 'ctrip' }];
+  const groups = [{ key: 'direct_competitors' }];
+  const toasts = [];
+  let forwardedInput;
+  const sandbox = {
+    window: {
+      SUXI_AI_DAILY_REPORT_STATIC: {
+        buildAiDailyCompetitionReportExport(input) {
+          forwardedInput = input;
+          return { ok: false, message: 'receipt blocked', level: 'error' };
+        },
+      },
+    },
+  };
+  vm.runInNewContext(source, sandbox, { filename: 'ai-daily-report-delivery.js' });
+  const result = sandbox.window.SUXI_AI_DAILY_REPORT_DELIVERY.downloadCompetitionReport({
+    aiDailyReport: { id: 17, report_date: '2026-08-15', competition_bundle_readback: receipt },
+    aiDailyReportCompetitionReportDocument: { schema_version: 1 },
+    aiDailyReportCompetitionBundle: { bundle_id: 'bundle-17' },
+    aiDailyReportCompetitionQualityText: 'readback verified',
+    aiDailyReportCompetitionPlatforms: platforms,
+    aiDailyReportCompetitionGroups: groups,
+    showToast: (message, level) => toasts.push([message, level]),
+  }, 'flagship');
+
+  assert.equal(result, false);
+  assert.equal(forwardedInput.reportId, 17);
+  assert.equal(forwardedInput.readbackReceipt, receipt);
+  assert.equal(forwardedInput.requestedEdition, 'flagship');
+  assert.equal(forwardedInput.fallbackReportDate, '2026-08-15');
+  assert.equal(forwardedInput.qualityText, 'readback verified');
+  assert.equal(forwardedInput.platforms, platforms);
+  assert.equal(forwardedInput.groups, groups);
+  assert.deepEqual(toasts, [['receipt blocked', 'error']]);
 });

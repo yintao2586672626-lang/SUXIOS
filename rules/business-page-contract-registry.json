@@ -105,17 +105,25 @@
       "source_checks": [
         {
           "path": "resources/frontend/templates/fragments/24-page-ctrip-ebooking.html",
-          "includes": ["data-testid=\"ctrip-overview-fetch-actions\"", "ctripLatestMeta?.data_date", "ctripLatestSnapshotText"]
+          "includes": ["data-testid=\"ctrip-overview-fetch-actions\"", "data-testid=\"ctrip-review-order-evidence-tab\"", "ctripLatestMeta?.data_date", "ctripLatestSnapshotText"]
         },
         {
           "path": "public/app-main.js",
-          "includes": ["ctripSummaryDisplayCards", "ctripDownloadRows", "ctripEarlyMorningSourceNotice"]
+          "includes": ["ctripSummaryDisplayCards", "captureCtripBusinessDownloadSnapshot", "ctripEarlyMorningSourceNotice"]
         }
       ],
       "regression_checks": [
         {
           "path": "tests/automation/ctrip_channel_order_breakdown.test.mjs",
           "includes": ["24-page-ctrip-ebooking.html", "system_hotel_id", "platform_hotel_id"]
+        },
+        {
+          "path": "tests/automation/ctrip_visible_download_snapshot.test.mjs",
+          "includes": ["captureCtripBusinessDownloadSnapshot", "ctrip_visible_download_table_unavailable", "current-visible"]
+        },
+        {
+          "path": "tests/automation/review_order_evidence_closure.test.mjs",
+          "includes": ["ctrip-review-order-evidence-tab", "rejectCtripReviewOrderMatch", "unbindCtripReviewOrderMatch"]
         }
       ],
       "evidence_maturity": "unit_contract_pass",
@@ -135,7 +143,7 @@
       "source_checks": [
         {
           "path": "resources/frontend/templates/fragments/26-page-meituan-ebooking.html",
-          "includes": ["data-testid=\"meituan-owner-navigation\"", "v-model=\"meituanForm.startDate\"", "v-model=\"meituanForm.endDate\""]
+          "includes": ["data-testid=\"meituan-owner-navigation\"", "data-testid=\"meituan-review-order-evidence-tab\"", "v-model=\"meituanForm.startDate\"", "v-model=\"meituanForm.endDate\""]
         }
       ],
       "regression_checks": [
@@ -146,6 +154,10 @@
         {
           "path": "tests/automation/meituan_ingestion_contract.test.mjs",
           "includes": ["buildMeituanCapturedPayloadSaveContext", "buildMeituanOrderCsvImportRequestBody", "manual_dom_csv"]
+        },
+        {
+          "path": "tests/automation/review_order_evidence_closure.test.mjs",
+          "includes": ["meituan-review-order-evidence-workbench", "blocked_not_attempted", "accepted_formal_match_statuses"]
         }
       ],
       "evidence_maturity": "unit_contract_pass",
@@ -269,40 +281,44 @@
         {
           "path": "tests/automation/operating_growth_archive_integration.test.mjs",
           "includes": ["openOperatingGrowthSource", "operatingGrowthArchiveBindings", "source_scope"]
+        },
+        {
+          "path": "tests/automation/ai_daily_report_presentation_artifact_ui.test.mjs",
+          "includes": ["ai-daily-presentation-generate", "artifact_readback_verified", "report.export"]
         }
       ],
       "evidence_maturity": "unit_contract_pass",
       "evidence_limit": "代码级分析、草案、待审批、执行与档案边界；没有用户审批就不代表任何OTA经营动作已执行。"
     },
     {
-      "id": "operations-opportunity-lab",
-      "product_chain_stage": "运营机会计算与当日优先级",
+      "id": "operating-opportunities",
+      "product_chain_stage": "每日一件事经营执行闭环",
       "availability": "active",
       "enforcement": "strict",
       "fragment_ids": ["page-operating-opportunities"],
       "inherited_fragment_ids": [],
       "inheritance_reason": "无继承片段。",
-      "scope_dimensions": ["hotel", "business_date", "source", "fact_status", "approval_intent"],
-      "state_requirements": ["loading", "ready", "empty", "partial", "unverified", "blocked", "pending_approval", "unknown_after_write_attempt", "error"],
-      "contract_dimensions": ["scope_identity", "truthful_states", "source_date", "save_readback", "pending_approval_readback", "no_automatic_execution", "failure_visibility", "focused_regression"],
+      "scope_dimensions": ["tenant", "hotel", "business_date", "platform", "metric_scope", "source", "fact_status", "source_snapshot"],
+      "state_requirements": ["loading", "draft", "pending_approval", "approved", "executing", "evidence_recorded", "review_pending", "reviewed", "blocked", "error"],
+      "contract_dimensions": ["scope_identity", "truthful_states", "source_date", "save_readback", "pending_approval", "single_task", "manual_evidence", "same_scope_review", "zero_external_write", "failure_visibility", "focused_regression"],
       "source_checks": [
         {
           "path": "resources/frontend/templates/fragments/19b-page-operating-opportunities.html",
-          "includes": ["currentPage === 'operating-opportunities'", "<operating-opportunity-lab", ":hotels=\"hotels\"", ":request=\"managerCapabilityRequest\""]
+          "includes": ["data-testid=\"page-operating-opportunities\"", "<operating-opportunity-lab", ":request=\"managerCapabilityRequest\"", ":open-task=\"openHomeOperatingScheduleItem\"", "@open-operations=\"openHomeOperatingScheduleItem\""]
         },
         {
           "path": "public/components/system/operating-opportunity-lab.js",
-          "includes": ["timeZone: 'Asia/Shanghai'", "MANUAL_UNVERIFIED_SOURCE_QUALITY", "opportunity-source-status-", "readback_verified !== true", "opportunity-pending-approval-", "unknown_after_write_attempt"]
+          "includes": ["businessDate", "daily_one_thing.v2", "loadOverview", "this.overview = null", "readback_verified", "external_write_count", "open-operations", "review_pending"]
         }
       ],
       "regression_checks": [
         {
           "path": "tests/automation/operating_opportunity_lab.test.mjs",
-          "includes": ["cannot promote manual facts to trusted status", "manual_unverified", "page-operating-opportunities"]
+          "includes": ["v2 lifecycle", "zero writes", "exact refresh recovery", "ctrip_target_date_source_rows_missing"]
         }
       ],
       "evidence_maturity": "unit_contract_pass",
-      "evidence_limit": "代码级门店、业务日、人工未核验来源、保存回读与人工待审批合同；批准前不创建任务，不证明计算输入是线上真实事实、已写OTA或已产生经营效果。"
+      "evidence_limit": "代码级每日唯一选择、待审批、原任务、人工证据和同范围复盘合同；真实人工执行与自然后续事实仍需另行现场验收。"
     },
     {
       "id": "revenue-analysis",
@@ -348,13 +364,17 @@
       "source_checks": [
         {
           "path": "resources/frontend/templates/fragments/27-page-agent-center.html",
-          "includes": ["otaDiagnosisForm.hotel_id", "otaDiagnosisForm.start_date", "otaDiagnosisForm.end_date", "data-testid=\"ota-diagnosis-decision-status\"", "pending_approval", "readback_verified"]
+          "includes": ["otaDiagnosisForm.hotel_id", "otaDiagnosisForm.start_date", "otaDiagnosisForm.end_date", "data-testid=\"ota-diagnosis-decision-status\"", "data-testid=\"revenue-daily-cockpit\"", "data-testid=\"revenue-cockpit-save-snapshot\"", "ignoreSavedSnapshot: true", "pending_approval", "readback_verified"]
         }
       ],
       "regression_checks": [
         {
           "path": "tests/automation/operating_intelligence.test.mjs",
           "includes": ["27-page-agent-center.html", "readback_verified", "blocked_by_missing_facts", "'ota_write' => false"]
+        },
+        {
+          "path": "tests/automation/revenue_ai_static.test.mjs",
+          "includes": ["daily revenue cockpit accepts only the exact server-issued canonical model and digest", "daily revenue cockpit template exposes unified context, evidence, download and human-gated handoffs", "saveRevenueDecisionSnapshotWithReadback", "createRevenueOpportunityPendingApprovalWithReadback"]
         }
       ],
       "evidence_maturity": "unit_contract_pass",

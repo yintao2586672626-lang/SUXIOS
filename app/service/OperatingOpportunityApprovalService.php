@@ -69,6 +69,9 @@ final class OperatingOpportunityApprovalService
         $expectedResultDigest = $this->expectedDigest($expectedResultDigest, '结果摘要');
 
         $run = $this->lab->readRun($tenantId, $hotelId, $runId);
+        if ((string)($run['feature_key'] ?? '') === 'daily_one_thing') {
+            throw new InvalidArgumentException('每日一件事必须通过统一优先事项保存链创建待审批行动');
+        }
         if ((string)($run['business_date'] ?? '') !== $businessDate) {
             throw new RuntimeException('经营机会记录与当前业务日期不一致', 409);
         }

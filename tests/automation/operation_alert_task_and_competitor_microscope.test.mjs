@@ -3,8 +3,12 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import vm from 'node:vm';
 import { readSourceAggregate } from '../../scripts/lib/source_aggregate.mjs';
+import { readRouteContractSource } from '../../scripts/lib/route_contract_source.mjs';
 
 const context = { window: {}, URLSearchParams };
+vm.runInNewContext(readFileSync('public/revenue-overview-contract-static.js', 'utf8'), context, {
+  filename: 'public/revenue-overview-contract-static.js',
+});
 vm.runInNewContext(readFileSync('public/revenue-ai-static.js', 'utf8'), context, {
   filename: 'public/revenue-ai-static.js',
 });
@@ -13,7 +17,7 @@ const helpers = context.window.SUXI_REVENUE_AI_STATIC;
 const appMain = readFileSync('public/app-main.js', 'utf8');
 const alertPage = readFileSync('resources/frontend/templates/fragments/15c-page-ops-insight.html', 'utf8');
 const competitorPage = readFileSync('resources/frontend/templates/fragments/27-page-agent-center.html', 'utf8');
-const routes = readFileSync('route/app.php', 'utf8');
+const routes = readRouteContractSource(process.cwd());
 const controller = readFileSync('app/controller/OperationManagement.php', 'utf8');
 const service = readSourceAggregate('app/service/OperationManagementService.php');
 const sourceIdentity = readFileSync('app/service/SourceBackedExecutionIntentIdentityService.php', 'utf8');

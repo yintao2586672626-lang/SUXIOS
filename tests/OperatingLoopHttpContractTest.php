@@ -4,12 +4,13 @@ declare(strict_types=1);
 namespace Tests;
 
 use PHPUnit\Framework\TestCase;
+use Tests\Support\RouteContractSource;
 
 final class OperatingLoopHttpContractTest extends TestCase
 {
     public function testRoutesExposeOneAuthenticatedKernelApiAndOrderStaticPathsFirst(): void
     {
-        $routes = (string)file_get_contents(dirname(__DIR__) . '/route/app.php');
+        $routes = RouteContractSource::read(dirname(__DIR__));
         $start = strpos($routes, "Route::group('api/operating-loop'");
         $end = strpos($routes, "Route::group('api/operation'", $start + 1);
         self::assertNotFalse($start);

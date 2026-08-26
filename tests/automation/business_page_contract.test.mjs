@@ -201,16 +201,16 @@ test('Ctrip golden sample keeps page cards table and source notice in the downlo
   assert.ok(start >= 0 && end > start, 'Ctrip business canvas block must exist');
   const block = appMain.slice(start, end);
 
-  assert.match(block, /cards: ctripSummaryDisplayCards\.value/);
-  assert.match(block, /table: ctripDownloadRows\(\)/);
-  assert.match(block, /sourceNotice: ctripEarlyMorningSourceNotice\.value/);
+  assert.match(block, /cards: visibleSnapshot\.cards/);
+  assert.match(block, /table: visibleSnapshot\.table/);
+  assert.match(block, /sourceNotice: visibleSnapshot\.sourceNotice/);
   assert.ok(
-    ctripRegression.includes('assert.match(canvasDownload, /cards: ctripSummaryDisplayCards\\.value/);'),
-    'existing Ctrip regression must protect the visible card source',
+    ctripRegression.includes('assert.match(canvasDownload, /table: visibleSnapshot\\.table/);'),
+    'existing Ctrip regression must protect the exact rendered table source',
   );
   assert.ok(
-    ctripRegression.includes('assert.match(canvasDownload, /sourceNotice: ctripEarlyMorningSourceNotice\\.value/);'),
-    'existing Ctrip regression must protect the visible source notice',
+    ctripRegression.includes('assert.doesNotMatch(appMain, /table: ctripDownloadRows\\(\\)/);'),
+    'existing Ctrip regression must reject the legacy reconstructed table source',
   );
 });
 
@@ -241,4 +241,24 @@ test('the focused verifier is part of the P0 guard without forcing the full visu
   assert.match(businessPageVerifier, /tests\/automation\/business_page_contract\.test\.mjs/);
   assert.match(businessPageVerifier, /spawnSync\(process\.execPath, \['--test', \.\.\.testPaths\]/);
   assert.match(businessPageVerifier, /relativeToAutomation\.startsWith/);
+});
+
+test('Ctrip golden sample captures the rendered cards table and source notice for download', () => {
+  const start = appMain.indexOf('const buildCtripBusinessCanvas =');
+  const end = appMain.indexOf('const canvasToPngBlob =', start);
+  assert.ok(start >= 0 && end > start, 'Ctrip business canvas block must exist');
+  const block = appMain.slice(start, end);
+
+  assert.match(block, /captureCtripBusinessDownloadSnapshot/);
+  assert.match(block, /cards: visibleSnapshot\.cards/);
+  assert.match(block, /table: visibleSnapshot\.table/);
+  assert.match(block, /sourceNotice: visibleSnapshot\.sourceNotice/);
+  assert.ok(
+    ctripRegression.includes('assert.match(canvasDownload, /cards: visibleSnapshot\\.cards/);'),
+    'existing Ctrip regression must protect the rendered card source',
+  );
+  assert.ok(
+    ctripRegression.includes('assert.match(canvasDownload, /sourceNotice: visibleSnapshot\\.sourceNotice/);'),
+    'existing Ctrip regression must protect the rendered source notice',
+  );
 });

@@ -1,7 +1,7 @@
 (() => {
     'use strict';
 
-    const fullScript = 'components/system/app-main-components.js?v=20260822-manager-capability-h08c77becc3';
+    const fullScript = 'components/system/app-main-components.js?v=20260826-manager-capability-daily-one-thing-h15ecbafdcb';
     let fullScriptPromise = null;
 
     const loadFullScript = () => {
@@ -249,18 +249,25 @@
             },
         };
 
+
         const lazyKeys = [
             'AiDecisionQualityDetails', 'DualOtaAcceptanceReceipt', 'DualOtaPageVerificationPanel',
             'PlatformAutoSettingsPanels', 'PlatformAutoSecondaryPanels', 'CtripProfileFieldConfigPanel',
             'CompetitorDeviceManagement', 'DataConfigDialogs', 'SessionProofNotice',
             'LocalCollectorLoginHandoff', 'PmsRealtimeSyncResult', 'HotelThreeSourceOnboardingPanel',
             'ManagerCapabilityPanel', 'OperatingOpportunityLab',
+            'RevenueCockpitOpportunityDetails', 'RevenueCockpitSnapshotStatus',
+            'RevenueCockpitActionRestoreStatus',
         ];
         const lazyComponents = Object.fromEntries(lazyKeys.map(key => [key, lazyFullComponent(key)]));
         const helperKeys = [
             'aiDailyReportTaskPositiveInteger', 'aiDailyReportModelIsLimited',
             'normalizeAiDailyReportGenerationTask', 'formatAiDailyReportGenerationStage',
             'resolveAiDailyReportGenerationOutcome', 'pollAiDailyReportGenerationTask',
+            'resolveRevenueCockpitIntentLifecycle', 'parseOperationEvidenceNumber',
+            'parseOptionalOperationEvidenceNumber', 'operationEvidenceFirstText',
+            'operationEvidenceCleanObject', 'operationEvidenceLocalTimestamp',
+            'normalizeOperationEvidenceDateTime', 'normalizeOperationReviewStatus',
         ];
         const delegatedHelpers = Object.fromEntries(helperKeys.map(key => [key, delegateFullHelper(key)]));
 

@@ -61,6 +61,44 @@ final class OnlineDataTenantScopeTest extends TestCase
         self::assertSame(99, $this->invokeNonPublic($controller, 'resolveOnlineDataSystemHotelId', [99]));
     }
 
+    public function testSuperAdminManualSaveScopeFailsClosedWhenHotelIsRequired(): void
+    {
+        $controller = $this->controllerWithUser($this->tenantUser([], true));
+
+        $this->expectException(HttpException::class);
+        $this->expectExceptionMessage('请选择酒店');
+
+        $this->invokeNonPublic($controller, 'resolveOnlineDataSystemHotelId', [null, true]);
+    }
+
+    public function testAnalyticsReadScopesRequireHotelViewPermission(): void
+    {
+        $withoutViewPermission = $this->controllerWithUser($this->tenantUser([7], false, 7));
+        $withViewPermission = $this->controllerWithUser(
+            $this->tenantUser([7, 8], false, 7, ['can_view_online_data'])
+        );
+
+        self::assertSame([], $this->invokeNonPublic(
+            $withoutViewPermission,
+            'permittedHotelIdsForAction',
+            ['can_view_online_data']
+        ));
+        self::assertSame([7, 8], $this->invokeNonPublic(
+            $withViewPermission,
+            'permittedHotelIdsForAction',
+            ['can_view_online_data']
+        ));
+
+        $analyticsSource = (string)file_get_contents(
+            __DIR__ . '/../app/controller/concern/OnlineDataAnalyticsConcern.php'
+        );
+        self::assertGreaterThanOrEqual(2, substr_count(
+            $analyticsSource,
+            "permittedHotelIdsForAction('can_view_online_data')"
+        ));
+        self::assertStringContainsString("return \$this->error('无权查看该酒店线上数据', 403);", $analyticsSource);
+    }
+
     public function testReleaseEvidenceStatusRejectsNonSuperUserEvenWithOnlineDataPermission(): void
     {
         $controller = $this->controllerWithUser($this->tenantUser([7], false, 7, ['can_view_online_data']));

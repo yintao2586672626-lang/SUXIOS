@@ -55,7 +55,7 @@ class Compass extends Base
         $hidden = $data['hidden'] ?? [];
         $quickEntries = $data['quick_entries'] ?? [];
         if (!is_array($order) || !is_array($hidden) || !is_array($quickEntries)) {
-            return json(['code' => 400, 'message' => '参数错误']);
+            return json(['code' => 400, 'message' => '参数错误'], 400);
         }
 
         $allowed = $this->getDefaultLayout()['order'];

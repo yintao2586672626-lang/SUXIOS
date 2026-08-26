@@ -53,6 +53,10 @@ if (!fs.existsSync(startupScriptPath)) {
     'SetEnvironmentVariable("PATH", $null, "Process")',
     'information_schema.SCHEMATA',
     'information_schema.TABLES',
+    'Get-ProjectIdentity',
+    'Test-RuntimeIdentity',
+    'public_app_main_sha256=',
+    'serves a different public/app-main.min.js digest',
   ];
 
   for (const token of requiredTokens) {

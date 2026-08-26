@@ -5,7 +5,12 @@ import test from 'node:test';
 import vm from 'node:vm';
 
 const systemStaticSource = fs.readFileSync('public/system-static.js', 'utf8');
-const appMainSource = fs.readFileSync('public/app-main.js', 'utf8');
+const appMainEntrySource = fs.readFileSync('public/app-main.js', 'utf8');
+const manualNotificationOrchestrationSource = fs.readFileSync(
+  'public/manual-notification-orchestration-static.js',
+  'utf8',
+);
+const appMainSource = `${appMainEntrySource}\n${manualNotificationOrchestrationSource}`;
 const serviceSource = fs.readFileSync('app/service/ManualNotificationService.php', 'utf8');
 const scheduleRuleSource = fs.readFileSync(
   'app/service/ManualNotificationScheduleRuleService.php',
@@ -611,4 +616,53 @@ test('notification workspace removes repeated explanations while keeping the thr
   }
   assert.doesNotMatch(schedulePanelSource, /酒店由页面顶部统一选择，不会绑定到其他酒店/);
   assert.match(appMainSource, /showToast\(response\.message \|\| '测试消息已发送'\);[\s\S]*manualNotificationWorkspaceTab\.value = 'plans'/);
+});
+
+test('operating daily keeps fixed-time default and exposes hotel-80 strict three-source interval', () => {
+  assert.match(
+    serviceSource,
+    /OPERATING_DAILY_TRIGGER_TYPES\s*=\s*\[\s*'manual_test',\s*'daily_fixed_time'/,
+  );
+  assert.match(
+    serviceSource,
+    /manual_notification_operating_daily_fixed_time_required/,
+  );
+  assert.match(
+    schedulePanelSource,
+    /operatingDaily:\s*\{\s*type:\s*Boolean/,
+  );
+  assert.match(
+    schedulePanelSource,
+    /metadata\.operating_daily_trigger_types/,
+  );
+  assert.match(
+    schedulePanelSource,
+    /manual-notification-operating-daily-loop-blocked/,
+  );
+  assert.match(
+    appMainSource,
+    /operatingDaily:\s*manualNotificationIsOperatingDaily\.value/,
+  );
+  assert.match(
+    appMainSource,
+    /经营日报不支持循环发送，请选择每日固定时间/,
+  );
+  assert.match(serviceSource, /isStrictThreeSourceIntervalPlan/);
+  assert.match(
+    appMainSource,
+    /manualNotificationCanConfigureStrictThreeSourceInterval/,
+  );
+  assert.match(
+    appMainSource,
+    /Number\(manualNotificationForm\.value\.hotel_id \|\| 0\) === 80/,
+  );
+  assert.match(
+    appMainSource,
+    /trigger_type: 'interval_minutes',[\s\S]{0,220}interval_minutes: 30/,
+  );
+  assert.match(
+    schedulePanelSource,
+    /strictThreeSourceIntervalAvailable[\s\S]*每 30 分钟（三源严格计划）/,
+  );
+  assert.match(schedulePanelSource, /三源计划配置待修正/);
 });

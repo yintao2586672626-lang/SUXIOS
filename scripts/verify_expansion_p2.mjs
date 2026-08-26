@@ -2,6 +2,7 @@ import { readFileSync, existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import vm from 'node:vm';
+import { readRouteContractSource } from './lib/route_contract_source.mjs';
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const expansionStaticSource = readFileSync(join(root, 'public/expansion-static-options.js'), 'utf8');
@@ -144,7 +145,9 @@ for (const check of checks) {
     continue;
   }
 
-  let content = readFileSync(path, 'utf8');
+  let content = check.file === 'route/app.php'
+    ? readRouteContractSource(root)
+    : readFileSync(path, 'utf8');
   if (check.file === 'public/index.html') {
     content += '\n' + expansionStaticSource;
   }

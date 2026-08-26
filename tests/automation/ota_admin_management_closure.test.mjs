@@ -11,6 +11,7 @@ const userController = fs.readFileSync(new URL('../../app/controller/User.php', 
 const roleController = fs.readFileSync(new URL('../../app/controller/RoleController.php', import.meta.url), 'utf8');
 const otaConfigConcern = fs.readFileSync(new URL('../../app/controller/concern/OtaConfigConcern.php', import.meta.url), 'utf8');
 const authenticatedStyle = fs.readFileSync(new URL('../../public/style.css', import.meta.url), 'utf8');
+const appMainComponents = fs.readFileSync(new URL('../../public/components/system/app-main-components.js', import.meta.url), 'utf8');
 const userAdminStatic = fs.readFileSync(new URL('../../public/user-admin-static.js', import.meta.url), 'utf8');
 const userAdminStaticHash = createHash('sha256').update(userAdminStatic).digest('hex').slice(0, 10);
 const userAdminSandbox = { window: {}, crypto: webcrypto };
@@ -178,8 +179,10 @@ test('employee and hotel saves are single-flight and expose progress in their mo
 test('new hotel code and status are controlled by the server', () => {
   const hotelModal = sliceFrom('<!-- 酒店模态框 -->', '<!-- 线上数据编辑模态框 -->');
   const saveHotel = sliceFrom('const saveHotel = async () => {', '\n\n            const toggleHotelStatus');
+  const hotelCreationSurfaces = `${hotelModal}\n${appMainComponents}`;
 
-  assert.match(hotelModal, /编号自动生成，创建后默认营业/);
+  assert.match(hotelCreationSurfaces, /data-testid': 'hotel-onboarding-server-defaults'/);
+  assert.match(hotelCreationSurfaces, /门店编号自动生成，创建后默认营业；编号与状态均由服务端控制/);
   assert.match(hotelModal, /<div v-if="hotelForm\.id">\s*<label[^>]*>门店编号<\/label>[\s\S]*readonly=""/);
   assert.doesNotMatch(hotelModal, /v-model="hotelForm\.status"|门店状态|历史停用/);
   assert.doesNotMatch(hotelModal, /默认按录入顺序生成，可手动调整/);

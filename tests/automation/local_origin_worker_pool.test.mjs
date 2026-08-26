@@ -14,7 +14,7 @@ function close(server) {
   return new Promise((resolve) => server.close(resolve));
 }
 
-function worker({ healthy, name, failDynamic = false, dynamicDelayMs = 0 }) {
+function worker({ healthy, name, failDynamic = false, failAfterHeaders = false, dynamicDelayMs = 0 }) {
   let healthResponse = healthy;
   let healthRequests = 0;
   let dynamicRequests = 0;
@@ -30,6 +30,13 @@ function worker({ healthy, name, failDynamic = false, dynamicDelayMs = 0 }) {
     const finishDynamicRequest = () => {
       if (failDynamic) {
         response.destroy();
+        return;
+      }
+      if (failAfterHeaders) {
+        response.writeHead(200, { 'Content-Type': 'application/json' });
+        response.flushHeaders();
+        response.write('{"worker":"interrupted"');
+        setImmediate(() => response.destroy());
         return;
       }
       response.writeHead(200, { 'Content-Type': 'application/json' });
@@ -238,6 +245,39 @@ test('local origin never retries a POST after the selected worker disconnects', 
   } finally {
     await close(origin);
     await close(disconnecting.server);
+    await close(fallback.server);
+  }
+});
+
+test('local origin survives an upstream response abort after headers and serves the next request', async () => {
+  const interrupted = worker({ healthy: true, name: 'interrupted', failAfterHeaders: true });
+  const fallback = worker({ healthy: true, name: 'fallback' });
+  const interruptedPort = await listen(interrupted.server);
+  const fallbackPort = await listen(fallback.server);
+  const origin = createLocalOriginServer({
+    backendUrls: [
+      `http://127.0.0.1:${interruptedPort}`,
+      `http://127.0.0.1:${fallbackPort}`,
+    ],
+    healthCheckIntervalMs: 10_000,
+    healthCheckTimeoutMs: 100,
+  });
+  const originPort = await listen(origin);
+
+  try {
+    await assert.rejects(async () => {
+      const response = await fetch(`http://127.0.0.1:${originPort}/api/interrupted-response`);
+      await response.text();
+    });
+
+    const next = await fetch(`http://127.0.0.1:${originPort}/api/next-request`);
+    assert.equal(next.status, 200);
+    assert.deepEqual(await next.json(), { worker: 'fallback' });
+    assert.equal(interrupted.dynamicRequests(), 1);
+    assert.equal(fallback.dynamicRequests(), 1);
+  } finally {
+    await close(origin);
+    await close(interrupted.server);
     await close(fallback.server);
   }
 });

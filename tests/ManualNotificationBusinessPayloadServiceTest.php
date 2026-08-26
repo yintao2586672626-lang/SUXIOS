@@ -82,6 +82,80 @@ final class ManualNotificationBusinessPayloadServiceTest extends TestCase
         self::assertStringNotContainsString('¥10045.60', $content);
     }
 
+    public function testTodayPayloadUsesSelectedMeituanPmsWithoutDingAliasOrFallback(): void
+    {
+        $preview = $this->sectionFixture(
+            'today_revenue_management',
+            80,
+            '2026-07-26'
+        );
+        $messageData =& $preview['section']['message_data'];
+        $messageData['pms_binding'] = [
+            'binding_status' => 'configured',
+            'effective_provider' => 'meituan_cloud_pms',
+            'compatibility_fallback' => false,
+        ];
+        $pms = $messageData['sources']['dingdandao_pms'];
+        unset($messageData['sources']['dingdandao_pms']);
+        $pms['business_scope'] = 'estimated_accommodation_room_fee';
+        $pms['facts']['room_revenue'] = $pms['facts']['room_fee'];
+        unset($pms['facts']['room_fee']);
+        $pms['source']['provider'] = 'meituan_cloud_pms';
+        $pms['source']['table'] = 'meituan_cloud_pms_captures';
+        $messageData['sources']['meituan_cloud_pms'] = $pms;
+        $result = (new ManualNotificationBusinessPayloadService(
+            static fn(): array => $preview
+        ))->pagePreview(
+            80,
+            80,
+            '敦煌漠蓝新',
+            '2026-07-26',
+            'today_revenue_management'
+        );
+
+        self::assertSame('ready', $result['status']);
+        self::assertSame(
+            8745.6,
+            $result['fact_envelope']['facts']['meituan_cloud_pms']
+                ['room_revenue']
+        );
+        self::assertSame(
+            'readback_verified',
+            $result['fact_envelope']['source_completeness']
+                ['meituan_cloud_pms']
+        );
+        self::assertArrayNotHasKey(
+            'dingdandao_pms',
+            $result['fact_envelope']['facts']
+        );
+        $content = $result['payload']['markdown']['content'];
+        self::assertStringContainsString('美团云 PMS住宿经营', $content);
+        self::assertStringContainsString('预计房费｜¥8745.60', $content);
+        self::assertStringNotContainsString('订单来了住宿经营', $content);
+
+        $stalePreview = $this->sectionFixture(
+            'today_revenue_management',
+            80,
+            '2026-07-26'
+        );
+        $stalePreview['section']['message_data']['pms_binding'] =
+            $messageData['pms_binding'];
+        $blocked = (new ManualNotificationBusinessPayloadService(
+            static fn(): array => $stalePreview
+        ))->pagePreview(
+            80,
+            80,
+            '敦煌漠蓝新',
+            '2026-07-26',
+            'today_revenue_management'
+        );
+        self::assertSame('blocked', $blocked['status']);
+        self::assertSame(
+            'business_message_meituan_cloud_pms_not_verified',
+            $blocked['reason_code']
+        );
+    }
+
     public function testFuturePayloadRendersFourHorizonsAndKeepsDetailsInEnvelope(): void
     {
         $service = new ManualNotificationBusinessPayloadService(
@@ -107,6 +181,11 @@ final class ManualNotificationBusinessPayloadServiceTest extends TestCase
             [3, 7, 14, 21],
             $result['fact_envelope']['facts']['dingdandao_pms']['display_horizons']
         );
+        self::assertSame(
+            'comparable',
+            $result['fact_envelope']['facts']['dingdandao_pms']
+                ['forward_delta']['data_status']
+        );
         $content = $result['payload']['markdown']['content'];
         foreach (['3天｜', '7天｜', '14天｜', '21天｜'] as $needle) {
             self::assertStringContainsString($needle, $content);
@@ -116,6 +195,17 @@ final class ManualNotificationBusinessPayloadServiceTest extends TestCase
             '逐日/房型明细｜已保存21天',
             $content
         );
+        self::assertStringContainsString('本次房态变化', $content);
+        self::assertStringContainsString('17:35 → 18:35（60分钟）', $content);
+        self::assertStringContainsString(
+            '未来21天账面净变化｜已订 +1间夜｜剩余可售 -1间夜｜不可用 ±0间夜',
+            $content
+        );
+        self::assertStringContainsString(
+            '07-27｜景观大床房｜已订 8→9（+1间）｜剩余 7→6（-1间）',
+            $content
+        );
+        self::assertStringContainsString('不直接归因为新订或取消', $content);
         self::assertStringContainsString(
             '07-27｜景观大床房｜超售1间',
             $content
@@ -126,6 +216,106 @@ final class ManualNotificationBusinessPayloadServiceTest extends TestCase
         );
         self::assertStringContainsString('企业微信测试群定时真实投递', $content);
         self::assertStringContainsString('彼此包含、不可相加', $content);
+    }
+
+    public function testFuturePayloadRejectsNonDingProviderIdentity(): void
+    {
+        $preview = $this->sectionFixture(
+            'future_room_status',
+            80,
+            '2026-07-26'
+        );
+        $preview['section']['message_data']['source']['provider'] =
+            'meituan_cloud_pms';
+        $preview['section']['message_data']['source']['table'] =
+            'meituan_cloud_pms_captures';
+        $result = (new ManualNotificationBusinessPayloadService(
+            static fn(): array => $preview
+        ))->pagePreview(
+            80,
+            80,
+            '敦煌漠蓝新',
+            '2026-07-26',
+            'future_room_status'
+        );
+
+        self::assertSame('blocked', $result['status']);
+        self::assertNull($result['payload']);
+        self::assertSame(
+            'business_message_forward_provider_unsupported',
+            $result['reason_code']
+        );
+        self::assertArrayNotHasKey(
+            'dingdandao_pms',
+            $result['fact_envelope']['facts']
+        );
+    }
+
+    public function testFuturePayloadKeepsBaselineAndInventoryRebaselineHonest(): void
+    {
+        $baselineService = new ManualNotificationBusinessPayloadService(
+            function (string $type, int $hotelId, string $date): array {
+                $preview = $this->sectionFixture($type, $hotelId, $date);
+                $preview['section']['message_data']['forward_delta'] = [
+                    ...$preview['section']['message_data']['forward_delta'],
+                    'data_status' => 'baseline_only',
+                    'reason_code' => 'previous_snapshot_missing',
+                    'captured_from' => null,
+                    'elapsed_minutes' => null,
+                    'net_change_reliable' => false,
+                    'summary' => null,
+                    'changes' => [],
+                ];
+                return $preview;
+            }
+        );
+        $baseline = $baselineService->build(
+            80,
+            80,
+            '敦煌漠蓝新',
+            '2026-07-26',
+            'future_room_status',
+            'preview_only'
+        );
+        self::assertStringContainsString(
+            '首次可信快照，等待下一次同门店、同经营日期快照建立变化基线',
+            $baseline['payload']['markdown']['content']
+        );
+
+        $rebaselineService = new ManualNotificationBusinessPayloadService(
+            function (string $type, int $hotelId, string $date): array {
+                $preview = $this->sectionFixture($type, $hotelId, $date);
+                $delta = $preview['section']['message_data']['forward_delta'];
+                $delta['data_status'] = 'rebaseline_required';
+                $delta['reason_code'] = 'inventory_basis_changed';
+                $delta['net_change_reliable'] = false;
+                $delta['inventory_basis_change_count'] = 1;
+                $delta['summary'] = null;
+                $delta['changes'][0]['status'] = 'inventory_basis_changed';
+                $delta['changes'][0]['remaining_sellable_rooms_from'] = 8;
+                $delta['changes'][0]['remaining_sellable_rooms_delta'] = -2;
+                $delta['changes'][0]['inventory_basis_rooms_from'] = 17;
+                $delta['changes'][0]['inventory_basis_rooms_to'] = 16;
+                $delta['changes'][0]['inventory_basis_rooms_delta'] = -1;
+                $preview['section']['message_data']['forward_delta'] = $delta;
+                return $preview;
+            }
+        );
+        $rebaseline = $rebaselineService->build(
+            80,
+            80,
+            '敦煌漠蓝新',
+            '2026-07-26',
+            'future_room_status',
+            'preview_only'
+        );
+        $content = $rebaseline['payload']['markdown']['content'];
+        self::assertStringContainsString(
+            '检测到1个房型日库存基数变化，需重建比较基线',
+            $content
+        );
+        self::assertStringContainsString('库存基数 17→16', $content);
+        self::assertStringNotContainsString('未来21天账面净变化｜', $content);
     }
 
     public function testEnvelopeDeclaresCompleteOnlyWhenAllThreeSourcesAreVerified(): void
@@ -468,6 +658,43 @@ final class ManualNotificationBusinessPayloadServiceTest extends TestCase
                 'horizons' => $horizons,
                 'daily_rows' => $dailyRows,
                 'room_types' => [],
+                'forward_delta' => [
+                    'contract_version' => 'dingdandao_forward_delta_message.v1',
+                    'data_status' => 'comparable',
+                    'reason_code' => null,
+                    'change_scope' => 'room_type_stay_date_future_21_days',
+                    'from_capture_id' => 979,
+                    'to_capture_id' => 980,
+                    'captured_from' => '2026-07-26 17:35:00',
+                    'captured_to' => '2026-07-26 18:35:00',
+                    'elapsed_minutes' => 60,
+                    'net_change_reliable' => true,
+                    'changed_cell_count' => 1,
+                    'inventory_basis_change_count' => 0,
+                    'summary' => [
+                        'booked_room_nights_delta' => 1,
+                        'remaining_sellable_room_nights_delta' => -1,
+                        'unavailable_room_nights_delta' => 0,
+                    ],
+                    'changes' => [[
+                        'stay_date' => '2026-07-27',
+                        'provider_room_type_id' => 'room-type-view-king',
+                        'room_type_name' => '景观大床房',
+                        'booked_rooms_from' => 8,
+                        'booked_rooms_to' => 9,
+                        'booked_rooms_delta' => 1,
+                        'remaining_sellable_rooms_from' => 7,
+                        'remaining_sellable_rooms_to' => 6,
+                        'remaining_sellable_rooms_delta' => -1,
+                        'unavailable_rooms_from' => 1,
+                        'unavailable_rooms_to' => 1,
+                        'unavailable_rooms_delta' => 0,
+                        'inventory_basis_rooms_from' => 16,
+                        'inventory_basis_rooms_to' => 16,
+                        'inventory_basis_rooms_delta' => 0,
+                        'status' => 'booked_increase',
+                    ]],
+                ],
                 'alerts' => [
                     [
                         'code' => 'pms_forward_oversold',
@@ -486,6 +713,7 @@ final class ManualNotificationBusinessPayloadServiceTest extends TestCase
                 ],
                 'source' => [
                     'table' => 'dingdandao_operating_target_captures',
+                    'provider' => 'dingdandao_pms',
                     'record_id' => 980,
                     'tenant_id' => 80,
                     'hotel_id' => 80,

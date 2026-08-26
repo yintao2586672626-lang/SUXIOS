@@ -3,7 +3,8 @@ declare(strict_types=1);
 
 $root = dirname(__DIR__);
 $controllerDir = $root . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR . 'controller';
-$routeFile = $root . DIRECTORY_SEPARATOR . 'route' . DIRECTORY_SEPARATOR . 'app.php';
+$routeDir = $root . DIRECTORY_SEPARATOR . 'route';
+$routeFiles = registeredRouteFiles($routeDir);
 $autoloadFile = $root . DIRECTORY_SEPARATOR . 'vendor' . DIRECTORY_SEPARATOR . 'autoload.php';
 if (is_file($autoloadFile)) {
     require_once $autoloadFile;
@@ -22,8 +23,10 @@ $ignoredControllers = [
 ];
 
 $actions = collectControllerActions($controllerDir, $ignoredControllers);
-$routes = collectRouteActions($routeFile);
+$routes = collectRouteActions($routeFiles, $root);
 $compatibilityAliases = otaCompatibilityRouteAliases();
+$compatibilityAliases[actionKey('app\\controller\\Agent', 'approvePrice')]
+    = actionKey('app\\controller\\RevenueAi', 'reviewPriceSuggestion');
 
 $missing = [];
 foreach ($actions as $key => $action) {
@@ -56,8 +59,8 @@ if ($missing !== []) {
 
 if ($invalidRoutes !== []) {
     echo PHP_EOL . "Invalid route targets:" . PHP_EOL;
-    foreach ($invalidRoutes as $route) {
-        echo "- {$route['controller']}::{$route['method']} (route/app.php:{$route['line']})" . PHP_EOL;
+foreach ($invalidRoutes as $route) {
+        echo "- {$route['controller']}::{$route['method']} ({$route['file']}:{$route['line']})" . PHP_EOL;
     }
 }
 
@@ -65,8 +68,49 @@ if ($missing !== [] || $invalidRoutes !== []) {
     exit(1);
 }
 
-echo PHP_EOL . "All public controller actions are covered by route/app.php." . PHP_EOL;
+echo PHP_EOL . "All public controller actions are covered by registered route manifests." . PHP_EOL;
 exit(0);
+
+/**
+ * @return list<string>
+ */
+function registeredRouteFiles(string $routeDir): array
+{
+    $bootstrapPath = $routeDir . DIRECTORY_SEPARATOR . 'app.php';
+    $bootstrap = file_get_contents($bootstrapPath);
+    if (!is_string($bootstrap)) {
+        throw new RuntimeException("Unable to read route bootstrap: {$bootstrapPath}");
+    }
+
+    preg_match_all(
+        "/require __DIR__ \\. '\/domain\/([a-z0-9_]+\\.php)';/",
+        $bootstrap,
+        $manifestMatches
+    );
+    $files = [$bootstrapPath];
+    $registeredDomainFiles = [];
+    foreach ($manifestMatches[1] as $fileName) {
+        $domainFile = $routeDir . DIRECTORY_SEPARATOR . 'domain' . DIRECTORY_SEPARATOR . $fileName;
+        if (in_array($domainFile, $registeredDomainFiles, true)) {
+            throw new RuntimeException("Duplicate route domain manifest registration: {$fileName}");
+        }
+        if (!is_file($domainFile)) {
+            throw new RuntimeException("Registered route domain manifest is missing: {$fileName}");
+        }
+        $registeredDomainFiles[] = $domainFile;
+        $files[] = $domainFile;
+    }
+
+    $discoveredDomainFiles = glob($routeDir . DIRECTORY_SEPARATOR . 'domain' . DIRECTORY_SEPARATOR . '*.php') ?: [];
+    sort($discoveredDomainFiles);
+    $registeredSorted = $registeredDomainFiles;
+    sort($registeredSorted);
+    if ($discoveredDomainFiles !== $registeredSorted) {
+        throw new RuntimeException('Every route domain manifest must be explicitly registered exactly once');
+    }
+
+    return $files;
+}
 
 /**
  * @param array<string, string> $ignoredControllers
@@ -107,33 +151,37 @@ function collectControllerActions(string $controllerDir, array $ignoredControlle
 }
 
 /**
- * @return array<string, array{controller:string, method:string, line:int}>
+ * @param list<string> $routeFiles
+ * @return array<string, array{controller:string, method:string, file:string, line:int}>
  */
-function collectRouteActions(string $routeFile): array
+function collectRouteActions(array $routeFiles, string $root): array
 {
-    $content = file_get_contents($routeFile);
-    if ($content === false) {
-        throw new RuntimeException("Unable to read route file: {$routeFile}");
-    }
-
     $routes = [];
     $pattern = '/Route::(?:get|post|put|delete|patch|any|rule)\s*\(\s*([\'"])(?:(?!\1).)*\1\s*,\s*([\'"])([A-Za-z_][A-Za-z0-9_.]*\/[A-Za-z_][A-Za-z0-9_]*)\2/s';
 
-    if (!preg_match_all($pattern, $content, $matches, PREG_OFFSET_CAPTURE)) {
-        return $routes;
-    }
+    foreach ($routeFiles as $routeFile) {
+        $content = file_get_contents($routeFile);
+        if ($content === false) {
+            throw new RuntimeException("Unable to read route file: {$routeFile}");
+        }
 
-    foreach ($matches[3] as $match) {
-        [$target, $offset] = $match;
-        [$controllerName, $method] = explode('/', $target, 2);
-        $controller = 'app\\controller\\' . str_replace('.', '\\', $controllerName);
-        $line = substr_count(substr($content, 0, $offset), "\n") + 1;
+        if (!preg_match_all($pattern, $content, $matches, PREG_OFFSET_CAPTURE)) {
+            continue;
+        }
 
-        $routes[actionKey($controller, $method)] = [
-            'controller' => $controller,
-            'method' => $method,
-            'line' => $line,
-        ];
+        foreach ($matches[3] as $match) {
+            [$target, $offset] = $match;
+            [$controllerName, $method] = explode('/', $target, 2);
+            $controller = 'app\\controller\\' . str_replace('.', '\\', $controllerName);
+            $line = substr_count(substr($content, 0, $offset), "\n") + 1;
+
+            $routes[actionKey($controller, $method)] = [
+                'controller' => $controller,
+                'method' => $method,
+                'file' => relativePath($root, $routeFile),
+                'line' => $line,
+            ];
+        }
     }
 
     ksort($routes);

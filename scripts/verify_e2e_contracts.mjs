@@ -206,7 +206,9 @@ requireText('public/index.html', "[String(error?.message || error || 'unknown st
 requireText('public/index.html', "if (appRoot.dataset.startupErrorRendered === '1') return;", 'startup error surface is idempotent');
 requireText('public/index.html', "appRoot.dataset.startupErrorRendered = '1';", 'startup error surface marks rendered state');
 requireText('public/index.html', 'window.SUXI_MISSING_MEITUAN_STATIC_HELPERS = missingMeituanStaticHelpers', 'entry records missing Meituan static helpers without blocking unrelated pages');
-requireText('public/index.html', 'return meituanStaticFallbackFor(key)', 'entry degrades missing Meituan static helpers to feature-level failures');
+requireText('public/index.html', 'const currentMeituanStatic = () => (', 'entry resolves Meituan helpers from the deferred bundle at call time');
+requireText('public/index.html', 'if (meituanDeferredRuntimePending()) return fallback(...args);', 'entry treats the expected pre-deferred phase as pending instead of missing');
+requireText('public/index.html', 'return fallback(...args);', 'entry degrades a real post-load missing Meituan helper to a feature-level failure');
 requireNoText('public/index.html', 'throw new Error(`缺少美团静态展示工具项：${key}`)', 'entry must not block whole-app startup for a missing Meituan static helper');
 requireText('public/index.html', "if (!u || typeof u !== 'object') return false;", 'user search skips invalid user rows');
 requireText('public/index.html', "const username = String(u.username || '');", 'user search normalizes username before matching');
@@ -472,7 +474,7 @@ requirePattern('public/index.html', /const ctripTargetHotelOptions = computed\(\
 requireText('public/index.html', 'const meituanTargetHotelOptions = computed(() => {', 'Meituan manual target hotel list is filtered to configured Meituan data sources');
 requirePattern('public/index.html', /const meituanTargetHotelOptions = computed\(\(\) => \{[\s\S]{0,500}?hasMeituanFetchConfigByHotelId/, 'Meituan manual target options retain the configured-source filter');
 requireText('public/index.html', 'data-testid="platform-hotel-context-search"', 'manual OTA pages expose one unified searchable platform hotel selector');
-requirePattern('public/index.html', /const platformHotelOptions = computed\(\(\) => \{[\s\S]{0,300}?platformHotelContext\.value === 'meituan'[\s\S]{0,180}?meituanTargetHotelOptions\.value[\s\S]{0,180}?platformHotelContext\.value === 'ctrip'[\s\S]{0,180}?ctripTargetHotelOptions\.value/, 'the unified OTA hotel selector renders only the active platform configured options');
+requirePattern('public/index.html', /const platformHotelOptionsFor = \(platform\) => \{[\s\S]*?if \(platform === 'meituan'\) \{[\s\S]*?onlineDataTab\.value === 'meituan-review-match'[\s\S]*?\? meituanReviewMatchHotelOptions\.value[\s\S]*?: meituanTargetHotelOptions\.value;[\s\S]*?if \(platform === 'ctrip'\) \{[\s\S]*?\['ctrip-public-profiles', 'ctrip-market-competition'\]\.includes\(onlineDataTab\.value\)[\s\S]*?\? ctripPublicProfileHotelOptions\.value[\s\S]*?: ctripTargetHotelOptions\.value;[\s\S]*?return \[\];[\s\S]*?\};[\s\S]{0,500}?const hasPlatformHotelContext = \(platform, hotelId\) => platformHotelOptionsFor\(platform\)[\s\S]{0,1500}?const platformHotelOptions = computed\(\(\) => platformHotelOptionsFor\(platformHotelContext\.value\)\);/, 'the unified OTA hotel selector and persisted context use only current platform and tab permitted hotel options');
 requireText('public/index.html', 'data-testid="platform-hotel-context-config"', 'the unified OTA hotel selector exposes an explicit configuration action when no configured hotel is available');
 requireText('public/ctrip-static.js', 'const buildTruthfulCtripDisplayModel', 'Ctrip display strips unsupported estimate fields from legacy snapshots');
 requireNoText('public/ctrip-static.js', "if (field === 'aiEstimatedTotalRoomNights')", 'Ctrip static sorter omits the unsupported AI estimate field');
@@ -712,7 +714,7 @@ requireText('public/index.html', 'const withBusinessRequestContext = (url, optio
 requireText('public/index.html', 'data-testid="platform-collection-type-breakdown"', 'platform source page exposes data-type collection status breakdown');
 requireText('public/index.html', 'const platformCollectionTypeRows = computed(() => {', 'platform collection type rows are derived from resource and review-policy state');
 requireText('public/index.html', 'schedulePlatformCollectionStatusRefresh();', 'post-fetch actions refresh the unified platform collection status');
-requireText('public/index.html', "review_collection_policy: 'explicit_review_match_only'", 'Ctrip review order automation explicitly scopes review reads to the match action');
+requireText('public/review-match-static.js', "review_collection_policy: 'explicit_review_match_only'", 'Ctrip review order deferred controller explicitly scopes review reads to the match action');
 requireText('app/controller/concern/CtripReviewOrderMatchConcern.php', 'ctrip_comment_browser_capture.mjs', 'Ctrip review order automation can run dedicated authorized review capture');
 requireText('app/controller/concern/CtripReviewOrderMatchConcern.php', 'explicit_review_match_authorized_profile_or_existing_cache', 'Ctrip review order automation reports the explicit review-match collection policy');
 requireText('public/index.html', '携程点评-订单匹配台', 'Ctrip review order main UI exposes the matching workbench');
@@ -745,7 +747,7 @@ requireText('scripts/verify_ctrip_review_match_closure.php', "'accepted_match_st
 requireText('scripts/verify_ctrip_review_match_closure.php', "'next_commands' => $ready ? [] : ctrip_review_match_closure_next_commands($systemHotelId)", 'Ctrip review order closure verifier returns executable next commands when real data is missing');
 requireText('scripts/verify_ctrip_review_match_closure.php', 'npm.cmd run import:ctrip-review-match-payload:preflight', 'Ctrip review order closure verifier points to authorized payload preflight');
 requireText('scripts/verify_ctrip_review_match_closure.php', 'npm.cmd run verify:ctrip-review-match -- --system-hotel-id=', 'Ctrip review order closure verifier points back to the real-data verifier');
-requireText('public/index.html', 'const copyCtripReviewMatchCliCommand =', 'Ctrip review order keeps bounded CLI helper off the main surface');
+requireText('public/review-match-static.js', 'const copyCtripReviewMatchCliCommand =', 'Ctrip review order keeps bounded CLI helper in the deferred controller');
 requireText('route/app.php', "Route::post('/ctrip-review-matches/closure'", 'Ctrip review order route exposes the read-only closure check');
 requireText('app/controller/concern/CtripReviewOrderMatchConcern.php', 'public function checkCtripReviewOrderMatchClosure()', 'Ctrip review order API exposes the read-only closure check action');
 requireText('app/controller/concern/CtripReviewOrderMatchConcern.php', "'policy' => 'real_data_closure_check_only'", 'Ctrip review order closure check is explicitly read-only');
@@ -755,7 +757,7 @@ requireText('route/app.php', "Route::post('/ctrip-review-matches/identity-previe
 requireText('app/controller/concern/CtripReviewOrderMatchConcern.php', 'public function previewCtripReviewOrdererIdentity()', 'Ctrip review order API exposes read-only page identity preview');
 requireText('app/controller/concern/CtripReviewOrderMatchConcern.php', "'policy' => 'authorized_page_identity_preview_only'", 'Ctrip review order page preview is explicitly read-only');
 requireText('public/index.html', '@click="copyCtripReviewMatchPayloadTemplate"', 'Ctrip review order UI exposes a bounded payload-template copy action');
-requireText('public/index.html', '姓名、UID、头像和 IM members 不会入库。', 'Ctrip review order UI explains the identity-storage boundary');
+requireText('public/review-match-static.js', '姓名、UID、头像和 IM members 不会入库。', 'Ctrip review order deferred controller explains the identity-storage boundary');
 requireNoText('public/index.html', 'buildCtripReviewOrdererAssistScript', 'Ctrip review order UI must not build a token-bearing page assist script');
 requireNoText('public/index.html', 'token: authToken', 'Ctrip review order UI must not copy the main login token into OTA page config');
 requireNoText('public/index.html', "Authorization: String(config.token || '')", 'Ctrip review order UI must not generate an Authorization header from copied page config');
@@ -784,11 +786,11 @@ requireText('app/controller/concern/CtripReviewOrderMatchConcern.php', "$data['d
 requireText('app/controller/concern/CtripReviewOrderMatchConcern.php', "'transaction' => $dryRun ? 'rolled_back' : 'not_wrapped'", 'Ctrip review order dry-run response proves rollback');
 requireText('app/controller/concern/CtripReviewOrderMatchConcern.php', "'payload_preflight' => $payloadPreflight", 'Ctrip review order API returns authorized payload preflight evidence');
 requireText('scripts/import_ctrip_review_match_payload.php', "'payload_preflight' => is_array($payloadPreflight) ? $payloadPreflight : []", 'Ctrip review order CLI returns authorized payload preflight evidence');
-requireText('public/index.html', 'const runCtripReviewMatchPreflight = () =>', 'Ctrip review order keeps page preflight helper available');
-requireText('public/index.html', 'payload.preflight_only = true;', 'Ctrip review order page preflight action does not call import mode');
+requireText('public/review-match-static.js', 'runCtripReviewMatchPreflight: actionController.preflight', 'Ctrip review order keeps deferred preflight helper available');
+requireText('public/review-match-static.js', 'payload.preflight_only = true;', 'Ctrip review order deferred controller keeps preflight read-only');
 requireNoText('public/index.html', '@click="runCtripReviewMatchPreflight"', 'Ctrip review order main UI does not expose preflight-only action');
-requireText('public/index.html', 'const runCtripReviewMatchDryRun = () =>', 'Ctrip review order keeps dry-run helper available');
-requireText('public/index.html', 'payload.dry_run = true;', 'Ctrip review order page dry-run action requests rollback mode');
+requireText('public/review-match-static.js', 'runCtripReviewMatchDryRun: actionController.dryRun', 'Ctrip review order keeps deferred dry-run helper available');
+requireText('public/review-match-static.js', 'payload.dry_run = true;', 'Ctrip review order deferred controller requests rollback mode');
 requireNoText('public/index.html', '@click="runCtripReviewMatchDryRun"', 'Ctrip review order main UI does not expose dry-run action');
 requireNoText('public/index.html', "写入 {{ ctripReviewMatchResult.data.source_status.storage_write === false ? '否' : '是' }}", 'Ctrip review order main UI hides storage-write mechanics');
 requireNoText('public/index.html', '授权 payload 预检：{{ ctripReviewMatchResult.data.payload_preflight.status', 'Ctrip review order main UI hides payload preflight mechanics');
@@ -822,7 +824,11 @@ requireText('public/index.html', 'const onlineAnalysisDataRequestPromises = new 
 requireText('public/index.html', 'const onlineAnalysisRowsRequestPromises = new Map();', 'online analysis detail reads deduplicate concurrent requests');
 requireText('public/index.html', 'const cached = readOnlineAnalysisResultCache(onlineAnalysisDataResultCache, requestKey, cacheMs);', 'online analysis summary reads check the short cache before requesting');
 requireText('public/index.html', 'const cached = readOnlineAnalysisResultCache(onlineAnalysisRowsResultCache, requestKey, cacheMs);', 'online analysis detail reads check the short cache before requesting');
-requireText('public/index.html', 'const res = await request(`/online-data/data-analysis?${params}`);', 'online analysis summary request remains the real backend endpoint');
+requirePattern(
+  'public/index.html',
+  /const loadAnalysisData = async \(dimension = null, options = \{\}\) => \{[\s\S]*?request\(`\/online-data\/data-analysis\?\$\{params\}`,\s*\{\s*businessContext:\s*\{\s*hotelId:\s*onlineDataFilter\.value\.hotel_id\s*\|\|\s*'',\s*tenantId:\s*'',?\s*\},?\s*\}\)/,
+  'online analysis summary request keeps the real backend endpoint and its explicit selected-hotel context',
+);
 requireText('public/index.html', 'const res = await request(`/online-data/daily-data-list?${params}`);', 'online analysis detail request remains the real backend endpoint');
 requireText('public/index.html', 'loadAnalysisData(null, loadOptions),', 'online analysis refresh passes cache options into summary reads');
 requireText('public/index.html', 'loadOnlineAnalysisRows(loadOptions),', 'online analysis refresh passes cache options into detail reads');
@@ -938,7 +944,8 @@ requireText('public/index.html', 'const HOME_SECONDARY_PANEL_DELAY_MS = 4200;', 
 requireText('public/index.html', 'const homeSecondaryPanelsReady = ref(false);', 'home lower panel rendering is gated behind an explicit readiness flag');
 requireText('public/index.html', 'const scheduleHomeSecondaryPanelsReady = (delayMs = HOME_SECONDARY_PANEL_DELAY_MS) => {', 'home lower panel readiness is scheduled and cancellable');
 requireText('public/index.html', 'clearHomeSecondaryPanelsReadyTimer();\n                    clearDualOtaSystemMetricDrilldownHydrationTimer();\n                    homeSecondaryPanelsReady.value = false;\n                    destroyHomeTrendChart();', 'leaving the home page cancels delayed lower-panel rendering');
-requireText('public/index.html', "homeSecondaryPanelsReady.value = false;\n                    scheduleHomeSecondaryPanelsReady();\n                    scheduleDualOtaWorkbenchAutoFetch();", 'entering the workbench delays lower-panel rendering and schedules bounded OTA refreshes');
+requireText('public/index.html', "homeSecondaryPanelsReady.value = false;\n                    scheduleHomeSecondaryPanelsReady();\n                    scheduleDualOtaWorkbenchAutoFetch();\n                    scheduleDualOtaSystemMetricDrilldownHydration();", 'entering the workbench delays lower-panel rendering and schedules OTA collection outside the first interaction window');
+requireText('public/index.html', 'const scheduleDualOtaWorkbenchAutoFetch = (delayMs = 9000) => {', 'dashboard OTA collection waits nine seconds beyond the first measured interaction window');
 requireNoText('public/index.html', "runPageLoadOnce(newPage, 'auto-fetch-static', () => ensureAutoFetchStaticReady())", 'home page first paint must not prewarm auto-fetch-static.js');
 requireNoText('public/index.html', "runPageLoadOnce('compass', 'auto-fetch-static', () => ensureAutoFetchStaticReady(), runOptions)", 'initial compass reload must not prewarm auto-fetch-static.js');
 requireText('public/index.html', '<div v-if="homeSecondaryPanelsReady" class="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm mb-6" data-testid="daily-ops-monitor-card">', 'home daily ops panel is not mounted during the immediate OTA navigation window');
@@ -947,19 +954,6 @@ requireText('public/index.html', '<div v-if="homeSecondaryPanelsReady" class="ov
 requireText('public/index.html', '<div v-if="homeSecondaryPanelsReady && homeTrendCards.length"', 'home trend cards are not mounted during the immediate OTA navigation window');
 requireText('public/index.html', 'homeSecondaryPanelsReady, homeClosedLoopStages', 'home lower-panel readiness flag is returned for template gating');
 requireText('public/index.html', 'const AUTHENTICATED_SECONDARY_REQUEST_DELAY_MS = 4600;', 'authenticated secondary API requests stay outside the first measured interaction window');
-{
-  const source = read('public/index.html');
-  const baselineMatch = source.match(/const AUTHENTICATED_SECONDARY_REQUEST_DELAY_MS = (\d+);/);
-  const dualOtaDelayMatch = source.match(/const scheduleDualOtaWorkbenchAutoFetch = \(delayMs = (\d+)\) => \{/);
-  checks.push({
-    file: 'public/index.html',
-    label: 'startup dual OTA refresh waits until after the first measured interaction window',
-    ok: baselineMatch !== null
-      && dualOtaDelayMatch !== null
-      && Number(dualOtaDelayMatch[1]) >= Number(baselineMatch[1]),
-    detail: 'scheduleDualOtaWorkbenchAutoFetch default delay >= AUTHENTICATED_SECONDARY_REQUEST_DELAY_MS',
-  });
-}
 requireText('public/index.html', 'const scheduleInitialBackendNotificationRefresh = (delayMs = AUTHENTICATED_SECONDARY_REQUEST_DELAY_MS) => {', 'startup backend notifications wait until after the first measured interaction window');
 requireText('public/index.html', 'if (!token.value) return;\n                    refreshGlobalNotifications({ silent: true, backendOnly: true, startupDedupe: true });', 'startup strong-reminder refresh runs once per authenticated startup session');
 requireText('public/index.html', 'if (isLoggedIn.value && token.value && !isCoreOtaPageVisible()) {', 'notification polling is paused while core OTA pages are visible');
@@ -1558,9 +1552,9 @@ requireText('public/index.html', 'meituanBookmarklet.value = successState.bookma
 requireText('public/index.html', 'showToast(successState.toastMessage, successState.toastLevel);', 'Meituan bookmarklet success toast comes from static helper state');
 requireText('public/index.html', 'const failureState = buildMeituanBookmarkletFailureState({ error: e });', 'entry keeps Meituan bookmarklet failure handling as a thin adapter');
 requireText('public/index.html', 'showToast(failureState.toastMessage, failureState.toastLevel);', 'Meituan bookmarklet failure toast comes from static helper state');
-requireNoTextBetween('public/index.html', 'const generateMeituanBookmarklet = async () => {', 'const fetchCustomData', 'meituanBookmarklet.value = res.data.bookmarklet;', 'Meituan bookmarklet value is not re-inlined');
-requireNoTextBetween('public/index.html', 'const generateMeituanBookmarklet = async () => {', 'const fetchCustomData', "showToast(res.data?.message || '旧版美团 Cookie 书签已禁用', 'warning')", 'Meituan bookmarklet success toast is not re-inlined');
-requireNoTextBetween('public/index.html', 'const generateMeituanBookmarklet = async () => {', 'const fetchCustomData', "showToast('生成失败: ' + e.message, 'error')", 'Meituan bookmarklet failure toast is not re-inlined');
+requireNoTextBetween('public/index.html', 'const generateMeituanBookmarklet = async () => {', 'const cookieRowKey', 'meituanBookmarklet.value = res.data.bookmarklet;', 'Meituan bookmarklet value is not re-inlined');
+requireNoTextBetween('public/index.html', 'const generateMeituanBookmarklet = async () => {', 'const cookieRowKey', "showToast(res.data?.message || '旧版美团 Cookie 书签已禁用', 'warning')", 'Meituan bookmarklet success toast is not re-inlined');
+requireNoTextBetween('public/index.html', 'const generateMeituanBookmarklet = async () => {', 'const cookieRowKey', "showToast('生成失败: ' + e.message, 'error')", 'Meituan bookmarklet failure toast is not re-inlined');
 requireNoText('public/index.html', "const res = await request('/online-data/get-meituan-config-list');\n                            if (res.code === 200) {\n                                meituanConfigList.value = Array.isArray(res.data) ? res.data : [];\n                            }", 'Meituan hotel selection does not bypass config-list loading flags and request dedupe');
 requireText('public/index.html', 'if (!ctripConfigListLoaded.value && !ctripConfigList.value.length)', 'manual online-data config prewarm does not refetch a known-empty Ctrip config list');
 requireText('public/index.html', 'if (!meituanConfigListLoaded.value && !meituanConfigList.value.length)', 'manual online-data config prewarm does not refetch a known-empty Meituan config list');
@@ -1568,7 +1562,7 @@ requireText('public/index.html', "const shouldLoadCtripConfigList = force || (!c
 requireText('public/index.html', "const shouldLoadMeituanConfigList = force || (!meituanConfigListLoaded.value && !meituanConfigList.value.length);\n                if (shouldLoadMeituanConfigList) {\n                    tasks.push(loadMeituanConfigList({\n                        force,\n                        cacheMs: force ? 0 : MANUAL_CONFIG_LIST_TAB_CACHE_TTL_MS,\n                        applySelectedConfig: false,", 'hotel OTA config prewarm does not refetch a known-empty Meituan config list and supports force refresh');
 requireText('public/index.html', "if (newTab === 'data')", 'manual online-data tab routes through the shared tab-load scheduler');
 requireText('public/index.html', 'const MANUAL_ONLINE_DATA_CONFIG_PREWARM_DELAY_MS = 60;', 'manual online-data config prewarm is delayed and excluded from the data-record first paint');
-requireText('public/index.html', "const MANUAL_ONLINE_FETCH_CONFIG_TABS = new Set(['ctrip', 'meituan', 'custom']);", 'manual online-data config prewarm is limited to legacy manual fetch tabs');
+requireText('public/index.html', "const MANUAL_ONLINE_FETCH_CONFIG_TABS = new Set(['ctrip', 'meituan']);", 'manual online-data config prewarm is limited to named OTA manual fetch tabs');
 requireText('public/index.html', "const shouldPrewarmManualOnlineFetchConfig = (newTab) => MANUAL_ONLINE_FETCH_CONFIG_TABS.has(String(newTab || ''));", 'manual online-data config prewarm uses an explicit tab allow-list');
 requireText('public/index.html', 'const clearManualOnlineFetchConfigPrewarmTimer = () => {', 'manual online-data config prewarm can be cancelled when leaving manual fetch tabs');
 requireText('public/index.html', 'const scheduleManualOnlineFetchConfigPrewarm = (newTab, delayMs = MANUAL_ONLINE_DATA_CONFIG_PREWARM_DELAY_MS) => {', 'manual online-data config prewarm is scheduled through a cancellable helper');
@@ -1606,7 +1600,7 @@ requireText('public/index.html', "if (targetTab !== 'data-health') {\n          
 requireText('public/index.html', "onlineDataTab.value = targetTab;\n                currentPage.value = 'online-data';", 'online-data external entries set the target tab before making the page visible');
 requireText('public/index.html', "const openOnlinePlatformAutoTab = (options = {}) => {\n                return openOnlineDataEntryTab('platform-auto', options);\n            };", 'platform-auto quick entry skips the default data-health first-paint load');
 requireText('public/index.html', "const openOnlineDataManualEntry = () => {\n                return openOnlineDataEntryTab('data-health');\n            };", 'manual online-data parent entry switches through the shared helper');
-requireText('public/index.html', "if (item.path === 'online-data') {\n                    if (item.tab) {\n                        openOnlineDataEntryTab(String(item.tab || 'data-health'));\n                    } else {\n                        openOnlineDataManualEntry();\n                    }\n                    return;\n                }", 'online-data menu click without an explicit tab returns to the default data-health tab');
+requireText('public/index.html', "if (item.path === 'online-data') {\n                    openOnlineDataEntryTab(String(item.tab || 'data-health'));\n                    return;\n                }", 'online-data menu click without an explicit tab returns to the default data-health tab');
 requireText('public/index.html', '@click="handleParentMenuClick(item)"', 'parent menu clicks use the shared parent menu handler');
 requireText('public/index.html', "const handleParentMenuClick = (item) => {\n                const menuName = item?.name || getMenuItemName(item);\n                toggleSubmenu(menuName);\n            };", 'parent menu handler only toggles the submenu so manual-fetch entry clicks stay responsive');
 requireNoText('public/index.html', "if (menuName === '线上数据手动获取') {\n                    openOnlineDataManualEntry();\n                }", 'online-data parent menu click must not load the data-health panel before the user chooses a manual platform');

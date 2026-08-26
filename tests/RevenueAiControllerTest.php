@@ -90,6 +90,8 @@ final class RevenueAiControllerTest extends TestCase
                 return [
                     'hotel_id' => '7',
                     'business_date' => '2026-07-23',
+                    'as_of_date' => '2099-01-01',
+                    'as_of_date_contract_version' => 'client_forged.v0',
                     'p0_downstream_gate' => [
                         'status' => 'ready',
                         'verification_source' => 'client_supplied',
@@ -120,6 +122,8 @@ final class RevenueAiControllerTest extends TestCase
         $filters = $this->invokeNonPublic($controller, 'filters');
 
         self::assertArrayNotHasKey('p0_downstream_gate', $filters);
+        self::assertArrayNotHasKey('as_of_date', $filters);
+        self::assertArrayNotHasKey('as_of_date_contract_version', $filters);
         self::assertSame('7', $filters['hotel_id']);
         self::assertSame('2026-07-23', $filters['business_date']);
     }
@@ -378,6 +382,101 @@ final class RevenueAiControllerTest extends TestCase
             self::assertSame(403, $e->getCode());
             self::assertSame('revenue_ai_permission_denied:operation.execute', $e->getMessage());
         }
+    }
+
+    public function testDecisionSnapshotChecksReviewPermissionBeforeStrictOverview(): void
+    {
+        $source = (string)file_get_contents(dirname(__DIR__) . '/app/controller/RevenueAi.php');
+        self::assertMatchesRegularExpression(
+            '/function createCockpitDecisionSnapshot\(\): Response[\s\S]*?assertRevenueAiHotelCapability\(\$hotelId, self::REVIEW_PERMISSION\);[\s\S]*?strictCockpitContext\(\$filters\)/',
+            $source
+        );
+
+        $controller = $this->controllerWithPermissions(['operation.execute']);
+        try {
+            $this->invokeNonPublic($controller, 'assertRevenueAiHotelCapability', [7, 'can_use_ai_decision']);
+            self::fail('Execution-only user unexpectedly received decision snapshot permission');
+        } catch (RuntimeException $e) {
+            self::assertSame(403, $e->getCode());
+            self::assertSame('revenue_ai_permission_denied:can_use_ai_decision', $e->getMessage());
+        }
+    }
+
+    public function testDecisionSnapshotReadChecksReviewPermissionBeforeStrictOverview(): void
+    {
+        $source = (string)file_get_contents(dirname(__DIR__) . '/app/controller/RevenueAi.php');
+        self::assertMatchesRegularExpression(
+            '/function readCockpitDecisionSnapshot\(\): Response[\s\S]*?\$filters = \$this->filters\(\);[\s\S]*?assertRevenueAiHotelCapability\(\$hotelId, self::REVIEW_PERMISSION\);[\s\S]*?strictCockpitContext\(\$filters\)/',
+            $source
+        );
+
+        $controller = $this->controllerWithPermissions(['operation.execute']);
+        try {
+            $this->invokeNonPublic($controller, 'assertRevenueAiHotelCapability', [7, 'can_use_ai_decision']);
+            self::fail('Execution-only user unexpectedly received decision snapshot read permission');
+        } catch (RuntimeException $e) {
+            self::assertSame(403, $e->getCode());
+            self::assertSame('revenue_ai_permission_denied:can_use_ai_decision', $e->getMessage());
+        }
+    }
+
+    public function testOpportunitySubmissionChecksExecutionPermissionBeforeStrictOverview(): void
+    {
+        $source = (string)file_get_contents(dirname(__DIR__) . '/app/controller/RevenueAi.php');
+        self::assertMatchesRegularExpression(
+            '/function createCockpitOpportunityPendingApproval\(int \$id = 0\): Response[\s\S]*?assertRevenueAiHotelCapability\(\$hotelId, self::EXECUTION_PERMISSION\);[\s\S]*?strictCockpitContext\(\$filters\)/',
+            $source
+        );
+    }
+
+    public function testCockpitOverviewAttachesAndDecisionWritesRecheckDualOtaCurrentReceipt(): void
+    {
+        $source = (string)file_get_contents(dirname(__DIR__) . '/app/controller/RevenueAi.php');
+        self::assertStringContainsString("(new DualOtaFieldClosureService())->build(", $source);
+        self::assertStringContainsString("'dual_ota_field_closure'", $source);
+        self::assertSame(3, substr_count($source, '$this->assertDualOtaCurrentReceiptReady('));
+        self::assertStringContainsString('_current_receipt_not_ready', $source);
+    }
+
+    public function testCockpitStrictEvidenceReusesOneDualOtaClosureIdentity(): void
+    {
+        $source = (string)file_get_contents(dirname(__DIR__) . '/app/controller/RevenueAi.php');
+        self::assertSame(1, preg_match(
+            '/private function withCockpitStrictEvidence\([\s\S]*?(?=\n    private function assertDualOtaCurrentReceiptReady)/',
+            $source,
+            $matches
+        ));
+        $method = (string)($matches[0] ?? '');
+
+        self::assertSame(1, substr_count($method, '(new DualOtaFieldClosureService())->build('));
+        self::assertStringContainsString("\$overview['dual_ota_field_closure'] = \$closure;", $method);
+        self::assertMatchesRegularExpression(
+            '/RevenueCockpitStrictEvidenceService\(\)\)->build\([\s\S]*?\$closure\s*\)/',
+            $method
+        );
+    }
+
+    public function testCockpitOverviewIssuesAndSnapshotSaveRebindsOneCanonicalServerModel(): void
+    {
+        $source = (string)file_get_contents(dirname(__DIR__) . '/app/controller/RevenueAi.php');
+        $overviewSource = (string)file_get_contents(dirname(__DIR__) . '/app/service/RevenueAiOverviewService.php');
+
+        self::assertStringContainsString('$overview = $this->withCanonicalCockpitViewModel($overview, $filters);', $source);
+        self::assertStringContainsString("\$overview['canonical_view_model'] = \$model;", $source);
+        self::assertStringContainsString("\$overview['canonical_view_model_digest'] = \$issuer->issuedDigest(\$model);", $source);
+        self::assertStringContainsString("\$visibleModelDigest = strtolower(trim((string)(\$input['visible_model_digest']", $source);
+        self::assertStringContainsString('!hash_equals($canonicalDigest, $issuer->issuedDigest($visibleModel))', $source);
+        self::assertStringContainsString('$canonicalModel,', $source);
+        self::assertStringContainsString("\$data['as_of_date']", $source);
+        self::assertStringContainsString("\$data['as_of_date_contract_version']", $source);
+        self::assertStringContainsString(
+            "'as_of_date' => RevenueOverviewDateContract::serverAsOfDate()",
+            $overviewSource
+        );
+        self::assertStringNotContainsString(
+            "RevenueOverviewDateContract::asOfDate(\$filters['as_of_date'] ?? null)",
+            $overviewSource
+        );
     }
 
     /** @param array<int, string> $permissions */

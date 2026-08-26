@@ -8,7 +8,10 @@ const staticSource = read('public/ota-diagnosis-static.js');
 const appMain = read('public/app-main.js');
 const template = read('resources/frontend/templates/fragments/27-page-agent-center.html');
 const controller = read('app/controller/Agent.php');
-const persistence = read('app/controller/concern/AgentOtaDiagnosisPersistenceConcern.php');
+const persistence = [
+  read('app/controller/concern/AgentOtaDiagnosisPersistenceConcern.php'),
+  read('app/controller/concern/AgentOtaDiagnosisReadbackConcern.php'),
+].join('\n');
 const service = read('app/service/CtripOperatingRadarDiagnosisService.php');
 
 const sandbox = { window: {} };

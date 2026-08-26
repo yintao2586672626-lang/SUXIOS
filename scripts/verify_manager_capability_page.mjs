@@ -12,6 +12,8 @@ const summary = {
   manager_option_count: 0,
   managers_http_status: 0,
   profile_http_status: 0,
+  daily_status_visible: false,
+  daily_status_truth_boundary_visible: false,
   queue_visible: false,
   due_queue_outside_recent_opened: false,
   manager_write_request_count: 0,
@@ -108,6 +110,25 @@ try {
     const requestUrl = new URL(route.request().url());
     const managerUserId = Number(requestUrl.searchParams.get('manager_user_id') || 0);
     const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai' }).format(new Date());
+    payload.data.daily_submission = {
+      business_date: today,
+      timezone: 'Asia/Shanghai',
+      status: 'submitted',
+      label: '今日已提交',
+      case_count: 1,
+      case_ids: [987654321],
+      last_submission_date: today,
+      consecutive_missing_days: 0,
+      attention_status: 'none',
+      history_status: 'available',
+      active_case_scan_count: 1,
+      invalid_business_date_count: 0,
+      source_quality_status: 'manual_declared',
+      independent_verification: false,
+      closure_inferred: false,
+      closure_note: '已提交不等于已闭环；仍以复查事件和可核对的验证结果为准',
+      automation_policy: '状态只供人工查看，不自动提醒、建任务、处罚或外发',
+    };
     payload.data.recent_cases = [{
       id: 987654321,
       tenant_id: Number(payload.data.tenant_id || 0),
@@ -183,6 +204,10 @@ try {
   });
   await page.locator('[data-testid="manager-capability-panel"]').waitFor({ state: 'visible', timeout: 30_000 });
   await page.locator('[data-testid="operation-scope-hotel"]').selectOption(String(hotelId));
+  const dailyStatus = page.locator('[data-testid="manager-capability-daily-status"]');
+  await dailyStatus.waitFor({ state: 'visible', timeout: 20_000 });
+  summary.daily_status_visible = await dailyStatus.isVisible();
+  summary.daily_status_truth_boundary_visible = (await dailyStatus.textContent())?.includes('已提交不等于已闭环') === true;
   const queue = page.locator('[data-testid="manager-capability-followup-queue"]');
   await queue.waitFor({ state: 'visible', timeout: 20_000 });
   summary.queue_visible = await queue.isVisible();
@@ -217,6 +242,8 @@ try {
   if (summary.manager_option_count <= 0) errors.push('manager_options_empty');
   if (summary.managers_http_status !== 200) errors.push(`managers_http:${summary.managers_http_status}`);
   if (summary.profile_http_status !== 200) errors.push(`profile_http:${summary.profile_http_status}`);
+  if (!summary.daily_status_visible) errors.push('daily_status_not_visible');
+  if (!summary.daily_status_truth_boundary_visible) errors.push('daily_status_truth_boundary_missing');
   if (!summary.queue_visible) errors.push('followup_queue_not_visible');
   if (!summary.due_queue_outside_recent_opened) errors.push('due_queue_outside_recent_not_opened');
   if (!summary.followup_form_visible) errors.push('followup_form_not_visible');

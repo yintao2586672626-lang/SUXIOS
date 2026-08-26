@@ -93,6 +93,7 @@ function createFixtureRepository() {
       'verify:public-entry': 'node verify-public.mjs',
       'verify:taste-coverage': 'node verify-public.mjs',
       'verify:p0-guards': 'node verify-public.mjs',
+      'verify:integration:staged': 'node verify-integration.mjs',
       'verify:ctrip-capture-catalog': 'node -e "process.exit(0)"',
       'verify:context-assets': 'node verify-context.mjs',
     },
@@ -156,6 +157,7 @@ function createFixtureRepository() {
     import fs from 'node:fs';
     assert.equal(fs.readFileSync('AGENTS.md', 'utf8'), fs.readFileSync('vault/project-state.md', 'utf8'));
   `);
+  write(root, 'verify-integration.mjs', 'process.exit(0);\n');
   write(root, 'scripts/lib/frontend_template_build.mjs', '');
   writeFixtureState(root, 'base');
   write(root, 'public/style.css', '/* contract:base */');

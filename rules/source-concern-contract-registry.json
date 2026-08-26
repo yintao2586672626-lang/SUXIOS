@@ -1,0 +1,43 @@
+{
+  "schema_version": "suxios.source_concern_registry.v1",
+  "aggregates": {
+    "app/controller/Agent.php": [
+      "app/controller/concern/AgentOtaExecutionIntentConcern.php",
+      "app/controller/concern/AgentCapturedOtaAnalysisConcern.php",
+      "app/controller/concern/AgentOtaDiagnosisBuildConcern.php",
+      "app/controller/concern/AgentOtaDiagnosisPersistenceConcern.php",
+      "app/controller/concern/AgentOtaDiagnosisReadbackConcern.php"
+    ],
+    "app/controller/concern/AutoFetchConcern.php": [
+      "app/controller/concern/AutoFetchProfileSyncConcern.php",
+      "app/controller/concern/CtripAutoFetchExecutionConcern.php",
+      "app/controller/concern/MeituanAutoFetchExecutionConcern.php"
+    ],
+    "app/service/PlatformDataSyncService.php": [
+      "app/service/PlatformDataCollectionDefinitionRegistry.php",
+      "app/service/concern/PlatformDataSourceExecutionConcern.php",
+      "app/service/concern/PlatformSyncTaskConcern.php",
+      "app/service/concern/PlatformSyncTaskReadbackConcern.php",
+      "app/service/concern/PlatformSyncTaskReadbackCoverageConcern.php",
+      "app/service/concern/PlatformDataPersistenceConcern.php",
+      "app/service/concern/PlatformDataImportParsingConcern.php"
+    ],
+    "app/service/OperationManagementService.php": [
+      "app/service/operation/OperationSnapshotConcern.php",
+      "app/service/operation/OperationAlertConcern.php",
+      "app/service/operation/OperationAlertAnalysisConcern.php",
+      "app/service/operation/OperationExecutionReceiptConcern.php",
+      "app/service/operation/OperationEffectReadbackConcern.php",
+      "app/service/operation/OperationExecutionTenantConcern.php",
+      "app/service/operation/OperationExecutionPersistenceConcern.php",
+      "app/service/operation/OperationActionLifecycleConcern.php"
+    ],
+    "app/service/OtaLocalCollectorService.php": [
+      "app/service/concern/OtaLocalCollectorLeaseConcern.php",
+      "app/service/concern/OtaLocalCollectorManualLoginConcern.php"
+    ],
+    "app/service/AiDailyReportService.php": [
+      "app/service/concern/AiDailyReportReadinessConcern.php"
+    ]
+  }
+}

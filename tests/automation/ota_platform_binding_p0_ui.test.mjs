@@ -4,6 +4,8 @@ import test from 'node:test';
 import { readFrontendContractSource } from './helpers/frontend_source.mjs';
 
 const html = readFrontendContractSource();
+const meituanStaticSource = readFileSync('public/meituan-static.js', 'utf8');
+const reviewMatchStaticSource = readFileSync('public/review-match-static.js', 'utf8');
 
 const sliceBetween = (source, startText, endText) => {
   const start = source.indexOf(startText);
@@ -53,9 +55,9 @@ const profileProbeAction = sliceBetween(
   'const loadCollectionReliability = async'
 );
 const reviewAutomation = sliceBetween(
-  html,
-  'const runCtripReviewMatchAutomation =',
-  'const bindCtripReviewOrderMatch ='
+  reviewMatchStaticSource,
+  'runAutomation:',
+  'bind:'
 );
 const ctripManualFetchAction = sliceBetween(
   html,
@@ -154,7 +156,7 @@ test('Ctrip review order advanced panel does not expose main-token page assist s
   );
 
   assert.match(advancedPanel, /copyCtripReviewMatchPayloadTemplate/);
-  assert.match(html, /const copyCtripReviewMatchPayloadTemplate = \(\) =>/);
+  assert.match(reviewMatchStaticSource, /const copyCtripReviewMatchPayloadTemplate = \(\) =>/);
   assert.match(advancedPanel, /不会复制宿析登录 token 到 OTA 页面/);
   assert.doesNotMatch(html, /buildCtripReviewOrdererAssistScript/);
   assert.doesNotMatch(html, /copyCtripReviewOrdererAssistScript/);

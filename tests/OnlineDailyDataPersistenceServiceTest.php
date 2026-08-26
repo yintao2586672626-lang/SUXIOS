@@ -415,23 +415,24 @@ final class OnlineDailyDataPersistenceServiceTest extends TestCase
             );
         }
 
-        $scheduled = (string)file_get_contents($root . '/app/command/AutoFetchOnlineData.php');
+        $scheduled = SourceAggregate::read($root, 'app/command/AutoFetchOnlineData.php');
         $platformSync = SourceAggregate::read($root, 'app/service/PlatformDataSyncService.php');
         $normalizedPersistence = (string)file_get_contents(
             $root . '/app/service/PlatformNormalizedRowPersistenceService.php'
         );
         self::assertStringContainsString(
-            '$cloudProfileLeases instanceof CloudOtaProfileLeaseService',
+            '$result = $cloudProfileLeases instanceof CloudOtaProfileLeaseService',
             $scheduled
         );
         self::assertStringContainsString(
             'fn(string $cdpUrl): array => $this->syncBrowserProfileSource(',
             $scheduled
         );
-        self::assertStringContainsString(
-            ': $this->syncBrowserProfileSource(',
+        self::assertMatchesRegularExpression(
+            '/\)\s*:\s*\$this->syncBrowserProfileSource\s*\(/',
             $scheduled
         );
+        self::assertSame(2, substr_count($scheduled, '$this->syncBrowserProfileSource('));
         self::assertStringContainsString(
             '(new PlatformDataSyncService())->syncDataSource(',
             $scheduled

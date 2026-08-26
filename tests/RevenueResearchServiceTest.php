@@ -31,6 +31,8 @@ final class RevenueResearchServiceTest extends TestCase
         ];
 
         foreach ($products as $product) {
+            self::assertNotEmpty($product['knowledge_module_ids'] ?? [], 'Every research product needs an action-knowledge module contract.');
+            self::assertSame('ota', $product['action_platform'] ?? null);
             foreach (($product['rules'] ?? []) as $rule) {
                 $fields = (array)($rule['fields'] ?? []);
                 foreach ($disabledReviewFields as $field) {
@@ -153,6 +155,21 @@ final class RevenueResearchServiceTest extends TestCase
                 'stage' => 'research_ready_for_execution',
                 'execution_ready' => true,
                 'target_module' => '酒店AI工具箱 / 收益管理 / 收益分析',
+            ],
+            'knowledge_context' => [
+                'entry_count' => 1,
+                'entries' => [[
+                    'chunk_id' => 901,
+                    'unit_id' => 91,
+                    'module_id' => 'hotel_revenue_success_practices_extension',
+                    'platforms' => ['ota_generic'],
+                    'source_refs' => ['revenue_practice_source'],
+                    'knowledge_gate' => [
+                        'decision_safe' => true,
+                        'task_draft_safe' => true,
+                    ],
+                ]],
+                'data_gaps' => [],
             ],
             'result' => [
                 'title' => '需求预测经营预测',
@@ -285,7 +302,22 @@ final class RevenueResearchServiceTest extends TestCase
 
     public function testBuildReadyExecutionIntentInputKeepsReadyResearchPayload(): void
     {
-        $service = new RevenueResearchService();
+        $service = new RevenueResearchService(static fn(array $filters): array => [
+            'status' => 'available',
+            'entry_count' => 1,
+            'entries' => [[
+                'chunk_id' => 903,
+                'unit_id' => 93,
+                'module_id' => 'hotel_revenue_success_practices_extension',
+                'platforms' => ['ota_generic'],
+                'source_refs' => ['revenue_practice_source'],
+                'knowledge_gate' => [
+                    'decision_safe' => true,
+                    'task_draft_safe' => true,
+                ],
+            ]],
+            'data_gaps' => [],
+        ]);
         self::assertTrue(
             method_exists($service, 'buildReadyExecutionIntentInput'),
             'Revenue research bridge must expose a ready-only execution-intent input builder.'
@@ -299,6 +331,21 @@ final class RevenueResearchServiceTest extends TestCase
                 'stage' => 'research_ready_for_execution',
                 'execution_ready' => true,
                 'target_module' => '酒店AI工具箱 / 收益管理 / 收益分析',
+            ],
+            'knowledge_context' => [
+                'entry_count' => 1,
+                'entries' => [[
+                    'chunk_id' => 903,
+                    'unit_id' => 93,
+                    'module_id' => 'hotel_revenue_success_practices_extension',
+                    'platforms' => ['ota_generic'],
+                    'source_refs' => ['revenue_practice_source'],
+                    'knowledge_gate' => [
+                        'decision_safe' => true,
+                        'task_draft_safe' => true,
+                    ],
+                ]],
+                'data_gaps' => [],
             ],
             'result' => [
                 'recommended_actions' => ['复核未来 7 天价格策略'],
@@ -315,6 +362,148 @@ final class RevenueResearchServiceTest extends TestCase
         self::assertSame(903, $input['source_record_id']);
         self::assertSame('pending_revenue_research_execution', $input['target_value']['tracking_status']);
         self::assertTrue($input['evidence']['execution_ready']);
+        self::assertContains('knowledge_chunks#903', $input['evidence']['evidence_refs']);
+        self::assertSame(903, $input['evidence']['recommendation_knowledge_binding']['chunk_id']);
+    }
+
+    public function testActionKnowledgeBindingUsesServerModulePlatformAndCanonicalReferences(): void
+    {
+        $service = new RevenueResearchService();
+        $recommendation = $this->readyDecisionRecommendation('在携程复核未来 7 天价格策略并记录订单偏差');
+        $recommendation['knowledge_refs'] = ['model_supplied#999'];
+        $recommendation['recommendation_knowledge_binding'] = [
+            'status' => 'bound',
+            'chunk_id' => 999,
+        ];
+
+        $input = $service->buildExecutionIntentInput([
+            'status' => 'done',
+            'product_key' => 'price-elasticity',
+            'hotel_scope' => ['hotel_id' => 7],
+            'readiness' => [
+                'stage' => 'research_ready_for_execution',
+                'execution_ready' => true,
+            ],
+            'knowledge_context' => [
+                'entry_count' => 3,
+                'entries' => [
+                    $this->actionKnowledgeEntry(710, 71, 'traffic_operation_management_golden_sentences', ['ctrip']),
+                    $this->actionKnowledgeEntry(711, 72, 'traffic_operation_management_golden_sentences', ['meituan']),
+                    $this->actionKnowledgeEntry(712, 73, 'unrelated_module', ['ctrip']),
+                ],
+                'data_gaps' => [],
+            ],
+            'result' => [
+                'recommended_actions' => [$recommendation['action']],
+                'decision_recommendations' => [$recommendation],
+                'data_gaps' => [],
+            ],
+            'gaps' => [],
+        ], [
+            'source_record_id' => 710,
+            'hotel_id' => 7,
+        ]);
+
+        $binding = $input['evidence']['recommendation_knowledge_binding'];
+        self::assertSame('bound', $binding['status']);
+        self::assertSame('ctrip', $binding['action_platform']);
+        self::assertSame('traffic_operation_management_golden_sentences', $binding['module_id']);
+        self::assertSame(710, $binding['chunk_id']);
+        self::assertSame(71, $binding['unit_id']);
+        self::assertSame(['knowledge_chunks#710', 'knowledge_units#71'], $binding['canonical_refs']);
+        self::assertSame($binding['canonical_refs'], $input['target_value']['decision_recommendation']['knowledge_refs']);
+        self::assertContains('knowledge_chunks#710', $input['evidence']['evidence_refs']);
+        self::assertNotContains('model_supplied#999', $input['evidence']['evidence_refs']);
+    }
+
+    public function testMissingActionKnowledgeCanOnlyTightenRecommendation(): void
+    {
+        $service = new RevenueResearchService();
+        $products = $this->invokeNonPublic($service, 'products');
+        $recommendation = $this->readyDecisionRecommendation('在携程复核价格策略并记录订单偏差');
+        $recommendation['knowledge_refs'] = ['model_supplied#999'];
+
+        $bound = $this->invokeNonPublic($service, 'applyActionKnowledgeBindings', [[
+            $recommendation,
+        ], $products['price-elasticity'], [
+            'entry_count' => 5,
+            'entries' => [
+                array_replace_recursive(
+                    $this->actionKnowledgeEntry(720, 72, 'traffic_operation_management_golden_sentences', ['ctrip']),
+                    ['knowledge_gate' => ['decision_safe' => false, 'task_draft_safe' => true]]
+                ),
+                array_replace_recursive(
+                    $this->actionKnowledgeEntry(721, 72, 'traffic_operation_management_golden_sentences', ['ctrip']),
+                    ['knowledge_gate' => ['decision_safe' => true, 'task_draft_safe' => false]]
+                ),
+                $this->actionKnowledgeEntry(722, 72, 'unrelated_module', ['ctrip']),
+                $this->actionKnowledgeEntry(723, 72, 'traffic_operation_management_golden_sentences', ['meituan']),
+                array_replace($this->actionKnowledgeEntry(724, 72, 'traffic_operation_management_golden_sentences', ['ctrip']), [
+                    'unit_id' => 0,
+                    'source_refs' => [],
+                ]),
+            ],
+            'data_gaps' => [],
+        ]]);
+
+        self::assertCount(1, $bound);
+        self::assertFalse($bound[0]['can_create_execution_intent']);
+        self::assertFalse($bound[0]['decision_quality']['execution_ready']);
+        self::assertContains('knowledge_binding', $bound[0]['decision_quality']['missing_fields']);
+        self::assertSame('blocked', $bound[0]['recommendation_knowledge_binding']['status']);
+        self::assertSame('action_knowledge_binding_missing', $bound[0]['recommendation_knowledge_binding']['reason_code']);
+        self::assertSame([], $bound[0]['knowledge_refs']);
+        self::assertStringContainsString('action-specific current knowledge binding is missing', $bound[0]['blocked_reason']);
+    }
+
+    public function testReadyExecutionRevalidatesCurrentKnowledgeInsteadOfTrustingArchivedBinding(): void
+    {
+        $service = new RevenueResearchService(fn(array $filters): array => [
+            'status' => 'available',
+            'entry_count' => 1,
+            'entries' => [
+                $this->actionKnowledgeEntry(731, 73, 'traffic_operation_management_golden_sentences', ['meituan']),
+            ],
+            'data_gaps' => [],
+        ]);
+        $recommendation = $this->readyDecisionRecommendation('在携程复核价格策略并记录订单偏差');
+        $recommendation['knowledge_refs'] = ['knowledge_chunks#999'];
+        $recommendation['recommendation_knowledge_binding'] = [
+            'status' => 'bound',
+            'chunk_id' => 999,
+            'unit_id' => 999,
+            'canonical_refs' => ['knowledge_chunks#999'],
+        ];
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionCode(422);
+        $this->expectExceptionMessage('action_knowledge_binding_missing');
+        $service->buildReadyExecutionIntentInput([
+            'status' => 'done',
+            'product_key' => 'price-elasticity',
+            'hotel_scope' => ['hotel_id' => 7],
+            'readiness' => [
+                'stage' => 'research_ready_for_execution',
+                'execution_ready' => true,
+                'missing_evidence' => [],
+            ],
+            'knowledge_context' => [
+                'entry_count' => 1,
+                'entries' => [
+                    $this->actionKnowledgeEntry(999, 999, 'traffic_operation_management_golden_sentences', ['ctrip']),
+                ],
+                'data_gaps' => [],
+            ],
+            'result' => [
+                'recommended_actions' => [$recommendation['action']],
+                'decision_recommendations' => [$recommendation],
+                'data_gaps' => [],
+            ],
+            'gaps' => [],
+        ], [
+            'source_record_id' => 731,
+            'hotel_id' => 7,
+        ]);
     }
 
     public function testAssertNoDuplicateExecutionIntentRejectsExistingRevenueResearchIntent(): void
@@ -590,8 +779,13 @@ final class RevenueResearchServiceTest extends TestCase
                 'status' => 'available',
                 'source' => RevenueOperationsKnowledgeService::SOURCE,
                 'entries' => [[
+                    'chunk_id' => 7,
+                    'unit_id' => 8,
+                    'module_id' => 'traffic_operation_management_golden_sentences',
+                    'platforms' => ['ota_generic'],
+                    'source_refs' => ['knowledge_contract_source'],
                     'scope' => 'generic_methodology',
-                    'knowledge_gate' => ['decision_safe' => true],
+                    'knowledge_gate' => ['decision_safe' => true, 'task_draft_safe' => true],
                     'knowledge_type' => '建议卡契约',
                     'content' => ['readiness_rule' => 'missing facts means data gaps only'],
                 ]],
@@ -613,8 +807,12 @@ final class RevenueResearchServiceTest extends TestCase
             'entries' => [
                 [
                     'chunk_id' => 1,
+                    'unit_id' => 10,
+                    'module_id' => 'traffic_operation_management_golden_sentences',
+                    'platforms' => ['ota_generic'],
+                    'source_refs' => ['safe_source'],
                     'content' => ['rule' => 'SAFE_RULE'],
-                    'knowledge_gate' => ['decision_safe' => true],
+                    'knowledge_gate' => ['decision_safe' => true, 'task_draft_safe' => true],
                 ],
                 [
                     'chunk_id' => 2,
@@ -646,6 +844,32 @@ final class RevenueResearchServiceTest extends TestCase
         ]);
         self::assertStringContainsString('SAFE_RULE', $prompt);
         self::assertStringNotContainsString('UNSAFE_RULE', $prompt);
+    }
+
+    public function testDecisionSafeReferenceCannotUnlockTaskDrafting(): void
+    {
+        $service = new RevenueResearchService();
+        $context = $this->invokeNonPublic($service, 'decisionSafeKnowledgeContext', [[
+            'status' => 'available',
+            'entry_count' => 1,
+            'entries' => [[
+                'chunk_id' => 31,
+                'content' => ['rule' => 'REFERENCE_METHOD_ONLY'],
+                'knowledge_gate' => [
+                    'decision_safe' => true,
+                    'task_draft_safe' => false,
+                ],
+            ]],
+            'data_gaps' => [],
+        ]]);
+
+        self::assertSame(1, $context['decision_safe_entry_count']);
+        self::assertSame(0, $context['task_draft_safe_entry_count']);
+        self::assertSame(1, $context['excluded_by_task_draft_gate_count']);
+        self::assertSame([], $context['entries']);
+        self::assertFalse($context['execution_ready']);
+        self::assertContains('task_draft_safe_knowledge_missing', $context['data_gap_codes']);
+        self::assertSame('blocked', $context['status']);
     }
 
     public function testCanonicalSelectorPrefersExplicitZeroMetricsOverNewerMissingFields(): void
@@ -1263,6 +1487,26 @@ final class RevenueResearchServiceTest extends TestCase
             'decision_quality' => [
                 'contract_version' => AiDecisionQualityService::CONTRACT_VERSION,
                 'execution_ready' => true,
+            ],
+        ];
+    }
+
+    /** @return array<string, mixed> */
+    private function actionKnowledgeEntry(
+        int $chunkId,
+        int $unitId,
+        string $moduleId,
+        array $platforms
+    ): array {
+        return [
+            'chunk_id' => $chunkId,
+            'unit_id' => $unitId,
+            'module_id' => $moduleId,
+            'platforms' => $platforms,
+            'source_refs' => ['source_' . $chunkId],
+            'knowledge_gate' => [
+                'decision_safe' => true,
+                'task_draft_safe' => true,
             ],
         ];
     }

@@ -120,6 +120,49 @@ final class ManagerCapabilityScoringServiceTest extends TestCase
         self::assertStringContainsString('再次发生', $recurredDimensions['closure']['reasons'][0]);
     }
 
+    public function testDailySubmissionCountsActiveSameDayCasesWithoutInferringClosure(): void
+    {
+        $summary = (new ManagerCapabilityScoringService())->summarizeDailySubmission([
+            ['id' => 11, 'business_date' => '2026-08-20', 'is_voided' => false],
+            ['id' => 12, 'business_date' => '2026-08-20', 'is_voided' => false],
+            ['id' => 13, 'business_date' => '2026-08-20', 'is_voided' => true],
+            ['id' => 14, 'business_date' => '2026-08-21', 'is_voided' => false],
+        ], '2026-08-20');
+
+        self::assertSame('submitted', $summary['status']);
+        self::assertSame('当日已提交', $summary['label']);
+        self::assertSame(2, $summary['case_count']);
+        self::assertSame([11, 12], $summary['case_ids']);
+        self::assertSame('2026-08-20', $summary['last_submission_date']);
+        self::assertSame(0, $summary['consecutive_missing_days']);
+        self::assertSame('none', $summary['attention_status']);
+        self::assertFalse($summary['independent_verification']);
+        self::assertFalse($summary['closure_inferred']);
+        self::assertStringContainsString('已提交不等于已闭环', $summary['closure_note']);
+    }
+
+    public function testDailySubmissionFlagsThreeDayGapAndKeepsNoHistoryDurationUnknown(): void
+    {
+        $service = new ManagerCapabilityScoringService();
+        $missing = $service->summarizeDailySubmission([
+            ['id' => 21, 'business_date' => '2026-08-21', 'is_voided' => false],
+            ['id' => 22, 'business_date' => 'not-a-date', 'is_voided' => false],
+        ], '2026-08-25');
+
+        self::assertSame('not_submitted', $missing['status']);
+        self::assertSame('2026-08-21', $missing['last_submission_date']);
+        self::assertSame(4, $missing['consecutive_missing_days']);
+        self::assertSame('three_day_missing', $missing['attention_status']);
+        self::assertSame(1, $missing['invalid_business_date_count']);
+
+        $noHistory = $service->summarizeDailySubmission([], '2026-08-25');
+        self::assertSame('not_submitted', $noHistory['status']);
+        self::assertNull($noHistory['last_submission_date']);
+        self::assertNull($noHistory['consecutive_missing_days']);
+        self::assertSame('no_history', $noHistory['attention_status']);
+        self::assertSame('empty', $noHistory['history_status']);
+    }
+
     public function testMigrationPersistsScopedCasesAndSnapshotsWithoutPersonnelActions(): void
     {
         $sql = (string)file_get_contents(self::MIGRATION);

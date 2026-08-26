@@ -114,6 +114,18 @@ try {
             break;
         }
     }
+    $dailySubmission = is_array($profile['daily_submission'] ?? null)
+        ? $profile['daily_submission']
+        : [];
+    if (($dailySubmission['business_date'] ?? '') !== date('Y-m-d')
+        || ($dailySubmission['status'] ?? '') !== 'submitted'
+        || (int)($dailySubmission['case_count'] ?? 0) < 3
+        || ($dailySubmission['attention_status'] ?? '') !== 'none'
+        || ($dailySubmission['closure_inferred'] ?? null) !== false
+        || ($dailySubmission['independent_verification'] ?? null) !== false
+    ) {
+        $errors[] = 'daily_submission_projection_mismatch';
+    }
     $summaryOnlyProfile = $service->profile(
         (int)$scope['tenant_id'],
         (int)$scope['hotel_id'],
@@ -522,6 +534,9 @@ try {
         'profile_status_inside_transaction' => $profile['profile_status'] ?? null,
         'profile_score_inside_transaction' => $profile['overall_score'] ?? null,
         'dimension_count' => count((array)($profile['dimensions'] ?? [])),
+        'daily_submission_status' => $dailySubmission['status'] ?? null,
+        'daily_submission_case_count' => $dailySubmission['case_count'] ?? null,
+        'daily_submission_truth_boundary_verified' => !in_array('daily_submission_projection_mismatch', $errors, true),
         'aggregate_only_privacy_verified' => !in_array('aggregate_only_privacy_projection_mismatch', $errors, true),
         'idempotent_replay_verified' => true,
         'idempotency_conflict_rejected' => $conflictRejected,

@@ -149,6 +149,9 @@ test('authoritative merge/delete relations and exact newer table aliases are pos
 
   for (const key of [
     'ai_model_call_logs.hotel_id',
+    'ai_daily_report_broadcast_snapshots.hotel_id',
+    'ai_report_presentation_specs.hotel_id',
+    'ai_report_presentation_artifacts.hotel_id',
     'manager_capability_score_snapshots.hotel_id',
     'manager_capability_case_followups.hotel_id',
     'hotel_operating_sop_replications.source_hotel_id',
