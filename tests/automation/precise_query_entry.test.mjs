@@ -76,6 +76,8 @@ test('floating entry is visibly unified and renders every required evidence fiel
   ]) assert.ok(component.includes(marker), `missing precise-query UI marker: ${marker}`);
   assert.match(component, /suxios_precise_query_last_v1/);
   assert.match(component, /restorePreciseQueryReadback/);
+  assert.match(component, /const summary = window\.SUXI_DATA_HEALTH_STATIC \? ctx\.phase1EmployeeClosureSummary : null/);
+  assert.match(component, /items\.unshift\(\{\s*key: 'continue-task'/);
   assert.match(component, /reference_only/);
   assert.match(component, /不进入经营事实/);
 });

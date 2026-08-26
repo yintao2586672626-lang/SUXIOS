@@ -2495,7 +2495,7 @@
                 const current = isTopicCurrent(topic);
                 const ctx = props.ctx || {};
                 if (topic.key === 'data-health') {
-                    const summary = ctx.phase1EmployeeClosureSummary;
+                    const summary = window.SUXI_DATA_HEALTH_STATIC ? ctx.phase1EmployeeClosureSummary : null;
                     if (summary?.status === 'complete') {
                         return {
                             key: 'completed', label: '已核验', complete: true,
@@ -2676,7 +2676,7 @@
                 }];
                 const activeGoal = String(state.value.active_journey?.goal || '').trim();
                 if (activeGoal) {
-                    items.push({
+                    items.unshift({
                         key: 'continue-task',
                         label: '继续当前任务',
                         query: `继续“${activeGoal}”，我现在下一步该做什么？`,

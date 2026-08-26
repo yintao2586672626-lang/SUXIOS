@@ -15,6 +15,10 @@ const businessDate = [
   String(currentDate.getMonth() + 1).padStart(2, '0'),
   String(currentDate.getDate()).padStart(2, '0'),
 ].join('-');
+const setFixedQuestionBusinessDate = async (page) => {
+  await page.getByTestId('operating-question-date-start').fill(businessDate);
+  await page.getByTestId('operating-question-date-end').fill(businessDate);
+};
 const questionDigest = 'a'.repeat(64);
 const actionDigest = 'b'.repeat(64);
 const actionCardDigest = 'c'.repeat(64);
@@ -358,11 +362,26 @@ const installAuthenticatedMocks = async (page, calls, {
   }, user);
   await page.route('**/api/**', async route => {
     const request = route.request();
-    const pathname = new URL(request.url()).pathname;
+    const requestUrl = new URL(request.url());
+    const pathname = requestUrl.pathname;
     calls.push({ method: request.method(), pathname, body: request.postDataJSON?.() || null });
     let data = { list: [], items: [], total: 0 };
     if (pathname === '/api/auth/info') data = user;
     if (pathname === '/api/hotels') data = { list: user.permitted_hotels, total: 1 };
+    if (pathname === '/api/dashboard/revenue-facts' && request.method() === 'GET') {
+      const hotelId = Number(requestUrl.searchParams.get('hotel_id') || user.hotel_id);
+      const requestedDate = String(requestUrl.searchParams.get('business_date') || businessDate);
+      data = {
+        data_status: 'empty',
+        hotel: {
+          system_hotel_id: hotelId,
+          hotel_name: user.permitted_hotels.find(hotel => Number(hotel.id) === hotelId)?.name || '',
+        },
+        business_date: requestedDate,
+        facts: {},
+        data_gaps: [{ code: 'verified_fact_missing' }],
+      };
+    }
     if (pathname === '/api/agent/operating-question-scopes' && request.method() === 'GET') {
       data = scopeResponse || {
         contract_version: 'operating_question_scope_options.v1',
@@ -712,10 +731,10 @@ test('grounded operating answer submits one evidence-locked action for human app
   await expect(page.getByTestId('operating-question-decision-frame')).toContainText('毛收入和订单量不等于净贡献');
   const card = page.getByTestId('operating-question-action-card');
   await expect(card).toBeVisible();
-  await expect(card).toContainText('AI 行动草案 · 待人工确认');
+  await expect(card).toContainText('AI 行动草案 · 独立评审');
   await expect(card).toContainText('证据门已通过');
   await expect(card).toContainText('复核指标：list_exposure');
-  await expect(card).toContainText('不会自动批准、采集或写 OTA');
+  await expect(card).toContainText('只创建本地人工执行任务，不采集或写 OTA');
 
   await page.getByTestId('operating-question-action-submit').click();
   await expect(page.getByTestId('operating-question-action-open')).toBeVisible();
