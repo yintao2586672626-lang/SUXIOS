@@ -72,6 +72,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
 
       - name: Setup PHP
         uses: shivammathur/setup-php@v2
@@ -214,6 +216,19 @@ jobs:
           DB_PASS: suxi-ci-root
         run: npm run test:node
 
+      - name: Verify OTA to revenue to operations business chain
+        timeout-minutes: 5
+        env:
+          SUXI_PHP: php
+          SUXI_E2E_DB_OVERRIDE: '1'
+          SUXI_E2E_DB_NAME: hotelx_ci_test
+          DB_HOST: 127.0.0.1
+          DB_PORT: '3306'
+          DB_NAME: hotelx_ci_test
+          DB_USER: root
+          DB_PASS: suxi-ci-root
+        run: npm run test:e2e:business
+
       - name: Verify full-render page transitions
         timeout-minutes: 4
         env:
@@ -261,6 +276,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
 
       - name: Setup PHP
         uses: shivammathur/setup-php@v2
@@ -296,6 +313,8 @@ jobs:
         run: npm audit --audit-level=moderate
 
       - name: Run canonical integration gate
+        env:
+          SUXI_MIGRATION_LOCK_BASE_REF: ${{ github.event.pull_request.base.sha || github.event.before }}
         run: npm run verify:integration
 
       - name: Run structural contract checks (not release approval)

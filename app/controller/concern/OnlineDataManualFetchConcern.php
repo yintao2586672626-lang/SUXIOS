@@ -3012,7 +3012,7 @@ trait OnlineDataManualFetchConcern
                     strtolower($platform),
                     $systemHotelId,
                     $platform,
-                    $expectedPlatformHotelId
+                    $expectedPlatformHotelId, 'manual_cookie_api'
                 );
             }
             $processedCount = count(array_filter($trafficRows, 'is_array'));
@@ -3461,9 +3461,7 @@ trait OnlineDataManualFetchConcern
                     $startDate,
                     $endDate,
                     'meituan',
-                    $systemHotelId ? (int)$systemHotelId : null,
-                    null,
-                    (string)$poiId
+                    $systemHotelId ? (int)$systemHotelId : null, 'meituan', (string)$poiId, 'manual_cookie_api'
                 );
             }
             $persistenceState = $this->buildMeituanDirectPersistenceState(

@@ -2645,7 +2645,7 @@ final class OtaCredentialReadPathTest extends TestCase
     public function testCtripRuntimeInputFilesUseOwnerOnlyPermissionsAndFailClosed(): void
     {
         $source = (string)file_get_contents(dirname(__DIR__) . '/app/controller/concern/PlatformProfileCaptureConcern.php');
-        $methods = [
+        $directMethods = [
             $this->methodSource(
                 $source,
                 'private function prepareCtripCookieApiCaptureFiles(',
@@ -2656,19 +2656,35 @@ final class OtaCredentialReadPathTest extends TestCase
                 'private function prepareCtripEndpointEvidenceValidationFiles(',
                 'private function buildCtripEndpointEvidenceBundleFromRequest('
             ),
-            $this->methodSource(
-                $source,
-                'private function createCtripProfileFieldConfigFile(',
-                'private function buildCtripProfileFieldConfigPayload('
-            ),
         ];
 
-        foreach ($methods as $method) {
+        foreach ($directMethods as $method) {
             self::assertStringContainsString('LOCK_EX', $method);
             self::assertStringContainsString('chmod(', $method);
             self::assertStringContainsString('0600', $method);
             self::assertStringContainsString('unlink(', $method);
         }
+
+        $fieldConfigMethod = $this->methodSource(
+            $source,
+            'private function createCtripProfileFieldConfigFile(',
+            'private function buildCtripProfileFieldConfigPayload('
+        );
+        self::assertStringContainsString(
+            'BrowserProfileCaptureRequestService::createEphemeralCaptureJson(',
+            $fieldConfigMethod
+        );
+        $helper = (string)file_get_contents(
+            dirname(__DIR__) . '/app/service/BrowserProfileCaptureRequestService.php'
+        );
+        $ephemeralWriter = $this->methodSource(
+            $helper,
+            'public static function createEphemeralCaptureJson(',
+            'public static function createEphemeralCaptureFile('
+        );
+        self::assertStringContainsString('flock($handle, LOCK_EX)', $ephemeralWriter);
+        self::assertStringContainsString('chmod($path, 0600)', $ephemeralWriter);
+        self::assertStringContainsString('unlink($path)', $ephemeralWriter);
     }
 
     public function testDisabledCookieReceiverAuditNeverStoresRequestControlledSecretText(): void

@@ -5,6 +5,7 @@ namespace app\controller\concern;
 
 use app\model\OperationLog;
 use app\model\SystemNotification;
+use app\service\BrowserCaptureProcessRunner;
 use app\service\BrowserProfileCaptureRequestService;
 use app\service\CanonicalOtaDailyNaturalAcceptanceService;
 use app\service\CtripCollectorWorkflowService;
@@ -1697,8 +1698,12 @@ trait AutoFetchConcern
         $safeProfileKey = BrowserProfileCaptureRequestService::safeFilePart($profileKey);
         $taskId = $platform . '_' . $safeProfileKey . '_' . date('YmdHis') . '_' . $suffix;
         $inputPath = $dir . DIRECTORY_SEPARATOR . $taskId . '.input.json';
-        $outputPath = $dir . DIRECTORY_SEPARATOR . $taskId . '.json';
-        $logPath = $dir . DIRECTORY_SEPARATOR . $taskId . '.log';
+        $outputPath = BrowserProfileCaptureRequestService::createEphemeralCaptureFile('profile-login-output', 'json');
+        $logPath = BrowserProfileCaptureRequestService::createEphemeralCaptureFile('profile-login-log', 'log');
+        if ($outputPath === '' || $logPath === '') {
+            BrowserCaptureProcessRunner::cleanupRecordedSpoolArtifacts(array_values(array_filter([$outputPath, $logPath])));
+            throw new \RuntimeException('无法创建安全的平台登录任务产物');
+        }
         $now = date('Y-m-d H:i:s');
         $task = [
             'task_id' => $taskId,
@@ -2833,37 +2838,16 @@ trait AutoFetchConcern
 
     private function acquirePlatformProfileCaptureLock(string $platform, string $profileKey)
     {
-        $projectRoot = dirname(__DIR__, 3);
-        $dir = $projectRoot . DIRECTORY_SEPARATOR . 'runtime' . DIRECTORY_SEPARATOR . 'locks';
-        if (!is_dir($dir) && !mkdir($dir, 0775, true) && !is_dir($dir)) {
-            return null;
-        }
-        $safeProfileKey = BrowserProfileCaptureRequestService::safeFilePart($profileKey);
-        $path = $dir . DIRECTORY_SEPARATOR . 'profile_capture_' . $platform . '_' . $safeProfileKey . '.lock';
-        $handle = fopen($path, 'c+');
-        if (!$handle) {
-            return null;
-        }
-        if (!flock($handle, LOCK_EX | LOCK_NB)) {
-            fclose($handle);
-            return null;
-        }
-        ftruncate($handle, 0);
-        fwrite($handle, json_encode([
-            'platform' => $platform,
-            'profile_key' => $profileKey,
-            'pid' => getmypid(),
-            'locked_at' => date('c'),
-        ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
-        return $handle;
+        return BrowserProfileCaptureRequestService::acquireProfileCaptureLock(
+            dirname(__DIR__, 3),
+            $platform,
+            $profileKey
+        );
     }
 
     private function releasePlatformProfileCaptureLock($lock): void
     {
-        if (is_resource($lock)) {
-            flock($lock, LOCK_UN);
-            fclose($lock);
-        }
+        BrowserProfileCaptureRequestService::releaseProfileCaptureLock($lock);
     }
 
     private function buildAutoFetchPlatformStatus(int $hotelId): array

@@ -1478,13 +1478,40 @@ final class OperationActionLifecycleService
     /** @param array<string,mixed> $intent @return array<string,mixed> */
     public function decorateIntent(array $intent): array
     {
+        return $this->decorateIntentWithTaskScope($intent, false);
+    }
+
+    /**
+     * Use only for an intent whose complete task collection was loaded from
+     * the database in the same aggregate read. Ordinary callers must use
+     * decorateIntent(), which re-verifies every supplied task against storage.
+     *
+     * @param array<string,mixed> $intent
+     * @return array<string,mixed>
+     */
+    public function decorateCurrentDatabaseAggregate(array $intent): array
+    {
+        return $this->decorateIntentWithTaskScope($intent, true);
+    }
+
+    /** @param array<string,mixed> $intent @return array<string,mixed> */
+    private function decorateIntentWithTaskScope(array $intent, bool $trustedCurrentDatabaseAggregate): array
+    {
         if (!$this->isManagedIntent($intent)) {
             return $intent;
         }
         $tenantId = (int)$intent['tenant_id'];
         $hotelId = (int)$intent['hotel_id'];
         $intentId = (int)$intent['id'];
-        $knownTaskScope = $this->knownTaskScopeFromIntent($intent);
+        $candidateTaskScope = $this->knownTaskScopeFromIntent($intent);
+        $knownTaskScope = $trustedCurrentDatabaseAggregate
+            ? $candidateTaskScope
+            : $this->verifiedTaskScopeFromDatabase(
+                $tenantId,
+                $hotelId,
+                $intentId,
+                $candidateTaskScope
+            );
         $eventChain = $this->readEventChain($tenantId, $hotelId, $intentId, $knownTaskScope);
         $reviewChain = $this->readReviewChain($tenantId, $hotelId, $intentId, $knownTaskScope);
         $events = $eventChain['events'];
@@ -1516,6 +1543,28 @@ final class OperationActionLifecycleService
             $reviewChain['integrity']
         );
         return $intent;
+    }
+
+    /**
+     * @param array<int,true>|null $candidateTaskScope
+     * @return array<int,true>|null
+     */
+    private function verifiedTaskScopeFromDatabase(
+        int $tenantId,
+        int $hotelId,
+        int $intentId,
+        ?array $candidateTaskScope
+    ): ?array {
+        if ($candidateTaskScope === null) {
+            return null;
+        }
+        $verified = [];
+        foreach (array_keys($candidateTaskScope) as $taskId) {
+            if ($this->taskScopeExists($tenantId, $hotelId, $intentId, (int)$taskId)) {
+                $verified[(int)$taskId] = true;
+            }
+        }
+        return $verified;
     }
 
     /**

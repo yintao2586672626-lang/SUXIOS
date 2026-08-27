@@ -25,6 +25,7 @@ test('outer context root resolves through the main Git worktree', (t) => {
   const outerRoot = path.join(fixtureRoot, 'project');
   const mainWorktree = path.join(outerRoot, 'HOTEL');
   const linkedWorktree = path.join(fixtureRoot, 'isolated', 'review');
+  const linkedParent = path.dirname(linkedWorktree);
   fs.mkdirSync(mainWorktree, { recursive: true });
   fs.writeFileSync(path.join(outerRoot, 'AGENTS.md'), '# Outer instructions\n');
   fs.writeFileSync(path.join(mainWorktree, 'tracked.txt'), 'fixture\n');
@@ -35,6 +36,10 @@ test('outer context root resolves through the main Git worktree', (t) => {
   runGit(mainWorktree, ['add', 'tracked.txt']);
   runGit(mainWorktree, ['commit', '-m', 'fixture']);
   runGit(mainWorktree, ['worktree', 'add', '-b', 'review/context-root', linkedWorktree]);
+  fs.writeFileSync(
+    path.join(linkedParent, 'AGENTS.md'),
+    '# Stale shadow instructions that must never override the main outer root\n',
+  );
 
   assert.equal(
     canonicalPath(resolveOuterContextRoot(mainWorktree)),
@@ -45,4 +50,10 @@ test('outer context root resolves through the main Git worktree', (t) => {
     canonicalPath(resolveOuterContextRoot(linkedWorktree)),
     canonicalPath(outerRoot),
   );
+});
+
+test('staged context snapshot copies the authoritative resolved outer instructions', () => {
+  const stagedVerifier = fs.readFileSync('hooks/verify-staged-frontend-build.mjs', 'utf8');
+  assert.match(stagedVerifier, /resolveOuterContextRoot\(repoRoot\)/);
+  assert.doesNotMatch(stagedVerifier, /path\.resolve\(repoRoot, '\.\.', 'AGENTS\.md'\)/);
 });

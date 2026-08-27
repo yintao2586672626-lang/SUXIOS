@@ -13,9 +13,23 @@ use Throwable;
 final class OperatingQuestionCouncilService
 {
     public const TABLE = 'hotel_operating_question_council_runs';
-    public const CONTRACT_VERSION = 'operating_question_council.v4';
+    public const CONTRACT_VERSION = 'operating_question_council.v6';
+    public const WORKER_COMMAND = 'operating-question-council:run-once';
+    private const WORKER_LEASE_SECONDS = 180;
+    private const PENDING_REDISPATCH_SECONDS = 120;
+    private const WORKER_ACK_TIMEOUT_MILLISECONDS = 5000;
+    private const WORKER_ACK_POLL_MICROSECONDS = 50_000;
+    private const TERMINAL_STATUSES = [
+        'completed',
+        'partial',
+        'failed',
+        'blocked_by_missing_facts',
+        'blocked_not_configured',
+    ];
     /** @var list<string> */
     private const LEGACY_CONTRACT_VERSIONS = [
+        'operating_question_council.v5',
+        'operating_question_council.v4',
         'operating_question_council.v3',
         'operating_question_council.v2',
         'operating_question_council.v1',
@@ -27,13 +41,16 @@ final class OperatingQuestionCouncilService
     private Closure $questionReader;
     private Closure $strictFactReader;
     private MasterPerspectiveAdvisoryCatalog $lensCatalog;
+    /** @var null|callable(int,int,int,string,bool):bool|array<string,mixed> */
+    private $workerLauncher;
 
     public function __construct(
         ?object $llmClient = null,
         ?callable $capabilityProbe = null,
         ?callable $questionReader = null,
         ?MasterPerspectiveAdvisoryCatalog $lensCatalog = null,
-        ?callable $strictFactReader = null
+        ?callable $strictFactReader = null,
+        ?callable $workerLauncher = null
     ) {
         $this->llmClient = $llmClient ?? new LlmClient();
         $this->capabilityProbe = Closure::fromCallable($capabilityProbe ?? static fn(): array => (
@@ -60,6 +77,140 @@ final class OperatingQuestionCouncilService
             $dateEnd,
             $refs
         ));
+        $this->workerLauncher = $workerLauncher;
+    }
+
+    /**
+     * Reserve one immutable, tenant/hotel-scoped run without invoking a model.
+     * The unique request key closes concurrent POST races before a worker starts.
+     *
+     * @param list<int> $hotelIds
+     * @return array<string,mixed>
+     */
+    public function reserveShadow(
+        int $questionId,
+        int $tenantId,
+        array $hotelIds,
+        int $userId,
+        string $clientRunKey,
+        bool $dispatchWorker = true
+    ): array {
+        $this->assertReady();
+        $clientRunKey = strtolower(trim($clientRunKey));
+        if (preg_match('/^[a-z0-9_.:-]{8,80}$/D', $clientRunKey) !== 1) {
+            throw new InvalidArgumentException('client_run_key 格式无效');
+        }
+        $hotelIds = $this->normalizeHotelIds($hotelIds);
+        $question = ($this->questionReader)($questionId, $tenantId, $hotelIds);
+        if (!is_array($question)) {
+            throw new RuntimeException('经营问题回读格式无效');
+        }
+        $tenantId = (int)($question['tenant_id'] ?? 0);
+        $hotelId = (int)($question['hotel_id'] ?? 0);
+        if ($tenantId <= 0 || $hotelId <= 0 || !in_array($hotelId, $hotelIds, true)) {
+            throw new RuntimeException('经营顾问会诊门店或租户范围无效');
+        }
+        $requestKey = 'council:' . $clientRunKey;
+        $reservation = Db::transaction(function () use (
+            $tenantId,
+            $hotelId,
+            $questionId,
+            $requestKey,
+            $question,
+            $userId
+        ): array {
+            $this->lockQuestionForCouncilReservation($tenantId, $hotelId, $questionId);
+            $active = $this->findActiveRun($tenantId, $hotelId, $questionId);
+            if (is_array($active)) {
+                return ['row' => $active, 'created' => false, 'reused_active' => true];
+            }
+            $existingByKey = $this->findRunByRequestKey($tenantId, $hotelId, $questionId, $requestKey);
+            if (is_array($existingByKey)) {
+                return ['row' => $existingByKey, 'created' => false, 'reused_active' => false];
+            }
+
+            $answer = is_array($question['answer'] ?? null) ? $question['answer'] : [];
+            $panel = $this->lensCatalog->select((string)($question['question_text'] ?? ''), $answer);
+            $record = [
+                'contract_version' => self::CONTRACT_VERSION,
+                'tenant_id' => $tenantId,
+                'hotel_id' => $hotelId,
+                'question_id' => $questionId,
+                'request_key' => $requestKey,
+                'mode' => 'shadow',
+                'status' => 'pending',
+                'members' => [],
+                'synthesis' => $this->withPanelMetadata(
+                    $this->pendingSynthesis('queued', [], array_column((array)($panel['selected_lenses'] ?? []), 'key')),
+                    $panel,
+                    $answer
+                ),
+                'evidence_refs' => [],
+                'model_meta' => [],
+                'decision_effect' => 'none',
+            ];
+            $now = date('Y-m-d H:i:s');
+            try {
+                $id = (int)Db::name(self::TABLE)->insertGetId([
+                    'tenant_id' => $tenantId,
+                    'hotel_id' => $hotelId,
+                    'question_id' => $questionId,
+                    'request_key' => $requestKey,
+                    'mode' => 'shadow',
+                    'status' => 'pending',
+                    'members_json' => $this->encode([]),
+                    'synthesis_json' => $this->encode($record['synthesis']),
+                    'evidence_refs_json' => $this->encode([]),
+                    'model_meta_json' => $this->encode([]),
+                    'decision_effect' => 'none',
+                    'content_digest' => $this->digest($record),
+                    'created_by' => max(0, $userId),
+                    'created_at' => $now,
+                    'updated_at' => $now,
+                ]);
+            } catch (Throwable $e) {
+                $concurrent = $this->findActiveRun($tenantId, $hotelId, $questionId)
+                    ?? $this->findRunByRequestKey($tenantId, $hotelId, $questionId, $requestKey);
+                if (!is_array($concurrent)) {
+                    throw $e;
+                }
+                return ['row' => $concurrent, 'created' => false, 'reused_active' => true];
+            }
+            $saved = $id > 0
+                ? Db::name(self::TABLE)->where('id', $id)->find()
+                : null;
+            return ['row' => $saved, 'created' => $id > 0, 'reused_active' => false];
+        });
+        $existing = is_array($reservation['row'] ?? null) ? $reservation['row'] : null;
+        $created = ($reservation['created'] ?? false) === true;
+        $reusedActive = ($reservation['reused_active'] ?? false) === true;
+        if (!is_array($existing)) {
+            throw new RuntimeException('经营顾问会诊 pending 运行保留失败');
+        }
+        $readback = $this->normalize($existing);
+        $readback = $this->withPersistedContractVersion($readback);
+        $workerState = (string)($readback['synthesis']['worker']['status'] ?? '');
+        $workerStage = (string)($readback['synthesis']['worker']['stage'] ?? '');
+        $databaseNow = $this->databaseEpoch();
+        $updatedAt = strtotime((string)($readback['updated_at'] ?? '')) ?: 0;
+        $stalePending = (string)$readback['status'] === 'pending'
+            && $updatedAt > 0
+            && $databaseNow - $updatedAt >= self::PENDING_REDISPATCH_SECONDS;
+        $staleRunning = (string)$readback['status'] === 'running' && $this->workerLeaseExpired($readback);
+        $shouldDispatch = $created
+            || $workerState === 'dispatch_failed'
+            || $workerStage === 'dispatch_failed'
+            || $stalePending
+            || $staleRunning;
+        $receipt = $this->currentWorkerReceipt($readback, $dispatchWorker ? 'awaiting_existing_worker' : 'not_requested');
+        if ($dispatchWorker && in_array((string)$readback['status'], ['pending', 'running'], true)) {
+            $dispatch = $shouldDispatch
+                ? $this->dispatchWorker($readback, false)
+                : $this->awaitExistingWorkerStartReceipt($readback);
+            $readback = $dispatch['run'];
+            $receipt = $dispatch['receipt'];
+        }
+        return $this->withDispatchResponse($readback, $created, $receipt, $reusedActive);
     }
 
     /** @param list<int> $hotelIds @return array<string,mixed> */
@@ -68,10 +219,15 @@ final class OperatingQuestionCouncilService
         int $tenantId,
         array $hotelIds,
         int $userId,
-        string $clientRunKey
+        string $clientRunKey,
+        bool $processReserved = false,
+        bool $retryFailed = false,
+        ?string $workerLeaseToken = null,
+        ?string $expectedContentDigest = null
     ): array {
         $this->assertReady();
-        if (preg_match('/^[A-Za-z0-9_.:-]{8,80}$/D', trim($clientRunKey)) !== 1) {
+        $clientRunKey = strtolower(trim($clientRunKey));
+        if (preg_match('/^[a-z0-9_.:-]{8,80}$/D', $clientRunKey) !== 1) {
             throw new InvalidArgumentException('client_run_key 格式无效');
         }
         $question = ($this->questionReader)($questionId, $tenantId, $hotelIds);
@@ -81,18 +237,34 @@ final class OperatingQuestionCouncilService
         $tenantId = (int)$question['tenant_id'];
         $hotelId = (int)$question['hotel_id'];
         $requestKey = 'council:' . $clientRunKey;
-        $existing = Db::name(self::TABLE)
-            ->where('tenant_id', $tenantId)
-            ->where('hotel_id', $hotelId)
-            ->where('question_id', $questionId)
-            ->where('request_key', $requestKey)
-            ->find();
+        if ($tenantId <= 0 || $hotelId <= 0 || !in_array($hotelId, $hotelIds, true)) {
+            throw new RuntimeException('经营顾问会诊门店或租户范围无效');
+        }
+        $existing = $this->findRunByRequestKey($tenantId, $hotelId, $questionId, $requestKey);
+        $existingRunId = 0;
+        $existingReadback = null;
         if (is_array($existing)) {
             $readback = $this->normalize($existing);
-            $this->assertDigest($readback);
-            $readback['created'] = false;
-            $readback['persistence_status'] = 'readback_verified';
-            return $readback;
+            $readback = $this->withPersistedContractVersion($readback);
+            $existingStatus = (string)($readback['status'] ?? '');
+            if (!$processReserved
+                || $existingStatus === 'completed'
+                || (in_array($existingStatus, self::TERMINAL_STATUSES, true) && !$retryFailed)
+            ) {
+                $readback['created'] = false;
+                $readback['persistence_status'] = 'readback_verified';
+                return $readback;
+            }
+            $existingRunId = (int)$readback['id'];
+            $existingReadback = $readback;
+            $requestKey = (string)$readback['request_key'];
+            if ($workerLeaseToken === null
+                || preg_match('/^[a-f0-9]{64}$/D', (string)$expectedContentDigest) !== 1
+                || !hash_equals((string)$readback['content_digest'], (string)$expectedContentDigest)
+                || !$this->workerLeaseMatches($readback, $workerLeaseToken)
+            ) {
+                throw new RuntimeException('经营顾问会诊 worker lease 或 fencing digest 不匹配');
+            }
         }
 
         $answer = is_array($question['answer'] ?? null) ? $question['answer'] : [];
@@ -101,6 +273,15 @@ final class OperatingQuestionCouncilService
             is_array($panel['selected_lenses'] ?? null) ? $panel['selected_lenses'] : [],
             'is_array'
         ));
+        $panelContract = $this->panelContract($panel);
+        $panelContractDigest = $this->digest($panelContract);
+        $lensContractDigests = [];
+        foreach ($selectedLenses as $selectedLens) {
+            $lensKey = trim((string)($selectedLens['key'] ?? ''));
+            if ($lensKey !== '') {
+                $lensContractDigests[$lensKey] = $this->lensContractDigest($panelContract, $lensKey);
+            }
+        }
         $allowedRefs = array_values(array_unique(array_filter(array_merge(
             $this->textList($question['fact_refs'] ?? [], 60, 180),
             $this->textList($question['knowledge_refs'] ?? [], 60, 180),
@@ -156,8 +337,12 @@ final class OperatingQuestionCouncilService
         }
         $runtime = ($this->capabilityProbe)();
         $runtimeReady = ($runtime['text']['ready'] ?? false) === true;
-        $members = [];
-        $modelMeta = [];
+        $members = is_array($existingReadback['members'] ?? null)
+            ? array_values(array_filter($existingReadback['members'], 'is_array'))
+            : [];
+        $modelMeta = is_array($existingReadback['model_meta'] ?? null)
+            ? array_values(array_filter($existingReadback['model_meta'], 'is_array'))
+            : [];
         $answerBlocked = (string)($question['answer_status'] ?? '') === 'blocked_by_missing_facts';
         if ($factRefs === []) {
             $status = 'blocked_by_missing_facts';
@@ -176,36 +361,259 @@ final class OperatingQuestionCouncilService
             $blockCode = 'council_not_started';
         }
         $synthesis = $this->blockedSynthesis($blockCode);
-
-        if ($factRefs !== [] && $factReadbackCode === '' && $runtimeReady && !$answerBlocked) {
-            $packet = $this->evidencePacket($question, $answer, $allowedRefs, $verifiedFacts);
-            foreach ($selectedLenses as $persona) {
-                $member = $this->callMember($persona, $packet, $allowedRefs, $factRefs);
-                $members[] = $member['public'];
-                if ($member['meta'] !== []) {
-                    $modelMeta[] = $member['meta'];
-                }
-            }
-            $readyMembers = array_values(array_filter(
+        $quarantined = false;
+        $selectedLensKeys = array_values(array_filter(array_map(
+            static fn(array $lens): string => trim((string)($lens['key'] ?? '')),
+            $selectedLenses
+        )));
+        $panelContractDrifted = $existingRunId > 0 && $this->panelContractDrifted(
+            $existingReadback,
+            $panelContract,
+            $panelContractDigest,
+            $lensContractDigests,
+            $members
+        );
+        if ($panelContractDrifted) {
+            $status = 'failed';
+            $blockCode = 'council_panel_contract_drift';
+            $synthesis = $this->quarantineSynthesis(
+                $blockCode,
                 $members,
-                static fn(array $member): bool => ($member['status'] ?? '') === 'ready'
+                (array)($existingReadback['evidence_refs'] ?? []),
+                $modelMeta,
+                (string)($existingReadback['content_digest'] ?? '')
+            );
+            $members = [];
+            $modelMeta = [];
+            $quarantined = true;
+        } elseif ($factRefs !== [] && $factReadbackCode === '' && $runtimeReady && !$answerBlocked) {
+            $packet = $this->evidencePacket($question, $answer, $allowedRefs, $verifiedFacts);
+            $packetDigest = $this->digest($packet);
+            $checkpointPacketDigest = trim((string)(
+                $existingReadback['synthesis']['worker']['evidence_packet_digest'] ?? ''
             ));
-            if ($readyMembers !== []) {
-                $chair = $this->callChair($packet, $readyMembers, $allowedRefs, $factRefs);
-                $synthesis = $chair['public'];
-                if ($chair['meta'] !== []) {
-                    $modelMeta[] = $chair['meta'];
-                }
-                $status = count($readyMembers) === count($selectedLenses)
-                    && ($synthesis['status'] ?? '') === 'ready'
-                    ? 'completed'
-                    : 'partial';
+            if ($existingRunId > 0
+                && $members !== []
+                && $checkpointPacketDigest !== ''
+                && !hash_equals($checkpointPacketDigest, $packetDigest)
+            ) {
+                $status = 'blocked_by_missing_facts';
+                $synthesis = $this->quarantineSynthesis(
+                    'council_checkpoint_fact_drift',
+                    $members,
+                    (array)($existingReadback['evidence_refs'] ?? []),
+                    $modelMeta,
+                    (string)($existingReadback['content_digest'] ?? '')
+                );
+                $members = [];
+                $modelMeta = [];
+                $quarantined = true;
             } else {
-                $status = 'failed';
-                $synthesis = $this->blockedSynthesis('all_persona_calls_failed');
+                $membersByKey = $this->rowsByKey($members, 'key');
+                $modelMetaByRole = $this->rowsByKey($modelMeta, 'role');
+                if ($existingRunId > 0) {
+                    $runningSynthesis = $this->withPanelMetadata(
+                        $this->pendingSynthesis(
+                            'running',
+                            array_keys($membersByKey),
+                            array_values(array_diff($selectedLensKeys, array_keys($membersByKey))),
+                            $packetDigest
+                        ),
+                        $panel,
+                        $answer
+                    );
+                    $checkpointReadback = $this->persistRunStateCas(
+                        $existingRunId,
+                        $tenantId,
+                        $hotelId,
+                        $questionId,
+                        $requestKey,
+                        'running',
+                        $this->orderedRows($selectedLensKeys, $membersByKey),
+                        $runningSynthesis,
+                        $this->evidenceRefsForMembers($membersByKey),
+                        array_values($modelMetaByRole),
+                        (string)$expectedContentDigest,
+                        (string)$workerLeaseToken
+                    );
+                    $expectedContentDigest = (string)$checkpointReadback['content_digest'];
+                    $existingReadback = $checkpointReadback;
+                }
+
+                foreach ($selectedLenses as $persona) {
+                    $lensKey = trim((string)($persona['key'] ?? ''));
+                    $checkpoint = is_array($membersByKey[$lensKey] ?? null) ? $membersByKey[$lensKey] : null;
+                    if (is_array($checkpoint)
+                        && (($checkpoint['status'] ?? '') === 'ready'
+                            || (($checkpoint['status'] ?? '') === 'failed' && !$retryFailed))
+                    ) {
+                        continue;
+                    }
+                    $member = $this->callMember(
+                        $persona,
+                        $packet,
+                        $allowedRefs,
+                        $factRefs,
+                        $panelContractDigest,
+                        (string)($lensContractDigests[$lensKey] ?? '')
+                    );
+                    $membersByKey[$lensKey] = $member['public'];
+                    if ($member['meta'] !== []) {
+                        $modelMetaByRole[$lensKey] = $member['meta'];
+                    } else {
+                        unset($modelMetaByRole[$lensKey]);
+                    }
+                    if ($existingRunId > 0) {
+                        $completedKeys = array_keys($membersByKey);
+                        $checkpointSynthesis = $this->withPanelMetadata(
+                            $this->pendingSynthesis(
+                                'member_checkpoint',
+                                $completedKeys,
+                                array_values(array_diff($selectedLensKeys, $completedKeys)),
+                                $packetDigest
+                            ),
+                            $panel,
+                            $answer
+                        );
+                        $checkpointReadback = $this->persistRunStateCas(
+                            $existingRunId,
+                            $tenantId,
+                            $hotelId,
+                            $questionId,
+                            $requestKey,
+                            'running',
+                            $this->orderedRows($selectedLensKeys, $membersByKey),
+                            $checkpointSynthesis,
+                            $this->evidenceRefsForMembers($membersByKey),
+                            array_values($modelMetaByRole),
+                            (string)$expectedContentDigest,
+                            (string)$workerLeaseToken
+                        );
+                        $expectedContentDigest = (string)$checkpointReadback['content_digest'];
+                        $existingReadback = $checkpointReadback;
+                    }
+                }
+                $members = $this->orderedRows($selectedLensKeys, $membersByKey);
+                $modelMeta = array_values($modelMetaByRole);
+                [$terminalFacts, $terminalFactCode] = $this->readVerifiedFactsForQuestion(
+                    $question,
+                    $factRefs
+                );
+                $terminalPacketDigest = $terminalFactCode === ''
+                    ? $this->digest($this->evidencePacket($question, $answer, $allowedRefs, $terminalFacts))
+                    : '';
+                if ($terminalFactCode !== ''
+                    || $terminalPacketDigest === ''
+                    || !hash_equals($packetDigest, $terminalPacketDigest)
+                ) {
+                    $status = 'blocked_by_missing_facts';
+                    $synthesis = $this->quarantineSynthesis(
+                        'council_terminal_fact_drift',
+                        $members,
+                        $this->evidenceRefsForMembers($membersByKey),
+                        $modelMeta,
+                        (string)$expectedContentDigest
+                    );
+                    $synthesis['fact_recheck_code'] = $terminalFactCode !== ''
+                        ? $terminalFactCode
+                        : 'evidence_packet_digest_changed';
+                    $members = [];
+                    $membersByKey = [];
+                    $modelMeta = [];
+                    $modelMetaByRole = [];
+                    $quarantined = true;
+                } else {
+                    $readyMembers = array_values(array_filter(
+                        $members,
+                        static fn(array $member): bool => ($member['status'] ?? '') === 'ready'
+                    ));
+                    if ($readyMembers !== []) {
+                        $chair = $this->callChair($packet, $readyMembers, $allowedRefs, $factRefs);
+                        $synthesis = $chair['public'];
+                        if ($chair['meta'] !== []) {
+                            $modelMetaByRole['synthesis_chair'] = $chair['meta'];
+                        }
+                        $modelMeta = array_values($modelMetaByRole);
+                        $status = count($readyMembers) === count($selectedLenses)
+                            && ($synthesis['status'] ?? '') === 'ready'
+                            ? 'completed'
+                            : 'partial';
+                    } else {
+                        $status = 'failed';
+                        $synthesis = $this->blockedSynthesis('all_persona_calls_failed');
+                    }
+                }
+                if (in_array($status, ['completed', 'partial'], true)) {
+                    [$commitFacts, $commitFactCode] = $this->readVerifiedFactsForQuestion($question, $factRefs);
+                    $commitPacketDigest = $commitFactCode === ''
+                        ? $this->digest($this->evidencePacket($question, $answer, $allowedRefs, $commitFacts))
+                        : '';
+                    if ($commitFactCode !== ''
+                        || $commitPacketDigest === ''
+                        || !hash_equals($packetDigest, $commitPacketDigest)
+                    ) {
+                        $status = 'blocked_by_missing_facts';
+                        $synthesis = $this->quarantineSynthesis(
+                            'council_terminal_fact_drift',
+                            $members,
+                            array_values(array_unique(array_merge(
+                                $this->evidenceRefsForMembers($membersByKey),
+                                (array)($synthesis['evidence_refs'] ?? [])
+                            ))),
+                            $modelMeta,
+                            (string)$expectedContentDigest
+                        );
+                        $synthesis['fact_recheck_code'] = $commitFactCode !== ''
+                            ? $commitFactCode
+                            : 'evidence_packet_digest_changed';
+                        $members = [];
+                        $membersByKey = [];
+                        $modelMeta = [];
+                        $modelMetaByRole = [];
+                        $quarantined = true;
+                    }
+                }
+                $synthesis['worker'] = array_merge(
+                    is_array($existingReadback['synthesis']['worker'] ?? null)
+                        ? $existingReadback['synthesis']['worker']
+                        : [],
+                    [
+                        'status' => 'completed',
+                        'stage' => 'terminal',
+                        'completed_lens_keys' => array_keys($membersByKey),
+                        'remaining_lens_keys' => [],
+                        'evidence_packet_digest' => $packetDigest,
+                        'checkpoint_resume_supported' => true,
+                    ]
+                );
             }
         }
-        $synthesis = $this->withPanelMetadata($synthesis, $panel, $answer);
+        if ($existingRunId > 0) {
+            $workerTerminalStatus = match ($status) {
+                'completed' => 'completed',
+                'partial' => 'partial',
+                'failed' => 'failed',
+                default => 'blocked',
+            };
+            $synthesis['worker'] = array_merge(
+                is_array($existingReadback['synthesis']['worker'] ?? null)
+                    ? $existingReadback['synthesis']['worker']
+                    : [],
+                is_array($synthesis['worker'] ?? null) ? $synthesis['worker'] : [],
+                [
+                    'status' => $workerTerminalStatus,
+                    'stage' => 'terminal',
+                    'terminal_at' => date(DATE_ATOM),
+                    'checkpoint_resume_supported' => true,
+                ]
+            );
+        }
+        if ($quarantined) {
+            $synthesis['worker']['completed_lens_keys'] = [];
+            $synthesis['worker']['remaining_lens_keys'] = [];
+        } else {
+            $synthesis = $this->withPanelMetadata($synthesis, $panel, $answer);
+        }
 
         $memberEvidenceRefs = array_map(
             static fn(array $member): array => is_array($member['evidence_refs'] ?? null) ? $member['evidence_refs'] : [],
@@ -215,6 +623,18 @@ final class OperatingQuestionCouncilService
             ? $synthesis['evidence_refs']
             : [];
         $evidenceRefs = array_values(array_unique(array_merge(...$memberEvidenceRefs)));
+        if (!$quarantined && in_array($status, ['completed', 'partial'], true)) {
+            $synthesis['artifact_integrity'] = [
+                'status' => 'verified',
+                'panel_contract_digest' => (string)($synthesis['advisory_panel_contract_digest'] ?? ''),
+                'members_digest' => $this->digest($members),
+                'member_count' => count($members),
+                'evidence_refs_digest' => $this->digest($evidenceRefs),
+                'evidence_ref_count' => count($evidenceRefs),
+                'model_meta_digest' => $this->digest($modelMeta),
+                'model_meta_count' => count($modelMeta),
+            ];
+        }
         $record = [
             'contract_version' => self::CONTRACT_VERSION,
             'tenant_id' => $tenantId,
@@ -229,6 +649,25 @@ final class OperatingQuestionCouncilService
             'model_meta' => $modelMeta,
             'decision_effect' => 'none',
         ];
+        if ($existingRunId > 0) {
+            $readback = $this->persistRunStateCas(
+                $existingRunId,
+                $tenantId,
+                $hotelId,
+                $questionId,
+                $requestKey,
+                $status,
+                $members,
+                $synthesis,
+                $evidenceRefs,
+                $modelMeta,
+                (string)$expectedContentDigest,
+                (string)$workerLeaseToken
+            );
+            $readback['created'] = false;
+            $readback['persistence_status'] = 'readback_verified';
+            return $readback;
+        }
         $digest = $this->digest($record);
         $now = date('Y-m-d H:i:s');
         try {
@@ -260,7 +699,7 @@ final class OperatingQuestionCouncilService
                 throw $e;
             }
             $readback = $this->normalize($concurrent);
-            $this->assertDigest($readback);
+            $readback = $this->withPersistedContractVersion($readback);
             $readback['created'] = false;
             $readback['persistence_status'] = 'readback_verified';
             return $readback;
@@ -269,10 +708,261 @@ final class OperatingQuestionCouncilService
             throw new RuntimeException('多角色影子复核保存失败');
         }
         $readback = $this->read($id, $tenantId, $hotelIds);
-        $this->assertDigest($readback);
         $readback['created'] = true;
         $readback['persistence_status'] = 'readback_verified';
         return $readback;
+    }
+
+    /** @param list<int> $hotelIds @return array<string,mixed> */
+    public function claimRunForWorker(
+        int $runId,
+        int $tenantId,
+        array $hotelIds,
+        string $parentDigest,
+        bool $retryFailed = false,
+        ?string $leaseToken = null
+    ): array {
+        if (preg_match('/^[a-f0-9]{64}$/D', $parentDigest) !== 1) {
+            throw new InvalidArgumentException('council_worker_parent_digest_invalid');
+        }
+        $run = $this->read($runId, $tenantId, $hotelIds);
+        $dispatchAttemptId = trim((string)($run['synthesis']['worker']['dispatch_attempt_id'] ?? ''));
+        $dispatchReady = preg_match('/^[a-f0-9]{32}$/D', $dispatchAttemptId) === 1
+            && (string)($run['synthesis']['worker']['status'] ?? '') === 'dispatching';
+        if (!$dispatchReady) {
+            if (!hash_equals((string)$run['content_digest'], $parentDigest)) {
+                throw new RuntimeException('council_worker_parent_digest_stale');
+            }
+            $prepared = $this->prepareDispatchAttempt($run, $retryFailed);
+            if (($prepared['prepared'] ?? false) !== true) {
+                throw new RuntimeException((string)($prepared['receipt']['status'] ?? 'council_dispatch_attempt_conflict'));
+            }
+            $run = $prepared['run'];
+            $parentDigest = (string)$run['content_digest'];
+            $dispatchAttemptId = (string)$prepared['dispatch_attempt_id'];
+        }
+        if (!hash_equals((string)$run['content_digest'], $parentDigest)) {
+            throw new RuntimeException('council_worker_parent_digest_stale');
+        }
+        $status = (string)$run['status'];
+        $claimable = $status === 'pending'
+            || ($status === 'running' && $this->workerLeaseExpired($run))
+            || ($retryFailed && in_array($status, [
+                'partial', 'failed', 'blocked_by_missing_facts', 'blocked_not_configured',
+            ], true));
+        if (!$claimable) {
+            throw new RuntimeException($status === 'running'
+                ? 'council_worker_lease_active'
+                : 'council_worker_status_not_claimable');
+        }
+        $leaseToken ??= bin2hex(random_bytes(32));
+        if (preg_match('/^[A-Za-z0-9_.:-]{16,128}$/D', $leaseToken) !== 1) {
+            throw new InvalidArgumentException('council_worker_lease_invalid');
+        }
+        $generation = max(0, (int)($run['synthesis']['worker']['lease_generation'] ?? 0)) + 1;
+        if ($generation !== (int)($run['synthesis']['worker']['dispatch_expected_lease_generation'] ?? 0)) {
+            throw new RuntimeException('council_worker_dispatch_generation_mismatch');
+        }
+        $databaseEpoch = $this->databaseEpoch();
+        $startedAt = date(DATE_ATOM, $databaseEpoch);
+        $leaseExpiresEpoch = $databaseEpoch + self::WORKER_LEASE_SECONDS;
+        $synthesis = is_array($run['synthesis'] ?? null) ? $run['synthesis'] : [];
+        $synthesis['status'] = 'pending';
+        $synthesis['summary'] = '会诊 worker 已取得执行权，正在执行严格事实门与视角 checkpoint。';
+        $synthesis['error_code'] = '';
+        $synthesis['worker'] = array_merge(
+            is_array($synthesis['worker'] ?? null) ? $synthesis['worker'] : [],
+            [
+                'status' => 'running',
+                'stage' => 'starting',
+                'lease_generation' => $generation,
+                'lease_token_hash' => hash('sha256', $leaseToken),
+                'fencing_token_hash' => hash('sha256', $leaseToken),
+                'started_at' => $startedAt,
+                'lease_started_epoch' => $databaseEpoch,
+                'heartbeat_at' => $startedAt,
+                'heartbeat_epoch' => $databaseEpoch,
+                'lease_expires_at' => date(DATE_ATOM, $leaseExpiresEpoch),
+                'lease_expires_epoch' => $leaseExpiresEpoch,
+                'dispatch_parent_digest' => $parentDigest,
+                'start_receipt' => [
+                    'status' => 'acknowledged',
+                    'run_id' => $runId,
+                    'dispatch_attempt_id' => $dispatchAttemptId,
+                    'lease_generation' => $generation,
+                    'parent_digest' => $parentDigest,
+                    'started_at' => $startedAt,
+                ],
+                'checkpoint_resume_supported' => true,
+            ]
+        );
+        $record = [
+            'contract_version' => self::CONTRACT_VERSION,
+            'tenant_id' => (int)$run['tenant_id'],
+            'hotel_id' => (int)$run['hotel_id'],
+            'question_id' => (int)$run['question_id'],
+            'request_key' => (string)$run['request_key'],
+            'mode' => (string)$run['mode'],
+            'status' => 'running',
+            'members' => (array)$run['members'],
+            'synthesis' => $synthesis,
+            'evidence_refs' => (array)$run['evidence_refs'],
+            'model_meta' => (array)$run['model_meta'],
+            'decision_effect' => 'none',
+        ];
+        $nextDigest = $this->digest($record);
+        $claimQuery = Db::name(self::TABLE)
+            ->where('id', $runId)
+            ->where('tenant_id', (int)$run['tenant_id'])
+            ->where('hotel_id', (int)$run['hotel_id'])
+            ->where('question_id', (int)$run['question_id'])
+            ->where('request_key', (string)$run['request_key'])
+            ->where('status', $status)
+            ->where('content_digest', $parentDigest);
+        if ($status === 'running' && $this->workerLeaseExpiryEpoch($run) > 0) {
+            $claimQuery = $this->withWorkerLeaseTimePredicate($claimQuery, $run, false);
+        }
+        $changed = (int)$claimQuery->update([
+                'status' => 'running',
+                'synthesis_json' => $this->encode($synthesis),
+                'content_digest' => $nextDigest,
+                'updated_at' => date('Y-m-d H:i:s'),
+            ]);
+        if ($changed !== 1) {
+            throw new RuntimeException('council_worker_claim_cas_conflict');
+        }
+        $claimed = $this->read($runId, $tenantId, $hotelIds);
+        if (!hash_equals($nextDigest, (string)$claimed['content_digest'])
+            || !$this->workerLeaseMatches($claimed, $leaseToken)
+        ) {
+            throw new RuntimeException('council_worker_start_receipt_readback_failed');
+        }
+        return [
+            'run' => $claimed,
+            'lease_token' => $leaseToken,
+            'lease_generation' => $generation,
+            'content_digest' => $nextDigest,
+        ];
+    }
+
+    /** @param list<int> $hotelIds @return array<string,mixed> */
+    public function resumeRun(int $runId, int $questionId, int $tenantId, array $hotelIds): array
+    {
+        $run = $this->read($runId, $tenantId, $hotelIds);
+        if ((string)($run['synthesis']['error_code'] ?? '') === 'council_terminal_fact_drift') {
+            throw new InvalidArgumentException('council_terminal_fact_drift_requires_new_question');
+        }
+        if ((int)$run['question_id'] !== $questionId
+            || !in_array((string)$run['status'], [
+                'partial', 'failed', 'blocked_by_missing_facts', 'blocked_not_configured',
+            ], true)
+        ) {
+            throw new InvalidArgumentException('当前会诊运行不可恢复');
+        }
+        $dispatch = $this->dispatchWorker($run, true);
+        return $this->withDispatchResponse($dispatch['run'], false, $dispatch['receipt']);
+    }
+
+    /**
+     * Execute or resume one reserved run. The advisory lock is only a local
+     * optimization; content-digest CAS plus a per-worker lease is authoritative.
+     *
+     * @param list<int> $hotelIds
+     * @return array<string,mixed>
+     */
+    public function processRun(
+        int $runId,
+        int $tenantId,
+        array $hotelIds,
+        bool $retryFailed = false,
+        ?string $parentDigest = null
+    ): array {
+        $run = $this->read($runId, $tenantId, $hotelIds);
+        if (in_array((string)$run['status'], self::TERMINAL_STATUSES, true) && !$retryFailed) {
+            $run['created'] = false;
+            $run['worker_status'] = 'terminal';
+            $run['persistence_status'] = 'readback_verified';
+            return $run;
+        }
+        if (!$this->acquireWorkerLock($runId)) {
+            $run['created'] = false;
+            $run['worker_status'] = 'busy';
+            $run['persistence_status'] = 'readback_verified';
+            return $run;
+        }
+
+        $leaseToken = '';
+        try {
+            $claim = $this->claimRunForWorker(
+                $runId,
+                $tenantId,
+                $hotelIds,
+                $parentDigest ?? (string)$run['content_digest'],
+                $retryFailed
+            );
+            $claimed = $claim['run'];
+            $leaseToken = (string)$claim['lease_token'];
+            $requestKey = (string)$claimed['request_key'];
+            if (!str_starts_with($requestKey, 'council:')) {
+                throw new RuntimeException('经营顾问会诊 request_key 不可恢复');
+            }
+            $processed = $this->runShadow(
+                (int)$claimed['question_id'],
+                (int)$claimed['tenant_id'],
+                [(int)$claimed['hotel_id']],
+                (int)$claimed['created_by'],
+                substr($requestKey, strlen('council:')),
+                true,
+                $retryFailed,
+                $leaseToken,
+                (string)$claim['content_digest']
+            );
+            $processed['worker_status'] = 'finished';
+            return $processed;
+        } catch (Throwable $e) {
+            if ($leaseToken !== '') {
+                try {
+                    $current = $this->read($runId, $tenantId, $hotelIds);
+                    if (in_array((string)$current['status'], self::TERMINAL_STATUSES, true)) {
+                        $current['created'] = false;
+                        $current['worker_status'] = 'terminal_readback_recovered';
+                        $current['persistence_status'] = 'readback_verified';
+                        return $current;
+                    }
+                    if ((string)$current['status'] === 'running'
+                        && $this->workerLeaseValidForWrite($current, $leaseToken)
+                    ) {
+                        $synthesis = is_array($current['synthesis'] ?? null) ? $current['synthesis'] : [];
+                        $synthesis['status'] = 'failed';
+                        $synthesis['summary'] = '本机后台 worker 中断；已保留完成的视角 checkpoint，可在页面恢复。';
+                        $synthesis['error_code'] = 'council_worker_failed';
+                        $synthesis['worker'] = array_merge(
+                            is_array($synthesis['worker'] ?? null) ? $synthesis['worker'] : [],
+                            ['status' => 'failed', 'stage' => 'interrupted', 'checkpoint_resume_supported' => true]
+                        );
+                        $this->persistRunStateCas(
+                            (int)$current['id'],
+                            (int)$current['tenant_id'],
+                            (int)$current['hotel_id'],
+                            (int)$current['question_id'],
+                            (string)$current['request_key'],
+                            'failed',
+                            (array)$current['members'],
+                            $synthesis,
+                            (array)$current['evidence_refs'],
+                            (array)$current['model_meta'],
+                            (string)$current['content_digest'],
+                            $leaseToken
+                        );
+                    }
+                } catch (Throwable) {
+                    // A newer lease, an expired lease, or a concurrent terminal state owns the row.
+                }
+            }
+            throw $e;
+        } finally {
+            $this->releaseWorkerLock($runId);
+        }
     }
 
     /** @param list<int> $hotelIds */
@@ -289,8 +979,7 @@ final class OperatingQuestionCouncilService
             throw new RuntimeException('council run not found', 404);
         }
         $readback = $this->normalize($row);
-        $this->assertDigest($readback);
-        return $readback;
+        return $this->withPersistedContractVersion($readback);
     }
 
     /** @param list<int> $hotelIds */
@@ -307,13 +996,18 @@ final class OperatingQuestionCouncilService
             return null;
         }
         $readback = $this->normalize($row);
-        $this->assertDigest($readback);
-        return $readback;
+        return $this->withPersistedContractVersion($readback);
     }
 
     /** @param array<string,mixed> $persona @param array<string,mixed> $packet @param list<string> $allowedRefs @param list<string> $factRefs */
-    private function callMember(array $persona, array $packet, array $allowedRefs, array $factRefs): array
-    {
+    private function callMember(
+        array $persona,
+        array $packet,
+        array $allowedRefs,
+        array $factRefs,
+        string $panelContractDigest,
+        string $lensContractDigest
+    ): array {
         $schema = [
             'type' => 'object',
             'required' => [
@@ -353,6 +1047,8 @@ final class OperatingQuestionCouncilService
         $result['public']['selection_reason'] = $this->textList($persona['selection_reason'] ?? [], 12, 120);
         $result['public']['reference_only'] = true;
         $result['public']['real_human_opinion'] = false;
+        $result['public']['panel_contract_digest'] = $panelContractDigest;
+        $result['public']['lens_contract_digest'] = $lensContractDigest;
         return $result;
     }
 
@@ -913,6 +1609,9 @@ final class OperatingQuestionCouncilService
 
     private function evidencePacket(array $question, array $answer, array $allowedRefs, array $verifiedFacts): array
     {
+        usort($verifiedFacts, static fn(array $left, array $right): int => (
+            (string)($left['ref'] ?? '') <=> (string)($right['ref'] ?? '')
+        ));
         $packet = [
             'question_id' => (int)$question['id'],
             'question_text' => mb_substr(trim((string)$question['question_text']), 0, 1000),
@@ -957,6 +1656,38 @@ final class OperatingQuestionCouncilService
             'evidence_refs' => [],
             'error_code' => $code,
         ];
+    }
+
+    /**
+     * @param list<array<string,mixed>> $members
+     * @param list<string> $evidenceRefs
+     * @param list<array<string,mixed>> $modelMeta
+     * @return array<string,mixed>
+     */
+    private function quarantineSynthesis(
+        string $code,
+        array $members,
+        array $evidenceRefs,
+        array $modelMeta,
+        string $previousContentDigest
+    ): array {
+        $synthesis = $this->blockedSynthesis($code);
+        $synthesis['summary'] = '会诊 checkpoint 已因身份或事实漂移隔离；旧观点内容不会继续展示或恢复。';
+        $synthesis['quarantine'] = [
+            'status' => 'content_quarantined',
+            'content_retained' => false,
+            'reason_code' => $code,
+            'member_count' => count($members),
+            'members_digest' => $this->digest(array_values($members)),
+            'evidence_ref_count' => count($evidenceRefs),
+            'evidence_refs_digest' => $this->digest(array_values($evidenceRefs)),
+            'model_meta_count' => count($modelMeta),
+            'model_meta_digest' => $this->digest(array_values($modelMeta)),
+            'previous_content_digest' => preg_match('/^[a-f0-9]{64}$/D', $previousContentDigest) === 1
+                ? $previousContentDigest
+                : '',
+        ];
+        return $synthesis;
     }
 
     /** @param list<string> $factRefs @param list<array<string,mixed>> $currentFacts */
@@ -1028,6 +1759,41 @@ final class OperatingQuestionCouncilService
         return '';
     }
 
+    /** @param list<string> $factRefs @return array{0:list<array<string,mixed>>,1:string} */
+    private function readVerifiedFactsForQuestion(array $question, array $factRefs): array
+    {
+        if ($factRefs === []) {
+            return [[], 'verified_fact_reference_missing'];
+        }
+        try {
+            $candidateFacts = ($this->strictFactReader)(
+                (int)($question['tenant_id'] ?? 0),
+                (int)($question['hotel_id'] ?? 0),
+                (string)($question['platform'] ?? ''),
+                (string)($question['date_start'] ?? ''),
+                (string)($question['date_end'] ?? ''),
+                $factRefs
+            );
+            $facts = array_values(array_filter(
+                is_array($candidateFacts) ? $candidateFacts : [],
+                'is_array'
+            ));
+        } catch (Throwable) {
+            return [[], 'verified_fact_readback_unavailable'];
+        }
+        return [
+            $facts,
+            $this->verifyFactReadback(
+                $factRefs,
+                $facts,
+                is_array($question['answer'] ?? null) ? $question['answer'] : [],
+                (string)($question['platform'] ?? ''),
+                (string)($question['date_start'] ?? ''),
+                (string)($question['date_end'] ?? '')
+            ),
+        ];
+    }
+
     /** @param array<string,mixed> $fact */
     private function factDigest(array $fact): string
     {
@@ -1059,26 +1825,158 @@ final class OperatingQuestionCouncilService
         ]));
     }
 
-    /** @param array<string,mixed> $synthesis @param array<string,mixed> $panel @param array<string,mixed> $answer */
-    private function withPanelMetadata(array $synthesis, array $panel, array $answer): array
+    /** @param array<string,mixed> $panel @return array<string,mixed> */
+    private function panelContract(array $panel): array
     {
         $selected = [];
         foreach ((array)($panel['selected_lenses'] ?? []) as $lens) {
             if (!is_array($lens)) {
                 continue;
             }
+            $sourceLenses = [];
+            foreach ((array)($lens['source_lenses'] ?? []) as $source) {
+                if (!is_array($source)) {
+                    continue;
+                }
+                $sourceLenses[] = [
+                    'name' => mb_substr(trim((string)($source['name'] ?? '')), 0, 60),
+                    'probe' => mb_substr(trim((string)($source['probe'] ?? '')), 0, 300),
+                ];
+            }
             $selected[] = [
-                'key' => (string)($lens['key'] ?? ''),
-                'label' => (string)($lens['label'] ?? ''),
-                'business_question' => (string)($lens['business_question'] ?? ''),
+                'key' => trim((string)($lens['key'] ?? '')),
+                'label' => mb_substr(trim((string)($lens['label'] ?? '')), 0, 80),
+                'business_question' => mb_substr(trim((string)($lens['business_question'] ?? '')), 0, 500),
+                'instruction' => mb_substr(trim((string)($lens['instruction'] ?? '')), 0, 1000),
+                'source_lenses' => $sourceLenses,
                 'selection_reason' => $this->textList($lens['selection_reason'] ?? [], 12, 120),
+                'reference_only' => ($lens['reference_only'] ?? false) === true,
+            ];
+        }
+        return [
+            'contract_version' => (string)($panel['contract_version'] ?? ''),
+            'method_version' => (string)($panel['method_version'] ?? ''),
+            'source' => is_array($panel['source'] ?? null) ? $panel['source'] : [],
+            'selection_basis' => (string)($panel['selection_basis'] ?? ''),
+            'selection_contract' => is_array($panel['selection_contract'] ?? null)
+                ? $panel['selection_contract']
+                : [],
+            'boundaries' => is_array($panel['boundaries'] ?? null) ? $panel['boundaries'] : [],
+            'selected_lenses' => $selected,
+        ];
+    }
+
+    /** @param array<string,mixed> $panelContract */
+    private function lensContractDigest(array $panelContract, string $lensKey): string
+    {
+        $lens = null;
+        foreach ((array)($panelContract['selected_lenses'] ?? []) as $candidate) {
+            if (is_array($candidate) && (string)($candidate['key'] ?? '') === $lensKey) {
+                $lens = $candidate;
+                break;
+            }
+        }
+        if (!is_array($lens)) {
+            return '';
+        }
+        return $this->digest([
+            'contract_version' => (string)($panelContract['contract_version'] ?? ''),
+            'method_version' => (string)($panelContract['method_version'] ?? ''),
+            'source' => is_array($panelContract['source'] ?? null) ? $panelContract['source'] : [],
+            'selection_basis' => (string)($panelContract['selection_basis'] ?? ''),
+            'selection_contract' => is_array($panelContract['selection_contract'] ?? null)
+                ? $panelContract['selection_contract']
+                : [],
+            'boundaries' => is_array($panelContract['boundaries'] ?? null)
+                ? $panelContract['boundaries']
+                : [],
+            'lens' => $lens,
+        ]);
+    }
+
+    /**
+     * @param array<string,mixed>|null $existingReadback
+     * @param array<string,mixed> $panelContract
+     * @param array<string,string> $lensContractDigests
+     * @param list<array<string,mixed>> $members
+     */
+    private function panelContractDrifted(
+        ?array $existingReadback,
+        array $panelContract,
+        string $panelContractDigest,
+        array $lensContractDigests,
+        array $members
+    ): bool {
+        if (!is_array($existingReadback)) {
+            return false;
+        }
+        $synthesis = is_array($existingReadback['synthesis'] ?? null)
+            ? $existingReadback['synthesis']
+            : [];
+        $frozenDigest = strtolower(trim((string)($synthesis['advisory_panel_contract_digest'] ?? '')));
+        $frozenContract = is_array($synthesis['advisory_panel_contract'] ?? null)
+            ? $synthesis['advisory_panel_contract']
+            : [];
+        if ($frozenDigest === '' || $frozenContract === []) {
+            if ($members !== []) {
+                return true;
+            }
+            $frozenKeys = array_values(array_filter(array_map(
+                static fn(mixed $lens): string => is_array($lens)
+                    ? trim((string)($lens['key'] ?? ''))
+                    : '',
+                (array)($synthesis['selected_lenses'] ?? [])
+            )));
+            $currentKeys = array_values(array_filter(array_map(
+                static fn(mixed $lens): string => is_array($lens)
+                    ? trim((string)($lens['key'] ?? ''))
+                    : '',
+                (array)($panelContract['selected_lenses'] ?? [])
+            )));
+            return $frozenKeys !== [] && $frozenKeys !== $currentKeys;
+        }
+        if (preg_match('/^[a-f0-9]{64}$/D', $frozenDigest) !== 1
+            || !hash_equals($frozenDigest, $this->digest($frozenContract))
+            || !hash_equals($frozenDigest, $panelContractDigest)
+        ) {
+            return true;
+        }
+        foreach ($members as $member) {
+            $key = trim((string)($member['key'] ?? ''));
+            $expectedLensDigest = (string)($lensContractDigests[$key] ?? '');
+            if ($key === ''
+                || $expectedLensDigest === ''
+                || !hash_equals($panelContractDigest, (string)($member['panel_contract_digest'] ?? ''))
+                || !hash_equals($expectedLensDigest, (string)($member['lens_contract_digest'] ?? ''))
+            ) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** @param array<string,mixed> $synthesis @param array<string,mixed> $panel @param array<string,mixed> $answer */
+    private function withPanelMetadata(array $synthesis, array $panel, array $answer): array
+    {
+        $panelContract = $this->panelContract($panel);
+        $panelContractDigest = $this->digest($panelContract);
+        $selected = [];
+        foreach ((array)($panelContract['selected_lenses'] ?? []) as $lens) {
+            if (!is_array($lens)) {
+                continue;
+            }
+            $selected[] = array_merge($lens, [
                 'source_names' => array_values(array_filter(array_map(
                     static fn(mixed $source): string => is_array($source)
                         ? mb_substr(trim((string)($source['name'] ?? '')), 0, 60)
                         : '',
                     (array)($lens['source_lenses'] ?? [])
                 ))),
-            ];
+                'contract_digest' => $this->lensContractDigest(
+                    $panelContract,
+                    (string)($lens['key'] ?? '')
+                ),
+            ]);
         }
         $primaryActionAvailable = array_values(array_filter(
             is_array($answer['action_drafts'] ?? null) ? $answer['action_drafts'] : [],
@@ -1088,6 +1986,8 @@ final class OperatingQuestionCouncilService
         $synthesis['advisory_contract_version'] = (string)($panel['contract_version'] ?? '');
         $synthesis['advisory_method_version'] = (string)($panel['method_version'] ?? '');
         $synthesis['advisory_source'] = is_array($panel['source'] ?? null) ? $panel['source'] : [];
+        $synthesis['advisory_panel_contract'] = $panelContract;
+        $synthesis['advisory_panel_contract_digest'] = $panelContractDigest;
         $synthesis['selected_lenses'] = $selected;
         $synthesis['selection_contract'] = is_array($panel['selection_contract'] ?? null)
             ? $panel['selection_contract']
@@ -1156,7 +2056,16 @@ final class OperatingQuestionCouncilService
         return $normalized;
     }
 
-    private function assertDigest(array $readback): void
+    /** @param array<string,mixed> $readback @return array<string,mixed> */
+    private function withPersistedContractVersion(array $readback): array
+    {
+        $version = $this->assertDigest($readback);
+        $readback['persisted_contract_version'] = $version;
+        $readback['legacy_migration_required'] = $version !== self::CONTRACT_VERSION;
+        return $readback;
+    }
+
+    private function assertDigest(array $readback): string
     {
         $record = array_intersect_key($readback, array_flip([
             'contract_version', 'tenant_id', 'hotel_id', 'question_id', 'request_key', 'mode',
@@ -1164,23 +2073,1000 @@ final class OperatingQuestionCouncilService
         ]));
         $actual = (string)$readback['content_digest'];
         if (hash_equals($actual, $this->digest($record))) {
-            return;
+            return self::CONTRACT_VERSION;
         }
         foreach (self::LEGACY_CONTRACT_VERSIONS as $legacyVersion) {
             $record['contract_version'] = $legacyVersion;
             if (hash_equals($actual, $this->digest($record))) {
-                return;
+                return $legacyVersion;
             }
         }
         throw new RuntimeException('经营顾问会诊保存后摘要不一致');
+    }
+
+    /** @param list<int> $hotelIds @return list<int> */
+    private function normalizeHotelIds(array $hotelIds): array
+    {
+        return array_values(array_unique(array_filter(
+            array_map('intval', $hotelIds),
+            static fn(int $hotelId): bool => $hotelId > 0
+        )));
+    }
+
+    /** @return array<string,mixed>|null */
+    private function findRunByRequestKey(
+        int $tenantId,
+        int $hotelId,
+        int $questionId,
+        string $requestKey
+    ): ?array {
+        $requestKey = strtolower(trim($requestKey));
+        $row = Db::name(self::TABLE)
+            ->where('tenant_id', $tenantId)
+            ->where('hotel_id', $hotelId)
+            ->where('question_id', $questionId)
+            ->whereRaw('LOWER(`request_key`) = :council_request_key', [
+                'council_request_key' => $requestKey,
+            ])
+            ->order('id', 'asc')
+            ->find();
+        return is_array($row) ? $row : null;
+    }
+
+    private function lockQuestionForCouncilReservation(int $tenantId, int $hotelId, int $questionId): void
+    {
+        $driver = strtolower((string)Db::connect()->getConfig('type'));
+        if ($driver === 'sqlite') {
+            Db::execute(
+                'UPDATE `' . OperatingQuestionService::TABLE . '` SET `id` = `id`'
+                . ' WHERE `id` = ? AND `tenant_id` = ? AND `hotel_id` = ?',
+                [$questionId, $tenantId, $hotelId]
+            );
+            $locked = Db::name(OperatingQuestionService::TABLE)
+                ->where('id', $questionId)
+                ->where('tenant_id', $tenantId)
+                ->where('hotel_id', $hotelId)
+                ->find();
+        } else {
+            $locked = Db::name(OperatingQuestionService::TABLE)
+                ->where('id', $questionId)
+                ->where('tenant_id', $tenantId)
+                ->where('hotel_id', $hotelId)
+                ->lock(true)
+                ->find();
+        }
+        if (!is_array($locked)) {
+            throw new RuntimeException('经营顾问会诊权威问题锁定失败');
+        }
+    }
+
+    /** @return array<string,mixed>|null */
+    private function findActiveRun(int $tenantId, int $hotelId, int $questionId): ?array
+    {
+        $row = Db::name(self::TABLE)
+            ->where('tenant_id', $tenantId)
+            ->where('hotel_id', $hotelId)
+            ->where('question_id', $questionId)
+            ->whereIn('status', ['pending', 'running'])
+            ->order('id', 'asc')
+            ->find();
+        return is_array($row) ? $row : null;
+    }
+
+    /**
+     * @param list<string> $completedLensKeys
+     * @param list<string> $remainingLensKeys
+     * @return array<string,mixed>
+     */
+    private function pendingSynthesis(
+        string $stage,
+        array $completedLensKeys,
+        array $remainingLensKeys,
+        string $packetDigest = ''
+    ): array {
+        return [
+            'status' => 'pending',
+            'summary' => $stage === 'queued'
+                ? '会诊已保留，后台 worker 将逐个完成视角检查并在最后汇总。'
+                : '会诊正在后台运行，已完成的视角检查已保存，中断后可继续。',
+            'agreements' => [],
+            'conflicts' => [],
+            'missing_information' => [],
+            'falsification_checks' => [],
+            'recommended_next_step' => '',
+            'evidence_refs' => [],
+            'error_code' => '',
+            'worker' => [
+                'status' => $stage === 'queued' ? 'queued' : 'running',
+                'stage' => $stage,
+                'completed_lens_keys' => array_values(array_unique($completedLensKeys)),
+                'remaining_lens_keys' => array_values(array_unique($remainingLensKeys)),
+                'evidence_packet_digest' => $packetDigest,
+                'checkpoint_resume_supported' => true,
+            ],
+        ];
+    }
+
+    /** @param list<array<string,mixed>> $rows @return array<string,array<string,mixed>> */
+    private function rowsByKey(array $rows, string $field): array
+    {
+        $indexed = [];
+        foreach ($rows as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+            $key = trim((string)($row[$field] ?? ''));
+            if ($key !== '') {
+                $indexed[$key] = $row;
+            }
+        }
+        return $indexed;
+    }
+
+    /**
+     * @param list<string> $keys
+     * @param array<string,array<string,mixed>> $rows
+     * @return list<array<string,mixed>>
+     */
+    private function orderedRows(array $keys, array $rows): array
+    {
+        $ordered = [];
+        foreach ($keys as $key) {
+            if (is_array($rows[$key] ?? null)) {
+                $ordered[] = $rows[$key];
+                unset($rows[$key]);
+            }
+        }
+        foreach ($rows as $row) {
+            if (is_array($row)) {
+                $ordered[] = $row;
+            }
+        }
+        return $ordered;
+    }
+
+    /** @param array<string,array<string,mixed>> $membersByKey @return list<string> */
+    private function evidenceRefsForMembers(array $membersByKey): array
+    {
+        $refs = [];
+        foreach ($membersByKey as $member) {
+            foreach ((array)($member['evidence_refs'] ?? []) as $ref) {
+                $ref = trim((string)$ref);
+                if ($ref !== '') {
+                    $refs[$ref] = true;
+                }
+            }
+        }
+        return array_keys($refs);
+    }
+
+    /**
+     * Worker-only fenced update. The digest binds the lease hash, so matching
+     * both the previous digest and the in-memory lease prevents an older worker
+     * from writing after a reconnect or a newer lease claim.
+     *
+     * @param list<array<string,mixed>> $members
+     * @param array<string,mixed> $synthesis
+     * @param list<string> $evidenceRefs
+     * @param list<array<string,mixed>> $modelMeta
+     * @return array<string,mixed>
+     */
+    private function persistRunStateCas(
+        int $runId,
+        int $tenantId,
+        int $hotelId,
+        int $questionId,
+        string $requestKey,
+        string $status,
+        array $members,
+        array $synthesis,
+        array $evidenceRefs,
+        array $modelMeta,
+        string $expectedDigest,
+        string $leaseToken
+    ): array {
+        $current = $this->read($runId, $tenantId, [$hotelId]);
+        if (!hash_equals((string)$current['content_digest'], $expectedDigest)
+            || !$this->workerLeaseMatches($current, $leaseToken)
+        ) {
+            throw new RuntimeException('council_worker_fencing_conflict');
+        }
+        if (!$this->workerLeaseValidForWrite($current, $leaseToken)) {
+            throw new RuntimeException('council_worker_lease_expired');
+        }
+        $databaseEpoch = $this->databaseEpoch();
+        $leaseExpiresEpoch = $databaseEpoch + self::WORKER_LEASE_SECONDS;
+        $worker = array_merge(
+            is_array($current['synthesis']['worker'] ?? null) ? $current['synthesis']['worker'] : [],
+            is_array($synthesis['worker'] ?? null) ? $synthesis['worker'] : [],
+            [
+                'lease_token_hash' => hash('sha256', $leaseToken),
+                'fencing_token_hash' => hash('sha256', $leaseToken),
+                'heartbeat_at' => date(DATE_ATOM, $databaseEpoch),
+                'heartbeat_epoch' => $databaseEpoch,
+                'lease_expires_at' => date(DATE_ATOM, $leaseExpiresEpoch),
+                'lease_expires_epoch' => $leaseExpiresEpoch,
+                'checkpoint_resume_supported' => true,
+            ]
+        );
+        $synthesis['worker'] = $worker;
+        $record = [
+            'contract_version' => self::CONTRACT_VERSION,
+            'tenant_id' => $tenantId,
+            'hotel_id' => $hotelId,
+            'question_id' => $questionId,
+            'request_key' => $requestKey,
+            'mode' => 'shadow',
+            'status' => $status,
+            'members' => array_values($members),
+            'synthesis' => $synthesis,
+            'evidence_refs' => array_values(array_unique(array_filter(array_map('strval', $evidenceRefs)))),
+            'model_meta' => array_values($modelMeta),
+            'decision_effect' => 'none',
+        ];
+        $nextDigest = $this->digest($record);
+        $updateQuery = Db::name(self::TABLE)
+            ->where('id', $runId)
+            ->where('tenant_id', $tenantId)
+            ->where('hotel_id', $hotelId)
+            ->where('question_id', $questionId)
+            ->where('request_key', $requestKey)
+            ->where('status', 'running')
+            ->where('content_digest', $expectedDigest);
+        $updateQuery = $this->withWorkerLeaseTimePredicate($updateQuery, $current, true);
+        $changed = (int)$updateQuery->update([
+                'status' => $status,
+                'members_json' => $this->encode($record['members']),
+                'synthesis_json' => $this->encode($synthesis),
+                'evidence_refs_json' => $this->encode($record['evidence_refs']),
+                'model_meta_json' => $this->encode($record['model_meta']),
+                'decision_effect' => 'none',
+                'content_digest' => $nextDigest,
+                'updated_at' => date('Y-m-d H:i:s'),
+            ]);
+        if ($changed !== 1) {
+            throw new RuntimeException('council_worker_fencing_conflict');
+        }
+        $readback = $this->read($runId, $tenantId, [$hotelId]);
+        if (!hash_equals($nextDigest, (string)$readback['content_digest'])
+            || !$this->workerLeaseMatches($readback, $leaseToken)
+        ) {
+            throw new RuntimeException('council_worker_checkpoint_readback_failed');
+        }
+        return $readback;
+    }
+
+    private function workerLeaseMatches(array $run, string $leaseToken): bool
+    {
+        $expected = strtolower(trim((string)(
+            $run['synthesis']['worker']['fencing_token_hash']
+            ?? $run['synthesis']['worker']['lease_token_hash']
+            ?? ''
+        )));
+        return $leaseToken !== ''
+            && preg_match('/^[a-f0-9]{64}$/D', $expected) === 1
+            && hash_equals($expected, hash('sha256', $leaseToken));
+    }
+
+    private function workerLeaseValidForWrite(array $run, string $leaseToken): bool
+    {
+        return $this->workerLeaseMatches($run, $leaseToken)
+            && !$this->workerLeaseExpired($run);
+    }
+
+    private function databaseEpoch(): int
+    {
+        $driver = strtolower((string)Db::connect()->getConfig('type'));
+        $rows = match ($driver) {
+            'sqlite' => Db::query("SELECT CAST(strftime('%s', 'now') AS INTEGER) AS epoch"),
+            'mysql', 'mariadb' => Db::query('SELECT UNIX_TIMESTAMP() AS epoch'),
+            default => throw new RuntimeException('council_database_clock_unsupported'),
+        };
+        $epoch = (int)($rows[0]['epoch'] ?? 0);
+        if ($epoch <= 0) {
+            throw new RuntimeException('council_database_clock_unavailable');
+        }
+        return $epoch;
+    }
+
+    private function workerLeaseExpiryEpoch(array $run): int
+    {
+        $epoch = (int)($run['synthesis']['worker']['lease_expires_epoch'] ?? 0);
+        if ($epoch > 0) {
+            return $epoch;
+        }
+        return strtotime((string)($run['synthesis']['worker']['lease_expires_at'] ?? '')) ?: 0;
+    }
+
+    /**
+     * Adds the database-clock half of the lease CAS. content_digest already binds
+     * the full worker JSON; this predicate additionally prevents an expired owner
+     * from renewing itself and keeps reclaim separate from checkpoint writes.
+     */
+    private function withWorkerLeaseTimePredicate(object $query, array $run, bool $requireUnexpired): object
+    {
+        $operator = $requireUnexpired ? '>' : '<=';
+        $driver = strtolower((string)Db::connect()->getConfig('type'));
+        $storedEpoch = (int)($run['synthesis']['worker']['lease_expires_epoch'] ?? 0);
+        if ($storedEpoch > 0) {
+            if ($driver === 'sqlite') {
+                $epochExpression = "CAST(json_extract(`synthesis_json`, '$.worker.lease_expires_epoch') AS INTEGER)";
+                $clockExpression = "CAST(strftime('%s', 'now') AS INTEGER)";
+            } elseif (in_array($driver, ['mysql', 'mariadb'], true)) {
+                $epochExpression = "CAST(JSON_UNQUOTE(JSON_EXTRACT(`synthesis_json`, '$.worker.lease_expires_epoch')) AS UNSIGNED)";
+                $clockExpression = 'UNIX_TIMESTAMP()';
+            } else {
+                return $query->whereRaw('1 = 0');
+            }
+            return $query->whereRaw(
+                "{$epochExpression} = :council_lease_expiry_epoch AND {$epochExpression} {$operator} {$clockExpression}",
+                ['council_lease_expiry_epoch' => $storedEpoch]
+            );
+        }
+
+        $storedAt = trim((string)($run['synthesis']['worker']['lease_expires_at'] ?? ''));
+        if ($storedAt === '') {
+            return $query->whereRaw('1 = 0');
+        }
+        if ($driver === 'sqlite') {
+            $timeExpression = "json_extract(`synthesis_json`, '$.worker.lease_expires_at')";
+        } elseif (in_array($driver, ['mysql', 'mariadb'], true)) {
+            $timeExpression = "JSON_UNQUOTE(JSON_EXTRACT(`synthesis_json`, '$.worker.lease_expires_at'))";
+        } else {
+            return $query->whereRaw('1 = 0');
+        }
+        return $query->whereRaw(
+            "{$timeExpression} = :council_lease_expiry_at AND {$timeExpression} {$operator} :council_lease_now_at",
+            [
+                'council_lease_expiry_at' => $storedAt,
+                'council_lease_now_at' => date(DATE_ATOM, $this->databaseEpoch()),
+            ]
+        );
+    }
+
+    private function workerLeaseExpired(array $run): bool
+    {
+        $expiresAt = $this->workerLeaseExpiryEpoch($run);
+        return $expiresAt <= 0 || $expiresAt <= $this->databaseEpoch();
+    }
+
+    private function acquireWorkerLock(int $runId): bool
+    {
+        $name = 'suxi_council_run_' . max(0, $runId);
+        try {
+            $rows = Db::query("SELECT GET_LOCK('" . $name . "', 0) AS acquired");
+            return (int)($rows[0]['acquired'] ?? 0) === 1;
+        } catch (Throwable $e) {
+            $message = strtolower($e->getMessage());
+            return str_contains($message, 'no such function')
+                || str_contains($message, 'near "get_lock"')
+                || str_contains($message, 'syntax error');
+        }
+    }
+
+    private function releaseWorkerLock(int $runId): void
+    {
+        $name = 'suxi_council_run_' . max(0, $runId);
+        try {
+            Db::query("SELECT RELEASE_LOCK('" . $name . "') AS released");
+        } catch (Throwable) {
+            // SQLite tests have no advisory-lock function; process-local execution is serial.
+        }
+    }
+
+    /** @return array{prepared:bool,run:array<string,mixed>,dispatch_attempt_id?:string,expected_lease_generation?:int,receipt?:array<string,mixed>} */
+    private function prepareDispatchAttempt(array $run, bool $retryFailed): array
+    {
+        $persistedVersion = (string)($run['persisted_contract_version'] ?? self::CONTRACT_VERSION);
+        $status = (string)$run['status'];
+        $legacyUpgrade = $persistedVersion !== self::CONTRACT_VERSION;
+        if ($legacyUpgrade) {
+            $worker = is_array($run['synthesis']['worker'] ?? null) ? $run['synthesis']['worker'] : [];
+            $hasLease = trim((string)($worker['fencing_token_hash'] ?? $worker['lease_token_hash'] ?? '')) !== ''
+                || $this->workerLeaseExpiryEpoch($run) > 0;
+            $updatedAt = strtotime((string)($run['updated_at'] ?? '')) ?: 0;
+            $stale = $updatedAt > 0
+                && $this->databaseEpoch() - $updatedAt >= self::PENDING_REDISPATCH_SECONDS;
+            if ($persistedVersion !== 'operating_question_council.v5'
+                || $status !== 'running'
+                || $hasLease
+            ) {
+                return [
+                    'prepared' => false,
+                    'run' => $run,
+                    'receipt' => [
+                        'status' => 'legacy_migration_required',
+                        'acknowledged' => false,
+                        'persisted' => true,
+                        'run_id' => (int)$run['id'],
+                        'observed_status' => $status,
+                    ],
+                ];
+            }
+            if (!$stale) {
+                return [
+                    'prepared' => false,
+                    'run' => $run,
+                    'receipt' => [
+                        'status' => 'legacy_worker_recent_busy',
+                        'acknowledged' => false,
+                        'persisted' => true,
+                        'run_id' => (int)$run['id'],
+                        'observed_status' => $status,
+                    ],
+                ];
+            }
+        }
+
+        $attemptId = bin2hex(random_bytes(16));
+        $expectedGeneration = max(0, (int)($run['synthesis']['worker']['lease_generation'] ?? 0)) + 1;
+        $synthesis = is_array($run['synthesis'] ?? null) ? $run['synthesis'] : [];
+        $worker = is_array($synthesis['worker'] ?? null) ? $synthesis['worker'] : [];
+        unset($worker['start_receipt'], $worker['last_dispatch_receipt']);
+        $worker['status'] = 'dispatching';
+        $worker['stage'] = 'dispatching';
+        $worker['dispatch_attempt_id'] = $attemptId;
+        $worker['dispatch_expected_lease_generation'] = $expectedGeneration;
+        $worker['dispatch_source_digest'] = (string)$run['content_digest'];
+        $worker['dispatch_retry_failed'] = $retryFailed;
+        $worker['dispatch_started_epoch'] = $this->databaseEpoch();
+        $worker['dispatch_started_at'] = date(DATE_ATOM, (int)$worker['dispatch_started_epoch']);
+        $synthesis['worker'] = $worker;
+        $record = [
+            'contract_version' => self::CONTRACT_VERSION,
+            'tenant_id' => (int)$run['tenant_id'],
+            'hotel_id' => (int)$run['hotel_id'],
+            'question_id' => (int)$run['question_id'],
+            'request_key' => (string)$run['request_key'],
+            'mode' => (string)$run['mode'],
+            'status' => $status,
+            'members' => (array)$run['members'],
+            'synthesis' => $synthesis,
+            'evidence_refs' => (array)$run['evidence_refs'],
+            'model_meta' => (array)$run['model_meta'],
+            'decision_effect' => 'none',
+        ];
+        $nextDigest = $this->digest($record);
+        $query = Db::name(self::TABLE)
+            ->where('id', (int)$run['id'])
+            ->where('tenant_id', (int)$run['tenant_id'])
+            ->where('hotel_id', (int)$run['hotel_id'])
+            ->where('question_id', (int)$run['question_id'])
+            ->where('request_key', (string)$run['request_key'])
+            ->where('status', $status)
+            ->where('content_digest', (string)$run['content_digest']);
+        if ($status === 'running') {
+            if ($legacyUpgrade) {
+                $query->where('updated_at', (string)$run['updated_at']);
+                $driver = strtolower((string)Db::connect()->getConfig('type'));
+                $leaseExpression = $driver === 'sqlite'
+                    ? "COALESCE(json_extract(`synthesis_json`, '$.worker.fencing_token_hash'), '') = ''"
+                    : "COALESCE(JSON_UNQUOTE(JSON_EXTRACT(`synthesis_json`, '$.worker.fencing_token_hash')), '') = ''";
+                $query->whereRaw($leaseExpression);
+            } else {
+                $query = $this->withWorkerLeaseTimePredicate($query, $run, false);
+            }
+        }
+        $changed = (int)$query->update([
+            'synthesis_json' => $this->encode($synthesis),
+            'content_digest' => $nextDigest,
+            'updated_at' => date('Y-m-d H:i:s'),
+        ]);
+        if ($changed !== 1) {
+            return [
+                'prepared' => false,
+                'run' => $this->read((int)$run['id'], (int)$run['tenant_id'], [(int)$run['hotel_id']]),
+            ];
+        }
+        $preparedRun = $this->read((int)$run['id'], (int)$run['tenant_id'], [(int)$run['hotel_id']]);
+        return [
+            'prepared' => true,
+            'run' => $preparedRun,
+            'dispatch_attempt_id' => $attemptId,
+            'expected_lease_generation' => $expectedGeneration,
+        ];
+    }
+
+    /** @return array{run:array<string,mixed>,receipt:array<string,mixed>} */
+    private function dispatchWorker(array $run, bool $retryFailed): array
+    {
+        $prepared = $this->prepareDispatchAttempt($run, $retryFailed);
+        if (($prepared['prepared'] ?? false) !== true) {
+            if (is_array($prepared['receipt'] ?? null)) {
+                return ['run' => $prepared['run'], 'receipt' => $prepared['receipt']];
+            }
+            return $this->awaitExistingWorkerStartReceipt($prepared['run']);
+        }
+        $run = $prepared['run'];
+        $runId = (int)$run['id'];
+        $tenantId = (int)$run['tenant_id'];
+        $hotelId = (int)$run['hotel_id'];
+        $parentDigest = (string)$run['content_digest'];
+        $attemptId = (string)$prepared['dispatch_attempt_id'];
+        $expectedGeneration = (int)$prepared['expected_lease_generation'];
+        $launched = $this->workerLauncher !== null
+            ? call_user_func($this->workerLauncher, $runId, $tenantId, $hotelId, $parentDigest, $retryFailed)
+            : $this->launchBackgroundWorker($runId, $tenantId, $hotelId, $parentDigest, $retryFailed);
+        $launch = is_array($launched)
+            ? $launched
+            : ['started' => (bool)$launched, 'exit_code' => null];
+        $started = ($launch['started'] ?? false) === true;
+        $exitCode = array_key_exists('exit_code', $launch) && $launch['exit_code'] !== null
+            ? (int)$launch['exit_code']
+            : null;
+        if (!$started || ($exitCode !== null && $exitCode !== 0)) {
+            return $this->recordDispatchFailureCas($run, [
+                'status' => $exitCode !== null && $exitCode !== 0
+                    ? 'worker_exited_before_ack'
+                    : 'launch_failed',
+                'acknowledged' => false,
+                'run_id' => $runId,
+                'parent_digest' => $parentDigest,
+                'dispatch_parent_digest' => $parentDigest,
+                'dispatch_attempt_id' => $attemptId,
+                'expected_lease_generation' => $expectedGeneration,
+                'exit_code' => $exitCode,
+                'recorded_at' => date(DATE_ATOM),
+            ]);
+        }
+        $ack = $this->awaitWorkerStartReceipt(
+            $runId,
+            $tenantId,
+            $hotelId,
+            $parentDigest,
+            $attemptId,
+            $expectedGeneration
+        );
+        if (($ack['receipt']['acknowledged'] ?? false) === true) {
+            return $ack;
+        }
+        return $this->recordDispatchFailureCas($run, array_merge($ack['receipt'], [
+            'status' => 'ack_timeout',
+            'acknowledged' => false,
+            'recorded_at' => date(DATE_ATOM),
+        ]));
+    }
+
+    /** @return array{run:array<string,mixed>,receipt:array<string,mixed>} */
+    private function awaitExistingWorkerStartReceipt(array $run): array
+    {
+        $existing = $this->currentWorkerReceipt($run, 'awaiting_existing_worker');
+        if (in_array((string)$existing['status'], ['already_running', 'terminal_observed'], true)) {
+            return ['run' => $run, 'receipt' => $existing];
+        }
+        $attemptId = trim((string)($run['synthesis']['worker']['dispatch_attempt_id'] ?? ''));
+        $generation = (int)($run['synthesis']['worker']['dispatch_expected_lease_generation'] ?? 0);
+        if (preg_match('/^[a-f0-9]{32}$/D', $attemptId) !== 1 || $generation <= 0) {
+            return ['run' => $run, 'receipt' => $existing];
+        }
+        $ack = $this->awaitWorkerStartReceipt(
+            (int)$run['id'],
+            (int)$run['tenant_id'],
+            (int)$run['hotel_id'],
+            (string)$run['content_digest'],
+            $attemptId,
+            $generation
+        );
+        if (($ack['receipt']['acknowledged'] ?? false) !== true) {
+            return $ack;
+        }
+        $receipt = $ack['receipt'];
+        $receipt['status'] = 'already_running';
+        $receipt['acknowledged'] = false;
+        $receipt['existing_active_worker'] = true;
+        return ['run' => $ack['run'], 'receipt' => $receipt];
+    }
+
+    /** @return array{run:array<string,mixed>,receipt:array<string,mixed>} */
+    private function awaitWorkerStartReceipt(
+        int $runId,
+        int $tenantId,
+        int $hotelId,
+        string $parentDigest,
+        string $dispatchAttemptId,
+        int $expectedGeneration
+    ): array {
+        $deadline = microtime(true) + (self::WORKER_ACK_TIMEOUT_MILLISECONDS / 1000);
+        do {
+            $current = $this->read($runId, $tenantId, [$hotelId]);
+            $start = is_array($current['synthesis']['worker']['start_receipt'] ?? null)
+                ? $current['synthesis']['worker']['start_receipt']
+                : [];
+            $parentMatches = preg_match('/^[a-f0-9]{64}$/D', $parentDigest) === 1
+                && hash_equals((string)($start['parent_digest'] ?? ''), $parentDigest);
+            $generationMatches = $expectedGeneration > 0
+                && (int)($start['lease_generation'] ?? 0) === $expectedGeneration
+                && (int)($current['synthesis']['worker']['lease_generation'] ?? 0) === $expectedGeneration;
+            $attemptMatches = preg_match('/^[a-f0-9]{32}$/D', $dispatchAttemptId) === 1
+                && hash_equals((string)($start['dispatch_attempt_id'] ?? ''), $dispatchAttemptId);
+            $activeOrTerminal = in_array((string)$current['status'], self::TERMINAL_STATUSES, true)
+                || ((string)$current['status'] === 'running' && !$this->workerLeaseExpired($current));
+            if (($start['status'] ?? '') === 'acknowledged'
+                && (int)($start['run_id'] ?? 0) === $runId
+                && $parentMatches
+                && $generationMatches
+                && $attemptMatches
+                && $activeOrTerminal
+            ) {
+                return [
+                    'run' => $current,
+                    'receipt' => [
+                        'status' => 'acknowledged',
+                        'acknowledged' => true,
+                        'run_id' => $runId,
+                        'parent_digest' => (string)($start['parent_digest'] ?? ''),
+                        'dispatch_parent_digest' => $parentDigest,
+                        'dispatch_attempt_id' => $dispatchAttemptId,
+                        'lease_generation' => (int)($start['lease_generation'] ?? 0),
+                        'expected_lease_generation' => $expectedGeneration,
+                        'started_at' => (string)($start['started_at'] ?? ''),
+                        'observed_status' => (string)$current['status'],
+                        'exit_code' => null,
+                        'persisted' => true,
+                    ],
+                ];
+            }
+            $history = is_array($current['synthesis']['worker']['dispatch_history'] ?? null)
+                ? $current['synthesis']['worker']['dispatch_history']
+                : [];
+            $lastDispatch = is_array($history[array_key_last($history)] ?? null)
+                ? $history[array_key_last($history)]
+                : [];
+            if (hash_equals((string)($lastDispatch['dispatch_attempt_id'] ?? ''), $dispatchAttemptId)
+                && ($lastDispatch['acknowledged'] ?? false) === false
+            ) {
+                return [
+                    'run' => $current,
+                    'receipt' => array_merge($lastDispatch, [
+                        'observed_status' => (string)$current['status'],
+                    ]),
+                ];
+            }
+            usleep(self::WORKER_ACK_POLL_MICROSECONDS);
+        } while (microtime(true) < $deadline);
+        $current = $this->read($runId, $tenantId, [$hotelId]);
+        return [
+            'run' => $current,
+            'receipt' => [
+                'status' => 'ack_timeout',
+                'acknowledged' => false,
+                'run_id' => $runId,
+                'parent_digest' => $parentDigest,
+                'dispatch_parent_digest' => $parentDigest,
+                'dispatch_attempt_id' => $dispatchAttemptId,
+                'expected_lease_generation' => $expectedGeneration,
+                'observed_status' => (string)$current['status'],
+                'persisted' => false,
+            ],
+        ];
+    }
+
+    /** @return array{run:array<string,mixed>,receipt:array<string,mixed>} */
+    private function recordDispatchFailureCas(array $run, array $receipt): array
+    {
+        $current = $this->read((int)$run['id'], (int)$run['tenant_id'], [(int)$run['hotel_id']]);
+        $expectedLeaseHash = (string)(
+            $run['synthesis']['worker']['fencing_token_hash']
+            ?? $run['synthesis']['worker']['lease_token_hash']
+            ?? ''
+        );
+        $currentLeaseHash = (string)(
+            $current['synthesis']['worker']['fencing_token_hash']
+            ?? $current['synthesis']['worker']['lease_token_hash']
+            ?? ''
+        );
+        $dispatchAttemptId = trim((string)($receipt['dispatch_attempt_id'] ?? ''));
+        $currentAttemptId = trim((string)($current['synthesis']['worker']['dispatch_attempt_id'] ?? ''));
+        if (!hash_equals((string)$current['content_digest'], (string)$run['content_digest'])
+            || !hash_equals($expectedLeaseHash, $currentLeaseHash)
+            || preg_match('/^[a-f0-9]{32}$/D', $dispatchAttemptId) !== 1
+            || !hash_equals($currentAttemptId, $dispatchAttemptId)
+        ) {
+            $newerReceipt = $this->currentWorkerReceipt($current, 'superseded_by_newer_state');
+            if (in_array((string)$newerReceipt['status'], ['already_running', 'terminal_observed'], true)) {
+                $newerReceipt['dispatch_failure'] = $receipt;
+                return ['run' => $current, 'receipt' => $newerReceipt];
+            }
+            return [
+                'run' => $current,
+                'receipt' => array_merge($receipt, [
+                    'status' => 'superseded_by_newer_state',
+                    'acknowledged' => false,
+                    'persisted' => false,
+                    'observed_status' => (string)$current['status'],
+                ]),
+            ];
+        }
+        $synthesis = is_array($current['synthesis'] ?? null) ? $current['synthesis'] : [];
+        $worker = is_array($synthesis['worker'] ?? null) ? $synthesis['worker'] : [];
+        $receipt = array_merge($receipt, ['persisted' => true]);
+        $history = is_array($worker['dispatch_history'] ?? null) ? $worker['dispatch_history'] : [];
+        $history[] = $receipt;
+        $worker['dispatch_history'] = array_slice($history, -10);
+        $worker['status'] = 'queued';
+        $worker['stage'] = 'dispatch_failed';
+        $worker['dispatch_attempt_id'] = '';
+        $worker['dispatch_expected_lease_generation'] = 0;
+        if ((string)$current['status'] === 'pending') {
+            $synthesis['status'] = 'pending';
+            $synthesis['summary'] = '会诊已保留，但本机后台 worker 未取得启动回执；可在页面重试。';
+            $synthesis['error_code'] = 'council_worker_dispatch_failed';
+        }
+        $synthesis['worker'] = $worker;
+        $record = [
+            'contract_version' => self::CONTRACT_VERSION,
+            'tenant_id' => (int)$current['tenant_id'],
+            'hotel_id' => (int)$current['hotel_id'],
+            'question_id' => (int)$current['question_id'],
+            'request_key' => (string)$current['request_key'],
+            'mode' => (string)$current['mode'],
+            'status' => (string)$current['status'],
+            'members' => (array)$current['members'],
+            'synthesis' => $synthesis,
+            'evidence_refs' => (array)$current['evidence_refs'],
+            'model_meta' => (array)$current['model_meta'],
+            'decision_effect' => 'none',
+        ];
+        $nextDigest = $this->digest($record);
+        $changed = (int)Db::name(self::TABLE)
+            ->where('id', (int)$current['id'])
+            ->where('tenant_id', (int)$current['tenant_id'])
+            ->where('hotel_id', (int)$current['hotel_id'])
+            ->where('question_id', (int)$current['question_id'])
+            ->where('request_key', (string)$current['request_key'])
+            ->where('status', (string)$current['status'])
+            ->where('content_digest', (string)$current['content_digest'])
+            ->update([
+                'synthesis_json' => $this->encode($synthesis),
+                'content_digest' => $nextDigest,
+                'updated_at' => date('Y-m-d H:i:s'),
+            ]);
+        if ($changed !== 1) {
+            $newer = $this->read((int)$current['id'], (int)$current['tenant_id'], [(int)$current['hotel_id']]);
+            $newerReceipt = $this->currentWorkerReceipt($newer, 'superseded_by_newer_state');
+            if (in_array((string)$newerReceipt['status'], ['already_running', 'terminal_observed'], true)) {
+                $newerReceipt['dispatch_failure'] = array_merge($receipt, ['persisted' => false]);
+                return ['run' => $newer, 'receipt' => $newerReceipt];
+            }
+            return [
+                'run' => $newer,
+                'receipt' => array_merge($receipt, [
+                    'status' => 'superseded_by_newer_state',
+                    'acknowledged' => false,
+                    'persisted' => false,
+                    'observed_status' => (string)$newer['status'],
+                ]),
+            ];
+        }
+        $saved = $this->read((int)$current['id'], (int)$current['tenant_id'], [(int)$current['hotel_id']]);
+        return ['run' => $saved, 'receipt' => $receipt];
+    }
+
+    private function withDispatchResponse(
+        array $run,
+        bool $created,
+        array $receipt,
+        bool $reusedActive = false
+    ): array
+    {
+        $exitCode = array_key_exists('exit_code', $receipt) && $receipt['exit_code'] !== null
+            ? (int)$receipt['exit_code']
+            : null;
+        $workerDispatched = (string)($receipt['status'] ?? '') === 'acknowledged'
+            && ($receipt['acknowledged'] ?? false) === true
+            && ($receipt['persisted'] ?? false) === true
+            && ($exitCode === null || $exitCode === 0)
+            && preg_match('/^[a-f0-9]{64}$/D', (string)($receipt['parent_digest'] ?? '')) === 1
+            && hash_equals(
+                (string)($receipt['parent_digest'] ?? ''),
+                (string)($receipt['dispatch_parent_digest'] ?? '')
+            )
+            && preg_match('/^[a-f0-9]{32}$/D', (string)($receipt['dispatch_attempt_id'] ?? '')) === 1
+            && (int)($receipt['lease_generation'] ?? 0) > 0
+            && (int)($receipt['lease_generation'] ?? 0) === (int)($receipt['expected_lease_generation'] ?? 0);
+        $run['created'] = $created;
+        $run['reused_active'] = $reusedActive;
+        $run['accepted'] = true;
+        $run['worker_dispatched'] = $workerDispatched;
+        $run['dispatch_parent_digest'] = (string)($receipt['dispatch_parent_digest'] ?? '');
+        $run['dispatch_attempt_id'] = (string)($receipt['dispatch_attempt_id'] ?? '');
+        $run['expected_lease_generation'] = (int)($receipt['expected_lease_generation'] ?? 0);
+        $run['worker_receipt'] = $receipt;
+        $run['persistence_status'] = 'readback_verified';
+        return $run;
+    }
+
+    /** @return array<string,mixed> */
+    private function currentWorkerReceipt(array $run, string $fallbackStatus): array
+    {
+        $start = is_array($run['synthesis']['worker']['start_receipt'] ?? null)
+            ? $run['synthesis']['worker']['start_receipt']
+            : [];
+        $generation = (int)($start['lease_generation'] ?? 0);
+        $parentDigest = strtolower(trim((string)($start['parent_digest'] ?? '')));
+        $dispatchAttemptId = trim((string)($start['dispatch_attempt_id'] ?? ''));
+        $startIdentityValid = ($start['status'] ?? '') === 'acknowledged'
+            && (int)($start['run_id'] ?? 0) === (int)$run['id']
+            && $generation > 0
+            && $generation === (int)($run['synthesis']['worker']['lease_generation'] ?? 0)
+            && preg_match('/^[a-f0-9]{32}$/D', $dispatchAttemptId) === 1
+            && hash_equals(
+                $dispatchAttemptId,
+                (string)($run['synthesis']['worker']['dispatch_attempt_id'] ?? '')
+            )
+            && preg_match('/^[a-f0-9]{64}$/D', $parentDigest) === 1;
+        if (in_array((string)$run['status'], self::TERMINAL_STATUSES, true)) {
+            return [
+                'status' => 'terminal_observed',
+                'acknowledged' => false,
+                'run_id' => (int)$run['id'],
+                'parent_digest' => $startIdentityValid ? $parentDigest : '',
+                'dispatch_parent_digest' => $startIdentityValid ? $parentDigest : '',
+                'dispatch_attempt_id' => $startIdentityValid ? $dispatchAttemptId : '',
+                'lease_generation' => $startIdentityValid ? $generation : 0,
+                'expected_lease_generation' => $startIdentityValid ? $generation : 0,
+                'started_at' => (string)($start['started_at'] ?? ''),
+                'observed_status' => (string)$run['status'],
+                'existing_active_worker' => false,
+                'exit_code' => null,
+                'persisted' => true,
+            ];
+        }
+        if ((string)$run['status'] === 'running'
+            && $startIdentityValid
+            && !$this->workerLeaseExpired($run)
+        ) {
+            return [
+                'status' => 'already_running',
+                'acknowledged' => false,
+                'run_id' => (int)$run['id'],
+                'parent_digest' => $parentDigest,
+                'dispatch_parent_digest' => $parentDigest,
+                'dispatch_attempt_id' => $dispatchAttemptId,
+                'lease_generation' => $generation,
+                'expected_lease_generation' => $generation,
+                'started_at' => (string)($start['started_at'] ?? ''),
+                'observed_status' => (string)$run['status'],
+                'existing_active_worker' => true,
+                'exit_code' => null,
+                'persisted' => true,
+            ];
+        }
+        return [
+            'status' => $fallbackStatus,
+            'acknowledged' => false,
+            'run_id' => (int)$run['id'],
+            'observed_status' => (string)$run['status'],
+            'persisted' => false,
+        ];
+    }
+
+    /** @return array<string,mixed> */
+    private function launchBackgroundWorker(
+        int $runId,
+        int $tenantId,
+        int $hotelId,
+        string $parentDigest,
+        bool $retryFailed
+    ): array
+    {
+        $root = dirname(__DIR__, 2);
+        $think = $root . DIRECTORY_SEPARATOR . 'think';
+        $php = $this->resolvePhpCliBinary();
+        if ($runId <= 0 || $tenantId <= 0 || $hotelId <= 0 || $php === '' || !is_file($think)) {
+            return ['started' => false, 'exit_code' => null];
+        }
+        $runtime = $root . DIRECTORY_SEPARATOR . 'runtime' . DIRECTORY_SEPARATOR . 'operating_question_council';
+        if (!is_dir($runtime) && !mkdir($runtime, 0775, true) && !is_dir($runtime)) {
+            return ['started' => false, 'exit_code' => null];
+        }
+        $arguments = [
+            $think,
+            self::WORKER_COMMAND,
+            '--run-id=' . $runId,
+            '--tenant-id=' . $tenantId,
+            '--hotel-id=' . $hotelId,
+            '--parent-digest=' . $parentDigest,
+        ];
+        if ($retryFailed) {
+            $arguments[] = '--retry-failed';
+        }
+        if (DIRECTORY_SEPARATOR === '\\') {
+            $command = self::buildWindowsWorkerLauncherCommand(
+                $php,
+                $arguments,
+                $root,
+                $runtime . DIRECTORY_SEPARATOR . 'run_' . $runId . '.stdout.log',
+                $runtime . DIRECTORY_SEPARATOR . 'run_' . $runId . '.stderr.log'
+            );
+        } else {
+            $log = $runtime . DIRECTORY_SEPARATOR . 'run_' . $runId . '.log';
+            $command = 'cd ' . escapeshellarg($root)
+                . ' && ' . implode(' ', array_map('escapeshellarg', [$php, ...$arguments]))
+                . ' >> ' . escapeshellarg($log) . ' 2>&1 &';
+        }
+        $handle = @popen($command, 'r');
+        if (!is_resource($handle)) {
+            return ['started' => false, 'exit_code' => null];
+        }
+        $launcherExitCode = pclose($handle);
+        return [
+            'started' => $launcherExitCode === 0,
+            'exit_code' => $launcherExitCode === 0 ? null : $launcherExitCode,
+        ];
+    }
+
+    /** @param list<string> $arguments */
+    public static function buildWindowsWorkerLauncherCommand(
+        string $php,
+        array $arguments,
+        string $root,
+        string $stdoutLog,
+        string $stderrLog
+    ): string {
+        $literal = static fn(string $value): string => "'" . str_replace("'", "''", $value) . "'";
+        $encodedArguments = array_map($literal, $arguments);
+        $script = '$ErrorActionPreference = \'Stop\'' . "\r\n"
+            . '$ProgressPreference = \'SilentlyContinue\'' . "\r\n"
+            . '$arguments = @(' . implode(', ', $encodedArguments) . ')' . "\r\n"
+            . '$process = Start-Process'
+            . ' -FilePath ' . $literal($php)
+            . ' -ArgumentList $arguments'
+            . ' -WorkingDirectory ' . $literal($root)
+            . ' -RedirectStandardOutput ' . $literal($stdoutLog)
+            . ' -RedirectStandardError ' . $literal($stderrLog)
+            . ' -WindowStyle Hidden -PassThru' . "\r\n"
+            . 'if ($null -eq $process) { throw \'Council worker did not start.\' }' . "\r\n";
+        $utf16 = function_exists('mb_convert_encoding')
+            ? mb_convert_encoding($script, 'UTF-16LE', 'UTF-8')
+            : iconv('UTF-8', 'UTF-16LE', $script);
+        if (!is_string($utf16) || $utf16 === '') {
+            throw new RuntimeException('经营顾问会诊 Windows worker 启动命令编码失败');
+        }
+        return 'powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand '
+            . base64_encode($utf16)
+            . ' > NUL 2>&1';
+    }
+
+    private function resolvePhpCliBinary(): string
+    {
+        $binary = trim((string)PHP_BINARY);
+        if ($binary === '') {
+            return '';
+        }
+        if (DIRECTORY_SEPARATOR !== '\\') {
+            return is_file($binary) ? $binary : '';
+        }
+        $candidates = [
+            $binary,
+            dirname($binary) . DIRECTORY_SEPARATOR . 'php.exe',
+            rtrim((string)PHP_BINDIR, "\\/") . DIRECTORY_SEPARATOR . 'php.exe',
+            dirname($binary, 3) . DIRECTORY_SEPARATOR . 'php' . DIRECTORY_SEPARATOR . 'php.exe',
+        ];
+        foreach (array_values(array_unique($candidates)) as $candidate) {
+            if (strtolower(basename($candidate)) === 'php.exe' && is_file($candidate)) {
+                return $candidate;
+            }
+        }
+        return '';
     }
 
     private function assertReady(): void
     {
         try {
             Db::name(self::TABLE)->limit(1)->select();
-        } catch (Throwable) {
-            throw new RuntimeException('多角色影子复核表尚未迁移', 503);
+        } catch (Throwable $e) {
+            $message = strtolower($e->getMessage());
+            $missing = str_contains($message, 'no such table')
+                || str_contains($message, 'base table or view not found')
+                || str_contains($message, "doesn't exist")
+                || str_contains($message, 'unknown table')
+                || (string)$e->getCode() === '42S02'
+                || (int)$e->getCode() === 1146;
+            if ($missing) {
+                throw new RuntimeException('多角色影子复核表尚未迁移', 503, $e);
+            }
+            throw new RuntimeException('经营顾问会诊存储就绪检查失败', 503, $e);
         }
     }
 

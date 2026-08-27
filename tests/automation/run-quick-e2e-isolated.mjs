@@ -70,6 +70,7 @@ const e2eProcessEnv = selfHosted
       DB_NAME: dedicatedDatabaseName,
       SUXI_E2E_DB_NAME: dedicatedDatabaseName,
       SUXI_E2E_DB_OVERRIDE: '1',
+      SUXI_DISABLE_MODEL_CALLS: '1',
       SUXIOS_CACHE_PATH: isolatedCachePath,
       SUXIOS_LOCAL_LOCK_PATH: isolatedLockPath,
     }

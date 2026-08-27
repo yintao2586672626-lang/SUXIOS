@@ -643,7 +643,7 @@ trait OperationExecutionPersistenceConcern
             ->select()
             ->toArray();
         $intent['tasks'] = array_map([$this, 'normalizeExecutionTaskRow'], $tasks);
-        return (new OperationActionLifecycleService())->decorateIntent($intent);
+        return (new OperationActionLifecycleService())->decorateCurrentDatabaseAggregate($intent);
     }
 
     private function executionTaskDetail(int $id, array $hotelIds): array

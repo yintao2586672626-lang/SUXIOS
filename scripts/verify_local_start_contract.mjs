@@ -56,7 +56,9 @@ if (!fs.existsSync(startupScriptPath)) {
     'Get-ProjectIdentity',
     'Test-RuntimeIdentity',
     'public_app_main_sha256=',
-    'serves a different public/app-main.min.js digest',
+    'runtime_asset_sha256=',
+    'verify_runtime_asset_identity.mjs',
+    'serves a different runtime asset manifest',
   ];
 
   for (const token of requiredTokens) {

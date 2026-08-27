@@ -3,68 +3,32 @@ declare(strict_types=1);
 
 namespace app\controller\concern;
 
+use app\service\BrowserProfileCaptureRequestService;
+
 trait CtripCaptureProcessConcern
 {
     private function runMeituanCaptureProcess(array $args, string $cwd, int $timeoutSeconds): array
     {
-        $command = implode(' ', array_map('escapeshellarg', $args));
-        $descriptors = [
-            0 => ['pipe', 'r'],
-            1 => ['pipe', 'w'],
-            2 => ['pipe', 'w'],
-        ];
-        $process = proc_open($command, $descriptors, $pipes, $cwd);
-        if (!is_resource($process)) {
-            return ['success' => false, 'message' => '无法启动美团抓取进程', 'stdout' => '', 'stderr' => ''];
+        $result = BrowserProfileCaptureRequestService::runCaptureProcess(
+            $args,
+            $cwd,
+            $timeoutSeconds,
+            ['label' => 'Meituan browser capture']
+        );
+        if (($result['process_started'] ?? null) === false) {
+            $result['message'] = '无法启动美团抓取进程';
+        } elseif (($result['process_tree_exit_confirmed'] ?? null) !== true) {
+            $result['message'] = '美团浏览器抓取进程树退出未确认，Profile 已保持锁定';
+        } elseif (($result['timed_out'] ?? null) === true) {
+            $result['message'] = '美团浏览器抓取超时，请确认弹出的浏览器已完成登录并能访问目标后台页面';
+        } elseif (($result['cancelled'] ?? null) === true) {
+            $result['message'] = '美团浏览器抓取已取消';
+        } elseif (($result['success'] ?? null) !== true
+            && !in_array((int)($result['exit_code'] ?? -1), [0, -1], true)
+        ) {
+            $result['message'] = '美团浏览器抓取失败，退出码 ' . (int)$result['exit_code'];
         }
-
-        fclose($pipes[0]);
-        stream_set_blocking($pipes[1], false);
-        stream_set_blocking($pipes[2], false);
-        $stdout = '';
-        $stderr = '';
-        $startedAt = time();
-        $timedOut = false;
-
-        while (true) {
-            $stdout .= (string)stream_get_contents($pipes[1]);
-            $stderr .= (string)stream_get_contents($pipes[2]);
-            $status = proc_get_status($process);
-            if (!$status['running']) {
-                break;
-            }
-            if (time() - $startedAt > $timeoutSeconds) {
-                $timedOut = true;
-                proc_terminate($process);
-                break;
-            }
-            usleep(250000);
-        }
-
-        $stdout .= (string)stream_get_contents($pipes[1]);
-        $stderr .= (string)stream_get_contents($pipes[2]);
-        fclose($pipes[1]);
-        fclose($pipes[2]);
-        $exitCode = proc_close($process);
-
-        if ($timedOut) {
-            return [
-                'success' => false,
-                'message' => '美团浏览器抓取超时，请确认弹出的浏览器已完成登录并能访问目标后台页面',
-                'stdout' => $stdout,
-                'stderr' => $stderr,
-            ];
-        }
-        if ($exitCode !== 0 && $exitCode !== -1) {
-            return [
-                'success' => false,
-                'message' => '美团浏览器抓取失败，退出码 ' . $exitCode,
-                'stdout' => $stdout,
-                'stderr' => $stderr,
-            ];
-        }
-
-        return ['success' => true, 'message' => 'ok', 'stdout' => $stdout, 'stderr' => $stderr];
+        return $result;
     }
 
     private function appendCtripApprovedMappingsArg(array $args, array $source, string $projectRoot): array

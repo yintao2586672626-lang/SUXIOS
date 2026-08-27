@@ -8,6 +8,7 @@ use app\service\OtaFailureNotificationService;
 use app\service\OtaProfileBindingService;
 use app\service\OtaProfileSessionProofService;
 use app\service\PlatformDataSyncService;
+use app\service\platform\BrowserProfileProcessOutputSanitizer;
 use think\console\Command;
 use think\console\Input;
 use think\console\Output;
@@ -18,6 +19,9 @@ use think\facade\Log;
 
 class PlatformProfileLogin extends Command
 {
+    /** @var array<string,mixed> */
+    private array $lastCaptureProcessResult = ['process_started' => false];
+
     protected function configure()
     {
         $this->setName('online-data:profile-login')
@@ -77,10 +81,14 @@ class PlatformProfileLogin extends Command
         }
 
         $exitCode = 1;
+        $this->lastCaptureProcessResult = ['process_started' => false];
         try {
             $exitCode = $this->runLoginTask($taskId, $task, $request, $output);
         } finally {
-            $this->releaseLock($lock);
+            BrowserProfileCaptureRequestService::finalizeProfileCaptureLock(
+                $lock,
+                $this->lastCaptureProcessResult
+            );
         }
 
         if ($exitCode === 0 && $this->shouldSyncDataSourceAfterProfileLogin($request)) {
@@ -117,6 +125,14 @@ class PlatformProfileLogin extends Command
         $logPath = (string)$task['log'];
         $timeout = max(60, min(900, (int)($request['timeout_seconds'] ?? 600)));
 
+        if (!BrowserProfileCaptureRequestService::prepareEphemeralCaptureFileForWrite($outputPath, true)
+            || !BrowserProfileCaptureRequestService::prepareEphemeralCaptureFileForWrite($logPath, true)
+        ) {
+            $failureProbe = ['performed' => false, 'status' => 'capture_failed'];
+            $this->finishFailed($taskId, $platform, $hotelId, $profileKey, '平台登录任务产物路径或权限不安全', $outputPath, $logPath, [], null, $failureProbe);
+            return 1;
+        }
+
         $this->writeTask($taskId, [
             'status' => 'browser_opened',
             'message' => ($platform === 'ctrip' ? '携程' : '美团') . '登录浏览器已打开，系统每 3 秒自动检测；登录成功后通常 10–15 秒内自动保存',
@@ -133,6 +149,31 @@ class PlatformProfileLogin extends Command
         }
 
         $result = $this->runProcess($args, $projectRoot, $timeout, $logPath);
+        $ephemeralArtifacts = [$outputPath, $logPath];
+        foreach ($args as $arg) {
+            if (str_starts_with((string)$arg, '--field-config=')) {
+                $ephemeralArtifacts[] = substr((string)$arg, strlen('--field-config='));
+            }
+        }
+        $result = BrowserProfileCaptureRequestService::quarantineEphemeralArtifactsIfUnconfirmed($result, $ephemeralArtifacts);
+        $this->lastCaptureProcessResult = $result;
+        if (!BrowserProfileCaptureRequestService::processTreeExitConfirmed($result)) {
+            $failureProbe = ['performed' => false, 'status' => 'capture_failed'];
+            $this->finishFailed(
+                $taskId,
+                $platform,
+                $hotelId,
+                $profileKey,
+                (string)($result['message'] ?? '浏览器登录进程树退出状态未确认'),
+                $outputPath,
+                $logPath,
+                [],
+                null,
+                $failureProbe
+            );
+            $output->writeln((string)($result['message'] ?? 'browser profile process tree exit unconfirmed'));
+            return 1;
+        }
         if (!$this->restrictProfileLoginArtifactPermissions([$outputPath, $logPath])) {
             $failureProbe = ['performed' => false, 'status' => 'capture_failed'];
             $this->persistProfileSessionBlockFromRequest($request, $platform, $hotelId, $profileKey, $failureProbe, 'capture_failed');
@@ -721,40 +762,25 @@ class PlatformProfileLogin extends Command
 
     private function runProcess(array $args, string $cwd, int $timeoutSeconds, string $logPath): array
     {
-        $command = implode(' ', array_map('escapeshellarg', $args));
-        $descriptors = [
-            0 => ['pipe', 'r'],
-            1 => ['file', $logPath, 'a'],
-            2 => ['file', $logPath, 'a'],
-        ];
-        $process = proc_open($command, $descriptors, $pipes, $cwd);
-        if (!is_resource($process)) {
-            return ['success' => false, 'message' => '无法启动浏览器登录进程'];
+        $result = BrowserProfileCaptureRequestService::runCaptureProcess(
+            $args,
+            $cwd,
+            $timeoutSeconds,
+            ['label' => 'Browser profile login']
+        );
+        $this->lastCaptureProcessResult = $result;
+        $diagnostic = trim((string)($result['stdout'] ?? ''));
+        $stderr = trim((string)($result['stderr'] ?? ''));
+        if ($stderr !== '') {
+            $diagnostic .= ($diagnostic !== '' ? PHP_EOL : '') . $stderr;
         }
-
-        fclose($pipes[0]);
-        $startedAt = time();
-        $timedOut = false;
-        while (true) {
-            $status = proc_get_status($process);
-            if (!$status['running']) {
-                break;
-            }
-            if (time() - $startedAt > $timeoutSeconds) {
-                $timedOut = true;
-                proc_terminate($process);
-                break;
-            }
-            sleep(1);
+        $diagnostic = BrowserProfileProcessOutputSanitizer::sanitizeLog($diagnostic, 1048576);
+        if ($diagnostic !== ''
+            && BrowserProfileCaptureRequestService::prepareEphemeralCaptureFileForWrite($logPath)
+        ) {
+            @file_put_contents($logPath, $diagnostic . PHP_EOL, FILE_APPEND | LOCK_EX);
         }
-        $exitCode = proc_close($process);
-        if ($timedOut) {
-            return ['success' => false, 'message' => '浏览器登录任务超时，请确认平台登录是否完成'];
-        }
-        if ($exitCode !== 0 && $exitCode !== -1) {
-            return ['success' => false, 'message' => '浏览器登录任务失败，退出码 ' . $exitCode];
-        }
-        return ['success' => true, 'message' => 'ok'];
+        return $result;
     }
 
     private function restrictProfileLoginArtifactPermissions(array $paths): bool
@@ -1579,30 +1605,16 @@ class PlatformProfileLogin extends Command
 
     private function acquireLock(string $platform, string $profileKey)
     {
-        $dir = dirname(__DIR__, 2) . DIRECTORY_SEPARATOR . 'runtime' . DIRECTORY_SEPARATOR . 'locks';
-        if (!is_dir($dir) && !mkdir($dir, 0775, true) && !is_dir($dir)) {
-            return null;
-        }
-        $path = $dir . DIRECTORY_SEPARATOR . 'profile_capture_' . $platform . '_' . $this->safeName($profileKey) . '.lock';
-        $handle = fopen($path, 'c+');
-        if (!$handle) {
-            return null;
-        }
-        if (!flock($handle, LOCK_EX | LOCK_NB)) {
-            fclose($handle);
-            return null;
-        }
-        ftruncate($handle, 0);
-        fwrite($handle, json_encode(['platform' => $platform, 'profile_key' => $profileKey, 'pid' => getmypid(), 'locked_at' => date('c')], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
-        return $handle;
+        return BrowserProfileCaptureRequestService::acquireProfileCaptureLock(
+            dirname(__DIR__, 2),
+            $platform,
+            $profileKey
+        );
     }
 
     private function releaseLock($lock): void
     {
-        if (is_resource($lock)) {
-            flock($lock, LOCK_UN);
-            fclose($lock);
-        }
+        BrowserProfileCaptureRequestService::releaseProfileCaptureLock($lock);
     }
 
     private function resolveNodeBinary(): string

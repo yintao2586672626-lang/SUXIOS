@@ -38,6 +38,12 @@ final class DatabaseSchemaClassificationTest extends TestCase
         Config::set($database, 'database');
         Db::connect(null, true);
         Db::execute('CREATE TABLE schema_present (id INTEGER PRIMARY KEY, name TEXT NOT NULL)');
+        Db::execute(
+            "CREATE TABLE schema_generated (validation_status TEXT NOT NULL, "
+            . "history_status TEXT GENERATED ALWAYS AS ("
+            . "CASE WHEN validation_status = 'verified' THEN 'success' ELSE 'partial' END"
+            . ") STORED)"
+        );
         Db::execute('CREATE VIEW schema_unreadable AS SELECT * FROM schema_missing_dependency');
     }
 
@@ -89,6 +95,21 @@ final class DatabaseSchemaClassificationTest extends TestCase
             self::assertSame('database_table_probe_failed:schema_unreadable', $exception->getMessage());
             self::assertStringNotContainsString('migration', strtolower($exception->getMessage()));
         }
+    }
+
+    public function testSqliteColumnInspectionIncludesGeneratedHistoryStatus(): void
+    {
+        $inspection = DatabaseSchemaRequirement::inspectTableColumns('schema_generated');
+
+        self::assertSame(DatabaseSchemaRequirement::STATUS_PRESENT, $inspection['status']);
+        self::assertSame(
+            ['validation_status', 'history_status'],
+            $inspection['columns']
+        );
+        DatabaseSchemaRequirement::assertTableColumns(
+            'schema_generated',
+            ['validation_status', 'history_status']
+        );
     }
 
     public function testAiEvaluationAndWecomAibotSurfaceUnreadableInsteadOfMissingMigration(): void

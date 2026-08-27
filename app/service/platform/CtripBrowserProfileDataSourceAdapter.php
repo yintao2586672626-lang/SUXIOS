@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace app\service\platform;
 
 use app\contract\DataSourceAdapter;
+use app\service\BrowserProfileCaptureRequestService;
 use app\service\CtripCollectorWorkflowService;
 use think\facade\Db;
 
@@ -30,6 +31,14 @@ final class CtripBrowserProfileDataSourceAdapter implements DataSourceAdapter
 
     /** @var callable|null */
     private $processRunner;
+
+    private bool $captureProcessTreesConfirmed = true;
+
+    /** @var array<string,mixed> */
+    private array $lastCaptureProcessResult = ['process_started' => false];
+
+    /** @var array<string,mixed> */
+    private array $firstUnconfirmedCaptureProcessResult = ['process_started' => false];
 
     public function __construct(?string $projectRoot = null, ?string $nodeBinary = null, ?callable $processRunner = null)
     {
@@ -175,6 +184,9 @@ final class CtripBrowserProfileDataSourceAdapter implements DataSourceAdapter
             : 1;
         $capturePlan = $this->resolveCtripCapturePlan($options, $config);
 
+        $this->captureProcessTreesConfirmed = true;
+        $this->lastCaptureProcessResult = ['process_started' => false];
+        $this->firstUnconfirmedCaptureProcessResult = ['process_started' => false];
         try {
             if ($cdpUrl === '' && $this->shouldCaptureSectionsSequentially($options, $sectionList)) {
                 return $this->runSequentialCaptureSections(
@@ -254,7 +266,12 @@ final class CtripBrowserProfileDataSourceAdapter implements DataSourceAdapter
 
             return $result;
         } finally {
-            $this->releaseLock($lock);
+            BrowserProfileCaptureRequestService::finalizeProfileCaptureLock(
+                $lock,
+                $this->captureProcessTreesConfirmed
+                    ? ['process_started' => false]
+                    : $this->firstUnconfirmedCaptureProcessResult
+            );
         }
     }
 
@@ -661,6 +678,9 @@ final class CtripBrowserProfileDataSourceAdapter implements DataSourceAdapter
             if (($result['status'] ?? '') === 'waiting_config') {
                 break;
             }
+            if ($this->isProcessSafetyFailureResult($result)) {
+                break;
+            }
         }
 
         if ($payloads === []) {
@@ -782,11 +802,18 @@ final class CtripBrowserProfileDataSourceAdapter implements DataSourceAdapter
             }
             $args[] = '--field-config=' . $fieldConfigPath;
         }
+        $runResult = ['process_started' => false];
         try {
             $runResult = $this->runProcess($args, $this->projectRoot, $timeoutSeconds);
         } finally {
-            if ($fieldConfigPath !== '' && is_file($fieldConfigPath)) {
-                @unlink($fieldConfigPath);
+            $unsettledResult = $runResult;
+            $runResult = BrowserProfileCaptureRequestService::settleEphemeralCaptureArtifacts(
+                $runResult,
+                $fieldConfigPath !== '' ? [$fieldConfigPath] : []
+            );
+            $this->lastCaptureProcessResult = $runResult;
+            if ($this->firstUnconfirmedCaptureProcessResult === $unsettledResult) {
+                $this->firstUnconfirmedCaptureProcessResult = $runResult;
             }
         }
 
@@ -821,18 +848,31 @@ final class CtripBrowserProfileDataSourceAdapter implements DataSourceAdapter
             );
             return [
                 'status' => 'failed',
+                'status_code' => (string)($runResult['status_code'] ?? 'capture_process_failed'),
+                'error_code' => (string)($runResult['status_code'] ?? 'capture_process_failed'),
                 'message' => $message,
                 'payload' => [
                     'error_summary' => $message,
                     'capture_sections' => $sections,
                     'stdout' => $this->trimLog((string)($runResult['stdout'] ?? '')),
                     'stderr' => $this->trimLog((string)($runResult['stderr'] ?? '')),
+                    'process_status_code' => $runResult['status_code'] ?? null,
+                    'process_tree_exit_confirmed' => $runResult['process_tree_exit_confirmed'] ?? null,
+                    'process_termination' => $runResult['termination'] ?? null,
                 ],
             ];
         }
 
         $payload = json_decode((string)file_get_contents($outputPath), true);
         if (!is_array($payload)) {
+            if (($runResult['success'] ?? false) !== true) {
+                return $this->processFailureResult(
+                    $runResult,
+                    [],
+                    'capture_payload_invalid_json',
+                    'Ctrip browser capture process failed'
+                );
+            }
             return [
                 'status' => 'failed',
                 'message' => 'Ctrip browser capture output is not valid JSON.',
@@ -852,6 +892,15 @@ final class CtripBrowserProfileDataSourceAdapter implements DataSourceAdapter
             'captured_by' => 'platform_data_source_sync',
             'read_fallback_summary' => $this->readFallbackSummary($payload),
         ];
+
+        if (($runResult['success'] ?? false) !== true) {
+            return $this->processFailureResult(
+                $runResult,
+                $payload,
+                $this->capturePayloadFailureReason($payload),
+                'Ctrip browser capture process failed'
+            );
+        }
 
         $authOk = (bool)($payload['auth_status']['ok'] ?? false);
         if (!$authOk) {
@@ -895,25 +944,6 @@ final class CtripBrowserProfileDataSourceAdapter implements DataSourceAdapter
                 'status_code' => $identityStatusCode,
                 'error_code' => $identityStatusCode,
                 'message' => $identityStatusCode,
-                'payload' => $this->compactFailurePayload($payload, $runResult),
-            ];
-        }
-
-        // A capture process may write a diagnostic payload before exiting
-        // non-zero. It is useful for the failure message, but it must never be
-        // promoted into successful rows. Combined with the run-unique output
-        // path below, this prevents a failed invocation from accepting a
-        // residual payload created by another invocation in the same second.
-        if (($runResult['success'] ?? false) !== true) {
-            $message = $this->buildProcessFailureMessage(
-                'Ctrip browser capture process failed',
-                $runResult
-            );
-            return [
-                'status' => 'failed',
-                'status_code' => 'capture_process_failed',
-                'error_code' => 'capture_process_failed',
-                'message' => $message,
                 'payload' => $this->compactFailurePayload($payload, $runResult),
             ];
         }
@@ -1114,10 +1144,8 @@ final class CtripBrowserProfileDataSourceAdapter implements DataSourceAdapter
         // A second-resolution filename can be reused after a rapid retry. A
         // cryptographic run token makes the output path itself a one-shot
         // capability owned by this exact process invocation.
-        $runToken = bin2hex(random_bytes(16));
-        $suffix = date('YmdHis')
-            . ($section !== '' ? '_' . $this->safeName($section) : '')
-            . '_' . $runToken;
+        $suffix = BrowserProfileCaptureRequestService::uniqueCaptureRunToken()
+            . ($section !== '' ? '_' . $this->safeName($section) : '');
         return $outputDir . DIRECTORY_SEPARATOR . 'ctrip_browser_source_' . $this->safeName($profileId) . '_' . $suffix . '.json';
     }
 
@@ -1278,6 +1306,9 @@ final class CtripBrowserProfileDataSourceAdapter implements DataSourceAdapter
         ], true)) {
             return false;
         }
+        if ($this->isProcessSafetyFailureResult($result)) {
+            return false;
+        }
         // A browser timeout already consumed the bounded capture window. Retrying every
         // section sequentially turns one failed run into several more browser sessions.
         // Leave the receipt failed so the scheduler can make a later, explicit retry.
@@ -1285,6 +1316,25 @@ final class CtripBrowserProfileDataSourceAdapter implements DataSourceAdapter
             return false;
         }
         return !in_array((string)($result['status'] ?? ''), ['success', 'partial_success'], true);
+    }
+
+    private function isProcessSafetyFailureResult(array $result): bool
+    {
+        $statusCode = strtolower(trim((string)($result['status_code'] ?? $result['error_code'] ?? '')));
+        if (in_array($statusCode, [
+            'process_tree_exit_unconfirmed',
+            'process_output_limit_exceeded',
+            'process_orphaned_descendants',
+            'process_timeout',
+            'process_cancelled',
+            'process_runner_failed',
+            'process_exit_unknown',
+        ], true)) {
+            return true;
+        }
+        $payload = is_array($result['payload'] ?? null) ? $result['payload'] : [];
+        return array_key_exists('process_tree_exit_confirmed', $payload)
+            && ($payload['process_tree_exit_confirmed'] ?? null) !== true;
     }
 
     /**
@@ -1341,7 +1391,45 @@ final class CtripBrowserProfileDataSourceAdapter implements DataSourceAdapter
             'output' => $payload['output'] ?? '',
             'stdout' => $this->trimLog((string)($runResult['stdout'] ?? '')),
             'stderr' => $this->trimLog((string)($runResult['stderr'] ?? '')),
+            'process_status_code' => $runResult['status_code'] ?? null,
+            'process_tree_exit_confirmed' => $runResult['process_tree_exit_confirmed'] ?? null,
+            'process_termination' => $runResult['termination'] ?? null,
         ];
+    }
+
+    /** @return array<string,mixed> */
+    private function processFailureResult(
+        array $runResult,
+        array $payload,
+        string $payloadFailureReason,
+        string $fallbackMessage
+    ): array {
+        $statusCode = trim((string)($runResult['status_code'] ?? '')) ?: 'capture_process_failed';
+        $failurePayload = $this->compactFailurePayload($payload, $runResult);
+        $failurePayload['payload_failure_reason'] = $payloadFailureReason;
+        return [
+            'status' => 'failed',
+            'status_code' => $statusCode,
+            'error_code' => $statusCode,
+            'message' => $this->buildProcessFailureMessage($fallbackMessage, $runResult),
+            'payload' => $failurePayload,
+        ];
+    }
+
+    private function capturePayloadFailureReason(array $payload): string
+    {
+        if (($payload['auth_status']['ok'] ?? false) !== true) {
+            return trim((string)($payload['auth_status']['status'] ?? '')) ?: 'profile_session_unverified';
+        }
+        $gate = is_array($payload['capture_gate'] ?? null) ? $payload['capture_gate'] : [];
+        if ($gate !== [] && ($gate['status'] ?? 'fail') !== 'pass') {
+            $ids = $this->captureGateFailedCheckIds($gate);
+            return $ids !== [] ? 'capture_gate:' . implode(',', $ids) : 'capture_gate_failed';
+        }
+        $identity = strtolower(trim((string)($payload['platform_identity_validation']['status'] ?? '')));
+        return $identity !== '' && $identity !== 'matched'
+            ? 'platform_identity_' . $identity
+            : '';
     }
 
     /** @return array<int, array<string, mixed>> */
@@ -1478,91 +1566,35 @@ final class CtripBrowserProfileDataSourceAdapter implements DataSourceAdapter
 
     private function runProcess(array $args, string $cwd, int $timeoutSeconds): array
     {
-        if ($this->processRunner !== null) {
-            return (array)call_user_func($this->processRunner, $args, $cwd, $timeoutSeconds);
-        }
-
-        $command = implode(' ', array_map('escapeshellarg', $args));
-        $descriptors = [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']];
-        $process = proc_open($command, $descriptors, $pipes, $cwd);
-        if (!is_resource($process)) {
-            return ['success' => false, 'message' => 'Cannot start Ctrip browser capture process.', 'stdout' => '', 'stderr' => ''];
-        }
-
-        fclose($pipes[0]);
-        stream_set_blocking($pipes[1], false);
-        stream_set_blocking($pipes[2], false);
-        $stdout = '';
-        $stderr = '';
-        $startedAt = time();
-        $timedOut = false;
-        while (true) {
-            $stdout .= (string)stream_get_contents($pipes[1]);
-            $stderr .= (string)stream_get_contents($pipes[2]);
-            $status = proc_get_status($process);
-            if (!$status['running']) {
-                break;
+        $result = BrowserProfileCaptureRequestService::runCaptureProcess(
+            $args,
+            $cwd,
+            $timeoutSeconds,
+            ['label' => 'Ctrip browser capture'],
+            $this->processRunner
+        );
+        $this->lastCaptureProcessResult = $result;
+        if (!BrowserProfileCaptureRequestService::processTreeExitConfirmed($result)) {
+            if ($this->captureProcessTreesConfirmed) {
+                $this->firstUnconfirmedCaptureProcessResult = $result;
             }
-            if (time() - $startedAt > $timeoutSeconds) {
-                $timedOut = true;
-                $this->terminateProcessTree((int)($status['pid'] ?? 0), $process);
-                break;
-            }
-            usleep(250000);
+            $this->captureProcessTreesConfirmed = false;
         }
-        $stdout .= (string)stream_get_contents($pipes[1]);
-        $stderr .= (string)stream_get_contents($pipes[2]);
-        fclose($pipes[1]);
-        fclose($pipes[2]);
-        $exitCode = proc_close($process);
-
-        if ($timedOut) {
-            return ['success' => false, 'message' => 'Ctrip browser capture timed out.', 'stdout' => $stdout, 'stderr' => $stderr];
-        }
-        if ($exitCode !== 0 && $exitCode !== -1) {
-            return ['success' => false, 'message' => 'Ctrip browser capture exited with code ' . $exitCode, 'stdout' => $stdout, 'stderr' => $stderr];
-        }
-
-        return ['success' => true, 'message' => 'ok', 'stdout' => $stdout, 'stderr' => $stderr];
-    }
-
-    private function terminateProcessTree(int $pid, $process): void
-    {
-        if ($pid > 0 && PHP_OS_FAMILY === 'Windows') {
-            @exec('taskkill /PID ' . (int)$pid . ' /T /F 2>NUL');
-            return;
-        }
-        if (is_resource($process)) {
-            @proc_terminate($process);
-        }
+        return $result;
     }
 
     private function acquireLock(string $platform, string $profileId)
     {
-        $dir = $this->projectRoot . DIRECTORY_SEPARATOR . 'runtime' . DIRECTORY_SEPARATOR . 'locks';
-        if (!is_dir($dir) && !mkdir($dir, 0775, true) && !is_dir($dir)) {
-            return null;
-        }
-        $path = $dir . DIRECTORY_SEPARATOR . 'profile_capture_' . $platform . '_' . $this->safeName($profileId) . '.lock';
-        $handle = fopen($path, 'c+');
-        if (!$handle) {
-            return null;
-        }
-        if (!flock($handle, LOCK_EX | LOCK_NB)) {
-            fclose($handle);
-            return null;
-        }
-        ftruncate($handle, 0);
-        fwrite($handle, json_encode(['platform' => $platform, 'profile_id' => $profileId, 'pid' => getmypid(), 'locked_at' => date('c')], JSON_UNESCAPED_SLASHES));
-        return $handle;
+        return BrowserProfileCaptureRequestService::acquireProfileCaptureLock(
+            $this->projectRoot,
+            $platform,
+            $profileId
+        );
     }
 
     private function releaseLock($lock): void
     {
-        if (is_resource($lock)) {
-            flock($lock, LOCK_UN);
-            fclose($lock);
-        }
+        BrowserProfileCaptureRequestService::releaseProfileCaptureLock($lock);
     }
 
     private function resolveNodeBinary(): string
@@ -1831,20 +1863,10 @@ final class CtripBrowserProfileDataSourceAdapter implements DataSourceAdapter
 
     private function createProfileFieldConfigFile(array $payload): string
     {
-        $dir = $this->projectRoot . DIRECTORY_SEPARATOR . 'runtime' . DIRECTORY_SEPARATOR . 'platform_data_sources';
-        if (!is_dir($dir) && !mkdir($dir, 0775, true) && !is_dir($dir)) {
-            return '';
-        }
-        $json = json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
-        $path = $dir . DIRECTORY_SEPARATOR . 'ctrip_profile_field_config_' . bin2hex(random_bytes(6)) . '.json';
-        if (file_put_contents($path, $json, LOCK_EX) === false) {
-            return '';
-        }
-        if (!@chmod($path, 0600)) {
-            @unlink($path);
-            return '';
-        }
-        return $path;
+        return BrowserProfileCaptureRequestService::createEphemeralCaptureJson(
+            $payload,
+            'ctrip-field-config'
+        );
     }
 
     private function assertProfileFieldRuntimeMetadataSafe(array $field): void

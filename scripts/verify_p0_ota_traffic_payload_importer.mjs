@@ -1879,6 +1879,7 @@ check('execute_contract', 'execute does not use raw payload', !importerSource.in
 check('execute_contract', 'data.flowData execute payload shape is explicit', importerSource.includes("'payload_shape' => 'data.flowData'"));
 check('execute_contract', 'validated_target_date_rows execute input source is explicit', importerSource.includes('validated_target_date_rows'));
 check('execute_contract', 'execute performs DB readback verification', importerSource.includes('p0_import_post_execute_verification') && importerSource.includes("'post_execute_verification' => p0_import_post_execute_verification($options)"));
+check('execute_contract', 'execute persists canonical platform hotel and ingestion identity', importerSource.includes('$expectedPlatformHotelId = p0_import_platform_hotel_identifier($executePayload, $platform)') && importerSource.includes("? 'browser_profile'") && importerSource.includes(": 'manual_import'") && importerSource.includes('$expectedPlatformHotelId,') && importerSource.includes('$ingestionMethod'));
 check('execute_contract', 'imported status requires post execute ready', importerSource.includes("($postExecuteVerification['status'] ?? '') === 'ready' ? 'imported' : 'blocked'"));
 check('execute_contract', 'post execute incomplete stays explicit', importerSource.includes('post_execute_verification_incomplete'));
 check('execute_contract', 'post execute readback tracks incomplete UI rows', importerSource.includes("'ui_status_incomplete_rows' => 0") && importerSource.includes("'sample_ui_statuses' => []"));

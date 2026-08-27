@@ -158,6 +158,14 @@ final class ManualOnlineFetchTaskServiceTest extends TestCase
                 'https://trusted.example:8443/api/online-data/fetch-meituan',
                 $normalize->invoke($service, 'https://trusted.example:8443/api/online-data/fetch-meituan')
             );
+            self::assertSame(
+                'https://trusted.example:8443/api/online-data/capture-ctrip-browser',
+                $normalize->invoke($service, 'https://trusted.example:8443/api/online-data/capture-ctrip-browser')
+            );
+            self::assertSame(
+                'https://trusted.example:8443/api/online-data/capture-meituan-browser',
+                $normalize->invoke($service, 'https://trusted.example:8443/api/online-data/capture-meituan-browser')
+            );
             self::assertSame('', $normalize->invoke(
                 $service,
                 'https://trusted.example:9443/api/online-data/fetch-meituan'
@@ -220,6 +228,8 @@ final class ManualOnlineFetchTaskServiceTest extends TestCase
             'qunar_traffic' => 'ctrip',
             'meituan_traffic' => 'meituan',
             'meituan_orders' => 'meituan',
+            'ctrip_browser_profile' => 'ctrip',
+            'meituan_browser_profile' => 'meituan',
         ];
 
         foreach ($cases as $taskKind => $platform) {
@@ -255,6 +265,8 @@ final class ManualOnlineFetchTaskServiceTest extends TestCase
             'code' => 200,
             'data' => [
                 'saved_count' => 3,
+                'readback_count' => 3,
+                'readback_verified' => true,
                 'persistence_status' => 'readback_verified',
                 'database_readback' => ['verified' => true, 'matched_count' => 3],
             ],
@@ -294,6 +306,156 @@ final class ManualOnlineFetchTaskServiceTest extends TestCase
         ]);
         foreach (['user_id', 'authorization', 'authorization_env', 'api_url', 'input', 'status_file', 'log', 'body'] as $field) {
             self::assertArrayNotHasKey($field, $public);
+        }
+    }
+
+    public function testOnlyOneOwnerCanAtomicallyClaimQueuedTaskAndLateWorkersCannotRun(): void
+    {
+        $service = new ManualOnlineFetchTaskService();
+        $task = $service->createTask('ctrip_browser_profile', 7, '2026-08-27', '2026-08-27', [
+            'profile_id' => 'client-spoofed-profile',
+        ], [
+            'user_id' => 5,
+            'task_kind' => 'ctrip_browser_profile',
+            'api_url' => 'http://127.0.0.1:8080/api/online-data/capture-ctrip-browser',
+            'authorization' => 'Bearer claim-token',
+        ]);
+        self::assertNotSame([], $task);
+        $this->createdTaskDirs[] = dirname($task['input']);
+
+        $first = $service->claimTaskForExecution($task['task_id'], 'worker:111:first');
+        self::assertTrue($first['claimed']);
+        self::assertSame('running', $first['status']['status']);
+        self::assertSame('worker:111:first', $first['status']['claim_owner']);
+
+        $duplicate = $service->claimTaskForExecution($task['task_id'], 'worker:222:duplicate');
+        self::assertFalse($duplicate['claimed']);
+        self::assertSame('worker:111:first', $duplicate['status']['claim_owner']);
+
+        $completed = $service->completeTask($task['task_id'], [
+            'data' => [
+                'status' => 'success',
+                'saved_count' => 1,
+                'readback_count' => 1,
+                'readback_verified' => true,
+                'server_identity' => [
+                    'verified' => true,
+                    'platform' => 'ctrip',
+                    'profile_id' => 'server-bound-profile',
+                    'store_id' => null,
+                ],
+            ],
+        ], '', true);
+        self::assertSame('success', $completed['status']);
+        self::assertSame('server-bound-profile', $completed['quality_summary']['server_identity']['profile_id']);
+        self::assertNotSame('client-spoofed-profile', $completed['quality_summary']['server_identity']['profile_id']);
+        $late = $service->claimTaskForExecution($task['task_id'], 'worker:333:late');
+        self::assertFalse($late['claimed']);
+        self::assertSame('success', $late['status']['status']);
+
+        $command = (string)file_get_contents(dirname(__DIR__) . '/app/command/ManualFetchOnlineDataOnce.php');
+        self::assertLessThan(
+            strpos($command, 'new BrowserCaptureTaskExecutionService()'),
+            strpos($command, 'claimTaskForExecution(')
+        );
+    }
+
+    public function testConcurrentWindowsLaunchersProduceExactlyOneClaimWinner(): void
+    {
+        if (PHP_OS_FAMILY !== 'Windows' || !function_exists('proc_open')) {
+            self::markTestSkipped('Windows concurrent launcher claim smoke only.');
+        }
+        $service = new ManualOnlineFetchTaskService();
+        $task = $service->createTask('meituan_browser_profile', 8, '2026-08-27', '2026-08-27', [], [
+            'user_id' => 5,
+            'task_kind' => 'meituan_browser_profile',
+            'api_url' => 'http://127.0.0.1:8080/api/online-data/capture-meituan-browser',
+            'authorization' => 'Bearer concurrent-claim-token',
+        ]);
+        self::assertNotSame([], $task);
+        $taskDir = dirname($task['input']);
+        $this->createdTaskDirs[] = $taskDir;
+        $taskRoot = dirname($taskDir);
+        $worker = __DIR__ . DIRECTORY_SEPARATOR . 'Support' . DIRECTORY_SEPARATOR . 'manual_fetch_claim_worker.php';
+        $resultPaths = [
+            $taskDir . DIRECTORY_SEPARATOR . 'claim-a.json',
+            $taskDir . DIRECTORY_SEPARATOR . 'claim-b.json',
+        ];
+        $processes = [];
+        foreach ($resultPaths as $index => $resultPath) {
+            $pipes = [];
+            $process = proc_open(
+                [PHP_BINARY, $worker, $taskRoot, $task['task_id'], 'worker:' . ($index + 1), $resultPath],
+                [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
+                $pipes,
+                dirname(__DIR__),
+                null,
+                ['bypass_shell' => true]
+            );
+            self::assertIsResource($process);
+            fclose($pipes[0]);
+            $processes[] = [$process, $pipes];
+        }
+        foreach ($processes as [$process, $pipes]) {
+            stream_get_contents($pipes[1]);
+            stream_get_contents($pipes[2]);
+            fclose($pipes[1]);
+            fclose($pipes[2]);
+            self::assertSame(0, proc_close($process));
+        }
+
+        $claims = array_map(
+            static fn(string $path): array => (array)json_decode((string)file_get_contents($path), true),
+            $resultPaths
+        );
+        self::assertSame(1, count(array_filter(
+            $claims,
+            static fn(array $claim): bool => ($claim['claimed'] ?? false) === true
+        )));
+        $status = $service->readTaskStatus($task['task_id']);
+        self::assertSame('running', $status['status'], (string)json_encode($status, JSON_UNESCAPED_UNICODE));
+        self::assertContains($status['claim_owner'], ['worker:1', 'worker:2']);
+    }
+
+    public function testCompletionRequiresExactPositiveExplicitReadbackProof(): void
+    {
+        $service = new ManualOnlineFetchTaskService();
+        $cases = [
+            'mismatch' => [
+                ['status' => 'success', 'saved_count' => 2, 'readback_count' => 1, 'readback_verified' => true],
+                'partial_success',
+            ],
+            'implicit_only' => [
+                ['saved_count' => 2, 'readback_count' => 2, 'persistence_status' => 'readback_verified'],
+                'partial_success',
+            ],
+            'no_data' => [
+                ['status' => 'no_data', 'saved_count' => 0, 'readback_count' => 0, 'readback_verified' => true],
+                'no_data',
+            ],
+            'empty_success' => [
+                ['status' => 'success', 'saved_count' => 0, 'readback_count' => 0, 'readback_verified' => true],
+                'unverified',
+            ],
+        ];
+
+        foreach ($cases as $name => [$payload, $expectedStatus]) {
+            $task = $service->createTask('meituan_browser_profile', 8, '2026-08-27', '2026-08-27', [], [
+                'user_id' => 5,
+                'task_kind' => 'meituan_browser_profile',
+                'api_url' => 'http://127.0.0.1:8080/api/online-data/capture-meituan-browser',
+                'authorization' => 'Bearer truth-' . $name,
+            ]);
+            self::assertNotSame([], $task);
+            $this->createdTaskDirs[] = dirname($task['input']);
+            self::assertTrue($service->claimTaskForExecution($task['task_id'], 'truth:' . $name)['claimed']);
+            $completed = $service->completeTask($task['task_id'], ['data' => $payload], '', true);
+            self::assertSame($expectedStatus, $completed['status'], $name);
+            self::assertFalse($completed['readback_verified'], $name);
+            self::assertNotSame('available', $completed['quality_status'], $name);
+            self::assertFalse($completed['quality_summary']['server_identity']['verified'], $name);
+            self::assertNull($completed['quality_summary']['server_identity']['profile_id'], $name);
+            self::assertNull($completed['quality_summary']['server_identity']['store_id'], $name);
         }
     }
 }

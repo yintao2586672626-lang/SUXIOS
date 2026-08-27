@@ -26,11 +26,11 @@ test('one canonical integration gate is shared by package, project rules, staged
   assert.match(workflow, /needs:[\s\S]*- windows_control_plane/);
   assert.deepEqual(
     runner.integrationChecks().map((check) => check.id),
-    ['verifier_domain_registry', 'source_hotspot_budget', 'p0_guards', 'working_tree_diff_check'],
+    ['verifier_domain_registry', 'migration_checksum_lock', 'source_hotspot_budget', 'p0_guards', 'working_tree_diff_check'],
   );
   assert.deepEqual(
     runner.integrationChecks({ staged: true }).map((check) => check.id),
-    ['verifier_domain_registry', 'source_hotspot_budget'],
+    ['verifier_domain_registry', 'migration_checksum_lock', 'source_hotspot_budget'],
   );
 });
 
@@ -40,7 +40,7 @@ test('canonical integration gate stops at the first failed check with its stable
   const result = runner.runIntegrationGate({
     spawn: (command, args) => {
       invoked.push([command, args]);
-      return invoked.length < 3
+      return invoked.length < 4
         ? { status: 0, error: null }
         : { status: 7, error: null };
     },
@@ -51,5 +51,5 @@ test('canonical integration gate stops at the first failed check with its stable
   });
   assert.equal(result.status, 7);
   assert.equal(result.failedCheck, 'p0_guards');
-  assert.equal(invoked.length, 3);
+  assert.equal(invoked.length, 4);
 });

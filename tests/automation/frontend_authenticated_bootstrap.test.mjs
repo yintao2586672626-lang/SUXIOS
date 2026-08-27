@@ -566,7 +566,10 @@ test('authenticated startup paints the compact page before progressively hydrati
 test('deferred component bridges keep startup components small and preserve full factories', () => {
   assert.match(appMainComponentsLoader, /window\.SUXI_APP_MAIN_COMPONENTS = Object\.freeze\(\{ create \}\)/);
   assert.match(appMainComponentsLoader, /window\.SUXI_APP_MAIN_COMPONENTS_FULL/);
-  assert.match(operatingIntelligenceLoader, /window\.SUXI_OPERATING_INTELLIGENCE_COMPONENTS = Object\.freeze\(\{ create \}\)/);
+  assert.match(
+    operatingIntelligenceLoader,
+    /window\.SUXI_OPERATING_INTELLIGENCE_COMPONENTS = Object\.freeze\(\{\s*create, submitCouncilRun, pollCouncilRun, councilReadbackIntegrityMatches,\s*\}\)/,
+  );
   assert.match(operatingIntelligenceLoader, /window\.SUXI_OPERATING_INTELLIGENCE_COMPONENTS_FULL/);
   assert.match(operatingIntelligenceLoader, /SUXI_LOAD_DEFERRED_AUTHENTICATED_ASSET/);
   assert.match(operatingIntelligenceLoader, /style\.min\.css/);

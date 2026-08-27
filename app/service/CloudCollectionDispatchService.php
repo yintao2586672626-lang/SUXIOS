@@ -17,6 +17,10 @@ final class CloudCollectionDispatchService
 {
     public const YESTERDAY_FINAL = 'yesterday_final';
     public const TODAY_REALTIME = 'today_realtime';
+    private const MAX_ATTEMPTS = 3;
+    private const RETRY_BACKOFF_SECONDS = 60;
+    /** @var list<string> */
+    private const RETRYABLE_GAPS = ['missing_saved', 'missing_readback'];
 
     /** @return array<string,mixed> */
     public function preview(string $mode, ?string $targetDate = null): array
@@ -88,6 +92,14 @@ final class CloudCollectionDispatchService
             if (!is_array($task)) {
                 throw new RuntimeException('cloud_collection_task_not_found');
             }
+            if ((string)($task['task_status'] ?? '') === 'blocked' && $this->hasNewerAttempt($task)) {
+                return $this->receiptResult(
+                    $task,
+                    $this->storedGaps($task),
+                    false,
+                    'superseded_attempt'
+                );
+            }
             $requiredFields = $this->taskFields($task);
             $collectedFields = $this->fieldNames($receipt['collected_fields'] ?? null);
             $readbackFields = $this->fieldNames($receipt['readback_fields'] ?? null);
@@ -127,7 +139,8 @@ final class CloudCollectionDispatchService
                     $gaps[] = 'missing_' . $name;
                 }
             }
-            $evidence = [
+            $receiptPassed = $gaps === [];
+            $businessEvidence = [
                 'identity' => $identity,
                 'target_date' => trim((string)($receipt['target_date'] ?? '')),
                 'required_fields' => $requiredFields,
@@ -139,12 +152,40 @@ final class CloudCollectionDispatchService
                 'missing_readback_fields' => $missingReadbackFields,
                 'checks' => $checks,
             ];
+            $storedEvidence = json_decode((string)($task['receipt_evidence_json'] ?? ''), true);
+            $storedDispatch = is_array($storedEvidence['dispatch'] ?? null)
+                ? $storedEvidence['dispatch']
+                : [];
+            $attemptNo = max(1, (int)($storedDispatch['attempt_no'] ?? 1));
+            $now = date('Y-m-d H:i:s');
+            $retryAllowed = !$receiptPassed && $this->gapsAreRetryable($gaps);
+            $terminalAt = trim((string)($storedDispatch['terminal_at'] ?? '')) ?: $now;
+            $retryNotBefore = trim((string)($storedDispatch['retry_not_before'] ?? ''));
+            if ($retryAllowed && $retryNotBefore === '') {
+                $retryNotBefore = date('Y-m-d H:i:s', strtotime($terminalAt) + self::RETRY_BACKOFF_SECONDS);
+            }
+            $dispatchEvidence = [
+                'attempt_no' => $attemptNo,
+                'retry_of_task_id' => trim((string)($storedDispatch['retry_of_task_id'] ?? '')) ?: null,
+                'max_attempts' => self::MAX_ATTEMPTS,
+                'terminal_at' => $terminalAt,
+                'retry_allowed' => $retryAllowed,
+                'retry_not_before' => $retryAllowed ? $retryNotBefore : null,
+            ];
+            $evidence = ['dispatch' => $dispatchEvidence] + $businessEvidence;
             $fingerprint = hash('sha256', (string)json_encode(
                 $evidence,
                 JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR
             ));
+            $legacyFingerprint = hash('sha256', (string)json_encode(
+                $businessEvidence,
+                JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR
+            ));
             $storedFingerprint = trim((string)($task['receipt_fingerprint'] ?? ''));
-            if ($storedFingerprint !== '' && hash_equals($storedFingerprint, $fingerprint)) {
+            if ($storedFingerprint !== '' && (
+                hash_equals($storedFingerprint, $fingerprint)
+                || hash_equals($storedFingerprint, $legacyFingerprint)
+            )) {
                 return $this->receiptResult(
                     $task,
                     $this->storedGaps($task),
@@ -154,9 +195,15 @@ final class CloudCollectionDispatchService
             }
             if ((string)$task['truth_gate_status'] === 'passed' && $storedFingerprint !== '') {
                 $gaps = array_values(array_unique([...$gaps, 'receipt_conflict']));
+                $dispatchEvidence['retry_allowed'] = false;
+                $dispatchEvidence['retry_not_before'] = null;
+                $evidence['dispatch'] = $dispatchEvidence;
+                $fingerprint = hash('sha256', (string)json_encode(
+                    $evidence,
+                    JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR
+                ));
             }
             $passed = $gaps === [];
-            $now = date('Y-m-d H:i:s');
             $status = $passed ? 'truth_ready' : 'blocked';
             $gate = $passed ? 'passed' : 'blocked_by_data_gap';
             Db::name('cloud_collection_tasks')->where('id', (int)$task['id'])->update([
@@ -230,11 +277,64 @@ final class CloudCollectionDispatchService
     {
         return Db::transaction(function () use ($task): array {
             $existing = Db::name('cloud_collection_tasks')
-                ->where('idempotency_key', (string)$task['idempotency_key'])->lock(true)->find();
+                ->where('profile_public_id', (string)$task['profile_public_id'])
+                ->where('collection_mode', (string)$task['collection_mode'])
+                ->where('target_date', (string)$task['target_date'])
+                ->where('window_key', (string)$task['window_key'])
+                ->order('id', 'desc')
+                ->lock(true)
+                ->find();
+            $attemptNo = 1;
+            $retryOfTaskId = null;
             if (is_array($existing)) {
-                return $this->publicTask($existing) + ['dispatch_status' => 'reused'];
+                if ((string)($existing['task_status'] ?? '') !== 'blocked') {
+                    return $this->publicTask($existing) + ['dispatch_status' => 'reused'];
+                }
+                $previousEvidence = json_decode((string)($existing['receipt_evidence_json'] ?? ''), true);
+                $previousDispatch = is_array($previousEvidence['dispatch'] ?? null)
+                    ? $previousEvidence['dispatch']
+                    : [];
+                $attemptNo = max(1, (int)($previousDispatch['attempt_no'] ?? 1));
+                $gaps = $this->storedGaps($existing);
+                $retryAllowed = array_key_exists('retry_allowed', $previousDispatch)
+                    ? ($previousDispatch['retry_allowed'] === true)
+                    : $this->gapsAreRetryable($gaps);
+                if (!$retryAllowed) {
+                    return $this->publicTask($existing) + ['dispatch_status' => 'blocked_requires_review'];
+                }
+                if ($attemptNo >= self::MAX_ATTEMPTS) {
+                    return $this->publicTask($existing) + ['dispatch_status' => 'retry_exhausted'];
+                }
+                $retryNotBefore = trim((string)($previousDispatch['retry_not_before'] ?? ''));
+                $retryTimestamp = $retryNotBefore === '' ? false : strtotime($retryNotBefore);
+                if ($retryTimestamp !== false && $retryTimestamp > time()) {
+                    return $this->publicTask($existing) + [
+                        'dispatch_status' => 'retry_backoff',
+                        'retry_after_seconds' => max(1, $retryTimestamp - time()),
+                    ];
+                }
+                // A blocked receipt is terminal evidence for that attempt, not
+                // for the logical hotel/platform/date collection. Derive the
+                // next deterministic attempt key from the preserved prior task
+                // so concurrent retries collapse to one new row without
+                // deleting or rewriting the failed receipt.
+                $task['idempotency_key'] = hash('sha256', implode('|', [
+                    (string)$task['idempotency_key'],
+                    'retry_after_blocked',
+                    (string)($existing['task_public_id'] ?? ''),
+                ]));
+                $attemptNo++;
+                $retryOfTaskId = (string)($existing['task_public_id'] ?? '');
             }
             $now = date('Y-m-d H:i:s');
+            $dispatchEvidence = [
+                'attempt_no' => $attemptNo,
+                'retry_of_task_id' => $retryOfTaskId !== '' ? $retryOfTaskId : null,
+                'max_attempts' => self::MAX_ATTEMPTS,
+                'terminal_at' => null,
+                'retry_allowed' => false,
+                'retry_not_before' => null,
+            ];
             $row = [
                 'task_public_id' => $this->publicId('cct'),
                 'profile_id' => $task['profile_id'],
@@ -250,7 +350,10 @@ final class CloudCollectionDispatchService
                 'task_status' => $task['task_status'],
                 'truth_gate_status' => $task['truth_gate_status'],
                 'gap_codes_json' => null,
-                'receipt_evidence_json' => null,
+                'receipt_evidence_json' => json_encode(
+                    ['dispatch' => $dispatchEvidence],
+                    JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES
+                ),
                 'receipt_fingerprint' => null,
                 'formal_message_allowed' => 0,
                 'idempotency_key' => $task['idempotency_key'],
@@ -267,7 +370,9 @@ final class CloudCollectionDispatchService
                 }
                 return $this->publicTask($raced) + ['dispatch_status' => 'reused'];
             }
-            return $this->publicTask($row) + ['dispatch_status' => 'queued'];
+            return $this->publicTask($row) + [
+                'dispatch_status' => is_array($existing) ? 'requeued' : 'queued',
+            ];
         });
     }
 
@@ -275,6 +380,10 @@ final class CloudCollectionDispatchService
     private function publicTask(array $task): array
     {
         $fields = $task['field_priority'] ?? json_decode((string)($task['field_priority_json'] ?? '[]'), true);
+        $receiptEvidence = json_decode((string)($task['receipt_evidence_json'] ?? ''), true);
+        $dispatchEvidence = is_array($receiptEvidence['dispatch'] ?? null)
+            ? $receiptEvidence['dispatch']
+            : [];
         return [
             'task_id' => (string)($task['task_public_id'] ?? ''),
             'profile_id' => (string)($task['profile_public_id'] ?? ''),
@@ -288,6 +397,11 @@ final class CloudCollectionDispatchService
             'task_status' => (string)($task['task_status'] ?? ''),
             'truth_gate_status' => (string)($task['truth_gate_status'] ?? ''),
             'formal_message_allowed' => (int)($task['formal_message_allowed'] ?? 0) === 1,
+            'attempt_no' => max(1, (int)($dispatchEvidence['attempt_no'] ?? 1)),
+            'retry_of_task_id' => trim((string)($dispatchEvidence['retry_of_task_id'] ?? '')) ?: null,
+            'max_attempts' => max(1, (int)($dispatchEvidence['max_attempts'] ?? self::MAX_ATTEMPTS)),
+            'retry_allowed' => ($dispatchEvidence['retry_allowed'] ?? false) === true,
+            'retry_not_before' => trim((string)($dispatchEvidence['retry_not_before'] ?? '')) ?: null,
         ];
     }
 
@@ -387,6 +501,24 @@ final class CloudCollectionDispatchService
         return is_array($gaps)
             ? array_values(array_filter($gaps, static fn(mixed $gap): bool => is_string($gap) && $gap !== ''))
             : [];
+    }
+
+    /** @param list<string> $gaps */
+    private function gapsAreRetryable(array $gaps): bool
+    {
+        return $gaps !== [] && array_diff($gaps, self::RETRYABLE_GAPS) === [];
+    }
+
+    /** @param array<string,mixed> $task */
+    private function hasNewerAttempt(array $task): bool
+    {
+        return (int)Db::name('cloud_collection_tasks')
+            ->where('profile_public_id', (string)($task['profile_public_id'] ?? ''))
+            ->where('collection_mode', (string)($task['collection_mode'] ?? ''))
+            ->where('target_date', (string)($task['target_date'] ?? ''))
+            ->where('window_key', (string)($task['window_key'] ?? ''))
+            ->where('id', '>', (int)($task['id'] ?? 0))
+            ->count() > 0;
     }
 
     /**

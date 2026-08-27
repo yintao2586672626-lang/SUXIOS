@@ -623,10 +623,22 @@
                         ))));
                     }
                     const council = state.council_run || null;
-                    const councilMembers = Array.isArray(council?.members) ? council.members : [];
-                    const councilEvidenceRefs = Array.isArray(council?.evidence_refs) ? council.evidence_refs : [];
                     const synthesis = council?.synthesis && typeof council.synthesis === 'object' ? council.synthesis : {};
-                    const selectedLenses = Array.isArray(synthesis.selected_lenses) ? synthesis.selected_lenses : [];
+                    const integrity = synthesis.artifact_integrity && typeof synthesis.artifact_integrity === 'object'
+                        ? synthesis.artifact_integrity
+                        : {};
+                    const rawMembers = Array.isArray(council?.members) ? council.members : [];
+                    const rawEvidenceRefs = Array.isArray(council?.evidence_refs) ? council.evidence_refs : [];
+                    const councilRenderable = ['completed', 'partial'].includes(String(council?.status || ''))
+                        && integrity.status === 'verified'
+                        && Number(integrity.member_count || 0) === rawMembers.length
+                        && Number(integrity.evidence_ref_count || 0) === rawEvidenceRefs.length;
+                    const councilMembers = councilRenderable ? rawMembers : [];
+                    const councilEvidenceRefs = councilRenderable ? rawEvidenceRefs : [];
+                    const selectedLenses = councilRenderable && Array.isArray(synthesis.selected_lenses)
+                        ? synthesis.selected_lenses
+                        : [];
+                    const terminalFactDrift = String(synthesis.error_code || '') === 'council_terminal_fact_drift';
                     const advisorySource = synthesis.advisory_source && typeof synthesis.advisory_source === 'object'
                         ? synthesis.advisory_source
                         : {};
@@ -645,14 +657,21 @@
                             ]),
                             h('button', {
                                 type: 'button',
-                                disabled: Boolean(state.council_loading),
+                                disabled: Boolean(state.council_loading) || terminalFactDrift,
                                 class: 'rounded-lg px-3 py-2 text-xs font-medium text-white disabled:opacity-50',
                                 style: { background: '#173f34' },
                                 'data-testid': 'operating-question-council-run',
                                 onClick: () => ui?.runCouncil?.(),
-                            }, state.council_loading ? '本机会诊中…' : (council ? '重新发起顾问会诊' : '发起顾问会诊')),
+                            }, state.council_loading
+                                ? '本机会诊中…'
+                                : (terminalFactDrift
+                                    ? '请重新生成事实/问题'
+                                    : (['pending', 'running'].includes(String(council?.status || ''))
+                                        ? '继续查看进度'
+                                        : (['partial', 'failed', 'blocked_by_missing_facts', 'blocked_not_configured'].includes(String(council?.status || '')) ? '继续未完成会诊' : (council ? '重新发起顾问会诊' : '发起顾问会诊'))))),
                         ]),
                         state.council_error ? h('p', { class: 'mt-2 text-xs text-red-700' }, String(state.council_error)) : null,
+                        terminalFactDrift ? h('p', { class: 'mt-2 text-xs text-amber-700' }, '严格事实已发生变化；旧会诊内容已隔离，请重新生成上游事实或经营问题后再发起。') : null,
                         council ? h('div', { class: 'mt-3' }, [
                             h('div', { class: 'flex flex-wrap items-center gap-2 text-xs' }, [
                                 h('strong', { style: { color: '#173f34' } }, String(council.status || '未知状态')),
@@ -705,19 +724,19 @@
                                 councilEvidenceRefs.length
                                     ? h('p', { class: 'mt-1 break-all text-[11px] leading-5 text-slate-500', 'data-testid': 'operating-question-council-evidence-refs' }, `本次证据引用：${councilEvidenceRefs.join('、')}`)
                                     : null,
-                                Array.isArray(synthesis.agreements) && synthesis.agreements.length
+                                councilRenderable && Array.isArray(synthesis.agreements) && synthesis.agreements.length
                                     ? h('p', { class: 'mt-1 leading-5' }, `一致点：${synthesis.agreements.join('；')}`)
                                     : null,
-                                Array.isArray(synthesis.conflicts) && synthesis.conflicts.length
+                                councilRenderable && Array.isArray(synthesis.conflicts) && synthesis.conflicts.length
                                     ? h('p', { class: 'mt-1 leading-5 text-amber-700' }, `冲突点：${synthesis.conflicts.join('；')}`)
                                     : null,
-                                Array.isArray(synthesis.missing_information) && synthesis.missing_information.length
+                                councilRenderable && Array.isArray(synthesis.missing_information) && synthesis.missing_information.length
                                     ? h('p', { class: 'mt-1 leading-5 text-amber-700' }, `缺口：${synthesis.missing_information.join('；')}`)
                                     : null,
-                                Array.isArray(synthesis.falsification_checks) && synthesis.falsification_checks.length
+                                councilRenderable && Array.isArray(synthesis.falsification_checks) && synthesis.falsification_checks.length
                                     ? h('p', { class: 'mt-1 leading-5', style: { color: '#1f5b63' } }, `可证伪：${synthesis.falsification_checks.join('；')}`)
                                     : null,
-                                synthesis.recommended_next_step
+                                councilRenderable && synthesis.recommended_next_step
                                     ? h('p', { class: 'mt-1 font-medium leading-5', style: { color: '#173f34' } }, `建议下一步：${String(synthesis.recommended_next_step)}`)
                                     : null,
                                 executionHandoff.message

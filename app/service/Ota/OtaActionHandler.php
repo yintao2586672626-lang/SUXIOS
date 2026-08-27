@@ -6,6 +6,7 @@ namespace app\service\Ota;
 use app\controller\Base;
 use app\controller\concern\AutoFetchConcern;
 use app\controller\concern\BusinessDisplayConcern;
+use app\controller\concern\BrowserProfileAutoFetchExecutionConcern;
 use app\controller\concern\CollectionReliabilityConcern;
 use app\controller\concern\CookieEndpointConcern;
 use app\controller\concern\CtripAdsConcern;
@@ -74,6 +75,7 @@ class OtaActionHandler extends Base
     use OtaConfigConcern;
     use AutoFetchConcern;
     use BusinessDisplayConcern;
+    use BrowserProfileAutoFetchExecutionConcern;
     use OnlineDataHistoryConcern;
     use OnlineDataSummaryConcern;
     use OnlineDataAnalyticsConcern;

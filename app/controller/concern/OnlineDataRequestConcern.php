@@ -4,8 +4,10 @@ declare(strict_types=1);
 namespace app\controller\concern;
 
 use app\model\OperationLog;
+use app\service\BrowserCaptureTaskExecutionService;
 use app\service\BrowserProfileCaptureRequestService;
 use app\service\CtripImplementationExposurePolicy;
+use app\service\ManualOnlineFetchTaskService;
 use app\service\MeituanManualIdentityService;
 use app\service\OtaCustomRequestService;
 use app\service\OtaExecutionStageException;
@@ -17,6 +19,64 @@ use think\facade\Db;
 
 trait OnlineDataRequestConcern
 {
+    private function queueBrowserProfileCaptureIfRequested(
+        string $taskKind,
+        int $hotelId,
+        string $dataDate,
+        array $requestData,
+        string $apiPath
+    ): ?Response {
+        $backgroundRequested = (
+            $this->isTruthyRequestValue($requestData['async'] ?? false)
+            || $this->isTruthyRequestValue($requestData['background'] ?? false)
+        ) && !$this->isTruthyRequestValue($requestData['background_task'] ?? false);
+        if (!$backgroundRequested) {
+            return null;
+        }
+
+        try {
+            $backgroundRequest = BrowserCaptureTaskExecutionService::sanitizeBackgroundRequest($requestData);
+        } catch (\InvalidArgumentException $e) {
+            return $this->error('浏览器 Profile 后台采集参数包含不可持久化的敏感 URL', 422, [
+                'status_code' => $e->getMessage() ?: 'browser_capture_sensitive_url_rejected',
+            ]);
+        }
+
+        $service = new ManualOnlineFetchTaskService();
+        $task = $service->createTask(
+            $taskKind,
+            $hotelId,
+            $dataDate,
+            $dataDate,
+            $backgroundRequest,
+            [
+                'authorization' => trim((string)$this->request->header('Authorization', '')),
+                'api_url' => rtrim($this->request->domain(), '/') . $apiPath,
+                'user_id' => (int)($this->currentUser->id ?? 0),
+                'task_kind' => $taskKind,
+            ]
+        );
+        if ($task === [] || !$service->launchTask($task)) {
+            return $this->error('浏览器 Profile 后台采集任务启动失败', 500, [
+                'status_code' => 'browser_capture_background_launch_failed',
+            ]);
+        }
+
+        $taskId = (string)$task['task_id'];
+        return $this->success([
+            'status' => 'queued',
+            'task_id' => $taskId,
+            'task_kind' => $taskKind,
+            'hotel_id' => $hotelId,
+            'data_date' => $dataDate,
+            'done' => false,
+            'status_polling' => [
+                'method' => 'GET',
+                'url' => '/api/online-data/manual-fetch-task-status?task_id=' . rawurlencode($taskId),
+            ],
+        ], '浏览器 Profile 采集已提交后台执行', 202)->code(202);
+    }
+
     /**
      * @param array<string, mixed> $requestData
      * @return array<string, scalar|array<int, scalar|null>|null>
@@ -583,6 +643,17 @@ trait OnlineDataRequestConcern
         $targetDataDate = (string)($capturePlan['data_date'] ?? '');
         $timeoutSeconds = (int)$capturePlan['timeout_seconds'];
 
+        $backgroundResponse = $this->queueBrowserProfileCaptureIfRequested(
+            'meituan_browser_profile',
+            (int)$systemHotelId,
+            $targetDataDate !== '' ? $targetDataDate : date('Y-m-d'),
+            $requestData,
+            '/api/online-data/capture-meituan-browser'
+        );
+        if ($backgroundResponse !== null) {
+            return $backgroundResponse;
+        }
+
         $args = $capturePlan['args'];
         $poiId = (string)$capturePlan['poi_id'];
 
@@ -595,10 +666,11 @@ trait OnlineDataRequestConcern
             ]);
         }
 
+        $runResult = ['process_started' => false];
         try {
             $runResult = $this->runMeituanCaptureProcess($args, $projectRoot, $timeoutSeconds);
         } finally {
-            $this->releasePlatformProfileCaptureLock($lock);
+            BrowserProfileCaptureRequestService::finalizeProfileCaptureLock($lock, $runResult);
         }
         if (!$runResult['success']) {
             if (is_file($outputPath)) {
@@ -621,6 +693,9 @@ trait OnlineDataRequestConcern
                             'output' => $outputPath,
                             'stdout' => $this->trimMeituanCaptureLog($runResult['stdout'] ?? ''),
                             'stderr' => $this->trimMeituanCaptureLog($runResult['stderr'] ?? ''),
+                            'process_status_code' => $runResult['status_code'] ?? null,
+                            'process_tree_exit_confirmed' => $runResult['process_tree_exit_confirmed'] ?? null,
+                            'process_termination' => $runResult['termination'] ?? null,
                         ]);
                     }
                 }
@@ -628,6 +703,9 @@ trait OnlineDataRequestConcern
             return $this->error($runResult['message'], 400, [
                 'stdout' => $this->trimMeituanCaptureLog($runResult['stdout'] ?? ''),
                 'stderr' => $this->trimMeituanCaptureLog($runResult['stderr'] ?? ''),
+                'process_status_code' => $runResult['status_code'] ?? null,
+                'process_tree_exit_confirmed' => $runResult['process_tree_exit_confirmed'] ?? null,
+                'process_termination' => $runResult['termination'] ?? null,
             ]);
         }
 
@@ -856,6 +934,14 @@ trait OnlineDataRequestConcern
             'target_date' => $targetDataDate,
             'metric_scope' => 'ota_channel',
             'saved_count' => $savedCount,
+            'readback_count' => $savedCount,
+            'readback_verified' => $savedCount > 0 && $savedCount === count($rows),
+            'server_identity' => [
+                'verified' => true,
+                'platform' => 'meituan',
+                'profile_id' => null,
+                'store_id' => (string)($profileIdentity['store_id'] ?? $storeId),
+            ],
             'row_count' => count($rows),
             'persistence_status' => $savedCount === count($rows) ? 'readback_verified' : 'readback_not_verified',
             'quality_status' => $savedCount === count($rows) && count($rows) > 0
@@ -991,6 +1077,16 @@ trait OnlineDataRequestConcern
         $outputPath = $capturePlan['output_path'];
         $timeoutSeconds = (int)$capturePlan['timeout_seconds'];
         $args = $capturePlan['args'];
+        $backgroundResponse = $this->queueBrowserProfileCaptureIfRequested(
+            'ctrip_browser_profile',
+            (int)$systemHotelId,
+            $dataDate,
+            $requestData,
+            '/api/online-data/capture-ctrip-browser'
+        );
+        if ($backgroundResponse !== null) {
+            return $backgroundResponse;
+        }
         $fieldConfigPayload = $this->buildCtripProfileFieldConfigPayload($this->readCtripProfileCaptureFields(true));
         $sectionsList = $this->resolveCtripProfileCaptureSectionsForRun($requestData, $fieldConfigPayload, $loginOnly);
         if (!$loginOnly && empty($sectionsList)) {
@@ -1023,17 +1119,24 @@ trait OnlineDataRequestConcern
             ]);
         }
 
+        $runResult = ['process_started' => false];
         try {
             $runResult = $this->runMeituanCaptureProcess($args, $projectRoot, $timeoutSeconds);
         } finally {
-            $this->removeAutoFetchCookieFile($fieldConfigPath);
-            $this->releasePlatformProfileCaptureLock($lock);
+            $runResult = BrowserProfileCaptureRequestService::settleEphemeralCaptureArtifacts(
+                $runResult,
+                [$fieldConfigPath]
+            );
+            BrowserProfileCaptureRequestService::finalizeProfileCaptureLock($lock, $runResult);
         }
         if (!$runResult['success']) {
             return $this->error(str_replace('美团', '携程', $runResult['message']), 400, [
                 'stdout' => $this->trimMeituanCaptureLog($runResult['stdout'] ?? ''),
                 'stderr' => $this->trimMeituanCaptureLog($runResult['stderr'] ?? ''),
                 'partial_capture' => $this->buildCtripPartialCaptureErrorPayload($outputPath),
+                'process_status_code' => $runResult['status_code'] ?? null,
+                'process_tree_exit_confirmed' => $runResult['process_tree_exit_confirmed'] ?? null,
+                'process_termination' => $runResult['termination'] ?? null,
             ]);
         }
 
@@ -1194,6 +1297,14 @@ trait OnlineDataRequestConcern
         $rowCount = (int)$capturedCounts['business'] + (int)$capturedCounts['traffic'] + (int)$capturedCounts['standard_rows'];
         $responsePayload = array_merge([
             'saved_count' => $savedCount,
+            'readback_count' => $savedCount,
+            'readback_verified' => $savedCount > 0,
+            'server_identity' => [
+                'verified' => true,
+                'platform' => 'ctrip',
+                'profile_id' => $profileId,
+                'store_id' => null,
+            ],
             'row_count' => $rowCount,
         ], $this->buildCtripCaptureFactRowCountPayload($capturedCounts, $savedCount, $rowCount), [
             'counts' => [

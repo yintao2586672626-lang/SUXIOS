@@ -344,23 +344,18 @@ final class OperatingIntelligence extends Base
 
     public function runQuestionCouncil(int $id): Response
     {
-        // A five-lens local council performs five bounded reviews plus one
-        // synthesis call. Keep the longer budget scoped to this user-triggered
-        // endpoint instead of raising the application's global PHP limit.
-        if (function_exists('set_time_limit')) {
-            set_time_limit(180);
-        }
         try {
             $input = $this->requestData();
-            return $this->success((new OperatingQuestionCouncilService())->runShadow(
+            return $this->success((new OperatingQuestionCouncilService())->reserveShadow(
                 $id,
                 $this->currentTenantId(),
                 $this->accessibleHotels('operation.view'),
                 (int)($this->currentUser->id ?? 0),
-                (string)($input['client_run_key'] ?? '')
-            ));
+                (string)($input['client_run_key'] ?? ''),
+                true
+            ), '经营顾问会诊已保留，后台逐视角处理中');
         } catch (Throwable $e) {
-            return $this->error($this->safeMessage($e, '经营顾问会诊失败'), $this->status($e));
+            return $this->error($this->safeMessage($e, '经营顾问会诊保留失败'), $this->status($e));
         }
     }
 
@@ -374,6 +369,20 @@ final class OperatingIntelligence extends Base
             ));
         } catch (Throwable $e) {
             return $this->error($this->safeMessage($e, '经营顾问会诊回读失败'), $this->status($e));
+        }
+    }
+
+    public function resumeQuestionCouncil(int $id, int $runId): Response
+    {
+        try {
+            return $this->success((new OperatingQuestionCouncilService())->resumeRun(
+                $runId,
+                $id,
+                $this->currentTenantId(),
+                $this->accessibleHotels('operation.view')
+            ), '经营顾问会诊已按原 run 恢复');
+        } catch (Throwable $e) {
+            return $this->error($this->safeMessage($e, '经营顾问会诊恢复失败'), $this->status($e));
         }
     }
 

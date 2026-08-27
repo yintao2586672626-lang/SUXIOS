@@ -2160,19 +2160,27 @@ function p0_import_execute(array $executePayload, array $options): array
     $app->initialize();
 
     $service = new OnlineDailyDataPersistenceService();
+    $platform = strtolower(trim((string)$options['platform']));
+    $expectedPlatformHotelId = p0_import_platform_hotel_identifier($executePayload, $platform);
+    $ingestionMethod = p0_import_payload_is_browser_capture($executePayload)
+        ? 'browser_profile'
+        : 'manual_import';
     $saved = $service->parseAndSaveTrafficData(
         $executePayload,
         (string)$options['date'],
         (string)$options['date'],
-        (string)$options['platform'],
+        $platform,
         (int)$options['system-hotel-id'],
-        (string)$options['platform'] === 'ctrip' ? 'Ctrip' : null
+        $platform,
+        $expectedPlatformHotelId,
+        $ingestionMethod
     );
 
     return [
         'saved_count' => $saved,
         'execute_policy' => 'explicit_execute_only',
         'execute_input_source' => 'validated_target_date_rows',
+        'ingestion_method' => $ingestionMethod,
         'execute_payload_shape' => 'data.flowData',
         'execute_payload_row_count' => count((array)($executePayload['data']['flowData'] ?? [])),
         'post_execute_verification' => p0_import_post_execute_verification($options),

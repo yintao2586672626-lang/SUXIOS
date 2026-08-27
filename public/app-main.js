@@ -40548,7 +40548,7 @@
                 local_ai_loading: false,
                 local_ai_error: '',
                 local_ai_capabilities: null,
-                council_loading: false,
+                council_loading: false, council_generation: 0,
                 council_error: '',
                 council_run: null,
                 media_loading: false,
@@ -44714,6 +44714,8 @@
                 const lenses = Array.isArray(exact?.synthesis?.selected_lenses)
                     ? exact.synthesis.selected_lenses
                     : [];
+                const quarantine = exact?.synthesis?.quarantine || null;
+                const integrityMatches = window.SUXI_OPERATING_INTELLIGENCE_COMPONENTS?.councilReadbackIntegrityMatches?.(exact) === true;
                 return Number(exact?.question_id || 0) === Number(questionId || 0)
                     && Number(exact?.hotel_id || 0) === Number(hotelId || 0)
                     && /^[a-f0-9]{64}$/.test(String(exact?.content_digest || ''))
@@ -44726,14 +44728,16 @@
                     && exact?.boundaries?.primary_answer_mutated === false
                     && exact?.boundaries?.real_human_consensus === false
                     && exact?.boundaries?.source_skills_installed === false
-                    && Number(source?.source_entry_count || 0) === 165
-                    && String(source?.outer_zip_sha256 || '') === '32c06de45983119efd6f7cfa9b1e8ca5ce59f8a4e5339267dc383a5fc0ee3970'
-                    && lenses.length >= 2
-                    && lenses.length <= 5;
+                    && (quarantine ? true : (Number(source?.source_entry_count || 0) === 165
+                        && String(source?.outer_zip_sha256 || '') === '32c06de45983119efd6f7cfa9b1e8ca5ce59f8a4e5339267dc383a5fc0ee3970'
+                        && lenses.length >= 2 && lenses.length <= 5))
+                    && integrityMatches;
             };
             const loadLatestOperatingQuestionCouncil = async (questionId) => {
                 const state = operatingQuestionState.value;
                 const id = Number(questionId || state.result?.id || 0);
+                const generation = ++state.council_generation; state.council_loading = false;
+                const isCurrent = () => state.council_generation === generation && Number(state.result?.id || 0) === id;
                 state.council_error = '';
                 if (!id) {
                     state.council_run = null;
@@ -44741,12 +44745,11 @@
                 }
                 try {
                     const response = await request(`/agent/operating-questions/${id}/council-runs/latest`);
+                    if (!isCurrent()) return null;
                     if (response.code !== 200) throw new Error(response.message || '经营顾问会诊回读失败');
                     const exact = response.data;
-                    if (Number(state.result?.id || 0) !== id) {
-                        throw new Error('经营问题已切换，旧问题的会诊结果不再展示');
-                    }
                     if (exact === null) {
+                        if (!isCurrent()) return null;
                         state.council_run = null;
                         return null;
                     }
@@ -44755,9 +44758,11 @@
                         id,
                         Number(state.result?.hotel_id || 0)
                     )) throw new Error('经营顾问会诊身份、来源或边界回读不一致');
+                    if (!isCurrent()) return null;
                     state.council_run = exact;
                     return exact;
                 } catch (error) {
+                    if (!isCurrent()) return null;
                     state.council_run = null;
                     state.council_error = error?.message || '经营顾问会诊回读失败';
                     return null;
@@ -44767,45 +44772,45 @@
                 const state = operatingQuestionState.value;
                 const questionId = Number(state.result?.id || 0);
                 if (!questionId || state.council_loading) return null;
+                const generation = ++state.council_generation;
+                const isCurrent = () => state.council_generation === generation && Number(state.result?.id || 0) === questionId;
                 state.council_loading = true;
                 state.council_error = '';
                 try {
                     const suffix = globalThis.crypto?.randomUUID?.().replace(/-/g, '').slice(0, 16)
                         || `${Date.now()}${Math.random().toString(16).slice(2, 8)}`;
                     const clientRunKey = `council:${suffix}`;
-                    const response = await request(`/agent/operating-questions/${questionId}/council-runs`, {
-                        method: 'POST',
-                        body: JSON.stringify({ client_run_key: clientRunKey }),
-                    });
-                    if (response.code !== 200 || !response.data) throw new Error(response.message || '经营顾问会诊运行失败');
-                    const saved = response.data;
-                    if (saved.persistence_status !== 'readback_verified'
-                        || Number(saved.question_id || 0) !== questionId
-                        || String(saved.request_key || '') !== `council:${clientRunKey}`
+                    const submission = await window.SUXI_OPERATING_INTELLIGENCE_COMPONENTS.submitCouncilRun({ questionId, clientRunKey, state, request, isCurrent });
+                    if (!isCurrent() || !submission) return null;
+                    const saved = submission.saved;
+                    const acceptedExisting = submission.resumed || submission.reusedActive || saved.reused_active === true;
+                    if (Number(saved.question_id || 0) !== questionId
+                        || (!acceptedExisting && String(saved.request_key || '') !== `council:${clientRunKey}`)
                     ) throw new Error('经营顾问会诊没有返回保存回读凭证');
                     const readback = await request(`/agent/operating-questions/${questionId}/council-runs/${Number(saved.id || 0)}`);
+                    if (!isCurrent()) return null;
                     if (readback.code !== 200 || !readback.data) {
                         throw new Error(readback.message || '经营顾问会诊精确回读失败');
                     }
                     const exact = readback.data;
-                    if (Number(state.result?.id || 0) !== questionId) {
-                        throw new Error('经营问题已切换，旧问题的会诊结果不再展示');
-                    }
                     if (!operatingQuestionCouncilReadbackMatches(
                         exact,
                         questionId,
                         Number(state.result?.hotel_id || 0)
                     )
                         || Number(exact.id || 0) !== Number(saved.id || 0)
-                        || String(exact.content_digest || '') !== String(saved.content_digest || '')
+                        || String(exact.request_key || '') !== String(saved.request_key || '')
                     ) throw new Error('经营顾问会诊保存与 GET 回读不一致');
+                    if (!isCurrent()) return null;
                     state.council_run = exact;
-                    return exact;
+                    const terminal = await window.SUXI_OPERATING_INTELLIGENCE_COMPONENTS.pollCouncilRun({ exact, questionId, runId: Number(saved.id || 0), requestKey: String(saved.request_key || ''), state, request, matches: operatingQuestionCouncilReadbackMatches, isCurrent });
+                    return isCurrent() ? terminal : null;
                 } catch (error) {
+                    if (!isCurrent()) return null;
                     state.council_error = error?.message || '经营顾问会诊运行失败';
                     return null;
                 } finally {
-                    state.council_loading = false;
+                    if (isCurrent()) state.council_loading = false;
                 }
             };
             const loadOperatingQuestionHistory = async (options = {}) => {
@@ -44866,7 +44871,7 @@
                     operatingQuestionForm.value.date_end = String(exact.date_end || '');
                     operatingQuestionForm.value.decision_object = String(exact.answer?.decision_frame?.requested_object || '');
                     state.question = String(exact.question_text || '');
-                    state.result = exact;
+                    state.council_generation += 1; state.council_loading = false; state.result = exact;
                     state.scope_manual = true;
                     state.scope_auto_applied = false;
                     state.scope_notice = `已打开保存问答 #${questionId}：${operatingQuestionPlatformText(exact.platform)} · ${exact.date_start}${exact.date_end !== exact.date_start ? ` 至 ${exact.date_end}` : ''}。`;
@@ -44888,7 +44893,7 @@
                 operatingQuestionForm.value[field] = normalized;
                 const state = operatingQuestionState.value;
                 state.error = '';
-                state.result = null;
+                state.council_generation += 1; state.council_loading = false; state.result = null;
                 state.action_error = '';
                 state.action_intents = {};
                 state.council_error = '';
@@ -44933,7 +44938,7 @@
                     if (hotelId !== previousHotelId) {
                         state.scope_manual = false;
                         state.scope_auto_applied = false;
-                        state.result = null;
+                        state.council_generation += 1; state.council_loading = false; state.result = null;
                         state.action_intents = {};
                         state.council_run = null;
                         state.council_error = '';
@@ -44966,7 +44971,7 @@
                 const modelKey = String(operatingQuestionForm.value.model_key || '').trim();
                 const decisionObject = String(operatingQuestionForm.value.decision_object || '').trim();
                 state.error = '';
-                state.result = null;
+                state.council_generation += 1; state.council_loading = false; state.result = null;
                 state.action_error = '';
                 state.action_intents = {};
                 if (!hotelId || !platform || !dateStart || !dateEnd || !question) {
@@ -48242,6 +48247,7 @@
                 },
             });
 
+            const requestBrowserCaptureTask = (endpoint, payload = {}) => window.SUXI_BROWSER_CAPTURE_TASK.request({ endpoint, payload, request, poll: pollManualFetchTaskStatus, notify: showToast, wait: delayMs => new Promise(resolve => window.setTimeout(resolve, delayMs)) });
             const runCtripBrowserCapture = async (options = {}) => runCtripBrowserCaptureFlow({
                 options,
                 getSelectedCtripHotelId: () => selectedCtripHotelId.value,
@@ -48255,10 +48261,7 @@
                 getOverviewForm: () => ctripOverviewForm.value,
                 getHotelNameById,
                 resolveProfileId: activeConfig => resolveCtripBrowserProfileId({ activeConfig }),
-                requestCapture: capturePayload => request('/online-data/capture-ctrip-browser', {
-                    method: 'POST',
-                    body: JSON.stringify(capturePayload),
-                }),
+                requestCapture: capturePayload => requestBrowserCaptureTask('/online-data/capture-ctrip-browser', capturePayload),
                 setRunning: value => { ctripBrowserCaptureRunning.value = value; },
                 setFetching: value => { fetchingData.value = value; },
                 setCaptureResult: value => { ctripBrowserCaptureResult.value = value; },
@@ -49894,10 +49897,7 @@
                 setFetching: value => { fetchingData.value = value; },
                 setCaptureResult: value => { meituanBrowserCaptureResult.value = value; },
                 setOnlineDataResult: value => { onlineDataResult.value = value; },
-                requestCapture: body => request('/online-data/capture-meituan-browser', {
-                    method: 'POST',
-                    body: JSON.stringify(body),
-                }),
+                requestCapture: body => requestBrowserCaptureTask('/online-data/capture-meituan-browser', body),
                 refreshOnlineHistory: scheduleOnlineHistoryRefresh,
                 refreshPlatformProfileStatus: schedulePlatformProfileStatusRefresh,
                 refreshPlatformDataSources: schedulePlatformDataSourcesRefresh,

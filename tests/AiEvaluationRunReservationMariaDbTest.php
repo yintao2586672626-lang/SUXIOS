@@ -29,9 +29,11 @@ final class AiEvaluationRunReservationMariaDbTest extends TestCase
             self::markTestSkipped('A dedicated MariaDB test database is required for evaluation reservation verification.');
         }
         $columns = Db::query("SHOW COLUMNS FROM `ai_evaluation_runs` WHERE `Field` IN ('claim_token_hash','lease_expires_at')");
-        if (count($columns) !== 2) {
-            self::markTestSkipped('The evaluation reservation migration is not applied to this database.');
-        }
+        self::assertCount(
+            2,
+            $columns,
+            'The dedicated MariaDB test database must contain every evaluation reservation migration column.'
+        );
         $this->clientRunKey = 'eval-mariadb-reservation-' . bin2hex(random_bytes(8));
     }
 

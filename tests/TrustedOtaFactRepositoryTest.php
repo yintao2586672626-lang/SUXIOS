@@ -560,6 +560,150 @@ final class TrustedOtaFactRepositoryTest extends TestCase
         self::assertSame(3, $result['data_quality']['rejected_reasons']['validation_status_untrusted'] ?? 0);
     }
 
+    public function testBatchHistoryMatchesSingleWindowReductionWithRejectedAndOutOfWindowRows(): void
+    {
+        $this->insertRow([
+            'data_date' => '2026-07-01',
+            'source_trace_id' => 'trace-day-1-valid',
+            'amount' => 101,
+        ]);
+        $this->insertRow([
+            'data_date' => '2026-07-01',
+            'source_trace_id' => 'trace-day-1-rejected',
+            'ingestion_method' => 'manual',
+            'amount' => 901,
+        ]);
+        $gapBase = [
+            'system_hotel_id' => 80,
+            'data_date' => '2026-07-02',
+            'readback_verified' => 1,
+        ];
+        $gapRows = [];
+        for ($index = 0; $index < 20000; $index++) {
+            $gapRows[] = $gapBase;
+            if (count($gapRows) === 400) {
+                Db::name('online_daily_data')->insertAll($gapRows);
+                $gapRows = [];
+            }
+        }
+        if ($gapRows !== []) {
+            Db::name('online_daily_data')->insertAll($gapRows);
+        }
+        $this->insertRow([
+            'data_date' => '2026-07-03',
+            'source_trace_id' => 'trace-day-3-valid',
+            'amount' => 303,
+        ]);
+        $this->insertRow([
+            'data_date' => '2026-07-03',
+            'source_trace_id' => 'trace-day-3-rejected',
+            'validation_status' => 'abnormal',
+            'amount' => 903,
+        ]);
+
+        $repository = new TrustedOtaFactRepository();
+        $singleDay1 = $repository->pricingHistory(80, '2026-07-01', '2026-07-01');
+        $singleDay3 = $repository->pricingHistory(80, '2026-07-03', '2026-07-03');
+        $queries = [];
+        $capture = true;
+        Db::listen(static function (string $sql) use (&$queries, &$capture): void {
+            if ($capture && !str_starts_with($sql, 'CONNECT:')) {
+                $queries[] = $sql;
+            }
+        });
+        $batch = $repository->pricingHistoryBatch(80, [
+            'day_1' => ['start_date' => '2026-07-01', 'end_date' => '2026-07-01'],
+            'day_3' => ['start_date' => '2026-07-03', 'end_date' => '2026-07-03'],
+        ]);
+        $capture = false;
+
+        self::assertSame($singleDay1, $batch['day_1']);
+        self::assertSame($singleDay3, $batch['day_3']);
+        self::assertSame([101.0], array_column($batch['day_1']['rows'], 'amount'));
+        self::assertSame([303.0], array_column($batch['day_3']['rows'], 'amount'));
+        self::assertSame(1, $batch['day_1']['data_quality']['rejected_rows']);
+        self::assertSame(1, $batch['day_3']['data_quality']['rejected_rows']);
+        self::assertNotContains(202.0, array_column($batch['day_1']['rows'], 'amount'));
+        self::assertNotContains(202.0, array_column($batch['day_3']['rows'], 'amount'));
+        $factReads = array_values(array_filter(
+            $queries,
+            static fn(string $sql): bool => preg_match(
+                '/\bfrom\s+[`"]?online_daily_data[`"]?/i',
+                $sql
+            ) === 1
+        ));
+        self::assertCount(2, $factReads, implode("\n", $factReads));
+    }
+
+    public function testBatchHistoryKeepsSourceAndEvidenceRowLimitsIndependentPerWindow(): void
+    {
+        $this->recreateTable(
+            'id INTEGER PRIMARY KEY AUTOINCREMENT, '
+            . 'system_hotel_id INTEGER NOT NULL, hotel_id TEXT NULL, data_date TEXT NOT NULL, '
+            . 'amount REAL NULL, quantity REAL NULL, book_order_num REAL NULL, '
+            . 'source TEXT NULL, platform TEXT NULL, data_type TEXT NULL, dimension TEXT NULL, '
+            . 'compare_type TEXT NULL, validation_status TEXT NULL, validation_flags TEXT NULL, '
+            . 'status TEXT NULL, save_status TEXT NULL, data_period TEXT NULL, snapshot_time TEXT NULL, '
+            . 'snapshot_bucket TEXT NULL, is_final INTEGER NULL, update_time TEXT NULL, '
+            . 'ingestion_method TEXT NULL, source_trace_id TEXT NULL, data_source_id INTEGER NULL, '
+            . 'sync_task_id INTEGER NULL, raw_data TEXT NULL, readback_verified INTEGER NOT NULL DEFAULT 0'
+        );
+        $dayOneRows = [];
+        for ($index = 0; $index < 10001; $index++) {
+            $dayOneRows[] = [
+                'system_hotel_id' => 80,
+                'data_date' => '2026-07-01',
+                'readback_verified' => 1,
+            ];
+            if (count($dayOneRows) === 400) {
+                Db::name('online_daily_data')->insertAll($dayOneRows);
+                $dayOneRows = [];
+            }
+        }
+        if ($dayOneRows !== []) {
+            Db::name('online_daily_data')->insertAll($dayOneRows);
+        }
+        $this->insertRow([
+            'data_date' => '2026-07-02',
+            'source_trace_id' => 'trace-day-2-valid',
+            'amount' => 222,
+        ]);
+        $dayTwoEvidence = [];
+        for ($index = 0; $index < 10001; $index++) {
+            $dayTwoEvidence[] = [
+                'system_hotel_id' => 80,
+                'data_date' => '2026-07-02',
+                'readback_verified' => 0,
+            ];
+            if (count($dayTwoEvidence) === 400) {
+                Db::name('online_daily_data')->insertAll($dayTwoEvidence);
+                $dayTwoEvidence = [];
+            }
+        }
+        if ($dayTwoEvidence !== []) {
+            Db::name('online_daily_data')->insertAll($dayTwoEvidence);
+        }
+
+        $repository = new TrustedOtaFactRepository();
+        $singleDay1 = $repository->pricingHistory(80, '2026-07-01', '2026-07-01');
+        $singleDay2 = $repository->pricingHistory(80, '2026-07-02', '2026-07-02');
+        $batch = $repository->pricingHistoryBatch(80, [
+            'day_1' => ['start_date' => '2026-07-01', 'end_date' => '2026-07-01'],
+            'day_2' => ['start_date' => '2026-07-02', 'end_date' => '2026-07-02'],
+        ]);
+
+        self::assertSame($singleDay1, $batch['day_1']);
+        self::assertSame($singleDay2, $batch['day_2']);
+        self::assertSame('blocked', $batch['day_1']['data_status']);
+        self::assertContains('pricing_history_row_limit_exceeded', $batch['day_1']['data_gaps']);
+        self::assertSame('ready', $batch['day_2']['data_status']);
+        self::assertSame([222.0], array_column($batch['day_2']['rows'], 'amount'));
+        self::assertSame(
+            'row_limit_exceeded',
+            $batch['day_2']['data_quality']['order_dedup']['evidence_status']
+        );
+    }
+
     public function testEstablishedTrustedValidationAliasesRemainCompatibleForProfileRows(): void
     {
         $service = new TrustedOtaFactRepository();

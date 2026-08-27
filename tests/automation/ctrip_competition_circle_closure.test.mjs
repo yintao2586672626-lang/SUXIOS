@@ -228,13 +228,14 @@ test('traffic persistence keeps system hotel ownership separate from the OTA hot
   const ctripParser = persistence.match(/private function parseAndSaveCtripTrafficData[\s\S]*?private function parseAndSaveGenericTrafficData/);
 
   assert.ok(ctripParser, 'expected isolated Ctrip traffic parser');
-  assert.match(persistence, /parseAndSaveCtripTrafficData\([^;]*\$expectedPlatformHotelId\)/);
+  assert.match(persistence, /parseAndSaveCtripTrafficData\([^;]*\$expectedPlatformHotelId,\s*\$ingestionMethod\s*\)/);
   assert.match(ctripParser[0], /hash_equals\(\$expectedPlatformHotelId, \(string\)\$hotelId\)/);
   assert.match(ctripParser[0], /explicit self row with a different platform ID[\s\S]*?continue;/i);
   assert.match(ctripParser[0], /\$compareType = \$isAverage \? 'competitor_avg' : \(\$isCompetitor \? 'competitor' : 'self'\)/);
   assert.doesNotMatch(ctripParser[0], /\$hotelId\s*=\s*\$systemHotelId/);
   assert.match(analytics, /\$expectedPlatformHotelId[\s\S]*?OnlineDailyDataPersistenceService[\s\S]*?\$expectedPlatformHotelId/);
   assert.match(manualFetch, /\$credentialPayload\['platform_hotel_id'\][\s\S]*?parseAndSaveTrafficData\([\s\S]*?\$expectedPlatformHotelId/);
-  assert.match(autoFetch, /\$credentialPayload\['platform_hotel_id'\][\s\S]*?parseAndSaveTrafficData\([^;]*\$expectedPlatformHotelId\)/);
-  assert.match(autoFetch, /parseAndSaveTrafficData\(\['data' => \['list' => \$trafficRows\]\][^;]*\$requestHotelId\)/);
+  assert.match(autoFetch, /\$credentialPayload\['platform_hotel_id'\][\s\S]*?parseAndSaveTrafficData\([^;]*\$expectedPlatformHotelId,\s*'manual_cookie_api'\s*\)/);
+  assert.match(autoFetch, /parseAndSaveTrafficData\(\s*\['data' => \['list' => \$trafficRows\]\][^;]*\$requestHotelId,\s*'browser_profile'\s*\)/);
+  assert.match(persistence, /'platform' => \$platform,[\s\S]*?'ingestion_method' => \$ingestionMethod/);
 });

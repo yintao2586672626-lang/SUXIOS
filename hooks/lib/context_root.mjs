@@ -22,8 +22,6 @@ const gitCommonDirectory = (repoRoot) => {
 
 export function resolveOuterContextRoot(repoRoot) {
   const directParent = path.dirname(repoRoot);
-  if (hasOuterAgents(directParent)) return directParent;
-
   try {
     const commonDirectory = gitCommonDirectory(repoRoot);
     if (commonDirectory) {
@@ -32,8 +30,8 @@ export function resolveOuterContextRoot(repoRoot) {
       if (hasOuterAgents(mainOuterRoot)) return mainOuterRoot;
     }
   } catch {
-    // Keep the direct parent fallback so the caller emits the existing,
-    // actionable "outer AGENTS.md is missing" verification failure.
+    // Non-Git snapshots used by staged verification deliberately fall back to
+    // their direct parent, where the authoritative outer AGENTS.md is copied.
   }
 
   return directParent;

@@ -864,6 +864,11 @@
                     throw new Error(response.message || '演示包回读失败');
                 }
                 const artifact = response.data || {};
+                if (artifact.status === 'not_generated'
+                    || artifact.render_status === 'not_generated') {
+                    aiDailyReportPresentationResult.value = null;
+                    return;
+                }
                 if (artifact.artifact_readback_verified !== true
                     || !/^[a-f0-9]{64}$/.test(String(artifact.content_sha256 || '').toLowerCase())
                     || Number(artifact.report_id || 0) !== identity.reportId

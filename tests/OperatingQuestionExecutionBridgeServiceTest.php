@@ -799,6 +799,12 @@ final class OperatingQuestionExecutionBridgeServiceTest extends TestCase
 
         Db::name('operation_execution_tasks')->where('id', (int)$task['id'])->update(['tenant_id' => 11]);
         try {
+            $lifecycle->decorateIntent($readback);
+            self::fail('a non-empty stale task snapshot must be re-verified and rejected');
+        } catch (\RuntimeException $exception) {
+            self::assertStringContainsString('事件链损坏', $exception->getMessage());
+        }
+        try {
             $lifecycle->decorateIntent(array_replace($readback, ['tasks' => []]));
             self::fail('an incomplete aggregate must fail closed after task scope drifts');
         } catch (\RuntimeException $exception) {

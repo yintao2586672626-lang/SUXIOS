@@ -1528,32 +1528,11 @@ trait PlatformProfileCaptureConcern
 
     private function createCtripProfileFieldConfigFile(string $projectRoot, ?array $payload = null): string
     {
-        $dir = $projectRoot . DIRECTORY_SEPARATOR . 'runtime' . DIRECTORY_SEPARATOR . 'ctrip_capture';
-        if (!is_dir($dir) && !mkdir($dir, 0775, true) && !is_dir($dir)) {
-            return '';
-        }
-
-        try {
-            $suffix = bin2hex(random_bytes(6));
-        } catch (\Throwable $e) {
-            $suffix = str_replace('.', '', uniqid('', true));
-        }
-
         $payload = $payload ?? $this->buildCtripProfileFieldConfigPayload($this->readCtripProfileCaptureFields(true));
-        $json = json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-        if (!is_string($json)) {
-            return '';
-        }
-
-        $path = $dir . DIRECTORY_SEPARATOR . 'ctrip_profile_field_config_' . $suffix . '.json';
-        if (file_put_contents($path, $json, LOCK_EX) === false) {
-            return '';
-        }
-        if (!@chmod($path, 0600)) {
-            @unlink($path);
-            return '';
-        }
-        return $path;
+        return BrowserProfileCaptureRequestService::createEphemeralCaptureJson(
+            $payload,
+            'ctrip-field-config'
+        );
     }
 
     private function buildCtripProfileFieldConfigPayload(array $fields): array

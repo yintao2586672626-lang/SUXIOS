@@ -58,8 +58,9 @@ final class AgentRawTenantIsolationTest extends TestCase
         Db::connect(null, true);
 
         Db::execute('CREATE TABLE hotels (id INTEGER PRIMARY KEY, tenant_id INTEGER NOT NULL, name VARCHAR(100), status INTEGER)');
-        Db::execute('CREATE TABLE online_daily_data (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER NOT NULL, system_hotel_id INTEGER NOT NULL, hotel_id VARCHAR(100), data_source_id INTEGER, data_date DATE NOT NULL, source VARCHAR(50), platform VARCHAR(30), data_type VARCHAR(50), amount DECIMAL(12,2), quantity INTEGER, book_order_num INTEGER, list_exposure INTEGER, detail_exposure INTEGER, order_filling_num INTEGER, order_submit_num INTEGER, readback_verified INTEGER, validation_status VARCHAR(30), raw_data TEXT, create_time DATETIME, update_time DATETIME)');
-        Db::execute('CREATE TABLE platform_data_sources (id INTEGER PRIMARY KEY, tenant_id INTEGER NOT NULL, system_hotel_id INTEGER NOT NULL, platform VARCHAR(30), config_json TEXT)');
+        Db::execute('CREATE TABLE online_daily_data (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER NOT NULL, system_hotel_id INTEGER NOT NULL, hotel_id VARCHAR(100), data_source_id INTEGER, sync_task_id INTEGER, source_trace_id VARCHAR(160), data_date DATE NOT NULL, data_period VARCHAR(30), source VARCHAR(50), platform VARCHAR(30), data_type VARCHAR(50), dimension TEXT, compare_type TEXT, amount DECIMAL(12,2), quantity INTEGER, book_order_num INTEGER, list_exposure INTEGER, detail_exposure INTEGER, flow_rate REAL, order_filling_num INTEGER, order_submit_num INTEGER, readback_verified INTEGER, history_status VARCHAR(30), validation_status VARCHAR(30), ingestion_method VARCHAR(30), snapshot_time DATETIME, raw_data TEXT, create_time DATETIME, update_time DATETIME)');
+        Db::execute('CREATE TABLE platform_data_sources (id INTEGER PRIMARY KEY, tenant_id INTEGER NOT NULL, system_hotel_id INTEGER NOT NULL, platform VARCHAR(30), status VARCHAR(30), enabled INTEGER, ingestion_method VARCHAR(30), config_json TEXT)');
+        Db::execute('CREATE TABLE platform_data_sync_tasks (id INTEGER PRIMARY KEY, tenant_id INTEGER, data_source_id INTEGER, system_hotel_id INTEGER, platform VARCHAR(30), status VARCHAR(30), stats_json TEXT)');
 
         Db::name('hotels')->insert(['id' => 20, 'tenant_id' => 10, 'name' => 'Tenant 10 Hotel', 'status' => 1]);
         Db::name('hotels')->insert(['id' => 21, 'tenant_id' => 10, 'name' => 'Tenant 10 Other Hotel', 'status' => 1]);
@@ -263,15 +264,84 @@ final class AgentRawTenantIsolationTest extends TestCase
         );
         self::assertSame(['valid-ota'], $ownOtaIds);
 
-        $pricing = new RevenuePricingRecommendationService();
-        $trafficRows = $this->method(RevenuePricingRecommendationService::class, 'ctripTrafficRows')->invoke(
-            $pricing,
-            20,
-            '2026-07-21',
-            '2026-07-21'
+    }
+
+    public function testTrafficBatchBlocksTwoThousandFiveHundredCandidatesInsteadOfTruncating(): void
+    {
+        Db::name('online_daily_data')->delete(true);
+        $rows = [];
+        $id = 1;
+        foreach ([
+            ['date' => '2026-07-19', 'count' => 2000, 'submit' => 1],
+            ['date' => '2026-07-20', 'count' => 250, 'submit' => 2],
+            ['date' => '2026-07-21', 'count' => 250, 'submit' => 3],
+        ] as $group) {
+            for ($index = 0; $index < $group['count']; $index++) {
+                $rows[] = [
+                    'id' => $id++,
+                    'tenant_id' => 10,
+                    'system_hotel_id' => 20,
+                    'hotel_id' => 'valid-ota',
+                    'data_source_id' => 1001,
+                    'data_date' => $group['date'],
+                    'source' => 'ctrip',
+                    'platform' => 'ctrip',
+                    'data_type' => 'traffic',
+                    'order_submit_num' => $group['submit'],
+                    'readback_verified' => 1,
+                    'history_status' => 'success',
+                    'validation_status' => 'verified',
+                    'ingestion_method' => 'browser_profile',
+                    'sync_task_id' => 1001,
+                    'source_trace_id' => 'traffic-strict-trace',
+                    'raw_data' => $this->strictTrafficEvidence('traffic-strict-trace'),
+                ];
+            }
+        }
+        foreach (array_chunk($rows, 500) as $chunk) {
+            Db::name('online_daily_data')->insertAll($chunk);
+        }
+
+        $targetDate = '2026-07-22';
+        $emptyTargetDate = '2026-08-05';
+        $single = (new RevenuePricingRecommendationService())
+            ->ctripTrafficDemandForecastSignal(20, $targetDate);
+        $singleEmpty = (new RevenuePricingRecommendationService())
+            ->ctripTrafficDemandForecastSignal(20, $emptyTargetDate);
+        $queries = [];
+        $capture = true;
+        Db::listen(static function (string $sql) use (&$queries, &$capture): void {
+            if ($capture && !str_starts_with($sql, 'CONNECT:')) {
+                $queries[] = $sql;
+            }
+        });
+        $batchService = new RevenuePricingRecommendationService();
+        $prime = $this->method(
+            RevenuePricingRecommendationService::class,
+            'primeCtripTrafficForecastSignalsBatch'
         );
-        self::assertSame([1], array_map('intval', array_column($trafficRows, 'id')));
-        self::assertSame(1000, (int)$trafficRows[0]['list_exposure']);
+        $prime->invoke($batchService, 20, [$targetDate, $emptyTargetDate]);
+        $batch = $batchService->ctripTrafficDemandForecastSignal(20, $targetDate);
+        $batchEmpty = $batchService->ctripTrafficDemandForecastSignal(20, $emptyTargetDate);
+        $capture = false;
+
+        self::assertSame($single, $batch);
+        self::assertSame($singleEmpty, $batchEmpty);
+        self::assertSame('blocked', $batch['data_status']);
+        self::assertContains(
+            'ctrip_traffic_history_row_limit_exceeded',
+            $batch['data_gaps'],
+            json_encode($batch, JSON_UNESCAPED_SLASHES)
+        );
+        self::assertNull($batch['predicted_demand']);
+        $trafficReads = array_values(array_filter(
+            $queries,
+            static fn(string $sql): bool => preg_match(
+                '/\bfrom\s+[`"]?online_daily_data[`"]?/i',
+                $sql
+            ) === 1
+        ));
+        self::assertCount(1, $trafficReads, implode("\n", $trafficReads));
     }
 
     public function testDiagnosisPersistenceEvidenceReadbackRejectsCrossPlatformReference(): void
@@ -362,6 +432,36 @@ final class AgentRawTenantIsolationTest extends TestCase
         );
 
         self::assertSame([], $diagnosis['online_rows']);
+    }
+
+    private function strictTrafficEvidence(string $traceId): string
+    {
+        $urlHash = hash('sha256', 'strict-traffic-fixture');
+        $evidence = [
+            'source_trace_id' => $traceId,
+            'source_url_hash' => $urlHash,
+            'capture_source' => 'xhr:traffic:flow',
+            'source_path' => 'data.flow',
+        ];
+        return (string)json_encode([
+            'source_trace_id' => $traceId,
+            'source_url_hash' => $urlHash,
+            'capture_evidence' => $evidence,
+            'row' => [
+                '_capture_source' => 'xhr:traffic:flow',
+                '_source_path' => 'data.flow',
+                'capture_evidence' => $evidence,
+            ],
+            'field_facts' => [[
+                'metric_key' => 'order_submit_num',
+                'normalized_field' => 'order_submit_num',
+                'storage_field' => 'online_daily_data.order_submit_num',
+                'source_path' => 'data.flow.orderSubmitNum',
+                'status' => 'captured',
+                'stored_value_present' => true,
+                'capture_evidence' => $evidence,
+            ]],
+        ], JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES);
     }
 
     private function method(string $class, string $name): ReflectionMethod

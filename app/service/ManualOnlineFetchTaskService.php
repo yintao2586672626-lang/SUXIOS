@@ -226,15 +226,47 @@ final class ManualOnlineFetchTaskService
 
     public function markTaskRunning(string $taskId): array
     {
-        return $this->updateTaskStatus($taskId, [
-            'status' => 'running',
-            'stage' => 'requesting',
-            'status_text' => '获取中',
-            'message' => '正在调用已授权的 OTA 数据接口',
-            'progress_percent' => 30,
-            'started_at' => date('Y-m-d H:i:s'),
-            'done' => false,
-        ]);
+        $claim = $this->claimTaskForExecution($taskId, 'legacy-' . max(0, (int)getmypid()));
+        return is_array($claim['status'] ?? null) ? $claim['status'] : [];
+    }
+
+    /**
+     * Atomically transition queued -> running for exactly one launcher. The
+     * status-store update is the CAS boundary for both database row locks and
+     * the file driver's exclusive lock.
+     *
+     * @return array{claimed:bool,status:array<string,mixed>}
+     */
+    public function claimTaskForExecution(string $taskId, string $ownerId): array
+    {
+        $ownerId = trim($ownerId);
+        if (!$this->isValidTaskId($taskId)
+            || preg_match('/^[A-Za-z0-9._:-]{1,128}$/D', $ownerId) !== 1
+        ) {
+            return ['claimed' => false, 'status' => []];
+        }
+        $claimed = false;
+        $status = $this->statusStore->update($taskId, static function (array $current) use ($ownerId, &$claimed): array {
+            $currentStatus = strtolower(trim((string)($current['status'] ?? '')));
+            if ($currentStatus !== 'queued' || trim((string)($current['claim_owner'] ?? '')) !== '') {
+                return $current;
+            }
+            $claimed = true;
+            $now = date('Y-m-d H:i:s');
+            return array_merge($current, [
+                'status' => 'running',
+                'stage' => 'requesting',
+                'status_text' => '获取中',
+                'message' => '正在调用已授权的 OTA 数据接口',
+                'progress_percent' => max(30, (int)($current['progress_percent'] ?? 0)),
+                'claim_owner' => $ownerId,
+                'claimed_at' => $now,
+                'started_at' => trim((string)($current['started_at'] ?? '')) ?: $now,
+                'updated_at' => $now,
+                'done' => false,
+            ]);
+        });
+        return ['claimed' => $claimed, 'status' => $status];
     }
 
     public function markTaskFailed(string $taskId, string $message, string $stage = 'failed'): array
@@ -253,6 +285,7 @@ final class ManualOnlineFetchTaskService
 
     public function completeTask(string $taskId, array $response, string $message = '', bool $transportSuccess = true): array
     {
+        $taskContext = $this->statusStore->read($taskId);
         $payload = is_array($response['data'] ?? null) ? $response['data'] : $response;
         $responseStatus = strtolower(trim((string)(
             $payload['ui_flow_status']
@@ -273,16 +306,16 @@ final class ManualOnlineFetchTaskService
                 'readback_count', 'matched_count', 'verified_count', 'row_count',
             ]);
         }
-        $persistenceStatus = strtolower(trim((string)($payload['persistence_status'] ?? '')));
-        $readbackVerified = ($payload['readback_verified'] ?? $payload['readbackVerified'] ?? false) === true
-            || ($databaseReadback['verified'] ?? false) === true
-            || $persistenceStatus === 'readback_verified';
+        $readbackVerified = ($payload['readback_verified'] ?? $payload['readbackVerified'] ?? false) === true;
+        $exactReadbackVerified = $savedCount > 0
+            && $readbackCount === $savedCount
+            && $readbackVerified;
         $failureStatuses = ['failed', 'error', 'exception', 'business_failed', 'rejected', 'login_required'];
         $noDataStatuses = ['no_data', 'empty', 'no_saved'];
 
         if (!$transportSuccess || in_array($responseStatus, $failureStatuses, true)) {
             $status = $savedCount > 0 ? 'partial_success' : 'failed';
-        } elseif ($readbackVerified && ($savedCount > 0 || in_array($responseStatus, ['success', 'ok', 'completed'], true))) {
+        } elseif ($exactReadbackVerified) {
             $status = 'success';
         } elseif ($savedCount > 0) {
             $status = 'partial_success';
@@ -315,6 +348,11 @@ final class ManualOnlineFetchTaskService
                 default => '平台请求已完成，入库结果待核验',
             };
         }
+        $qualitySummary = $this->buildCtripQualitySummary($payload);
+        if (str_ends_with(strtolower((string)($taskContext['task_kind'] ?? '')), '_browser_profile')) {
+            $qualitySummary = is_array($qualitySummary) ? $qualitySummary : [];
+            $qualitySummary['server_identity'] = $this->verifiedBrowserCaptureServerIdentity($payload, $taskContext);
+        }
 
         return $this->updateTaskStatus($taskId, [
             'status' => $status,
@@ -324,9 +362,9 @@ final class ManualOnlineFetchTaskService
             'progress_percent' => 100,
             'saved_count' => $savedCount,
             'readback_count' => $readbackCount,
-            'readback_verified' => $readbackVerified,
+            'readback_verified' => $exactReadbackVerified,
             'quality_status' => $qualityStatus,
-            'quality_summary' => $this->buildCtripQualitySummary($payload),
+            'quality_summary' => $qualitySummary,
             'finished_at' => date('Y-m-d H:i:s'),
             'done' => true,
         ]);
@@ -471,6 +509,8 @@ final class ManualOnlineFetchTaskService
             '/api/online-data/fetch-meituan-traffic',
             '/api/online-data/fetch-meituan-orders',
             '/api/online-data/fetch-meituan-ads',
+            '/api/online-data/capture-ctrip-browser',
+            '/api/online-data/capture-meituan-browser',
         ];
         if (!in_array($scheme, ['http', 'https'], true)
             || $host === ''
@@ -679,6 +719,28 @@ final class ManualOnlineFetchTaskService
             'ready' => count($rows) > 0 && $total > 0,
             'selfHotelCount' => $selfHotelCount,
             'competitorHotelCount' => max(0, count($rows) - $selfHotelCount),
+        ];
+    }
+
+    /** @return array{verified:bool,platform:?string,profile_id:?string,store_id:?string} */
+    private function verifiedBrowserCaptureServerIdentity(array $payload, array $taskContext): array
+    {
+        $identity = is_array($payload['server_identity'] ?? null) ? $payload['server_identity'] : [];
+        $platform = strtolower(trim((string)($identity['platform'] ?? '')));
+        $profileId = trim((string)($identity['profile_id'] ?? ''));
+        $storeId = trim((string)($identity['store_id'] ?? ''));
+        $taskKind = strtolower(trim((string)($taskContext['task_kind'] ?? '')));
+        $taskPlatform = strtolower(trim((string)($taskContext['platform'] ?? '')));
+        $valid = ($identity['verified'] ?? false) === true
+            && $taskKind === $platform . '_browser_profile'
+            && $taskPlatform === $platform
+            && (($platform === 'ctrip' && $profileId !== '') || ($platform === 'meituan' && $storeId !== ''))
+            && preg_match('/^[^\x00-\x1f\x7f]{1,120}$/u', $profileId !== '' ? $profileId : $storeId) === 1;
+        return [
+            'verified' => $valid,
+            'platform' => $valid ? $platform : null,
+            'profile_id' => $valid && $platform === 'ctrip' ? $profileId : null,
+            'store_id' => $valid && $platform === 'meituan' ? $storeId : null,
         ];
     }
 

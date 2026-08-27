@@ -798,7 +798,7 @@ class OperationManagementService
         $tasks = array_map([$this, 'normalizeExecutionTaskRow'], $taskRows);
         $evidence = array_map([$this, 'normalizeExecutionEvidenceRow'], $evidenceRows);
         $item = $this->executionFlowReadService->buildItem($intent, $tasks, $evidence);
-        $managedIntent = (new OperationActionLifecycleService())->decorateIntent(array_merge($intent, [
+        $managedIntent = (new OperationActionLifecycleService())->decorateCurrentDatabaseAggregate(array_merge($intent, [
             'tasks' => $tasks,
         ]));
         if (is_array($managedIntent['action_management'] ?? null)) {

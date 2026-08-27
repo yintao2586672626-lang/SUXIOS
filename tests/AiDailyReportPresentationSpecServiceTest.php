@@ -322,6 +322,14 @@ final class AiDailyReportPresentationSpecServiceTest extends TestCase
         self::assertStringContainsString("Route::post('/:id/presentation-artifacts', 'AiDailyReport/savePresentationArtifact')", $route);
         self::assertStringContainsString("Route::get('/:id/presentation-artifacts', 'AiDailyReport/presentationArtifact')", $route);
         self::assertStringContainsString("Route::get('/:id/presentation-artifacts/:artifactId', 'AiDailyReport/presentationArtifactById')", $route);
+        $controller = (string)file_get_contents(dirname(__DIR__) . '/app/controller/AiDailyReport.php');
+        $delivery = (string)file_get_contents(
+            dirname(__DIR__) . '/public/components/system/ai-daily-report-delivery.js'
+        );
+        self::assertStringContainsString("'status' => 'not_generated'", $controller);
+        self::assertStringContainsString('presentation_spec_not_generated', $controller);
+        self::assertStringContainsString('presentation_artifact_not_generated', $controller);
+        self::assertStringContainsString("artifact.status === 'not_generated'", $delivery);
         self::assertStringContainsString('saveAndReadback(', $controller);
         self::assertStringContainsString('readLatest(', $controller);
         self::assertStringContainsString('presentationSpecService->readLatest', $controller);

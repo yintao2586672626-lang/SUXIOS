@@ -30,6 +30,8 @@
     "verify:integration": "node scripts/verify_integration.mjs",
     "verify:integration:staged": "node scripts/verify_integration.mjs --staged",
     "verify:verifier-registry": "node scripts/verify_verifier_domain_registry.mjs",
+    "verify:migration-checksum-lock": "node scripts/verify_migration_checksum_lock.mjs",
+    "verify:runtime-asset-identity": "node scripts/verify_runtime_asset_identity.mjs",
     "verify:p0-guards": "npm run verify:high-risk-security && npm run verify:business-page-contract && node scripts/verify_worktree_guard.mjs && npm run verify:login-critical-css && npm run verify:authenticated-style && node scripts/verify_public_entry_guard.mjs && npm run verify:core-scope && npm run verify:revenue-ai-static && npm run verify:revenue-ai-closure && npm run verify:e2e-contracts && node scripts/verify_production_entry_hygiene.mjs && node scripts/verify_frontend_display_boundary.mjs && node scripts/verify_protected_core_contract.mjs",
     "verify:high-risk-security": "node scripts/run_php.mjs scripts/verify_high_risk_security.php",
     "verify:business-page-contract": "node scripts/verify_business_page_contract.mjs",

@@ -28,6 +28,7 @@ return [
         'online-data:notify-failure' => 'app\command\NotifyOtaFailure',
         'ai-daily-report:generate-once' => 'app\command\GenerateAiDailyReportOnce',
         'ai-daily-report:cleanup' => 'app\command\CleanupAiReportTasks',
+        'operating-question-council:run-once' => 'app\command\RunOperatingQuestionCouncilOnce',
         'cloud-automation:run' => 'app\command\RunCloudAutomation',
         'cloud-collection:dispatch' => 'app\command\RunCloudCollectionDispatch',
         'cloud-wechat-push:run' => 'app\command\RunCloudWechatPushOrchestrator',

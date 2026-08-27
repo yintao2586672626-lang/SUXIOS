@@ -8,6 +8,7 @@ import {
   isPublicEntryPath,
   normalizeManagedGitPath,
 } from './frontend-managed-paths.mjs';
+import { resolveOuterContextRoot } from './lib/context_root.mjs';
 
 const helperRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const repoArgIndex = process.argv.indexOf('--repo');
@@ -80,7 +81,7 @@ try {
   // The project context verifier deliberately reads the workspace-level
   // AGENTS.md outside the nested HOTEL repository. Mirror that read-only
   // boundary while every repository-owned file still comes from the index.
-  const outerAgents = path.resolve(repoRoot, '..', 'AGENTS.md');
+  const outerAgents = path.join(resolveOuterContextRoot(repoRoot), 'AGENTS.md');
   if (fs.existsSync(outerAgents)) fs.copyFileSync(outerAgents, path.join(snapshotRoot, 'AGENTS.md'));
 
   const dependencyRoot = path.join(repoRoot, 'node_modules');

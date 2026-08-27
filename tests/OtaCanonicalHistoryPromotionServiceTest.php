@@ -5,7 +5,9 @@ namespace Tests;
 
 use app\service\OtaCanonicalHistoryPromotionService;
 use app\service\CanonicalOtaDailyNaturalAcceptanceService;
+use app\service\CanonicalOtaHistoryReceiptVerifier;
 use app\service\OtaCollectionAnchorService;
+use app\service\StrictCtripTrafficHistoryReader;
 use PHPUnit\Framework\TestCase;
 use RuntimeException;
 use think\App;
@@ -124,6 +126,209 @@ final class OtaCanonicalHistoryPromotionServiceTest extends TestCase
         );
         self::assertMatchesRegularExpression('/^[a-f0-9]{64}$/D', $promotion['content_digest']);
         self::assertFalse($promotion['sensitive_values_exposed']);
+    }
+
+    public function testCanonicalHistoryReaderAcceptsOfficialRow501AndIgnoresPartialSibling(): void
+    {
+        [$collection, $verifierReceipt] = $this->seedFixture();
+        $promotion = (new OtaCanonicalHistoryPromotionService())->promote(
+            $collection,
+            $verifierReceipt,
+            'ctrip',
+            80,
+            80
+        );
+        self::assertSame('verified', $promotion['status']);
+
+        $windows = ['official' => ['start' => '2026-08-09', 'end' => '2026-08-09']];
+        $authority = (new CanonicalOtaHistoryReceiptVerifier())->verifyWindows(80, $windows);
+        self::assertSame('ready', $authority['official']['status'], json_encode($authority));
+        self::assertSame([501], $authority['official']['authoritative_row_ids']);
+        self::assertSame(2, $authority['official']['candidate_row_count']);
+        self::assertSame(1, $authority['official']['ignored_unselected_row_count']);
+
+        $history = (new StrictCtripTrafficHistoryReader())->read(
+            80,
+            '2026-08-09',
+            '2026-08-09'
+        );
+        self::assertSame('ready', $history['data_status'], json_encode($history));
+        self::assertSame([501], array_map('intval', array_column($history['rows'], 'id')));
+        self::assertSame(1, $history['data_quality']['ignored_unselected_rows']);
+    }
+
+    public function testCanonicalHistoryOneAndThirtyOneWindowsKeepConstantSelectCount(): void
+    {
+        [$collection, $verifierReceipt] = $this->seedFixture();
+        self::assertSame('verified', (new OtaCanonicalHistoryPromotionService())->promote(
+            $collection,
+            $verifierReceipt,
+            'ctrip',
+            80,
+            80
+        )['status']);
+        $queries = ['one' => [], 'thirty_one' => []];
+        $capture = null;
+        Db::listen(static function (string $sql) use (&$queries, &$capture): void {
+            if (is_string($capture) && !str_starts_with($sql, 'CONNECT:')) {
+                $queries[$capture][] = $sql;
+            }
+        });
+        $capture = 'one';
+        $one = (new StrictCtripTrafficHistoryReader())->readBatch(80, [
+            'one' => ['start' => '2026-08-09', 'end' => '2026-08-09'],
+        ]);
+        $windows = [];
+        foreach (range(1, 31) as $index) {
+            $windows['window-' . $index] = [
+                'start' => '2026-08-09',
+                'end' => '2026-08-09',
+            ];
+        }
+        $capture = 'thirty_one';
+        $many = (new StrictCtripTrafficHistoryReader())->readBatch(80, $windows);
+        $capture = null;
+
+        self::assertSame('ready', $one['one']['data_status']);
+        foreach (array_keys($windows) as $key) {
+            self::assertSame($one['one'], $many[$key]);
+        }
+        $onlineReads = static fn(array $logged): array => array_values(array_filter(
+            $logged,
+            static fn(string $sql): bool => preg_match(
+                '/\bfrom\s+[`"]?online_daily_data[`"]?/i',
+                $sql
+            ) === 1
+        ));
+        self::assertCount(3, $onlineReads($queries['one']));
+        self::assertSame(
+            count($queries['one']),
+            count($queries['thirty_one']),
+            implode("\n", $queries['thirty_one'])
+        );
+        self::assertSame(
+            count($onlineReads($queries['one'])),
+            count($onlineReads($queries['thirty_one']))
+        );
+    }
+
+    public function testCanonicalHistoryRejectsFailedUnverifiedOrEmptyFieldFactEvenWhenValueIs999999(): void
+    {
+        [$collection, $verifierReceipt] = $this->seedFixture();
+        $promotion = (new OtaCanonicalHistoryPromotionService())->promote(
+            $collection,
+            $verifierReceipt,
+            'ctrip',
+            80,
+            80
+        );
+        self::assertSame('verified', $promotion['status']);
+        $raw = json_decode((string)Db::name('online_daily_data')
+            ->where('id', 501)
+            ->value('raw_data'), true, 512, JSON_THROW_ON_ERROR);
+        $originalRaw = $raw;
+        foreach (['failed', 'unverified', ''] as $factStatus) {
+            $raw = $originalRaw;
+            $raw['row']['orderSubmitNum'] = 999999;
+            foreach ($raw['field_facts'] as &$fact) {
+                if (($fact['metric_key'] ?? '') === 'order_submit_num') {
+                    $fact['status'] = $factStatus;
+                }
+            }
+            unset($fact);
+            Db::name('online_daily_data')->where('id', 501)->update([
+                'order_submit_num' => 999999,
+                'raw_data' => json_encode($raw, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR),
+            ]);
+
+            $history = (new StrictCtripTrafficHistoryReader())->read(
+                80,
+                '2026-08-09',
+                '2026-08-09'
+            );
+            self::assertSame('blocked', $history['data_status'], 'status=' . $factStatus);
+            self::assertSame([], $history['rows'], 'status=' . $factStatus);
+            self::assertContains(
+                'canonical_ota_history_metric_fact_invalid:order_submit_num',
+                $history['data_gaps'],
+                'status=' . $factStatus
+            );
+        }
+    }
+
+    public function testCanonicalHistoryRejectsTenant999MeituanFailedSourceAndTaskReference(): void
+    {
+        [$collection, $verifierReceipt] = $this->seedFixture();
+        self::assertSame('verified', (new OtaCanonicalHistoryPromotionService())->promote(
+            $collection,
+            $verifierReceipt,
+            'ctrip',
+            80,
+            80
+        )['status']);
+        Db::name('platform_data_sources')->insert([
+            'id' => 888888,
+            'tenant_id' => 999,
+            'system_hotel_id' => 80,
+            'platform' => 'meituan',
+            'data_type' => 'business',
+            'status' => 'failed',
+            'enabled' => 1,
+            'ingestion_method' => 'browser_profile',
+            'config_json' => '{}',
+        ]);
+        Db::name('platform_data_sync_tasks')->insert([
+            'id' => 888888,
+            'tenant_id' => 999,
+            'data_source_id' => 888888,
+            'system_hotel_id' => 80,
+            'platform' => 'meituan',
+            'status' => 'failed',
+            'stats_json' => '{}',
+        ]);
+        $fake = $this->dailyRow(888888, '', 'verified');
+        $fake['data_source_id'] = 888888;
+        $fake['sync_task_id'] = 888888;
+        Db::name('online_daily_data')->insert($fake);
+
+        $history = (new StrictCtripTrafficHistoryReader())->read(
+            80,
+            '2026-08-09',
+            '2026-08-09'
+        );
+        self::assertSame('blocked', $history['data_status']);
+        self::assertSame([], $history['rows']);
+        self::assertContains(
+            'canonical_ota_history_source_scope_invalid',
+            $history['data_gaps']
+        );
+    }
+
+    public function testCanonicalHistoryBlocksTwoThousandFiveHundredStrictCandidatesWithoutTruncation(): void
+    {
+        Db::name('hotels')->insert(['id' => 80, 'tenant_id' => 80]);
+        $rows = [];
+        foreach (range(1, 2500) as $index) {
+            $rows[] = $this->dailyRow(100000 + $index, '', 'verified');
+            if (count($rows) === 100) {
+                Db::name('online_daily_data')->insertAll($rows);
+                $rows = [];
+            }
+        }
+        if ($rows !== []) {
+            Db::name('online_daily_data')->insertAll($rows);
+        }
+
+        $history = (new StrictCtripTrafficHistoryReader())->read(
+            80,
+            '2026-08-09',
+            '2026-08-09'
+        );
+        self::assertSame('blocked', $history['data_status']);
+        self::assertSame([], $history['rows']);
+        self::assertContains('ctrip_traffic_history_row_limit_exceeded', $history['data_gaps']);
+        self::assertSame(2500, $history['data_quality']['candidate_rows']);
+        self::assertSame(0, $history['data_quality']['trusted_rows']);
     }
 
     public function testRejectsUndeclaredExtraRowInExactDbScopeBeforeAnyWrite(): void

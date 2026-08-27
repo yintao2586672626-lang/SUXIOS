@@ -120,6 +120,12 @@ test('business E2E preserves the formal P0 gate and labels its fallback report a
   assert.doesNotMatch(businessChains, /authority_verifier|external_p0_verifier/);
 });
 
+test('GitHub CI executes the OTA to revenue to operations business chain', () => {
+  assert.match(workflow, /Verify OTA to revenue to operations business chain/);
+  assert.match(workflow, /run:\s+npm run test:e2e:business/);
+  assert.match(workflow, /SUXI_E2E_DB_NAME:\s+hotelx_ci_test/);
+});
+
 test('public-page task bridge has a dedicated authenticated browser entrypoint', () => {
   assert.match(isolatedRunner, /--public-page-only/);
   assert.match(isolatedRunner, /public-page-task-bridge\.spec\.js/);
@@ -147,6 +153,7 @@ test('isolated runner always selects a dedicated database and self-hosted loopba
   assert.match(isolatedRunner, /requires a dedicated \*_test\/\*_testing\/\*_e2e database name/);
   assert.match(isolatedRunner, /const selfHosted = true;/);
   assert.match(isolatedRunner, /SUXI_E2E_DB_OVERRIDE: '1'/);
+  assert.match(isolatedRunner, /SUXI_DISABLE_MODEL_CALLS: '1'/);
   assert.match(isolatedRunner, /SUXI_E2E_ISOLATED_RUNNER: '1'/);
   assert.match(isolatedRunner, /startLocalOriginServer/);
   assert.match(isolatedRunner, /function runNodeChild\(args, env\)/);

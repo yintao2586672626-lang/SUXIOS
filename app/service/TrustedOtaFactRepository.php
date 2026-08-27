@@ -97,85 +97,211 @@ class TrustedOtaFactRepository
      */
     public function pricingHistory(int $systemHotelId, string $startDate, string $endDate): array
     {
+        $results = $this->pricingHistoryBatch($systemHotelId, [
+            'single' => ['start_date' => $startDate, 'end_date' => $endDate],
+        ]);
+        return $results['single'] ?? $this->blockedResult(
+            ['pricing_history_query_failed'],
+            []
+        );
+    }
+
+    /**
+     * Read one superset and reduce every requested window with exactly the
+     * same row validation, dedupe, snapshot and quality rules as pricingHistory().
+     *
+     * @param array<string, array{start_date:string,end_date:string}> $windows
+     * @return array<string, array<string,mixed>>
+     */
+    public function pricingHistoryBatch(int $systemHotelId, array $windows): array
+    {
+        $results = [];
         if ($systemHotelId <= 0) {
-            return $this->blockedResult(
-                ['pricing_history_system_hotel_id_invalid'],
-                []
-            );
+            foreach ($windows as $key => $_window) {
+                $results[(string)$key] = $this->blockedResult(
+                    ['pricing_history_system_hotel_id_invalid'],
+                    []
+                );
+            }
+            return $results;
         }
-        if (!$this->isDate($startDate) || !$this->isDate($endDate) || $startDate > $endDate) {
-            return $this->blockedResult(
-                ['pricing_history_date_range_invalid'],
-                []
-            );
+        $validWindows = [];
+        foreach ($windows as $key => $window) {
+            $startDate = trim((string)($window['start_date'] ?? ''));
+            $endDate = trim((string)($window['end_date'] ?? ''));
+            if (!$this->isDate($startDate) || !$this->isDate($endDate) || $startDate > $endDate) {
+                $results[(string)$key] = $this->blockedResult(
+                    ['pricing_history_date_range_invalid'],
+                    []
+                );
+                continue;
+            }
+            $validWindows[(string)$key] = ['start_date' => $startDate, 'end_date' => $endDate];
+        }
+        if ($validWindows === []) {
+            return $results;
         }
         if (!$this->tableExists()) {
-            return $this->blockedResult(
-                ['pricing_history_table_missing'],
-                []
-            );
+            foreach ($validWindows as $key => $_window) {
+                $results[$key] = $this->blockedResult(['pricing_history_table_missing'], []);
+            }
+            return $results;
         }
 
         $columns = $this->tableColumns();
         $missingRequired = array_values(array_diff(self::REQUIRED_COLUMNS, array_keys($columns)));
-        if ($missingRequired !== []) {
-            $gaps = array_map(
-                static fn(string $column): string => match ($column) {
-                    'system_hotel_id' => 'pricing_history_system_hotel_scope_column_missing',
-                    'readback_verified' => 'pricing_history_readback_verified_column_missing',
-                    default => 'pricing_history_' . $column . '_column_missing',
-                },
-                $missingRequired
-            );
-            if (!isset($columns['data_type']) && !isset($columns['raw_data'])) {
-                $gaps[] = 'pricing_history_data_type_evidence_missing';
-            }
-            return $this->blockedResult($gaps, $columns);
-        }
+        $schemaBlockers = array_map(
+            static fn(string $column): string => match ($column) {
+                'system_hotel_id' => 'pricing_history_system_hotel_scope_column_missing',
+                'readback_verified' => 'pricing_history_readback_verified_column_missing',
+                default => 'pricing_history_' . $column . '_column_missing',
+            },
+            $missingRequired
+        );
         if (!isset($columns['data_type']) && !isset($columns['raw_data'])) {
-            return $this->blockedResult(
-                ['pricing_history_data_type_evidence_missing'],
-                $columns
-            );
+            $schemaBlockers[] = 'pricing_history_data_type_evidence_missing';
+        }
+        if ($schemaBlockers !== []) {
+            foreach ($validWindows as $key => $_window) {
+                $results[$key] = $this->blockedResult($schemaBlockers, $columns);
+            }
+            return $results;
         }
 
-        $dataGaps = $this->schemaDataGaps($columns);
         $fields = array_values(array_intersect($this->candidateFields(), array_keys($columns)));
         try {
-            $query = Db::name(self::TABLE)
-                ->field(implode(',', $fields))
-                ->where('system_hotel_id', $systemHotelId)
-                ->whereBetween('data_date', [$startDate, $endDate])
-                ->where('readback_verified', 1)
-                ->order('data_date', 'asc');
-            if (isset($columns['id'])) {
-                $query->order('id', 'asc');
-            }
-            $sourceRows = $query->limit(self::MAX_ROWS + 1)->select()->toArray();
-        } catch (\Throwable) {
-            return $this->blockedResult(
-                array_merge($dataGaps, ['pricing_history_query_failed']),
-                $columns
-            );
-        }
-
-        if (count($sourceRows) > self::MAX_ROWS) {
-            return $this->blockedResult(
-                array_merge($dataGaps, ['pricing_history_row_limit_exceeded']),
-                $columns,
-                ['queried_rows' => count($sourceRows)]
-            );
-        }
-
-        [$orderEvidenceRows, $orderEvidenceStatus] =
-            $this->loadOrderDedupEvidenceRows(
+            $sourceRowsByWindow = $this->queryPricingHistoryWindows(
                 $systemHotelId,
-                $startDate,
-                $endDate,
+                $validWindows,
                 $fields,
-                $columns
+                $columns,
+                true
             );
+        } catch (\Throwable) {
+            foreach ($validWindows as $key => $_window) {
+                $results[$key] = $this->blockedResult(
+                    array_merge($this->schemaDataGaps($columns), ['pricing_history_query_failed']),
+                    $columns
+                );
+            }
+            return $results;
+        }
+        $orderEvidenceStatus = 'complete';
+        try {
+            $orderEvidenceByWindow = $this->queryPricingHistoryWindows(
+                $systemHotelId,
+                $validWindows,
+                $fields,
+                $columns,
+                false
+            );
+        } catch (\Throwable) {
+            $orderEvidenceByWindow = array_fill_keys(array_keys($validWindows), []);
+            $orderEvidenceStatus = 'query_failed';
+        }
+        $allSourceRows = [];
+        foreach ($sourceRowsByWindow as $windowRows) {
+            array_push($allSourceRows, ...$windowRows);
+        }
+        $platformHotelIds = $this->platformHotelIdsBySource(
+            array_values(array_filter($allSourceRows, 'is_array')),
+            $systemHotelId
+        );
+        foreach ($validWindows as $key => $window) {
+            $windowRows = $sourceRowsByWindow[$key] ?? [];
+            if (count($windowRows) > self::MAX_ROWS) {
+                $results[$key] = $this->blockedResult(
+                    array_merge($this->schemaDataGaps($columns), ['pricing_history_row_limit_exceeded']),
+                    $columns,
+                    ['queried_rows' => count($windowRows)]
+                );
+                continue;
+            }
+            $windowEvidence = $orderEvidenceByWindow[$key] ?? [];
+            $windowEvidenceStatus = $orderEvidenceStatus;
+            if (count($windowEvidence) > self::MAX_ROWS) {
+                $windowEvidence = [];
+                $windowEvidenceStatus = 'row_limit_exceeded';
+            }
+            $results[$key] = $this->reducePricingHistoryRows(
+                $windowRows,
+                $windowEvidence,
+                $windowEvidenceStatus,
+                $columns,
+                $platformHotelIds
+            );
+        }
+        return $results;
+    }
 
+    /**
+     * @param array<string,array{start_date:string,end_date:string}> $windows
+     * @param array<int,string> $fields
+     * @param array<string,mixed> $columns
+     * @return array<string,array<int,array<string,mixed>>>
+     */
+    private function queryPricingHistoryWindows(
+        int $systemHotelId,
+        array $windows,
+        array $fields,
+        array $columns,
+        bool $readbackOnly
+    ): array
+    {
+        $quotedFields = implode(',', array_map(
+            static fn(string $field): string => '`' . $field . '`',
+            $fields
+        ));
+        $order = '`data_date` ASC' . (isset($columns['id']) ? ', `id` ASC' : '');
+        $branches = [];
+        $bindings = [];
+        foreach ($windows as $windowKey => $window) {
+            $where = '`system_hotel_id` = ? AND `data_date` BETWEEN ? AND ?';
+            if ($readbackOnly) {
+                $where .= ' AND `readback_verified` = 1';
+            }
+            $branches[] = 'SELECT ? AS `__window_key`, scoped.* FROM ('
+                . 'SELECT ' . $quotedFields . ' FROM `' . self::TABLE . '` WHERE ' . $where
+                . ' ORDER BY ' . $order . ' LIMIT ' . (self::MAX_ROWS + 1)
+                . ') AS scoped';
+            array_push(
+                $bindings,
+                (string)$windowKey,
+                $systemHotelId,
+                (string)$window['start_date'],
+                (string)$window['end_date']
+            );
+        }
+        $rows = Db::query(implode(' UNION ALL ', $branches), $bindings);
+        $grouped = array_fill_keys(array_keys($windows), []);
+        foreach ($rows as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+            $windowKey = (string)($row['__window_key'] ?? '');
+            unset($row['__window_key']);
+            if (array_key_exists($windowKey, $grouped)) {
+                $grouped[$windowKey][] = $row;
+            }
+        }
+        return $grouped;
+    }
+
+    /**
+     * @param array<int,mixed> $sourceRows
+     * @param array<int,array<string,mixed>> $orderEvidenceRows
+     * @param array<string,mixed> $columns
+     * @param array<int,string> $platformHotelIds
+     * @return array<string,mixed>
+     */
+    private function reducePricingHistoryRows(
+        array $sourceRows,
+        array $orderEvidenceRows,
+        string $orderEvidenceStatus,
+        array $columns,
+        array $platformHotelIds
+    ): array {
+        $dataGaps = $this->schemaDataGaps($columns);
         $trustedRows = [];
         $rejectedReasons = [];
         foreach ($sourceRows as $row) {
@@ -190,17 +316,14 @@ class TrustedOtaFactRepository
             }
             $trustedRows[] = $row;
         }
-
-        [$trustedRows, $orderDedupQuality] =
-            $this->deduplicateTrustedOrderRows(
-                $trustedRows,
-                $orderEvidenceRows,
-                $orderEvidenceStatus
-            );
+        [$trustedRows, $orderDedupQuality] = $this->deduplicateTrustedOrderRows(
+            $trustedRows,
+            $orderEvidenceRows,
+            $orderEvidenceStatus
+        );
         [$trustedRows, $supersededRows] = $this->selectCanonicalRows($trustedRows);
         [$trustedRows, $suppressedMixedTypeRows] = $this->preferSummaryFactsPerSourceDate($trustedRows);
         [$trustedRows, $supersededSnapshotRows] = $this->selectLatestSummarySnapshotRows($trustedRows);
-        $platformHotelIds = $this->platformHotelIdsBySource($trustedRows, $systemHotelId);
         $rows = [];
         foreach ($trustedRows as $row) {
             $raw = $this->decodeRaw($row['raw_data'] ?? null);
@@ -208,13 +331,9 @@ class TrustedOtaFactRepository
                 ? (int)$row['data_source_id']
                 : 0;
             $rows[] = [
-                'row_id' => isset($row['id']) && is_numeric($row['id'])
-                    ? (int)$row['id']
-                    : null,
-                'system_hotel_id' => isset($row['system_hotel_id'])
-                    && is_numeric($row['system_hotel_id'])
-                    ? (int)$row['system_hotel_id']
-                    : null,
+                'row_id' => isset($row['id']) && is_numeric($row['id']) ? (int)$row['id'] : null,
+                'system_hotel_id' => isset($row['system_hotel_id']) && is_numeric($row['system_hotel_id'])
+                    ? (int)$row['system_hotel_id'] : null,
                 'data_date' => (string)($row['data_date'] ?? ''),
                 'amount' => $this->metricValue($row, 'amount', $dataGaps),
                 'quantity' => $this->metricValue($row, 'quantity', $dataGaps),
@@ -234,19 +353,15 @@ class TrustedOtaFactRepository
                 'data_source_id' => $dataSourceId > 0 ? $dataSourceId : null,
                 'platform_hotel_id' => $platformHotelIds[$dataSourceId] ?? null,
                 'collected_at' => $this->collectedAt($row),
-                'sync_task_id' => isset($row['sync_task_id'])
-                    && is_numeric($row['sync_task_id'])
-                    ? (int)$row['sync_task_id']
-                    : null,
+                'sync_task_id' => isset($row['sync_task_id']) && is_numeric($row['sync_task_id'])
+                    ? (int)$row['sync_task_id'] : null,
                 'ingestion_method' => trim((string)($row['ingestion_method'] ?? '')),
             ];
         }
-
         if ($rows === []) {
             $dataGaps[] = 'pricing_history_trusted_self_revenue_rows_missing';
         }
         $dataGaps = $this->uniqueStrings($dataGaps);
-
         return [
             'data_status' => $rows === [] ? 'empty' : ($dataGaps === [] ? 'ready' : 'partial'),
             'rows' => $rows,
@@ -700,43 +815,6 @@ class TrustedOtaFactRepository
         });
 
         return [$selected, $superseded];
-    }
-
-    /**
-     * Load order rows from the exact hotel/date scope without allowing them to
-     * enter pricing facts. Untrusted rows are used only to detect a newer
-     * version of an otherwise trusted order identity.
-     *
-     * @param array<int,string> $fields
-     * @param array<string,mixed> $columns
-     * @return array{0:array<int,array<string,mixed>>,1:string}
-     */
-    private function loadOrderDedupEvidenceRows(
-        int $systemHotelId,
-        string $startDate,
-        string $endDate,
-        array $fields,
-        array $columns
-    ): array {
-        try {
-            $query = Db::name(self::TABLE)
-                ->field(implode(',', $fields))
-                ->where('system_hotel_id', $systemHotelId)
-                ->whereBetween('data_date', [$startDate, $endDate])
-                ->order('data_date', 'asc');
-            if (isset($columns['id'])) {
-                $query->order('id', 'asc');
-            }
-            $rows = $query->limit(self::MAX_ROWS + 1)->select()->toArray();
-        } catch (\Throwable) {
-            return [[], 'query_failed'];
-        }
-
-        if (count($rows) > self::MAX_ROWS) {
-            return [[], 'row_limit_exceeded'];
-        }
-
-        return [array_values(array_filter($rows, 'is_array')), 'complete'];
     }
 
     /**
