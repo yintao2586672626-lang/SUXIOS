@@ -852,7 +852,8 @@
             aiDailyReportPresentationLoading.value = true;
             try {
                 const response = await request(
-                    `/ai-daily-reports/${identity.reportId}/presentation-artifacts?audience=${encodeURIComponent(identity.audience)}`
+                    `/ai-daily-reports/${identity.reportId}/presentation-artifacts?audience=${encodeURIComponent(identity.audience)}`,
+                    { expectedHttpStatuses: [404] }
                 );
                 if (!identityMatches(identity, sequence, 'read')) return;
                 if (response.code === 404) {

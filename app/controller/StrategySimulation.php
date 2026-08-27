@@ -767,7 +767,11 @@ class StrategySimulation extends Base
         ];
 
         try {
-            $analysis = (new LlmClient())->createJsonResponse($messages, $this->strategyAiEvaluationSchema(), $modelKey);
+            $client = new LlmClient();
+            if (!$client->isConfiguredModelKey($modelKey)) {
+                throw new \RuntimeException('Requested AI model configuration is unavailable: ' . $modelKey);
+            }
+            $analysis = $client->createJsonResponse($messages, $this->strategyAiEvaluationSchema(), $modelKey);
             return $this->normalizeAiStrategyEvaluation($analysis, [
                 'source' => 'llm',
                 'model_key' => $modelKey,

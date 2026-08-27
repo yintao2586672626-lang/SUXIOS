@@ -13735,8 +13735,8 @@
                         };
                     }
                 } catch (error) {
-                    if (requestSeq !== collectionReliabilityRequestSeq) {
-                        return { ok: false, reason: 'request_superseded' };
+                    if (requestSeq !== collectionReliabilityRequestSeq || error?.name === 'AbortError') {
+                        return { ok: false, reason: requestSeq !== collectionReliabilityRequestSeq ? 'request_superseded' : 'cancelled' };
                     }
                     collectionReliabilityError.value = error.message || '数据健康加载失败';
                     console.error('加载数据健康失败:', error);
