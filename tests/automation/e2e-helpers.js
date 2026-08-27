@@ -338,6 +338,17 @@ function classifyApiStatus(status) {
   return null;
 }
 
+function isExpectedEmptyApiResponse(response) {
+  if (response.status() !== 404) return false;
+  try {
+    return /^\/api\/ai-daily-reports\/\d+\/presentation-artifacts$/.test(
+      new URL(response.url()).pathname,
+    );
+  } catch {
+    return false;
+  }
+}
+
 function classifyRequestFailureText(errorText, expectedCancellation = false) {
   return expectedCancellation === true
     && /^net::ERR_ABORTED(?:$|[ :])/i.test(String(errorText || '').trim())
@@ -353,6 +364,7 @@ function apiRequestLifecycle(page) {
     lifecycle = { activeReads: new Set(), expectedNavigationCancellations: new WeakSet() };
     lifecycle.navigationCancellationActive = false;
     lifecycle.navigationCancellationExpiresAt = 0;
+    lifecycle.expectedEmptyApiResponses = 0;
     apiRequestLifecycleByPage.set(page, lifecycle);
   }
   return lifecycle;
@@ -419,12 +431,17 @@ function installDiagnostics(page, sinks = {}) {
   page.on('response', (response) => {
     const url = response.url();
     if (!url.includes('/api/')) return;
+    const expectedEmpty = isExpectedEmptyApiResponse(response);
+    const status = response.status();
+    if (expectedEmpty) lifecycle.expectedEmptyApiResponses += 1;
     apiEvents.push({
       phase: 'response',
-      category: classifyApiStatus(response.status()),
-      status: response.status(),
+      category: expectedEmpty ? null : classifyApiStatus(status),
+      status,
       url,
-      ok: response.ok(),
+      ok: response.ok() || expectedEmpty,
+      outcome: expectedEmpty ? 'expected-empty' : response.ok() ? 'success' : 'unexpected-response',
+      expected_empty: expectedEmpty,
       timestamp: new Date().toISOString(),
     });
   });
@@ -440,10 +457,16 @@ function installDiagnostics(page, sinks = {}) {
 
   page.on('console', (message) => {
     if (!['error', 'warning'].includes(message.type())) return;
+    const text = message.text();
+    const expectedEmpty = message.type() === 'error'
+      && /^Failed to load resource: the server responded with a status of 404 \(Not Found\)$/i.test(text)
+      && lifecycle.expectedEmptyApiResponses > 0;
+    if (expectedEmpty) lifecycle.expectedEmptyApiResponses -= 1;
     pageEvents.push({
       type: `console-${message.type()}`,
-      category: message.type() === 'error' ? 'page-error' : 'page-warning',
-      message: message.text().slice(0, 500),
+      category: expectedEmpty ? 'page-expected-empty' : message.type() === 'error' ? 'page-error' : 'page-warning',
+      expected_empty: expectedEmpty,
+      message: text.slice(0, 500),
       timestamp: new Date().toISOString(),
     });
   });

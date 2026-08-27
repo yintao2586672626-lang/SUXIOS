@@ -1161,6 +1161,9 @@ class ExpansionService
         ];
 
         try {
+            if (!$this->client->isConfiguredModelKey($modelKey)) {
+                throw new RuntimeException('Requested AI model configuration is unavailable: ' . $modelKey);
+            }
             $evaluation = $this->client->createJsonResponse($messages, $this->marketAiEvaluationSchema(), $modelKey);
             return $this->normalizeMarketAiEvaluation($evaluation, [
                 'source' => 'llm',
@@ -1450,6 +1453,9 @@ class ExpansionService
         ];
 
         try {
+            if (!$this->client->isConfiguredModelKey($modelKey)) {
+                throw new RuntimeException('Requested AI model configuration is unavailable: ' . $modelKey);
+            }
             $evaluation = $this->client->createJsonResponse($messages, $this->benchmarkAiEvaluationSchema(), $modelKey);
             return $this->normalizeBenchmarkAiEvaluation($evaluation, [
                 'source' => 'llm',

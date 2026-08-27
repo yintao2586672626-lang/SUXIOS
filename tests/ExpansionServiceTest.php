@@ -92,6 +92,11 @@ final class ExpansionServiceTest extends TestCase
         $client = new class extends LlmClient {
             public array $messages = [];
 
+            public function isConfiguredModelKey(string $modelKey): bool
+            {
+                return true;
+            }
+
             public function createJsonResponse(array $messages, array $schema, string $modelKey = 'deepseek_v4_default'): array
             {
                 $this->messages = $messages;
@@ -142,6 +147,37 @@ final class ExpansionServiceTest extends TestCase
         self::assertSame('当前未接入真实竞品ADR样本。', $result['ai_evaluation']['watch_points'][0]['evidence']);
         self::assertSame('投决会前', $result['ai_evaluation']['watch_points'][0]['deadline']);
         self::assertStringContainsString('rule_result', (string)($client->messages[1]['content'] ?? ''));
+    }
+
+    public function testMissingExplicitModelFallsBackWithoutTryingAnotherConfiguredProvider(): void
+    {
+        $client = new class extends LlmClient {
+            public bool $called = false;
+
+            public function isConfiguredModelKey(string $modelKey): bool
+            {
+                return false;
+            }
+
+            public function createJsonResponse(array $messages, array $schema, string $modelKey = 'deepseek_v4_default'): array
+            {
+                $this->called = true;
+                throw new RuntimeException('The unavailable model must not reach the provider call.');
+            }
+        };
+
+        $result = (new ExpansionService($client))->evaluateMarket([
+            'city' => '上海',
+            'business_area' => '虹桥',
+            'property_area' => 3200,
+            'estimated_rent' => 120000,
+            'target_room_count' => 80,
+            'model_key' => 'codex_e2e_missing_model',
+        ]);
+
+        self::assertSame('fallback', $result['ai_evaluation']['source']);
+        self::assertFalse($client->called);
+        self::assertSame('codex_e2e_missing_model', $result['ai_evaluation']['model_key']);
     }
 
     #[DataProvider('invalidMarketInputProvider')]
@@ -222,6 +258,11 @@ final class ExpansionServiceTest extends TestCase
     {
         $client = new class extends LlmClient {
             public array $messages = [];
+
+            public function isConfiguredModelKey(string $modelKey): bool
+            {
+                return true;
+            }
 
             public function createJsonResponse(array $messages, array $schema, string $modelKey = 'deepseek_v4_default'): array
             {
