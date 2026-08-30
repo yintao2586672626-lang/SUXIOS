@@ -14,6 +14,7 @@ test('public index changes run startup and visual guards against the staged inde
   assert.doesNotMatch(hook, /npm\.cmd/u);
   assert.match(stagedVerifier, /const publicEntryChanged = changed\.includes\('public\/index\.html'\)/u);
   assert.match(stagedVerifier, /const tasteChanged = publicEntryChanged \|\| changed\.includes\('public\/style\.css'\)/u);
+  assert.match(stagedVerifier, /core\.longpaths=true/u);
   assert.ok(stagedVerifier.indexOf("runNpmVerifier('verify:public-entry')") < stagedVerifier.indexOf("runNpmVerifier(fs.existsSync(tasteVerifier) ? 'verify:taste-coverage' : 'verify:p0-guards')"));
   assert.match(hook, /\$LASTEXITCODE/);
   assert.doesNotMatch(hook, /^\s*(?:node|npm\.cmd|git)\s+/m);

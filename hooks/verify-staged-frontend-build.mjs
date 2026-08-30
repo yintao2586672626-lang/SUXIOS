@@ -76,7 +76,9 @@ let commandFailure = null;
 try {
   fs.mkdirSync(snapshotRepoRoot, { recursive: true });
   const checkoutPrefix = `${snapshotRepoRoot.replaceAll('\\', '/')}/`;
-  run('git', ['checkout-index', '--all', '--force', `--prefix=${checkoutPrefix}`]);
+  const checkoutArgs = ['checkout-index', '--all', '--force', `--prefix=${checkoutPrefix}`];
+  if (process.platform === 'win32') checkoutArgs.unshift('-c', 'core.longpaths=true');
+  run('git', checkoutArgs);
 
   // The project context verifier deliberately reads the workspace-level
   // AGENTS.md outside the nested HOTEL repository. Mirror that read-only
