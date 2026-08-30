@@ -1,4 +1,8 @@
 window.SUXI_CTRIP_STATIC = window.SUXI_CTRIP_STATIC_FULL = (() => {
+    const createCompetitorFutureWindowController = window.SUXI_CTRIP_STATIC?.createCompetitorFutureWindowController
+        || (() => { throw new Error('未来竞品事实控制器未加载'); });
+    const CtripCompetitorFutureWindowPanel = window.SUXI_CTRIP_STATIC?.CtripCompetitorFutureWindowPanel
+        || { name: 'CtripCompetitorFutureWindowPanel', render: () => null };
     const ctripProfilePrimaryCategoryOptions = ['流量转化数据', '经营收益数据', '服务质量数据', '竞争力数据'];
     const ctripProfileDefaultModuleOptions = [
         { value: 'business_overview', label: '经营报告-概要-日报', primary_category: '经营收益数据' },
@@ -4094,6 +4098,7 @@ window.SUXI_CTRIP_STATIC = window.SUXI_CTRIP_STATIC_FULL = (() => {
 
     return {
         CtripConfigHistory,
+        CtripCompetitorFutureWindowPanel,
         ctripProfilePrimaryCategoryOptions,
         ctripProfileDefaultModuleOptions,
         ctripProfileForbiddenFieldKeys,
@@ -4202,5 +4207,6 @@ window.SUXI_CTRIP_STATIC = window.SUXI_CTRIP_STATIC_FULL = (() => {
         getCtripCookieApiCorePresetEndpoints,
         captureCtripBusinessDownloadSnapshot,
         buildCtripBusinessCanvas,
+        createCompetitorFutureWindowController,
     };
 })();

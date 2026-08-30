@@ -131,6 +131,50 @@ final class MeituanCapturedDataIntegrityTest extends TestCase
         self::assertSame(4.5, $row['flow_rate']);
     }
 
+    public function testSearchKeywordMissingMetricsStayNullAndExplicitZeroSurvives(): void
+    {
+        $reflection = new ReflectionClass(OnlineData::class);
+        $controller = $reflection->newInstanceWithoutConstructor();
+
+        $rows = $this->invokeNonPublic($controller, 'buildMeituanCapturedDailyRows', [[
+            'storeId' => 'store-80',
+            'poiId' => '1029642156589279',
+            'defaultDataDate' => '2026-07-11',
+            'searchKeywords' => [
+                ['keyword' => '机场酒店'],
+                ['keyword' => '敦煌酒店', 'data_value' => 0, 'impressions' => 0, 'clicks' => 0],
+            ],
+        ], 80]);
+
+        self::assertCount(2, $rows);
+        self::assertSame('search_keyword', $rows[0]['data_type']);
+        self::assertNull($rows[0]['data_value']);
+        self::assertNull($rows[0]['list_exposure']);
+        self::assertNull($rows[0]['detail_exposure']);
+        self::assertNull($rows[0]['amount']);
+        self::assertNull($rows[0]['quantity']);
+        self::assertNull($rows[0]['book_order_num']);
+        self::assertNull($rows[0]['comment_score']);
+
+        self::assertSame(0.0, $rows[1]['data_value']);
+        self::assertSame(0, $rows[1]['list_exposure']);
+        self::assertSame(0, $rows[1]['detail_exposure']);
+    }
+
+    public function testSearchKeywordWithoutAPlatformOrCaptureDateIsRejected(): void
+    {
+        $reflection = new ReflectionClass(OnlineData::class);
+        $controller = $reflection->newInstanceWithoutConstructor();
+
+        $rows = $this->invokeNonPublic($controller, 'buildMeituanCapturedDailyRows', [[
+            'storeId' => 'store-80',
+            'poiId' => '1029642156589279',
+            'searchKeywords' => [['keyword' => '机场酒店', 'impressions' => 1]],
+        ], 80]);
+
+        self::assertSame([], $rows);
+    }
+
     public function testCapturedRankSeparatesDateRangeAndDoesNotUseRankAsMetricValue(): void
     {
         $reflection = new ReflectionClass(OnlineData::class);

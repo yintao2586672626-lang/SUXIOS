@@ -248,6 +248,7 @@ window.SUXI_SYSTEM_STATIC = (() => {
                 { name: '收益分析中心', path: 'revenue-research-center', icon: 'fas fa-chart-line', testid: 'nav-revenue-research-center', permissions: [] },
                 { name: '运营优化台', path: 'operation-optimizer', icon: 'fas fa-sliders-h', testid: 'nav-operation-optimizer', permissions: [] },
                 { name: '经营机会', path: 'operating-opportunities', icon: 'fas fa-bullseye', testid: 'nav-operating-opportunities', permissions: [] },
+                { name: '智算·量化模拟', path: 'ai-simulation', icon: 'fas fa-calculator', testid: 'nav-ai-simulation', permissions: [] },
                 { name: '目标与事实', path: 'operating-targets', icon: 'fas fa-bullseye' },
                 { name: 'AI经营日报', path: 'ai-daily-report', icon: 'fas fa-file-alt' },
             ],
@@ -276,6 +277,8 @@ window.SUXI_SYSTEM_STATIC = (() => {
                 { name: '自动化运行监控', path: 'automation-monitor', icon: 'fas fa-heartbeat', requireSuper: false, permissions: ['can_view_report'] },
                 { name: '任务执行与复盘', path: 'ops-track', icon: 'fas fa-play-circle' },
                 { name: '经营成长档案', path: 'operating-growth-archive', icon: 'fas fa-seedling' },
+                { name: '开业准备总览', path: 'opening-overview', icon: 'fas fa-clipboard-check' },
+                { name: '开业检查清单', path: 'opening-checklist', icon: 'fas fa-list-check' },
             ],
         },
         {
@@ -1819,7 +1822,7 @@ window.SUXI_SYSTEM_STATIC = (() => {
     const knowledgeDocumentHtmlExtensions = ['html', 'htm'];
     const knowledgeDocumentSupportedExtensions = [...knowledgeDocumentTextExtensions, ...knowledgeDocumentHtmlExtensions, 'docx', 'xlsx'];
     const agentTabs = [
-        { key: 'overview', name: '工具箱', icon: 'fas fa-toolbox' },
+        { key: 'overview', name: '酒店数据分析师', icon: 'fas fa-chart-pie' },
         { key: 'revenue', name: '收益管理', icon: 'fas fa-chart-line' },
         { key: 'logs', name: '运行日志', icon: 'fas fa-list-alt' },
     ];

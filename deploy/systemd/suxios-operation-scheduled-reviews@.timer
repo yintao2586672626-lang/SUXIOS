@@ -1,0 +1,11 @@
+[Unit]
+Description=Check due SUXIOS operation reviews for hotel %i every hour
+
+[Timer]
+OnCalendar=*-*-* *:15:00 Asia/Shanghai
+RandomizedDelaySec=0
+Persistent=false
+Unit=suxios-operation-scheduled-reviews@%i.service
+
+[Install]
+WantedBy=timers.target

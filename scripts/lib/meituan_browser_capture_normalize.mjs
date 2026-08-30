@@ -529,6 +529,30 @@ export function normalizeMeituanSearchKeywordRows(value, options = {}) {
   });
 }
 
+export function normalizeMeituanAdvertisingRows(value, options = {}) {
+  const rows = firstArrayAtPath(value, [
+    ['data', 'cureShops'],
+    ['data', 'data', 'cureShops'],
+    ['data', 'records'],
+    ['data', 'list'],
+    ['data', 'rows'],
+    ['cureShops'],
+    ['records'],
+    ['list'],
+    ['rows'],
+    ['data'],
+  ]);
+
+  return rows
+    .filter(item => item && typeof item === 'object' && !Array.isArray(item))
+    .map((item, index) => decorateSupplementalRow(
+      { ...item },
+      'advertising',
+      joinSourcePath(options.sourcePath || '', ['advertising_rows', index]),
+      options,
+    ));
+}
+
 export function normalizeMeituanTrafficForecastRows(value, options = {}) {
   const detailPaths = [
     ['data', 'detail'],

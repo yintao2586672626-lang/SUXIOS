@@ -963,6 +963,58 @@ final class DualOtaFieldClosureServiceTest extends TestCase
         );
     }
 
+    public function testCtripCanonicalTrafficClosesExposureVisitsAndConversion(): void
+    {
+        $row = $this->row(103315, 'ctrip', 'traffic', [
+            'platform' => 'ctrip',
+            'data_period' => 'historical_daily',
+            'history_status' => 'success',
+            'validation_status' => 'verified',
+            'sync_task_id' => 4468,
+            'list_exposure' => 323,
+            'detail_exposure' => 62,
+            'flow_rate' => 19.20,
+        ]);
+        $trust = $this->trust();
+        $ctrip = &$trust['days'][0]['platforms'][0];
+        $ctrip['acceptance_status'] = 'verified';
+        $ctrip['sync_task_id'] = 4468;
+        $ctrip['steps']['p0'] = true;
+        $ctrip['acceptance_receipt'] = array_replace(
+            $ctrip['acceptance_receipt'],
+            [
+                'status' => 'verified',
+                'sync_task_id' => 4468,
+                'sync_task_status' => 'success',
+                'data_period' => 'historical_daily',
+                'reason_codes' => [],
+                'claim_allowed' => true,
+                'run_readback_scope' => [
+                    'status' => 'verified',
+                    'receipt_record_ids' => [103315],
+                    'accepted_record_ids' => [103315],
+                ],
+            ]
+        );
+        unset($ctrip);
+
+        $closure = DualOtaFieldClosureService::evaluate(
+            ['id' => 80, 'tenant_id' => 7],
+            '2026-08-23',
+            [$row],
+            $trust
+        );
+        $fields = $this->fields($closure['platforms']['ctrip']['fields']);
+
+        self::assertSame(323.0, $fields['exposure']['value']);
+        self::assertSame(62.0, $fields['visits']['value']);
+        self::assertSame(19.2, $fields['conversion']['value']);
+        self::assertSame('strict_readback', $fields['exposure']['status']);
+        self::assertSame('strict_readback', $fields['visits']['status']);
+        self::assertSame('verified_calculation', $fields['conversion']['status']);
+        self::assertSame([103315], $fields['conversion']['source_record_ids']);
+    }
+
     /** @param array<string,mixed> $overrides @return array<string,mixed> */
     private function row(int $id, string $platform, string $dataType, array $overrides = []): array
     {

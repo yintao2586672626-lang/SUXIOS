@@ -31,6 +31,7 @@
                                         <button type="button" @click="openMeituanStoredDataTab('ads')" :class="['rounded-lg px-4 py-2.5 text-sm font-semibold transition', onlineDataTab === 'meituan-download' &amp;&amp; downloadCenterTab === 'ads' ? 'bg-slate-900 text-white shadow-sm' : 'border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 hover:text-gray-900']">
                                             <i class="fas fa-bullhorn mr-1.5"></i>广告数据
                                         </button>
+                                        <button data-testid="meituan-search-keyword-tab" @click="openMeituanStoredDataTab('keywords')">搜索词</button>
                                     </div>
                                     <div class="flex flex-wrap items-start gap-2">
                                         <button type="button" @click="openHotelManagementForOta" class="rounded-lg border border-gray-200 bg-white px-4 py-2.5 text-sm font-semibold text-gray-600 transition hover:bg-gray-50 hover:text-gray-900">
@@ -923,6 +924,7 @@
                                         <button @click="queryMeituanStoredData" class="px-4 py-2 bg-blue-500 text-white rounded-lg">
                                             <i class="fas fa-search mr-2"></i>查询
                                         </button>
+                                        <button v-if="['ads', 'keywords'].includes(downloadCenterTab)" data-testid="meituan-download-current-page-csv" @click="downloadMeituanCurrentPageCsv">下载当前页 CSV</button>
                                     </div>
 
                                     <div v-if="downloadCenterTab === 'all'">
@@ -1184,6 +1186,8 @@
                                             </table>
                                         </div>
                                     </div>
+
+                                    <meituan-search-keyword-workbench v-if="downloadCenterTab === 'keywords'" data-testid="meituan-search-keyword-workbench" :rows="meituanDownloadData.keywordRows" :format-row="formatMeituanKeywordRow" @view="viewOnlineDataDetail"></meituan-search-keyword-workbench>
 
                                     <!-- 广告数据模块 -->
                                     <div v-if="downloadCenterTab === 'ads'">

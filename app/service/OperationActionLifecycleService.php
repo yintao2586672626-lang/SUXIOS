@@ -287,6 +287,32 @@ final class OperationActionLifecycleService
                 'steps' => array_values((array)($action['steps'] ?? [])),
             ],
             'reason' => trim((string)($selected['problem'] ?? '')),
+            'recommendation_explanation' => is_array($selected['recommendation_explanation'] ?? null)
+                ? $selected['recommendation_explanation']
+                : [
+                    'contract_version' => 'daily_one_thing_explanation.v1',
+                    'why_now' => [
+                        'summary' => trim((string)($selected['problem'] ?? '')),
+                        'reason_code' => 'legacy_daily_selection_without_explanation',
+                        'source_refs' => $factRefs,
+                    ],
+                    'why_recommended' => [
+                        'summary' => '旧每日事项未保存推荐解释；继续按原行动和事实编号处理。',
+                        'reason_code' => 'legacy_daily_selection_without_explanation',
+                        'source_refs' => $factRefs,
+                    ],
+                    'personalization' => [
+                        'status' => 'not_applied',
+                        'reason_code' => 'legacy_daily_selection_without_personalization_receipt',
+                        'summary' => '旧记录未提供个人偏好参与凭证，因此不宣称已个性化。',
+                        'preference_refs' => [],
+                        'feedback_refs' => [],
+                        'facts_changed' => false,
+                        'permissions_changed' => false,
+                        'approval_changed' => false,
+                        'external_write_authorized' => false,
+                    ],
+                ],
             'risk' => [
                 'level' => strtolower(trim((string)($risk['level'] ?? 'medium'))),
                 'summary' => trim((string)($risk['summary'] ?? '')),

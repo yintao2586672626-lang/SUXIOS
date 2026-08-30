@@ -1473,6 +1473,44 @@ final class P0FieldLoopVerifierContractTest extends TestCase
         self::assertStringNotContainsString($rawIdentifier, json_encode([$authority, $comparison], JSON_UNESCAPED_SLASHES));
     }
 
+    public function testProvenRowIdentifierDoesNotConfuseCollectorBindingSystemHotelIdWithOtaHotel(): void
+    {
+        $this->loadPlatformIdentifierHelpers();
+
+        $rawIdentifier = 'raw-ctrip-hotel-7001';
+        $authority = p0_authoritative_profile_identifier_resolution('ctrip', 7, 70, [[
+            'id' => 91,
+            'tenant_id' => 70,
+            'system_hotel_id' => 7,
+            'platform' => 'ctrip',
+            'data_type' => 'traffic',
+            'ingestion_method' => 'browser_profile',
+            'status' => 'ready',
+            'enabled' => true,
+            'profile_binding_status' => 'ready',
+            'config' => ['hotelId' => $rawIdentifier],
+        ]]);
+        $comparison = p0_compare_row_platform_hotel_identifier([
+            'platform_hotel_identifier_proof' => 'row_field_present',
+            'row' => [
+                'hotelId' => $rawIdentifier,
+                'hotel_id' => $rawIdentifier,
+            ],
+            'collector_binding' => [
+                'hotel_id' => 7,
+                'system_hotel_id' => 7,
+            ],
+        ], 'ctrip', $authority);
+
+        self::assertSame('matched', $comparison['status'] ?? null);
+        self::assertTrue($comparison['matched'] ?? false);
+        self::assertSame(1, $comparison['row_identifier_count'] ?? null);
+        self::assertStringNotContainsString(
+            $rawIdentifier,
+            json_encode([$authority, $comparison], JSON_UNESCAPED_SLASHES)
+        );
+    }
+
     public function testStoredTrafficIdentifierMismatchFailsClosedWithoutRawOutput(): void
     {
         $this->loadPlatformIdentifierHelpers();

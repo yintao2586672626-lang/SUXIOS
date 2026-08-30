@@ -23,6 +23,20 @@ final class DailyOneThingServiceTest extends TestCase
         self::assertSame('draft', $result['status']);
         self::assertSame('gap:ctrip:core_facts', $result['selected']['candidate_key']);
         self::assertSame('draft', $result['selected']['approval_status']);
+        self::assertSame('daily_one_thing.explainable.v3', $result['experience_version']);
+        self::assertSame(
+            'daily_one_thing_explanation.v1',
+            $result['selected']['recommendation_explanation']['contract_version']
+        );
+        self::assertNotSame('', $result['selected']['recommendation_explanation']['why_now']['summary']);
+        self::assertNotSame('', $result['selected']['recommendation_explanation']['why_recommended']['summary']);
+        self::assertSame(
+            'not_applied',
+            $result['selected']['recommendation_explanation']['personalization']['status']
+        );
+        self::assertFalse(
+            $result['selected']['recommendation_explanation']['personalization']['facts_changed']
+        );
         self::assertSame(3, $result['candidate_count']);
         self::assertArrayNotHasKey('candidates', $result);
         self::assertFalse($result['selection_policy']['full_candidate_list_exposed']);

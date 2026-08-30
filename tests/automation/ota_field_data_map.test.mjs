@@ -52,7 +52,9 @@ test('maps declared product uses to concrete consumers without claiming partial 
     }
   }
   const advertising = OTA_FIELD_DATA_MAP.meituan.modules.find((module) => module.module_id === 'advertising');
-  assert.equal(advertising.consumer_contracts[0].usage_status, 'not_wired');
+  const searchKeyword = OTA_FIELD_DATA_MAP.meituan.modules.find((module) => module.module_id === 'search_keyword');
+  assert.equal(advertising.consumer_contracts[0].usage_status, 'implemented');
+  assert.equal(searchKeyword.consumer_contracts[0].usage_status, 'implemented');
 });
 
 test('keeps Meituan time grains and optional module gaps explicit', () => {
@@ -63,7 +65,10 @@ test('keeps Meituan time grains and optional module gaps explicit', () => {
   assert.equal(modules.get('business').contract_status, 'contract_closed');
   assert.equal(modules.get('traffic').contract_status, 'contract_closed');
   assert.equal(modules.get('orders').contract_status, 'contract_closed');
-  assert.equal(modules.get('advertising').contract_status, 'contract_partial');
+  assert.equal(modules.get('search_keyword').contract_status, 'contract_closed');
+  assert.equal(modules.get('advertising').contract_status, 'contract_closed');
+  assert.deepEqual(modules.get('search_keyword').normalizers, ['normalizeMeituanSearchKeywordRows']);
+  assert.deepEqual(modules.get('advertising').normalizers, ['normalizeMeituanAdvertisingRows']);
   assert.equal(modules.get('advertising').field_fact_contract, 'defined');
   assert.equal(modules.get('order_flow').field_fact_contract, 'defined');
   assert.equal(modules.get('reviews').field_fact_contract, 'defined');

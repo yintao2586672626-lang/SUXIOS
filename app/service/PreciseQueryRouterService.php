@@ -1590,6 +1590,8 @@ final class PreciseQueryRouterService
             'content_digest' => (string)$row['content_digest'],
             'created_at' => (string)($row['created_at'] ?? ''),
         ];
+        $question['persistence_status'] = 'readback_verified';
+        $question['analysis_quality_receipt'] = (new HotelDataAnalystQualityReceiptService())->evaluate($question);
         return [
             'contract_version' => self::CONTRACT_VERSION,
             'id' => (int)$row['id'],
@@ -1601,6 +1603,7 @@ final class PreciseQueryRouterService
             'parsed_scope' => (array)($router['parsed_scope'] ?? []),
             'answer' => is_array($routeAnswer) ? $routeAnswer : [],
             'operating_question' => $routeType === 'operating_query' ? $question : null,
+            'analysis_quality_receipt' => $routeType === 'operating_query' ? $question['analysis_quality_receipt'] : null,
             'fact_refs' => $factRefs,
             'knowledge_refs' => $knowledgeRefs,
             'data_gaps' => (array)($answer['data_gaps'] ?? []),

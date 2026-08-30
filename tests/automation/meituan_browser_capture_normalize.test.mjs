@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  normalizeMeituanAdvertisingRows,
   attachVerifiedMeituanCaptureScope,
   buildMeituanOrderFlowReplayUrls,
   isImportableMeituanTrafficRow,
@@ -432,6 +433,33 @@ test('Meituan search keyword cards expand to search_keyword rows', () => {
   assert.equal(rows[0].keyword, '机场酒店');
   assert.equal(rows[0].dimension, '机场酒店');
   assert.equal(rows[0].data_value, 320);
+});
+
+test('Meituan advertising rows preserve campaign metrics and source evidence', () => {
+  const rows = normalizeMeituanAdvertisingRows({
+    data: {
+      cureShops: [
+        {
+          campaignId: 'campaign-1',
+          impressions: 1200,
+          clicks: 96,
+          todayCost: 240,
+          orderAmount: 1440,
+          orderCount: 8,
+        },
+      ],
+    },
+  }, {
+    defaultDataDate: '2026-06-26',
+    sourcePath: 'response',
+  });
+
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].data_type, 'advertising');
+  assert.equal(rows[0].campaignId, 'campaign-1');
+  assert.equal(rows[0].todayCost, 240);
+  assert.equal(rows[0].orderAmount, 1440);
+  assert.equal(rows[0]._source_path, 'response.advertising_rows.0');
 });
 
 test('Meituan flow forecast keeps semantically verified rows separate from actual traffic', () => {

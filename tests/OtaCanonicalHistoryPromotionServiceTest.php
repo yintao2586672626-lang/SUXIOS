@@ -439,6 +439,34 @@ final class OtaCanonicalHistoryPromotionServiceTest extends TestCase
         self::assertNotContains(501, $promotion['row_ids']);
     }
 
+    public function testMeituanHistoricalPromotionAcceptsExactPercentageTextNormalization(): void
+    {
+        [$collection, $verifier] = $this->seedMeituanHistoricalFixture();
+        $raw = json_decode((string)Db::name('online_daily_data')
+            ->where('id', 6801)
+            ->value('raw_data'), true, 512, JSON_THROW_ON_ERROR);
+        $raw['row']['flowRate'] = '25%';
+        Db::name('online_daily_data')->where('id', 6801)->update([
+            'raw_data' => json_encode(
+                $raw,
+                JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR
+            ),
+        ]);
+
+        $result = (new OtaCanonicalHistoryPromotionService())->promote(
+            $collection,
+            $verifier,
+            'meituan',
+            80,
+            80
+        );
+
+        self::assertSame('verified', $result['status']);
+        self::assertSame(25.0, (float)Db::name('online_daily_data')
+            ->where('id', 6801)
+            ->value('flow_rate'));
+    }
+
     public function testHistoricalPromotionCannotBorrowOrderCoreFromAnOlderTask(): void
     {
         [$collection, $verifier] = $this->seedMeituanHistoricalFixture(false);
@@ -1025,6 +1053,38 @@ final class OtaCanonicalHistoryPromotionServiceTest extends TestCase
 
         self::assertSame('verified', $result['status']);
         self::assertSame('verified', Db::name('online_daily_data')->where('id', 501)->value('validation_status'));
+    }
+
+    public function testProvenRowIdentityIgnoresCollectorBindingSystemHotelId(): void
+    {
+        [$collection, $verifier] = $this->seedFixture();
+        $raw = json_decode((string)Db::name('online_daily_data')
+            ->where('id', 501)
+            ->value('raw_data'), true, 512, JSON_THROW_ON_ERROR);
+        $raw['platform_hotel_identifier_proof'] = 'row_field_present';
+        $raw['collector_binding'] = [
+            'hotel_id' => 80,
+            'system_hotel_id' => 80,
+        ];
+        Db::name('online_daily_data')->where('id', 501)->update([
+            'raw_data' => json_encode(
+                $raw,
+                JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR
+            ),
+        ]);
+
+        $result = (new OtaCanonicalHistoryPromotionService())->promote(
+            $collection,
+            $verifier,
+            'ctrip',
+            80,
+            80
+        );
+
+        self::assertSame('verified', $result['status']);
+        self::assertSame('verified', Db::name('online_daily_data')
+            ->where('id', 501)
+            ->value('validation_status'));
     }
 
     public function testRejectsProfileHotelRebindingAfterVerifierReceipt(): void

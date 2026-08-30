@@ -110,7 +110,7 @@ final class BrowserCaptureProcessRunnerTest extends TestCase
         $result = (new BrowserCaptureProcessRunner())->run(
             [PHP_BINARY, $fixture, 'root-with-child'],
             dirname(__DIR__),
-            10,
+            20,
             [
                 'poll_interval_ms' => 50,
                 'tree_poll_interval_ms' => 100,

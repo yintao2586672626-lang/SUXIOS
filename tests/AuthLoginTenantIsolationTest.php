@@ -172,6 +172,37 @@ final class AuthLoginTenantIsolationTest extends TestCase
         self::assertSame(1, Db::name('operation_logs')->where('action', 'set_default_hotel')->count());
     }
 
+    public function testTwoUsersTwoHotelsKeepIndependentLoginAndDefaultHotelScopes(): void
+    {
+        Db::name('users')->insert($this->userRow(506, 101, 'single_hotel_operator', 3, 10));
+
+        $single = $this->successPayload($this->login('single_hotel_operator'));
+        $portfolio = $this->successPayload($this->login('tenant_operator'));
+
+        self::assertSame([10], array_map('intval', array_column($single['user']['permitted_hotels'], 'id')));
+        self::assertSame([10, 11], array_map('intval', array_column($portfolio['user']['permitted_hotels'], 'id')));
+        self::assertSame(10, (int)$single['context']['hotelId']);
+        self::assertSame(10, (int)$portfolio['context']['hotelId']);
+
+        $singleForbidden = $this->setDefaultHotel(506, 11);
+        self::assertSame(403, $singleForbidden->getCode());
+        self::assertSame(10, (int)Db::name('users')->where('id', 506)->value('default_hotel_id'));
+
+        $portfolioSaved = $this->successPayload($this->setDefaultHotel(501, 11));
+        self::assertSame(11, (int)$portfolioSaved['default_hotel_id']);
+        $portfolioReadback = $this->successPayload($this->info(501));
+        self::assertSame(11, (int)$portfolioReadback['context']['hotelId']);
+
+        $singleUser = User::find(506);
+        $portfolioUser = User::find(501);
+        self::assertInstanceOf(User::class, $singleUser);
+        self::assertInstanceOf(User::class, $portfolioUser);
+        self::assertFalse($singleUser->hasHotelPermission(11, 'hotel.view'));
+        self::assertTrue($portfolioUser->hasHotelPermission(11, 'hotel.view'));
+        self::assertSame(2, Db::name('operation_logs')->where('action', 'login')->count());
+        self::assertSame(1, Db::name('operation_logs')->where('action', 'set_default_hotel')->count());
+    }
+
     public function testDefaultHotelRejectsCrossTenantDisabledAndInvalidTargetsWithoutWriting(): void
     {
         foreach ([20, 12] as $hotelId) {

@@ -6,7 +6,10 @@ namespace app\controller;
 use app\service\ApiExceptionMapper;
 use app\service\HotelScopeService;
 use app\service\PreciseQueryRouterService;
+use app\service\UserGuidanceJourneyService;
+use app\service\UserPreferenceContextService;
 use RuntimeException;
+use think\facade\Db;
 use think\Response;
 use Throwable;
 
@@ -32,11 +35,27 @@ final class PreciseQuery extends Base
     public function create(): Response
     {
         try {
+            $hotelIds = $this->accessibleHotels('operation.view');
+            $tenantId = $this->currentTenantId();
+            $userId = (int)($this->currentUser->id ?? 0);
+            $input = $this->requestData();
+            $input['preference_context'] = $this->serverPreferenceContext(
+                $input,
+                $hotelIds,
+                $tenantId,
+                $userId
+            );
+            $input['active_journey'] = $this->serverActiveJourney(
+                $input,
+                $hotelIds,
+                $tenantId,
+                $userId
+            );
             return $this->success($this->router->route(
-                $this->currentTenantId(),
-                $this->accessibleHotels('operation.view'),
-                (int)($this->currentUser->id ?? 0),
-                $this->requestData()
+                $tenantId,
+                $hotelIds,
+                $userId,
+                $input
             ));
         } catch (Throwable $e) {
             return ApiExceptionMapper::response($e, '宿析精准查数失败', self::BUSINESS_ERRORS);
@@ -88,5 +107,56 @@ final class PreciseQuery extends Base
             return 0;
         }
         return max(0, (int)($this->currentUser->tenant_id ?? 0));
+    }
+
+    /** @param list<int> $hotelIds @return array<string,mixed> */
+    private function serverPreferenceContext(
+        array $input,
+        array $hotelIds,
+        int $tenantId,
+        int $userId
+    ): array {
+        $scope = is_array($input['current_scope'] ?? null) ? $input['current_scope'] : [];
+        $hotelId = max(0, (int)($scope['hotel_id'] ?? $input['hotel_id'] ?? 0));
+        if (!in_array($hotelId, $hotelIds, true)) {
+            $hotelId = 0;
+        }
+        if ($hotelId > 0) {
+            $tenantId = (int)Db::name('hotels')->where('id', $hotelId)->where('status', 1)->value('tenant_id');
+        }
+        return (new UserPreferenceContextService())->build(
+            $tenantId,
+            $userId,
+            $hotelId > 0 ? $hotelId : null
+        );
+    }
+
+    /** @param list<int> $hotelIds @return array<string,mixed> */
+    private function serverActiveJourney(
+        array $input,
+        array $hotelIds,
+        int $tenantId,
+        int $userId
+    ): array {
+        $scope = is_array($input['current_scope'] ?? null) ? $input['current_scope'] : [];
+        $hotelId = max(0, (int)($scope['hotel_id'] ?? $input['hotel_id'] ?? 0));
+        if (!in_array($hotelId, $hotelIds, true)) {
+            $hotelId = 0;
+        }
+        if ($hotelId > 0) {
+            $tenantId = (int)Db::name('hotels')
+                ->where('id', $hotelId)
+                ->where('status', 1)
+                ->value('tenant_id');
+        }
+        $active = (new UserGuidanceJourneyService())->readActive(
+            $tenantId,
+            $userId,
+            $hotelId > 0 ? $hotelId : null
+        );
+        return ($active['data_status'] ?? '') === 'ready'
+            && is_array($active['journey'] ?? null)
+                ? $active['journey']
+                : [];
     }
 }

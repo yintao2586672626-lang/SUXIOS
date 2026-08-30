@@ -75,7 +75,7 @@
       "source_checks": [
         {
           "path": "resources/frontend/templates/fragments/23a-page-compass-summary.html",
-          "includes": ["data-testid=\"home-executive-answer\"", ":selected-hotel-id=\"filterReportHotel\""]
+          "includes": ["data-testid=\"home-executive-answer\"", ":selected-hotel-id=\"filterReportHotel\"", ":weekly-plan=\"homeWeeklyOperatingPlan\""]
         },
         {
           "path": "resources/frontend/templates/fragments/23b-page-ai-workbench.html",
@@ -86,6 +86,14 @@
         {
           "path": "tests/automation/home_evidence_chain_truth.test.mjs",
           "includes": ["23a-page-compass-summary.html", "23b-page-ai-workbench.html", "23c-page-compass-detail.html"]
+        },
+        {
+          "path": "tests/automation/home_operating_orchestration.test.mjs",
+          "includes": ["home-daily-one-thing-focus", "home-weekly-operating-plan", "homeWeeklyOperatingPlan"]
+        },
+        {
+          "path": "tests/automation/weekly_operating_plan.test.mjs",
+          "includes": ["selected_focus", "weekly_plan_snapshot_id", "readback_verified"]
         }
       ],
       "evidence_maturity": "unit_contract_pass",
@@ -105,7 +113,7 @@
       "source_checks": [
         {
           "path": "resources/frontend/templates/fragments/24-page-ctrip-ebooking.html",
-          "includes": ["data-testid=\"ctrip-overview-fetch-actions\"", "data-testid=\"ctrip-review-order-evidence-tab\"", "ctripLatestMeta?.data_date", "ctripLatestSnapshotText"]
+          "includes": ["data-testid=\"ctrip-overview-fetch-actions\"", "data-testid=\"ctrip-review-order-evidence-tab\"", "data-testid=\"ctrip-competitor-future-window\"", "ctripLatestMeta?.data_date", "ctripLatestSnapshotText"]
         },
         {
           "path": "public/app-main.js",
@@ -124,6 +132,10 @@
         {
           "path": "tests/automation/review_order_evidence_closure.test.mjs",
           "includes": ["ctrip-review-order-evidence-tab", "rejectCtripReviewOrderMatch", "unbindCtripReviewOrderMatch"]
+        },
+        {
+          "path": "tests/automation/competitor_future_window.test.mjs",
+          "includes": ["future-window", "room_type_mapping_missing", "auto_write_ota"]
         }
       ],
       "evidence_maturity": "unit_contract_pass",

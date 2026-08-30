@@ -1589,6 +1589,49 @@ window.SUXI_OPERATION_STATIC = (() => {
         }
     };
 
+    const runOperatingNetworkReplicationRestoreFlow = async ({
+        replication, hotelId, busy = false, currentHotelId, request, setAction, setError,
+        assertBoundaries, setReplication, clearIntent, loadReviews, toast,
+    } = {}) => {
+        const replicationId = Number(replication?.id || 0);
+        if (Number(hotelId) <= 0 || replicationId <= 0 || busy) return null;
+        setAction('replication_readback');
+        setError('');
+        try {
+            const response = await request(`/operation/operating-sop-replications/${replicationId}`);
+            if (Number(currentHotelId()) !== Number(hotelId)) return null;
+            if (response.code !== 200 || !response.data) throw new Error(response.msg || '复制草稿独立回读失败');
+            const actual = response.data;
+            if (Number(actual.id || 0) !== replicationId || Number(actual.target_hotel_id || 0) !== Number(hotelId)
+                || String(actual.content_digest || '') !== String(replication?.content_digest || '')) {
+                throw new Error('复制草稿恢复身份或摘要不一致');
+            }
+            assertBoundaries(actual.draft?.boundaries);
+            setReplication(actual);
+            clearIntent();
+            await loadReviews(replicationId);
+            return actual;
+        } catch (error) {
+            const message = error.message || '复制草稿恢复失败';
+            setError(message);
+            toast(message, 'error');
+            return null;
+        } finally {
+            setAction('');
+        }
+    };
+
+    const operatingNetworkReplicationLabel = (replication) => `继续草稿 #${replication?.id || '-'} · SOP #${replication?.source_sop_version_id || '-'} · ${replication?.status || '-'}`;
+
+    const applyOperationExecutionViewMode = async ({ mode, currentMode, loading = false, setMode, clearFilter, loadActions } = {}) => {
+        const nextMode = mode === 'mine' ? 'mine' : 'all';
+        if (currentMode === nextMode && !loading) return false;
+        setMode(nextMode);
+        clearFilter();
+        await loadActions();
+        return true;
+    };
+
     return {
         lifecycleMetricLabels,
         lifecycleStageTitles,
@@ -1675,6 +1718,9 @@ window.SUXI_OPERATION_STATIC = (() => {
         readOperationExecutionTask,
         cancelOperationExecutionMutation,
         reconcileOperationExecutionReviewMutation,
+        runOperatingNetworkReplicationRestoreFlow,
+        operatingNetworkReplicationLabel,
+        applyOperationExecutionViewMode,
         openingCategories,
         openingStatusOptions,
         openingProgressQuickValues,

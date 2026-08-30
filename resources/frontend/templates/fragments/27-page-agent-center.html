@@ -3,12 +3,12 @@
                             <div class="p-5 border-b border-gray-100 bg-white">
                                 <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
                                     <div>
-                                <h2 class="text-xl font-bold text-gray-900">高级模型与运营工具箱</h2>
-                                        <p class="text-sm text-gray-500 mt-1">管理员和专项诊断使用；日常经营优先从今日经营看板、收益诊断和执行跟踪进入。</p>
+                                <h2 class="text-xl font-bold text-gray-900">酒店数据分析师与运营工具箱</h2>
+                                        <p class="text-sm text-gray-500 mt-1">先锁定当前酒店、平台和业务日期，再由分析师读取严格回读事实，形成可追溯结论、缺口和建议。</p>
                                     </div>
                                     <div class="flex items-center gap-2 text-xs text-gray-500">
                                         <span class="inline-flex items-center px-2.5 py-1 rounded-full bg-blue-50 text-blue-700 border border-blue-100">
-                                            <i class="fas fa-database mr-1.5"></i>读取线上 OTA 数据
+                                            <i class="fas fa-database mr-1.5"></i>严格回读事实
                                         </span>
                                         <span class="inline-flex items-center px-2.5 py-1 rounded-full bg-green-50 text-green-700 border border-green-100">
                                             <i class="fas fa-key mr-1.5"></i>不展示 API Key
@@ -29,6 +29,7 @@
                             </div>
                             <div class="p-5">
                                 <div v-if="agentTab === 'overview'" class="space-y-5">
+                                    <hotel-data-analyst-profile></hotel-data-analyst-profile>
                                     <oq></oq>
                                     <div class="grid grid-cols-1 lg:grid-cols-3 gap-5">
                                         <section class="sx-agent-diagnosis-card lg:col-span-2 bg-white rounded-xl border border-gray-100 overflow-hidden">

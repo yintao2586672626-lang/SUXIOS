@@ -228,14 +228,18 @@ test('Business-chain report keeps operator-skipped Meituan read-only and action-
 });
 
 test('Operation execution statistics apply date/platform scope before limit and expose partial state', () => {
-  const source = readFileSync('app/service/OperationManagementService.php', 'utf8');
+  const serviceSource = readFileSync('app/service/OperationManagementService.php', 'utf8');
+  const assigneeConcern = readFileSync('app/service/operation/OperationExecutionAssigneeConcern.php', 'utf8');
+  const source = serviceSource + assigneeConcern;
   const reportSource = readFileSync('scripts/report_business_chain_status.php', 'utf8');
-  const targetFilter = source.indexOf("$targetDate = substr(trim((string)($filters['target_date'] ?? '')), 0, 10);");
-  const matchedCount = source.indexOf('$matchedTotal = (int)(clone $query)->count();');
-  const limitedSelect = source.indexOf("$intentRows = $query->order('id', 'desc')->limit($limit)->select()->toArray();");
+  const targetFilter = serviceSource.indexOf("$targetDate = substr(trim((string)($filters['target_date'] ?? '')), 0, 10);");
+  const scopedQuery = serviceSource.indexOf('$this->prepareExecutionFlowQuery($query, $filters)');
+  const matchedCount = assigneeConcern.indexOf('$matchedTotal = (int)(clone $query)->count();');
+  const limitedSelect = assigneeConcern.indexOf("$intentRows = $query->order('id', 'desc')->limit($limit)->select()->toArray();");
 
   assert(targetFilter >= 0, 'target-date scope filter is missing');
-  assert(matchedCount > targetFilter, 'matched total must be computed after target-date/platform scope');
+  assert(scopedQuery > targetFilter, 'scoped query must be prepared after target-date/platform scope');
+  assert(matchedCount >= 0, 'matched total must be computed inside the extracted query concern');
   assert(limitedSelect > matchedCount, 'row limit must be applied after scoped matched count');
   assert.match(source, /'data_status' => \$dataGaps === \[\] \? self::DATA_OK : 'partial'/);
   assert.match(source, /'execution_total_loaded' => true/);

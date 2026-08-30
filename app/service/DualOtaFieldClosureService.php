@@ -539,6 +539,12 @@ final class DualOtaFieldClosureService
                 'business_visitor_title:visitor_count'
             ) && self::numeric($row['detail_exposure'] ?? null) !== null;
         });
+        $traffic = self::latestRow($rows, static function (array $row): bool {
+            return (string)($row['data_type'] ?? '') === 'traffic'
+                && self::rowStrictFinalEligible($row)
+                && self::numeric($row['list_exposure'] ?? null) !== null
+                && self::numeric($row['detail_exposure'] ?? null) !== null;
+        });
 
         $revenue = self::numeric($market['amount'] ?? null);
         $roomNights = self::numeric($market['quantity'] ?? null);
@@ -592,6 +598,35 @@ final class DualOtaFieldClosureService
         ksort($adrRows, SORT_NUMERIC);
         $adrInputsStrict = (string)($revenueField['status'] ?? '') === 'strict_readback'
             && (string)($roomNightsField['status'] ?? '') === 'strict_readback';
+        $listExposure = self::numeric($traffic['list_exposure'] ?? null);
+        $trafficVisits = self::numeric($traffic['detail_exposure'] ?? null);
+        $visitRow = is_array($traffic) ? $traffic : $visits;
+        $visitValue = $trafficVisits ?? self::numeric($visits['detail_exposure'] ?? null);
+        $conversion = $listExposure !== null
+            && $listExposure > 0
+            && $trafficVisits !== null
+                ? round($trafficVisits / $listExposure * 100, 2)
+                : null;
+        $conversionStatus = $conversion !== null
+            ? 'verified_calculation'
+            : self::missingStatus($collection, 'field_unavailable');
+        $conversionFlags = [];
+        $conversionObservedValues = [];
+        $conversionNote = '使用同一条携程 P0 canonical 流量记录，按访问量 / 曝光量计算。';
+        $storedFlowRate = self::numeric($traffic['flow_rate'] ?? null);
+        if ($conversion !== null
+            && $storedFlowRate !== null
+            && abs($conversion - $storedFlowRate) > 0.05
+        ) {
+            $conversionObservedValues = self::observedValues([
+                [$conversion, 'detail_exposure / list_exposure', $traffic],
+                [$storedFlowRate, 'online_daily_data.flow_rate', $traffic],
+            ]);
+            $conversion = null;
+            $conversionStatus = 'caliber_uncertain';
+            $conversionFlags[] = 'ctrip_stored_flow_rate_mismatch';
+            $conversionNote = '携程 canonical 曝光、访问与保存的流量转化率不一致，保留候选并停止主值。';
+        }
 
         return [
             $revenueField,
@@ -621,16 +656,34 @@ final class DualOtaFieldClosureService
                         'revenue / room_nights',
                         '收入或间夜缺失，无法计算 ADR。下一步：补齐同一快照的金额与间夜字段。'
                     )),
-            self::field(
+            self::fieldOrMissing(
                 'exposure',
-                self::missingStatus($collection, 'field_unavailable'),
-                null,
-                [],
-                '携程目标日采集',
-                '本次目标日采集缺少可信曝光事实；不能据此断言平台不提供。下一步：补采携程数据中心曝光端点并完成同店同日保存回读。'
+                $listExposure,
+                $traffic,
+                $collection,
+                'online_daily_data.list_exposure',
+                '携程 P0 canonical 目标日流量曝光。'
             ),
-            self::fieldOrMissing('visits', self::numeric($visits['detail_exposure'] ?? null), $visits, $collection, 'online_daily_data.detail_exposure', '携程经营概览中的目标日访问量。'),
-            self::field('conversion', self::missingStatus($collection, 'field_unavailable'), null, [], 'exposure -> visits', '本次曝光事实缺失，因此不计算转化率。下一步：先取得与访问量同一快照的曝光字段。'),
+            self::fieldOrMissing(
+                'visits',
+                $visitValue,
+                $visitRow,
+                $collection,
+                'online_daily_data.detail_exposure',
+                is_array($traffic)
+                    ? '携程 P0 canonical 目标日流量访问量。'
+                    : '携程经营概览中的目标日访问量。'
+            ),
+            self::field(
+                'conversion',
+                $conversionStatus,
+                $conversion,
+                is_array($traffic) ? [$traffic] : [],
+                'detail_exposure / list_exposure',
+                $conversionNote,
+                $conversionObservedValues,
+                $conversionFlags
+            ),
             self::field('cancellation', self::platformNotProvidedStatus($collection, $rows !== []), null, [], '携程目标日采集', '本次采集区段未取得取消数据。下一步：补采同一营业日的取消/订单状态字段。'),
             self::field('sellable', self::platformNotProvidedStatus($collection, $rows !== []), null, [], '携程目标日采集', '本次采集区段未取得在售库存。下一步：补采同一营业日的房态库存端点。'),
             self::field('bookable', self::platformNotProvidedStatus($collection, $rows !== []), null, [], '携程目标日采集', '本次采集区段未取得可订库存。下一步：补采同一营业日的游客侧可订性证据。'),

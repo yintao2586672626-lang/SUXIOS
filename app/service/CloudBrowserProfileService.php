@@ -458,13 +458,11 @@ final class CloudBrowserProfileService
             throw new RuntimeException('cloud_browser_collection_scope_invalid');
         }
         $now = new DateTimeImmutable('now', new DateTimeZone('Asia/Shanghai'));
-        $date = DateTimeImmutable::createFromFormat('!Y-m-d', trim($targetDate), new DateTimeZone('Asia/Shanghai'));
-        if (!$date instanceof DateTimeImmutable
-            || $date->format('Y-m-d') !== trim($targetDate)
-            || $date->format('Y-m-d') !== $now->format('Y-m-d')
-        ) {
-            throw new RuntimeException('cloud_browser_collection_target_date_not_today');
-        }
+        [$date, $historical] = $this->collectionDate(
+            $targetDate,
+            $now,
+            $platform !== MeituanCloudPmsCaptureService::PROFILE_PLATFORM
+        );
 
         $profile = $this->profileByPublicId($profilePublicId, false);
         if ((int)$profile['tenant_id'] !== $tenantId
@@ -507,7 +505,9 @@ final class CloudBrowserProfileService
         $source = match ($platform) {
             'dingdandao' => [
                 'provider' => DingdandaoOperatingTargetCaptureService::PROVIDER,
-                'source_scope' => DingdandaoOperatingTargetCaptureService::SOURCE_SCOPE,
+                'source_scope' => $historical
+                    ? 'historical_single_date'
+                    : DingdandaoOperatingTargetCaptureService::SOURCE_SCOPE,
                 'source_url' => DingdandaoOperatingTargetCaptureService::SOURCE_URL,
             ],
             'meituan_cloud_pms' => [
@@ -531,13 +531,14 @@ final class CloudBrowserProfileService
             'validated' => true,
             'collection_kind' => in_array($platform, ['ctrip', 'meituan'], true)
                 ? 'ota_target_date'
-                : 'operating_target_today',
+                : ($historical ? 'operating_target_historical' : 'operating_target_today'),
             'access_mode' => 'read_only',
             'platform' => $platform,
             'provider' => $source['provider'],
             'source_scope' => $source['source_scope'],
             'source_url' => $source['source_url'],
             'target_date' => $date->format('Y-m-d'),
+            'data_period' => $historical ? 'historical_daily' : 'realtime_snapshot',
             'tenant_id' => $tenantId,
             'hotel_id' => $hotelId,
             'owner_user_id' => $ownerUserId,
@@ -547,7 +548,8 @@ final class CloudBrowserProfileService
     }
 
     /**
-     * Read-only preflight for a same-day OTA channel collection. This proves
+     * Read-only preflight for a current or immediately previous business-day
+     * OTA channel collection. This proves
      * the encrypted Profile, data source and registered Profile binding all
      * belong to the exact tenant/user/hotel/platform tuple. It does not prove
      * the current page session or authorize persistence; the collector must
@@ -574,13 +576,7 @@ final class CloudBrowserProfileService
 
         $timezone = new DateTimeZone('Asia/Shanghai');
         $now = new DateTimeImmutable('now', $timezone);
-        $date = DateTimeImmutable::createFromFormat('!Y-m-d', trim($targetDate), $timezone);
-        if (!$date instanceof DateTimeImmutable
-            || $date->format('Y-m-d') !== trim($targetDate)
-            || $date->format('Y-m-d') !== $now->format('Y-m-d')
-        ) {
-            throw new RuntimeException('cloud_browser_collection_target_date_not_today');
-        }
+        [$date, $historical] = $this->collectionDate($targetDate, $now, true);
 
         $profile = $this->profileByPublicId($profilePublicId, false);
         if ((int)$profile['tenant_id'] !== $tenantId
@@ -675,6 +671,7 @@ final class CloudBrowserProfileService
             'source_url' => $sourceUrl,
             'platform_hotel_id' => $platformHotelId,
             'target_date' => $date->format('Y-m-d'),
+            'data_period' => $historical ? 'historical_daily' : 'realtime_snapshot',
             'tenant_id' => $tenantId,
             'hotel_id' => $hotelId,
             'owner_user_id' => $ownerUserId,
@@ -736,6 +733,29 @@ final class CloudBrowserProfileService
             throw new RuntimeException('cloud_browser_platform_unsupported');
         }
         return $platform;
+    }
+
+    /**
+     * @return array{0:DateTimeImmutable,1:bool}
+     */
+    private function collectionDate(
+        string $targetDate,
+        DateTimeImmutable $now,
+        bool $allowPreviousBusinessDay
+    ): array {
+        $timezone = new DateTimeZone('Asia/Shanghai');
+        $value = trim($targetDate);
+        $date = DateTimeImmutable::createFromFormat('!Y-m-d', $value, $timezone);
+        $today = $now->format('Y-m-d');
+        $previousBusinessDay = $now->modify('-1 day')->format('Y-m-d');
+        if (!$date instanceof DateTimeImmutable
+            || $date->format('Y-m-d') !== $value
+            || ($value !== $today
+                && (!$allowPreviousBusinessDay || $value !== $previousBusinessDay))
+        ) {
+            throw new RuntimeException('cloud_browser_collection_target_date_out_of_window');
+        }
+        return [$date, $value === $previousBusinessDay];
     }
 
     private function reason(string $reason): string

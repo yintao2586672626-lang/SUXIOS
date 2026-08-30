@@ -533,4 +533,149 @@ final class SystemUsageAssistantServiceTest extends TestCase
         self::assertFalse($result['runtime']['external_llm_called']);
         self::assertStringContainsString('已登记功能目录', $result['assistant_message']);
     }
+
+    public function testConfirmedConcisePreferenceChangesPresentationButNeverFactsOrAuthority(): void
+    {
+        $client = new class extends LlmClient {
+            /** @var array<int,array<string,string>> */
+            public array $messages = [];
+
+            public function createJsonResponseEnvelope(
+                array $messages,
+                array $schema,
+                string $modelKey = 'deepseek_v4_default'
+            ): array {
+                $this->messages = $messages;
+                return [
+                    'data' => [
+                        'assistant_mode' => 'guide',
+                        'assistant_message' => str_repeat('先核对事实再继续。', 40),
+                        'intent_summary' => '检查数据状态',
+                        'goal' => '恢复携程数据',
+                        'topic_key' => 'data-health',
+                        'journey_topic_keys' => ['data-health'],
+                        'steps' => ['第一步', '第二步', '第三步', '第四步'],
+                        'clarifying_question' => '',
+                        'follow_up_questions' => ['问题一', '问题二', '问题三'],
+                        'confidence' => 'high',
+                    ],
+                    'meta' => [
+                        'provider' => 'deepseek',
+                        'model_key' => 'deepseek_v4_pro',
+                        'model' => 'deepseek-v4-pro',
+                        'finish_reason' => 'stop',
+                        'fallback_used' => false,
+                        'cache_hit' => false,
+                        'degraded' => false,
+                    ],
+                ];
+            }
+        };
+
+        $result = (new SystemUsageAssistantService($client))->guide([
+            'query' => '帮我检查携程数据',
+            'visible_topic_keys' => ['data-health'],
+            'preference_context' => [
+                'items' => [[
+                    'id' => 91,
+                    'preference_key' => 'response_detail',
+                    'preference_value' => 'concise',
+                    'learning_state' => 'explicit_confirmed',
+                    'scope_type' => 'global',
+                    'lifecycle_status' => 'active',
+                ]],
+            ],
+        ]);
+
+        self::assertSame('applied', $result['personalization']['status']);
+        self::assertSame('concise', $result['personalization']['response_detail']);
+        self::assertSame(['user_learning_preference#91'], $result['personalization']['preference_refs']);
+        self::assertSame(
+            'preference_applied',
+            $result['personalization']['explanation']['status']
+        );
+        self::assertSame(
+            '按你已确认的“回答简洁”偏好压缩了表达。',
+            $result['personalization']['explanation']['summary']
+        );
+        self::assertSame(
+            ['user_learning_preference#91'],
+            $result['personalization']['explanation']['source_refs']
+        );
+        self::assertCount(1, $result['personalization']['applied_preferences']);
+        self::assertSame(
+            'presentation_only',
+            $result['personalization']['explanation']['effect_scope']
+        );
+        self::assertLessThanOrEqual(240, mb_strlen($result['assistant_message']));
+        self::assertCount(2, $result['steps']);
+        self::assertCount(1, $result['follow_up_questions']);
+        self::assertFalse($result['personalization']['fact_changed']);
+        self::assertFalse($result['personalization']['permission_changed']);
+        self::assertFalse($result['personalization']['approval_changed']);
+        self::assertFalse($result['personalization']['external_write_authorized']);
+
+        $prompt = json_decode($client->messages[1]['content'], true, 512, JSON_THROW_ON_ERROR);
+        self::assertSame(
+            'concise',
+            $prompt['confirmed_user_preference_context'][0]['preference_value']
+        );
+        self::assertStringContainsString('不能当作酒店事实', $client->messages[0]['content']);
+    }
+
+    public function testCurrentRequestOverridesSavedDetailPreferenceForOneTurn(): void
+    {
+        $result = (new SystemUsageAssistantService())->guide([
+            'query' => '详细展开告诉我携程数据怎么检查',
+            'deterministic_only' => true,
+            'visible_topic_keys' => ['data-health'],
+            'preference_context' => [[
+                'id' => 92,
+                'key' => 'response_detail',
+                'value' => 'concise',
+                'state' => 'explicit_confirmed',
+                'lifecycle_status' => 'active',
+            ]],
+        ]);
+
+        self::assertSame('overridden_by_current_request', $result['personalization']['status']);
+        self::assertSame('detailed', $result['personalization']['response_detail']);
+        self::assertSame([], $result['personalization']['preference_refs']);
+        self::assertSame(
+            'current_request_override',
+            $result['personalization']['explanation']['status']
+        );
+        self::assertSame([], $result['personalization']['explanation']['source_refs']);
+        self::assertGreaterThan(2, count($result['steps']));
+    }
+
+    public function testRecognizedPreferenceWithoutImplementedEffectIsNotReportedAsApplied(): void
+    {
+        $result = (new SystemUsageAssistantService())->guide([
+            'query' => '今天先做什么',
+            'deterministic_only' => true,
+            'visible_topic_keys' => ['daily-workbench'],
+            'preference_context' => ['items' => [[
+                'id' => 93,
+                'preference_key' => 'daily_focus',
+                'preference_value' => 'single_priority',
+                'learning_status' => 'explicit_confirmed',
+                'lifecycle_status' => 'active',
+            ]]],
+        ]);
+
+        self::assertSame('recognized_not_applied', $result['personalization']['status']);
+        self::assertSame([], $result['personalization']['preference_refs']);
+        self::assertSame(
+            ['user_learning_preference#93'],
+            $result['personalization']['recognized_preference_refs']
+        );
+        self::assertSame('none', $result['personalization']['effect_scope']);
+        self::assertSame(
+            'recognized_not_applied',
+            $result['personalization']['explanation']['status']
+        );
+        self::assertFalse($result['personalization']['explanation']['facts_changed']);
+        self::assertSame('daily-workbench', $result['topic_key']);
+    }
 }

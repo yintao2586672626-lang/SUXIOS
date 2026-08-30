@@ -573,7 +573,7 @@ Route::group('api/simulation', function () {
 // The manifest is required here to preserve the original registration order.
 require __DIR__ . '/domain/operations.php';
 // ==================== 竞对价格监控 API ====================
-Route::get('api/competitor/events', 'CompetitorApi/events')->middleware(\app\middleware\Auth::class);
+Route::get('api/competitor/events', 'CompetitorApi/events')->middleware(\app\middleware\Auth::class); Route::get('api/competitor/future-window', 'CompetitorApi/futureWindow')->middleware(\app\middleware\Auth::class);
 Route::get('api/competitor/targets', 'CompetitorApi/targets')->middleware(\app\middleware\Auth::class);
 Route::post('api/competitor/manual-observation', 'CompetitorApi/manualObservation')->middleware(\app\middleware\Auth::class);
 Route::post('api/competitor/task', 'CompetitorApi/task');

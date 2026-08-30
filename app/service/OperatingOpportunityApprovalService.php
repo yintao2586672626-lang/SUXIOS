@@ -81,7 +81,7 @@ final class OperatingOpportunityApprovalService
             throw new RuntimeException('经营机会记录已变化，请刷新后重试', 409);
         }
 
-        $overview = $this->lab->overview($tenantId, $hotelId, $businessDate);
+        $overview = $this->lab->overview($tenantId, $hotelId, $businessDate, $actorId);
         $this->assertCurrentRun($run, $overview);
         [$sourceRun, $evidenceRuns] = $this->resolveSourceRun($run, $overview);
         $sourceMetric = $this->sourceMetric($sourceRun);

@@ -59,6 +59,7 @@ test('every Playwright spec is classified by the isolated runner', () => {
     'edge-input-guard.spec.js',
     'frontend_full_render_transition.spec.js',
     'full-click-coverage.spec.js',
+    'hotel_data_analyst_role.spec.js',
     'module-smoke.spec.js',
     'operating_question_action_card.spec.js',
     'operating_question_floating.spec.js',
@@ -139,6 +140,7 @@ test('operating-question browser journeys share the dedicated isolated entrypoin
   assert.match(isolatedRunner, /--operating-question-only/);
   assert.match(isolatedRunner, /operating_question_action_card\.spec\.js/);
   assert.match(isolatedRunner, /operating_question_floating\.spec\.js/);
+  assert.match(isolatedRunner, /hotel_data_analyst_role\.spec\.js/);
   assert.equal(
     packageJson.scripts['test:e2e:operating-question'],
     'node tests/automation/run-quick-e2e-isolated.mjs --operating-question-only',

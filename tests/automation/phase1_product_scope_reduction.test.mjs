@@ -11,6 +11,8 @@ const homeStatic = readFileSync('public/home-static.js', 'utf8');
 const routes = readRouteContractSource(process.cwd());
 const missingModulesVerifier = readFileSync('scripts/verify_missing_modules.php', 'utf8');
 const fullAutomation = readFileSync('tests/automation/suxi_full_automation_test.mjs', 'utf8');
+const simulationTemplate = readFileSync('resources/frontend/templates/fragments/02-page-ai-simulation.html', 'utf8');
+const appMainComponents = readFileSync('public/components/system/app-main-components.js', 'utf8');
 
 test('phase 1 removes the image optimizer while preserving the AI toolbox links', () => {
   assert.equal(existsSync('public/hotel-image-optimizer-static.js'), false);
@@ -34,10 +36,7 @@ test('phase 1 hides lifecycle navigation while retaining frozen backend routes a
     'lifecycle-auxiliary',
     'investment-decision',
     'ai-strategy',
-    'ai-simulation',
     'ai-feasibility',
-    'opening-overview',
-    'opening-checklist',
     'market-evaluation',
     'benchmark-model',
     'collaboration-efficiency',
@@ -56,6 +55,17 @@ test('phase 1 hides lifecycle navigation while retaining frozen backend routes a
   }
   assert.match(routes, /Route::group\('api\/online-data',/);
   assert.match(routes, /Route::group\('api\/revenue-ai',/);
+});
+
+test('existing opening pages are discoverable from the operations center', () => {
+  assert.match(systemStatic, /name:\s*'开业准备总览',\s*path:\s*'opening-overview'/);
+  assert.match(systemStatic, /name:\s*'开业检查清单',\s*path:\s*'opening-checklist'/);
+});
+
+test('existing quant simulation page is discoverable from the revenue workbench', () => {
+  assert.match(systemStatic, /name:\s*'智算·量化模拟',\s*path:\s*'ai-simulation'/);
+  assert.match(simulationTemplate, /data-testid="simulation-hotel-selector"/);
+  assert.match(appMainComponents, /示例假设 · 未验证/);
 });
 
 test('phase 1 hidden opening pages keep their lazy static bindings boot-safe', () => {

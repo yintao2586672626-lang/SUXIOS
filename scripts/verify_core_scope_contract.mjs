@@ -75,10 +75,7 @@ for (const frozenPath of [
   'lifecycle-auxiliary',
   'investment-decision',
   'ai-strategy',
-  'ai-simulation',
   'ai-feasibility',
-  'opening-overview',
-  'opening-checklist',
   'market-evaluation',
   'benchmark-model',
   'collaboration-efficiency',
@@ -90,6 +87,13 @@ for (const frozenPath of [
   assertContract(
     !flattenedMenu.some((item) => item.path === frozenPath),
     `phase-1 navigation must not expose frozen lifecycle path: ${frozenPath}`
+  );
+}
+
+for (const restoredExistingPath of ['ai-simulation', 'opening-overview', 'opening-checklist']) {
+  assertContract(
+    flattenedMenu.some((item) => item.path === restoredExistingPath),
+    `existing hotel-bound save/readback path must remain discoverable: ${restoredExistingPath}`
   );
 }
 

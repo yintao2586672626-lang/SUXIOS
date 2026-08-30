@@ -1449,13 +1449,13 @@ function p0_compare_row_platform_hotel_identifier(array $rawData, string $platfo
         'row_identifier_count' => 0,
         'sensitive_values_exposed' => false,
     ];
-    if ((string)($authority['status'] ?? '') !== 'ready'
-        || trim((string)($authority['expected_identifier_hash'] ?? '')) === ''
-    ) {
+    if ((string)($authority['status'] ?? '') !== 'ready' || trim((string)($authority['expected_identifier_hash'] ?? '')) === '') {
         return $base;
     }
-
-    $rowHashes = p0_platform_hotel_identifier_hashes($rawData, $platform);
+    $row = is_array($rawData['row'] ?? null) ? $rawData['row'] : null;
+    $identityProof = strtolower(trim((string)($rawData['platform_hotel_identifier_proof'] ?? ($row['platform_hotel_identifier_proof'] ?? ''))));
+    $identityContainer = $identityProof === 'row_field_present' && $row !== null ? $row : $rawData; // Keep the SUXIOS hotel scope out of row-proven OTA identity.
+    $rowHashes = p0_platform_hotel_identifier_hashes($identityContainer, $platform);
     $base['expected_identifier_hash'] = (string)$authority['expected_identifier_hash'];
     $base['row_identifier_count'] = count($rowHashes);
     if ($rowHashes === []) {

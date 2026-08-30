@@ -673,24 +673,7 @@
                     <!-- 智算·量化模拟 -->
                     <div v-if="currentPage === 'ai-simulation'">
                         <div class="ai-page-hero mb-6 rounded-2xl p-6 text-white bg-gradient-to-r from-slate-900 via-cyan-900 to-blue-800 shadow-sm">
-                            <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
-                                <div>
-                                    <h2 class="text-2xl font-bold">智算·量化模拟</h2>
-                                    <p class="text-sm text-cyan-100 mt-1">测算项目是否赚钱、多久回本、风险边界在哪里</p>
-                                </div>
-                                <button @click="handleSimulation" :disabled="aiSimulationLoading" class="bg-white/15 hover:bg-white/20 border border-white/20 text-white px-4 py-2 rounded-lg flex items-center justify-center gap-2 transition disabled:opacity-50">
-                                    <i class="fas fa-calculator"></i>
-                                    <span>{{ aiSimulationLoading ? '生成中...' : '运行三情景模拟' }}</span>
-                                </button>
-                                <button @click="loadSimulationRecords" :disabled="aiSimulationLoading" class="bg-white/10 hover:bg-white/15 border border-white/20 text-white px-4 py-2 rounded-lg flex items-center justify-center gap-2 transition disabled:opacity-50">
-                                    <i class="fas fa-history"></i>
-                                    <span>刷新历史</span>
-                                </button>
-                            </div>
-                        </div>
-
-                        <div class="mb-5 rounded-lg border border-amber-100 bg-amber-50 px-4 py-3 text-sm text-amber-700">
-                            本模块核心财务结果由后端计算接口生成；前端仅展示输入摘要、三情景结果与模型解读，接口失败时直接提示错误。
+                            <simulation-hero-actions data-testid="simulation-hotel-selector" v-model:hotel-id="aiSimulationParams.hotel_id" :hotels="operationHotelOptions" :hotel-valid="simulationHotelSelectionValid" :loading="aiSimulationLoading" @run="handleSimulation" @refresh="loadSimulationRecords"></simulation-hero-actions>
                         </div>
 
                         <div class="grid grid-cols-1 xl:grid-cols-12 gap-6">
@@ -971,13 +954,14 @@
                                         <div v-for="record in aiSimulationRecords" :key="record.id" class="py-3 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
                                             <div>
                                                 <div class="font-medium text-gray-900">{{ record.project_name || '量化模拟项目' }}</div>
-                                                <div class="text-xs text-gray-500 mt-1">月净现金流 {{ formatCurrency(record.monthly_net_cashflow) }} · 回本 {{ record.payback_months === null ? '不可回本' : record.payback_months + '个月' }} · {{ record.created_at || '-' }}</div>
+                                                <div class="text-xs text-gray-500 mt-1">{{ simulationRecordSummary(record) }}</div>
                                             </div>
                                             <div class="flex items-center gap-2">
                                                 <span :class="['px-2 py-1 rounded text-xs border', riskBadgeClass(record.risk_level)]">{{ record.risk_level || '-' }}</span>
                                                 <span v-if="record.execution_readiness" :class="['px-2 py-1 rounded text-xs border whitespace-nowrap', simulationReadinessBadgeClass(record.execution_readiness.stage)]">{{ record.execution_readiness.status_label }}</span>
                                                 <button @click="loadSimulationDetail(record.id)" :data-testid="`history-simulation-view-${record.id}`" class="px-3 py-1.5 rounded-lg border border-gray-200 text-gray-600 text-xs hover:bg-gray-50">查看</button>
                                                 <button @click="reuseSimulationRecord(record)" :data-testid="`history-simulation-reuse-${record.id}`" class="px-3 py-1.5 rounded-lg bg-blue-600 text-white text-xs hover:bg-blue-700">复用输入</button>
+                                                <button @click="createSimulationExecutionIntent(record)" :disabled="simulationTaskDisabled(record)" :data-testid="`history-simulation-task-${record.id}`">{{ simulationTaskLabel(record) }}</button>
                                                 <button @click="archiveSimulationRecord(record)" :data-testid="`history-simulation-archive-${record.id}`" class="px-3 py-1.5 rounded-lg border border-red-200 text-red-600 text-xs hover:bg-red-50">归档</button>
                                             </div>
                                         </div>
@@ -4687,9 +4671,10 @@
                                 <div>
                                     <h3 class="font-bold text-gray-900">决策到执行主流程</h3>
                                 </div>
-                                <button @click="loadOperationActions" :disabled="operationLoading.actions" class="px-4 py-2 border border-gray-200 rounded-lg text-sm hover:bg-gray-50 disabled:opacity-60">
-                                    <i class="fas fa-sync-alt mr-2" :class="{ 'fa-spin': operationLoading.actions }"></i>刷新
-                                </button>
+                                <div>
+                                    <select :value="operationExecutionViewMode" @change="setOperationExecutionViewMode($event.target.value)"><option value="all">全部流程</option><option data-testid="operation-my-tasks-tab" value="mine">我的待办</option></select>
+                                    <button @click="loadOperationActions" :disabled="operationLoading.actions">刷新</button>
+                                </div>
                             </div>
                             <div class="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3 mb-4">
                                 <button
@@ -4733,7 +4718,7 @@
                                 </div>
                             </div>
                             <div class="mb-3 flex flex-wrap items-center justify-between gap-2 text-xs text-gray-500">
-                                <span>当前显示：<b class="text-gray-700">{{ operationExecutionStageFilterLabel }}</b> · {{ operationExecutionFilteredItems.length }} 条</span>
+                                <span>当前显示：<b class="text-gray-700">{{ operationExecutionViewMode === 'mine' ? '我的待办' : operationExecutionStageFilterLabel }}</b> · {{ operationExecutionFilteredItems.length }} 条</span>
                                 <button v-if="operationExecutionStageFilter" type="button" @click="setOperationExecutionStageFilter('')" class="rounded-lg px-2.5 py-1.5 font-medium text-[#315d50] hover:bg-emerald-50">查看全部阶段</button>
                             </div>
                             <div class="overflow-x-auto">
@@ -6461,6 +6446,9 @@
                                     v-if="currentPage === 'compass'"
                                     :model="homeOperatingScheduleModel"
                                     :loading="homeOperatingScheduleLoading"
+                                    :weekly-plan="homeWeeklyOperatingPlan"
+                                    :weekly-loading="homeWeeklyOperatingPlanLoading"
+                                    :weekly-error="homeWeeklyOperatingPlanError"
                                     :current-clock-text="currentClockText"
                                     @refresh="loadHomeOperatingSchedule({ hotelId: filterReportHotel })"
                                     @open="openHomeOperatingScheduleItem"
@@ -8563,6 +8551,8 @@
                                         <div v-if="competitorEventFeed?.truncated" data-testid="ctrip-competitor-event-feed-truncated" class="mt-2 text-xs text-amber-800">仅返回最新事件，当前按部分证据处理。</div>
                                     </section>
 
+                                    <ctrip-competitor-future-window-panel data-testid="ctrip-competitor-future-window" :model="competitorFutureWindowPanelModel"></ctrip-competitor-future-window-panel>
+
                                     <div class="rounded-lg border border-[#e5dcc8] bg-[#fcfaf5] px-3 py-2 text-xs leading-5 text-[#6f572f]">数据边界：仅使用已保存且质量可用的携程 OTA 证据；缺失、未验证、非同口径价格和无回读事件不进入经营判断。</div>
                                     </div>
                                 </div>
@@ -10588,6 +10578,7 @@
                                         <button type="button" @click="openMeituanStoredDataTab('ads')" :class="['rounded-lg px-4 py-2.5 text-sm font-semibold transition', onlineDataTab === 'meituan-download' &amp;&amp; downloadCenterTab === 'ads' ? 'bg-slate-900 text-white shadow-sm' : 'border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 hover:text-gray-900']">
                                             <i class="fas fa-bullhorn mr-1.5"></i>广告数据
                                         </button>
+                                        <button data-testid="meituan-search-keyword-tab" @click="openMeituanStoredDataTab('keywords')">搜索词</button>
                                     </div>
                                     <div class="flex flex-wrap items-start gap-2">
                                         <button type="button" @click="openHotelManagementForOta" class="rounded-lg border border-gray-200 bg-white px-4 py-2.5 text-sm font-semibold text-gray-600 transition hover:bg-gray-50 hover:text-gray-900">
@@ -11322,6 +11313,7 @@
                                         <button @click="queryMeituanStoredData" class="px-4 py-2 bg-blue-500 text-white rounded-lg">
                                             <i class="fas fa-search mr-2"></i>查询
                                         </button>
+                                        <button v-if="['ads', 'keywords'].includes(downloadCenterTab)" data-testid="meituan-download-current-page-csv" @click="downloadMeituanCurrentPageCsv">下载当前页 CSV</button>
                                     </div>
 
                                     <div v-if="downloadCenterTab === 'all'">
@@ -11583,6 +11575,8 @@
                                             </table>
                                         </div>
                                     </div>
+
+                                    <meituan-search-keyword-workbench v-if="downloadCenterTab === 'keywords'" data-testid="meituan-search-keyword-workbench" :rows="meituanDownloadData.keywordRows" :format-row="formatMeituanKeywordRow" @view="viewOnlineDataDetail"></meituan-search-keyword-workbench>
 
                                     <!-- 广告数据模块 -->
                                     <div v-if="downloadCenterTab === 'ads'">
@@ -11957,12 +11951,12 @@
                             <div class="p-5 border-b border-gray-100 bg-white">
                                 <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
                                     <div>
-                                <h2 class="text-xl font-bold text-gray-900">高级模型与运营工具箱</h2>
-                                        <p class="text-sm text-gray-500 mt-1">管理员和专项诊断使用；日常经营优先从今日经营看板、收益诊断和执行跟踪进入。</p>
+                                <h2 class="text-xl font-bold text-gray-900">酒店数据分析师与运营工具箱</h2>
+                                        <p class="text-sm text-gray-500 mt-1">先锁定当前酒店、平台和业务日期，再由分析师读取严格回读事实，形成可追溯结论、缺口和建议。</p>
                                     </div>
                                     <div class="flex items-center gap-2 text-xs text-gray-500">
                                         <span class="inline-flex items-center px-2.5 py-1 rounded-full bg-blue-50 text-blue-700 border border-blue-100">
-                                            <i class="fas fa-database mr-1.5"></i>读取线上 OTA 数据
+                                            <i class="fas fa-database mr-1.5"></i>严格回读事实
                                         </span>
                                         <span class="inline-flex items-center px-2.5 py-1 rounded-full bg-green-50 text-green-700 border border-green-100">
                                             <i class="fas fa-key mr-1.5"></i>不展示 API Key
@@ -11983,6 +11977,7 @@
                             </div>
                             <div class="p-5">
                                 <div v-if="agentTab === 'overview'" class="space-y-5">
+                                    <hotel-data-analyst-profile></hotel-data-analyst-profile>
                                     <oq></oq>
                                     <div class="grid grid-cols-1 lg:grid-cols-3 gap-5">
                                         <section class="sx-agent-diagnosis-card lg:col-span-2 bg-white rounded-xl border border-gray-100 overflow-hidden">

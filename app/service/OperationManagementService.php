@@ -21,6 +21,7 @@ class OperationManagementService
     use \app\service\operation\OperationExecutionTenantConcern;
     use \app\service\operation\OperationExecutionPersistenceConcern;
     use \app\service\operation\OperationActionLifecycleConcern;
+    use \app\service\operation\OperationExecutionAssigneeConcern;
 
     private RevenuePricingRecommendationService $pricingRecommendationService;
     private ExecutionOutcomeService $executionOutcomeService;
@@ -686,10 +687,7 @@ class OperationManagementService
         }
 
         $query = $this->scopeExecutionIntentQueryToCurrentHotelTenant($query);
-        $matchedTotal = (int)(clone $query)->count();
-        $limit = max(1, min(500, (int)($filters['limit'] ?? 100)));
-        $intentRows = $query->order('id', 'desc')->limit($limit)->select()->toArray();
-        $truncated = $matchedTotal > count($intentRows);
+        ['assigneeId' => $assigneeId, 'matchedTotal' => $matchedTotal, 'limit' => $limit, 'intentRows' => $intentRows, 'truncated' => $truncated] = $this->prepareExecutionFlowQuery($query, $filters);
         if (empty($intentRows)) {
             return $this->emptyExecutionFlowResponse();
         }
@@ -761,6 +759,8 @@ class OperationManagementService
                 $evidenceByIntent[$intentId] ?? []
             );
         }
+        $assigneeScope = $this->scopeExecutionFlowItemsToAssignee($items, $assigneeId, $limit, $matchedTotal, $truncated, $dataGaps);
+        ['items' => $items, 'summaryItems' => $summaryItems, 'matchedTotal' => $matchedTotal, 'truncated' => $truncated] = $assigneeScope;
         $identityGapCount = array_sum(array_map(
             static fn(array $item): int => (int)($item['identity']['gap_count'] ?? 0),
             $items
@@ -772,7 +772,7 @@ class OperationManagementService
             ];
         }
 
-        $summary = $this->buildExecutionFlowSummary($items);
+        $summary = $this->buildExecutionFlowSummary($summaryItems);
 
         return [
             'summary' => $summary,

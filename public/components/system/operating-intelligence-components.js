@@ -13,6 +13,16 @@
         { value: 'competition', label: '竞争' },
         { value: 'organization_review', label: '组织复盘' },
     ];
+    const analystFactory = window.SUXI_HOTEL_DATA_ANALYST_COMPONENTS;
+    if (!analystFactory?.create) {
+        throw new Error('缺少酒店数据分析师组件：hotel-data-analyst-components.js 未加载');
+    }
+    const analystComponents = analystFactory.create({ inject, h, nextTick });
+    const HOTEL_DATA_ANALYST_SUGGESTIONS = analystComponents.suggestions;
+    const createHotelDataAnalystFeedbackUi = analystComponents.createFeedbackUi;
+    const renderHotelDataAnalystQualityReceipt = analystComponents.renderQualityReceipt;
+    const renderPreciseMetricEvidence = analystComponents.renderPreciseMetricEvidence;
+    const hotelDataAnalystProfile = analystComponents.hotelDataAnalystProfile;
     const renderRevenueDecisionFrame = (frame, testId = '') => {
         if (!frame || typeof frame !== 'object') return null;
         const candidates = Array.isArray(frame.candidate_objects) ? frame.candidate_objects : [];
@@ -70,6 +80,10 @@
                 }
                 return ui.request(...args);
             };
+            const qualityFeedbackUi = createHotelDataAnalystFeedbackUi({
+                getState: currentState,
+                request,
+            });
             const loadLocalAiCapabilities = async () => {
                 const state = currentState();
                 if (state.local_ai_loading) return state.local_ai_capabilities;
@@ -403,6 +417,7 @@
                                 disabled: Boolean(state.loading),
                                 class: 'mt-3 w-full rounded-lg border border-indigo-200 bg-white px-3 py-2 text-sm disabled:opacity-60',
                                 placeholder: '例如：这家店今天最需要复核什么？',
+                                'data-testid': 'hotel-data-analyst-question-input',
                                 onInput: (event) => { state.question = String(event?.target?.value || ''); },
                                 onKeydown: (event) => {
                                     if (event?.key !== 'Enter' || event.isComposing || state.loading) return;
@@ -415,6 +430,7 @@
                             type: 'button',
                             disabled: Boolean(state.loading),
                             class: 'rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50',
+                            'data-testid': 'hotel-data-analyst-submit',
                             onClick: () => ui?.ask?.(),
                         }, state.loading ? '回读中…' : '提交并回读'),
                     ]),
@@ -615,6 +631,23 @@
                         ]),
                         h('p', { class: 'mt-2 text-sm leading-6 text-gray-700' }, String(result.answer_summary || '')),
                     ];
+                    answerChildren.push(renderHotelDataAnalystQualityReceipt(
+                        result.analysis_quality_receipt,
+                        'operating-question-quality-receipt',
+                        {
+                            question: result,
+                            feedbackUi: qualityFeedbackUi,
+                            interactive: true,
+                            feedbackTestId: 'operating-question-quality-feedback',
+                        }
+                    ));
+                    const preciseEvidence = renderPreciseMetricEvidence(result.answer, {
+                        dataGaps: result.data_gaps,
+                        testId: 'operating-question-precise-results',
+                        metricSetTestId: 'operating-question-precise-metric-set',
+                        itemTestIdPrefix: 'operating-question-precise-item',
+                    });
+                    if (preciseEvidence) answerChildren.push(preciseEvidence);
                     const decisionFrame = renderRevenueDecisionFrame(result.answer?.decision_frame, 'operating-question-decision-frame');
                     if (decisionFrame) answerChildren.push(decisionFrame);
                     if (Array.isArray(result.data_gaps) && result.data_gaps.length) {
@@ -838,6 +871,8 @@
                 return h('section', {
                     class: 'mb-4 rounded-xl border border-indigo-100 bg-indigo-50/60 p-4',
                     'data-testid': 'operating-question-entry',
+                    'data-role-key': 'hotel_data_analyst',
+                    'data-contract-version': 'hotel_data_analyst.v1',
                 }, children);
             };
         },
@@ -1186,7 +1221,7 @@
                 const suggestions = h('div', {
                     class: 'sx-ai-consultant-suggestions',
                     'aria-label': '常用问题',
-                }, textList(ctx.operatingQuestionSuggestions).map((suggestion) => h('button', {
+                }, HOTEL_DATA_ANALYST_SUGGESTIONS.map((suggestion) => h('button', {
                     key: String(suggestion),
                     type: 'button',
                     onClick: () => applyQuestion(suggestion),
@@ -1699,7 +1734,7 @@
     const SYSTEM_ASSISTANT_MODE_OPTIONS = Object.freeze([
         { key: 'auto', label: '自动判断', icon: 'fa-wand-magic-sparkles' },
         { key: 'guide', label: '教我使用', icon: 'fa-compass' },
-        { key: 'report', label: '给我结论', icon: 'fa-chart-line' },
+        { key: 'report', label: '数据分析师', icon: 'fa-chart-line' },
         { key: 'action', label: '帮我处理', icon: 'fa-list-check' },
     ]);
     const SYSTEM_ASSISTANT_MODE_LABELS = Object.freeze({
@@ -2081,6 +2116,13 @@
                 selected_mode: 'auto',
                 coach: null,
                 restoring_precise_query: false,
+                learning_context: null,
+                learning_loading: false,
+                learning_error: '',
+                learning_open: false,
+                preference_saving_key: '',
+                feedback_status: {},
+                journey_transition_status: '',
             });
             const journeyStorageVersion = 1;
             const widgetStorageVersion = 1;
@@ -2106,9 +2148,24 @@
             let suppressLauncherToggle = false;
             let resizeFrame = 0;
             let preciseRestoreTimer = 0;
+            let learningRequestId = 0;
             let coachTarget = null;
             let coachRequestId = 0;
             const icon = (name) => h('i', { class: `fas ${name}`, 'aria-hidden': 'true' });
+            const qualityFeedbackUi = createHotelDataAnalystFeedbackUi({
+                getState: () => {
+                    const current = props.ctx?.operatingQuestionState;
+                    return current && typeof current === 'object' && 'value' in current
+                        ? current.value
+                        : current;
+                },
+                request: (...args) => {
+                    if (typeof props.ctx?.hotelDataAnalystFeedbackRequest !== 'function') {
+                        return Promise.reject(new Error('分析反馈请求能力未就绪'));
+                    }
+                    return props.ctx.hotelDataAnalystFeedbackRequest(...args);
+                },
+            });
             const topicByKey = (key) => SYSTEM_USAGE_GUIDE_TOPICS.find((topic) => topic.key === key) || null;
             const visiblePaths = () => {
                 const paths = new Set();
@@ -2130,9 +2187,59 @@
             const visibleTopicKeys = () => SYSTEM_USAGE_GUIDE_TOPICS
                 .filter((topic) => canOpenTopic(topic))
                 .map((topic) => topic.key);
+            const currentLearningHotelId = () => Number(
+                props.ctx?.operatingQuestionForm?.hotel_id
+                || props.ctx?.filterReportHotel
+                || latestPreciseOperatingScope?.()?.hotel_id
+                || props.ctx?.user?.default_hotel_id
+                || props.ctx?.user?.hotel_id
+                || 0
+            );
+            const currentLearningUserId = () => Number(props.ctx?.user?.id || 0);
+            const currentLearningTenantId = (hotelId) => {
+                const directTenantId = Number(props.ctx?.user?.tenant_id || 0);
+                if (directTenantId > 0) return directTenantId;
+                const pools = [
+                    props.ctx?.otaDiagnosisHotelOptions,
+                    props.ctx?.operationHotelOptions,
+                    props.ctx?.hotels,
+                    props.ctx?.user?.permitted_hotels,
+                ];
+                for (const pool of pools) {
+                    const hotel = (Array.isArray(pool) ? pool : []).find(
+                        item => Number(item?.id || item?.hotel_id || 0) === Number(hotelId || 0)
+                    );
+                    const tenantId = Number(hotel?.tenant_id || 0);
+                    if (tenantId > 0) return tenantId;
+                }
+                return 0;
+            };
+            const validateLearningContext = (context, targetHotelId) => {
+                if (!context || typeof context !== 'object'
+                    || String(context.contract_version || '') !== 'system_user_learning_context.v1'
+                    || String(context.status || '') !== 'ready'
+                ) {
+                    throw new Error(String(context?.status || '') === 'migration_required'
+                        ? '个人学习数据表未就绪'
+                        : '个人学习上下文未取得');
+                }
+                const scope = context.scope && typeof context.scope === 'object' ? context.scope : {};
+                const expectedUserId = currentLearningUserId();
+                const expectedTenantId = currentLearningTenantId(targetHotelId);
+                if (expectedUserId <= 0
+                    || Number(scope.user_id || 0) !== expectedUserId
+                    || Number(scope.hotel_id || 0) !== Number(targetHotelId || 0)
+                    || Number(scope.tenant_id || 0) <= 0
+                    || (expectedTenantId > 0 && Number(scope.tenant_id || 0) !== expectedTenantId)
+                ) {
+                    throw new Error('个人学习上下文返回的用户、租户或酒店身份不一致');
+                }
+                return context;
+            };
             const journeyStorageKey = () => {
                 const userId = Number(props.ctx?.user?.id || 0);
-                return `suxios_system_usage_journey_v1:${userId > 0 ? userId : 'session'}`;
+                const hotelId = currentLearningHotelId();
+                return `suxios_system_usage_journey_v1:${userId > 0 ? userId : 'session'}:${hotelId > 0 ? hotelId : 'global'}`;
             };
             const widgetStorageKey = () => {
                 const userId = Number(props.ctx?.user?.id || 0);
@@ -2180,6 +2287,65 @@
                 if (typeof handler !== 'function') throw new Error('宿析精准查数请求通道未就绪');
                 return handler(...args);
             };
+            const systemLearningRequestId = (prefix = 'learning') => {
+                const random = typeof globalThis.crypto?.randomUUID === 'function'
+                    ? globalThis.crypto.randomUUID().replaceAll('-', '')
+                    : `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 12)}`;
+                return `${String(prefix).replace(/[^A-Za-z0-9._:-]/g, '_')}_${random}`.slice(0, 96);
+            };
+            const systemLearningRequest = async (path, options = {}) => {
+                const response = await preciseQueryRequest(
+                    `/agent/system-guidance/${String(path || '').replace(/^\/+/, '')}`,
+                    options
+                );
+                if (response.code !== 200 || !response.data || typeof response.data !== 'object') {
+                    throw new Error(response.message || '个人经营副驾学习服务没有返回有效结果');
+                }
+                return response.data;
+            };
+            const loadSystemLearningContext = (hotelId = 0) => systemLearningRequest(
+                `context${Number(hotelId || 0) > 0 ? `?hotel_id=${Number(hotelId)}` : ''}`
+            );
+            const saveSystemLearningPreference = (payload = {}) => systemLearningRequest('preferences', {
+                method: 'POST',
+                body: JSON.stringify({
+                    ...(payload && typeof payload === 'object' ? payload : {}),
+                    idempotency_key: String(payload?.idempotency_key || systemLearningRequestId('preference')),
+                }),
+            });
+            const revokeSystemLearningPreference = (payload = {}) => systemLearningRequest('preferences/revoke', {
+                method: 'POST',
+                body: JSON.stringify({
+                    ...(payload && typeof payload === 'object' ? payload : {}),
+                    idempotency_key: String(payload?.idempotency_key || systemLearningRequestId('revoke')),
+                }),
+            });
+            const resetSystemLearningPreferences = (payload = {}) => systemLearningRequest('preferences/reset', {
+                method: 'POST',
+                body: JSON.stringify({
+                    ...(payload && typeof payload === 'object' ? payload : {}),
+                    idempotency_key: String(payload?.idempotency_key || systemLearningRequestId('reset')),
+                }),
+            });
+            const saveSystemLearningJourney = (payload = {}) => systemLearningRequest('journey', {
+                method: 'POST',
+                body: JSON.stringify(payload && typeof payload === 'object' ? payload : {}),
+            });
+            const archiveSystemLearningJourney = (payload = {}) => systemLearningRequest('journey/archive', {
+                method: 'POST',
+                body: JSON.stringify(payload && typeof payload === 'object' ? payload : {}),
+            });
+            const transitionSystemLearningJourney = (payload = {}) => systemLearningRequest('journey/transition', {
+                method: 'POST',
+                body: JSON.stringify(payload && typeof payload === 'object' ? payload : {}),
+            });
+            const submitSystemGuidanceFeedbackRequest = (payload = {}) => systemLearningRequest('feedback', {
+                method: 'POST',
+                body: JSON.stringify({
+                    ...(payload && typeof payload === 'object' ? payload : {}),
+                    idempotency_key: String(payload?.idempotency_key || systemLearningRequestId('feedback')),
+                }),
+            });
             const askPreciseQuery = async (payload = {}) => {
                 const response = await preciseQueryRequest('/agent/precise-queries', {
                     method: 'POST',
@@ -2429,7 +2595,7 @@
                     .filter(Boolean)
                     .map(journeyStep);
             };
-            const saveActiveJourney = (result, query, activeKey = '') => {
+            const saveActiveJourney = (result, _query, activeKey = '') => {
                 const journey = normalizeJourney(result?.journey, topicByKey(result?.topic_key));
                 if (!journey.length) return false;
                 const normalizedActiveKey = journey.some((step) => step.key === activeKey)
@@ -2438,7 +2604,6 @@
                 const payload = {
                     version: journeyStorageVersion,
                     goal: String(result?.goal || result?.intent_summary || journey[0].title).slice(0, 240),
-                    original_query: String(query || result?.original_query || '').slice(0, 500),
                     journey,
                     active_key: normalizedActiveKey,
                     saved_at: Date.now(),
@@ -2448,7 +2613,6 @@
                     localStorage.setItem(journeyStorageKey(), JSON.stringify({
                         version: payload.version,
                         goal: payload.goal,
-                        original_query: payload.original_query,
                         journey_keys: payload.journey.map((step) => step.key),
                         active_key: payload.active_key,
                         saved_at: payload.saved_at,
@@ -2456,6 +2620,7 @@
                 } catch (error) {
                     // Local guidance continuity is optional; navigation remains available.
                 }
+                void persistActiveJourney(payload);
                 return true;
             };
             const readActiveJourney = () => {
@@ -2476,7 +2641,6 @@
                     return {
                         version: journeyStorageVersion,
                         goal: String(raw?.goal || journey[0].title).slice(0, 240),
-                        original_query: String(raw?.original_query || '').slice(0, 500),
                         journey,
                         active_key: journey.some((step) => step.key === raw?.active_key)
                             ? String(raw.active_key)
@@ -2487,12 +2651,317 @@
                     return null;
                 }
             };
-            const clearActiveJourney = () => {
+            const clearActiveJourney = (archiveServer = false) => {
                 state.value.active_journey = null;
                 try {
                     localStorage.removeItem(journeyStorageKey());
                 } catch (error) {
                     // Nothing else depends on local guidance persistence.
+                }
+                if (archiveServer) void archiveActiveJourney();
+            };
+            const learningPreferences = () => (
+                Array.isArray(state.value.learning_context?.preferences?.items)
+                    ? state.value.learning_context.preferences.items
+                    : []
+            );
+            const consumablePreferences = () => learningPreferences().filter((item) => item?.consumable === true);
+            const candidatePreferences = () => learningPreferences().filter((item) => item?.candidate === true);
+            const readyCandidatePreferences = () => candidatePreferences()
+                .filter((item) => String(item?.learning_status || '') === 'inferred');
+            const preferenceScopeText = (item) => String(item?.scope || '') === 'hotel'
+                ? '仅当前酒店'
+                : (String(item?.scope || '') === 'session' ? '仅当前会话' : '你的全部酒店');
+            const preferenceSourceText = (item) => {
+                const reason = String(item?.source_context?.reason_code || '');
+                if (reason === 'too_long') return '来自重复的“回答太长”反馈';
+                if (reason === 'explicit_user_confirmation') return '由你主动确认';
+                return item?.source_type === 'behavioral_signal' ? '来自重复使用反馈' : '由你明确设置';
+            };
+            const preferenceValueText = (item) => {
+                const key = String(item?.preference_key || '');
+                const value = String(item?.value || '');
+                const labels = {
+                    'response_detail:concise': '回答保持简洁',
+                    'response_detail:detailed': '提供详细步骤',
+                    'answer_order:conclusion_first': '先给结论，再给证据',
+                    'answer_order:steps_first': '先给操作步骤',
+                    'daily_focus:single_priority': '每天只给一件最重要的事',
+                    'preferred_platform:ctrip': '默认优先说明携程',
+                    'preferred_platform:meituan': '默认优先说明美团',
+                    'preferred_platform:all_ota': '默认同时说明双 OTA',
+                };
+                return labels[`${key}:${value}`] || `${key}：${value}`;
+            };
+            const applyServerJourney = (context) => {
+                const readback = context?.journey;
+                const resume = context?.resume_card;
+                const raw = readback?.data_status === 'ready' ? readback?.journey : null;
+                const card = resume?.data_status === 'ready' && resume?.card?.readback_verified === true
+                    ? resume.card
+                    : null;
+                if (!card) {
+                    if (resume?.data_status === 'empty') clearActiveJourney(false);
+                    return false;
+                }
+                const journey = normalizeJourney(card.journey_keys || raw.journey_keys || [], null);
+                if (!journey.length) return false;
+                const serverSavedAt = Date.parse(String(card.saved_at || raw.created_at || ''));
+                const payload = {
+                    version: journeyStorageVersion,
+                    goal: String(card.goal_summary || raw.goal || journey[0].title).slice(0, 240),
+                    journey,
+                    active_key: journey.some((step) => step.key === card?.next_step?.topic_key)
+                        ? String(card.next_step.topic_key)
+                        : (journey.some((step) => step.key === raw.active_key)
+                            ? String(raw.active_key)
+                            : journey[0].key),
+                    current_step_status: String(card?.next_step?.status || raw.current_step_status || 'pending'),
+                    blocker_code: String(card?.next_step?.blocker_code || ''),
+                    blocker_summary: String(card?.next_step?.blocker_summary || '').slice(0, 500),
+                    saved_at: Number.isFinite(serverSavedAt) && serverSavedAt > 0
+                        ? serverSavedAt
+                        : Date.now(),
+                    server_readback_id: Number(card.journey_id || raw.id || 0),
+                    content_digest: String(card.content_digest || raw.content_digest || ''),
+                    scope_type: String(resume?.scope?.type || (Number(raw.hotel_id || 0) > 0 ? 'hotel' : 'global')),
+                    scope_hotel_id: Number(resume?.scope?.hotel_id || raw.hotel_id || 0) || null,
+                    server_authoritative: true,
+                };
+                state.value.active_journey = payload;
+                try {
+                    localStorage.setItem(journeyStorageKey(), JSON.stringify({
+                        version: payload.version,
+                        goal: payload.goal,
+                        journey_keys: payload.journey.map((step) => step.key),
+                        active_key: payload.active_key,
+                        saved_at: payload.saved_at,
+                    }));
+                } catch (error) {
+                    // Server readback remains authoritative when local persistence is unavailable.
+                }
+                return true;
+            };
+            const loadLearningContext = async () => {
+                const requestId = ++learningRequestId;
+                const targetHotelId = currentLearningHotelId();
+                state.value.learning_loading = true;
+                state.value.learning_error = '';
+                try {
+                    const context = validateLearningContext(
+                        await loadSystemLearningContext(targetHotelId),
+                        targetHotelId
+                    );
+                    if (requestId !== learningRequestId || currentLearningHotelId() !== targetHotelId) {
+                        return false;
+                    }
+                    state.value.learning_context = context;
+                    applyServerJourney(context);
+                    return true;
+                } catch (error) {
+                    if (requestId === learningRequestId && currentLearningHotelId() === targetHotelId) {
+                        state.value.learning_context = null;
+                        state.value.learning_open = false;
+                        state.value.learning_error = String(error?.message || '个人学习上下文读取失败');
+                    }
+                    return false;
+                } finally {
+                    if (requestId === learningRequestId) state.value.learning_loading = false;
+                }
+            };
+            const persistActiveJourney = async (payload) => {
+                if (!payload) return false;
+                const targetHotelId = currentLearningHotelId();
+                try {
+                    const currentStep = topicByKey(payload.active_key);
+                    const status = guideStepStatus(currentStep);
+                    const saved = await saveSystemLearningJourney({
+                        hotel_id: targetHotelId,
+                        journey: {
+                            goal: String(payload.goal || '').slice(0, 240),
+                            active_key: String(payload.active_key || ''),
+                            journey_keys: (payload.journey || []).map((step) => String(step.key || '')).filter(Boolean),
+                            current_step_status: status.key === 'completed'
+                                ? 'completed'
+                                : (status.key === 'blocked' ? 'blocked' : 'in_progress'),
+                            blocker_code: status.key === 'blocked' ? `${String(payload.active_key || 'step')}_blocked` : '',
+                            blocker_summary: status.key === 'blocked' ? String(status.detail || '').slice(0, 500) : '',
+                        },
+                    });
+                    const readback = saved?.journey;
+                    if (readback?.readback_verified === true && state.value.active_journey === payload) {
+                        state.value.active_journey = {
+                            ...payload,
+                            server_readback_id: Number(readback.id || 0),
+                            content_digest: String(readback.content_digest || ''),
+                            current_step_status: String(readback.current_step_status || status.key || 'in_progress'),
+                            blocker_code: String(readback.blocker_code || ''),
+                            blocker_summary: String(readback.blocker_summary || '').slice(0, 500),
+                            server_authoritative: true,
+                        };
+                    }
+                    return true;
+                } catch (error) {
+                    state.value.learning_error = String(error?.message || '任务路线跨会话保存失败');
+                    return false;
+                }
+            };
+            const archiveActiveJourney = async () => {
+                try {
+                    await archiveSystemLearningJourney({ hotel_id: currentLearningHotelId() });
+                    await loadLearningContext();
+                    return true;
+                } catch (error) {
+                    state.value.learning_error = String(error?.message || '任务路线归档失败');
+                    return false;
+                }
+            };
+            const transitionActiveJourney = async (action) => {
+                const active = state.value.active_journey;
+                if (!active || state.value.journey_transition_status) return false;
+                const targetHotelId = currentLearningHotelId();
+                const targetJourneyId = Number(active.server_readback_id || 0);
+                const normalizedAction = action === 'complete' ? 'complete' : 'ignore';
+                const confirmation = normalizedAction === 'complete'
+                    ? '只结束这张续办卡，不代表酒店业务结果已经完成。确认继续吗？'
+                    : '不再显示这张续办卡，但会保留历史记录。确认继续吗？';
+                if (typeof window.confirm === 'function' && !window.confirm(confirmation)) return false;
+                if (!targetJourneyId || !String(active.content_digest || '')) {
+                    state.value.learning_error = '续办卡尚未完成服务器精确回读，请刷新后再试';
+                    return false;
+                }
+                state.value.journey_transition_status = normalizedAction;
+                state.value.learning_error = '';
+                try {
+                    const result = await transitionSystemLearningJourney({
+                        hotel_id: targetHotelId,
+                        journey_id: targetJourneyId,
+                        expected_content_digest: String(active.content_digest),
+                        action: normalizedAction,
+                    });
+                    if (result?.status !== 'exact_readback_verified'
+                        || result?.journey?.readback_verified !== true
+                    ) {
+                        throw new Error('续办卡状态没有通过精确回读');
+                    }
+                    if (currentLearningHotelId() !== targetHotelId
+                        || Number(state.value.active_journey?.server_readback_id || 0) !== targetJourneyId
+                    ) {
+                        await loadLearningContext();
+                        return true;
+                    }
+                    clearActiveJourney(false);
+                    await loadLearningContext();
+                    return true;
+                } catch (error) {
+                    state.value.learning_error = String(error?.message || '续办卡状态更新失败');
+                    return false;
+                } finally {
+                    state.value.journey_transition_status = '';
+                }
+            };
+            const resumeActiveJourney = async () => {
+                const active = state.value.active_journey;
+                const topic = topicByKey(active?.active_key);
+                if (!topic) {
+                    state.value.learning_error = '当前续办步骤已不在可用功能目录中';
+                    return false;
+                }
+                return openTopic(null, topic, null, { skipJourneySave: true });
+            };
+            const savePreference = async (key, value, scope = 'global') => {
+                if (state.value.preference_saving_key) return false;
+                if (consumablePreferences().some((item) => (
+                    String(item?.preference_key || '') === String(key)
+                    && String(item?.value || '') === String(value)
+                    && String(item?.lifecycle_status || 'active') === 'active'
+                ))) return true;
+                state.value.preference_saving_key = key;
+                state.value.learning_error = '';
+                try {
+                    await saveSystemLearningPreference({
+                        scope,
+                        context_hotel_id: currentLearningHotelId(),
+                        hotel_id: scope === 'hotel' ? currentLearningHotelId() : undefined,
+                        preference_key: key,
+                        value,
+                    });
+                    await loadLearningContext();
+                    return true;
+                } catch (error) {
+                    state.value.learning_error = String(error?.message || '偏好保存失败');
+                    return false;
+                } finally {
+                    state.value.preference_saving_key = '';
+                }
+            };
+            const revokePreference = async (item) => {
+                if (!item || state.value.preference_saving_key) return false;
+                const key = String(item.preference_key || '');
+                state.value.preference_saving_key = key;
+                try {
+                    await revokeSystemLearningPreference({
+                        scope: String(item.scope || 'global'),
+                        context_hotel_id: currentLearningHotelId(),
+                        hotel_id: item.scope === 'hotel' ? Number(item.hotel_id || currentLearningHotelId()) : undefined,
+                        preference_key: key,
+                    });
+                    await loadLearningContext();
+                    return true;
+                } catch (error) {
+                    state.value.learning_error = String(error?.message || '偏好撤销失败');
+                    return false;
+                } finally {
+                    state.value.preference_saving_key = '';
+                }
+            };
+            const resetPreferences = async () => {
+                if (state.value.preference_saving_key) return false;
+                const targetHotelId = currentLearningHotelId();
+                if (typeof window.confirm === 'function'
+                    && !window.confirm('确认重置全局和当前酒店的个人偏好吗？历史事件仍会保留。')
+                ) return false;
+                state.value.preference_saving_key = '*';
+                try {
+                    await resetSystemLearningPreferences({
+                        scope: 'global',
+                        context_hotel_id: targetHotelId,
+                    });
+                    if (targetHotelId > 0) {
+                        await resetSystemLearningPreferences({
+                            scope: 'hotel',
+                            hotel_id: targetHotelId,
+                        });
+                    }
+                    if (currentLearningHotelId() === targetHotelId) {
+                        await loadLearningContext();
+                    }
+                    return true;
+                } catch (error) {
+                    state.value.learning_error = String(error?.message || '偏好重置失败');
+                    return false;
+                } finally {
+                    state.value.preference_saving_key = '';
+                }
+            };
+            const submitSuggestionFeedback = async (result, feedbackStatus, reasonCode) => {
+                const preciseQueryId = Number(result?.precise_query_id || 0);
+                if (!preciseQueryId) return false;
+                state.value.feedback_status = { ...state.value.feedback_status, [preciseQueryId]: 'saving' };
+                try {
+                    await submitSystemGuidanceFeedbackRequest({
+                        precise_query_id: preciseQueryId,
+                        feedback_status: feedbackStatus,
+                        reason_code: reasonCode,
+                        idempotency_key: `system_guidance_feedback_${preciseQueryId}`,
+                    });
+                    state.value.feedback_status = { ...state.value.feedback_status, [preciseQueryId]: reasonCode };
+                    await loadLearningContext();
+                    return true;
+                } catch (error) {
+                    state.value.feedback_status = { ...state.value.feedback_status, [preciseQueryId]: 'error' };
+                    state.value.learning_error = String(error?.message || '建议反馈保存失败');
+                    return false;
                 }
             };
             const isTopicCurrent = (topic) => {
@@ -2707,18 +3176,49 @@
                         .map(topicByKey)
                         .filter((topic) => topic && canOpenTopic(topic)),
                 ];
+                const rankingItems = Array.isArray(state.value.learning_context?.calibration?.feedback_ranking?.items)
+                    ? state.value.learning_context.calibration.feedback_ranking.items
+                    : [];
+                const rankingAdjustments = new Map();
+                const rankingConflicts = new Set();
+                for (const item of rankingItems.filter((row) => row?.eligible === true)) {
+                    const key = String(item?.topic_key || '');
+                    if (!key || rankingConflicts.has(key)) continue;
+                    if (rankingAdjustments.has(key)) {
+                        rankingAdjustments.delete(key);
+                        rankingConflicts.add(key);
+                        continue;
+                    }
+                    rankingAdjustments.set(key, Number(item?.adjustment || 0));
+                }
+                const contextualTopicKeys = new Set(contextTopics.map((topic) => String(topic?.key || '')));
+                const orderedTopics = preferredTopics
+                    .map((topic, index) => ({
+                        topic,
+                        index,
+                        base_priority: contextualTopicKeys.has(String(topic?.key || '')) ? 0 : 1,
+                    }))
+                    .sort((left, right) => (
+                        left.base_priority - right.base_priority
+                    ) || (
+                        (rankingAdjustments.get(String(right.topic?.key || '')) || 0)
+                        - (rankingAdjustments.get(String(left.topic?.key || '')) || 0)
+                    ) || left.index - right.index)
+                    .map((entry) => entry.topic);
                 const usedKeys = new Set();
-                for (const topic of preferredTopics) {
+                for (const topic of orderedTopics) {
                     if (!topic || usedKeys.has(topic.key)) continue;
                     usedKeys.add(topic.key);
                     items.push({
                         key: `topic-${topic.key}`,
+                        topic_key: String(topic.key || ''),
+                        feedback_adjustment: rankingAdjustments.get(String(topic.key || '')) || 0,
                         label: String(topic.title || '查看功能'),
                         query: String(topic.example || topic.title || ''),
                     });
-                    if (items.length >= 4) break;
+                    if (items.length >= 6) break;
                 }
-                return items.slice(0, 4);
+                return items.slice(0, 6);
             };
             const activeJourneyContext = () => {
                 const activeJourney = state.value.active_journey;
@@ -3068,7 +3568,7 @@
                     state.value.restoring_precise_query = false;
                 }
             };
-            const openTopic = async (event, topic, turn) => {
+            const openTopic = async (event, topic, turn, options = {}) => {
                 if (!topic || state.value.opening_key) return false;
                 if (!canOpenTopic(topic)) {
                     state.value.error = '当前账号没有显示该功能入口，请联系管理员核对角色与酒店权限。';
@@ -3091,10 +3591,12 @@
                             ctx.knowledgeCenterFilter.keyword = String(turn?.query || '').trim();
                         }
                     }
-                    if (turn?.result?.journey?.length) {
-                        saveActiveJourney(turn.result, turn.query, String(topic.key || ''));
-                    } else if (state.value.active_journey?.journey?.length) {
-                        saveActiveJourney(state.value.active_journey, state.value.active_journey.original_query, String(topic.key || ''));
+                    if (options?.skipJourneySave !== true) {
+                        if (turn?.result?.journey?.length) {
+                            saveActiveJourney(turn.result, turn.query, String(topic.key || ''));
+                        } else if (state.value.active_journey?.journey?.length) {
+                            saveActiveJourney(state.value.active_journey, state.value.active_journey.original_query, String(topic.key || ''));
+                        }
                     }
                     await focusTopicAnchor(topic);
                     return true;
@@ -3111,6 +3613,37 @@
                 if (result?.mode !== 'intelligent') return '基础引导';
                 if (result?.status === 'clarification_required') return '需要确认目标';
                 return '已理解目标';
+            };
+            const renderPersonalizationReceipt = (result, isLatest = false) => {
+                const personalization = result?.personalization;
+                const status = String(personalization?.status || 'not_configured');
+                if (!personalization || status === 'not_configured') return null;
+                const explanation = personalization.explanation && typeof personalization.explanation === 'object'
+                    ? personalization.explanation
+                    : {};
+                const summary = String(explanation.summary || (
+                    status === 'applied'
+                        ? '已按你确认的个人偏好调整表达。'
+                        : (status === 'overridden_by_current_request'
+                            ? '本次明确要求覆盖了历史偏好。'
+                            : '已识别保存偏好，但本次没有应用。')
+                ));
+                const appliedCount = Array.isArray(personalization.applied_preferences)
+                    ? personalization.applied_preferences.length
+                    : 0;
+                return h('details', {
+                    class: 'sx-ai-consultant-gaps',
+                    'data-testid': isLatest ? 'system-guide-personalization-receipt' : undefined,
+                }, [
+                    h('summary', [
+                        h('strong', '为什么这样回答'),
+                        h('span', status === 'applied' ? ` · 使用 ${appliedCount || 1} 条已确认偏好` : ''),
+                    ]),
+                    h('p', summary),
+                    h('small', status === 'applied'
+                        ? '只调整表达方式；没有改变酒店事实、权限、审批或外部写入。'
+                        : '没有使用历史偏好改变本次结果。'),
+                ]);
             };
             const openOperatingWorkspace = async () => {
                 const ctx = props.ctx || {};
@@ -3176,6 +3709,16 @@
                     h('p', { class: 'sx-ai-consultant-operating-scope' }, operatingScopeText(exact)),
                     h('p', { class: 'sx-ai-consultant-answer-summary' }, String(exact.answer_summary || '当前严格回读没有返回摘要。')),
                 ];
+                children.push(renderHotelDataAnalystQualityReceipt(
+                    exact.analysis_quality_receipt,
+                    isLatest ? 'system-guide-analysis-quality-receipt' : '',
+                    {
+                        question: exact,
+                        feedbackUi: qualityFeedbackUi,
+                        interactive: isLatest && widgetOpen.value,
+                        feedbackTestId: isLatest ? 'system-guide-analysis-quality-feedback' : '',
+                    }
+                ));
                 const precise = answer.precise_result && typeof answer.precise_result === 'object'
                     ? answer.precise_result
                     : null;
@@ -3332,14 +3875,39 @@
                             h('small', { class: 'sx-ai-consultant-journey-progress' }, `已核验 ${completedCount} / ${liveSteps.length}；未核验步骤不会被标成完成。`),
                         ]),
                         persistent
-                            ? h('button', {
-                                type: 'button',
-                                class: 'sx-ai-consultant-journey-clear',
-                                'data-testid': 'system-guide-journey-clear',
-                                onClick: clearActiveJourney,
-                            }, '结束引导')
+                            ? h('span', { class: 'sx-ai-consultant-journey-progress' },
+                                String(result?.scope_type || '') === 'global' ? '全部酒店范围' : '当前酒店范围')
                             : null,
                     ]),
+                    persistent ? h('div', {
+                        class: 'sx-ai-consultant-gaps',
+                        'data-testid': 'system-guide-resume-card-actions',
+                    }, [
+                        result?.blocker_summary
+                            ? h('p', [h('b', '当前阻塞：'), String(result.blocker_summary)])
+                            : h('p', '从当前未完成步骤继续；仅打开已有功能入口。'),
+                        h('div', { class: 'sx-ai-consultant-suggestions' }, [
+                            h('button', {
+                                type: 'button',
+                                disabled: Boolean(state.value.opening_key || state.value.journey_transition_status),
+                                'data-testid': 'system-guide-resume-continue',
+                                onClick: resumeActiveJourney,
+                            }, '继续处理'),
+                            h('button', {
+                                type: 'button',
+                                disabled: Boolean(state.value.journey_transition_status),
+                                'data-testid': 'system-guide-resume-complete',
+                                onClick: () => transitionActiveJourney('complete'),
+                            }, state.value.journey_transition_status === 'complete' ? '保存中…' : '续办卡已完成'),
+                            h('button', {
+                                type: 'button',
+                                disabled: Boolean(state.value.journey_transition_status),
+                                'data-testid': 'system-guide-resume-ignore',
+                                onClick: () => transitionActiveJourney('ignore'),
+                            }, state.value.journey_transition_status === 'ignore' ? '保存中…' : '不再提醒'),
+                        ]),
+                        h('small', '“续办卡已完成”只结束个人提醒，不代表酒店经营结果、OTA 操作或审批已经完成。'),
+                    ]) : null,
                     h('ol', { class: 'sx-ai-consultant-journey-list' }, liveSteps.map((step, index) => {
                         const topic = topicByKey(step.key);
                         const current = isTopicCurrent(topic);
@@ -3388,6 +3956,7 @@
             onMounted(() => {
                 state.value.active_journey = readActiveJourney();
                 readWidgetState();
+                void loadLearningContext();
                 if (props.openOnMount) widgetOpen.value = true;
                 preciseRestoreTimer = window.setTimeout(() => {
                     preciseRestoreTimer = 0;
@@ -3401,6 +3970,13 @@
                     clampWidgetPosition(false);
                     resumePendingCoach();
                 });
+            });
+            window.Vue.watch(() => currentLearningHotelId(), (hotelId, previousHotelId) => {
+                if (Number(hotelId || 0) === Number(previousHotelId || 0)) return;
+                state.value.learning_context = null;
+                state.value.learning_error = '';
+                state.value.active_journey = readActiveJourney();
+                void loadLearningContext();
             });
             onUnmounted(() => {
                 window.removeEventListener('resize', handleWidgetViewportResize);
@@ -3455,6 +4031,8 @@
                         }, String(result.topic?.title || (result.topic_key === 'clarify' ? '先确认你的目标' : '系统使用引导'))),
                         h('p', String(result.assistant_message || '')),
                     ];
+                    const personalizationReceipt = renderPersonalizationReceipt(result, isLatest);
+                    if (personalizationReceipt) answerChildren.push(personalizationReceipt);
                     const operatingResult = renderOperatingResult(result, turn, isLatest);
                     if (operatingResult) answerChildren.push(operatingResult);
                     const termResult = renderTermResult(result, isLatest);
@@ -3521,6 +4099,35 @@
                             }, String(question))),
                         ]));
                     }
+                    const preciseQueryId = Number(result.precise_query_id || 0);
+                    if (isLatest && preciseQueryId > 0) {
+                        const savedFeedback = String(state.value.feedback_status?.[preciseQueryId] || '');
+                        const feedbackOptions = [
+                            ['accepted', 'useful', '有用'],
+                            ['rejected', 'wrong_focus', '重点不对'],
+                            ['modified', 'too_long', '太长'],
+                            ['needs_more_evidence', 'more_evidence', '证据不够'],
+                            ['deferred', 'not_now', '暂不需要'],
+                        ];
+                        answerChildren.push(h('div', {
+                            class: 'sx-ai-consultant-gaps',
+                            'data-testid': 'system-guide-feedback',
+                        }, [
+                            h('strong', '这次建议是否有帮助？'),
+                            h('div', { class: 'sx-ai-consultant-suggestions' }, feedbackOptions.map(([status, reason, label]) => h('button', {
+                                key: reason,
+                                type: 'button',
+                                disabled: savedFeedback === 'saving'
+                                    || Boolean(savedFeedback && savedFeedback !== 'error'),
+                                class: savedFeedback === reason ? 'is-active' : '',
+                                'data-testid': `system-guide-feedback-${reason}`,
+                                onClick: () => submitSuggestionFeedback(result, status, reason),
+                            }, savedFeedback === 'saving' ? '保存中…' : label))),
+                            savedFeedback && !['saving', 'error'].includes(savedFeedback)
+                                ? h('small', '反馈已保存并精确回读；它只用于个人偏好候选和离线质量评测。')
+                                : null,
+                        ]));
+                    }
                     answerChildren.push(h('div', { class: 'sx-ai-consultant-evidence' }, [
                         h('span', `当前页面：${currentPageText()}`),
                         h('span', Number(result.precise_query_id || 0) > 0
@@ -3558,6 +4165,7 @@
                     disabled: state.value.loading,
                     'aria-pressed': state.value.selected_mode === option.key ? 'true' : 'false',
                     'data-testid': `system-guide-mode-${option.key}`,
+                    'data-role-key': option.key === 'report' ? 'hotel_data_analyst' : undefined,
                     onClick: () => setAssistantMode(option.key),
                 }, [icon(option.icon), h('span', option.label)])));
                 const suggestions = h('div', {
@@ -3567,8 +4175,177 @@
                     key: item.key,
                     type: 'button',
                     disabled: state.value.loading,
+                    'data-topic-key': item.topic_key || undefined,
+                    'data-feedback-adjustment': Number(item.feedback_adjustment || 0),
+                    title: Number(item.feedback_adjustment || 0) > 0
+                        ? '根据当前用户、当前酒店至少 20 次同类反馈，排在同类快捷入口前面。'
+                        : undefined,
                     onClick: () => applySuggestion(item),
-                }, String(item.label || item.query))));
+                }, Number(item.feedback_adjustment || 0) > 0
+                    ? `${String(item.label || item.query)} · 更常用`
+                    : String(item.label || item.query))));
+                const learningContext = state.value.learning_context;
+                const calibration = learningContext?.calibration || {};
+                const activePreferences = consumablePreferences();
+                const candidates = candidatePreferences();
+                const readyCandidates = readyCandidatePreferences();
+                const feedbackCounts = calibration?.counts || {};
+                const feedbackCount = feedbackCounts.feedback_sample_count !== null
+                    && feedbackCounts.feedback_sample_count !== undefined
+                    && feedbackCounts.feedback_sample_count !== ''
+                    && Number.isFinite(Number(feedbackCounts.feedback_sample_count))
+                        ? Number(feedbackCounts.feedback_sample_count)
+                        : null;
+                const feedbackRanking = calibration?.feedback_ranking || {};
+                const rankingItems = Array.isArray(feedbackRanking.items) ? feedbackRanking.items : [];
+                const rankingSampleCount = rankingItems.reduce(
+                    (maximum, item) => Math.max(maximum, Number(item?.sample_count || 0)),
+                    0
+                );
+                const preferenceChoices = [
+                    ['response_detail', 'concise', '回答简洁'],
+                    ['response_detail', 'detailed', '步骤详细'],
+                    ['preferred_platform', 'ctrip', '每日重点优先携程'],
+                    ['preferred_platform', 'meituan', '每日重点优先美团'],
+                    ['preferred_platform', 'all_ota', '每日重点不偏单平台'],
+                ];
+                const preferencePanel = h('section', {
+                    class: 'sx-ai-consultant-gaps',
+                    'data-testid': 'system-guide-learning-memory',
+                }, [
+                    h('div', { class: 'sx-ai-consultant-answer-meta' }, [
+                        h('strong', '学习中心'),
+                        h('span', state.value.learning_loading && !learningContext
+                            ? '正在读取学习上下文…'
+                            : (!learningContext
+                                ? (state.value.learning_error ? '学习上下文读取失败' : '学习上下文未取得')
+                                : `记忆 ${activePreferences.length} · 候选 ${readyCandidates.length} · 反馈 ${feedbackCount === null ? '未取得' : feedbackCount} · 续办 ${state.value.active_journey ? 1 : 0}`)),
+                        h('button', {
+                            type: 'button',
+                            disabled: state.value.learning_loading || !learningContext,
+                            'aria-expanded': state.value.learning_open ? 'true' : 'false',
+                            'data-testid': 'system-guide-learning-toggle',
+                            onClick: () => { state.value.learning_open = !state.value.learning_open; },
+                        }, state.value.learning_open ? '收起' : '查看与修改'),
+                    ]),
+                    h('small', '系统只从明确确认和结构化反馈中学习；不会改变事实、权限、审批或真实经营动作。'),
+                    state.value.learning_open ? h('div', { 'data-testid': 'system-guide-learning-center' }, [
+                        h('section', { 'data-testid': 'system-guide-learning-confirmed' }, [
+                            h('strong', '已确认记忆'),
+                            h('div', {
+                                class: 'sx-ai-consultant-suggestions',
+                                role: 'group',
+                                'aria-label': '已确认的回答与每日重点偏好',
+                            }, preferenceChoices.map(([key, value, label]) => {
+                                const active = activePreferences.some((item) => (
+                                    item.preference_key === key && String(item.value) === value
+                                ));
+                                return h('button', {
+                                    key: `${key}:${value}`,
+                                    type: 'button',
+                                    disabled: Boolean(state.value.preference_saving_key),
+                                    class: active ? 'is-active' : '',
+                                    'aria-pressed': active ? 'true' : 'false',
+                                    title: active ? `${label}（当前已选择）` : label,
+                                    'data-testid': `system-guide-preference-${key}-${value}`,
+                                    onClick: () => savePreference(key, value),
+                                }, state.value.preference_saving_key === key ? '保存中…' : label);
+                            })),
+                        activePreferences.length
+                            ? h('ul', { class: 'sx-ai-consultant-key-points' }, activePreferences.map((item) => h('li', {
+                                key: `${item.preference_key}:${item.id}`,
+                            }, [
+                                h('span', `${preferenceValueText(item)} · ${preferenceScopeText(item)} · ${preferenceSourceText(item)}`),
+                                h('button', {
+                                    type: 'button',
+                                    disabled: Boolean(state.value.preference_saving_key),
+                                    'data-testid': `system-guide-preference-revoke-${String(item.preference_key)}`,
+                                    onClick: () => revokePreference(item),
+                                }, '撤销'),
+                            ])))
+                            : h('p', '尚未确认长期偏好；单次点击不会被偷偷当成永久画像。'),
+                        ]),
+                        h('section', { 'data-testid': 'system-guide-learning-candidates' }, [
+                            h('strong', '待确认候选'),
+                            candidates.length
+                                ? h('ul', { class: 'sx-ai-consultant-key-points' }, candidates.map((item) => {
+                                    const count = Number(item?.source_context?.signal_count || 0);
+                                    const minimum = Number(learningContext?.learning_policy?.candidate_minimum_repeated_signals || 3);
+                                    const ready = String(item?.learning_status || '') === 'inferred';
+                                    return h('li', { key: `candidate:${item.preference_key}:${item.id}` }, [
+                                        h('span', `${preferenceValueText(item)} · ${ready ? '待你确认，尚未应用' : `观察中 ${count}/${minimum}`}`),
+                                        ready ? h('div', { class: 'sx-ai-consultant-suggestions' }, [
+                                            h('button', {
+                                                type: 'button',
+                                                disabled: Boolean(state.value.preference_saving_key),
+                                                'data-testid': `system-guide-candidate-confirm-${String(item.preference_key)}`,
+                                                onClick: () => savePreference(
+                                                    String(item.preference_key || ''),
+                                                    String(item.value || ''),
+                                                    String(item.scope || 'global')
+                                                ),
+                                            }, '确认采用'),
+                                            h('button', {
+                                                type: 'button',
+                                                disabled: Boolean(state.value.preference_saving_key),
+                                                'data-testid': `system-guide-candidate-dismiss-${String(item.preference_key)}`,
+                                                onClick: () => revokePreference(item),
+                                            }, '忽略候选'),
+                                        ]) : null,
+                                    ]);
+                                }))
+                                : h('p', '暂无待确认候选；重复行为不会自动变成长期偏好。'),
+                        ]),
+                        h('section', { 'data-testid': 'system-guide-learning-calibration' }, [
+                            h('strong', '反馈与调优'),
+                            h('p', `反馈 ${feedbackCount} 条 · 有用 ${Number(feedbackCounts.accepted || 0)} · 修改 ${Number(feedbackCounts.modified || 0)} · 重点不对 ${Number(feedbackCounts.rejected || 0)} · 证据不足 ${Number(feedbackCounts.needs_more_evidence || 0)}`),
+                            h('small', feedbackRanking.status === 'ready'
+                                ? '同类反馈已达到每个入口至少 20 条，只在原有快捷入口之间调整先后。'
+                                : `快捷入口排序仍在积累同类样本（最多 ${rankingSampleCount}/${Number(feedbackRanking.minimum_samples_per_topic || 20)}）；当前保持原顺序。`),
+                        ]),
+                        h('section', { 'data-testid': 'system-guide-learning-journey' }, [
+                            h('strong', '任务续办'),
+                            state.value.active_journey
+                                ? h('div', [
+                                    h('p', String(state.value.active_journey.goal || '当前未完成事项')),
+                                    h('small', state.value.active_journey.blocker_summary
+                                        ? `当前阻塞：${String(state.value.active_journey.blocker_summary)}`
+                                        : '可从当前未完成步骤继续。'),
+                                    h('div', { class: 'sx-ai-consultant-suggestions' }, [
+                                        h('button', {
+                                            type: 'button',
+                                            disabled: Boolean(state.value.opening_key || state.value.journey_transition_status),
+                                            'data-testid': 'system-guide-learning-journey-continue',
+                                            onClick: resumeActiveJourney,
+                                        }, '继续当前任务'),
+                                        h('button', {
+                                            type: 'button',
+                                            disabled: Boolean(state.value.journey_transition_status),
+                                            'data-testid': 'system-guide-learning-journey-ignore',
+                                            onClick: () => transitionActiveJourney('ignore'),
+                                        }, '不再提醒'),
+                                    ]),
+                                ])
+                                : h('p', '当前没有需要跨会话续办的事项。'),
+                        ]),
+                        h('section', { 'data-testid': 'system-guide-learning-management' }, [
+                            h('strong', '管理'),
+                        h('div', { class: 'sx-ai-consultant-suggestions' }, [
+                            h('button', {
+                                type: 'button',
+                                disabled: (!activePreferences.length && !candidates.length)
+                                    || Boolean(state.value.preference_saving_key),
+                                'data-testid': 'system-guide-preference-reset',
+                                onClick: resetPreferences,
+                            }, '重置全局和当前酒店偏好'),
+                        ]),
+                        h('small', '不会保存密码、Cookie、验证码或原始聊天；当前这次明确要求始终覆盖历史偏好。'),
+                        ]),
+                    ]) : null,
+                    state.value.learning_error
+                        ? h('p', { class: 'sx-ai-consultant-error', 'data-testid': 'system-guide-learning-error' }, state.value.learning_error)
+                        : null,
+                ]);
                 const composer = h('form', {
                     class: 'sx-ai-consultant-composer',
                     onSubmit: (event) => {
@@ -3706,6 +4483,7 @@
                                 h('em', state.value.active_journey ? '任务路线已保留' : `可引导 ${visibleTopicKeys().length} 项功能`),
                             ]),
                             h('p', { class: 'sx-ai-consultant-boundary' }, '只引导当前账号可用的真实功能，并跨页面保留任务路线。涉及结论、执行或外发时，仍以严格回读和人工确认为准。'),
+                            preferencePanel,
                             modeSwitcher,
                             state.value.turns.length === 0 && state.value.active_journey
                                 ? renderJourney(state.value.active_journey, null, true)
@@ -3724,7 +4502,7 @@
         },
     };
 
-        return Object.freeze({ operatingQuestionPanel, operatingQuestionConsultant });
+        return Object.freeze({ operatingQuestionPanel, operatingQuestionConsultant, hotelDataAnalystProfile });
     };
 
     const exportedFactory = Object.freeze({ create });

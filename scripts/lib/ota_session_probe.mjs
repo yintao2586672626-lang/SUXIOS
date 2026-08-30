@@ -417,6 +417,12 @@ export function evaluateOtaSessionProbe(platform, input = {}, options = {}) {
 function isRecognizedOtaSessionProbeRoute(platform, parsed) {
   const path = parsed.pathname.toLowerCase();
   if (platform === 'ctrip') {
+    if (parsed.protocol === 'https:'
+      && parsed.hostname.toLowerCase() === 'ebooking.ctrip.com'
+      && /^\/restapi\/soa2\/\d+\/queryorderlist(?:\.json)?\/?$/i.test(path)
+    ) {
+      return true;
+    }
     const endpoint = findCtripEndpointByUrl(`${parsed.origin}${parsed.pathname}`);
     return Boolean(endpoint && !['supporting', 'screenshot_only', 'fact_only', 'aggregate_only'].includes(String(endpoint.status || '')));
   }

@@ -30,7 +30,8 @@
       "app/service/operation/OperationEffectReadbackConcern.php",
       "app/service/operation/OperationExecutionTenantConcern.php",
       "app/service/operation/OperationExecutionPersistenceConcern.php",
-      "app/service/operation/OperationActionLifecycleConcern.php"
+      "app/service/operation/OperationActionLifecycleConcern.php",
+      "app/service/operation/OperationExecutionAssigneeConcern.php"
     ],
     "app/service/OtaLocalCollectorService.php": [
       "app/service/concern/OtaLocalCollectorLeaseConcern.php",

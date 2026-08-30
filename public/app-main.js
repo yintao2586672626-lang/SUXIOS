@@ -262,14 +262,15 @@
         throw new Error('缺少首页经营时间组件：home-static.js 未加载');
     }
     const CtripConfigHistory = window.SUXI_CTRIP_STATIC?.CtripConfigHistory;
-    if (!CtripConfigHistory) {
-        throw new Error('缺少携程配置历史组件：ctrip-static.js 未加载');
+    const CtripCompetitorFutureWindowPanel = window.SUXI_CTRIP_STATIC?.CtripCompetitorFutureWindowPanel;
+    if (!CtripConfigHistory || !CtripCompetitorFutureWindowPanel) {
+        throw new Error('缺少携程静态组件：ctrip-static.js 未加载');
     }
     const appMainComponents = window.SUXI_APP_MAIN_COMPONENTS?.create?.({ Vue, h });
     if (!appMainComponents) {
         throw new Error('缺少主应用领域组件：app-main-components.js 未加载');
     }
-    const { AiDecisionQualityDetails, OnlineTruthSummary, DualOtaAcceptanceReceipt, DualOtaPageVerificationPanel, resolveRevenueCockpitIntentLifecycle, parseOperationEvidenceNumber: parseOperationEvidenceNumberFromComponents, parseOptionalOperationEvidenceNumber: parseOptionalOperationEvidenceNumberFromComponents, operationEvidenceFirstText: operationEvidenceFirstTextFromComponents, operationEvidenceCleanObject: operationEvidenceCleanObjectFromComponents, operationEvidenceLocalTimestamp: operationEvidenceLocalTimestampFromComponents, normalizeOperationEvidenceDateTime: normalizeOperationEvidenceDateTimeFromComponents, normalizeOperationReviewStatus: normalizeOperationReviewStatusFromComponents, RevenueCockpitOpportunityDetails, RevenueCockpitSnapshotStatus, RevenueCockpitActionRestoreStatus, onlineDataComponents, loadOnlineDataComponentScript, readOnlineDataComponent, requireOnlineDataComponent, systemComponents, CtripOrderAnalysisPanel, requireSystemComponent, operatingOpportunityLabScript, OperatingOpportunityLab, platformAutoPanelsScript, ctripProfileFieldConfigPanelScript, competitorDeviceManagementScript, dataConfigDialogsScript, automationCollectionContractScript, PlatformAutoSettingsPanels, PlatformAutoSecondaryPanels, CtripProfileFieldConfigPanel, CompetitorDeviceManagement, DataConfigDialogs, aiDailyReportTaskPositiveInteger, aiDailyReportModelIsLimited, normalizeAiDailyReportGenerationTask, formatAiDailyReportGenerationStage, resolveAiDailyReportGenerationOutcome, pollAiDailyReportGenerationTask, SessionProofNotice, LocalCollectorLoginHandoff, PmsRealtimeSyncResult, HotelThreeSourceOnboardingPanel, OperatingLoopAuthority, ManagerCapabilityPanel } = appMainComponents;
+    const { AiDecisionQualityDetails, OnlineTruthSummary, DualOtaAcceptanceReceipt, DualOtaPageVerificationPanel, resolveRevenueCockpitIntentLifecycle, parseOperationEvidenceNumber: parseOperationEvidenceNumberFromComponents, parseOptionalOperationEvidenceNumber: parseOptionalOperationEvidenceNumberFromComponents, operationEvidenceFirstText: operationEvidenceFirstTextFromComponents, operationEvidenceCleanObject: operationEvidenceCleanObjectFromComponents, operationEvidenceLocalTimestamp: operationEvidenceLocalTimestampFromComponents, normalizeOperationEvidenceDateTime: normalizeOperationEvidenceDateTimeFromComponents, normalizeOperationReviewStatus: normalizeOperationReviewStatusFromComponents, RevenueCockpitOpportunityDetails, RevenueCockpitSnapshotStatus, RevenueCockpitActionRestoreStatus, onlineDataComponents, loadOnlineDataComponentScript, readOnlineDataComponent, requireOnlineDataComponent, systemComponents, CtripOrderAnalysisPanel, requireSystemComponent, operatingOpportunityLabScript, OperatingOpportunityLab, platformAutoPanelsScript, ctripProfileFieldConfigPanelScript, competitorDeviceManagementScript, dataConfigDialogsScript, automationCollectionContractScript, PlatformAutoSettingsPanels, PlatformAutoSecondaryPanels, CtripProfileFieldConfigPanel, CompetitorDeviceManagement, DataConfigDialogs, aiDailyReportTaskPositiveInteger, aiDailyReportModelIsLimited, normalizeAiDailyReportGenerationTask, formatAiDailyReportGenerationStage, resolveAiDailyReportGenerationOutcome, pollAiDailyReportGenerationTask, SessionProofNotice, LocalCollectorLoginHandoff, PmsRealtimeSyncResult, HotelThreeSourceOnboardingPanel, OperatingLoopAuthority, ManagerCapabilityPanel, OperatingNetworkReplicationList, MeituanSearchKeywordWorkbench, SimulationHeroActions } = appMainComponents;
 
     let recoverSuxiRuntimeError = null;
     let requestSuxiFullRenderForPage = () => false;
@@ -300,6 +301,7 @@
             HomeYesterdayOperatingFacts,
             HomeBusinessTimeAxis,
             CtripConfigHistory,
+            CtripCompetitorFutureWindowPanel,
             AiDecisionQualityDetails,
             OnlineTruthSummary,
             DualOtaAcceptanceReceipt,
@@ -312,6 +314,9 @@
             HotelThreeSourceOnboardingPanel,
             OperatingLoopAuthority,
             ManagerCapabilityPanel,
+            OperatingNetworkReplicationList,
+            MeituanSearchKeywordWorkbench,
+            SimulationHeroActions,
             OperatingOpportunityLab,
             RevenueCockpitOpportunityDetails,
             RevenueCockpitSnapshotStatus,
@@ -3355,6 +3360,7 @@
             const isMeituanOrderDataRow = requireMeituanStatic('isMeituanOrderDataRow');
             const isMeituanAdsDataRow = requireMeituanStatic('isMeituanAdsDataRow');
             const buildMeituanDownloadData = requireMeituanStatic('buildMeituanDownloadData');
+            const runMeituanStoredPageCsvDownload = requireMeituanStatic('runMeituanStoredPageCsvDownload');
             const resolveMeituanAdsApplicability = requireMeituanStatic('resolveMeituanAdsApplicability');
             const buildMeituanOrderDomCollectorScript = requireMeituanStatic('buildMeituanOrderDomCollectorScript');
             const runMeituanOrderCsvImportFlow = requireMeituanStatic('runMeituanOrderCsvImportFlow');
@@ -9949,7 +9955,7 @@
             const onlineAnalysisSourceRecord = ref(null);
             const competitorEventFeed = ref(null);
             const competitorEventFeedLoading = ref(false);
-            const competitorEventFeedError = ref('');
+            const competitorEventFeedError = ref(''); const { competitorFutureWindow, competitorFutureWindowLoading, competitorFutureWindowError, competitorFutureWindowRows, competitorFutureWindowEmpty, competitorFutureWindowDayText, competitorFutureWindowPanelModel, loadCompetitorFutureWindow } = ctripStatic.createCompetitorFutureWindowController({ ref, computed, request: (...args) => request(...args), getSystemHotelId: () => selectedCtripHotelId.value || onlineDataFilter.value.hotel_id, getToday: () => shanghaiToday() });
             const competitorManualObservationSaving = ref(false);
             let competitorEventFeedRequestSeq = 0;
             const onlineAnalysisLoading = computed(() => onlineAnalysisRowsLoading.value || competitorEventFeedLoading.value);
@@ -11234,6 +11240,7 @@
                 orders: ['order'],
                 reviews: ['review', 'comment', 'comments'],
                 ads: ['advertising'],
+                keywords: ['search_keyword'],
             });
             const applyMeituanStoredDataFilter = (tab, options = {}) => {
                 const dataTypes = meituanStoredDataTypesByTab[tab] || meituanStoredDataTypesByTab.all;
@@ -11639,7 +11646,7 @@
 
             const switchToMeituanDownloadCenter = () => {
                 onlineDataTab.value = 'meituan-download';
-                if (!['all', 'overview', 'traffic', 'orders', 'reviews', 'ads'].includes(downloadCenterTab.value)) {
+                if (!['all', 'overview', 'traffic', 'orders', 'reviews', 'ads', 'keywords'].includes(downloadCenterTab.value)) {
                     downloadCenterTab.value = 'all';
                 }
                 const temporalHotelId = resolveMeituanTemporalHotelId();
@@ -11701,13 +11708,12 @@
             };
 
             const openMeituanStoredDataTab = (tab) => {
-                if (!['all', 'traffic', 'orders', 'reviews', 'ads'].includes(tab)) return;
-                downloadCenterTab.value = tab;
-                switchToMeituanDownloadCenter();
+                requireMeituanStatic('openMeituanStoredDataTab')({ tab, setTab: value => { downloadCenterTab.value = value; }, switchToDownloadCenter: switchToMeituanDownloadCenter });
             };
 
             const meituanDownloadData = computed(() => buildMeituanDownloadData(onlineDataList.value));
-
+            const formatMeituanKeywordRow = (item) => requireMeituanStatic('formatMeituanKeywordRow')(item, formatNumber);
+            const downloadMeituanCurrentPageCsv = () => runMeituanStoredPageCsvDownload({ tab: downloadCenterTab.value, data: meituanDownloadData.value, context: { hotelId: onlineDataFilter.value.hotel_id || meituanForm.value.hotelId, startDate: onlineDataFilter.value.start_date, endDate: onlineDataFilter.value.end_date, page: onlineDataPage.value }, downloadBlob, showToast, BlobCtor: Blob });
             const applyOnlineHistoryDatePreset = () => {
                 const now = new Date();
                 if (onlineHistoryFilter.value.date_preset === 'custom') {
@@ -20764,7 +20770,7 @@
             });
             const loadCtripCompetitionWorkspace = async (options = {}) => Promise.all([
                 loadCtripCompetitiveOperations(options),
-                loadCtripCompetitorEventFeed(options),
+                loadCtripCompetitorEventFeed(options), loadCompetitorFutureWindow({ ...options, systemHotelId: options.systemHotelId || selectedCtripHotelId.value, platform: 'ctrip' }),
             ]);
             const openCtripCompetitorEventWorkspace = async () => {
                 const systemHotelId = String(selectedCtripHotelId.value || '').trim();
@@ -23167,7 +23173,7 @@
             const platformSyncActionText = (message) => autoFetchStatic.value?.platformSyncActionText?.(message) || '';
 
             const operationStaticScript = 'operation-static.js';
-            const operationStaticScriptVersion = '20260826-daily-one-thing-h033ef699bd';
+            const operationStaticScriptVersion = '20260829-ten-task-ha062bec589';
             const operationStaticIntegrityKeys = [
                 'operationAlertFilters',
                 'operationStrategyTypes',
@@ -23598,6 +23604,7 @@
             const operationStrategyResult = ref(null);
             const operationActions = ref([]);
             const operationExecutionFlow = ref({ summary: {}, stages: [], list: [], data_gaps: [], data_status: '' });
+            const operationExecutionViewMode = ref('all');
             const operatingGoalInterventionOverview = ref({
                 data_status: 'select_single_hotel',
                 current_goal_contract: null,
@@ -23613,7 +23620,7 @@
             const homeOperatingScheduleLoading = ref(false);
             const homeOperatingScheduleError = ref('');
             const homeOperatingScheduleScopeHotelId = ref('');
-            const homeOperatingScheduleLastReadAt = ref('');
+            const homeOperatingScheduleLastReadAt = ref(''); const homeWeeklyOperatingPlanController = homeStatic.createHomeWeeklyOperatingPlanController({ ref, apiRequest, getHotelId: () => filterReportHotel.value, getToday: () => shanghaiToday(), errorMessage: (error, fallback) => operationErrorMessage(error, fallback) }); const { homeWeeklyOperatingPlan, homeWeeklyOperatingPlanLoading, homeWeeklyOperatingPlanError, loadHomeWeeklyOperatingPlan, resetHomeWeeklyOperatingPlan } = homeWeeklyOperatingPlanController;
             const operationExecutionStageFilter = ref('');
             const operationClosureOverview = ref({ summary: {}, modules: [], weak_modules: [], data_gaps: [], data_status: '' });
             const operatingMemories = ref({ data_status: '', list: [], count: 0, data_gaps: [] });
@@ -25157,6 +25164,7 @@
                     operationExecutionStageFilter.value === key ? '' : key
                 );
             };
+            const setOperationExecutionViewMode = async (mode) => { await ensureOperationStaticReady(); return requireOperationStatic(operationStatic.value, 'applyOperationExecutionViewMode')({ mode, currentMode: operationExecutionViewMode.value, loading: operationLoading.value.actions, setMode: value => { operationExecutionViewMode.value = value; }, clearFilter: () => { operationExecutionStageFilter.value = ''; }, loadActions: loadOperationActions }); };
             const operationExecutionPhase1Evidence = () => {
                 const summary = operationExecutionFlow.value?.summary || {};
                 const items = Array.isArray(operationExecutionItems.value) ? operationExecutionItems.value : [];
@@ -30368,7 +30376,7 @@
                 const isCurrentRequest = () => requestSeq === homeOperatingScheduleRequestSeq
                     && hotelId === String(filterReportHotel.value || '').trim();
                 if (hotelId !== homeOperatingScheduleScopeHotelId.value) {
-                    homeOperatingScheduleFlow.value = null;
+                    homeOperatingScheduleFlow.value = null; resetHomeWeeklyOperatingPlan();
                     homeOperatingScheduleScopeHotelId.value = hotelId;
                     homeOperatingScheduleLastReadAt.value = '';
                 }
@@ -30389,7 +30397,7 @@
                     if (!flow || !Array.isArray(flow.list)) {
                         throw new Error('今日经营编排未返回任务列表');
                     }
-                    applyHomeOperatingScheduleFlow(flow, hotelId);
+                    applyHomeOperatingScheduleFlow(flow, hotelId); await loadHomeWeeklyOperatingPlan({ hotelId });
                     return true;
                 } catch (error) {
                     if (!isCurrentRequest()) return false;
@@ -30740,6 +30748,7 @@
             const loadOperationActions = async (options = {}) => {
                 const requestSeq = ++operationActionsRequestSeq;
                 const focusIntentId = Number(options?.focusIntentId || 0);
+                if (focusIntentId > 0) operationExecutionViewMode.value = 'all';
                 await ensureOperationStaticReady();
                 if (requestSeq !== operationActionsRequestSeq) return;
                 operationLoading.value.actions = true;
@@ -30772,9 +30781,12 @@
                         flowParams.set('intent_id', String(focusIntentId));
                     }
                     const flowQuery = flowParams.toString() ? '?' + flowParams.toString() : '';
+                    const flowEndpoint = operationExecutionViewMode.value === 'mine'
+                        ? '/operation/my-tasks'
+                        : '/operation/execution-flow';
                     const [actionResult, flowResult, closureResult, , learningResult] = await Promise.allSettled([
                         apiRequest(`/operation/action-tracking${query}`),
-                        apiRequest(`/operation/execution-flow${flowQuery}`),
+                        apiRequest(`${flowEndpoint}${flowQuery}`),
                         apiRequest(`/operation/closure-overview${closureQuery}`),
                         loadOperatingMemories({ hotelId: requestHotelId }),
                         requestHotelId
@@ -38017,6 +38029,17 @@
                 }
                 operatingNetworkData.value = payload;
                 resetOperatingNetworkProfileForm(payload.profile || null);
+                const replicationRows = Array.isArray(payload.replications?.list)
+                    ? payload.replications.list
+                    : [];
+                const selectedReplicationId = Number(operatingNetworkLastReplication.value?.id || 0);
+                if (selectedReplicationId > 0
+                    && !replicationRows.some(row => Number(row?.id || 0) === selectedReplicationId)
+                ) {
+                    operatingNetworkLastReplication.value = null;
+                    operatingNetworkExecutionIntent.value = null;
+                    operatingNetworkReviews.value = [];
+                }
                 const sourceId = Number(operatingNetworkReplicationForm.value.source_sop_version_id || 0);
                 const sourceRows = Array.isArray(payload.verified_sops) ? payload.verified_sops : [];
                 if (!sourceRows.some((row) => Number(row.id || 0) === sourceId)) {
@@ -38029,9 +38052,6 @@
                 const hotelId = Number(operatingNetworkHotelId.value || 0);
                 operatingNetworkError.value = '';
                 operatingNetworkProfilePreview.value = null;
-                operatingNetworkLastReplication.value = null;
-                operatingNetworkExecutionIntent.value = null;
-                operatingNetworkReviews.value = [];
                 if (hotelId <= 0) {
                     operatingNetworkData.value = null;
                     resetOperatingNetworkProfileForm();
@@ -38242,6 +38262,12 @@
                 return rows;
             };
 
+            const restoreOperatingNetworkReplication = async (replication) => {
+                await ensureOperationStaticReady();
+                return requireOperationStatic(operationStatic.value, 'runOperatingNetworkReplicationRestoreFlow')({ replication, hotelId: Number(operatingNetworkHotelId.value || 0), busy: !!operatingNetworkAction.value, currentHotelId: () => operatingNetworkHotelId.value, request, setAction: value => { operatingNetworkAction.value = value; }, setError: value => { operatingNetworkError.value = value; }, assertBoundaries: assertOperatingNetworkBoundaries, setReplication: value => { operatingNetworkLastReplication.value = value; }, clearIntent: () => { operatingNetworkExecutionIntent.value = null; }, loadReviews: loadOperatingNetworkReviews, toast: showToast });
+            };
+            const operatingNetworkReplicationLabel = (replication) => operationStatic.value ? requireOperationStatic(operationStatic.value, 'operatingNetworkReplicationLabel')(replication) : '';
+
             const generateOperatingNetworkReplicationDraft = async () => {
                 const hotelId = Number(operatingNetworkHotelId.value || 0);
                 const sourceVersionId = Number(operatingNetworkReplicationForm.value.source_sop_version_id || 0);
@@ -38288,6 +38314,7 @@
                     }
                     operatingNetworkLastReplication.value = actual;
                     await loadOperatingNetworkReviews(replicationId);
+                    await loadOperatingNetwork();
                     showToast('仅待验证的复制草稿已保存并完成独立回读');
                 } catch (error) {
                     operatingNetworkError.value = error.message || '复制草稿生成失败';
@@ -40720,11 +40747,11 @@
                 all_ota: '携程+美团 OTA',
             }[String(platform || '')] || '未选择平台');
             const operatingQuestionAnswerStatusText = (status) => ({
-                answered_by_grounded_ai: 'AI证据回答',
-                answered_from_saved_diagnosis: '已保存诊断回答',
-                evidence_ready: '证据摘要',
-                blocked_by_missing_facts: '缺少可信事实',
-            }[String(status || '')] || '已严格回读');
+                answered_by_grounded_ai: 'AI证据回答', answered_from_saved_diagnosis: '已保存诊断回答',
+                answered_by_precise_query: '确定性查数', answered_by_precise_query_partial: '部分确定性查数',
+                evidence_ready: '证据摘要', blocked_by_missing_facts: '缺少可信事实',
+                blocked_by_missing_metric: '缺少可信指标', blocked_by_semantic_scope: '指标口径未锁定',
+            }[String(status || '')] || '状态未识别，结论受限');
             const operatingQuestionConfidenceText = (confidence) => ({
                 high: '高把握',
                 medium: '中等把握',
@@ -53288,7 +53315,7 @@
             const strategyCurrentReadiness = computed(() => aiStrategyResult.value?.execution_readiness || null);
 
             const simulationStaticScript = 'simulation-static.js';
-            const simulationStaticScriptVersion = '20260719-transfer-truth-hff7679b1db';
+            const simulationStaticScriptVersion = '20260830-hotspot-extraction-h75a3277421';
             const simulationStatic = ref(window.SUXI_SIMULATION_STATIC && typeof window.SUXI_SIMULATION_STATIC === 'object' ? window.SUXI_SIMULATION_STATIC : null);
             const simulationStaticLoadError = ref('');
             let simulationStaticLoadPromise = null;
@@ -53355,6 +53382,7 @@
             };
             const defaultSimulationInput = computed(() => simulationStaticOption('defaultSimulationInput', {}));
             const aiSimulationParams = ref({ ...defaultSimulationInput.value });
+            const simulationHotelSelectionValid = computed(() => simulationStatic.value?.simulationHotelSelectionIsPermitted?.(aiSimulationParams.value, operationHotelOptions.value) === true);
             const aiSimulationResult = ref(null);
             const aiSimulationScenarios = ref([]);
             const simulationRiskHints = ref([]);
@@ -53362,6 +53390,7 @@
             const aiSimulationRecords = ref([]);
             const aiSimulationRecordId = ref(null);
             const aiSimulationLoading = ref(false);
+            const simulationExecutionLoadingId = ref(0);
             const simulationCurrentReadiness = computed(() => aiSimulationResult.value?.execution_readiness || null);
             let suppressSimulationAutoRefresh = false;
                 const aiFeasibilityResult = ref(null);
@@ -53792,6 +53821,7 @@
             const expansionExecutionIntentId = (...args) => hasExpansionStaticOptions.value ? requireExpansionStaticOption('executionIntentIdFromRecord')(...args) : 0;
             const simulationReadinessBadgeClass = (...args) => hasSimulationStatic.value ? requireSimulationStatic('simulationReadinessBadgeClass')(...args) : 'bg-gray-50 text-gray-600 border-gray-200';
             const simulationReadinessMissingText = (...args) => hasSimulationStatic.value ? requireSimulationStatic('simulationReadinessMissingText')(...args) : '';
+            const simulationExecutionIntentId = (...args) => hasSimulationStatic.value ? requireSimulationStatic('executionIntentIdFromRecord')(...args) : 0;
             const feasibilityReadinessBadgeClass = (...args) => hasExpansionStaticOptions.value ? requireExpansionStaticOption('feasibilityReadinessBadgeClass')(...args) : 'bg-gray-50 text-gray-600 border-gray-200';
             const feasibilityReadinessMissingText = (...args) => hasExpansionStaticOptions.value ? requireExpansionStaticOption('feasibilityReadinessMissingText')(...args) : '';
             const transferReadinessBadgeClass = (...args) => hasSimulationStatic.value ? requireSimulationStatic('transferReadinessBadgeClass')(...args) : 'bg-gray-50 text-gray-600 border-gray-200';
@@ -54513,66 +54543,23 @@
                 await loadSimulationDetail(record?.id);
             };
 
-            const archiveSimulationRecord = async (record) => {
-                if (!record?.id) return;
-                if (!confirm('确认归档该量化模拟记录？归档后将从历史列表隐藏。')) return;
-                try {
-                    const res = await request(`/simulation/records/${record.id}`, { method: 'DELETE' });
-                    if (res.code !== 200) throw new Error(res.message || '量化模拟记录归档失败');
-                    showToast('量化模拟记录已归档');
-                    if (String(aiSimulationRecordId.value || '') === String(record.id)) {
-                        aiSimulationRecordId.value = null;
-                    }
-                    await loadSimulationRecords();
-                } catch (error) {
-                    showToast(error.message || '量化模拟记录归档失败', 'error');
-                }
+            const archiveSimulationRecord = async (record) => requireSimulationStatic('runSimulationArchiveFlow')({ record, confirmAction: confirm, request, showToast, clearCurrent: id => { if (String(aiSimulationRecordId.value || '') === String(id)) aiSimulationRecordId.value = null; }, loadRecords: loadSimulationRecords });
+            const simulationRecordSummary = (record) => requireSimulationStatic('simulationRecordSummary')(record, { getHotelNameById, formatCurrency });
+            const simulationTaskDisabled = (record) => requireSimulationStatic('simulationTaskDisabled')(record, { loadingId: simulationExecutionLoadingId.value });
+            const simulationTaskLabel = (record) => requireSimulationStatic('simulationTaskLabel')(record, { loadingId: simulationExecutionLoadingId.value });
+            const createSimulationExecutionIntent = async (record) => requireSimulationStatic('runSimulationExecutionIntentFlow')({ record, loadingId: simulationExecutionLoadingId.value, setLoadingId: id => { simulationExecutionLoadingId.value = id; }, request, showToast, readinessMissingText: simulationReadinessMissingText, openWorkflowFormDialog, formatDate, loadRecords: loadSimulationRecords });
+            const handleSimulation = async () => requireSimulationStatic('runSimulationCalculationUiFlow')({ input: aiSimulationParams.value, hotels: operationHotelOptions.value, projectName: aiProject.value.project_name, ensureReady: ensureSimulationStaticReady, setInput: value => { aiSimulationParams.value = value; }, saveInput: saveSimulationInputOnly, setLoading: value => { aiSimulationLoading.value = value; }, request, applyRecord: applySimulationRecord, loadRecords: loadSimulationRecords, showToast });
+            const hydrateSimulationStateFromStorage = () => requireSimulationStatic('hydrateSimulationState')({ enabled: hasSimulationStatic.value, loadState: loadSimulationState, setInput: value => { aiSimulationParams.value = value; }, setResult: value => { aiSimulationResult.value = value; }, setScenarios: value => { aiSimulationScenarios.value = value; }, setRiskHints: value => { simulationRiskHints.value = value; }, setModelAnalysis: value => { simulationModelAnalysis.value = value; }, refresh: refreshSimulationState });
+            if (hasSimulationStatic.value) hydrateSimulationStateFromStorage();
+            const clearInvalidSimulationHotel = () => {
+                const hotelId = Number(aiSimulationParams.value?.hotel_id || 0);
+                if (hotelId <= 0 || simulationHotelSelectionValid.value || operationHotelOptions.value.length === 0) return false;
+                suppressSimulationAutoRefresh = true; aiSimulationParams.value = { ...aiSimulationParams.value, hotel_id: '' };
+                if (hasSimulationStatic.value) saveSimulationInputOnly(aiSimulationParams.value);
+                setTimeout(() => { suppressSimulationAutoRefresh = false; }, 0);
+                return true;
             };
-
-            const handleSimulation = async () => {
-                aiSimulationLoading.value = true;
-                try {
-                    await ensureSimulationStaticReady();
-                    const payloadInput = { ...aiSimulationParams.value };
-                    const message = validateSimulationInput(payloadInput);
-                    if (message) {
-                        showToast(message, 'error');
-                        return;
-                    }
-                    const res = await request('/simulation/calculate', {
-                        method: 'POST',
-                        body: JSON.stringify({
-                            project_name: aiProject.value.project_name || '量化模拟项目',
-                            input: payloadInput
-                        })
-                    });
-                    if (res.code !== 200) throw new Error(res.message || '量化模拟保存失败');
-                    applySimulationRecord(res.data, true);
-                    await loadSimulationRecords();
-                    showToast('三情景模拟已完成并保存');
-                } catch (error) {
-                    showToast(error.message || '量化模拟失败，请修复后端错误后重试', 'error');
-                } finally {
-                    aiSimulationLoading.value = false;
-                }
-            };
-
-            const hydrateSimulationStateFromStorage = () => {
-                if (!hasSimulationStatic.value) return;
-                const loadedSimulationState = loadSimulationState();
-                aiSimulationParams.value = loadedSimulationState.input;
-                if (loadedSimulationState.result && loadedSimulationState.scenarios) {
-                    aiSimulationResult.value = loadedSimulationState.result;
-                    aiSimulationScenarios.value = loadedSimulationState.scenarios;
-                    simulationRiskHints.value = generateRiskHints(loadedSimulationState.result, loadedSimulationState.scenarios);
-                    simulationModelAnalysis.value = loadedSimulationState.modelAnalysis;
-                } else {
-                    refreshSimulationState(true);
-                }
-            };
-            if (hasSimulationStatic.value) {
-                hydrateSimulationStateFromStorage();
-            }
+            watch(operationHotelOptions, clearInvalidSimulationHotel, { deep: true, immediate: true });
 
             watch(aiSimulationParams, () => {
                 if (suppressSimulationAutoRefresh) return;
@@ -54958,7 +54945,7 @@
                 homeOperatingScheduleLoading.value = false;
                 homeOperatingScheduleError.value = '';
                 homeOperatingScheduleScopeHotelId.value = '';
-                homeOperatingScheduleLastReadAt.value = '';
+                homeOperatingScheduleLastReadAt.value = ''; resetHomeWeeklyOperatingPlan();
                 operationClosureOverview.value = { summary: {}, modules: [], weak_modules: [], data_gaps: [], data_status: '' };
                 operatingMemoryRequestSeq += 1;
                 operatingMemories.value = { data_status: '', list: [], count: 0, data_gaps: [] };
@@ -55071,8 +55058,8 @@
                 hotelBusinessProfileEditor,
                 ctripScenarioHotelsList,
                 aiProject, aiStrategyParams, aiStrategyResult, aiStrategyRecords, aiStrategyRecordId, aiStrategyLoading, aiStrategyRecordsLoading, strategyCurrentReadiness, strategyScoreCards, strategyFreshnessLabel, strategyAiSourceLabel, strategyDataNotice, strategyDataSourceRows, strategyAiEmpowermentCards, handleStrategy, loadStrategyRecords, loadStrategyDetail, reuseStrategyRecord, archiveStrategyRecord,
-                aiSimulationParams, aiSimulationResult, aiSimulationScenarios, aiSimulationRecords, aiSimulationRecordId, aiSimulationLoading, simulationCurrentReadiness, simulationReadinessBadgeClass, simulationReadinessMissingText,
-                simulationInvestmentGroups, simulationInvestmentTotal, simulationInvestmentPerRoom, simulationRevenueSummary, simulationRoomRevenueSegments, simulationOtherIncomeFields, simulationCostFields, simulationCostSummary, simulationCostGroups, simulationOtaCommissionChannels, simulationMetricCards, simulationRiskHints, simulationModelAnalysis, simulationModelAnalysisVisible, simulationModelSourceLabel, baseSimulation, handleSimulation, loadSimulationRecords, loadSimulationDetail, reuseSimulationRecord, archiveSimulationRecord,
+                aiSimulationParams, aiSimulationResult, aiSimulationScenarios, aiSimulationRecords, aiSimulationRecordId, aiSimulationLoading, simulationExecutionLoadingId, simulationCurrentReadiness, simulationHotelSelectionValid, simulationReadinessBadgeClass, simulationReadinessMissingText, simulationExecutionIntentId, simulationRecordSummary, simulationTaskDisabled, simulationTaskLabel,
+                simulationInvestmentGroups, simulationInvestmentTotal, simulationInvestmentPerRoom, simulationRevenueSummary, simulationRoomRevenueSegments, simulationOtherIncomeFields, simulationCostFields, simulationCostSummary, simulationCostGroups, simulationOtaCommissionChannels, simulationMetricCards, simulationRiskHints, simulationModelAnalysis, simulationModelAnalysisVisible, simulationModelSourceLabel, baseSimulation, handleSimulation, loadSimulationRecords, loadSimulationDetail, reuseSimulationRecord, archiveSimulationRecord, createSimulationExecutionIntent,
                 aiFeasibilityResult, aiFeasibilityRecords, aiFeasibilityReadiness, aiFeasibilityRecordId, aiFeasibilityHotelId, aiFeasibilityHotelOptions, aiFeasibilityExecutionHotelId, aiFeasibilityExecutionLoading, aiFeasibilityLoading, aiFeasibilityRecordsLoading, aiFeasibilityError, feasibilityInputCards, feasibilityReportCards, feasibilityAiEmpowerment, feasibilityDecisionClass, feasibilityExecutionIntentId, feasibilityExecutionLinked, feasibilityReadinessBadgeClass, feasibilityReadinessMissingText, handleFeasibility, createFeasibilityExecutionIntent, loadFeasibilityRecords, loadFeasibilityDetail, reuseFeasibilityRecord, archiveFeasibilityRecord, copyFeasibilityReport, printFeasibilityReport, formatCurrency, formatMoney, formatPercent, formatWan, aiRound, riskBadgeClass,
                 marketEvaluationForm, marketEvaluationCityOptions, marketEvaluationCityTierOptions, filteredMarketEvaluationCityOptions, filteredStrategyCityOptions, filteredStrategyDistrictOptions, filteredStrategyAddressKeywordOptions, marketEvaluationConditionFields, marketEvaluationCustomerOptions, secondaryMarketEvaluationCustomerOptions, marketEvaluationDecorationOptions, marketEvaluationResult, marketEvaluationAiJudgementRows, marketEvaluationAiRecommendations, marketEvaluationAiRiskSuggestions, marketEvaluationRiskSeverityClass, marketEvaluationAiAssumptions, marketEvaluationScoreFormula, marketEvaluationScoreBreakdown, marketEvaluationScorePercent, formatMarketEvaluationScoreChange, marketEvaluationScoreChangeClass, marketEvaluationAiRiskNote, marketEvaluationLoading, handleMarketEvaluation,
                 benchmarkModelForm, benchmarkModelResult, benchmarkModelLoading, benchmarkModelDetailFields, benchmarkModelDetailCards, benchmarkModelDetailCompleteness, benchmarkModelEstimatedFields, benchmarkModelAiSourceLabel, benchmarkModelAiRecommendations, benchmarkModelAiWatchPoints, benchmarkModelAiAssumptionNote, benchmarkModelDataNotice, benchmarkModelAiOutcomeCards, benchmarkMetricValue, benchmarkSignedValue, benchmarkStrategyLabel, handleBenchmarkModel,
@@ -55084,12 +55071,12 @@
                 transferDashboardResult, transferDashboardLoading, handleTransferDashboard,
                 transferSelectedHotelId, transferSourceDate, transferSourceSnapshot, transferSourceMetricRows, transferSourceLoading, transferRecords, transferRecordsLoading, transferExecutionLoadingId, transferHotelOptions, transferDecisionLayerRows, transferCurrentReadiness,
                 transferRecordTypeLabel, transferReadinessBadgeClass, transferReadinessMissingText, transferExecutionIntentId, loadTransferSource, loadTransferRecords, loadTransferDetail, reuseTransferRecord, createTransferExecutionIntent, archiveTransferRecord,
-                operationFullData, operationRootCause, operationAlerts, operationStrategyResult, operationActions, operationExecutionFlow, operationClosureOverview, operatingMemories, operatingMemoryLoading, operatingMemoryError, operatingMemorySavingTaskId, operationEffectValidation,
+                operationFullData, operationRootCause, operationAlerts, operationStrategyResult, operationActions, operationExecutionFlow, operationExecutionViewMode, operationClosureOverview, operatingMemories, operatingMemoryLoading, operatingMemoryError, operatingMemorySavingTaskId, operationEffectValidation,
                 operatingGrowthArchiveBody, operatingGrowthArchiveBindings, operatingGrowthArchiveListeners,
                 loadOperatingGrowthArchive, changeOperatingGrowthHotel, changeOperatingGrowthDateRange, changeOperatingGrowthFilter, openOperatingGrowthEventForm, closeOperatingGrowthEventForm, updateOperatingGrowthEventDraft, submitOperatingGrowthEvent, openOperatingGrowthSource, addOperatingGrowthAnnotation, setOperatingGrowthMilestone,
                 operationLoading, operationError, operationFilters, strategyForm, actionForm,
-                managerCapabilityRequest: apiRequest,
-                aiDailyReportDeliveryRequest: apiRequest,
+                setOperationExecutionViewMode,
+                managerCapabilityRequest: apiRequest, aiDailyReportDeliveryRequest: apiRequest, hotelDataAnalystFeedbackRequest: apiRequest,
                 operatingTargetForm, pmsHotelOptions, pmsHotelSearch, pmsFilteredHotelOptions, selectPmsHotel, operatingTargetResult, operatingPmsRealtimeSyncResult, operatingPmsRealtimeActionText, operatingPmsControlsBusy, operatingPmsRealtimeResultClass, operatingPmsRealtimeResultText, operatingTargetPmsStatus, operatingTargetMeituanCloudPmsStatus, operatingTargetPmsReconciliation, operatingTargetPreview, operatingTargetHistory, operatingTargetSnapshots, operatingTargetSelectedSnapshot, operatingTargetReportGate, operatingTargetTestFirstConfirmed, operatingTargetTestResult, operatingTargetError, operatingTargetLoading,
                 operatingTargetTaskDraft, operatingTargetTaskDraftError, operatingTargetTaskDraftLoading,
                 operatingHotelPmsBinding, operatingHotelPmsBindingError, operatingHotelPmsBindingLoading, selectedOperatingPmsSource, selectedOperatingPmsCapture, selectedOperatingPmsFactGate, selectedOperatingPmsProfileText, selectedOperatingPmsMetricRows, selectedOperatingPmsDeltas,
@@ -55153,7 +55140,7 @@
                 homeTemporalLoading, homeTemporalGenerating, homeTemporalOperationSubmitting, homeTemporalError, homeTemporalData, homeTemporalSelectedHotelId, homeTemporalCards, homeTemporalReview, homeTemporalBacktestRows, homeTemporalOperationRecommendation,
                 homeTemporalTrialLoading, homeTemporalTrialAction, homeTemporalTrialError, homeTemporalTrialList, homeTemporalTrialDetail, homeTemporalTrialReviewDecision, homeTemporalTrialReviewNote, homeTemporalPilotHistoryCoverage, homeTemporalPilotHistoryReady, homeTemporalTrial, homeTemporalTrialActualSummary, homeTemporalTrialAccuracyRows, homeTemporalTrialStatus, homeTemporalTrialCanCreate, homeTemporalTrialCanSubmit, homeTemporalTrialCanFinalize,
                 dualOtaTemporalCards, dualOtaTemporalReview, dualOtaTemporalLoading,
-                homeBoardTrendRanges, homeTrendRangeLabel, homeDecisionSummaryRows, homeExecutiveAnswer, homeMinimalWorkbench, homeBusinessTimeModel, homeOperatingScheduleModel, homeOperatingScheduleLoading, homeAiWorkbenchPrimaryMetric, homeAiWorkbenchSecondaryMetrics, homeAiWorkbenchReadySummary, homeOperatingResultCards, homeCausalChainNodes, homeCompetitorSummaryCards, homeBoardActionRows,
+                homeBoardTrendRanges, homeTrendRangeLabel, homeDecisionSummaryRows, homeExecutiveAnswer, homeMinimalWorkbench, homeBusinessTimeModel, homeOperatingScheduleModel, homeOperatingScheduleLoading, homeWeeklyOperatingPlan, homeWeeklyOperatingPlanLoading, homeWeeklyOperatingPlanError, homeAiWorkbenchPrimaryMetric, homeAiWorkbenchSecondaryMetrics, homeAiWorkbenchReadySummary, homeOperatingResultCards, homeCausalChainNodes, homeCompetitorSummaryCards, homeBoardActionRows,
                 dualOtaDashboard, dualOtaSelectedPlatform, dualOtaSelectedRange, dualOtaCompareEnabled, dualOtaSelectedStoreScope, dualOtaPmsSelected, dualOtaEffectiveStoreScope, dualOtaEffectivePlatform, dualOtaSelectedLossNodeId, dualOtaSelectedAnomalyRank, dualOtaActionItems, dualOtaReviewMemory, dualOtaExpandedMemoryId, dualOtaHasConnectedPlatforms, dualOtaWorkbenchFetchInProgress, dualOtaWorkbenchReadInProgress, dualOtaSelectedHotelLabel, dualOtaConfiguredPms, dualOtaPmsTargetDate, dualOtaPmsRangeNote, dualOtaPmsMetricGroups, dualOtaPmsStatusText, dualOtaPmsStatusClass, dualOtaSelectedHotelHasCurrentData, dualOtaSelectedHotelDataGapText, dualOtaRangeText, dualOtaActiveLossNodes, dualOtaLossChainSubtitle, dualOtaSelectedLossExplanation, dualOtaSelectedAnomaly, dualOtaSystemOverviewGroups, dualOtaPlatformRevenueTitle, dualOtaPlatformRevenueSubtitle, dualOtaPlatformRevenuePlatforms, dualOtaPlatformRevenueHasContribution,
                 dualOtaConnectionClass, dualOtaConnectionPlatformValue, switchDualOtaConnection, setDualOtaPlatform, setDualOtaRange, setDualOtaStoreScope, openDualOtaPms, openDualOtaPmsDetail, syncDualOtaPmsRealtime, dualOtaMetricComparisonText, toggleDualOtaCompare, dualOtaModuleNavigationTarget, openDualOtaModule, openDualOtaSystemMetric, dualOtaTrustClass, dualOtaSeverityClass, dualOtaHeatClass, dualOtaActionStatusClass, setDualOtaLossNode, setDualOtaAnomaly, syncDualOtaActionStatus, toggleDualOtaAction, copyDualOtaAdvice, openDualOtaBackendPlaceholder, toggleDualOtaMemory,
                 revenueAiStaticReady, revenueAiStaticLoading, revenueAiStaticError, revenueAiOverview, revenueAiOverviewLoading, revenueAiOverviewError, homeRevenueFactLayer, homeRevenueFactLayerLoading, homeRevenueFactLayerError, homeRevenueFactBusinessDate, revenueAiOverviewAsOfDate, revenueAiBusinessClosure, revenueAiStatusRows, revenueAiMetricCards, revenueAiGapRows, revenueAiGapSummary, revenueAiSignalRows, revenueAiActionRows, revenueAiEvidenceWorkbenchRows, revenueAiEvidenceWorkbenchSummary, revenueAiPricingGateRows, revenueAiAgentActivitySummary, revenueAiAgentActivityRows, revenueAiExecutionSummary, revenueAiExecutionRows, revenueAiEffectReviewRows, revenueAiStatusClass, revenueAiStatusLabel, revenueAiSeverityClass, openRevenueAiGap, openRevenueAiMetric, openRevenueAiDecisionBasis, openRevenueAiExecutionItem, openRevenueAiReviewItem, submitRevenueAiReviewAction, isRevenueAiReviewActionLoading,
@@ -55230,7 +55217,7 @@
                 createKnowledgePromotionCandidate, saveKnowledgePromotionRevision, submitKnowledgePromotionCandidate,
                 reviewKnowledgePromotionCandidate, withdrawKnowledgePromotionCandidate, knowledgePromotionStatusLabel, knowledgePromotionStatusClass,
                 loadOperatingNetwork, changeOperatingNetworkHotel, generateOperatingNetworkProfilePreview, applyOperatingNetworkProfilePreview,
-                saveOperatingNetworkProfile, generateOperatingNetworkReplicationDraft,
+                saveOperatingNetworkProfile, generateOperatingNetworkReplicationDraft, restoreOperatingNetworkReplication, operatingNetworkReplicationLabel,
                 createOperatingNetworkExecutionIntent, openOperatingNetworkExecutionIntent, saveOperatingNetworkReview,
                 operatingNetworkStageStatusLabel, operatingNetworkStageStatusClass, operatingNetworkDimensionStatusLabel, operatingNetworkDimensionStatusClass,
                 systemConfig, systemConfigForm, showSystemConfigModal,
@@ -55348,7 +55335,7 @@
                 autoFetchScheduleTime, autoFetchScheduleMinute, autoFetchRealtimeIntervalHours, autoFetchBrowserHeadless, autoFetchCtripSectionConcurrency, saveFetchSchedule, autoFetchHotelId, autoFetchMode, autoFetchModeOptions, autoFetchModeLabel, autoFetchRunState, autoFetchRunElapsedSeconds, formatAutoFetchElapsed, autoFetchRunningHint, loadAutoFetchPanel, schedulePlatformAutoFetchPanelLoad, openPlatformAutoTab, openOnlinePlatformAutoTab, platformAutoSettingsPanelsReady, platformAutoSettingsPanelsBody, platformAutoSecondaryPanelsReady, platformAutoSecondaryPanelsBody, windowsOtaDispatcherEnabling, enableWindowsOtaDispatcher,
                 autoFetchCollectionBlueprintRows, autoFetchPlatformCards, autoFetchPlatformProgressRows, autoFetchPlatformResultRows, autoFetchCanonicalOperationStatus, autoFetchTimingRows, autoFetchCtripExecutionText, autoFetchResultStatusText, autoFetchResultStatusClass, autoFetchResultMessage, autoFetchModuleLabel, formatAutoFetchMs,
                 autoFetchBackfillDate, autoFetchBackfillingDate, autoFetchMaxBackfillDate, autoFetchLegacyItems, autoFetchRecentRuns, retryAutoFetchDate,
-                loadOnlineDataList, loadOnlineDataHotelList, triggerAutoFetch, refreshOnlineData, changeOnlineDataPage, openAutoFetchRecordAnalysis, viewOnlineDataDetail, switchDownloadTab, switchToDownloadCenter, switchToMeituanDownloadCenter, openMeituanStoredBusinessDate, openMeituanStoredDataTab, queryMeituanStoredData, meituanDownloadData,
+                loadOnlineDataList, loadOnlineDataHotelList, triggerAutoFetch, refreshOnlineData, changeOnlineDataPage, openAutoFetchRecordAnalysis, viewOnlineDataDetail, switchDownloadTab, switchToDownloadCenter, switchToMeituanDownloadCenter, openMeituanStoredBusinessDate, openMeituanStoredDataTab, queryMeituanStoredData, meituanDownloadData, formatMeituanKeywordRow, downloadMeituanCurrentPageCsv,
                 getMeituanExposureMetric, getMeituanClickMetric, getMeituanVisitorMetric, getMeituanSubmitMetric, getMeituanFlowRateMetric, hasMeituanExposureMetric, hasMeituanClickMetric, hasMeituanVisitorMetric, hasMeituanFlowRateMetric, isMeituanTrafficDataRow, isMeituanOrderDataRow, isMeituanAdsDataRow,
                 editOnlineDataItem, deleteOnlineDataItem, showOnlineDataEditModal, onlineDataEditForm, saveOnlineDataEdit,
                 toNumber, toFixedSafe, safeDivide, formatNumber, hasDisplayValue, formatOptionalNumber, formatOptionalPercent, calculateHhi, revenueConcentration, visitConcentration, autoFetchEnabled, autoFetchStatus, toggleAutoFetch, loadAutoFetchStatus,
@@ -55391,7 +55378,7 @@
                 onlineAnalysisFieldFactStatus, onlineAnalysisFieldFactStatusText, onlineAnalysisFieldFactStatusClass, onlineAnalysisFieldFactDetailText,
                 onlineAnalysisP0CaptureEvidenceStatus, onlineAnalysisP0CaptureEvidenceStatusText, onlineAnalysisP0CaptureEvidenceStatusClass, onlineAnalysisP0CaptureEvidenceDetailText,
                 loadOnlineAnalysisRows, refreshOnlineAnalysis, openOnlineAnalysisTab,
-                competitorEventFeed, competitorEventFeedLoading, competitorEventFeedError, competitorEventFeedEvents,
+                competitorEventFeed, competitorEventFeedLoading, competitorEventFeedError, competitorEventFeedEvents, competitorFutureWindow, competitorFutureWindowLoading, competitorFutureWindowError, competitorFutureWindowRows, competitorFutureWindowEmpty, competitorFutureWindowDayText, competitorFutureWindowPanelModel, loadCompetitorFutureWindow,
                 competitorEventFeedStayDate, competitorEventFeedDateScopeText, loadCompetitorEventFeed,
                 competitorEventPlatformText, competitorEventQualityText, competitorEventQualityClass,
                 competitorEventAvailabilityText, competitorEventTypeText, competitorEventTransitionText,
@@ -55533,10 +55520,11 @@
     if (!operatingIntelligenceComponents) {
         throw new Error('缺少经营问答与系统使用助手组件：operating-intelligence-components.js 未加载');
     }
-    const { operatingQuestionPanel, operatingQuestionConsultant } = operatingIntelligenceComponents;
+    const { operatingQuestionPanel, operatingQuestionConsultant, hotelDataAnalystProfile } = operatingIntelligenceComponents;
 
     const configureSuxiApp = (app) => {
         app.component('TermHelp', createSuxiTermHelpComponent(h));
+        app.component('HotelDataAnalystProfile', hotelDataAnalystProfile);
         app.component('Oq', operatingQuestionPanel);
         app.component('OperatingQuestionConsultant', operatingQuestionConsultant);
         app.component(

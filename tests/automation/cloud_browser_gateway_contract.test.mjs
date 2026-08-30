@@ -190,6 +190,7 @@ test('login reserves global capacity before async validation and readiness failu
         owner_user_id: 7,
         target_date: '2026-08-14',
         collection_kind: 'operating_target_today',
+        data_period: 'realtime_snapshot',
         access_mode: 'read_only',
       }),
     });
@@ -669,6 +670,7 @@ test('collection abort is loopback-token protected, exact-profile scoped, idempo
         owner_user_id: 7,
         target_date: '2026-08-14',
         collection_kind: 'operating_target_today',
+        data_period: 'realtime_snapshot',
         access_mode: 'read_only',
       }),
     });
@@ -860,9 +862,12 @@ test('protected Dingdandao collection window validates scope, stays read-only, a
         if (action !== 'validate_dingdandao_collection') throw new Error('unexpected_bridge_action');
         return {
           validated: true,
-          collection_kind: 'operating_target_today',
+          collection_kind: payload.target_date === '2026-07-26'
+            ? 'operating_target_historical'
+            : 'operating_target_today',
           access_mode: 'read_only',
           target_date: payload.target_date,
+          data_period: payload.data_period,
           tenant_id: payload.tenant_id,
           hotel_id: payload.hotel_id,
           owner_user_id: payload.owner_user_id,
@@ -905,6 +910,7 @@ test('protected Dingdandao collection window validates scope, stays read-only, a
       owner_user_id: 7,
       target_date: '2026-07-27',
       collection_kind: 'operating_target_today',
+      data_period: 'realtime_snapshot',
       access_mode: 'read_only',
     };
     const unauthorized = await fetch(`${base}/v1/collection/open`, {
@@ -972,6 +978,52 @@ test('protected Dingdandao collection window validates scope, stays read-only, a
     const finalHealth = await fetch(`${base}/health`).then((response) => response.json());
     assert.equal(finalHealth.active_browser_sessions, 0);
 
+    const historicalBody = {
+      ...body,
+      target_date: '2026-07-26',
+      collection_kind: 'operating_target_historical',
+      data_period: 'historical_daily',
+    };
+    const historicalResponse = await fetch(`${base}/v1/collection/open`, {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${token}`,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify(historicalBody),
+    });
+    assert.equal(historicalResponse.status, 201);
+    const historicalOpened = await historicalResponse.json();
+    assert.equal(historicalOpened.collection_kind, 'operating_target_historical');
+    const historicalClose = await fetch(`${base}/v1/collection/close`, {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${token}`,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        collection_session_id: historicalOpened.collection_session_id,
+        profile_id: historicalBody.profile_id,
+        platform: historicalBody.platform,
+        outcome: 'completed',
+      }),
+    });
+    assert.equal(historicalClose.status, 200);
+
+    const unsupportedPms = await fetch(`${base}/v1/collection/open`, {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${token}`,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        ...historicalBody,
+        platform: 'meituan_cloud_pms',
+      }),
+    });
+    assert.equal(unsupportedPms.status, 422);
+    assert.equal((await unsupportedPms.json()).reason, 'collection_scope_invalid');
+
     const otaReceipt = await fetch(`${base}/v1/collection/receipt`, {
       method: 'POST',
       headers: {
@@ -1031,6 +1083,7 @@ test('OTA collection window requires an exact data source and exposes only contr
           access_mode: 'read_only',
           data_source_id: payload.data_source_id,
           target_date: payload.target_date,
+          data_period: payload.data_period,
           tenant_id: payload.tenant_id,
           hotel_id: payload.hotel_id,
           owner_user_id: payload.owner_user_id,
@@ -1064,6 +1117,7 @@ test('OTA collection window requires an exact data source and exposes only contr
       owner_user_id: 7,
       target_date: '2026-07-27',
       collection_kind: 'ota_channel_profile',
+      data_period: 'realtime_snapshot',
       access_mode: 'read_only',
     };
     const missingSource = await fetch(`${base}/v1/collection/open`, {
@@ -1117,6 +1171,8 @@ test('OTA collection window requires an exact data source and exposes only contr
       owner_user_id: body.owner_user_id,
       data_source_id: body.data_source_id,
       target_date: body.target_date,
+      data_period: body.data_period,
+      collection_kind: body.collection_kind,
       close_receipt_id: closedPayload.receipt_id,
       close_receipt_hash: closedPayload.receipt_hash,
       source_method: 'cloud_browser_profile',
@@ -1131,7 +1187,11 @@ test('OTA collection window requires an exact data source and exposes only contr
       headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
       body: JSON.stringify(resultBody),
     });
-    assert.equal(receiptResponse.status, 201);
+    assert.equal(
+      receiptResponse.status,
+      201,
+      JSON.stringify(await receiptResponse.clone().json()),
+    );
     const acceptedReceipt = await receiptResponse.json();
     const readbackResponse = await fetch(`${base}/v1/receipts/${acceptedReceipt.receipt_id}`, {
       headers: { authorization: `Bearer ${token}` },
@@ -1182,6 +1242,7 @@ test('legacy OTA target-date lease remains profile scoped without a data source 
           collection_kind: 'ota_target_date',
           access_mode: 'read_only',
           target_date: payload.target_date,
+          data_period: payload.data_period,
           tenant_id: payload.tenant_id,
           hotel_id: payload.hotel_id,
           owner_user_id: payload.owner_user_id,
@@ -1214,6 +1275,7 @@ test('legacy OTA target-date lease remains profile scoped without a data source 
       owner_user_id: 7,
       target_date: '2026-07-27',
       collection_kind: 'ota_target_date',
+      data_period: 'realtime_snapshot',
       access_mode: 'read_only',
     };
     const openedResponse = await fetch(`${base}/v1/collection/open`, {

@@ -41,7 +41,7 @@ const systemUsageGuideHelpers = sliceBetween(
 const systemUsageGuideComponent = sliceBetween(
   operatingIntelligenceComponents,
   "const operatingQuestionConsultant = {",
-  'return Object.freeze({ operatingQuestionPanel, operatingQuestionConsultant });',
+  'return Object.freeze({ operatingQuestionPanel, operatingQuestionConsultant, hotelDataAnalystProfile });',
 );
 
 test('unified Agent operating question saves and performs an exact second readback', () => {

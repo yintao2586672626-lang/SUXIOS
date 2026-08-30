@@ -3630,6 +3630,8 @@ final class OperatingQuestionService
             throw new RuntimeException('经营问题按ID回读内容摘要校验失败（question_readback_digest_mismatch）');
         }
         $row['readback_verified'] = true;
+        $row['persistence_status'] = 'readback_verified';
+        $row['analysis_quality_receipt'] = (new HotelDataAnalystQualityReceiptService())->evaluate($row);
         return $row;
     }
 

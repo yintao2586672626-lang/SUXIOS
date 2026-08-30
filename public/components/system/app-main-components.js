@@ -574,7 +574,7 @@
         }
         return component;
     };
-    const operatingOpportunityLabScript = 'components/system/operating-opportunity-lab.js?v=20260826-daily-one-thing-h28c8446f9e';
+    const operatingOpportunityLabScript = 'components/system/operating-opportunity-lab.js?v=20260830-review-fixes-h524ba2faa9';
     const OperatingOpportunityLabAsync = systemComponents.OperatingOpportunityLabBody || Vue.defineAsyncComponent({
         loader: () => loadOnlineDataComponentScript(operatingOpportunityLabScript)
             .then(() => requireSystemComponent('OperatingOpportunityLabBody')),
@@ -2517,7 +2517,97 @@
         },
     };
 
-        return Object.freeze({ AiDecisionQualityDetails, OnlineTruthSummary, DualOtaAcceptanceReceipt, DualOtaPageVerificationPanel, resolveRevenueCockpitIntentLifecycle, parseOperationEvidenceNumber, parseOptionalOperationEvidenceNumber, operationEvidenceFirstText, operationEvidenceCleanObject, operationEvidenceLocalTimestamp, normalizeOperationEvidenceDateTime, normalizeOperationReviewStatus, RevenueCockpitOpportunityDetails, RevenueCockpitSnapshotStatus, RevenueCockpitActionRestoreStatus, onlineDataComponents, loadOnlineDataComponentScript, readOnlineDataComponent, requireOnlineDataComponent, systemComponents, CtripOrderAnalysisPanel, requireSystemComponent, operatingOpportunityLabScript, OperatingOpportunityLab, platformAutoPanelsScript, ctripProfileFieldConfigPanelScript, competitorDeviceManagementScript, dataConfigDialogsScript, automationCollectionContractScript, PlatformAutoSettingsPanels, PlatformAutoSecondaryPanels, CtripProfileFieldConfigPanel, CompetitorDeviceManagement, DataConfigDialogs, aiDailyReportTaskPositiveInteger, aiDailyReportModelIsLimited, normalizeAiDailyReportGenerationTask, formatAiDailyReportGenerationStage, resolveAiDailyReportGenerationOutcome, pollAiDailyReportGenerationTask, SessionProofNotice, LocalCollectorLoginHandoff, PmsRealtimeSyncResult, HotelThreeSourceOnboardingPanel, OperatingLoopAuthority, ManagerCapabilityPanel });
+    const OperatingNetworkReplicationList = {
+        name: 'OperatingNetworkReplicationList',
+        inheritAttrs: false,
+        emits: ['restore'],
+        props: {
+            replications: { type: Array, default: () => [] },
+            label: { type: Function, default: null },
+            dataStatus: { type: String, default: 'ok' },
+            unavailableCount: { type: Number, default: 0 },
+        },
+        render() {
+            const rows = Array.isArray(this.replications) ? this.replications : [];
+            const content = rows.length
+                ? rows.map(replication => h('button', {
+                    key: replication?.id,
+                    type: 'button',
+                    onClick: () => this.$emit('restore', replication),
+                }, this.label ? this.label(replication) : `复制草稿 #${replication?.id || '-'}`))
+                : [h('span', this.dataStatus === 'ok' ? '暂无复制草稿' : '复制草稿未完整取得')];
+            if (this.dataStatus !== 'ok') {
+                content.unshift(h('p', {
+                    class: 'mb-2 text-xs text-amber-700',
+                    'data-testid': 'operating-network-replication-gap',
+                }, `状态 ${this.dataStatus} · 未返回 ${Math.max(0, Number(this.unavailableCount || 0))} 条`));
+            }
+            return h('div', { 'data-testid': 'operating-network-existing-replications' }, content);
+        },
+    };
+
+    const MeituanSearchKeywordWorkbench = {
+        name: 'MeituanSearchKeywordWorkbench',
+        inheritAttrs: false,
+        emits: ['view'],
+        props: {
+            rows: { type: Array, default: () => [] },
+            formatRow: { type: Function, default: null },
+        },
+        render() {
+            const rows = Array.isArray(this.rows) ? this.rows : [];
+            return h('div', { 'data-testid': 'meituan-search-keyword-workbench' }, rows.length
+                ? rows.map(item => h('button', {
+                    key: item?.id,
+                    type: 'button',
+                    onClick: () => this.$emit('view', item),
+                }, this.formatRow ? this.formatRow(item) : String(item?.dimension || '搜索词')))
+                : [h('p', '暂无搜索词事实')]);
+        },
+    };
+
+    const SimulationHeroActions = {
+        name: 'SimulationHeroActions',
+        inheritAttrs: false,
+        emits: ['update:hotelId', 'run', 'refresh'],
+        props: {
+            hotelId: { type: [String, Number], default: '' },
+            hotels: { type: Array, default: () => [] },
+            loading: { type: Boolean, default: false },
+            hotelValid: { type: Boolean, default: false },
+        },
+        render() {
+            const options = [h('option', { value: '' }, '选择酒店'), ...this.hotels.map(hotel => h('option', {
+                key: hotel?.id,
+                value: hotel?.id,
+            }, String(hotel?.name || hotel?.id || '未命名酒店')))];
+            return h('div', { class: 'flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between' }, [
+                h('div', [
+                    h('h2', { class: 'text-2xl font-bold' }, '智算·量化模拟'),
+                    h('p', { class: 'mt-1 text-sm text-cyan-100' }, '示例假设 · 未验证；预填值不是经营事实。'),
+                    h('select', {
+                        value: this.hotelId,
+                        'data-testid': 'simulation-hotel-selector',
+                        onChange: event => this.$emit('update:hotelId', event?.target?.value || ''),
+                    }, options),
+                ]),
+                h('button', {
+                    type: 'button',
+                    disabled: this.loading || !this.hotelValid,
+                    class: 'flex items-center justify-center gap-2 rounded-lg border border-white/20 bg-white/15 px-4 py-2 text-white transition hover:bg-white/20 disabled:opacity-50',
+                    onClick: () => this.$emit('run'),
+                }, [h('i', { class: 'fas fa-calculator' }), h('span', this.loading ? '生成中...' : '运行三情景模拟')]),
+                h('button', {
+                    type: 'button',
+                    disabled: this.loading,
+                    class: 'flex items-center justify-center gap-2 rounded-lg border border-white/20 bg-white/10 px-4 py-2 text-white transition hover:bg-white/15 disabled:opacity-50',
+                    onClick: () => this.$emit('refresh'),
+                }, [h('i', { class: 'fas fa-history' }), h('span', '刷新历史')]),
+            ]);
+        },
+    };
+
+        return Object.freeze({ AiDecisionQualityDetails, OnlineTruthSummary, DualOtaAcceptanceReceipt, DualOtaPageVerificationPanel, resolveRevenueCockpitIntentLifecycle, parseOperationEvidenceNumber, parseOptionalOperationEvidenceNumber, operationEvidenceFirstText, operationEvidenceCleanObject, operationEvidenceLocalTimestamp, normalizeOperationEvidenceDateTime, normalizeOperationReviewStatus, RevenueCockpitOpportunityDetails, RevenueCockpitSnapshotStatus, RevenueCockpitActionRestoreStatus, onlineDataComponents, loadOnlineDataComponentScript, readOnlineDataComponent, requireOnlineDataComponent, systemComponents, CtripOrderAnalysisPanel, requireSystemComponent, operatingOpportunityLabScript, OperatingOpportunityLab, platformAutoPanelsScript, ctripProfileFieldConfigPanelScript, competitorDeviceManagementScript, dataConfigDialogsScript, automationCollectionContractScript, PlatformAutoSettingsPanels, PlatformAutoSecondaryPanels, CtripProfileFieldConfigPanel, CompetitorDeviceManagement, DataConfigDialogs, aiDailyReportTaskPositiveInteger, aiDailyReportModelIsLimited, normalizeAiDailyReportGenerationTask, formatAiDailyReportGenerationStage, resolveAiDailyReportGenerationOutcome, pollAiDailyReportGenerationTask, SessionProofNotice, LocalCollectorLoginHandoff, PmsRealtimeSyncResult, HotelThreeSourceOnboardingPanel, OperatingLoopAuthority, ManagerCapabilityPanel, OperatingNetworkReplicationList, MeituanSearchKeywordWorkbench, SimulationHeroActions });
     };
 
     const exportedFactory = Object.freeze({ create });

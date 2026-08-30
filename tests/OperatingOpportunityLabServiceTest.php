@@ -11,6 +11,22 @@ use Tests\Support\RouteContractSource;
 
 final class OperatingOpportunityLabServiceTest extends TestCase
 {
+    public function testOverviewRequiresAnExplicitAuthenticatedOwnerForPersonalization(): void
+    {
+        $method = new \ReflectionMethod(OperatingOpportunityLabService::class, 'overview');
+        self::assertSame(4, $method->getNumberOfRequiredParameters());
+        $approvalSource = (string)file_get_contents(
+            __DIR__ . '/../app/service/OperatingOpportunityApprovalService.php'
+        );
+        self::assertStringContainsString(
+            '$this->lab->overview($tenantId, $hotelId, $businessDate, $actorId)',
+            $approvalSource
+        );
+        self::assertStringNotContainsString('int $ownerId = 1', (string)file_get_contents(
+            __DIR__ . '/../app/service/OperatingOpportunityLabService.php'
+        ));
+    }
+
     private const MIGRATION = __DIR__ . '/../database/migrations/20260822_zzz_create_operating_opportunity_runs.sql';
 
     public function testCatalogExposesFiveUserVisibleFeaturesWithoutExternalWriteAuthority(): void
@@ -151,6 +167,45 @@ final class OperatingOpportunityLabServiceTest extends TestCase
         $assert->invoke($service, $run);
     }
 
+    public function testDamagedHistoryIsQuarantinedWithoutHidingVerifiedRows(): void
+    {
+        $service = new OperatingOpportunityLabService();
+        $digest = new \ReflectionMethod(OperatingOpportunityLabService::class, 'digest');
+        $project = new \ReflectionMethod(OperatingOpportunityLabService::class, 'projectDailyHistoryRows');
+        $input = ['business_date' => '2026-08-28', 'source_digest' => str_repeat('a', 64)];
+        $result = ['status' => 'draft', 'selected' => ['problem' => '补齐携程事实']];
+        $valid = [
+            'id' => 7,
+            'tenant_id' => 80,
+            'system_hotel_id' => 80,
+            'feature_key' => 'daily_one_thing',
+            'business_date' => '2026-08-28',
+            'source_quality_status' => 'readback_verified',
+            'source_reference' => 'dual_ota_field_closure#abc',
+            'input_json' => json_encode($input, JSON_THROW_ON_ERROR),
+            'result_json' => json_encode($result, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR),
+            'input_digest' => $digest->invoke($service, $input),
+            'result_digest' => $digest->invoke($service, $result),
+            'created_by' => 1,
+            'created_at' => '2026-08-29 03:45:18',
+        ];
+        $damaged = $valid;
+        $damaged['id'] = 6;
+        $damaged['result_digest'] = str_repeat('0', 64);
+
+        $projection = $project->invoke($service, [$damaged, $valid]);
+
+        self::assertCount(1, $projection['rows']);
+        self::assertSame(7, $projection['rows'][0]['id']);
+        self::assertSame('readback_verified', $projection['rows'][0]['record_readback_status']);
+        self::assertSame([[
+            'id' => 6,
+            'business_date' => '2026-08-28',
+            'status' => 'integrity_failed',
+            'reason_code' => 'daily_one_thing_digest_mismatch',
+        ]], $projection['errors']);
+    }
+
     public function testManualInputsKeepFormalGateClosedButExposeFourProvisionalCalculations(): void
     {
         $service = new OperatingOpportunityLabService();
@@ -266,6 +321,18 @@ final class OperatingOpportunityLabServiceTest extends TestCase
         self::assertStringContainsString("'operation.execute'", $controller);
         self::assertStringContainsString('$this->service->evaluateAndSave(', $controller);
         self::assertStringContainsString('计算结果已保存并完成精确回读', $controller);
+        self::assertStringContainsString(
+            "Route::post('/daily-preview/feedback', 'OperatingOpportunity/dailyPreviewFeedback')",
+            $routes
+        );
+        self::assertStringContainsString('recordDailyPreviewFeedback(', $controller);
+        self::assertStringContainsString("'operation.view'", $controller);
+        $service = (string)file_get_contents(__DIR__ . '/../app/service/OperatingOpportunityLabService.php');
+        self::assertStringContainsString('DailyOneThingPersonalizationService', $service);
+        self::assertStringContainsString("'personalized_today_preview' => \$personalizedPriority", $service);
+        self::assertStringContainsString("'hotel_shared_daily_item_changed' => false", $service);
+        self::assertStringContainsString("'execution_intent_created' => false", $service);
+        self::assertStringContainsString("'external_write_count' => 0", $service);
     }
 
     public function testCanonicalDigestIsStableAcrossObjectKeyOrderAndReadbackRecomputesContent(): void

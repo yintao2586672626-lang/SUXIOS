@@ -21,6 +21,7 @@ $options = getopt('', [
     'owner-user-id:',
     'profile-id:',
     'target-date::',
+    'run-mode::',
     'gateway-url::',
     'cdp-url::',
     'control-token-file::',
@@ -28,12 +29,23 @@ $options = getopt('', [
     'no-push',
     'fresh-observation',
 ]);
-$today = (new DateTimeImmutable('now', new DateTimeZone('Asia/Shanghai')))
-    ->format('Y-m-d');
+$now = new DateTimeImmutable('now', new DateTimeZone('Asia/Shanghai'));
+$today = $now->format('Y-m-d');
+$previousBusinessDay = $now->modify('-1 day')->format('Y-m-d');
 $hotelId = positiveInt($options['hotel-id'] ?? null, 'hotel_id_invalid');
 $ownerUserId = positiveInt($options['owner-user-id'] ?? null, 'owner_user_id_invalid');
 $profileId = opaqueId((string)($options['profile-id'] ?? ''), 'cbp_', 'profile_id_invalid');
 $targetDate = trim((string)($options['target-date'] ?? $today));
+$runMode = strtolower(trim((string)($options['run-mode'] ?? '')));
+if ($runMode === '') {
+    $runMode = $targetDate === $previousBusinessDay ? 'daily' : 'realtime';
+}
+$historicalCollection = $runMode === 'daily';
+$dataPeriod = $historicalCollection ? 'historical_daily' : 'realtime_snapshot';
+$collectionKind = $historicalCollection
+    ? 'operating_target_historical'
+    : 'operating_target_today';
+$collectionMode = $historicalCollection ? 'operating_indicators' : 'full_diagnostic';
 $gatewayUrl = rtrim(trim((string)($options['gateway-url'] ?? 'http://127.0.0.1:8787')), '/');
 $cdpUrl = rtrim(trim((string)($options['cdp-url'] ?? 'http://127.0.0.1:9223')), '/');
 $tokenFile = trim((string)($options['control-token-file']
@@ -43,7 +55,10 @@ $noPush = array_key_exists('no-push', $options);
 $freshObservation = array_key_exists('fresh-observation', $options);
 
 if (!validDate($targetDate)
-    || $targetDate !== $today
+    || !in_array($targetDate, [$today, $previousBusinessDay], true)
+    || !in_array($runMode, ['daily', 'realtime'], true)
+    || ($runMode === 'daily' && $targetDate !== $previousBusinessDay)
+    || ($runMode === 'realtime' && $targetDate !== $today)
     || $gatewayUrl !== 'http://127.0.0.1:8787'
     || !preg_match('#^http://127\.0\.0\.1:[1-9][0-9]{1,4}$#D', $cdpUrl)
     || !in_array($tokenFile, [
@@ -121,7 +136,8 @@ try {
         'hotel_id' => $hotelId,
         'owner_user_id' => $ownerUserId,
         'target_date' => $targetDate,
-        'collection_kind' => 'operating_target_today',
+        'collection_kind' => $collectionKind,
+        'data_period' => $dataPeriod,
         'access_mode' => 'read_only',
     ]);
     if (($opened['status'] ?? '') !== 'collection_open'
@@ -131,6 +147,11 @@ try {
         || (int)($opened['hotel_id'] ?? 0) !== $hotelId
         || (int)($opened['owner_user_id'] ?? 0) !== $ownerUserId
         || (string)($opened['target_date'] ?? '') !== $targetDate
+        || (string)($opened['collection_kind'] ?? '') !== $collectionKind
+        || (string)($opened['data_period'] ?? '') !== $dataPeriod
+        || (string)($opened['source_scope'] ?? '') !== ($historicalCollection
+            ? DingdandaoOperatingTargetCaptureService::HISTORICAL_SOURCE_SCOPE
+            : DingdandaoOperatingTargetCaptureService::SOURCE_SCOPE)
     ) {
         throw new RuntimeException('dingdandao_collection_gateway_open_unverified');
     }
@@ -145,7 +166,8 @@ try {
         $root . '/scripts/dingdandao_cloud_capture.mjs',
         $cdpUrl,
         $targetDate,
-        $expectedProviderHotelName
+        $expectedProviderHotelName,
+        $collectionMode
     );
     if (($collector['status'] ?? '') !== 'captured_unverified'
         || !is_array($collector['capture'] ?? null)
@@ -245,6 +267,8 @@ try {
         'captured_by' => (int)$capture['captured_by'],
         'captured_at' => (string)$capture['captured_at'],
         'fresh_observation' => $freshObservation,
+        'run_mode' => $runMode,
+        'data_period' => $dataPeriod,
         'provider' => DingdandaoOperatingTargetCaptureService::PROVIDER,
         'identity_status' => 'matched',
         'reconciliation_status' => 'matched',
@@ -257,7 +281,9 @@ try {
             'revision_no' => (int)($targetSync['revision_no'] ?? 0),
             'send_eligible' => ($targetSync['send_eligible'] ?? false) === true,
         ],
-        'source_scope' => DingdandaoOperatingTargetCaptureService::SOURCE_SCOPE,
+        'source_scope' => $historicalCollection
+            ? DingdandaoOperatingTargetCaptureService::HISTORICAL_SOURCE_SCOPE
+            : DingdandaoOperatingTargetCaptureService::SOURCE_SCOPE,
         'detail_row_count' => (int)($capture['detail_row_count'] ?? 0),
         'sensitive_values_exposed' => false,
         'message_sent' => in_array(
@@ -363,7 +389,8 @@ function runCollector(
     string $script,
     string $cdpUrl,
     string $targetDate,
-    string $hotelName
+    string $hotelName,
+    string $collectionMode
 ): array {
     $command = [
         $nodeBinary,
@@ -372,7 +399,7 @@ function runCollector(
         '--cdp-url=' . $cdpUrl,
         '--target-date=' . $targetDate,
         '--expected-hotel-name=' . $hotelName,
-        '--collection-mode=full_diagnostic',
+        '--collection-mode=' . $collectionMode,
         '--timeout-ms=15000',
     ];
     $pipes = [];

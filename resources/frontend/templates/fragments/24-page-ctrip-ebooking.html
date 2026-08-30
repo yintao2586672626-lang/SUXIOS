@@ -906,6 +906,8 @@
                                         <div v-if="competitorEventFeed?.truncated" data-testid="ctrip-competitor-event-feed-truncated" class="mt-2 text-xs text-amber-800">仅返回最新事件，当前按部分证据处理。</div>
                                     </section>
 
+                                    <ctrip-competitor-future-window-panel data-testid="ctrip-competitor-future-window" :model="competitorFutureWindowPanelModel"></ctrip-competitor-future-window-panel>
+
                                     <div class="rounded-lg border border-[#e5dcc8] bg-[#fcfaf5] px-3 py-2 text-xs leading-5 text-[#6f572f]">数据边界：仅使用已保存且质量可用的携程 OTA 证据；缺失、未验证、非同口径价格和无回读事件不进入经营判断。</div>
                                     </div>
                                 </div>

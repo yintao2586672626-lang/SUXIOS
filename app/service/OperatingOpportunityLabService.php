@@ -70,11 +70,15 @@ final class OperatingOpportunityLabService
 
     public function __construct(
         private ?DailyOneThingService $dailyOneThing = null,
-        private ?DailyOneThingInputService $dailyInput = null
+        private ?DailyOneThingInputService $dailyInput = null,
+        private ?DailyOneThingPersonalizationService $dailyPersonalization = null
     )
     {
         $this->dailyOneThing ??= new DailyOneThingService();
         $this->dailyInput ??= new DailyOneThingInputService();
+        $this->dailyPersonalization ??= new DailyOneThingPersonalizationService(
+            $this->dailyOneThing
+        );
     }
 
     /** @return array<int,array<string,mixed>> */
@@ -165,6 +169,42 @@ final class OperatingOpportunityLabService
         $this->assertScope($tenantId, $hotelId, $actorUserId);
         $this->assertSchemaReady();
         $businessDate = $this->validDate($businessDate);
+        return Db::transaction(function () use (
+            $tenantId,
+            $hotelId,
+            $actorUserId,
+            $businessDate,
+            $idempotencyKey
+        ): array {
+        $lockedHotel = Db::name('hotels')
+            ->field('id,tenant_id,status')
+            ->where('id', $hotelId)
+            ->where('tenant_id', $tenantId)
+            ->lock(true)
+            ->find();
+        if (!is_array($lockedHotel) || (int)($lockedHotel['status'] ?? 0) !== 1) {
+            throw new RuntimeException('每日唯一事项酒店范围锁定失败');
+        }
+        $canonical = $this->latestDailyPriorityRun($tenantId, $hotelId, $businessDate);
+        if (is_array($canonical)) {
+            $intent = $this->readDailyExecutionIntent($tenantId, $hotelId, (int)$canonical['id'])
+                ?? $this->ensureDailyExecutionIntent(
+                    $canonical,
+                    (array)($canonical['result'] ?? []),
+                    $actorUserId
+                );
+            return [
+                'run' => $canonical,
+                'replayed' => true,
+                'readback_verified' => true,
+                'execution_intent' => $intent,
+                'execution_intent_id' => (int)($intent['id'] ?? 0),
+                'execution_task_count' => count((array)($intent['tasks'] ?? [])),
+                'lifecycle_status' => (string)($intent['action_management']['lifecycle']['status'] ?? 'pending_approval'),
+                'external_action_triggered' => false,
+                'external_write_count' => 0,
+            ];
+        }
         unset($idempotencyKey);
         $sourceInput = $this->dailyInput->build(
             $tenantId,
@@ -232,10 +272,97 @@ final class OperatingOpportunityLabService
             'external_action_triggered' => false,
             'external_write_count' => 0,
         ];
+        });
+    }
+
+    /**
+     * Background preparation may create the first pending-approval item, but
+     * it must never replace an already frozen item for the same business day.
+     * Later fact changes are reported for the operator to inspect.
+     *
+     * @return array<string,mixed>
+     */
+    public function ensureDailyPriorityForAutomation(
+        int $tenantId,
+        int $hotelId,
+        int $actorUserId,
+        string $businessDate
+    ): array {
+        $this->assertScope($tenantId, $hotelId, $actorUserId);
+        $this->assertSchemaReady();
+        $businessDate = $this->validDate($businessDate);
+        $existing = $this->latestDailyPriorityRun($tenantId, $hotelId, $businessDate);
+        if ($existing === null) {
+            $created = $this->saveDailyPriority(
+                $tenantId,
+                $hotelId,
+                $actorUserId,
+                $businessDate,
+                'automation'
+            );
+            return $created + [
+                'automation_status' => 'created_pending_approval',
+                'existing_item_preserved' => false,
+                'source_changed' => false,
+            ];
+        }
+
+        $intent = $this->readDailyExecutionIntent(
+            $tenantId,
+            $hotelId,
+            (int)$existing['id']
+        );
+        if ($intent === null) {
+            $intent = $this->ensureDailyExecutionIntent(
+                $existing,
+                (array)($existing['result'] ?? []),
+                $actorUserId
+            );
+        }
+
+        $savedSourceDigest = strtolower(trim((string)($existing['input']['source_digest'] ?? '')));
+        $currentSourceDigest = '';
+        $sourceStatus = 'source_unavailable';
+        try {
+            $current = $this->dailyInput->build(
+                $tenantId,
+                $hotelId,
+                $businessDate,
+                $actorUserId
+            );
+            $currentSourceDigest = strtolower(trim((string)($current['source_digest'] ?? '')));
+            $sourceStatus = (string)($current['strict_fact_status'] ?? 'source_unavailable');
+        } catch (\Throwable) {
+            // The frozen item remains the canonical daily instruction. Source
+            // availability is reported without rewriting its lineage.
+        }
+        $sourceChanged = preg_match('/^[a-f0-9]{64}$/D', $savedSourceDigest) === 1
+            && preg_match('/^[a-f0-9]{64}$/D', $currentSourceDigest) === 1
+            && !hash_equals($savedSourceDigest, $currentSourceDigest);
+
+        return [
+            'run' => $existing,
+            'replayed' => true,
+            'readback_verified' => true,
+            'execution_intent' => $intent,
+            'execution_intent_id' => (int)($intent['id'] ?? 0),
+            'execution_task_count' => count((array)($intent['tasks'] ?? [])),
+            'lifecycle_status' => (string)($intent['action_management']['lifecycle']['status'] ?? 'pending_approval'),
+            'automation_status' => $sourceChanged
+                ? 'existing_item_preserved_source_changed'
+                : 'existing_item_restored',
+            'existing_item_preserved' => true,
+            'source_changed' => $sourceChanged,
+            'saved_source_digest' => $savedSourceDigest !== '' ? $savedSourceDigest : null,
+            'current_source_digest' => $currentSourceDigest !== '' ? $currentSourceDigest : null,
+            'current_source_status' => $sourceStatus,
+            'external_action_triggered' => false,
+            'external_write_count' => 0,
+        ];
     }
 
     /** @return array<string,mixed> */
-    public function overview(int $tenantId, int $hotelId, string $businessDate, int $ownerId = 1): array
+    public function overview(int $tenantId, int $hotelId, string $businessDate, int $ownerId): array
     {
         $this->assertScope($tenantId, $hotelId, $ownerId);
         $this->assertSchemaReady();
@@ -246,10 +373,20 @@ final class OperatingOpportunityLabService
             $strictFactReady ? (array)($sourceInput['candidates'] ?? []) : [],
             $businessDate
         );
+        $personalizedPriority = $this->dailyPersonalization->select(
+            $strictFactReady ? (array)($sourceInput['candidates'] ?? []) : [],
+            $businessDate,
+            $tenantId,
+            $ownerId,
+            $hotelId
+        );
         if (!$strictFactReady) {
             $priority['status'] = 'blocked_by_source_unavailable';
             $priority['headline'] = '严格事实来源暂不可读取，已阻止保存和送审';
             $priority['requires_human_approval'] = false;
+            $personalizedPriority['status'] = 'blocked_by_source_unavailable';
+            $personalizedPriority['headline'] = '严格事实来源暂不可读取，个性化预览未生成';
+            $personalizedPriority['requires_human_approval'] = false;
         }
         $savedPriorityRun = $this->latestDailyPriorityRun($tenantId, $hotelId, $businessDate);
         $currentSourceDigest = (string)($sourceInput['source_digest'] ?? '');
@@ -283,6 +420,7 @@ final class OperatingOpportunityLabService
             ->limit(30)
             ->select()
             ->toArray();
+        $historyReadback = $this->projectDailyHistoryRows($historyRows);
 
         return [
             'contract_version' => self::CONTRACT_VERSION,
@@ -292,6 +430,8 @@ final class OperatingOpportunityLabService
             'catalog' => $this->catalog(),
             'today' => $today,
             'today_preview' => $priority,
+            'personalized_today_preview' => $personalizedPriority,
+            'personalization_receipt' => (array)($personalizedPriority['personalization_receipt'] ?? []),
             'today_saved_run' => $savedPriorityRun,
             'today_execution_intent' => $dailyIntent,
             'today_execution_intent_id' => (int)($dailyIntent['id'] ?? 0),
@@ -305,12 +445,13 @@ final class OperatingOpportunityLabService
                         ? ($dailyIntent === null ? 'saved_without_lifecycle' : 'saved_current')
                         : 'saved_stale')),
             'latest_runs' => array_values($latestRuns),
-            'history' => array_map(fn(array $row): array => $this->publicRun($row), $historyRows),
+            'history' => $historyReadback['rows'],
+            'history_readback_errors' => $historyReadback['errors'],
             'source_contract' => DailyOneThingInputService::CONTRACT_VERSION,
             'source_digest' => $currentSourceDigest,
             'strict_fact_status' => (string)($sourceInput['strict_fact_status'] ?? 'source_unavailable'),
             'source_errors' => array_values((array)($sourceInput['source_errors'] ?? [])),
-            'scope_notice' => '每日候选只来自当前酒店、当前营业日的严格事实、已保存问题或明确缺口；页面只展示最终一项。',
+            'scope_notice' => '每日候选只来自当前酒店、当前营业日的严格事实、已保存问题或明确缺口；个人预览只在最高四维基础并列组内调整，不改写酒店共享正式事项。',
             'boundaries' => [
                 'automatic_approval' => false,
                 'automatic_execution' => false,
@@ -320,6 +461,93 @@ final class OperatingOpportunityLabService
                 'automatic_wecom_message' => false,
                 'external_write_count_before_approval' => 0,
             ],
+        ];
+    }
+
+    /** @return array<string,mixed> */
+    public function recordDailyPreviewFeedback(
+        int $tenantId,
+        int $hotelId,
+        int $actorUserId,
+        string $businessDate,
+        string $expectedSelectionDigest,
+        string $expectedContextDigest,
+        string $expectedDecisionDigest,
+        string $feedbackStatus,
+        string $reasonCode,
+        string $idempotencyKey
+    ): array {
+        $this->assertScope($tenantId, $hotelId, $actorUserId);
+        $this->assertSchemaReady();
+        $businessDate = $this->validDate($businessDate);
+        foreach ([
+            'expected_selection_digest' => $expectedSelectionDigest,
+            'expected_context_digest' => $expectedContextDigest,
+            'expected_decision_digest' => $expectedDecisionDigest,
+        ] as $field => $digest) {
+            if (preg_match('/^[a-f0-9]{64}$/D', strtolower(trim($digest))) !== 1) {
+                throw new InvalidArgumentException($field . ' 无效');
+            }
+        }
+        $sourceInput = $this->dailyInput->build(
+            $tenantId,
+            $hotelId,
+            $businessDate,
+            $actorUserId
+        );
+        $this->assertDailySourceReady($sourceInput);
+        $preview = $this->dailyPersonalization->select(
+            (array)($sourceInput['candidates'] ?? []),
+            $businessDate,
+            $tenantId,
+            $actorUserId,
+            $hotelId
+        );
+        $selected = is_array($preview['selected'] ?? null) ? $preview['selected'] : [];
+        $receipt = is_array($preview['personalization_receipt'] ?? null)
+            ? $preview['personalization_receipt']
+            : [];
+        if ($selected === []
+            || !hash_equals(
+                strtolower(trim($expectedSelectionDigest)),
+                (string)($selected['content_digest'] ?? '')
+            )
+            || !hash_equals(
+                strtolower(trim($expectedContextDigest)),
+                (string)($receipt['context_digest'] ?? '')
+            )
+            || !hash_equals(
+                strtolower(trim($expectedDecisionDigest)),
+                (string)($receipt['decision_digest'] ?? '')
+            )
+        ) {
+            throw new RuntimeException('每日事项个性化预览已变化，请刷新后重新反馈', 409);
+        }
+        $feedback = $this->dailyPersonalization->recordFeedback(
+            $tenantId,
+            $actorUserId,
+            $hotelId,
+            $businessDate,
+            $selected,
+            $receipt,
+            (string)$sourceInput['source_digest'],
+            $feedbackStatus,
+            $reasonCode,
+            $idempotencyKey
+        );
+        if (($feedback['readback_verified'] ?? false) !== true) {
+            throw new RuntimeException('每日事项个性化反馈未完成精确回读');
+        }
+        return $feedback + [
+            'system_hotel_id' => $hotelId,
+            'business_date' => $businessDate,
+            'selected_candidate_key' => (string)$selected['candidate_key'],
+            'selection_digest' => (string)$selected['content_digest'],
+            'context_digest' => (string)$receipt['context_digest'],
+            'decision_digest' => (string)$receipt['decision_digest'],
+            'hotel_shared_daily_item_changed' => false,
+            'execution_intent_created' => false,
+            'external_write_count' => 0,
         ];
     }
 
@@ -927,6 +1155,32 @@ final class OperatingOpportunityLabService
             ->order('id', 'desc')
             ->find();
         return is_array($row) ? $this->publicRun($row) : null;
+    }
+
+    /**
+     * One damaged historical row must remain visible as an integrity error but
+     * cannot hide a newer verified daily item or the rest of the history.
+     *
+     * @param array<int,array<string,mixed>> $rows
+     * @return array{rows:array<int,array<string,mixed>>,errors:array<int,array<string,mixed>>}
+     */
+    private function projectDailyHistoryRows(array $rows): array
+    {
+        $projected = [];
+        $errors = [];
+        foreach ($rows as $row) {
+            try {
+                $projected[] = $this->publicRun($row);
+            } catch (\Throwable) {
+                $errors[] = [
+                    'id' => (int)($row['id'] ?? 0),
+                    'business_date' => (string)($row['business_date'] ?? ''),
+                    'status' => 'integrity_failed',
+                    'reason_code' => 'daily_one_thing_digest_mismatch',
+                ];
+            }
+        }
+        return ['rows' => $projected, 'errors' => $errors];
     }
 
     /** @param array<int,array<string,mixed>> $runs @return array<int,int> */

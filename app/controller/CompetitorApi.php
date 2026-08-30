@@ -9,6 +9,7 @@ use app\model\CompetitorPriceLog;
 use app\model\OperationLog;
 use app\service\CompetitorDeviceAuthService;
 use app\service\CompetitorEventFeedService;
+use app\service\CompetitorFutureWindowService;
 use app\service\CompetitorManualObservationService;
 use app\service\FixedWindowRateLimiter;
 use app\service\HotelScopeService;
@@ -92,6 +93,54 @@ class CompetitorApi extends Base
             ]);
             return $this->error('竞争事件读取失败', 500, [
                 'reason' => 'competitor_event_feed_read_failed',
+            ]);
+        }
+    }
+
+    public function futureWindow(): Response
+    {
+        $this->requireHotel();
+        $rawSystemHotelId = $this->request->get(
+            'system_hotel_id',
+            $this->request->get('store_id', '')
+        );
+        if (!is_scalar($rawSystemHotelId)
+            || preg_match('/^[1-9][0-9]*$/D', trim((string)$rawSystemHotelId)) !== 1
+        ) {
+            return $this->error('system_hotel_id/store_id must be a positive integer', 422);
+        }
+        $systemHotelId = (int)$rawSystemHotelId;
+        $scope = new HotelScopeService();
+        if (!$this->currentUser
+            || !$scope->canAccessHotel(
+                $this->currentUser,
+                $systemHotelId,
+                'can_view_online_data'
+            )
+        ) {
+            return $this->error('无权查看此门店的未来竞争事实', 403);
+        }
+        try {
+            $result = (new CompetitorFutureWindowService())->build(
+                $systemHotelId,
+                $this->request->get('platform', 'ctrip'),
+                trim((string)$this->request->get('start_date', date('Y-m-d'))),
+                (int)$this->request->get('days', CompetitorFutureWindowService::DEFAULT_DAYS),
+                trim((string)$this->request->get('collected_at_end', ''))
+            );
+            $message = (string)($result['status'] ?? '') === 'empty'
+                ? '未来入住日暂无匹配的竞争事实'
+                : '未来入住日竞争事实矩阵已读取';
+            return $this->success($result, $message);
+        } catch (\InvalidArgumentException $exception) {
+            return $this->error($exception->getMessage(), 422);
+        } catch (\Throwable $exception) {
+            \think\facade\Log::error('Competitor future window read failed.', [
+                'exception_type' => get_debug_type($exception),
+                'system_hotel_id' => $systemHotelId,
+            ]);
+            return $this->error('未来竞争事实读取失败', 500, [
+                'reason' => 'competitor_future_window_read_failed',
             ]);
         }
     }

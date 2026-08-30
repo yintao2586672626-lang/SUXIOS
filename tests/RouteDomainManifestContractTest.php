@@ -8,8 +8,8 @@ use Tests\Support\RouteContractSource;
 
 final class RouteDomainManifestContractTest extends TestCase
 {
-    private const EXTRACTED_ROUTE_SURFACE_COUNT = 125;
-    private const EXTRACTED_ROUTE_SURFACE_SHA256 = 'dedd6a8580657a9ff62ed26a9fd9ab3e644ab04404d3ea157dcc80d706cb39ce';
+    private const EXTRACTED_ROUTE_SURFACE_COUNT = 129;
+    private const EXTRACTED_ROUTE_SURFACE_SHA256 = '75d2a7a5a0105890c833715e65ccd584296b0f8fd8dc70e6ce93588f2652b550';
 
     private const EXTRACTED_GROUP_PREFIXES = [
         'api/ai-config',
@@ -126,9 +126,12 @@ final class RouteDomainManifestContractTest extends TestCase
 
         self::assertSame([
             ['get', '/overview', 'OperatingOpportunity/overview'],
+            ['get', '/weekly-plan/latest', 'OperatingOpportunity/weeklyPlanLatest'],
+            ['get', '/weekly-plan/snapshots/:id', 'OperatingOpportunity/weeklyPlanRead'],
             ['post', '/runs/:id/pending-approval', 'OperatingOpportunity/pendingApproval'],
             ['get', '/runs/:id', 'OperatingOpportunity/read'],
             ['post', '/evaluate', 'OperatingOpportunity/evaluate'],
+            ['post', '/daily-preview/feedback', 'OperatingOpportunity/dailyPreviewFeedback'],
             ['post', '/priority', 'OperatingOpportunity/priority'],
         ], $actualRoutes);
     }

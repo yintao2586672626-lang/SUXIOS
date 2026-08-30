@@ -34,6 +34,16 @@ final class OperatingNetworkService
     /** @var array<string,array<string,bool>> */
     private array $tableColumnCache = [];
 
+    /** @var null|\Closure(int,int,array<int,int>):array<string,mixed> */
+    private ?\Closure $replicationReadResolver;
+
+    public function __construct(?callable $replicationReadResolver = null)
+    {
+        $this->replicationReadResolver = $replicationReadResolver === null
+            ? null
+            : \Closure::fromCallable($replicationReadResolver);
+    }
+
     /** @var array<string,string> */
     public const PROFILE_DIMENSIONS = [
         'hotel_type_and_scale' => '酒店类型和体量',
@@ -198,6 +208,7 @@ final class OperatingNetworkService
                 'onboarding' => $this->missingOnboarding('operating_profile_table_missing'),
                 'comparable_hotels' => [],
                 'verified_sops' => [],
+                'replications' => $this->emptyReplicationList('migration_required'),
                 'network_asset_summary' => $this->emptyNetworkAssetSummary('migration_required'),
                 'hotel_options' => $this->hotelOptions($tenantId, $hotelIds),
                 'data_gaps' => [['code' => 'operating_profile_table_missing', 'message' => '酒店经营画像表尚未启用。']],
@@ -212,16 +223,112 @@ final class OperatingNetworkService
             : $this->comparableHotels($tenantId, $hotelId, $hotelIds, $profile);
         $onboarding = $this->onboarding($tenantId, $hotelId, $profile, $comparables, $operatingLoop);
         $verifiedSops = $this->verifiedSops($tenantId, $hotelIds, $hotelId);
+        $replications = $this->targetReplicationList($tenantId, $hotelId, $hotelIds);
+        $dataGaps = $this->profileDataGaps($profile);
+        $dataStatus = 'ok';
+        if (($replications['data_status'] ?? '') === 'migration_required') {
+            $dataStatus = 'migration_required';
+            $dataGaps[] = [
+                'code' => 'operating_sop_replication_table_missing',
+                'message' => 'SOP复制草稿表尚未启用，复制与恢复入口保持阻塞。',
+            ];
+        } elseif (($replications['data_status'] ?? '') !== 'ok') {
+            $dataStatus = 'partial';
+            $dataGaps[] = [
+                'code' => 'operating_sop_replication_readback_partial',
+                'message' => '部分复制草稿因来源店权限变化、截断或回读失败而未返回。',
+            ];
+        }
         return [
-            'data_status' => 'ok',
+            'data_status' => $dataStatus,
             'profile' => $profile,
             'onboarding' => $onboarding,
             'comparable_hotels' => $comparables,
             'verified_sops' => $verifiedSops,
+            'replications' => $replications,
             'network_asset_summary' => $this->networkAssetSummary($tenantId, $hotelIds),
             'hotel_options' => $this->hotelOptions($tenantId, $hotelIds),
-            'data_gaps' => $this->profileDataGaps($profile),
+            'data_gaps' => $dataGaps,
             'boundaries' => $this->boundaries(),
+        ];
+    }
+
+    /** @param list<int> $hotelIds @return array<string,mixed> */
+    private function targetReplicationList(int $tenantId, int $targetHotelId, array $hotelIds): array
+    {
+        if (!$this->tableExists(OperatingSopService::REPLICATION_TABLE)) {
+            return $this->emptyReplicationList('migration_required');
+        }
+        $baseQuery = Db::name(OperatingSopService::REPLICATION_TABLE)
+            ->where('tenant_id', $tenantId)
+            ->where('target_hotel_id', $targetHotelId)
+            ->whereNull('deleted_at');
+        $matchedTotal = (int)(clone $baseQuery)->count();
+        $query = (clone $baseQuery)->whereIn('source_hotel_id', $hotelIds);
+        $accessibleTotal = (int)(clone $query)->count();
+        $limit = 50;
+        $rows = $query->order('id', 'desc')->limit($limit)->select()->toArray();
+        $list = [];
+        $failures = [];
+        foreach ($rows as $row) {
+            $replicationId = (int)($row['id'] ?? 0);
+            if ($replicationId <= 0) {
+                continue;
+            }
+            try {
+                $list[] = $this->readReplicationForOverview($replicationId, $tenantId, $hotelIds);
+            } catch (RuntimeException $exception) {
+                if (!$this->isDegradableReplicationReadbackFailure($exception)) {
+                    throw $exception;
+                }
+                $failures[] = [
+                    'replication_id' => $replicationId,
+                    'status' => 'unavailable',
+                    'reason_code' => 'replication_exact_readback_failed',
+                ];
+            }
+        }
+        $unavailableCount = max(0, $matchedTotal - $accessibleTotal) + count($failures);
+        $truncated = $accessibleTotal > count($rows);
+        return [
+            'data_status' => $unavailableCount > 0 || $truncated ? 'partial' : 'ok',
+            'list' => $list,
+            'matched_total' => $matchedTotal,
+            'accessible_total' => $accessibleTotal,
+            'returned_count' => count($list),
+            'unavailable_count' => $unavailableCount,
+            'unavailable_rows' => $failures,
+            'truncated' => $truncated,
+        ];
+    }
+
+    /** @param list<int> $hotelIds @return array<string,mixed> */
+    private function readReplicationForOverview(int $replicationId, int $tenantId, array $hotelIds): array
+    {
+        if ($this->replicationReadResolver !== null) {
+            return ($this->replicationReadResolver)($replicationId, $tenantId, $hotelIds);
+        }
+
+        return (new OperatingSopService())->readReplication($replicationId, $tenantId, $hotelIds);
+    }
+
+    private function isDegradableReplicationReadbackFailure(RuntimeException $exception): bool
+    {
+        return $exception->getMessage() === 'operating SOP replication not found';
+    }
+
+    /** @return array<string,mixed> */
+    private function emptyReplicationList(string $status): array
+    {
+        return [
+            'data_status' => $status,
+            'list' => [],
+            'matched_total' => 0,
+            'accessible_total' => 0,
+            'returned_count' => 0,
+            'unavailable_count' => 0,
+            'unavailable_rows' => [],
+            'truncated' => false,
         ];
     }
 

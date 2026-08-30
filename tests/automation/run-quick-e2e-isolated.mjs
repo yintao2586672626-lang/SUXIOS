@@ -87,6 +87,7 @@ const uiOnly = process.argv.includes('--ui-only');
 const moduleOnly = process.argv.includes('--module-only');
 const publicPageOnly = process.argv.includes('--public-page-only');
 const operatingQuestionOnly = process.argv.includes('--operating-question-only');
+const dailyPersonalizationOnly = process.argv.includes('--daily-personalization-only');
 const transitionOnly = process.argv.includes('--transition-only');
 const stabilityOnly = process.argv.includes('--stability-only');
 const fullClick = process.argv.includes('--full-click') || process.argv.includes('--full-click-bounded');
@@ -131,10 +132,13 @@ if (!/^[a-zA-Z0-9._-]+$/.test(performanceLabel)) {
 if (!['0', '1'].includes(performanceEnforceBudget)) {
   throw new Error('--performance-enforce-budget must be 0 or 1');
 }
-const specs = operatingQuestionOnly
+const specs = dailyPersonalizationOnly
+  ? ['tests/automation/daily_one_thing_personalization.spec.js']
+  : operatingQuestionOnly
   ? [
       'tests/automation/operating_question_action_card.spec.js',
       'tests/automation/operating_question_floating.spec.js',
+      'tests/automation/hotel_data_analyst_role.spec.js',
     ]
   : stabilityOnly
   ? [
@@ -158,7 +162,11 @@ const specs = operatingQuestionOnly
           : temporalOnly
   ? ['tests/automation/temporal-axis.spec.js']
   : businessOnly
-  ? ['tests/automation/business-chains.spec.js']
+  ? [
+      'tests/automation/business-chains.spec.js',
+      'tests/automation/daily_one_thing_personalization.spec.js',
+      'tests/automation/hotel_data_analyst_role.spec.js',
+    ]
   : dailyOnly
     ? ['tests/automation/daily-regression.spec.js']
     : [

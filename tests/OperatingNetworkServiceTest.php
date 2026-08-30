@@ -8,6 +8,7 @@ use app\service\OperationManagementService;
 use app\service\OperatingSopService;
 use app\service\operation\OperationEffectReviewService;
 use PHPUnit\Framework\TestCase;
+use RuntimeException;
 use think\App;
 use think\facade\Config;
 use think\facade\Db;
@@ -176,6 +177,62 @@ final class OperatingNetworkServiceTest extends TestCase
         );
     }
 
+    public function testExpectedReplicationNotFoundBecomesPartialWithoutHidingItsCount(): void
+    {
+        $replicationId = $this->insertReplicationReadbackFixture();
+        $network = new OperatingNetworkService(
+            static function (int $id, int $tenantId, array $hotelIds) use ($replicationId): array {
+                self::assertSame($replicationId, $id);
+                self::assertSame(10, $tenantId);
+                self::assertSame([20, 21], $hotelIds);
+                throw new RuntimeException('operating SOP replication not found');
+            }
+        );
+
+        $overview = $network->overview(10, 21, [20, 21]);
+
+        self::assertSame('partial', $overview['data_status']);
+        self::assertSame('partial', $overview['replications']['data_status']);
+        self::assertSame(1, $overview['replications']['matched_total']);
+        self::assertSame(1, $overview['replications']['unavailable_count']);
+        self::assertSame('replication_exact_readback_failed', $overview['replications']['unavailable_rows'][0]['reason_code']);
+    }
+
+    public function testUnexpectedReplicationReadFailureIsRethrownInsteadOfReportedAsPartial(): void
+    {
+        $this->insertReplicationReadbackFixture();
+        $network = new OperatingNetworkService(
+            static function (): array {
+                throw new RuntimeException('database query failed');
+            }
+        );
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('database query failed');
+
+        $network->overview(10, 21, [20, 21]);
+    }
+
+    private function insertReplicationReadbackFixture(): int
+    {
+        return (int)Db::name(OperatingSopService::REPLICATION_TABLE)->insertGetId([
+            'tenant_id' => 10,
+            'source_sop_version_id' => 9001,
+            'source_hotel_id' => 20,
+            'target_hotel_id' => 21,
+            'status' => 'draft_pending_target_validation',
+            'target_validation_status' => 'pending',
+            'draft_json' => '{}',
+            'target_fact_refs_json' => '[]',
+            'data_gaps_json' => '[]',
+            'content_digest' => str_repeat('a', 64),
+            'created_by' => 7,
+            'created_at' => '2026-08-30 09:00:00',
+            'updated_at' => '2026-08-30 09:00:00',
+            'deleted_at' => null,
+        ]);
+    }
+
     public function testSixMatchesTwoMissingAndOneFailedCounterexampleRemainDraftOnly(): void
     {
         $network = new OperatingNetworkService();
@@ -209,6 +266,24 @@ final class OperatingNetworkServiceTest extends TestCase
         self::assertSame(0, $first['replication']['draft']['applicability_assessment']['counterexample_count']);
         self::assertFalse($first['write_boundaries']['automatic_execution']);
         self::assertFalse($first['write_boundaries']['ota_write']);
+
+        $targetOverview = $network->overview(10, 21, [20, 21, 22]);
+        self::assertSame('ok', $targetOverview['replications']['data_status']);
+        self::assertSame(1, $targetOverview['replications']['matched_total']);
+        self::assertSame(1, $targetOverview['replications']['returned_count']);
+        self::assertFalse($targetOverview['replications']['truncated']);
+        self::assertSame((int)$first['replication']['id'], (int)$targetOverview['replications']['list'][0]['id']);
+        self::assertSame(21, (int)$targetOverview['replications']['list'][0]['target_hotel_id']);
+        self::assertSame(0, $network->overview(10, 20, [20, 21, 22])['replications']['matched_total']);
+
+        $restrictedOverview = $network->overview(10, 21, [21, 22]);
+        self::assertSame('partial', $restrictedOverview['data_status']);
+        self::assertSame('partial', $restrictedOverview['replications']['data_status']);
+        self::assertSame(1, $restrictedOverview['replications']['matched_total']);
+        self::assertSame(0, $restrictedOverview['replications']['accessible_total']);
+        self::assertSame(1, $restrictedOverview['replications']['unavailable_count']);
+        self::assertSame([], $restrictedOverview['replications']['list']);
+        self::assertContains('operating_sop_replication_readback_partial', array_column($restrictedOverview['data_gaps'], 'code'));
 
         $failedLineage = $this->createFormalReplicationEffectReview(
             $network,

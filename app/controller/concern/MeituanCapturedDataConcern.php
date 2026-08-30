@@ -655,25 +655,27 @@ trait MeituanCapturedDataConcern
     private function normalizeMeituanCapturedSearchKeywordRow(array $item, array $context): ?array
     {
         $keyword = trim((string)$this->firstMeituanValue($item, ['keyword', 'searchKeyword', 'searchWord', 'name', 'dimension'], ''));
-        $dataValue = $this->meituanNumber($item, ['data_value', 'dataValue', 'value', 'heat', 'rank'], 0.0);
-        $impressions = (int)$this->meituanNumber($item, ['impressions', 'exposure', 'exposure_count', 'exposureCount', 'listExposure'], 0);
-        $clicks = (int)$this->meituanNumber($item, ['clicks', 'click_count', 'clickCount', 'detailExposure'], 0);
-        if ($keyword === '' && $dataValue <= 0 && $impressions <= 0 && $clicks <= 0) {
+        $dataValue = $this->nullableNumberFromKeys($item, ['data_value', 'dataValue', 'value', 'heat', 'rank']);
+        $impressionsValue = $this->nullableNumberFromKeys($item, ['impressions', 'exposure', 'exposure_count', 'exposureCount', 'listExposure']);
+        $clicksValue = $this->nullableNumberFromKeys($item, ['clicks', 'click_count', 'clickCount', 'detailExposure']);
+        $impressions = $impressionsValue !== null ? max(0, (int)$impressionsValue) : null;
+        $clicks = $clicksValue !== null ? max(0, (int)$clicksValue) : null;
+        if ($keyword === '' && $dataValue === null && $impressions === null && $clicks === null) {
             return null;
-        }
-        if ($dataValue <= 0 && $impressions > 0) {
-            $dataValue = (float)$impressions;
         }
 
         $dataDate = $this->normalizeOnlineDataDate($this->firstMeituanValue($item, ['data_date', 'dataDate', 'date', 'statDate', 'stat_date'], ''))
-            ?: ($context['default_data_date'] ?? date('Y-m-d'));
+            ?: $this->normalizeOnlineDataDate((string)($context['default_data_date'] ?? ''));
+        if ($dataDate === '') {
+            return null;
+        }
 
         return $this->baseMeituanCapturedRow($item, $context, [
             'data_date' => $dataDate,
-            'amount' => 0,
-            'quantity' => 0,
-            'book_order_num' => 0,
-            'comment_score' => 0,
+            'amount' => null,
+            'quantity' => null,
+            'book_order_num' => null,
+            'comment_score' => null,
             'data_value' => $dataValue,
             'data_type' => 'search_keyword',
             'dimension' => $keyword !== '' ? $keyword : 'search_keyword',

@@ -638,6 +638,8 @@
                                         <p v-if="!(operatingNetworkData?.verified_sops || []).length" class="mt-2 text-xs text-amber-700">当前租户的其他可访问酒店没有有效且已人工验证的正式 SOP，不会用候选或历史版本替代。</p>
                                         <p v-else-if="(operatingNetworkData?.verified_sops || []).some(sop => sop.replication_eligibility !== 'eligible_for_validation_draft')" class="mt-2 text-xs text-amber-700">标为“资料不全”的 SOP 缺少来源店权威经营闭环、适用画像、动作参数、成功/失败/停止条件或当前有效证据，不能选择用于复制。</p>
 
+                                        <operating-network-replication-list data-testid="operating-network-existing-replications" :replications="operatingNetworkData?.replications?.list || []" :data-status="operatingNetworkData?.replications?.data_status || 'unavailable'" :unavailable-count="operatingNetworkData?.replications?.unavailable_count || 0" :label="operatingNetworkReplicationLabel" @restore="restoreOperatingNetworkReplication"></operating-network-replication-list>
+
                                         <div v-if="operatingNetworkLastReplication" data-testid="operating-network-assessment" class="mt-4 rounded-lg border border-indigo-100 bg-white p-4">
                                             <div class="flex flex-wrap items-center justify-between gap-2">
                                                 <div class="text-sm font-medium text-gray-900">草稿 #{{ operatingNetworkLastReplication.id }} · {{ operatingNetworkLastReplication.status }}</div>

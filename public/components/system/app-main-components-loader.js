@@ -1,7 +1,7 @@
 (() => {
     'use strict';
 
-    const fullScript = 'components/system/app-main-components.js?v=20260826-manager-capability-daily-one-thing-h15ecbafdcb';
+    const fullScript = 'components/system/app-main-components.js?v=20260830-review-fixes-hf6b79a5ae8';
     let fullScriptPromise = null;
 
     const loadFullScript = () => {
@@ -256,6 +256,8 @@
             'CompetitorDeviceManagement', 'DataConfigDialogs', 'SessionProofNotice',
             'LocalCollectorLoginHandoff', 'PmsRealtimeSyncResult', 'HotelThreeSourceOnboardingPanel',
             'ManagerCapabilityPanel', 'OperatingOpportunityLab',
+            'OperatingNetworkReplicationList', 'MeituanSearchKeywordWorkbench',
+            'SimulationHeroActions',
             'RevenueCockpitOpportunityDetails', 'RevenueCockpitSnapshotStatus',
             'RevenueCockpitActionRestoreStatus',
         ];

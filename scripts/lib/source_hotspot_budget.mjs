@@ -47,6 +47,7 @@ export const SOURCE_HOTSPOT_BUDGETS = Object.freeze([
   { path: 'app/service/operation/OperationExecutionTenantConcern.php', max_lines: 1_050, boundary: 'tenant, hotel, actor, and execution ownership boundaries' },
   { path: 'app/service/operation/OperationExecutionPersistenceConcern.php', max_lines: 1_100, boundary: 'execution intent idempotency, persistence, normalization, and credential boundaries' },
   { path: 'app/service/operation/OperationActionLifecycleConcern.php', max_lines: 700, boundary: 'managed action cancellation and approval-target lifecycle projection' },
+  { path: 'app/service/operation/OperationExecutionAssigneeConcern.php', max_lines: 200, boundary: 'server-scoped current-assignee execution queue' },
   { path: 'app/service/concern/OtaLocalCollectorLeaseConcern.php', max_lines: 500, boundary: 'local collector lease ownership and recovery' },
   { path: 'app/service/concern/OtaLocalCollectorManualLoginConcern.php', max_lines: 250, boundary: 'manual Profile login resume identity contract' },
   { path: 'app/service/concern/AiDailyReportReadinessConcern.php', max_lines: 150, boundary: 'AI daily report authoritative-loop readiness' },

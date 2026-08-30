@@ -4,6 +4,8 @@ import test from 'node:test';
 import { readRouteContractSource } from '../../scripts/lib/route_contract_source.mjs';
 
 const appMain = readFileSync('public/app-main.js', 'utf8');
+const appMainComponents = readFileSync('public/components/system/app-main-components.js', 'utf8');
+const operationStatic = readFileSync('public/operation-static.js', 'utf8');
 const pageTemplate = readFileSync('resources/frontend/templates/fragments/20-page-knowledge-center.html', 'utf8');
 const routes = readRouteContractSource(process.cwd());
 const controller = readFileSync('app/controller/OperatingIntelligence.php', 'utf8');
@@ -66,6 +68,39 @@ test('profile, draft and review flows require strict readback and keep external 
   assert.match(networkService, /assertReplicationExecutionIntentCurrent/);
   assert.match(networkService, /network_asset_summary/);
   assert.match(networkService, /field_validated'\s*=>\s*false/);
+});
+
+test('saved replication drafts remain discoverable and recoverable after a hard refresh', () => {
+  assert.match(networkService, /\$replications\s*=\s*\$this->targetReplicationList/);
+  assert.match(networkService, /function targetReplicationList\(/);
+  assert.match(networkService, /where\('target_hotel_id', \$targetHotelId\)/);
+  assert.match(pageTemplate, /data-testid="operating-network-existing-replications"/);
+  assert.match(pageTemplate, /:data-status="operatingNetworkData\?\.replications\?\.data_status \|\| 'unavailable'"/);
+  assert.match(appMainComponents, /operating-network-replication-gap/);
+  assert.match(pageTemplate, /@restore="restoreOperatingNetworkReplication"/);
+  assert.match(appMain, /const restoreOperatingNetworkReplication = async/);
+  assert.match(operationStatic, /\/operation\/operating-sop-replications\/\$\{replicationId\}/);
+  assert.match(operationStatic, /复制草稿恢复身份或摘要不一致/);
+  assert.match(operationStatic, /await loadReviews\(replicationId\)/);
+
+  const loadStart = appMain.indexOf('const loadOperatingNetwork = async');
+  const loadEnd = appMain.indexOf('const changeOperatingNetworkHotel =', loadStart);
+  assert.ok(loadStart >= 0 && loadEnd > loadStart);
+  const loadFunction = appMain.slice(loadStart, loadEnd);
+  assert.doesNotMatch(loadFunction, /operatingNetworkLastReplication\.value = null/);
+  assert.doesNotMatch(loadFunction, /operatingNetworkReviews\.value = \[\]/);
+});
+
+test('replication recovery downgrades only the explicit not-found domain failure', () => {
+  const start = networkService.indexOf('private function targetReplicationList');
+  const end = networkService.indexOf('private function emptyReplicationList', start);
+  assert.ok(start >= 0 && end > start);
+  const targetRead = networkService.slice(start, end);
+  assert.match(targetRead, /catch \(RuntimeException \$exception\)/);
+  assert.match(targetRead, /isDegradableReplicationReadbackFailure\(\$exception\)/);
+  assert.match(targetRead, /throw \$exception/);
+  assert.doesNotMatch(targetRead, /catch \(\\Throwable/);
+  assert.match(networkService, /return \$exception->getMessage\(\) === 'operating SOP replication not found'/);
 });
 
 test('profile preview is read-only, hotel-scoped and remains unverified until explicit save', () => {

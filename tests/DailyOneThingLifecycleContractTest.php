@@ -47,6 +47,17 @@ final class DailyOneThingLifecycleContractTest extends TestCase
         self::assertSame(0, $card['boundaries']['external_write_count_before_approval']);
         self::assertContains('operating_opportunity_runs#901', $card['fact_refs']);
         self::assertSame($selected['content_digest'], $card['trace']['daily_selection_digest']);
+        self::assertSame(
+            $selected['recommendation_explanation'],
+            $card['recommendation_explanation']
+        );
+        self::assertSame(
+            'not_applied',
+            $card['recommendation_explanation']['personalization']['status']
+        );
+        self::assertFalse(
+            $card['recommendation_explanation']['personalization']['external_write_authorized']
+        );
         self::assertMatchesRegularExpression('/^[a-f0-9]{64}$/', $card['identity_digest']);
         self::assertMatchesRegularExpression('/^[a-f0-9]{64}$/', $card['content_digest']);
     }

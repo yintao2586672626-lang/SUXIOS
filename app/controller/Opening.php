@@ -30,7 +30,12 @@ class Opening extends Base
                 }
             }
 
-            $id = $this->service->createProject($input, (int)($this->currentUser->id ?? 0), $this->hotelScope());
+            $id = $this->service->createProject(
+                $input,
+                (int)($this->currentUser->id ?? 0),
+                $this->hotelScope(),
+                $this->isSuperAdmin()
+            );
             return $this->success(['id' => $id], '开业项目创建成功');
         } catch (Throwable $e) {
             return $this->error('创建开业项目失败：' . $e->getMessage(), 400);

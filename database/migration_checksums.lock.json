@@ -199,7 +199,14 @@
     "20260824_enforce_one_operation_execution_task_per_intent.sql": "20787fa910376050bd30554b41e33def54a176dc4615cd0a35a4689e1410f887",
     "20260825_add_wecom_inbound_processing_lease.sql": "40eeca9bea7dd17c25dc6b5fbfd50965d2d819a2ef2466553f9b84e3398c5e17",
     "20260825_create_ai_daily_report_broadcast_snapshots.sql": "fdd180f92362749c7f98dc6910ac6001a2acbfcd1979469294f0dca221944daa",
-    "20260826_add_ai_evaluation_run_reservation_lease.sql": "12076bdb5f262a379612cce624a9e156a1f9304aa117db01861d0a97bd39606a"
+    "20260826_add_ai_evaluation_run_reservation_lease.sql": "12076bdb5f262a379612cce624a9e156a1f9304aa117db01861d0a97bd39606a",
+    "20260829_a_create_hotel_data_analyst_feedbacks.sql": "fc4a138bac71bdbeca1f301aaa9f4fcc428ca2bfd09dd9ca88b7e6b846f8201e",
+    "20260829_create_operation_scheduled_review_scan_cursors.sql": "a3472745b20095681aa9206a9e80c3e49d171b1b0ba0a30e91e6e0e0c87df105",
+    "20260829_create_user_learning_memory.sql": "5fcfa486e414a043bcc1afc871172f41d346e59b3b6f007e3ad2cfe4fe4ec91f",
+    "20260829_create_weekly_operating_plan_snapshots.sql": "774cd8d3623a77337466b874d696f1d73b6b593c7c9e60d3e411c7b1c55a92a1",
+    "20260829_z_create_ai_suggestion_calibration.sql": "18fb3b46939c39e4d103c77ea5d31d4fcf0abd6636d7f9f625e216587948b507",
+    "20260829_zz_add_weekly_operating_plan_contract_version.sql": "5b17dbbb43db4b63b7a8e9b19025d8b89bbdea69a5e4df1c6e6e4cdc99b73d1a",
+    "20260829_zz_create_user_guidance_journeys.sql": "c1c01f611055fa3809cf987d0ce15e3923eb8a2e4d893ac3911382461ecb3987"
   },
   "frozen_sources": {
     "database/complaint_tables.sql": "0b691d925eca181aaffe7281e89855f662a2741fe92e7f673adedcbb4c630e66",

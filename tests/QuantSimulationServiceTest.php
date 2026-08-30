@@ -465,6 +465,10 @@ final class QuantSimulationServiceTest extends TestCase
         self::assertSame('unverified', $record['truth_context']['status']);
         self::assertSame('investment_scenario', $record['truth_context']['metric_scope']);
         self::assertSame([], $record['truth_context']['hotels']);
+        self::assertSame('legacy_read_only', $record['access_policy']['mode']);
+        self::assertTrue($record['access_policy']['hotel_binding_required']);
+        self::assertFalse($record['access_policy']['mutation_allowed']);
+        self::assertSame('legacy_hotel_binding_required', $record['access_policy']['reason_code']);
         self::assertSame(['not_applicable'], $record['truth_context']['platforms']);
         self::assertTrue($record['truth_context']['persistence']['stored']);
         self::assertTrue($record['truth_context']['persistence']['readback_verified']);
@@ -475,6 +479,42 @@ final class QuantSimulationServiceTest extends TestCase
         self::assertSame('user_input', $record['input_truth_context']['source_methods'][0]);
         self::assertSame('calculated', $record['scenarios'][0]['metric_truth']['monthlyRevenue']['calculation_status']);
         self::assertSame('missing', $record['scenarios'][0]['metric_truth']['paybackMonths']['calculation_status']);
+    }
+
+    public function testBoundHotelIsPreservedWithoutReportingTargetHotelMissing(): void
+    {
+        $service = new QuantSimulationService();
+        $input = $this->invokeNonPublic($service, 'normalizeInput', [array_merge(
+            $this->completeLegacyInput(),
+            ['hotel_id' => 7, 'input_source_status' => 'example_prefill_unverified']
+        )]);
+        $input['hotel_id'] = 7;
+        $input['system_hotel_id'] = 7;
+        $result = $this->invokeNonPublic($service, 'calculateSimulation', [$input]);
+        $record = $this->invokeNonPublic($service, 'formatRecord', [[
+            'id' => 19,
+            'project_name' => '绑定酒店人工情景',
+            'input_json' => json_encode($input, JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE),
+            'result_json' => json_encode($result, JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE),
+            'scenarios_json' => '[]',
+            'risk_hints_json' => '[]',
+            'monthly_net_cashflow' => $result['monthlyNetCashflow'],
+            'payback_months' => $result['paybackMonths'],
+            'risk_level' => $result['riskLevel'],
+            'created_by' => 9,
+            'created_at' => '2026-08-29 10:00:00',
+        ], true]);
+
+        self::assertSame(7, $record['truth_context']['hotel_id']);
+        self::assertSame('hotel_scoped', $record['access_policy']['mode']);
+        self::assertFalse($record['access_policy']['hotel_binding_required']);
+        self::assertNull($record['access_policy']['mutation_allowed']);
+        self::assertSame('hotel_capability_required', $record['access_policy']['reason_code']);
+        self::assertSame([['system_hotel_id' => 7]], $record['truth_context']['hotels']);
+        self::assertNotContains('target_hotel_missing', $record['truth_context']['data_gaps']);
+        self::assertContains('user_input_source_unverified', $record['truth_context']['data_gaps']);
+        self::assertSame('example_prefill_unverified', $record['input']['input_source_status']);
+        self::assertStringContainsString('已绑定目标门店', $record['truth_context']['failure_reason']);
     }
 
     public function testFormattedLegacyRecordDoesNotTurnMissingDerivedValuesIntoZero(): void

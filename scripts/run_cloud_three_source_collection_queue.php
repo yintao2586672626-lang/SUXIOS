@@ -55,6 +55,7 @@ echo json_encode(
 exit(in_array((string)($receipt['status'] ?? ''), [
     'all_hotels_saved_and_readback_verified',
     'no_eligible_plans',
+    'no_due_plans',
 ], true) ? 0 : 1);
 
 function queueFail(string $reason): never

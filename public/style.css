@@ -33,6 +33,32 @@
     background: linear-gradient(180deg, #1e3a5f 0%, #0f172a 100%);
     box-shadow: 4px 0 24px rgba(0,0,0,0.15);
 }
+
+/* Read-only future competitor fact window; scoped to the Ctrip workspace. */
+[data-testid="ctrip-competitor-future-window"] {
+    margin-top: .75rem;
+    padding: 1rem;
+    border: 1px solid #a7f3d0;
+    border-radius: .75rem;
+    background: #fff;
+    font-size: .75rem;
+    color: #374151;
+}
+[data-testid="ctrip-competitor-future-window"] h4 {
+    margin-bottom: .25rem;
+    font-size: .875rem;
+    font-weight: 600;
+    color: #111827;
+}
+[data-testid="ctrip-competitor-future-window-day"] {
+    max-height: 24rem;
+    margin-top: .75rem;
+    padding: .5rem 0;
+    overflow: auto;
+    white-space: pre-wrap;
+    border-block: 1px solid #e5e7eb;
+}
+[data-testid="ctrip-competitor-future-window-error"] { color: #b91c1c; }
 .sidebar-item {
     position: relative;
     transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);

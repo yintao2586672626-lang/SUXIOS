@@ -133,4 +133,39 @@ final class CloudAutomationContractTest extends TestCase
             );
         }
     }
+
+    public function testDailyAutomationPreparesPriorityAndTrustedBroadcastBeforeFullReportGate(): void
+    {
+        $source = (string)file_get_contents(
+            dirname(__DIR__) . '/app/service/CloudAutomationService.php'
+        );
+        $method = new ReflectionMethod(
+            \app\service\CloudAutomationService::class,
+            'runDaily'
+        );
+        $lines = explode("\n", $source);
+        $body = implode("\n", array_slice(
+            $lines,
+            max(0, $method->getStartLine() - 1),
+            $method->getEndLine() - $method->getStartLine() + 1
+        ));
+
+        self::assertStringContainsString('DailyOperatingPreparationService', $source);
+        self::assertStringContainsString('$this->dailyOperatingPreparationService->prepare(', $body);
+        self::assertStringContainsString("'operating_preparation' => \$operatingPreparation", $body);
+        self::assertLessThan(
+            strpos($body, "if (empty(\$health['can_generate_report']))"),
+            strpos($body, '$this->dailyOperatingPreparationService->prepare(')
+        );
+
+        $preparation = (string)file_get_contents(
+            dirname(__DIR__) . '/app/service/DailyOperatingPreparationService.php'
+        );
+        self::assertStringContainsString('ensureDailyPriorityForAutomation(', $preparation);
+        self::assertStringContainsString("'background'", $preparation);
+        self::assertStringContainsString("'external_write_count' => 0", $preparation);
+        self::assertStringContainsString("'external_message_count' => 0", $preparation);
+        self::assertStringContainsString("'automatic_approval' => false", $preparation);
+        self::assertStringContainsString("'automatic_execution' => false", $preparation);
+    }
 }

@@ -16,9 +16,12 @@ Route::group('api/operating-loop', function () {
 // calculation records or human pending approvals; none execute OTA/PMS actions.
 Route::group('api/operating-opportunities', function () {
     Route::get('/overview', 'OperatingOpportunity/overview');
+    Route::get('/weekly-plan/latest', 'OperatingOpportunity/weeklyPlanLatest');
+    Route::get('/weekly-plan/snapshots/:id', 'OperatingOpportunity/weeklyPlanRead');
     Route::post('/runs/:id/pending-approval', 'OperatingOpportunity/pendingApproval');
     Route::get('/runs/:id', 'OperatingOpportunity/read');
     Route::post('/evaluate', 'OperatingOpportunity/evaluate');
+    Route::post('/daily-preview/feedback', 'OperatingOpportunity/dailyPreviewFeedback');
     Route::post('/priority', 'OperatingOpportunity/priority');
 })->middleware(\app\middleware\Auth::class);
 
@@ -50,6 +53,7 @@ Route::group('api/operation', function () {
     Route::post('/execution-tasks/:id/operating-memory', 'OperationManagement/saveExecutionTaskOperatingMemory');
     Route::get('/closure-overview', 'OperationManagement/closureOverview');
     Route::get('/execution-flow', 'OperationManagement/executionFlow');
+    Route::get('/my-tasks', 'OperationManagement/myTasks');
     Route::get('/growth-archive/timeline', 'OperationManagement/growthArchiveTimeline');
     Route::post('/growth-archive/events', 'OperationManagement/createGrowthArchiveEvent');
     Route::post('/growth-archive/:id/annotations', 'OperationManagement/addGrowthArchiveAnnotation');

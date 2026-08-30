@@ -16,6 +16,7 @@ use InvalidArgumentException;
 final class DailyOneThingService
 {
     public const CONTRACT_VERSION = 'daily_one_thing.v2';
+    public const EXPERIENCE_VERSION = 'daily_one_thing.explainable.v3';
 
     /** @var list<string> */
     private const SOURCE_TYPES = ['strict_fact_signal', 'saved_question', 'explicit_data_gap'];
@@ -33,6 +34,79 @@ final class DailyOneThingService
      * @return array<string,mixed>
      */
     public function select(array $candidates, string $businessDate): array
+    {
+        $prepared = $this->prepare($candidates, $businessDate);
+        $businessDate = (string)$prepared['business_date'];
+        $eligible = (array)$prepared['eligible'];
+        $rejectedCount = (int)$prepared['rejected_candidate_count'];
+        $sourceCounts = (array)$prepared['source_counts'];
+
+        usort($eligible, static function (array $left, array $right): int {
+            foreach (['impact', 'urgency', 'evidence_strength'] as $dimension) {
+                $order = (int)$right['ranking'][$dimension] <=> (int)$left['ranking'][$dimension];
+                if ($order !== 0) {
+                    return $order;
+                }
+            }
+            $costOrder = (int)$left['ranking']['execution_cost']
+                <=> (int)$right['ranking']['execution_cost'];
+            if ($costOrder !== 0) {
+                return $costOrder;
+            }
+            return strcmp((string)$left['candidate_key'], (string)$right['candidate_key']);
+        });
+
+        $selected = $eligible[0] ?? null;
+        $baseTieGroupSize = $selected === null
+            ? 0
+            : count(array_filter(
+                $eligible,
+                static fn(array $candidate): bool => self::sameBaseRank(
+                    $candidate,
+                    $selected
+                )
+            ));
+        if ($selected !== null) {
+            $selected = $this->withRecommendationExplanation(
+                $selected,
+                $baseTieGroupSize
+            );
+        }
+        return [
+            'contract_version' => self::CONTRACT_VERSION,
+            'experience_version' => self::EXPERIENCE_VERSION,
+            'business_date' => $businessDate,
+            'status' => $selected === null ? 'no_eligible_item' : 'draft',
+            'headline' => $selected === null
+                ? '当前没有通过来源边界的每日事项'
+                : (string)$selected['problem'],
+            'selected' => $selected,
+            'candidate_count' => count($eligible),
+            'rejected_candidate_count' => $rejectedCount,
+            'source_counts' => $sourceCounts,
+            'selection_policy' => [
+                'dimensions' => self::RANKING_DIMENSIONS,
+                'order' => 'impact_desc_then_urgency_desc_then_evidence_strength_desc_then_execution_cost_asc_then_candidate_key',
+                'base_tie_group_size' => $baseTieGroupSize,
+                'personalization_position' => 'after_exact_base_rank_tie_before_candidate_key',
+                'returns_exactly_one_action' => $selected !== null,
+                'full_candidate_list_exposed' => false,
+            ],
+            'selection_boundary' => '候选只来自严格事实、已保存问题或明确数据缺口；排序只分配注意力，不是收入、概率或因果指标。',
+            'can_execute' => false,
+            'requires_human_approval' => true,
+            'external_write_performed' => false,
+        ];
+    }
+
+    /**
+     * Internal preparation contract for server-owned rankers. Controllers must
+     * never expose the returned eligible list to clients.
+     *
+     * @param list<array<string,mixed>> $candidates
+     * @return array<string,mixed>
+     */
+    public function prepare(array $candidates, string $businessDate): array
     {
         $businessDate = $this->validDate($businessDate);
         $eligible = [];
@@ -53,45 +127,123 @@ final class DailyOneThingService
             $sourceCounts[(string)$normalized['source_type']]++;
             $eligible[] = $normalized;
         }
-
-        usort($eligible, static function (array $left, array $right): int {
-            foreach (['impact', 'urgency', 'evidence_strength'] as $dimension) {
-                $order = (int)$right['ranking'][$dimension] <=> (int)$left['ranking'][$dimension];
-                if ($order !== 0) {
-                    return $order;
-                }
-            }
-            $costOrder = (int)$left['ranking']['execution_cost']
-                <=> (int)$right['ranking']['execution_cost'];
-            if ($costOrder !== 0) {
-                return $costOrder;
-            }
-            return strcmp((string)$left['candidate_key'], (string)$right['candidate_key']);
-        });
-
-        $selected = $eligible[0] ?? null;
         return [
-            'contract_version' => self::CONTRACT_VERSION,
+            'contract_version' => 'daily_one_thing_prepared.v1',
             'business_date' => $businessDate,
-            'status' => $selected === null ? 'no_eligible_item' : 'draft',
-            'headline' => $selected === null
-                ? '当前没有通过来源边界的每日事项'
-                : (string)$selected['problem'],
-            'selected' => $selected,
-            'candidate_count' => count($eligible),
+            'eligible' => $eligible,
             'rejected_candidate_count' => $rejectedCount,
             'source_counts' => $sourceCounts,
-            'selection_policy' => [
-                'dimensions' => self::RANKING_DIMENSIONS,
-                'order' => 'impact_desc_then_urgency_desc_then_evidence_strength_desc_then_execution_cost_asc_then_candidate_key',
-                'returns_exactly_one_action' => $selected !== null,
-                'full_candidate_list_exposed' => false,
-            ],
-            'selection_boundary' => '候选只来自严格事实、已保存问题或明确数据缺口；排序只分配注意力，不是收入、概率或因果指标。',
-            'can_execute' => false,
-            'requires_human_approval' => true,
-            'external_write_performed' => false,
+            'server_internal_only' => true,
         ];
+    }
+
+    /** @return array{impact:int,urgency:int,evidence_strength:int,execution_cost:int} */
+    public static function baseRankKey(array $candidate): array
+    {
+        $ranking = is_array($candidate['ranking'] ?? null)
+            ? $candidate['ranking']
+            : [];
+        return [
+            'impact' => (int)($ranking['impact'] ?? -1),
+            'urgency' => (int)($ranking['urgency'] ?? -1),
+            'evidence_strength' => (int)($ranking['evidence_strength'] ?? -1),
+            'execution_cost' => (int)($ranking['execution_cost'] ?? 101),
+        ];
+    }
+
+    public static function sameBaseRank(array $left, array $right): bool
+    {
+        return self::baseRankKey($left) === self::baseRankKey($right);
+    }
+
+    /** @return array<string,mixed> */
+    public function explainPreparedCandidate(array $candidate, int $baseTieGroupSize): array
+    {
+        if (preg_match('/^[a-f0-9]{64}$/D', (string)($candidate['content_digest'] ?? '')) !== 1
+            || !hash_equals((string)$candidate['content_digest'], self::digest($candidate))
+        ) {
+            throw new InvalidArgumentException('每日事项内部候选摘要无效');
+        }
+        return $this->withRecommendationExplanation(
+            $candidate,
+            max(1, $baseTieGroupSize)
+        );
+    }
+
+    /** @return array<string,mixed> */
+    private function withRecommendationExplanation(
+        array $selected,
+        int $baseTieGroupSize
+    ): array {
+        $factBasis = array_values(array_filter(
+            is_array($selected['fact_basis'] ?? null) ? $selected['fact_basis'] : [],
+            'is_array'
+        ));
+        $ranking = is_array($selected['ranking'] ?? null) ? $selected['ranking'] : [];
+        $reasons = is_array($ranking['reasons'] ?? null) ? $ranking['reasons'] : [];
+        $sourceRefs = array_values(array_unique(array_filter(array_map(
+            'strval',
+            array_merge(
+                (array)($selected['source']['fact_refs'] ?? []),
+                array_map(
+                    static fn(array $row): string => (string)($row['evidence_ref'] ?? ''),
+                    $factBasis
+                )
+            )
+        ))));
+        $sourceType = (string)($selected['source_type'] ?? '');
+        $sourceLabel = match ($sourceType) {
+            'explicit_data_gap' => '明确数据缺口',
+            'saved_question' => '已保存经营问题',
+            default => '严格事实信号',
+        };
+        $selected['recommendation_explanation'] = [
+            'contract_version' => 'daily_one_thing_explanation.v1',
+            'why_now' => [
+                'summary' => (string)($factBasis[0]['statement'] ?? (
+                    $sourceLabel . '需要在当前营业日优先处理。'
+                )),
+                'reason_code' => $sourceType === 'explicit_data_gap'
+                    ? 'current_business_date_explicit_data_gap'
+                    : ($sourceType === 'saved_question'
+                        ? 'current_business_date_saved_question'
+                        : 'current_business_date_strict_fact_signal'),
+                'source_refs' => $sourceRefs,
+            ],
+            'why_recommended' => [
+                'summary' => $baseTieGroupSize > 1
+                    ? '该事项位于最高四维业务并列组；公共基础结果使用稳定候选键确定唯一事项。'
+                    : '该事项在影响、紧迫性、证据强度和执行成本四维基础排序中最高。',
+                'reason_code' => $baseTieGroupSize > 1
+                    ? 'highest_base_rank_stable_tie_break'
+                    : 'highest_base_business_rank',
+                'base_rank' => self::baseRankKey($selected),
+                'base_tie_group_size' => max(1, $baseTieGroupSize),
+                'dimension_reasons' => [
+                    'impact' => (string)($reasons['impact'] ?? '按业务影响范围排序'),
+                    'urgency' => (string)($reasons['urgency'] ?? '按当前营业日紧迫程度排序'),
+                    'evidence_strength' => (string)($reasons['evidence_strength'] ?? '按来源证据强度排序'),
+                    'execution_cost' => (string)($reasons['execution_cost'] ?? '按人工执行成本排序'),
+                ],
+                'source_refs' => $sourceRefs,
+            ],
+            'personalization' => [
+                'status' => 'not_applied',
+                'reason_code' => 'hotel_shared_base_selection',
+                'summary' => '酒店共享正式事项只使用公共事实与基础业务排序；个人偏好不会被静默写入共享任务。',
+                'preference_refs' => [],
+                'feedback_refs' => [],
+                'effect_scope' => 'none',
+                'selection_changed' => false,
+                'facts_changed' => false,
+                'eligibility_changed' => false,
+                'permissions_changed' => false,
+                'approval_changed' => false,
+                'external_write_authorized' => false,
+            ],
+        ];
+        $selected['content_digest'] = self::digest($selected);
+        return $selected;
     }
 
     /** @param array<string,mixed> $candidate @return array<string,mixed> */

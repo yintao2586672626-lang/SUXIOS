@@ -1,9 +1,52 @@
 (() => {
     'use strict';
 
-    const fullScript = 'components/system/operating-intelligence-components.js?v=20260827-council-active-hfe2b72e091';
+    const fullScript = 'components/system/operating-intelligence-components.js?v=20260830-review-fixes-he57e00d407';
+    const analystScript = 'components/system/hotel-data-analyst-components.js?v=20260830-h7350d7b13d';
     const fullStyle = 'style.min.css';
     let fullScriptPromise = null;
+    let analystScriptPromise = null;
+
+    const loadAnalystScript = async () => {
+        if (window.SUXI_HOTEL_DATA_ANALYST_COMPONENTS?.create) {
+            return window.SUXI_HOTEL_DATA_ANALYST_COMPONENTS;
+        }
+        if (analystScriptPromise) return analystScriptPromise;
+        analystScriptPromise = new Promise((resolve, reject) => {
+            const resolvedSrc = new URL(analystScript, document.baseURI).href;
+            const existing = [...document.scripts].find(script => script.src === resolvedSrc);
+            const script = existing || document.createElement('script');
+            const finish = () => {
+                const factory = window.SUXI_HOTEL_DATA_ANALYST_COMPONENTS;
+                if (factory?.create) {
+                    script.dataset.suxiAssetLoaded = '1';
+                    resolve(factory);
+                    return;
+                }
+                analystScriptPromise = null;
+                script.remove();
+                reject(new Error('酒店数据分析师组件未完成注册'));
+            };
+            if (existing?.dataset?.suxiAssetLoaded === '1') {
+                finish();
+                return;
+            }
+            script.src = analystScript;
+            script.async = true;
+            script.dataset.suxiHotelDataAnalyst = analystScript;
+            script.addEventListener('load', finish, { once: true });
+            script.addEventListener('error', () => {
+                analystScriptPromise = null;
+                script.remove();
+                reject(new Error('酒店数据分析师组件加载失败'));
+            }, { once: true });
+            if (!existing) document.head.appendChild(script);
+        });
+        analystScriptPromise.catch(() => {
+            analystScriptPromise = null;
+        });
+        return analystScriptPromise;
+    };
 
     const loadFullScript = async () => {
         if (window.SUXI_OPERATING_INTELLIGENCE_COMPONENTS_FULL?.create) {
@@ -41,9 +84,10 @@
             if (!existing) document.head.appendChild(script);
         });
         const styleLoader = window.SUXI_LOAD_DEFERRED_AUTHENTICATED_ASSET;
-        fullScriptPromise = typeof styleLoader === 'function'
-            ? Promise.resolve(styleLoader(fullStyle)).then(startScriptLoad)
-            : startScriptLoad();
+        const styleReady = typeof styleLoader === 'function'
+            ? Promise.resolve(styleLoader(fullStyle))
+            : Promise.resolve();
+        fullScriptPromise = styleReady.then(loadAnalystScript).then(startScriptLoad);
         fullScriptPromise.catch(() => {
             fullScriptPromise = null;
         });
@@ -273,6 +317,7 @@
             },
         };
         return Object.freeze({
+            hotelDataAnalystProfile: buildLazyComponent('hotelDataAnalystProfile', panelLoading),
             operatingQuestionPanel: buildLazyComponent('operatingQuestionPanel', panelLoading),
             operatingQuestionConsultant: consultantGate,
         });

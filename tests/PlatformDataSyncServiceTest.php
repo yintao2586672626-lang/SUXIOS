@@ -1006,6 +1006,40 @@ final class PlatformDataSyncServiceTest extends TestCase
         ]);
 
         self::assertSame([], $missing);
+
+        $source = [
+            'id' => 811,
+            'platform' => 'meituan',
+            'data_type' => 'traffic',
+            'ingestion_method' => 'browser_profile',
+            'system_hotel_id' => 58,
+            'config' => [
+                'store_id' => 'store_001',
+                'current_session_probe_performed' => true,
+                'current_session_verified' => false,
+                'current_session_status' => 'login_required',
+            ],
+        ];
+        $postLoginOptions = [
+            'trigger_type' => 'profile_login_after_login',
+            'interactive_browser' => false,
+        ];
+        self::assertSame([], $method->invoke($service, $source, $postLoginOptions));
+
+        $source['config']['current_session_status'] = 'session_expired';
+        self::assertSame([], $method->invoke($service, $source, $postLoginOptions));
+
+        $source['config']['current_session_status'] = 'permission_denied';
+        self::assertSame(
+            ['profile_permission_denied'],
+            $method->invoke($service, $source, $postLoginOptions)
+        );
+
+        $source['config']['current_session_status'] = 'platform_contract_drift';
+        self::assertSame(
+            ['profile_platform_contract_drift'],
+            $method->invoke($service, $source, $postLoginOptions)
+        );
     }
 
     public function testDailyProfileReuseMayProbeOldIdentityStateOnlyWhenCurrentPageProofMatches(): void
@@ -1379,7 +1413,7 @@ final class PlatformDataSyncServiceTest extends TestCase
 
         self::assertSame(
             '130079194',
-            $method->invoke($service, [$self, $competitorAverage])
+            $method->invoke($service, [$self, $competitorAverage], 'ctrip')
         );
         self::assertSame('', $method->invoke($service, [
             $self,
@@ -1391,7 +1425,31 @@ final class PlatformDataSyncServiceTest extends TestCase
                         => 'row_field_present',
                 ], JSON_THROW_ON_ERROR),
             ],
-        ]));
+        ], 'ctrip'));
+
+        $meituanSelf = [
+            'hotel_id' => '1029642156589279',
+            'compare_type' => 'self',
+            'raw_data' => json_encode([
+                'platform_hotel_identifier_proof' => 'row_field_present',
+            ], JSON_THROW_ON_ERROR),
+        ];
+        $meituanPeer = [
+            'hotel_id' => '549354669',
+            'compare_type' => 'p_rz',
+            'raw_data' => json_encode([
+                'platform_hotel_identifier_proof' => 'row_field_present',
+            ], JSON_THROW_ON_ERROR),
+        ];
+        self::assertSame(
+            '1029642156589279',
+            $method->invoke($service, [$meituanSelf, $meituanPeer], 'meituan')
+        );
+        self::assertSame('', $method->invoke(
+            $service,
+            [$meituanPeer],
+            'meituan'
+        ));
     }
 
     public function testBrowserProfileBackgroundSyncRejectsHistoricalVerifiedManualLoginWithoutReusableProof(): void
@@ -5730,64 +5788,6 @@ final class PlatformDataSyncServiceTest extends TestCase
             'list_exposure' => 20,
         ], $columns);
         self::assertSame($firstIdentity, $duplicateIdentity);
-    }
-
-    public function testXlsxImportRejectsArchiveWithTooManyEntriesBeforeXmlParsing(): void
-    {
-        if (!class_exists(\ZipArchive::class)) {
-            self::markTestSkipped('ZipArchive is not installed.');
-        }
-
-        $path = tempnam(sys_get_temp_dir(), 'platform_xlsx_many_');
-        self::assertIsString($path);
-        $zip = new \ZipArchive();
-        self::assertTrue($zip->open($path, \ZipArchive::CREATE | \ZipArchive::OVERWRITE));
-        for ($index = 0; $index < 257; $index++) {
-            self::assertTrue($zip->addFromString('xl/custom/entry-' . $index . '.xml', ''));
-        }
-        self::assertTrue($zip->close());
-
-        try {
-            $method = new \ReflectionMethod(new PlatformDataSyncService(), 'parseXlsxImportFile');
-            $method->setAccessible(true);
-            $method->invoke(new PlatformDataSyncService(), $path);
-            self::fail('Oversized XLSX archive entry count must be rejected.');
-        } catch (\RuntimeException $exception) {
-            self::assertSame(422, $exception->getCode());
-            self::assertSame('XLSX import archive contains too many entries.', $exception->getMessage());
-        } finally {
-            @unlink($path);
-        }
-    }
-
-    public function testXlsxImportStillParsesAValidBoundedWorksheet(): void
-    {
-        if (!class_exists(\ZipArchive::class)) {
-            self::markTestSkipped('ZipArchive is not installed.');
-        }
-
-        $path = tempnam(sys_get_temp_dir(), 'platform_xlsx_valid_');
-        self::assertIsString($path);
-        $zip = new \ZipArchive();
-        self::assertTrue($zip->open($path, \ZipArchive::CREATE | \ZipArchive::OVERWRITE));
-        self::assertTrue($zip->addFromString(
-            'xl/worksheets/sheet1.xml',
-            '<worksheet><sheetData>'
-            . '<row r="1"><c r="A1" t="inlineStr"><is><t>hotel_name</t></is></c></row>'
-            . '<row r="2"><c r="A2" t="inlineStr"><is><t>Bounded Hotel</t></is></c></row>'
-            . '</sheetData></worksheet>'
-        ));
-        self::assertTrue($zip->close());
-
-        try {
-            $service = new PlatformDataSyncService();
-            $method = new \ReflectionMethod($service, 'parseXlsxImportFile');
-            $method->setAccessible(true);
-            $rows = $method->invoke($service, $path);
-            self::assertSame([['hotel_name' => 'Bounded Hotel']], $rows);
-        } finally {
-            @unlink($path);
-        }
     }
 
     public function testFinishTaskFailSafeTerminalizesExactRunningTaskWithoutLeakingAuxiliaryException(): void

@@ -379,6 +379,9 @@ final class ControllerRouteContractTest extends TestCase
 
         $strategy = $this->sourceWithoutPhpComments(__DIR__ . '/../app/controller/StrategySimulation.php');
         $quant = $this->sourceWithoutPhpComments(__DIR__ . '/../app/controller/Simulation.php');
+        self::assertStringContainsString("'investment.simulate'", $quant);
+        self::assertStringContainsString("'investment.view'", $quant);
+        self::assertStringContainsString('canAccessInvestmentRecord(', $quant);
         $publicDiagnosis = $this->sourceWithoutPhpComments(__DIR__ . '/../app/controller/concern/CtripCompetitiveOperationsConcern.php');
         self::assertMatchesRegularExpression('/createExecutionIntent\([\s\S]*?false,\s*null,\s*true\s*\)/', $strategy);
         self::assertMatchesRegularExpression('/createExecutionIntent\([\s\S]*?false,\s*null,\s*true\s*\)/', $quant);

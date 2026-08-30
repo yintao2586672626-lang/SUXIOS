@@ -609,7 +609,8 @@ final class WechatRobotDeliveryService
         array $reports,
         string $hotelName,
         string $startDate,
-        string $endDate
+        string $endDate,
+        array $weeklyPlan = []
     ): array {
         $lines = [
             '# 宿析OS 周度复盘摘要',
@@ -629,6 +630,25 @@ final class WechatRobotDeliveryService
                 $gapCount = count($this->reportDataGaps($report));
                 $lines[] = '- ' . $date . '：' . $summary . ($gapCount > 0 ? '（缺口 ' . $gapCount . ' 项）' : '');
             }
+        }
+        $lines[] = '';
+        $lines[] = '**下周唯一重点**';
+        if (($weeklyPlan['readback_verified'] ?? false) === true
+            && is_array($weeklyPlan['selected_focus'] ?? null)
+        ) {
+            $focus = $weeklyPlan['selected_focus'];
+            $lines[] = '- ' . $this->safeText(
+                (string)($focus['title'] ?? '等待可确认事项'),
+                160
+            );
+            $lines[] = '- 依据：' . $this->safeText(
+                (string)($focus['reason'] ?? '当前证据不足。'),
+                220
+            );
+            $lines[] = '- 周计划快照：#' . (int)($weeklyPlan['snapshot_id'] ?? 0)
+                . '；状态：' . $this->safeText((string)($weeklyPlan['status'] ?? 'unknown'), 30);
+        } else {
+            $lines[] = '- 周计划尚未完成保存与精确回读，不从消息正文临时推断重点。';
         }
         $lines[] = '';
         $lines[] = '> 本周报仅汇总已保存日报，不补齐缺失日期，不把 OTA 渠道证据扩展成全酒店财务事实。';

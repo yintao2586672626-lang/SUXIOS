@@ -466,6 +466,12 @@ window.SUXI_MEITUAN_STATIC = (() => {
     const isMeituanOrderDataRow = (item) => item?.source === 'meituan' && item?.data_type === 'order';
     const isMeituanReviewDataRow = (item) => item?.source === 'meituan' && ['review', 'comment', 'comments'].includes(item?.data_type);
     const isMeituanAdsDataRow = (item) => item?.source === 'meituan' && item?.data_type === 'advertising';
+    const isMeituanSearchKeywordDataRow = (item) => item?.source === 'meituan' && item?.data_type === 'search_keyword';
+    const buildMeituanSearchKeywordDisplayRow = (item) => {
+        const raw = parseMeituanOnlineRawObject(item?.raw_data);
+        const keywordLabel = [item?.dimension, raw?.keyword, raw?.searchKeyword, raw?.searchWord, raw?.name].map(value => String(value || '').trim()).find(Boolean) || '';
+        return { ...item, keyword_label: keywordLabel, keyword_value: getOnlineDataMetricMaybeNumber(item, ['data_value', 'value', 'heat', 'rank']), keyword_impressions: getMeituanExposureMetricValue(item), keyword_clicks: getMeituanClickMetricValue(item) };
+    };
     const getMeituanReviewScoreMetricValue = (item) => {
         const score = getMeituanNestedMetricMaybeNumber(item, [
             'comment_score',
@@ -564,8 +570,18 @@ window.SUXI_MEITUAN_STATIC = (() => {
                 getOnlineDataMetricMaybeNumber(item, ['amount']),
                 getOnlineDataMetricMaybeNumber(item, ['book_order_num']),
             ];
+        } else if (module === 'keywords') {
+            metrics = [
+                getOnlineDataMetricMaybeNumber(item, ['data_value', 'value', 'heat', 'rank']),
+                getMeituanExposureMetricValue(item),
+                getMeituanClickMetricValue(item),
+            ];
         }
-        return `${module}|${String(hotelKey).trim()}|${dataDate}|${metrics.map(token).join('|')}`;
+        const keywordIdentity = module === 'keywords'
+            ? (buildMeituanSearchKeywordDisplayRow(item).keyword_label
+                || `row:${item?.persistence_identity_hash || item?.source_trace_id || item?.id || 'unknown'}`)
+            : '';
+        return `${module}|${String(hotelKey).trim()}|${dataDate}|${keywordIdentity}|${metrics.map(token).join('|')}`;
     };
 
     const includeLatestMeituanVisibleFact = (seenKeys, item, module) => {
@@ -587,10 +603,12 @@ window.SUXI_MEITUAN_STATIC = (() => {
         const orderRows = [];
         const reviewRows = [];
         const adsRows = [];
+        const keywordRows = [];
         const trafficFactKeys = new Set();
         const orderFactKeys = new Set();
         const reviewFactKeys = new Set();
         const adsFactKeys = new Set();
+        const keywordFactKeys = new Set();
 
         const overviewHotels = new Set();
         const overviewDates = new Set();
@@ -715,6 +733,12 @@ window.SUXI_MEITUAN_STATIC = (() => {
                     adsClickAvailable = true;
                 }
             }
+
+            if (isMeituanSearchKeywordDataRow(item)
+                && includeLatestMeituanVisibleFact(keywordFactKeys, item, 'keywords')
+            ) {
+                keywordRows.push(buildMeituanSearchKeywordDisplayRow(item));
+            }
         }
 
         const trafficAvgFlowRate = trafficFlowRateCount > 0 ? trafficFlowRateSum / trafficFlowRateCount : null;
@@ -730,6 +754,7 @@ window.SUXI_MEITUAN_STATIC = (() => {
             trafficRows,
             orderRows,
             adsRows,
+            keywordRows,
             visibleRowsCountByTab: {
                 all: allRows.length,
                 overview: overviewRows.length,
@@ -737,6 +762,7 @@ window.SUXI_MEITUAN_STATIC = (() => {
                 orders: orderRows.length,
                 reviews: reviewRows.length,
                 ads: adsRows.length,
+                keywords: keywordRows.length,
             },
             overviewRowsCount: overviewRows.length,
             overviewHotelCount: overviewHotels.size,
@@ -765,7 +791,44 @@ window.SUXI_MEITUAN_STATIC = (() => {
             adsClickRate: adsExposureAvailable && adsClickAvailable && adsExposure !== 0
                 ? safeDivideMetric(adsClick, adsExposure) * 100
                 : null,
+            keywordRowsCount: keywordRows.length,
         };
+    };
+
+    const meituanCsvCell = (value) => {
+        if (value === null || value === undefined || value === '') return '';
+        const raw = String(value);
+        const text = typeof value === 'string' && /^[\u0009\u000b\u000c\u0020]*[=+\-@]/.test(raw) ? `'${raw}` : raw;
+        return /[",\r\n]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
+    };
+
+    const buildMeituanStoredPageCsvPayload = (tab, data = {}, context = {}) => {
+        const truth = item => [item?.validation_status ?? '', item?.readback_verified === true || Number(item?.readback_verified) === 1 ? '1' : '0'];
+        const modes = {
+            ads: { rows: data?.adsRows, slug: 'advertising', label: '广告', headers: ['酒店', '业务日期', '广告维度', '曝光', '点击', '转化率', '消耗', '归因订单金额', '归因订单数', 'ROAS', '验证状态', '精确回读'], values: item => [item?.dimension ?? '', getMeituanExposureMetricValue(item), getMeituanClickMetricValue(item), getMeituanFlowRateMetricValue(item), getOnlineDataMetricMaybeNumber(item, ['amount', 'spend', 'ad_cost']), getOnlineDataMetricMaybeNumber(item, ['order_amount', 'orderAmount', 'saleAmount', 'revenue']), getOnlineDataMetricMaybeNumber(item, ['book_order_num', 'orders', 'order_count']), getOnlineDataMetricMaybeNumber(item, ['data_value', 'roas', 'roi']), ...truth(item)] },
+            keywords: { rows: data?.keywordRows, slug: 'search-keywords', label: '搜索词', headers: ['酒店', '业务日期', '搜索词', '平台值', '曝光', '点击', '验证状态', '精确回读'], values: item => { const display = item?.keyword_label !== undefined ? item : buildMeituanSearchKeywordDisplayRow(item); return [display.keyword_label, display.keyword_value, display.keyword_impressions, display.keyword_clicks, ...truth(item)]; } },
+        };
+        const mode = modes[String(tab || '').trim().toLowerCase()];
+        if (!mode) return { ok: false, message: '当前页不支持广告/搜索词 CSV 下载', rows: [] };
+        const rows = Array.isArray(mode.rows) ? mode.rows : [];
+        if (!rows.length) return { ok: false, message: '当前页面没有可下载的数据', rows: [] };
+        const csvRows = rows.map(item => [item?.hotel_name ?? '', item?.data_date ?? '', ...mode.values(item)]);
+        const csv = `\uFEFF${[mode.headers, ...csvRows].map(row => row.map(meituanCsvCell).join(',')).join('\r\n')}`;
+        const token = value => String(value || 'all').trim().replace(/[^0-9A-Za-z_-]+/g, '-') || 'all';
+        return { ok: true, message: `已下载当前页 ${rows.length} 条${mode.label}数据`, fileName: `meituan-${mode.slug}-${token(context.hotelId)}-${token(context.startDate)}-page-${token(context.page || 1)}.csv`, csv, rows };
+    };
+
+    const formatMeituanKeywordRow = (item, formatNumber = String) => { const metric = value => value === null ? '-' : formatNumber(value); return `${item?.keyword_label || '-'} · ${item?.hotel_name || '-'} · ${item?.data_date || '-'} · 值 ${metric(item?.keyword_value)} · 曝光 ${metric(item?.keyword_impressions)} · 点击 ${metric(item?.keyword_clicks)}`; };
+
+    const runMeituanStoredPageCsvDownload = ({ tab, data, context, downloadBlob, showToast, BlobCtor } = {}) => {
+        const payload = buildMeituanStoredPageCsvPayload(tab, data, context);
+        if (!payload.ok) { showToast(payload.message, 'warning'); return false; }
+        downloadBlob(new BlobCtor([payload.csv], { type: 'text/csv;charset=utf-8' }), payload.fileName); showToast(payload.message, 'success'); return true;
+    };
+
+    const openMeituanStoredDataTab = ({ tab, setTab, switchToDownloadCenter } = {}) => {
+        if (!['all', 'traffic', 'orders', 'reviews', 'ads', 'keywords'].includes(tab)) return false;
+        setTab(tab); switchToDownloadCenter(); return true;
     };
 
     const resolveMeituanAdsApplicability = (sources = [], hotelId = '') => {
@@ -4783,7 +4846,12 @@ window.SUXI_MEITUAN_STATIC = (() => {
         isMeituanOrderDataRow,
         isMeituanReviewDataRow,
         isMeituanAdsDataRow,
+        isMeituanSearchKeywordDataRow,
         buildMeituanDownloadData,
+        buildMeituanStoredPageCsvPayload,
+        formatMeituanKeywordRow,
+        runMeituanStoredPageCsvDownload,
+        openMeituanStoredDataTab,
         resolveMeituanAdsApplicability,
         defaultMeituanAdsUrl,
         createMeituanRankingForm,

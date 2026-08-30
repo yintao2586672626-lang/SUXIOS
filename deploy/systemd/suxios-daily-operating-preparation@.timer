@@ -1,0 +1,11 @@
+[Unit]
+Description=Prepare one internal daily priority after the bounded OTA collection window
+
+[Timer]
+OnCalendar=*-*-* 09:05:00 Asia/Shanghai
+RandomizedDelaySec=0
+Persistent=true
+Unit=suxios-daily-operating-preparation@%i.service
+
+[Install]
+WantedBy=timers.target

@@ -120,6 +120,117 @@ final class CompetitorEventFeedService
     }
 
     /**
+     * Read a bounded stay-date range with one schema/target/event/name pass,
+     * then reuse the exact single-day analyzer for each date.
+     *
+     * @return array<string,array<string,mixed>> keyed by YYYY-MM-DD
+     */
+    public function buildRange(
+        int $systemHotelId,
+        mixed $platformFilter,
+        string $startDate,
+        string $endDate,
+        string $collectedAtEnd = '',
+        int $perDayLimit = 500
+    ): array {
+        if ($systemHotelId <= 0) {
+            throw new InvalidArgumentException('system_hotel_id/store_id must be a positive integer');
+        }
+        $platforms = $this->normalizePlatforms($platformFilter);
+        $startDate = $this->normalizeDate($startDate, 'start_date');
+        $endDate = $this->normalizeDate($endDate, 'end_date');
+        if ($startDate > $endDate) {
+            throw new InvalidArgumentException('start_date cannot be later than end_date');
+        }
+        $collectedAtEnd = $this->normalizeDateTimeFilter($collectedAtEnd, true);
+        $perDayLimit = max(1, min(500, $perDayLimit));
+        $dates = [];
+        for ($cursor = new \DateTimeImmutable($startDate); $cursor->format('Y-m-d') <= $endDate; $cursor = $cursor->modify('+1 day')) {
+            $dates[] = $cursor->format('Y-m-d');
+            if (count($dates) > 31) {
+                throw new InvalidArgumentException('date range cannot exceed 31 days');
+            }
+        }
+        $targetRows = $this->activeCompetitorTargets($systemHotelId, $platforms);
+        $missingColumns = $this->missingSchemaColumns();
+        if ($missingColumns !== []) {
+            $result = [];
+            foreach ($dates as $stayDate) {
+                $payload = $this->schemaInsufficientPayload(
+                    $systemHotelId,
+                    $platforms,
+                    $stayDate,
+                    '',
+                    $collectedAtEnd,
+                    $missingColumns
+                );
+                $payload['collection_coverage'] = $this->buildCollectionCoverage(
+                    $targetRows ?? [], [], $systemHotelId, $platforms, $stayDate, false,
+                    $targetRows !== null, false
+                );
+                $result[$stayDate] = $payload;
+            }
+            return $result;
+        }
+        $storagePlatforms = [];
+        foreach ($platforms as $platform) {
+            $storagePlatforms = array_merge($storagePlatforms, self::PLATFORM_ALIASES[$platform]);
+        }
+        $query = Db::name('competitor_price_log')
+            ->where('store_id', $systemHotelId)
+            ->whereIn('platform', array_values(array_unique($storagePlatforms)))
+            ->whereBetween('check_in_date', [$startDate, $endDate]);
+        if ($collectedAtEnd !== '') {
+            $query->where('collected_at', '<=', $collectedAtEnd);
+        }
+        $matchedCounts = [];
+        foreach ((clone $query)
+            ->field('check_in_date,COUNT(*) AS matched_count')
+            ->group('check_in_date')
+            ->select()
+            ->toArray() as $countRow) {
+            $countDate = $this->storedDate($countRow['check_in_date'] ?? null);
+            if ($countDate !== null) $matchedCounts[$countDate] = max(0, (int)($countRow['matched_count'] ?? 0));
+        }
+        $rows = [];
+        foreach ($dates as $stayDate) {
+            $dayRows = (clone $query)
+                ->where('check_in_date', $stayDate)
+                ->field(implode(',', self::REQUIRED_COLUMNS))
+                ->order('collected_at', 'desc')
+                ->order('id', 'desc')
+                ->limit($perDayLimit)
+                ->select()
+                ->toArray();
+            array_push($rows, ...$dayRows);
+        }
+        $rows = $this->attachCompetitorHotelNames($rows, $systemHotelId);
+        $byDate = array_fill_keys($dates, []);
+        foreach ($rows as $row) {
+            $stayDate = $this->storedDate($row['check_in_date'] ?? null);
+            if ($stayDate !== null && array_key_exists($stayDate, $byDate)) {
+                $byDate[$stayDate][] = $row;
+            }
+        }
+        $result = [];
+        foreach ($dates as $stayDate) {
+            $matchedCount = (int)($matchedCounts[$stayDate] ?? 0);
+            $result[$stayDate] = $this->buildFromRows(
+                array_slice($byDate[$stayDate], 0, $perDayLimit),
+                $systemHotelId,
+                $platforms,
+                $stayDate,
+                '',
+                $collectedAtEnd,
+                $matchedCount,
+                $targetRows ?? [],
+                $targetRows !== null
+            );
+        }
+        return $result;
+    }
+
+    /**
      * Pure row analyzer used by the read path and focused unit tests.
      *
      * @param array<int,array<string,mixed>> $rows

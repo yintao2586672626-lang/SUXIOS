@@ -395,6 +395,25 @@ class OperationManagement extends Base
         }
     }
 
+    public function myTasks(): Response
+    {
+        try {
+            [$hotelIds, $hotelId] = $this->resolveHotelScope((int)$this->request->param('hotel_id', 0));
+            $userId = (int)($this->currentUser->id ?? 0);
+            if ($userId <= 0) {
+                throw new \RuntimeException('未登录');
+            }
+            return $this->success($this->service->myExecutionTasks(
+                $hotelIds,
+                $hotelId,
+                $userId,
+                $this->request->get()
+            ));
+        } catch (Throwable $e) {
+            return $this->error($this->safeErrorMessage($e, '我的待办读取失败'), $this->operationThrowableStatus($e));
+        }
+    }
+
     public function operatingGoalInterventionOverview(): Response
     {
         try {

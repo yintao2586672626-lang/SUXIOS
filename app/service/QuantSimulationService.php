@@ -62,16 +62,50 @@ class QuantSimulationService
 
     public function records(int $userId, bool $isSuperAdmin): array
     {
+        return $this->recordsForAccess($userId, $isSuperAdmin);
+    }
+
+    public function recordsForAccess(
+        int $userId,
+        bool $isSuperAdmin,
+        ?callable $recordFilter = null,
+        int $limit = 30
+    ): array
+    {
         $this->ensureTable();
 
-        $query = Db::name('quant_simulation_records')->whereNull('deleted_at');
-        $this->applyTenantScope($query, $userId, $isSuperAdmin);
-        if (!$isSuperAdmin) {
-            $query->where('created_by', $userId);
-        }
+        $limit = max(1, min(100, $limit));
+        $batchSize = max(100, $limit);
+        $beforeId = null;
+        $list = [];
 
-        $rows = $query->order('id', 'desc')->limit(30)->select()->toArray();
-        $list = array_values(array_map(fn(array $row): array => $this->formatRecord($row, false), $rows));
+        do {
+            $query = Db::name('quant_simulation_records')->whereNull('deleted_at');
+            $this->applyTenantScope($query, $userId, $isSuperAdmin);
+            if (!$isSuperAdmin) {
+                $query->where('created_by', $userId);
+            }
+            if ($beforeId !== null) {
+                $query->where('id', '<', $beforeId);
+            }
+
+            $rows = $query->order('id', 'desc')->limit($batchSize)->select()->toArray();
+            if ($rows === []) {
+                break;
+            }
+
+            foreach ($rows as $row) {
+                $beforeId = (int)($row['id'] ?? 0);
+                $record = $this->formatRecord($row, false);
+                if ($recordFilter !== null && $recordFilter($record) !== true) {
+                    continue;
+                }
+                $list[] = $record;
+                if (count($list) >= $limit) {
+                    break 2;
+                }
+            }
+        } while (count($rows) === $batchSize && $beforeId > 0);
 
         return (new SimulationExecutionBridgeService())->attachToRecords($list, 'quant_simulation');
     }
@@ -658,6 +692,7 @@ class QuantSimulationService
         $input = [
             'roomCount' => $this->number($raw, 'roomCount', 'room_count'),
             'adr' => $this->number($raw, 'adr', 'adr'),
+            'input_source_status' => trim((string)($raw['input_source_status'] ?? 'manual_unverified')) ?: 'manual_unverified',
             'occupancyRate' => $this->number($raw, 'occupancyRate', 'occupancy_rate'),
             'otherIncome' => $this->number($raw, 'otherIncome', 'other_income'),
             'monthlyRent' => $this->number($raw, 'monthlyRent', 'monthly_rent'),
@@ -933,6 +968,7 @@ class QuantSimulationService
                 'riskLevel' => (string)($result['riskLevel'] ?? ($row['risk_level'] ?? '')),
             ],
             'truth_context' => $truthContext,
+            'access_policy' => $this->quantRecordAccessPolicy($truthContext),
             'summary_metric_truth' => array_intersect_key($metricTruth, array_flip([
                 'monthlyRevenue',
                 'monthlyNetCashflow',
@@ -965,6 +1001,26 @@ class QuantSimulationService
         }
 
         return $record;
+    }
+
+    /** @param array<string, mixed> $truthContext */
+    private function quantRecordAccessPolicy(array $truthContext): array
+    {
+        if ((int)($truthContext['hotel_id'] ?? 0) > 0) {
+            return [
+                'mode' => 'hotel_scoped',
+                'hotel_binding_required' => false,
+                'mutation_allowed' => null,
+                'reason_code' => 'hotel_capability_required',
+            ];
+        }
+
+        return [
+            'mode' => 'legacy_read_only',
+            'hotel_binding_required' => true,
+            'mutation_allowed' => false,
+            'reason_code' => 'legacy_hotel_binding_required',
+        ];
     }
 
     /** @return array<string, mixed> */
@@ -1003,12 +1059,14 @@ class QuantSimulationService
                 'stored_count' => $recordId > 0 ? 1 : 0,
                 'readback_verified_count' => $recordId > 0 ? 1 : 0,
             ],
-            'failure_reason' => '输入为人工录入且未提供可核验经营或财务来源；即使已绑定目标门店，也不能作为真实经营或OTA数据。',
-            'data_gaps' => [
-                'target_hotel_missing',
+            'failure_reason' => $hotelId > 0
+                ? '已绑定目标门店，但输入仍为人工录入且未提供可核验经营或财务来源；不能作为真实经营或OTA数据。'
+                : '输入为人工录入且未绑定目标门店，也未提供可核验经营或财务来源；不能作为真实经营或OTA数据。',
+            'data_gaps' => array_values(array_filter([
+                $hotelId > 0 ? null : 'target_hotel_missing',
                 'user_input_source_unverified',
                 'collection_time_not_applicable',
-            ],
+            ])),
         ];
     }
 

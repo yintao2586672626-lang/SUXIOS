@@ -277,6 +277,15 @@ final class PlatformDataSyncPreflightL8Test extends TestCase
             'source_trace_id' => 'forecast-run-trace',
             'raw_data' => '{}',
         ]));
+        $peerTargetRowId = (int)Db::name('online_daily_data')->insertGetId(array_merge($common, [
+            'platform' => 'Qunar',
+            'data_date' => self::TARGET_DATE,
+            'data_period' => 'historical_daily',
+            'data_type' => 'traffic',
+            'compare_type' => 'competitor',
+            'source_trace_id' => 'peer-target-run-trace',
+            'raw_data' => '{}',
+        ]));
         $wrongPeriodTargetRowId = (int)Db::name('online_daily_data')->insertGetId(array_merge($common, [
             'data_date' => self::TARGET_DATE,
             'data_period' => 'next_30_days',
@@ -310,8 +319,8 @@ final class PlatformDataSyncPreflightL8Test extends TestCase
             $source,
             [
                 'readback_verified' => true,
-                'readback_count' => 2,
-                'row_ids' => [$targetRowId, $forecastRowId],
+                'readback_count' => 3,
+                'row_ids' => [$targetRowId, $forecastRowId, $peerTargetRowId],
                 'target_date_expected_row_ids' => [$targetRowId],
                 'target_date_expected_row_count' => 1,
             ],
@@ -336,6 +345,27 @@ final class PlatformDataSyncPreflightL8Test extends TestCase
         ], $receipt['exact_coverage']);
         self::assertSame('CTRIP-TC145-101', $receipt['observed_platform_hotel_id']);
         self::assertSame(['revenue', 'room_nights', 'adr'], $receipt['verified_metric_keys']);
+
+        $targetClassifier = new \ReflectionMethod($service, 'isOwnPlatformTargetReadbackRow');
+        $targetClassifier->setAccessible(true);
+        self::assertTrue($targetClassifier->invoke(
+            $service,
+            $common + ['data_date' => self::TARGET_DATE, 'data_period' => 'historical_daily'],
+            'ctrip',
+            self::TARGET_DATE,
+            'historical_daily'
+        ));
+        self::assertFalse($targetClassifier->invoke(
+            $service,
+            array_merge($common, [
+                'platform' => 'Qunar',
+                'data_date' => self::TARGET_DATE,
+                'data_period' => 'historical_daily',
+            ]),
+            'ctrip',
+            self::TARGET_DATE,
+            'historical_daily'
+        ));
 
         $wrongPeriodTargetCoverage = $method->invoke(
             $service,
