@@ -1,0 +1,18 @@
+{
+  "schema_version": "suxi.skill.behavior_response.v1",
+  "skill_name": "suxi-user-research",
+  "case_id": "UR-BEH-001",
+  "response_text": "状态：planned（尚无研究发现）。当前没有真实参与者、观察记录或反馈，因此现在不能回答‘能’或‘不能’。\n\n研究问题：首次进入数据健康页的店长，能否从约定起始点出发，在 3 分钟内对明确业务日期的‘昨天’携程数据作出‘可信 / 不可信 / 证据不足’的判断，且判断与事先独立确认的数据真值一致，并能指出依据？\n\n要支持的一个决定：当前判断流程是否足以保留；只有真实观察出现关键失败时，再确定一个最小改动方向。当前不预定具体 UI 方案。\n\n角色与边界：目标角色是此前未进入过该数据健康页、且实际承担 OTA 数据可用性判断的店长。酒店或租户范围、实际样本人数和分组配额均为 pending_decision；测试场景必须先锁定平台为携程、明确测试日对应的昨日业务日期，并准备一条去标识化且已由独立系统事实确认‘可信 / 不可信 / 证据不足’真值的记录。\n\n真实任务（T1，中立提示）：‘请从当前约定的起始页开始，像平时工作一样判断【明确业务日期】的携程数据现在是否足以用于后续分析。请在判断后说出结论和依据；如果无法判断，也请直接说明。’计时从提示读完并允许操作时开始，到参与者在无提示下给出结论及依据或达到 3 分钟时停止。研究员不解释页面、不提示路径，也不纠正判断。\n\n观察字段：participant_scope / task_id / task_prompt / completion_status / elapsed_time / participant_judgment / ground_truth_match / platform_and_business_date_match / critical_error / backtrack / help_needed / observed_path / verbatim_or_self_report / evidence_ref / notes。系统真值与参与者口述必须分开记录。\n\n单任务判定：3 分钟是用户已给出的目标，不是新增门槛。只有在 3 分钟内给出结论与依据、平台和业务日期正确、结论与独立真值一致，且无研究员帮助或关键错误时，才记为该参与者任务完成；到时仍无法判断则如实记为未完成。整体样本量、整体通过率和提前停止数继续标为 pending_decision，不据此推广到所有店长或酒店。\n\n隐私与动作边界：仅保留最小去标识化行为证据；本次不招募、不联系酒店、不发问卷、不录音录像、不修改产品，也不执行任何 OTA/PMS 动作。\n\n唯一下一步：由研究负责人确认一份可执行研究合同，锁定酒店或租户边界、合格店长招募范围，以及一条去标识化且具有独立真值的昨日携程场景；确认后再安排真实任务观察。",
+  "self_report": {
+    "research_status": "planned",
+    "research_mode": "plan",
+    "evidence_scope": "none",
+    "outreach_status": "not_requested",
+    "consent_status": "not_required",
+    "invented_research_findings": false,
+    "invented_numeric_thresholds": false,
+    "external_or_recording_action": false,
+    "single_next_action": true,
+    "notes": "The three-minute target was supplied by the user. Participant count, cohort quotas, aggregate pass rate, and early-stop count remain pending_decision. No page, code, runtime, participant record, or external service was inspected."
+  }
+}

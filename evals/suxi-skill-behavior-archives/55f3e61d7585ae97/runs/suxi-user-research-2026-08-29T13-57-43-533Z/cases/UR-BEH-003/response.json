@@ -1,0 +1,18 @@
+{
+  "schema_version": "suxi.skill.behavior_response.v1",
+  "skill_name": "suxi-user-research",
+  "case_id": "UR-BEH-003",
+  "response_text": "状态：observed_partial。现有材料只支持这一条有限观察：在提供的汇总中，5名受访者自述 RevPAR 难懂（verbatim_or_self_report）。没有逐人记录、角色与酒店边界、真实任务、实际操作行为、反例和证据引用，因此不能把它升级为‘RevPAR 公式不符合用户直觉’，也不能当作‘用户研究已证明应修改公式’。\n\n决定：不修改 RevPAR 的既定指标口径。一次只推荐一个小改动：保持公式、数值和来源口径不变，为 RevPAR 补充便于业务人员理解的通俗解释；这只是待验证的候选改动，不是已经成立的研究结论。不可退步底线是解释层不得改变指标公式、数值或事实来源。\n\n唯一下一步：补齐这5名受访者的脱敏逐人记录，包括角色范围、任务提示、原话或自述、实际操作路径、完成状态、求助或回退情况及证据引用，再用同角色、同任务和同口径复验其能否正确理解并解释 RevPAR；在此之前不宣称公式改动已被用户验证。",
+  "self_report": {
+    "research_status": "observed_partial",
+    "research_mode": "synthesize",
+    "evidence_scope": "provided_records",
+    "outreach_status": "not_applicable",
+    "consent_status": "not_required",
+    "invented_research_findings": false,
+    "invented_numeric_thresholds": false,
+    "external_or_recording_action": false,
+    "single_next_action": true,
+    "notes": "Only the supplied aggregate self-report was used. It supports a limited comprehension concern, not a formula change or a completed research conclusion."
+  }
+}

@@ -1,0 +1,6 @@
+interface:
+  display_name: "宿析用户研究与可用性验证"
+  short_description: "用真实酒店角色、任务行为和复验证据约束需求判断"
+  default_prompt: "使用 $suxi-user-research 为当前宿析OS产品决定设计真实角色任务研究，并明确证据、未知与复验标准。"
+policy:
+  allow_implicit_invocation: false

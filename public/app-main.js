@@ -7760,6 +7760,14 @@
                     homeSecondaryPanelsReadyTimer = null;
                 }
             };
+            const ensureHomeSecondaryStaticRuntimeReady = async () => {
+                const staticReady = () => !!window.SUXI_DATA_HEALTH_STATIC && !!window.SUXI_REVENUE_OVERVIEW_CONTRACT_STATIC;
+                if (staticReady()) return;
+                const loadDeferredAsset = window.SUXI_LOAD_DEFERRED_AUTHENTICATED_ASSET;
+                if (typeof loadDeferredAsset !== 'function') throw new Error('首页二级面板延迟工具加载器不可用');
+                await loadDeferredAsset('app-deferred-helpers.min.js');
+                if (!staticReady()) throw new Error('首页二级面板延迟工具加载完成但未注册');
+            };
             const scheduleHomeSecondaryPanelsReady = (delayMs = HOME_SECONDARY_PANEL_DELAY_MS) => {
                 clearHomeSecondaryPanelsReadyTimer();
                 if (!isCompassDataPage()) {
@@ -7769,9 +7777,12 @@
                 homeSecondaryPanelsReadyTimer = setTimeout(() => {
                     homeSecondaryPanelsReadyTimer = null;
                     if (!token.value || !isCompassDataPage()) return;
-                    homeSecondaryPanelsReady.value = true;
-                    void ensureRevenueAiStaticReady()
-                        .then(() => (isCompassDataPage() ? loadRevenueAiOverview() : null))
+                    void ensureHomeSecondaryStaticRuntimeReady()
+                        .then(() => ensureRevenueAiStaticReady())
+                        .then(() => {
+                            homeSecondaryPanelsReady.value = isCompassDataPage();
+                            return homeSecondaryPanelsReady.value ? loadRevenueAiOverview() : null;
+                        })
                         .catch((error) => {
                             if (isCompassDataPage()) {
                                 revenueAiOverviewError.value = error?.message || 'Revenue AI 展示工具加载失败';
@@ -16770,6 +16781,7 @@
                         { type: 'source', sourcePath: 'revenue-research-center', overrides: { name: '收益诊断' } },
                         { type: 'source', sourcePath: 'operation-optimizer', overrides: { name: '运营优化台' } },
                         { type: 'source', sourcePath: 'operating-opportunities', overrides: { name: '经营机会' } },
+                        { type: 'source', sourcePath: 'ai-simulation', overrides: { name: '酒店量化模拟' } },
                         { type: 'source', sourcePath: 'operating-targets', overrides: { name: '目标与事实' } },
                         { type: 'source', sourcePath: 'ai-daily-report', overrides: { name: 'AI经营日报' } },
                     ],
@@ -16796,6 +16808,8 @@
                         { type: 'source', sourcePath: 'automation-monitor', overrides: { name: '自动化运行监控' } },
                         { type: 'source', sourcePath: 'ops-track', overrides: { name: '任务执行与复盘' } },
                         { type: 'source', sourcePath: 'operating-growth-archive', overrides: { name: '经营成长档案' } },
+                        { type: 'source', sourcePath: 'opening-overview', overrides: { name: '开业管理总览' } },
+                        { type: 'source', sourcePath: 'opening-checklist', overrides: { name: '开业检查清单' } },
                     ],
                 },
                 {
@@ -16877,10 +16891,8 @@
             };
             // 可见菜单项 - 先按权限过滤，再按“经营分析 / OTA采集 / 运营自动化中心 / 系统工具”分区。
             const visibleMenuItems = computed(() => buildLeanNavigationItems(filterVisibleMenuItems(menuItems.value, user.value)));
-
             // 展开的子菜单：默认收起，避免低频入口挤占首屏。
             const expandedMenus = ref([]);
-
             // 切换子菜单展开状态
             const toggleSubmenu = (menuName) => {
                 const index = expandedMenus.value.indexOf(menuName);
@@ -55157,7 +55169,7 @@
                 investmentDecisionLoading, investmentDecisionOverview, investmentDecisionSummaryCards, investmentDecisionBusinessChainRows, investmentDecisionActionQueueRows, investmentDecisionSectionRows, investmentDecisionRiskRows, investmentDecisionRecordRows, investmentDecisionFormulaRows, investmentDecisionStatusText, investmentDecisionStatusClass, investmentDecisionSeverityText, investmentDecisionSeverityClass, investmentDecisionPriorityClass, investmentDecisionSourceLabel, loadInvestmentDecisionOverview,
                 isLoggedIn, loading, loginError, user, token, userHasPermission, canManageOwnHotels, canMaintainOtaConfig, canDeleteOtaConfig, canCollectCompetitorObservations, currentLocale, languageOptions, switchLocale, currentTime, currentDateText, currentClockText, currentTimeZoneLabel, currentPage, showPassword, passwordCapsLockOn,
                 loginForm, rememberPassword, loginSupportOpen, loginSupportLoading, loginSupportError, loginSupportContact, menuItems, visibleMenuItems, pageTitle, toast, handleMenuClick, handleNestedMenuClick, isSidebarMenuItemActive,
-                platformHotelContext, platformHotelSearchKeyword, platformHotelPickerOpen, platformHotelOptions,
+                platformHotelContext, platformHotelSearchKeyword, platformHotelPickerOpen, platformHotelOptions, platformHotelOptionsFor,
                 platformHotelSelectedId, platformHotelSelectedName, filteredPlatformHotelOptions,
                 clearPlatformHotelSearch, openPlatformHotelPicker, selectPlatformHotelOption,
                 handlePlatformHotelContextChange, openPlatformHotelContextConfig,

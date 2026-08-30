@@ -3433,6 +3433,7 @@ test('Home lower dashboard panels mount after the first OTA navigation window', 
   assert.match(html, /const HOME_SECONDARY_PANEL_DELAY_MS = 4200;/);
   assert.match(html, /const COMPASS_WEATHER_REFRESH_DELAY_MS = 3200;/);
   assert.match(html, /const homeSecondaryPanelsReady = ref\(false\);/);
+  assert.match(html, /const ensureHomeSecondaryStaticRuntimeReady = async \(\) => \{[\s\S]*SUXI_LOAD_DEFERRED_AUTHENTICATED_ASSET[\s\S]*app-deferred-helpers\.min\.js/);
   assert.match(html, /const scheduleHomeSecondaryPanelsReady = \(delayMs = HOME_SECONDARY_PANEL_DELAY_MS\) => \{/);
   assert.match(currentPageWatcher, /clearHomeSecondaryPanelsReadyTimer\(\);\s*clearDualOtaSystemMetricDrilldownHydrationTimer\(\);\s*homeSecondaryPanelsReady\.value = false;\s*destroyHomeTrendChart\(\);/);
   assert.match(currentPageWatcher, /homeSecondaryPanelsReady\.value = false;\s*scheduleHomeSecondaryPanelsReady\(\);[\s\S]{0,620}?const requestPolicy = currentCompassReadPolicy\(newPage, 'current'\);/);

@@ -7,10 +7,12 @@ BACKUP_CMD="/usr/local/sbin/suxios-db-backup"
 FORMAL_DISPATCH_TIMER="suxios-manual-notification-formal-dispatch.timer"
 THREE_SOURCE_QUEUE_TIMER="suxios-cloud-three-source-queue.timer"
 NO_SWITCH=0
+ACTIVATE_EXISTING=0
 APPLY_MIGRATIONS=0
 ARCHIVE=""
 RELEASE_NAME=""
 EXPECTED_SHA256=""
+SOURCE_COMMIT=""
 HEALTH_HOST=""
 FORMAL_DISPATCH_WAS_INSTALLED=0
 FORMAL_DISPATCH_WAS_ENABLED=0
@@ -26,8 +28,10 @@ while (($#)); do
     --archive) ARCHIVE="$2"; shift 2 ;;
     --release) RELEASE_NAME="$2"; shift 2 ;;
     --sha256) EXPECTED_SHA256="$2"; shift 2 ;;
+    --source-commit) SOURCE_COMMIT="$2"; shift 2 ;;
     --health-host) HEALTH_HOST="$2"; shift 2 ;;
     --no-switch) NO_SWITCH=1; shift ;;
+    --activate-existing) ACTIVATE_EXISTING=1; shift ;;
     --apply-migrations) APPLY_MIGRATIONS=1; shift ;;
     *) echo "Unknown argument: $1" >&2; exit 64 ;;
   esac
@@ -48,6 +52,11 @@ if [[ ! "$EXPECTED_SHA256" =~ ^[a-f0-9]{64}$ ]]; then
   exit 64
 fi
 
+if [[ ! "$SOURCE_COMMIT" =~ ^[a-f0-9]{40}$ ]]; then
+  echo "Invalid source commit." >&2
+  exit 64
+fi
+
 if [[ ! "$HEALTH_HOST" =~ ^[A-Za-z0-9.-]+$ ]]; then
   echo "Invalid health-check host." >&2
   exit 64
@@ -58,26 +67,14 @@ if [[ $APPLY_MIGRATIONS -eq 1 ]]; then
   exit 64
 fi
 
-RELEASE_DIR="$APP_ROOT/releases/$RELEASE_NAME"
-CURRENT_LINK="$APP_ROOT/current"
-
-test -f "$ARCHIVE"
-test -f "$ENV_FILE"
-test ! -e "$RELEASE_DIR"
-
-ACTUAL_SHA256="$(sha256sum "$ARCHIVE" | awk '{print $1}')"
-if [[ "$ACTUAL_SHA256" != "$EXPECTED_SHA256" ]]; then
-  echo "Archive checksum mismatch." >&2
-  exit 65
+if [[ $ACTIVATE_EXISTING -eq 1 && $NO_SWITCH -eq 1 ]]; then
+  echo "Activation of an existing staged release cannot be combined with --no-switch." >&2
+  exit 64
 fi
 
-PREVIOUS_RELEASE="$(readlink -f "$CURRENT_LINK" 2>/dev/null || true)"
-install -d -o root -g www-data -m 0750 "$RELEASE_DIR"
-tar -xzf "$ARCHIVE" -C "$RELEASE_DIR"
-
-test -f "$RELEASE_DIR/think"
-test -f "$RELEASE_DIR/composer.json"
-test -f "$RELEASE_DIR/public/index.php"
+RELEASE_DIR="$APP_ROOT/releases/$RELEASE_NAME"
+CURRENT_LINK="$APP_ROOT/current"
+MANIFEST_FILE="$RELEASE_DIR/.suxios-release-manifest"
 
 verify_public_component_assets() {
   local index_file="$RELEASE_DIR/public/index.html"
@@ -105,18 +102,93 @@ verify_public_component_assets() {
   done
 }
 
-verify_public_component_assets
+write_release_manifest() {
+  umask 027
+  printf 'release_name=%s\nsource_commit=%s\narchive_sha256=%s\n' \
+    "$RELEASE_NAME" "$SOURCE_COMMIT" "$ACTUAL_SHA256" > "$MANIFEST_FILE"
+  chown root:www-data "$MANIFEST_FILE"
+  chmod 0640 "$MANIFEST_FILE"
+}
 
-ln -s "$ENV_FILE" "$RELEASE_DIR/.env"
-install -d -o www-data -g www-data -m 0770 "$RELEASE_DIR/runtime"
-install -d -o www-data -g www-data -m 2770 "$RELEASE_DIR/storage"
+verify_staged_release_manifest() {
+  local manifest_release=""
+  local manifest_commit=""
+  local manifest_sha256=""
+
+  if [[ ! -f "$MANIFEST_FILE" || -L "$MANIFEST_FILE" ]]; then
+    echo "Staged release manifest is missing or unsafe." >&2
+    return 1
+  fi
+  if [[ "$(grep -c '^release_name=' "$MANIFEST_FILE")" -ne 1 \
+    || "$(grep -c '^source_commit=' "$MANIFEST_FILE")" -ne 1 \
+    || "$(grep -c '^archive_sha256=' "$MANIFEST_FILE")" -ne 1 ]]; then
+    echo "Staged release manifest has duplicate or missing identity fields." >&2
+    return 1
+  fi
+  manifest_release="$(sed -n 's/^release_name=//p' "$MANIFEST_FILE")"
+  manifest_commit="$(sed -n 's/^source_commit=//p' "$MANIFEST_FILE")"
+  manifest_sha256="$(sed -n 's/^archive_sha256=//p' "$MANIFEST_FILE")"
+  if [[ "$manifest_release" != "$RELEASE_NAME" \
+    || "$manifest_commit" != "$SOURCE_COMMIT" \
+    || "$manifest_sha256" != "$EXPECTED_SHA256" ]]; then
+    echo "Staged release identity does not match the requested clean local commit and archive." >&2
+    return 1
+  fi
+}
+
+test -f "$ENV_FILE"
+PREVIOUS_RELEASE="$(readlink -f "$CURRENT_LINK" 2>/dev/null || true)"
+
+if [[ $ACTIVATE_EXISTING -eq 1 ]]; then
+  if [[ ! -d "$RELEASE_DIR" || -L "$RELEASE_DIR" ]]; then
+    echo "The staged release directory is missing or unsafe." >&2
+    exit 65
+  fi
+  if [[ "$PREVIOUS_RELEASE" == "$RELEASE_DIR" ]]; then
+    echo "The requested staged release is already active." >&2
+    exit 65
+  fi
+  verify_staged_release_manifest
+  ACTUAL_SHA256="$EXPECTED_SHA256"
+  test -f "$RELEASE_DIR/think"
+  test -f "$RELEASE_DIR/composer.json"
+  test -f "$RELEASE_DIR/public/index.php"
+  verify_public_component_assets
+  test -L "$RELEASE_DIR/.env"
+  [[ "$(readlink -f "$RELEASE_DIR/.env")" == "$(readlink -f "$ENV_FILE")" ]]
+  test -d "$RELEASE_DIR/runtime"
+  test -d "$RELEASE_DIR/storage"
+else
+  test -f "$ARCHIVE"
+  if [[ -e "$RELEASE_DIR" || -L "$RELEASE_DIR" ]]; then
+    echo "The release directory already exists or is an unsafe symlink." >&2
+    exit 65
+  fi
+  ACTUAL_SHA256="$(sha256sum "$ARCHIVE" | awk '{print $1}')"
+  if [[ "$ACTUAL_SHA256" != "$EXPECTED_SHA256" ]]; then
+    echo "Archive checksum mismatch." >&2
+    exit 65
+  fi
+
+  install -d -o root -g www-data -m 0750 "$RELEASE_DIR"
+  tar -xzf "$ARCHIVE" -C "$RELEASE_DIR"
+  test -f "$RELEASE_DIR/think"
+  test -f "$RELEASE_DIR/composer.json"
+  test -f "$RELEASE_DIR/public/index.php"
+  verify_public_component_assets
+  ln -s "$ENV_FILE" "$RELEASE_DIR/.env"
+  install -d -o www-data -g www-data -m 0770 "$RELEASE_DIR/runtime"
+  install -d -o www-data -g www-data -m 2770 "$RELEASE_DIR/storage"
+
+  cd "$RELEASE_DIR"
+  COMPOSER_ALLOW_SUPERUSER=1 composer install \
+    --no-dev \
+    --prefer-dist \
+    --no-interaction \
+    --optimize-autoloader
+fi
 
 cd "$RELEASE_DIR"
-COMPOSER_ALLOW_SUPERUSER=1 composer install \
-  --no-dev \
-  --prefer-dist \
-  --no-interaction \
-  --optimize-autoloader
 
 # OTA browser capture is opt-in on cloud.  Keep normal PHP-only releases lean,
 # but make an enabled cloud collector reproducible across release switches
@@ -134,28 +206,36 @@ if [[ "$THREE_SOURCE_QUEUE_RUNTIME_REQUIRED" == "1" \
 fi
 if [[ "$CLOUD_NODE_RUNTIME_ENABLED" == "1" ]]; then
   command -v node >/dev/null
-  command -v npm >/dev/null
   node_major="$(node -p 'process.versions.node.split(".")[0]')"
   if [[ ! "$node_major" =~ ^[0-9]+$ ]] || (( node_major < 20 )); then
     echo "Cloud OTA runtime requires Node.js 20 or newer." >&2
     exit 76
   fi
-  npm ci --omit=dev --ignore-scripts --no-audit --no-fund
+  if [[ $ACTIVATE_EXISTING -eq 0 ]]; then
+    command -v npm >/dev/null
+    npm ci --omit=dev --ignore-scripts --no-audit --no-fund
+  fi
   node --input-type=module -e "await import('playwright-core'); await import('cloakbrowser')"
 fi
 
-chown -R root:www-data "$RELEASE_DIR"
-find "$RELEASE_DIR" -type d -exec chmod 0750 {} +
-find "$RELEASE_DIR" -type f -exec chmod 0640 {} +
-chown -R www-data:www-data "$RELEASE_DIR/runtime" "$RELEASE_DIR/storage"
-chmod 0770 "$RELEASE_DIR/runtime"
-chmod 2770 "$RELEASE_DIR/storage"
+if [[ $ACTIVATE_EXISTING -eq 0 ]]; then
+  chown -R root:www-data "$RELEASE_DIR"
+  find "$RELEASE_DIR" -type d -exec chmod 0750 {} +
+  find "$RELEASE_DIR" -type f -exec chmod 0640 {} +
+  chown -R www-data:www-data "$RELEASE_DIR/runtime" "$RELEASE_DIR/storage"
+  chmod 0770 "$RELEASE_DIR/runtime"
+  chmod 2770 "$RELEASE_DIR/storage"
+fi
 
 sudo -u www-data php think list --raw >/dev/null
 
+if [[ $ACTIVATE_EXISTING -eq 0 ]]; then
+  write_release_manifest
+fi
+
 if [[ $NO_SWITCH -eq 1 ]]; then
-  printf 'STAGED release=%s sha256=%s previous=%s\n' \
-    "$RELEASE_DIR" "$ACTUAL_SHA256" "$PREVIOUS_RELEASE"
+  printf 'STAGED release=%s source_commit=%s sha256=%s previous=%s\n' \
+    "$RELEASE_DIR" "$SOURCE_COMMIT" "$ACTUAL_SHA256" "$PREVIOUS_RELEASE"
   exit 0
 fi
 
@@ -435,5 +515,6 @@ if ! refresh_three_source_queue_for_release "$RELEASE_DIR"; then
   exit 83
 fi
 
-printf 'DEPLOYED release=%s sha256=%s previous=%s\n' \
-  "$RELEASE_DIR" "$ACTUAL_SHA256" "$PREVIOUS_RELEASE"
+printf 'DEPLOYED release=%s source_commit=%s sha256=%s previous=%s mode=%s\n' \
+  "$RELEASE_DIR" "$SOURCE_COMMIT" "$ACTUAL_SHA256" "$PREVIOUS_RELEASE" \
+  "$([[ $ACTIVATE_EXISTING -eq 1 ]] && printf activate_existing || printf install_and_activate)"

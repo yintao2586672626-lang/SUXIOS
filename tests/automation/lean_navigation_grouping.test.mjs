@@ -27,6 +27,7 @@ test('boss navigation separates analysis, OTA collection, operations and system 
   assert.match(analysis, /name: '经营分析'/);
   assert.match(analysis, /sourcePath: 'online-data',[\s\S]*sourceTab: 'data-health'/);
   assert.match(analysis, /sourcePath: 'revenue-research-center'/);
+  assert.match(analysis, /sourcePath: 'ai-simulation',[\s\S]*name: '酒店量化模拟'/);
   assert.match(analysis, /sourcePath: 'operating-targets',[\s\S]*name: '目标与事实'/);
   assert.match(analysis, /sourcePath: 'ai-daily-report'/);
 
@@ -49,11 +50,13 @@ test('boss navigation separates analysis, OTA collection, operations and system 
   assert.match(operations, /sourcePath: 'automation-monitor',[\s\S]*name: '自动化运行监控'/);
   assert.match(operations, /sourcePath: 'ops-track'/);
   assert.match(operations, /sourcePath: 'operating-growth-archive',[\s\S]*name: '经营成长档案'/);
+  assert.match(operations, /sourcePath: 'opening-overview',[\s\S]*name: '开业管理总览'/);
+  assert.match(operations, /sourcePath: 'opening-checklist',[\s\S]*name: '开业检查清单'/);
   assert.doesNotMatch(operations, /sourcePath: 'operating-targets'/);
   assert.doesNotMatch(operations, /sourcePath: 'manual-notifications'/);
   assert.doesNotMatch(operations, /sourcePath: 'ai-daily-report'/);
   assert.doesNotMatch(operations, /sourcePath: 'ai-governance'/);
-  assert.equal((operations.match(/sourcePath:/g) || []).length, 5);
+  assert.equal((operations.match(/sourcePath:/g) || []).length, 7);
 
   const systemTools = section("name: '系统与工具'");
   assert.match(systemTools, /name: '系统与工具'/);

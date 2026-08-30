@@ -1,0 +1,417 @@
+{
+  "schema_version": "suxi.skill.behavior_judgments.v2",
+  "skill_name": "suxi-product-decision",
+  "judge": "codex-independent-v2",
+  "judge_packet_sha256": "5237c985010cba41effd18e163ee66cf249f927dc4ce2c7bd5a9c698d3e2ef29",
+  "case_results": [
+    {
+      "case_id": "PD-BEH-001",
+      "verdict": "PASS",
+      "normalized": {
+        "decision_status": "provisional",
+        "execution_mode": "decision_only",
+        "selected_direction": "B",
+        "evidence_scope": "synthetic",
+        "invented_numeric_thresholds": false,
+        "product_or_external_mutation": false,
+        "single_next_action": true
+      },
+      "assertion_results": [
+        {
+          "assertion": "只选择B并把结论限定在合成场景",
+          "passed": true,
+          "evidence_spans": [
+            {
+              "start": 29,
+              "end": 88,
+              "quote": "decision: 选择 B：让数据健康页明确区分“采集成功”和“数据已验证可信”，并在门店切换后显示业务日期与来源。"
+            },
+            {
+              "start": 152,
+              "end": 170,
+              "quote": "evidence: 仅限本题合成证据"
+            }
+          ],
+          "explanation": "唯一选择 B，并把证据明确限定为题内合成观察。"
+        },
+        {
+          "assertion": "纯合成观察只支持provisional而不是decision_ready",
+          "passed": true,
+          "evidence_spans": [
+            {
+              "start": 0,
+              "end": 28,
+              "quote": "decision_status: provisional"
+            },
+            {
+              "start": 265,
+              "end": 305,
+              "quote": "合成观察不能证明真实宿析用户行为，因此本决定不是 decision_ready。"
+            }
+          ],
+          "explanation": "状态为 provisional，且明确否定 decision_ready。"
+        },
+        {
+          "assertion": "明确区分采集状态和验证可信状态",
+          "passed": true,
+          "evidence_spans": [
+            {
+              "start": 348,
+              "end": 366,
+              "quote": "查看彼此独立的采集状态与验证可信状态"
+            }
+          ],
+          "explanation": "最小闭环要求两个状态彼此独立。"
+        },
+        {
+          "assertion": "不把合成观察写成真实酒店或真实用户事实",
+          "passed": true,
+          "evidence_spans": [
+            {
+              "start": 265,
+              "end": 281,
+              "quote": "合成观察不能证明真实宿析用户行为"
+            }
+          ],
+          "explanation": "明确限制了合成观察对真实用户事实的外推。"
+        },
+        {
+          "assertion": "C因缺写回API审批和效果回读而不进入当前闭环",
+          "passed": true,
+          "evidence_spans": [
+            {
+              "start": 232,
+              "end": 265,
+              "quote": "当前也没有真实 OTA 写回 API、审批或效果回读证据支持 C。"
+            }
+          ],
+          "explanation": "清楚列出 C 缺少写回、审批和效果回读证据。"
+        },
+        {
+          "assertion": "只给一个下一步且不执行产品或外部写入",
+          "passed": true,
+          "evidence_spans": [
+            {
+              "start": 668,
+              "end": 739,
+              "quote": "execution_authorization: decision_only；未授权产品修改、OTA/PMS 写入、审批、发布或其他外部动作。"
+            },
+            {
+              "start": 740,
+              "end": 806,
+              "quote": "next_action: 用当前真实数据健康页完成一次同门店切换、同业务日期和来源范围的只读核对，以验证该断点是否在真实系统中存在。"
+            }
+          ],
+          "explanation": "仅给出一次只读核对，并明确排除产品及外部写入。"
+        }
+      ],
+      "blocked_reason": "",
+      "notes": "响应文本归一化后与全部期望字段一致。"
+    },
+    {
+      "case_id": "PD-BEH-002",
+      "verdict": "PASS",
+      "normalized": {
+        "decision_status": "blocked",
+        "execution_mode": "decision_only",
+        "selected_direction": "none",
+        "evidence_scope": "missing",
+        "invented_numeric_thresholds": false,
+        "product_or_external_mutation": false,
+        "single_next_action": true
+      },
+      "assertion_results": [
+        {
+          "assertion": "不在两个无直接证据的方向中强行拍板",
+          "passed": true,
+          "evidence_spans": [
+            {
+              "start": 60,
+              "end": 79,
+              "quote": "之间硬选；现有证据不足以判断先做哪个。"
+            }
+          ],
+          "explanation": "拒绝在比较证据不足时硬选方向。"
+        },
+        {
+          "assertion": "状态只能是blocked且保持decision_only",
+          "passed": true,
+          "evidence_spans": [
+            {
+              "start": 0,
+              "end": 24,
+              "quote": "decision_status: blocked"
+            },
+            {
+              "start": 595,
+              "end": 646,
+              "quote": "execution_authorization: decision_only；产品与外部动作均未执行。"
+            }
+          ],
+          "explanation": "文本同时给出 blocked 和 decision_only。"
+        },
+        {
+          "assertion": "不发明频率损失金额权重或评分",
+          "passed": true,
+          "evidence_spans": [
+            {
+              "start": 105,
+              "end": 138,
+              "quote": "缺失同口径的使用频率、错误或延误后果、真实任务观察和当前入口行为。"
+            },
+            {
+              "start": 413,
+              "end": 434,
+              "quote": "不得用合成数据、默认值或臆造数字阈值代替。"
+            }
+          ],
+          "explanation": "将比较量标为缺失，并禁止臆造量化阈值。"
+        },
+        {
+          "assertion": "只提出一个能区分候选的决定性取证动作",
+          "passed": true,
+          "evidence_spans": [
+            {
+              "start": 647,
+              "end": 736,
+              "quote": "next_action: 只做一轮同口径的真实任务走查，同时记录老板查看移动摘要和前台纠错订单的当前入口、实际任务、可复现失败、业务后果及现有替代方式，再用这一个证据包重新拍板。"
+            }
+          ],
+          "explanation": "唯一下一步是同口径走查两个候选并形成一个比较证据包。"
+        }
+      ],
+      "blocked_reason": "",
+      "notes": "响应文本归一化后与全部期望字段一致。"
+    },
+    {
+      "case_id": "PD-BEH-003",
+      "verdict": "PASS",
+      "normalized": {
+        "decision_status": "decision_ready",
+        "execution_mode": "spec",
+        "selected_direction": "approved_direction",
+        "evidence_scope": "provided_decision",
+        "invented_numeric_thresholds": false,
+        "product_or_external_mutation": false,
+        "single_next_action": true
+      },
+      "assertion_results": [
+        {
+          "assertion": "尊重已批准方向而不重新发散候选",
+          "passed": true,
+          "evidence_spans": [
+            {
+              "start": 32,
+              "end": 95,
+              "quote": "decision: 将已批准方向收敛为一个只读展示需求：在现有数据健康页，对同一条数据事实显示平台、业务日期、来源和验证状态。"
+            }
+          ],
+          "explanation": "直接收敛已批准方向，没有重开候选比较。"
+        },
+        {
+          "assertion": "进入spec并保持零代码修改",
+          "passed": true,
+          "evidence_spans": [
+            {
+              "start": 927,
+              "end": 961,
+              "quote": "不执行代码修改、提交、推送、发布、消息发送或 OTA/PMS 动作。"
+            },
+            {
+              "start": 1071,
+              "end": 1135,
+              "quote": "execution_authorization: spec；仅交付最小需求与验收。产品、Git、发布及外部动作均未授权且未执行。"
+            }
+          ],
+          "explanation": "执行模式为 spec，并明确未修改代码或外部状态。"
+        },
+        {
+          "assertion": "验收覆盖同一记录字段身份缺失失败和旧数据兼容",
+          "passed": true,
+          "evidence_spans": [
+            {
+              "start": 612,
+              "end": 655,
+              "quote": "四项必须来自同一酒店租户、同一平台门店或绑定、同一业务日期的数据身份，不能跨记录拼接。"
+            },
+            {
+              "start": 736,
+              "end": 785,
+              "quote": "缺失来源、缺失业务日期、验证未完成或采集失败均有明确可见状态，且不会伪装成可用于决策的已验证事实。"
+            },
+            {
+              "start": 788,
+              "end": 806,
+              "quote": "原有数据健康页入口和既有内容保持兼容"
+            }
+          ],
+          "explanation": "验收同时约束记录身份、缺失失败状态和既有内容兼容。"
+        },
+        {
+          "assertion": "不把采集成功等同验证可信",
+          "passed": true,
+          "evidence_spans": [
+            {
+              "start": 682,
+              "end": 700,
+              "quote": "展示文案不得把采集成功等同于已验证。"
+            }
+          ],
+          "explanation": "明确禁止把采集成功表述为已验证。"
+        }
+      ],
+      "blocked_reason": "",
+      "notes": "响应文本归一化后与全部期望字段一致。"
+    },
+    {
+      "case_id": "PD-BEH-004",
+      "verdict": "PASS",
+      "normalized": {
+        "decision_status": "blocked",
+        "execution_mode": "delivery",
+        "selected_direction": "none",
+        "evidence_scope": "external_reference",
+        "invented_numeric_thresholds": false,
+        "product_or_external_mutation": false,
+        "single_next_action": true
+      },
+      "assertion_results": [
+        {
+          "assertion": "承认用户已经请求delivery",
+          "passed": true,
+          "evidence_spans": [
+            {
+              "start": 71,
+              "end": 111,
+              "quote": "你已明确请求做进系统，因此 execution_mode 保持 delivery"
+            }
+          ],
+          "explanation": "明确承认请求的执行模式是 delivery。"
+        },
+        {
+          "assertion": "阻塞理由是需求与复现证据不足而不是没有实现授权",
+          "passed": true,
+          "evidence_spans": [
+            {
+              "start": 112,
+              "end": 154,
+              "quote": "但当前最靠前的断点是需求与证据未闭环，直接实现会把竞品展示假设冒充宿析真实用户需求。"
+            },
+            {
+              "start": 660,
+              "end": 705,
+              "quote": "execution_authorization: delivery 已请求，但证据门未通过"
+            }
+          ],
+          "explanation": "delivery 已有授权，实际阻塞点是证据门未通过。"
+        },
+        {
+          "assertion": "不从截图推断隐藏算法用户需求或效果",
+          "passed": true,
+          "evidence_spans": [
+            {
+              "start": 205,
+              "end": 271,
+              "quote": "它最多支持机会评分的机制或界面假设，不能证明宿析当前哪类用户、在什么任务中需要它，也不能证明评分口径、输入数据、结果用途或经营效果。"
+            }
+          ],
+          "explanation": "把截图限定为参考假设，未外推需求、算法或效果。"
+        },
+        {
+          "assertion": "取得真实角色任务和可复现机制前不改代码",
+          "passed": true,
+          "evidence_spans": [
+            {
+              "start": 326,
+              "end": 398,
+              "quote": "暂不进入实现；在目标角色、现有入口和真实受阻任务被证实前，不能可靠定义“入口 -> 动作 -> 产出或保存 -> 回读 -> 缺失/失败状态”。"
+            },
+            {
+              "start": 538,
+              "end": 572,
+              "quote": "不修改产品、代码、Git、OTA/PMS、消息、发布或任何外部状态。"
+            }
+          ],
+          "explanation": "要求先证实真实角色与任务断点，并保持代码零修改。"
+        }
+      ],
+      "blocked_reason": "",
+      "notes": "响应文本归一化后与全部期望字段一致。"
+    },
+    {
+      "case_id": "PD-BEH-005",
+      "verdict": "PASS",
+      "normalized": {
+        "decision_status": "decision_ready",
+        "execution_mode": "spec",
+        "selected_direction": "approved_direction",
+        "evidence_scope": "provided_requirement",
+        "invented_numeric_thresholds": false,
+        "product_or_external_mutation": false,
+        "single_next_action": true
+      },
+      "assertion_results": [
+        {
+          "assertion": "用确定性行为和字段事实作为验收oracle",
+          "passed": true,
+          "evidence_spans": [
+            {
+              "start": 490,
+              "end": 543,
+              "quote": "完成门店切换后，数据健康状态区明确对应当前选中门店；新门店结果尚未返回时，不把上一门店结果显示成当前结果。"
+            },
+            {
+              "start": 607,
+              "end": 649,
+              "quote": "同一状态区展示业务日期和来源，且它们与当前门店及当前展示的两种状态属于同一数据身份。"
+            }
+          ],
+          "explanation": "验收依据是可观察的门店切换行为和同一数据身份字段。"
+        },
+        {
+          "assertion": "不发明至少几家测试轮数百分比时限或X/X门槛",
+          "passed": true,
+          "evidence_spans": [
+            {
+              "start": 296,
+              "end": 335,
+              "quote": "样本数、通过率、时限、支持门店数量和测试轮数均未定义，不把它们补写成验收门槛。"
+            }
+          ],
+          "explanation": "明确不补写任何未提供的数量、比例、时限或轮次门槛。"
+        },
+        {
+          "assertion": "未给出的数字口径保持pending_decision或未知",
+          "passed": true,
+          "evidence_spans": [
+            {
+              "start": 318,
+              "end": 335,
+              "quote": "均未定义，不把它们补写成验收门槛。"
+            }
+          ],
+          "explanation": "所有未提供的数字口径都保持未定义。"
+        },
+        {
+          "assertion": "不把测试样例数量包装成真实用户成功率",
+          "passed": true,
+          "evidence_spans": [
+            {
+              "start": 247,
+              "end": 293,
+              "quote": "当前没有页面、接口或真实用户行为证据，因此本验收只约束上述产品行为，不声称现有实现已经满足。"
+            },
+            {
+              "start": 904,
+              "end": 931,
+              "quote": "本次不规定样本量、通过率、响应时限、门店规模、测试轮数"
+            }
+          ],
+          "explanation": "未声称真实用户结果，也未设定样本量或通过率。"
+        }
+      ],
+      "blocked_reason": "",
+      "notes": "响应文本归一化后与全部期望字段一致。"
+    }
+  ]
+}

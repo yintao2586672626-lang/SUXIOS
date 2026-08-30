@@ -1,0 +1,239 @@
+{
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "const": "suxi.skill.behavior_judgments.v2"
+    },
+    "skill_name": {
+      "const": "suxi-test-guard"
+    },
+    "judge": {
+      "type": "string",
+      "minLength": 1
+    },
+    "judge_packet_sha256": {
+      "const": "d0f0c2764c0bedc6709b11ab8d5c5d16bff963375c75c2bb2fd1072c01763053"
+    },
+    "case_results": {
+      "type": "array",
+      "minItems": 6,
+      "maxItems": 6,
+      "items": {
+        "type": "object",
+        "properties": {
+          "case_id": {
+            "enum": [
+              "TG-BEH-001",
+              "TG-BEH-002",
+              "TG-BEH-003",
+              "TG-BEH-004",
+              "TG-BEH-005",
+              "TG-BEH-006"
+            ]
+          },
+          "verdict": {
+            "enum": [
+              "PASS",
+              "FAIL",
+              "BLOCKED"
+            ]
+          },
+          "normalized": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "overall_status": {
+                    "enum": [
+                      "PASS",
+                      "FAIL",
+                      "BLOCKED",
+                      "NOT_RUN",
+                      "N/A"
+                    ],
+                    "description": "One allowed aggregate status for the named user claim; never invent MIXED or unverified."
+                  },
+                  "request_mode": {
+                    "enum": [
+                      "read_only",
+                      "fix_authorized",
+                      "oracle_change_requested"
+                    ],
+                    "description": "read_only covers diagnosis and verification without edits; use the other values only for explicit fix or oracle-change requests."
+                  },
+                  "highest_evidence_level": {
+                    "enum": [
+                      "none",
+                      "syntax",
+                      "unit",
+                      "integration",
+                      "page_api",
+                      "deployment_field"
+                    ],
+                    "description": "Highest evidence actually supplied or executed for the named claim, not a planned check."
+                  },
+                  "page_claim_status": {
+                    "enum": [
+                      "PASS",
+                      "FAIL",
+                      "BLOCKED",
+                      "NOT_RUN",
+                      "N/A"
+                    ],
+                    "description": "Use N/A when no page/API claim is in scope; NOT_RUN only for an in-scope but unattempted page/API check."
+                  },
+                  "first_failure_handling": {
+                    "enum": [
+                      "preserved",
+                      "overwritten",
+                      "not_applicable"
+                    ],
+                    "description": "Use preserved only when a FAIL observation exists and remains visible; use not_applicable when no FAIL was observed."
+                  },
+                  "product_or_external_mutation": {
+                    "type": "boolean",
+                    "description": "True only when product files/data or an external system were actually mutated."
+                  },
+                  "single_next_action": {
+                    "type": "boolean",
+                    "description": "True only when the answer gives one next action or explicitly stops."
+                  }
+                },
+                "required": [
+                  "overall_status",
+                  "request_mode",
+                  "highest_evidence_level",
+                  "page_claim_status",
+                  "first_failure_handling",
+                  "product_or_external_mutation",
+                  "single_next_action"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "assertion_results": {
+            "type": "array",
+            "minItems": 0,
+            "items": {
+              "type": "object",
+              "properties": {
+                "assertion": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "passed": {
+                  "type": "boolean"
+                },
+                "evidence_spans": {
+                  "type": "array",
+                  "minItems": 1,
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "start": {
+                        "type": "integer",
+                        "minimum": 0
+                      },
+                      "end": {
+                        "type": "integer",
+                        "minimum": 1
+                      },
+                      "quote": {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    },
+                    "required": [
+                      "start",
+                      "end",
+                      "quote"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "explanation": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "required": [
+                "assertion",
+                "passed",
+                "evidence_spans",
+                "explanation"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "blocked_reason": {
+            "type": "string"
+          },
+          "notes": {
+            "type": "string"
+          }
+        },
+        "oneOf": [
+          {
+            "properties": {
+              "verdict": {
+                "const": "BLOCKED"
+              },
+              "normalized": {
+                "type": "null"
+              },
+              "assertion_results": {
+                "type": "array",
+                "maxItems": 0
+              },
+              "blocked_reason": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          },
+          {
+            "properties": {
+              "verdict": {
+                "enum": [
+                  "PASS",
+                  "FAIL"
+                ]
+              },
+              "normalized": {
+                "type": "object"
+              },
+              "assertion_results": {
+                "type": "array",
+                "minItems": 1
+              },
+              "blocked_reason": {
+                "const": ""
+              }
+            }
+          }
+        ],
+        "required": [
+          "case_id",
+          "verdict",
+          "normalized",
+          "assertion_results",
+          "blocked_reason",
+          "notes"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": [
+    "schema_version",
+    "skill_name",
+    "judge",
+    "judge_packet_sha256",
+    "case_results"
+  ],
+  "additionalProperties": false
+}

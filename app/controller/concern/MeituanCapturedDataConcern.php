@@ -918,8 +918,35 @@ trait MeituanCapturedDataConcern
             return null;
         }
 
-        $dataDate = $this->normalizeOnlineDataDate($this->firstMeituanValue($item, ['order_time', 'orderTime', 'createTime', 'buyTime', 'purchase_time', 'purchaseTime', '购买时间', 'check_in_date', 'checkInDate', 'checkIn', 'data_date', 'dataDate', 'statDate', 'date'], ''))
-            ?: ($context['default_data_date'] ?? date('Y-m-d'));
+        $orderDate = $this->normalizeOnlineDataDate($this->firstMeituanValue(
+            $item,
+            ['order_time', 'orderTime', 'createTime', 'buyTime', 'purchase_time', 'purchaseTime', '购买时间'],
+            ''
+        ));
+        $stayDate = $this->normalizeOnlineDataDate($this->firstMeituanValue(
+            $item,
+            ['check_in_date', 'checkInDate', 'checkIn'],
+            ''
+        ));
+        $genericDate = $this->normalizeOnlineDataDate($this->firstMeituanValue(
+            $item,
+            ['data_date', 'dataDate', 'statDate', 'date'],
+            ''
+        ));
+        $dataDate = $orderDate
+            ?: ($stayDate ?: ($genericDate ?: ($context['default_data_date'] ?? date('Y-m-d'))));
+        $explicitDateBasis = strtolower(trim((string)($item['date_basis'] ?? $item['dateBasis'] ?? '')));
+        $dateBasis = in_array($explicitDateBasis, ['order_date', 'stay_date'], true)
+            ? $explicitDateBasis
+            : ($orderDate !== '' ? 'order_date' : ($stayDate !== '' ? 'stay_date' : 'unknown'));
+        $dateSource = trim((string)($item['date_source'] ?? $item['dateSource'] ?? ''));
+        if ($dateSource === '') {
+            $dateSource = $orderDate !== ''
+                ? 'order_time'
+                : ($stayDate !== ''
+                    ? 'check_in_date'
+                    : ($genericDate !== '' ? 'row.data_date' : 'capture_context.default_data_date'));
+        }
         if ($orderIdHash !== '') {
             $identity = $orderIdHash;
         } elseif ($orderId !== '') {
@@ -941,7 +968,41 @@ trait MeituanCapturedDataConcern
             ? $roomCount * $nights
             : $roomNights;
 
-        return $this->baseMeituanCapturedRow($item, $context, [
+        $recordKind = strtolower(trim((string)($item['record_kind'] ?? $item['recordKind'] ?? '')));
+        if (!in_array($recordKind, ['order_daily_aggregate', 'order_detail'], true)) {
+            $recordKind = $aggregateOnly ? 'order_daily_aggregate' : 'order_detail';
+        }
+        $orderCountBasis = strtolower(trim((string)($item['order_count_basis'] ?? $item['orderCountBasis'] ?? '')));
+        if (!in_array($orderCountBasis, [
+            'active_non_cancelled_orders',
+            'listed_orders',
+            'paid_orders',
+            'source_aggregate_orders',
+            'source_order_count',
+            'one_order_row',
+        ], true)) {
+            $orderCountBasis = $aggregateOnly
+                ? 'source_aggregate_orders'
+                : ($orderCount !== null ? 'source_order_count' : 'one_order_row');
+        }
+        $roomNightsBasis = strtolower(trim((string)($item['room_nights_basis'] ?? $item['roomNightsBasis'] ?? '')));
+        if (!in_array($roomNightsBasis, [
+            'active_non_cancelled_booked_room_nights',
+            'booked_room_nights',
+            'paid_room_nights',
+            'stayed_room_nights',
+        ], true)) {
+            $roomNightsBasis = $quantity !== null ? 'booked_room_nights' : 'unknown';
+        }
+        $factSource = array_merge($item, [
+            'date_basis' => $dateBasis,
+            'date_source' => $dateSource,
+            'order_count_basis' => $orderCountBasis,
+            'room_nights_basis' => $roomNightsBasis,
+            'record_kind' => $recordKind,
+        ]);
+
+        return $this->baseMeituanCapturedRow($factSource, $context, [
             'data_date' => $dataDate,
             'amount' => $amount !== null ? round($amount, 2) : null,
             'quantity' => $quantity,

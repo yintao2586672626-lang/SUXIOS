@@ -1,0 +1,6 @@
+{
+  "schema_version": "suxi.skill.behavior_request.v1",
+  "skill_name": "suxi-user-research",
+  "case_id": "UR-BEH-001",
+  "user_request": "我想知道店长第一次进数据健康页，能不能在3分钟内判断昨天携程数据是否可信。现在还没找人测，先帮我研究。"
+}

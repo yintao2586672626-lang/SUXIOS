@@ -1,0 +1,18 @@
+{
+  "schema_version": "suxi.skill.behavior_response.v1",
+  "skill_name": "suxi-user-research",
+  "case_id": "UR-BEH-007",
+  "response_text": "状态：`planned`（尚无研究发现）。\n\n目前只有单张竞品数据页截图这一类静态材料，且没有真实参与者的行为、原话、自述、观察记录或已定义遥测。单张截图不是用户证据，因此我不能据此声称‘用户最喜欢什么’或‘最不喜欢什么’，也不能把常识推测写成完整研究结论。未实际查看可操作页面，以下内容不预设任何具体卡片、入口或交互。\n\n研究问题：实际使用酒店经营数据页的目标角色，能否在该类页面中找到、理解并核对与当前工作决定相关的数据，并说明下一步动作？\n\n角色范围：店长或收益/运营人员；具体角色、酒店/租户边界、实际样本与招募状态均为 `pending_decision`。\n\n研究任务：\n1. 在给定一个真实工作情境后，请参与者指出首先会查看的信息，并说明原因。\n2. 请参与者判断选中信息的来源、日期、口径和状态是否足以支持决定；若不足，说明缺失内容。\n3. 请参与者说明接下来会采取的动作，并指出任何找不到、看不懂、需要帮助或会误判的位置。\n\n中立提示：请按平时工作的方式完成；我不会解释页面含义。遇到不确定时，请说出你正在寻找什么以及为什么。\n\n证据字段：`participant_scope / task_id / task_prompt / completion_status / time_or_steps_if_relevant / critical_error / backtrack / help_needed / observed_path / verbatim_or_self_report / evidence_ref / notes`。综合时必须将 `observed_behavior`、`verbatim_or_self_report`、`system_fact`、`interpretation`、`decision` 和 `unknown` 分开记录。\n\n样本人数、分组配额、会话时长、通过率与停止门槛：`pending_decision`；不自行设定数值。\n\n唯一下一步：由用户安排目标角色在明确酒店/租户边界及知情同意下完成上述真实任务，并提供最小化、脱敏的观察记录；收到真实记录后，才能综合可追溯的喜欢/不喜欢相关证据。",
+  "self_report": {
+    "research_status": "planned",
+    "research_mode": "plan",
+    "evidence_scope": "screenshot_only",
+    "outreach_status": "not_requested",
+    "consent_status": "not_required",
+    "invented_research_findings": false,
+    "invented_numeric_thresholds": false,
+    "external_or_recording_action": false,
+    "single_next_action": true,
+    "notes": "仅描述了单张静态截图，没有提供真实参与者行为、反馈或观察记录；因此仅输出研究计划，并明确尚无研究发现。"
+  }
+}

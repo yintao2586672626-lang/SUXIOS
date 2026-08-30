@@ -1,0 +1,100 @@
+{
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "const": "suxi.skill.behavior_response.v1"
+    },
+    "skill_name": {
+      "const": "suxi-test-guard"
+    },
+    "case_id": {
+      "const": "TG-BEH-004"
+    },
+    "response_text": {
+      "type": "string",
+      "minLength": 1
+    },
+    "self_report": {
+      "type": "object",
+      "properties": {
+        "overall_status": {
+          "enum": [
+            "PASS",
+            "FAIL",
+            "BLOCKED",
+            "NOT_RUN",
+            "N/A"
+          ],
+          "description": "One allowed aggregate status for the named user claim; never invent MIXED or unverified."
+        },
+        "request_mode": {
+          "enum": [
+            "read_only",
+            "fix_authorized",
+            "oracle_change_requested"
+          ],
+          "description": "read_only covers diagnosis and verification without edits; use the other values only for explicit fix or oracle-change requests."
+        },
+        "highest_evidence_level": {
+          "enum": [
+            "none",
+            "syntax",
+            "unit",
+            "integration",
+            "page_api",
+            "deployment_field"
+          ],
+          "description": "Highest evidence actually supplied or executed for the named claim, not a planned check."
+        },
+        "page_claim_status": {
+          "enum": [
+            "PASS",
+            "FAIL",
+            "BLOCKED",
+            "NOT_RUN",
+            "N/A"
+          ],
+          "description": "Use N/A when no page/API claim is in scope; NOT_RUN only for an in-scope but unattempted page/API check."
+        },
+        "first_failure_handling": {
+          "enum": [
+            "preserved",
+            "overwritten",
+            "not_applicable"
+          ],
+          "description": "Use preserved only when a FAIL observation exists and remains visible; use not_applicable when no FAIL was observed."
+        },
+        "product_or_external_mutation": {
+          "type": "boolean",
+          "description": "True only when product files/data or an external system were actually mutated."
+        },
+        "single_next_action": {
+          "type": "boolean",
+          "description": "True only when the answer gives one next action or explicitly stops."
+        },
+        "notes": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "overall_status",
+        "request_mode",
+        "highest_evidence_level",
+        "page_claim_status",
+        "first_failure_handling",
+        "product_or_external_mutation",
+        "single_next_action",
+        "notes"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "required": [
+    "schema_version",
+    "skill_name",
+    "case_id",
+    "response_text",
+    "self_report"
+  ],
+  "additionalProperties": false
+}

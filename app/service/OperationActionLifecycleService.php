@@ -604,6 +604,14 @@ final class OperationActionLifecycleService
                 === OperatingOpportunityLabService::DAILY_SOURCE_MODULE;
     }
 
+    /** @param array<string,mixed> $intent @return list<string> */
+    private function eventStatusesForIntent(array $intent): array
+    {
+        return $this->isDailyOneThingIntent($intent)
+            ? self::DAILY_STATUSES
+            : self::STATUSES;
+    }
+
     /** @param array<string,mixed> $intent @return array<string,mixed> */
     public function assertPendingCardCurrent(array $intent, ?DateTimeImmutable $now = null): array
     {
@@ -1107,9 +1115,7 @@ final class OperationActionLifecycleService
             return [];
         }
         $this->assertSchemaReady();
-        $allowedStatuses = $this->isDailyOneThingIntent($intent)
-            ? self::DAILY_STATUSES
-            : self::STATUSES;
+        $allowedStatuses = $this->eventStatusesForIntent($intent);
         if (($fromStatus !== '' && !in_array($fromStatus, $allowedStatuses, true))
             || !in_array($toStatus, $allowedStatuses, true)
         ) {
@@ -1139,7 +1145,8 @@ final class OperationActionLifecycleService
             $eventType,
             $actorId,
             $payload,
-            $payloadJson
+            $payloadJson,
+            $allowedStatuses
         ): array {
             $lockedIntent = Db::name('operation_execution_intents')
                 ->where('id', $intentId)
@@ -1149,6 +1156,10 @@ final class OperationActionLifecycleService
                 ->find();
             if (!is_array($lockedIntent)) {
                 throw new RuntimeException('运营行动执行意图不存在或范围已变化');
+            }
+            $lockedAllowedStatuses = $this->eventStatusesForIntent($lockedIntent);
+            if ($lockedAllowedStatuses !== $allowedStatuses) {
+                throw new RuntimeException('运营行动生命周期合同已变化，请刷新后重试');
             }
 
             $existingEvents = array_map(
@@ -1162,7 +1173,14 @@ final class OperationActionLifecycleService
                     ->select()
                     ->toArray()
             );
-            $integrity = $this->verifyEventChain($existingEvents, $tenantId, $hotelId, $intentId);
+            $integrity = $this->verifyEventChain(
+                $existingEvents,
+                $tenantId,
+                $hotelId,
+                $intentId,
+                null,
+                $lockedAllowedStatuses
+            );
             if ($integrity['status'] === 'invalid') {
                 throw new RuntimeException('运营行动生命周期事件链损坏：' . $integrity['failure_reason']);
             }
@@ -1236,7 +1254,9 @@ final class OperationActionLifecycleService
                 [...$existingEvents, $normalized],
                 $tenantId,
                 $hotelId,
-                $intentId
+                $intentId,
+                null,
+                $lockedAllowedStatuses
             );
             if ((int)($normalized['id'] ?? 0) !== $id
                 || !hash_equals($digest, strtolower(trim((string)($normalized['content_digest'] ?? ''))))
@@ -1538,7 +1558,13 @@ final class OperationActionLifecycleService
                 $intentId,
                 $candidateTaskScope
             );
-        $eventChain = $this->readEventChain($tenantId, $hotelId, $intentId, $knownTaskScope);
+        $eventChain = $this->readEventChain(
+            $tenantId,
+            $hotelId,
+            $intentId,
+            $knownTaskScope,
+            $this->eventStatusesForIntent($intent)
+        );
         $reviewChain = $this->readReviewChain($tenantId, $hotelId, $intentId, $knownTaskScope);
         $events = $eventChain['events'];
         $reviews = array_reverse($reviewChain['reviews']);
@@ -1606,7 +1632,9 @@ final class OperationActionLifecycleService
         $eventChain = $this->readEventChain(
             (int)$intent['tenant_id'],
             (int)$intent['hotel_id'],
-            (int)$intent['id']
+            (int)$intent['id'],
+            null,
+            $this->eventStatusesForIntent($intent)
         );
         $reviewChain = $this->readReviewChain(
             (int)$intent['tenant_id'],
@@ -1651,7 +1679,9 @@ final class OperationActionLifecycleService
                 $events,
                 (int)($intent['tenant_id'] ?? 0),
                 (int)($intent['hotel_id'] ?? 0),
-                (int)($intent['id'] ?? 0)
+                (int)($intent['id'] ?? 0),
+                null,
+                $this->eventStatusesForIntent($intent)
             );
             if ($integrity['status'] !== 'verified') {
                 throw new RuntimeException('运营行动生命周期状态不可用：' . $integrity['failure_reason']);
@@ -1819,8 +1849,10 @@ final class OperationActionLifecycleService
         int $tenantId = 0,
         int $hotelId = 0,
         int $intentId = 0,
-        ?array $knownTaskScope = null
+        ?array $knownTaskScope = null,
+        ?array $allowedStatuses = null
     ): array {
+        $allowedStatuses ??= self::STATUSES;
         $previous = '';
         $previousStatus = '';
         $expectedSequence = 1;
@@ -1831,7 +1863,7 @@ final class OperationActionLifecycleService
                 || ($hotelId > 0 && (int)($event['hotel_id'] ?? 0) !== $hotelId)
                 || ($intentId > 0 && (int)($event['intent_id'] ?? 0) !== $intentId)
                 || (string)($event['from_status'] ?? '') !== $previousStatus
-                || !in_array((string)($event['to_status'] ?? ''), self::STATUSES, true)
+                || !in_array((string)($event['to_status'] ?? ''), $allowedStatuses, true)
                 || strtolower(trim((string)($event['previous_digest'] ?? ''))) !== $previous
                 || !$this->isDigest((string)($event['content_digest'] ?? ''))
                 || !hash_equals(strtolower((string)$event['content_digest']), $this->eventDigest($event))
@@ -1960,13 +1992,24 @@ final class OperationActionLifecycleService
         int $tenantId,
         int $hotelId,
         int $intentId,
-        ?array $knownTaskScope = null
+        ?array $knownTaskScope = null,
+        ?array $allowedStatuses = null
     ): array {
         if (!$this->tableExists(self::EVENT_TABLE)) {
             return [
                 'events' => [],
                 'integrity' => ['status' => 'missing', 'failure_reason' => 'lifecycle_events_missing'],
             ];
+        }
+        if ($allowedStatuses === null) {
+            $storedIntent = Db::name('operation_execution_intents')
+                ->where('id', $intentId)
+                ->where('tenant_id', $tenantId)
+                ->where('hotel_id', $hotelId)
+                ->find();
+            $allowedStatuses = is_array($storedIntent)
+                ? $this->eventStatusesForIntent($storedIntent)
+                : self::STATUSES;
         }
         $events = array_map(
             [$this, 'normalizeEvent'],
@@ -1983,7 +2026,8 @@ final class OperationActionLifecycleService
             $tenantId,
             $hotelId,
             $intentId,
-            $knownTaskScope
+            $knownTaskScope,
+            $allowedStatuses
         );
         if ($integrity['status'] === 'invalid') {
             throw new RuntimeException('运营行动生命周期事件链损坏：' . $integrity['failure_reason']);

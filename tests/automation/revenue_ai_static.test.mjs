@@ -227,7 +227,7 @@ test('Revenue AI entry lazy-loads the versioned helper outside the startup chain
   assert.match(appMain, /buildAiDailyFactGate: \(\) => \(\{[\s\S]*status: 'not_loaded'[\s\S]*configuredCount: null/);
   assert.match(appMain, /aiDailyReportActionExecutionReady: \(\) => false/);
   assert.match(appMain, /const HOME_SECONDARY_PANEL_DELAY_MS = 4200;/);
-  assert.match(appMain, /homeSecondaryPanelsReady\.value = true;[\s\S]*ensureRevenueAiStaticReady\(\)[\s\S]*loadRevenueAiOverview\(\)/);
+  assert.match(appMain, /ensureHomeSecondaryStaticRuntimeReady\(\)[\s\S]*ensureRevenueAiStaticReady\(\)[\s\S]*homeSecondaryPanelsReady\.value = isCompassDataPage\(\);[\s\S]*homeSecondaryPanelsReady\.value \? loadRevenueAiOverview\(\) : null/);
   assert.match(appMain, /if \(newPage === 'agent-center'\) \{[\s\S]*runPageLoadOnce\(newPage, 'revenue-ai-static', \(\) => ensureRevenueAiStaticReady\(\)\)/);
   assert.match(appMain, /if \(newPage === 'ai-daily-report'\) \{[\s\S]*await ensureRevenueAiStaticReady\(\);[\s\S]*return loadAiDailyReport\(\);/);
   assert.match(html, /requireRevenueAiStatic\('buildRevenueAiBusinessClosure'\)/);

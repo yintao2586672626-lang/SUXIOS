@@ -1,0 +1,6 @@
+{
+  "schema_version": "suxi.skill.behavior_request.v1",
+  "skill_name": "suxi-product-decision",
+  "case_id": "PD-BEH-005",
+  "user_request": "为门店切换后的数据健康状态写产品验收。需求只说必须区分采集状态和验证状态，并显示业务日期与来源；没有给样本数、通过率、时限、支持门店数量或测试轮数。"
+}

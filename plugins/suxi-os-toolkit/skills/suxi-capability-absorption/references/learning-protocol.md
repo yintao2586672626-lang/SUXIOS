@@ -82,6 +82,9 @@ unsafe / irrelevant / unauthorized
 ```text
 overall_disposition:
 source_identity:
+display_identity:
+package_identity:
+mapping_status:
 task_mode:
 execution_authorization:
 units:
@@ -97,6 +100,8 @@ units:
     destination_or_non_goal:
 next_promotion_trigger:
 ```
+
+对技能市场卡片或截图，`display_identity` 只记录可见名称、图标、简介与市场位置；`package_identity` 必须能唯一定位到 package ID/真实目录、版本/ref/commit 和实际文件树。无法唯一对应时记 `mapping_status=unverified`：允许回答“这类能力是否有用”，但包专属权限、依赖、许可、安全性和安装判断保持未验证。
 
 处置卡是内部决策合同，用户输出只保留有决策价值的字段。没有正式吸纳单元时应直接说明“本次仅储存/候选，未改业务功能”，不要为了让报告显得积极而发明落点。
 

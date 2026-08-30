@@ -1,0 +1,16 @@
+{
+  "schema_version": "suxi.skill.behavior_response.v1",
+  "skill_name": "suxi-test-guard",
+  "case_id": "TG-BEH-006",
+  "response_text": "结果：该函数逻辑的限定主张已由本地验证证据支持。\n状态：PASS（结论仅限该函数逻辑）。\n改动：已知影响范围仅为纯本地函数修改；本次仅整理验收结论，未扩大到页面、API、数据库、部署或现场。\n验证：node --check 为 PASS；对应目标单元测试为 PASS，且满足既定 oracle；最高证据层级为 unit。页面/API、数据库、部署和现场均不在本次主张范围，记为 N/A。\n下一步：停止；仅当后续扩大主张范围时，再按新增影响面补充对应验证。",
+  "self_report": {
+    "overall_status": "PASS",
+    "request_mode": "read_only",
+    "highest_evidence_level": "unit",
+    "page_claim_status": "N/A",
+    "first_failure_handling": "not_applicable",
+    "product_or_external_mutation": false,
+    "single_next_action": true,
+    "notes": "PASS is limited to the supplied function-level claim and the supplied executed syntax and targeted unit evidence. Page, API, database, deployment, and field layers are out of scope; the respondent performed no product or external mutation."
+  }
+}

@@ -312,6 +312,10 @@ final class MeituanCapturedDataIntegrityTest extends TestCase
         self::assertNull($byType['order']['quantity']);
         self::assertNull($byType['order']['book_order_num']);
         self::assertNull($byType['order']['data_value']);
+        $orderRaw = json_decode((string)$byType['order']['raw_data'], true);
+        self::assertSame('order_date', $orderRaw['date_basis']);
+        self::assertSame('order_time', $orderRaw['date_source']);
+        self::assertSame('order_detail', $orderRaw['record_kind']);
     }
 
     public function testCapturedOrderHashAliasesRemainStableForDeduplication(): void
@@ -361,6 +365,10 @@ final class MeituanCapturedDataIntegrityTest extends TestCase
                 'roomNights' => 4,
                 'dataDate' => '2026-07-11',
                 'date_source' => 'request.query.dataDate',
+                'date_basis' => 'order_date',
+                'order_count_basis' => 'listed_orders',
+                'room_nights_basis' => 'booked_room_nights',
+                'record_kind' => 'order_daily_aggregate',
                 '_source_path' => '$.data.summary',
                 'order_id_hash' => 'not-a-valid-hash',
             ],
@@ -386,6 +394,11 @@ final class MeituanCapturedDataIntegrityTest extends TestCase
         self::assertIsArray($raw);
         self::assertSame(3, $raw['orderCount']);
         self::assertSame(4, $raw['roomNights']);
+        self::assertSame('order_date', $raw['date_basis']);
+        self::assertSame('request.query.dataDate', $raw['date_source']);
+        self::assertSame('listed_orders', $raw['order_count_basis']);
+        self::assertSame('booked_room_nights', $raw['room_nights_basis']);
+        self::assertSame('order_daily_aggregate', $raw['record_kind']);
         self::assertArrayNotHasKey('amount', $raw);
         self::assertArrayNotHasKey('order_id_hash', $raw);
     }

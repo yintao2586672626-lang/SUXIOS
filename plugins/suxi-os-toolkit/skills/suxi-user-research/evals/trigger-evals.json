@@ -1,0 +1,21 @@
+{
+  "skill_name": "suxi-user-research",
+  "evals": [
+    {"id":"T-001","query":"$suxi-user-research 帮我制定店长使用数据健康页的用户研究计划。","should_trigger":true},
+    {"id":"T-002","query":"$suxi-user-research 给收益经理设计一份中立的访谈提纲。","should_trigger":true},
+    {"id":"T-003","query":"$suxi-user-research 这个保存回显流程想做可用性测试，帮我设计真实任务。","should_trigger":true},
+    {"id":"T-004","query":"$suxi-user-research 我有一批脱敏访谈记录，帮我综合用户需求和冲突证据。","should_trigger":true},
+    {"id":"T-005","query":"$suxi-user-research 用问卷验证前台是否普遍看不懂数据来源。","should_trigger":true},
+    {"id":"T-006","query":"$suxi-user-research 观察店长第一次怎么找到昨天携程数据，要记哪些证据？","should_trigger":true},
+    {"id":"T-007","query":"$suxi-user-research 这次改版后想用同一任务复验是否真的更好用。","should_trigger":true},
+    {"id":"T-008","query":"$suxi-user-research 根据这些真实反馈做用户旅程和一个最优先需求。","should_trigger":true},
+    {"id":"T-009","query":"直接帮我把这个页面的按钮改成金色。","should_trigger":false},
+    {"id":"T-010","query":"这个API报403，帮我复现并修复。","should_trigger":false},
+    {"id":"T-011","query":"汇总本周携程和美团的间夜数。","should_trigger":false},
+    {"id":"T-012","query":"帮我回复客人问什么时候能入住。","should_trigger":false},
+    {"id":"T-013","query":"识别这张截图里有哪些文字。","should_trigger":false},
+    {"id":"T-014","query":"给酒店做一张开业海报。","should_trigger":false},
+    {"id":"T-015","query":"打开本地宿析OS的收益分析页。","should_trigger":false},
+    {"id":"T-016","query":"算一下这个Excel的A列总和。","should_trigger":false}
+  ]
+}

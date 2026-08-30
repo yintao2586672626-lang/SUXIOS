@@ -537,7 +537,7 @@ if (!runtimeAssetPaths.includes('app-startup-helpers.min.js')
     || !/status:\s*'not_loaded',\s*statusLabel:\s*'未加载'/.test(content)
     || !content.includes("runPageLoadOnce(newPage, 'revenue-ai-static', () => ensureRevenueAiStaticReady());")
     || !content.includes('await ensureRevenueAiStaticReady();\n                        return loadAiDailyReport();')
-    || !content.includes('homeSecondaryPanelsReady.value = true;\n                    void ensureRevenueAiStaticReady()')) {
+    || !content.includes("await loadDeferredAsset('app-deferred-helpers.min.js');") || !/void ensureHomeSecondaryStaticRuntimeReady\(\)[\s\S]{0,180}?ensureRevenueAiStaticReady\(\)[\s\S]{0,220}?homeSecondaryPanelsReady\.value = isCompassDataPage\(\)/.test(content)) {
     failures.push('Revenue AI static helpers must stay out of the startup chain and load through a versioned, retryable, page-gated loader with truthful not-loaded fallbacks.');
   }
   if (!content.includes('// AI_DAILY_REPORT_TASK_HELPERS_START')

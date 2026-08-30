@@ -151,6 +151,7 @@ final class RouteDomainManifestContractTest extends TestCase
         );
         self::assertSame([
             'route/domain/ai_daily_reports.php',
+            'route/domain/online_data_order_analysis.php',
             'route/domain/ai_governance.php',
             'route/domain/operations.php',
             'route/domain/wecom_admin.php',

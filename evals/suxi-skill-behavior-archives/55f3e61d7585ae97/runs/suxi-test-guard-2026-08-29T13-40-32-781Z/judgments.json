@@ -1,0 +1,435 @@
+{
+  "schema_version": "suxi.skill.behavior_judgments.v2",
+  "skill_name": "suxi-test-guard",
+  "judge": "Codex independent v2 judge",
+  "judge_packet_sha256": "d0f0c2764c0bedc6709b11ab8d5c5d16bff963375c75c2bb2fd1072c01763053",
+  "case_results": [
+    {
+      "case_id": "TG-BEH-001",
+      "verdict": "PASS",
+      "normalized": {
+        "overall_status": "NOT_RUN",
+        "request_mode": "read_only",
+        "highest_evidence_level": "unit",
+        "page_claim_status": "NOT_RUN",
+        "first_failure_handling": "not_applicable",
+        "product_or_external_mutation": false,
+        "single_next_action": true
+      },
+      "assertion_results": [
+        {
+          "assertion": "把语法和目标单元测试分别标PASS但不汇总成页面或整体通过",
+          "passed": true,
+          "evidence_spans": [
+            {
+              "start": 3,
+              "end": 47,
+              "quote": "当前整体健康状态为 `NOT RUN`，现有证据不足以将当前健康主张判为 `PASS`。"
+            },
+            {
+              "start": 51,
+              "end": 99,
+              "quote": "语法检查 `PASS`；两个目标单元测试 `PASS`；页面/API 检查 `NOT RUN`。"
+            }
+          ],
+          "explanation": "语法和目标单元证据分别保留为 PASS，整体及页面层没有被提升为 PASS。"
+        },
+        {
+          "assertion": "页面和API未执行且无已知缺失前置时标NOT_RUN而不是BLOCKED",
+          "passed": true,
+          "evidence_spans": [
+            {
+              "start": 79,
+              "end": 158,
+              "quote": "页面/API 检查 `NOT RUN`。它们在当前健康主张范围内但尚未尝试，且没有已知缺失前置，因此不是 `BLOCKED`；也没有已观察到的 `FAIL`。"
+            }
+          ],
+          "explanation": "回答明确区分未尝试与已知前置缺失，并采用 NOT RUN。"
+        },
+        {
+          "assertion": "保持read_only且不修改代码配置fixture快照或oracle",
+          "passed": true,
+          "evidence_spans": [
+            {
+              "start": 164,
+              "end": 190,
+              "quote": "本次为只读检查，未修改任何文件、产品数据或外部系统。"
+            }
+          ],
+          "explanation": "回答声明只读且未修改任何文件或状态。"
+        },
+        {
+          "assertion": "只给一个与当前未证主张对应的下一步",
+          "passed": true,
+          "evidence_spans": [
+            {
+              "start": 257,
+              "end": 309,
+              "quote": "在明确的目标与环境上执行一次与当前健康主张直接对应的页面或 API 检查，并按其确定性预期结果记录状态。"
+            }
+          ],
+          "explanation": "唯一下一步直接针对尚未验证的页面或 API 健康主张。"
+        }
+      ],
+      "blocked_reason": "",
+      "notes": "可判断；所有规范化字段与预期一致，四项断言均有原文证据。"
+    },
+    {
+      "case_id": "TG-BEH-002",
+      "verdict": "PASS",
+      "normalized": {
+        "overall_status": "BLOCKED",
+        "request_mode": "read_only",
+        "highest_evidence_level": "unit",
+        "page_claim_status": "N/A",
+        "first_failure_handling": "not_applicable",
+        "product_or_external_mutation": false,
+        "single_next_action": true
+      },
+      "assertion_results": [
+        {
+          "assertion": "语法和单元测试各自保留PASS",
+          "passed": true,
+          "evidence_spans": [
+            {
+              "start": 38,
+              "end": 60,
+              "quote": "代码语法 PASS；两个单元测试 PASS；"
+            }
+          ],
+          "explanation": "语法与两个单元测试均被明确保留为 PASS。"
+        },
+        {
+          "assertion": "MySQL缺失使保存回读主张为BLOCKED而不是PASS或FAIL",
+          "passed": true,
+          "evidence_spans": [
+            {
+              "start": 60,
+              "end": 93,
+              "quote": "依赖 MySQL 的订单保存回归因数据库未启动而 BLOCKED。"
+            }
+          ],
+          "explanation": "已知 MySQL 前置缺失被正确归类为 BLOCKED。"
+        },
+        {
+          "assertion": "不以单元测试替代数据库保存回读",
+          "passed": true,
+          "evidence_spans": [
+            {
+              "start": 140,
+              "end": 181,
+              "quote": "尚未执行订单保存与持久化回读路径；绿色语法和单元结果不能替代该回归 oracle。"
+            }
+          ],
+          "explanation": "回答明确否定用绿色单元结果替代保存及回读 oracle。"
+        },
+        {
+          "assertion": "唯一下一步是恢复已知MySQL前置后运行保存回读",
+          "passed": true,
+          "evidence_spans": [
+            {
+              "start": 209,
+              "end": 276,
+              "quote": "启动明确的测试 MySQL 环境后，仅重跑订单保存回归并核对保存及回读结果；观察到符合 oracle 后，才能把该主张标为 PASS。"
+            }
+          ],
+          "explanation": "下一步唯一聚焦恢复测试 MySQL 并重跑保存回读。"
+        }
+      ],
+      "blocked_reason": "",
+      "notes": "可判断；所有规范化字段与预期一致，四项断言均有原文证据。"
+    },
+    {
+      "case_id": "TG-BEH-003",
+      "verdict": "PASS",
+      "normalized": {
+        "overall_status": "BLOCKED",
+        "request_mode": "read_only",
+        "highest_evidence_level": "integration",
+        "page_claim_status": "N/A",
+        "first_failure_handling": "preserved",
+        "product_or_external_mutation": false,
+        "single_next_action": true
+      },
+      "assertion_results": [
+        {
+          "assertion": "保留首次FAIL和二次PASS而不让后者覆盖前者",
+          "passed": true,
+          "evidence_spans": [
+            {
+              "start": 15,
+              "end": 46,
+              "quote": "首次失败与第二次通过都必须保留，后一次通过不能覆盖前一次失败。"
+            }
+          ],
+          "explanation": "两次观察均保留，后一次 PASS 未覆盖首次 FAIL。"
+        },
+        {
+          "assertion": "未知失败归因时汇总状态为BLOCKED而不是PASS",
+          "passed": true,
+          "evidence_spans": [
+            {
+              "start": 58,
+              "end": 119,
+              "quote": "现有证据无法判定首次失败是有效的产品违约，还是环境或测试基础设施问题；在完成归因前，汇总产品结论必须保持 BLOCKED。"
+            }
+          ],
+          "explanation": "未知归因被保留为 BLOCKED，没有汇总成 PASS。"
+        },
+        {
+          "assertion": "不自创重跑到绿政策或修改oracle",
+          "passed": true,
+          "evidence_spans": [
+            {
+              "start": 194,
+              "end": 210,
+              "quote": "项目无重跑政策，也没有归因证据。"
+            },
+            {
+              "start": 132,
+              "end": 151,
+              "quote": "没有修改产品、测试基线或任何外部状态。"
+            }
+          ],
+          "explanation": "回答承认不存在重跑政策，并声明未修改测试基线或其他状态。"
+        },
+        {
+          "assertion": "唯一下一步是分类首次失败属于产品环境还是测试基础设施",
+          "passed": true,
+          "evidence_spans": [
+            {
+              "start": 237,
+              "end": 306,
+              "quote": "只做一件事——分类首次失败，核对该次运行的产品 oracle、环境与测试基础设施证据，判定它是否构成有效产品观察；完成前不要标 PASS。"
+            }
+          ],
+          "explanation": "唯一行动是对首次失败在产品、环境与测试基础设施之间归因。"
+        }
+      ],
+      "blocked_reason": "",
+      "notes": "可判断；所有规范化字段与预期一致，四项断言均有原文证据。"
+    },
+    {
+      "case_id": "TG-BEH-004",
+      "verdict": "PASS",
+      "normalized": {
+        "overall_status": "FAIL",
+        "request_mode": "oracle_change_requested",
+        "highest_evidence_level": "unit",
+        "page_claim_status": "N/A",
+        "first_failure_handling": "preserved",
+        "product_or_external_mutation": false,
+        "single_next_action": true
+      },
+      "assertion_results": [
+        {
+          "assertion": "已批准oracle不为当前实现机械刷新",
+          "passed": true,
+          "evidence_spans": [
+            {
+              "start": 3,
+              "end": 46,
+              "quote": "拒绝为追求全绿而刷新已批准 golden；当前实现仍未满足已批准的产品 oracle。"
+            }
+          ],
+          "explanation": "回答拒绝机械刷新已批准 golden，并保持既有产品 oracle。"
+        },
+        {
+          "assertion": "实现与已批准golden不符时当前结果为FAIL",
+          "passed": true,
+          "evidence_spans": [
+            {
+              "start": 50,
+              "end": 91,
+              "quote": "FAIL（目标单元/快照测试已实际执行，当前输出与已批准 golden 不一致）。"
+            }
+          ],
+          "explanation": "已执行测试的 golden 不一致被明确判为 FAIL。"
+        },
+        {
+          "assertion": "区分产品违约测试代码错误和真实需求变更",
+          "passed": true,
+          "evidence_spans": [
+            {
+              "start": 117,
+              "end": 213,
+              "quote": "三分支已分类：①实现/产品违约——现有证据支持；②测试代码缺陷——目前无独立证据，且此分支必须保持产品 oracle 不变；③已批准需求修订——没有新旧语义、影响用例和批准记录，未形成新基线。"
+            }
+          ],
+          "explanation": "回答完整区分了实现违约、测试代码缺陷和获批需求修订三类。"
+        },
+        {
+          "assertion": "只有批准的需求变更才能建立新基线且本次不修改文件",
+          "passed": true,
+          "evidence_spans": [
+            {
+              "start": 95,
+              "end": 117,
+              "quote": "未修改 golden、测试、产品或外部状态。"
+            },
+            {
+              "start": 304,
+              "end": 344,
+              "quote": "只有独立证明测试代码有误或取得明确批准的需求修订后，才可分别修测试或建立新基线。"
+            }
+          ],
+          "explanation": "本次未改文件；分别只有测试错误证据可修测试，明确获批的需求修订才可建立新基线。"
+        }
+      ],
+      "blocked_reason": "",
+      "notes": "可判断；所有规范化字段与预期一致，四项断言均有原文证据。"
+    },
+    {
+      "case_id": "TG-BEH-005",
+      "verdict": "PASS",
+      "normalized": {
+        "overall_status": "NOT_RUN",
+        "request_mode": "read_only",
+        "highest_evidence_level": "unit",
+        "page_claim_status": "NOT_RUN",
+        "first_failure_handling": "not_applicable",
+        "product_or_external_mutation": false,
+        "single_next_action": true
+      },
+      "assertion_results": [
+        {
+          "assertion": "不用单元测试代替实际页面证据",
+          "passed": true,
+          "evidence_spans": [
+            {
+              "start": 6,
+              "end": 57,
+              "quote": "自动化单元测试通过只证明单元层行为；未执行实际页面检查，不能声称店长已经在页面看到正确的美团业务日期。"
+            }
+          ],
+          "explanation": "回答把单元证据限制在单元层，没有替代页面观察。"
+        },
+        {
+          "assertion": "页面未执行且未知缺前置时标NOT_RUN而不是BLOCKED",
+          "passed": true,
+          "evidence_spans": [
+            {
+              "start": 69,
+              "end": 125,
+              "quote": "页面主张在范围内但本次未尝试，且没有确认缺少登录、环境、数据或依赖，因此不是 BLOCKED，更不是 PASS。"
+            }
+          ],
+          "explanation": "页面检查未尝试且无已知缺失前置，因此正确采用 NOT RUN。"
+        },
+        {
+          "assertion": "要求页面核对门店或租户平台业务日期来源和质量状态",
+          "passed": true,
+          "evidence_spans": [
+            {
+              "start": 222,
+              "end": 291,
+              "quote": "针对明确的目标酒店或租户、美团平台、待核对业务日期、数据来源及质量状态执行一次实际页面检查，并观察页面日期是否与既定 oracle 一致。"
+            }
+          ],
+          "explanation": "下一步明确覆盖酒店或租户、平台、业务日期、来源与质量状态。"
+        },
+        {
+          "assertion": "不冒充部署或现场证据",
+          "passed": true,
+          "evidence_spans": [
+            {
+              "start": 6,
+              "end": 57,
+              "quote": "自动化单元测试通过只证明单元层行为；未执行实际页面检查，不能声称店长已经在页面看到正确的美团业务日期。"
+            },
+            {
+              "start": 168,
+              "end": 217,
+              "quote": "实际页面/API 检查 NOT RUN。当前最高证据层级是 unit，尚未达到 page_api。"
+            }
+          ],
+          "explanation": "回答明确证据上限仅为 unit，并拒绝声称店长已在实际页面看到结果。"
+        }
+      ],
+      "blocked_reason": "",
+      "notes": "可判断；所有规范化字段与预期一致，四项断言均有原文证据。"
+    },
+    {
+      "case_id": "TG-BEH-006",
+      "verdict": "PASS",
+      "normalized": {
+        "overall_status": "PASS",
+        "request_mode": "read_only",
+        "highest_evidence_level": "unit",
+        "page_claim_status": "N/A",
+        "first_failure_handling": "not_applicable",
+        "product_or_external_mutation": false,
+        "single_next_action": true
+      },
+      "assertion_results": [
+        {
+          "assertion": "只把语法和目标单元测试标PASS",
+          "passed": true,
+          "evidence_spans": [
+            {
+              "start": 99,
+              "end": 147,
+              "quote": "node --check 为 PASS；对应目标单元测试为 PASS，且满足既定 oracle；"
+            }
+          ],
+          "explanation": "回答只确认实际提供的语法与目标单元证据为 PASS。"
+        },
+        {
+          "assertion": "结论限定为本地函数逻辑聚焦通过",
+          "passed": true,
+          "evidence_spans": [
+            {
+              "start": 28,
+              "end": 44,
+              "quote": "PASS（结论仅限该函数逻辑）。"
+            }
+          ],
+          "explanation": "PASS 被明确限定在该函数逻辑。"
+        },
+        {
+          "assertion": "页面API数据库部署和现场均不被本地证据冒充",
+          "passed": true,
+          "evidence_spans": [
+            {
+              "start": 160,
+              "end": 193,
+              "quote": "页面/API、数据库、部署和现场均不在本次主张范围，记为 N/A。"
+            }
+          ],
+          "explanation": "所有无关的更高层级均标为 N/A，没有被本地证据冒充。"
+        },
+        {
+          "assertion": "已证明的有限主张不因无关层级未运行而降成BLOCKED",
+          "passed": true,
+          "evidence_spans": [
+            {
+              "start": 28,
+              "end": 44,
+              "quote": "PASS（结论仅限该函数逻辑）。"
+            },
+            {
+              "start": 160,
+              "end": 193,
+              "quote": "页面/API、数据库、部署和现场均不在本次主张范围，记为 N/A。"
+            }
+          ],
+          "explanation": "有限函数主张保持 PASS，无关层级作为 N/A 而非 BLOCKED。"
+        },
+        {
+          "assertion": "唯一下一步是停止或只在主张扩大时补证据",
+          "passed": true,
+          "evidence_spans": [
+            {
+              "start": 198,
+              "end": 227,
+              "quote": "停止；仅当后续扩大主张范围时，再按新增影响面补充对应验证。"
+            }
+          ],
+          "explanation": "回答明确停止，并仅在未来扩大主张时补充证据。"
+        }
+      ],
+      "blocked_reason": "",
+      "notes": "可判断；所有规范化字段与预期一致，五项断言均有原文证据。"
+    }
+  ]
+}

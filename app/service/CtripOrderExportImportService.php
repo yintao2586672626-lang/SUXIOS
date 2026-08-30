@@ -265,6 +265,7 @@ final class CtripOrderExportImportService
                     'channel_label' => $channelLabel,
                     'data_date' => $dataDate,
                     'date_source' => $dateSource,
+                    'date_sources' => [],
                     'hotel_name' => $targetHotelName !== ''
                         ? $targetHotelName
                         : $this->text($row['酒店名称'] ?? ''),
@@ -307,6 +308,7 @@ final class CtripOrderExportImportService
                 ];
             }
             $group =& $groups[$groupKey];
+            $group['date_sources'][$dateSource] = true;
             $group['gross_orders']++;
             $group['status_family_counts'][$statusFamily]++;
             $group['status_label_counts'][$statusLabel] = ($group['status_label_counts'][$statusLabel] ?? 0) + 1;
@@ -451,6 +453,16 @@ final class CtripOrderExportImportService
 
         $normalized = [];
         foreach ($groups as $group) {
+            $dateSources = array_keys($group['date_sources'] ?? []);
+            sort($dateSources);
+            $dateSource = count($dateSources) === 1
+                ? $dateSources[0]
+                : 'mixed';
+            $dateBasis = match ($dateSource) {
+                'stay_date' => 'stay_date',
+                'booking_date_fallback' => 'order_date',
+                default => 'mixed',
+            };
             uasort($group['room_types'], static function (array $left, array $right): int {
                 return ((int)$right['active_orders'] <=> (int)$left['active_orders'])
                     ?: ((float)$right['room_nights'] <=> (float)$left['room_nights']);
@@ -578,7 +590,12 @@ final class CtripOrderExportImportService
                     'hotel_identity_status' => $isTestFixture ? 'fixture_bypassed' : 'matched_to_selected_system_hotel',
                     'channel_key' => $group['channel_key'],
                     'channel_label' => $group['channel_label'],
-                    'business_date_basis' => $group['date_source'],
+                    'business_date_basis' => $dateSource,
+                    'date_basis' => $dateBasis,
+                    'date_source' => $dateSource,
+                    'date_sources' => $dateSources,
+                    'order_count_basis' => 'active_non_cancelled_orders',
+                    'room_nights_basis' => 'active_non_cancelled_booked_room_nights',
                     'gross_order_num' => $group['gross_orders'],
                     'active_order_num' => $group['active_orders'],
                     'cancel_order_num' => $group['cancelled_orders'],

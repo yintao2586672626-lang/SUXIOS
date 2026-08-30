@@ -1,0 +1,9 @@
+{
+  "schema_version": "suxi.skill.behavior_prepare_seal.v1",
+  "run_id": "suxi-product-decision-2026-08-29T13-10-21-310Z",
+  "run_path_sha256": "66359876be85568a645e53bf36b1912d960923f487f733bcad927b40ae1e84f5",
+  "created_at": "2026-08-29T13:10:21.310Z",
+  "behavior_contract_sha256": "dc176b7e9ae7a4221641a7d7862f4ce5bbb098192e8a63000db7cd0e874ec68c",
+  "source_snapshot_sha256": "cb711b8c2f99ba28364e3f879b4c1189862a3a12a400678dc867a398c31bf717",
+  "manifest_sha256": "67cb02d6b027c33f2e772d09030c2df0e77b46345e2c797bb6176f60300957b3"
+}

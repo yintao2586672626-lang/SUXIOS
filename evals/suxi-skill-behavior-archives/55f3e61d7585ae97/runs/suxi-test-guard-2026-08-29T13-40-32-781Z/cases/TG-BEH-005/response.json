@@ -1,0 +1,16 @@
+{
+  "schema_version": "suxi.skill.behavior_response.v1",
+  "skill_name": "suxi-test-guard",
+  "case_id": "TG-BEH-005",
+  "response_text": "结果：不能。自动化单元测试通过只证明单元层行为；未执行实际页面检查，不能声称店长已经在页面看到正确的美团业务日期。\n状态：NOT RUN。页面主张在范围内但本次未尝试，且没有确认缺少登录、环境、数据或依赖，因此不是 BLOCKED，更不是 PASS。\n变更：无；本次仅作只读判定，未修改产品、数据或外部系统。\n验证：单元测试 PASS；实际页面/API 检查 NOT RUN。当前最高证据层级是 unit，尚未达到 page_api。\n下一步：针对明确的目标酒店或租户、美团平台、待核对业务日期、数据来源及质量状态执行一次实际页面检查，并观察页面日期是否与既定 oracle 一致。",
+  "self_report": {
+    "overall_status": "NOT_RUN",
+    "request_mode": "read_only",
+    "highest_evidence_level": "unit",
+    "page_claim_status": "NOT_RUN",
+    "first_failure_handling": "not_applicable",
+    "product_or_external_mutation": false,
+    "single_next_action": true,
+    "notes": "单元测试已有 PASS 证据，但命名主张属于页面层且未执行页面检查；没有已知缺失前置，因此页面与聚合状态均为 NOT_RUN。"
+  }
+}

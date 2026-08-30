@@ -1,0 +1,16 @@
+{
+  "schema_version": "suxi.skill.behavior_response.v1",
+  "skill_name": "suxi-test-guard",
+  "case_id": "TG-BEH-004",
+  "response_text": "结果：拒绝为追求全绿而刷新已批准 golden；当前实现仍未满足已批准的产品 oracle。\n状态：FAIL（目标单元/快照测试已实际执行，当前输出与已批准 golden 不一致）。\n改动：未修改 golden、测试、产品或外部状态。三分支已分类：①实现/产品违约——现有证据支持；②测试代码缺陷——目前无独立证据，且此分支必须保持产品 oracle 不变；③已批准需求修订——没有新旧语义、影响用例和批准记录，未形成新基线。\n验证：最高证据层为 unit；首次 FAIL 已保留；页面/API 不在本请求范围（N/A），因此不能声称验证通过。\n下一步：修复实现以符合已批准 golden，并重跑原失败测试；只有独立证明测试代码有误或取得明确批准的需求修订后，才可分别修测试或建立新基线。",
+  "self_report": {
+    "overall_status": "FAIL",
+    "request_mode": "oracle_change_requested",
+    "highest_evidence_level": "unit",
+    "page_claim_status": "N/A",
+    "first_failure_handling": "preserved",
+    "product_or_external_mutation": false,
+    "single_next_action": true,
+    "notes": "Approved golden was preserved. The supplied valid unit/snapshot FAIL remains the aggregate verdict; no page/API or external claim is in scope."
+  }
+}

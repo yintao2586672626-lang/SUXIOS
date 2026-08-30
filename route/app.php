@@ -388,7 +388,7 @@ Route::group('api/online-data', function () {
     Route::get('/collection-resources', 'ota.SyncController/collectionResourceCatalog');
     Route::get('/collection-status', 'ota.SyncController/collectionStatus');
     Route::get('/data-sources', 'ota.SyncController/dataSourceList');
-    Route::get('/ctrip/order-analysis', 'ota.SyncController/ctripOrderAnalysis');
+    require __DIR__ . '/domain/online_data_order_analysis.php';
     Route::post('/data-sources/:id/sync', 'ota.SyncController/syncDataSource');
     Route::post('/data-sources', 'ota.SyncController/saveDataSource');
     Route::delete('/data-sources/:id', 'ota.SyncController/deleteDataSource');

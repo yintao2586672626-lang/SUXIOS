@@ -30,6 +30,8 @@
     {"id":"T-027","query":"这份携程Excel里既有当前房价又有调价方法，先判断哪些进事实链、哪些能吸纳。","should_trigger":true},
     {"id":"T-028","query":"把这个PDF原样复制到另一个文件夹，不需要阅读或索引。","should_trigger":false},
     {"id":"T-029","query":"泛泛解释一下知识管理里的储存和吸收有什么区别。","should_trigger":false},
-    {"id":"T-030","query":"把这段培训材料翻译成英文，不需要保存到宿析。","should_trigger":false}
+    {"id":"T-030","query":"把这段培训材料翻译成英文，不需要保存到宿析。","should_trigger":false},
+    {"id":"T-031","query":"这张技能市场截图里哪些技能包对宿析有用，帮我研究下。","should_trigger":true},
+    {"id":"T-032","query":"只识别这张截图上的技能名称，不需要评估、吸纳或安装。","should_trigger":false}
   ]
 }

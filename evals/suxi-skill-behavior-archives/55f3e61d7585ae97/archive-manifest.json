@@ -1,0 +1,43 @@
+{
+  "schema_version": "suxi.skill.behavior_evidence_archive.v1",
+  "source_ledger_path": "source-ledger.json",
+  "source_ledger_sha256": "55f3e61d7585ae97557fe1173351531d41e368b28b64c6b04fb3df293912688c",
+  "entries": [
+    {
+      "skill_name": "suxi-product-decision",
+      "run_id": "suxi-product-decision-2026-08-29T13-10-21-310Z",
+      "run_path": "runs/suxi-product-decision-2026-08-29T13-10-21-310Z",
+      "prepare_seal_path": "seals/suxi-product-decision-2026-08-29T13-10-21-310Z-66359876be85568a645e53bf.json",
+      "post_grade_seal_path": "seals/suxi-product-decision-2026-08-29T13-10-21-310Z-66359876be85568a645e53bf.grade.json",
+      "run_file_count": 46,
+      "run_bytes": 148041,
+      "run_tree_sha256": "7eca57f8daccd2672355174a5e38dd0e7d2effadd45403c0dd4a95d75613284c",
+      "prepare_seal_sha256": "b13c2157a38d214ae7222283090b852e039925692d90ad95aa4430abc29ab5b3",
+      "post_grade_seal_sha256": "dcee75da1d101390a9a92bb0a38cfafe93e8fe9456297f12fb8b5ba787a0a9bf"
+    },
+    {
+      "skill_name": "suxi-test-guard",
+      "run_id": "suxi-test-guard-2026-08-29T13-40-32-781Z",
+      "run_path": "runs/suxi-test-guard-2026-08-29T13-40-32-781Z",
+      "prepare_seal_path": "seals/suxi-test-guard-2026-08-29T13-40-32-781Z-b569c10068dc96efdd2da57f.json",
+      "post_grade_seal_path": "seals/suxi-test-guard-2026-08-29T13-40-32-781Z-b569c10068dc96efdd2da57f.grade.json",
+      "run_file_count": 54,
+      "run_bytes": 173443,
+      "run_tree_sha256": "2231b94de8f7162ad193cb7f5ac6fd5c4d2a20cf1276aedf38149ad05b1aca21",
+      "prepare_seal_sha256": "021b970f58e99ded51ddc11995214468f05ed3f06438d19132b69b7eb6172cbd",
+      "post_grade_seal_sha256": "76c4b369a122a872a5975cfacdc3b069f3838876ed42fc554c1adffc92bede7d"
+    },
+    {
+      "skill_name": "suxi-user-research",
+      "run_id": "suxi-user-research-2026-08-29T13-57-43-533Z",
+      "run_path": "runs/suxi-user-research-2026-08-29T13-57-43-533Z",
+      "prepare_seal_path": "seals/suxi-user-research-2026-08-29T13-57-43-533Z-20449f27b52e22e1f78f3479.json",
+      "post_grade_seal_path": "seals/suxi-user-research-2026-08-29T13-57-43-533Z-20449f27b52e22e1f78f3479.grade.json",
+      "run_file_count": 55,
+      "run_bytes": 181689,
+      "run_tree_sha256": "c1e62d9d69acdbd66f32564a0672c81d4c855070e90e70201c54d7971f125d15",
+      "prepare_seal_sha256": "8c270c0cffbe5a8f9613ec04a334fa544eb8bcaa4676deb07c73529b2b4995de",
+      "post_grade_seal_sha256": "cd4bd16f18ac992f49cd26d75e4d868b787c2a359fee9f4f08723d088521fbcd"
+    }
+  ]
+}

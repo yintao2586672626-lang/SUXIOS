@@ -103,6 +103,68 @@ final class DailyOneThingLifecycleContractTest extends TestCase
         self::assertNotContains('cancelled', OperationActionLifecycleService::DAILY_STATUSES);
     }
 
+    public function testV2EventChainIntegrityUsesTheDailyStatusContract(): void
+    {
+        $service = new OperationActionLifecycleService();
+        $eventDigest = new \ReflectionMethod($service, 'eventDigest');
+        $verifyEventChain = new \ReflectionMethod($service, 'verifyEventChain');
+        $events = [];
+        $previousStatus = '';
+        $previousDigest = '';
+        foreach ([
+            'draft',
+            'pending_approval',
+            'approved',
+            'executing',
+            'evidence_recorded',
+            'review_pending',
+        ] as $index => $status) {
+            $event = [
+                'tenant_id' => 80,
+                'hotel_id' => 80,
+                'intent_id' => 901,
+                'task_id' => 0,
+                'sequence_no' => $index + 1,
+                'event_type' => $status . '_recorded',
+                'from_status' => $previousStatus,
+                'to_status' => $status,
+                'actor_id' => 7,
+                'event_payload' => [],
+                'previous_digest' => $previousDigest,
+                'created_at' => sprintf('2026-08-26 09:%02d:00', $index),
+            ];
+            $event['content_digest'] = (string)$eventDigest->invoke($service, $event);
+            $events[] = $event;
+            $previousStatus = $status;
+            $previousDigest = $event['content_digest'];
+        }
+
+        self::assertSame(
+            ['status' => 'verified', 'failure_reason' => null],
+            $verifyEventChain->invoke(
+                $service,
+                $events,
+                80,
+                80,
+                901,
+                null,
+                OperationActionLifecycleService::DAILY_STATUSES
+            )
+        );
+        self::assertSame(
+            'invalid',
+            $verifyEventChain->invoke(
+                $service,
+                $events,
+                80,
+                80,
+                901,
+                null,
+                OperationActionLifecycleService::STATUSES
+            )['status']
+        );
+    }
+
     /** @return array<string,mixed> */
     private function selected(): array
     {

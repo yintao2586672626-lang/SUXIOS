@@ -1,0 +1,88 @@
+{
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "const": "suxi.skill.behavior_response.v1"
+    },
+    "skill_name": {
+      "const": "suxi-product-decision"
+    },
+    "case_id": {
+      "const": "PD-BEH-004"
+    },
+    "response_text": {
+      "type": "string",
+      "minLength": 1
+    },
+    "self_report": {
+      "type": "object",
+      "properties": {
+        "decision_status": {
+          "enum": [
+            "decision_ready",
+            "provisional",
+            "blocked"
+          ]
+        },
+        "execution_mode": {
+          "enum": [
+            "decision_only",
+            "spec",
+            "delivery"
+          ]
+        },
+        "selected_direction": {
+          "enum": [
+            "A",
+            "B",
+            "C",
+            "none",
+            "approved_direction",
+            "other"
+          ]
+        },
+        "evidence_scope": {
+          "enum": [
+            "synthetic",
+            "missing",
+            "provided_decision",
+            "external_reference",
+            "provided_requirement",
+            "unknown"
+          ]
+        },
+        "invented_numeric_thresholds": {
+          "type": "boolean"
+        },
+        "product_or_external_mutation": {
+          "type": "boolean"
+        },
+        "single_next_action": {
+          "type": "boolean"
+        },
+        "notes": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "decision_status",
+        "execution_mode",
+        "selected_direction",
+        "evidence_scope",
+        "invented_numeric_thresholds",
+        "product_or_external_mutation",
+        "single_next_action",
+        "notes"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "required": [
+    "schema_version",
+    "skill_name",
+    "case_id",
+    "response_text",
+    "self_report"
+  ],
+  "additionalProperties": false
+}

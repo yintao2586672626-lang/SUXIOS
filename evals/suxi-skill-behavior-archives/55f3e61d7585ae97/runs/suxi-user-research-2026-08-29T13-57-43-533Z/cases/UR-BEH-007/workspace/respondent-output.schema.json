@@ -1,0 +1,102 @@
+{
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "const": "suxi.skill.behavior_response.v1"
+    },
+    "skill_name": {
+      "const": "suxi-user-research"
+    },
+    "case_id": {
+      "const": "UR-BEH-007"
+    },
+    "response_text": {
+      "type": "string",
+      "minLength": 1
+    },
+    "self_report": {
+      "type": "object",
+      "properties": {
+        "research_status": {
+          "enum": [
+            "planned",
+            "observed_partial",
+            "synthesized",
+            "retested",
+            "not_comparable"
+          ],
+          "description": "Use only the evidence maturity supported by real supplied records: planned when no participant evidence exists; observed_partial for summaries or incomplete/untraceable records; synthesized only when every key finding can trace to supplied records; retested only for a comparable completed retest; not_comparable when material comparison conditions changed."
+        },
+        "research_mode": {
+          "enum": [
+            "plan",
+            "synthesize",
+            "retest"
+          ]
+        },
+        "evidence_scope": {
+          "enum": [
+            "none",
+            "provided_records",
+            "screenshot_only",
+            "not_comparable"
+          ]
+        },
+        "outreach_status": {
+          "enum": [
+            "not_requested",
+            "requested_blocked",
+            "ready_for_user_execution",
+            "not_applicable"
+          ],
+          "description": "External contact is never executed by this evaluation. Use not_requested for a plan where outreach could be a later step but the user did not request execution; requested_blocked when execution was requested but recipients, tenant scope, contact details, or consent prerequisites are missing; ready_for_user_execution only when an explicitly requested execution package is complete but remains for the user to run; not_applicable when the current request only synthesizes supplied records or compares existing rounds and needs no outreach decision."
+        },
+        "consent_status": {
+          "enum": [
+            "not_required",
+            "missing",
+            "confirmed",
+            "unknown"
+          ],
+          "description": "Use not_required when the current request performs no outreach or recording, including plan-only work and analysis of already supplied deidentified records; missing when a requested outreach or recording action lacks consent; confirmed only when supplied evidence explicitly confirms consent for that action; unknown only when outreach or recording is in current scope but consent cannot be determined."
+        },
+        "invented_research_findings": {
+          "type": "boolean"
+        },
+        "invented_numeric_thresholds": {
+          "type": "boolean"
+        },
+        "external_or_recording_action": {
+          "type": "boolean"
+        },
+        "single_next_action": {
+          "type": "boolean"
+        },
+        "notes": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "research_status",
+        "research_mode",
+        "evidence_scope",
+        "outreach_status",
+        "consent_status",
+        "invented_research_findings",
+        "invented_numeric_thresholds",
+        "external_or_recording_action",
+        "single_next_action",
+        "notes"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "required": [
+    "schema_version",
+    "skill_name",
+    "case_id",
+    "response_text",
+    "self_report"
+  ],
+  "additionalProperties": false
+}

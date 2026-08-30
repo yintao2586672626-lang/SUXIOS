@@ -23,6 +23,29 @@
         return number === null ? '不可计算' : `${(number * 100).toFixed(1)}%`;
     };
     const safeRows = (value) => Array.isArray(value) ? value : [];
+    const shanghaiDateText = (date = new Date()) => {
+        const parts = new Intl.DateTimeFormat('en-CA', {
+            timeZone: 'Asia/Shanghai',
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit',
+        }).formatToParts(date);
+        const value = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+        return `${value.year}-${value.month}-${value.day}`;
+    };
+    const shiftIsoDateText = (dateText, offsetDays) => {
+        const [year, month, day] = String(dateText || '').split('-').map(Number);
+        const shifted = new Date(Date.UTC(year, month - 1, day + offsetDays));
+        return shifted.toISOString().slice(0, 10);
+    };
+    const quickMetricKeys = ['orders', 'room_nights', 'revenue', 'adr', 'cancellation_rate'];
+    const quickMetricMeta = {
+        orders: { label: '订单数' },
+        room_nights: { label: '间夜' },
+        revenue: { label: 'OTA 房费收入' },
+        adr: { label: 'ADR' },
+        cancellation_rate: { label: '取消率' },
+    };
 
     components.CtripOrderAnalysisPanelBody = {
         name: 'CtripOrderAnalysisPanelBody',
@@ -31,9 +54,21 @@
                 type: Object,
                 required: true,
             },
+            detailMode: {
+                type: String,
+                default: 'ctrip',
+            },
         },
         data() {
             return {
+                quickAnalysis: null,
+                quickLoading: false,
+                quickError: '',
+                quickStale: false,
+                quickDateFrom: '',
+                quickDateTo: '',
+                quickRangePreset: '30d',
+                quickRequestSequence: 0,
                 analysis: null,
                 loading: false,
                 error: '',
@@ -46,6 +81,102 @@
             systemHotelId() {
                 const value = Number(this.ctx?.platformHotelSelectedId || 0);
                 return Number.isInteger(value) && value > 0 ? value : 0;
+            },
+            showCtripDetail() {
+                return this.detailMode !== 'summary';
+            },
+            quickStatus() {
+                return String(this.quickAnalysis?.status || 'data_missing');
+            },
+            quickStatusLabel() {
+                if (this.quickError && !this.quickAnalysis) return '读取失败';
+                if (this.quickStale) return '上次结果';
+                return ({
+                    ready: '双平台已核验',
+                    separate_ready: '分别可看',
+                    partial: '部分可用',
+                    data_missing: '待补订单数据',
+                })[this.quickStatus] || '状态待确认';
+            },
+            quickStatusClass() {
+                if (this.quickError && !this.quickAnalysis) return 'border-red-300 bg-red-700 text-white';
+                if (this.quickStale) return 'border-yellow-300 bg-yellow-700 text-yellow-100';
+                return ({
+                    ready: 'border-green-300 bg-green-800 text-green-100',
+                    separate_ready: 'border-yellow-300 bg-yellow-700 text-yellow-100',
+                    partial: 'border-yellow-300 bg-yellow-700 text-yellow-100',
+                    data_missing: 'border-gray-300 bg-gray-700 text-white',
+                })[this.quickStatus] || 'border-gray-300 bg-gray-700 text-white';
+            },
+            quickContractVersion() {
+                return String(this.quickAnalysis?.contract_version || '契约待回读');
+            },
+            quickPlatforms() {
+                const platforms = this.quickAnalysis?.platforms || {};
+                return [
+                    { key: 'ctrip', label: '携程', data: platforms.ctrip || {} },
+                    { key: 'meituan', label: '美团', data: platforms.meituan || {} },
+                ];
+            },
+            quickComparison() {
+                return this.quickAnalysis?.comparison && typeof this.quickAnalysis.comparison === 'object'
+                    ? this.quickAnalysis.comparison
+                    : { can_compare: false, reason: '两平台可比较证据未回读。' };
+            },
+            quickComparisonRows() {
+                const metrics = this.quickComparison?.metrics;
+                if (Array.isArray(metrics)) return metrics;
+                if (!metrics || typeof metrics !== 'object') return [];
+                return quickMetricKeys.map((key) => ({ key, ...(metrics[key] || {}) }));
+            },
+            quickComparableRows() {
+                return this.quickComparisonRows.filter((row) => String(row?.status || '') === 'ready');
+            },
+            quickActions() {
+                return safeRows(this.quickAnalysis?.actions);
+            },
+            quickRequiredActions() {
+                const selected = new Map();
+                for (const action of this.quickActions) {
+                    const status = String(action?.status || '').toLowerCase();
+                    if (action?.required !== true && status !== 'required') continue;
+                    const key = String(action?.key || action?.action || '').toLowerCase();
+                    const platform = String(action?.platform || '').toLowerCase();
+                    const group = key.includes('order_flow') || key.includes('flow')
+                        ? `${platform || 'unknown'}:order_flow`
+                        : `${platform || 'unknown'}:order`;
+                    if (!selected.has(group)) selected.set(group, action);
+                }
+                return [...selected.values()];
+            },
+            quickDateRangeLabel() {
+                const range = this.quickAnalysis?.date_range || {};
+                const from = range.from || range.date_from || this.quickDateFrom || '最早已存';
+                const to = range.to || range.date_to || this.quickDateTo || '最新已存';
+                return `${from} 至 ${to}`;
+            },
+            meituanRefreshKey() {
+                const order = this.ctx?.meituanOrderResult || {};
+                const capture = this.ctx?.meituanBrowserCaptureResult || {};
+                const flow = this.ctx?.meituanOrderFlowView || {};
+                const flowSummary = (direction, key) => flow?.[direction]?.summary?.[key] ?? '';
+                return [
+                    this.ctx?.meituanDataFetchTime || '',
+                    this.ctx?.meituanFetchSuccess ? '1' : '0',
+                    order.task_id || order.updated_at || order.saved_count || order.import_row_count || order.readback_verified || order.ui_flow_status || order.status || order.error || '',
+                    capture.task_id || capture.updated_at || capture.saved_count || capture.readback_verified || capture.ui_flow_status || capture.status || capture.error || '',
+                    flow.status || '',
+                    flow.period || '',
+                    flow.periodStart || '',
+                    flow.periodEnd || '',
+                    flow.capturedAt || '',
+                    flowSummary('loss', 'orderCount'),
+                    flowSummary('loss', 'roomNights'),
+                    flowSummary('loss', 'amount'),
+                    flowSummary('inflow', 'orderCount'),
+                    flowSummary('inflow', 'roomNights'),
+                    flowSummary('inflow', 'amount'),
+                ].join(':');
             },
             uploadReceiptKey() {
                 const result = this.ctx?.ctripChannelOrderUploadResult || {};
@@ -136,17 +267,26 @@
             systemHotelId: {
                 immediate: true,
                 handler() {
+                    this.quickAnalysis = null;
+                    this.quickStale = false;
+                    this.setQuickRangePreset('30d', false);
+                    this.loadQuickAnalysis();
+                    this.analysis = null;
                     this.dateFrom = '';
                     this.dateTo = '';
-                    this.loadAnalysis();
+                    if (this.showCtripDetail) this.loadAnalysis();
                 },
             },
             uploadReceiptKey(next, previous) {
                 if (next && next !== previous && next !== '::') {
+                    this.loadQuickAnalysis();
                     this.dateFrom = '';
                     this.dateTo = '';
-                    this.loadAnalysis();
+                    if (this.showCtripDetail) this.loadAnalysis();
                 }
+            },
+            meituanRefreshKey(next, previous) {
+                if (previous !== undefined && next !== previous) this.loadQuickAnalysis();
             },
         },
         methods: {
@@ -154,6 +294,209 @@
             moneyText,
             percentText,
             safeRows,
+            quickMetric(platform, key) {
+                const metric = platform?.metrics?.[key];
+                const direct = metric !== undefined ? metric : platform?.[key];
+                const objectMetric = direct && typeof direct === 'object' && !Array.isArray(direct)
+                    ? direct
+                    : { value: direct };
+                const rawStatus = String(objectMetric.status || platform?.metric_statuses?.[key] || platform?.status || 'missing');
+                const value = objectMetric.value ?? objectMetric.metric_value ?? null;
+                let status = rawStatus;
+                if (['available', 'available_partial', 'partial', 'unverified'].includes(status)) status = 'available_unverified';
+                if (['no_data', 'data_missing', 'evidence_missing', 'unavailable', 'not_available'].includes(status)) status = 'missing';
+                if (!['verified', 'available_unverified', 'missing'].includes(status)) {
+                    status = value === null || value === undefined || value === '' ? 'missing' : 'available_unverified';
+                }
+                if ((value === null || value === undefined || value === '') && status !== 'missing') status = 'missing';
+                return {
+                    key,
+                    label: objectMetric.label || quickMetricMeta[key]?.label || key,
+                    value,
+                    status,
+                    reason: String(objectMetric.reason || objectMetric.source_trust?.failure_reasons?.join?.('；') || ''),
+                };
+            },
+            quickMetricStatusLabel(status) {
+                return ({
+                    verified: '已核验',
+                    available_unverified: '可用·待核验',
+                    missing: '缺失',
+                })[status] || '缺失';
+            },
+            quickMetricStatusClass(status) {
+                return ({
+                    verified: 'border-green-200 bg-green-50 text-green-700',
+                    available_unverified: 'border-yellow-200 bg-yellow-50 text-yellow-800',
+                    missing: 'border-gray-200 bg-gray-50 text-gray-500',
+                })[status] || 'border-gray-200 bg-gray-50 text-gray-500';
+            },
+            quickMetricText(key, value) {
+                if (key === 'revenue' || key === 'adr') return moneyText(value);
+                if (key === 'cancellation_rate') {
+                    const number = numeric(value);
+                    return number === null ? '不可计算' : `${number.toFixed(1)}%`;
+                }
+                return numberText(value, key === 'room_nights' ? 1 : 0);
+            },
+            comparisonMetricText(key, value) {
+                const number = numeric(value);
+                if (number === null) return '不可计算';
+                const sign = number > 0 ? '+' : '';
+                if (key === 'revenue' || key === 'adr') {
+                    return `${sign}¥${number.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+                }
+                if (key === 'cancellation_rate') {
+                    return `${sign}${number.toFixed(1)} 个百分点`;
+                }
+                return `${sign}${number.toLocaleString('zh-CN', { maximumFractionDigits: key === 'room_nights' ? 1 : 0 })}`;
+            },
+            comparisonLeaderText(leader) {
+                return ({ ctrip: '携程更高', meituan: '美团更高', equal: '持平', same: '持平' })[leader] || '差值';
+            },
+            quickOrderFlowPeriodText(period) {
+                return ({
+                    yesterday: '昨天',
+                    last_7_days: '近7天',
+                    last_30_days: '近30天',
+                })[String(period || '')] || '已保存期间';
+            },
+            setQuickRangePreset(preset, shouldLoad = true) {
+                this.quickRangePreset = preset;
+                if (preset === 'all') {
+                    this.quickDateFrom = '';
+                    this.quickDateTo = '';
+                } else if (preset === '7d' || preset === '30d') {
+                    const today = shanghaiDateText();
+                    this.quickDateFrom = shiftIsoDateText(today, -(preset === '7d' ? 6 : 29));
+                    this.quickDateTo = today;
+                }
+                if (shouldLoad && preset !== 'custom') this.loadQuickAnalysis();
+            },
+            quickNavigationError(message) {
+                this.quickError = String(message || '订单补数入口暂不可用。');
+                this.quickStale = false;
+                const notify = this.ctx?.showToast;
+                if (typeof notify === 'function') notify(this.quickError, 'error');
+                return false;
+            },
+            focusQuickTarget(platform, tab) {
+                if (typeof document === 'undefined') return;
+                const selector = platform === 'meituan'
+                    ? (tab === 'meituan-order-flow'
+                        ? '[data-testid="meituan-order-flow-page"]'
+                        : '[data-testid="meituan-orders-page"]')
+                    : '[data-testid="dual-ota-order-quick-analysis-panel"]';
+                const target = document.querySelector(selector);
+                target?.scrollIntoView?.({ behavior: 'smooth', block: 'start' });
+                target?.focus?.({ preventScroll: true });
+            },
+            async openPlatformPage(platform, tab = '', options = {}) {
+                const targetPlatform = platform === 'meituan' ? 'meituan' : 'ctrip';
+                const hotelId = String(this.systemHotelId || '');
+                const targetLabel = targetPlatform === 'meituan' ? '美团' : '携程';
+                const optionProvider = this.ctx?.platformHotelOptionsFor;
+                const targetOptions = typeof optionProvider === 'function'
+                    ? safeRows(optionProvider(targetPlatform))
+                    : [];
+                const targetHotel = targetOptions.find((hotel) => String(hotel?.id || '') === hotelId);
+                if (!targetHotel) {
+                    return this.quickNavigationError(`当前酒店尚未进入${targetLabel}可选范围，不能跳转补数；请先完成该平台酒店绑定。`);
+                }
+
+                this.quickError = '';
+                this.ctx.currentPage = targetPlatform === 'meituan' ? 'meituan-ebooking' : 'ctrip-ebooking';
+                await Vue.nextTick();
+                if (String(this.ctx?.platformHotelSelectedId || '') !== hotelId) {
+                    const selectHotel = this.ctx?.selectPlatformHotelOption;
+                    if (typeof selectHotel !== 'function') {
+                        return this.quickNavigationError(`${targetLabel}酒店切换入口不可用，已停止跳转以避免串酒店。`);
+                    }
+                    selectHotel(targetHotel);
+                    await Vue.nextTick();
+                }
+
+                const open = targetPlatform === 'meituan'
+                    ? this.ctx?.openMeituanManualTab
+                    : this.ctx?.openCtripManualTab;
+                if (typeof open !== 'function') {
+                    return this.quickNavigationError(`${targetLabel}订单入口暂不可用。`);
+                }
+                const targetTab = tab || (targetPlatform === 'meituan' ? 'meituan-orders' : 'data-health');
+                await Promise.resolve(open(targetTab));
+                await Vue.nextTick();
+                if (options.focus !== false) this.focusQuickTarget(targetPlatform, targetTab);
+                return true;
+            },
+            async openCtripUpload() {
+                const opened = await this.openPlatformPage('ctrip', 'data-health', { focus: false });
+                if (!opened) return false;
+                await Vue.nextTick();
+                this.openEvidenceUpload();
+                return true;
+            },
+            async runQuickAction(action = {}) {
+                const key = String(action.key || action.action || '').toLowerCase();
+                const platform = String(action.platform || (String(action.page || '').includes('meituan') ? 'meituan' : 'ctrip'));
+                if (platform === 'ctrip' && /(upload|import|evidence|reimport)/.test(key)) {
+                    return this.openCtripUpload();
+                }
+                const tab = String(action.tab || (key.includes('flow') ? 'meituan-order-flow' : (platform === 'meituan' ? 'meituan-orders' : 'data-health')));
+                return this.openPlatformPage(platform, tab);
+            },
+            async loadQuickAnalysis() {
+                const hotelId = this.systemHotelId;
+                const sequence = ++this.quickRequestSequence;
+                this.quickError = '';
+                this.quickStale = false;
+                if (!hotelId) {
+                    this.quickAnalysis = null;
+                    this.quickLoading = false;
+                    return;
+                }
+                if ((this.quickDateFrom && !this.quickDateTo) || (!this.quickDateFrom && this.quickDateTo)) {
+                    this.quickError = '开始日期和结束日期需要同时填写。';
+                    return;
+                }
+                if (this.quickDateFrom && this.quickDateTo && this.quickDateFrom > this.quickDateTo) {
+                    this.quickError = '开始日期不能晚于结束日期。';
+                    return;
+                }
+
+                this.quickLoading = true;
+                try {
+                    const params = new URLSearchParams({ system_hotel_id: String(hotelId) });
+                    if (this.quickDateFrom && this.quickDateTo) {
+                        params.set('date_from', this.quickDateFrom);
+                        params.set('date_to', this.quickDateTo);
+                    }
+                    let authToken = String(this.ctx?.token || '').trim();
+                    if (!authToken) {
+                        try {
+                            authToken = sessionStorage.getItem('token') || '';
+                        } catch (error) {
+                            authToken = '';
+                        }
+                    }
+                    const response = await fetch(`/api/online-data/dual-ota/order-analysis?${params.toString()}`, {
+                        headers: authToken ? { Authorization: `Bearer ${authToken}` } : {},
+                        cache: 'no-store',
+                    });
+                    const payload = await response.json().catch(() => null);
+                    if (!response.ok || !payload || Number(payload.code) !== 200) {
+                        throw new Error(payload?.message || `双平台订单快析读取失败（HTTP ${response.status}）`);
+                    }
+                    if (sequence !== this.quickRequestSequence) return;
+                    this.quickAnalysis = payload.data || {};
+                    this.quickStale = false;
+                } catch (error) {
+                    if (sequence !== this.quickRequestSequence) return;
+                    this.quickError = error?.message || '双平台订单快析读取失败。';
+                    this.quickStale = !!this.quickAnalysis;
+                } finally {
+                    if (sequence === this.quickRequestSequence) this.quickLoading = false;
+                }
+            },
             resetRange() {
                 this.dateFrom = '';
                 this.dateTo = '';
@@ -218,6 +561,235 @@
                 } finally {
                     if (sequence === this.requestSequence) this.loading = false;
                 }
+            },
+            renderQuickAnalysis() {
+                const h = Vue.h;
+                const smallBadge = (text, classes) => h('span', {
+                    class: `inline-flex flex-shrink-0 items-center rounded-full border px-2 py-0.5 text-xs font-semibold ${classes}`,
+                }, text);
+                const toolbarButton = (label, preset) => h('button', {
+                    type: 'button',
+                    'data-testid': `dual-ota-order-range-${preset}`,
+                    'aria-pressed': this.quickRangePreset === preset ? 'true' : 'false',
+                    disabled: this.quickLoading || !this.systemHotelId,
+                    onClick: () => this.setQuickRangePreset(preset),
+                    class: this.quickRangePreset === preset
+                        ? 'rounded-lg bg-green-800 px-3 py-2 text-xs font-semibold text-white shadow-sm disabled:opacity-50'
+                        : 'rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-50',
+                }, label);
+                const actionButton = (label, onClick, primary = false, testId = '') => h('button', {
+                    type: 'button',
+                    'data-testid': testId || undefined,
+                    disabled: !this.systemHotelId,
+                    onClick,
+                    style: primary ? { background: 'linear-gradient(135deg, #a88a52, #6f572f)' } : undefined,
+                    class: primary
+                        ? 'rounded-lg px-3 py-2 text-xs font-semibold text-white shadow-sm disabled:opacity-50'
+                        : 'rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-50',
+                }, label);
+                const platformSection = ({ key, label, data }) => {
+                    const metrics = quickMetricKeys.map((metricKey) => this.quickMetric(data, metricKey));
+                    const platformStatus = String(data?.status || 'missing');
+                    const platformStatusNormalized = platformStatus === 'verified'
+                        ? 'verified'
+                        : (platformStatus === 'missing' || platformStatus === 'data_missing' ? 'missing' : 'available_unverified');
+                    const gaps = safeRows(data?.data_gaps).slice(0, 3);
+                    const orderFlow = key === 'meituan' && data?.order_flow && typeof data.order_flow === 'object'
+                        ? data.order_flow
+                        : null;
+                    const flowMetric = (direction, metricKey, formatter = numberText) => {
+                        const value = orderFlow?.[direction]?.[metricKey];
+                        return formatter(value);
+                    };
+                    return h('section', {
+                        key,
+                        'data-testid': `dual-ota-order-platform-${key}`,
+                        class: 'min-w-0 overflow-hidden rounded-xl border border-gray-200 bg-white',
+                    }, [
+                        h('div', { class: 'flex items-center justify-between gap-3 border-b border-gray-100 px-4 py-3' }, [
+                            h('div', { class: 'min-w-0' }, [
+                                h('div', { class: 'flex flex-wrap items-center gap-2' }, [
+                                    h('h5', { class: 'text-base font-semibold text-gray-900' }, label),
+                                    smallBadge(this.quickMetricStatusLabel(platformStatusNormalized), this.quickMetricStatusClass(platformStatusNormalized)),
+                                ]),
+                                h('p', { class: 'mt-0.5 truncate text-xs text-gray-500' }, data?.latest_data_date ? `最新订单日 ${data.latest_data_date}` : '尚未回读最新订单日'),
+                            ]),
+                            h('span', { class: 'flex-shrink-0 text-xs text-gray-400' }, String(data?.quality_label || 'OTA 渠道口径')),
+                        ]),
+                        h('div', { class: 'divide-y divide-gray-100' }, metrics.map((metric) => h('div', {
+                            key: metric.key,
+                            'data-testid': `dual-ota-order-metric-${key}-${metric.key}`,
+                            class: 'grid grid-cols-1 items-center gap-x-3 gap-y-1 px-4 py-2.5 sm:grid-cols-3',
+                        }, [
+                            h('span', { class: 'min-w-0 text-xs font-medium text-gray-600' }, metric.label),
+                            h('strong', { class: 'text-left text-sm tabular-nums text-gray-900 sm:text-right' }, this.quickMetricText(metric.key, metric.value)),
+                            smallBadge(this.quickMetricStatusLabel(metric.status), this.quickMetricStatusClass(metric.status)),
+                            metric.reason ? h('span', {
+                                class: 'min-w-0 text-xs leading-4 text-gray-400 sm:col-span-3',
+                                title: metric.reason,
+                            }, metric.reason) : null,
+                        ]))),
+                        orderFlow ? h('div', {
+                            'data-testid': 'dual-ota-order-flow-summary',
+                            class: 'border-t border-gray-100 bg-gray-50 px-4 py-3',
+                        }, [
+                            h('div', { class: 'flex flex-wrap items-center justify-between gap-2' }, [
+                                h('div', {}, [
+                                    h('div', { class: 'text-xs font-semibold text-gray-800' }, '美团订单流向'),
+                                    h('div', { class: 'mt-0.5 text-xs text-gray-500' }, orderFlow.period ? `${this.quickOrderFlowPeriodText(orderFlow.period)} · 与订单收入分别记账` : '与订单收入分别记账'),
+                                ]),
+                                smallBadge(
+                                    orderFlow.status === 'verified' ? '已核验' : (orderFlow.status === 'available_unverified' ? '可用·待核验' : '缺失'),
+                                    this.quickMetricStatusClass(orderFlow.status === 'verified' ? 'verified' : (orderFlow.status === 'available_unverified' ? 'available_unverified' : 'missing')),
+                                ),
+                            ]),
+                            orderFlow.status === 'missing' ? h('p', { class: 'mt-2 text-xs leading-4 text-gray-500' }, orderFlow.reason || '当前范围没有已保存的流失/流入汇总。') : h('div', { class: 'mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2' }, [
+                                h('div', { class: 'rounded-lg border border-red-100 bg-white px-3 py-2 text-xs' }, [
+                                    h('div', { class: 'font-semibold text-red-700' }, '流失'),
+                                    h('div', { class: 'mt-1 text-gray-600' }, `${flowMetric('loss', 'orders')} 单 · ${flowMetric('loss', 'room_nights')} 间夜`),
+                                    h('div', { class: 'mt-0.5 font-semibold text-gray-900' }, moneyText(orderFlow?.loss?.amount)),
+                                ]),
+                                h('div', { class: 'rounded-lg border border-green-100 bg-white px-3 py-2 text-xs' }, [
+                                    h('div', { class: 'font-semibold text-green-700' }, '流入'),
+                                    h('div', { class: 'mt-1 text-gray-600' }, `${flowMetric('inflow', 'orders')} 单 · ${flowMetric('inflow', 'room_nights')} 间夜`),
+                                    h('div', { class: 'mt-0.5 font-semibold text-gray-900' }, moneyText(orderFlow?.inflow?.amount)),
+                                ]),
+                            ]),
+                        ]) : null,
+                        gaps.length ? h('div', { class: 'border-t border-yellow-100 bg-yellow-50 px-4 py-2.5' }, [
+                            h('p', { class: 'text-xs font-semibold text-yellow-900' }, '数据缺口'),
+                            h('ul', { class: 'mt-1 space-y-0.5 text-xs leading-4 text-yellow-800' }, gaps.map((gap, index) => h('li', { key: gap?.key || index }, typeof gap === 'string' ? gap : (gap?.reason || gap?.label || gap?.key || '证据未齐')))),
+                        ]) : null,
+                    ]);
+                };
+
+                const comparison = this.quickComparison;
+                const canCompare = comparison?.can_compare === true;
+                const blockers = safeRows(comparison?.blockers);
+                const comparisonReason = String(comparison?.reason || blockers.map((item) => typeof item === 'string' ? item : (item?.reason || item?.label || item?.key || '')).filter(Boolean).join('；') || '两平台的同店、同日期、同口径证据未同时核验。');
+                const comparisonBlock = h('section', {
+                    'data-testid': 'dual-ota-order-comparison',
+                    class: canCompare
+                        ? 'overflow-hidden rounded-xl border border-green-200 bg-green-50'
+                        : 'rounded-xl border border-yellow-200 bg-yellow-50 px-4 py-3',
+                }, canCompare ? [
+                    h('div', { class: 'flex flex-col gap-1 border-b border-green-100 px-4 py-3 sm:flex-row sm:items-center sm:justify-between' }, [
+                        h('div', {}, [h('h5', { class: 'text-sm font-semibold text-green-900' }, '同口径差值'), h('p', { class: 'mt-0.5 text-xs text-green-800' }, comparisonReason || '同店同期证据已核验，可以对比。')]),
+                        smallBadge('允许比较', 'border-green-300 bg-white text-green-700'),
+                    ]),
+                    this.quickComparableRows.length
+                        ? h('div', { class: 'grid grid-cols-1 divide-y divide-gray-100 sm:grid-cols-2 sm:divide-x sm:divide-y-0 xl:grid-cols-5' }, this.quickComparableRows.map((row) => {
+                            const key = String(row.key || row.metric_key || '');
+                            return h('div', { key, class: 'min-w-0 px-4 py-3' }, [
+                                h('div', { class: 'text-xs text-green-800' }, row.label || quickMetricMeta[key]?.label || key),
+                                h('div', { class: 'mt-1 flex items-baseline justify-between gap-2' }, [
+                                    h('strong', { class: 'text-sm tabular-nums text-green-900' }, this.comparisonMetricText(key, row.delta)),
+                                    h('span', { class: 'text-xs text-green-700' }, this.comparisonLeaderText(row.leader)),
+                                ]),
+                                row.reason ? h('p', { class: 'mt-1 text-xs leading-4 text-green-700' }, row.reason) : null,
+                            ]);
+                        }))
+                        : h('p', { class: 'px-4 py-3 text-xs text-green-800' }, '后端已确认可比，但未返回可展示的指标差值。'),
+                ] : [
+                    h('div', { class: 'flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between' }, [
+                        h('div', {}, [
+                            h('h5', { class: 'text-sm font-semibold text-yellow-900' }, '分别展示，不判高低'),
+                            h('p', { class: 'mt-1 text-xs leading-5 text-yellow-800' }, comparisonReason),
+                        ]),
+                        smallBadge('不可直接比较', 'border-yellow-300 bg-white text-yellow-800'),
+                    ]),
+                ]);
+
+                const fallbackActions = [
+                    actionButton('上传携程订单', () => this.openCtripUpload(), true, 'dual-ota-order-upload-ctrip'),
+                    actionButton('美团订单补采', () => this.openPlatformPage('meituan', 'meituan-orders'), false, 'dual-ota-order-open-meituan-orders'),
+                ];
+                const requiredActions = this.quickRequiredActions.length ? h('div', {
+                    'data-testid': 'dual-ota-order-required-actions',
+                    class: 'space-y-2 border-t border-gray-200 pt-4',
+                }, this.quickRequiredActions.map((action, index) => h('button', {
+                    key: action.key || index,
+                    type: 'button',
+                    'data-testid': `dual-ota-order-action-${String(action.key || index)}`,
+                    onClick: () => this.runQuickAction(action),
+                    class: 'block w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-left text-xs hover:bg-gray-50',
+                }, [
+                    h('span', { class: 'font-semibold text-gray-800' }, action.label || '补全订单证据'),
+                    action.reason ? h('span', { class: 'mt-0.5 block text-xs leading-4 text-gray-500' }, action.reason) : null,
+                ]))) : null;
+
+                let content;
+                if (!this.systemHotelId) {
+                    content = h('div', { class: 'bg-white px-5 py-6 text-sm text-gray-500' }, '请先在页面顶部选择酒店。');
+                } else if (this.quickLoading && !this.quickAnalysis) {
+                    content = h('div', { role: 'status', 'aria-live': 'polite', class: 'bg-white px-5 py-6 text-sm text-gray-500' }, '正在从已存订单中同时回读携程与美团…');
+                } else if (this.quickError && !this.quickAnalysis) {
+                    content = h('div', { 'data-testid': 'dual-ota-order-read-failure', class: 'bg-white px-5 py-6' }, [
+                        h('p', { class: 'text-sm leading-6 text-red-700' }, '订单回读未完成；系统没有把读取失败当成“无数据”，也不会提示重复补数。'),
+                        h('button', {
+                            type: 'button',
+                            onClick: () => this.loadQuickAnalysis(),
+                            class: 'mt-3 rounded-lg bg-gray-800 px-4 py-2 text-xs font-semibold text-white',
+                        }, '重新读取'),
+                    ]);
+                } else if (!this.quickAnalysis) {
+                    content = h('div', { class: 'bg-white px-5 py-6' }, [
+                        h('div', { class: 'rounded-lg border border-dashed border-gray-300 bg-gray-50 p-4 text-sm text-gray-600' }, '暂时没有可展示的双平台订单回读。可先上传携程订单，或进入美团订单补采。'),
+                        h('div', { class: 'mt-3 flex flex-wrap gap-2' }, fallbackActions),
+                    ]);
+                } else {
+                    content = h('div', { class: 'space-y-4 bg-gray-50 p-4 lg:p-5' }, [
+                        h('div', { class: 'grid grid-cols-1 gap-3 lg:grid-cols-2' }, this.quickPlatforms.map(platformSection)),
+                        comparisonBlock,
+                        requiredActions,
+                    ]);
+                }
+
+                return h('section', {
+                    'data-testid': 'dual-ota-order-quick-analysis-panel',
+                    tabindex: '-1',
+                    'aria-labelledby': 'dual-ota-order-quick-analysis-title',
+                    'aria-busy': this.quickLoading ? 'true' : 'false',
+                    class: 'overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm focus:outline-none focus:ring-2 focus:ring-yellow-200',
+                    style: { borderColor: 'rgba(20, 58, 49, 0.25)' },
+                }, [
+                    h('header', { class: 'px-4 py-4 text-white lg:px-5', style: { background: '#06110d' } }, [
+                        h('div', { class: 'flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between' }, [
+                            h('div', { class: 'min-w-0' }, [
+                                h('div', { class: 'flex flex-wrap items-center gap-2' }, [
+                                    h('h4', { id: 'dual-ota-order-quick-analysis-title', class: 'text-lg font-semibold tracking-tight text-white' }, '双平台订单快析'),
+                                    smallBadge(this.quickStatusLabel, this.quickStatusClass),
+                                ]),
+                                h('p', { class: 'mt-1 text-xs leading-5 text-gray-300' }, `${this.quickAnalysis?.hotel?.name || this.ctx?.platformHotelSelectedName || '当前酒店'} · ${this.quickDateRangeLabel}`),
+                                h('p', { class: 'text-xs leading-4', style: { color: '#dcc591' } }, `${this.quickContractVersion} · 仅使用 OTA 渠道订单事实，不扩大为全酒店收入。`),
+                            ]),
+                            h('div', { class: 'flex max-w-full flex-col gap-2' }, [
+                                h('div', { class: 'flex flex-wrap gap-2' }, [
+                                    toolbarButton('近7天', '7d'), toolbarButton('近30天', '30d'), toolbarButton('最近已存30天', 'all'), toolbarButton('自定义', 'custom'),
+                                    h('button', {
+                                        type: 'button',
+                                        disabled: this.quickLoading || !this.systemHotelId,
+                                        onClick: () => this.loadQuickAnalysis(),
+                                        class: 'rounded-lg border px-3 py-2 text-xs font-semibold disabled:opacity-50',
+                                        style: { borderColor: 'rgba(220, 197, 145, 0.5)', background: 'rgba(220, 197, 145, 0.1)', color: '#f4e7c7' },
+                                    }, this.quickLoading ? '刷新中' : '刷新'),
+                                ]),
+                                this.quickRangePreset === 'custom' ? h('div', { class: 'flex flex-wrap items-end gap-2' }, [
+                                    h('label', { class: 'text-xs text-gray-300' }, ['开始日期', h('input', { type: 'date', value: this.quickDateFrom, onInput: (event) => { this.quickDateFrom = event.target.value; }, class: 'mt-1 block rounded-lg border border-gray-300 bg-white px-2 py-1.5 text-xs text-gray-900' })]),
+                                    h('label', { class: 'text-xs text-gray-300' }, ['结束日期', h('input', { type: 'date', value: this.quickDateTo, onInput: (event) => { this.quickDateTo = event.target.value; }, class: 'mt-1 block rounded-lg border border-gray-300 bg-white px-2 py-1.5 text-xs text-gray-900' })]),
+                                    h('button', { type: 'button', disabled: this.quickLoading, onClick: () => this.loadQuickAnalysis(), class: 'rounded-lg px-3 py-2 text-xs font-semibold disabled:opacity-50', style: { background: '#dcc591', color: '#06110d' } }, '查询'),
+                                ]) : null,
+                            ]),
+                        ]),
+                    ]),
+                    this.quickError ? h('div', {
+                        'data-testid': 'dual-ota-order-quick-error',
+                        role: this.quickStale ? 'status' : 'alert',
+                        'aria-live': this.quickStale ? 'polite' : 'assertive',
+                        class: 'border-b border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700',
+                    }, this.quickStale ? `刷新失败，以下仍为上次成功回读：${this.quickError}` : this.quickError) : null,
+                    content,
+                ]);
             },
         },
         render() {
@@ -395,10 +967,16 @@
                 body = h('div', { class: 'space-y-5 p-4 lg:p-5' }, sections);
             }
 
-            return h('section', {
+            const quickPanel = this.renderQuickAnalysis();
+            if (!this.showCtripDetail) return quickPanel;
+            const detailPanel = h('section', {
                 'data-testid': 'ctrip-order-analysis-panel',
                 class: 'rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden',
             }, [header, body]);
+            return h('div', {
+                'data-testid': 'dual-ota-order-analysis-stack',
+                class: 'space-y-4',
+            }, [quickPanel, detailPanel]);
         },
         template: `
             <section data-testid="ctrip-order-analysis-panel" class="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">

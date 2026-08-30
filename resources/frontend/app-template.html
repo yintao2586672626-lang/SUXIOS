@@ -7791,7 +7791,7 @@
                                         </div>
                                     </section>
 
-                                    <ctrip-order-analysis-panel :ctx="$root"></ctrip-order-analysis-panel>
+                                    <ctrip-order-analysis-panel :ctx="$root" detail-mode="ctrip"></ctrip-order-analysis-panel>
 
                                     <div v-if="collectionReliabilityRefreshNotice" data-testid="ctrip-health-refresh-state" :class="collectionReliabilityRefreshNotice.className">{{ collectionReliabilityRefreshNotice.text }}</div>
                                     <template v-if="collectionReliabilityHasCurrentSnapshot">
@@ -10595,6 +10595,8 @@
                                     </div>
                                 </div>
 
+                                <ctrip-order-analysis-panel :ctx="$root" detail-mode="summary"></ctrip-order-analysis-panel>
+
                                 <!-- 美团老板工作台主内容 -->
 
                                 <meituan-review-order-evidence-view v-if="onlineDataTab === 'meituan-review-match'" :ctx="$root"></meituan-review-order-evidence-view>
@@ -10913,7 +10915,7 @@
                                     </div>
                                 </div>
 
-                                <div v-if="onlineDataTab === 'meituan-order-flow'" data-testid="meituan-order-flow-page" class="space-y-4">
+                                <div v-if="onlineDataTab === 'meituan-order-flow'" data-testid="meituan-order-flow-page" tabindex="-1" class="space-y-4 focus:outline-none focus:ring-2 focus:ring-yellow-200">
                                     <div data-testid="meituan-order-flow-hero" class="rounded-2xl border px-5 py-5 text-white shadow-sm" style="background:#0b1814;border-color:rgba(220,197,145,.34)">
                                         <div class="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
                                             <div class="flex items-start gap-3">
@@ -11075,7 +11077,7 @@
                                     </div>
                                 </div>
 
-                                <div v-if="onlineDataTab === 'meituan-orders'">
+                                <div v-if="onlineDataTab === 'meituan-orders'" data-testid="meituan-orders-page" tabindex="-1" class="focus:outline-none focus:ring-2 focus:ring-yellow-200">
                                     <div class="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
                                         <h4 class="font-medium text-blue-800 mb-2">
                                             <i class="fas fa-receipt mr-2"></i>美团订单数据获取

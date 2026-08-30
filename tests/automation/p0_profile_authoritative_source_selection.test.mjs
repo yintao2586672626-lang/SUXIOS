@@ -103,5 +103,7 @@ const verifierSource = readFileSync('scripts/verify_p0_ota_field_loop_closure.ph
 
 assert.match(verifierSource, /profile_flow_ready'\]\) \? 64/);
 assert.match(verifierSource, /current_session_verified'\]\) \? 32/);
+assert.match(verifierSource, /p0_is_browser_profile_ingestion_method[\s\S]*\? 8/);
+assert.match(verifierSource, /managed_by_p0'\]\) \? 4/);
 assert.match(verifierSource, /\['ready', 'success', 'partial_success'\]/);
 assert.match(verifierSource, /->limit\(30\)[\s\S]*\$candidateTaskTargetDate\s*=\s*p0_sync_task_target_date\(\$candidateStats\);[\s\S]*if \(\$candidateTaskTargetDate === \$targetDate\)/);

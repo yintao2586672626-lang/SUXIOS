@@ -1,0 +1,6 @@
+{
+  "schema_version": "suxi.skill.behavior_request.v1",
+  "skill_name": "suxi-test-guard",
+  "case_id": "TG-BEH-001",
+  "user_request": "只检查当前健康状态和已有测试证据，不要修改任何文件。当前只知道语法检查和两个目标单元测试已实际执行并PASS；页面和API没有执行，也没有确认缺少环境或登录前置。"
+}

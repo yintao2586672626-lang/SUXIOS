@@ -153,8 +153,8 @@ test('package and the isolated CI lane run the complete strict Node automation s
 test('GitHub Actions pin Node 24 runtime majors without deprecated Node 20 actions', () => {
   const workflow = readFileSync('.github/workflows/php.yml', 'utf8');
   const expectedActionCounts = new Map([
-    ['actions/checkout@v5', 6],
-    ['actions/setup-node@v5', 6],
+    ['actions/checkout@v5', 7],
+    ['actions/setup-node@v5', 7],
     ['actions/setup-python@v6', 1],
     ['actions/upload-artifact@v6', 1],
   ]);

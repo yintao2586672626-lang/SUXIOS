@@ -60,6 +60,7 @@ export const SOURCE_HOTSPOT_BUDGETS = Object.freeze([
   { path: 'scripts/verify_public_entry_guard.mjs', max_lines: 3_000, ratchet_max_lines: 3_642, boundary: 'public entry guard; zero-growth until AST and asset-domain extraction' },
   { path: 'scripts/export_revenue_ai_ctrip_operator_bundle.php', max_lines: 3_000, ratchet_max_lines: 3_221, boundary: 'operator bundle exporter; zero-growth until packet-domain extraction' },
   { path: 'scripts/report_business_chain_status.php', max_lines: 3_000, ratchet_max_lines: 3_102, boundary: 'business-chain status report; zero-growth until domain reporter extraction' },
+  { path: 'scripts/suxi_skill_behavior_eval.mjs', max_lines: 3_000, ratchet_max_lines: 3_399, boundary: 'Skill behavior replay, evidence sealing, archive verification, and deterministic reporting; zero-growth until archive and runner concerns are extracted' },
 ]);
 
 export const SOURCE_HOTSPOT_DISCOVERY = Object.freeze({

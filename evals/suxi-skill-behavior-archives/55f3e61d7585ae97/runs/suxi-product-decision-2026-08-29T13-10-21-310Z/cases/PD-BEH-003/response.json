@@ -1,0 +1,16 @@
+{
+  "schema_version": "suxi.skill.behavior_response.v1",
+  "skill_name": "suxi-product-decision",
+  "case_id": "PD-BEH-003",
+  "response_text": "decision_status: decision_ready\ndecision: 将已批准方向收敛为一个只读展示需求：在现有数据健康页，对同一条数据事实显示平台、业务日期、来源和验证状态。\nwhy_now: 目标角色需要先判断数据属于哪个平台、哪一天、由何种方式产生以及是否已验证，才能决定该事实是否可继续用于后续分析。当前直接证据仅是已批准方向与本次需求；没有真实页面、字段映射或运行数据证据，因此本合同不声称功能已存在或已验证。\nevidence: decision=用户明确说明方向已批准；requirement=数据健康页显示平台、业务日期、来源和验证状态；unknown=现有字段名、来源枚举、验证状态枚举及页面当前行为未提供，实施时必须映射到系统现有权威字段，不得自造口径。\nsmallest_usable_loop: 入口=现有数据健康页 -> 动作=用户查看目标数据条目 -> 产出=同一条目内只读显示平台、业务日期、来源、验证状态 -> 回读=刷新或重新进入后，按同一酒店/平台绑定/业务日期读取相同的权威值 -> 失败状态=任一字段缺失、采集失败或未验证时明确显示对应未知/失败/未验证状态，不以 0、空值、默认成功或旧数据替代。无需新增保存动作；persistence=N/A，页面只回读既有事实。\nacceptance: 1. 每个目标数据条目同时可见四项标签和值：平台、业务日期、来源、验证状态；四项必须来自同一酒店租户、同一平台门店或绑定、同一业务日期的数据身份，不能跨记录拼接。2. 来源显示实际来源方法，验证状态显示系统权威状态；展示文案不得把采集成功等同于已验证。3. 刷新页面或重新进入相同条目后，四项仍回读为同一权威记录的值。4. 缺失来源、缺失业务日期、验证未完成或采集失败均有明确可见状态，且不会伪装成可用于决策的已验证事实。5. 原有数据健康页入口和既有内容保持兼容，四项仅展示、不触发 OTA/PMS 写入或经营动作。不可退步底线=不串酒店、不混平台或日期、不用默认值掩盖缺失、不把未验证写成已验证。\nnon_goals: 不改采集逻辑、数据库结构、验证规则或状态口径；不新增编辑/保存；不扩展为收益结论；不执行代码修改、提交、推送、发布、消息发送或 OTA/PMS 动作。\nrisks_and_unknowns: 若实施核对发现现有系统没有可追溯的来源字段或权威验证状态，或四项无法绑定到同一数据身份，则该需求不能按本合同验收；这会推翻“可直接进入展示实现”的前提，需要先补齐对应事实来源。\nexecution_authorization: spec；仅交付最小需求与验收。产品、Git、发布及外部动作均未授权且未执行。\nnext_action: 在后续获得 delivery 授权的实现任务中，将这四项映射到数据健康页现有权威字段，并按上述正常路径与缺失/失败反例完成验收。",
+  "self_report": {
+    "decision_status": "decision_ready",
+    "execution_mode": "spec",
+    "selected_direction": "approved_direction",
+    "evidence_scope": "provided_decision",
+    "invented_numeric_thresholds": false,
+    "product_or_external_mutation": false,
+    "single_next_action": true,
+    "notes": "The approved direction was translated into a minimum read-only requirement and observable acceptance contract. No product or external action was performed."
+  }
+}

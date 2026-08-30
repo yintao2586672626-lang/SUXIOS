@@ -60,10 +60,13 @@ test('remaining downstream decision and lifecycle navigation stay hidden while b
 test('existing opening pages are discoverable from the operations center', () => {
   assert.match(systemStatic, /name:\s*'开业准备总览',\s*path:\s*'opening-overview'/);
   assert.match(systemStatic, /name:\s*'开业检查清单',\s*path:\s*'opening-checklist'/);
+  assert.match(html, /sourcePath: 'opening-overview',[\s\S]*name: '开业管理总览'/);
+  assert.match(html, /sourcePath: 'opening-checklist',[\s\S]*name: '开业检查清单'/);
 });
 
 test('existing quant simulation page is discoverable from the revenue workbench', () => {
   assert.match(systemStatic, /name:\s*'智算·量化模拟',\s*path:\s*'ai-simulation'/);
+  assert.match(html, /sourcePath: 'ai-simulation',[\s\S]*name: '酒店量化模拟'/);
   assert.match(simulationTemplate, /data-testid="simulation-hotel-selector"/);
   assert.match(appMainComponents, /示例假设 · 未验证/);
 });

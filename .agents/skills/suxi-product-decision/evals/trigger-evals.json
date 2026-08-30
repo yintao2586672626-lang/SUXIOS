@@ -1,0 +1,21 @@
+{
+  "skill_name": "suxi-product-decision",
+  "evals": [
+    {"id":"T-001","query":"$suxi-product-decision 宿析这周只能做一个功能，帮我做产品决策并说明为什么。","should_trigger":true},
+    {"id":"T-002","query":"$suxi-product-decision 用产品经理视角判断数据健康、AI报告和自动调价哪个先做。","should_trigger":true},
+    {"id":"T-003","query":"$suxi-product-decision 给我一份产品分析简报，决定下一步最高价值改动。","should_trigger":true},
+    {"id":"T-004","query":"$suxi-product-decision 这些需求怎么排优先级？不要给清单，只选一个。","should_trigger":true},
+    {"id":"T-005","query":"$suxi-product-decision PRD之前先判断这个方向值不值得做。","should_trigger":true},
+    {"id":"T-006","query":"$suxi-product-decision 评审这个产品方案，指出证据、未知和最小闭环。","should_trigger":true},
+    {"id":"T-007","query":"$suxi-product-decision 老板端和前台端两个方向冲突，帮我决定先解决哪个产品断点。","should_trigger":true},
+    {"id":"T-008","query":"$suxi-product-decision 把已经批准的产品方向收敛成最小需求和验收。","should_trigger":true},
+    {"id":"T-009","query":"这个API返回500，定位并修复。","should_trigger":false},
+    {"id":"T-010","query":"生成今天的携程美团经营日报。","should_trigger":false},
+    {"id":"T-011","query":"查询昨天酒店RevPAR是多少。","should_trigger":false},
+    {"id":"T-012","query":"为三个店长设计一份可用性访谈任务。","should_trigger":false},
+    {"id":"T-013","query":"把这个按钮改成登录页同款金色。","should_trigger":false},
+    {"id":"T-014","query":"运行订单保存的回归测试并报告结果。","should_trigger":false},
+    {"id":"T-015","query":"把这份经营报告做成PPT。","should_trigger":false},
+    {"id":"T-016","query":"把这段英文产品文案翻译成中文。","should_trigger":false}
+  ]
+}

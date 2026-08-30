@@ -146,7 +146,7 @@
                                         </div>
                                     </section>
 
-                                    <ctrip-order-analysis-panel :ctx="$root"></ctrip-order-analysis-panel>
+                                    <ctrip-order-analysis-panel :ctx="$root" detail-mode="ctrip"></ctrip-order-analysis-panel>
 
                                     <div v-if="collectionReliabilityRefreshNotice" data-testid="ctrip-health-refresh-state" :class="collectionReliabilityRefreshNotice.className">{{ collectionReliabilityRefreshNotice.text }}</div>
                                     <template v-if="collectionReliabilityHasCurrentSnapshot">

@@ -204,6 +204,11 @@ test('Meituan order API aggregates sale price and room nights without promoting 
   assert.equal(rows[0].amount, 2543.53);
   assert.equal(rows[0].quantity, 3);
   assert.equal(rows[0].book_order_num, 3);
+  assert.equal(rows[0].date_basis, 'order_date');
+  assert.equal(rows[0].date_source, 'request.query.startTime');
+  assert.equal(rows[0].order_count_basis, 'listed_orders');
+  assert.equal(rows[0].room_nights_basis, 'booked_room_nights');
+  assert.equal(rows[0].record_kind, 'order_daily_aggregate');
   assert.equal(rows[0].amount_scope, 'meituan_sale_price_total');
   assert.equal(rows[0].amount_source_unit, 'cent');
   assert.equal(rows[0].floor_price_used_as_revenue, false);

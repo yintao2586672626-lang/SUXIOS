@@ -1,0 +1,61 @@
+{
+  "schema_version": "suxi.skill.behavior_test_execution_result.v1",
+  "execution_id": "a12a0f57-a2dd-4faa-9316-ba26d82d07ff",
+  "attempt_number": 1,
+  "started_receipt_sha256": "734e978eaef5ee60222b1022586cbfddeae4bf0a8a5e8bb1713955c7dfead41e",
+  "previous_attempt_receipt_sha256": null,
+  "started_at": "2026-08-29T19:12:17.527Z",
+  "ended_at": "2026-08-29T19:12:29.808Z",
+  "duration_ms": 13030,
+  "target": {
+    "archive_path_sha256": "4ed0cb511ef12a012bd28cf95ca88838c34bf5945480a32fb575390eb053b050",
+    "archive_manifest_sha256": "a8ed6b4490a9396efa1bf6410d0dccf7f8cbe33ae6a59217f37e51da5427bc9a",
+    "source_ledger_sha256": "55f3e61d7585ae97557fe1173351531d41e368b28b64c6b04fb3df293912688c",
+    "archive_seal_sha256": "203b7eeb757f882bd9f5019a6995046358c8f6b02dbb535ef99add34786fc968",
+    "verifier_receipt_sha256": "32a3b7d5828738a65625a6b11b86d5fc9a37470c04cb670d6a7f417a2e45915f",
+    "verifier_profile_sha256": "5c8ba945d81b81f78b69d92426807e95067dc9156cb858f31f78c139e63c85d2",
+    "verified_counts": {
+      "runs": 3,
+      "files": 155,
+      "bytes": 503173,
+      "seals": 6
+    }
+  },
+  "execution_profile_sha256": "673ad0f7d73e0ed63d7b4694c18be4d5e0be3235b79a50235b3572e7aa17da4e",
+  "workspace_manifest_sha256": "444cfff85c3e9efc21df90ff95496265b4b127747a57217c879102f571361769",
+  "workspace_path_sha256": "dae65b89d9f56840332d69aea3d0b1924dc221f04a74ab86ba886fa7a26c4c12",
+  "preflight_snapshot_sha256": "64ee7628cf0b2b0ade0540ff267599581e38daae6d41dc64bfaf582c6c32570f",
+  "postflight_snapshot_sha256": "64ee7628cf0b2b0ade0540ff267599581e38daae6d41dc64bfaf582c6c32570f",
+  "artifact_stability_status": "PASS",
+  "result": {
+    "status": "PASS",
+    "failure_code": "none",
+    "exit_code": 0,
+    "signal": null,
+    "timeout_triggered": false,
+    "output_limit_triggered": false,
+    "kill_method": "none",
+    "process_tree_kill_confirmed": true,
+    "child_pid": 17804,
+    "stdout": {
+      "sha256": "c6699aefeebbe9f8706ee26e02c76e3c8251193cd5721df8185d6f6e0a626018",
+      "bytes": 9236,
+      "complete": true
+    },
+    "stderr": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0,
+      "complete": true
+    },
+    "tap_summary": {
+      "tests": 43,
+      "suites": 0,
+      "pass": 43,
+      "fail": 0,
+      "cancelled": 0,
+      "skipped": 0,
+      "todo": 0,
+      "duration_ms": 11331.7197
+    }
+  }
+}

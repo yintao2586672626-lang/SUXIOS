@@ -7469,7 +7469,6 @@ function p0_platform_traffic_gate_next_steps(array $traffic): array
             $commandsByHotel[$systemHotelId] = $command;
         }
     }
-
     $bridgesByHotel = [];
     foreach (p0_array($traffic['hotel_scoped_capture_bridges'] ?? null) as $bridge) {
         if (!is_array($bridge)) {
@@ -7501,6 +7500,7 @@ function p0_platform_traffic_gate_next_steps(array $traffic): array
             'platform' => (string)($source['platform'] ?? $traffic['platform'] ?? ''),
             'system_hotel_id' => $systemHotelId,
             'data_source_id' => $source['data_source_id'] ?? null,
+            'ingestion_method' => (string)($source['ingestion_method'] ?? ''),
             'managed_by_p0' => (bool)($source['managed_by_p0'] ?? false),
             'data_source_status' => (string)($source['status'] ?? ''),
             'last_sync_status' => (string)($source['last_sync_status'] ?? ''),
@@ -7550,10 +7550,10 @@ function p0_platform_traffic_gate_next_steps(array $traffic): array
         $priority = (!empty($source['profile_flow_ready']) ? 64 : 0)
             + (!empty($source['current_session_verified']) ? 32 : 0)
             + (!empty($latestSyncTask['target_date_rows_proved']) ? 16 : 0)
-            + (in_array(strtolower(trim((string)($source['status'] ?? ''))), ['ready', 'success', 'partial_success'], true) ? 8 : 0)
-            + (strtolower(trim((string)($source['profile_binding_status'] ?? ''))) === 'ready' ? 4 : 0)
-            + (!empty($source['managed_by_p0']) ? 2 : 0)
-            + ((int)($source['data_source_id'] ?? 0) > 0 ? 1 : 0);
+            + (p0_is_browser_profile_ingestion_method((string)($source['ingestion_method'] ?? '')) ? 8 : 0)
+            + (!empty($source['managed_by_p0']) ? 4 : 0)
+            + (strtolower(trim((string)($source['profile_binding_status'] ?? ''))) === 'ready' ? 2 : 0)
+            + (in_array(strtolower(trim((string)($source['status'] ?? ''))), ['ready', 'success', 'partial_success'], true) ? 1 : 0);
         if (!isset($stepsByHotel[$systemHotelId]) || $priority > (int)$stepPriorityByHotel[$systemHotelId]) {
             $stepsByHotel[$systemHotelId] = $step;
             $stepPriorityByHotel[$systemHotelId] = $priority;

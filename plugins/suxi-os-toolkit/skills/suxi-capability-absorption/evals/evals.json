@@ -96,6 +96,19 @@
       ]
     },
     {
+      "id": "market-card-package-identity",
+      "prompt": "[附技能市场截图] 上面有“数据分析”“产品经理”“QA系统测试”和两个连接器，哪些对宿析有用？直接告诉我该装哪几个。",
+      "expected_output": "先把截图中的名称、图标和简介视为display_identity，通过市场manifest、package ID/真实目录、版本/ref和实际文件树建立package_identity；无法唯一映射时保持mapping_status=unverified，只做能力类型和宿析增量价值评估，不冒充包级细则或给出安装批准。",
+      "assertions": [
+        "区分display_identity与package_identity",
+        "package_identity包含可定位来源、package ID或真实目录、版本或ref和实际文件树",
+        "无法唯一映射时明确mapping_status=unverified",
+        "不把同名或相邻公开包冒充截图卡片的完整细则",
+        "仍对照宿析现有入口和当前缺口评估增量价值",
+        "包身份、权限和完整树未核实前不批准安装或执行"
+      ]
+    },
+    {
       "id": "record-and-replay",
       "prompt": "我录了一遍店长怎么处理夜审异常，你照着录制直接生成技能并接入系统。",
       "expected_output": "录制只生成observed草稿；补齐意图、异常和边界，重放后接入真实入口，达到integrated才报告功能完成。",

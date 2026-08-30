@@ -5,6 +5,7 @@ import path from 'node:path';
 import test from 'node:test';
 import vm from 'node:vm';
 import { fileURLToPath } from 'node:url';
+import { readRouteContractSource } from '../../scripts/lib/route_contract_source.mjs';
 import { readAppMainContractSource } from './helpers/frontend_source.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -23,7 +24,7 @@ const startupHelperBundle = read('public/app-startup-helpers.min.js');
 const appBootstrap = read('public/app-bootstrap.js');
 const appMain = readAppMainContractSource();
 const ctripPage = read('resources/frontend/templates/fragments/24-page-ctrip-ebooking.html');
-const routes = read('route/app.php');
+const routes = readRouteContractSource(repoRoot);
 const syncController = read('app/controller/ota/SyncController.php');
 const actionCatalog = read('app/domain/Ota/OtaActionCatalog.php');
 const actionDispatcher = read('app/service/Ota/OtaActionDispatcher.php');
@@ -408,7 +409,7 @@ test('Ctrip upload page renders immediate import preview and the persisted range
   ]) {
     assert.ok(panel.includes(binding), `lazy upload preview must render ${binding}`);
   }
-  assert.match(ctripPage, /<ctrip-order-analysis-panel\s+:ctx="\$root"><\/ctrip-order-analysis-panel>/);
+  assert.match(ctripPage, /<ctrip-order-analysis-panel\s+:ctx="\$root"\s+detail-mode="ctrip"><\/ctrip-order-analysis-panel>/);
   assert.match(appMain, /const openCtripChannelOrderEvidenceUpload = \(\) => \{/);
   assert.match(appMain, /ctripChannelOrderUploadOpen\.value = true/);
   assert.match(appMain, /\[data-testid="ctrip-channel-order-upload"\]/);

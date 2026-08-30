@@ -7,6 +7,7 @@ param(
     [string]$KnownHostsPath = "",
     [string]$ReleaseName = "suxios-auto-$((Get-Date).ToString('yyyyMMdd-HHmmss'))",
     [switch]$StageOnly,
+    [switch]$ActivateStaged,
     [switch]$ApplyMigrations,
     [switch]$AllowDirty
 )
@@ -80,6 +81,10 @@ if ($ReleaseName -notmatch '^suxios-[a-z0-9][a-z0-9._-]{5,80}$') {
     throw "Invalid release name: $ReleaseName"
 }
 
+if ($StageOnly -and $ActivateStaged) {
+    throw "StageOnly and ActivateStaged are separate release phases and cannot be combined."
+}
+
 if ($ApplyMigrations) {
     throw "Automatic production migrations are disabled. Review and run schema changes through a separately verified migration procedure before deployment."
 }
@@ -140,11 +145,13 @@ try {
 
     $sha256 = (Get-FileHash -LiteralPath $archivePath -Algorithm SHA256).Hash.ToLowerInvariant()
 
-    & $scp @sshOptions $archivePath "${target}:$remoteArchive"
-    if ($LASTEXITCODE -ne 0) {
-        throw "Failed to upload the release archive."
+    if (-not $ActivateStaged) {
+        & $scp @sshOptions $archivePath "${target}:$remoteArchive"
+        if ($LASTEXITCODE -ne 0) {
+            throw "Failed to upload the release archive."
+        }
+        $archiveUploaded = $true
     }
-    $archiveUploaded = $true
 
     & $scp @sshOptions $remoteInstaller "${target}:$remoteInstallerPath"
     if ($LASTEXITCODE -ne 0) {
@@ -154,11 +161,16 @@ try {
 
     $remoteArgs = @(
         "sudo", "bash", $remoteInstallerPath,
-        "--archive", $remoteArchive,
         "--release", $ReleaseName,
+        "--source-commit", $sourceCommit,
         "--sha256", $sha256,
         "--health-host", $HealthHost
     )
+    if ($ActivateStaged) {
+        $remoteArgs += "--activate-existing"
+    } else {
+        $remoteArgs += @("--archive", $remoteArchive)
+    }
     if ($StageOnly) {
         $remoteArgs += "--no-switch"
     }
@@ -168,7 +180,8 @@ try {
     }
 
     [PSCustomObject]@{
-        Status = if ($StageOnly) { "staged" } else { "deployed" }
+        Status = if ($StageOnly) { "staged" } elseif ($ActivateStaged) { "activated" } else { "deployed" }
+        Mode = if ($StageOnly) { "stage" } elseif ($ActivateStaged) { "activate_existing" } else { "install_and_activate" }
         Server = $Server
         HealthHost = $HealthHost
         Release = $ReleaseName

@@ -1,0 +1,242 @@
+{
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "const": "suxi.skill.behavior_judgments.v2"
+    },
+    "skill_name": {
+      "const": "suxi-user-research"
+    },
+    "judge": {
+      "type": "string",
+      "minLength": 1
+    },
+    "judge_packet_sha256": {
+      "const": "887ee2432ff99c188bde6a09a12f48027722d01973de49b97b04da211978ef0c"
+    },
+    "case_results": {
+      "type": "array",
+      "minItems": 7,
+      "maxItems": 7,
+      "items": {
+        "type": "object",
+        "properties": {
+          "case_id": {
+            "enum": [
+              "UR-BEH-001",
+              "UR-BEH-002",
+              "UR-BEH-003",
+              "UR-BEH-004",
+              "UR-BEH-005",
+              "UR-BEH-006",
+              "UR-BEH-007"
+            ]
+          },
+          "verdict": {
+            "enum": [
+              "PASS",
+              "FAIL",
+              "BLOCKED"
+            ]
+          },
+          "normalized": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "research_status": {
+                    "enum": [
+                      "planned",
+                      "observed_partial",
+                      "synthesized",
+                      "retested",
+                      "not_comparable"
+                    ],
+                    "description": "Use only the evidence maturity supported by real supplied records: planned when no participant evidence exists; observed_partial for summaries or incomplete/untraceable records; synthesized only when every key finding can trace to supplied records; retested only for a comparable completed retest; not_comparable when material comparison conditions changed."
+                  },
+                  "research_mode": {
+                    "enum": [
+                      "plan",
+                      "synthesize",
+                      "retest"
+                    ]
+                  },
+                  "evidence_scope": {
+                    "enum": [
+                      "none",
+                      "provided_records",
+                      "screenshot_only",
+                      "not_comparable"
+                    ]
+                  },
+                  "outreach_status": {
+                    "enum": [
+                      "not_requested",
+                      "requested_blocked",
+                      "ready_for_user_execution",
+                      "not_applicable"
+                    ],
+                    "description": "External contact is never executed by this evaluation. Use not_requested for a plan where outreach could be a later step but the user did not request execution; requested_blocked when execution was requested but recipients, tenant scope, contact details, or consent prerequisites are missing; ready_for_user_execution only when an explicitly requested execution package is complete but remains for the user to run; not_applicable when the current request only synthesizes supplied records or compares existing rounds and needs no outreach decision."
+                  },
+                  "consent_status": {
+                    "enum": [
+                      "not_required",
+                      "missing",
+                      "confirmed",
+                      "unknown"
+                    ],
+                    "description": "Use not_required when the current request performs no outreach or recording, including plan-only work and analysis of already supplied deidentified records; missing when a requested outreach or recording action lacks consent; confirmed only when supplied evidence explicitly confirms consent for that action; unknown only when outreach or recording is in current scope but consent cannot be determined."
+                  },
+                  "invented_research_findings": {
+                    "type": "boolean"
+                  },
+                  "invented_numeric_thresholds": {
+                    "type": "boolean"
+                  },
+                  "external_or_recording_action": {
+                    "type": "boolean"
+                  },
+                  "single_next_action": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "research_status",
+                  "research_mode",
+                  "evidence_scope",
+                  "outreach_status",
+                  "consent_status",
+                  "invented_research_findings",
+                  "invented_numeric_thresholds",
+                  "external_or_recording_action",
+                  "single_next_action"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "assertion_results": {
+            "type": "array",
+            "minItems": 0,
+            "items": {
+              "type": "object",
+              "properties": {
+                "assertion": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "passed": {
+                  "type": "boolean"
+                },
+                "evidence_spans": {
+                  "type": "array",
+                  "minItems": 1,
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "start": {
+                        "type": "integer",
+                        "minimum": 0
+                      },
+                      "end": {
+                        "type": "integer",
+                        "minimum": 1
+                      },
+                      "quote": {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    },
+                    "required": [
+                      "start",
+                      "end",
+                      "quote"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "explanation": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "required": [
+                "assertion",
+                "passed",
+                "evidence_spans",
+                "explanation"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "blocked_reason": {
+            "type": "string"
+          },
+          "notes": {
+            "type": "string"
+          }
+        },
+        "oneOf": [
+          {
+            "properties": {
+              "verdict": {
+                "const": "BLOCKED"
+              },
+              "normalized": {
+                "type": "null"
+              },
+              "assertion_results": {
+                "type": "array",
+                "maxItems": 0
+              },
+              "blocked_reason": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          },
+          {
+            "properties": {
+              "verdict": {
+                "enum": [
+                  "PASS",
+                  "FAIL"
+                ]
+              },
+              "normalized": {
+                "type": "object"
+              },
+              "assertion_results": {
+                "type": "array",
+                "minItems": 1
+              },
+              "blocked_reason": {
+                "const": ""
+              }
+            }
+          }
+        ],
+        "required": [
+          "case_id",
+          "verdict",
+          "normalized",
+          "assertion_results",
+          "blocked_reason",
+          "notes"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": [
+    "schema_version",
+    "skill_name",
+    "judge",
+    "judge_packet_sha256",
+    "case_results"
+  ],
+  "additionalProperties": false
+}

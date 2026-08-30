@@ -1,0 +1,6 @@
+{
+  "schema_version": "suxi.skill.behavior_request.v1",
+  "skill_name": "suxi-product-decision",
+  "case_id": "PD-BEH-001",
+  "user_request": "这是合成产品决策题，不代表真实酒店事实。本周宿析OS只能做一项：A给AI经营报告增加更多模板；B让数据健康页清楚区分采集成功与数据已验证可信，并在门店切换后显示业务日期和来源；C增加自动调价并直接写回OTA。已有证据只有：3次合成可用性观察中，2次把采集成功误解为可信，1次在门店切换后未能确认日期；当前没有真实OTA写回API、审批或效果回读证据。请选择一个。"
+}

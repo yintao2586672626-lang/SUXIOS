@@ -1,0 +1,412 @@
+{
+  "schema_version": "suxi.skill.behavior_run.v2",
+  "run_id": "suxi-test-guard-2026-08-29T13-40-32-781Z",
+  "skill_name": "suxi-test-guard",
+  "created_at": "2026-08-29T13:40:32.781Z",
+  "behavior_contract_path": ".agents/skills/suxi-test-guard/evals/behavior-evals.json",
+  "behavior_contract_sha256": "a5a3909b5521a0dd139b2b8f99280182d81abce0d7d98c67d00118556ed338f9",
+  "source_snapshot_sha256": "7bf163a793b41d5dd4e962b4ca8015c8f0244be5356b0f6f5fed941caa11adca",
+  "source_snapshot_files": [
+    {
+      "path": "SKILL.md",
+      "sha256": "797159ae7091c28a609fd0d5349b78903a07d3e12f6f862f186f98366215037f",
+      "bytes": 9516
+    },
+    {
+      "path": "agents/openai.yaml",
+      "sha256": "d121cc88c380724119691f8d56fe105a9bf51b8a6c323ce272fb5e4a66a2bef9",
+      "bytes": 293
+    },
+    {
+      "path": "references/acceptance-evidence.md",
+      "sha256": "a22ac0c1cea94db19eca8ecfebf2d33631836d7751fb5ed5f38b9c3a2881fb2f",
+      "bytes": 3803
+    }
+  ],
+  "judgment_schema_version": "suxi.skill.behavior_judgments.v2",
+  "case_ids": [
+    "TG-BEH-001",
+    "TG-BEH-002",
+    "TG-BEH-003",
+    "TG-BEH-004",
+    "TG-BEH-005",
+    "TG-BEH-006"
+  ],
+  "cases": [
+    {
+      "case_id": "TG-BEH-001",
+      "workspace": "cases/TG-BEH-001/workspace",
+      "response_path": "cases/TG-BEH-001/response.json",
+      "skill_snapshot_sha256": "7bf163a793b41d5dd4e962b4ca8015c8f0244be5356b0f6f5fed941caa11adca",
+      "snapshot_files": [
+        {
+          "path": "SKILL.md",
+          "sha256": "797159ae7091c28a609fd0d5349b78903a07d3e12f6f862f186f98366215037f",
+          "bytes": 9516
+        },
+        {
+          "path": "agents/openai.yaml",
+          "sha256": "d121cc88c380724119691f8d56fe105a9bf51b8a6c323ce272fb5e4a66a2bef9",
+          "bytes": 293
+        },
+        {
+          "path": "references/acceptance-evidence.md",
+          "sha256": "a22ac0c1cea94db19eca8ecfebf2d33631836d7751fb5ed5f38b9c3a2881fb2f",
+          "bytes": 3803
+        }
+      ],
+      "workspace_files": [
+        {
+          "path": ".agents/skills/suxi-test-guard/SKILL.md",
+          "sha256": "797159ae7091c28a609fd0d5349b78903a07d3e12f6f862f186f98366215037f",
+          "bytes": 9516
+        },
+        {
+          "path": ".agents/skills/suxi-test-guard/agents/openai.yaml",
+          "sha256": "d121cc88c380724119691f8d56fe105a9bf51b8a6c323ce272fb5e4a66a2bef9",
+          "bytes": 293
+        },
+        {
+          "path": ".agents/skills/suxi-test-guard/references/acceptance-evidence.md",
+          "sha256": "a22ac0c1cea94db19eca8ecfebf2d33631836d7751fb5ed5f38b9c3a2881fb2f",
+          "bytes": 3803
+        },
+        {
+          "path": "AGENTS.md",
+          "sha256": "0c96bc251c1bbce63b349d77607ed40f57f2fa1a6715068a10bc388e4c44ba05",
+          "bytes": 535
+        },
+        {
+          "path": "respondent-output.schema.json",
+          "sha256": "4303a5bd44150d953948546a10686faedd22f9d190d3777e32d94d1271bc30db",
+          "bytes": 2820
+        },
+        {
+          "path": "respondent-prompt.md",
+          "sha256": "3485d24b18e035d2697844c3422a4ca2e6fc0780d2dea315e42777a9ee06aa64",
+          "bytes": 513
+        },
+        {
+          "path": "respondent-request.json",
+          "sha256": "f7b7b72a5a7db65072af93c3a6bbb62fbffede1981194fea5c9f1c581df07347",
+          "bytes": 370
+        }
+      ],
+      "expectations_in_workspace": false,
+      "filesystem_isolation": "instruction_only"
+    },
+    {
+      "case_id": "TG-BEH-002",
+      "workspace": "cases/TG-BEH-002/workspace",
+      "response_path": "cases/TG-BEH-002/response.json",
+      "skill_snapshot_sha256": "7bf163a793b41d5dd4e962b4ca8015c8f0244be5356b0f6f5fed941caa11adca",
+      "snapshot_files": [
+        {
+          "path": "SKILL.md",
+          "sha256": "797159ae7091c28a609fd0d5349b78903a07d3e12f6f862f186f98366215037f",
+          "bytes": 9516
+        },
+        {
+          "path": "agents/openai.yaml",
+          "sha256": "d121cc88c380724119691f8d56fe105a9bf51b8a6c323ce272fb5e4a66a2bef9",
+          "bytes": 293
+        },
+        {
+          "path": "references/acceptance-evidence.md",
+          "sha256": "a22ac0c1cea94db19eca8ecfebf2d33631836d7751fb5ed5f38b9c3a2881fb2f",
+          "bytes": 3803
+        }
+      ],
+      "workspace_files": [
+        {
+          "path": ".agents/skills/suxi-test-guard/SKILL.md",
+          "sha256": "797159ae7091c28a609fd0d5349b78903a07d3e12f6f862f186f98366215037f",
+          "bytes": 9516
+        },
+        {
+          "path": ".agents/skills/suxi-test-guard/agents/openai.yaml",
+          "sha256": "d121cc88c380724119691f8d56fe105a9bf51b8a6c323ce272fb5e4a66a2bef9",
+          "bytes": 293
+        },
+        {
+          "path": ".agents/skills/suxi-test-guard/references/acceptance-evidence.md",
+          "sha256": "a22ac0c1cea94db19eca8ecfebf2d33631836d7751fb5ed5f38b9c3a2881fb2f",
+          "bytes": 3803
+        },
+        {
+          "path": "AGENTS.md",
+          "sha256": "0c96bc251c1bbce63b349d77607ed40f57f2fa1a6715068a10bc388e4c44ba05",
+          "bytes": 535
+        },
+        {
+          "path": "respondent-output.schema.json",
+          "sha256": "dd0694a02b2d30c9602e386d7b11da14b53a3be0ff49ac548a2b7969f54c84c8",
+          "bytes": 2820
+        },
+        {
+          "path": "respondent-prompt.md",
+          "sha256": "c9179d717891ac6fc05e8f6658e1d7fb3b65d1077955fba1012db71d0149d9a8",
+          "bytes": 513
+        },
+        {
+          "path": "respondent-request.json",
+          "sha256": "b34fd3083ee35f8baaaba2e4f7830dbf0055aec3d8c530b684133f59994380f1",
+          "bytes": 308
+        }
+      ],
+      "expectations_in_workspace": false,
+      "filesystem_isolation": "instruction_only"
+    },
+    {
+      "case_id": "TG-BEH-003",
+      "workspace": "cases/TG-BEH-003/workspace",
+      "response_path": "cases/TG-BEH-003/response.json",
+      "skill_snapshot_sha256": "7bf163a793b41d5dd4e962b4ca8015c8f0244be5356b0f6f5fed941caa11adca",
+      "snapshot_files": [
+        {
+          "path": "SKILL.md",
+          "sha256": "797159ae7091c28a609fd0d5349b78903a07d3e12f6f862f186f98366215037f",
+          "bytes": 9516
+        },
+        {
+          "path": "agents/openai.yaml",
+          "sha256": "d121cc88c380724119691f8d56fe105a9bf51b8a6c323ce272fb5e4a66a2bef9",
+          "bytes": 293
+        },
+        {
+          "path": "references/acceptance-evidence.md",
+          "sha256": "a22ac0c1cea94db19eca8ecfebf2d33631836d7751fb5ed5f38b9c3a2881fb2f",
+          "bytes": 3803
+        }
+      ],
+      "workspace_files": [
+        {
+          "path": ".agents/skills/suxi-test-guard/SKILL.md",
+          "sha256": "797159ae7091c28a609fd0d5349b78903a07d3e12f6f862f186f98366215037f",
+          "bytes": 9516
+        },
+        {
+          "path": ".agents/skills/suxi-test-guard/agents/openai.yaml",
+          "sha256": "d121cc88c380724119691f8d56fe105a9bf51b8a6c323ce272fb5e4a66a2bef9",
+          "bytes": 293
+        },
+        {
+          "path": ".agents/skills/suxi-test-guard/references/acceptance-evidence.md",
+          "sha256": "a22ac0c1cea94db19eca8ecfebf2d33631836d7751fb5ed5f38b9c3a2881fb2f",
+          "bytes": 3803
+        },
+        {
+          "path": "AGENTS.md",
+          "sha256": "0c96bc251c1bbce63b349d77607ed40f57f2fa1a6715068a10bc388e4c44ba05",
+          "bytes": 535
+        },
+        {
+          "path": "respondent-output.schema.json",
+          "sha256": "855bdc94297139856beea68e115581870959672088e6cb25e12cdd9346879000",
+          "bytes": 2820
+        },
+        {
+          "path": "respondent-prompt.md",
+          "sha256": "cf8292e271acba4b20a106ececd7ba2cd8d85f34fb2d520a1dbdc7fe0e2e5e0b",
+          "bytes": 513
+        },
+        {
+          "path": "respondent-request.json",
+          "sha256": "22b3879e18270531da09bfb8eb7992726b5c088f25856383994055e63e3dcc2f",
+          "bytes": 343
+        }
+      ],
+      "expectations_in_workspace": false,
+      "filesystem_isolation": "instruction_only"
+    },
+    {
+      "case_id": "TG-BEH-004",
+      "workspace": "cases/TG-BEH-004/workspace",
+      "response_path": "cases/TG-BEH-004/response.json",
+      "skill_snapshot_sha256": "7bf163a793b41d5dd4e962b4ca8015c8f0244be5356b0f6f5fed941caa11adca",
+      "snapshot_files": [
+        {
+          "path": "SKILL.md",
+          "sha256": "797159ae7091c28a609fd0d5349b78903a07d3e12f6f862f186f98366215037f",
+          "bytes": 9516
+        },
+        {
+          "path": "agents/openai.yaml",
+          "sha256": "d121cc88c380724119691f8d56fe105a9bf51b8a6c323ce272fb5e4a66a2bef9",
+          "bytes": 293
+        },
+        {
+          "path": "references/acceptance-evidence.md",
+          "sha256": "a22ac0c1cea94db19eca8ecfebf2d33631836d7751fb5ed5f38b9c3a2881fb2f",
+          "bytes": 3803
+        }
+      ],
+      "workspace_files": [
+        {
+          "path": ".agents/skills/suxi-test-guard/SKILL.md",
+          "sha256": "797159ae7091c28a609fd0d5349b78903a07d3e12f6f862f186f98366215037f",
+          "bytes": 9516
+        },
+        {
+          "path": ".agents/skills/suxi-test-guard/agents/openai.yaml",
+          "sha256": "d121cc88c380724119691f8d56fe105a9bf51b8a6c323ce272fb5e4a66a2bef9",
+          "bytes": 293
+        },
+        {
+          "path": ".agents/skills/suxi-test-guard/references/acceptance-evidence.md",
+          "sha256": "a22ac0c1cea94db19eca8ecfebf2d33631836d7751fb5ed5f38b9c3a2881fb2f",
+          "bytes": 3803
+        },
+        {
+          "path": "AGENTS.md",
+          "sha256": "0c96bc251c1bbce63b349d77607ed40f57f2fa1a6715068a10bc388e4c44ba05",
+          "bytes": 535
+        },
+        {
+          "path": "respondent-output.schema.json",
+          "sha256": "cd85b2686bcadef69a7c3aac28b1b7e38659f0dc53828b12eeabe6f7314f22ca",
+          "bytes": 2820
+        },
+        {
+          "path": "respondent-prompt.md",
+          "sha256": "028afc099a20bdabd7dfaf5c65c47010a499ba929f65fbd45beb959a00b73975",
+          "bytes": 513
+        },
+        {
+          "path": "respondent-request.json",
+          "sha256": "b33c56cdef0dbff3e50ed1a36a8b00c52e0e06b2bdd313be9af14c02b3785970",
+          "bytes": 325
+        }
+      ],
+      "expectations_in_workspace": false,
+      "filesystem_isolation": "instruction_only"
+    },
+    {
+      "case_id": "TG-BEH-005",
+      "workspace": "cases/TG-BEH-005/workspace",
+      "response_path": "cases/TG-BEH-005/response.json",
+      "skill_snapshot_sha256": "7bf163a793b41d5dd4e962b4ca8015c8f0244be5356b0f6f5fed941caa11adca",
+      "snapshot_files": [
+        {
+          "path": "SKILL.md",
+          "sha256": "797159ae7091c28a609fd0d5349b78903a07d3e12f6f862f186f98366215037f",
+          "bytes": 9516
+        },
+        {
+          "path": "agents/openai.yaml",
+          "sha256": "d121cc88c380724119691f8d56fe105a9bf51b8a6c323ce272fb5e4a66a2bef9",
+          "bytes": 293
+        },
+        {
+          "path": "references/acceptance-evidence.md",
+          "sha256": "a22ac0c1cea94db19eca8ecfebf2d33631836d7751fb5ed5f38b9c3a2881fb2f",
+          "bytes": 3803
+        }
+      ],
+      "workspace_files": [
+        {
+          "path": ".agents/skills/suxi-test-guard/SKILL.md",
+          "sha256": "797159ae7091c28a609fd0d5349b78903a07d3e12f6f862f186f98366215037f",
+          "bytes": 9516
+        },
+        {
+          "path": ".agents/skills/suxi-test-guard/agents/openai.yaml",
+          "sha256": "d121cc88c380724119691f8d56fe105a9bf51b8a6c323ce272fb5e4a66a2bef9",
+          "bytes": 293
+        },
+        {
+          "path": ".agents/skills/suxi-test-guard/references/acceptance-evidence.md",
+          "sha256": "a22ac0c1cea94db19eca8ecfebf2d33631836d7751fb5ed5f38b9c3a2881fb2f",
+          "bytes": 3803
+        },
+        {
+          "path": "AGENTS.md",
+          "sha256": "0c96bc251c1bbce63b349d77607ed40f57f2fa1a6715068a10bc388e4c44ba05",
+          "bytes": 535
+        },
+        {
+          "path": "respondent-output.schema.json",
+          "sha256": "9f8e91bead40d18267ac339935ead7163f9bbe4a97d0df34eb95f7506c34fc1d",
+          "bytes": 2820
+        },
+        {
+          "path": "respondent-prompt.md",
+          "sha256": "68558280eb938e7ef1c2cead73c094c34f3711c6168383f20be67a0c7bc8a258",
+          "bytes": 513
+        },
+        {
+          "path": "respondent-request.json",
+          "sha256": "b8d2a0b5f6d3db163d65922db5765735bf9da41782ebb95f9a229db7d32a4669",
+          "bytes": 330
+        }
+      ],
+      "expectations_in_workspace": false,
+      "filesystem_isolation": "instruction_only"
+    },
+    {
+      "case_id": "TG-BEH-006",
+      "workspace": "cases/TG-BEH-006/workspace",
+      "response_path": "cases/TG-BEH-006/response.json",
+      "skill_snapshot_sha256": "7bf163a793b41d5dd4e962b4ca8015c8f0244be5356b0f6f5fed941caa11adca",
+      "snapshot_files": [
+        {
+          "path": "SKILL.md",
+          "sha256": "797159ae7091c28a609fd0d5349b78903a07d3e12f6f862f186f98366215037f",
+          "bytes": 9516
+        },
+        {
+          "path": "agents/openai.yaml",
+          "sha256": "d121cc88c380724119691f8d56fe105a9bf51b8a6c323ce272fb5e4a66a2bef9",
+          "bytes": 293
+        },
+        {
+          "path": "references/acceptance-evidence.md",
+          "sha256": "a22ac0c1cea94db19eca8ecfebf2d33631836d7751fb5ed5f38b9c3a2881fb2f",
+          "bytes": 3803
+        }
+      ],
+      "workspace_files": [
+        {
+          "path": ".agents/skills/suxi-test-guard/SKILL.md",
+          "sha256": "797159ae7091c28a609fd0d5349b78903a07d3e12f6f862f186f98366215037f",
+          "bytes": 9516
+        },
+        {
+          "path": ".agents/skills/suxi-test-guard/agents/openai.yaml",
+          "sha256": "d121cc88c380724119691f8d56fe105a9bf51b8a6c323ce272fb5e4a66a2bef9",
+          "bytes": 293
+        },
+        {
+          "path": ".agents/skills/suxi-test-guard/references/acceptance-evidence.md",
+          "sha256": "a22ac0c1cea94db19eca8ecfebf2d33631836d7751fb5ed5f38b9c3a2881fb2f",
+          "bytes": 3803
+        },
+        {
+          "path": "AGENTS.md",
+          "sha256": "0c96bc251c1bbce63b349d77607ed40f57f2fa1a6715068a10bc388e4c44ba05",
+          "bytes": 535
+        },
+        {
+          "path": "respondent-output.schema.json",
+          "sha256": "74a04ceff7889c6523cd014fa7ab61f6c7768448b0ad34add9762b9479afdaae",
+          "bytes": 2820
+        },
+        {
+          "path": "respondent-prompt.md",
+          "sha256": "91ab8b18c74e73d60950ba4a34bec1b00b194cae914fcd75365545860c987eea",
+          "bytes": 513
+        },
+        {
+          "path": "respondent-request.json",
+          "sha256": "79abb98de395cb6363b23dd05c55a3ed83454071eb2e3609cfa31f94cc4897bd",
+          "bytes": 357
+        }
+      ],
+      "expectations_in_workspace": false,
+      "filesystem_isolation": "instruction_only"
+    }
+  ],
+  "model_execution": "NOT_RUN",
+  "external_or_product_mutation": "N/A",
+  "execution_boundary": "No model or API is called by this script. Packet contents are minimized, but respondent and judge filesystem separation is instruction-only unless an external sandbox is supplied."
+}

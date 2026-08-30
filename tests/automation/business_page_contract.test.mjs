@@ -183,6 +183,7 @@ test('discoverable opening and quant surfaces stay active while formal investmen
   }
   for (const path of ['opening-overview', 'opening-checklist', 'ai-simulation']) {
     assert.match(systemStatic, new RegExp(`path:\\s*['\"]${path}['\"]`));
+    assert.match(appMain, new RegExp(`sourcePath:\\s*['\"]${path}['\"]`));
   }
   assert.equal(surfaceByFragment.get('page-investment-decision')?.availability, 'frozen_hidden');
   assert.equal(surfaceByFragment.get('page-lifecycle')?.availability, 'frozen_hidden');

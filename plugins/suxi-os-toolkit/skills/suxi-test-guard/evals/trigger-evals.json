@@ -1,0 +1,21 @@
+{
+  "skill_name": "suxi-test-guard",
+  "evals": [
+    {"id":"T-001","query":"这个报403，帮我复现、修复并回归。","should_trigger":true},
+    {"id":"T-002","query":"给这次订单保存改动选最小验证。","should_trigger":true},
+    {"id":"T-003","query":"这个失败测试第二次过了，能算PASS吗？","should_trigger":true},
+    {"id":"T-004","query":"跑一下这个API的接口测试，错误状态也要验证。","should_trigger":true},
+    {"id":"T-005","query":"修复完了，请证明页面真的可以操作。","should_trigger":true},
+    {"id":"T-006","query":"这个golden file不匹配，该修实现还是更新基线？","should_trigger":true},
+    {"id":"T-007","query":"帮我看看/api/health和MySQL是否真的就绪。","should_trigger":true},
+    {"id":"T-008","query":"我要一份基于需求和实际执行证据的验收结论。","should_trigger":true},
+    {"id":"T-009","query":"为店长使用数据健康页设计可用性用户研究。","should_trigger":false},
+    {"id":"T-010","query":"分析本周携程曝光和间夜趋势。","should_trigger":false},
+    {"id":"T-011","query":"给新功能写一份产品路线图。","should_trigger":false},
+    {"id":"T-012","query":"把这段英文错误提示翻译成中文。","should_trigger":false},
+    {"id":"T-013","query":"给酒店开业活动做一张海报。","should_trigger":false},
+    {"id":"T-014","query":"研究一下这个外部Skill值不值得学。","should_trigger":false},
+    {"id":"T-015","query":"只列出当前git改了哪些文件，不做检查。","should_trigger":false},
+    {"id":"T-016","query":"解释一下什么是Given-When-Then。","should_trigger":false}
+  ]
+}

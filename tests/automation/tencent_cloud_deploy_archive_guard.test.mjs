@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -16,6 +17,11 @@ test('Tencent Cloud release archive excludes local sensitive and runtime paths',
   assert.match(source, /Upload was refused/);
   assert.match(source, /\(dump\|backup\).*\\\.sql/);
   assert.match(source, /Automatic production migrations are disabled/);
+  assert.match(source, /\[switch\]\$ActivateStaged/);
+  assert.match(source, /StageOnly and ActivateStaged are separate release phases/);
+  assert.match(source, /"--source-commit", \$sourceCommit/);
+  assert.match(source, /\$remoteArgs \+= "--activate-existing"/);
+  assert.match(source, /if \(-not \$ActivateStaged\) \{\s*& \$scp @sshOptions \$archivePath/s);
   assert.match(source, /StrictHostKeyChecking=yes/);
   assert.match(source, /UserKnownHostsFile=\$KnownHostsPath/);
   assert.match(source, /Server or SSH user contains unsupported characters/);
@@ -28,12 +34,14 @@ test('Tencent Cloud release archive excludes local sensitive and runtime paths',
 test('release refuses an archive missing a component referenced by the public index', () => {
   const installer = readFileSync('deploy/cloud/install_release.sh', 'utf8');
   const guardDefinition = installer.indexOf('verify_public_component_assets()');
-  const guardCall = installer.indexOf('\nverify_public_component_assets\n');
+  const guardCalls = [...installer.matchAll(/^\s+verify_public_component_assets$/gm)]
+    .map((match) => match.index);
   const currentSwitch = installer.indexOf('mv -Tf "$ROLLBACK_LINK" "$CURRENT_LINK"');
 
   assert.ok(guardDefinition >= 0);
-  assert.ok(guardCall > guardDefinition);
-  assert.ok(currentSwitch > guardCall);
+  assert.equal(guardCalls.length, 2);
+  assert.ok(guardCalls.every((guardCall) => guardCall > guardDefinition));
+  assert.ok(guardCalls.every((guardCall) => currentSwitch > guardCall));
   assert.match(installer, /components\/\[A-Za-z0-9\._\/-\]\+\\\.js/);
   assert.match(installer, /Release is missing index component asset/);
 
@@ -49,6 +57,7 @@ test('release refuses an archive missing a component referenced by the public in
 test('git archive keeps ignored backups and runtime data out while retaining migrations', () => {
   const fixtureRoot = mkdtempSync(join(tmpdir(), 'suxios-cloud-archive-guard-'));
   const archivePath = join(fixtureRoot, 'release.tar.gz');
+  const repeatedArchivePath = join(fixtureRoot, 'release-repeat.tar.gz');
   try {
     mkdirSync(join(fixtureRoot, 'app'), { recursive: true });
     mkdirSync(join(fixtureRoot, 'database', 'migrations'), { recursive: true });
@@ -88,6 +97,14 @@ test('git archive keeps ignored backups and runtime data out while retaining mig
       'archive', '--format=tar.gz', `--output=${archivePath}`, 'HEAD',
     ], { cwd: fixtureRoot, encoding: 'utf8', windowsHide: true });
     assert.equal(build.status, 0, build.stderr || build.stdout);
+    const repeatedBuild = spawnSync('git', [
+      'archive', '--format=tar.gz', `--output=${repeatedArchivePath}`, 'HEAD',
+    ], { cwd: fixtureRoot, encoding: 'utf8', windowsHide: true });
+    assert.equal(repeatedBuild.status, 0, repeatedBuild.stderr || repeatedBuild.stdout);
+    const archiveSha256 = (filePath) => createHash('sha256')
+      .update(readFileSync(filePath))
+      .digest('hex');
+    assert.equal(archiveSha256(repeatedArchivePath), archiveSha256(archivePath));
 
     const list = spawnSync(tarBinary, ['-tzf', archivePath], {
       encoding: 'utf8',
@@ -119,6 +136,50 @@ test('stage mode stops before backup and every database command', () => {
   assert.match(installer, /Automatic production migrations are disabled/);
   assert.match(installer, /rollback_and_verify/);
   assert.match(installer, /previous release restored and health verified/);
+});
+
+test('staged activation is identity-bound and rejoins the guarded switch and rollback path', () => {
+  const installer = readFileSync('deploy/cloud/install_release.sh', 'utf8');
+  const localArchiveBuild = source.indexOf('git -C $hotelRoot archive --format=tar.gz');
+  const localArchiveHash = source.indexOf('Get-FileHash -LiteralPath $archivePath -Algorithm SHA256');
+  const activateRemoteArgument = source.indexOf('$remoteArgs += "--activate-existing"');
+  const manifestVerification = installer.indexOf('verify_staged_release_manifest');
+  const activationBranch = installer.indexOf('if [[ $ACTIVATE_EXISTING -eq 1 ]]');
+  const manifestVerificationCall = installer.indexOf('verify_staged_release_manifest', activationBranch);
+  const appSmoke = installer.indexOf('sudo -u www-data php think list --raw');
+  const stageManifestWrite = installer.indexOf('write_release_manifest', manifestVerificationCall);
+  const stageExit = installer.indexOf('if [[ $NO_SWITCH -eq 1 ]]', stageManifestWrite);
+  const backupRun = installer.indexOf('backup_output=', stageExit);
+  const databaseCheck = installer.indexOf('php think db:check', backupRun);
+  const currentSwitch = installer.indexOf('mv -Tf "$ROLLBACK_LINK" "$CURRENT_LINK"', databaseCheck);
+  const rollback = installer.indexOf('rollback_and_verify()', currentSwitch);
+
+  assert.ok(localArchiveBuild >= 0);
+  assert.ok(localArchiveHash > localArchiveBuild);
+  assert.ok(activateRemoteArgument > localArchiveHash);
+  assert.ok(manifestVerification >= 0);
+  assert.ok(activationBranch > manifestVerification);
+  assert.ok(manifestVerificationCall > activationBranch);
+  assert.ok(stageManifestWrite > appSmoke);
+  assert.ok(stageManifestWrite > manifestVerificationCall);
+  assert.ok(stageExit > stageManifestWrite);
+  assert.ok(backupRun > stageExit);
+  assert.ok(databaseCheck > backupRun);
+  assert.ok(currentSwitch > databaseCheck);
+  assert.ok(rollback > currentSwitch);
+
+  assert.match(installer, /--source-commit\) SOURCE_COMMIT="\$2"/);
+  assert.match(installer, /--activate-existing\) ACTIVATE_EXISTING=1/);
+  assert.match(installer, /Invalid source commit/);
+  assert.match(installer, /Activation of an existing staged release cannot be combined with --no-switch/);
+  assert.match(installer, /MANIFEST_FILE="\$RELEASE_DIR\/\.suxios-release-manifest"/);
+  assert.match(installer, /! -f "\$MANIFEST_FILE" \|\| -L "\$MANIFEST_FILE"/);
+  assert.match(installer, /manifest_commit" != "\$SOURCE_COMMIT"/);
+  assert.match(installer, /manifest_sha256" != "\$EXPECTED_SHA256"/);
+  assert.match(installer, /Staged release identity does not match the requested clean local commit and archive/);
+  assert.match(installer, /test -L "\$RELEASE_DIR\/\.env"/);
+  assert.match(installer, /source_commit=%s sha256=%s/);
+  assert.match(installer, /mode=%s/);
 });
 
 test('opt-in cloud OTA runtime is reproducible and refuses an unsupported Node version', () => {

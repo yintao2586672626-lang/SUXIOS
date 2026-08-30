@@ -28,6 +28,7 @@ test('route bootstrap registers every domain manifest once and stays below the 8
   assert.deepEqual(registeredRouteContractFiles(root), [
     'route/app.php',
     'route/domain/ai_daily_reports.php',
+    'route/domain/online_data_order_analysis.php',
     'route/domain/ai_governance.php',
     'route/domain/operations.php',
     'route/domain/wecom_admin.php',
