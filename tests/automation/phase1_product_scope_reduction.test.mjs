@@ -31,7 +31,7 @@ test('phase 1 removes legacy simulated AI endpoints and demo construction data',
   assert.doesNotMatch(fullAutomation, /\/api\/ai\/(?:strategy|simulation|feasibility)/);
 });
 
-test('phase 1 hides lifecycle navigation while retaining frozen backend routes and OTA core', () => {
+test('remaining downstream decision and lifecycle navigation stay hidden while backend routes remain frozen', () => {
   for (const path of [
     'lifecycle-auxiliary',
     'investment-decision',
@@ -68,7 +68,7 @@ test('existing quant simulation page is discoverable from the revenue workbench'
   assert.match(appMainComponents, /示例假设 · 未验证/);
 });
 
-test('phase 1 hidden opening pages keep their lazy static bindings boot-safe', () => {
+test('reactivated opening pages keep their lazy static bindings boot-safe', () => {
   for (const marker of [
     'const openingCategories = ref([]);',
     'let buildOpeningOverviewCards = () => [];',

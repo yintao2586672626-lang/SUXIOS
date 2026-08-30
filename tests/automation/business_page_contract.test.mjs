@@ -11,6 +11,7 @@ const templateManifest = JSON.parse(read(registry.source_manifest));
 const absorption = read('docs/capability-absorption/2026-08-22-business-page-contract.md');
 const baseController = read('app/controller/Base.php');
 const appMain = read('public/app-main.js');
+const systemStatic = read('public/system-static.js');
 const ctripRegression = read('tests/automation/ctrip_channel_order_breakdown.test.mjs');
 const visualSmoke = read('scripts/verify_taste_visual_smoke.mjs');
 const businessPageVerifier = read('scripts/verify_business_page_contract.mjs');
@@ -142,9 +143,13 @@ test('active surfaces enforce scope truth states and focused regressions while f
 
     if (surface.availability === 'active') {
       assert.equal(surface.enforcement, 'strict', `${surface.id} active pages must be strict`);
-      for (const dimension of ['hotel', 'business_date', 'source', 'fact_status']) {
+      for (const dimension of ['hotel', 'source', 'fact_status']) {
         assert.ok(surface.scope_dimensions.includes(dimension), `${surface.id} missing ${dimension} scope`);
       }
+      assert.ok(
+        surface.scope_dimensions.includes('business_date') || surface.scope_dimensions.includes('date_range'),
+        `${surface.id} must declare a business date or applicable date range`,
+      );
       for (const state of ['loading', 'error']) {
         assert.ok(surface.state_requirements.includes(state), `${surface.id} missing ${state} state`);
       }
@@ -160,6 +165,29 @@ test('active surfaces enforce scope truth states and focused regressions while f
       assert.ok(surface.state_requirements.includes('not_field_validated'), `${surface.id} must reject field validation claims`);
       assert.ok(Array.isArray(surface.known_limits) && surface.known_limits.length > 0, `${surface.id} needs known limits`);
     }
+  }
+});
+
+test('discoverable opening and quant surfaces stay active while formal investment and lifecycle remain frozen', () => {
+  const surfaceByFragment = new Map(
+    registry.surfaces.flatMap((surface) => surface.fragment_ids.map((fragmentId) => [fragmentId, surface])),
+  );
+  for (const [fragmentId, surfaceId] of [
+    ['page-opening-overview', 'opening-management'],
+    ['page-opening-checklist', 'opening-management'],
+    ['page-ai-simulation', 'quant-simulation'],
+  ]) {
+    const surface = surfaceByFragment.get(fragmentId);
+    assert.equal(surface?.id, surfaceId, `${fragmentId} must belong to ${surfaceId}`);
+    assert.equal(surface?.availability, 'active', `${fragmentId} must remain discoverable`);
+  }
+  for (const path of ['opening-overview', 'opening-checklist', 'ai-simulation']) {
+    assert.match(systemStatic, new RegExp(`path:\\s*['\"]${path}['\"]`));
+  }
+  assert.equal(surfaceByFragment.get('page-investment-decision')?.availability, 'frozen_hidden');
+  assert.equal(surfaceByFragment.get('page-lifecycle')?.availability, 'frozen_hidden');
+  for (const path of ['investment-decision', 'lifecycle-auxiliary']) {
+    assert.doesNotMatch(systemStatic, new RegExp(`path:\\s*['\"]${path}['\"]`));
   }
 });
 

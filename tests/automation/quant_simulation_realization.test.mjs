@@ -109,6 +109,10 @@ test('example status and hotel identity survive normalization without becoming f
   assert.equal(normalized.hotel_id, 80);
   assert.equal(normalized.input_source_status, 'example_prefill_unverified');
   assert.match(backend, /\$hotelId > 0 \? null : 'target_hotel_missing'/);
+  assert.match(backend, /'mode' => 'hotel_scoped'/);
+  assert.match(backend, /'mode' => 'legacy_read_only'/);
+  assert.match(backend, /'mutation_allowed' => false/);
+  assert.match(backend, /'readback_verified' => \$recordId > 0/);
   assert.match(backend, /user_input_source_unverified/);
 });
 
