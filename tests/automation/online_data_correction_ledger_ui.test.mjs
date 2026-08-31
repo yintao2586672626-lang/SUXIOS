@@ -28,7 +28,12 @@ test('correction-ledger routes keep permission, hotel scope, and restore readbac
   assert.match(controller, /function restoreData\(\): Response[\s\S]*checkActionPermission\('can_delete_online_data'\)/);
   assert.match(controller, /permittedHotelIdsForAction\('can_delete_online_data'\)/);
   assert.match(controller, /\$row\['can_restore'\]/);
-  assert.match(service, /snapshotMatches\(\$before, \$restored\)/);
+  assert.match(
+    service,
+    /\$writableBefore = \$this->writableRestoreSnapshot\(\$before\);[\s\S]*snapshotMatches\(\$writableBefore, \$restored\)/,
+  );
+  assert.match(service, /!str_contains\(\$extra, 'GENERATED'\)/);
+  assert.match(service, /\(int\)\(\$column\['hidden'\] \?\? 0\) === 0/);
   assert.match(service, /online_data_restore_readback_mismatch/);
   assert.match(service, /\$ledgerId = \(int\)Db::name\(self::LEDGER_TABLE\)->insertGetId\(/);
 });
