@@ -468,7 +468,7 @@ final class PreciseQueryRouterServiceTest extends TestCase
         self::assertSame('blocked_by_estimate_only_reference', $result['status']);
         self::assertSame('exposure_estimation_reference', $result['answer']['kind']);
         self::assertSame(1000, $result['answer']['value']);
-        self::assertSame('people', $result['answer']['unit']);
+        self::assertSame('users', $result['answer']['unit']);
         self::assertSame('derived_estimate', $result['answer']['verification_status']);
         self::assertSame('estimate_only_not_platform_fact', $result['answer']['readback_status']);
         self::assertFalse($result['answer']['decision_eligible']);
@@ -587,7 +587,8 @@ final class PreciseQueryRouterServiceTest extends TestCase
             'key' => $key,
             'metric_key' => $key,
             'value' => $value,
-            'unit' => 'people',
+            'unit' => 'users',
+            'status' => 'strict_readback',
             'validation_status' => 'verified',
             'history_statuses' => ['success'],
             'readback_status' => 'readback_verified',

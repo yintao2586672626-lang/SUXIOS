@@ -36,7 +36,8 @@ test('CI provisions the project MariaDB dialect and runs the host-client fresh d
     'node scripts/verify_migration_checksum_lock.mjs',
   );
   assert.match(contractsJob, /fetch-depth:\s*0/);
-  assert.match(contractsJob, /SUXI_MIGRATION_LOCK_BASE_REF:/);
+  assert.match(contractsJob, /SUXI_MIGRATION_LOCK_BASE_REF=%s/);
+  assert.match(contractsJob, />> "\$GITHUB_ENV"/);
   assert.match(contractsJob, /npm run verify:integration/);
 });
 

@@ -881,6 +881,7 @@ final class PreciseQueryRouterService
         $estimateValue = is_numeric($estimate['estimate']['value'] ?? null)
             ? 0 + $estimate['estimate']['value']
             : null;
+        $estimateUnit = trim((string)($estimate['estimate']['unit'] ?? '')) ?: 'users';
         $refs = $this->stringList($estimate['source_refs'] ?? []);
         $reason = trim((string)($estimate['reason'] ?? '当前严格事实不足，不能形成曝光人数参考估算。'));
         $answerStatus = $estimateStatus === 'estimated'
@@ -896,7 +897,7 @@ final class PreciseQueryRouterService
             'business_date' => $businessDate,
             'metric' => ['key' => 'exposure_users_estimate', 'name' => '曝光人数参考估算'],
             'value' => $estimateValue,
-            'unit' => 'people',
+            'unit' => $estimateUnit,
             'status' => $answerStatus,
             'source_record' => $refs[0] ?? null,
             'source_records' => $refs,
@@ -906,7 +907,7 @@ final class PreciseQueryRouterService
             'calculation_inputs' => $estimateStatus === 'estimated' ? [[
                 'metric_key' => 'detail_visitors',
                 'value' => $estimate['estimate']['target_detail_visitors'] ?? null,
-                'unit' => 'people',
+                'unit' => $estimateUnit,
             ], [
                 'metric_key' => 'verified_pair_count',
                 'value' => (int)($estimate['accepted_verified_pairs'] ?? 0),

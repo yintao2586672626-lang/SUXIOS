@@ -143,6 +143,7 @@ final class OperationScheduledReviewBatchServiceTest extends TestCase
         $timer = (string)file_get_contents(
             $root . '/deploy/systemd/suxios-operation-scheduled-reviews@.timer'
         );
+        $releaseInstaller = (string)file_get_contents($root . '/deploy/cloud/install_release.sh');
         $batch = (string)file_get_contents($root . '/app/service/OperationScheduledReviewBatchService.php');
         $migration = (string)file_get_contents(
             $root . '/database/migrations/20260829_create_operation_scheduled_review_scan_cursors.sql'
@@ -154,6 +155,13 @@ final class OperationScheduledReviewBatchServiceTest extends TestCase
         self::assertStringContainsString('--hotel-id=%i', $service);
         self::assertStringContainsString('--execute', $service);
         self::assertStringContainsString('OnCalendar=*-*-* *:15:00 Asia/Shanghai', $timer);
+        self::assertStringContainsString('DefaultInstance=all-active', $timer);
+        self::assertStringContainsString("hotelScope === 'all-active'", $command);
+        self::assertStringContainsString('suxios-operation-scheduled-reviews@all-active.timer', $releaseInstaller);
+        self::assertStringContainsString(
+            'systemctl enable "$INTERNAL_DAILY_TIMER" "$INTERNAL_REVIEW_TIMER"',
+            $releaseInstaller
+        );
         self::assertStringNotContainsString('wechat', strtolower($service . $timer));
         self::assertStringNotContainsString('success/near_success/failed', $service . $timer);
         self::assertStringContainsString('SCAN_BUDGET = 500', $batch);

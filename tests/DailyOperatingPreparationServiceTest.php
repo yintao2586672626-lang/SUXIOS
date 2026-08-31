@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Tests;
 
 use app\service\DailyOperatingPreparationService;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 
 final class DailyOperatingPreparationServiceTest extends TestCase
@@ -145,6 +146,7 @@ final class DailyOperatingPreparationServiceTest extends TestCase
         $timer = (string)file_get_contents($root . '/deploy/systemd/suxios-cloud-daily.timer');
         $retryService = (string)file_get_contents($root . '/deploy/systemd/suxios-daily-operating-preparation@.service');
         $retryTimer = (string)file_get_contents($root . '/deploy/systemd/suxios-daily-operating-preparation@.timer');
+        $releaseInstaller = (string)file_get_contents($root . '/deploy/cloud/install_release.sh');
 
         self::assertStringContainsString("setName('operation:prepare-daily')", $command);
         self::assertStringContainsString('DailyOperatingPreparationService', $command);
@@ -158,6 +160,10 @@ final class DailyOperatingPreparationServiceTest extends TestCase
         self::assertStringContainsString("=== 'prepared' ? 0 : 2", $command);
         self::assertStringNotContainsString("['prepared', 'partial', 'blocked']", $command);
         self::assertStringContainsString('OnCalendar=*-*-* 09:05:00 Asia/Shanghai', $retryTimer);
+        self::assertStringContainsString('DefaultInstance=all-active', $retryTimer);
+        self::assertStringContainsString("hotelScope === 'all-active'", $command);
+        self::assertStringContainsString("suxios-daily-operating-preparation@all-active.timer", $releaseInstaller);
+        self::assertStringContainsString('install_internal_operation_timers', $releaseInstaller);
         self::assertStringNotContainsString('wechat', strtolower($command . $timer . $retryService . $retryTimer));
         self::assertStringNotContainsString('send', strtolower($retryService . $retryTimer));
         self::assertStringNotContainsString('approve', strtolower($retryService . $retryTimer));
@@ -198,5 +204,152 @@ final class DailyOperatingPreparationServiceTest extends TestCase
         self::assertSame(0, $calls);
         self::assertFalse($result['daily_priority']['readback_verified']);
         self::assertFalse($result['trusted_broadcast']['readback_verified']);
+    }
+
+    #[DataProvider('nonSucceededCollectionRuns')]
+    public function testDefaultCollectionMappingNeverFreezesWithoutSucceededRun(
+        ?string $runStatus,
+        string $expectedStatus,
+        string $reason
+    ): void {
+        $calls = 0;
+        $receiptCalls = 0;
+        $service = new DailyOperatingPreparationService(
+            static fn(): array => ['status' => 'ready', 'actor_id' => 7],
+            static function () use (&$calls): array { $calls++; return []; },
+            static function () use (&$calls): array { $calls++; return []; },
+            static fn(): bool => true,
+            null,
+            static fn(): array => $runStatus === null ? [] : [
+                'status' => $runStatus,
+                'dispatcher_run_id' => '11111111-1111-4111-8111-111111111111',
+            ],
+            static function () use (&$receiptCalls): array { $receiptCalls++; return []; }
+        );
+
+        $result = $service->prepare(80, 80, '2026-08-28');
+        self::assertSame($expectedStatus, $result['status']);
+        self::assertSame($reason, $result['daily_priority']['reason_code']);
+        self::assertSame(0, $calls);
+        self::assertSame(0, $receiptCalls);
+    }
+
+    /** @return array<string,array{?string,string,string}> */
+    public static function nonSucceededCollectionRuns(): array
+    {
+        return [
+            'missing' => [null, 'blocked', 'daily_collection_run_missing'],
+            'started' => ['started', 'waiting_for_collection', 'daily_collection_still_running'],
+            'in progress' => ['in_progress', 'waiting_for_collection', 'daily_collection_still_running'],
+            'collected' => ['collected', 'waiting_for_collection', 'daily_collection_still_running'],
+            'blocked' => ['blocked', 'blocked', 'daily_collection_not_succeeded'],
+            'failed' => ['failed', 'blocked', 'daily_collection_not_succeeded'],
+            'skipped' => ['skipped', 'blocked', 'daily_collection_not_succeeded'],
+            'deferred' => ['deferred', 'blocked', 'daily_collection_not_succeeded'],
+            'partial' => ['partial', 'blocked', 'daily_collection_not_succeeded'],
+        ];
+    }
+
+    #[DataProvider('unverifiedSucceededReceipts')]
+    public function testSucceededRunStillBlocksWithoutExactReceipt(array $receipt): void
+    {
+        $calls = 0;
+        $receiptCalls = 0;
+        $service = new DailyOperatingPreparationService(
+            static fn(): array => ['status' => 'ready', 'actor_id' => 7],
+            static function () use (&$calls): array { $calls++; return []; },
+            static function () use (&$calls): array { $calls++; return []; },
+            static fn(): bool => true,
+            null,
+            static fn(): array => [
+                'status' => 'succeeded',
+                'dispatcher_run_id' => '11111111-1111-4111-8111-111111111111',
+            ],
+            static function () use (&$receiptCalls, $receipt): array {
+                $receiptCalls++;
+                return $receipt;
+            }
+        );
+
+        $result = $service->prepare(80, 80, '2026-08-28');
+        self::assertSame('blocked', $result['status']);
+        self::assertSame('daily_collection_receipt_unverified', $result['daily_priority']['reason_code']);
+        self::assertSame(0, $calls);
+        self::assertSame(1, $receiptCalls);
+    }
+
+    /** @return array<string,array{array<string,mixed>}> */
+    public static function unverifiedSucceededReceipts(): array
+    {
+        $exact = [
+            'status' => 'succeeded',
+            'readback_verified' => true,
+            'tenant_id' => 80,
+            'system_hotel_id' => 80,
+            'business_date' => '2026-08-28',
+        ];
+        return [
+            'readback false' => [array_replace($exact, ['readback_verified' => false])],
+            'status mismatch' => [array_replace($exact, ['status' => 'failed'])],
+            'tenant mismatch' => [array_replace($exact, ['tenant_id' => 81])],
+            'hotel mismatch' => [array_replace($exact, ['system_hotel_id' => 81])],
+            'date mismatch' => [array_replace($exact, ['business_date' => '2026-08-27'])],
+        ];
+    }
+
+    public function testExactSucceededReceiptAllowsPreparation(): void
+    {
+        $calls = [];
+        $service = new DailyOperatingPreparationService(
+            static fn(): array => ['status' => 'ready', 'actor_id' => 7, 'resolution' => 'hotel_owner'],
+            static function () use (&$calls): array {
+                $calls[] = 'priority';
+                return [
+                    'run' => ['id' => 101],
+                    'execution_intent_id' => 202,
+                    'execution_task_count' => 0,
+                    'lifecycle_status' => 'pending_approval',
+                    'readback_verified' => true,
+                    'automation_status' => 'created_pending_approval',
+                ];
+            },
+            static function () use (&$calls): array {
+                $calls[] = 'broadcast';
+                return [
+                    'snapshot_id' => 303,
+                    'persisted' => true,
+                    'readback_verified' => true,
+                    'generation_trigger' => 'background',
+                ];
+            },
+            static fn(): bool => true,
+            null,
+            static fn(): array => [
+                'status' => 'succeeded',
+                'dispatcher_run_id' => '11111111-1111-4111-8111-111111111111',
+            ],
+            static fn(): array => [
+                'status' => 'succeeded',
+                'readback_verified' => true,
+                'tenant_id' => 80,
+                'system_hotel_id' => 80,
+                'business_date' => '2026-08-28',
+            ]
+        );
+
+        $result = $service->prepare(80, 80, '2026-08-28');
+        self::assertSame('prepared', $result['status']);
+        self::assertSame(['broadcast', 'priority'], $calls);
+    }
+
+    public function testDefaultCollectionReaderRequiresExactSucceededReceipt(): void
+    {
+        $source = (string)file_get_contents(
+            dirname(__DIR__) . '/app/service/DailyOperatingPreparationService.php'
+        );
+        self::assertStringContainsString("if (\$status !== 'succeeded')", $source);
+        self::assertStringContainsString('HotelCollectionRunReceiptService', $source);
+        self::assertStringContainsString("(\$receipt['readback_verified'] ?? false) !== true", $source);
+        self::assertStringContainsString('daily_collection_receipt_unverified', $source);
     }
 }

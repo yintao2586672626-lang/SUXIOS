@@ -112,8 +112,34 @@ test('example status and hotel identity survive normalization without becoming f
   assert.match(backend, /'mode' => 'hotel_scoped'/);
   assert.match(backend, /'mode' => 'legacy_read_only'/);
   assert.match(backend, /'mutation_allowed' => false/);
+  assert.match(template, /v-if="canArchiveSim\(record\)"/);
+  assert.match(template, /@click="archiveSim\(record\)"/);
+  assert.match(template, /history-simulation-archive-\$\{record\.id\}/);
+  assert.match(appMain, /const canArchiveSim = record => record\?\.access_policy\?\.mode !== 'legacy_read_only'/);
+  assert.match(staticSource, /record\?\.access_policy\?\.mutation_allowed === false[\s\S]*只读保留[\s\S]*return false/);
   assert.match(backend, /'readback_verified' => \$recordId > 0/);
   assert.match(backend, /user_input_source_unverified/);
+});
+
+test('legacy read-only simulations never offer or submit archive mutation', async () => {
+  let confirmationCount = 0;
+  let requestCount = 0;
+  let toast = null;
+  const result = await api.runSimulationArchiveFlow({
+    record: {
+      id: 91,
+      access_policy: { mode: 'legacy_read_only', mutation_allowed: false },
+    },
+    confirmAction: () => { confirmationCount += 1; return true; },
+    request: async () => { requestCount += 1; return { code: 200 }; },
+    showToast: (message, type) => { toast = { message, type }; },
+  });
+
+  assert.equal(result, false);
+  assert.equal(confirmationCount, 0);
+  assert.equal(requestCount, 0);
+  assert.equal(toast?.type, 'warning');
+  assert.match(toast?.message || '', /只读保留/);
 });
 
 test('quant simulation can create only a human pending-approval task with exact source identity', () => {

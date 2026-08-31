@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Tests;
 
+use app\service\DualOtaFieldClosureService;
 use app\service\OtaExposureEstimationReferenceService;
 use PHPUnit\Framework\TestCase;
 
@@ -20,7 +21,7 @@ final class OtaExposureEstimationReferenceServiceTest extends TestCase
         self::assertSame('estimate_only', $result['quality_status']);
         self::assertSame(7, $result['accepted_verified_pairs']);
         self::assertSame(1000, $result['estimate']['value']);
-        self::assertSame('people', $result['estimate']['unit']);
+        self::assertSame('users', $result['estimate']['unit']);
         self::assertSame(10.0, $result['estimate']['median_multiplier']);
         self::assertNull($result['estimate']['interval']);
         self::assertFalse($result['decision_eligible']);
@@ -79,25 +80,52 @@ final class OtaExposureEstimationReferenceServiceTest extends TestCase
         self::assertSame(0, $result['accepted_verified_pairs']);
     }
 
+    public function testActualDualOtaClosureContractProducesReferenceEstimate(): void
+    {
+        $closures = [];
+        $targetDate = '2026-08-15';
+        for ($offset = 0; $offset <= 7; $offset++) {
+            $date = (new \DateTimeImmutable($targetDate))->modify('-' . $offset . ' days')->format('Y-m-d');
+            $rowId = 3000 + $offset;
+            $taskId = 7000 + $offset;
+            $target = $offset === 0;
+            $closures[$date] = DualOtaFieldClosureService::evaluate(
+                ['id' => 80, 'tenant_id' => 10, 'name' => 'Hotel 80'],
+                $date,
+                [$this->actualCtripRow($rowId, $taskId, $date, $target)],
+                $this->actualTrust($rowId, $taskId, $date)
+            );
+        }
+
+        $result = (new OtaExposureEstimationReferenceService(
+            static fn(int $hotelId, string $date): array => $closures[$date] ?? []
+        ))->estimate(10, 80, 'ctrip', $targetDate);
+
+        self::assertSame('estimated', $result['status']);
+        self::assertSame(7, $result['accepted_verified_pairs']);
+        self::assertSame(1000, $result['estimate']['value']);
+        self::assertSame('users', $result['estimate']['unit']);
+    }
+
     /** @return array<string,array<string,mixed>> */
     private function closures(
         int $pairCount,
-        string $exposureUnit = 'people',
+        string $exposureUnit = 'users',
         bool $targetExposure = false,
         bool $mismatchedPairRef = false
     ): array {
         $closures = [];
         $targetDate = '2026-08-15';
         $closures[$targetDate] = $this->closure($targetDate, [
-            $this->field('visits', 100, 'people', 'online_daily_data#900'),
-            ...($targetExposure ? [$this->field('exposure', 1000, 'people', 'online_daily_data#900')] : []),
+            $this->field('visits', 100, 'users', 'online_daily_data#900'),
+            ...($targetExposure ? [$this->field('exposure', 1000, 'users', 'online_daily_data#900')] : []),
         ]);
         for ($offset = 1; $offset <= $pairCount; $offset++) {
             $date = (new \DateTimeImmutable($targetDate))->modify('-' . $offset . ' days')->format('Y-m-d');
             $visitsRef = 'online_daily_data#' . (900 + $offset);
             $exposureRef = $mismatchedPairRef ? 'online_daily_data#' . (1900 + $offset) : $visitsRef;
             $closures[$date] = $this->closure($date, [
-                $this->field('visits', 100 + $offset, 'people', $visitsRef),
+                $this->field('visits', 100 + $offset, 'users', $visitsRef),
                 $this->field('exposure', (100 + $offset) * 10, $exposureUnit, $exposureRef),
             ]);
         }
@@ -125,6 +153,7 @@ final class OtaExposureEstimationReferenceServiceTest extends TestCase
             'metric_key' => $key,
             'value' => $value,
             'unit' => $unit,
+            'status' => 'strict_readback',
             'validation_status' => 'verified',
             'history_statuses' => ['success'],
             'readback_status' => 'readback_verified',
@@ -135,5 +164,113 @@ final class OtaExposureEstimationReferenceServiceTest extends TestCase
             'cumulative_cutoff' => '23:00',
             'metric_definition_version' => 'fixture-exposure-users-detail-visitors.v1',
         ];
+    }
+
+    /** @return array<string,mixed> */
+    private function actualCtripRow(int $rowId, int $taskId, string $date, bool $target): array
+    {
+        $facts = [[
+            'metric_key' => 'detail_exposure',
+            'source_path' => 'data.visitor.detailUV',
+            'storage_field' => 'online_daily_data.detail_exposure',
+            'status' => 'captured',
+            'stored_value_present' => true,
+            'capture_evidence' => [
+                'capture_source' => $target ? 'xhr:business:visitor' : 'xhr:traffic:traffic',
+                'source_trace_id' => 'ctrip:exposure-reference:' . $rowId,
+                'source_url_hash' => str_repeat('a', 64),
+            ],
+        ]];
+        if (!$target) {
+            $facts[] = [
+                'metric_key' => 'list_exposure',
+                'source_path' => 'data.traffic.exposureUV',
+                'storage_field' => 'online_daily_data.list_exposure',
+                'status' => 'captured',
+                'stored_value_present' => true,
+                'capture_evidence' => [
+                    'capture_source' => 'xhr:traffic:traffic',
+                    'source_trace_id' => 'ctrip:exposure-reference:' . $rowId,
+                    'source_url_hash' => str_repeat('a', 64),
+                ],
+            ];
+        }
+        return [
+            'id' => $rowId,
+            'tenant_id' => 10,
+            'system_hotel_id' => 80,
+            'hotel_id' => 'ctrip-hotel-80',
+            'source' => 'ctrip',
+            'platform' => 'ctrip',
+            'data_type' => $target ? 'business' : 'traffic',
+            'dimension' => $target ? 'business_visitor_title:visitor_count' : 'traffic',
+            'data_date' => $date,
+            'data_period' => 'historical_daily',
+            'history_status' => 'success',
+            'validation_status' => 'verified',
+            'validation_flags' => '[]',
+            'readback_verified' => 1,
+            'data_source_id' => 25,
+            'sync_task_id' => $taskId,
+            'snapshot_time' => $date . ' 23:00:00',
+            'list_exposure' => $target ? null : 1000,
+            'detail_exposure' => 100,
+            'flow_rate' => $target ? null : 10,
+            'source_trace_id' => 'ctrip:exposure-reference:' . $rowId,
+            'ingestion_method' => 'browser_profile',
+            'raw_data' => json_encode([
+                'source_trace_id' => 'ctrip:exposure-reference:' . $rowId,
+                'source_url_hash' => str_repeat('a', 64),
+                'row' => ['_capture_source' => $target ? 'xhr:business:visitor' : 'xhr:traffic:traffic'],
+                'field_facts' => $facts,
+            ], JSON_THROW_ON_ERROR),
+        ];
+    }
+
+    /** @return array<string,mixed> */
+    private function actualTrust(int $rowId, int $taskId, string $date): array
+    {
+        return ['days' => [[
+            'date' => $date,
+            'platforms' => [[
+                'platform' => 'ctrip',
+                'acceptance_status' => 'verified',
+                'target_date' => $date,
+                'p0_status' => 'ready',
+                'sync_task_status' => 'success',
+                'steps' => [
+                    'source' => true,
+                    'account_profile_binding' => true,
+                    'hotel' => true,
+                    'date' => true,
+                    'p0' => true,
+                ],
+                'acceptance_receipt' => [
+                    'status' => 'verified',
+                    'target_date' => $date,
+                    'target_date_status' => 'matched',
+                    'platform_hotel_id' => 'ctrip-hotel-80',
+                    'platform_hotel_status' => 'verified',
+                    'data_source_id' => 25,
+                    'sync_task_id' => $taskId,
+                    'sync_task_status' => 'success',
+                    'source_method' => 'browser_profile',
+                    'data_period' => 'historical_daily',
+                    'reason_codes' => [],
+                    'claim_allowed' => true,
+                    'run_readback_scope' => [
+                        'status' => 'verified',
+                        'receipt_record_ids' => [$rowId],
+                        'accepted_record_ids' => [$rowId],
+                        'receipt_row_count' => 1,
+                        'receipt_current_row_count' => 1,
+                        'receipt_missing_row_count' => 0,
+                        'receipt_identity_mismatch_count' => 0,
+                        'authoritative_row_count' => 1,
+                        'mismatched_row_count' => 0,
+                    ],
+                ],
+            ]],
+        ]]];
     }
 }

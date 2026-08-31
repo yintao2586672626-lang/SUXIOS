@@ -6241,6 +6241,7 @@
                 return text && text !== '-' && text !== '未返回' ? text : '';
             };
             const filterReportHotel = ref('');
+            const setHotel = value => { filterReportHotel.value = String(value || ''); };
             const dualOtaSelectedHotel = computed(() => {
                 const selectedId = String(filterReportHotel.value || '').trim();
                 if (!selectedId) return null;
@@ -53320,7 +53321,7 @@
             const strategyCurrentReadiness = computed(() => aiStrategyResult.value?.execution_readiness || null);
 
             const simulationStaticScript = 'simulation-static.js';
-            const simulationStaticScriptVersion = '20260830-hotspot-extraction-h75a3277421';
+            const simulationStaticScriptVersion = '20260830-hotspot-extraction-h381a4fe8db';
             const simulationStatic = ref(window.SUXI_SIMULATION_STATIC && typeof window.SUXI_SIMULATION_STATIC === 'object' ? window.SUXI_SIMULATION_STATIC : null);
             const simulationStaticLoadError = ref('');
             let simulationStaticLoadPromise = null;
@@ -54549,6 +54550,8 @@
             };
 
             const archiveSimulationRecord = async (record) => requireSimulationStatic('runSimulationArchiveFlow')({ record, confirmAction: confirm, request, showToast, clearCurrent: id => { if (String(aiSimulationRecordId.value || '') === String(id)) aiSimulationRecordId.value = null; }, loadRecords: loadSimulationRecords });
+            const archiveSim = archiveSimulationRecord;
+            const canArchiveSim = record => record?.access_policy?.mode !== 'legacy_read_only';
             const simulationRecordSummary = (record) => requireSimulationStatic('simulationRecordSummary')(record, { getHotelNameById, formatCurrency });
             const simulationTaskDisabled = (record) => requireSimulationStatic('simulationTaskDisabled')(record, { loadingId: simulationExecutionLoadingId.value });
             const simulationTaskLabel = (record) => requireSimulationStatic('simulationTaskLabel')(record, { loadingId: simulationExecutionLoadingId.value });
@@ -55063,7 +55066,7 @@
                 hotelBusinessProfileEditor,
                 ctripScenarioHotelsList,
                 aiProject, aiStrategyParams, aiStrategyResult, aiStrategyRecords, aiStrategyRecordId, aiStrategyLoading, aiStrategyRecordsLoading, strategyCurrentReadiness, strategyScoreCards, strategyFreshnessLabel, strategyAiSourceLabel, strategyDataNotice, strategyDataSourceRows, strategyAiEmpowermentCards, handleStrategy, loadStrategyRecords, loadStrategyDetail, reuseStrategyRecord, archiveStrategyRecord,
-                aiSimulationParams, aiSimulationResult, aiSimulationScenarios, aiSimulationRecords, aiSimulationRecordId, aiSimulationLoading, simulationExecutionLoadingId, simulationCurrentReadiness, simulationHotelSelectionValid, simulationReadinessBadgeClass, simulationReadinessMissingText, simulationExecutionIntentId, simulationRecordSummary, simulationTaskDisabled, simulationTaskLabel,
+                aiSimulationParams, aiSimulationResult, aiSimulationScenarios, aiSimulationRecords, aiSimulationRecordId, aiSimulationLoading, simulationExecutionLoadingId, simulationCurrentReadiness, simulationHotelSelectionValid, simulationReadinessBadgeClass, simulationReadinessMissingText, simulationExecutionIntentId, simulationRecordSummary, simulationTaskDisabled, simulationTaskLabel, canArchiveSim, archiveSim,
                 simulationInvestmentGroups, simulationInvestmentTotal, simulationInvestmentPerRoom, simulationRevenueSummary, simulationRoomRevenueSegments, simulationOtherIncomeFields, simulationCostFields, simulationCostSummary, simulationCostGroups, simulationOtaCommissionChannels, simulationMetricCards, simulationRiskHints, simulationModelAnalysis, simulationModelAnalysisVisible, simulationModelSourceLabel, baseSimulation, handleSimulation, loadSimulationRecords, loadSimulationDetail, reuseSimulationRecord, archiveSimulationRecord, createSimulationExecutionIntent,
                 aiFeasibilityResult, aiFeasibilityRecords, aiFeasibilityReadiness, aiFeasibilityRecordId, aiFeasibilityHotelId, aiFeasibilityHotelOptions, aiFeasibilityExecutionHotelId, aiFeasibilityExecutionLoading, aiFeasibilityLoading, aiFeasibilityRecordsLoading, aiFeasibilityError, feasibilityInputCards, feasibilityReportCards, feasibilityAiEmpowerment, feasibilityDecisionClass, feasibilityExecutionIntentId, feasibilityExecutionLinked, feasibilityReadinessBadgeClass, feasibilityReadinessMissingText, handleFeasibility, createFeasibilityExecutionIntent, loadFeasibilityRecords, loadFeasibilityDetail, reuseFeasibilityRecord, archiveFeasibilityRecord, copyFeasibilityReport, printFeasibilityReport, formatCurrency, formatMoney, formatPercent, formatWan, aiRound, riskBadgeClass,
                 marketEvaluationForm, marketEvaluationCityOptions, marketEvaluationCityTierOptions, filteredMarketEvaluationCityOptions, filteredStrategyCityOptions, filteredStrategyDistrictOptions, filteredStrategyAddressKeywordOptions, marketEvaluationConditionFields, marketEvaluationCustomerOptions, secondaryMarketEvaluationCustomerOptions, marketEvaluationDecorationOptions, marketEvaluationResult, marketEvaluationAiJudgementRows, marketEvaluationAiRecommendations, marketEvaluationAiRiskSuggestions, marketEvaluationRiskSeverityClass, marketEvaluationAiAssumptions, marketEvaluationScoreFormula, marketEvaluationScoreBreakdown, marketEvaluationScorePercent, formatMarketEvaluationScoreChange, marketEvaluationScoreChangeClass, marketEvaluationAiRiskNote, marketEvaluationLoading, handleMarketEvaluation,
@@ -55081,7 +55084,7 @@
                 loadOperatingGrowthArchive, changeOperatingGrowthHotel, changeOperatingGrowthDateRange, changeOperatingGrowthFilter, openOperatingGrowthEventForm, closeOperatingGrowthEventForm, updateOperatingGrowthEventDraft, submitOperatingGrowthEvent, openOperatingGrowthSource, addOperatingGrowthAnnotation, setOperatingGrowthMilestone,
                 operationLoading, operationError, operationFilters, strategyForm, actionForm,
                 setOperationExecutionViewMode,
-                managerCapabilityRequest: apiRequest, aiDailyReportDeliveryRequest: apiRequest, hotelDataAnalystFeedbackRequest: apiRequest, operationFinanceCanExecute,
+                managerCapabilityRequest: apiRequest, aiDailyReportDeliveryRequest: apiRequest, hotelDataAnalystFeedbackRequest: apiRequest, operationFinanceCanExecute, setHotel,
                 operatingTargetForm, pmsHotelOptions, pmsHotelSearch, pmsFilteredHotelOptions, selectPmsHotel, operatingTargetResult, operatingPmsRealtimeSyncResult, operatingPmsRealtimeActionText, operatingPmsControlsBusy, operatingPmsRealtimeResultClass, operatingPmsRealtimeResultText, operatingTargetPmsStatus, operatingTargetMeituanCloudPmsStatus, operatingTargetPmsReconciliation, operatingTargetPreview, operatingTargetHistory, operatingTargetSnapshots, operatingTargetSelectedSnapshot, operatingTargetReportGate, operatingTargetTestFirstConfirmed, operatingTargetTestResult, operatingTargetError, operatingTargetLoading,
                 operatingTargetTaskDraft, operatingTargetTaskDraftError, operatingTargetTaskDraftLoading,
                 operatingHotelPmsBinding, operatingHotelPmsBindingError, operatingHotelPmsBindingLoading, selectedOperatingPmsSource, selectedOperatingPmsCapture, selectedOperatingPmsFactGate, selectedOperatingPmsProfileText, selectedOperatingPmsMetricRows, selectedOperatingPmsDeltas,

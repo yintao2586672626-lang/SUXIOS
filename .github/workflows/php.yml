@@ -312,9 +312,20 @@ jobs:
       - name: Audit Node dependencies
         run: npm audit --audit-level=moderate
 
-      - name: Run canonical integration gate
+      - name: Resolve migration-lock base ref
         env:
-          SUXI_MIGRATION_LOCK_BASE_REF: ${{ github.event.pull_request.base.sha || github.event.before }}
+          SUXI_PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          SUXI_PUSH_BEFORE_SHA: ${{ github.event.before }}
+        run: |
+          base_ref="$SUXI_PR_BASE_SHA"
+          if [[ -z "$base_ref" ]]; then base_ref="$SUXI_PUSH_BEFORE_SHA"; fi
+          if [[ -z "$base_ref" || "$base_ref" =~ ^0{40}$ ]]; then
+            git fetch --no-tags origin main
+            base_ref="origin/main"
+          fi
+          printf 'SUXI_MIGRATION_LOCK_BASE_REF=%s\n' "$base_ref" >> "$GITHUB_ENV"
+
+      - name: Run canonical integration gate
         run: npm run verify:integration
 
       - name: Run structural contract checks (not release approval)

@@ -9,3 +9,4 @@ Unit=suxios-daily-operating-preparation@%i.service
 
 [Install]
 WantedBy=timers.target
+DefaultInstance=all-active

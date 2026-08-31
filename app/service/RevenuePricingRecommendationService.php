@@ -371,12 +371,11 @@ class RevenuePricingRecommendationService
         if ($candidates === []) {
             return [[], $skipped];
         }
-        [$insertedCandidates, $raceSkips] = $this->insertPendingSuggestionBatch($candidates);
+        [$insertedCandidates, $raceSkips, $created] = $this->insertPendingSuggestionBatch($candidates);
         array_push($skipped, ...$raceSkips);
         if ($insertedCandidates === []) {
             return [[], $skipped];
         }
-        $created = $this->readBackPendingSuggestionBatch($insertedCandidates);
         return [$this->markGeneratedSuggestionRows($this->enrichSuggestionRows($created)), $skipped];
     }
 
@@ -487,7 +486,7 @@ class RevenuePricingRecommendationService
 
     /**
      * @param array<string, array<string, mixed>> $candidates
-     * @return array{0:array<string,array<string,mixed>>,1:array<int,array<string,mixed>>}
+     * @return array{0:array<string,array<string,mixed>>,1:array<int,array<string,mixed>>,2:array<int,array<string,mixed>>}
      */
     private function insertPendingSuggestionBatch(array $candidates): array
     {
@@ -496,10 +495,11 @@ class RevenuePricingRecommendationService
         for ($attempt = 1; $attempt <= self::PENDING_BATCH_INSERT_ATTEMPTS; $attempt++) {
             $this->beforePendingBatchInsertAttempt($candidates, $attempt);
             try {
-                Db::transaction(function () use ($candidates): void {
+                $created = Db::transaction(function () use ($candidates): array {
                     $this->insertCandidateChunks($candidates);
+                    return $this->readBackPendingSuggestionBatch($candidates);
                 });
-                return [$candidates, $raceSkips];
+                return [$candidates, $raceSkips, $created];
             } catch (\Throwable $error) {
                 if (!$this->isActiveDedupeConflict($error)) {
                     throw $error;
@@ -531,7 +531,7 @@ class RevenuePricingRecommendationService
                 unset($candidates[$key]);
             }
             if ($candidates === []) {
-                return [[], $raceSkips];
+                return [[], $raceSkips, []];
             }
         }
 

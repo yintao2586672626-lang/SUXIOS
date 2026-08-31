@@ -13,6 +13,9 @@ test('operating finance control center renders all seven truthful modules with r
   await page.addScriptTag({ path: path.join(root, 'public/vue.runtime.global.prod.js') });
   await page.addScriptTag({ path: path.join(root, 'public/components/system/operating-finance-control-center.min.js') });
   await page.evaluate(() => {
+    window.__financeOverviewRequests = [];
+    window.__deferFinanceHotel80 = false;
+    window.__releaseFinanceHotel80 = null;
     const request = async (url) => {
       if (String(url).startsWith('/operating-finance/settlements/import')) {
         const batchStatus = String(window.__settlementImportStatus || 'partial');
@@ -37,6 +40,10 @@ test('operating finance control center renders all seven truthful modules with r
         return { code: 200, data: { id: 901, readback_verified: true } };
       }
       const selectedHotelId = Number(new URL(String(url), 'http://local.test').searchParams.get('hotel_id') || 80);
+      window.__financeOverviewRequests.push(selectedHotelId);
+      if (selectedHotelId === 80 && window.__deferFinanceHotel80) {
+        await new Promise(resolve => { window.__releaseFinanceHotel80 = resolve; });
+      }
       return {
         code: 200,
         data: {
@@ -101,12 +108,14 @@ test('operating finance control center renders all seven truthful modules with r
       };
     };
     const component = window.SUXI_SYSTEM_COMPONENTS.OperatingFinanceControlCenterBody;
+    const selectedHotelId = Vue.ref(80);
     const app = Vue.createApp({
       render() {
         return Vue.h(component, {
           hotels: [{ id: 80, name: '验收酒店' }, { id: 81, name: '验收二店' }],
           request,
-          selectedHotelId: 80,
+          selectedHotelId: selectedHotelId.value,
+          'onUpdate:selectedHotelId': value => { selectedHotelId.value = Number(value); },
           canExecute: true,
         });
       },
@@ -114,6 +123,7 @@ test('operating finance control center renders all seven truthful modules with r
     window.__financeRequest = request;
     window.__financeComponent = component;
     window.__financeApp = app;
+    window.__financeSelectedHotelId = selectedHotelId;
     app.mount('#app');
   });
 
@@ -143,6 +153,19 @@ test('operating finance control center renders all seven truthful modules with r
   await roomRevenue.fill('12345');
   await page.getByTestId('operating-finance-control-center').locator('select').first().selectOption('81');
   await expect(roomRevenue).toHaveValue('');
+  await expect.poll(() => page.evaluate(() => window.__financeSelectedHotelId.value)).toBe(81);
+  await page.evaluate(() => {
+    window.__deferFinanceHotel80 = true;
+    window.__financeSelectedHotelId.value = 80;
+  });
+  await expect(page.getByTestId('operating-finance-control-center').locator('select').first()).toHaveValue('80');
+  await expect(page.getByTestId('operating-finance-monthly')).not.toContainText('¥7,000');
+  await expect.poll(() => page.evaluate(() => window.__financeOverviewRequests.at(-1))).toBe(80);
+  await page.evaluate(() => {
+    window.__deferFinanceHotel80 = false;
+    window.__releaseFinanceHotel80?.();
+  });
+  await expect(page.getByTestId('operating-finance-monthly')).toContainText('¥7,000');
   await page.getByTestId('operating-finance-tab-portfolio').click();
   await expect(page.getByTestId('operating-finance-portfolio')).toContainText('同口径人工快照可比');
 

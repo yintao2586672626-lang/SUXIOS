@@ -223,9 +223,19 @@
             },
         },
         watch: {
-            selectedHotelId: { immediate: true, handler(value) {
+            selectedHotelId: { immediate: true, handler(value, previous) {
                 const candidate = String(value || '');
-                if (candidate && this.normalizedHotels.some(hotel => String(hotel.id) === candidate)) this.hotelId = candidate;
+                if (!candidate
+                    || !this.normalizedHotels.some(hotel => String(hotel.id) === candidate)
+                    || candidate === String(this.hotelId || '')
+                ) return;
+                this.hotelId = candidate;
+                if (previous !== undefined) {
+                    this.requestSeq += 1;
+                    this.overview = null;
+                    this.error = '';
+                    void this.loadOverview();
+                }
             } },
             hotels: { immediate: true, handler() {
                 if (!this.normalizedHotels.some(hotel => String(hotel.id) === String(this.hotelId))) {
@@ -284,7 +294,7 @@
                         || Number(response.data?.boundaries?.external_write_count ?? -1) !== 0
                     ) throw new Error(response.message || '经营财务与恢复中心读取失败');
                     this.overview = response.data;
-                    this.$emit('update:selected-hotel-id', hotelId);
+                    this.$emit('update:selected-hotel-id', String(hotelId));
                 } catch (error) {
                     if (seq === this.requestSeq) { this.overview = null; this.error = error?.message || '经营财务与恢复中心读取失败'; }
                 } finally { if (seq === this.requestSeq) this.loading = false; }

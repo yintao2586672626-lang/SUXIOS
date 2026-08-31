@@ -4,4 +4,5 @@
                         :request="managerCapabilityRequest"
                         :selected-hotel-id="filterReportHotel"
                         :can-execute="operationFinanceCanExecute"
+                        @update:selected-hotel-id="setHotel"
                     ></operating-finance-control-center>

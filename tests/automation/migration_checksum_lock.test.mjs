@@ -27,6 +27,16 @@ test('repository migration checksum lock covers every migration and frozen basel
   assert.ok(result.metrics.frozen_source_count >= 5);
 });
 
+test('first branch push falls back from the all-zero before SHA to origin main', () => {
+  const workflow = fs.readFileSync('.github/workflows/php.yml', 'utf8');
+  assert.match(workflow, /SUXI_PUSH_BEFORE_SHA: \$\{\{ github\.event\.before \}\}/);
+  assert.match(workflow, /"\$base_ref" =~ \^0\{40\}\$/);
+  assert.match(workflow, /git fetch --no-tags origin main/);
+  assert.match(workflow, /base_ref="origin\/main"/);
+  assert.match(workflow, /SUXI_MIGRATION_LOCK_BASE_REF=%s\\n' "\$base_ref" >> "\$GITHUB_ENV"/);
+  assert.match(workflow, /run: npm run verify:integration/);
+});
+
 test('migration checksum lock rejects content drift, missing entries, and rewritten history', (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'suxi-migration-lock-'));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));

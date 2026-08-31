@@ -876,6 +876,40 @@ final class AgentTenantMainlineTest extends TestCase
         self::assertSame(5, (int)Db::name('price_suggestions')->count());
     }
 
+    public function testReadbackFailureRollsBackEveryInsertedCandidate(): void
+    {
+        $this->controller([], [], 2);
+        $beforeCount = (int)Db::name('price_suggestions')->count();
+        $candidate = $this->batchInsertCandidate(19, '{}');
+        $service = new class extends RevenuePricingRecommendationService {
+            protected function pendingSuggestionsByDedupeKeys(
+                array $dedupeKeys,
+                int $tenantId = 0,
+                int $hotelId = 0
+            ): array {
+                return [];
+            }
+        };
+        $method = new \ReflectionMethod(
+            RevenuePricingRecommendationService::class,
+            'insertPendingSuggestionBatch'
+        );
+
+        try {
+            $method->invoke($service, ['readback-failure' => $candidate]);
+            self::fail('Expected exact readback failure');
+        } catch (\RuntimeException $error) {
+            self::assertSame('price suggestion saved readback identity mismatch', $error->getMessage());
+        }
+        self::assertSame($beforeCount, (int)Db::name('price_suggestions')->count());
+        self::assertSame(
+            0,
+            (int)Db::name('price_suggestions')
+                ->where('active_dedupe_key', $candidate['active_dedupe_key'])
+                ->count()
+        );
+    }
+
     public function testUniqueConflictRetryLimitReturnsStableExplicitError(): void
     {
         $this->controller([], [], 2);
@@ -1517,6 +1551,27 @@ final class AgentTenantMainlineTest extends TestCase
         $targetDate = '2031-01-01';
         $roomTypeId = 5000 + $index;
         $dedupeKey = PriceSuggestion::activeDedupeKey(10, 20, $roomTypeId, $targetDate);
+        $factorPadding = json_decode($factors, true, flags: JSON_THROW_ON_ERROR);
+        $factorPayload = array_replace(is_array($factorPadding) ? $factorPadding : [], [
+            'model' => 'advisory_revenue_pricing_v1',
+            'signals' => ['fixture_ref' => 'online_daily_data#' . (9000 + $index)],
+        ]);
+        $decisionAsOfTime = '2030-12-01 00:00:00';
+        $attestation = (new RevenuePricingRecommendationService())
+            ->buildPriceSuggestionDecisionAttestation([
+                'tenant_id' => 10,
+                'hotel_id' => 20,
+                'room_type_id' => $roomTypeId,
+                'suggestion_date' => $targetDate,
+                'current_price' => 300,
+                'min_price' => 250,
+                'max_price' => 450,
+                'platform' => RevenuePricingRecommendationService::PRICE_SUGGESTION_PLATFORM,
+                'decision_as_of_time' => $decisionAsOfTime,
+                'model_version' => 'advisory_revenue_pricing_v1',
+                'factors' => $factorPayload,
+            ]);
+        $factors = json_encode($factorPayload, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
         return [
             'key' => $targetDate . '|' . $roomTypeId,
             'tenant_id' => 10,
@@ -1544,6 +1599,14 @@ final class AgentTenantMainlineTest extends TestCase
                 'competitor_data' => '{}',
                 'factors' => $factors,
                 'demand_forecast_id' => 0,
+                'platform' => (string)$attestation['platform'],
+                'decision_as_of_time' => $decisionAsOfTime,
+                'model_version' => (string)$attestation['model_version'],
+                'decision_input_digest' => (string)$attestation['decision_input_digest'],
+                'decision_source_refs' => json_encode(
+                    $attestation['decision_source_refs'],
+                    JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR
+                ),
                 'reason' => 'chunk fixture',
                 'active_dedupe_key' => $dedupeKey,
                 'create_time' => '2030-12-01 00:00:00',

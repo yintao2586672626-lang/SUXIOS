@@ -9,3 +9,4 @@ Unit=suxios-operation-scheduled-reviews@%i.service
 
 [Install]
 WantedBy=timers.target
+DefaultInstance=all-active

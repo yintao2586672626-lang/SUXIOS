@@ -17,6 +17,8 @@ test('operating finance center is a discoverable lazy-loaded vertical slice', ()
   assert.match(nav, /path: 'operating-finance'[\s\S]*?permissions: \['operation\.view'\]/);
   assert.match(manifest, /"id": "page-operating-finance"/);
   assert.match(fragment, /<operating-finance-control-center/);
+  assert.match(fragment, /@update:selected-hotel-id="setHotel"/);
+  assert.match(app, /const setHotel = value => \{ filterReportHotel\.value = String\(value \|\| ''\); \}/);
   assert.match(components, /OperatingFinanceControlCenterBody/);
   assert.match(components, /operating-finance-control-center\.min\.js/);
   assert.match(compiledComponent, /OperatingFinanceControlCenterBody/);
@@ -39,6 +41,14 @@ test('operating finance center is a discoverable lazy-loaded vertical slice', ()
   assert.match(controller, /source_method'\] = 'manual_entry'[\s\S]*?quality_status'\][\s\S]*?manual_confirmed/);
   assert.match(controller, /source_method'\] = 'manual_reference'[\s\S]*?source_status'\] = 'reference_only'/);
   assert.match(read('public/components/system/operating-finance-control-center.js'), /\.xlsx/);
+  assert.match(
+    read('public/components/system/operating-finance-control-center.js'),
+    /selectedHotelId: \{ immediate: true, handler\(value, previous\)[\s\S]*this\.requestSeq \+= 1;[\s\S]*this\.overview = null;[\s\S]*void this\.loadOverview\(\)/,
+  );
+  assert.match(
+    read('public/components/system/operating-finance-control-center.js'),
+    /\$emit\('update:selected-hotel-id', String\(hotelId\)\)/,
+  );
   const componentBuilder = read('scripts/build_operating_finance_component.mjs');
   assert.match(componentBuilder, /loader_cache_identity_changed/);
   assert.match(componentBuilder, /bridge_cache_identity_changed/);

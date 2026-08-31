@@ -57,9 +57,14 @@ final class MeituanMarketingFactProjectionService
         $canonical = [];
         $rejectedReasonCounts = [];
         $supersededRows = 0;
+        $ignoredOtherPlatformRows = 0;
         foreach ($rows as $row) {
             if (!is_array($row)) {
                 $this->incrementReason($rejectedReasonCounts, 'row_not_array');
+                continue;
+            }
+            if ($this->isExplicitOtherPlatformRow($row)) {
+                $ignoredOtherPlatformRows++;
                 continue;
             }
             $reason = $this->trustRejectionReason($row, $tenantId, $hotelId, $businessDate);
@@ -149,6 +154,7 @@ final class MeituanMarketingFactProjectionService
                 'source_row_count' => count($rows),
                 'strict_projection_count' => count($projections),
                 'superseded_snapshot_count' => $supersededRows,
+                'ignored_other_platform_row_count' => $ignoredOtherPlatformRows,
                 'rejected_reason_counts' => $rejectedReasonCounts,
                 'gap_codes' => $gapCodes,
             ],
@@ -228,6 +234,20 @@ final class MeituanMarketingFactProjectionService
         }
         $platforms = array_values(array_unique($platforms));
         return $platforms === ['meituan'];
+    }
+
+    /** @param array<string,mixed> $row */
+    private function isExplicitOtherPlatformRow(array $row): bool
+    {
+        $platforms = [];
+        foreach (['platform', 'source'] as $field) {
+            $value = $this->platform((string)($row[$field] ?? ''));
+            if ($value !== '') {
+                $platforms[] = $value;
+            }
+        }
+        $platforms = array_values(array_unique($platforms));
+        return $platforms !== [] && !in_array('meituan', $platforms, true);
     }
 
     /** @param array<string,mixed> $row @return null|array{object_type:string,object_key:string,object_label:string,keyword:string,campaign_id:string} */

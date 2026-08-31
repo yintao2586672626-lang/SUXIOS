@@ -6,6 +6,14 @@ ENV_FILE="/etc/suxios/suxios.env"
 BACKUP_CMD="/usr/local/sbin/suxios-db-backup"
 FORMAL_DISPATCH_TIMER="suxios-manual-notification-formal-dispatch.timer"
 THREE_SOURCE_QUEUE_TIMER="suxios-cloud-three-source-queue.timer"
+INTERNAL_DAILY_TIMER="suxios-daily-operating-preparation@all-active.timer"
+INTERNAL_REVIEW_TIMER="suxios-operation-scheduled-reviews@all-active.timer"
+INTERNAL_OPERATION_UNITS=(
+  suxios-daily-operating-preparation@.service
+  suxios-daily-operating-preparation@.timer
+  suxios-operation-scheduled-reviews@.service
+  suxios-operation-scheduled-reviews@.timer
+)
 NO_SWITCH=0
 ACTIVATE_EXISTING=0
 APPLY_MIGRATIONS=0
@@ -22,6 +30,14 @@ THREE_SOURCE_QUEUE_WAS_INSTALLED=0
 THREE_SOURCE_QUEUE_WAS_ENABLED=0
 THREE_SOURCE_QUEUE_WAS_ACTIVE=0
 THREE_SOURCE_QUEUE_REFRESH_ATTEMPTED=0
+INTERNAL_DAILY_WAS_ENABLED=0
+INTERNAL_DAILY_WAS_ACTIVE=0
+INTERNAL_DAILY_WAS_INSTALLED=0
+INTERNAL_REVIEW_WAS_ENABLED=0
+INTERNAL_REVIEW_WAS_ACTIVE=0
+INTERNAL_REVIEW_WAS_INSTALLED=0
+INTERNAL_OPERATION_REFRESH_ATTEMPTED=0
+INTERNAL_OPERATION_UNIT_BACKUP_DIR=""
 
 while (($#)); do
   case "$1" in
@@ -274,6 +290,32 @@ printf 'THREE_SOURCE_QUEUE_PREVIOUS_STATE installed=%s enabled=%s active=%s\n' \
   "$THREE_SOURCE_QUEUE_WAS_ENABLED" \
   "$THREE_SOURCE_QUEUE_WAS_ACTIVE"
 
+if systemctl cat "$INTERNAL_DAILY_TIMER" >/dev/null 2>&1; then
+  INTERNAL_DAILY_WAS_INSTALLED=1
+fi
+if systemctl is-enabled --quiet "$INTERNAL_DAILY_TIMER"; then
+  INTERNAL_DAILY_WAS_ENABLED=1
+fi
+if systemctl is-active --quiet "$INTERNAL_DAILY_TIMER"; then
+  INTERNAL_DAILY_WAS_ACTIVE=1
+fi
+if systemctl cat "$INTERNAL_REVIEW_TIMER" >/dev/null 2>&1; then
+  INTERNAL_REVIEW_WAS_INSTALLED=1
+fi
+if systemctl is-enabled --quiet "$INTERNAL_REVIEW_TIMER"; then
+  INTERNAL_REVIEW_WAS_ENABLED=1
+fi
+if systemctl is-active --quiet "$INTERNAL_REVIEW_TIMER"; then
+  INTERNAL_REVIEW_WAS_ACTIVE=1
+fi
+printf 'INTERNAL_OPERATION_TIMERS_PREVIOUS_STATE daily_installed=%s daily_enabled=%s daily_active=%s review_installed=%s review_enabled=%s review_active=%s\n' \
+  "$INTERNAL_DAILY_WAS_INSTALLED" \
+  "$INTERNAL_DAILY_WAS_ENABLED" \
+  "$INTERNAL_DAILY_WAS_ACTIVE" \
+  "$INTERNAL_REVIEW_WAS_INSTALLED" \
+  "$INTERNAL_REVIEW_WAS_ENABLED" \
+  "$INTERNAL_REVIEW_WAS_ACTIVE"
+
 test -x "$BACKUP_CMD"
 backup_output="$("$BACKUP_CMD" --env-file "$ENV_FILE")"
 backup_file="$(printf '%s\n' "$backup_output" | awk -F= '$1 == "backup_file" { print $2 }' | tail -n 1)"
@@ -309,6 +351,139 @@ verify_health() {
 
 reload_services() {
   nginx -t && systemctl reload php8.3-fpm && systemctl reload nginx
+}
+
+install_internal_operation_timers() {
+  local unit=""
+  local target=""
+  local -a installed_paths=()
+  INTERNAL_OPERATION_UNIT_BACKUP_DIR="$(mktemp -d /run/suxios-internal-operation-units.XXXXXX)" || return 1
+  for unit in "${INTERNAL_OPERATION_UNITS[@]}"; do
+    if [[ ! -f "$RELEASE_DIR/deploy/systemd/$unit" ]]; then
+      cleanup_internal_operation_unit_backup || true
+      return 1
+    fi
+    target="/etc/systemd/system/$unit"
+    if [[ -L "$target" ]]; then
+      cleanup_internal_operation_unit_backup || true
+      return 1
+    fi
+  done
+  for unit in "${INTERNAL_OPERATION_UNITS[@]}"; do
+    target="/etc/systemd/system/$unit"
+    if [[ -e "$target" ]]; then
+      if ! cp -a -- "$target" "$INTERNAL_OPERATION_UNIT_BACKUP_DIR/$unit"; then
+        cleanup_internal_operation_unit_backup || true
+        return 1
+      fi
+    fi
+  done
+  INTERNAL_OPERATION_REFRESH_ATTEMPTED=1
+  for unit in "${INTERNAL_OPERATION_UNITS[@]}"; do
+    target="/etc/systemd/system/$unit"
+    install -o root -g root -m 0644 \
+      "$RELEASE_DIR/deploy/systemd/$unit" "$target" || return 1
+    installed_paths+=("$target")
+  done
+  systemctl daemon-reload || return 1
+  systemd-analyze verify "${installed_paths[@]}" || return 1
+  systemctl enable "$INTERNAL_DAILY_TIMER" "$INTERNAL_REVIEW_TIMER" || return 1
+  systemctl is-enabled --quiet "$INTERNAL_DAILY_TIMER" || return 1
+  systemctl is-enabled --quiet "$INTERNAL_REVIEW_TIMER" || return 1
+  systemctl start "$INTERNAL_REVIEW_TIMER" || return 1
+  systemctl is-active --quiet "$INTERNAL_REVIEW_TIMER" || return 1
+  # Start the Persistent daily timer last so every other unit and lifecycle
+  # check is complete before it can trigger catch-up preparation work.
+  systemctl start "$INTERNAL_DAILY_TIMER" || return 1
+  systemctl is-active --quiet "$INTERNAL_DAILY_TIMER" || return 1
+}
+
+cleanup_internal_operation_unit_backup() {
+  if [[ -z "$INTERNAL_OPERATION_UNIT_BACKUP_DIR" ]]; then
+    return 0
+  fi
+  if [[ ! "$INTERNAL_OPERATION_UNIT_BACKUP_DIR" =~ ^/run/suxios-internal-operation-units\.[A-Za-z0-9]+$ \
+    || ! -d "$INTERNAL_OPERATION_UNIT_BACKUP_DIR" ]]; then
+    return 1
+  fi
+  find "$INTERNAL_OPERATION_UNIT_BACKUP_DIR" -mindepth 1 -maxdepth 1 -delete || return 1
+  rmdir "$INTERNAL_OPERATION_UNIT_BACKUP_DIR" || return 1
+  INTERNAL_OPERATION_UNIT_BACKUP_DIR=""
+}
+
+assert_internal_operation_timer_lifecycle() {
+  local timer="$1"
+  local was_installed="$2"
+  local was_enabled="$3"
+  local was_active="$4"
+  if [[ $was_installed -eq 1 ]]; then
+    systemctl cat "$timer" >/dev/null 2>&1 || return 1
+  elif systemctl cat "$timer" >/dev/null 2>&1; then
+    return 1
+  fi
+  if [[ $was_enabled -eq 1 ]]; then
+    systemctl is-enabled --quiet "$timer" || return 1
+  elif systemctl is-enabled --quiet "$timer"; then
+    return 1
+  fi
+  if [[ $was_active -eq 1 ]]; then
+    systemctl is-active --quiet "$timer" || return 1
+  elif systemctl is-active --quiet "$timer"; then
+    return 1
+  fi
+}
+
+restore_internal_operation_timer_lifecycle() {
+  local unit=""
+  local target=""
+  local backup=""
+  if [[ $INTERNAL_OPERATION_REFRESH_ATTEMPTED -ne 1 ]]; then
+    return 0
+  fi
+  systemctl disable --now "$INTERNAL_DAILY_TIMER" "$INTERNAL_REVIEW_TIMER" >/dev/null 2>&1 || true
+  systemctl stop \
+    suxios-daily-operating-preparation@all-active.service \
+    suxios-operation-scheduled-reviews@all-active.service >/dev/null 2>&1 || true
+  for unit in "${INTERNAL_OPERATION_UNITS[@]}"; do
+    target="/etc/systemd/system/$unit"
+    backup="$INTERNAL_OPERATION_UNIT_BACKUP_DIR/$unit"
+    rm -f -- "$target" || return 1
+    if [[ -e "$backup" || -L "$backup" ]]; then
+      cp -a -- "$backup" "$target" || return 1
+    fi
+  done
+  systemctl daemon-reload || return 1
+  if [[ $INTERNAL_DAILY_WAS_ENABLED -eq 1 ]]; then
+    systemctl enable "$INTERNAL_DAILY_TIMER" || return 1
+  else
+    systemctl disable "$INTERNAL_DAILY_TIMER" >/dev/null 2>&1 || true
+  fi
+  if [[ $INTERNAL_DAILY_WAS_ACTIVE -eq 1 ]]; then
+    systemctl start "$INTERNAL_DAILY_TIMER" || return 1
+  else
+    systemctl stop "$INTERNAL_DAILY_TIMER" >/dev/null 2>&1 || true
+  fi
+  if [[ $INTERNAL_REVIEW_WAS_ENABLED -eq 1 ]]; then
+    systemctl enable "$INTERNAL_REVIEW_TIMER" || return 1
+  else
+    systemctl disable "$INTERNAL_REVIEW_TIMER" >/dev/null 2>&1 || true
+  fi
+  if [[ $INTERNAL_REVIEW_WAS_ACTIVE -eq 1 ]]; then
+    systemctl start "$INTERNAL_REVIEW_TIMER" || return 1
+  else
+    systemctl stop "$INTERNAL_REVIEW_TIMER" >/dev/null 2>&1 || true
+  fi
+  assert_internal_operation_timer_lifecycle \
+    "$INTERNAL_DAILY_TIMER" \
+    "$INTERNAL_DAILY_WAS_INSTALLED" \
+    "$INTERNAL_DAILY_WAS_ENABLED" \
+    "$INTERNAL_DAILY_WAS_ACTIVE" || return 1
+  assert_internal_operation_timer_lifecycle \
+    "$INTERNAL_REVIEW_TIMER" \
+    "$INTERNAL_REVIEW_WAS_INSTALLED" \
+    "$INTERNAL_REVIEW_WAS_ENABLED" \
+    "$INTERNAL_REVIEW_WAS_ACTIVE" || return 1
+  cleanup_internal_operation_unit_backup
 }
 
 refresh_formal_dispatch_for_release() {
@@ -452,6 +627,7 @@ mv -Tf "$ROLLBACK_LINK" "$CURRENT_LINK"
 
 rollback_and_verify() {
   if [[ -z "$PREVIOUS_RELEASE" || ! -d "$PREVIOUS_RELEASE" ]]; then
+    restore_internal_operation_timer_lifecycle || true
     rm -f "$CURRENT_LINK"
     reload_services || true
     return 1
@@ -462,17 +638,22 @@ rollback_and_verify() {
   fi
   local formal_dispatch_restored=1
   local three_source_queue_restored=1
+  local internal_operation_timers_restored=1
   if ! restore_previous_formal_dispatch; then
     formal_dispatch_restored=0
   fi
   if ! restore_previous_three_source_queue; then
     three_source_queue_restored=0
   fi
+  if ! restore_internal_operation_timer_lifecycle; then
+    internal_operation_timers_restored=0
+  fi
   if ! reload_services || ! verify_health; then
     return 1
   fi
   [[ $formal_dispatch_restored -eq 1 \
-    && $three_source_queue_restored -eq 1 ]]
+    && $three_source_queue_restored -eq 1 \
+    && $internal_operation_timers_restored -eq 1 ]]
 }
 
 if ! reload_services; then
@@ -513,6 +694,19 @@ if ! refresh_three_source_queue_for_release "$RELEASE_DIR"; then
     exit 81
   fi
   exit 83
+fi
+
+if ! install_internal_operation_timers; then
+  if rollback_and_verify; then
+    echo "Internal operation timer installation failed; previous release and timer lifecycle restored and health verified." >&2
+  else
+    echo "Internal operation timer installation failed and the previous release or timer lifecycle could not be restored." >&2
+    exit 81
+  fi
+  exit 84
+fi
+if ! cleanup_internal_operation_unit_backup; then
+  echo "Internal operation unit backup cleanup failed; deployment remains active and the /run backup is retained for inspection." >&2
 fi
 
 printf 'DEPLOYED release=%s source_commit=%s sha256=%s previous=%s mode=%s\n' \

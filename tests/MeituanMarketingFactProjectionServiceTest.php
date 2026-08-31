@@ -139,12 +139,16 @@ final class MeituanMarketingFactProjectionServiceTest extends TestCase
         $unverified = $valid;
         $unverified['id'] = 111;
         $unverified['readback_verified'] = 0;
+        $unknownPlatform = $valid;
+        $unknownPlatform['id'] = 119;
+        unset($unknownPlatform['platform'], $unknownPlatform['source']);
 
         $result = $this->service([
             $wrongTenant,
             $wrongHotel,
             $wrongDate,
             $wrongPlatform,
+            $unknownPlatform,
             $unverified,
             $valid,
         ])->project(10, 80, '2026-08-30');
@@ -155,6 +159,7 @@ final class MeituanMarketingFactProjectionServiceTest extends TestCase
         self::assertSame(1, $result['data_quality']['rejected_reason_counts']['tenant_scope_mismatch']);
         self::assertSame(1, $result['data_quality']['rejected_reason_counts']['hotel_scope_mismatch']);
         self::assertSame(1, $result['data_quality']['rejected_reason_counts']['business_date_mismatch']);
+        self::assertSame(1, $result['data_quality']['ignored_other_platform_row_count']);
         self::assertSame(1, $result['data_quality']['rejected_reason_counts']['platform_scope_mismatch']);
         self::assertSame(1, $result['data_quality']['rejected_reason_counts']['strict_readback_gate_failed']);
         self::assertSame('online_daily_data#106', $result['projections'][0]['evidence_refs'][0]);
@@ -185,6 +190,27 @@ final class MeituanMarketingFactProjectionServiceTest extends TestCase
         self::assertSame(600.0, $result['projections'][0]['metrics']['attributed_order_amount']);
         self::assertSame(4.0, $result['projections'][0]['metrics']['roas']);
         self::assertSame(['online_daily_data#113'], $result['projections'][0]['evidence_refs']);
+    }
+
+    public function testVerifiedCtripAdvertisingDoesNotDowngradeMeituanProjection(): void
+    {
+        $meituan = $this->row(117, 'advertising', [
+            'campaignId' => 'meituan-campaign',
+            'spend' => 100,
+            'attributedOrderAmount' => 500,
+            'attributionBasis' => 'same-day-paid-order',
+        ], amount: 100);
+        $ctrip = $meituan;
+        $ctrip['id'] = 118;
+        $ctrip['platform'] = 'ctrip';
+        $ctrip['source'] = 'ctrip';
+
+        $result = $this->service([$ctrip, $meituan])->project(10, 80, '2026-08-30');
+
+        self::assertSame('ready', $result['status']);
+        self::assertCount(1, $result['projections']);
+        self::assertSame(1, $result['data_quality']['ignored_other_platform_row_count']);
+        self::assertSame([], $result['data_quality']['rejected_reason_counts']);
     }
 
     public function testNoStrictFactsProducesNoDraftAndNoExternalWrite(): void

@@ -1248,6 +1248,10 @@ window.SUXI_SIMULATION_STATIC = (() => {
     }
 
     async function runSimulationArchiveFlow({ record, confirmAction, request, showToast, clearCurrent, loadRecords } = {}) {
+        if (record?.access_policy?.mutation_allowed === false) {
+            showToast('该历史模拟未绑定酒店，只读保留；请复用输入并保存为当前酒店的新记录后再归档。', 'warning');
+            return false;
+        }
         if (!record?.id || !confirmAction('确认归档该量化模拟记录？归档后将从历史列表隐藏。')) return false;
         try {
             const res = await request(`/simulation/records/${record.id}`, { method: 'DELETE' });

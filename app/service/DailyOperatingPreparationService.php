@@ -29,18 +29,28 @@ final class DailyOperatingPreparationService
     /** @var callable|null */
     private $collectionStateReader;
 
+    /** @var callable|null */
+    private $collectionRunReader;
+
+    /** @var callable|null */
+    private $collectionReceiptReader;
+
     public function __construct(
         ?callable $actorResolver = null,
         ?callable $priorityEnsurer = null,
         ?callable $broadcastGenerator = null,
         ?callable $scopeVerifier = null,
-        ?callable $collectionStateReader = null
+        ?callable $collectionStateReader = null,
+        ?callable $collectionRunReader = null,
+        ?callable $collectionReceiptReader = null
     ) {
         $this->actorResolver = $actorResolver;
         $this->priorityEnsurer = $priorityEnsurer;
         $this->broadcastGenerator = $broadcastGenerator;
         $this->scopeVerifier = $scopeVerifier;
         $this->collectionStateReader = $collectionStateReader;
+        $this->collectionRunReader = $collectionRunReader;
+        $this->collectionReceiptReader = $collectionReceiptReader;
     }
 
     /** @return array<string,mixed> */
@@ -295,20 +305,58 @@ final class DailyOperatingPreparationService
             return is_array($state) ? $state : ['status' => 'blocked', 'reason_code' => 'daily_collection_state_invalid'];
         }
         try {
-            $row = Db::name('hotel_collection_plan_runs')
-                ->field('status')
-                ->where('tenant_id', $tenantId)
-                ->where('system_hotel_id', $hotelId)
-                ->where('business_date', $businessDate)
-                ->where('run_mode', 'daily')
-                ->order('id', 'desc')
-                ->find();
+            $row = $this->collectionRunReader !== null
+                ? call_user_func($this->collectionRunReader, $tenantId, $hotelId, $businessDate)
+                : Db::name('hotel_collection_plan_runs')
+                    ->field('dispatcher_run_id,status')
+                    ->where('tenant_id', $tenantId)
+                    ->where('system_hotel_id', $hotelId)
+                    ->where('business_date', $businessDate)
+                    ->where('run_mode', 'daily')
+                    ->order('id', 'desc')
+                    ->find();
+            $row = is_array($row) ? $row : [];
         } catch (\Throwable) {
             return ['status' => 'blocked', 'reason_code' => 'daily_collection_state_unavailable'];
         }
         $status = strtolower(trim((string)($row['status'] ?? '')));
         if (in_array($status, ['started', 'in_progress', 'collected'], true)) {
             return ['status' => 'waiting', 'reason_code' => 'daily_collection_still_running'];
+        }
+        if ($status === '') {
+            return ['status' => 'blocked', 'reason_code' => 'daily_collection_run_missing'];
+        }
+        if ($status !== 'succeeded') {
+            return ['status' => 'blocked', 'reason_code' => 'daily_collection_not_succeeded'];
+        }
+        $dispatcherRunId = trim((string)($row['dispatcher_run_id'] ?? ''));
+        if ($dispatcherRunId === '') {
+            return ['status' => 'blocked', 'reason_code' => 'daily_collection_receipt_unverified'];
+        }
+        try {
+            $receipt = $this->collectionReceiptReader !== null
+                ? call_user_func(
+                    $this->collectionReceiptReader,
+                    $dispatcherRunId,
+                    $hotelId,
+                    $businessDate
+                )
+                : (new HotelCollectionRunReceiptService())->readExact(
+                    $dispatcherRunId,
+                    $hotelId,
+                    $businessDate
+                );
+            $receipt = is_array($receipt) ? $receipt : [];
+        } catch (\Throwable) {
+            return ['status' => 'blocked', 'reason_code' => 'daily_collection_receipt_unverified'];
+        }
+        if ((string)($receipt['status'] ?? '') !== 'succeeded'
+            || ($receipt['readback_verified'] ?? false) !== true
+            || (int)($receipt['tenant_id'] ?? 0) !== $tenantId
+            || (int)($receipt['system_hotel_id'] ?? 0) !== $hotelId
+            || (string)($receipt['business_date'] ?? '') !== $businessDate
+        ) {
+            return ['status' => 'blocked', 'reason_code' => 'daily_collection_receipt_unverified'];
         }
         return ['status' => 'ready', 'reason_code' => ''];
     }

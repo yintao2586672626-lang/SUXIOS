@@ -962,7 +962,7 @@
                                                 <button @click="loadSimulationDetail(record.id)" :data-testid="`history-simulation-view-${record.id}`" class="px-3 py-1.5 rounded-lg border border-gray-200 text-gray-600 text-xs hover:bg-gray-50">查看</button>
                                                 <button @click="reuseSimulationRecord(record)" :data-testid="`history-simulation-reuse-${record.id}`" class="px-3 py-1.5 rounded-lg bg-blue-600 text-white text-xs hover:bg-blue-700">复用输入</button>
                                                 <button @click="createSimulationExecutionIntent(record)" :disabled="simulationTaskDisabled(record)" :data-testid="`history-simulation-task-${record.id}`">{{ simulationTaskLabel(record) }}</button>
-                                                <button @click="archiveSimulationRecord(record)" :data-testid="`history-simulation-archive-${record.id}`" class="px-3 py-1.5 rounded-lg border border-red-200 text-red-600 text-xs hover:bg-red-50">归档</button>
+                                                <button v-if="canArchiveSim(record)" @click="archiveSim(record)" :data-testid="`history-simulation-archive-${record.id}`" class="btn-danger">归档</button>
                                             </div>
                                         </div>
                                     </div>
@@ -5811,6 +5811,7 @@
                         :request="managerCapabilityRequest"
                         :selected-hotel-id="filterReportHotel"
                         :can-execute="operationFinanceCanExecute"
+                        @update:selected-hotel-id="setHotel"
                     ></operating-finance-control-center>
                     <div v-if="currentPage === 'knowledge-center'" class="max-w-6xl mx-auto space-y-4">
                         <div class="bg-white rounded-xl p-5 shadow-sm border border-gray-100">

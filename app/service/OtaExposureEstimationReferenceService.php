@@ -55,7 +55,7 @@ final class OtaExposureEstimationReferenceService
                 'accepted_verified_pairs' => 0,
                 'source_refs' => [],
                 'reason_code' => 'target_detail_visitors_missing',
-                'reason' => '目标日缺少同口径、单位为 people 的严格详情访客事实。',
+                'reason' => '目标日缺少同口径、单位为 users 的严格详情访客事实。',
             ]);
         }
 
@@ -107,7 +107,7 @@ final class OtaExposureEstimationReferenceService
         return $this->result('estimated', $tenantId, $hotelId, $platform, $targetDate, [
             'estimate' => [
                 'value' => $estimate,
-                'unit' => 'people',
+                'unit' => 'users',
                 'formula' => 'round(detail_visitors × median(exposure_users / detail_visitors))',
                 'target_detail_visitors' => (int)$targetVisit['value'],
                 'median_multiplier' => round($median, 12),
@@ -163,11 +163,10 @@ final class OtaExposureEstimationReferenceService
             $refs = array_values(array_filter(array_map('strval', (array)($field['source_record_refs'] ?? []))));
             $history = array_map('strval', (array)($field['history_statuses'] ?? []));
             $sourcePaths = array_values(array_filter(array_map('strval', (array)($field['source_paths'] ?? []))));
-            $cutoff = trim((string)($field['cumulative_cutoff'] ?? ''));
-            $version = trim((string)($field['metric_definition_version'] ?? ''));
             if (!in_array($key, $allowedKeys, true)
-                || $unit !== 'people'
+                || $unit !== 'users'
                 || !is_numeric($field['value'] ?? null)
+                || (string)($field['status'] ?? '') !== 'strict_readback'
                 || (string)($field['validation_status'] ?? '') !== 'verified'
                 || !in_array('success', $history, true)
                 || (string)($field['readback_status'] ?? '') !== 'readback_verified'
@@ -175,20 +174,25 @@ final class OtaExposureEstimationReferenceService
                 || ($field['revenue_analysis_consumable'] ?? false) !== true
                 || $refs === []
                 || $sourcePaths === []
-                || $cutoff === ''
-                || $version === ''
             ) {
                 continue;
             }
+            sort($refs, SORT_STRING);
             return [
                 'value' => 0 + $field['value'],
                 'refs' => $refs,
                 'scope_key' => hash('sha256', json_encode([
                     $platform,
-                    $sourcePaths,
-                    $version,
-                    $cutoff,
-                    'same_day_cumulative',
+                    $businessDate,
+                    $refs,
+                    (string)($field['capture_ref'] ?? ''),
+                    (int)($field['data_source_id'] ?? 0),
+                    array_values(array_map('intval', (array)($field['sync_task_ids'] ?? []))),
+                    (string)($field['collected_at'] ?? ''),
+                    trim((string)($field['metric_definition_version'] ?? ''))
+                        ?: 'dual_ota_field_closure.v1',
+                    trim((string)($field['cumulative_cutoff'] ?? ''))
+                        ?: 'current_receipt_snapshot',
                     'Asia/Shanghai',
                 ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR)),
             ];
