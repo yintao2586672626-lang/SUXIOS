@@ -205,12 +205,27 @@ final class OnlineDataCorrectionLedgerService
             if ($updated !== 1) {
                 throw new RuntimeException('online_data_restore_ledger_update_failed');
             }
+            $restoredLedger = Db::name(self::LEDGER_TABLE)
+                ->field('id,online_data_id,restorable,restored_at,restored_by')
+                ->where('id', $ledgerId)
+                ->find();
+            if (!$restoredLedger
+                || (int)($restoredLedger['online_data_id'] ?? 0) !== $onlineDataId
+                || trim((string)($restoredLedger['restored_at'] ?? '')) === ''
+                || (int)($restoredLedger['restored_by'] ?? 0) !== $operatorId
+            ) {
+                throw new RuntimeException('online_data_restore_ledger_readback_mismatch');
+            }
             return [
                 'id' => $onlineDataId,
                 'ledger_id' => $ledgerId,
                 'system_hotel_id' => $hotelId,
                 'tenant_id' => (int)($ledger['tenant_id'] ?? 0),
                 'restored_at' => $now,
+                'ledger' => [
+                    ...$restoredLedger,
+                    'can_restore' => false,
+                ],
             ];
         });
     }

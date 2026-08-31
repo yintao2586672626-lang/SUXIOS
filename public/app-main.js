@@ -12022,18 +12022,17 @@
                         throw new Error(res?.message || '恢复结果返回格式不完整');
                     }
 
-                    const readbackOk = await loadOnlineDataCorrectionLedger({
-                        page: onlineDataCorrectionLedgerPagination.value.page,
-                        force: true,
-                    });
-                    const readback = onlineDataCorrectionLedgerList.value.find(item => Number(item.id) === ledgerId);
-                    if (readbackOk !== true
-                        || !readback
-                        || readback.can_restore !== false
-                        || !String(readback.restored_at || '').trim()
-                        || Number(readback.online_data_id || 0) !== restoredId) {
-                        throw new Error('恢复接口已返回，但更正账本回读未确认');
+                    const ledgerReadback = res?.data?.ledger;
+                    if (!ledgerReadback
+                        || Number(ledgerReadback.id || 0) !== ledgerId
+                        || Number(ledgerReadback.online_data_id || 0) !== restoredId
+                        || ledgerReadback.can_restore !== false
+                        || !String(ledgerReadback.restored_at || '').trim()) {
+                        throw new Error('恢复接口已返回，但服务端账本回读未确认');
                     }
+                    onlineDataCorrectionLedgerList.value = onlineDataCorrectionLedgerList.value.map(item => (
+                        Number(item.id) === ledgerId ? { ...item, ...ledgerReadback } : item
+                    ));
 
                     await loadOnlineDataList({ force: true });
                     showToast(`数据记录 #${restoredId} 已恢复，并完成更正账本回读`);

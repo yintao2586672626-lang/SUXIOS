@@ -87,6 +87,11 @@ final class OnlineDataCorrectionLedgerServiceTest extends TestCase
         self::assertSame(1, $restored['id']);
         self::assertSame(10, $restored['system_hotel_id']);
         self::assertSame(1, $restored['tenant_id']);
+        self::assertSame((int)$deleted['ledger_id'], (int)$restored['ledger']['id']);
+        self::assertSame(1, (int)$restored['ledger']['online_data_id']);
+        self::assertFalse($restored['ledger']['can_restore']);
+        self::assertSame(11, (int)$restored['ledger']['restored_by']);
+        self::assertNotSame('', (string)$restored['ledger']['restored_at']);
         self::assertSame(100.0, (float)Db::name('online_daily_data')->where('id', 1)->value('amount'));
         self::assertNotSame('', (string)Db::name('online_data_correction_ledger')->where('id', $deleted['ledger_id'])->value('restored_at'));
         self::assertSame(11, (int)Db::name('online_data_correction_ledger')->where('id', $deleted['ledger_id'])->value('restored_by'));

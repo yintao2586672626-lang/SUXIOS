@@ -60,7 +60,7 @@ test('data-record page exposes a permission-gated ledger with truthful states', 
   assert.match(template, /row\.can_restore === true/);
 });
 
-test('restore requires the in-app confirmation form and verifies ledger readback before success', () => {
+test('restore requires the in-app confirmation form and verifies server ledger readback before success', () => {
   const frontend = read('public/app-main.js');
   const start = frontend.indexOf('const restoreOnlineDataCorrectionLedger');
   const end = frontend.indexOf('const loadOnlineDataList', start);
@@ -72,13 +72,13 @@ test('restore requires the in-app confirmation form and verifies ledger readback
   assert.doesNotMatch(restoreBlock, /\b(?:prompt|confirm)\s*\(/);
   assert.match(restoreBlock, /request\('\/online-data\/restore-data'/);
   assert.match(restoreBlock, /JSON\.stringify\(\{ ledger_id: ledgerId \}\)/);
-  assert.match(restoreBlock, /await loadOnlineDataCorrectionLedger/);
-  assert.match(restoreBlock, /loadOnlineDataCorrectionLedger\(\{[\s\S]*?force: true,[\s\S]*?\}\)/);
-  assert.match(restoreBlock, /readback\.can_restore !== false/);
-  assert.match(restoreBlock, /readback\.restored_at/);
-  assert.match(restoreBlock, /Number\(readback\.online_data_id \|\| 0\) !== restoredId/);
+  assert.match(restoreBlock, /const ledgerReadback = res\?\.data\?\.ledger/);
+  assert.match(restoreBlock, /ledgerReadback\.can_restore !== false/);
+  assert.match(restoreBlock, /ledgerReadback\.restored_at/);
+  assert.match(restoreBlock, /Number\(ledgerReadback\.online_data_id \|\| 0\) !== restoredId/);
+  assert.match(restoreBlock, /onlineDataCorrectionLedgerList\.value = onlineDataCorrectionLedgerList\.value\.map/);
   assert.ok(
-    restoreBlock.indexOf('showToast(`数据记录 #${restoredId} 已恢复') > restoreBlock.indexOf('readback.can_restore !== false'),
+    restoreBlock.indexOf('showToast(`数据记录 #${restoredId} 已恢复') > restoreBlock.indexOf('ledgerReadback.can_restore !== false'),
     'success toast must be emitted only after readback checks',
   );
 });
