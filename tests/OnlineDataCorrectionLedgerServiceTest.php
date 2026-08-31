@@ -93,6 +93,8 @@ final class OnlineDataCorrectionLedgerServiceTest extends TestCase
         self::assertSame(11, (int)$restored['ledger']['restored_by']);
         self::assertNotSame('', (string)$restored['ledger']['restored_at']);
         self::assertSame(100.0, (float)Db::name('online_daily_data')->where('id', 1)->value('amount'));
+        self::assertSame('2026-07-15 12:00:00', (string)Db::name('online_daily_data')->where('id', 1)->value('history_fetch_time'));
+        self::assertSame('ctrip:2026-07-14', (string)Db::name('online_daily_data')->where('id', 1)->value('history_group_key'));
         self::assertNotSame('', (string)Db::name('online_data_correction_ledger')->where('id', $deleted['ledger_id'])->value('restored_at'));
         self::assertSame(11, (int)Db::name('online_data_correction_ledger')->where('id', $deleted['ledger_id'])->value('restored_by'));
     }
@@ -154,7 +156,10 @@ final class OnlineDataCorrectionLedgerServiceTest extends TestCase
             book_order_num INTEGER NULL,
             validation_status TEXT NULL,
             raw_data TEXT NULL,
-            update_time TEXT NULL
+            update_time TEXT NULL,
+            history_fetch_time TEXT GENERATED ALWAYS AS (update_time) STORED,
+            history_status TEXT GENERATED ALWAYS AS (validation_status) STORED,
+            history_group_key TEXT GENERATED ALWAYS AS (source || \':\' || data_date) STORED
         )');
         Db::execute('CREATE TABLE online_data_correction_ledger (
             id INTEGER PRIMARY KEY AUTOINCREMENT,

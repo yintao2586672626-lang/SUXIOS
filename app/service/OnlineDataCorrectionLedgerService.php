@@ -191,9 +191,10 @@ final class OnlineDataCorrectionLedgerService
             if (Db::name(self::DATA_TABLE)->where('id', $onlineDataId)->find()) {
                 throw new RuntimeException('online_data_restore_id_conflict');
             }
-            Db::name(self::DATA_TABLE)->insert($before);
+            $writableBefore = $this->writableRestoreSnapshot($before);
+            Db::name(self::DATA_TABLE)->insert($writableBefore);
             $restored = Db::name(self::DATA_TABLE)->where('id', $onlineDataId)->find();
-            if (!$restored || !$this->snapshotMatches($before, $restored)) {
+            if (!$restored || !$this->snapshotMatches($writableBefore, $restored)) {
                 throw new RuntimeException('online_data_restore_readback_mismatch');
             }
 
@@ -228,6 +229,38 @@ final class OnlineDataCorrectionLedgerService
                 ],
             ];
         });
+    }
+
+    /** @param array<string, mixed> $snapshot @return array<string, mixed> */
+    private function writableRestoreSnapshot(array $snapshot): array
+    {
+        $writableColumns = [];
+        try {
+            foreach (Db::query('SHOW COLUMNS FROM `' . self::DATA_TABLE . '`') as $column) {
+                $name = (string)($column['Field'] ?? $column['field'] ?? '');
+                $extra = strtoupper((string)($column['Extra'] ?? $column['extra'] ?? ''));
+                if ($name !== '' && !str_contains($extra, 'GENERATED')) {
+                    $writableColumns[$name] = true;
+                }
+            }
+        } catch (\Throwable) {
+        }
+        if ($writableColumns === []) {
+            try {
+                foreach (Db::query('PRAGMA table_xinfo(`' . self::DATA_TABLE . '`)') as $column) {
+                    $name = (string)($column['name'] ?? '');
+                    if ($name !== '' && (int)($column['hidden'] ?? 0) === 0) {
+                        $writableColumns[$name] = true;
+                    }
+                }
+            } catch (\Throwable) {
+            }
+        }
+        $writable = array_intersect_key($snapshot, $writableColumns);
+        if ($writableColumns === [] || (int)($writable['id'] ?? 0) <= 0) {
+            throw new RuntimeException('online_data_restore_writable_schema_unreadable');
+        }
+        return $writable;
     }
 
     /**
