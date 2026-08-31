@@ -577,7 +577,7 @@
         }
         return component;
     };
-    const operatingOpportunityLabScript = 'components/system/operating-opportunity-lab.js?v=20260830-review-fixes-h524ba2faa9';
+    const operatingOpportunityLabScript = 'components/system/operating-opportunity-lab.js?v=20260831-impact-estimate-h020e449a2b';
     const OperatingOpportunityLabAsync = systemComponents.OperatingOpportunityLabBody || Vue.defineAsyncComponent({
         loader: () => loadOnlineDataComponentScript(operatingOpportunityLabScript)
             .then(() => requireSystemComponent('OperatingOpportunityLabBody')),
@@ -616,6 +616,46 @@
                 selectedHotelId: this.selectedHotelId,
                 openTask: this.openTask,
                 onOpenOperations: payload => this.$emit('open-operations', payload),
+                'onUpdate:selectedHotelId': value => this.$emit('update:selected-hotel-id', value),
+            });
+        },
+    };
+    const operatingFinanceControlCenterScript = 'components/system/operating-finance-control-center.min.js?v=20260830-operating-finance-hea98546c03';
+    const OperatingFinanceControlCenterAsync = systemComponents.OperatingFinanceControlCenterBody || Vue.defineAsyncComponent({
+        loader: () => loadOnlineDataComponentScript(operatingFinanceControlCenterScript)
+            .then(() => requireSystemComponent('OperatingFinanceControlCenterBody')),
+        delay: 0,
+        timeout: 15000,
+        loadingComponent: {
+            inheritAttrs: false,
+            render: () => h('section', {
+                'data-testid': 'operating-finance-control-center-loading',
+                class: 'rounded-2xl border border-slate-200 bg-white p-6 text-sm text-slate-500',
+            }, '正在加载经营财务与恢复中心…'),
+        },
+        errorComponent: {
+            inheritAttrs: false,
+            render: () => h('section', {
+                'data-testid': 'operating-finance-control-center-load-error',
+                class: 'rounded-2xl border border-red-200 bg-red-50 p-6 text-sm text-red-700',
+            }, '经营财务与恢复中心加载失败，请刷新页面重试。'),
+        },
+    });
+    const OperatingFinanceControlCenter = {
+        name: 'OperatingFinanceControlCenter',
+        inheritAttrs: false,
+        props: {
+            hotels: { type: Array, default: () => [] },
+            request: { type: Function, required: true },
+            selectedHotelId: { type: [String, Number], default: '' },
+        },
+        emits: ['update:selected-hotel-id'],
+        render() {
+            return h(OperatingFinanceControlCenterAsync, {
+                ...this.$attrs,
+                hotels: this.hotels,
+                request: this.request,
+                selectedHotelId: this.selectedHotelId,
                 'onUpdate:selectedHotelId': value => this.$emit('update:selected-hotel-id', value),
             });
         },
@@ -2610,7 +2650,7 @@
         },
     };
 
-        return Object.freeze({ AiDecisionQualityDetails, OnlineTruthSummary, DualOtaAcceptanceReceipt, DualOtaPageVerificationPanel, resolveRevenueCockpitIntentLifecycle, parseOperationEvidenceNumber, parseOptionalOperationEvidenceNumber, operationEvidenceFirstText, operationEvidenceCleanObject, operationEvidenceLocalTimestamp, normalizeOperationEvidenceDateTime, normalizeOperationReviewStatus, RevenueCockpitOpportunityDetails, RevenueCockpitSnapshotStatus, RevenueCockpitActionRestoreStatus, onlineDataComponents, loadOnlineDataComponentScript, readOnlineDataComponent, requireOnlineDataComponent, systemComponents, CtripOrderAnalysisPanel, requireSystemComponent, operatingOpportunityLabScript, OperatingOpportunityLab, platformAutoPanelsScript, ctripProfileFieldConfigPanelScript, competitorDeviceManagementScript, dataConfigDialogsScript, automationCollectionContractScript, PlatformAutoSettingsPanels, PlatformAutoSecondaryPanels, CtripProfileFieldConfigPanel, CompetitorDeviceManagement, DataConfigDialogs, aiDailyReportTaskPositiveInteger, aiDailyReportModelIsLimited, normalizeAiDailyReportGenerationTask, formatAiDailyReportGenerationStage, resolveAiDailyReportGenerationOutcome, pollAiDailyReportGenerationTask, SessionProofNotice, LocalCollectorLoginHandoff, PmsRealtimeSyncResult, HotelThreeSourceOnboardingPanel, OperatingLoopAuthority, ManagerCapabilityPanel, OperatingNetworkReplicationList, MeituanSearchKeywordWorkbench, SimulationHeroActions });
+        return Object.freeze({ AiDecisionQualityDetails, OnlineTruthSummary, DualOtaAcceptanceReceipt, DualOtaPageVerificationPanel, resolveRevenueCockpitIntentLifecycle, parseOperationEvidenceNumber, parseOptionalOperationEvidenceNumber, operationEvidenceFirstText, operationEvidenceCleanObject, operationEvidenceLocalTimestamp, normalizeOperationEvidenceDateTime, normalizeOperationReviewStatus, RevenueCockpitOpportunityDetails, RevenueCockpitSnapshotStatus, RevenueCockpitActionRestoreStatus, onlineDataComponents, loadOnlineDataComponentScript, readOnlineDataComponent, requireOnlineDataComponent, systemComponents, CtripOrderAnalysisPanel, requireSystemComponent, operatingOpportunityLabScript, OperatingOpportunityLab, operatingFinanceControlCenterScript, OperatingFinanceControlCenter, platformAutoPanelsScript, ctripProfileFieldConfigPanelScript, competitorDeviceManagementScript, dataConfigDialogsScript, automationCollectionContractScript, PlatformAutoSettingsPanels, PlatformAutoSecondaryPanels, CtripProfileFieldConfigPanel, CompetitorDeviceManagement, DataConfigDialogs, aiDailyReportTaskPositiveInteger, aiDailyReportModelIsLimited, normalizeAiDailyReportGenerationTask, formatAiDailyReportGenerationStage, resolveAiDailyReportGenerationOutcome, pollAiDailyReportGenerationTask, SessionProofNotice, LocalCollectorLoginHandoff, PmsRealtimeSyncResult, HotelThreeSourceOnboardingPanel, OperatingLoopAuthority, ManagerCapabilityPanel, OperatingNetworkReplicationList, MeituanSearchKeywordWorkbench, SimulationHeroActions });
     };
 
     const exportedFactory = Object.freeze({ create });

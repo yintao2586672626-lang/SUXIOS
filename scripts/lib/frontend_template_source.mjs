@@ -32,6 +32,7 @@ export const FRONTEND_TEMPLATE_FRAGMENT_DEFINITIONS = Object.freeze([
   { id: 'page-revenue-research-center', domain: 'revenue', path: 'fragments/19-page-revenue-research-center.html', anchor: '<div v-if="currentPage === \'revenue-research-center\'" class="max-w-7xl mx-auto space-y-4">' },
   { id: 'page-operation-optimizer', domain: 'revenue', path: 'fragments/19a-page-operation-optimizer.html', anchor: '<div v-if="currentPage === \'operation-optimizer\'" class="max-w-7xl mx-auto space-y-5" data-testid="page-operation-optimizer">' },
   { id: 'page-operating-opportunities', domain: 'operations', path: 'fragments/19b-page-operating-opportunities.html', anchor: '<div v-if="currentPage === \'operating-opportunities\'" class="suxi-dashboard-scope" data-testid="page-operating-opportunities">' },
+  { id: 'page-operating-finance', domain: 'operations', path: 'fragments/19c-page-operating-finance.html', anchor: '<operating-finance-control-center' },
   { id: 'page-knowledge-center', domain: 'knowledge', path: 'fragments/20-page-knowledge-center.html', anchor: '<div v-if="currentPage === \'knowledge-center\'" class="max-w-6xl mx-auto space-y-4">' },
   { id: 'page-users', domain: 'system-admin', path: 'fragments/21-page-users.html', anchor: '<div v-if="currentPage === \'users\'">' },
   { id: 'page-roles', domain: 'system-admin', path: 'fragments/22-page-roles.html', anchor: '<div v-if="currentPage === \'roles\'">' },

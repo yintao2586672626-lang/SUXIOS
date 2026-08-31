@@ -22,6 +22,7 @@ const controller = read('app/controller/OperatingIntelligence.php');
 const routes = readRouteContractSource(process.cwd());
 const operatingIntelligenceComponents = read('public/components/system/operating-intelligence-components.js');
 const appMain = read('public/app-main.js');
+const systemStatic = read('public/system-static.js');
 const frontend = `${appMain}\n${operatingIntelligenceComponents}`;
 const agentPage = read('resources/frontend/templates/fragments/27-page-agent-center.html');
 const globalShell = read('resources/frontend/templates/fragments/46-global-toast.html');
@@ -43,6 +44,19 @@ const systemUsageGuideComponent = sliceBetween(
   "const operatingQuestionConsultant = {",
   'return Object.freeze({ operatingQuestionPanel, operatingQuestionConsultant, hotelDataAnalystProfile });',
 );
+const operatingQuestionScopeLoader = sliceBetween(
+  appMain,
+  'const loadOperatingQuestionScopeOptions = async (options = {}) => {',
+  'const applyOperatingQuestionIntentReadback = (question = {}) => {',
+);
+const operatingQuestionScopeCooldownSource = sliceBetween(
+  systemStatic,
+  'const createOperatingQuestionState = () => ({',
+  'const requireDeferredStaticFunction =',
+);
+const { createOperatingQuestionState, operatingQuestionScopeCooldown } = new Function(
+  `${operatingQuestionScopeCooldownSource}\nreturn { createOperatingQuestionState, operatingQuestionScopeCooldown };`,
+)();
 
 test('unified Agent operating question saves and performs an exact second readback', () => {
   assert.match(routes, /agent[\s\S]*operating-questions/);
@@ -71,6 +85,35 @@ test('operating-question scope reads stay deferred until their Agent panel is ac
     operatingIntelligenceComponents,
     /onMounted\(\(\) => \{[\s\S]{0,160}loadScopeOptions\?\.\(\{ applyRecommendation: true \}\)/,
   );
+});
+
+test('operating-question scope 429 uses the server cooldown and blocks repeated force refresh', () => {
+  assert.match(systemStatic, /const operatingQuestionScopeCooldown =/);
+  assert.match(systemStatic, /scope_rate_limit_hotel_id === scopeKey/);
+  assert.match(systemStatic, /scope_retry_after_at \|\| 0/);
+  assert.match(operatingQuestionScopeLoader, /Number\(res\.code \|\| 0\) === 429/);
+  assert.match(systemStatic, /rateLimit\.retry_after/);
+  assert.match(systemStatic, /rateLimit\.window/);
+  assert.match(systemStatic, /scope_retry_after_at = now \+ \(boundedRetryAfter \* 1000\)/);
+  assert.match(systemStatic, /scope_data_status = 'rate_limited'/);
+  assert.ok(
+    operatingQuestionScopeLoader.indexOf('operatingQuestionScopeCooldown(state, hotelKey).blocked')
+      < operatingQuestionScopeLoader.indexOf("request(`/agent/operating-question-scopes"),
+    'cooldown must stop both ordinary and force refresh before another request is created',
+  );
+  const state = createOperatingQuestionState();
+  assert.deepEqual(
+    operatingQuestionScopeCooldown(state, '7', { retry_after: 3, window: 5 }, 1000),
+    { blocked: true, retry_after_seconds: 3 },
+  );
+  assert.equal(state.scope_retry_after_at, 4000);
+  assert.deepEqual(
+    operatingQuestionScopeCooldown(state, '7', undefined, 2000),
+    { blocked: true, retry_after_seconds: 2 },
+  );
+  assert.equal(operatingQuestionScopeCooldown(state, '8', undefined, 2000).blocked, false);
+  operatingQuestionScopeCooldown(state, '', null, 2000);
+  assert.equal(state.scope_retry_after_at, 0);
 });
 
 test('question evidence keeps facts, memory, knowledge, Agent and execution references separate', () => {

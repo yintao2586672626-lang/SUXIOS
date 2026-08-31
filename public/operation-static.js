@@ -364,7 +364,26 @@ window.SUXI_OPERATION_STATIC = (() => {
             const recommendation = ({ continue: '建议继续', adjust: '建议调整', stop: '建议停止' }[
                 String(managedReview.recommendation || '')
             ] || '建议待定');
-            return `${sufficiency} · ${change} · ${recommendation}`;
+            const outcome = item?.outcome_truth || {};
+            const outcomeStatus = String(outcome.status || 'unverified');
+            const outcomeLabel = ({
+                met: '达到目标（met）',
+                near: '接近目标（near）',
+                missed: '未达目标（missed）',
+                adverse: '反向变化（adverse）',
+            }[outcomeStatus] || `未核验（${outcomeStatus}）`);
+            const effectReviewId = Number(managedReview.effect_review_id || 0);
+            const actualDelta = outcome.actual_delta ?? managedReview.delta_value ?? '—';
+            const causality = managedReview.causality_claimed === false
+                ? '否（仅观察）'
+                : '不满足复盘边界';
+            return [
+                `${sufficiency} · ${change} · ${recommendation}`,
+                `严格复盘 ${effectReviewId > 0 ? `#${effectReviewId}` : '未形成'} · 管理复盘 #${managedReview.id || '—'}`,
+                `审批冻结指标：${managedReview.metric_key || '未取得'} · ${managedReview.metric_unit || '单位缺失'}`,
+                `前值 ${managedReview.before_value ?? '—'} → 后值 ${managedReview.after_value ?? '—'} · 实际变化 ${actualDelta}`,
+                `确定性结果：${outcomeLabel} · 因果归因：${causality}`,
+            ].join('\n');
         }
         const review = item?.review || {};
         const statusLabel = typeof helpers.statusLabel === 'function' ? helpers.statusLabel : (status => status || '-');

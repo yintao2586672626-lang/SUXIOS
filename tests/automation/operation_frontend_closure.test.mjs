@@ -440,6 +440,31 @@ test('managed operating actions expose the versioned card lifecycle start cancel
   assert.match(reviewFlow, /managedReview\.causality_claimed !== false/);
 });
 
+test('ops-track exposes the exact same-scope review facts without claiming causality', () => {
+  assert.match(trackPage, /whitespace-pre-line[^\n]*operationExecutionReviewText\(item\)/);
+  const text = loadOperationStaticApi().operationExecutionReviewText({
+    action_management: { latest_review: {
+      id: 9,
+      effect_review_id: 7,
+      evidence_sufficiency: 'sufficient',
+      metric_change_status: 'increased',
+      recommendation: 'continue',
+      metric_key: 'list_exposure',
+      metric_unit: 'people',
+      before_value: 1800,
+      after_value: 1950,
+      delta_value: 150,
+      causality_claimed: false,
+    } },
+    outcome_truth: { status: 'met', actual_delta: 150 },
+  });
+  assert.match(text, /严格复盘 #7 · 管理复盘 #9/);
+  assert.match(text, /审批冻结指标：list_exposure · people/);
+  assert.match(text, /前值 1800 → 后值 1950 · 实际变化 150/);
+  assert.match(text, /确定性结果：达到目标（met） · 因果归因：否（仅观察）/);
+  assert.doesNotMatch(text, /因果归因：\s*是/);
+});
+
 test('verification-only operating questions approve an observation window without inventing a numeric target', () => {
   const start = appMain.indexOf('const operationApprovalConfirming =');
   const end = appMain.indexOf('const recordOperationExecutionEvidence = async', start);

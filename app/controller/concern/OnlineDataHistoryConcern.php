@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace app\controller\concern;
 
+use app\service\CtripCompetitionCirclePersistenceService;
 use app\service\CtripTrafficDisplayService;
 use app\service\OnlineDataTrustStatusService;
 use think\Response;
@@ -319,6 +320,13 @@ trait OnlineDataHistoryConcern
                 'reason' => 'ranking_cache_only',
                 'collected_date' => '',
             ];
+        $dateEvidence = $section === 'rank'
+            ? $this->ctripStoredDateEvidence($latest)
+            : [
+                'request_date' => (string)($latest['data_date'] ?? ''),
+                'source_business_date' => '',
+                'status' => 'not_applicable',
+            ];
 
         return [
             'data_type' => $section,
@@ -333,6 +341,9 @@ trait OnlineDataHistoryConcern
                     : 'record_present_source_not_proven'),
             'data_date' => (string)($latest['data_date'] ?? ''),
             'target_data_date' => $targetDate,
+            'request_date' => (string)($dateEvidence['request_date'] ?? ''),
+            'source_business_date' => (string)($dateEvidence['source_business_date'] ?? ''),
+            'response_date_status' => (string)($dateEvidence['status'] ?? 'target_date_unverified'),
             'fetched_at' => $fetchedAt !== '' ? $fetchedAt : $this->onlineRowFetchedAt($latest, $columns),
             'total' => count($rows),
             'rows' => $decodedRows,
@@ -969,6 +980,9 @@ trait OnlineDataHistoryConcern
         $fetchedAt = '';
         $dataDate = '';
         $targetDataDate = '';
+        $requestDate = '';
+        $sourceBusinessDate = '';
+        $responseDateStatus = 'target_date_unverified';
         $total = 0;
         $earlyFallbacks = [];
         $identityCheck = null;
@@ -986,12 +1000,29 @@ trait OnlineDataHistoryConcern
             if ($sectionTargetDate !== '' && ($targetDataDate === '' || strcmp($sectionTargetDate, $targetDataDate) > 0)) {
                 $targetDataDate = $sectionTargetDate;
             }
+            $sectionRequestDate = (string)($section['request_date'] ?? '');
+            if ($sectionRequestDate !== '' && ($requestDate === '' || strcmp($sectionRequestDate, $requestDate) > 0)) {
+                $requestDate = $sectionRequestDate;
+            }
+            $sectionSourceBusinessDate = (string)($section['source_business_date'] ?? '');
+            if ($sectionSourceBusinessDate !== '' && ($sourceBusinessDate === '' || strcmp($sectionSourceBusinessDate, $sourceBusinessDate) > 0)) {
+                $sourceBusinessDate = $sectionSourceBusinessDate;
+            }
+            if ((string)($section['response_date_status'] ?? '') === 'verified') {
+                $responseDateStatus = 'verified';
+            }
             if (is_array($section['early_morning_fallback'] ?? null)) {
                 $earlyFallbacks[] = $section['early_morning_fallback'];
             }
             if (is_array($section['identity_check'] ?? null) && ($section['identity_check']['ok'] ?? true) !== true) {
                 $identityCheck = $section['identity_check'];
             }
+        }
+        if (is_array($sections['rank'] ?? null)) {
+            $rankSection = $sections['rank'];
+            $requestDate = (string)($rankSection['request_date'] ?? $rankSection['data_date'] ?? $requestDate);
+            $sourceBusinessDate = (string)($rankSection['source_business_date'] ?? '');
+            $responseDateStatus = (string)($rankSection['response_date_status'] ?? 'target_date_unverified');
         }
 
         if ($range === '') {
@@ -1006,12 +1037,20 @@ trait OnlineDataHistoryConcern
         $identityBlocked = is_array($identityCheck);
         $rankingCacheEligible = ($sections['rank']['cache_eligible'] ?? false) === true;
         $rankingCacheReason = (string)($sections['rank']['cache_reason'] ?? 'no_stored_rows');
+        $status = $identityBlocked
+            ? 'identity_mismatch'
+            : ($total <= 0 ? 'empty' : ($rankingCacheEligible ? 'success' : 'source_unverified'));
+        $statusLabel = $identityBlocked
+            ? '酒店身份不匹配'
+            : ($total <= 0
+                ? ($targetDataDate !== '' ? '目标日期未采集' : '暂无入库记录')
+                : ($rankingCacheEligible ? '来源与日期已核验' : '来源业务日未核验'));
         return [
             'hotel_id' => $hotelId,
             'platform' => 'ctrip',
             'data_source' => '携程 ebooking',
-            'status' => $identityBlocked ? 'identity_mismatch' : ($total > 0 ? 'success' : 'empty'),
-            'status_label' => $identityBlocked ? '酒店身份不匹配' : ($total > 0 ? '有入库记录' : ($targetDataDate !== '' ? '目标日期未采集' : '暂无入库记录')),
+            'status' => $status,
+            'status_label' => $statusLabel,
             'verification_status' => $identityBlocked
                 ? 'binding_mismatch'
                 : ($rankingCacheEligible
@@ -1021,6 +1060,9 @@ trait OnlineDataHistoryConcern
             'identity_message' => $identityBlocked ? (string)($identityCheck['message'] ?? '') : '',
             'data_date' => $dataDate,
             'target_data_date' => $targetDataDate,
+            'request_date' => $requestDate !== '' ? $requestDate : $dataDate,
+            'source_business_date' => $sourceBusinessDate,
+            'response_date_status' => $responseDateStatus,
             'fetched_at' => $fetchedAt,
             'total_records' => $total,
             'early_morning_fallback' => !empty($earlyFallbacks),
@@ -2596,6 +2638,15 @@ trait OnlineDataHistoryConcern
             $raw['captured_at'] ?? null,
             $raw['snapshot_time'] ?? null,
         ]);
+        $isManualCompetitionCircle = strtolower($platform) === 'ctrip'
+            && strtolower(trim((string)($row['data_type'] ?? ''))) === CtripCompetitionCirclePersistenceService::DATA_TYPE
+            && trim((string)($row['dimension'] ?? '')) === CtripCompetitionCirclePersistenceService::DIMENSION
+            && strtolower($sourceMethod) === CtripCompetitionCirclePersistenceService::INGESTION_METHOD;
+        if ($isManualCompetitionCircle
+            && !CtripCompetitionCirclePersistenceService::hasVerifiedDateEvidence($row)
+        ) {
+            return false;
+        }
 
         return (int)($row['readback_verified'] ?? 0) === 1
             && (int)($row['system_hotel_id'] ?? 0) > 0
@@ -2605,6 +2656,24 @@ trait OnlineDataHistoryConcern
             && !OnlineDataTrustStatusService::isUnverifiedIngestionMethod($sourceMethod)
             && $sourceTraceId !== ''
             && preg_match('/\d{2}:\d{2}(?::\d{2})?/', $collectedAt) === 1;
+    }
+
+    /** @return array{request_date:string,source_business_date:string,status:string} */
+    private function ctripStoredDateEvidence(array $row): array
+    {
+        $raw = json_decode((string)($row['raw_data'] ?? ''), true);
+        $raw = is_array($raw) ? $raw : [];
+        $evidence = is_array($raw['_suxi_source_evidence'] ?? null)
+            ? $raw['_suxi_source_evidence']
+            : [];
+        $verified = CtripCompetitionCirclePersistenceService::hasVerifiedDateEvidence($row);
+        return [
+            'request_date' => trim((string)($evidence['request_date'] ?? $row['data_date'] ?? '')),
+            'source_business_date' => $verified
+                ? trim((string)($evidence['resolved_business_date'] ?? ''))
+                : '',
+            'status' => $verified ? 'verified' : 'target_date_unverified',
+        ];
     }
 
     private function onlineHistoryFirstText(array $values): string

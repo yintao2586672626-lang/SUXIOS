@@ -478,8 +478,8 @@ if (!runtimeAssetPaths.includes('app-startup-helpers.min.js')
     failures.push('public/index.html must use system-static.js cached-auth helpers, and system-static.js must normalize permission arrays before first-paint menu filtering.');
   }
   if (!systemStaticContent.includes('const hasPermission = (permissions, key) => {')
-    || !systemStaticContent.includes('if (Array.isArray(permissions)) return permissions.includes(key);')
-    || !systemStaticContent.includes('return item.permissions.some(p => hasPermission(perms, p));')) {
+    || !systemStaticContent.includes("if (Array.isArray(permissions)) return permissions.includes('all') || permissions.includes(key);")
+    || !systemStaticContent.includes('return item.permissions.some(p => hasPermission(perms, p) || hasCapability(p));')) {
     failures.push('public/system-static.js must keep visible menu filtering compatible with array and object permission payloads.');
   }
   try {
@@ -1686,10 +1686,9 @@ if (!runtimeAssetPaths.includes('app-startup-helpers.min.js')
     appMainContent.indexOf('const saveMeituanConfigItem = async () => {'),
     appMainContent.indexOf('const useMeituanConfig')
   );
-  const meituanStaticFallbackSource = appMainContent.slice(
-    appMainContent.indexOf('const meituanStaticFallbackFor = (key) => {'),
-    appMainContent.indexOf('const requireMeituanStatic = (key) => {')
-  );
+  const meituanStaticFallbackStart = appMainContent.indexOf('const meituanStaticFallbackFor = (key) => {');
+  const meituanStaticFallbackEnd = appMainContent.indexOf('const requireMeituanStatic = (key) => {');
+  const meituanStaticFallbackSource = meituanStaticFallbackStart >= 0 && meituanStaticFallbackEnd > meituanStaticFallbackStart ? appMainContent.slice(meituanStaticFallbackStart, meituanStaticFallbackEnd) : '';
   const meituanConfigSaveGateIndex = saveMeituanConfigItemSource.indexOf('if (!helperAvailability.available) {');
   const meituanConfigSaveRequestIndex = saveMeituanConfigItemSource.indexOf("request('/online-data/save-meituan-config-item', {");
   if (!appMainContent.includes('const meituanConfigSaveHelperKeys = Object.freeze([')
@@ -1699,6 +1698,7 @@ if (!runtimeAssetPaths.includes('app-startup-helpers.min.js')
     || meituanConfigSaveGateIndex < 0
     || meituanConfigSaveRequestIndex < 0
     || meituanConfigSaveGateIndex > meituanConfigSaveRequestIndex
+    || !meituanStaticFallbackSource
     || meituanStaticFallbackSource.includes("if (key === 'resolveMeituanConfigSaveCookieState')")
     || meituanStaticFallbackSource.includes("if (key === 'buildMeituanConfigAutoName')")
     || meituanStaticFallbackSource.includes("if (key === 'buildMeituanConfigSaveRequestBody')")
@@ -3054,15 +3054,14 @@ if (!runtimeAssetPaths.includes('app-startup-helpers.min.js')
     failures.push('public/index.html must deduplicate online-data list/summary/hotel reads for tab switching while keeping manual query and post-fetch refreshes forced.');
   }
   if (!content.includes('const ONLINE_ANALYSIS_PANEL_CACHE_TTL_MS = 8000;')
-    || !content.includes('const onlineAnalysisDataResultCache = new Map();')
-    || !content.includes('const onlineAnalysisRowsResultCache = new Map();')
-    || !content.includes('const onlineAnalysisDataRequestPromises = new Map();')
-    || !content.includes('const onlineAnalysisRowsRequestPromises = new Map();')
-    || !content.includes('const clearOnlineAnalysisReadCaches = () => {')
+    || !content.includes('const captureOnlineAnalysisRequestOwner = () => ({')
+    || !content.includes('const resetOnlineAnalysisSessionState = () => {')
     || !content.includes('const loadAnalysisData = async (dimension = null, options = {}) => {')
     || !content.includes('const loadOnlineAnalysisRows = async (options = {}) => {')
-    || !/const loadAnalysisData = async \(dimension = null, options = \{\}\) => \{[\s\S]*readOnlineAnalysisResultCache\(onlineAnalysisDataResultCache, requestKey, cacheMs\)[\s\S]*onlineAnalysisDataRequestPromises\.has\(requestKey\)[\s\S]*request\(`\/online-data\/data-analysis\?\$\{params\}`,\s*\{\s*businessContext:\s*\{\s*hotelId:\s*onlineDataFilter\.value\.hotel_id\s*\|\|\s*'',\s*tenantId:\s*'',?\s*\},?\s*\}\)[\s\S]*writeOnlineAnalysisResultCache\(onlineAnalysisDataResultCache, requestKey, data, cacheMs\)/.test(content)
-    || !/const loadOnlineAnalysisRows = async \(options = \{\}\) => \{[\s\S]*readOnlineAnalysisResultCache\(onlineAnalysisRowsResultCache, requestKey, cacheMs\)[\s\S]*onlineAnalysisRowsRequestPromises\.has\(requestKey\)[\s\S]*request\(`\/online-data\/daily-data-list\?\$\{params\}`\)[\s\S]*writeOnlineAnalysisResultCache\(onlineAnalysisRowsResultCache, requestKey, data, cacheMs\)/.test(content)
+    || /onlineAnalysis(?:Data|Rows)(?:ResultCache|RequestPromises)/.test(content)
+    || !/const loadAnalysisData = async \(dimension = null, options = \{\}\) => \{[\s\S]*tenantId: requestOwner\.tenantId,[\s\S]*userId: requestOwner\.userId,[\s\S]*ttlMs: Number\(options\?\.cacheMs \?\? ONLINE_ANALYSIS_PANEL_CACHE_TTL_MS\),[\s\S]*force: options\?\.force === true,[\s\S]*request\(`\/online-data\/data-analysis\?\$\{params\}`,[\s\S]*requestPolicy[\s\S]*if \(!isCurrentRequest\(\)\) return null;[\s\S]*analysisData\.value = res\.data/.test(content)
+    || !/const loadOnlineAnalysisRows = async \(options = \{\}\) => \{[\s\S]*userId: requestOwner\.userId,[\s\S]*request\(`\/online-data\/daily-data-list\?\$\{params\}`, \{ requestPolicy \}\)[\s\S]*if \(!isCurrentRequest\(\)\) return \[\];[\s\S]*applyOnlineAnalysisRowsResponse\(res\.data/.test(content)
+    || !/const coordinatedGetScopeKey[\s\S]*normalizedPolicy\.userId[\s\S]*return \[requestSessionEpoch, tenantId, userId, systemHotelId/.test(content)
     || !content.includes('const refreshOnlineAnalysis = async (options = {}) => {')
     || !content.includes('cacheMs: ONLINE_ANALYSIS_PANEL_CACHE_TTL_MS,')
     || !content.includes('loadAnalysisData(null, loadOptions),')
@@ -3071,8 +3070,8 @@ if (!runtimeAssetPaths.includes('app-startup-helpers.min.js')
     || !content.includes('return refreshOnlineAnalysis(options);')
     || !content.includes('@click="refreshOnlineAnalysis({ force: true })"')
     || !content.includes('@click="loadOnlineAnalysisRows({ force: true })"')
-    || !content.includes('clearOnlineAnalysisReadCaches();')) {
-    failures.push('public/index.html online-data analysis tab must short-cache and deduplicate analysis summary/detail reads while preserving forced manual refresh.');
+    || !content.includes('resetGetRequestCoordinator();')) {
+    failures.push('public/index.html online analysis must reuse the auth-scoped GET coordinator, reject stale owners, and preserve forced refresh.');
   }
   const startupLoadDataStart = content.indexOf('const loadData = async () => {');
   const startupLoadDataEnd = content.indexOf('\n\n            //', startupLoadDataStart);

@@ -11,7 +11,14 @@
     "app/controller/concern/AutoFetchConcern.php": [
       "app/controller/concern/AutoFetchProfileSyncConcern.php",
       "app/controller/concern/CtripAutoFetchExecutionConcern.php",
+      "app/controller/concern/CtripAutoFetchBusinessConcern.php",
       "app/controller/concern/MeituanAutoFetchExecutionConcern.php"
+    ],
+    "app/controller/concern/CtripAutoFetchExecutionConcern.php": [
+      "app/controller/concern/CtripAutoFetchBusinessConcern.php"
+    ],
+    "app/controller/concern/OnlineDataManualFetchConcern.php": [
+      "app/controller/concern/CtripManualFetchExecutionConcern.php"
     ],
     "app/service/PlatformDataSyncService.php": [
       "app/service/PlatformDataCollectionDefinitionRegistry.php",

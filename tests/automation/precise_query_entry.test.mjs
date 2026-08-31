@@ -11,6 +11,7 @@ const lexicon = read('app/service/PreciseQueryLexicon.php');
 const questions = read('app/service/OperatingQuestionService.php');
 const appMain = read('public/app-main.js');
 const component = read('public/components/system/operating-intelligence-components.js');
+const analystComponent = read('public/components/system/hotel-data-analyst-components.js');
 
 test('precise query API has create, exact-id readback and lexicon metadata routes', () => {
   assert.match(routes, /Route::post\('\/precise-queries', 'PreciseQuery\/create'\)/);
@@ -54,6 +55,21 @@ test('production numeric lookup consumes canonical closure fields and refuses pl
   assert.match(router, /answered_from_canonical_closure/);
   assert.match(router, /blocked_by_cross_platform_comparison/);
   assert.match(router, /closure_identity/);
+});
+
+test('precise query supports unique Chinese hotel names, daily ranges and estimate-only exposure references', () => {
+  assert.match(router, /resolveAccessibleHotelName/);
+  assert.match(router, /酒店名称匹配到多个可访问门店/);
+  assert.match(router, /operating_metric_range/);
+  assert.match(router, /aggregation_performed' => false/);
+  assert.match(router, /精准查数单次日期范围最多31天/);
+  assert.match(router, /OtaExposureEstimationReferenceService/);
+  assert.match(router, /exposure_estimation_reference/);
+  assert.match(router, /estimate_only_not_platform_fact/);
+  assert.match(router, /'decision_eligible' => false/);
+  assert.match(router, /'writeback_allowed' => false/);
+  assert.match(analystComponent, /kind === 'operating_metric_range'/);
+  assert.match(component, /precise-query-range-results/);
 });
 
 test('floating entry is visibly unified and renders every required evidence field', () => {

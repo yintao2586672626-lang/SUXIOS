@@ -113,7 +113,7 @@
       "source_checks": [
         {
           "path": "resources/frontend/templates/fragments/24-page-ctrip-ebooking.html",
-          "includes": ["data-testid=\"ctrip-overview-fetch-actions\"", "data-testid=\"ctrip-review-order-evidence-tab\"", "data-testid=\"ctrip-competitor-future-window\"", "ctripLatestMeta?.data_date", "ctripLatestSnapshotText"]
+          "includes": ["data-testid=\"ctrip-overview-fetch-actions\"", "data-testid=\"ctrip-review-order-evidence-tab\"", "data-testid=\"ctrip-competitor-future-window\"", "data-testid=\"ctrip-request-date\"", "data-testid=\"ctrip-source-business-date\"", "data-testid=\"ctrip-collected-at\"", "ctripLatestSnapshotText"]
         },
         {
           "path": "public/app-main.js",
@@ -331,6 +331,36 @@
       ],
       "evidence_maturity": "unit_contract_pass",
       "evidence_limit": "代码级每日唯一选择、待审批、原任务、人工证据和同范围复盘合同；真实人工执行与自然后续事实仍需另行现场验收。"
+    },
+    {
+      "id": "operating-finance-control",
+      "product_chain_stage": "净收入、异常恢复与月度经营财务",
+      "availability": "active",
+      "enforcement": "strict",
+      "fragment_ids": ["page-operating-finance"],
+      "inherited_fragment_ids": [],
+      "inheritance_reason": "无继承片段。",
+      "scope_dimensions": ["tenant", "hotel", "business_date", "period_month", "stay_date", "platform", "fact_scope", "source", "fact_status", "currency", "tax_basis", "metric_definition_version"],
+      "state_requirements": ["loading", "ready", "available", "empty", "partial", "missing", "unverified", "operator_attested", "not_applicable", "blocked", "error"],
+      "contract_dimensions": ["scope_identity", "truthful_states", "source_date", "save_readback", "zero_external_write", "failure_visibility", "focused_regression"],
+      "source_checks": [
+        {
+          "path": "resources/frontend/templates/fragments/19c-page-operating-finance.html",
+          "includes": ["<operating-finance-control-center", "v-if=\"currentPage === 'operating-finance'\"", ":request=\"managerCapabilityRequest\""]
+        },
+        {
+          "path": "public/components/system/operating-finance-control-center.js",
+          "includes": ["operating_finance_control_center.v1", "settlements/import", "on-books-snapshots", "demand-events", "monthly-finance", "external_write_count"]
+        }
+      ],
+      "regression_checks": [
+        {
+          "path": "tests/automation/operating_finance_control_center.test.mjs",
+          "includes": ["net revenue never becomes whole-hotel GOP", "one selected recovery blocker", "WeCom receipt stays sender-reported only", "same-scope portfolio ranking"]
+        }
+      ],
+      "evidence_maturity": "unit_contract_pass",
+      "evidence_limit": "代码级结算、恢复、在手预订、需求参考、企微员工自报、月度财务和多店同口径合同；不证明真实账单导入、员工映射、生产部署、自动审批或外部写入。"
     },
     {
       "id": "revenue-analysis",

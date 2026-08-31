@@ -149,6 +149,53 @@ test('Meituan helper bindings resolve the deferred bundle at call time', () => {
   assert.doesNotMatch(bindingSource, /const meituanStatic = window\.SUXI_MEITUAN_STATIC/);
 });
 
+test('Meituan helper fallback stays silent while deferred assets load and reports a real post-load gap', () => {
+  const bindingStart = appMain.indexOf('const currentMeituanStatic =');
+  const bindingEnd = appMain.indexOf('const OTA_BROWSER_ASSIST_STATIC_ASSET', bindingStart);
+  const bindingSource = appMain.slice(bindingStart, bindingEnd);
+  const warnings = [];
+  const toasts = [];
+  const windowMock = {};
+  const documentMock = { documentElement: { dataset: {} } };
+  const bindingFactory = Function(
+    'window',
+    'document',
+    'showToast',
+    'console',
+    `"use strict";
+      ${bindingSource}
+      return { requireMeituanStatic, missingMeituanStaticHelpers };`,
+  );
+  const bindings = bindingFactory(
+    windowMock,
+    documentMock,
+    (message, level) => toasts.push({ message, level }),
+    { warn: (...args) => warnings.push(args) },
+  );
+  const helper = bindings.requireMeituanStatic('buildMeituanFetchPresentation');
+
+  const pendingResult = helper([]);
+  assert.equal(pendingResult.status, 'static_helper_missing');
+  assert.equal(warnings.length, 0, 'expected deferred loading must not emit a false missing-helper warning');
+  assert.equal(toasts.length, 0, 'expected deferred loading must not show an unavailable-feature toast');
+  assert.deepEqual(bindings.missingMeituanStaticHelpers, []);
+
+  documentMock.documentElement.dataset.suxiFullRenderReady = '1';
+  const missingResult = helper([]);
+  assert.equal(missingResult.status, 'static_helper_missing');
+  assert.ok(warnings.length >= 1, 'a real post-load gap must remain visible in the console');
+  assert.equal(toasts.length, 1, 'a real post-load gap must remain visible to the user');
+  assert.deepEqual(bindings.missingMeituanStaticHelpers, ['buildMeituanFetchPresentation']);
+
+  const warningCountBeforeRecovery = warnings.length;
+  windowMock.SUXI_MEITUAN_STATIC = {
+    buildMeituanFetchPresentation: rows => ({ status: 'ready', rowCount: rows.length }),
+  };
+  assert.deepEqual(helper([{}, {}]), { status: 'ready', rowCount: 2 });
+  assert.equal(warnings.length, warningCountBeforeRecovery, 'calling the real helper must not add another warning');
+  assert.deepEqual(bindings.missingMeituanStaticHelpers, []);
+});
+
 test('authenticated asset loads share in-flight work and recover after error or timeout', async () => {
   const loader = createAuthenticatedAssetLoaderHarness(10);
 

@@ -848,6 +848,16 @@ test('endpoint and type classifier keeps hotel, auxiliary, and county facts sepa
     targetDate,
   }).fact_kind, 'accommodation_revenue_overview');
   assert.equal(classifyDingdandaoResponseRequest({
+    path: DINGDANDAO_API_PATHS.total,
+    requestBody: { ...base, festivalType: -999999 },
+    targetDate,
+  }).fact_kind, 'hotel_total');
+  assert.equal(classifyDingdandaoResponseRequest({
+    path: DINGDANDAO_API_PATHS.revenueOverview,
+    requestBody: { ...base, festivalType: -999999 },
+    targetDate,
+  }).fact_kind, 'accommodation_revenue_overview');
+  assert.equal(classifyDingdandaoResponseRequest({
     path: DINGDANDAO_API_PATHS.countyTotal,
     requestBody: { ...base, festivalType: -1200 },
     targetDate,

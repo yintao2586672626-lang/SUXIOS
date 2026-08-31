@@ -349,6 +349,12 @@ final class HotelDataAnalystQualityReceiptService
         if ($items === [] && is_array($precise['metric_readback']['values'] ?? null)) {
             $items = $precise['metric_readback']['values'];
         }
+        if ($items === []
+            && (string)($precise['kind'] ?? '') === 'operating_metric_range'
+            && is_array($precise['points'] ?? null)
+        ) {
+            $items = $precise['points'];
+        }
         if ($items === [] && array_key_exists('value', $precise)) {
             $items = [$precise];
         }
@@ -620,7 +626,7 @@ final class HotelDataAnalystQualityReceiptService
     {
         $precise = is_array($answer['precise_result'] ?? null) ? $answer['precise_result'] : [];
         $set = is_array($precise['metric_set'] ?? null) ? $precise['metric_set'] : [];
-        foreach ([$set['items'] ?? null, $precise['items'] ?? null, $precise['precise_results'] ?? null, $precise['metric_readback']['values'] ?? null] as $items) {
+        foreach ([$set['items'] ?? null, $precise['items'] ?? null, $precise['precise_results'] ?? null, $precise['metric_readback']['values'] ?? null, $precise['points'] ?? null] as $items) {
             if (is_array($items) && array_is_list($items) && $items !== []) {
                 return array_values(array_filter($items, 'is_array'));
             }

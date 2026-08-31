@@ -46,21 +46,21 @@
 
                                 <div v-if="!['data-health', 'ctrip-public-profiles', 'ctrip-config'].includes(onlineDataTab)" class="ctrip-workspace-status mb-4 grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-slate-200 bg-slate-200 xl:grid-cols-4">
                                     <div class="bg-gray-50 px-3 py-2">
+                                        <div class="text-xs text-gray-500 mb-1">请求日期</div>
+                                        <div data-testid="ctrip-request-date" class="text-sm font-medium text-gray-800">{{ ctripRequestDateText }}</div>
+                                    </div>
+                                    <div class="bg-gray-50 px-3 py-2">
+                                        <div class="text-xs text-gray-500 mb-1">来源业务日</div>
+                                        <div data-testid="ctrip-source-business-date" :class="['text-sm font-medium', ctripLatestMeta?.response_date_status === 'verified' ? 'text-gray-800' : 'text-amber-700']">{{ ctripSourceBusinessDateText }}</div>
+                                    </div>
+                                    <div class="bg-gray-50 px-3 py-2">
                                         <div class="text-xs text-gray-500 mb-1">采集时间</div>
-                                        <div class="text-sm font-medium text-gray-800">{{ ctripLatestMeta?.fetched_at || '暂无' }}</div>
-                                    </div>
-                                    <div class="bg-gray-50 px-3 py-2">
-                                        <div class="text-xs text-gray-500 mb-1">数据日期</div>
-                                        <div class="text-sm font-medium text-gray-800">{{ ctripLatestMeta?.data_date || '暂无' }}</div>
-                                    </div>
-                                    <div class="bg-gray-50 px-3 py-2">
-                                        <div class="text-xs text-gray-500 mb-1">保存记录数</div>
-                                        <div class="text-sm font-medium text-gray-800">{{ ctripHeaderRecordCount ? ctripHeaderRecordCount + ' 条' : '暂无' }}</div>
+                                        <div data-testid="ctrip-collected-at" class="text-sm font-medium text-gray-800">{{ ctripCollectedAtText }}</div>
                                     </div>
                                     <div class="bg-gray-50 px-3 py-2">
                                         <div class="text-xs text-gray-500 mb-1">入库状态</div>
-                                        <div :class="['text-sm font-medium', ctripLatestSnapshotClass]">
-                                            {{ ctripLatestSnapshotText }}
+                                        <div data-testid="ctrip-persistence-status" :class="['text-sm font-medium', ctripLatestSnapshotClass]">
+                                            {{ ctripLatestSnapshotText }}<span v-if="ctripHeaderRecordCount"> · {{ ctripHeaderRecordCount }} 条</span>
                                         </div>
                                     </div>
                                 </div>

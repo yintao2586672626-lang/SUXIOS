@@ -16,6 +16,8 @@ use think\App;
 
 trait CtripTestCases
 {
+    use CtripSourceDateEvidenceTestCases;
+
 
     public function testCtripStableConfigInputReusesSavedHotelMetadataOnlyWhenRequestIsBlank(): void
     {
@@ -1231,67 +1233,6 @@ trait CtripTestCases
         self::assertStringContainsString('已停止展示', $result['message']);
     }
 
-    public function testCtripRankingCacheRequiresTrustedTodayDatabaseReadback(): void
-    {
-        $controller = $this->controller();
-        $trustedRow = [
-            'status' => 'success',
-            'validation_status' => 'normal',
-            'readback_verified' => 1,
-            'system_hotel_id' => 80,
-            'platform' => 'Ctrip',
-            'hotel_id' => '122476915',
-            'data_date' => '2026-08-03',
-            'ingestion_method' => 'browser_profile',
-            'source_trace_id' => 'ctrip:' . str_repeat('a', 64),
-            'snapshot_time' => '2026-08-04 09:12:00',
-            'amount' => 1888,
-            'raw_data' => json_encode([
-                'hotelId' => '122476915',
-                'hotelName' => '当前酒店',
-            ], JSON_UNESCAPED_UNICODE),
-        ];
-
-        $storageProof = $this->invokeNonPublic($controller, 'buildCtripLatestStorageProof', [[$trustedRow]]);
-        self::assertTrue($storageProof['readback_verified']);
-        self::assertTrue($storageProof['source_verified']);
-
-        $cache = $this->invokeNonPublic($controller, 'buildCtripRankingCachePolicy', [
-            $storageProof,
-            [
-                'data_date' => '2026-08-03',
-                'target_data_date' => '2026-08-03',
-                'fetched_at' => '2026-08-04 09:12:00',
-                'today' => '2026-08-04',
-                'identity_check' => ['ok' => true],
-                'display_hotels' => [['hotelId' => '122476915']],
-                'traffic_fallback' => null,
-            ],
-        ]);
-        self::assertTrue($cache['eligible']);
-        self::assertSame('trusted_today_snapshot', $cache['reason']);
-
-        $stale = $this->invokeNonPublic($controller, 'buildCtripRankingCachePolicy', [
-            $storageProof,
-            [
-                'data_date' => '2026-08-03',
-                'target_data_date' => '2026-08-03',
-                'fetched_at' => '2026-08-03 22:00:00',
-                'today' => '2026-08-04',
-                'identity_check' => ['ok' => true],
-                'display_hotels' => [['hotelId' => '122476915']],
-                'traffic_fallback' => null,
-            ],
-        ]);
-        self::assertFalse($stale['eligible']);
-        self::assertSame('not_collected_today', $stale['reason']);
-
-        $unreadRow = $trustedRow;
-        $unreadRow['readback_verified'] = 0;
-        $unreadProof = $this->invokeNonPublic($controller, 'buildCtripLatestStorageProof', [[$unreadRow]]);
-        self::assertFalse($unreadProof['readback_verified']);
-        self::assertFalse($unreadProof['source_verified']);
-    }
 
     public function testOnlineDataQualityAcceptsCtripOrderNumAlias(): void
     {

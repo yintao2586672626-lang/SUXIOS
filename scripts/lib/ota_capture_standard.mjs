@@ -473,6 +473,7 @@ export function extractOtaRequestDateEvidence({ url = '', payload = '' } = {}) {
 export const WEB_CAPTURE_STRATEGIES = Object.freeze({
   verifiedEndpointRecipe: 'verified_endpoint_recipe',
   browserResponse: 'browser_response',
+  browserResponseSupplement: 'browser_response_supplement',
   domFallback: 'dom_fallback',
 });
 
@@ -523,6 +524,7 @@ export function buildCollectionStrategyEvidence(options = {}) {
     [WEB_CAPTURE_STRATEGIES.browserResponse]: [
       WEB_CAPTURE_STRATEGIES.verifiedEndpointRecipe,
     ],
+    [WEB_CAPTURE_STRATEGIES.browserResponseSupplement]: [],
     [WEB_CAPTURE_STRATEGIES.domFallback]: [
       WEB_CAPTURE_STRATEGIES.verifiedEndpointRecipe,
       WEB_CAPTURE_STRATEGIES.browserResponse,

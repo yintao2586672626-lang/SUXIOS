@@ -165,7 +165,7 @@
                                             <td class="px-4 py-3">{{ operationExecutionStatusLabel(item.execution?.status) }}</td>
                                             <td class="px-4 py-3">{{ nodeText(item) }}</td>
                                             <td class="px-4 py-3 text-gray-600">
-                                                <div>{{ operationExecutionReviewText(item) }}</div>
+                                                <div class="whitespace-pre-line">{{ operationExecutionReviewText(item) }}</div>
                                                 <div v-if="item.action_management?.latest_review?.non_attribution_reasons?.length" class="mt-1 max-w-xs text-[11px] leading-4 text-amber-700">非归因：{{ item.action_management.latest_review.non_attribution_reasons.join('、') }}</div>
                                             </td>
                                             <td class="px-4 py-3">

@@ -12,6 +12,8 @@ use think\facade\Db;
 class RevenuePricingRecommendationService
 {
     public const TRUSTED_DECISION_CONTRACT_VERSION = 'revenue_ai_trusted_decision.v1';
+    public const PRICE_SUGGESTION_DECISION_ATTESTATION_VERSION = 'price_suggestion_decision_attestation.v1';
+    public const PRICE_SUGGESTION_PLATFORM = 'ctrip';
 
     private const MODEL_VERSION = 'advisory_revenue_pricing_v1';
     private const MAX_CHANGE_RATE = 0.20;
@@ -300,6 +302,28 @@ class RevenuePricingRecommendationService
                     (int)$roomTypeId,
                     $targetDate
                 );
+                $persistedFactorsJson = json_encode(
+                    $recommendation['factors'] ?? [],
+                    JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR
+                );
+                $persistedFactors = json_decode(
+                    $persistedFactorsJson,
+                    true,
+                    flags: JSON_THROW_ON_ERROR
+                );
+                $attestation = $this->buildPriceSuggestionDecisionAttestation([
+                    'tenant_id' => $tenantId,
+                    'hotel_id' => $hotelId,
+                    'room_type_id' => (int)$roomTypeId,
+                    'suggestion_date' => $targetDate,
+                    'current_price' => (float)$recommendation['current_price'],
+                    'min_price' => (float)($roomType['min_price'] ?? 0),
+                    'max_price' => (float)($roomType['max_price'] ?? 0),
+                    'platform' => self::PRICE_SUGGESTION_PLATFORM,
+                    'decision_as_of_time' => $now,
+                    'model_version' => (string)($persistedFactors['model'] ?? ''),
+                    'factors' => $persistedFactors,
+                ]);
                 $candidates[$key] = [
                     'key' => $key,
                     'tenant_id' => $tenantId,
@@ -325,11 +349,16 @@ class RevenuePricingRecommendationService
                             $recommendation['competitor_data'] ?? [],
                             JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR
                         ),
-                        'factors' => json_encode(
-                            $recommendation['factors'] ?? [],
+                        'factors' => $persistedFactorsJson,
+                        'demand_forecast_id' => (int)($recommendation['factors']['signals']['demand_forecast']['id'] ?? 0),
+                        'platform' => (string)$attestation['platform'],
+                        'decision_as_of_time' => (string)$attestation['decision_as_of_time'],
+                        'model_version' => (string)$attestation['model_version'],
+                        'decision_input_digest' => (string)$attestation['decision_input_digest'],
+                        'decision_source_refs' => json_encode(
+                            $attestation['decision_source_refs'],
                             JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR
                         ),
-                        'demand_forecast_id' => (int)($recommendation['factors']['signals']['demand_forecast']['id'] ?? 0),
                         'reason' => (string)$recommendation['reason'],
                         'active_dedupe_key' => $activeDedupeKey,
                         'create_time' => $now,
@@ -349,6 +378,111 @@ class RevenuePricingRecommendationService
         }
         $created = $this->readBackPendingSuggestionBatch($insertedCandidates);
         return [$this->markGeneratedSuggestionRows($this->enrichSuggestionRows($created)), $skipped];
+    }
+
+    /**
+     * Rebuild the immutable decision-input attestation carried by one newly
+     * generated price suggestion. The digest covers only saved inputs and
+     * source identities; it never implies approval, execution, or OTA write.
+     *
+     * @param array<string,mixed> $suggestion
+     * @return array<string,mixed>
+     */
+    public function buildPriceSuggestionDecisionAttestation(array $suggestion): array
+    {
+        $tenantId = (int)($suggestion['tenant_id'] ?? 0);
+        $hotelId = (int)($suggestion['hotel_id'] ?? 0);
+        $roomTypeId = (int)($suggestion['room_type_id'] ?? 0);
+        $targetDate = trim((string)($suggestion['suggestion_date'] ?? ''));
+        if ($tenantId <= 0 || $hotelId <= 0 || $roomTypeId <= 0
+            || !$this->isExactDate($targetDate)
+        ) {
+            throw new \InvalidArgumentException('price_suggestion_decision_attestation_scope_invalid');
+        }
+
+        $platform = strtolower(trim((string)($suggestion['platform'] ?? '')));
+        if ($platform !== self::PRICE_SUGGESTION_PLATFORM) {
+            throw new \InvalidArgumentException('price_suggestion_decision_attestation_platform_invalid');
+        }
+        $decisionAsOfTime = $this->normalizeDecisionAsOfTime(
+            $suggestion['decision_as_of_time'] ?? null
+        );
+        $factors = is_array($suggestion['factors'] ?? null)
+            ? $suggestion['factors']
+            : $this->decodeJsonObject($suggestion['factors'] ?? null);
+        $signals = is_array($factors['signals'] ?? null) ? $factors['signals'] : [];
+        $modelVersion = trim((string)($suggestion['model_version'] ?? ''));
+        $factorModelVersion = trim((string)($factors['model'] ?? ''));
+        if ($signals === [] || $modelVersion === '' || $factorModelVersion === ''
+            || $modelVersion !== $factorModelVersion
+        ) {
+            throw new \InvalidArgumentException('price_suggestion_decision_attestation_model_or_signals_invalid');
+        }
+
+        $currentPrice = $this->toNullableFloat($suggestion['current_price'] ?? null);
+        $minPrice = $this->toNullableFloat($suggestion['min_price'] ?? null);
+        $maxPrice = $this->toNullableFloat($suggestion['max_price'] ?? null);
+        if ($currentPrice === null || $currentPrice <= 0
+            || $minPrice === null || $minPrice < 0
+            || $maxPrice === null || $maxPrice < 0
+        ) {
+            throw new \InvalidArgumentException('price_suggestion_decision_attestation_price_scope_invalid');
+        }
+
+        $sourceRefs = $this->priceSuggestionDecisionSourceRefs(
+            $signals,
+            $hotelId,
+            $roomTypeId,
+            $targetDate
+        );
+        if ($sourceRefs === []) {
+            throw new \InvalidArgumentException('price_suggestion_decision_attestation_source_refs_missing');
+        }
+        $observedTimeCheck = $this->priceSuggestionObservedTimeCheck(
+            $signals,
+            $decisionAsOfTime
+        );
+        if ($observedTimeCheck['violations'] !== []) {
+            throw new \InvalidArgumentException('price_suggestion_decision_attestation_future_input_detected');
+        }
+
+        $inputSnapshot = [
+            'contract_version' => self::PRICE_SUGGESTION_DECISION_ATTESTATION_VERSION,
+            'tenant_id' => $tenantId,
+            'hotel_id' => $hotelId,
+            'room_type_id' => $roomTypeId,
+            'platform' => $platform,
+            'target_stay_date' => $targetDate,
+            'decision_as_of_time' => $decisionAsOfTime,
+            'model_version' => $modelVersion,
+            'room_snapshot' => [
+                'id' => $roomTypeId,
+                'base_price' => round($currentPrice, 2),
+                'min_price' => round($minPrice, 2),
+                'max_price' => round($maxPrice, 2),
+            ],
+            'signals' => $signals,
+            'source_refs' => $sourceRefs,
+            'observed_time_check' => $observedTimeCheck,
+            'decision_boundary' => 'manual_review_required_no_auto_rate_write',
+        ];
+
+        return [
+            'contract_version' => self::PRICE_SUGGESTION_DECISION_ATTESTATION_VERSION,
+            'platform' => $platform,
+            'decision_as_of_time' => $decisionAsOfTime,
+            'model_version' => $modelVersion,
+            'decision_input_digest' => hash(
+                'sha256',
+                $this->canonicalDecisionJson($inputSnapshot)
+            ),
+            'decision_source_refs' => $sourceRefs,
+            'input_snapshot' => $inputSnapshot,
+            'advisory_only' => true,
+            'automatic_approval' => false,
+            'automatic_price_write' => false,
+            'external_write_count' => 0,
+        ];
     }
 
     /**
@@ -490,6 +624,10 @@ class RevenuePricingRecommendationService
                 || (string)($persisted->getData()['active_dedupe_key'] ?? '') !== $dedupeKey
                 || abs((float)$persisted->current_price - (float)$recommendation['current_price']) > 0.001
                 || abs((float)$persisted->suggested_price - (float)$recommendation['suggested_price']) > 0.001
+                || !$this->priceSuggestionAttestationReadbackMatches(
+                    $persisted,
+                    (array)$candidate['row']
+                )
             ) {
                 throw new \RuntimeException('price suggestion saved readback identity mismatch');
             }
@@ -499,6 +637,41 @@ class RevenuePricingRecommendationService
             $created[] = $row;
         }
         return $created;
+    }
+
+    /** @param array<string,mixed> $expected */
+    private function priceSuggestionAttestationReadbackMatches(
+        PriceSuggestion $persisted,
+        array $expected
+    ): bool {
+        $row = $persisted->toArray();
+        $storedRefs = is_array($row['decision_source_refs'] ?? null)
+            ? array_values($row['decision_source_refs'])
+            : array_values($this->decodeJsonObject($row['decision_source_refs'] ?? null));
+        $expectedRefs = array_values($this->decodeJsonObject(
+            $expected['decision_source_refs'] ?? null
+        ));
+        if (strtolower(trim((string)($row['platform'] ?? '')))
+                !== (string)($expected['platform'] ?? '')
+            || trim((string)($row['decision_as_of_time'] ?? ''))
+                !== (string)($expected['decision_as_of_time'] ?? '')
+            || trim((string)($row['model_version'] ?? ''))
+                !== (string)($expected['model_version'] ?? '')
+            || strtolower(trim((string)($row['decision_input_digest'] ?? '')))
+                !== (string)($expected['decision_input_digest'] ?? '')
+            || $storedRefs !== $expectedRefs
+        ) {
+            return false;
+        }
+        try {
+            $rebuilt = $this->buildPriceSuggestionDecisionAttestation($row);
+        } catch (\Throwable) {
+            return false;
+        }
+        return hash_equals(
+            (string)$expected['decision_input_digest'],
+            (string)($rebuilt['decision_input_digest'] ?? '')
+        ) && $expectedRefs === (array)($rebuilt['decision_source_refs'] ?? []);
     }
 
     /** @param array<int,string> $dedupeKeys @return array<string,PriceSuggestion> */
@@ -993,10 +1166,81 @@ class RevenuePricingRecommendationService
         return array_map(function (array $row) use ($executionItemsByRecordId): array {
             $row = $this->normalizeSuggestionDisplayFields($row);
             $id = (int)($row['id'] ?? 0);
+            $row['decision_attestation'] = $this->describePriceSuggestionDecisionAttestation($row);
             $row['pricing_readiness'] = $this->buildSuggestionReadiness($row, $executionItemsByRecordId[$id] ?? null);
             $row = $this->enrichSuggestionDecisionQuality($row);
             return $row;
         }, $rows);
+    }
+
+    /** @param array<string,mixed> $row @return array<string,mixed> */
+    public function describePriceSuggestionDecisionAttestation(array $row): array
+    {
+        $fields = [
+            'platform', 'decision_as_of_time', 'model_version',
+            'decision_input_digest', 'decision_source_refs',
+        ];
+        $present = [];
+        foreach ($fields as $field) {
+            $value = $row[$field] ?? null;
+            $present[$field] = is_array($value)
+                ? $value !== []
+                : trim((string)($value ?? '')) !== '';
+        }
+        $presentCount = count(array_filter($present));
+        $base = [
+            'contract_version' => self::PRICE_SUGGESTION_DECISION_ATTESTATION_VERSION,
+            'status' => 'invalid',
+            'status_label' => '决策证明不完整',
+            'decision_as_of_time' => null,
+            'model_version' => null,
+            'source_ref_count' => 0,
+            'digest_prefix' => null,
+            'observed_timestamp_count' => 0,
+            'readback_verified' => false,
+            'advisory_only' => true,
+            'automatic_price_write' => false,
+            'external_write_count' => 0,
+        ];
+        if ($presentCount === 0) {
+            return [
+                ...$base,
+                'status' => 'legacy_reconstructed',
+                'status_label' => '历史建议·未冻结证明',
+            ];
+        }
+        if ($presentCount !== count($fields)) {
+            return $base;
+        }
+        try {
+            $rebuilt = $this->buildPriceSuggestionDecisionAttestation($row);
+            $storedRefs = is_array($row['decision_source_refs'] ?? null)
+                ? array_values($row['decision_source_refs'])
+                : array_values(json_decode(
+                    (string)($row['decision_source_refs'] ?? '[]'),
+                    true,
+                    flags: JSON_THROW_ON_ERROR
+                ));
+            $storedDigest = strtolower(trim((string)($row['decision_input_digest'] ?? '')));
+            if (!hash_equals($storedDigest, (string)$rebuilt['decision_input_digest'])
+                || $storedRefs !== (array)$rebuilt['decision_source_refs']
+            ) {
+                return $base;
+            }
+            return [
+                ...$base,
+                'status' => 'attested',
+                'status_label' => '决策输入已冻结',
+                'decision_as_of_time' => (string)$rebuilt['decision_as_of_time'],
+                'model_version' => (string)$rebuilt['model_version'],
+                'source_ref_count' => count($storedRefs),
+                'digest_prefix' => substr($storedDigest, 0, 12),
+                'observed_timestamp_count' => (int)($rebuilt['input_snapshot']['observed_time_check']['explicit_timestamp_count'] ?? 0),
+                'readback_verified' => true,
+            ];
+        } catch (\Throwable) {
+            return $base;
+        }
     }
 
     /** @return array<string, mixed> */
@@ -3199,6 +3443,164 @@ class RevenuePricingRecommendationService
         }
 
         return array_keys($result);
+    }
+
+    private function isExactDate(string $value): bool
+    {
+        if (preg_match('/^\d{4}-\d{2}-\d{2}$/D', $value) !== 1) {
+            return false;
+        }
+        [$year, $month, $day] = array_map('intval', explode('-', $value));
+        return checkdate($month, $day, $year);
+    }
+
+    private function normalizeDecisionAsOfTime(mixed $value): string
+    {
+        $text = trim(str_replace('T', ' ', (string)$value));
+        if (preg_match('/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}(?::\d{2})?$/D', $text) !== 1) {
+            throw new \InvalidArgumentException('price_suggestion_decision_as_of_time_invalid');
+        }
+        if (strlen($text) === 16) {
+            $text .= ':00';
+        }
+        $timestamp = \DateTimeImmutable::createFromFormat('!Y-m-d H:i:s', $text);
+        $errors = \DateTimeImmutable::getLastErrors();
+        if (!$timestamp instanceof \DateTimeImmutable
+            || ($errors !== false && ((int)$errors['warning_count'] > 0 || (int)$errors['error_count'] > 0))
+            || $timestamp->format('Y-m-d H:i:s') !== $text
+        ) {
+            throw new \InvalidArgumentException('price_suggestion_decision_as_of_time_invalid');
+        }
+        return $text;
+    }
+
+    /** @return array<int,string> */
+    private function priceSuggestionDecisionSourceRefs(
+        array $signals,
+        int $hotelId,
+        int $roomTypeId,
+        string $targetDate
+    ): array {
+        $refs = ['room_types#' . $roomTypeId];
+        $forecast = is_array($signals['demand_forecast'] ?? null)
+            ? $signals['demand_forecast'] : [];
+        $forecastId = (int)($forecast['id'] ?? 0);
+        if ($forecastId > 0) {
+            $refs[] = 'demand_forecasts#' . $forecastId;
+        }
+        $competitor = is_array($signals['competitor'] ?? null)
+            ? $signals['competitor'] : [];
+        $competitorDate = trim((string)($competitor['source_date'] ?? ''));
+        if ($competitorDate !== '' && $this->isExactDate($competitorDate)) {
+            $refs[] = implode('', [
+                'competitor_analysis#hotel:',
+                $hotelId,
+                ':room_type:',
+                $roomTypeId,
+                ':date:',
+                $competitorDate,
+            ]);
+        }
+
+        $walk = function (mixed $node) use (&$walk, &$refs): void {
+            if (is_array($node)) {
+                foreach ($node as $item) {
+                    $walk($item);
+                }
+                return;
+            }
+            if (!is_scalar($node)) {
+                return;
+            }
+            $text = trim((string)$node);
+            if (preg_match('/^[a-z][a-z0-9_]*#[a-z0-9:_|,.-]+$/iD', $text) === 1) {
+                $refs[] = $text;
+            }
+        };
+        $walk($signals);
+
+        $refs = array_values(array_unique(array_filter($refs)));
+        sort($refs, SORT_STRING);
+        return $refs;
+    }
+
+    /** @return array{explicit_timestamp_count:int,all_at_or_before_as_of:bool,violations:array<int,string>} */
+    private function priceSuggestionObservedTimeCheck(array $signals, string $asOfAt): array
+    {
+        $cutoff = strtotime($asOfAt);
+        if ($cutoff === false) {
+            throw new \InvalidArgumentException('price_suggestion_decision_as_of_time_invalid');
+        }
+        $timeKeys = [
+            'observed_at' => true,
+            'collected_at' => true,
+            'captured_at' => true,
+            'snapshot_time' => true,
+            'source_observed_at' => true,
+        ];
+        $checked = 0;
+        $violations = [];
+        $walk = function (mixed $node, string $path = 'signals') use (
+            &$walk,
+            &$checked,
+            &$violations,
+            $timeKeys,
+            $cutoff
+        ): void {
+            if (!is_array($node)) {
+                return;
+            }
+            foreach ($node as $key => $item) {
+                $nextPath = $path . '.' . (string)$key;
+                if (isset($timeKeys[strtolower((string)$key)]) && is_scalar($item)) {
+                    $text = trim(str_replace('T', ' ', (string)$item));
+                    if ($text !== '') {
+                        $timestamp = strtotime($text);
+                        $checked++;
+                        if ($timestamp === false || $timestamp > $cutoff) {
+                            $violations[] = $nextPath;
+                        }
+                    }
+                }
+                if (is_array($item)) {
+                    $walk($item, $nextPath);
+                }
+            }
+        };
+        $walk($signals);
+        $violations = array_values(array_unique($violations));
+        sort($violations, SORT_STRING);
+        return [
+            'explicit_timestamp_count' => $checked,
+            'all_at_or_before_as_of' => $violations === [],
+            'violations' => $violations,
+        ];
+    }
+
+    private function canonicalDecisionJson(mixed $value): string
+    {
+        return json_encode(
+            $this->canonicalizeDecisionInput($value),
+            JSON_UNESCAPED_UNICODE
+                | JSON_UNESCAPED_SLASHES
+                | JSON_PRESERVE_ZERO_FRACTION
+                | JSON_THROW_ON_ERROR
+        );
+    }
+
+    private function canonicalizeDecisionInput(mixed $value): mixed
+    {
+        if (!is_array($value)) {
+            return $value;
+        }
+        if (array_is_list($value)) {
+            return array_map([$this, 'canonicalizeDecisionInput'], $value);
+        }
+        ksort($value, SORT_STRING);
+        foreach ($value as $key => $item) {
+            $value[$key] = $this->canonicalizeDecisionInput($item);
+        }
+        return $value;
     }
 
     /**

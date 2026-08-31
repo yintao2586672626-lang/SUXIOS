@@ -270,7 +270,7 @@
     if (!appMainComponents) {
         throw new Error('缺少主应用领域组件：app-main-components.js 未加载');
     }
-    const { AiDecisionQualityDetails, OnlineTruthSummary, DualOtaAcceptanceReceipt, DualOtaPageVerificationPanel, resolveRevenueCockpitIntentLifecycle, parseOperationEvidenceNumber: parseOperationEvidenceNumberFromComponents, parseOptionalOperationEvidenceNumber: parseOptionalOperationEvidenceNumberFromComponents, operationEvidenceFirstText: operationEvidenceFirstTextFromComponents, operationEvidenceCleanObject: operationEvidenceCleanObjectFromComponents, operationEvidenceLocalTimestamp: operationEvidenceLocalTimestampFromComponents, normalizeOperationEvidenceDateTime: normalizeOperationEvidenceDateTimeFromComponents, normalizeOperationReviewStatus: normalizeOperationReviewStatusFromComponents, RevenueCockpitOpportunityDetails, RevenueCockpitSnapshotStatus, RevenueCockpitActionRestoreStatus, onlineDataComponents, loadOnlineDataComponentScript, readOnlineDataComponent, requireOnlineDataComponent, systemComponents, CtripOrderAnalysisPanel, requireSystemComponent, operatingOpportunityLabScript, OperatingOpportunityLab, platformAutoPanelsScript, ctripProfileFieldConfigPanelScript, competitorDeviceManagementScript, dataConfigDialogsScript, automationCollectionContractScript, PlatformAutoSettingsPanels, PlatformAutoSecondaryPanels, CtripProfileFieldConfigPanel, CompetitorDeviceManagement, DataConfigDialogs, aiDailyReportTaskPositiveInteger, aiDailyReportModelIsLimited, normalizeAiDailyReportGenerationTask, formatAiDailyReportGenerationStage, resolveAiDailyReportGenerationOutcome, pollAiDailyReportGenerationTask, SessionProofNotice, LocalCollectorLoginHandoff, PmsRealtimeSyncResult, HotelThreeSourceOnboardingPanel, OperatingLoopAuthority, ManagerCapabilityPanel, OperatingNetworkReplicationList, MeituanSearchKeywordWorkbench, SimulationHeroActions } = appMainComponents;
+    const { AiDecisionQualityDetails, OnlineTruthSummary, DualOtaAcceptanceReceipt, DualOtaPageVerificationPanel, resolveRevenueCockpitIntentLifecycle, parseOperationEvidenceNumber: parseOperationEvidenceNumberFromComponents, parseOptionalOperationEvidenceNumber: parseOptionalOperationEvidenceNumberFromComponents, operationEvidenceFirstText: operationEvidenceFirstTextFromComponents, operationEvidenceCleanObject: operationEvidenceCleanObjectFromComponents, operationEvidenceLocalTimestamp: operationEvidenceLocalTimestampFromComponents, normalizeOperationEvidenceDateTime: normalizeOperationEvidenceDateTimeFromComponents, normalizeOperationReviewStatus: normalizeOperationReviewStatusFromComponents, RevenueCockpitOpportunityDetails, RevenueCockpitSnapshotStatus, RevenueCockpitActionRestoreStatus, onlineDataComponents, loadOnlineDataComponentScript, readOnlineDataComponent, requireOnlineDataComponent, systemComponents, CtripOrderAnalysisPanel, requireSystemComponent, operatingOpportunityLabScript, OperatingOpportunityLab, operatingFinanceControlCenterScript, OperatingFinanceControlCenter, platformAutoPanelsScript, ctripProfileFieldConfigPanelScript, competitorDeviceManagementScript, dataConfigDialogsScript, automationCollectionContractScript, PlatformAutoSettingsPanels, PlatformAutoSecondaryPanels, CtripProfileFieldConfigPanel, CompetitorDeviceManagement, DataConfigDialogs, aiDailyReportTaskPositiveInteger, aiDailyReportModelIsLimited, normalizeAiDailyReportGenerationTask, formatAiDailyReportGenerationStage, resolveAiDailyReportGenerationOutcome, pollAiDailyReportGenerationTask, SessionProofNotice, LocalCollectorLoginHandoff, PmsRealtimeSyncResult, HotelThreeSourceOnboardingPanel, OperatingLoopAuthority, ManagerCapabilityPanel, OperatingNetworkReplicationList, MeituanSearchKeywordWorkbench, SimulationHeroActions } = appMainComponents;
 
     let recoverSuxiRuntimeError = null;
     let requestSuxiFullRenderForPage = () => false;
@@ -317,7 +317,7 @@
             OperatingNetworkReplicationList,
             MeituanSearchKeywordWorkbench,
             SimulationHeroActions,
-            OperatingOpportunityLab,
+            OperatingOpportunityLab, OperatingFinanceControlCenter,
             RevenueCockpitOpportunityDetails,
             RevenueCockpitSnapshotStatus,
             RevenueCockpitActionRestoreStatus,
@@ -541,6 +541,7 @@
                 const capabilities = Array.isArray(user.value?.capabilities) ? user.value.capabilities : [];
                 return !!user.value?.is_super_admin || capabilities.includes('all') || capabilities.includes(key);
             };
+            const operationFinanceCanExecute = computed(() => userHasCapability('operation.execute'));
             const canManageOwnHotels = () => !!user.value?.is_super_admin || userHasPermission('can_manage_own_hotels');
             const canMaintainOtaConfig = () => canManageOwnHotels() || userHasPermission('can_fetch_online_data');
             const canDeleteOtaConfig = (target = null) => {
@@ -702,6 +703,7 @@
                 ctripConfigListLoadingPriorityRank = null;
                 meituanConfigListLoadingPromise = null;
                 meituanConfigListLoadingPriorityRank = null;
+                resetOnlineAnalysisSessionState();
 
                 hotels.value = [];
                 permittedHotels.value = [];
@@ -2341,21 +2343,21 @@
                 {
                     key: 'ctrip_app_orders',
                     field: 'ctripOrderEstimate',
-                    label: '携程APP订单',
+                    label: '携程APP订单（估算）',
                     panelClass: 'bg-blue-50 border border-blue-200',
                     valueClass: 'text-blue-700',
                 },
                 {
                     key: 'qunar_orders',
                     field: 'qunarOrderEstimate',
-                    label: '去哪儿订单',
+                    label: '去哪儿订单（估算）',
                     panelClass: 'bg-cyan-50 border border-cyan-200',
                     valueClass: 'text-cyan-700',
                 },
                 {
                     key: 'distribution_orders',
                     field: 'ctripUndistributedOrderEstimate',
-                    label: '同程及分销渠道',
+                    label: '其他渠道（残差估算）',
                     panelClass: 'bg-amber-50 border border-amber-200',
                     valueClass: 'text-amber-700',
                 },
@@ -2369,7 +2371,7 @@
                 {
                     key: 'orders_including_cancelled',
                     field: 'totalOrderIncludingCancelledEstimate',
-                    label: '含取消总单',
+                    label: '含取消总单（估算）',
                     panelClass: 'bg-rose-50 border border-rose-200',
                     valueClass: 'text-rose-700',
                 },
@@ -2383,15 +2385,25 @@
                         .map(Number);
                     const complete = rows.length > 0 && values.length === rows.length;
                     const pending = rows.some(row => (
-                        String(row?.channelOrderBreakdownMeta?.status || '') === 'traffic_pending_window'
+                        ['traffic_pending_window', 'historical_traffic_reference_only'].includes(
+                            String(row?.channelOrderBreakdownMeta?.status || '')
+                        )
                         && (row?.[definition.field] === null || row?.[definition.field] === undefined)
+                    ));
+                    const conflicted = rows.some(row => (
+                        String(row?.channelOrderBreakdownMeta?.status || '') === 'ctrip_ecosystem_total_conflict'
+                        && definition.field === 'ctripUndistributedOrderEstimate'
                     ));
                     return {
                         ...definition,
                         value: values.length
                             ? Math.round(values.reduce((sum, value) => sum + value, 0)).toLocaleString('zh-CN')
-                            : (pending ? '待更新' : '未获取'),
-                        level: complete ? '' : (values.length ? `已汇总 ${values.length}/${rows.length} 家` : ''),
+                            : (conflicted ? '口径冲突' : (pending ? '待更新' : '未获取')),
+                        level: complete
+                            ? ''
+                            : (values.length
+                                ? `已汇总 ${values.length}/${rows.length} 家${conflicted ? ' · 含口径冲突' : ''}`
+                                : ''),
                         levelClass: 'text-xs font-medium text-amber-700',
                     };
                 });
@@ -2506,22 +2518,22 @@
             const ctripSalesOrderColumns = [
                 {
                     field: 'ctripOrderEstimate',
-                    label: '携程APP订单(含取消)',
-                    tableLabel: '携程APP订单',
+                    label: '携程APP订单（估算，含取消）',
+                    tableLabel: '携程APP订单（估）',
                     headerClass: 'bg-cyan-50 hover:bg-cyan-100',
                     title: '向上取整（携程APP访客量 × 携程转化率）；订单口径包含取消订单，非平台返回订单明细；00:00–08:00 数据更新窗口内不推算',
                 },
                 {
                     field: 'qunarOrderEstimate',
-                    label: '去哪儿订单(含取消)',
-                    tableLabel: '去哪儿订单',
+                    label: '去哪儿订单（估算，含取消）',
+                    tableLabel: '去哪儿订单（估）',
                     headerClass: 'bg-cyan-50 hover:bg-cyan-100',
                     title: '四舍五入（去哪儿详情页访客量 × 去哪儿转化率）。转化率＝统计周期内预订订单量之和 ÷ 详情页访客量之和；包含取消订单，不包含分销单、商旅单、机酒单和度假单；非平台返回订单明细；00:00–08:00 数据更新窗口内不推算',
                 },
                 {
                     field: 'ctripUndistributedOrderEstimate',
-                    label: '同程等渠道',
-                    tableLabel: '其他渠道订单',
+                    label: '其他渠道（残差估算）',
+                    tableLabel: '其他渠道（估）',
                     headerClass: 'bg-amber-50 hover:bg-amber-100',
                     title: '同程艺龙和携程小程序以及其他分销渠道（含取消）',
                 },
@@ -2534,8 +2546,8 @@
                 { field: 'bookOrderNum', label: '总平台订单', title: '携程系平台返回的预订订单总数，不含取消订单，不代表全酒店' },
                 {
                     field: 'totalOrderIncludingCancelledEstimate',
-                    label: '总订单（含取消）',
-                    tableLabel: '含取消总单',
+                    label: '总订单（含取消，估算）',
+                    tableLabel: '含取消总单（估）',
                     title: '总订单（含取消）默认按总平台订单 ÷ 0.75 四舍五入；同程及分销渠道为负时依次改用 ÷ 0.725、÷ 0.7，若仍为负则保留口径冲突提示，非平台直接返回字段',
                 },
                 ...ctripSalesOrderColumns,
@@ -2558,7 +2570,9 @@
                 const field = String(column.field || '');
                 const estimatedOrderFields = ['ctripOrderEstimate', 'qunarOrderEstimate', 'ctripUndistributedOrderEstimate'];
                 const status = String(hotel.channelOrderBreakdownMeta?.status || '');
-                if (estimatedOrderFields.includes(field) && status === 'traffic_pending_window') {
+                if (estimatedOrderFields.includes(field)
+                    && ['traffic_pending_window', 'historical_traffic_reference_only'].includes(status)
+                ) {
                     return '待更新';
                 }
                 const earlyFallback = hotel?.earlyMorningFallback && typeof hotel.earlyMorningFallback === 'object'
@@ -2581,8 +2595,7 @@
                 }
                 if (field === 'ctripUndistributedOrderEstimate') {
                     if (status === 'ctrip_ecosystem_total_conflict') {
-                        const excessOrders = Number(hotel.channelOrderBreakdownMeta?.ctripEstimateExcessOrders);
-                        return Number.isFinite(excessOrders) ? formatOptionalNumber(-Math.abs(excessOrders)) : '口径冲突';
+                        return '口径冲突';
                     }
                     if (status === 'input_missing') return '输入缺失';
                 }
@@ -2607,7 +2620,9 @@
                 const field = String(column.field || '');
                 const classes = ['px-3 py-2 border text-center'];
                 const status = String(hotel.channelOrderBreakdownMeta?.status || '');
-                if (status === 'traffic_pending_window' && ['ctripOrderEstimate', 'qunarOrderEstimate', 'ctripUndistributedOrderEstimate'].includes(field)) {
+                if (['traffic_pending_window', 'historical_traffic_reference_only'].includes(status)
+                    && ['ctripOrderEstimate', 'qunarOrderEstimate', 'ctripUndistributedOrderEstimate'].includes(field)
+                ) {
                     classes.push('font-medium text-amber-700');
                     return classes;
                 }
@@ -2709,6 +2724,7 @@
             const isCtripRankingFormAlignedWithConfig = requireCtripStatic('isCtripRankingFormAlignedWithConfig');
             const buildCtripManualCredentialState = requireCtripStatic('buildCtripManualCredentialState');
             const buildLatestCtripSnapshotModel = requireCtripStatic('buildLatestCtripSnapshotModel');
+            const isCtripVerifiedReportSource = requireCtripStatic('isCtripVerifiedReportSource');
             const resolveCtripRankingCachePolicy = ({
                 payload = {},
                 hotelId = '',
@@ -2755,6 +2771,7 @@
             };
             const buildTruthfulCtripDisplayModel = requireCtripStatic('buildTruthfulCtripDisplayModel');
             const isCtripLatestRequestCurrent = requireCtripStatic('isCtripLatestRequestCurrent');
+            const buildCtripFetchDateRange = requireCtripStatic('buildCtripFetchDateRange');
             const runCtripTrafficFetchFlow = requireCtripStatic('runCtripTrafficFetchFlow');
             const runCtripOverviewFetchFlow = requireCtripStatic('runCtripOverviewFetchFlow');
             const buildCtripProfileRecheckRunContext = requireCtripStatic('buildCtripProfileRecheckRunContext');
@@ -3017,12 +3034,11 @@
             const meituanStaticFallbackFor = (key) => {
                 const unavailable = () => {
                     const result = meituanStaticUnavailableResult(key);
+                    if (meituanDeferredRuntimePending()) return result;
                     console.warn('[meituan-static]', result.message);
                     try {
                         if (typeof showToast === 'function') showToast(result.message, 'warning');
-                    } catch (toastError) {
-                        console.warn('[meituan-static] 缺少工具提示未显示:', toastError?.message || toastError);
-                    }
+                    } catch (toastError) { console.warn('[meituan-static] 缺少工具提示未显示:', toastError?.message || toastError); }
                     return result;
                 };
                 if (key === 'defaultMeituanAdsUrl') return () => 'https://ebmidas.dianping.com/shopdiy/account/pcCpcEntry?continueUrl=/app/peon-merchant-product-menu/html/index.html';
@@ -3772,14 +3788,31 @@
             const ctripLatestComparison = ref(null);
             const ctripLatestLoading = ref(false);
             const ctripHeaderRecordCount = computed(() => ctripSavedCount.value || ctripLatestMeta.value?.total_records || 0);
+            const ctripRequestDateText = computed(() => {
+                const meta = ctripLatestMeta.value || {};
+                return meta.request_date || meta.target_data_date || meta.data_date || '暂无';
+            });
+            const ctripSourceBusinessDateText = computed(() => {
+                const meta = ctripLatestMeta.value || {};
+                if (meta.response_date_status === 'verified' && meta.source_business_date) {
+                    return meta.source_business_date;
+                }
+                if (meta.source_business_date) {
+                    return `${meta.source_business_date}（与请求不一致）`;
+                }
+                return '未核验';
+            });
+            const ctripCollectedAtText = computed(() => ctripLatestMeta.value?.fetched_at || '暂无');
             const ctripLatestSnapshotText = computed(() => {
                 if (ctripLatestLoading.value) return '加载中';
                 if (ctripLatestMeta.value?.status === 'identity_mismatch') return '酒店身份不匹配';
+                if (ctripLatestMeta.value?.status === 'source_unverified') return '来源日期未核验';
                 if (ctripLatestMeta.value?.status === 'success') return '入库成功';
                 return ctripLatestMeta.value?.status_label || '暂无入库快照';
             });
             const ctripLatestSnapshotClass = computed(() => {
                 if (ctripLatestMeta.value?.status === 'identity_mismatch') return 'text-red-700';
+                if (ctripLatestMeta.value?.status === 'source_unverified') return 'text-amber-700';
                 return ctripLatestMeta.value?.status === 'success' ? 'text-blue-700' : 'text-gray-600';
             });
             const ctripLatestDisplayStatusText = computed(() => {
@@ -3787,6 +3820,9 @@
                 const meta = ctripLatestMeta.value || {};
                 if (meta.status === 'identity_mismatch') {
                     return meta.identity_message || '当前门店与已入库竞争圈数据身份不一致，已停止展示，避免串店。';
+                }
+                if (meta.status === 'source_unverified') {
+                    return `请求日期 ${meta.request_date || meta.data_date || '未记录'} 已有保存记录，但平台返回未证明来源业务日；当前仅供审计查看，不进入可信日报、收益分析或渠道订单推算。`;
                 }
                 if (meta.status !== 'success') {
                     const targetDate = meta.target_data_date || '';
@@ -9971,43 +10007,26 @@
             let competitorEventFeedRequestSeq = 0;
             const onlineAnalysisLoading = computed(() => onlineAnalysisRowsLoading.value || competitorEventFeedLoading.value);
             const ONLINE_ANALYSIS_PANEL_CACHE_TTL_MS = 8000;
-            const onlineAnalysisDataResultCache = new Map();
-            const onlineAnalysisRowsResultCache = new Map();
-            const onlineAnalysisDataRequestPromises = new Map();
-            const onlineAnalysisRowsRequestPromises = new Map();
-            const cloneOnlineAnalysisPayload = (data) => {
-                if (!data || typeof data !== 'object') return data;
-                try {
-                    return typeof structuredClone === 'function'
-                        ? structuredClone(data)
-                        : JSON.parse(JSON.stringify(data));
-                } catch (error) {
-                    return data;
-                }
-            };
-            const clearOnlineAnalysisReadCaches = () => {
-                onlineAnalysisDataResultCache.clear();
-                onlineAnalysisRowsResultCache.clear();
-                onlineAnalysisDataRequestPromises.clear();
-                onlineAnalysisRowsRequestPromises.clear();
-            };
-            const readOnlineAnalysisResultCache = (cache, key, cacheMs) => {
-                if (!(cacheMs > 0)) return null;
-                const cached = cache.get(key);
-                if (!cached) return null;
-                if (cached.expiresAt <= Date.now()) {
-                    cache.delete(key);
-                    return null;
-                }
-                return cloneOnlineAnalysisPayload(cached.data);
-            };
-            const writeOnlineAnalysisResultCache = (cache, key, data, cacheMs) => {
-                if (cacheMs > 0) {
-                    cache.set(key, {
-                        expiresAt: Date.now() + cacheMs,
-                        data: cloneOnlineAnalysisPayload(data),
-                    });
-                }
+            const captureOnlineAnalysisRequestOwner = () => ({
+                session: captureAuthSession(),
+                tenantId: String(authContext.value?.tenantId || authContext.value?.tenant_id || user.value?.tenant_id || ''),
+                userId: String(user.value?.id || user.value?.user_id || ''),
+                hotelId: String(onlineDataFilter.value.hotel_id || '').trim(),
+            });
+            const isOnlineAnalysisRequestOwnerCurrent = (owner = {}) => (
+                isAuthSessionCurrent(owner.session)
+                && String(authContext.value?.tenantId || authContext.value?.tenant_id || user.value?.tenant_id || '') === owner.tenantId
+                && String(user.value?.id || user.value?.user_id || '') === owner.userId
+                && String(onlineDataFilter.value.hotel_id || '').trim() === owner.hotelId
+            );
+            const resetOnlineAnalysisSessionState = () => {
+                analysisData.value = { summary: null, chart_data: null, hotel_ranking: [] };
+                onlineAnalysisRows.value = [];
+                onlineAnalysisRowsLoading.value = false;
+                onlineAnalysisError.value = '';
+                onlineAnalysisPagination.value = { total: 0, page: 1, page_size: onlineAnalysisPageSize };
+                onlineAnalysisQualitySummary.value = null;
+                onlineAnalysisSourceRecord.value = null;
             };
             const onlineAnalysisSummaryCards = computed(() => {
                 const summary = analysisData.value?.summary || {};
@@ -10187,11 +10206,10 @@
 
             // 加载数据分析
             const loadAnalysisData = async (dimension = null, options = {}) => {
+                const requestOwner = captureOnlineAnalysisRequestOwner();
+                const isCurrentRequest = () => isOnlineAnalysisRequestOwnerCurrent(requestOwner);
                 try {
-                    // 如果传入维度参数，先更新维度
-                    if (dimension) {
-                        analysisDimension.value = dimension;
-                    }
+                    if (dimension) analysisDimension.value = dimension;
                     debugLog('加载数据分析, 维度:', analysisDimension.value);
                     const params = new URLSearchParams({
                         dimension: analysisDimension.value,
@@ -10205,57 +10223,29 @@
                     if (onlineDataFilter.value.data_type) {
                         params.append('data_type', onlineDataFilter.value.data_type);
                     }
-                    const requestKey = params.toString();
-                    const force = options?.force === true;
-                    const cacheMs = Number(options?.cacheMs ?? ONLINE_ANALYSIS_PANEL_CACHE_TTL_MS);
-                    if (force) {
-                        onlineAnalysisDataResultCache.delete(requestKey);
-                        onlineAnalysisDataRequestPromises.delete(requestKey);
-                    } else {
-                        const cached = readOnlineAnalysisResultCache(onlineAnalysisDataResultCache, requestKey, cacheMs);
-                        if (cached) {
-                            analysisData.value = cached || { summary: null, chart_data: null, hotel_ranking: [] };
-                            onlineAnalysisError.value = '';
-                            await nextTick();
-                            scheduleAnalysisChartRender();
-                            return analysisData.value;
-                        }
-                        if (onlineAnalysisDataRequestPromises.has(requestKey)) {
-                            const data = await onlineAnalysisDataRequestPromises.get(requestKey);
-                            analysisData.value = cloneOnlineAnalysisPayload(data) || { summary: null, chart_data: null, hotel_ranking: [] };
-                            onlineAnalysisError.value = '';
-                            await nextTick();
-                            scheduleAnalysisChartRender();
-                            return analysisData.value;
-                        }
-                    }
-                    const run = (async () => {
-                        const res = await request(`/online-data/data-analysis?${params}`, {
-                            businessContext: {
-                                hotelId: onlineDataFilter.value.hotel_id || '',
-                                tenantId: '',
-                            },
-                        });
-                        debugLog('数据分析结果:', res.data);
-                        if (res.code === 200) {
-                            const data = res.data || { summary: null, chart_data: null, hotel_ranking: [] };
-                            writeOnlineAnalysisResultCache(onlineAnalysisDataResultCache, requestKey, data, cacheMs);
-                            return cloneOnlineAnalysisPayload(data);
-                        }
-                        throw new Error(res.message || '数据分析加载失败');
-                    })().finally(() => {
-                        if (onlineAnalysisDataRequestPromises.get(requestKey) === run) {
-                            onlineAnalysisDataRequestPromises.delete(requestKey);
-                        }
+                    const requestPolicy = {
+                        ...currentPageReadPolicy(currentPage.value, 'current'),
+                        tenantId: requestOwner.tenantId,
+                        userId: requestOwner.userId,
+                        systemHotelId: requestOwner.hotelId,
+                        ttlMs: Number(options?.cacheMs ?? ONLINE_ANALYSIS_PANEL_CACHE_TTL_MS),
+                        force: options?.force === true,
+                    };
+                    const res = await request(`/online-data/data-analysis?${params}`, {
+                        businessContext: { hotelId: onlineDataFilter.value.hotel_id || '', tenantId: '' },
+                        requestPolicy,
                     });
-                    onlineAnalysisDataRequestPromises.set(requestKey, run);
-                    const data = await run;
-                    analysisData.value = data || { summary: null, chart_data: null, hotel_ranking: [] };
+                    if (!isCurrentRequest()) return null;
+                    debugLog('数据分析结果:', res.data);
+                    if (res.code !== 200) throw new Error(res.message || '数据分析加载失败');
+                    analysisData.value = res.data || { summary: null, chart_data: null, hotel_ranking: [] };
                     onlineAnalysisError.value = '';
                     await nextTick();
+                    if (!isCurrentRequest()) return null;
                     scheduleAnalysisChartRender();
                     return analysisData.value;
                 } catch (error) {
+                    if (!isCurrentRequest() || error?.name === 'AbortError') return null;
                     console.error('加载分析数据失败:', error);
                     onlineAnalysisError.value = error.message || '数据分析加载失败';
                     return null;
@@ -11900,7 +11890,7 @@
             const clearOnlineDataReadCaches = () => {
                 onlineDataListResultCache.clear();
                 onlineDataSummaryResultCache.clear();
-                clearOnlineAnalysisReadCaches();
+                clearCoordinatedGetSuccessCache();
             };
 
             const onlineDataCorrectionLedgerFieldLabels = Object.freeze({
@@ -12079,7 +12069,7 @@
                     const cacheMs = Number(loadOptions.cacheMs || 0);
                     if (force) {
                         onlineDataListResultCache.delete(requestKey);
-                        clearOnlineAnalysisReadCaches();
+                        clearCoordinatedGetSuccessCache();
                     } else if (readRequestCache(onlineDataListResultCache, requestKey, cacheMs)) {
                         return onlineDataList.value;
                     }
@@ -12173,7 +12163,8 @@
                 }
             };
 
-            const applyOnlineAnalysisRowsResponse = (data = {}) => {
+            const applyOnlineAnalysisRowsResponse = (data = {}, requestOwner = null) => {
+                if (requestOwner && !isOnlineAnalysisRequestOwnerCurrent(requestOwner)) return null;
                 onlineAnalysisRows.value = data?.list || [];
                 onlineAnalysisPagination.value = data?.pagination || { total: onlineAnalysisRows.value.length, page: 1, page_size: onlineAnalysisPageSize };
                 onlineAnalysisQualitySummary.value = data?.data_quality_summary || null;
@@ -12182,6 +12173,9 @@
             };
 
             const loadOnlineAnalysisRows = async (options = {}) => {
+                const requestOwner = captureOnlineAnalysisRequestOwner();
+                const isCurrentRequest = () => isOnlineAnalysisRequestOwnerCurrent(requestOwner);
+                if (!isCurrentRequest()) return [];
                 onlineAnalysisRowsLoading.value = true;
                 try {
                     const params = new URLSearchParams({
@@ -12194,8 +12188,8 @@
                     if (onlineDataFilter.value.end_date) {
                         params.append('end_date', onlineDataFilter.value.end_date);
                     }
-                    if (onlineDataFilter.value.hotel_id) {
-                        params.append('system_hotel_id', onlineDataFilter.value.hotel_id);
+                    if (requestOwner.hotelId) {
+                        params.append('system_hotel_id', requestOwner.hotelId);
                     }
                     if (onlineDataFilter.value.source) {
                         params.append('source', onlineDataFilter.value.source);
@@ -12203,46 +12197,29 @@
                     if (onlineDataFilter.value.data_type) {
                         params.append('data_type', onlineDataFilter.value.data_type);
                     }
-                    const requestKey = params.toString();
-                    const force = options?.force === true;
-                    const cacheMs = Number(options?.cacheMs ?? ONLINE_ANALYSIS_PANEL_CACHE_TTL_MS);
-                    if (force) {
-                        onlineAnalysisRowsResultCache.delete(requestKey);
-                        onlineAnalysisRowsRequestPromises.delete(requestKey);
-                    } else {
-                        const cached = readOnlineAnalysisResultCache(onlineAnalysisRowsResultCache, requestKey, cacheMs);
-                        if (cached) {
-                            return applyOnlineAnalysisRowsResponse(cached || {});
-                        }
-                        if (onlineAnalysisRowsRequestPromises.has(requestKey)) {
-                            const data = await onlineAnalysisRowsRequestPromises.get(requestKey);
-                            return applyOnlineAnalysisRowsResponse(cloneOnlineAnalysisPayload(data) || {});
-                        }
-                    }
-                    const run = (async () => {
-                        const res = await request(`/online-data/daily-data-list?${params}`);
-                        if (res.code === 200) {
-                            const data = res.data || {};
-                            writeOnlineAnalysisResultCache(onlineAnalysisRowsResultCache, requestKey, data, cacheMs);
-                            return cloneOnlineAnalysisPayload(data);
-                        }
-                        throw new Error(res.message || '入库明细加载失败');
-                    })().finally(() => {
-                        if (onlineAnalysisRowsRequestPromises.get(requestKey) === run) {
-                            onlineAnalysisRowsRequestPromises.delete(requestKey);
-                        }
-                    });
-                    onlineAnalysisRowsRequestPromises.set(requestKey, run);
-                    const data = await run;
-                    return applyOnlineAnalysisRowsResponse(data || {});
+                    const requestPolicy = {
+                        ...currentPageReadPolicy(currentPage.value, 'current'),
+                        tenantId: requestOwner.tenantId,
+                        userId: requestOwner.userId,
+                        systemHotelId: requestOwner.hotelId,
+                        ttlMs: Number(options?.cacheMs ?? ONLINE_ANALYSIS_PANEL_CACHE_TTL_MS),
+                        force: options?.force === true,
+                    };
+                    const res = await request(`/online-data/daily-data-list?${params}`, { requestPolicy });
+                    if (!isCurrentRequest()) return [];
+                    if (res.code !== 200) throw new Error(res.message || '入库明细加载失败');
+                    return applyOnlineAnalysisRowsResponse(res.data || {}, requestOwner) || [];
                 } catch (error) {
+                    if (!isCurrentRequest() || error?.name === 'AbortError') return [];
                     console.error('加载入库明细失败:', error);
                     onlineAnalysisRows.value = [];
                     onlineAnalysisQualitySummary.value = null;
                     onlineAnalysisError.value = error.message || '入库明细加载失败';
                     return [];
                 } finally {
-                    onlineAnalysisRowsLoading.value = false;
+                    if (isCurrentRequest()) {
+                        onlineAnalysisRowsLoading.value = false;
+                    }
                 }
             };
 
@@ -12423,9 +12400,6 @@
                     ...(options || {}),
                 });
                 onlineAnalysisError.value = '';
-                if (loadOptions.force === true) {
-                    clearOnlineAnalysisReadCaches();
-                }
                 if (!onlineDataFilter.value.hotel_id) {
                     const defaultHotelId = await resolveDefaultOnlineAnalysisHotelId();
                     if (defaultHotelId) {
@@ -16598,6 +16572,8 @@
             const filterVisibleMenuItems = requireSystemStatic('filterVisibleMenuItems');
             const resetOperatingTargetFormForContext = requireSystemStatic('resetOperatingTargetFormForContext');
             const replaceManualNotificationVariables = requireSystemStatic('replaceManualNotificationVariables');
+            const createOperatingQuestionState = requireSystemStatic('createOperatingQuestionState');
+            const operatingQuestionScopeCooldown = requireSystemStatic('operatingQuestionScopeCooldown');
             const menuItems = computed(() => resolveMenuItems(menuItemDefinitions, systemConfig.value));
 
             const testIdStaticScript = 'testid-static.js';
@@ -16781,6 +16757,7 @@
                         { type: 'source', sourcePath: 'revenue-research-center', overrides: { name: '收益诊断' } },
                         { type: 'source', sourcePath: 'operation-optimizer', overrides: { name: '运营优化台' } },
                         { type: 'source', sourcePath: 'operating-opportunities', overrides: { name: '经营机会' } },
+                        { type: 'source', sourcePath: 'operating-finance', overrides: { name: '净收与恢复' } },
                         { type: 'source', sourcePath: 'ai-simulation', overrides: { name: '酒店量化模拟' } },
                         { type: 'source', sourcePath: 'operating-targets', overrides: { name: '目标与事实' } },
                         { type: 'source', sourcePath: 'ai-daily-report', overrides: { name: 'AI经营日报' } },
@@ -19199,6 +19176,13 @@
                     || authContext.value?.tenant_id
                     || ''
                 );
+                const userId = String(
+                    normalizedPolicy.userId
+                    || normalizedPolicy.user_id
+                    || user.value?.id
+                    || user.value?.user_id
+                    || ''
+                );
                 const systemHotelId = String(
                     normalizedPolicy.systemHotelId
                     || normalizedPolicy.system_hotel_id
@@ -19230,7 +19214,7 @@
                     .map(([key, value]) => `${key}:${value}`)
                     .join('|');
                 const semanticKey = normalizedPolicy.key || `${normalizedUrl}|${requestOptions.credentials || 'same-origin'}|${requestOptions.cache || 'default'}|${safeHeaders}`;
-                return [requestSessionEpoch, tenantId, systemHotelId, businessDate, method, semanticKey].join('::');
+                return [requestSessionEpoch, tenantId, userId, systemHotelId, businessDate, method, semanticKey].join('::');
             };
             const coordinatedGetPriorityRank = (priority) => (
                 Object.prototype.hasOwnProperty.call(COORDINATED_GET_PRIORITY, priority)
@@ -19458,6 +19442,7 @@
                     });
                 });
             };
+            const clearCoordinatedGetSuccessCache = () => coordinatedGetSuccessCache.clear();
             const resetGetRequestCoordinator = ({ clearCache = true } = {}) => {
                 const error = createRequestAbortError('Authentication session changed');
                 coordinatedGetRequests.forEach(entry => {
@@ -19468,7 +19453,7 @@
                 });
                 coordinatedGetRequests.clear();
                 coordinatedGetQueue.splice(0).forEach(queued => queued.reject(error));
-                if (clearCache) coordinatedGetSuccessCache.clear();
+                if (clearCache) clearCoordinatedGetSuccessCache();
             };
 
             const executeApiRequest = async ({ requestSession, requestUrl, requestOptions, headers }) => {
@@ -23185,7 +23170,7 @@
             const platformSyncActionText = (message) => autoFetchStatic.value?.platformSyncActionText?.(message) || '';
 
             const operationStaticScript = 'operation-static.js';
-            const operationStaticScriptVersion = '20260829-ten-task-ha062bec589';
+            const operationStaticScriptVersion = '20260829-ten-task-haf9b1325a4';
             const operationStaticIntegrityKeys = [
                 'operationAlertFilters',
                 'operationStrategyTypes',
@@ -40560,49 +40545,6 @@
                 model_key: 'local_second_brain',
                 decision_object: '',
             });
-            const createOperatingQuestionState = () => ({
-                question: '',
-                loading: false,
-                error: '',
-                result: null,
-                scope_loading: false,
-                scope_loading_hotel_id: '',
-                scope_loaded_hotel_id: '',
-                scope_data_status: 'idle',
-                scope_options: [],
-                scope_recommended: null,
-                scope_error: '',
-                scope_notice: '',
-                scope_manual: false,
-                scope_auto_applied: false,
-                history_loading: false,
-                history_loading_hotel_id: '',
-                history_loaded_hotel_id: '',
-                history: [],
-                history_error: '',
-                history_opening_id: 0,
-                action_loading: '',
-                action_error: '',
-                action_intents: {},
-                local_ai_loading: false,
-                local_ai_error: '',
-                local_ai_capabilities: null,
-                council_loading: false, council_generation: 0,
-                council_error: '',
-                council_run: null,
-                media_loading: false,
-                media_error: '',
-                media_file: null,
-                media_result: null,
-                media_history: [],
-                wecom_loading: false,
-                wecom_error: '',
-                wecom_capabilities: null,
-                wecom_bindings: [],
-                wecom_events: [],
-                wecom_binding_code: null,
-                wecom_reply_loading_id: 0,
-            });
             const operatingQuestionForm = ref(createOperatingQuestionForm());
             const operatingQuestionState = ref(createOperatingQuestionState());
             let operatingQuestionScopeRequestId = 0;
@@ -40737,6 +40679,7 @@
                 state.scope_manual = false;
                 state.scope_auto_applied = false;
                 state.scope_loaded_hotel_id = '';
+                operatingQuestionScopeCooldown(state, '', null);
                 state.history_loaded_hotel_id = '';
                 if (operatingQuestionPanelIsActive()) {
                     void loadOperatingQuestionScopeOptions({ force: true, applyRecommendation: true });
@@ -43343,6 +43286,15 @@
                     ? operationOptimizerData.value.room_product_mix.rows
                     : []
             ));
+            const operationOptimizerMarketing = computed(() => (
+                operationOptimizerData.value?.meituan_marketing && typeof operationOptimizerData.value.meituan_marketing === 'object'
+                    ? operationOptimizerData.value.meituan_marketing : {}
+            ));
+            const operationOptimizerMarketingRows = computed(() => (Array.isArray(operationOptimizerMarketing.value.projections)
+                ? operationOptimizerMarketing.value.projections : []).map(item => {
+                const metrics = item?.metrics || {}, draft = operationOptimizerMarketing.value.pending_review_draft || {};
+                return { platform: 'meituan', platform_name: '美团', keyword: item.keyword || item.campaign_id || item?.scope?.object_label || '对象未取得', latest_date: item?.scope?.business_date || '', quality_status: item.quality_status || 'unverified', impressions: metrics.impressions, clicks: metrics.clicks, ctr: metrics.ctr_percent, spend: metrics.spend, orders: null, roas: metrics.roas, recommendation: { code: 'manual_marketing_review', title: '人工效果复核', reason: draft.review_reason || '严格事实不足，不生成投放结论。', can_create_task: false, blocked_reason: '必须由人工核对后另行决定，不自动创建任务。' } };
+            }));
             const operationOptimizerModules = computed(() => ([
                 {
                     key: 'keyword',
@@ -43356,6 +43308,7 @@
                     data: operationOptimizerData.value?.room_product_mix,
                     rows: operationOptimizerRoomRows.value,
                 },
+                { key: 'marketing', title: '美团搜索词与广告严格事实', data: operationOptimizerMarketing.value, rows: operationOptimizerMarketingRows.value },
             ]));
             const operationOptimizerChannelRows = computed(() => (
                 Array.isArray(operationOptimizerData.value?.channel_views)
@@ -43370,7 +43323,7 @@
             const operationOptimizerLoopText = computed(() => {
                 const summary = operationOptimizerLoopSummary.value;
                 if (!operationOptimizerData.value) return '缺字段不补零、渠道不合并';
-                return `可信建议 ${Number(summary.actionable_recommendation_count || 0)} · 任务 ${Number(summary.linked_intent_count || 0)} · 执行 ${Number(summary.executed_task_count || 0)} · 次日来源复盘 ${Number(summary.source_verified_review_count || 0)}｜${summary.next_action || ''}`;
+                return `可信建议 ${Number(summary.actionable_recommendation_count || 0)} · 任务 ${Number(summary.linked_intent_count || 0)} · 执行 ${Number(summary.executed_task_count || 0)} · 来源复盘 ${Number(summary.source_verified_review_count || 0)} · 美团投放 ${operationOptimizerStatusText(operationOptimizerMarketing.value.status)}｜${summary.next_action || ''}`;
             });
             const operationOptimizerStatusText = (status) => ({
                 ready: '可运营',
@@ -43463,6 +43416,7 @@
                     : 'border bg-gray-50 text-gray-400';
             };
             const operationOptimizerActionText = (recommendation = {}) => {
+                if (recommendation?.code === 'manual_marketing_review') return '待人工复核（未建任务）';
                 if (operationOptimizerCreatedIntentId(recommendation) > 0) {
                     return `进入${operationOptimizerStageText(recommendation)}`;
                 }
@@ -44678,6 +44632,7 @@
                     }
                     return state.scope_recommended;
                 }
+                if (operatingQuestionScopeCooldown(state, hotelKey).blocked) return null;
                 if (state.scope_loading && state.scope_loading_hotel_id === hotelKey) return null;
                 const requestId = ++operatingQuestionScopeRequestId;
                 state.scope_loading = true;
@@ -44688,6 +44643,10 @@
                     if (requestId !== operatingQuestionScopeRequestId
                         || Number(operatingQuestionForm.value.hotel_id || 0) !== hotelId
                     ) return null;
+                    if (Number(res.code || 0) === 429) {
+                        operatingQuestionScopeCooldown(state, hotelKey, res.data || {});
+                        return null;
+                    }
                     if (res.code !== 200) throw new Error(res.message || '可用事实范围读取失败');
                     const payload = res.data || {};
                     const recommendation = payload.recommended && typeof payload.recommended === 'object'
@@ -44702,6 +44661,7 @@
                     state.scope_options = Array.isArray(payload.platforms) ? payload.platforms : [];
                     state.scope_recommended = recommendation;
                     state.scope_loaded_hotel_id = hotelKey;
+                    operatingQuestionScopeCooldown(state, '', null);
                     if (recommendation && options.applyRecommendation !== false && !state.scope_manual) {
                         applyRecommendedOperatingQuestionScope(recommendation);
                     } else if (!recommendation) {
@@ -44941,6 +44901,7 @@
                     state.scope_manual = false;
                     state.scope_auto_applied = false;
                     state.scope_loaded_hotel_id = '';
+                    operatingQuestionScopeCooldown(state, '', null);
                     state.history_loaded_hotel_id = '';
                     state.media_file = null;
                     state.media_result = null;
@@ -44988,6 +44949,7 @@
                         state.wecom_bindings = [];
                         state.wecom_events = [];
                         state.scope_loaded_hotel_id = '';
+                        operatingQuestionScopeCooldown(state, '', null);
                         state.history_loaded_hotel_id = '';
                     }
                     if (operatingQuestionPanelIsActive()) {
@@ -47445,9 +47407,10 @@
                     : emptyCtripBusinessSummary();
                 topTenHotels.value = allHotels.slice(0, 10);
                 const activateDisplay = options.activateDisplay !== false;
+                const sourceReady = options.sourceReady === true;
                 if (activateDisplay) {
                     ctripRankingDisplayActivated.value = allHotels.length > 0;
-                    ctripFetchSuccess.value = allHotels.length > 0;
+                    ctripFetchSuccess.value = allHotels.length > 0 && sourceReady;
                 }
                 updateAiAnalysisHotelList();
                 return allHotels;
@@ -47868,8 +47831,10 @@
                 }
 
                 if (snapshotModel.hasRank && hydrateDisplay) {
+                    const sourceReady = isCtripVerifiedReportSource(snapshotModel.metadata || {});
                     const allHotels = useCtripDisplayHotels(snapshotModel.rankDisplayHotels, snapshotModel.rankDisplaySummary, {
                         activateDisplay: true,
+                        sourceReady,
                         orderEstimateDataDate: snapshotModel.rankDataDate || snapshotModel.metadata?.data_date || '',
                         orderEstimateTargetDataDate: snapshotModel.metadata?.target_data_date || snapshotModel.rankDataDate || '',
                         orderEstimateFetchedAt: snapshotModel.rankFetchedAt || snapshotModel.metadata?.fetched_at || '',
@@ -47908,7 +47873,9 @@
                 if (isCompassDataPage()) {
                     return String(dualOtaSelectedRange.value || '').trim();
                 }
-                return currentPage.value === 'ctrip-ebooking' ? 'yesterday' : '';
+                return currentPage.value === 'ctrip-ebooking'
+                    ? buildCtripFetchDateRange({}, new Date()).endDate
+                    : '';
             };
 
             const shouldHydrateLatestCtripDisplay = (hydrateDisplay) => {
@@ -51422,6 +51389,11 @@
             // 更新AI分析酒店列表（只从携程数据中提取，并合并同一酒店的不同榜单数据）
             const updateAiAnalysisHotelList = () => {
                 if (!hasAiAnalysisStatic.value) return;
+                if (ctripFetchSuccess.value !== true || !isCtripVerifiedReportSource(ctripLatestMeta.value || {})) {
+                    aiAnalysisHotelList.value = [];
+                    aiSelectedHotels.value = [];
+                    return;
+                }
                 const selection = buildCtripAiAnalysisHotelSelection({
                     ctripHotels: ctripHotelsList.value || [],
                     selectedKeys: aiSelectedHotels.value,
@@ -51741,15 +51713,18 @@
                 }
             };
 
-            const ctripCompetitionReportSourceReady = computed(() => (
-                ctripFetchSuccess.value === true
-                && String(selectedCtripHotelId.value || '').trim() !== ''
-                && /^\d{4}-\d{2}-\d{2}$/.test(String(ctripLatestMeta.value?.data_date || '').trim())
-            ));
+            const ctripCompetitionReportSourceReady = computed(() => {
+                const selectedHotelId = String(selectedCtripHotelId.value || '').trim();
+                const sourceHotelId = String(ctripLatestMeta.value?.hotel_id || '').trim();
+                return ctripFetchSuccess.value === true
+                    && selectedHotelId !== ''
+                    && sourceHotelId === selectedHotelId
+                    && isCtripVerifiedReportSource(ctripLatestMeta.value || {});
+            });
             const ctripCompetitionReportActionTitle = computed(() => {
                 if (!String(selectedCtripHotelId.value || '').trim()) return '请先选择当前门店';
-                if (!/^\d{4}-\d{2}-\d{2}$/.test(String(ctripLatestMeta.value?.data_date || '').trim())) {
-                    return '当前竞争圈缺少可核验的数据日期';
+                if (!isCtripVerifiedReportSource(ctripLatestMeta.value || {})) {
+                    return '当前竞争圈来源业务日未核验，仅可审计查看，不能生成报告';
                 }
                 return '使用当前酒店和数据日期，自动读取携程、美团竞争圈并产出报告';
             });
@@ -51805,8 +51780,9 @@
                     showToast('请先选择当前门店', 'warning');
                     return null;
                 }
-                if (!/^\d{4}-\d{2}-\d{2}$/.test(reportDate)) {
-                    showToast('当前竞争圈缺少可核验的数据日期，暂不能生成报告', 'warning');
+                if (String(ctripLatestMeta.value?.hotel_id || '').trim() !== hotelId
+                    || !isCtripVerifiedReportSource(ctripLatestMeta.value || {})) {
+                    showToast('当前竞争圈来源业务日未核验，仅可审计查看，暂不能生成报告', 'warning');
                     return null;
                 }
                 if (ctripCompetitionReportGeneratingEdition.value) return null;
@@ -55088,7 +55064,7 @@
                 loadOperatingGrowthArchive, changeOperatingGrowthHotel, changeOperatingGrowthDateRange, changeOperatingGrowthFilter, openOperatingGrowthEventForm, closeOperatingGrowthEventForm, updateOperatingGrowthEventDraft, submitOperatingGrowthEvent, openOperatingGrowthSource, addOperatingGrowthAnnotation, setOperatingGrowthMilestone,
                 operationLoading, operationError, operationFilters, strategyForm, actionForm,
                 setOperationExecutionViewMode,
-                managerCapabilityRequest: apiRequest, aiDailyReportDeliveryRequest: apiRequest, hotelDataAnalystFeedbackRequest: apiRequest,
+                managerCapabilityRequest: apiRequest, aiDailyReportDeliveryRequest: apiRequest, hotelDataAnalystFeedbackRequest: apiRequest, operationFinanceCanExecute,
                 operatingTargetForm, pmsHotelOptions, pmsHotelSearch, pmsFilteredHotelOptions, selectPmsHotel, operatingTargetResult, operatingPmsRealtimeSyncResult, operatingPmsRealtimeActionText, operatingPmsControlsBusy, operatingPmsRealtimeResultClass, operatingPmsRealtimeResultText, operatingTargetPmsStatus, operatingTargetMeituanCloudPmsStatus, operatingTargetPmsReconciliation, operatingTargetPreview, operatingTargetHistory, operatingTargetSnapshots, operatingTargetSelectedSnapshot, operatingTargetReportGate, operatingTargetTestFirstConfirmed, operatingTargetTestResult, operatingTargetError, operatingTargetLoading,
                 operatingTargetTaskDraft, operatingTargetTaskDraftError, operatingTargetTaskDraftLoading,
                 operatingHotelPmsBinding, operatingHotelPmsBindingError, operatingHotelPmsBindingLoading, selectedOperatingPmsSource, selectedOperatingPmsCapture, selectedOperatingPmsFactGate, selectedOperatingPmsProfileText, selectedOperatingPmsMetricRows, selectedOperatingPmsDeltas,
@@ -55181,7 +55157,7 @@
                 strongOtaReminderAutoDismissSeconds, strongOtaReminderSnoozeHours, strongOtaReminderAutoDismissSecondsRemaining,
                 showStrongOtaReminder, ignoreStrongOtaReminderBanner, deferStrongOtaReminder, snoozeStrongOtaReminder24Hours, openStrongOtaReminderItem, restartStrongOtaReminderAutoDismissCountdown,
                 operationOptimizerFilter, operationOptimizerData, operationOptimizerLoading, operationOptimizerError, operationOptimizerCreatingActionId,
-                operationOptimizerHotelOptions, operationOptimizerKeywordRows, operationOptimizerRoomRows, operationOptimizerModules, operationOptimizerChannelRows, operationOptimizerLoopSummary, operationOptimizerLoopText,
+                operationOptimizerHotelOptions, operationOptimizerKeywordRows, operationOptimizerRoomRows, operationOptimizerMarketing, operationOptimizerMarketingRows, operationOptimizerModules, operationOptimizerChannelRows, operationOptimizerLoopSummary, operationOptimizerLoopText,
                 operationOptimizerStatusText, operationOptimizerStatusClass, operationOptimizerRecommendationClass, operationOptimizerNumber,
                 operationOptimizerKeywordMetrics, operationOptimizerRoomMetrics, operationOptimizerChannelValue,
                 operationOptimizerExecutionFlow, operationOptimizerCreatedIntentId, operationOptimizerStageText,
@@ -55365,7 +55341,7 @@
                 loadCtripSearchOpportunity, fetchCtripTrafficAndSearchData, handleCtripTrafficHotelChange, toggleCtripSearchOpportunitySeries, downloadCtripSearchOpportunityImage, formatCtripSearchOpportunityValue, formatCtripSearchOpportunityAxisTick, formatCtripSearchOpportunityGap, formatCtripSearchOpportunityCapturedAt, formatCtripSearchOpportunityRelativeComparison, formatCtripSearchOpportunityPercentagePointGap, ctripSearchOpportunityBarStyle, ctripSearchOpportunityTooltipStyle, ctripSearchOpportunityMetricValue,
                 ctripOverviewFetchActionLoading, ctripOverviewCoreFetchRunning, ctripOverviewCoreFetchState,
                 showCtripCookieEditorModal, ctripCookieEditorLoading, ctripCookieEditorSaving, ctripCookieEditorForm,
-                ctripFetchSuccess, ctripCompetitionReportGeneratingEdition, ctripCompetitionReportSourceReady, ctripCompetitionReportActionTitle, ctripBusinessToolbarActions, handleCtripBusinessToolbarAction, generateCtripCompetitionReport, ctripRankingDisplayActivated, ctripSavedCount, ctripLatestMeta, ctripLatestLoading, ctripHeaderRecordCount, ctripLatestSnapshotText, ctripLatestSnapshotClass, ctripLatestDisplayStatusText, ctripLatestDisplayStatusClass,
+                ctripFetchSuccess, ctripCompetitionReportGeneratingEdition, ctripCompetitionReportSourceReady, ctripCompetitionReportActionTitle, ctripBusinessToolbarActions, handleCtripBusinessToolbarAction, generateCtripCompetitionReport, ctripRankingDisplayActivated, ctripSavedCount, ctripLatestMeta, ctripLatestLoading, ctripHeaderRecordCount, ctripRequestDateText, ctripSourceBusinessDateText, ctripCollectedAtText, ctripLatestSnapshotText, ctripLatestSnapshotClass, ctripLatestDisplayStatusText, ctripLatestDisplayStatusClass,
                 loadCtripConfigList, openCtripManualTab, loadLatestCtripData, loadSelectedCtripStoredBusinessDate, saveCtripConfig, useCtripConfig, editCtripConfig, toggleSelectAllCtripConfig, isAllCtripConfigSelected, deleteCtripConfig, openCtripCookieCreateFromHealth, openCtripCookieEditorFromHealth, editCtripCookieFromHealth, saveCtripCookieFromHealth, closeCtripCookieEditor, deleteCtripCookieFromHealth, batchDeleteCtripConfigs, generateCtripBookmarklet, openTargetSite, applyCtripConfig, applyCtripHotelConfig, scheduleCtripHotelConfigApply, openCtripOverviewFetchTab, prepareCtripOverviewFetchAction, runCtripOverviewFetchAction, runCtripOverviewCoreFetchAction, refreshCtripHotelConfigOptions, goConfigureCtripForSelectedHotel,
                 // 美团配置管理
                 meituanConfigForm, meituanConfigSaving, meituanConfigList, meituanTargetHotelOptions, meituanConfigListLoading, meituanConfigListLoaded, meituanConfigListLoadFailed, meituanBookmarklet, selectedMeituanHotelConfig, selectedMeituanManualCredentialState, canFetchMeituanRankingData,

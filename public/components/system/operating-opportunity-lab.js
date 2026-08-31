@@ -340,6 +340,23 @@
             const responsibility = selected?.responsibility || {};
             const boundary = selected?.external_write_boundary || {};
             const ranking = selected?.ranking || {};
+            const impactEstimate = selected?.impact_estimate && typeof selected.impact_estimate === 'object'
+                ? selected.impact_estimate
+                : {};
+            const impactScope = impactEstimate?.scope && typeof impactEstimate.scope === 'object'
+                ? impactEstimate.scope
+                : {};
+            const impactRefs = Array.isArray(impactEstimate?.input_refs)
+                ? impactEstimate.input_refs.map(item => String(item || '').trim()).filter(Boolean)
+                : [];
+            const impactReady = String(impactEstimate?.status || '') === 'deterministic_point_estimate'
+                && Number.isFinite(Number(impactEstimate?.low))
+                && Number.isFinite(Number(impactEstimate?.high));
+            const impactUnit = ({ users: '人' })[String(impactEstimate?.unit || '')]
+                || String(impactEstimate?.unit || '');
+            const impactValueText = impactReady
+                ? `${Number(impactEstimate.low).toLocaleString('zh-CN', { maximumFractionDigits: 6 })} ${impactUnit}`.trim()
+                : '当前不可计算';
             const currentIndex = lifecycle.indexOf(this.currentStatus);
             const personalSelected = this.personalizedSelected;
             const personalReceipt = this.personalizationReceipt;
@@ -514,6 +531,32 @@
                                 h('div', { class: 'rounded-xl border border-slate-200 bg-white p-4' }, [h('div', { class: 'text-xs text-slate-400' }, '预期观察指标'), h('div', { class: 'mt-1 text-sm font-semibold text-slate-900' }, metric.label || metric.key), h('div', { class: 'mt-1 text-xs text-slate-500' }, `基线 ${metric.baseline_value} ${metric.unit} · 只观察变化`)]),
                                 h('div', { class: 'rounded-xl border border-slate-200 bg-white p-4' }, [h('div', { class: 'text-xs text-slate-400' }, '适用范围'), h('div', { class: 'mt-1 text-sm font-semibold text-slate-900' }, `${scope.platform || '-'} · ${scope.business_date || '-'}`), h('div', { class: 'mt-1 text-xs leading-5 text-slate-500' }, scope.scope_note)]),
                             ]),
+                            h('section', {
+                                class: `rounded-xl border p-4 ${impactReady ? 'border-emerald-200 bg-emerald-50/70' : 'border-slate-200 bg-white'}`,
+                                'data-testid': 'daily-one-thing-impact-estimate',
+                                'data-impact-status': String(impactEstimate?.status || 'not_calculable'),
+                                'data-impact-low': impactReady ? String(impactEstimate.low) : '',
+                                'data-impact-high': impactReady ? String(impactEstimate.high) : '',
+                            }, [
+                                h('div', { class: 'flex flex-wrap items-center justify-between gap-2' }, [
+                                    h('h4', { class: 'text-sm font-semibold text-slate-900' }, '影响估算'),
+                                    h('span', {
+                                        class: `rounded-full border px-2 py-1 text-[11px] ${impactReady ? 'border-emerald-200 bg-white text-emerald-700' : 'border-slate-200 bg-slate-50 text-slate-500'}`,
+                                    }, impactReady ? '确定性点值' : '不可计算'),
+                                ]),
+                                h('div', { class: `mt-2 text-xl font-semibold ${impactReady ? 'text-emerald-900' : 'text-slate-500'}` }, impactValueText),
+                                h('p', { class: 'mt-2 text-xs leading-5 text-slate-600' }, impactReady
+                                    ? '当前值是同范围曝光人数减详情访客人数的漏斗差值；没有真实区间来源，因此 low 与 high 相同。它不是置信区间、可挽回人数、收益或因果效果。'
+                                    : '缺少同租户、同酒店、同平台、同营业日的严格分子、分母或来源引用；不会用排序分、默认值或模型猜测补齐。'),
+                                impactReady ? h('dl', { class: 'mt-3 grid gap-2 text-xs sm:grid-cols-2' }, [
+                                    h('div', [h('dt', { class: 'text-slate-400' }, '公式'), h('dd', { class: 'mt-1 break-words font-medium text-slate-700' }, String(impactEstimate.formula || '-'))]),
+                                    h('div', [h('dt', { class: 'text-slate-400' }, '范围'), h('dd', { class: 'mt-1 font-medium text-slate-700' }, `${impactScope.platform || '-'} · ${impactScope.business_date || '-'}`)]),
+                                ]) : null,
+                                impactReady && impactRefs.length ? h('details', { class: 'mt-3 text-[11px] text-slate-500' }, [
+                                    h('summary', { class: 'cursor-pointer font-medium' }, '查看计算输入引用'),
+                                    h('p', { class: 'mt-1 break-all leading-5', 'data-testid': 'daily-one-thing-impact-input-refs' }, impactRefs.join(' · ')),
+                                ]) : null,
+                            ].filter(Boolean)),
                         ]),
                         h('aside', { class: 'space-y-4' }, [
                             h('div', { class: 'rounded-2xl border border-slate-200 bg-white p-4' }, [

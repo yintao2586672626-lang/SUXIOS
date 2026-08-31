@@ -1261,9 +1261,25 @@ final class OperatingQuestionExecutionBridgeServiceTest extends TestCase
         self::assertSame('increased', $reviewed['action_management']['latest_review']['metric_change_status']);
         self::assertSame('continue', $reviewed['action_management']['latest_review']['recommendation']);
         self::assertFalse($reviewed['action_management']['latest_review']['causality_claimed']);
+        $managedReview = $reviewed['action_management']['latest_review'];
+        $strictReview = $reviewed['active_effect_review'];
+        self::assertSame('list_exposure', $managedReview['metric_key']);
+        self::assertSame('visitor_count', $managedReview['metric_unit']);
+        self::assertSame(1800.0, $managedReview['before_value']);
+        self::assertSame(1950.0, $managedReview['after_value']);
+        self::assertSame(150.0, $managedReview['delta_value']);
+        self::assertSame((int)$strictReview['id'], (int)$managedReview['effect_review_id']);
+        self::assertSame('met', $strictReview['outcome_status']);
+        self::assertSame(150.0, (float)$strictReview['outcome']['actual_delta']);
+        self::assertFalse($strictReview['causality_claimed']);
+        self::assertFalse($strictReview['outcome']['causality_claimed']);
+        self::assertContains(
+            'operation_effect_reviews#' . (int)$strictReview['id'],
+            $managedReview['evidence_refs']
+        );
         self::assertContains(
             'observational_before_after_no_control_group',
-            $reviewed['action_management']['latest_review']['non_attribution_reasons']
+            $managedReview['non_attribution_reasons']
         );
         self::assertSame(1, (int)Db::name('operation_effect_reviews')->count());
 
@@ -1279,8 +1295,20 @@ final class OperatingQuestionExecutionBridgeServiceTest extends TestCase
         );
         self::assertCount(3, $exact['action_management']['traceability']['evidence_refs']);
         self::assertCount(1, $exact['action_management']['traceability']['review_refs']);
+        self::assertSame($managedReview['content_digest'], $exact['action_management']['latest_review']['content_digest']);
+        self::assertSame($strictReview['content_digest'], $exact['active_effect_review']['content_digest']);
         self::assertFalse($exact['action_management']['historical_records_mutated']);
         self::assertFalse($exact['action_management']['external_action_performed']);
+
+        $reconciledAgain = $management->reconcileScheduledExecutionTask($taskId, [20]);
+        self::assertSame('already_reviewed', $reconciledAgain['status']);
+        $reviewedAgain = $management->reviewExecutionTask($taskId, [20], [
+            'result_status' => 'success',
+            'result_summary' => '同酒店、同携程、同指标的新回读窗口显示列表曝光增加 150。',
+        ], 8);
+        self::assertSame($managedReview['content_digest'], $reviewedAgain['action_management']['latest_review']['content_digest']);
+        self::assertSame(1, (int)Db::name('operation_effect_reviews')->count());
+        self::assertSame(1, (int)Db::name('operation_action_reviews')->count());
     }
 
     public function testVerificationOnlyMeituanActionUsesObservationApprovalAndRealDetailExposureReview(): void

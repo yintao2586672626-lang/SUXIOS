@@ -125,10 +125,11 @@ trait PlatformDataImportParsingConcern
             return [];
         }
 
-        $headers = $this->normalizeHeaderRow(array_values(array_shift($matrix)));
+        // XLSX omits empty cells from sheet XML. Preserve the original column
+        // indexes so a blank B cell cannot shift a value from C into B.
+        $headers = $this->normalizeHeaderRow(array_shift($matrix));
         $rows = [];
         foreach ($matrix as $cells) {
-            $cells = array_values($cells);
             $row = [];
             foreach ($headers as $index => $header) {
                 if ($header === '') {

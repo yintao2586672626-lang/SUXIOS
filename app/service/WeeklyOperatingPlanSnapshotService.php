@@ -191,6 +191,30 @@ final class WeeklyOperatingPlanSnapshotService
         $broadcasts = array_values(array_filter((array)($sources['broadcasts'] ?? []), 'is_array'));
         $intents = array_values(array_filter((array)($sources['intents'] ?? []), 'is_array'));
         $tasks = array_values(array_filter((array)($sources['tasks'] ?? []), 'is_array'));
+        $reviewedObservations = array_values(array_filter(
+            (array)($sources['reviewed_observations'] ?? []),
+            static fn(mixed $review): bool => is_array($review)
+                && (int)($review['baseline']['system_hotel_id'] ?? 0) === $hotelId
+                && (int)($review['followup']['system_hotel_id'] ?? 0) === $hotelId
+        ));
+        $learningSummary = (new LongitudinalEvidenceLearningService())
+            ->summarizeReviews($reviewedObservations, 3);
+        $learningProjection = $this->compactOutcomeLearningSummary($learningSummary);
+        $outcomeLearningRuntime = is_array($sources['outcome_learning_runtime'] ?? null)
+            ? [
+                'contract_version' => (string)($sources['outcome_learning_runtime']['contract_version'] ?? OperatingOutcomeLearningRuntimeService::CONTRACT_VERSION),
+                'status' => (string)($sources['outcome_learning_runtime']['status'] ?? 'missing'),
+                'reviewed_observation_count' => max(0, (int)($sources['outcome_learning_runtime']['reviewed_observation_count'] ?? count($reviewedObservations))),
+                'data_gaps' => array_values((array)($sources['outcome_learning_runtime']['data_gaps'] ?? [])),
+                'external_write_count' => 0,
+            ]
+            : [
+                'contract_version' => OperatingOutcomeLearningRuntimeService::CONTRACT_VERSION,
+                'status' => $reviewedObservations === [] ? 'missing' : 'ready',
+                'reviewed_observation_count' => count($reviewedObservations),
+                'data_gaps' => [],
+                'external_write_count' => 0,
+            ];
         $sourceErrors = array_values(array_unique(array_filter(array_map(
             static fn(mixed $value): string => trim((string)$value),
             (array)($sources['source_errors'] ?? [])
@@ -221,8 +245,19 @@ final class WeeklyOperatingPlanSnapshotService
             $dailyByDate,
             $intents,
             $tasks,
-            $sourceErrors
+            $sourceErrors,
+            $learningSummary,
+            $hotelId
         );
+        $focus['outcome_learning_summary'] = $learningProjection;
+        $focus['outcome_learning_runtime'] = $outcomeLearningRuntime;
+        $focus['learning_selection_reason'] = (string)($focus['type'] ?? '') === 'outcome_learning_review'
+            ? 'eligible_pattern_selected_after_higher_priority_operating_blockers_cleared'
+            : ((int)$learningProjection['pattern_candidate_count'] > 0
+                ? 'eligible_pattern_retained_but_higher_priority_operating_focus_selected'
+                : ((int)$learningProjection['contradictory_pattern_count'] > 0
+                    ? 'contradictory_or_indeterminate_learning_cannot_affect_weekly_focus'
+                    : 'insufficient_independent_reviewed_observations'));
         $status = $sourceErrors !== []
             ? 'blocked_by_source_errors'
             : (count($dailyByDate) === 7 && count($broadcastByDate) === 7
@@ -241,6 +276,8 @@ final class WeeklyOperatingPlanSnapshotService
             'lifecycle' => $lifecycle,
             'intents' => array_map(fn(array $row): array => $this->sourceIntentIdentity($row), $intents),
             'tasks' => array_map(fn(array $row): array => $this->sourceTaskIdentity($row), $tasks),
+            'outcome_learning' => $this->outcomeLearningIdentity($learningSummary),
+            'outcome_learning_runtime' => $outcomeLearningRuntime,
             'source_errors' => $sourceErrors,
         ];
         $sourceDigest = hash('sha256', $this->canonicalJson($sourceIdentity));
@@ -267,6 +304,8 @@ final class WeeklyOperatingPlanSnapshotService
             'broadcast_snapshot_refs' => $broadcastRefs,
             'lifecycle_summary' => $lifecycle,
             'repeated_gap_summary' => $gaps,
+            'outcome_learning_summary' => $learningProjection,
+            'outcome_learning_runtime' => $outcomeLearningRuntime,
             'selected_focus' => $focus,
             'missing_days' => $missingDays,
             'final_text_sha256' => $finalTextSha,
@@ -286,6 +325,8 @@ final class WeeklyOperatingPlanSnapshotService
             'trusted_broadcast_coverage_count' => count($broadcastByDate),
             'lifecycle_summary' => $lifecycle,
             'repeated_gap_summary' => $gaps,
+            'outcome_learning_summary' => $learningProjection,
+            'outcome_learning_runtime' => $outcomeLearningRuntime,
             'selected_focus' => $focus,
             'missing_days' => $missingDays,
             'source_digest' => $sourceDigest,
@@ -393,9 +434,21 @@ final class WeeklyOperatingPlanSnapshotService
             ->whereNull('deleted_at')
             ->order('id', 'asc')
             ->select()->toArray(), 'tasks_unavailable', $errors);
+        $outcomeLearning = (new OperatingOutcomeLearningRuntimeService())->load($tenantId, $hotelId);
+        $reviewedObservations = ($outcomeLearning['usable_for_tie_break'] ?? false) === true
+            ? array_values((array)($outcomeLearning['reviewed_observations'] ?? []))
+            : [];
         return compact('hotelName', 'dailyRuns', 'broadcasts', 'intents', 'tasks') + [
             'hotel_name' => $hotelName,
             'daily_runs' => $dailyRuns,
+            'reviewed_observations' => $reviewedObservations,
+            'outcome_learning_runtime' => [
+                'contract_version' => OperatingOutcomeLearningRuntimeService::CONTRACT_VERSION,
+                'status' => (string)($outcomeLearning['status'] ?? 'missing'),
+                'reviewed_observation_count' => (int)($outcomeLearning['reviewed_observation_count'] ?? 0),
+                'data_gaps' => array_values((array)($outcomeLearning['data_gaps'] ?? [])),
+                'external_write_count' => 0,
+            ],
             'source_errors' => $errors,
         ];
     }
@@ -453,7 +506,9 @@ final class WeeklyOperatingPlanSnapshotService
         array $dailyByDate,
         array $intents,
         array $tasks,
-        array $sourceErrors
+        array $sourceErrors,
+        array $learningSummary,
+        int $hotelId
     ): array {
         if ($sourceErrors !== []) {
             return [
@@ -515,6 +570,47 @@ final class WeeklyOperatingPlanSnapshotService
                 'evidence_refs' => array_map(static fn(string $date): string => 'business_date#' . $date, $missing),
             ];
         }
+        $patterns = array_values(array_filter(
+            (array)($learningSummary['items'] ?? []),
+            static fn(mixed $item): bool => is_array($item)
+                && (int)($item['scope']['system_hotel_id'] ?? 0) === $hotelId
+                && (string)($item['status'] ?? '') === 'pattern_candidate'
+                && (string)($item['learning_stage'] ?? '') === 'pattern_candidate'
+                && ($item['outcome_tie_break_eligible'] ?? false) === true
+                && ($item['causality_claimed'] ?? true) === false
+                && ($item['candidate_sop_eligible'] ?? true) === false
+                && (int)($item['sample_count'] ?? 0) >= max(3, (int)($item['minimum_samples'] ?? 3))
+                && (int)($item['contradicted_count'] ?? -1) === 0
+                && (int)($item['not_declared_count'] ?? -1) === 0
+        ));
+        usort($patterns, static fn(array $left, array $right): int => [
+            -(int)($left['sample_count'] ?? 0),
+            (string)($left['pattern_key'] ?? ''),
+        ] <=> [
+            -(int)($right['sample_count'] ?? 0),
+            (string)($right['pattern_key'] ?? ''),
+        ]);
+        if ($patterns !== []) {
+            $pattern = $patterns[0];
+            return [
+                'type' => 'outcome_learning_review',
+                'key' => (string)($pattern['pattern_key'] ?? ''),
+                'title' => '人工复核已重复验证的经营动作模式',
+                'reason' => '已有 ' . (int)$pattern['sample_count']
+                    . ' 个独立、同范围且无反例的复盘样本；仅把该模式列为下周人工复核重点，不自动晋级SOP。',
+                'evidence_refs' => array_values((array)($pattern['evidence_refs'] ?? [])),
+                'pattern' => [
+                    'pattern_key' => (string)($pattern['pattern_key'] ?? ''),
+                    'comparison_key' => (string)($pattern['comparison_key'] ?? ''),
+                    'action_type' => (string)($pattern['action_type'] ?? ''),
+                    'expected_direction' => (string)($pattern['expected_direction'] ?? ''),
+                    'sample_count' => (int)($pattern['sample_count'] ?? 0),
+                    'causality_claimed' => false,
+                    'automatic_sop_promotion' => false,
+                    'human_review_required' => true,
+                ],
+            ];
+        }
         return [
             'type' => 'workflow_improvement',
             'key' => 'weekly_loop_closed',
@@ -530,6 +626,7 @@ final class WeeklyOperatingPlanSnapshotService
     /** @return array<string,mixed> */
     private function normalizeStored(array $row, bool $created, bool $replayed): array
     {
+        $selectedFocus = $this->decode($row['selected_focus_json'] ?? '{}');
         $normalized = [
             'contract_version' => (string)($row['contract_version'] ?? 'weekly_operating_plan.v1'),
             'snapshot_id' => (int)($row['id'] ?? 0),
@@ -546,7 +643,19 @@ final class WeeklyOperatingPlanSnapshotService
             'broadcast_snapshot_refs' => $this->decode($row['broadcast_snapshot_refs_json'] ?? '[]'),
             'lifecycle_summary' => $this->decode($row['lifecycle_summary_json'] ?? '{}'),
             'repeated_gap_summary' => $this->decode($row['repeated_gap_summary_json'] ?? '[]'),
-            'selected_focus' => $this->decode($row['selected_focus_json'] ?? '{}'),
+            'selected_focus' => $selectedFocus,
+            'outcome_learning_summary' => is_array($selectedFocus['outcome_learning_summary'] ?? null)
+                ? $selectedFocus['outcome_learning_summary']
+                : $this->compactOutcomeLearningSummary([]),
+            'outcome_learning_runtime' => is_array($selectedFocus['outcome_learning_runtime'] ?? null)
+                ? $selectedFocus['outcome_learning_runtime']
+                : [
+                    'contract_version' => OperatingOutcomeLearningRuntimeService::CONTRACT_VERSION,
+                    'status' => 'missing',
+                    'reviewed_observation_count' => 0,
+                    'data_gaps' => [],
+                    'external_write_count' => 0,
+                ],
             'missing_days' => $this->decode($row['missing_days_json'] ?? '{}'),
             'final_text' => (string)($row['final_text'] ?? ''),
             'generation_trigger' => (string)($row['generation_trigger'] ?? ''),
@@ -636,6 +745,8 @@ final class WeeklyOperatingPlanSnapshotService
                 . '；已复盘：' . (int)$lifecycle['reviewed'] . '。',
             '下周唯一重点：' . (string)($focus['title'] ?? '等待可确认事项'),
             '选择依据：' . (string)($focus['reason'] ?? '当前证据不足。'),
+            '效果学习：' . $this->renderOutcomeLearning((array)($focus['outcome_learning_summary'] ?? []))
+                . '；选择关系：' . (string)($focus['learning_selection_reason'] ?? 'insufficient_independent_reviewed_observations') . '。',
             '缺失日期数：' . $missing . '。缺失保持缺失，不以0或旧报告补齐。',
             '边界：本计划只整理已保存事实和流程状态，不自动审批、执行、发送消息或写入OTA/PMS。',
         ]);
@@ -699,6 +810,75 @@ final class WeeklyOperatingPlanSnapshotService
             'executed_at' => (string)($row['executed_at'] ?? ''),
             'updated_at' => (string)($row['updated_at'] ?? $row['update_time'] ?? ''),
         ];
+    }
+
+    /** @param array<string,mixed> $summary @return array<string,mixed> */
+    private function compactOutcomeLearningSummary(array $summary): array
+    {
+        return [
+            'contract_version' => 'weekly_operating_outcome_learning_summary.v1',
+            'status' => (string)($summary['status'] ?? 'missing'),
+            'reviewed_observation_count' => max(0, (int)($summary['reviewed_observation_count'] ?? 0)),
+            'rejected_review_count' => max(0, (int)($summary['rejected_review_count'] ?? 0)),
+            'duplicate_review_count' => max(0, (int)($summary['duplicate_review_count'] ?? 0)),
+            'indeterminate_review_count' => max(0, (int)($summary['indeterminate_review_count'] ?? 0)),
+            'pattern_candidate_count' => max(0, (int)($summary['pattern_candidate_count'] ?? 0)),
+            'outcome_tie_break_candidate_count' => max(
+                0,
+                (int)($summary['outcome_tie_break_candidate_count'] ?? 0)
+            ),
+            'contradictory_pattern_count' => max(0, (int)($summary['contradictory_pattern_count'] ?? 0)),
+            'causality_claimed' => false,
+            'automatic_sop_promotion' => false,
+            'human_approval_required' => true,
+        ];
+    }
+
+    /** @param array<string,mixed> $summary @return array<string,mixed> */
+    private function outcomeLearningIdentity(array $summary): array
+    {
+        $items = [];
+        foreach ((array)($summary['items'] ?? []) as $item) {
+            if (!is_array($item)) continue;
+            $refs = array_values(array_unique(array_filter(array_map(
+                'strval',
+                (array)($item['evidence_refs'] ?? [])
+            ))));
+            sort($refs, SORT_STRING);
+            $items[] = [
+                'pattern_key' => (string)($item['pattern_key'] ?? ''),
+                'comparison_key' => (string)($item['comparison_key'] ?? ''),
+                'action_type' => (string)($item['action_type'] ?? ''),
+                'expected_direction' => (string)($item['expected_direction'] ?? ''),
+                'status' => (string)($item['status'] ?? ''),
+                'sample_count' => max(0, (int)($item['sample_count'] ?? 0)),
+                'aligned_count' => max(0, (int)($item['aligned_count'] ?? 0)),
+                'contradicted_count' => max(0, (int)($item['contradicted_count'] ?? 0)),
+                'not_declared_count' => max(0, (int)($item['not_declared_count'] ?? 0)),
+                'last_reviewed_at' => (string)($item['last_reviewed_at'] ?? ''),
+                'evidence_refs' => $refs,
+            ];
+        }
+        usort($items, static fn(array $left, array $right): int => strcmp(
+            (string)$left['pattern_key'],
+            (string)$right['pattern_key']
+        ));
+        return $this->compactOutcomeLearningSummary($summary) + ['items' => $items];
+    }
+
+    /** @param array<string,mixed> $summary */
+    private function renderOutcomeLearning(array $summary): string
+    {
+        $patterns = max(0, (int)($summary['pattern_candidate_count'] ?? 0));
+        $contradictions = max(0, (int)($summary['contradictory_pattern_count'] ?? 0));
+        $reviews = max(0, (int)($summary['reviewed_observation_count'] ?? 0));
+        if ($patterns > 0) {
+            return '已形成 ' . $patterns . ' 个待人工复核模式候选（' . $reviews . ' 个独立复盘观察）';
+        }
+        if ($contradictions > 0) {
+            return '存在反例或冲突模式，未用于排序或SOP晋级';
+        }
+        return '独立同范围复盘样本不足，未用于排序';
     }
 
     private function taskNeedsReview(array $task): bool

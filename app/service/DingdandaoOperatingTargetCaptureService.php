@@ -205,39 +205,58 @@ final class DingdandaoOperatingTargetCaptureService
         string $sourceApiPath,
         string $businessDate,
         string $providerHotelId,
-        string $collectionMode
+        string $collectionMode,
+        string $captureStrategy = 'verified_endpoint_recipe'
     ): ?array {
         $sourceApiPath = trim($sourceApiPath);
         $businessDate = trim($businessDate);
         $providerHotelId = trim($providerHotelId);
         $collectionMode = strtolower(trim($collectionMode));
+        $captureStrategy = strtolower(trim($captureStrategy));
         $recipeEvidence = self::expectedRecipeEvidence($collectionMode);
         if ($sourceApiPath === ''
             || !str_starts_with($sourceApiPath, '/')
             || !preg_match('/^\d{4}-\d{2}-\d{2}$/D', $businessDate)
             || $providerHotelId === ''
             || $recipeEvidence === null
+            || !in_array(
+                $captureStrategy,
+                [
+                    'verified_endpoint_recipe',
+                    'browser_response',
+                    'browser_response_supplement',
+                ],
+                true
+            )
         ) {
             return null;
         }
         $section = $collectionMode === 'full_diagnostic'
             ? 'pms_full_diagnostic'
             : 'pms_operating';
+        $captureSource = match ($captureStrategy) {
+            'browser_response' => 'authenticated_browser_network_response',
+            'browser_response_supplement' => 'operator_supplied_browser_response',
+            default => 'existing_session_direct_post',
+        };
+        $sourceMethod = $captureStrategy === 'browser_response_supplement'
+            ? 'manual_browser_import'
+            : 'authorized_browser_endpoint';
         $sourceUrlHash = hash('sha256', self::SOURCE_URL);
         $providerHotelIdHash = hash('sha256', $providerHotelId);
         $traceBasis = [
             'platform' => 'dingdandao',
             'section' => $section,
             'source_path' => $sourceApiPath . '#data',
-            'capture_source' => 'existing_session_direct_post',
+            'capture_source' => $captureSource,
             'source_url_hash' => $sourceUrlHash,
             'source_kind' => 'pms',
             'business_module' => 'accommodation_operating',
-            'source_method' => 'authorized_browser_endpoint',
+            'source_method' => $sourceMethod,
             'collection_mode' => $collectionMode,
             'data_date' => $businessDate,
             'provider_hotel_id_hash' => $providerHotelIdHash,
-            'capture_strategy' => 'verified_endpoint_recipe',
+            'capture_strategy' => $captureStrategy,
             'fallback_from' => null,
             'fallback_reason' => null,
             'response_evidence_type' => 'structured_json',
@@ -253,16 +272,16 @@ final class DingdandaoOperatingTargetCaptureService
         );
         return [
             'source_path' => $sourceApiPath . '#data',
-            'capture_source' => 'existing_session_direct_post',
+            'capture_source' => $captureSource,
             'section' => $section,
             'source_kind' => 'pms',
             'business_module' => 'accommodation_operating',
-            'source_method' => 'authorized_browser_endpoint',
+            'source_method' => $sourceMethod,
             'collection_mode' => $collectionMode,
             'data_date' => $businessDate,
             'provider_hotel_id_hash' => $providerHotelIdHash,
             'source_url_hash' => $sourceUrlHash,
-            'capture_strategy' => 'verified_endpoint_recipe',
+            'capture_strategy' => $captureStrategy,
             'fallback_from' => null,
             'fallback_reason' => null,
             'response_evidence_type' => 'structured_json',
@@ -469,6 +488,7 @@ final class DingdandaoOperatingTargetCaptureService
             $businessDate,
             $providerHotelId,
             $collectionMode,
+            $input['capture_strategy'] ?? null,
             $verifiedOnly
         );
         $identityEvidenceType = strtolower(trim((string)($input['identity_evidence_type'] ?? 'unverified')));
@@ -1177,6 +1197,9 @@ final class DingdandaoOperatingTargetCaptureService
             'source_api_path' => $row['source_api_path'] ?? null,
             'source_scope' => (string)$row['source_scope'],
             'capture_method' => (string)$row['capture_method'],
+            'capture_strategy' => is_array($snapshot['capture_evidence'] ?? null)
+                ? ($snapshot['capture_evidence']['capture_strategy'] ?? null)
+                : null,
             'collection_mode' => $snapshot['collection_mode'] ?? null,
             'summary' => [
                 'total_room_fee' => $this->nullableFloat($row['total_room_fee'] ?? null),
@@ -1813,7 +1836,7 @@ final class DingdandaoOperatingTargetCaptureService
                 || $subjectName === null
                 || $sourceRowIndex !== $index + 1
                 || $singleDayTotal === null
-                || $periodTotal === null
+                || ($subjectType !== -1 && $periodTotal === null)
                 || isset($subjectTypes[$subjectType])
             ) {
                 throw new \InvalidArgumentException(
@@ -3111,8 +3134,28 @@ final class DingdandaoOperatingTargetCaptureService
         string $businessDate,
         ?string $providerHotelId,
         ?string $collectionMode,
+        mixed $declaredCaptureStrategy,
         bool $required
     ): array {
+        $declaredCaptureStrategy = strtolower(trim((string)(
+            $declaredCaptureStrategy ?? ''
+        )));
+        if ($declaredCaptureStrategy !== ''
+            && !in_array(
+                $declaredCaptureStrategy,
+                [
+                    'verified_endpoint_recipe',
+                    'browser_response',
+                    'browser_response_supplement',
+                    'dom_fallback',
+                ],
+                true
+            )
+        ) {
+            throw new \InvalidArgumentException(
+                'dingdandao_capture_evidence_invalid'
+            );
+        }
         if ($value === null || $value === []) {
             if ($required) {
                 throw new \InvalidArgumentException(
@@ -3130,12 +3173,38 @@ final class DingdandaoOperatingTargetCaptureService
                 'dingdandao_capture_evidence_invalid'
             );
         }
+        $evidenceCaptureStrategy = strtolower(trim((string)(
+            $value['capture_strategy'] ?? ''
+        )));
+        $captureStrategy = $declaredCaptureStrategy !== ''
+            ? $declaredCaptureStrategy
+            : $evidenceCaptureStrategy;
+        $allowedCaptureStrategies = $required
+            ? ['verified_endpoint_recipe', 'browser_response']
+            : [
+                'verified_endpoint_recipe',
+                'browser_response',
+                'browser_response_supplement',
+            ];
+        if (!in_array(
+                $captureStrategy,
+                $allowedCaptureStrategies,
+                true
+            )
+            || $evidenceCaptureStrategy === ''
+            || !hash_equals($captureStrategy, $evidenceCaptureStrategy)
+        ) {
+            throw new \InvalidArgumentException(
+                'dingdandao_capture_evidence_invalid'
+            );
+        }
 
         $expected = self::expectedCaptureEvidence(
             $sourceApiPath,
             $businessDate,
             $providerHotelId,
-            $collectionMode
+            $collectionMode,
+            $captureStrategy
         );
         if ($expected === null
             || !hash_equals(

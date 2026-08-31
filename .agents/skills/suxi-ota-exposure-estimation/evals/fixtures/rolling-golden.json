@@ -1,0 +1,154 @@
+{
+  "method": "rolling_median",
+  "scope": {
+    "platform": "meituan",
+    "system_hotel_id": "fixture-hotel-001",
+    "business_date": "2026-08-12",
+    "timezone": "Asia/Shanghai",
+    "scope_key": "meituan|fixture-hotel-001|traffic-funnel-v1|exposure-users-detail-visitors|people|same-day-cumulative|23:00|Asia-Shanghai",
+    "source_path": "fixture/meituan/traffic-funnel/daily",
+    "metric_definition": "same-day 23:00 cumulative deduplicated people",
+    "metric_definition_version": "fixture-traffic-funnel-v1",
+    "time_basis": "same_day_cumulative",
+    "cumulative_cutoff": "23:00",
+    "target_metric": "exposure_users",
+    "target_unit": "people",
+    "browse_metric": "detail_visitors",
+    "browse_unit": "people"
+  },
+  "options": {
+    "min_verified_pairs": 7,
+    "window_days": 14,
+    "drift_ratio": 0.15,
+    "drift_policy_ref": "fixture:unvalidated-heuristic-15pct"
+  },
+  "calibration_rows": [
+    {
+      "date": "2026-08-01",
+      "platform": "meituan",
+      "system_hotel_id": "fixture-hotel-001",
+      "scope_key": "meituan|fixture-hotel-001|traffic-funnel-v1|exposure-users-detail-visitors|people|same-day-cumulative|23:00|Asia-Shanghai",
+      "detail_visitors_actual": 100,
+      "exposure_users_actual": 1140,
+      "quality": "verified_actual",
+      "source_ref": "fixture:pair-01"
+    },
+    {
+      "date": "2026-08-02",
+      "platform": "meituan",
+      "system_hotel_id": "fixture-hotel-001",
+      "scope_key": "meituan|fixture-hotel-001|traffic-funnel-v1|exposure-users-detail-visitors|people|same-day-cumulative|23:00|Asia-Shanghai",
+      "detail_visitors_actual": 110,
+      "exposure_users_actual": 1276,
+      "quality": "verified_actual",
+      "source_ref": "fixture:pair-02"
+    },
+    {
+      "date": "2026-08-03",
+      "platform": "meituan",
+      "system_hotel_id": "fixture-hotel-001",
+      "scope_key": "meituan|fixture-hotel-001|traffic-funnel-v1|exposure-users-detail-visitors|people|same-day-cumulative|23:00|Asia-Shanghai",
+      "detail_visitors_actual": 120,
+      "exposure_users_actual": 1380,
+      "quality": "verified_actual",
+      "source_ref": "fixture:pair-03"
+    },
+    {
+      "date": "2026-08-04",
+      "platform": "meituan",
+      "system_hotel_id": "fixture-hotel-001",
+      "scope_key": "meituan|fixture-hotel-001|traffic-funnel-v1|exposure-users-detail-visitors|people|same-day-cumulative|23:00|Asia-Shanghai",
+      "detail_visitors_actual": 90,
+      "exposure_users_actual": 1017,
+      "quality": "verified_actual",
+      "source_ref": "fixture:pair-04"
+    },
+    {
+      "date": "2026-08-05",
+      "platform": "meituan",
+      "system_hotel_id": "fixture-hotel-001",
+      "scope_key": "meituan|fixture-hotel-001|traffic-funnel-v1|exposure-users-detail-visitors|people|same-day-cumulative|23:00|Asia-Shanghai",
+      "detail_visitors_actual": 130,
+      "exposure_users_actual": 1521,
+      "quality": "verified_actual",
+      "source_ref": "fixture:pair-05"
+    },
+    {
+      "date": "2026-08-06",
+      "platform": "meituan",
+      "system_hotel_id": "fixture-hotel-001",
+      "scope_key": "meituan|fixture-hotel-001|traffic-funnel-v1|exposure-users-detail-visitors|people|same-day-cumulative|23:00|Asia-Shanghai",
+      "detail_visitors_actual": 140,
+      "exposure_users_actual": 1603,
+      "quality": "verified_actual",
+      "source_ref": "fixture:pair-06"
+    },
+    {
+      "date": "2026-08-07",
+      "platform": "meituan",
+      "system_hotel_id": "fixture-hotel-001",
+      "scope_key": "meituan|fixture-hotel-001|traffic-funnel-v1|exposure-users-detail-visitors|people|same-day-cumulative|23:00|Asia-Shanghai",
+      "detail_visitors_actual": 80,
+      "exposure_users_actual": 924,
+      "quality": "verified_actual",
+      "source_ref": "fixture:pair-07"
+    },
+    {
+      "date": "2026-08-08",
+      "platform": "meituan",
+      "system_hotel_id": "fixture-hotel-001",
+      "scope_key": "meituan|fixture-hotel-001|traffic-funnel-v1|exposure-users-detail-visitors|people|same-day-cumulative|23:00|Asia-Shanghai",
+      "detail_visitors_actual": 300,
+      "exposure_users_actual": 3600,
+      "quality": "verified_actual",
+      "event_status": "verified_event_outlier",
+      "baseline_eligible": false,
+      "source_ref": "fixture:event-pair-08"
+    },
+    {
+      "date": "2026-08-09",
+      "platform": "meituan",
+      "system_hotel_id": "fixture-hotel-001",
+      "scope_key": "meituan|fixture-hotel-001|traffic-funnel-v1|exposure-users-detail-visitors|people|same-day-cumulative|23:00|Asia-Shanghai",
+      "detail_visitors_actual": 150,
+      "exposure_users_actual": 1725,
+      "quality": "verified_actual",
+      "source_ref": "fixture:pair-09"
+    },
+    {
+      "date": "2026-08-10",
+      "platform": "meituan",
+      "system_hotel_id": "fixture-hotel-001",
+      "scope_key": "meituan|fixture-hotel-001|traffic-funnel-v1|exposure-users-detail-visitors|people|same-day-cumulative|23:00|Asia-Shanghai",
+      "detail_visitors_actual": 160,
+      "exposure_users_actual": 1816,
+      "quality": "verified_actual",
+      "source_ref": "fixture:pair-10"
+    },
+    {
+      "date": "2026-08-11",
+      "platform": "meituan",
+      "system_hotel_id": "fixture-hotel-001",
+      "scope_key": "meituan|fixture-hotel-001|traffic-funnel-v1|exposure-users-detail-visitors|people|same-day-cumulative|23:00|Asia-Shanghai",
+      "detail_visitors_actual": 170,
+      "exposure_users_actual": 1981,
+      "quality": "verified_actual",
+      "source_ref": "fixture:pair-11"
+    }
+  ],
+  "target": {
+    "date": "2026-08-12",
+    "platform": "meituan",
+    "system_hotel_id": "fixture-hotel-001",
+    "scope_key": "meituan|fixture-hotel-001|traffic-funnel-v1|exposure-users-detail-visitors|people|same-day-cumulative|23:00|Asia-Shanghai",
+    "detail_visitors": 126,
+    "detail_visitors_quality": "observed_actual",
+    "payment_conversion_rate_pct": 18.3,
+    "paid_orders": 23,
+    "source_ref": "fixture:target-2026-08-12",
+    "hourly_cumulative_detail_visitors": [
+      { "time": "19:00", "detail_visitors": 100 },
+      { "time": "23:00", "detail_visitors": 126 }
+    ]
+  }
+}

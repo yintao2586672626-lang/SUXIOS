@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Tests;
 
+use app\service\LongitudinalEvidenceLearningService;
 use app\service\WeeklyOperatingPlanSnapshotService;
 use PHPUnit\Framework\TestCase;
 
@@ -74,7 +75,7 @@ final class WeeklyOperatingPlanSnapshotServiceTest extends TestCase
             return $row['id'];
         };
         $service = new WeeklyOperatingPlanSnapshotService(
-            fn(): array => $this->sources(true),
+            fn(): array => $this->sourcesWithReviewedObservations(true),
             $reader,
             $writer,
             static fn(): \DateTimeImmutable => new \DateTimeImmutable(
@@ -98,6 +99,13 @@ final class WeeklyOperatingPlanSnapshotServiceTest extends TestCase
         self::assertSame($first['snapshot_fingerprint'], $exact['snapshot_fingerprint']);
         self::assertSame($first['source_digest'], $latest['source_digest']);
         self::assertSame($first['final_text'], $latest['final_text']);
+        self::assertSame(1, $first['outcome_learning_summary']['pattern_candidate_count']);
+        self::assertSame('repeated_data_gap', $first['selected_focus']['type']);
+        self::assertSame(
+            'eligible_pattern_retained_but_higher_priority_operating_focus_selected',
+            $first['selected_focus']['learning_selection_reason']
+        );
+        self::assertSame($first['outcome_learning_summary'], $exact['outcome_learning_summary']);
         self::assertCount(1, $rows);
 
         $rows[0]['lifecycle_summary_json'] = '{"pending_approval":999}';
@@ -131,6 +139,54 @@ final class WeeklyOperatingPlanSnapshotServiceTest extends TestCase
         self::assertNotEmpty($draft['missing_days']['daily_priority']);
         self::assertNotEmpty($draft['missing_days']['trusted_broadcast']);
         self::assertStringContainsString('缺失保持缺失', $draft['final_text']);
+    }
+
+    public function testEligibleOutcomePatternBecomesWeeklyHumanReviewFocusOnlyAfterBlockersClear(): void
+    {
+        $sources = $this->sourcesWithReviewedObservations(false);
+        $draft = (new WeeklyOperatingPlanSnapshotService())->buildDraft(
+            80,
+            80,
+            '2026-08-22',
+            '2026-08-28',
+            $sources
+        );
+
+        self::assertSame('ready', $draft['status']);
+        self::assertSame('outcome_learning_review', $draft['selected_focus']['type']);
+        self::assertSame(3, $draft['selected_focus']['pattern']['sample_count']);
+        self::assertSame(1, $draft['outcome_learning_summary']['pattern_candidate_count']);
+        self::assertFalse($draft['selected_focus']['pattern']['causality_claimed']);
+        self::assertFalse($draft['selected_focus']['pattern']['automatic_sop_promotion']);
+        self::assertTrue($draft['selected_focus']['pattern']['human_review_required']);
+        self::assertStringContainsString('仅把该模式列为下周人工复核重点', $draft['selected_focus']['reason']);
+        self::assertStringContainsString('效果学习：已形成 1 个待人工复核模式候选', $draft['final_text']);
+        self::assertSame(0, $draft['external_write_count']);
+        self::assertFalse($draft['automatic_execution']);
+
+        $counterexample = $sources['reviewed_observations'][2];
+        $counterexample['action']['action_ref'] = 'operation_execution_task#404';
+        $counterexample['action']['evidence_refs'] = ['operation_execution_task#404'];
+        $counterexample['action']['expectation_status'] = 'contradicted';
+        $counterexample['followup']['captured_at'] = '2026-08-14 08:00:00';
+        $counterexample['followup']['evidence_refs'] = ['online_daily_data#404'];
+        $sources['reviewed_observations'][] = $counterexample;
+        $blocked = (new WeeklyOperatingPlanSnapshotService())->buildDraft(
+            80,
+            80,
+            '2026-08-22',
+            '2026-08-28',
+            $sources
+        );
+
+        self::assertSame('workflow_improvement', $blocked['selected_focus']['type']);
+        self::assertSame(0, $blocked['outcome_learning_summary']['pattern_candidate_count']);
+        self::assertSame(1, $blocked['outcome_learning_summary']['contradictory_pattern_count']);
+        self::assertSame(
+            'contradictory_or_indeterminate_learning_cannot_affect_weekly_focus',
+            $blocked['selected_focus']['learning_selection_reason']
+        );
+        self::assertStringContainsString('存在反例或冲突模式，未用于排序或SOP晋级', $blocked['final_text']);
     }
 
     public function testMigrationApiAndWeeklyAutomationConsumeOneImmutableSnapshot(): void
@@ -313,5 +369,82 @@ final class WeeklyOperatingPlanSnapshotServiceTest extends TestCase
             'tasks' => [],
             'source_errors' => [],
         ];
+    }
+
+    /** @return array<string,mixed> */
+    private function sourcesWithReviewedObservations(bool $withRepeatedGap): array
+    {
+        $sources = $this->sources($withRepeatedGap);
+        $sources['reviewed_observations'] = $this->reviewedObservations();
+        return $sources;
+    }
+
+    /** @return list<array<string,mixed>> */
+    private function reviewedObservations(): array
+    {
+        $learning = new LongitudinalEvidenceLearningService();
+        $baseline = [
+            'system_hotel_id' => 80,
+            'platform' => 'ctrip',
+            'platform_hotel_id' => 'ctrip-80',
+            'business_module' => 'daily_one_thing',
+            'subject' => 'ota_fact_scope',
+            'metric_key' => 'detail_exposure',
+            'unit' => 'exposure_count',
+            'source_method' => 'trusted_fact_readback',
+            'date_role' => 'business_date',
+            'fact_scope' => 'ota_channel',
+            'period_start' => '2026-08-10',
+            'period_end' => '2026-08-10',
+            'target_stay_date' => '',
+            'captured_at' => '2026-08-10 08:00:00',
+            'quality_status' => 'verified',
+            'readback_status' => 'readback_verified',
+            'value' => 10,
+            'evidence_refs' => ['online_daily_data#400'],
+        ];
+        $followup = [
+            ...$baseline,
+            'period_start' => '2026-08-11',
+            'period_end' => '2026-08-11',
+            'captured_at' => '2026-08-11 08:00:00',
+            'value' => 12,
+            'evidence_refs' => ['online_daily_data#401'],
+        ];
+        $first = $learning->reviewAction($baseline, $followup, [
+            'action_ref' => 'operation_execution_task#401',
+            'action_type' => 'human_reviewed_operating_check',
+            'execution_status' => 'executed',
+            'executed_at' => '2026-08-10 10:00:00',
+            'evidence_refs' => ['operation_execution_task#401'],
+            'expected_direction' => 'increase',
+        ]);
+        $second = [
+            ...$first,
+            'action' => [
+                ...$first['action'],
+                'action_ref' => 'operation_execution_task#402',
+                'evidence_refs' => ['operation_execution_task#402'],
+            ],
+            'followup' => [
+                ...$first['followup'],
+                'captured_at' => '2026-08-12 08:00:00',
+                'evidence_refs' => ['online_daily_data#402'],
+            ],
+        ];
+        $third = [
+            ...$second,
+            'action' => [
+                ...$second['action'],
+                'action_ref' => 'operation_execution_task#403',
+                'evidence_refs' => ['operation_execution_task#403'],
+            ],
+            'followup' => [
+                ...$second['followup'],
+                'captured_at' => '2026-08-13 08:00:00',
+                'evidence_refs' => ['online_daily_data#403'],
+            ],
+        ];
+        return [$first, $second, $third];
     }
 }

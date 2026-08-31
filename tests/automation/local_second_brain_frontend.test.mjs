@@ -47,7 +47,7 @@ const sliceBetween = (source, startMarker, endMarker) => {
 const operatingQuestionFormSource = sliceBetween(
   appMain,
   'const createOperatingQuestionForm = () => ({',
-  'const createOperatingQuestionState = () => ({',
+  'const operatingQuestionForm = ref(createOperatingQuestionForm());',
 );
 const operatingQuestionProvideSource = sliceBetween(
   appMain,

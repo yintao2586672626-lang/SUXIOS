@@ -11,6 +11,8 @@ final class CtripCompetitionCirclePersistenceService
     public const DIMENSION = 'competition_circle_hotel';
     public const INGESTION_METHOD = 'manual_cookie_api';
     public const BACKFILL_INGESTION_METHOD = 'historical_backfill';
+    public const DATE_EVIDENCE_SCHEMA = 'ctrip_competition_circle_date_evidence.v1';
+    public const ENDPOINT_ID = 'getDayReportCompeteHotelReport';
 
     private ?\Closure $readbackReader;
 
@@ -19,6 +21,29 @@ final class CtripCompetitionCirclePersistenceService
         $this->readbackReader = $readbackReader !== null
             ? \Closure::fromCallable($readbackReader)
             : null;
+    }
+
+    /** @return array<string, mixed> */
+    public function buildPersistenceContext(
+        array $context,
+        array $selfHotelIds,
+        int $dataSourceId,
+        int $syncTaskId,
+        string $sourceTraceId
+    ): array {
+        return [
+            'self_hotel_ids' => $selfHotelIds,
+            'fetched_at' => (string)($context['fetched_at'] ?? date('Y-m-d H:i:s')),
+            'data_source_id' => $dataSourceId,
+            'sync_task_id' => $syncTaskId,
+            'source_trace_id' => $sourceTraceId,
+            'ingestion_method' => trim((string)($context['ingestion_method'] ?? '')) ?: 'legacy_parser',
+            'requested_business_date' => (string)($context['requested_business_date'] ?? ''),
+            'source_business_date' => (string)($context['source_business_date'] ?? ''),
+            'response_dates' => (array)($context['response_dates'] ?? []),
+            'response_date_evidence' => (array)($context['response_date_evidence'] ?? []),
+            'date_verification_status' => (string)($context['date_verification_status'] ?? ''),
+        ];
     }
 
     /**
@@ -198,6 +223,34 @@ final class CtripCompetitionCirclePersistenceService
         return $existingComplete && !$incomingComplete;
     }
 
+    public static function hasVerifiedDateEvidence(array $storedRow): bool
+    {
+        $dataDate = self::normalizeDate($storedRow['data_date'] ?? null);
+        $raw = self::decodeRawRow($storedRow);
+        $evidence = is_array($raw['_suxi_source_evidence'] ?? null)
+            ? $raw['_suxi_source_evidence']
+            : [];
+        $responseDates = array_values(array_unique(array_filter(array_map(
+            static fn(mixed $value): string => self::normalizeDate($value),
+            (array)($evidence['response_dates'] ?? [])
+        ))));
+        sort($responseDates);
+        $responseDateEvidence = self::normalizeResponseDateEvidence(
+            (array)($evidence['response_date_evidence'] ?? [])
+        );
+        $evidenceDates = array_values(array_unique(array_column($responseDateEvidence, 'date')));
+        sort($evidenceDates);
+
+        return $dataDate !== ''
+            && (string)($evidence['schema'] ?? '') === self::DATE_EVIDENCE_SCHEMA
+            && (string)($evidence['status'] ?? '') === 'verified'
+            && (string)($evidence['endpoint_id'] ?? '') === self::ENDPOINT_ID
+            && self::normalizeDate($evidence['request_date'] ?? null) === $dataDate
+            && self::normalizeDate($evidence['resolved_business_date'] ?? null) === $dataDate
+            && $responseDates === [$dataDate]
+            && $evidenceDates === [$dataDate];
+    }
+
     public function resolveOrCreateDataSource(
         int $systemHotelId,
         int $userId = 0,
@@ -327,12 +380,50 @@ final class CtripCompetitionCirclePersistenceService
         $expectedRows = [];
         $contextDataSourceId = (int)($context['data_source_id'] ?? 0);
         $contextSyncTaskId = (int)($context['sync_task_id'] ?? 0);
+        $requestedBusinessDate = self::normalizeDate($context['requested_business_date'] ?? $dataDate);
+        $sourceBusinessDate = self::normalizeDate($context['source_business_date'] ?? null);
+        $dateVerificationStatus = trim((string)($context['date_verification_status'] ?? ''));
+        $responseDates = array_values(array_unique(array_filter(array_map(
+            static fn(mixed $value): string => self::normalizeDate($value),
+            (array)($context['response_dates'] ?? [])
+        ))));
+        sort($responseDates);
+        $responseDateEvidence = self::normalizeResponseDateEvidence(
+            (array)($context['response_date_evidence'] ?? [])
+        );
+        $evidenceDates = array_values(array_unique(array_column($responseDateEvidence, 'date')));
+        sort($evidenceDates);
         $evidenceFlagCodes = [];
         if ($contextDataSourceId <= 0) {
             $evidenceFlagCodes[] = 'evidence_missing:data_source_id';
         }
         if ($contextSyncTaskId <= 0) {
             $evidenceFlagCodes[] = 'evidence_missing:sync_task_id';
+        }
+        if ($dateVerificationStatus !== 'verified'
+            || $sourceBusinessDate === ''
+            || $requestedBusinessDate === ''
+            || $sourceBusinessDate !== $requestedBusinessDate
+            || $responseDates !== [$sourceBusinessDate]
+            || $evidenceDates !== [$sourceBusinessDate]
+        ) {
+            $evidenceFlagCodes[] = 'evidence_missing:verified_source_business_date';
+        }
+        $ingestionMethod = trim((string)($context['ingestion_method'] ?? self::INGESTION_METHOD));
+        if ($ingestionMethod === self::INGESTION_METHOD
+            && in_array('evidence_missing:verified_source_business_date', $evidenceFlagCodes, true)
+        ) {
+            return [
+                'saved_count' => 0,
+                'processed_count' => 0,
+                'inserted_count' => 0,
+                'updated_count' => 0,
+                'skipped_count' => count($rows),
+                'row_ids' => [],
+                'readback_count' => 0,
+                'readback_verified' => false,
+                'readback_reason' => 'target_date_unverified',
+            ];
         }
 
         foreach ($rows as $row) {
@@ -342,14 +433,29 @@ final class CtripCompetitionCirclePersistenceService
             }
             $hotelId = self::platformHotelId($row);
             $hotelName = self::firstScalar($row, ['hotelName', 'hotel_name', 'HotelName', 'name']);
-            $rowDate = self::normalizeDate(
-                $row['dataDate']
-                ?? $row['date']
-                ?? $row['data_date']
-                ?? $row['statDate']
-                ?? $dataDate
-            ) ?: $dataDate;
+            $rowDate = $sourceBusinessDate !== ''
+                ? $sourceBusinessDate
+                : (self::normalizeDate(
+                    $row['dataDate']
+                    ?? $row['date']
+                    ?? $row['data_date']
+                    ?? $row['statDate']
+                    ?? $dataDate
+                ) ?: $dataDate);
             $semantics = self::normalizeRowSemantics($row, $context);
+            $rawRow = $row;
+            $rawRow['_suxi_source_evidence'] = [
+                'schema' => self::DATE_EVIDENCE_SCHEMA,
+                'status' => $dateVerificationStatus !== ''
+                    ? $dateVerificationStatus
+                    : 'target_date_unverified',
+                'endpoint_id' => self::ENDPOINT_ID,
+                'request_date' => $requestedBusinessDate,
+                'response_dates' => $responseDates,
+                'response_date_evidence' => $responseDateEvidence,
+                'resolved_business_date' => $sourceBusinessDate !== '' ? $sourceBusinessDate : null,
+                'captured_at' => $now,
+            ];
             $data = [
                 'tenant_id' => $tenantId,
                 'hotel_id' => $hotelId,
@@ -361,13 +467,13 @@ final class CtripCompetitionCirclePersistenceService
                 'book_order_num' => $semantics['book_order_num'],
                 'comment_score' => $semantics['comment_score'],
                 'qunar_comment_score' => $semantics['qunar_comment_score'],
-                'raw_data' => json_encode($row, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+                'raw_data' => json_encode($rawRow, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
                 'source' => 'ctrip',
                 'platform' => 'Ctrip',
                 'data_type' => self::DATA_TYPE,
                 'dimension' => self::DIMENSION,
                 'compare_type' => $semantics['compare_type'],
-                'ingestion_method' => (string)($context['ingestion_method'] ?? self::INGESTION_METHOD),
+                'ingestion_method' => $ingestionMethod,
                 'data_source_id' => $contextDataSourceId ?: null,
                 'sync_task_id' => $contextSyncTaskId ?: null,
                 'source_trace_id' => (string)($context['source_trace_id'] ?? ''),
@@ -757,6 +863,34 @@ final class CtripCompetitionCirclePersistenceService
         $text = trim((string)($value ?? ''));
         $timestamp = $text !== '' ? strtotime($text) : false;
         return $timestamp === false ? '' : date('Y-m-d', $timestamp);
+    }
+
+    /** @return array<int, array{path: string, date: string}> */
+    private static function normalizeResponseDateEvidence(array $items): array
+    {
+        $normalized = [];
+        foreach ($items as $item) {
+            if (!is_array($item)) {
+                continue;
+            }
+
+            $path = trim((string)($item['path'] ?? ''));
+            $date = self::normalizeDate($item['date'] ?? null);
+            if ($date === '' || preg_match(
+                '/^(?:(?:data|result|response|payload|content)\.){0,2}(?:dataDate|statDate|bizDate|businessDate|reportDate)$/D',
+                $path
+            ) !== 1) {
+                continue;
+            }
+
+            $normalized[$path . '|' . $date] = [
+                'path' => $path,
+                'date' => $date,
+            ];
+        }
+
+        ksort($normalized);
+        return array_values($normalized);
     }
 
     private static function normalizeDateTime(mixed $value): ?string

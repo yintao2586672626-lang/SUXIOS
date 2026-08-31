@@ -3722,7 +3722,17 @@
                 const precise = answer.precise_result && typeof answer.precise_result === 'object'
                     ? answer.precise_result
                     : null;
-                if (precise) {
+                const preciseRangeEvidence = precise?.kind === 'operating_metric_range'
+                    ? renderPreciseMetricEvidence(answer, {
+                        dataGaps: exact.data_gaps,
+                        testId: isLatest ? 'precise-query-range-results' : undefined,
+                        metricSetTestId: isLatest ? 'precise-query-range-metric-set' : undefined,
+                        itemTestIdPrefix: isLatest ? 'precise-query-range-day' : '',
+                    })
+                    : null;
+                if (preciseRangeEvidence) {
+                    children.push(preciseRangeEvidence);
+                } else if (precise) {
                     const valueText = precise.value === null || precise.value === undefined || precise.value === ''
                         ? '--'
                         : `${String(precise.value)}${precise.unit ? ` ${String(precise.unit)}` : ''}`;

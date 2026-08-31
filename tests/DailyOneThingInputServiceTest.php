@@ -77,6 +77,84 @@ final class DailyOneThingInputServiceTest extends TestCase
         self::assertSame('conversion', $result['selected']['expected_observation_metric']['key']);
         self::assertStringContainsString('不代表携程、全 OTA 或全酒店收益', $result['selected']['scope']['scope_note']);
         self::assertStringNotContainsString('ADR', $result['selected']['problem']);
+        self::assertSame('not_calculable', $result['selected']['impact_estimate']['status']);
+        self::assertNull($result['selected']['impact_estimate']['low']);
+        self::assertNull($result['selected']['impact_estimate']['high']);
+    }
+
+    public function testStrictSameScopeTrafficFactsProduceOnlyADeterministicPointImpact(): void
+    {
+        $closure = $this->fullyReadyClosure();
+        $closure['platforms']['meituan']['fields'] = [
+            $this->strictImpactField('exposure', 1422, 'online_daily_data#102476'),
+            $this->strictImpactField('visits', 206, 'online_daily_data#102476'),
+            $this->field('conversion', 'verified_calculation', 14.49),
+            $this->field('revenue', 'missing', null, false),
+            $this->field('room_nights', 'missing', null, false),
+        ];
+        $closure['platforms']['meituan']['current_receipt_record_refs'] = ['online_daily_data#102476'];
+
+        $input = $this->service($closure)->build(80, 80, '2026-08-26', 7);
+        $rawCandidate = array_values(array_filter(
+            $input['candidates'],
+            static fn(array $candidate): bool => $candidate['candidate_key'] === 'gap:meituan:traffic_only_scope'
+        ))[0];
+        self::assertSame('deterministic_point_estimate', $rawCandidate['impact_estimate']['status']);
+        $result = (new DailyOneThingService())->select($input['candidates'], '2026-08-26');
+
+        self::assertSame('gap:meituan:traffic_only_scope', $result['selected']['candidate_key']);
+        self::assertSame([
+            'low' => 1216.0,
+            'high' => 1216.0,
+            'unit' => 'users',
+            'formula' => 'exposure_users - detail_visitors',
+            'input_refs' => ['online_daily_data#102476'],
+            'scope' => [
+                'tenant_id' => 80,
+                'hotel_id' => 80,
+                'platform' => 'meituan',
+                'business_date' => '2026-08-26',
+                'metric_scope' => 'ota_channel',
+            ],
+            'status' => 'deterministic_point_estimate',
+        ], $result['selected']['impact_estimate']);
+    }
+
+    public function testImpactStaysNotCalculableWhenStrictScopeOrDenominatorGateFails(): void
+    {
+        $mutations = [
+            'tenant mismatch' => static function (array &$exposure): void { $exposure['tenant_id'] = 81; },
+            'hotel mismatch' => static function (array &$exposure): void { $exposure['system_hotel_id'] = 81; },
+            'platform mismatch' => static function (array &$exposure): void { $exposure['platform'] = 'ctrip'; },
+            'business date mismatch' => static function (array &$exposure): void { $exposure['business_date'] = '2026-08-25'; },
+            'history not final' => static function (array &$exposure): void { $exposure['history_statuses'] = ['partial']; },
+            'validation not verified' => static function (array &$exposure): void { $exposure['validation_status'] = 'partial'; },
+            'readback missing' => static function (array &$exposure): void { $exposure['readback_status'] = 'not_attempted'; },
+            'denominator zero' => static function (array &$exposure): void { $exposure['value'] = 0; },
+            'source ref missing' => static function (array &$exposure): void { $exposure['source_record_refs'] = []; },
+        ];
+        foreach ($mutations as $label => $mutate) {
+            $closure = $this->fullyReadyClosure();
+            $exposure = $this->strictImpactField('exposure', 1422, 'online_daily_data#102476');
+            $visits = $this->strictImpactField('visits', 206, 'online_daily_data#102476');
+            $mutate($exposure);
+            $closure['platforms']['meituan']['fields'] = [
+                $exposure,
+                $visits,
+                $this->field('conversion', 'verified_calculation', 14.49),
+                $this->field('revenue', 'missing', null, false),
+                $this->field('room_nights', 'missing', null, false),
+            ];
+            $closure['platforms']['meituan']['current_receipt_record_refs'] = ['online_daily_data#102476'];
+            $input = $this->service($closure)->build(80, 80, '2026-08-26', 7);
+            $candidate = array_values(array_filter(
+                $input['candidates'],
+                static fn(array $item): bool => $item['candidate_key'] === 'gap:meituan:traffic_only_scope'
+            ))[0];
+            self::assertSame('not_calculable', $candidate['impact_estimate']['status'], $label);
+            self::assertNull($candidate['impact_estimate']['low'], $label);
+            self::assertNull($candidate['impact_estimate']['high'], $label);
+        }
     }
 
     public function testSavedQuestionIsAdaptedOnlyThroughTheReadOnlyEligibilityGate(): void
@@ -194,6 +272,26 @@ final class DailyOneThingInputServiceTest extends TestCase
             'value' => $value,
             'identity_binding_verified' => $ready,
             'strict_final_gate' => $ready,
+        ];
+    }
+
+    /** @return array<string,mixed> */
+    private function strictImpactField(string $key, int $value, string $ref): array
+    {
+        return $this->field($key, 'strict_readback', $value) + [
+            'unit' => 'users',
+            'tenant_id' => 80,
+            'system_hotel_id' => 80,
+            'platform' => 'meituan',
+            'business_date' => '2026-08-26',
+            'data_dates' => ['2026-08-26'],
+            'history_statuses' => ['success'],
+            'source_validation_statuses' => ['verified'],
+            'validation_status' => 'verified',
+            'readback_status' => 'readback_verified',
+            'formal_saved' => true,
+            'source_table' => 'online_daily_data',
+            'source_record_refs' => [$ref],
         ];
     }
 

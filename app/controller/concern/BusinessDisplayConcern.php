@@ -1039,14 +1039,13 @@ trait BusinessDisplayConcern
                 $rows,
                 $dataDate,
                 $systemHotelId,
-                [
-                    'self_hotel_ids' => array_keys($selfHotelIds),
-                    'fetched_at' => (string)($context['fetched_at'] ?? date('Y-m-d H:i:s')),
-                    'data_source_id' => $dataSourceId,
-                    'sync_task_id' => $syncTaskId,
-                    'source_trace_id' => $sourceTraceId,
-                    'ingestion_method' => trim((string)($context['ingestion_method'] ?? '')) ?: 'legacy_parser',
-                ]
+                $persistence->buildPersistenceContext(
+                    $context,
+                    array_keys($selfHotelIds),
+                    $dataSourceId,
+                    $syncTaskId,
+                    $sourceTraceId
+                )
             );
             if ($ownsEvidenceTask) {
                 $processedCount = max(0, (int)($result['processed_count'] ?? 0));

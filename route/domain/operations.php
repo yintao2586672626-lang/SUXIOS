@@ -25,6 +25,19 @@ Route::group('api/operating-opportunities', function () {
     Route::post('/priority', 'OperatingOpportunity/priority');
 })->middleware(\app\middleware\Auth::class);
 
+// One user-visible control center for settlement truth, blocker recovery,
+// real on-books pace, demand references, structured WeCom receipts, monthly
+// operating finance and same-scope portfolio comparison. No route performs an
+// OTA/PMS write, external send or automatic approval.
+Route::group('api/operating-finance', function () {
+    Route::get('/overview', 'OperatingFinance/overview');
+    Route::post('/settlements/import', 'OperatingFinance/importSettlement');
+    Route::post('/settlements/import-file', 'OperatingFinance/importSettlementFile');
+    Route::post('/on-books-snapshots', 'OperatingFinance/saveOnBooksSnapshot');
+    Route::post('/demand-events', 'OperatingFinance/saveDemandEvent');
+    Route::post('/monthly-finance', 'OperatingFinance/saveMonthlyFinance');
+})->middleware(\app\middleware\Auth::class);
+
 Route::group('api/operation', function () {
     Route::get('/full-data', 'OperationManagement/fullData');
     Route::post('/root-cause', 'OperationManagement/rootCause');

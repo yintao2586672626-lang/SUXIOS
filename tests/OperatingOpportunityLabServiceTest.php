@@ -167,6 +167,69 @@ final class OperatingOpportunityLabServiceTest extends TestCase
         $assert->invoke($service, $run);
     }
 
+    public function testImpactEstimateIsCoveredByOperatingOpportunityRunExactReadback(): void
+    {
+        $service = new OperatingOpportunityLabService();
+        $digest = new \ReflectionMethod(OperatingOpportunityLabService::class, 'digest');
+        $publicRun = new \ReflectionMethod(OperatingOpportunityLabService::class, 'publicRun');
+        $input = ['business_date' => '2026-08-26', 'source_contract' => 'daily_one_thing_input.v1'];
+        $result = [
+            'status' => 'draft',
+            'selected' => [
+                'candidate_key' => 'gap:meituan:traffic_only_scope',
+                'impact_estimate' => [
+                    'low' => 1216.0,
+                    'high' => 1216.0,
+                    'unit' => 'users',
+                    'formula' => 'exposure_users - detail_visitors',
+                    'input_refs' => ['online_daily_data#102476'],
+                    'scope' => [
+                        'tenant_id' => 80,
+                        'hotel_id' => 80,
+                        'platform' => 'meituan',
+                        'business_date' => '2026-08-26',
+                        'metric_scope' => 'ota_channel',
+                    ],
+                    'status' => 'deterministic_point_estimate',
+                ],
+            ],
+        ];
+        $row = [
+            'id' => 901,
+            'tenant_id' => 80,
+            'system_hotel_id' => 80,
+            'feature_key' => 'daily_one_thing',
+            'business_date' => '2026-08-26',
+            'source_quality_status' => 'readback_verified',
+            'source_reference' => 'dual_ota_field_closure:80:2026-08-26:meituan',
+            'input_json' => json_encode($input, JSON_THROW_ON_ERROR),
+            'result_json' => json_encode(
+                $result,
+                JSON_UNESCAPED_UNICODE | JSON_PRESERVE_ZERO_FRACTION | JSON_THROW_ON_ERROR
+            ),
+            'input_digest' => $digest->invoke($service, $input),
+            'result_digest' => $digest->invoke($service, $result),
+            'idempotency_key' => 'daily_one_thing_impact_test',
+            'created_by' => 7,
+            'created_at' => '2026-08-31 23:00:00',
+        ];
+
+        $readback = $publicRun->invoke($service, $row);
+        self::assertSame($result['selected']['impact_estimate'], $readback['result']['selected']['impact_estimate']);
+        self::assertSame('readback_verified', $readback['record_readback_status']);
+
+        $tampered = $row;
+        $result['selected']['impact_estimate']['high'] = 1217.0;
+        $tampered['result_json'] = json_encode(
+            $result,
+            JSON_UNESCAPED_UNICODE | JSON_PRESERVE_ZERO_FRACTION | JSON_THROW_ON_ERROR
+        );
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionCode(409);
+        $this->expectExceptionMessage('经营机会记录摘要与保存内容不一致');
+        $publicRun->invoke($service, $tampered);
+    }
+
     public function testDamagedHistoryIsQuarantinedWithoutHidingVerifiedRows(): void
     {
         $service = new OperatingOpportunityLabService();

@@ -233,6 +233,7 @@ final class LongitudinalEvidenceLearningService
         $seenFollowups = [];
         $rejectedCount = 0;
         $duplicateCount = 0;
+        $indeterminateCount = 0;
 
         foreach ($reviews as $review) {
             if (!is_array($review)
@@ -245,14 +246,40 @@ final class LongitudinalEvidenceLearningService
             }
             $comparisonKey = trim((string)($review['comparison_key'] ?? ''));
             $action = is_array($review['action'] ?? null) ? $review['action'] : [];
+            $baseline = is_array($review['baseline'] ?? null) ? $review['baseline'] : [];
             $followup = is_array($review['followup'] ?? null) ? $review['followup'] : [];
             $actionRef = trim((string)($action['action_ref'] ?? ''));
             $actionType = strtolower(trim((string)($action['action_type'] ?? '')));
             $expectedDirection = strtolower(trim((string)($action['expected_direction'] ?? '')));
-            $capturedAt = trim((string)($followup['captured_at'] ?? ''));
-            $periodStart = $this->date((string)($followup['period_start'] ?? ''));
-            $periodEnd = $this->date((string)($followup['period_end'] ?? ''));
-            $followupRefs = $this->evidenceRefs($followup['evidence_refs'] ?? []);
+            $expectationStatus = strtolower(trim((string)($action['expectation_status'] ?? '')));
+            $actionEvidenceRefs = $this->evidenceRefs($action['evidence_refs'] ?? []);
+            $validated = $this->compareSnapshots(
+                $baseline,
+                $followup,
+                (string)($review['comparison_mode'] ?? 'same_length_period')
+            );
+            $strictScopeVerified = ($validated['status'] ?? '') === 'verified'
+                && hash_equals((string)($validated['comparison_key'] ?? ''), $comparisonKey)
+                && $actionEvidenceRefs !== [];
+            $validatedFollowup = $strictScopeVerified && is_array($validated['followup'] ?? null)
+                ? $validated['followup']
+                : $followup;
+            $capturedAt = trim((string)($validatedFollowup['captured_at'] ?? ''));
+            $periodStart = $this->date((string)($validatedFollowup['period_start'] ?? ''));
+            $periodEnd = $this->date((string)($validatedFollowup['period_end'] ?? ''));
+            $followupRefs = $this->evidenceRefs($validatedFollowup['evidence_refs'] ?? []);
+            $movement = $strictScopeVerified
+                ? (string)($validated['delta']['movement'] ?? 'unknown')
+                : (string)($review['delta']['movement'] ?? 'unknown');
+            $expectedExpectationStatus = $movement === $expectedDirection
+                ? 'aligned'
+                : 'contradicted';
+            if (!in_array($expectationStatus, ['aligned', 'contradicted'], true)
+                || ($expectationStatus === 'aligned' && $expectedExpectationStatus !== 'aligned')
+            ) {
+                $expectationStatus = 'indeterminate';
+                $indeterminateCount++;
+            }
             if (preg_match('/^longitudinal:[a-f0-9]{64}$/D', $comparisonKey) !== 1
                 || $actionRef === ''
                 || preg_match('/^[a-z0-9][a-z0-9_.:-]{0,127}$/D', $actionType) !== 1
@@ -287,14 +314,27 @@ final class LongitudinalEvidenceLearningService
             $groups[$patternKey]['comparison_key'] = $comparisonKey;
             $groups[$patternKey]['action_type'] = $actionType;
             $groups[$patternKey]['expected_direction'] = $expectedDirection;
+            $groups[$patternKey]['strict_scope_verified'] =
+                (bool)($groups[$patternKey]['strict_scope_verified'] ?? true)
+                && $strictScopeVerified;
+            if (($groups[$patternKey]['strict_scope_verified'] ?? false) === true) {
+                $groups[$patternKey]['scope'] = $this->patternScope(
+                    is_array($validated['baseline'] ?? null) ? $validated['baseline'] : []
+                );
+            } else {
+                $groups[$patternKey]['scope'] = [];
+            }
             $groups[$patternKey]['samples'][] = [
                 'action_ref' => $actionRef,
                 'captured_at' => $capturedAt,
                 'period_start' => $periodStart,
                 'period_end' => $periodEnd,
-                'expectation_status' => (string)($action['expectation_status'] ?? 'not_declared'),
-                'movement' => (string)($review['delta']['movement'] ?? 'unknown'),
-                'evidence_refs' => $followupRefs,
+                'expectation_status' => $expectationStatus,
+                'movement' => $movement,
+                'evidence_refs' => array_values(array_unique(array_merge(
+                    $actionEvidenceRefs,
+                    $followupRefs
+                ))),
             ];
         }
 
@@ -319,6 +359,8 @@ final class LongitudinalEvidenceLearningService
             $patternReady = count($samples) >= $minimumSamples
                 && $contradicted === 0
                 && $notDeclared === 0;
+            $outcomeTieBreakReady = $patternReady
+                && ($group['strict_scope_verified'] ?? false) === true;
             $status = $patternReady
                 ? 'pattern_candidate'
                 : ($contradicted > 0 ? 'contradictory_evidence' : 'accumulating');
@@ -334,6 +376,8 @@ final class LongitudinalEvidenceLearningService
                 'comparison_key' => $comparisonKey,
                 'action_type' => (string)($group['action_type'] ?? ''),
                 'expected_direction' => (string)($group['expected_direction'] ?? ''),
+                'scope' => (array)($group['scope'] ?? []),
+                'strict_scope_verified' => (bool)($group['strict_scope_verified'] ?? false),
                 'status' => $status,
                 'learning_stage' => $patternReady ? 'pattern_candidate' : 'action_reviewed',
                 'sample_count' => count($samples),
@@ -345,6 +389,7 @@ final class LongitudinalEvidenceLearningService
                 'evidence_refs' => $evidenceRefs,
                 'causality_claimed' => false,
                 'candidate_sop_eligible' => false,
+                'outcome_tie_break_eligible' => $outcomeTieBreakReady,
                 'next_action' => $patternReady
                     ? '由人工复核适用范围、反例和停止条件后，再决定是否进入候选SOP。'
                     : ($contradicted > 0
@@ -363,6 +408,10 @@ final class LongitudinalEvidenceLearningService
             $items,
             static fn(array $item): bool => $item['learning_stage'] === 'pattern_candidate'
         ));
+        $outcomeTieBreakCandidateCount = count(array_filter(
+            $items,
+            static fn(array $item): bool => ($item['outcome_tie_break_eligible'] ?? false) === true
+        ));
         $contradictoryCount = count(array_filter(
             $items,
             static fn(array $item): bool => $item['status'] === 'contradictory_evidence'
@@ -378,11 +427,42 @@ final class LongitudinalEvidenceLearningService
             'reviewed_observation_count' => count($seenActions),
             'rejected_review_count' => $rejectedCount,
             'duplicate_review_count' => $duplicateCount,
+            'indeterminate_review_count' => $indeterminateCount,
             'pattern_candidate_count' => $patternCandidateCount,
+            'outcome_tie_break_candidate_count' => $outcomeTieBreakCandidateCount,
+            'outcome_tie_break_status' => $outcomeTieBreakCandidateCount > 0
+                ? 'eligible'
+                : 'not_eligible',
             'contradictory_pattern_count' => $contradictoryCount,
             'items' => $items,
             'causality_claimed' => false,
             'automatic_sop_promotion' => false,
+            'outcome_tie_break_policy' => [
+                'minimum_independent_samples' => $minimumSamples,
+                'requires_same_comparison_key' => true,
+                'requires_zero_contradictions' => true,
+                'requires_zero_indeterminate_samples' => true,
+                'position' => 'after_exact_four_dimension_tie_before_stable_candidate_key',
+                'changes_fact_or_eligibility' => false,
+                'changes_approval_or_execution_authority' => false,
+            ],
+        ];
+    }
+
+    /** @param array<string,mixed> $snapshot @return array<string,int|string> */
+    private function patternScope(array $snapshot): array
+    {
+        return [
+            'system_hotel_id' => max(0, (int)($snapshot['system_hotel_id'] ?? 0)),
+            'platform' => strtolower(trim((string)($snapshot['platform'] ?? ''))),
+            'platform_hotel_id' => trim((string)($snapshot['platform_hotel_id'] ?? '')),
+            'business_module' => strtolower(trim((string)($snapshot['business_module'] ?? ''))),
+            'subject' => mb_strtolower(trim((string)($snapshot['subject'] ?? ''))),
+            'metric_key' => strtolower(trim((string)($snapshot['metric_key'] ?? ''))),
+            'unit' => strtolower(trim((string)($snapshot['unit'] ?? ''))),
+            'source_method' => strtolower(trim((string)($snapshot['source_method'] ?? ''))),
+            'date_role' => strtolower(trim((string)($snapshot['date_role'] ?? ''))),
+            'fact_scope' => strtolower(trim((string)($snapshot['fact_scope'] ?? ''))),
         ];
     }
 

@@ -435,7 +435,7 @@ final class PreciseQueryRouterService
             throw new RuntimeException('目标酒店缺少可核对的租户归属');
         }
 
-        $date = $this->resolveBusinessDate(
+        $date = $this->resolveBusinessDateRange(
             $query,
             $currentScope,
             $tenantId,
@@ -454,7 +454,9 @@ final class PreciseQueryRouterService
                 $knownScope
             );
         }
-        $businessDate = (string)($date['business_date'] ?? '');
+        $dateStart = (string)($date['date_start'] ?? $date['business_date'] ?? '');
+        $dateEnd = (string)($date['date_end'] ?? $dateStart);
+        $businessDate = $dateStart === $dateEnd ? $dateStart : '';
         if ($metricKey === '' && !$comparison) {
             return $this->persistClarification(
                 $tenantId,
@@ -464,12 +466,55 @@ final class PreciseQueryRouterService
                 $currentScope,
                 '你要核对曝光、访客、订单、间夜还是成交金额？',
                 'metric_required',
-                $knownScope + ['business_date' => $businessDate]
+                $knownScope + [
+                    'business_date' => $businessDate !== '' ? $businessDate : null,
+                    'date_start' => $dateStart,
+                    'date_end' => $dateEnd,
+                ]
+            );
+        }
+
+        if ($comparison && $dateStart !== $dateEnd) {
+            return $this->persistClarification(
+                $tenantId,
+                $accessibleHotelIds,
+                $userId,
+                $query,
+                $currentScope,
+                '跨平台范围比较需要先明确逐日指标和可比口径；当前只支持单平台逐日趋势。',
+                'range_comparison_not_supported',
+                $knownScope + ['date_start' => $dateStart, 'date_end' => $dateEnd]
+            );
+        }
+        if ($this->isExposureEstimationQuestion($query) && $dateStart !== $dateEnd) {
+            return $this->persistClarification(
+                $tenantId,
+                $accessibleHotelIds,
+                $userId,
+                $query,
+                $currentScope,
+                '曝光人数参考估算必须锁定一个目标业务日；历史配对窗口由系统向前读取，不接受范围结果代替目标日。',
+                'exposure_estimation_target_date_required',
+                $knownScope + ['date_start' => $dateStart, 'date_end' => $dateEnd]
+            );
+        }
+        if ($this->isExposureEstimationQuestion($query) && !in_array($platform, ['ctrip', 'meituan'], true)) {
+            return $this->persistClarification(
+                $tenantId,
+                $accessibleHotelIds,
+                $userId,
+                $query,
+                $currentScope,
+                '曝光人数参考估算必须选择携程或美团中的一个平台，不能使用跨平台倍数。',
+                'exposure_estimation_platform_required',
+                $knownScope + ['date_start' => $dateStart, 'date_end' => $dateEnd]
             );
         }
 
         $parsedScope = $knownScope + [
-            'business_date' => $businessDate,
+            'business_date' => $businessDate !== '' ? $businessDate : null,
+            'date_start' => $dateStart,
+            'date_end' => $dateEnd,
             'date_source' => (string)($date['source'] ?? ''),
             'comparison_requested' => $comparison,
             'scope_applicable' => true,
@@ -484,7 +529,26 @@ final class PreciseQueryRouterService
                 'date:' . (string)($date['source'] ?? 'explicit'),
             ]))
         );
-        $canonicalClosure = $this->fieldClosureReader !== null
+        if ($this->isExposureEstimationQuestion($query)) {
+            $estimate = (new OtaExposureEstimationReferenceService($this->fieldClosureReader))->estimate(
+                $tenantId,
+                (int)$hotel['id'],
+                $platform,
+                $dateStart
+            );
+            return $this->persistExposureEstimationResult(
+                $tenantId,
+                $accessibleHotelIds,
+                $userId,
+                $query,
+                $platform,
+                $dateStart,
+                $parsedScope,
+                $router,
+                $estimate
+            );
+        }
+        $canonicalClosure = $dateStart === $dateEnd && $this->fieldClosureReader !== null
             ? ($this->fieldClosureReader)((int)$hotel['id'], $businessDate)
             : null;
         $canonicalEvidence = is_array($canonicalClosure)
@@ -531,8 +595,8 @@ final class PreciseQueryRouterService
             (int)$hotel['id'],
             $query,
             $platform,
-            $businessDate,
-            $businessDate,
+            $dateStart,
+            $dateEnd,
             $userId,
             'deterministic_lookup'
         );
@@ -661,6 +725,11 @@ final class PreciseQueryRouterService
             is_array($payload['facts'] ?? null) ? $payload['facts'] : [],
             'is_array'
         ));
+        $dateStart = (string)($parsedScope['date_start'] ?? $parsedScope['business_date'] ?? '');
+        $dateEnd = (string)($parsedScope['date_end'] ?? $dateStart);
+        if (!$comparison && $dateStart !== '' && $dateEnd !== '' && $dateStart !== $dateEnd) {
+            return $this->rangeMetricResult($facts, $parsedScope, $metricKey, $router);
+        }
         if (is_array($canonicalClosure)) {
             return $comparison
                 ? $this->blockedCanonicalComparison($query, $router, $parsedScope, $metricKey)
@@ -683,6 +752,233 @@ final class PreciseQueryRouterService
             'used_evidence_refs' => (array)$resolved['used_refs'],
             'data_gaps' => (array)$resolved['data_gaps'],
         ];
+    }
+
+    /**
+     * Return one exact point per business date. This deliberately performs no
+     * period aggregation because metric grain and source coverage can differ
+     * by day.
+     *
+     * @param list<array<string,mixed>> $facts
+     * @param array<string,mixed> $scope
+     * @param array<string,mixed> $router
+     * @return array<string,mixed>
+     */
+    private function rangeMetricResult(array $facts, array $scope, string $metricKey, array $router): array
+    {
+        $dateStart = (string)($scope['date_start'] ?? '');
+        $dateEnd = (string)($scope['date_end'] ?? '');
+        $range = $this->validatedDateRange($dateStart, $dateEnd, 'resolved_range');
+        if (($range['clarifying_question'] ?? '') !== '') {
+            throw new RuntimeException('精准查数日期范围在保存前发生漂移', 422);
+        }
+        $meta = self::METRIC_META[$metricKey] ?? ['name' => $metricKey, 'unit' => '来源单位'];
+        $cursor = new DateTimeImmutable($dateStart, new DateTimeZone('Asia/Shanghai'));
+        $last = new DateTimeImmutable($dateEnd, new DateTimeZone('Asia/Shanghai'));
+        $points = [];
+        $usedRefs = [];
+        $dataGaps = [];
+        $availableCount = 0;
+
+        while ($cursor <= $last) {
+            $businessDate = $cursor->format('Y-m-d');
+            $dayFacts = array_values(array_filter(
+                $facts,
+                static fn(array $fact): bool => (string)($fact['data_date'] ?? '') === $businessDate
+            ));
+            $resolved = $this->singleMetricResult(
+                $dayFacts,
+                $scope + ['business_date' => $businessDate],
+                $metricKey
+            );
+            $result = is_array($resolved['result'] ?? null) ? $resolved['result'] : [];
+            $value = is_numeric($result['value'] ?? null) ? 0 + $result['value'] : null;
+            $refs = $this->stringList($resolved['used_refs'] ?? []);
+            if ($value !== null) {
+                $availableCount++;
+                $usedRefs = array_merge($usedRefs, $refs);
+            } else {
+                $dataGaps[] = [
+                    'code' => 'range_date_metric_missing',
+                    'business_date' => $businessDate,
+                    'message' => (string)($result['blocked_reason'] ?? $resolved['summary'] ?? '该日指标未取得'),
+                ];
+            }
+            $points[] = [
+                'business_date' => $businessDate,
+                'status' => $value === null ? 'missing' : 'available',
+                'value' => $value,
+                'unit' => $result['unit'] ?? (string)$meta['unit'],
+                'source_record' => $result['source_record'] ?? null,
+                'verification_status' => (string)($result['verification_status'] ?? 'missing'),
+                'readback_status' => (string)($result['readback_status'] ?? 'missing'),
+                'blocked_reason' => $value === null ? ($result['blocked_reason'] ?? $resolved['summary'] ?? null) : null,
+            ];
+            $cursor = $cursor->modify('+1 day');
+        }
+
+        $usedRefs = array_values(array_unique($usedRefs));
+        $total = count($points);
+        $missingCount = $total - $availableCount;
+        $summary = sprintf(
+            '%s｜%s｜%s 至 %s｜%s逐日趋势：%d/%d 天取得可信值；缺失日保持缺失，未做期间汇总。',
+            (string)($scope['hotel_name'] ?? '') ?: 'Hotel ' . (int)($scope['hotel_id'] ?? 0),
+            $this->platformLabel((string)($scope['platform'] ?? '')),
+            $dateStart,
+            $dateEnd,
+            (string)$meta['name'],
+            $availableCount,
+            $total
+        );
+        return [
+            'status' => $availableCount === 0
+                ? 'blocked_by_missing_metric_range'
+                : ($missingCount > 0 ? 'answered_deterministically_range_partial' : 'answered_deterministically_range'),
+            'summary' => $summary,
+            'precise_result' => [
+                'kind' => 'operating_metric_range',
+                'hotel' => [
+                    'id' => (int)($scope['hotel_id'] ?? 0),
+                    'name' => (string)($scope['hotel_name'] ?? '') ?: 'Hotel ' . (int)($scope['hotel_id'] ?? 0),
+                ],
+                'platform' => [
+                    'key' => (string)($scope['platform'] ?? ''),
+                    'name' => $this->platformLabel((string)($scope['platform'] ?? '')),
+                ],
+                'date_range' => ['start_date' => $dateStart, 'end_date' => $dateEnd],
+                'metric' => ['key' => $metricKey, 'name' => (string)$meta['name']],
+                'points' => $points,
+                'available_day_count' => $availableCount,
+                'missing_day_count' => $missingCount,
+                'aggregation_performed' => false,
+                'data_scope' => $this->dataScopeText($scope),
+            ],
+            'query_router' => $router,
+            'used_evidence_refs' => $usedRefs,
+            'data_gaps' => $dataGaps,
+        ];
+    }
+
+    /**
+     * @param list<int> $accessibleHotelIds
+     * @param array<string,mixed> $scope
+     * @param array<string,mixed> $router
+     * @param array<string,mixed> $estimate
+     * @return array<string,mixed>
+     */
+    private function persistExposureEstimationResult(
+        int $tenantId,
+        array $accessibleHotelIds,
+        int $userId,
+        string $query,
+        string $platform,
+        string $businessDate,
+        array $scope,
+        array $router,
+        array $estimate
+    ): array {
+        $estimateStatus = (string)($estimate['status'] ?? 'not_calculable');
+        $estimateValue = is_numeric($estimate['estimate']['value'] ?? null)
+            ? 0 + $estimate['estimate']['value']
+            : null;
+        $refs = $this->stringList($estimate['source_refs'] ?? []);
+        $reason = trim((string)($estimate['reason'] ?? '当前严格事实不足，不能形成曝光人数参考估算。'));
+        $answerStatus = $estimateStatus === 'estimated'
+            ? 'blocked_by_estimate_only_reference'
+            : 'blocked_by_exposure_estimation_' . $estimateStatus;
+        $preciseResult = [
+            'kind' => 'exposure_estimation_reference',
+            'hotel' => [
+                'id' => (int)($scope['hotel_id'] ?? 0),
+                'name' => (string)($scope['hotel_name'] ?? '') ?: 'Hotel ' . (int)($scope['hotel_id'] ?? 0),
+            ],
+            'platform' => ['key' => $platform, 'name' => $this->platformLabel($platform)],
+            'business_date' => $businessDate,
+            'metric' => ['key' => 'exposure_users_estimate', 'name' => '曝光人数参考估算'],
+            'value' => $estimateValue,
+            'unit' => 'people',
+            'status' => $answerStatus,
+            'source_record' => $refs[0] ?? null,
+            'source_records' => $refs,
+            'verification_status' => $estimateStatus === 'estimated' ? 'derived_estimate' : $estimateStatus,
+            'readback_status' => 'estimate_only_not_platform_fact',
+            'formula' => $estimate['estimate']['formula'] ?? null,
+            'calculation_inputs' => $estimateStatus === 'estimated' ? [[
+                'metric_key' => 'detail_visitors',
+                'value' => $estimate['estimate']['target_detail_visitors'] ?? null,
+                'unit' => 'people',
+            ], [
+                'metric_key' => 'verified_pair_count',
+                'value' => (int)($estimate['accepted_verified_pairs'] ?? 0),
+                'unit' => 'days',
+            ]] : [],
+            'blocked_reason' => $reason,
+            'data_scope' => sprintf(
+                'OTA渠道；Hotel %d；%s；目标业务日 %s；参考估算独立于平台事实',
+                (int)($scope['hotel_id'] ?? 0),
+                $this->platformLabel($platform),
+                $businessDate
+            ),
+            'estimate_receipt' => [
+                'contract_version' => (string)($estimate['contract_version'] ?? ''),
+                'status' => $estimateStatus,
+                'accepted_verified_pairs' => (int)($estimate['accepted_verified_pairs'] ?? 0),
+                'min_verified_pairs' => (int)($estimate['scope']['min_verified_pairs'] ?? 7),
+                'window_days' => (int)($estimate['scope']['window_days'] ?? 14),
+                'quality_status' => (string)($estimate['quality_status'] ?? $estimateStatus),
+                'decision_eligible' => false,
+                'writeback_allowed' => false,
+                'platform_fact_status' => 'unchanged',
+            ],
+            'decision_eligible' => false,
+            'writeback_allowed' => false,
+            'platform_fact_status' => 'unchanged',
+        ];
+        $gap = [
+            'code' => (string)($estimate['reason_code'] ?? 'exposure_estimation_reference_only'),
+            'message' => $reason,
+        ];
+        $summary = $estimateValue === null
+            ? $reason
+            : sprintf(
+                '%s｜%s｜%s｜曝光人数参考估算：%s 人。%s',
+                (string)$preciseResult['hotel']['name'],
+                $this->platformLabel($platform),
+                $businessDate,
+                $this->number((float)$estimateValue),
+                $reason
+            );
+        $answer = [
+            'contract_version' => OperatingQuestionService::CONTRACT_VERSION,
+            'mode' => 'deterministic_precise_query',
+            'status' => $answerStatus,
+            'summary' => $summary,
+            'precise_result' => $preciseResult,
+            'query_router' => $router,
+            'used_evidence_refs' => $refs,
+            'data_gaps' => [$gap],
+            'ai_runtime' => [
+                'status' => 'not_called_deterministic',
+                'model_key' => 'deterministic_exposure_estimation_reference',
+                'model_attempted' => false,
+                'llm_client_invoked' => false,
+                'external_llm_called' => false,
+                'external_llm_call_status' => 'not_attempted',
+            ],
+            'boundaries' => $this->boundaries(),
+        ];
+        return $this->persistDirect(
+            $tenantId,
+            (int)($scope['hotel_id'] ?? 0),
+            $userId,
+            $query,
+            $platform,
+            $businessDate,
+            $answer,
+            $refs,
+            [],
+            $accessibleHotelIds
+        );
     }
 
     /** @param array<string,mixed> $closure @param array<string,mixed> $scope @param array<string,mixed> $router */
@@ -1307,10 +1603,19 @@ final class PreciseQueryRouterService
             $hotelId = (int)$matches[1];
             $source = 'question_text';
         } else {
-            $contextId = max(0, (int)($currentScope['hotel_id'] ?? 0));
-            if ($contextId > 0) {
-                $hotelId = $contextId;
-                $source = 'current_selected_scope';
+            $named = $this->resolveAccessibleHotelName($query, $accessibleHotelIds);
+            if (($named['error'] ?? '') !== '') {
+                return $named;
+            }
+            if ((int)($named['id'] ?? 0) > 0) {
+                $hotelId = (int)$named['id'];
+                $source = 'question_hotel_name';
+            } else {
+                $contextId = max(0, (int)($currentScope['hotel_id'] ?? 0));
+                if ($contextId > 0) {
+                    $hotelId = $contextId;
+                    $source = 'current_selected_scope';
+                }
             }
         }
         if ($hotelId > 0 && !in_array($hotelId, $accessibleHotelIds, true)) {
@@ -1322,6 +1627,156 @@ final class PreciseQueryRouterService
             'source' => $source,
             'error' => '',
         ];
+    }
+
+    /** @param list<int> $accessibleHotelIds @return array<string,mixed> */
+    private function resolveAccessibleHotelName(string $query, array $accessibleHotelIds): array
+    {
+        if ($accessibleHotelIds === []) {
+            return ['id' => 0, 'name' => '', 'source' => '', 'error' => ''];
+        }
+        $normalizedQuery = $this->normalizeHotelNameText($query);
+        if ($normalizedQuery === '') {
+            return ['id' => 0, 'name' => '', 'source' => '', 'error' => ''];
+        }
+        try {
+            $rows = Db::name('hotels')
+                ->whereIn('id', $accessibleHotelIds)
+                ->where('status', 1)
+                ->field('id,name')
+                ->select()
+                ->toArray();
+        } catch (\Throwable) {
+            return ['id' => 0, 'name' => '', 'source' => '', 'error' => ''];
+        }
+        $matches = [];
+        foreach ($rows as $row) {
+            $name = trim((string)($row['name'] ?? ''));
+            $normalizedName = $this->normalizeHotelNameText($name);
+            if ($normalizedName === '' || mb_strlen($normalizedName) < 3) {
+                continue;
+            }
+            if (str_contains($normalizedQuery, $normalizedName)) {
+                $matches[] = [
+                    'id' => (int)($row['id'] ?? 0),
+                    'name' => $name,
+                    'length' => mb_strlen($normalizedName),
+                ];
+            }
+        }
+        if ($matches === []) {
+            return ['id' => 0, 'name' => '', 'source' => '', 'error' => ''];
+        }
+        usort($matches, static fn(array $left, array $right): int => $right['length'] <=> $left['length']);
+        $longest = (int)$matches[0]['length'];
+        $top = array_values(array_filter(
+            $matches,
+            static fn(array $row): bool => (int)$row['length'] === $longest
+        ));
+        if (count($top) !== 1 || (int)$top[0]['id'] <= 0) {
+            return [
+                'id' => 0,
+                'name' => '',
+                'source' => 'question_hotel_name',
+                'error' => '酒店名称匹配到多个可访问门店，请补充完整名称或酒店ID',
+            ];
+        }
+        return [
+            'id' => (int)$top[0]['id'],
+            'name' => (string)$top[0]['name'],
+            'source' => 'question_hotel_name',
+            'error' => '',
+        ];
+    }
+
+    private function normalizeHotelNameText(string $value): string
+    {
+        $value = mb_strtolower(trim($value));
+        return (string)preg_replace('/[\s\p{P}\p{S}]+/u', '', $value);
+    }
+
+    /** @param array<string,mixed> $currentScope @return array<string,mixed> */
+    private function resolveBusinessDateRange(
+        string $query,
+        array $currentScope,
+        int $tenantId,
+        int $hotelId,
+        string $platform
+    ): array {
+        $fullDate = '(20[0-9]{2})[-\/.年](0?[1-9]|1[0-2])[-\/.月](0?[1-9]|[12][0-9]|3[01])日?(?![0-9])';
+        if (preg_match('/' . $fullDate . '\s*(?:至|到|~|～|—|–)\s*' . $fullDate . '/u', $query, $matches) === 1) {
+            $start = sprintf('%04d-%02d-%02d', (int)$matches[1], (int)$matches[2], (int)$matches[3]);
+            $end = sprintf('%04d-%02d-%02d', (int)$matches[4], (int)$matches[5], (int)$matches[6]);
+            return $this->validatedDateRange($start, $end, 'explicit_full_date_range');
+        }
+        $today = $this->now();
+        if (preg_match(
+            '/(?<![0-9])(0?[1-9]|1[0-2])月(0?[1-9]|[12][0-9]|3[01])日?\s*'
+            . '(?:至|到|~|～|—|–)\s*'
+            . '(0?[1-9]|1[0-2])月(0?[1-9]|[12][0-9]|3[01])日?(?![0-9])/u',
+            $query,
+            $matches
+        ) === 1) {
+            $year = (int)$today->format('Y');
+            $start = sprintf('%04d-%02d-%02d', $year, (int)$matches[1], (int)$matches[2]);
+            $end = sprintf('%04d-%02d-%02d', $year, (int)$matches[3], (int)$matches[4]);
+            return $this->validatedDateRange($start, $end, 'explicit_month_day_range_current_year');
+        }
+        if (preg_match('/最近\s*([2-9]|[12][0-9]|3[01])\s*天/u', $query, $matches) === 1) {
+            $days = (int)$matches[1];
+            return [
+                'date_start' => $today->modify('-' . ($days - 1) . ' days')->format('Y-m-d'),
+                'date_end' => $today->format('Y-m-d'),
+                'source' => 'asia_shanghai_recent_days',
+            ];
+        }
+        $normalized = PreciseQueryLexicon::normalize($query);
+        $contextStart = substr(trim((string)($currentScope['date_start'] ?? '')), 0, 10);
+        $contextEnd = substr(trim((string)($currentScope['date_end'] ?? '')), 0, 10);
+        if ($contextStart !== ''
+            && $contextEnd !== ''
+            && $contextStart !== $contextEnd
+            && preg_match('/(?:范围|期间|这段时间|这几天|逐日|趋势)/u', $normalized) === 1
+        ) {
+            return $this->validatedDateRange($contextStart, $contextEnd, 'current_selected_range');
+        }
+        $single = $this->resolveBusinessDate($query, $currentScope, $tenantId, $hotelId, $platform);
+        if (($single['business_date'] ?? '') !== '') {
+            $single['date_start'] = (string)$single['business_date'];
+            $single['date_end'] = (string)$single['business_date'];
+        }
+        return $single;
+    }
+
+    /** @return array<string,mixed> */
+    private function validatedDateRange(string $start, string $end, string $source): array
+    {
+        $validatedStart = $this->validatedDate($start, $source);
+        $validatedEnd = $this->validatedDate($end, $source);
+        if (($validatedStart['business_date'] ?? '') !== $start
+            || ($validatedEnd['business_date'] ?? '') !== $end
+        ) {
+            return [
+                'clarifying_question' => '日期范围无效，请按“YYYY-MM-DD 至 YYYY-MM-DD”重新说明。',
+                'reason' => 'business_date_range_invalid',
+            ];
+        }
+        if ($start > $end) {
+            return [
+                'clarifying_question' => '日期范围开始日不能晚于结束日。',
+                'reason' => 'business_date_range_reversed',
+            ];
+        }
+        $startDate = new DateTimeImmutable($start, new DateTimeZone('Asia/Shanghai'));
+        $endDate = new DateTimeImmutable($end, new DateTimeZone('Asia/Shanghai'));
+        $dayCount = (int)$startDate->diff($endDate)->days + 1;
+        if ($dayCount > 31) {
+            return [
+                'clarifying_question' => '精准查数单次日期范围最多31天，请缩小范围。',
+                'reason' => 'business_date_range_too_large',
+            ];
+        }
+        return ['date_start' => $start, 'date_end' => $end, 'source' => $source];
     }
 
     /** @param array<string,mixed> $currentScope @return array<string,mixed> */
@@ -1648,11 +2103,22 @@ final class PreciseQueryRouterService
     /** @param array<string,mixed> $scope */
     private function dataScopeText(array $scope): string
     {
+        $dateStart = (string)($scope['date_start'] ?? $scope['business_date'] ?? '');
+        $dateEnd = (string)($scope['date_end'] ?? $dateStart);
+        if ($dateStart !== '' && $dateEnd !== '' && $dateStart !== $dateEnd) {
+            return sprintf(
+                'OTA渠道；Hotel %d；%s；业务日期 %s 至 %s；逐日严格回读来源记录，未做期间汇总',
+                (int)($scope['hotel_id'] ?? 0),
+                $this->platformLabel((string)($scope['platform'] ?? '')),
+                $dateStart,
+                $dateEnd
+            );
+        }
         return sprintf(
             'OTA渠道；Hotel %d；%s；业务日期 %s；单日最新严格回读来源记录',
             (int)($scope['hotel_id'] ?? 0),
             $this->platformLabel((string)($scope['platform'] ?? '')),
-            (string)($scope['business_date'] ?? '')
+            $dateStart
         );
     }
 
@@ -1670,6 +2136,14 @@ final class PreciseQueryRouterService
     {
         return preg_match(
             '/哪个平台.*(?:好|高|强)|(?:携程和美团|携程美团).*(?:哪个|谁).*(?:好|高|强)|(?:比较|对比).*(?:携程|美团)/u',
+            $query
+        ) === 1;
+    }
+
+    private function isExposureEstimationQuestion(string $query): bool
+    {
+        return preg_match(
+            '/(?:曝光(?:人数)?).*(?:估算|反推|倒推|漏抓)|(?:估算|反推|倒推|漏抓).*(?:曝光(?:人数)?)/u',
             $query
         ) === 1;
     }

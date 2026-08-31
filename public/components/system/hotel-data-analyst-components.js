@@ -704,16 +704,26 @@
             const kind = String(nestedMetricSet?.kind || precise.kind || '');
             const declaredMetricSet = contractVersion === 'suxios.precise_metric_set.v1'
                 || kind === 'operating_metric_set'
+                || kind === 'operating_metric_range'
                 || Boolean(nestedMetricSet)
                 || Array.isArray(precise.precise_results)
                 || Array.isArray(answer.precise_results);
-            let rawItems = Array.isArray(nestedMetricSet?.items)
+            let rawItems = kind === 'operating_metric_range' && Array.isArray(precise.points)
+                ? precise.points.map((point) => ({
+                    ...point,
+                    metric: precise.metric,
+                    hotel: precise.hotel,
+                    platform: precise.platform,
+                    data_scope: precise.data_scope,
+                    date_range: precise.date_range,
+                }))
+                : (Array.isArray(nestedMetricSet?.items)
                 ? nestedMetricSet.items
                 : (Array.isArray(precise.items)
                     ? precise.items
                     : (Array.isArray(precise.precise_results)
                         ? precise.precise_results
-                        : (Array.isArray(answer.precise_results) ? answer.precise_results : [])));
+                        : (Array.isArray(answer.precise_results) ? answer.precise_results : []))));
             if (!rawItems.length && !declaredMetricSet) rawItems = [precise];
             const items = rawItems
                 .filter((entry) => entry && typeof entry === 'object')

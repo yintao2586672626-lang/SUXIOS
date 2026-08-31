@@ -34,6 +34,7 @@ test('all package E2E write-capable entrypoints route through the dedicated isol
     'test:e2e:temporal',
     'test:e2e:public-page',
     'test:e2e:operating-question',
+    'test:e2e:operating-finance',
     'test:e2e:transition',
     'test:e2e:stability',
     'test:e2e:quick',
@@ -63,6 +64,7 @@ test('every Playwright spec is classified by the isolated runner', () => {
     'module-smoke.spec.js',
     'operating_question_action_card.spec.js',
     'operating_question_floating.spec.js',
+    'operating_finance_control_center.spec.js',
     'ota-auth-strong-reminder.spec.js',
     'public-page-task-bridge.spec.js',
     'security_monitoring_page.spec.js',
@@ -147,6 +149,15 @@ test('operating-question browser journeys share the dedicated isolated entrypoin
   );
   assert.match(workflow, /Verify operating-question approval and floating-assistant journeys/);
   assert.match(workflow, /run:\s+npm run test:e2e:operating-question/);
+});
+
+test('operating-finance has a dedicated authenticated isolated entrypoint', () => {
+  assert.match(isolatedRunner, /--operating-finance-only/);
+  assert.match(isolatedRunner, /operating_finance_control_center\.spec\.js/);
+  assert.equal(
+    packageJson.scripts['test:e2e:operating-finance'],
+    'node tests/automation/run-quick-e2e-isolated.mjs --operating-finance-only',
+  );
 });
 
 test('isolated runner always selects a dedicated database and self-hosted loopback server', () => {

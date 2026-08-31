@@ -5,6 +5,7 @@ namespace tests;
 
 use app\controller\concern\OnlineDataManualFetchConcern;
 use PHPUnit\Framework\TestCase;
+use Tests\Support\SourceAggregate;
 
 final class CtripTemporaryCookieQueryTest extends TestCase
 {
@@ -46,7 +47,7 @@ final class CtripTemporaryCookieQueryTest extends TestCase
     {
         $root = dirname(__DIR__);
         $route = (string)file_get_contents($root . '/route/app.php');
-        $source = (string)file_get_contents($root . '/app/controller/concern/OnlineDataManualFetchConcern.php');
+        $source = SourceAggregate::read($root, 'app/controller/concern/OnlineDataManualFetchConcern.php');
 
         self::assertStringContainsString(
             "Route::post('/fetch-ctrip-temporary-cookie', 'ota.CtripController/fetchCtripTemporaryCookie');",

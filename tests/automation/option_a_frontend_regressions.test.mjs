@@ -136,7 +136,7 @@ test('Ctrip current data page keeps target-date truth separate from stored histo
   assert.match(latestApply, /if \(hydrateDisplay && !snapshotModel\.hasRank\) \{\s*clearCtripRankingDisplayState\(\);/);
   assert.match(latestApply, /else if \(hydrateDisplay\) \{\s*useCtripTrafficDisplayRows\(\[\], null, \[\], null\);/);
   assert.match(latestApply, /else if \(hydrateDisplay\) \{\s*ctripCommentResult\.value = null;/);
-  assert.match(latestApply, /return currentPage\.value === 'ctrip-ebooking' \? 'yesterday' : '';/);
+  assert.match(latestApply, /return currentPage\.value === 'ctrip-ebooking'[\s\S]{0,120}buildCtripFetchDateRange\(\{\}, new Date\(\)\)\.endDate/);
 
   const latestStatus = sliceBetween(appMain, 'const ctripLatestSnapshotText', '// 美团配置管理');
   assert.match(latestStatus, /目标日期 \$\{targetDate\} 未采集；当前页不回填历史数据。历史记录请到“入库记录”查询。/);

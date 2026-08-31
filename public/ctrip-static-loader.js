@@ -651,6 +651,23 @@
             hasAnySnapshot,
         };
     };
+
+    const isCtripVerifiedReportSource = (meta = {}) => {
+        const dataDate = String(meta?.data_date || '').trim();
+        const requestDate = String(meta?.request_date || '').trim();
+        const sourceBusinessDate = String(meta?.source_business_date || '').trim();
+        const datePattern = /^\d{4}-\d{2}-\d{2}$/;
+        const verifiedFreshReadback = meta?.readback_verified === true;
+        const verifiedStoredSnapshot = meta?.ranking_cache_eligible === true
+            && String(meta?.verification_status || '') === 'source_verified';
+
+        return String(meta?.status || '') === 'success'
+            && String(meta?.response_date_status || '') === 'verified'
+            && datePattern.test(dataDate)
+            && sourceBusinessDate === dataDate
+            && (!datePattern.test(requestDate) || requestDate === dataDate)
+            && (verifiedFreshReadback || verifiedStoredSnapshot);
+    };
     const ctripUnsupportedEstimateKeys = ['aiEstimatedTotalRoomNights', 'ai_estimated_total_room_nights'];
     const omitUnsupportedCtripEstimate = (source = {}) => {
         const result = { ...(source && typeof source === 'object' ? source : {}) };
@@ -923,6 +940,7 @@
         buildCtripProfileFieldSampleHelpers,
         buildCtripProfileFieldDerivationHelpers,
         buildLatestCtripSnapshotModel,
+        isCtripVerifiedReportSource,
         buildTruthfulCtripDisplayModel,
         isCtripLatestRequestCurrent,
         createCompetitorFutureWindowController,

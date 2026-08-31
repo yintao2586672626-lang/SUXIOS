@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
   "source_snapshot": "resources/frontend/app-template.html",
-  "source_snapshot_sha256": "0ed1a4dae843a4f4851ca59d088d193dd5373f3f63e8fc1325fded2cb0475a3f",
-  "source_snapshot_bytes": 2201353,
+  "source_snapshot_sha256": "d147debd9ecf30882dba7c1b1c06a6b6a0204da0fbda9ba3dcb20d3ba827dd35",
+  "source_snapshot_bytes": 2202260,
   "fragments": [
     {
       "id": "app-shell",
@@ -183,6 +183,12 @@
       "domain": "operations",
       "path": "fragments/19b-page-operating-opportunities.html",
       "anchor": "<div v-if=\"currentPage === 'operating-opportunities'\" class=\"suxi-dashboard-scope\" data-testid=\"page-operating-opportunities\">"
+    },
+    {
+      "id": "page-operating-finance",
+      "domain": "operations",
+      "path": "fragments/19c-page-operating-finance.html",
+      "anchor": "<operating-finance-control-center"
     },
     {
       "id": "page-knowledge-center",

@@ -34,13 +34,23 @@ final class CtripManualFetchRequestServiceTest extends TestCase
         self::assertSame(strtotime('2026-05-03'), $plan['end_timestamp']);
     }
 
-    public function testNormalizeDateRangeDefaultsMissingRangeToYesterday(): void
+    public function testNormalizeDateRangeUsesLastSettledBusinessDateAroundCutoff(): void
     {
-        $yesterday = date('Y-m-d', strtotime('-1 day'));
-        $plan = CtripManualFetchRequestService::normalizeDateRange('', '2026-05-03');
+        $beforeCutoff = CtripManualFetchRequestService::normalizeDateRange(
+            '',
+            '2026-05-03',
+            new \DateTimeImmutable('2026-08-31 03:20:13', new \DateTimeZone('Asia/Shanghai'))
+        );
+        $afterCutoff = CtripManualFetchRequestService::normalizeDateRange(
+            '',
+            '',
+            new \DateTimeImmutable('2026-08-31 08:00:00', new \DateTimeZone('Asia/Shanghai'))
+        );
 
-        self::assertSame($yesterday, $plan['start_date']);
-        self::assertSame($yesterday, $plan['end_date']);
+        self::assertSame('2026-08-29', $beforeCutoff['start_date']);
+        self::assertSame('2026-08-29', $beforeCutoff['end_date']);
+        self::assertSame('2026-08-30', $afterCutoff['start_date']);
+        self::assertSame('2026-08-30', $afterCutoff['end_date']);
     }
 
     public function testNormalizeDateRangeRejectsReverseRange(): void
@@ -72,5 +82,42 @@ final class CtripManualFetchRequestServiceTest extends TestCase
         self::assertTrue(CtripManualFetchRequestService::hasRepeatedMultiDayFingerprint('2026-05-02', '2026-05-03', $sameFingerprintRows));
         self::assertFalse(CtripManualFetchRequestService::hasRepeatedMultiDayFingerprint('2026-05-02', '2026-05-02', $sameFingerprintRows));
         self::assertFalse(CtripManualFetchRequestService::hasRepeatedMultiDayFingerprint('2026-05-02', '2026-05-03', $differentFingerprintRows));
+    }
+
+    public function testResponseBusinessDateMustUniquelyMatchRequestedDate(): void
+    {
+        self::assertSame(
+            ['2026-08-28', '2026-08-29'],
+            CtripManualFetchRequestService::extractResponseDates([
+                'dataDate' => '20260829',
+                'data' => ['statDate' => '2026-08-28 12:00:00'],
+                'invalid' => ['reportDate' => ['2026-08-27']],
+            ])
+        );
+        self::assertSame([], CtripManualFetchRequestService::extractResponseDates([
+            'hotel' => ['date' => '2026-08-29'],
+            'unrelated' => ['statDate' => '2026-08-29'],
+        ]));
+        $verified = CtripManualFetchRequestService::verifyResponseBusinessDate(
+            '2026-08-29',
+            ['20260829', '2026-08-29 12:00:00']
+        );
+        $missing = CtripManualFetchRequestService::verifyResponseBusinessDate('2026-08-29', []);
+        $mismatch = CtripManualFetchRequestService::verifyResponseBusinessDate('2026-08-30', ['2026-08-29']);
+        $ambiguous = CtripManualFetchRequestService::verifyResponseBusinessDate(
+            '2026-08-29',
+            ['2026-08-28', '2026-08-29']
+        );
+
+        self::assertTrue($verified['verified']);
+        self::assertSame('verified', $verified['status']);
+        self::assertSame('2026-08-29', $verified['source_business_date']);
+        self::assertFalse($missing['verified']);
+        self::assertSame('response_business_date_missing', $missing['reason']);
+        self::assertFalse($mismatch['verified']);
+        self::assertSame('target_date_mismatch', $mismatch['status']);
+        self::assertSame('2026-08-29', $mismatch['source_business_date']);
+        self::assertFalse($ambiguous['verified']);
+        self::assertSame('response_business_date_ambiguous', $ambiguous['reason']);
     }
 }

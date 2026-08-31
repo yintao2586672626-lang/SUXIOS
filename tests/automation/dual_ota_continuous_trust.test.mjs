@@ -41,6 +41,21 @@ test('scheduler and cloud report gate reject old or incomplete receipts', () => 
 });
 
 test('page targets the selected date and exposes verified blocked partial or unverified acceptance state', () => {
+  assert.match(template, /data-testid="online-data-page-header"/);
+  assert.match(template, /data-testid="online-data-primary-action"/);
+  assert.match(template, /data-testid="online-data-truth-boundaries"/);
+  assert.match(template, /数据是否可信、哪里异常、先处理什么/);
+  assert.match(template, /data-testid="online-data-trust-details"/);
+  assert.match(template, /来源、门店、日期、字段保存与数据库回读/);
+  assert.match(template, /data-testid="online-data-primary-action"[\s\S]*@click="refreshCoreOperationsLoop\(\)"/);
+  assert.match(template, /data-testid="online-analysis-summary-grid"/);
+  assert.match(template, /\{\{ card\.sub \}\}/);
+  assert.match(template, /data-testid="online-analysis-query"/);
+  assert.match(template, /'查询分析'/);
+  const analysisSummaryAt = template.indexOf('data-testid="online-analysis-summary-grid"');
+  const analysisFilterAt = template.indexOf('class="online-analysis-filter', analysisSummaryAt);
+  const competitorFeedAt = template.indexOf('data-testid="competitor-event-feed-panel"', analysisFilterAt);
+  assert.ok(analysisSummaryAt > 0 && analysisFilterAt > analysisSummaryAt && competitorFeedAt > analysisFilterAt);
   assert.match(app, /params\.append\('end_date', targetDate\)/);
   assert.match(app, /dualOtaContinuousStatusText/);
   assert.match(app, /\['verified', 'blocked', 'partial', 'unverified'\]/);

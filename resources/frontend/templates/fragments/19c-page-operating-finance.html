@@ -1,0 +1,7 @@
+                    <operating-finance-control-center
+                        v-if="currentPage === 'operating-finance'"
+                        :hotels="hotels"
+                        :request="managerCapabilityRequest"
+                        :selected-hotel-id="filterReportHotel"
+                        :can-execute="operationFinanceCanExecute"
+                    ></operating-finance-control-center>

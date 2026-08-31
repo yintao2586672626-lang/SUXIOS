@@ -66,10 +66,11 @@ final class DailyOneThingPersonalizationService
         string $businessDate,
         int $tenantId,
         int $userId,
-        int $hotelId
+        int $hotelId,
+        array $reviewedObservations = []
     ): array {
         $this->assertScope($tenantId, $userId, $hotelId);
-        $baseResult = $this->base->select($candidates, $businessDate);
+        $baseResult = $this->base->select($candidates, $businessDate, $reviewedObservations);
         $prepared = $this->base->prepare($candidates, $businessDate);
         $baseSelected = is_array($baseResult['selected'] ?? null)
             ? $baseResult['selected']
@@ -83,6 +84,22 @@ final class DailyOneThingPersonalizationService
                     $hotelId,
                     'not_applied',
                     ['no_eligible_item']
+                )
+            );
+        }
+        if (($baseResult['selection_policy']['outcome_learning_applied'] ?? false) === true) {
+            return $this->withReceipt(
+                $baseResult,
+                $this->emptyReceipt(
+                    $tenantId,
+                    $userId,
+                    $hotelId,
+                    'not_applied',
+                    ['outcome_learning_precedes_personalization'],
+                    (string)$baseSelected['candidate_key'],
+                    (string)$baseSelected['candidate_key'],
+                    DailyOneThingService::baseRankKey($baseSelected),
+                    max(1, (int)($baseResult['selection_policy']['base_tie_group_size'] ?? 1))
                 )
             );
         }

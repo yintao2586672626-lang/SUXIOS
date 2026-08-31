@@ -1,7 +1,7 @@
 (() => {
     'use strict';
 
-    const fullScript = 'components/system/app-main-components.js?v=20260830-review-fixes-h994cccac25';
+    const fullScript = 'components/system/app-main-components.js?v=20260830-operating-finance-ha3a91c2d2d';
     let fullScriptPromise = null;
 
     const loadFullScript = () => {
@@ -255,7 +255,7 @@
             'PlatformAutoSettingsPanels', 'PlatformAutoSecondaryPanels', 'CtripProfileFieldConfigPanel',
             'CompetitorDeviceManagement', 'DataConfigDialogs', 'SessionProofNotice',
             'LocalCollectorLoginHandoff', 'PmsRealtimeSyncResult', 'HotelThreeSourceOnboardingPanel',
-            'ManagerCapabilityPanel', 'OperatingOpportunityLab',
+            'ManagerCapabilityPanel', 'OperatingOpportunityLab', 'OperatingFinanceControlCenter',
             'OperatingNetworkReplicationList', 'MeituanSearchKeywordWorkbench',
             'SimulationHeroActions',
             'RevenueCockpitOpportunityDetails', 'RevenueCockpitSnapshotStatus',

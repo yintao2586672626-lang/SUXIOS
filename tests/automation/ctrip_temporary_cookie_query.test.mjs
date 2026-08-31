@@ -156,3 +156,71 @@ test('selected-hotel response with rows but no persistence stays non-success and
   assert.deepEqual(refreshes, []);
   assert.equal(notifications.at(-1).level, 'warning');
 });
+
+test('date-unverified 422 response stays visible for audit without refreshing trusted downstream state', async () => {
+  const refreshes = [];
+  const notifications = [];
+  const successStates = [];
+  const savedCounts = [];
+  const visibleRows = [];
+  const latestMeta = [];
+  const failures = [];
+  const tableTabs = [];
+
+  const result = await api.runCtripFetchDataFlow({
+    isLoggedIn: () => true,
+    getSelectedCtripHotelId: () => '121',
+    getActiveCtripConfig: () => ({
+      id: 'ctrip-121',
+      config_id: 'ctrip-121',
+      credential_status: 'ready',
+      has_cookies: true,
+      configuration_verified: true,
+      system_hotel_id: 121,
+    }),
+    getForm: () => ({ nodeId: '24588', startDate: '2026-08-30', endDate: '2026-08-30' }),
+    requestFetch: async () => ({
+      code: 422,
+      message: '携程请求日期 2026-08-30 与平台返回业务日 2026-08-29 不一致；本次仅展示响应，未入库。',
+      data: {
+        saved_count: 0,
+        save_status: 'target_date_unverified',
+        persistence_status: 'blocked',
+        persisted: false,
+        readback_verified: false,
+        display_hotel_count: 1,
+        display_hotels: [{ hotelId: '5488189', hotelName: '审计展示行', amount: 26941.76 }],
+        fetched_at: '2026-08-31 03:20:13',
+        request_start_date: '2026-08-30',
+        request_end_date: '2026-08-30',
+        source_business_date: '2026-08-29',
+        response_date_status: 'target_date_mismatch',
+      },
+    }),
+    notify: (message, level) => notifications.push({ message, level }),
+    setFetchSuccess: value => successStates.push(value),
+    setSavedCount: value => savedCounts.push(value),
+    useDisplayHotels: rows => { visibleRows.push(...rows); return rows; },
+    getLatestMeta: () => null,
+    setLatestMeta: value => latestMeta.push(value),
+    setTableTab: value => tableTabs.push(value),
+    updateAiAnalysisHotelList: () => refreshes.push('ai'),
+    refreshOnlineHistory: () => refreshes.push('history'),
+    refreshLatestCtripData: () => refreshes.push('latest'),
+    refreshOnlineData: () => refreshes.push('online'),
+    handleFetchFailure: message => failures.push(message),
+  });
+
+  assert.equal(result.status, 'source_unverified');
+  assert.equal(successStates.at(-1), false);
+  assert.equal(savedCounts.at(-1), 0);
+  assert.equal(visibleRows.length, 1);
+  assert.equal(latestMeta.at(-1).status, 'source_unverified');
+  assert.equal(latestMeta.at(-1).request_date, '2026-08-30');
+  assert.equal(latestMeta.at(-1).source_business_date, '2026-08-29');
+  assert.equal(latestMeta.at(-1).data_date, '');
+  assert.equal(tableTabs.at(-1), 'sales');
+  assert.deepEqual(refreshes, []);
+  assert.deepEqual(failures, []);
+  assert.equal(notifications.at(-1).level, 'warning');
+});

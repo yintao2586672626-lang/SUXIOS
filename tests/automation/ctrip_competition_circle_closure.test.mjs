@@ -58,6 +58,36 @@ test('Ctrip UI removes the unsupported all-channel AI room-night estimate', () =
   assert.doesNotMatch(ctripStatic, /field === 'aiEstimatedTotalRoomNights'/);
 });
 
+test('Ctrip manual competition capture blocks unproven response dates before persistence', () => {
+  const requestService = fs.readFileSync(path.join(root, 'app/service/CtripManualFetchRequestService.php'), 'utf8');
+  const controller = readSourceAggregate('app/controller/concern/OnlineDataManualFetchConcern.php');
+  const persistence = fs.readFileSync(path.join(root, 'app/service/CtripCompetitionCirclePersistenceService.php'), 'utf8');
+  const history = fs.readFileSync(path.join(root, 'app/controller/concern/OnlineDataHistoryConcern.php'), 'utf8');
+
+  assert.match(requestService, /BUSINESS_DAY_SETTLEMENT_HOUR = 8/);
+  assert.match(requestService, /verifyResponseBusinessDate/);
+  assert.match(requestService, /response_business_date_missing/);
+  assert.match(requestService, /response_business_date_mismatch/);
+
+  const dateGate = controller.indexOf('if ($autoSave && $dateVerificationFailures !== [])');
+  const sourceCreation = controller.indexOf('resolveOrCreateDataSource(', dateGate);
+  const persistenceCall = controller.indexOf('->persistRows(', dateGate);
+  assert.ok(dateGate > 0);
+  assert.ok(sourceCreation > dateGate);
+  assert.ok(persistenceCall > sourceCreation);
+  const gateSource = controller.slice(dateGate, sourceCreation);
+  assert.match(gateSource, /'code' => 422/);
+  assert.match(gateSource, /'saved_count' => 0/);
+  assert.match(gateSource, /'save_status' => 'target_date_unverified'/);
+
+  assert.match(persistence, /DATE_EVIDENCE_SCHEMA = 'ctrip_competition_circle_date_evidence\.v1'/);
+  assert.match(persistence, /'_suxi_source_evidence'/);
+  assert.match(persistence, /hasVerifiedDateEvidence/);
+  assert.doesNotMatch(persistence, /'_suxi_source_evidence'[^\]]*(?:cookie|authorization|token|password)/i);
+  assert.match(history, /CtripCompetitionCirclePersistenceService::hasVerifiedDateEvidence\(\$row\)/);
+  assert.match(history, /'source_unverified'/);
+});
+
 test('OTA pages can read one exact stored business date without triggering collection', () => {
   const appMain = fs.readFileSync(path.join(root, 'public/app-main.js'), 'utf8');
   const ctripTemplate = fs.readFileSync(
@@ -125,6 +155,15 @@ test('Ctrip AI tab hydrates the latest usable competition circle snapshot', () =
   assert.match(html, /script\.src = aiAnalysisStaticScript \+ '\?v=' \+ aiAnalysisStaticVersion/);
   assert.match(html, /v-if="ctripLatestLoading"[\s\S]{0,300}正在读取当前门店最近一批竞争圈数据[\s\S]{0,300}v-else-if="aiAnalysisHotelList\.length === 0"/);
   assert.match(history, /\$section === 'rank'\s*&&\s*\(empty\(\$displayHotels\)\s*\|\|\s*!\$this->ctripBusinessDisplayHotelsHaveTraffic\(\$displayHotels\)\)/);
+});
+
+test('Ctrip reports require the same verified source-date gate in UI and execution', () => {
+  const appMain = fs.readFileSync(path.join(root, 'public/app-main.js'), 'utf8');
+
+  assert.match(appMain, /const isCtripVerifiedReportSource = requireCtripStatic\('isCtripVerifiedReportSource'\)/);
+  assert.match(appMain, /const ctripCompetitionReportSourceReady = computed\(\(\) => \{[\s\S]{0,500}sourceHotelId === selectedHotelId[\s\S]{0,200}isCtripVerifiedReportSource\(ctripLatestMeta\.value \|\| \{\}\)/);
+  assert.match(appMain, /const generateCtripCompetitionReport = async[\s\S]{0,800}String\(ctripLatestMeta\.value\?\.hotel_id \|\| ''\)\.trim\(\) !== hotelId[\s\S]{0,160}isCtripVerifiedReportSource\(ctripLatestMeta\.value \|\| \{\}\)[\s\S]{0,180}仅可审计查看/);
+  assert.match(appMain, /if \(ctripFetchSuccess\.value !== true \|\| !isCtripVerifiedReportSource\(ctripLatestMeta\.value \|\| \{\}\)\) \{[\s\S]{0,160}aiAnalysisHotelList\.value = \[\]/);
 });
 
 test('historical backfill is dry-run capable, idempotent, and uses configured hotel IDs', () => {

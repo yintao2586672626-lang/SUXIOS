@@ -206,7 +206,12 @@
     "20260829_create_weekly_operating_plan_snapshots.sql": "774cd8d3623a77337466b874d696f1d73b6b593c7c9e60d3e411c7b1c55a92a1",
     "20260829_z_create_ai_suggestion_calibration.sql": "18fb3b46939c39e4d103c77ea5d31d4fcf0abd6636d7f9f625e216587948b507",
     "20260829_zz_add_weekly_operating_plan_contract_version.sql": "5b17dbbb43db4b63b7a8e9b19025d8b89bbdea69a5e4df1c6e6e4cdc99b73d1a",
-    "20260829_zz_create_user_guidance_journeys.sql": "c1c01f611055fa3809cf987d0ce15e3923eb8a2e4d893ac3911382461ecb3987"
+    "20260829_zz_create_user_guidance_journeys.sql": "c1c01f611055fa3809cf987d0ce15e3923eb8a2e4d893ac3911382461ecb3987",
+    "20260830_create_ota_settlement_reconciliation.sql": "cb1e41d9e0515731ec4cf7cbee238aa1dac4c7070fdab115cb5c87fb2d50ec95",
+    "20260830_z_create_wecom_task_receipts.sql": "1f47ffe688b6915314528481ce6ab83864a910397766109298653ae6dbc08451",
+    "20260830_zz_create_operating_finance_planning.sql": "759b57c55def1a89338313607ec23aec0417f5ffc1dd835731d29f39c0692cfa",
+    "20260831_create_price_suggestion_shadow_replays.sql": "7c2f2929169990af4b9f256b63c4e41c10b3e28fa6b52f89b14affb670de4f7f",
+    "20260831_z_add_price_suggestion_decision_attestation.sql": "297dbb633c2eb6e24e4bae7aadc004f4513e383a8c736626604d21a4e853f0f3"
   },
   "frozen_sources": {
     "database/complaint_tables.sql": "0b691d925eca181aaffe7281e89855f662a2741fe92e7f673adedcbb4c630e66",

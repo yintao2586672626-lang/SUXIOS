@@ -191,6 +191,45 @@ test('hotel data analyst blocks a numeric card without strict verification and r
   assert.equal(verified.blockedCount, 0);
 });
 
+test('hotel data analyst renders a date range as strict daily points without aggregation', () => {
+  const range = normalizePreciseMetricSet({
+    status: 'answered_deterministically_range_partial',
+    precise_result: {
+      kind: 'operating_metric_range',
+      metric: { key: 'list_exposure', name: '曝光量' },
+      hotel: { id: 80, name: 'Hotel 80' },
+      platform: { key: 'meituan', name: '美团' },
+      date_range: { start_date: '2026-08-22', end_date: '2026-08-24' },
+      data_scope: '逐日严格回读，未做期间汇总',
+      points: [
+        {
+          business_date: '2026-08-22', status: 'missing', value: null, unit: '次',
+          verification_status: 'missing', readback_status: 'missing', blocked_reason: '该日指标未取得',
+        },
+        {
+          business_date: '2026-08-23', status: 'available', value: 1422, unit: '次',
+          source_record: 'online_daily_data#1', verification_status: 'verified', readback_status: 'readback_verified',
+        },
+        {
+          business_date: '2026-08-24', status: 'available', value: 1500, unit: '次',
+          source_record: 'online_daily_data#3', verification_status: 'verified', readback_status: 'readback_verified',
+        },
+      ],
+      aggregation_performed: false,
+    },
+  });
+  assert.equal(range.kind, 'operating_metric_range');
+  assert.equal(range.isMetricSet, true);
+  assert.equal(range.totalCount, 3);
+  assert.equal(range.readyCount, 2);
+  assert.equal(range.blockedCount, 1);
+  assert.equal(range.isPartial, true);
+  assert.deepEqual(range.items.map((item) => item.raw.business_date), [
+    '2026-08-22', '2026-08-23', '2026-08-24',
+  ]);
+  assert.deepEqual(range.items.map((item) => item.value), [null, 1422, 1500]);
+});
+
 test('analysis quality receipt is fail-closed and keeps claim readiness separate from contract quality', () => {
   const missing = normalizeHotelDataAnalystQualityReceipt(null);
   assert.equal(missing.status, 'blocked');

@@ -707,7 +707,7 @@
                                                     <tr v-for="item in priceSuggestions" :key="item.id">
                                                         <td class="px-4 py-3 whitespace-nowrap">
                                                             <div class="font-medium text-gray-800">{{ item.target_stay_date || item.suggestion_date || '-' }}</div>
-                                                            <span v-if="item.persistence?.readback_verified" class="mt-1 inline-flex rounded border border-emerald-200 bg-emerald-50 px-1.5 py-0.5 text-[10px] text-emerald-700">精确身份已回读</span>
+                                                            <span v-if="item.persistence?.readback_verified" :title="item.decision_attestation?.decision_as_of_time ? 'as-of ' + item.decision_attestation.decision_as_of_time + ' · 来源 ' + item.decision_attestation.source_ref_count + ' 条' : item.decision_attestation?.status_label" class="mt-1 inline-flex rounded border border-emerald-200 bg-emerald-50 px-1.5 py-0.5 text-[10px] text-emerald-700">精确身份已回读 · {{ item.decision_attestation?.status_label || '证明状态未知' }}</span>
                                                             <span v-else-if="item.persistence?.loaded_from_storage" class="mt-1 inline-flex rounded border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[10px] text-amber-700">已载入，身份字段不完整</span>
                                                             <span v-else class="mt-1 inline-flex rounded border border-gray-200 bg-gray-50 px-1.5 py-0.5 text-[10px] text-gray-600">未确认保存</span>
                                                         </td>

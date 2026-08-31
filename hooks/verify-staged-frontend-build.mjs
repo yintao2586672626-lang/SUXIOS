@@ -32,6 +32,7 @@ const run = (command, args, options = {}) => {
     cwd: options.cwd || repoRoot,
     encoding: 'utf8',
     stdio: options.capture ? 'pipe' : 'inherit',
+    env: options.env || process.env,
     windowsHide: true,
   });
   if (result.error) throw result.error;
@@ -72,6 +73,10 @@ if (!needsSnapshot) {
 const snapshotRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'suxios-staged-frontend-'));
 const snapshotRepoRoot = path.join(snapshotRoot, 'HOTEL');
 const dependencyLink = path.join(snapshotRepoRoot, 'node_modules');
+const sourceGitDir = run('git', ['rev-parse', '--absolute-git-dir'], { capture: true }).trim();
+if (!path.isAbsolute(sourceGitDir) || !fs.existsSync(sourceGitDir)) {
+  throw new Error('Unable to resolve the source Git directory for staged verification.');
+}
 let commandFailure = null;
 try {
   fs.mkdirSync(snapshotRepoRoot, { recursive: true });
@@ -91,14 +96,27 @@ try {
     fs.symlinkSync(dependencyRoot, dependencyLink, 'junction');
   }
 
-  const runNode = (script) => run(process.execPath, [script], { cwd: snapshotRepoRoot });
+  // Keep every filesystem read pinned to the staged snapshot while allowing
+  // base-ref verifiers to read commits and remote refs from the source repo.
+  // This avoids copying mutable worktree files or weakening migration history
+  // checks merely because checkout-index does not materialize a .git folder.
+  const snapshotEnv = {
+    ...process.env,
+    GIT_DIR: sourceGitDir,
+    GIT_WORK_TREE: snapshotRepoRoot,
+  };
+  const runNode = (script) => run(process.execPath, [script], {
+    cwd: snapshotRepoRoot,
+    env: snapshotEnv,
+  });
   const runNpmVerifier = (verifier) => {
     if (process.platform === 'win32') {
       run(process.env.ComSpec || 'cmd.exe', ['/d', '/s', '/c', `npm.cmd run ${verifier}`], {
         cwd: snapshotRepoRoot,
+        env: snapshotEnv,
       });
     } else {
-      run('npm', ['run', verifier], { cwd: snapshotRepoRoot });
+      run('npm', ['run', verifier], { cwd: snapshotRepoRoot, env: snapshotEnv });
     }
   };
 

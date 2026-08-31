@@ -772,20 +772,25 @@ function cloudHotelIdMigrationAssertHotelsAutoIncrementAbove(int $hotelId): int
 function cloudHotelIdMigrationApplyRelational(array $preflight, int $fromHotelId, int $toHotelId): array
 {
     $updated = [];
-    foreach ($preflight as $key => $entry) {
-        $table = $entry['table'];
-        $column = $entry['column'];
-        $expectedCount = (int)$entry['from_count'];
-        $affected = Db::execute(
-            'UPDATE ' . cloudHotelIdMigrationIdentifier($table)
-            . ' SET ' . cloudHotelIdMigrationIdentifier($column) . '=?'
-            . ' WHERE ' . cloudHotelIdMigrationIdentifier($column) . '=?',
-            [$toHotelId, $fromHotelId]
-        );
-        if ($affected !== $expectedCount) {
-            throw new RuntimeException('updated_row_count_mismatch:' . $key . ':' . $affected . ':' . $expectedCount);
+    Db::execute('SET @suxi_cloud_hotel_id_migration = 1');
+    try {
+        foreach ($preflight as $key => $entry) {
+            $table = $entry['table'];
+            $column = $entry['column'];
+            $expectedCount = (int)$entry['from_count'];
+            $affected = Db::execute(
+                'UPDATE ' . cloudHotelIdMigrationIdentifier($table)
+                . ' SET ' . cloudHotelIdMigrationIdentifier($column) . '=?'
+                . ' WHERE ' . cloudHotelIdMigrationIdentifier($column) . '=?',
+                [$toHotelId, $fromHotelId]
+            );
+            if ($affected !== $expectedCount) {
+                throw new RuntimeException('updated_row_count_mismatch:' . $key . ':' . $affected . ':' . $expectedCount);
+            }
+            $updated[$key] = $affected;
         }
-        $updated[$key] = $affected;
+    } finally {
+        Db::execute('SET @suxi_cloud_hotel_id_migration = 0');
     }
     return $updated;
 }

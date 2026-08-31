@@ -27,6 +27,7 @@ test('boss navigation separates analysis, OTA collection, operations and system 
   assert.match(analysis, /name: '经营分析'/);
   assert.match(analysis, /sourcePath: 'online-data',[\s\S]*sourceTab: 'data-health'/);
   assert.match(analysis, /sourcePath: 'revenue-research-center'/);
+  assert.match(analysis, /sourcePath: 'operating-finance',[\s\S]*name: '净收与恢复'/);
   assert.match(analysis, /sourcePath: 'ai-simulation',[\s\S]*name: '酒店量化模拟'/);
   assert.match(analysis, /sourcePath: 'operating-targets',[\s\S]*name: '目标与事实'/);
   assert.match(analysis, /sourcePath: 'ai-daily-report'/);

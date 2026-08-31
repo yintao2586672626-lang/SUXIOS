@@ -70,6 +70,11 @@ test('page exposes one complete card and no longer accepts manual candidate calc
     "'data-testid': 'daily-one-thing-personalized-preview'",
     "'data-testid': 'daily-one-thing-preview-feedback'",
     "'data-testid': 'daily-one-thing-history-integrity-warning'",
+    "'data-testid': 'daily-one-thing-impact-estimate'",
+    "'data-testid': 'daily-one-thing-impact-input-refs'",
+    '影响估算', '确定性点值', '当前不可计算',
+    '它不是置信区间、可挽回人数、收益或因果效果',
+    '不会用排序分、默认值或模型猜测补齐',
     "'aria-busy': this.feedbackSaving ? 'true' : 'false'",
     "'aria-live': 'polite'",
   ]) assert.ok(componentSource.includes(marker), marker);
@@ -393,6 +398,9 @@ test('backend selection, persistence and lifecycle are bound to approved source 
     "private const SOURCE_TYPES = ['strict_fact_signal', 'saved_question', 'explicit_data_gap']",
     "'impact',", "'urgency',", "'evidence_strength',", "'execution_cost',",
     "'full_candidate_list_exposed' => false",
+    "'impact_estimate' => $impactEstimate",
+    "'status' => 'not_calculable'",
+    "'status' => 'deterministic_point_estimate'",
   ]) assert.ok(selector.includes(marker), marker);
   assert.ok(!selector.includes("'candidates' => array_values"));
 
@@ -400,6 +408,8 @@ test('backend selection, persistence and lifecycle are bound to approved source 
     'DualOtaFieldClosureService', 'OperatingQuestionService',
     'ctrip_target_date_source_rows_missing', 'ctrip_core_facts_missing',
     'gap:meituan:traffic_only_scope', 'ota_channel_data_quality',
+    'meituanTrafficImpactEstimate', 'strictImpactField',
+    "'formula' => 'exposure_users - detail_visitors'",
   ]) assert.ok(inputService.includes(marker), marker);
   for (const marker of [
     "DAILY_CARD_CONTRACT_VERSION = 'operation_action_card.v2'",

@@ -59,7 +59,7 @@ final class PreciseQueryRouterServiceTest extends TestCase
             Db::execute('DROP TABLE IF EXISTS ' . $table);
         }
         Db::execute('CREATE TABLE hotels (id INTEGER PRIMARY KEY, tenant_id INTEGER NOT NULL, name TEXT, status INTEGER NOT NULL)');
-        Db::execute("INSERT INTO hotels (id,tenant_id,name,status) VALUES (80,10,'Hotel 80',1),(81,10,'Hotel 81',1),(90,11,'Other tenant',1)");
+        Db::execute("INSERT INTO hotels (id,tenant_id,name,status) VALUES (80,10,'Hotel 80',1),(81,10,'Hotel 81',1),(82,10,'杭州望月酒店',1),(83,10,'杭州望月酒店',1),(90,11,'Other tenant',1)");
         Db::execute(
             'CREATE TABLE hotel_operating_questions ('
             . 'id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER, hotel_id INTEGER, request_key TEXT, question_text TEXT, '
@@ -377,6 +377,125 @@ final class PreciseQueryRouterServiceTest extends TestCase
         self::assertNull($result['answer']['value']);
     }
 
+    public function testChineseHotelNameRequiresOneUniqueAccessibleMatch(): void
+    {
+        $router = $this->router();
+        $method = new \ReflectionMethod(PreciseQueryRouterService::class, 'resolveHotel');
+        $method->setAccessible(true);
+
+        $unique = $method->invoke($router, '查一下杭州望月酒店昨天的美团曝光', [], [80, 81, 82]);
+        self::assertSame(82, $unique['id']);
+        self::assertSame('杭州望月酒店', $unique['name']);
+        self::assertSame('question_hotel_name', $unique['source']);
+        self::assertSame('', $unique['error']);
+
+        $ambiguous = $method->invoke($router, '查一下杭州望月酒店昨天的美团曝光', [], [82, 83]);
+        self::assertSame(0, $ambiguous['id']);
+        self::assertStringContainsString('匹配到多个可访问门店', $ambiguous['error']);
+
+        $inaccessible = $method->invoke($router, '查一下杭州望月酒店昨天的美团曝光', [], [80, 81]);
+        self::assertSame(0, $inaccessible['id']);
+        self::assertSame('', $inaccessible['name']);
+    }
+
+    public function testExplicitDateRangeReturnsDailyTrendWithoutPeriodAggregation(): void
+    {
+        $result = $this->router()->route(10, [80, 81], 7, [
+            'query' => 'Hotel 80 美团 2026-08-23至2026-08-24 曝光量趋势',
+            'current_scope' => [],
+        ]);
+
+        self::assertSame('operating_query', $result['route_type'], json_encode($result, JSON_UNESCAPED_UNICODE));
+        self::assertSame('answered_deterministically_range', $result['status']);
+        self::assertSame('operating_metric_range', $result['answer']['kind']);
+        self::assertSame(
+            ['start_date' => '2026-08-23', 'end_date' => '2026-08-24'],
+            $result['answer']['date_range']
+        );
+        self::assertSame([1422, 1500], array_column($result['answer']['points'], 'value'));
+        self::assertSame(['available', 'available'], array_column($result['answer']['points'], 'status'));
+        self::assertSame(2, $result['answer']['available_day_count']);
+        self::assertSame(0, $result['answer']['missing_day_count']);
+        self::assertFalse($result['answer']['aggregation_performed']);
+        self::assertSame('2026-08-23', $result['operating_question']['date_start']);
+        self::assertSame('2026-08-24', $result['operating_question']['date_end']);
+        self::assertCount(2, $result['fact_refs']);
+        self::assertSame('passed', $result['analysis_quality_receipt']['quality_status']);
+        self::assertSame('supported', $result['analysis_quality_receipt']['claim_status']);
+        self::assertSame('ready', $result['analysis_quality_receipt']['status']);
+    }
+
+    public function testDateRangeKeepsMissingDaysAndRejectsOverlargeOrCrossPlatformRanges(): void
+    {
+        $partial = $this->router()->route(10, [80, 81], 7, [
+            'query' => 'Hotel 80 美团 2026-08-22至2026-08-24 曝光量趋势',
+            'current_scope' => [],
+        ]);
+        self::assertSame('answered_deterministically_range_partial', $partial['status'], json_encode($partial, JSON_UNESCAPED_UNICODE));
+        self::assertSame(['missing', 'available', 'available'], array_column($partial['answer']['points'], 'status'));
+        self::assertNull($partial['answer']['points'][0]['value']);
+        self::assertSame(1, $partial['answer']['missing_day_count']);
+        self::assertFalse($partial['answer']['aggregation_performed']);
+        self::assertSame('passed', $partial['analysis_quality_receipt']['quality_status']);
+        self::assertSame('limited', $partial['analysis_quality_receipt']['claim_status']);
+        self::assertSame('partial', $partial['analysis_quality_receipt']['status']);
+
+        $tooLarge = $this->router()->route(10, [80, 81], 7, [
+            'query' => 'Hotel 80 美团 2026-07-01至2026-08-23 曝光量趋势',
+            'current_scope' => [],
+        ]);
+        self::assertSame('clarification', $tooLarge['route_type']);
+        self::assertStringContainsString('最多31天', $tooLarge['answer_summary']);
+
+        $comparison = $this->router()->route(10, [80, 81], 7, [
+            'query' => 'Hotel 80 2026-08-23至2026-08-24 携程和美团曝光量哪个高？',
+            'current_scope' => [],
+        ]);
+        self::assertSame('clarification', $comparison['route_type']);
+        self::assertStringContainsString('只支持单平台逐日趋势', $comparison['answer_summary']);
+    }
+
+    public function testExposureEstimationAppearsAsBlockedEstimateOnlyReference(): void
+    {
+        $closures = $this->exposureEstimationClosures(7);
+        $router = $this->router(static fn(int $hotelId, string $date): array => $closures[$date] ?? []);
+        $result = $router->route(10, [80, 81], 7, [
+            'query' => 'Hotel 80 2026-08-15 美团曝光人数反推估算',
+            'current_scope' => [],
+        ]);
+
+        self::assertSame('operating_query', $result['route_type']);
+        self::assertSame('blocked_by_estimate_only_reference', $result['status']);
+        self::assertSame('exposure_estimation_reference', $result['answer']['kind']);
+        self::assertSame(1000, $result['answer']['value']);
+        self::assertSame('people', $result['answer']['unit']);
+        self::assertSame('derived_estimate', $result['answer']['verification_status']);
+        self::assertSame('estimate_only_not_platform_fact', $result['answer']['readback_status']);
+        self::assertFalse($result['answer']['decision_eligible']);
+        self::assertFalse($result['answer']['writeback_allowed']);
+        self::assertSame('unchanged', $result['answer']['platform_fact_status']);
+        self::assertSame(7, $result['answer']['estimate_receipt']['accepted_verified_pairs']);
+        self::assertSame('blocked', $result['analysis_quality_receipt']['claim_status']);
+        self::assertFalse($result['analysis_quality_receipt']['usage_policy']['analysis_claim_allowed']);
+    }
+
+    public function testExposureEstimationInsufficientBaselineReturnsNoNumberAndExactReadback(): void
+    {
+        $closures = $this->exposureEstimationClosures(6);
+        $router = $this->router(static fn(int $hotelId, string $date): array => $closures[$date] ?? []);
+        $result = $router->route(10, [80, 81], 7, [
+            'query' => 'Hotel 80 2026-08-15 美团漏抓曝光人数，帮我估算',
+            'current_scope' => [],
+        ]);
+
+        self::assertSame('blocked_by_exposure_estimation_insufficient_baseline', $result['status']);
+        self::assertNull($result['answer']['value']);
+        self::assertSame(6, $result['answer']['estimate_receipt']['accepted_verified_pairs']);
+        self::assertStringContainsString('至少需要 7 天', $result['answer_summary']);
+        self::assertSame('readback_verified', $result['persistence_status']);
+        self::assertFalse($result['answer']['writeback_allowed']);
+    }
+
     /** @return array<string,mixed> */
     private function ask(string $question): array
     {
@@ -433,6 +552,68 @@ final class PreciseQueryRouterServiceTest extends TestCase
             fn(int $hotelId, string $businessDate): array =>
                 $this->scopeClosure($hotelId, $businessDate)
         );
+    }
+
+    /** @return array<string,array<string,mixed>> */
+    private function exposureEstimationClosures(int $pairCount): array
+    {
+        $closures = [];
+        $target = '2026-08-15';
+        $closures[$target] = $this->exposureEstimationClosure($target, false, 100, 0, 900);
+        for ($offset = 1; $offset <= $pairCount; $offset++) {
+            $date = (new DateTimeImmutable($target))->modify('-' . $offset . ' days')->format('Y-m-d');
+            $visits = 100 + $offset;
+            $closures[$date] = $this->exposureEstimationClosure(
+                $date,
+                true,
+                $visits,
+                $visits * 10,
+                900 + $offset
+            );
+        }
+        return $closures;
+    }
+
+    /** @return array<string,mixed> */
+    private function exposureEstimationClosure(
+        string $date,
+        bool $withExposure,
+        int $visits,
+        int $exposure,
+        int $sourceId
+    ): array {
+        $ref = 'online_daily_data#' . $sourceId;
+        $field = static fn(string $key, int $value): array => [
+            'key' => $key,
+            'metric_key' => $key,
+            'value' => $value,
+            'unit' => 'people',
+            'validation_status' => 'verified',
+            'history_statuses' => ['success'],
+            'readback_status' => 'readback_verified',
+            'strict_final_gate' => true,
+            'revenue_analysis_consumable' => true,
+            'source_record_refs' => [$ref],
+            'source_paths' => ['fixture.same_snapshot'],
+            'cumulative_cutoff' => '23:00',
+            'metric_definition_version' => 'fixture-exposure-users-detail-visitors.v1',
+        ];
+        $fields = [$field('visits', $visits)];
+        if ($withExposure) {
+            $fields[] = $field('exposure', $exposure);
+        }
+        return [
+            'contract_version' => 'dual_ota_field_closure.v1',
+            'tenant_id' => 10,
+            'hotel_id' => 80,
+            'business_date' => $date,
+            'page_identity' => 'dual_ota_field_closure#estimate-' . str_replace('-', '', $date),
+            'consumer_contract' => [
+                'contract_version' => 'trusted_ota_daily_fact_consumer.v1',
+                'allowed_fact_statuses' => ['strict_readback'],
+            ],
+            'platforms' => ['meituan' => ['fields' => $fields], 'ctrip' => ['fields' => []]],
+        ];
     }
 
     /** @return array<string,mixed> */

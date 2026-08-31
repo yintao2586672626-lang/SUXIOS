@@ -4773,7 +4773,7 @@
                                             <td class="px-4 py-3">{{ operationExecutionStatusLabel(item.execution?.status) }}</td>
                                             <td class="px-4 py-3">{{ nodeText(item) }}</td>
                                             <td class="px-4 py-3 text-gray-600">
-                                                <div>{{ operationExecutionReviewText(item) }}</div>
+                                                <div class="whitespace-pre-line">{{ operationExecutionReviewText(item) }}</div>
                                                 <div v-if="item.action_management?.latest_review?.non_attribution_reasons?.length" class="mt-1 max-w-xs text-[11px] leading-4 text-amber-700">非归因：{{ item.action_management.latest_review.non_attribution_reasons.join('、') }}</div>
                                             </td>
                                             <td class="px-4 py-3">
@@ -5776,7 +5776,7 @@
                                     <div v-if="module.data?.reason" class="m-3 flex items-center justify-between gap-3 rounded-lg bg-yellow-50 p-3 text-xs text-yellow-900">为什么不可用：{{ module.data.reason }}<button v-if="module.data?.recovery" @click="openOperationOptimizerRecovery(module.data.recovery)" class="shrink-0 rounded bg-yellow-700 px-3 py-2 text-white" :data-testid="'operation-optimizer-' + module.key + '-recovery'">{{ module.data.recovery.action_label }}</button></div>
                                     <article v-for="row in module.rows" :key="row.platform + ':' + (row.keyword || row.room_type)" class="grid gap-3 border-b p-4 last:border-0 lg:grid-cols-[190px_1fr_270px_120px] lg:items-center">
                                         <div :class="row.platform === 'meituan' ? 'text-yellow-700' : 'text-blue-700'" class="text-sm">{{ row.platform_name }} · <b>{{ row.keyword || row.room_type }}</b><template v-if="row.landing_room_type"> · {{ row.landing_room_type }}</template> · {{ row.latest_date || '日期未取得' }} · {{ operationOptimizerStatusText(row.quality_status) }}</div>
-                                        <dl class="grid grid-cols-3 gap-1 sm:grid-cols-6"><div v-for="metric in (module.key === 'keyword' ? operationOptimizerKeywordMetrics(row) : operationOptimizerRoomMetrics(row))" :key="metric[0]" class="rounded bg-gray-50 p-2 text-center text-xs">{{ metric[0] }} <b>{{ metric[1] }}</b></div></dl>
+                                        <dl class="grid grid-cols-3 gap-1 sm:grid-cols-6"><div v-for="metric in (module.key === 'room' ? operationOptimizerRoomMetrics(row) : operationOptimizerKeywordMetrics(row))" :key="metric[0]" class="rounded bg-gray-50 p-2 text-center text-xs">{{ metric[0] }} <b>{{ metric[1] }}</b></div></dl>
                                         <div :class="operationOptimizerRecommendationClass(row.recommendation?.code)" class="rounded border p-2 text-xs"><b>{{ row.recommendation?.title }}：</b>{{ row.recommendation?.reason }}</div>
                                         <button @click="createOperationOptimizerTask(row.recommendation)" :disabled="operationOptimizerActionDisabled(row.recommendation)" :class="operationOptimizerActionClass(row.recommendation)" class="rounded px-3 py-2 text-xs disabled:opacity-70">{{ operationOptimizerActionText(row.recommendation) }}</button>
                                     </article>
@@ -5805,6 +5805,13 @@
                             @open-operations="openHomeOperatingScheduleItem"
                         ></operating-opportunity-lab>
                     </div>
+                    <operating-finance-control-center
+                        v-if="currentPage === 'operating-finance'"
+                        :hotels="hotels"
+                        :request="managerCapabilityRequest"
+                        :selected-hotel-id="filterReportHotel"
+                        :can-execute="operationFinanceCanExecute"
+                    ></operating-finance-control-center>
                     <div v-if="currentPage === 'knowledge-center'" class="max-w-6xl mx-auto space-y-4">
                         <div class="bg-white rounded-xl p-5 shadow-sm border border-gray-100">
                             <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
@@ -7691,21 +7698,21 @@
 
                                 <div v-if="!['data-health', 'ctrip-public-profiles', 'ctrip-config'].includes(onlineDataTab)" class="ctrip-workspace-status mb-4 grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-slate-200 bg-slate-200 xl:grid-cols-4">
                                     <div class="bg-gray-50 px-3 py-2">
+                                        <div class="text-xs text-gray-500 mb-1">请求日期</div>
+                                        <div data-testid="ctrip-request-date" class="text-sm font-medium text-gray-800">{{ ctripRequestDateText }}</div>
+                                    </div>
+                                    <div class="bg-gray-50 px-3 py-2">
+                                        <div class="text-xs text-gray-500 mb-1">来源业务日</div>
+                                        <div data-testid="ctrip-source-business-date" :class="['text-sm font-medium', ctripLatestMeta?.response_date_status === 'verified' ? 'text-gray-800' : 'text-amber-700']">{{ ctripSourceBusinessDateText }}</div>
+                                    </div>
+                                    <div class="bg-gray-50 px-3 py-2">
                                         <div class="text-xs text-gray-500 mb-1">采集时间</div>
-                                        <div class="text-sm font-medium text-gray-800">{{ ctripLatestMeta?.fetched_at || '暂无' }}</div>
-                                    </div>
-                                    <div class="bg-gray-50 px-3 py-2">
-                                        <div class="text-xs text-gray-500 mb-1">数据日期</div>
-                                        <div class="text-sm font-medium text-gray-800">{{ ctripLatestMeta?.data_date || '暂无' }}</div>
-                                    </div>
-                                    <div class="bg-gray-50 px-3 py-2">
-                                        <div class="text-xs text-gray-500 mb-1">保存记录数</div>
-                                        <div class="text-sm font-medium text-gray-800">{{ ctripHeaderRecordCount ? ctripHeaderRecordCount + ' 条' : '暂无' }}</div>
+                                        <div data-testid="ctrip-collected-at" class="text-sm font-medium text-gray-800">{{ ctripCollectedAtText }}</div>
                                     </div>
                                     <div class="bg-gray-50 px-3 py-2">
                                         <div class="text-xs text-gray-500 mb-1">入库状态</div>
-                                        <div :class="['text-sm font-medium', ctripLatestSnapshotClass]">
-                                            {{ ctripLatestSnapshotText }}
+                                        <div data-testid="ctrip-persistence-status" :class="['text-sm font-medium', ctripLatestSnapshotClass]">
+                                            {{ ctripLatestSnapshotText }}<span v-if="ctripHeaderRecordCount"> · {{ ctripHeaderRecordCount }} 条</span>
                                         </div>
                                     </div>
                                 </div>
@@ -12657,7 +12664,7 @@
                                                     <tr v-for="item in priceSuggestions" :key="item.id">
                                                         <td class="px-4 py-3 whitespace-nowrap">
                                                             <div class="font-medium text-gray-800">{{ item.target_stay_date || item.suggestion_date || '-' }}</div>
-                                                            <span v-if="item.persistence?.readback_verified" class="mt-1 inline-flex rounded border border-emerald-200 bg-emerald-50 px-1.5 py-0.5 text-[10px] text-emerald-700">精确身份已回读</span>
+                                                            <span v-if="item.persistence?.readback_verified" :title="item.decision_attestation?.decision_as_of_time ? 'as-of ' + item.decision_attestation.decision_as_of_time + ' · 来源 ' + item.decision_attestation.source_ref_count + ' 条' : item.decision_attestation?.status_label" class="mt-1 inline-flex rounded border border-emerald-200 bg-emerald-50 px-1.5 py-0.5 text-[10px] text-emerald-700">精确身份已回读 · {{ item.decision_attestation?.status_label || '证明状态未知' }}</span>
                                                             <span v-else-if="item.persistence?.loaded_from_storage" class="mt-1 inline-flex rounded border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[10px] text-amber-700">已载入，身份字段不完整</span>
                                                             <span v-else class="mt-1 inline-flex rounded border border-gray-200 bg-gray-50 px-1.5 py-0.5 text-[10px] text-gray-600">未确认保存</span>
                                                         </td>
@@ -15282,31 +15289,49 @@
                     </div>
 
                     <!-- 线上数据获取 -->
-                    <div v-if="currentPage === 'online-data'" class="online-data-page">
-                        <div class="rounded-xl border border-gray-200 bg-gray-50 shadow-sm overflow-hidden">
-                            <div class="px-5 py-4 border-b border-gray-200 bg-white">
-                                <h3 class="text-base font-semibold text-gray-900">携程 / 美团数据</h3>
-                                <p class="mt-1 text-xs leading-5 text-gray-500">仅展示携程、美团渠道数据，不代表酒店全部经营数据。</p>
-                            </div>
-                            <div class="p-4 sm:p-6">
+                    <div v-if="currentPage === 'online-data'" class="online-data-page suxi-dashboard-scope">
+                        <div>
+                            <section data-testid="online-data-page-header" class="online-data-hero">
+                                <div class="online-data-hero-layout">
+                                    <div class="online-data-hero-copy">
+                                        <h2>线上经营数据</h2>
+                                        <p>看清数据是否可信、哪里异常、先处理什么；仅代表携程与美团渠道，不替代全酒店经营事实。</p>
+                                        <div class="online-data-truth-row" data-testid="online-data-truth-boundaries">
+                                            <span>来源、门店、日期、字段保存与数据库回读；缺失不补 0</span>
+                                        </div>
+                                    </div>
+                                    <button
+                                        v-if="onlineDataTab === 'data-health'"
+                                        data-testid="online-data-primary-action"
+                                        type="button"
+                                        @click="refreshCoreOperationsLoop()"
+                                        :disabled="coreOperationsLoading"
+                                        class="online-data-primary-action"
+                                    >
+                                        <i class="fas fa-sync-alt" :class="{ 'fa-spin': coreOperationsLoading }"></i>
+                                        {{ coreOperationsLoading ? '刷新中' : '刷新昨日闭环' }}
+                                    </button>
+                                </div>
+                            </section>
+                            <div class="online-data-content">
                                 <!-- Tabs -->
-                                <div class="online-data-primary-tabs flex flex-wrap gap-2 border-b border-gray-200 pb-3 mb-6" role="navigation" aria-label="线上数据主导航">
-                                    <button @click="openOnlineDataTab('data-health')" :class="['px-4 py-2 rounded-lg text-sm font-medium transition', onlineDataTab === 'data-health' ? 'bg-gray-900 text-white shadow-sm' : 'text-gray-600 hover:bg-white hover:text-gray-900']">
+                                <div class="online-data-primary-tabs online-data-tabs-surface" role="navigation" aria-label="线上数据主导航">
+                                    <button @click="openOnlineDataTab('data-health')" class="online-data-tab-button" :class="{ 'is-active': onlineDataTab === 'data-health' }">
                                         昨日经营闭环
                                     </button>
-                                    <button @click="openPlatformAutoTab()" :class="['px-4 py-2 rounded-lg text-sm font-medium transition', onlineDataTab === 'platform-auto' ? 'bg-gray-900 text-white shadow-sm' : 'text-gray-600 hover:bg-white hover:text-gray-900']">
+                                    <button @click="openPlatformAutoTab()" class="online-data-tab-button" :class="{ 'is-active': onlineDataTab === 'platform-auto' }">
                                         配置：自动采集
                                     </button>
-                                    <button @click="openPlatformSourcesTab()" :class="['px-4 py-2 rounded-lg text-sm font-medium transition', onlineDataTab === 'platform-sources' ? 'bg-gray-900 text-white shadow-sm' : 'text-gray-600 hover:bg-white hover:text-gray-900']">
+                                    <button @click="openPlatformSourcesTab()" class="online-data-tab-button" :class="{ 'is-active': onlineDataTab === 'platform-sources' }">
                                         配置：平台账号
                                     </button>
-                                    <button @click="openOnlineAnalysisTab" :class="['px-4 py-2 rounded-lg text-sm font-medium transition', onlineDataTab === 'analysis' ? 'bg-gray-900 text-white shadow-sm' : 'text-gray-600 hover:bg-white hover:text-gray-900']">
+                                    <button @click="openOnlineAnalysisTab" class="online-data-tab-button" :class="{ 'is-active': onlineDataTab === 'analysis' }">
                                         数据分析
                                     </button>
-                                    <button @click="openOnlineDataTab('data')" :class="['px-4 py-2 rounded-lg text-sm font-medium transition', onlineDataTab === 'data' ? 'bg-gray-900 text-white shadow-sm' : 'text-gray-600 hover:bg-white hover:text-gray-900']">
+                                    <button @click="openOnlineDataTab('data')" class="online-data-tab-button" :class="{ 'is-active': onlineDataTab === 'data' }">
                                         记录与下载
                                     </button>
-                                    <button v-if="user?.is_super_admin" @click="openCtripProfileFieldsForReview" :class="['px-4 py-2 rounded-lg text-sm font-medium transition', onlineDataTab === 'profile-fields' ? 'bg-gray-900 text-white shadow-sm' : 'text-gray-600 hover:bg-white hover:text-gray-900']">
+                                    <button v-if="user?.is_super_admin" @click="openCtripProfileFieldsForReview" class="online-data-tab-button" :class="{ 'is-active': onlineDataTab === 'profile-fields' }">
                                         字段诊断
                                     </button>
                                 </div>
@@ -15322,6 +15347,12 @@
                                         <i class="fas fa-exclamation-triangle mt-0.5 text-red-500"></i>
                                         <span>{{ hotelDashboardError || collectionReliabilityError || dailyWorkbenchError }}</span>
                                     </div>
+                                    <details data-testid="online-data-trust-details" class="online-data-trust-disclosure">
+                                        <summary class="online-data-trust-summary">
+                                            <strong>数据可信度与字段闭环</strong>
+                                            <span class="online-data-trust-toggle">查看证据</span>
+                                        </summary>
+                                        <div class="online-data-trust-body">
                                     <section data-testid="dual-ota-continuous-trust" class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
                                         <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                                             <div>
@@ -15385,6 +15416,8 @@
                                         :force-read="true"
                                         surface="data_health"
                                     ></dual-ota-field-closure-panel>
+                                        </div>
+                                    </details>
                                     <section data-testid="core-operations-loop" class="overflow-hidden rounded-2xl border border-slate-800 bg-white shadow-xl shadow-slate-200/60">
                                         <header class="relative overflow-hidden bg-slate-950 px-5 py-5 text-white sm:px-6">
                                             <div class="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(59,130,246,0.22),transparent_42%),radial-gradient(circle_at_bottom_left,rgba(16,185,129,0.16),transparent_38%)]"></div>
@@ -16997,42 +17030,36 @@
 
                                 <!-- 数据分析 -->
                                 <div v-if="onlineDataTab === 'analysis'" data-testid="online-data-analysis-panel" class="space-y-5">
-                                    <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
-                                        <div>
-                                            <h4 class="text-lg font-semibold text-gray-900">OTA 渠道数据分析</h4>
-                                            <p class="text-sm text-gray-500">展示采集或导入后的 OTA 渠道数值，不等同于全酒店经营口径。</p>
-                                        </div>
-                                        <div class="flex gap-2">
-                                            <button @click="openPlatformAutoTab()" class="px-3 py-2 border rounded-lg text-sm hover:bg-gray-50">
-                                                <i class="fas fa-cloud-download-alt mr-1"></i>采集配置
-                                            </button>
-                                            <button @click="openOnlineDataTab('data')" class="px-3 py-2 border rounded-lg text-sm hover:bg-gray-50">
-                                                <i class="fas fa-list mr-1"></i>数据记录
-                                            </button>
-                                        </div>
+                                    <div class="online-analysis-summary-grid" data-testid="online-analysis-summary-grid">
+                                        <article v-for="card in onlineAnalysisSummaryCards" :key="card.key" data-testid="truth-metric" class="online-analysis-summary-card">
+                                            <div class="online-analysis-summary-label">{{ card.label }}</div>
+                                            <div class="online-analysis-summary-value" :class="card.className">{{ card.value }}</div>
+                                            <div class="online-analysis-summary-sub">{{ card.sub }}</div>
+                                            <online-truth-summary :truth="card.truth"></online-truth-summary>
+                                        </article>
                                     </div>
 
-                                    <div class="border rounded-lg p-4 bg-gray-50/70">
-                                        <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-6 gap-3">
-                                            <div>
-                                                <label class="block text-xs text-gray-500 mb-1">开始日期</label>
-                                                <input v-model="onlineDataFilter.start_date" type="date" class="w-full px-3 py-2 border rounded-lg bg-white">
+                                    <div class="online-analysis-filter">
+                                        <div class="online-analysis-filter-grid">
+                                            <div class="online-analysis-field">
+                                                <label>开始日期</label>
+                                                <input v-model="onlineDataFilter.start_date" type="date" class="online-analysis-control">
                                             </div>
-                                            <div>
-                                                <label class="block text-xs text-gray-500 mb-1">结束日期</label>
-                                                <input v-model="onlineDataFilter.end_date" type="date" class="w-full px-3 py-2 border rounded-lg bg-white">
+                                            <div class="online-analysis-field">
+                                                <label>结束日期</label>
+                                                <input v-model="onlineDataFilter.end_date" type="date" class="online-analysis-control">
                                             </div>
-                                            <div>
-                                                <label class="block text-xs text-gray-500 mb-1">平台</label>
-                                                <select v-model="onlineDataFilter.source" class="w-full px-3 py-2 border rounded-lg bg-white">
+                                            <div class="online-analysis-field">
+                                                <label>平台</label>
+                                                <select v-model="onlineDataFilter.source" class="online-analysis-control">
                                                     <option value="">全部平台</option>
                                                     <option value="ctrip">携程</option>
                                                     <option value="meituan">美团</option>
                                                 </select>
                                             </div>
-                                            <div>
-                                                <label class="block text-xs text-gray-500 mb-1">数据类型</label>
-                                                <select v-model="onlineDataFilter.data_type" class="w-full px-3 py-2 border rounded-lg bg-white">
+                                            <div class="online-analysis-field">
+                                                <label>数据类型</label>
+                                                <select v-model="onlineDataFilter.data_type" class="online-analysis-control">
                                                     <option value="">全部类型</option>
                                                     <option value="business">经营</option>
                                                     <option value="traffic">流量</option>
@@ -17049,16 +17076,16 @@
                                                     <option value="quality">服务质量</option>
                                                 </select>
                                             </div>
-                                            <div v-if="user?.is_super_admin">
-                                                <label class="block text-xs text-gray-500 mb-1">酒店</label>
-                                                <select v-model="onlineDataFilter.hotel_id" class="w-full px-3 py-2 border rounded-lg bg-white">
+                                            <div v-if="user?.is_super_admin" class="online-analysis-field">
+                                                <label>酒店</label>
+                                                <select v-model="onlineDataFilter.hotel_id" class="online-analysis-control">
                                                     <option value="">全部酒店</option>
                                                     <option v-for="h in hotels" :key="h.id" :value="h.id">{{ h.name }}</option>
                                                 </select>
                                             </div>
-                                            <div class="flex items-end">
-                                                <button @click="refreshOnlineAnalysis({ force: true })" :disabled="onlineAnalysisLoading" class="w-full px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-300">
-                                                    <i :class="onlineAnalysisLoading ? 'fas fa-spinner fa-spin mr-2' : 'fas fa-search mr-2'"></i>{{ onlineAnalysisLoading ? '加载中' : '查询' }}
+                                            <div class="online-analysis-query-slot">
+                                                <button data-testid="online-analysis-query" @click="refreshOnlineAnalysis({ force: true })" :disabled="onlineAnalysisLoading" class="online-analysis-query-button">
+                                                    <i :class="onlineAnalysisLoading ? 'fas fa-spinner fa-spin mr-2' : 'fas fa-search mr-2'"></i>{{ onlineAnalysisLoading ? '加载中' : '查询分析' }}
                                                 </button>
                                             </div>
                                         </div>
@@ -17191,14 +17218,6 @@
                                             {{ competitorEventFeed?.scope_notice || '仅限携程/美团 OTA 渠道，不代表酒店总房态或全酒店经营事实。' }}
                                         </div>
                                     </section>
-
-                                    <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
-                                        <div v-for="card in onlineAnalysisSummaryCards" :key="card.key" data-testid="truth-metric" class="border rounded-lg bg-white p-4">
-                                            <div class="text-xs text-gray-500">{{ card.label }}</div>
-                                            <div class="mt-2 text-xl font-semibold" :class="card.className">{{ card.value }}</div>
-                                            <online-truth-summary :truth="card.truth"></online-truth-summary>
-                                        </div>
-                                    </div>
 
                                     <div class="rounded-lg border border-gray-200 bg-white p-4">
                                         <div class="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3 mb-3">

@@ -294,7 +294,7 @@ requireText('public/index.html', 'const dualOtaRatePreviousExtra = (value) => {'
 requireText('public/index.html', 'ctripLatestComparison.value = payload?.rank?.comparison || null;', 'AI workbench stores Ctrip latest comparison snapshot from backend response');
 requireText('public/index.html', "const latestRange = isCompassDataPage() ? String(dualOtaSelectedRange.value || '').trim() : '';", 'AI workbench sends selected range when loading latest Ctrip data');
 requireText('public/index.html', 'const requestRange = explicitRange || latestRange || resolveCtripLatestRequestRange();', 'AI workbench resolves one explicit latest-data range before the Ctrip request');
-requireText('public/index.html', "return currentPage.value === 'ctrip-ebooking' ? 'yesterday' : '';", 'Ctrip current data page requests the target date instead of an unscoped historical latest snapshot');
+requireText('public/index.html', "? buildCtripFetchDateRange({}, new Date()).endDate", 'Ctrip current data page requests the settled Shanghai business date instead of an unscoped historical latest snapshot');
 requireText('public/index.html', "if (requestRange) params.append('range', requestRange);", 'AI workbench appends the resolved range to the latest Ctrip data request');
 requireText('public/index.html', "requestPromise = request(`/online-data/ctrip/latest${query ? '?' + query : ''}`, selectedHotelId", 'AI workbench keeps the Ctrip latest URL query-driven and binds the request to the selected hotel context');
 requireText('public/index.html', 'let requestPromise = ctripLatestRequestPromises.get(requestKey);', 'AI workbench reuses an identical in-flight Ctrip latest request');
@@ -820,16 +820,16 @@ requireText('public/index.html', 'return runIfCurrent(() => loadCtripProfileFiel
 requireText('public/index.html', 'clearCtripProfileFieldCache();\n                        await loadCtripProfileFields({ force: true });', 'Ctrip profile-field writes invalidate cache and force a fresh reload');
 requireText('public/index.html', 'clearCtripProfileFieldCache();\n                        mergeCtripProfileFieldUpdate(res.data || {});', 'Ctrip profile-field inline mutations invalidate the cached sample/list reads');
 requireText('public/index.html', 'const ONLINE_ANALYSIS_PANEL_CACHE_TTL_MS = 8000;', 'online analysis tab returns reuse recent analysis reads');
-requireText('public/index.html', 'const onlineAnalysisDataRequestPromises = new Map();', 'online analysis summary reads deduplicate concurrent requests');
-requireText('public/index.html', 'const onlineAnalysisRowsRequestPromises = new Map();', 'online analysis detail reads deduplicate concurrent requests');
-requireText('public/index.html', 'const cached = readOnlineAnalysisResultCache(onlineAnalysisDataResultCache, requestKey, cacheMs);', 'online analysis summary reads check the short cache before requesting');
-requireText('public/index.html', 'const cached = readOnlineAnalysisResultCache(onlineAnalysisRowsResultCache, requestKey, cacheMs);', 'online analysis detail reads check the short cache before requesting');
+requireText('public/index.html', 'const captureOnlineAnalysisRequestOwner = () => ({', 'online analysis captures the auth and hotel owner before requesting');
+requireText('public/index.html', 'const resetOnlineAnalysisSessionState = () => {', 'auth reset clears online analysis responses and detail state');
+requireNoText('public/index.html', 'onlineAnalysisDataRequestPromises', 'online analysis summary reuses the shared GET coordinator instead of a parallel cache');
+requireNoText('public/index.html', 'onlineAnalysisRowsRequestPromises', 'online analysis details reuse the shared GET coordinator instead of a parallel cache');
 requirePattern(
   'public/index.html',
-  /const loadAnalysisData = async \(dimension = null, options = \{\}\) => \{[\s\S]*?request\(`\/online-data\/data-analysis\?\$\{params\}`,\s*\{\s*businessContext:\s*\{\s*hotelId:\s*onlineDataFilter\.value\.hotel_id\s*\|\|\s*'',\s*tenantId:\s*'',?\s*\},?\s*\}\)/,
-  'online analysis summary request keeps the real backend endpoint and its explicit selected-hotel context',
+  /const loadAnalysisData = async \(dimension = null, options = \{\}\) => \{[\s\S]*?tenantId: requestOwner\.tenantId,[\s\S]*?userId: requestOwner\.userId,[\s\S]*?ttlMs: Number\(options\?\.cacheMs \?\? ONLINE_ANALYSIS_PANEL_CACHE_TTL_MS\),[\s\S]*?request\(`\/online-data\/data-analysis\?\$\{params\}`,[\s\S]*?requestPolicy/,
+  'online analysis summary uses the auth-scoped coordinator with explicit TTL and selected-hotel context',
 );
-requireText('public/index.html', 'const res = await request(`/online-data/daily-data-list?${params}`);', 'online analysis detail request remains the real backend endpoint');
+requireText('public/index.html', 'const res = await request(`/online-data/daily-data-list?${params}`, { requestPolicy });', 'online analysis detail request uses the auth-scoped coordinator');
 requireText('public/index.html', 'loadAnalysisData(null, loadOptions),', 'online analysis refresh passes cache options into summary reads');
 requireText('public/index.html', 'loadOnlineAnalysisRows(loadOptions),', 'online analysis refresh passes cache options into detail reads');
 requireText('public/index.html', 'return refreshOnlineAnalysis(options);', 'analysis tab scheduling preserves force refresh while allowing cached tab returns');
@@ -924,7 +924,7 @@ requireText('public/system-static.js', 'const authUserCacheMaxAgeMs = 12 * 60 * 
 requireText('public/system-static.js', 'const normalizePermissionMap = (permissions = null) => {', 'cached auth profile normalizes permission arrays for repeat-session menu filtering');
 requireText('public/system-static.js', 'if (Array.isArray(permissions)) {', 'cached auth profile accepts array-shaped permissions');
 requireText('public/system-static.js', 'const hasPermission = (permissions, key) => {', 'visible menu filter accepts both object and array permission payloads');
-requireText('public/system-static.js', 'if (Array.isArray(permissions)) return permissions.includes(key);', 'visible menu filter keeps array permission payloads usable');
+requireText('public/system-static.js', "if (Array.isArray(permissions)) return permissions.includes('all') || permissions.includes(key);", 'visible menu filter keeps all and scoped array permissions usable');
 requireText('public/system-static.js', 'if (now - Number(payload.saved_at || 0) > authUserCacheMaxAgeMs) return null;', 'expired cached auth profile is ignored');
 requireText('public/index.html', 'const cachedAuthUser = token.value ? loadCachedAuthUser() : null;', 'entry loads cached auth user only when a token exists');
 requireText('public/index.html', 'const isLoggedIn = ref(!!token.value && !!cachedAuthUser);', 'entry can render the app shell before auth/info returns for repeat sessions');
@@ -6392,7 +6392,7 @@ try {
       applyCtripConfigObject: config => fetchFlowEvents.push(`apply:${config.hotel_id}`),
       getForm: () => ({
         nodeId: '24588',
-        startDate: '2026-06-01',
+        startDate: '2026-06-10',
         endDate: '2026-06-10',
       }),
       setFetching: value => fetchFlowStates.push(`fetching:${value}`),
@@ -6413,7 +6413,7 @@ try {
             saved_count: 4,
             persistence_status: 'readback_verified',
             readback_verified: true,
-            fetched_at: '2026-06-10 14:00:00',
+            fetched_at: '2026-06-10 14:00:00', source_business_date: '2026-06-10', response_date_status: 'verified',
           },
         };
       },
@@ -7082,7 +7082,7 @@ try {
         && multiDatePayload.date_results.length === 2
         && Array.isArray(singleDatePayload)
         && singleDatePayload[0].kept === true
-        && fetchMeta.data_date === '2026-06-01 至 2026-06-10'
+        && fetchMeta.request_date === '2026-06-01 至 2026-06-10' && fetchMeta.data_date === '' && fetchMeta.status === 'source_unverified'
         && fetchMeta.total_records === 7
         && rawFailure.error === '授权过期'
         && rawFailure.raw.length === 1000
@@ -7097,10 +7097,10 @@ try {
         && fetchFlowRequestedBody.ctrip_hotel_id === 'ctrip-58'
         && fetchFlowRequestedBody.ota_hotel_id === 'ctrip-58'
         && fetchFlowResultPayload[0].order_id === 'o1'
-        && fetchFlowFilterDates.startDate === '2026-06-01'
+        && fetchFlowFilterDates.startDate === '2026-06-10'
         && fetchFlowFilterDates.endDate === '2026-06-10'
         && fetchFlowLatestMeta.total_records === 4
-        && fetchFlowLatestMeta.data_date === '2026-06-01 至 2026-06-10'
+        && fetchFlowLatestMeta.data_date === '2026-06-10'
         && fetchFlowTableTab === 'sales'
         && fetchFlowStates.join('|') === 'fetching:true|raw:false|success:false|saved:0|saved:4|success:true|fetching:false'
         && fetchFlowEvents.includes('apply:58')

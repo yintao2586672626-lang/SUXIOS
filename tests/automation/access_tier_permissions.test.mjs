@@ -214,6 +214,31 @@ const visiblePathsFor = (currentUser) => flattenMenu(systemStaticApi.filterVisib
   .map(item => item.path)
   .filter(Boolean);
 contract.equal(
+  visiblePathsFor({ is_super_admin: false, permissions: ['all'] }).includes('operating-finance'),
+  true,
+  'array-shaped all permission must expose operation.view navigation'
+);
+contract.equal(
+  visiblePathsFor({ is_super_admin: false, permissions: { all: true } }).includes('operating-finance'),
+  true,
+  'object-shaped all permission must expose operation.view navigation'
+);
+contract.equal(
+  visiblePathsFor({ is_super_admin: false, permissions: ['operation.view'] }).includes('operating-finance'),
+  true,
+  'operation.view permission must expose the operating-finance navigation'
+);
+contract.equal(
+  visiblePathsFor({ is_super_admin: false, permissions: {}, capabilities: ['all'] }).includes('operating-finance'),
+  true,
+  'all capability must expose operation.view navigation'
+);
+contract.equal(
+  visiblePathsFor({ is_super_admin: false, permissions: {}, capabilities: ['operation.view'] }).includes('operating-finance'),
+  true,
+  'operation.view capability must expose the operating-finance navigation'
+);
+contract.equal(
   visiblePathsFor({ is_super_admin: false, role_id: 3, is_hotel_manager: false, permissions: { can_view_online_data: true } }).includes('users'),
   false,
   'normal external users must not see the employee-management route'

@@ -143,6 +143,7 @@ test('login, logout, and account switches isolate hotel-scoped browser state', (
     "browserAssistImportForm.value = { system_hotel_id: '', capture_json: '' };",
     "resetAgentCenterClientState({ reason: 'auth-session' });",
     'clearSessionScopedFrontendTimers();',
+    'resetOnlineAnalysisSessionState();',
   ]) {
     assert.ok(resetState.includes(expected), `account reset must include: ${expected}`);
   }

@@ -87,6 +87,7 @@ const uiOnly = process.argv.includes('--ui-only');
 const moduleOnly = process.argv.includes('--module-only');
 const publicPageOnly = process.argv.includes('--public-page-only');
 const operatingQuestionOnly = process.argv.includes('--operating-question-only');
+const operatingFinanceOnly = process.argv.includes('--operating-finance-only');
 const dailyPersonalizationOnly = process.argv.includes('--daily-personalization-only');
 const transitionOnly = process.argv.includes('--transition-only');
 const stabilityOnly = process.argv.includes('--stability-only');
@@ -132,7 +133,9 @@ if (!/^[a-zA-Z0-9._-]+$/.test(performanceLabel)) {
 if (!['0', '1'].includes(performanceEnforceBudget)) {
   throw new Error('--performance-enforce-budget must be 0 or 1');
 }
-const specs = dailyPersonalizationOnly
+const specs = operatingFinanceOnly
+  ? ['tests/automation/operating_finance_control_center.spec.js']
+  : dailyPersonalizationOnly
   ? ['tests/automation/daily_one_thing_personalization.spec.js']
   : operatingQuestionOnly
   ? [

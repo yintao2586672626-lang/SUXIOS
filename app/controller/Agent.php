@@ -29,6 +29,7 @@ use app\service\OtaDiagnosisRequestedPeriodGateService;
 use app\service\RevenueAiOverviewService;
 use app\service\RevenueForecastReadinessService;
 use app\service\RevenuePricingRecommendationService;
+use app\service\PriceSuggestionShadowReplayService;
 use think\Response;
 use think\facade\Db;
 
@@ -2362,6 +2363,65 @@ class Agent extends Base
             'readiness' => $pricingService->buildEffectReviewReadiness($suggestion->toArray(), $before, $after),
             'scope_notice' => '复盘基于 online_daily_data 线上/OTA经营样本，不等同于全酒店经营结论，也不能替代OTA后台执行证据。',
         ]);
+    }
+
+    public function createPriceSuggestionShadowReplay(): Response
+    {
+        $this->checkLogin();
+        $id = (int)$this->request->param('id', 0);
+        $suggestion = $id > 0 ? PriceSuggestion::find($id) : null;
+        if (!$suggestion instanceof PriceSuggestion) {
+            return $this->error('price suggestion not found', 404);
+        }
+        $hotelId = (int)$suggestion->hotel_id;
+        $this->assertRevenueHotelPermission($hotelId);
+
+        try {
+            $result = (new PriceSuggestionShadowReplayService())->createFromSuggestion(
+                $id,
+                $hotelId,
+                (int)($this->currentUser->id ?? 0)
+            );
+            return $this->success($result, '历史调价影子回放已保存并精确回读');
+        } catch (\InvalidArgumentException $error) {
+            return $this->error($error->getMessage(), 422);
+        } catch (\Throwable $error) {
+            $code = (int)$error->getCode();
+            return $this->error(
+                $error->getMessage() !== '' ? $error->getMessage() : 'price suggestion shadow replay failed',
+                in_array($code, [403, 404, 409, 422, 503], true) ? $code : 500
+            );
+        }
+    }
+
+    public function priceSuggestionShadowReplays(): Response
+    {
+        $this->checkLogin();
+        $id = (int)$this->request->param('id', 0);
+        $suggestion = $id > 0 ? PriceSuggestion::find($id) : null;
+        if (!$suggestion instanceof PriceSuggestion) {
+            return $this->error('price suggestion not found', 404);
+        }
+        $hotelId = (int)$suggestion->hotel_id;
+        $tenantId = (int)$suggestion->tenant_id;
+        $this->assertRevenueHotelPermission($hotelId);
+
+        try {
+            return $this->success((new PriceSuggestionShadowReplayService())->listForSuggestion(
+                $tenantId,
+                $hotelId,
+                $id,
+                (int)$this->request->param('limit', 20)
+            ));
+        } catch (\InvalidArgumentException $error) {
+            return $this->error($error->getMessage(), 422);
+        } catch (\Throwable $error) {
+            $code = (int)$error->getCode();
+            return $this->error(
+                $error->getMessage() !== '' ? $error->getMessage() : 'price suggestion shadow replay read failed',
+                in_array($code, [403, 404, 409, 422, 503], true) ? $code : 500
+            );
+        }
     }
 
     public function cookieWarnings(): Response

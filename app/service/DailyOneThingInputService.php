@@ -293,7 +293,14 @@ final class DailyOneThingInputService
                 $businessDate,
                 $ownerId,
                 $dueAt,
-                $reviewAt
+                $reviewAt,
+                $this->meituanTrafficImpactEstimate(
+                    (array)($meituanFields['exposure'] ?? []),
+                    (array)($meituanFields['visits'] ?? []),
+                    $tenantId,
+                    $hotelId,
+                    $businessDate
+                )
             );
         }
         return $candidates;
@@ -530,7 +537,8 @@ final class DailyOneThingInputService
         string $businessDate,
         int $ownerId,
         DateTimeImmutable $dueAt,
-        DateTimeImmutable $reviewAt
+        DateTimeImmutable $reviewAt,
+        ?array $impactEstimate = null
     ): array {
         $ranking['reasons'] = [
             'impact' => '业务影响范围与是否阻断后续收益判断',
@@ -545,6 +553,13 @@ final class DailyOneThingInputService
             'fact_basis' => $factBasis,
             'recommended_action' => $action,
             'expected_observation_metric' => $metric,
+            'impact_estimate' => $impactEstimate ?? $this->notCalculableImpactEstimate(
+                $tenantId,
+                $hotelId,
+                $platform,
+                $businessDate,
+                $metricScope
+            ),
             'scope' => [
                 'tenant_id' => $tenantId,
                 'hotel_id' => $hotelId,
@@ -577,6 +592,137 @@ final class DailyOneThingInputService
                 'human_confirmation_required' => true,
                 'causality_claimed' => false,
             ],
+        ];
+    }
+
+    /** @return array<string,mixed> */
+    private function meituanTrafficImpactEstimate(
+        array $exposureField,
+        array $visitsField,
+        int $tenantId,
+        int $hotelId,
+        string $businessDate
+    ): array {
+        $fallback = $this->notCalculableImpactEstimate(
+            $tenantId,
+            $hotelId,
+            'meituan',
+            $businessDate,
+            'ota_channel'
+        );
+        $exposure = $this->strictImpactField(
+            $exposureField,
+            'exposure',
+            $tenantId,
+            $hotelId,
+            'meituan',
+            $businessDate
+        );
+        $visits = $this->strictImpactField(
+            $visitsField,
+            'visits',
+            $tenantId,
+            $hotelId,
+            'meituan',
+            $businessDate
+        );
+        if ($exposure === null
+            || $visits === null
+            || $exposure['value'] <= 0
+            || $visits['value'] < 0
+            || $visits['value'] > $exposure['value']
+        ) {
+            return $fallback;
+        }
+        $inputRefs = array_values(array_unique(array_merge(
+            $exposure['refs'],
+            $visits['refs']
+        )));
+        sort($inputRefs, SORT_STRING);
+        if ($inputRefs === []) {
+            return $fallback;
+        }
+        $point = round($exposure['value'] - $visits['value'], 6);
+        return [
+            'low' => $point,
+            'high' => $point,
+            'unit' => 'users',
+            'formula' => 'exposure_users - detail_visitors',
+            'input_refs' => $inputRefs,
+            'scope' => $fallback['scope'],
+            'status' => 'deterministic_point_estimate',
+        ];
+    }
+
+    /** @return ?array{value:float,refs:list<string>} */
+    private function strictImpactField(
+        array $field,
+        string $metricKey,
+        int $tenantId,
+        int $hotelId,
+        string $platform,
+        string $businessDate
+    ): ?array {
+        $dataDates = $this->refs($field['data_dates'] ?? []);
+        $historyStatuses = array_map('strtolower', $this->refs($field['history_statuses'] ?? []));
+        $validationStatuses = array_map('strtolower', $this->refs(
+            $field['source_validation_statuses'] ?? $field['validation_statuses'] ?? []
+        ));
+        $recordRefs = $this->refs($field['source_record_refs'] ?? []);
+        $value = $field['value'] ?? null;
+        if (!$this->fieldReady($field)
+            || (string)($field['status'] ?? '') !== 'strict_readback'
+            || (string)($field['key'] ?? $field['metric_key'] ?? '') !== $metricKey
+            || (string)($field['unit'] ?? '') !== 'users'
+            || (int)($field['tenant_id'] ?? 0) !== $tenantId
+            || (int)($field['system_hotel_id'] ?? 0) !== $hotelId
+            || strtolower(trim((string)($field['platform'] ?? ''))) !== $platform
+            || (string)($field['business_date'] ?? '') !== $businessDate
+            || $dataDates !== [$businessDate]
+            || $historyStatuses === []
+            || count(array_filter($historyStatuses, static fn(string $status): bool => $status !== 'success')) > 0
+            || $validationStatuses === []
+            || count(array_filter($validationStatuses, static fn(string $status): bool => $status !== 'verified')) > 0
+            || (string)($field['validation_status'] ?? '') !== 'verified'
+            || (string)($field['readback_status'] ?? '') !== 'readback_verified'
+            || ($field['formal_saved'] ?? false) !== true
+            || (string)($field['source_table'] ?? '') !== 'online_daily_data'
+            || !is_numeric($value)
+            || !is_finite((float)$value)
+            || abs((float)$value - round((float)$value)) > 0.000001
+            || $recordRefs === []
+            || count(array_filter(
+                $recordRefs,
+                static fn(string $ref): bool => preg_match('/^online_daily_data#[1-9][0-9]*$/D', $ref) !== 1
+            )) > 0
+        ) {
+            return null;
+        }
+        return ['value' => (float)$value, 'refs' => $recordRefs];
+    }
+
+    /** @return array<string,mixed> */
+    private function notCalculableImpactEstimate(
+        int $tenantId,
+        int $hotelId,
+        string $platform,
+        string $businessDate,
+        string $metricScope
+    ): array {
+        return [
+            'low' => null,
+            'high' => null,
+            'unit' => null,
+            'formula' => null,
+            'input_refs' => [],
+            'scope' => [
+                'tenant_id' => $tenantId,
+                'hotel_id' => $hotelId,
+                'platform' => $platform,
+                'business_date' => $businessDate,
+                'metric_scope' => $metricScope,
+            ],
+            'status' => 'not_calculable',
         ];
     }
 

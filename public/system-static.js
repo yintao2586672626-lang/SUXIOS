@@ -248,6 +248,7 @@ window.SUXI_SYSTEM_STATIC = (() => {
                 { name: '收益分析中心', path: 'revenue-research-center', icon: 'fas fa-chart-line', testid: 'nav-revenue-research-center', permissions: [] },
                 { name: '运营优化台', path: 'operation-optimizer', icon: 'fas fa-sliders-h', testid: 'nav-operation-optimizer', permissions: [] },
                 { name: '经营机会', path: 'operating-opportunities', icon: 'fas fa-bullseye', testid: 'nav-operating-opportunities', permissions: [] },
+                { name: '净收与恢复', path: 'operating-finance', icon: 'fas fa-file-invoice-dollar', testid: 'nav-operating-finance', permissions: ['operation.view'] },
                 { name: '智算·量化模拟', path: 'ai-simulation', icon: 'fas fa-calculator', testid: 'nav-ai-simulation', permissions: [] },
                 { name: '目标与事实', path: 'operating-targets', icon: 'fas fa-bullseye' },
                 { name: 'AI经营日报', path: 'ai-daily-report', icon: 'fas fa-file-alt' },
@@ -1841,10 +1842,12 @@ window.SUXI_SYSTEM_STATIC = (() => {
         if (currentUser.is_super_admin) return Array.isArray(items) ? items : [];
 
         const hasPermission = (permissions, key) => {
-            if (Array.isArray(permissions)) return permissions.includes(key);
-            if (permissions && typeof permissions === 'object') return !!permissions[key];
+            if (Array.isArray(permissions)) return permissions.includes('all') || permissions.includes(key);
+            if (permissions && typeof permissions === 'object') return !!permissions.all || !!permissions[key];
             return false;
         };
+        const hasCapability = (key) => Array.isArray(currentUser.capabilities)
+            && (currentUser.capabilities.includes('all') || currentUser.capabilities.includes(key));
         const isItemVisible = (item) => {
             if (item.requireSuper) return false;
             if (item.requireManager && currentUser.role_id !== 2 && !currentUser.is_hotel_manager) return false;
@@ -1862,7 +1865,7 @@ window.SUXI_SYSTEM_STATIC = (() => {
                         ? [...basePermissions, 'can_view_online_data']
                         : { ...basePermissions, can_view_online_data: true })
                     : basePermissions;
-                return item.permissions.some(p => hasPermission(perms, p));
+                return item.permissions.some(p => hasPermission(perms, p) || hasCapability(p));
             }
             return true;
         };
@@ -2524,6 +2527,47 @@ window.SUXI_SYSTEM_STATIC = (() => {
         return `${value.toFixed(2)}${metric.unit || ''}`;
     };
 
+    const createOperatingQuestionState = () => ({
+        question: '', loading: false, error: '', result: null,
+        scope_loading: false, scope_loading_hotel_id: '', scope_loaded_hotel_id: '',
+        scope_data_status: 'idle', scope_options: [], scope_recommended: null, scope_error: '',
+        scope_rate_limit_hotel_id: '', scope_retry_after_at: 0, scope_retry_after_seconds: 0,
+        scope_notice: '', scope_manual: false, scope_auto_applied: false,
+        history_loading: false, history_loading_hotel_id: '', history_loaded_hotel_id: '',
+        history: [], history_error: '', history_opening_id: 0,
+        action_loading: '', action_error: '', action_intents: {},
+        local_ai_loading: false, local_ai_error: '', local_ai_capabilities: null,
+        council_loading: false, council_generation: 0, council_error: '', council_run: null,
+        media_loading: false, media_error: '', media_file: null, media_result: null, media_history: [],
+        wecom_loading: false, wecom_error: '', wecom_capabilities: null,
+        wecom_bindings: [], wecom_events: [], wecom_binding_code: null, wecom_reply_loading_id: 0,
+    });
+    const operatingQuestionScopeCooldown = (state, hotelKey = '', rateLimit, now = Date.now()) => {
+        if (!state || typeof state !== 'object') return { blocked: false, retry_after_seconds: 0 };
+        if (rateLimit === null) {
+            state.scope_rate_limit_hotel_id = '';
+            state.scope_retry_after_at = 0;
+            state.scope_retry_after_seconds = 0;
+            return { blocked: false, retry_after_seconds: 0 };
+        }
+        const scopeKey = String(hotelKey || '');
+        if (rateLimit && typeof rateLimit === 'object') {
+            const retryAfter = Math.max(1, Math.ceil(Number(rateLimit.retry_after || 1)));
+            const windowSeconds = Math.max(1, Math.ceil(Number(rateLimit.window || retryAfter)));
+            const boundedRetryAfter = Math.min(retryAfter, windowSeconds);
+            state.scope_rate_limit_hotel_id = scopeKey;
+            state.scope_retry_after_seconds = boundedRetryAfter;
+            state.scope_retry_after_at = now + (boundedRetryAfter * 1000);
+        }
+        const remainingSeconds = state.scope_rate_limit_hotel_id === scopeKey
+            ? Math.max(0, Math.ceil((Number(state.scope_retry_after_at || 0) - now) / 1000))
+            : 0;
+        if (remainingSeconds <= 0) return { blocked: false, retry_after_seconds: 0 };
+        state.scope_data_status = 'rate_limited';
+        state.scope_error = `可用事实范围读取过于频繁，请在 ${remainingSeconds} 秒后重试。`;
+        return { blocked: true, retry_after_seconds: remainingSeconds };
+    };
+
     const requireDeferredStaticFunction = (namespace, key, missingMessage, onAccess = null) => (...args) => {
         if (typeof onAccess === 'function') onAccess();
         const owner = window[namespace];
@@ -2681,6 +2725,8 @@ window.SUXI_SYSTEM_STATIC = (() => {
         operationActionDataText,
         operationActionTarget,
         operationEffectMetricValue,
+        createOperatingQuestionState,
+        operatingQuestionScopeCooldown,
         requireDeferredStaticFunction,
         createLazyFactoryMethods,
         resolveInitialPageRequest,

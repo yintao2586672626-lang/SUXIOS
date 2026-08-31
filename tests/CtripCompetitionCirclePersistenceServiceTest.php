@@ -345,4 +345,50 @@ final class CtripCompetitionCirclePersistenceServiceTest extends TestCase
             ]
         ));
     }
+
+    public function testVerifiedDateEvidenceMustMatchStoredBusinessDateExactly(): void
+    {
+        $verifiedRow = [
+            'data_date' => '2026-08-29',
+            'raw_data' => json_encode(array_merge($this->competitionRow(), [
+                '_suxi_source_evidence' => [
+                    'schema' => CtripCompetitionCirclePersistenceService::DATE_EVIDENCE_SCHEMA,
+                    'status' => 'verified',
+                    'endpoint_id' => CtripCompetitionCirclePersistenceService::ENDPOINT_ID,
+                    'request_date' => '2026-08-29',
+                    'response_dates' => ['2026-08-29'],
+                    'response_date_evidence' => [[
+                        'path' => 'dataDate',
+                        'date' => '2026-08-29',
+                    ]],
+                    'resolved_business_date' => '2026-08-29',
+                    'captured_at' => '2026-08-31 03:20:13',
+                ],
+            ]), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+        ];
+
+        self::assertTrue(CtripCompetitionCirclePersistenceService::hasVerifiedDateEvidence($verifiedRow));
+
+        $missing = $verifiedRow;
+        $missing['raw_data'] = json_encode($this->competitionRow(), JSON_UNESCAPED_UNICODE);
+        self::assertFalse(CtripCompetitionCirclePersistenceService::hasVerifiedDateEvidence($missing));
+
+        $mismatch = $verifiedRow;
+        $mismatchRaw = json_decode((string)$mismatch['raw_data'], true);
+        $mismatchRaw['_suxi_source_evidence']['response_dates'] = ['2026-08-30'];
+        $mismatch['raw_data'] = json_encode($mismatchRaw, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        self::assertFalse(CtripCompetitionCirclePersistenceService::hasVerifiedDateEvidence($mismatch));
+
+        $wrongResolvedDate = $verifiedRow;
+        $wrongRaw = json_decode((string)$wrongResolvedDate['raw_data'], true);
+        $wrongRaw['_suxi_source_evidence']['resolved_business_date'] = '2026-08-30';
+        $wrongResolvedDate['raw_data'] = json_encode($wrongRaw, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        self::assertFalse(CtripCompetitionCirclePersistenceService::hasVerifiedDateEvidence($wrongResolvedDate));
+
+        $untrustedPath = $verifiedRow;
+        $untrustedRaw = json_decode((string)$untrustedPath['raw_data'], true);
+        $untrustedRaw['_suxi_source_evidence']['response_date_evidence'][0]['path'] = 'nested.date';
+        $untrustedPath['raw_data'] = json_encode($untrustedRaw, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        self::assertFalse(CtripCompetitionCirclePersistenceService::hasVerifiedDateEvidence($untrustedPath));
+    }
 }

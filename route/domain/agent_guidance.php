@@ -18,4 +18,6 @@ Route::post('/precise-queries', 'PreciseQuery/create');
 Route::get('/operating-questions/:questionId/feedbacks/mine', 'HotelDataAnalystFeedback/mine');
 Route::get('/operating-questions/:questionId/feedbacks/:feedbackId', 'HotelDataAnalystFeedback/read');
 Route::post('/operating-questions/:questionId/feedbacks', 'HotelDataAnalystFeedback/create');
+Route::post('/price-suggestions/:id/shadow-replays', 'Agent/createPriceSuggestionShadowReplay');
+Route::get('/price-suggestions/:id/shadow-replays', 'Agent/priceSuggestionShadowReplays');
 Route::post('/operating-questions/:id/council-runs/:runId/resume', 'OperatingIntelligence/resumeQuestionCouncil');

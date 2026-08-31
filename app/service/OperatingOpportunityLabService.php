@@ -71,7 +71,8 @@ final class OperatingOpportunityLabService
     public function __construct(
         private ?DailyOneThingService $dailyOneThing = null,
         private ?DailyOneThingInputService $dailyInput = null,
-        private ?DailyOneThingPersonalizationService $dailyPersonalization = null
+        private ?DailyOneThingPersonalizationService $dailyPersonalization = null,
+        private ?OperatingOutcomeLearningRuntimeService $outcomeLearningRuntime = null
     )
     {
         $this->dailyOneThing ??= new DailyOneThingService();
@@ -79,6 +80,7 @@ final class OperatingOpportunityLabService
         $this->dailyPersonalization ??= new DailyOneThingPersonalizationService(
             $this->dailyOneThing
         );
+        $this->outcomeLearningRuntime ??= new OperatingOutcomeLearningRuntimeService();
     }
 
     /** @return array<int,array<string,mixed>> */
@@ -213,10 +215,15 @@ final class OperatingOpportunityLabService
             $actorUserId
         );
         $this->assertDailySourceReady($sourceInput);
-        $priority = $this->dailyOneThing->select(
+        $outcomeLearning = $this->outcomeLearningRuntime->load($tenantId, $hotelId);
+        $reviewedObservations = ($outcomeLearning['usable_for_tie_break'] ?? false) === true
+            ? array_values((array)($outcomeLearning['reviewed_observations'] ?? []))
+            : [];
+        $candidates = $this->outcomeLearningRuntime->bindDailyCandidates(
             (array)($sourceInput['candidates'] ?? []),
-            $businessDate
+            $reviewedObservations
         );
+        $priority = $this->dailyOneThing->select($candidates, $businessDate, $reviewedObservations);
         $selected = is_array($priority['selected'] ?? null) ? $priority['selected'] : [];
         if ($selected === []) {
             throw new RuntimeException('当前严格事实、已保存问题和明确缺口均未形成可保存的每日事项');
@@ -229,6 +236,14 @@ final class OperatingOpportunityLabService
             'source_errors' => array_values((array)($sourceInput['source_errors'] ?? [])),
             'source_snapshot' => (array)($sourceInput['source_snapshot'] ?? []),
             'selection_contract' => DailyOneThingService::CONTRACT_VERSION,
+            'outcome_learning_runtime' => [
+                'contract_version' => OperatingOutcomeLearningRuntimeService::CONTRACT_VERSION,
+                'status' => (string)($outcomeLearning['status'] ?? 'missing'),
+                'reviewed_observation_count' => (int)($outcomeLearning['reviewed_observation_count'] ?? 0),
+                'evidence_refs' => array_values((array)($outcomeLearning['evidence_refs'] ?? [])),
+                'data_gaps' => array_values((array)($outcomeLearning['data_gaps'] ?? [])),
+                'external_write_count' => 0,
+            ],
             'selected_candidate_digest' => (string)$selected['content_digest'],
             'external_write_boundary' => (array)($sourceInput['boundary'] ?? []),
         ];
@@ -369,16 +384,26 @@ final class OperatingOpportunityLabService
         $businessDate = $this->validDate($businessDate);
         $sourceInput = $this->dailyInput->build($tenantId, $hotelId, $businessDate, $ownerId);
         $strictFactReady = $this->dailySourceReady($sourceInput);
-        $priority = $this->dailyOneThing->select(
+        $outcomeLearning = $this->outcomeLearningRuntime->load($tenantId, $hotelId);
+        $reviewedObservations = ($outcomeLearning['usable_for_tie_break'] ?? false) === true
+            ? array_values((array)($outcomeLearning['reviewed_observations'] ?? []))
+            : [];
+        $dailyCandidates = $this->outcomeLearningRuntime->bindDailyCandidates(
             $strictFactReady ? (array)($sourceInput['candidates'] ?? []) : [],
-            $businessDate
+            $reviewedObservations
+        );
+        $priority = $this->dailyOneThing->select(
+            $dailyCandidates,
+            $businessDate,
+            $reviewedObservations
         );
         $personalizedPriority = $this->dailyPersonalization->select(
-            $strictFactReady ? (array)($sourceInput['candidates'] ?? []) : [],
+            $dailyCandidates,
             $businessDate,
             $tenantId,
             $ownerId,
-            $hotelId
+            $hotelId,
+            $reviewedObservations
         );
         if (!$strictFactReady) {
             $priority['status'] = 'blocked_by_source_unavailable';
@@ -496,12 +521,21 @@ final class OperatingOpportunityLabService
             $actorUserId
         );
         $this->assertDailySourceReady($sourceInput);
-        $preview = $this->dailyPersonalization->select(
+        $outcomeLearning = $this->outcomeLearningRuntime->load($tenantId, $hotelId);
+        $reviewedObservations = ($outcomeLearning['usable_for_tie_break'] ?? false) === true
+            ? array_values((array)($outcomeLearning['reviewed_observations'] ?? []))
+            : [];
+        $dailyCandidates = $this->outcomeLearningRuntime->bindDailyCandidates(
             (array)($sourceInput['candidates'] ?? []),
+            $reviewedObservations
+        );
+        $preview = $this->dailyPersonalization->select(
+            $dailyCandidates,
             $businessDate,
             $tenantId,
             $actorUserId,
-            $hotelId
+            $hotelId,
+            $reviewedObservations
         );
         $selected = is_array($preview['selected'] ?? null) ? $preview['selected'] : [];
         $receipt = is_array($preview['personalization_receipt'] ?? null)
