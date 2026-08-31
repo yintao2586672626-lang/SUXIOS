@@ -209,6 +209,33 @@ final class OtaSettlementReconciliationServiceTest extends TestCase
         $this->service()->importAndReadback($scope, $lines);
     }
 
+    public function testExactReadbackFailureRollsBackBatchAndLines(): void
+    {
+        Db::execute(<<<'SQL'
+CREATE TRIGGER corrupt_ota_settlement_line_after_insert
+AFTER INSERT ON ota_settlement_line_facts
+BEGIN
+  UPDATE ota_settlement_line_facts
+  SET line_fingerprint = '0000000000000000000000000000000000000000000000000000000000000000'
+  WHERE id = NEW.id;
+END
+SQL);
+
+        try {
+            try {
+                $this->service()->importAndReadback($this->scope('9'), $this->availableLines());
+                self::fail('tampered exact readback must roll back the settlement batch');
+            } catch (RuntimeException $error) {
+                self::assertSame('ota_settlement_readback_line_mismatch', $error->getMessage());
+            }
+
+            self::assertSame(0, (int)Db::name('ota_settlement_import_batches')->count());
+            self::assertSame(0, (int)Db::name('ota_settlement_line_facts')->count());
+        } finally {
+            Db::execute('DROP TRIGGER IF EXISTS corrupt_ota_settlement_line_after_insert');
+        }
+    }
+
     public function testSettlementAmountAloneNeverBecomesNetRevenue(): void
     {
         $result = $this->service()->importAndReadback($this->scope('c'), [[

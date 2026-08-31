@@ -119,6 +119,32 @@ final class HotelDataAnalystFeedbackServiceTest extends TestCase
         self::assertSame($saved['id'], $list['latest']['id']);
     }
 
+    public function testReadbackFailureRollsBackAppendOnlyFeedbackRow(): void
+    {
+        $service = new HotelDataAnalystFeedbackService(
+            $this->questionService,
+            null,
+            static function (): array {
+                throw new RuntimeException('feedback_readback_injected_failure');
+            }
+        );
+
+        try {
+            $service->save(
+                10,
+                [80],
+                (int)$this->question['id'],
+                7,
+                $this->input('useful', '', 'feedback-readback-failure-0001')
+            );
+            self::fail('readback failure must fail the save');
+        } catch (RuntimeException $error) {
+            self::assertSame('feedback_readback_injected_failure', $error->getMessage());
+        }
+
+        self::assertSame(0, (int)Db::name(HotelDataAnalystFeedbackService::TABLE)->count());
+    }
+
     public function testCorrectionCreatesDetachedReplayCandidateAndOnlyRetriesTheSameSubmissionIdempotently(): void
     {
         $input = $this->input(

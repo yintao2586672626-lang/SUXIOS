@@ -110,23 +110,23 @@ final class OtaSettlementReconciliationService
             return $this->presentReadback($existing, true);
         }
 
-        $batchId = 0;
+        $stored = null;
+        $reused = false;
         try {
-            $batchId = $this->persist($batch, $normalizedLines);
+            $stored = $this->persist($batch, $normalizedLines);
         } catch (Throwable $error) {
             if (!$this->isDuplicateKeyConflict($error)) {
                 throw $error;
             }
+            $stored = $this->findByScopeFile($scope);
+            $reused = true;
         }
 
-        $stored = $batchId > 0
-            ? $this->readBatch($batchId)
-            : $this->findByScopeFile($scope);
         if (!is_array($stored)) {
             throw new RuntimeException('ota_settlement_readback_failed');
         }
         $this->assertReplayMatches($stored, $batch, $normalizedLines);
-        return $this->presentReadback($stored, $batchId <= 0);
+        return $this->presentReadback($stored, $reused);
     }
 
     /**
@@ -764,11 +764,15 @@ final class OtaSettlementReconciliationService
     /**
      * @param array<string,mixed> $batch
      * @param list<array<string,mixed>> $lines
+     * @return array{batch:array<string,mixed>,lines:list<array<string,mixed>>}
      */
-    private function persist(array $batch, array $lines): int
+    private function persist(array $batch, array $lines): array
     {
-        return (int)Db::transaction(function () use ($batch, $lines): int {
+        return Db::transaction(function () use ($batch, $lines): array {
             $batchId = (int)Db::name(self::BATCH_TABLE)->insertGetId($batch);
+            if ($batchId <= 0) {
+                throw new RuntimeException('ota_settlement_batch_write_failed');
+            }
             foreach ($lines as $line) {
                 $storedLine = $line;
                 $storedLine['batch_id'] = $batchId;
@@ -776,7 +780,12 @@ final class OtaSettlementReconciliationService
                 unset($storedLine['gap_codes']);
                 Db::name(self::LINE_TABLE)->insert($storedLine);
             }
-            return $batchId;
+            $stored = $this->readBatch($batchId);
+            if (!is_array($stored)) {
+                throw new RuntimeException('ota_settlement_readback_failed');
+            }
+            $this->assertReplayMatches($stored, $batch, $lines);
+            return $stored;
         });
     }
 

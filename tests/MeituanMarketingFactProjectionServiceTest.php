@@ -116,6 +116,39 @@ final class MeituanMarketingFactProjectionServiceTest extends TestCase
         self::assertSame('calculated', $byCampaign['zero-attributed-amount']['metrics']['roas_status']);
     }
 
+    public function testNegativeAttributedAmountIsInvalidAndCannotProduceNormalReviewActions(): void
+    {
+        $result = $this->service([
+            $this->row(120, 'advertising', [
+                'campaignId' => 'negative-attributed-amount',
+                'spend' => 100,
+                'attributedOrderAmount' => -500,
+                'attributionBasis' => 'same-day-paid-order',
+            ], amount: 100),
+        ])->project(10, 80, '2026-08-30');
+
+        self::assertSame('partial', $result['status']);
+        self::assertSame('invalid', $result['projections'][0]['quality_status']);
+        self::assertNull($result['projections'][0]['metrics']['attributed_order_amount']);
+        self::assertNull($result['projections'][0]['metrics']['roas']);
+        self::assertSame('invalid', $result['projections'][0]['metrics']['basis_status']);
+        self::assertSame(
+            'attributed_order_amount_negative',
+            $result['projections'][0]['metrics']['roas_status']
+        );
+        self::assertContains(
+            'attributed_order_amount_negative',
+            $result['data_quality']['gap_codes']
+        );
+        self::assertSame(
+            ['request_data_completion', 'dismiss'],
+            $result['pending_review_draft']['human_decision_options']
+        );
+        self::assertNotContains('continue', $result['pending_review_draft']['human_decision_options']);
+        self::assertNotContains('adjust', $result['pending_review_draft']['human_decision_options']);
+        self::assertNotContains('stop', $result['pending_review_draft']['human_decision_options']);
+    }
+
     public function testTenantHotelPlatformAndBusinessDatePollutionIsRejected(): void
     {
         $valid = $this->row(106, 'search_keyword', [

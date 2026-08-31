@@ -17,12 +17,17 @@ final class HotelDataAnalystFeedbackService
     private OperatingQuestionService $questionService;
     private HotelDataAnalystFeedbackProjectionService $projectionService;
 
+    /** @var null|callable(int,int,array<int,int>,int,int):array<string,mixed> */
+    private $readbackReader;
+
     public function __construct(
         ?OperatingQuestionService $questionService = null,
-        ?HotelDataAnalystFeedbackProjectionService $projectionService = null
+        ?HotelDataAnalystFeedbackProjectionService $projectionService = null,
+        ?callable $readbackReader = null
     ) {
         $this->questionService = $questionService ?? new OperatingQuestionService();
         $this->projectionService = $projectionService ?? new HotelDataAnalystFeedbackProjectionService();
+        $this->readbackReader = $readbackReader;
     }
 
     /** @param list<int> $accessibleHotelIds @return array<string,mixed> */
@@ -117,39 +122,60 @@ final class HotelDataAnalystFeedbackService
 
         $createdAt = (new \DateTimeImmutable('now', new \DateTimeZone('Asia/Shanghai')))
             ->format('Y-m-d H:i:s.u');
+        $insertRow = [
+            'contract_version' => self::CONTRACT_VERSION,
+            'tenant_id' => $tenantId,
+            'hotel_id' => $hotelId,
+            'question_id' => $questionId,
+            'source_scope_json' => $this->encode($scope),
+            'source_scope_digest' => $scopeDigest,
+            'source_content_digest' => $sourceContentDigest,
+            'quality_receipt_contract_version' => (string)($currentReceipt['contract_version'] ?? ''),
+            'quality_receipt_digest' => $qualityReceiptDigest,
+            'feedback_kind' => $feedbackKind,
+            'correction_json' => $this->encode($correction),
+            'correction_digest' => $correctionDigest,
+            'usage_policy' => self::USAGE_POLICY,
+            'evaluation_projection_json' => $this->encode($projection),
+            'idempotency_key' => $idempotencyKey,
+            'input_digest' => $inputDigest,
+            'content_digest' => $contentDigest,
+            'created_by' => $createdBy,
+            'created_at' => $createdAt,
+        ];
         try {
-            $id = (int)Db::name(self::TABLE)->insertGetId([
-                'contract_version' => self::CONTRACT_VERSION,
-                'tenant_id' => $tenantId,
-                'hotel_id' => $hotelId,
-                'question_id' => $questionId,
-                'source_scope_json' => $this->encode($scope),
-                'source_scope_digest' => $scopeDigest,
-                'source_content_digest' => $sourceContentDigest,
-                'quality_receipt_contract_version' => (string)($currentReceipt['contract_version'] ?? ''),
-                'quality_receipt_digest' => $qualityReceiptDigest,
-                'feedback_kind' => $feedbackKind,
-                'correction_json' => $this->encode($correction),
-                'correction_digest' => $correctionDigest,
-                'usage_policy' => self::USAGE_POLICY,
-                'evaluation_projection_json' => $this->encode($projection),
-                'idempotency_key' => $idempotencyKey,
-                'input_digest' => $inputDigest,
-                'content_digest' => $contentDigest,
-                'created_by' => $createdBy,
-                'created_at' => $createdAt,
-            ]);
-            if ($id <= 0) throw new RuntimeException('feedback_write_failed');
+            $readback = Db::transaction(function () use (
+                $insertRow,
+                $tenantId,
+                $hotelIds,
+                $questionId,
+                $createdBy,
+                $contentDigest,
+                $inputDigest
+            ): array {
+                $id = (int)Db::name(self::TABLE)->insertGetId($insertRow);
+                if ($id <= 0) throw new RuntimeException('feedback_write_failed');
+                $readback = $this->readbackReader !== null
+                    ? call_user_func(
+                        $this->readbackReader,
+                        $id,
+                        $tenantId,
+                        $hotelIds,
+                        $questionId,
+                        $createdBy
+                    )
+                    : $this->read($id, $tenantId, $hotelIds, $questionId, $createdBy);
+                if (!hash_equals($contentDigest, (string)($readback['content_digest'] ?? ''))
+                    || !hash_equals($inputDigest, (string)($readback['input_digest'] ?? ''))
+                ) {
+                    throw new RuntimeException('feedback_readback_digest_drift', 409);
+                }
+                return $readback;
+            });
         } catch (\Throwable $error) {
             $winner = $this->findByIdempotency($tenantId, $hotelId, $createdBy, $idempotencyKey);
             if (!is_array($winner)) throw $error;
             return $this->replayExisting($winner, $inputDigest, $questionId);
-        }
-        $readback = $this->read($id, $tenantId, $hotelIds, $questionId, $createdBy);
-        if (!hash_equals($contentDigest, (string)$readback['content_digest'])
-            || !hash_equals($inputDigest, (string)$readback['input_digest'])
-        ) {
-            throw new RuntimeException('feedback_readback_digest_drift', 409);
         }
         $readback['created'] = true;
         $readback['replayed'] = false;

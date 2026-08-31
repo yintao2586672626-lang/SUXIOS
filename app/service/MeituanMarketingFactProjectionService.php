@@ -306,6 +306,7 @@ final class MeituanMarketingFactProjectionService
         $basisStatus = 'not_applicable';
         $roas = null;
         $roasStatus = 'not_applicable';
+        $attributedOrderAmountInvalid = false;
         if ($factType === 'advertising') {
             $storedSpend = $this->number($row, [], ['amount']);
             $rawSpend = $this->number([], $raw, ['spend', 'cost', 'ad_cost', 'adCost', 'todayCost']);
@@ -340,13 +341,22 @@ final class MeituanMarketingFactProjectionService
                 'attributed_revenue_basis',
                 'attributedRevenueBasis',
             ]) ?: $sharedBasis;
-            [$basisStatus, $roasStatus, $roas] = $this->roas(
-                $spend,
-                $attributedOrderAmount,
-                $spendBasis,
-                $orderAmountBasis
-            );
-            if ($spendConflict) {
+            $attributedOrderAmountInvalid = $attributedOrderAmount !== null
+                && $attributedOrderAmount < 0;
+            if ($attributedOrderAmountInvalid) {
+                $attributedOrderAmount = null;
+                $basisStatus = 'invalid';
+                $roasStatus = 'attributed_order_amount_negative';
+                $roas = null;
+            } else {
+                [$basisStatus, $roasStatus, $roas] = $this->roas(
+                    $spend,
+                    $attributedOrderAmount,
+                    $spendBasis,
+                    $orderAmountBasis
+                );
+            }
+            if ($spendConflict && !$attributedOrderAmountInvalid) {
                 $basisStatus = 'conflict';
                 $roasStatus = 'spend_value_conflict';
                 $roas = null;
@@ -390,7 +400,7 @@ final class MeituanMarketingFactProjectionService
                 'roas_formula' => $roas !== null ? 'attributed_order_amount / spend' : null,
                 'roas_status' => $roasStatus,
             ],
-            'quality_status' => 'verified',
+            'quality_status' => $attributedOrderAmountInvalid ? 'invalid' : 'verified',
             'evidence_type' => 'strict_readback_fact',
             'evidence_refs' => ['online_daily_data#' . (int)$row['id']],
             'source_trace_id' => trim((string)$row['source_trace_id']),
