@@ -26,6 +26,7 @@
     "verify:investment-decision": "node scripts/verify_investment_decision_support_contract.mjs",
     "report:business-chain": "node scripts/run_php.mjs scripts/report_business_chain_status.php",
     "report:skill-evidence-status": "node scripts/report_suxi_skill_evidence_status.mjs",
+    "verify:skill-archive-content": "node scripts/verify_suxi_skill_behavior_archive_content.mjs",
     "verify:business-chain-report": "node scripts/verify_business_chain_report_contract.mjs && node --test tests/automation/business_chain_status_report.test.mjs",
     "test:node": "node scripts/run_node_automation_tests.mjs",
     "test:node:partial": "node scripts/run_node_automation_tests.mjs --allow-runtime-skip",

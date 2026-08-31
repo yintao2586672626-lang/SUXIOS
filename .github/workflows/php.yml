@@ -379,7 +379,7 @@ jobs:
           assert.ok(skills.includes('suxi-test-guard'));
           assert.ok(skills.includes('suxi-user-research'));
           NODE
-          node scripts/suxi_skill_behavior_eval.mjs verify-suite
+          npm run verify:skill-archive-content
           node scripts/suxi_skill_test_execution.mjs inspect-recovery
 
       - name: Run Skill evidence contract tests

@@ -2706,7 +2706,7 @@ function compareArchiveEntry(archiveRoot, archiveEntry, ledgerEntry) {
   return failures;
 }
 
-function inspectEvidenceArchiveContents({
+export function inspectEvidenceArchiveContents({
   root = repoRoot,
   ledgerPath = '',
   archiveDir = '',
