@@ -36,9 +36,17 @@ test('correction-ledger routes keep permission, hotel scope, and restore readbac
 test('data-record page exposes a permission-gated ledger with truthful states', () => {
   const frontend = read('public/app-main.js');
   const template = read('resources/frontend/templates/fragments/35-page-online-data.html');
+  const loadStart = frontend.indexOf('const loadOnlineDataCorrectionLedger');
+  const loadEnd = frontend.indexOf('const toggleOnlineDataCorrectionLedger', loadStart);
+  assert.ok(loadStart >= 0 && loadEnd > loadStart, 'correction ledger loader must exist');
+  const loadBlock = frontend.slice(loadStart, loadEnd);
 
   assert.match(frontend, /user\.value\?\.is_super_admin === true \|\| userHasPermission\('can_delete_online_data'\)/);
-  assert.match(frontend, /request\(`\/online-data\/correction-ledger\?\$\{params\.toString\(\)\}`\)/);
+  assert.match(loadBlock, /normalizeRequestCacheOptions\(options\)/);
+  assert.match(loadBlock, /if \(force\) requestPolicy\.force = true/);
+  assert.match(loadBlock, /force \? \{ cache: 'no-store' \} : \{\}/);
+  assert.match(loadBlock, /request\(`\/online-data\/correction-ledger\?\$\{params\.toString\(\)\}`/);
+  assert.match(frontend, /onlineDataCorrectionLedgerOpen\.value[\s\S]*?loadOnlineDataCorrectionLedger\(\{ page: 1, force: true \}\)/);
   assert.match(frontend, /!Array\.isArray\(res\?\.data\?\.list\)/);
   assert.match(frontend, /onlineDataCorrectionLedgerError\.value = String\(error\?\.message/);
   assert.match(template, /v-if="canUseOnlineDataCorrectionLedger"[^>]*data-testid="online-data-correction-ledger-toggle"/);
@@ -61,6 +69,7 @@ test('restore requires the in-app confirmation form and verifies ledger readback
   assert.match(restoreBlock, /request\('\/online-data\/restore-data'/);
   assert.match(restoreBlock, /JSON\.stringify\(\{ ledger_id: ledgerId \}\)/);
   assert.match(restoreBlock, /await loadOnlineDataCorrectionLedger/);
+  assert.match(restoreBlock, /loadOnlineDataCorrectionLedger\(\{[\s\S]*?force: true,[\s\S]*?\}\)/);
   assert.match(restoreBlock, /readback\.can_restore !== false/);
   assert.match(restoreBlock, /readback\.restored_at/);
   assert.match(restoreBlock, /Number\(readback\.online_data_id \|\| 0\) !== restoredId/);

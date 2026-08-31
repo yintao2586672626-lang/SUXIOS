@@ -11928,14 +11928,21 @@
                     onlineDataCorrectionLedgerError.value = '当前账号无权查看数据更正记录';
                     return false;
                 }
-                const requestedPage = Math.max(1, Number(options.page || onlineDataCorrectionLedgerPagination.value.page || 1));
+                const loadOptions = normalizeRequestCacheOptions(options);
+                const force = loadOptions.force === true;
+                const requestedPage = Math.max(1, Number(loadOptions.page || onlineDataCorrectionLedgerPagination.value.page || 1));
                 const pageSize = Math.max(1, Number(onlineDataCorrectionLedgerPagination.value.page_size || 20));
                 const requestSeq = ++onlineDataCorrectionLedgerRequestSeq;
                 onlineDataCorrectionLedgerLoading.value = true;
                 onlineDataCorrectionLedgerError.value = '';
                 try {
                     const params = new URLSearchParams({ page: String(requestedPage), page_size: String(pageSize) });
-                    const res = await request(`/online-data/correction-ledger?${params.toString()}`);
+                    const requestPolicy = currentPageReadPolicy(currentPage.value, force ? 'action' : 'current');
+                    if (force) requestPolicy.force = true;
+                    const res = await request(`/online-data/correction-ledger?${params.toString()}`, {
+                        requestPolicy,
+                        ...(force ? { cache: 'no-store' } : {}),
+                    });
                     if (requestSeq !== onlineDataCorrectionLedgerRequestSeq) return null;
                     if (res?.code !== 200 || !Array.isArray(res?.data?.list)) {
                         throw new Error(res?.message || '更正记录返回格式不完整');
@@ -11965,7 +11972,7 @@
                 }
                 onlineDataCorrectionLedgerOpen.value = !onlineDataCorrectionLedgerOpen.value;
                 if (onlineDataCorrectionLedgerOpen.value) {
-                    await loadOnlineDataCorrectionLedger({ page: 1 });
+                    await loadOnlineDataCorrectionLedger({ page: 1, force: true });
                 }
             };
             const changeOnlineDataCorrectionLedgerPage = async (page) => {
@@ -12012,6 +12019,7 @@
 
                     const readbackOk = await loadOnlineDataCorrectionLedger({
                         page: onlineDataCorrectionLedgerPagination.value.page,
+                        force: true,
                     });
                     const readback = onlineDataCorrectionLedgerList.value.find(item => Number(item.id) === ledgerId);
                     if (readbackOk !== true
