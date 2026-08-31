@@ -43,7 +43,11 @@ test('data-record page exposes a permission-gated ledger with truthful states', 
 
   assert.match(frontend, /user\.value\?\.is_super_admin === true \|\| userHasPermission\('can_delete_online_data'\)/);
   assert.match(loadBlock, /normalizeRequestCacheOptions\(options\)/);
-  assert.match(loadBlock, /if \(force\) requestPolicy\.force = true/);
+  assert.match(loadBlock, /if \(force\) params\.set\('_readback', `\$\{Date\.now\(\)\}-\$\{requestSeq\}`\)/);
+  assert.match(loadBlock, /scope: 'session'/);
+  assert.match(loadBlock, /direct: true/);
+  assert.match(loadBlock, /priority: force \? 'action' : 'current'/);
+  assert.doesNotMatch(loadBlock, /currentPageReadPolicy/);
   assert.match(loadBlock, /force \? \{ cache: 'no-store' \} : \{\}/);
   assert.match(loadBlock, /request\(`\/online-data\/correction-ledger\?\$\{params\.toString\(\)\}`/);
   assert.match(frontend, /onlineDataCorrectionLedgerOpen\.value[\s\S]*?loadOnlineDataCorrectionLedger\(\{ page: 1, force: true \}\)/);

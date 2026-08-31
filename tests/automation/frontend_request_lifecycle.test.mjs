@@ -13,6 +13,7 @@ test('expected page-request cancellation stays out of product error logging', ()
     '加载每日巡检快照失败:',
     '加载第三阶段运营闭环失败:',
     '[ManualOneClickFetch] 加载目标日入库证据失败:',
+    '刷新数据失败:',
   ]) {
     const line = source.split(/\r?\n/).find(candidate => candidate.includes(`console.error('${message}'`));
     assert.ok(line, `missing guarded log: ${message}`);
@@ -470,6 +471,26 @@ test('POST bypasses GET coordination and fetches once per call', async () => {
   ]);
 
   assert.equal(calls.length, 2);
+  assert.equal(coordinator.coordinatedGetRequests.size, 0);
+  assert.equal(coordinator.coordinatedGetQueue.length, 0);
+});
+
+test('an explicit direct action read bypasses the GET queue without leaking request policy', async () => {
+  const calls = [];
+  const coordinator = compileCoordinator(async (url, options) => {
+    calls.push({ url, options });
+    return jsonResponse({ code: 200, data: { readback: true } });
+  });
+
+  const result = await coordinator.request('/action-readback', {
+    requestPolicy: { scope: 'session', priority: 'action', direct: true },
+    cache: 'no-store',
+  });
+
+  assert.deepEqual(result, { code: 200, data: { readback: true } });
+  assert.equal(calls.length, 1);
+  assert.equal(Object.hasOwn(calls[0].options, 'requestPolicy'), false);
+  assert.equal(calls[0].options.cache, 'no-store');
   assert.equal(coordinator.coordinatedGetRequests.size, 0);
   assert.equal(coordinator.coordinatedGetQueue.length, 0);
 });

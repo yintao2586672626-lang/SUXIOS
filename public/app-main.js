@@ -11937,8 +11937,13 @@
                 onlineDataCorrectionLedgerError.value = '';
                 try {
                     const params = new URLSearchParams({ page: String(requestedPage), page_size: String(pageSize) });
-                    const requestPolicy = currentPageReadPolicy(currentPage.value, force ? 'action' : 'current');
-                    if (force) requestPolicy.force = true;
+                    if (force) params.set('_readback', `${Date.now()}-${requestSeq}`);
+                    const requestPolicy = {
+                        scope: 'session',
+                        direct: true,
+                        priority: force ? 'action' : 'current',
+                        ...(force ? { force: true } : {}),
+                    };
                     const res = await request(`/online-data/correction-ledger?${params.toString()}`, {
                         requestPolicy,
                         ...(force ? { cache: 'no-store' } : {}),
@@ -12486,7 +12491,7 @@
                     ]);
                     analysisData.value = { summary: null, chart_data: null, hotel_ranking: [] };
                 } catch (error) {
-                    console.error('刷新数据失败:', error);
+                    if (error?.name !== 'AbortError') console.error('刷新数据失败:', error);
                 }
             };
             const isOnlineDataTabVisible = (tab) => currentPage.value === 'online-data' && onlineDataTab.value === tab;
@@ -19555,6 +19560,11 @@
                 const isSafeRead = method === 'GET' || method === 'HEAD';
                 if (!isSafeRead) {
                     return executeApiRequest({ requestSession, requestUrl, requestOptions, headers });
+                }
+                if (requestPolicy.direct === true) {
+                    const response = await executeApiRequest({ requestSession, requestUrl, requestOptions, headers });
+                    if (!isAuthSessionCurrent(requestSession) || !isPageLoadPolicyCurrent(requestPolicy)) throw createRequestAbortError();
+                    return response;
                 }
 
                 const externalSignal = requestOptions.signal;
