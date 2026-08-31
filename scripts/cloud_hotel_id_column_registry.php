@@ -163,6 +163,8 @@ function cloudHotelIdColumnRegistry(): array
         ['wecom_aibot_binding_codes', 'hotel_id', 'hotel_id'],
         ['wecom_inbound_bindings', 'hotel_id', 'hotel_id'],
         ['wecom_inbound_events', 'hotel_id', 'hotel_id'],
+        ['wecom_inbound_sender_binding_challenges', 'hotel_id', 'hotel_id'],
+        ['wecom_inbound_sender_bindings', 'hotel_id', 'hotel_id'],
         ['wecom_task_receipts', 'hotel_id', 'hotel_id'],
         ['ota_settlement_import_batches', 'hotel_id', 'hotel_id'],
         ['hotel_on_books_snapshots', 'hotel_id', 'hotel_id'],
