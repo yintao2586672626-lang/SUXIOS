@@ -656,7 +656,18 @@ test('business chain: OTA import to revenue, operation task, and tracking', asyn
       const restoreDialog = page.getByTestId('workflow-form-dialog');
       await expect(restoreDialog).toBeVisible();
       await restoreDialog.getByRole('textbox').fill(`恢复 ${correctionLedgerId}`);
+      const restoreResponsePromise = page.waitForResponse((response) => (
+        response.request().method() === 'POST'
+          && new URL(response.url()).pathname === '/api/online-data/restore-data'
+      ));
       await restoreDialog.getByRole('button', { name: '确认恢复' }).click();
+      const restoreResponse = await restoreResponsePromise;
+      const restoreEnvelope = await restoreResponse.json();
+      expect(restoreResponse.status(), JSON.stringify(restoreEnvelope)).toBe(200);
+      expect(restoreEnvelope.code, JSON.stringify(restoreEnvelope)).toBe(200);
+      expect(Number(restoreEnvelope.data?.id || 0), JSON.stringify(restoreEnvelope)).toBe(Number(row.id));
+      expect(Number(restoreEnvelope.data?.ledger?.id || 0), JSON.stringify(restoreEnvelope)).toBe(correctionLedgerId);
+      expect(restoreEnvelope.data?.ledger?.can_restore, JSON.stringify(restoreEnvelope)).toBe(false);
       await expect(correctionLedgerRow).toContainText('已恢复', { timeout: 5000 });
 
       const ledgerReadback = await api.get('/api/online-data/correction-ledger', {
