@@ -21,3 +21,4 @@ Route::post('/operating-questions/:questionId/feedbacks', 'HotelDataAnalystFeedb
 Route::post('/price-suggestions/:id/shadow-replays', 'Agent/createPriceSuggestionShadowReplay');
 Route::get('/price-suggestions/:id/shadow-replays', 'Agent/priceSuggestionShadowReplays');
 Route::post('/operating-questions/:id/council-runs/:runId/resume', 'OperatingIntelligence/resumeQuestionCouncil');
+Route::post('/wecom-inbound/sender-binding-codes', 'OperatingIntelligence/createWecomInboundSenderBindingCode');

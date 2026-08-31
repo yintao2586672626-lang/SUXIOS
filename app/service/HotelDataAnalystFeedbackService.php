@@ -215,10 +215,21 @@ final class HotelDataAnalystFeedbackService
             ->select()
             ->toArray();
         $list = array_map([$this, 'normalizeAndVerify'], $rows);
-        $summary = ['total' => count($list), 'useful' => 0, 'needs_correction' => 0];
-        foreach ($list as $item) {
-            $kind = (string)$item['feedback_kind'];
-            if (isset($summary[$kind])) $summary[$kind]++;
+        $summaryRows = Db::name(self::TABLE)
+            ->where('tenant_id', $tenantId)
+            ->where('hotel_id', $hotelId)
+            ->where('question_id', $questionId)
+            ->where('created_by', $createdBy)
+            ->field('feedback_kind, COUNT(*) AS feedback_count')
+            ->group('feedback_kind')
+            ->select()
+            ->toArray();
+        $summary = ['total' => 0, 'useful' => 0, 'needs_correction' => 0];
+        foreach ($summaryRows as $summaryRow) {
+            $kind = (string)($summaryRow['feedback_kind'] ?? '');
+            $count = max(0, (int)($summaryRow['feedback_count'] ?? 0));
+            $summary['total'] += $count;
+            if (in_array($kind, ['useful', 'needs_correction'], true)) $summary[$kind] += $count;
         }
         return [
             'contract_version' => self::CONTRACT_VERSION,

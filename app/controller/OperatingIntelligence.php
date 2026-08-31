@@ -16,6 +16,7 @@ use app\service\OperatingQuestionService;
 use app\service\OperatingSopService;
 use app\service\WecomInboundService;
 use app\service\WecomAibotService;
+use app\service\WecomTaskReceiptService;
 use InvalidArgumentException;
 use RuntimeException;
 use think\facade\Db;
@@ -339,6 +340,25 @@ final class OperatingIntelligence extends Base
             ));
         } catch (Throwable $e) {
             return $this->error($this->safeMessage($e, '企业微信入站事件回读失败'), $this->status($e));
+        }
+    }
+
+    public function createWecomInboundSenderBindingCode(): Response
+    {
+        try {
+            $input = $this->requestData();
+            [$hotelId, $tenantId] = $this->resolveHotel(
+                (int)($input['hotel_id'] ?? 0),
+                'operation.execute'
+            );
+            $actorId = (int)($this->currentUser->id ?? 0);
+            return $this->success((new WecomTaskReceiptService())->createSenderBindingChallenge(
+                $tenantId,
+                $hotelId,
+                $actorId
+            ));
+        } catch (Throwable $e) {
+            return $this->error($this->safeMessage($e, '企业微信发送人绑定码创建失败'), $this->status($e));
         }
     }
 

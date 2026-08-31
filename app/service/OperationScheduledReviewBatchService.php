@@ -79,7 +79,10 @@ final class OperationScheduledReviewBatchService
             $rows[] = $row;
         }
         $cursorAdvanced = false;
-        if ($execute && (int)($scan['next_cursor'] ?? 0) > 0) {
+        if ($execute
+            && $counts['failed'] === 0
+            && (int)($scan['next_cursor'] ?? 0) > 0
+        ) {
             try {
                 $this->writeScanCursor($hotelId, (int)$scan['next_cursor']);
                 $cursorAdvanced = true;

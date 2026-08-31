@@ -22,6 +22,10 @@ final class WecomTaskReceiptService
 {
     public const TABLE = 'wecom_task_receipts';
     public const CONTRACT_VERSION = 'wecom_task_receipt.v1';
+    public const SENDER_BINDING_TABLE = 'wecom_inbound_sender_bindings';
+    public const SENDER_BINDING_CONTRACT_VERSION = 'wecom_inbound_sender_binding.v1';
+    public const SENDER_BINDING_CHALLENGE_TABLE = 'wecom_inbound_sender_binding_challenges';
+    public const SENDER_BINDING_CHALLENGE_CONTRACT_VERSION = 'wecom_inbound_sender_binding_challenge.v1';
 
     private const REPORTED_STATUSES = [
         'acknowledged',
@@ -65,9 +69,7 @@ final class WecomTaskReceiptService
     {
         $this->scopeResolver = $scopeResolver !== null
             ? Closure::fromCallable($scopeResolver)
-            : static function (array $context): array {
-                throw new RuntimeException('wecom_task_receipt_scope_resolver_required', 503);
-            };
+            : Closure::fromCallable([$this, 'resolveScopeFactsFromDatabase']);
         $this->clock = $clock !== null
             ? Closure::fromCallable($clock)
             : static fn(): DateTimeImmutable => new DateTimeImmutable(
@@ -81,6 +83,228 @@ final class WecomTaskReceiptService
                 $context['tenant_id'],
                 [$context['hotel_id']]
             );
+    }
+
+    /** @return array<string,mixed> */
+    public function createSenderBindingChallenge(
+        int $tenantId,
+        int $hotelId,
+        int $actorId
+    ): array {
+        $this->assertSenderBindingSchemaReady();
+        if ($tenantId <= 0 || $hotelId <= 0 || $actorId <= 0) {
+            throw new InvalidArgumentException('wecom_sender_binding_challenge_identity_invalid');
+        }
+        $now = ($this->clock)();
+        if (!$now instanceof DateTimeImmutable) {
+            throw new RuntimeException('wecom_task_receipt_clock_invalid', 500);
+        }
+        $plainCode = $this->randomChallengeCode();
+        $expiresAt = $now->modify('+15 minutes');
+        $payload = [
+            'contract_version' => self::SENDER_BINDING_CHALLENGE_CONTRACT_VERSION,
+            'tenant_id' => $tenantId,
+            'hotel_id' => $hotelId,
+            'actor_id' => $actorId,
+            'code_hash' => $this->challengeCodeHash($plainCode),
+            'code_mask' => substr($plainCode, 0, 2) . '********',
+            'status' => 'active',
+            'expires_at' => $expiresAt->format('Y-m-d H:i:s.u'),
+            'used_at' => null,
+            'source_event_id' => null,
+            'source_binding_id' => null,
+        ];
+        $payload['content_digest'] = $this->digest($payload);
+        $challenge = Db::transaction(function () use ($payload, $now): array {
+            $id = (int)Db::name(self::SENDER_BINDING_CHALLENGE_TABLE)->insertGetId(array_merge($payload, [
+                'created_at' => $now->format('Y-m-d H:i:s.u'),
+                'updated_at' => $now->format('Y-m-d H:i:s.u'),
+            ]));
+            $row = $id > 0 ? Db::name(self::SENDER_BINDING_CHALLENGE_TABLE)->where('id', $id)->find() : null;
+            if (!is_array($row)) {
+                throw new RuntimeException('wecom_sender_binding_challenge_write_failed');
+            }
+            return $this->normalizeAndVerifyChallenge($row);
+        });
+
+        return [
+            'id' => (int)$challenge['id'],
+            'hotel_id' => (int)$challenge['hotel_id'],
+            'binding_code' => $plainCode,
+            'instruction' => '请由要绑定的本人在已验证企微会话发送：绑定员工 ' . $plainCode,
+            'expires_at' => (string)$challenge['expires_at'],
+            'single_use' => true,
+            'readback_verified' => true,
+            'boundaries' => [
+                'plaintext_code_persisted' => false,
+                'automatic_message_send' => false,
+                'automatic_approval' => false,
+                'task_state_mutated' => false,
+            ],
+        ];
+    }
+
+    /** @return array<string,mixed> */
+    public function consumeSenderBindingChallenge(array $archivedEvent, ?string $plainCode = null): array
+    {
+        $plainCode = $plainCode === null
+            ? $this->challengeCodeFromContent((string)($archivedEvent['content_text'] ?? ''))
+            : $this->normalizeChallengeCode($plainCode);
+        if ($plainCode === null) {
+            return ['status' => 'not_applicable', 'code' => 'sender_binding_challenge_not_present'];
+        }
+        $this->assertSenderBindingSchemaReady();
+        $tenantId = (int)($archivedEvent['tenant_id'] ?? 0);
+        $hotelId = (int)($archivedEvent['hotel_id'] ?? 0);
+        $event = $this->normalizeArchivedEvent($archivedEvent, $tenantId, $hotelId);
+        $now = ($this->clock)();
+        if (!$now instanceof DateTimeImmutable) {
+            throw new RuntimeException('wecom_task_receipt_clock_invalid', 500);
+        }
+        $codeHash = $this->challengeCodeHash($plainCode);
+
+        return Db::transaction(function () use ($event, $tenantId, $hotelId, $now, $codeHash): array {
+            $challengeRow = Db::name(self::SENDER_BINDING_CHALLENGE_TABLE)
+                ->where('code_hash', $codeHash)
+                ->lock(true)
+                ->find();
+            if (!is_array($challengeRow)) {
+                throw new RuntimeException('wecom_sender_binding_challenge_invalid_or_expired', 422);
+            }
+            $challenge = $this->normalizeAndVerifyChallenge($challengeRow);
+            if ((string)$challenge['status'] === 'used') {
+                if ((int)($challenge['source_event_id'] ?? 0) !== (int)$event['id']
+                    || (int)($challenge['source_binding_id'] ?? 0) !== (int)$event['binding_id']
+                ) {
+                    throw new RuntimeException('wecom_sender_binding_challenge_already_used', 409);
+                }
+                $existing = $this->findSenderBinding((int)$event['binding_id'], (string)$event['sender_id_hash']);
+                if (!is_array($existing)) {
+                    throw new RuntimeException('wecom_sender_binding_replay_missing', 409);
+                }
+                $senderBinding = $this->normalizeAndVerifySenderBinding($existing);
+                $this->assertSenderBindingMatchesPayload(
+                    $senderBinding,
+                    $this->senderBindingPayload($challenge, $event)
+                );
+                return $this->senderBindingProjection(
+                    $senderBinding,
+                    false,
+                    true
+                );
+            }
+            if ((string)$challenge['status'] !== 'active'
+                || strtotime((string)$challenge['expires_at']) <= $now->getTimestamp()
+                || (int)$challenge['tenant_id'] !== $tenantId
+                || (int)$challenge['hotel_id'] !== $hotelId
+            ) {
+                throw new RuntimeException('wecom_sender_binding_challenge_invalid_or_expired', 422);
+            }
+            $binding = Db::name(WecomInboundService::BINDING_TABLE)
+                ->where('id', (int)$event['binding_id'])
+                ->where('tenant_id', $tenantId)
+                ->where('hotel_id', $hotelId)
+                ->where('transport', 'wecom_app_callback')
+                ->where('status', 'verified')
+                ->find();
+            if (!is_array($binding)) {
+                throw new RuntimeException('wecom_sender_binding_source_binding_invalid', 403);
+            }
+            $mappingPayload = $this->senderBindingPayload($challenge, $event);
+            $existing = $this->findSenderBinding((int)$event['binding_id'], (string)$event['sender_id_hash']);
+            $created = false;
+            if (is_array($existing)) {
+                $senderBinding = $this->normalizeAndVerifySenderBinding($existing);
+                $this->assertSenderBindingMatchesPayload($senderBinding, $mappingPayload);
+            } else {
+                $id = (int)Db::name(self::SENDER_BINDING_TABLE)->insertGetId(array_merge($mappingPayload, [
+                    'created_at' => $now->format('Y-m-d H:i:s.u'),
+                    'updated_at' => $now->format('Y-m-d H:i:s.u'),
+                ]));
+                $row = $id > 0 ? Db::name(self::SENDER_BINDING_TABLE)->where('id', $id)->find() : null;
+                if (!is_array($row)) {
+                    throw new RuntimeException('wecom_sender_binding_write_failed');
+                }
+                $senderBinding = $this->normalizeAndVerifySenderBinding($row);
+                $this->assertSenderBindingMatchesPayload($senderBinding, $mappingPayload);
+                $created = true;
+            }
+            $usedPayload = [
+                'contract_version' => self::SENDER_BINDING_CHALLENGE_CONTRACT_VERSION,
+                'tenant_id' => $tenantId,
+                'hotel_id' => $hotelId,
+                'actor_id' => (int)$challenge['actor_id'],
+                'code_hash' => (string)$challenge['code_hash'],
+                'code_mask' => (string)$challenge['code_mask'],
+                'status' => 'used',
+                'expires_at' => (string)$challenge['expires_at'],
+                'used_at' => $now->format('Y-m-d H:i:s.u'),
+                'source_event_id' => (int)$event['id'],
+                'source_binding_id' => (int)$event['binding_id'],
+            ];
+            $affected = Db::name(self::SENDER_BINDING_CHALLENGE_TABLE)
+                ->where('id', (int)$challenge['id'])
+                ->where('status', 'active')
+                ->update(array_merge($usedPayload, [
+                    'content_digest' => $this->digest($usedPayload),
+                    'updated_at' => $now->format('Y-m-d H:i:s.u'),
+                ]));
+            if ($affected !== 1) {
+                throw new RuntimeException('wecom_sender_binding_challenge_consume_conflict', 409);
+            }
+            $used = Db::name(self::SENDER_BINDING_CHALLENGE_TABLE)->where('id', (int)$challenge['id'])->find();
+            if (!is_array($used)) {
+                throw new RuntimeException('wecom_sender_binding_challenge_readback_failed', 409);
+            }
+            $this->normalizeAndVerifyChallenge($used);
+            return $this->senderBindingProjection($senderBinding, $created, false);
+        });
+    }
+
+    /** @return array<string,mixed> */
+    public function projectArchivedEvent(array $archivedEvent): array
+    {
+        $content = isset($archivedEvent['content_text']) && is_string($archivedEvent['content_text'])
+            ? trim($archivedEvent['content_text'])
+            : '';
+        if ($content === '') {
+            return ['status' => 'not_applicable', 'code' => 'structured_task_receipt_not_present'];
+        }
+        try {
+            $payload = json_decode($content, true, 32, JSON_THROW_ON_ERROR | JSON_BIGINT_AS_STRING);
+        } catch (Throwable) {
+            return ['status' => 'not_applicable', 'code' => 'structured_task_receipt_not_present'];
+        }
+        if (!is_array($payload) || array_is_list($payload) || !array_key_exists('task_id', $payload)) {
+            return ['status' => 'not_applicable', 'code' => 'structured_task_receipt_not_present'];
+        }
+        if (!is_int($payload['task_id']) || $payload['task_id'] <= 0) {
+            return ['status' => 'blocked', 'code' => 'wecom_task_receipt_task_id_invalid'];
+        }
+        try {
+            $receipt = $this->record(
+                (int)($archivedEvent['tenant_id'] ?? 0),
+                (int)($archivedEvent['hotel_id'] ?? 0),
+                $payload['task_id'],
+                (int)($archivedEvent['id'] ?? 0)
+            );
+            return [
+                'status' => 'readback_verified',
+                'receipt_id' => (int)$receipt['id'],
+                'task_id' => (int)$receipt['task_id'],
+                'created' => (bool)($receipt['created'] ?? false),
+                'replayed' => (bool)($receipt['replayed'] ?? false),
+                'receipt_ref' => 'wecom_task_receipts#' . (int)$receipt['id'],
+            ];
+        } catch (Throwable $error) {
+            $code = trim($error->getMessage());
+            if (!str_starts_with($code, 'wecom_task_receipt_')
+                && !str_starts_with($code, 'wecom_sender_binding_')
+            ) {
+                $code = 'wecom_task_receipt_projection_failed';
+            }
+            return ['status' => 'blocked', 'code' => $code];
+        }
     }
 
     /** @return array<string,mixed> */
@@ -209,26 +433,37 @@ final class WecomTaskReceiptService
         }
 
         try {
-            $id = (int)Db::name(self::TABLE)->insertGetId(array_merge($payload, [
-                'content_digest' => $contentDigest,
-                'created_at' => $createdAt->format('Y-m-d H:i:s.u'),
-            ]));
-            if ($id <= 0) {
-                throw new RuntimeException('wecom_task_receipt_write_failed');
-            }
+            $readback = Db::transaction(function () use (
+                $payload,
+                $contentDigest,
+                $createdAt,
+                $tenantId,
+                $hotelId,
+                $taskId,
+                $event,
+                $inputDigest
+            ): array {
+                $id = (int)Db::name(self::TABLE)->insertGetId(array_merge($payload, [
+                    'content_digest' => $contentDigest,
+                    'created_at' => $createdAt->format('Y-m-d H:i:s.u'),
+                ]));
+                if ($id <= 0) {
+                    throw new RuntimeException('wecom_task_receipt_write_failed');
+                }
+                $readback = $this->read($id, $tenantId, $hotelId, $taskId, (int)$event['id']);
+                if (!hash_equals($inputDigest, (string)$readback['input_digest'])
+                    || !hash_equals($contentDigest, (string)$readback['content_digest'])
+                ) {
+                    throw new RuntimeException('wecom_task_receipt_exact_readback_failed', 409);
+                }
+                return $readback;
+            });
         } catch (Throwable $error) {
             $winner = $this->findExisting($tenantId, $hotelId, (int)$event['id'], $taskId);
             if (!is_array($winner)) {
                 throw $error;
             }
             return $this->replayExisting($winner, $inputDigest);
-        }
-
-        $readback = $this->read($id, $tenantId, $hotelId, $taskId, (int)$event['id']);
-        if (!hash_equals($inputDigest, (string)$readback['input_digest'])
-            || !hash_equals($contentDigest, (string)$readback['content_digest'])
-        ) {
-            throw new RuntimeException('wecom_task_receipt_exact_readback_failed', 409);
         }
         $readback['created'] = true;
         $readback['replayed'] = false;
@@ -258,6 +493,276 @@ final class WecomTaskReceiptService
             throw new RuntimeException('wecom_task_receipt_not_found', 404);
         }
         return $this->normalizeAndVerify($row);
+    }
+
+    /** @param array<string,int|string> $context @return array<string,mixed> */
+    private function resolveScopeFactsFromDatabase(array $context): array
+    {
+        $this->assertSenderBindingSchemaReady();
+        $tenantId = (int)($context['tenant_id'] ?? 0);
+        $hotelId = (int)($context['hotel_id'] ?? 0);
+        $bindingId = (int)($context['binding_id'] ?? 0);
+        $taskId = (int)($context['task_id'] ?? 0);
+        $senderIdHash = strtolower(trim((string)($context['sender_id_hash'] ?? '')));
+
+        $binding = Db::name(WecomInboundService::BINDING_TABLE)
+            ->where('id', $bindingId)
+            ->where('tenant_id', $tenantId)
+            ->where('hotel_id', $hotelId)
+            ->where('transport', 'wecom_app_callback')
+            ->where('status', 'verified')
+            ->find();
+        $senderRow = $this->findSenderBinding($bindingId, $senderIdHash);
+        $task = Db::name('operation_execution_tasks')
+            ->where('id', $taskId)
+            ->where('tenant_id', $tenantId)
+            ->where('hotel_id', $hotelId)
+            ->find();
+        if (!is_array($binding) || !is_array($senderRow) || !is_array($task)) {
+            throw new RuntimeException('wecom_task_receipt_scope_mapping_missing', 422);
+        }
+        $sender = $this->normalizeAndVerifySenderBinding($senderRow);
+        $assigneeId = $this->taskAssigneeId($task);
+
+        return [
+            'binding' => [
+                'id' => (int)$binding['id'],
+                'tenant_id' => (int)$binding['tenant_id'],
+                'hotel_id' => (int)$binding['hotel_id'],
+                'status' => (string)$binding['status'],
+            ],
+            'sender' => [
+                'binding_id' => (int)$sender['source_binding_id'],
+                'tenant_id' => (int)$sender['tenant_id'],
+                'hotel_id' => (int)$sender['hotel_id'],
+                'sender_id_hash' => (string)$sender['sender_id_hash'],
+                'actor_id' => (int)$sender['actor_id'],
+                'status' => (string)$sender['status'],
+            ],
+            'task' => [
+                'id' => (int)$task['id'],
+                'tenant_id' => (int)$task['tenant_id'],
+                'hotel_id' => (int)$task['hotel_id'],
+                'assignee_id' => $assigneeId,
+                'status' => (string)($task['status'] ?? ''),
+                'deleted_at' => $task['deleted_at'] ?? null,
+            ],
+        ];
+    }
+
+    /** @param array<string,mixed> $task */
+    private function taskAssigneeId(array $task): int
+    {
+        $target = $task['target_value_json'] ?? [];
+        if (is_string($target) && trim($target) !== '') {
+            try {
+                $target = json_decode($target, true, 32, JSON_THROW_ON_ERROR | JSON_BIGINT_AS_STRING);
+            } catch (Throwable) {
+                $target = [];
+            }
+        }
+        if (!is_array($target)) {
+            $target = [];
+        }
+        $schedule = is_array($target['workflow_schedule'] ?? null) ? $target['workflow_schedule'] : [];
+        foreach ([$schedule['assignee_id'] ?? null, $target['assignee_id'] ?? null, $task['operator_id'] ?? null] as $candidate) {
+            $assigneeId = (int)$candidate;
+            if ($assigneeId > 0) {
+                return $assigneeId;
+            }
+        }
+        return 0;
+    }
+
+    /** @return array<string,mixed>|null */
+    private function findSenderBinding(int $bindingId, string $senderIdHash): ?array
+    {
+        if ($bindingId <= 0 || !$this->isDigest($senderIdHash)) {
+            return null;
+        }
+        $row = Db::name(self::SENDER_BINDING_TABLE)
+            ->where('source_binding_id', $bindingId)
+            ->where('sender_id_hash', $senderIdHash)
+            ->find();
+        return is_array($row) ? $row : null;
+    }
+
+    /** @return array<string,mixed> */
+    private function normalizeAndVerifySenderBinding(array $row): array
+    {
+        foreach (['id', 'tenant_id', 'hotel_id', 'source_binding_id', 'actor_id', 'verified_by'] as $field) {
+            $row[$field] = (int)($row[$field] ?? 0);
+        }
+        foreach (['contract_version', 'sender_id_hash', 'status', 'proof_type', 'proof_digest', 'content_digest'] as $field) {
+            $row[$field] = strtolower(trim((string)($row[$field] ?? '')));
+        }
+        $row['proof_ref'] = trim((string)($row['proof_ref'] ?? ''));
+        if ($row['id'] <= 0
+            || $row['contract_version'] !== self::SENDER_BINDING_CONTRACT_VERSION
+            || $row['tenant_id'] <= 0
+            || $row['hotel_id'] <= 0
+            || $row['source_binding_id'] <= 0
+            || $row['actor_id'] <= 0
+            || $row['verified_by'] <= 0
+            || $row['actor_id'] !== $row['verified_by']
+            || $row['status'] !== 'verified'
+            || $row['proof_type'] !== 'one_time_sender_challenge'
+            || preg_match('/^wecom_inbound_sender_binding_challenges#[1-9][0-9]*$/D', $row['proof_ref']) !== 1
+            || !$this->isDigest($row['sender_id_hash'])
+            || !$this->isDigest($row['proof_digest'])
+            || !$this->isDigest($row['content_digest'])
+        ) {
+            throw new RuntimeException('wecom_sender_binding_readback_contract_invalid', 409);
+        }
+        $payload = array_intersect_key($row, array_flip([
+            'contract_version', 'tenant_id', 'hotel_id', 'source_binding_id',
+            'sender_id_hash', 'actor_id', 'status', 'verified_by', 'proof_type',
+            'proof_ref', 'proof_digest',
+        ]));
+        if (!hash_equals($row['content_digest'], $this->digest($payload))) {
+            throw new RuntimeException('wecom_sender_binding_content_digest_drift', 409);
+        }
+        return $row;
+    }
+
+    /** @return array<string,mixed> */
+    private function senderBindingPayload(array $challenge, array $event): array
+    {
+        $proofPayload = [
+            'challenge_id' => (int)$challenge['id'],
+            'challenge_code_hash' => (string)$challenge['code_hash'],
+            'tenant_id' => (int)$event['tenant_id'],
+            'hotel_id' => (int)$event['hotel_id'],
+            'actor_id' => (int)$challenge['actor_id'],
+            'source_event_id' => (int)$event['id'],
+            'source_binding_id' => (int)$event['binding_id'],
+            'sender_id_hash' => (string)$event['sender_id_hash'],
+            'source_event_payload_digest' => (string)$event['payload_digest'],
+            'source_event_content_digest' => (string)$event['content_digest'],
+        ];
+        $payload = [
+            'contract_version' => self::SENDER_BINDING_CONTRACT_VERSION,
+            'tenant_id' => (int)$event['tenant_id'],
+            'hotel_id' => (int)$event['hotel_id'],
+            'source_binding_id' => (int)$event['binding_id'],
+            'sender_id_hash' => (string)$event['sender_id_hash'],
+            'actor_id' => (int)$challenge['actor_id'],
+            'status' => 'verified',
+            'verified_by' => (int)$challenge['actor_id'],
+            'proof_type' => 'one_time_sender_challenge',
+            'proof_ref' => self::SENDER_BINDING_CHALLENGE_TABLE . '#' . (int)$challenge['id'],
+            'proof_digest' => $this->digest($proofPayload),
+        ];
+        $payload['content_digest'] = $this->digest($payload);
+        return $payload;
+    }
+
+    /** @param array<string,mixed> $expected */
+    private function assertSenderBindingMatchesPayload(array $actual, array $expected): void
+    {
+        foreach ($expected as $field => $value) {
+            if (!array_key_exists($field, $actual)
+                || !hash_equals((string)$value, (string)$actual[$field])
+            ) {
+                throw new RuntimeException('wecom_sender_binding_identity_conflict', 409);
+            }
+        }
+    }
+
+    /** @return array<string,mixed> */
+    private function normalizeAndVerifyChallenge(array $row): array
+    {
+        foreach (['id', 'tenant_id', 'hotel_id', 'actor_id'] as $field) {
+            $row[$field] = (int)($row[$field] ?? 0);
+        }
+        foreach (['source_event_id', 'source_binding_id'] as $field) {
+            $row[$field] = $row[$field] === null || $row[$field] === '' ? null : (int)$row[$field];
+        }
+        foreach (['contract_version', 'code_hash', 'status', 'content_digest'] as $field) {
+            $row[$field] = strtolower(trim((string)($row[$field] ?? '')));
+        }
+        $row['code_mask'] = trim((string)($row['code_mask'] ?? ''));
+        $row['expires_at'] = trim((string)($row['expires_at'] ?? ''));
+        $row['used_at'] = $row['used_at'] === null || trim((string)$row['used_at']) === ''
+            ? null
+            : trim((string)$row['used_at']);
+        if ($row['id'] <= 0
+            || $row['contract_version'] !== self::SENDER_BINDING_CHALLENGE_CONTRACT_VERSION
+            || $row['tenant_id'] <= 0
+            || $row['hotel_id'] <= 0
+            || $row['actor_id'] <= 0
+            || !$this->isDigest($row['code_hash'])
+            || preg_match('/^[2-9A-HJ-NP-Z]{2}\*{8}$/D', $row['code_mask']) !== 1
+            || !in_array($row['status'], ['active', 'used'], true)
+            || strtotime($row['expires_at']) === false
+            || !$this->isDigest($row['content_digest'])
+            || ($row['status'] === 'active' && ($row['used_at'] !== null
+                || $row['source_event_id'] !== null || $row['source_binding_id'] !== null))
+            || ($row['status'] === 'used' && ($row['used_at'] === null
+                || strtotime($row['used_at']) === false
+                || (int)$row['source_event_id'] <= 0
+                || (int)$row['source_binding_id'] <= 0))
+        ) {
+            throw new RuntimeException('wecom_sender_binding_challenge_readback_contract_invalid', 409);
+        }
+        $payload = array_intersect_key($row, array_flip([
+            'contract_version', 'tenant_id', 'hotel_id', 'actor_id', 'code_hash',
+            'code_mask', 'status', 'expires_at', 'used_at', 'source_event_id', 'source_binding_id',
+        ]));
+        if (!hash_equals($row['content_digest'], $this->digest($payload))) {
+            throw new RuntimeException('wecom_sender_binding_challenge_content_digest_drift', 409);
+        }
+        return $row;
+    }
+
+    /** @return array<string,mixed> */
+    private function senderBindingProjection(array $senderBinding, bool $created, bool $replayed): array
+    {
+        return [
+            'status' => 'readback_verified',
+            'sender_binding_ref' => self::SENDER_BINDING_TABLE . '#' . (int)$senderBinding['id'],
+            'actor_id' => (int)$senderBinding['actor_id'],
+            'proof_type' => (string)$senderBinding['proof_type'],
+            'proof_ref' => (string)$senderBinding['proof_ref'],
+            'proof_digest' => (string)$senderBinding['proof_digest'],
+            'created' => $created,
+            'replayed' => $replayed,
+            'boundaries' => [
+                'plaintext_code_persisted' => false,
+                'automatic_message_send' => false,
+                'automatic_approval' => false,
+                'task_state_mutated' => false,
+            ],
+        ];
+    }
+
+    private function challengeCodeFromContent(string $content): ?string
+    {
+        if (preg_match('/^绑定员工\s+([2-9A-HJ-NP-Z]{10})$/iuD', trim($content), $matches) !== 1) {
+            return null;
+        }
+        return strtoupper((string)$matches[1]);
+    }
+
+    private function normalizeChallengeCode(string $plainCode): ?string
+    {
+        $plainCode = strtoupper(trim($plainCode));
+        return preg_match('/^[2-9A-HJ-NP-Z]{10}$/D', $plainCode) === 1 ? $plainCode : null;
+    }
+
+    private function randomChallengeCode(): string
+    {
+        $alphabet = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ';
+        $code = '';
+        for ($index = 0; $index < 10; $index++) {
+            $code .= $alphabet[random_int(0, strlen($alphabet) - 1)];
+        }
+        return $code;
+    }
+
+    private function challengeCodeHash(string $plainCode): string
+    {
+        return hash('sha256', 'wecom-sender-binding-challenge-v1|' . strtoupper(trim($plainCode)));
     }
 
     /** @return array<string,mixed> */
@@ -586,6 +1091,17 @@ final class WecomTaskReceiptService
             Db::name(self::TABLE)->limit(1)->select();
         } catch (Throwable $error) {
             throw new RuntimeException('wecom_task_receipt_migration_required', 503, $error);
+        }
+    }
+
+    private function assertSenderBindingSchemaReady(): void
+    {
+        try {
+            foreach ([self::SENDER_BINDING_TABLE, self::SENDER_BINDING_CHALLENGE_TABLE] as $table) {
+                Db::name($table)->limit(1)->select();
+            }
+        } catch (Throwable $error) {
+            throw new RuntimeException('wecom_sender_binding_migration_required', 503, $error);
         }
     }
 

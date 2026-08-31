@@ -92,6 +92,27 @@ final class BookingDemandPlanningServiceTest extends TestCase
         self::assertContains('cancellation_counter_reset_or_mismatch', $reset['data_gaps']);
     }
 
+    public function testCancellationTotalsAboveGrossBookingBaseRequireRebaseline(): void
+    {
+        $result = (new BookingDemandPlanningService())->summarizeSnapshots(
+            7,
+            80,
+            'ctrip',
+            '2026-09-10',
+            [
+                $this->snapshot(1, '2026-08-30 08:00:00.000000', 8, 800, 1, 10),
+                $this->snapshot(2, '2026-08-30 10:00:00.000000', 10, 1060, 20, 10),
+            ]
+        );
+
+        self::assertSame('rebaseline_required', $result['status']);
+        self::assertNull($result['cancellation_rate_percent']);
+        self::assertContains(
+            'cumulative_cancel_room_nights_exceeds_gross_booking_room_nights',
+            $result['data_gaps']
+        );
+    }
+
     public function testLeadTimeUsesShanghaiCalendarDatesAndRejectsAfterStaySnapshots(): void
     {
         $service = new BookingDemandPlanningService();

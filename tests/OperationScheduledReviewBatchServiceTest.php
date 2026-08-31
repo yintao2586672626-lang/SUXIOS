@@ -105,6 +105,44 @@ final class OperationScheduledReviewBatchServiceTest extends TestCase
         self::assertSame(0, $calls);
     }
 
+    public function testExecuteFailureDoesNotAdvanceCursorPastFailedTask(): void
+    {
+        $service = new OperationScheduledReviewBatchService(
+            static fn(): array => [
+                'ids' => [41, 42],
+                'scanned_count' => 2,
+                'next_cursor' => 42,
+            ],
+            static fn(int $taskId): array => self::task(
+                $taskId,
+                'executed',
+                'observing',
+                true,
+                998877
+            ),
+            static function (int $taskId): array {
+                if ($taskId === 41) {
+                    throw new \RuntimeException('scheduled_review_reconcile_failed');
+                }
+                return [
+                    'status' => 'source_readback_verified',
+                    'review_at' => '2026-08-29 02:00:00',
+                    'source_verified' => true,
+                    'outcome_status' => 'unverified',
+                    'result_status' => 'observing',
+                    'next_action' => 'human_confirm_review_result',
+                ];
+            }
+        );
+
+        $result = $service->run(998877, 50, true);
+
+        self::assertSame('partial', $result['status']);
+        self::assertSame(1, $result['counts']['failed']);
+        self::assertFalse($result['cursor_advanced']);
+        self::assertNotContains('scan_cursor_write', array_column($result['rows'], 'stage'));
+    }
+
     public function testCandidateReadbackFailureIsVisibleAndMakesBatchPartial(): void
     {
         $service = new OperationScheduledReviewBatchService(

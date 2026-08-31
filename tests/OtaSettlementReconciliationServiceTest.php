@@ -235,6 +235,27 @@ final class OtaSettlementReconciliationServiceTest extends TestCase
         self::assertFalse($result['recovery_blocker']['selected']['financial_impact']['is_net_revenue_claim']);
     }
 
+    public function testNegativeDirectDiscrepancyIsRejectedInsteadOfHidden(): void
+    {
+        $result = $this->service()->importAndReadback($this->scope('7'), [[
+            'source_line_no' => 1,
+            'business_date' => '2026-08-12',
+            'amount_scope' => 'settlement',
+            'ota_order_ref' => 'CTRIP-NEGATIVE-DISCREPANCY',
+            'settlement_amount' => 888,
+            'settlement_amount_basis' => 'source_direct',
+            'match_status' => 'ota_only',
+            'discrepancy_amount' => -888,
+            'discrepancy_basis' => 'source_direct_settlement',
+        ]]);
+
+        self::assertSame('invalid', $result['batch_status']);
+        self::assertSame('invalid', $result['lines'][0]['quality_status']);
+        self::assertNull($result['lines'][0]['discrepancy_amount']);
+        self::assertContains('discrepancy_amount_invalid', $result['lines'][0]['gap_codes']);
+        self::assertSame([], $result['ranked_discrepancies']);
+    }
+
     public function testFullyReconciledBatchCreatesNoRecoveryCandidate(): void
     {
         $line = $this->availableLines()[1];

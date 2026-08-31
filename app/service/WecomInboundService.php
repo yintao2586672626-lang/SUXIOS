@@ -262,6 +262,8 @@ final class WecomInboundService
         $senderId = trim((string)($message->FromUserName ?? ''));
         $messageType = strtolower(trim((string)($message->MsgType ?? 'unknown')));
         $content = $messageType === 'text' ? $this->safeText((string)($message->Content ?? ''), 1000) : '';
+        $senderBindingChallengeCode = $this->senderBindingChallengeCode($content);
+        $storedContent = $senderBindingChallengeCode === null ? $content : '绑定员工 **********';
         $occurredAt = $this->occurredAt((string)($message->CreateTime ?? ''));
         $externalEventId = trim((string)($message->MsgId ?? ''));
         if ($externalEventId === '') {
@@ -274,14 +276,21 @@ final class WecomInboundService
         }
         $externalEventId = mb_substr($externalEventId, 0, 191);
         $senderHash = hash('sha256', 'wecom-sender-v1|' . $senderId);
-        $payloadDigest = $this->digest([
+        $payloadIdentity = [
             'external_event_id' => $externalEventId,
             'message_type' => $messageType,
             'transport' => 'wecom_app_callback',
             'sender_id_hash' => $senderHash,
-            'content_text' => $content !== '' ? $content : null,
+            'content_text' => $storedContent !== '' ? $storedContent : null,
             'occurred_at' => $occurredAt,
-        ]);
+        ];
+        if ($senderBindingChallengeCode !== null) {
+            $payloadIdentity['sender_binding_challenge_digest'] = hash(
+                'sha256',
+                'wecom-sender-binding-challenge-v1|' . $senderBindingChallengeCode
+            );
+        }
+        $payloadDigest = $this->digest($payloadIdentity);
 
         $existing = Db::name(self::EVENT_TABLE)
             ->where('binding_id', (int)$binding['id'])
@@ -299,7 +308,7 @@ final class WecomInboundService
             'message_type' => $messageType,
             'transport' => 'wecom_app_callback',
             'sender_id_hash' => $senderHash,
-            'content_text' => $content !== '' ? $content : null,
+            'content_text' => $storedContent !== '' ? $storedContent : null,
             'archive_status' => 'readback_verified',
             'processing_status' => 'pending',
             'block_code' => null,
@@ -364,6 +373,8 @@ final class WecomInboundService
             $event = (array)($claim['event'] ?? []);
             $event['duplicate'] = true;
             $event['persistence_status'] = 'duplicate_readback_verified';
+            $event['sender_binding_projection'] = $this->projectSenderBinding($event, $senderBindingChallengeCode);
+            $event['task_receipt_projection'] = $this->projectTaskReceipt($event);
             return $event;
         }
         $claimToken = (string)($claim['claim_token'] ?? '');
@@ -371,7 +382,10 @@ final class WecomInboundService
         $answer = [];
         $processingStatus = 'blocked';
         $blockCode = $messageType === 'text' ? null : 'message_type_unsupported';
-        if ($messageType === 'text' && $content !== '') {
+        if ($senderBindingChallengeCode !== null) {
+            $processingStatus = 'blocked';
+            $blockCode = 'sender_binding_challenge_received';
+        } elseif ($messageType === 'text' && $content !== '') {
             try {
                 $answer = (new WechatMonitorInboundAdapter())->handleNormalizedEvent([
                     'transport' => 'wecom_app_callback',
@@ -432,7 +446,37 @@ final class WecomInboundService
         }
         $event['duplicate'] = false;
         $event['persistence_status'] = 'readback_verified';
+        $event['sender_binding_projection'] = $this->projectSenderBinding($event, $senderBindingChallengeCode);
+        $event['task_receipt_projection'] = $this->projectTaskReceipt($event);
         return $event;
+    }
+
+    /** @param array<string,mixed> $event @return array<string,mixed> */
+    private function projectTaskReceipt(array $event): array
+    {
+        return (new WecomTaskReceiptService())->projectArchivedEvent($event);
+    }
+
+    /** @param array<string,mixed> $event @return array<string,mixed> */
+    private function projectSenderBinding(array $event, ?string $plainCode): array
+    {
+        try {
+            return (new WecomTaskReceiptService())->consumeSenderBindingChallenge($event, $plainCode);
+        } catch (Throwable $error) {
+            $code = trim($error->getMessage());
+            if (!str_starts_with($code, 'wecom_sender_binding_')) {
+                $code = 'wecom_sender_binding_projection_failed';
+            }
+            return ['status' => 'blocked', 'code' => $code];
+        }
+    }
+
+    private function senderBindingChallengeCode(string $content): ?string
+    {
+        if (preg_match('/^绑定员工\s+([2-9A-HJ-NP-Z]{10})$/iuD', trim($content), $matches) !== 1) {
+            return null;
+        }
+        return strtoupper((string)$matches[1]);
     }
 
     /** @return array<string,mixed> */

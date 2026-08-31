@@ -149,6 +149,31 @@ final class HotelDataAnalystFeedbackServiceTest extends TestCase
         self::assertSame(0, (int)Db::name('ai_evaluation_cases')->count());
     }
 
+    public function testListLimitDoesNotTruncateSummaryCounts(): void
+    {
+        for ($index = 1; $index <= 55; $index++) {
+            $kind = $index <= 51 ? 'useful' : 'needs_correction';
+            $this->service->save(
+                10,
+                [80],
+                (int)$this->question['id'],
+                7,
+                $this->input(
+                    $kind,
+                    $kind === 'needs_correction' ? '需要纠正统计口径。' : '',
+                    sprintf('feedback-summary-%04d', $index)
+                )
+            );
+        }
+
+        $result = $this->service->listMine(10, [80], (int)$this->question['id'], 7, 50);
+
+        self::assertCount(50, $result['list']);
+        self::assertSame(55, $result['summary']['total']);
+        self::assertSame(51, $result['summary']['useful']);
+        self::assertSame(4, $result['summary']['needs_correction']);
+    }
+
     public function testSameIdempotencyKeyWithDifferentFeedbackIsRejected(): void
     {
         $this->service->save(10, [80], (int)$this->question['id'], 7, $this->input('useful', '', 'feedback-conflict-0001'));

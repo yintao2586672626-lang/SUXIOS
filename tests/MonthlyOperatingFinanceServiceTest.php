@@ -179,6 +179,26 @@ final class MonthlyOperatingFinanceServiceTest extends TestCase
         self::assertSame('missing', $partial['items'][2]['status']);
     }
 
+    public function testPortfolioGivesTheSameRankToMarginsThatRoundToTheSameValue(): void
+    {
+        $service = new MonthlyOperatingFinanceService();
+        $service->saveSnapshot(7, [80, 82, 83], 80, '2026-08', 'whole_hotel', $this->completeInputs(), ['pms#80', 'cost#80'], $this->sourceMeta(), 'tie-80', 11);
+        $tiedInputs = $this->completeInputs();
+        $tiedInputs['departmental_expense'] = 3000.04;
+        $service->saveSnapshot(7, [80, 82, 83], 82, '2026-08', 'whole_hotel', $tiedInputs, ['pms#82', 'cost#82'], $this->sourceMeta(), 'tie-82', 11);
+        $lowerInputs = $this->completeInputs();
+        $lowerInputs['departmental_expense'] = 4200;
+        $service->saveSnapshot(7, [80, 82, 83], 83, '2026-08', 'whole_hotel', $lowerInputs, ['pms#83', 'cost#83'], $this->sourceMeta(), 'tie-83', 11);
+
+        $portfolio = $service->portfolioOverview(7, [80, 82, 83], '2026-08');
+
+        self::assertSame(58.33, $portfolio['items'][0]['gop_margin_percent']);
+        self::assertSame(58.33, $portfolio['items'][1]['gop_margin_percent']);
+        self::assertSame(1, $portfolio['items'][0]['rank']);
+        self::assertSame(1, $portfolio['items'][1]['rank']);
+        self::assertSame(3, $portfolio['items'][2]['rank']);
+    }
+
     public function testPortfolioBlocksRankingWhenSourceOrTaxBasisIsNotAttestedAndEmptyPermissionsFailClosed(): void
     {
         $service = new MonthlyOperatingFinanceService();

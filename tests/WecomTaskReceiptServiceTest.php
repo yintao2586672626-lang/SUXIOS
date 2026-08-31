@@ -66,7 +66,13 @@ final class WecomTaskReceiptServiceTest extends TestCase
 
     protected function setUp(): void
     {
-        foreach ([WecomTaskReceiptService::TABLE, 'operation_execution_tasks'] as $table) {
+        foreach ([
+            WecomTaskReceiptService::TABLE,
+            WecomTaskReceiptService::SENDER_BINDING_TABLE,
+            WecomTaskReceiptService::SENDER_BINDING_CHALLENGE_TABLE,
+            WecomInboundService::BINDING_TABLE,
+            'operation_execution_tasks',
+        ] as $table) {
             Db::execute('DROP TABLE IF EXISTS ' . $table);
         }
         Db::execute(
@@ -87,6 +93,36 @@ final class WecomTaskReceiptServiceTest extends TestCase
             . 'task_status_at_receipt TEXT NOT NULL, input_digest TEXT NOT NULL, content_digest TEXT NOT NULL, created_at TEXT NOT NULL, '
             . 'UNIQUE(tenant_id,hotel_id,source_event_id,task_id))'
         );
+        Db::execute(
+            'CREATE TABLE wecom_inbound_bindings ('
+            . 'id INTEGER PRIMARY KEY, tenant_id INTEGER NOT NULL, hotel_id INTEGER NOT NULL, '
+            . 'transport TEXT NOT NULL, status TEXT NOT NULL, created_by INTEGER NOT NULL)'
+        );
+        Db::execute(
+            'CREATE TABLE wecom_inbound_sender_bindings ('
+            . 'id INTEGER PRIMARY KEY AUTOINCREMENT, contract_version TEXT NOT NULL, tenant_id INTEGER NOT NULL, '
+            . 'hotel_id INTEGER NOT NULL, source_binding_id INTEGER NOT NULL, sender_id_hash TEXT NOT NULL, '
+            . 'actor_id INTEGER NOT NULL, status TEXT NOT NULL, verified_by INTEGER NOT NULL, '
+            . 'proof_type TEXT NOT NULL, proof_ref TEXT NOT NULL, proof_digest TEXT NOT NULL, '
+            . 'content_digest TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, '
+            . 'UNIQUE(source_binding_id,sender_id_hash))'
+        );
+        Db::execute(
+            'CREATE TABLE wecom_inbound_sender_binding_challenges ('
+            . 'id INTEGER PRIMARY KEY AUTOINCREMENT, contract_version TEXT NOT NULL, tenant_id INTEGER NOT NULL, '
+            . 'hotel_id INTEGER NOT NULL, actor_id INTEGER NOT NULL, code_hash TEXT NOT NULL, code_mask TEXT NOT NULL, '
+            . 'status TEXT NOT NULL, expires_at TEXT NOT NULL, used_at TEXT NULL, source_event_id INTEGER NULL, '
+            . 'source_binding_id INTEGER NULL, content_digest TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, '
+            . 'UNIQUE(code_hash))'
+        );
+        Db::name(WecomInboundService::BINDING_TABLE)->insert([
+            'id' => 12,
+            'tenant_id' => 10,
+            'hotel_id' => 80,
+            'transport' => 'wecom_app_callback',
+            'status' => 'verified',
+            'created_by' => 77,
+        ]);
         Db::name('operation_execution_tasks')->insert([
             'id' => 321,
             'tenant_id' => 10,
@@ -197,6 +233,158 @@ final class WecomTaskReceiptServiceTest extends TestCase
         $migrated = $this->service->read((int)$saved['id'], 10, 90, 321, (int)$event['id']);
         self::assertSame(90, $migrated['hotel_id']);
         self::assertSame(80, $migrated['source_hotel_id']);
+    }
+
+    public function testOneTimeSenderChallengeActivatesProductionResolverAndProjectsFutureReceipt(): void
+    {
+        $service = new WecomTaskReceiptService(
+            null,
+            static fn(): DateTimeImmutable => new DateTimeImmutable(
+                '2026-08-30 10:11:12.123456',
+                new DateTimeZone('Asia/Shanghai')
+            ),
+            function (array $context): array {
+                $id = (int)($context['source_event_id'] ?? 0);
+                if (!isset($this->events[$id])) {
+                    throw new RuntimeException('test_event_not_found', 404);
+                }
+                return $this->events[$id];
+            }
+        );
+        $challenge = $service->createSenderBindingChallenge(10, 80, 77);
+        $storedChallenge = (array)Db::name(WecomTaskReceiptService::SENDER_BINDING_CHALLENGE_TABLE)
+            ->where('id', (int)$challenge['id'])
+            ->find();
+        self::assertNotSame($challenge['binding_code'], $storedChallenge['code_hash']);
+        self::assertStringNotContainsString($challenge['binding_code'], json_encode($storedChallenge, JSON_THROW_ON_ERROR));
+        self::assertFalse($challenge['boundaries']['automatic_message_send']);
+
+        $bindingEvent = $this->event('绑定员工 **********', 9050);
+        $this->events[9050] = $bindingEvent;
+        $bound = $service->consumeSenderBindingChallenge($bindingEvent, (string)$challenge['binding_code']);
+
+        self::assertSame('readback_verified', $bound['status']);
+        self::assertTrue($bound['created']);
+        self::assertSame(77, $bound['actor_id']);
+        self::assertSame('one_time_sender_challenge', $bound['proof_type']);
+        self::assertFalse($bound['boundaries']['automatic_approval']);
+        self::assertSame(1, (int)Db::name(WecomTaskReceiptService::SENDER_BINDING_TABLE)->count());
+        self::assertSame('used', Db::name(WecomTaskReceiptService::SENDER_BINDING_CHALLENGE_TABLE)
+            ->where('id', (int)$challenge['id'])->value('status'));
+
+        $replayed = $service->consumeSenderBindingChallenge($bindingEvent, (string)$challenge['binding_code']);
+        self::assertSame('readback_verified', $replayed['status']);
+        self::assertTrue($replayed['replayed']);
+
+        $receiptEvent = $this->event($this->structuredContent(
+            'completed',
+            '客房巡检已完成。',
+            '门店负责人已保留现场证据。'
+        ), 9051);
+        $this->events[9051] = $receiptEvent;
+        $receipt = $service->projectArchivedEvent($receiptEvent);
+        self::assertSame('readback_verified', $receipt['status']);
+        self::assertTrue($receipt['created']);
+        self::assertSame(1, (int)Db::name(WecomTaskReceiptService::TABLE)->count());
+    }
+
+    public function testStructuredReceiptWithoutSenderChallengeCannotCreateIdentityMapping(): void
+    {
+        $event = $this->event($this->structuredContent(
+            'in_progress',
+            '正在执行任务。',
+            '等待下一步确认。'
+        ), 9053);
+        $this->events[9053] = $event;
+        $service = new WecomTaskReceiptService(
+            null,
+            null,
+            fn(array $context): array => $this->events[(int)$context['source_event_id']]
+        );
+
+        $projection = $service->projectArchivedEvent($event);
+
+        self::assertSame('blocked', $projection['status']);
+        self::assertSame('wecom_task_receipt_scope_mapping_missing', $projection['code']);
+        self::assertSame(0, (int)Db::name(WecomTaskReceiptService::SENDER_BINDING_TABLE)->count());
+        self::assertSame(0, (int)Db::name(WecomTaskReceiptService::TABLE)->count());
+    }
+
+    public function testExpiredChallengeAndUsedCodeFromAnotherSenderAreRejected(): void
+    {
+        $reader = function (array $context): array {
+            return $this->events[(int)$context['source_event_id']];
+        };
+        $issuer = new WecomTaskReceiptService(
+            null,
+            static fn(): DateTimeImmutable => new DateTimeImmutable(
+                '2026-08-30 10:00:00',
+                new DateTimeZone('Asia/Shanghai')
+            ),
+            $reader
+        );
+        $expiredChallenge = $issuer->createSenderBindingChallenge(10, 80, 77);
+        $expiredEvent = $this->event('绑定员工 **********', 9060);
+        $this->events[9060] = $expiredEvent;
+        $expiredConsumer = new WecomTaskReceiptService(
+            null,
+            static fn(): DateTimeImmutable => new DateTimeImmutable(
+                '2026-08-30 10:16:00',
+                new DateTimeZone('Asia/Shanghai')
+            ),
+            $reader
+        );
+        try {
+            $expiredConsumer->consumeSenderBindingChallenge(
+                $expiredEvent,
+                (string)$expiredChallenge['binding_code']
+            );
+            self::fail('expired sender challenge must be rejected');
+        } catch (RuntimeException $error) {
+            self::assertSame('wecom_sender_binding_challenge_invalid_or_expired', $error->getMessage());
+        }
+        self::assertSame(0, (int)Db::name(WecomTaskReceiptService::SENDER_BINDING_TABLE)->count());
+
+        $usedChallenge = $issuer->createSenderBindingChallenge(10, 80, 77);
+        $firstEvent = $this->event('绑定员工 **********', 9061);
+        $this->events[9061] = $firstEvent;
+        $issuer->consumeSenderBindingChallenge($firstEvent, (string)$usedChallenge['binding_code']);
+
+        $otherSenderEvent = $this->event('绑定员工 **********', 9062);
+        $otherSenderEvent['sender_id_hash'] = hash('sha256', 'wecom-sender-v1|employee-88');
+        $otherSenderEvent['content_digest'] = $this->eventDigest($otherSenderEvent);
+        $this->events[9062] = $otherSenderEvent;
+        try {
+            $issuer->consumeSenderBindingChallenge($otherSenderEvent, (string)$usedChallenge['binding_code']);
+            self::fail('a used challenge must not bind another sender');
+        } catch (RuntimeException $error) {
+            self::assertSame('wecom_sender_binding_challenge_already_used', $error->getMessage());
+        }
+        self::assertSame(1, (int)Db::name(WecomTaskReceiptService::SENDER_BINDING_TABLE)->count());
+    }
+
+    public function testExactReadbackFailureRollsBackReceiptInsert(): void
+    {
+        Db::execute(
+            "CREATE TRIGGER corrupt_wecom_receipt_after_insert "
+            . "AFTER INSERT ON wecom_task_receipts BEGIN "
+            . "UPDATE wecom_task_receipts SET content_digest = '"
+            . str_repeat('0', 64)
+            . "' WHERE id = NEW.id; END"
+        );
+        $event = $this->event($this->structuredContent(
+            'completed',
+            '该写入应被回滚。',
+            '回读摘要被故障注入破坏。'
+        ), 9052);
+
+        try {
+            $this->recordEvent($event);
+            self::fail('tampered exact readback must roll back the insert');
+        } catch (RuntimeException $error) {
+            self::assertSame('wecom_task_receipt_content_digest_drift', $error->getMessage());
+        }
+        self::assertSame(0, (int)Db::name(WecomTaskReceiptService::TABLE)->count());
     }
 
     public function testIdenticalEventReplaysOneReceiptAndChangedReplayConflicts(): void
@@ -351,6 +539,9 @@ final class WecomTaskReceiptServiceTest extends TestCase
         $sql = (string)file_get_contents(
             dirname(__DIR__) . '/database/migrations/20260830_z_create_wecom_task_receipts.sql'
         );
+        $senderBindingSql = (string)file_get_contents(
+            dirname(__DIR__) . '/database/migrations/20260901_create_wecom_inbound_sender_bindings.sql'
+        );
         self::assertStringContainsString('CREATE TABLE IF NOT EXISTS `wecom_task_receipts`', $sql);
         self::assertStringContainsString('trg_wecom_task_receipt_no_update', $sql);
         self::assertStringContainsString('trg_wecom_task_receipt_no_delete', $sql);
@@ -361,6 +552,19 @@ final class WecomTaskReceiptServiceTest extends TestCase
         self::assertStringNotContainsString('`result_text`', $sql);
         self::assertStringNotContainsString('`evidence_note_text`', $sql);
         self::assertStringNotContainsString('`employee_name`', $sql);
+        self::assertStringContainsString('CREATE TABLE IF NOT EXISTS `wecom_inbound_sender_bindings`', $senderBindingSql);
+        self::assertStringContainsString('`sender_id_hash` CHAR(64)', $senderBindingSql);
+        self::assertStringContainsString('`actor_id` BIGINT UNSIGNED NOT NULL', $senderBindingSql);
+        self::assertStringContainsString('`proof_type` VARCHAR(40) NOT NULL', $senderBindingSql);
+        self::assertStringContainsString('`proof_digest` CHAR(64)', $senderBindingSql);
+        self::assertStringContainsString(
+            'CREATE TABLE IF NOT EXISTS `wecom_inbound_sender_binding_challenges`',
+            $senderBindingSql
+        );
+        self::assertStringContainsString('`code_hash` CHAR(64)', $senderBindingSql);
+        self::assertStringNotContainsString('sender_id`', $senderBindingSql);
+        self::assertStringNotContainsString('`code` VARCHAR', $senderBindingSql);
+        self::assertStringNotContainsString('employee_name', $senderBindingSql);
     }
 
     private function assertRuntimeFailure(callable $call, string $message): void

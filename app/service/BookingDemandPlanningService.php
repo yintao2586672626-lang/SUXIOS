@@ -314,6 +314,14 @@ final class BookingDemandPlanningService
         $base['current_on_books_room_revenue'] = $currentRevenue;
         $base['current_cumulative_cancel_room_nights'] = $currentCancel;
         $base['current_gross_booking_room_nights'] = $grossBookings;
+        if ($currentCancel !== null
+            && $grossBookings !== null
+            && $currentCancel > $grossBookings
+        ) {
+            $base['status'] = 'rebaseline_required';
+            $base['data_gaps'][] = 'cumulative_cancel_room_nights_exceeds_gross_booking_room_nights';
+            return $base;
+        }
         if (count($eligible) < 2) {
             $base['status'] = 'baseline_only';
             $base['data_gaps'][] = 'previous_verified_on_books_snapshot_missing';

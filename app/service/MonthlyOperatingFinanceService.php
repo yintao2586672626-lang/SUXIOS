@@ -421,10 +421,23 @@ final class MonthlyOperatingFinanceService
         }
         if ($allComparable) {
             $order = $items;
-            usort($order, static fn(array $a, array $b): int => (float)$b['gop_margin_percent'] <=> (float)$a['gop_margin_percent']);
+            usort($order, static function (array $a, array $b): int {
+                $marginOrder = round((float)$b['gop_margin_percent'], 2)
+                    <=> round((float)$a['gop_margin_percent'], 2);
+                return $marginOrder !== 0
+                    ? $marginOrder
+                    : (int)$a['hotel_id'] <=> (int)$b['hotel_id'];
+            });
             $rankByHotel = [];
+            $previousMargin = null;
+            $currentRank = 0;
             foreach ($order as $index => $item) {
-                $rankByHotel[(int)$item['hotel_id']] = $index + 1;
+                $margin = round((float)$item['gop_margin_percent'], 2);
+                if ($previousMargin === null || $margin !== $previousMargin) {
+                    $currentRank = $index + 1;
+                }
+                $rankByHotel[(int)$item['hotel_id']] = $currentRank;
+                $previousMargin = $margin;
             }
             foreach ($items as &$item) {
                 $item['rank'] = $rankByHotel[(int)$item['hotel_id']];

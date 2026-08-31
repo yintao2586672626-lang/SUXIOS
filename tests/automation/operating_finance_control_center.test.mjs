@@ -118,6 +118,9 @@ test('one selected recovery blocker', () => {
 
 test('WeCom receipt stays sender-reported only', () => {
   const service = read('app/service/WecomTaskReceiptService.php');
+  const inbound = read('app/service/WecomInboundService.php');
+  const operatingIntelligence = read('app/controller/OperatingIntelligence.php');
+  const routes = `${read('route/app.php')}\n${read('route/domain/agent_guidance.php')}`;
   const controller = read('app/controller/OperatingFinance.php');
   const component = read('public/components/system/operating-finance-control-center.js');
 
@@ -125,6 +128,15 @@ test('WeCom receipt stays sender-reported only', () => {
   assert.match(service, /wecom_task_receipt_sender_not_assignee/);
   assert.match(service, /eventReader/);
   assert.match(service, /pseudonymous_sender_hash_persisted/);
+  assert.match(service, /resolveScopeFactsFromDatabase/);
+  assert.match(service, /wecom_inbound_sender_bindings/);
+  assert.match(service, /one_time_sender_challenge/);
+  assert.match(service, /plaintext_code_persisted' => false/);
+  assert.match(service, /Db::transaction\(function \(\) use \([\s\S]*?wecom_task_receipt_exact_readback_failed/);
+  assert.match(inbound, /sender_binding_projection[\s\S]*?task_receipt_projection/);
+  assert.match(operatingIntelligence, /createWecomInboundSenderBindingCode[\s\S]*?createSenderBindingChallenge/);
+  assert.match(routes, /wecom-inbound\/sender-binding-codes/);
+  assert.doesNotMatch(routes, /events\/:id\/sender-binding/);
   assert.match(controller, /new WecomTaskReceiptService\(\)[\s\S]*?->read\(/);
   assert.match(controller, /'readback_verified', 'persistence_status'/);
   assert.match(controller, /'approval_created' => false/);

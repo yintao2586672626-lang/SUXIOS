@@ -672,16 +672,24 @@ final class PriceSuggestionShadowReplayService
         }
 
         $sums = ['amount' => 0.0, 'room_nights' => 0.0, 'orders' => 0.0];
-        $counts = ['amount' => 0, 'room_nights' => 0, 'orders' => 0];
+        $pairedCount = 0;
+        $orderCount = 0;
         $refs = [];
         $readbackAt = '';
         foreach ($matched as $row) {
+            $amount = $this->nullableNonNegative($row['amount'] ?? null);
+            $roomNights = $this->nullableNonNegative($row['quantity'] ?? null);
+            if ($amount === null || $roomNights === null || $roomNights <= 0) {
+                continue;
+            }
+            $sums['amount'] += $amount;
+            $sums['room_nights'] += $roomNights;
+            $pairedCount++;
             $refs[] = 'online_daily_data#' . (int)$row['row_id'];
-            foreach (['amount' => 'amount', 'quantity' => 'room_nights', 'book_order_num' => 'orders'] as $field => $metric) {
-                if (is_numeric($row[$field] ?? null) && (float)$row[$field] >= 0) {
-                    $sums[$metric] += (float)$row[$field];
-                    $counts[$metric]++;
-                }
+            $orders = $this->nullableNonNegative($row['book_order_num'] ?? null);
+            if ($orders !== null) {
+                $sums['orders'] += $orders;
+                $orderCount++;
             }
             $collectedAt = trim((string)($row['collected_at'] ?? ''));
             if ($collectedAt !== '' && strtotime($collectedAt) !== false
@@ -690,7 +698,7 @@ final class PriceSuggestionShadowReplayService
                 $readbackAt = date('Y-m-d H:i:s', (int)strtotime($collectedAt));
             }
         }
-        if ($counts['amount'] <= 0 || $counts['room_nights'] <= 0 || $sums['room_nights'] <= 0 || $readbackAt === '') {
+        if ($pairedCount <= 0 || $sums['room_nights'] <= 0 || $readbackAt === '') {
             return $this->unavailableActual(
                 $tenantId,
                 $hotelId,
@@ -712,9 +720,9 @@ final class PriceSuggestionShadowReplayService
             'metric_scope' => 'ota_channel',
             'amount' => round($sums['amount'], 2),
             'room_nights' => round($sums['room_nights'], 4),
-            'orders' => $counts['orders'] > 0 ? round($sums['orders'], 4) : null,
+            'orders' => $orderCount > 0 ? round($sums['orders'], 4) : null,
             'source_refs' => array_values(array_unique($refs)),
-            'source_readback_count' => count($matched),
+            'source_readback_count' => $pairedCount,
             'readback_at' => $readbackAt,
             'readback_verified' => true,
             'finalized' => true,

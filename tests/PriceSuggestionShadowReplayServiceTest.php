@@ -140,6 +140,56 @@ final class PriceSuggestionShadowReplayServiceTest extends TestCase
         self::assertSame(1, (int)Db::name('price_suggestion_shadow_replays')->count());
     }
 
+    public function testAveragePriceRequiresAmountAndQuantityFromSameFactRows(): void
+    {
+        $this->insertActualIdentityRow(501, 11);
+        $this->insertActualIdentityRow(502, 11);
+        $repository = $this->createMock(TrustedOtaFactRepository::class);
+        $repository->method('pricingHistory')->willReturn([
+            'data_status' => 'ready',
+            'rows' => [
+                [
+                    'row_id' => 501,
+                    'system_hotel_id' => 7,
+                    'data_date' => '2026-08-12',
+                    'source' => 'ctrip',
+                    'metric_scope' => 'ota_channel',
+                    'readback_verified' => true,
+                    'amount' => 690.0,
+                    'quantity' => null,
+                    'book_order_num' => 2.0,
+                    'collected_at' => '2026-08-13 08:00:00',
+                ],
+                [
+                    'row_id' => 502,
+                    'system_hotel_id' => 7,
+                    'data_date' => '2026-08-12',
+                    'source' => 'ctrip',
+                    'metric_scope' => 'ota_channel',
+                    'readback_verified' => true,
+                    'amount' => null,
+                    'quantity' => 3.0,
+                    'book_order_num' => 2.0,
+                    'collected_at' => '2026-08-13 08:05:00',
+                ],
+            ],
+        ]);
+        $service = new PriceSuggestionShadowReplayService(
+            new RevenuePricingRecommendationService(),
+            $repository
+        );
+
+        $result = $service->createFromSuggestion(31, 7, 9);
+
+        self::assertSame('indeterminate', $result['replay']['verdict']);
+        self::assertSame('unavailable', $result['replay']['actual_snapshot']['status']);
+        self::assertNull($result['replay']['actual_snapshot']['ota_sales_avg_price']);
+        self::assertContains(
+            'same_room_ota_sales_avg_price_not_calculable',
+            $result['replay']['actual_snapshot']['reason_codes']
+        );
+    }
+
     public function testAttestedSuggestionUsesVerifiedAsOfModelDigestAndSourceRefs(): void
     {
         $this->attestSeedSuggestion();
