@@ -195,6 +195,9 @@ final class OperationScheduledReviewBatchServiceTest extends TestCase
         self::assertStringContainsString('OnCalendar=*-*-* *:15:00 Asia/Shanghai', $timer);
         self::assertStringContainsString('DefaultInstance=all-active', $timer);
         self::assertStringContainsString("hotelScope === 'all-active'", $command);
+        self::assertStringContainsString('ACTIVE_HOTEL_PAGE_SIZE', $command);
+        self::assertStringContainsString('activeHotelPage($lastHotelId)', $command);
+        self::assertStringNotContainsString('scheduled_review_active_hotel_limit_exceeded', $command);
         self::assertStringContainsString('suxios-operation-scheduled-reviews@all-active.timer', $releaseInstaller);
         self::assertStringContainsString(
             'systemctl enable "$INTERNAL_DAILY_TIMER" "$INTERNAL_REVIEW_TIMER"',

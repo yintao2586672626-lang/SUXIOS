@@ -12,6 +12,8 @@ use think\facade\Db;
 
 final class ReviewScheduledExecutions extends Command
 {
+    private const ACTIVE_HOTEL_PAGE_SIZE = 500;
+
     protected function configure(): void
     {
         $this->setName('operation:scheduled-reviews')
@@ -63,47 +65,52 @@ final class ReviewScheduledExecutions extends Command
     private function reviewAllActiveHotels(int $limit, bool $execute, Output $output): int
     {
         try {
-            $hotelIds = array_values(array_map(
-                'intval',
-                Db::name('hotels')->where('status', 1)->order('id', 'asc')->limit(501)->column('id')
-            ));
-            if (count($hotelIds) > 500) {
-                throw new \RuntimeException('scheduled_review_active_hotel_limit_exceeded');
-            }
             $rows = [];
             $problemCount = 0;
-            foreach ($hotelIds as $hotelId) {
-                try {
-                    $result = (new OperationScheduledReviewBatchService())->run(
-                        $hotelId,
-                        $limit,
-                        $execute
-                    );
-                    $status = (string)($result['status'] ?? 'partial');
-                    if ($status === 'partial') {
-                        $problemCount++;
-                    }
-                    $rows[] = [
-                        'hotel_id' => $hotelId,
-                        'status' => $status,
-                        'candidate_count' => (int)($result['candidate_count'] ?? 0),
-                        'processed_count' => (int)($result['processed_count'] ?? 0),
-                    ];
-                } catch (\Throwable $error) {
-                    $problemCount++;
-                    $rows[] = [
-                        'hotel_id' => $hotelId,
-                        'status' => 'failed',
-                        'reason_code' => $this->safeReason($error, 'scheduled_review_failed'),
-                    ];
+            $hotelCount = 0;
+            $lastHotelId = 0;
+            $service = new OperationScheduledReviewBatchService();
+            do {
+                $hotelIds = $this->activeHotelPage($lastHotelId);
+                if ($hotelIds === []) {
+                    break;
                 }
-            }
-            $status = $hotelIds === [] ? 'no_active_hotels' : ($problemCount > 0 ? 'partial' : 'completed');
+                $pageLastHotelId = $lastHotelId;
+                foreach ($hotelIds as $hotelId) {
+                    $pageLastHotelId = max($pageLastHotelId, $hotelId);
+                    $hotelCount++;
+                    try {
+                        $result = $service->run($hotelId, $limit, $execute);
+                        $status = (string)($result['status'] ?? 'partial');
+                        if ($status === 'partial') {
+                            $problemCount++;
+                        }
+                        $rows[] = [
+                            'hotel_id' => $hotelId,
+                            'status' => $status,
+                            'candidate_count' => (int)($result['candidate_count'] ?? 0),
+                            'processed_count' => (int)($result['processed_count'] ?? 0),
+                        ];
+                    } catch (\Throwable $error) {
+                        $problemCount++;
+                        $rows[] = [
+                            'hotel_id' => $hotelId,
+                            'status' => 'failed',
+                            'reason_code' => $this->safeReason($error, 'scheduled_review_failed'),
+                        ];
+                    }
+                }
+                if ($pageLastHotelId <= $lastHotelId) {
+                    throw new \RuntimeException('scheduled_review_active_hotel_pagination_stalled');
+                }
+                $lastHotelId = $pageLastHotelId;
+            } while (count($hotelIds) === self::ACTIVE_HOTEL_PAGE_SIZE);
+            $status = $hotelCount === 0 ? 'no_active_hotels' : ($problemCount > 0 ? 'partial' : 'completed');
             $output->writeln((string)json_encode([
                 'contract_version' => 'operation_scheduled_review_multi_hotel.v1',
                 'status' => $status,
                 'mode' => $execute ? 'execute_source_readback' : 'preview',
-                'hotel_count' => count($hotelIds),
+                'hotel_count' => $hotelCount,
                 'problem_count' => $problemCount,
                 'rows' => $rows,
                 'human_outcome_confirmation_required' => true,
@@ -119,6 +126,20 @@ final class ReviewScheduledExecutions extends Command
             ], JSON_UNESCAPED_SLASHES));
             return 1;
         }
+    }
+
+    /** @return list<int> */
+    private function activeHotelPage(int $afterId): array
+    {
+        return array_values(array_map(
+            'intval',
+            Db::name('hotels')
+                ->where('status', 1)
+                ->where('id', '>', max(0, $afterId))
+                ->order('id', 'asc')
+                ->limit(self::ACTIVE_HOTEL_PAGE_SIZE)
+                ->column('id')
+        ));
     }
 
     private function safeReason(\Throwable $error, string $fallback): string
