@@ -74,6 +74,20 @@ final class BookingDemandPlanningServiceTest extends TestCase
         self::assertSame(0, $result['external_write_count']);
     }
 
+    public function testSubSecondSnapshotsPreserveIncreasingPickupInterval(): void
+    {
+        $result = (new BookingDemandPlanningService())->summarizeSnapshots(7, 80, 'ctrip', '2026-09-10', [
+            $this->snapshot(1, '2026-08-30 10:00:00.100000', 8, 800, 1, 10),
+            $this->snapshot(2, '2026-08-30 10:00:00.900000', 10, 1060, 2, 13),
+        ]);
+
+        self::assertSame('ready', $result['status']);
+        self::assertSame(0.0002, $result['elapsed_hours']);
+        self::assertSame(2.0, $result['net_pickup_room_nights']);
+        self::assertSame(9000.0, $result['pickup_room_nights_per_hour']);
+        self::assertNotContains('on_books_snapshot_time_not_increasing', $result['data_gaps']);
+    }
+
     public function testMissingOrResetCancellationCounterNeverBecomesZeroGrossPickup(): void
     {
         $service = new BookingDemandPlanningService();
@@ -301,6 +315,46 @@ final class BookingDemandPlanningServiceTest extends TestCase
         self::assertSame(7, $baselineOnly['windows'][2]['snapshot_coverage_days']);
         self::assertSame(0, $baselineOnly['windows'][2]['pickup_coverage_days']);
         self::assertNull($baselineOnly['windows'][2]['net_pickup_room_nights_total']);
+    }
+
+    public function testDemandPlanRejectsMixedFactScopesAcrossPickupWindow(): void
+    {
+        $service = $this->service();
+        foreach (range(1, 3) as $offset) {
+            $stayDate = (new DateTimeImmutable('2026-08-30'))->modify('+' . $offset . ' days')->format('Y-m-d');
+            $scope = $offset === 2 ? 'whole_hotel' : 'accommodation_room_fee';
+            foreach ([['08:00:00', 10.0], ['10:00:00', 12.0]] as [$captureTime, $rooms]) {
+                $service->saveOnBooksSnapshot(7, [80], 80, [
+                    'platform' => 'dingdandao_pms',
+                    'fact_scope' => $scope,
+                    'stay_date' => $stayDate,
+                    'captured_at' => '2026-08-30 ' . $captureTime,
+                    'source_method' => 'file_import',
+                    'source_ref' => 'scope-' . $scope . '-' . $stayDate . '-' . $captureTime,
+                    'on_books_room_nights' => $rooms,
+                    'on_books_room_revenue' => $rooms * 100,
+                    'cumulative_cancel_room_nights' => $captureTime === '10:00:00' ? 2 : 1,
+                    'gross_booking_room_nights' => $rooms + 2,
+                    'quality_status' => 'manual_confirmed',
+                    'idempotency_key' => 'scope-' . $stayDate . '-' . $captureTime,
+                ], 11);
+            }
+        }
+
+        $window = $service->demandPlan(7, [80], 80, 'dingdandao_pms', '2026-08-30')['windows'][1];
+
+        self::assertSame('partial', $window['status']);
+        self::assertSame(3, $window['pickup_coverage_days']);
+        self::assertSame(
+            ['accommodation_room_fee', 'whole_hotel', 'accommodation_room_fee'],
+            array_column($window['daily'], 'fact_scope')
+        );
+        self::assertNull($window['fact_scope']);
+        self::assertNull($window['pickup_fact_scope']);
+        self::assertNull($window['on_books_room_nights_total']);
+        self::assertNull($window['net_pickup_room_nights_total']);
+        self::assertContains('window_snapshot_fact_scope_mismatch', $window['data_gaps']);
+        self::assertContains('window_pickup_fact_scope_mismatch', $window['data_gaps']);
     }
 
     public function testCrossTenantAndOtaWholeHotelScopeAreRejected(): void

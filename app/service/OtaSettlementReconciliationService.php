@@ -68,6 +68,30 @@ final class OtaSettlementReconciliationService
     }
 
     /**
+     * Direct JSON imports do not have immutable file bytes. Their source
+     * identity is therefore derived server-side from the submitted line
+     * payload, never accepted from a client-provided file_sha256 field.
+     *
+     * @param array<string,mixed> $scope
+     * @param list<array<string,mixed>> $lines
+     * @return array<string,mixed>
+     */
+    public function importSubmittedLinesAndReadback(array $scope, array $lines, int $userId = 0): array
+    {
+        $scope['file_sha256'] = $this->submittedLinesSha256($lines);
+        return $this->importAndReadback($scope, $lines, $userId);
+    }
+
+    /** @param list<array<string,mixed>> $lines */
+    public function submittedLinesSha256(array $lines): string
+    {
+        return hash('sha256', $this->canonicalJson([
+            'contract_version' => 'suxios.ota_settlement_submitted_lines.v1',
+            'lines' => array_values($lines),
+        ]));
+    }
+
+    /**
      * @param array<string,mixed> $scope
      * @param list<array<string,mixed>> $lines
      * @return array<string,mixed>

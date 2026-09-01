@@ -216,7 +216,7 @@ final class OperatingFinance extends Base
             ) ? 'operator_attested' : 'unverified';
             $scope['source_evidence_sha256'] = '';
             unset($scope['operator_attested']);
-            $saved = (new OtaSettlementReconciliationService())->importAndReadback(
+            $saved = (new OtaSettlementReconciliationService())->importSubmittedLinesAndReadback(
                 $scope,
                 $lines,
                 (int)$this->currentUser->id

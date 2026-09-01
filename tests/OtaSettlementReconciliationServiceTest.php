@@ -400,6 +400,31 @@ SQL);
         self::assertSame('available', $available['message']);
     }
 
+    public function testSubmittedLinesImportDerivesServerOwnedPayloadIdentity(): void
+    {
+        $service = $this->service();
+        $lines = $this->availableLines();
+        $scope = $this->scope('f');
+        $expected = $service->submittedLinesSha256($lines);
+        $reorderedKeys = array_map(
+            static fn(array $line): array => array_reverse($line, true),
+            $lines
+        );
+
+        self::assertMatchesRegularExpression('/^[a-f0-9]{64}$/D', $expected);
+        self::assertSame($expected, $service->submittedLinesSha256($reorderedKeys));
+
+        $first = $service->importSubmittedLinesAndReadback($scope, $lines, 7);
+        self::assertSame($expected, $first['source']['file_sha256']);
+        self::assertNotSame($scope['file_sha256'], $first['source']['file_sha256']);
+
+        $changed = $lines;
+        $changed[0]['net_revenue'] = 799;
+        $second = $service->importSubmittedLinesAndReadback($scope, $changed, 7);
+        self::assertNotSame($first['source']['file_sha256'], $second['source']['file_sha256']);
+        self::assertNotSame($first['batch_id'], $second['batch_id']);
+    }
+
     public function testInvalidRowsCannotPolluteCompleteTotalsOrDiscrepancyRanking(): void
     {
         $lines = [$this->availableLines()[0], [

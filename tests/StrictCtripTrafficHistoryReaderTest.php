@@ -159,6 +159,22 @@ final class StrictCtripTrafficHistoryReaderTest extends TestCase
         self::assertGreaterThan(0, (float)$forecastSingle['predicted_demand']);
     }
 
+    public function testBackfilledHigherIdDoesNotBreakAuthoritativeIdSetReadback(): void
+    {
+        $this->insertRow(20, '2026-07-19', 10);
+        $this->insertRow(10, '2026-07-20', 20);
+
+        $result = (new StrictCtripTrafficHistoryReader($this->dateScopedVerifier()))->read(
+            80,
+            '2026-07-19',
+            '2026-07-20'
+        );
+
+        self::assertSame('ready', $result['data_status']);
+        self::assertSame([20, 10], array_map('intval', array_column($result['rows'], 'id')));
+        self::assertSame([], $result['data_gaps']);
+    }
+
     public function testOneAndThirtyOneWindowsEachUseOneCanonicalReadWithIdenticalPayloads(): void
     {
         $this->insertRow(1, '2026-07-21', 30);

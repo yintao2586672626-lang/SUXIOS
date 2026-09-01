@@ -250,6 +250,7 @@ final class BookingDemandPlanningService
             'platform' => $platform,
             'stay_date' => $stayDate,
             'status' => 'blocked',
+            'fact_scope' => null,
             'current_snapshot_ref' => null,
             'previous_snapshot_ref' => null,
             'current_captured_at' => null,
@@ -296,8 +297,10 @@ final class BookingDemandPlanningService
 
         $current = $eligible[array_key_last($eligible)];
         $currentTime = $this->time((string)($current['captured_at'] ?? ''), 'captured_at');
+        $currentFactScope = strtolower(trim((string)($current['fact_scope'] ?? '')));
         $stayTime = $this->time($stayDate . ' 00:00:00', 'stay_date');
         $captureDate = $this->time($currentTime->format('Y-m-d') . ' 00:00:00', 'captured_at');
+        $base['fact_scope'] = $currentFactScope !== '' ? $currentFactScope : null;
         $base['current_snapshot_ref'] = self::SNAPSHOT_TABLE . '#' . (int)($current['id'] ?? 0);
         $base['current_captured_at'] = $currentTime->format('Y-m-d H:i:s.u');
         $base['lead_time_days'] = (int)$captureDate->diff($stayTime)->format('%r%a');
@@ -330,7 +333,7 @@ final class BookingDemandPlanningService
 
         $previous = $eligible[count($eligible) - 2];
         $previousTime = $this->time((string)($previous['captured_at'] ?? ''), 'previous_captured_at');
-        $seconds = $currentTime->getTimestamp() - $previousTime->getTimestamp();
+        $seconds = $this->elapsedSeconds($previousTime, $currentTime);
         $base['previous_snapshot_ref'] = self::SNAPSHOT_TABLE . '#' . (int)($previous['id'] ?? 0);
         $base['previous_captured_at'] = $previousTime->format('Y-m-d H:i:s.u');
         if ($seconds <= 0) {
@@ -338,7 +341,7 @@ final class BookingDemandPlanningService
             $base['data_gaps'][] = 'on_books_snapshot_time_not_increasing';
             return $base;
         }
-        if ((string)($current['fact_scope'] ?? '') !== (string)($previous['fact_scope'] ?? '')) {
+        if ($currentFactScope !== strtolower(trim((string)($previous['fact_scope'] ?? '')))) {
             $base['status'] = 'rebaseline_required';
             $base['data_gaps'][] = 'on_books_fact_scope_changed';
             return $base;
@@ -408,13 +411,28 @@ final class BookingDemandPlanningService
             $daily,
             static fn(array $day): bool => is_numeric($day['net_pickup_room_nights'] ?? null)
         ));
+        $snapshotScopes = array_values(array_unique(array_map(
+            static fn(array $day): string => trim((string)($day['fact_scope'] ?? '')),
+            $withSnapshot
+        )));
+        $snapshotScopeComparable = $withSnapshot !== []
+            && count($snapshotScopes) === 1
+            && $snapshotScopes[0] !== '';
         $pickupPairs = array_values(array_unique(array_filter(array_map(
             static fn(array $day): string => is_numeric($day['net_pickup_room_nights'] ?? null)
                 ? (string)($day['previous_captured_at'] ?? '') . '|' . (string)($day['current_captured_at'] ?? '')
                 : '',
             $daily
         ))));
-        $pickupWindowComparable = $withPickup !== [] && count($pickupPairs) === 1;
+        $pickupScopes = array_values(array_unique(array_map(
+            static fn(array $day): string => trim((string)($day['fact_scope'] ?? '')),
+            $withPickup
+        )));
+        $pickupTimeComparable = $withPickup !== [] && count($pickupPairs) === 1;
+        $pickupScopeComparable = $withPickup !== []
+            && count($pickupScopes) === 1
+            && $pickupScopes[0] !== '';
+        $pickupWindowComparable = $pickupTimeComparable && $pickupScopeComparable;
         $roomDays = array_values(array_filter(
             $daily,
             static fn(array $day): bool => is_numeric($day['current_on_books_room_nights'] ?? null)
@@ -434,8 +452,10 @@ final class BookingDemandPlanningService
         )), 2);
         $dataGaps = [];
         if (count($withSnapshot) < $dayCount) $dataGaps[] = 'window_snapshot_coverage_incomplete';
+        if ($withSnapshot !== [] && !$snapshotScopeComparable) $dataGaps[] = 'window_snapshot_fact_scope_mismatch';
         if (count($withPickup) < $dayCount) $dataGaps[] = 'window_pickup_coverage_incomplete';
-        if ($withPickup !== [] && !$pickupWindowComparable) $dataGaps[] = 'window_pickup_comparison_window_mismatch';
+        if ($withPickup !== [] && !$pickupTimeComparable) $dataGaps[] = 'window_pickup_comparison_window_mismatch';
+        if ($withPickup !== [] && !$pickupScopeComparable) $dataGaps[] = 'window_pickup_fact_scope_mismatch';
         if (count($roomDays) < $dayCount) $dataGaps[] = 'window_on_books_room_nights_incomplete';
         if (count($revenueDays) < $dayCount) $dataGaps[] = 'window_on_books_room_revenue_incomplete';
         foreach ($daily as $day) {
@@ -453,23 +473,26 @@ final class BookingDemandPlanningService
             'status' => count($withSnapshot) === 0
                 ? 'blocked'
                 : (count($withSnapshot) === $dayCount
+                    && $snapshotScopeComparable
                     && count($withPickup) === $dayCount
                     && $pickupWindowComparable ? 'ready' : 'partial'),
             'snapshot_coverage_days' => count($withSnapshot),
             'pickup_coverage_days' => count($withPickup),
-            'observed_on_books_room_nights' => $roomDays === []
+            'fact_scope' => $snapshotScopeComparable ? $snapshotScopes[0] : null,
+            'observed_on_books_room_nights' => $roomDays === [] || !$snapshotScopeComparable
                 ? null
                 : $sum($roomDays, 'current_on_books_room_nights'),
-            'on_books_room_nights_total' => count($roomDays) === $dayCount
+            'on_books_room_nights_total' => count($roomDays) === $dayCount && $snapshotScopeComparable
                 ? $sum($roomDays, 'current_on_books_room_nights')
                 : null,
-            'observed_on_books_room_revenue' => $revenueDays === []
+            'observed_on_books_room_revenue' => $revenueDays === [] || !$snapshotScopeComparable
                 ? null
                 : $sum($revenueDays, 'current_on_books_room_revenue'),
-            'on_books_room_revenue_total' => count($revenueDays) === $dayCount
+            'on_books_room_revenue_total' => count($revenueDays) === $dayCount && $snapshotScopeComparable
                 ? $sum($revenueDays, 'current_on_books_room_revenue')
                 : null,
             'pickup_comparison_pair' => $pickupWindowComparable ? $pickupPairs[0] : null,
+            'pickup_fact_scope' => $pickupWindowComparable ? $pickupScopes[0] : null,
             'observed_net_pickup_room_nights' => !$pickupWindowComparable
                 ? null
                 : $sum($withPickup, 'net_pickup_room_nights'),
@@ -844,6 +867,12 @@ final class BookingDemandPlanningService
             throw new InvalidArgumentException($field . '_invalid');
         }
         return $parsed;
+    }
+
+    private function elapsedSeconds(DateTimeImmutable $start, DateTimeImmutable $end): float
+    {
+        return ((int)$end->format('U') - (int)$start->format('U'))
+            + (((int)$end->format('u') - (int)$start->format('u')) / 1_000_000);
     }
 
     private function now(): string
