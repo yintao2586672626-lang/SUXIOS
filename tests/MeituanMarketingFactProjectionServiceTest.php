@@ -174,6 +174,32 @@ final class MeituanMarketingFactProjectionServiceTest extends TestCase
         );
     }
 
+    public function testNegativeClickCounterRemainsInvalidInsteadOfBecomingZero(): void
+    {
+        $result = $this->service([
+            $this->row(122, 'advertising', [
+                'campaignId' => 'negative-clicks',
+                'spend' => 100,
+                'attributedOrderAmount' => 500,
+                'attributionBasis' => 'same-day-paid-order',
+                'impressions' => 100,
+                'clicks' => -1,
+            ], amount: 100),
+        ])->project(10, 80, '2026-08-30');
+
+        self::assertSame('partial', $result['status']);
+        self::assertSame('invalid', $result['projections'][0]['quality_status']);
+        self::assertSame(100, $result['projections'][0]['metrics']['impressions']);
+        self::assertNull($result['projections'][0]['metrics']['clicks']);
+        self::assertNull($result['projections'][0]['metrics']['ctr_percent']);
+        self::assertSame('clicks_negative', $result['projections'][0]['metrics']['ctr_status']);
+        self::assertContains('clicks_negative', $result['data_quality']['gap_codes']);
+        self::assertSame(
+            ['request_data_completion', 'dismiss'],
+            $result['pending_review_draft']['human_decision_options']
+        );
+    }
+
     public function testTenantHotelPlatformAndBusinessDatePollutionIsRejected(): void
     {
         $valid = $this->row(106, 'search_keyword', [

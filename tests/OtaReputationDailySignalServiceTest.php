@@ -95,6 +95,29 @@ final class OtaReputationDailySignalServiceTest extends TestCase
         self::assertSame('no_current_strict_fact', $result['platforms']['ctrip']['status']);
     }
 
+    public function testSameDayBackfillCannotReplaceANewerCapturedSnapshotByRowId(): void
+    {
+        $newerCapture = $this->row(100, 'ctrip', '2026-09-01', 4.8, 0, 0, true);
+        $newerCapture['snapshot_time'] = '2026-09-01 10:00:00.250000';
+        $laterInsertedBackfill = $this->row(101, 'ctrip', '2026-09-01', 2.0, 9, 9, true);
+        $laterInsertedBackfill['snapshot_time'] = '2026-09-01 08:00:00.500000';
+
+        $result = (new OtaReputationDailySignalService(fn(): array => [
+            $laterInsertedBackfill,
+            $newerCapture,
+            $this->row(90, 'ctrip', '2026-08-31', 5.0, 0, 0, true),
+        ]))->build(80, 80, '2026-09-01');
+
+        self::assertSame('online_daily_data#100', $result['platforms']['ctrip']['current_record_ref']);
+        $scoreSignal = array_values(array_filter(
+            $result['signals'],
+            static fn(array $signal): bool => $signal['metric_key'] === 'comment_score'
+        ));
+        self::assertCount(1, $scoreSignal);
+        self::assertSame(4.8, $scoreSignal[0]['current_value']);
+        self::assertSame('2026-09-01 10:00:00.250000', $scoreSignal[0]['collected_at']);
+    }
+
     public function testRejectsInvalidScopeAndDate(): void
     {
         $service = new OtaReputationDailySignalService(fn(): array => []);

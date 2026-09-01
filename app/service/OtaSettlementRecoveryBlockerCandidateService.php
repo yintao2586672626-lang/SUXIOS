@@ -46,7 +46,18 @@ final class OtaSettlementRecoveryBlockerCandidateService
             $candidate = $this->fromLines($scope, $readback);
             if ($candidate === null) {
                 $sourceQuality = (string)($readback['source']['source_quality_status'] ?? '');
-                if ($sourceQuality !== 'verified_export' && $sourceQuality !== 'synthetic_test_only') {
+                if ($sourceQuality === 'synthetic_test_only') {
+                    $candidate = $this->candidate(
+                        $scope,
+                        $readback,
+                        'settlement_synthetic_test_only',
+                        '测试结算批次不能作为经营就绪事实，请导入同范围真实结算导出',
+                        'import_verified_same_scope_settlement_export',
+                        null,
+                        ['source_quality_status:synthetic_test_only'],
+                        null
+                    );
+                } elseif ($sourceQuality !== 'verified_export') {
                     $candidate = $this->candidate(
                         $scope,
                         $readback,
@@ -277,6 +288,10 @@ final class OtaSettlementRecoveryBlockerCandidateService
             'settlement_source_quality_review_required' => [
                 'source_identity_attestation',
                 'same_scope_period_confirmation',
+            ],
+            'settlement_synthetic_test_only' => [
+                'same_tenant_hotel_platform_period_real_export',
+                'verified_export_source_identity',
             ],
             default => [
                 'same_scope_missing_fact',

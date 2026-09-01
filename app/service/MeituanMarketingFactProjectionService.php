@@ -118,8 +118,14 @@ final class MeituanMarketingFactProjectionService
             }
         }
         foreach ($projections as $item) {
-            if (($item['metrics']['ctr_status'] ?? '') === 'clicks_exceed_impressions') {
-                $gapCodes[] = 'clicks_exceed_impressions';
+            $ctrStatus = (string)($item['metrics']['ctr_status'] ?? '');
+            if (in_array($ctrStatus, [
+                'clicks_exceed_impressions',
+                'impressions_negative',
+                'clicks_negative',
+                'impressions_and_clicks_negative',
+            ], true)) {
+                $gapCodes[] = $ctrStatus;
             }
         }
         if ($projections === []) {
@@ -307,8 +313,22 @@ final class MeituanMarketingFactProjectionService
     ): array {
         $raw = $this->raw($row['raw_data'] ?? []);
         $factType = strtolower(trim((string)$row['data_type']));
-        $impressions = $this->integer($row, $raw, ['list_exposure', 'impressions', 'exposure_count', 'exposureCount']);
-        $clicks = $this->integer($row, $raw, ['detail_exposure', 'clicks', 'click_count', 'clickCount']);
+        $rawImpressions = $this->integer(
+            $row,
+            $raw,
+            ['list_exposure', 'impressions', 'exposure_count', 'exposureCount']
+        );
+        $rawClicks = $this->integer($row, $raw, ['detail_exposure', 'clicks', 'click_count', 'clickCount']);
+        $impressionsNegative = $rawImpressions !== null && $rawImpressions < 0;
+        $clicksNegative = $rawClicks !== null && $rawClicks < 0;
+        $trafficCounterGapCode = match (true) {
+            $impressionsNegative && $clicksNegative => 'impressions_and_clicks_negative',
+            $impressionsNegative => 'impressions_negative',
+            $clicksNegative => 'clicks_negative',
+            default => null,
+        };
+        $impressions = $impressionsNegative ? null : $rawImpressions;
+        $clicks = $clicksNegative ? null : $rawClicks;
         $clicksExceedImpressions = $impressions !== null
             && $clicks !== null
             && $clicks > $impressions;
@@ -404,11 +424,12 @@ final class MeituanMarketingFactProjectionService
                     && $impressions !== null && $impressions > 0 && $clicks !== null
                     ? round($clicks / $impressions * 100, 4)
                     : null,
-                'ctr_status' => $clicksExceedImpressions
-                    ? 'clicks_exceed_impressions'
-                    : ($impressions !== null && $impressions > 0 && $clicks !== null
+                'ctr_status' => $trafficCounterGapCode
+                    ?? ($clicksExceedImpressions
+                        ? 'clicks_exceed_impressions'
+                        : ($impressions !== null && $impressions > 0 && $clicks !== null
                         ? 'calculated'
-                        : 'not_calculable'),
+                        : 'not_calculable')),
                 'spend' => $spend,
                 'attributed_order_amount' => $attributedOrderAmount,
                 'currency' => $factType === 'advertising' ? 'CNY' : null,
@@ -419,7 +440,9 @@ final class MeituanMarketingFactProjectionService
                 'roas_formula' => $roas !== null ? 'attributed_order_amount / spend' : null,
                 'roas_status' => $roasStatus,
             ],
-            'quality_status' => $attributedOrderAmountInvalid || $clicksExceedImpressions
+            'quality_status' => $attributedOrderAmountInvalid
+                || $trafficCounterGapCode !== null
+                || $clicksExceedImpressions
                 ? 'invalid'
                 : 'verified',
             'evidence_type' => 'strict_readback_fact',
@@ -551,7 +574,7 @@ final class MeituanMarketingFactProjectionService
     private function integer(array $row, array $raw, array $keys): ?int
     {
         $value = $this->number($row, $raw, $keys);
-        return $value === null ? null : max(0, (int)round($value));
+        return $value === null ? null : (int)round($value);
     }
 
     /** @param array<string,mixed> $raw @param array<int,string> $keys */

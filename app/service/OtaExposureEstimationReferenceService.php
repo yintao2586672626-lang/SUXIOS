@@ -61,6 +61,7 @@ final class OtaExposureEstimationReferenceService
         }
 
         $pairs = [];
+        $rejectedInconsistentPairCount = 0;
         for ($offset = self::WINDOW_DAYS; $offset >= 1; $offset--) {
             $date = $target->modify('-' . $offset . ' days')->format('Y-m-d');
             $closure = $this->readClosure($hotelId, $date);
@@ -71,6 +72,10 @@ final class OtaExposureEstimationReferenceService
             }
             $sharedRefs = array_values(array_intersect($visits['refs'], $exposure['refs']));
             if ($sharedRefs === [] || $visits['scope_key'] !== $exposure['scope_key']) {
+                continue;
+            }
+            if ((int)$exposure['value'] < (int)$visits['value']) {
+                $rejectedInconsistentPairCount++;
                 continue;
             }
             $pairs[] = [
@@ -89,6 +94,7 @@ final class OtaExposureEstimationReferenceService
             return $this->result('insufficient_baseline', $tenantId, $hotelId, $platform, $targetDate, [
                 'estimate' => null,
                 'accepted_verified_pairs' => count($pairs),
+                'rejected_inconsistent_pair_count' => $rejectedInconsistentPairCount,
                 'source_refs' => $sourceRefs,
                 'reason_code' => 'verified_pair_baseline_insufficient',
                 'reason' => sprintf(
@@ -116,6 +122,7 @@ final class OtaExposureEstimationReferenceService
                 'interval_reason' => 'rolling_error_observations_not_calculated_in_runtime_reference',
             ],
             'accepted_verified_pairs' => count($pairs),
+            'rejected_inconsistent_pair_count' => $rejectedInconsistentPairCount,
             'baseline_dates' => array_column($pairs, 'business_date'),
             'source_refs' => $sourceRefs,
             'reason_code' => 'reference_estimate_only',

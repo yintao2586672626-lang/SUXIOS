@@ -80,6 +80,19 @@ final class OtaExposureEstimationReferenceServiceTest extends TestCase
         self::assertSame(0, $result['accepted_verified_pairs']);
     }
 
+    public function testExposureBelowDetailVisitorsIsRejectedAsAnImpossibleFunnelPair(): void
+    {
+        $closures = $this->closures(7, impossibleFunnel: true);
+        $result = (new OtaExposureEstimationReferenceService(
+            static fn(int $hotelId, string $date): array => $closures[$date] ?? []
+        ))->estimate(10, 80, 'meituan', '2026-08-15');
+
+        self::assertSame('insufficient_baseline', $result['status']);
+        self::assertSame(0, $result['accepted_verified_pairs']);
+        self::assertSame(7, $result['rejected_inconsistent_pair_count']);
+        self::assertNull($result['estimate']);
+    }
+
     public function testActualDualOtaClosureContractProducesReferenceEstimate(): void
     {
         $closures = [];
@@ -129,7 +142,8 @@ final class OtaExposureEstimationReferenceServiceTest extends TestCase
         int $pairCount,
         string $exposureUnit = 'users',
         bool $targetExposure = false,
-        bool $mismatchedPairRef = false
+        bool $mismatchedPairRef = false,
+        bool $impossibleFunnel = false
     ): array {
         $closures = [];
         $targetDate = '2026-08-15';
@@ -141,9 +155,15 @@ final class OtaExposureEstimationReferenceServiceTest extends TestCase
             $date = (new \DateTimeImmutable($targetDate))->modify('-' . $offset . ' days')->format('Y-m-d');
             $visitsRef = 'online_daily_data#' . (900 + $offset);
             $exposureRef = $mismatchedPairRef ? 'online_daily_data#' . (1900 + $offset) : $visitsRef;
+            $visitors = 100 + $offset;
             $closures[$date] = $this->closure($date, [
-                $this->field('visits', 100 + $offset, 'users', $visitsRef),
-                $this->field('exposure', (100 + $offset) * 10, $exposureUnit, $exposureRef),
+                $this->field('visits', $visitors, 'users', $visitsRef),
+                $this->field(
+                    'exposure',
+                    $impossibleFunnel ? $visitors - 1 : $visitors * 10,
+                    $exposureUnit,
+                    $exposureRef
+                ),
             ]);
         }
         return $closures;

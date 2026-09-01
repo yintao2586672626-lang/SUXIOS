@@ -216,9 +216,49 @@ final class OtaReputationDailySignalService
         ));
         usort($matches, static function (array $left, array $right): int {
             $primaryOrder = (int)($right['primary_channel'] ?? false) <=> (int)($left['primary_channel'] ?? false);
-            return $primaryOrder !== 0 ? $primaryOrder : ((int)$right['record_id'] <=> (int)$left['record_id']);
+            if ($primaryOrder !== 0) {
+                return $primaryOrder;
+            }
+            $leftCapturedAt = self::captureTimestamp((string)($left['collected_at'] ?? ''));
+            $rightCapturedAt = self::captureTimestamp((string)($right['collected_at'] ?? ''));
+            if ($leftCapturedAt !== $rightCapturedAt) {
+                if ($leftCapturedAt === null) {
+                    return 1;
+                }
+                if ($rightCapturedAt === null) {
+                    return -1;
+                }
+                return $rightCapturedAt <=> $leftCapturedAt;
+            }
+            return (int)$right['record_id'] <=> (int)$left['record_id'];
         });
         return $matches[0] ?? null;
+    }
+
+    private static function captureTimestamp(string $value): ?int
+    {
+        $value = trim($value);
+        if (preg_match(
+            '/^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})(?:\.(\d{1,6}))?$/D',
+            $value,
+            $matches
+        ) !== 1) {
+            return null;
+        }
+        $normalized = $matches[1] . '.' . str_pad((string)($matches[2] ?? ''), 6, '0');
+        $date = DateTimeImmutable::createFromFormat(
+            '!Y-m-d H:i:s.u',
+            $normalized,
+            new \DateTimeZone('Asia/Shanghai')
+        );
+        $errors = DateTimeImmutable::getLastErrors();
+        if ($date === false
+            || ($errors !== false && (($errors['warning_count'] ?? 0) > 0 || ($errors['error_count'] ?? 0) > 0))
+            || $date->format('Y-m-d H:i:s.u') !== $normalized
+        ) {
+            return null;
+        }
+        return ((int)$date->format('U') * 1_000_000) + (int)$date->format('u');
     }
 
     /** @return ?array<string,mixed> */
