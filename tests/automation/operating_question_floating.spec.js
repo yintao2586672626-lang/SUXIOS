@@ -512,8 +512,8 @@ test('precise query entry understands natural language and opens the real data-h
       && call.payload?.value === 'concise'
   ))).toBe(true);
   await expect(page.getByTestId('system-guide-learning-memory')).toContainText('回答保持简洁');
-  await expect(page.getByRole('button', { name: '检查数据为什么不能用 · 更常用' })).toBeVisible();
-  await expect(page.getByRole('button', { name: '从今日经营工作台开始' })).toBeVisible();
+  await expect(page.getByRole('button', { name: '数据为什么没进来 · 更常用' })).toBeVisible();
+  await expect(page.getByRole('button', { name: '今天先做什么' })).toBeVisible();
   await expect(page.getByRole('button', { name: '查找项目功能入口 · 更常用' })).toHaveCount(0);
   await expect(page.getByTestId('system-guide-context')).toBeVisible();
   await expect(page.getByTestId('system-guide-context')).toContainText('当前页面');

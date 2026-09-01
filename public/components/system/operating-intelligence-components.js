@@ -3455,18 +3455,22 @@
                     .slice(0, 2);
                 const items = [{
                     key: 'bluebook-today',
+                    topic_key: 'daily-workbench',
                     label: '今天先做什么',
                     query: '按任务蓝皮书带我完成今天经营工作：进入经营机会，基于可信事实或明确缺口，选出并保存唯一优先事项。',
                 }, {
                     key: 'bluebook-data-recovery',
+                    topic_key: 'data-health',
                     label: '数据为什么没进来',
                     query: '按任务蓝皮书查清数据为什么没进来：检查数据健康、自动采集和运行监控，缺失就明确阻塞。',
                 }, {
                     key: 'bluebook-daily-report',
+                    topic_key: 'revenue-report',
                     label: '生成可信经营日报',
                     query: '按任务蓝皮书先检查数据健康，再生成和预览 AI 经营日报；外发仍需人工确认。',
                 }, {
                     key: 'codex-collaboration',
+                    topic_key: 'codex-collaboration',
                     label: '怎么让 Codex 帮我？',
                     query: '我想让 Codex 帮我检查或完善宿析OS，应该怎么说？',
                 }, {
@@ -3514,6 +3518,10 @@
                         continue;
                     }
                     rankingAdjustments.set(key, Number(item?.adjustment || 0));
+                }
+                for (const item of items) {
+                    const topicKey = String(item?.topic_key || '');
+                    if (topicKey) item.feedback_adjustment = rankingAdjustments.get(topicKey) || 0;
                 }
                 const contextualTopicKeys = new Set(contextTopics.map((topic) => String(topic?.key || '')));
                 const orderedTopics = preferredTopics

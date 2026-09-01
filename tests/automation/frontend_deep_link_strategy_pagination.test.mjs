@@ -66,6 +66,7 @@ test('initial deep links resolve only to active pages visible to the authenticat
 
   const regularUser = { role_id: 3, permissions: {} };
   const onlineDataUser = { role_id: 3, permissions: { can_view_online_data: true } };
+  const revenueAiUser = { role_id: 3, permissions: {}, capabilities: ['ai.view'] };
   const superAdmin = { is_super_admin: true, permissions: {} };
 
   assert.equal(helpers.resolveInitialPageOverride('pms-operating-data', regularUser), 'pms-operating-data');
@@ -73,6 +74,8 @@ test('initial deep links resolve only to active pages visible to the authenticat
   assert.equal(helpers.resolveInitialPageOverride('online-data', onlineDataUser), 'online-data');
   assert.equal(helpers.resolveInitialPageOverride('users', regularUser), 'compass');
   assert.equal(helpers.resolveInitialPageOverride('users', superAdmin), 'users');
+  assert.equal(helpers.resolveInitialPageOverride('agent-center', regularUser), 'compass');
+  assert.equal(helpers.resolveInitialPageOverride('agent-center', revenueAiUser), 'agent-center');
   assert.equal(helpers.resolveInitialPageOverride('ai-strategy', superAdmin), 'compass');
   assert.equal(helpers.resolveInitialPageOverride('does-not-exist', superAdmin), 'compass');
   assert.equal(helpers.resolveInitialPageOverride('ai-workbench', regularUser), 'compass');

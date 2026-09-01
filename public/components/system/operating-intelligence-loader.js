@@ -1,7 +1,7 @@
 (() => {
     'use strict';
 
-    const fullScript = 'components/system/operating-intelligence-components.js?v=20260902-dirty-merge-hd65cfeaa01';
+    const fullScript = 'components/system/operating-intelligence-components.js?v=20260902-dirty-merge-hbc6b77e197';
     const analystScript = 'components/system/hotel-data-analyst-components.js?v=20260831-precise-range-hfa596d333c';
     const fullStyle = 'style.min.css';
     let fullScriptPromise = null;

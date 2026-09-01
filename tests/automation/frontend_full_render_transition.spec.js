@@ -411,7 +411,7 @@ test('trusted revenue keeps its nested analysis entry across startup-to-full ren
   expect(pageErrors, `page errors: ${pageErrors.join(' | ')}`).toEqual([]);
 });
 
-test('new-hotel three-source wizard loads after demand and renders the truthful first step', async ({ page }) => {
+test('new-hotel three-source wizard reuses the deferred component bundle and renders the truthful first step', async ({ page }) => {
   test.setTimeout(30000);
   const pageErrors = [];
   let onboardingBundleRequests = 0;
@@ -449,11 +449,15 @@ test('new-hotel three-source wizard loads after demand and renders the truthful 
 
   await page.goto(appUrl, { waitUntil: 'domcontentloaded' });
   await expect(page.getByRole('heading', { name: '今日经营看板', exact: true }).first()).toBeVisible({ timeout: 15000 });
-  expect(onboardingBundleRequests, 'onboarding component bundle must stay off the landing-page startup path').toBe(0);
+  expect(onboardingBundleRequests, 'the after-first-paint component bundle must never be requested twice').toBeLessThanOrEqual(1);
 
   await page.getByText('门店管理', { exact: true }).first().click();
   await expect(page.getByRole('heading', { name: '酒店管理', exact: true }).first()).toBeVisible({ timeout: 5000 });
-  expect(onboardingBundleRequests, 'hotel list alone must not load the onboarding component bundle').toBe(0);
+  await expect.poll(
+    () => onboardingBundleRequests,
+    { message: 'the full-render transition must load the deferred component bundle exactly once' },
+  ).toBe(1);
+  const fullRenderBundleRequests = onboardingBundleRequests;
 
   await page.getByRole('button', { name: '新增门店', exact: true }).first().click();
   await expect(page.getByRole('heading', { name: '新增门店接入', exact: true })).toBeVisible({ timeout: 5000 });
@@ -462,7 +466,7 @@ test('new-hotel three-source wizard loads after demand and renders the truthful 
   await expect(page.getByTestId('hotel-onboarding-hotel-step')).toBeVisible();
   await expect(page.getByTestId('hotel-onboarding-hotel-step')).toContainText('创建、授权或保存身份不会自动采集，也不会向企业微信发送消息。');
   await expect(page.getByTestId('hotel-onboarding-create')).toHaveText('创建门店并继续');
-  expect(onboardingBundleRequests, 'onboarding component bundle should be requested exactly once on demand').toBe(1);
+  expect(onboardingBundleRequests, 'opening onboarding must reuse the already loaded component bundle').toBe(fullRenderBundleRequests);
   expect(pageErrors, `page errors: ${pageErrors.join(' | ')}`).toEqual([]);
 });
 

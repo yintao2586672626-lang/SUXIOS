@@ -1059,6 +1059,15 @@
                 if (!/^[a-z0-9-]+$/.test(canonicalPage)) return 'compass';
                 if (!ACTIVE_DISCOVERABLE_PAGE_PATHS.has(canonicalPage)) return 'compass';
                 if (canonicalPage === 'compass') return canonicalPage;
+                if (canonicalPage === 'agent-center') {
+                    const capabilities = Array.isArray(currentUser?.capabilities) ? currentUser.capabilities : [];
+                    const canUseRevenueAi = currentUser?.is_super_admin === true
+                        || currentUser?.permissions?.can_use_ai_decision === true
+                        || capabilities.includes('all')
+                        || capabilities.includes('ai.view')
+                        || capabilities.includes('ai.execute');
+                    return canUseRevenueAi ? canonicalPage : 'compass';
+                }
                 return discoverablePagePathsForUser(currentUser).has(canonicalPage)
                     ? canonicalPage
                     : 'compass';
