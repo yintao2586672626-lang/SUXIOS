@@ -257,9 +257,12 @@ test('hotel data analyst is globally summonable and opens the real scoped compos
   await mockAuthenticatedApi(page);
   await page.goto(appUrl, { waitUntil: 'domcontentloaded' });
 
+  const loadConsultant = page.getByTestId('operating-question-consultant-load');
+  await expect(loadConsultant).toBeVisible({ timeout: 15000 });
+  await expect(page.getByTestId('system-guide-floating-entry')).toHaveCount(0);
+  await loadConsultant.click();
   const launcher = page.getByTestId('system-guide-floating-launcher');
   await expect(launcher).toBeVisible({ timeout: 15000 });
-  await launcher.click();
   const globalRole = page.getByTestId('system-guide-mode-report');
   await expect(globalRole).toBeVisible({ timeout: 15000 });
   await expect(globalRole).toContainText('数据分析师');
