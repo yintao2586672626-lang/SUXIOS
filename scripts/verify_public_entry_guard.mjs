@@ -21,6 +21,7 @@ const indexPath = path.join(repoRoot, 'public/index.html');
 const appBootstrapPath = path.join(repoRoot, 'public/app-bootstrap.js');
 const appMainPath = path.join(repoRoot, 'public/app-main.js');
 const appMainComponentsPath = path.join(repoRoot, 'public/components/system/app-main-components.js');
+const knowledgeCenterDomainPath = path.join(repoRoot, 'public/components/system/knowledge-center-domain.js');
 const operatingIntelligenceComponentsPath = path.join(repoRoot, 'public/components/system/operating-intelligence-components.js');
 const appMainRuntimePath = path.join(repoRoot, 'public/app-main.min.js');
 const appTemplatePath = path.join(repoRoot, 'resources/frontend/app-template.html');

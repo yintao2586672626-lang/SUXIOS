@@ -107,8 +107,8 @@ final class RevenueDecisionFrameIntegrationTest extends TestCase
             'deepseek_v4_pro',
             'price'
         );
-        self::assertTrue($replay['created']);
-        self::assertNotSame($readback['id'], $replay['question']['id']);
+        self::assertFalse($replay['created']);
+        self::assertSame($readback['id'], $replay['question']['id']);
         self::assertSame('price', $replay['question']['answer']['decision_frame']['primary_object']);
         self::assertSame('price', $replay['question']['answer']['decision_frame']['requested_object']);
     }
@@ -184,8 +184,8 @@ final class RevenueDecisionFrameIntegrationTest extends TestCase
             'deepseek_v4_pro',
             'price'
         );
-        self::assertTrue($replay['created']);
-        self::assertNotSame($readback['id'], $replay['question']['id']);
+        self::assertFalse($replay['created']);
+        self::assertSame($readback['id'], $replay['question']['id']);
         self::assertSame($readback['content_digest'], $replay['question']['content_digest']);
         self::assertSame(
             $readback['answer']['decision_frame'],

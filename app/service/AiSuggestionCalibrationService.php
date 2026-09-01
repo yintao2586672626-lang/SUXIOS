@@ -102,45 +102,59 @@ final class AiSuggestionCalibrationService
             return $this->verifiedSuggestionReplay($existing, $identityDigest, $contentDigest);
         }
 
-        $createdId = 0;
         try {
-            $createdId = (int)Db::name(self::SNAPSHOT_TABLE)->insertGetId([
-                ...$scope,
-                'suggestion_key' => $suggestionKey,
-                'scenario' => $scenario,
-                'source_key' => $sourceKey,
-                'source_version' => $sourceVersion,
-                'evidence_digest' => $evidenceDigest,
-                'identity_digest' => $identityDigest,
-                'suggestion_payload_json' => $this->canonicalJson($payload),
-                'confidence' => $confidence,
-                'content_digest' => $contentDigest,
-                'idempotency_hash' => $idempotencyHash,
-                'created_at' => $this->now(),
-            ]);
+            return Db::transaction(function () use (
+                $scope,
+                $suggestionKey,
+                $scenario,
+                $sourceKey,
+                $sourceVersion,
+                $evidenceDigest,
+                $identityDigest,
+                $payload,
+                $confidence,
+                $contentDigest,
+                $idempotencyHash
+            ): array {
+                $createdId = (int)Db::name(self::SNAPSHOT_TABLE)->insertGetId([
+                    ...$scope,
+                    'suggestion_key' => $suggestionKey,
+                    'scenario' => $scenario,
+                    'source_key' => $sourceKey,
+                    'source_version' => $sourceVersion,
+                    'evidence_digest' => $evidenceDigest,
+                    'identity_digest' => $identityDigest,
+                    'suggestion_payload_json' => $this->canonicalJson($payload),
+                    'confidence' => $confidence,
+                    'content_digest' => $contentDigest,
+                    'idempotency_hash' => $idempotencyHash,
+                    'created_at' => $this->now(),
+                ]);
+
+                $row = $this->suggestionById($scope, $createdId);
+                if (!is_array($row)) {
+                    throw new RuntimeException('AI suggestion snapshot exact readback failed');
+                }
+
+                $result = $this->normalizeSuggestion($row);
+                if (($result['readback_verified'] ?? false) !== true) {
+                    throw new RuntimeException('AI suggestion snapshot integrity verification failed');
+                }
+                $result['created'] = true;
+                $result['idempotent_replay'] = false;
+                return $result;
+            });
         } catch (Throwable $error) {
             if (!$this->isDuplicateKeyConflict($error)) {
                 throw $error;
             }
         }
 
-        $row = $createdId > 0
-            ? $this->suggestionById($scope, $createdId)
-            : $this->findExistingSuggestion($scope, $suggestionKey, $identityDigest, $idempotencyHash);
+        $row = $this->findExistingSuggestion($scope, $suggestionKey, $identityDigest, $idempotencyHash);
         if (!is_array($row)) {
             throw new RuntimeException('AI suggestion snapshot exact readback failed');
         }
-        if ($createdId <= 0) {
-            return $this->verifiedSuggestionReplay($row, $identityDigest, $contentDigest);
-        }
-
-        $result = $this->normalizeSuggestion($row);
-        if (($result['readback_verified'] ?? false) !== true) {
-            throw new RuntimeException('AI suggestion snapshot integrity verification failed');
-        }
-        $result['created'] = true;
-        $result['idempotent_replay'] = false;
-        return $result;
+        return $this->verifiedSuggestionReplay($row, $identityDigest, $contentDigest);
     }
 
     /** @return array<string,mixed> */
@@ -174,43 +188,54 @@ final class AiSuggestionCalibrationService
             return $this->verifiedFeedbackReplay($existing, $contentDigest);
         }
 
-        $createdId = 0;
         try {
-            $createdId = (int)Db::name(self::FEEDBACK_TABLE)->insertGetId([
-                'suggestion_id' => (int)$suggestion['id'],
-                ...$scope,
-                'suggestion_identity_digest' => (string)$suggestion['identity_digest'],
-                'idempotency_hash' => $idempotencyHash,
-                'feedback_status' => $status,
-                'reason_code' => $reasonCode,
-                'reason_note' => $reasonNote,
-                'feedback_payload_json' => $this->canonicalJson($payload),
-                'content_digest' => $contentDigest,
-                'created_at' => $this->now(),
-            ]);
+            return Db::transaction(function () use (
+                $scope,
+                $suggestion,
+                $idempotencyHash,
+                $status,
+                $reasonCode,
+                $reasonNote,
+                $payload,
+                $contentDigest
+            ): array {
+                $createdId = (int)Db::name(self::FEEDBACK_TABLE)->insertGetId([
+                    'suggestion_id' => (int)$suggestion['id'],
+                    ...$scope,
+                    'suggestion_identity_digest' => (string)$suggestion['identity_digest'],
+                    'idempotency_hash' => $idempotencyHash,
+                    'feedback_status' => $status,
+                    'reason_code' => $reasonCode,
+                    'reason_note' => $reasonNote,
+                    'feedback_payload_json' => $this->canonicalJson($payload),
+                    'content_digest' => $contentDigest,
+                    'created_at' => $this->now(),
+                ]);
+
+                $row = $this->feedbackById($scope, (int)$suggestion['id'], $createdId);
+                if (!is_array($row)) {
+                    throw new RuntimeException('AI suggestion feedback exact readback failed');
+                }
+
+                $result = $this->normalizeFeedback($row);
+                if (($result['readback_verified'] ?? false) !== true) {
+                    throw new RuntimeException('AI suggestion feedback integrity verification failed');
+                }
+                $result['created'] = true;
+                $result['idempotent_replay'] = false;
+                return $result;
+            });
         } catch (Throwable $error) {
             if (!$this->isDuplicateKeyConflict($error)) {
                 throw $error;
             }
         }
 
-        $row = $createdId > 0
-            ? $this->feedbackById($scope, (int)$suggestion['id'], $createdId)
-            : $this->feedbackByIdempotency($scope, (int)$suggestion['id'], $idempotencyHash);
+        $row = $this->feedbackByIdempotency($scope, (int)$suggestion['id'], $idempotencyHash);
         if (!is_array($row)) {
             throw new RuntimeException('AI suggestion feedback exact readback failed');
         }
-        if ($createdId <= 0) {
-            return $this->verifiedFeedbackReplay($row, $contentDigest);
-        }
-
-        $result = $this->normalizeFeedback($row);
-        if (($result['readback_verified'] ?? false) !== true) {
-            throw new RuntimeException('AI suggestion feedback integrity verification failed');
-        }
-        $result['created'] = true;
-        $result['idempotent_replay'] = false;
-        return $result;
+        return $this->verifiedFeedbackReplay($row, $contentDigest);
     }
 
     /**
@@ -275,45 +300,57 @@ final class AiSuggestionCalibrationService
             return $this->verifiedObservationReplay($existing, $contentDigest);
         }
 
-        $createdId = 0;
         try {
-            $createdId = (int)Db::name(self::OBSERVATION_TABLE)->insertGetId([
-                'suggestion_id' => (int)$suggestion['id'],
-                ...$scope,
-                'suggestion_identity_digest' => (string)$suggestion['identity_digest'],
-                'idempotency_hash' => $idempotencyHash,
-                'execution_status' => $executionStatus,
-                'review_result' => $reviewResult,
-                'observed_at' => $observedAt,
-                'evidence_digest' => $evidenceDigest,
-                'evidence_payload_json' => $this->canonicalJson($payload),
-                'content_digest' => $contentDigest,
-                'causal_claim' => 'none',
-                'created_at' => $this->now(),
-            ]);
+            return Db::transaction(function () use (
+                $scope,
+                $suggestion,
+                $idempotencyHash,
+                $executionStatus,
+                $reviewResult,
+                $observedAt,
+                $evidenceDigest,
+                $payload,
+                $contentDigest
+            ): array {
+                $createdId = (int)Db::name(self::OBSERVATION_TABLE)->insertGetId([
+                    'suggestion_id' => (int)$suggestion['id'],
+                    ...$scope,
+                    'suggestion_identity_digest' => (string)$suggestion['identity_digest'],
+                    'idempotency_hash' => $idempotencyHash,
+                    'execution_status' => $executionStatus,
+                    'review_result' => $reviewResult,
+                    'observed_at' => $observedAt,
+                    'evidence_digest' => $evidenceDigest,
+                    'evidence_payload_json' => $this->canonicalJson($payload),
+                    'content_digest' => $contentDigest,
+                    'causal_claim' => 'none',
+                    'created_at' => $this->now(),
+                ]);
+
+                $row = $this->observationById($scope, (int)$suggestion['id'], $createdId);
+                if (!is_array($row)) {
+                    throw new RuntimeException('AI suggestion observation exact readback failed');
+                }
+
+                $result = $this->normalizeObservation($row);
+                if (($result['readback_verified'] ?? false) !== true) {
+                    throw new RuntimeException('AI suggestion observation integrity verification failed');
+                }
+                $result['created'] = true;
+                $result['idempotent_replay'] = false;
+                return $result;
+            });
         } catch (Throwable $error) {
             if (!$this->isDuplicateKeyConflict($error)) {
                 throw $error;
             }
         }
 
-        $row = $createdId > 0
-            ? $this->observationById($scope, (int)$suggestion['id'], $createdId)
-            : $this->observationByIdempotency($scope, (int)$suggestion['id'], $idempotencyHash);
+        $row = $this->observationByIdempotency($scope, (int)$suggestion['id'], $idempotencyHash);
         if (!is_array($row)) {
             throw new RuntimeException('AI suggestion observation exact readback failed');
         }
-        if ($createdId <= 0) {
-            return $this->verifiedObservationReplay($row, $contentDigest);
-        }
-
-        $result = $this->normalizeObservation($row);
-        if (($result['readback_verified'] ?? false) !== true) {
-            throw new RuntimeException('AI suggestion observation integrity verification failed');
-        }
-        $result['created'] = true;
-        $result['idempotent_replay'] = false;
-        return $result;
+        return $this->verifiedObservationReplay($row, $contentDigest);
     }
 
     /**
@@ -1043,51 +1080,66 @@ final class AiSuggestionCalibrationService
             return $this->verifiedComparisonReplay($existing, $contentDigest);
         }
 
-        $createdId = 0;
         try {
-            $createdId = (int)Db::name(self::COMPARISON_TABLE)->insertGetId([
-                ...$scope,
-                'comparison_key' => $comparisonKey,
-                'idempotency_hash' => $idempotencyHash,
-                'mode' => $mode,
-                'scenario' => $scenario,
-                'evaluation_set' => $evaluationSet,
-                'baseline_version' => $baselineVersion,
-                'candidate_version' => $candidateVersion,
-                'evaluation_snapshot_digest' => $snapshotDigest,
-                'comparison_json' => $this->canonicalJson($comparison),
-                'rollback_metadata_json' => $this->canonicalJson($rollback),
-                'activation_status' => 'not_activated',
-                'decision_effect' => 'none',
-                'external_call_status' => 'not_called',
-                'business_write_status' => 'none',
-                'causal_claim' => 'none',
-                'content_digest' => $contentDigest,
-                'created_at' => $this->now(),
-            ]);
+            return Db::transaction(function () use (
+                $scope,
+                $comparisonKey,
+                $idempotencyHash,
+                $mode,
+                $scenario,
+                $evaluationSet,
+                $baselineVersion,
+                $candidateVersion,
+                $snapshotDigest,
+                $comparison,
+                $rollback,
+                $contentDigest
+            ): array {
+                $createdId = (int)Db::name(self::COMPARISON_TABLE)->insertGetId([
+                    ...$scope,
+                    'comparison_key' => $comparisonKey,
+                    'idempotency_hash' => $idempotencyHash,
+                    'mode' => $mode,
+                    'scenario' => $scenario,
+                    'evaluation_set' => $evaluationSet,
+                    'baseline_version' => $baselineVersion,
+                    'candidate_version' => $candidateVersion,
+                    'evaluation_snapshot_digest' => $snapshotDigest,
+                    'comparison_json' => $this->canonicalJson($comparison),
+                    'rollback_metadata_json' => $this->canonicalJson($rollback),
+                    'activation_status' => 'not_activated',
+                    'decision_effect' => 'none',
+                    'external_call_status' => 'not_called',
+                    'business_write_status' => 'none',
+                    'causal_claim' => 'none',
+                    'content_digest' => $contentDigest,
+                    'created_at' => $this->now(),
+                ]);
+
+                $row = $this->comparisonById($scope, $createdId);
+                if (!is_array($row)) {
+                    throw new RuntimeException('AI strategy comparison exact readback failed');
+                }
+
+                $result = $this->normalizeComparison($row);
+                if (($result['readback_verified'] ?? false) !== true) {
+                    throw new RuntimeException('AI strategy comparison integrity verification failed');
+                }
+                $result['created'] = true;
+                $result['idempotent_replay'] = false;
+                return $result;
+            });
         } catch (Throwable $error) {
             if (!$this->isDuplicateKeyConflict($error)) {
                 throw $error;
             }
         }
 
-        $row = $createdId > 0
-            ? $this->comparisonById($scope, $createdId)
-            : $this->findExistingComparison($scope, $comparisonKey, $idempotencyHash);
+        $row = $this->findExistingComparison($scope, $comparisonKey, $idempotencyHash);
         if (!is_array($row)) {
             throw new RuntimeException('AI strategy comparison exact readback failed');
         }
-        if ($createdId <= 0) {
-            return $this->verifiedComparisonReplay($row, $contentDigest);
-        }
-
-        $result = $this->normalizeComparison($row);
-        if (($result['readback_verified'] ?? false) !== true) {
-            throw new RuntimeException('AI strategy comparison integrity verification failed');
-        }
-        $result['created'] = true;
-        $result['idempotent_replay'] = false;
-        return $result;
+        return $this->verifiedComparisonReplay($row, $contentDigest);
     }
 
     /** @return array<string,mixed>|null */

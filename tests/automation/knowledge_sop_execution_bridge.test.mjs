@@ -10,7 +10,8 @@ const read = (relativePath) => fs.readFileSync(path.join(repoRoot, relativePath)
 test('knowledge SOP bridge requires an explicit target and reads the persisted intent back', () => {
   const page = read('resources/frontend/templates/fragments/20-page-knowledge-center.html');
   const dialog = read('resources/frontend/templates/fragments/38-dialogs-knowledge-center.html');
-  const app = read('public/app-main.js');
+  const app = read('public/app-main.js')
+    + read('public/components/system/knowledge-center-domain.js');
 
   assert.match(page, /v-model="knowledgeCenterTargetHotelId"/);
   assert.match(page, /运营任务目标门店/);

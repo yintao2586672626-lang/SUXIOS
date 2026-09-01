@@ -1364,8 +1364,11 @@ final class OtaCanonicalHistoryPromotionService
         $rowDigests = [];
         foreach ($rows as $row) {
             $raw = json_decode((string)($row['raw_data'] ?? ''), true);
-            $rowIdentifierHashes = is_array($raw)
-                ? $this->rowPlatformIdentifierHashes($raw, $platform)
+            $observedRow = is_array($raw) && is_array($raw['row'] ?? null)
+                ? $raw['row']
+                : $raw;
+            $rowIdentifierHashes = is_array($observedRow)
+                ? $this->rowPlatformIdentifierHashes($observedRow, $platform)
                 : [];
             if (count($rowIdentifierHashes) !== 1
                 || !hash_equals($expectedIdentifierHash, $rowIdentifierHashes[0])

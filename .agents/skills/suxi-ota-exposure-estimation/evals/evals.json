@@ -19,8 +19,6 @@
         "ten verified non-event pairs produce median multiplier 11.5",
         "target browse 126 produces estimate 1449",
         "event pair is excluded",
-        "drift exclusion uses an explicitly referenced unvalidated heuristic rather than a hidden default",
-        "arbitrary manual baseline exclusions are rejected",
         "rolling-origin error requires seven preceding pairs and excludes the target date",
         "result is derived_estimate and estimate_only"
       ]

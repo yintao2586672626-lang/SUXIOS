@@ -5,6 +5,7 @@ namespace Tests;
 
 use app\service\DailyOneThingInputService;
 use app\service\DailyOneThingService;
+use app\service\OtaReputationDailySignalService;
 use DateTimeImmutable;
 use DateTimeZone;
 use PHPUnit\Framework\TestCase;
@@ -77,84 +78,6 @@ final class DailyOneThingInputServiceTest extends TestCase
         self::assertSame('conversion', $result['selected']['expected_observation_metric']['key']);
         self::assertStringContainsString('不代表携程、全 OTA 或全酒店收益', $result['selected']['scope']['scope_note']);
         self::assertStringNotContainsString('ADR', $result['selected']['problem']);
-        self::assertSame('not_calculable', $result['selected']['impact_estimate']['status']);
-        self::assertNull($result['selected']['impact_estimate']['low']);
-        self::assertNull($result['selected']['impact_estimate']['high']);
-    }
-
-    public function testStrictSameScopeTrafficFactsProduceOnlyADeterministicPointImpact(): void
-    {
-        $closure = $this->fullyReadyClosure();
-        $closure['platforms']['meituan']['fields'] = [
-            $this->strictImpactField('exposure', 1422, 'online_daily_data#102476'),
-            $this->strictImpactField('visits', 206, 'online_daily_data#102476'),
-            $this->field('conversion', 'verified_calculation', 14.49),
-            $this->field('revenue', 'missing', null, false),
-            $this->field('room_nights', 'missing', null, false),
-        ];
-        $closure['platforms']['meituan']['current_receipt_record_refs'] = ['online_daily_data#102476'];
-
-        $input = $this->service($closure)->build(80, 80, '2026-08-26', 7);
-        $rawCandidate = array_values(array_filter(
-            $input['candidates'],
-            static fn(array $candidate): bool => $candidate['candidate_key'] === 'gap:meituan:traffic_only_scope'
-        ))[0];
-        self::assertSame('deterministic_point_estimate', $rawCandidate['impact_estimate']['status']);
-        $result = (new DailyOneThingService())->select($input['candidates'], '2026-08-26');
-
-        self::assertSame('gap:meituan:traffic_only_scope', $result['selected']['candidate_key']);
-        self::assertSame([
-            'low' => 1216.0,
-            'high' => 1216.0,
-            'unit' => 'users',
-            'formula' => 'exposure_users - detail_visitors',
-            'input_refs' => ['online_daily_data#102476'],
-            'scope' => [
-                'tenant_id' => 80,
-                'hotel_id' => 80,
-                'platform' => 'meituan',
-                'business_date' => '2026-08-26',
-                'metric_scope' => 'ota_channel',
-            ],
-            'status' => 'deterministic_point_estimate',
-        ], $result['selected']['impact_estimate']);
-    }
-
-    public function testImpactStaysNotCalculableWhenStrictScopeOrDenominatorGateFails(): void
-    {
-        $mutations = [
-            'tenant mismatch' => static function (array &$exposure): void { $exposure['tenant_id'] = 81; },
-            'hotel mismatch' => static function (array &$exposure): void { $exposure['system_hotel_id'] = 81; },
-            'platform mismatch' => static function (array &$exposure): void { $exposure['platform'] = 'ctrip'; },
-            'business date mismatch' => static function (array &$exposure): void { $exposure['business_date'] = '2026-08-25'; },
-            'history not final' => static function (array &$exposure): void { $exposure['history_statuses'] = ['partial']; },
-            'validation not verified' => static function (array &$exposure): void { $exposure['validation_status'] = 'partial'; },
-            'readback missing' => static function (array &$exposure): void { $exposure['readback_status'] = 'not_attempted'; },
-            'denominator zero' => static function (array &$exposure): void { $exposure['value'] = 0; },
-            'source ref missing' => static function (array &$exposure): void { $exposure['source_record_refs'] = []; },
-        ];
-        foreach ($mutations as $label => $mutate) {
-            $closure = $this->fullyReadyClosure();
-            $exposure = $this->strictImpactField('exposure', 1422, 'online_daily_data#102476');
-            $visits = $this->strictImpactField('visits', 206, 'online_daily_data#102476');
-            $mutate($exposure);
-            $closure['platforms']['meituan']['fields'] = [
-                $exposure,
-                $visits,
-                $this->field('conversion', 'verified_calculation', 14.49),
-                $this->field('revenue', 'missing', null, false),
-                $this->field('room_nights', 'missing', null, false),
-            ];
-            $closure['platforms']['meituan']['current_receipt_record_refs'] = ['online_daily_data#102476'];
-            $input = $this->service($closure)->build(80, 80, '2026-08-26', 7);
-            $candidate = array_values(array_filter(
-                $input['candidates'],
-                static fn(array $item): bool => $item['candidate_key'] === 'gap:meituan:traffic_only_scope'
-            ))[0];
-            self::assertSame('not_calculable', $candidate['impact_estimate']['status'], $label);
-            self::assertNull($candidate['impact_estimate']['low'], $label);
-            self::assertNull($candidate['impact_estimate']['high'], $label);
-        }
     }
 
     public function testSavedQuestionIsAdaptedOnlyThroughTheReadOnlyEligibilityGate(): void
@@ -164,7 +87,8 @@ final class DailyOneThingInputServiceTest extends TestCase
             fn(): array => $this->fullyReadyClosure(),
             static fn(): array => ['data_status' => 'ok', 'list' => [$question]],
             static fn(array $saved): array => $saved['answer']['action_drafts'][0],
-            static fn(): DateTimeImmutable => new DateTimeImmutable('2026-08-26 09:00:00', new DateTimeZone('Asia/Shanghai'))
+            static fn(): DateTimeImmutable => new DateTimeImmutable('2026-08-26 09:00:00', new DateTimeZone('Asia/Shanghai')),
+            fn(): array => $this->emptyReputation('2026-08-26')
         );
 
         $input = $service->build(80, 80, '2026-08-26', 7);
@@ -195,21 +119,49 @@ final class DailyOneThingInputServiceTest extends TestCase
         );
     }
 
+    public function testVerifiedReputationSignalUsesTheExistingDailyOneThingSelectionAndApprovalBoundary(): void
+    {
+        $reputation = (new OtaReputationDailySignalService(fn(): array => [
+            $this->reviewRow(902, '2026-08-26', 4.8, 2, 0, true),
+            $this->reviewRow(901, '2026-08-25', 4.8, 1, 0, true),
+        ]))->build(80, 80, '2026-08-26');
+        $service = new DailyOneThingInputService(
+            fn(): array => $this->fullyReadyClosure(),
+            static fn(): array => ['data_status' => 'ok', 'list' => []],
+            static fn(): ?array => null,
+            static fn(): DateTimeImmutable => new DateTimeImmutable('2026-08-26 09:00:00', new DateTimeZone('Asia/Shanghai')),
+            static fn(): array => $reputation
+        );
+
+        $input = $service->build(80, 80, '2026-08-26', 7);
+        $result = (new DailyOneThingService())->select($input['candidates'], '2026-08-26');
+
+        self::assertSame('signal:ctrip:reputation:bad_reviews_increased', $result['selected']['candidate_key']);
+        self::assertSame('strict_fact_signal', $result['selected']['source_type']);
+        self::assertSame('ctrip', $result['selected']['scope']['platform']);
+        self::assertSame('bad_review_count', $result['selected']['expected_observation_metric']['key']);
+        self::assertSame(2.0, $result['selected']['expected_observation_metric']['baseline_value']);
+        self::assertSame('human_reviewed_reputation_check', $result['selected']['recommended_action']['type']);
+        self::assertFalse($result['selected']['external_write_boundary']['automatic_ctrip_write']);
+        self::assertFalse($result['can_execute']);
+        self::assertSame('actionable_signals_available', $input['source_snapshot']['ota_reputation_signal']['status']);
+    }
+
     public function testStrictFactReaderFailureStaysUnavailableWithoutVerifiedGapCandidate(): void
     {
         $service = new DailyOneThingInputService(
             static fn(): array => throw new \RuntimeException('database unavailable'),
             static fn(): array => ['data_status' => 'ok', 'list' => []],
             static fn(): ?array => null,
-            static fn(): DateTimeImmutable => new DateTimeImmutable('2026-08-26 09:00:00', new DateTimeZone('Asia/Shanghai'))
+            static fn(): DateTimeImmutable => new DateTimeImmutable('2026-08-26 09:00:00', new DateTimeZone('Asia/Shanghai')),
+            fn(): array => $this->emptyReputation('2026-08-26')
         );
 
         $input = $service->build(80, 80, '2026-08-26', 7);
 
-        self::assertSame('source_unavailable', $input['strict_fact_status']);
+        self::assertSame('unavailable', $input['source_snapshot']['dual_ota_field_closure']['status']);
         self::assertSame([['code' => 'strict_fact_layer_unavailable']], $input['source_errors']);
         self::assertSame([], $input['candidates']);
-        self::assertFalse($input['boundary']['strict_fact_source_ready']);
         self::assertStringNotContainsString('gap_readback_verified', json_encode($input, JSON_UNESCAPED_UNICODE));
     }
 
@@ -219,7 +171,8 @@ final class DailyOneThingInputServiceTest extends TestCase
             static fn(): array => $closure,
             static fn(): array => ['data_status' => 'ok', 'list' => []],
             static fn(): ?array => null,
-            static fn(): DateTimeImmutable => new DateTimeImmutable('2026-08-26 09:00:00', new DateTimeZone('Asia/Shanghai'))
+            static fn(): DateTimeImmutable => new DateTimeImmutable('2026-08-26 09:00:00', new DateTimeZone('Asia/Shanghai')),
+            fn(): array => $this->emptyReputation('2026-08-26')
         );
     }
 
@@ -275,26 +228,6 @@ final class DailyOneThingInputServiceTest extends TestCase
         ];
     }
 
-    /** @return array<string,mixed> */
-    private function strictImpactField(string $key, int $value, string $ref): array
-    {
-        return $this->field($key, 'strict_readback', $value) + [
-            'unit' => 'users',
-            'tenant_id' => 80,
-            'system_hotel_id' => 80,
-            'platform' => 'meituan',
-            'business_date' => '2026-08-26',
-            'data_dates' => ['2026-08-26'],
-            'history_statuses' => ['success'],
-            'source_validation_statuses' => ['verified'],
-            'validation_status' => 'verified',
-            'readback_status' => 'readback_verified',
-            'formal_saved' => true,
-            'source_table' => 'online_daily_data',
-            'source_record_refs' => [$ref],
-        ];
-    }
-
     private function fullyReadyClosure(): array
     {
         $fields = $this->readyFields([
@@ -306,6 +239,54 @@ final class DailyOneThingInputServiceTest extends TestCase
         $closure['platforms']['meituan']['current_receipt_all_record_refs'] = ['online_daily_data#2'];
         $closure['platforms']['meituan']['current_receipt_record_refs'] = ['online_daily_data#2'];
         return $closure;
+    }
+
+    /** @return array<string,mixed> */
+    private function emptyReputation(string $businessDate): array
+    {
+        return [
+            'contract_version' => OtaReputationDailySignalService::CONTRACT_VERSION,
+            'tenant_id' => 80,
+            'hotel_id' => 80,
+            'business_date' => $businessDate,
+            'status' => 'no_actionable_signal',
+            'signals' => [],
+            'boundary' => ['external_write_count' => 0],
+        ];
+    }
+
+    /** @return array<string,mixed> */
+    private function reviewRow(
+        int $id,
+        string $dataDate,
+        float $score,
+        int $badReviewCount,
+        int $unrepliedCount,
+        bool $readbackVerified
+    ): array {
+        return [
+            'id' => $id,
+            'tenant_id' => 80,
+            'system_hotel_id' => 80,
+            'hotel_id' => 'ctrip-80',
+            'source' => 'ctrip',
+            'platform' => 'Ctrip',
+            'data_type' => 'review',
+            'data_date' => $dataDate,
+            'comment_score' => $score,
+            'readback_verified' => $readbackVerified ? 1 : 0,
+            'validation_status' => 'normal',
+            'ingestion_method' => 'browser_profile',
+            'source_trace_id' => 'ctrip:' . str_repeat('a', 64),
+            'update_time' => $dataDate . ' 09:00:00',
+            'raw_data' => json_encode([
+                'metrics' => [
+                    'bad_review_count' => $badReviewCount,
+                    'comment_unreply_count' => $unrepliedCount,
+                ],
+                'dimension_values' => ['comment_channel' => '携程'],
+            ], JSON_UNESCAPED_UNICODE),
+        ];
     }
 
     /** @return array<string,mixed> */

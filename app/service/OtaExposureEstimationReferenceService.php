@@ -7,6 +7,7 @@ use Closure;
 use DateTimeImmutable;
 use DateTimeZone;
 use InvalidArgumentException;
+use RuntimeException;
 
 /**
  * Read-only exposure-user reference estimation from canonical strict facts.
@@ -127,10 +128,17 @@ final class OtaExposureEstimationReferenceService
     {
         try {
             $closure = ($this->closureReader)($hotelId, $businessDate);
-            return is_array($closure) ? $closure : [];
-        } catch (\Throwable) {
-            return [];
+        } catch (\Throwable $error) {
+            throw new RuntimeException(
+                'ota_exposure_estimation_closure_read_failed',
+                0,
+                $error
+            );
         }
+        if (!is_array($closure)) {
+            throw new RuntimeException('ota_exposure_estimation_closure_read_invalid');
+        }
+        return $closure;
     }
 
     /** @return null|array{value:int|float,refs:list<string>,scope_key:string} */
@@ -164,7 +172,7 @@ final class OtaExposureEstimationReferenceService
             $history = array_map('strval', (array)($field['history_statuses'] ?? []));
             $sourcePaths = array_values(array_filter(array_map('strval', (array)($field['source_paths'] ?? []))));
             if (!in_array($key, $allowedKeys, true)
-                || $unit !== 'users'
+                || !in_array($unit, ['users', 'people'], true)
                 || !is_numeric($field['value'] ?? null)
                 || (string)($field['status'] ?? '') !== 'strict_readback'
                 || (string)($field['validation_status'] ?? '') !== 'verified'

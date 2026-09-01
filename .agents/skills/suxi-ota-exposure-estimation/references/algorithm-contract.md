@@ -41,27 +41,12 @@ M = median(last N eligible m_i), N defaults to 14 days
 estimated_exposure_users_D = round(observed_detail_visitors_D * M)
 ```
 
-可选滚动参数示例：
-
-```json
-{
-  "options": {
-    "min_verified_pairs": 7,
-    "window_days": 14,
-    "drift_ratio": 0.15,
-    "drift_policy_ref": "fixture:unvalidated-heuristic-15pct"
-  }
-}
-```
-
-`drift_ratio` 没有默认值；提供时必须同时提供脱敏的 `drift_policy_ref`。示例引用只用于回归 fixture，不能复制成酒店生产政策。
-
 最低要求：
 
 - 目标日前至少 7 个 `verified_actual` 配对日；
 - 平台、系统酒店、来源模块、指标定义、单位和日累计时间基准一致；
 - 活动日、补齐值、派生值、重复日和目标日自身不进入基线；
-- 至少积累 7 个先前有效配对后，先用此前窗口生成并保留当日预测误差；只有输入显式提供 `options.drift_ratio` 与脱敏 `options.drift_policy_ref` 时，才按该阈值判断漂移并退出后续基线。当前没有经过真实历史校准的默认阈值，示例中的 15% 只是合成回归启发式，不是业务或统计事实；该判定不读取未来日；
+- 至少积累 7 个先前有效配对后，先用此前窗口生成并保留当日预测误差，再判断当日倍数是否相对先前中位数漂移超过 15%；漂移日退出后续基线，但仍留在误差分布，避免只保留表现好的日期；该判定不读取未来日；
 - 不使用跨酒店默认值，不采用附件中的 `11.65` 作为兜底。
 
 误差带来自按时间顺序的滚动重放：每一日只有在它之前已有至少 7 个有效配对时才评分，且只用该日前窗口估算该日，再取绝对百分比误差 P90。若误差定义为 `|prediction-actual|/actual=e`，数值带按 `[prediction/(1+e), prediction/(1-e)]` 反解；`e>=100%` 时不输出有限上界。它只是历史误差描述，不是未来覆盖率或置信保证。目标日真实值若后来取得，只有 `verified_actual` 加独立来源引用时才能作为 holdout 验证，且不得回写先前估算的事实身份。
@@ -156,17 +141,6 @@ tolerance_orders = max(1 order, paid_orders * 5%)
   "source_ref": "capture-batch-id"
 }
 ```
-
-普通人工排除不能使用任意理由。除 `verified_event_outlier` 外，`baseline_eligible=false` 只接受以下已核验原因，并必须同时提供脱敏 `exclusion_source_ref`：
-
-```text
-verified_source_definition_change
-verified_cumulative_cutoff_mismatch
-verified_capture_corruption
-verified_duplicate_batch
-```
-
-排除原因和引用必须进入输出谱系；不得为了改善误差而事后挑掉表现差的有效日。
 
 已核实活动日增加：
 

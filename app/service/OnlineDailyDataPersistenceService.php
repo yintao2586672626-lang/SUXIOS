@@ -456,7 +456,8 @@ final class OnlineDailyDataPersistenceService
         }
         $snapshotTime = null;
         $snapshotBucket = '';
-        if ($period === 'realtime_snapshot') {
+        $versionedPeriods = ['realtime_snapshot', 'next_30_days', 'future_on_books'];
+        if (in_array($period, $versionedPeriods, true)) {
             $snapshotTime = self::normalizeDateTime(
                 $merged['snapshot_time']
                 ?? $merged['snapshotTime']
@@ -464,7 +465,14 @@ final class OnlineDailyDataPersistenceService
                 ?? $merged['capturedAt']
                 ?? null
             ) ?? date('Y-m-d H:i:s');
-            $snapshotBucket = date('YmdHi', strtotime($snapshotTime) ?: time());
+            $providedBucket = trim((string)(
+                $merged['snapshot_bucket']
+                ?? $merged['snapshotBucket']
+                ?? ''
+            ));
+            $snapshotBucket = $providedBucket !== ''
+                ? substr($providedBucket, 0, 20)
+                : date('YmdHi', strtotime($snapshotTime) ?: time());
         }
 
         if (isset($columns['data_period'])) {
@@ -592,6 +600,7 @@ final class OnlineDailyDataPersistenceService
             'realtime', 'real_time', 'realtime_snapshot', 'today_realtime', 'live', 'snapshot' => 'realtime_snapshot',
             'historical', 'history', 'historical_daily', 'daily', 'fixed', 'final' => 'historical_daily',
             'next_30_days', 'next30days', 'future_forecast', 'forecast', 'forecast_window' => 'next_30_days',
+            'future_on_books', 'future_on_book', 'on_books', 'on_book', 'future_stay_date' => 'future_on_books',
             default => '',
         };
     }

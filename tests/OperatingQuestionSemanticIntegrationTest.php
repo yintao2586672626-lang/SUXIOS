@@ -66,36 +66,13 @@ final class OperatingQuestionSemanticIntegrationTest extends TestCase
     {
         $aiCalls = 0;
         $precise = new OperatingQuestionPreciseQueryService();
-        $facts = [[
-            'ref' => 'online_daily_data#102476',
-            'data_date' => '2026-08-25',
-            'platform' => 'meituan',
-            'data_type' => 'traffic',
-            'history_status' => 'success',
-            'readback_status' => 'readback_verified',
-            'readback_verified_at' => '2026-08-25 23:55:00',
-            'source_trace_id' => 'trace-meituan-20260825',
-            'metric_values' => ['list_exposure' => 1422],
-            'metric_units' => ['list_exposure' => 'exposure_count'],
-            'metric_definitions' => ['list_exposure' => [
-                'claimable' => true,
-                'definition_id' => 'ota_list_exposure.v1',
-                'source_metric_key' => 'mt_exposure',
-                'source_data_type' => 'traffic',
-                'source_key' => 'mt_exposure',
-                'storage_field' => 'online_daily_data.list_exposure',
-                'field_fact_digest' => str_repeat('a', 64),
-                'source_path_digest' => str_repeat('b', 64),
-                'unit_status' => 'verified',
-                'unit' => 'exposure_count',
-            ]],
-        ]];
+        $facts = $this->hotel80MeituanTrafficFacts();
         $service = new OperatingQuestionService(
             static fn(): array => [
                 'facts' => $facts,
                 'fact_count' => 1,
                 'fact_platform_counts' => ['meituan' => 1],
-                'fact_platform_dates' => ['meituan' => ['2026-08-25']],
+                'fact_platform_dates' => ['meituan' => ['2026-08-23']],
                 'memories' => [],
                 'diagnoses' => [],
                 'knowledge' => [],
@@ -108,8 +85,9 @@ final class OperatingQuestionSemanticIntegrationTest extends TestCase
             static fn(array $payload): array => $precise->finalize($payload)
         );
 
-        $first = $service->create(10, 80, '美团曝光量是多少', 'meituan', '2026-08-25', '2026-08-25', 7);
-        $second = $service->create(10, 80, '美团曝光量是多少', 'meituan', '2026-08-25', '2026-08-25', 7);
+        $first = $service->create(10, 80, '美团曝光人数是多少', 'meituan', '2026-08-23', '2026-08-23', 7);
+        $second = $service->create(10, 80, '美团曝光人数是多少', 'meituan', '2026-08-23', '2026-08-23', 7);
+        $exactReadback = $service->read((int)$first['question']['id'], 10, [80]);
 
         self::assertTrue($first['created']);
         self::assertFalse($second['created']);
@@ -120,8 +98,13 @@ final class OperatingQuestionSemanticIntegrationTest extends TestCase
         self::assertSame('not_called_deterministic', $first['question']['answer']['ai_runtime']['status']);
         self::assertSame(0, $aiCalls);
         self::assertSame(1422, $first['question']['answer']['precise_result']['metric_readback']['values'][0]['value']);
-        self::assertSame('ota_exposure_volume', $first['question']['answer']['query_router']['metric_key']);
-        self::assertSame('online-data', $first['question']['answer']['query_router']['target_page']);
+        self::assertSame('people', $first['question']['answer']['precise_result']['metric_readback']['values'][0]['unit']);
+        self::assertSame(
+            ['data.myHotel.exposureUV'],
+            $first['question']['answer']['precise_result']['metric_readback']['values'][0]['source_paths']
+        );
+        self::assertSame('meituan_exposure_users', $first['question']['answer']['query_router']['metric_key']);
+        self::assertSame('meituan-ebooking', $first['question']['answer']['query_router']['target_page']);
         self::assertSame(['online_daily_data#102476'], $first['question']['answer']['used_evidence_refs']);
         self::assertSame([], $first['question']['answer']['action_drafts']);
         self::assertFalse($first['question']['answer']['boundaries']['external_llm_called']);
@@ -129,11 +112,85 @@ final class OperatingQuestionSemanticIntegrationTest extends TestCase
         self::assertFalse($first['question']['answer']['boundaries']['ota_write']);
         self::assertFalse($first['question']['answer']['boundaries']['external_message']);
         self::assertFalse($first['question']['answer']['boundaries']['automatic_execution']);
+        self::assertSame($first['question']['content_digest'], $exactReadback['content_digest']);
+        self::assertSame($first['question']['answer_status'], $exactReadback['answer_status']);
+        self::assertSame($first['question']['answer'], $exactReadback['answer']);
+        self::assertSame($first['question']['fact_refs'], $exactReadback['fact_refs']);
+        self::assertSame('passed', $first['question']['analysis_quality_receipt']['quality_status']);
+        self::assertSame('supported', $first['question']['analysis_quality_receipt']['claim_status']);
+        self::assertSame('ready', $first['question']['analysis_quality_receipt']['status']);
         self::assertSame(
-            $first['question']['content_digest'],
-            $service->read((int)$first['question']['id'], 10, [80])['content_digest']
+            $first['question']['analysis_quality_receipt']['receipt_digest'],
+            $exactReadback['analysis_quality_receipt']['receipt_digest']
         );
         self::assertSame(1, (int)Db::name('hotel_operating_questions')->count());
+    }
+
+    public function testThreeMetricPartialAnswerIsSavedAndExactlyReadBackWithoutAi(): void
+    {
+        $aiCalls = 0;
+        $precise = new OperatingQuestionPreciseQueryService();
+        $facts = $this->hotel80MeituanTrafficFacts();
+        $service = new OperatingQuestionService(
+            static fn(): array => [
+                'facts' => $facts,
+                'fact_count' => 1,
+                'fact_platform_counts' => ['meituan' => 1],
+                'fact_platform_dates' => ['meituan' => ['2026-08-23']],
+                'memories' => [],
+                'diagnoses' => [],
+                'knowledge' => [],
+                'executions' => [],
+            ],
+            static function (array $payload) use (&$aiCalls): array {
+                $aiCalls++;
+                return ['ok' => true, 'summary' => '不应被调用'];
+            },
+            static fn(array $payload): array => $precise->finalize($payload)
+        );
+
+        $created = $service->create(
+            10,
+            80,
+            '美团曝光人数、商详访客数和意向支付转化率分别是多少',
+            'meituan',
+            '2026-08-23',
+            '2026-08-23',
+            7
+        );
+        $exactReadback = $service->read((int)$created['question']['id'], 10, [80]);
+        $metricSet = $created['question']['answer']['precise_result']['metric_set'];
+        $byMetric = [];
+        foreach ($metricSet['items'] as $item) {
+            $byMetric[(string)($item['metric']['key'] ?? '')] = $item;
+        }
+
+        self::assertTrue($created['created']);
+        self::assertSame('readback_verified', $created['persistence_status']);
+        self::assertSame('answered_by_precise_query_partial', $created['question']['answer_status']);
+        self::assertSame('partial', $created['question']['answer']['precise_result']['status']);
+        self::assertSame(3, $metricSet['result_count']);
+        self::assertSame(2, $metricSet['ready_count']);
+        self::assertSame(1, $metricSet['blocked_count']);
+        self::assertSame(1422, $byMetric['meituan_exposure_users']['value']);
+        self::assertSame('people', $byMetric['meituan_exposure_users']['unit']);
+        self::assertSame(206, $byMetric['meituan_detail_visitors']['value']);
+        self::assertSame('people', $byMetric['meituan_detail_visitors']['unit']);
+        self::assertNull($byMetric['intent_payment_conversion_rate']['value']);
+        self::assertSame('blocked_by_source_contract', $byMetric['intent_payment_conversion_rate']['status']);
+        self::assertSame(['online_daily_data#102476'], $created['question']['answer']['used_evidence_refs']);
+        self::assertSame(0, $aiCalls);
+        self::assertSame($created['question']['content_digest'], $exactReadback['content_digest']);
+        self::assertSame($created['question']['answer_status'], $exactReadback['answer_status']);
+        self::assertSame($created['question']['answer'], $exactReadback['answer']);
+        self::assertSame($created['question']['fact_refs'], $exactReadback['fact_refs']);
+        self::assertSame('passed', $created['question']['analysis_quality_receipt']['quality_status']);
+        self::assertSame('limited', $created['question']['analysis_quality_receipt']['claim_status']);
+        self::assertSame('partial', $created['question']['analysis_quality_receipt']['status']);
+        self::assertSame(
+            $created['question']['analysis_quality_receipt']['receipt_digest'],
+            $exactReadback['analysis_quality_receipt']['receipt_digest']
+        );
     }
 
     public function testAdrDoesNotUseGenericAmountWhenRoomRevenueIsMissing(): void
@@ -147,6 +204,7 @@ final class OperatingQuestionSemanticIntegrationTest extends TestCase
                     'platform' => 'ctrip',
                     'data_type' => 'business',
                     'history_status' => 'success',
+                    'quality_status' => 'verified',
                     'readback_status' => 'readback_verified',
                     'metric_values' => ['amount' => 1200.0, 'quantity' => 8],
                 ]],
@@ -163,9 +221,67 @@ final class OperatingQuestionSemanticIntegrationTest extends TestCase
         );
 
         $result = $service->create(10, 80, '平均房价是多少', 'ctrip', '2026-08-25', '2026-08-25', 7);
-        self::assertSame('blocked_by_missing_inputs', $result['question']['answer_status']);
+        self::assertSame('blocked_by_missing_metric', $result['question']['answer_status']);
         self::assertSame('not_computable', $result['question']['answer']['precise_result']['metric_readback']['status']);
         self::assertSame([], $result['question']['answer']['precise_result']['metric_readback']['values']);
-        self::assertStringContainsString('不可计算', $result['question']['answer_summary']);
+        self::assertStringContainsString('ADR未返回', $result['question']['answer_summary']);
+        self::assertStringContainsString(
+            'adr_aligned_room_revenue_or_room_nights_missing',
+            $result['question']['answer_summary']
+        );
+        self::assertSame('passed', $result['question']['analysis_quality_receipt']['quality_status']);
+        self::assertSame('blocked', $result['question']['analysis_quality_receipt']['claim_status']);
+    }
+
+    /** @return list<array<string,mixed>> */
+    private function hotel80MeituanTrafficFacts(): array
+    {
+        return [[
+            'ref' => 'online_daily_data#102476',
+            'data_date' => '2026-08-23',
+            'platform' => 'meituan',
+            'data_type' => 'traffic',
+            'history_status' => 'success',
+            'quality_status' => 'verified',
+            'readback_status' => 'readback_verified',
+            'readback_verified_at' => '2026-08-24 23:18:36',
+            'source_trace_id' => 'trace-meituan-20260823',
+            'metric_values' => [
+                'list_exposure' => 1422,
+                'detail_exposure' => 206,
+                'flow_rate' => 14.49,
+            ],
+            'metric_units' => [
+                'list_exposure' => 'exposure_count',
+                'detail_exposure' => 'exposure_count',
+                'flow_rate' => 'source_defined_rate',
+            ],
+            'metric_provenance' => [
+                'list_exposure' => [[
+                    'metric_key' => 'list_exposure',
+                    'source_key' => 'exposureUV',
+                    'source_path' => 'data.myHotel.exposureUV',
+                    'storage_field' => 'list_exposure',
+                    'status' => 'captured',
+                    'stored_value_present' => true,
+                ]],
+                'detail_exposure' => [[
+                    'metric_key' => 'detail_exposure',
+                    'source_key' => 'intentionUV',
+                    'source_path' => 'data.myHotel.intentionUV',
+                    'storage_field' => 'detail_exposure',
+                    'status' => 'captured',
+                    'stored_value_present' => true,
+                ]],
+                'flow_rate' => [[
+                    'metric_key' => 'flow_rate',
+                    'source_key' => 'exposure_to_browse_rate',
+                    'source_path' => 'data.myHotel.exposure_to_browse_rate',
+                    'storage_field' => 'flow_rate',
+                    'status' => 'captured',
+                    'stored_value_present' => true,
+                ]],
+            ],
+        ]];
     }
 }

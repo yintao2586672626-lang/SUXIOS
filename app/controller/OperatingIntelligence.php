@@ -64,7 +64,8 @@ final class OperatingIntelligence extends Base
                 (string)($input['date_end'] ?? ''),
                 (int)($this->currentUser->id ?? 0),
                 (string)($input['model_key'] ?? 'local_second_brain'),
-                (string)($input['decision_object'] ?? '')
+                (string)($input['decision_object'] ?? ''),
+                is_array($input['media_evidence_ids'] ?? null) ? $input['media_evidence_ids'] : []
             ));
         } catch (Throwable $e) {
             return $this->error($this->safeMessage($e, '经营问题保存失败'), $this->status($e));

@@ -109,6 +109,16 @@ test('today orchestration keeps exact hotel date source and non-success task sta
     Array.from(model.items, (item) => item.statusLabel),
     ['已阻塞', '待审批', '待执行', '等待复盘', '已复盘'],
   );
+  assert.equal(model.anomalyTotal, 1);
+  assert.equal(model.anomalyStateLabel, '1 项任务级异动');
+  assert.deepEqual(
+    Array.from(model.anomalyItems, (item) => item.statusLabel),
+    ['已阻塞'],
+  );
+  assert.deepEqual(
+    Array.from(model.followupItems, (item) => item.statusLabel),
+    ['待审批', '待执行', '等待复盘', '已复盘'],
+  );
   assert.equal(model.items.find((item) => item.intentId === 104)?.blockedReason, '来源事实缺失');
   assert.equal(model.fact.statusLabel, '已取得');
   assert.match(model.fact.sourceLabel, /2026-08-01定稿事实/);
@@ -119,20 +129,66 @@ test('loading failure waiting and empty are separate truthful states', () => {
   assert.equal(loading.stateCode, 'loading');
   assert.equal(loading.isInitialLoading, true);
 
+  const refreshing = build({ data_status: 'ok', data_gaps: [], list: [] }, { loading: true });
+  assert.equal(refreshing.stateCode, 'refreshing');
+  assert.equal(refreshing.anomalyStateLabel, '异动范围未确认');
+
   const failed = build(null, { error: '接口超时' });
   assert.equal(failed.stateCode, 'failed');
   assert.match(failed.notice, /接口超时/);
   assert.equal(failed.isEmpty, false);
+  assert.equal(failed.anomalyStateLabel, '异动范围未确认');
 
   const waiting = build({ data_status: '待接入真实数据', data_gaps: [], list: [] });
   assert.equal(waiting.stateCode, 'waiting');
   assert.match(waiting.notice, /不显示为无任务或已完成/);
   assert.equal(waiting.isEmpty, false);
+  assert.equal(waiting.anomalyStateLabel, '异动范围未确认');
+
+  const partial = build({
+    data_status: 'partial',
+    data_gaps: ['review_readback_missing'],
+    list: [{ ...baseItem, id: 107, stage: 'evidence' }],
+  });
+  assert.equal(partial.stateCode, 'partial');
+  assert.equal(partial.anomalyTotal, 1);
+  assert.equal(partial.anomalyStateLabel, '至少 1 项任务级异动');
 
   const empty = build({ data_status: 'ok', data_gaps: [], list: [] });
   assert.equal(empty.stateCode, 'ready');
   assert.equal(empty.stateLabel, '今日暂无任务');
   assert.equal(empty.isEmpty, true);
+  assert.equal(empty.anomalyStateLabel, '暂无任务级异动');
+});
+
+test('task anomaly projection excludes normal workflow and includes overdue work', () => {
+  const flow = {
+    data_status: 'ok',
+    data_gaps: [],
+    list: [
+      { ...baseItem, id: 201, stage: 'blocked', approval: { status: 'blocked', blocked_reason: '来源事实缺失' } },
+      { ...baseItem, id: 202, stage: 'failed', execution: { status: 'failed', blocked_reason: '执行回执失败' } },
+      { ...baseItem, id: 203, stage: 'rejected' },
+      { ...baseItem, id: 204, stage: 'evidence' },
+      { ...baseItem, id: 205, stage: 'approval' },
+      {
+        ...baseItem,
+        id: 206,
+        stage: 'execution',
+        approval: { status: 'approved', approved_at: '2026-08-01 09:00:00' },
+        assignment: { status: 'scheduled', due_at: '2026-08-01 10:00:00', review_at: '2026-08-03 10:00:00' },
+      },
+    ],
+  };
+
+  const model = build(flow);
+  assert.equal(model.anomalyTotal, 5);
+  assert.deepEqual(
+    Array.from(model.anomalyItems, (item) => item.intentId),
+    [203, 202, 201, 206, 204],
+  );
+  assert.equal(model.anomalyItems.find((item) => item.intentId === 206)?.timeText, '已逾期');
+  assert.deepEqual(Array.from(model.followupItems, (item) => item.intentId), [205]);
 });
 
 test('daily one thing is promoted to one focus card and removed from the generic list', () => {
@@ -232,6 +288,11 @@ test('home entry opens exact fact or intent and refreshes from execution readbac
   assert.match(homeStaticSource, /'data-intent-id': fact \? undefined : item\.intentId/);
   assert.match(homeStaticSource, /今天没有匹配的运营任务/);
   assert.match(homeStaticSource, /这不等于经营已完成/);
+  assert.match(homeStaticSource, /'data-testid': 'home-operating-anomaly-summary'/);
+  assert.match(homeStaticSource, /'data-testid': 'home-operating-anomaly-list'/);
+  assert.match(homeStaticSource, /'data-testid': 'home-operating-followup-list'/);
+  assert.match(homeStaticSource, /今日异动速览/);
+  assert.match(homeStaticSource, /后续行动与复盘/);
   assert.match(appMain, /HomeOperatingOrchestration = window\.SUXI_HOME_STATIC\?\.HomeOperatingOrchestration/);
   assert.match(appMain, /apiRequest\(`\/operation\/execution-flow\?\$\{params\.toString\(\)\}`\)/);
   assert.match(appMain, /params\.set\('system_hotel_id', hotelId\)/);

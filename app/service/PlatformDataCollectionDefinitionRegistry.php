@@ -387,7 +387,7 @@ final class PlatformDataCollectionDefinitionRegistry
                 'storage_table' => 'online_daily_data',
                 'storage_field' => 'list_exposure',
                 'missing_state' => 'field_missing',
-                'source_keys' => ['mt_exposure', 'list_exposure', 'listExposure', 'impressions', 'exposure_count', 'exposureCount', 'exposureUV', 'exposure_uv'],
+                'source_keys' => ['mt_exposure', 'exposureUV', 'exposure_uv', 'list_exposure', 'listExposure', 'impressions', 'exposure_count', 'exposureCount'],
             ],
             [
                 'metric_key' => 'mt_exposure',

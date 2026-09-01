@@ -12,13 +12,8 @@ const FORMULA_VERSIONS = {
 };
 const DEFAULT_MIN_PAIRS = 7;
 const DEFAULT_WINDOW_DAYS = 14;
+const DEFAULT_DRIFT_RATIO = 0.15;
 const DEFAULT_SELF_CHECK_TOLERANCE = 0.05;
-const MANUAL_EXCLUSION_REASONS = [
-  'verified_source_definition_change',
-  'verified_cumulative_cutoff_mismatch',
-  'verified_capture_corruption',
-  'verified_duplicate_batch',
-];
 
 export class InputError extends Error {
   constructor(code, message) {
@@ -63,6 +58,14 @@ function enumValue(value, name, allowed) {
   const text = requiredString(value, name);
   if (!allowed.includes(text)) {
     throw new InputError('invalid_input', `${name} must be one of: ${allowed.join(', ')}`);
+  }
+  return text;
+}
+
+function reasonCode(value, name) {
+  const text = requiredString(value, name);
+  if (!/^[a-z0-9][a-z0-9_-]{0,79}$/.test(text)) {
+    throw new InputError('invalid_input', `${name} must be a short lowercase reason code`);
   }
   return text;
 }
@@ -591,18 +594,11 @@ function parseCalibrationRows(payload, scope, targetDate) {
           `calibration_rows[${index}].exclusion_reason is required when baseline_eligible is false`,
         );
       }
-      exclusionReason = enumValue(
+      exclusionReason = reasonCode(
         row.exclusion_reason,
         `calibration_rows[${index}].exclusion_reason`,
-        MANUAL_EXCLUSION_REASONS,
       );
     }
-    const exclusionSourceRef = !baselineEligible && eventStatus !== 'verified_event_outlier'
-      ? provenanceRef(
-          row.exclusion_source_ref,
-          `calibration_rows[${index}].exclusion_source_ref`,
-        )
-      : null;
     return {
       date,
       quality,
@@ -613,7 +609,6 @@ function parseCalibrationRows(payload, scope, targetDate) {
       event_status: eventStatus,
       baseline_eligible: baselineEligible,
       exclusion_reason: exclusionReason,
-      exclusion_source_ref: exclusionSourceRef,
     };
   }).sort((a, b) => a.date.localeCompare(b.date));
 }
@@ -629,22 +624,11 @@ function analyzeRolling(payload, scope) {
     min: minPairs,
     max: 90,
   });
-  const driftRatio = options.drift_ratio === undefined || options.drift_ratio === null
-    ? null
-    : finiteNumber(options.drift_ratio, 'options.drift_ratio', {
-        min: 0,
-        exclusiveMin: true,
-        max: 1,
-      });
-  const driftPolicyRef = driftRatio === null
-    ? null
-    : provenanceRef(options.drift_policy_ref, 'options.drift_policy_ref');
-  if (driftRatio === null && options.drift_policy_ref !== undefined) {
-    throw new InputError(
-      'invalid_input',
-      'options.drift_policy_ref requires options.drift_ratio',
-    );
-  }
+  const driftRatio = finiteNumber(options.drift_ratio ?? DEFAULT_DRIFT_RATIO, 'options.drift_ratio', {
+    min: 0,
+    exclusiveMin: true,
+    max: 1,
+  });
   const rows = parseCalibrationRows(payload, scope, target.date);
   const exclusions = [];
   const verifiedRows = [];
@@ -685,12 +669,8 @@ function analyzeRolling(payload, scope) {
     if (row.event_status === 'verified_event_outlier') {
       exclusion = { date: row.date, reason: 'verified_event_outlier' };
     } else if (!row.baseline_eligible) {
-      exclusion = {
-        date: row.date,
-        reason: `baseline_ineligible_${row.exclusion_reason}`,
-        source_ref: row.exclusion_source_ref,
-      };
-    } else if (priorMedian !== null && driftRatio !== null) {
+      exclusion = { date: row.date, reason: `baseline_ineligible_${row.exclusion_reason}` };
+    } else if (priorMedian !== null) {
       const relativeDrift = Math.abs(row.multiplier - priorMedian) / priorMedian;
       if (relativeDrift > driftRatio) {
         exclusion = {
@@ -731,14 +711,10 @@ function analyzeRolling(payload, scope) {
         pre_drift_verified_pairs: targetPreDriftRows.length,
         window_days: windowDays,
         drift_ratio: driftRatio,
-        drift_policy_ref: driftPolicyRef,
-        drift_policy_status: driftRatio === null ? 'not_configured' : 'unvalidated_configured_heuristic',
         exclusions,
       },
       estimate: null,
-      alerts: [driftRatio === null
-        ? 'Too few verified pairs remain after declared exclusions; no multiplier-drift threshold was configured.'
-        : 'Too few verified pairs remain after declared-event and configured multiplier-drift exclusions.'],
+      alerts: ['Too few verified pairs remain after declared-event and multiplier-drift exclusions.'],
     };
   }
 
@@ -759,11 +735,7 @@ function analyzeRolling(payload, scope) {
     last_date: targetRows[targetRows.length - 1].date,
     window_days: windowDays,
     drift_ratio: driftRatio,
-    drift_policy_ref: driftPolicyRef,
-    drift_policy_status: driftRatio === null ? 'not_configured' : 'unvalidated_configured_heuristic',
-    drift_detection: driftRatio === null
-      ? 'not_configured'
-      : `prior_window_median_after_${minPairs}_history_pairs`,
+    drift_detection: `prior_window_median_after_${minPairs}_history_pairs`,
     exclusions,
     input_lineage: targetRows.map((row) => row.source_ref),
   };
@@ -873,16 +845,11 @@ function analyzeRolling(payload, scope) {
       'the empirical error band is descriptive and is not a confidence guarantee',
       'the output is an estimate and does not change the platform fact state',
     ],
-    alerts: [
-      ...(driftRatio === null
-        ? ['No multiplier-drift threshold was applied; configure one with an explicit policy reference before excluding drift rows.']
-        : ['The configured multiplier-drift threshold is an unvalidated heuristic, not a proven business or statistical cutoff.']),
-      ...(interval === null
-        ? [p90Error !== null && p90Error >= 1
-            ? 'Rolling-origin P90 error is at least 100%, so no finite numeric interval was released.'
-            : 'Too few rolling-origin residuals exist for an empirical interval; the point estimate is still estimate_only.']
-        : []),
-    ],
+    alerts: interval === null
+      ? [p90Error !== null && p90Error >= 1
+          ? 'Rolling-origin P90 error is at least 100%, so no finite numeric interval was released.'
+          : 'Too few rolling-origin residuals exist for an empirical interval; the point estimate is still estimate_only.']
+      : [],
   };
 }
 

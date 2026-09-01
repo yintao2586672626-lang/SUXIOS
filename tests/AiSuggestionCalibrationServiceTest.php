@@ -133,6 +133,15 @@ final class AiSuggestionCalibrationServiceTest extends TestCase
 
     protected function setUp(): void
     {
+        foreach ([
+            'corrupt_ai_snapshot_after_insert',
+            'corrupt_ai_feedback_after_insert',
+            'corrupt_ai_observation_after_insert',
+            'corrupt_ai_comparison_after_insert',
+            'corrupt_only_new_ai_snapshot_after_insert',
+        ] as $trigger) {
+            Db::execute('DROP TRIGGER IF EXISTS ' . $trigger);
+        }
         Db::name('ai_suggestion_strategy_comparisons')->delete(true);
         Db::name('ai_suggestion_calibration_observation_events')->delete(true);
         Db::name('ai_suggestion_calibration_feedback_events')->delete(true);
@@ -157,6 +166,122 @@ final class AiSuggestionCalibrationServiceTest extends TestCase
         self::assertStringContainsString("DEFAULT 'not_called'", $sql);
         self::assertStringContainsString("DEFAULT 'none'", $sql);
         self::assertDoesNotMatchRegularExpression('/^\\s*(ALTER|INSERT|UPDATE|DELETE)\\b/im', $sql);
+    }
+
+    public function testEveryCalibrationWriterRollsBackWhenExactReadbackIsCorrupted(): void
+    {
+        $service = $this->service();
+        $corruptDigest = str_repeat('0', 64);
+
+        Db::execute(
+            "CREATE TRIGGER corrupt_ai_snapshot_after_insert "
+            . "AFTER INSERT ON ai_suggestion_calibration_snapshots BEGIN "
+            . "UPDATE ai_suggestion_calibration_snapshots SET content_digest = '$corruptDigest' "
+            . "WHERE id = NEW.id; END"
+        );
+        $this->assertAtomicReadbackRollback(
+            fn(): array => $service->freezeSuggestion($this->suggestionInput(1, 0.82)),
+            'AI suggestion snapshot integrity verification failed',
+            'ai_suggestion_calibration_snapshots'
+        );
+        Db::execute('DROP TRIGGER corrupt_ai_snapshot_after_insert');
+
+        $service->freezeSuggestion($this->suggestionInput(2, 0.72));
+        Db::execute(
+            "CREATE TRIGGER corrupt_ai_feedback_after_insert "
+            . "AFTER INSERT ON ai_suggestion_calibration_feedback_events BEGIN "
+            . "UPDATE ai_suggestion_calibration_feedback_events SET content_digest = '$corruptDigest' "
+            . "WHERE id = NEW.id; END"
+        );
+        $this->assertAtomicReadbackRollback(
+            fn(): array => $service->appendFeedback([
+                ...$this->scope(),
+                'suggestion_key' => 'suggestion-2',
+                'feedback_status' => 'accepted',
+                'reason_code' => 'bounded_test',
+                'reason_note' => 'fault-injected readback',
+                'idempotency_key' => 'feedback-atomicity-1',
+            ]),
+            'AI suggestion feedback integrity verification failed',
+            'ai_suggestion_calibration_feedback_events'
+        );
+        Db::execute('DROP TRIGGER corrupt_ai_feedback_after_insert');
+
+        Db::execute(
+            "CREATE TRIGGER corrupt_ai_observation_after_insert "
+            . "AFTER INSERT ON ai_suggestion_calibration_observation_events BEGIN "
+            . "UPDATE ai_suggestion_calibration_observation_events SET content_digest = '$corruptDigest' "
+            . "WHERE id = NEW.id; END"
+        );
+        $this->assertAtomicReadbackRollback(
+            fn(): array => $service->appendExecutionReview([
+                ...$this->scope(),
+                'suggestion_key' => 'suggestion-2',
+                'execution_status' => 'executed',
+                'review_result' => 'supported',
+                'observed_at' => '2026-08-29 10:00:00',
+                'evidence_digest' => hash('sha256', 'observation-atomicity-1'),
+                'idempotency_key' => 'observation-atomicity-1',
+            ]),
+            'AI suggestion observation integrity verification failed',
+            'ai_suggestion_calibration_observation_events'
+        );
+        Db::execute('DROP TRIGGER corrupt_ai_observation_after_insert');
+
+        Db::execute(
+            "CREATE TRIGGER corrupt_ai_comparison_after_insert "
+            . "AFTER INSERT ON ai_suggestion_strategy_comparisons BEGIN "
+            . "UPDATE ai_suggestion_strategy_comparisons SET content_digest = '$corruptDigest' "
+            . "WHERE id = NEW.id; END"
+        );
+        $this->assertAtomicReadbackRollback(
+            fn(): array => $service->recordStrategyComparison([
+                ...$this->scope(),
+                'comparison_key' => 'atomicity-candidate',
+                'idempotency_key' => 'comparison-atomicity-1',
+                'mode' => 'offline',
+                'scenario' => 'daily_one_thing',
+                'evaluation_set' => 'bounded-fixture',
+                'baseline_version' => 'ranker.v1',
+                'candidate_version' => 'ranker.v2-candidate',
+                'evaluation_snapshot_digest' => hash('sha256', 'bounded-fixture'),
+                'baseline_metrics' => ['acceptance_rate' => 0.4],
+                'candidate_metrics' => ['acceptance_rate' => 0.5],
+                'rollback_metadata' => [
+                    'target_version' => 'ranker.v1',
+                    'trigger' => 'readback drift',
+                    'procedure' => 'discard candidate',
+                ],
+            ]),
+            'AI strategy comparison integrity verification failed',
+            'ai_suggestion_strategy_comparisons'
+        );
+    }
+
+    public function testCorruptedNewSnapshotRollsBackOnlyThatInsertAndPreservesPriorEvidence(): void
+    {
+        $service = $this->service();
+        $existing = $service->freezeSuggestion($this->suggestionInput(91, 0.81));
+        $corruptDigest = str_repeat('0', 64);
+        Db::execute(
+            "CREATE TRIGGER corrupt_only_new_ai_snapshot_after_insert "
+            . "AFTER INSERT ON ai_suggestion_calibration_snapshots BEGIN "
+            . "UPDATE ai_suggestion_calibration_snapshots SET content_digest = '$corruptDigest' "
+            . "WHERE id = NEW.id; END"
+        );
+
+        try {
+            $service->freezeSuggestion($this->suggestionInput(92, 0.79));
+            self::fail('the corrupted new snapshot must roll back without touching earlier evidence');
+        } catch (RuntimeException $error) {
+            self::assertSame('AI suggestion snapshot integrity verification failed', $error->getMessage());
+        }
+
+        $rows = Db::name('ai_suggestion_calibration_snapshots')->order('id', 'asc')->select()->toArray();
+        self::assertCount(1, $rows);
+        self::assertSame((int)$existing['id'], (int)$rows[0]['id']);
+        self::assertSame('suggestion-91', (string)$rows[0]['suggestion_key']);
+        self::assertSame((string)$existing['content_digest'], (string)$rows[0]['content_digest']);
     }
 
     public function testFrozenSuggestionIsIdempotentAndReadbackIsExactToUserHotelScope(): void
@@ -811,6 +936,20 @@ final class AiSuggestionCalibrationServiceTest extends TestCase
         return new AiSuggestionCalibrationService(
             static fn(): DateTimeImmutable => new DateTimeImmutable('2026-08-29 09:30:00')
         );
+    }
+
+    private function assertAtomicReadbackRollback(
+        callable $writer,
+        string $expectedMessage,
+        string $table
+    ): void {
+        try {
+            $writer();
+            self::fail('a corrupted exact readback must roll back its insert');
+        } catch (RuntimeException $error) {
+            self::assertSame($expectedMessage, $error->getMessage());
+        }
+        self::assertSame(0, (int)Db::name($table)->count());
     }
 
     /** @return array{tenant_id:int,user_id:int,hotel_id:int} */

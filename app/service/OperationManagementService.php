@@ -2288,7 +2288,7 @@ class OperationManagementService
             ? $intent['target_value']
             : $this->decodeJson((string)($intent['target_value_json'] ?? ''));
         $card = is_array($target['action_card'] ?? null) ? $target['action_card'] : [];
-        if ((string)($card['contract_version'] ?? '') === OperationActionLifecycleService::CARD_CONTRACT_VERSION) {
+        if (in_array((string)($card['contract_version'] ?? ''), [OperationActionLifecycleService::CARD_CONTRACT_VERSION, OperationActionLifecycleService::DAILY_CARD_CONTRACT_VERSION], true)) {
             $contract = is_array($card['metric_contract'] ?? null) ? $card['metric_contract'] : [];
             return strtolower(trim((string)($contract['expected_direction'] ?? ''))) === 'observe'
                 && strtolower(trim((string)($contract['target_type'] ?? ''))) === 'observation'

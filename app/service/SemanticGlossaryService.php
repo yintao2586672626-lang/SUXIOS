@@ -153,6 +153,220 @@ final class SemanticGlossaryService
     }
 
     /**
+     * Resolve every non-overlapping business metric mentioned in one query.
+     * Platform words determine scope and are not returned as competing metric
+     * concepts. A short alias nested only inside a longer metric term is also
+     * suppressed (for example 曝光 inside 曝光到访率).
+     *
+     * @return array<string,mixed>
+     */
+    public function resolveMetrics(string $query, string $platform = ''): array
+    {
+        $query = mb_substr(trim($query), 0, 1000);
+        $requestedPlatform = $this->normalizePlatform($platform);
+        if ($query === '') {
+            return $this->metricResolution('no_match', $query, $requestedPlatform, '', [], 'empty_query');
+        }
+
+        $index = $this->index();
+        $normalizedQuery = self::normalize($query);
+        $detectedPlatforms = $this->detectedPlatforms($query, $index['concepts']);
+        $detectedPlatform = count($detectedPlatforms) === 1 ? $detectedPlatforms[0] : '';
+        if ($requestedPlatform !== ''
+            && $requestedPlatform !== 'all_ota'
+            && $detectedPlatforms !== []
+            && !in_array($requestedPlatform, $detectedPlatforms, true)
+        ) {
+            return $this->metricResolution(
+                'scope_conflict',
+                $query,
+                $requestedPlatform,
+                $detectedPlatform,
+                [],
+                'query_platform_conflicts_with_explicit_scope'
+            );
+        }
+        $effectivePlatform = $requestedPlatform !== '' ? $requestedPlatform : $detectedPlatform;
+
+        $matchedByConcept = [];
+        foreach ($index['search_entries'] as $entry) {
+            $concept = $index['concepts'][(string)$entry['concept_key']] ?? null;
+            if (!is_array($concept)
+                || ($concept['is_business_metric'] ?? false) !== true
+                || !$this->conceptMatchesPlatform($concept, $effectivePlatform)
+            ) {
+                continue;
+            }
+            $needle = (string)$entry['normalized_term'];
+            if ($needle === '') {
+                continue;
+            }
+            $positions = $this->allPositions($normalizedQuery, $needle);
+            if ($positions === []) {
+                continue;
+            }
+            $key = (string)$concept['concept_key'];
+            $length = (int)$entry['length'];
+            $currentLength = (int)($matchedByConcept[$key]['length'] ?? 0);
+            if ($length < $currentLength) {
+                continue;
+            }
+            $spans = array_map(
+                static fn(int $start): array => ['start' => $start, 'end' => $start + $length, 'length' => $length],
+                $positions
+            );
+            if ($length > $currentLength) {
+                $matchedByConcept[$key] = [
+                    'length' => $length,
+                    'entry' => $entry,
+                    'concept' => $concept,
+                    'spans' => $spans,
+                ];
+            } else {
+                $matchedByConcept[$key]['spans'] = array_merge(
+                    (array)($matchedByConcept[$key]['spans'] ?? []),
+                    $spans
+                );
+            }
+        }
+
+        if ($matchedByConcept === []) {
+            return $this->metricResolution('no_match', $query, $requestedPlatform, $detectedPlatform, [], 'metric_term_not_found');
+        }
+
+        $matches = array_values($matchedByConcept);
+        $matches = array_values(array_filter($matches, static function (array $candidate) use ($matches): bool {
+            foreach ((array)$candidate['spans'] as $span) {
+                $contained = false;
+                foreach ($matches as $other) {
+                    if ((string)$other['concept']['concept_key'] === (string)$candidate['concept']['concept_key']) {
+                        continue;
+                    }
+                    foreach ((array)$other['spans'] as $otherSpan) {
+                        if ((int)$otherSpan['length'] > (int)$span['length']
+                            && (int)$otherSpan['start'] <= (int)$span['start']
+                            && (int)$otherSpan['end'] >= (int)$span['end']
+                        ) {
+                            $contained = true;
+                            break 2;
+                        }
+                    }
+                }
+                if (!$contained) {
+                    return true;
+                }
+            }
+            return false;
+        }));
+        usort($matches, static function (array $left, array $right): int {
+            $leftStart = min(array_column((array)$left['spans'], 'start'));
+            $rightStart = min(array_column((array)$right['spans'], 'start'));
+            return $leftStart <=> $rightStart ?: (int)$right['length'] <=> (int)$left['length'];
+        });
+
+        $metrics = [];
+        foreach ($matches as $match) {
+            $public = $this->publicConcept(
+                (array)$match['concept'],
+                (array)$match['entry'],
+                $effectivePlatform
+            );
+            $public['match_spans'] = array_values((array)$match['spans']);
+            $metrics[] = $public;
+        }
+        if ($effectivePlatform === '' && $metrics !== []) {
+            return $this->metricResolution(
+                'ambiguous_platform',
+                $query,
+                $requestedPlatform,
+                $detectedPlatform,
+                $metrics,
+                'platform_required_for_metric_readback'
+            );
+        }
+        return $this->metricResolution(
+            count($metrics) > 1 ? 'matched_multi' : 'matched',
+            $query,
+            $requestedPlatform,
+            $detectedPlatform,
+            $metrics,
+            ''
+        );
+    }
+
+    /**
+     * Resolve every requested metric independently against the same strict
+     * fact packet. One missing metric yields partial, not a fabricated value
+     * and not a blanket failure for the other requested metrics.
+     *
+     * @param array<string,mixed> $resolution
+     * @param list<array<string,mixed>> $facts
+     * @return array<string,mixed>
+     */
+    public function metricReadbacks(array $resolution, array $facts): array
+    {
+        $metrics = array_values(array_filter(
+            is_array($resolution['metrics'] ?? null) ? $resolution['metrics'] : [],
+            'is_array'
+        ));
+        $base = [
+            'contract_version' => 'suxios.semantic_metric_readback_set.v1',
+            'status' => 'blocked_by_semantic_resolution',
+            'items' => [],
+            'used_evidence_refs' => [],
+            'data_gaps' => [],
+            'decision_safe' => false,
+            'external_write_authorized' => false,
+        ];
+        if (!in_array((string)($resolution['status'] ?? ''), ['matched', 'matched_multi'], true) || $metrics === []) {
+            return $base;
+        }
+
+        $successCount = 0;
+        foreach ($metrics as $metric) {
+            $single = [
+                'contract_version' => self::CONTRACT_VERSION,
+                'status' => 'matched',
+                'query' => (string)($resolution['query'] ?? ''),
+                'normalized_query' => (string)($resolution['normalized_query'] ?? ''),
+                'requested_platform' => $resolution['requested_platform'] ?? null,
+                'detected_platform' => $resolution['detected_platform'] ?? null,
+                'effective_platform' => $resolution['effective_platform'] ?? null,
+                'primary' => $metric,
+                'candidates' => [$metric],
+                'reason' => '',
+                'decision_safe' => false,
+                'external_write_authorized' => false,
+            ];
+            $readback = $this->metricReadback($single, $facts);
+            if (in_array((string)($readback['status'] ?? ''), ['readback_verified', 'calculated_from_same_fact_scope'], true)) {
+                $successCount++;
+            }
+            $base['items'][] = [
+                'semantic' => $metric,
+                'readback' => $readback,
+            ];
+            $base['used_evidence_refs'] = array_merge(
+                $base['used_evidence_refs'],
+                array_map('strval', (array)($readback['used_evidence_refs'] ?? []))
+            );
+            foreach ((array)($readback['data_gaps'] ?? []) as $gap) {
+                if (is_array($gap)) {
+                    $base['data_gaps'][] = $gap + [
+                        'metric_key' => $metric['metric_key'] ?? null,
+                        'canonical_term' => $metric['canonical_term'] ?? null,
+                    ];
+                }
+            }
+        }
+        $base['used_evidence_refs'] = array_values(array_unique($base['used_evidence_refs']));
+        $base['status'] = $successCount === count($metrics)
+            ? 'readback_verified'
+            : ($successCount > 0 ? 'partial' : 'blocked_by_missing_metrics');
+        return $base;
+    }
+
+    /**
      * Add only curated, server-owned aliases to the existing feature catalog.
      * Page and action values continue to come from the catalog, never the pack.
      *
@@ -228,6 +442,9 @@ final class SemanticGlossaryService
         if ($metricKey === 'adr') {
             return $this->adrReadback($base, $calculation, $facts, $platform);
         }
+        if ($metricKey === 'exposure_to_visit_rate') {
+            return $this->exposureToVisitReadback($base, $concept, $facts, $platform);
+        }
 
         $mappings = is_array($concept['platform_metric_mappings'] ?? null)
             ? $concept['platform_metric_mappings']
@@ -253,7 +470,7 @@ final class SemanticGlossaryService
             $metricValues = is_array($fact['metric_values'] ?? null) ? $fact['metric_values'] : [];
             foreach ($storageFields as $field) {
                 $value = $metricValues[$field] ?? null;
-                if (!is_numeric($value)) {
+                if (!is_numeric($value) || !$this->factMetricProvenanceMatches($fact, $field, $mapping)) {
                     continue;
                 }
                 $ref = trim((string)($fact['ref'] ?? ''));
@@ -262,7 +479,12 @@ final class SemanticGlossaryService
                     'value' => $value + 0,
                     'unit' => (string)($mapping['unit'] ?? ($fact['metric_units'][$field] ?? 'source_defined_value')),
                     'storage_field' => $field,
+                    'source_paths' => $this->metricSourcePaths($fact, $field),
                     'evidence_ref' => $ref,
+                    'collected_at' => $fact['collected_at'] ?? null,
+                    'verification_status' => $this->factQualityStatus($fact),
+                    'readback_status' => (string)($fact['readback_status'] ?? 'not_verified'),
+                    'source_trace_id' => (string)($fact['source_trace_id'] ?? ''),
                 ];
                 if ($ref !== '') {
                     $base['used_evidence_refs'][] = $ref;
@@ -276,6 +498,78 @@ final class SemanticGlossaryService
             return $base;
         }
         $base['status'] = 'readback_verified';
+        return $base;
+    }
+
+    /** @param array<string,mixed> $base @param array<string,mixed> $concept @param list<array<string,mixed>> $facts @return array<string,mixed> */
+    private function exposureToVisitReadback(array $base, array $concept, array $facts, string $platform): array
+    {
+        $mappings = is_array($concept['platform_metric_mappings'] ?? null)
+            ? $concept['platform_metric_mappings']
+            : [];
+        $mapping = is_array($mappings[$platform] ?? null) ? $mappings[$platform] : [];
+        if (($mapping['status'] ?? '') !== 'mapped_with_same_scope_fact_required') {
+            $base['status'] = 'blocked_by_source_contract';
+            $base['data_gaps'][] = ['code' => 'platform_metric_source_contract_required'];
+            return $base;
+        }
+        $exposureMapping = is_array($mapping['inputs']['exposure_users'] ?? null)
+            ? $mapping['inputs']['exposure_users']
+            : [];
+        $visitorMapping = is_array($mapping['inputs']['detail_visitors'] ?? null)
+            ? $mapping['inputs']['detail_visitors']
+            : [];
+        foreach ($facts as $fact) {
+            if ($this->factPlatform($fact) !== $platform || !$this->factIsStrict($fact)) {
+                continue;
+            }
+            $values = is_array($fact['metric_values'] ?? null) ? $fact['metric_values'] : [];
+            $exposureField = (string)($exposureMapping['storage_field'] ?? '');
+            $visitorField = (string)($visitorMapping['storage_field'] ?? '');
+            $exposure = $values[$exposureField] ?? null;
+            $visitors = $values[$visitorField] ?? null;
+            if ($exposureField === '' || $visitorField === ''
+                || !is_numeric($exposure) || !is_numeric($visitors) || (float)$exposure <= 0.0
+                || !$this->factMetricProvenanceMatches($fact, $exposureField, $exposureMapping)
+                || !$this->factMetricProvenanceMatches($fact, $visitorField, $visitorMapping)
+            ) {
+                continue;
+            }
+            $value = round((float)$visitors / (float)$exposure * 100, 2);
+            $ref = trim((string)($fact['ref'] ?? ''));
+            $base['values'][] = [
+                'date' => (string)($fact['data_date'] ?? ''),
+                'value' => $value,
+                'unit' => 'percent',
+                'formula' => 'detail_visitors / exposure_users * 100',
+                'inputs' => [
+                    'detail_visitors' => 0 + $visitors,
+                    'exposure_users' => 0 + $exposure,
+                ],
+                'source_paths' => array_values(array_unique(array_merge(
+                    $this->metricSourcePaths($fact, $exposureField),
+                    $this->metricSourcePaths($fact, $visitorField)
+                ))),
+                'evidence_ref' => $ref,
+                'collected_at' => $fact['collected_at'] ?? null,
+                'verification_status' => $this->factQualityStatus($fact),
+                'readback_status' => (string)($fact['readback_status'] ?? 'not_verified'),
+                'source_trace_id' => (string)($fact['source_trace_id'] ?? ''),
+            ];
+            if ($ref !== '') {
+                $base['used_evidence_refs'][] = $ref;
+            }
+        }
+        $base['used_evidence_refs'] = array_values(array_unique($base['used_evidence_refs']));
+        if ($base['values'] === []) {
+            $base['status'] = 'not_computable';
+            $base['data_gaps'][] = [
+                'code' => 'aligned_exposure_users_or_detail_visitors_missing',
+                'required_inputs' => ['exposure_users', 'detail_visitors'],
+            ];
+            return $base;
+        }
+        $base['status'] = 'calculated_from_same_fact_scope';
         return $base;
     }
 
@@ -307,6 +601,10 @@ final class SemanticGlossaryService
                 'formula' => 'room_revenue / room_nights',
                 'inputs' => ['room_revenue' => $revenue, 'room_nights' => $roomNights],
                 'evidence_ref' => $ref,
+                'collected_at' => $fact['collected_at'] ?? null,
+                'verification_status' => $this->factQualityStatus($fact),
+                'readback_status' => (string)($fact['readback_status'] ?? 'not_verified'),
+                'source_trace_id' => (string)($fact['source_trace_id'] ?? ''),
             ];
             if ($ref !== '') {
                 $base['used_evidence_refs'][] = $ref;
@@ -340,8 +638,15 @@ final class SemanticGlossaryService
     private function factIsStrict(array $fact): bool
     {
         return (string)($fact['history_status'] ?? '') === 'success'
+            && $this->factQualityStatus($fact) === 'verified'
             && (string)($fact['readback_status'] ?? '') === 'readback_verified'
             && trim((string)($fact['ref'] ?? '')) !== '';
+    }
+
+    /** @param array<string,mixed> $fact */
+    private function factQualityStatus(array $fact): string
+    {
+        return strtolower(trim((string)($fact['quality_status'] ?? $fact['validation_status'] ?? '')));
     }
 
     /** @param array<string,mixed> $fact */
@@ -352,6 +657,47 @@ final class SemanticGlossaryService
             $platform = (string)($fact['source'] ?? '');
         }
         return $this->normalizePlatform($platform);
+    }
+
+    /** @param array<string,mixed> $fact @param array<string,mixed> $mapping */
+    private function factMetricProvenanceMatches(array $fact, string $field, array $mapping): bool
+    {
+        $requiredPaths = array_values(array_filter(array_map('strval', (array)($mapping['required_source_paths'] ?? []))));
+        $requiredMetricKeys = array_values(array_filter(array_map('strval', (array)($mapping['required_metric_keys'] ?? []))));
+        if ($requiredPaths === [] && $requiredMetricKeys === []) {
+            return true;
+        }
+        $provenance = is_array($fact['metric_provenance'][$field] ?? null)
+            ? $fact['metric_provenance'][$field]
+            : [];
+        foreach ($provenance as $item) {
+            if (!is_array($item)
+                || (string)($item['status'] ?? '') !== 'captured'
+                || ($item['stored_value_present'] ?? false) !== true
+            ) {
+                continue;
+            }
+            $path = (string)($item['source_path'] ?? '');
+            $metricKey = (string)($item['metric_key'] ?? '');
+            $pathMatches = $requiredPaths === [] || in_array($path, $requiredPaths, true);
+            $keyMatches = $requiredMetricKeys === [] || in_array($metricKey, $requiredMetricKeys, true);
+            if ($pathMatches && $keyMatches) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** @param array<string,mixed> $fact @return list<string> */
+    private function metricSourcePaths(array $fact, string $field): array
+    {
+        $paths = [];
+        foreach ((array)($fact['metric_provenance'][$field] ?? []) as $item) {
+            if (is_array($item) && trim((string)($item['source_path'] ?? '')) !== '') {
+                $paths[] = trim((string)$item['source_path']);
+            }
+        }
+        return array_values(array_unique($paths));
     }
 
     /** @param array<string,array<string,mixed>> $concepts @return list<string> */
@@ -462,6 +808,45 @@ final class SemanticGlossaryService
             'decision_safe' => false,
             'external_write_authorized' => false,
         ];
+    }
+
+    /** @param list<array<string,mixed>> $metrics @return array<string,mixed> */
+    private function metricResolution(
+        string $status,
+        string $query,
+        string $requestedPlatform,
+        string $detectedPlatform,
+        array $metrics,
+        string $reason
+    ): array {
+        $effectivePlatform = $requestedPlatform !== '' ? $requestedPlatform : $detectedPlatform;
+        return [
+            'contract_version' => 'suxios.semantic_glossary.metric_resolution.v1',
+            'status' => $status,
+            'query' => $query,
+            'normalized_query' => self::normalize($query),
+            'requested_platform' => $requestedPlatform !== '' ? $requestedPlatform : null,
+            'detected_platform' => $detectedPlatform !== '' ? $detectedPlatform : null,
+            'effective_platform' => $effectivePlatform !== '' ? $effectivePlatform : null,
+            'primary' => count($metrics) === 1 ? $metrics[0] : null,
+            'metrics' => array_values($metrics),
+            'metric_count' => count($metrics),
+            'reason' => $reason,
+            'decision_safe' => false,
+            'external_write_authorized' => false,
+        ];
+    }
+
+    /** @return list<int> */
+    private function allPositions(string $haystack, string $needle): array
+    {
+        $positions = [];
+        $offset = 0;
+        while (($position = mb_strpos($haystack, $needle, $offset)) !== false) {
+            $positions[] = $position;
+            $offset = $position + max(1, mb_strlen($needle));
+        }
+        return $positions;
     }
 
     public static function normalize(string $value): string

@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import crypto from 'node:crypto';
 import path from 'node:path';
 import vm from 'node:vm';
+import { verifyFrozenAiWorkbenchContract } from './lib/frozen_ai_workbench_contract.mjs';
 
 const root = process.cwd();
 const sourceCache = new Map();
@@ -20,6 +21,7 @@ const frontendSemanticSources = () => [
   { file: 'public/index.html', source: readRaw('public/index.html') },
   { file: 'resources/frontend/app-template.html (semantic)', source: readTemplateSemantic() },
   { file: 'public/components/system/app-main-components.js', source: readRaw('public/components/system/app-main-components.js') },
+  { file: 'public/components/system/knowledge-center-domain.js', source: readRaw('public/components/system/knowledge-center-domain.js') },
   { file: 'public/app-main.js', source: readRaw('public/app-main.js') },
 ];
 const sourceEntries = (file) => file === 'public/index.html'
@@ -242,10 +244,8 @@ requireText('public/system-static.js', 'const buildHotelPlatformBindingRows', 's
 requireText('public/index.html', 'const dualOtaEffectiveStoreScope = computed(() => dualOtaResolveStoreScope(dualOtaSelectedStoreScope.value));', 'AI workbench resolves default dual-platform scope by current hotel platform readiness');
 requireText('public/index.html', "if (requested !== 'combined') return requested;", 'AI workbench preserves manual single-platform diagnostics instead of auto-collapsing explicit platform choices');
 requireText('public/index.html', "return readyScopes.length === 1 ? readyScopes[0] : 'combined';", 'AI workbench still auto-collapses only the default dual-platform view when exactly one OTA platform is ready');
-requireText('public/index.html', '<span class="dual-ota-context-item dual-ota-context-item-store">', 'AI workbench keeps the current-hotel selector in the platform scope row');
+verifyFrozenAiWorkbenchContract({ requireText, requirePattern, requireNoText, requireOrder });
 requireNoText('public/index.html', '<div class="dual-ota-context-strip">', 'AI workbench does not render the current-hotel selector in a separate row above platform buttons');
-requireOrder('public/index.html', '<span class="dual-ota-context-item dual-ota-context-item-store">', '<div class="dual-ota-store-scope-list" role="list" aria-label="经营数据源选择">', 'AI workbench aligns current-hotel selector before the data-source switch buttons in the same strip');
-requireText('public/index.html', '<div class="dual-ota-store-scope-list" role="list" aria-label="经营数据源选择">', 'AI workbench keeps the data-source switch buttons in the store-scope strip');
 requireNoText('public/index.html', '<div class="dual-ota-store-scope-head">', 'AI workbench does not render the platform switch title or binding notice in the store-scope strip');
 requireNoText('public/index.html', '<div class="dual-ota-store-scope-list" role="list" aria-label="平台切换">', 'AI workbench does not keep the removed platform switch title as the store-scope list label');
 requireNoText('public/index.html', '<span v-if="dualOtaSelectedStoreScopeNotice">{{ dualOtaSelectedStoreScopeNotice }}</span>', 'AI workbench does not show the selected single-platform binding notice in the store-scope strip');
@@ -255,7 +255,6 @@ requireNoText('public/index.html', 'return `未绑定${label}账户`;', 'AI work
 requireNoText('public/index.html', "return `当前门店${missingPlatform}未达到可采集状态，已按${activePlatform}口径展示`;", 'AI workbench does not keep the removed store-scope auto-collapse notice text');
 requireText('public/index.html', 'const dualOtaHotelSearchCounts = ref(readDualOtaHotelSearchCounts());', 'AI workbench keeps local hotel search counts for current-hotel ordering');
 requireText('public/index.html', 'const dualOtaCurrentHotelOptions = computed(() => {', 'AI workbench current-hotel selector can order hotels by local search count');
-requireText('public/index.html', '<option v-for="hotel in dualOtaCurrentHotelOptions" :key="hotel.id" :value="hotel.id">{{ hotel.name }}</option>', 'AI workbench current-hotel selector renders the ordered hotel list');
 requireText('public/index.html', 'const resolveDefaultReportHotelId = () => {', 'AI workbench resolves only an explicit valid main hotel as its default current hotel');
 requireText('public/index.html', "const boundHotelId = String(user.value?.hotel_id || '').trim();\n                if (boundHotelId && reportHotelOptionExists(boundHotelId)) return boundHotelId;", 'AI workbench defaults current hotel to the account-bound main hotel when available');
 requireTextBetween('public/index.html', 'const resolveDefaultReportHotelId = () => {', 'let suppressNextReportHotelDashboardRefresh', "return '';", 'AI workbench stays unselected when no valid main hotel is bound');
@@ -279,10 +278,7 @@ requireText('public/index.html', "dualOtaMissingMetric('营收', '当前门店�
 requireText('public/index.html', "dualOtaMetric('浏览→支付', payConversion, '当前门店美团支付转化'", 'AI workbench current-store Meituan column shows own conversion in the same slot as competitor average');
 requireText('public/index.html', "scope === 'ctrip' ? '携程本店指标' : (scope === 'meituan' ? '美团本店指标' : 'OTA本店指标')", 'AI workbench labels the left column as own-store metrics, not a query-status panel');
 requireText('public/index.html', "title: String(filterReportHotel.value || '').trim() ? '门店数据' : '筛选数据',", 'AI workbench labels the own-store column as store data');
-requireText('public/index.html', '<button type="button" :class="[\'dual-ota-compare-toggle\', dualOtaCompareEnabled ? \'is-active\' : \'\']"', 'AI workbench places the same-period comparison switch before platform buttons');
 requireText('public/index.html', 'const dualOtaCompareEnabled = ref(false);', 'AI workbench same-period comparison is off by default');
-requireText('public/index.html', '<small v-if="dualOtaCompareEnabled" :title="metric.note">{{ dualOtaMetricComparisonText(metric) }}</small>', 'AI workbench system metric footnotes show previous-period comparison only when enabled');
-requireText('public/index.html', '<small v-else="" class="dual-ota-system-metric-spacer" aria-hidden="true">&nbsp;</small>', 'AI workbench keeps metric card layout stable when comparison is disabled');
 requireText('public/index.html', 'const toggleDualOtaCompare = () => {', 'AI workbench exposes a local comparison display toggle');
 requireText('public/index.html', "if ((currentText === '未返回' || currentText === '待更新') && metric.note) {", 'AI workbench comparison line keeps missing-data reasons visible for missing current metrics');
 requireText('public/index.html', "const dualOtaCtripMissingReason = (fallback = '当前携程指标未返回') => {", 'AI workbench explains Ctrip missing metrics by selected range and target date');
@@ -308,7 +304,6 @@ requireText('public/index.html', "const totalRevenue = observedOrRows(metrics.to
 requireText('public/index.html', "return dualOtaExistingMetricText(row?.[textField]) ? value : null;", 'AI workbench row-backed Meituan totals keep undisplayable metrics missing instead of coercing them to zero');
 requireText('public/index.html', "const previousTotals = dualOtaMeituanMetricTotals(previousMetrics, previousRows);", 'AI workbench Meituan average comparison uses previous-period row-backed metric totals');
 requireText('public/index.html', "const previousMeituanTotals = dualOtaMeituanMetricTotals(previousMeituanMetrics, previousMeituanRows);", 'AI workbench combined comparison uses previous-period Meituan row-backed metric totals');
-requireText('public/index.html', 'class="dual-ota-context-select dual-ota-hotel-select"', 'AI workbench current-hotel select uses the dedicated readable select styling');
 requireText('public/style.css', 'text-align-last: center;', 'AI workbench current-hotel select centers the displayed selected store');
 requireText('public/index.html', 'const refreshDualOtaWorkbenchData = async ({ allowFetch = false, silent = true } = {}) => {', 'AI workbench has one store/range/platform refresh entrypoint');
 requireText('public/index.html', 'refreshDualOtaWorkbenchData({ allowFetch: true, silent: false });', 'AI workbench store/range/platform changes trigger data refresh and necessary fetch prompts');
@@ -339,11 +334,7 @@ requireNoText('public/index.html', "dualOtaMetric('查询门店', dualOtaSelecte
 requireNoText('public/index.html', "dualOtaMissingMetric('携程明细行', '本次快照按当前表单门店查询，但未返回本店明细行')", 'AI workbench current-store column no longer renders a Ctrip detail-row status card');
 requireNoText('public/index.html', "dualOtaMetric('口径', '携程OTA', '不是全酒店经营口径', 'warning')", 'AI workbench current-store column no longer renders OTA-scope explanation cards as metrics');
 requireText('public/index.html', 'const dualOtaPlatformRevenueTitle = computed(() => {', 'AI workbench revenue structure title follows the effective platform scope');
-requireText('public/index.html', '<h2>{{ dualOtaPlatformRevenueTitle }}</h2>', 'AI workbench renders platform-aware revenue title');
-requireText('public/index.html', '<div v-if="platform.metrics && platform.metrics.length" class="dual-ota-platform-metrics">', 'AI workbench renders single-platform revenue as revenue plus order/night/ADR metrics');
-requireText('public/index.html', 'dualOtaPlatformRevenuePlatforms.length === 1 ? \'is-single\' : \'\'', 'AI workbench uses a single-column revenue structure when one OTA platform is selected');
 requireText('public/index.html', 'const dualOtaCurrentRevenuePlatforms = () => {', 'AI workbench revenue structure is derived from current selected OTA rows');
-requireText('public/index.html', '<div v-if="dualOtaPlatformRevenueHasContribution" class="dual-ota-contribution" data-testid="dual-ota-platform-contribution-bar">', 'AI workbench hides the contribution bar when current selected revenue is missing or a single OTA platform is selected');
 requireText('public/index.html', 'dualOtaCurrentLossNodes = () => {', 'AI workbench loss chain is derived from current selected OTA rows');
 requireText('public/index.html', "delta: missing ? '字段未返回' : '已返回',", 'AI workbench loss-chain status does not repeat the missing value as a second metric');
 requireNoText('public/index.html', 'const platforms = Array.isArray(dualOtaDashboard.value.platformRevenue?.platforms) ? dualOtaDashboard.value.platformRevenue.platforms : [];', 'AI workbench revenue structure no longer uses static sample platform rows');
@@ -931,7 +922,7 @@ requireText('public/index.html', 'const isLoggedIn = ref(!!token.value && !!cach
 requireText('public/index.html', 'const user = ref(cachedAuthUser);', 'entry uses cached auth profile for initial permission filtering');
 requireText('public/index.html', 'const cachedPermittedHotels = Array.isArray(cachedAuthUser?.permitted_hotels) ? cachedAuthUser.permitted_hotels : [];', 'entry seeds hotel options from cached auth profile');
 requireText('public/index.html', 'saveCachedAuthUser(res.data);', 'auth/info refreshes the cached auth profile after verification');
-requireText('public/index.html', 'isLoggedIn.value = true;\n                            loadData();', 'auth/info success remains the verified login source after cached first paint');
+requirePattern('public/index.html', /if \(res\.code === 200\) \{[\s\S]*?saveCachedAuthUser\(res\.data\);[\s\S]*?isLoggedIn\.value = true;[\s\S]*?loadData\(\);/, 'auth/info success remains the verified login source after cached first paint');
 requireText('public/index.html', 'saveCachedAuthUser(res.data.user);', 'login success writes the cached auth profile');
 requireText('public/index.html', 'permittedHotels.value = dedupeHotels(res.data.user?.permitted_hotels || []);\n                        hotels.value = [...permittedHotels.value];', 'login seeds hotel options from permitted hotels before full hotel-list refresh');
 requireText('public/index.html', 'const clearAuthSession = () => {', 'auth cleanup clears token and cached auth user together');

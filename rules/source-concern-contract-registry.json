@@ -5,7 +5,10 @@
       "app/controller/concern/AgentOtaExecutionIntentConcern.php",
       "app/controller/concern/AgentCapturedOtaAnalysisConcern.php",
       "app/controller/concern/AgentOtaDiagnosisBuildConcern.php",
+      "app/controller/concern/AgentOtaDiagnosisActionConcern.php",
       "app/controller/concern/AgentOtaDiagnosisPersistenceConcern.php",
+      "app/controller/concern/AgentOtaDiagnosisSummaryGuardConcern.php",
+      "app/controller/concern/AgentOtaDiagnosisMetricConcern.php",
       "app/controller/concern/AgentOtaDiagnosisReadbackConcern.php"
     ],
     "app/controller/concern/AutoFetchConcern.php": [
@@ -27,7 +30,10 @@
       "app/service/concern/PlatformSyncTaskReadbackConcern.php",
       "app/service/concern/PlatformSyncTaskReadbackCoverageConcern.php",
       "app/service/concern/PlatformDataPersistenceConcern.php",
-      "app/service/concern/PlatformDataImportParsingConcern.php"
+      "app/service/concern/PlatformDataImportParsingConcern.php",
+      "app/service/concern/PlatformMetricNormalizationConcern.php",
+      "app/service/concern/PlatformNormalizedConsistencyConcern.php",
+      "app/service/concern/PlatformSyncIdentityConcern.php"
     ],
     "app/service/OperationManagementService.php": [
       "app/service/operation/OperationSnapshotConcern.php",
@@ -45,7 +51,22 @@
       "app/service/concern/OtaLocalCollectorManualLoginConcern.php"
     ],
     "app/service/AiDailyReportService.php": [
-      "app/service/concern/AiDailyReportReadinessConcern.php"
+      "app/service/concern/AiDailyReportReadinessConcern.php",
+      "app/service/concern/AiDailyReportExecutionReadConcern.php"
+    ],
+    "app/service/RevenueAiOverviewService.php": [
+      "app/service/concern/RevenueAiOverviewLabelConcern.php"
+    ],
+    "tests/OnlineDataTest.php": [
+      "tests/Support/OnlineData/CtripTestCases.php",
+      "tests/Support/OnlineData/MeituanTestCases.php",
+      "tests/Support/OnlineData/ProfileTestCases.php",
+      "tests/Support/OnlineData/AutoFetchTestCases.php",
+      "tests/Support/OnlineData/DailyOtaReviewTestCases.php"
+    ],
+    "tests/PlatformDataSyncServiceTest.php": [
+      "tests/Support/PlatformDataSyncBrowserProfileFixture.php",
+      "tests/Support/PlatformDataSyncConsistencyTestCases.php"
     ]
   }
 }

@@ -902,7 +902,7 @@ final class OperatingQuestionExecutionBridgeServiceTest extends TestCase
             );
             self::fail('tampered question digest must block approval');
         } catch (\RuntimeException $exception) {
-            self::assertStringContainsString('question_readback_digest_mismatch', $exception->getMessage());
+            self::assertStringContainsString('operating_question_readback_digest_drift', $exception->getMessage());
         }
         self::assertSame(0, (int)Db::name('operation_execution_tasks')->count());
     }
@@ -1658,9 +1658,9 @@ final class OperatingQuestionExecutionBridgeServiceTest extends TestCase
         );
         $firstId = (int)$first['question']['id'];
         $currentKey = (string)$first['question']['request_key'];
-        self::assertStringStartsWith('operating-question:v4:', $currentKey);
+        self::assertStringStartsWith('operating-question:v6:', $currentKey);
         Db::name('hotel_operating_questions')->where('id', $firstId)->update([
-            'request_key' => str_replace('operating-question:v4:', 'operating-question:v3:', $currentKey),
+            'request_key' => str_replace('operating-question:v6:', 'operating-question:v5:', $currentKey),
         ]);
 
         $second = $questionService->create(
@@ -1674,7 +1674,7 @@ final class OperatingQuestionExecutionBridgeServiceTest extends TestCase
         );
         self::assertTrue($second['created']);
         self::assertNotSame($firstId, (int)$second['question']['id']);
-        self::assertStringStartsWith('operating-question:v4:', (string)$second['question']['request_key']);
+        self::assertStringStartsWith('operating-question:v6:', (string)$second['question']['request_key']);
         self::assertSame(2, (int)Db::name('hotel_operating_questions')->count());
     }
 

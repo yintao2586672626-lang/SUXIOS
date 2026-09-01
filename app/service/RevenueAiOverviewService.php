@@ -10,6 +10,7 @@ class RevenueAiOverviewService
 {
     public const AS_OF_DATE_CONTRACT_VERSION = RevenueOverviewDateContract::VERSION;
 
+    use \app\service\concern\RevenueAiOverviewLabelConcern;
     private const CHANNELS = ['ctrip', 'meituan'];
     private const CTRIP_COMPETITOR_PLATFORM_VALUES = [1, '1', 'ctrip'];
 
@@ -44,6 +45,9 @@ class RevenueAiOverviewService
             'limit' => 5000,
         ];
         if (in_array($filters['strict_readback_only'] ?? false, [true, 1, '1', 'true'], true)) { $baseFilters['strict_readback_only'] = true; }
+        if (in_array($filters['strict_readback_only'] ?? false, [true, 1, '1', 'true'], true)) {
+            $baseFilters['strict_readback_only'] = true;
+        }
         if ($hotelIds !== []) {
             $baseFilters['permitted_hotel_ids'] = $hotelIds;
         }
@@ -5853,15 +5857,6 @@ class RevenueAiOverviewService
             }
         }
         return 'data_not_complete';
-    }
-
-    private function channelLabel(string $channel): string
-    {
-        return match ($channel) {
-            'ctrip' => '携程',
-            'meituan' => '美团',
-            default => $channel,
-        };
     }
 
     private function issueMessage(string $reason): string

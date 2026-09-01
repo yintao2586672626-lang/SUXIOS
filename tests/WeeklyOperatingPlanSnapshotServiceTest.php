@@ -331,6 +331,123 @@ final class WeeklyOperatingPlanSnapshotServiceTest extends TestCase
         self::assertTrue($result['readback_verified']);
     }
 
+    public function testCorruptedExactReadbackRollsBackSnapshotInsert(): void
+    {
+        $rows = [];
+        $reader = static function (string $action, array $scope) use (&$rows): mixed {
+            if ($action === 'next_version') {
+                return count($rows) + 1;
+            }
+            if ($action === 'by_source') {
+                return null;
+            }
+            if ($action === 'exact') {
+                foreach ($rows as $row) {
+                    if ((int)$row['id'] === (int)$scope['id']) {
+                        $row['final_text_sha256'] = str_repeat('0', 64);
+                        return $row;
+                    }
+                }
+            }
+            return null;
+        };
+        $writer = static function (array $row) use (&$rows): int {
+            $row['id'] = count($rows) + 1;
+            $rows[] = $row;
+            return (int)$row['id'];
+        };
+        $transaction = static function (callable $operation) use (&$rows): array {
+            $before = $rows;
+            try {
+                return $operation();
+            } catch (\Throwable $error) {
+                $rows = $before;
+                throw $error;
+            }
+        };
+        $service = new WeeklyOperatingPlanSnapshotService(
+            fn(): array => $this->sources(false),
+            $reader,
+            $writer,
+            static fn(): \DateTimeImmutable => new \DateTimeImmutable('2026-08-29 03:30:00'),
+            static fn(): bool => true,
+            $transaction
+        );
+
+        try {
+            $service->generateAndReadback(80, 80, '2026-08-28');
+            self::fail('a corrupted exact readback must roll back the weekly snapshot insert');
+        } catch (\RuntimeException $error) {
+            self::assertSame('weekly_plan_snapshot_readback_failed', $error->getMessage());
+        }
+        self::assertSame([], $rows);
+    }
+
+    public function testTransientExactReadbackFailureRetriesWithoutLeavingTheFailedInsert(): void
+    {
+        $rows = [];
+        $exactReads = 0;
+        $writes = 0;
+        $reader = static function (string $action, array $scope) use (&$rows, &$exactReads): mixed {
+            if ($action === 'next_version') {
+                return count($rows) + 1;
+            }
+            if ($action === 'by_source') {
+                foreach ($rows as $row) {
+                    if ((string)$row['source_digest'] === (string)$scope['source_digest']) {
+                        return $row;
+                    }
+                }
+                return null;
+            }
+            if ($action === 'exact') {
+                foreach ($rows as $row) {
+                    if ((int)$row['id'] !== (int)$scope['id']) {
+                        continue;
+                    }
+                    $exactReads++;
+                    if ($exactReads === 1) {
+                        $row['final_text_sha256'] = str_repeat('0', 64);
+                    }
+                    return $row;
+                }
+            }
+            return null;
+        };
+        $writer = static function (array $row) use (&$rows, &$writes): int {
+            $writes++;
+            $row['id'] = count($rows) + 1;
+            $rows[] = $row;
+            return (int)$row['id'];
+        };
+        $transaction = static function (callable $operation) use (&$rows): array {
+            $before = $rows;
+            try {
+                return $operation();
+            } catch (\Throwable $error) {
+                $rows = $before;
+                throw $error;
+            }
+        };
+        $service = new WeeklyOperatingPlanSnapshotService(
+            fn(): array => $this->sources(false),
+            $reader,
+            $writer,
+            static fn(): \DateTimeImmutable => new \DateTimeImmutable('2026-08-29 03:30:00'),
+            static fn(): bool => true,
+            $transaction
+        );
+
+        $result = $service->generateAndReadback(80, 80, '2026-08-28');
+
+        self::assertSame(2, $writes);
+        self::assertSame(2, $exactReads);
+        self::assertCount(1, $rows);
+        self::assertTrue($result['created']);
+        self::assertFalse($result['idempotent_replay']);
+        self::assertTrue($result['readback_verified']);
+    }
+
     /** @return array<string,mixed> */
     private function sources(bool $withRepeatedGap): array
     {

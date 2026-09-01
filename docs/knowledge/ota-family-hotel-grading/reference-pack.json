@@ -1,0 +1,123 @@
+{
+  "contract_version": "ota_family_hotel_grading_reference.v1",
+  "knowledge_key": "ota_family_hotel_grading_reference",
+  "title": "携程与美团亲子酒店分级（截图参考）",
+  "usage_policy": "reference_only",
+  "disposition": "absorption_candidate",
+  "task_mode": "storage_only",
+  "platform_identity_required": true,
+  "grade_conversion_allowed": false,
+  "contains_current_hotel_fact": false,
+  "contains_current_ota_fact": false,
+  "external_write_authorized": false,
+  "platforms": {
+    "ctrip": {
+      "display_identity": "携程亲子酒店评级",
+      "visible_level_count": 3,
+      "visible_levels": [
+        "亲子酒店",
+        "A级",
+        "A+级"
+      ],
+      "level_catalog_status": "three_levels_visible_in_source_not_assumed_current",
+      "visible_dimensions": [
+        {
+          "key": "family_facilities",
+          "label": "亲子设施",
+          "visible_description_summary": "儿童乐园、儿童俱乐部、水上乐园、儿童泳池、海滩等设施，并结合用户对设施的评价。"
+        },
+        {
+          "key": "family_activities",
+          "label": "亲子活动",
+          "visible_description_summary": "截图文字提到用户对亲子托管等服务的评价分；标签与描述的精确平台定义仍待官方规则核对。"
+        },
+        {
+          "key": "family_services",
+          "label": "亲子服务",
+          "visible_description_summary": "动物、手工体验、运动、游戏、研学等亲子活动，并结合用户评价。"
+        },
+        {
+          "key": "family_recognition",
+          "label": "亲子认可度",
+          "visible_description_summary": "结合亲子订单占比和亲子用户点评分等综合计分。"
+        },
+        {
+          "key": "nearby_family_attractions_3km",
+          "label": "3公里内的景点",
+          "visible_description_summary": "酒店附近3公里内适合亲子游玩的景点数量和热度。"
+        }
+      ],
+      "visual_artifact_notes": [
+        "长截图在滚动拼接处重复出现一次亲子服务卡片，按页面标题的五大服务维度保存，不解释为第六维。",
+        "截图未提供权重、阈值、数据周期、等级计算方法或当前生效日期。"
+      ]
+    },
+    "meituan": {
+      "display_identity": "美团酒店亲子酒店分级",
+      "visible_level_count": 2,
+      "visible_levels": [
+        "A级",
+        "S级"
+      ],
+      "level_catalog_status": "two_levels_visible_not_proven_complete_or_current",
+      "visible_dimensions": [
+        {
+          "key": "stay_experience",
+          "label": "居住体验",
+          "visible_description_summary": "房间空间、儿童主题装修、儿童专属用品，并结合用户点评总分、卫生分和位置分。"
+        },
+        {
+          "key": "dining_experience",
+          "label": "饮食体验",
+          "visible_description_summary": "酒店餐厅、专属儿童餐、儿童餐椅等配置，并结合餐饮亲子友好度。"
+        },
+        {
+          "key": "family_facilities",
+          "label": "亲子设施",
+          "visible_description_summary": "儿童乐园、儿童俱乐部、儿童泳池、水上乐园、水上滑梯、大型游乐场等，并结合用户真实体验评价。"
+        },
+        {
+          "key": "family_activities",
+          "label": "亲子活动",
+          "visible_description_summary": "飞盘、风筝、手工制作、采摘、攀岩、骑马、网球、水上运动等互动活动，并结合参与感与体验评价。"
+        }
+      ],
+      "service_guarantees_visible_but_not_rating_dimensions": [
+        "入住保障",
+        "退订保障",
+        "专业客服"
+      ],
+      "visual_artifact_notes": [
+        "服务保障位于分级维度之外，不把它们自动解释为评分因子。",
+        "截图未提供权重、阈值、数据周期、等级计算方法、完整等级目录或当前生效日期。"
+      ]
+    }
+  },
+  "cross_platform_boundary": {
+    "shared_labels_are_not_shared_metrics": [
+      "亲子设施",
+      "亲子活动"
+    ],
+    "rules": [
+      "携程和美团的等级字母不得直接换算或横向比较。",
+      "同名维度必须保留平台、来源截图、观察日期和各自描述，不能合并成一个统一数值字段。",
+      "截图只证明可见分级结构和宣传性说明，不证明隐藏评分算法、权重、阈值或当前平台规则。",
+      "本参考不能证明任何当前酒店已经获得或应当获得某一等级。"
+    ]
+  },
+  "unverified_items": [
+    "两套规则的官方来源URL与发布主体页面",
+    "正式发布日期、生效日期、适用地区和适用酒店范围",
+    "准入条件、维度权重、评分阈值、数据窗口和刷新频率",
+    "用户评价、订单占比、景点热度等指标的精确定义",
+    "美团截图所示A级和S级是否为完整等级目录",
+    "携程亲子活动与亲子服务标签及描述的正式字段定义",
+    "任一当前酒店的实际平台等级和达标状态"
+  ],
+  "upgrade_triggers": [
+    "取得携程或美团官方规则页、帮助中心页面或可定位的结构化响应",
+    "取得至少一个可核对门店的等级、维度输入和边界或失败样例",
+    "取得权重、阈值、统计周期、刷新规则和等级撤销条件",
+    "来源指纹变化或用户提供更完整截图时定向复验"
+  ]
+}

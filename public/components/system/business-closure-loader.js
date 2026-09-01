@@ -1,7 +1,7 @@
 (() => {
     const registry = window.SUXI_SYSTEM_COMPONENTS || (window.SUXI_SYSTEM_COMPONENTS = {});
-    const bodyScript = 'business-closure-views.js?v=20260803-business-closure-template-split-v1-h54845284ea';
-    const aiDailyDeliveryScript = 'ai-daily-report-delivery.js?v=20260824-ai-daily-report-delivery-v1-hde97a97ae7';
+    const bodyScript = 'business-closure-views.js?v=20260803-business-closure-template-split-v1-hd3cdadd714';
+    const aiDailyDeliveryScript = 'ai-daily-report-delivery.js?v=20260824-ai-daily-report-delivery-v1-h65db1b85b4';
     let loadPromise = null;
 
     const loadScript = (source) => new Promise((resolve, reject) => {
@@ -57,7 +57,6 @@
         ['KnowledgeFeatureFinderView', 'KnowledgeFeatureFinderBody'],
         ['KnowledgePromotionWorkbenchView', 'KnowledgePromotionWorkbenchBody'],
         ['OperatingGoalInterventionView', 'OperatingGoalInterventionBody'],
-        ['HomeTemporalTrialView', 'HomeTemporalTrialBody'],
         ['KnowledgeXlsxImportDialogView', 'KnowledgeXlsxImportDialogBody'],
         ['MeituanReviewOrderEvidenceView', 'MeituanReviewOrderEvidenceBody'],
         ['AiDailyTrustedBroadcastView', 'AiDailyTrustedBroadcastBody'],

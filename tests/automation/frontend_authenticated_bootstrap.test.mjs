@@ -337,7 +337,13 @@ test('public login shell defers the authenticated application asset chain', () =
   const styleAssets = entries
     .filter((entry) => entry.type === 'style')
     .map((entry) => stripFrontendAssetQuery(entry.src));
-  assert.deepEqual(styleAssets, ['tailwind.min.css', 'style-startup.min.css', 'style.min.css', 'ai-custom.css']);
+  assert.deepEqual(styleAssets, [
+    'tailwind.min.css',
+    'style-startup.min.css',
+    'style.min.css',
+    'ai-custom.css',
+    'compass-authority-polish.css',
+  ]);
   assert.match(index, /<link rel="stylesheet" href="login-critical\.css\?v=[^"]+"/);
   assert.doesNotMatch(index, /<link[^>]+href="(?:tailwind\.min|style|ai-custom)\.css/);
   assert.equal(scriptAssets[0], 'vue.runtime.global.prod.js');
@@ -348,6 +354,7 @@ test('public login shell defers the authenticated application asset chain', () =
   assert.equal(entries.find((entry) => stripFrontendAssetQuery(entry.src) === 'style-startup.min.css')?.phase, 'startup');
   assert.equal(entries.find((entry) => stripFrontendAssetQuery(entry.src) === 'style.min.css')?.phase, 'after-first-paint');
   assert.equal(entries.find((entry) => stripFrontendAssetQuery(entry.src) === 'ai-custom.css')?.phase, 'after-first-paint');
+  assert.equal(entries.find((entry) => stripFrontendAssetQuery(entry.src) === 'compass-authority-polish.css')?.phase, 'after-first-paint');
   assert.equal(
     entries.find((entry) => stripFrontendAssetQuery(entry.src) === 'app-deferred-helpers.min.js')?.phase,
     'after-first-paint',

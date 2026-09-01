@@ -12,6 +12,7 @@ export function readAppMainContractSource() {
   return [
     read('public/components/system/app-main-components.js'),
     read('public/components/system/operating-intelligence-components.js'),
+    read('public/components/system/knowledge-center-domain.js'),
     read('public/app-main.js'),
   ].join('\n');
 }

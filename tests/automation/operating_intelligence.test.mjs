@@ -158,6 +158,7 @@ test('professional operating questions remain evidence-gated while the global en
   assert.match(aiAnswers, /不得改价、改库存、创建任务、外发消息/);
   assert.match(aiAnswers, /DIRECT_MODEL_KEY = 'deepseek_v4_pro'/);
   assert.match(aiAnswers, /PROMPT_VERSION = 'operating_question_grounded_ai\.zh-CN\.v4'/);
+  assert.match(aiAnswers, /operating_question_grounded_ai\.zh-CN\.v4/);
   assert.match(aiAnswers, /decision_frame 只是用户选择或问题关键词推断的分析组织框架/);
   assert.match(questions, /RevenueDecisionFrameService/);
   assert.match(controller, /decision_object/);
@@ -167,10 +168,13 @@ test('professional operating questions remain evidence-gated while the global en
   assert.match(questions, /whereIn\('platform', self::ALL_OTA_REQUIRED_PLATFORMS\)/);
   assert.match(questions, /whereIn\('i\.platform', self::ALL_OTA_REQUIRED_PLATFORMS\)/);
   assert.match(questions, /where\('quality_status', 'verified'\)/);
-  assert.match(operatingIntelligenceComponents, /AI 行动草案 · 独立评审/);
+  assert.match(operatingIntelligenceComponents, /AI 行动草案 · 人工确认/);
   assert.match(operatingIntelligenceComponents, /ready \? '证据门已通过' : '需补齐后提交'/);
   assert.match(operatingIntelligenceComponents, /行动草案缺少完整证据、步骤或停止条件，暂不能提交/);
-  assert.match(operatingIntelligenceComponents, /提交后由独立 AI 重新核验事实；通过后只创建本地人工执行任务，不采集或写 OTA/);
+  assert.match(operatingIntelligenceComponents, /提交后由服务端重新核验事实；只保存待人工审批意图，不创建执行任务，也不采集或写 OTA/);
+  assert.match(appMain, /const humanReviewContract = String\(runtime\?\.prompt_version \|\| ''\) === 'operating_question_grounded_ai\.zh-CN\.v4'/);
+  assert.match(appMain, /\['operating_question_action_draft\.v1', 'operating_question_action_draft\.v2'\]/);
+  assert.match(appMain, /&& humanReviewContract/);
   assert.match(appMain, /新运营行动必须保持待人工审批且不得提前创建任务/);
   assert.match(appMain, /行动已保存为待人工审批；尚未创建执行任务，也未写 OTA/);
 
@@ -222,6 +226,7 @@ test('professional operating questions remain evidence-gated while the global en
   assert.match(systemUsageGuideComponent, /autoFetchCanonicalOperationStatus/);
   assert.match(systemUsageGuideComponent, /sx-system-guide-anchor-active/);
   assert.match(systemUsageGuideComponent, /导航目标来自当前账号可用的系统功能/);
+  assert.match(systemUsageGuideComponent, /怎么让 Codex 帮我？/);
   assert.doesNotMatch(systemUsageGuideComponent, /DeepSeek V4 Pro 正式版 · 教你使用 · 给出证据结论/);
   assert.doesNotMatch(systemUsageGuideComponent, /DeepSeek V4 Pro 正在理解目标/);
   assert.doesNotMatch(systemUsageGuideComponent, /DeepSeek V4 Pro直接生成 · 真实入口约束/);
@@ -254,10 +259,12 @@ test('system usage assistant maps common work to a real page and falls back to t
     `${systemUsageGuideHelpers}\nreturn { resolveSystemUsageGuideTopic, resolveSystemUsageGuideJourney, SYSTEM_USAGE_GUIDE_TOPICS, SYSTEM_USAGE_GUIDE_SUCCESS_MARKERS };`,
   )();
 
-  assert.equal(SYSTEM_USAGE_GUIDE_TOPICS.length, 26);
-  assert.equal(Object.keys(SYSTEM_USAGE_GUIDE_SUCCESS_MARKERS).length, 26);
+  assert.equal(SYSTEM_USAGE_GUIDE_TOPICS.length, 27);
+  assert.equal(Object.keys(SYSTEM_USAGE_GUIDE_SUCCESS_MARKERS).length, 27);
   assert.match(SYSTEM_USAGE_GUIDE_SUCCESS_MARKERS['data-health'], /精确回读/);
+  assert.match(SYSTEM_USAGE_GUIDE_SUCCESS_MARKERS['codex-collaboration'], /本地实现、Git、部署与现场结果/);
   assert.equal(resolveSystemUsageGuideTopic('我是第一次使用，今天应该先做什么').key, 'daily-workbench');
+  assert.equal(resolveSystemUsageGuideTopic('我想让 Codex 帮我检查或完善宿析OS，应该怎么说').key, 'codex-collaboration');
   assert.equal(resolveSystemUsageGuideTopic('携程数据缺失去哪里处理').key, 'data-health');
   assert.equal(resolveSystemUsageGuideTopic('在哪里看报告和经营结论').key, 'revenue-report');
   assert.equal(resolveSystemUsageGuideTopic('怎么给员工安排任务并复盘').key, 'operations');
@@ -265,6 +272,21 @@ test('system usage assistant maps common work to a real page and falls back to t
   assert.equal(resolveSystemUsageGuideTopic('怎么给新员工开账号并分配酒店权限').key, 'team-permissions');
   assert.equal(resolveSystemUsageGuideTopic('怎么生成今天的AI经营日报').key, 'ai-daily-report');
   assert.equal(resolveSystemUsageGuideTopic('美团订单和流量去哪里看').key, 'meituan-data');
+  const bluebookToday = '按任务蓝皮书带我完成今天经营工作：进入经营机会，基于可信事实或明确缺口，选出并保存唯一优先事项。';
+  assert.equal(resolveSystemUsageGuideTopic(bluebookToday).key, 'daily-workbench');
+  assert.deepEqual(resolveSystemUsageGuideJourney(bluebookToday, resolveSystemUsageGuideTopic(bluebookToday)), [
+    'daily-workbench',
+  ]);
+  const bluebookRecovery = '按任务蓝皮书查清数据为什么没进来：检查数据健康、自动采集和运行监控，缺失就明确阻塞。';
+  assert.equal(resolveSystemUsageGuideTopic(bluebookRecovery).key, 'data-health');
+  assert.deepEqual(resolveSystemUsageGuideJourney(bluebookRecovery, resolveSystemUsageGuideTopic(bluebookRecovery)), [
+    'data-health', 'auto-collect', 'automation-monitor',
+  ]);
+  const bluebookReport = '按任务蓝皮书先检查数据健康，再生成和预览 AI 经营日报；外发仍需人工确认。';
+  assert.equal(resolveSystemUsageGuideTopic(bluebookReport).key, 'data-health');
+  assert.deepEqual(resolveSystemUsageGuideJourney(bluebookReport, resolveSystemUsageGuideTopic(bluebookReport)), [
+    'data-health', 'ai-daily-report',
+  ]);
   const ctripPlan = resolveSystemUsageGuideTopic('先看携程经营数据，再形成运营方案');
   assert.equal(ctripPlan.key, 'ctrip-data');
   assert.deepEqual(resolveSystemUsageGuideJourney('先看携程经营数据，再形成运营方案', ctripPlan), [
@@ -275,6 +297,17 @@ test('system usage assistant maps common work to a real page and falls back to t
   assert.equal(resolveSystemUsageGuideTopic('怎么查看操作日志').key, 'operation-audit');
   assert.equal(resolveSystemUsageGuideTopic('这是一个没有目录的陌生请求').key, 'task-navigation');
   assert.equal(resolveSystemUsageGuideTopic('这是一个没有目录的陌生请求', 'compass').key, 'task-navigation');
+});
+
+test('global assistant exposes task bluebook shortcuts and puts resume first', () => {
+  assert.match(frontend, /key: 'bluebook-today'[\s\S]*label: '今天先做什么'/);
+  assert.match(frontend, /key: 'bluebook-data-recovery'[\s\S]*label: '数据为什么没进来'/);
+  assert.match(frontend, /key: 'bluebook-daily-report'[\s\S]*label: '生成可信经营日报'/);
+  assert.match(frontend, /按任务蓝皮书带我完成今天经营工作/);
+  assert.match(frontend, /按任务蓝皮书查清数据为什么没进来/);
+  assert.match(frontend, /外发仍需人工确认/);
+  assert.match(frontend, /items\.unshift\(\{[\s\S]*key: 'continue-task'/);
+  assert.match(frontend, /query: '可信播报怎么复制？'/);
 });
 
 test('all_ota diagnosis is explicit Ctrip plus Meituan current-date evidence and never whole-hotel fallback', () => {

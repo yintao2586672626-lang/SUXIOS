@@ -7,6 +7,8 @@ import vm from 'node:vm';
 const require = createRequire(import.meta.url);
 const appMain = readFileSync('public/app-main.js', 'utf8');
 const appTemplate = readFileSync('resources/frontend/app-template.html', 'utf8');
+const frozenAiWorkbenchTemplate = readFileSync('resources/frontend/templates/fragments/23b-page-ai-workbench.html', 'utf8');
+const frozenFeasibilityTemplate = readFileSync('resources/frontend/templates/fragments/03-page-ai-feasibility.html', 'utf8');
 const ctripStaticSource = readFileSync('public/ctrip-static.js', 'utf8');
 const dualOtaStaticSource = readFileSync('public/dual-ota-home-static.js', 'utf8');
 const meituanStaticSource = readFileSync('public/meituan-static.js', 'utf8');
@@ -173,7 +175,7 @@ test('dual-OTA current hotel requires both the system binding and an explicit se
   assert.match(appMain, /buildDualOtaConnectionRows/);
 });
 
-test('AI workbench personalizes hotel order per account and opens the matching manual capture page', async () => {
+test('frozen AI workbench logic retains per-account hotel order and manual capture routing', async () => {
   const hotelOrder = sliceBetween(appMain, 'const dualOtaHotelSearchCountStorageKey', 'const knowledgeCenterHotelOptions');
   const mountedBootstrap = sliceBetween(appMain, 'onMounted(() => {', 'onUnmounted(() => {');
   assert.match(hotelOrder, /suxios_dual_ota_hotel_search_counts_\$\{user\.value\?\.id \|\| 'guest'\}_v1/);
@@ -181,7 +183,8 @@ test('AI workbench personalizes hotel order per account and opens the matching m
   assert.match(mountedBootstrap, /const primaryPageLoad = isCompassDataPage\(\)\s*\?\s*activateCoreOperationsAfterLogin\(\)\s*:\s*nextTick\(\);/);
   assert.match(mountedBootstrap, /scheduleHotelManagementPrewarmAfter\(primaryPageLoad\);/);
   assert.match(appMain, /const scheduleHotelManagementPrewarmAfter = \(primaryPageLoad\) => \{\s*Promise\.resolve\(primaryPageLoad\)\.then/);
-  assert.match(appTemplate, /<option value="">全部门店<\/option>[\s\S]*v-for="hotel in dualOtaCurrentHotelOptions"/);
+  assert.doesNotMatch(appTemplate, /data-testid="home-ai-workbench"/);
+  assert.match(frozenAiWorkbenchTemplate, /<option value="">全部门店<\/option>[\s\S]*v-for="hotel in dualOtaCurrentHotelOptions"/);
 
   const shortcuts = sliceBetween(appMain, 'const dualOtaModuleNavigationTarget', 'const dualOtaSystemMetricPlatform');
   assert.match(shortcuts, /'携程竞争圈数据': 'ctrip-ranking'/);
@@ -189,7 +192,7 @@ test('AI workbench personalizes hotel order per account and opens the matching m
   assert.match(shortcuts, /await applyGeneralHotelToPlatformContext\('meituan', hotelId\)[\s\S]*currentPage\.value = 'meituan-ebooking'[\s\S]*onlineDataTab\.value = 'meituan-ranking'/);
   assert.match(shortcuts, /selectedCtripHotelId\.value = normalizedHotelId/);
   assert.match(shortcuts, /meituanForm\.value\.hotelId = normalizedHotelId/);
-  assert.match(appTemplate, /data-testid="`dual-ota-\$\{dualOtaModuleNavigationTarget\(item\)\}-shortcut`"[\s\S]*@click="openDualOtaModule\(item\)"/);
+  assert.match(frozenAiWorkbenchTemplate, /data-testid="`dual-ota-\$\{dualOtaModuleNavigationTarget\(item\)\}-shortcut`"[\s\S]*@click="openDualOtaModule\(item\)"/);
   assert.ok(
     appMain.indexOf('const hotelPlatformBindingRows =') < appMain.indexOf('watch([dualOtaReadyStoreScopes, dualOtaSelectedHotel]'),
     'the immediate connection watcher must run only after its hotel binding dependency is initialized',
@@ -311,11 +314,12 @@ test('frontend fallbacks keep missing risk and forecast metrics unknown instead 
   assert.match(appTemplate, /\{\{ card\.truthDetail \}\}/);
 });
 
-test('feasibility generation keeps the target hotel as an explicit truth boundary', () => {
+test('frozen feasibility source retains the target hotel truth boundary', () => {
   const feasibilityFlow = sliceBetween(appMain, 'const buildFeasibilityPayload', 'const createFeasibilityExecutionIntent');
   assert.match(feasibilityFlow, /hotel_id:\s*Number\(aiFeasibilityHotelId\.value \|\| 0\) \|\| null/);
   assert.match(feasibilityFlow, /record\.input\.hotel_id \|\| record\.input\.system_hotel_id/);
-  assert.match(appTemplate, /data-testid="feasibility-target-hotel"/);
-  assert.match(appTemplate, /未绑定门店（仅未验证情景）/);
-  assert.match(appTemplate, /未绑定不会跨门店汇总/);
+  assert.doesNotMatch(appTemplate, /data-testid="feasibility-target-hotel"/);
+  assert.match(frozenFeasibilityTemplate, /data-testid="feasibility-target-hotel"/);
+  assert.match(frozenFeasibilityTemplate, /未绑定门店（仅未验证情景）/);
+  assert.match(frozenFeasibilityTemplate, /未绑定不会跨门店汇总/);
 });

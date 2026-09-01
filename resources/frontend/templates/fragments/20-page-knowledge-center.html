@@ -16,15 +16,15 @@
                                 <div class="knowledge-feature-hero-layout flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
                                     <div class="knowledge-feature-copy max-w-2xl">
                                         <div class="knowledge-feature-eyebrow flex flex-wrap items-center gap-2">
-                                            <span class="knowledge-feature-kicker text-xs font-semibold uppercase tracking-widest text-yellow-200">任务导航</span>
-                                            <span class="knowledge-feature-proof-pill rounded-full border border-yellow-300 bg-gray-800 px-2.5 py-1 text-xs text-yellow-100">入口与前置条件，不代表数据已就绪</span>
+                                            <span class="knowledge-feature-kicker text-xs font-semibold uppercase tracking-widest text-yellow-200">宿析任务蓝皮书 · V1</span>
+                                            <span class="knowledge-feature-proof-pill rounded-full border border-yellow-300 bg-gray-800 px-2.5 py-1 text-xs text-yellow-100">先做3个能验收的真实任务</span>
                                         </div>
-                                        <h3 class="knowledge-feature-title mt-2 text-xl font-semibold text-white" style="color: #ffffff;">先说要完成什么，再进入对应页面</h3>
-                                        <p class="knowledge-feature-subtitle mt-2 text-sm leading-6 text-gray-300">按经营任务搜索入口；每张卡先说明使用场景和证据边界，再给唯一主操作。</p>
-                                        <div class="knowledge-feature-journey" aria-label="任务导航三步路径">
-                                            <span><strong>01</strong> 搜索任务</span><i class="fas fa-chevron-right" aria-hidden="true"></i>
-                                            <span><strong>02</strong> 看使用场景</span><i class="fas fa-chevron-right" aria-hidden="true"></i>
-                                            <span><strong>03</strong> 进入真实页面</span>
+                                        <h3 class="knowledge-feature-title mt-2 text-xl font-semibold text-white" style="color: #ffffff;">不用记模块，按任务走到真实结果</h3>
+                                        <p class="knowledge-feature-subtitle mt-2 text-sm leading-6 text-gray-300">优先完成“今天先做什么、数据为什么没进来、生成可信经营日报”；其余卡片继续提供真实入口与前置条件。</p>
+                                        <div class="knowledge-feature-journey" aria-label="任务蓝皮书三步路径">
+                                            <span><strong>01</strong> 选择任务</span><i class="fas fa-chevron-right" aria-hidden="true"></i>
+                                            <span><strong>02</strong> 进入真实页面</span><i class="fas fa-chevron-right" aria-hidden="true"></i>
+                                            <span><strong>03</strong> 按证据验收</span>
                                         </div>
                                     </div>
                                     <div class="knowledge-feature-search-panel w-full lg:max-w-md">
@@ -48,12 +48,31 @@
                             </nav>
 
                             <div class="knowledge-feature-grid grid grid-cols-1 gap-3 p-4 md:grid-cols-2 xl:grid-cols-4" data-testid="knowledge-feature-grid">
-                                <article v-show="!knowledgeCenterFilter.keyword || 'ota 数据 数据健康 来源 缺数 采集'.includes(knowledgeCenterFilter.keyword.trim().toLowerCase())" data-feature-search="ota 数据 数据健康 来源 缺数 采集" data-testid="knowledge-feature-data-health" class="knowledge-feature-card flex min-h-full flex-col rounded-xl border border-gray-200 bg-gray-50 p-4">
+                                <article v-show="!knowledgeCenterFilter.keyword || '经营 今日 工作台 优先任务 今天先做什么 蓝皮书'.includes(knowledgeCenterFilter.keyword.trim().toLowerCase())" data-feature-search="经营 今日 工作台 优先任务 今天先做什么 蓝皮书" data-bluebook-core="v1" data-testid="knowledge-feature-today-priority" class="knowledge-feature-card flex min-h-full flex-col rounded-xl border border-yellow-200 bg-yellow-50 p-4">
+                                    <div class="flex items-start justify-between gap-3">
+                                        <span class="flex h-9 w-9 items-center justify-center rounded-lg bg-yellow-100 text-yellow-800"><i class="fas fa-compass" aria-hidden="true"></i></span>
+                                        <span class="rounded-full border border-yellow-200 bg-white px-2 py-0.5 text-xs text-yellow-800">蓝皮书核心任务</span>
+                                    </div>
+                                    <h4 class="mt-3 font-semibold text-gray-900">今天先做什么</h4>
+                                    <p class="mt-1 text-sm leading-5 text-gray-600">先锁定酒店和日期，再找到今天最优先处理的真实阻塞。</p>
+                                    <button type="button" data-testid="knowledge-feature-today-priority-scenario" aria-haspopup="dialog" aria-controls="knowledge-feature-today-priority-dialog" @click="$event.currentTarget.closest('article').querySelector('dialog').showModal()" class="knowledge-feature-scenario-trigger mt-3 flex items-center justify-between rounded-lg border border-yellow-200 bg-white px-3 py-2 text-sm font-medium text-gray-700">
+                                        <span>验收路径</span><i class="fas fa-expand-alt text-xs text-gray-400" aria-hidden="true"></i>
+                                    </button>
+                                    <dialog id="knowledge-feature-today-priority-dialog" data-testid="knowledge-feature-today-priority-dialog" aria-labelledby="knowledge-feature-today-priority-dialog-title" @click.self="$event.currentTarget.close()" class="knowledge-feature-dialog">
+                                        <div class="knowledge-feature-dialog-panel">
+                                            <div class="flex items-start justify-between gap-4 border-b border-gray-100 bg-gray-900 px-5 py-4 text-white"><div><p class="text-xs font-semibold tracking-widest text-yellow-200">蓝皮书任务 01</p><h5 id="knowledge-feature-today-priority-dialog-title" class="mt-1 text-lg font-semibold">今天先做什么</h5></div><button type="button" aria-label="关闭今日任务验收路径" @click="$event.currentTarget.closest('dialog').close()" class="rounded-lg p-2 text-gray-300 hover:bg-gray-800 hover:text-white"><i class="fas fa-times" aria-hidden="true"></i></button></div>
+                                            <div class="space-y-4 p-5"><p class="text-sm leading-6 text-gray-600">验收标准：唯一事项已保存并精确回读，状态为 pending_approval，执行任务数与外部写入数仍为 0；仅打开页面不算完成。</p><div><p class="text-xs font-semibold text-gray-500">三步任务路径</p><ol class="mt-2 grid gap-2 text-sm text-gray-700 sm:grid-cols-3"><li class="rounded-lg bg-gray-50 p-3"><strong>1 · 锁定范围</strong><span class="mt-1 block text-xs text-gray-500">确认当前酒店与业务日期。</span></li><li class="rounded-lg bg-gray-50 p-3"><strong>2 · 核对唯一事项</strong><span class="mt-1 block text-xs text-gray-500">检查可信事实或明确缺口依据。</span></li><li class="rounded-lg bg-gray-50 p-3"><strong>3 · 保存回读</strong><span class="mt-1 block text-xs text-gray-500">核对运行ID与待审批意图。</span></li></ol></div><div class="flex justify-end"><button type="button" data-testid="knowledge-feature-today-priority-dialog-close" @click="$event.currentTarget.closest('dialog').close()" class="rounded-lg bg-gray-900 px-4 py-2 text-sm font-semibold text-white hover:bg-gray-800">知道了</button></div></div>
+                                        </div>
+                                    </dialog>
+                                    <button type="button" @click="currentPage = 'operating-opportunities'" class="knowledge-feature-action mt-auto pt-4 text-left text-sm font-semibold text-yellow-700 hover:text-yellow-800">打开经营机会 <i class="fas fa-arrow-right ml-1" aria-hidden="true"></i></button>
+                                </article>
+
+                                <article v-show="!knowledgeCenterFilter.keyword || 'ota 数据 数据健康 来源 缺数 采集 为什么没进来 蓝皮书'.includes(knowledgeCenterFilter.keyword.trim().toLowerCase())" data-feature-search="ota 数据 数据健康 来源 缺数 采集 为什么没进来 蓝皮书" data-bluebook-core="v1" data-testid="knowledge-feature-data-health" class="knowledge-feature-card flex min-h-full flex-col rounded-xl border border-gray-200 bg-gray-50 p-4">
                                     <div class="flex items-start justify-between gap-3">
                                         <span class="flex h-9 w-9 items-center justify-center rounded-lg bg-blue-100 text-blue-700"><i class="fas fa-heartbeat" aria-hidden="true"></i></span>
                                         <span class="rounded-full border border-blue-100 bg-blue-50 px-2 py-0.5 text-xs text-blue-700">只读检查</span>
                                     </div>
-                                    <h4 class="mt-3 font-semibold text-gray-900">核对数据是否可用</h4>
+                                    <h4 class="mt-3 font-semibold text-gray-900">查清数据为什么没进来</h4>
                                     <p class="mt-1 text-sm leading-5 text-gray-600">先看酒店、平台、业务日期和缺失原因，再决定是否进入收益分析。</p>
                                     <button type="button" data-testid="knowledge-feature-data-health-scenario" aria-haspopup="dialog" aria-controls="knowledge-feature-data-health-dialog" @click="$event.currentTarget.closest('article').querySelector('dialog').showModal()" class="knowledge-feature-scenario-trigger mt-3 flex items-center justify-between rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-700">
                                         <span>使用场景</span><i class="fas fa-expand-alt text-xs text-gray-400" aria-hidden="true"></i>
@@ -61,17 +80,37 @@
                                     <dialog id="knowledge-feature-data-health-dialog" data-testid="knowledge-feature-data-health-dialog" aria-labelledby="knowledge-feature-data-health-dialog-title" @click.self="$event.currentTarget.close()" class="knowledge-feature-dialog">
                                         <div class="knowledge-feature-dialog-panel">
                                             <div class="flex items-start justify-between gap-4 border-b border-gray-100 bg-gray-900 px-5 py-4 text-white">
-                                                <div><p class="text-xs font-semibold tracking-widest text-yellow-200">只读检查</p><h5 id="knowledge-feature-data-health-dialog-title" class="mt-1 text-lg font-semibold">核对数据是否可用</h5></div>
+                                                <div><p class="text-xs font-semibold tracking-widest text-yellow-200">蓝皮书任务 02 · 只读检查</p><h5 id="knowledge-feature-data-health-dialog-title" class="mt-1 text-lg font-semibold">查清数据为什么没进来</h5></div>
                                                 <button type="button" aria-label="关闭数据健康使用场景" @click="$event.currentTarget.closest('dialog').close()" class="rounded-lg p-2 text-gray-300 hover:bg-gray-800 hover:text-white"><i class="fas fa-times" aria-hidden="true"></i></button>
                                             </div>
                                             <div class="space-y-4 p-5">
-                                                <p class="text-sm leading-6 text-gray-600">数字存在不等于事实可用；页面会保留未验证、过期、绑定缺失和采集失败状态。</p>
+                                                <p class="text-sm leading-6 text-gray-600">数字存在不等于事实可用；验收标准是定位在身份、采集、保存或精确回读中的真实失败阶段，未验证、过期、绑定缺失和采集失败必须继续可见。</p>
                                                 <div><p class="text-xs font-semibold text-gray-500">三步任务路径</p><ol class="mt-2 grid gap-2 text-sm text-gray-700 sm:grid-cols-3"><li class="rounded-lg bg-gray-50 p-3"><strong>1 · 锁定范围</strong><span class="mt-1 block text-xs text-gray-500">确认酒店、平台与业务日期。</span></li><li class="rounded-lg bg-gray-50 p-3"><strong>2 · 检查证据</strong><span class="mt-1 block text-xs text-gray-500">查看来源、质量与缺失原因。</span></li><li class="rounded-lg bg-gray-50 p-3"><strong>3 · 决定放行</strong><span class="mt-1 block text-xs text-gray-500">只把可用事实交给收益分析。</span></li></ol></div>
                                                 <div class="flex justify-end"><button type="button" data-testid="knowledge-feature-data-health-dialog-close" @click="$event.currentTarget.closest('dialog').close()" class="rounded-lg bg-gray-900 px-4 py-2 text-sm font-semibold text-white hover:bg-gray-800">知道了</button></div>
                                             </div>
                                         </div>
                                     </dialog>
-                                    <button type="button" @click="currentPage = 'online-data'; onlineDataTab = 'data-health'; openOnlineDataTab('data-health', { force: true })" class="knowledge-feature-action mt-auto pt-4 text-left text-sm font-semibold text-yellow-700 hover:text-yellow-800">打开数据健康 <i class="fas fa-arrow-right ml-1" aria-hidden="true"></i></button>
+                                    <button v-if="(visibleMenuItems || []).some(item => item.path === 'online-data' || (item.children || []).some(child => child.path === 'online-data' && child.tab === 'data-health'))" type="button" @click="currentPage = 'online-data'; onlineDataTab = 'data-health'; openOnlineDataTab('data-health', { force: true })" class="knowledge-feature-action mt-auto pt-4 text-left text-sm font-semibold text-yellow-700 hover:text-yellow-800">打开数据健康 <i class="fas fa-arrow-right ml-1" aria-hidden="true"></i></button>
+                                    <span v-else class="mt-auto pt-4 text-sm font-medium text-gray-400" data-testid="knowledge-feature-data-health-unavailable">当前账号暂无数据中心入口</span>
+                                </article>
+
+                                <article v-show="!knowledgeCenterFilter.keyword || '经营 日报 ai日报 可信报告 预览 外发 蓝皮书'.includes(knowledgeCenterFilter.keyword.trim().toLowerCase())" data-feature-search="经营 日报 ai日报 可信报告 预览 外发 蓝皮书" data-bluebook-core="v1" data-testid="knowledge-feature-daily-report" class="knowledge-feature-card flex min-h-full flex-col rounded-xl border border-yellow-200 bg-yellow-50 p-4">
+                                    <div class="flex items-start justify-between gap-3">
+                                        <span class="flex h-9 w-9 items-center justify-center rounded-lg bg-yellow-100 text-yellow-800"><i class="fas fa-file-alt" aria-hidden="true"></i></span>
+                                        <span class="rounded-full border border-yellow-200 bg-white px-2 py-0.5 text-xs text-yellow-800">蓝皮书核心任务</span>
+                                    </div>
+                                    <h4 class="mt-3 font-semibold text-gray-900">生成可信经营日报</h4>
+                                    <p class="mt-1 text-sm leading-5 text-gray-600">先过数据健康门禁，再生成、保存和回读日报；预览、复制与朗读使用同一快照。</p>
+                                    <button type="button" data-testid="knowledge-feature-daily-report-scenario" aria-haspopup="dialog" aria-controls="knowledge-feature-daily-report-dialog" @click="$event.currentTarget.closest('article').querySelector('dialog').showModal()" class="knowledge-feature-scenario-trigger mt-3 flex items-center justify-between rounded-lg border border-yellow-200 bg-white px-3 py-2 text-sm font-medium text-gray-700">
+                                        <span>验收路径</span><i class="fas fa-expand-alt text-xs text-gray-400" aria-hidden="true"></i>
+                                    </button>
+                                    <dialog id="knowledge-feature-daily-report-dialog" data-testid="knowledge-feature-daily-report-dialog" aria-labelledby="knowledge-feature-daily-report-dialog-title" @click.self="$event.currentTarget.close()" class="knowledge-feature-dialog">
+                                        <div class="knowledge-feature-dialog-panel">
+                                            <div class="flex items-start justify-between gap-4 border-b border-gray-100 bg-gray-900 px-5 py-4 text-white"><div><p class="text-xs font-semibold tracking-widest text-yellow-200">蓝皮书任务 03</p><h5 id="knowledge-feature-daily-report-dialog-title" class="mt-1 text-lg font-semibold">生成可信经营日报</h5></div><button type="button" aria-label="关闭可信经营日报验收路径" @click="$event.currentTarget.closest('dialog').close()" class="rounded-lg p-2 text-gray-300 hover:bg-gray-800 hover:text-white"><i class="fas fa-times" aria-hidden="true"></i></button></div>
+                                            <div class="space-y-4 p-5"><p class="text-sm leading-6 text-gray-600">验收标准：可信播报快照获得保存ID并可精确回读，预览、复制与朗读逐字使用同一保存文本；本版不把企业微信外发算作该快照的完成步骤。</p><div><p class="text-xs font-semibold text-gray-500">三步任务路径</p><ol class="mt-2 grid gap-2 text-sm text-gray-700 sm:grid-cols-3"><li class="rounded-lg bg-gray-50 p-3"><strong>1 · 通过门禁</strong><span class="mt-1 block text-xs text-gray-500">确认酒店、日期和可信事实。</span></li><li class="rounded-lg bg-gray-50 p-3"><strong>2 · 保存回读</strong><span class="mt-1 block text-xs text-gray-500">生成快照并核对保存ID。</span></li><li class="rounded-lg bg-gray-50 p-3"><strong>3 · 本地交付</strong><span class="mt-1 block text-xs text-gray-500">预览、复制或朗读同一文本。</span></li></ol></div><div class="flex justify-end"><button type="button" data-testid="knowledge-feature-daily-report-dialog-close" @click="$event.currentTarget.closest('dialog').close()" class="rounded-lg bg-gray-900 px-4 py-2 text-sm font-semibold text-white hover:bg-gray-800">知道了</button></div></div>
+                                        </div>
+                                    </dialog>
+                                    <button type="button" @click="currentPage = 'ai-daily-report'" class="knowledge-feature-action mt-auto pt-4 text-left text-sm font-semibold text-yellow-700 hover:text-yellow-800">打开AI经营日报 <i class="fas fa-arrow-right ml-1" aria-hidden="true"></i></button>
                                 </article>
 
                                 <article v-show="!knowledgeCenterFilter.keyword || 'ota 自动采集 设置 账号 绑定 调度'.includes(knowledgeCenterFilter.keyword.trim().toLowerCase())" data-feature-search="ota 自动采集 设置 账号 绑定 调度" data-testid="knowledge-feature-auto-collect" class="knowledge-feature-card flex min-h-full flex-col rounded-xl border border-gray-200 bg-gray-50 p-4">

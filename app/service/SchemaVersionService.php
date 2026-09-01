@@ -518,6 +518,7 @@ final class SchemaVersionService
 
     public function baselineInitFullSources(): int
     {
+        $this->assertMigrationExecutionAllowed();
         if ($this->applicationTableCount() === 0) {
             throw new RuntimeException(
                 'An empty database cannot adopt the frozen baseline. Run "php scripts/init_database.php" instead.'
@@ -582,6 +583,7 @@ final class SchemaVersionService
      */
     public function migrate(): array
     {
+        $this->assertMigrationExecutionAllowed();
         if ($this->applicationTableCount() === 0 && !$this->registryExists()) {
             throw new RuntimeException(
                 'Database is empty. Run "php scripts/init_database.php" for a complete fresh initialization.'
@@ -704,6 +706,7 @@ final class SchemaVersionService
     /** @return array{baseline_registered: int, executed: list<string>, status: array<string, mixed>} */
     public function initializeFreshFromInitFull(): array
     {
+        $this->assertMigrationExecutionAllowed();
         if ($this->applicationTableCount() > 0 || $this->registryExists()) {
             throw new RuntimeException('Fresh initialization requires an empty database; existing tables were found.');
         }
@@ -760,6 +763,20 @@ final class SchemaVersionService
             'executed' => $result['executed'],
             'status' => $result['status'],
         ];
+    }
+
+    private function assertMigrationExecutionAllowed(): void
+    {
+        if ($this->driver !== 'mysql') {
+            return;
+        }
+
+        $database = $this->pdo->query('SELECT DATABASE()')->fetchColumn();
+        DatabaseMigrationExecutionGuard::assertAllowed(
+            $this->root,
+            is_string($database) ? $database : '',
+            $this->driver
+        );
     }
 
     public function applicationTableCount(): int

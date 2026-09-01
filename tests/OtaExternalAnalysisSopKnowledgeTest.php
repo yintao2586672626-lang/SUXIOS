@@ -231,7 +231,8 @@ final class OtaExternalAnalysisSopKnowledgeTest extends TestCase
         self::assertIsString($root);
         $page = (string)file_get_contents($root . '/resources/frontend/templates/fragments/20-page-knowledge-center.html');
         $dialog = (string)file_get_contents($root . '/resources/frontend/templates/fragments/38-dialogs-knowledge-center.html');
-        $app = (string)file_get_contents($root . '/public/app-main.js');
+        $app = (string)file_get_contents($root . '/public/app-main.js')
+            . (string)file_get_contents($root . '/public/components/system/knowledge-center-domain.js');
 
         foreach (['daily', 'onboarding', 'diagnosis', 'metrics', 'revenue', 'page-design', 'pricing', 'promotion', 'reviews', 'negative', 'review-cycle', 'performance', 'platforms', 'templates', 'terms'] as $moduleId) {
             self::assertStringContainsString('value="' . $moduleId . '"', $page);

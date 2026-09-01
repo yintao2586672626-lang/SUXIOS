@@ -15,7 +15,10 @@ final class OnlineDailyDataPersistenceServiceTest extends TestCase
         self::assertSame('next_30_days', OnlineDailyDataPersistenceService::normalizePeriod('future_forecast'));
 
         $row = OnlineDailyDataPersistenceService::applyPeriodFields(
-            ['data_period' => 'next_30_days'],
+            [
+                'data_period' => 'next_30_days',
+                'snapshot_time' => '2026-07-15 10:42:33',
+            ],
             [
                 'data_period' => true,
                 'snapshot_time' => true,
@@ -25,8 +28,8 @@ final class OnlineDailyDataPersistenceServiceTest extends TestCase
         );
 
         self::assertSame('next_30_days', $row['data_period']);
-        self::assertNull($row['snapshot_time']);
-        self::assertSame('', $row['snapshot_bucket']);
+        self::assertSame('2026-07-15 10:42:33', $row['snapshot_time']);
+        self::assertSame('202607151042', $row['snapshot_bucket']);
         self::assertSame(0, $row['is_final']);
     }
 
@@ -42,6 +45,7 @@ final class OnlineDailyDataPersistenceServiceTest extends TestCase
             'data_date' => '2026-07-12',
             'data_type' => 'traffic',
             'data_period' => 'historical_daily',
+            'captured_at' => '2026-07-12 09:30:45',
             'endpoint_id' => 'traffic_search_details',
             'dimension' => 'catalog:traffic_report:traffic_search_details:future_search:2026-07-14:cumulative:self',
             'raw_data' => [
@@ -57,8 +61,8 @@ final class OnlineDailyDataPersistenceServiceTest extends TestCase
 
         self::assertSame('next_30_days', $row['data_period']);
         self::assertSame(0, $row['is_final']);
-        self::assertNull($row['snapshot_time']);
-        self::assertSame('', $row['snapshot_bucket']);
+        self::assertSame('2026-07-12 09:30:45', $row['snapshot_time']);
+        self::assertSame('202607120930', $row['snapshot_bucket']);
     }
 
     public function testEmptyNormalizedFieldsCannotHideSourceFutureTargetEvidence(): void
@@ -133,6 +137,34 @@ final class OnlineDailyDataPersistenceServiceTest extends TestCase
         self::assertSame(0, $row['is_final']);
     }
 
+    public function testFutureOnBooksKeepsStayDateSeparateFromObservationSnapshot(): void
+    {
+        self::assertSame(
+            'future_on_books',
+            OnlineDailyDataPersistenceService::normalizePeriod('future-stay-date')
+        );
+
+        $row = OnlineDailyDataPersistenceService::applyPeriodFields(
+            [
+                'data_date' => '2026-09-20',
+                'data_type' => 'order',
+                'data_period' => 'future_on_books',
+                'captured_at' => '2026-08-09 12:55:05',
+            ],
+            [
+                'data_period' => true,
+                'snapshot_time' => true,
+                'snapshot_bucket' => true,
+                'is_final' => true,
+            ]
+        );
+
+        self::assertSame('future_on_books', $row['data_period']);
+        self::assertSame('2026-08-09 12:55:05', $row['snapshot_time']);
+        self::assertSame('202608091255', $row['snapshot_bucket']);
+        self::assertSame(0, $row['is_final']);
+    }
+
     public function testTrafficForecastPeriodCorrectionMigrationIsNarrowAndRegistered(): void
     {
         $root = dirname(__DIR__);
@@ -174,6 +206,9 @@ final class OnlineDailyDataPersistenceServiceTest extends TestCase
         self::assertStringContainsString("'rows_deleted' => 0", $script);
         self::assertStringContainsString('older_version_same_canonical_identity', $script);
         self::assertStringContainsString('remaining_misclassified_future_target_rows', $script);
+        self::assertStringContainsString('OnlineDailyDataPersistenceService::applyPeriodFields', $script);
+        self::assertStringNotContainsString('snapshot_time = NULL', $script);
+        self::assertStringNotContainsString("snapshot_bucket = ''", $script);
         self::assertStringNotContainsString('DELETE FROM online_daily_data', $script);
     }
 

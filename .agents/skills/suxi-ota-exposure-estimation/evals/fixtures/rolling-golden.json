@@ -19,8 +19,7 @@
   "options": {
     "min_verified_pairs": 7,
     "window_days": 14,
-    "drift_ratio": 0.15,
-    "drift_policy_ref": "fixture:unvalidated-heuristic-15pct"
+    "drift_ratio": 0.15
   },
   "calibration_rows": [
     {

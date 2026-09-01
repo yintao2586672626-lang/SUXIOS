@@ -41,6 +41,7 @@ trait OnlineDataRequestConcern
                 'status_code' => $e->getMessage() ?: 'browser_capture_sensitive_url_rejected',
             ]);
         }
+        $backgroundRequest['system_hotel_id'] = $hotelId;
 
         $service = new ManualOnlineFetchTaskService();
         $task = $service->createTask(

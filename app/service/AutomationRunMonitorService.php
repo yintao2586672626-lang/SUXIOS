@@ -189,6 +189,15 @@ final class AutomationRunMonitorService
 
         $preview = $this->loadBusinessPreview($hotelId, $businessDate);
         $collection = (array)($preview['sections']['today_revenue_management']['ota_collection'] ?? []);
+        $runtimeEvidenceStatus = trim((string)($runtimeEvidence['data_status'] ?? ''));
+        if ($runtimeEvidenceStatus === '') {
+            $runtimeEvidenceStatus = $runtimeEvidence === [] ? 'unavailable' : 'available';
+        }
+        $runtimeEvidenceReasonCode = trim((string)($runtimeEvidence['reason_code'] ?? ''));
+        $runtimeEvidenceReadFailed = $runtimeEvidenceStatus === 'read_failed';
+        if ($runtimeEvidenceReadFailed) {
+            $blockers[] = '自动化运行证据读取失败，当前门店不能判定为就绪。';
+        }
         $sourceEvidence = is_array($runtimeEvidence['sources'] ?? null)
             ? $runtimeEvidence['sources']
             : [];
@@ -258,6 +267,9 @@ final class AutomationRunMonitorService
             [$ctrip, $meituan, $pms]
         );
         $dataStatus = $this->dataStatus($readyCount, $sourceStatuses);
+        if ($runtimeEvidenceReadFailed) {
+            $dataStatus = 'blocked';
+        }
 
         return [
             'hotel_id' => $hotelId,
@@ -281,6 +293,8 @@ final class AutomationRunMonitorService
                     ? max(0, (int)$deliveryEvidence['success_count'])
                     : null,
             'push_success_count_status' => (string)($deliveryEvidence['status'] ?? 'unavailable'),
+            'runtime_evidence_status' => $runtimeEvidenceStatus,
+            'runtime_evidence_reason_code' => $runtimeEvidenceReasonCode,
             'blockers' => $this->uniqueText($blockers),
             'blocker_reason' => $this->blockerSummary($blockers),
         ];
@@ -371,10 +385,46 @@ final class AutomationRunMonitorService
                     $hotels,
                     $businessDate
                 );
-            return is_array($value) ? $value : [];
-        } catch (\Throwable) {
-            return [];
+            if (!is_array($value)) {
+                throw new \RuntimeException('automation_monitor_runtime_evidence_invalid');
+            }
+            return $value;
+        } catch (\Throwable $error) {
+            return $this->runtimeEvidenceReadFailure($hotels, $error);
         }
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $hotels
+     * @return array<int, array<string, mixed>>
+     */
+    private function runtimeEvidenceReadFailure(array $hotels, \Throwable $error): array
+    {
+        $failed = [];
+        foreach ($hotels as $hotel) {
+            if (!is_array($hotel)) {
+                continue;
+            }
+            $hotelId = (int)($hotel['id'] ?? 0);
+            $tenantId = (int)($hotel['tenant_id'] ?? 0);
+            if ($hotelId <= 0 || $tenantId <= 0) {
+                continue;
+            }
+            $failed[$hotelId] = [
+                'tenant_id' => $tenantId,
+                'data_status' => 'read_failed',
+                'reason_code' => 'automation_monitor_runtime_evidence_read_failed',
+                'monitor_error' => $this->safeText($error->getMessage(), 160),
+                'sources' => [],
+                'delivery' => [
+                    'success_count' => null,
+                    'last_success_at' => null,
+                    'status' => 'read_failed',
+                ],
+            ];
+        }
+
+        return $failed;
     }
 
     /**

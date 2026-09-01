@@ -85,7 +85,8 @@ test('frontend persists and verifies exact hotel manager formula and digests', (
     assert.ok(appMain.includes(marker), marker);
   }
   assert.ok(componentsLoader.includes("'ManagerCapabilityPanel'"));
-  assert.ok(componentsLoader.includes('const OperatingLoopAuthority = {'));
+  assert.ok(components.includes('const OperatingLoopAuthority = {'));
+  assert.ok(componentsLoader.includes("'OperatingLoopAuthority'"));
   const pinnedAsset = new RegExp(`components/system/app-main-components\\.js\\?v=[^'\"]*-h${contentHash(components)}`);
   assert.match(componentsLoader, pinnedAsset);
   assert.match(indexHtml, pinnedAsset);
@@ -106,8 +107,9 @@ test('deferred component bridge resolves the manager score panel and loop author
   new Function('window', 'document', componentsLoader)(runtimeWindow, {});
   const facade = runtimeWindow.SUXI_APP_MAIN_COMPONENTS.create({ Vue, h });
   const panel = await facade.ManagerCapabilityPanel.loader();
+  const loopAuthority = await facade.OperatingLoopAuthority.loader();
   assert.equal(panel?.name, 'ManagerCapabilityPanel');
-  assert.equal(facade.OperatingLoopAuthority?.name, 'OperatingLoopAuthority');
+  assert.equal(loopAuthority?.name, 'OperatingLoopAuthority');
 });
 
 test('authenticated page dependency receives Vue ref and pins the repaired asset', () => {

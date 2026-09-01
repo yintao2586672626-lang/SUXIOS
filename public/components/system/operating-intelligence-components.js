@@ -21,7 +21,6 @@
     const HOTEL_DATA_ANALYST_SUGGESTIONS = analystComponents.suggestions;
     const createHotelDataAnalystFeedbackUi = analystComponents.createFeedbackUi;
     const renderHotelDataAnalystQualityReceipt = analystComponents.renderQualityReceipt;
-    const renderPreciseMetricEvidence = analystComponents.renderPreciseMetricEvidence;
     const hotelDataAnalystProfile = analystComponents.hotelDataAnalystProfile;
     const renderRevenueDecisionFrame = (frame, testId = '') => {
         if (!frame || typeof frame !== 'object') return null;
@@ -62,6 +61,235 @@
                 h('p', { class: 'mt-1 leading-5' }, `主方法：${primaryMethods.join('、') || '未锁定'}；支撑方法：${supportingMethods.join('、') || '未锁定'}。RM代码仅保留来源索引，定义未提供。`),
                 sourceFingerprint ? h('p', { class: 'mt-1 break-all leading-5' }, `来源指纹：${sourceFingerprint}`) : null,
             ].filter(Boolean)),
+        ]);
+    };
+    // PRECISE_METRIC_SET_HELPERS_START
+    const preciseMetricHasValue = (value) => value !== null && value !== undefined && value !== '';
+    const preciseMetricUnitLabel = (value) => {
+        const unit = String(value || '').trim();
+        const labels = {
+            people: '人',
+            users: '人',
+            impressions: '次',
+            percent: '%',
+            orders: '单',
+            room_nights: '间夜',
+        };
+        return labels[unit.toLowerCase()] || unit;
+    };
+    const preciseMetricGapRows = (value) => [
+        ...(Array.isArray(value?.data_gaps) ? value.data_gaps : []),
+        ...(Array.isArray(value?.gaps) ? value.gaps : []),
+    ].filter((gap) => gap !== null && gap !== undefined && gap !== '');
+    const normalizePreciseMetricSet = (answer = {}) => {
+        const precise = answer?.precise_result && typeof answer.precise_result === 'object'
+            ? answer.precise_result
+            : null;
+        if (!precise) {
+            return {
+                contractVersion: '', kind: '', isMetricSet: false, items: [],
+                totalCount: 0, readyCount: 0, blockedCount: 0,
+                isPartial: false, allBlocked: false,
+            };
+        }
+        const nestedMetricSet = precise.metric_set && typeof precise.metric_set === 'object'
+            ? precise.metric_set
+            : null;
+        const contractVersion = String(nestedMetricSet?.contract_version || precise.contract_version || '');
+        const kind = String(nestedMetricSet?.kind || precise.kind || '');
+        const declaredMetricSet = contractVersion === 'suxios.precise_metric_set.v1'
+            || kind === 'operating_metric_set'
+            || Boolean(nestedMetricSet)
+            || Array.isArray(precise.precise_results)
+            || Array.isArray(answer.precise_results);
+        let rawItems = Array.isArray(nestedMetricSet?.items)
+            ? nestedMetricSet.items
+            : (Array.isArray(precise.items)
+                ? precise.items
+                : (Array.isArray(precise.precise_results)
+                    ? precise.precise_results
+                    : (Array.isArray(answer.precise_results) ? answer.precise_results : [])));
+        if (!rawItems.length && !declaredMetricSet) rawItems = [precise];
+        const items = rawItems
+            .filter((entry) => entry && typeof entry === 'object')
+            .map((entry, index) => {
+                const raw = entry.result && typeof entry.result === 'object'
+                    ? { ...entry, ...entry.result }
+                    : entry;
+                const metric = raw.metric && typeof raw.metric === 'object' ? raw.metric : {};
+                const metricKey = String(metric.key || raw.metric_key || `metric_${index + 1}`);
+                const metricName = String(metric.name || raw.metric_name || raw.canonical_term || metricKey);
+                const status = String(raw.status || raw.result_status || '');
+                const value = raw.value ?? null;
+                const hasValue = preciseMetricHasValue(value);
+                const verificationStatus = String(raw.verification_status || '').trim().toLowerCase();
+                const readbackStatus = String(raw.readback_status || '').trim().toLowerCase();
+                const requiresStrictEvidence = true;
+                const statusBlocked = /^(?:blocked|missing|unavailable|failed|error|not_)/i.test(status);
+                const sourceRecords = Array.from(new Set([
+                    String(raw.source_record || ''),
+                    ...(Array.isArray(raw.source_records) ? raw.source_records.map((item) => String(item || '')) : []),
+                ].filter(Boolean)));
+                const strictEvidenceReady = !requiresStrictEvidence || (
+                    ['verified', 'derived_verified'].includes(verificationStatus)
+                    && readbackStatus === 'readback_verified'
+                    && sourceRecords.length > 0
+                );
+                const blockedReason = String(raw.blocked_reason || (
+                    !strictEvidenceReady ? '指标缺少 verified/derived_verified、readback_verified 或来源记录凭证' : ''
+                ));
+                const blocked = statusBlocked || blockedReason !== '' || !hasValue || !strictEvidenceReady;
+                const inputs = Array.isArray(raw.calculation_inputs)
+                    ? raw.calculation_inputs
+                    : (Array.isArray(raw.inputs) ? raw.inputs : []);
+                return {
+                    raw,
+                    index,
+                    metricKey,
+                    metricName,
+                    status: status || (blocked ? 'blocked_by_missing_metric' : 'ready'),
+                    value,
+                    unit: String(raw.unit || ''),
+                    unitLabel: preciseMetricUnitLabel(raw.unit),
+                    blockedReason,
+                    blocked,
+                    ready: !blocked,
+                    sourceRecords,
+                    collectedAt: raw.collected_at ?? null,
+                    verificationStatus,
+                    readbackStatus,
+                    formula: String(raw.formula || ''),
+                    inputs,
+                    gaps: preciseMetricGapRows(raw),
+                };
+            });
+        const readyCount = items.filter((item) => item.ready).length;
+        const blockedCount = items.length - readyCount;
+        const overallStatus = String(precise.status || nestedMetricSet?.status || answer.status || '');
+        const isMetricSet = declaredMetricSet || items.length > 1;
+        const isPartial = isMetricSet
+            && (readyCount > 0 && blockedCount > 0 || overallStatus.toLowerCase().includes('partial'));
+        return {
+            contractVersion,
+            kind,
+            isMetricSet,
+            items,
+            totalCount: items.length,
+            readyCount,
+            blockedCount,
+            isPartial,
+            allBlocked: items.length > 0 && readyCount === 0,
+        };
+    };
+    // PRECISE_METRIC_SET_HELPERS_END
+    const preciseMetricGapText = (gap) => String(
+        gap && typeof gap === 'object' ? (gap.message || gap.reason || gap.code || '') : (gap || '')
+    ).trim();
+    const preciseMetricInputText = (input) => {
+        if (input === null || input === undefined) return '';
+        if (typeof input !== 'object') return String(input);
+        const metric = input.metric && typeof input.metric === 'object' ? input.metric : {};
+        const label = String(input.label || input.name || metric.name || input.metric_name || input.metric_key || metric.key || '输入');
+        const value = input.value ?? input.amount ?? null;
+        const unit = preciseMetricUnitLabel(input.unit);
+        return preciseMetricHasValue(value)
+            ? `${label} ${String(value)}${unit ? ` ${unit}` : ''}`
+            : label;
+    };
+    const renderPreciseMetricEvidence = (answer = {}, options = {}) => {
+        const normalized = options.normalized || normalizePreciseMetricSet(answer);
+        if (!normalized.items.length) return null;
+        const overallGaps = Array.isArray(options.dataGaps) ? options.dataGaps : [];
+        const multi = normalized.isMetricSet;
+        const cardNodes = normalized.items.map((item, index) => {
+            const raw = item.raw;
+            const valueText = preciseMetricHasValue(item.value)
+                ? `${String(item.value)}${item.unitLabel ? ` ${item.unitLabel}` : ''}`
+                : '--';
+            const matchingOverallGaps = overallGaps.filter((gap) => {
+                if (!gap || typeof gap !== 'object') return false;
+                const metric = gap.metric && typeof gap.metric === 'object' ? gap.metric : {};
+                return String(gap.metric_key || metric.key || '') === item.metricKey;
+            });
+            const gapTexts = Array.from(new Set([
+                ...item.gaps,
+                ...matchingOverallGaps,
+            ].map(preciseMetricGapText).filter(Boolean)));
+            const inputTexts = item.inputs.map(preciseMetricInputText).filter(Boolean);
+            const sourceText = item.sourceRecords.join('、') || '--';
+            const fields = [
+                ['酒店', String(raw.hotel?.name || `Hotel ${Number(raw.hotel?.id || 0) || '--'}`)],
+                ['平台', String(raw.platform?.name || raw.platform?.key || '--')],
+                ['业务日期', String(raw.business_date || '--')],
+                ['指标名称', item.metricName],
+                ['结果状态', item.status],
+                ['数值与单位', valueText],
+                ['来源记录', sourceText],
+                ['采集时间', String(item.collectedAt || '未记录，不用回读时间代替')],
+                ['验证状态', item.verificationStatus || '--'],
+                ['回读状态', item.readbackStatus || '--'],
+                ['数据范围', String(raw.data_scope || '--')],
+            ];
+            return h('article', {
+                key: `${item.metricKey}-${index}`,
+                class: [
+                    'rounded-xl border p-3',
+                    item.blocked
+                        ? 'border-amber-200 bg-amber-50/80'
+                        : 'border-emerald-200 bg-emerald-50/70',
+                ],
+                'data-testid': options.itemTestIdPrefix ? `${options.itemTestIdPrefix}-${index}` : undefined,
+                'data-metric-key': item.metricKey,
+                'data-metric-status': item.status,
+            }, [
+                h('div', { class: 'mb-2 flex flex-wrap items-center justify-between gap-2' }, [
+                    h('strong', { class: ['text-sm', item.blocked ? 'text-amber-950' : 'text-emerald-950'] }, item.metricName),
+                    h('span', {
+                        class: [
+                            'rounded-full bg-white px-2 py-1 text-[11px]',
+                            item.blocked ? 'text-amber-800' : 'text-emerald-800',
+                        ],
+                    }, item.blocked ? '明确阻塞' : '确定性可用'),
+                ]),
+                h('dl', { class: 'grid grid-cols-1 gap-2 text-xs sm:grid-cols-2' }, fields.map(([label, value], fieldIndex) => h('div', {
+                    key: `${item.metricKey}-field-${fieldIndex}`,
+                    class: ['rounded-lg border bg-white px-2.5 py-2', item.blocked ? 'border-amber-100' : 'border-emerald-100', ['数据范围', '来源记录'].includes(label) ? 'sm:col-span-2' : ''],
+                }, [
+                    h('dt', { class: 'text-[11px] text-slate-500' }, label),
+                    h('dd', { class: 'mt-0.5 break-words font-medium text-slate-800' }, value),
+                ]))),
+                item.formula ? h('p', { class: 'mt-2 text-xs leading-5 text-emerald-900' }, `计算：${item.formula}`) : null,
+                inputTexts.length ? h('p', { class: 'mt-1 text-xs leading-5 text-slate-700' }, `计算输入：${inputTexts.join('；')}`) : null,
+                item.blockedReason ? h('p', { class: 'mt-2 text-xs leading-5 text-amber-800' }, `阻塞原因：${item.blockedReason}`) : null,
+                gapTexts.length ? h('div', { class: 'mt-2 text-xs leading-5 text-amber-800' }, [
+                    h('strong', '分项缺口'),
+                    h('ul', { class: 'mt-1 list-disc pl-5' }, gapTexts.map((gap, gapIndex) => h('li', {
+                        key: `${item.metricKey}-gap-${gapIndex}`,
+                    }, gap))),
+                ]) : null,
+            ].filter(Boolean));
+        });
+        const outerClass = normalized.allBlocked
+            ? 'border-amber-200 bg-amber-50/60'
+            : (normalized.isPartial ? 'border-amber-200 bg-white' : 'border-emerald-200 bg-emerald-50/40');
+        return h('section', {
+            class: ['mt-3 rounded-xl border p-3', outerClass],
+            'data-testid': options.testId || undefined,
+            'data-contract-version': normalized.contractVersion || undefined,
+            'data-result-kind': normalized.kind || undefined,
+        }, [
+            h('div', { class: 'flex flex-wrap items-center justify-between gap-2' }, [
+                h('strong', { class: 'text-sm text-slate-900' }, multi ? '可核对多指标结果' : '可核对经营结果'),
+                multi ? h('div', { class: 'flex flex-wrap gap-1.5 text-[11px]' }, [
+                    h('span', { class: 'rounded-full bg-slate-100 px-2 py-1 text-slate-700' }, `识别 ${normalized.totalCount} 项`),
+                    h('span', { class: 'rounded-full bg-emerald-100 px-2 py-1 text-emerald-800' }, `可用 ${normalized.readyCount} 项`),
+                    h('span', { class: 'rounded-full bg-amber-100 px-2 py-1 text-amber-800' }, `阻塞 ${normalized.blockedCount} 项`),
+                ]) : h('span', { class: 'rounded-full bg-white px-2 py-1 text-[11px] text-slate-700' }, normalized.allBlocked ? '明确阻塞' : '数据库确定性结果'),
+            ]),
+            h('div', {
+                class: ['mt-3 grid gap-3', multi ? 'grid-cols-1 xl:grid-cols-2' : 'grid-cols-1'],
+                'data-testid': multi && options.metricSetTestId ? options.metricSetTestId : undefined,
+            }, cardNodes),
         ]);
     };
     const operatingQuestionPanel = {
@@ -115,6 +343,24 @@
                 state.media_file = file instanceof File ? file : null;
                 state.media_error = '';
                 state.media_result = null;
+            };
+            const selectedMediaIds = () => Array.from(new Set((Array.isArray(currentState().media_selected_ids)
+                ? currentState().media_selected_ids
+                : [])
+                .map(item => Number(item || 0))
+                .filter(item => Number.isInteger(item) && item > 0)))
+                .slice(0, 10);
+            const toggleMediaEvidence = (row) => {
+                const state = currentState();
+                const id = Number(row?.id || 0);
+                const status = String(row?.extraction_status || '');
+                if (!id || !['ready', 'partial'].includes(status)) return false;
+                const selected = selectedMediaIds();
+                state.media_selected_ids = selected.includes(id)
+                    ? selected.filter(item => item !== id)
+                    : [...selected, id].slice(0, 10);
+                state.media_error = '';
+                return true;
             };
             const loadMediaHistory = async () => {
                 const state = currentState();
@@ -510,9 +756,29 @@
                                 h('div', { class: 'font-medium' }, `#${Number(state.media_result.id || 0)} · ${String(state.media_result.media_kind || '')} · ${String(state.media_result.extraction_status || '')}`),
                                 h('p', { class: 'mt-1 whitespace-pre-wrap break-words leading-5' }, String(state.media_result.extracted_text || state.media_result.error_code || '未提取到文本')),
                                 h('p', { class: 'mt-1 text-[10px] text-slate-500' }, `来源文件：${String(state.media_result.source_retention || '未说明')} · 摘要 ${String(state.media_result.content_digest || '').slice(0, 12)}…`),
+                                h('button', {
+                                    type: 'button',
+                                    class: ['mt-2 rounded border px-2 py-1 text-[11px]', selectedMediaIds().includes(Number(state.media_result.id || 0))
+                                        ? 'border-emerald-300 bg-emerald-100 text-emerald-800'
+                                        : 'border-slate-300 bg-white text-slate-700'],
+                                    'data-testid': 'local-media-use-in-question',
+                                    onClick: () => toggleMediaEvidence(state.media_result),
+                                }, selectedMediaIds().includes(Number(state.media_result.id || 0)) ? '已绑定到下一次问答' : '用于下一次问答'),
                             ]) : null,
                             Array.isArray(state.media_history) && state.media_history.length
-                                ? h('p', { class: 'mt-2 text-[11px] text-slate-500' }, `该门店已保存并校验 ${state.media_history.length} 条本机提取记录。`)
+                                ? h('div', { class: 'mt-2 space-y-1', 'data-testid': 'local-media-evidence-picker' }, [
+                                    h('p', { class: 'text-[11px] text-slate-500' }, `该门店已保存并校验 ${state.media_history.length} 条本机提取记录；仅显式勾选的记录进入下一次问答。`),
+                                    ...state.media_history.slice(0, 5).map(item => h('button', {
+                                        key: `media-evidence-${Number(item?.id || 0)}`,
+                                        type: 'button',
+                                        disabled: !['ready', 'partial'].includes(String(item?.extraction_status || '')),
+                                        class: ['block w-full rounded border px-2 py-1.5 text-left text-[11px] disabled:opacity-50', selectedMediaIds().includes(Number(item?.id || 0))
+                                            ? 'border-emerald-300 bg-emerald-50 text-emerald-800'
+                                            : 'border-slate-200 bg-white text-slate-600'],
+                                        'data-testid': `local-media-evidence-${Number(item?.id || 0)}`,
+                                        onClick: () => toggleMediaEvidence(item),
+                                    }, `${selectedMediaIds().includes(Number(item?.id || 0)) ? '✓ ' : ''}#${Number(item?.id || 0)} · ${String(item?.original_name || item?.media_kind || '媒体')} · ${String(item?.extraction_status || '')}`)),
+                                ])
                                 : null,
                         ].filter(Boolean)),
                     ]),
@@ -650,6 +916,22 @@
                     if (preciseEvidence) answerChildren.push(preciseEvidence);
                     const decisionFrame = renderRevenueDecisionFrame(result.answer?.decision_frame, 'operating-question-decision-frame');
                     if (decisionFrame) answerChildren.push(decisionFrame);
+                    const toolReceipts = Array.isArray(result.answer?.tool_calling?.tool_call_receipts)
+                        ? result.answer.tool_calling.tool_call_receipts
+                        : [];
+                    if (toolReceipts.length) {
+                        answerChildren.push(h('details', {
+                            class: 'mt-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs',
+                            'data-testid': 'operating-question-tool-receipts',
+                        }, [
+                            h('summary', { class: 'cursor-pointer font-medium text-slate-700' }, `查看只读工具调用收据（${toolReceipts.length}）`),
+                            h('ul', { class: 'mt-2 space-y-1 text-slate-600' }, toolReceipts.map(receipt => h('li', {
+                                key: String(receipt?.receipt_id || `${receipt?.tool_name}-${receipt?.sequence}`),
+                                class: 'break-all',
+                            }, `${String(receipt?.tool_name || 'unknown')} · ${String(receipt?.status || 'unknown')} · 返回 ${Number(receipt?.returned_count || 0)} · ${String(receipt?.receipt_id || '')}`))),
+                            h('p', { class: 'mt-2 text-[11px] text-slate-500' }, '收据证明调用范围、输入输出摘要和只读边界；不代表已执行经营动作。'),
+                        ]));
+                    }
                     if (Array.isArray(result.data_gaps) && result.data_gaps.length) {
                         answerChildren.push(h('ul', { class: 'mt-2 list-disc pl-5 text-xs text-amber-700' }, result.data_gaps.map((gap, index) => (
                             h('li', { key: String(gap?.code || index) }, String(gap?.message || gap?.code || '未说明的数据缺口'))
@@ -792,7 +1074,7 @@
                         const actionChildren = [
                             h('div', { class: 'flex flex-wrap items-start justify-between gap-2' }, [
                                 h('div', [
-                                    h('div', { class: 'text-xs font-semibold uppercase tracking-wide text-[#8c6a2d]' }, 'AI 行动草案 · 独立评审'),
+                                    h('div', { class: 'text-xs font-semibold uppercase tracking-wide text-[#8c6a2d]' }, 'AI 行动草案 · 人工确认'),
                                     h('h4', { class: 'mt-1 text-sm font-semibold text-slate-900' }, String(action?.title || '运营复核草案')),
                                 ]),
                                 h('span', {
@@ -837,7 +1119,7 @@
                                 h('div', { class: 'text-[11px] leading-5 text-slate-500' }, [
                                     h('span', `已绑定 ${evidenceRefs.length} 条严格证据引用。`),
                                     h('br'),
-                                    h('span', '提交后由独立 AI 重新核验事实；通过后只创建本地人工执行任务，不采集或写 OTA。'),
+                                    h('span', '提交后由服务端重新核验事实；只保存待人工审批意图，不创建执行任务，也不采集或写 OTA。'),
                                 ]),
                                 h('button', {
                                     type: 'button',
@@ -848,8 +1130,8 @@
                                         ? ui?.openActionIntent?.(intent)
                                         : ui?.createActionIntent?.(action, actionIndex),
                                 }, state.action_loading === actionKey
-                                    ? '独立评审并回读中…'
-                                    : (intent ? `查看${String(intent.status || '待评审')}任务 #${Number(intent.id || 0)}` : '提交独立评审')),
+                                    ? '保存并回读中…'
+                                    : (intent ? `查看${String(intent.status || '待审批')}意图 #${Number(intent.id || 0)}` : '提交待人工确认')),
                             ]));
                         }
                         answerChildren.push(h('section', {
@@ -1304,17 +1586,36 @@
     const SYSTEM_USAGE_GUIDE_TOPICS = [
         {
             key: 'daily-workbench',
-            title: '从今日经营工作台开始',
-            category: '经营总览',
+            title: '确定今天唯一优先事项',
+            category: '经营机会',
             example: '我是第一次使用，今天应该先做什么？',
             keywords: ['今天先做什么', '今日工作', '经营看板', '工作台', '今日经营', '待办', '从哪里开始', '第一次使用'],
+            context_pages: ['compass', 'operating-opportunities'],
+            target_page: 'operating-opportunities',
+            action_key: 'page',
+            action_label: '打开经营机会',
+            summary: '基于可信事实或明确数据缺口，只选今天最值得推进的一件事并保存回读。',
+            steps: ['确认当前酒店和业务日期。', '核对唯一事项的事实或数据缺口依据。', '保存并精确回读运行与待审批意图。'],
+            boundary: '保存后只形成 pending_approval 意图；未经人工审批不创建执行任务，不写 OTA/PMS，不产生经营效果。',
+        },
+        {
+            key: 'codex-collaboration',
+            title: '让 Codex 帮你检查和完善系统',
+            category: '协作使用',
+            example: '我想让 Codex 帮我检查或完善宿析OS，应该怎么说？',
+            keywords: ['codex', '怎么让codex', '让codex检查', '让codex修改', '让codex修复', '怎么提需求', '怎么说需求', '协作开发', '开发助手', '接手系统'],
             context_pages: ['compass'],
             target_page: 'compass',
             action_key: 'page',
-            action_label: '打开今日经营工作台',
-            summary: '先查看当前酒店今天最需要关注的事实状态、阻塞项和下一步入口。',
-            steps: ['确认当前酒店和业务日期。', '查看事实状态与优先阻塞项。', '从对应卡片进入数据、收益或运营页面。'],
-            boundary: '工作台是总览入口，卡片存在不代表对应数据或任务已经完成。',
+            action_label: '回到今日经营工作台',
+            summary: '直接说明一个可验收的业务结果、必要范围、交付物和权限边界，技术路径由宿析OS项目自动处理。',
+            steps: [
+                '先说一个业务结果，例如“查清携程数据为什么没有进来，定位后修复并验证”。',
+                '补充会改变结果的门店、平台、日期，以及只检查还是允许本地修改。',
+                '说明要看到的交付物和验收条件，不必指定文件、框架、命令或内部工具。',
+                '最后分别查看本地实现、自动验证、Git、部署现场和真实经营效果的状态。',
+            ],
+            boundary: '不要提供密码、Cookie、令牌或验证码。检查和诊断不自动授权修改；本地修改不自动包含提交、推送、部署、OTA/PMS写入、外部发送或审批。',
         },
         {
             key: 'data-health',
@@ -1705,6 +2006,7 @@
     ];
     const SYSTEM_USAGE_GUIDE_SUCCESS_MARKERS = Object.freeze({
         'daily-workbench': '已确认当前酒店、业务日期和今天最优先处理的阻塞项。',
+        'codex-collaboration': '已把目标、范围、验收和权限边界说清，并分别核对本地实现、Git、部署与现场结果。',
         'data-health': '已明确数据停在身份、采集、保存还是精确回读阶段；证据不足时仍显示未确定。',
         'auto-collect': '已核对酒店、平台、账号与计划，并取得一次真实运行或明确失败回执。',
         'ctrip-data': '已确认目标酒店、业务日期、携程来源和需要查看的数据视图。',
@@ -1745,7 +2047,8 @@
         term: '术语释义',
     });
     const SYSTEM_USAGE_GUIDE_ANCHORS = Object.freeze({
-        'daily-workbench': ['[data-testid="page-compass"]'],
+        'daily-workbench': ['[data-testid="page-operating-opportunities"]'],
+        'codex-collaboration': ['[data-testid="page-compass"]'],
         'data-health': ['[data-testid="phase1-employee-closure-summary"]', '[data-testid="online-data-health-panel"]'],
         'auto-collect': ['[data-testid="canonical-daily-operation-status"]', '[data-testid="platform-auto-settings-panels"]'],
         'ctrip-data': ['[data-testid="page-ctrip-ebooking"]'],
@@ -1849,6 +2152,11 @@
                 keys.push(key);
             }
         };
+        if (keys[0] === 'data-health') {
+            if (hasAny(['自动采集', '采集'])) append('auto-collect');
+            if (hasAny(['运行监控', '监控', '运行状态'])) append('automation-monitor');
+            if (hasAny(['AI经营日报', '经营日报', '日报'])) append('ai-daily-report');
+        }
         if (keys[0] !== 'revenue-report' && hasAny(['分析', '报告', '结论', '方案', '优化', '建议'])) append('revenue-report');
         if (hasAny(['运营方案', '优化方案', '形成方案', '经营方案', '运营优化'])) append('operation-optimizer');
         if (hasAny(['安排任务', '创建任务', '执行任务', '跟进任务', '复盘任务'])) append('operations');
@@ -3146,13 +3454,29 @@
                         && (topic.context_pages || []).includes(currentPage))
                     .slice(0, 2);
                 const items = [{
+                    key: 'bluebook-today',
+                    label: '今天先做什么',
+                    query: '按任务蓝皮书带我完成今天经营工作：进入经营机会，基于可信事实或明确缺口，选出并保存唯一优先事项。',
+                }, {
+                    key: 'bluebook-data-recovery',
+                    label: '数据为什么没进来',
+                    query: '按任务蓝皮书查清数据为什么没进来：检查数据健康、自动采集和运行监控，缺失就明确阻塞。',
+                }, {
+                    key: 'bluebook-daily-report',
+                    label: '生成可信经营日报',
+                    query: '按任务蓝皮书先检查数据健康，再生成和预览 AI 经营日报；外发仍需人工确认。',
+                }, {
+                    key: 'codex-collaboration',
+                    label: '怎么让 Codex 帮我？',
+                    query: '我想让 Codex 帮我检查或完善宿析OS，应该怎么说？',
+                }, {
                     key: 'current-page',
                     label: '这个页面怎么用？',
                     query: `我现在在“${currentPageText()}”，这里主要能完成什么，第一步该做什么？`,
                 }, {
                     key: 'precise-exposure',
                     label: '查美团曝光',
-                    query: 'Hotel 80 8月23日美团曝光多少？',
+                    query: 'Hotel 80 8月23日美团曝光人数多少？',
                 }, {
                     key: 'precise-missing',
                     label: '问携程缺失',
@@ -3689,21 +4013,37 @@
                 }
                 const answer = exact.answer && typeof exact.answer === 'object' ? exact.answer : {};
                 const keyPoints = Array.isArray(answer.key_points) ? answer.key_points.slice(0, 4).filter(Boolean) : [];
-                const gaps = [
-                    ...(Array.isArray(exact.data_gaps) ? exact.data_gaps.map((gap) => gap?.message || gap?.code || '').filter(Boolean) : []),
-                    ...(Array.isArray(answer.missing_information) ? answer.missing_information.filter(Boolean) : []),
-                ].slice(0, 5);
+                const preciseMetrics = normalizePreciseMetricSet(answer);
+                const metricKeys = new Set(preciseMetrics.items.map((item) => item.metricKey));
+                const gapCandidates = [
+                    ...(Array.isArray(exact.data_gaps) ? exact.data_gaps.filter((gap) => {
+                        if (!gap || typeof gap !== 'object') return true;
+                        const metric = gap.metric && typeof gap.metric === 'object' ? gap.metric : {};
+                        const metricKey = String(gap.metric_key || metric.key || '');
+                        return !metricKey || !metricKeys.has(metricKey);
+                    }) : []),
+                    ...(Array.isArray(answer.missing_information) ? answer.missing_information : []),
+                ].map(preciseMetricGapText).filter(Boolean);
+                const allGaps = Array.from(new Set(gapCandidates));
+                const gaps = allGaps.slice(0, 5);
+                const hiddenGapCount = Math.max(0, allGaps.length - gaps.length);
                 const evidence = answer.evidence_counts && typeof answer.evidence_counts === 'object'
                     ? answer.evidence_counts
                     : {};
-                const blocked = String(exact.answer_status || '').startsWith('blocked');
+                const answerBlocked = String(exact.answer_status || '').startsWith('blocked');
+                const blocked = preciseMetrics.isMetricSet && preciseMetrics.items.length
+                    ? preciseMetrics.allBlocked
+                    : answerBlocked;
+                const partial = preciseMetrics.isMetricSet && preciseMetrics.isPartial;
                 const children = [
                     h('div', { class: 'sx-ai-consultant-operating-result-head' }, [
                         h('span', {
                             class: ['sx-ai-consultant-status', blocked ? 'is-blocked' : ''],
-                        }, blocked
-                            ? '缺少可信事实'
-                            : String(props.ctx?.operatingQuestionAnswerStatusText?.(exact.answer_status) || '已严格回读')),
+                        }, partial
+                            ? '部分指标可用'
+                            : (blocked
+                                ? '缺少可信事实'
+                                : String(props.ctx?.operatingQuestionAnswerStatusText?.(exact.answer_status) || '已严格回读'))),
                         h('span', assistantMode === 'action' ? '行动草案模式' : '证据结论模式'),
                     ]),
                     h('p', { class: 'sx-ai-consultant-operating-scope' }, operatingScopeText(exact)),
@@ -3719,55 +4059,15 @@
                         feedbackTestId: isLatest ? 'system-guide-analysis-quality-feedback' : '',
                     }
                 ));
-                const precise = answer.precise_result && typeof answer.precise_result === 'object'
-                    ? answer.precise_result
-                    : null;
-                const preciseRangeEvidence = precise?.kind === 'operating_metric_range'
-                    ? renderPreciseMetricEvidence(answer, {
-                        dataGaps: exact.data_gaps,
-                        testId: isLatest ? 'precise-query-range-results' : undefined,
-                        metricSetTestId: isLatest ? 'precise-query-range-metric-set' : undefined,
-                        itemTestIdPrefix: isLatest ? 'precise-query-range-day' : '',
-                    })
-                    : null;
-                if (preciseRangeEvidence) {
-                    children.push(preciseRangeEvidence);
-                } else if (precise) {
-                    const valueText = precise.value === null || precise.value === undefined || precise.value === ''
-                        ? '--'
-                        : `${String(precise.value)}${precise.unit ? ` ${String(precise.unit)}` : ''}`;
-                    const fields = [
-                        ['酒店', String(precise.hotel?.name || `Hotel ${Number(precise.hotel?.id || 0) || '--'}`)],
-                        ['平台', String(precise.platform?.name || precise.platform?.key || '--')],
-                        ['业务日期', String(precise.business_date || '--')],
-                        ['指标名称', String(precise.metric?.name || precise.metric?.key || '--')],
-                        ['数值与单位', valueText],
-                        ['来源记录', String(precise.source_record || '--')],
-                        ['采集时间', String(precise.collected_at || '未记录，不用回读时间代替')],
-                        ['验证状态', String(precise.verification_status || '--')],
-                        ['回读状态', String(precise.readback_status || '--')],
-                        ['数据范围', String(precise.data_scope || '--')],
-                    ];
-                    children.push(h('section', {
-                        class: 'mt-3 rounded-xl border border-emerald-200 bg-emerald-50/70 p-3',
-                        'data-testid': isLatest ? 'precise-query-fact-card' : undefined,
-                    }, [
-                        h('div', { class: 'mb-2 flex flex-wrap items-center justify-between gap-2' }, [
-                            h('strong', { class: 'text-sm text-emerald-950' }, '可核对经营结果'),
-                            h('span', { class: 'rounded-full bg-white px-2 py-1 text-[11px] text-emerald-800' }, blocked ? '明确阻塞' : '数据库确定性结果'),
-                        ]),
-                        h('dl', { class: 'grid grid-cols-1 gap-2 text-xs sm:grid-cols-2' }, fields.map(([label, value], index) => h('div', {
-                            key: `precise-field-${index}`,
-                            class: ['rounded-lg border border-emerald-100 bg-white px-2.5 py-2', label === '数据范围' ? 'sm:col-span-2' : ''],
-                        }, [
-                            h('dt', { class: 'text-[11px] text-slate-500' }, label),
-                            h('dd', { class: 'mt-0.5 break-words font-medium text-slate-800' }, value),
-                        ]))),
-                        precise.formula ? h('p', { class: 'mt-2 text-xs leading-5 text-emerald-900' }, `计算：${String(precise.formula)}`) : null,
-                        precise.blocked_reason ? h('p', { class: 'mt-2 text-xs leading-5 text-amber-800' }, `阻塞原因：${String(precise.blocked_reason)}`) : null,
-                    ].filter(Boolean)));
-                }
-                const decisionFrame = precise ? null : renderRevenueDecisionFrame(answer.decision_frame, isLatest ? 'system-guide-decision-frame' : '');
+                const preciseEvidence = renderPreciseMetricEvidence(answer, {
+                    normalized: preciseMetrics,
+                    dataGaps: exact.data_gaps,
+                    testId: isLatest ? 'precise-query-fact-card' : '',
+                    metricSetTestId: isLatest ? 'precise-query-metric-set' : '',
+                    itemTestIdPrefix: isLatest ? 'precise-query-metric-item' : '',
+                });
+                if (preciseEvidence) children.push(preciseEvidence);
+                const decisionFrame = preciseEvidence ? null : renderRevenueDecisionFrame(answer.decision_frame, isLatest ? 'system-guide-decision-frame' : '');
                 if (decisionFrame) children.push(decisionFrame);
                 if (keyPoints.length) {
                     children.push(h('ul', { class: 'sx-ai-consultant-key-points' }, keyPoints.map((point, index) => (
@@ -3776,8 +4076,13 @@
                 }
                 if (gaps.length) {
                     children.push(h('div', { class: 'sx-ai-consultant-gaps' }, [
-                        h('strong', '当前阻塞'),
-                        h('ul', gaps.map((gap, index) => h('li', { key: `operating-gap-${index}` }, String(gap)))),
+                        h('strong', partial ? '其余缺口' : '当前阻塞'),
+                        h('ul', [
+                            ...gaps.map((gap, index) => h('li', { key: `operating-gap-${index}` }, String(gap))),
+                            hiddenGapCount > 0
+                                ? h('li', { key: 'operating-gap-more' }, `另有 ${hiddenGapCount} 项缺口，请到专业页面查看完整证据。`)
+                                : null,
+                        ].filter(Boolean)),
                     ]));
                 }
                 if (assistantMode === 'action') {
@@ -3816,11 +4121,11 @@
                     h('span', `已保存并严格回读 #${Number(exact.id || 0)}`),
                 ].filter(Boolean)));
                 children.push(h('div', { class: 'sx-ai-consultant-recovery-actions' }, [
-                    blocked
+                    (blocked || partial)
                         ? h('button', {
                             type: 'button',
                             onClick: (event) => openTopic(event, topicByKey('data-health'), turn),
-                        }, [icon('fa-shield-alt'), h('span', '补齐可信事实')])
+                        }, [icon('fa-shield-alt'), h('span', partial ? '补齐阻塞指标' : '补齐可信事实')])
                         : null,
                     h('button', {
                         type: 'button',
@@ -3829,7 +4134,7 @@
                     }, [icon('fa-arrow-right'), h('span', assistantMode === 'action' ? '到专业页面复核草案' : '查看完整证据与引用')]),
                 ].filter(Boolean)));
                 return h('section', {
-                    class: ['sx-ai-consultant-operating-result', blocked ? 'is-blocked' : 'is-ready'],
+                    class: ['sx-ai-consultant-operating-result', blocked ? 'is-blocked' : 'is-ready', partial ? 'is-partial' : ''],
                     'data-testid': isLatest ? 'system-guide-operating-result' : undefined,
                 }, children);
             };
@@ -4005,7 +4310,7 @@
                         h('div', { class: 'sx-ai-consultant-message-avatar', 'aria-hidden': 'true' }, [icon('fa-sparkles')]),
                         h('div', [
                             h('strong', '直接查数、问缺失原因、找功能或查术语。'),
-                            h('p', '例如“Hotel 80 8月23日美团曝光多少”“可信播报怎么复制”。数值只读数据库，不让模型自由生成。'),
+                            h('p', '例如“Hotel 80 8月23日美团曝光人数多少”“可信播报怎么复制”。数值只读数据库，不让模型自由生成。'),
                         ]),
                     ]));
                 }
@@ -4372,7 +4677,7 @@
                             ? '例如：给我这家酒店今天携程经营情况的结论和证据缺口'
                             : (state.value.selected_mode === 'action'
                                 ? '例如：根据今天的可信事实，帮我生成待人工确认的行动草案'
-                                : '例如：Hotel 80 8月23日美团曝光多少？'),
+                                : '例如：Hotel 80 8月23日美团曝光人数多少？'),
                         'data-testid': 'system-guide-input',
                         onInput: (event) => {
                             state.value.query = String(event?.target?.value || '');

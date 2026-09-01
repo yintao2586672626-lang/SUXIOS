@@ -91,4 +91,48 @@ final class AiDailyReportReadFailureTest extends TestCase
         self::assertNull($list['pagination']['total']);
         self::assertNull($latest['report']);
     }
+
+    public function testExecutionEvidenceReadFailureBlocksWorkflowWithoutDiscardingReportRow(): void
+    {
+        Db::execute('CREATE TABLE operation_execution_intents (id INTEGER PRIMARY KEY)');
+        try {
+            $rows = (new AiDailyReportService())->enrichReportRows([[
+                'id' => 91,
+                'hotel_id' => 80,
+                'report_date' => '2026-08-30',
+                'created_by' => 1,
+                'cache_hit_count' => 0,
+                'summary' => '已保存且仍可阅读的日报',
+                'model_status' => 'not_requested',
+                'model_message' => '',
+                'yesterday_result_json' => '{"metrics":[{"key":"orders","value":8}]}',
+                'abnormal_metrics_json' => '[]',
+                'competitor_changes_json' => '[]',
+                'data_gaps_json' => '[]',
+                'recommended_actions_json' => '[{"title":"Review Ctrip room price","action_type":"promotion","can_create_execution_intent":true}]',
+                'source_refs_json' => '[{"key":"online_daily_data#80#ctrip#2026-08-30","source":"online_daily_data","system_hotel_id":80,"platform":"ctrip","scope":"ota_channel","data_date":"2026-08-30","date_role":"target","readback_verified":true}]',
+                'snapshot_json' => '{"input_trust":{"readback_verified":true},"report_scope":{"hotel_id":80,"report_date":"2026-08-30","source_scope":"ota_channel"}}',
+            ]], [80], 80);
+        } finally {
+            Db::execute('DROP TABLE operation_execution_intents');
+        }
+
+        self::assertCount(1, $rows);
+        $row = $rows[0];
+        self::assertTrue($row['result_readiness']['usable']);
+        self::assertSame('blocked', $row['execution_evidence']['status']);
+        self::assertSame('read_failed', $row['execution_evidence']['data_status']);
+        self::assertSame(
+            'ai_daily_report_execution_flow_read_failed',
+            $row['execution_evidence']['reason_code']
+        );
+        self::assertSame('blocked', $row['workflow_readiness']['stage']);
+        self::assertSame('read_failed', $row['workflow_readiness']['data_status']);
+        self::assertFalse($row['recommended_actions'][0]['can_create_execution_intent']);
+        self::assertSame('blocked', $row['recommended_actions'][0]['action_readiness']['stage']);
+        self::assertSame(
+            'read_failed',
+            $row['recommended_actions'][0]['action_readiness']['data_status']
+        );
+    }
 }

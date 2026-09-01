@@ -130,6 +130,10 @@ test('startup artifacts are deterministic, current, smaller, and preserve export
   const inspection = await inspectFrontendStartupHelpers(repoRoot);
   assert.deepEqual(inspection.failures, []);
   assert.ok(
+    FRONTEND_STARTUP_HELPER_SOURCES.includes('home-static.js'),
+    'home operating-time components must exist before app-main evaluates its startup dependencies',
+  );
+  assert.ok(
     FRONTEND_STARTUP_HELPER_SOURCES.includes('ota-profile-static.js'),
     'OTA Profile login helpers must load before app-main initializes authenticated state',
   );

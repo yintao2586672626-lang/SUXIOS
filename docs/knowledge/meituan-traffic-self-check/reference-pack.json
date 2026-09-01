@@ -1,0 +1,211 @@
+{
+  "schema_version": "suxios.meituan_traffic_self_check_reference.v1",
+  "knowledge_key": "meituan_traffic_self_check_reference",
+  "title": "美团酒店流量自检（截图参考）",
+  "platforms": [
+    "meituan"
+  ],
+  "task_mode": "storage_only",
+  "disposition": "absorption_candidate",
+  "maturity": "observed",
+  "usage_policy": "reference_only",
+  "contains_current_hotel_fact": false,
+  "contains_current_ota_fact": false,
+  "contains_confirmed_current_platform_rule": false,
+  "external_write_authorized": false,
+  "verified_visible": {
+    "title": "美团酒店流量自检表",
+    "workflow_steps": [
+      "第一步：识别流量数据",
+      "第二步：流量构成自检（差在哪里多少）"
+    ],
+    "observation_dimensions": [
+      "自身维度",
+      "商圈维度"
+    ],
+    "guidance_card_labels": [
+      "流量排名",
+      "基础曝光",
+      "奖励曝光",
+      "广告曝光"
+    ],
+    "visible_example_statuses": [
+      "顶流",
+      "曝光加权中",
+      "曝光中",
+      "曝光中"
+    ],
+    "peer_board_visible_columns": [
+      "排名",
+      "酒店名称",
+      "曝光量",
+      "营销动作"
+    ],
+    "self_check_columns": [
+      "流量类型",
+      "细分指标",
+      "有没有",
+      "我的数据（近七天）",
+      "同行标杆（近七天）",
+      "差距",
+      "运营提升"
+    ],
+    "traffic_structure": [
+      {
+        "traffic_type": "基础流量",
+        "items": [
+          {
+            "label": "基础曝光",
+            "visible_related_items": [
+              "销量",
+              "评价",
+              "信息等"
+            ],
+            "visible_recommendation_summary": "提升近30天间夜量和营业额，并保证当日实时进单量。",
+            "recommendation_status": "source_text_not_verified_as_causal_or_current"
+          },
+          {
+            "label": "加权曝光",
+            "visible_related_items": [
+              "合作度"
+            ],
+            "visible_recommendation_summary": "选择合适的聚金方案，并参考价优、高佣、商产达标等来源文案。",
+            "recommendation_status": "source_text_not_verified_as_causal_or_current"
+          }
+        ]
+      },
+      {
+        "traffic_type": "广告流量",
+        "items": [
+          {
+            "label": "奖励曝光",
+            "visible_related_items": [
+              "获客币"
+            ],
+            "visible_recommendation_summary": "切换获客币套餐、扫码冲单。",
+            "recommendation_status": "source_text_not_verified_as_effective_or_authorized"
+          },
+          {
+            "label": "付费曝光",
+            "visible_related_items": [
+              "推广通等"
+            ],
+            "visible_recommendation_summary": "选择推广通投放并优化推广通投放。",
+            "recommendation_status": "source_text_not_verified_as_effective_or_authorized"
+          }
+        ]
+      }
+    ]
+  },
+  "mechanism_candidate": {
+    "trigger": "运营人员希望诊断一个已明确门店在美团渠道的近期流量问题。",
+    "required_inputs": [
+      "系统酒店与美团平台门店身份",
+      "精确连续七天日期窗口",
+      "来源可回读的自身流量事实",
+      "同指标同窗口且范围可比的同行标杆",
+      "指标来源、采集时间与数据质量状态"
+    ],
+    "stages": [
+      "校验酒店、平台、日期和同行范围",
+      "展示来源能证明的自身及商圈位置",
+      "按基础曝光、加权曝光、奖励曝光、付费曝光拆分",
+      "逐项展示有没有、自身值、标杆值、可比性和差距",
+      "只为有充分证据的具体差距给出渠道运营候选动作",
+      "涉及套餐、广告或平台写入时保持待人工审批"
+    ],
+    "output": "可追溯的美团渠道流量自检清单与证据绑定的候选运营动作。",
+    "failure_contract": "关键数据缺失、来源未验证或范围不可比时显示 not_ready/unavailable；不补零、不定档、不算差距、不推断因果、不生成确定性投放结论。",
+    "side_effect_policy": "默认无外部写入；套餐切换、广告投放、扫码冲单及任何OTA动作必须由用户主动触发。",
+    "gates": {
+      "mechanism": "indeterminate",
+      "value": "pass",
+      "reproduction": "fail"
+    },
+    "reproduction_status": "no_source_input_output_pair_formula_boundary_or_failure_sample"
+  },
+  "metric_mapping_boundary": [
+    {
+      "visible_label": "流量排名",
+      "canonical_metric": null,
+      "mapping_status": "unverified"
+    },
+    {
+      "visible_label": "曝光量",
+      "canonical_metric": null,
+      "mapping_status": "ambiguous_between_platform_specific_exposure_count_contracts"
+    },
+    {
+      "visible_label": "基础曝光",
+      "canonical_metric": null,
+      "mapping_status": "must_not_be_silently_mapped_to_organic_exposure"
+    },
+    {
+      "visible_label": "加权曝光",
+      "canonical_metric": null,
+      "mapping_status": "unverified"
+    },
+    {
+      "visible_label": "奖励曝光",
+      "canonical_metric": null,
+      "mapping_status": "unverified"
+    },
+    {
+      "visible_label": "广告曝光",
+      "canonical_metric": "ad_exposure",
+      "mapping_status": "candidate_only_requires_source_module_definition_unit_date_and_binding"
+    },
+    {
+      "visible_label": "付费曝光",
+      "canonical_metric": "ad_exposure",
+      "mapping_status": "candidate_only_not_proven_equivalent_to_advertising_exposure"
+    },
+    {
+      "visible_label": "同行标杆（近七天）",
+      "canonical_metric": "peer_avg_value",
+      "mapping_status": "candidate_only_requires_same_metric_window_and_peer_scope"
+    }
+  ],
+  "future_reproduction_contract": {
+    "normal_sample": "在同门店、同美团门店、同七天窗口、同指标定义且自身和同行数据均已验证时，只展示来源可证明的排名/档位，并逐项回读自身、标杆、可比性、差距和候选动作。",
+    "critical_counterexample": "自身近七天数据缺失或未验证但同行标杆存在时，gap 与 traffic_tier 均为 unavailable；不得把自身值补成0、不得标低流、不得直接建议购买获客币、聚金或推广通。",
+    "evidence_status": "future_golden_sample_contract_not_source_reproduction_evidence"
+  },
+  "unverified_items": [
+    "官方来源URL、发布主体、发布日期、生效日期、适用地区与门店范围",
+    "顶流、高流、中流、低流及各曝光档位的公式、阈值、区间与刷新周期",
+    "基础曝光、加权曝光、奖励曝光、广告曝光、付费曝光的官方字段定义、单位、来源路径和相互关系",
+    "商圈边界、同行选择、样本数量、并列规则与可比性条件",
+    "差距计算方法以及销量、评价、信息、合作度与曝光之间的因果和权重",
+    "聚金、获客币、扫码冲单、推广通的资格、成本、权限、风险和实际收益",
+    "数据缺失、接口失败、时间窗不一致或同行不可比时的来源系统行为"
+  ],
+  "allowed_uses": [
+    "knowledge_search",
+    "meituan_traffic_terminology_explanation",
+    "same_scope_gap_checklist_draft",
+    "missing_evidence_questions",
+    "future_source_replay_design"
+  ],
+  "blocked_uses": [
+    "current_hotel_fact",
+    "confirmed_current_platform_rule",
+    "traffic_tier_calculation",
+    "ranking_prediction",
+    "peer_gap_calculation_without_verified_facts",
+    "causal_exposure_claim",
+    "operation_task_creation",
+    "operation_execution",
+    "automatic_marketing",
+    "automatic_pricing",
+    "automatic_ota_write",
+    "automatic_pms_write",
+    "external_message"
+  ],
+  "upgrade_triggers": [
+    "取得可定位的当前美团官方页面或结构化响应及字段定义",
+    "取得同门店同平台同七天窗口的正常输入输出样例",
+    "取得一个数据缺失、不可比或平台失败样例",
+    "完成来源行为重放并验证宿析OS保存、精确回读与失败状态"
+  ]
+}

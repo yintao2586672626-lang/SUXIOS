@@ -459,7 +459,7 @@ final class ProtectedCapabilityServiceTest extends TestCase
             'default_enabled_modules' => ['operation_decision'],
         ]);
         $paths = [
-            '/api/revenue-ai/cockpit/pending-approval',
+            '/api/revenue-ai/cockpit/decision-snapshots/9/pending-approval',
             '/api/agent/feasibility-report/9/execution-intent',
             '/api/agent/price-suggestions/9/execution-intent',
             '/api/ai-daily-reports/9/actions/0/execution-intent',

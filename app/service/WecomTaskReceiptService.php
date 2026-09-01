@@ -43,6 +43,11 @@ final class WecomTaskReceiptService
         'failed',
     ];
 
+    private const VERIFIED_RECEIPT_TRANSPORTS = [
+        'wecom_app_callback',
+        WecomAibotService::TRANSPORT,
+    ];
+
     /** @var Closure(array<string,int|string>):array<string,mixed> */
     private Closure $scopeResolver;
 
@@ -204,7 +209,7 @@ final class WecomTaskReceiptService
                 ->where('id', (int)$event['binding_id'])
                 ->where('tenant_id', $tenantId)
                 ->where('hotel_id', $hotelId)
-                ->where('transport', 'wecom_app_callback')
+                ->whereIn('transport', self::VERIFIED_RECEIPT_TRANSPORTS)
                 ->where('status', 'verified')
                 ->find();
             if (!is_array($binding)) {
@@ -509,7 +514,7 @@ final class WecomTaskReceiptService
             ->where('id', $bindingId)
             ->where('tenant_id', $tenantId)
             ->where('hotel_id', $hotelId)
-            ->where('transport', 'wecom_app_callback')
+            ->whereIn('transport', self::VERIFIED_RECEIPT_TRANSPORTS)
             ->where('status', 'verified')
             ->find();
         $senderRow = $this->findSenderBinding($bindingId, $senderIdHash);
@@ -529,6 +534,7 @@ final class WecomTaskReceiptService
                 'id' => (int)$binding['id'],
                 'tenant_id' => (int)$binding['tenant_id'],
                 'hotel_id' => (int)$binding['hotel_id'],
+                'transport' => (string)$binding['transport'],
                 'status' => (string)$binding['status'],
             ],
             'sender' => [
@@ -802,7 +808,7 @@ final class WecomTaskReceiptService
             || $normalized['hotel_id'] !== $hotelId
             || $normalized['external_event_id'] === ''
             || $normalized['message_type'] !== 'text'
-            || $normalized['transport'] !== 'wecom_app_callback'
+            || !in_array($normalized['transport'], self::VERIFIED_RECEIPT_TRANSPORTS, true)
             || $normalized['archive_status'] !== 'readback_verified'
             || !in_array($normalized['processing_status'], ['reply_ready', 'blocked', 'failed'], true)
             || !is_string($normalized['content_text'])

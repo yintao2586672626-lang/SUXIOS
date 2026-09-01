@@ -3,10 +3,15 @@
                             <section data-testid="online-data-page-header" class="online-data-hero">
                                 <div class="online-data-hero-layout">
                                     <div class="online-data-hero-copy">
+                                        <div class="online-data-hero-meta">
+                                            <span class="online-data-eyebrow">数据分析中心 · OTA 渠道</span>
+                                        </div>
                                         <h2>线上经营数据</h2>
                                         <p>看清数据是否可信、哪里异常、先处理什么；仅代表携程与美团渠道，不替代全酒店经营事实。</p>
                                         <div class="online-data-truth-row" data-testid="online-data-truth-boundaries">
-                                            <span>来源、门店、日期、字段保存与数据库回读；缺失不补 0</span>
+                                            <span>来源与门店身份校验</span>
+                                            <span class="is-warning">缺失不补 0</span>
+                                            <span>保存后精确回读</span>
                                         </div>
                                     </div>
                                     <button
@@ -34,8 +39,11 @@
                                     <button @click="openPlatformSourcesTab()" class="online-data-tab-button" :class="{ 'is-active': onlineDataTab === 'platform-sources' }">
                                         配置：平台账号
                                     </button>
-                                    <button @click="openOnlineAnalysisTab" class="online-data-tab-button" :class="{ 'is-active': onlineDataTab === 'analysis' }">
+                                    <button @click="onlineDataFilter.data_type = ''; openOnlineAnalysisTab()" class="online-data-tab-button" :class="{ 'is-active': onlineDataTab === 'analysis' &amp;&amp; onlineDataFilter.data_type !== 'review' }">
                                         数据分析
+                                    </button>
+                                    <button data-testid="online-data-reputation-tab" @click="onlineDataFilter.data_type = 'review'; openOnlineAnalysisTab()" class="online-data-tab-button" :class="{ 'is-active': onlineDataTab === 'analysis' &amp;&amp; onlineDataFilter.data_type === 'review' }">
+                                        点评口碑
                                     </button>
                                     <button @click="openOnlineDataTab('data')" class="online-data-tab-button" :class="{ 'is-active': onlineDataTab === 'data' }">
                                         记录与下载
@@ -58,7 +66,10 @@
                                     </div>
                                     <details data-testid="online-data-trust-details" class="online-data-trust-disclosure">
                                         <summary class="online-data-trust-summary">
-                                            <strong>数据可信度与字段闭环</strong>
+                                            <span class="online-data-trust-copy">
+                                                <strong>数据可信度与字段闭环</strong>
+                                                <small>来源、门店、日期、字段保存与数据库回读</small>
+                                            </span>
                                             <span class="online-data-trust-toggle">查看证据</span>
                                         </summary>
                                         <div class="online-data-trust-body">
@@ -1739,7 +1750,167 @@
 
                                 <!-- 数据分析 -->
                                 <div v-if="onlineDataTab === 'analysis'" data-testid="online-data-analysis-panel" class="space-y-5">
-                                    <div class="online-analysis-summary-grid" data-testid="online-analysis-summary-grid">
+                                    <section v-if="onlineDataFilter.data_type === 'review'" data-testid="reputation-workbench" class="space-y-4">
+                                        <div class="overflow-hidden rounded-2xl border border-slate-800 bg-slate-950 text-white shadow-sm">
+                                            <div class="flex flex-col gap-4 p-5 lg:flex-row lg:items-center lg:justify-between">
+                                                <div>
+                                                    <div class="text-xs font-semibold tracking-[0.18em] text-amber-300">OTA 口碑工作台</div>
+                                                    <h4 class="mt-2 text-xl font-semibold">各平台原始分分开看，先确认事实，再进入点评证据处理</h4>
+                                                    <p class="mt-2 max-w-3xl text-sm leading-6 text-slate-300">只汇总当前酒店、所选日期范围内已入库的点评聚合事实；不把不同平台分制平均成“综合分”，不展示点评正文或住客身份。</p>
+                                                </div>
+                                                <button type="button" @click="refreshOnlineAnalysis({ force: true })" :disabled="onlineAnalysisLoading" class="inline-flex shrink-0 items-center justify-center rounded-xl border border-amber-300/50 bg-amber-200 px-4 py-2.5 text-sm font-semibold text-slate-950 hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-60">
+                                                    <i :class="onlineAnalysisLoading ? 'fas fa-spinner fa-spin mr-2' : 'fas fa-sync-alt mr-2'"></i>{{ onlineAnalysisLoading ? '刷新中' : '刷新口碑事实' }}
+                                                </button>
+                                            </div>
+                                            <div class="grid gap-px border-t border-slate-800 bg-slate-800 sm:grid-cols-2 xl:grid-cols-4">
+                                                <div class="bg-slate-900 px-4 py-3 text-xs text-slate-300">门店：{{ onlineDataSummary?.ota_channel_supplement?.reviews?.identity?.system_hotel_id || '未选择' }}</div>
+                                                <div class="bg-slate-900 px-4 py-3 text-xs text-slate-300">范围：OTA 渠道口碑，不代表全酒店经营</div>
+                                                <div class="bg-slate-900 px-4 py-3 text-xs text-slate-300">口径：平台原始分，不跨平台平均</div>
+                                                <div class="bg-slate-900 px-4 py-3 text-xs text-slate-300">隐私：只读聚合指标，不显示点评正文与身份</div>
+                                            </div>
+                                        </div>
+
+                                        <template v-if="onlineDataSummary?.ota_channel_supplement?.reviews">
+                                            <div v-if="onlineDataSummary.ota_channel_supplement.reviews.scope_blocker === 'hotel_scope_mixed'" class="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">当前范围包含多个酒店，已阻止跨店合并点评。请先选择单一酒店再刷新。</div>
+                                            <div class="grid gap-4 md:grid-cols-2" data-testid="reputation-platform-cards">
+                                                <article v-for="platform in onlineDataSummary.ota_channel_supplement.reviews.platforms" :key="platform.source" class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+                                                    <div class="flex items-start justify-between gap-3">
+                                                        <div>
+                                                            <div class="text-sm font-semibold text-slate-600">{{ platform.label }}点评</div>
+                                                            <div class="mt-2 flex items-end gap-2">
+                                                                <strong class="text-3xl font-semibold tracking-tight text-slate-950">{{ platform.score !== null &amp;&amp; platform.score !== undefined ? platform.score : '—' }}</strong>
+                                                                <span class="pb-1 text-xs text-slate-500">{{ platform.score_label || '平台原始分' }}</span>
+                                                            </div>
+                                                        </div>
+                                                        <span :class="onlineTruthStatusClass(platform.truth_context)">{{ onlineTruthStatusText(platform.truth_context) }}</span>
+                                                    </div>
+
+                                                    <div class="mt-4 grid grid-cols-2 gap-3 text-sm">
+                                                        <div class="rounded-xl bg-slate-50 p-3">
+                                                            <div class="text-xs text-slate-500">点评总量</div>
+                                                            <div class="mt-1 font-semibold text-slate-900">{{ platform.review_count !== null &amp;&amp; platform.review_count !== undefined ? platform.review_count : '—' }}</div>
+                                                            <div v-if="platform.latest_day_new_review_count !== null &amp;&amp; platform.latest_day_new_review_count !== undefined" class="mt-1 text-xs text-emerald-700">{{ platform.latest_day_new_review_date }} 新增 +{{ platform.latest_day_new_review_count }}</div>
+                                                            <div v-else-if="platform.review_count_change !== null &amp;&amp; platform.review_count_change !== undefined" class="mt-1 text-xs text-emerald-700">较前次可用快照 +{{ platform.review_count_change }}</div>
+                                                        </div>
+                                                        <div class="rounded-xl bg-slate-50 p-3">
+                                                            <div class="text-xs text-slate-500">低分 / 差评</div>
+                                                            <div class="mt-1 font-semibold text-slate-900">{{ platform.bad_review_count !== null &amp;&amp; platform.bad_review_count !== undefined ? platform.bad_review_count : '—' }}</div>
+                                                            <div v-if="platform.bad_review_count_change !== null &amp;&amp; platform.bad_review_count_change !== undefined" class="mt-1 text-xs text-amber-700">较前次 +{{ platform.bad_review_count_change }}</div>
+                                                        </div>
+                                                    </div>
+
+                                                    <div class="mt-3 space-y-1 text-xs leading-5 text-slate-500">
+                                                        <div>最新业务日期：{{ platform.latest_data_date || '未返回' }}</div>
+                                                        <div>主口径：{{ platform.primary_channel || platform.label }}</div>
+                                                        <div>来源方式：{{ platform.identity?.source_method || '未返回' }}</div>
+                                                        <div>采集时间：{{ platform.latest_collected_at || '未返回' }}</div>
+                                                        <div v-if="platform.score_change !== null &amp;&amp; platform.score_change !== undefined">原始分较前次：{{ platform.score_change &gt; 0 ? '+' : '' }}{{ platform.score_change }}</div>
+                                                        <div v-if="platform.count_rebaseline_required" class="text-amber-700">点评累计数较前次回退，需重新建立比较基线；未计算新增量。</div>
+                                                        <div v-else-if="platform.review_count_change_basis === 'previous_available_snapshot'" class="text-amber-700">相邻业务日基线缺失，只展示“较前次可用快照”，不冒充当日新增。</div>
+                                                    </div>
+
+                                                    <details data-testid="reputation-platform-field-evidence" class="mt-3 rounded-xl border border-slate-200 bg-white p-3 text-xs">
+                                                        <summary class="cursor-pointer font-medium text-slate-700">逐字段证据与缺口</summary>
+                                                        <div class="mt-3 grid gap-2 sm:grid-cols-2">
+                                                            <div class="rounded-lg bg-slate-50 px-3 py-2"><span class="text-slate-500">平台原始分</span><strong class="float-right text-slate-900">{{ platform.score ?? '—' }}</strong></div>
+                                                            <div class="rounded-lg bg-slate-50 px-3 py-2"><span class="text-slate-500">累计点评量</span><strong class="float-right text-slate-900">{{ platform.review_count ?? '—' }}</strong></div>
+                                                            <div class="rounded-lg bg-slate-50 px-3 py-2"><span class="text-slate-500">低分 / 差评量</span><strong class="float-right text-slate-900">{{ platform.bad_review_count ?? '—' }}</strong></div>
+                                                            <div class="rounded-lg bg-slate-50 px-3 py-2"><span class="text-slate-500">好评率（来源返回）</span><strong class="float-right text-slate-900">{{ platform.good_rate !== null &amp;&amp; platform.good_rate !== undefined ? `${platform.good_rate}%` : '—' }}</strong></div>
+                                                            <div class="rounded-lg bg-slate-50 px-3 py-2"><span class="text-slate-500">点评回复率</span><strong class="float-right text-slate-900">{{ platform.response_rate !== null &amp;&amp; platform.response_rate !== undefined ? `${platform.response_rate}%` : '—' }}</strong></div>
+                                                            <div class="rounded-lg bg-slate-50 px-3 py-2"><span class="text-slate-500">未回复点评</span><strong class="float-right text-slate-900">{{ platform.unreplied_count ?? '—' }}</strong></div>
+                                                            <div class="rounded-lg bg-slate-50 px-3 py-2"><span class="text-slate-500">带图点评数</span><strong class="float-right text-slate-900">{{ platform.review_photo_count ?? '—' }}</strong></div>
+                                                            <div class="rounded-lg bg-slate-50 px-3 py-2"><span class="text-slate-500">带图率</span><strong class="float-right text-slate-900">{{ platform.review_photo_rate !== null &amp;&amp; platform.review_photo_rate !== undefined ? `${platform.review_photo_rate}%` : '—' }}</strong></div>
+                                                            <div class="rounded-lg bg-slate-50 px-3 py-2"><span class="text-slate-500">环境 / 位置子分</span><strong class="float-right text-slate-900">{{ platform.quality_dimensions?.environment ?? '—' }}</strong></div>
+                                                            <div class="rounded-lg bg-slate-50 px-3 py-2"><span class="text-slate-500">设施子分</span><strong class="float-right text-slate-900">{{ platform.quality_dimensions?.facility ?? '—' }}</strong></div>
+                                                            <div class="rounded-lg bg-slate-50 px-3 py-2"><span class="text-slate-500">服务子分</span><strong class="float-right text-slate-900">{{ platform.quality_dimensions?.service ?? '—' }}</strong></div>
+                                                            <div class="rounded-lg bg-slate-50 px-3 py-2"><span class="text-slate-500">卫生 / 清洁子分</span><strong class="float-right text-slate-900">{{ platform.quality_dimensions?.cleanliness ?? '—' }}</strong></div>
+                                                        </div>
+                                                        <div class="mt-3 space-y-1 border-t border-slate-200 pt-3 text-slate-500">
+                                                            <div>系统酒店：{{ platform.identity?.system_hotel_id || '未返回' }} · 平台门店：{{ platform.identity?.platform_store_id || '未返回' }}</div>
+                                                            <div>合同：{{ platform.identity?.schema_version || '未返回' }} · 状态：{{ platform.data_status || '未返回' }}</div>
+                                                            <div>“—”代表来源未返回或证据未放行；好评数量不使用“点评总量－差评量”推算。</div>
+                                                        </div>
+                                                    </details>
+
+                                                    <details v-if="platform.channels?.length &gt; 1" class="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs">
+                                                        <summary class="cursor-pointer font-medium text-slate-700">查看来源内附带渠道（{{ platform.channels.length }}）</summary>
+                                                        <div class="mt-2 space-y-2 text-slate-600">
+                                                            <div v-for="channel in platform.channels" :key="channel.label" class="flex flex-wrap items-center justify-between gap-2 border-t border-slate-200 pt-2 first:border-t-0 first:pt-0">
+                                                                <span>{{ channel.label }} · {{ channel.data_date || '日期未返回' }}</span>
+                                                                <span>原始分 {{ channel.score ?? '—' }} · 点评 {{ channel.review_count ?? '—' }} · 低分/差评 {{ channel.bad_review_count ?? '—' }}</span>
+                                                            </div>
+                                                        </div>
+                                                    </details>
+
+                                                    <div class="mt-4">
+                                                        <button v-if="platform.source === 'ctrip'" type="button" @click="currentPage = 'ctrip-ebooking'; openCtripManualTab('ctrip-review-match')" class="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 hover:border-amber-400 hover:bg-amber-50">进入携程点评证据</button>
+                                                        <button v-else-if="platform.source === 'meituan'" type="button" @click="currentPage = 'meituan-ebooking'; openMeituanManualTab('meituan-review-match')" class="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 hover:border-amber-400 hover:bg-amber-50">进入美团点评证据</button>
+                                                    </div>
+                                                </article>
+                                            </div>
+
+                                            <div class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm" data-testid="reputation-trends">
+                                                <div class="flex flex-wrap items-start justify-between gap-3">
+                                                    <div>
+                                                        <h5 class="font-semibold text-slate-900">近 7 个已入库业务日趋势</h5>
+                                                        <p class="mt-1 text-xs text-slate-500">只比较同一平台主口径；缺失值保留为“—”，累计数回退不计算新增。</p>
+                                                    </div>
+                                                    <span :class="onlineTruthStatusClass(onlineDataSummary.ota_channel_supplement.reviews.truth_context)">{{ onlineTruthStatusText(onlineDataSummary.ota_channel_supplement.reviews.truth_context) }}</span>
+                                                </div>
+                                                <div class="mt-4 grid gap-4 lg:grid-cols-2">
+                                                    <div v-for="platform in onlineDataSummary.ota_channel_supplement.reviews.platforms" :key="`trend-${platform.source}`" class="rounded-xl border border-slate-200 p-4">
+                                                        <div class="text-sm font-semibold text-slate-800">{{ platform.label }}</div>
+                                                        <div v-if="platform.trend?.length" class="mt-3 space-y-2">
+                                                            <div v-for="point in platform.trend" :key="`${platform.source}-${point.data_date}`" class="grid grid-cols-4 items-center gap-2 rounded-lg bg-slate-50 px-3 py-2 text-xs">
+                                                                <span class="font-medium text-slate-700">{{ point.data_date }}</span>
+                                                                <span class="text-slate-600">分 {{ point.score ?? '—' }}</span>
+                                                                <span class="text-slate-600">评 {{ point.review_count ?? '—' }}</span>
+                                                                <span class="text-slate-600">差 {{ point.bad_review_count ?? '—' }}</span>
+                                                            </div>
+                                                        </div>
+                                                        <div v-else class="mt-3 rounded-lg border border-dashed border-slate-300 bg-slate-50 p-5 text-center text-xs text-slate-500">当前范围没有可验证趋势；不会用 0 或演示值补齐。</div>
+                                                    </div>
+                                                </div>
+                                            </div>
+
+                                            <details data-testid="reputation-field-readiness" class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+                                                <summary class="cursor-pointer font-semibold text-slate-900">截图字段逐项研究与当前能力</summary>
+                                                <div class="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                                                    <div class="rounded-xl border border-emerald-200 bg-emerald-50 p-4">
+                                                        <div class="text-sm font-semibold text-emerald-800">全平台看板 · 已做有界接入</div>
+                                                        <p class="mt-1 text-xs leading-5 text-emerald-700">只汇总本页真实接入的携程、美团点评事实；来源内附带渠道单列，不生成跨平台综合分。</p>
+                                                    </div>
+                                                    <div class="rounded-xl border border-amber-200 bg-amber-50 p-4">
+                                                        <div class="text-sm font-semibold text-amber-800">差评查询 · 聚合可用，明细受限</div>
+                                                        <p class="mt-1 text-xs leading-5 text-amber-700">可看低分/差评聚合与授权订单证据；当前主链不保存点评正文，也不反查匿名住客。</p>
+                                                    </div>
+                                                    <div class="rounded-xl border border-amber-200 bg-amber-50 p-4">
+                                                        <div class="text-sm font-semibold text-amber-800">好评管理 · 只读指标</div>
+                                                        <p class="mt-1 text-xs leading-5 text-amber-700">只展示来源明确返回的好评率；不从总量减差评量推算好评数，不自动邀评或生成虚假评价。</p>
+                                                    </div>
+                                                    <div class="rounded-xl border border-emerald-200 bg-emerald-50 p-4">
+                                                        <div class="text-sm font-semibold text-emerald-800">本店分析 · 已接入</div>
+                                                        <p class="mt-1 text-xs leading-5 text-emerald-700">按酒店、平台、业务日显示原始分、累计量、差评、回复和子分；相邻日缺失时不写“今日新增”。</p>
+                                                    </div>
+                                                    <div class="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                                                        <div class="text-sm font-semibold text-slate-700">竞对分析 · 尚未接入口碑同题合同</div>
+                                                        <p class="mt-1 text-xs leading-5 text-slate-600">现有竞对模块可看其他经营指标，但点评对比还缺同平台、同日期、同评分口径的可验证数据。</p>
+                                                    </div>
+                                                    <div class="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                                                        <div class="text-sm font-semibold text-slate-700">点评预测 · 未放行</div>
+                                                        <p class="mt-1 text-xs leading-5 text-slate-600">没有稳定连续历史、平台计分口径与回测证据前，不预测未来评分，也不把趋势延长线当结论。</p>
+                                                    </div>
+                                                </div>
+                                                <div class="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4 text-xs leading-5 text-slate-600">
+                                                    <strong class="text-slate-800">平台与自动抓取：</strong>本页点评事实链当前接入携程/美团；抖音、飞猪只在其他人工日报或知识材料中出现，尚未进入本页“采集 → 保存 → 精确回读”合同。截图中的“每日 09:00”不作为宿析配置，实际时间以“自动采集”设置和每条记录的采集时间为准。
+                                                </div>
+                                            </details>
+                                        </template>
+
+                                        <div v-else class="rounded-2xl border border-dashed border-slate-300 bg-white p-8 text-center text-sm text-slate-500">口碑汇总尚未返回；刷新后仍缺失时，请进入对应平台核对采集与酒店绑定。</div>
+                                    </section>
+
+                                    <div v-else class="online-analysis-summary-grid" data-testid="online-analysis-summary-grid">
                                         <article v-for="card in onlineAnalysisSummaryCards" :key="card.key" data-testid="truth-metric" class="online-analysis-summary-card">
                                             <div class="online-analysis-summary-label">{{ card.label }}</div>
                                             <div class="online-analysis-summary-value" :class="card.className">{{ card.value }}</div>

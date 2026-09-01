@@ -720,6 +720,11 @@ final class BrowserCaptureProcessRunnerTest extends TestCase
         self::assertStringContainsString("'浏览器 Profile 采集已提交后台执行', 202", $onlineData);
 
         self::assertStringContainsString('BrowserCaptureTaskExecutionService::sanitizeBackgroundRequest(', $onlineData);
+        $canonicalHotelAt = strpos($onlineData, "\$backgroundRequest['system_hotel_id'] = \$hotelId;");
+        $queuedTaskAt = strpos($onlineData, '$task = $service->createTask(', (int)$canonicalHotelAt);
+        self::assertIsInt($canonicalHotelAt);
+        self::assertIsInt($queuedTaskAt);
+        self::assertLessThan($queuedTaskAt, $canonicalHotelAt);
         $sanitizerStart = strpos($taskExecution, 'public static function sanitizeBackgroundRequest');
         $sanitizerEnd = strpos($taskExecution, '/**', $sanitizerStart + 20);
         self::assertIsInt($sanitizerStart);

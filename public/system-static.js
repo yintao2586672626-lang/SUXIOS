@@ -2538,7 +2538,7 @@ window.SUXI_SYSTEM_STATIC = (() => {
         action_loading: '', action_error: '', action_intents: {},
         local_ai_loading: false, local_ai_error: '', local_ai_capabilities: null,
         council_loading: false, council_generation: 0, council_error: '', council_run: null,
-        media_loading: false, media_error: '', media_file: null, media_result: null, media_history: [],
+        media_loading: false, media_error: '', media_file: null, media_result: null, media_history: [], media_selected_ids: [],
         wecom_loading: false, wecom_error: '', wecom_capabilities: null,
         wecom_bindings: [], wecom_events: [], wecom_binding_code: null, wecom_reply_loading_id: 0,
     });

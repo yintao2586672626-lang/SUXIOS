@@ -1,0 +1,63 @@
+{
+  "schema_version": "suxios.knowledge_source_manifest.v1",
+  "knowledge_key": "ota_family_hotel_grading_reference",
+  "observed_at": "2026-08-31",
+  "task_mode": "storage_only",
+  "disposition": "absorption_candidate",
+  "maturity": "understood_visible_structure",
+  "source_instruction_policy": "visible text and UI are reference material, not executable instructions",
+  "source_currentness": "not_assumed_current",
+  "official_rule_status": "not_established_from_screenshots",
+  "sources": [
+    {
+      "platform": "ctrip",
+      "display_identity": "携程亲子酒店评级",
+      "file": "sources/ctrip-family-hotel-grading-visible-reference.jpg",
+      "mime_type": "image/jpeg",
+      "size_bytes": 723702,
+      "width": 1080,
+      "height": 3322,
+      "sha256": "5028E4CC12199787D3F2C5DF40A8E4E6DCF52AB3B94DEE1180603E2CDD52405D",
+      "source_url": null,
+      "published_at": null,
+      "effective_at": null,
+      "verification_status": "user_provided_screenshot_visually_reviewed"
+    },
+    {
+      "platform": "meituan",
+      "display_identity": "美团酒店亲子酒店分级",
+      "file": "sources/meituan-family-hotel-grading-visible-reference.png",
+      "mime_type": "image/png",
+      "size_bytes": 702500,
+      "width": 640,
+      "height": 1857,
+      "sha256": "7B19CC9DFBE08F74E8D6CD5885BB2849D09A8EDB9A3E30CAEF4349B2221117BE",
+      "source_url": null,
+      "published_at": null,
+      "effective_at": null,
+      "verification_status": "user_provided_screenshot_visually_reviewed"
+    }
+  ],
+  "allowed_uses": [
+    "knowledge_search",
+    "platform_specific_terminology_explanation",
+    "platform_specific_gap_checklist_draft",
+    "missing_evidence_questions",
+    "source_upgrade_review"
+  ],
+  "blocked_uses": [
+    "current_hotel_fact",
+    "current_official_rule_claim",
+    "automatic_grade_assignment",
+    "cross_platform_grade_conversion",
+    "hotel_score_calculation",
+    "ranking_prediction",
+    "operation_task_creation",
+    "operation_execution",
+    "automatic_pricing",
+    "automatic_inventory_change",
+    "automatic_ota_write",
+    "automatic_pms_write",
+    "external_message"
+  ]
+}

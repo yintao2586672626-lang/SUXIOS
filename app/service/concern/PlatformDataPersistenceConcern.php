@@ -477,58 +477,6 @@ trait PlatformDataPersistenceConcern
             ?? ($preserveMissing ? null : 0.0);
     }
 
-    /**
-     * `flow_rate` is a funnel-stage metric. Advertising rows use CTR
-     * (impressions to clicks); CVR stays in raw_data as a separate stage.
-     *
-     * @param array<string, mixed> $row
-     */
-    private function flowRateValue(array $row, string $dataType, bool $preserveMissing = false): ?float
-    {
-        $dataType = $this->normalizeDataType($dataType);
-        if ($dataType === 'advertising') {
-            return $this->nullableNumericValue(
-                $row,
-                ['flow_rate', 'flowRate', 'ctr']
-            ) ?? ($preserveMissing ? null : 0.0);
-        }
-
-        $explicitExposureToBrowse = $this->nullableNumericValue($row, [
-            'exposure_to_browse_rate',
-            'exposureToBrowseRate',
-            'intentionPerExposure',
-            'expose_visit_rate',
-            'flow_rate',
-            'flowRate',
-        ]);
-        if ($explicitExposureToBrowse !== null) {
-            return $explicitExposureToBrowse;
-        }
-
-        $listExposure = $this->nullableNumericValue($row, [
-            'mt_exposure',
-            'list_exposure',
-            'listExposure',
-            'exposure_users',
-            'exposureUsers',
-            'exposureUV',
-        ]);
-        $detailExposure = $this->nullableNumericValue($row, [
-            'mt_intention_uv',
-            'detail_exposure',
-            'detailExposure',
-            'detail_visitors',
-            'detailVisitors',
-            'intentionUV',
-        ]);
-        if ($listExposure !== null && $listExposure > 0
-            && $detailExposure !== null && $detailExposure >= 0
-        ) {
-            return round($detailExposure / $listExposure * 100, 2);
-        }
-
-        return $preserveMissing ? null : 0.0;
-    }
 
     /**
      * @param array<string, mixed> $payload
@@ -1181,17 +1129,26 @@ trait PlatformDataPersistenceConcern
         ]);
         $providedSnapshotTime = $this->normalizeCaptureDateTime($providedCaptureValue);
         $captureTimeProvided = $providedCaptureValue !== null;
+        $providedSnapshotBucket = trim((string)(
+            $row['snapshot_bucket']
+            ?? $row['snapshotBucket']
+            ?? $payload['snapshot_bucket']
+            ?? $payload['snapshotBucket']
+            ?? ''
+        ));
         $snapshotTime = null;
         $snapshotBucket = '';
-        if ($period === 'realtime_snapshot') {
-            // Missing realtime capture metadata may use the actual persistence
-            // clock. An explicitly supplied but invalid value must stay null
-            // so it cannot be disguised as a trustworthy current timestamp.
+        if (in_array($period, ['realtime_snapshot', 'next_30_days', 'future_on_books'], true)) {
+            // Realtime, forecasts and on-books rows are observations rather
+            // than final daily facts. Keep their as-of batch so later runs do
+            // not overwrite or masquerade as the same business snapshot.
             $snapshotTime = $captureTimeProvided
                 ? $providedSnapshotTime
                 : date('Y-m-d H:i:s');
             if ($snapshotTime !== null) {
-                $snapshotBucket = date('YmdHi', strtotime($snapshotTime) ?: time());
+                $snapshotBucket = $providedSnapshotBucket !== ''
+                    ? substr($providedSnapshotBucket, 0, 20)
+                    : date('YmdHi', strtotime($snapshotTime) ?: time());
             }
         } elseif ($period === 'historical_daily') {
             // A historical capture time is provenance, not an identity bucket.
@@ -1215,6 +1172,7 @@ trait PlatformDataPersistenceConcern
             'realtime', 'real_time', 'realtime_snapshot', 'today_realtime', 'live', 'snapshot' => 'realtime_snapshot',
             'historical', 'history', 'historical_daily', 'daily', 'fixed', 'final' => 'historical_daily',
             'next_30_days', 'next30days', 'future_forecast', 'forecast', 'forecast_window' => 'next_30_days',
+            'future_on_books', 'future_on_book', 'on_books', 'on_book', 'future_stay_date' => 'future_on_books',
             default => '',
         };
     }

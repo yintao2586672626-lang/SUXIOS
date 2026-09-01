@@ -759,6 +759,7 @@ final class DualOtaFieldClosureServiceTest extends TestCase
             'field_facts' => [
                 [
                     'metric_key' => 'list_exposure',
+                    'source_key' => 'exposureUV',
                     'source_path' => 'data.myHotel.exposureUV',
                     'storage_field' => 'online_daily_data.list_exposure',
                     'status' => 'captured',
@@ -771,6 +772,7 @@ final class DualOtaFieldClosureServiceTest extends TestCase
                 ],
                 [
                     'metric_key' => 'detail_exposure',
+                    'source_key' => 'intentionUV',
                     'source_path' => 'data.myHotel.intentionUV',
                     'storage_field' => 'online_daily_data.detail_exposure',
                     'status' => 'captured',
@@ -783,6 +785,7 @@ final class DualOtaFieldClosureServiceTest extends TestCase
                 ],
                 [
                     'metric_key' => 'flow_rate',
+                    'source_key' => 'exposure_to_browse_rate',
                     'source_path' => 'data.myHotel.exposure_to_browse_rate',
                     'storage_field' => 'online_daily_data.flow_rate',
                     'status' => 'captured',
@@ -845,14 +848,244 @@ final class DualOtaFieldClosureServiceTest extends TestCase
         self::assertSame('platform_data_sync_task#4427', $fields['exposure']['capture_ref']);
         self::assertSame(['xhr:traffic:traffic'], $fields['exposure']['endpoint_ids']);
         self::assertSame(['data.myHotel.exposureUV'], $fields['exposure']['source_paths']);
+        self::assertSame(['exposureUV'], $fields['exposure']['source_keys']);
+        self::assertSame(['list_exposure'], $fields['exposure']['normalized_metric_keys']);
+        self::assertSame(['list_exposure'], $fields['exposure']['raw_metric_keys']);
         self::assertSame('exposure', $fields['exposure']['metric_key']);
-        self::assertSame('users', $fields['exposure']['unit']);
+        self::assertSame('meituan_exposure_users', $fields['exposure']['semantic_metric_key']);
+        self::assertSame('source_defined', $fields['exposure']['semantic_metric_status']);
+        self::assertSame('曝光人数', $fields['exposure']['semantic_label']);
+        self::assertSame('people', $fields['exposure']['semantic_unit']);
+        self::assertSame('ota_field_semantics.v1', $fields['exposure']['semantic_contract_version']);
+        self::assertSame('曝光人数', $fields['exposure']['label']);
+        self::assertSame('people', $fields['exposure']['unit']);
+        self::assertSame([
+            'normalized_metric_key' => 'list_exposure',
+            'source_key' => 'exposureUV',
+            'source_path' => 'data.myHotel.exposureUV',
+            'storage_field' => 'online_daily_data.list_exposure',
+            'status' => 'captured',
+            'stored_value_present' => true,
+            'semantic_metric_key' => 'meituan_exposure_users',
+            'semantic_label' => '曝光人数',
+            'semantic_unit' => 'people',
+            'semantic_contract_version' => 'ota_field_semantics.v1',
+        ], $fields['exposure']['field_fact_identities'][0]);
+        self::assertSame('meituan_detail_visitors', $fields['visits']['semantic_metric_key']);
+        self::assertSame('商详访客数', $fields['visits']['semantic_label']);
+        self::assertSame('people', $fields['visits']['semantic_unit']);
+        self::assertSame('exposure_to_visit_rate', $fields['conversion']['semantic_metric_key']);
+        self::assertSame('曝光到访率', $fields['conversion']['semantic_label']);
+        self::assertSame('percent', $fields['conversion']['semantic_unit']);
+        self::assertSame('derived_same_snapshot', $fields['conversion']['semantic_metric_status']);
+        $conversionIdentities = array_column(
+            $fields['conversion']['field_fact_identities'],
+            'semantic_metric_key',
+            'source_key'
+        );
+        self::assertSame('meituan_exposure_users', $conversionIdentities['exposureUV'] ?? null);
+        self::assertSame('meituan_detail_visitors', $conversionIdentities['intentionUV'] ?? null);
+        self::assertSame('exposure_to_visit_rate', $conversionIdentities['exposure_to_browse_rate'] ?? null);
         self::assertSame('verified', $fields['exposure']['validation_status']);
         self::assertSame('readback_verified', $fields['exposure']['readback_status']);
         self::assertTrue($fields['conversion']['same_snapshot_verified']);
         self::assertSame(
             $closure['page_identity'],
             $closure['consumer_contract']['closure_identity']
+        );
+    }
+
+    public function testMeituanExposureWithWrongSourcePathDoesNotGainExposureUserSemantics(): void
+    {
+        $raw = [
+            'source_trace_id' => 'meituan:wrong-path-trace',
+            'source_url_hash' => str_repeat('c', 64),
+            'row' => [
+                '_capture_source' => 'xhr:traffic:traffic',
+                '_source_path' => 'data.myHotel',
+            ],
+            'field_facts' => [[
+                'metric_key' => 'list_exposure',
+                'source_key' => 'exposureUV',
+                'source_path' => 'data.myHotel.unknownExposure',
+                'storage_field' => 'online_daily_data.list_exposure',
+                'status' => 'captured',
+                'stored_value_present' => true,
+                'capture_evidence' => [
+                    'capture_source' => 'xhr:traffic:traffic',
+                    'source_trace_id' => 'meituan:wrong-path-trace',
+                    'source_url_hash' => str_repeat('c', 64),
+                ],
+            ]],
+        ];
+        $row = $this->row(102477, 'meituan', 'traffic', [
+            'data_period' => 'historical_daily',
+            'history_status' => 'success',
+            'validation_status' => 'verified',
+            'list_exposure' => 1422,
+            'detail_exposure' => null,
+            'flow_rate' => null,
+            'sync_task_id' => 4427,
+            'source_trace_id' => 'meituan:wrong-path-trace',
+            'raw_data' => json_encode($raw, JSON_THROW_ON_ERROR),
+        ]);
+        $trust = $this->trust();
+        $meituan = &$trust['days'][0]['platforms'][1];
+        $meituan['sync_task_id'] = 4427;
+        $meituan['acceptance_receipt']['sync_task_id'] = 4427;
+        $meituan['acceptance_receipt']['data_period'] = 'historical_daily';
+        $meituan['acceptance_receipt']['platform_hotel_id'] = '1029642156589279';
+        $meituan['acceptance_receipt']['source_method'] = 'browser_profile';
+        $meituan['acceptance_receipt']['run_readback_scope'] = [
+            'status' => 'verified',
+            'receipt_record_ids' => [102477],
+            'accepted_record_ids' => [102477],
+        ];
+        unset($meituan);
+
+        $closure = DualOtaFieldClosureService::evaluate(
+            ['id' => 80, 'tenant_id' => 7, 'name' => 'Hotel 80'],
+            '2026-08-23',
+            [$row],
+            $trust
+        );
+        $exposure = $this->fields($closure['platforms']['meituan']['fields'])['exposure'];
+
+        self::assertNull($exposure['value']);
+        self::assertSame('exposure_unspecified', $exposure['semantic_metric_key']);
+        self::assertSame('caliber_uncertain', $exposure['semantic_metric_status']);
+        self::assertSame('曝光指标（口径待确认）', $exposure['semantic_label']);
+        self::assertSame('source_defined', $exposure['semantic_unit']);
+        self::assertNotSame('meituan_exposure_users', $exposure['semantic_metric_key']);
+    }
+
+    public function testHotel80VerifiedCtripTrafficUsesOneCanonicalSnapshot(): void
+    {
+        $traceId = 'ctrip:test-trace';
+        $urlHash = str_repeat('b', 64);
+        $fieldFact = static fn(
+            string $metricKey,
+            string $sourceKey,
+            string $sourcePath,
+            string $storageField
+        ): array => [
+            'metric_key' => $metricKey,
+            'source_key' => $sourceKey,
+            'source_path' => $sourcePath,
+            'storage_field' => $storageField,
+            'status' => 'captured',
+            'stored_value_present' => true,
+            'capture_evidence' => [
+                'capture_source' => 'xhr:traffic',
+                'source_trace_id' => $traceId,
+                'source_url_hash' => $urlHash,
+            ],
+        ];
+        $raw = [
+            'source_trace_id' => $traceId,
+            'source_url_hash' => $urlHash,
+            'row' => [
+                'hotelId' => '130079194',
+                'date' => '2026-08-23',
+                'endpoint_id' => 'business_flow_transform',
+                '_capture_source' => 'xhr:traffic',
+                'listExposure' => 150,
+                'detailExposure' => 35,
+                'flowRate' => 23.33,
+            ],
+            'capture_evidence' => [
+                'capture_source' => 'xhr:traffic',
+                'source_trace_id' => $traceId,
+                'source_url_hash' => $urlHash,
+            ],
+            'field_facts' => [
+                $fieldFact(
+                    'list_exposure',
+                    'listExposure',
+                    '$[0].listExposure',
+                    'online_daily_data.list_exposure'
+                ),
+                $fieldFact(
+                    'detail_exposure',
+                    'detailExposure',
+                    '$[0].detailExposure',
+                    'online_daily_data.detail_exposure'
+                ),
+                $fieldFact(
+                    'flow_rate',
+                    'flowRate',
+                    '$[0].flowRate',
+                    'online_daily_data.flow_rate'
+                ),
+            ],
+        ];
+        $row = $this->row(102604, 'ctrip', 'traffic', [
+            'hotel_id' => '130079194',
+            'data_period' => 'historical_daily',
+            'history_status' => 'success',
+            'validation_status' => 'verified',
+            'list_exposure' => 150,
+            'detail_exposure' => 35,
+            'flow_rate' => 23.33,
+            'sync_task_id' => 4428,
+            'source_trace_id' => $traceId,
+            'raw_data' => json_encode($raw, JSON_THROW_ON_ERROR),
+        ]);
+        $projectionRaw = $raw;
+        $projectionRaw['row']['endpoint_id'] = 'traffic_flow_transform';
+        $projection = $this->row(102482, 'ctrip', 'traffic', [
+            'hotel_id' => '130079194',
+            'data_period' => 'historical_daily',
+            'history_status' => 'partial',
+            'validation_status' => 'normal',
+            'list_exposure' => 150,
+            'detail_exposure' => 35,
+            'flow_rate' => 23.33,
+            'sync_task_id' => 4428,
+            'source_trace_id' => $traceId,
+            'raw_data' => json_encode($projectionRaw, JSON_THROW_ON_ERROR),
+        ]);
+        $trust = $this->trust();
+        $ctrip = &$trust['days'][0]['platforms'][0];
+        $ctrip['sync_task_id'] = 4428;
+        $ctrip['acceptance_receipt']['sync_task_id'] = 4428;
+        $ctrip['acceptance_receipt']['data_period'] = 'historical_daily';
+        $ctrip['acceptance_receipt']['platform_hotel_id'] = '130079194';
+        $ctrip['acceptance_receipt']['source_method'] = 'browser_profile';
+        $ctrip['acceptance_receipt']['run_readback_scope'] = [
+            'status' => 'verified',
+            'receipt_record_ids' => [102482, 102604],
+            'accepted_record_ids' => [102482, 102604],
+        ];
+        unset($ctrip);
+
+        $closure = DualOtaFieldClosureService::evaluate(
+            ['id' => 80, 'tenant_id' => 7, 'name' => 'Hotel 80'],
+            '2026-08-23',
+            [$projection, $row],
+            $trust
+        );
+        $fields = $this->fields($closure['platforms']['ctrip']['fields']);
+
+        self::assertSame(150.0, $fields['exposure']['value']);
+        self::assertSame(35.0, $fields['visits']['value']);
+        self::assertSame(23.33, $fields['conversion']['value']);
+        self::assertSame('strict_readback', $fields['exposure']['status']);
+        self::assertSame('strict_readback', $fields['visits']['status']);
+        self::assertSame('verified_calculation', $fields['conversion']['status']);
+        self::assertSame([102604], $fields['exposure']['source_record_ids']);
+        self::assertSame([102604], $fields['visits']['source_record_ids']);
+        self::assertSame([102604], $fields['conversion']['source_record_ids']);
+        self::assertSame(['business_flow_transform'], $fields['exposure']['endpoint_ids']);
+        self::assertSame(['$[0].listExposure'], $fields['exposure']['source_paths']);
+        self::assertSame(['$[0].detailExposure'], $fields['visits']['source_paths']);
+        self::assertTrue($fields['conversion']['same_snapshot_verified']);
+        self::assertTrue($fields['exposure']['revenue_analysis_consumable']);
+        self::assertTrue($fields['visits']['revenue_analysis_consumable']);
+        self::assertTrue($fields['conversion']['revenue_analysis_consumable']);
+        self::assertContains(
+            'verified_against_stored_flow_rate',
+            $fields['conversion']['quality_flags']
         );
     }
 
@@ -961,58 +1194,6 @@ final class DualOtaFieldClosureServiceTest extends TestCase
             'source_missing',
             $this->fields($empty['platforms']['meituan']['fields'])['exposure']['status']
         );
-    }
-
-    public function testCtripCanonicalTrafficClosesExposureVisitsAndConversion(): void
-    {
-        $row = $this->row(103315, 'ctrip', 'traffic', [
-            'platform' => 'ctrip',
-            'data_period' => 'historical_daily',
-            'history_status' => 'success',
-            'validation_status' => 'verified',
-            'sync_task_id' => 4468,
-            'list_exposure' => 323,
-            'detail_exposure' => 62,
-            'flow_rate' => 19.20,
-        ]);
-        $trust = $this->trust();
-        $ctrip = &$trust['days'][0]['platforms'][0];
-        $ctrip['acceptance_status'] = 'verified';
-        $ctrip['sync_task_id'] = 4468;
-        $ctrip['steps']['p0'] = true;
-        $ctrip['acceptance_receipt'] = array_replace(
-            $ctrip['acceptance_receipt'],
-            [
-                'status' => 'verified',
-                'sync_task_id' => 4468,
-                'sync_task_status' => 'success',
-                'data_period' => 'historical_daily',
-                'reason_codes' => [],
-                'claim_allowed' => true,
-                'run_readback_scope' => [
-                    'status' => 'verified',
-                    'receipt_record_ids' => [103315],
-                    'accepted_record_ids' => [103315],
-                ],
-            ]
-        );
-        unset($ctrip);
-
-        $closure = DualOtaFieldClosureService::evaluate(
-            ['id' => 80, 'tenant_id' => 7],
-            '2026-08-23',
-            [$row],
-            $trust
-        );
-        $fields = $this->fields($closure['platforms']['ctrip']['fields']);
-
-        self::assertSame(323.0, $fields['exposure']['value']);
-        self::assertSame(62.0, $fields['visits']['value']);
-        self::assertSame(19.2, $fields['conversion']['value']);
-        self::assertSame('strict_readback', $fields['exposure']['status']);
-        self::assertSame('strict_readback', $fields['visits']['status']);
-        self::assertSame('verified_calculation', $fields['conversion']['status']);
-        self::assertSame([103315], $fields['conversion']['source_record_ids']);
     }
 
     /** @param array<string,mixed> $overrides @return array<string,mixed> */

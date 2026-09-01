@@ -23,11 +23,11 @@ final class AiDailyReportBroadcastSnapshotServiceTest extends TestCase
         self::assertStringContainsString('门店：敦煌漠蓝新（Hotel 80）', $draft['final_text']);
         self::assertStringContainsString('业务日期：2026-08-23', $draft['final_text']);
         self::assertStringContainsString(
-            '已确认事实：美团曝光 1,422、商详访客 206、曝光到访率 14.49%。',
+            '已确认事实：美团曝光人数 1,422、商详访客 206、曝光到访率 14.49%。',
             $draft['final_text']
         );
         self::assertStringContainsString(
-            '携程曝光事实缺失、收入口径未确认，因此暂不生成双平台竞争和收益结论。',
+            '携程曝光人数事实缺失、收入口径未确认，因此暂不生成双平台竞争和收益结论。',
             $draft['final_text']
         );
         self::assertStringNotContainsString('6,461.43', $draft['final_text']);

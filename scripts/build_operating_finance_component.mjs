@@ -44,7 +44,7 @@ const nextLoaderSource = loaderSource.replace(
 );
 if (nextLoaderSource !== loaderSource) fs.writeFileSync(loaderPath, nextLoaderSource, 'utf8');
 const fullComponentSha256 = crypto.createHash('sha256').update(nextLoaderSource).digest('hex');
-const fullComponentPattern = /components\/system\/app-main-components\.js\?v=20260830-(?:review-fixes|operating-finance)-h[0-9a-f]{10}/g;
+const fullComponentPattern = /components\/system\/app-main-components\.js\?v=[A-Za-z0-9-]+-h[0-9a-f]{10}/g;
 const fullComponentReference = `components/system/app-main-components.js?v=20260830-operating-finance-h${fullComponentSha256.slice(0, 10)}`;
 const bridgePath = path.join(repoRoot, 'public/components/system/app-main-components-loader.js');
 const bridgeSource = fs.readFileSync(bridgePath, 'utf8');

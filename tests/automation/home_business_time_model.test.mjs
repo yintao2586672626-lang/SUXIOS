@@ -13,6 +13,7 @@ const {
   buildHomeBusinessTimeModel,
   buildHomeDataSources,
   buildCompassDataReadiness,
+  HomeYesterdayOperatingFacts,
 } = context.window.SUXI_HOME_STATIC;
 
 const temporalData = {
@@ -293,6 +294,72 @@ test('home business time model never substitutes an older historical row for yes
   assert.match(model.yesterday.summary, /最近历史日 2026-07-22 不用于替代/);
   assert.equal(model.today.status, '未取得');
   assert.equal(model.future.status, '尚未形成');
+});
+
+test('a factless business date renders a compact recovery state instead of empty metric panels', () => {
+  const model = buildHomeBusinessTimeModel({
+    temporalData: {
+      ...temporalData,
+      past: {
+        ...temporalData.past,
+        series: temporalData.past.series.slice(0, 1),
+      },
+    },
+    hotelName: '测试酒店',
+    selectedHotelId: 80,
+  });
+
+  assert.equal(model.yesterday.displayMode, 'empty');
+  assert.equal(model.yesterday.availableFactCount, 0);
+  assert.ok(model.yesterday.totalFactCount > 0);
+  assert.equal(model.yesterday.latestAvailableDate, '2026-07-22');
+
+  context.window.Vue = {
+    Fragment: 'fragment',
+    h: (type, props, children) => ({ type, props, children }),
+  };
+  const tree = HomeYesterdayOperatingFacts.render.call({
+    model,
+    showHeader: true,
+    showControls: true,
+    hotelOptions: [],
+    selectedHotelId: 80,
+    refreshing: false,
+    $root: {},
+    $emit: () => {},
+  });
+  const serialized = JSON.stringify(tree);
+
+  assert.match(serialized, /home-yesterday-empty-state/);
+  assert.match(serialized, /当前没有可用于经营判断的数据/);
+  assert.match(serialized, /最近有记录 2026-07-22/);
+  assert.doesNotMatch(serialized, /home-yesterday-dual-scope/);
+  assert.doesNotMatch(serialized, /home-reconciliation-facts/);
+});
+
+test('available strict facts keep the PMS, OTA, and reconciliation panels visible', () => {
+  const model = buildHomeBusinessTimeModel({
+    temporalData,
+    hotelName: '测试酒店',
+    selectedHotelId: 80,
+    revenueFactLayer: buildRevenueFactLayer(),
+  });
+  const tree = HomeYesterdayOperatingFacts.render.call({
+    model,
+    showHeader: true,
+    showControls: true,
+    hotelOptions: [],
+    selectedHotelId: 80,
+    refreshing: false,
+    $root: {},
+    $emit: () => {},
+  });
+  const serialized = JSON.stringify(tree);
+
+  assert.equal(model.yesterday.displayMode, 'partial');
+  assert.match(serialized, /home-yesterday-dual-scope/);
+  assert.match(serialized, /home-reconciliation-facts/);
+  assert.doesNotMatch(serialized, /home-yesterday-empty-state/);
 });
 
 test('home business time model exposes PMS whole-hotel and OTA channel facts at the same time', () => {

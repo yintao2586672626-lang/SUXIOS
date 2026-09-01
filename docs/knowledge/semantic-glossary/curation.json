@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
-  "glossary_version": "2026-08-26.3",
-  "revision_no": 4,
-  "updated_at": "2026-08-26T00:55:00+08:00",
+  "glossary_version": "2026-08-26.6",
+  "revision_no": 7,
+  "updated_at": "2026-08-26T15:00:00+08:00",
   "review_due_at": "2027-02-21T00:00:00+08:00",
   "source": {
     "csv": "../outputs/01a03812-e6a9-7840-be92-6d146409d974/personal-system-ctrip-hotel-glossary-v3/我的个人常用词_宿析OS系统词_携程酒店词_酒店行业词_Typeless总词库_2026-08-25.csv",
@@ -381,11 +381,12 @@
       "assistant_topic_key": "data-health",
       "platform_metric_mappings": {
         "meituan": {
-          "status": "mapped_with_same_scope_fact_required",
-          "metric_key": "total_exposure",
-          "storage_fields": ["list_exposure"],
+          "status": "source_contract_required",
+          "metric_key": null,
+          "storage_fields": [],
           "data_types": ["traffic"],
-          "unit": "impressions"
+          "unit": "impressions",
+          "reason": "当前美团严格事实来自 exposureUV，只能证明曝光人数，不能当作展示次数。"
         },
         "ctrip": {
           "status": "source_contract_required",
@@ -398,9 +399,63 @@
       }
     },
     {
+      "concept_key": "metric.ctrip_exposure_users",
+      "canonical_term": "列表页曝光人数",
+      "aliases": ["曝光人数", "携程曝光人数"],
+      "voice_aliases": [],
+      "category": "metric_alias",
+      "domain_category": "ota_ctrip",
+      "definition": "携程数据中心列表页去重曝光人数；单位为人，不等同于展示次数或广告 impressions。",
+      "platforms": ["ctrip"],
+      "modules": ["ota_traffic", "precise_query"],
+      "is_personal": false,
+      "is_business_metric": true,
+      "metric_key": "ctrip_exposure_users",
+      "route_key": "ctrip-ebooking",
+      "assistant_topic_key": "ctrip-data",
+      "platform_metric_mappings": {
+        "ctrip": {
+          "status": "mapped_with_same_scope_fact_required",
+          "metric_key": "exposure_users",
+          "storage_fields": ["list_exposure"],
+          "data_types": ["traffic"],
+          "unit": "people",
+          "required_source_paths": ["$.list_exposure", "$[0].listExposure"],
+          "required_metric_keys": ["list_exposure"]
+        }
+      }
+    },
+    {
+      "concept_key": "metric.meituan_exposure_users",
+      "canonical_term": "曝光人数",
+      "aliases": ["美团曝光人数", "曝光用户数", "曝光UV"],
+      "voice_aliases": [],
+      "category": "metric_alias",
+      "domain_category": "ota_meituan",
+      "definition": "美团实时流量漏斗中的去重曝光用户数；来源 exposureUV，单位为人，不等同于曝光量或展示次数。",
+      "platforms": ["meituan"],
+      "modules": ["ota_traffic", "precise_query"],
+      "is_personal": false,
+      "is_business_metric": true,
+      "metric_key": "meituan_exposure_users",
+      "route_key": "meituan-ebooking",
+      "assistant_topic_key": "meituan-data",
+      "platform_metric_mappings": {
+        "meituan": {
+          "status": "mapped_with_same_scope_fact_required",
+          "metric_key": "exposure_users",
+          "storage_fields": ["list_exposure"],
+          "data_types": ["traffic"],
+          "unit": "people",
+          "required_source_paths": ["data.myHotel.exposureUV"],
+          "required_metric_keys": ["list_exposure", "mt_exposure"]
+        }
+      }
+    },
+    {
       "concept_key": "metric.ctrip_detail_visitors",
       "canonical_term": "详情页访客",
-      "aliases": ["访问人数"],
+      "aliases": ["访问人数", "浏览人数", "详情访客", "浏览访客"],
       "voice_aliases": [],
       "category": "metric_alias",
       "domain_category": "ota_ctrip",
@@ -425,7 +480,7 @@
     {
       "concept_key": "metric.meituan_detail_visitors",
       "canonical_term": "商详访客数",
-      "aliases": ["访问人数"],
+      "aliases": ["访问人数", "浏览人数", "详情访客", "浏览访客", "商详访客"],
       "voice_aliases": [],
       "category": "metric_alias",
       "domain_category": "ota_meituan",
@@ -439,18 +494,20 @@
       "assistant_topic_key": "meituan-data",
       "platform_metric_mappings": {
         "meituan": {
-          "status": "source_contract_required",
+          "status": "mapped_with_same_scope_fact_required",
           "metric_key": "detail_visitors",
-          "storage_fields": [],
+          "storage_fields": ["detail_exposure"],
           "data_types": ["traffic"],
-          "unit": "people"
+          "unit": "people",
+          "required_source_paths": ["data.myHotel.intentionUV"],
+          "required_metric_keys": ["detail_exposure", "mt_intention_uv"]
         }
       }
     },
     {
       "concept_key": "metric.exposure_to_visit_rate",
       "canonical_term": "曝光到访率",
-      "aliases": [],
+      "aliases": ["曝光转化率", "流量转化率", "曝光到详情率", "曝光到访问率"],
       "voice_aliases": [],
       "category": "metric_alias",
       "domain_category": "ota_channel_metric",
@@ -463,9 +520,33 @@
       "route_key": "online-data",
       "assistant_topic_key": "data-health",
       "calculation_contract": {
-        "formula": "detail_visitors / exposure_volume",
-        "required_metric_keys": ["detail_visitors", "ota_exposure_volume"],
+        "formula": "detail_visitors / exposure_users",
+        "required_metric_keys": ["detail_visitors", "exposure_users"],
         "missing_policy": "not_computable"
+      },
+      "platform_metric_mappings": {
+        "meituan": {
+          "status": "mapped_with_same_scope_fact_required",
+          "metric_key": "exposure_to_visit_rate",
+          "unit": "percent",
+          "inputs": {
+            "exposure_users": {
+              "storage_field": "list_exposure",
+              "required_source_paths": ["data.myHotel.exposureUV"],
+              "required_metric_keys": ["list_exposure", "mt_exposure"]
+            },
+            "detail_visitors": {
+              "storage_field": "detail_exposure",
+              "required_source_paths": ["data.myHotel.intentionUV"],
+              "required_metric_keys": ["detail_exposure", "mt_intention_uv"]
+            }
+          }
+        },
+        "ctrip": {
+          "status": "source_contract_required",
+          "metric_key": "exposure_to_visit_rate",
+          "unit": "percent"
+        }
       }
     },
     {

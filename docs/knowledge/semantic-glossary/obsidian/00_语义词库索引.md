@@ -1,11 +1,11 @@
 # 宿析OS统一语义词库
 
-- 版本：`2026-08-26.3`
+- 版本：`2026-08-26.6`
 - 来源词：2990
-- 可识别词：3002
+- 可识别词：3013
 - Typeless/语音导出：3000
 - 来源 CSV SHA-256：`e6fb5e15e711fc1c1e29202dfabe08c7f69daa5ca3cbe9df9ef9a528e6032e53`
-- 语义包 SHA-256：`fae512f5b76d3be075bb9296f015c072143b446b86a96c0b247c6c11ee3a2294`
+- 语义包 SHA-256：`955c10765195b7c2ddd7a1622f5082982838a6d63390551fc8bbfd47ee8272ae`
 
 > 本目录只承担可阅读来源、索引、定义和关系导航，不代表永久训练，也不承担实时经营数据库职责。经营数值必须回到同酒店、同平台、同日期、同口径且严格回读的事实。
 
@@ -15,10 +15,10 @@
 | --- | ---: |
 | personal_common | 176 |
 | suxios_system | 637 |
-| ota_ctrip | 1071 |
+| ota_ctrip | 1068 |
 | ota_meituan | 60 |
 | hotel_industry | 792 |
-| metric_alias | 10 |
+| metric_alias | 12 |
 | reference_only | 181 |
 
 ## 入口

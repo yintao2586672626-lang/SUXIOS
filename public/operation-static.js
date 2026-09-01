@@ -384,6 +384,7 @@ window.SUXI_OPERATION_STATIC = (() => {
                 `前值 ${managedReview.before_value ?? '—'} → 后值 ${managedReview.after_value ?? '—'} · 实际变化 ${actualDelta}`,
                 `确定性结果：${outcomeLabel} · 因果归因：${causality}`,
             ].join('\n');
+            return `${sufficiency} · ${change} · ${recommendation}`;
         }
         const review = item?.review || {};
         const statusLabel = typeof helpers.statusLabel === 'function' ? helpers.statusLabel : (status => status || '-');

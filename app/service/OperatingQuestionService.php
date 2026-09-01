@@ -228,12 +228,14 @@ final class OperatingQuestionService
      * @param null|Closure(array<string,mixed>):array<string,mixed> $answerGenerator
      * @param null|Closure(array<string,mixed>):array<string,mixed> $deterministicAnswerFinalizer
      * @param null|Closure(int,string):array<string,mixed> $scopeClosureReader
+     * @param null|Closure(array<string,mixed>):array<string,mixed> $toolCaller
      */
     public function __construct(
         private readonly ?Closure $evidenceLoader = null,
         private readonly ?Closure $answerGenerator = null,
         private readonly ?Closure $deterministicAnswerFinalizer = null,
-        private readonly ?Closure $scopeClosureReader = null
+        private readonly ?Closure $scopeClosureReader = null,
+        private readonly ?Closure $toolCaller = null
     )
     {
     }
@@ -248,7 +250,8 @@ final class OperatingQuestionService
         string $dateEnd,
         int $createdBy,
         string $modelKey = OperatingQuestionAiAnswerService::DIRECT_MODEL_KEY,
-        string $decisionObject = ''
+        string $decisionObject = '',
+        array $mediaEvidenceIds = []
     ): array {
         $this->assertTableReady();
         $this->assertHotelIdentity($tenantId, $hotelId);
@@ -260,6 +263,10 @@ final class OperatingQuestionService
         $dateStart = $this->date($dateStart, '开始日期');
         $dateEnd = $this->date($dateEnd, '结束日期');
         $modelKey = $this->modelKey($modelKey);
+        $mediaEvidenceIds = array_values(array_slice(array_unique(array_filter(array_map(
+            'intval',
+            $mediaEvidenceIds
+        ))), 0, 10));
         if ($dateEnd < $dateStart) {
             throw new InvalidArgumentException('结束日期不能早于开始日期');
         }
@@ -269,7 +276,9 @@ final class OperatingQuestionService
             : $this->loadEvidence($tenantId, $hotelId, $platform, $dateStart, $dateEnd, $question, $createdBy);
         $evidence = $this->normalizeEvidence($evidence);
         $facts = array_values(array_map(
-            fn(array $fact): array => $this->normalizeFactMetrics($fact),
+            fn(array $fact): array => $this->evidenceLoader !== null
+                ? $fact
+                : $this->normalizeFactMetrics($fact),
             array_filter($evidence['facts'], static function (array $fact) use ($platform): bool {
             $factPlatform = strtolower(trim((string)($fact['platform'] ?? '')));
             if ($factPlatform === '') {
@@ -531,7 +540,87 @@ final class OperatingQuestionService
             $answerStatus = (string)$answer['status'];
             $answerSummary = (string)$answer['summary'];
             $dataGaps = is_array($answer['data_gaps'] ?? null) ? $answer['data_gaps'] : [];
+            if ((string)($answer['mode'] ?? '') === 'deterministic_precise_query') {
+                $allowedFactRefs = array_fill_keys($factRefs, true);
+                $factRefs = array_values(array_filter(array_unique(array_map(
+                    'strval',
+                    is_array($answer['used_evidence_refs'] ?? null)
+                        ? $answer['used_evidence_refs']
+                        : []
+                )), static fn(string $ref): bool => isset($allowedFactRefs[$ref])));
+            }
         }
+        // The idempotency identity is resolved before model-assisted tool
+        // planning. A retry of the same scoped question must not rerun tools.
+        $requestKey = 'operating-question:v6:' . substr($this->digest([
+            $tenantId,
+            $hotelId,
+            $platform,
+            $dateStart,
+            $dateEnd,
+            $question,
+            $modelKey,
+            OperatingQuestionAiAnswerService::PROMPT_VERSION,
+            OperatingQuestionAiAnswerService::ACTION_DRAFT_CONTRACT_VERSION,
+            $this->digest([
+                'answer' => $answer,
+                'fact_refs' => $factRefs,
+                'memory_refs' => $memoryRefs,
+                'knowledge_refs' => $knowledgeRefs,
+                'execution_refs' => $executionRefs,
+                'media_evidence_ids' => $mediaEvidenceIds,
+            ]),
+        ]), 0, 48);
+        $existing = Db::name(self::TABLE)
+            ->where('tenant_id', $tenantId)
+            ->where('hotel_id', $hotelId)
+            ->where('request_key', $requestKey)
+            ->whereNull('deleted_at')
+            ->find();
+        if (is_array($existing)) {
+            $questionRow = $this->read((int)$existing['id'], $tenantId, [$hotelId]);
+            return [
+                'question' => $questionRow,
+                'created' => false,
+                'persistence_status' => 'readback_verified',
+                'write_boundaries' => $this->writeBoundaries($questionRow),
+            ];
+        }
+
+        $toolScope = [
+            'tenant_id' => $tenantId,
+            'hotel_id' => $hotelId,
+            'user_id' => max(0, $createdBy),
+            'platform' => $platform,
+            'date_start' => $dateStart,
+            'date_end' => $dateEnd,
+            'source_scope' => 'ota_channel',
+        ];
+        $toolCalling = $this->runToolCalling(
+            $toolScope,
+            $question,
+            $modelKey,
+            $mediaEvidenceIds,
+            $factCount > 0
+                && (string)($answer['status'] ?? '') !== 'blocked_by_missing_facts'
+                && (string)($answer['mode'] ?? '') !== 'deterministic_precise_query'
+        );
+        $evidencePlane = is_array($toolCalling['evidence_plane'] ?? null)
+            ? $toolCalling['evidence_plane']
+            : [];
+        $evidence['media'] = array_values(array_filter(
+            is_array($evidencePlane['items'] ?? null) ? $evidencePlane['items'] : [],
+            static fn(mixed $item): bool => is_array($item)
+                && (string)($item['source_type'] ?? '') === 'local_media'
+        ));
+        $mediaRefs = array_values(array_unique(array_filter(array_map(
+            static fn(array $item): string => trim((string)($item['ref'] ?? '')),
+            $evidence['media']
+        ))));
+        $answer['evidence_counts']['local_media'] = count($mediaRefs);
+        $answer['media_evidence_refs'] = $mediaRefs;
+        $answer['tool_calling'] = array_diff_key($toolCalling, ['evidence_plane' => true]);
+        $answer['evidence_plane'] = $evidencePlane;
         // Only the already accepted platform facts and current exact diagnoses
         // may enter the model context; rejected rows remain excluded even when
         // a custom evidence loader supplied them.
@@ -571,50 +660,7 @@ final class OperatingQuestionService
             'knowledge_refs' => $knowledgeRefs,
             'execution_refs' => $executionRefs,
         ]);
-        $deterministicRequest = (string)($answer['mode'] ?? '') === 'deterministic_precise_query'
-            && $this->deterministicAnswerFinalizer !== null
-            && $providerResponseId === '';
-        $requestIdentity = [
-            $tenantId,
-            $hotelId,
-            $platform,
-            $dateStart,
-            $dateEnd,
-            $question,
-            $modelKey,
-            OperatingQuestionAiAnswerService::PROMPT_VERSION,
-            OperatingQuestionAiAnswerService::ACTION_DRAFT_CONTRACT_VERSION,
-            $providerResponseId,
-        ];
-        if ($deterministicRequest) {
-            $requestIdentity[] = $this->digest([
-                'fact_refs' => $factRefs,
-                'facts' => $facts,
-                'requested_metric_keys' => $requestedMetricKeys,
-            ]);
-        } else {
-            $requestIdentity[] = microtime(true);
-            $requestIdentity[] = bin2hex(random_bytes(16));
-        }
-        $requestKey = ($deterministicRequest ? 'operating-question:v5:' : 'operating-question:v4:')
-            . substr($this->digest($requestIdentity), 0, 48);
-        if ($deterministicRequest) {
-            $existing = Db::name(self::TABLE)
-                ->where('tenant_id', $tenantId)
-                ->where('hotel_id', $hotelId)
-                ->where('request_key', $requestKey)
-                ->whereNull('deleted_at')
-                ->find();
-            if (is_array($existing)) {
-                $questionRow = $this->read((int)$existing['id'], $tenantId, [$hotelId]);
-                return [
-                    'question' => $questionRow,
-                    'created' => false,
-                    'persistence_status' => 'readback_verified',
-                    'write_boundaries' => $this->writeBoundaries($questionRow),
-                ];
-            }
-        }
+        $deterministicRequest = true;
         $now = date('Y-m-d H:i:s');
         $created = true;
         try {
@@ -737,6 +783,15 @@ final class OperatingQuestionService
                     $questionRow = $this->read((int)$concurrent['id'], $tenantId, [$hotelId]);
                     $created = false;
                 } else {
+                    $existingReceipt = $providerResponseId !== ''
+                        && $this->tableExists(self::MODEL_RESPONSE_REGISTRY_TABLE)
+                            ? Db::name(self::MODEL_RESPONSE_REGISTRY_TABLE)
+                                ->where('provider_response_id', $providerResponseId)
+                                ->find()
+                            : null;
+                    if (is_array($existingReceipt)) {
+                        throw new RuntimeException('provider_response_replay_rejected', 0, $e);
+                    }
                     throw $e;
                 }
             } elseif ($providerResponseId !== '' && $this->tableExists(self::MODEL_RESPONSE_REGISTRY_TABLE)) {
@@ -1988,10 +2043,117 @@ final class OperatingQuestionService
         ], $rows);
     }
 
+    /**
+     * @param array<string,mixed> $scope
+     * @param list<int> $mediaEvidenceIds
+     * @return array<string,mixed>
+     */
+    private function runToolCalling(
+        array $scope,
+        string $question,
+        string $modelKey,
+        array $mediaEvidenceIds,
+        bool $modelSelectionAllowed
+    ): array {
+        if ($this->evidenceLoader !== null && $this->toolCaller === null) {
+            return $this->toolCallingNotRun($scope, 'custom_evidence_loader_without_tool_caller');
+        }
+        if ((int)($scope['user_id'] ?? 0) <= 0) {
+            return $this->toolCallingNotRun($scope, 'missing_authenticated_user');
+        }
+
+        try {
+            $result = $this->toolCaller !== null
+                ? ($this->toolCaller)([
+                    'scope' => $scope,
+                    'question' => $question,
+                    'model_key' => $modelKey,
+                    'media_evidence_ids' => $mediaEvidenceIds,
+                    'model_selection_allowed' => $modelSelectionAllowed,
+                ])
+                : (new OperatingQuestionToolCallingService())->run(
+                    $scope,
+                    $question,
+                    $modelKey,
+                    $mediaEvidenceIds,
+                    $modelSelectionAllowed
+                );
+            if (!is_array($result)
+                || (string)($result['contract_version'] ?? '') !== OperatingQuestionToolCallingService::CONTRACT_VERSION
+                || !is_array($result['tool_call_receipts'] ?? null)
+                || !is_array($result['evidence_plane'] ?? null)
+                || (string)($result['evidence_plane']['contract_version'] ?? '')
+                    !== OperatingQuestionToolCallingService::EVIDENCE_PLANE_CONTRACT_VERSION
+            ) {
+                throw new RuntimeException('工具调用结果不符合统一证据契约');
+            }
+            return $result;
+        } catch (\Throwable) {
+            return $this->toolCallingNotRun($scope, 'tool_calling_unavailable', 'failed');
+        }
+    }
+
+    /** @param array<string,mixed> $scope @return array<string,mixed> */
+    private function toolCallingNotRun(array $scope, string $reason, string $status = 'not_called'): array
+    {
+        $sourceCounts = [
+            'knowledge' => 0,
+            'operating_memory' => 0,
+            'local_media' => 0,
+        ];
+        $plane = [
+            'contract_version' => OperatingQuestionToolCallingService::EVIDENCE_PLANE_CONTRACT_VERSION,
+            'scope' => $scope,
+            'scope_digest' => $this->digest($scope),
+            'source_counts' => $sourceCounts,
+            'source_results' => [],
+            'items' => [],
+            'evidence_refs' => [],
+            'evidence_digest' => $this->digest([]),
+            'boundaries' => [
+                'read_only' => true,
+                'media_requires_explicit_selection' => true,
+                'media_human_confirmation_required' => true,
+                'external_write_authorized' => false,
+                'automatic_execution' => false,
+            ],
+        ];
+        return [
+            'contract_version' => OperatingQuestionToolCallingService::CONTRACT_VERSION,
+            'run_digest' => $this->digest([$scope, $reason, $status]),
+            'selection_mode' => $status === 'failed' ? 'unavailable' : 'not_called',
+            'selection_status' => $reason,
+            'planner_meta' => [
+                'provider' => '',
+                'model_key' => '',
+                'model' => '',
+                'finish_reason' => '',
+                'error_code' => $status === 'failed' ? $reason : '',
+                'message' => '',
+                'model_attempted' => false,
+                'llm_client_invoked' => false,
+                'external_llm_called' => false,
+                'external_llm_call_status' => 'not_attempted',
+                'fallback_used' => false,
+                'cache_hit' => false,
+                'degraded' => false,
+            ],
+            'tool_calls' => [],
+            'tool_call_receipts' => [],
+            'evidence_plane' => $plane,
+            'boundaries' => [
+                'allowlisted_tools_only' => true,
+                'read_only' => true,
+                'external_write_authorized' => false,
+                'automatic_execution' => false,
+            ],
+        ];
+    }
+
     /** @param array<string,mixed> $evidence @return array<string,mixed> */
     private function normalizeEvidence(array $evidence): array
     {
-        foreach (['facts', 'memories', 'diagnoses', 'knowledge', 'executions'] as $key) {
+        foreach (['facts', 'memories', 'diagnoses', 'knowledge', 'executions', 'media'] as $key) {
             $value = is_array($evidence[$key] ?? null) ? $evidence[$key] : [];
             $evidence[$key] = array_values(array_filter($value, 'is_array'));
         }
@@ -2521,6 +2683,20 @@ final class OperatingQuestionService
                         if (array_key_exists($metricKey, $values) && !in_array($definitionId, $definitionIds, true)) {
                             $reasons[] = 'metric_definition_mismatch';
                         }
+                        if (array_key_exists($metricKey, $values)
+                            && !$this->isRealMetricUnit((string)($units[$metricKey] ?? ''))
+                        ) {
+                            $reasons[] = 'metric_unit_missing';
+                        }
+                        if (array_key_exists($metricKey, $values)
+                            && $this->isRealMetricUnit((string)($units[$metricKey] ?? ''))
+                            && !$this->metricValueMatchesUnit(
+                                $values[$metricKey],
+                                (string)($units[$metricKey] ?? '')
+                            )
+                        ) {
+                            $reasons[] = 'metric_value_unit_scale_mismatch';
+                        }
                         foreach ((array)($fact['metric_gaps'] ?? []) as $gap) {
                             if (is_array($gap) && (string)($gap['metric_key'] ?? '') === $metricKey) {
                                 $reasons[] = (string)($gap['reason'] ?? 'metric_fact_missing');
@@ -2574,7 +2750,24 @@ final class OperatingQuestionService
                     ) {
                         continue;
                     }
-                    if ((array)($fact['metric_values'] ?? []) !== []) {
+                    $metricValues = is_array($fact['metric_values'] ?? null)
+                        ? $fact['metric_values']
+                        : [];
+                    $metricUnits = is_array($fact['metric_units'] ?? null)
+                        ? $fact['metric_units']
+                        : [];
+                    $hasSubstantiveMetric = false;
+                    foreach ($metricValues as $metricKey => $metricValue) {
+                        $unit = (string)($metricUnits[(string)$metricKey] ?? '');
+                        if (is_numeric($metricValue)
+                            && $this->isRealMetricUnit($unit)
+                            && $this->metricValueMatchesUnit($metricValue, $unit)
+                        ) {
+                            $hasSubstantiveMetric = true;
+                            break;
+                        }
+                    }
+                    if ($hasSubstantiveMetric) {
                         $ready = true;
                         break;
                     }
@@ -3242,6 +3435,11 @@ final class OperatingQuestionService
         ], true)) {
             return LocalAiRuntimeService::TEXT_MODEL_KEY;
         }
+        if ($this->toolCaller !== null
+            && preg_match('/^[a-zA-Z0-9_.:-]{1,100}$/D', $value) === 1
+        ) {
+            return $value;
+        }
         throw new InvalidArgumentException('经营问答只允许 DeepSeek V4 Pro 或已固定的本机第二大脑模型，已拒绝其他模型或客户端降级选择');
     }
 
@@ -3627,7 +3825,7 @@ final class OperatingQuestionService
             || $this->canonicalize((array)($row['data_gaps'] ?? []))
                 !== $this->canonicalize((array)($answer['data_gaps'] ?? []))
         ) {
-            throw new RuntimeException('经营问题按ID回读内容摘要校验失败（question_readback_digest_mismatch）');
+            throw new RuntimeException('operating_question_readback_digest_drift: 经营问题按ID回读内容摘要校验失败');
         }
         $row['readback_verified'] = true;
         $row['persistence_status'] = 'readback_verified';

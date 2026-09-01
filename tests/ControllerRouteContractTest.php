@@ -387,7 +387,10 @@ final class ControllerRouteContractTest extends TestCase
         self::assertMatchesRegularExpression('/createExecutionIntent\([\s\S]*?false,\s*null,\s*true\s*\)/', $quant);
         self::assertMatchesRegularExpression('/createExecutionIntent\([\s\S]*?false,\s*\$idempotencyKey,\s*true\s*\)/', $publicDiagnosis);
 
-        $service = $this->sourceWithoutPhpComments(__DIR__ . '/../app/service/OperationManagementService.php');
+        $service = $this->sourceWithoutPhpComments(__DIR__ . '/../app/service/OperationManagementService.php')
+            . $this->sourceWithoutPhpComments(
+                __DIR__ . '/../app/service/operation/OperationApprovalValidationConcern.php'
+            );
         foreach (['ota_diagnosis', 'strategy_simulation', 'quant_simulation'] as $reservedSource) {
             self::assertStringContainsString("'{$reservedSource}'", $service);
         }

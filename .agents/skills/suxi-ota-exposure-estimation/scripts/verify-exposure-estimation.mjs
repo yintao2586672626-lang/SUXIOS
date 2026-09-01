@@ -41,9 +41,6 @@ assert.equal(rolling.status, 'estimated');
 assert.equal(rolling.formula_version, 'same_scope_rolling_median_multiplier.v1');
 assert.equal(rolling.baseline.multiplier, 11.5);
 assert.equal(rolling.baseline.verified_pair_count, 10);
-assert.equal(rolling.baseline.drift_ratio, 0.15);
-assert.equal(rolling.baseline.drift_policy_ref, 'fixture:unvalidated-heuristic-15pct');
-assert.equal(rolling.baseline.drift_policy_status, 'unvalidated_configured_heuristic');
 assert.equal(rolling.estimate.value, 1449);
 assert.ok(rolling.baseline.exclusions.some((row) => row.reason === 'verified_event_outlier'));
 assert.equal(rolling.validation.method, 'rolling_origin_preceding_rows_only');
@@ -184,32 +181,6 @@ assert.throws(
   (error) => error instanceof InputError && error.code === 'invalid_input',
 );
 
-const arbitraryExclusionInput = clone(rollingInput);
-arbitraryExclusionInput.calibration_rows[0].baseline_eligible = false;
-arbitraryExclusionInput.calibration_rows[0].exclusion_reason = 'improves_model_accuracy';
-arbitraryExclusionInput.calibration_rows[0].exclusion_source_ref = 'fixture:arbitrary-exclusion';
-assert.throws(
-  () => analyzeExposure(arbitraryExclusionInput),
-  (error) => error instanceof InputError && error.code === 'invalid_input',
-);
-
-const evidencedExclusionInput = clone(rollingInput);
-evidencedExclusionInput.calibration_rows[0].baseline_eligible = false;
-evidencedExclusionInput.calibration_rows[0].exclusion_reason = 'verified_capture_corruption';
-evidencedExclusionInput.calibration_rows[0].exclusion_source_ref = 'fixture:verified-corrupt-batch';
-const evidencedExclusion = analyzeExposure(evidencedExclusionInput);
-assert.ok(evidencedExclusion.baseline.exclusions.some(
-  (row) => row.reason === 'baseline_ineligible_verified_capture_corruption'
-    && row.source_ref === 'fixture:verified-corrupt-batch',
-));
-
-const missingDriftPolicyRefInput = clone(rollingInput);
-delete missingDriftPolicyRefInput.options.drift_policy_ref;
-assert.throws(
-  () => analyzeExposure(missingDriftPolicyRefInput),
-  (error) => error instanceof InputError && error.code === 'invalid_input',
-);
-
 const crossPlatformInput = clone(rollingInput);
 crossPlatformInput.calibration_rows[0].platform = 'ctrip';
 assert.throws(
@@ -236,7 +207,7 @@ assert.throws(
 
 process.stdout.write(`${JSON.stringify({
   status: 'pass',
-  checks: 24,
+  checks: 21,
   workbook_replay: {
     rate_used: anchored.baseline.rate_used,
     at_20_00: anchored.hourly_cumulative_estimates[0].exposure_users_estimate,

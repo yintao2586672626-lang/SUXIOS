@@ -253,35 +253,11 @@ const mockAuthenticatedApi = async (page) => {
 test('hotel data analyst is globally summonable and opens the real scoped composer', async ({ page }) => {
   test.setTimeout(45000);
   const pageErrors = [];
-  const runtimeDiagnostics = [];
   page.on('pageerror', error => pageErrors.push(String(error?.message || error)));
-  page.on('console', message => {
-    if (['error', 'warning'].includes(message.type())) {
-      runtimeDiagnostics.push(`console:${message.type()}:${message.text()}`);
-    }
-  });
-  page.on('requestfailed', request => {
-    runtimeDiagnostics.push(`requestfailed:${new URL(request.url()).pathname}:${request.failure()?.errorText || 'unknown'}`);
-  });
-  page.on('response', response => {
-    const pathname = new URL(response.url()).pathname;
-    if (pathname.includes('hotel-data-analyst-components')
-      || pathname.includes('operating-intelligence-components')) {
-      runtimeDiagnostics.push(`response:${pathname}:${response.status()}`);
-    }
-  });
   await mockAuthenticatedApi(page);
   await page.goto(appUrl, { waitUntil: 'domcontentloaded' });
 
-  const lazyConsultantGate = page.getByTestId('operating-question-consultant-load');
-  await expect(lazyConsultantGate).toBeVisible({ timeout: 15000 });
-  await lazyConsultantGate.click();
-  const systemGuideLauncher = page.getByTestId('system-guide-floating-launcher');
-  try {
-    await expect(systemGuideLauncher).toBeVisible({ timeout: 15000 });
-  } catch (_error) {
-    throw new Error(`经营助手延迟组件未加载：${[...pageErrors, ...runtimeDiagnostics].join(' | ') || 'no diagnostics'}`);
-  }
+  await page.getByTestId('system-guide-floating-launcher').click();
   const globalRole = page.getByTestId('system-guide-mode-report');
   await expect(globalRole).toBeVisible({ timeout: 15000 });
   await expect(globalRole).toContainText('数据分析师');
@@ -340,13 +316,7 @@ test('hotel data analyst is globally summonable and opens the real scoped compos
   const overflow = await receipt.evaluate(element => element.scrollWidth - element.clientWidth);
   expect(overflow).toBeLessThanOrEqual(1);
 
-  const reloadedConsultantGate = page.getByTestId('operating-question-consultant-load');
-  if (await reloadedConsultantGate.count() > 0) {
-    await reloadedConsultantGate.click();
-    await expect(page.getByTestId('system-guide-floating-launcher')).toBeVisible({ timeout: 15000 });
-  } else {
-    await page.getByTestId('system-guide-floating-launcher').click();
-  }
+  await page.getByTestId('system-guide-floating-launcher').click();
   await page.getByTestId('system-guide-input').fill('请以酒店数据分析师角色复核当前携程经营事实。');
   await page.getByTestId('system-guide-submit').click();
   const globalFeedback = page.getByTestId('system-guide-analysis-quality-feedback');

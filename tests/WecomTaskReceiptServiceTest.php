@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Tests;
 
 use app\controller\OperatingFinance;
+use app\service\WecomAibotService;
 use app\service\WecomInboundService;
 use app\service\WecomTaskReceiptService;
 use DateTimeImmutable;
@@ -286,6 +287,71 @@ final class WecomTaskReceiptServiceTest extends TestCase
         self::assertSame('readback_verified', $receipt['status']);
         self::assertTrue($receipt['created']);
         self::assertSame(1, (int)Db::name(WecomTaskReceiptService::TABLE)->count());
+    }
+
+    public function testAibotTransportCanBindAndProjectReceiptsThroughTheIngestWiring(): void
+    {
+        Db::name(WecomInboundService::BINDING_TABLE)
+            ->where('id', 12)
+            ->update(['transport' => WecomAibotService::TRANSPORT]);
+        $service = new WecomTaskReceiptService(
+            null,
+            static fn(): DateTimeImmutable => new DateTimeImmutable(
+                '2026-08-30 10:11:12.123456',
+                new DateTimeZone('Asia/Shanghai')
+            ),
+            fn(array $context): array => $this->events[(int)$context['source_event_id']]
+        );
+        $challenge = $service->createSenderBindingChallenge(10, 80, 77);
+        $bindingEvent = $this->event(
+            '绑定员工 **********',
+            9054,
+            WecomAibotService::TRANSPORT
+        );
+        $this->events[9054] = $bindingEvent;
+
+        $bound = $service->consumeSenderBindingChallenge(
+            $bindingEvent,
+            (string)$challenge['binding_code']
+        );
+        self::assertSame('readback_verified', $bound['status']);
+
+        $receiptEvent = $this->event(
+            $this->structuredContent('completed', '巡检已完成。', '证据已保留。'),
+            9055,
+            WecomAibotService::TRANSPORT
+        );
+        $this->events[9055] = $receiptEvent;
+        $receipt = $service->projectArchivedEvent($receiptEvent);
+        $replayed = $service->projectArchivedEvent($receiptEvent);
+
+        self::assertSame('readback_verified', $receipt['status']);
+        self::assertTrue($receipt['created']);
+        self::assertFalse($receipt['replayed']);
+        self::assertSame($receipt['receipt_id'], $replayed['receipt_id']);
+        self::assertFalse($replayed['created']);
+        self::assertTrue($replayed['replayed']);
+        self::assertSame(1, (int)Db::name(WecomTaskReceiptService::TABLE)->count());
+        $aibotSource = file_get_contents(dirname(__DIR__) . '/app/service/WecomAibotService.php');
+        self::assertIsString($aibotSource);
+        self::assertStringContainsString("['sender_binding_projection'] = \$this->projectSenderBinding(\$event)", $aibotSource);
+        self::assertStringContainsString("['task_receipt_projection'] = (new WecomTaskReceiptService())->projectArchivedEvent(\$event)", $aibotSource);
+    }
+
+    public function testUnsupportedTransportCannotProjectAReceipt(): void
+    {
+        $event = $this->event(
+            $this->structuredContent('completed', '巡检已完成。', '证据已保留。'),
+            9056,
+            'unsupported_transport'
+        );
+        $this->events[9056] = $event;
+
+        $projection = $this->service->projectArchivedEvent($event);
+
+        self::assertSame('blocked', $projection['status']);
+        self::assertSame('wecom_task_receipt_archived_event_invalid', $projection['code']);
+        self::assertSame(0, (int)Db::name(WecomTaskReceiptService::TABLE)->count());
     }
 
     public function testStructuredReceiptWithoutSenderChallengeCannotCreateIdentityMapping(): void
@@ -604,7 +670,11 @@ final class WecomTaskReceiptServiceTest extends TestCase
     }
 
     /** @return array<string,mixed> */
-    private function event(string $content, int $id = 9001): array
+    private function event(
+        string $content,
+        int $id = 9001,
+        string $transport = 'wecom_app_callback'
+    ): array
     {
         $event = [
             'contract_version' => WecomInboundService::CONTRACT_VERSION,
@@ -616,7 +686,7 @@ final class WecomTaskReceiptServiceTest extends TestCase
             'payload_digest' => hash('sha256', 'payload|' . $content),
             'occurred_at' => '2026-08-30 10:10:00',
             'message_type' => 'text',
-            'transport' => 'wecom_app_callback',
+            'transport' => $transport,
             'sender_id_hash' => hash('sha256', 'wecom-sender-v1|employee-77'),
             'content_text' => $content,
             'archive_status' => 'readback_verified',

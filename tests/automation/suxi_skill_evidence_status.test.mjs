@@ -15,7 +15,7 @@ import {
 
 const currentExecutionHead = {
   attempts: 1,
-  latest: 'ed058dbdc0f80a11c9e9131a4743991f4e488cb479e0b11a49d679e306df4900',
+  latest: 'a661efd658983d717d70cc78a28f08b765e2d7cebec8d855962aab9dd058d52b',
 };
 
 function behaviorFixture({ fail = 0, blocked = 0, status = 'PASS' } = {}) {

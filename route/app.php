@@ -510,7 +510,6 @@ Route::group('api/revenue-ai', function () {
     Route::post('/cockpit/decision-snapshots/:id/pending-approval', 'RevenueAi/createCockpitOpportunityPendingApproval');
     Route::post('/cockpit/decision-snapshots', 'RevenueAi/createCockpitDecisionSnapshot');
     Route::get('/cockpit/pending-approval', 'RevenueAi/readCockpitPendingApproval');
-    Route::post('/cockpit/pending-approval', 'RevenueAi/createCockpitPendingApproval');
     Route::post('/price-suggestions/:id/review', 'RevenueAi/reviewPriceSuggestion');
     Route::post('/price-suggestions/:id/execution-intent', 'RevenueAi/createPriceSuggestionExecutionIntent');
 })->middleware(\app\middleware\Auth::class);

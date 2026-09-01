@@ -1,0 +1,33 @@
+{
+  "schema": "suxios.codex_context_maintenance_dry_run.v1",
+  "observed_at": "2026-09-01T16:33:00+08:00",
+  "mode": "dry-run",
+  "writes": false,
+  "codex_processes_observed": 2,
+  "skill_dedupe": {
+    "disable_candidates": 55,
+    "retained_canonical_skills": 55,
+    "before": {
+      "catalog_entries": 214,
+      "catalog_chars_in_cli_debug_view": 21382,
+      "gstack_prefixed_entries": 59
+    },
+    "projected_after": {
+      "catalog_entries": 159,
+      "catalog_chars_in_cli_debug_view": 20564,
+      "gstack_prefixed_entries": 5,
+      "canonical_gstack_router_present": true,
+      "canonical_autoplan_present": true
+    }
+  },
+  "maintenance": {
+    "archive_applied": false,
+    "global_config_changed": false,
+    "metadata_repair_requested": false
+  },
+  "limitations": [
+    "The CLI debug view truncates Skill descriptions, so catalog entry reduction is stronger evidence than the character delta.",
+    "The global Skill change and existing-session maintenance still require Codex Desktop to exit.",
+    "A fresh Desktop task token_count is required after restart before claiming account-facing improvement."
+  ]
+}

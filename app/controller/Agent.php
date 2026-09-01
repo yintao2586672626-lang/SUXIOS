@@ -45,6 +45,8 @@ class Agent extends Base
     use \app\controller\concern\AgentOtaDiagnosisActionConcern;
     use \app\controller\concern\AgentOtaDiagnosisPersistenceConcern;
     use \app\controller\concern\AgentOtaDiagnosisSummaryGuardConcern;
+    use \app\controller\concern\AgentOtaDiagnosisMetricConcern;
+    use \app\controller\concern\AgentOtaDiagnosisReadbackConcern;
 
     /** @var array<string, array<int, array<string, mixed>>> */
     private array $revenueForecastRangeCache = [];

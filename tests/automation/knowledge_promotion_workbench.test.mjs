@@ -5,7 +5,10 @@ import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
-const appMain = fs.readFileSync(path.join(root, 'public/app-main.js'), 'utf8');
+const appMain = [
+  fs.readFileSync(path.join(root, 'public/components/system/knowledge-center-domain.js'), 'utf8'),
+  fs.readFileSync(path.join(root, 'public/app-main.js'), 'utf8'),
+].join('\n');
 const page = fs.readFileSync(
   path.join(root, 'resources/frontend/templates/fragments/20-page-knowledge-center.html'),
   'utf8',

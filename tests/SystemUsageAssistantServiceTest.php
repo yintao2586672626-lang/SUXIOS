@@ -209,6 +209,91 @@ final class SystemUsageAssistantServiceTest extends TestCase
         self::assertStringContainsString('数据有没有采到', $result['clarifying_question']);
     }
 
+    public function testVagueWorkbenchRequestStartsDeterministicReverseInterviewWithoutCallingModel(): void
+    {
+        $client = new class extends LlmClient {
+            public int $calls = 0;
+
+            public function createJsonResponseEnvelope(
+                array $messages,
+                array $schema,
+                string $modelKey = 'deepseek_v4_default'
+            ): array {
+                $this->calls++;
+                throw new RuntimeException('model_must_not_be_called');
+            }
+        };
+
+        $result = (new SystemUsageAssistantService($client))->guide([
+            'query' => '帮我搭个个人工作台，反过来采访我。',
+            'visible_topic_keys' => ['daily-workbench', 'data-health', 'revenue-report', 'operations'],
+        ]);
+
+        self::assertSame(0, $client->calls);
+        self::assertSame('clarification_required', $result['status']);
+        self::assertSame('deterministic', $result['mode']);
+        self::assertSame('clarify', $result['topic_key']);
+        self::assertStringContainsString('主要以什么角色', $result['clarifying_question']);
+        self::assertSame([], $result['follow_up_questions']);
+        self::assertNull($result['action']);
+        self::assertFalse($result['runtime']['model_attempted']);
+        self::assertSame('workbench_interview_role', $result['runtime']['reason']);
+        self::assertStringContainsString('一轮只问一个关键问题', $result['assistant_message']);
+    }
+
+    public function testWorkbenchInterviewAsksAtMostOneQuestionPerRoundThenReturnsToTrustedWorkbench(): void
+    {
+        $service = new SystemUsageAssistantService();
+        $visible = ['daily-workbench', 'data-health', 'revenue-report', 'operations'];
+        $roleQuestion = '你主要以什么角色使用宿析OS：单店老板、店长、收益负责人，还是多店运营？';
+        $routineQuestion = '你每天最常反复处理的三类工作是什么？请只说真实高频任务。';
+        $blocksQuestion = '如果首屏只能保留三块，你最想一眼看到哪三类结果？';
+
+        $secondRound = $service->guide([
+            'query' => '我是单店店长。',
+            'deterministic_only' => true,
+            'visible_topic_keys' => $visible,
+            'history' => [
+                ['role' => 'user', 'content' => '帮我搭一个工作台，反过来采访我。'],
+                ['role' => 'assistant', 'content' => $roleQuestion],
+            ],
+        ]);
+        self::assertSame('clarification_required', $secondRound['status']);
+        self::assertSame($routineQuestion, $secondRound['clarifying_question']);
+        self::assertSame([], $secondRound['follow_up_questions']);
+
+        $thirdRound = $service->guide([
+            'query' => '每天看缺数、经营报告和任务执行。',
+            'deterministic_only' => true,
+            'visible_topic_keys' => $visible,
+            'history' => [
+                ['role' => 'assistant', 'content' => $roleQuestion],
+                ['role' => 'user', 'content' => '我是单店店长。'],
+                ['role' => 'assistant', 'content' => $routineQuestion],
+            ],
+        ]);
+        self::assertSame('clarification_required', $thirdRound['status']);
+        self::assertSame($blocksQuestion, $thirdRound['clarifying_question']);
+        self::assertSame([], $thirdRound['follow_up_questions']);
+
+        $ready = $service->guide([
+            'query' => '首屏看数据健康、今日结论和待复盘任务。',
+            'deterministic_only' => true,
+            'visible_topic_keys' => $visible,
+            'history' => [
+                ['role' => 'assistant', 'content' => $roleQuestion],
+                ['role' => 'assistant', 'content' => $routineQuestion],
+                ['role' => 'assistant', 'content' => $blocksQuestion],
+            ],
+        ]);
+        self::assertSame('ready', $ready['status']);
+        self::assertSame('daily-workbench', $ready['topic_key']);
+        self::assertSame('operating-opportunities', $ready['action']['target_page']);
+        self::assertSame('', $ready['clarifying_question']);
+        self::assertFalse($ready['runtime']['external_llm_called']);
+        self::assertSame('workbench_interview_complete', $ready['runtime']['reason']);
+    }
+
     public function testInventedModelTargetIsRejectedAndFallsBackToAllowedRealPage(): void
     {
         $client = new class extends LlmClient {

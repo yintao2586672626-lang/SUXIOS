@@ -79,4 +79,5 @@ trait AiDailyReportReadinessConcern
 
         return $summary;
     }
+
 }

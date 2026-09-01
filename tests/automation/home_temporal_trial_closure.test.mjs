@@ -2,7 +2,10 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
-const appMain = readFileSync(new URL('../../public/app-main.js', import.meta.url), 'utf8');
+const appMain = [
+    readFileSync(new URL('../../public/components/system/knowledge-center-domain.js', import.meta.url), 'utf8'),
+    readFileSync(new URL('../../public/app-main.js', import.meta.url), 'utf8'),
+].join('\n');
 const template = readFileSync(
     new URL('../../resources/frontend/templates/fragments/23b-page-ai-workbench.html', import.meta.url),
     'utf8'

@@ -346,7 +346,7 @@ final class OperatingQuestionExecutionBridgeService
         $runtime = is_array($answer['ai_runtime'] ?? null) ? $answer['ai_runtime'] : [];
         $claims = $this->verifiedClaims($answer);
         if ((string)($question['answer_status'] ?? '') !== 'answered_by_grounded_ai'
-            || preg_match('/^operating-question:v4:[a-f0-9]{48}$/D', (string)($question['request_key'] ?? '')) !== 1
+            || preg_match('/^operating-question:v(?:4|6):[a-f0-9]{48}$/D', (string)($question['request_key'] ?? '')) !== 1
             || (string)($answer['contract_version'] ?? '') !== OperatingQuestionService::CONTRACT_VERSION
             || (string)($answer['status'] ?? '') !== 'answered_by_grounded_ai'
             || (string)($runtime['status'] ?? '') !== 'ready'

@@ -187,6 +187,18 @@ final class CtripOrderExportImportService
         $targetHotelName = $this->text($context['hotel_name'] ?? '');
         $isTestFixture = !empty($context['test_fixture']);
         $this->assertHotelScope($rows, $targetHotelName, $isTestFixture);
+        $observedAt = $this->dateTime(
+            $context['observed_at']
+            ?? $context['observedAt']
+            ?? $context['captured_at']
+            ?? $context['capturedAt']
+            ?? null
+        );
+        if ($observedAt === '') {
+            $observedAt = date('Y-m-d H:i:s');
+        }
+        $observationDate = substr($observedAt, 0, 10);
+        $observationBucket = date('YmdHi', strtotime($observedAt) ?: time());
 
         $rawRowCount = 0;
         $rowsWithOrderId = 0;
@@ -550,6 +562,9 @@ final class CtripOrderExportImportService
                     : null,
                 'denominator' => 'active_orders_with_valid_booking_and_stay_dates',
             ];
+            $isFutureOnBooks = $group['date_source'] === 'stay_date'
+                && $group['data_date'] > $observationDate;
+            $dataPeriod = $isFutureOnBooks ? 'future_on_books' : 'historical_daily';
 
             $normalized[] = [
                 'system_hotel_id' => $systemHotelId,
@@ -559,7 +574,9 @@ final class CtripOrderExportImportService
                 'source' => $group['channel_key'],
                 'data_type' => 'order',
                 'data_date' => $group['data_date'],
-                'data_period' => 'day',
+                'data_period' => $dataPeriod,
+                'snapshot_time' => $isFutureOnBooks ? $observedAt : null,
+                'snapshot_bucket' => $isFutureOnBooks ? $observationBucket : '',
                 'dimension' => 'channel_order:' . $group['channel_key'],
                 'compare_type' => 'self',
                 'book_order_num' => $group['active_orders'],
@@ -580,6 +597,7 @@ final class CtripOrderExportImportService
                     (string)$systemHotelId,
                     $group['channel_key'],
                     $group['data_date'],
+                    $isFutureOnBooks ? $observationBucket : '',
                 ])), 0, 52),
                 'validation_status' => 'unverified',
                 'ingestion_method' => 'import_excel',
@@ -596,6 +614,8 @@ final class CtripOrderExportImportService
                     'date_sources' => $dateSources,
                     'order_count_basis' => 'active_non_cancelled_orders',
                     'room_nights_basis' => 'active_non_cancelled_booked_room_nights',
+                    'date_role' => $isFutureOnBooks ? 'future_stay_date' : 'settled_or_observed_date',
+                    'observed_at' => $observedAt,
                     'gross_order_num' => $group['gross_orders'],
                     'active_order_num' => $group['active_orders'],
                     'cancel_order_num' => $group['cancelled_orders'],

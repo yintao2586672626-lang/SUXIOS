@@ -211,8 +211,14 @@
     "20260830_z_create_wecom_task_receipts.sql": "1f47ffe688b6915314528481ce6ab83864a910397766109298653ae6dbc08451",
     "20260830_zz_create_operating_finance_planning.sql": "759b57c55def1a89338313607ec23aec0417f5ffc1dd835731d29f39c0692cfa",
     "20260831_create_price_suggestion_shadow_replays.sql": "7c2f2929169990af4b9f256b63c4e41c10b3e28fa6b52f89b14affb670de4f7f",
+    "20260831_seed_ota_family_hotel_grading_reference.sql": "8193b872a39bdce285ecbb5aa874a08b988b4e86d237b2892199217f7349ddbe",
     "20260831_z_add_price_suggestion_decision_attestation.sql": "297dbb633c2eb6e24e4bae7aadc004f4513e383a8c736626604d21a4e853f0f3",
-    "20260901_create_wecom_inbound_sender_bindings.sql": "5511bd3bb9009efddba6f4b44019232b60b1ecef9fbac0b21435062d94ac9fee"
+    "20260831_z_seed_meituan_traffic_self_check_reference.sql": "cb0f77d704aac3b7a2623ba9e085d7665a533b706920296e183ce29858a5a996",
+    "20260831_zz_fix_meituan_traffic_self_check_source_identity.sql": "0d073b906fe0f291db97b9f3b399b8d7d096108e4a28896a28be0625491cba0a",
+    "20260901_create_wecom_inbound_sender_bindings.sql": "5511bd3bb9009efddba6f4b44019232b60b1ecef9fbac0b21435062d94ac9fee",
+    "20260901_refine_reference_knowledge_availability.sql": "670519e492fc31fe17d360586418e604dd3493ef48f86180a89577d9bafb82b7",
+    "20260901_z_seed_workbench_reverse_interview_reference.sql": "76897d8c0bbdf5f1eb1d04dc42b9025d9274d3ceeba513523a3cd2f31eeb2227",
+    "20260901_zz_seed_ai_agent_learning_reference.sql": "4e8e2912b30627c6c5acdaa6c9676572f3e023152105f4445c2977320707665e"
   },
   "frozen_sources": {
     "database/complaint_tables.sql": "0b691d925eca181aaffe7281e89855f662a2741fe92e7f673adedcbb4c630e66",

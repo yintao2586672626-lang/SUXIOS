@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-require dirname(__DIR__, 2) . DIRECTORY_SEPARATOR . 'vendor' . DIRECTORY_SEPARATOR . 'autoload.php';
+require dirname(__DIR__) . DIRECTORY_SEPARATOR . 'bootstrap.php';
 
 date_default_timezone_set('Asia/Shanghai');
 

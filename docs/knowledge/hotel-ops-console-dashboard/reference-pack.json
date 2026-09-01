@@ -1,0 +1,169 @@
+{
+  "schema_version": "suxios.hotel_ops_console_dashboard_reference.v1",
+  "knowledge_key": "hotel_ops_console_dashboard_reference",
+  "title": "酒店运营工作台数据看板（截图参考）",
+  "task_mode": "delivery",
+  "disposition": "absorption_candidate",
+  "delivery_label": "source_inspired",
+  "delivery_status": "partial",
+  "maturity": "understood",
+  "usage_policy": "reference_only",
+  "contains_current_hotel_fact": false,
+  "contains_current_ota_fact": false,
+  "contains_confirmed_current_product_rule": false,
+  "external_write_authorized": false,
+  "verified_visible": {
+    "page_title": "数据看板",
+    "shell_pattern": "left_navigation_plus_single_page_daily_dashboard",
+    "top_metric_labels": [
+      "今日营收",
+      "出租率",
+      "ADR 均价",
+      "RevPAR"
+    ],
+    "middle_modules": [
+      "近 7 日营收趋势",
+      "渠道占比",
+      "PSI 服务质量分"
+    ],
+    "bottom_module": "今日异常速览",
+    "visible_alert_categories": [
+      "价格",
+      "点评",
+      "广告"
+    ],
+    "visible_alert_affordances": [
+      "单条异动时间",
+      "查看全部预警",
+      "从服务质量分进入点评"
+    ],
+    "navigation_groups": [
+      "日常驾驶舱",
+      "经营执行",
+      "情报与后台"
+    ],
+    "privacy_note": "酒店选择器中的具体门店名未采集为知识字段。"
+  },
+  "source_example_values": {
+    "status": "visible_example_only_not_fact_ingestion",
+    "values_must_not_be_reused": true,
+    "labels": [
+      "营收、出租率、ADR、RevPAR及其环比",
+      "渠道占比",
+      "PSI分值与竞圈排名",
+      "价格、点评和广告异动内容"
+    ]
+  },
+  "mechanism_candidate": {
+    "name": "daily_management_attention_compression",
+    "trigger": "酒店管理者打开每日经营入口，需要在短时间内判断今天最重要的问题和下一步。",
+    "required_inputs": [
+      "当前租户与系统酒店",
+      "明确业务日期和更新时间",
+      "同口径且可回读的 OTA 或 PMS 事实",
+      "来源、平台、范围与数据质量状态",
+      "有证据的异常或明确数据缺口",
+      "可到达的人工处理入口"
+    ],
+    "stages": [
+      "先固定酒店、业务日期和证据更新时间",
+      "只展示通过事实门的少量经营信号",
+      "把跨模块异动压缩成可扫读的优先列表",
+      "每条异动保留来源范围、证据状态和时间",
+      "从异动进入既有收益、点评、广告或运营处理入口",
+      "需要经营动作时保持人工审批和效果回读"
+    ],
+    "output": "一个可扫读、可下钻、不会把缺失数据伪装成事实的每日经营注意力入口。",
+    "failure_contract": "酒店、日期、平台、指标定义或严格回读缺失时显示 unavailable/unverified/partial；不补零、不生成环比、不套用截图阈值、不把 OTA 渠道信号扩大为全酒店结论。",
+    "side_effect_policy": "看板只分配注意力和提供下钻；调价、投放、回复、消息或 OTA/PMS 写入必须由用户主动触发。",
+    "gates": {
+      "mechanism": "indeterminate",
+      "value": "pass",
+      "reproduction": "fail"
+    },
+    "reproduction_status": "static_screenshot_has_no_input_output_contract_interaction_sequence_dynamic_state_or_failure_sample"
+  },
+  "existing_suxios_alignment": {
+    "status": "source_inspired_task_anomaly_projection_added_to_existing_local_entry",
+    "evidence_ceiling": "local_dirty_worktree_only_not_commit_deployment_or_field_validation",
+    "aligned_entries": [
+      {
+        "entry": "今日经营看板",
+        "evidence": "resources/frontend/templates/fragments/23a-page-compass-summary.html",
+        "coverage": "权威经营闭环、昨日事实、时间轴和经营编排"
+      },
+      {
+        "entry": "宿析经营闭环内核",
+        "evidence": "public/components/system/app-main-components.js",
+        "coverage": "什么是真的、最重要的问题、下一步谁做什么、昨天动作有没有结果"
+      },
+      {
+        "entry": "经营机会 / 每日一件事",
+        "evidence": "public/components/system/operating-opportunity-lab.js",
+        "coverage": "严格事实、已保存问题或明确缺口中只选一项，保存为待人工审批并精确回读"
+      }
+    ],
+    "decision": "reuse_existing_operating_schedule_and_add_task_anomaly_projection_without_importing_example_metrics"
+  },
+  "local_adaptation": {
+    "entry": "今日经营看板 / 今日经营编排",
+    "projection_policy": "derive_from_the_same_exactly_read_back_operation_tasks",
+    "anomaly_conditions": [
+      "blocked",
+      "failed",
+      "rejected",
+      "evidence_missing",
+      "overdue"
+    ],
+    "excluded_normal_workflow_states": [
+      "pending_approval",
+      "pending_execution",
+      "waiting_review",
+      "reviewed"
+    ],
+    "truthful_state_policy": "only ready plus zero anomaly rows may say no task-level anomaly; loading refreshing waiting partial refresh_failed and failed remain unconfirmed",
+    "click_behavior": "reuse_existing_exact_intent_open_event",
+    "new_api": false,
+    "new_metric_system": false,
+    "new_database_table": false,
+    "automatic_external_action": false,
+    "focused_regression": "tests/automation/home_operating_orchestration.test.mjs",
+    "business_page_guard": "rules/business-page-contract-registry.json",
+    "runtime_bundle": "public/app-startup-helpers.min.js",
+    "visual_evidence": "test_only_local_component_fixture_not_authenticated_field_evidence"
+  },
+  "unverified_items": [
+    "截图来源产品、版本、发布时间、适用酒店范围和当前有效性",
+    "营收、出租率、ADR、RevPAR、渠道占比和PSI的来源、公式、单位、时间口径与刷新规则",
+    "昨日、5个百分点、环比和竞圈排名的比较范围与可比条件",
+    "今日异常的生成规则、优先级算法、去重、确认、关闭和失败状态",
+    "查看点评、查看全部预警及侧边栏数字角标的真实交互和权限规则",
+    "隐藏后台、数据保存、下钻回读和外部动作边界"
+  ],
+  "allowed_uses": [
+    "dashboard_information_architecture_reference",
+    "daily_attention_compression_review",
+    "alert_scanability_review",
+    "future_source_replay_design"
+  ],
+  "blocked_uses": [
+    "current_hotel_fact",
+    "metric_formula_or_threshold",
+    "peer_benchmark_fact",
+    "causal_claim",
+    "automatic_alert_creation",
+    "automatic_operation_task_creation",
+    "automatic_pricing",
+    "automatic_advertising",
+    "automatic_review_reply",
+    "automatic_ota_write",
+    "automatic_pms_write",
+    "external_message"
+  ],
+  "upgrade_triggers": [
+    "取得可定位来源、版本或当前页面",
+    "取得一个完整正常交互样例和一个缺失、失败或不适用样例",
+    "取得指标定义、来源、酒店、平台、业务日期与回读状态",
+    "证明来源行为相对宿析现有每日经营入口有独特且可观察的增量"
+  ]
+}

@@ -3,9 +3,12 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import { readRouteContractSource } from '../../scripts/lib/route_contract_source.mjs';
 
-const appMain = readFileSync('public/app-main.js', 'utf8');
 const appMainComponents = readFileSync('public/components/system/app-main-components.js', 'utf8');
 const operationStatic = readFileSync('public/operation-static.js', 'utf8');
+const appMain = [
+  readFileSync('public/components/system/knowledge-center-domain.js', 'utf8'),
+  readFileSync('public/app-main.js', 'utf8'),
+].join('\n');
 const pageTemplate = readFileSync('resources/frontend/templates/fragments/20-page-knowledge-center.html', 'utf8');
 const routes = readRouteContractSource(process.cwd());
 const controller = readFileSync('app/controller/OperatingIntelligence.php', 'utf8');

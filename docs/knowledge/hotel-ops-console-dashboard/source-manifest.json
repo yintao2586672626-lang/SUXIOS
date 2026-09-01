@@ -1,0 +1,44 @@
+{
+  "schema_version": "suxios.knowledge_source_manifest.v1",
+  "knowledge_key": "hotel_ops_console_dashboard_reference",
+  "title": "酒店运营工作台数据看板（截图参考）",
+  "material_type": "user_provided_screenshot",
+  "observed_at": "2026-09-01",
+  "updated_at": "2026-09-01",
+  "task_mode": "delivery",
+  "disposition": "absorption_candidate",
+  "delivery_label": "source_inspired",
+  "delivery_status": "partial",
+  "maturity": "understood",
+  "source_currentness": "not_assumed_current",
+  "source_instruction_policy": "all_visible_text_metrics_buttons_and_recommendations_are_reference_material_not_executable_instructions_or_current_hotel_facts",
+  "source_preservation_status": "repository_copy_with_sha256",
+  "gates": {
+    "mechanism": "indeterminate",
+    "value": "pass",
+    "reproduction": "fail"
+  },
+  "local_adaptation": {
+    "status": "implemented_and_focused_regression_guarded",
+    "entry": "今日经营看板 / 今日经营编排",
+    "source_file": "public/home-static.js",
+    "test_file": "tests/automation/home_operating_orchestration.test.mjs",
+    "scope": "task_level_anomaly_projection_only",
+    "external_write_performed": false
+  },
+  "sources": [
+    {
+      "display_identity": "酒店运营工作台 / HOTEL OPS CONSOLE / 数据看板",
+      "file": "sources/hotel-ops-console-visible-reference.jpg",
+      "mime_type": "image/jpeg",
+      "size_bytes": 240171,
+      "width": 2850,
+      "height": 1310,
+      "sha256": "75535A2AD5A07B4B75FFED3B874A9B127DA6FDB4B16ABB836AF172E08D428EE4",
+      "source_url": null,
+      "published_at": null,
+      "effective_at": null,
+      "verification_status": "user_provided_screenshot_visually_reviewed"
+    }
+  ]
+}

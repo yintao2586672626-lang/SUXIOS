@@ -195,6 +195,37 @@ final class AutomationRunMonitorServiceTest extends TestCase
         self::assertStringContainsString('当前账号有权限的营业门店', $overview['message']);
     }
 
+    public function testRuntimeEvidenceLoaderFailureIsVisibleAndCannotLookReady(): void
+    {
+        $service = new AutomationRunMonitorService(
+            fn(): array => $this->otaPreview('readback_verified', 'readback_verified'),
+            fn(): array => $this->pmsBinding(
+                'configured',
+                $this->dingdandaoStatus(true)
+            ),
+            fn(): array => $this->taskOverview('', '2026-07-28 10:00:00', ''),
+            new DateTimeImmutable('2026-07-28 09:30:00', new DateTimeZone('Asia/Shanghai')),
+            fn(array $permittedHotelIds): array => [80],
+            static fn(): array => throw new \RuntimeException('runtime evidence ledger unavailable')
+        );
+
+        $overview = $service->overview([$this->hotel()], '2026-07-28', 9);
+        $row = $overview['rows'][0];
+
+        self::assertSame(3, $row['data_ready_count']);
+        self::assertSame('blocked', $row['data_status']);
+        self::assertSame('read_failed', $row['runtime_evidence_status']);
+        self::assertSame(
+            'automation_monitor_runtime_evidence_read_failed',
+            $row['runtime_evidence_reason_code']
+        );
+        self::assertNull($row['push_success_count']);
+        self::assertSame('read_failed', $row['push_success_count_status']);
+        self::assertStringContainsString('运行证据读取失败', $row['blocker_reason']);
+        self::assertSame(0, $overview['summary']['data_ready_count']);
+        self::assertSame(1, $overview['summary']['blocked_count']);
+    }
+
     /** @return array<string, mixed> */
     private function hotel(): array
     {

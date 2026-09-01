@@ -170,7 +170,10 @@ class ProtectedCapabilityService
                     'module' => 'operation_decision',
                     'controller_hotel_scope' => true,
                     'paths' => [
-                        ['path' => 'api/revenue-ai/cockpit/pending-approval', 'methods' => ['POST']],
+                        [
+                            'path' => 'api/revenue-ai/cockpit/decision-snapshots/*/pending-approval',
+                            'methods' => ['POST'],
+                        ],
                         [
                             'path' => 'api/revenue-ai/price-suggestions/*/execution-intent',
                             'methods' => ['POST'],

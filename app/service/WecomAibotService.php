@@ -330,6 +330,8 @@ final class WecomAibotService
             $answer,
             $bindingConfirmation || !$isBindingCommand
         );
+        $event['sender_binding_projection'] = $this->projectSenderBinding($event);
+        $event['task_receipt_projection'] = (new WecomTaskReceiptService())->projectArchivedEvent($event);
         $eventAnswer = is_array($event['answer'] ?? null) ? $event['answer'] : [];
         $event['reply_allowed'] = ($event['duplicate'] ?? false) !== true
             && (string)($event['delivery_status'] ?? 'not_sent') === 'not_sent'
@@ -337,6 +339,20 @@ final class WecomAibotService
         $event['binding_confirmation'] = $bindingConfirmation;
         $event['reply_text'] = $event['reply_allowed'] ? (string)($eventAnswer['reply_text'] ?? '') : '';
         return $event;
+    }
+
+    /** @param array<string,mixed> $event @return array<string,mixed> */
+    private function projectSenderBinding(array $event): array
+    {
+        try {
+            return (new WecomTaskReceiptService())->consumeSenderBindingChallenge($event);
+        } catch (Throwable $error) {
+            $code = trim($error->getMessage());
+            if (!str_starts_with($code, 'wecom_sender_binding_')) {
+                $code = 'wecom_sender_binding_projection_failed';
+            }
+            return ['status' => 'blocked', 'code' => $code];
+        }
     }
 
     /** @return array<string,mixed> */

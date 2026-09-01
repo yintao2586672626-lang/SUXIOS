@@ -27,18 +27,23 @@ final class WeeklyOperatingPlanSnapshotService
     /** @var callable|null */
     private $scopeVerifier;
 
+    /** @var callable|null */
+    private $snapshotTransaction;
+
     public function __construct(
         ?callable $sourceReader = null,
         ?callable $snapshotReader = null,
         ?callable $snapshotWriter = null,
         ?callable $clock = null,
-        ?callable $scopeVerifier = null
+        ?callable $scopeVerifier = null,
+        ?callable $snapshotTransaction = null
     ) {
         $this->sourceReader = $sourceReader;
         $this->snapshotReader = $snapshotReader;
         $this->snapshotWriter = $snapshotWriter;
         $this->clock = $clock;
         $this->scopeVerifier = $scopeVerifier;
+        $this->snapshotTransaction = $snapshotTransaction;
     }
 
     /** @return array<string,mixed> */
@@ -77,8 +82,6 @@ final class WeeklyOperatingPlanSnapshotService
             return $this->normalizeStored($existing, false, true);
         }
 
-        $id = 0;
-        $row = [];
         for ($attempt = 1; $attempt <= 3; $attempt++) {
             $version = max(1, (int)$this->readSnapshot('next_version', [
                 'tenant_id' => $tenantId,
@@ -112,7 +115,7 @@ final class WeeklyOperatingPlanSnapshotService
                 'created_at' => (string)$draft['generated_at'],
             ];
             try {
-                $id = $this->writeSnapshot($row);
+                return $this->persistAndVerifySnapshot($row);
             } catch (\Throwable $error) {
                 $winner = $this->readSnapshot('by_source', [
                     'tenant_id' => $tenantId,
@@ -126,20 +129,14 @@ final class WeeklyOperatingPlanSnapshotService
                     return $this->normalizeStored($winner, false, true);
                 }
                 if ($attempt === 3) {
+                    if (str_starts_with($error->getMessage(), 'weekly_plan_snapshot_readback_')) {
+                        throw $error;
+                    }
                     throw new \RuntimeException('weekly_plan_snapshot_save_failed', 0, $error);
                 }
-                continue;
             }
-            if ($id > 0) break;
         }
-        if ($id <= 0) {
-            throw new \RuntimeException('weekly_plan_snapshot_save_failed');
-        }
-        $stored = $this->readSnapshot('exact', ['id' => $id]);
-        if (!is_array($stored)) {
-            throw new \RuntimeException('weekly_plan_snapshot_readback_failed');
-        }
-        return $this->normalizeStored($stored, true, false);
+        throw new \RuntimeException('weekly_plan_snapshot_save_failed');
     }
 
     /** @return array<string,mixed> */
@@ -719,6 +716,29 @@ final class WeeklyOperatingPlanSnapshotService
             return (int)call_user_func($this->snapshotWriter, $row);
         }
         return (int)Db::name(self::TABLE)->insertGetId($row);
+    }
+
+    /** @param array<string,mixed> $row @return array<string,mixed> */
+    private function persistAndVerifySnapshot(array $row): array
+    {
+        $operation = function () use ($row): array {
+            $id = $this->writeSnapshot($row);
+            if ($id <= 0) {
+                throw new \RuntimeException('weekly_plan_snapshot_save_failed');
+            }
+            $stored = $this->readSnapshot('exact', ['id' => $id]);
+            if (!is_array($stored)) {
+                throw new \RuntimeException('weekly_plan_snapshot_readback_failed');
+            }
+            return $this->normalizeStored($stored, true, false);
+        };
+        if ($this->snapshotTransaction !== null) {
+            return (array)call_user_func($this->snapshotTransaction, $operation);
+        }
+        if ($this->snapshotReader !== null || $this->snapshotWriter !== null) {
+            return $operation();
+        }
+        return Db::transaction($operation);
     }
 
     private function renderText(

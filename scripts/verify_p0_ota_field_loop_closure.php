@@ -1453,8 +1453,8 @@ function p0_compare_row_platform_hotel_identifier(array $rawData, string $platfo
         return $base;
     }
     $row = is_array($rawData['row'] ?? null) ? $rawData['row'] : null;
-    $identityProof = strtolower(trim((string)($rawData['platform_hotel_identifier_proof'] ?? ($row['platform_hotel_identifier_proof'] ?? ''))));
-    $identityContainer = $identityProof === 'row_field_present' && $row !== null ? $row : $rawData; // Keep the SUXIOS hotel scope out of row-proven OTA identity.
+    // An observed row owns OTA identity; collector bindings contain only SUXIOS scope metadata.
+    $identityContainer = $row ?? $rawData;
     $rowHashes = p0_platform_hotel_identifier_hashes($identityContainer, $platform);
     $base['expected_identifier_hash'] = (string)$authority['expected_identifier_hash'];
     $base['row_identifier_count'] = count($rowHashes);
@@ -6784,7 +6784,7 @@ function p0_traffic_field_fact_closure(string $platform, string $targetDate, int
         } else {
             $base['missing_system_hotel_id_rows']++;
         }
-        $rowIdentifierHashes = p0_platform_hotel_identifier_hashes($raw, $platform);
+        $rowIdentifierHashes = p0_platform_hotel_identifier_hashes(is_array($raw['row'] ?? null) ? $raw['row'] : $raw, $platform);
         if ($rowIdentifierHashes !== []) {
             $base['platform_hotel_identifier_rows']++;
         } else {

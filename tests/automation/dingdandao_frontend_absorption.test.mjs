@@ -22,17 +22,23 @@ test('knowledge center exposes a searchable task and settings finder', () => {
 });
 
 test('finder cards preserve evidence and authorization boundaries', () => {
-  assert.match(fragment, /入口与前置条件，不代表数据已就绪/);
+  assert.match(fragment, /先做3个能验收的真实任务/);
+  assert.match(fragment, /仅打开页面不算完成/);
   assert.match(fragment, /数字存在不等于事实可用/);
   assert.match(fragment, /不与OTA渠道口径混加/);
   assert.match(fragment, /建议不等于已执行、已调价或已产生收益/);
   assert.match(fragment, /外部发送需确认/);
   assert.match(fragment, /只有目标机器人身份正确且真实回执成功，才算已送达/);
+  assert.match(fragment, /visibleMenuItems[\s\S]*child\.tab === 'data-health'/);
+  assert.match(fragment, /data-testid="knowledge-feature-data-health-unavailable"/);
+  assert.match(fragment, /当前账号暂无数据中心入口/);
 });
 
 test('finder actions enter real existing SUXIOS pages', () => {
   const expectedTargets = [
+    "currentPage = 'operating-opportunities'",
     "currentPage = 'online-data'",
+    "currentPage = 'ai-daily-report'",
     'openOnlinePlatformAutoTab({ force: true })',
     "currentPage = 'pms-operating-data'",
     "currentPage = 'revenue-research-center'",
@@ -47,7 +53,9 @@ test('finder actions enter real existing SUXIOS pages', () => {
   }
 
   const taskIds = [
+    'today-priority',
     'data-health',
+    'daily-report',
     'auto-collect',
     'pms',
     'revenue',
@@ -65,13 +73,23 @@ test('every task card opens an accessible native scenario dialog', () => {
   const controls = [...fragment.matchAll(/aria-haspopup="dialog" aria-controls="([^"]+)"/g)].map(match => match[1]);
   const dialogIds = [...fragment.matchAll(/<dialog id="([^"]+)" data-testid="knowledge-feature-[^"]+-dialog"/g)].map(match => match[1]);
 
-  assert.equal(controls.length, 8);
-  assert.equal(dialogIds.length, 8);
+  assert.equal(controls.length, 10);
+  assert.equal(dialogIds.length, 10);
   assert.deepEqual(new Set(controls), new Set(dialogIds));
-  assert.equal((fragment.match(/\.showModal\(\)/g) || []).length, 8);
-  assert.equal((fragment.match(/@click\.self="\$event\.currentTarget\.close\(\)"/g) || []).length, 8);
-  assert.equal((fragment.match(/三步任务路径/g) || []).length, 8);
-  assert.equal((fragment.match(/data-testid="knowledge-feature-[^"]+-dialog-close"/g) || []).length, 8);
+  assert.equal((fragment.match(/\.showModal\(\)/g) || []).length, 10);
+  assert.equal((fragment.match(/@click\.self="\$event\.currentTarget\.close\(\)"/g) || []).length, 10);
+  assert.equal((fragment.match(/三步任务路径/g) || []).length, 10);
+  assert.equal((fragment.match(/data-testid="knowledge-feature-[^"]+-dialog-close"/g) || []).length, 10);
+});
+
+test('task bluebook V1 highlights exactly three executable evidence-gated journeys', () => {
+  assert.equal((fragment.match(/data-bluebook-core="v1"/g) || []).length, 3);
+  assert.match(fragment, /宿析任务蓝皮书 · V1/);
+  assert.match(fragment, /今天先做什么/);
+  assert.match(fragment, /查清数据为什么没进来/);
+  assert.match(fragment, /生成可信经营日报/);
+  assert.match(fragment, /保存ID并可精确回读/);
+  assert.match(fragment, /本版不把企业微信外发算作该快照的完成步骤/);
 });
 
 test('task finder motion stays short, scoped, and respects reduced motion', () => {
@@ -87,8 +105,8 @@ test('task finder visual hierarchy uses the SUXIOS luxury palette without losing
   assert.match(fragment, /class="knowledge-feature-hero /);
   assert.match(fragment, /class="knowledge-feature-journey"/);
   assert.match(fragment, /class="knowledge-feature-filter-heading">按任务分类</);
-  assert.match(fragment, /01<\/strong> 搜索任务/);
-  assert.match(fragment, /03<\/strong> 进入真实页面/);
+  assert.match(fragment, /01<\/strong> 选择任务/);
+  assert.match(fragment, /03<\/strong> 按证据验收/);
   assert.match(authenticatedStyle, /--knowledge-ink: #020706/);
   assert.match(authenticatedStyle, /--knowledge-gold: #dcc591/);
   assert.match(authenticatedStyle, /\.knowledge-feature-hero::before/);

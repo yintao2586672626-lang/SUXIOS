@@ -2,7 +2,10 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
-const appMain = readFileSync('public/app-main.js', 'utf8');
+const appMain = [
+  readFileSync('public/components/system/knowledge-center-domain.js', 'utf8'),
+  readFileSync('public/app-main.js', 'utf8'),
+].join('\n');
 const pageTemplate = readFileSync('resources/frontend/templates/fragments/20-page-knowledge-center.html', 'utf8');
 const dialogTemplate = readFileSync('resources/frontend/templates/fragments/38-dialogs-knowledge-center.html', 'utf8');
 const tailwindCss = readFileSync('public/tailwind.min.css', 'utf8');

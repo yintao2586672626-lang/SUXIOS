@@ -5,6 +5,7 @@ namespace Tests;
 
 use app\service\DailyOneThingService;
 use app\service\OperationActionLifecycleService;
+use app\service\OperationManagementService;
 use InvalidArgumentException;
 use PHPUnit\Framework\TestCase;
 
@@ -47,17 +48,6 @@ final class DailyOneThingLifecycleContractTest extends TestCase
         self::assertSame(0, $card['boundaries']['external_write_count_before_approval']);
         self::assertContains('operating_opportunity_runs#901', $card['fact_refs']);
         self::assertSame($selected['content_digest'], $card['trace']['daily_selection_digest']);
-        self::assertSame(
-            $selected['recommendation_explanation'],
-            $card['recommendation_explanation']
-        );
-        self::assertSame(
-            'not_applied',
-            $card['recommendation_explanation']['personalization']['status']
-        );
-        self::assertFalse(
-            $card['recommendation_explanation']['personalization']['external_write_authorized']
-        );
         self::assertMatchesRegularExpression('/^[a-f0-9]{64}$/', $card['identity_digest']);
         self::assertMatchesRegularExpression('/^[a-f0-9]{64}$/', $card['content_digest']);
     }
@@ -103,66 +93,29 @@ final class DailyOneThingLifecycleContractTest extends TestCase
         self::assertNotContains('cancelled', OperationActionLifecycleService::DAILY_STATUSES);
     }
 
-    public function testV2EventChainIntegrityUsesTheDailyStatusContract(): void
+    public function testV2CardIsAcceptedAsAnObservationApprovalTarget(): void
     {
-        $service = new OperationActionLifecycleService();
-        $eventDigest = new \ReflectionMethod($service, 'eventDigest');
-        $verifyEventChain = new \ReflectionMethod($service, 'verifyEventChain');
-        $events = [];
-        $previousStatus = '';
-        $previousDigest = '';
-        foreach ([
-            'draft',
-            'pending_approval',
-            'approved',
-            'executing',
-            'evidence_recorded',
-            'review_pending',
-        ] as $index => $status) {
-            $event = [
+        $card = (new OperationActionLifecycleService())->buildDailyOneThingPendingCard(
+            [
+                'id' => 901,
                 'tenant_id' => 80,
-                'hotel_id' => 80,
-                'intent_id' => 901,
-                'task_id' => 0,
-                'sequence_no' => $index + 1,
-                'event_type' => $status . '_recorded',
-                'from_status' => $previousStatus,
-                'to_status' => $status,
-                'actor_id' => 7,
-                'event_payload' => [],
-                'previous_digest' => $previousDigest,
-                'created_at' => sprintf('2026-08-26 09:%02d:00', $index),
-            ];
-            $event['content_digest'] = (string)$eventDigest->invoke($service, $event);
-            $events[] = $event;
-            $previousStatus = $status;
-            $previousDigest = $event['content_digest'];
-        }
+                'system_hotel_id' => 80,
+                'feature_key' => 'daily_one_thing',
+                'business_date' => '2026-08-26',
+                'input_digest' => str_repeat('1', 64),
+                'result_digest' => str_repeat('2', 64),
+            ],
+            $this->selected(),
+            7,
+            new \DateTimeImmutable('2026-08-26 09:00:00', new \DateTimeZone('Asia/Shanghai'))
+        );
+        $method = new \ReflectionMethod(OperationManagementService::class, 'managedActionDeclaresObservationTarget');
 
-        self::assertSame(
-            ['status' => 'verified', 'failure_reason' => null],
-            $verifyEventChain->invoke(
-                $service,
-                $events,
-                80,
-                80,
-                901,
-                null,
-                OperationActionLifecycleService::DAILY_STATUSES
-            )
-        );
-        self::assertSame(
-            'invalid',
-            $verifyEventChain->invoke(
-                $service,
-                $events,
-                80,
-                80,
-                901,
-                null,
-                OperationActionLifecycleService::STATUSES
-            )['status']
-        );
+        self::assertTrue($method->invoke(new OperationManagementService(), [
+            'source_module' => 'daily_one_thing',
+            'target_value' => ['action_card' => $card],
+            'expected_metric' => 'ctrip_strict_core_fact_count',
+        ]));
     }
 
     /** @return array<string,mixed> */

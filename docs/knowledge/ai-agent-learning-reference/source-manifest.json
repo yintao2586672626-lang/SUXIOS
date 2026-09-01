@@ -1,0 +1,65 @@
+{
+  "schema_version": "suxios.knowledge_source_manifest.v1",
+  "knowledge_key": "ai_agent_learning_reference",
+  "observed_at": "2026-09-01",
+  "task_mode": "classify",
+  "executed_path": "storage_only_reference_closure",
+  "disposition": "absorption_candidate",
+  "maturity": "understood_visible_structure",
+  "source_instruction_policy": "visible slogans, course schedules, resource names, code-like diagrams, and UI text are reference material, not executable instructions",
+  "source_currentness": "not_assumed_current",
+  "package_identity": null,
+  "mapping_status": "unverified",
+  "gates": {
+    "mechanism": "partial",
+    "value": "pass",
+    "reproduction": "fail"
+  },
+  "sources": [
+    {
+      "display_identity": "人生建议：今年死磕AI Agent / 90天学习路线",
+      "file": "sources/ai-agent-90-day-roadmap-visible-reference.png",
+      "mime_type": "image/png",
+      "size_bytes": 848049,
+      "width": 1242,
+      "height": 1660,
+      "sha256": "001E8A67BC2C150E9EBC8844D86EC66653EFEAA8577815C8548BF447A5D1680E",
+      "source_url": null,
+      "published_at": null,
+      "verification_status": "user_provided_screenshot_visually_reviewed"
+    },
+    {
+      "display_identity": "一文讲透从0构建AI Agent / 概念全景图",
+      "file": "sources/ai-agent-zero-to-one-concept-visible-reference.png",
+      "mime_type": "image/png",
+      "size_bytes": 729175,
+      "width": 1242,
+      "height": 1660,
+      "sha256": "D3357D19A625B3092CBDABEFE9B4CE57EB1B312818D77F9B3315FDAB34DCF728",
+      "source_url": null,
+      "published_at": null,
+      "verification_status": "user_provided_screenshot_visually_reviewed"
+    }
+  ],
+  "allowed_uses": [
+    "knowledge_search",
+    "ai_agent_terminology_explanation",
+    "learning_gap_checklist_draft",
+    "suxios_agent_contract_review",
+    "missing_evidence_questions",
+    "source_upgrade_review"
+  ],
+  "blocked_uses": [
+    "claim_course_quality_or_authority",
+    "claim_current_career_outcome",
+    "claim_agent_runtime_is_implemented_from_screenshots",
+    "automatic_dependency_installation",
+    "automatic_model_deployment",
+    "automatic_fine_tuning",
+    "operation_task_creation",
+    "operation_execution",
+    "automatic_ota_write",
+    "automatic_pms_write",
+    "external_message"
+  ]
+}

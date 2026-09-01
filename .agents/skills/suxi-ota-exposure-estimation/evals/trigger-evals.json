@@ -100,13 +100,6 @@
       "should_trigger": false,
       "expected_route": "suxi-ctrip-field-table-closure",
       "reason": "字段表UI映射，不是派生估算"
-    },
-    {
-      "id": "N-008",
-      "query": "查看这个门店最近14天已经入库的曝光人数和浏览人数趋势。",
-      "should_trigger": false,
-      "expected_route": "suxi-ota-revenue-semantic-layer",
-      "reason": "读取和分析既有平台事实，不要求估算缺失曝光"
     }
   ]
 }

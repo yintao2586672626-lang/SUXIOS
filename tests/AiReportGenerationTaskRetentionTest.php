@@ -13,6 +13,7 @@ final class AiReportGenerationTaskRetentionTest extends TestCase
 {
     private static array $originalDatabaseConfig = [];
     private static string $databasePath = '';
+    private static string $logDirectory = '';
     private string $terminalTaskId = 'airpt_20260701000000_aaaaaaaaaaaaaaaaaaaaaaaa';
     private string $runningTaskId = 'airpt_20260701000000_bbbbbbbbbbbbbbbbbbbbbbbb';
     private string $orphanTaskId = 'airpt_20260701000000_cccccccccccccccccccccccc';
@@ -26,6 +27,9 @@ final class AiReportGenerationTaskRetentionTest extends TestCase
         self::$originalDatabaseConfig = Config::get('database');
         self::$databasePath = sys_get_temp_dir() . DIRECTORY_SEPARATOR
             . 'suxi_ai_report_retention_' . getmypid() . '_' . bin2hex(random_bytes(4)) . '.sqlite';
+        self::$logDirectory = sys_get_temp_dir() . DIRECTORY_SEPARATOR
+            . 'suxi_ai_report_retention_logs_' . getmypid() . '_' . bin2hex(random_bytes(4));
+        self::assertTrue(mkdir(self::$logDirectory, 0775, true));
         $database = self::$originalDatabaseConfig;
         $database['default'] = 'sqlite';
         $database['connections']['sqlite'] = [
@@ -66,6 +70,7 @@ final class AiReportGenerationTaskRetentionTest extends TestCase
         Config::set(self::$originalDatabaseConfig, 'database');
         Db::connect(null, true);
         @unlink(self::$databasePath);
+        @rmdir(self::$logDirectory);
     }
 
     protected function setUp(): void
@@ -103,13 +108,9 @@ final class AiReportGenerationTaskRetentionTest extends TestCase
             'updated_at' => $old,
         ]);
 
-        $runtime = dirname(__DIR__) . DIRECTORY_SEPARATOR . 'runtime' . DIRECTORY_SEPARATOR . 'ai_report_tasks';
-        if (!is_dir($runtime)) {
-            self::assertTrue(mkdir($runtime, 0775, true));
-        }
         $this->logPaths = [
-            $runtime . DIRECTORY_SEPARATOR . $this->terminalTaskId . '.stdout.log',
-            $runtime . DIRECTORY_SEPARATOR . $this->orphanTaskId . '.log',
+            self::$logDirectory . DIRECTORY_SEPARATOR . $this->terminalTaskId . '.stdout.log',
+            self::$logDirectory . DIRECTORY_SEPARATOR . $this->orphanTaskId . '.log',
         ];
         foreach ($this->logPaths as $path) {
             self::assertNotFalse(file_put_contents($path, 'test-only retention artifact'));
@@ -126,7 +127,7 @@ final class AiReportGenerationTaskRetentionTest extends TestCase
 
     public function testDryRunIsReadOnlyAndActualCleanupIsBoundedToExpiredMetadata(): void
     {
-        $service = new AiReportGenerationTaskService();
+        $service = new AiReportGenerationTaskService(taskLogDirectory: self::$logDirectory);
 
         $dryRun = $service->cleanupExpiredRecords(30, 30, true, 100);
 

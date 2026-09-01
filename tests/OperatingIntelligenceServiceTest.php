@@ -533,9 +533,9 @@ final class OperatingIntelligenceServiceTest extends TestCase
         self::assertFalse($saved['write_boundaries']['external_message']);
 
         $same = $ready->create(10, 20, 'What should this hotel review?', 'ctrip', '2026-08-01', '2026-08-01', 7);
-        self::assertTrue($same['created']);
-        self::assertNotSame($saved['question']['id'], $same['question']['id']);
-        self::assertNotSame($saved['question']['request_key'], $same['question']['request_key']);
+        self::assertFalse($same['created']);
+        self::assertSame($saved['question']['id'], $same['question']['id']);
+        self::assertSame($saved['question']['request_key'], $same['question']['request_key']);
 
         $missing = new OperatingQuestionService(static fn(): array => []);
         $blocked = $missing->create(10, 20, 'Is there evidence?', 'ctrip', '2099-01-01', '2099-01-01', 7);
@@ -717,10 +717,10 @@ final class OperatingIntelligenceServiceTest extends TestCase
             7,
             'deepseek_v4_pro'
         );
-        self::assertTrue($same['created']);
-        self::assertSame(2, $fakeClient->calls);
-        self::assertNotSame($saved['question']['id'], $same['question']['id']);
-        self::assertNotSame($saved['question']['content_digest'], $same['question']['content_digest']);
+        self::assertFalse($same['created']);
+        self::assertSame(1, $fakeClient->calls);
+        self::assertSame($saved['question']['id'], $same['question']['id']);
+        self::assertSame($saved['question']['content_digest'], $same['question']['content_digest']);
 
         $blockedService = new OperatingQuestionService(
             static fn(): array => [],
@@ -735,7 +735,7 @@ final class OperatingIntelligenceServiceTest extends TestCase
             '2099-08-02',
             7
         );
-        self::assertSame(2, $fakeClient->calls);
+        self::assertSame(1, $fakeClient->calls);
         self::assertSame('blocked_by_missing_facts', $blocked['question']['answer_status']);
         self::assertSame('not_called_missing_facts', $blocked['question']['answer']['ai_runtime']['status']);
         self::assertFalse($blocked['write_boundaries']['external_llm_called']);
@@ -763,7 +763,7 @@ final class OperatingIntelligenceServiceTest extends TestCase
             '2026-08-04',
             7
         );
-        self::assertSame(2, $fakeClient->calls);
+        self::assertSame(1, $fakeClient->calls);
         self::assertSame('blocked_by_missing_facts', $metadataOnly['question']['answer_status']);
         self::assertSame('not_called_missing_facts', $metadataOnly['question']['answer']['ai_runtime']['status']);
         self::assertFalse($metadataOnly['write_boundaries']['external_llm_called']);
@@ -792,7 +792,7 @@ final class OperatingIntelligenceServiceTest extends TestCase
             '2026-08-05',
             7
         );
-        self::assertSame(2, $fakeClient->calls);
+        self::assertSame(1, $fakeClient->calls);
         self::assertSame('blocked_by_missing_facts', $missingUnit['question']['answer_status']);
         self::assertSame('not_called_missing_facts', $missingUnit['question']['answer']['ai_runtime']['status']);
         self::assertContains('substantive_fact_coverage_missing', array_column($missingUnit['question']['data_gaps'], 'code'));
@@ -832,7 +832,7 @@ final class OperatingIntelligenceServiceTest extends TestCase
             '2026-08-07',
             7
         );
-        self::assertSame(2, $fakeClient->calls);
+        self::assertSame(1, $fakeClient->calls);
         self::assertSame('blocked_by_missing_facts', $mixedRange['question']['answer_status']);
         self::assertSame('not_called_missing_facts', $mixedRange['question']['answer']['ai_runtime']['status']);
         self::assertContains('substantive_fact_coverage_missing', array_column($mixedRange['question']['data_gaps'], 'code'));
@@ -869,7 +869,7 @@ final class OperatingIntelligenceServiceTest extends TestCase
             '2026-08-09',
             7
         );
-        self::assertSame(2, $fakeClient->calls);
+        self::assertSame(1, $fakeClient->calls);
         self::assertSame('blocked_by_missing_facts', $allOta['question']['answer_status']);
         self::assertSame('not_called_missing_facts', $allOta['question']['answer']['ai_runtime']['status']);
         self::assertContains('substantive_fact_coverage_missing', array_column($allOta['question']['data_gaps'], 'code'));
@@ -1280,9 +1280,9 @@ final class OperatingIntelligenceServiceTest extends TestCase
             '2026-08-03',
             7
         );
-        self::assertSame(2, $fakeClient->calls);
-        self::assertTrue($retry['created']);
-        self::assertNotSame($saved['question']['id'], $retry['question']['id']);
+        self::assertSame(1, $fakeClient->calls);
+        self::assertFalse($retry['created']);
+        self::assertSame($saved['question']['id'], $retry['question']['id']);
     }
 
     public function testOperatingQuestionPersistsClassifiedDirectFailureReceiptInsteadOfUnknown(): void

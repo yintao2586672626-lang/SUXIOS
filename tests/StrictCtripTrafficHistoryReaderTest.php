@@ -202,6 +202,38 @@ final class StrictCtripTrafficHistoryReaderTest extends TestCase
         }
     }
 
+    public function testMidHistoryReadFailureBlocksEveryReadyWindowWithoutPartialRows(): void
+    {
+        $this->insertRow(1, '2026-07-21', 30);
+        $verifier = $this->fakeVerifier(static function (array $windows): array {
+            $results = [];
+            foreach ($windows as $key => $_window) {
+                $results[$key] = [
+                    'status' => 'ready',
+                    'authoritative_row_ids' => [1],
+                    'candidate_row_count' => 1,
+                    'authoritative_row_count' => 1,
+                    'ignored_unselected_row_count' => 0,
+                    'data_gaps' => [],
+                ];
+            }
+            Db::execute('DROP TABLE online_daily_data');
+            return $results;
+        });
+        $reader = new StrictCtripTrafficHistoryReader($verifier);
+
+        $result = $reader->readBatch(80, [
+            'current' => ['start' => '2026-07-21', 'end' => '2026-07-21'],
+            'comparison' => ['start' => '2026-07-20', 'end' => '2026-07-21'],
+        ]);
+
+        foreach (['current', 'comparison'] as $key) {
+            self::assertSame('blocked', $result[$key]['data_status']);
+            self::assertSame([], $result[$key]['rows']);
+            self::assertContains('ctrip_traffic_history_query_failed', $result[$key]['data_gaps']);
+        }
+    }
+
     /** @return array{0:array<string,mixed>,1:array<string,mixed>} */
     private function singleAndBatchForecast(
         StrictCtripTrafficHistoryReader $reader,

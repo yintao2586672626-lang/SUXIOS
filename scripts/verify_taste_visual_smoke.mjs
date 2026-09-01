@@ -5,9 +5,11 @@ import { chromium } from '@playwright/test';
 const repoRoot = process.cwd();
 const publicEntry = fs.readFileSync(path.join(repoRoot, 'public/index.html'), 'utf8');
 const templateSnapshot = fs.readFileSync(path.join(repoRoot, 'resources/frontend/app-template.html'), 'utf8');
-const appMain = fs.readFileSync(path.join(repoRoot, 'public/app-main.js'), 'utf8');
 const failures = [];
-const pageKeys = collectPageKeys(`${publicEntry}\n${templateSnapshot}\n${appMain}`);
+// Only renderable template pages belong in visual coverage. app-main.js also
+// retains compatibility transitions for fragments intentionally excluded from
+// the authenticated runtime, and those references are not visible pages.
+const pageKeys = collectPageKeys(`${publicEntry}\n${templateSnapshot}`);
 const screenshotsDir = path.join(repoRoot, 'output/playwright/taste-visual-smoke');
 
 const menuGroupOnlyKeys = new Set([
@@ -22,8 +24,10 @@ const canonicalPageAliases = new Map([
   ['ai-workbench', 'compass'],
 ]);
 
-const requiredPageKeys = [...pageKeys]
+const canonicalPageKey = (pageKey) => canonicalPageAliases.get(pageKey) || pageKey;
+const requiredPageKeys = [...new Set([...pageKeys]
   .filter((key) => !menuGroupOnlyKeys.has(key))
+  .map(canonicalPageKey))]
   .sort();
 
 const visualStates = buildVisualStates(requiredPageKeys);
@@ -149,6 +153,57 @@ function shouldIgnoreRequestFailure(url) {
   return /\.(?:png|jpg|jpeg|webp|gif|svg|ico|woff2?|ttf)(?:\?|$)/i.test(url);
 }
 
+function buildMockApiData(requestUrl) {
+  const url = new URL(requestUrl);
+  const apiPath = url.pathname.replace(/^.*\/api/, '');
+  const hotel = { id: 1, name: '视觉验证门店', hotel_name: '视觉验证门店' };
+
+  if (apiPath === '/auth/info') {
+    return {
+      id: 999001,
+      username: 'taste_visual_probe',
+      realname: 'Taste Visual Probe',
+      role_id: 1,
+      role_name: '超级管理员',
+      hotel_id: 1,
+      hotel,
+      is_super_admin: true,
+      is_hotel_manager: true,
+      permitted_hotels: [hotel],
+      permissions: {
+        can_view_report: true,
+        can_fill_daily_report: true,
+        can_fill_monthly_task: true,
+        can_edit_report: true,
+        can_delete_report: true,
+        can_view_online_data: true,
+        can_fetch_online_data: true,
+        can_delete_online_data: true,
+      },
+    };
+  }
+  if (apiPath === '/hotels') {
+    return {
+      list: [hotel],
+      pagination: { page: 1, page_size: 100, total: 1, total_page: 1 },
+    };
+  }
+  if (apiPath === '/hotels/all') return [hotel];
+  if (apiPath === '/users') {
+    return {
+      list: [],
+      pagination: { page: 1, page_size: 100, total: 0, total_page: 1 },
+    };
+  }
+  if (apiPath === '/online-data/manual-fetch-evidence') {
+    return {
+      target_date: url.searchParams.get('target_date') || '',
+      rows: [],
+    };
+  }
+  return [];
+}
+
 async function login(page) {
   if (authMode === 'mock') {
     await page.route('**/api/**', async (route) => {
@@ -189,7 +244,7 @@ async function login(page) {
         body: JSON.stringify({
           code: 200,
           message: 'ok',
-          data,
+          data: buildMockApiData(route.request().url()),
         }),
       });
     });
@@ -215,6 +270,12 @@ async function setCurrentState(page, state) {
     const proxy = component?.proxy;
     if (!proxy) return false;
 
+    const clearTransientUi = () => {
+      if (!proxy.toast || typeof proxy.toast !== 'object') return;
+      proxy.toast = { show: false, message: '', type: 'success' };
+    };
+
+    clearTransientUi();
     proxy.currentPage = targetState.pageKey;
     if (targetState.onlineDataTab) {
       proxy.onlineDataTab = targetState.onlineDataTab;
@@ -228,7 +289,9 @@ async function setCurrentState(page, state) {
       proxy.ctripTableTab = targetState.ctripTableTab;
     }
 
-    await new Promise((resolve) => setTimeout(resolve, 450));
+    await new Promise((resolve) => setTimeout(resolve, 650));
+    clearTransientUi();
+    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
     return true;
   }, state);
 
@@ -241,6 +304,9 @@ async function inspectPage(page, state) {
   await setCurrentState(page, state);
 
   const result = await page.evaluate((targetState) => {
+    const root = document.querySelector('#app');
+    const component = root?._vnode?.component || root?.__vue_app__?._container?._vnode?.component;
+    const toastState = component?.proxy?.toast;
     const main = document.querySelector('[data-testid="app-main"]');
     const shell = document.querySelector('.suxi-app-shell');
     const body = document.querySelector('.suxi-page-body');
@@ -271,6 +337,8 @@ async function inspectPage(page, state) {
       hasPageBody: !!body,
       textLength: visibleText.length,
       hasRawVueTemplate: visibleText.includes('{{') || visibleText.includes('}}'),
+      hasVisibleToast: toastState?.show === true,
+      toastMessage: toastState?.show === true ? String(toastState.message || '') : '',
       visiblePanels: panels.length,
       visibleControls: controls.length,
       horizontalOverflow: document.documentElement.scrollWidth > document.documentElement.clientWidth + 2,
@@ -297,6 +365,7 @@ function validatePageResult(result) {
   if (!result.hasPageBody) issues.push('missing .suxi-page-body');
   if (result.textLength < 20) issues.push(`page appears empty, textLength=${result.textLength}`);
   if (result.hasRawVueTemplate) issues.push('raw Vue template markers are visible');
+  if (result.hasVisibleToast) issues.push(`transient toast leaked into page capture: ${result.toastMessage || '(empty)'}`);
   if (result.horizontalOverflow) issues.push('horizontal overflow detected');
   if (result.visiblePanels === 0 && result.visibleControls === 0) {
     issues.push('no visible panels or controls detected');

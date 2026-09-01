@@ -107,6 +107,23 @@ final class OtaExposureEstimationReferenceServiceTest extends TestCase
         self::assertSame('users', $result['estimate']['unit']);
     }
 
+    public function testClosureReadFailureRemainsAnExplicitFailure(): void
+    {
+        $service = new OtaExposureEstimationReferenceService(
+            static function (): array {
+                throw new \RuntimeException('fixture source unavailable');
+            }
+        );
+
+        try {
+            $service->estimate(10, 80, 'ctrip', '2026-08-15');
+            self::fail('a closure read failure must not be converted into missing facts');
+        } catch (\RuntimeException $error) {
+            self::assertSame('ota_exposure_estimation_closure_read_failed', $error->getMessage());
+            self::assertSame('fixture source unavailable', $error->getPrevious()?->getMessage());
+        }
+    }
+
     /** @return array<string,array<string,mixed>> */
     private function closures(
         int $pairCount,
@@ -171,7 +188,8 @@ final class OtaExposureEstimationReferenceServiceTest extends TestCase
     {
         $facts = [[
             'metric_key' => 'detail_exposure',
-            'source_path' => 'data.visitor.detailUV',
+            'source_key' => 'detailExposure',
+            'source_path' => '$.data.visitor.detailExposure',
             'storage_field' => 'online_daily_data.detail_exposure',
             'status' => 'captured',
             'stored_value_present' => true,
@@ -184,7 +202,8 @@ final class OtaExposureEstimationReferenceServiceTest extends TestCase
         if (!$target) {
             $facts[] = [
                 'metric_key' => 'list_exposure',
-                'source_path' => 'data.traffic.exposureUV',
+                'source_key' => 'listExposure',
+                'source_path' => '$.data.traffic.listExposure',
                 'storage_field' => 'online_daily_data.list_exposure',
                 'status' => 'captured',
                 'stored_value_present' => true,
@@ -221,7 +240,13 @@ final class OtaExposureEstimationReferenceServiceTest extends TestCase
             'raw_data' => json_encode([
                 'source_trace_id' => 'ctrip:exposure-reference:' . $rowId,
                 'source_url_hash' => str_repeat('a', 64),
-                'row' => ['_capture_source' => $target ? 'xhr:business:visitor' : 'xhr:traffic:traffic'],
+                'row' => [
+                    'endpoint_id' => $target ? 'business_visitor_title' : 'traffic_flow_transform',
+                    '_capture_source' => $target ? 'xhr:business:visitor' : 'xhr:traffic:traffic',
+                    'listExposure' => $target ? null : 1000,
+                    'detailExposure' => 100,
+                    'flowRate' => $target ? null : 10,
+                ],
                 'field_facts' => $facts,
             ], JSON_THROW_ON_ERROR),
         ];

@@ -95,7 +95,7 @@ const action = {
     date_end: businessDate,
     source_scope: 'ota_channel',
   },
-  status: 'ready_for_ai_review',
+  status: 'ready_for_human_review',
   can_create_execution_intent: true,
   decision_quality: {
     contract_version: 'ai_recommendation_quality.v2',
@@ -103,8 +103,8 @@ const action = {
     execution_ready: true,
   },
   boundaries: {
-    human_confirmation_required: false,
-    independent_ai_review_required: true,
+    human_confirmation_required: true,
+    independent_ai_review_required: false,
     automatic_collection: false,
     automatic_execution: false,
     ota_write: false,
@@ -146,7 +146,7 @@ const question = {
       provider: 'deepseek',
       model_key: 'deepseek_v4_pro',
       model: 'deepseek-v4-pro',
-      prompt_version: 'operating_question_grounded_ai.zh-CN.v5',
+      prompt_version: 'operating_question_grounded_ai.zh-CN.v4',
       finish_reason: 'stop',
       external_llm_called: true,
       external_llm_call_status: 'confirmed_success',
@@ -493,10 +493,10 @@ test('operating question action stays pending until double-confirmed approval, r
   await expect(page.getByTestId('operating-question-decision-frame')).toContainText('毛收入和订单量不等于净贡献');
   const card = page.getByTestId('operating-question-action-card');
   await expect(card).toBeVisible();
-  await expect(card).toContainText('AI 行动草案 · 独立评审');
+  await expect(card).toContainText('AI 行动草案 · 人工确认');
   await expect(card).toContainText('证据门已通过');
   await expect(card).toContainText('复核指标：list_exposure');
-  await expect(card).toContainText('只创建本地人工执行任务，不采集或写 OTA');
+  await expect(card).toContainText('只保存待人工审批意图，不创建执行任务，也不采集或写 OTA');
 
   await page.getByTestId('operating-question-action-submit').click();
   await expect(page.getByTestId('operating-question-action-open')).toBeVisible();
@@ -731,10 +731,10 @@ test('grounded operating answer submits one evidence-locked action for human app
   await expect(page.getByTestId('operating-question-decision-frame')).toContainText('毛收入和订单量不等于净贡献');
   const card = page.getByTestId('operating-question-action-card');
   await expect(card).toBeVisible();
-  await expect(card).toContainText('AI 行动草案 · 独立评审');
+  await expect(card).toContainText('AI 行动草案 · 人工确认');
   await expect(card).toContainText('证据门已通过');
   await expect(card).toContainText('复核指标：list_exposure');
-  await expect(card).toContainText('只创建本地人工执行任务，不采集或写 OTA');
+  await expect(card).toContainText('只保存待人工审批意图，不创建执行任务，也不采集或写 OTA');
 
   await page.getByTestId('operating-question-action-submit').click();
   await expect(page.getByTestId('operating-question-action-open')).toBeVisible();

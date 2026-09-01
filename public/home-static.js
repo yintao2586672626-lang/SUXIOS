@@ -974,14 +974,35 @@ window.SUXI_HOME_STATIC = (() => {
             && !exactDateBlocked
             && wholeHotelFactsComplete
             && otaChannelFactsComplete;
-        const anyStrictFactReady = [
+        const strictFacts = [
             ...wholeHotelFacts,
             ...wholeHotelDerivedFacts,
             ...otaChannelFacts,
             ...otaPlatformRows.flatMap((row) => (
                 Array.isArray(row.facts) ? row.facts : []
             )),
-        ].some((fact) => fact.ready === true);
+        ];
+        const strictReadyFactCount = strictFacts.filter((fact) => fact.ready === true).length;
+        const anyStrictFactReady = strictReadyFactCount > 0;
+        const analysisGaps = Array.isArray(factLayer.analysis_gaps)
+            ? factLayer.analysis_gaps.filter((gap) => gap && typeof gap === 'object')
+            : [];
+        const sourceLabelMap = {
+            dingdandao_pms: 'PMS',
+            ctrip_ota: '携程',
+            meituan_ota: '美团',
+            pms_ota_reconciliation: 'PMS 与 OTA 对账',
+        };
+        const blockedSourceLabels = [...new Set(analysisGaps.map((gap) => (
+            sourceLabelMap[String(gap.source || '').trim()] || ''
+        )).filter(Boolean))];
+        const reviewGaps = Array.isArray(factLayer.ai_review_gaps) ? factLayer.ai_review_gaps : [];
+        const primaryGap = factLayer.unique_remaining_gap
+            || reviewGaps[0]
+            || analysisGaps.find((gap) => String(gap.display_reason || '').trim())
+            || analysisGaps.find((gap) => String(gap.next_action || '').trim())
+            || analysisGaps[0]
+            || null;
 
         const readyFactCount = facts.filter(fact => fact.ready).length;
         let yesterdayStatus = readyFactCount === facts.length ? '已取得' : (readyFactCount > 0 ? '部分取得' : '未取得');
@@ -1020,9 +1041,6 @@ window.SUXI_HOME_STATIC = (() => {
         }
 
         const blockingIssues = [];
-        const reviewGaps = Array.isArray(factLayer.ai_review_gaps) ? factLayer.ai_review_gaps : [];
-        const analysisGaps = Array.isArray(factLayer.analysis_gaps) ? factLayer.analysis_gaps : [];
-        const primaryGap = factLayer.unique_remaining_gap || reviewGaps[0] || analysisGaps[0] || null;
         const sourceLabels = {
             dingdandao_pms: 'PMS',
             ctrip_ota: '携程',
@@ -1068,6 +1086,30 @@ window.SUXI_HOME_STATIC = (() => {
                 });
             }
         }
+        const businessFactsLoading = loading || factLayerLoading;
+        const businessFactsError = loadError || factLayerError;
+        const yesterdayDisplayMode = selectedHotelKey === ''
+            ? 'scope_required'
+            : (businessFactsLoading && strictReadyFactCount === 0
+                ? 'loading'
+                : (businessFactsError && strictReadyFactCount === 0
+                    ? 'error'
+                    : (strictReadyFactCount === 0
+                        ? 'empty'
+                        : (dualScopeReady ? 'ready' : 'partial'))));
+        const latestAvailableDate = latestHistoricalDate && latestHistoricalDate !== targetDate
+            ? latestHistoricalDate
+            : '';
+        const compactGapReason = factLayerHotelMismatch
+            ? '返回事实与当前门店身份不一致，系统已阻止展示。'
+            : (exactDateBlocked
+                ? String(dateAlignment.message || 'PMS 与 OTA 的实际业务日期不一致，当前不可对账。')
+                : (String(primaryGap?.display_reason || '').trim()
+                    || (blockedSourceLabels.length
+                        ? `${blockedSourceLabels.join('、')}尚未完成当前门店、当前业务日的保存与精确回读。`
+                        : `${targetDate || '当前业务日'}尚未取得当前门店可精确回读的 PMS 或 OTA 经营事实。`)));
+        const compactGapAction = String(primaryGap?.next_action || '').trim()
+            || '进入数据健康，处理来源登录、采集或保存回读后重新检查。';
 
         const presentRowCount = Number.isFinite(Number(present.snapshot_row_count))
             ? Number(present.snapshot_row_count)
@@ -1166,6 +1208,18 @@ window.SUXI_HOME_STATIC = (() => {
             dualScopeReady,
             requiresHotelSelection: selectedHotelKey === '',
             hotelScopeMismatch: factLayerHotelMismatch,
+            displayMode: yesterdayDisplayMode,
+            availableFactCount: strictReadyFactCount,
+            totalFactCount: strictFacts.length,
+            latestAvailableDate,
+            compactGap: {
+                title: yesterdayDisplayMode === 'error'
+                    ? '经营事实读取失败'
+                    : '当前业务日暂无可展示的经营事实',
+                reason: compactGapReason,
+                action: compactGapAction,
+                sourceLabels: blockedSourceLabels,
+            },
             sourceText: factLayerMatchesTarget
                 ? `PMS全酒店住宿事实 + 携程/美团OTA渠道事实 · ${targetDate} · 保存与精确回读证据见昨日经营闭环`
                 : (factLayerDate && !factLayerHotelMismatch
@@ -1507,6 +1561,21 @@ window.SUXI_HOME_STATIC = (() => {
             refresh_failed: 'border-red-200 bg-red-50 text-red-700',
             failed: 'border-red-200 bg-red-50 text-red-700',
         }[stateCode] || 'border-slate-200 bg-slate-50 text-slate-600';
+        const anomalyCodes = ['blocked', 'failed', 'rejected', 'evidence'];
+        const isTaskAnomaly = row => anomalyCodes.includes(row.statusCode) || row.timeText === '已逾期';
+        const anomalyRows = rows.filter(isTaskAnomaly);
+        const anomalyItems = visibleRows.filter(isTaskAnomaly);
+        const followupItems = visibleRows.filter(row => !isTaskAnomaly(row));
+        const anomalyIncomplete = ['loading', 'refreshing', 'waiting', 'partial', 'refresh_failed', 'failed'].includes(stateCode);
+        const anomalyCriticalTotal = anomalyRows.filter(row => ['blocked', 'failed'].includes(row.statusCode)).length;
+        const anomalyStateLabel = anomalyRows.length
+            ? `${anomalyIncomplete ? '至少 ' : ''}${anomalyRows.length} 项任务级异动`
+            : (anomalyIncomplete ? '异动范围未确认' : '暂无任务级异动');
+        const anomalyStateClass = anomalyCriticalTotal > 0
+            ? 'border-red-200 bg-red-50 text-red-700'
+            : (anomalyRows.length > 0 || anomalyIncomplete
+                ? 'border-amber-200 bg-amber-50 text-amber-700'
+                : 'border-emerald-200 bg-emerald-50 text-emerald-700');
         const yesterdayStatus = String(yesterday?.status || '未取得');
         const fact = {
             kind: 'fact',
@@ -1537,6 +1606,12 @@ window.SUXI_HOME_STATIC = (() => {
             dailyFocus,
             duplicateDailyFocusCount,
             items: visibleRows,
+            anomalyItems,
+            followupItems,
+            anomalyTotal: anomalyRows.length,
+            anomalyHiddenCount: Math.max(0, anomalyRows.length - anomalyItems.length),
+            anomalyStateLabel,
+            anomalyStateClass,
             total: rows.length,
             hiddenCount: Math.max(0, generalRows.length - visibleRows.length),
             counts,
@@ -1632,6 +1707,17 @@ window.SUXI_HOME_STATIC = (() => {
                         h('strong', { class: 'text-sm text-slate-800' }, '周度经营计划尚未生成'),
                         h('p', { class: 'mt-1 text-xs leading-5 text-slate-600' }, this.weeklyError || '等待后台完成一周事实、每日事项和生命周期汇总；不会从临时文案猜测下周重点。'),
                     ]));
+            const anomalyItems = Array.isArray(model.anomalyItems) ? model.anomalyItems : [];
+            const followupItems = Array.isArray(model.followupItems) ? model.followupItems : [];
+            const anomalyScopeUnknown = ['loading', 'refreshing', 'waiting', 'partial', 'refresh_failed', 'failed'].includes(String(model.stateCode || ''));
+            const anomalyEmptyTitle = taskItems.length
+                ? (model.anomalyStateLabel || '暂无任务级异动')
+                : (model.stateCode === 'waiting' ? '任务数据仍在等待接入' : '今天没有匹配的运营任务');
+            const anomalyEmptyCopy = anomalyScopeUnknown
+                ? '当前无法确认完整异动范围；请先处理上方数据状态或刷新，不能据此判断经营正常。'
+                : (taskItems.length
+                    ? '当前已回读任务未发现阻断、失败、驳回、证据缺口或逾期；以下仍有正常待办或复盘。'
+                    : '这不等于经营已完成；可进入任务执行与复盘查看其他日期或补建人工动作。');
             const body = model.isInitialLoading
                 ? h('div', {
                     class: 'home-orchestration-body',
@@ -1703,6 +1789,36 @@ window.SUXI_HOME_STATIC = (() => {
                                 h('p', null, '这不等于经营已完成；可进入任务执行与复盘查看其他日期或补建人工动作。'),
                                 h('button', { type: 'button', onClick: () => this.$emit('openAll') }, '进入任务执行与复盘'),
                             ])),
+                    h('div', { class: 'space-y-4', 'data-testid': 'home-operating-task-list' }, [
+                        h('div', {
+                            class: 'flex flex-col gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3 sm:flex-row sm:items-center sm:justify-between',
+                            'data-testid': 'home-operating-anomaly-summary',
+                        }, [
+                            h('div', null, [
+                                h('h3', { class: 'text-sm font-semibold text-slate-900' }, '今日异动速览'),
+                                h('p', { class: 'mt-1 text-xs leading-5 text-slate-500' }, '从当前酒店、当前业务日已回读任务中识别阻断、失败、驳回、证据缺口或逾期；点击后进入原任务。'),
+                            ]),
+                            pill(model.anomalyStateLabel, model.anomalyStateClass),
+                        ]),
+                        anomalyItems.length
+                            ? h('div', { class: 'space-y-3', 'data-testid': 'home-operating-anomaly-list' }, anomalyItems.map(item => entry(item)))
+                            : h('div', { class: 'home-orchestration-empty', 'data-testid': 'home-operating-orchestration-empty' }, [
+                                h('strong', null, anomalyEmptyTitle),
+                                h('p', null, anomalyEmptyCopy),
+                                taskItems.length
+                                    ? null
+                                    : h('button', { type: 'button', onClick: () => this.$emit('openAll') }, '进入任务执行与复盘'),
+                            ]),
+                        followupItems.length
+                            ? h('div', { class: 'space-y-3', 'data-testid': 'home-operating-followup-list' }, [
+                                h('div', { class: 'flex items-center justify-between gap-3 px-1' }, [
+                                    h('h3', { class: 'text-sm font-semibold text-slate-800' }, '后续行动与复盘'),
+                                    h('span', { class: 'text-xs text-slate-500' }, `${followupItems.length} 项`),
+                                ]),
+                                ...followupItems.map(item => entry(item)),
+                            ])
+                            : null,
+                    ]),
                     Number(model.hiddenCount || 0) > 0
                         ? h('button', {
                             type: 'button',
@@ -1759,7 +1875,8 @@ window.SUXI_HOME_STATIC = (() => {
             selectedHotelId: { type: [String, Number], default: '' },
             refreshing: { type: Boolean, default: false },
         },
-        emits: ['update:selectedHotelId', 'update:selectedBusinessDate', 'refresh'],
+        emits: ['update:selectedHotelId', 'update:selectedBusinessDate', 'refresh', 'open-data-health'],
+        emits: ['update:selectedHotelId', 'refresh', 'open-data-health'],
         render() {
             const h = window.Vue?.h;
             const Fragment = window.Vue?.Fragment;
@@ -1768,12 +1885,16 @@ window.SUXI_HOME_STATIC = (() => {
             const yesterday = model.yesterday && typeof model.yesterday === 'object'
                 ? model.yesterday
                 : {};
+            const displayMode = String(yesterday.displayMode || '').trim();
+            const compactGap = yesterday.compactGap && typeof yesterday.compactGap === 'object'
+                ? yesterday.compactGap
+                : {};
             const statusPill = (label, className) => h('span', {
                 class: ['home-status-pill', className],
             }, label || '待核验');
             const factCard = (fact) => h('div', {
                 key: fact?.key,
-                class: 'rounded-xl border border-white bg-white px-3 py-3 shadow-sm',
+                class: 'home-fact-card rounded-xl border border-white bg-white px-3 py-3 shadow-sm',
             }, [
                 h('div', { class: 'flex items-center justify-between gap-2' }, [
                     h('span', { class: 'text-xs font-medium text-slate-600' }, fact?.label || '指标'),
@@ -1784,7 +1905,7 @@ window.SUXI_HOME_STATIC = (() => {
             ]);
             const derivedCard = (fact) => h('div', {
                 key: fact?.key,
-                class: 'rounded-xl border border-emerald-100 bg-white px-3 py-3',
+                class: 'home-fact-card home-fact-card-derived rounded-xl border border-emerald-100 bg-white px-3 py-3',
             }, [
                 h('span', { class: 'text-xs font-medium text-slate-500' }, fact?.label || '派生指标'),
                 h('strong', { class: 'mt-1 block text-base text-slate-900' }, fact?.value || '未取得'),
@@ -1808,7 +1929,7 @@ window.SUXI_HOME_STATIC = (() => {
                 ]))),
             ]);
             const pmsPanel = h('article', {
-                class: 'rounded-2xl border border-emerald-200 bg-emerald-50 p-4',
+                class: 'home-fact-scope-panel is-pms rounded-2xl border border-emerald-200 bg-emerald-50 p-4',
                 'data-testid': 'home-whole-hotel-scope',
             }, [
                 h('strong', { class: 'text-base text-slate-900' }, '全酒店口径（PMS）'),
@@ -1821,7 +1942,7 @@ window.SUXI_HOME_STATIC = (() => {
                 ).map(derivedCard)),
             ]);
             const otaPanel = h('article', {
-                class: 'rounded-2xl border border-blue-200 bg-blue-50 p-4',
+                class: 'home-fact-scope-panel is-ota rounded-2xl border border-blue-200 bg-blue-50 p-4',
                 'data-testid': 'home-ota-channel-scope',
             }, [
                 h('strong', { class: 'text-base text-slate-900' }, 'OTA 渠道口径（携程 + 美团）'),
@@ -1859,7 +1980,7 @@ window.SUXI_HOME_STATIC = (() => {
                 h('p', { class: 'mt-1 text-xs leading-5 text-slate-500' }, row?.detail || '尚无对账说明。'),
             ])));
             const reconciliation = h('article', {
-                class: 'mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4',
+                class: 'home-fact-reconciliation mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4',
                 'data-testid': 'home-reconciliation-facts',
             }, [
                 h('div', { class: 'flex flex-wrap items-start justify-between gap-2' }, [
@@ -1873,7 +1994,7 @@ window.SUXI_HOME_STATIC = (() => {
                 checkRows,
             ]);
             const controls = this.showControls ? h('div', {
-                class: 'flex flex-wrap items-center justify-end gap-2',
+                class: 'home-facts-controls flex flex-wrap items-center justify-end gap-2',
             }, [
                 h('select', {
                     class: 'input-field',
@@ -1903,13 +2024,16 @@ window.SUXI_HOME_STATIC = (() => {
                 }),
                 h('button', {
                     type: 'button',
-                    class: 'compass-primary-cta disabled:opacity-60',
+                    class: 'home-facts-refresh disabled:opacity-60',
                     disabled: this.refreshing,
                     onClick: () => this.$emit('refresh'),
-                }, this.refreshing ? '刷新中' : '刷新事实'),
+                }, [
+                    h('i', { class: this.refreshing ? 'fas fa-spinner fa-spin' : 'fas fa-rotate', 'aria-hidden': 'true' }),
+                    this.refreshing ? '读取中' : '重新读取',
+                ]),
             ]) : null;
             const header = this.showHeader ? h('div', {
-                class: 'flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between',
+                class: 'home-facts-header flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between',
             }, [
                 h('div', { class: 'min-w-0' }, [
                     h('p', { class: 'text-xs font-semibold uppercase tracking-wide text-amber-700' }, (
@@ -1926,6 +2050,9 @@ window.SUXI_HOME_STATIC = (() => {
             const blockingIssues = Array.isArray(yesterday.blockingIssues)
                 ? yesterday.blockingIssues
                 : [];
+            const primaryBlocker = blockingIssues[0] && typeof blockingIssues[0] === 'object'
+                ? blockingIssues[0]
+                : {};
             const blockerSummary = blockingIssues.length ? h('article', {
                 class: 'mt-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3',
                 'data-testid': 'home-yesterday-root-blockers',
@@ -1942,24 +2069,79 @@ window.SUXI_HOME_STATIC = (() => {
                     h('p', { class: 'mt-1 text-xs leading-5 text-slate-600' }, issue?.detail || '等待重新读取。'),
                 ]))),
             ]) : null;
+            const openDataHealth = () => {
+                if (typeof this.$root?.openHomeQuickEntry === 'function') {
+                    this.$root.openHomeQuickEntry({ page: 'online-data', tab: 'data-health' });
+                    return;
+                }
+                this.$emit('open-data-health');
+            };
+            const unavailableState = ['empty', 'error'].includes(displayMode) ? h('article', {
+                class: ['home-facts-state', displayMode === 'error' ? 'is-error' : 'is-empty'],
+                'data-testid': 'home-yesterday-empty-state',
+                'data-state': displayMode,
+            }, [
+                h('div', { class: 'home-facts-state-copy' }, [
+                    h('span', { class: 'home-facts-state-mark', 'aria-hidden': 'true' }, [
+                        h('i', { class: displayMode === 'error' ? 'fas fa-exclamation-triangle' : 'fas fa-moon' }),
+                    ]),
+                    h('div', { class: 'min-w-0' }, [
+                        h('div', { class: 'home-facts-state-kicker' }, displayMode === 'error' ? '读取异常' : '目标日暂无事实'),
+                        h('h3', null, displayMode === 'error' ? '经营事实读取失败' : '当前没有可用于经营判断的数据'),
+                        h('p', null, primaryBlocker.detail || yesterday.summary || '当前门店、当前业务日尚无通过保存与精确回读的经营事实。'),
+                        h('div', { class: 'home-facts-state-meta' }, [
+                            h('span', `${model.hotelName || '当前门店'} · ${yesterday.date || '目标日待确认'}`),
+                            h('span', `已验证 ${Number(yesterday.availableFactCount || 0)}/${Number(yesterday.totalFactCount || 0)} 项`),
+                            yesterday.latestAvailableDate
+                                ? h('span', `最近有记录 ${yesterday.latestAvailableDate}（不替代当前日）`)
+                                : null,
+                        ]),
+                    ]),
+                ]),
+                this.showControls ? h('button', {
+                    type: 'button',
+                    class: 'home-facts-recovery-action',
+                    onClick: openDataHealth,
+                }, [
+                    h('span', null, '处理数据来源'),
+                    h('i', { class: 'fas fa-arrow-right', 'aria-hidden': 'true' }),
+                ]) : null,
+                h('details', { class: 'home-facts-state-details', 'data-testid': 'home-yesterday-empty-details' }, [
+                    h('summary', null, '查看事实边界'),
+                    h('p', null, 'PMS 全酒店事实、携程/美团 OTA 渠道事实和同日对账，只在当前门店、当前业务日完成保存与精确回读后展开。'),
+                ]),
+            ]) : null;
+            const loadingState = displayMode === 'loading' ? h('div', {
+                class: 'home-facts-loading-state',
+                'data-testid': 'home-yesterday-facts-loading',
+                role: 'status',
+            }, [
+                h('span', { class: 'home-facts-loading-orbit', 'aria-hidden': 'true' }),
+                h('div', null, [
+                    h('strong', null, '正在读取经营事实'),
+                    h('p', null, `${model.hotelName || '当前门店'} · ${yesterday.date || '目标日待确认'} · 只显示完成回读的事实`),
+                ]),
+            ]) : null;
             const body = yesterday.requiresHotelSelection
                 ? h('div', {
-                    class: 'mt-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900',
+                    class: 'home-facts-scope-required mt-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900',
                     'data-testid': 'home-yesterday-hotel-required',
                 }, '请选择一个具体门店后读取事实。PMS 与 OTA 不允许跨门店汇总后对账。')
-                : h(Fragment, null, [
-                    blockerSummary,
-                    h('div', {
-                        class: 'mt-4 grid gap-4 lg:grid-cols-2',
-                        'data-testid': 'home-yesterday-dual-scope',
-                    }, [pmsPanel, otaPanel]),
-                    reconciliation,
-                    h('p', { class: 'mt-3 text-xs text-slate-500' }, yesterday.sourceText || ''),
-                ]);
+                : (loadingState
+                    || unavailableState
+                    || h(Fragment, null, [
+                        blockerSummary,
+                        h('div', {
+                            class: 'home-fact-scope-grid mt-4 grid gap-4 lg:grid-cols-2',
+                            'data-testid': 'home-yesterday-dual-scope',
+                        }, [pmsPanel, otaPanel]),
+                        reconciliation,
+                        h('p', { class: 'home-facts-source-note mt-3 text-xs text-slate-500' }, yesterday.sourceText || ''),
+                    ]));
             return h('section', {
                 class: this.showHeader
-                    ? 'rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5'
-                    : 'mt-5',
+                    ? 'home-facts-shell rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5'
+                    : 'home-facts-shell mt-5',
                 'data-testid': this.showHeader
                     ? 'home-yesterday-operating-facts'
                     : 'home-yesterday-facts',

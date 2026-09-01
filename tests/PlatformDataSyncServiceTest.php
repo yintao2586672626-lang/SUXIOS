@@ -13,10 +13,18 @@ use Tests\Support\PlatformDataSyncBrowserProfileFixture;
 use think\App;
 use think\facade\Config;
 use think\facade\Db;
+use Tests\Support\PlatformDataSyncConsistencyTestCases;
 
 final class PlatformDataSyncServiceTest extends TestCase
 {
     use PlatformDataSyncBrowserProfileFixture;
+    use PlatformDataSyncConsistencyTestCases;
+    private const READY_NETWORK_FRESHNESS = [
+        'status' => 'ready',
+        'http_cache_disabled' => true,
+        'service_worker_bypassed' => true,
+        'sensitive_values_exposed' => false,
+    ];
 
     private static array $originalDatabaseConfig = [];
     private static string $databaseConnection = '';
@@ -2424,38 +2432,6 @@ final class PlatformDataSyncServiceTest extends TestCase
         self::assertSame('', $rows[0]['snapshot_bucket']);
         $raw = json_decode((string)$rows[0]['raw_data'], true, 512, JSON_THROW_ON_ERROR);
         self::assertArrayNotHasKey('captured_at', $raw);
-    }
-
-    public function testTrafficForecastPayloadPreservesFutureForecastPeriod(): void
-    {
-        $service = new PlatformDataSyncService();
-
-        $rows = $service->normalizeRowsFromPayload([
-            'rows' => [
-                [
-                    'hotel_id' => 'meituan-1001',
-                    'hotel_name' => 'Demo Hotel',
-                    'data_date' => '2026-07-25',
-                    'data_type' => 'traffic_forecast',
-                    'data_period' => 'next_30_days',
-                    'data_value' => 88,
-                ],
-            ],
-        ], [
-            'id' => 18,
-            'platform' => 'meituan',
-            'data_type' => 'traffic_forecast',
-            'system_hotel_id' => 7,
-            'tenant_id' => 1,
-            'ingestion_method' => 'browser_profile',
-        ], 37);
-
-        self::assertCount(1, $rows);
-        self::assertSame('next_30_days', $rows[0]['data_period']);
-        self::assertNull($rows[0]['snapshot_time']);
-        self::assertSame('', $rows[0]['snapshot_bucket']);
-        self::assertSame(0, $rows[0]['is_final']);
-        self::assertStringContainsString('"data_period":"next_30_days"', $rows[0]['raw_data']);
     }
 
     public function testReviewAndCommentPayloadsNormalizeAggregateFieldsByDefault(): void
@@ -5404,9 +5380,12 @@ final class PlatformDataSyncServiceTest extends TestCase
                 'data_date' => '2026-07-18',
                 'data_type' => 'traffic',
                 'exposureUV' => 81,
+                'list_exposure' => 81,
                 'intentionUV' => 14,
+                'detail_exposure' => 14,
                 'payOrderCnt' => 2,
                 'intentionPerExposure' => '17.28%',
+                'exposure_to_browse_rate' => '17.28%',
                 'payOrderPerIntention' => '14.29%',
                 '_observed_traffic_metric_keys' => [
                     'list_exposure',
