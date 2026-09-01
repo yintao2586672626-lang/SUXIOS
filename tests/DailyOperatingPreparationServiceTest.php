@@ -162,6 +162,9 @@ final class DailyOperatingPreparationServiceTest extends TestCase
         self::assertStringContainsString('OnCalendar=*-*-* 09:05:00 Asia/Shanghai', $retryTimer);
         self::assertStringContainsString('DefaultInstance=all-active', $retryTimer);
         self::assertStringContainsString("hotelScope === 'all-active'", $command);
+        self::assertStringContainsString('ACTIVE_HOTEL_PAGE_SIZE', $command);
+        self::assertStringContainsString('activeHotelPage($lastHotelId)', $command);
+        self::assertStringNotContainsString('daily_operating_active_hotel_limit_exceeded', $command);
         self::assertStringContainsString("suxios-daily-operating-preparation@all-active.timer", $releaseInstaller);
         self::assertStringContainsString('install_internal_operation_timers', $releaseInstaller);
         self::assertStringNotContainsString('wechat', strtolower($command . $timer . $retryService . $retryTimer));

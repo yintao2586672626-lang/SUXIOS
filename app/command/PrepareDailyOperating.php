@@ -12,6 +12,8 @@ use think\facade\Db;
 
 final class PrepareDailyOperating extends Command
 {
+    private const ACTIVE_HOTEL_PAGE_SIZE = 500;
+
     protected function configure(): void
     {
         $this->setName('operation:prepare-daily')
@@ -72,46 +74,47 @@ final class PrepareDailyOperating extends Command
     private function prepareAllActiveHotels(string $targetDate, Output $output): int
     {
         try {
-            $hotels = Db::name('hotels')
-                ->field('id,tenant_id')
-                ->where('status', 1)
-                ->order('id', 'asc')
-                ->limit(501)
-                ->select()
-                ->toArray();
-            if (count($hotels) > 500) {
-                throw new \RuntimeException('daily_operating_active_hotel_limit_exceeded');
-            }
             $rows = [];
             $prepared = 0;
-            foreach ($hotels as $hotel) {
-                $hotelId = (int)($hotel['id'] ?? 0);
-                $tenantId = (int)($hotel['tenant_id'] ?? 0);
-                try {
-                    $result = (new DailyOperatingPreparationService())->prepare(
-                        $tenantId,
-                        $hotelId,
-                        $targetDate
-                    );
-                    if ((string)($result['status'] ?? '') === 'prepared') {
-                        $prepared++;
-                    }
-                    $rows[] = [
-                        'hotel_id' => $hotelId,
-                        'status' => (string)($result['status'] ?? 'blocked'),
-                        'reason_code' => (string)($result['reason_code']
-                            ?? $result['daily_priority']['reason_code']
-                            ?? ''),
-                    ];
-                } catch (\Throwable $error) {
-                    $rows[] = [
-                        'hotel_id' => $hotelId,
-                        'status' => 'failed',
-                        'reason_code' => $this->safeReason($error, 'daily_operating_preparation_failed'),
-                    ];
+            $total = 0;
+            $lastHotelId = 0;
+            $service = new DailyOperatingPreparationService();
+            do {
+                $hotels = $this->activeHotelPage($lastHotelId);
+                if ($hotels === []) {
+                    break;
                 }
-            }
-            $total = count($hotels);
+                $pageLastHotelId = $lastHotelId;
+                foreach ($hotels as $hotel) {
+                    $hotelId = (int)($hotel['id'] ?? 0);
+                    $tenantId = (int)($hotel['tenant_id'] ?? 0);
+                    $pageLastHotelId = max($pageLastHotelId, $hotelId);
+                    $total++;
+                    try {
+                        $result = $service->prepare($tenantId, $hotelId, $targetDate);
+                        if ((string)($result['status'] ?? '') === 'prepared') {
+                            $prepared++;
+                        }
+                        $rows[] = [
+                            'hotel_id' => $hotelId,
+                            'status' => (string)($result['status'] ?? 'blocked'),
+                            'reason_code' => (string)($result['reason_code']
+                                ?? $result['daily_priority']['reason_code']
+                                ?? ''),
+                        ];
+                    } catch (\Throwable $error) {
+                        $rows[] = [
+                            'hotel_id' => $hotelId,
+                            'status' => 'failed',
+                            'reason_code' => $this->safeReason($error, 'daily_operating_preparation_failed'),
+                        ];
+                    }
+                }
+                if ($pageLastHotelId <= $lastHotelId) {
+                    throw new \RuntimeException('daily_operating_active_hotel_pagination_stalled');
+                }
+                $lastHotelId = $pageLastHotelId;
+            } while (count($hotels) === self::ACTIVE_HOTEL_PAGE_SIZE);
             $status = $total === 0 ? 'no_active_hotels' : ($prepared === $total ? 'prepared' : 'partial');
             $output->writeln((string)json_encode([
                 'contract_version' => 'daily_operating_preparation_batch.v1',
@@ -135,6 +138,19 @@ final class PrepareDailyOperating extends Command
             ], JSON_UNESCAPED_SLASHES));
             return 1;
         }
+    }
+
+    /** @return list<array<string,mixed>> */
+    private function activeHotelPage(int $afterId): array
+    {
+        return Db::name('hotels')
+            ->field('id,tenant_id')
+            ->where('status', 1)
+            ->where('id', '>', max(0, $afterId))
+            ->order('id', 'asc')
+            ->limit(self::ACTIVE_HOTEL_PAGE_SIZE)
+            ->select()
+            ->toArray();
     }
 
     private function safeReason(\Throwable $error, string $fallback): string

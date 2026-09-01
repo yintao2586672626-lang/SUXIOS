@@ -117,6 +117,11 @@ final class MeituanMarketingFactProjectionService
                 $gapCodes[] = (string)($item['metrics']['roas_status'] ?? 'roas_not_calculable');
             }
         }
+        foreach ($projections as $item) {
+            if (($item['metrics']['ctr_status'] ?? '') === 'clicks_exceed_impressions') {
+                $gapCodes[] = 'clicks_exceed_impressions';
+            }
+        }
         if ($projections === []) {
             $gapCodes[] = 'strict_meituan_marketing_fact_missing';
         } elseif ($advertising === []) {
@@ -128,10 +133,15 @@ final class MeituanMarketingFactProjectionService
             $advertising,
             static fn(array $item): bool => ($item['metrics']['roas_status'] ?? '') === 'calculated'
         ));
+        $invalidProjectionCount = count(array_filter(
+            $projections,
+            static fn(array $item): bool => ($item['quality_status'] ?? '') !== 'verified'
+        ));
         $status = $projections === []
             ? 'blocked'
             : ($advertising !== []
                 && $calculatedRoasCount === count($advertising)
+                && $invalidProjectionCount === 0
                 && $rejectedReasonCounts === []
                     ? 'ready'
                     : 'partial');
@@ -299,6 +309,9 @@ final class MeituanMarketingFactProjectionService
         $factType = strtolower(trim((string)$row['data_type']));
         $impressions = $this->integer($row, $raw, ['list_exposure', 'impressions', 'exposure_count', 'exposureCount']);
         $clicks = $this->integer($row, $raw, ['detail_exposure', 'clicks', 'click_count', 'clickCount']);
+        $clicksExceedImpressions = $impressions !== null
+            && $clicks !== null
+            && $clicks > $impressions;
         $spend = null;
         $attributedOrderAmount = null;
         $spendBasis = '';
@@ -387,9 +400,15 @@ final class MeituanMarketingFactProjectionService
             'metrics' => [
                 'impressions' => $impressions,
                 'clicks' => $clicks,
-                'ctr_percent' => $impressions !== null && $impressions > 0 && $clicks !== null
+                'ctr_percent' => !$clicksExceedImpressions
+                    && $impressions !== null && $impressions > 0 && $clicks !== null
                     ? round($clicks / $impressions * 100, 4)
                     : null,
+                'ctr_status' => $clicksExceedImpressions
+                    ? 'clicks_exceed_impressions'
+                    : ($impressions !== null && $impressions > 0 && $clicks !== null
+                        ? 'calculated'
+                        : 'not_calculable'),
                 'spend' => $spend,
                 'attributed_order_amount' => $attributedOrderAmount,
                 'currency' => $factType === 'advertising' ? 'CNY' : null,
@@ -400,7 +419,9 @@ final class MeituanMarketingFactProjectionService
                 'roas_formula' => $roas !== null ? 'attributed_order_amount / spend' : null,
                 'roas_status' => $roasStatus,
             ],
-            'quality_status' => $attributedOrderAmountInvalid ? 'invalid' : 'verified',
+            'quality_status' => $attributedOrderAmountInvalid || $clicksExceedImpressions
+                ? 'invalid'
+                : 'verified',
             'evidence_type' => 'strict_readback_fact',
             'evidence_refs' => ['online_daily_data#' . (int)$row['id']],
             'source_trace_id' => trim((string)$row['source_trace_id']),
@@ -450,6 +471,8 @@ final class MeituanMarketingFactProjectionService
         }
         $selected ??= $projections[0];
         $roasStatus = (string)($selected['metrics']['roas_status'] ?? 'not_applicable');
+        $reviewReady = $roasStatus === 'calculated'
+            && (string)($selected['quality_status'] ?? '') === 'verified';
         return [
             'contract_version' => self::REVIEW_CONTRACT_VERSION,
             'status' => 'pending_review',
@@ -461,10 +484,10 @@ final class MeituanMarketingFactProjectionService
                 'quality_status' => $selected['quality_status'],
                 'evidence_refs' => $selected['evidence_refs'],
             ],
-            'review_reason' => $roasStatus === 'calculated'
+            'review_reason' => $reviewReady
                 ? '同范围同归因口径的广告消费与归因订单额齐全；仅供人工判断继续、调整或停止。'
                 : '广告效果口径不完整；先由人工核对缺失字段或归因口径，不生成投放结论。',
-            'human_decision_options' => $roasStatus === 'calculated'
+            'human_decision_options' => $reviewReady
                 ? ['continue', 'adjust', 'stop']
                 : ['request_data_completion', 'dismiss'],
             'system_recommendation' => null,

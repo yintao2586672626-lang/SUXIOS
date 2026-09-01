@@ -230,6 +230,64 @@ final class UserLearningMemoryService
         );
         $identity = $this->preferenceIdentity($scopeData, $preferenceKey);
         $idempotency = $this->idempotency($tenantId, $userId, $idempotencyKey);
+
+        return Db::transaction(function () use (
+            $tenantId,
+            $userId,
+            $scope,
+            $preferenceKey,
+            $value,
+            $valueHash,
+            $idempotencyKey,
+            $minimumSignals,
+            $hotelId,
+            $sessionRef,
+            $context,
+            $identity,
+            $idempotency
+        ): array {
+            $this->lockPreferenceIdentity($identity);
+            return $this->recordRepeatedSignalLocked(
+                $tenantId,
+                $userId,
+                $scope,
+                $preferenceKey,
+                $value,
+                $valueHash,
+                $idempotencyKey,
+                $minimumSignals,
+                $hotelId,
+                $sessionRef,
+                $context,
+                $identity,
+                $idempotency
+            );
+        });
+    }
+
+    /**
+     * Count and append one repeated signal while the preference identity is
+     * locked by recordRepeatedSignal().
+     *
+     * @param array<string,mixed> $context
+     * @param array{idempotency_hash:string,event_identity:string} $idempotency
+     * @return array<string,mixed>
+     */
+    private function recordRepeatedSignalLocked(
+        int $tenantId,
+        int $userId,
+        string $scope,
+        string $preferenceKey,
+        mixed $value,
+        string $valueHash,
+        string $idempotencyKey,
+        int $minimumSignals,
+        ?int $hotelId,
+        ?string $sessionRef,
+        array $context,
+        string $identity,
+        array $idempotency
+    ): array {
         $existing = $this->eventByIdentity($idempotency['event_identity']);
         if ($existing !== null) {
             $existingContext = $existing['source_context_json'] === null
@@ -683,22 +741,30 @@ final class UserLearningMemoryService
             return $this->eventResult($existing, true, $operation);
         }
 
-        $eventId = 0;
         for ($attempt = 1; $attempt <= 3; $attempt++) {
             try {
-                $eventId = Db::transaction(function () use (
+                return Db::transaction(function () use (
                     $eventIdentity,
                     $requestDigest,
+                    $operation,
                     $writer
-                ): int {
+                ): array {
                     $existing = $this->eventByIdentity($eventIdentity);
                     if ($existing !== null) {
                         $this->assertIdempotencyDigest($existing, $requestDigest);
-                        return (int)$existing['id'];
+                        return $this->eventResult($existing, true, $operation);
                     }
-                    return $writer();
+                    $eventId = $writer();
+                    $row = Db::name(self::EVENT_TABLE)
+                        ->where('id', $eventId)
+                        ->where('event_identity', $eventIdentity)
+                        ->find();
+                    if (!is_array($row)) {
+                        throw new RuntimeException('user_learning_event_exact_readback_failed');
+                    }
+                    $this->assertIdempotencyDigest($row, $requestDigest);
+                    return $this->eventResult($row, false, $operation);
                 });
-                break;
             } catch (Throwable $exception) {
                 $existing = $this->eventByIdentity($eventIdentity);
                 if ($existing !== null) {
@@ -710,16 +776,7 @@ final class UserLearningMemoryService
                 }
             }
         }
-
-        $row = Db::name(self::EVENT_TABLE)
-            ->where('id', $eventId)
-            ->where('event_identity', $eventIdentity)
-            ->find();
-        if (!is_array($row)) {
-            throw new RuntimeException('user_learning_event_exact_readback_failed');
-        }
-        $this->assertIdempotencyDigest($row, $requestDigest);
-        return $this->eventResult($row, false, $operation);
+        throw new RuntimeException('user_learning_idempotent_write_failed');
     }
 
     /** @param array<string,mixed> $event @return array<string,mixed> */
@@ -925,6 +982,22 @@ final class UserLearningMemoryService
         $result['candidate_ready'] = $candidateReady;
         $result['requires_confirmation'] = $candidateReady;
         return $result;
+    }
+
+    private function lockPreferenceIdentity(string $preferenceIdentity): void
+    {
+        $projection = Db::name(self::PREFERENCE_TABLE)
+            ->where('preference_identity', $preferenceIdentity)
+            ->order('version', 'desc')
+            ->lock(true)
+            ->find();
+        if (!is_array($projection)) {
+            Db::name(self::EVENT_TABLE)
+                ->where('preference_identity', $preferenceIdentity)
+                ->order('id', 'desc')
+                ->lock(true)
+                ->find();
+        }
     }
 
     /** @return array<string,mixed>|null */

@@ -368,6 +368,48 @@ final class UserLearningMemoryServiceTest extends TestCase
         );
     }
 
+    public function testFailedExactReadbackRollsBackEventAndProjectionForRetry(): void
+    {
+        Db::execute(<<<'SQL'
+CREATE TRIGGER corrupt_user_learning_atomicity_event
+AFTER INSERT ON user_learning_memory_events
+WHEN NEW.preference_key = 'response.atomicity'
+BEGIN
+  UPDATE user_learning_memory_events
+  SET value_hash = 'ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff'
+  WHERE id = NEW.id;
+END
+SQL);
+        $service = new UserLearningMemoryService();
+        try {
+            $service->confirmPreference(
+                tenantId: 9,
+                userId: 7,
+                scope: 'global',
+                preferenceKey: 'response.atomicity',
+                value: 'strict',
+                idempotencyKey: 'atomic-readback-001'
+            );
+            self::fail('A failed exact readback must abort the write transaction.');
+        } catch (RuntimeException $error) {
+            self::assertSame('user_learning_event_value_readback_failed', $error->getMessage());
+        }
+        self::assertSame(0, (int)Db::name(UserLearningMemoryService::EVENT_TABLE)->count());
+        self::assertSame(0, (int)Db::name(UserLearningMemoryService::PREFERENCE_TABLE)->count());
+
+        Db::execute('DROP TRIGGER corrupt_user_learning_atomicity_event');
+        $retry = $service->confirmPreference(
+            tenantId: 9,
+            userId: 7,
+            scope: 'global',
+            preferenceKey: 'response.atomicity',
+            value: 'strict',
+            idempotencyKey: 'atomic-readback-001'
+        );
+        self::assertSame('stored', $retry['status']);
+        self::assertTrue($retry['readback']['exact_readback_verified']);
+    }
+
     public function testRevokeAndResetAppendVersionsWithoutCrossScopeDamage(): void
     {
         $service = new UserLearningMemoryService();

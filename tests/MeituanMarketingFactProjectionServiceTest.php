@@ -149,6 +149,31 @@ final class MeituanMarketingFactProjectionServiceTest extends TestCase
         self::assertNotContains('stop', $result['pending_review_draft']['human_decision_options']);
     }
 
+    public function testClicksAboveImpressionsInvalidateCtrAndNormalReviewActions(): void
+    {
+        $result = $this->service([
+            $this->row(121, 'advertising', [
+                'campaignId' => 'impossible-ctr',
+                'spend' => 100,
+                'attributedOrderAmount' => 500,
+                'attributionBasis' => 'same-day-paid-order',
+                'impressions' => 100,
+                'clicks' => 101,
+            ], amount: 100),
+        ])->project(10, 80, '2026-08-30');
+
+        self::assertSame('partial', $result['status']);
+        self::assertSame('invalid', $result['projections'][0]['quality_status']);
+        self::assertNull($result['projections'][0]['metrics']['ctr_percent']);
+        self::assertSame('clicks_exceed_impressions', $result['projections'][0]['metrics']['ctr_status']);
+        self::assertSame(5.0, $result['projections'][0]['metrics']['roas']);
+        self::assertContains('clicks_exceed_impressions', $result['data_quality']['gap_codes']);
+        self::assertSame(
+            ['request_data_completion', 'dismiss'],
+            $result['pending_review_draft']['human_decision_options']
+        );
+    }
+
     public function testTenantHotelPlatformAndBusinessDatePollutionIsRejected(): void
     {
         $valid = $this->row(106, 'search_keyword', [
