@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
   "source_snapshot": "resources/frontend/app-template.html",
-  "source_snapshot_sha256": "e0aa9622cbb841e262c2bd37238ea1f099067e3690d6b43dab23ba09ead7267e",
-  "source_snapshot_bytes": 1838268,
+  "source_snapshot_sha256": "98448583fa4b02934c6c97f3d15175a3eec73f878ba2390d7c36877ce5c09887",
+  "source_snapshot_bytes": 1919093,
   "fragments": [
     {
       "id": "app-shell",
@@ -21,8 +21,7 @@
       "id": "page-ai-simulation",
       "domain": "ai-decision",
       "path": "fragments/02-page-ai-simulation.html",
-      "anchor": "<div v-if=\"currentPage === 'ai-simulation'\">",
-      "runtime": false
+      "anchor": "<div v-if=\"currentPage === 'ai-simulation'\">"
     },
     {
       "id": "page-ai-feasibility",
@@ -98,15 +97,13 @@
       "id": "page-opening-overview",
       "domain": "opening",
       "path": "fragments/13-page-opening-overview.html",
-      "anchor": "<div v-if=\"currentPage === 'opening-overview'\" class=\"max-w-7xl mx-auto space-y-6\">",
-      "runtime": false
+      "anchor": "<div v-if=\"currentPage === 'opening-overview'\" class=\"max-w-7xl mx-auto space-y-6\">"
     },
     {
       "id": "page-opening-checklist",
       "domain": "opening",
       "path": "fragments/14-page-opening-checklist.html",
-      "anchor": "<div v-if=\"currentPage === 'opening-checklist'\" class=\"max-w-7xl mx-auto space-y-6\">",
-      "runtime": false
+      "anchor": "<div v-if=\"currentPage === 'opening-checklist'\" class=\"max-w-7xl mx-auto space-y-6\">"
     },
     {
       "id": "page-ops-source",

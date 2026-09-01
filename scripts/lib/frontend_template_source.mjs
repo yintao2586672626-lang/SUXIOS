@@ -3,7 +3,6 @@ import path from 'node:path';
 
 export const FRONTEND_RUNTIME_EXCLUDED_FRAGMENT_IDS = Object.freeze([
   'page-ai-strategy',
-  'page-ai-simulation',
   'page-ai-feasibility',
   'page-market-evaluation',
   'page-benchmark-model',
@@ -14,8 +13,6 @@ export const FRONTEND_RUNTIME_EXCLUDED_FRAGMENT_IDS = Object.freeze([
   'page-timing-strategy',
   'page-decision-board',
   'shared-transfer-history',
-  'page-opening-overview',
-  'page-opening-checklist',
   'page-ai-workbench',
   'page-investment-decision',
   'page-lifecycle',

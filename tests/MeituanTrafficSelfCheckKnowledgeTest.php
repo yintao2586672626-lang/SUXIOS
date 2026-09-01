@@ -17,10 +17,9 @@ final class MeituanTrafficSelfCheckKnowledgeTest extends TestCase
         $sourcePath = $root . '/docs/knowledge/meituan-traffic-self-check/sources/meituan-hotel-traffic-self-check-visible-reference.png';
         $documentPath = $root . '/docs/capability-absorption/2026-08-31-meituan-traffic-self-check.md';
         $migrationPath = $root . '/database/migrations/20260831_z_seed_meituan_traffic_self_check_reference.sql';
-        $sourceIdentityMigrationPath = $root . '/database/migrations/20260831_zz_fix_meituan_traffic_self_check_source_identity.sql';
         $verifierPath = $root . '/scripts/verify_meituan_traffic_self_check_knowledge.php';
 
-        foreach ([$manifestPath, $packPath, $sourcePath, $documentPath, $migrationPath, $sourceIdentityMigrationPath, $verifierPath] as $path) {
+        foreach ([$manifestPath, $packPath, $sourcePath, $documentPath, $migrationPath, $verifierPath] as $path) {
             self::assertFileExists($path);
         }
 
@@ -82,6 +81,7 @@ final class MeituanTrafficSelfCheckKnowledgeTest extends TestCase
         foreach ([
             "SET @meituan_traffic_self_check_version := '2026-08-31.1'",
             "SET @meituan_traffic_self_check_seed_owner := 'suxios.meituan_traffic_self_check_reference'",
+            "SET @meituan_traffic_self_check_source := 'user_meituan_traffic_self_check_screenshot'",
             'A1EB608EA9BB8DF34624C61629E40A602F0C3B6531B3875879128178CE8A2F67',
             'meituan_traffic_self_check_visible_reference',
             'meituan_traffic_self_check_mechanism_candidate',
@@ -99,15 +99,9 @@ final class MeituanTrafficSelfCheckKnowledgeTest extends TestCase
         self::assertStringNotContainsString('DELETE FROM `knowledge_units`', $migration);
         self::assertStringNotContainsString("'external_write_authorized', true", $migration);
 
-        $sourceIdentityMigration = (string)file_get_contents($sourceIdentityMigrationPath);
-        self::assertStringContainsString(
-            "`source` = 'user_meituan_traffic_self_check_screenshot'",
-            $sourceIdentityMigration
+        self::assertStringNotContainsString(
+            'user_provided_meituan_traffic_self_check_screenshot',
+            $migration
         );
-        self::assertStringContainsString(
-            "`stable_key` = 'global:meituan_traffic_self_check_reference'",
-            $sourceIdentityMigration
-        );
-        self::assertStringNotContainsString('ALTER TABLE', $sourceIdentityMigration);
     }
 }

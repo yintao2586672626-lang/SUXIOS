@@ -167,6 +167,9 @@ test('business template fragments assemble byte-for-byte to the canonical templa
   assert.doesNotMatch(source.template, /data-testid="home-ai-workbench"/);
   assert.doesNotMatch(source.template, /currentPage === 'investment-decision'/);
   assert.doesNotMatch(source.template, /currentPage === 'lifecycle'/);
+  assert.match(source.template, /currentPage === 'ai-simulation'/);
+  assert.match(source.template, /currentPage === 'opening-overview'/);
+  assert.match(source.template, /currentPage === 'opening-checklist'/);
   assert.deepEqual(ids.slice(0, 3), ['app-shell', 'page-ai-strategy', 'page-ai-simulation']);
   const homeFragmentIds = [
     'home-shell-open',

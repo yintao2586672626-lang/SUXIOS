@@ -413,6 +413,792 @@
                 <div class="suxi-page-body p-6 page-enter" :data-testid="pageTestId(currentPage)">
 
                     <!-- 运营管理：策案·策略模拟 -->
+                    <div v-if="currentPage === 'ai-simulation'">
+                        <div class="ai-page-hero mb-6 rounded-2xl p-6 text-white bg-gradient-to-r from-slate-900 via-cyan-900 to-blue-800 shadow-sm">
+                            <simulation-hero-actions data-testid="simulation-hotel-selector" v-model:hotel-id="aiSimulationParams.hotel_id" :hotels="operationHotelOptions" :hotel-valid="simulationHotelSelectionValid" :loading="aiSimulationLoading" @run="handleSimulation" @refresh="loadSimulationRecords"></simulation-hero-actions>
+                        </div>
+
+                        <div class="grid grid-cols-1 xl:grid-cols-12 gap-6">
+                            <div class="xl:col-span-5 space-y-5">
+                                <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
+                                    <div class="flex items-center justify-between gap-3 mb-4">
+                                        <h3 class="font-bold text-gray-800">投资参数</h3>
+                                        <div class="text-xs text-gray-500">总投资 <span class="font-semibold text-gray-800">{{ formatCurrency(simulationInvestmentTotal) }}</span></div>
+                                    </div>
+                                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-5">
+                                        <div>
+                                            <label class="block text-xs text-gray-500 mb-1">房间数</label>
+                                            <input type="number" v-model.number="aiSimulationParams.roomCount" data-testid="field-simulation-room-count" class="w-full px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-cyan-500 outline-none">
+                                        </div>
+                                        <div class="rounded-lg border border-cyan-100 bg-cyan-50 px-3 py-2 text-sm text-cyan-800">
+                                            <div class="text-xs text-cyan-600 mb-1">单房投资</div>
+                                            <div class="font-semibold">{{ formatCurrency(simulationInvestmentPerRoom) }}</div>
+                                        </div>
+                                    </div>
+                                    <div class="space-y-5">
+                                        <div v-for="group in simulationInvestmentGroups" :key="group.title" class="border-t border-gray-100 pt-4">
+                                            <div class="flex items-center justify-between mb-3">
+                                                <div class="font-semibold text-gray-700">{{ group.title }}</div>
+                                                <div class="text-xs text-gray-500">小计 <span class="font-semibold text-gray-800">{{ formatCurrency(group.total) }}</span></div>
+                                            </div>
+                                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                                <div v-for="field in group.fields" :key="field.key">
+                                                    <label class="block text-xs text-gray-500 mb-1">{{ field.label }}</label>
+                                                    <input type="number" v-model.number="aiSimulationParams[field.key]" class="w-full px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-cyan-500 outline-none">
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
+                                    <div class="flex items-center justify-between gap-3 mb-4">
+                                        <h3 class="font-bold text-gray-800">收入参数</h3>
+                                        <div class="text-xs text-gray-500">月总收入 <span class="font-semibold text-gray-800">{{ formatCurrency(simulationRevenueSummary.monthlyRevenue) }}</span></div>
+                                    </div>
+                                    <div class="grid grid-cols-1 md:grid-cols-3 gap-3 mb-5">
+                                        <div class="rounded-lg border border-cyan-100 bg-cyan-50 px-3 py-2">
+                                            <div class="text-xs text-cyan-600 mb-1">加权 ADR</div>
+                                            <div class="font-semibold text-cyan-900">{{ formatCurrency(simulationRevenueSummary.adr) }}</div>
+                                        </div>
+                                        <div class="rounded-lg border border-cyan-100 bg-cyan-50 px-3 py-2">
+                                            <div class="text-xs text-cyan-600 mb-1">综合入住率</div>
+                                            <div class="font-semibold text-cyan-900">{{ aiRound(simulationRevenueSummary.occupancyRate, 1) }}%</div>
+                                        </div>
+                                        <div class="rounded-lg border border-cyan-100 bg-cyan-50 px-3 py-2">
+                                            <div class="text-xs text-cyan-600 mb-1">非房收入</div>
+                                            <div class="font-semibold text-cyan-900">{{ formatCurrency(simulationRevenueSummary.otherIncome) }}</div>
+                                        </div>
+                                    </div>
+                                    <div class="space-y-5">
+                                        <div>
+                                            <div class="font-semibold text-gray-700 mb-3">客房收入结构</div>
+                                            <div class="space-y-3">
+                                                <div v-for="segment in simulationRoomRevenueSegments" :key="segment.key" class="rounded-lg border border-gray-100 bg-gray-50 p-3">
+                                                    <div class="flex items-center justify-between mb-3">
+                                                        <div class="font-medium text-gray-800">{{ segment.label }}</div>
+                                                        <div class="text-xs text-gray-500">小计 {{ formatCurrency(segment.revenue) }}</div>
+                                                    </div>
+                                                    <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+                                                        <div>
+                                                            <label class="block text-xs text-gray-500 mb-1">天数</label>
+                                                            <input type="number" v-model.number="aiSimulationParams[segment.daysKey]" class="w-full px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-cyan-500 outline-none">
+                                                        </div>
+                                                        <div>
+                                                            <label class="block text-xs text-gray-500 mb-1">ADR</label>
+                                                            <input type="number" v-model.number="aiSimulationParams[segment.adrKey]" :data-testid="segment.key === 'weekday' ? 'field-simulation-adr' : null" class="w-full px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-cyan-500 outline-none">
+                                                        </div>
+                                                        <div>
+                                                            <label class="block text-xs text-gray-500 mb-1">入住率(%)</label>
+                                                            <input type="number" v-model.number="aiSimulationParams[segment.occupancyKey]" :data-testid="segment.key === 'weekday' ? 'field-simulation-occupancy-rate' : null" class="w-full px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-cyan-500 outline-none">
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="border-t border-gray-100 pt-4">
+                                            <div class="font-semibold text-gray-700 mb-3">非房收入</div>
+                                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                                <div v-for="field in simulationOtherIncomeFields" :key="field.key">
+                                                    <label class="block text-xs text-gray-500 mb-1">{{ field.label }}</label>
+                                                    <input type="number" v-model.number="aiSimulationParams[field.key]" class="w-full px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-cyan-500 outline-none">
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
+                                    <div class="flex items-center justify-between gap-3 mb-4">
+                                        <h3 class="font-bold text-gray-800">成本参数</h3>
+                                        <div class="text-xs text-gray-500">月总成本 <span class="font-semibold text-gray-800">{{ formatCurrency(simulationCostSummary.monthlyCost) }}</span></div>
+                                    </div>
+                                    <div class="grid grid-cols-1 md:grid-cols-3 gap-3 mb-5">
+                                        <div class="rounded-lg border border-amber-100 bg-amber-50 px-3 py-2">
+                                            <div class="text-xs text-amber-600 mb-1">固定月成本</div>
+                                            <div class="font-semibold text-amber-900">{{ formatCurrency(simulationCostSummary.fixedMonthlyCost) }}</div>
+                                        </div>
+                                        <div class="rounded-lg border border-amber-100 bg-amber-50 px-3 py-2">
+                                            <div class="text-xs text-amber-600 mb-1">综合OTA佣金率</div>
+                                            <div class="font-semibold text-amber-900">{{ aiRound(simulationCostSummary.otaCommissionRate, 2) }}%</div>
+                                        </div>
+                                        <div class="rounded-lg border border-amber-100 bg-amber-50 px-3 py-2">
+                                            <div class="text-xs text-amber-600 mb-1">OTA佣金</div>
+                                            <div class="font-semibold text-amber-900">{{ formatCurrency(simulationCostSummary.otaCommission) }}</div>
+                                        </div>
+                                    </div>
+                                    <div class="space-y-5">
+                                        <div v-for="group in simulationCostGroups" :key="group.title" class="border-t border-gray-100 pt-4 first:border-t-0 first:pt-0">
+                                            <div class="flex items-center justify-between mb-3">
+                                                <div class="font-semibold text-gray-700">{{ group.title }}</div>
+                                                <div class="text-xs text-gray-500">小计 <span class="font-semibold text-gray-800">{{ formatCurrency(group.total) }}</span></div>
+                                            </div>
+                                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                                <div v-for="field in group.fields" :key="field.key">
+                                                    <label class="block text-xs text-gray-500 mb-1">{{ field.label }}</label>
+                                                    <input type="number" v-model.number="aiSimulationParams[field.key]" class="w-full px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-cyan-500 outline-none">
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="border-t border-gray-100 pt-4">
+                                            <div class="font-semibold text-gray-700 mb-3">渠道佣金结构</div>
+                                            <div class="space-y-3">
+                                                <div v-for="channel in simulationOtaCommissionChannels" :key="channel.key" class="rounded-lg border border-gray-100 bg-gray-50 p-3">
+                                                    <div class="flex items-center justify-between mb-3">
+                                                        <div class="font-medium text-gray-800">{{ channel.label }}</div>
+                                                        <div class="text-xs text-gray-500">折合 {{ aiRound(channel.weightedRate, 2) }}%</div>
+                                                    </div>
+                                                    <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                                        <div>
+                                                            <label class="block text-xs text-gray-500 mb-1">收入占比(%)</label>
+                                                            <input type="number" v-model.number="aiSimulationParams[channel.shareKey]" class="w-full px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-cyan-500 outline-none">
+                                                        </div>
+                                                        <div>
+                                                            <label class="block text-xs text-gray-500 mb-1">佣金率(%)</label>
+                                                            <input type="number" v-model.number="aiSimulationParams[channel.rateKey]" class="w-full px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-cyan-500 outline-none">
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="xl:col-span-7 space-y-5">
+                                <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+                                    <div v-for="card in simulationMetricCards" :key="card.label" class="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
+                                        <div class="text-xs text-gray-500">{{ card.label }}</div>
+                                        <div :class="['text-2xl font-bold mt-2', card.label === '月净现金流' &amp;&amp; baseSimulation ? (baseSimulation.monthlyNetCashflow &gt;= 0 ? 'text-green-600' : 'text-red-600') : 'text-gray-800']">【{{ card.value }}】</div>
+                                    </div>
+                                </div>
+
+                                <div v-if="simulationCurrentReadiness" class="rounded-lg border border-amber-100 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800">
+                                    <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                                        <div>
+                                            <div class="font-semibold">{{ simulationCurrentReadiness.notice }}</div>
+                                            <div class="mt-1">{{ simulationReadinessMissingText(simulationCurrentReadiness) }}</div>
+                                        </div>
+                                        <span :class="['rounded-md border px-2.5 py-1 whitespace-nowrap', simulationReadinessBadgeClass(simulationCurrentReadiness.stage)]">
+                                            {{ simulationCurrentReadiness.status_label }} · {{ simulationCurrentReadiness.score }}分
+                                        </span>
+                                    </div>
+                                </div>
+
+                                <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
+                                    <div class="flex items-center justify-between mb-4">
+                                        <h3 class="font-bold text-gray-800">三情景模拟</h3>
+                                        <span v-if="baseSimulation" :class="['px-2 py-1 rounded text-xs border', riskBadgeClass(baseSimulation.riskLevel)]">{{ baseSimulation.riskLevel }}</span>
+                                    </div>
+                                    <div class="overflow-x-auto">
+                                        <table class="min-w-full text-sm">
+                                            <thead>
+                                                <tr class="bg-gray-50 text-gray-500">
+                                                    <th class="px-4 py-3 text-left">情景</th>
+                                                    <th class="px-4 py-3 text-right">月总收入</th>
+                                                    <th class="px-4 py-3 text-right">月总成本</th>
+                                                    <th class="px-4 py-3 text-right">月净现金流</th>
+                                                    <th class="px-4 py-3 text-right"><term-help term="revpar" /></th>
+                                                    <th class="px-4 py-3 text-right">回本周期</th>
+                                                    <th class="px-4 py-3 text-right">保本入住率</th>
+                                                    <th class="px-4 py-3 text-right">租金占比</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody class="divide-y divide-gray-100">
+                                                <tr v-for="row in aiSimulationScenarios" :key="row.scenarioType" class="hover:bg-gray-50">
+                                                    <td class="px-4 py-3 font-semibold text-gray-800">{{ row.scenarioType }}</td>
+                                                    <td class="px-4 py-3 text-right">{{ formatCurrency(row.monthlyRevenue) }}</td>
+                                                    <td class="px-4 py-3 text-right">{{ formatCurrency(row.monthlyCost) }}</td>
+                                                    <td class="px-4 py-3 text-right font-semibold" :class="row.monthlyNetCashflow &gt; 0 ? 'text-green-600' : 'text-red-600'">{{ formatCurrency(row.monthlyNetCashflow) }}</td>
+                                                    <td class="px-4 py-3 text-right">{{ formatCurrency(row.revPAR) }}</td>
+                                                    <td class="px-4 py-3 text-right">{{ row.paybackMonths === null ? '不可回本' : row.paybackMonths.toFixed(1) + '个月' }}</td>
+                                                    <td class="px-4 py-3 text-right">{{ formatPercent(row.breakEvenOccupancy) }}</td>
+                                                    <td class="px-4 py-3 text-right">{{ formatPercent(row.rentRatio) }}</td>
+                                                </tr>
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+
+                                <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
+                                    <h3 class="font-bold text-gray-800 mb-4">风险提示</h3>
+                                    <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+                                        <div v-for="risk in simulationRiskHints" :key="risk.title" :class="['rounded-lg border p-4', risk.className]">
+                                            <div class="font-semibold mb-1 flex items-center justify-between gap-2">
+                                                <span>{{ risk.title }}</span>
+                                                <span :class="['px-2 py-0.5 rounded text-xs border', riskBadgeClass(risk.riskLevel)]">{{ risk.riskLevel }}</span>
+                                            </div>
+                                            <div class="text-sm">{{ risk.content }}</div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div v-if="simulationModelAnalysisVisible" class="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
+                                    <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-4">
+                                        <h3 class="font-bold text-gray-800">模型解读</h3>
+                                        <div class="flex flex-wrap items-center gap-2 text-xs">
+                                            <span :class="['px-2 py-1 rounded border', simulationModelAnalysis.source === 'llm' ? 'bg-cyan-50 text-cyan-700 border-cyan-100' : 'bg-gray-50 text-gray-600 border-gray-100']">{{ simulationModelSourceLabel }}</span>
+                                            <span v-if="simulationModelAnalysis.model_key" class="px-2 py-1 rounded border border-gray-100 bg-gray-50 text-gray-500">{{ simulationModelAnalysis.model_key }}</span>
+                                            <span v-if="simulationModelAnalysis.generated_at" class="text-gray-400">{{ simulationModelAnalysis.generated_at }}</span>
+                                        </div>
+                                    </div>
+                                    <div class="space-y-4">
+                                        <div v-if="simulationModelAnalysis.summary" class="rounded-lg bg-cyan-50 border border-cyan-100 text-cyan-900 px-4 py-3 text-sm">
+                                            {{ simulationModelAnalysis.summary }}
+                                        </div>
+                                        <div v-if="simulationModelAnalysis.decision" class="rounded-lg bg-slate-50 border border-slate-100 px-4 py-3">
+                                            <div class="text-xs text-gray-500 mb-1">投决建议</div>
+                                            <div class="text-sm font-medium text-gray-800">{{ simulationModelAnalysis.decision }}</div>
+                                        </div>
+                                        <div v-if="simulationModelAnalysis.recommendations.length" class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                            <div v-for="item in simulationModelAnalysis.recommendations" :key="item.priority + item.title" class="rounded-lg border border-gray-100 bg-gray-50 p-4">
+                                                <div class="flex items-center gap-2 mb-2">
+                                                    <span class="px-2 py-0.5 rounded bg-white border border-gray-200 text-xs text-gray-600">{{ item.priority }}</span>
+                                                    <span class="font-semibold text-gray-800">{{ item.title }}</span>
+                                                </div>
+                                                <div class="text-sm text-gray-700"><span class="font-medium">建议动作：</span>{{ item.action || item.detail }}</div>
+                                                <ai-decision-quality-details :item="item"></ai-decision-quality-details>
+                                            </div>
+                                        </div>
+                                        <div v-if="simulationModelAnalysis.watch_points.length" class="overflow-x-auto">
+                                            <table class="min-w-full text-sm">
+                                                <thead>
+                                                    <tr class="bg-gray-50 text-gray-500">
+                                                        <th class="px-4 py-3 text-left">关注指标</th>
+                                                        <th class="px-4 py-3 text-left">阈值</th>
+                                                        <th class="px-4 py-3 text-left">动作</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody class="divide-y divide-gray-100">
+                                                    <tr v-for="item in simulationModelAnalysis.watch_points" :key="item.metric + item.threshold">
+                                                        <td class="px-4 py-3 font-medium text-gray-800">{{ item.metric }}</td>
+                                                        <td class="px-4 py-3 text-gray-600">{{ item.threshold }}</td>
+                                                        <td class="px-4 py-3 text-gray-600">{{ item.action }}</td>
+                                                    </tr>
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                        <div v-if="simulationModelAnalysis.assumptions.length" class="text-xs text-gray-500">
+                                            <div class="font-medium text-gray-600 mb-1">假设与限制</div>
+                                            <div class="space-y-1">
+                                                <div v-for="item in simulationModelAnalysis.assumptions" :key="item">· {{ item }}</div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
+                                    <div class="flex items-center justify-between mb-4">
+                                        <h3 class="font-bold text-gray-800">历史模拟记录</h3>
+                                        <span class="text-xs text-gray-400">{{ aiSimulationRecords.length }} 条</span>
+                                    </div>
+                                    <div v-if="aiSimulationRecords.length" class="divide-y divide-gray-100">
+                                        <div v-for="record in aiSimulationRecords" :key="record.id" class="py-3 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+                                            <div>
+                                                <div class="font-medium text-gray-900">{{ record.project_name || '量化模拟项目' }}</div>
+                                                <div class="text-xs text-gray-500 mt-1">{{ simulationRecordSummary(record) }}</div>
+                                            </div>
+                                            <div class="flex items-center gap-2">
+                                                <span :class="['px-2 py-1 rounded text-xs border', riskBadgeClass(record.risk_level)]">{{ record.risk_level || '-' }}</span>
+                                                <span v-if="record.execution_readiness" :class="['px-2 py-1 rounded text-xs border whitespace-nowrap', simulationReadinessBadgeClass(record.execution_readiness.stage)]">{{ record.execution_readiness.status_label }}</span>
+                                                <button @click="loadSimulationDetail(record.id)" :data-testid="`history-simulation-view-${record.id}`" class="px-3 py-1.5 rounded-lg border border-gray-200 text-gray-600 text-xs hover:bg-gray-50">查看</button>
+                                                <button @click="reuseSimulationRecord(record)" :data-testid="`history-simulation-reuse-${record.id}`" class="px-3 py-1.5 rounded-lg bg-blue-600 text-white text-xs hover:bg-blue-700">复用输入</button>
+                                                <button @click="createSimulationExecutionIntent(record)" :disabled="simulationTaskDisabled(record)" :data-testid="`history-simulation-task-${record.id}`">{{ simulationTaskLabel(record) }}</button>
+                                                <button v-if="canArchiveSim(record)" @click="archiveSim(record)" :data-testid="`history-simulation-archive-${record.id}`" class="btn-danger">归档</button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div v-else="" class="py-8 text-center text-gray-400">暂无历史记录</div>
+                                </div>
+
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 可行性报告 -->
+                    <div v-if="currentPage === 'opening-overview'" class="max-w-7xl mx-auto space-y-6">
+                        <div class="flex flex-col xl:flex-row xl:items-center xl:justify-between gap-4">
+                            <div>
+                                <h2 class="text-2xl font-bold text-gray-900">开业准备工作台</h2>
+                                <p class="text-sm text-gray-500 mt-1">先选择已有项目或创建新项目，再生成清单、分派责任人与跟踪风险</p>
+                            </div>
+                            <div class="flex flex-wrap items-center gap-3">
+                                <select v-model="selectedOpeningProjectId" @change="selectOpeningProject" class="px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white min-w-[220px]">
+                                    <option value="">选择已有开业项目</option>
+                                    <option v-for="project in openingProjects" :key="project.id" :value="project.id">{{ project.project_name }} · {{ project.hotel_name }}{{ project.hotel_id ? '' : '（未绑定）' }}</option>
+                                </select>
+                                <button @click="startOpeningProjectCreate" class="px-3 py-2 rounded-lg bg-slate-900 text-white text-sm hover:bg-slate-800"><i class="fas fa-plus mr-1"></i>新建项目</button>
+                                <button @click="loadOpeningProjects" class="px-3 py-2 rounded-lg border border-gray-200 text-gray-700 text-sm hover:bg-gray-50"><i class="fas fa-sync-alt mr-1"></i>刷新</button>
+                            </div>
+                        </div>
+
+                        <div class="grid grid-cols-1 xl:grid-cols-3 gap-6">
+                            <div class="xl:col-span-1 bg-white rounded-xl shadow-sm border border-gray-100 p-5">
+                                <div class="flex items-center justify-between mb-4">
+                                    <h3 class="font-bold text-gray-900">{{ selectedOpeningProjectId ? '项目基础信息' : '创建开业项目' }}</h3>
+                                    <span v-if="selectedOpeningProjectId" :class="openingRiskClass(openingOverview?.project?.risk_level)" class="px-2 py-1 rounded-full text-xs font-medium">{{ openingRiskText(openingOverview?.project?.risk_level) }}</span>
+                                </div>
+                                <div v-if="selectedOpeningProjectId && openingOverview?.truth_context?.status === 'binding_missing'" data-testid="opening-binding-missing"
+                                    class="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-3 text-sm text-amber-800">
+                                    <div class="font-medium">binding_missing：项目尚未绑定系统门店</div>
+                                    <div class="mt-1 text-xs">当前仅能维护开业清单，不能转执行跟踪，也不能证明真实门店闭环。</div>
+                                </div>
+                                <div class="mb-4 rounded-lg border border-blue-100 bg-blue-50 px-3 py-3">
+                                    <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                                        <div>
+                                            <div class="text-sm font-medium text-blue-900">{{ selectedOpeningProjectId ? '修改后需要保存' : '填写项目后创建项目' }}</div>
+                                            <div class="text-xs text-blue-700 mt-1">{{ selectedOpeningProjectId ? '调整基础信息后点击保存项目，再进入清单更新任务状态。' : '系统会保存项目，并生成标准开业检查清单。' }}</div>
+                                        </div>
+                                        <button @click="saveOpeningProject" :disabled="openingLoading" class="px-4 py-2 rounded-lg bg-blue-600 text-white text-sm hover:bg-blue-700 disabled:opacity-50 whitespace-nowrap">
+                                            <i class="fas fa-save mr-1"></i>{{ selectedOpeningProjectId ? '保存项目' : '创建并生成清单' }}
+                                        </button>
+                                    </div>
+                                </div>
+                                <div class="space-y-3">
+                                    <div>
+                                        <label class="block text-xs font-medium text-gray-600 mb-1">项目名称 <span class="text-red-500">*</span></label>
+                                        <input v-model="openingProjectForm.project_name" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm" placeholder="如：巢湖测试店开业项目">
+                                    </div>
+                                    <div>
+                                        <label class="block text-xs font-medium text-gray-600 mb-1">开业门店名称 <span class="text-red-500">*</span></label>
+                                        <input v-model="openingProjectForm.hotel_name" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm" placeholder="如：巢湖测试店">
+                                    </div>
+                                    <div>
+                                        <label class="block text-xs font-medium text-gray-600 mb-1">绑定系统门店</label>
+                                        <select v-model="openingProjectForm.hotel_id" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white">
+                                            <option value="">暂不绑定</option>
+                                            <option v-for="hotel in operationHotelOptions" :key="hotel.id" :value="hotel.id">{{ hotel.name || ('酒店' + hotel.id) }}</option>
+                                        </select>
+                                        <div v-if="!openingPersistedHotelId" class="mt-1 text-xs text-amber-600">未保存并回读门店绑定前，只能维护开业清单。</div>
+                                        <div v-else-if="openingProjectBindingDirty" class="mt-1 text-xs text-amber-600">门店绑定已修改但尚未保存，执行仍使用原绑定；请先保存项目。</div>
+                                    </div>
+                                    <div class="grid grid-cols-2 gap-3">
+                                        <div>
+                                            <label class="block text-xs font-medium text-gray-600 mb-1">城市</label>
+                                            <input v-model="openingProjectForm.city" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm" placeholder="如：西安">
+                                        </div>
+                                        <div>
+                                            <label class="block text-xs font-medium text-gray-600 mb-1">房间数</label>
+                                            <input v-model.number="openingProjectForm.room_count" type="number" min="0" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm" placeholder="如：86">
+                                        </div>
+                                    </div>
+                                    <div class="grid grid-cols-2 gap-3">
+                                        <div>
+                                            <label class="block text-xs font-medium text-gray-600 mb-1">品牌</label>
+                                            <input v-model="openingProjectForm.brand" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm" placeholder="如：宿析">
+                                        </div>
+                                        <div>
+                                            <label class="block text-xs font-medium text-gray-600 mb-1">定位</label>
+                                            <input v-model="openingProjectForm.positioning" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm" placeholder="如：中端商务">
+                                            <div class="mt-2 rounded-lg border border-blue-100 bg-blue-50 px-3 py-2">
+                                                <div class="text-xs font-medium text-blue-700">影响准备项</div>
+                                                <div class="text-xs text-blue-700 mt-1 leading-relaxed">{{ openingPositioningImpact.summary }}</div>
+                                                <div class="flex flex-wrap gap-1 mt-2">
+                                                    <span v-for="item in openingPositioningImpact.items" :key="item" class="px-2 py-0.5 rounded-full bg-white text-blue-700 text-xs border border-blue-100">{{ item }}</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="grid grid-cols-2 gap-3">
+                                        <div>
+                                            <label class="block text-xs font-medium text-gray-600 mb-1">负责人</label>
+                                            <input v-model="openingProjectForm.manager_name" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm" placeholder="项目负责人">
+                                        </div>
+                                        <div>
+                                            <label class="block text-xs font-medium text-gray-600 mb-1">计划开业日期 <span class="text-red-500">*</span></label>
+                                            <input v-model="openingProjectForm.opening_date" type="date" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm">
+                                        </div>
+                                    </div>
+                                    <div v-if="selectedOpeningProjectId" class="grid grid-cols-2 gap-3">
+                                        <button @click="openOpeningChecklist" :disabled="openingLoading" class="px-4 py-2 rounded-lg border border-gray-200 text-gray-700 text-sm hover:bg-gray-50 disabled:opacity-50"><i class="fas fa-tasks mr-1"></i>查看清单</button>
+                                        <button @click="recalculateOpening" :disabled="openingLoading" class="px-4 py-2 rounded-lg border border-blue-200 text-blue-700 text-sm hover:bg-blue-50 disabled:opacity-50"><i class="fas fa-calculator mr-1"></i>刷新评分</button>
+                                        <button @click="createOpeningExecutionIntent" :disabled="openingLoading || !openingExecutionReady || openingExecutionIntentId" class="px-4 py-2 rounded-lg border border-indigo-200 text-indigo-700 text-sm hover:bg-indigo-50 disabled:opacity-50"><i class="fas fa-tasks mr-1"></i>{{ openingExecutionIntentId ? '已转跟踪' : '转执行跟踪' }}</button>
+                                        <div v-if="openingExecutionIntentId" class="px-4 py-2 rounded-lg bg-indigo-50 text-indigo-700 text-sm">执行 #{{ openingExecutionIntentId }}</div>
+                                    </div>
+                                    <button v-if="selectedOpeningProjectId &amp;&amp; openingTasks.length === 0" @click="generateOpeningTasks" :disabled="openingLoading" class="w-full px-4 py-2 rounded-lg bg-blue-600 text-white text-sm hover:bg-blue-700 disabled:opacity-50"><i class="fas fa-magic mr-1"></i>生成检查清单</button>
+                                    <button v-if="selectedOpeningProjectId" @click="archiveOpeningProject" :disabled="openingLoading" class="w-full px-4 py-2 rounded-lg border border-red-200 text-red-600 text-sm hover:bg-red-50 disabled:opacity-50"><i class="fas fa-archive mr-1"></i>归档项目</button>
+                                </div>
+                            </div>
+
+                            <div class="xl:col-span-2 space-y-6">
+                                <div v-if="openingOverview" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+                                    <div v-for="card in openingOverviewCards" :key="card.label" class="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
+                                        <div class="flex items-start justify-between gap-3">
+                                            <div class="min-w-0">
+                                                <div class="text-xs text-gray-500 font-medium">{{ card.label }}</div>
+                                                <div :class="['mt-2 text-2xl font-bold leading-none break-words', card.valueClass || 'text-gray-900']">{{ card.value }}</div>
+                                            </div>
+                                            <div :class="['w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0', card.iconClass || 'bg-blue-50 text-blue-600']">
+                                                <i :class="card.icon || 'fas fa-chart-line'"></i>
+                                            </div>
+                                        </div>
+                                        <div class="text-xs text-gray-500 mt-3 leading-relaxed">{{ card.hint }}</div>
+                                        <div class="mt-2 flex flex-wrap items-center gap-1.5 text-[10px]">
+                                            <span class="inline-flex rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-slate-600">计算：{{ card.truth?.calculation_status === 'calculated' ? '已计算' : '缺值' }}</span>
+                                            <span :class="onlineTruthStatusClass(card.truth)">真值：{{ onlineTruthStatusText(card.truth) }}</span>
+                                        </div>
+                                        <online-truth-summary :truth="card.truth"></online-truth-summary>
+                                        <div v-if="card.progress != null" class="mt-3">
+                                            <div class="h-2 bg-gray-100 rounded-full overflow-hidden">
+                                                <div :class="['h-full rounded-full', card.progressClass || 'bg-blue-600']" :style="{ width: card.progress + '%' }"></div>
+                                            </div>
+                                            <div class="mt-2 flex items-center justify-between gap-2 text-xs text-gray-500">
+                                                <span class="truncate">{{ card.countLabel }}</span>
+                                                <span class="font-medium text-gray-700">{{ card.progress }}%</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div v-if="openingOverview &amp;&amp; openingTasks.length === 0" class="bg-blue-50 border border-blue-100 rounded-xl p-5 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+                                    <div>
+                                        <div class="font-semibold text-blue-900">标准检查清单尚未生成</div>
+                                        <div class="text-sm text-blue-700 mt-1">生成后将按标准或规则带出责任人、截止时间、验收标准和建议。</div>
+                                    </div>
+                                    <button @click="generateOpeningTasks" :disabled="openingLoading" class="px-4 py-2 rounded-lg bg-blue-600 text-white text-sm hover:bg-blue-700 disabled:opacity-50">
+                                        <i class="fas fa-magic mr-1"></i>生成检查清单
+                                    </button>
+                                </div>
+                                <div v-if="!openingOverview" class="bg-white rounded-xl shadow-sm border border-gray-100 p-10 text-center text-gray-400">
+                                    <i class="fas fa-clipboard-list text-4xl mb-3"></i>
+                                    <div>请选择或创建开业项目</div>
+                                </div>
+
+                                <div v-if="openingOverview" class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                                    <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
+                                        <div class="flex items-center justify-between mb-4">
+                                            <div>
+                                                <h3 class="font-bold text-gray-900">开业准备总览</h3>
+                                        <p class="text-xs text-gray-500 mt-1">按评分权重归类，完成后重新计算总评分</p>
+                                            </div>
+                                            <span :class="openingRiskClass(openingOverview.project.risk_level)" class="px-2 py-1 rounded-full text-xs font-medium">{{ openingRiskText(openingOverview.project.risk_level) }}</span>
+                                        </div>
+                                        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                            <div v-for="item in openingCategoryProgressCards" :key="item.category" class="rounded-lg border border-gray-100 bg-gray-50 p-3">
+                                                <div class="flex items-start justify-between gap-3">
+                                                    <div class="min-w-0">
+                                                        <div class="font-medium text-gray-800 truncate">{{ item.category }}</div>
+                                                        <div class="text-xs text-gray-500 mt-1">{{ item.countLabel }}</div>
+                                                    </div>
+                                                    <span :class="['px-2 py-1 rounded-full text-xs font-medium flex-shrink-0', item.statusClass]">{{ item.status }}</span>
+                                                </div>
+                                                 <div class="mt-3 h-2 bg-white rounded-full overflow-hidden">
+                                                     <div v-if="item.progress != null" :class="['h-full rounded-full', item.progressClass]" :style="{ width: item.progress + '%' }"></div>
+                                                 </div>
+                                                 <div class="mt-2 flex items-center justify-between text-xs text-gray-500">
+                                                     <span>{{ item.progressHint }}</span>
+                                                     <span class="font-semibold text-gray-800">{{ item.progress == null ? '—' : item.progress + '%' }}</span>
+                                                 </div>
+                                                 <div class="mt-2 flex flex-wrap items-center gap-1.5 text-[10px]"><span :class="onlineTruthStatusClass(item.truth)">{{ onlineTruthStatusText(item.truth) }}</span></div>
+                                                 <online-truth-summary :truth="item.truth"></online-truth-summary>
+                                             </div>
+                                        </div>
+                                    </div>
+                                    <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
+                                        <h3 class="font-bold text-gray-900 mb-4">开业建议（标准或规则）</h3>
+                                        <div v-if="openingOverview.ai_recommendations?.length" class="space-y-3">
+                                            <div v-for="item in openingOverview.ai_recommendations" :key="item.priority + item.title" class="rounded-lg border border-blue-100 bg-blue-50/50 p-3 text-sm">
+                                                <div class="flex items-center gap-2"><span class="rounded border border-blue-200 bg-white px-1.5 py-0.5 text-[11px] font-semibold text-blue-700">{{ item.priority }}</span><strong class="text-gray-900">{{ item.title }}</strong></div>
+                                                <div class="mt-1 leading-5 text-gray-700"><span class="font-medium">建议动作：</span>{{ item.action || item.detail }}</div>
+                                                <ai-decision-quality-details :item="item"></ai-decision-quality-details>
+                                            </div>
+                                        </div>
+                                        <div v-else-if="openingOverview.ai_suggestions?.length" class="rounded-lg border border-amber-100 bg-amber-50 p-3 text-xs leading-5 text-amber-800">历史建议结构不完整：{{ openingOverview.ai_suggestions.join('；') }}</div>
+                                        <div class="mt-5 pt-4 border-t border-gray-100">
+                                            <div class="text-xs text-gray-500 mb-2">最近一次结果</div>
+                                            <div class="text-sm text-gray-700">评分 {{ openingOverview.recent_result.overall_score ?? '—' }}，风险 {{ openingRiskText(openingOverview.recent_result.risk_level) }}，更新时间 {{ openingOverview.recent_result.updated_at || '-' }}</div>
+                                            <online-truth-summary :truth="openingOverview.recent_result.truth"></online-truth-summary>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div v-if="openingProjects.length" class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+                                    <div class="px-5 py-4 border-b border-gray-100 font-bold text-gray-900">历史开业项目</div>
+                                    <div class="divide-y divide-gray-50">
+                                        <button v-for="project in openingProjects" :key="project.id" @click="selectedOpeningProjectId = project.id; selectOpeningProject()" class="w-full px-5 py-3 text-left hover:bg-gray-50 flex items-center justify-between">
+                                            <div>
+                                                <div class="font-medium text-gray-900">{{ project.project_name }}</div>
+                                                <div class="text-xs text-gray-500 mt-1">{{ project.hotel_name }} · {{ project.opening_date }} · {{ project.manager_name || '未设置负责人' }}</div>
+                                            </div>
+                                            <div class="text-right">
+                                                <div class="font-semibold text-gray-900">{{ project.overall_score ?? '—' }}</div>
+                                                <div class="text-[10px] text-gray-500">{{ project.overall_score_status === 'calculated' ? '已计算' : '未计算' }}</div>
+                                                <div :class="openingRiskTextClass(project.risk_level)" class="text-xs">{{ openingRiskText(project.risk_level) }}</div>
+                                            </div>
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 开业检查清单 -->
+                    <div v-if="currentPage === 'opening-checklist'" class="max-w-7xl mx-auto space-y-6">
+                        <div class="flex flex-col xl:flex-row xl:items-center xl:justify-between gap-4">
+                            <div>
+                                <h2 class="text-2xl font-bold text-gray-900">开业检查清单</h2>
+                                <p class="text-sm text-gray-500 mt-1">按分类、状态、风险筛选，管理负责人、截止时间、进度保存和备注</p>
+                            </div>
+                            <div class="flex flex-wrap items-center gap-3">
+                                <select v-model="selectedOpeningProjectId" @change="selectOpeningProject" class="px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white min-w-[220px]">
+                                    <option value="">选择开业项目</option>
+                                    <option v-for="project in openingProjects" :key="project.id" :value="project.id">{{ project.project_name }} · {{ project.hotel_name }}</option>
+                                </select>
+                                <button @click="generateOpeningTasks" :disabled="!selectedOpeningProjectId || openingLoading" class="px-3 py-2 rounded-lg bg-blue-600 text-white text-sm hover:bg-blue-700 disabled:opacity-50"><i class="fas fa-magic mr-1"></i>生成标准清单</button>
+                            </div>
+                        </div>
+
+                        <div v-if="selectedOpeningProjectId" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-4">
+                            <div v-for="card in openingTaskProgressCards" :key="card.label" class="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
+                                <div class="flex items-start justify-between gap-3">
+                                    <div>
+                                        <div class="text-xs text-gray-500">{{ card.label }}</div>
+                                        <div :class="['mt-2 text-2xl font-bold', card.valueClass || 'text-gray-900']">{{ card.value }}</div>
+                                    </div>
+                                    <div :class="['w-10 h-10 rounded-lg flex items-center justify-center', card.iconClass]">
+                                        <i :class="card.icon"></i>
+                                    </div>
+                                </div>
+                                <div class="text-xs text-gray-500 mt-3">{{ card.hint }}</div>
+                                <div v-if="card.progress !== null" class="mt-3 h-2 bg-gray-100 rounded-full overflow-hidden">
+                                    <div :class="['h-full rounded-full', card.progressClass || 'bg-blue-600']" :style="{ width: card.progress + '%' }"></div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div v-if="selectedOpeningProjectId" class="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
+                            <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3 mb-4">
+                                <div>
+                                    <div class="font-medium text-gray-900">项目进度展示</div>
+                                    <div class="text-xs text-gray-500 mt-1">按每个检查项保存的进度百分比计算</div>
+                                </div>
+                                <div class="text-right">
+                                    <div class="text-2xl font-bold text-blue-600">{{ openingTaskStats.averageProgress }}%</div>
+                                    <div class="text-xs text-gray-500">任务进度均值</div>
+                                </div>
+                            </div>
+                            <div class="h-3 bg-gray-100 rounded-full overflow-hidden">
+                                <div class="h-full rounded-full bg-blue-600" :style="{ width: openingTaskStats.averageProgress + '%' }"></div>
+                            </div>
+                            <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mt-4">
+                                <div v-for="stage in openingTaskProgressStages" :key="stage.label" class="rounded-lg border border-gray-100 bg-gray-50 p-3">
+                                    <div class="flex items-center justify-between">
+                                        <span class="text-xs text-gray-500">{{ stage.label }}</span>
+                                        <span :class="stage.className" class="text-sm font-semibold">{{ stage.count }}</span>
+                                    </div>
+                                    <div class="mt-2 h-1.5 bg-white rounded-full overflow-hidden">
+                                        <div :class="stage.barClass" class="h-full rounded-full" :style="{ width: stage.percent + '%' }"></div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div v-if="selectedOpeningProjectId" class="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
+                            <div class="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3 mb-4">
+                                <div>
+                                    <div class="font-medium text-gray-900">清单与建议结果</div>
+                                    <div class="text-xs text-gray-500 mt-1">展示标准清单、规则建议与开业总览返回结果</div>
+                                </div>
+                                <span :class="openingAiOutputResult.badgeClass" class="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium">
+                                    <i class="fas fa-robot mr-1"></i>{{ openingAiOutputResult.badgeText }}
+                                </span>
+                            </div>
+                            <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+                                <div v-for="card in openingAiOutputResult.cards" :key="card.label" class="border-l-4 pl-3" :class="card.borderClass">
+                                    <div class="flex items-center justify-between gap-2">
+                                        <div class="text-xs text-gray-500">{{ card.label }}</div>
+                                        <i :class="[card.icon, card.iconClass]"></i>
+                                    </div>
+                                    <div :class="['text-xl font-bold mt-1', card.valueClass || 'text-gray-900']">{{ card.value }}</div>
+                                    <div class="text-xs text-gray-500 mt-1 leading-relaxed">{{ card.hint }}</div>
+                                </div>
+                            </div>
+                            <div class="grid grid-cols-1 xl:grid-cols-2 gap-5 mt-5 pt-4 border-t border-gray-100">
+                                <div>
+                                    <div class="text-sm font-semibold text-gray-900 mb-3">总览建议</div>
+                                    <div v-if="openingAiOutputResult.overviewOutputs.length" class="space-y-2">
+                                        <div v-for="item in openingAiOutputResult.overviewOutputs" :key="item" class="flex gap-2 text-sm text-gray-700 leading-relaxed">
+                                            <i class="fas fa-check-circle text-blue-500 mt-0.5"></i>
+                                            <span>{{ item }}</span>
+                                        </div>
+                                    </div>
+                                    <div v-else="" class="text-sm text-gray-400">暂无总览建议，请先生成清单或刷新开业总览</div>
+                                </div>
+                                <div>
+                                    <div class="text-sm font-semibold text-gray-900 mb-3">检查项建议</div>
+                                    <div v-if="openingAiOutputResult.taskOutputs.length" class="space-y-2">
+                                        <div v-for="task in openingAiOutputResult.taskOutputs" :key="task.id" class="border-b border-gray-50 pb-2 last:border-b-0 last:pb-0">
+                                            <div class="flex items-start justify-between gap-3">
+                                                <div class="min-w-0">
+                                                    <div class="text-sm font-medium text-gray-900 truncate">{{ task.task_name }}</div>
+                                                    <div class="text-xs text-gray-500 mt-1">{{ task.category }} · {{ task.owner_name || '未分配负责人' }} · {{ task.progress }}%</div>
+                                                </div>
+                                                <div :class="task.className" class="text-xs font-semibold flex-shrink-0">{{ task.reason }}</div>
+                                            </div>
+                                            <div class="text-sm text-gray-700 leading-relaxed mt-2">{{ task.suggestion }}</div>
+                                        </div>
+                                    </div>
+                                    <div v-else="" class="text-sm text-gray-400">暂无检查项建议</div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
+                            <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3 mb-4">
+                                <div>
+                                    <div class="font-medium text-gray-900">进度筛选</div>
+                                    <div class="text-xs text-gray-500 mt-1">当前渲染 {{ openingTaskPagination.start }}-{{ openingTaskPagination.end }} / 筛选 {{ filteredOpeningTasks.length }} / 全部 {{ openingTasks.length }} 项</div>
+                                </div>
+                                <button @click="resetOpeningTaskFilter" class="inline-flex items-center justify-center px-3 py-2 rounded-lg border border-gray-200 text-sm text-gray-600 hover:bg-gray-50">
+                                    <i class="fas fa-redo mr-1"></i>重置筛选
+                                </button>
+                            </div>
+                            <div class="flex flex-wrap gap-2 mb-3">
+                                <button v-for="item in openingStatusFilterChips" :key="item.value || 'all'" @click="openingTaskFilter.status = item.value" :class="openingTaskFilter.status === item.value ? item.activeClass : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'" class="px-3 py-1.5 rounded-full border text-xs font-medium">
+                                    {{ item.label }} <span class="ml-1">{{ item.count }}</span>
+                                </button>
+                            </div>
+                            <div class="flex flex-wrap gap-2 mb-4">
+                                <button v-for="item in openingAttentionFilterChips" :key="item.value" @click="openingTaskFilter.attention = openingTaskFilter.attention === item.value ? '' : item.value" :class="openingTaskFilter.attention === item.value ? item.activeClass : 'bg-gray-50 text-gray-600 border-gray-100 hover:bg-gray-100'" class="px-3 py-1.5 rounded-full border text-xs font-medium">
+                                    {{ item.label }} <span class="ml-1">{{ item.count }}</span>
+                                </button>
+                            </div>
+                            <div class="grid grid-cols-1 md:grid-cols-4 gap-3">
+                                <select v-model="openingTaskFilter.category" class="px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white">
+                                    <option value="">全部分类</option>
+                                    <option v-for="category in openingCategories" :key="category" :value="category">{{ category }}</option>
+                                </select>
+                                <select v-model="openingTaskFilter.status" class="px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white">
+                                    <option value="">全部状态</option>
+                                    <option v-for="status in openingStatusOptions" :key="status.value" :value="status.value">{{ status.label }}</option>
+                                </select>
+                                <select v-model="openingTaskFilter.risk" class="px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white">
+                                    <option value="">全部风险</option>
+                                    <option value="high">高风险</option>
+                                    <option value="medium">中风险</option>
+                                    <option value="low">低风险</option>
+                                </select>
+                                <select v-model="openingTaskFilter.attention" class="px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white">
+                                    <option value="">全部重点项</option>
+                                    <option value="overdue">逾期未完成</option>
+                                    <option value="dueSoon">7天内到期</option>
+                                    <option value="high">高风险</option>
+                                    <option value="blocked">受阻</option>
+                                    <option value="noOwner">未分配负责人</option>
+                                    <option value="core">核心项</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+                            <div class="px-4 py-3 border-b border-gray-100 bg-gray-50/70 flex flex-col xl:flex-row xl:items-center xl:justify-between gap-3">
+                                <div>
+                                    <div class="text-sm font-semibold text-gray-900">批量处理</div>
+                                    <div class="text-xs text-gray-500 mt-1">已选 {{ selectedOpeningTasks.length }} 项，可按当前筛选全选后统一更新状态或进度</div>
+                                </div>
+                                <div class="flex flex-wrap items-center gap-2">
+                                    <button @click="toggleSelectAllFilteredOpeningTasks(true)" :disabled="!filteredOpeningTasks.length || openingLoading" class="inline-flex items-center px-3 py-1.5 rounded-lg border border-gray-200 bg-white text-xs text-gray-700 hover:bg-gray-50 disabled:opacity-50">
+                                        <i class="fas fa-check-square mr-1"></i>选中当前筛选
+                                    </button>
+                                    <button @click="clearSelectedOpeningTasks" :disabled="!selectedOpeningTasks.length || openingLoading" class="inline-flex items-center px-3 py-1.5 rounded-lg border border-gray-200 bg-white text-xs text-gray-600 hover:bg-gray-50 disabled:opacity-50">
+                                        <i class="fas fa-times mr-1"></i>清空
+                                    </button>
+                                    <span class="text-xs text-gray-400 px-1">状态</span>
+                                    <button @click="batchUpdateOpeningTasks({ status: 'doing' })" :disabled="!selectedOpeningTasks.length || openingLoading" class="px-3 py-1.5 rounded-lg border border-blue-100 bg-blue-50 text-xs text-blue-700 hover:bg-blue-100 disabled:opacity-50">进行中</button>
+                                    <button @click="batchUpdateOpeningTasks({ status: 'done' })" :disabled="!selectedOpeningTasks.length || openingLoading" class="px-3 py-1.5 rounded-lg border border-green-100 bg-green-50 text-xs text-green-700 hover:bg-green-100 disabled:opacity-50">完成</button>
+                                    <button @click="batchUpdateOpeningTasks({ status: 'blocked' })" :disabled="!selectedOpeningTasks.length || openingLoading" class="px-3 py-1.5 rounded-lg border border-yellow-100 bg-yellow-50 text-xs text-yellow-700 hover:bg-yellow-100 disabled:opacity-50">受阻</button>
+                                    <span class="text-xs text-gray-400 px-1">进度</span>
+                                    <button v-for="value in openingProgressQuickValues" :key="`batch-progress-${value}`" @click="batchUpdateOpeningTasks({ progress_percent: value })" :disabled="!selectedOpeningTasks.length || openingLoading" class="px-2 py-1.5 rounded-lg border border-gray-200 bg-white text-xs text-gray-600 hover:bg-gray-50 disabled:opacity-50">{{ value }}%</button>
+                                </div>
+                            </div>
+                            <div class="overflow-x-auto">
+                                <table class="min-w-full divide-y divide-gray-100">
+                                    <thead class="bg-gray-50">
+                                        <tr>
+                                            <th class="w-12 px-4 py-3 text-left">
+                                                <input type="checkbox" :checked="isAllFilteredOpeningTasksSelected" :disabled="!filteredOpeningTasks.length || openingLoading" @change="toggleSelectAllFilteredOpeningTasks($event.target.checked)" aria-label="选择当前筛选检查项" class="rounded border-gray-300 text-blue-600 focus:ring-blue-500">
+                                            </th>
+                                            <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500">检查项</th>
+                                            <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500">负责人</th>
+                                            <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500">截止时间</th>
+                                            <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500">状态</th>
+                                            <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500">进度保存</th>
+                                            <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500">风险</th>
+                                            <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500">规则建议 / 验收标准</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody class="divide-y divide-gray-50">
+                                        <tr v-for="task in pagedOpeningTasks" :key="task.id" class="hover:bg-gray-50 align-top">
+                                            <td class="px-4 py-4">
+                                                <input type="checkbox" v-model="selectedOpeningTaskIds" :value="String(task.id)" :aria-label="`选择检查项：${task.task_name || task.id}`" class="rounded border-gray-300 text-blue-600 focus:ring-blue-500">
+                                            </td>
+                                            <td class="px-4 py-4 min-w-[260px]">
+                                                <div class="flex items-center gap-2">
+                                                    <span class="text-xs px-2 py-1 rounded-full bg-blue-50 text-blue-700">{{ task.category }}</span>
+                                                    <span v-if="Number(task.is_core) === 1" class="text-xs px-2 py-1 rounded-full bg-yellow-50 text-yellow-700">核心</span>
+                                                </div>
+                                                <div class="font-medium text-gray-900 mt-2">{{ task.task_name }}</div>
+                                                <div class="text-xs text-gray-500 mt-1 leading-relaxed">{{ task.task_desc }}</div>
+                                            </td>
+                                            <td class="px-4 py-4 min-w-[150px]">
+                                                <input v-model="task.owner_name" @change="updateOpeningTask(task)" class="w-full px-2 py-1.5 border border-gray-200 rounded-lg text-sm" placeholder="负责人">
+                                                <input v-model="task.collaborator_name" @change="updateOpeningTask(task)" class="w-full px-2 py-1.5 border border-gray-200 rounded-lg text-xs mt-2" placeholder="协同人">
+                                            </td>
+                                            <td class="px-4 py-4 min-w-[150px]">
+                                                <input v-model="task.deadline" @change="updateOpeningTask(task, { refreshOverview: true })" type="date" class="w-full px-2 py-1.5 border border-gray-200 rounded-lg text-sm">
+                                                <div :class="openingTaskDueClass(task)" class="text-xs mt-2">{{ openingTaskDueLabel(task) }}</div>
+                                            </td>
+                                            <td class="px-4 py-4 min-w-[130px]">
+                                                <select v-model="task.status" @change="handleOpeningTaskStatusChange(task)" class="w-full px-2 py-1.5 border border-gray-200 rounded-lg text-sm bg-white">
+                                                    <option v-for="status in openingStatusOptions" :key="status.value" :value="status.value">{{ status.label }}</option>
+                                                </select>
+                                                <div class="flex flex-wrap gap-1 mt-2">
+                                                    <button v-if="task.status !== 'doing'" @click.stop="setOpeningTaskStatus(task, 'doing')" class="w-7 h-7 rounded-lg border border-blue-100 bg-blue-50 text-blue-600 hover:bg-blue-100" title="标记进行中"><i class="fas fa-play text-xs"></i></button>
+                                                    <button v-if="task.status !== 'done'" @click.stop="setOpeningTaskStatus(task, 'done')" class="w-7 h-7 rounded-lg border border-green-100 bg-green-50 text-green-600 hover:bg-green-100" title="标记完成"><i class="fas fa-check text-xs"></i></button>
+                                                    <button v-if="task.status !== 'blocked'" @click.stop="setOpeningTaskStatus(task, 'blocked')" class="w-7 h-7 rounded-lg border border-yellow-100 bg-yellow-50 text-yellow-700 hover:bg-yellow-100" title="标记受阻"><i class="fas fa-ban text-xs"></i></button>
+                                                </div>
+                                                <textarea v-model="task.remark" @change="updateOpeningTask(task)" rows="2" class="w-full px-2 py-1.5 border border-gray-200 rounded-lg text-xs mt-2" placeholder="备注"></textarea>
+                                            </td>
+                                            <td class="px-4 py-4 min-w-[190px]">
+                                                <div class="flex items-center justify-between text-xs mb-2">
+                                                    <span :class="openingTaskProgressTextClass(task)" class="font-semibold">{{ openingTaskProgressPercent(task) }}%</span>
+                                                    <span class="text-gray-500">{{ openingTaskProgressStage(task) }}</span>
+                                                </div>
+                                                <input v-model.number="task.progress_percent" @input="handleOpeningTaskProgressInput(task)" type="range" min="0" max="100" step="5" class="w-full">
+                                                <div class="flex flex-wrap gap-1 mt-2">
+                                                    <button v-for="value in openingProgressQuickValues" :key="value" @click.stop="setOpeningTaskProgress(task, value)" :class="openingTaskProgressPercent(task) === value ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'" class="px-2 py-1 rounded border text-xs">{{ value }}%</button>
+                                                </div>
+                                                <button @click.stop="saveOpeningTaskProgress(task)" class="mt-2 w-full px-2 py-1.5 rounded-lg bg-blue-600 text-white text-xs hover:bg-blue-700">
+                                                    <i class="fas fa-save mr-1"></i>保存进度
+                                                </button>
+                                            </td>
+                                            <td class="px-4 py-4"><span :class="openingRiskClass(task.risk_level)" class="px-2 py-1 rounded-full text-xs font-medium whitespace-nowrap">{{ openingRiskText(task.risk_level) }}</span></td>
+                                            <td class="px-4 py-4 min-w-[320px]">
+                                                <div class="text-xs text-gray-500 mb-1">规则建议</div>
+                                                <div class="text-sm text-gray-700 leading-relaxed">{{ task.ai_suggestion || '-' }}</div>
+                                                <div class="text-xs text-gray-500 mt-3 mb-1">验收标准</div>
+                                                <div class="text-sm text-gray-700 leading-relaxed">{{ task.acceptance_standard || '-' }}</div>
+                                            </td>
+                                        </tr>
+                                        <tr v-if="!filteredOpeningTasks.length">
+                                            <td colspan="8" class="px-4 py-12 text-center text-gray-400"><i class="fas fa-inbox text-3xl mb-2"></i><div>{{ selectedOpeningProjectId ? '暂无检查项，请先生成清单' : '请先选择开业项目' }}</div></td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                            <div v-if="openingTaskPagination.total &gt; openingTaskPagination.pageSize" class="px-4 py-3 border-t border-gray-100 bg-white flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                                <div class="text-xs text-gray-500">
+                                    已分页渲染，每页 {{ openingTaskPagination.pageSize }} 项，当前 {{ openingTaskPagination.start }}-{{ openingTaskPagination.end }} / {{ openingTaskPagination.total }}
+                                </div>
+                                <div class="flex items-center gap-2">
+                                    <button @click="changeOpeningTaskPage(openingTaskPage - 1)" :disabled="openingTaskPage &lt;= 1" class="px-3 py-1.5 rounded-lg border border-gray-200 text-xs text-gray-600 hover:bg-gray-50 disabled:opacity-50">上一页</button>
+                                    <span class="px-2 text-xs text-gray-500">{{ openingTaskPagination.page }} / {{ openingTaskPagination.totalPages }}</span>
+                                    <button @click="changeOpeningTaskPage(openingTaskPage + 1)" :disabled="openingTaskPage &gt;= openingTaskPagination.totalPages" class="px-3 py-1.5 rounded-lg border border-gray-200 text-xs text-gray-600 hover:bg-gray-50 disabled:opacity-50">下一页</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 运营管理：策源·多源数据核对 -->
                     <div v-if="currentPage === 'ops-source'" class="max-w-7xl mx-auto space-y-6">
                         <div class="rounded-xl border border-gray-100 bg-white p-5 shadow-sm">
                             <div class="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
