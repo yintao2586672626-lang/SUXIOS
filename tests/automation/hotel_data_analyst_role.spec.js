@@ -321,7 +321,10 @@ test('hotel data analyst is globally summonable and opens the real scoped compos
   const overflow = await receipt.evaluate(element => element.scrollWidth - element.clientWidth);
   expect(overflow).toBeLessThanOrEqual(1);
 
-  await launcher.click();
+  const agentPageLoadConsultant = page.getByTestId('operating-question-consultant-load');
+  await expect(agentPageLoadConsultant).toBeVisible({ timeout: 15000 });
+  await agentPageLoadConsultant.click();
+  await expect(page.getByTestId('system-guide-floating-launcher')).toBeVisible({ timeout: 15000 });
   await page.getByTestId('system-guide-input').fill('请以酒店数据分析师角色复核当前携程经营事实。');
   await page.getByTestId('system-guide-submit').click();
   const globalFeedback = page.getByTestId('system-guide-analysis-quality-feedback');
