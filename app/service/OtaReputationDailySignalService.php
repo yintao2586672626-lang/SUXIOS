@@ -229,6 +229,9 @@ final class OtaReputationDailySignalService
         $primaryChannel = $channel === '' || ($source === 'ctrip'
             ? in_array(mb_strtolower($channel, 'UTF-8'), ['ctrip', '携程'], true)
             : in_array(mb_strtolower($channel, 'UTF-8'), ['meituan', '美团', '点评聚合'], true));
+        if (!$primaryChannel) {
+            return null;
+        }
         $score = $this->number($row, $raw, ['comment_score', 'commentScore', 'score', 'rating']);
         $badReviewCount = $this->number($row, $raw, ['bad_review_count', 'badReviewCount', 'negativeCount', 'noRecommendCount']);
         $unrepliedCount = $this->number($row, $raw, ['comment_unreply_count', 'unReplyCount', 'unrepliedCount']);
@@ -262,10 +265,7 @@ final class OtaReputationDailySignalService
             return false;
         }
         $status = strtolower(trim((string)($row['validation_status'] ?? '')));
-        return !in_array($status, [
-            'failed', 'collection_failed', 'unverified', 'invalid', 'rejected',
-            'binding_missing', 'permission_denied', 'stale',
-        ], true);
+        return in_array($status, ['normal', 'valid', 'verified'], true);
     }
 
     /** @return array<string,mixed> */

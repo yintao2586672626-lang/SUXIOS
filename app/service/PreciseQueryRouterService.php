@@ -1747,30 +1747,52 @@ final class PreciseQueryRouterService
             ->whereNull('deleted_at')
             ->find();
         if (is_array($existing)) {
-            return $this->read((int)$existing['id'], $tenantId, $accessibleHotelIds);
+            return $this->readExistingRequest($existing, $digest, $tenantId, $accessibleHotelIds);
         }
         $now = $this->now()->format('Y-m-d H:i:s');
-        $id = (int)Db::name(OperatingQuestionService::TABLE)->insertGetId([
-            'tenant_id' => $tenantId,
-            'hotel_id' => $hotelId,
-            'request_key' => $requestKey,
-            'question_text' => $query,
-            'platform' => $platform,
-            'date_start' => $storageDate,
-            'date_end' => $storageDate,
-            'answer_status' => (string)($answer['status'] ?? 'clarification_required'),
-            'answer_summary' => (string)($answer['summary'] ?? ''),
-            'answer_json' => $this->encode($answer),
-            'fact_refs_json' => $this->encode($factRefs),
-            'memory_refs_json' => $this->encode([]),
-            'knowledge_refs_json' => $this->encode($knowledgeRefs),
-            'execution_refs_json' => $this->encode([]),
-            'data_gaps_json' => $this->encode((array)($answer['data_gaps'] ?? [])),
-            'content_digest' => $digest,
-            'created_by' => max(0, $userId),
-            'created_at' => $now,
-            'updated_at' => $now,
-        ]);
+        try {
+            $id = (int)Db::name(OperatingQuestionService::TABLE)->insertGetId([
+                'tenant_id' => $tenantId,
+                'hotel_id' => $hotelId,
+                'request_key' => $requestKey,
+                'question_text' => $query,
+                'platform' => $platform,
+                'date_start' => $storageDate,
+                'date_end' => $storageDate,
+                'answer_status' => (string)($answer['status'] ?? 'clarification_required'),
+                'answer_summary' => (string)($answer['summary'] ?? ''),
+                'answer_json' => $this->encode($answer),
+                'fact_refs_json' => $this->encode($factRefs),
+                'memory_refs_json' => $this->encode([]),
+                'knowledge_refs_json' => $this->encode($knowledgeRefs),
+                'execution_refs_json' => $this->encode([]),
+                'data_gaps_json' => $this->encode((array)($answer['data_gaps'] ?? [])),
+                'content_digest' => $digest,
+                'created_by' => max(0, $userId),
+                'created_at' => $now,
+                'updated_at' => $now,
+            ]);
+        } catch (\Throwable $error) {
+            if (!$this->isDuplicateRequestConflict($error)) {
+                throw $error;
+            }
+            $concurrent = Db::name(OperatingQuestionService::TABLE)
+                ->where('tenant_id', $tenantId)
+                ->where('hotel_id', $hotelId)
+                ->where('request_key', $requestKey)
+                ->whereNull('deleted_at')
+                ->find();
+            if (!is_array($concurrent)) {
+                throw $error;
+            }
+            return $this->readExistingRequest(
+                $concurrent,
+                $digest,
+                $tenantId,
+                $accessibleHotelIds,
+                $error
+            );
+        }
         if ($id <= 0) {
             throw new RuntimeException('精准查数问题保存失败');
         }
@@ -1943,6 +1965,40 @@ final class PreciseQueryRouterService
         } catch (\Throwable) {
             return 0;
         }
+    }
+
+    /** @param array<string,mixed> $row @param list<int> $accessibleHotelIds */
+    private function readExistingRequest(
+        array $row,
+        string $expectedDigest,
+        int $tenantId,
+        array $accessibleHotelIds,
+        ?\Throwable $previous = null
+    ): array {
+        $actualDigest = strtolower(trim((string)($row['content_digest'] ?? '')));
+        if (!hash_equals($expectedDigest, $actualDigest)) {
+            throw new RuntimeException('精准查数幂等键已用于不同内容', 409, $previous);
+        }
+        $id = (int)($row['id'] ?? 0);
+        if ($id <= 0) {
+            throw new RuntimeException('精准查数幂等回读编号无效', 409, $previous);
+        }
+        return $this->read($id, $tenantId, $accessibleHotelIds);
+    }
+
+    private function isDuplicateRequestConflict(\Throwable $error): bool
+    {
+        for ($current = $error; $current !== null; $current = $current->getPrevious()) {
+            $message = strtolower($current->getMessage());
+            $code = (string)$current->getCode();
+            if (in_array($code, ['23000', '23505'], true)
+                || str_contains($message, 'duplicate entry')
+                || str_contains($message, 'unique constraint failed')
+            ) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private function now(): DateTimeImmutable

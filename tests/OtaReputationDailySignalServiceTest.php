@@ -72,6 +72,29 @@ final class OtaReputationDailySignalServiceTest extends TestCase
         self::assertSame('no_current_strict_fact', $result['platforms']['ctrip']['status']);
     }
 
+    public function testNonPrimaryChannelsAndNonUsableValidationStatesCannotBecomeSignals(): void
+    {
+        $qunar = $this->row(20, 'ctrip', '2026-09-01', 2.0, 8, 7, true);
+        $raw = json_decode((string)$qunar['raw_data'], true);
+        self::assertIsArray($raw);
+        $raw['dimension_values']['comment_channel'] = '去哪儿';
+        $qunar['raw_data'] = json_encode($raw, JSON_UNESCAPED_UNICODE);
+
+        $rows = [$qunar];
+        foreach (['', 'abnormal', 'quarantined', 'warning', 'partial', 'unverified', 'stale'] as $offset => $status) {
+            $row = $this->row(30 + $offset, 'ctrip', '2026-09-01', 2.0, 8, 7, true);
+            $row['validation_status'] = $status;
+            $rows[] = $row;
+        }
+
+        $result = (new OtaReputationDailySignalService(static fn(): array => $rows))
+            ->build(80, 80, '2026-09-01');
+
+        self::assertSame('no_actionable_signal', $result['status']);
+        self::assertSame([], $result['signals']);
+        self::assertSame('no_current_strict_fact', $result['platforms']['ctrip']['status']);
+    }
+
     public function testRejectsInvalidScopeAndDate(): void
     {
         $service = new OtaReputationDailySignalService(fn(): array => []);

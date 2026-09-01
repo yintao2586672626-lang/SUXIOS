@@ -313,6 +313,47 @@ final class SemanticGlossaryServiceTest extends TestCase
         ));
     }
 
+    public function testOperatingQuestionMetricDefinitionsBackPreciseSourceProvenance(): void
+    {
+        $glossary = new SemanticGlossaryService();
+        $resolution = $glossary->resolve('曝光到访率是多少', 'meituan');
+        $result = $glossary->metricReadback(
+            $resolution,
+            [$this->operatingQuestionFunnelFact(1422, 206)]
+        );
+
+        self::assertSame('calculated_from_same_fact_scope', $result['status']);
+        self::assertSame(14.49, $result['values'][0]['value']);
+        self::assertSame(
+            ['data.myHotel.exposureUV', 'data.myHotel.intentionUV'],
+            $result['values'][0]['source_paths']
+        );
+        self::assertSame(['online_daily_data#700'], $result['used_evidence_refs']);
+    }
+
+    public function testExposureToVisitRejectsImpossibleCountersButPreservesRealZero(): void
+    {
+        $glossary = new SemanticGlossaryService();
+        $resolution = $glossary->resolve('曝光到访率是多少', 'meituan');
+
+        $zero = $glossary->metricReadback($resolution, [$this->operatingQuestionFunnelFact(100, 0)]);
+        self::assertSame('calculated_from_same_fact_scope', $zero['status']);
+        self::assertSame(0.0, $zero['values'][0]['value']);
+
+        foreach ([-1, 101] as $visitors) {
+            $blocked = $glossary->metricReadback(
+                $resolution,
+                [$this->operatingQuestionFunnelFact(100, $visitors)]
+            );
+            self::assertSame('not_computable', $blocked['status']);
+            self::assertSame([], $blocked['values']);
+            self::assertSame(
+                'aligned_exposure_users_or_detail_visitors_missing',
+                $blocked['data_gaps'][0]['code']
+            );
+        }
+    }
+
     public function testIntentPaymentConversionStaysBlockedWithoutAlignedSourceContract(): void
     {
         $glossary = new SemanticGlossaryService();
@@ -452,5 +493,63 @@ final class SemanticGlossaryServiceTest extends TestCase
         self::assertIsArray($definition);
         self::assertSame('Openness', $definition['term']);
         self::assertStringContainsString('不是宿析OS酒店经营指标', $definition['definition']);
+    }
+
+    /** @return array<string,mixed> */
+    private function operatingQuestionFunnelFact(int $exposure, int $visitors): array
+    {
+        $definition = static function (
+            string $field,
+            string $sourceMetricKey,
+            string $sourceKey,
+            string $sourcePath
+        ): array {
+            return [
+                'claimable' => true,
+                'definition_id' => $field === 'list_exposure'
+                    ? 'ota_list_exposure_users.v1'
+                    : 'ota_detail_visitors.v1',
+                'source_metric_key' => $sourceMetricKey,
+                'source_data_type' => 'traffic',
+                'source_key' => $sourceKey,
+                'storage_field' => 'online_daily_data.' . $field,
+                'source_path_digest' => hash('sha256', $sourcePath),
+                'field_fact_digest' => hash('sha256', $field . ':' . $sourcePath),
+                'unit' => 'visitor_count',
+                'unit_status' => 'verified',
+            ];
+        };
+
+        return [
+            'ref' => 'online_daily_data#700',
+            'data_date' => '2026-08-25',
+            'platform' => 'meituan',
+            'data_type' => 'traffic',
+            'history_status' => 'success',
+            'quality_status' => 'verified',
+            'readback_status' => 'readback_verified',
+            'metric_values' => [
+                'list_exposure' => $exposure,
+                'detail_exposure' => $visitors,
+            ],
+            'metric_units' => [
+                'list_exposure' => 'visitor_count',
+                'detail_exposure' => 'visitor_count',
+            ],
+            'metric_definitions' => [
+                'list_exposure' => $definition(
+                    'list_exposure',
+                    'exposure_users',
+                    'exposureuv',
+                    'data.myHotel.exposureUV'
+                ),
+                'detail_exposure' => $definition(
+                    'detail_exposure',
+                    'detail_visitors',
+                    'intentionuv',
+                    'data.myHotel.intentionUV'
+                ),
+            ],
+        ];
     }
 }

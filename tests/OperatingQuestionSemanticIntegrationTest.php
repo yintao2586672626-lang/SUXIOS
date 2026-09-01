@@ -47,11 +47,19 @@ final class OperatingQuestionSemanticIntegrationTest extends TestCase
 
     protected function setUp(): void
     {
-        foreach (['hotel_operating_questions', 'hotels'] as $table) {
+        foreach (['hotel_operating_questions', 'online_daily_data', 'hotels'] as $table) {
             Db::execute('DROP TABLE IF EXISTS ' . $table);
         }
         Db::execute('CREATE TABLE hotels (id INTEGER PRIMARY KEY, tenant_id INTEGER NOT NULL, name TEXT, status INTEGER NOT NULL)');
         Db::execute("INSERT INTO hotels (id,tenant_id,name,status) VALUES (80,10,'Hotel 80',1)");
+        Db::execute(
+            'CREATE TABLE online_daily_data ('
+            . 'id INTEGER PRIMARY KEY, tenant_id INTEGER NOT NULL, system_hotel_id INTEGER NOT NULL, '
+            . 'data_date TEXT NOT NULL, platform TEXT, source TEXT, data_type TEXT, dimension TEXT, '
+            . 'validation_status TEXT, history_status TEXT, readback_verified INTEGER, readback_verified_at TEXT, '
+            . 'ingestion_method TEXT, source_trace_id TEXT, snapshot_time TEXT, '
+            . 'list_exposure INTEGER, detail_exposure INTEGER, raw_data TEXT)'
+        );
         Db::execute(
             'CREATE TABLE hotel_operating_questions ('
             . 'id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER, hotel_id INTEGER, request_key TEXT, question_text TEXT, '
@@ -60,6 +68,83 @@ final class OperatingQuestionSemanticIntegrationTest extends TestCase
             . 'content_digest TEXT, created_by INTEGER, created_at TEXT, updated_at TEXT, deleted_at TEXT, '
             . 'UNIQUE(tenant_id,hotel_id,request_key))'
         );
+    }
+
+    public function testProductionFactAdapterMetricDefinitionsFeedExposureToVisitReadback(): void
+    {
+        $rawData = json_encode([
+            'field_facts' => [[
+                'data_type' => 'traffic',
+                'metric_key' => 'list_exposure',
+                'source_key' => 'exposureUV',
+                'source_path' => 'data.myHotel.exposureUV',
+                'storage_field' => 'online_daily_data.list_exposure',
+                'status' => 'captured',
+                'stored_value_present' => true,
+            ], [
+                'data_type' => 'traffic',
+                'metric_key' => 'detail_exposure',
+                'source_key' => 'intentionUV',
+                'source_path' => 'data.myHotel.intentionUV',
+                'storage_field' => 'online_daily_data.detail_exposure',
+                'status' => 'captured',
+                'stored_value_present' => true,
+            ]],
+        ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
+        Db::name('online_daily_data')->insert([
+            'id' => 102476,
+            'tenant_id' => 10,
+            'system_hotel_id' => 80,
+            'data_date' => '2026-08-23',
+            'platform' => 'meituan',
+            'source' => 'meituan',
+            'data_type' => 'traffic',
+            'dimension' => 'hotel',
+            'validation_status' => 'verified',
+            'history_status' => 'success',
+            'readback_verified' => 1,
+            'readback_verified_at' => '2026-08-24 23:18:36',
+            'ingestion_method' => 'browser_capture',
+            'source_trace_id' => 'trace-meituan-20260823',
+            'snapshot_time' => '2026-08-24 23:18:30',
+            'list_exposure' => 1422,
+            'detail_exposure' => 206,
+            'raw_data' => $rawData,
+        ]);
+
+        $facts = (new OperatingQuestionService())->readCurrentVerifiedFactsForRefs(
+            10,
+            80,
+            'meituan',
+            '2026-08-23',
+            '2026-08-23',
+            ['online_daily_data#102476']
+        );
+
+        self::assertCount(1, $facts);
+        self::assertArrayHasKey('metric_definitions', $facts[0]);
+        self::assertArrayNotHasKey('metric_provenance', $facts[0]);
+        self::assertTrue($facts[0]['metric_definitions']['list_exposure']['claimable']);
+        self::assertTrue($facts[0]['metric_definitions']['detail_exposure']['claimable']);
+
+        $result = (new OperatingQuestionPreciseQueryService())->finalize([
+            'question' => '美团曝光到访率是多少',
+            'scope' => [
+                'platform' => 'meituan',
+                'date_start' => '2026-08-23',
+                'date_end' => '2026-08-23',
+                'source_scope' => 'ota_channel',
+            ],
+            'facts' => $facts,
+        ]);
+
+        self::assertSame('answered_by_precise_query', $result['status']);
+        self::assertSame(14.49, $result['precise_result']['metric_readback']['values'][0]['value']);
+        self::assertSame(
+            ['data.myHotel.exposureUV', 'data.myHotel.intentionUV'],
+            $result['precise_result']['metric_readback']['values'][0]['source_paths']
+        );
+        self::assertSame(['online_daily_data#102476'], $result['used_evidence_refs']);
     }
 
     public function testPreciseMetricIsSavedReadBackIdempotentlyAndSkipsAi(): void

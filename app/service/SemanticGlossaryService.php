@@ -479,7 +479,7 @@ final class SemanticGlossaryService
                     'value' => $value + 0,
                     'unit' => (string)($mapping['unit'] ?? ($fact['metric_units'][$field] ?? 'source_defined_value')),
                     'storage_field' => $field,
-                    'source_paths' => $this->metricSourcePaths($fact, $field),
+                    'source_paths' => $this->metricSourcePaths($fact, $field, $mapping),
                     'evidence_ref' => $ref,
                     'collected_at' => $fact['collected_at'] ?? null,
                     'verification_status' => $this->factQualityStatus($fact),
@@ -530,6 +530,7 @@ final class SemanticGlossaryService
             $visitors = $values[$visitorField] ?? null;
             if ($exposureField === '' || $visitorField === ''
                 || !is_numeric($exposure) || !is_numeric($visitors) || (float)$exposure <= 0.0
+                || (float)$visitors < 0.0 || (float)$visitors > (float)$exposure
                 || !$this->factMetricProvenanceMatches($fact, $exposureField, $exposureMapping)
                 || !$this->factMetricProvenanceMatches($fact, $visitorField, $visitorMapping)
             ) {
@@ -547,8 +548,8 @@ final class SemanticGlossaryService
                     'exposure_users' => 0 + $exposure,
                 ],
                 'source_paths' => array_values(array_unique(array_merge(
-                    $this->metricSourcePaths($fact, $exposureField),
-                    $this->metricSourcePaths($fact, $visitorField)
+                    $this->metricSourcePaths($fact, $exposureField, $exposureMapping),
+                    $this->metricSourcePaths($fact, $visitorField, $visitorMapping)
                 ))),
                 'evidence_ref' => $ref,
                 'collected_at' => $fact['collected_at'] ?? null,
@@ -685,16 +686,59 @@ final class SemanticGlossaryService
                 return true;
             }
         }
-        return false;
+        $definition = is_array($fact['metric_definitions'][$field] ?? null)
+            ? $fact['metric_definitions'][$field]
+            : [];
+        $storageField = strtolower(trim((string)($definition['storage_field'] ?? '')));
+        $sourceDataType = strtolower(trim((string)($definition['source_data_type'] ?? '')));
+        $sourcePathDigest = strtolower(trim((string)($definition['source_path_digest'] ?? '')));
+        $fieldFactDigest = strtolower(trim((string)($definition['field_fact_digest'] ?? '')));
+        if (($definition['claimable'] ?? false) !== true
+            || $storageField !== 'online_daily_data.' . strtolower($field)
+            || $sourceDataType === ''
+            || $sourceDataType !== strtolower(trim((string)($fact['data_type'] ?? '')))
+            || trim((string)($definition['source_key'] ?? '')) === ''
+            || (string)($definition['unit_status'] ?? '') !== 'verified'
+            || preg_match('/^[a-f0-9]{64}$/D', $sourcePathDigest) !== 1
+            || preg_match('/^[a-f0-9]{64}$/D', $fieldFactDigest) !== 1
+            || !array_key_exists($field, (array)($fact['metric_values'] ?? []))
+        ) {
+            return false;
+        }
+        $pathMatches = $requiredPaths === [];
+        foreach ($requiredPaths as $requiredPath) {
+            if (hash_equals(hash('sha256', $requiredPath), $sourcePathDigest)) {
+                $pathMatches = true;
+                break;
+            }
+        }
+        $definitionKeys = array_values(array_unique(array_filter([
+            $field,
+            trim((string)($definition['source_metric_key'] ?? '')),
+        ])));
+        $keyMatches = $requiredMetricKeys === [] || array_intersect($requiredMetricKeys, $definitionKeys) !== [];
+        return $pathMatches && $keyMatches;
     }
 
     /** @param array<string,mixed> $fact @return list<string> */
-    private function metricSourcePaths(array $fact, string $field): array
+    private function metricSourcePaths(array $fact, string $field, array $mapping = []): array
     {
         $paths = [];
         foreach ((array)($fact['metric_provenance'][$field] ?? []) as $item) {
             if (is_array($item) && trim((string)($item['source_path'] ?? '')) !== '') {
                 $paths[] = trim((string)$item['source_path']);
+            }
+        }
+        $definition = is_array($fact['metric_definitions'][$field] ?? null)
+            ? $fact['metric_definitions'][$field]
+            : [];
+        $sourcePathDigest = strtolower(trim((string)($definition['source_path_digest'] ?? '')));
+        if (preg_match('/^[a-f0-9]{64}$/D', $sourcePathDigest) === 1) {
+            foreach ((array)($mapping['required_source_paths'] ?? []) as $requiredPath) {
+                $requiredPath = trim((string)$requiredPath);
+                if ($requiredPath !== '' && hash_equals(hash('sha256', $requiredPath), $sourcePathDigest)) {
+                    $paths[] = $requiredPath;
+                }
             }
         }
         return array_values(array_unique($paths));

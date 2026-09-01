@@ -539,6 +539,60 @@ final class PreciseQueryRouterServiceTest extends TestCase
         self::assertNull($result['answer']['value']);
     }
 
+    public function testConcurrentDuplicateInsertReadsTheCommittedWinner(): void
+    {
+        Db::execute(<<<'SQL'
+CREATE TRIGGER precise_query_concurrent_winner
+BEFORE INSERT ON hotel_operating_questions
+WHEN NEW.created_by = 7
+BEGIN
+  INSERT INTO hotel_operating_questions (
+    tenant_id, hotel_id, request_key, question_text, platform, date_start, date_end,
+    answer_status, answer_summary, answer_json, fact_refs_json, memory_refs_json,
+    knowledge_refs_json, execution_refs_json, data_gaps_json, content_digest,
+    created_by, created_at, updated_at, deleted_at
+  ) VALUES (
+    NEW.tenant_id, NEW.hotel_id, NEW.request_key, NEW.question_text, NEW.platform,
+    NEW.date_start, NEW.date_end, NEW.answer_status, NEW.answer_summary, NEW.answer_json,
+    NEW.fact_refs_json, NEW.memory_refs_json, NEW.knowledge_refs_json,
+    NEW.execution_refs_json, NEW.data_gaps_json, NEW.content_digest,
+    8, NEW.created_at, NEW.updated_at, NEW.deleted_at
+  );
+  SELECT RAISE(FAIL, 'UNIQUE constraint failed: hotel_operating_questions.tenant_id, hotel_operating_questions.hotel_id, hotel_operating_questions.request_key');
+END
+SQL);
+
+        $result = $this->router()->route(10, [80, 81], 7, [
+            'query' => '帮我看看并发情况。',
+            'current_scope' => ['hotel_id' => 80, 'hotel_name' => 'Hotel 80'],
+        ]);
+
+        self::assertGreaterThan(0, $result['id']);
+        self::assertSame('readback_verified', $result['persistence_status']);
+        self::assertSame(1, Db::name('hotel_operating_questions')->count());
+        self::assertSame(8, (int)Db::name('hotel_operating_questions')->value('created_by'));
+    }
+
+    public function testExistingIdempotencyKeyMustRetainTheExactContentDigest(): void
+    {
+        $payload = [
+            'query' => '帮我看看。',
+            'current_scope' => ['hotel_id' => 80, 'hotel_name' => 'Hotel 80'],
+        ];
+        $first = $this->router()->route(10, [80, 81], 7, $payload);
+        Db::name('hotel_operating_questions')
+            ->where('id', (int)$first['id'])
+            ->update(['content_digest' => str_repeat('0', 64)]);
+
+        try {
+            $this->router()->route(10, [80, 81], 7, $payload);
+            self::fail('A drifted idempotent winner must not be returned.');
+        } catch (\RuntimeException $error) {
+            self::assertSame(409, $error->getCode());
+            self::assertStringContainsString('幂等键已用于不同内容', $error->getMessage());
+        }
+    }
+
     /** @return array<string,mixed> */
     private function ask(string $question): array
     {
