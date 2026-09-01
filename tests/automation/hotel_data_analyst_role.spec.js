@@ -257,14 +257,16 @@ test('hotel data analyst is globally summonable and opens the real scoped compos
   await mockAuthenticatedApi(page);
   await page.goto(appUrl, { waitUntil: 'domcontentloaded' });
 
-  await page.getByTestId('system-guide-floating-launcher').click();
+  const launcher = page.getByTestId('system-guide-floating-launcher');
+  await expect(launcher).toBeVisible({ timeout: 15000 });
+  await launcher.click();
   const globalRole = page.getByTestId('system-guide-mode-report');
   await expect(globalRole).toBeVisible({ timeout: 15000 });
   await expect(globalRole).toContainText('数据分析师');
   await expect(globalRole).toHaveAttribute('data-role-key', 'hotel_data_analyst');
   await globalRole.click();
   await expect(globalRole).toHaveAttribute('aria-pressed', 'true');
-  await page.getByTestId('system-guide-floating-launcher').click();
+  await launcher.click();
 
   await page.getByText('系统与工具', { exact: true }).click();
   await page.getByText('高级AI工具箱', { exact: true }).click();
@@ -316,7 +318,7 @@ test('hotel data analyst is globally summonable and opens the real scoped compos
   const overflow = await receipt.evaluate(element => element.scrollWidth - element.clientWidth);
   expect(overflow).toBeLessThanOrEqual(1);
 
-  await page.getByTestId('system-guide-floating-launcher').click();
+  await launcher.click();
   await page.getByTestId('system-guide-input').fill('请以酒店数据分析师角色复核当前携程经营事实。');
   await page.getByTestId('system-guide-submit').click();
   const globalFeedback = page.getByTestId('system-guide-analysis-quality-feedback');
