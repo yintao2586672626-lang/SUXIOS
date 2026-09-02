@@ -205,14 +205,29 @@ final class HotelDataAnalystFeedbackProjectionService
                 || (string)($fact['quality_status'] ?? '') !== 'verified'
                 || (string)($fact['readback_status'] ?? '') !== 'readback_verified'
             ) continue;
+            $sourceUnits = (array)($fact['metric_units'] ?? []);
+            $sourceDefinitions = (array)($fact['metric_definitions'] ?? []);
             $metricValues = [];
-            foreach ((array)($fact['metric_values'] ?? []) as $key => $value) {
-                if (is_int($value) || is_float($value)) $metricValues[(string)$key] = $value;
-            }
             $metricUnits = [];
-            foreach ((array)($fact['metric_units'] ?? []) as $key => $value) {
-                if (is_scalar($value)) $metricUnits[(string)$key] = mb_substr(trim((string)$value), 0, 80);
+            $metricDefinitions = [];
+            foreach ((array)($fact['metric_values'] ?? []) as $key => $value) {
+                $key = trim((string)$key);
+                $unit = is_scalar($sourceUnits[$key] ?? null)
+                    ? mb_substr(trim((string)$sourceUnits[$key]), 0, 80)
+                    : '';
+                $definition = is_array($sourceDefinitions[$key] ?? null)
+                    ? $sourceDefinitions[$key]
+                    : [];
+                if ((!is_int($value) && !is_float($value))
+                    || !$this->validMetricDefinition($key, $unit, $definition)
+                ) {
+                    continue;
+                }
+                $metricValues[$key] = $value;
+                $metricUnits[$key] = $unit;
+                $metricDefinitions[$key] = $this->canonicalize($definition);
             }
+            if ($metricValues === []) continue;
             $result[] = [
                 'ref' => $ref,
                 'data_date' => $date,
@@ -223,12 +238,37 @@ final class HotelDataAnalystFeedbackProjectionService
                 'readback_status' => 'readback_verified',
                 'metric_values' => $metricValues,
                 'metric_units' => $metricUnits,
+                'metric_definitions' => $metricDefinitions,
             ];
         }
         if ($this->containsSensitiveMaterial($result)) {
             throw new InvalidArgumentException('frozen_replay_input_contains_sensitive_material');
         }
         return array_slice($result, 0, 40);
+    }
+
+    /** @param array<string,mixed> $definition */
+    private function validMetricDefinition(string $metricKey, string $unit, array $definition): bool
+    {
+        $definitionId = trim((string)($definition['definition_id'] ?? ''));
+        $sourceMetricKey = trim((string)($definition['source_metric_key'] ?? ''));
+        $sourceDataType = trim((string)($definition['source_data_type'] ?? ''));
+        $sourceKey = trim((string)($definition['source_key'] ?? ''));
+        $storageField = trim((string)($definition['storage_field'] ?? ''));
+        $fieldFactDigest = strtolower(trim((string)($definition['field_fact_digest'] ?? '')));
+        $sourcePathDigest = strtolower(trim((string)($definition['source_path_digest'] ?? '')));
+        return $metricKey !== ''
+            && $unit !== ''
+            && ($definition['claimable'] ?? false) === true
+            && preg_match('/^[a-z0-9_.-]+\\.v[1-9][0-9]*$/D', $definitionId) === 1
+            && preg_match('/^[a-z0-9_.:-]{1,100}$/D', $sourceMetricKey) === 1
+            && preg_match('/^[a-z0-9_.:-]{1,50}$/D', $sourceDataType) === 1
+            && preg_match('/^[a-z0-9_.:-]{1,100}$/D', $sourceKey) === 1
+            && $storageField === 'online_daily_data.' . $metricKey
+            && preg_match('/^[a-f0-9]{64}$/D', $fieldFactDigest) === 1
+            && preg_match('/^[a-f0-9]{64}$/D', $sourcePathDigest) === 1
+            && (string)($definition['unit_status'] ?? '') === 'verified'
+            && hash_equals(trim((string)($definition['unit'] ?? '')), $unit);
     }
 
     private function validScope(array $question, array $scope): bool

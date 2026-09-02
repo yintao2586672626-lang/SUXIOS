@@ -299,9 +299,9 @@ final class PriceSuggestionShadowReplayService
         $row['causality_claimed'] = 0;
 
         $created = false;
-        $id = 0;
+        $replay = null;
         try {
-            [$id, $created] = Db::transaction(function () use (
+            [$replay, $created] = Db::transaction(function () use (
                 $tenantId,
                 $hotelId,
                 $suggestionId,
@@ -315,13 +315,24 @@ final class PriceSuggestionShadowReplayService
                     ->where('content_digest', $contentDigest)
                     ->find();
                 if (is_array($existing) && (int)($existing['id'] ?? 0) > 0) {
-                    return [(int)$existing['id'], false];
+                    return [
+                        $this->readVerified(
+                            (int)$existing['id'],
+                            $tenantId,
+                            $hotelId,
+                            $suggestionId
+                        ),
+                        false,
+                    ];
                 }
                 $id = (int)Db::name(self::TABLE)->insertGetId($row);
                 if ($id <= 0) {
                     throw new RuntimeException('历史调价影子回放保存失败');
                 }
-                return [$id, true];
+                return [
+                    $this->readVerified($id, $tenantId, $hotelId, $suggestionId),
+                    true,
+                ];
             });
         } catch (Throwable $error) {
             $existing = Db::name(self::TABLE)
@@ -333,12 +344,17 @@ final class PriceSuggestionShadowReplayService
             if (!is_array($existing) || (int)($existing['id'] ?? 0) <= 0) {
                 throw $error;
             }
-            $id = (int)$existing['id'];
+            $replay = $this->readVerified(
+                (int)$existing['id'],
+                $tenantId,
+                $hotelId,
+                $suggestionId
+            );
             $created = false;
         }
 
         return [
-            'replay' => $this->readVerified($id, $tenantId, $hotelId, $suggestionId),
+            'replay' => $replay,
             'created' => $created,
             'idempotent_replay' => !$created,
             'persistence_status' => 'readback_verified',

@@ -127,6 +127,28 @@ final class BookingDemandPlanningServiceTest extends TestCase
         );
     }
 
+    public function testPreviousCancellationTotalsAboveOwnGrossBaseRequireRebaselineBeforePickup(): void
+    {
+        $result = (new BookingDemandPlanningService())->summarizeSnapshots(
+            7,
+            80,
+            'ctrip',
+            '2026-09-10',
+            [
+                $this->snapshot(1, '2026-08-30 08:00:00.000000', 8, 800, 11, 10),
+                $this->snapshot(2, '2026-08-30 10:00:00.000000', 10, 1060, 12, 13),
+            ]
+        );
+
+        self::assertSame('rebaseline_required', $result['status']);
+        self::assertNull($result['net_pickup_room_nights']);
+        self::assertNull($result['gross_pickup_room_nights']);
+        self::assertContains(
+            'previous_cumulative_cancel_room_nights_exceeds_gross_booking_room_nights',
+            $result['data_gaps']
+        );
+    }
+
     public function testLeadTimeUsesShanghaiCalendarDatesAndRejectsAfterStaySnapshots(): void
     {
         $service = new BookingDemandPlanningService();
@@ -315,6 +337,40 @@ final class BookingDemandPlanningServiceTest extends TestCase
         self::assertSame(7, $baselineOnly['windows'][2]['snapshot_coverage_days']);
         self::assertSame(0, $baselineOnly['windows'][2]['pickup_coverage_days']);
         self::assertNull($baselineOnly['windows'][2]['net_pickup_room_nights_total']);
+    }
+
+    public function testDemandPlanExcludesRebaselineDaysFromPickupCoverage(): void
+    {
+        $service = $this->service();
+        foreach ([
+            ['08:00:00', 8.0, 800.0, 3.0, 10.0],
+            ['10:00:00', 10.0, 1060.0, 1.0, 12.0],
+        ] as [$captureTime, $rooms, $revenue, $cancel, $gross]) {
+            $service->saveOnBooksSnapshot(7, [80], 80, [
+                'platform' => 'ctrip',
+                'fact_scope' => 'ota_channel',
+                'stay_date' => '2026-08-31',
+                'captured_at' => '2026-08-30 ' . $captureTime,
+                'source_method' => 'file_import',
+                'source_ref' => 'reset-pair-' . $captureTime,
+                'on_books_room_nights' => $rooms,
+                'on_books_room_revenue' => $revenue,
+                'cumulative_cancel_room_nights' => $cancel,
+                'gross_booking_room_nights' => $gross,
+                'quality_status' => 'manual_confirmed',
+                'idempotency_key' => 'reset-pair-' . $captureTime,
+            ], 11);
+        }
+
+        $window = $service->demandPlan(7, [80], 80, 'ctrip', '2026-08-30')['windows'][0];
+
+        self::assertSame('rebaseline_required', $window['daily'][0]['status']);
+        self::assertSame(2.0, $window['daily'][0]['net_pickup_room_nights']);
+        self::assertSame('partial', $window['status']);
+        self::assertSame(0, $window['pickup_coverage_days']);
+        self::assertNull($window['observed_net_pickup_room_nights']);
+        self::assertNull($window['net_pickup_room_nights_total']);
+        self::assertContains('window_pickup_coverage_incomplete', $window['data_gaps']);
     }
 
     public function testDemandPlanRejectsMixedFactScopesAcrossPickupWindow(): void

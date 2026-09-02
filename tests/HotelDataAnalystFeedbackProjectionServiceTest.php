@@ -28,6 +28,18 @@ final class HotelDataAnalystFeedbackProjectionServiceTest extends TestCase
         self::assertTrue($projection['case']['metric_json']['review_required']);
         self::assertFalse($projection['case']['metric_json']['automatic_promotion']);
         self::assertSame(64, strlen($projection['case']['case_snapshot_digest']));
+        $payload = json_decode(
+            $projection['case']['input_json']['messages'][1]['content'],
+            true,
+            flags: JSON_THROW_ON_ERROR
+        );
+        $definition = $payload['frozen_verified_facts'][0]['metric_definitions']['list_exposure'];
+        self::assertSame('ota_list_exposure_users.v1', $definition['definition_id']);
+        self::assertSame('visitor_count', $definition['unit']);
+        self::assertSame(
+            'online_daily_data.list_exposure',
+            $definition['storage_field']
+        );
 
         $client = new class {
             public int $calls = 0;
@@ -70,6 +82,22 @@ final class HotelDataAnalystFeedbackProjectionServiceTest extends TestCase
             $question,
             'needs_correction',
             ['summary' => '需要纠正日期口径。', 'issue_codes' => ['date_scope']]
+        );
+
+        self::assertSame('blocked', $projection['replay_status']);
+        self::assertContains('blocked_by_missing_frozen_replay_input', $projection['blockers']);
+        self::assertNull($projection['case']);
+    }
+
+    public function testFrozenMetricWithoutValidatedDefinitionKeepsCorrectionCandidateBlocked(): void
+    {
+        $question = $this->question();
+        unset($question['answer']['fact_samples'][0]['metric_definitions']);
+
+        $projection = (new HotelDataAnalystFeedbackProjectionService())->project(
+            $question,
+            'needs_correction',
+            ['summary' => '需要纠正指标口径。', 'issue_codes' => ['metric_semantics']]
         );
 
         self::assertSame('blocked', $projection['replay_status']);
@@ -170,7 +198,23 @@ final class HotelDataAnalystFeedbackProjectionServiceTest extends TestCase
                     'history_status' => 'success',
                     'readback_status' => 'readback_verified',
                     'metric_values' => ['list_exposure' => 1422],
-                    'metric_units' => ['list_exposure' => 'people'],
+                    'metric_units' => ['list_exposure' => 'visitor_count'],
+                    'metric_definitions' => [
+                        'list_exposure' => [
+                            'claimable' => true,
+                            'definition_id' => 'ota_list_exposure_users.v1',
+                            'source_metric_key' => 'exposure_users',
+                            'source_data_type' => 'traffic',
+                            'source_key' => 'exposure_users',
+                            'storage_field' => 'online_daily_data.list_exposure',
+                            'source_path_digest' => 'c' . str_repeat('1', 63),
+                            'field_fact_digest' => 'd' . str_repeat('2', 63),
+                            'unit' => 'visitor_count',
+                            'unit_status' => 'verified',
+                            'unit_source' => 'operating_question_metric_semantics.v1',
+                            'label' => '曝光用户数',
+                        ],
+                    ],
                 ]],
                 'key_points' => ['仅代表美团 OTA 渠道。'],
                 'missing_information' => [],

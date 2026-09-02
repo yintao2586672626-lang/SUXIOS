@@ -351,6 +351,38 @@ final class PriceSuggestionShadowReplayServiceTest extends TestCase
         $service->readVerified($id, 42, 7, 31);
     }
 
+    public function testInvalidInsertedReplayRollsBackBeforeCommit(): void
+    {
+        $this->insertActualIdentityRow(501, 11);
+        Db::execute(<<<'SQL'
+CREATE TRIGGER corrupt_price_shadow_replay_after_insert
+AFTER INSERT ON price_suggestion_shadow_replays
+BEGIN
+    UPDATE price_suggestion_shadow_replays
+    SET input_digest = 'invalid'
+    WHERE id = NEW.id;
+END
+SQL);
+
+        try {
+            $error = null;
+            try {
+                (new PriceSuggestionShadowReplayService(
+                    new RevenuePricingRecommendationService(),
+                    $this->repositoryFor(501, 690.0, 3.0, 2.0)
+                ))->createFromSuggestion(31, 7, 9);
+            } catch (RuntimeException $caught) {
+                $error = $caught;
+            }
+
+            self::assertInstanceOf(RuntimeException::class, $error);
+            self::assertStringContainsString('快照摘要校验失败', $error->getMessage());
+            self::assertSame(0, (int)Db::name('price_suggestion_shadow_replays')->count());
+        } finally {
+            Db::execute('DROP TRIGGER IF EXISTS corrupt_price_shadow_replay_after_insert');
+        }
+    }
+
     public function testRecommendationReplayMismatchCannotProduceDirectionalVerdict(): void
     {
         Db::name('price_suggestions')->where('id', 31)->update(['suggested_price' => 229.0]);

@@ -349,6 +349,22 @@ final class BookingDemandPlanningService
 
         $hours = $seconds / 3600;
         $base['elapsed_hours'] = round($hours, 4);
+        $previousCancel = $this->nullableNumber(
+            $previous['cumulative_cancel_room_nights'] ?? null,
+            'previous_cumulative_cancel_room_nights'
+        );
+        $previousGrossBookings = $this->nullableNumber(
+            $previous['gross_booking_room_nights'] ?? null,
+            'previous_gross_booking_room_nights'
+        );
+        if ($previousCancel !== null
+            && $previousGrossBookings !== null
+            && $previousCancel > $previousGrossBookings
+        ) {
+            $base['status'] = 'rebaseline_required';
+            $base['data_gaps'][] = 'previous_cumulative_cancel_room_nights_exceeds_gross_booking_room_nights';
+            return $base;
+        }
         $previousRooms = $this->nullableNumber($previous['on_books_room_nights'] ?? null, 'previous_on_books_room_nights');
         if ($currentRooms === null || $previousRooms === null) {
             $base['data_gaps'][] = 'on_books_room_nights_missing';
@@ -367,7 +383,6 @@ final class BookingDemandPlanningService
             $base['data_gaps'][] = 'on_books_room_revenue_missing';
         }
 
-        $previousCancel = $this->nullableNumber($previous['cumulative_cancel_room_nights'] ?? null, 'previous_cumulative_cancel_room_nights');
         if ($currentCancel === null || $previousCancel === null) {
             $base['data_gaps'][] = 'cumulative_cancel_room_nights_missing';
         } elseif ($currentCancel < $previousCancel) {
@@ -409,7 +424,8 @@ final class BookingDemandPlanningService
         ));
         $withPickup = array_values(array_filter(
             $daily,
-            static fn(array $day): bool => is_numeric($day['net_pickup_room_nights'] ?? null)
+            static fn(array $day): bool => (string)($day['status'] ?? '') === 'ready'
+                && is_numeric($day['net_pickup_room_nights'] ?? null)
         ));
         $snapshotScopes = array_values(array_unique(array_map(
             static fn(array $day): string => trim((string)($day['fact_scope'] ?? '')),
@@ -419,10 +435,9 @@ final class BookingDemandPlanningService
             && count($snapshotScopes) === 1
             && $snapshotScopes[0] !== '';
         $pickupPairs = array_values(array_unique(array_filter(array_map(
-            static fn(array $day): string => is_numeric($day['net_pickup_room_nights'] ?? null)
-                ? (string)($day['previous_captured_at'] ?? '') . '|' . (string)($day['current_captured_at'] ?? '')
-                : '',
-            $daily
+            static fn(array $day): string => (string)($day['previous_captured_at'] ?? '')
+                . '|' . (string)($day['current_captured_at'] ?? ''),
+            $withPickup
         ))));
         $pickupScopes = array_values(array_unique(array_map(
             static fn(array $day): string => trim((string)($day['fact_scope'] ?? '')),
