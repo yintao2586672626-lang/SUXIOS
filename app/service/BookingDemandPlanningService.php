@@ -7,6 +7,7 @@ use DateTimeImmutable;
 use DateTimeZone;
 use InvalidArgumentException;
 use RuntimeException;
+use Throwable;
 use think\facade\Db;
 
 final class BookingDemandPlanningService
@@ -24,16 +25,23 @@ final class BookingDemandPlanningService
     private const QUALITY_STATUSES = ['verified', 'manual_confirmed', 'partial', 'unverified', 'blocked'];
     private const EVENT_TYPES = ['holiday', 'exhibition', 'concert', 'exam', 'transport', 'weather', 'policy', 'other'];
     private const EVENT_SOURCE_STATUSES = ['verified_source', 'reference_only', 'unverified'];
+    private const IDEMPOTENT_WRITE_MAX_ATTEMPTS = 3;
+    private const IDEMPOTENT_WRITE_RETRY_DELAY_MICROSECONDS = 20000;
 
     /** @var callable():DateTimeImmutable */
     private $clock;
 
-    public function __construct(?callable $clock = null)
+    /** @var callable(callable():array<string,mixed>):array<string,mixed> */
+    private $transactionRunner;
+
+    public function __construct(?callable $clock = null, ?callable $transactionRunner = null)
     {
         $this->clock = $clock ?? static fn(): DateTimeImmutable => new DateTimeImmutable(
             'now',
             new DateTimeZone('Asia/Shanghai')
         );
+        $this->transactionRunner = $transactionRunner
+            ?? static fn(callable $callback): array => Db::transaction($callback);
     }
 
     /** @param list<int> $permittedHotelIds @return array<string,mixed> */
@@ -53,7 +61,7 @@ final class BookingDemandPlanningService
         $idempotencyKey = $this->idempotencyKey($input['idempotency_key'] ?? null);
         $now = $this->now();
 
-        return Db::transaction(function () use (
+        $transaction = function () use (
             $tenantId,
             $hotelId,
             $actorId,
@@ -71,11 +79,7 @@ final class BookingDemandPlanningService
                 ->lock(true)
                 ->find();
             if ($existing) {
-                $saved = $this->hydrateSnapshot($existing);
-                if (!hash_equals($saved['content_digest'], $contentDigest)) {
-                    throw new RuntimeException('on_books_snapshot_idempotency_conflict', 409);
-                }
-                return $saved + ['idempotent' => true];
+                return $this->verifiedSnapshotReplay($existing, $contentDigest);
             }
 
             $id = (int)Db::name(self::SNAPSHOT_TABLE)->insertGetId([
@@ -90,7 +94,19 @@ final class BookingDemandPlanningService
                 throw new RuntimeException('on_books_snapshot_readback_mismatch');
             }
             return $saved + ['idempotent' => false];
-        });
+        };
+
+        return $this->runIdempotentWrite(
+            $transaction,
+            fn(): ?array => $this->findSnapshotReplay(
+                $tenantId,
+                $hotelId,
+                $content['platform'],
+                $content['stay_date'],
+                $idempotencyKey
+            ),
+            fn(array $existing): array => $this->verifiedSnapshotReplay($existing, $contentDigest)
+        );
     }
 
     /** @return array<string,mixed> */
@@ -543,7 +559,7 @@ final class BookingDemandPlanningService
         $idempotencyKey = $this->idempotencyKey($input['idempotency_key'] ?? null);
         $now = $this->now();
 
-        return Db::transaction(function () use ($tenantId, $hotelId, $actorId, $content, $digest, $idempotencyKey, $now): array {
+        $transaction = function () use ($tenantId, $hotelId, $actorId, $content, $digest, $idempotencyKey, $now): array {
             $existing = Db::name(self::EVENT_TABLE)
                 ->where('tenant_id', $tenantId)
                 ->where('hotel_id', $hotelId)
@@ -551,11 +567,7 @@ final class BookingDemandPlanningService
                 ->lock(true)
                 ->find();
             if ($existing) {
-                $saved = $this->hydrateEvent($existing);
-                if (!hash_equals($saved['content_digest'], $digest)) {
-                    throw new RuntimeException('demand_event_idempotency_conflict', 409);
-                }
-                return $saved + ['idempotent' => true];
+                return $this->verifiedDemandEventReplay($existing, $digest);
             }
             $id = (int)Db::name(self::EVENT_TABLE)->insertGetId([
                 ...$content,
@@ -569,7 +581,13 @@ final class BookingDemandPlanningService
                 throw new RuntimeException('demand_event_readback_mismatch');
             }
             return $saved + ['idempotent' => false];
-        });
+        };
+
+        return $this->runIdempotentWrite(
+            $transaction,
+            fn(): ?array => $this->findDemandEventReplay($tenantId, $hotelId, $idempotencyKey),
+            fn(array $existing): array => $this->verifiedDemandEventReplay($existing, $digest)
+        );
     }
 
     /** @return array<string,mixed> */
@@ -584,6 +602,139 @@ final class BookingDemandPlanningService
             throw new RuntimeException('demand_event_not_found', 404);
         }
         return $this->hydrateEvent($row);
+    }
+
+    /**
+     * Recover a concurrent idempotent winner after the transaction has rolled
+     * back. Duplicate keys read and verify the committed winner; deadlocks and
+     * lock timeouts retry the whole transaction with a bounded budget.
+     *
+     * @param callable():array<string,mixed> $transactionCallback
+     * @param callable():?array<string,mixed> $findExisting
+     * @param callable(array<string,mixed>):array<string,mixed> $replayExisting
+     * @return array<string,mixed>
+     */
+    private function runIdempotentWrite(
+        callable $transactionCallback,
+        callable $findExisting,
+        callable $replayExisting
+    ): array {
+        $runTransaction = $this->transactionRunner;
+        $lastError = null;
+        for ($attempt = 1; $attempt <= self::IDEMPOTENT_WRITE_MAX_ATTEMPTS; $attempt++) {
+            try {
+                return $runTransaction($transactionCallback);
+            } catch (Throwable $error) {
+                if (!$this->isRetryableWriteConflict($error)) {
+                    throw $error;
+                }
+                $lastError = $error;
+                try {
+                    $existing = $findExisting();
+                } catch (Throwable $lookupError) {
+                    if (!$this->isRetryableWriteConflict($lookupError)) {
+                        throw $lookupError;
+                    }
+                    $lastError = $lookupError;
+                    $existing = null;
+                }
+                if (is_array($existing)) {
+                    return $replayExisting($existing);
+                }
+                if ($attempt >= self::IDEMPOTENT_WRITE_MAX_ATTEMPTS) {
+                    throw $lastError;
+                }
+                usleep(self::IDEMPOTENT_WRITE_RETRY_DELAY_MICROSECONDS * $attempt);
+            }
+        }
+
+        throw $lastError ?? new RuntimeException('booking_demand_idempotent_write_failed');
+    }
+
+    /** @return ?array<string,mixed> */
+    private function findSnapshotReplay(
+        int $tenantId,
+        int $hotelId,
+        string $platform,
+        string $stayDate,
+        string $idempotencyKey
+    ): ?array {
+        $row = Db::name(self::SNAPSHOT_TABLE)
+            ->where('tenant_id', $tenantId)
+            ->where('hotel_id', $hotelId)
+            ->where('platform', $platform)
+            ->where('stay_date', $stayDate)
+            ->where('idempotency_key', $idempotencyKey)
+            ->find();
+        return is_array($row) ? $row : null;
+    }
+
+    /** @param array<string,mixed> $row @return array<string,mixed> */
+    private function verifiedSnapshotReplay(array $row, string $contentDigest): array
+    {
+        $saved = $this->hydrateSnapshot($row);
+        if (!hash_equals($saved['content_digest'], $contentDigest)) {
+            throw new RuntimeException('on_books_snapshot_idempotency_conflict', 409);
+        }
+        return $saved + ['idempotent' => true];
+    }
+
+    /** @return ?array<string,mixed> */
+    private function findDemandEventReplay(int $tenantId, int $hotelId, string $idempotencyKey): ?array
+    {
+        $row = Db::name(self::EVENT_TABLE)
+            ->where('tenant_id', $tenantId)
+            ->where('hotel_id', $hotelId)
+            ->where('idempotency_key', $idempotencyKey)
+            ->find();
+        return is_array($row) ? $row : null;
+    }
+
+    /** @param array<string,mixed> $row @return array<string,mixed> */
+    private function verifiedDemandEventReplay(array $row, string $contentDigest): array
+    {
+        $saved = $this->hydrateEvent($row);
+        if (!hash_equals($saved['content_digest'], $contentDigest)) {
+            throw new RuntimeException('demand_event_idempotency_conflict', 409);
+        }
+        return $saved + ['idempotent' => true];
+    }
+
+    private function isDuplicateKeyConflict(Throwable $error): bool
+    {
+        for ($current = $error; $current !== null; $current = $current->getPrevious()) {
+            $code = (string)$current->getCode();
+            $message = strtolower($current->getMessage());
+            if ($code === '1062'
+                || str_contains($message, 'duplicate entry')
+                || str_contains($message, 'integrity constraint violation: 1062')
+                || str_contains($message, 'unique constraint failed')
+            ) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private function isRetryableWriteConflict(Throwable $error): bool
+    {
+        if ($this->isDuplicateKeyConflict($error)) {
+            return true;
+        }
+        for ($current = $error; $current !== null; $current = $current->getPrevious()) {
+            $code = (string)$current->getCode();
+            $message = strtolower($current->getMessage());
+            if ($code === '40001'
+                || $code === '1213'
+                || $code === '1205'
+                || str_contains($message, 'deadlock found')
+                || str_contains($message, 'lock wait timeout')
+                || str_contains($message, 'serialization failure')
+            ) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** @param list<int> $permittedHotelIds @return array<string,mixed> */

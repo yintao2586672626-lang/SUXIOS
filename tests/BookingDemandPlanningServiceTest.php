@@ -217,6 +217,50 @@ final class BookingDemandPlanningServiceTest extends TestCase
         self::assertSame(80, $migrated['source_hotel_id']);
     }
 
+    public function testConcurrentSnapshotDuplicateReturnsTheDigestVerifiedWinner(): void
+    {
+        $input = $this->concurrentSnapshotInput('snapshot-concurrent-winner');
+        $winner = $this->service()->saveOnBooksSnapshot(7, [80], 80, $input, 11);
+        $service = $this->service(static function (callable $callback): array {
+            throw new RuntimeException(
+                'SQLSTATE[23000]: Integrity constraint violation: 1062 Duplicate entry'
+            );
+        });
+
+        $replay = $service->saveOnBooksSnapshot(7, [80], 80, $input, 11);
+
+        self::assertSame($winner['id'], $replay['id']);
+        self::assertSame($winner['content_digest'], $replay['content_digest']);
+        self::assertTrue($replay['idempotent']);
+        self::assertTrue($replay['readback_verified']);
+        self::assertSame(1, (int)Db::name(BookingDemandPlanningService::SNAPSHOT_TABLE)->count());
+    }
+
+    public function testSnapshotDeadlockRetriesTheWholeTransactionWithinTheBoundedBudget(): void
+    {
+        $attempts = 0;
+        $service = $this->service(static function (callable $callback) use (&$attempts): array {
+            $attempts++;
+            if ($attempts === 1) {
+                throw new RuntimeException('Deadlock found when trying to get lock', 1213);
+            }
+            return Db::transaction($callback);
+        });
+
+        $saved = $service->saveOnBooksSnapshot(
+            7,
+            [80],
+            80,
+            $this->concurrentSnapshotInput('snapshot-deadlock-retry'),
+            11
+        );
+
+        self::assertSame(2, $attempts);
+        self::assertFalse($saved['idempotent']);
+        self::assertTrue($saved['readback_verified']);
+        self::assertSame(1, (int)Db::name(BookingDemandPlanningService::SNAPSHOT_TABLE)->count());
+    }
+
     public function testDemandPlanUsesTomorrowThreeAndSevenDayWindowsWithoutTodayOrLongHorizons(): void
     {
         $service = $this->service();
@@ -480,14 +524,34 @@ final class BookingDemandPlanningServiceTest extends TestCase
         $service->bookingOverview(7, [], 80, 'ctrip', '2026-09-10');
     }
 
-    private function service(): BookingDemandPlanningService
+    private function service(?callable $transactionRunner = null): BookingDemandPlanningService
     {
         return new BookingDemandPlanningService(
             static fn(): \DateTimeImmutable => new \DateTimeImmutable(
                 '2026-08-30 12:00:00',
                 new \DateTimeZone('Asia/Shanghai')
-            )
+            ),
+            $transactionRunner
         );
+    }
+
+    /** @return array<string,mixed> */
+    private function concurrentSnapshotInput(string $idempotencyKey): array
+    {
+        return [
+            'platform' => 'ctrip',
+            'fact_scope' => 'ota_channel',
+            'stay_date' => '2026-09-10',
+            'captured_at' => '2026-08-30 10:00:00',
+            'source_method' => 'file_import',
+            'source_ref' => 'authorized-export-' . $idempotencyKey,
+            'on_books_room_nights' => 10,
+            'on_books_room_revenue' => 1060,
+            'cumulative_cancel_room_nights' => 2,
+            'gross_booking_room_nights' => 13,
+            'quality_status' => 'manual_confirmed',
+            'idempotency_key' => $idempotencyKey,
+        ];
     }
 
     private function savePlanSnapshot(

@@ -156,6 +156,8 @@ final class DailyOperatingPreparationServiceTest extends TestCase
         self::assertStringContainsString('operation:prepare-daily --hotel-id=%i', $retryService);
         self::assertStringContainsString('Restart=on-failure', $retryService);
         self::assertStringContainsString('RestartSec=5min', $retryService);
+        self::assertStringContainsString('TimeoutStartSec=infinity', $retryService);
+        self::assertStringNotContainsString('TimeoutStartSec=4min', $retryService);
         self::assertStringContainsString('StartLimitBurst=6', $retryService);
         self::assertStringContainsString("=== 'prepared' ? 0 : 2", $command);
         self::assertStringNotContainsString("['prepared', 'partial', 'blocked']", $command);

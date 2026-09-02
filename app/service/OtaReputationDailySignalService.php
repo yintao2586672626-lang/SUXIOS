@@ -275,6 +275,11 @@ final class OtaReputationDailySignalService
         $score = $this->number($row, $raw, ['comment_score', 'commentScore', 'score', 'rating']);
         $badReviewCount = $this->number($row, $raw, ['bad_review_count', 'badReviewCount', 'negativeCount', 'noRecommendCount']);
         $unrepliedCount = $this->number($row, $raw, ['comment_unreply_count', 'unReplyCount', 'unrepliedCount']);
+        if (($badReviewCount !== null && $badReviewCount < 0)
+            || ($unrepliedCount !== null && $unrepliedCount < 0)
+        ) {
+            return null;
+        }
         if ($score === null && $badReviewCount === null && $unrepliedCount === null) {
             return null;
         }
@@ -286,8 +291,8 @@ final class OtaReputationDailySignalService
             'record_ref' => 'online_daily_data#' . (int)$row['id'],
             'data_date' => (string)$row['data_date'],
             'score' => $score !== null && $score > 0 ? round($score, 4) : null,
-            'bad_review_count' => $badReviewCount !== null ? max(0, (int)round($badReviewCount)) : null,
-            'unreplied_count' => $unrepliedCount !== null ? max(0, (int)round($unrepliedCount)) : null,
+            'bad_review_count' => $badReviewCount !== null ? (int)round($badReviewCount) : null,
+            'unreplied_count' => $unrepliedCount !== null ? (int)round($unrepliedCount) : null,
             'source_method' => trim((string)($row['ingestion_method'] ?? $raw['acquisition_method'] ?? '')),
             'collected_at' => trim((string)($row['snapshot_time'] ?? $row['update_time'] ?? $row['create_time'] ?? '')),
         ];

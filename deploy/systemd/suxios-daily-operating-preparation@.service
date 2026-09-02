@@ -13,5 +13,5 @@ Environment=TZ=Asia/Shanghai
 ExecStart=/usr/bin/php -d memory_limit=256M think operation:prepare-daily --hotel-id=%i
 Restart=on-failure
 RestartSec=5min
-TimeoutStartSec=4min
+TimeoutStartSec=infinity
 UMask=0027

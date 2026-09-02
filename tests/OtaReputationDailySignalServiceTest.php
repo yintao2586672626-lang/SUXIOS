@@ -55,6 +55,21 @@ final class OtaReputationDailySignalServiceTest extends TestCase
         self::assertSame('strict_fact_available', $result['platforms']['meituan']['status']);
     }
 
+    public function testNegativeReputationCountersRejectTheSnapshotInsteadOfBecomingZero(): void
+    {
+        foreach ([[-1, 2], [3, -1]] as [$badReviewCount, $unrepliedCount]) {
+            $result = (new OtaReputationDailySignalService(fn(): array => [
+                $this->row(2, 'ctrip', '2026-09-01', 4.8, $badReviewCount, $unrepliedCount, true),
+                $this->row(1, 'ctrip', '2026-08-31', 4.9, 1, 1, true),
+            ]))->build(80, 80, '2026-09-01');
+
+            self::assertSame('no_actionable_signal', $result['status']);
+            self::assertSame([], $result['signals']);
+            self::assertSame('no_current_strict_fact', $result['platforms']['ctrip']['status']);
+            self::assertNull($result['platforms']['ctrip']['current_record_ref']);
+        }
+    }
+
     public function testUnverifiedOrWrongScopeRowsCannotBecomeSignals(): void
     {
         $wrongHotel = $this->row(3, 'ctrip', '2026-09-01', 3.0, 5, 4, true);
