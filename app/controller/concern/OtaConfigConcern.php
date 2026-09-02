@@ -1796,9 +1796,7 @@ trait OtaConfigConcern
         $isMeituanConfig = array_key_exists('partner_id', $item)
             || array_key_exists('partnerId', $item)
             || array_key_exists('poi_id', $item)
-            || array_key_exists('poiId', $item)
-            || array_key_exists('hotel_room_count', $item)
-            || array_key_exists('competitor_room_count', $item);
+            || array_key_exists('poiId', $item);
         $hasOpaqueCredentialMetadata = isset($item['credential_ref'])
             && in_array((string)($item['credential_status'] ?? ''), ['ready', 'revoked'], true);
         if ($isMeituanConfig && !$hasOpaqueCredentialMetadata) {
