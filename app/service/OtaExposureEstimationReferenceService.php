@@ -62,6 +62,7 @@ final class OtaExposureEstimationReferenceService
 
         $pairs = [];
         $rejectedInconsistentPairCount = 0;
+        $rejectedSemanticScopeCount = 0;
         for ($offset = self::WINDOW_DAYS; $offset >= 1; $offset--) {
             $date = $target->modify('-' . $offset . ' days')->format('Y-m-d');
             $closure = $this->readClosure($hotelId, $date);
@@ -72,6 +73,12 @@ final class OtaExposureEstimationReferenceService
             }
             $sharedRefs = array_values(array_intersect($visits['refs'], $exposure['refs']));
             if ($sharedRefs === [] || $visits['scope_key'] !== $exposure['scope_key']) {
+                continue;
+            }
+            if ($visits['semantic_scope_key'] !== $exposure['semantic_scope_key']
+                || $visits['semantic_scope_key'] !== $targetVisit['semantic_scope_key']
+            ) {
+                $rejectedSemanticScopeCount++;
                 continue;
             }
             if ((int)$exposure['value'] < (int)$visits['value']) {
@@ -95,6 +102,9 @@ final class OtaExposureEstimationReferenceService
                 'estimate' => null,
                 'accepted_verified_pairs' => count($pairs),
                 'rejected_inconsistent_pair_count' => $rejectedInconsistentPairCount,
+                'rejected_semantic_scope_count' => $rejectedSemanticScopeCount,
+                'semantic_scope_key' => $targetVisit['semantic_scope_key'],
+                'semantic_scope' => $targetVisit['semantic_scope'],
                 'source_refs' => $sourceRefs,
                 'reason_code' => 'verified_pair_baseline_insufficient',
                 'reason' => sprintf(
@@ -123,6 +133,9 @@ final class OtaExposureEstimationReferenceService
             ],
             'accepted_verified_pairs' => count($pairs),
             'rejected_inconsistent_pair_count' => $rejectedInconsistentPairCount,
+            'rejected_semantic_scope_count' => $rejectedSemanticScopeCount,
+            'semantic_scope_key' => $targetVisit['semantic_scope_key'],
+            'semantic_scope' => $targetVisit['semantic_scope'],
             'baseline_dates' => array_column($pairs, 'business_date'),
             'source_refs' => $sourceRefs,
             'reason_code' => 'reference_estimate_only',
@@ -148,7 +161,15 @@ final class OtaExposureEstimationReferenceService
         return $closure;
     }
 
-    /** @return null|array{value:int|float,refs:list<string>,scope_key:string} */
+    /**
+     * @return null|array{
+     *   value:int|float,
+     *   refs:list<string>,
+     *   scope_key:string,
+     *   semantic_scope_key:string,
+     *   semantic_scope:array<string,mixed>
+     * }
+     */
     private function strictField(
         array $closure,
         int $tenantId,
@@ -193,6 +214,8 @@ final class OtaExposureEstimationReferenceService
                 continue;
             }
             sort($refs, SORT_STRING);
+            sort($sourcePaths, SORT_STRING);
+            $semanticScope = $this->semanticScope($field, $platform, $sourcePaths);
             return [
                 'value' => 0 + $field['value'],
                 'refs' => $refs,
@@ -210,9 +233,72 @@ final class OtaExposureEstimationReferenceService
                         ?: 'current_receipt_snapshot',
                     'Asia/Shanghai',
                 ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR)),
+                'semantic_scope_key' => $semanticScope['key'],
+                'semantic_scope' => $semanticScope['contract'],
             ];
         }
         return null;
+    }
+
+    /**
+     * Build a date- and record-independent funnel contract. Physical record,
+     * task and capture identities remain in scope_key; this signature prevents
+     * a rolling baseline from mixing metric definitions, source modules or
+     * cumulative cutoffs that happen to be individually strict.
+     *
+     * @param list<string> $sourcePaths
+     * @return array{key:string,contract:array<string,mixed>}
+     */
+    private function semanticScope(array $field, string $platform, array $sourcePaths): array
+    {
+        $rawSourceModules = (array)($field['source_modules'] ?? []);
+        if ($rawSourceModules === []) {
+            $rawSourceModules = (array)($field['endpoint_ids'] ?? []);
+        }
+        if ($rawSourceModules === []) {
+            $rawSourceModules = $sourcePaths;
+        }
+        $sourceModules = array_values(array_filter(array_map(
+            function (mixed $value) use ($platform): string {
+                $module = strtolower(trim((string)$value));
+                if ($platform === 'ctrip' && in_array($module, [
+                    'business_visitor_title',
+                    'business_flow_transform',
+                    'traffic_flow_transform',
+                ], true)) {
+                    return 'ctrip_exposure_visit_funnel';
+                }
+                return $module;
+            },
+            $rawSourceModules
+        )));
+        $sourceModules = array_values(array_unique($sourceModules));
+        sort($sourceModules, SORT_STRING);
+
+        $contract = [
+            'platform' => $platform,
+            'metric_definition_version' => trim((string)($field['metric_definition_version'] ?? ''))
+                ?: trim((string)($field['semantic_contract_version'] ?? ''))
+                ?: 'dual_ota_field_closure.v1',
+            'semantic_contract_version' => trim((string)($field['semantic_contract_version'] ?? ''))
+                ?: 'ota_field_semantics.v1',
+            'source_modules' => $sourceModules,
+            'source_method' => strtolower(trim((string)($field['source_method'] ?? '')))
+                ?: 'closure_verified',
+            'time_basis' => strtolower(trim((string)($field['time_basis'] ?? '')))
+                ?: 'same_day_cumulative',
+            'cumulative_cutoff' => strtolower(trim((string)($field['cumulative_cutoff'] ?? '')))
+                ?: 'current_receipt_snapshot',
+            'timezone' => trim((string)($field['timezone'] ?? '')) ?: 'Asia/Shanghai',
+        ];
+
+        return [
+            'key' => hash('sha256', json_encode(
+                $contract,
+                JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR
+            )),
+            'contract' => $contract,
+        ];
     }
 
     private function date(string $value): DateTimeImmutable

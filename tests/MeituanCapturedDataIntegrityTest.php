@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Tests;
 
 use app\controller\OnlineData;
+use app\service\OnlineDailyDataPersistenceService;
 use InvalidArgumentException;
 use PHPUnit\Framework\TestCase;
 use ReflectionClass;
@@ -159,6 +160,35 @@ final class MeituanCapturedDataIntegrityTest extends TestCase
         self::assertSame(0.0, $rows[1]['data_value']);
         self::assertSame(0, $rows[1]['list_exposure']);
         self::assertSame(0, $rows[1]['detail_exposure']);
+    }
+
+    public function testSearchKeywordNegativeCountersReachPersistenceValidationUnchanged(): void
+    {
+        $reflection = new ReflectionClass(OnlineData::class);
+        $controller = $reflection->newInstanceWithoutConstructor();
+
+        $rows = $this->invokeNonPublic($controller, 'buildMeituanCapturedDailyRows', [[
+            'storeId' => 'store-80',
+            'poiId' => '1029642156589279',
+            'defaultDataDate' => '2026-07-11',
+            'searchKeywords' => [[
+                'keyword' => '异常搜索词',
+                'impressions' => -3,
+                'clicks' => -1,
+            ]],
+        ], 80]);
+
+        self::assertCount(1, $rows);
+        self::assertSame(-3, $rows[0]['list_exposure']);
+        self::assertSame(-1, $rows[0]['detail_exposure']);
+
+        $validation = OnlineDailyDataPersistenceService::buildValidationFields($rows[0]);
+        self::assertSame('abnormal', $validation['validation_status']);
+        $flags = json_decode((string)$validation['validation_flags'], true, 512, JSON_THROW_ON_ERROR);
+        self::assertSame(
+            ['list_exposure', 'detail_exposure'],
+            array_values(array_column($flags, 'field'))
+        );
     }
 
     public function testSearchKeywordWithoutAPlatformOrCaptureDateIsRejected(): void

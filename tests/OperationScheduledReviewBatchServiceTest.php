@@ -105,8 +105,9 @@ final class OperationScheduledReviewBatchServiceTest extends TestCase
         self::assertSame(0, $calls);
     }
 
-    public function testExecuteFailureDoesNotAdvanceCursorPastFailedTask(): void
+    public function testExecuteFailureAdvancesRoundRobinCursorPastFailedTask(): void
     {
+        $cursorWrites = [];
         $service = new OperationScheduledReviewBatchService(
             static fn(): array => [
                 'ids' => [41, 42],
@@ -132,6 +133,9 @@ final class OperationScheduledReviewBatchServiceTest extends TestCase
                     'result_status' => 'observing',
                     'next_action' => 'human_confirm_review_result',
                 ];
+            },
+            static function (int $hotelId, int $taskId) use (&$cursorWrites): void {
+                $cursorWrites[] = [$hotelId, $taskId];
             }
         );
 
@@ -139,8 +143,40 @@ final class OperationScheduledReviewBatchServiceTest extends TestCase
 
         self::assertSame('partial', $result['status']);
         self::assertSame(1, $result['counts']['failed']);
-        self::assertFalse($result['cursor_advanced']);
-        self::assertNotContains('scan_cursor_write', array_column($result['rows'], 'stage'));
+        self::assertTrue($result['cursor_advanced']);
+        self::assertSame([[998877, 42]], $cursorWrites);
+    }
+
+    public function testCandidateReadbackFailureCannotStarveLaterScanWindows(): void
+    {
+        $cursorWrites = [];
+        $service = new OperationScheduledReviewBatchService(
+            static fn(): array => [
+                'ids' => [52],
+                'scanned_count' => 2,
+                'next_cursor' => 52,
+                'failures' => [[
+                    'status' => 'failed',
+                    'task_id' => 51,
+                    'hotel_id' => 80,
+                    'reason_code' => 'scheduled_review_task_read_failed',
+                    'stage' => 'candidate_readback',
+                ]],
+            ],
+            static fn(): array => self::task(52, 'executed', 'success', true),
+            static fn(): array => [],
+            static function (int $hotelId, int $taskId) use (&$cursorWrites): void {
+                $cursorWrites[] = [$hotelId, $taskId];
+            }
+        );
+
+        $result = $service->run(80, 50, true);
+
+        self::assertSame('partial', $result['status']);
+        self::assertSame(1, $result['counts']['failed']);
+        self::assertSame(1, $result['counts']['already_reviewed']);
+        self::assertTrue($result['cursor_advanced']);
+        self::assertSame([[80, 52]], $cursorWrites);
     }
 
     public function testCandidateReadbackFailureIsVisibleAndMakesBatchPartial(): void

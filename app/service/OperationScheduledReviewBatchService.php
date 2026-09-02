@@ -24,14 +24,19 @@ final class OperationScheduledReviewBatchService
     /** @var callable|null */
     private $reconciler;
 
+    /** @var callable|null */
+    private $cursorWriter;
+
     public function __construct(
         ?callable $candidateLoader = null,
         ?callable $taskReader = null,
-        ?callable $reconciler = null
+        ?callable $reconciler = null,
+        ?callable $cursorWriter = null
     ) {
         $this->candidateLoader = $candidateLoader;
         $this->taskReader = $taskReader;
         $this->reconciler = $reconciler;
+        $this->cursorWriter = $cursorWriter;
     }
 
     /** @return array<string,mixed> */
@@ -80,7 +85,6 @@ final class OperationScheduledReviewBatchService
         }
         $cursorAdvanced = false;
         if ($execute
-            && $counts['failed'] === 0
             && (int)($scan['next_cursor'] ?? 0) > 0
         ) {
             try {
@@ -229,6 +233,13 @@ final class OperationScheduledReviewBatchService
 
     private function writeScanCursor(int $hotelId, int $taskId): void
     {
+        if ($this->cursorWriter !== null) {
+            $written = call_user_func($this->cursorWriter, $hotelId, $taskId);
+            if ($written === false) {
+                throw new \RuntimeException('scheduled_review_cursor_write_failed');
+            }
+            return;
+        }
         $tenantId = (int)Db::name('hotels')->where('id', $hotelId)->where('status', 1)->value('tenant_id');
         if ($tenantId <= 0 || $taskId <= 0) {
             throw new \RuntimeException('scheduled_review_cursor_scope_invalid');

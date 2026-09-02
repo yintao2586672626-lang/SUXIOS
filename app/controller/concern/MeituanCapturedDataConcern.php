@@ -658,8 +658,11 @@ trait MeituanCapturedDataConcern
         $dataValue = $this->nullableNumberFromKeys($item, ['data_value', 'dataValue', 'value', 'heat', 'rank']);
         $impressionsValue = $this->nullableNumberFromKeys($item, ['impressions', 'exposure', 'exposure_count', 'exposureCount', 'listExposure']);
         $clicksValue = $this->nullableNumberFromKeys($item, ['clicks', 'click_count', 'clickCount', 'detailExposure']);
-        $impressions = $impressionsValue !== null ? max(0, (int)$impressionsValue) : null;
-        $clicks = $clicksValue !== null ? max(0, (int)$clicksValue) : null;
+        // Preserve invalid counters until the shared persistence validator can
+        // quarantine them. Coercing a negative capture to zero would turn bad
+        // source evidence into a verified business fact.
+        $impressions = $impressionsValue !== null ? (int)$impressionsValue : null;
+        $clicks = $clicksValue !== null ? (int)$clicksValue : null;
         if ($keyword === '' && $dataValue === null && $impressions === null && $clicks === null) {
             return null;
         }

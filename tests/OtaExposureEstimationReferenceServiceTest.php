@@ -93,6 +93,37 @@ final class OtaExposureEstimationReferenceServiceTest extends TestCase
         self::assertNull($result['estimate']);
     }
 
+    public function testEveryBaselinePairMustMatchTheTargetSemanticScope(): void
+    {
+        foreach ([
+            ['metric_definition_version', 'fixture-exposure-users-detail-visitors.v2'],
+            ['source_paths', ['fixture.other_source_module']],
+            ['time_basis', 'rolling_24_hours'],
+            ['cumulative_cutoff', '22:00'],
+        ] as [$field, $driftedValue]) {
+            $closures = $this->closures(7);
+            foreach ($closures as $date => &$closure) {
+                if ($date === '2026-08-15') {
+                    continue;
+                }
+                foreach ($closure['platforms']['meituan']['fields'] as &$fact) {
+                    $fact[$field] = $driftedValue;
+                }
+                unset($fact);
+            }
+            unset($closure);
+
+            $result = (new OtaExposureEstimationReferenceService(
+                static fn(int $hotelId, string $date): array => $closures[$date] ?? []
+            ))->estimate(10, 80, 'meituan', '2026-08-15');
+
+            self::assertSame('insufficient_baseline', $result['status'], (string)$field);
+            self::assertSame(0, $result['accepted_verified_pairs'], (string)$field);
+            self::assertSame(7, $result['rejected_semantic_scope_count'], (string)$field);
+            self::assertNull($result['estimate'], (string)$field);
+        }
+    }
+
     public function testActualDualOtaClosureContractProducesReferenceEstimate(): void
     {
         $closures = [];
@@ -198,6 +229,8 @@ final class OtaExposureEstimationReferenceServiceTest extends TestCase
             'revenue_analysis_consumable' => true,
             'source_record_refs' => [$ref],
             'source_paths' => ['fixture.same_snapshot'],
+            'source_method' => 'browser_profile',
+            'time_basis' => 'same_day_cumulative',
             'cumulative_cutoff' => '23:00',
             'metric_definition_version' => 'fixture-exposure-users-detail-visitors.v1',
         ];
@@ -209,7 +242,9 @@ final class OtaExposureEstimationReferenceServiceTest extends TestCase
         $facts = [[
             'metric_key' => 'detail_exposure',
             'source_key' => 'detailExposure',
-            'source_path' => '$.data.visitor.detailExposure',
+            'source_path' => $target
+                ? '$.data.visitor.detailExposure'
+                : '$.data.traffic.detailExposure',
             'storage_field' => 'online_daily_data.detail_exposure',
             'status' => 'captured',
             'stored_value_present' => true,
