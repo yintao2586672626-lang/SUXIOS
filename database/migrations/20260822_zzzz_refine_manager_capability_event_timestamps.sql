@@ -6,3 +6,6 @@ ALTER TABLE `manager_capability_case_adjustments`
 
 ALTER TABLE `manager_capability_score_reviews`
   MODIFY COLUMN `created_at` DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6);
+
+ALTER TABLE `manager_capability_case_followups`
+  MODIFY COLUMN `created_at` DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6);

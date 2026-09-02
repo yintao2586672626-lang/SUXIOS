@@ -245,9 +245,9 @@ final class ManagerCapabilityScoringServiceTest extends TestCase
         self::assertStringContainsString('manager_capability_case_adjustments', $timestampSql);
         self::assertStringContainsString('manager_capability_score_reviews', $timestampSql);
         self::assertStringContainsString('DATETIME(6)', $timestampSql);
-        self::assertStringNotContainsString('manager_capability_case_followups', $timestampSql);
+        self::assertStringContainsString('manager_capability_case_followups', $timestampSql);
         self::assertSame(
-            'f03b5e1e722f220803516b70f478dd2bbce3f1d43b058ca984709ccd5ed352ea',
+            '79b7f4540fbfb60ae0d417b57a59d2d3a5408503bd9ab2e318e1c9511f4be7a3',
             hash_file('sha256', self::EVENT_TIMESTAMP_MIGRATION)
         );
 

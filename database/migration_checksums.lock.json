@@ -2,8 +2,8 @@
   "schema_version": 2,
   "algorithm": "sha256",
   "bootstrap": {
-    "commit": "819e90812abc99af8be636c47b4b82c615668534",
-    "catalog_sha256": "6f83207ea1884d7aad953dc59770028999e800b8b8e4ed783c2feb18069abd88"
+    "commit": "0817e0cf8cc47245fa30dc3b083bc602b01d0efe",
+    "catalog_sha256": "5f54ae729f2742c307e819a76014b5152bfa2279e21b5d719a6ab0536244bcf8"
   },
   "migrations": {
     "20250402_create_agent_tables.sql": "d684895c7aac7bb43495fdc568d410938cfdda8fd4ec4b10b2fc18f600b32f48",
@@ -188,7 +188,7 @@
     "20260822_zz_create_manager_capability_followups.sql": "4ff99b63e5fa61dbae31165e02b105f5c143dbec2515ccf79fe35e95743cf016",
     "20260822_zzz_create_operating_opportunity_runs.sql": "f37f5567c9b7d91d9db61e4fa957cc3a5d5c47208336793093ccfc2431495aca",
     "20260822_zzz_optimize_manager_capability.sql": "fa567dc033c4079bd1a57a5569da75af5406c1f66f78c049840903869188a7de",
-    "20260822_zzzz_refine_manager_capability_event_timestamps.sql": "f03b5e1e722f220803516b70f478dd2bbce3f1d43b058ca984709ccd5ed352ea",
+    "20260822_zzzz_refine_manager_capability_event_timestamps.sql": "79b7f4540fbfb60ae0d417b57a59d2d3a5408503bd9ab2e318e1c9511f4be7a3",
     "20260822_zzzzz_refine_manager_capability_followup_event_timestamp.sql": "d53dbb0f2192b13ae27d0cdc56389e552075664875ff419eac1aef18df4397b4",
     "20260823_create_local_second_brain_runtime.sql": "ebab408e9ede601230231d7f830cd8011277532e916d1eed3ba422e3bdbead7e",
     "20260823_zz_create_ai_report_presentation_specs.sql": "e8f99a399113a09b3f51326128308aa0eeb3efe99401eba342dadcfbac351f43",

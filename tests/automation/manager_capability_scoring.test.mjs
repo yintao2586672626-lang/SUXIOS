@@ -202,9 +202,9 @@ test('backend keeps the score within operation permissions and tenant hotel scop
   }
   assert.equal(
     crypto.createHash('sha256').update(eventTimestampMigration).digest('hex'),
-    'f03b5e1e722f220803516b70f478dd2bbce3f1d43b058ca984709ccd5ed352ea',
+    '79b7f4540fbfb60ae0d417b57a59d2d3a5408503bd9ab2e318e1c9511f4be7a3',
   );
-  assert.ok(!eventTimestampMigration.includes('manager_capability_case_followups'));
+  assert.ok(eventTimestampMigration.includes('manager_capability_case_followups'));
   assert.ok(followupTimestampMigration.includes('manager_capability_case_followups'));
   assert.ok(followupTimestampMigration.includes('DATETIME(6)'));
   assert.ok(!followupTimestampMigration.includes('manager_capability_case_adjustments'));
