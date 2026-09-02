@@ -173,6 +173,36 @@ final class PriceSuggestionDecisionAttestationTest extends TestCase
         ]);
     }
 
+    public function testAttestationRejectsFractionalInputLaterInTheCutoffSecond(): void
+    {
+        $targetDate = '2026-09-10';
+        $signals = $this->signals($targetDate);
+        $signals['competitor']['collected_at'] = '2026-09-02 10:00:00.900000';
+        $recommendation = (new RevenuePricingRecommendationService())->recommendFromSignals([
+            'id' => 11,
+            'base_price' => 200,
+            'min_price' => 160,
+            'max_price' => 260,
+            'room_count' => 20,
+        ], $signals);
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('future_input_detected');
+        (new RevenuePricingRecommendationService())->buildPriceSuggestionDecisionAttestation([
+            'tenant_id' => 42,
+            'hotel_id' => 7,
+            'room_type_id' => 11,
+            'suggestion_date' => $targetDate,
+            'current_price' => 200,
+            'min_price' => 160,
+            'max_price' => 260,
+            'platform' => 'ctrip',
+            'decision_as_of_time' => '2026-09-02 10:00:00',
+            'model_version' => $recommendation['factors']['model'],
+            'factors' => $recommendation['factors'],
+        ]);
+    }
+
     public function testFollowupMigrationIsNullableIdempotentAndNeverBackfillsLegacyRows(): void
     {
         $migration = file_get_contents(

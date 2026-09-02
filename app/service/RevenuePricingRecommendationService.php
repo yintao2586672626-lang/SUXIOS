@@ -3527,8 +3527,8 @@ class RevenuePricingRecommendationService
     /** @return array{explicit_timestamp_count:int,all_at_or_before_as_of:bool,violations:array<int,string>} */
     private function priceSuggestionObservedTimeCheck(array $signals, string $asOfAt): array
     {
-        $cutoff = strtotime($asOfAt);
-        if ($cutoff === false) {
+        $cutoff = $this->pricingEvidenceTimestampMicroseconds($asOfAt);
+        if ($cutoff === null) {
             throw new \InvalidArgumentException('price_suggestion_decision_as_of_time_invalid');
         }
         $timeKeys = [
@@ -3555,9 +3555,9 @@ class RevenuePricingRecommendationService
                 if (isset($timeKeys[strtolower((string)$key)]) && is_scalar($item)) {
                     $text = trim(str_replace('T', ' ', (string)$item));
                     if ($text !== '') {
-                        $timestamp = strtotime($text);
+                        $timestamp = $this->pricingEvidenceTimestampMicroseconds($text);
                         $checked++;
-                        if ($timestamp === false || $timestamp > $cutoff) {
+                        if ($timestamp === null || $timestamp > $cutoff) {
                             $violations[] = $nextPath;
                         }
                     }
@@ -3575,6 +3575,39 @@ class RevenuePricingRecommendationService
             'all_at_or_before_as_of' => $violations === [],
             'violations' => $violations,
         ];
+    }
+
+    private function pricingEvidenceTimestampMicroseconds(string $value): ?int
+    {
+        $text = trim(str_replace('T', ' ', $value));
+        if (preg_match(
+            '/^(\d{4}-\d{2}-\d{2} \d{2}:\d{2})(?::(\d{2}))?(?:\.(\d{1,6}))?(Z|[+-]\d{2}:\d{2})?$/D',
+            $text,
+            $matches
+        ) !== 1) {
+            return null;
+        }
+        if (($matches[3] ?? '') !== '' && ($matches[2] ?? '') === '') {
+            return null;
+        }
+        $seconds = ($matches[2] ?? '') !== '' ? $matches[2] : '00';
+        $microseconds = str_pad((string)($matches[3] ?? ''), 6, '0');
+        $offset = (string)($matches[4] ?? '');
+        if ($offset === 'Z') {
+            $offset = '+00:00';
+        }
+        $normalized = $matches[1] . ':' . $seconds . '.' . $microseconds . $offset;
+        $format = '!Y-m-d H:i:s.u' . ($offset !== '' ? 'P' : '');
+        $timezone = $offset === '' ? new \DateTimeZone('Asia/Shanghai') : null;
+        $timestamp = \DateTimeImmutable::createFromFormat($format, $normalized, $timezone);
+        $errors = \DateTimeImmutable::getLastErrors();
+        if (!$timestamp instanceof \DateTimeImmutable
+            || ($errors !== false && ((int)$errors['warning_count'] > 0 || (int)$errors['error_count'] > 0))
+            || $timestamp->format('Y-m-d H:i:s.u' . ($offset !== '' ? 'P' : '')) !== $normalized
+        ) {
+            return null;
+        }
+        return ((int)$timestamp->format('U') * 1_000_000) + (int)$timestamp->format('u');
     }
 
     private function canonicalDecisionJson(mixed $value): string

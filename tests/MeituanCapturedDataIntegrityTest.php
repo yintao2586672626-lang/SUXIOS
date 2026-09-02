@@ -433,6 +433,47 @@ final class MeituanCapturedDataIntegrityTest extends TestCase
         self::assertArrayNotHasKey('order_id_hash', $raw);
     }
 
+    public function testOrderDateBasisMustMatchTheDateFieldActuallySelected(): void
+    {
+        $reflection = new ReflectionClass(OnlineData::class);
+        $controller = $reflection->newInstanceWithoutConstructor();
+
+        $rows = $this->invokeNonPublic($controller, 'buildMeituanCapturedDailyRows', [[
+            'storeId' => 'store-80',
+            'poiId' => 'poi-80',
+            'defaultDataDate' => '2026-07-12',
+            'orders' => [
+                [
+                    'order_id' => 'ORDER-CHECKIN-ONLY',
+                    'total_amount' => 500,
+                    'checkInDate' => '2026-07-14',
+                    'date_basis' => 'order_date',
+                ],
+                [
+                    'order_id' => 'ORDER-CREATED-ONLY',
+                    'total_amount' => 600,
+                    'createTime' => '2026-07-11 09:30:00',
+                    'date_basis' => 'stay_date',
+                ],
+                [
+                    'order_id' => 'ORDER-BOTH-DATES',
+                    'total_amount' => 700,
+                    'createTime' => '2026-07-11 10:30:00',
+                    'checkInDate' => '2026-07-15',
+                    'date_basis' => 'stay_date',
+                    'date_source' => 'order_time',
+                ],
+            ],
+        ], 80]);
+
+        self::assertCount(1, $rows);
+        self::assertSame('2026-07-15', $rows[0]['data_date']);
+        $raw = json_decode((string)$rows[0]['raw_data'], true);
+        self::assertIsArray($raw);
+        self::assertSame('stay_date', $raw['date_basis']);
+        self::assertSame('check_in_date', $raw['date_source']);
+    }
+
     public function testOrderFlowRowsKeepDirectionPeriodAndZeroValuesTruthful(): void
     {
         $reflection = new ReflectionClass(OnlineData::class);

@@ -936,19 +936,41 @@ trait MeituanCapturedDataConcern
             ['data_date', 'dataDate', 'statDate', 'date'],
             ''
         ));
-        $dataDate = $orderDate
-            ?: ($stayDate ?: ($genericDate ?: ($context['default_data_date'] ?? date('Y-m-d'))));
         $explicitDateBasis = strtolower(trim((string)($item['date_basis'] ?? $item['dateBasis'] ?? '')));
-        $dateBasis = in_array($explicitDateBasis, ['order_date', 'stay_date'], true)
-            ? $explicitDateBasis
-            : ($orderDate !== '' ? 'order_date' : ($stayDate !== '' ? 'stay_date' : 'unknown'));
         $dateSource = trim((string)($item['date_source'] ?? $item['dateSource'] ?? ''));
-        if ($dateSource === '') {
+        $fallbackDate = $genericDate ?: ($context['default_data_date'] ?? date('Y-m-d'));
+        if ($explicitDateBasis === 'order_date') {
+            if ($orderDate === '' && $stayDate !== '') {
+                return null;
+            }
+            $dataDate = $orderDate !== '' ? $orderDate : $fallbackDate;
+            $dateBasis = 'order_date';
+            $dateSource = $orderDate !== ''
+                ? 'order_time'
+                : ($dateSource !== ''
+                    ? $dateSource
+                    : ($genericDate !== '' ? 'row.data_date' : 'capture_context.default_data_date'));
+        } elseif ($explicitDateBasis === 'stay_date') {
+            if ($stayDate === '' && $orderDate !== '') {
+                return null;
+            }
+            $dataDate = $stayDate !== '' ? $stayDate : $fallbackDate;
+            $dateBasis = 'stay_date';
+            $dateSource = $stayDate !== ''
+                ? 'check_in_date'
+                : ($dateSource !== ''
+                    ? $dateSource
+                    : ($genericDate !== '' ? 'row.data_date' : 'capture_context.default_data_date'));
+        } else {
+            $dataDate = $orderDate ?: ($stayDate ?: $fallbackDate);
+            $dateBasis = $orderDate !== '' ? 'order_date' : ($stayDate !== '' ? 'stay_date' : 'unknown');
             $dateSource = $orderDate !== ''
                 ? 'order_time'
                 : ($stayDate !== ''
                     ? 'check_in_date'
-                    : ($genericDate !== '' ? 'row.data_date' : 'capture_context.default_data_date'));
+                    : ($dateSource !== ''
+                        ? $dateSource
+                        : ($genericDate !== '' ? 'row.data_date' : 'capture_context.default_data_date')));
         }
         if ($orderIdHash !== '') {
             $identity = $orderIdHash;
