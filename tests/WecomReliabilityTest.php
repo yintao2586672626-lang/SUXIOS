@@ -126,6 +126,64 @@ final class WecomReliabilityTest extends TestCase
         self::assertStringNotContainsString($plainCode, $stored);
     }
 
+    public function testTransientTaskReceiptProjectionForcesSameEventRetry(): void
+    {
+        $plainCode = 'RETRY234';
+        Db::name('wecom_aibot_binding_codes')->insert([
+            'tenant_id' => 10,
+            'hotel_id' => 20,
+            'code_hash' => hash('sha256', 'wecom-aibot-binding-code-v1|' . $plainCode),
+            'code_mask' => 'RE******',
+            'label' => 'receipt retry binding',
+            'status' => 'active',
+            'created_by' => 17,
+            'expires_at' => date('Y-m-d H:i:s', time() + 600),
+            'used_at' => null,
+            'bound_binding_id' => null,
+            'created_at' => date('Y-m-d H:i:s'),
+        ]);
+        $frame = [
+            'aibot_id' => self::BOT_ID,
+            'msg_id' => 'receipt-projection-retry-1',
+            'conversation_id' => 'conversation-receipt-retry-1',
+            'sender_id' => 'sender-receipt-retry-1',
+            'message_type' => 'text',
+            'content' => '绑定门店 ' . $plainCode,
+            'create_time' => time(),
+        ];
+        $calls = 0;
+        $service = new WecomAibotService(static function (array $event) use (&$calls): array {
+            $calls++;
+            if ($calls === 1) {
+                return [
+                    'status' => 'blocked',
+                    'code' => 'wecom_task_receipt_projection_failed',
+                    'retry_required' => true,
+                ];
+            }
+            return [
+                'status' => 'readback_verified',
+                'receipt_id' => 901,
+                'retry_required' => false,
+            ];
+        });
+
+        try {
+            $service->ingest($frame);
+            self::fail('Transient receipt projection failure must propagate for relay retry.');
+        } catch (\RuntimeException $error) {
+            self::assertSame(503, $error->getCode());
+            self::assertSame('wecom_task_receipt_projection_failed', $error->getMessage());
+        }
+
+        self::assertSame(1, (int)Db::name('wecom_inbound_events')->count());
+        $retried = $service->ingest($frame);
+        self::assertTrue($retried['duplicate']);
+        self::assertSame('readback_verified', $retried['task_receipt_projection']['status']);
+        self::assertSame(2, $calls);
+        self::assertSame(1, (int)Db::name('wecom_inbound_events')->count());
+    }
+
     public function testExpiredProcessingLeaseRecoversSameCallbackAfterTerminalWriteCrash(): void
     {
         $bindingKey = 'callback_binding_retry_0001';

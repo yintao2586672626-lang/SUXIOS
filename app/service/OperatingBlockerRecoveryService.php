@@ -295,12 +295,14 @@ final class OperatingBlockerRecoveryService
         $source = $this->source($row);
         $statusCode = $this->machineCode($row['status'] ?? '');
         $reasonCode = $this->reasonCode($row, $statusCode);
-        if (!$this->isBlockingEvidence($row, $statusCode, $reasonCode)) {
+        $scopeEvidence = $this->scopeEvidence($requestedScope, $row, $source);
+        $scopeStatus = (string)$scopeEvidence['status'];
+        if ($scopeStatus !== 'mismatch'
+            && !$this->isBlockingEvidence($row, $statusCode, $reasonCode)
+        ) {
             return null;
         }
 
-        $scopeEvidence = $this->scopeEvidence($requestedScope, $row, $source);
-        $scopeStatus = (string)$scopeEvidence['status'];
         $category = $scopeStatus === 'mismatch'
             ? 'permission'
             : $this->category($reasonCode, $source);

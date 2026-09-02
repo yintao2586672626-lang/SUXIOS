@@ -186,6 +186,25 @@ final class OperatingBlockerRecoveryServiceTest extends TestCase
         self::assertSame([], $result['items']);
     }
 
+    public function testReadyEvidenceOutsideRequestedScopeBecomesAPermissionBlocker(): void
+    {
+        foreach ([
+            ['tenant_id' => 2],
+            ['hotel_id' => 81],
+            ['business_date' => '2026-08-29'],
+        ] as $scopeDrift) {
+            $evidence = array_replace($this->evidence('ready'), $scopeDrift);
+            $result = $this->service()->build($this->scope(), ['meituan' => $evidence]);
+
+            self::assertSame('blocked', $result['status']);
+            self::assertSame(0, $result['non_blocking_evidence_count']);
+            self::assertSame(1, $result['blocker_count']);
+            self::assertSame('permission', $result['selected']['category']);
+            self::assertSame('evidence_scope_mismatch', $result['selected']['reason_code']);
+            self::assertSame('mismatch', $result['selected']['scope_status']);
+        }
+    }
+
     public function testDuplicateBlockerEvidenceCollapsesToStrongestSameScopeReceipt(): void
     {
         $partial = [

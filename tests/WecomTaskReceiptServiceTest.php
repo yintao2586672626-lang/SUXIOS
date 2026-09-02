@@ -335,7 +335,28 @@ final class WecomTaskReceiptServiceTest extends TestCase
         $aibotSource = file_get_contents(dirname(__DIR__) . '/app/service/WecomAibotService.php');
         self::assertIsString($aibotSource);
         self::assertStringContainsString("['sender_binding_projection'] = \$this->projectSenderBinding(\$event)", $aibotSource);
-        self::assertStringContainsString("['task_receipt_projection'] = (new WecomTaskReceiptService())->projectArchivedEvent(\$event)", $aibotSource);
+        self::assertStringContainsString("['task_receipt_projection'] = \$this->projectTaskReceipt(\$event)", $aibotSource);
+    }
+
+    public function testTransientProjectionFailureIsMarkedForTransportRetry(): void
+    {
+        $event = $this->event(
+            $this->structuredContent('completed', '巡检已完成。', '证据已保留。'),
+            9057,
+            WecomAibotService::TRANSPORT
+        );
+        $service = new WecomTaskReceiptService(
+            null,
+            null,
+            static fn(): array => throw new RuntimeException('database temporarily unavailable', 503)
+        );
+
+        $projection = $service->projectArchivedEvent($event);
+
+        self::assertSame('blocked', $projection['status']);
+        self::assertSame('wecom_task_receipt_projection_failed', $projection['code']);
+        self::assertTrue($projection['retry_required']);
+        self::assertSame(0, (int)Db::name(WecomTaskReceiptService::TABLE)->count());
     }
 
     public function testUnsupportedTransportCannotProjectAReceipt(): void

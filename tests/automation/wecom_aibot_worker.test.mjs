@@ -23,7 +23,7 @@ const frame = (content = '请给我昨日经营摘要') => ({
 });
 
 const harness = (relayResult) => {
-  const calls = { relay: [], reply: [], delivery: [], state: [] };
+  const calls = { relay: [], reply: [], delivery: [], state: [], wait: [] };
   const handle = createWecomAibotMessageHandler({
     botId: 'bot-default',
     relay: async (...args) => {
@@ -39,6 +39,7 @@ const harness = (relayResult) => {
     recordDelivery: async (...args) => { calls.delivery.push(args); },
     writeState: (patch) => { calls.state.push(patch); },
     now: () => new Date('2026-08-25T08:00:00.000Z'),
+    wait: async (milliseconds) => { calls.wait.push(milliseconds); },
   });
   return { calls, handle };
 };
@@ -119,16 +120,54 @@ test('missing or nonzero SDK errcode is recorded as outcome_unknown', async () =
   }
 });
 
-test('relay failure and incomplete frames fail closed before external reply', async () => {
+test('relay failure retries the same event and still fails closed before external reply', async () => {
   const failed = harness(new Error('relay unavailable'));
-  await failed.handle(frame(), 'text');
+  await assert.rejects(failed.handle(frame(), 'text'), /relay unavailable/);
+  assert.equal(failed.calls.relay.length, 3);
+  assert.deepEqual(failed.calls.wait, [250, 500]);
   assert.equal(failed.calls.reply.length, 0);
-  assert.deepEqual(failed.calls.state.at(-1), { last_delivery_status: 'relay_failed' });
+  assert.deepEqual(failed.calls.state.at(-1), {
+    last_delivery_status: 'relay_failed',
+    relay_retry_attempts: 3,
+  });
 
   const incomplete = harness({ id: 1, delivery_status: 'not_sent', reply_allowed: true, reply_text: 'reply' });
   await incomplete.handle({ body: { text: { content: 'reply' } } }, 'text');
   assert.equal(incomplete.calls.relay.length, 0);
   assert.equal(incomplete.calls.reply.length, 0);
+});
+
+test('transient receipt projection failure recovers through the same-event relay retry', async () => {
+  const calls = { relay: 0, wait: [], state: [], reply: 0 };
+  const handle = createWecomAibotMessageHandler({
+    botId: 'bot',
+    relay: async () => {
+      calls.relay++;
+      if (calls.relay === 1) throw new Error('receipt projection temporarily unavailable');
+      return {
+        id: 45,
+        duplicate: true,
+        delivery_status: 'not_sent',
+        reply_allowed: false,
+        reply_text: '',
+      };
+    },
+    replyStream: async () => { calls.reply++; },
+    requestId: () => 'req',
+    recordDelivery: async () => {},
+    writeState: (patch) => { calls.state.push(patch); },
+    wait: async (milliseconds) => { calls.wait.push(milliseconds); },
+  });
+
+  await handle(frame('{"task_id":45,"status":"completed"}'), 'text');
+
+  assert.equal(calls.relay, 2);
+  assert.deepEqual(calls.wait, [250]);
+  assert.equal(calls.reply, 0);
+  assert.deepEqual(calls.state.at(-1), {
+    last_delivery_status: 'relay_recovered',
+    relay_retry_attempts: 1,
+  });
 });
 
 test('shutdown records stopped state before disconnecting', () => {

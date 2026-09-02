@@ -157,6 +157,48 @@ final class MonthlyOperatingFinanceServiceTest extends TestCase
         self::assertSame(80, $migrated['source_hotel_id']);
     }
 
+    public function testDuplicateKeyRaceReturnsTheDigestVerifiedCommittedWinner(): void
+    {
+        $winner = (new MonthlyOperatingFinanceService())->saveSnapshot(
+            7,
+            [80],
+            80,
+            '2026-08',
+            'whole_hotel',
+            $this->completeInputs(),
+            ['pms_capture#101', 'manual_cost_ledger#202608'],
+            $this->sourceMeta(),
+            'monthly-finance-race-80-202608',
+            11
+        );
+        $racingService = new MonthlyOperatingFinanceService(
+            static function (callable $callback): array {
+                throw new RuntimeException(
+                    'SQLSTATE[23000]: Integrity constraint violation: 1062 Duplicate entry'
+                );
+            }
+        );
+
+        $replayed = $racingService->saveSnapshot(
+            7,
+            [80],
+            80,
+            '2026-08',
+            'whole_hotel',
+            $this->completeInputs(),
+            ['manual_cost_ledger#202608', 'pms_capture#101'],
+            $this->sourceMeta(),
+            'monthly-finance-race-80-202608',
+            11
+        );
+
+        self::assertSame($winner['id'], $replayed['id']);
+        self::assertSame($winner['content_digest'], $replayed['content_digest']);
+        self::assertTrue($replayed['idempotent']);
+        self::assertTrue($replayed['readback_verified']);
+        self::assertSame(1, (int)Db::name(MonthlyOperatingFinanceService::TABLE)->count());
+    }
+
     public function testPortfolioRanksOnlyWhenEveryPermittedHotelHasComparableWholeHotelFacts(): void
     {
         $service = new MonthlyOperatingFinanceService();

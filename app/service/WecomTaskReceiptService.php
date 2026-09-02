@@ -308,7 +308,13 @@ final class WecomTaskReceiptService
             ) {
                 $code = 'wecom_task_receipt_projection_failed';
             }
-            return ['status' => 'blocked', 'code' => $code];
+            $retryRequired = !($error instanceof InvalidArgumentException)
+                && !in_array((int)$error->getCode(), [400, 403, 409, 422], true);
+            return [
+                'status' => 'blocked',
+                'code' => $code,
+                'retry_required' => $retryRequired,
+            ];
         }
     }
 

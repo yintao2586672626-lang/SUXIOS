@@ -7,6 +7,7 @@ use DateTimeImmutable;
 use DateTimeZone;
 use InvalidArgumentException;
 use RuntimeException;
+use Throwable;
 use think\facade\Db;
 
 final class MonthlyOperatingFinanceService
@@ -28,6 +29,15 @@ final class MonthlyOperatingFinanceService
         'budget_total_operating_revenue',
         'budget_gop',
     ];
+
+    /** @var callable(callable():array<string,mixed>):array<string,mixed> */
+    private $transactionRunner;
+
+    public function __construct(?callable $transactionRunner = null)
+    {
+        $this->transactionRunner = $transactionRunner
+            ?? static fn(callable $callback): array => Db::transaction($callback);
+    }
 
     /** @return array<string,mixed> */
     public function calculate(string $factScope, array $rawInputs): array
@@ -219,69 +229,92 @@ final class MonthlyOperatingFinanceService
         $idempotencyKey = $this->idempotencyKey($clientIdempotencyKey);
         $now = $this->now();
 
-        return Db::transaction(function () use (
-            $tenantId,
-            $hotelId,
-            $periodMonth,
-            $factScope,
-            $sourceMeta,
-            $sourceRefs,
-            $normalizedInputs,
-            $results,
-            $missing,
-            $contentDigest,
-            $idempotencyKey,
-            $actorId,
-            $now
-        ): array {
-            $existing = Db::name(self::TABLE)
+        $runTransaction = $this->transactionRunner;
+        try {
+            return $runTransaction(function () use (
+                $tenantId,
+                $hotelId,
+                $periodMonth,
+                $factScope,
+                $sourceMeta,
+                $sourceRefs,
+                $normalizedInputs,
+                $results,
+                $missing,
+                $contentDigest,
+                $idempotencyKey,
+                $actorId,
+                $now
+            ): array {
+                $existing = Db::name(self::TABLE)
+                    ->where('tenant_id', $tenantId)
+                    ->where('hotel_id', $hotelId)
+                    ->where('period_month', $periodMonth)
+                    ->where('idempotency_key', $idempotencyKey)
+                    ->lock(true)
+                    ->find();
+                if ($existing) {
+                    return $this->verifiedIdempotentReplay($existing, $contentDigest);
+                }
+                $version = (int)Db::name(self::TABLE)
+                    ->where('tenant_id', $tenantId)
+                    ->where('hotel_id', $hotelId)
+                    ->where('period_month', $periodMonth)
+                    ->lock(true)
+                    ->max('version_no') + 1;
+                $id = (int)Db::name(self::TABLE)->insertGetId([
+                    'contract_version' => self::CONTRACT_VERSION,
+                    'tenant_id' => $tenantId,
+                    'hotel_id' => $hotelId,
+                    'source_hotel_id' => $hotelId,
+                    'period_month' => $periodMonth,
+                    'version_no' => max(1, $version),
+                    'fact_scope' => $factScope,
+                    'source_method' => $sourceMeta['source_method'],
+                    'source_quality_status' => $sourceMeta['source_quality_status'],
+                    'currency' => $sourceMeta['currency'],
+                    'tax_basis' => $sourceMeta['tax_basis'],
+                    'metric_definition_version' => $sourceMeta['metric_definition_version'],
+                    'source_refs_json' => $this->json($sourceRefs),
+                    'inputs_json' => $this->json($normalizedInputs),
+                    'results_json' => $this->json($results),
+                    'missing_items_json' => $this->json($missing),
+                    'idempotency_key' => $idempotencyKey,
+                    'content_digest' => $contentDigest,
+                    'created_by' => $actorId,
+                    'created_at' => $now,
+                ]);
+                $saved = $this->readSnapshot($tenantId, $hotelId, $id);
+                if (!hash_equals($saved['content_digest'], $contentDigest)) {
+                    throw new RuntimeException('monthly_operating_finance_readback_mismatch');
+                }
+                return $saved + ['idempotent' => false];
+            });
+        } catch (Throwable $error) {
+            if (!$this->isDuplicateKeyConflict($error)) {
+                throw $error;
+            }
+            $winner = Db::name(self::TABLE)
                 ->where('tenant_id', $tenantId)
                 ->where('hotel_id', $hotelId)
                 ->where('period_month', $periodMonth)
                 ->where('idempotency_key', $idempotencyKey)
-                ->lock(true)
                 ->find();
-            if ($existing) {
-                $saved = $this->hydrate($existing);
-                if (!hash_equals($saved['content_digest'], $contentDigest)) {
-                    throw new RuntimeException('monthly_operating_finance_idempotency_conflict', 409);
-                }
-                return $saved + ['idempotent' => true];
+            if (!is_array($winner)) {
+                throw $error;
             }
-            $version = (int)Db::name(self::TABLE)
-                ->where('tenant_id', $tenantId)
-                ->where('hotel_id', $hotelId)
-                ->where('period_month', $periodMonth)
-                ->lock(true)
-                ->max('version_no') + 1;
-            $id = (int)Db::name(self::TABLE)->insertGetId([
-                'contract_version' => self::CONTRACT_VERSION,
-                'tenant_id' => $tenantId,
-                'hotel_id' => $hotelId,
-                'source_hotel_id' => $hotelId,
-                'period_month' => $periodMonth,
-                'version_no' => max(1, $version),
-                'fact_scope' => $factScope,
-                'source_method' => $sourceMeta['source_method'],
-                'source_quality_status' => $sourceMeta['source_quality_status'],
-                'currency' => $sourceMeta['currency'],
-                'tax_basis' => $sourceMeta['tax_basis'],
-                'metric_definition_version' => $sourceMeta['metric_definition_version'],
-                'source_refs_json' => $this->json($sourceRefs),
-                'inputs_json' => $this->json($normalizedInputs),
-                'results_json' => $this->json($results),
-                'missing_items_json' => $this->json($missing),
-                'idempotency_key' => $idempotencyKey,
-                'content_digest' => $contentDigest,
-                'created_by' => $actorId,
-                'created_at' => $now,
-            ]);
-            $saved = $this->readSnapshot($tenantId, $hotelId, $id);
-            if (!hash_equals($saved['content_digest'], $contentDigest)) {
-                throw new RuntimeException('monthly_operating_finance_readback_mismatch');
-            }
-            return $saved + ['idempotent' => false];
-        });
+            return $this->verifiedIdempotentReplay($winner, $contentDigest);
+        }
+    }
+
+    /** @param array<string,mixed> $row @return array<string,mixed> */
+    private function verifiedIdempotentReplay(array $row, string $contentDigest): array
+    {
+        $saved = $this->hydrate($row);
+        if (!hash_equals($saved['content_digest'], $contentDigest)) {
+            throw new RuntimeException('monthly_operating_finance_idempotency_conflict', 409);
+        }
+        return $saved + ['idempotent' => true];
     }
 
     /** @return array<string,mixed> */
@@ -674,6 +707,20 @@ final class MonthlyOperatingFinanceService
             $value[$key] = $this->canonicalize($item);
         }
         return $value;
+    }
+
+    private function isDuplicateKeyConflict(Throwable $error): bool
+    {
+        for ($current = $error; $current !== null; $current = $current->getPrevious()) {
+            $message = strtolower($current->getMessage());
+            if (str_contains($message, 'duplicate entry')
+                || str_contains($message, 'integrity constraint violation: 1062')
+                || str_contains($message, 'unique constraint failed')
+            ) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private function now(): string
