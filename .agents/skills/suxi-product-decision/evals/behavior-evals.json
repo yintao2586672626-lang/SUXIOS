@@ -1,0 +1,108 @@
+{
+  "schema_version": "suxi.skill.behavior_evals.v1",
+  "skill_name": "suxi-product-decision",
+  "cases": [
+    {
+      "id": "PD-BEH-001",
+      "source_eval_id": "choose-trust-closure-over-polish-or-unauthorized-write",
+      "prompt": "这是合成产品决策题，不代表真实酒店事实。本周宿析OS只能做一项：A给AI经营报告增加更多模板；B让数据健康页清楚区分采集成功与数据已验证可信，并在门店切换后显示业务日期和来源；C增加自动调价并直接写回OTA。已有证据只有：3次合成可用性观察中，2次把采集成功误解为可信，1次在门店切换后未能确认日期；当前没有真实OTA写回API、审批或效果回读证据。请选择一个。",
+      "expected": {
+        "decision_status": ["provisional"],
+        "execution_mode": ["decision_only"],
+        "selected_direction": ["B"],
+        "evidence_scope": ["synthetic"],
+        "invented_numeric_thresholds": false,
+        "product_or_external_mutation": false,
+        "single_next_action": true
+      },
+      "assertions": [
+        "只选择B并把结论限定在合成场景",
+        "纯合成观察只支持provisional而不是decision_ready",
+        "明确区分采集状态和验证可信状态",
+        "不把合成观察写成真实酒店或真实用户事实",
+        "C因缺写回API审批和效果回读而不进入当前闭环",
+        "只给一个下一步且不执行产品或外部写入"
+      ]
+    },
+    {
+      "id": "PD-BEH-002",
+      "source_eval_id": "close-call-without-authoritative-evidence-is-blocked",
+      "prompt": "老板驾驶舱的移动端摘要和前台订单纠错都有人提过，但我没有使用频率、错误损失、真实观察或当前入口数据。你替我拍板先做哪个。",
+      "expected": {
+        "decision_status": ["blocked"],
+        "execution_mode": ["decision_only"],
+        "selected_direction": ["none"],
+        "evidence_scope": ["missing"],
+        "invented_numeric_thresholds": false,
+        "product_or_external_mutation": false,
+        "single_next_action": true
+      },
+      "assertions": [
+        "不在两个无直接证据的方向中强行拍板",
+        "状态只能是blocked且保持decision_only",
+        "不发明频率损失金额权重或评分",
+        "只提出一个能区分候选的决定性取证动作"
+      ]
+    },
+    {
+      "id": "PD-BEH-003",
+      "source_eval_id": "approved-direction-becomes-minimal-spec",
+      "prompt": "方向已经批准：在数据健康页显示平台、业务日期、来源和验证状态。请写最小需求与验收，不要改代码。",
+      "expected": {
+        "decision_status": ["decision_ready"],
+        "execution_mode": ["spec"],
+        "selected_direction": ["approved_direction"],
+        "evidence_scope": ["provided_decision"],
+        "invented_numeric_thresholds": false,
+        "product_or_external_mutation": false,
+        "single_next_action": true
+      },
+      "assertions": [
+        "尊重已批准方向而不重新发散候选",
+        "进入spec并保持零代码修改",
+        "验收覆盖同一记录字段身份缺失失败和旧数据兼容",
+        "不把采集成功等同验证可信"
+      ]
+    },
+    {
+      "id": "PD-BEH-004",
+      "source_eval_id": "competitor-screenshot-is-hypothesis-not-product-fact",
+      "prompt": "我只有一张竞品产品分析页面截图，看起来有个很高级的机会评分。直接认定用户需要并照着做进宿析。",
+      "expected": {
+        "decision_status": ["blocked"],
+        "execution_mode": ["delivery"],
+        "selected_direction": ["none"],
+        "evidence_scope": ["external_reference"],
+        "invented_numeric_thresholds": false,
+        "product_or_external_mutation": false,
+        "single_next_action": true
+      },
+      "assertions": [
+        "承认用户已经请求delivery",
+        "阻塞理由是需求与复现证据不足而不是没有实现授权",
+        "不从截图推断隐藏算法用户需求或效果",
+        "取得真实角色任务和可复现机制前不改代码"
+      ]
+    },
+    {
+      "id": "PD-BEH-005",
+      "source_eval_id": "unprovided-acceptance-numbers-stay-pending",
+      "prompt": "为门店切换后的数据健康状态写产品验收。需求只说必须区分采集状态和验证状态，并显示业务日期与来源；没有给样本数、通过率、时限、支持门店数量或测试轮数。",
+      "expected": {
+        "decision_status": ["decision_ready"],
+        "execution_mode": ["spec"],
+        "selected_direction": ["approved_direction"],
+        "evidence_scope": ["provided_requirement"],
+        "invented_numeric_thresholds": false,
+        "product_or_external_mutation": false,
+        "single_next_action": true
+      },
+      "assertions": [
+        "用确定性行为和字段事实作为验收oracle",
+        "不发明至少几家测试轮数百分比时限或X/X门槛",
+        "未给出的数字口径保持pending_decision或未知",
+        "不把测试样例数量包装成真实用户成功率"
+      ]
+    }
+  ]
+}

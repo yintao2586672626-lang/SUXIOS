@@ -386,6 +386,8 @@ export class ReceiptChain {
         'hotel_id',
         'owner_user_id',
         'target_date',
+        'data_period',
+        'collection_kind',
       ];
       if (scopedFields.some((field) => closePayload[field] !== payload[field])
         || Number(closePayload.data_source_id || 0) !== payload.data_source_id
@@ -561,17 +563,26 @@ function validateCollectionOpenRequest(body) {
   const platform = assertOpaque(body.platform, COLLECTION_PLATFORM_PATTERN, 'platform_invalid');
   const collectionKind = assertOpaque(
     body.collection_kind,
-    /^(operating_target_today|ota_target_date|ota_channel_profile)$/,
+    /^(operating_target_today|operating_target_historical|ota_target_date|ota_channel_profile)$/,
     'collection_kind_invalid',
   );
   const dataSourceId = body.data_source_id == null || String(body.data_source_id).trim() === ''
     ? 0
     : positiveInteger(body.data_source_id, 'data_source_id_invalid');
   const isOta = OTA_RECEIPT_PLATFORM_PATTERN.test(platform);
+  const dataPeriod = assertOpaque(
+    body.data_period,
+    /^(historical_daily|realtime_snapshot)$/,
+    'data_period_invalid',
+  );
   if ((isOta && collectionKind === 'ota_channel_profile' && dataSourceId <= 0)
     || (isOta && collectionKind === 'ota_target_date' && dataSourceId !== 0)
     || (isOta && !['ota_target_date', 'ota_channel_profile'].includes(collectionKind))
-    || (!isOta && (collectionKind !== 'operating_target_today' || dataSourceId !== 0))
+    || (!isOta && (!['operating_target_today', 'operating_target_historical'].includes(collectionKind)
+      || dataSourceId !== 0))
+    || (collectionKind === 'operating_target_historical' && platform !== 'dingdandao')
+    || (collectionKind === 'operating_target_historical' && dataPeriod !== 'historical_daily')
+    || (collectionKind === 'operating_target_today' && dataPeriod !== 'realtime_snapshot')
   ) {
     throw new Error('collection_scope_invalid');
   }
@@ -583,6 +594,7 @@ function validateCollectionOpenRequest(body) {
     hotelId: positiveInteger(body.hotel_id, 'hotel_id_invalid'),
     ownerUserId: positiveInteger(body.owner_user_id, 'owner_user_id_invalid'),
     targetDate: assertOpaque(body.target_date, DATE_PATTERN, 'target_date_invalid'),
+    dataPeriod,
     collectionKind,
     accessMode: assertOpaque(body.access_mode, /^read_only$/, 'access_mode_invalid'),
   };
@@ -1458,6 +1470,7 @@ export async function createGateway(env = process.env, dependencies = {}) {
             hotel_id: collection.hotelId,
             owner_user_id: collection.ownerUserId,
             target_date: collection.targetDate,
+            data_period: collection.dataPeriod,
           }, { signal: session.abortController.signal });
           throwIfCollectionAbortRequested(session);
           if (validated?.validated !== true
@@ -1468,6 +1481,7 @@ export async function createGateway(env = process.env, dependencies = {}) {
             || validated?.hotel_id !== collection.hotelId
             || validated?.owner_user_id !== collection.ownerUserId
             || validated?.target_date !== collection.targetDate
+            || validated?.data_period !== collection.dataPeriod
             || validated?.collection_kind !== collection.collectionKind
             || validated?.access_mode !== collection.accessMode
             || (collection.dataSourceId > 0
@@ -1476,6 +1490,13 @@ export async function createGateway(env = process.env, dependencies = {}) {
             throw new Error('collection_scope_mismatch');
           }
           session.runtimeTouched = true;
+          session.sourceScope = validated.source_scope || (
+            OTA_RECEIPT_PLATFORM_PATTERN.test(collection.platform)
+              ? (collection.collectionKind === 'ota_channel_profile' ? 'ota_channel' : 'target_date_only')
+              : (collection.platform === 'dingdandao'
+                ? (collection.collectionKind === 'operating_target_historical' ? 'historical_single_date' : 'today_only')
+                : 'today_realtime_accommodation')
+          );
           const profilePath = await vault.restore(collection.profileId);
           session.profileRestored = true;
           throwIfCollectionAbortRequested(session);
@@ -1530,6 +1551,8 @@ export async function createGateway(env = process.env, dependencies = {}) {
               owner_user_id: session.ownerUserId,
               ...(session.dataSourceId > 0 ? { data_source_id: session.dataSourceId } : {}),
               target_date: session.targetDate,
+              data_period: session.dataPeriod,
+              collection_kind: session.collectionKind,
               access_mode: session.accessMode,
               status: 'expired',
             });
@@ -1548,13 +1571,10 @@ export async function createGateway(env = process.env, dependencies = {}) {
           owner_user_id: collection.ownerUserId,
           ...(collection.dataSourceId > 0 ? { data_source_id: collection.dataSourceId } : {}),
           target_date: collection.targetDate,
+          data_period: collection.dataPeriod,
           collection_kind: collection.collectionKind,
           source_url: validated.source_url || platformStartUrl(collection.platform),
-          source_scope: validated.source_scope || (
-            collection.platform === 'dingdandao'
-              ? 'today_only'
-              : 'today_realtime_accommodation'
-          ),
+          source_scope: session.sourceScope,
           access_mode: 'read_only',
           read_only_enforced: session.guard.requestPolicyEnforced === true,
           profile_restored: true,
@@ -1607,6 +1627,8 @@ export async function createGateway(env = process.env, dependencies = {}) {
           owner_user_id: session.ownerUserId,
           ...(session.dataSourceId > 0 ? { data_source_id: session.dataSourceId } : {}),
           target_date: session.targetDate,
+          data_period: session.dataPeriod,
+          collection_kind: session.collectionKind,
           access_mode: session.accessMode,
           outcome: 'aborted_by_supervisor',
           profile_sealed: true,
@@ -1665,6 +1687,9 @@ export async function createGateway(env = process.env, dependencies = {}) {
           owner_user_id: session.ownerUserId,
           ...(session.dataSourceId > 0 ? { data_source_id: session.dataSourceId } : {}),
           target_date: session.targetDate,
+          data_period: session.dataPeriod,
+          collection_kind: session.collectionKind,
+          source_scope: session.sourceScope,
           access_mode: session.accessMode,
           outcome: collection.outcome,
           profile_sealed: true,
@@ -1673,6 +1698,9 @@ export async function createGateway(env = process.env, dependencies = {}) {
         jsonResponse(response, 200, {
           status: 'collection_closed',
           collection_session_id: collection.collectionSessionId,
+          data_period: session.dataPeriod,
+          collection_kind: session.collectionKind,
+          source_scope: session.sourceScope,
           browser_started: false,
           profile_sealed: true,
           user_browser_closed: false,
@@ -1707,6 +1735,8 @@ export async function createGateway(env = process.env, dependencies = {}) {
             ? 0
             : Number.parseInt(body.data_source_id, 10),
           target_date: assertOpaque(body.target_date, /^\d{4}-\d{2}-\d{2}$/, 'target_date_invalid'),
+          data_period: assertOpaque(body.data_period, /^(historical_daily|realtime_snapshot)$/, 'data_period_invalid'),
+          collection_kind: assertOpaque(body.collection_kind, /^ota_channel_profile$/, 'collection_kind_invalid'),
           close_receipt_id: assertOpaque(
             body.close_receipt_id,
             /^cbr_[A-Za-z0-9_-]{16,64}$/,

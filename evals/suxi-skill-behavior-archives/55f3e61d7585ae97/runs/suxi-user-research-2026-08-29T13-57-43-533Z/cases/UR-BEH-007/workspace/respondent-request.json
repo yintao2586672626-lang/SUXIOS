@@ -1,0 +1,6 @@
+{
+  "schema_version": "suxi.skill.behavior_request.v1",
+  "skill_name": "suxi-user-research",
+  "case_id": "UR-BEH-007",
+  "user_request": "我只有一张竞品数据页截图，你按这张图做一份完整用户研究报告，写出用户最喜欢和最不喜欢什么。"
+}

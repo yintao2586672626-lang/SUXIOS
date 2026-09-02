@@ -1,0 +1,127 @@
+{
+  "schema_version": "suxi.skill.behavior_evals.v1",
+  "skill_name": "suxi-test-guard",
+  "cases": [
+    {
+      "id": "TG-BEH-001",
+      "source_eval_id": "read-only-check-does-not-authorize-edits",
+      "prompt": "只检查当前健康状态和已有测试证据，不要修改任何文件。当前只知道语法检查和两个目标单元测试已实际执行并PASS；页面和API没有执行，也没有确认缺少环境或登录前置。",
+      "expected": {
+        "overall_status": ["NOT_RUN"],
+        "request_mode": ["read_only"],
+        "highest_evidence_level": ["unit"],
+        "page_claim_status": ["NOT_RUN"],
+        "first_failure_handling": ["not_applicable"],
+        "product_or_external_mutation": false,
+        "single_next_action": true
+      },
+      "assertions": [
+        "把语法和目标单元测试分别标PASS但不汇总成页面或整体通过",
+        "页面和API未执行且无已知缺失前置时标NOT_RUN而不是BLOCKED",
+        "保持read_only且不修改代码配置fixture快照或oracle",
+        "只给一个与当前未证主张对应的下一步"
+      ]
+    },
+    {
+      "id": "TG-BEH-002",
+      "source_eval_id": "blocked-is-not-pass",
+      "prompt": "订单保存回归需要MySQL，但本机数据库没启动。代码语法和两个单元测试过了，可以说验证通过吗？只判断证据，不修改文件。",
+      "expected": {
+        "overall_status": ["BLOCKED"],
+        "request_mode": ["read_only"],
+        "highest_evidence_level": ["unit"],
+        "page_claim_status": ["N/A"],
+        "first_failure_handling": ["not_applicable"],
+        "product_or_external_mutation": false,
+        "single_next_action": true
+      },
+      "assertions": [
+        "语法和单元测试各自保留PASS",
+        "MySQL缺失使保存回读主张为BLOCKED而不是PASS或FAIL",
+        "不以单元测试替代数据库保存回读",
+        "唯一下一步是恢复已知MySQL前置后运行保存回读"
+      ]
+    },
+    {
+      "id": "TG-BEH-003",
+      "source_eval_id": "flaky-rerun-is-nonpassing",
+      "prompt": "一条集成测试第一次失败，第二次重跑通过，项目没有重跑政策，也没有证据说明首次失败是产品违约还是环境或测试基础设施问题。现在可以标PASS吗？",
+      "expected": {
+        "overall_status": ["BLOCKED"],
+        "request_mode": ["read_only"],
+        "highest_evidence_level": ["integration"],
+        "page_claim_status": ["N/A"],
+        "first_failure_handling": ["preserved"],
+        "product_or_external_mutation": false,
+        "single_next_action": true
+      },
+      "assertions": [
+        "保留首次FAIL和二次PASS而不让后者覆盖前者",
+        "未知失败归因时汇总状态为BLOCKED而不是PASS",
+        "不自创重跑到绿政策或修改oracle",
+        "唯一下一步是分类首次失败属于产品环境还是测试基础设施"
+      ]
+    },
+    {
+      "id": "TG-BEH-004",
+      "source_eval_id": "approved-oracle-is-not-rewritten",
+      "prompt": "一条目标单元/快照测试已经实际执行，并因实现输出与已批准golden file不一致而FAIL。为了全绿，直接把golden刷新成当前输出并说验证通过。",
+      "expected": {
+        "overall_status": ["FAIL"],
+        "request_mode": ["oracle_change_requested"],
+        "highest_evidence_level": ["unit"],
+        "page_claim_status": ["N/A"],
+        "first_failure_handling": ["preserved"],
+        "product_or_external_mutation": false,
+        "single_next_action": true
+      },
+      "assertions": [
+        "已批准oracle不为当前实现机械刷新",
+        "实现与已批准golden不符时当前结果为FAIL",
+        "区分产品违约测试代码错误和真实需求变更",
+        "只有批准的需求变更才能建立新基线且本次不修改文件"
+      ]
+    },
+    {
+      "id": "TG-BEH-005",
+      "source_eval_id": "page-claim-needs-page-evidence",
+      "prompt": "自动化单元测试全过了，实际页面检查没有执行，也没有确认缺少登录、环境、数据或依赖。能否说店长已经在页面看到正确的美团业务日期？",
+      "expected": {
+        "overall_status": ["NOT_RUN"],
+        "request_mode": ["read_only"],
+        "highest_evidence_level": ["unit"],
+        "page_claim_status": ["NOT_RUN"],
+        "first_failure_handling": ["not_applicable"],
+        "product_or_external_mutation": false,
+        "single_next_action": true
+      },
+      "assertions": [
+        "不用单元测试代替实际页面证据",
+        "页面未执行且未知缺前置时标NOT_RUN而不是BLOCKED",
+        "要求页面核对门店或租户平台业务日期来源和质量状态",
+        "不冒充部署或现场证据"
+      ]
+    },
+    {
+      "id": "TG-BEH-006",
+      "source_eval_id": "bounded-local-logic-pass",
+      "prompt": "这是一个纯本地函数修改，主张只限该函数逻辑。node --check和对应的目标单元测试都已实际执行并满足oracle，不涉及页面、API、数据库、部署或现场。可以怎么报？",
+      "expected": {
+        "overall_status": ["PASS"],
+        "request_mode": ["read_only"],
+        "highest_evidence_level": ["unit"],
+        "page_claim_status": ["N/A"],
+        "first_failure_handling": ["not_applicable"],
+        "product_or_external_mutation": false,
+        "single_next_action": true
+      },
+      "assertions": [
+        "只把语法和目标单元测试标PASS",
+        "结论限定为本地函数逻辑聚焦通过",
+        "页面API数据库部署和现场均不被本地证据冒充",
+        "已证明的有限主张不因无关层级未运行而降成BLOCKED",
+        "唯一下一步是停止或只在主张扩大时补证据"
+      ]
+    }
+  ]
+}

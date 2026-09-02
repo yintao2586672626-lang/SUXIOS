@@ -365,12 +365,12 @@ final class RevenueAiControllerTest extends TestCase
         $this->invokeNonPublic($executionController, 'assertRevenueAiHotelCapability', [7, 'operation.execute']);
     }
 
-    public function testCockpitPendingApprovalChecksExecutionPermissionBeforeReadingOverview(): void
+    public function testCockpitOpportunityPendingApprovalChecksExecutionPermissionBeforeReadingOverview(): void
     {
         $source = file_get_contents(dirname(__DIR__) . '/app/controller/RevenueAi.php');
         self::assertIsString($source);
         self::assertMatchesRegularExpression(
-            '/function createCockpitPendingApproval\(\): Response[\s\S]*?assertRevenueAiHotelCapability\(\$hotelId, self::EXECUTION_PERMISSION\);[\s\S]*?RevenueAiOverviewService/',
+            '/function createCockpitOpportunityPendingApproval\(int \$id = 0\): Response[\s\S]*?assertRevenueAiHotelCapability\(\$hotelId, self::EXECUTION_PERMISSION\);[\s\S]*?strictCockpitContext\(\$filters\)/',
             $source
         );
 
@@ -434,7 +434,7 @@ final class RevenueAiControllerTest extends TestCase
         $source = (string)file_get_contents(dirname(__DIR__) . '/app/controller/RevenueAi.php');
         self::assertStringContainsString("(new DualOtaFieldClosureService())->build(", $source);
         self::assertStringContainsString("'dual_ota_field_closure'", $source);
-        self::assertSame(3, substr_count($source, '$this->assertDualOtaCurrentReceiptReady('));
+        self::assertSame(2, substr_count($source, '$this->assertDualOtaCurrentReceiptReady('));
         self::assertStringContainsString('_current_receipt_not_ready', $source);
     }
 

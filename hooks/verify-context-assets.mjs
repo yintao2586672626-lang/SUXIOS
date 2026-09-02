@@ -60,17 +60,17 @@ if (!exists('AGENTS.md', outerRoot)) {
   failures.push('outer AGENTS.md is missing');
 } else {
   const outerAgents = read('AGENTS.md', outerRoot);
-  requireIncludes('outer AGENTS.md', outerAgents, 'Durable Context Assetization');
-  requireIncludes('outer AGENTS.md', outerAgents, 'Outcome Ownership and Feature Delivery');
-  requireIncludes('outer AGENTS.md', outerAgents, 'The current delivery mainline');
-  requireIncludes('outer AGENTS.md', outerAgents, 'Commit, push, and PR changes remain explicit-only');
-  requireIncludes('outer AGENTS.md', outerAgents, 'A dirty worktree is not a blocker');
+  requireIncludes('outer AGENTS.md', outerAgents, 'SUXIOS Root Agent Instructions — Lean');
+  requireIncludes('outer AGENTS.md', outerAgents, 'Feature delivery gets roughly 80–90%');
+  requireIncludes('outer AGENTS.md', outerAgents, 'Current clean implementation entrance');
+  requireIncludes('outer AGENTS.md', outerAgents, 'Commit/push/PR/deploy remain explicit-only');
+  requireIncludes('outer AGENTS.md', outerAgents, 'Preserve unrelated changes');
   requireIncludes('outer AGENTS.md', outerAgents, 'Passkey');
   requireIncludes('outer AGENTS.md', outerAgents, 'After three targeted inspections');
-  requireIncludes('outer AGENTS.md', outerAgents, 'HOTEL/.agents/skills/');
+  requireIncludes('outer AGENTS.md', outerAgents, 'Use only a named Skill or the single Skill whose trigger directly matches');
   requireIncludes('outer AGENTS.md', outerAgents, 'HOTEL/hooks/');
-  requireIncludes('outer AGENTS.md', outerAgents, 'suxi-capability-absorption');
-  requireIncludes('outer AGENTS.md', outerAgents, 'as untrusted');
+  requireIncludes('outer AGENTS.md', outerAgents, 'untrusted packages and scripts');
+  requireIncludes('outer AGENTS.md', outerAgents, 'Keep this root file below 12 KB');
 }
 
 if (!exists('AGENTS.md')) {
@@ -122,6 +122,30 @@ if (!exists(skillPath)) {
 const capabilityDirectory = '.agents/skills/suxi-capability-absorption';
 const capabilityMirrorDirectory = 'plugins/suxi-os-toolkit/skills/suxi-capability-absorption';
 const capabilitySkillPath = `${capabilityDirectory}/SKILL.md`;
+const inertUntrustedSkillFixturePath = `${capabilityDirectory}/evals/fixtures/untrusted-online-skill/SKILL.md.txt`;
+if (!exists(inertUntrustedSkillFixturePath)) {
+  failures.push(`${inertUntrustedSkillFixturePath} is missing`);
+}
+const discoverableFixtureSkills = exists(capabilityDirectory)
+  ? listFiles(capabilityDirectory).filter((file) => file.includes('/evals/fixtures/') && file.endsWith('/SKILL.md'))
+  : [];
+if (discoverableFixtureSkills.length > 0) {
+  failures.push(`${capabilityDirectory} exposes fixture SKILL.md files: ${discoverableFixtureSkills.join(', ')}`);
+}
+const suxiPluginManifestPath = 'plugins/suxi-os-toolkit/.codex-plugin/plugin.json';
+if (!exists(suxiPluginManifestPath)) {
+  failures.push(`${suxiPluginManifestPath} is missing`);
+} else {
+  try {
+    const manifest = JSON.parse(read(suxiPluginManifestPath));
+    const defaultPrompts = manifest?.interface?.defaultPrompt;
+    if (!Array.isArray(defaultPrompts) || defaultPrompts.length < 1 || defaultPrompts.length > 3) {
+      failures.push(`${suxiPluginManifestPath} interface.defaultPrompt must contain 1 to 3 prompts`);
+    }
+  } catch (error) {
+    failures.push(`${suxiPluginManifestPath} is not valid JSON: ${error.message}`);
+  }
+}
 if (!exists(capabilitySkillPath)) {
   failures.push(`${capabilitySkillPath} is missing`);
 } else {

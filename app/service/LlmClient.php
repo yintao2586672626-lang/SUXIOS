@@ -30,6 +30,18 @@ class LlmClient
         $startedAt = microtime(true);
         $modelKey = $this->normalizeModelKey($modelKey, $options);
         $governance = $this->buildGovernanceMeta($prompt, $modelKey, $meta, $options);
+        if ($this->modelCallsDisabled()) {
+            return $this->markIdempotencyResult($this->manualDegradationResult(
+                [],
+                $governance,
+                ['model_key' => $modelKey, 'source' => 'runtime_kill_switch'],
+                $prompt,
+                'Model calls are disabled by the current runtime boundary.',
+                'model_calls_disabled',
+                [],
+                $startedAt
+            ), false);
+        }
         $fingerprint = $this->idempotencyFingerprint($governance, $modelKey, $options);
         $idempotencyEnabled = $this->optionEnabled($options, 'idempotency_enabled', true);
 
@@ -90,6 +102,19 @@ class LlmClient
             [],
             $startedAt
         ), true);
+    }
+
+    private function modelCallsDisabled(): bool
+    {
+        $processValue = getenv('SUXI_DISABLE_MODEL_CALLS');
+        if ($processValue !== false) {
+            return filter_var((string)$processValue, FILTER_VALIDATE_BOOL);
+        }
+        try {
+            return filter_var((string)env('SUXI_DISABLE_MODEL_CALLS', false), FILTER_VALIDATE_BOOL);
+        } catch (Throwable) {
+            return false;
+        }
     }
 
     private function executeStableChat(

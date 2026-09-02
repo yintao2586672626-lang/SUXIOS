@@ -101,6 +101,7 @@ try {
         'owner_user_id' => $ownerUserId,
         'target_date' => $targetDate,
         'collection_kind' => 'operating_target_today',
+        'data_period' => 'realtime_snapshot',
         'access_mode' => 'read_only',
     ]);
     if (($opened['status'] ?? '') !== 'collection_open'
@@ -111,6 +112,8 @@ try {
         || (int)($opened['hotel_id'] ?? 0) !== $hotelId
         || (int)($opened['owner_user_id'] ?? 0) !== $ownerUserId
         || (string)($opened['target_date'] ?? '') !== $targetDate
+        || (string)($opened['data_period'] ?? '') !== 'realtime_snapshot'
+        || (string)($opened['collection_kind'] ?? '') !== 'operating_target_today'
         || (string)($opened['source_scope'] ?? '') !== MeituanCloudPmsCaptureService::SOURCE_SCOPE
     ) {
         throw new RuntimeException('meituan_cloud_collection_gateway_open_unverified');

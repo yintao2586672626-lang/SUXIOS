@@ -13,6 +13,15 @@
         { value: 'competition', label: '竞争' },
         { value: 'organization_review', label: '组织复盘' },
     ];
+    const analystFactory = window.SUXI_HOTEL_DATA_ANALYST_COMPONENTS;
+    if (!analystFactory?.create) {
+        throw new Error('缺少酒店数据分析师组件：hotel-data-analyst-components.js 未加载');
+    }
+    const analystComponents = analystFactory.create({ inject, h, nextTick });
+    const HOTEL_DATA_ANALYST_SUGGESTIONS = analystComponents.suggestions;
+    const createHotelDataAnalystFeedbackUi = analystComponents.createFeedbackUi;
+    const renderHotelDataAnalystQualityReceipt = analystComponents.renderQualityReceipt;
+    const hotelDataAnalystProfile = analystComponents.hotelDataAnalystProfile;
     const renderRevenueDecisionFrame = (frame, testId = '') => {
         if (!frame || typeof frame !== 'object') return null;
         const candidates = Array.isArray(frame.candidate_objects) ? frame.candidate_objects : [];
@@ -54,6 +63,235 @@
             ].filter(Boolean)),
         ]);
     };
+    // PRECISE_METRIC_SET_HELPERS_START
+    const preciseMetricHasValue = (value) => value !== null && value !== undefined && value !== '';
+    const preciseMetricUnitLabel = (value) => {
+        const unit = String(value || '').trim();
+        const labels = {
+            people: '人',
+            users: '人',
+            impressions: '次',
+            percent: '%',
+            orders: '单',
+            room_nights: '间夜',
+        };
+        return labels[unit.toLowerCase()] || unit;
+    };
+    const preciseMetricGapRows = (value) => [
+        ...(Array.isArray(value?.data_gaps) ? value.data_gaps : []),
+        ...(Array.isArray(value?.gaps) ? value.gaps : []),
+    ].filter((gap) => gap !== null && gap !== undefined && gap !== '');
+    const normalizePreciseMetricSet = (answer = {}) => {
+        const precise = answer?.precise_result && typeof answer.precise_result === 'object'
+            ? answer.precise_result
+            : null;
+        if (!precise) {
+            return {
+                contractVersion: '', kind: '', isMetricSet: false, items: [],
+                totalCount: 0, readyCount: 0, blockedCount: 0,
+                isPartial: false, allBlocked: false,
+            };
+        }
+        const nestedMetricSet = precise.metric_set && typeof precise.metric_set === 'object'
+            ? precise.metric_set
+            : null;
+        const contractVersion = String(nestedMetricSet?.contract_version || precise.contract_version || '');
+        const kind = String(nestedMetricSet?.kind || precise.kind || '');
+        const declaredMetricSet = contractVersion === 'suxios.precise_metric_set.v1'
+            || kind === 'operating_metric_set'
+            || Boolean(nestedMetricSet)
+            || Array.isArray(precise.precise_results)
+            || Array.isArray(answer.precise_results);
+        let rawItems = Array.isArray(nestedMetricSet?.items)
+            ? nestedMetricSet.items
+            : (Array.isArray(precise.items)
+                ? precise.items
+                : (Array.isArray(precise.precise_results)
+                    ? precise.precise_results
+                    : (Array.isArray(answer.precise_results) ? answer.precise_results : [])));
+        if (!rawItems.length && !declaredMetricSet) rawItems = [precise];
+        const items = rawItems
+            .filter((entry) => entry && typeof entry === 'object')
+            .map((entry, index) => {
+                const raw = entry.result && typeof entry.result === 'object'
+                    ? { ...entry, ...entry.result }
+                    : entry;
+                const metric = raw.metric && typeof raw.metric === 'object' ? raw.metric : {};
+                const metricKey = String(metric.key || raw.metric_key || `metric_${index + 1}`);
+                const metricName = String(metric.name || raw.metric_name || raw.canonical_term || metricKey);
+                const status = String(raw.status || raw.result_status || '');
+                const value = raw.value ?? null;
+                const hasValue = preciseMetricHasValue(value);
+                const verificationStatus = String(raw.verification_status || '').trim().toLowerCase();
+                const readbackStatus = String(raw.readback_status || '').trim().toLowerCase();
+                const requiresStrictEvidence = true;
+                const statusBlocked = /^(?:blocked|missing|unavailable|failed|error|not_)/i.test(status);
+                const sourceRecords = Array.from(new Set([
+                    String(raw.source_record || ''),
+                    ...(Array.isArray(raw.source_records) ? raw.source_records.map((item) => String(item || '')) : []),
+                ].filter(Boolean)));
+                const strictEvidenceReady = !requiresStrictEvidence || (
+                    ['verified', 'derived_verified'].includes(verificationStatus)
+                    && readbackStatus === 'readback_verified'
+                    && sourceRecords.length > 0
+                );
+                const blockedReason = String(raw.blocked_reason || (
+                    !strictEvidenceReady ? '指标缺少 verified/derived_verified、readback_verified 或来源记录凭证' : ''
+                ));
+                const blocked = statusBlocked || blockedReason !== '' || !hasValue || !strictEvidenceReady;
+                const inputs = Array.isArray(raw.calculation_inputs)
+                    ? raw.calculation_inputs
+                    : (Array.isArray(raw.inputs) ? raw.inputs : []);
+                return {
+                    raw,
+                    index,
+                    metricKey,
+                    metricName,
+                    status: status || (blocked ? 'blocked_by_missing_metric' : 'ready'),
+                    value,
+                    unit: String(raw.unit || ''),
+                    unitLabel: preciseMetricUnitLabel(raw.unit),
+                    blockedReason,
+                    blocked,
+                    ready: !blocked,
+                    sourceRecords,
+                    collectedAt: raw.collected_at ?? null,
+                    verificationStatus,
+                    readbackStatus,
+                    formula: String(raw.formula || ''),
+                    inputs,
+                    gaps: preciseMetricGapRows(raw),
+                };
+            });
+        const readyCount = items.filter((item) => item.ready).length;
+        const blockedCount = items.length - readyCount;
+        const overallStatus = String(precise.status || nestedMetricSet?.status || answer.status || '');
+        const isMetricSet = declaredMetricSet || items.length > 1;
+        const isPartial = isMetricSet
+            && (readyCount > 0 && blockedCount > 0 || overallStatus.toLowerCase().includes('partial'));
+        return {
+            contractVersion,
+            kind,
+            isMetricSet,
+            items,
+            totalCount: items.length,
+            readyCount,
+            blockedCount,
+            isPartial,
+            allBlocked: items.length > 0 && readyCount === 0,
+        };
+    };
+    // PRECISE_METRIC_SET_HELPERS_END
+    const preciseMetricGapText = (gap) => String(
+        gap && typeof gap === 'object' ? (gap.message || gap.reason || gap.code || '') : (gap || '')
+    ).trim();
+    const preciseMetricInputText = (input) => {
+        if (input === null || input === undefined) return '';
+        if (typeof input !== 'object') return String(input);
+        const metric = input.metric && typeof input.metric === 'object' ? input.metric : {};
+        const label = String(input.label || input.name || metric.name || input.metric_name || input.metric_key || metric.key || '输入');
+        const value = input.value ?? input.amount ?? null;
+        const unit = preciseMetricUnitLabel(input.unit);
+        return preciseMetricHasValue(value)
+            ? `${label} ${String(value)}${unit ? ` ${unit}` : ''}`
+            : label;
+    };
+    const renderPreciseMetricEvidence = (answer = {}, options = {}) => {
+        const normalized = options.normalized || normalizePreciseMetricSet(answer);
+        if (!normalized.items.length) return null;
+        const overallGaps = Array.isArray(options.dataGaps) ? options.dataGaps : [];
+        const multi = normalized.isMetricSet;
+        const cardNodes = normalized.items.map((item, index) => {
+            const raw = item.raw;
+            const valueText = preciseMetricHasValue(item.value)
+                ? `${String(item.value)}${item.unitLabel ? ` ${item.unitLabel}` : ''}`
+                : '--';
+            const matchingOverallGaps = overallGaps.filter((gap) => {
+                if (!gap || typeof gap !== 'object') return false;
+                const metric = gap.metric && typeof gap.metric === 'object' ? gap.metric : {};
+                return String(gap.metric_key || metric.key || '') === item.metricKey;
+            });
+            const gapTexts = Array.from(new Set([
+                ...item.gaps,
+                ...matchingOverallGaps,
+            ].map(preciseMetricGapText).filter(Boolean)));
+            const inputTexts = item.inputs.map(preciseMetricInputText).filter(Boolean);
+            const sourceText = item.sourceRecords.join('、') || '--';
+            const fields = [
+                ['酒店', String(raw.hotel?.name || `Hotel ${Number(raw.hotel?.id || 0) || '--'}`)],
+                ['平台', String(raw.platform?.name || raw.platform?.key || '--')],
+                ['业务日期', String(raw.business_date || '--')],
+                ['指标名称', item.metricName],
+                ['结果状态', item.status],
+                ['数值与单位', valueText],
+                ['来源记录', sourceText],
+                ['采集时间', String(item.collectedAt || '未记录，不用回读时间代替')],
+                ['验证状态', item.verificationStatus || '--'],
+                ['回读状态', item.readbackStatus || '--'],
+                ['数据范围', String(raw.data_scope || '--')],
+            ];
+            return h('article', {
+                key: `${item.metricKey}-${index}`,
+                class: [
+                    'rounded-xl border p-3',
+                    item.blocked
+                        ? 'border-amber-200 bg-amber-50/80'
+                        : 'border-emerald-200 bg-emerald-50/70',
+                ],
+                'data-testid': options.itemTestIdPrefix ? `${options.itemTestIdPrefix}-${index}` : undefined,
+                'data-metric-key': item.metricKey,
+                'data-metric-status': item.status,
+            }, [
+                h('div', { class: 'mb-2 flex flex-wrap items-center justify-between gap-2' }, [
+                    h('strong', { class: ['text-sm', item.blocked ? 'text-amber-950' : 'text-emerald-950'] }, item.metricName),
+                    h('span', {
+                        class: [
+                            'rounded-full bg-white px-2 py-1 text-[11px]',
+                            item.blocked ? 'text-amber-800' : 'text-emerald-800',
+                        ],
+                    }, item.blocked ? '明确阻塞' : '确定性可用'),
+                ]),
+                h('dl', { class: 'grid grid-cols-1 gap-2 text-xs sm:grid-cols-2' }, fields.map(([label, value], fieldIndex) => h('div', {
+                    key: `${item.metricKey}-field-${fieldIndex}`,
+                    class: ['rounded-lg border bg-white px-2.5 py-2', item.blocked ? 'border-amber-100' : 'border-emerald-100', ['数据范围', '来源记录'].includes(label) ? 'sm:col-span-2' : ''],
+                }, [
+                    h('dt', { class: 'text-[11px] text-slate-500' }, label),
+                    h('dd', { class: 'mt-0.5 break-words font-medium text-slate-800' }, value),
+                ]))),
+                item.formula ? h('p', { class: 'mt-2 text-xs leading-5 text-emerald-900' }, `计算：${item.formula}`) : null,
+                inputTexts.length ? h('p', { class: 'mt-1 text-xs leading-5 text-slate-700' }, `计算输入：${inputTexts.join('；')}`) : null,
+                item.blockedReason ? h('p', { class: 'mt-2 text-xs leading-5 text-amber-800' }, `阻塞原因：${item.blockedReason}`) : null,
+                gapTexts.length ? h('div', { class: 'mt-2 text-xs leading-5 text-amber-800' }, [
+                    h('strong', '分项缺口'),
+                    h('ul', { class: 'mt-1 list-disc pl-5' }, gapTexts.map((gap, gapIndex) => h('li', {
+                        key: `${item.metricKey}-gap-${gapIndex}`,
+                    }, gap))),
+                ]) : null,
+            ].filter(Boolean));
+        });
+        const outerClass = normalized.allBlocked
+            ? 'border-amber-200 bg-amber-50/60'
+            : (normalized.isPartial ? 'border-amber-200 bg-white' : 'border-emerald-200 bg-emerald-50/40');
+        return h('section', {
+            class: ['mt-3 rounded-xl border p-3', outerClass],
+            'data-testid': options.testId || undefined,
+            'data-contract-version': normalized.contractVersion || undefined,
+            'data-result-kind': normalized.kind || undefined,
+        }, [
+            h('div', { class: 'flex flex-wrap items-center justify-between gap-2' }, [
+                h('strong', { class: 'text-sm text-slate-900' }, multi ? '可核对多指标结果' : '可核对经营结果'),
+                multi ? h('div', { class: 'flex flex-wrap gap-1.5 text-[11px]' }, [
+                    h('span', { class: 'rounded-full bg-slate-100 px-2 py-1 text-slate-700' }, `识别 ${normalized.totalCount} 项`),
+                    h('span', { class: 'rounded-full bg-emerald-100 px-2 py-1 text-emerald-800' }, `可用 ${normalized.readyCount} 项`),
+                    h('span', { class: 'rounded-full bg-amber-100 px-2 py-1 text-amber-800' }, `阻塞 ${normalized.blockedCount} 项`),
+                ]) : h('span', { class: 'rounded-full bg-white px-2 py-1 text-[11px] text-slate-700' }, normalized.allBlocked ? '明确阻塞' : '数据库确定性结果'),
+            ]),
+            h('div', {
+                class: ['mt-3 grid gap-3', multi ? 'grid-cols-1 xl:grid-cols-2' : 'grid-cols-1'],
+                'data-testid': multi && options.metricSetTestId ? options.metricSetTestId : undefined,
+            }, cardNodes),
+        ]);
+    };
     const operatingQuestionPanel = {
         setup() {
             const ui = inject('operatingQuestionUi');
@@ -70,6 +308,10 @@
                 }
                 return ui.request(...args);
             };
+            const qualityFeedbackUi = createHotelDataAnalystFeedbackUi({
+                getState: currentState,
+                request,
+            });
             const loadLocalAiCapabilities = async () => {
                 const state = currentState();
                 if (state.local_ai_loading) return state.local_ai_capabilities;
@@ -101,6 +343,24 @@
                 state.media_file = file instanceof File ? file : null;
                 state.media_error = '';
                 state.media_result = null;
+            };
+            const selectedMediaIds = () => Array.from(new Set((Array.isArray(currentState().media_selected_ids)
+                ? currentState().media_selected_ids
+                : [])
+                .map(item => Number(item || 0))
+                .filter(item => Number.isInteger(item) && item > 0)))
+                .slice(0, 10);
+            const toggleMediaEvidence = (row) => {
+                const state = currentState();
+                const id = Number(row?.id || 0);
+                const status = String(row?.extraction_status || '');
+                if (!id || !['ready', 'partial'].includes(status)) return false;
+                const selected = selectedMediaIds();
+                state.media_selected_ids = selected.includes(id)
+                    ? selected.filter(item => item !== id)
+                    : [...selected, id].slice(0, 10);
+                state.media_error = '';
+                return true;
             };
             const loadMediaHistory = async () => {
                 const state = currentState();
@@ -403,6 +663,7 @@
                                 disabled: Boolean(state.loading),
                                 class: 'mt-3 w-full rounded-lg border border-indigo-200 bg-white px-3 py-2 text-sm disabled:opacity-60',
                                 placeholder: '例如：这家店今天最需要复核什么？',
+                                'data-testid': 'hotel-data-analyst-question-input',
                                 onInput: (event) => { state.question = String(event?.target?.value || ''); },
                                 onKeydown: (event) => {
                                     if (event?.key !== 'Enter' || event.isComposing || state.loading) return;
@@ -415,6 +676,7 @@
                             type: 'button',
                             disabled: Boolean(state.loading),
                             class: 'rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50',
+                            'data-testid': 'hotel-data-analyst-submit',
                             onClick: () => ui?.ask?.(),
                         }, state.loading ? '回读中…' : '提交并回读'),
                     ]),
@@ -494,9 +756,29 @@
                                 h('div', { class: 'font-medium' }, `#${Number(state.media_result.id || 0)} · ${String(state.media_result.media_kind || '')} · ${String(state.media_result.extraction_status || '')}`),
                                 h('p', { class: 'mt-1 whitespace-pre-wrap break-words leading-5' }, String(state.media_result.extracted_text || state.media_result.error_code || '未提取到文本')),
                                 h('p', { class: 'mt-1 text-[10px] text-slate-500' }, `来源文件：${String(state.media_result.source_retention || '未说明')} · 摘要 ${String(state.media_result.content_digest || '').slice(0, 12)}…`),
+                                h('button', {
+                                    type: 'button',
+                                    class: ['mt-2 rounded border px-2 py-1 text-[11px]', selectedMediaIds().includes(Number(state.media_result.id || 0))
+                                        ? 'border-emerald-300 bg-emerald-100 text-emerald-800'
+                                        : 'border-slate-300 bg-white text-slate-700'],
+                                    'data-testid': 'local-media-use-in-question',
+                                    onClick: () => toggleMediaEvidence(state.media_result),
+                                }, selectedMediaIds().includes(Number(state.media_result.id || 0)) ? '已绑定到下一次问答' : '用于下一次问答'),
                             ]) : null,
                             Array.isArray(state.media_history) && state.media_history.length
-                                ? h('p', { class: 'mt-2 text-[11px] text-slate-500' }, `该门店已保存并校验 ${state.media_history.length} 条本机提取记录。`)
+                                ? h('div', { class: 'mt-2 space-y-1', 'data-testid': 'local-media-evidence-picker' }, [
+                                    h('p', { class: 'text-[11px] text-slate-500' }, `该门店已保存并校验 ${state.media_history.length} 条本机提取记录；仅显式勾选的记录进入下一次问答。`),
+                                    ...state.media_history.slice(0, 5).map(item => h('button', {
+                                        key: `media-evidence-${Number(item?.id || 0)}`,
+                                        type: 'button',
+                                        disabled: !['ready', 'partial'].includes(String(item?.extraction_status || '')),
+                                        class: ['block w-full rounded border px-2 py-1.5 text-left text-[11px] disabled:opacity-50', selectedMediaIds().includes(Number(item?.id || 0))
+                                            ? 'border-emerald-300 bg-emerald-50 text-emerald-800'
+                                            : 'border-slate-200 bg-white text-slate-600'],
+                                        'data-testid': `local-media-evidence-${Number(item?.id || 0)}`,
+                                        onClick: () => toggleMediaEvidence(item),
+                                    }, `${selectedMediaIds().includes(Number(item?.id || 0)) ? '✓ ' : ''}#${Number(item?.id || 0)} · ${String(item?.original_name || item?.media_kind || '媒体')} · ${String(item?.extraction_status || '')}`)),
+                                ])
                                 : null,
                         ].filter(Boolean)),
                     ]),
@@ -615,18 +897,63 @@
                         ]),
                         h('p', { class: 'mt-2 text-sm leading-6 text-gray-700' }, String(result.answer_summary || '')),
                     ];
+                    answerChildren.push(renderHotelDataAnalystQualityReceipt(
+                        result.analysis_quality_receipt,
+                        'operating-question-quality-receipt',
+                        {
+                            question: result,
+                            feedbackUi: qualityFeedbackUi,
+                            interactive: true,
+                            feedbackTestId: 'operating-question-quality-feedback',
+                        }
+                    ));
+                    const preciseEvidence = renderPreciseMetricEvidence(result.answer, {
+                        dataGaps: result.data_gaps,
+                        testId: 'operating-question-precise-results',
+                        metricSetTestId: 'operating-question-precise-metric-set',
+                        itemTestIdPrefix: 'operating-question-precise-item',
+                    });
+                    if (preciseEvidence) answerChildren.push(preciseEvidence);
                     const decisionFrame = renderRevenueDecisionFrame(result.answer?.decision_frame, 'operating-question-decision-frame');
                     if (decisionFrame) answerChildren.push(decisionFrame);
+                    const toolReceipts = Array.isArray(result.answer?.tool_calling?.tool_call_receipts)
+                        ? result.answer.tool_calling.tool_call_receipts
+                        : [];
+                    if (toolReceipts.length) {
+                        answerChildren.push(h('details', {
+                            class: 'mt-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs',
+                            'data-testid': 'operating-question-tool-receipts',
+                        }, [
+                            h('summary', { class: 'cursor-pointer font-medium text-slate-700' }, `查看只读工具调用收据（${toolReceipts.length}）`),
+                            h('ul', { class: 'mt-2 space-y-1 text-slate-600' }, toolReceipts.map(receipt => h('li', {
+                                key: String(receipt?.receipt_id || `${receipt?.tool_name}-${receipt?.sequence}`),
+                                class: 'break-all',
+                            }, `${String(receipt?.tool_name || 'unknown')} · ${String(receipt?.status || 'unknown')} · 返回 ${Number(receipt?.returned_count || 0)} · ${String(receipt?.receipt_id || '')}`))),
+                            h('p', { class: 'mt-2 text-[11px] text-slate-500' }, '收据证明调用范围、输入输出摘要和只读边界；不代表已执行经营动作。'),
+                        ]));
+                    }
                     if (Array.isArray(result.data_gaps) && result.data_gaps.length) {
                         answerChildren.push(h('ul', { class: 'mt-2 list-disc pl-5 text-xs text-amber-700' }, result.data_gaps.map((gap, index) => (
                             h('li', { key: String(gap?.code || index) }, String(gap?.message || gap?.code || '未说明的数据缺口'))
                         ))));
                     }
                     const council = state.council_run || null;
-                    const councilMembers = Array.isArray(council?.members) ? council.members : [];
-                    const councilEvidenceRefs = Array.isArray(council?.evidence_refs) ? council.evidence_refs : [];
                     const synthesis = council?.synthesis && typeof council.synthesis === 'object' ? council.synthesis : {};
-                    const selectedLenses = Array.isArray(synthesis.selected_lenses) ? synthesis.selected_lenses : [];
+                    const integrity = synthesis.artifact_integrity && typeof synthesis.artifact_integrity === 'object'
+                        ? synthesis.artifact_integrity
+                        : {};
+                    const rawMembers = Array.isArray(council?.members) ? council.members : [];
+                    const rawEvidenceRefs = Array.isArray(council?.evidence_refs) ? council.evidence_refs : [];
+                    const councilRenderable = ['completed', 'partial'].includes(String(council?.status || ''))
+                        && integrity.status === 'verified'
+                        && Number(integrity.member_count || 0) === rawMembers.length
+                        && Number(integrity.evidence_ref_count || 0) === rawEvidenceRefs.length;
+                    const councilMembers = councilRenderable ? rawMembers : [];
+                    const councilEvidenceRefs = councilRenderable ? rawEvidenceRefs : [];
+                    const selectedLenses = councilRenderable && Array.isArray(synthesis.selected_lenses)
+                        ? synthesis.selected_lenses
+                        : [];
+                    const terminalFactDrift = String(synthesis.error_code || '') === 'council_terminal_fact_drift';
                     const advisorySource = synthesis.advisory_source && typeof synthesis.advisory_source === 'object'
                         ? synthesis.advisory_source
                         : {};
@@ -645,14 +972,21 @@
                             ]),
                             h('button', {
                                 type: 'button',
-                                disabled: Boolean(state.council_loading),
+                                disabled: Boolean(state.council_loading) || terminalFactDrift,
                                 class: 'rounded-lg px-3 py-2 text-xs font-medium text-white disabled:opacity-50',
                                 style: { background: '#173f34' },
                                 'data-testid': 'operating-question-council-run',
                                 onClick: () => ui?.runCouncil?.(),
-                            }, state.council_loading ? '本机会诊中…' : (council ? '重新发起顾问会诊' : '发起顾问会诊')),
+                            }, state.council_loading
+                                ? '本机会诊中…'
+                                : (terminalFactDrift
+                                    ? '请重新生成事实/问题'
+                                    : (['pending', 'running'].includes(String(council?.status || ''))
+                                        ? '继续查看进度'
+                                        : (['partial', 'failed', 'blocked_by_missing_facts', 'blocked_not_configured'].includes(String(council?.status || '')) ? '继续未完成会诊' : (council ? '重新发起顾问会诊' : '发起顾问会诊'))))),
                         ]),
                         state.council_error ? h('p', { class: 'mt-2 text-xs text-red-700' }, String(state.council_error)) : null,
+                        terminalFactDrift ? h('p', { class: 'mt-2 text-xs text-amber-700' }, '严格事实已发生变化；旧会诊内容已隔离，请重新生成上游事实或经营问题后再发起。') : null,
                         council ? h('div', { class: 'mt-3' }, [
                             h('div', { class: 'flex flex-wrap items-center gap-2 text-xs' }, [
                                 h('strong', { style: { color: '#173f34' } }, String(council.status || '未知状态')),
@@ -705,19 +1039,19 @@
                                 councilEvidenceRefs.length
                                     ? h('p', { class: 'mt-1 break-all text-[11px] leading-5 text-slate-500', 'data-testid': 'operating-question-council-evidence-refs' }, `本次证据引用：${councilEvidenceRefs.join('、')}`)
                                     : null,
-                                Array.isArray(synthesis.agreements) && synthesis.agreements.length
+                                councilRenderable && Array.isArray(synthesis.agreements) && synthesis.agreements.length
                                     ? h('p', { class: 'mt-1 leading-5' }, `一致点：${synthesis.agreements.join('；')}`)
                                     : null,
-                                Array.isArray(synthesis.conflicts) && synthesis.conflicts.length
+                                councilRenderable && Array.isArray(synthesis.conflicts) && synthesis.conflicts.length
                                     ? h('p', { class: 'mt-1 leading-5 text-amber-700' }, `冲突点：${synthesis.conflicts.join('；')}`)
                                     : null,
-                                Array.isArray(synthesis.missing_information) && synthesis.missing_information.length
+                                councilRenderable && Array.isArray(synthesis.missing_information) && synthesis.missing_information.length
                                     ? h('p', { class: 'mt-1 leading-5 text-amber-700' }, `缺口：${synthesis.missing_information.join('；')}`)
                                     : null,
-                                Array.isArray(synthesis.falsification_checks) && synthesis.falsification_checks.length
+                                councilRenderable && Array.isArray(synthesis.falsification_checks) && synthesis.falsification_checks.length
                                     ? h('p', { class: 'mt-1 leading-5', style: { color: '#1f5b63' } }, `可证伪：${synthesis.falsification_checks.join('；')}`)
                                     : null,
-                                synthesis.recommended_next_step
+                                councilRenderable && synthesis.recommended_next_step
                                     ? h('p', { class: 'mt-1 font-medium leading-5', style: { color: '#173f34' } }, `建议下一步：${String(synthesis.recommended_next_step)}`)
                                     : null,
                                 executionHandoff.message
@@ -740,7 +1074,7 @@
                         const actionChildren = [
                             h('div', { class: 'flex flex-wrap items-start justify-between gap-2' }, [
                                 h('div', [
-                                    h('div', { class: 'text-xs font-semibold uppercase tracking-wide text-[#8c6a2d]' }, 'AI 行动草案 · 独立评审'),
+                                    h('div', { class: 'text-xs font-semibold uppercase tracking-wide text-[#8c6a2d]' }, 'AI 行动草案 · 人工确认'),
                                     h('h4', { class: 'mt-1 text-sm font-semibold text-slate-900' }, String(action?.title || '运营复核草案')),
                                 ]),
                                 h('span', {
@@ -785,7 +1119,7 @@
                                 h('div', { class: 'text-[11px] leading-5 text-slate-500' }, [
                                     h('span', `已绑定 ${evidenceRefs.length} 条严格证据引用。`),
                                     h('br'),
-                                    h('span', '提交后由独立 AI 重新核验事实；通过后只创建本地人工执行任务，不采集或写 OTA。'),
+                                    h('span', '提交后由服务端重新核验事实；只保存待人工审批意图，不创建执行任务，也不采集或写 OTA。'),
                                 ]),
                                 h('button', {
                                     type: 'button',
@@ -796,8 +1130,8 @@
                                         ? ui?.openActionIntent?.(intent)
                                         : ui?.createActionIntent?.(action, actionIndex),
                                 }, state.action_loading === actionKey
-                                    ? '独立评审并回读中…'
-                                    : (intent ? `查看${String(intent.status || '待评审')}任务 #${Number(intent.id || 0)}` : '提交独立评审')),
+                                    ? '保存并回读中…'
+                                    : (intent ? `查看${String(intent.status || '待审批')}意图 #${Number(intent.id || 0)}` : '提交待人工确认')),
                             ]));
                         }
                         answerChildren.push(h('section', {
@@ -819,6 +1153,8 @@
                 return h('section', {
                     class: 'mb-4 rounded-xl border border-indigo-100 bg-indigo-50/60 p-4',
                     'data-testid': 'operating-question-entry',
+                    'data-role-key': 'hotel_data_analyst',
+                    'data-contract-version': 'hotel_data_analyst.v1',
                 }, children);
             };
         },
@@ -1167,7 +1503,7 @@
                 const suggestions = h('div', {
                     class: 'sx-ai-consultant-suggestions',
                     'aria-label': '常用问题',
-                }, textList(ctx.operatingQuestionSuggestions).map((suggestion) => h('button', {
+                }, HOTEL_DATA_ANALYST_SUGGESTIONS.map((suggestion) => h('button', {
                     key: String(suggestion),
                     type: 'button',
                     onClick: () => applyQuestion(suggestion),
@@ -1250,17 +1586,36 @@
     const SYSTEM_USAGE_GUIDE_TOPICS = [
         {
             key: 'daily-workbench',
-            title: '从今日经营工作台开始',
-            category: '经营总览',
+            title: '确定今天唯一优先事项',
+            category: '经营机会',
             example: '我是第一次使用，今天应该先做什么？',
             keywords: ['今天先做什么', '今日工作', '经营看板', '工作台', '今日经营', '待办', '从哪里开始', '第一次使用'],
+            context_pages: ['compass', 'operating-opportunities'],
+            target_page: 'operating-opportunities',
+            action_key: 'page',
+            action_label: '打开经营机会',
+            summary: '基于可信事实或明确数据缺口，只选今天最值得推进的一件事并保存回读。',
+            steps: ['确认当前酒店和业务日期。', '核对唯一事项的事实或数据缺口依据。', '保存并精确回读运行与待审批意图。'],
+            boundary: '保存后只形成 pending_approval 意图；未经人工审批不创建执行任务，不写 OTA/PMS，不产生经营效果。',
+        },
+        {
+            key: 'codex-collaboration',
+            title: '让 Codex 帮你检查和完善系统',
+            category: '协作使用',
+            example: '我想让 Codex 帮我检查或完善宿析OS，应该怎么说？',
+            keywords: ['codex', '怎么让codex', '让codex检查', '让codex修改', '让codex修复', '怎么提需求', '怎么说需求', '协作开发', '开发助手', '接手系统'],
             context_pages: ['compass'],
             target_page: 'compass',
             action_key: 'page',
-            action_label: '打开今日经营工作台',
-            summary: '先查看当前酒店今天最需要关注的事实状态、阻塞项和下一步入口。',
-            steps: ['确认当前酒店和业务日期。', '查看事实状态与优先阻塞项。', '从对应卡片进入数据、收益或运营页面。'],
-            boundary: '工作台是总览入口，卡片存在不代表对应数据或任务已经完成。',
+            action_label: '回到今日经营工作台',
+            summary: '直接说明一个可验收的业务结果、必要范围、交付物和权限边界，技术路径由宿析OS项目自动处理。',
+            steps: [
+                '先说一个业务结果，例如“查清携程数据为什么没有进来，定位后修复并验证”。',
+                '补充会改变结果的门店、平台、日期，以及只检查还是允许本地修改。',
+                '说明要看到的交付物和验收条件，不必指定文件、框架、命令或内部工具。',
+                '最后分别查看本地实现、自动验证、Git、部署现场和真实经营效果的状态。',
+            ],
+            boundary: '不要提供密码、Cookie、令牌或验证码。检查和诊断不自动授权修改；本地修改不自动包含提交、推送、部署、OTA/PMS写入、外部发送或审批。',
         },
         {
             key: 'data-health',
@@ -1651,6 +2006,7 @@
     ];
     const SYSTEM_USAGE_GUIDE_SUCCESS_MARKERS = Object.freeze({
         'daily-workbench': '已确认当前酒店、业务日期和今天最优先处理的阻塞项。',
+        'codex-collaboration': '已把目标、范围、验收和权限边界说清，并分别核对本地实现、Git、部署与现场结果。',
         'data-health': '已明确数据停在身份、采集、保存还是精确回读阶段；证据不足时仍显示未确定。',
         'auto-collect': '已核对酒店、平台、账号与计划，并取得一次真实运行或明确失败回执。',
         'ctrip-data': '已确认目标酒店、业务日期、携程来源和需要查看的数据视图。',
@@ -1680,7 +2036,7 @@
     const SYSTEM_ASSISTANT_MODE_OPTIONS = Object.freeze([
         { key: 'auto', label: '自动判断', icon: 'fa-wand-magic-sparkles' },
         { key: 'guide', label: '教我使用', icon: 'fa-compass' },
-        { key: 'report', label: '给我结论', icon: 'fa-chart-line' },
+        { key: 'report', label: '数据分析师', icon: 'fa-chart-line' },
         { key: 'action', label: '帮我处理', icon: 'fa-list-check' },
     ]);
     const SYSTEM_ASSISTANT_MODE_LABELS = Object.freeze({
@@ -1691,7 +2047,8 @@
         term: '术语释义',
     });
     const SYSTEM_USAGE_GUIDE_ANCHORS = Object.freeze({
-        'daily-workbench': ['[data-testid="page-compass"]'],
+        'daily-workbench': ['[data-testid="page-operating-opportunities"]'],
+        'codex-collaboration': ['[data-testid="page-compass"]'],
         'data-health': ['[data-testid="phase1-employee-closure-summary"]', '[data-testid="online-data-health-panel"]'],
         'auto-collect': ['[data-testid="canonical-daily-operation-status"]', '[data-testid="platform-auto-settings-panels"]'],
         'ctrip-data': ['[data-testid="page-ctrip-ebooking"]'],
@@ -1795,6 +2152,11 @@
                 keys.push(key);
             }
         };
+        if (keys[0] === 'data-health') {
+            if (hasAny(['自动采集', '采集'])) append('auto-collect');
+            if (hasAny(['运行监控', '监控', '运行状态'])) append('automation-monitor');
+            if (hasAny(['AI经营日报', '经营日报', '日报'])) append('ai-daily-report');
+        }
         if (keys[0] !== 'revenue-report' && hasAny(['分析', '报告', '结论', '方案', '优化', '建议'])) append('revenue-report');
         if (hasAny(['运营方案', '优化方案', '形成方案', '经营方案', '运营优化'])) append('operation-optimizer');
         if (hasAny(['安排任务', '创建任务', '执行任务', '跟进任务', '复盘任务'])) append('operations');
@@ -2062,6 +2424,13 @@
                 selected_mode: 'auto',
                 coach: null,
                 restoring_precise_query: false,
+                learning_context: null,
+                learning_loading: false,
+                learning_error: '',
+                learning_open: false,
+                preference_saving_key: '',
+                feedback_status: {},
+                journey_transition_status: '',
             });
             const journeyStorageVersion = 1;
             const widgetStorageVersion = 1;
@@ -2087,9 +2456,24 @@
             let suppressLauncherToggle = false;
             let resizeFrame = 0;
             let preciseRestoreTimer = 0;
+            let learningRequestId = 0;
             let coachTarget = null;
             let coachRequestId = 0;
             const icon = (name) => h('i', { class: `fas ${name}`, 'aria-hidden': 'true' });
+            const qualityFeedbackUi = createHotelDataAnalystFeedbackUi({
+                getState: () => {
+                    const current = props.ctx?.operatingQuestionState;
+                    return current && typeof current === 'object' && 'value' in current
+                        ? current.value
+                        : current;
+                },
+                request: (...args) => {
+                    if (typeof props.ctx?.hotelDataAnalystFeedbackRequest !== 'function') {
+                        return Promise.reject(new Error('分析反馈请求能力未就绪'));
+                    }
+                    return props.ctx.hotelDataAnalystFeedbackRequest(...args);
+                },
+            });
             const topicByKey = (key) => SYSTEM_USAGE_GUIDE_TOPICS.find((topic) => topic.key === key) || null;
             const visiblePaths = () => {
                 const paths = new Set();
@@ -2111,9 +2495,59 @@
             const visibleTopicKeys = () => SYSTEM_USAGE_GUIDE_TOPICS
                 .filter((topic) => canOpenTopic(topic))
                 .map((topic) => topic.key);
+            const currentLearningHotelId = () => Number(
+                props.ctx?.operatingQuestionForm?.hotel_id
+                || props.ctx?.filterReportHotel
+                || latestPreciseOperatingScope?.()?.hotel_id
+                || props.ctx?.user?.default_hotel_id
+                || props.ctx?.user?.hotel_id
+                || 0
+            );
+            const currentLearningUserId = () => Number(props.ctx?.user?.id || 0);
+            const currentLearningTenantId = (hotelId) => {
+                const directTenantId = Number(props.ctx?.user?.tenant_id || 0);
+                if (directTenantId > 0) return directTenantId;
+                const pools = [
+                    props.ctx?.otaDiagnosisHotelOptions,
+                    props.ctx?.operationHotelOptions,
+                    props.ctx?.hotels,
+                    props.ctx?.user?.permitted_hotels,
+                ];
+                for (const pool of pools) {
+                    const hotel = (Array.isArray(pool) ? pool : []).find(
+                        item => Number(item?.id || item?.hotel_id || 0) === Number(hotelId || 0)
+                    );
+                    const tenantId = Number(hotel?.tenant_id || 0);
+                    if (tenantId > 0) return tenantId;
+                }
+                return 0;
+            };
+            const validateLearningContext = (context, targetHotelId) => {
+                if (!context || typeof context !== 'object'
+                    || String(context.contract_version || '') !== 'system_user_learning_context.v1'
+                    || String(context.status || '') !== 'ready'
+                ) {
+                    throw new Error(String(context?.status || '') === 'migration_required'
+                        ? '个人学习数据表未就绪'
+                        : '个人学习上下文未取得');
+                }
+                const scope = context.scope && typeof context.scope === 'object' ? context.scope : {};
+                const expectedUserId = currentLearningUserId();
+                const expectedTenantId = currentLearningTenantId(targetHotelId);
+                if (expectedUserId <= 0
+                    || Number(scope.user_id || 0) !== expectedUserId
+                    || Number(scope.hotel_id || 0) !== Number(targetHotelId || 0)
+                    || Number(scope.tenant_id || 0) <= 0
+                    || (expectedTenantId > 0 && Number(scope.tenant_id || 0) !== expectedTenantId)
+                ) {
+                    throw new Error('个人学习上下文返回的用户、租户或酒店身份不一致');
+                }
+                return context;
+            };
             const journeyStorageKey = () => {
                 const userId = Number(props.ctx?.user?.id || 0);
-                return `suxios_system_usage_journey_v1:${userId > 0 ? userId : 'session'}`;
+                const hotelId = currentLearningHotelId();
+                return `suxios_system_usage_journey_v1:${userId > 0 ? userId : 'session'}:${hotelId > 0 ? hotelId : 'global'}`;
             };
             const widgetStorageKey = () => {
                 const userId = Number(props.ctx?.user?.id || 0);
@@ -2161,6 +2595,65 @@
                 if (typeof handler !== 'function') throw new Error('宿析精准查数请求通道未就绪');
                 return handler(...args);
             };
+            const systemLearningRequestId = (prefix = 'learning') => {
+                const random = typeof globalThis.crypto?.randomUUID === 'function'
+                    ? globalThis.crypto.randomUUID().replaceAll('-', '')
+                    : `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 12)}`;
+                return `${String(prefix).replace(/[^A-Za-z0-9._:-]/g, '_')}_${random}`.slice(0, 96);
+            };
+            const systemLearningRequest = async (path, options = {}) => {
+                const response = await preciseQueryRequest(
+                    `/agent/system-guidance/${String(path || '').replace(/^\/+/, '')}`,
+                    options
+                );
+                if (response.code !== 200 || !response.data || typeof response.data !== 'object') {
+                    throw new Error(response.message || '个人经营副驾学习服务没有返回有效结果');
+                }
+                return response.data;
+            };
+            const loadSystemLearningContext = (hotelId = 0) => systemLearningRequest(
+                `context${Number(hotelId || 0) > 0 ? `?hotel_id=${Number(hotelId)}` : ''}`
+            );
+            const saveSystemLearningPreference = (payload = {}) => systemLearningRequest('preferences', {
+                method: 'POST',
+                body: JSON.stringify({
+                    ...(payload && typeof payload === 'object' ? payload : {}),
+                    idempotency_key: String(payload?.idempotency_key || systemLearningRequestId('preference')),
+                }),
+            });
+            const revokeSystemLearningPreference = (payload = {}) => systemLearningRequest('preferences/revoke', {
+                method: 'POST',
+                body: JSON.stringify({
+                    ...(payload && typeof payload === 'object' ? payload : {}),
+                    idempotency_key: String(payload?.idempotency_key || systemLearningRequestId('revoke')),
+                }),
+            });
+            const resetSystemLearningPreferences = (payload = {}) => systemLearningRequest('preferences/reset', {
+                method: 'POST',
+                body: JSON.stringify({
+                    ...(payload && typeof payload === 'object' ? payload : {}),
+                    idempotency_key: String(payload?.idempotency_key || systemLearningRequestId('reset')),
+                }),
+            });
+            const saveSystemLearningJourney = (payload = {}) => systemLearningRequest('journey', {
+                method: 'POST',
+                body: JSON.stringify(payload && typeof payload === 'object' ? payload : {}),
+            });
+            const archiveSystemLearningJourney = (payload = {}) => systemLearningRequest('journey/archive', {
+                method: 'POST',
+                body: JSON.stringify(payload && typeof payload === 'object' ? payload : {}),
+            });
+            const transitionSystemLearningJourney = (payload = {}) => systemLearningRequest('journey/transition', {
+                method: 'POST',
+                body: JSON.stringify(payload && typeof payload === 'object' ? payload : {}),
+            });
+            const submitSystemGuidanceFeedbackRequest = (payload = {}) => systemLearningRequest('feedback', {
+                method: 'POST',
+                body: JSON.stringify({
+                    ...(payload && typeof payload === 'object' ? payload : {}),
+                    idempotency_key: String(payload?.idempotency_key || systemLearningRequestId('feedback')),
+                }),
+            });
             const askPreciseQuery = async (payload = {}) => {
                 const response = await preciseQueryRequest('/agent/precise-queries', {
                     method: 'POST',
@@ -2410,7 +2903,7 @@
                     .filter(Boolean)
                     .map(journeyStep);
             };
-            const saveActiveJourney = (result, query, activeKey = '') => {
+            const saveActiveJourney = (result, _query, activeKey = '') => {
                 const journey = normalizeJourney(result?.journey, topicByKey(result?.topic_key));
                 if (!journey.length) return false;
                 const normalizedActiveKey = journey.some((step) => step.key === activeKey)
@@ -2419,7 +2912,6 @@
                 const payload = {
                     version: journeyStorageVersion,
                     goal: String(result?.goal || result?.intent_summary || journey[0].title).slice(0, 240),
-                    original_query: String(query || result?.original_query || '').slice(0, 500),
                     journey,
                     active_key: normalizedActiveKey,
                     saved_at: Date.now(),
@@ -2429,7 +2921,6 @@
                     localStorage.setItem(journeyStorageKey(), JSON.stringify({
                         version: payload.version,
                         goal: payload.goal,
-                        original_query: payload.original_query,
                         journey_keys: payload.journey.map((step) => step.key),
                         active_key: payload.active_key,
                         saved_at: payload.saved_at,
@@ -2437,6 +2928,7 @@
                 } catch (error) {
                     // Local guidance continuity is optional; navigation remains available.
                 }
+                void persistActiveJourney(payload);
                 return true;
             };
             const readActiveJourney = () => {
@@ -2457,7 +2949,6 @@
                     return {
                         version: journeyStorageVersion,
                         goal: String(raw?.goal || journey[0].title).slice(0, 240),
-                        original_query: String(raw?.original_query || '').slice(0, 500),
                         journey,
                         active_key: journey.some((step) => step.key === raw?.active_key)
                             ? String(raw.active_key)
@@ -2468,12 +2959,317 @@
                     return null;
                 }
             };
-            const clearActiveJourney = () => {
+            const clearActiveJourney = (archiveServer = false) => {
                 state.value.active_journey = null;
                 try {
                     localStorage.removeItem(journeyStorageKey());
                 } catch (error) {
                     // Nothing else depends on local guidance persistence.
+                }
+                if (archiveServer) void archiveActiveJourney();
+            };
+            const learningPreferences = () => (
+                Array.isArray(state.value.learning_context?.preferences?.items)
+                    ? state.value.learning_context.preferences.items
+                    : []
+            );
+            const consumablePreferences = () => learningPreferences().filter((item) => item?.consumable === true);
+            const candidatePreferences = () => learningPreferences().filter((item) => item?.candidate === true);
+            const readyCandidatePreferences = () => candidatePreferences()
+                .filter((item) => String(item?.learning_status || '') === 'inferred');
+            const preferenceScopeText = (item) => String(item?.scope || '') === 'hotel'
+                ? '仅当前酒店'
+                : (String(item?.scope || '') === 'session' ? '仅当前会话' : '你的全部酒店');
+            const preferenceSourceText = (item) => {
+                const reason = String(item?.source_context?.reason_code || '');
+                if (reason === 'too_long') return '来自重复的“回答太长”反馈';
+                if (reason === 'explicit_user_confirmation') return '由你主动确认';
+                return item?.source_type === 'behavioral_signal' ? '来自重复使用反馈' : '由你明确设置';
+            };
+            const preferenceValueText = (item) => {
+                const key = String(item?.preference_key || '');
+                const value = String(item?.value || '');
+                const labels = {
+                    'response_detail:concise': '回答保持简洁',
+                    'response_detail:detailed': '提供详细步骤',
+                    'answer_order:conclusion_first': '先给结论，再给证据',
+                    'answer_order:steps_first': '先给操作步骤',
+                    'daily_focus:single_priority': '每天只给一件最重要的事',
+                    'preferred_platform:ctrip': '默认优先说明携程',
+                    'preferred_platform:meituan': '默认优先说明美团',
+                    'preferred_platform:all_ota': '默认同时说明双 OTA',
+                };
+                return labels[`${key}:${value}`] || `${key}：${value}`;
+            };
+            const applyServerJourney = (context) => {
+                const readback = context?.journey;
+                const resume = context?.resume_card;
+                const raw = readback?.data_status === 'ready' ? readback?.journey : null;
+                const card = resume?.data_status === 'ready' && resume?.card?.readback_verified === true
+                    ? resume.card
+                    : null;
+                if (!card) {
+                    if (resume?.data_status === 'empty') clearActiveJourney(false);
+                    return false;
+                }
+                const journey = normalizeJourney(card.journey_keys || raw.journey_keys || [], null);
+                if (!journey.length) return false;
+                const serverSavedAt = Date.parse(String(card.saved_at || raw.created_at || ''));
+                const payload = {
+                    version: journeyStorageVersion,
+                    goal: String(card.goal_summary || raw.goal || journey[0].title).slice(0, 240),
+                    journey,
+                    active_key: journey.some((step) => step.key === card?.next_step?.topic_key)
+                        ? String(card.next_step.topic_key)
+                        : (journey.some((step) => step.key === raw.active_key)
+                            ? String(raw.active_key)
+                            : journey[0].key),
+                    current_step_status: String(card?.next_step?.status || raw.current_step_status || 'pending'),
+                    blocker_code: String(card?.next_step?.blocker_code || ''),
+                    blocker_summary: String(card?.next_step?.blocker_summary || '').slice(0, 500),
+                    saved_at: Number.isFinite(serverSavedAt) && serverSavedAt > 0
+                        ? serverSavedAt
+                        : Date.now(),
+                    server_readback_id: Number(card.journey_id || raw.id || 0),
+                    content_digest: String(card.content_digest || raw.content_digest || ''),
+                    scope_type: String(resume?.scope?.type || (Number(raw.hotel_id || 0) > 0 ? 'hotel' : 'global')),
+                    scope_hotel_id: Number(resume?.scope?.hotel_id || raw.hotel_id || 0) || null,
+                    server_authoritative: true,
+                };
+                state.value.active_journey = payload;
+                try {
+                    localStorage.setItem(journeyStorageKey(), JSON.stringify({
+                        version: payload.version,
+                        goal: payload.goal,
+                        journey_keys: payload.journey.map((step) => step.key),
+                        active_key: payload.active_key,
+                        saved_at: payload.saved_at,
+                    }));
+                } catch (error) {
+                    // Server readback remains authoritative when local persistence is unavailable.
+                }
+                return true;
+            };
+            const loadLearningContext = async () => {
+                const requestId = ++learningRequestId;
+                const targetHotelId = currentLearningHotelId();
+                state.value.learning_loading = true;
+                state.value.learning_error = '';
+                try {
+                    const context = validateLearningContext(
+                        await loadSystemLearningContext(targetHotelId),
+                        targetHotelId
+                    );
+                    if (requestId !== learningRequestId || currentLearningHotelId() !== targetHotelId) {
+                        return false;
+                    }
+                    state.value.learning_context = context;
+                    applyServerJourney(context);
+                    return true;
+                } catch (error) {
+                    if (requestId === learningRequestId && currentLearningHotelId() === targetHotelId) {
+                        state.value.learning_context = null;
+                        state.value.learning_open = false;
+                        state.value.learning_error = String(error?.message || '个人学习上下文读取失败');
+                    }
+                    return false;
+                } finally {
+                    if (requestId === learningRequestId) state.value.learning_loading = false;
+                }
+            };
+            const persistActiveJourney = async (payload) => {
+                if (!payload) return false;
+                const targetHotelId = currentLearningHotelId();
+                try {
+                    const currentStep = topicByKey(payload.active_key);
+                    const status = guideStepStatus(currentStep);
+                    const saved = await saveSystemLearningJourney({
+                        hotel_id: targetHotelId,
+                        journey: {
+                            goal: String(payload.goal || '').slice(0, 240),
+                            active_key: String(payload.active_key || ''),
+                            journey_keys: (payload.journey || []).map((step) => String(step.key || '')).filter(Boolean),
+                            current_step_status: status.key === 'completed'
+                                ? 'completed'
+                                : (status.key === 'blocked' ? 'blocked' : 'in_progress'),
+                            blocker_code: status.key === 'blocked' ? `${String(payload.active_key || 'step')}_blocked` : '',
+                            blocker_summary: status.key === 'blocked' ? String(status.detail || '').slice(0, 500) : '',
+                        },
+                    });
+                    const readback = saved?.journey;
+                    if (readback?.readback_verified === true && state.value.active_journey === payload) {
+                        state.value.active_journey = {
+                            ...payload,
+                            server_readback_id: Number(readback.id || 0),
+                            content_digest: String(readback.content_digest || ''),
+                            current_step_status: String(readback.current_step_status || status.key || 'in_progress'),
+                            blocker_code: String(readback.blocker_code || ''),
+                            blocker_summary: String(readback.blocker_summary || '').slice(0, 500),
+                            server_authoritative: true,
+                        };
+                    }
+                    return true;
+                } catch (error) {
+                    state.value.learning_error = String(error?.message || '任务路线跨会话保存失败');
+                    return false;
+                }
+            };
+            const archiveActiveJourney = async () => {
+                try {
+                    await archiveSystemLearningJourney({ hotel_id: currentLearningHotelId() });
+                    await loadLearningContext();
+                    return true;
+                } catch (error) {
+                    state.value.learning_error = String(error?.message || '任务路线归档失败');
+                    return false;
+                }
+            };
+            const transitionActiveJourney = async (action) => {
+                const active = state.value.active_journey;
+                if (!active || state.value.journey_transition_status) return false;
+                const targetHotelId = currentLearningHotelId();
+                const targetJourneyId = Number(active.server_readback_id || 0);
+                const normalizedAction = action === 'complete' ? 'complete' : 'ignore';
+                const confirmation = normalizedAction === 'complete'
+                    ? '只结束这张续办卡，不代表酒店业务结果已经完成。确认继续吗？'
+                    : '不再显示这张续办卡，但会保留历史记录。确认继续吗？';
+                if (typeof window.confirm === 'function' && !window.confirm(confirmation)) return false;
+                if (!targetJourneyId || !String(active.content_digest || '')) {
+                    state.value.learning_error = '续办卡尚未完成服务器精确回读，请刷新后再试';
+                    return false;
+                }
+                state.value.journey_transition_status = normalizedAction;
+                state.value.learning_error = '';
+                try {
+                    const result = await transitionSystemLearningJourney({
+                        hotel_id: targetHotelId,
+                        journey_id: targetJourneyId,
+                        expected_content_digest: String(active.content_digest),
+                        action: normalizedAction,
+                    });
+                    if (result?.status !== 'exact_readback_verified'
+                        || result?.journey?.readback_verified !== true
+                    ) {
+                        throw new Error('续办卡状态没有通过精确回读');
+                    }
+                    if (currentLearningHotelId() !== targetHotelId
+                        || Number(state.value.active_journey?.server_readback_id || 0) !== targetJourneyId
+                    ) {
+                        await loadLearningContext();
+                        return true;
+                    }
+                    clearActiveJourney(false);
+                    await loadLearningContext();
+                    return true;
+                } catch (error) {
+                    state.value.learning_error = String(error?.message || '续办卡状态更新失败');
+                    return false;
+                } finally {
+                    state.value.journey_transition_status = '';
+                }
+            };
+            const resumeActiveJourney = async () => {
+                const active = state.value.active_journey;
+                const topic = topicByKey(active?.active_key);
+                if (!topic) {
+                    state.value.learning_error = '当前续办步骤已不在可用功能目录中';
+                    return false;
+                }
+                return openTopic(null, topic, null, { skipJourneySave: true });
+            };
+            const savePreference = async (key, value, scope = 'global') => {
+                if (state.value.preference_saving_key) return false;
+                if (consumablePreferences().some((item) => (
+                    String(item?.preference_key || '') === String(key)
+                    && String(item?.value || '') === String(value)
+                    && String(item?.lifecycle_status || 'active') === 'active'
+                ))) return true;
+                state.value.preference_saving_key = key;
+                state.value.learning_error = '';
+                try {
+                    await saveSystemLearningPreference({
+                        scope,
+                        context_hotel_id: currentLearningHotelId(),
+                        hotel_id: scope === 'hotel' ? currentLearningHotelId() : undefined,
+                        preference_key: key,
+                        value,
+                    });
+                    await loadLearningContext();
+                    return true;
+                } catch (error) {
+                    state.value.learning_error = String(error?.message || '偏好保存失败');
+                    return false;
+                } finally {
+                    state.value.preference_saving_key = '';
+                }
+            };
+            const revokePreference = async (item) => {
+                if (!item || state.value.preference_saving_key) return false;
+                const key = String(item.preference_key || '');
+                state.value.preference_saving_key = key;
+                try {
+                    await revokeSystemLearningPreference({
+                        scope: String(item.scope || 'global'),
+                        context_hotel_id: currentLearningHotelId(),
+                        hotel_id: item.scope === 'hotel' ? Number(item.hotel_id || currentLearningHotelId()) : undefined,
+                        preference_key: key,
+                    });
+                    await loadLearningContext();
+                    return true;
+                } catch (error) {
+                    state.value.learning_error = String(error?.message || '偏好撤销失败');
+                    return false;
+                } finally {
+                    state.value.preference_saving_key = '';
+                }
+            };
+            const resetPreferences = async () => {
+                if (state.value.preference_saving_key) return false;
+                const targetHotelId = currentLearningHotelId();
+                if (typeof window.confirm === 'function'
+                    && !window.confirm('确认重置全局和当前酒店的个人偏好吗？历史事件仍会保留。')
+                ) return false;
+                state.value.preference_saving_key = '*';
+                try {
+                    await resetSystemLearningPreferences({
+                        scope: 'global',
+                        context_hotel_id: targetHotelId,
+                    });
+                    if (targetHotelId > 0) {
+                        await resetSystemLearningPreferences({
+                            scope: 'hotel',
+                            hotel_id: targetHotelId,
+                        });
+                    }
+                    if (currentLearningHotelId() === targetHotelId) {
+                        await loadLearningContext();
+                    }
+                    return true;
+                } catch (error) {
+                    state.value.learning_error = String(error?.message || '偏好重置失败');
+                    return false;
+                } finally {
+                    state.value.preference_saving_key = '';
+                }
+            };
+            const submitSuggestionFeedback = async (result, feedbackStatus, reasonCode) => {
+                const preciseQueryId = Number(result?.precise_query_id || 0);
+                if (!preciseQueryId) return false;
+                state.value.feedback_status = { ...state.value.feedback_status, [preciseQueryId]: 'saving' };
+                try {
+                    await submitSystemGuidanceFeedbackRequest({
+                        precise_query_id: preciseQueryId,
+                        feedback_status: feedbackStatus,
+                        reason_code: reasonCode,
+                        idempotency_key: `system_guidance_feedback_${preciseQueryId}`,
+                    });
+                    state.value.feedback_status = { ...state.value.feedback_status, [preciseQueryId]: reasonCode };
+                    await loadLearningContext();
+                    return true;
+                } catch (error) {
+                    state.value.feedback_status = { ...state.value.feedback_status, [preciseQueryId]: 'error' };
+                    state.value.learning_error = String(error?.message || '建议反馈保存失败');
+                    return false;
                 }
             };
             const isTopicCurrent = (topic) => {
@@ -2658,13 +3454,33 @@
                         && (topic.context_pages || []).includes(currentPage))
                     .slice(0, 2);
                 const items = [{
+                    key: 'bluebook-today',
+                    topic_key: 'daily-workbench',
+                    label: '今天先做什么',
+                    query: '按任务蓝皮书带我完成今天经营工作：进入经营机会，基于可信事实或明确缺口，选出并保存唯一优先事项。',
+                }, {
+                    key: 'bluebook-data-recovery',
+                    topic_key: 'data-health',
+                    label: '数据为什么没进来',
+                    query: '按任务蓝皮书查清数据为什么没进来：检查数据健康、自动采集和运行监控，缺失就明确阻塞。',
+                }, {
+                    key: 'bluebook-daily-report',
+                    topic_key: 'revenue-report',
+                    label: '生成可信经营日报',
+                    query: '按任务蓝皮书先检查数据健康，再生成和预览 AI 经营日报；外发仍需人工确认。',
+                }, {
+                    key: 'codex-collaboration',
+                    topic_key: 'codex-collaboration',
+                    label: '怎么让 Codex 帮我？',
+                    query: '我想让 Codex 帮我检查或完善宿析OS，应该怎么说？',
+                }, {
                     key: 'current-page',
                     label: '这个页面怎么用？',
                     query: `我现在在“${currentPageText()}”，这里主要能完成什么，第一步该做什么？`,
                 }, {
                     key: 'precise-exposure',
                     label: '查美团曝光',
-                    query: 'Hotel 80 8月23日美团曝光多少？',
+                    query: 'Hotel 80 8月23日美团曝光人数多少？',
                 }, {
                     key: 'precise-missing',
                     label: '问携程缺失',
@@ -2688,18 +3504,53 @@
                         .map(topicByKey)
                         .filter((topic) => topic && canOpenTopic(topic)),
                 ];
+                const rankingItems = Array.isArray(state.value.learning_context?.calibration?.feedback_ranking?.items)
+                    ? state.value.learning_context.calibration.feedback_ranking.items
+                    : [];
+                const rankingAdjustments = new Map();
+                const rankingConflicts = new Set();
+                for (const item of rankingItems.filter((row) => row?.eligible === true)) {
+                    const key = String(item?.topic_key || '');
+                    if (!key || rankingConflicts.has(key)) continue;
+                    if (rankingAdjustments.has(key)) {
+                        rankingAdjustments.delete(key);
+                        rankingConflicts.add(key);
+                        continue;
+                    }
+                    rankingAdjustments.set(key, Number(item?.adjustment || 0));
+                }
+                for (const item of items) {
+                    const topicKey = String(item?.topic_key || '');
+                    if (topicKey) item.feedback_adjustment = rankingAdjustments.get(topicKey) || 0;
+                }
+                const contextualTopicKeys = new Set(contextTopics.map((topic) => String(topic?.key || '')));
+                const orderedTopics = preferredTopics
+                    .map((topic, index) => ({
+                        topic,
+                        index,
+                        base_priority: contextualTopicKeys.has(String(topic?.key || '')) ? 0 : 1,
+                    }))
+                    .sort((left, right) => (
+                        left.base_priority - right.base_priority
+                    ) || (
+                        (rankingAdjustments.get(String(right.topic?.key || '')) || 0)
+                        - (rankingAdjustments.get(String(left.topic?.key || '')) || 0)
+                    ) || left.index - right.index)
+                    .map((entry) => entry.topic);
                 const usedKeys = new Set();
-                for (const topic of preferredTopics) {
+                for (const topic of orderedTopics) {
                     if (!topic || usedKeys.has(topic.key)) continue;
                     usedKeys.add(topic.key);
                     items.push({
                         key: `topic-${topic.key}`,
+                        topic_key: String(topic.key || ''),
+                        feedback_adjustment: rankingAdjustments.get(String(topic.key || '')) || 0,
                         label: String(topic.title || '查看功能'),
                         query: String(topic.example || topic.title || ''),
                     });
-                    if (items.length >= 4) break;
+                    if (items.length >= 6) break;
                 }
-                return items.slice(0, 4);
+                return items.slice(0, 6);
             };
             const activeJourneyContext = () => {
                 const activeJourney = state.value.active_journey;
@@ -3049,7 +3900,7 @@
                     state.value.restoring_precise_query = false;
                 }
             };
-            const openTopic = async (event, topic, turn) => {
+            const openTopic = async (event, topic, turn, options = {}) => {
                 if (!topic || state.value.opening_key) return false;
                 if (!canOpenTopic(topic)) {
                     state.value.error = '当前账号没有显示该功能入口，请联系管理员核对角色与酒店权限。';
@@ -3072,10 +3923,12 @@
                             ctx.knowledgeCenterFilter.keyword = String(turn?.query || '').trim();
                         }
                     }
-                    if (turn?.result?.journey?.length) {
-                        saveActiveJourney(turn.result, turn.query, String(topic.key || ''));
-                    } else if (state.value.active_journey?.journey?.length) {
-                        saveActiveJourney(state.value.active_journey, state.value.active_journey.original_query, String(topic.key || ''));
+                    if (options?.skipJourneySave !== true) {
+                        if (turn?.result?.journey?.length) {
+                            saveActiveJourney(turn.result, turn.query, String(topic.key || ''));
+                        } else if (state.value.active_journey?.journey?.length) {
+                            saveActiveJourney(state.value.active_journey, state.value.active_journey.original_query, String(topic.key || ''));
+                        }
                     }
                     await focusTopicAnchor(topic);
                     return true;
@@ -3092,6 +3945,37 @@
                 if (result?.mode !== 'intelligent') return '基础引导';
                 if (result?.status === 'clarification_required') return '需要确认目标';
                 return '已理解目标';
+            };
+            const renderPersonalizationReceipt = (result, isLatest = false) => {
+                const personalization = result?.personalization;
+                const status = String(personalization?.status || 'not_configured');
+                if (!personalization || status === 'not_configured') return null;
+                const explanation = personalization.explanation && typeof personalization.explanation === 'object'
+                    ? personalization.explanation
+                    : {};
+                const summary = String(explanation.summary || (
+                    status === 'applied'
+                        ? '已按你确认的个人偏好调整表达。'
+                        : (status === 'overridden_by_current_request'
+                            ? '本次明确要求覆盖了历史偏好。'
+                            : '已识别保存偏好，但本次没有应用。')
+                ));
+                const appliedCount = Array.isArray(personalization.applied_preferences)
+                    ? personalization.applied_preferences.length
+                    : 0;
+                return h('details', {
+                    class: 'sx-ai-consultant-gaps',
+                    'data-testid': isLatest ? 'system-guide-personalization-receipt' : undefined,
+                }, [
+                    h('summary', [
+                        h('strong', '为什么这样回答'),
+                        h('span', status === 'applied' ? ` · 使用 ${appliedCount || 1} 条已确认偏好` : ''),
+                    ]),
+                    h('p', summary),
+                    h('small', status === 'applied'
+                        ? '只调整表达方式；没有改变酒店事实、权限、审批或外部写入。'
+                        : '没有使用历史偏好改变本次结果。'),
+                ]);
             };
             const openOperatingWorkspace = async () => {
                 const ctx = props.ctx || {};
@@ -3137,65 +4021,61 @@
                 }
                 const answer = exact.answer && typeof exact.answer === 'object' ? exact.answer : {};
                 const keyPoints = Array.isArray(answer.key_points) ? answer.key_points.slice(0, 4).filter(Boolean) : [];
-                const gaps = [
-                    ...(Array.isArray(exact.data_gaps) ? exact.data_gaps.map((gap) => gap?.message || gap?.code || '').filter(Boolean) : []),
-                    ...(Array.isArray(answer.missing_information) ? answer.missing_information.filter(Boolean) : []),
-                ].slice(0, 5);
+                const preciseMetrics = normalizePreciseMetricSet(answer);
+                const metricKeys = new Set(preciseMetrics.items.map((item) => item.metricKey));
+                const gapCandidates = [
+                    ...(Array.isArray(exact.data_gaps) ? exact.data_gaps.filter((gap) => {
+                        if (!gap || typeof gap !== 'object') return true;
+                        const metric = gap.metric && typeof gap.metric === 'object' ? gap.metric : {};
+                        const metricKey = String(gap.metric_key || metric.key || '');
+                        return !metricKey || !metricKeys.has(metricKey);
+                    }) : []),
+                    ...(Array.isArray(answer.missing_information) ? answer.missing_information : []),
+                ].map(preciseMetricGapText).filter(Boolean);
+                const allGaps = Array.from(new Set(gapCandidates));
+                const gaps = allGaps.slice(0, 5);
+                const hiddenGapCount = Math.max(0, allGaps.length - gaps.length);
                 const evidence = answer.evidence_counts && typeof answer.evidence_counts === 'object'
                     ? answer.evidence_counts
                     : {};
-                const blocked = String(exact.answer_status || '').startsWith('blocked');
+                const answerBlocked = String(exact.answer_status || '').startsWith('blocked');
+                const blocked = preciseMetrics.isMetricSet && preciseMetrics.items.length
+                    ? preciseMetrics.allBlocked
+                    : answerBlocked;
+                const partial = preciseMetrics.isMetricSet && preciseMetrics.isPartial;
                 const children = [
                     h('div', { class: 'sx-ai-consultant-operating-result-head' }, [
                         h('span', {
                             class: ['sx-ai-consultant-status', blocked ? 'is-blocked' : ''],
-                        }, blocked
-                            ? '缺少可信事实'
-                            : String(props.ctx?.operatingQuestionAnswerStatusText?.(exact.answer_status) || '已严格回读')),
+                        }, partial
+                            ? '部分指标可用'
+                            : (blocked
+                                ? '缺少可信事实'
+                                : String(props.ctx?.operatingQuestionAnswerStatusText?.(exact.answer_status) || '已严格回读'))),
                         h('span', assistantMode === 'action' ? '行动草案模式' : '证据结论模式'),
                     ]),
                     h('p', { class: 'sx-ai-consultant-operating-scope' }, operatingScopeText(exact)),
                     h('p', { class: 'sx-ai-consultant-answer-summary' }, String(exact.answer_summary || '当前严格回读没有返回摘要。')),
                 ];
-                const precise = answer.precise_result && typeof answer.precise_result === 'object'
-                    ? answer.precise_result
-                    : null;
-                if (precise) {
-                    const valueText = precise.value === null || precise.value === undefined || precise.value === ''
-                        ? '--'
-                        : `${String(precise.value)}${precise.unit ? ` ${String(precise.unit)}` : ''}`;
-                    const fields = [
-                        ['酒店', String(precise.hotel?.name || `Hotel ${Number(precise.hotel?.id || 0) || '--'}`)],
-                        ['平台', String(precise.platform?.name || precise.platform?.key || '--')],
-                        ['业务日期', String(precise.business_date || '--')],
-                        ['指标名称', String(precise.metric?.name || precise.metric?.key || '--')],
-                        ['数值与单位', valueText],
-                        ['来源记录', String(precise.source_record || '--')],
-                        ['采集时间', String(precise.collected_at || '未记录，不用回读时间代替')],
-                        ['验证状态', String(precise.verification_status || '--')],
-                        ['回读状态', String(precise.readback_status || '--')],
-                        ['数据范围', String(precise.data_scope || '--')],
-                    ];
-                    children.push(h('section', {
-                        class: 'mt-3 rounded-xl border border-emerald-200 bg-emerald-50/70 p-3',
-                        'data-testid': isLatest ? 'precise-query-fact-card' : undefined,
-                    }, [
-                        h('div', { class: 'mb-2 flex flex-wrap items-center justify-between gap-2' }, [
-                            h('strong', { class: 'text-sm text-emerald-950' }, '可核对经营结果'),
-                            h('span', { class: 'rounded-full bg-white px-2 py-1 text-[11px] text-emerald-800' }, blocked ? '明确阻塞' : '数据库确定性结果'),
-                        ]),
-                        h('dl', { class: 'grid grid-cols-1 gap-2 text-xs sm:grid-cols-2' }, fields.map(([label, value], index) => h('div', {
-                            key: `precise-field-${index}`,
-                            class: ['rounded-lg border border-emerald-100 bg-white px-2.5 py-2', label === '数据范围' ? 'sm:col-span-2' : ''],
-                        }, [
-                            h('dt', { class: 'text-[11px] text-slate-500' }, label),
-                            h('dd', { class: 'mt-0.5 break-words font-medium text-slate-800' }, value),
-                        ]))),
-                        precise.formula ? h('p', { class: 'mt-2 text-xs leading-5 text-emerald-900' }, `计算：${String(precise.formula)}`) : null,
-                        precise.blocked_reason ? h('p', { class: 'mt-2 text-xs leading-5 text-amber-800' }, `阻塞原因：${String(precise.blocked_reason)}`) : null,
-                    ].filter(Boolean)));
-                }
-                const decisionFrame = precise ? null : renderRevenueDecisionFrame(answer.decision_frame, isLatest ? 'system-guide-decision-frame' : '');
+                children.push(renderHotelDataAnalystQualityReceipt(
+                    exact.analysis_quality_receipt,
+                    isLatest ? 'system-guide-analysis-quality-receipt' : '',
+                    {
+                        question: exact,
+                        feedbackUi: qualityFeedbackUi,
+                        interactive: isLatest && widgetOpen.value,
+                        feedbackTestId: isLatest ? 'system-guide-analysis-quality-feedback' : '',
+                    }
+                ));
+                const preciseEvidence = renderPreciseMetricEvidence(answer, {
+                    normalized: preciseMetrics,
+                    dataGaps: exact.data_gaps,
+                    testId: isLatest ? 'precise-query-fact-card' : '',
+                    metricSetTestId: isLatest ? 'precise-query-metric-set' : '',
+                    itemTestIdPrefix: isLatest ? 'precise-query-metric-item' : '',
+                });
+                if (preciseEvidence) children.push(preciseEvidence);
+                const decisionFrame = preciseEvidence ? null : renderRevenueDecisionFrame(answer.decision_frame, isLatest ? 'system-guide-decision-frame' : '');
                 if (decisionFrame) children.push(decisionFrame);
                 if (keyPoints.length) {
                     children.push(h('ul', { class: 'sx-ai-consultant-key-points' }, keyPoints.map((point, index) => (
@@ -3204,8 +4084,13 @@
                 }
                 if (gaps.length) {
                     children.push(h('div', { class: 'sx-ai-consultant-gaps' }, [
-                        h('strong', '当前阻塞'),
-                        h('ul', gaps.map((gap, index) => h('li', { key: `operating-gap-${index}` }, String(gap)))),
+                        h('strong', partial ? '其余缺口' : '当前阻塞'),
+                        h('ul', [
+                            ...gaps.map((gap, index) => h('li', { key: `operating-gap-${index}` }, String(gap))),
+                            hiddenGapCount > 0
+                                ? h('li', { key: 'operating-gap-more' }, `另有 ${hiddenGapCount} 项缺口，请到专业页面查看完整证据。`)
+                                : null,
+                        ].filter(Boolean)),
                     ]));
                 }
                 if (assistantMode === 'action') {
@@ -3244,11 +4129,11 @@
                     h('span', `已保存并严格回读 #${Number(exact.id || 0)}`),
                 ].filter(Boolean)));
                 children.push(h('div', { class: 'sx-ai-consultant-recovery-actions' }, [
-                    blocked
+                    (blocked || partial)
                         ? h('button', {
                             type: 'button',
                             onClick: (event) => openTopic(event, topicByKey('data-health'), turn),
-                        }, [icon('fa-shield-alt'), h('span', '补齐可信事实')])
+                        }, [icon('fa-shield-alt'), h('span', partial ? '补齐阻塞指标' : '补齐可信事实')])
                         : null,
                     h('button', {
                         type: 'button',
@@ -3257,7 +4142,7 @@
                     }, [icon('fa-arrow-right'), h('span', assistantMode === 'action' ? '到专业页面复核草案' : '查看完整证据与引用')]),
                 ].filter(Boolean)));
                 return h('section', {
-                    class: ['sx-ai-consultant-operating-result', blocked ? 'is-blocked' : 'is-ready'],
+                    class: ['sx-ai-consultant-operating-result', blocked ? 'is-blocked' : 'is-ready', partial ? 'is-partial' : ''],
                     'data-testid': isLatest ? 'system-guide-operating-result' : undefined,
                 }, children);
             };
@@ -3313,14 +4198,39 @@
                             h('small', { class: 'sx-ai-consultant-journey-progress' }, `已核验 ${completedCount} / ${liveSteps.length}；未核验步骤不会被标成完成。`),
                         ]),
                         persistent
-                            ? h('button', {
-                                type: 'button',
-                                class: 'sx-ai-consultant-journey-clear',
-                                'data-testid': 'system-guide-journey-clear',
-                                onClick: clearActiveJourney,
-                            }, '结束引导')
+                            ? h('span', { class: 'sx-ai-consultant-journey-progress' },
+                                String(result?.scope_type || '') === 'global' ? '全部酒店范围' : '当前酒店范围')
                             : null,
                     ]),
+                    persistent ? h('div', {
+                        class: 'sx-ai-consultant-gaps',
+                        'data-testid': 'system-guide-resume-card-actions',
+                    }, [
+                        result?.blocker_summary
+                            ? h('p', [h('b', '当前阻塞：'), String(result.blocker_summary)])
+                            : h('p', '从当前未完成步骤继续；仅打开已有功能入口。'),
+                        h('div', { class: 'sx-ai-consultant-suggestions' }, [
+                            h('button', {
+                                type: 'button',
+                                disabled: Boolean(state.value.opening_key || state.value.journey_transition_status),
+                                'data-testid': 'system-guide-resume-continue',
+                                onClick: resumeActiveJourney,
+                            }, '继续处理'),
+                            h('button', {
+                                type: 'button',
+                                disabled: Boolean(state.value.journey_transition_status),
+                                'data-testid': 'system-guide-resume-complete',
+                                onClick: () => transitionActiveJourney('complete'),
+                            }, state.value.journey_transition_status === 'complete' ? '保存中…' : '续办卡已完成'),
+                            h('button', {
+                                type: 'button',
+                                disabled: Boolean(state.value.journey_transition_status),
+                                'data-testid': 'system-guide-resume-ignore',
+                                onClick: () => transitionActiveJourney('ignore'),
+                            }, state.value.journey_transition_status === 'ignore' ? '保存中…' : '不再提醒'),
+                        ]),
+                        h('small', '“续办卡已完成”只结束个人提醒，不代表酒店经营结果、OTA 操作或审批已经完成。'),
+                    ]) : null,
                     h('ol', { class: 'sx-ai-consultant-journey-list' }, liveSteps.map((step, index) => {
                         const topic = topicByKey(step.key);
                         const current = isTopicCurrent(topic);
@@ -3369,6 +4279,7 @@
             onMounted(() => {
                 state.value.active_journey = readActiveJourney();
                 readWidgetState();
+                void loadLearningContext();
                 if (props.openOnMount) widgetOpen.value = true;
                 preciseRestoreTimer = window.setTimeout(() => {
                     preciseRestoreTimer = 0;
@@ -3382,6 +4293,13 @@
                     clampWidgetPosition(false);
                     resumePendingCoach();
                 });
+            });
+            window.Vue.watch(() => currentLearningHotelId(), (hotelId, previousHotelId) => {
+                if (Number(hotelId || 0) === Number(previousHotelId || 0)) return;
+                state.value.learning_context = null;
+                state.value.learning_error = '';
+                state.value.active_journey = readActiveJourney();
+                void loadLearningContext();
             });
             onUnmounted(() => {
                 window.removeEventListener('resize', handleWidgetViewportResize);
@@ -3400,7 +4318,7 @@
                         h('div', { class: 'sx-ai-consultant-message-avatar', 'aria-hidden': 'true' }, [icon('fa-sparkles')]),
                         h('div', [
                             h('strong', '直接查数、问缺失原因、找功能或查术语。'),
-                            h('p', '例如“Hotel 80 8月23日美团曝光多少”“可信播报怎么复制”。数值只读数据库，不让模型自由生成。'),
+                            h('p', '例如“Hotel 80 8月23日美团曝光人数多少”“可信播报怎么复制”。数值只读数据库，不让模型自由生成。'),
                         ]),
                     ]));
                 }
@@ -3436,6 +4354,8 @@
                         }, String(result.topic?.title || (result.topic_key === 'clarify' ? '先确认你的目标' : '系统使用引导'))),
                         h('p', String(result.assistant_message || '')),
                     ];
+                    const personalizationReceipt = renderPersonalizationReceipt(result, isLatest);
+                    if (personalizationReceipt) answerChildren.push(personalizationReceipt);
                     const operatingResult = renderOperatingResult(result, turn, isLatest);
                     if (operatingResult) answerChildren.push(operatingResult);
                     const termResult = renderTermResult(result, isLatest);
@@ -3502,6 +4422,35 @@
                             }, String(question))),
                         ]));
                     }
+                    const preciseQueryId = Number(result.precise_query_id || 0);
+                    if (isLatest && preciseQueryId > 0) {
+                        const savedFeedback = String(state.value.feedback_status?.[preciseQueryId] || '');
+                        const feedbackOptions = [
+                            ['accepted', 'useful', '有用'],
+                            ['rejected', 'wrong_focus', '重点不对'],
+                            ['modified', 'too_long', '太长'],
+                            ['needs_more_evidence', 'more_evidence', '证据不够'],
+                            ['deferred', 'not_now', '暂不需要'],
+                        ];
+                        answerChildren.push(h('div', {
+                            class: 'sx-ai-consultant-gaps',
+                            'data-testid': 'system-guide-feedback',
+                        }, [
+                            h('strong', '这次建议是否有帮助？'),
+                            h('div', { class: 'sx-ai-consultant-suggestions' }, feedbackOptions.map(([status, reason, label]) => h('button', {
+                                key: reason,
+                                type: 'button',
+                                disabled: savedFeedback === 'saving'
+                                    || Boolean(savedFeedback && savedFeedback !== 'error'),
+                                class: savedFeedback === reason ? 'is-active' : '',
+                                'data-testid': `system-guide-feedback-${reason}`,
+                                onClick: () => submitSuggestionFeedback(result, status, reason),
+                            }, savedFeedback === 'saving' ? '保存中…' : label))),
+                            savedFeedback && !['saving', 'error'].includes(savedFeedback)
+                                ? h('small', '反馈已保存并精确回读；它只用于个人偏好候选和离线质量评测。')
+                                : null,
+                        ]));
+                    }
                     answerChildren.push(h('div', { class: 'sx-ai-consultant-evidence' }, [
                         h('span', `当前页面：${currentPageText()}`),
                         h('span', Number(result.precise_query_id || 0) > 0
@@ -3539,6 +4488,7 @@
                     disabled: state.value.loading,
                     'aria-pressed': state.value.selected_mode === option.key ? 'true' : 'false',
                     'data-testid': `system-guide-mode-${option.key}`,
+                    'data-role-key': option.key === 'report' ? 'hotel_data_analyst' : undefined,
                     onClick: () => setAssistantMode(option.key),
                 }, [icon(option.icon), h('span', option.label)])));
                 const suggestions = h('div', {
@@ -3548,8 +4498,177 @@
                     key: item.key,
                     type: 'button',
                     disabled: state.value.loading,
+                    'data-topic-key': item.topic_key || undefined,
+                    'data-feedback-adjustment': Number(item.feedback_adjustment || 0),
+                    title: Number(item.feedback_adjustment || 0) > 0
+                        ? '根据当前用户、当前酒店至少 20 次同类反馈，排在同类快捷入口前面。'
+                        : undefined,
                     onClick: () => applySuggestion(item),
-                }, String(item.label || item.query))));
+                }, Number(item.feedback_adjustment || 0) > 0
+                    ? `${String(item.label || item.query)} · 更常用`
+                    : String(item.label || item.query))));
+                const learningContext = state.value.learning_context;
+                const calibration = learningContext?.calibration || {};
+                const activePreferences = consumablePreferences();
+                const candidates = candidatePreferences();
+                const readyCandidates = readyCandidatePreferences();
+                const feedbackCounts = calibration?.counts || {};
+                const feedbackCount = feedbackCounts.feedback_sample_count !== null
+                    && feedbackCounts.feedback_sample_count !== undefined
+                    && feedbackCounts.feedback_sample_count !== ''
+                    && Number.isFinite(Number(feedbackCounts.feedback_sample_count))
+                        ? Number(feedbackCounts.feedback_sample_count)
+                        : null;
+                const feedbackRanking = calibration?.feedback_ranking || {};
+                const rankingItems = Array.isArray(feedbackRanking.items) ? feedbackRanking.items : [];
+                const rankingSampleCount = rankingItems.reduce(
+                    (maximum, item) => Math.max(maximum, Number(item?.sample_count || 0)),
+                    0
+                );
+                const preferenceChoices = [
+                    ['response_detail', 'concise', '回答简洁'],
+                    ['response_detail', 'detailed', '步骤详细'],
+                    ['preferred_platform', 'ctrip', '每日重点优先携程'],
+                    ['preferred_platform', 'meituan', '每日重点优先美团'],
+                    ['preferred_platform', 'all_ota', '每日重点不偏单平台'],
+                ];
+                const preferencePanel = h('section', {
+                    class: 'sx-ai-consultant-gaps',
+                    'data-testid': 'system-guide-learning-memory',
+                }, [
+                    h('div', { class: 'sx-ai-consultant-answer-meta' }, [
+                        h('strong', '学习中心'),
+                        h('span', state.value.learning_loading && !learningContext
+                            ? '正在读取学习上下文…'
+                            : (!learningContext
+                                ? (state.value.learning_error ? '学习上下文读取失败' : '学习上下文未取得')
+                                : `记忆 ${activePreferences.length} · 候选 ${readyCandidates.length} · 反馈 ${feedbackCount === null ? '未取得' : feedbackCount} · 续办 ${state.value.active_journey ? 1 : 0}`)),
+                        h('button', {
+                            type: 'button',
+                            disabled: state.value.learning_loading || !learningContext,
+                            'aria-expanded': state.value.learning_open ? 'true' : 'false',
+                            'data-testid': 'system-guide-learning-toggle',
+                            onClick: () => { state.value.learning_open = !state.value.learning_open; },
+                        }, state.value.learning_open ? '收起' : '查看与修改'),
+                    ]),
+                    h('small', '系统只从明确确认和结构化反馈中学习；不会改变事实、权限、审批或真实经营动作。'),
+                    state.value.learning_open ? h('div', { 'data-testid': 'system-guide-learning-center' }, [
+                        h('section', { 'data-testid': 'system-guide-learning-confirmed' }, [
+                            h('strong', '已确认记忆'),
+                            h('div', {
+                                class: 'sx-ai-consultant-suggestions',
+                                role: 'group',
+                                'aria-label': '已确认的回答与每日重点偏好',
+                            }, preferenceChoices.map(([key, value, label]) => {
+                                const active = activePreferences.some((item) => (
+                                    item.preference_key === key && String(item.value) === value
+                                ));
+                                return h('button', {
+                                    key: `${key}:${value}`,
+                                    type: 'button',
+                                    disabled: Boolean(state.value.preference_saving_key),
+                                    class: active ? 'is-active' : '',
+                                    'aria-pressed': active ? 'true' : 'false',
+                                    title: active ? `${label}（当前已选择）` : label,
+                                    'data-testid': `system-guide-preference-${key}-${value}`,
+                                    onClick: () => savePreference(key, value),
+                                }, state.value.preference_saving_key === key ? '保存中…' : label);
+                            })),
+                        activePreferences.length
+                            ? h('ul', { class: 'sx-ai-consultant-key-points' }, activePreferences.map((item) => h('li', {
+                                key: `${item.preference_key}:${item.id}`,
+                            }, [
+                                h('span', `${preferenceValueText(item)} · ${preferenceScopeText(item)} · ${preferenceSourceText(item)}`),
+                                h('button', {
+                                    type: 'button',
+                                    disabled: Boolean(state.value.preference_saving_key),
+                                    'data-testid': `system-guide-preference-revoke-${String(item.preference_key)}`,
+                                    onClick: () => revokePreference(item),
+                                }, '撤销'),
+                            ])))
+                            : h('p', '尚未确认长期偏好；单次点击不会被偷偷当成永久画像。'),
+                        ]),
+                        h('section', { 'data-testid': 'system-guide-learning-candidates' }, [
+                            h('strong', '待确认候选'),
+                            candidates.length
+                                ? h('ul', { class: 'sx-ai-consultant-key-points' }, candidates.map((item) => {
+                                    const count = Number(item?.source_context?.signal_count || 0);
+                                    const minimum = Number(learningContext?.learning_policy?.candidate_minimum_repeated_signals || 3);
+                                    const ready = String(item?.learning_status || '') === 'inferred';
+                                    return h('li', { key: `candidate:${item.preference_key}:${item.id}` }, [
+                                        h('span', `${preferenceValueText(item)} · ${ready ? '待你确认，尚未应用' : `观察中 ${count}/${minimum}`}`),
+                                        ready ? h('div', { class: 'sx-ai-consultant-suggestions' }, [
+                                            h('button', {
+                                                type: 'button',
+                                                disabled: Boolean(state.value.preference_saving_key),
+                                                'data-testid': `system-guide-candidate-confirm-${String(item.preference_key)}`,
+                                                onClick: () => savePreference(
+                                                    String(item.preference_key || ''),
+                                                    String(item.value || ''),
+                                                    String(item.scope || 'global')
+                                                ),
+                                            }, '确认采用'),
+                                            h('button', {
+                                                type: 'button',
+                                                disabled: Boolean(state.value.preference_saving_key),
+                                                'data-testid': `system-guide-candidate-dismiss-${String(item.preference_key)}`,
+                                                onClick: () => revokePreference(item),
+                                            }, '忽略候选'),
+                                        ]) : null,
+                                    ]);
+                                }))
+                                : h('p', '暂无待确认候选；重复行为不会自动变成长期偏好。'),
+                        ]),
+                        h('section', { 'data-testid': 'system-guide-learning-calibration' }, [
+                            h('strong', '反馈与调优'),
+                            h('p', `反馈 ${feedbackCount} 条 · 有用 ${Number(feedbackCounts.accepted || 0)} · 修改 ${Number(feedbackCounts.modified || 0)} · 重点不对 ${Number(feedbackCounts.rejected || 0)} · 证据不足 ${Number(feedbackCounts.needs_more_evidence || 0)}`),
+                            h('small', feedbackRanking.status === 'ready'
+                                ? '同类反馈已达到每个入口至少 20 条，只在原有快捷入口之间调整先后。'
+                                : `快捷入口排序仍在积累同类样本（最多 ${rankingSampleCount}/${Number(feedbackRanking.minimum_samples_per_topic || 20)}）；当前保持原顺序。`),
+                        ]),
+                        h('section', { 'data-testid': 'system-guide-learning-journey' }, [
+                            h('strong', '任务续办'),
+                            state.value.active_journey
+                                ? h('div', [
+                                    h('p', String(state.value.active_journey.goal || '当前未完成事项')),
+                                    h('small', state.value.active_journey.blocker_summary
+                                        ? `当前阻塞：${String(state.value.active_journey.blocker_summary)}`
+                                        : '可从当前未完成步骤继续。'),
+                                    h('div', { class: 'sx-ai-consultant-suggestions' }, [
+                                        h('button', {
+                                            type: 'button',
+                                            disabled: Boolean(state.value.opening_key || state.value.journey_transition_status),
+                                            'data-testid': 'system-guide-learning-journey-continue',
+                                            onClick: resumeActiveJourney,
+                                        }, '继续当前任务'),
+                                        h('button', {
+                                            type: 'button',
+                                            disabled: Boolean(state.value.journey_transition_status),
+                                            'data-testid': 'system-guide-learning-journey-ignore',
+                                            onClick: () => transitionActiveJourney('ignore'),
+                                        }, '不再提醒'),
+                                    ]),
+                                ])
+                                : h('p', '当前没有需要跨会话续办的事项。'),
+                        ]),
+                        h('section', { 'data-testid': 'system-guide-learning-management' }, [
+                            h('strong', '管理'),
+                        h('div', { class: 'sx-ai-consultant-suggestions' }, [
+                            h('button', {
+                                type: 'button',
+                                disabled: (!activePreferences.length && !candidates.length)
+                                    || Boolean(state.value.preference_saving_key),
+                                'data-testid': 'system-guide-preference-reset',
+                                onClick: resetPreferences,
+                            }, '重置全局和当前酒店偏好'),
+                        ]),
+                        h('small', '不会保存密码、Cookie、验证码或原始聊天；当前这次明确要求始终覆盖历史偏好。'),
+                        ]),
+                    ]) : null,
+                    state.value.learning_error
+                        ? h('p', { class: 'sx-ai-consultant-error', 'data-testid': 'system-guide-learning-error' }, state.value.learning_error)
+                        : null,
+                ]);
                 const composer = h('form', {
                     class: 'sx-ai-consultant-composer',
                     onSubmit: (event) => {
@@ -3566,7 +4685,7 @@
                             ? '例如：给我这家酒店今天携程经营情况的结论和证据缺口'
                             : (state.value.selected_mode === 'action'
                                 ? '例如：根据今天的可信事实，帮我生成待人工确认的行动草案'
-                                : '例如：Hotel 80 8月23日美团曝光多少？'),
+                                : '例如：Hotel 80 8月23日美团曝光人数多少？'),
                         'data-testid': 'system-guide-input',
                         onInput: (event) => {
                             state.value.query = String(event?.target?.value || '');
@@ -3687,6 +4806,7 @@
                                 h('em', state.value.active_journey ? '任务路线已保留' : `可引导 ${visibleTopicKeys().length} 项功能`),
                             ]),
                             h('p', { class: 'sx-ai-consultant-boundary' }, '只引导当前账号可用的真实功能，并跨页面保留任务路线。涉及结论、执行或外发时，仍以严格回读和人工确认为准。'),
+                            preferencePanel,
                             modeSwitcher,
                             state.value.turns.length === 0 && state.value.active_journey
                                 ? renderJourney(state.value.active_journey, null, true)
@@ -3705,7 +4825,7 @@
         },
     };
 
-        return Object.freeze({ operatingQuestionPanel, operatingQuestionConsultant });
+        return Object.freeze({ operatingQuestionPanel, operatingQuestionConsultant, hotelDataAnalystProfile });
     };
 
     const exportedFactory = Object.freeze({ create });

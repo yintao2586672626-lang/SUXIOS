@@ -99,6 +99,7 @@ final class CloudOtaProfileLeaseService
                     'owner_user_id' => $ownerUserId,
                     'target_date' => $targetDate,
                     'collection_kind' => 'ota_target_date',
+                    'data_period' => 'realtime_snapshot',
                     'access_mode' => 'read_only',
                 ]
             );
@@ -116,6 +117,7 @@ final class CloudOtaProfileLeaseService
                 || (int)($opened['owner_user_id'] ?? 0) !== $ownerUserId
                 || (string)($opened['target_date'] ?? '') !== $targetDate
                 || (string)($opened['collection_kind'] ?? '') !== 'ota_target_date'
+                || (string)($opened['data_period'] ?? '') !== 'realtime_snapshot'
                 || (string)($opened['access_mode'] ?? '') !== 'read_only'
             ) {
                 throw new RuntimeException('cloud_ota_profile_lease_open_unverified');

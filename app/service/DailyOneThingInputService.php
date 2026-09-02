@@ -28,11 +28,15 @@ final class DailyOneThingInputService
     /** @var Closure():DateTimeImmutable */
     private Closure $clock;
 
+    /** @var Closure(int,int,string):array<string,mixed> */
+    private Closure $reputationReader;
+
     public function __construct(
         ?callable $fieldClosureReader = null,
         ?callable $questionReader = null,
         ?callable $questionActionReader = null,
-        ?callable $clock = null
+        ?callable $clock = null,
+        ?callable $reputationReader = null
     ) {
         $this->fieldClosureReader = $fieldClosureReader !== null
             ? Closure::fromCallable($fieldClosureReader)
@@ -50,6 +54,10 @@ final class DailyOneThingInputService
         $this->clock = $clock !== null
             ? Closure::fromCallable($clock)
             : static fn(): DateTimeImmutable => new DateTimeImmutable('now', new DateTimeZone('Asia/Shanghai'));
+        $this->reputationReader = $reputationReader !== null
+            ? Closure::fromCallable($reputationReader)
+            : static fn(int $tenantId, int $hotelId, string $businessDate): array =>
+                (new OtaReputationDailySignalService())->build($tenantId, $hotelId, $businessDate);
     }
 
     /** @return array<string,mixed> */
@@ -68,7 +76,6 @@ final class DailyOneThingInputService
         [$dueAt, $reviewAt] = $this->schedule($businessDate, $now);
         $candidates = [];
         $sourceErrors = [];
-        $strictFactStatus = 'readback_ready';
         try {
             $closure = ($this->fieldClosureReader)($hotelId, $businessDate);
             $this->assertClosureScope($closure, $tenantId, $hotelId, $businessDate);
@@ -91,8 +98,34 @@ final class DailyOneThingInputService
                     $businessDate,
                 ])),
             ];
-            $strictFactStatus = 'source_unavailable';
             $sourceErrors[] = ['code' => 'strict_fact_layer_unavailable'];
+        }
+
+        try {
+            $reputation = ($this->reputationReader)($tenantId, $hotelId, $businessDate);
+            $this->assertReputationScope($reputation, $tenantId, $hotelId, $businessDate);
+            $candidates = array_merge(
+                $candidates,
+                $this->reputationCandidates(
+                    $reputation,
+                    $tenantId,
+                    $hotelId,
+                    $businessDate,
+                    $ownerId,
+                    $dueAt,
+                    $reviewAt
+                )
+            );
+        } catch (\Throwable) {
+            $reputation = [
+                'contract_version' => OtaReputationDailySignalService::CONTRACT_VERSION,
+                'tenant_id' => $tenantId,
+                'hotel_id' => $hotelId,
+                'business_date' => $businessDate,
+                'status' => 'unavailable',
+                'signals' => [],
+            ];
+            $sourceErrors[] = ['code' => 'ota_reputation_signal_unavailable'];
         }
 
         try {
@@ -136,7 +169,6 @@ final class DailyOneThingInputService
             'tenant_id' => $tenantId,
             'hotel_id' => $hotelId,
             'business_date' => $businessDate,
-            'strict_fact_status' => $strictFactStatus,
             'candidate_digests' => array_values(array_map(
                 static fn(array $candidate): string => DailyOneThingService::materialIdentityDigest($candidate),
                 $candidates
@@ -147,7 +179,7 @@ final class DailyOneThingInputService
             'candidates' => $candidates,
             'source_snapshot' => [
                 'dual_ota_field_closure' => $closure,
-                'strict_fact_status' => $strictFactStatus,
+                'ota_reputation_signal' => $reputation,
                 'saved_question_count' => count(array_filter(
                     $candidates,
                     static fn(array $candidate): bool => ($candidate['source_type'] ?? '') === 'saved_question'
@@ -161,9 +193,109 @@ final class DailyOneThingInputService
                 'automatic_ota_write' => false,
                 'automatic_pms_write' => false,
                 'automatic_wecom_message' => false,
-                'strict_fact_source_ready' => $strictFactStatus === 'readback_ready',
             ],
         ];
+    }
+
+    /** @return list<array<string,mixed>> */
+    private function reputationCandidates(
+        array $reputation,
+        int $tenantId,
+        int $hotelId,
+        string $businessDate,
+        int $ownerId,
+        DateTimeImmutable $dueAt,
+        DateTimeImmutable $reviewAt
+    ): array {
+        $candidates = [];
+        foreach ((array)($reputation['signals'] ?? []) as $signal) {
+            if (!is_array($signal)
+                || !in_array((string)($signal['platform'] ?? ''), ['ctrip', 'meituan'], true)
+                || (string)($signal['business_date'] ?? '') !== $businessDate
+                || !is_numeric($signal['current_value'] ?? null)
+            ) {
+                continue;
+            }
+            $platform = (string)$signal['platform'];
+            $platformLabel = $platform === 'ctrip' ? '携程' : '美团';
+            $recordId = max(0, (int)($signal['record_id'] ?? 0));
+            $recordRef = trim((string)($signal['record_ref'] ?? ''));
+            $snapshotDigest = strtolower(trim((string)($signal['snapshot_digest'] ?? '')));
+            $factRefs = $this->refs($signal['fact_refs'] ?? []);
+            if ($recordId <= 0 || $recordRef === '' || $factRefs === []
+                || preg_match('/^[a-f0-9]{64}$/D', $snapshotDigest) !== 1
+            ) {
+                continue;
+            }
+            $candidateKey = trim((string)($signal['signal_key'] ?? ''));
+            $metricKey = trim((string)($signal['metric_key'] ?? ''));
+            $metricLabel = trim((string)($signal['metric_label'] ?? ''));
+            $metricUnit = trim((string)($signal['unit'] ?? ''));
+            if ($candidateKey === '' || $metricKey === '' || $metricUnit === '') {
+                continue;
+            }
+            $candidates[] = $this->baseCandidate(
+                $candidateKey,
+                'strict_fact_signal',
+                trim((string)($signal['problem'] ?? '')),
+                [[
+                    'statement' => sprintf(
+                        '%s点评聚合已按同租户、同酒店、同平台、同业务日保存并精确回读；当前信号只用于分配人工注意力。',
+                        $platformLabel
+                    ),
+                    'evidence_ref' => $recordRef,
+                    'quality_status' => 'strict_readback',
+                ]],
+                [
+                    'type' => 'human_reviewed_reputation_check',
+                    'object' => $platform . '_review_evidence',
+                    'title' => trim((string)($signal['action_title'] ?? '核对点评证据')),
+                    'description' => '先在“线上经营数据 → 点评口碑”核对同范围聚合，再进入对应平台点评证据入口；回复、申诉或联系客人必须由用户在平台人工决定。',
+                    'steps' => [
+                        '打开“线上经营数据 → 点评口碑”，核对酒店、平台、业务日期、来源方式和回读状态。',
+                        '进入' . $platformLabel . '点评证据，只读核对新增低分、评分下降或未回复聚合对应的授权证据。',
+                        '如需回复或申诉，由用户在平台人工触发；保存实际处理说明，等待同范围自然数据复盘。',
+                    ],
+                ],
+                [
+                    'key' => $metricKey,
+                    'label' => $metricLabel !== '' ? $metricLabel : $metricKey,
+                    'unit' => $metricUnit,
+                    'baseline_value' => (float)$signal['current_value'],
+                    'aggregation' => 'latest',
+                ],
+                $platform,
+                'ota_channel',
+                '只适用于当前酒店、当前平台和当前业务日的点评聚合；不代表全酒店服务质量，也不证明回复或申诉会改善评分。',
+                [
+                    'level' => 'medium',
+                    'summary' => '主要风险是把累计点评变化误当新增事实，或在缺少点评级证据时直接联系、回复或申诉。',
+                    'controls' => [
+                        '只使用相邻业务日且精确回读的聚合事实。',
+                        '不读取点评正文，不推断住客身份，不自动回复或申诉。',
+                    ],
+                    'stop_conditions' => [
+                        '酒店、平台、业务日期或回读身份不一致时停止。',
+                        '需要登录、验证码、住客身份或平台外部写入时等待用户主动操作。',
+                    ],
+                ],
+                is_array($signal['ranking'] ?? null)
+                    ? $signal['ranking']
+                    : ['impact' => 70, 'urgency' => 70, 'evidence_strength' => 100, 'execution_cost' => 24],
+                $recordId,
+                $recordRef,
+                $snapshotDigest,
+                $factRefs,
+                [],
+                $tenantId,
+                $hotelId,
+                $businessDate,
+                $ownerId,
+                $dueAt,
+                $reviewAt
+            );
+        }
+        return $candidates;
     }
 
     /** @return list<array<string,mixed>> */
@@ -624,6 +756,19 @@ final class DailyOneThingInputService
             || preg_match('/^[a-f0-9]{64}$/D', $digest) !== 1
         ) {
             throw new InvalidArgumentException('每日事项严格事实范围或摘要无效');
+        }
+    }
+
+    private function assertReputationScope(array $reputation, int $tenantId, int $hotelId, string $businessDate): void
+    {
+        if (($reputation['contract_version'] ?? '') !== OtaReputationDailySignalService::CONTRACT_VERSION
+            || (int)($reputation['tenant_id'] ?? 0) !== $tenantId
+            || (int)($reputation['hotel_id'] ?? 0) !== $hotelId
+            || (string)($reputation['business_date'] ?? '') !== $businessDate
+            || !is_array($reputation['signals'] ?? null)
+            || (int)($reputation['boundary']['external_write_count'] ?? 0) !== 0
+        ) {
+            throw new InvalidArgumentException('每日事项口碑信号范围或边界无效');
         }
     }
 

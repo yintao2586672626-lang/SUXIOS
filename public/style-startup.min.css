@@ -101,7 +101,6 @@ h1, h2, h3, h4{color:var(--sx-title);letter-spacing:0
 .bg-red-50{background:#fff1f2 !important;color:#b91c1c !important;border-color:#fecdd3 !important
 }.bg-yellow-100,
 .bg-yellow-50,
-.bg-orange-100,
 .bg-orange-50{background:#fff7ed !important;color:#b45309 !important;border-color:#fed7aa !important
 }.bg-purple-50,
 .bg-indigo-50{background:#f1f5ff !important;color:#315b99 !important;border-color:#d8e2ee !important
@@ -343,7 +342,6 @@ textarea.input-field{background:#ffffff !important;border:1px solid var(--sx-bor
 .bg-emerald-50{background:#ecfdf3 !important;color:#166534 !important;border-color:#bbf7d0 !important
 }.bg-yellow-100,
 .bg-yellow-50,
-.bg-orange-100,
 .bg-orange-50,
 .bg-amber-100,
 .bg-amber-50{background:#fff7ed !important;color:#92400e !important;border-color:#fed7aa !important
@@ -570,7 +568,8 @@ main[data-current-page="compass"] .macro-signal-card .macro-signal-metric{backgr
 }.suxi-app-shell main[data-current-page="opening-overview"],
 .suxi-app-shell main[data-current-page="opening-checklist"],
 .suxi-app-shell main[data-current-page="lifecycle"]{--sx-page-accent:#0891b2;--sx-page-accent-dark:#0e7490;--sx-page-accent-soft:#cffafe;--sx-page-glow-rgb:8, 145, 178
-}.suxi-app-shell main[data-current-page="operation-optimizer"],
+}.suxi-app-shell main[data-current-page="operating-finance"],
+.suxi-app-shell main[data-current-page="operation-optimizer"],
 .suxi-app-shell main[data-current-page="operating-growth-archive"],
 .suxi-app-shell main[data-current-page="operating-opportunities"],
 .suxi-app-shell main[data-current-page="ops-source"],
@@ -693,7 +692,6 @@ main[data-current-page="compass"] .macro-signal-card .macro-signal-metric{backgr
 }.suxi-app-shell main :where( button[class~="bg-gray-100"], button[class~="bg-white"], a[class~="bg-white"]){border:1px solid var(--sx-border) !important;background:#fff !important;color:#334155 !important
 }.suxi-app-shell main :where( button[class~="bg-gray-100"], button[class~="bg-white"], a[class~="bg-white"]):hover{border-color:var(--sx-border-strong) !important;background:#f8fafc !important;color:#0f172a !important
 }.suxi-app-shell main table{width:100%;border-collapse:separate;border-spacing:0
-}.suxi-app-shell main tr[class*="bg-gradient-to-b"]{background:linear-gradient(180deg, #f8fafc, #f1f5f9) !important
 }.suxi-app-shell main :where(.divide-y > :not([hidden]) ~ :not([hidden])){border-color:#eef2f6 !important
 }.suxi-app-shell main :where(.text-gray-400, .text-gray-500, .text-slate-500){color:var(--sx-text-muted) !important
 }.suxi-app-shell main :where(.text-blue-500, .text-blue-600, .text-blue-700){color:var(--sx-page-accent) !important
@@ -913,7 +911,7 @@ main[data-current-page="compass"] .macro-signal-card .macro-signal-metric{backgr
 }.suxi-app-shell main :where(.bg-green-50, .bg-green-100, .bg-emerald-50, .bg-emerald-100){border-color:rgba(62, 123, 94, .18) !important;background:var(--color-success-soft) !important
 }.suxi-app-shell main :where(.text-green-500, .text-green-600, .text-green-700, .text-green-800, .text-emerald-700, .text-emerald-800){color:var(--color-success) !important
 }.suxi-app-shell main :where(.border-green-100, .border-green-200, .border-emerald-100, .border-emerald-200){border-color:rgba(62, 123, 94, .24) !important
-}.suxi-app-shell main :where(.bg-yellow-50, .bg-yellow-100, .bg-amber-50, .bg-amber-100, .bg-orange-50, .bg-orange-100){border-color:rgba(185, 130, 50, .20) !important;background:var(--color-warning-soft) !important
+}.suxi-app-shell main :where(.bg-yellow-50, .bg-yellow-100, .bg-amber-50, .bg-amber-100, .bg-orange-50){border-color:rgba(185, 130, 50, .20) !important;background:var(--color-warning-soft) !important
 }.suxi-app-shell main :where(.text-yellow-700, .text-yellow-800, .text-amber-600, .text-amber-700, .text-amber-800, .text-orange-600, .text-orange-700, .text-orange-800){color:var(--color-warning) !important
 }.suxi-app-shell main :where(.border-yellow-100, .border-yellow-200, .border-amber-100, .border-amber-200, .border-orange-100, .border-orange-200){border-color:rgba(185, 130, 50, .26) !important
 }.suxi-app-shell main :where(.bg-red-50, .bg-red-100){border-color:rgba(168, 82, 82, .22) !important;background:var(--color-danger-soft) !important
@@ -1030,9 +1028,6 @@ main[data-current-page="compass"] .compass-dashboard :where(
 }main[data-current-page="compass"] .compass-hero-bezel{padding:7px;border:1px solid rgba(255, 255, 255, .5);border-radius:34px;background:rgba(16, 20, 16, .08);box-shadow:0 28px 80px rgba(70, 52, 27, .13), inset 0 1px 0 rgba(255, 255, 255, .62);animation:compass-heavy-rise 900ms cubic-bezier(.32, .72, 0, 1) both
 }main[data-current-page="compass"] .compass-hero-core{position:relative;padding:44px;overflow:hidden;border:1px solid rgba(255, 255, 255, .09);border-radius:27px;color:#fffdf6;background:radial-gradient(circle at 78% 5%, rgba(214, 176, 107, .18), transparent 33%),
         linear-gradient(135deg, #111612 0%, #171d18 48%, #0d110e 100%);box-shadow:inset 0 1px 1px rgba(255, 255, 255, .12)
-}main[data-current-page="compass"] .compass-primary-cta{display:inline-flex;align-items:center;gap:14px;min-height:54px;padding:7px 8px 7px 22px;border:0;border-radius:999px;color:#17140e;background:linear-gradient(135deg, #f4dca8, #d6b06b);font-size:13px;font-weight:800;box-shadow:0 14px 34px rgba(0, 0, 0, .24), inset 0 1px 0 rgba(255, 255, 255, .6);transition:transform 700ms cubic-bezier(.32, .72, 0, 1), box-shadow 700ms cubic-bezier(.32, .72, 0, 1)
-}main[data-current-page="compass"] .compass-primary-cta:hover{transform:translateY(-3px);box-shadow:0 19px 44px rgba(0, 0, 0, .3), inset 0 1px 0 rgba(255, 255, 255, .72)
-}main[data-current-page="compass"] .compass-primary-cta:active{transform:scale(.98)
 }main[data-current-page="compass"] .suxi-evidence-fold{border-color:rgba(130, 101, 49, .13) !important;background:rgba(255, 253, 248, .82) !important;box-shadow:0 18px 54px rgba(70, 52, 27, .07) !important;transition:transform 700ms cubic-bezier(.32, .72, 0, 1), box-shadow 700ms cubic-bezier(.32, .72, 0, 1)
 }main[data-current-page="compass"] .suxi-evidence-fold:hover{transform:translateY(-2px);box-shadow:0 24px 64px rgba(70, 52, 27, .1) !important
 }main[data-current-page="compass"] .home-status-pill{padding:2px 8px;border-width:1px;border-radius:999px;font-size:10px
@@ -1097,10 +1092,9 @@ main[data-current-page="compass"] .home-orchestration-content > em{color:#64748b
     }main[data-current-page="compass"] .compass-dashboard .compass-content-stage{width:100%;padding:16px !important
     }main[data-current-page="compass"] .compass-hero-bezel{padding:5px;border-radius:26px
     }main[data-current-page="compass"] .compass-hero-core{padding:28px 20px 20px;border-radius:21px
-    }main[data-current-page="compass"] .compass-primary-cta{width:100%;justify-content:space-between
     }
 }@media (prefers-reduced-motion: reduce){main[data-current-page="compass"] .compass-hero-bezel{animation:none
-    }main[data-current-page="compass"] :where(.compass-primary-cta, .suxi-evidence-fold){transition:none !important
+    }main[data-current-page="compass"] :where( .suxi-evidence-fold){transition:none !important
     }
 }main[data-current-page="compass"] .compass-dashboard .compass-shell-card :where(
     [class*="rounded-2xl"],

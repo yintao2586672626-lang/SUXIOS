@@ -32,6 +32,7 @@ final class CloudOtaProfileLeaseServiceTest extends TestCase
                         'external_browser_required' => false,
                         'user_browser_closed' => false,
                         'collection_kind' => 'ota_target_date',
+                        'data_period' => 'realtime_snapshot',
                         'access_mode' => 'read_only',
                     ];
                 }
@@ -94,6 +95,7 @@ final class CloudOtaProfileLeaseServiceTest extends TestCase
                         'external_browser_required' => false,
                         'user_browser_closed' => false,
                         'collection_kind' => 'ota_target_date',
+                        'data_period' => 'realtime_snapshot',
                         'access_mode' => 'read_only',
                     ]
                     : [

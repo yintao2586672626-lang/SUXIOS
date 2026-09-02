@@ -64,8 +64,6 @@ test('page exposes one complete card and no longer accepts manual candidate calc
     "'/operating-opportunities/evaluate'", 'buildPayload(featureKey)',
   ]) assert.ok(!componentSource.includes(forbidden), forbidden);
   assert.ok(componentSource.includes("'/operating-opportunities/priority'"));
-  assert.ok(componentSource.includes("today_state !== 'source_unavailable'"));
-  assert.ok(componentSource.includes('不会把系统故障伪装成数据缺口'));
   assert.ok(componentSource.includes("this.$emit('open-operations'"));
   assert.ok(appMainComponents.includes("onOpenOperations: payload => this.$emit('open-operations', payload)"));
 });
@@ -128,6 +126,21 @@ test('save requires run, intent, v2 lifecycle, zero writes and exact refresh rec
   assert.equal(context.error, '');
 });
 
+test('a stale fact preview cannot replace or duplicate an existing original action', () => {
+  const definition = componentDefinition();
+  const canSave = definition.computed.canSave.call({
+    hotelId: '80',
+    selected: { candidate_key: 'gap:ctrip:target_date_source_rows' },
+    saving: false,
+    isSavedCurrent: false,
+    intentId: 106,
+  });
+
+  assert.equal(canSave, false);
+  assert.ok(componentSource.includes("this.intentId ? h('button'"));
+  assert.ok(componentSource.includes('继续原任务'));
+});
+
 test('backend selection, persistence and lifecycle are bound to approved source contracts', () => {
   for (const marker of [
     "Route::get('/overview', 'OperatingOpportunity/overview')",
@@ -145,13 +158,20 @@ test('backend selection, persistence and lifecycle are bound to approved source 
     "'selected_candidate_digest' => (string)$selected['content_digest']",
     'ensureDailyExecutionIntent',
     'assertDailyIntentCurrent',
-    'assertDailySourceReady',
-    "'strict_fact_status' => (string)($sourceInput['strict_fact_status'] ?? 'source_unavailable')",
     'buildDailyStrictFactCountReadback',
     "'external_write_count' => 0",
     "'today_execution_intent' => $dailyIntent",
     "'today_lifecycle_status'",
+    '$savedPriorityIsCurrent = $strictFactReady && $savedPriorityRun !== null',
+    '$dailyIntent = $savedPriorityRun === null',
   ]) assert.ok(labService.includes(marker), marker);
+
+  for (const marker of [
+    "['not_saved', 'saved_without_lifecycle'].includes(String(this.overview?.today_state || ''))",
+    '&& !this.isSavedCurrent',
+    "this.intentId ? h('button'",
+    '旧快照已保留；当前事实身份已变化，不能静默改写原任务。',
+  ]) assert.ok(componentSource.includes(marker), marker);
 
   for (const marker of [
     "private const SOURCE_TYPES = ['strict_fact_signal', 'saved_question', 'explicit_data_gap']",

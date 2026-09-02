@@ -304,6 +304,25 @@ test('session response metadata accepts only known protected JSON endpoints on e
     ...base,
     url: 'https://ebooking.ctrip.com/api/getDayReportRealTimeDate',
   }), true);
+  for (const url of [
+    'https://ebooking.ctrip.com/restapi/soa2/16391/queryOrderList',
+    'https://ebooking.ctrip.com/restapi/soa2/16391/queryOrderList.json',
+    'https://ebooking.ctrip.com/restapi/soa2/16391/QUERYORDERLIST.JSON/?trace=ignored#fragment',
+  ]) {
+    assert.equal(isRecognizedOtaSessionProbeResponse('ctrip', { ...base, url }), true, url);
+  }
+  for (const url of [
+    'http://ebooking.ctrip.com/restapi/soa2/16391/queryOrderList',
+    'https://m.ctrip.com/restapi/soa2/16391/queryOrderList',
+    'https://ebooking.ctrip.com/restapi/soa2/not-numeric/queryOrderList',
+    'https://ebooking.ctrip.com/restapi/soa2/16391x/queryOrderList',
+    'https://ebooking.ctrip.com/public/restapi/soa2/16391/queryOrderList',
+    'https://ebooking.ctrip.com/restapi/soa2/16391/queryOrderList/public',
+    'https://ebooking.ctrip.com/restapi/soa2/16391/queryOrderListExtra',
+    'https://ebooking.ctrip.com/public/config?next=/restapi/soa2/16391/queryOrderList',
+  ]) {
+    assert.equal(isRecognizedOtaSessionProbeResponse('ctrip', { ...base, url }), false, url);
+  }
   assert.equal(isRecognizedOtaSessionProbeResponse('ctrip', {
     ...base,
     url: 'https://ebooking.ctrip.com/telemetry/collect',

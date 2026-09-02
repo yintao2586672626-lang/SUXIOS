@@ -46,21 +46,21 @@
 
                                 <div v-if="!['data-health', 'ctrip-public-profiles', 'ctrip-config'].includes(onlineDataTab)" class="ctrip-workspace-status mb-4 grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-slate-200 bg-slate-200 xl:grid-cols-4">
                                     <div class="bg-gray-50 px-3 py-2">
+                                        <div class="text-xs text-gray-500 mb-1">请求日期</div>
+                                        <div data-testid="ctrip-request-date" class="text-sm font-medium text-gray-800">{{ ctripRequestDateText }}</div>
+                                    </div>
+                                    <div class="bg-gray-50 px-3 py-2">
+                                        <div class="text-xs text-gray-500 mb-1">来源业务日</div>
+                                        <div data-testid="ctrip-source-business-date" :class="['text-sm font-medium', ctripLatestMeta?.response_date_status === 'verified' ? 'text-gray-800' : 'text-amber-700']">{{ ctripSourceBusinessDateText }}</div>
+                                    </div>
+                                    <div class="bg-gray-50 px-3 py-2">
                                         <div class="text-xs text-gray-500 mb-1">采集时间</div>
-                                        <div class="text-sm font-medium text-gray-800">{{ ctripLatestMeta?.fetched_at || '暂无' }}</div>
-                                    </div>
-                                    <div class="bg-gray-50 px-3 py-2">
-                                        <div class="text-xs text-gray-500 mb-1">数据日期</div>
-                                        <div class="text-sm font-medium text-gray-800">{{ ctripLatestMeta?.data_date || '暂无' }}</div>
-                                    </div>
-                                    <div class="bg-gray-50 px-3 py-2">
-                                        <div class="text-xs text-gray-500 mb-1">保存记录数</div>
-                                        <div class="text-sm font-medium text-gray-800">{{ ctripHeaderRecordCount ? ctripHeaderRecordCount + ' 条' : '暂无' }}</div>
+                                        <div data-testid="ctrip-collected-at" class="text-sm font-medium text-gray-800">{{ ctripCollectedAtText }}</div>
                                     </div>
                                     <div class="bg-gray-50 px-3 py-2">
                                         <div class="text-xs text-gray-500 mb-1">入库状态</div>
-                                        <div :class="['text-sm font-medium', ctripLatestSnapshotClass]">
-                                            {{ ctripLatestSnapshotText }}
+                                        <div data-testid="ctrip-persistence-status" :class="['text-sm font-medium', ctripLatestSnapshotClass]">
+                                            {{ ctripLatestSnapshotText }}<span v-if="ctripHeaderRecordCount"> · {{ ctripHeaderRecordCount }} 条</span>
                                         </div>
                                     </div>
                                 </div>
@@ -146,7 +146,7 @@
                                         </div>
                                     </section>
 
-                                    <ctrip-order-analysis-panel :ctx="$root"></ctrip-order-analysis-panel>
+                                    <ctrip-order-analysis-panel :ctx="$root" detail-mode="ctrip"></ctrip-order-analysis-panel>
 
                                     <div v-if="collectionReliabilityRefreshNotice" data-testid="ctrip-health-refresh-state" :class="collectionReliabilityRefreshNotice.className">{{ collectionReliabilityRefreshNotice.text }}</div>
                                     <template v-if="collectionReliabilityHasCurrentSnapshot">
@@ -905,6 +905,8 @@
                                         <div v-else class="mt-3 flex flex-wrap gap-3 text-xs text-gray-600"><span>质量：{{ competitorEventQualityText(competitorEventFeed.quality_status || competitorEventFeed.status) }}</span><span>匹配 / 返回：{{ competitorEventFeed.sample_count }} / {{ competitorEventFeed.returned_event_count }}</span></div>
                                         <div v-if="competitorEventFeed?.truncated" data-testid="ctrip-competitor-event-feed-truncated" class="mt-2 text-xs text-amber-800">仅返回最新事件，当前按部分证据处理。</div>
                                     </section>
+
+                                    <ctrip-competitor-future-window-panel data-testid="ctrip-competitor-future-window" :model="competitorFutureWindowPanelModel"></ctrip-competitor-future-window-panel>
 
                                     <div class="rounded-lg border border-[#e5dcc8] bg-[#fcfaf5] px-3 py-2 text-xs leading-5 text-[#6f572f]">数据边界：仅使用已保存且质量可用的携程 OTA 证据；缺失、未验证、非同口径价格和无回读事件不进入经营判断。</div>
                                     </div>

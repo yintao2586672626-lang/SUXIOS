@@ -4,25 +4,38 @@ import test from 'node:test';
 import { readRouteContractSource } from '../../scripts/lib/route_contract_source.mjs';
 
 const read = (path) => readFileSync(path, 'utf8');
-const routes = readRouteContractSource(process.cwd());
+const routes = readRouteContractSource();
 const controller = read('app/controller/PreciseQuery.php');
 const router = read('app/service/PreciseQueryRouterService.php');
 const lexicon = read('app/service/PreciseQueryLexicon.php');
 const questions = read('app/service/OperatingQuestionService.php');
 const appMain = read('public/app-main.js');
 const component = read('public/components/system/operating-intelligence-components.js');
+const sliceBetween = (source, startMarker, endMarker) => {
+  const start = source.indexOf(startMarker);
+  const end = source.indexOf(endMarker, start + startMarker.length);
+  assert.ok(start >= 0, `missing start marker: ${startMarker}`);
+  assert.ok(end > start, `missing end marker: ${endMarker}`);
+  return source.slice(start, end);
+};
+const preciseMetricSetHelpers = sliceBetween(
+  component,
+  '// PRECISE_METRIC_SET_HELPERS_START',
+  '// PRECISE_METRIC_SET_HELPERS_END',
+);
+const { normalizePreciseMetricSet, preciseMetricUnitLabel } = new Function(
+  `${preciseMetricSetHelpers}\nreturn { normalizePreciseMetricSet, preciseMetricUnitLabel };`,
+)();
 
 test('precise query API has create, exact-id readback and lexicon metadata routes', () => {
   assert.match(routes, /Route::post\('\/precise-queries', 'PreciseQuery\/create'\)/);
   assert.match(routes, /Route::get\('\/precise-queries\/:id', 'PreciseQuery\/read'\)/);
   assert.match(routes, /Route::get\('\/precise-query-lexicon', 'PreciseQuery\/lexicon'\)/);
   assert.match(controller, /PreciseQueryRouterService/);
-  assert.match(controller, /ApiExceptionMapper::response/);
-  assert.doesNotMatch(controller, /safeMessage\(|getMessage\(\)/);
   assert.match(controller, /accessibleHotels\('operation\.view'\)/);
-  assert.match(component, /const askPreciseQuery = async/);
-  assert.match(component, /\/agent\/precise-queries\/\$\{questionId\}/);
-  assert.match(component, /宿析精准查数保存与按编号回读不一致/);
+  assert.match(appMain, /const askPreciseQuery = async/);
+  assert.match(appMain, /\/agent\/precise-queries\/\$\{id\}/);
+  assert.match(appMain, /宿析精准查数保存与按编号回读不一致/);
 });
 
 test('runtime lexicon records the 2990-term source fingerprint and remains reference-only', () => {
@@ -60,7 +73,7 @@ test('floating entry is visibly unified and renders every required evidence fiel
   for (const marker of [
     '宿析精准查数',
     '查经营事实 · 解释缺失 · 找功能 · 查术语',
-    'Hotel 80 8月23日美团曝光多少？',
+    'Hotel 80 8月23日美团曝光人数多少？',
     '可信播报怎么复制？',
     'precise-query-fact-card',
     '酒店',
@@ -76,10 +89,111 @@ test('floating entry is visibly unified and renders every required evidence fiel
   ]) assert.ok(component.includes(marker), `missing precise-query UI marker: ${marker}`);
   assert.match(component, /suxios_precise_query_last_v1/);
   assert.match(component, /restorePreciseQueryReadback/);
-  assert.match(component, /const summary = window\.SUXI_DATA_HEALTH_STATIC \? ctx\.phase1EmployeeClosureSummary : null/);
-  assert.match(component, /items\.unshift\(\{\s*key: 'continue-task'/);
   assert.match(component, /reference_only/);
   assert.match(component, /不进入经营事实/);
+});
+
+test('shared precise metric-set adapter keeps legacy values for audit and requires strict proof for readiness', () => {
+  assert.equal(preciseMetricUnitLabel('people'), '人');
+  assert.equal(preciseMetricUnitLabel('users'), '人');
+  assert.equal(preciseMetricUnitLabel('impressions'), '次');
+  assert.equal(preciseMetricUnitLabel('percent'), '%');
+  assert.equal(preciseMetricUnitLabel('orders'), '单');
+  assert.equal(preciseMetricUnitLabel('room_nights'), '间夜');
+  assert.equal(preciseMetricUnitLabel('CNY'), 'CNY', 'unknown units must remain unchanged');
+  const legacy = normalizePreciseMetricSet({
+    precise_result: {
+      kind: 'operating_metric',
+      status: 'answered_deterministically',
+      metric: { key: 'list_exposure', name: '曝光人数' },
+      value: 0,
+      unit: '人',
+      source_record: 'online_daily_data#1',
+    },
+  });
+  assert.equal(legacy.isMetricSet, false);
+  assert.equal(legacy.totalCount, 1);
+  assert.equal(legacy.readyCount, 0, 'legacy zero remains visible but lacks strict verification metadata');
+  assert.equal(legacy.blockedCount, 1);
+  assert.equal(legacy.items[0].value, 0, 'zero remains available for audit display');
+  assert.equal(legacy.items[0].blocked, true);
+  assert.match(legacy.items[0].blockedReason, /verified\/derived_verified/);
+
+  const mixed = normalizePreciseMetricSet({
+    status: 'answered_by_precise_query_partial',
+    precise_result: {
+      metric_set: {
+        contract_version: 'suxios.precise_metric_set.v1',
+        kind: 'operating_metric_set',
+        items: [
+          {
+            kind: 'operating_metric',
+            status: 'readback_verified',
+            metric: { key: 'list_exposure', name: '曝光人数' },
+            value: 1422,
+            unit: '人',
+            source_record: 'online_daily_data#102476',
+            collected_at: '2026-08-23 23:59:00',
+            verification_status: 'verified',
+            readback_status: 'readback_verified',
+            formula: '来源字段直接回读',
+            calculation_inputs: [{ metric_key: 'list_exposure', value: 1422, unit: '人' }],
+            data_gaps: [],
+          },
+          {
+            kind: 'operating_metric',
+            status: 'blocked_by_missing_metric',
+            metric: { key: 'book_order_num', name: '订单量' },
+            value: null,
+            unit: '单',
+            blocked_reason: '订单字段缺失',
+            data_gaps: [{ code: 'book_order_num_missing', message: '缺少可信订单字段。' }],
+          },
+        ],
+      },
+    },
+  });
+  assert.equal(mixed.contractVersion, 'suxios.precise_metric_set.v1');
+  assert.equal(mixed.kind, 'operating_metric_set');
+  assert.equal(mixed.isMetricSet, true);
+  assert.equal(mixed.totalCount, 2);
+  assert.equal(mixed.readyCount, 1);
+  assert.equal(mixed.blockedCount, 1);
+  assert.equal(mixed.isPartial, true);
+  assert.equal(mixed.allBlocked, false, 'partial must not be rendered as a blanket block');
+  assert.deepEqual(mixed.items[0].sourceRecords, ['online_daily_data#102476']);
+
+  const directSet = normalizePreciseMetricSet({
+    precise_result: {
+      contract_version: 'suxios.precise_metric_set.v1',
+      kind: 'operating_metric_set',
+      items: mixed.items.map((item) => item.raw),
+    },
+  });
+  assert.equal(directSet.totalCount, 2, 'standalone precise_result.items must share the same adapter');
+  assert.equal(directSet.isPartial, true);
+});
+
+test('professional question and global precise entry share the multi-metric evidence renderer', () => {
+  for (const marker of [
+    'renderPreciseMetricEvidence',
+    'operating-question-precise-results',
+    'operating-question-precise-metric-set',
+    'precise-query-metric-set',
+    'precise-query-metric-item',
+    'suxios.precise_metric_set.v1',
+    'operating_metric_set',
+    '可核对多指标结果',
+    '识别 ${normalized.totalCount} 项',
+    '可用 ${normalized.readyCount} 项',
+    '阻塞 ${normalized.blockedCount} 项',
+    '结果状态',
+    '计算输入',
+    '分项缺口',
+    '部分指标可用',
+    '补齐阻塞指标',
+  ]) assert.ok(component.includes(marker), `missing multi-metric UI marker: ${marker}`);
+  assert.doesNotMatch(component, /Hotel 80 8月23日美团曝光多少/);
 });
 
 test('system navigation includes trusted broadcast copy and Typeless maintenance', () => {

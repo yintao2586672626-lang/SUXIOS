@@ -70,6 +70,7 @@ const e2eProcessEnv = selfHosted
       DB_NAME: dedicatedDatabaseName,
       SUXI_E2E_DB_NAME: dedicatedDatabaseName,
       SUXI_E2E_DB_OVERRIDE: '1',
+      SUXI_DISABLE_MODEL_CALLS: '1',
       SUXIOS_CACHE_PATH: isolatedCachePath,
       SUXIOS_LOCAL_LOCK_PATH: isolatedLockPath,
     }
@@ -86,6 +87,8 @@ const uiOnly = process.argv.includes('--ui-only');
 const moduleOnly = process.argv.includes('--module-only');
 const publicPageOnly = process.argv.includes('--public-page-only');
 const operatingQuestionOnly = process.argv.includes('--operating-question-only');
+const operatingFinanceOnly = process.argv.includes('--operating-finance-only');
+const dailyPersonalizationOnly = process.argv.includes('--daily-personalization-only');
 const transitionOnly = process.argv.includes('--transition-only');
 const stabilityOnly = process.argv.includes('--stability-only');
 const fullClick = process.argv.includes('--full-click') || process.argv.includes('--full-click-bounded');
@@ -130,10 +133,15 @@ if (!/^[a-zA-Z0-9._-]+$/.test(performanceLabel)) {
 if (!['0', '1'].includes(performanceEnforceBudget)) {
   throw new Error('--performance-enforce-budget must be 0 or 1');
 }
-const specs = operatingQuestionOnly
+const specs = operatingFinanceOnly
+  ? ['tests/automation/operating_finance_control_center.spec.js']
+  : dailyPersonalizationOnly
+  ? ['tests/automation/daily_one_thing_personalization.spec.js']
+  : operatingQuestionOnly
   ? [
       'tests/automation/operating_question_action_card.spec.js',
       'tests/automation/operating_question_floating.spec.js',
+      'tests/automation/hotel_data_analyst_role.spec.js',
     ]
   : stabilityOnly
   ? [
@@ -157,7 +165,11 @@ const specs = operatingQuestionOnly
           : temporalOnly
   ? ['tests/automation/temporal-axis.spec.js']
   : businessOnly
-  ? ['tests/automation/business-chains.spec.js']
+  ? [
+      'tests/automation/business-chains.spec.js',
+      'tests/automation/daily_one_thing_personalization.spec.js',
+      'tests/automation/hotel_data_analyst_role.spec.js',
+    ]
   : dailyOnly
     ? ['tests/automation/daily-regression.spec.js']
     : [

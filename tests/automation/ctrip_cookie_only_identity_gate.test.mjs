@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
+import { readSourceAggregate } from '../../scripts/lib/source_aggregate.mjs';
 
-const backend = readFileSync(new URL('../../app/controller/concern/OnlineDataManualFetchConcern.php', import.meta.url), 'utf8');
+const backend = readSourceAggregate('app/controller/concern/OnlineDataManualFetchConcern.php');
 const otaConfig = readFileSync(new URL('../../app/controller/concern/OtaConfigConcern.php', import.meta.url), 'utf8');
 const requestSanitizer = backend.match(/private function sanitizeCtripManualFetchRequestData[\s\S]*?(?=\n    private function sanitizeCtripTemporaryCookieRequestData)/);
 const executionBoundary = backend.match(/public function fetchCtrip\(\): Response[\s\S]*?\n    private function executeCtripManualFetch/);

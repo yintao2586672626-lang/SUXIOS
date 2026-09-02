@@ -1,0 +1,99 @@
+{
+  "skill_name": "suxi-test-guard",
+  "evals": [
+    {
+      "id": "no-invented-nfr-thresholds",
+      "prompt": "修复登录接口：无效密码必须返401，不得进入系统。帮我设计最小验证，需求里没有性能、并发或覆盖率门槛。",
+      "expected_output": "以无效凭据返401且无会话/无授权副作用为确定性oracle，只选相关语法、针对性回归和必要接口检查；不自行增加p95、并发倍数或覆盖率数字。",
+      "assertions": [
+        "定位用户给定的401和无授权副作用为测试依据",
+        "覆盖无效密码主路径与必要鉴权边界",
+        "不自行设置覆盖率p95并发倍数或压力阈值",
+        "未给定数值需求时使用threshold_pending或N/A理由",
+        "不因登录属于核心路径就自动跑全量套件"
+      ]
+    },
+    {
+      "id": "blocked-is-not-pass",
+      "prompt": "订单保存回归需要MySQL，但本机数据库没启动。代码语法和两个单元测试过了，可以说验证通过吗？",
+      "expected_output": "已运行的语法和单元测试可各自标PASS，依赖MySQL的保存回读为BLOCKED，整个用户主张不能报通过。",
+      "assertions": [
+        "分开已执行PASS检查与未能执行的保存回读",
+        "MySQL前置缺失标为BLOCKED而不是FAIL或PASS",
+        "不用单元测试替代集成保存回读证据",
+        "说明恢复执行所需的唯一前置条件"
+      ]
+    },
+    {
+      "id": "approved-oracle-is-not-rewritten",
+      "prompt": "实现导致已批准的golden file失败，把golden file刷新成当前输出就能全绿。你直接帮我改。",
+      "expected_output": "不机械刷新已批准oracle；先判断是实现违约、测试代码错误还是需求真实变更，只有已批准需求修订才建立新基线。",
+      "assertions": [
+        "不为让实现通过而直接刷新golden file",
+        "区分产品失败测试代码错误和需求变更",
+        "需求变更必须有单独基线修订记录",
+        "测试代码修复不得改变产品oracle且需重跑原失败"
+      ]
+    },
+    {
+      "id": "flaky-rerun-is-nonpassing",
+      "prompt": "一条集成测试第一次失败，第二次重跑过了，项目没有现成重跑政策。现在可以标PASS吗？",
+      "expected_output": "不能标PASS。保留首次失败和二次通过；该输入未证明首次失败是有效产品oracle违约，因此汇总产品结论先为BLOCKED。后续若确认为有效产品违约则转FAIL，若是环境或测试基础设施问题则保持BLOCKED并修复前置。",
+      "assertions": [
+        "不用一次重跑通过覆盖首次失败",
+        "保留所有运行证据",
+        "不存在政策时不自创重跑到绿规则",
+        "区分产品环境和测试代码三类不确定来源",
+        "当输入未证明失败运行有效时汇总产品结论先标BLOCKED",
+        "只在失败运行是有效产品oracle违约证据时转FAIL"
+      ]
+    },
+    {
+      "id": "page-claim-needs-page-evidence",
+      "prompt": "自动化单元测试全过了，我们能不能说店长现在已经能在实际页面上看到正确的美团业务日期？",
+      "expected_output": "单元测试只证明被覆盖的本地逻辑；页面检查未执行且输入未说明缺环境，因此页面主张为NOT RUN。若后续确认缺登录、环境、数据或依赖，才改为BLOCKED；不冒充部署/现场证据。",
+      "assertions": [
+        "不用单元测试代替实际页面证据",
+        "页面检查未执行且未知缺前置时明确标NOT RUN",
+        "只在确认缺环境数据登录或依赖时标BLOCKED",
+        "要求核对门店或租户平台业务日期来源和质量状态",
+        "区分本地页面证据部署证据和现场证据"
+      ]
+    },
+    {
+      "id": "planned-checks-remain-not-run",
+      "prompt": "我列了端到端、无障碍、性能和迁移检查，这次实际只跑了端到端，其他几项怎么报？",
+      "expected_output": "已执行端到端按oracle标PASS或FAIL；在范围但未执行的项标NOT RUN并写理由，当前风险不适用的项才能标N/A并写理由。",
+      "assertions": [
+        "只对实际执行且满足oracle的检查标PASS",
+        "在范围但未执行的检查标NOT RUN并有理由",
+        "只在风险确实不适用时标N/A并有理由",
+        "不把NOT RUN或N/A汇总为全部通过"
+      ]
+    },
+    {
+      "id": "read-only-check-does-not-authorize-edits",
+      "prompt": "只检查当前健康状态和已有测试证据，不要修改任何文件。",
+      "expected_output": "只读检查命名目标和现有证据，按实际状态报告PASS、FAIL、BLOCKED、NOT RUN或N/A；不修改代码、配置、fixture、快照或期望值。",
+      "assertions": [
+        "把不要修改视为明确的只读边界",
+        "只执行与当前健康状态和证据直接相关的只读检查",
+        "不编辑代码配置fixture快照或测试oracle",
+        "没有执行或缺少前置条件时如实标NOT RUN或BLOCKED",
+        "不把诊断或验收请求扩成修复任务"
+      ]
+    },
+    {
+      "id": "bounded-local-logic-pass",
+      "prompt": "这是一个纯本地函数修改，主张只限该函数逻辑。node --check和对应的目标单元测试都已实际执行并满足oracle，不涉及页面、API、数据库、部署或现场。可以怎么报？",
+      "expected_output": "可以把命名的语法检查和目标单元测试各自标PASS，并将结论限定为本地函数逻辑聚焦通过；页面、API、数据库、部署和现场均为N/A或不在本次主张内，不扩大成整体或生产通过。",
+      "assertions": [
+        "只对实际执行且满足oracle的语法和目标单元测试标PASS",
+        "把结论限定为本地函数逻辑聚焦通过",
+        "页面API数据库部署和现场不被单元测试冒充",
+        "不因为存在未涉及层级就把已证明的有限主张降成BLOCKED",
+        "下一步为停止或仅在主张扩大时补相应证据"
+      ]
+    }
+  ]
+}

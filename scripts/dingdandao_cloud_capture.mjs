@@ -221,13 +221,19 @@ export function classifyDingdandaoResponseRequest({ path, requestBody, targetDat
     DINGDANDAO_API_PATHS.revenueOverview,
     DINGDANDAO_API_PATHS.countyTotal,
   ].includes(path)) {
+    const allowedFestivalTypes = [
+      DINGDANDAO_API_PATHS.total,
+      DINGDANDAO_API_PATHS.revenueOverview,
+    ].includes(path)
+      ? new Set([-1200, -999999])
+      : new Set([-1200]);
     if (!exactBodyKeys(requestBody, [
       'TIMEZONEOFFSET',
       'endDate',
       'festivalType',
       'ntwNum',
       'startDate',
-    ]) || requestBody.festivalType !== -1200) return blocked;
+    ]) || !allowedFestivalTypes.has(requestBody.festivalType)) return blocked;
     return {
       allowed: true,
       fact_kind: {
@@ -1301,7 +1307,7 @@ function revenueOverviewFromResponse(records, targetDate) {
       || !subjectName
       || subjectName.length > 160
       || singleDayTotal === null
-      || periodTotal === null
+      || (periodTotal === null && providerSubjectType !== -1)
     ) {
       return partialRevenueOverview(
         targetDate,
@@ -2045,16 +2051,33 @@ export function buildCaptureFromDingdandaoResponses(
     regionName = null,
     collectionMode = DINGDANDAO_COLLECTION_MODES.operatingIndicators,
     sourceScope = DINGDANDAO_SOURCE_SCOPES.todayOnly,
+    captureSource = 'existing_session_direct_post',
   },
 ) {
   const normalizedCollectionMode = normalizeDingdandaoCollectionMode(collectionMode);
   const normalizedSourceScope = String(sourceScope || '').trim().toLowerCase();
+  const normalizedCaptureSource = String(captureSource || '').trim().toLowerCase();
   if (!Object.values(DINGDANDAO_SOURCE_SCOPES).includes(normalizedSourceScope)
     || (
       normalizedSourceScope === DINGDANDAO_SOURCE_SCOPES.historicalSingleDate
       && normalizedCollectionMode !== DINGDANDAO_COLLECTION_MODES.operatingIndicators
     )
   ) throw new Error('capture_source_scope_invalid');
+  if (![
+    'existing_session_direct_post',
+    'authenticated_browser_network_response',
+    'operator_supplied_browser_response',
+  ].includes(normalizedCaptureSource)) {
+    throw new Error('capture_source_invalid');
+  }
+  const captureStrategy = normalizedCaptureSource === 'authenticated_browser_network_response'
+    ? 'browser_response'
+    : normalizedCaptureSource === 'operator_supplied_browser_response'
+      ? 'browser_response_supplement'
+      : 'verified_endpoint_recipe';
+  const sourceMethod = normalizedCaptureSource === 'operator_supplied_browser_response'
+    ? 'manual_browser_import'
+    : 'authorized_browser_endpoint';
   const identity = successfulResponseData(
     records,
     DINGDANDAO_API_PATHS.identity,
@@ -2180,14 +2203,14 @@ export function buildCaptureFromDingdandaoResponses(
       ? 'pms_full_diagnostic'
       : 'pms_operating',
     sourcePath: `${DINGDANDAO_API_PATHS.total}#data`,
-    captureSource: 'existing_session_direct_post',
+    captureSource: normalizedCaptureSource,
     sourceKind: 'pms',
     businessModule: 'accommodation_operating',
-    sourceMethod: 'authorized_browser_endpoint',
+    sourceMethod,
     collectionMode: normalizedCollectionMode,
     dataDate: businessDate || '',
     providerHotelId: providerHotelId || '',
-    captureStrategy: 'verified_endpoint_recipe',
+    captureStrategy,
     fallbackFrom: null,
     fallbackReason: null,
     responseEvidenceType: 'structured_json',

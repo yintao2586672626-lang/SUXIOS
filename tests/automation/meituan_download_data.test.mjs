@@ -50,17 +50,19 @@ test('Meituan stored-data download keeps each data type in its own tab', () => {
     { id: 5, source: 'meituan', data_type: 'traffic_analysis', list_exposure: 100, detail_exposure: 20 },
     { id: 6, source: 'meituan', data_type: 'order', book_order_num: 0, quantity: 0, amount: 0 },
     { id: 7, source: 'meituan', data_type: 'advertising', exposure_count: 10, click_count: 0 },
-    { id: 8, source: 'ctrip', data_type: 'traffic', list_exposure: 5000, detail_exposure: 1000 },
+    { id: 8, source: 'meituan', data_type: 'search_keyword', dimension: '机场酒店', data_value: null, list_exposure: 0, detail_exposure: 0 },
+    { id: 9, source: 'ctrip', data_type: 'traffic', list_exposure: 5000, detail_exposure: 1000 },
   ];
 
   const result = api.buildMeituanDownloadData(rows);
 
-  assert.deepEqual(Array.from(result.allRows, row => row.id), [1, 2, 3, 4, 5, 6, 7]);
-  assert.equal(result.allRowsCount, 7);
+  assert.deepEqual(Array.from(result.allRows, row => row.id), [1, 2, 3, 4, 5, 6, 7, 8]);
+  assert.equal(result.allRowsCount, 8);
   assert.deepEqual(Array.from(result.overviewRows, row => row.id), [1]);
   assert.deepEqual(Array.from(result.trafficRows, row => row.id), [4, 5]);
   assert.deepEqual(Array.from(result.orderRows, row => row.id), [6]);
   assert.deepEqual(Array.from(result.adsRows, row => row.id), [7]);
+  assert.deepEqual(Array.from(result.keywordRows, row => row.id), [8]);
   assert.equal(result.trafficExposure, 100);
   assert.equal(result.trafficClick, 20);
   assert.equal(result.trafficAvgFlowRate, 10);
@@ -70,6 +72,86 @@ test('Meituan stored-data download keeps each data type in its own tab', () => {
   assert.equal(result.adsExposure, 10);
   assert.equal(result.adsClick, 0);
   assert.equal(result.adsClickRate, 0);
+  assert.equal(result.keywordRowsCount, 1);
+  assert.equal(result.keywordRows[0].keyword_value, null);
+  assert.equal(result.keywordRows[0].keyword_impressions, 0);
+});
+
+test('Meituan keyword dedup keeps distinct keywords with identical metrics', () => {
+  const result = api.buildMeituanDownloadData([
+    { id: 10, source: 'meituan', data_type: 'search_keyword', system_hotel_id: 80, data_date: '2026-07-11', dimension: '机场酒店', data_value: 5, list_exposure: 20, detail_exposure: 2 },
+    { id: 11, source: 'meituan', data_type: 'search_keyword', system_hotel_id: 80, data_date: '2026-07-11', dimension: '敦煌酒店', data_value: 5, list_exposure: 20, detail_exposure: 2 },
+    { id: 12, source: 'meituan', data_type: 'search_keyword', system_hotel_id: 80, data_date: '2026-07-11', dimension: '机场酒店', data_value: 5, list_exposure: 20, detail_exposure: 2 },
+  ]);
+  assert.deepEqual(Array.from(result.keywordRows, row => row.keyword_label), ['机场酒店', '敦煌酒店']);
+});
+
+test('Meituan current-page CSV separates ads and keywords while preserving null versus zero', () => {
+  const result = api.buildMeituanDownloadData([
+    {
+      id: 1,
+      source: 'meituan',
+      data_type: 'advertising',
+      hotel_name: '敦煌漠蓝新',
+      data_date: '2026-07-11',
+      dimension: 'campaign-a',
+      list_exposure: 100,
+      detail_exposure: 0,
+      amount: 20,
+      data_value: 5,
+      readback_verified: 1,
+    },
+    {
+      id: 2,
+      source: 'meituan',
+      data_type: 'search_keyword',
+      hotel_name: '敦煌漠蓝新',
+      data_date: '2026-07-11',
+      dimension: '机场酒店',
+      data_value: null,
+      list_exposure: 0,
+      detail_exposure: null,
+      readback_verified: 1,
+    },
+  ]);
+
+  const ads = api.buildMeituanStoredPageCsvPayload('ads', result, { hotelId: 80, startDate: '2026-07-11', page: 2 });
+  const keywords = api.buildMeituanStoredPageCsvPayload('keywords', result, { hotelId: 80, startDate: '2026-07-11', page: 2 });
+
+  assert.equal(ads.ok, true);
+  assert.equal(keywords.ok, true);
+  assert.equal(ads.rows.length, 1);
+  assert.equal(keywords.rows.length, 1);
+  assert.ok(ads.csv.startsWith('\uFEFF'));
+  assert.match(ads.csv, /campaign-a/);
+  assert.doesNotMatch(ads.csv, /机场酒店/);
+  assert.match(keywords.csv, /机场酒店,,0,,/);
+  assert.doesNotMatch(keywords.csv, /campaign-a/);
+  assert.equal(keywords.fileName, 'meituan-search-keywords-80-2026-07-11-page-2.csv');
+});
+
+test('Meituan CSV neutralizes spreadsheet formula prefixes from OTA text', () => {
+  const data = api.buildMeituanDownloadData([
+    { id: 20, source: 'meituan', data_type: 'search_keyword', system_hotel_id: 80, hotel_name: '+恶意酒店', data_date: '2026-07-11', dimension: '=HYPERLINK("https://example.invalid")', data_value: 1 },
+    { id: 21, source: 'meituan', data_type: 'advertising', system_hotel_id: 80, hotel_name: '@酒店', data_date: '2026-07-11', dimension: ' -2+3', list_exposure: 1 },
+  ]);
+  const keywords = api.buildMeituanStoredPageCsvPayload('keywords', data, { hotelId: 80, startDate: '2026-07-11', page: 1 });
+  const ads = api.buildMeituanStoredPageCsvPayload('ads', data, { hotelId: 80, startDate: '2026-07-11', page: 1 });
+  assert.match(keywords.csv, /'\+恶意酒店/);
+  assert.match(keywords.csv, /'=HYPERLINK/);
+  assert.match(ads.csv, /'@酒店/);
+  assert.match(ads.csv, /' -2\+3/);
+  assert.doesNotMatch(keywords.csv, /(?:^|,)\s*[=+\-@]/m);
+  assert.doesNotMatch(ads.csv, /(?:^|,)\s*[=+\-@]/m);
+});
+
+test('Meituan owner page exposes search-keyword view and current-page CSV action', () => {
+  assert.match(appMain, /keywords: \['search_keyword'\]/);
+  assert.match(appMain, /downloadMeituanCurrentPageCsv/);
+  assert.match(meituanTemplate, /data-testid="meituan-search-keyword-tab"/);
+  assert.match(meituanTemplate, /data-testid="meituan-search-keyword-workbench"/);
+  assert.match(meituanTemplate, /data-testid="meituan-download-current-page-csv"/);
+  assert.match(appMain, /\['all', 'overview', 'traffic', 'orders', 'reviews', 'ads', 'keywords'\]/);
 });
 
 test('generic data_value never becomes Meituan traffic and missing metrics stay missing', () => {

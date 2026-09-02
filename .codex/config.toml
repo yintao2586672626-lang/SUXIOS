@@ -1,0 +1,30 @@
+# SUXIOS context-lean defaults for future tasks.
+# Keep the workspace-root and HOTEL copies synchronized.
+project_doc_max_bytes = 12000
+model_auto_compact_token_limit = 320000
+model_auto_compact_token_limit_scope = "total"
+model_reasoning_effort = "high"
+plan_mode_reasoning_effort = "medium"
+model_verbosity = "medium"
+model_reasoning_summary = "concise"
+tool_output_token_limit = 6000
+max_threads = 2
+max_depth = 1
+job_max_runtime_seconds = 1800
+
+[features]
+skill_mcp_dependency_install = false
+
+# Broad MCP servers remain installed globally but are off for routine SUXIOS work.
+# Enable one explicitly only when a concrete task requires it.
+[mcp_servers.playwright]
+enabled = false
+
+[mcp_servers.node_repl]
+enabled = false
+
+[mcp_servers."cloudflare-api"]
+enabled = false
+
+[mcp_servers.openaiDeveloperDocs]
+enabled = false

@@ -14,6 +14,7 @@ final class CollectionResultContractService
     private const STRATEGIES = [
         'verified_endpoint_recipe',
         'browser_response',
+        'browser_response_supplement',
         'dom_fallback',
         'not_recorded',
     ];
@@ -468,6 +469,21 @@ final class CollectionResultContractService
                 ?? $evidence['collection_mode']
                 ?? ''
         )));
+        $declaredCaptureStrategy = strtolower(trim((string)(
+            $capture['capture_strategy'] ?? ''
+        )));
+        $evidenceCaptureStrategy = strtolower(trim((string)(
+            $evidence['capture_strategy'] ?? ''
+        )));
+        $captureStrategy = $declaredCaptureStrategy !== ''
+            ? $declaredCaptureStrategy
+            : $evidenceCaptureStrategy;
+        $captureStrategyMatches = in_array(
+            $captureStrategy,
+            ['verified_endpoint_recipe', 'browser_response'],
+            true
+        ) && $evidenceCaptureStrategy !== ''
+            && hash_equals($captureStrategy, $evidenceCaptureStrategy);
         $sourceScope = strtolower(trim((string)($capture['source_scope'] ?? '')));
         $capturedAt = $this->dateTimeOrNull($capture['captured_at'] ?? null);
         $capturedDate = $capturedAt === null ? null : substr($capturedAt, 0, 10);
@@ -502,7 +518,8 @@ final class CollectionResultContractService
                 $sourceApiPath,
                 $businessDate,
                 $providerHotelId,
-                $collectionMode
+                $collectionMode,
+                $captureStrategy
             );
         if ((string)($capture['provider'] ?? '')
                 !== DingdandaoOperatingTargetCaptureService::PROVIDER
@@ -519,6 +536,7 @@ final class CollectionResultContractService
                 ['operating_indicators', 'full_diagnostic'],
                 true
             )
+            || !$captureStrategyMatches
             || $expectedEvidence === null
         ) {
             return false;
@@ -854,18 +872,27 @@ final class CollectionResultContractService
     /** @param array<string,mixed> $capture @param array<string,mixed> $evidence */
     private function strategyFromCapture(array $capture, array $evidence): array
     {
-        $selected = strtolower(trim((string)(
-            $capture['capture_strategy']
-            ?? $evidence['capture_strategy']
-            ?? ''
+        $declared = strtolower(trim((string)(
+            $capture['capture_strategy'] ?? ''
         )));
-        if (!in_array($selected, self::STRATEGIES, true) || $selected === 'not_recorded') {
+        $evidenceSelected = strtolower(trim((string)(
+            $evidence['capture_strategy'] ?? ''
+        )));
+        $strategyMismatch = $declared !== ''
+            && $evidenceSelected !== ''
+            && !hash_equals($declared, $evidenceSelected);
+        $selected = $declared !== '' ? $declared : $evidenceSelected;
+        if ($strategyMismatch) {
+            $selected = 'not_recorded';
+        } elseif ($selected === '') {
             $selected = ($evidence['source_method'] ?? '') === 'authorized_browser_endpoint'
                 && ($evidence['capture_source'] ?? '') === 'existing_session_direct_post'
                 ? 'verified_endpoint_recipe'
                 : ((string)($capture['capture_method'] ?? '') === 'browser_assist_dom'
                     ? 'dom_fallback'
                     : 'not_recorded');
+        } elseif (!in_array($selected, self::STRATEGIES, true)) {
+            $selected = 'not_recorded';
         }
         $fallbackFrom = $this->strategyOrNull($evidence['fallback_from'] ?? null);
         $fallbackReason = $this->reasonCodeOrNull($evidence['fallback_reason'] ?? null);

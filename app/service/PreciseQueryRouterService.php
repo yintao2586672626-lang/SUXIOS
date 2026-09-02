@@ -22,9 +22,11 @@ final class PreciseQueryRouterService
 
     /** @var array<string,array<string,string>> */
     private const METRIC_META = [
-        'list_exposure' => ['name' => '曝光量', 'unit' => '次'],
-        'detail_exposure' => ['name' => '详情访客', 'unit' => '人'],
+        'list_exposure' => ['name' => '曝光人数', 'unit' => '人'],
+        'detail_exposure' => ['name' => '详情访客人数', 'unit' => '人'],
+        'ota_exposure_volume' => ['name' => '曝光量', 'unit' => '次'],
         'exposure_to_visit_rate' => ['name' => '曝光到访率', 'unit' => '%'],
+        'intent_payment_conversion_rate' => ['name' => '意向支付转化率', 'unit' => '%'],
         'room_revenue' => ['name' => '房费收入', 'unit' => '来源金额单位'],
         'amount' => ['name' => 'OTA成交金额', 'unit' => '来源金额单位'],
         'book_order_num' => ['name' => '订单量', 'unit' => '单'],
@@ -164,7 +166,14 @@ final class PreciseQueryRouterService
             throw new RuntimeException('精准查数保存内容摘要与回读不一致');
         }
 
-        return $this->unifiedReadback($row, $answer, $factRefs, $knowledgeRefs);
+        return $this->unifiedReadback(
+            $row,
+            $answer,
+            $factRefs,
+            $memoryRefs,
+            $knowledgeRefs,
+            $executionRefs
+        );
     }
 
     /** @return array<string,mixed> */
@@ -187,7 +196,7 @@ final class PreciseQueryRouterService
         if (PreciseQueryLexicon::isTermQuestion($query)) {
             return 'term_definition';
         }
-        if (PreciseQueryLexicon::metric($query) !== ''
+        if (PreciseQueryLexicon::metrics($query) !== []
             || PreciseQueryLexicon::platform($query) !== ''
             || $this->isComparisonQuestion($query)
         ) {
@@ -216,8 +225,16 @@ final class PreciseQueryRouterService
         $guidePayload['requested_mode'] = 'guide';
         $guidePayload['user_id'] = $userId;
         $guidePayload['deterministic_only'] = true;
+        $visibleTopicKeys = array_values(array_filter(array_map(
+            static fn(mixed $key): string => trim((string)$key),
+            is_array($payload['visible_topic_keys'] ?? null) ? $payload['visible_topic_keys'] : []
+        ), static fn(string $key): bool => $key !== ''));
         if ($topicKey !== '') {
-            $guidePayload['visible_topic_keys'] = [$topicKey];
+            if ($visibleTopicKeys === []) {
+                $guidePayload['visible_topic_keys'] = [$topicKey];
+            } elseif (in_array($topicKey, $visibleTopicKeys, true)) {
+                $guidePayload['visible_topic_keys'] = array_values(array_unique([$topicKey, ...$visibleTopicKeys]));
+            }
         }
         $guide = $this->systemGuideResolver !== null
             ? ($this->systemGuideResolver)($guidePayload)
@@ -387,11 +404,14 @@ final class PreciseQueryRouterService
         if (($hotel['error'] ?? '') !== '') {
             throw new RuntimeException((string)$hotel['error']);
         }
-        $platform = PreciseQueryLexicon::platform($query);
-        if ($platform === '') {
-            $platform = PreciseQueryLexicon::platform((string)($currentScope['platform'] ?? ''));
-        }
-        $metricKey = PreciseQueryLexicon::metric($query);
+        $queryPlatform = PreciseQueryLexicon::platform($query);
+        $scopePlatform = PreciseQueryLexicon::platform((string)($currentScope['platform'] ?? ''));
+        $platformConflict = $queryPlatform !== ''
+            && $scopePlatform !== ''
+            && $queryPlatform !== $scopePlatform;
+        $platform = $queryPlatform !== '' ? $queryPlatform : $scopePlatform;
+        $metricKeys = PreciseQueryLexicon::metrics($query, $platform);
+        $metricKey = $metricKeys[0] ?? '';
         $comparison = $this->isComparisonQuestion($query);
         if ($comparison) {
             $platform = 'all_ota';
@@ -403,8 +423,25 @@ final class PreciseQueryRouterService
             'hotel_source' => (string)($hotel['source'] ?? '') ?: null,
             'platform' => $platform !== '' ? $platform : null,
             'metric_key' => $metricKey !== '' ? $metricKey : null,
+            'metric_keys' => $metricKeys,
             'source_scope' => 'ota_channel',
         ];
+        if ($platformConflict) {
+            return $this->persistClarification(
+                $tenantId,
+                $accessibleHotelIds,
+                $userId,
+                $query,
+                $currentScope,
+                sprintf(
+                    '问题写的是%s，但当前范围选择的是%s；请确认本次要查哪个平台。',
+                    $this->platformLabel($queryPlatform),
+                    $this->platformLabel($scopePlatform)
+                ),
+                'platform_scope_conflict',
+                $knownScope
+            );
+        }
         if ((int)($hotel['id'] ?? 0) <= 0) {
             return $this->persistClarification(
                 $tenantId,
@@ -455,7 +492,7 @@ final class PreciseQueryRouterService
             );
         }
         $businessDate = (string)($date['business_date'] ?? '');
-        if ($metricKey === '' && !$comparison) {
+        if ($metricKeys === [] && !$comparison) {
             return $this->persistClarification(
                 $tenantId,
                 $accessibleHotelIds,
@@ -480,6 +517,7 @@ final class PreciseQueryRouterService
             $parsedScope,
             array_values(array_filter([
                 'metric:' . ($metricKey !== '' ? $metricKey : 'unspecified'),
+                ...array_map(static fn(string $key): string => 'metric_item:' . $key, $metricKeys),
                 'platform:' . $platform,
                 'date:' . (string)($date['source'] ?? 'explicit'),
             ]))
@@ -494,7 +532,7 @@ final class PreciseQueryRouterService
                 (int)$hotel['id'],
                 $platform,
                 $businessDate,
-                $metricKey
+                $metricKeys
             )
             : null;
         if ($comparison && is_array($canonicalEvidence)) {
@@ -511,7 +549,7 @@ final class PreciseQueryRouterService
                 $query,
                 $router,
                 $parsedScope,
-                $metricKey,
+                $metricKeys,
                 $comparison,
                 $canonicalClosure
             ): array {
@@ -520,7 +558,7 @@ final class PreciseQueryRouterService
                     $payload,
                     $router,
                     $parsedScope,
-                    $metricKey,
+                    $metricKeys,
                     $comparison,
                     $canonicalClosure
                 );
@@ -565,7 +603,7 @@ final class PreciseQueryRouterService
         int $hotelId,
         string $platform,
         string $businessDate,
-        string $queryMetricKey
+        array $queryMetricKeys
     ): array {
         if ((string)($closure['contract_version'] ?? '') !== 'dual_ota_field_closure.v1'
             || (string)($closure['consumer_contract']['contract_version'] ?? '')
@@ -577,7 +615,10 @@ final class PreciseQueryRouterService
             throw new RuntimeException('精准查数可信事实底座范围不一致', 422);
         }
         $selectedPlatforms = $platform === 'all_ota' ? ['ctrip', 'meituan'] : [$platform];
-        $targetCanonicalKey = $this->canonicalFieldKeyForMetric($queryMetricKey);
+        $targetCanonicalKeys = array_values(array_unique(array_filter(array_map(
+            fn(string $metricKey): string => $this->canonicalFieldKeyForMetric($metricKey),
+            array_map('strval', $queryMetricKeys)
+        ))));
         $factsByRef = [];
         foreach ($selectedPlatforms as $selectedPlatform) {
             $platformRow = is_array($closure['platforms'][$selectedPlatform] ?? null)
@@ -588,7 +629,7 @@ final class PreciseQueryRouterService
                     continue;
                 }
                 $fieldKey = trim((string)($field['metric_key'] ?? $field['key'] ?? ''));
-                if ($targetCanonicalKey === '' || $fieldKey !== $targetCanonicalKey) {
+                if ($targetCanonicalKeys === [] || !in_array($fieldKey, $targetCanonicalKeys, true)) {
                     continue;
                 }
                 $refs = $this->stringList($field['source_record_refs'] ?? []);
@@ -614,7 +655,12 @@ final class PreciseQueryRouterService
                     $fact['field_contracts'][$canonicalKey] = [
                         'status' => (string)$field['status'],
                         'unit' => (string)($field['unit'] ?? ''),
+                        'semantic_metric_key' => (string)($field['semantic_metric_key'] ?? ''),
+                        'semantic_label' => (string)($field['semantic_label'] ?? $field['label'] ?? ''),
+                        'semantic_unit' => (string)($field['semantic_unit'] ?? $field['unit'] ?? ''),
+                        'semantic_contract_version' => (string)($field['semantic_contract_version'] ?? ''),
                         'source_paths' => (array)($field['source_paths'] ?? []),
+                        'field_fact_identities' => (array)($field['field_fact_identities'] ?? []),
                         'capture_ref' => $field['capture_ref'] ?? null,
                         'revenue_analysis_consumable' =>
                             ($field['revenue_analysis_consumable'] ?? false) === true,
@@ -653,26 +699,48 @@ final class PreciseQueryRouterService
         array $payload,
         array $router,
         array $parsedScope,
-        string $metricKey,
+        array $metricKeys,
         bool $comparison,
         ?array $canonicalClosure = null
     ): array {
+        $metricKeys = array_values(array_unique(array_filter(array_map('strval', $metricKeys))));
+        $metricKey = $metricKeys[0] ?? '';
         $facts = array_values(array_filter(
             is_array($payload['facts'] ?? null) ? $payload['facts'] : [],
             'is_array'
         ));
         if (is_array($canonicalClosure)) {
-            return $comparison
-                ? $this->blockedCanonicalComparison($query, $router, $parsedScope, $metricKey)
-                : $this->singleCanonicalMetricResult(
-                    $canonicalClosure,
-                    $parsedScope,
-                    $metricKey,
-                    $router
+            if ($comparison) {
+                return $this->blockedCanonicalComparison($query, $router, $parsedScope, $metricKey);
+            }
+            if (count($metricKeys) > 1) {
+                $answers = array_map(
+                    fn(string $key): array => $this->singleCanonicalMetricResult(
+                        $canonicalClosure,
+                        $parsedScope,
+                        $key,
+                        $router
+                    ),
+                    $metricKeys
                 );
+                return $this->combineMetricAnswers($answers, $parsedScope, $router);
+            }
+            return $this->singleCanonicalMetricResult(
+                $canonicalClosure,
+                $parsedScope,
+                $metricKey,
+                $router
+            );
         }
         if ($comparison) {
             return $this->comparisonAnswer($query, $facts, $router, $parsedScope, $metricKey);
+        }
+        if (count($metricKeys) > 1) {
+            $answers = array_map(
+                fn(string $key): array => $this->singleMetricResult($facts, $parsedScope, $key),
+                $metricKeys
+            );
+            return $this->combineMetricAnswers($answers, $parsedScope, $router);
         }
         $resolved = $this->singleMetricResult($facts, $parsedScope, $metricKey);
         return [
@@ -682,6 +750,102 @@ final class PreciseQueryRouterService
             'query_router' => $router,
             'used_evidence_refs' => (array)$resolved['used_refs'],
             'data_gaps' => (array)$resolved['data_gaps'],
+        ];
+    }
+
+    /**
+     * @param list<array<string,mixed>> $answers
+     * @param array<string,mixed> $scope
+     * @param array<string,mixed> $router
+     * @return array<string,mixed>
+     */
+    private function combineMetricAnswers(array $answers, array $scope, array $router): array
+    {
+        $items = [];
+        $summaries = [];
+        $refs = [];
+        $gaps = [];
+        $readyCount = 0;
+        foreach ($answers as $answer) {
+            $result = is_array($answer['precise_result'] ?? null)
+                ? $answer['precise_result']
+                : (is_array($answer['result'] ?? null) ? $answer['result'] : []);
+            if ($result === []) {
+                continue;
+            }
+            $metricKey = (string)($result['metric']['key'] ?? '');
+            $metricName = (string)($result['metric']['name'] ?? $metricKey);
+            $itemStatus = (string)($answer['status'] ?? 'blocked_by_missing_metric');
+            $itemGaps = array_values(array_filter(
+                is_array($answer['data_gaps'] ?? null) ? $answer['data_gaps'] : [],
+                'is_array'
+            ));
+            $result['status'] = $itemStatus;
+            $result['data_gaps'] = $itemGaps;
+            $items[] = $result;
+            if (($result['value'] ?? null) !== null && !str_starts_with($itemStatus, 'blocked')) {
+                $readyCount++;
+                $summaries[] = sprintf(
+                    '%s %s%s',
+                    $metricName,
+                    (string)$result['value'],
+                    trim((string)($result['unit'] ?? '')) !== '' ? '（' . (string)$result['unit'] . '）' : ''
+                );
+            } else {
+                $summaries[] = $metricName . '未返回（'
+                    . (string)($result['blocked_reason'] ?? $itemGaps[0]['message'] ?? $itemGaps[0]['code'] ?? '缺少可信事实')
+                    . '）';
+            }
+            $refs = array_merge($refs, array_map('strval', (array)($answer['used_evidence_refs'] ?? [])));
+            foreach ($itemGaps as $gap) {
+                $gaps[] = $gap + ['metric_key' => $metricKey, 'metric_name' => $metricName];
+            }
+        }
+        $status = $readyCount === count($items)
+            ? 'answered_deterministically_multi'
+            : ($readyCount > 0 ? 'answered_deterministically_partial' : 'blocked_by_missing_metrics');
+        $base = [
+            'contract_version' => 'suxios.precise_metric_set.v1',
+            'kind' => 'operating_metric_set',
+            'hotel' => [
+                'id' => (int)($scope['hotel_id'] ?? 0),
+                'name' => (string)($scope['hotel_name'] ?? '') ?: 'Hotel ' . (int)($scope['hotel_id'] ?? 0),
+            ],
+            'platform' => [
+                'key' => (string)($scope['platform'] ?? ''),
+                'name' => $this->platformLabel((string)($scope['platform'] ?? '')),
+            ],
+            'business_date' => (string)($scope['business_date'] ?? ''),
+            'metric_keys' => array_values(array_filter(array_map(
+                static fn(array $item): string => trim((string)($item['metric']['key'] ?? '')),
+                $items
+            ))),
+            'items' => $items,
+            'result_count' => count($items),
+            'ready_count' => $readyCount,
+            'blocked_count' => count($items) - $readyCount,
+            'value' => null,
+            'unit' => null,
+            'source_record' => null,
+            'source_records' => array_values(array_unique($refs)),
+            'data_scope' => $this->dataScopeText($scope),
+            'used_evidence_refs' => array_values(array_unique($refs)),
+            'data_gaps' => $gaps,
+            'legacy_primary_only' => false,
+        ];
+        return [
+            'status' => $status,
+            'summary' => sprintf(
+                '%s｜%s｜%s：%s。',
+                (string)$base['hotel']['name'],
+                (string)$base['platform']['name'],
+                (string)$base['business_date'],
+                implode('；', $summaries)
+            ),
+            'precise_result' => $base,
+            'query_router' => $router,
+            'used_evidence_refs' => array_values(array_unique($refs)),
+            'data_gaps' => $gaps,
         ];
     }
 
@@ -728,6 +892,14 @@ final class PreciseQueryRouterService
             $reason = '可信事实底座没有已核验的房费收入字段；OTA成交金额、支付金额或结算金额不能替代房费收入。';
             return $this->canonicalBlockedMetric($base, $router, 'room_revenue_semantic_missing', $reason, []);
         }
+        if ($metricKey === 'ota_exposure_volume') {
+            $reason = '当前严格事实只证明曝光人数（UV），没有展示次数/impressions 字段；不会把 exposureUV 当成曝光量。';
+            return $this->canonicalBlockedMetric($base, $router, 'exposure_volume_semantic_missing', $reason, []);
+        }
+        if ($metricKey === 'intent_payment_conversion_rate') {
+            $reason = '当前可信事实底座没有同口径的意向人数与支付订单分子分母，不能计算意向支付转化率。';
+            return $this->canonicalBlockedMetric($base, $router, 'intent_payment_inputs_missing', $reason, []);
+        }
         if ($canonicalKey === '' || !in_array($platform, ['ctrip', 'meituan'], true)) {
             $reason = in_array($metricKey, ['occ', 'revpar'], true)
                 ? '可信 OTA 底座不包含全酒店可售房夜分母，不能计算该指标。'
@@ -753,7 +925,44 @@ final class PreciseQueryRouterService
             $fieldMap[$key] = $field;
         }
         $field = is_array($fieldMap[$canonicalKey] ?? null) ? $fieldMap[$canonicalKey] : [];
+        if ($field !== []) {
+            $base['metric']['name'] = (string)($field['label'] ?? $base['metric']['name']);
+            $base['metric']['semantic_key'] = (string)($field['semantic_metric_key'] ?? $metricKey);
+            $base['metric']['semantic_status'] = (string)($field['semantic_metric_status'] ?? 'unknown');
+        }
         $refs = $this->stringList($field['source_record_refs'] ?? []);
+        $expectedSemanticKey = $this->expectedSemanticMetricKey($metricKey, $platform);
+        if ($expectedSemanticKey !== ''
+            && (string)($field['semantic_metric_key'] ?? '') !== $expectedSemanticKey
+        ) {
+            $reason = sprintf(
+                '字段物理列存在，但语义身份不是%s；不会仅凭列名返回数值。',
+                $expectedSemanticKey
+            );
+            return $this->canonicalBlockedMetric(
+                $base,
+                $router,
+                'canonical_semantic_metric_mismatch',
+                $reason,
+                $refs
+            );
+        }
+        if ($metricKey === 'adr') {
+            $basis = strtolower(trim((string)($field['basis'] ?? '')));
+            $sourcePaths = array_map(
+                static fn(mixed $value): string => strtolower(trim((string)$value)),
+                (array)($field['source_paths'] ?? [])
+            );
+            $roomRevenueProven = str_contains($basis, 'room_revenue')
+                || count(array_filter(
+                    $sourcePaths,
+                    static fn(string $path): bool => str_contains($path, 'room_revenue')
+                )) > 0;
+            if (!$roomRevenueProven) {
+                $reason = '当前 ADR 候选没有显式 room_revenue 口径；订单金额、业务卡金额或结算金额不能替代房费收入。';
+                return $this->canonicalBlockedMetric($base, $router, 'adr_room_revenue_semantic_missing', $reason, $refs);
+            }
+        }
         $allowedStatuses = array_values(array_unique(array_map(
             'strval',
             (array)($closure['consumer_contract']['allowed_fact_statuses'] ?? [])
@@ -804,11 +1013,13 @@ final class PreciseQueryRouterService
         $base['readback_status'] = (string)$field['readback_status'];
         $base['formula'] = trim((string)($field['basis'] ?? '')) ?: null;
         $base['source_paths'] = (array)($field['source_paths'] ?? []);
+        $base['semantic_contract_version'] = (string)($field['semantic_contract_version'] ?? '');
+        $base['field_fact_identities'] = (array)($field['field_fact_identities'] ?? []);
         $base['capture_ref'] = $field['capture_ref'] ?? null;
         if ($canonicalKey === 'conversion') {
             foreach ([
-                'visits' => ['metric_key' => 'detail_exposure', 'unit' => 'users'],
-                'exposure' => ['metric_key' => 'list_exposure', 'unit' => 'users'],
+                'visits' => ['metric_key' => 'detail_visitors', 'storage_field' => 'detail_exposure', 'unit' => 'people'],
+                'exposure' => ['metric_key' => 'exposure_users', 'storage_field' => 'list_exposure', 'unit' => 'people'],
             ] as $inputKey => $inputMeta) {
                 $input = is_array($fieldMap[$inputKey] ?? null) ? $fieldMap[$inputKey] : [];
                 if (is_numeric($input['value'] ?? null)
@@ -853,6 +1064,16 @@ final class PreciseQueryRouterService
             'book_order_num' => 'order_count',
             'quantity' => 'room_nights',
             'adr' => 'adr',
+            default => '',
+        };
+    }
+
+    private function expectedSemanticMetricKey(string $metricKey, string $platform): string
+    {
+        return match ($metricKey) {
+            'list_exposure' => $platform === 'ctrip' ? 'ctrip_exposure_users' : 'meituan_exposure_users',
+            'detail_exposure' => $platform === 'ctrip' ? 'ctrip_detail_visitors' : 'meituan_detail_visitors',
+            'exposure_to_visit_rate' => 'exposure_to_visit_rate',
             default => '',
         };
     }
@@ -947,6 +1168,20 @@ final class PreciseQueryRouterService
             }
             return $this->directMetric($base, $fact, 'room_revenue');
         }
+        if ($metricKey === 'ota_exposure_volume') {
+            return $this->blockedMetric(
+                $base,
+                'exposure_volume_semantic_missing',
+                '当前事实只证明曝光人数（UV），没有展示次数/impressions 字段；不会把 exposureUV 当成曝光量。'
+            );
+        }
+        if ($metricKey === 'intent_payment_conversion_rate') {
+            return $this->blockedMetric(
+                $base,
+                'intent_payment_inputs_missing',
+                '缺少同范围意向人数与支付订单分子分母，不能计算意向支付转化率。'
+            );
+        }
         if ($metricKey === 'exposure_to_visit_rate') {
             $fact = $this->latestFactWithFields($facts, ['list_exposure', 'detail_exposure']);
             if ($fact === null) {
@@ -977,8 +1212,8 @@ final class PreciseQueryRouterService
                 $this->number($value, 2)
             );
             $base['calculation_inputs'] = [
-                ['metric_key' => 'detail_exposure', 'value' => $visitors, 'unit' => '人'],
-                ['metric_key' => 'list_exposure', 'value' => $exposure, 'unit' => '次'],
+                ['metric_key' => 'detail_visitors', 'storage_field' => 'detail_exposure', 'value' => $visitors, 'unit' => '人'],
+                ['metric_key' => 'exposure_users', 'storage_field' => 'list_exposure', 'value' => $exposure, 'unit' => '人'],
             ];
             $stored = isset($values['flow_rate']) && is_numeric($values['flow_rate'])
                 ? (float)$values['flow_rate']
@@ -1512,7 +1747,7 @@ final class PreciseQueryRouterService
             ->whereNull('deleted_at')
             ->find();
         if (is_array($existing)) {
-            return $this->read((int)$existing['id'], $tenantId, $accessibleHotelIds);
+            return $this->readExistingRequest($existing, $digest, $tenantId, $accessibleHotelIds);
         }
         $now = $this->now()->format('Y-m-d H:i:s');
         try {
@@ -1550,10 +1785,13 @@ final class PreciseQueryRouterService
             if (!is_array($concurrent)) {
                 throw $error;
             }
-            if (!hash_equals($digest, (string)($concurrent['content_digest'] ?? ''))) {
-                throw new RuntimeException('精准查数幂等键已用于不同内容', 409, $error);
-            }
-            return $this->read((int)$concurrent['id'], $tenantId, $accessibleHotelIds);
+            return $this->readExistingRequest(
+                $concurrent,
+                $digest,
+                $tenantId,
+                $accessibleHotelIds,
+                $error
+            );
         }
         if ($id <= 0) {
             throw new RuntimeException('精准查数问题保存失败');
@@ -1565,10 +1803,19 @@ final class PreciseQueryRouterService
      * @param array<string,mixed> $row
      * @param array<string,mixed> $answer
      * @param list<string> $factRefs
+     * @param list<string> $memoryRefs
      * @param list<string> $knowledgeRefs
+     * @param list<string> $executionRefs
      * @return array<string,mixed>
      */
-    private function unifiedReadback(array $row, array $answer, array $factRefs, array $knowledgeRefs): array
+    private function unifiedReadback(
+        array $row,
+        array $answer,
+        array $factRefs,
+        array $memoryRefs,
+        array $knowledgeRefs,
+        array $executionRefs
+    ): array
     {
         $router = (array)$answer['query_router'];
         $routeType = (string)($router['route_type'] ?? '');
@@ -1585,11 +1832,15 @@ final class PreciseQueryRouterService
             'answer_summary' => (string)$row['answer_summary'],
             'answer' => $answer,
             'fact_refs' => $factRefs,
+            'memory_refs' => $memoryRefs,
             'knowledge_refs' => $knowledgeRefs,
+            'execution_refs' => $executionRefs,
             'data_gaps' => (array)($answer['data_gaps'] ?? []),
             'content_digest' => (string)$row['content_digest'],
+            'persistence_status' => 'readback_verified',
             'created_at' => (string)($row['created_at'] ?? ''),
         ];
+        $question['analysis_quality_receipt'] = (new HotelDataAnalystQualityReceiptService())->evaluate($question);
         return [
             'contract_version' => self::CONTRACT_VERSION,
             'id' => (int)$row['id'],
@@ -1601,8 +1852,11 @@ final class PreciseQueryRouterService
             'parsed_scope' => (array)($router['parsed_scope'] ?? []),
             'answer' => is_array($routeAnswer) ? $routeAnswer : [],
             'operating_question' => $routeType === 'operating_query' ? $question : null,
+            'analysis_quality_receipt' => $routeType === 'operating_query' ? $question['analysis_quality_receipt'] : null,
             'fact_refs' => $factRefs,
+            'memory_refs' => $memoryRefs,
             'knowledge_refs' => $knowledgeRefs,
+            'execution_refs' => $executionRefs,
             'data_gaps' => (array)($answer['data_gaps'] ?? []),
             'lexicon' => (array)($router['lexicon'] ?? PreciseQueryLexicon::metadata()),
             'content_digest' => (string)$row['content_digest'],
@@ -1622,6 +1876,11 @@ final class PreciseQueryRouterService
             'classification_method' => 'deterministic_runtime_lexicon_and_grammar',
             'classification_reasons' => array_values(array_unique(array_filter(array_map('strval', $reasons)))),
             'parsed_scope' => $scope,
+            'metric_key' => $scope['metric_key'] ?? null,
+            'metric_keys' => array_values(array_filter(array_map(
+                'strval',
+                is_array($scope['metric_keys'] ?? null) ? $scope['metric_keys'] : []
+            ))),
             'lexicon' => PreciseQueryLexicon::metadata(),
             'number_generation_policy' => 'database_or_deterministic_calculation_only',
             'model_number_generation_allowed' => false,
@@ -1699,22 +1958,47 @@ final class PreciseQueryRouterService
         }
     }
 
+    private function hotelTenantId(int $hotelId): int
+    {
+        try {
+            return max(0, (int)Db::name('hotels')->where('id', $hotelId)->value('tenant_id'));
+        } catch (\Throwable) {
+            return 0;
+        }
+    }
+
+    /** @param array<string,mixed> $row @param list<int> $accessibleHotelIds */
+    private function readExistingRequest(
+        array $row,
+        string $expectedDigest,
+        int $tenantId,
+        array $accessibleHotelIds,
+        ?\Throwable $previous = null
+    ): array {
+        $actualDigest = strtolower(trim((string)($row['content_digest'] ?? '')));
+        if (!hash_equals($expectedDigest, $actualDigest)) {
+            throw new RuntimeException('精准查数幂等键已用于不同内容', 409, $previous);
+        }
+        $id = (int)($row['id'] ?? 0);
+        if ($id <= 0) {
+            throw new RuntimeException('精准查数幂等回读编号无效', 409, $previous);
+        }
+        return $this->read($id, $tenantId, $accessibleHotelIds);
+    }
+
     private function isDuplicateRequestConflict(\Throwable $error): bool
     {
         for ($current = $error; $current !== null; $current = $current->getPrevious()) {
             $message = strtolower($current->getMessage());
-            if (str_contains($message, 'duplicate entry')
+            $code = (string)$current->getCode();
+            if (in_array($code, ['23000', '23505'], true)
+                || str_contains($message, 'duplicate entry')
                 || str_contains($message, 'unique constraint failed')
             ) {
                 return true;
             }
         }
         return false;
-    }
-
-    private function hotelTenantId(int $hotelId): int
-    {
-        return max(0, (int)Db::name('hotels')->where('id', $hotelId)->value('tenant_id'));
     }
 
     private function now(): DateTimeImmutable

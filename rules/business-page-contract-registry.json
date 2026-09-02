@@ -1,6 +1,6 @@
 {
   "schema_version": "business-page-coverage.v1",
-  "updated_at": "2026-08-22",
+  "updated_at": "2026-08-30",
   "source_manifest": "resources/frontend/templates/manifest.json",
   "included_manifest_domains": [
     "decision-workbench",
@@ -75,7 +75,7 @@
       "source_checks": [
         {
           "path": "resources/frontend/templates/fragments/23a-page-compass-summary.html",
-          "includes": ["data-testid=\"home-executive-answer\"", ":selected-hotel-id=\"filterReportHotel\""]
+          "includes": ["data-testid=\"home-executive-answer\"", ":selected-hotel-id=\"filterReportHotel\"", ":weekly-plan=\"homeWeeklyOperatingPlan\""]
         },
         {
           "path": "resources/frontend/templates/fragments/23b-page-ai-workbench.html",
@@ -86,6 +86,14 @@
         {
           "path": "tests/automation/home_evidence_chain_truth.test.mjs",
           "includes": ["23a-page-compass-summary.html", "23b-page-ai-workbench.html", "23c-page-compass-detail.html"]
+        },
+        {
+          "path": "tests/automation/home_operating_orchestration.test.mjs",
+          "includes": ["home-daily-one-thing-focus", "home-weekly-operating-plan", "homeWeeklyOperatingPlan"]
+        },
+        {
+          "path": "tests/automation/weekly_operating_plan.test.mjs",
+          "includes": ["selected_focus", "weekly_plan_snapshot_id", "readback_verified"]
         }
       ],
       "evidence_maturity": "unit_contract_pass",
@@ -105,7 +113,7 @@
       "source_checks": [
         {
           "path": "resources/frontend/templates/fragments/24-page-ctrip-ebooking.html",
-          "includes": ["data-testid=\"ctrip-overview-fetch-actions\"", "data-testid=\"ctrip-review-order-evidence-tab\"", "ctripLatestMeta?.data_date", "ctripLatestSnapshotText"]
+          "includes": ["data-testid=\"ctrip-overview-fetch-actions\"", "data-testid=\"ctrip-review-order-evidence-tab\"", "data-testid=\"ctrip-competitor-future-window\"", "data-testid=\"ctrip-request-date\"", "data-testid=\"ctrip-source-business-date\"", "data-testid=\"ctrip-collected-at\"", "ctripLatestSnapshotText"]
         },
         {
           "path": "public/app-main.js",
@@ -124,6 +132,10 @@
         {
           "path": "tests/automation/review_order_evidence_closure.test.mjs",
           "includes": ["ctrip-review-order-evidence-tab", "rejectCtripReviewOrderMatch", "unbindCtripReviewOrderMatch"]
+        },
+        {
+          "path": "tests/automation/competitor_future_window.test.mjs",
+          "includes": ["future-window", "room_type_mapping_missing", "auto_write_ota"]
         }
       ],
       "evidence_maturity": "unit_contract_pass",
@@ -321,6 +333,36 @@
       "evidence_limit": "代码级每日唯一选择、待审批、原任务、人工证据和同范围复盘合同；真实人工执行与自然后续事实仍需另行现场验收。"
     },
     {
+      "id": "operating-finance-control",
+      "product_chain_stage": "净收入、异常恢复与月度经营财务",
+      "availability": "active",
+      "enforcement": "strict",
+      "fragment_ids": ["page-operating-finance"],
+      "inherited_fragment_ids": [],
+      "inheritance_reason": "无继承片段。",
+      "scope_dimensions": ["tenant", "hotel", "business_date", "period_month", "stay_date", "platform", "fact_scope", "source", "fact_status", "currency", "tax_basis", "metric_definition_version"],
+      "state_requirements": ["loading", "ready", "available", "empty", "partial", "missing", "unverified", "operator_attested", "not_applicable", "blocked", "error"],
+      "contract_dimensions": ["scope_identity", "truthful_states", "source_date", "save_readback", "zero_external_write", "failure_visibility", "focused_regression"],
+      "source_checks": [
+        {
+          "path": "resources/frontend/templates/fragments/19c-page-operating-finance.html",
+          "includes": ["<operating-finance-control-center", "v-if=\"currentPage === 'operating-finance'\"", ":request=\"managerCapabilityRequest\""]
+        },
+        {
+          "path": "public/components/system/operating-finance-control-center.js",
+          "includes": ["operating_finance_control_center.v1", "settlements/import", "on-books-snapshots", "demand-events", "monthly-finance", "external_write_count"]
+        }
+      ],
+      "regression_checks": [
+        {
+          "path": "tests/automation/operating_finance_control_center.test.mjs",
+          "includes": ["net revenue never becomes whole-hotel GOP", "one selected recovery blocker", "WeCom receipt stays sender-reported only", "same-scope portfolio ranking"]
+        }
+      ],
+      "evidence_maturity": "unit_contract_pass",
+      "evidence_limit": "代码级结算、恢复、在手预订、需求参考、企微员工自报、月度财务和多店同口径合同；不证明真实账单导入、员工映射、生产部署、自动审批或外部写入。"
+    },
+    {
       "id": "revenue-analysis",
       "product_chain_stage": "收益分析",
       "availability": "active",
@@ -381,13 +423,96 @@
       "evidence_limit": "代码级同酒店同业务日事实、精确回读与人工送审边界；不代表任何OTA动作已经审批或执行。"
     },
     {
+      "id": "opening-management",
+      "product_chain_stage": "开业项目与检查清单",
+      "availability": "active",
+      "enforcement": "strict",
+      "fragment_ids": ["page-opening-overview", "page-opening-checklist"],
+      "inherited_fragment_ids": [],
+      "inheritance_reason": "无继承片段。",
+      "scope_dimensions": ["project", "hotel", "date_range", "source", "fact_status"],
+      "state_requirements": ["loading", "ready", "empty", "partial", "unverified", "binding_missing", "blocked", "error"],
+      "contract_dimensions": ["scope_identity", "truthful_states", "source_date", "save_readback", "pending_approval", "failure_visibility", "focused_regression"],
+      "source_checks": [
+        {
+          "path": "public/system-static.js",
+          "includes": ["path: 'opening-overview'", "path: 'opening-checklist'"]
+        },
+        {
+          "path": "resources/frontend/templates/fragments/13-page-opening-overview.html",
+          "includes": ["openingProjectForm.hotel_id", "data-testid=\"opening-binding-missing\"", "openingProjectBindingDirty", "createOpeningExecutionIntent"]
+        },
+        {
+          "path": "resources/frontend/templates/fragments/14-page-opening-checklist.html",
+          "includes": ["selectedOpeningProjectId", "saveOpeningTaskProgress", "batchUpdateOpeningTasks"]
+        },
+        {
+          "path": "app/service/OpeningService.php",
+          "includes": ["openingMetricsTruthContext", "'readback_verified' => $projectId > 0", "'status' => 'pending_approval'"]
+        }
+      ],
+      "regression_checks": [
+        {
+          "path": "tests/automation/phase1_product_scope_reduction.test.mjs",
+          "includes": ["existing opening pages are discoverable from the operations center", "opening-overview", "opening-checklist"]
+        },
+        {
+          "path": "tests/automation/opening_binding_truth_contract.test.mjs",
+          "includes": ["unbound opening projects stay explicitly blocked from execution tracking", "readback_verified", "pending_approval"]
+        },
+        {
+          "path": "tests/automation/operation_static_bootstrap.test.mjs",
+          "includes": ["opening project helpers have safe setup defaults", "openingStaticKeys"]
+        }
+      ],
+      "evidence_maturity": "unit_contract_pass",
+      "evidence_limit": "代码级开业入口、酒店与租户权限、项目和清单保存回读、失败回滚及人工待审批桥接；不证明真实开业项目现场有效或开业后经营效果。"
+    },
+    {
+      "id": "quant-simulation",
+      "product_chain_stage": "酒店投资情景量化模拟",
+      "availability": "active",
+      "enforcement": "strict",
+      "fragment_ids": ["page-ai-simulation"],
+      "inherited_fragment_ids": [],
+      "inheritance_reason": "无继承片段。",
+      "scope_dimensions": ["hotel", "scenario", "date_range", "source", "fact_status"],
+      "state_requirements": ["loading", "ready", "empty", "unverified", "blocked", "error"],
+      "contract_dimensions": ["scope_identity", "truthful_states", "source_date", "save_readback", "pending_approval", "failure_visibility", "focused_regression"],
+      "source_checks": [
+        {
+          "path": "public/system-static.js",
+          "includes": ["testid: 'nav-ai-simulation'", "path: 'ai-simulation'"]
+        },
+        {
+          "path": "resources/frontend/templates/fragments/02-page-ai-simulation.html",
+          "includes": ["data-testid=\"simulation-hotel-selector\"", "simulationCurrentReadiness", "createSimulationExecutionIntent(record)"]
+        },
+        {
+          "path": "app/service/QuantSimulationService.php",
+          "includes": ["'metric_scope' => 'investment_scenario'", "'readback_verified' => $recordId > 0", "legacy_read_only", "user_input_source_unverified"]
+        }
+      ],
+      "regression_checks": [
+        {
+          "path": "tests/automation/phase1_product_scope_reduction.test.mjs",
+          "includes": ["existing quant simulation page is discoverable from the revenue workbench", "ai-simulation"]
+        },
+        {
+          "path": "tests/automation/quant_simulation_realization.test.mjs",
+          "includes": ["quant simulation is findable and requires an explicit permitted hotel", "legacy_read_only", "readback_verified"]
+        }
+      ],
+      "evidence_maturity": "unit_contract_pass",
+      "evidence_limit": "代码级酒店权限、人工情景保存回读、旧记录只读及待审批任务桥接；人工输入和公式派生结果仍不证明真实ROI、IRR、现金流或投资结论。"
+    },
+    {
       "id": "downstream-decision-frozen",
-      "product_chain_stage": "阶段一冻结的策略、开业、扩张与投资辅助页",
+      "product_chain_stage": "阶段一冻结的策略、可研、扩张、资产定价与正式投决页",
       "availability": "frozen_hidden",
       "enforcement": "baseline",
       "fragment_ids": [
         "page-ai-strategy",
-        "page-ai-simulation",
         "page-ai-feasibility",
         "page-market-evaluation",
         "page-benchmark-model",
@@ -398,8 +523,6 @@
         "page-timing-strategy",
         "page-decision-board",
         "shared-transfer-history",
-        "page-opening-overview",
-        "page-opening-checklist",
         "page-investment-decision"
       ],
       "inherited_fragment_ids": [],
@@ -413,10 +536,6 @@
           "includes": ["currentPage === 'ai-strategy'", "aiStrategy"]
         },
         {
-          "path": "resources/frontend/templates/fragments/13-page-opening-overview.html",
-          "includes": ["currentPage === 'opening-overview'", "openingOverview"]
-        },
-        {
           "path": "resources/frontend/templates/fragments/03-page-ai-feasibility.html",
           "includes": ["currentPage === 'ai-feasibility'", "aiProject"]
         },
@@ -428,12 +547,12 @@
       "regression_checks": [
         {
           "path": "tests/automation/phase1_product_scope_reduction.test.mjs",
-          "includes": ["ai-strategy", "ai-simulation", "ai-feasibility", "opening-overview", "opening-checklist", "market-evaluation", "benchmark-model", "collaboration-efficiency", "asset-pricing", "timing-strategy", "decision-board", "investment-decision"]
+          "includes": ["ai-strategy", "ai-feasibility", "market-evaluation", "benchmark-model", "collaboration-efficiency", "asset-pricing", "timing-strategy", "decision-board", "investment-decision"]
         }
       ],
       "evidence_maturity": "static_contract_only",
       "evidence_limit": "当前阶段隐藏下游入口，仅保护模板和冻结边界；不宣称可发现、可操作或现场有效。",
-      "known_limits": ["阶段一导航隐藏", "未执行真实策略、开业或投资项目验收"]
+      "known_limits": ["阶段一导航隐藏", "未执行真实策略、可研、扩张、资产定价或正式投决现场验收"]
     },
     {
       "id": "lifecycle-frozen",

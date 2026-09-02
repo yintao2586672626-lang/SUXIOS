@@ -1,0 +1,42 @@
+{
+  "method": "rolling_median",
+  "scope": {
+    "platform": "meituan",
+    "system_hotel_id": "source-only:linquan-qingpishu",
+    "business_date": "2026-08-29",
+    "timezone": "Asia/Shanghai",
+    "scope_key": "meituan|source-only-linquan|workbook-daily-v1|exposure-users-detail-visitors|people|same-day-cumulative|23:00|Asia-Shanghai",
+    "source_path": "user-workbook/11天曝光汇总",
+    "source_file_sha256": "AEF57DCBC9BA8E4DE2B45FB010989C7E5878D24DAC234A0FB38991BF38B0F90A",
+    "metric_definition": "daily exposure people and approximate detail visitors; only 2026-08-20 detail visitors are observed",
+    "metric_definition_version": "workbook-11-day-static-v1",
+    "time_basis": "same_day_cumulative",
+    "cumulative_cutoff": "23:00",
+    "target_metric": "exposure_users",
+    "target_unit": "people",
+    "browse_metric": "detail_visitors",
+    "browse_unit": "people"
+  },
+  "calibration_rows": [
+    { "date": "2026-08-18", "platform": "meituan", "system_hotel_id": "source-only:linquan-qingpishu", "scope_key": "meituan|source-only-linquan|workbook-daily-v1|exposure-users-detail-visitors|people|same-day-cumulative|23:00|Asia-Shanghai", "detail_visitors_actual": 113, "exposure_users_actual": 1286, "quality": "derived_from_exposure", "source_ref": "workbook:11天曝光汇总!D4:E4" },
+    { "date": "2026-08-19", "platform": "meituan", "system_hotel_id": "source-only:linquan-qingpishu", "scope_key": "meituan|source-only-linquan|workbook-daily-v1|exposure-users-detail-visitors|people|same-day-cumulative|23:00|Asia-Shanghai", "detail_visitors_actual": 138, "exposure_users_actual": 1579, "quality": "derived_from_exposure", "source_ref": "workbook:11天曝光汇总!D5:E5" },
+    { "date": "2026-08-20", "platform": "meituan", "system_hotel_id": "source-only:linquan-qingpishu", "scope_key": "meituan|source-only-linquan|workbook-daily-v1|exposure-users-detail-visitors|people|same-day-cumulative|23:00|Asia-Shanghai", "detail_visitors_actual": 126, "exposure_users_actual": 1437, "quality": "verified_actual", "source_ref": "workbook:8月20日每小时曝光!B17:C17" },
+    { "date": "2026-08-21", "platform": "meituan", "system_hotel_id": "source-only:linquan-qingpishu", "scope_key": "meituan|source-only-linquan|workbook-daily-v1|exposure-users-detail-visitors|people|same-day-cumulative|23:00|Asia-Shanghai", "detail_visitors_actual": 122, "exposure_users_actual": 1396, "quality": "derived_from_exposure", "source_ref": "workbook:11天曝光汇总!D7:E7" },
+    { "date": "2026-08-22", "platform": "meituan", "system_hotel_id": "source-only:linquan-qingpishu", "scope_key": "meituan|source-only-linquan|workbook-daily-v1|exposure-users-detail-visitors|people|same-day-cumulative|23:00|Asia-Shanghai", "detail_visitors_actual": 128, "exposure_users_actual": 1465, "quality": "derived_from_exposure", "source_ref": "workbook:11天曝光汇总!D8:E8" },
+    { "date": "2026-08-23", "platform": "meituan", "system_hotel_id": "source-only:linquan-qingpishu", "scope_key": "meituan|source-only-linquan|workbook-daily-v1|exposure-users-detail-visitors|people|same-day-cumulative|23:00|Asia-Shanghai", "detail_visitors_actual": 98, "exposure_users_actual": 1118, "quality": "derived_from_exposure", "source_ref": "workbook:11天曝光汇总!D9:E9" },
+    { "date": "2026-08-24", "platform": "meituan", "system_hotel_id": "source-only:linquan-qingpishu", "scope_key": "meituan|source-only-linquan|workbook-daily-v1|exposure-users-detail-visitors|people|same-day-cumulative|23:00|Asia-Shanghai", "detail_visitors_actual": 99, "exposure_users_actual": 1126, "quality": "derived_from_exposure", "source_ref": "workbook:11天曝光汇总!D10:E10" },
+    { "date": "2026-08-25", "platform": "meituan", "system_hotel_id": "source-only:linquan-qingpishu", "scope_key": "meituan|source-only-linquan|workbook-daily-v1|exposure-users-detail-visitors|people|same-day-cumulative|23:00|Asia-Shanghai", "detail_visitors_actual": 94, "exposure_users_actual": 1073, "quality": "derived_from_exposure", "source_ref": "workbook:11天曝光汇总!D11:E11" },
+    { "date": "2026-08-26", "platform": "meituan", "system_hotel_id": "source-only:linquan-qingpishu", "scope_key": "meituan|source-only-linquan|workbook-daily-v1|exposure-users-detail-visitors|people|same-day-cumulative|23:00|Asia-Shanghai", "detail_visitors_actual": 320, "exposure_users_actual": 3650, "quality": "derived_from_exposure", "event_status": "verified_event_outlier", "baseline_eligible": false, "source_ref": "workbook:11天曝光汇总!D12:F12" },
+    { "date": "2026-08-27", "platform": "meituan", "system_hotel_id": "source-only:linquan-qingpishu", "scope_key": "meituan|source-only-linquan|workbook-daily-v1|exposure-users-detail-visitors|people|same-day-cumulative|23:00|Asia-Shanghai", "detail_visitors_actual": 87, "exposure_users_actual": 992, "quality": "derived_from_exposure", "source_ref": "workbook:11天曝光汇总!D13:E13" },
+    { "date": "2026-08-28", "platform": "meituan", "system_hotel_id": "source-only:linquan-qingpishu", "scope_key": "meituan|source-only-linquan|workbook-daily-v1|exposure-users-detail-visitors|people|same-day-cumulative|23:00|Asia-Shanghai", "detail_visitors_actual": 81, "exposure_users_actual": 918, "quality": "derived_from_exposure", "source_ref": "workbook:11天曝光汇总!D14:E14" }
+  ],
+  "target": {
+    "date": "2026-08-29",
+    "platform": "meituan",
+    "system_hotel_id": "source-only:linquan-qingpishu",
+    "scope_key": "meituan|source-only-linquan|workbook-daily-v1|exposure-users-detail-visitors|people|same-day-cumulative|23:00|Asia-Shanghai",
+    "detail_visitors": 80,
+    "detail_visitors_quality": "observed_actual",
+    "source_ref": "fixture:unseen-target"
+  }
+}

@@ -22,6 +22,17 @@ trait PlatformSyncTaskReadbackCoverageConcern
         return $ids;
     }
 
+    /** @param array<string, mixed> $row */
+    private function isOwnPlatformTargetReadbackRow(
+        array $row, string $platform, string $targetDate, string $dataPeriod): bool {
+        $rowPlatform = strtolower(trim((string)($row['platform'] ?? $row['source'] ?? '')));
+        $rowSource = strtolower(trim((string)($row['source'] ?? $row['platform'] ?? '')));
+        return (string)($row['data_date'] ?? '') === $targetDate
+            && (string)($row['data_period'] ?? '') === $dataPeriod
+            && $rowPlatform === $platform
+            && $rowSource === $platform;
+    }
+
     /** @param array<int, array<string, mixed>> $rows @param array<string, mixed> $source @param array<string, mixed> $payload */
     private function saveNormalizedRowsWithTargetDateExpectation(
         array $rows,
@@ -29,14 +40,17 @@ trait PlatformSyncTaskReadbackCoverageConcern
         array $payload
     ): array {
         $profileRun = $this->isOtaBrowserProfileSource($source);
+        $sourcePlatform = strtolower(trim((string)($source['platform'] ?? '')));
         $targetDate = $this->normalizeDate($payload['data_date'] ?? $payload['dataDate'] ?? null) ?? '';
         $dataPeriod = $this->normalizeDataPeriod($payload['data_period'] ?? $payload['dataPeriod'] ?? '');
         $expectedIdentities = [];
-        if ($profileRun && $targetDate !== '' && $dataPeriod !== '') {
+        if ($profileRun && in_array($sourcePlatform, ['ctrip', 'meituan'], true)
+            && $targetDate !== '' && $dataPeriod !== ''
+        ) {
             foreach ($rows as $row) {
-                if ((string)($row['data_date'] ?? '') !== $targetDate
-                    || (string)($row['data_period'] ?? '') !== $dataPeriod
-                ) {
+                if (!$this->isOwnPlatformTargetReadbackRow(
+                    $row, $sourcePlatform, $targetDate, $dataPeriod
+                )) {
                     continue;
                 }
                 $identity = strtolower(trim((string)($row['persistence_identity_hash'] ?? '')));
@@ -170,24 +184,20 @@ trait PlatformSyncTaskReadbackCoverageConcern
 
         $derivedTargetRowIds = [];
         foreach ($savedRows as $savedRow) {
-            $savedPlatform = strtolower(trim((string)(
-                $savedRow['platform'] ?? $savedRow['source'] ?? ''
-            )));
-            $savedSource = strtolower(trim((string)(
-                $savedRow['source'] ?? $savedRow['platform'] ?? ''
-            )));
+            $savedPlatform = strtolower(trim((string)($savedRow['platform'] ?? $savedRow['source'] ?? '')));
+            $savedSource = strtolower(trim((string)($savedRow['source'] ?? $savedRow['platform'] ?? '')));
             if ((int)($savedRow['sync_task_id'] ?? 0) !== $taskId
                 || (int)($savedRow['data_source_id'] ?? 0) !== $sourceId
                 || (int)($savedRow['system_hotel_id'] ?? 0) !== $hotelId
-                || $savedPlatform !== $platform
+                || $savedPlatform === ''
                 || $savedSource !== $platform
             ) {
                 $result['failure_reason'] = 'run_save_receipt_scope_mismatch';
                 return $result;
             }
-            if ((string)($savedRow['data_date'] ?? '') === $targetDate
-                && (string)($savedRow['data_period'] ?? '') === $dataPeriod
-            ) {
+            if ($this->isOwnPlatformTargetReadbackRow(
+                $savedRow, $platform, $targetDate, $dataPeriod
+            )) {
                 $derivedTargetRowIds[] = max(0, (int)($savedRow['id'] ?? 0));
             }
         }

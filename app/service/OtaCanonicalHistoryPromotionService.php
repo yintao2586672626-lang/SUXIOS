@@ -1001,6 +1001,14 @@ final class OtaCanonicalHistoryPromotionService
                 $fact = $factsByMetric[$metricKey] ?? null;
                 $sourceKey = is_array($fact) ? trim((string)($fact['source_key'] ?? '')) : '';
                 $sourcePath = is_array($fact) ? trim((string)($fact['source_path'] ?? '')) : '';
+                $sourceMetricValue = is_array($fact)
+                    && $sourceKey !== ''
+                    && array_key_exists($sourceKey, $sourceRow)
+                    ? $this->authoritativeMetricNumericValue(
+                        $sourceRow[$sourceKey],
+                        $metricKey
+                    )
+                    : null;
                 $factEvidence = is_array($fact) && is_array($fact['capture_evidence'] ?? null)
                     ? $fact['capture_evidence']
                     : [];
@@ -1012,7 +1020,7 @@ final class OtaCanonicalHistoryPromotionService
                     || strtolower(trim((string)($fact['status'] ?? ''))) !== 'captured'
                     || $sourceKey === ''
                     || !array_key_exists($sourceKey, $sourceRow)
-                    || !is_numeric($sourceRow[$sourceKey])
+                    || $sourceMetricValue === null
                     || preg_match('/[.\[\/]/', $sourcePath) !== 1
                     || trim((string)($fact['storage_field'] ?? '')) !== $expectedStorageFields[$metricKey]
                     || ($fact['stored_value_present'] ?? null) !== true
@@ -1023,7 +1031,7 @@ final class OtaCanonicalHistoryPromotionService
                     || !hash_equals($captureSource, $factCaptureSource)
                     || !array_key_exists($metricKey, $row)
                     || !is_numeric($row[$metricKey])
-                    || abs((float)$sourceRow[$sourceKey] - (float)$row[$metricKey]) > 0.000001
+                    || abs($sourceMetricValue - (float)$row[$metricKey]) > 0.000001
                 ) {
                     throw new RuntimeException('promotion_authoritative_metric_fact_invalid:' . $metricKey);
                 }
@@ -1356,8 +1364,11 @@ final class OtaCanonicalHistoryPromotionService
         $rowDigests = [];
         foreach ($rows as $row) {
             $raw = json_decode((string)($row['raw_data'] ?? ''), true);
-            $rowIdentifierHashes = is_array($raw)
-                ? $this->platformIdentifierHashes($raw, $platform)
+            $observedRow = is_array($raw) && is_array($raw['row'] ?? null)
+                ? $raw['row']
+                : $raw;
+            $rowIdentifierHashes = is_array($observedRow)
+                ? $this->rowPlatformIdentifierHashes($observedRow, $platform)
                 : [];
             if (count($rowIdentifierHashes) !== 1
                 || !hash_equals($expectedIdentifierHash, $rowIdentifierHashes[0])
@@ -1447,6 +1458,39 @@ final class OtaCanonicalHistoryPromotionService
         return $safeFilePart === '' || $safeFilePart === 'default'
             ? ''
             : hash('sha256', $safeFilePart);
+    }
+
+    private function authoritativeMetricNumericValue(mixed $value, string $metricKey): ?float
+    {
+        if (is_numeric($value)) {
+            return (float)$value;
+        }
+        if ($metricKey !== 'flow_rate' || !is_string($value)) {
+            return null;
+        }
+        if (preg_match(
+            '/^([+-]?(?:[0-9]+(?:\.[0-9]+)?|\.[0-9]+))\s*%$/D',
+            trim($value),
+            $matches
+        ) !== 1) {
+            return null;
+        }
+        return (float)$matches[1];
+    }
+
+    /** @return array<int,string> */
+    private function rowPlatformIdentifierHashes(array $raw, string $platform): array
+    {
+        $identityProof = strtolower(trim((string)(
+            $raw['platform_hotel_identifier_proof']
+            ?? (is_array($raw['row'] ?? null)
+                ? ($raw['row']['platform_hotel_identifier_proof'] ?? '')
+                : '')
+        )));
+        if ($identityProof === 'row_field_present' && is_array($raw['row'] ?? null)) {
+            return $this->platformIdentifierHashes($raw['row'], $platform);
+        }
+        return $this->platformIdentifierHashes($raw, $platform);
     }
 
     /** @return array<int,string> */

@@ -1,4 +1,8 @@
 window.SUXI_CTRIP_STATIC = window.SUXI_CTRIP_STATIC_FULL = (() => {
+    const createCompetitorFutureWindowController = window.SUXI_CTRIP_STATIC?.createCompetitorFutureWindowController
+        || (() => { throw new Error('未来竞品事实控制器未加载'); });
+    const CtripCompetitorFutureWindowPanel = window.SUXI_CTRIP_STATIC?.CtripCompetitorFutureWindowPanel
+        || { name: 'CtripCompetitorFutureWindowPanel', render: () => null };
     const ctripProfilePrimaryCategoryOptions = ['流量转化数据', '经营收益数据', '服务质量数据', '竞争力数据'];
     const ctripProfileDefaultModuleOptions = [
         { value: 'business_overview', label: '经营报告-概要-日报', primary_category: '经营收益数据' },
@@ -1564,15 +1568,26 @@ window.SUXI_CTRIP_STATIC = window.SUXI_CTRIP_STATIC_FULL = (() => {
 
     const formatCtripFetchDate = (date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 
+    const resolveCtripDefaultBusinessDate = (now = new Date()) => {
+        const clock = ctripChannelOrderClockParts(now, 'Asia/Shanghai');
+        const match = String(clock.dataDate || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+        if (!match || !Number.isInteger(clock.hour)) {
+            const fallback = now instanceof Date ? new Date(now.getTime()) : new Date(now);
+            fallback.setDate(fallback.getDate() - 1);
+            return formatCtripFetchDate(fallback);
+        }
+        const anchor = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])));
+        anchor.setUTCDate(anchor.getUTCDate() - (clock.hour < 8 ? 2 : 1));
+        return `${anchor.getUTCFullYear()}-${String(anchor.getUTCMonth() + 1).padStart(2, '0')}-${String(anchor.getUTCDate()).padStart(2, '0')}`;
+    };
+
     const buildCtripFetchDateRange = (form = {}, now = new Date()) => {
         let startDate = form.startDate;
         let endDate = form.endDate;
         if (!startDate || !endDate) {
-            const yesterday = new Date(now.getTime());
-            yesterday.setDate(yesterday.getDate() - 1);
-            const yesterdayStr = formatCtripFetchDate(yesterday);
-            startDate = yesterdayStr;
-            endDate = yesterdayStr;
+            const defaultBusinessDate = resolveCtripDefaultBusinessDate(now);
+            startDate = defaultBusinessDate;
+            endDate = defaultBusinessDate;
         }
         return { startDate, endDate };
     };
@@ -1842,20 +1857,46 @@ window.SUXI_CTRIP_STATIC = window.SUXI_CTRIP_STATIC_FULL = (() => {
         persisted = false,
         readbackVerified = false,
         displayOnly = false,
+        sourceBusinessDate = '',
+        responseDateStatus = 'target_date_unverified',
     } = {}) => ({
         hotel_id: hotelId || '',
         platform: 'ctrip',
         data_source: '携程 ebooking',
-        status: persisted ? 'success' : (displayOnly ? 'display_only' : (displayHotelCount > 0 ? 'unverified' : 'empty')),
-        status_label: persisted
+        status: persisted && responseDateStatus === 'verified'
+            ? 'success'
+            : (displayOnly ? 'display_only' : (displayHotelCount > 0 ? 'source_unverified' : 'empty')),
+        status_label: responseDateStatus !== 'verified' && displayHotelCount > 0
+            ? '来源业务日未核验'
+            : (persisted
             ? (readbackVerified ? '已回读核验' : '已持久化')
-            : (displayOnly ? '仅展示' : (displayHotelCount > 0 ? '未确认入库' : '无可保存记录')),
-        data_date: startDate === endDate ? startDate : `${startDate} 至 ${endDate}`,
+            : (displayOnly ? '仅展示' : (displayHotelCount > 0 ? '未确认入库' : '无可保存记录'))),
+        request_date: startDate === endDate ? startDate : `${startDate} 至 ${endDate}`,
+        source_business_date: sourceBusinessDate,
+        response_date_status: responseDateStatus,
+        data_date: responseDateStatus === 'verified' ? sourceBusinessDate : '',
         fetched_at: fetchedAt || '',
         total_records: persisted ? savedCount : displayHotelCount,
         saved_count: savedCount,
         readback_verified: readbackVerified,
     });
+
+    const isCtripVerifiedReportSource = (meta = {}) => {
+        const dataDate = String(meta?.data_date || '').trim();
+        const requestDate = String(meta?.request_date || '').trim();
+        const sourceBusinessDate = String(meta?.source_business_date || '').trim();
+        const datePattern = /^\d{4}-\d{2}-\d{2}$/;
+        const verifiedFreshReadback = meta?.readback_verified === true;
+        const verifiedStoredSnapshot = meta?.ranking_cache_eligible === true
+            && String(meta?.verification_status || '') === 'source_verified';
+
+        return String(meta?.status || '') === 'success'
+            && String(meta?.response_date_status || '') === 'verified'
+            && datePattern.test(dataDate)
+            && sourceBusinessDate === dataDate
+            && (!datePattern.test(requestDate) || requestDate === dataDate)
+            && (verifiedFreshReadback || verifiedStoredSnapshot);
+    };
 
     const buildCtripFetchRawFailureResult = ({
         errorMsg = '获取失败',
@@ -1975,29 +2016,80 @@ window.SUXI_CTRIP_STATIC = window.SUXI_CTRIP_STATIC_FULL = (() => {
                 return { status: 'accepted', response: res, requestBody };
             }
 
+            const unverifiedDateData = res.data && typeof res.data === 'object' ? res.data : {};
+            if (res.code === 422 && unverifiedDateData.save_status === 'target_date_unverified') {
+                setOnlineDataResult(selectCtripFetchResponsePayload(unverifiedDateData));
+                const allHotels = useDisplayHotels(
+                    unverifiedDateData.display_hotels || [],
+                    unverifiedDateData.display_summary || null,
+                    {
+                        orderEstimateDataDate: endDate,
+                        orderEstimateTargetDataDate: endDate,
+                        orderEstimateFetchedAt: unverifiedDateData.fetched_at || '',
+                    },
+                );
+                setOnlineDataFilterDates({ startDate, endDate });
+                setSavedCount(0);
+                setFetchSuccess(false);
+                const currentFetchMeta = buildCtripFetchMeta({
+                    hotelId: selectedCtripHotelId || '',
+                    startDate,
+                    endDate,
+                    fetchedAt: unverifiedDateData.fetched_at || '',
+                    savedCount: 0,
+                    displayHotelCount: allHotels.length,
+                    persisted: false,
+                    readbackVerified: false,
+                    displayOnly: false,
+                    sourceBusinessDate: String(unverifiedDateData.source_business_date || ''),
+                    responseDateStatus: String(unverifiedDateData.response_date_status || 'target_date_unverified'),
+                });
+                setLatestMeta({ ...(getLatestMeta() || {}), ...currentFetchMeta });
+                setTableTab('sales');
+                notify(res.message || '携程接口有返回，但平台响应未证明业务日期；当前仅供审计查看，未入库。', 'warning');
+                return {
+                    status: 'source_unverified',
+                    response: res,
+                    meta: currentFetchMeta,
+                    requestBody,
+                };
+            }
+
             if (res.code === 200) {
                 const data = res.data || {};
+                const persistenceOutcome = buildCtripPersistenceOutcome(data);
+                const savedCount = persistenceOutcome.savedCount;
+                const saveBlocked = data.save_status === 'blocked';
+                const temporaryDisplayOnly = data.save_status === 'display_only';
+                const persistenceStatus = persistenceOutcome.persistenceStatus;
+                const persisted = persistenceOutcome.persisted && !saveBlocked && !temporaryDisplayOnly;
+                const provisionalFetchMeta = buildCtripFetchMeta({
+                    hotelId: selectedCtripHotelId || '',
+                    startDate,
+                    endDate,
+                    fetchedAt: data.fetched_at || '',
+                    savedCount,
+                    displayHotelCount: Array.isArray(data.display_hotels) ? data.display_hotels.length : 0,
+                    persisted,
+                    readbackVerified: persistenceOutcome.readbackVerified,
+                    displayOnly: saveBlocked || temporaryDisplayOnly,
+                    sourceBusinessDate: String(data.source_business_date || ''),
+                    responseDateStatus: String(data.response_date_status || 'target_date_unverified'),
+                });
+                const sourceReady = isCtripVerifiedReportSource(provisionalFetchMeta);
                 setOnlineDataResult(selectCtripFetchResponsePayload(data));
                 const allHotels = useDisplayHotels(data.display_hotels || [], data.display_summary || null, {
                     orderEstimateDataDate: endDate,
                     orderEstimateTargetDataDate: endDate,
                     orderEstimateFetchedAt: data.fetched_at || '',
+                    sourceReady,
                 });
                 setOnlineDataFilterDates({ startDate, endDate });
-                const persistenceOutcome = buildCtripPersistenceOutcome(data);
-                const savedCount = persistenceOutcome.savedCount;
                 setSavedCount(savedCount);
-                const saveBlocked = data.save_status === 'blocked';
-                const temporaryDisplayOnly = data.save_status === 'display_only';
-                const persistenceStatus = persistenceOutcome.persistenceStatus;
-                const persisted = persistenceOutcome.persisted && !saveBlocked && !temporaryDisplayOnly;
                 const qunarVisitorGap = data.qunar_visitor_quality?.status === 'partial_qunar_visitor_gap';
                 const identityCheckWarning = data.identity_check?.warning === true;
                 const ctripRowsReturned = Number(data.display_hotel_count || allHotels.length || 0) > 0;
                 const ctripFetchReady = ctripRowsReturned;
-                setFetchSuccess(!persistenceOutcome.businessFailed && (
-                    persisted || (ctripFetchReady && (saveBlocked || temporaryDisplayOnly))
-                ));
                 if (temporaryDisplayOnly) {
                     notify(res.message || '临时 Cookie 查询成功；结果仅本页展示，未保存 Cookie、未创建门店、未入库。', 'info');
                 } else if (saveBlocked) {
@@ -2034,7 +2126,10 @@ window.SUXI_CTRIP_STATIC = window.SUXI_CTRIP_STATIC_FULL = (() => {
                     persisted,
                     readbackVerified: persistenceOutcome.readbackVerified,
                     displayOnly: saveBlocked || temporaryDisplayOnly,
+                    sourceBusinessDate: String(data.source_business_date || ''),
+                    responseDateStatus: String(data.response_date_status || 'target_date_unverified'),
                 });
+                setFetchSuccess(allHotels.length > 0 && isCtripVerifiedReportSource(currentFetchMeta));
                 setTableTab('sales');
                 if (persisted) {
                     setLatestMeta({ ...(getLatestMeta() || {}), ...currentFetchMeta });
@@ -3062,6 +3157,38 @@ window.SUXI_CTRIP_STATIC = window.SUXI_CTRIP_STATIC_FULL = (() => {
                 caveat: '由三个含取消口径推算值计算，非平台直接返回的同程及分销订单明细',
             },
         };
+        const historicalFallback = row?.earlyMorningFallback && typeof row.earlyMorningFallback === 'object'
+            ? row.earlyMorningFallback
+            : {};
+        const historicalTrafficInputs = ['totalDetailNum', 'convertionRate', 'qunarDetailVisitors', 'qunarDetailCR'];
+        const historicalAppliedFields = Array.isArray(historicalFallback.applied_fields)
+            ? historicalFallback.applied_fields.map(value => String(value || '').trim())
+            : [];
+        const usesHistoricalTraffic = historicalTrafficInputs.some(field => historicalAppliedFields.includes(field));
+        if (usesHistoricalTraffic) {
+            return {
+                totalOrdersIncludingCancelled,
+                totalOrderConversionRatio,
+                ctripOrders: null,
+                qunarOrders: null,
+                ctripUndistributedOrders: null,
+                ctripEstimateExcessOrders: null,
+                status: 'historical_traffic_reference_only',
+                displayLabel: '历史流量仅供参考，渠道订单待更新',
+                sourceLabel: `访客/转化来自 ${historicalFallback.source_data_date || '历史快照'}，不得与当前总平台订单混合推算`,
+                formulas,
+                inputs,
+                missingInputs,
+                provenance,
+                identity,
+                estimateAvailability: {
+                    ...estimateAvailability,
+                    status: 'historical_traffic_reference_only',
+                    pending: true,
+                    reason: 'historical_traffic_reference_only',
+                },
+            };
+        }
         if (estimateAvailability.pending) {
             return {
                 totalOrdersIncludingCancelled,
@@ -3103,24 +3230,27 @@ window.SUXI_CTRIP_STATIC = window.SUXI_CTRIP_STATIC_FULL = (() => {
         const ctripEstimateExcessOrders = !hasAllInputs
             ? null
             : Math.max(0, -residualOrders);
+        const totalConflict = hasAllInputs && residualOrders < 0;
         const signedResidualLabel = residualOrders === null
             ? ''
             : `${residualOrders > 0 ? '+' : ''}${residualOrders}`;
         const sourceLabel = !hasAllInputs
             ? `缺少推算输入：${missingInputs.join('、')}；未用 0 或旧数据补位`
-            : `总订单（含取消）按总平台订单÷${totalOrderConversionRatioText()} 四舍五入推算${totalOrderConversionRatio === 0.75 ? '' : `；本行默认计算为负，已逐级改用${totalOrderConversionRatioText()}有效率`}；同程艺龙和携程小程序以及其他分销渠道（含取消）为该总数减去携程APP、去哪儿含取消推算订单的残差，非平台返回明细`;
+            : (totalConflict
+                ? `总订单（含取消）降至总平台订单÷${totalOrderConversionRatioText()} 后，仍小于携程APP与去哪儿估算订单之和；当前输入口径冲突，不输出其他渠道订单`
+                : `总订单（含取消）按总平台订单÷${totalOrderConversionRatioText()} 四舍五入推算${totalOrderConversionRatio === 0.75 ? '' : `；本行默认计算为负，已逐级改用${totalOrderConversionRatioText()}有效率`}；同程艺龙和携程小程序以及其他分销渠道（含取消）为该总数减去携程APP、去哪儿含取消推算订单的残差，非平台返回明细`);
 
         return {
             totalOrdersIncludingCancelled,
             totalOrderConversionRatio,
             ctripOrders,
             qunarOrders,
-            ctripUndistributedOrders: residualOrders,
+            ctripUndistributedOrders: totalConflict ? null : residualOrders,
             ctripEstimateExcessOrders,
-            status: !hasAllInputs ? 'input_missing' : 'derived',
+            status: !hasAllInputs ? 'input_missing' : (totalConflict ? 'ctrip_ecosystem_total_conflict' : 'derived'),
             displayLabel: !hasAllInputs
                 ? '输入缺失'
-                : `同程及分销推算 ${signedResidualLabel} 单`,
+                : (totalConflict ? '口径冲突' : `同程及分销推算 ${signedResidualLabel} 单`),
             sourceLabel,
             formulas,
             inputs,
@@ -4094,6 +4224,7 @@ window.SUXI_CTRIP_STATIC = window.SUXI_CTRIP_STATIC_FULL = (() => {
 
     return {
         CtripConfigHistory,
+        CtripCompetitorFutureWindowPanel,
         ctripProfilePrimaryCategoryOptions,
         ctripProfileDefaultModuleOptions,
         ctripProfileForbiddenFieldKeys,
@@ -4166,6 +4297,7 @@ window.SUXI_CTRIP_STATIC = window.SUXI_CTRIP_STATIC_FULL = (() => {
         selectCtripFetchResponsePayload,
         resolveCtripPlatformHotelIdFromConfig,
         buildCtripFetchMeta,
+        isCtripVerifiedReportSource,
         buildCtripFetchRawFailureResult,
         runCtripFetchDataFlow,
         buildLatestCtripSnapshotModel,
@@ -4202,5 +4334,6 @@ window.SUXI_CTRIP_STATIC = window.SUXI_CTRIP_STATIC_FULL = (() => {
         getCtripCookieApiCorePresetEndpoints,
         captureCtripBusinessDownloadSnapshot,
         buildCtripBusinessCanvas,
+        createCompetitorFutureWindowController,
     };
 })();

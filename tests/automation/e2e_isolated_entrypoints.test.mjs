@@ -34,6 +34,7 @@ test('all package E2E write-capable entrypoints route through the dedicated isol
     'test:e2e:temporal',
     'test:e2e:public-page',
     'test:e2e:operating-question',
+    'test:e2e:operating-finance',
     'test:e2e:transition',
     'test:e2e:stability',
     'test:e2e:quick',
@@ -59,9 +60,11 @@ test('every Playwright spec is classified by the isolated runner', () => {
     'edge-input-guard.spec.js',
     'frontend_full_render_transition.spec.js',
     'full-click-coverage.spec.js',
+    'hotel_data_analyst_role.spec.js',
     'module-smoke.spec.js',
     'operating_question_action_card.spec.js',
     'operating_question_floating.spec.js',
+    'operating_finance_control_center.spec.js',
     'ota-auth-strong-reminder.spec.js',
     'public-page-task-bridge.spec.js',
     'security_monitoring_page.spec.js',
@@ -120,6 +123,12 @@ test('business E2E preserves the formal P0 gate and labels its fallback report a
   assert.doesNotMatch(businessChains, /authority_verifier|external_p0_verifier/);
 });
 
+test('GitHub CI executes the OTA to revenue to operations business chain', () => {
+  assert.match(workflow, /Verify OTA to revenue to operations business chain/);
+  assert.match(workflow, /run:\s+npm run test:e2e:business/);
+  assert.match(workflow, /SUXI_E2E_DB_NAME:\s+hotelx_ci_test/);
+});
+
 test('public-page task bridge has a dedicated authenticated browser entrypoint', () => {
   assert.match(isolatedRunner, /--public-page-only/);
   assert.match(isolatedRunner, /public-page-task-bridge\.spec\.js/);
@@ -133,6 +142,7 @@ test('operating-question browser journeys share the dedicated isolated entrypoin
   assert.match(isolatedRunner, /--operating-question-only/);
   assert.match(isolatedRunner, /operating_question_action_card\.spec\.js/);
   assert.match(isolatedRunner, /operating_question_floating\.spec\.js/);
+  assert.match(isolatedRunner, /hotel_data_analyst_role\.spec\.js/);
   assert.equal(
     packageJson.scripts['test:e2e:operating-question'],
     'node tests/automation/run-quick-e2e-isolated.mjs --operating-question-only',
@@ -141,12 +151,22 @@ test('operating-question browser journeys share the dedicated isolated entrypoin
   assert.match(workflow, /run:\s+npm run test:e2e:operating-question/);
 });
 
+test('operating-finance has a dedicated authenticated isolated entrypoint', () => {
+  assert.match(isolatedRunner, /--operating-finance-only/);
+  assert.match(isolatedRunner, /operating_finance_control_center\.spec\.js/);
+  assert.equal(
+    packageJson.scripts['test:e2e:operating-finance'],
+    'node tests/automation/run-quick-e2e-isolated.mjs --operating-finance-only',
+  );
+});
+
 test('isolated runner always selects a dedicated database and self-hosted loopback server', () => {
   assert.match(isolatedRunner, /const dedicatedDatabaseName = configuredDedicatedDatabase !== ''/);
   assert.match(isolatedRunner, /performanceOnly \? 'hotelx_performance_e2e' : 'hotelx_e2e';/);
   assert.match(isolatedRunner, /requires a dedicated \*_test\/\*_testing\/\*_e2e database name/);
   assert.match(isolatedRunner, /const selfHosted = true;/);
   assert.match(isolatedRunner, /SUXI_E2E_DB_OVERRIDE: '1'/);
+  assert.match(isolatedRunner, /SUXI_DISABLE_MODEL_CALLS: '1'/);
   assert.match(isolatedRunner, /SUXI_E2E_ISOLATED_RUNNER: '1'/);
   assert.match(isolatedRunner, /startLocalOriginServer/);
   assert.match(isolatedRunner, /function runNodeChild\(args, env\)/);

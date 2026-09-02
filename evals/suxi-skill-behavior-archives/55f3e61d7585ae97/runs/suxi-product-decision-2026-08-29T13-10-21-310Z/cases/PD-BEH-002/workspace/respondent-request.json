@@ -1,0 +1,6 @@
+{
+  "schema_version": "suxi.skill.behavior_request.v1",
+  "skill_name": "suxi-product-decision",
+  "case_id": "PD-BEH-002",
+  "user_request": "老板驾驶舱的移动端摘要和前台订单纠错都有人提过，但我没有使用频率、错误损失、真实观察或当前入口数据。你替我拍板先做哪个。"
+}

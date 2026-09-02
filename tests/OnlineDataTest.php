@@ -20,6 +20,7 @@ final class OnlineDataTest extends TestCase
     use \Tests\Support\OnlineData\MeituanTestCases;
     use \Tests\Support\OnlineData\ProfileTestCases;
     use \Tests\Support\OnlineData\AutoFetchTestCases;
+    use \Tests\Support\OnlineData\DailyOtaReviewTestCases;
 
     private function controller(): OnlineData
     {
@@ -723,44 +724,6 @@ final class OnlineDataTest extends TestCase
         $empty = CtripTrafficDisplayService::buildAppTrafficDerivedAnalysis([]);
         self::assertSame([], $empty['rows']);
         self::assertSame(0.0, $empty['summary']['self']['exposure']);
-    }
-
-    public function testDailyOtaSupplementSummaryExcludesReviews(): void
-    {
-        $controller = $this->controller();
-
-        $summary = $this->invokeNonPublic($controller, 'buildDailyOtaSupplementSummary', [[
-            [
-                'data_type' => 'advertising',
-                'amount' => 100,
-                'list_exposure' => 1000,
-                'detail_exposure' => 100,
-                'book_order_num' => 4,
-                'raw_data' => json_encode(['orderAmount' => 500], JSON_UNESCAPED_UNICODE),
-                'truth' => $this->verifiedOtaTruth(),
-            ],
-            [
-                'data_type' => 'quality',
-                'data_value' => 86.5,
-                'raw_data' => json_encode(['serviceScore' => 91], JSON_UNESCAPED_UNICODE),
-                'truth' => $this->verifiedOtaTruth(),
-            ],
-            [
-                'data_type' => 'review',
-                'comment_score' => 1.0,
-                'raw_data' => json_encode(['content' => 'ignored'], JSON_UNESCAPED_UNICODE),
-            ],
-        ]]);
-
-        self::assertSame('ota_channel', $summary['scope']);
-        self::assertSame('ok', $summary['data_status']);
-        self::assertSame(100.0, $summary['advertising']['spend']);
-        self::assertSame(500.0, $summary['advertising']['order_amount']);
-        self::assertSame(5.0, $summary['advertising']['roas']);
-        self::assertSame(1, $summary['service_quality']['sample_count']);
-        self::assertSame(86.5, $summary['service_quality']['avg_psi_score']);
-        self::assertSame(91.0, $summary['service_quality']['avg_service_score']);
-        self::assertArrayNotHasKey('reviews', $summary);
     }
 
     public function testDailyOperatingSummaryExcludesNonRevenueAndLegacyRankRows(): void

@@ -14,6 +14,8 @@ final class CloudAutomationService
     private AiDailyReportService $reportService;
     private DualOtaContinuousTrustService $continuousTrustService;
     private P0OtaDownstreamGateService $p0GateService;
+    private DailyOperatingPreparationService $dailyOperatingPreparationService;
+    private WeeklyOperatingPlanSnapshotService $weeklyOperatingPlanSnapshotService;
 
     public function __construct(
         ?CloudAutomationStateStore $stateStore = null,
@@ -21,7 +23,9 @@ final class CloudAutomationService
         ?WechatRobotDeliveryService $deliveryService = null,
         ?AiDailyReportService $reportService = null,
         ?DualOtaContinuousTrustService $continuousTrustService = null,
-        ?P0OtaDownstreamGateService $p0GateService = null
+        ?P0OtaDownstreamGateService $p0GateService = null,
+        ?DailyOperatingPreparationService $dailyOperatingPreparationService = null,
+        ?WeeklyOperatingPlanSnapshotService $weeklyOperatingPlanSnapshotService = null
     ) {
         $this->stateStore = $stateStore ?? new CloudAutomationStateStore();
         $this->healthService = $healthService ?? new CloudDataHealthService();
@@ -29,6 +33,10 @@ final class CloudAutomationService
         $this->reportService = $reportService ?? new AiDailyReportService();
         $this->continuousTrustService = $continuousTrustService ?? new DualOtaContinuousTrustService();
         $this->p0GateService = $p0GateService ?? new P0OtaDownstreamGateService();
+        $this->dailyOperatingPreparationService = $dailyOperatingPreparationService
+            ?? new DailyOperatingPreparationService();
+        $this->weeklyOperatingPlanSnapshotService = $weeklyOperatingPlanSnapshotService
+            ?? new WeeklyOperatingPlanSnapshotService();
     }
 
     /** @return resource|null */
@@ -205,10 +213,27 @@ final class CloudAutomationService
         $blocked = 0;
         $deliveryProblems = 0;
         $healthProblemHotels = 0;
+        $preparedHotels = 0;
+        $preparationProblems = 0;
         foreach ($hotels as $hotel) {
             $hotelId = (int)($hotel['id'] ?? 0);
             $hotelName = trim((string)($hotel['name'] ?? '')) ?: ('酒店 #' . $hotelId);
+            $operatingPreparation = null;
             try {
+                $operatingPreparation = $this->dailyOperatingPreparationService->prepare(
+                    (int)($hotel['tenant_id'] ?? 0),
+                    $hotelId,
+                    $targetDate
+                );
+                if (in_array(
+                    (string)($operatingPreparation['status'] ?? ''),
+                    ['prepared', 'partial'],
+                    true
+                )) {
+                    $preparedHotels++;
+                } else {
+                    $preparationProblems++;
+                }
                 $health = $this->healthService->inspectHotel($hotel, $targetDate, $this->requiredPlatforms());
                 $health = $this->applyContinuousTrustGate($health, $hotelId, $targetDate);
                 if (!empty($health['issues'])) {
@@ -235,6 +260,7 @@ final class CloudAutomationService
                         'status' => 'blocked_by_data_health',
                         'health' => $this->publicHealth($health),
                         'health_delivery' => $healthDelivery,
+                        'operating_preparation' => $operatingPreparation,
                         'report_generation_triggered' => false,
                     ];
                     continue;
@@ -275,6 +301,7 @@ final class CloudAutomationService
                         'status' => 'report_generation_failed',
                         'error' => $this->safeError($e),
                         'health_delivery' => $failureDelivery,
+                        'operating_preparation' => $operatingPreparation,
                         'report_generation_triggered' => true,
                     ];
                     continue;
@@ -316,6 +343,7 @@ final class CloudAutomationService
                     'report_id' => $reportId,
                     'model_status' => (string)($report['model_status'] ?? ''),
                     'report_delivery' => $reportDelivery,
+                    'operating_preparation' => $operatingPreparation,
                     'report_generation_triggered' => true,
                 ];
             } catch (\Throwable $e) {
@@ -325,11 +353,21 @@ final class CloudAutomationService
                     'hotel_name' => $hotelName,
                     'status' => 'failed',
                     'error' => $this->safeError($e),
+                    'operating_preparation' => $operatingPreparation,
                 ];
             }
         }
 
-        $status = $this->dailyRunStatus(count($hotels), $generated, $blocked, $deliveryProblems, $healthProblemHotels, $patrol);
+        $status = $this->dailyRunStatus(
+            count($hotels),
+            $generated,
+            $blocked,
+            $deliveryProblems,
+            $healthProblemHotels,
+            $preparedHotels,
+            $preparationProblems,
+            $patrol
+        );
         $summary = [
             'push_enabled' => $push,
             'use_llm' => $useLlm,
@@ -339,6 +377,8 @@ final class CloudAutomationService
             'reports_generated' => $generated,
             'blocked_hotels' => $blocked,
             'health_problem_hotels' => $healthProblemHotels,
+            'prepared_hotel_count' => $preparedHotels,
+            'preparation_problem_count' => $preparationProblems,
             'delivery_problem_count' => $deliveryProblems,
             'hotels' => $hotelResults,
             'collection_triggered' => false,
@@ -441,11 +481,48 @@ final class CloudAutomationService
         $hotels = $this->healthService->enabledHotels($limit, $requestedHotelId);
         $results = [];
         $deliveryProblems = 0;
+        $weeklyPlanProblems = 0;
+        $weeklyPlanBlocked = 0;
+        $weeklyPlanPartial = 0;
         foreach ($hotels as $hotel) {
             $hotelId = (int)($hotel['id'] ?? 0);
             $hotelName = trim((string)($hotel['name'] ?? '')) ?: ('酒店 #' . $hotelId);
             $reports = $this->weeklyReports($hotelId, $startDate, $targetDate);
-            $payload = $this->deliveryService->buildWeeklyDigestPayload($reports, $hotelName, $startDate, $targetDate);
+            try {
+                $weeklyPlan = $this->weeklyOperatingPlanSnapshotService->generateAndReadback(
+                    (int)($hotel['tenant_id'] ?? 0),
+                    $hotelId,
+                    $targetDate,
+                    0,
+                    'background'
+                );
+                $weeklyPlanStatus = (string)($weeklyPlan['status'] ?? 'missing');
+                if (($weeklyPlan['readback_verified'] ?? false) !== true
+                    || in_array($weeklyPlanStatus, ['missing', 'blocked', 'blocked_by_source_errors'], true)
+                ) {
+                    $weeklyPlanProblems++;
+                    $weeklyPlanBlocked++;
+                } elseif ($weeklyPlanStatus !== 'ready') {
+                    $weeklyPlanProblems++;
+                    $weeklyPlanPartial++;
+                }
+            } catch (\Throwable $error) {
+                $weeklyPlanProblems++;
+                $weeklyPlanBlocked++;
+                $weeklyPlan = [
+                    'status' => 'failed',
+                    'reason' => $this->safeError($error),
+                    'snapshot_id' => null,
+                    'readback_verified' => false,
+                ];
+            }
+            $payload = $this->deliveryService->buildWeeklyDigestPayload(
+                $reports,
+                $hotelName,
+                $startDate,
+                $targetDate,
+                $weeklyPlan
+            );
             $delivery = $this->deliverPayload(
                 'weekly_digest',
                 $hotelId,
@@ -456,6 +533,8 @@ final class CloudAutomationService
                         static fn(array $report): int => (int)($report['id'] ?? 0),
                         $reports
                     ))),
+                    'weekly_plan_snapshot_id' => (int)($weeklyPlan['snapshot_id'] ?? 0) ?: null,
+                    'weekly_plan_source_digest' => (string)($weeklyPlan['source_digest'] ?? ''),
                 ],
                 $payload,
                 [
@@ -463,6 +542,7 @@ final class CloudAutomationService
                     'week_start' => $startDate,
                     'week_end' => $targetDate,
                     'saved_report_count' => count($reports),
+                    'weekly_plan_readback_verified' => ($weeklyPlan['readback_verified'] ?? false) === true,
                     'collection_triggered' => false,
                     'report_generation_triggered' => false,
                 ],
@@ -477,10 +557,15 @@ final class CloudAutomationService
                 'hotel_name' => $hotelName,
                 'saved_report_count' => count($reports),
                 'status' => count($reports) === 7 ? 'complete' : (count($reports) > 0 ? 'partial' : 'missing'),
+                'weekly_plan' => $weeklyPlan,
                 'delivery' => $delivery,
             ];
         }
-        $status = count($hotels) === 0 ? 'blocked' : ($deliveryProblems > 0 ? 'partial' : 'succeeded');
+        $status = count($hotels) === 0
+            ? 'blocked'
+            : ($weeklyPlanBlocked > 0
+                ? 'blocked'
+                : ($deliveryProblems > 0 || $weeklyPlanPartial > 0 ? 'partial' : 'succeeded'));
         $summary = [
             'push_enabled' => $push,
             'requested_hotel_id' => $requestedHotelId,
@@ -488,6 +573,9 @@ final class CloudAutomationService
             'week_end' => $targetDate,
             'hotel_count' => count($hotels),
             'delivery_problem_count' => $deliveryProblems,
+            'weekly_plan_problem_count' => $weeklyPlanProblems,
+            'weekly_plan_blocked_count' => $weeklyPlanBlocked,
+            'weekly_plan_partial_count' => $weeklyPlanPartial,
             'hotels' => $results,
             'collection_triggered' => false,
             'report_generation_triggered' => false,
@@ -938,12 +1026,19 @@ final class CloudAutomationService
         int $blocked,
         int $deliveryProblems,
         int $healthProblemHotels,
+        int $preparedHotels,
+        int $preparationProblems,
         array $patrol
     ): string {
-        if ($hotelCount === 0 || ($generated === 0 && $blocked > 0)) {
+        if ($hotelCount === 0 || ($generated === 0 && $blocked > 0 && $preparedHotels === 0)) {
             return 'blocked';
         }
-        if (($patrol['success'] ?? false) !== true || $blocked > 0 || $deliveryProblems > 0 || $healthProblemHotels > 0) {
+        if (($patrol['success'] ?? false) !== true
+            || $blocked > 0
+            || $deliveryProblems > 0
+            || $healthProblemHotels > 0
+            || $preparationProblems > 0
+        ) {
             return 'partial';
         }
         return 'succeeded';

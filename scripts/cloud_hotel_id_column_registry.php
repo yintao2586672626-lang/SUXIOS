@@ -60,6 +60,7 @@ function cloudHotelIdColumnRegistry(): array
         ['energy_saving_suggestions', 'hotel_id', 'hotel_id'],
         ['maintenance_plans', 'hotel_id', 'hotel_id'],
         ['price_suggestions', 'hotel_id', 'hotel_id'],
+        ['price_suggestion_shadow_replays', 'hotel_id', 'hotel_id'],
         ['demand_forecasts', 'hotel_id', 'hotel_id'],
         ['competitor_analysis', 'hotel_id', 'hotel_id'],
         ['competitor_price_log', 'store_id', 'legacy_store_id'],
@@ -98,6 +99,15 @@ function cloudHotelIdColumnRegistry(): array
         ['ai_report_generation_tasks', 'hotel_id', 'hotel_id'],
         ['ai_report_input_cache', 'hotel_id', 'hotel_id'],
         ['ai_daily_report_broadcast_snapshots', 'hotel_id', 'hotel_id'],
+        ['weekly_operating_plan_snapshots', 'hotel_id', 'hotel_id'],
+        ['operation_scheduled_review_scan_cursors', 'hotel_id', 'hotel_id'],
+        ['user_learning_memory_events', 'hotel_id', 'hotel_id'],
+        ['user_learning_memory_preferences', 'hotel_id', 'hotel_id'],
+        ['user_guidance_journeys', 'hotel_id', 'hotel_id'],
+        ['ai_suggestion_calibration_snapshots', 'hotel_id', 'hotel_id'],
+        ['ai_suggestion_calibration_feedback_events', 'hotel_id', 'hotel_id'],
+        ['ai_suggestion_calibration_observation_events', 'hotel_id', 'hotel_id'],
+        ['ai_suggestion_strategy_comparisons', 'hotel_id', 'hotel_id'],
         ['ai_report_presentation_specs', 'hotel_id', 'hotel_id'],
         ['ai_report_presentation_artifacts', 'hotel_id', 'hotel_id'],
         ['dingdandao_pms_push_dispatches', 'hotel_id', 'hotel_id'],
@@ -105,6 +115,7 @@ function cloudHotelIdColumnRegistry(): array
         ['hotel_operating_cycle_events', 'hotel_id', 'hotel_id'],
         ['hotel_operating_cycle_evidence', 'hotel_id', 'hotel_id'],
         ['hotel_operating_goal_contracts', 'hotel_id', 'hotel_id'],
+        ['hotel_data_analyst_feedbacks', 'hotel_id', 'hotel_id'],
         ['hotel_operating_memories', 'hotel_id', 'hotel_id'],
         ['hotel_operating_profiles', 'hotel_id', 'hotel_id'],
         ['hotel_operating_question_council_runs', 'hotel_id', 'hotel_id'],
@@ -152,6 +163,13 @@ function cloudHotelIdColumnRegistry(): array
         ['wecom_aibot_binding_codes', 'hotel_id', 'hotel_id'],
         ['wecom_inbound_bindings', 'hotel_id', 'hotel_id'],
         ['wecom_inbound_events', 'hotel_id', 'hotel_id'],
+        ['wecom_inbound_sender_binding_challenges', 'hotel_id', 'hotel_id'],
+        ['wecom_inbound_sender_bindings', 'hotel_id', 'hotel_id'],
+        ['wecom_task_receipts', 'hotel_id', 'hotel_id'],
+        ['ota_settlement_import_batches', 'hotel_id', 'hotel_id'],
+        ['hotel_on_books_snapshots', 'hotel_id', 'hotel_id'],
+        ['hotel_demand_event_facts', 'hotel_id', 'hotel_id'],
+        ['hotel_monthly_operating_finance_snapshots', 'hotel_id', 'hotel_id'],
 
         // Both sides of a controlled SOP replication are system-hotel aliases.
         ['hotel_operating_sop_replications', 'source_hotel_id', 'source_hotel_id'],
@@ -164,6 +182,13 @@ function cloudHotelIdColumnRegistry(): array
     ];
 
     $negative = [
+        // Immutable evidence identity. The adjacent canonical hotel_id migrates;
+        // source_hotel_id remains the original routing identity bound into digests.
+        ['wecom_task_receipts', 'source_hotel_id', 'immutable_source_hotel_id_evidence'],
+        ['ota_settlement_import_batches', 'source_hotel_id', 'immutable_source_hotel_id_evidence'],
+        ['hotel_on_books_snapshots', 'source_hotel_id', 'immutable_source_hotel_id_evidence'],
+        ['hotel_demand_event_facts', 'source_hotel_id', 'immutable_source_hotel_id_evidence'],
+        ['hotel_monthly_operating_finance_snapshots', 'source_hotel_id', 'immutable_source_hotel_id_evidence'],
         // OTA/competitor/provider identifiers are not SUXIOS system hotel IDs.
         ['online_daily_data', 'hotel_id', 'ota_platform_hotel_id'],
         ['competitor_price_log', 'hotel_id', 'competitor_entity_id'],

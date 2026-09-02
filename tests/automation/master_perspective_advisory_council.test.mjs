@@ -2,12 +2,13 @@ import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
+import { readRouteContractSource } from '../../scripts/lib/route_contract_source.mjs';
 
 const read = (path) => readFileSync(path, 'utf8');
 const catalog = read('app/service/MasterPerspectiveAdvisoryCatalog.php');
 const council = read('app/service/OperatingQuestionCouncilService.php');
 const controller = read('app/controller/OperatingIntelligence.php');
-const routes = read('route/app.php');
+const routes = readRouteContractSource();
 const component = read('public/components/system/operating-intelligence-components.js');
 const componentLoader = read('public/components/system/operating-intelligence-loader.js');
 const appMain = read('public/app-main.js');
@@ -52,6 +53,7 @@ test('catalog implements seven bounded domains and selects no more than five', (
 test('real operating-question entry runs, persists and reads back the advisory council', () => {
   assert.match(routes, /operating-questions\/:id\/council-runs\/latest/);
   assert.match(routes, /operating-questions\/:id\/council-runs\/:runId/);
+  assert.match(routes, /operating-questions\/:id\/council-runs\/:runId\/resume/);
   assert.match(routes, /operating-questions\/:id\/council-runs/);
   assert.ok(
     routes.indexOf("Route::get('/operating-questions/:id/council-runs/latest'")
@@ -64,8 +66,12 @@ test('real operating-question entry runs, persists and reads back the advisory c
     'nested exact council readback route must precede the generic question route',
   );
   assert.match(controller, /runQuestionCouncil/);
+  assert.match(controller, /reserveShadow/);
+  assert.doesNotMatch(controller, /set_time_limit\(180\)/);
   assert.match(controller, /latestQuestionCouncil/);
+  assert.match(controller, /resumeQuestionCouncil/);
   assert.match(controller, /readQuestionCouncil/);
+  assert.match(council, /operating_question_council\.v6/);
   assert.match(council, /operating_question_council\.v3/);
   assert.match(council, /operating_question_council\.v2/);
   assert.match(council, /persistence_status'\] = 'readback_verified'/);
@@ -76,6 +82,35 @@ test('real operating-question entry runs, persists and reads back the advisory c
   assert.match(council, /verified_fact_scope_mismatch/);
   assert.match(council, /verified_fact_source_drift_detected/);
   assert.match(council, /content_digest/);
+  assert.match(council, /public function reserveShadow/);
+  assert.match(council, /public function processRun/);
+  assert.match(council, /public function claimRunForWorker/);
+  assert.match(council, /public function resumeRun/);
+  assert.match(council, /checkpoint_resume_supported' => true/);
+  assert.match(council, /council_worker_fencing_conflict/);
+  assert.match(council, /council_worker_lease_expired/);
+  assert.match(council, /lease_expires_epoch/);
+  assert.match(council, /withWorkerLeaseTimePredicate/);
+  assert.match(council, /lockQuestionForCouncilReservation/);
+  assert.match(council, /findActiveRun/);
+  assert.match(council, /reused_active/);
+  assert.match(council, /prepareDispatchAttempt/);
+  assert.match(council, /dispatch_attempt_id/);
+  assert.match(council, /dispatch_history/);
+  assert.match(council, /databaseEpoch/);
+  assert.match(council, /persisted_contract_version/);
+  assert.match(council, /legacy_migration_required/);
+  assert.match(council, /advisory_panel_contract_digest/);
+  assert.match(council, /lens_contract_digest/);
+  assert.match(council, /council_panel_contract_drift/);
+  assert.match(council, /quarantineSynthesis/);
+  assert.match(council, /content_quarantined/);
+  assert.match(council, /council_terminal_fact_drift_requires_new_question/);
+  assert.match(council, /council_terminal_fact_drift/);
+  assert.match(council, /start_receipt/);
+  assert.match(council, /worker_receipt/);
+  assert.match(council, /SELECT GET_LOCK/);
+  assert.match(council, /buildWindowsWorkerLauncherCommand/);
   assert.match(council, /primary_action_draft_requires_user_trigger/);
   assert.match(council, /'automatic_execution' => false/);
   assert.match(council, /'real_human_consensus' => false/);
@@ -101,6 +136,13 @@ test('UI tells the truth about source, disagreement, falsification and execution
   assert.match(appMain, /real_human_consensus === false/);
   assert.match(appMain, /source_skills_installed === false/);
   assert.match(appMain, /council-runs\/\$\{Number\(saved\.id \|\| 0\)\}/);
+  assert.match(appMain, /SUXI_OPERATING_INTELLIGENCE_COMPONENTS\.pollCouncilRun/);
+  assert.match(componentLoader, /pollCouncilRun/);
+  assert.match(componentLoader, /submitCouncilRun/);
+  assert.match(componentLoader, /councilTerminalStatuses/);
+  assert.match(componentLoader, /already_running/);
+  assert.match(componentLoader, /expected_lease_generation/);
+  assert.match(componentLoader, /pollOnly: true/);
   assert.doesNotMatch(appMain, /影子复核(?:回读|运行|身份|没有|保存)/);
 });
 

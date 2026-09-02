@@ -198,59 +198,6 @@ class RevenueAi extends Base
         }
     }
 
-    public function createCockpitPendingApproval(): Response
-    {
-        try {
-            $filters = $this->filters();
-            $hotelId = (int)($filters['hotel_id'] ?? 0);
-            $actorId = (int)($this->currentUser->id ?? 0);
-            $businessDate = trim((string)($filters['business_date'] ?? ''));
-            $platform = strtolower(trim((string)($filters['platform'] ?? '')));
-            if ($hotelId <= 0 || $actorId <= 0 || $businessDate === '') {
-                throw new InvalidArgumentException('revenue_cockpit_approval_scope_invalid');
-            }
-            if (!in_array($platform, ['ctrip', 'meituan', 'all_ota'], true)) {
-                throw new InvalidArgumentException('revenue_cockpit_approval_platform_invalid');
-            }
-            $this->assertRevenueAiHotelCapability($hotelId, self::EXECUTION_PERMISSION);
-            $filters['strict_readback_only'] = true;
-            $overview = (new RevenueAiOverviewService())->overview($filters);
-            $overview = $this->withCockpitStrictEvidence($overview, $filters);
-            $this->assertDualOtaCurrentReceiptReady(
-                $overview,
-                (int)($overview['cockpit_strict_evidence']['tenant_id'] ?? 0),
-                $hotelId,
-                $businessDate,
-                $platform
-            );
-            $tenantId = (int)($overview['cockpit_strict_evidence']['tenant_id'] ?? 0);
-            if ($tenantId <= 0) {
-                throw new RuntimeException('revenue_cockpit_fact_tenant_missing', 422);
-            }
-            $payload = (new RevenueCockpitApprovalService())->createFromOverview(
-                $overview,
-                $tenantId,
-                $hotelId,
-                $businessDate,
-                $platform,
-                $actorId
-            );
-            return $this->success(
-                $payload,
-                '待审批行动已保存并严格回读；未创建执行任务，也未触发 OTA 写入或外部动作'
-            );
-        } catch (InvalidArgumentException $e) {
-            return $this->error($e->getMessage(), 422);
-        } catch (RuntimeException $e) {
-            return $this->error($e->getMessage(), $this->httpCode($e));
-        } catch (Throwable $e) {
-            return $this->error(
-                $this->safeErrorMessage($e, 'revenue_cockpit_pending_approval_failed'),
-                $this->httpCodeFromThrowable($e)
-            );
-        }
-    }
-
     public function readCockpitPendingApproval(): Response
     {
         try {

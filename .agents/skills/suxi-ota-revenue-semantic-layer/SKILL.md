@@ -1,6 +1,6 @@
 ---
 name: suxi-ota-revenue-semantic-layer
-description: 用于回答宿析OS OTA数据、收益指标、AI决策支持、运营执行闭环、定价建议、投资或转让决策相关的数据分析问题。
+description: 用于宿析OS OTA收益分析、定价与投资转让证据边界：选择指标定义、表、来源优先级、粒度、过滤、数据质量，以及定价、运营、投资或转让建议的证据边界和执行闭环；不用于在线采集、报告生成、界面实现或完整 ROI/IRR 现金流测算。
 ---
 
 # SUXIOS OTA Revenue Semantic Layer

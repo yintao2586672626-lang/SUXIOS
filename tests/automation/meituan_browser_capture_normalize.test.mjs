@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  normalizeMeituanAdvertisingRows,
   attachVerifiedMeituanCaptureScope,
   buildMeituanOrderFlowReplayUrls,
   isImportableMeituanTrafficRow,
@@ -203,6 +204,11 @@ test('Meituan order API aggregates sale price and room nights without promoting 
   assert.equal(rows[0].amount, 2543.53);
   assert.equal(rows[0].quantity, 3);
   assert.equal(rows[0].book_order_num, 3);
+  assert.equal(rows[0].date_basis, 'order_date');
+  assert.equal(rows[0].date_source, 'request.query.startTime');
+  assert.equal(rows[0].order_count_basis, 'listed_orders');
+  assert.equal(rows[0].room_nights_basis, 'booked_room_nights');
+  assert.equal(rows[0].record_kind, 'order_daily_aggregate');
   assert.equal(rows[0].amount_scope, 'meituan_sale_price_total');
   assert.equal(rows[0].amount_source_unit, 'cent');
   assert.equal(rows[0].floor_price_used_as_revenue, false);
@@ -432,6 +438,33 @@ test('Meituan search keyword cards expand to search_keyword rows', () => {
   assert.equal(rows[0].keyword, '机场酒店');
   assert.equal(rows[0].dimension, '机场酒店');
   assert.equal(rows[0].data_value, 320);
+});
+
+test('Meituan advertising rows preserve campaign metrics and source evidence', () => {
+  const rows = normalizeMeituanAdvertisingRows({
+    data: {
+      cureShops: [
+        {
+          campaignId: 'campaign-1',
+          impressions: 1200,
+          clicks: 96,
+          todayCost: 240,
+          orderAmount: 1440,
+          orderCount: 8,
+        },
+      ],
+    },
+  }, {
+    defaultDataDate: '2026-06-26',
+    sourcePath: 'response',
+  });
+
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].data_type, 'advertising');
+  assert.equal(rows[0].campaignId, 'campaign-1');
+  assert.equal(rows[0].todayCost, 240);
+  assert.equal(rows[0].orderAmount, 1440);
+  assert.equal(rows[0]._source_path, 'response.advertising_rows.0');
 });
 
 test('Meituan flow forecast keeps semantically verified rows separate from actual traffic', () => {

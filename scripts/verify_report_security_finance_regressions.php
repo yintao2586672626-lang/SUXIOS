@@ -188,6 +188,13 @@ assert_regression(str_contains($competitorReportSource, '$this->isValidReportPri
 assert_regression(str_contains($competitorReportSource, "'invalid_report_price'"), 'competitor report must audit invalid competitor price text instead of saving price=0');
 foreach ([
     'Ctrip browser Profile adapter' => $ctripBrowserAdapterSource,
+    'Meituan browser Profile adapter' => $meituanBrowserAdapterSource,
+] as $label => $source) {
+    assert_regression(!str_contains($source, "['secret']"), $label . ' must not hydrate stored credential material');
+    assert_regression(!str_contains($source, '--cookies-file='), $label . ' must not inject a durable credential through a temporary file');
+    assert_regression(!str_contains($source, 'createCookieFile('), $label . ' must not create a temporary stored-Cookie file');
+}
+foreach ([
     'Profile capture concern' => $platformProfileCaptureSource,
     'Chromium Cookie extractor' => $chromiumCookieExtractorSource,
 ] as $label => $source) {

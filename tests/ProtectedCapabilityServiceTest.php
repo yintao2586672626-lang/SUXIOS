@@ -459,7 +459,7 @@ final class ProtectedCapabilityServiceTest extends TestCase
             'default_enabled_modules' => ['operation_decision'],
         ]);
         $paths = [
-            '/api/revenue-ai/cockpit/pending-approval',
+            '/api/revenue-ai/cockpit/decision-snapshots/9/pending-approval',
             '/api/agent/feasibility-report/9/execution-intent',
             '/api/agent/price-suggestions/9/execution-intent',
             '/api/ai-daily-reports/9/actions/0/execution-intent',
@@ -578,6 +578,40 @@ final class ProtectedCapabilityServiceTest extends TestCase
             $service->classifyPath('POST', '/api/operating-opportunities/runs/81/unknown-write'),
             'an undeclared write must not inherit operation.view from the read prefix'
         );
+    }
+
+    public function testOperatingFinanceReadsAndWritesUseSeparateProtectedCapabilities(): void
+    {
+        $service = new ProtectedCapabilityService([
+            'default_enabled_modules' => ['operation_decision'],
+        ]);
+        $viewer = $this->userWithPermissions(['operation.view']);
+        $executor = $this->userWithPermissions(['operation.execute']);
+
+        $read = $service->classifyPath('GET', '/api/operating-finance/overview');
+        self::assertIsArray($read);
+        self::assertSame('operation_decision', $read['key']);
+        self::assertSame('operation.view', $read['permission']);
+        self::assertTrue($service->authorizeContext($viewer, $read, ['hotel_id' => 7])['allowed']);
+        self::assertFalse($service->authorizeContext($executor, $read, ['hotel_id' => 7])['allowed']);
+
+        foreach ([
+            '/api/operating-finance/settlements/import',
+            '/api/operating-finance/settlements/import-file',
+            '/api/operating-finance/on-books-snapshots',
+            '/api/operating-finance/demand-events',
+            '/api/operating-finance/monthly-finance',
+        ] as $path) {
+            $write = $service->classifyPath('POST', $path);
+            self::assertIsArray($write, $path);
+            self::assertSame('operation_execution', $write['key'], $path);
+            self::assertSame('operation.execute', $write['permission'], $path);
+            self::assertTrue($write['controller_hotel_scope'], $path);
+            self::assertFalse($service->authorizeContext($viewer, $write, ['hotel_id' => 7])['allowed'], $path);
+            self::assertTrue($service->authorizeContext($executor, $write, ['hotel_id' => 7])['allowed'], $path);
+        }
+
+        self::assertNull($service->classifyPath('POST', '/api/operating-finance/unknown-write'));
     }
 
     public function testOperatingOpportunitySummaryRedactionKeepsUsableMetricsAndRemovesSensitiveDetail(): void

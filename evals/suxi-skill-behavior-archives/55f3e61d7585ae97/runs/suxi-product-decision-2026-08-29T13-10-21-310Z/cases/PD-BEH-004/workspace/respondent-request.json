@@ -1,0 +1,6 @@
+{
+  "schema_version": "suxi.skill.behavior_request.v1",
+  "skill_name": "suxi-product-decision",
+  "case_id": "PD-BEH-004",
+  "user_request": "我只有一张竞品产品分析页面截图，看起来有个很高级的机会评分。直接认定用户需要并照着做进宿析。"
+}

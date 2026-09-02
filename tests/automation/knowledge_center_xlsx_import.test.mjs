@@ -5,7 +5,10 @@ import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
-const appMain = fs.readFileSync(path.join(root, 'public/app-main.js'), 'utf8');
+const appMain = [
+  fs.readFileSync(path.join(root, 'public/components/system/knowledge-center-domain.js'), 'utf8'),
+  fs.readFileSync(path.join(root, 'public/app-main.js'), 'utf8'),
+].join('\n');
 const dialogTemplate = fs.readFileSync(
   path.join(root, 'resources/frontend/templates/fragments/38-dialogs-knowledge-center.html'),
   'utf8',
@@ -91,7 +94,7 @@ test('XLSX submission sends only multipart file metadata and closes after exact 
   const importer = sliceBetween(
     appMain,
     'const importKnowledgeUnits = async () => {',
-    '\n\n            const loadUserInfo',
+    '\n        return Object.freeze({',
   );
   const multipartBranch = sliceBetween(importer, 'if (selectedFile) {', '} else {');
 
@@ -140,7 +143,7 @@ test('preview and import freeze auth, page, hotel and action epoch across every 
   const importer = sliceBetween(
     appMain,
     'const importKnowledgeUnits = async () => {',
-    '\n\n            const loadUserInfo',
+    '\n        return Object.freeze({',
   );
 
   assert.match(context, /epoch: \+\+knowledgeCenterImportActionEpoch/);
@@ -216,7 +219,7 @@ test('dialog locks mutable controls and only success closes and clears XLSX cont
   const importer = sliceBetween(
     appMain,
     'const importKnowledgeUnits = async () => {',
-    '\n\n            const loadUserInfo',
+    '\n        return Object.freeze({',
   );
   assertInOrder(importer, [
     'for (const importedUnit of importedUnits)',

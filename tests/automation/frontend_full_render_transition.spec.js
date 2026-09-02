@@ -46,6 +46,104 @@ const user = {
   },
 };
 
+test('remembered compass session stays startup-safe while secondary panels become ready', async ({ page }) => {
+  test.setTimeout(45000);
+  const pageErrors = [];
+  page.on('pageerror', error => pageErrors.push(String(error?.message || error)));
+  await page.addInitScript((profile) => {
+    sessionStorage.setItem('token', 'transition-probe-token');
+    localStorage.setItem('suxios_auth_user_cache_v1', JSON.stringify({
+      saved_at: Date.now(),
+      user: profile,
+    }));
+  }, user);
+  await page.route('**/api/**', async route => {
+    const pathname = new URL(route.request().url()).pathname;
+    let data = { list: [], items: [], total: 0 };
+    if (pathname === '/api/auth/info') data = user;
+    if (pathname === '/api/hotels') {
+      data = {
+        list: [{ id: 7, name: 'Transition Probe Hotel', tenant_id: 7, status: 1 }],
+        total: 1,
+      };
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ code: 200, data, message: 'ok' }),
+    });
+  });
+
+  await page.goto(appUrl, { waitUntil: 'domcontentloaded' });
+  await expect(page.getByRole('heading', { name: '今日经营看板', exact: true }).first()).toBeVisible({ timeout: 15000 });
+  await page.waitForTimeout(10000);
+  const diagnostics = await page.evaluate(() => ({
+    renderPhase: document.documentElement.dataset.suxiRenderPhase || '',
+    interactiveError: document.documentElement.dataset.suxiAuthenticatedInteractiveError || '',
+    startupError: document.getElementById('app')?.dataset.startupErrorRendered || '',
+  }));
+  expect(diagnostics).toEqual({
+    renderPhase: 'startup',
+    interactiveError: '',
+    startupError: '',
+  });
+  expect(pageErrors.filter(message => /缺少数据健康静态展示工具项|Revenue AI 数据基准日合同工具尚未加载/.test(message))).toEqual([]);
+});
+
+test('remembered authenticated deep link waits for the full render before page work starts', async ({ page }) => {
+  test.setTimeout(45000);
+  const pageErrors = [];
+  page.on('pageerror', error => pageErrors.push(String(error?.message || error)));
+  await page.addInitScript((profile) => {
+    sessionStorage.setItem('token', 'transition-probe-token');
+    localStorage.setItem('suxios_auth_user_cache_v1', JSON.stringify({
+      saved_at: Date.now(),
+      user: profile,
+    }));
+  }, user);
+  await page.route('**/app-deferred-helpers.min.js*', async route => {
+    await new Promise(resolve => setTimeout(resolve, 1200));
+    await route.continue();
+  });
+  await page.route('**/api/**', async route => {
+    const pathname = new URL(route.request().url()).pathname;
+    let data = { list: [], items: [], total: 0 };
+    if (pathname === '/api/auth/info') data = user;
+    if (pathname === '/api/hotels') {
+      data = {
+        list: [{ id: 7, name: 'Transition Probe Hotel', tenant_id: 7, status: 1 }],
+        total: 1,
+      };
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ code: 200, data, message: 'ok' }),
+    });
+  });
+
+  const deepLinkUrl = new URL(appUrl);
+  deepLinkUrl.searchParams.set('page', 'online-data');
+  await page.goto(deepLinkUrl.toString(), { waitUntil: 'domcontentloaded' });
+  await page.waitForFunction(() => (
+    document.documentElement.dataset.suxiRenderPhase === 'full'
+    || Boolean(document.documentElement.dataset.suxiAuthenticatedInteractiveError)
+  ), null, { timeout: FULL_RENDER_PROMOTION_TIMEOUT_MS });
+
+  const diagnostics = await page.evaluate(() => ({
+    renderPhase: document.documentElement.dataset.suxiRenderPhase || '',
+    interactiveError: document.documentElement.dataset.suxiAuthenticatedInteractiveError || '',
+    currentPage: document.querySelector('[data-testid="app-main"]')?.dataset.currentPage || '',
+  }));
+  expect(diagnostics).toEqual({
+    renderPhase: 'full',
+    interactiveError: '',
+    currentPage: 'online-data',
+  });
+  await expect(page.getByRole('heading', { name: '线上数据与采集', exact: true }).first()).toBeVisible({ timeout: 10000 });
+  expect(pageErrors.filter(message => /缺少数据健康静态展示工具项|Revenue AI 数据基准日合同工具尚未加载/.test(message))).toEqual([]);
+});
+
 test('five focus pages paint their heading within 300ms on first switch and revisit', async ({ page }) => {
   test.setTimeout(90000);
   const pageErrors = [];
@@ -313,7 +411,7 @@ test('trusted revenue keeps its nested analysis entry across startup-to-full ren
   expect(pageErrors, `page errors: ${pageErrors.join(' | ')}`).toEqual([]);
 });
 
-test('new-hotel three-source wizard loads after demand and renders the truthful first step', async ({ page }) => {
+test('new-hotel three-source wizard reuses the deferred component bundle and renders the truthful first step', async ({ page }) => {
   test.setTimeout(30000);
   const pageErrors = [];
   let onboardingBundleRequests = 0;
@@ -351,11 +449,15 @@ test('new-hotel three-source wizard loads after demand and renders the truthful 
 
   await page.goto(appUrl, { waitUntil: 'domcontentloaded' });
   await expect(page.getByRole('heading', { name: '今日经营看板', exact: true }).first()).toBeVisible({ timeout: 15000 });
-  expect(onboardingBundleRequests, 'onboarding component bundle must stay off the landing-page startup path').toBe(0);
+  expect(onboardingBundleRequests, 'the after-first-paint component bundle must never be requested twice').toBeLessThanOrEqual(1);
 
   await page.getByText('门店管理', { exact: true }).first().click();
   await expect(page.getByRole('heading', { name: '酒店管理', exact: true }).first()).toBeVisible({ timeout: 5000 });
-  expect(onboardingBundleRequests, 'hotel list alone must not load the onboarding component bundle').toBe(0);
+  await expect.poll(
+    () => onboardingBundleRequests,
+    { message: 'the full-render transition must load the deferred component bundle exactly once' },
+  ).toBe(1);
+  const fullRenderBundleRequests = onboardingBundleRequests;
 
   await page.getByRole('button', { name: '新增门店', exact: true }).first().click();
   await expect(page.getByRole('heading', { name: '新增门店接入', exact: true })).toBeVisible({ timeout: 5000 });
@@ -364,7 +466,7 @@ test('new-hotel three-source wizard loads after demand and renders the truthful 
   await expect(page.getByTestId('hotel-onboarding-hotel-step')).toBeVisible();
   await expect(page.getByTestId('hotel-onboarding-hotel-step')).toContainText('创建、授权或保存身份不会自动采集，也不会向企业微信发送消息。');
   await expect(page.getByTestId('hotel-onboarding-create')).toHaveText('创建门店并继续');
-  expect(onboardingBundleRequests, 'onboarding component bundle should be requested exactly once on demand').toBe(1);
+  expect(onboardingBundleRequests, 'opening onboarding must reuse the already loaded component bundle').toBe(fullRenderBundleRequests);
   expect(pageErrors, `page errors: ${pageErrors.join(' | ')}`).toEqual([]);
 });
 

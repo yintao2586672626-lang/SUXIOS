@@ -1,0 +1,156 @@
+{
+  "skill_name": "suxi-ota-revenue-semantic-layer",
+  "evals": [
+    {
+      "id": "P-001",
+      "query": "读取西安天诚昨天已验证入库的携程 OTA 事实，按酒店、平台和业务日期计算 ADR 与 RevPAR；缺少可售间夜就返回不可计算。",
+      "should_trigger": true,
+      "boundary": "verified_fact_metrics",
+      "reason": "使用已验证 OTA 事实计算收益指标并保留缺失分母"
+    },
+    {
+      "id": "P-002",
+      "query": "解释宿析OS里 OTA ADR、OCC、RevPAR、净收入和佣金率的标准口径、分子分母与数据粒度。",
+      "should_trigger": true,
+      "boundary": "metric_definition",
+      "reason": "要求选择标准收益指标定义、口径和粒度"
+    },
+    {
+      "id": "P-003",
+      "query": "携程和美团的销售额日期口径不一致，判断能不能比较，并说明应采用哪个来源和哪些限制。",
+      "should_trigger": true,
+      "boundary": "source_precedence",
+      "reason": "需要判断跨平台来源、日期和口径能否对齐"
+    },
+    {
+      "id": "P-004",
+      "query": "基于已验证的未来需求、pickup、竞品价和库存给出加价、持平或降价建议，并明确 advisory_only 和人工审批边界。",
+      "should_trigger": true,
+      "boundary": "pricing_advisory",
+      "reason": "要求从可信收益信号形成受治理的定价建议"
+    },
+    {
+      "id": "P-005",
+      "query": "说明 online_daily_data 到逻辑 fact_ota_daily 应怎样筛酒店、平台、日期和 data_type，再汇总 OTA 收益。",
+      "should_trigger": true,
+      "boundary": "canonical_query_path",
+      "reason": "要求使用语义层选择规范表、过滤器和汇总路径"
+    },
+    {
+      "id": "P-006",
+      "query": "可售间夜和房费收入都没采到时，为什么不能把 OCC、ADR、RevPAR 填成 0？返回什么数据质量状态？",
+      "should_trigger": true,
+      "boundary": "data_gap",
+      "reason": "要求按语义契约处理缺失分母和不可计算状态"
+    },
+    {
+      "id": "P-007",
+      "query": "目前只有携程渠道事实，能否下结论说全酒店出租率下降？请区分 OTA 渠道和全酒店经营口径。",
+      "should_trigger": true,
+      "boundary": "channel_scope",
+      "reason": "要求限制 OTA 渠道事实的经营结论范围"
+    },
+    {
+      "id": "P-008",
+      "query": "检查这条收益建议有没有从 intent、task 到 execution evidence 的闭环；没有执行证据时不能说已经调价。",
+      "should_trigger": true,
+      "boundary": "execution_evidence",
+      "reason": "要求解释建议、审批、执行和证据之间的语义状态"
+    },
+    {
+      "id": "P-009",
+      "query": "PMS 订单金额、folio 入账、payment 和 AR 能不能直接替代 room_revenue？请给出对账和指标使用边界。",
+      "should_trigger": true,
+      "boundary": "accounting_fact_boundary",
+      "reason": "要求区分订单、账务、支付、应收和房费收入事实"
+    },
+    {
+      "id": "P-010",
+      "query": "转让判断里只有 OTA 收益趋势和评分，哪些字段可以进入决策，哪些仍缺全酒店财务和尽调证据？",
+      "should_trigger": true,
+      "boundary": "decision_evidence_scope",
+      "reason": "要求判断 OTA 证据进入投资或转让决策的适用范围"
+    },
+    {
+      "id": "N-001",
+      "query": "登录携程和美团后台，采集今天的订单、房价、库存、流量和广告数据。",
+      "should_trigger": false,
+      "boundary": "collection_not_semantics",
+      "expected_route": "suxi-ota-ops",
+      "reason": "这是在线采集和登录态任务，不是收益语义分析"
+    },
+    {
+      "id": "N-002",
+      "query": "把携程接口 response 的 source path 和 metric key 映射到字段目录、数据库表和 UI 状态。",
+      "should_trigger": false,
+      "boundary": "field_closure_not_semantics",
+      "expected_route": "suxi-ctrip-field-table-closure",
+      "reason": "这是接口响应到字段表和 UI 的闭环"
+    },
+    {
+      "id": "N-003",
+      "query": "生成今天的携程美团经营日报、异常归因和管理层摘要。",
+      "should_trigger": false,
+      "boundary": "report_not_semantics",
+      "expected_route": "suxi-ai-report",
+      "reason": "交付物是 AI 经营报告而不是语义层选择"
+    },
+    {
+      "id": "N-004",
+      "query": "重做收益驾驶舱的 KPI 卡片、日期筛选器、趋势图和明细表交互。",
+      "should_trigger": false,
+      "boundary": "ui_not_semantics",
+      "expected_route": "suxi-dashboard-ui",
+      "reason": "这是驾驶舱界面设计与实现"
+    },
+    {
+      "id": "N-005",
+      "query": "收益接口现在报 500，按复现、定位、最小修复和回归的顺序处理。",
+      "should_trigger": false,
+      "boundary": "bugfix_not_semantics",
+      "expected_route": "suxi-test-guard",
+      "reason": "这是故障修复和验证守卫任务"
+    },
+    {
+      "id": "N-006",
+      "query": "根据租金、装修、加盟费、GOP 和现金流完整测算项目 ROI、IRR 与回本周期。",
+      "should_trigger": false,
+      "boundary": "investment_model_not_semantics",
+      "expected_route": "suxi-investment-calculation",
+      "reason": "这是完整酒店投资测算模型"
+    },
+    {
+      "id": "N-007",
+      "query": "用 Scrapling 从公开酒店页面提取价格 HTML，留下选择器证据和解析 fixture。",
+      "should_trigger": false,
+      "boundary": "html_extraction_not_semantics",
+      "expected_route": "scrapling",
+      "reason": "这是授权 HTML 提取和解析器证据任务"
+    },
+    {
+      "id": "N-008",
+      "query": "数据健康、AI 日报和自动调价这周只能做一个，替我做产品优先级决策。",
+      "should_trigger": false,
+      "boundary": "product_choice_not_semantics",
+      "expected_route": "none",
+      "excluded_explicit_route": "suxi-product-decision",
+      "reason": "产品决策 Skill 仅允许显式调用，本条未显式点名，因此隐式路由应保持 none"
+    },
+    {
+      "id": "N-009",
+      "query": "只把这段 RevPAR 英文定义翻译成中文，不分析数据，也不要修改系统。",
+      "should_trigger": false,
+      "boundary": "translation_only",
+      "expected_route": "none",
+      "reason": "纯翻译不需要加载收益语义层"
+    },
+    {
+      "id": "N-010",
+      "query": "评估这个外部收益管理 Skill 是否值得学习，并把通过验证的机制复刻进宿析OS。",
+      "should_trigger": false,
+      "boundary": "absorption_not_semantics",
+      "expected_route": "suxi-capability-absorption",
+      "reason": "这是外部能力评估和吸纳复刻任务"
+    }
+  ]
+}

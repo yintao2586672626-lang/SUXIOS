@@ -19,6 +19,8 @@ use think\facade\Db;
 
 trait CtripAutoFetchExecutionConcern
 {
+    use CtripAutoFetchBusinessConcern;
+
     private function executeCtripAutoFetch(int $hotelId, string $dataDate, array $options = []): array
     {
         $collectorFlow = (new CtripCollectorWorkflowService())->normalizeFlow(
@@ -283,62 +285,6 @@ trait CtripAutoFetchExecutionConcern
         return $this->configValueToArray($credentialPayload['auth_data'] ?? []);
     }
 
-    private function executeCtripBusinessAutoFetchTask(string $label, array $body, int $hotelId): array
-    {
-        return $this->withAutoFetchCredential('ctrip', $body, $hotelId, function (array $credentialPayload) use ($label, $body, $hotelId): array {
-            $cookieHeader = $this->autoFetchCredentialCookieHeader($credentialPayload);
-            if ($cookieHeader === '') {
-                return ['module' => $label, 'saved_count' => 0, 'success' => false, 'message' => 'credential_payload_missing_cookie'];
-            }
-
-            $startDate = (string)($body['start_date'] ?? '');
-            $endDate = (string)($body['end_date'] ?? $startDate);
-            $result = $this->sendHttpRequest(
-                (string)($body['url'] ?? 'https://ebooking.ctrip.com/datacenter/api/dataCenter/report/getDayReportCompeteHotelReport'),
-                ['nodeId' => (string)($body['node_id'] ?? '24588'), 'startDate' => $startDate, 'endDate' => $endDate],
-                $cookieHeader
-            );
-            if (empty($result['success']) || !is_array($result['data'] ?? null)) {
-                return ['module' => $label, 'saved_count' => 0, 'success' => false, 'message' => 'ctrip_request_failed'];
-            }
-
-            $responseData = $result['data'];
-            $responseStatus = $responseData['responseStatus'] ?? $responseData['status'] ?? $responseData['code'] ?? null;
-            if ($responseStatus !== null && !in_array($responseStatus, [0, '0', 200, '200'], true)) {
-                return ['module' => $label, 'saved_count' => 0, 'success' => false, 'message' => 'ctrip_api_rejected'];
-            }
-
-            $expectedPlatformHotelId = trim((string)(
-                $credentialPayload['platform_hotel_id']
-                ?? $credentialPayload['ctrip_hotel_id']
-                ?? $credentialPayload['ota_hotel_id']
-                ?? $credentialPayload['hotel_id']
-                ?? ''
-            ));
-            $persistenceContext = [
-                'ingestion_method' => 'manual_cookie_api',
-                'config_id' => trim((string)($body['config_id'] ?? '')),
-            ];
-            if ($this->isMeaningfulCtripPlatformHotelId($expectedPlatformHotelId, $hotelId)) {
-                $persistenceContext['self_hotel_ids'] = [$expectedPlatformHotelId];
-            }
-            $savedCount = $this->parseAndSaveData($responseData, $startDate, $endDate, $hotelId, $persistenceContext);
-            $taskResult = [
-                'module' => $label,
-                'saved_count' => $savedCount,
-                'success' => $savedCount > 0,
-                'message' => $savedCount > 0 ? 'ok' : 'no_rows',
-                'credential_source' => 'vault',
-            ];
-            $runReadback = method_exists($this, 'lastCtripStructuredRunReadback')
-                ? $this->lastCtripStructuredRunReadback()
-                : [];
-            if ($savedCount > 0 && !empty($runReadback['write_success'])) {
-                $taskResult['run_readback'] = $runReadback;
-            }
-            return $taskResult;
-        });
-    }
 
     private function executeCtripCookieApiAutoFetchTask(string $label, array $body, int $hotelId, string $dataDate): array
     {
@@ -558,7 +504,7 @@ trait CtripAutoFetchExecutionConcern
             ?? ''
         ));
         $savedCount = is_array($responseData)
-            ? $this->parseAndSaveTrafficData($responseData, $startDate, $endDate, strtolower($platform), $hotelId, $platform, $expectedPlatformHotelId)
+            ? $this->parseAndSaveTrafficData($responseData, $startDate, $endDate, strtolower($platform), $hotelId, $platform, $expectedPlatformHotelId, 'manual_cookie_api')
             : 0;
         return ['module' => $label, 'saved_count' => $savedCount, 'success' => $savedCount > 0, 'message' => $savedCount > 0 ? 'ok' : 'no rows'];
     }
@@ -634,7 +580,7 @@ trait CtripAutoFetchExecutionConcern
             return ['success' => false, 'message' => '无法创建携程采集输出目录', 'saved_count' => 0];
         }
 
-        $outputPath = $outputDir . DIRECTORY_SEPARATOR . 'ctrip_browser_auto_' . BrowserProfileCaptureRequestService::safeFilePart($profileId) . '_' . date('YmdHis') . '.json';
+        $outputPath = $outputDir . DIRECTORY_SEPARATOR . 'ctrip_browser_auto_' . BrowserProfileCaptureRequestService::safeFilePart($profileId) . '_' . BrowserProfileCaptureRequestService::uniqueCaptureRunToken() . '.json';
         $fieldConfigPayload = $this->buildCtripProfileFieldConfigPayload($this->readCtripProfileCaptureFields(true));
         $sectionRequest = [
             'sections' => $periodOptions['capture_sections']
@@ -704,11 +650,11 @@ trait CtripAutoFetchExecutionConcern
         }
         $args[] = '--field-config=' . $fieldConfigPath;
 
-        try {
-            $runResult = $this->runMeituanCaptureProcess($args, $projectRoot, $interactiveBrowser ? 600 : 120);
-        } finally {
-            $this->removeAutoFetchCookieFile($fieldConfigPath);
+        $lockedRun = $this->runLockedBrowserProfileAutoFetch('ctrip', $profileId, $args, $projectRoot, $interactiveBrowser ? 600 : 120, [$fieldConfigPath]);
+        if (!$lockedRun['lock_acquired']) {
+            return ['success' => false, 'message' => 'resource_busy_login', 'status_code' => 'resource_busy_login', 'saved_count' => 0];
         }
+        $runResult = $lockedRun['run_result'];
         if (!$runResult['success']) {
             return [
                 'success' => false,
@@ -887,11 +833,11 @@ trait CtripAutoFetchExecutionConcern
         $trafficRows = $this->applyAutoFetchPeriodOptionsToRows($this->extractCtripCapturedSection($payload, 'traffic'), $periodOptions);
         $trafficSaved = 0;
         if (!empty($trafficRows)) {
-            $trafficSaved = $this->parseAndSaveTrafficData(['data' => ['list' => $trafficRows]], $dataDate, $dataDate, 'ctrip', $hotelId, 'Ctrip', $requestHotelId);
+            $trafficSaved = $this->parseAndSaveTrafficData(['data' => ['list' => $trafficRows]], $dataDate, $dataDate, 'ctrip', $hotelId, 'ctrip', $requestHotelId, 'browser_profile');
         }
         if ($trafficSaved === 0) {
             foreach ($this->extractCtripCapturedResponseData($payload, 'traffic') as $responseData) {
-                $trafficSaved += $this->parseAndSaveTrafficData($responseData, $dataDate, $dataDate, 'ctrip', $hotelId, 'Ctrip', $requestHotelId);
+                $trafficSaved += $this->parseAndSaveTrafficData($responseData, $dataDate, $dataDate, 'ctrip', $hotelId, 'ctrip', $requestHotelId, 'browser_profile');
             }
         }
         $modules[] = ['module' => 'browser_traffic', 'saved_count' => $trafficSaved, 'success' => $trafficSaved > 0];

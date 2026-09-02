@@ -388,7 +388,7 @@ Route::group('api/online-data', function () {
     Route::get('/collection-resources', 'ota.SyncController/collectionResourceCatalog');
     Route::get('/collection-status', 'ota.SyncController/collectionStatus');
     Route::get('/data-sources', 'ota.SyncController/dataSourceList');
-    Route::get('/ctrip/order-analysis', 'ota.SyncController/ctripOrderAnalysis');
+    require __DIR__ . '/domain/online_data_order_analysis.php';
     Route::post('/data-sources/:id/sync', 'ota.SyncController/syncDataSource');
     Route::post('/data-sources', 'ota.SyncController/saveDataSource');
     Route::delete('/data-sources/:id', 'ota.SyncController/deleteDataSource');
@@ -510,7 +510,6 @@ Route::group('api/revenue-ai', function () {
     Route::post('/cockpit/decision-snapshots/:id/pending-approval', 'RevenueAi/createCockpitOpportunityPendingApproval');
     Route::post('/cockpit/decision-snapshots', 'RevenueAi/createCockpitDecisionSnapshot');
     Route::get('/cockpit/pending-approval', 'RevenueAi/readCockpitPendingApproval');
-    Route::post('/cockpit/pending-approval', 'RevenueAi/createCockpitPendingApproval');
     Route::post('/price-suggestions/:id/review', 'RevenueAi/reviewPriceSuggestion');
     Route::post('/price-suggestions/:id/execution-intent', 'RevenueAi/createPriceSuggestionExecutionIntent');
 })->middleware(\app\middleware\Auth::class);
@@ -573,7 +572,7 @@ Route::group('api/simulation', function () {
 // The manifest is required here to preserve the original registration order.
 require __DIR__ . '/domain/operations.php';
 // ==================== 竞对价格监控 API ====================
-Route::get('api/competitor/events', 'CompetitorApi/events')->middleware(\app\middleware\Auth::class);
+Route::get('api/competitor/events', 'CompetitorApi/events')->middleware(\app\middleware\Auth::class); Route::get('api/competitor/future-window', 'CompetitorApi/futureWindow')->middleware(\app\middleware\Auth::class);
 Route::get('api/competitor/targets', 'CompetitorApi/targets')->middleware(\app\middleware\Auth::class);
 Route::post('api/competitor/manual-observation', 'CompetitorApi/manualObservation')->middleware(\app\middleware\Auth::class);
 Route::post('api/competitor/task', 'CompetitorApi/task');

@@ -1,0 +1,45 @@
+{
+  "method": "anchored_inverse",
+  "scope": {
+    "platform": "meituan",
+    "system_hotel_id": "source-only:linquan-qingpishu",
+    "business_date": "2026-08-20",
+    "timezone": "Asia/Shanghai",
+    "scope_key": "meituan|source-only-linquan|workbook-hourly-v1|exposure-users-detail-visitors|people|same-day-cumulative|23:00|Asia-Shanghai",
+    "source_path": "user-workbook/8月20日每小时曝光",
+    "source_file_sha256": "AEF57DCBC9BA8E4DE2B45FB010989C7E5878D24DAC234A0FB38991BF38B0F90A",
+    "metric_definition": "same-day cumulative people; exposure manually checked and detail visitors observed in merchant backend",
+    "metric_definition_version": "workbook-2026-08-20-v1",
+    "time_basis": "same_day_cumulative",
+    "cumulative_cutoff": "23:00",
+    "target_metric": "exposure_users",
+    "target_unit": "people",
+    "browse_metric": "detail_visitors",
+    "browse_unit": "people"
+  },
+  "rate_policy": "rounded",
+  "rate_precision": 4,
+  "anchor": {
+    "date": "2026-08-20",
+    "platform": "meituan",
+    "system_hotel_id": "source-only:linquan-qingpishu",
+    "scope_key": "meituan|source-only-linquan|workbook-hourly-v1|exposure-users-detail-visitors|people|same-day-cumulative|23:00|Asia-Shanghai",
+    "detail_visitors_actual": 126,
+    "exposure_users_actual": 1437,
+    "quality": "verified_actual",
+    "source_ref": "临泉青皮树_曝光数据汇总_8月.xlsx#8月20日每小时曝光!B17:C17"
+  },
+  "target": {
+    "date": "2026-08-20",
+    "platform": "meituan",
+    "system_hotel_id": "source-only:linquan-qingpishu",
+    "scope_key": "meituan|source-only-linquan|workbook-hourly-v1|exposure-users-detail-visitors|people|same-day-cumulative|23:00|Asia-Shanghai",
+    "detail_visitors": 126,
+    "detail_visitors_quality": "observed_actual",
+    "source_ref": "临泉青皮树_曝光数据汇总_8月.xlsx#8月20日每小时曝光!B3:B17",
+    "hourly_cumulative_detail_visitors": [
+      { "time": "20:00", "detail_visitors": 107 },
+      { "time": "23:00", "detail_visitors": 126 }
+    ]
+  }
+}

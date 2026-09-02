@@ -47,6 +47,7 @@ export function createWecomAibotMessageHandler({
   recordDelivery,
   writeState,
   now = () => new Date(),
+  wait = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)),
 }) {
   for (const [name, dependency] of Object.entries({
     relay,
@@ -55,6 +56,7 @@ export function createWecomAibotMessageHandler({
     recordDelivery,
     writeState,
     now,
+    wait,
   })) {
     if (typeof dependency !== 'function') {
       throw new TypeError(`wecom_aibot_${name}_invalid`);
@@ -72,21 +74,37 @@ export function createWecomAibotMessageHandler({
     if (!content || !conversationId || !senderId || !msgId) return;
 
     writeState({ last_event_at: now().toISOString() });
+    const relayPayload = {
+      aibot_id: text(body.aibotid || botId),
+      msg_id: msgId,
+      conversation_id: conversationId,
+      sender_id: senderId,
+      chat_type: text(body.chattype),
+      create_time: body.create_time ?? null,
+      message_type: messageType,
+      content,
+    };
     let result;
-    try {
-      result = await relay('/api/internal/wecom-aibot/events', {
-        aibot_id: text(body.aibotid || botId),
-        msg_id: msgId,
-        conversation_id: conversationId,
-        sender_id: senderId,
-        chat_type: text(body.chattype),
-        create_time: body.create_time ?? null,
-        message_type: messageType,
-        content,
-      });
-    } catch {
-      writeState({ last_delivery_status: 'relay_failed' });
-      return;
+    let relayError;
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      try {
+        result = await relay('/api/internal/wecom-aibot/events', relayPayload);
+        relayError = undefined;
+        if (attempt > 1) {
+          writeState({ last_delivery_status: 'relay_recovered', relay_retry_attempts: attempt - 1 });
+        }
+        break;
+      } catch (error) {
+        relayError = error instanceof Error ? error : new Error('wecom_aibot_relay_failed');
+        if (attempt < 3) {
+          writeState({ last_delivery_status: 'relay_retrying', relay_retry_attempt: attempt });
+          await wait(250 * attempt);
+        }
+      }
+    }
+    if (relayError !== undefined) {
+      writeState({ last_delivery_status: 'relay_failed', relay_retry_attempts: 3 });
+      throw relayError;
     }
 
     if (result?.duplicate === true

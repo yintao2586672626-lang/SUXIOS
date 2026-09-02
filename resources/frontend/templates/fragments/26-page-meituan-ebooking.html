@@ -31,6 +31,7 @@
                                         <button type="button" @click="openMeituanStoredDataTab('ads')" :class="['rounded-lg px-4 py-2.5 text-sm font-semibold transition', onlineDataTab === 'meituan-download' &amp;&amp; downloadCenterTab === 'ads' ? 'bg-slate-900 text-white shadow-sm' : 'border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 hover:text-gray-900']">
                                             <i class="fas fa-bullhorn mr-1.5"></i>广告数据
                                         </button>
+                                        <button data-testid="meituan-search-keyword-tab" @click="openMeituanStoredDataTab('keywords')">搜索词</button>
                                     </div>
                                     <div class="flex flex-wrap items-start gap-2">
                                         <button type="button" @click="openHotelManagementForOta" class="rounded-lg border border-gray-200 bg-white px-4 py-2.5 text-sm font-semibold text-gray-600 transition hover:bg-gray-50 hover:text-gray-900">
@@ -46,6 +47,8 @@
                                         </details>
                                     </div>
                                 </div>
+
+                                <ctrip-order-analysis-panel :ctx="$root" detail-mode="summary"></ctrip-order-analysis-panel>
 
                                 <!-- 美团老板工作台主内容 -->
 
@@ -523,7 +526,7 @@
                                     </div>
                                 </div>
 
-                                <div v-if="onlineDataTab === 'meituan-order-flow'" data-testid="meituan-order-flow-page" class="space-y-4">
+                                <div v-if="onlineDataTab === 'meituan-order-flow'" data-testid="meituan-order-flow-page" tabindex="-1" class="space-y-4 focus:outline-none focus:ring-2 focus:ring-yellow-200">
                                     <div data-testid="meituan-order-flow-hero" class="rounded-2xl border px-5 py-5 text-white shadow-sm" style="background:#0b1814;border-color:rgba(220,197,145,.34)">
                                         <div class="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
                                             <div class="flex items-start gap-3">
@@ -685,7 +688,7 @@
                                     </div>
                                 </div>
 
-                                <div v-if="onlineDataTab === 'meituan-orders'">
+                                <div v-if="onlineDataTab === 'meituan-orders'" data-testid="meituan-orders-page" tabindex="-1" class="focus:outline-none focus:ring-2 focus:ring-yellow-200">
                                     <div class="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
                                         <h4 class="font-medium text-blue-800 mb-2">
                                             <i class="fas fa-receipt mr-2"></i>美团订单数据获取
@@ -923,6 +926,7 @@
                                         <button @click="queryMeituanStoredData" class="px-4 py-2 bg-blue-500 text-white rounded-lg">
                                             <i class="fas fa-search mr-2"></i>查询
                                         </button>
+                                        <button v-if="['ads', 'keywords'].includes(downloadCenterTab)" data-testid="meituan-download-current-page-csv" @click="downloadMeituanCurrentPageCsv">下载当前页 CSV</button>
                                     </div>
 
                                     <div v-if="downloadCenterTab === 'all'">
@@ -1184,6 +1188,8 @@
                                             </table>
                                         </div>
                                     </div>
+
+                                    <meituan-search-keyword-workbench v-if="downloadCenterTab === 'keywords'" data-testid="meituan-search-keyword-workbench" :rows="meituanDownloadData.keywordRows" :format-row="formatMeituanKeywordRow" @view="viewOnlineDataDetail"></meituan-search-keyword-workbench>
 
                                     <!-- 广告数据模块 -->
                                     <div v-if="downloadCenterTab === 'ads'">

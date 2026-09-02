@@ -18,6 +18,9 @@ final class PlatformDataSyncService
     use \app\service\concern\PlatformDataSourceExecutionConcern;
     use \app\service\concern\PlatformSyncTaskConcern;
     use \app\service\concern\PlatformDataPersistenceConcern;
+    use \app\service\concern\PlatformMetricNormalizationConcern;
+    use \app\service\concern\PlatformNormalizedConsistencyConcern;
+    use \app\service\concern\PlatformSyncIdentityConcern;
 
     private const RAW_RECORD_PAYLOAD_LIMIT_BYTES = 262144;
     private const COLLECTION_RESOURCE_FRESH_HOURS = 24;
@@ -39,7 +42,6 @@ final class PlatformDataSyncService
     private const MANUAL_IMPORT_METHODS = ['manual', 'import_json', 'import_csv', 'import_excel'];
     private const MANUAL_IMPORT_SOURCE_CONTRACT = 'user_provided_unverified.v1';
     private const ACTIVE_SYNC_TASK_STATUSES = ['pending', 'queued', 'running', 'browser_opened', 'syncing', 'syncing_after_login'];
-
     /** @var array<int, DataSourceAdapter> */
     private array $adapters;
 
@@ -623,6 +625,7 @@ final class PlatformDataSyncService
         return $row;
     }
 
+
     /**
      * Ctrip catalog rows historically initialized every structured column to
      * zero before applying facts. Treat the collector's per-field facts as
@@ -871,24 +874,6 @@ final class PlatformDataSyncService
         ];
 
         return array_intersect_key($row, array_fill_keys($allowed, true));
-    }
-
-    /** @param array<string, mixed> $row */
-    private function isCtripCheckoutOverviewRow(array $row, string $platform, string $dataType): bool
-    {
-        if (strtolower(trim($platform)) !== 'ctrip' || $this->normalizeDataType($dataType) !== 'business') {
-            return false;
-        }
-
-        return strtolower(trim((string)($row['endpoint_id'] ?? ''))) === 'business_market_overview'
-            && strtolower(trim((string)($row['section'] ?? ''))) === 'business_overview';
-    }
-
-    /** @param array<string, mixed> $row @param array<int, string> $keys */
-    private function nullableRoundedInteger(array $row, array $keys): ?int
-    {
-        $value = $this->nullableNumericValue($row, $keys);
-        return $value === null ? null : (int)round($value);
     }
 
     /**

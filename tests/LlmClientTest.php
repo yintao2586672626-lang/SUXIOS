@@ -9,10 +9,56 @@ use app\service\LlmEndpoint;
 use app\service\OutboundUrlGuard;
 use PHPUnit\Framework\TestCase;
 use Tests\Support\ReflectionHelper;
+use think\facade\Env;
 
 final class LlmClientTest extends TestCase
 {
     use ReflectionHelper;
+
+    public function testRuntimeKillSwitchBlocksEveryModelTransportBeforeConfigurationFallback(): void
+    {
+        putenv('SUXI_DISABLE_MODEL_CALLS=1');
+        try {
+            $client = new ScriptedLlmClient(
+                ScriptedLlmClient::modelConfig('primary_model', 'deepseek'),
+                [ScriptedLlmClient::modelConfig('fallback_model', 'openai')],
+                ['primary_model' => [ScriptedLlmClient::success('{"ok":true}')]]
+            );
+            $result = $client->chat('must stay local', 'primary_model', ['request_id' => 'kill-switch-test'], [
+                'idempotency_enabled' => false,
+            ]);
+
+            self::assertFalse($result['ok']);
+            self::assertSame('model_calls_disabled', $result['failure_state']);
+            self::assertFalse($result['business_action_allowed']);
+            self::assertSame([], $client->calls);
+        } finally {
+            putenv('SUXI_DISABLE_MODEL_CALLS');
+        }
+    }
+
+    public function testRuntimeKillSwitchUsesTheStandardThinkPhpEnvironmentStore(): void
+    {
+        putenv('SUXI_DISABLE_MODEL_CALLS');
+        $original = Env::get('SUXI_DISABLE_MODEL_CALLS');
+        Env::set('SUXI_DISABLE_MODEL_CALLS', '1');
+        try {
+            $client = new ScriptedLlmClient(
+                ScriptedLlmClient::modelConfig('primary_model', 'deepseek'),
+                [],
+                ['primary_model' => [ScriptedLlmClient::success('{"ok":true}')]]
+            );
+            $result = $client->chat('must honor project env', 'primary_model', [], [
+                'idempotency_enabled' => false,
+            ]);
+
+            self::assertFalse($result['ok']);
+            self::assertSame('model_calls_disabled', $result['failure_state']);
+            self::assertSame([], $client->calls);
+        } finally {
+            Env::set('SUXI_DISABLE_MODEL_CALLS', $original);
+        }
+    }
 
     public function testConfigIssueIncludesActionableConfigurationMetadata(): void
     {

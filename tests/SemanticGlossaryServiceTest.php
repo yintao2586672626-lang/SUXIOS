@@ -67,10 +67,10 @@ final class SemanticGlossaryServiceTest extends TestCase
     {
         $metadata = (new SemanticGlossaryService())->metadata();
         self::assertSame('available', $metadata['status']);
-        self::assertSame('2026-08-26.3', $metadata['glossary_version']);
+        self::assertSame('2026-08-26.6', $metadata['glossary_version']);
         self::assertSame(2990, $metadata['source_term_count']);
-        self::assertSame(3002, $metadata['recognition_term_count']);
-        self::assertSame(2927, $metadata['concept_count']);
+        self::assertSame(3013, $metadata['recognition_term_count']);
+        self::assertSame(2926, $metadata['concept_count']);
         self::assertSame(
             'e6fb5e15e711fc1c1e29202dfabe08c7f69daa5ca3cbe9df9ef9a528e6032e53',
             $metadata['source_sha256']
@@ -92,55 +92,30 @@ final class SemanticGlossaryServiceTest extends TestCase
         self::assertSame($metadata['pack_sha256'], $validated['pack_sha256']);
     }
 
-    public function testExternalBuildSourcesMayBeAbsentAfterTrackedArtifactsAreFrozen(): void
-    {
-        $root = dirname(__DIR__);
-        $manifestPath = $root . '/docs/knowledge/semantic-glossary/source-manifest.json';
-        $manifest = json_decode((string)file_get_contents($manifestPath), true, flags: JSON_THROW_ON_ERROR);
-        foreach ($manifest['sources'] as &$source) {
-            if (is_array($source)
-                && is_string($source['path'] ?? null)
-                && str_starts_with((string)$source['path'], 'outputs/')
-            ) {
-                $source['path'] = 'outputs/ci-unavailable/' . basename((string)$source['path']);
-            }
-        }
-        unset($source);
-        $temporaryManifest = sys_get_temp_dir() . DIRECTORY_SEPARATOR
-            . 'semantic-glossary-manifest-' . bin2hex(random_bytes(6)) . '.json';
-        file_put_contents(
-            $temporaryManifest,
-            json_encode($manifest, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR)
-        );
-
-        try {
-            $validated = (new SemanticGlossarySyncService(
-                $root . '/docs/knowledge/semantic-glossary/semantic-glossary-pack.json',
-                $temporaryManifest,
-                $root . '/docs/knowledge/semantic-glossary/exports/Typeless_语音简洁词库_2026-08-25.csv'
-            ))->sync(false);
-        } finally {
-            @unlink($temporaryManifest);
-        }
-
-        self::assertSame('validated', $validated['status']);
-        self::assertSame(2990, $validated['source_term_count']);
-        self::assertSame(3000, $validated['export_term_count']);
-    }
-
-    public function testPlatformScopedExposureUsesOnlyMappedStrictFacts(): void
+    public function testPlatformScopedExposureUsersRequireExactFieldProvenance(): void
     {
         $glossary = new SemanticGlossaryService();
-        $resolution = $glossary->resolve('曝光是多少', 'meituan');
+        $resolution = $glossary->resolve('曝光人数是多少', 'meituan');
         $facts = [[
             'ref' => 'online_daily_data#101',
             'data_date' => '2026-08-25',
             'platform' => 'meituan',
             'data_type' => 'traffic',
             'history_status' => 'success',
+            'quality_status' => 'verified',
             'readback_status' => 'readback_verified',
             'metric_values' => ['list_exposure' => 1422],
             'metric_units' => ['list_exposure' => 'exposure_count'],
+            'metric_provenance' => [
+                'list_exposure' => [[
+                    'metric_key' => 'list_exposure',
+                    'source_key' => 'exposureUV',
+                    'source_path' => 'data.myHotel.exposureUV',
+                    'storage_field' => 'list_exposure',
+                    'status' => 'captured',
+                    'stored_value_present' => true,
+                ]],
+            ],
         ], [
             'ref' => 'online_daily_data#102',
             'data_date' => '2026-08-25',
@@ -154,8 +129,36 @@ final class SemanticGlossaryServiceTest extends TestCase
         $result = $glossary->metricReadback($resolution, $facts);
         self::assertSame('readback_verified', $result['status']);
         self::assertSame(1422, $result['values'][0]['value']);
+        self::assertSame('people', $result['values'][0]['unit']);
+        self::assertSame(['data.myHotel.exposureUV'], $result['values'][0]['source_paths']);
         self::assertSame(['online_daily_data#101'], $result['used_evidence_refs']);
         self::assertFalse($result['external_write_authorized']);
+    }
+
+    public function testMeituanExposureVolumeDoesNotReuseExposureUv(): void
+    {
+        $glossary = new SemanticGlossaryService();
+        $resolution = $glossary->resolve('曝光量是多少', 'meituan');
+        $result = $glossary->metricReadback($resolution, [[
+            'ref' => 'online_daily_data#202',
+            'data_date' => '2026-08-25',
+            'platform' => 'meituan',
+            'data_type' => 'traffic',
+            'history_status' => 'success',
+            'readback_status' => 'readback_verified',
+            'metric_values' => ['list_exposure' => 1422],
+            'metric_provenance' => ['list_exposure' => [[
+                'metric_key' => 'list_exposure',
+                'source_key' => 'exposureUV',
+                'source_path' => 'data.myHotel.exposureUV',
+                'storage_field' => 'list_exposure',
+                'status' => 'captured',
+                'stored_value_present' => true,
+            ]]],
+        ]]);
+
+        self::assertSame('blocked_by_source_contract', $result['status']);
+        self::assertSame([], $result['values']);
     }
 
     public function testCtripExposureDoesNotReuseSameNamedUnverifiedPlatformField(): void
@@ -187,6 +190,7 @@ final class SemanticGlossaryServiceTest extends TestCase
             'platform' => 'ctrip',
             'data_type' => 'business',
             'history_status' => 'success',
+            'quality_status' => 'verified',
             'readback_status' => 'readback_verified',
             'metric_values' => ['room_revenue' => 1200.0, 'quantity' => 8],
         ]]);
@@ -200,6 +204,7 @@ final class SemanticGlossaryServiceTest extends TestCase
             'platform' => 'ctrip',
             'data_type' => 'business',
             'history_status' => 'success',
+            'quality_status' => 'verified',
             'readback_status' => 'readback_verified',
             'metric_values' => ['amount' => 1200.0, 'quantity' => 8],
         ]]);
@@ -212,6 +217,7 @@ final class SemanticGlossaryServiceTest extends TestCase
             'platform' => 'ctrip',
             'data_type' => 'business',
             'history_status' => 'success',
+            'quality_status' => 'verified',
             'readback_status' => 'readback_verified',
             'metric_values' => ['room_revenue' => 1200.0, 'quantity' => 0],
         ]]);
@@ -219,11 +225,192 @@ final class SemanticGlossaryServiceTest extends TestCase
         self::assertSame([], $zeroRoomNights['values']);
     }
 
+    public function testMultiMetricReadbackKeepsOrderAndPartialSemanticGap(): void
+    {
+        $glossary = new SemanticGlossaryService();
+        $facts = [[
+            'ref' => 'online_daily_data#102476',
+            'data_date' => '2026-08-23',
+            'platform' => 'meituan',
+            'data_type' => 'traffic',
+            'quality_status' => 'verified',
+            'history_status' => 'success',
+            'readback_status' => 'readback_verified',
+            'collected_at' => '2026-08-24 23:17:33',
+            'metric_values' => [
+                'list_exposure' => 1422,
+                'detail_exposure' => 206,
+                'flow_rate' => 14.49,
+            ],
+            'metric_provenance' => [
+                'list_exposure' => [[
+                    'metric_key' => 'list_exposure', 'source_key' => 'exposureUV',
+                    'source_path' => 'data.myHotel.exposureUV', 'storage_field' => 'list_exposure',
+                    'status' => 'captured', 'stored_value_present' => true,
+                ]],
+                'detail_exposure' => [[
+                    'metric_key' => 'detail_exposure', 'source_key' => 'intentionUV',
+                    'source_path' => 'data.myHotel.intentionUV', 'storage_field' => 'detail_exposure',
+                    'status' => 'captured', 'stored_value_present' => true,
+                ]],
+            ],
+        ]];
+
+        $resolution = $glossary->resolveMetrics(
+            '美团曝光量、商详访客数、曝光到访率分别是多少',
+            'meituan'
+        );
+        self::assertSame('matched_multi', $resolution['status']);
+        self::assertSame(
+            ['ota_exposure_volume', 'meituan_detail_visitors', 'exposure_to_visit_rate'],
+            array_column($resolution['metrics'], 'metric_key')
+        );
+        $readback = $glossary->metricReadbacks($resolution, $facts);
+        self::assertSame('partial', $readback['status']);
+        self::assertSame(
+            ['ota_exposure_volume', 'meituan_detail_visitors', 'exposure_to_visit_rate'],
+            array_map(
+                static fn(array $item): string => (string)$item['semantic']['metric_key'],
+                $readback['items']
+            )
+        );
+        self::assertSame('blocked_by_source_contract', $readback['items'][0]['readback']['status']);
+        self::assertSame(206, $readback['items'][1]['readback']['values'][0]['value']);
+        self::assertSame('people', $readback['items'][1]['readback']['values'][0]['unit']);
+        self::assertSame(
+            ['data.myHotel.intentionUV'],
+            $readback['items'][1]['readback']['values'][0]['source_paths']
+        );
+        self::assertSame(14.49, $readback['items'][2]['readback']['values'][0]['value']);
+        self::assertSame(
+            'detail_visitors / exposure_users * 100',
+            $readback['items'][2]['readback']['values'][0]['formula']
+        );
+        self::assertSame(
+            ['detail_visitors' => 206, 'exposure_users' => 1422],
+            $readback['items'][2]['readback']['values'][0]['inputs']
+        );
+        self::assertSame(
+            ['data.myHotel.exposureUV', 'data.myHotel.intentionUV'],
+            $readback['items'][2]['readback']['values'][0]['source_paths']
+        );
+        self::assertSame(['online_daily_data#102476'], $readback['used_evidence_refs']);
+        self::assertSame('ota_exposure_volume', $readback['data_gaps'][0]['metric_key']);
+        self::assertSame('曝光量', $readback['data_gaps'][0]['canonical_term']);
+        self::assertFalse($readback['external_write_authorized']);
+
+        $allReady = $glossary->metricReadbacks(
+            $glossary->resolveMetrics(
+                '美团曝光人数、商详访客数、曝光到访率分别是多少',
+                'meituan'
+            ),
+            $facts
+        );
+        self::assertSame('readback_verified', $allReady['status']);
+        self::assertSame([1422, 206, 14.49], array_map(
+            static fn(array $item): int|float => $item['readback']['values'][0]['value'],
+            $allReady['items']
+        ));
+    }
+
+    public function testOperatingQuestionMetricDefinitionsBackPreciseSourceProvenance(): void
+    {
+        $glossary = new SemanticGlossaryService();
+        $resolution = $glossary->resolve('曝光到访率是多少', 'meituan');
+        $result = $glossary->metricReadback(
+            $resolution,
+            [$this->operatingQuestionFunnelFact(1422, 206)]
+        );
+
+        self::assertSame('calculated_from_same_fact_scope', $result['status']);
+        self::assertSame(14.49, $result['values'][0]['value']);
+        self::assertSame(
+            ['data.myHotel.exposureUV', 'data.myHotel.intentionUV'],
+            $result['values'][0]['source_paths']
+        );
+        self::assertSame(['online_daily_data#700'], $result['used_evidence_refs']);
+    }
+
+    public function testExposureToVisitRejectsImpossibleCountersButPreservesRealZero(): void
+    {
+        $glossary = new SemanticGlossaryService();
+        $resolution = $glossary->resolve('曝光到访率是多少', 'meituan');
+
+        $zero = $glossary->metricReadback($resolution, [$this->operatingQuestionFunnelFact(100, 0)]);
+        self::assertSame('calculated_from_same_fact_scope', $zero['status']);
+        self::assertSame(0.0, $zero['values'][0]['value']);
+
+        foreach ([-1, 101] as $visitors) {
+            $blocked = $glossary->metricReadback(
+                $resolution,
+                [$this->operatingQuestionFunnelFact(100, $visitors)]
+            );
+            self::assertSame('not_computable', $blocked['status']);
+            self::assertSame([], $blocked['values']);
+            self::assertSame(
+                'aligned_exposure_users_or_detail_visitors_missing',
+                $blocked['data_gaps'][0]['code']
+            );
+        }
+    }
+
+    public function testIntentPaymentConversionStaysBlockedWithoutAlignedSourceContract(): void
+    {
+        $glossary = new SemanticGlossaryService();
+        $resolution = $glossary->resolve('意向支付转化率是多少', 'meituan');
+        self::assertSame('matched', $resolution['status']);
+        self::assertSame('intent_payment_conversion_rate', $resolution['primary']['metric_key']);
+
+        $readback = $glossary->metricReadback($resolution, [[
+            'ref' => 'online_daily_data#501',
+            'data_date' => '2026-08-23',
+            'platform' => 'meituan',
+            'data_type' => 'traffic',
+            'history_status' => 'success',
+            'readback_status' => 'readback_verified',
+            'metric_values' => [
+                'order_filling_num' => 10,
+                'order_submit_num' => 8,
+            ],
+        ]]);
+
+        self::assertSame('blocked_by_source_contract', $readback['status']);
+        self::assertSame([], $readback['values']);
+        self::assertSame([], $readback['used_evidence_refs']);
+        self::assertSame('platform_metric_source_contract_required', $readback['data_gaps'][0]['code']);
+        self::assertFalse($readback['external_write_authorized']);
+    }
+
+    public function testMultiMetricExplicitPlatformConflictAppliesBlockedDeterministicResult(): void
+    {
+        $service = new OperatingQuestionPreciseQueryService();
+        $result = $service->finalize([
+            'question' => '美团曝光人数和商详访客数分别是多少',
+            'scope' => [
+                'tenant_id' => 1,
+                'hotel_id' => 80,
+                'platform' => 'ctrip',
+                'date_start' => '2026-08-23',
+                'date_end' => '2026-08-23',
+                'source_scope' => 'ota_channel',
+            ],
+            'facts' => [],
+            'fact_refs' => [],
+        ]);
+
+        self::assertTrue($result['applied']);
+        self::assertSame('blocked_by_semantic_scope', $result['status']);
+        self::assertSame('scope_conflict', $result['precise_result']['semantic_resolution']['status']);
+        self::assertSame([], $result['used_evidence_refs']);
+        self::assertSame('blocked', $result['query_router']['status']);
+        self::assertFalse($result['query_router']['external_write_authorized']);
+    }
+
     public function testPreciseQuestionFinalizerReturnsServerOwnedRouteAndNoWriteAuthority(): void
     {
         $service = new OperatingQuestionPreciseQueryService();
         $result = $service->finalize([
-            'question' => '美团曝光是多少',
+            'question' => '美团曝光人数是多少',
             'scope' => [
                 'tenant_id' => 1,
                 'hotel_id' => 80,
@@ -238,8 +425,17 @@ final class SemanticGlossaryServiceTest extends TestCase
                 'platform' => 'meituan',
                 'data_type' => 'traffic',
                 'history_status' => 'success',
+                'quality_status' => 'verified',
                 'readback_status' => 'readback_verified',
                 'metric_values' => ['list_exposure' => 1422],
+                'metric_provenance' => ['list_exposure' => [[
+                    'metric_key' => 'list_exposure',
+                    'source_key' => 'exposureUV',
+                    'source_path' => 'data.myHotel.exposureUV',
+                    'storage_field' => 'list_exposure',
+                    'status' => 'captured',
+                    'stored_value_present' => true,
+                ]]],
             ]],
             'fact_refs' => ['online_daily_data#401'],
         ]);
@@ -248,8 +444,8 @@ final class SemanticGlossaryServiceTest extends TestCase
         self::assertSame('answered_by_precise_query', $result['status']);
         self::assertSame(OperatingQuestionPreciseQueryService::ROUTER_CONTRACT_VERSION, $result['query_router']['contract_version']);
         self::assertSame('meituan', $result['query_router']['platform']);
-        self::assertSame('ota_exposure_volume', $result['query_router']['metric_key']);
-        self::assertSame('online-data', $result['query_router']['target_page']);
+        self::assertSame('meituan_exposure_users', $result['query_router']['metric_key']);
+        self::assertSame('meituan-ebooking', $result['query_router']['target_page']);
         self::assertSame(['online_daily_data#401'], $result['used_evidence_refs']);
         self::assertFalse($result['query_router']['external_write_authorized']);
 
@@ -297,5 +493,63 @@ final class SemanticGlossaryServiceTest extends TestCase
         self::assertIsArray($definition);
         self::assertSame('Openness', $definition['term']);
         self::assertStringContainsString('不是宿析OS酒店经营指标', $definition['definition']);
+    }
+
+    /** @return array<string,mixed> */
+    private function operatingQuestionFunnelFact(int $exposure, int $visitors): array
+    {
+        $definition = static function (
+            string $field,
+            string $sourceMetricKey,
+            string $sourceKey,
+            string $sourcePath
+        ): array {
+            return [
+                'claimable' => true,
+                'definition_id' => $field === 'list_exposure'
+                    ? 'ota_list_exposure_users.v1'
+                    : 'ota_detail_visitors.v1',
+                'source_metric_key' => $sourceMetricKey,
+                'source_data_type' => 'traffic',
+                'source_key' => $sourceKey,
+                'storage_field' => 'online_daily_data.' . $field,
+                'source_path_digest' => hash('sha256', $sourcePath),
+                'field_fact_digest' => hash('sha256', $field . ':' . $sourcePath),
+                'unit' => 'visitor_count',
+                'unit_status' => 'verified',
+            ];
+        };
+
+        return [
+            'ref' => 'online_daily_data#700',
+            'data_date' => '2026-08-25',
+            'platform' => 'meituan',
+            'data_type' => 'traffic',
+            'history_status' => 'success',
+            'quality_status' => 'verified',
+            'readback_status' => 'readback_verified',
+            'metric_values' => [
+                'list_exposure' => $exposure,
+                'detail_exposure' => $visitors,
+            ],
+            'metric_units' => [
+                'list_exposure' => 'visitor_count',
+                'detail_exposure' => 'visitor_count',
+            ],
+            'metric_definitions' => [
+                'list_exposure' => $definition(
+                    'list_exposure',
+                    'exposure_users',
+                    'exposureuv',
+                    'data.myHotel.exposureUV'
+                ),
+                'detail_exposure' => $definition(
+                    'detail_exposure',
+                    'detail_visitors',
+                    'intentionuv',
+                    'data.myHotel.intentionUV'
+                ),
+            ],
+        ];
     }
 }

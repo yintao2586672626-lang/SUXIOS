@@ -138,7 +138,10 @@ test('business template fragments assemble byte-for-byte to the canonical templa
     'resources/frontend/templates/manifest.json must define the ordered business fragments',
   );
 
-  const { loadFrontendTemplateSource } = await import('../../scripts/lib/frontend_template_source.mjs');
+  const {
+    FRONTEND_RUNTIME_EXCLUDED_FRAGMENT_IDS,
+    loadFrontendTemplateSource,
+  } = await import('../../scripts/lib/frontend_template_source.mjs');
   const source = loadFrontendTemplateSource(repoRoot);
   const canonicalBuffer = fs.readFileSync(templatePath);
   const canonical = canonicalBuffer.toString('utf8');
@@ -152,6 +155,21 @@ test('business template fragments assemble byte-for-byte to the canonical templa
   assert.equal(source.manifest.source_snapshot_bytes, canonicalBuffer.length);
   assert.ok(source.manifest.fragments.length >= 30);
   assert.equal(new Set(ids).size, ids.length);
+  for (const excludedId of FRONTEND_RUNTIME_EXCLUDED_FRAGMENT_IDS) {
+    const registered = source.manifest.fragments.find((fragment) => fragment.id === excludedId);
+    assert.equal(registered?.runtime, false, `${excludedId} must stay registered but excluded from runtime`);
+    const sourceFragment = source.fragments.find((fragment) => fragment.id === excludedId);
+    assert.ok(sourceFragment?.source?.trim(), `${excludedId} must retain its frozen source`);
+    assert.equal(source.runtimeFragments.some((fragment) => fragment.id === excludedId), false);
+  }
+  assert.ok(source.runtimeFragments.length < source.fragments.length);
+  assert.doesNotMatch(source.template, /currentPage === 'ai-strategy'/);
+  assert.doesNotMatch(source.template, /data-testid="home-ai-workbench"/);
+  assert.doesNotMatch(source.template, /currentPage === 'investment-decision'/);
+  assert.doesNotMatch(source.template, /currentPage === 'lifecycle'/);
+  assert.match(source.template, /currentPage === 'ai-simulation'/);
+  assert.match(source.template, /currentPage === 'opening-overview'/);
+  assert.match(source.template, /currentPage === 'opening-checklist'/);
   assert.deepEqual(ids.slice(0, 3), ['app-shell', 'page-ai-strategy', 'page-ai-simulation']);
   const homeFragmentIds = [
     'home-shell-open',

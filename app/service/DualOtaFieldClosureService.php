@@ -63,8 +63,8 @@ final class DualOtaFieldClosureService
         'order_count' => ['label' => '订单量', 'unit' => 'orders'],
         'room_nights' => ['label' => '间夜量', 'unit' => 'room_nights'],
         'adr' => ['label' => 'ADR', 'unit' => 'CNY'],
-        'exposure' => ['label' => '曝光', 'unit' => 'users'],
-        'visits' => ['label' => '访问', 'unit' => 'users'],
+        'exposure' => ['label' => '曝光指标', 'unit' => 'source_defined'],
+        'visits' => ['label' => '详情访客', 'unit' => 'people'],
         'conversion' => ['label' => '曝光→访问转化', 'unit' => 'percent'],
         'cancellation' => ['label' => '取消', 'unit' => 'percent'],
         'sellable' => ['label' => '在售', 'unit' => 'rooms'],
@@ -539,6 +539,25 @@ final class DualOtaFieldClosureService
                 'business_visitor_title:visitor_count'
             ) && self::numeric($row['detail_exposure'] ?? null) !== null;
         });
+        $platformHotelId = trim((string)($collection['platform_hotel_id'] ?? ''));
+        $trafficPredicate = static function (array $row) use ($platformHotelId): bool {
+            $rowHotelId = trim((string)($row['hotel_id'] ?? ''));
+            return $platformHotelId !== ''
+                && $rowHotelId !== ''
+                && hash_equals($platformHotelId, $rowHotelId)
+                && (string)($row['data_type'] ?? '') === 'traffic'
+                && in_array(self::ctripTrafficEndpointId($row), [
+                    'business_flow_transform',
+                    'traffic_flow_transform',
+                ], true)
+                && self::numeric($row['list_exposure'] ?? null) !== null
+                && self::numeric($row['detail_exposure'] ?? null) !== null;
+        };
+        $traffic = self::latestRow(
+            $rows,
+            static fn(array $row): bool => $trafficPredicate($row)
+                && self::rowStrictFinalEligible($row)
+        ) ?? self::latestRow($rows, $trafficPredicate);
 
         $revenue = self::numeric($market['amount'] ?? null);
         $roomNights = self::numeric($market['quantity'] ?? null);
@@ -592,6 +611,77 @@ final class DualOtaFieldClosureService
         ksort($adrRows, SORT_NUMERIC);
         $adrInputsStrict = (string)($revenueField['status'] ?? '') === 'strict_readback'
             && (string)($roomNightsField['status'] ?? '') === 'strict_readback';
+        $listExposure = self::numeric($traffic['list_exposure'] ?? null);
+        $detailExposure = self::numeric($traffic['detail_exposure'] ?? null);
+        $calculatedConversion = $listExposure !== null
+            && $listExposure > 0
+            && $detailExposure !== null
+                ? round($detailExposure / $listExposure * 100, 2)
+                : null;
+        $storedFlowRate = self::numeric($traffic['flow_rate'] ?? null);
+        $exposureField = self::fieldOrMissing(
+            'exposure',
+            $listExposure,
+            $traffic,
+            $collection,
+            'online_daily_data.list_exposure',
+            '携程 DataCenter 同店同日 queryFlowTransforNewV1 本店行列表页曝光人数；hotelId=-1 竞争圈均值不进入本店事实。'
+        );
+        $visitsField = is_array($traffic)
+            ? self::fieldOrMissing(
+                'visits',
+                $detailExposure,
+                $traffic,
+                $collection,
+                'online_daily_data.detail_exposure',
+                '与列表页曝光来自同一条携程 DataCenter 本店流量快照。'
+            )
+            : self::fieldOrMissing(
+                'visits',
+                self::numeric($visits['detail_exposure'] ?? null),
+                $visits,
+                $collection,
+                'online_daily_data.detail_exposure',
+                '携程经营概览中的目标日访问量。'
+            );
+        if ($calculatedConversion !== null
+            && $storedFlowRate !== null
+            && abs($calculatedConversion - $storedFlowRate) > 0.05
+        ) {
+            $conversionField = self::field(
+                'conversion',
+                'caliber_uncertain',
+                null,
+                is_array($traffic) ? [$traffic] : [],
+                'detail_exposure / list_exposure vs online_daily_data.flow_rate',
+                '同一携程流量快照的曝光、访问与平台转化率不一致，不生成转化率主值。下一步：复核响应字段定义和百分比单位。',
+                self::observedValues([
+                    [$calculatedConversion, 'detail_exposure / list_exposure (candidate)', $traffic],
+                    [$storedFlowRate, 'online_daily_data.flow_rate (candidate)', $traffic],
+                ]),
+                ['stored_flow_rate_mismatch']
+            );
+        } elseif ($calculatedConversion !== null && is_array($traffic)) {
+            $conversionField = self::field(
+                'conversion',
+                'verified_calculation',
+                $calculatedConversion,
+                [$traffic],
+                'detail_exposure / list_exposure',
+                '使用同一条携程 DataCenter 本店流量快照计算；不跨行、不使用竞争圈均值。',
+                [],
+                $storedFlowRate !== null ? ['verified_against_stored_flow_rate'] : []
+            );
+        } else {
+            $conversionField = self::field(
+                'conversion',
+                self::missingStatus($collection, 'field_unavailable'),
+                null,
+                [],
+                'exposure -> visits',
+                '本次曝光事实缺失，因此不计算转化率。下一步：先取得与访问量同一快照的曝光字段。'
+            );
+        }
 
         return [
             $revenueField,
@@ -621,16 +711,9 @@ final class DualOtaFieldClosureService
                         'revenue / room_nights',
                         '收入或间夜缺失，无法计算 ADR。下一步：补齐同一快照的金额与间夜字段。'
                     )),
-            self::field(
-                'exposure',
-                self::missingStatus($collection, 'field_unavailable'),
-                null,
-                [],
-                '携程目标日采集',
-                '本次目标日采集缺少可信曝光事实；不能据此断言平台不提供。下一步：补采携程数据中心曝光端点并完成同店同日保存回读。'
-            ),
-            self::fieldOrMissing('visits', self::numeric($visits['detail_exposure'] ?? null), $visits, $collection, 'online_daily_data.detail_exposure', '携程经营概览中的目标日访问量。'),
-            self::field('conversion', self::missingStatus($collection, 'field_unavailable'), null, [], 'exposure -> visits', '本次曝光事实缺失，因此不计算转化率。下一步：先取得与访问量同一快照的曝光字段。'),
+            $exposureField,
+            $visitsField,
+            $conversionField,
             self::field('cancellation', self::platformNotProvidedStatus($collection, $rows !== []), null, [], '携程目标日采集', '本次采集区段未取得取消数据。下一步：补采同一营业日的取消/订单状态字段。'),
             self::field('sellable', self::platformNotProvidedStatus($collection, $rows !== []), null, [], '携程目标日采集', '本次采集区段未取得在售库存。下一步：补采同一营业日的房态库存端点。'),
             self::field('bookable', self::platformNotProvidedStatus($collection, $rows !== []), null, [], '携程目标日采集', '本次采集区段未取得可订库存。下一步：补采同一营业日的游客侧可订性证据。'),
@@ -1119,6 +1202,12 @@ final class DualOtaFieldClosureService
         ));
         $key = (string)($field['key'] ?? '');
         $provenance = self::fieldProvenance($key, $rows);
+        $semanticIdentity = self::semanticMetricIdentity($key, $platform, $provenance);
+        $field['label'] = $semanticIdentity['label'];
+        $field['unit'] = $semanticIdentity['unit'];
+        if ($semanticIdentity['status'] === 'caliber_uncertain') {
+            $field['revenue_analysis_consumable'] = false;
+        }
         $sourceIds = self::positiveIds($field['data_source_ids'] ?? []);
         $taskIds = self::positiveIds($field['sync_task_ids'] ?? []);
         $recordIds = self::positiveIds($field['source_record_ids'] ?? []);
@@ -1165,8 +1254,34 @@ final class DualOtaFieldClosureService
                 ?: ($provenance['source_methods'][0] ?? null),
             'endpoint_ids' => $provenance['endpoint_ids'],
             'source_paths' => $provenance['source_paths'],
+            'source_keys' => $provenance['source_keys'],
+            'normalized_metric_keys' => $provenance['metric_keys'],
+            // Compatibility field retained for existing consumers. These are
+            // normalized field-fact keys, not raw platform source keys.
             'raw_metric_keys' => $provenance['metric_keys'],
             'storage_fields' => $provenance['storage_fields'],
+            'semantic_metric_key' => $semanticIdentity['metric_key'],
+            'semantic_metric_status' => $semanticIdentity['status'],
+            'semantic_label' => $semanticIdentity['label'],
+            'semantic_unit' => $semanticIdentity['unit'],
+            'semantic_contract_version' => 'ota_field_semantics.v1',
+            'field_fact_identities' => array_map(
+                static function (array $identity) use ($key, $platform, $semanticIdentity): array {
+                    $identitySemantic = self::fieldFactSemanticIdentity(
+                        $key,
+                        $platform,
+                        $identity,
+                        $semanticIdentity
+                    );
+                    return $identity + [
+                        'semantic_metric_key' => $identitySemantic['metric_key'],
+                        'semantic_label' => $identitySemantic['label'],
+                        'semantic_unit' => $identitySemantic['unit'],
+                        'semantic_contract_version' => 'ota_field_semantics.v1',
+                    ];
+                },
+                (array)($provenance['identities'] ?? [])
+            ),
             'source_trace_refs' => $provenance['source_trace_refs'],
             'validation_status' => match ((string)($field['status'] ?? 'source_missing')) {
                 'strict_readback' => ($field['strict_final_gate'] ?? false) === true
@@ -1191,15 +1306,197 @@ final class DualOtaFieldClosureService
     }
 
     /**
+     * Resolve the business meaning from the tuple of platform, metric key,
+     * source path and storage field. Physical list_exposure is not itself a
+     * semantic definition: exposureUV/listExposure are users, while a proven
+     * total_exposure/impressions source is a volume.
+     *
+     * @param array{endpoint_ids:array<int,string>,source_paths:array<int,string>,source_keys:array<int,string>,metric_keys:array<int,string>,storage_fields:array<int,string>,source_trace_refs:array<int,string>,source_methods:array<int,string>,identities:array<int,array<string,mixed>>} $provenance
+     * @return array{metric_key:string,label:string,unit:string,status:string}
+     */
+    private static function semanticMetricIdentity(string $fieldKey, string $platform, array $provenance): array
+    {
+        $identities = array_values(array_filter((array)($provenance['identities'] ?? []), 'is_array'));
+        $matchesIdentity = static function (array $identity, array $metricKeys, array $sourceKeys, array $pathNeedles): bool {
+            $metricKey = strtolower(trim((string)($identity['normalized_metric_key'] ?? '')));
+            $sourceKey = strtolower(trim((string)($identity['source_key'] ?? '')));
+            $sourcePath = strtolower(trim((string)($identity['source_path'] ?? '')));
+            return ($metricKeys === [] || in_array($metricKey, $metricKeys, true))
+                && ($sourceKeys === [] || in_array($sourceKey, $sourceKeys, true))
+                && ($pathNeedles === [] || count(array_filter(
+                    $pathNeedles,
+                    static fn(string $needle): bool => str_contains($sourcePath, $needle)
+                )) > 0);
+        };
+        if ($fieldKey === 'exposure') {
+            $volume = count(array_filter($identities, static fn(array $identity): bool =>
+                $matchesIdentity($identity, ['total_exposure'], [], [])
+                || $matchesIdentity($identity, [], ['impressions', 'exposurecount'], [])
+                || $matchesIdentity($identity, [], [], ['impression', 'exposurecount'])
+            )) > 0;
+            $users = count(array_filter($identities, static fn(array $identity): bool =>
+                $matchesIdentity(
+                    $identity,
+                    ['list_exposure', 'exposure_users', 'mt_exposure'],
+                    ['exposureuv', 'listexposure', 'exposure_users'],
+                    ['exposureuv', 'listexposure']
+                )
+            )) > 0;
+            if ($volume && !$users) {
+                return [
+                    'metric_key' => 'ota_exposure_volume',
+                    'label' => '曝光量',
+                    'unit' => 'impressions',
+                    'status' => 'source_defined',
+                ];
+            }
+            if ($users && !$volume) {
+                return [
+                    'metric_key' => $platform === 'ctrip' ? 'ctrip_exposure_users' : 'meituan_exposure_users',
+                    'label' => $platform === 'ctrip' ? '列表页曝光人数' : '曝光人数',
+                    'unit' => 'people',
+                    'status' => 'source_defined',
+                ];
+            }
+            return [
+                'metric_key' => 'exposure_unspecified',
+                'label' => '曝光指标（口径待确认）',
+                'unit' => 'source_defined',
+                'status' => 'caliber_uncertain',
+            ];
+        }
+        if ($fieldKey === 'visits') {
+            $visitors = count(array_filter($identities, static fn(array $identity): bool =>
+                $matchesIdentity(
+                    $identity,
+                    ['detail_exposure', 'detail_visitors', 'mt_intention_uv'],
+                    ['intentionuv', 'detailvisitors', 'detailexposure'],
+                    ['intentionuv', 'detailvisitor', 'detailexposure']
+                )
+            )) > 0;
+            if (!$visitors) {
+                return [
+                    'metric_key' => 'detail_traffic_unspecified',
+                    'label' => '详情流量（口径待确认）',
+                    'unit' => 'source_defined',
+                    'status' => 'caliber_uncertain',
+                ];
+            }
+            return [
+                'metric_key' => $platform === 'ctrip' ? 'ctrip_detail_visitors' : 'meituan_detail_visitors',
+                'label' => $platform === 'ctrip' ? '详情页访客' : '商详访客数',
+                'unit' => 'people',
+                'status' => 'source_defined',
+            ];
+        }
+        if ($fieldKey === 'conversion') {
+            $paths = array_map('strtolower', (array)($provenance['source_paths'] ?? []));
+            $hasExposureUsers = count(array_filter($paths, static fn(string $path): bool =>
+                str_contains($path, 'exposureuv') || str_contains($path, 'listexposure')
+            )) > 0;
+            $hasDetailVisitors = count(array_filter($paths, static fn(string $path): bool =>
+                str_contains($path, 'intentionuv') || str_contains($path, 'detailvisitor') || str_contains($path, 'detailexposure')
+            )) > 0;
+            if (!$hasExposureUsers || !$hasDetailVisitors) {
+                return [
+                    'metric_key' => 'conversion_unspecified',
+                    'label' => '转化率（漏斗阶段待确认）',
+                    'unit' => 'percent',
+                    'status' => 'caliber_uncertain',
+                ];
+            }
+            return [
+                'metric_key' => 'exposure_to_visit_rate',
+                'label' => '曝光到访率',
+                'unit' => 'percent',
+                'status' => 'derived_same_snapshot',
+            ];
+        }
+        $definition = self::FIELD_DEFINITIONS[$fieldKey] ?? ['label' => $fieldKey, 'unit' => 'source_defined'];
+        return [
+            'metric_key' => $fieldKey,
+            'label' => (string)$definition['label'],
+            'unit' => (string)$definition['unit'],
+            'status' => 'unchanged',
+        ];
+    }
+
+    /**
+     * Give every underlying field-fact its own semantic identity. A derived
+     * conversion card contains exposure, visitor and rate facts; assigning the
+     * conversion identity to all three would erase their individual lineage.
+     *
+     * @param array<string,mixed> $identity
+     * @param array{metric_key:string,label:string,unit:string,status:string} $fallback
+     * @return array{metric_key:string,label:string,unit:string}
+     */
+    private static function fieldFactSemanticIdentity(
+        string $fieldKey,
+        string $platform,
+        array $identity,
+        array $fallback
+    ): array {
+        $metricKey = strtolower(trim((string)($identity['normalized_metric_key'] ?? '')));
+        $sourceKey = strtolower(trim((string)($identity['source_key'] ?? '')));
+        $sourcePath = strtolower(trim((string)($identity['source_path'] ?? '')));
+        $exposureUsers = in_array($metricKey, ['list_exposure', 'exposure_users', 'mt_exposure'], true)
+            && in_array($sourceKey, ['exposureuv', 'exposure_uv', 'listexposure', 'exposure_users'], true)
+            && (str_contains($sourcePath, 'exposureuv') || str_contains($sourcePath, 'listexposure'));
+        $exposureVolume = $metricKey === 'total_exposure'
+            || in_array($sourceKey, ['impression', 'impressions', 'exposurecount', 'exposure_count'], true)
+            || str_contains($sourcePath, 'impression')
+            || str_contains($sourcePath, 'exposurecount');
+        $detailVisitors = in_array($metricKey, ['detail_exposure', 'detail_visitors', 'mt_intention_uv'], true)
+            && in_array($sourceKey, ['intentionuv', 'intention_uv', 'detailvisitors', 'detailexposure'], true)
+            && (str_contains($sourcePath, 'intentionuv')
+                || str_contains($sourcePath, 'detailvisitor')
+                || str_contains($sourcePath, 'detailexposure'));
+        $exposureVisitRate = in_array($metricKey, ['flow_rate', 'exposure_to_browse_rate'], true)
+            && (in_array($sourceKey, [
+                'intentionperexposure', 'exposuretobrowserate', 'exposure_to_browse_rate', 'expose_visit_rate',
+            ], true)
+                || str_contains($sourcePath, 'intentionperexposure')
+                || str_contains($sourcePath, 'exposure_to_browse_rate'));
+
+        if ($exposureUsers) {
+            return [
+                'metric_key' => $platform === 'ctrip' ? 'ctrip_exposure_users' : 'meituan_exposure_users',
+                'label' => $platform === 'ctrip' ? '列表页曝光人数' : '曝光人数',
+                'unit' => 'people',
+            ];
+        }
+        if ($exposureVolume) {
+            return ['metric_key' => 'ota_exposure_volume', 'label' => '曝光量', 'unit' => 'impressions'];
+        }
+        if ($detailVisitors) {
+            return [
+                'metric_key' => $platform === 'ctrip' ? 'ctrip_detail_visitors' : 'meituan_detail_visitors',
+                'label' => $platform === 'ctrip' ? '详情页访客' : '商详访客数',
+                'unit' => 'people',
+            ];
+        }
+        if ($fieldKey === 'conversion' && $exposureVisitRate) {
+            return ['metric_key' => 'exposure_to_visit_rate', 'label' => '曝光到访率', 'unit' => 'percent'];
+        }
+        return [
+            'metric_key' => (string)$fallback['metric_key'],
+            'label' => (string)$fallback['label'],
+            'unit' => (string)$fallback['unit'],
+        ];
+    }
+
+    /**
      * @param array<int,array<string,mixed>> $rows
-     * @return array{endpoint_ids:array<int,string>,source_paths:array<int,string>,metric_keys:array<int,string>,storage_fields:array<int,string>,source_trace_refs:array<int,string>,source_methods:array<int,string>}
+     * @return array{endpoint_ids:array<int,string>,source_paths:array<int,string>,source_keys:array<int,string>,metric_keys:array<int,string>,storage_fields:array<int,string>,source_trace_refs:array<int,string>,source_methods:array<int,string>,identities:array<int,array<string,mixed>>}
      */
     private static function fieldProvenance(string $fieldKey, array $rows): array
     {
         $endpointIds = [];
         $sourcePaths = [];
+        $sourceKeys = [];
         $metricKeys = [];
         $storageFields = [];
+        $identities = [];
         $sourceTraceRefs = [];
         $sourceMethods = [];
         $requestedMetricKeys = self::FIELD_FACT_METRIC_KEYS[$fieldKey] ?? [];
@@ -1250,6 +1547,7 @@ final class DualOtaFieldClosureService
                     continue;
                 }
                 $metricKey = trim((string)($fact['metric_key'] ?? ''));
+                $sourceKey = trim((string)($fact['source_key'] ?? ''));
                 $sourcePath = trim((string)($fact['source_path'] ?? ''));
                 $storageField = trim((string)($fact['storage_field'] ?? ''));
                 if ($metricKey !== '') {
@@ -1258,19 +1556,32 @@ final class DualOtaFieldClosureService
                 if ($sourcePath !== '') {
                     $sourcePaths[] = $sourcePath;
                 }
+                if ($sourceKey !== '') {
+                    $sourceKeys[] = $sourceKey;
+                }
                 if ($storageField !== '') {
                     $storageFields[] = $storageField;
                 }
+                $identities[] = [
+                    'normalized_metric_key' => $metricKey,
+                    'source_key' => $sourceKey,
+                    'source_path' => $sourcePath,
+                    'storage_field' => $storageField,
+                    'status' => (string)($fact['status'] ?? ''),
+                    'stored_value_present' => ($fact['stored_value_present'] ?? false) === true,
+                ];
             }
         }
 
         return [
             'endpoint_ids' => self::sortedStrings($endpointIds),
             'source_paths' => self::sortedStrings($sourcePaths),
+            'source_keys' => self::sortedStrings($sourceKeys),
             'metric_keys' => self::sortedStrings($metricKeys),
             'storage_fields' => self::sortedStrings($storageFields),
             'source_trace_refs' => self::sortedStrings($sourceTraceRefs),
             'source_methods' => self::sortedStrings($sourceMethods),
+            'identities' => array_values(array_unique($identities, SORT_REGULAR)),
         ];
     }
 
@@ -1437,6 +1748,18 @@ final class DualOtaFieldClosureService
             $detail['_capture_source']
             ?? $detail['capture_source']
             ?? $raw['capture_evidence']['capture_source']
+            ?? ''
+        )));
+    }
+
+    /** @param array<string,mixed> $row */
+    private static function ctripTrafficEndpointId(array $row): string
+    {
+        $raw = self::decodeArray($row['raw_data'] ?? []);
+        $detail = is_array($raw['row'] ?? null) ? $raw['row'] : $raw;
+        return strtolower(trim((string)(
+            $detail['endpoint_id']
+            ?? $raw['endpoint_id']
             ?? ''
         )));
     }

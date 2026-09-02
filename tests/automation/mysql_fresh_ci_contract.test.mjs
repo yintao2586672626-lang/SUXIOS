@@ -10,6 +10,7 @@ test('CI provisions the project MariaDB dialect and runs the host-client fresh d
   const workflow = read('.github/workflows/php.yml');
   const packageJson = JSON.parse(read('package.json'));
   const backendJob = extractGithubActionsJob(workflow, 'backend_db');
+  const contractsJob = extractGithubActionsJob(workflow, 'contracts');
   const aggregateJob = extractGithubActionsJob(workflow, 'verify');
 
   assert.match(backendJob, /services:\s+mysql:/);
@@ -30,6 +31,14 @@ test('CI provisions the project MariaDB dialect and runs the host-client fresh d
     packageJson.scripts['verify:mysql-fresh-concurrency'],
     'node scripts/verify_mysql_fresh_migration_concurrency.mjs',
   );
+  assert.equal(
+    packageJson.scripts['verify:migration-checksum-lock'],
+    'node scripts/verify_migration_checksum_lock.mjs',
+  );
+  assert.match(contractsJob, /fetch-depth:\s*0/);
+  assert.match(contractsJob, /SUXI_MIGRATION_LOCK_BASE_REF=%s/);
+  assert.match(contractsJob, />> "\$GITHUB_ENV"/);
+  assert.match(contractsJob, /npm run verify:integration/);
 });
 
 test('fresh database verifier is gated, repeats the migration, and launches exactly eight workers', () => {
@@ -37,6 +46,7 @@ test('fresh database verifier is gated, repeats the migration, and launches exac
   const worker = read('scripts/mysql_execution_intent_concurrency_worker.php');
   const loginWorker = read('scripts/mysql_login_rate_limiter_concurrency_worker.php');
   const atomicWorker = read('scripts/mysql_atomic_write_concurrency_worker.php');
+  const evaluationReservationTest = read('tests/AiEvaluationRunReservationMariaDbTest.php');
   const databaseConfig = read('config/database.php');
   const initialization = read('database/init_full.sql');
   const baselineMigrations = new Set(Array.from(
@@ -140,6 +150,11 @@ test('fresh database verifier is gated, repeats the migration, and launches exac
   assert.match(databaseConfig, /\$databaseConfigValue = static function/);
   assert.match(databaseConfig, /if \(\$e2eDatabaseOverride\)[\s\S]*getenv\(\$name\)/);
   assert.match(databaseConfig, /'password'\s*=>\s*\$databaseConfigValue\('DB_PASS', ''\)/);
+  assert.match(evaluationReservationTest, /assertCount\(\s*2,\s*\$columns/);
+  assert.doesNotMatch(
+    evaluationReservationTest,
+    /markTestSkipped\('The evaluation reservation migration is not applied/,
+  );
 
   assert.match(worker, /SUXI_E2E_DB_OVERRIDE/);
   assert.match(worker, /SUXI_CI_TENANT_ID/);

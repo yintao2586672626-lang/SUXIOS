@@ -1,0 +1,4 @@
+interface:
+  display_name: "宿析 OTA 曝光人数估算"
+  short_description: "同店同 OTA 已核验人数配对驱动的曝光估算与漂移检查"
+  default_prompt: "Use $suxi-ota-exposure-estimation to estimate missing exposure users from verified same-hotel, same-OTA exposure_users-detail_visitors pairs while keeping the result separate from platform facts."

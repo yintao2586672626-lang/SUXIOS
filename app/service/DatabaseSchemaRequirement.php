@@ -65,6 +65,20 @@ final class DatabaseSchemaRequirement
             $showFailure = $exception;
         }
 
+        $xinfoFailure = null;
+        try {
+            $rows = Db::query('PRAGMA table_xinfo(`' . $table . '`)');
+            $columns = array_values(array_filter(array_map(
+                static fn(array $row): string => (string)($row['name'] ?? ''),
+                $rows
+            ), static fn(string $column): bool => $column !== ''));
+            if ($columns !== []) {
+                return self::columnInspection($table, self::STATUS_PRESENT, $columns);
+            }
+        } catch (Throwable $exception) {
+            $xinfoFailure = $exception;
+        }
+
         try {
             $rows = Db::query('PRAGMA table_info(`' . $table . '`)');
             $columns = array_values(array_filter(array_map(
@@ -74,7 +88,6 @@ final class DatabaseSchemaRequirement
             if ($columns !== []) {
                 return self::columnInspection($table, self::STATUS_PRESENT, $columns);
             }
-
             $tableInspection = self::inspectTable($table);
             return self::columnInspection($table, $tableInspection['status'], []);
         } catch (Throwable $pragmaFailure) {
@@ -82,7 +95,12 @@ final class DatabaseSchemaRequirement
             $showStatus = $showFailure instanceof Throwable
                 ? self::classifyTableProbeFailure($showFailure, $table)
                 : self::STATUS_UNREADABLE;
-            $status = $showStatus === self::STATUS_MISSING || $pragmaStatus === self::STATUS_MISSING
+            $xinfoStatus = $xinfoFailure instanceof Throwable
+                ? self::classifyTableProbeFailure($xinfoFailure, $table)
+                : self::STATUS_UNREADABLE;
+            $status = $showStatus === self::STATUS_MISSING
+                || $xinfoStatus === self::STATUS_MISSING
+                || $pragmaStatus === self::STATUS_MISSING
                 ? self::STATUS_MISSING
                 : self::STATUS_UNREADABLE;
             return self::columnInspection($table, $status, []);

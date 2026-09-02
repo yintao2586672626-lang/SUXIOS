@@ -364,6 +364,26 @@ window.SUXI_OPERATION_STATIC = (() => {
             const recommendation = ({ continue: '建议继续', adjust: '建议调整', stop: '建议停止' }[
                 String(managedReview.recommendation || '')
             ] || '建议待定');
+            const outcome = item?.outcome_truth || {};
+            const outcomeStatus = String(outcome.status || 'unverified');
+            const outcomeLabel = ({
+                met: '达到目标（met）',
+                near: '接近目标（near）',
+                missed: '未达目标（missed）',
+                adverse: '反向变化（adverse）',
+            }[outcomeStatus] || `未核验（${outcomeStatus}）`);
+            const effectReviewId = Number(managedReview.effect_review_id || 0);
+            const actualDelta = outcome.actual_delta ?? managedReview.delta_value ?? '—';
+            const causality = managedReview.causality_claimed === false
+                ? '否（仅观察）'
+                : '不满足复盘边界';
+            return [
+                `${sufficiency} · ${change} · ${recommendation}`,
+                `严格复盘 ${effectReviewId > 0 ? `#${effectReviewId}` : '未形成'} · 管理复盘 #${managedReview.id || '—'}`,
+                `审批冻结指标：${managedReview.metric_key || '未取得'} · ${managedReview.metric_unit || '单位缺失'}`,
+                `前值 ${managedReview.before_value ?? '—'} → 后值 ${managedReview.after_value ?? '—'} · 实际变化 ${actualDelta}`,
+                `确定性结果：${outcomeLabel} · 因果归因：${causality}`,
+            ].join('\n');
             return `${sufficiency} · ${change} · ${recommendation}`;
         }
         const review = item?.review || {};
@@ -1589,6 +1609,49 @@ window.SUXI_OPERATION_STATIC = (() => {
         }
     };
 
+    const runOperatingNetworkReplicationRestoreFlow = async ({
+        replication, hotelId, busy = false, currentHotelId, request, setAction, setError,
+        assertBoundaries, setReplication, clearIntent, loadReviews, toast,
+    } = {}) => {
+        const replicationId = Number(replication?.id || 0);
+        if (Number(hotelId) <= 0 || replicationId <= 0 || busy) return null;
+        setAction('replication_readback');
+        setError('');
+        try {
+            const response = await request(`/operation/operating-sop-replications/${replicationId}`);
+            if (Number(currentHotelId()) !== Number(hotelId)) return null;
+            if (response.code !== 200 || !response.data) throw new Error(response.msg || '复制草稿独立回读失败');
+            const actual = response.data;
+            if (Number(actual.id || 0) !== replicationId || Number(actual.target_hotel_id || 0) !== Number(hotelId)
+                || String(actual.content_digest || '') !== String(replication?.content_digest || '')) {
+                throw new Error('复制草稿恢复身份或摘要不一致');
+            }
+            assertBoundaries(actual.draft?.boundaries);
+            setReplication(actual);
+            clearIntent();
+            await loadReviews(replicationId);
+            return actual;
+        } catch (error) {
+            const message = error.message || '复制草稿恢复失败';
+            setError(message);
+            toast(message, 'error');
+            return null;
+        } finally {
+            setAction('');
+        }
+    };
+
+    const operatingNetworkReplicationLabel = (replication) => `继续草稿 #${replication?.id || '-'} · SOP #${replication?.source_sop_version_id || '-'} · ${replication?.status || '-'}`;
+
+    const applyOperationExecutionViewMode = async ({ mode, currentMode, loading = false, setMode, clearFilter, loadActions } = {}) => {
+        const nextMode = mode === 'mine' ? 'mine' : 'all';
+        if (currentMode === nextMode && !loading) return false;
+        setMode(nextMode);
+        clearFilter();
+        await loadActions();
+        return true;
+    };
+
     return {
         lifecycleMetricLabels,
         lifecycleStageTitles,
@@ -1675,6 +1738,9 @@ window.SUXI_OPERATION_STATIC = (() => {
         readOperationExecutionTask,
         cancelOperationExecutionMutation,
         reconcileOperationExecutionReviewMutation,
+        runOperatingNetworkReplicationRestoreFlow,
+        operatingNetworkReplicationLabel,
+        applyOperationExecutionViewMode,
         openingCategories,
         openingStatusOptions,
         openingProgressQuickValues,

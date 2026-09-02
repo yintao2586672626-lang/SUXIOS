@@ -162,6 +162,9 @@ assert.equal(payload.scope?.boundary?.silent_date_fallback, false, 'date fallbac
 assert.equal(payload.scope?.boundary?.whole_hotel_conclusion, false, 'OTA facts cannot become whole-hotel facts');
 
 const context = { window: {}, URLSearchParams };
+vm.runInNewContext(readFileSync('public/revenue-cockpit-static.js', 'utf8'), context, {
+  filename: 'public/revenue-cockpit-static.js',
+});
 vm.runInNewContext(readFileSync('public/revenue-ai-static.js', 'utf8'), context, {
   filename: 'public/revenue-ai-static.js',
 });

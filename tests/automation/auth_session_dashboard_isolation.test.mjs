@@ -143,6 +143,7 @@ test('login, logout, and account switches isolate hotel-scoped browser state', (
     "browserAssistImportForm.value = { system_hotel_id: '', capture_json: '' };",
     "resetAgentCenterClientState({ reason: 'auth-session' });",
     'clearSessionScopedFrontendTimers();',
+    'resetOnlineAnalysisSessionState();',
   ]) {
     assert.ok(resetState.includes(expected), `account reset must include: ${expected}`);
   }
@@ -493,7 +494,13 @@ test('a delayed active-only hotel response cannot overwrite the newer management
   const activeRun = loadHotels({ force: true });
   currentPage.value = 'hotels';
   const managementRun = loadHotels({ force: true, includeInactive: true });
-  management.resolve({ code: 200, data: { list: [{ id: 22, name: '停用门店也可见' }], total_page: 1 } });
+  management.resolve({
+    code: 200,
+    data: {
+      list: [{ id: 22, name: '停用门店也可见' }],
+      pagination: { total_page: 1 },
+    },
+  });
   await managementRun;
   assert.deepEqual(hotels.value, [{ id: 22, name: '停用门店也可见' }]);
 
@@ -730,7 +737,7 @@ test('employee refresh failure keeps the prior snapshot explicitly stale instead
   const firstRun = loadUsers();
   firstResponse.resolve({
     code: 200,
-    data: { list: [], total_page: 1 },
+    data: { list: [], pagination: { total_page: 1 } },
   });
   await firstRun;
   assert.deepEqual(users.value, []);

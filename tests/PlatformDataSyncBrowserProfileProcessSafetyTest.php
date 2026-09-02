@@ -21,8 +21,14 @@ final class PlatformDataSyncBrowserProfileProcessSafetyTest extends TestCase
         $ctripSecond = (string)$ctripPath->invoke($ctrip, sys_get_temp_dir(), 'hotel_001', 'traffic_report');
 
         self::assertNotSame($ctripFirst, $ctripSecond);
-        self::assertMatchesRegularExpression('/_[a-f0-9]{32}\.json$/D', $ctripFirst);
-        self::assertMatchesRegularExpression('/_[a-f0-9]{32}\.json$/D', $ctripSecond);
+        self::assertMatchesRegularExpression(
+            '/_[0-9]{14}_[0-9]{6}_[a-f0-9]{16}_[a-z0-9_-]+\.json$/D',
+            $ctripFirst
+        );
+        self::assertMatchesRegularExpression(
+            '/_[0-9]{14}_[0-9]{6}_[a-f0-9]{16}_[a-z0-9_-]+\.json$/D',
+            $ctripSecond
+        );
 
         $meituan = new MeituanBrowserProfileDataSourceAdapter(sys_get_temp_dir(), 'node', static fn(): array => []);
         $meituanPath = new \ReflectionMethod($meituan, 'captureOutputPath');
@@ -30,8 +36,14 @@ final class PlatformDataSyncBrowserProfileProcessSafetyTest extends TestCase
         $meituanSecond = (string)$meituanPath->invoke($meituan, sys_get_temp_dir(), 'store_001');
 
         self::assertNotSame($meituanFirst, $meituanSecond);
-        self::assertMatchesRegularExpression('/_[a-f0-9]{32}\.json$/D', $meituanFirst);
-        self::assertMatchesRegularExpression('/_[a-f0-9]{32}\.json$/D', $meituanSecond);
+        self::assertMatchesRegularExpression(
+            '/_[0-9]{14}_[0-9]{6}_[a-f0-9]{16}\.json$/D',
+            $meituanFirst
+        );
+        self::assertMatchesRegularExpression(
+            '/_[0-9]{14}_[0-9]{6}_[a-f0-9]{16}\.json$/D',
+            $meituanSecond
+        );
     }
 
     public function testBrowserProfileAdaptersNeverPromoteOutputFromAFailedCollectorProcess(): void
@@ -69,7 +81,7 @@ final class PlatformDataSyncBrowserProfileProcessSafetyTest extends TestCase
                 'capture_sections' => 'business_overview',
             ]);
             self::assertSame('failed', $ctripResult['status']);
-            self::assertSame('capture_process_failed', $ctripResult['status_code']);
+            self::assertSame('injected_process_failed', $ctripResult['status_code']);
             self::assertArrayNotHasKey('rows', $ctripResult['payload']);
             $ctripFailureJson = json_encode($ctripResult, JSON_UNESCAPED_SLASHES) ?: '';
             self::assertStringNotContainsString('ctrip-message-secret', $ctripFailureJson);
@@ -108,7 +120,7 @@ final class PlatformDataSyncBrowserProfileProcessSafetyTest extends TestCase
                 'capture_sections' => 'traffic',
             ]);
             self::assertSame('failed', $meituanResult['status']);
-            self::assertSame('capture_process_failed', $meituanResult['status_code']);
+            self::assertSame('injected_process_failed', $meituanResult['status_code']);
             self::assertArrayNotHasKey('rows', $meituanResult['payload']);
             $meituanFailureJson = json_encode($meituanResult, JSON_UNESCAPED_SLASHES) ?: '';
             self::assertStringNotContainsString('meituan-message-secret', $meituanFailureJson);

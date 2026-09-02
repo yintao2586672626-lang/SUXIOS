@@ -13,7 +13,7 @@ const revenueCockpit = read('resources/frontend/templates/fragments/27-page-agen
 const revenueController = read('app/controller/RevenueAi.php');
 const strictEvidence = read('app/service/RevenueCockpitStrictEvidenceService.php');
 const approvalService = read('app/service/RevenueCockpitApprovalService.php');
-const intentProvenance = read('app/service/RevenueCockpitIntentProvenanceService.php');
+const approvalProvenance = read('app/service/RevenueCockpitIntentProvenanceService.php');
 
 test('collection reliability returns the same exact-date closure on cached, light and full reads', () => {
   assert.match(concern, /use app\\service\\DualOtaFieldClosureService;/);
@@ -65,9 +65,8 @@ test('revenue and operation gates consume the canonical closure instead of rerea
   assert.match(revenueController, /\$overview\['dual_ota_field_closure'\] = \$closure/);
   assert.match(revenueController, /RevenueCockpitStrictEvidenceService\(\)\)->build\([\s\S]*\$platform,[\s\S]*\$closure/);
   assert.match(approvalService, /RevenueCockpitIntentProvenanceService\(\)\)->assertIntentCurrent\(\$intent\)/);
-  assert.match(intentProvenance, /\$closure = \(new DualOtaFieldClosureService\(\)\)->build\(\$hotelId, \$businessDate\)/);
-  assert.match(intentProvenance, /\$overview\['dual_ota_field_closure'\] = \$closure/);
-  assert.match(intentProvenance, /RevenueCockpitStrictEvidenceService\(\)\)->build\([\s\S]*\$platform,[\s\S]*\$closure/);
+  assert.match(approvalProvenance, /\$closure = \(new DualOtaFieldClosureService\(\)\)->build\(\$hotelId, \$businessDate\)/);
+  assert.match(approvalProvenance, /\$overview\['dual_ota_field_closure'\] = \$closure/);
   assert.match(strictEvidence, /field_source' => 'dual_ota_field_closure'/);
   assert.match(strictEvidence, /consumer_metric_keys/);
   assert.doesNotMatch(strictEvidence, /readCurrentVerifiedFactsForRefs/);

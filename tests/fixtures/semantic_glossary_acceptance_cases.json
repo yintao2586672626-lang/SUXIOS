@@ -62,5 +62,8 @@
   {"query":"Overbooking Level","platform":"","status":"matched","canonical":"Overbooking Level","category":"hotel_industry","personal":false,"metric_key":null,"route_key":null},
   {"query":"GEO","platform":"","status":"matched","canonical":"GEO","category":"reference_only","personal":false,"metric_key":null,"route_key":null},
   {"query":"Codex桌面版","platform":"","status":"matched","canonical":"Codex桌面版","category":"personal_common","personal":true,"metric_key":null,"route_key":null},
-  {"query":"美团曝光量是多少","platform":"ctrip","status":"scope_conflict"}
+  {"query":"美团曝光量是多少","platform":"ctrip","status":"scope_conflict"},
+  {"query":"美团曝光人数是多少","platform":"meituan","status":"matched","canonical":"曝光人数","category":"metric_alias","personal":false,"metric_key":"meituan_exposure_users","route_key":"meituan-ebooking"},
+  {"query":"携程列表页曝光人数是多少","platform":"ctrip","status":"matched","canonical":"列表页曝光人数","category":"metric_alias","personal":false,"metric_key":"ctrip_exposure_users","route_key":"ctrip-ebooking"},
+  {"query":"曝光人数","platform":"","status":"ambiguous_platform","candidate_count":2}
 ]

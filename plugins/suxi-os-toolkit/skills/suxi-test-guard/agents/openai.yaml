@@ -1,6 +1,6 @@
 interface:
   display_name: "宿析测试守卫"
   short_description: "报错复现、最小修复和回归验证规则"
-  default_prompt: "使用 $suxi-test-guard 在不扩大范围的前提下复现、修复并验证宿析OS问题。"
+  default_prompt: "使用 $suxi-test-guard 复现或检查宿析OS问题；仅在用户要求修复时做最小修改并验证。"
 policy:
   allow_implicit_invocation: true

@@ -209,6 +209,91 @@ final class SystemUsageAssistantServiceTest extends TestCase
         self::assertStringContainsString('数据有没有采到', $result['clarifying_question']);
     }
 
+    public function testVagueWorkbenchRequestStartsDeterministicReverseInterviewWithoutCallingModel(): void
+    {
+        $client = new class extends LlmClient {
+            public int $calls = 0;
+
+            public function createJsonResponseEnvelope(
+                array $messages,
+                array $schema,
+                string $modelKey = 'deepseek_v4_default'
+            ): array {
+                $this->calls++;
+                throw new RuntimeException('model_must_not_be_called');
+            }
+        };
+
+        $result = (new SystemUsageAssistantService($client))->guide([
+            'query' => '帮我搭个个人工作台，反过来采访我。',
+            'visible_topic_keys' => ['daily-workbench', 'data-health', 'revenue-report', 'operations'],
+        ]);
+
+        self::assertSame(0, $client->calls);
+        self::assertSame('clarification_required', $result['status']);
+        self::assertSame('deterministic', $result['mode']);
+        self::assertSame('clarify', $result['topic_key']);
+        self::assertStringContainsString('主要以什么角色', $result['clarifying_question']);
+        self::assertSame([], $result['follow_up_questions']);
+        self::assertNull($result['action']);
+        self::assertFalse($result['runtime']['model_attempted']);
+        self::assertSame('workbench_interview_role', $result['runtime']['reason']);
+        self::assertStringContainsString('一轮只问一个关键问题', $result['assistant_message']);
+    }
+
+    public function testWorkbenchInterviewAsksAtMostOneQuestionPerRoundThenReturnsToTrustedWorkbench(): void
+    {
+        $service = new SystemUsageAssistantService();
+        $visible = ['daily-workbench', 'data-health', 'revenue-report', 'operations'];
+        $roleQuestion = '你主要以什么角色使用宿析OS：单店老板、店长、收益负责人，还是多店运营？';
+        $routineQuestion = '你每天最常反复处理的三类工作是什么？请只说真实高频任务。';
+        $blocksQuestion = '如果首屏只能保留三块，你最想一眼看到哪三类结果？';
+
+        $secondRound = $service->guide([
+            'query' => '我是单店店长。',
+            'deterministic_only' => true,
+            'visible_topic_keys' => $visible,
+            'history' => [
+                ['role' => 'user', 'content' => '帮我搭一个工作台，反过来采访我。'],
+                ['role' => 'assistant', 'content' => $roleQuestion],
+            ],
+        ]);
+        self::assertSame('clarification_required', $secondRound['status']);
+        self::assertSame($routineQuestion, $secondRound['clarifying_question']);
+        self::assertSame([], $secondRound['follow_up_questions']);
+
+        $thirdRound = $service->guide([
+            'query' => '每天看缺数、经营报告和任务执行。',
+            'deterministic_only' => true,
+            'visible_topic_keys' => $visible,
+            'history' => [
+                ['role' => 'assistant', 'content' => $roleQuestion],
+                ['role' => 'user', 'content' => '我是单店店长。'],
+                ['role' => 'assistant', 'content' => $routineQuestion],
+            ],
+        ]);
+        self::assertSame('clarification_required', $thirdRound['status']);
+        self::assertSame($blocksQuestion, $thirdRound['clarifying_question']);
+        self::assertSame([], $thirdRound['follow_up_questions']);
+
+        $ready = $service->guide([
+            'query' => '首屏看数据健康、今日结论和待复盘任务。',
+            'deterministic_only' => true,
+            'visible_topic_keys' => $visible,
+            'history' => [
+                ['role' => 'assistant', 'content' => $roleQuestion],
+                ['role' => 'assistant', 'content' => $routineQuestion],
+                ['role' => 'assistant', 'content' => $blocksQuestion],
+            ],
+        ]);
+        self::assertSame('ready', $ready['status']);
+        self::assertSame('daily-workbench', $ready['topic_key']);
+        self::assertSame('operating-opportunities', $ready['action']['target_page']);
+        self::assertSame('', $ready['clarifying_question']);
+        self::assertFalse($ready['runtime']['external_llm_called']);
+        self::assertSame('workbench_interview_complete', $ready['runtime']['reason']);
+    }
+
     public function testInventedModelTargetIsRejectedAndFallsBackToAllowedRealPage(): void
     {
         $client = new class extends LlmClient {
@@ -532,5 +617,150 @@ final class SystemUsageAssistantServiceTest extends TestCase
         self::assertFalse($result['runtime']['model_attempted']);
         self::assertFalse($result['runtime']['external_llm_called']);
         self::assertStringContainsString('已登记功能目录', $result['assistant_message']);
+    }
+
+    public function testConfirmedConcisePreferenceChangesPresentationButNeverFactsOrAuthority(): void
+    {
+        $client = new class extends LlmClient {
+            /** @var array<int,array<string,string>> */
+            public array $messages = [];
+
+            public function createJsonResponseEnvelope(
+                array $messages,
+                array $schema,
+                string $modelKey = 'deepseek_v4_default'
+            ): array {
+                $this->messages = $messages;
+                return [
+                    'data' => [
+                        'assistant_mode' => 'guide',
+                        'assistant_message' => str_repeat('先核对事实再继续。', 40),
+                        'intent_summary' => '检查数据状态',
+                        'goal' => '恢复携程数据',
+                        'topic_key' => 'data-health',
+                        'journey_topic_keys' => ['data-health'],
+                        'steps' => ['第一步', '第二步', '第三步', '第四步'],
+                        'clarifying_question' => '',
+                        'follow_up_questions' => ['问题一', '问题二', '问题三'],
+                        'confidence' => 'high',
+                    ],
+                    'meta' => [
+                        'provider' => 'deepseek',
+                        'model_key' => 'deepseek_v4_pro',
+                        'model' => 'deepseek-v4-pro',
+                        'finish_reason' => 'stop',
+                        'fallback_used' => false,
+                        'cache_hit' => false,
+                        'degraded' => false,
+                    ],
+                ];
+            }
+        };
+
+        $result = (new SystemUsageAssistantService($client))->guide([
+            'query' => '帮我检查携程数据',
+            'visible_topic_keys' => ['data-health'],
+            'preference_context' => [
+                'items' => [[
+                    'id' => 91,
+                    'preference_key' => 'response_detail',
+                    'preference_value' => 'concise',
+                    'learning_state' => 'explicit_confirmed',
+                    'scope_type' => 'global',
+                    'lifecycle_status' => 'active',
+                ]],
+            ],
+        ]);
+
+        self::assertSame('applied', $result['personalization']['status']);
+        self::assertSame('concise', $result['personalization']['response_detail']);
+        self::assertSame(['user_learning_preference#91'], $result['personalization']['preference_refs']);
+        self::assertSame(
+            'preference_applied',
+            $result['personalization']['explanation']['status']
+        );
+        self::assertSame(
+            '按你已确认的“回答简洁”偏好压缩了表达。',
+            $result['personalization']['explanation']['summary']
+        );
+        self::assertSame(
+            ['user_learning_preference#91'],
+            $result['personalization']['explanation']['source_refs']
+        );
+        self::assertCount(1, $result['personalization']['applied_preferences']);
+        self::assertSame(
+            'presentation_only',
+            $result['personalization']['explanation']['effect_scope']
+        );
+        self::assertLessThanOrEqual(240, mb_strlen($result['assistant_message']));
+        self::assertCount(2, $result['steps']);
+        self::assertCount(1, $result['follow_up_questions']);
+        self::assertFalse($result['personalization']['fact_changed']);
+        self::assertFalse($result['personalization']['permission_changed']);
+        self::assertFalse($result['personalization']['approval_changed']);
+        self::assertFalse($result['personalization']['external_write_authorized']);
+
+        $prompt = json_decode($client->messages[1]['content'], true, 512, JSON_THROW_ON_ERROR);
+        self::assertSame(
+            'concise',
+            $prompt['confirmed_user_preference_context'][0]['preference_value']
+        );
+        self::assertStringContainsString('不能当作酒店事实', $client->messages[0]['content']);
+    }
+
+    public function testCurrentRequestOverridesSavedDetailPreferenceForOneTurn(): void
+    {
+        $result = (new SystemUsageAssistantService())->guide([
+            'query' => '详细展开告诉我携程数据怎么检查',
+            'deterministic_only' => true,
+            'visible_topic_keys' => ['data-health'],
+            'preference_context' => [[
+                'id' => 92,
+                'key' => 'response_detail',
+                'value' => 'concise',
+                'state' => 'explicit_confirmed',
+                'lifecycle_status' => 'active',
+            ]],
+        ]);
+
+        self::assertSame('overridden_by_current_request', $result['personalization']['status']);
+        self::assertSame('detailed', $result['personalization']['response_detail']);
+        self::assertSame([], $result['personalization']['preference_refs']);
+        self::assertSame(
+            'current_request_override',
+            $result['personalization']['explanation']['status']
+        );
+        self::assertSame([], $result['personalization']['explanation']['source_refs']);
+        self::assertGreaterThan(2, count($result['steps']));
+    }
+
+    public function testRecognizedPreferenceWithoutImplementedEffectIsNotReportedAsApplied(): void
+    {
+        $result = (new SystemUsageAssistantService())->guide([
+            'query' => '今天先做什么',
+            'deterministic_only' => true,
+            'visible_topic_keys' => ['daily-workbench'],
+            'preference_context' => ['items' => [[
+                'id' => 93,
+                'preference_key' => 'daily_focus',
+                'preference_value' => 'single_priority',
+                'learning_status' => 'explicit_confirmed',
+                'lifecycle_status' => 'active',
+            ]]],
+        ]);
+
+        self::assertSame('recognized_not_applied', $result['personalization']['status']);
+        self::assertSame([], $result['personalization']['preference_refs']);
+        self::assertSame(
+            ['user_learning_preference#93'],
+            $result['personalization']['recognized_preference_refs']
+        );
+        self::assertSame('none', $result['personalization']['effect_scope']);
+        self::assertSame(
+            'recognized_not_applied',
+            $result['personalization']['explanation']['status']
+        );
+        self::assertFalse($result['personalization']['explanation']['facts_changed']);
+        self::assertSame('daily-workbench', $result['topic_key']);
     }
 }

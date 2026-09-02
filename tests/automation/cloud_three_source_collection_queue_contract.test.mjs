@@ -13,6 +13,7 @@ const installer = readFileSync('deploy/systemd/install_cloud_three_source_queue.
 const otaRunner = readFileSync('scripts/run_cloud_ota_profile_collection.php', 'utf8');
 const pmsRunner = readFileSync('scripts/run_dingdandao_cloud_collection.php', 'utf8');
 const meituanCloudPmsRunner = readFileSync('scripts/run_meituan_cloud_pms_collection.php', 'utf8');
+const gateway = readFileSync('deploy/remote-browser/cloud_browser_gateway.mjs', 'utf8');
 
 test('three-source queue enumerates only active ready plans and executes one serial source order', () => {
   assert.match(queueService, /where\('enabled', 1\)/);
@@ -65,6 +66,24 @@ test('canonical promotion and final ledger persistence consume the queue deadlin
 test('OTA capture reserves lifecycle time inside the supervised child deadline', () => {
   assert.match(queueService, /\$otaCaptureTimeoutSeconds = max\(60, \$childTimeoutSeconds - 180\)/);
   assert.match(queueService, /--timeout-seconds=' \. \$otaCaptureTimeoutSeconds/);
+});
+
+test('previous-business-day plans traverse queue, Profile preflight and compatible children as one contract', () => {
+  assert.match(queueService, /'previous_business_day'\s*=>\s*'daily'/);
+  assert.match(queueService, /collection_plan_target_date_policy_mismatch/);
+  assert.match(queueService, /collection_plan_pms_historical_unsupported/);
+  assert.match(otaRunner, /\$previousBusinessDay/);
+  assert.match(otaRunner, /\[\$today, \$previousBusinessDay\]/);
+  assert.match(otaRunner, /\$historicalCollection \? 'historical_daily' : 'realtime_snapshot'/);
+  assert.match(otaRunner, /\$historicalCollection \? 'historical_review' : 'realtime'/);
+  assert.match(otaRunner, /\$historicalCollection \? 'yesterday' : 'current_day'/);
+  assert.match(pmsRunner, /\$previousBusinessDay/);
+  assert.match(pmsRunner, /operating_target_historical/);
+  assert.match(pmsRunner, /\$historicalCollection \? 'operating_indicators' : 'full_diagnostic'/);
+  assert.match(pmsRunner, /DingdandaoOperatingTargetCaptureService::HISTORICAL_SOURCE_SCOPE/);
+  assert.match(gateway, /operating_target_historical/);
+  assert.match(gateway, /collectionKind === 'operating_target_historical' && platform !== 'dingdandao'/);
+  assert.doesNotMatch(meituanCloudPmsRunner, /operating_target_historical/);
 });
 
 test('new systemd timer is standalone and does not replace or invoke message dispatch', () => {

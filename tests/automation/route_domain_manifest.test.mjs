@@ -28,6 +28,7 @@ test('route bootstrap registers every domain manifest once and stays below the 8
   assert.deepEqual(registeredRouteContractFiles(root), [
     'route/app.php',
     'route/domain/ai_daily_reports.php',
+    'route/domain/online_data_order_analysis.php',
     'route/domain/ai_governance.php',
     'route/domain/operations.php',
     'route/domain/wecom_admin.php',
@@ -58,9 +59,9 @@ test('extracted method, URL, handler, order and Auth middleware surface matches 
     }
   }
 
-  assert.equal(tuples.length, 125);
+  assert.equal(tuples.length, 129);
   assert.equal(
     createHash('sha256').update(tuples.join('\n')).digest('hex'),
-    'dedd6a8580657a9ff62ed26a9fd9ab3e644ab04404d3ea157dcc80d706cb39ce',
+    '75d2a7a5a0105890c833715e65ccd584296b0f8fd8dc70e6ce93588f2652b550',
   );
 });

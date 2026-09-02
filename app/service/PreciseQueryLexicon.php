@@ -28,7 +28,7 @@ final class PreciseQueryLexicon
         '携程', 'Ctrip', 'eBooking', '生意通', '携程数据',
         '美团', 'Meituan', '美团酒店商家端', '美团酒店管理系统', '美团HMS',
         'OTA', '全渠道运营', '业务日期', '同酒店同日期',
-        '曝光量', '列表曝光', '详情曝光', '曝光转化率', '流量转化率',
+        '曝光量', '曝光人数', '列表页曝光人数', '列表曝光', '详情曝光', '曝光转化率', '流量转化率',
         '房费收入', '客房收入', '订单量', '支付订单量', '平均房价',
         'ADR', 'OCC', '出租率', 'RevPAR', '佣金率', '取消率', '间夜量',
         '可售客房数', 'Rooms Sold', 'Rooms Available', 'Room Revenue', 'Total Revenue',
@@ -59,7 +59,8 @@ final class PreciseQueryLexicon
     private const METRIC_ALIASES = [
         'exposure_to_visit_rate' => ['曝光到访率', '曝光到详情率', '曝光到访问率', '曝光转化率', '流量转化率', '曝光到访', '曝光转化'],
         'detail_exposure' => ['详情访客', '详情访问', '浏览人数', '浏览访客', '来了多少访客', '多少访客', '访客量', '访客数', '访客', '详情曝光'],
-        'list_exposure' => ['整体曝光量', '总曝光量', '列表曝光', '曝光人数', '曝光量', '曝光'],
+        'list_exposure' => ['列表页曝光人数', '曝光人数', '曝光用户数', '曝光uv'],
+        'ota_exposure_volume' => ['整体曝光量', '总曝光量', '曝光量', '展现量', '展示次数'],
         'room_revenue' => ['全酒店收入', '房费收入', '客房收入', '营业收入', '收入', '营收'],
         'amount' => ['ota成交额', '渠道成交额', '销售额', '成交额', '成交金额'],
         'book_order_num' => ['支付订单量', '支付订单数', '订单量', '订单数', '订单'],
@@ -71,6 +72,8 @@ final class PreciseQueryLexicon
 
     /** @var array<string,list<string>> */
     private const SYSTEM_TOPIC_ALIASES = [
+        'daily-workbench' => ['今日经营工作台', '今天先做什么', '今天经营工作', '今日经营'],
+        'codex-collaboration' => ['codex', 'codex协作', 'codex协作指南', '怎么让codex', '怎么向codex提需求', '怎么和codex配合'],
         'typeless-dictionary' => ['typeless总词库', 'typeless词库', 'typeless词典', 'typeless新词', '总词库', '个人词典', '新词导入', '导入csv'],
         'ai-daily-report' => ['可信经营播报', '可信播报', '复制播报稿', '经营播报', 'ai经营日报', 'ai日报'],
         'knowledge-search' => ['知识与经验', '知识中心', '知识库', '操作手册', 'sop'],
@@ -94,6 +97,8 @@ final class PreciseQueryLexicon
     /** @var list<string> */
     private const NAVIGATION_CUES = [
         '在哪里', '在哪', '哪个页面', '怎么用', '怎么操作', '怎么复制', '怎么更新',
+        '怎么让', '怎么说', '怎么提需求', '怎么配合',
+        '带我完成', '查清', '生成',
         '下一步点什么', '下一步', '点什么', '打开', '进入', '复制', '导入', '维护', '设置',
     ];
 
@@ -189,23 +194,44 @@ final class PreciseQueryLexicon
 
     public static function metric(string $query): string
     {
-        $resolution = (new SemanticGlossaryService())->resolve($query);
-        $primary = is_array($resolution['primary'] ?? null) ? $resolution['primary'] : [];
-        $semanticKey = ($resolution['status'] ?? '') === 'matched'
-            ? trim((string)($primary['metric_key'] ?? ''))
-            : '';
+        $metrics = self::metrics($query);
+        return count($metrics) === 1 ? $metrics[0] : '';
+    }
+
+    /** @return list<string> */
+    public static function metrics(string $query, string $platform = ''): array
+    {
+        $resolution = (new SemanticGlossaryService())->resolveMetrics($query, $platform);
+        $semanticKeys = array_values(array_filter(array_map(
+            static fn(array $metric): string => trim((string)($metric['metric_key'] ?? '')),
+            array_values(array_filter((array)($resolution['metrics'] ?? []), 'is_array'))
+        )));
         $compatibility = [
-            'ota_exposure_volume' => 'list_exposure',
+            'ota_exposure_volume' => 'ota_exposure_volume',
+            'ctrip_exposure_users' => 'list_exposure',
+            'meituan_exposure_users' => 'list_exposure',
             'ctrip_detail_visitors' => 'detail_exposure',
             'meituan_detail_visitors' => 'detail_exposure',
             'exposure_to_visit_rate' => 'exposure_to_visit_rate',
+            'intent_payment_conversion_rate' => 'intent_payment_conversion_rate',
             'room_revenue' => 'room_revenue',
             'room_nights' => 'quantity',
             'adr' => 'adr',
             'occ' => 'occ',
             'revpar' => 'revpar',
         ];
-        return $compatibility[$semanticKey] ?? self::firstMappedKey($query, self::METRIC_ALIASES);
+        $resolved = [];
+        foreach ($semanticKeys as $semanticKey) {
+            $key = $compatibility[$semanticKey] ?? '';
+            if ($key !== '') {
+                $resolved[$key] = true;
+            }
+        }
+        if ($resolved !== []) {
+            return array_keys($resolved);
+        }
+        $legacy = self::firstMappedKey($query, self::METRIC_ALIASES);
+        return $legacy !== '' ? [$legacy] : [];
     }
 
     public static function systemTopic(string $query): string

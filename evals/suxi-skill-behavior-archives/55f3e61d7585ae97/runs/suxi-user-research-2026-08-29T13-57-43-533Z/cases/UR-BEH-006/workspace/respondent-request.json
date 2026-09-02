@@ -1,0 +1,6 @@
+{
+  "schema_version": "suxi.skill.behavior_request.v1",
+  "skill_name": "suxi-user-research",
+  "case_id": "UR-BEH-006",
+  "user_request": "改版前是3个前台在电脑上测保存订单，改版后是5个老板在手机上看数据报告。后来都说比较顺，能不能证明改版有效？"
+}

@@ -1,0 +1,349 @@
+{
+  "schema_version": "suxi.skill.behavior_run.v2",
+  "run_id": "suxi-product-decision-2026-08-29T13-10-21-310Z",
+  "skill_name": "suxi-product-decision",
+  "created_at": "2026-08-29T13:10:21.310Z",
+  "behavior_contract_path": ".agents/skills/suxi-product-decision/evals/behavior-evals.json",
+  "behavior_contract_sha256": "dc176b7e9ae7a4221641a7d7862f4ce5bbb098192e8a63000db7cd0e874ec68c",
+  "source_snapshot_sha256": "cb711b8c2f99ba28364e3f879b4c1189862a3a12a400678dc867a398c31bf717",
+  "source_snapshot_files": [
+    {
+      "path": "SKILL.md",
+      "sha256": "1f53f8022478ab38c21e7792a3aa309026cbca0c5982ee996f1aadecd193a117",
+      "bytes": 7815
+    },
+    {
+      "path": "agents/openai.yaml",
+      "sha256": "3c80f8ec125bd68a99794ffeb4d645151903942fb790b283fb5d495cdb43438e",
+      "bytes": 354
+    },
+    {
+      "path": "references/decision-evidence-contract.md",
+      "sha256": "eb330f49ebdbd3bdb31920f7624ce6919ec5dd3fbfce07336deac65ae8190644",
+      "bytes": 3154
+    }
+  ],
+  "judgment_schema_version": "suxi.skill.behavior_judgments.v2",
+  "case_ids": [
+    "PD-BEH-001",
+    "PD-BEH-002",
+    "PD-BEH-003",
+    "PD-BEH-004",
+    "PD-BEH-005"
+  ],
+  "cases": [
+    {
+      "case_id": "PD-BEH-001",
+      "workspace": "cases/PD-BEH-001/workspace",
+      "response_path": "cases/PD-BEH-001/response.json",
+      "skill_snapshot_sha256": "cb711b8c2f99ba28364e3f879b4c1189862a3a12a400678dc867a398c31bf717",
+      "snapshot_files": [
+        {
+          "path": "SKILL.md",
+          "sha256": "1f53f8022478ab38c21e7792a3aa309026cbca0c5982ee996f1aadecd193a117",
+          "bytes": 7815
+        },
+        {
+          "path": "agents/openai.yaml",
+          "sha256": "3c80f8ec125bd68a99794ffeb4d645151903942fb790b283fb5d495cdb43438e",
+          "bytes": 354
+        },
+        {
+          "path": "references/decision-evidence-contract.md",
+          "sha256": "eb330f49ebdbd3bdb31920f7624ce6919ec5dd3fbfce07336deac65ae8190644",
+          "bytes": 3154
+        }
+      ],
+      "workspace_files": [
+        {
+          "path": ".agents/skills/suxi-product-decision/SKILL.md",
+          "sha256": "1f53f8022478ab38c21e7792a3aa309026cbca0c5982ee996f1aadecd193a117",
+          "bytes": 7815
+        },
+        {
+          "path": ".agents/skills/suxi-product-decision/agents/openai.yaml",
+          "sha256": "3c80f8ec125bd68a99794ffeb4d645151903942fb790b283fb5d495cdb43438e",
+          "bytes": 354
+        },
+        {
+          "path": ".agents/skills/suxi-product-decision/references/decision-evidence-contract.md",
+          "sha256": "eb330f49ebdbd3bdb31920f7624ce6919ec5dd3fbfce07336deac65ae8190644",
+          "bytes": 3154
+        },
+        {
+          "path": "AGENTS.md",
+          "sha256": "bdc9a37ed9b0a1b29a4237be94fe425d98a9b5255ce27813fa529708743f50d8",
+          "bytes": 541
+        },
+        {
+          "path": "respondent-output.schema.json",
+          "sha256": "f91287f6b8888bd7ed00538d00a79897ac6267de845a0f6ec204a263617d8ee3",
+          "bytes": 1874
+        },
+        {
+          "path": "respondent-prompt.md",
+          "sha256": "e65243ddb7b68b7abf2fe61febd67c27722da2229b56a92b710c33b19ad27f57",
+          "bytes": 525
+        },
+        {
+          "path": "respondent-request.json",
+          "sha256": "fb766e2ca27523020380250761675678f29c7970358c392e9df34be5ce61ee3b",
+          "bytes": 652
+        }
+      ],
+      "expectations_in_workspace": false,
+      "filesystem_isolation": "instruction_only"
+    },
+    {
+      "case_id": "PD-BEH-002",
+      "workspace": "cases/PD-BEH-002/workspace",
+      "response_path": "cases/PD-BEH-002/response.json",
+      "skill_snapshot_sha256": "cb711b8c2f99ba28364e3f879b4c1189862a3a12a400678dc867a398c31bf717",
+      "snapshot_files": [
+        {
+          "path": "SKILL.md",
+          "sha256": "1f53f8022478ab38c21e7792a3aa309026cbca0c5982ee996f1aadecd193a117",
+          "bytes": 7815
+        },
+        {
+          "path": "agents/openai.yaml",
+          "sha256": "3c80f8ec125bd68a99794ffeb4d645151903942fb790b283fb5d495cdb43438e",
+          "bytes": 354
+        },
+        {
+          "path": "references/decision-evidence-contract.md",
+          "sha256": "eb330f49ebdbd3bdb31920f7624ce6919ec5dd3fbfce07336deac65ae8190644",
+          "bytes": 3154
+        }
+      ],
+      "workspace_files": [
+        {
+          "path": ".agents/skills/suxi-product-decision/SKILL.md",
+          "sha256": "1f53f8022478ab38c21e7792a3aa309026cbca0c5982ee996f1aadecd193a117",
+          "bytes": 7815
+        },
+        {
+          "path": ".agents/skills/suxi-product-decision/agents/openai.yaml",
+          "sha256": "3c80f8ec125bd68a99794ffeb4d645151903942fb790b283fb5d495cdb43438e",
+          "bytes": 354
+        },
+        {
+          "path": ".agents/skills/suxi-product-decision/references/decision-evidence-contract.md",
+          "sha256": "eb330f49ebdbd3bdb31920f7624ce6919ec5dd3fbfce07336deac65ae8190644",
+          "bytes": 3154
+        },
+        {
+          "path": "AGENTS.md",
+          "sha256": "bdc9a37ed9b0a1b29a4237be94fe425d98a9b5255ce27813fa529708743f50d8",
+          "bytes": 541
+        },
+        {
+          "path": "respondent-output.schema.json",
+          "sha256": "3ad14c8f1bf52d9c602ff4344ddbfa403c20a65b19fcdd49d20c8b7ba145bfa4",
+          "bytes": 1874
+        },
+        {
+          "path": "respondent-prompt.md",
+          "sha256": "2304d5b6a9349381b19f02fe5dac2159af2633eba6e80e2cc96604e89d8b636d",
+          "bytes": 525
+        },
+        {
+          "path": "respondent-request.json",
+          "sha256": "bb1e78f9db2e232f45ad4fa7c966e338eaa5ada09aafbddd1f334711c1ee1ae0",
+          "bytes": 327
+        }
+      ],
+      "expectations_in_workspace": false,
+      "filesystem_isolation": "instruction_only"
+    },
+    {
+      "case_id": "PD-BEH-003",
+      "workspace": "cases/PD-BEH-003/workspace",
+      "response_path": "cases/PD-BEH-003/response.json",
+      "skill_snapshot_sha256": "cb711b8c2f99ba28364e3f879b4c1189862a3a12a400678dc867a398c31bf717",
+      "snapshot_files": [
+        {
+          "path": "SKILL.md",
+          "sha256": "1f53f8022478ab38c21e7792a3aa309026cbca0c5982ee996f1aadecd193a117",
+          "bytes": 7815
+        },
+        {
+          "path": "agents/openai.yaml",
+          "sha256": "3c80f8ec125bd68a99794ffeb4d645151903942fb790b283fb5d495cdb43438e",
+          "bytes": 354
+        },
+        {
+          "path": "references/decision-evidence-contract.md",
+          "sha256": "eb330f49ebdbd3bdb31920f7624ce6919ec5dd3fbfce07336deac65ae8190644",
+          "bytes": 3154
+        }
+      ],
+      "workspace_files": [
+        {
+          "path": ".agents/skills/suxi-product-decision/SKILL.md",
+          "sha256": "1f53f8022478ab38c21e7792a3aa309026cbca0c5982ee996f1aadecd193a117",
+          "bytes": 7815
+        },
+        {
+          "path": ".agents/skills/suxi-product-decision/agents/openai.yaml",
+          "sha256": "3c80f8ec125bd68a99794ffeb4d645151903942fb790b283fb5d495cdb43438e",
+          "bytes": 354
+        },
+        {
+          "path": ".agents/skills/suxi-product-decision/references/decision-evidence-contract.md",
+          "sha256": "eb330f49ebdbd3bdb31920f7624ce6919ec5dd3fbfce07336deac65ae8190644",
+          "bytes": 3154
+        },
+        {
+          "path": "AGENTS.md",
+          "sha256": "bdc9a37ed9b0a1b29a4237be94fe425d98a9b5255ce27813fa529708743f50d8",
+          "bytes": 541
+        },
+        {
+          "path": "respondent-output.schema.json",
+          "sha256": "5b4db36d1141c71139a68b0d68a15653bed9b50230aef41e47c16040329a019a",
+          "bytes": 1874
+        },
+        {
+          "path": "respondent-prompt.md",
+          "sha256": "8a1ae27fbcdf13a72bc59862e6abc7b9f8be08ebc607aa9242ddfb9f770acfc2",
+          "bytes": 525
+        },
+        {
+          "path": "respondent-request.json",
+          "sha256": "fda736c2ad4d8f469419fde0e33797ce1d987c4659d57c4c9caae0bcc8d00a96",
+          "bytes": 288
+        }
+      ],
+      "expectations_in_workspace": false,
+      "filesystem_isolation": "instruction_only"
+    },
+    {
+      "case_id": "PD-BEH-004",
+      "workspace": "cases/PD-BEH-004/workspace",
+      "response_path": "cases/PD-BEH-004/response.json",
+      "skill_snapshot_sha256": "cb711b8c2f99ba28364e3f879b4c1189862a3a12a400678dc867a398c31bf717",
+      "snapshot_files": [
+        {
+          "path": "SKILL.md",
+          "sha256": "1f53f8022478ab38c21e7792a3aa309026cbca0c5982ee996f1aadecd193a117",
+          "bytes": 7815
+        },
+        {
+          "path": "agents/openai.yaml",
+          "sha256": "3c80f8ec125bd68a99794ffeb4d645151903942fb790b283fb5d495cdb43438e",
+          "bytes": 354
+        },
+        {
+          "path": "references/decision-evidence-contract.md",
+          "sha256": "eb330f49ebdbd3bdb31920f7624ce6919ec5dd3fbfce07336deac65ae8190644",
+          "bytes": 3154
+        }
+      ],
+      "workspace_files": [
+        {
+          "path": ".agents/skills/suxi-product-decision/SKILL.md",
+          "sha256": "1f53f8022478ab38c21e7792a3aa309026cbca0c5982ee996f1aadecd193a117",
+          "bytes": 7815
+        },
+        {
+          "path": ".agents/skills/suxi-product-decision/agents/openai.yaml",
+          "sha256": "3c80f8ec125bd68a99794ffeb4d645151903942fb790b283fb5d495cdb43438e",
+          "bytes": 354
+        },
+        {
+          "path": ".agents/skills/suxi-product-decision/references/decision-evidence-contract.md",
+          "sha256": "eb330f49ebdbd3bdb31920f7624ce6919ec5dd3fbfce07336deac65ae8190644",
+          "bytes": 3154
+        },
+        {
+          "path": "AGENTS.md",
+          "sha256": "bdc9a37ed9b0a1b29a4237be94fe425d98a9b5255ce27813fa529708743f50d8",
+          "bytes": 541
+        },
+        {
+          "path": "respondent-output.schema.json",
+          "sha256": "1297303ea531cdcf65ccabf08792ce59111fc2bd9f4c51e4a4b80d6244af49a5",
+          "bytes": 1874
+        },
+        {
+          "path": "respondent-prompt.md",
+          "sha256": "c8cb4692c2329c3a3a94b60e3d875546cf90b33925b0eec34ec11ae51d2736ac",
+          "bytes": 525
+        },
+        {
+          "path": "respondent-request.json",
+          "sha256": "c05863f92a414c37515751a6c75944dcb26169aec7394df06b5bf7707f9e6beb",
+          "bytes": 285
+        }
+      ],
+      "expectations_in_workspace": false,
+      "filesystem_isolation": "instruction_only"
+    },
+    {
+      "case_id": "PD-BEH-005",
+      "workspace": "cases/PD-BEH-005/workspace",
+      "response_path": "cases/PD-BEH-005/response.json",
+      "skill_snapshot_sha256": "cb711b8c2f99ba28364e3f879b4c1189862a3a12a400678dc867a398c31bf717",
+      "snapshot_files": [
+        {
+          "path": "SKILL.md",
+          "sha256": "1f53f8022478ab38c21e7792a3aa309026cbca0c5982ee996f1aadecd193a117",
+          "bytes": 7815
+        },
+        {
+          "path": "agents/openai.yaml",
+          "sha256": "3c80f8ec125bd68a99794ffeb4d645151903942fb790b283fb5d495cdb43438e",
+          "bytes": 354
+        },
+        {
+          "path": "references/decision-evidence-contract.md",
+          "sha256": "eb330f49ebdbd3bdb31920f7624ce6919ec5dd3fbfce07336deac65ae8190644",
+          "bytes": 3154
+        }
+      ],
+      "workspace_files": [
+        {
+          "path": ".agents/skills/suxi-product-decision/SKILL.md",
+          "sha256": "1f53f8022478ab38c21e7792a3aa309026cbca0c5982ee996f1aadecd193a117",
+          "bytes": 7815
+        },
+        {
+          "path": ".agents/skills/suxi-product-decision/agents/openai.yaml",
+          "sha256": "3c80f8ec125bd68a99794ffeb4d645151903942fb790b283fb5d495cdb43438e",
+          "bytes": 354
+        },
+        {
+          "path": ".agents/skills/suxi-product-decision/references/decision-evidence-contract.md",
+          "sha256": "eb330f49ebdbd3bdb31920f7624ce6919ec5dd3fbfce07336deac65ae8190644",
+          "bytes": 3154
+        },
+        {
+          "path": "AGENTS.md",
+          "sha256": "bdc9a37ed9b0a1b29a4237be94fe425d98a9b5255ce27813fa529708743f50d8",
+          "bytes": 541
+        },
+        {
+          "path": "respondent-output.schema.json",
+          "sha256": "86f9fbeb63108bb559a7a32f4903dec3e077a92a2a123c17a0a94fc2746d65b7",
+          "bytes": 1874
+        },
+        {
+          "path": "respondent-prompt.md",
+          "sha256": "bf27035a1e78e3dbe61a98164af1a72fa01f9e0557caf7d7dc8270a25bb83ee7",
+          "bytes": 525
+        },
+        {
+          "path": "respondent-request.json",
+          "sha256": "3ca8000e855f19a572273bd68bd7c5483543ba8d9719741b15280984e279da8a",
+          "bytes": 369
+        }
+      ],
+      "expectations_in_workspace": false,
+      "filesystem_isolation": "instruction_only"
+    }
+  ],
+  "model_execution": "NOT_RUN",
+  "external_or_product_mutation": "N/A",
+  "execution_boundary": "No model or API is called by this script. Packet contents are minimized, but respondent and judge filesystem separation is instruction-only unless an external sandbox is supplied."
+}

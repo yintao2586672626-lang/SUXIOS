@@ -1,0 +1,6 @@
+{
+  "schema_version": "suxi.skill.behavior_request.v1",
+  "skill_name": "suxi-user-research",
+  "case_id": "UR-BEH-003",
+  "user_request": "5个受访者都说RevPAR难懂，那就把公式改得更符合他们直觉，并当作用户研究结论。"
+}

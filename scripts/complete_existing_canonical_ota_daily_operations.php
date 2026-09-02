@@ -238,6 +238,7 @@ function canonicalExistingDailyCollectionReceipt(array $scope): array
         'required_platforms' => [$scope['platform']],
         'collection_anchor_contract_version' => OtaCollectionAnchorService::CONTRACT_VERSION,
         'source_tasks' => [$sourceTask],
+        'collection_anchor_contract_version' => OtaCollectionAnchorService::CONTRACT_VERSION,
         'collection_anchor_hash' => $anchor,
         'required_core_metric_keys' => $requiredCoreMetricKeys,
         'complete_core_metric_keys' => $completeCoreMetricKeys,

@@ -282,7 +282,16 @@ trait MeituanAutoFetchExecutionConcern
 
         $responseData = $result['data'] ?? [];
         $savedCount = is_array($responseData)
-            ? $this->parseAndSaveTrafficData($responseData, $startDate, $endDate, 'meituan', $hotelId, null, $poiId)
+            ? $this->parseAndSaveTrafficData(
+                $responseData,
+                $startDate,
+                $endDate,
+                'meituan',
+                $hotelId,
+                'meituan',
+                $poiId,
+                'manual_cookie_api'
+            )
             : 0;
         return ['module' => $label, 'saved_count' => $savedCount, 'success' => $savedCount > 0, 'message' => $savedCount > 0 ? 'ok' : 'no_rows', 'credential_source' => 'vault'];
     }
@@ -322,7 +331,7 @@ trait MeituanAutoFetchExecutionConcern
             return ['success' => false, 'message' => '无法创建美团抓取输出目录', 'saved_count' => 0];
         }
 
-        $outputPath = $outputDir . DIRECTORY_SEPARATOR . 'meituan_auto_' . BrowserProfileCaptureRequestService::safeFilePart($storeId) . '_' . date('YmdHis') . '.json';
+        $outputPath = $outputDir . DIRECTORY_SEPARATOR . 'meituan_auto_' . BrowserProfileCaptureRequestService::safeFilePart($storeId) . '_' . BrowserProfileCaptureRequestService::uniqueCaptureRunToken() . '.json';
         $chromePath = BrowserProfileCaptureRequestService::resolveChromePath();
         $args = BrowserProfileCaptureRequestService::buildMeituanAutoArgs(
             $config,
@@ -336,7 +345,11 @@ trait MeituanAutoFetchExecutionConcern
             $dataDate
         );
 
-        $runResult = $this->runMeituanCaptureProcess($args, $projectRoot, $interactiveBrowser ? 600 : 180);
+        $lockedRun = $this->runLockedBrowserProfileAutoFetch('meituan', $storeId, $args, $projectRoot, $interactiveBrowser ? 600 : 180);
+        if (!$lockedRun['lock_acquired']) {
+            return ['success' => false, 'message' => 'resource_busy_login', 'status_code' => 'resource_busy_login', 'saved_count' => 0];
+        }
+        $runResult = $lockedRun['run_result'];
         if (!$runResult['success']) {
             return ['success' => false, 'message' => $runResult['message'], 'saved_count' => 0];
         }

@@ -651,6 +651,23 @@
             hasAnySnapshot,
         };
     };
+
+    const isCtripVerifiedReportSource = (meta = {}) => {
+        const dataDate = String(meta?.data_date || '').trim();
+        const requestDate = String(meta?.request_date || '').trim();
+        const sourceBusinessDate = String(meta?.source_business_date || '').trim();
+        const datePattern = /^\d{4}-\d{2}-\d{2}$/;
+        const verifiedFreshReadback = meta?.readback_verified === true;
+        const verifiedStoredSnapshot = meta?.ranking_cache_eligible === true
+            && String(meta?.verification_status || '') === 'source_verified';
+
+        return String(meta?.status || '') === 'success'
+            && String(meta?.response_date_status || '') === 'verified'
+            && datePattern.test(dataDate)
+            && sourceBusinessDate === dataDate
+            && (!datePattern.test(requestDate) || requestDate === dataDate)
+            && (verifiedFreshReadback || verifiedStoredSnapshot);
+    };
     const ctripUnsupportedEstimateKeys = ['aiEstimatedTotalRoomNights', 'ai_estimated_total_room_nights'];
     const omitUnsupportedCtripEstimate = (source = {}) => {
         const result = { ...(source && typeof source === 'object' ? source : {}) };
@@ -746,6 +763,32 @@
         },
     };
 
+    const CtripCompetitorFutureWindowPanel = {
+        name: 'CtripCompetitorFutureWindowPanel',
+        inheritAttrs: false,
+        props: {
+            model: { type: Object, default: () => ({}) },
+        },
+        render() {
+            const h = Vue.h;
+            const model = this.model || {};
+            const state = model.loading
+                ? h('p', { 'data-testid': 'ctrip-competitor-future-window-loading' }, '正在读取未来事实')
+                : (model.error
+                    ? h('p', { 'data-testid': 'ctrip-competitor-future-window-error' }, String(model.error))
+                    : (model.empty
+                        ? h('p', { 'data-testid': 'ctrip-competitor-future-window-empty' }, '尚无未来入住日矩阵；缺失保持缺失，不以零价或零库存补位。')
+                        : h('pre', { 'data-testid': 'ctrip-competitor-future-window-day' }, String(model.dayText || ''))));
+            return h('section', {
+                'data-testid': 'ctrip-competitor-future-window',
+            }, [
+                h('h4', '未来21天竞品价格与可售事实'),
+                h('p', '房型尚未完成人工映射，因此只展示事实，不生成调价建议。'),
+                state,
+            ]);
+        },
+    };
+
     const delegateToFull = key => (...args) => {
         const helper = window.SUXI_CTRIP_STATIC_FULL?.[key];
         if (typeof helper !== 'function') {
@@ -753,8 +796,114 @@
         }
         return helper(...args);
     };
+    const createCompetitorFutureWindowController = ({
+        ref,
+        computed,
+        request,
+        getSystemHotelId,
+        getToday,
+    } = {}) => {
+        if (typeof ref !== 'function' || typeof computed !== 'function' || typeof request !== 'function'
+            || typeof getSystemHotelId !== 'function' || typeof getToday !== 'function') {
+            throw new Error('未来竞品事实控制器依赖不完整');
+        }
+        const competitorFutureWindow = ref(null);
+        const competitorFutureWindowLoading = ref(false);
+        const competitorFutureWindowError = ref('');
+        let requestSeq = 0;
+        const competitorFutureWindowRows = computed(() => (
+            Array.isArray(competitorFutureWindow.value?.matrix) ? competitorFutureWindow.value.matrix : []
+        ));
+        const competitorFutureWindowEmpty = computed(() => (
+            !competitorFutureWindow.value || competitorFutureWindowRows.value.length === 0
+        ));
+        const factCountText = value => (
+            value !== null && value !== undefined && value !== '' && Number.isFinite(Number(value))
+                ? String(Number(value))
+                : '未取得'
+        );
+        const competitorFutureWindowDayText = computed(() => {
+            const view = competitorFutureWindow.value || {};
+            const lines = [
+                `周期 ${view.start_date || '-'} 至 ${view.end_date || '-'} · 截止采集 ${view.as_of_collected_at || '未返回'}`,
+                `覆盖 ${factCountText(view.covered_date_count)}/${factCountText(view.days)} 天 · 可售 ${factCountText(view.availability_evidence_cell_count)} · 同口径价格 ${factCountText(view.price_evidence_cell_count)} · 定价门禁 ${view.pricing_decision_status || 'blocked'}`,
+            ];
+            competitorFutureWindowRows.value.forEach((day) => {
+                const gaps = Array.isArray(day?.data_gaps) && day.data_gaps.length
+                    ? ` · 缺口 ${day.data_gaps.join('、')}` : '';
+                lines.push(`${day?.stay_date || '日期缺失'} · ${day?.status || 'missing'} · 事件 ${factCountText(day?.cell_count)} · 可售 ${factCountText(day?.availability_evidence_cell_count)} · 可比价 ${factCountText(day?.price_evidence_cell_count)}${gaps}`);
+                const cells = Array.isArray(day?.cells) ? day.cells : [];
+                cells.slice(0, 5).forEach(cell => lines.push(
+                    `  ${cell.competitor_hotel_name || cell.ota_hotel_id || '竞品未命名'} · ${cell.room_type_key || '房型未映射'} · ${cell.nights == null ? '住晚未取得' : `${cell.nights}晚`} · ${cell.availability || '可售未知'} · ${cell.price == null ? '价格缺失' : (cell.currency ? `${cell.currency} ${cell.price}` : `币种未取得 · 价格数值 ${cell.price}`)} · ${cell.collected_at || '采集时间缺失'}`
+                ));
+                if (cells.length > 5) lines.push(`  另有 ${cells.length - 5} 个事实单元`);
+            });
+            lines.push(view.scope_notice || '仅展示已保存的 OTA 竞争事实。');
+            return lines.join('\n');
+        });
+        const competitorFutureWindowPanelModel = computed(() => ({
+            loading: competitorFutureWindowLoading.value,
+            error: competitorFutureWindowError.value,
+            empty: competitorFutureWindowEmpty.value,
+            dayText: competitorFutureWindowDayText.value,
+        }));
+        const loadCompetitorFutureWindow = async (options = {}) => {
+            const currentSeq = ++requestSeq;
+            const systemHotelId = String(options.systemHotelId || getSystemHotelId() || '').trim();
+            const platform = String(options.platform || 'ctrip');
+            const startDate = String(options.startDate || getToday()).trim();
+            competitorFutureWindowError.value = '';
+            if (!systemHotelId || !/^\d{4}-\d{2}-\d{2}$/.test(startDate)) {
+                competitorFutureWindow.value = null;
+                competitorFutureWindowLoading.value = false;
+                return null;
+            }
+            competitorFutureWindow.value = null;
+            competitorFutureWindowLoading.value = true;
+            try {
+                const params = new URLSearchParams({
+                    system_hotel_id: systemHotelId,
+                    platform,
+                    start_date: startDate,
+                    days: '21',
+                });
+                const res = await request(`/competitor/future-window?${params.toString()}`);
+                if (currentSeq !== requestSeq) return null;
+                if (res.code !== 200 || !res.data || typeof res.data !== 'object') {
+                    throw new Error(res.message || '未来21天竞争事实读取失败');
+                }
+                if (Number(res.data.system_hotel_id || 0) !== Number(systemHotelId)
+                    || String(res.data.platform || '') !== platform
+                    || String(res.data.start_date || '') !== startDate
+                    || Number(res.data.days || 0) !== 21) {
+                    throw new Error('未来21天竞争事实返回的门店、平台或日期范围不一致');
+                }
+                if (String(getSystemHotelId() || '').trim() !== systemHotelId) return null;
+                competitorFutureWindow.value = res.data;
+                return res.data;
+            } catch (error) {
+                if (currentSeq !== requestSeq) return null;
+                competitorFutureWindow.value = null;
+                competitorFutureWindowError.value = error?.message || '未来21天竞争事实读取失败';
+                return null;
+            } finally {
+                if (currentSeq === requestSeq) competitorFutureWindowLoading.value = false;
+            }
+        };
+        return {
+            competitorFutureWindow,
+            competitorFutureWindowLoading,
+            competitorFutureWindowError,
+            competitorFutureWindowRows,
+            competitorFutureWindowEmpty,
+            competitorFutureWindowDayText,
+            competitorFutureWindowPanelModel,
+            loadCompetitorFutureWindow,
+        };
+    };
     const api = {
         CtripConfigHistory,
+        CtripCompetitorFutureWindowPanel,
         ctripProfilePrimaryCategoryOptions,
         ctripProfileDefaultModuleOptions,
         ctripProfileForbiddenFieldKeys,
@@ -791,8 +940,10 @@
         buildCtripProfileFieldSampleHelpers,
         buildCtripProfileFieldDerivationHelpers,
         buildLatestCtripSnapshotModel,
+        isCtripVerifiedReportSource,
         buildTruthfulCtripDisplayModel,
         isCtripLatestRequestCurrent,
+        createCompetitorFutureWindowController,
     };
     const fullOnlyHelperKeys = [
         'buildCtripPublicProfileRoomCountPatch',

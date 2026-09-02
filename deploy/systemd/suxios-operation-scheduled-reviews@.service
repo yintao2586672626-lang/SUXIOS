@@ -1,0 +1,18 @@
+[Unit]
+Description=SUXIOS due operation source-readback reconciliation for hotel %i
+After=mariadb.service php8.3-fpm.service
+ConditionPathExists=/var/www/suxios/current/think
+
+[Service]
+Type=oneshot
+User=www-data
+Group=www-data
+WorkingDirectory=/var/www/suxios/current
+Environment=TZ=Asia/Shanghai
+ExecStart=/usr/bin/php -d memory_limit=256M think operation:scheduled-reviews --hotel-id=%i --limit=50 --execute
+Nice=10
+CPUQuota=50%
+MemoryMax=384M
+TasksMax=16
+TimeoutStartSec=15min
+UMask=0027

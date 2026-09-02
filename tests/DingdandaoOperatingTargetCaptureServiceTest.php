@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace tests;
 
+use app\service\CollectionResultContractService;
 use app\service\DingdandaoOperatingTargetCaptureService;
 use DateTimeImmutable;
 use PHPUnit\Framework\TestCase;
@@ -873,6 +874,250 @@ final class DingdandaoOperatingTargetCaptureServiceTest extends TestCase
         self::assertSame(0, (int)Db::name('dingdandao_operating_target_captures')->count());
     }
 
+    public function testTrustedBrowserResponseEvidenceUsesExactJsEnvelope(): void
+    {
+        $service = new DingdandaoOperatingTargetCaptureService(
+            static fn(): DateTimeImmutable => new DateTimeImmutable('2026-07-27 08:10:00')
+        );
+        $input = $this->validInput();
+        $input['capture_strategy'] = 'browser_response';
+        $input['capture_evidence'] = $this->validCaptureEvidence(
+            (string)$input['source_api_path'],
+            (string)$input['business_date'],
+            (string)$input['provider_hotel_id'],
+            (string)$input['collection_mode'],
+            'browser_response'
+        );
+
+        $capture = $service->save(
+            8,
+            5,
+            7,
+            '敦煌漠蓝新',
+            $input,
+            true,
+            'provider-hotel-5'
+        );
+        $directEvidence = DingdandaoOperatingTargetCaptureService::
+            expectedCaptureEvidence(
+                (string)$input['source_api_path'],
+                (string)$input['business_date'],
+                (string)$input['provider_hotel_id'],
+                (string)$input['collection_mode']
+            );
+
+        self::assertSame('browser_response', $capture['capture_strategy']);
+        self::assertSame(
+            'authenticated_browser_network_response',
+            $capture['capture_evidence']['capture_source']
+        );
+        self::assertSame(
+            'structured_json',
+            $capture['capture_evidence']['response_evidence_type']
+        );
+        self::assertSame(
+            $input['capture_evidence'],
+            $capture['capture_evidence']
+        );
+        self::assertIsArray($directEvidence);
+        self::assertSame(
+            $directEvidence['recipe_plan_hash'],
+            $capture['capture_evidence']['recipe_plan_hash']
+        );
+        self::assertSame(
+            $directEvidence['recipe_count'],
+            $capture['capture_evidence']['recipe_count']
+        );
+        self::assertNotSame(
+            $directEvidence['source_trace_id'],
+            $capture['source_trace_id']
+        );
+        self::assertSame(
+            'browser_response',
+            $capture['collection_result']['run']['strategy']['selected']
+        );
+        self::assertTrue($capture['collection_result']['claim']['allowed']);
+    }
+
+    public function testBrowserResponseUnknownOrMismatchedStrategyIsRejected(): void
+    {
+        $service = new DingdandaoOperatingTargetCaptureService(
+            static fn(): DateTimeImmutable => new DateTimeImmutable('2026-07-27 08:10:00')
+        );
+        $browserInput = $this->validInput();
+        $browserInput['capture_strategy'] = 'browser_response';
+        $browserInput['capture_evidence'] = $this->validCaptureEvidence(
+            (string)$browserInput['source_api_path'],
+            (string)$browserInput['business_date'],
+            (string)$browserInput['provider_hotel_id'],
+            (string)$browserInput['collection_mode'],
+            'browser_response'
+        );
+
+        foreach (['future_capture_strategy', 'verified_endpoint_recipe'] as $strategy) {
+            $input = $browserInput;
+            $input['capture_strategy'] = $strategy;
+            try {
+                $service->save(
+                    8,
+                    5,
+                    7,
+                    '敦煌漠蓝新',
+                    $input,
+                    true,
+                    'provider-hotel-5'
+                );
+                self::fail('unknown or mismatched capture strategy must be rejected');
+            } catch (\InvalidArgumentException $error) {
+                self::assertSame(
+                    'dingdandao_capture_evidence_invalid',
+                    $error->getMessage()
+                );
+            }
+        }
+        self::assertSame(
+            0,
+            (int)Db::name('dingdandao_operating_target_captures')->count()
+        );
+    }
+
+    public function testBrowserResponseTamperingIsRejectedByCollectionContract(): void
+    {
+        $service = new DingdandaoOperatingTargetCaptureService(
+            static fn(): DateTimeImmutable => new DateTimeImmutable('2026-07-27 08:10:00')
+        );
+        $input = $this->validInput();
+        $input['capture_strategy'] = 'browser_response';
+        $input['capture_evidence'] = $this->validCaptureEvidence(
+            (string)$input['source_api_path'],
+            (string)$input['business_date'],
+            (string)$input['provider_hotel_id'],
+            (string)$input['collection_mode'],
+            'browser_response'
+        );
+        $capture = $service->save(
+            8,
+            5,
+            7,
+            '敦煌漠蓝新',
+            $input,
+            true,
+            'provider-hotel-5'
+        );
+        $contract = new CollectionResultContractService();
+
+        self::assertTrue($contract->validateDingdandaoCaptureClaim($capture)['allowed']);
+
+        $tampered = $capture;
+        $tampered['capture_evidence']['capture_source'] =
+            'existing_session_direct_post';
+        $validation = $contract->validateDingdandaoCaptureClaim($tampered);
+        self::assertFalse($validation['allowed']);
+        self::assertContains(
+            'source_evidence_mismatch',
+            $validation['reason_codes']
+        );
+
+        $unknown = $capture;
+        $unknown['capture_strategy'] = 'future_capture_strategy';
+        $validation = $contract->validateDingdandaoCaptureClaim($unknown);
+        self::assertFalse($validation['allowed']);
+        self::assertContains(
+            'collection_strategy_unverified',
+            $validation['reason_codes']
+        );
+        self::assertContains(
+            'source_evidence_mismatch',
+            $validation['reason_codes']
+        );
+    }
+
+    public function testManualBrowserResponseCannotSelfAttestAsVerified(): void
+    {
+        $service = new DingdandaoOperatingTargetCaptureService(
+            static fn(): DateTimeImmutable => new DateTimeImmutable('2026-07-27 08:10:00')
+        );
+        $input = $this->validInput();
+        $input['capture_strategy'] = 'browser_response';
+        $input['capture_evidence'] = $this->validCaptureEvidence(
+            (string)$input['source_api_path'],
+            (string)$input['business_date'],
+            (string)$input['provider_hotel_id'],
+            (string)$input['collection_mode'],
+            'browser_response'
+        );
+
+        $capture = $service->save(8, 5, 7, '敦煌漠蓝新', $input);
+
+        self::assertSame('identity_unverified', $capture['capture_status']);
+        self::assertSame('unverified', $capture['quality_status']);
+        self::assertFalse($capture['collection_result']['claim']['allowed']);
+        self::assertContains(
+            'dingdandao_trusted_collection_required',
+            array_column($capture['gaps'], 'code')
+        );
+    }
+
+    public function testOperatorSuppliedBrowserSupplementCannotEnterVerifiedPath(): void
+    {
+        $service = new DingdandaoOperatingTargetCaptureService(
+            static fn(): DateTimeImmutable => new DateTimeImmutable('2026-07-27 08:10:00')
+        );
+        $input = $this->validInput();
+        $input['capture_strategy'] = 'browser_response_supplement';
+        $input['capture_evidence'] =
+            DingdandaoOperatingTargetCaptureService::expectedCaptureEvidence(
+                (string)$input['source_api_path'],
+                (string)$input['business_date'],
+                (string)$input['provider_hotel_id'],
+                (string)$input['collection_mode'],
+                'browser_response_supplement'
+            );
+        self::assertIsArray($input['capture_evidence']);
+
+        $capture = $service->save(8, 5, 7, '敦煌漠蓝新', $input);
+
+        self::assertSame('identity_unverified', $capture['capture_status']);
+        self::assertSame('unverified', $capture['quality_status']);
+        self::assertSame('readback_verified', $capture['readback_status']);
+        self::assertSame(
+            'operator_supplied_browser_response',
+            $capture['capture_evidence']['capture_source']
+        );
+        self::assertSame(
+            'manual_browser_import',
+            $capture['capture_evidence']['source_method']
+        );
+        self::assertSame(
+            'browser_response_supplement',
+            $capture['collection_result']['run']['strategy']['selected']
+        );
+        self::assertSame(
+            'unverified',
+            $capture['collection_result']['run']['strategy']['status']
+        );
+        self::assertFalse($capture['collection_result']['claim']['allowed']);
+
+        try {
+            $service->save(
+                8,
+                5,
+                7,
+                '敦煌漠蓝新',
+                $input,
+                true,
+                'provider-hotel-5',
+                true
+            );
+            self::fail('operator supplied browser input must not enter verified path');
+        } catch (\InvalidArgumentException $error) {
+            self::assertSame(
+                'dingdandao_capture_evidence_invalid',
+                $error->getMessage()
+            );
+        }
+    }
+
     public function testPartialForwardFactsDoNotInvalidateVerifiedCurrentDayCapture(): void
     {
         $service = new DingdandaoOperatingTargetCaptureService(
@@ -944,6 +1189,66 @@ final class DingdandaoOperatingTargetCaptureServiceTest extends TestCase
         self::assertContains(
             'dingdandao_revenue_overview_request_failed',
             $capture['component_coverage']['temporal_context']['current']['gap_codes']
+        );
+    }
+
+    public function testRevenueOverviewPreservesNullPeriodTotalForAggregateSubject(): void
+    {
+        $service = new DingdandaoOperatingTargetCaptureService(
+            static fn(): DateTimeImmutable => new DateTimeImmutable(
+                '2026-07-27 08:10:00'
+            )
+        );
+        $input = $this->validInput();
+        $input['revenue_overview']['subjects'][0]['period_total'] = null;
+
+        $capture = $service->save(
+            8,
+            5,
+            7,
+            (string)$input['provider_hotel_name'],
+            $input,
+            true,
+            'provider-hotel-5'
+        );
+
+        self::assertSame('readback_verified', $capture['readback_status']);
+        self::assertSame(
+            -1,
+            $capture['revenue_overview']['subjects'][0]
+                ['provider_subject_type']
+        );
+        self::assertNull(
+            $capture['revenue_overview']['subjects'][0]['period_total']
+        );
+        self::assertSame(
+            10135.09,
+            $capture['revenue_overview']['subjects'][0]['single_day_total']
+        );
+    }
+
+    public function testRevenueOverviewRejectsNullPeriodTotalForRegularSubject(): void
+    {
+        $service = new DingdandaoOperatingTargetCaptureService(
+            static fn(): DateTimeImmutable => new DateTimeImmutable(
+                '2026-07-27 08:10:00'
+            )
+        );
+        $input = $this->validInput();
+        $input['revenue_overview']['subjects'][1]['period_total'] = null;
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage(
+            'dingdandao_capture_revenue_overview_invalid'
+        );
+        $service->save(
+            8,
+            5,
+            7,
+            (string)$input['provider_hotel_name'],
+            $input,
+            true,
+            'provider-hotel-5'
         );
     }
 
@@ -1353,7 +1658,8 @@ final class DingdandaoOperatingTargetCaptureServiceTest extends TestCase
         string $sourceApiPath,
         string $businessDate,
         string $providerHotelId,
-        string $collectionMode
+        string $collectionMode,
+        string $captureStrategy = 'verified_endpoint_recipe'
     ): array {
         $section = $collectionMode === 'full_diagnostic'
             ? 'pms_full_diagnostic'
@@ -1363,6 +1669,9 @@ final class DingdandaoOperatingTargetCaptureServiceTest extends TestCase
             DingdandaoOperatingTargetCaptureService::SOURCE_URL
         );
         $providerHotelIdHash = hash('sha256', $providerHotelId);
+        $captureSource = $captureStrategy === 'browser_response'
+            ? 'authenticated_browser_network_response'
+            : 'existing_session_direct_post';
         $recipeIds = $collectionMode === 'full_diagnostic'
             ? [
                 'store_identity',
@@ -1409,7 +1718,7 @@ final class DingdandaoOperatingTargetCaptureServiceTest extends TestCase
             'platform' => 'dingdandao',
             'section' => $section,
             'source_path' => $sourceApiPath . '#data',
-            'capture_source' => 'existing_session_direct_post',
+            'capture_source' => $captureSource,
             'source_url_hash' => $sourceUrlHash,
             'source_kind' => 'pms',
             'business_module' => 'accommodation_operating',
@@ -1417,7 +1726,7 @@ final class DingdandaoOperatingTargetCaptureServiceTest extends TestCase
             'collection_mode' => $collectionMode,
             'data_date' => $businessDate,
             'provider_hotel_id_hash' => $providerHotelIdHash,
-            'capture_strategy' => 'verified_endpoint_recipe',
+            'capture_strategy' => $captureStrategy,
             'fallback_from' => null,
             'fallback_reason' => null,
             'response_evidence_type' => 'structured_json',
@@ -1433,7 +1742,7 @@ final class DingdandaoOperatingTargetCaptureServiceTest extends TestCase
         );
         return [
             'source_path' => $sourceApiPath . '#data',
-            'capture_source' => 'existing_session_direct_post',
+            'capture_source' => $captureSource,
             'section' => $section,
             'source_kind' => 'pms',
             'business_module' => 'accommodation_operating',
@@ -1442,7 +1751,7 @@ final class DingdandaoOperatingTargetCaptureServiceTest extends TestCase
             'data_date' => $businessDate,
             'provider_hotel_id_hash' => $providerHotelIdHash,
             'source_url_hash' => $sourceUrlHash,
-            'capture_strategy' => 'verified_endpoint_recipe',
+            'capture_strategy' => $captureStrategy,
             'fallback_from' => null,
             'fallback_reason' => null,
             'response_evidence_type' => 'structured_json',

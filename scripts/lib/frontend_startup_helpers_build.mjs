@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import vm from 'node:vm';
 import { gzipSync } from 'node:zlib';
 import { minify } from 'terser';
 import {
@@ -8,6 +9,7 @@ import {
   updateFrontendAssetVersion,
 } from './frontend_asset_version.mjs';
 import { FRONTEND_ENTRY_MINIFY_OPTIONS } from './frontend_entry_build.mjs';
+import { captureRuntimeAssetIdentity } from './runtime_asset_identity.mjs';
 
 export const FRONTEND_BOOTSTRAP_SOURCE = 'app-bootstrap.js';
 export const FRONTEND_BOOTSTRAP_ARTIFACT = 'app-bootstrap.min.js';
@@ -63,6 +65,100 @@ export async function buildFrontendDeferredHelpers(sourceEntries) {
     String(source || ''),
   ]));
   return minifyFrontendScripts(sources);
+}
+
+function createFrontendContractSandbox() {
+  return {
+    window: {},
+    console,
+    URL,
+    URLSearchParams,
+    Intl,
+    Date,
+    setTimeout,
+    clearTimeout,
+  };
+}
+
+export function inspectCtripStartupFacadeContract(loaderSource, fullSource) {
+  const failures = [];
+  const loaderSandbox = createFrontendContractSandbox();
+  const fullSandbox = createFrontendContractSandbox();
+  try {
+    vm.runInNewContext(String(loaderSource || ''), loaderSandbox, {
+      filename: 'public/ctrip-static-loader.js',
+    });
+    vm.runInNewContext(String(fullSource || ''), fullSandbox, {
+      filename: 'public/ctrip-static.js',
+    });
+  } catch (error) {
+    return {
+      failures: [`Ctrip startup facade inspection failed: ${error.message}`],
+      metrics: {
+        facade_export_count: 0,
+        full_export_count: 0,
+        missing_exports: [],
+        unexpected_exports: [],
+        type_mismatches: [],
+      },
+    };
+  }
+
+  const facade = loaderSandbox.window.SUXI_CTRIP_STATIC;
+  const full = fullSandbox.window.SUXI_CTRIP_STATIC;
+  if (!facade || typeof facade !== 'object') {
+    failures.push('public/ctrip-static-loader.js must expose window.SUXI_CTRIP_STATIC.');
+  }
+  if (!full || typeof full !== 'object') {
+    failures.push('public/ctrip-static.js must expose window.SUXI_CTRIP_STATIC.');
+  }
+  const facadeKeys = Object.keys(facade || {}).sort();
+  const fullKeys = Object.keys(full || {}).sort();
+  const facadeKeySet = new Set(facadeKeys);
+  const fullKeySet = new Set(fullKeys);
+  const missingExports = fullKeys.filter((key) => !facadeKeySet.has(key));
+  const unexpectedExports = facadeKeys.filter((key) => !fullKeySet.has(key));
+  const typeMismatches = fullKeys.filter(
+    (key) => facadeKeySet.has(key) && typeof facade[key] !== typeof full[key],
+  );
+  if (missingExports.length > 0 || unexpectedExports.length > 0) {
+    failures.push(
+      'Ctrip startup facade exports must exactly match the deferred full module; '
+      + `missing=${missingExports.join(',') || 'none'}; `
+      + `unexpected=${unexpectedExports.join(',') || 'none'}.`,
+    );
+  }
+  if (typeMismatches.length > 0) {
+    failures.push(
+      'Ctrip startup facade export types must match the deferred full module; '
+      + `mismatched=${typeMismatches.join(',')}.`,
+    );
+  }
+
+  if (facade && full) {
+    try {
+      vm.runInNewContext(String(fullSource || ''), loaderSandbox, {
+        filename: 'public/ctrip-static.js',
+      });
+      if (loaderSandbox.window.SUXI_CTRIP_STATIC !== loaderSandbox.window.SUXI_CTRIP_STATIC_FULL
+        || loaderSandbox.window.SUXI_CTRIP_STATIC === facade) {
+        failures.push('The deferred Ctrip module must replace the startup facade with its full export object.');
+      }
+    } catch (error) {
+      failures.push(`Deferred Ctrip facade replacement inspection failed: ${error.message}`);
+    }
+  }
+
+  return {
+    failures,
+    metrics: {
+      facade_export_count: facadeKeys.length,
+      full_export_count: fullKeys.length,
+      missing_exports: missingExports,
+      unexpected_exports: unexpectedExports,
+      type_mismatches: typeMismatches,
+    },
+  };
 }
 
 const escapeRegExp = (value) => String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -189,6 +285,16 @@ export async function inspectFrontendStartupHelpers(repoRoot) {
   const expectedHelperArtifact = await buildFrontendStartupHelpers(helperSources);
   const expectedDeferredHelperArtifact = await buildFrontendDeferredHelpers(deferredHelperSources);
   const failures = [];
+  const ctripFacadeInspection = inspectCtripStartupFacadeContract(
+    helperSources.find(({ name }) => name === 'ctrip-static-loader.js')?.source || '',
+    deferredHelperSources.find(({ name }) => name === 'ctrip-static.js')?.source || '',
+  );
+  failures.push(...ctripFacadeInspection.failures);
+  const runtimeAssetIdentity = captureRuntimeAssetIdentity(repoRoot);
+  if (runtimeAssetIdentity.files.length < 20
+    || !/^[a-f0-9]{64}$/.test(runtimeAssetIdentity.digest)) {
+    failures.push('Runtime asset identity must cover the authenticated and action-gated frontend graph.');
+  }
 
   if (bootstrapArtifact !== expectedBootstrapArtifact) {
     failures.push(
@@ -280,6 +386,11 @@ export async function inspectFrontendStartupHelpers(repoRoot) {
       bootstrap_artifact_hash: buildFrontendAssetHash(bootstrapArtifact),
       helper_artifact_hash: buildFrontendAssetHash(helperArtifact),
       deferred_helper_artifact_hash: buildFrontendAssetHash(deferredHelperArtifact),
+      ctrip_facade_export_count: ctripFacadeInspection.metrics.facade_export_count,
+      ctrip_full_export_count: ctripFacadeInspection.metrics.full_export_count,
+      ctrip_facade_type_mismatch_count: ctripFacadeInspection.metrics.type_mismatches.length,
+      runtime_asset_count: runtimeAssetIdentity.files.length,
+      runtime_asset_digest: runtimeAssetIdentity.digest,
     },
   };
 }

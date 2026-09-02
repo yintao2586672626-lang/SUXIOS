@@ -16,10 +16,26 @@ Route::group('api/operating-loop', function () {
 // calculation records or human pending approvals; none execute OTA/PMS actions.
 Route::group('api/operating-opportunities', function () {
     Route::get('/overview', 'OperatingOpportunity/overview');
+    Route::get('/weekly-plan/latest', 'OperatingOpportunity/weeklyPlanLatest');
+    Route::get('/weekly-plan/snapshots/:id', 'OperatingOpportunity/weeklyPlanRead');
     Route::post('/runs/:id/pending-approval', 'OperatingOpportunity/pendingApproval');
     Route::get('/runs/:id', 'OperatingOpportunity/read');
     Route::post('/evaluate', 'OperatingOpportunity/evaluate');
+    Route::post('/daily-preview/feedback', 'OperatingOpportunity/dailyPreviewFeedback');
     Route::post('/priority', 'OperatingOpportunity/priority');
+})->middleware(\app\middleware\Auth::class);
+
+// One user-visible control center for settlement truth, blocker recovery,
+// real on-books pace, demand references, structured WeCom receipts, monthly
+// operating finance and same-scope portfolio comparison. No route performs an
+// OTA/PMS write, external send or automatic approval.
+Route::group('api/operating-finance', function () {
+    Route::get('/overview', 'OperatingFinance/overview');
+    Route::post('/settlements/import', 'OperatingFinance/importSettlement');
+    Route::post('/settlements/import-file', 'OperatingFinance/importSettlementFile');
+    Route::post('/on-books-snapshots', 'OperatingFinance/saveOnBooksSnapshot');
+    Route::post('/demand-events', 'OperatingFinance/saveDemandEvent');
+    Route::post('/monthly-finance', 'OperatingFinance/saveMonthlyFinance');
 })->middleware(\app\middleware\Auth::class);
 
 Route::group('api/operation', function () {
@@ -50,6 +66,7 @@ Route::group('api/operation', function () {
     Route::post('/execution-tasks/:id/operating-memory', 'OperationManagement/saveExecutionTaskOperatingMemory');
     Route::get('/closure-overview', 'OperationManagement/closureOverview');
     Route::get('/execution-flow', 'OperationManagement/executionFlow');
+    Route::get('/my-tasks', 'OperationManagement/myTasks');
     Route::get('/growth-archive/timeline', 'OperationManagement/growthArchiveTimeline');
     Route::post('/growth-archive/events', 'OperationManagement/createGrowthArchiveEvent');
     Route::post('/growth-archive/:id/annotations', 'OperationManagement/addGrowthArchiveAnnotation');

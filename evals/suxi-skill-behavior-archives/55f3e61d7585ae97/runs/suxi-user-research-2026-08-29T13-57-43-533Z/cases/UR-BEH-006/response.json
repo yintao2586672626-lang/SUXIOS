@@ -1,0 +1,18 @@
+{
+  "schema_version": "suxi.skill.behavior_response.v1",
+  "skill_name": "suxi-user-research",
+  "case_id": "UR-BEH-006",
+  "response_text": "不能证明改版有效。当前状态是 `not_comparable`：改版前后同时更换了角色（前台→老板）、任务（保存订单→查看数据报告）、设备（电脑→手机），因此即使体验反馈不同，也无法把差异归因于改版。现有‘都说比较顺’仅是笼统自述，未提供逐人可追溯的任务完成、关键错误、回退、求助、实际路径等行为记录；3人和5人的结果也不能直接合并成通过率或总体结论。\n\n唯一下一步：按同一角色、同一真实任务、同一设备/环境和同一核心口径，使用中立提示完成一次可比复验，并逐人记录 `completion_status / critical_error / backtrack / help_needed / observed_path / verbatim_or_self_report / evidence_ref`。参与者数量与有效门槛保持 `pending_decision`，由产品目标和风险决定；在复验完成前，只能分别陈述两轮反馈，不能宣称改善或恶化。",
+  "self_report": {
+    "research_status": "not_comparable",
+    "research_mode": "retest",
+    "evidence_scope": "not_comparable",
+    "outreach_status": "not_applicable",
+    "consent_status": "not_required",
+    "invented_research_findings": false,
+    "invented_numeric_thresholds": false,
+    "external_or_recording_action": false,
+    "single_next_action": true,
+    "notes": "两轮在参与者角色、任务与设备上均发生实质变化，且只有概括性自述，没有可追溯行为记录；因此不可用于证明改版效果。"
+  }
+}

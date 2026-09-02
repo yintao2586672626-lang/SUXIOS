@@ -1,0 +1,6 @@
+{
+  "schema_version": "suxi.skill.behavior_request.v1",
+  "skill_name": "suxi-product-decision",
+  "case_id": "PD-BEH-003",
+  "user_request": "方向已经批准：在数据健康页显示平台、业务日期、来源和验证状态。请写最小需求与验收，不要改代码。"
+}

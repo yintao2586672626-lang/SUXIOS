@@ -1,0 +1,12 @@
+{
+  "schema_version": "suxi.skill.behavior_evidence_archive_seal.v1",
+  "archive_path_sha256": "75413bdd08c46a5de83c46a03a7e980e58ab862569a5b5b36970ee409618e873",
+  "archive_manifest_sha256": "a8ed6b4490a9396efa1bf6410d0dccf7f8cbe33ae6a59217f37e51da5427bc9a",
+  "source_ledger_sha256": "55f3e61d7585ae97557fe1173351531d41e368b28b64c6b04fb3df293912688c",
+  "counts": {
+    "runs": 3,
+    "files": 155,
+    "bytes": 503173,
+    "seals": 6
+  }
+}

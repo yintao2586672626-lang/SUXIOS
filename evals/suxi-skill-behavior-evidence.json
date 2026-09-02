@@ -1,0 +1,168 @@
+{
+  "schema_version": "suxi.skill.behavior_evidence_ledger.v1",
+  "scope": "current_local_governed_skills",
+  "entries": [
+    {
+      "skill_name": "suxi-product-decision",
+      "run_id": "suxi-product-decision-2026-08-29T13-10-21-310Z",
+      "run_path": "suxi-product-decision-2026-08-29T13-10-21-310Z",
+      "run_manifest_schema_version": "suxi.skill.behavior_run.v2",
+      "judgment_schema_version": "suxi.skill.behavior_judgments.v2",
+      "grade_status": "PASS",
+      "counts": {
+        "pass": 5,
+        "fail": 0,
+        "blocked": 0
+      },
+      "verified": {
+        "cases": 5,
+        "assertions": 22,
+        "evidence_spans": 34
+      },
+      "hashes": {
+        "behavior_contract_sha256": "dc176b7e9ae7a4221641a7d7862f4ce5bbb098192e8a63000db7cd0e874ec68c",
+        "source_snapshot_sha256": "cb711b8c2f99ba28364e3f879b4c1189862a3a12a400678dc867a398c31bf717",
+        "prepare_seal_sha256": "b13c2157a38d214ae7222283090b852e039925692d90ad95aa4430abc29ab5b3",
+        "prepare_manifest_sha256": "67cb02d6b027c33f2e772d09030c2df0e77b46345e2c797bb6176f60300957b3",
+        "judge_packet_sha256": "5237c985010cba41effd18e163ee66cf249f927dc4ce2c7bd5a9c698d3e2ef29",
+        "judgments_sha256": "405dff1c1b385d28943a6acdda72e604c42e4580b5c77278f7af1c3162d0d205",
+        "grade_summary_sha256": "156799425a6fdeee131fb3988d9939ebe8de54feb0f181cd306e5521e0221547",
+        "grade_seal_sha256": "dcee75da1d101390a9a92bb0a38cfafe93e8fe9456297f12fb8b5ba787a0a9bf",
+        "responses": [
+          {
+            "case_id": "PD-BEH-001",
+            "sha256": "37b384b4c1b924e260aa74a800d5a8210e45d2b3d42d8c85ab7469167955b5fa"
+          },
+          {
+            "case_id": "PD-BEH-002",
+            "sha256": "bc4feea143babf987942a4766368debfebb4f5135ded971460ff760432fd8d79"
+          },
+          {
+            "case_id": "PD-BEH-003",
+            "sha256": "a4eaff336514f9f367afa924d0f78bb1b78fed2f658c99da1c5f87c89b19bf65"
+          },
+          {
+            "case_id": "PD-BEH-004",
+            "sha256": "76fb7c45c2acc58c4a46c0ac6a27e9be1f996578593688ce88398a0e9c7421b2"
+          },
+          {
+            "case_id": "PD-BEH-005",
+            "sha256": "f4476a1f8773f5e7066a5a2f1e01afba7abb98e0d44382919563847722b1aba3"
+          }
+        ]
+      }
+    },
+    {
+      "skill_name": "suxi-test-guard",
+      "run_id": "suxi-test-guard-2026-08-29T13-40-32-781Z",
+      "run_path": "suxi-test-guard-2026-08-29T13-40-32-781Z",
+      "run_manifest_schema_version": "suxi.skill.behavior_run.v2",
+      "judgment_schema_version": "suxi.skill.behavior_judgments.v2",
+      "grade_status": "PASS",
+      "counts": {
+        "pass": 6,
+        "fail": 0,
+        "blocked": 0
+      },
+      "verified": {
+        "cases": 6,
+        "assertions": 25,
+        "evidence_spans": 30
+      },
+      "hashes": {
+        "behavior_contract_sha256": "a5a3909b5521a0dd139b2b8f99280182d81abce0d7d98c67d00118556ed338f9",
+        "source_snapshot_sha256": "7bf163a793b41d5dd4e962b4ca8015c8f0244be5356b0f6f5fed941caa11adca",
+        "prepare_seal_sha256": "021b970f58e99ded51ddc11995214468f05ed3f06438d19132b69b7eb6172cbd",
+        "prepare_manifest_sha256": "a41173165f23ce0cd6b588b873d44753bf54a42ff681edfcead75f977fcdecd8",
+        "judge_packet_sha256": "d0f0c2764c0bedc6709b11ab8d5c5d16bff963375c75c2bb2fd1072c01763053",
+        "judgments_sha256": "ee40b9e4919692a0ff2bbfccb76985eb50a499c28f5110c645a88646ea07e0b2",
+        "grade_summary_sha256": "41678044b67c05662010199c22b996ee884b5400622a221b9698b683797aa463",
+        "grade_seal_sha256": "76c4b369a122a872a5975cfacdc3b069f3838876ed42fc554c1adffc92bede7d",
+        "responses": [
+          {
+            "case_id": "TG-BEH-001",
+            "sha256": "5f3098b8edc50f05906d99ccb5687269f8f693f048c2ddf059d8c212fbfb4a5c"
+          },
+          {
+            "case_id": "TG-BEH-002",
+            "sha256": "b33ed8cefce3ff8b8839ce0dbec6fdd01d614a79cc74ef80dadfa4aa879b7e2a"
+          },
+          {
+            "case_id": "TG-BEH-003",
+            "sha256": "be62cdf2aad94bd899a1d935f63f310ce1557049518c4a7cca6a1e557b14c5e8"
+          },
+          {
+            "case_id": "TG-BEH-004",
+            "sha256": "b74814cd0c61aa4a13310dc364b9986e51d9b0f9049eff1800384f8485f6820c"
+          },
+          {
+            "case_id": "TG-BEH-005",
+            "sha256": "9852dd04a2ec6819be08d460833f9e6f29bda5990a8ba4bc8a3e51fccbc0e8bf"
+          },
+          {
+            "case_id": "TG-BEH-006",
+            "sha256": "948a03ba2d07b36131701dc530f963b05681a77ce3208696c23a79a58ad9af1d"
+          }
+        ]
+      }
+    },
+    {
+      "skill_name": "suxi-user-research",
+      "run_id": "suxi-user-research-2026-08-29T13-57-43-533Z",
+      "run_path": "suxi-user-research-2026-08-29T13-57-43-533Z",
+      "run_manifest_schema_version": "suxi.skill.behavior_run.v2",
+      "judgment_schema_version": "suxi.skill.behavior_judgments.v2",
+      "grade_status": "PASS",
+      "counts": {
+        "pass": 7,
+        "fail": 0,
+        "blocked": 0
+      },
+      "verified": {
+        "cases": 7,
+        "assertions": 35,
+        "evidence_spans": 52
+      },
+      "hashes": {
+        "behavior_contract_sha256": "3bc9e11d5c6775d096480047f0647ced8491ead8cac7834a88a25e4a2abfe20b",
+        "source_snapshot_sha256": "7718d7dda223ec5e1d89c0b049c0c3e9739d0d7680511813dc80fb475357f265",
+        "prepare_seal_sha256": "8c270c0cffbe5a8f9613ec04a334fa544eb8bcaa4676deb07c73529b2b4995de",
+        "prepare_manifest_sha256": "5354ccb82d83162abd3672d019313bf098666182866a6e7991254826bbc5750d",
+        "judge_packet_sha256": "887ee2432ff99c188bde6a09a12f48027722d01973de49b97b04da211978ef0c",
+        "judgments_sha256": "1fd62554561dc9a10d68de43118ed5c9b7e648992286b47274b644d4b438b61e",
+        "grade_summary_sha256": "54656210ac0544dd03e875e8d4e4a4d318cdd0fe50f2dc0f59ba0a950118ad76",
+        "grade_seal_sha256": "cd4bd16f18ac992f49cd26d75e4d868b787c2a359fee9f4f08723d088521fbcd",
+        "responses": [
+          {
+            "case_id": "UR-BEH-001",
+            "sha256": "3ab154d9091e7d72878a92e8b16ac2b4f69e5a581d8d47ab659690dea18fccd1"
+          },
+          {
+            "case_id": "UR-BEH-002",
+            "sha256": "fc8255e7b19bc259aee326d400b6894420905a4194f06b391b96cde05764c017"
+          },
+          {
+            "case_id": "UR-BEH-003",
+            "sha256": "d53f666e68b805c2de5a78d1ccd503dc1961b8c649b5956ff5558a27f48e1895"
+          },
+          {
+            "case_id": "UR-BEH-004",
+            "sha256": "e57ea3161d64108c3f71ea02ec0be70becfc97963dbf64903b4cc946c14545bf"
+          },
+          {
+            "case_id": "UR-BEH-005",
+            "sha256": "32bd64e634e9ca88341eccfae8abd3b90598e97a58a521d97a936931fb60424e"
+          },
+          {
+            "case_id": "UR-BEH-006",
+            "sha256": "804264fa5948027788a4024be1ddfa960819f0be2e808d4f4dd7cbd7e551b002"
+          },
+          {
+            "case_id": "UR-BEH-007",
+            "sha256": "43c121d86caa5a1bae430c81929255c4f3a7e195020e1a17ccb7760414eb9e74"
+          }
+        ]
+      }
+    }
+  ]
+}

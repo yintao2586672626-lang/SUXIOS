@@ -280,8 +280,7 @@ trait PlatformSyncTaskReadbackConcern
         $traceIds = array_values(array_unique($traceIds));
         $receipt['row_ids'] = $rowIds;
         $receipt['source_trace_ids'] = array_slice($traceIds, 0, 50);
-        $receipt['observed_platform_hotel_id']
-            = $this->observedPlatformHotelIdFromRunRows($rows);
+        $receipt['observed_platform_hotel_id'] = $this->observedPlatformHotelIdFromRunRows($rows, $platform);
         $config = is_array($source['config'] ?? null)
             ? $source['config']
             : $this->decodeConfig($source['config_json'] ?? []);
@@ -335,23 +334,39 @@ trait PlatformSyncTaskReadbackConcern
      *
      * @param array<int,array<string,mixed>> $rows
      */
-    private function observedPlatformHotelIdFromRunRows(array $rows): string
+    private function observedPlatformHotelIdFromRunRows(array $rows, string $platform = 'ctrip'): string
     {
+        $platform = strtolower(trim($platform));
         $observed = [];
         foreach ($rows as $row) {
             $raw = $this->decodeConfig($row['raw_data'] ?? []);
-            $proof = strtolower(trim((string)(
-                $raw['platform_hotel_identifier_proof'] ?? ''
-            )));
+            $detail = is_array($raw['row'] ?? null) ? $raw['row'] : [];
+            $proof = strtolower(trim((string)($raw['platform_hotel_identifier_proof'] ?? '')));
             if ($proof !== 'row_field_present') {
                 continue;
             }
-            $compareType = strtolower(trim((string)(
-                $row['compare_type']
-                    ?? $raw['compare_type']
-                    ?? ''
-            )));
-            if (in_array(
+            $compareType = '';
+            foreach ([
+                $row['compare_type'] ?? null,
+                $raw['compare_type'] ?? null,
+                $detail['compare_type'] ?? $detail['compareType'] ?? null,
+            ] as $candidate) {
+                $candidate = strtolower(trim((string)$candidate));
+                if ($candidate !== '') {
+                    $compareType = $candidate;
+                    break;
+                }
+            }
+            if ($platform === 'meituan') {
+                $isSelf = in_array($compareType, ['self', 'own', 'mine', 'current'], true)
+                    || ($raw['is_self'] ?? $raw['isSelf'] ?? null) === true
+                    || ($detail['is_self'] ?? $detail['isSelf'] ?? null) === true
+                    || (string)($raw['is_self'] ?? $raw['isSelf'] ?? '') === '1'
+                    || (string)($detail['is_self'] ?? $detail['isSelf'] ?? '') === '1';
+                if (!$isSelf) {
+                    continue;
+                }
+            } elseif (in_array(
                 $compareType,
                 [
                     'competitor',

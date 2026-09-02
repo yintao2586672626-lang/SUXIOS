@@ -1,6 +1,6 @@
 ---
 name: suxi-ota-ops
-description: 用于宿析OS OTA运营、携程/美团数据获取、手动采集、自动采集、Cookie/Profile、订单、房价、库存、流量、点评、竞品和渠道诊断任务，触发词包括 OTA、携程、美团、ebooking、Trip Connect、TMC、browser capture、Profile、Cookie、订单抓取、在线数据、渠道、房价、库存、竞品、排名、转化率、曝光、点评、广告、OnlineData、cron_fetch、auto_fetch_online_data。
+description: 用于宿析OS携程/美团 OTA 数据采集、导入补数与 Profile 登录排障：自动采集、手动导出文件或 Cookie/Payload 补数，以及订单、房价、库存、流量、点评、竞品、排名、转化率、曝光、广告和渠道诊断；也用于 eBooking、Trip Connect、TMC、browser capture、OnlineData、cron_fetch、auto_fetch_online_data。
 ---
 
 # Suxi OTA Ops

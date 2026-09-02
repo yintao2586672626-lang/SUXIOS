@@ -63,7 +63,9 @@ try {
                 'metric_key', 'tenant_id', 'system_hotel_id', 'platform',
                 'platform_store_id', 'store_profile_status', 'data_source_id',
                 'business_date', 'capture_id', 'source_method', 'endpoint_ids', 'source_paths',
-                'unit', 'validation_status',
+                'source_keys', 'normalized_metric_keys', 'unit', 'validation_status',
+                'semantic_metric_key', 'semantic_metric_status', 'semantic_label',
+                'semantic_unit', 'semantic_contract_version', 'field_fact_identities',
                 'persistence_status', 'readback_status',
             ] as $requiredIdentityKey) {
                 if (!array_key_exists($requiredIdentityKey, $field)) {
@@ -75,6 +77,9 @@ try {
             }
             if (($field['sensitive_values_exposed'] ?? true) !== false) {
                 throw new RuntimeException('dual_ota_field_closure_sensitive_identity_exposed:' . $platform);
+            }
+            if ((string)($field['semantic_contract_version'] ?? '') !== 'ota_field_semantics.v1') {
+                throw new RuntimeException('dual_ota_field_closure_semantic_contract_invalid:' . $platform);
             }
         }
     }
@@ -106,6 +111,13 @@ try {
                         'value' => $field['value'] ?? null,
                         'observed_values' => $field['observed_values'] ?? [],
                         'source_record_refs' => $field['source_record_refs'] ?? [],
+                        'source_paths' => $field['source_paths'] ?? [],
+                        'source_keys' => $field['source_keys'] ?? [],
+                        'semantic_metric_key' => $field['semantic_metric_key'] ?? null,
+                        'semantic_metric_status' => $field['semantic_metric_status'] ?? null,
+                        'semantic_label' => $field['semantic_label'] ?? null,
+                        'semantic_unit' => $field['semantic_unit'] ?? null,
+                        'semantic_contract_version' => $field['semantic_contract_version'] ?? null,
                         'revenue_analysis_consumable' => $field['revenue_analysis_consumable'] ?? false,
                     ];
                 }

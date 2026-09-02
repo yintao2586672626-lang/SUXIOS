@@ -1,6 +1,25 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
+export const FRONTEND_RUNTIME_EXCLUDED_FRAGMENT_IDS = Object.freeze([
+  'page-ai-strategy',
+  'page-ai-feasibility',
+  'page-market-evaluation',
+  'page-benchmark-model',
+  'page-collaboration-efficiency',
+  'shared-expansion-history',
+  'shared-transfer-context',
+  'page-asset-pricing',
+  'page-timing-strategy',
+  'page-decision-board',
+  'shared-transfer-history',
+  'page-ai-workbench',
+  'page-investment-decision',
+  'page-lifecycle',
+]);
+
+const FRONTEND_RUNTIME_EXCLUDED_FRAGMENT_ID_SET = new Set(FRONTEND_RUNTIME_EXCLUDED_FRAGMENT_IDS);
+
 export const FRONTEND_TEMPLATE_FRAGMENT_DEFINITIONS = Object.freeze([
   { id: 'app-shell', domain: 'shell', path: 'fragments/00-app-shell.html', anchor: '<!-- 登录页面 -->' },
   { id: 'page-ai-strategy', domain: 'ai-decision', path: 'fragments/01-page-ai-strategy.html', anchor: '<div v-if="currentPage === \'ai-strategy\'">' },
@@ -32,6 +51,7 @@ export const FRONTEND_TEMPLATE_FRAGMENT_DEFINITIONS = Object.freeze([
   { id: 'page-revenue-research-center', domain: 'revenue', path: 'fragments/19-page-revenue-research-center.html', anchor: '<div v-if="currentPage === \'revenue-research-center\'" class="max-w-7xl mx-auto space-y-4">' },
   { id: 'page-operation-optimizer', domain: 'revenue', path: 'fragments/19a-page-operation-optimizer.html', anchor: '<div v-if="currentPage === \'operation-optimizer\'" class="max-w-7xl mx-auto space-y-5" data-testid="page-operation-optimizer">' },
   { id: 'page-operating-opportunities', domain: 'operations', path: 'fragments/19b-page-operating-opportunities.html', anchor: '<div v-if="currentPage === \'operating-opportunities\'" class="suxi-dashboard-scope" data-testid="page-operating-opportunities">' },
+  { id: 'page-operating-finance', domain: 'operations', path: 'fragments/19c-page-operating-finance.html', anchor: '<operating-finance-control-center' },
   { id: 'page-knowledge-center', domain: 'knowledge', path: 'fragments/20-page-knowledge-center.html', anchor: '<div v-if="currentPage === \'knowledge-center\'" class="max-w-6xl mx-auto space-y-4">' },
   { id: 'page-users', domain: 'system-admin', path: 'fragments/21-page-users.html', anchor: '<div v-if="currentPage === \'users\'">' },
   { id: 'page-roles', domain: 'system-admin', path: 'fragments/22-page-roles.html', anchor: '<div v-if="currentPage === \'roles\'">' },
@@ -92,14 +112,6 @@ const BUSINESS_CLOSURE_TEMPLATE_VIEW_DEFINITIONS = Object.freeze([
     start: '                        <div data-testid="operating-goal-intervention-learning"',
     end: '                        <div class="bg-white rounded-xl border border-gray-100 p-5 shadow-sm">',
     wrapper: '                        <operating-goal-intervention-view :ctx="$root"></operating-goal-intervention-view>\n\n',
-  }),
-  Object.freeze({
-    id: 'home-temporal-trial',
-    fragmentId: 'page-ai-workbench',
-    componentKey: 'HomeTemporalTrialBody',
-    start: '                                        <section v-if="!dualOtaPmsSelected" class="mt-3 rounded-xl border border-slate-200 bg-white p-4" data-testid="home-temporal-forecast-trial">',
-    end: '                                    </section>\n\n                                    <div v-if="dualOtaDashboard.principle',
-    wrapper: '                                        <home-temporal-trial-view v-if="!dualOtaPmsSelected" :ctx="$root"></home-temporal-trial-view>\n',
   }),
   Object.freeze({
     id: 'knowledge-xlsx-import-dialog',
@@ -176,7 +188,13 @@ export const frontendTemplateManifestFragments = () => FRONTEND_TEMPLATE_FRAGMEN
   domain,
   path: fragmentPath,
   anchor,
-}) => ({ id, domain, path: fragmentPath, anchor }));
+}) => ({
+  id,
+  domain,
+  path: fragmentPath,
+  anchor,
+  ...(FRONTEND_RUNTIME_EXCLUDED_FRAGMENT_ID_SET.has(id) ? { runtime: false } : {}),
+}));
 
 export const frontendTemplateManifestMatchesDefinitions = (manifest) => {
   if (!Array.isArray(manifest?.fragments)) return false;
@@ -274,11 +292,13 @@ export function loadFrontendTemplateSource(repoRoot) {
   });
   const extracted = extractBusinessClosureTemplateViews(rawFragments);
   const fragments = extracted.fragments;
-  const templateBuffer = Buffer.concat(fragments.map((fragment) => fragment.buffer));
+  const runtimeFragments = fragments.filter((fragment) => fragment.runtime !== false);
+  const templateBuffer = Buffer.concat(runtimeFragments.map((fragment) => fragment.buffer));
   return {
     manifest,
     manifestPath: manifestPath(repoRoot),
     fragments,
+    runtimeFragments,
     templateBuffer,
     template: templateBuffer.toString('utf8'),
     businessClosureViews: extracted.views,

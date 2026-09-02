@@ -8,6 +8,10 @@ import { loadFrontendTemplateSource } from '../../scripts/lib/frontend_template_
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const appMain = fs.readFileSync('public/app-main.js', 'utf8');
 const template = loadFrontendTemplateSource(repoRoot).template;
+const frozenAiWorkbenchTemplate = fs.readFileSync(
+  path.join(repoRoot, 'resources/frontend/templates/fragments/23b-page-ai-workbench.html'),
+  'utf8',
+);
 const sliceBetween = (start, end) => {
   const startIndex = appMain.indexOf(start);
   const endIndex = appMain.indexOf(end, startIndex + start.length);
@@ -25,17 +29,18 @@ test('current user can save and restore an explicit hotel picker order', () => {
   assert.match(appMain, /dualOtaHotelOrderIds\.value = readDualOtaHotelOrderIds\(\)/);
 });
 
-test('hotel picker exposes an accessible order editor without moving the all-hotels option', () => {
-  assert.match(template, /<option value="">全部门店<\/option>[\s\S]*v-for="hotel in dualOtaCurrentHotelOptions"/);
-  assert.match(template, /data-testid="dual-ota-hotel-order-open"/);
-  assert.match(template, /data-testid="dual-ota-hotel-order-dialog"[\s\S]*role="dialog"[\s\S]*aria-modal="true"/);
-  assert.match(template, /v-for="\(hotel, index\) in dualOtaHotelOrderRows"/);
-  assert.match(template, /moveDualOtaHotelOrderToTop\(hotel\.id\)/);
-  assert.match(template, /moveDualOtaHotelOrder\(hotel\.id, 'up'\)/);
-  assert.match(template, /moveDualOtaHotelOrder\(hotel\.id, 'down'\)/);
-  assert.match(template, /@click="saveDualOtaHotelOrder"/);
-  assert.match(template, /@click="resetDualOtaHotelOrder"/);
-  assert.match(template, /只改变当前账号的下拉顺序，不改变门店权限或经营数据/);
+test('frozen hotel picker source retains its accessible order editor', () => {
+  assert.doesNotMatch(template, /data-testid="dual-ota-hotel-order-dialog"/);
+  assert.match(frozenAiWorkbenchTemplate, /<option value="">全部门店<\/option>[\s\S]*v-for="hotel in dualOtaCurrentHotelOptions"/);
+  assert.match(frozenAiWorkbenchTemplate, /data-testid="dual-ota-hotel-order-open"/);
+  assert.match(frozenAiWorkbenchTemplate, /data-testid="dual-ota-hotel-order-dialog"[\s\S]*role="dialog"[\s\S]*aria-modal="true"/);
+  assert.match(frozenAiWorkbenchTemplate, /v-for="\(hotel, index\) in dualOtaHotelOrderRows"/);
+  assert.match(frozenAiWorkbenchTemplate, /moveDualOtaHotelOrderToTop\(hotel\.id\)/);
+  assert.match(frozenAiWorkbenchTemplate, /moveDualOtaHotelOrder\(hotel\.id, 'up'\)/);
+  assert.match(frozenAiWorkbenchTemplate, /moveDualOtaHotelOrder\(hotel\.id, 'down'\)/);
+  assert.match(frozenAiWorkbenchTemplate, /@click="saveDualOtaHotelOrder"/);
+  assert.match(frozenAiWorkbenchTemplate, /@click="resetDualOtaHotelOrder"/);
+  assert.match(frozenAiWorkbenchTemplate, /只改变当前账号的下拉顺序，不改变门店权限或经营数据/);
 });
 
 test('current account restores workbench filters and keeps all-hotels as an explicit preference', () => {

@@ -10,6 +10,7 @@ import {
   buildFrontendStartupHelpers,
   FRONTEND_DEFERRED_HELPER_SOURCES,
   FRONTEND_STARTUP_HELPER_SOURCES,
+  inspectCtripStartupFacadeContract,
   inspectFrontendStartupHelpers,
   updateFrontendStartupArtifactReferences,
 } from '../../scripts/lib/frontend_startup_helpers_build.mjs';
@@ -41,6 +42,9 @@ test('Ctrip keeps only its startup facade on the authenticated first paint', () 
 
   const facade = loaderSandbox.window.SUXI_CTRIP_STATIC;
   const full = fullSandbox.window.SUXI_CTRIP_STATIC;
+  const inspection = inspectCtripStartupFacadeContract(loaderSource, fullSource);
+  assert.deepEqual(inspection.failures, []);
+  assert.equal(inspection.metrics.facade_export_count, inspection.metrics.full_export_count);
   assert.deepEqual(Object.keys(facade).sort(), Object.keys(full).sort());
   assert.equal(facade.createCtripFetchForm().nodeId, '24588');
   assert.equal(facade.buildLatestCtripSnapshotModel({ rank: { rows: [{}] } }).hasRank, true);
@@ -56,6 +60,27 @@ test('Ctrip keeps only its startup facade on the authenticated first paint', () 
     'the deferred full module must replace the startup facade before full-page remount',
   );
   assert.notEqual(loaderSandbox.window.SUXI_CTRIP_STATIC, facade);
+});
+
+test('public-entry facade inspection rejects a missing Ctrip export before runtime', () => {
+  const inspection = inspectCtripStartupFacadeContract(
+    'window.SUXI_CTRIP_STATIC = { read() { return true; } };',
+    'window.SUXI_CTRIP_STATIC_FULL = { read() { return true; }, write() { return false; } }; window.SUXI_CTRIP_STATIC = window.SUXI_CTRIP_STATIC_FULL;',
+  );
+
+  assert.deepEqual(inspection.metrics.missing_exports, ['write']);
+  assert.deepEqual(inspection.metrics.unexpected_exports, []);
+  assert.match(inspection.failures.join('\n'), /missing=write/);
+});
+
+test('public-entry facade inspection rejects a callable Ctrip export replaced by a scalar', () => {
+  const inspection = inspectCtripStartupFacadeContract(
+    'window.SUXI_CTRIP_STATIC = { read: true };',
+    'window.SUXI_CTRIP_STATIC_FULL = { read() { return true; } }; window.SUXI_CTRIP_STATIC = window.SUXI_CTRIP_STATIC_FULL;',
+  );
+
+  assert.deepEqual(inspection.metrics.type_mismatches, ['read']);
+  assert.match(inspection.failures.join('\n'), /mismatched=read/);
 });
 
 test('startup artifact promotion replaces canonical runtime references and pins hashes', async () => {
@@ -104,6 +129,10 @@ ${helperReferences}
 test('startup artifacts are deterministic, current, smaller, and preserve exported helper APIs', async () => {
   const inspection = await inspectFrontendStartupHelpers(repoRoot);
   assert.deepEqual(inspection.failures, []);
+  assert.ok(
+    FRONTEND_STARTUP_HELPER_SOURCES.includes('home-static.js'),
+    'home operating-time components must exist before app-main evaluates its startup dependencies',
+  );
   assert.ok(
     FRONTEND_STARTUP_HELPER_SOURCES.includes('ota-profile-static.js'),
     'OTA Profile login helpers must load before app-main initializes authenticated state',

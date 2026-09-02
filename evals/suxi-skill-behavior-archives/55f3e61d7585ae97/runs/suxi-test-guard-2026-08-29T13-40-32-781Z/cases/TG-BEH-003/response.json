@@ -1,0 +1,16 @@
+{
+  "schema_version": "suxi.skill.behavior_response.v1",
+  "skill_name": "suxi-test-guard",
+  "case_id": "TG-BEH-003",
+  "response_text": "结果：现在不能标记 PASS；首次失败与第二次通过都必须保留，后一次通过不能覆盖前一次失败。\n状态：BLOCKED。现有证据无法判定首次失败是有效的产品违约，还是环境或测试基础设施问题；在完成归因前，汇总产品结论必须保持 BLOCKED。\n变更：无；这是只读判定，没有修改产品、测试基线或任何外部状态。\n验证：已提供的证据仅到集成层：首次运行观察为 FAIL，第二次重跑观察为 PASS；项目无重跑政策，也没有归因证据。页面/API主张不在本次范围内，为 N/A。\n下一步：只做一件事——分类首次失败，核对该次运行的产品 oracle、环境与测试基础设施证据，判定它是否构成有效产品观察；完成前不要标 PASS。",
+  "self_report": {
+    "overall_status": "BLOCKED",
+    "request_mode": "read_only",
+    "highest_evidence_level": "integration",
+    "page_claim_status": "N/A",
+    "first_failure_handling": "preserved",
+    "product_or_external_mutation": false,
+    "single_next_action": true,
+    "notes": "只读判断；未执行产品测试或外部操作，未修改任何产品、Git、OTA/PMS或外部状态。首次失败和第二次通过均保留。"
+  }
+}

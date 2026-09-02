@@ -37,6 +37,7 @@ $OriginServerPath = Join-Path $RepoRoot "scripts\local_origin_server.mjs"
 $WecomAibotWorkerPath = Join-Path $RepoRoot "scripts\wecom_aibot_worker.mjs"
 $PublicRoot = Join-Path $RepoRoot "public"
 $PublicEntryPath = Join-Path $PublicRoot "app-main.min.js"
+$RuntimeAssetIdentityVerifierPath = Join-Path $RepoRoot "scripts\verify_runtime_asset_identity.mjs"
 
 function Get-Sha256FileDigest {
     param([Parameter(Mandatory = $true)][string]$LiteralPath)
@@ -54,6 +55,8 @@ function Get-Sha256FileDigest {
 }
 
 function Get-ProjectIdentity {
+    param([Parameter(Mandatory = $true)][string]$NodeBinary)
+
     $head = "unavailable"
     $dirtyState = "unavailable"
     $gitCommand = Get-Command "git" -ErrorAction SilentlyContinue | Select-Object -First 1
@@ -74,11 +77,26 @@ function Get-ProjectIdentity {
     # Windows PowerShell processes cannot resolve Get-FileHash even though the
     # Microsoft.PowerShell.Utility module is installed.
     $publicDigest = Get-Sha256FileDigest -LiteralPath $PublicEntryPath
+    if (-not (Test-Path -LiteralPath $RuntimeAssetIdentityVerifierPath)) {
+        throw "Runtime asset identity verifier is missing: $RuntimeAssetIdentityVerifierPath"
+    }
+    $identityOutput = @(& $NodeBinary $RuntimeAssetIdentityVerifierPath 2>&1)
+    if ($LASTEXITCODE -ne 0) {
+        throw "Unable to capture runtime asset identity: $($identityOutput -join ' ')"
+    }
+    $identityPayload = ($identityOutput -join "`n") | ConvertFrom-Json -ErrorAction Stop
+    $runtimeDigest = [string]($identityPayload.identity.digest)
+    $runtimeAssetCount = @($identityPayload.identity.files).Count
+    if ($identityPayload.status -ne "passed" -or $runtimeDigest -notmatch '^[a-f0-9]{64}$' -or $runtimeAssetCount -lt 20) {
+        throw "Runtime asset identity is incomplete."
+    }
     return [pscustomobject]@{
         RepoRealPath = $RepoRoot
         Head = $head
         DirtyState = $dirtyState
         PublicEntrySha256 = $publicDigest
+        RuntimeAssetSha256 = $runtimeDigest
+        RuntimeAssetCount = $runtimeAssetCount
     }
 }
 
@@ -354,19 +372,18 @@ function Test-StaticAsset {
 }
 
 function Test-RuntimeIdentity {
-    $client = $null
-    $sha = $null
     try {
-        $client = New-Object System.Net.WebClient
-        $bytes = $client.DownloadData("${BaseUrl}app-main.min.js?v=startup-identity-probe")
-        $sha = [System.Security.Cryptography.SHA256]::Create()
-        $actualDigest = ([System.BitConverter]::ToString($sha.ComputeHash($bytes))).Replace("-", "").ToLowerInvariant()
-        return $actualDigest -eq $ProjectIdentity.PublicEntrySha256
+        $identityOutput = @(& $NodeExe $RuntimeAssetIdentityVerifierPath "--base-url=$BaseUrl" 2>&1)
+        if ($LASTEXITCODE -ne 0) {
+            return $false
+        }
+        $identityPayload = ($identityOutput -join "`n") | ConvertFrom-Json -ErrorAction Stop
+        return $identityPayload.status -eq "passed" `
+            -and [string]$identityPayload.identity.digest -eq $ProjectIdentity.RuntimeAssetSha256 `
+            -and [int]$identityPayload.verification.expected_asset_count -eq $ProjectIdentity.RuntimeAssetCount `
+            -and [int]$identityPayload.verification.fetched_asset_count -eq $ProjectIdentity.RuntimeAssetCount
     } catch {
         return $false
-    } finally {
-        if ($sha) { $sha.Dispose() }
-        if ($client) { $client.Dispose() }
     }
 }
 
@@ -380,7 +397,7 @@ function Test-PortListening {
 function Start-ThinkPhp {
     if ((Test-HttpHealth) -and (Test-StaticAsset)) {
         if (-not (Test-RuntimeIdentity)) {
-            throw "Local origin on $BaseUrl is healthy but serves a different public/app-main.min.js digest. Stop the stale stack before continuing."
+            throw "Local origin on $BaseUrl is healthy but serves a different runtime asset manifest. Stop the stale stack before continuing."
         }
         $unhealthyExistingPorts = @($BackendPorts | Where-Object { -not (Test-BackendHttpHealth -TargetPort $_) })
         if ($unhealthyExistingPorts.Count -eq 0) {
@@ -547,12 +564,15 @@ if ($DatabaseOnly) {
     Write-Host "[DONE] Database runtime ready on $DbHost`:$DbPort with schema '$DbName'"
     return
 }
-$ProjectIdentity = Get-ProjectIdentity
-Write-Host "[IDENTITY] repo=$($ProjectIdentity.RepoRealPath) head=$($ProjectIdentity.Head) worktree=$($ProjectIdentity.DirtyState) public_app_main_sha256=$($ProjectIdentity.PublicEntrySha256)"
 $NodeExe = Resolve-CommandSource "node"
 if (-not $NodeExe) {
     throw "Node.js was not found. Install Node.js or add node.exe to PATH."
 }
+if (-not (Test-Path -LiteralPath $RuntimeAssetIdentityVerifierPath)) {
+    throw "Runtime asset identity verifier is missing: $RuntimeAssetIdentityVerifierPath"
+}
+$ProjectIdentity = Get-ProjectIdentity -NodeBinary $NodeExe
+Write-Host "[IDENTITY] repo=$($ProjectIdentity.RepoRealPath) head=$($ProjectIdentity.Head) worktree=$($ProjectIdentity.DirtyState) public_app_main_sha256=$($ProjectIdentity.PublicEntrySha256) runtime_asset_sha256=$($ProjectIdentity.RuntimeAssetSha256) runtime_asset_count=$($ProjectIdentity.RuntimeAssetCount)"
 if (-not (Test-Path -LiteralPath $OriginServerPath)) {
     throw "Concurrent local origin server is missing: $OriginServerPath"
 }

@@ -126,6 +126,64 @@ final class WecomReliabilityTest extends TestCase
         self::assertStringNotContainsString($plainCode, $stored);
     }
 
+    public function testTransientTaskReceiptProjectionForcesSameEventRetry(): void
+    {
+        $plainCode = 'RETRY234';
+        Db::name('wecom_aibot_binding_codes')->insert([
+            'tenant_id' => 10,
+            'hotel_id' => 20,
+            'code_hash' => hash('sha256', 'wecom-aibot-binding-code-v1|' . $plainCode),
+            'code_mask' => 'RE******',
+            'label' => 'receipt retry binding',
+            'status' => 'active',
+            'created_by' => 17,
+            'expires_at' => date('Y-m-d H:i:s', time() + 600),
+            'used_at' => null,
+            'bound_binding_id' => null,
+            'created_at' => date('Y-m-d H:i:s'),
+        ]);
+        $frame = [
+            'aibot_id' => self::BOT_ID,
+            'msg_id' => 'receipt-projection-retry-1',
+            'conversation_id' => 'conversation-receipt-retry-1',
+            'sender_id' => 'sender-receipt-retry-1',
+            'message_type' => 'text',
+            'content' => '绑定门店 ' . $plainCode,
+            'create_time' => time(),
+        ];
+        $calls = 0;
+        $service = new WecomAibotService(static function (array $event) use (&$calls): array {
+            $calls++;
+            if ($calls === 1) {
+                return [
+                    'status' => 'blocked',
+                    'code' => 'wecom_task_receipt_projection_failed',
+                    'retry_required' => true,
+                ];
+            }
+            return [
+                'status' => 'readback_verified',
+                'receipt_id' => 901,
+                'retry_required' => false,
+            ];
+        });
+
+        try {
+            $service->ingest($frame);
+            self::fail('Transient receipt projection failure must propagate for relay retry.');
+        } catch (\RuntimeException $error) {
+            self::assertSame(503, $error->getCode());
+            self::assertSame('wecom_task_receipt_projection_failed', $error->getMessage());
+        }
+
+        self::assertSame(1, (int)Db::name('wecom_inbound_events')->count());
+        $retried = $service->ingest($frame);
+        self::assertTrue($retried['duplicate']);
+        self::assertSame('readback_verified', $retried['task_receipt_projection']['status']);
+        self::assertSame(2, $calls);
+        self::assertSame(1, (int)Db::name('wecom_inbound_events')->count());
+    }
+
     public function testExpiredProcessingLeaseRecoversSameCallbackAfterTerminalWriteCrash(): void
     {
         $bindingKey = 'callback_binding_retry_0001';
@@ -238,6 +296,66 @@ SQL);
         self::assertSame(1, (int)Db::name('wecom_inbound_events')->count());
     }
 
+    public function testCustomCallbackNeverPersistsSenderChallengePlaintext(): void
+    {
+        $bindingKey = 'callback_sender_challenge_0001';
+        $conversationId = 'conversation-sender-challenge-1';
+        $plainCode = 'ABCD234567';
+        Db::name('wecom_inbound_bindings')->insert([
+            'tenant_id' => 10,
+            'hotel_id' => 20,
+            'binding_key' => $bindingKey,
+            'conversation_id_hash' => hash('sha256', 'wecom-conversation-v1|' . $conversationId),
+            'label' => 'sender challenge test',
+            'transport' => 'wecom_app_callback',
+            'status' => 'verified',
+            'reply_enabled' => 0,
+            'created_by' => 17,
+            'created_at' => date('Y-m-d H:i:s'),
+            'updated_at' => date('Y-m-d H:i:s'),
+        ]);
+        $callback = $this->encryptedCallback(
+            $conversationId,
+            'sender-challenge-event-1',
+            '绑定员工 ' . $plainCode
+        );
+
+        $event = (new WecomInboundService())->handleCallback(
+            $bindingKey,
+            $callback['timestamp'],
+            $callback['nonce'],
+            $callback['signature'],
+            $callback['xml']
+        );
+
+        self::assertSame('绑定员工 **********', $event['content_text']);
+        self::assertSame('sender_binding_challenge_received', $event['block_code']);
+        $stored = json_encode(
+            Db::name('wecom_inbound_events')->select()->toArray(),
+            JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR
+        );
+        self::assertStringNotContainsString($plainCode, $stored);
+
+        $changedCallback = $this->encryptedCallback(
+            $conversationId,
+            'sender-challenge-event-1',
+            '绑定员工 ZXCV234567'
+        );
+        try {
+            (new WecomInboundService())->handleCallback(
+                $bindingKey,
+                $changedCallback['timestamp'],
+                $changedCallback['nonce'],
+                $changedCallback['signature'],
+                $changedCallback['xml']
+            );
+            self::fail('the same event id with another challenge must conflict');
+        } catch (\RuntimeException $error) {
+            self::assertSame(409, $error->getCode());
+            self::assertStringContainsString('幂等键内容冲突', $error->getMessage());
+        }
+    }
+
     private function createSchema(): void
     {
         Db::execute(<<<'SQL'
@@ -303,7 +421,11 @@ SQL);
     }
 
     /** @return array{timestamp:string,nonce:string,signature:string,xml:string} */
-    private function encryptedCallback(string $conversationId, string $eventId): array
+    private function encryptedCallback(
+        string $conversationId,
+        string $eventId,
+        string $content = '昨日携程曝光如何？'
+    ): array
     {
         $timestamp = (string)time();
         $nonce = 'nonce-retry-1';
@@ -312,7 +434,7 @@ SQL);
             . '<ChatId><![CDATA[' . $conversationId . ']]></ChatId>'
             . '<FromUserName><![CDATA[sender-callback-retry-1]]></FromUserName>'
             . '<MsgType><![CDATA[text]]></MsgType>'
-            . '<Content><![CDATA[昨日携程曝光如何？]]></Content>'
+            . '<Content><![CDATA[' . $content . ']]></Content>'
             . '<CreateTime>' . $timestamp . '</CreateTime>'
             . '</xml>';
         $plain = str_repeat('R', 16) . pack('N', strlen($inner)) . $inner . self::CORP_ID;

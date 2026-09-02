@@ -1,0 +1,6 @@
+{
+  "schema_version": "suxi.skill.behavior_request.v1",
+  "skill_name": "suxi-user-research",
+  "case_id": "UR-BEH-002",
+  "user_request": "我有4份脱敏店长观察记录：2人一次找到昨日数据状态，1人把采集成功当成数据可信，1人因门店切换后看到旧日期而停止。帮我做用户研究结论。"
+}

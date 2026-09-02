@@ -1,0 +1,52 @@
+{
+  "schema_version": "suxi.skill.behavior_grade_seal.v1",
+  "run_id": "suxi-test-guard-2026-08-29T13-40-32-781Z",
+  "run_path_sha256": "b569c10068dc96efdd2da57f819b310b46dd6bdec810d686b9aa464665883901",
+  "run_manifest_schema_version": "suxi.skill.behavior_run.v2",
+  "judgment_schema_version": "suxi.skill.behavior_judgments.v2",
+  "grade_schema_version": "suxi.skill.behavior_grade.v1",
+  "grade_status": "PASS",
+  "counts": {
+    "pass": 6,
+    "fail": 0,
+    "blocked": 0
+  },
+  "prepare_seal_sha256": "021b970f58e99ded51ddc11995214468f05ed3f06438d19132b69b7eb6172cbd",
+  "prepare_manifest_sha256": "a41173165f23ce0cd6b588b873d44753bf54a42ff681edfcead75f977fcdecd8",
+  "behavior_contract_sha256": "a5a3909b5521a0dd139b2b8f99280182d81abce0d7d98c67d00118556ed338f9",
+  "source_snapshot_sha256": "7bf163a793b41d5dd4e962b4ca8015c8f0244be5356b0f6f5fed941caa11adca",
+  "judge_packet_sha256": "d0f0c2764c0bedc6709b11ab8d5c5d16bff963375c75c2bb2fd1072c01763053",
+  "judgment_output_schema_sha256": "dd6226380670529e776dbc67da1b71d88e3e82154c31cfba72cb098bd9592bdf",
+  "judge_prompt_sha256": "e48588822adc6dd756d9a742190ca1feb44963aef3759ec49290ff3ee022ac53",
+  "judgments_sha256": "ee40b9e4919692a0ff2bbfccb76985eb50a499c28f5110c645a88646ea07e0b2",
+  "responses": [
+    {
+      "case_id": "TG-BEH-001",
+      "sha256": "5f3098b8edc50f05906d99ccb5687269f8f693f048c2ddf059d8c212fbfb4a5c"
+    },
+    {
+      "case_id": "TG-BEH-002",
+      "sha256": "b33ed8cefce3ff8b8839ce0dbec6fdd01d614a79cc74ef80dadfa4aa879b7e2a"
+    },
+    {
+      "case_id": "TG-BEH-003",
+      "sha256": "be62cdf2aad94bd899a1d935f63f310ce1557049518c4a7cca6a1e557b14c5e8"
+    },
+    {
+      "case_id": "TG-BEH-004",
+      "sha256": "b74814cd0c61aa4a13310dc364b9986e51d9b0f9049eff1800384f8485f6820c"
+    },
+    {
+      "case_id": "TG-BEH-005",
+      "sha256": "9852dd04a2ec6819be08d460833f9e6f29bda5990a8ba4bc8a3e51fccbc0e8bf"
+    },
+    {
+      "case_id": "TG-BEH-006",
+      "sha256": "948a03ba2d07b36131701dc530f963b05681a77ce3208696c23a79a58ad9af1d"
+    }
+  ],
+  "grade_summary_sha256": "41678044b67c05662010199c22b996ee884b5400622a221b9698b683797aa463",
+  "separation_status": "instruction_only",
+  "judge_identity_verified": false,
+  "seal_scope": "Binds the complete post-grade artifact chain outside the run directory; it is not an external signature."
+}

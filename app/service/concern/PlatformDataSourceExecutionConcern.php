@@ -960,6 +960,13 @@ trait PlatformDataSourceExecutionConcern
         }
         $triggerType = strtolower(trim((string)($options['trigger_type'] ?? '')));
         $blockingStatus = $this->profileSessionProofService->currentSessionBlockingStatus($source);
+        if ($triggerType === 'profile_login_after_login'
+            && in_array($blockingStatus, ['login_required', 'session_expired', 'login_expired'], true)
+        ) {
+            // After visible Profile login, allow one response-derived proof attempt.
+            // Dedicated gates still block drift, denial, cookies, and identity mismatch.
+            return [];
+        }
         // Old/missing local anchors, including a contradictory old mismatch
         // accompanied by today's strong same-source matched page probe, may
         // reach the real OTA response. Both Profile adapters still reject a

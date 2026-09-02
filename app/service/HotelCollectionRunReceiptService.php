@@ -1045,6 +1045,11 @@ final class HotelCollectionRunReceiptService
                                 ? null
                                 : hash('sha256', implode(',', $rowIds)),
                             'readback_verified' => $persistenceVerified,
+                            'business_data_persisted' => array_key_exists('business_data_persisted', $result)
+                                ? (($result['business_data_persisted'] ?? null) === true
+                                    ? true
+                                    : (($result['business_data_persisted'] ?? null) === false ? false : null))
+                                : null,
                             'failure_code' => $failureCode,
                             'automatic_device_substitution' => false,
                             'sensitive_values_exposed' => false,

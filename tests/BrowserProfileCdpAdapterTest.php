@@ -108,6 +108,63 @@ final class BrowserProfileCdpAdapterTest extends TestCase
         self::assertFalse($runnerCalled);
     }
 
+    public function testAdaptersPreserveRunnerFailureBeforeDiagnosticPayloadFailure(): void
+    {
+        foreach ([
+            'ctrip' => [CtripBrowserProfileDataSourceAdapter::class, 'ctrip_browser_capture.mjs', $this->ctripSource()],
+            'meituan' => [MeituanBrowserProfileDataSourceAdapter::class, 'meituan_browser_capture.mjs', $this->meituanSource()],
+        ] as $platform => [$adapterClass, $scriptName, $source]) {
+            $root = $this->createRoot($scriptName);
+            try {
+                $runner = static function (array $args): array {
+                    $outputPath = '';
+                    foreach ($args as $arg) {
+                        if (str_starts_with((string)$arg, '--output=')) {
+                            $outputPath = substr((string)$arg, strlen('--output='));
+                            break;
+                        }
+                    }
+                    if ($outputPath !== '') {
+                        file_put_contents($outputPath, (string)json_encode([
+                            'auth_status' => ['ok' => false, 'status' => 'login_expired'],
+                            'capture_gate' => ['status' => 'fail', 'failed_check_ids' => ['auth']],
+                        ], JSON_UNESCAPED_SLASHES));
+                    }
+                    return [
+                        'success' => false,
+                        'status_code' => 'process_timeout',
+                        'message' => 'capture timed out',
+                        'stdout' => '',
+                        'stderr' => 'diagnostic payload retained',
+                        'exit_code' => 124,
+                        'process_started' => true,
+                        'process_pid' => 4242,
+                        'process_tree_exit_confirmed' => true,
+                        'termination' => [
+                            'contract' => 'suxios.browser_capture_process_termination.v2',
+                            'platform' => 'injected',
+                            'reason' => 'timeout',
+                            'confirmed_exited' => true,
+                        ],
+                    ];
+                };
+                $adapter = new $adapterClass($root, 'node', $runner);
+                $result = $adapter->fetch($source, [
+                    'cdp_url' => 'http://127.0.0.1:9223',
+                    'data_date' => '2026-08-13',
+                ]);
+
+                self::assertSame('failed', $result['status'], $platform);
+                self::assertSame('process_timeout', $result['status_code'], $platform);
+                self::assertSame('process_timeout', $result['error_code'], $platform);
+                self::assertSame('login_expired', $result['payload']['payload_failure_reason'], $platform);
+                self::assertSame('process_timeout', $result['payload']['process_status_code'], $platform);
+            } finally {
+                $this->removeDirectory($root);
+            }
+        }
+    }
+
     /** @return array<string, mixed> */
     private function ctripSource(): array
     {

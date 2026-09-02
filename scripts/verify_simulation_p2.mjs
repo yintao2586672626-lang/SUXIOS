@@ -30,7 +30,7 @@ const checks = [
     file: 'app/service/QuantSimulationService.php',
     contains: [
       'class QuantSimulationService',
-      'public function calculateAndSave(array $payload, int $userId): array',
+      'public function calculateAndSave(array $payload, int $userId, array $permittedHotelIds = []): array',
       'public function records(int $userId, bool $isSuperAdmin): array',
       'public function detail(int $id, int $userId, bool $isSuperAdmin): array',
       'public function archive(int $id, int $userId, bool $isSuperAdmin): bool',
@@ -56,9 +56,8 @@ const checks = [
     ],
   },
   {
-    file: 'public/index.html',
+    file: 'public/app-main.js',
     contains: [
-      "request('/simulation/calculate'",
       'loadSimulationRecords',
       'loadSimulationDetail',
       'reuseSimulationRecord',
@@ -91,6 +90,7 @@ const checks = [
   {
     file: 'public/simulation-static.js',
     contains: [
+      "request('/simulation/calculate'",
       'const createBenchmarkModelForm',
       'const createCollaborationProject',
       'const createTransferPricingForm',
@@ -145,7 +145,7 @@ try {
       order_count: 420,
       room_nights: 980,
     });
-    if (healthy.status !== '数据口径正常' || healthy.derivedConversionLabel !== '23.3%' || healthy.roomNightPerOrderLabel !== 2.33) {
+    if (healthy.status !== '未发现明显口径冲突' || healthy.derivedConversionLabel !== '23.3%' || healthy.roomNightPerOrderLabel !== 2.33) {
       failures.push('buildTransferTimingDataCheck should keep healthy transfer timing metrics stable');
     }
 

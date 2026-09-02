@@ -57,6 +57,13 @@
       "owners": ["verified OTA to operations status report"],
       "evidence_kinds": ["local_database_readback", "status_report"],
       "claim_limit": "local_integration_no_field"
+    },
+    {
+      "id": "skill_behavior_evidence",
+      "entrypoints": ["scripts/suxi_skill_behavior_eval.mjs"],
+      "owners": ["governed Skill behavior replay", "evidence archive and seal verification"],
+      "evidence_kinds": ["static_contract", "digest_bound_packet", "local_behavior_replay"],
+      "claim_limit": "local_integration_no_field"
     }
   ]
 }

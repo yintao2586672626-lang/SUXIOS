@@ -6,9 +6,11 @@ namespace app\controller;
 use app\service\OtaInsightAnalysisService;
 use app\service\OperationOptimizationExecutionBridgeService;
 use app\service\OperationOptimizationWorkbenchService;
+use app\service\MeituanMarketingFactProjectionService;
 use app\service\OtaRevenueMetricService;
 use app\service\OtaStandardEtlService;
 use RuntimeException;
+use think\facade\Db;
 use think\Response;
 use Throwable;
 
@@ -84,6 +86,12 @@ class OtaStandard extends Base
             $hotelId = (int)($filters['system_hotel_id'] ?? 0);
             $workbench = (new OperationOptimizationExecutionBridgeService())
                 ->hydrate($workbench, [$hotelId], $hotelId);
+            $tenantId = (int)Db::name('hotels')->where('id', $hotelId)->value('tenant_id');
+            $workbench['meituan_marketing'] = (new MeituanMarketingFactProjectionService())->project(
+                $tenantId,
+                $hotelId,
+                (string)($filters['end_date'] ?? '')
+            );
             return $this->success($workbench, 'success');
         } catch (Throwable $e) {
             return $this->error($e->getMessage(), $this->httpCode($e));

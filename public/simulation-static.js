@@ -1,5 +1,7 @@
 window.SUXI_SIMULATION_STATIC = (() => {
     const defaultSimulationInput = {
+        hotel_id: '',
+        input_source_status: 'example_prefill_unverified',
         roomCount: 86,
         decorationInvestment: 1600000,
         decorationHardCost: 1200000,
@@ -825,6 +827,8 @@ window.SUXI_SIMULATION_STATIC = (() => {
     function normalizeSimulationInput(raw) {
         if (!raw) return {};
         const normalized = {
+            hotel_id: raw.hotel_id ?? raw.system_hotel_id,
+            input_source_status: raw.input_source_status,
             roomCount: raw.roomCount ?? raw.room_count,
             decorationInvestment: raw.decorationInvestment ?? raw.decoration_investment,
             decorationHardCost: raw.decorationHardCost ?? raw.decoration_hard_cost,
@@ -969,6 +973,7 @@ window.SUXI_SIMULATION_STATIC = (() => {
         ];
         const otaShareFields = simulationOtaCommissionChannelDefinitions.map(channel => channel.shareKey);
         const otaRateFields = simulationOtaCommissionChannelDefinitions.map(channel => channel.rateKey);
+        if (!Number.isInteger(Number(input.hotel_id)) || Number(input.hotel_id) <= 0) return '请选择当前账号有权限的酒店后再运行量化模拟';
         if (toNumberValue(input.roomCount) <= 0) return '房间数必须大于0';
         if (toNumberValue(input.adr) <= 0) return 'ADR必须大于0';
         if (toNumberValue(input.occupancyRate) < 0 || toNumberValue(input.occupancyRate) > 100) return '入住率必须在0到100之间';
@@ -1104,6 +1109,161 @@ window.SUXI_SIMULATION_STATIC = (() => {
             if (id > 0) return id;
         }
         return 0;
+    }
+
+    function simulationRecordSummary(record, { getHotelNameById = () => '', formatCurrency = value => value ?? '--' } = {}) {
+        const hotelId = record?.truth_context?.hotel_id || record?.input?.hotel_id;
+        const hotel = getHotelNameById(hotelId) || '未绑定酒店';
+        const payback = record?.payback_months === null ? '不可回本' : `${record?.payback_months}个月`;
+        return `${hotel} · 月净现金流 ${formatCurrency(record?.monthly_net_cashflow)} · 回本 ${payback} · ${record?.created_at || '-'}`;
+    }
+
+    function simulationTaskDisabled(record, { loadingId = 0 } = {}) {
+        return Number(loadingId) === Number(record?.id || 0)
+            || executionIntentIdFromRecord(record) > 0
+            || !['execution_ready', 'review_ready'].includes(String(record?.execution_readiness?.stage || ''));
+    }
+
+    function simulationTaskLabel(record, { loadingId = 0 } = {}) {
+        const intentId = executionIntentIdFromRecord(record);
+        if (intentId > 0) return `待审批 #${intentId}`;
+        return Number(loadingId) === Number(record?.id || 0) ? '保存中…' : '转待审批任务';
+    }
+
+    async function runSimulationExecutionIntentFlow({
+        record, loadingId = 0, setLoadingId = () => {}, request, showToast,
+        readinessMissingText, openWorkflowFormDialog, formatDate, loadRecords,
+    } = {}) {
+        const recordId = Number(record?.id || 0);
+        const hotelId = Number(record?.truth_context?.hotel_id || record?.input?.hotel_id || 0);
+        if (recordId <= 0 || hotelId <= 0 || loadingId) return null;
+        if (executionIntentIdFromRecord(record) > 0) {
+            showToast('该量化模拟已经关联待审批执行意图');
+            return null;
+        }
+        if (!['execution_ready', 'review_ready'].includes(String(record?.execution_readiness?.stage || ''))) {
+            showToast(readinessMissingText(record?.execution_readiness), 'warning');
+            return null;
+        }
+        const today = formatDate(new Date());
+        const dates = await openWorkflowFormDialog({
+            title: '生成量化模拟待审批任务',
+            description: '这里只保存待人工审批意图；不会自动执行、写OTA/PMS或把模拟值当作经营事实。',
+            submitText: '保存待审批任务',
+            fields: [
+                { name: 'date_start', label: '开始日期', type: 'date', required: true, value: today },
+                { name: 'date_end', label: '结束日期', type: 'date', required: true, value: today },
+            ],
+        });
+        if (dates === null) return null;
+        setLoadingId(recordId);
+        try {
+            const res = await request(`/simulation/records/${recordId}/execution-intent`, {
+                method: 'POST',
+                body: JSON.stringify({ hotel_id: hotelId, date_start: String(dates.date_start || ''), date_end: String(dates.date_end || '') }),
+            });
+            const intent = res.data?.execution_intent;
+            if (res.code !== 200 || Number(intent?.source_record_id || 0) !== recordId
+                || Number(intent?.hotel_id || 0) !== hotelId || String(intent?.status || '') !== 'pending_approval') {
+                throw new Error(res.message || '量化模拟待审批任务未完成精确回读');
+            }
+            await loadRecords();
+            showToast('量化模拟已转为待人工审批任务');
+            return intent;
+        } catch (error) {
+            showToast(error.message || '量化模拟转任务失败', 'error');
+            return null;
+        } finally {
+            setLoadingId(0);
+        }
+    }
+
+    function simulationHotelSelectionIsPermitted(input = {}, hotels = []) {
+        const hotelId = Number(input?.hotel_id || 0);
+        return hotelId > 0 && (Array.isArray(hotels) ? hotels : []).some(
+            hotel => Number(hotel?.id || 0) === hotelId
+        );
+    }
+
+    function hydrateSimulationState({
+        enabled = false, loadState, setInput, setResult, setScenarios,
+        setRiskHints, setModelAnalysis, refresh,
+    } = {}) {
+        if (!enabled || typeof loadState !== 'function') return false;
+        const loaded = loadState();
+        setInput?.(loaded.input);
+        if (loaded.result && loaded.scenarios) {
+            setResult?.(loaded.result);
+            setScenarios?.(loaded.scenarios);
+            setRiskHints?.(generateRiskHints(loaded.result, loaded.scenarios));
+            setModelAnalysis?.(loaded.modelAnalysis);
+        } else {
+            refresh?.(true);
+        }
+        return true;
+    }
+
+    async function runSimulationCalculationUiFlow({
+        input = {}, hotels = [], projectName = '', ensureReady = async () => {},
+        setInput = () => {}, saveInput = () => {}, setLoading = () => {},
+        request, applyRecord, loadRecords, showToast = () => {},
+    } = {}) {
+        if (!simulationHotelSelectionIsPermitted(input, hotels)) {
+            const clearedInput = { ...input, hotel_id: '' };
+            setInput(clearedInput);
+            saveInput(clearedInput);
+            showToast('请选择当前账号可访问的酒店后再运行量化模拟', 'warning');
+            return null;
+        }
+        setLoading(true);
+        try {
+            await ensureReady();
+            const result = await runSimulationCalculationFlow({ input, projectName, request, applyRecord, loadRecords });
+            showToast('三情景模拟已完成并保存');
+            return result;
+        } catch (error) {
+            showToast(error?.message || '量化模拟失败，请修复后端错误后重试', 'error');
+            return null;
+        } finally {
+            setLoading(false);
+        }
+    }
+
+    async function runSimulationCalculationFlow({ input = {}, projectName = '', request, applyRecord, loadRecords } = {}) {
+        const payloadInput = { ...input };
+        const hotelId = Number(payloadInput.hotel_id || 0);
+        payloadInput.hotel_id = hotelId;
+        payloadInput.system_hotel_id = hotelId;
+        payloadInput.input_source_status = String(payloadInput.input_source_status || 'manual_unverified');
+        const message = validateSimulationInput(payloadInput);
+        if (message) throw new Error(message);
+        const res = await request('/simulation/calculate', {
+            method: 'POST',
+            body: JSON.stringify({ hotel_id: hotelId, project_name: projectName || '量化模拟项目', input: payloadInput }),
+        });
+        if (res.code !== 200) throw new Error(res.message || '量化模拟保存失败');
+        applyRecord(res.data, true);
+        await loadRecords();
+        return res.data;
+    }
+
+    async function runSimulationArchiveFlow({ record, confirmAction, request, showToast, clearCurrent, loadRecords } = {}) {
+        if (record?.access_policy?.mutation_allowed === false) {
+            showToast('该历史模拟未绑定酒店，只读保留；请复用输入并保存为当前酒店的新记录后再归档。', 'warning');
+            return false;
+        }
+        if (!record?.id || !confirmAction('确认归档该量化模拟记录？归档后将从历史列表隐藏。')) return false;
+        try {
+            const res = await request(`/simulation/records/${record.id}`, { method: 'DELETE' });
+            if (res.code !== 200) throw new Error(res.message || '量化模拟记录归档失败');
+            clearCurrent(record.id);
+            await loadRecords();
+            showToast('量化模拟记录已归档');
+            return true;
+        } catch (error) {
+            showToast(error.message || '量化模拟记录归档失败', 'error');
+            return false;
+        }
     }
 
     const trimMetricZeros = (value) => String(value).replace(/\.0+$/, '').replace(/(\.\d*?)0+$/, '$1');
@@ -1307,6 +1467,15 @@ window.SUXI_SIMULATION_STATIC = (() => {
         transferReadinessMissingText,
         transferRecordTypeLabel,
         executionIntentIdFromRecord,
+        simulationRecordSummary,
+        simulationTaskDisabled,
+        simulationTaskLabel,
+        runSimulationExecutionIntentFlow,
+        simulationHotelSelectionIsPermitted,
+        hydrateSimulationState,
+        runSimulationCalculationUiFlow,
+        runSimulationCalculationFlow,
+        runSimulationArchiveFlow,
         benchmarkStrategyLabel,
         benchmarkMetricValue,
         buildBenchmarkModelDetailCards,

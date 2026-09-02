@@ -276,6 +276,9 @@ function isStepReady(step, platformReady, options = {}) {
   if (options.multiSourceHotel === true && options.authoritative === true) {
     return true;
   }
+  if (options.exactRunReadbackReady === true) {
+    return true;
+  }
   const latestSyncTask = step?.latest_sync_task && typeof step.latest_sync_task === 'object'
     ? step.latest_sync_task
     : {};
@@ -529,11 +532,19 @@ function buildReport(verifier) {
       const hotelId = positiveInt(step?.system_hotel_id);
       const sameHotelIndexes = stepIndexesByHotel.get(hotelId) || [];
       const authoritative = authoritativeStepIndexes.has(index);
+      const gateHotelIds = uniquePositiveInts(gate.system_hotel_ids);
+      const gateHotelRowCounts = intRecord(gate.system_hotel_row_counts);
+      const exactRunReadbackReady = String(
+        gate.run_readback_membership_status || '',
+      ).trim().toLowerCase() === 'ready'
+        && (gateHotelIds.includes(hotelId)
+          || Number(gateHotelRowCounts[String(hotelId)] || 0) > 0);
       return compactStep(platform, step, {
         operatorSkipActive,
         platformReady: isStepReady(step, platformReady, {
           authoritative,
           multiSourceHotel: sameHotelIndexes.length > 1,
+          exactRunReadbackReady,
         }),
         platformGateReady: platformReady,
         platformGateStatus: gate.status || '',

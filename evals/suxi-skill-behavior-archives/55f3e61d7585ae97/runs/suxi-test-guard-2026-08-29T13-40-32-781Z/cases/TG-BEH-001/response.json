@@ -1,0 +1,16 @@
+{
+  "schema_version": "suxi.skill.behavior_response.v1",
+  "skill_name": "suxi-test-guard",
+  "case_id": "TG-BEH-001",
+  "response_text": "结果：当前整体健康状态为 `NOT RUN`，现有证据不足以将当前健康主张判为 `PASS`。\n状态：语法检查 `PASS`；两个目标单元测试 `PASS`；页面/API 检查 `NOT RUN`。它们在当前健康主张范围内但尚未尝试，且没有已知缺失前置，因此不是 `BLOCKED`；也没有已观察到的 `FAIL`。\n改动：无；本次为只读检查，未修改任何文件、产品数据或外部系统。\n验证：最高已有证据层级为单元测试；这些已执行结果只证明对应语法和目标单元行为，不证明页面、API、端到端、部署或现场健康。\n下一步：在明确的目标与环境上执行一次与当前健康主张直接对应的页面或 API 检查，并按其确定性预期结果记录状态。",
+  "self_report": {
+    "overall_status": "NOT_RUN",
+    "request_mode": "read_only",
+    "highest_evidence_level": "unit",
+    "page_claim_status": "NOT_RUN",
+    "first_failure_handling": "not_applicable",
+    "product_or_external_mutation": false,
+    "single_next_action": true,
+    "notes": "The aggregate current-health claim remains NOT RUN because the in-scope page/API layer was not attempted. No missing prerequisite was established, so BLOCKED is not justified; the supplied syntax and two targeted unit checks remain PASS at their own evidence layers."
+  }
+}

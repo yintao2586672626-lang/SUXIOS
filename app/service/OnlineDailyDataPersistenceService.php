@@ -14,8 +14,13 @@ final class OnlineDailyDataPersistenceService
             return $columns;
         }
 
-        $rows = Db::query('SHOW COLUMNS FROM online_daily_data');
-        $columns = array_fill_keys(array_column($rows, 'Field'), true);
+        $inspection = DatabaseSchemaRequirement::inspectTableColumns('online_daily_data');
+        if (($inspection['status'] ?? '') !== DatabaseSchemaRequirement::STATUS_PRESENT) {
+            throw new \RuntimeException(
+                'online_daily_data_schema_unavailable:' . (string)($inspection['error_code'] ?? 'unknown')
+            );
+        }
+        $columns = array_fill_keys((array)($inspection['columns'] ?? []), true);
         return $columns;
     }
 
@@ -451,7 +456,8 @@ final class OnlineDailyDataPersistenceService
         }
         $snapshotTime = null;
         $snapshotBucket = '';
-        if ($period === 'realtime_snapshot') {
+        $versionedPeriods = ['realtime_snapshot', 'next_30_days', 'future_on_books'];
+        if (in_array($period, $versionedPeriods, true)) {
             $snapshotTime = self::normalizeDateTime(
                 $merged['snapshot_time']
                 ?? $merged['snapshotTime']
@@ -459,7 +465,14 @@ final class OnlineDailyDataPersistenceService
                 ?? $merged['capturedAt']
                 ?? null
             ) ?? date('Y-m-d H:i:s');
-            $snapshotBucket = date('YmdHi', strtotime($snapshotTime) ?: time());
+            $providedBucket = trim((string)(
+                $merged['snapshot_bucket']
+                ?? $merged['snapshotBucket']
+                ?? ''
+            ));
+            $snapshotBucket = $providedBucket !== ''
+                ? substr($providedBucket, 0, 20)
+                : date('YmdHi', strtotime($snapshotTime) ?: time());
         }
 
         if (isset($columns['data_period'])) {
@@ -587,6 +600,7 @@ final class OnlineDailyDataPersistenceService
             'realtime', 'real_time', 'realtime_snapshot', 'today_realtime', 'live', 'snapshot' => 'realtime_snapshot',
             'historical', 'history', 'historical_daily', 'daily', 'fixed', 'final' => 'historical_daily',
             'next_30_days', 'next30days', 'future_forecast', 'forecast', 'forecast_window' => 'next_30_days',
+            'future_on_books', 'future_on_book', 'on_books', 'on_book', 'future_stay_date' => 'future_on_books',
             default => '',
         };
     }
@@ -615,20 +629,43 @@ final class OnlineDailyDataPersistenceService
         return is_array($decoded) ? $decoded : [];
     }
 
-    public function parseAndSaveTrafficData($responseData, $startDate, $endDate, string $source, ?int $systemHotelId = null, ?string $platform = null, ?string $expectedPlatformHotelId = null): int
+    public function parseAndSaveTrafficData($responseData, $startDate, $endDate, string $source, ?int $systemHotelId = null, ?string $platform = null, ?string $expectedPlatformHotelId = null, ?string $ingestionMethod = null): int
     {
         try {
+            $source = strtolower(trim($source));
+            $platform = $this->canonicalTrafficPlatform($source, $platform);
+            $ingestionMethod = $this->canonicalTrafficIngestionMethod($ingestionMethod);
+            if (in_array($source, ['ctrip', 'qunar', 'meituan'], true)
+                && ($platform === '' || $ingestionMethod === '')) {
+                throw new \InvalidArgumentException('traffic_source_identity_incomplete');
+            }
             if (in_array($source, ['ctrip', 'qunar'], true)) {
-                return $this->parseAndSaveCtripTrafficData($responseData, (string)$startDate, $source, $systemHotelId, $platform, $expectedPlatformHotelId);
+                return $this->parseAndSaveCtripTrafficData(
+                    $responseData,
+                    (string)$startDate,
+                    $source,
+                    $systemHotelId,
+                    $platform,
+                    $expectedPlatformHotelId,
+                    $ingestionMethod
+                );
             }
 
-            return $this->parseAndSaveGenericTrafficData($responseData, (string)$startDate, $source, $systemHotelId, $expectedPlatformHotelId);
+            return $this->parseAndSaveGenericTrafficData(
+                $responseData,
+                (string)$startDate,
+                $source,
+                $systemHotelId,
+                $platform,
+                $expectedPlatformHotelId,
+                $ingestionMethod
+            );
         } catch (\Throwable $e) {
             throw new \RuntimeException('traffic_data_persistence_failed: ' . $e->getMessage(), 0, $e);
         }
     }
 
-    private function parseAndSaveCtripTrafficData($responseData, string $startDate, string $source, ?int $systemHotelId, ?string $platform, ?string $expectedPlatformHotelId = null): int
+    private function parseAndSaveCtripTrafficData($responseData, string $startDate, string $source, ?int $systemHotelId, string $platform, ?string $expectedPlatformHotelId, string $ingestionMethod): int
     {
         $dataList = OnlineTrafficDataExtractionService::extractCtripTrafficRows($responseData);
         if (empty($dataList)) {
@@ -636,7 +673,6 @@ final class OnlineDailyDataPersistenceService
         }
 
         $savedCount = 0;
-        $platform = $platform ?: ($source === 'qunar' ? 'Qunar' : 'Ctrip');
         $expectedPlatformHotelId = trim((string)$expectedPlatformHotelId);
         foreach ($dataList as $item) {
             if (!is_array($item)) {
@@ -733,6 +769,7 @@ final class OnlineDailyDataPersistenceService
                 'data_type' => 'traffic',
                 'dimension' => $platform . ':' . $compareType,
                 'platform' => $platform,
+                'ingestion_method' => $ingestionMethod,
                 'compare_type' => $compareType,
                 'raw_data' => json_encode($item, JSON_UNESCAPED_UNICODE),
             ];
@@ -796,7 +833,7 @@ final class OnlineDailyDataPersistenceService
         return array_values(array_map('strval', array_keys($returnedIds)));
     }
 
-    private function parseAndSaveGenericTrafficData($responseData, string $startDate, string $source, ?int $systemHotelId, ?string $expectedPlatformHotelId = null): int
+    private function parseAndSaveGenericTrafficData($responseData, string $startDate, string $source, ?int $systemHotelId, string $platform, ?string $expectedPlatformHotelId, string $ingestionMethod): int
     {
         $dataList = $this->resolveGenericTrafficDataList($responseData);
         if (empty($dataList)) {
@@ -835,6 +872,8 @@ final class OnlineDailyDataPersistenceService
             $periodFilter = self::applyPeriodFields([
                 'data_date' => $itemDate,
                 'source' => $source,
+                'platform' => $platform,
+                'ingestion_method' => $ingestionMethod,
                 'data_type' => 'traffic',
                 'dimension' => $dimension ?: 'traffic',
             ], $columns, $item);
@@ -864,6 +903,8 @@ final class OnlineDailyDataPersistenceService
                 'system_hotel_id' => $systemHotelId,
                 'data_date' => $itemDate,
                 'source' => $source,
+                'platform' => $platform,
+                'ingestion_method' => $ingestionMethod,
                 'data_type' => 'traffic',
                 'dimension' => $dimension ?: 'traffic',
                 'raw_data' => json_encode($item, JSON_UNESCAPED_UNICODE),
@@ -910,12 +951,39 @@ final class OnlineDailyDataPersistenceService
             return null;
         }
 
+        $identityFields = array_values(array_filter([
+            'tenant_id',
+            'source',
+            'platform',
+            'ingestion_method',
+            'data_type',
+            'data_date',
+            'dimension',
+            'hotel_id',
+            'system_hotel_id',
+        ], static fn(string $field): bool => array_key_exists($field, $expected)));
+
         return self::matchesMetricReadback(
             $persisted,
             $expected,
-            ['tenant_id', 'source', 'data_type', 'data_date', 'dimension', 'hotel_id', 'system_hotel_id'],
+            $identityFields,
             $observedMetricFields
         ) ? $persisted : null;
+    }
+
+    private function canonicalTrafficPlatform(string $source, ?string $platform): string
+    {
+        $value = strtolower(trim((string)$platform));
+        if ($value === '') {
+            $value = strtolower(trim($source));
+        }
+        return in_array($value, ['ctrip', 'qunar', 'meituan'], true) ? $value : '';
+    }
+
+    private function canonicalTrafficIngestionMethod(?string $ingestionMethod): string
+    {
+        $value = strtolower(trim((string)$ingestionMethod));
+        return preg_match('/^[a-z][a-z0-9_]{0,29}$/D', $value) === 1 ? $value : '';
     }
 
     /**

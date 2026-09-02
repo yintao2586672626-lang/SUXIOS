@@ -73,6 +73,107 @@ final class CloudThreeSourceCollectionQueueServiceTest extends TestCase
         self::assertStringNotContainsString('cbp_', $encoded);
     }
 
+    public function testPreviousBusinessDayPlanDerivesYesterdayAndUsesDailyAuthorization(): void
+    {
+        $plan = $this->plan(
+            1,
+            80,
+            21,
+            22,
+            'dingdandao_pms',
+            'previous_business_day'
+        );
+        $calls = [];
+        $authorizationModes = [];
+        $authorization = static function (
+            array $hotel,
+            string $targetDate,
+            array $sourceIds,
+            array $platforms,
+            string $runMode
+        ) use ($plan, &$authorizationModes): array {
+            $authorizationModes[] = [$targetDate, $runMode];
+            return [
+                'status' => 'ready',
+                'collection_allowed' => true,
+                'tenant_id' => (int)$hotel['tenant_id'],
+                'system_hotel_id' => (int)$hotel['id'],
+                'business_date' => $targetDate,
+                'run_mode' => $runMode,
+                'plan_id' => (int)$plan['id'],
+                'plan_hash' => (string)$plan['plan_hash'],
+                'plan_readback_verified' => true,
+                'binding_digest_matches' => true,
+                'execution_owner_user_id' => (int)$plan['execution_owner_user_id'],
+                'actual_source_ids' => $sourceIds,
+                'actual_platforms' => $platforms,
+            ];
+        };
+
+        $receipt = $this->service(
+            [$plan],
+            $calls,
+            authorizationLoader: $authorization
+        )->run();
+
+        self::assertSame('all_hotels_saved_and_readback_verified', $receipt['status']);
+        self::assertSame('2026-08-13', $receipt['target_date']);
+        self::assertSame(['2026-08-13'], $receipt['target_dates']);
+        self::assertSame([['2026-08-13', 'daily']], $authorizationModes);
+        self::assertCount(3, $calls);
+        foreach ($calls as $call) {
+            self::assertSame('2026-08-13', $call['target_date']);
+            self::assertSame('daily', $call['run_mode']);
+            self::assertContains('--target-date=2026-08-13', $call['command']);
+        }
+    }
+
+    public function testExplicitDateOutsidePlanPolicyWindowFailsBeforeStartingChildren(): void
+    {
+        $plans = [$this->plan(
+            1,
+            80,
+            21,
+            22,
+            'dingdandao_pms',
+            'previous_business_day'
+        )];
+        $calls = [];
+
+        $receipt = $this->service($plans, $calls)->run([
+            'target_date' => '2026-08-14',
+        ]);
+
+        self::assertSame('partial_or_blocked', $receipt['status']);
+        self::assertSame([], $calls);
+        self::assertSame(
+            'collection_plan_target_date_policy_mismatch',
+            $receipt['hotels'][0]['reason']
+        );
+    }
+
+    public function testPreviousBusinessDayPlanRejectsRealtimeOnlyMeituanCloudPmsBeforeChildren(): void
+    {
+        $plans = [$this->plan(
+            1,
+            80,
+            21,
+            22,
+            'meituan_cloud_pms',
+            'previous_business_day'
+        )];
+        $calls = [];
+
+        $receipt = $this->service($plans, $calls)->run();
+
+        self::assertSame('partial_or_blocked', $receipt['status']);
+        self::assertSame([], $calls);
+        self::assertSame(
+            'collection_plan_pms_historical_unsupported',
+            $receipt['hotels'][0]['reason']
+        );
+    }
+
     public function testOneSourceFailureDoesNotStopRemainingSourcesOrNextHotel(): void
     {
         $plans = [
@@ -91,6 +192,8 @@ final class CloudThreeSourceCollectionQueueServiceTest extends TestCase
                 'hotel_id' => (int)$context['system_hotel_id'],
                 'command' => $command,
                 'timeout_seconds' => $timeoutSeconds,
+                'target_date' => (string)($context['target_date'] ?? ''),
+                'run_mode' => (string)($context['run_mode'] ?? ''),
             ];
             if ((int)$context['system_hotel_id'] === 80 && $source === 'ctrip') {
                 return [
@@ -730,6 +833,107 @@ final class CloudThreeSourceCollectionQueueServiceTest extends TestCase
         self::assertTrue($receipt['hotels'][0]['sources'][0]['recovered_after_retry']);
     }
 
+    public function testDailySuccessfulTargetIsIdempotentlySkipped(): void
+    {
+        $calls = [];
+        $plan = $this->plan(1, 80, 21, 22, 'dingdandao_pms', 'previous_business_day');
+        $receipt = $this->service(
+            [$plan],
+            $calls,
+            attemptStateLoader: static fn(): array => [[
+                'id' => 9,
+                'status' => 'succeeded',
+                'started_at' => '2026-08-14 08:30:00',
+                'finished_at' => '2026-08-14 08:55:00',
+                'update_time' => '2026-08-14 08:55:00',
+            ]]
+        )->run();
+
+        self::assertSame('no_due_plans', $receipt['status']);
+        self::assertSame(1, $receipt['skipped_plan_count']);
+        self::assertSame(0, $receipt['blocked_hotel_count']);
+        self::assertSame('collection_plan_target_already_succeeded', $receipt['hotels'][0]['reason']);
+        self::assertSame([], $calls);
+    }
+
+    public function testRealtimeSuccessOnlySuppressesTheCurrentHourlySlot(): void
+    {
+        $plan = $this->plan(1, 80, 21, 22);
+        $calls = [];
+        $currentSlot = $this->service(
+            [$plan],
+            $calls,
+            attemptStateLoader: static fn(): array => [[
+                'id' => 9,
+                'status' => 'succeeded',
+                'started_at' => '2026-08-14 10:30:00',
+                'finished_at' => '2026-08-14 10:40:00',
+                'update_time' => '2026-08-14 10:40:00',
+            ]]
+        )->run();
+        self::assertSame('no_due_plans', $currentSlot['status']);
+        self::assertSame([], $calls);
+
+        $nextCalls = [];
+        $nextSlot = $this->service(
+            [$plan],
+            $nextCalls,
+            attemptStateLoader: static fn(): array => [],
+            wallClock: static fn(): \DateTimeImmutable => new \DateTimeImmutable('2026-08-14 11:30:00')
+        )->run();
+        self::assertSame('all_hotels_saved_and_readback_verified', $nextSlot['status']);
+        self::assertCount(3, $nextCalls);
+    }
+
+    public function testAttemptStateFailureIsBlockedRatherThanReportedNotDue(): void
+    {
+        $calls = [];
+        $receipt = $this->service(
+            [$this->plan(1, 80, 21, 22)],
+            $calls,
+            attemptStateLoader: static fn(): never => throw new \RuntimeException('attempt table unavailable')
+        )->run();
+
+        self::assertSame('partial_or_blocked', $receipt['status']);
+        self::assertSame(1, $receipt['blocked_plan_count']);
+        self::assertSame(1, $receipt['blocked_hotel_count']);
+        self::assertSame('collection_plan_attempt_state_unavailable', $receipt['hotels'][0]['reason']);
+        self::assertSame([], $calls);
+    }
+
+    public function testPlanLevelRetryRequiresExplicitNoPersistenceForEverySource(): void
+    {
+        $plan = $this->plan(1, 80, 21, 22, 'dingdandao_pms', 'previous_business_day');
+        $safeCalls = [];
+        $safe = $this->service(
+            [$plan],
+            $safeCalls,
+            attemptStateLoader: fn(): array => [$this->retryAttempt(false, false)]
+        )->run();
+        self::assertSame('all_hotels_saved_and_readback_verified', $safe['status']);
+        self::assertCount(3, $safeCalls);
+
+        $savedCalls = [];
+        $saved = $this->service(
+            [$plan],
+            $savedCalls,
+            attemptStateLoader: fn(): array => [$this->retryAttempt(true, false)]
+        )->run();
+        self::assertSame('no_due_plans', $saved['status']);
+        self::assertSame('collection_plan_manual_recovery_required', $saved['hotels'][0]['reason']);
+        self::assertSame([], $savedCalls);
+
+        $unknownCalls = [];
+        $unknown = $this->service(
+            [$plan],
+            $unknownCalls,
+            attemptStateLoader: fn(): array => [$this->retryAttempt(false, true)]
+        )->run();
+        self::assertSame('no_due_plans', $unknown['status']);
+        self::assertSame('collection_plan_manual_recovery_required', $unknown['hotels'][0]['reason']);
+        self::assertSame([], $unknownCalls);
+    }
+
     /**
      * @param array<int,array<string,mixed>> $plans
      * @param array<int,array<string,mixed>> $calls
@@ -744,7 +948,9 @@ final class CloudThreeSourceCollectionQueueServiceTest extends TestCase
         ?callable $runReceiptWriter = null,
         ?callable $authorizationLoader = null,
         ?callable $canonicalHistoryFinalizer = null,
-        ?callable $monotonicClock = null
+        ?callable $monotonicClock = null,
+        ?callable $attemptStateLoader = null,
+        ?callable $wallClock = null
     ): CloudThreeSourceCollectionQueueService {
         $planByHotel = [];
         foreach ($plans as $plan) {
@@ -763,6 +969,8 @@ final class CloudThreeSourceCollectionQueueServiceTest extends TestCase
                 'hotel_id' => (int)$context['system_hotel_id'],
                 'command' => $command,
                 'timeout_seconds' => $timeoutSeconds,
+                'target_date' => (string)($context['target_date'] ?? ''),
+                'run_mode' => (string)($context['run_mode'] ?? ''),
             ];
             return $this->successChild($source, $context);
         };
@@ -777,6 +985,7 @@ final class CloudThreeSourceCollectionQueueServiceTest extends TestCase
                         'tenant_id' => (int)($gate['tenant_id'] ?? 0),
                         'system_hotel_id' => (int)($gate['system_hotel_id'] ?? 0),
                         'business_date' => (string)($gate['business_date'] ?? ''),
+                        'run_mode' => (string)($gate['run_mode'] ?? ''),
                         'status' => ($gate['collection_allowed'] ?? false) === true
                             ? 'started'
                             : 'blocked',
@@ -887,6 +1096,7 @@ final class CloudThreeSourceCollectionQueueServiceTest extends TestCase
                     'tenant_id' => $state['tenant_id'],
                     'system_hotel_id' => $state['system_hotel_id'],
                     'business_date' => $state['business_date'],
+                    'run_mode' => $state['run_mode'],
                     'status' => $state['status'],
                     'pms_receipt' => $state['pms_receipt'],
                     'source_receipts' => array_values($state['sources']),
@@ -930,14 +1140,42 @@ final class CloudThreeSourceCollectionQueueServiceTest extends TestCase
             int $tenantId,
             int $hotelId
         ): array {
+            $anchorHash = (string)($receipt['collection_anchor_hash'] ?? '');
+            $targetDate = (string)($receipt['target_date'] ?? '');
             return [
                 'status' => 'verified',
                 'tenant_id' => $tenantId,
                 'hotel_id' => $hotelId,
-                'target_date' => (string)($receipt['target_date'] ?? ''),
+                'target_date' => $targetDate,
                 'required_platforms' => ['ctrip', 'meituan'],
                 'promoted_platforms' => ['ctrip', 'meituan'],
-                'collection_anchor_hash' => (string)($receipt['collection_anchor_hash'] ?? ''),
+                'collection_anchor_hash' => $anchorHash,
+                'overall_verifier' => [
+                    'verification_source' => 'external_p0_verifier',
+                    'status' => 'passed',
+                    'exit_code' => 0,
+                    'authority_ready' => true,
+                    'target_date' => $targetDate,
+                    'hotel_id' => $hotelId,
+                    'required_platforms' => ['ctrip', 'meituan'],
+                    'verified_platforms' => ['ctrip', 'meituan'],
+                    'collection_anchor_hash' => $anchorHash,
+                    'platform_storage_scopes' => [
+                        'ctrip' => [
+                            'observed_traffic_metric_provenance_status' => 'ready',
+                            'synthetic_normalization_provenance_missing_rows' => 0,
+                        ],
+                        'meituan' => [
+                            'observed_traffic_metric_provenance_status' => 'ready',
+                            'synthetic_normalization_provenance_missing_rows' => 0,
+                        ],
+                    ],
+                    'p0_platforms_ready' => 2,
+                    'traffic_gates_ready' => 2,
+                    'continuous_trust_status' => 'verified',
+                    'continuous_trust_missing_steps' => [],
+                    'sensitive_values_exposed' => false,
+                ],
                 'canonical_history_complete' => true,
                 'sensitive_values_exposed' => false,
             ];
@@ -954,13 +1192,14 @@ final class CloudThreeSourceCollectionQueueServiceTest extends TestCase
             $authorizationLoader,
             $profileLoader,
             $childRunner,
-            static fn(): \DateTimeImmutable => new \DateTimeImmutable('2026-08-14 10:30:00'),
+            $wallClock ?? static fn(): \DateTimeImmutable => new \DateTimeImmutable('2026-08-14 10:30:00'),
             $monotonicClock ?? static fn(): float => 1000.0,
             'D:/suxios',
             $collectionAborter,
             $sleeper,
             $runReceiptWriter,
-            $canonicalHistoryFinalizer
+            $canonicalHistoryFinalizer,
+            $attemptStateLoader ?? static fn(): array => []
         );
     }
 
@@ -970,7 +1209,8 @@ final class CloudThreeSourceCollectionQueueServiceTest extends TestCase
         int $hotelId,
         int $ctripSourceId,
         int $meituanSourceId,
-        string $pmsProvider = 'dingdandao_pms'
+        string $pmsProvider = 'dingdandao_pms',
+        string $businessDatePolicy = 'same_day_realtime'
     ): array
     {
         return [
@@ -981,7 +1221,11 @@ final class CloudThreeSourceCollectionQueueServiceTest extends TestCase
             'plan_status' => 'active',
             'enabled' => 1,
             'active_slot' => 1,
-            'business_date_policy' => 'same_day_realtime',
+            'business_date_policy' => $businessDatePolicy,
+            'timezone' => 'Asia/Shanghai',
+            'schedule_time' => '08:30',
+            'retry_interval_minutes' => 14,
+            'max_attempts' => 7,
             'execution_owner_user_id' => 7,
             'binding_digest' => hash('sha256', 'binding-' . $hotelId),
             'plan_hash' => hash('sha256', 'plan-' . $hotelId),
@@ -1028,6 +1272,9 @@ final class CloudThreeSourceCollectionQueueServiceTest extends TestCase
                 'receipt' => [
                     'status' => 'saved_and_readback_verified',
                     'capture_id' => 51,
+                    'data_period' => (string)($context['run_mode'] ?? '') === 'daily'
+                        ? 'historical_daily'
+                        : 'realtime_snapshot',
                     'identity_status' => 'matched',
                     'readback_status' => 'readback_verified',
                     'message_sent' => false,
@@ -1041,12 +1288,16 @@ final class CloudThreeSourceCollectionQueueServiceTest extends TestCase
         $sourceId = (int)($context['data_source_id'] ?? 0);
         $taskId = 1000 + $sourceId;
         $rowIds = [2000 + ($sourceId * 10), 2001 + ($sourceId * 10), 2002 + ($sourceId * 10)];
+        $historical = (string)($context['run_mode'] ?? '') === 'daily';
+        $dataPeriod = $historical ? 'historical_daily' : 'realtime_snapshot';
         return [
             'exit_code' => 0,
             'timed_out' => false,
             'receipt' => [
                 'status' => 'saved_and_readback_verified',
                 'task_id' => $taskId,
+                'data_period' => $dataPeriod,
+                'historical_core_contract_status' => $historical ? 'ready' : 'not_required',
                 'saved_count' => 3,
                 'readback_count' => 3,
                 'readback_verified' => true,
@@ -1060,6 +1311,7 @@ final class CloudThreeSourceCollectionQueueServiceTest extends TestCase
                     'system_hotel_id' => (int)($context['system_hotel_id'] ?? 0),
                     'platform' => $source,
                     'target_date' => (string)($context['target_date'] ?? ''),
+                    'data_period' => $dataPeriod,
                     'started_at' => '2026-08-14 10:30:00',
                     'p0_status' => 'ready',
                     'field_fact_status' => 'ready',
@@ -1068,9 +1320,49 @@ final class CloudThreeSourceCollectionQueueServiceTest extends TestCase
                     'missing_traffic_metric_keys' => [],
                     'readback_count' => 3,
                     'row_ids' => $rowIds,
+                    'source_trace_ids' => ['trace-' . $sourceId],
                     'readback_verified' => true,
                 ],
                 'message_sent' => false,
+            ],
+        ];
+    }
+
+    /** @return array<string,mixed> */
+    private function retryAttempt(bool $oneSourceSaved, bool $persistenceUnknown): array
+    {
+        $source = static function (string $platform, bool $saved, bool $unknown): array {
+            $persisted = $unknown ? null : $saved;
+            return [
+                'platform' => $platform,
+                'status' => $saved ? 'partial' : 'failed',
+                'saved_row_count' => $saved ? 1 : 0,
+                'readback_row_count' => $saved ? 1 : 0,
+                'readback_verified' => $saved ? 1 : 0,
+                'failure_code' => 'gateway_connection_timeout',
+                'receipt_json' => json_encode([
+                    'business_data_persisted' => $persisted,
+                    'failure_code' => 'gateway_connection_timeout',
+                ], JSON_THROW_ON_ERROR),
+            ];
+        };
+        return [
+            'id' => 90,
+            'status' => 'failed',
+            'pms_status' => 'failed',
+            'pms_readback_verified' => 0,
+            'receipt_json' => json_encode([
+                'pms_attempt' => [
+                    'reason_code' => 'gateway_connection_timeout',
+                    'business_data_persisted' => false,
+                ],
+            ], JSON_THROW_ON_ERROR),
+            'started_at' => '2026-08-14 08:30:00',
+            'finished_at' => '2026-08-14 09:00:00',
+            'update_time' => '2026-08-14 09:00:00',
+            'source_receipts' => [
+                $source('ctrip', $oneSourceSaved, $persistenceUnknown),
+                $source('meituan', false, $persistenceUnknown),
             ],
         ];
     }

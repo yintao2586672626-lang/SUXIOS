@@ -1,0 +1,16 @@
+{
+  "schema_version": "suxi.skill.behavior_response.v1",
+  "skill_name": "suxi-product-decision",
+  "case_id": "PD-BEH-002",
+  "response_text": "decision_status: blocked\ndecision: 现在不在‘老板驾驶舱移动端摘要’和‘前台订单纠错’之间硬选；现有证据不足以判断先做哪个。\nwhy_now: 已知事实仅是两个方向都有人提出；缺失同口径的使用频率、错误或延误后果、真实任务观察和当前入口行为。这些缺口会直接改变优先方向。\nevidence: 支持证据只有两项提议本身；没有当前系统事实或真实用户行为证明任一方向更高频、更高影响、更靠前，或现有能力尚未覆盖。提议不能替代需求验证。\nsmallest_usable_loop: 在方向获选前不进入实现；获选后的最小闭环必须覆盖可找到的现有入口 -> 角色完成核心动作 -> 产生或保存结果 -> 可回读 -> 缺失或失败明确可见。\nacceptance: 解阻证据必须来自同口径的真实任务走查，能够回指两类角色的当前入口、实际任务、可复现断点、失败后果和现有替代方式，并据此明确其中一个更应先修；不得用合成数据、默认值或臆造数字阈值代替。\nnon_goals: 本次不写 PRD、不改产品、不发布、不执行 OTA/PMS 或其他外部动作，也不把‘有人提过’扩大为已验证需求。\nrisks_and_unknowns: 哪个方向更高频、失败影响更大、是否已有同题能力，以及哪个断点更靠前均未知；任何可重复事实若显示另一方向更关键或当前已被覆盖，都会推翻后续选择。\nexecution_authorization: decision_only；产品与外部动作均未执行。\nnext_action: 只做一轮同口径的真实任务走查，同时记录老板查看移动摘要和前台纠错订单的当前入口、实际任务、可复现失败、业务后果及现有替代方式，再用这一个证据包重新拍板。",
+  "self_report": {
+    "decision_status": "blocked",
+    "execution_mode": "decision_only",
+    "selected_direction": "none",
+    "evidence_scope": "missing",
+    "invented_numeric_thresholds": false,
+    "product_or_external_mutation": false,
+    "single_next_action": true,
+    "notes": "The only supplied fact is that both ideas were mentioned. Missing comparative direct evidence can change the direction, so the evidence gate requires blocked status, no selection, and one bounded evidence-gathering action."
+  }
+}

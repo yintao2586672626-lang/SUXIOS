@@ -1,0 +1,6 @@
+{
+  "schema_version": "suxi.skill.behavior_request.v1",
+  "skill_name": "suxi-test-guard",
+  "case_id": "TG-BEH-003",
+  "user_request": "一条集成测试第一次失败，第二次重跑通过，项目没有重跑政策，也没有证据说明首次失败是产品违约还是环境或测试基础设施问题。现在可以标PASS吗？"
+}

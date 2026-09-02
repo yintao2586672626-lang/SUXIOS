@@ -1,0 +1,135 @@
+{
+  "skill_name": "suxi-ota-ops",
+  "evals": [
+    {
+      "id": "P-001",
+      "query": "帮我采集西安天诚今天的携程经营概况和流量数据。",
+      "should_trigger": true,
+      "reason": "明确要求携程在线经营数据采集"
+    },
+    {
+      "id": "P-002",
+      "query": "美团 eBooking 自动采集没有拿到订单，检查门店 Profile 登录态和业务响应。",
+      "should_trigger": true,
+      "reason": "美团自动采集与授权Profile排障"
+    },
+    {
+      "id": "P-003",
+      "query": "用我已经提供的 Cookie 临时补抓携程昨天的房价和库存，失败原因要回显。",
+      "should_trigger": true,
+      "reason": "用户授权上下文下的携程临时补数"
+    },
+    {
+      "id": "P-004",
+      "query": "运行 auto_fetch_online_data 获取这个门店今天的 OTA 在线数据。",
+      "should_trigger": true,
+      "reason": "点名宿析OS OTA自动采集入口"
+    },
+    {
+      "id": "P-005",
+      "query": "携程 Trip Connect 导出的订单和 ARI 文件怎么校验后导入 OnlineData？",
+      "should_trigger": true,
+      "reason": "携程导出与手动导入链路"
+    },
+    {
+      "id": "P-006",
+      "query": "用现有 partner_id 和 poi_id 临时读取美团直连产品的价格库存。",
+      "should_trigger": true,
+      "reason": "美团已授权标识下的价格库存采集"
+    },
+    {
+      "id": "P-007",
+      "query": "采集携程竞品排名、曝光、转化率和广告数据，缺字段要明确报错。",
+      "should_trigger": true,
+      "reason": "携程竞品与渠道运营数据采集"
+    },
+    {
+      "id": "P-008",
+      "query": "门店独立 Profile 失效了，打开平台登录页让我人工完成验证码后继续采集。",
+      "should_trigger": true,
+      "reason": "OTA Profile登录恢复与授权边界"
+    },
+    {
+      "id": "P-009",
+      "query": "查明携程 browser capture 为什么没有命中经营概况 JSON。",
+      "should_trigger": true,
+      "reason": "携程浏览器采集响应排障"
+    },
+    {
+      "id": "P-010",
+      "query": "把美团订单监控导出做一次临时补数，按酒店和业务日期校验后入库。",
+      "should_trigger": true,
+      "reason": "美团订单数据手动补录"
+    },
+    {
+      "id": "N-001",
+      "query": "分析昨天携程和美团的 ADR、RevPAR 与收益指标，给出经营判断。",
+      "should_trigger": false,
+      "expected_route": "suxi-ota-revenue-semantic-layer",
+      "reason": "已入库事实的收益分析，不是数据采集"
+    },
+    {
+      "id": "N-002",
+      "query": "把携程接口的 source path 和 metric key 映射到表、字段目录和 UI 状态。",
+      "should_trigger": false,
+      "expected_route": "suxi-ctrip-field-table-closure",
+      "reason": "字段表UI闭环，不是平台采集操作"
+    },
+    {
+      "id": "N-003",
+      "query": "重做 OTA 驾驶舱的卡片、筛选器和表格交互。",
+      "should_trigger": false,
+      "expected_route": "suxi-dashboard-ui",
+      "reason": "宿析OS界面设计任务"
+    },
+    {
+      "id": "N-004",
+      "query": "生成今天的携程美团经营日报和管理层摘要。",
+      "should_trigger": false,
+      "expected_route": "suxi-ai-report",
+      "reason": "报告生成任务，不是数据采集任务"
+    },
+    {
+      "id": "N-005",
+      "query": "这个 OTA 接口报 500，按复现、修复、回归的顺序处理。",
+      "should_trigger": false,
+      "expected_route": "suxi-test-guard",
+      "reason": "明确的问题修复与验证守卫任务"
+    },
+    {
+      "id": "N-006",
+      "query": "用 Scrapling 为公开酒店页面做 HTML 选择器和解析 fixture。",
+      "should_trigger": false,
+      "expected_route": "scrapling",
+      "reason": "HTML解析器原型，不是OTA账号数据采集"
+    },
+    {
+      "id": "N-007",
+      "query": "测算 OTA 佣金变化后酒店项目的 ROI、IRR 和回本周期。",
+      "should_trigger": false,
+      "expected_route": "suxi-investment-calculation",
+      "reason": "投资模型测算任务"
+    },
+    {
+      "id": "N-008",
+      "query": "只翻译这段携程采集脚本的英文注释，不要运行或修改程序。",
+      "should_trigger": false,
+      "expected_route": "none",
+      "reason": "纯翻译任务，不应触发OTA操作Skill"
+    },
+    {
+      "id": "N-009",
+      "query": "读取昨天已经验证入库的 OTA 事实，给出今天的定价建议。",
+      "should_trigger": false,
+      "expected_route": "suxi-ota-revenue-semantic-layer",
+      "reason": "基于已验证事实的决策分析"
+    },
+    {
+      "id": "N-010",
+      "query": "只识别这张携程后台截图里有哪些文字，不需要采集或入库。",
+      "should_trigger": false,
+      "expected_route": "none",
+      "reason": "纯OCR识别任务"
+    }
+  ]
+}

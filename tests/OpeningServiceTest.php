@@ -237,7 +237,7 @@ final class OpeningServiceTest extends TestCase
         self::assertSame('partial', $metrics['metrics']['suggested_task_progress_data_status']);
     }
 
-    public function testOpeningProjectScopeAllowsOnlyCreatorForNonSuperAdmin(): void
+    public function testOpeningProjectScopeSharesBoundHotelButKeepsUnboundProjectOwnerOnly(): void
     {
         $service = new OpeningService();
 
@@ -247,8 +247,20 @@ final class OpeningServiceTest extends TestCase
             12,
             false,
         ]));
-        self::assertFalse($this->invokeNonPublic($service, 'canAccessOwnedProject', [
+        self::assertTrue($this->invokeNonPublic($service, 'canAccessOwnedProject', [
             ['created_by' => 12, 'hotel_id' => 7],
+            [7],
+            13,
+            false,
+        ]));
+        self::assertTrue($this->invokeNonPublic($service, 'canAccessOwnedProject', [
+            ['created_by' => 12, 'hotel_id' => 0],
+            [7],
+            12,
+            false,
+        ]));
+        self::assertFalse($this->invokeNonPublic($service, 'canAccessOwnedProject', [
+            ['created_by' => 12, 'hotel_id' => 0],
             [7],
             13,
             false,

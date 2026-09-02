@@ -1,0 +1,16 @@
+{
+  "schema_version": "suxi.skill.behavior_response.v1",
+  "skill_name": "suxi-test-guard",
+  "case_id": "TG-BEH-002",
+  "response_text": "结果：不能说‘订单保存回归验证通过’；该主张当前为 BLOCKED。\n状态：代码语法 PASS；两个单元测试 PASS；依赖 MySQL 的订单保存回归因数据库未启动而 BLOCKED。\n改动：无；本次仅判断证据，未修改产品文件、数据或外部系统。\n验证：最高现有证据为 unit，尚未执行订单保存与持久化回读路径；绿色语法和单元结果不能替代该回归 oracle。页面/API 主张不在本次范围内，为 N/A。\n下一步：启动明确的测试 MySQL 环境后，仅重跑订单保存回归并核对保存及回读结果；观察到符合 oracle 后，才能把该主张标为 PASS。",
+  "self_report": {
+    "overall_status": "BLOCKED",
+    "request_mode": "read_only",
+    "highest_evidence_level": "unit",
+    "page_claim_status": "N/A",
+    "first_failure_handling": "not_applicable",
+    "product_or_external_mutation": false,
+    "single_next_action": true,
+    "notes": "Syntax and two unit checks passed, but the persistence regression could not run because its MySQL prerequisite is unavailable; no product failure was observed."
+  }
+}

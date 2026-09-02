@@ -24,6 +24,7 @@ use ReflectionClass;
 use ReflectionMethod;
 use ReflectionParameter;
 use ReflectionType;
+use Tests\Support\RouteContractSource;
 use think\App;
 use think\Response;
 
@@ -52,7 +53,7 @@ final class OtaDomainSplitTest extends TestCase
 
     public function testEveryDomainActionUsesAnExplicitRouteAdapterWithoutDependingOnLegacyController(): void
     {
-        $routeSource = (string)file_get_contents(dirname(__DIR__) . '/route/app.php');
+        $routeSource = RouteContractSource::read(dirname(__DIR__));
         $seenActions = [];
 
         self::assertSame(OtaActionHandler::class, (new ReflectionClass(OnlineData::class))->getParentClass()?->getName());

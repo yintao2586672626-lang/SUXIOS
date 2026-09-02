@@ -306,6 +306,646 @@ final class AgentTenantMainlineTest extends TestCase
             ->count());
     }
 
+    public function testThirtyOneDayMultiRoomGenerationUsesConstantQueryShapeAndOneBatchWrite(): void
+    {
+        $queryBuckets = ['small' => [], 'large' => []];
+        $captureBucket = null;
+        Db::listen(static function (string $sql) use (&$queryBuckets, &$captureBucket): void {
+            if (is_string($captureBucket) && !str_starts_with($sql, 'CONNECT:')) {
+                $queryBuckets[$captureBucket][] = $sql;
+            }
+        });
+        $smallDate = date('Y-m-d', strtotime('+10 days'));
+        Db::name('demand_forecasts')->insert([
+            'tenant_id' => 10,
+            'hotel_id' => 20,
+            'room_type_id' => 100,
+            'forecast_date' => $smallDate,
+            'forecast_method' => DemandForecast::METHOD_HYBRID,
+            'predicted_occupancy' => 92,
+            'predicted_demand' => 10,
+            'confidence_score' => 0.88,
+            'is_event_driven' => 0,
+            'event_factors' => '[]',
+            'historical_data' => json_encode([
+                'input_type' => DemandForecast::MANUAL_INPUT_TYPE,
+                'source_scope' => 'ctrip_ota_channel',
+            ], JSON_THROW_ON_ERROR),
+        ]);
+        Db::name('competitor_analysis')->insert([
+            'tenant_id' => 10,
+            'hotel_id' => 20,
+            'competitor_hotel_id' => 0,
+            'analysis_date' => $smallDate,
+            'room_type_id' => 100,
+            'our_price' => 300,
+            'competitor_price' => 345,
+            'price_difference' => 45,
+            'price_index' => 86.96,
+            'ota_platform' => 1,
+            'competitor_data' => '{}',
+        ]);
+        $captureBucket = 'small';
+        $small = $this->responseData($this->controller([
+            'hotel_id' => 20,
+            'date' => $smallDate,
+        ], [], 2)->generatePriceSuggestions());
+        $captureBucket = null;
+        self::assertSame(1, (int)$small['created_count']);
+        self::assertSame(1, (int)$small['readback_verified_count']);
+        Db::name('price_suggestions')->where('suggestion_date', $smallDate)->delete();
+        Db::name('demand_forecasts')->where('forecast_date', $smallDate)->delete();
+        Db::name('competitor_analysis')->where('analysis_date', $smallDate)->delete();
+
+        $start = new \DateTimeImmutable(date('Y-m-d', strtotime('+20 days')));
+        $dates = [];
+        for ($day = 0; $day < 31; $day++) {
+            $dates[] = $start->modify('+' . $day . ' days')->format('Y-m-d');
+        }
+        $roomTypeIds = range(100, 107);
+        $roomRows = [];
+        foreach (array_slice($roomTypeIds, 1) as $roomTypeId) {
+            $roomRows[] = [
+                'id' => $roomTypeId,
+                'tenant_id' => 10,
+                'hotel_id' => 20,
+                'name' => 'Batch room ' . $roomTypeId,
+                'base_price' => 300,
+                'min_price' => 250,
+                'max_price' => 450,
+                'room_count' => 10,
+                'sort_order' => $roomTypeId,
+                'is_enabled' => 1,
+                'facilities' => '[]',
+            ];
+        }
+        Db::name('room_types')->insertAll($roomRows);
+
+        $forecastRows = [];
+        $competitorRows = [];
+        $missingKey = end($dates) . '|107';
+        foreach ($dates as $targetDate) {
+            foreach ($roomTypeIds as $roomTypeId) {
+                $key = $targetDate . '|' . $roomTypeId;
+                if ($key !== $missingKey) {
+                    $forecastRows[] = [
+                        'tenant_id' => 10,
+                        'hotel_id' => 20,
+                        'room_type_id' => $roomTypeId,
+                        'forecast_date' => $targetDate,
+                        'forecast_method' => DemandForecast::METHOD_HYBRID,
+                        'predicted_occupancy' => 92,
+                        'predicted_demand' => 10,
+                        'confidence_score' => 0.88,
+                        'is_event_driven' => 0,
+                        'event_factors' => '[]',
+                        'historical_data' => json_encode([
+                            'input_type' => DemandForecast::MANUAL_INPUT_TYPE,
+                            'source_scope' => 'ctrip_ota_channel',
+                        ], JSON_THROW_ON_ERROR),
+                    ];
+                }
+                $competitorRows[] = [
+                    'tenant_id' => 10,
+                    'hotel_id' => 20,
+                    'competitor_hotel_id' => 0,
+                    'analysis_date' => $targetDate,
+                    'room_type_id' => $roomTypeId,
+                    'our_price' => 300,
+                    'competitor_price' => 345,
+                    'price_difference' => 45,
+                    'price_index' => 86.96,
+                    'ota_platform' => 1,
+                    'competitor_data' => '{}',
+                ];
+            }
+        }
+        Db::name('demand_forecasts')->insertAll($forecastRows);
+        Db::name('competitor_analysis')->insertAll($competitorRows);
+
+        $captureBucket = 'large';
+        $result = $this->responseData($this->controller([
+            'hotel_id' => 20,
+            'start_date' => $dates[0],
+            'end_date' => end($dates),
+        ], [], 2)->generatePriceSuggestions());
+        $captureBucket = null;
+
+        self::assertSame('partial', $result['status']);
+        self::assertSame(247, (int)$result['created_count']);
+        self::assertSame(1, (int)$result['skipped_count']);
+        self::assertSame(247, (int)$result['readback_verified_count']);
+        self::assertTrue($result['readback_verified']);
+        self::assertSame('exact_target_signals_missing', $result['skipped'][0]['reason']);
+        self::assertSame(248, (int)$result['reviewed_count']);
+
+        $readCount = static function (array $logged, string $table): int {
+            return count(array_filter(
+                $logged,
+                static fn(string $sql): bool => preg_match(
+                    '/\bfrom\s+[`"]?' . preg_quote($table, '/') . '[`"]?/i',
+                    $sql
+                ) === 1
+            ));
+        };
+        $insertCount = static function (array $logged, string $table): int {
+            return count(array_filter(
+                $logged,
+                static fn(string $sql): bool => preg_match(
+                    '/\binsert\s+into\s+[`"]?' . preg_quote($table, '/') . '[`"]?/i',
+                    $sql
+                ) === 1
+            ));
+        };
+        $smallQueries = $queryBuckets['small'];
+        $largeQueries = $queryBuckets['large'];
+        foreach (['demand_forecasts', 'competitor_analysis'] as $table) {
+            self::assertSame(1, $readCount($smallQueries, $table), implode("\n", $smallQueries));
+            self::assertSame(
+                $readCount($smallQueries, $table),
+                $readCount($largeQueries, $table),
+                implode("\n", $largeQueries)
+            );
+        }
+        self::assertSame(2, $readCount($smallQueries, 'price_suggestions'), implode("\n", $smallQueries));
+        self::assertSame(
+            $readCount($smallQueries, 'price_suggestions'),
+            $readCount($largeQueries, 'price_suggestions'),
+            implode("\n", $largeQueries)
+        );
+        self::assertSame(1, $insertCount($smallQueries, 'price_suggestions'), implode("\n", $smallQueries));
+        self::assertSame(2, $insertCount($largeQueries, 'price_suggestions'), implode("\n", $largeQueries));
+        self::assertLessThanOrEqual(36, count($largeQueries), implode("\n", $largeQueries));
+    }
+
+    public function testBatchRecommendationPayloadMatchesSingleRecommendationExactly(): void
+    {
+        $targetDate = date('Y-m-d', strtotime('+11 days'));
+        Db::name('demand_forecasts')->insertAll([
+            [
+                'tenant_id' => 10,
+                'hotel_id' => 20,
+                'room_type_id' => 100,
+                'forecast_date' => $targetDate,
+                'forecast_method' => DemandForecast::METHOD_HYBRID,
+                'predicted_occupancy' => 87,
+                'predicted_demand' => 9,
+                'confidence_score' => 0.82,
+                'is_event_driven' => 0,
+                'event_factors' => '[]',
+                'historical_data' => '{}',
+                'create_time' => '2026-08-27 11:00:00',
+                'update_time' => '2026-08-27 11:00:00',
+            ],
+            [
+                'tenant_id' => 10,
+                'hotel_id' => 20,
+                'room_type_id' => 100,
+                'forecast_date' => $targetDate,
+                'forecast_method' => DemandForecast::METHOD_HYBRID,
+                'predicted_occupancy' => 93,
+                'predicted_demand' => 11,
+                'confidence_score' => 0.9,
+                'is_event_driven' => 0,
+                'event_factors' => '[]',
+                'historical_data' => json_encode([
+                    'input_type' => DemandForecast::MANUAL_INPUT_TYPE,
+                    'source_scope' => 'ctrip_ota_channel',
+                ], JSON_THROW_ON_ERROR),
+                'create_time' => '2026-08-27 10:00:00',
+                'update_time' => '2026-08-27 10:00:00',
+            ],
+        ]);
+        Db::name('competitor_analysis')->insert([
+            'tenant_id' => 10,
+            'hotel_id' => 20,
+            'competitor_hotel_id' => 0,
+            'analysis_date' => $targetDate,
+            'room_type_id' => 100,
+            'our_price' => 300,
+            'competitor_price' => 348,
+            'price_difference' => 48,
+            'price_index' => 86.21,
+            'ota_platform' => 1,
+            'competitor_data' => '{}',
+        ]);
+        $roomType = Db::name('room_types')->where('id', 100)->find();
+        self::assertIsArray($roomType);
+
+        $single = (new RevenuePricingRecommendationService())->recommend(20, $roomType, $targetDate);
+        $batch = (new RevenuePricingRecommendationService())->recommendBatch(20, [$roomType], [$targetDate]);
+
+        self::assertSame(
+            $single,
+            $batch[RevenuePricingRecommendationService::batchRecommendationKey(100, $targetDate)]
+        );
+        self::assertSame(93.0, $single['factors']['signals']['demand_forecast']['predicted_occupancy']);
+        self::assertSame(348.0, $single['factors']['signals']['competitor']['avg_price']);
+    }
+
+    public function testPublicBatchGenerationRejectsForgedRoomTenantOrHotelScope(): void
+    {
+        $this->controller([], [], 2);
+        $roomType = Db::name('room_types')->where('id', 100)->find();
+        self::assertIsArray($roomType);
+        $targetDate = date('Y-m-d', strtotime('+14 days'));
+        $before = (int)Db::name('price_suggestions')->count();
+        foreach ([
+            array_replace($roomType, ['tenant_id' => 99]),
+            array_replace($roomType, ['hotel_id' => 30]),
+        ] as $forged) {
+            try {
+                (new RevenuePricingRecommendationService())->generatePendingBatch(
+                    20,
+                    [$forged],
+                    [$targetDate]
+                );
+                self::fail('forged room scope must fail closed');
+            } catch (\InvalidArgumentException $exception) {
+                self::assertSame('price suggestion batch room scope invalid', $exception->getMessage());
+            }
+        }
+        try {
+            (new RevenuePricingRecommendationService())->generatePendingBatch(
+                999,
+                [array_replace($roomType, ['hotel_id' => 999])],
+                [$targetDate]
+            );
+            self::fail('missing authoritative hotel tenant must fail closed');
+        } catch (\RuntimeException $exception) {
+            self::assertSame('price suggestion batch hotel tenant unavailable', $exception->getMessage());
+        }
+        self::assertSame($before, (int)Db::name('price_suggestions')->count());
+    }
+
+    public function testPublicBatchGenerationUsesAuthoritativeRoomPricingFields(): void
+    {
+        $this->controller([], [], 2);
+        $roomType = Db::name('room_types')->where('id', 100)->find();
+        self::assertIsArray($roomType);
+        $targetDate = date('Y-m-d', strtotime('+15 days'));
+        Db::name('demand_forecasts')->insert([
+            'tenant_id' => 10,
+            'hotel_id' => 20,
+            'room_type_id' => 100,
+            'forecast_date' => $targetDate,
+            'forecast_method' => DemandForecast::METHOD_HYBRID,
+            'predicted_occupancy' => 92,
+            'predicted_demand' => 10,
+            'confidence_score' => 0.88,
+            'is_event_driven' => 0,
+            'event_factors' => '[]',
+            'historical_data' => json_encode([
+                'input_type' => DemandForecast::MANUAL_INPUT_TYPE,
+                'source_scope' => 'ctrip_ota_channel',
+            ], JSON_THROW_ON_ERROR),
+        ]);
+        Db::name('competitor_analysis')->insert([
+            'tenant_id' => 10,
+            'hotel_id' => 20,
+            'competitor_hotel_id' => 0,
+            'analysis_date' => $targetDate,
+            'room_type_id' => 100,
+            'our_price' => 300,
+            'competitor_price' => 345,
+            'price_difference' => 45,
+            'price_index' => 86.96,
+            'ota_platform' => 1,
+            'competitor_data' => '{}',
+        ]);
+        $forgedPricing = array_replace($roomType, [
+            'name' => 'Forged room name',
+            'base_price' => 999,
+            'min_price' => 998,
+            'max_price' => 1000,
+            'room_count' => 1,
+        ]);
+        [$created, $skipped] = (new RevenuePricingRecommendationService())->generatePendingBatch(
+            20,
+            [$forgedPricing],
+            [$targetDate]
+        );
+
+        self::assertSame([], $skipped);
+        self::assertCount(1, $created);
+        self::assertSame(300.0, (float)$created[0]['current_price']);
+        self::assertSame(250.0, (float)$created[0]['min_price']);
+        self::assertSame(450.0, (float)$created[0]['max_price']);
+        self::assertSame(10, (int)$created[0]['factors']['signals']['inventory']['capacity']);
+    }
+
+    public function testPendingSnapshotUsesExactNonContiguousKeysAndEmptyOrGapBatchesDoNotWrite(): void
+    {
+        $this->controller([], [], 2);
+        $roomType = Db::name('room_types')->where('id', 100)->find();
+        self::assertIsArray($roomType);
+        $service = new RevenuePricingRecommendationService();
+        $queries = [];
+        $capture = true;
+        Db::listen(static function (string $sql) use (&$queries, &$capture): void {
+            if ($capture && !str_starts_with($sql, 'CONNECT:')) {
+                $queries[] = $sql;
+            }
+        });
+        self::assertSame([[], []], $service->generatePendingBatch(20, [$roomType], []));
+        $capture = false;
+        self::assertSame([], $queries, implode("\n", $queries));
+
+        $dateOne = date('Y-m-d', strtotime('+16 days'));
+        $gapDate = date('Y-m-d', strtotime('+17 days'));
+        $dateThree = date('Y-m-d', strtotime('+18 days'));
+        foreach ([$dateOne, $gapDate, $dateThree] as $index => $targetDate) {
+            $row = $this->suggestionRow(100 + $index, 10, 20, 100);
+            $row['suggestion_date'] = $targetDate;
+            $row['active_dedupe_key'] = PriceSuggestion::activeDedupeKey(10, 20, 100, $targetDate);
+            Db::name('price_suggestions')->insert($row);
+        }
+        [$created, $skipped] = (new RevenuePricingRecommendationService())->generatePendingBatch(
+            20,
+            [$roomType],
+            [$dateThree, $dateOne]
+        );
+        self::assertSame([], $created);
+        self::assertSame([$dateOne, $dateThree], array_column($skipped, 'target_stay_date'));
+        self::assertSame([100, 102], array_column($skipped, 'existing_suggestion_id'));
+
+        $gapOnlyDate = date('Y-m-d', strtotime('+19 days'));
+        $secondGapOnlyDate = date('Y-m-d', strtotime('+21 days'));
+        $writes = [];
+        $captureWrites = true;
+        Db::listen(static function (string $sql) use (&$writes, &$captureWrites): void {
+            if ($captureWrites && preg_match('/\binsert\s+into\s+[`"]?price_suggestions/i', $sql) === 1) {
+                $writes[] = $sql;
+            }
+        });
+        [$gapCreated, $gapSkipped] = (new RevenuePricingRecommendationService())->generatePendingBatch(
+            20,
+            [$roomType],
+            [$gapOnlyDate, $secondGapOnlyDate]
+        );
+        $captureWrites = false;
+        self::assertSame([], $gapCreated);
+        self::assertCount(2, $gapSkipped);
+        self::assertSame(
+            ['exact_target_signals_missing'],
+            array_values(array_unique(array_column($gapSkipped, 'reason')))
+        );
+        self::assertSame([], $writes);
+    }
+
+    public function testThirtyOneByOneHundredEighteenPendingKeysAndWriteChunksStayUnderDatabaseBudgets(): void
+    {
+        $this->controller([], [], 2);
+        $dates = [];
+        $start = new \DateTimeImmutable('2030-01-01');
+        for ($day = 0; $day < 31; $day++) {
+            $dates[] = $start->modify('+' . $day . ' days')->format('Y-m-d');
+        }
+        $roomTypes = [];
+        $roomRows = [];
+        $pendingRows = [];
+        foreach (range(1000, 1117) as $roomTypeId) {
+            $room = [
+                'id' => $roomTypeId,
+                'tenant_id' => 10,
+                'hotel_id' => 20,
+                'name' => 'Scale room ' . $roomTypeId,
+                'base_price' => 300,
+                'min_price' => 250,
+                'max_price' => 450,
+                'room_count' => 10,
+            ];
+            $roomTypes[] = $room;
+            $roomRows[] = $room + [
+                'sort_order' => $roomTypeId,
+                'is_enabled' => 1,
+                'facilities' => '[]',
+            ];
+            foreach ($dates as $targetDate) {
+                $pendingRows[] = [
+                    'tenant_id' => 10,
+                    'hotel_id' => 20,
+                    'room_type_id' => $roomTypeId,
+                    'suggestion_date' => $targetDate,
+                    'suggestion_type' => PriceSuggestion::TYPE_DYNAMIC,
+                    'status' => PriceSuggestion::STATUS_PENDING,
+                    'current_price' => 300,
+                    'suggested_price' => 330,
+                    'min_price' => 250,
+                    'max_price' => 450,
+                    'confidence_score' => 0.8,
+                    'competitor_data' => '{}',
+                    'factors' => '{}',
+                    'active_dedupe_key' => PriceSuggestion::activeDedupeKey(
+                        10,
+                        20,
+                        $roomTypeId,
+                        $targetDate
+                    ),
+                ];
+                if (count($pendingRows) === 400) {
+                    Db::name('price_suggestions')->insertAll($pendingRows);
+                    $pendingRows = [];
+                }
+            }
+        }
+        Db::name('room_types')->insertAll($roomRows);
+        if ($pendingRows !== []) {
+            Db::name('price_suggestions')->insertAll($pendingRows);
+        }
+
+        $queries = [];
+        $capture = true;
+        Db::listen(static function (string $sql) use (&$queries, &$capture): void {
+            if ($capture && !str_starts_with($sql, 'CONNECT:')) {
+                $queries[] = $sql;
+            }
+        });
+        [$created, $skipped] = (new RevenuePricingRecommendationService())->generatePendingBatch(
+            20,
+            $roomTypes,
+            $dates
+        );
+        $capture = false;
+        self::assertSame([], $created);
+        self::assertCount(3658, $skipped);
+        $pendingReads = array_values(array_filter(
+            $queries,
+            static fn(string $sql): bool => preg_match(
+                '/\bfrom\s+[`"]?price_suggestions[`"]?/i',
+                $sql
+            ) === 1
+        ));
+        self::assertCount(4, $pendingReads, implode("\n", $pendingReads));
+        self::assertSame(0, count(array_filter(
+            $queries,
+            static fn(string $sql): bool => preg_match('/\b(?:insert|update|delete)\b/i', $sql) === 1
+        )));
+
+        $candidateMethod = new \ReflectionMethod(
+            RevenuePricingRecommendationService::class,
+            'chunkCandidatesForInsert'
+        );
+        $candidates = [];
+        foreach (range(1, 3658) as $index) {
+            $candidates[(string)$index] = $this->batchInsertCandidate(
+                $index,
+                json_encode(['padding' => str_repeat('x', 2048)], JSON_THROW_ON_ERROR)
+            );
+        }
+        $chunks = $candidateMethod->invoke(new RevenuePricingRecommendationService(), $candidates);
+        self::assertGreaterThan(1, count($chunks));
+        self::assertLessThan(50, count($chunks));
+        foreach ($chunks as $chunk) {
+            $rows = array_column($chunk, 'row');
+            self::assertLessThanOrEqual(60000, count($rows) * count($rows[0]));
+            $estimatedBytes = array_sum(array_map(
+                static fn(array $row): int => (strlen((string)json_encode(
+                    $row,
+                    JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR
+                )) * 2) + (count($row) * 32),
+                $rows
+            ));
+            self::assertLessThanOrEqual(2000000, $estimatedBytes);
+        }
+    }
+
+    public function testUniqueConflictIsRecheckedOnlyAfterEarlierInsertChunksRollBack(): void
+    {
+        $this->controller([], [], 2);
+        $padding = json_encode(['padding' => str_repeat('x', 350000)], JSON_THROW_ON_ERROR);
+        $candidates = [
+            'first' => $this->batchInsertCandidate(1, $padding),
+            'second' => $this->batchInsertCandidate(2, $padding),
+            'conflict' => $this->batchInsertCandidate(3, $padding),
+        ];
+        Db::name('price_suggestions')->insert($candidates['conflict']['row']);
+        $method = new \ReflectionMethod(
+            RevenuePricingRecommendationService::class,
+            'insertPendingSuggestionBatch'
+        );
+        [$inserted, $raceSkips] = $method->invoke(
+            new RevenuePricingRecommendationService(),
+            $candidates
+        );
+
+        self::assertSame(['first', 'second'], array_keys($inserted));
+        self::assertCount(1, $raceSkips);
+        self::assertTrue($raceSkips[0]['deduplicated']);
+        self::assertSame(5, (int)Db::name('price_suggestions')->count());
+    }
+
+    public function testSecondUniqueConflictIsAlsoRecheckedAndSkippedAfterRollback(): void
+    {
+        $this->controller([], [], 2);
+        $candidates = [
+            'first-race' => $this->batchInsertCandidate(11, '{}'),
+            'second-race' => $this->batchInsertCandidate(12, '{}'),
+            'remaining' => $this->batchInsertCandidate(13, '{}'),
+        ];
+        Db::name('price_suggestions')->insert($candidates['first-race']['row']);
+        $service = new class($candidates['second-race']['row']) extends RevenuePricingRecommendationService {
+            /** @param array<string,mixed> $secondWinner */
+            public function __construct(private array $secondWinner)
+            {
+                parent::__construct();
+            }
+
+            protected function beforePendingBatchInsertAttempt(array $candidates, int $attempt): void
+            {
+                if ($attempt === 2) {
+                    Db::name('price_suggestions')->insert($this->secondWinner);
+                }
+            }
+        };
+        $method = new \ReflectionMethod(
+            RevenuePricingRecommendationService::class,
+            'insertPendingSuggestionBatch'
+        );
+        [$inserted, $raceSkips] = $method->invoke($service, $candidates);
+
+        self::assertSame(['remaining'], array_keys($inserted));
+        self::assertSame(
+            [
+                $candidates['first-race']['room_type_id'],
+                $candidates['second-race']['room_type_id'],
+            ],
+            array_column($raceSkips, 'room_type_id')
+        );
+        self::assertSame([true, true], array_column($raceSkips, 'deduplicated'));
+        self::assertSame(5, (int)Db::name('price_suggestions')->count());
+    }
+
+    public function testReadbackFailureRollsBackEveryInsertedCandidate(): void
+    {
+        $this->controller([], [], 2);
+        $beforeCount = (int)Db::name('price_suggestions')->count();
+        $candidate = $this->batchInsertCandidate(19, '{}');
+        $service = new class extends RevenuePricingRecommendationService {
+            protected function pendingSuggestionsByDedupeKeys(
+                array $dedupeKeys,
+                int $tenantId = 0,
+                int $hotelId = 0
+            ): array {
+                return [];
+            }
+        };
+        $method = new \ReflectionMethod(
+            RevenuePricingRecommendationService::class,
+            'insertPendingSuggestionBatch'
+        );
+
+        try {
+            $method->invoke($service, ['readback-failure' => $candidate]);
+            self::fail('Expected exact readback failure');
+        } catch (\RuntimeException $error) {
+            self::assertSame('price suggestion saved readback identity mismatch', $error->getMessage());
+        }
+        self::assertSame($beforeCount, (int)Db::name('price_suggestions')->count());
+        self::assertSame(
+            0,
+            (int)Db::name('price_suggestions')
+                ->where('active_dedupe_key', $candidate['active_dedupe_key'])
+                ->count()
+        );
+    }
+
+    public function testUniqueConflictRetryLimitReturnsStableExplicitError(): void
+    {
+        $this->controller([], [], 2);
+        $candidate = $this->batchInsertCandidate(21, '{}');
+        Db::name('price_suggestions')->insert($candidate['row']);
+        $service = new class extends RevenuePricingRecommendationService {
+            public int $attempts = 0;
+
+            protected function beforePendingBatchInsertAttempt(array $candidates, int $attempt): void
+            {
+                $this->attempts = $attempt;
+            }
+
+            protected function pendingSuggestionsByDedupeKeys(
+                array $dedupeKeys,
+                int $tenantId = 0,
+                int $hotelId = 0
+            ): array {
+                return [];
+            }
+        };
+        $method = new \ReflectionMethod(
+            RevenuePricingRecommendationService::class,
+            'insertPendingSuggestionBatch'
+        );
+
+        try {
+            $method->invoke($service, ['conflict' => $candidate]);
+            self::fail('Expected bounded dedupe retry exhaustion');
+        } catch (\RuntimeException $error) {
+            self::assertSame('price_suggestion_batch_dedupe_conflict_exhausted', $error->getMessage());
+        }
+        self::assertSame(3, $service->attempts);
+        self::assertSame(3, (int)Db::name('price_suggestions')->count());
+    }
+
     public function testPriceSuggestionRangeGenerationKeepsMissingDayExplicitWithoutFallback(): void
     {
         $startDate = date('Y-m-d', strtotime('+8 days'));
@@ -905,6 +1545,76 @@ final class AgentTenantMainlineTest extends TestCase
         ];
     }
 
+    /** @return array<string,mixed> */
+    private function batchInsertCandidate(int $index, string $factors): array
+    {
+        $targetDate = '2031-01-01';
+        $roomTypeId = 5000 + $index;
+        $dedupeKey = PriceSuggestion::activeDedupeKey(10, 20, $roomTypeId, $targetDate);
+        $factorPadding = json_decode($factors, true, flags: JSON_THROW_ON_ERROR);
+        $factorPayload = array_replace(is_array($factorPadding) ? $factorPadding : [], [
+            'model' => 'advisory_revenue_pricing_v1',
+            'signals' => ['fixture_ref' => 'online_daily_data#' . (9000 + $index)],
+        ]);
+        $decisionAsOfTime = '2030-12-01 00:00:00';
+        $attestation = (new RevenuePricingRecommendationService())
+            ->buildPriceSuggestionDecisionAttestation([
+                'tenant_id' => 10,
+                'hotel_id' => 20,
+                'room_type_id' => $roomTypeId,
+                'suggestion_date' => $targetDate,
+                'current_price' => 300,
+                'min_price' => 250,
+                'max_price' => 450,
+                'platform' => RevenuePricingRecommendationService::PRICE_SUGGESTION_PLATFORM,
+                'decision_as_of_time' => $decisionAsOfTime,
+                'model_version' => 'advisory_revenue_pricing_v1',
+                'factors' => $factorPayload,
+            ]);
+        $factors = json_encode($factorPayload, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
+        return [
+            'key' => $targetDate . '|' . $roomTypeId,
+            'tenant_id' => 10,
+            'hotel_id' => 20,
+            'room_type_id' => $roomTypeId,
+            'room_type_name' => 'Chunk room ' . $roomTypeId,
+            'target_date' => $targetDate,
+            'active_dedupe_key' => $dedupeKey,
+            'recommendation' => [
+                'current_price' => 300,
+                'suggested_price' => 330,
+            ],
+            'row' => [
+                'tenant_id' => 10,
+                'hotel_id' => 20,
+                'room_type_id' => $roomTypeId,
+                'suggestion_type' => PriceSuggestion::TYPE_DYNAMIC,
+                'status' => PriceSuggestion::STATUS_PENDING,
+                'suggestion_date' => $targetDate,
+                'current_price' => 300,
+                'suggested_price' => 330,
+                'min_price' => 250,
+                'max_price' => 450,
+                'confidence_score' => 0.8,
+                'competitor_data' => '{}',
+                'factors' => $factors,
+                'demand_forecast_id' => 0,
+                'platform' => (string)$attestation['platform'],
+                'decision_as_of_time' => $decisionAsOfTime,
+                'model_version' => (string)$attestation['model_version'],
+                'decision_input_digest' => (string)$attestation['decision_input_digest'],
+                'decision_source_refs' => json_encode(
+                    $attestation['decision_source_refs'],
+                    JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR
+                ),
+                'reason' => 'chunk fixture',
+                'active_dedupe_key' => $dedupeKey,
+                'create_time' => '2030-12-01 00:00:00',
+                'update_time' => '2030-12-01 00:00:00',
+            ],
+        ];
+    }
+
     private static function createSchema(): void
     {
         Db::execute('CREATE TABLE roles (id INTEGER PRIMARY KEY, name TEXT, display_name TEXT, level INTEGER, permissions TEXT, status INTEGER)');
@@ -916,6 +1626,6 @@ final class AgentTenantMainlineTest extends TestCase
         Db::execute('CREATE TABLE agent_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER NOT NULL, hotel_id INTEGER NOT NULL, agent_type INTEGER, action TEXT, message TEXT, log_level INTEGER, context_data TEXT, user_id INTEGER, create_time TEXT)');
         Db::execute('CREATE TABLE demand_forecasts (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER NOT NULL, hotel_id INTEGER NOT NULL, room_type_id INTEGER, forecast_date TEXT, forecast_method INTEGER, predicted_occupancy REAL, predicted_demand INTEGER, confidence_score REAL, actual_occupancy REAL, is_event_driven INTEGER, event_factors TEXT, historical_data TEXT, remark TEXT, create_time TEXT, update_time TEXT)');
         Db::execute('CREATE TABLE competitor_analysis (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER NOT NULL, hotel_id INTEGER NOT NULL, competitor_hotel_id INTEGER, analysis_date TEXT, room_type_id INTEGER, competitor_room_type_id INTEGER, our_price REAL, competitor_price REAL, price_difference REAL, price_index REAL, ota_platform INTEGER, competitor_data TEXT, create_time TEXT, update_time TEXT)');
-        Db::execute('CREATE TABLE price_suggestions (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER NOT NULL, hotel_id INTEGER NOT NULL, room_type_id INTEGER, demand_forecast_id INTEGER, suggestion_date TEXT, suggestion_type INTEGER, current_price REAL, suggested_price REAL, min_price REAL, max_price REAL, confidence_score REAL, competitor_data TEXT, factors TEXT, reason TEXT, active_dedupe_key TEXT NULL UNIQUE, status INTEGER, applied_by INTEGER, applied_time TEXT, remark TEXT, create_time TEXT, update_time TEXT)');
+        Db::execute('CREATE TABLE price_suggestions (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER NOT NULL, hotel_id INTEGER NOT NULL, room_type_id INTEGER, demand_forecast_id INTEGER, platform TEXT, decision_as_of_time TEXT, model_version TEXT, decision_input_digest TEXT, decision_source_refs TEXT, suggestion_date TEXT, suggestion_type INTEGER, current_price REAL, suggested_price REAL, min_price REAL, max_price REAL, confidence_score REAL, competitor_data TEXT, factors TEXT, reason TEXT, active_dedupe_key TEXT NULL UNIQUE, status INTEGER, applied_by INTEGER, applied_time TEXT, remark TEXT, create_time TEXT, update_time TEXT)');
     }
 }

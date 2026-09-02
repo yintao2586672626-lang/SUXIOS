@@ -1,0 +1,44 @@
+{
+  "skill_name": "suxi-ota-exposure-estimation",
+  "evals": [
+    {
+      "id": "B-001",
+      "fixture": "fixtures/workbook-anchored.json",
+      "assertions": [
+        "status is estimated",
+        "20:00 cumulative estimate is 1220",
+        "23:00 cumulative estimate and daily estimate are 1437",
+        "rate_used is 0.0877 and rounding interval is disclosed",
+        "decision_eligible and writeback_allowed are false"
+      ]
+    },
+    {
+      "id": "B-002",
+      "fixture": "fixtures/rolling-golden.json",
+      "assertions": [
+        "ten verified non-event pairs produce median multiplier 11.5",
+        "target browse 126 produces estimate 1449",
+        "event pair is excluded",
+        "rolling-origin error requires seven preceding pairs and excludes the target date",
+        "result is derived_estimate and estimate_only"
+      ]
+    },
+    {
+      "id": "B-003",
+      "fixture": "fixtures/source-sparse-baseline.json",
+      "assertions": [
+        "only the 2026-08-20 observed pair is eligible",
+        "status is insufficient_baseline",
+        "no estimate is returned and no default multiplier is used"
+      ]
+    },
+    {
+      "id": "B-004",
+      "mutation": "change target_metric to total_exposure and target_unit to impressions",
+      "assertions": [
+        "status is not_applicable",
+        "no estimate is returned"
+      ]
+    }
+  ]
+}

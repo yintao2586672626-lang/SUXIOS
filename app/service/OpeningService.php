@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace app\service;
 
+use app\model\User;
 use DateTimeImmutable;
 use DateTimeZone;
 use think\facade\Db;
@@ -15,6 +16,9 @@ class OpeningService
     private SourceBackedExecutionBridgeProjectionService $executionBridgeProjection;
     private int $actorUserId = 0;
     private bool $actorIsSuperAdmin = false;
+
+    /** @var null|callable(int,int,string):bool */
+    private $mutationAuthorizer;
 
     private const STATUS_TODO = 'todo';
     private const STATUS_DOING = 'doing';
@@ -38,13 +42,15 @@ class OpeningService
     public function __construct(
         ?LlmClient $client = null,
         ?AiDecisionQualityService $decisionQualityService = null,
-        ?SourceBackedExecutionBridgeProjectionService $executionBridgeProjection = null
+        ?SourceBackedExecutionBridgeProjectionService $executionBridgeProjection = null,
+        ?callable $mutationAuthorizer = null
     )
     {
         $this->client = $client ?: new LlmClient();
         $this->decisionQualityService = $decisionQualityService ?? new AiDecisionQualityService();
         $this->executionBridgeProjection = $executionBridgeProjection
             ?? new SourceBackedExecutionBridgeProjectionService();
+        $this->mutationAuthorizer = $mutationAuthorizer;
     }
 
     public function forActor(int $userId, bool $isSuperAdmin): self
@@ -66,11 +72,22 @@ class OpeningService
         }
     }
 
-    public function createProject(array $input, int $userId, array $hotelIds): int
+    public function createProject(
+        array $input,
+        int $userId,
+        array $hotelIds,
+        bool $isSuperAdmin = false
+    ): int
     {
         $now = $this->now();
         $hotelName = trim((string)$input['hotel_name']);
         $hotelId = $this->resolveProjectHotelId($input, $hotelIds);
+        $tenantId = $this->resolveProjectTenantIdForCreate($hotelId, $userId);
+        $this->assertProjectMutationAllowed([
+            'hotel_id' => $hotelId,
+            'tenant_id' => $tenantId,
+            'created_by' => $userId,
+        ], $hotelIds, $userId, $isSuperAdmin);
 
         $data = [
             'hotel_id' => $hotelId,
@@ -92,7 +109,7 @@ class OpeningService
         ];
 
         return (int)Db::name('opening_projects')->insertGetId(
-            $this->withTenantId($data, 'opening_projects', $this->resolveProjectTenantId($hotelId))
+            $this->withTenantId($data, 'opening_projects', $tenantId)
         );
     }
 
@@ -115,7 +132,23 @@ class OpeningService
 
     public function updateProject(int $projectId, array $input, array $hotelIds): array
     {
+        return Db::transaction(fn(): array => $this->updateProjectLocked(
+            $projectId,
+            $input,
+            $hotelIds
+        ));
+    }
+
+    private function updateProjectLocked(int $projectId, array $input, array $hotelIds): array
+    {
+        Db::name('opening_projects')->where('id', $projectId)->lock(true)->find();
         $project = $this->requireProject($projectId, $hotelIds, $this->actorUserId, $this->actorIsSuperAdmin);
+        $this->assertProjectMutationAllowed(
+            $project,
+            $hotelIds,
+            $this->actorUserId,
+            $this->actorIsSuperAdmin
+        );
         $data = [];
 
         foreach (['project_name', 'hotel_name', 'city', 'brand', 'positioning', 'manager_name'] as $field) {
@@ -129,8 +162,19 @@ class OpeningService
         if (array_key_exists('hotel_id', $input)) {
             $data['hotel_id'] = $this->resolveProjectHotelId($input, $hotelIds, (int)($project['hotel_id'] ?? 0), false);
             if ($this->tableHasColumn('opening_projects', 'tenant_id')) {
-                $data['tenant_id'] = $this->resolveProjectTenantId((int)$data['hotel_id']);
+                $data['tenant_id'] = (int)$data['hotel_id'] > 0
+                    ? $this->resolveProjectTenantId((int)$data['hotel_id'])
+                    : $this->resolveActorTenantId($this->actorUserId);
             }
+            $this->assertProjectMutationAllowed(
+                array_merge($project, [
+                    'hotel_id' => (int)$data['hotel_id'],
+                    'tenant_id' => (int)($data['tenant_id'] ?? 0),
+                ]),
+                $hotelIds,
+                $this->actorUserId,
+                $this->actorIsSuperAdmin
+            );
         }
         if (array_key_exists('opening_date', $input)) {
             $data['opening_date'] = $this->normalizeDate((string)$input['opening_date']);
@@ -156,14 +200,23 @@ class OpeningService
 
     public function archiveProject(int $projectId, array $hotelIds): bool
     {
-        $project = $this->requireProject($projectId, $hotelIds, $this->actorUserId, $this->actorIsSuperAdmin);
-
-        return Db::name('opening_projects')
-            ->where('id', $project['id'])
-            ->update([
-                'status' => 'archived',
-                'updated_at' => $this->now(),
-            ]) > 0;
+        return Db::transaction(function () use ($projectId, $hotelIds): bool {
+            Db::name('opening_projects')->where('id', $projectId)->lock(true)->find();
+            $project = $this->requireProject($projectId, $hotelIds, $this->actorUserId, $this->actorIsSuperAdmin);
+            $this->assertProjectMutationAllowed(
+                $project,
+                $hotelIds,
+                $this->actorUserId,
+                $this->actorIsSuperAdmin
+            );
+            return Db::name('opening_projects')
+                ->where('id', $project['id'])
+                ->where('status', '<>', 'archived')
+                ->update([
+                    'status' => 'archived',
+                    'updated_at' => $this->now(),
+                ]) > 0;
+        });
     }
 
     public function overview(int $projectId, array $hotelIds, int $userId = 0, bool $isSuperAdmin = false): array
@@ -199,39 +252,56 @@ class OpeningService
 
     public function generateTasks(int $projectId, array $hotelIds, int $userId = 0, bool $isSuperAdmin = false): array
     {
-        $project = $this->requireProject($projectId, $hotelIds, $userId, $isSuperAdmin);
-        $existing = (int)Db::name('opening_tasks')->where('project_id', $projectId)->count();
-        if ($existing > 0) {
-            return ['generated' => false, 'tasks' => $this->tasks($projectId, $hotelIds, $userId, $isSuperAdmin), 'overview' => $this->overview($projectId, $hotelIds, $userId, $isSuperAdmin)];
-        }
+        $generated = Db::transaction(function () use ($projectId, $hotelIds, $userId, $isSuperAdmin): bool {
+            $project = $this->lockProjectForMutation(
+                $projectId,
+                $hotelIds,
+                $userId,
+                $isSuperAdmin
+            );
+            $existing = (int)Db::name('opening_tasks')->where('project_id', $projectId)->count();
+            if ($existing > 0) {
+                return false;
+            }
 
-        $now = $this->now();
-        $rows = [];
-        foreach ($this->taskTemplates($project) as $index => $task) {
-            $rows[] = [
-                'project_id' => $projectId,
-                'category' => $task['category'],
-                'task_name' => $task['task_name'],
-                'task_desc' => $task['task_desc'],
-                'is_core' => $task['is_core'] ? 1 : 0,
-                'owner_name' => $project['manager_name'] ?: '',
-                'collaborator_name' => '',
-                'deadline' => $task['deadline'],
-                'status' => self::STATUS_TODO,
-                'risk_level' => self::RISK_LOW,
-                'acceptance_standard' => $task['acceptance_standard'],
-                'ai_suggestion' => $task['ai_suggestion'],
-                'remark' => '',
-                'sort_order' => $index + 1,
-                'created_at' => $now,
-                'updated_at' => $now,
-            ];
-        }
+            $now = $this->now();
+            $rows = [];
+            foreach ($this->taskTemplates($project) as $index => $task) {
+                $rows[] = [
+                    'project_id' => $projectId,
+                    'category' => $task['category'],
+                    'task_name' => $task['task_name'],
+                    'task_desc' => $task['task_desc'],
+                    'is_core' => $task['is_core'] ? 1 : 0,
+                    'owner_name' => $project['manager_name'] ?: '',
+                    'collaborator_name' => '',
+                    'deadline' => $task['deadline'],
+                    'status' => self::STATUS_TODO,
+                    'risk_level' => self::RISK_LOW,
+                    'acceptance_standard' => $task['acceptance_standard'],
+                    'ai_suggestion' => $task['ai_suggestion'],
+                    'remark' => '',
+                    'sort_order' => $index + 1,
+                    'created_at' => $now,
+                    'updated_at' => $now,
+                ];
+            }
 
-        Db::name('opening_tasks')->insertAll($rows);
-        $this->recalculate($projectId, $hotelIds, $userId, $isSuperAdmin);
+            if ((int)Db::name('opening_tasks')->insertAll($rows) <= 0) {
+                throw new \RuntimeException('开业检查清单保存失败');
+            }
+            $this->persistRecalculatedMetricsLocked($project);
 
-        return ['generated' => true, 'tasks' => $this->tasks($projectId, $hotelIds, $userId, $isSuperAdmin), 'overview' => $this->overview($projectId, $hotelIds, $userId, $isSuperAdmin)];
+            return true;
+        });
+
+        return [
+            'generated' => $generated,
+            'tasks' => $this->tasks($projectId, $hotelIds, $userId, $isSuperAdmin),
+            // Suggestions may call an external model. Materialize them once,
+            // after every deterministic write and row lock has committed.
+            'overview' => $this->overview($projectId, $hotelIds, $userId, $isSuperAdmin),
+        ];
     }
 
     public function tasks(int $projectId, array $hotelIds, int $userId = 0, bool $isSuperAdmin = false, bool $lockForUpdate = false): array
@@ -251,75 +321,161 @@ class OpeningService
 
     public function updateTask(int $taskId, array $input, array $hotelIds, int $userId = 0, bool $isSuperAdmin = false): array
     {
-        $task = Db::name('opening_tasks')->where('id', $taskId)->find();
-        if (!$task) {
+        $projectId = (int)Db::name('opening_tasks')->where('id', $taskId)->value('project_id');
+        if ($projectId <= 0) {
             throw new \RuntimeException('检查项不存在');
         }
-        $this->requireProject((int)$task['project_id'], $hotelIds, $userId, $isSuperAdmin);
 
-        $allowedStatus = [self::STATUS_TODO, self::STATUS_DOING, self::STATUS_DONE, self::STATUS_BLOCKED];
-        $data = [];
-        foreach (['owner_name', 'collaborator_name', 'remark'] as $field) {
-            if (array_key_exists($field, $input)) {
-                $data[$field] = trim((string)$input[$field]);
+        return Db::transaction(function () use (
+            $taskId,
+            $projectId,
+            $input,
+            $hotelIds,
+            $userId,
+            $isSuperAdmin
+        ): array {
+            // Every opening mutation uses one lock order: project first,
+            // the target task second, then the complete project task set.
+            $project = $this->lockProjectForMutation(
+                $projectId,
+                $hotelIds,
+                $userId,
+                $isSuperAdmin
+            );
+            $task = Db::name('opening_tasks')
+                ->where('id', $taskId)
+                ->where('project_id', $projectId)
+                ->lock(true)
+                ->find();
+            if (!is_array($task)) {
+                throw new \RuntimeException('检查项不存在');
             }
-        }
-        if (array_key_exists('deadline', $input)) {
-            $data['deadline'] = $input['deadline'] ? $this->normalizeDate((string)$input['deadline']) : null;
-        }
-        if (array_key_exists('status', $input)) {
-            $status = (string)$input['status'];
-            if (!in_array($status, $allowedStatus, true)) {
-                throw new \RuntimeException('检查项状态不正确');
-            }
-            $data['status'] = $status;
-        }
-        if (array_key_exists('progress_percent', $input)) {
-            $progressPercent = $this->normalizeProgressPercent($input['progress_percent']);
-            if ($progressPercent === null) {
-                throw new \InvalidArgumentException('任务进度不能为空');
-            }
-            $data['progress_percent'] = $progressPercent;
-        }
 
-        if (array_key_exists('status', $data) && $data['status'] === self::STATUS_DONE) {
-            $data['progress_percent'] = 100;
-        } elseif (array_key_exists('progress_percent', $data)) {
-            $currentStatus = (string)($data['status'] ?? $task['status'] ?? self::STATUS_TODO);
-            if ($data['progress_percent'] >= 100) {
-                $data['status'] = self::STATUS_DONE;
+            $allowedStatus = [self::STATUS_TODO, self::STATUS_DOING, self::STATUS_DONE, self::STATUS_BLOCKED];
+            $data = [];
+            foreach (['owner_name', 'collaborator_name', 'remark'] as $field) {
+                if (array_key_exists($field, $input)) {
+                    $data[$field] = trim((string)$input[$field]);
+                }
+            }
+            if (array_key_exists('deadline', $input)) {
+                $data['deadline'] = $input['deadline'] ? $this->normalizeDate((string)$input['deadline']) : null;
+            }
+            if (array_key_exists('status', $input)) {
+                $status = (string)$input['status'];
+                if (!in_array($status, $allowedStatus, true)) {
+                    throw new \RuntimeException('检查项状态不正确');
+                }
+                $data['status'] = $status;
+            }
+            if (array_key_exists('progress_percent', $input)) {
+                $progressPercent = $this->normalizeProgressPercent($input['progress_percent']);
+                if ($progressPercent === null) {
+                    throw new \InvalidArgumentException('任务进度不能为空');
+                }
+                $data['progress_percent'] = $progressPercent;
+            }
+
+            if (array_key_exists('status', $data) && $data['status'] === self::STATUS_DONE) {
                 $data['progress_percent'] = 100;
-            } elseif ($data['progress_percent'] > 0 && $currentStatus === self::STATUS_TODO) {
-                $data['status'] = self::STATUS_DOING;
-            } elseif ($data['progress_percent'] <= 0 && $currentStatus !== self::STATUS_BLOCKED) {
-                $data['status'] = self::STATUS_TODO;
+            } elseif (array_key_exists('progress_percent', $data)) {
+                $currentStatus = (string)($data['status'] ?? $task['status'] ?? self::STATUS_TODO);
+                if ($data['progress_percent'] >= 100) {
+                    $data['status'] = self::STATUS_DONE;
+                    $data['progress_percent'] = 100;
+                } elseif ($data['progress_percent'] > 0 && $currentStatus === self::STATUS_TODO) {
+                    $data['status'] = self::STATUS_DOING;
+                } elseif ($data['progress_percent'] <= 0 && $currentStatus !== self::STATUS_BLOCKED) {
+                    $data['status'] = self::STATUS_TODO;
+                }
             }
-        }
 
-        if (empty($data)) {
-            throw new \RuntimeException('没有可更新的检查项字段');
-        }
+            if (empty($data)) {
+                throw new \RuntimeException('没有可更新的检查项字段');
+            }
 
-        $data['updated_at'] = $this->now();
-        Db::name('opening_tasks')->where('id', $taskId)->update($data);
-        $this->recalculate((int)$task['project_id'], $hotelIds, $userId, $isSuperAdmin);
+            $data['updated_at'] = $this->now();
+            Db::name('opening_tasks')
+                ->where('id', $taskId)
+                ->where('project_id', $projectId)
+                ->update($data);
+            $this->persistRecalculatedMetricsLocked($project);
 
-        $project = $this->requireProject((int)$task['project_id'], $hotelIds, $userId, $isSuperAdmin);
-        $updated = Db::name('opening_tasks')->where('id', $taskId)->find();
-        return $this->normalizeTask($updated, $project);
+            $updated = Db::name('opening_tasks')
+                ->where('id', $taskId)
+                ->where('project_id', $projectId)
+                ->find();
+            if (!is_array($updated)) {
+                throw new \RuntimeException('检查项更新后回读失败');
+            }
+            return $this->normalizeTask($updated, $project);
+        });
     }
 
     public function recalculate(int $projectId, array $hotelIds, int $userId = 0, bool $isSuperAdmin = false): array
     {
-        $project = $this->requireProject($projectId, $hotelIds, $userId, $isSuperAdmin);
-        $rows = Db::name('opening_tasks')->where('project_id', $projectId)->select()->toArray();
-        $tasks = array_map(fn(array $row): array => $this->normalizeTask($row, $project), $rows);
+        Db::transaction(function () use ($projectId, $hotelIds, $userId, $isSuperAdmin): void {
+            $project = $this->lockProjectForMutation(
+                $projectId,
+                $hotelIds,
+                $userId,
+                $isSuperAdmin
+            );
+            $this->persistRecalculatedMetricsLocked($project);
+        });
 
+        // The transaction above contains only deterministic database work.
+        // Build suggestions at most once after the locks have been released.
+        return $this->overview($projectId, $hotelIds, $userId, $isSuperAdmin);
+    }
+
+    /** @return array<string,mixed> */
+    private function lockProjectForMutation(
+        int $projectId,
+        array $hotelIds,
+        int $userId,
+        bool $isSuperAdmin
+    ): array {
+        $row = Db::name('opening_projects')
+            ->where('id', $projectId)
+            ->lock(true)
+            ->find();
+        if (!is_array($row)
+            || !$this->canAccessOwnedProject($row, $hotelIds, $userId, $isSuperAdmin)
+        ) {
+            throw new \RuntimeException('开业项目不存在或无权操作');
+        }
+        $project = $this->normalizeProject($row);
+        $this->assertProjectMutationAllowed($project, $hotelIds, $userId, $isSuperAdmin);
+        return $project;
+    }
+
+    /** @param array<string,mixed> $project */
+    private function persistRecalculatedMetricsLocked(array $project): void
+    {
+        $projectId = (int)($project['id'] ?? 0);
+        if ($projectId <= 0) {
+            throw new \RuntimeException('开业项目ID无效');
+        }
+        $rows = Db::name('opening_tasks')
+            ->where('project_id', $projectId)
+            ->order('id', 'asc')
+            ->lock(true)
+            ->select()
+            ->toArray();
+        $tasks = array_map(
+            fn(array $row): array => $this->normalizeTask($row, $project),
+            $rows
+        );
+        $now = $this->now();
         foreach ($tasks as $task) {
-            Db::name('opening_tasks')->where('id', $task['id'])->update([
-                'risk_level' => $task['risk_level'],
-                'updated_at' => $this->now(),
-            ]);
+            Db::name('opening_tasks')
+                ->where('id', $task['id'])
+                ->where('project_id', $projectId)
+                ->update([
+                    'risk_level' => $task['risk_level'],
+                    'updated_at' => $now,
+                ]);
         }
 
         $metrics = $this->calculateMetrics($project, $tasks, false);
@@ -330,10 +486,8 @@ class OpeningService
             'risk_level' => $metrics['project']['risk_level'],
             // 数据库旧列为 NOT NULL；空任务集仍以 0 保存兼容值，API 用 data_status 表达无数据。
             'ai_penetration_rate' => $metrics['project']['ai_penetration_rate'] ?? 0,
-            'updated_at' => $this->now(),
+            'updated_at' => $now,
         ]);
-
-        return $this->overview($projectId, $hotelIds, $userId, $isSuperAdmin);
     }
 
     public function requireProject(int $projectId, array $hotelIds, int $userId = 0, bool $isSuperAdmin = false): array
@@ -1261,15 +1415,51 @@ class OpeningService
             return;
         }
 
-        $this->applyOwnerScope($query, $userId, false);
         $ids = array_values(array_filter(array_map('intval', $hotelIds), static fn(int $id): bool => $id > 0));
         if ($ids === []) {
             $query->whereRaw('1 = 0');
             return;
         }
 
-        $query->where(static function ($scopeQuery) use ($ids): void {
-            $scopeQuery->whereIn('hotel_id', $ids)->whereOr('hotel_id', 0);
+        $projectTable = Db::name('opening_projects')->getTable();
+        $hotelTable = Db::name('hotels')->getTable();
+        $enforceTenantIdentity = $this->tableHasColumn('opening_projects', 'tenant_id')
+            && $this->tableHasColumn('hotels', 'tenant_id');
+        $actorTenantId = $enforceTenantIdentity ? $this->resolveActorTenantId($userId) : 0;
+        $query->where(static function ($scopeQuery) use (
+            $ids,
+            $userId,
+            $actorTenantId,
+            $projectTable,
+            $hotelTable,
+            $enforceTenantIdentity
+        ): void {
+            $scopeQuery->where(static function ($boundQuery) use (
+                $ids,
+                $projectTable,
+                $hotelTable,
+                $enforceTenantIdentity
+            ): void {
+                $boundQuery->whereIn('hotel_id', $ids)->where('hotel_id', '>', 0);
+                if ($enforceTenantIdentity) {
+                    $boundQuery->whereExists(static function ($hotelQuery) use ($projectTable, $hotelTable): void {
+                        $hotelQuery->table([$hotelTable => 'opening_scope_hotel'])
+                            ->field('opening_scope_hotel.id')
+                            ->whereColumn('opening_scope_hotel.id', $projectTable . '.hotel_id')
+                            ->whereColumn('opening_scope_hotel.tenant_id', $projectTable . '.tenant_id')
+                            ->where('opening_scope_hotel.tenant_id', '>', 0);
+                    });
+                }
+            })->whereOr(static function ($ownerQuery) use ($userId, $actorTenantId, $enforceTenantIdentity): void {
+                $ownerQuery->where('hotel_id', 0)->where('created_by', $userId);
+                if ($enforceTenantIdentity) {
+                    if ($actorTenantId <= 0) {
+                        $ownerQuery->whereRaw('1 = 0');
+                    } else {
+                        $ownerQuery->where('tenant_id', $actorTenantId);
+                    }
+                }
+            });
         });
     }
 
@@ -1278,13 +1468,90 @@ class OpeningService
         if ($isSuperAdmin) {
             return true;
         }
-        if ($userId <= 0 || (int)($project['created_by'] ?? 0) !== $userId) {
+        if ($userId <= 0) {
             return false;
         }
 
         $ids = array_values(array_filter(array_map('intval', $hotelIds), static fn(int $id): bool => $id > 0));
         $projectHotelId = (int)($project['hotel_id'] ?? 0);
-        return $ids !== [] && ($projectHotelId === 0 || in_array($projectHotelId, $ids, true));
+        if ($projectHotelId === 0) {
+            if ((int)($project['created_by'] ?? 0) !== $userId) {
+                return false;
+            }
+            if (array_key_exists('tenant_id', $project)
+                && $this->tableHasColumn('opening_projects', 'tenant_id')
+            ) {
+                $storedTenantId = (int)($project['tenant_id'] ?? 0);
+                $actorTenantId = $this->resolveActorTenantId($userId);
+                return $storedTenantId > 0
+                    && $actorTenantId > 0
+                    && $storedTenantId === $actorTenantId;
+            }
+            return true;
+        }
+        if ($ids === [] || !in_array($projectHotelId, $ids, true)) {
+            return false;
+        }
+        if (array_key_exists('tenant_id', $project) && $this->tableHasColumn('opening_projects', 'tenant_id')) {
+            $storedTenantId = (int)($project['tenant_id'] ?? 0);
+            $currentTenantId = $this->resolveProjectTenantId($projectHotelId);
+            if ($storedTenantId <= 0 || $currentTenantId <= 0 || $storedTenantId !== $currentTenantId) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private function assertProjectMutationAllowed(
+        array $project,
+        array $hotelIds,
+        int $userId,
+        bool $isSuperAdmin
+    ): void {
+        if (!$this->canAccessOwnedProject($project, $hotelIds, $userId, $isSuperAdmin)) {
+            throw new \RuntimeException('开业项目不存在或无权操作');
+        }
+        if ($isSuperAdmin) {
+            return;
+        }
+        $hotelId = (int)($project['hotel_id'] ?? 0);
+        if ($hotelId === 0) {
+            if ((int)($project['created_by'] ?? 0) !== $userId) {
+                throw new \RuntimeException('未绑定开业草稿只能由创建人修改');
+            }
+            return;
+        }
+        $allowed = $this->mutationAuthorizer !== null
+            ? call_user_func($this->mutationAuthorizer, $userId, $hotelId, 'operation.execute') === true
+            : $this->actorHasHotelCapability($userId, $hotelId, 'operation.execute');
+        if (!$allowed) {
+            throw new \RuntimeException('operation.execute permission is required for this hotel');
+        }
+    }
+
+    private function actorHasHotelCapability(int $userId, int $hotelId, string $capability): bool
+    {
+        if ($userId <= 0 || $hotelId <= 0) {
+            return false;
+        }
+        try {
+            $user = User::where('id', $userId)->find();
+            return $user instanceof User && $user->hasHotelPermission($hotelId, $capability);
+        } catch (Throwable) {
+            return false;
+        }
+    }
+
+    private function resolveActorTenantId(int $userId): int
+    {
+        if ($userId <= 0 || !$this->tableHasColumn('users', 'tenant_id')) {
+            return 0;
+        }
+        try {
+            return max(0, (int)Db::name('users')->where('id', $userId)->value('tenant_id'));
+        } catch (Throwable) {
+            return 0;
+        }
     }
 
     private function normalizeProject(array $row): array
@@ -1358,6 +1625,22 @@ class OpeningService
         }
     }
 
+    private function resolveProjectTenantIdForCreate(int $hotelId, int $userId): int
+    {
+        $tenantId = $this->resolveProjectTenantId($hotelId);
+        if ($tenantId > 0) {
+            return $tenantId;
+        }
+        if ($userId <= 0 || !$this->tableHasColumn('users', 'tenant_id')) {
+            return 0;
+        }
+        try {
+            return max(0, (int)Db::name('users')->where('id', $userId)->value('tenant_id'));
+        } catch (Throwable $e) {
+            return 0;
+        }
+    }
+
     private function resolveProjectHotelId(array $input, array $hotelIds, int $currentHotelId = 0, bool $autoBindSingle = true): int
     {
         $ids = array_values(array_filter(array_map('intval', $hotelIds), static fn(int $id): bool => $id > 0));
@@ -1391,18 +1674,11 @@ class OpeningService
 
     private function tableHasColumn(string $table, string $column): bool
     {
-        static $cache = [];
-        $key = $table . '.' . $column;
-        if (array_key_exists($key, $cache)) {
-            return $cache[$key];
-        }
-
         try {
-            $rows = Db::query('SHOW COLUMNS FROM `' . str_replace('`', '', $table) . '`');
-            $columns = array_fill_keys(array_map(static fn(array $row): string => (string)$row['Field'], $rows), true);
-            return $cache[$key] = isset($columns[$column]);
+            $fields = Db::name($table)->getFields();
+            return array_key_exists($column, $fields);
         } catch (Throwable $e) {
-            return $cache[$key] = false;
+            return false;
         }
     }
 }

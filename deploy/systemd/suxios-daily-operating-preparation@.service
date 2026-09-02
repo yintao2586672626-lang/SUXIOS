@@ -1,0 +1,17 @@
+[Unit]
+Description=Prepare internal SUXIOS daily artifacts for hotel %i after collection
+After=mariadb.service suxios-cloud-ota-daily.service
+StartLimitIntervalSec=40min
+StartLimitBurst=6
+
+[Service]
+Type=oneshot
+User=www-data
+Group=www-data
+WorkingDirectory=/var/www/suxios/current
+Environment=TZ=Asia/Shanghai
+ExecStart=/usr/bin/php -d memory_limit=256M think operation:prepare-daily --hotel-id=%i
+Restart=on-failure
+RestartSec=5min
+TimeoutStartSec=infinity
+UMask=0027

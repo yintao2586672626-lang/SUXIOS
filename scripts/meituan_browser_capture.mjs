@@ -26,6 +26,7 @@ import {
   attachVerifiedMeituanCaptureScope,
   buildMeituanOrderFlowReplayUrls,
   isImportableMeituanTrafficRow,
+  normalizeMeituanAdvertisingRows,
   normalizeMeituanFlowAnalysisRows,
   normalizeMeituanBusinessRows,
   normalizeMeituanOrderRows,
@@ -1797,7 +1798,10 @@ function meituanRowsForPayloadKey(payloadKey, safeBody, normalizedRows, meta) {
       .map(row => ({ ...row, data_type: 'review' }));
   }
   if (payloadKey === 'ads') {
-    return normalizedRows.map(row => ({ ...row, data_type: 'advertising' }));
+    const advertisingRows = normalizeMeituanAdvertisingRows(safeBody, meta);
+    return advertisingRows.length > 0
+      ? advertisingRows
+      : normalizedRows.map(row => ({ ...row, data_type: 'advertising' }));
   }
   if (payloadKey === 'room_types') {
     return normalizedRows.map(row => ({ ...row, data_type: 'room_type' }));

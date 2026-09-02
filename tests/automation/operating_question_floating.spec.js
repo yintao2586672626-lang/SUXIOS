@@ -95,6 +95,47 @@ const mockAuthenticatedApi = async (page, apiCalls, guidanceRequests) => {
   let operatingQuestionReadback = null;
   let nextPreciseQueryId = 9900;
   const preciseQueryReadbacks = new Map();
+  let serverJourney = null;
+  let preferences = [
+    {
+      id: 41,
+      tenant_id: user.tenant_id,
+      user_id: user.id,
+      hotel_id: null,
+      scope: 'global',
+      preference_key: 'response_detail',
+      value: 'concise',
+      learning_status: 'inferred',
+      lifecycle_status: 'active',
+      consumable: false,
+      candidate: true,
+      source_type: 'behavioral_signal',
+      source_context: {
+        reason_code: 'too_long',
+        signal_count: 3,
+        source_ref: 'ai_suggestion_feedback#703',
+      },
+    },
+    {
+      id: 42,
+      tenant_id: user.tenant_id,
+      user_id: user.id,
+      hotel_id: null,
+      scope: 'global',
+      preference_key: 'answer_order',
+      value: 'conclusion_first',
+      learning_status: 'insufficient',
+      lifecycle_status: 'active',
+      consumable: false,
+      candidate: true,
+      source_type: 'behavioral_signal',
+      source_context: {
+        reason_code: 'repeated_order_choice',
+        signal_count: 2,
+        source_ref: 'system_observation#42',
+      },
+    },
+  ];
   await page.addInitScript((profile) => {
     sessionStorage.setItem('token', 'system-guide-probe-token');
     localStorage.setItem('suxios_auth_user_cache_v1', JSON.stringify({
@@ -112,6 +153,155 @@ const mockAuthenticatedApi = async (page, apiCalls, guidanceRequests) => {
     if (pathname === '/api/auth/info') data = user;
     if (pathname === '/api/hotels') {
       data = { list: user.permitted_hotels, total: user.permitted_hotels.length };
+    }
+    if (pathname === '/api/agent/system-guidance/context' && request.method() === 'GET') {
+      data = {
+        contract_version: 'system_user_learning_context.v1',
+        status: 'ready',
+        scope: {
+          tenant_id: user.tenant_id,
+          user_id: user.id,
+          hotel_id: user.hotel_id,
+        },
+        preferences: {
+          status: 'ready',
+          count: preferences.length,
+          items: preferences,
+          consumable_count: preferences.filter(item => item.consumable).length,
+          consumable_items: preferences.filter(item => item.consumable),
+          candidate_count: preferences.filter(item => item.candidate).length,
+          candidate_items: preferences.filter(item => item.candidate),
+          ready_candidate_count: preferences.filter(item => item.learning_status === 'inferred').length,
+          ready_candidate_items: preferences.filter(item => item.learning_status === 'inferred'),
+        },
+        journey: serverJourney
+          ? { data_status: 'ready', journey: structuredClone(serverJourney) }
+          : { data_status: 'empty', journey: null },
+        resume_card: serverJourney
+          ? {
+            contract_version: 'user_guidance_resume_card.v1',
+            data_status: 'ready',
+            scope: { type: 'hotel', hotel_id: user.hotel_id },
+            card: {
+              journey_id: Number(serverJourney.id),
+              journey_key: String(serverJourney.journey_key),
+              version_no: Number(serverJourney.version_no || 1),
+              content_digest: String(serverJourney.content_digest),
+              goal_summary: String(serverJourney.goal),
+              next_step: {
+                topic_key: String(serverJourney.active_key),
+                status: String(serverJourney.current_step_status || 'in_progress'),
+                blocker_code: String(serverJourney.blocker_code || ''),
+                blocker_summary: String(serverJourney.blocker_summary || ''),
+              },
+              journey_keys: structuredClone(serverJourney.journey_keys),
+              saved_at: String(serverJourney.created_at),
+              readback_verified: true,
+            },
+          }
+          : { contract_version: 'user_guidance_resume_card.v1', data_status: 'empty', card: null },
+        calibration: {
+          status: 'descriptive_only',
+          minimum_samples: 3,
+          counts: {
+            feedback_sample_count: 24,
+            accepted: 18,
+            modified: 3,
+            rejected: 2,
+            deferred: 0,
+            needs_more_evidence: 1,
+          },
+          feedback_ranking: {
+            status: 'ready',
+            minimum_samples_per_topic: 20,
+            items: [
+              { topic_key: 'data-health', sample_count: 20, eligible: true, adjustment: 1 },
+              { topic_key: 'daily-workbench', sample_count: 20, eligible: true, adjustment: -1 },
+              { topic_key: 'task-navigation', sample_count: 20, eligible: true, adjustment: 1 },
+            ],
+          },
+        },
+        learning_policy: {
+          candidate_minimum_repeated_signals: 3,
+          candidate_requires_explicit_confirmation: true,
+          external_write_authorized: false,
+        },
+      };
+    }
+    if (pathname === '/api/agent/system-guidance/preferences' && request.method() === 'POST') {
+      const existing = preferences.filter(item => item.preference_key !== payload.preference_key);
+      const preference = {
+        id: preferences.length + 1,
+        tenant_id: user.tenant_id,
+        user_id: user.id,
+        hotel_id: payload.scope === 'hotel' ? Number(payload.hotel_id || user.hotel_id) : null,
+        scope: String(payload.scope || 'global'),
+        preference_key: String(payload.preference_key || ''),
+        value: payload.value,
+        learning_status: 'explicit_confirmed',
+        lifecycle_status: 'active',
+        consumable: true,
+        candidate: false,
+        source_type: 'explicit_user',
+        source_context: { reason_code: 'explicit_user_confirmation' },
+      };
+      preferences = [...existing, preference];
+      data = { status: 'exact_readback_verified', projection: preference };
+    }
+    if (pathname === '/api/agent/system-guidance/preferences/revoke' && request.method() === 'POST') {
+      preferences = preferences.filter(item => item.preference_key !== payload.preference_key);
+      data = { status: 'exact_readback_verified' };
+    }
+    if (pathname === '/api/agent/system-guidance/preferences/reset' && request.method() === 'POST') {
+      preferences = [];
+      data = { status: 'exact_readback_verified' };
+    }
+    if (pathname === '/api/agent/system-guidance/journey' && request.method() === 'POST') {
+      const journey = payload.journey || payload;
+      serverJourney = {
+        id: 501,
+        journey_key: '1'.repeat(64),
+        version_no: 1,
+        goal: String(journey.goal || ''),
+        original_query_digest: '2'.repeat(64),
+        active_key: String(journey.active_key || ''),
+        journey_keys: Array.isArray(journey.journey_keys) ? journey.journey_keys : [],
+        current_step_status: String(journey.current_step_status || 'in_progress'),
+        blocker_code: String(journey.blocker_code || ''),
+        blocker_summary: String(journey.blocker_summary || ''),
+        lifecycle_status: 'active',
+        content_digest: '3'.repeat(64),
+        created_at: '2026-08-29 09:30:00',
+        readback_verified: true,
+      };
+      data = { persistence_status: 'readback_verified', journey: structuredClone(serverJourney) };
+    }
+    if (pathname === '/api/agent/system-guidance/journey/archive' && request.method() === 'POST') {
+      serverJourney = null;
+      data = { persistence_status: 'readback_verified' };
+    }
+    if (pathname === '/api/agent/system-guidance/journey/transition' && request.method() === 'POST') {
+      const transitioned = {
+        ...(serverJourney || {}),
+        id: 502,
+        version_no: 2,
+        lifecycle_status: payload.action === 'complete' ? 'completed' : 'archived',
+        current_step_status: payload.action === 'complete' ? 'completed' : String(serverJourney?.current_step_status || 'in_progress'),
+        content_digest: '4'.repeat(64),
+        readback_verified: true,
+      };
+      serverJourney = null;
+      data = {
+        status: 'exact_readback_verified',
+        action: payload.action,
+        journey: transitioned,
+      };
+    }
+    if (pathname === '/api/agent/system-guidance/feedback' && request.method() === 'POST') {
+      data = {
+        feedback: { id: 701, readback_verified: true, feedback_status: payload.feedback_status },
+        calibration: { status: 'insufficient_samples', minimum_samples: 3, counts: { feedback_sample_count: 1 } },
+      };
     }
     if (pathname === '/api/agent/operating-questions' && request.method() === 'POST') {
       const digest = 'a'.repeat(64);
@@ -192,6 +382,36 @@ const mockAuthenticatedApi = async (page, apiCalls, guidanceRequests) => {
             : intelligentResult().journey,
         });
       }
+      const concisePreference = preferences.find(item => (
+        item.preference_key === 'response_detail'
+          && item.value === 'concise'
+          && item.consumable === true
+      ));
+      answer.personalization = concisePreference
+        ? {
+          status: 'applied',
+          response_detail: 'concise',
+          preference_refs: [`user_learning_preference#${concisePreference.id}`],
+          recognized_preference_refs: [`user_learning_preference#${concisePreference.id}`],
+          applied_preferences: [{
+            preference_key: 'response_detail',
+            preference_value: 'concise',
+            scope: 'global',
+            source_ref: `user_learning_preference#${concisePreference.id}`,
+          }],
+          effect_scope: 'presentation_only',
+          explanation: {
+            status: 'preference_applied',
+            summary: '按你已确认的“回答简洁”偏好压缩了表达。',
+            source_refs: [`user_learning_preference#${concisePreference.id}`],
+            effect_scope: 'presentation_only',
+            facts_changed: false,
+            permissions_changed: false,
+            approval_changed: false,
+            external_write_authorized: false,
+          },
+        }
+        : { status: 'not_configured' };
       const id = ++nextPreciseQueryId;
       data = {
         id,
@@ -274,6 +494,27 @@ test('precise query entry understands natural language and opens the real data-h
   expect(fullComponentResponses[0].headers()['content-type']).toMatch(/javascript/i);
   await expect(panel).toContainText('宿析精准查数');
   await expect(panel).toContainText('查经营事实 · 解释缺失 · 找功能 · 查术语');
+  await expect(page.getByTestId('system-guide-learning-memory')).toBeVisible();
+  await expect(page.getByTestId('system-guide-learning-memory')).toContainText('学习中心');
+  await expect(page.getByTestId('system-guide-learning-memory')).toContainText('候选 1');
+  await page.getByTestId('system-guide-learning-toggle').click();
+  await expect(page.getByTestId('system-guide-learning-confirmed')).toBeVisible();
+  await expect(page.getByTestId('system-guide-learning-candidates')).toContainText('待你确认，尚未应用');
+  await expect(page.getByTestId('system-guide-learning-candidates')).toContainText('观察中 2/3');
+  await expect(page.getByTestId('system-guide-preference-reset')).toBeEnabled();
+  await expect(page.getByTestId('system-guide-learning-calibration')).toContainText('反馈 24 条');
+  await expect(page.getByTestId('system-guide-learning-journey')).toContainText('当前没有需要跨会话续办的事项');
+  await expect(page.getByTestId('system-guide-learning-management')).toBeVisible();
+  await page.getByTestId('system-guide-candidate-confirm-response_detail').click();
+  await expect.poll(() => apiCalls.some(call => (
+    call.pathname === '/api/agent/system-guidance/preferences'
+      && call.payload?.preference_key === 'response_detail'
+      && call.payload?.value === 'concise'
+  ))).toBe(true);
+  await expect(page.getByTestId('system-guide-learning-memory')).toContainText('回答保持简洁');
+  await expect(page.getByRole('button', { name: '数据为什么没进来 · 更常用' })).toBeVisible();
+  await expect(page.getByRole('button', { name: '今天先做什么' })).toBeVisible();
+  await expect(page.getByRole('button', { name: '查找项目功能入口 · 更常用' })).toHaveCount(0);
   await expect(page.getByTestId('system-guide-context')).toBeVisible();
   await expect(page.getByTestId('system-guide-context')).toContainText('当前页面');
   await expect(panel.getByRole('button', { name: '这个页面怎么用？' })).toBeVisible();
@@ -290,6 +531,9 @@ test('precise query entry understands natural language and opens the real data-h
   await expect(result).toBeVisible();
   await expect(result).toContainText('统一路由');
   await expect(result).toContainText('你现在不是要看经营结论');
+  await expect(page.getByTestId('system-guide-personalization-receipt')).toContainText('为什么这样回答');
+  await expect(page.getByTestId('system-guide-personalization-receipt')).toContainText('回答简洁');
+  await expect(page.getByTestId('system-guide-personalization-receipt')).toContainText('没有改变酒店事实、权限、审批或外部写入');
   await expect(page.getByTestId('system-guide-journey-goal')).toContainText('恢复携程数据后生成一份给店长查看的 AI 经营日报');
   await expect(page.getByTestId('system-guide-journey-step-data-health')).toContainText('检查数据为什么不能用');
   await expect(page.getByTestId('system-guide-journey-step-ai-daily-report')).toContainText('生成和查看 AI 经营日报');
@@ -309,6 +553,7 @@ test('precise query entry understands natural language and opens the real data-h
   expect(guidanceRequests[0].active_journey).toBeNull();
   expect(guidanceRequests[0].current_scope.hotel_id).toBe(7);
   expect(guidanceRequests[0].current_scope.platform).toBe('ctrip');
+  expect(guidanceRequests[0]).not.toHaveProperty('preference_context');
 
   const readableSizes = await panel.evaluate((element) => ({
     title: getComputedStyle(element.querySelector('.sx-ai-consultant-title')).fontSize,
@@ -323,9 +568,23 @@ test('precise query entry understands natural language and opens the real data-h
   expect(parseFloat(readableSizes.input)).toBeGreaterThanOrEqual(14);
   expect(readableSizes.overflow).toBeLessThanOrEqual(1);
 
+  await expect(page.getByTestId('system-guide-feedback')).toBeVisible();
+  await page.getByTestId('system-guide-feedback-useful').click();
+  await expect.poll(() => apiCalls.some(call => (
+    call.pathname === '/api/agent/system-guidance/feedback'
+      && call.payload?.feedback_status === 'accepted'
+  ))).toBe(true);
+  await expect(page.getByTestId('system-guide-feedback-wrong_focus')).toBeDisabled();
+  expect(apiCalls.filter(call => call.pathname === '/api/agent/system-guidance/feedback')).toHaveLength(1);
+
   await page.getByTestId('system-guide-journey-open-data-health').click();
   await expect(page.getByTestId('app-main')).toHaveAttribute('data-current-page', 'online-data');
   await expect(page.getByTestId('system-guide-page-coach')).toBeVisible();
+  await expect.poll(() => apiCalls.some(call => call.pathname === '/api/agent/system-guidance/journey')).toBe(true);
+
+  await page.evaluate(() => {
+    localStorage.removeItem('suxios_system_usage_journey_v1:801:7');
+  });
 
   await page.reload({ waitUntil: 'domcontentloaded' });
   const restoredGuide = await openDemandLoadedSystemGuide(page);
@@ -334,7 +593,18 @@ test('precise query entry understands natural language and opens the real data-h
   await expect(restoredJourney).toContainText('继续上次任务');
   await expect(restoredJourney).toContainText('恢复携程数据后生成一份给店长查看的 AI 经营日报');
   await expect(restoredJourney).toContainText('生成和查看 AI 经营日报');
+  await expect(restoredJourney.getByTestId('system-guide-resume-continue')).toBeVisible();
+  await expect(restoredJourney.getByTestId('system-guide-resume-complete')).toBeVisible();
+  await expect(restoredJourney.getByTestId('system-guide-resume-ignore')).toBeVisible();
+  await expect(restoredJourney).toContainText('不代表酒店经营结果');
   await expect(restoredGuide.panel.getByRole('button', { name: '继续当前任务' })).toBeVisible();
+  page.once('dialog', dialog => dialog.accept());
+  await restoredJourney.getByTestId('system-guide-resume-ignore').click();
+  await expect.poll(() => apiCalls.some(call => (
+    call.pathname === '/api/agent/system-guidance/journey/transition'
+      && call.payload?.action === 'ignore'
+  ))).toBe(true);
+  await expect(restoredGuide.panel.getByTestId('system-guide-active-journey')).toHaveCount(0);
   expect(apiCalls.filter(call => call.pathname === '/api/agent/operating-questions')).toEqual([]);
   expect(pageErrors, `page errors: ${pageErrors.join(' | ')}`).toEqual([]);
 });
@@ -355,7 +625,7 @@ test('precise query entry exposes explicit guide, report and action modes', asyn
 
   await expect(page.getByTestId('system-guide-mode')).toContainText('证据结论');
   expect(guidanceRequests[0].requested_mode).toBe('report');
-  expect(apiCalls.filter(call => call.method === 'POST').map(call => call.pathname)).toEqual([
+  expect(apiCalls.filter(call => call.method === 'POST' && call.pathname === '/api/agent/precise-queries').map(call => call.pathname)).toEqual([
     '/api/agent/precise-queries',
   ]);
   expect(apiCalls.some(call => call.pathname === '/api/agent/operating-questions')).toBe(false);
@@ -405,7 +675,7 @@ test('precise query entry keeps conversation context and changes the next route'
   await expect(latestJourney).toContainText('先恢复可用数据，再查看经营报告');
   await latestJourney.getByTestId('system-guide-journey-open-data-health').click();
   await expect(page.getByTestId('app-main')).toHaveAttribute('data-current-page', 'online-data');
-  expect(apiCalls.filter(call => call.method === 'POST').map(call => call.pathname)).toEqual([
+  expect(apiCalls.filter(call => call.method === 'POST' && call.pathname === '/api/agent/precise-queries').map(call => call.pathname)).toEqual([
     '/api/agent/precise-queries',
     '/api/agent/precise-queries',
   ]);

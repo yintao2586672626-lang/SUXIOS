@@ -1,0 +1,98 @@
+{
+  "contract_version": "ai_agent_learning_reference.v1",
+  "knowledge_key": "ai_agent_learning_reference",
+  "title": "AI Agent 学习路线与最小构成（截图参考）",
+  "usage_policy": "reference_only",
+  "disposition": "absorption_candidate",
+  "task_mode": "classify",
+  "executed_path": "storage_only_reference_closure",
+  "contains_current_hotel_fact": false,
+  "contains_current_ota_fact": false,
+  "decision_safe": false,
+  "task_draft_safe": false,
+  "external_write_authorized": false,
+  "visible_roadmap": [
+    {"day": 1, "topic": "AI行业认知", "visible_source_label": "B站跟李沐学AI"},
+    {"day": 3, "topic": "Prompt工程", "visible_source_label": "B站吴恩达"},
+    {"day": 5, "topic": "Claude code/操作", "visible_source_label": "Claude官方文档"},
+    {"day": 7, "topic": "用户故事 产品画布", "visible_source_label": "《AI产品经理实操手册》"},
+    {"day": 9, "topic": "RAG技术精讲", "visible_source_label": "LangChain中文教程"},
+    {"day": 11, "topic": "私有化部署方案", "visible_source_label": "vLLM部署指南"},
+    {"day": 13, "topic": "轻量化模型微调", "visible_source_label": "Hugging Face PEFT教程"},
+    {"day": 19, "topic": "Transformer核心", "visible_source_label": "B站王树森解析"},
+    {"day": 24, "topic": "多模态应用开发", "visible_source_label": "Stable Diffusion Colab"},
+    {"day": 30, "topic": "AI产品设计方法论", "visible_source_label": "Google《AI设计原则》"},
+    {"day": 35, "topic": "Agent系统开发", "visible_source_label": "一站式AI产品知识库"},
+    {"day": 40, "topic": "AI商业化实战", "visible_source_label": "B站AI产品变现指南"},
+    {"day": 43, "topic": "行业解决方案", "visible_source_label": "B站《实操手册》第四章"},
+    {"day": 45, "topic": "前沿技术追踪", "visible_source_label": "B站李沐每周论文精读"},
+    {"day": 47, "topic": "职业发展框架", "visible_source_label": "B站《实操手册》第七章"},
+    {"day": 55, "topic": "AI产品项目实操带学", "visible_source_label": "专属项目实践"},
+    {"day": 70, "topic": "模拟面试简历辅导", "visible_source_label": "重塑简历内容"},
+    {"day": 90, "topic": "AI产品经理面试入职", "visible_source_label": "开启新职业旅程"}
+  ],
+  "visible_agent_concept_map": {
+    "sequence": [
+      "LLM",
+      "LLM API",
+      "Context",
+      "Tool Calling",
+      "Agent Loop"
+    ],
+    "agent_loop_visible_wording": "思考 -> 行动 -> 观察",
+    "supporting_branches": [
+      {"label": "MCP 协议", "visible_purpose": "标准化工具对接"},
+      {"label": "Sub-Agent", "visible_purpose": "分工协作"},
+      {"label": "Agent Skill", "visible_purpose": "流程复用"}
+    ],
+    "sidebar_topics_visible": [
+      "Agent Memory",
+      "Agent 搭建",
+      "12-Factor Agents",
+      "Agent 项目",
+      "Agents 应用场景"
+    ]
+  },
+  "suxios_candidate_contract": {
+    "trigger": "用户提出一个酒店经营或系统任务",
+    "inputs": [
+      "同租户和同酒店范围",
+      "已验证的OTA/PMS/经营事实或明确的reference_only知识",
+      "允许调用的本地工具与权限边界"
+    ],
+    "candidate_sequence": [
+      "构造有范围和质量状态的上下文",
+      "选择必要工具并记录调用结果",
+      "在有界循环中执行思考、行动、观察",
+      "输出事实、推断、未知和建议",
+      "需要持久化时保存并精确回读",
+      "外部副作用停在pending_approval，等待用户主动触发"
+    ],
+    "outputs": [
+      "带来源和证据边界的结果",
+      "真实失败或缺失状态",
+      "至多一个最高价值下一步"
+    ],
+    "non_goals": [
+      "不因截图自动安装框架、模型或插件",
+      "不把课程目录当成已验证教材",
+      "不把Agent循环当成自动经营执行授权",
+      "不伪造截图未展示的记忆算法、工具协议或失败机制"
+    ],
+    "evidence_status": "source_inspired_candidate_not_source_reproduced"
+  },
+  "unverified_items": [
+    "两张截图的原始网页、作者身份、发布日期和版本",
+    "路线中每个资源的准确URL、许可、完整内容和教学质量",
+    "90天安排的先后依赖、学习时长、考核标准和职业结果",
+    "概念图是否为完整或规范的Agent架构",
+    "Context、Tool Calling、Agent Loop、MCP、Sub-Agent、Skill和Memory的实现细节",
+    "正常、边界和失败样例以及可重放代码"
+  ],
+  "upgrade_triggers": [
+    "取得可定位的原文、课程目录或仓库版本",
+    "取得一个可运行Agent样例及其输入、工具、输出和状态",
+    "取得至少一个边界或失败样例并可稳定重放",
+    "宿析OS存在一个当前缺口，且同题基线和改进指标能够比较"
+  ]
+}

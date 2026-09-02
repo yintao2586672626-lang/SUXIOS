@@ -87,25 +87,25 @@ final class OnlineDataFieldFactService
                 'metric_key' => 'list_exposure',
                 'normalized_field' => 'list_exposure',
                 'storage_field' => 'list_exposure',
-                'source_keys' => ['mt_exposure', 'list_exposure', 'listExposure', 'exposure_count', 'exposureCount', 'impression', 'impressions', 'exposure'],
+                'source_keys' => ['exposureUV', 'exposure_uv', 'listExposure', 'impression', 'impressions', 'exposureCount', 'exposure_count', 'list_exposure', 'mt_exposure', 'exposure'],
             ],
             [
                 'metric_key' => 'mt_exposure',
                 'normalized_field' => 'list_exposure',
                 'storage_field' => 'list_exposure',
-                'source_keys' => ['mt_exposure', 'exposure_count', 'exposureCount', 'listExposure', 'exposureUV', 'exposure_uv', 'exposure'],
+                'source_keys' => ['exposureUV', 'exposure_uv', 'listExposure', 'exposureCount', 'exposure_count', 'mt_exposure', 'exposure'],
             ],
             [
                 'metric_key' => 'detail_exposure',
                 'normalized_field' => 'detail_exposure',
                 'storage_field' => 'detail_exposure',
-                'source_keys' => ['mt_intention_uv', 'intentionUV', 'intention_uv', 'detail_exposure', 'detailExposure', 'page_views', 'pageViews', 'unique_visitors', 'uniqueVisitors', 'visitor_count', 'visitorCount', 'click_count', 'clickCount', 'clicks', 'click', 'uv', 'UV', 'pv', 'views'],
+                'source_keys' => ['intentionUV', 'intention_uv', 'detailExposure', 'uniqueVisitors', 'unique_visitors', 'visitorCount', 'visitor_count', 'uv', 'UV', 'clickCount', 'click_count', 'clicks', 'click', 'pageViews', 'page_views', 'pv', 'views', 'detail_exposure', 'mt_intention_uv'],
             ],
             [
                 'metric_key' => 'mt_intention_uv',
                 'normalized_field' => 'detail_exposure',
                 'storage_field' => 'detail_exposure',
-                'source_keys' => ['mt_intention_uv', 'intentionUV', 'intention_uv', 'detailExposure', 'uniqueVisitors', 'unique_visitors', 'views'],
+                'source_keys' => ['intentionUV', 'intention_uv', 'detailExposure', 'uniqueVisitors', 'unique_visitors', 'views', 'mt_intention_uv'],
             ],
             [
                 'metric_key' => 'flow_rate',
@@ -453,6 +453,7 @@ final class OnlineDataFieldFactService
             if (count($sampleFacts) < 4) {
                 $sampleFacts[] = [
                     'metric_key' => $metricKey,
+                    'source_key' => trim((string)($fact['source_key'] ?? '')),
                     'source_path' => $sourcePath,
                     'source_path_structured' => $sourcePathStructured,
                     'storage_field' => $storageField,
@@ -464,6 +465,10 @@ final class OnlineDataFieldFactService
                     'stored_value_present' => $storedValueState,
                     'status' => $isMissing ? 'missing' : ($status !== '' ? $status : 'captured'),
                     'missing_state' => trim((string)($fact['missing_state'] ?? '')),
+                    'semantic_metric_key' => trim((string)($fact['semantic_metric_key'] ?? '')),
+                    'semantic_label' => trim((string)($fact['semantic_label'] ?? '')),
+                    'semantic_unit' => trim((string)($fact['unit'] ?? $fact['semantic_unit'] ?? '')),
+                    'semantic_contract_version' => trim((string)($fact['semantic_contract_version'] ?? '')),
                 ];
             }
         }

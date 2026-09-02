@@ -14,6 +14,17 @@ final class BrowserProfileCaptureRequestService
         return substr($safe, 0, 80);
     }
 
+    public static function uniqueCaptureRunToken(string $timePrefix = ''): string
+    {
+        $now = microtime(true);
+        $seconds = (int)floor($now);
+        $micros = max(0, min(999999, (int)floor(($now - $seconds) * 1000000)));
+        $timePrefix = preg_replace('/[^0-9]+/', '', $timePrefix) ?: date('YmdHis', $seconds);
+        return substr($timePrefix, 0, 20)
+            . '_' . str_pad((string)$micros, 6, '0', STR_PAD_LEFT)
+            . '_' . bin2hex(random_bytes(8));
+    }
+
     public static function timeoutSeconds($value): int
     {
         return max(60, min(900, (int)$value));
@@ -22,6 +33,511 @@ final class BrowserProfileCaptureRequestService
     public static function loginTimeoutMs($value): int
     {
         return max(30000, min(600000, (int)$value));
+    }
+
+    /**
+     * @param list<string> $args
+     * @param array<string,mixed> $options
+     * @return array<string,mixed>
+     */
+    public static function runCaptureProcess(
+        array $args,
+        string $cwd,
+        int $timeoutSeconds,
+        array $options = [],
+        ?callable $injectedRunner = null
+    ): array {
+        if ($injectedRunner !== null) {
+            try {
+                return self::normalizeInjectedProcessResult((array)call_user_func(
+                    $injectedRunner,
+                    $args,
+                    $cwd,
+                    $timeoutSeconds
+                ));
+            } catch (\Throwable) {
+                return [
+                    'success' => false,
+                    'status_code' => 'injected_process_runner_failed',
+                    'message' => 'Injected browser capture process runner failed.',
+                    'stdout' => '',
+                    'stderr' => '',
+                    'exit_code' => -1,
+                    'process_started' => true,
+                    'process_pid' => 0,
+                    'process_tree_exit_confirmed' => false,
+                    'termination' => [
+                        'contract' => BrowserCaptureProcessRunner::TERMINATION_CONTRACT,
+                        'requested' => false,
+                        'reason' => 'injected_runner_error',
+                        'platform' => 'injected',
+                        'pid' => 0,
+                        'confirmed_exited' => false,
+                        'confirmation_source' => 'unconfirmed',
+                        'errors' => ['injected_runner_error'],
+                    ],
+                ];
+            }
+        }
+
+        return (new BrowserCaptureProcessRunner())->run($args, $cwd, $timeoutSeconds, $options);
+    }
+
+    /** @param array<string,mixed> $result */
+    public static function processTreeExitConfirmed(array $result): bool
+    {
+        if (($result['process_started'] ?? null) === false) {
+            return true;
+        }
+        return ($result['process_tree_exit_confirmed'] ?? null) === true
+            && ($result['termination']['confirmed_exited'] ?? null) === true;
+    }
+
+    /** @param array<string,mixed> $payload */
+    public static function createEphemeralCaptureJson(array $payload, string $category = 'config'): string
+    {
+        $path = self::createEphemeralCaptureFile($category, 'json');
+        if ($path === '') {
+            return '';
+        }
+        try {
+            $json = json_encode(
+                $payload,
+                JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR
+            );
+        } catch (\Throwable) {
+            @unlink($path);
+            return '';
+        }
+        $handle = @fopen($path, 'c+b');
+        if (!is_resource($handle)) {
+            @unlink($path);
+            return '';
+        }
+        $written = false;
+        try {
+            $written = flock($handle, LOCK_EX)
+                && fwrite($handle, $json) === strlen($json)
+                && fflush($handle);
+        } finally {
+            flock($handle, LOCK_UN);
+            fclose($handle);
+        }
+        if (!$written) {
+            @unlink($path);
+            return '';
+        }
+        if (!@chmod($path, 0600)) {
+            @unlink($path);
+            return '';
+        }
+        return $path;
+    }
+
+    public static function createEphemeralCaptureFile(string $category, string $extension): string
+    {
+        $category = preg_replace('/[^a-z0-9_-]+/i', '-', trim($category)) ?: 'artifact';
+        $extension = preg_replace('/[^a-z0-9]+/i', '', trim($extension)) ?: 'tmp';
+        try {
+            $path = rtrim(sys_get_temp_dir(), '\\/') . DIRECTORY_SEPARATOR
+                . 'suxi-browser-' . strtolower($category) . '-' . self::uniqueCaptureRunToken()
+                . '.' . strtolower($extension);
+        } catch (\Throwable) {
+            return '';
+        }
+        $handle = @fopen($path, 'x+b');
+        if (!is_resource($handle)) {
+            return '';
+        }
+        fclose($handle);
+        if (!@chmod($path, 0600)) {
+            @unlink($path);
+            return '';
+        }
+        return $path;
+    }
+
+    public static function prepareEphemeralCaptureFileForWrite(string $path, bool $truncate = false): bool
+    {
+        if ($path === '' || is_link($path)) {
+            return false;
+        }
+        $tempRoot = realpath(sys_get_temp_dir());
+        $parent = realpath(dirname($path));
+        if (!is_string($tempRoot) || !is_string($parent)) {
+            return false;
+        }
+        $tempRoot = rtrim(str_replace('\\', '/', $tempRoot), '/');
+        $parent = rtrim(str_replace('\\', '/', $parent), '/');
+        $sameParent = PHP_OS_FAMILY === 'Windows'
+            ? hash_equals(strtolower($tempRoot), strtolower($parent))
+            : hash_equals($tempRoot, $parent);
+        $name = basename($path);
+        $validName = PHP_OS_FAMILY === 'Windows'
+            ? str_starts_with(strtolower($name), 'suxi-browser-')
+            : str_starts_with($name, 'suxi-browser-');
+        if (!$sameParent || !$validName) {
+            return false;
+        }
+        $handle = @fopen($path, 'c+b');
+        if (!is_resource($handle)) {
+            return false;
+        }
+        try {
+            if ($truncate && (!@ftruncate($handle, 0) || !@rewind($handle) || !@fflush($handle))) {
+                return false;
+            }
+            return @chmod($path, 0600);
+        } finally {
+            fclose($handle);
+        }
+    }
+
+    /**
+     * Delete ephemeral support files only after the full process tree is
+     * confirmed gone. Otherwise attach them to the same quarantine cleanup
+     * receipt as stdout/stderr spool files.
+     *
+     * @param array<string,mixed> $runResult
+     * @param list<string> $paths
+     * @return array<string,mixed>
+     */
+    public static function settleEphemeralCaptureArtifacts(array $runResult, array $paths): array
+    {
+        $paths = array_values(array_unique(array_filter(
+            array_map('strval', $paths),
+            static fn(string $path): bool => trim($path) !== ''
+        )));
+        if ($paths === []) {
+            return $runResult;
+        }
+        if (self::processTreeExitConfirmed($runResult)) {
+            BrowserCaptureProcessRunner::cleanupRecordedSpoolArtifacts($paths);
+            return $runResult;
+        }
+        $runResult['spool_artifacts'] = array_values(array_unique(array_merge(
+            is_array($runResult['spool_artifacts'] ?? null) ? $runResult['spool_artifacts'] : [],
+            $paths
+        )));
+        return $runResult;
+    }
+
+    /** @param array<string,mixed> $runResult @param list<string> $paths @return array<string,mixed> */
+    public static function quarantineEphemeralArtifactsIfUnconfirmed(array $runResult, array $paths): array
+    {
+        if (self::processTreeExitConfirmed($runResult)) {
+            return $runResult;
+        }
+        $runResult['spool_artifacts'] = array_values(array_unique(array_merge(
+            is_array($runResult['spool_artifacts'] ?? null) ? $runResult['spool_artifacts'] : [],
+            array_values(array_filter(array_map('strval', $paths), static fn(string $path): bool => trim($path) !== ''))
+        )));
+        return $runResult;
+    }
+
+    /**
+     * Acquire one logical Profile lock. A prior unconfirmed process-tree exit
+     * leaves a persistent quarantine marker, so a later PHP request cannot
+     * reuse the Profile merely because the original flock handle was closed by
+     * request shutdown.
+     *
+     * @return resource|null
+     */
+    public static function acquireProfileCaptureLock(
+        string $projectRoot,
+        string $platform,
+        string $profileKey
+    ) {
+        $platform = strtolower(trim($platform));
+        if (!in_array($platform, ['ctrip', 'meituan'], true)) {
+            return null;
+        }
+        $dir = rtrim($projectRoot, '\\/') . DIRECTORY_SEPARATOR . 'runtime' . DIRECTORY_SEPARATOR . 'locks';
+        if (!is_dir($dir) && !mkdir($dir, 0775, true) && !is_dir($dir)) {
+            return null;
+        }
+        $safeProfileKey = self::safeFilePart($profileKey);
+        $path = $dir . DIRECTORY_SEPARATOR . 'profile_capture_' . $platform . '_' . $safeProfileKey . '.lock';
+        $handle = fopen($path, 'c+');
+        if (!is_resource($handle)) {
+            return null;
+        }
+        if (!flock($handle, LOCK_EX | LOCK_NB)) {
+            fclose($handle);
+            return null;
+        }
+
+        rewind($handle);
+        $existing = json_decode((string)stream_get_contents($handle), true);
+        if (is_array($existing) && ($existing['state'] ?? '') === 'termination_unconfirmed') {
+            $recovery = self::recoverQuarantineOnLockedHandle(
+                $handle,
+                $existing
+            );
+            if (($recovery['recovered'] ?? false) !== true) {
+                flock($handle, LOCK_UN);
+                fclose($handle);
+                return null;
+            }
+        }
+
+        self::writeProfileLockPayload($handle, [
+            'state' => 'active',
+            'platform' => $platform,
+            'profile_key_hash' => hash('sha256', $safeProfileKey),
+            'owner_pid' => getmypid(),
+            'locked_at' => date('c'),
+        ]);
+        return $handle;
+    }
+
+    /**
+     * Controlled recovery entry for a persistent Profile quarantine. It never
+     * clears a marker merely because the old PHP flock disappeared: the
+     * recorded process tree must be supported and observed empty first.
+     *
+     * @return array<string,mixed>
+     */
+    public static function recoverProfileCaptureLock(
+        string $projectRoot,
+        string $platform,
+        string $profileKey
+    ): array {
+        $platform = strtolower(trim($platform));
+        if (!in_array($platform, ['ctrip', 'meituan'], true)) {
+            return ['recovered' => false, 'status_code' => 'profile_lock_platform_invalid'];
+        }
+        $dir = rtrim($projectRoot, '\\/') . DIRECTORY_SEPARATOR . 'runtime' . DIRECTORY_SEPARATOR . 'locks';
+        if (!is_dir($dir)) {
+            return ['recovered' => true, 'status_code' => 'profile_lock_absent'];
+        }
+        $path = $dir . DIRECTORY_SEPARATOR . 'profile_capture_' . $platform . '_'
+            . self::safeFilePart($profileKey) . '.lock';
+        if (!is_file($path)) {
+            return ['recovered' => true, 'status_code' => 'profile_lock_absent'];
+        }
+        $handle = fopen($path, 'c+');
+        if (!is_resource($handle)) {
+            return ['recovered' => false, 'status_code' => 'profile_lock_open_failed'];
+        }
+        if (!flock($handle, LOCK_EX | LOCK_NB)) {
+            fclose($handle);
+            return ['recovered' => false, 'status_code' => 'profile_lock_busy'];
+        }
+        try {
+            rewind($handle);
+            $existing = json_decode((string)stream_get_contents($handle), true);
+            if (!is_array($existing) || ($existing['state'] ?? '') !== 'termination_unconfirmed') {
+                return ['recovered' => true, 'status_code' => 'profile_lock_not_quarantined'];
+            }
+            return self::recoverQuarantineOnLockedHandle(
+                $handle,
+                $existing
+            );
+        } finally {
+            flock($handle, LOCK_UN);
+            fclose($handle);
+        }
+    }
+
+    /** @param resource|null $lock */
+    public static function releaseProfileCaptureLock($lock): void
+    {
+        if (!is_resource($lock)) {
+            return;
+        }
+        self::writeProfileLockPayload($lock, [
+            'state' => 'released',
+            'released_at' => date('c'),
+        ]);
+        flock($lock, LOCK_UN);
+        fclose($lock);
+    }
+
+    /**
+     * @param resource|null $lock
+     * @param array<string,mixed> $runResult
+     */
+    public static function finalizeProfileCaptureLock($lock, array $runResult): bool
+    {
+        if (!is_resource($lock)) {
+            return true;
+        }
+        if (self::processTreeExitConfirmed($runResult)) {
+            self::releaseProfileCaptureLock($lock);
+            return true;
+        }
+
+        $termination = is_array($runResult['termination'] ?? null) ? $runResult['termination'] : [];
+        $processTree = is_array($runResult['process_tree'] ?? null) ? $runResult['process_tree'] : [];
+        $processTree['supported'] = ($processTree['supported'] ?? false) === true;
+        $processTree['platform'] = trim((string)($processTree['platform'] ?? $termination['platform'] ?? PHP_OS_FAMILY));
+        $processTree['strategy'] = trim((string)($processTree['strategy'] ?? ''));
+        $processTree['root_pid'] = max(0, (int)($processTree['root_pid'] ?? $runResult['process_pid'] ?? $termination['pid'] ?? 0));
+        $processTree['root_identity'] = trim((string)($processTree['root_identity'] ?? ''));
+        $processTree['group_id'] = max(0, (int)($processTree['group_id'] ?? 0));
+        $processTree['tracked_members'] = self::compactProcessMembers($processTree['tracked_members'] ?? $termination['tracked_descendants'] ?? []);
+        $processTree['survivors'] = self::compactProcessMembers($processTree['survivors'] ?? $termination['surviving_descendants'] ?? []);
+        $processTree['exited'] = false;
+        $spoolArtifacts = array_values(array_slice(array_filter(
+            array_map('strval', is_array($runResult['spool_artifacts'] ?? null) ? $runResult['spool_artifacts'] : []),
+            static fn(string $path): bool => trim($path) !== ''
+        ), 0, 8));
+        self::writeProfileLockPayload($lock, [
+            'state' => 'termination_unconfirmed',
+            'quarantined_at' => date('c'),
+            'process_pid' => max(0, (int)($runResult['process_pid'] ?? $termination['pid'] ?? 0)),
+            'process_tree' => $processTree,
+            'spool_artifacts' => $spoolArtifacts,
+            'termination' => [
+                'contract' => (string)($termination['contract'] ?? BrowserCaptureProcessRunner::TERMINATION_CONTRACT),
+                'reason' => (string)($termination['reason'] ?? 'unknown'),
+                'platform' => (string)($termination['platform'] ?? PHP_OS_FAMILY),
+                'confirmed_exited' => false,
+                'confirmation_source' => (string)($termination['confirmation_source'] ?? 'unconfirmed'),
+                'tracked_descendants' => $processTree['tracked_members'],
+                'surviving_descendants' => $processTree['survivors'],
+                'errors' => array_values(array_slice(array_map(
+                    'strval',
+                    is_array($termination['errors'] ?? null) ? $termination['errors'] : []
+                ), 0, 10)),
+            ],
+        ]);
+        // Deliberately do not unlock or close here. PHP may eventually close
+        // the OS handle, but the persistent quarantine marker above remains a
+        // logical lock for subsequent requests until an operator verifies the
+        // process tree and clears the marker.
+        return false;
+    }
+
+    /** @param array<string,mixed> $result @return array<string,mixed> */
+    private static function normalizeInjectedProcessResult(array $result): array
+    {
+        if (array_key_exists('exit_code', $result)
+            && (int)$result['exit_code'] === -1
+            && ($result['success'] ?? false) === true
+        ) {
+            $result['success'] = false;
+            $result['status_code'] = 'process_exit_unknown';
+            $result['message'] = 'Browser capture exit code could not be verified.';
+        }
+        if (isset($result['process_tree_exit_confirmed'], $result['termination'])) {
+            return $result;
+        }
+        $result['process_started'] = $result['process_started'] ?? true;
+        $result['process_tree_exit_confirmed'] = true;
+        $result['status_code'] = $result['status_code'] ?? (($result['success'] ?? false) ? 'ok' : 'injected_process_failed');
+        $result['termination'] = [
+            'contract' => BrowserCaptureProcessRunner::TERMINATION_CONTRACT,
+            'requested' => false,
+            'reason' => 'injected_runner_completed',
+            'platform' => 'injected',
+            'pid' => 0,
+            'grace_ms' => 0,
+            'force_grace_ms' => 0,
+            'soft' => ['attempted' => false, 'accepted' => false, 'strategy' => '', 'exit_code' => null],
+            'force' => ['attempted' => false, 'accepted' => false, 'strategy' => '', 'exit_code' => null],
+            'confirmed_exited' => true,
+            'confirmation_source' => 'injected_runner_contract',
+            'observed_exit_code' => (int)($result['exit_code'] ?? -1),
+            'close_deferred' => false,
+            'errors' => [],
+        ];
+        return $result;
+    }
+
+    /** @return array<string,mixed> */
+    private static function recoverQuarantineOnLockedHandle(
+        $handle,
+        array $marker
+    ): array {
+        $processTree = is_array($marker['process_tree'] ?? null) ? $marker['process_tree'] : [];
+        try {
+            $inspection = BrowserCaptureProcessRunner::inspectRecordedProcessTree($processTree);
+        } catch (\Throwable) {
+            $inspection = ['status' => 'unknown', 'alive' => true, 'supported' => false, 'survivors' => []];
+        }
+        if (($inspection['supported'] ?? false) !== true
+            || ($inspection['status'] ?? '') !== 'exited'
+            || ($inspection['alive'] ?? true) !== false
+        ) {
+            return [
+                'recovered' => false,
+                'status_code' => ($inspection['status'] ?? '') === 'alive'
+                    ? 'profile_process_tree_still_alive'
+                    : 'profile_process_tree_exit_unconfirmed',
+                'inspection' => $inspection,
+            ];
+        }
+
+        $artifacts = array_values(array_filter(
+            array_map('strval', is_array($marker['spool_artifacts'] ?? null) ? $marker['spool_artifacts'] : []),
+            static fn(string $path): bool => trim($path) !== ''
+        ));
+        try {
+            $cleanup = BrowserCaptureProcessRunner::cleanupRecordedSpoolArtifacts($artifacts);
+        } catch (\Throwable) {
+            $cleanup = ['removed' => 0, 'rejected' => 0, 'failed' => 1];
+        }
+        if ((int)($cleanup['failed'] ?? 0) > 0 || (int)($cleanup['rejected'] ?? 0) > 0) {
+            return [
+                'recovered' => false,
+                'status_code' => 'profile_quarantine_artifact_cleanup_failed',
+                'inspection' => $inspection,
+                'artifact_cleanup' => $cleanup,
+            ];
+        }
+
+        self::writeProfileLockPayload($handle, [
+            'state' => 'termination_recovered',
+            'recovered_at' => date('c'),
+            'process_tree' => $processTree,
+            'tree_inspection' => $inspection,
+            'artifact_cleanup' => $cleanup,
+        ]);
+        return [
+            'recovered' => true,
+            'status_code' => 'profile_process_tree_exit_recovered',
+            'inspection' => $inspection,
+            'artifact_cleanup' => $cleanup,
+        ];
+    }
+
+    /** @return list<array{pid:int,identity:string,parent_pid:int}> */
+    private static function compactProcessMembers(mixed $members): array
+    {
+        $safe = [];
+        foreach (is_array($members) ? $members : [] as $member) {
+            if (!is_array($member)) {
+                continue;
+            }
+            $pid = max(0, (int)($member['pid'] ?? 0));
+            $identity = trim((string)($member['identity'] ?? ''));
+            if ($pid <= 0 || $identity === '') {
+                continue;
+            }
+            $safe[$pid . ':' . $identity] = [
+                'pid' => $pid,
+                'identity' => substr($identity, 0, 128),
+                'parent_pid' => max(0, (int)($member['parent_pid'] ?? 0)),
+            ];
+            if (count($safe) >= 256) {
+                break;
+            }
+        }
+        return array_values($safe);
+    }
+
+    /** @param resource $handle @param array<string,mixed> $payload */
+    private static function writeProfileLockPayload($handle, array $payload): void
+    {
+        rewind($handle);
+        ftruncate($handle, 0);
+        fwrite($handle, (string)json_encode(
+            $payload,
+            JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES
+        ));
+        fflush($handle);
     }
 
     public static function resolveNodeBinary(): string
@@ -472,7 +988,7 @@ final class BrowserProfileCaptureRequestService
         $storeId = self::resolveMeituanStoreId($requestData);
         $scriptPath = $projectRoot . DIRECTORY_SEPARATOR . 'scripts' . DIRECTORY_SEPARATOR . 'meituan_browser_capture.mjs';
         $outputDir = $projectRoot . DIRECTORY_SEPARATOR . 'runtime' . DIRECTORY_SEPARATOR . 'meituan_capture';
-        $outputPath = $outputDir . DIRECTORY_SEPARATOR . 'meituan_capture_' . self::safeFilePart($storeId) . '_' . $timestamp . '.json';
+        $outputPath = $outputDir . DIRECTORY_SEPARATOR . 'meituan_capture_' . self::safeFilePart($storeId) . '_' . self::uniqueCaptureRunToken($timestamp) . '.json';
 
         $args = [
             $nodeBinary,
@@ -575,7 +1091,7 @@ final class BrowserProfileCaptureRequestService
         $profileId = self::resolveCtripProfileId($requestData, $systemHotelId, $hotelId);
         $scriptPath = $projectRoot . DIRECTORY_SEPARATOR . 'scripts' . DIRECTORY_SEPARATOR . 'ctrip_browser_capture.mjs';
         $outputDir = $projectRoot . DIRECTORY_SEPARATOR . 'runtime' . DIRECTORY_SEPARATOR . 'ctrip_capture';
-        $outputPath = $outputDir . DIRECTORY_SEPARATOR . 'ctrip_browser_capture_' . self::safeFilePart($profileId) . '_' . $timestamp . '.json';
+        $outputPath = $outputDir . DIRECTORY_SEPARATOR . 'ctrip_browser_capture_' . self::safeFilePart($profileId) . '_' . self::uniqueCaptureRunToken($timestamp) . '.json';
 
         $args = [
             $nodeBinary,

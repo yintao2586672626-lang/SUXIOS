@@ -141,3 +141,55 @@ test('successful release refreshes formal dispatch exactly once before the queue
   assert.equal(releaseInstaller.split(queueRefreshGate).length - 1, 1);
   assert.ok(releaseInstaller.indexOf(formalRefreshGate) < releaseInstaller.indexOf(queueRefreshGate));
 });
+
+test('cloud release installs and verifies the two all-active internal operation timers', () => {
+  const installFunction = functionBody('install_internal_operation_timers');
+  const switchRelease = releaseInstaller.indexOf('mv -Tf "$ROLLBACK_LINK" "$CURRENT_LINK"');
+  const dailyInstalled = releaseInstaller.indexOf('systemctl cat "$INTERNAL_DAILY_TIMER"');
+  const reviewInstalled = releaseInstaller.indexOf('systemctl cat "$INTERNAL_REVIEW_TIMER"');
+
+  assert.ok(dailyInstalled >= 0 && dailyInstalled < switchRelease);
+  assert.ok(reviewInstalled >= 0 && reviewInstalled < switchRelease);
+  assert.match(installFunction, /mktemp -d \/run\/suxios-internal-operation-units\.XXXXXX/);
+  assert.match(installFunction, /cp -a -- "\$target" "\$INTERNAL_OPERATION_UNIT_BACKUP_DIR\/\$unit"/);
+  assert.match(installFunction, /install -o root -g root -m 0644/);
+  assert.match(installFunction, /systemd-analyze verify "\$\{installed_paths\[@\]\}"/);
+  assert.match(
+    installFunction,
+    /systemctl enable "\$INTERNAL_DAILY_TIMER" "\$INTERNAL_REVIEW_TIMER"/
+  );
+  assert.ok(
+    installFunction.indexOf('systemctl start "$INTERNAL_REVIEW_TIMER"')
+      < installFunction.indexOf('systemctl start "$INTERNAL_DAILY_TIMER"')
+  );
+  assert.match(installFunction, /systemctl is-enabled --quiet "\$INTERNAL_DAILY_TIMER" \|\| return 1/);
+  assert.match(installFunction, /systemctl is-active --quiet "\$INTERNAL_REVIEW_TIMER" \|\| return 1/);
+});
+
+test('internal timer install failure restores unit files services and exact prior lifecycle', () => {
+  const restoreFunction = functionBody('restore_internal_operation_timer_lifecycle');
+  const assertFunction = functionBody('assert_internal_operation_timer_lifecycle');
+  const rollbackFunction = functionBody('rollback_and_verify');
+  const failureGate = releaseInstaller.match(
+    /if ! install_internal_operation_timers; then[\s\S]*?\nfi/
+  )?.[0] || '';
+
+  assert.match(restoreFunction, /disable --now "\$INTERNAL_DAILY_TIMER" "\$INTERNAL_REVIEW_TIMER"/);
+  assert.match(restoreFunction, /suxios-daily-operating-preparation@all-active\.service/);
+  assert.match(restoreFunction, /suxios-operation-scheduled-reviews@all-active\.service/);
+  assert.match(restoreFunction, /rm -f -- "\$target"/);
+  assert.match(restoreFunction, /cp -a -- "\$backup" "\$target"/);
+  assert.match(restoreFunction, /assert_internal_operation_timer_lifecycle[\s\S]*INTERNAL_DAILY_WAS_INSTALLED/);
+  assert.match(restoreFunction, /assert_internal_operation_timer_lifecycle[\s\S]*INTERNAL_REVIEW_WAS_INSTALLED/);
+  assert.match(assertFunction, /systemctl cat "\$timer"/);
+  assert.match(assertFunction, /systemctl is-enabled --quiet "\$timer"/);
+  assert.match(assertFunction, /systemctl is-active --quiet "\$timer"/);
+  assert.match(rollbackFunction, /restore_internal_operation_timer_lifecycle/);
+  assert.ok(
+    rollbackFunction.indexOf('restore_internal_operation_timer_lifecycle')
+      < rollbackFunction.indexOf('rm -f "$CURRENT_LINK"')
+  );
+  assert.match(failureGate, /rollback_and_verify/);
+  assert.match(failureGate, /timer lifecycle restored/);
+  assert.match(failureGate, /exit 84/);
+});

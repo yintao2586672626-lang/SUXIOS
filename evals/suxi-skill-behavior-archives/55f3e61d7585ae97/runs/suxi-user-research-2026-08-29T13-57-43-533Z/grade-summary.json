@@ -1,0 +1,89 @@
+{
+  "schema_version": "suxi.skill.behavior_grade.v1",
+  "skill_name": "suxi-user-research",
+  "run_id": "suxi-user-research-2026-08-29T13-57-43-533Z",
+  "status": "PASS",
+  "case_results": [
+    {
+      "case_id": "UR-BEH-001",
+      "status": "PASS",
+      "failures": []
+    },
+    {
+      "case_id": "UR-BEH-002",
+      "status": "PASS",
+      "failures": []
+    },
+    {
+      "case_id": "UR-BEH-003",
+      "status": "PASS",
+      "failures": []
+    },
+    {
+      "case_id": "UR-BEH-004",
+      "status": "PASS",
+      "failures": []
+    },
+    {
+      "case_id": "UR-BEH-005",
+      "status": "PASS",
+      "failures": []
+    },
+    {
+      "case_id": "UR-BEH-006",
+      "status": "PASS",
+      "failures": []
+    },
+    {
+      "case_id": "UR-BEH-007",
+      "status": "PASS",
+      "failures": []
+    }
+  ],
+  "counts": {
+    "pass": 7,
+    "fail": 0,
+    "blocked": 0
+  },
+  "hashes": {
+    "behavior_contract_sha256": "3bc9e11d5c6775d096480047f0647ced8491ead8cac7834a88a25e4a2abfe20b",
+    "prepare_seal_sha256": "8c270c0cffbe5a8f9613ec04a334fa544eb8bcaa4676deb07c73529b2b4995de",
+    "prepare_manifest_sha256": "5354ccb82d83162abd3672d019313bf098666182866a6e7991254826bbc5750d",
+    "source_snapshot_sha256": "7718d7dda223ec5e1d89c0b049c0c3e9739d0d7680511813dc80fb475357f265",
+    "judge_packet_sha256": "887ee2432ff99c188bde6a09a12f48027722d01973de49b97b04da211978ef0c",
+    "judgments_sha256": "1fd62554561dc9a10d68de43118ed5c9b7e648992286b47274b644d4b438b61e",
+    "responses": [
+      {
+        "case_id": "UR-BEH-001",
+        "sha256": "3ab154d9091e7d72878a92e8b16ac2b4f69e5a581d8d47ab659690dea18fccd1"
+      },
+      {
+        "case_id": "UR-BEH-002",
+        "sha256": "fc8255e7b19bc259aee326d400b6894420905a4194f06b391b96cde05764c017"
+      },
+      {
+        "case_id": "UR-BEH-003",
+        "sha256": "d53f666e68b805c2de5a78d1ccd503dc1961b8c649b5956ff5558a27f48e1895"
+      },
+      {
+        "case_id": "UR-BEH-004",
+        "sha256": "e57ea3161d64108c3f71ea02ec0be70becfc97963dbf64903b4cc946c14545bf"
+      },
+      {
+        "case_id": "UR-BEH-005",
+        "sha256": "32bd64e634e9ca88341eccfae8abd3b90598e97a58a521d97a936931fb60424e"
+      },
+      {
+        "case_id": "UR-BEH-006",
+        "sha256": "804264fa5948027788a4024be1ddfa960819f0be2e808d4f4dd7cbd7e551b002"
+      },
+      {
+        "case_id": "UR-BEH-007",
+        "sha256": "43c121d86caa5a1bae430c81929255c4f3a7e195020e1a17ccb7760414eb9e74"
+      }
+    ]
+  },
+  "separation_status": "instruction_only",
+  "judge_identity_verified": false,
+  "evidence_boundary": "Responses, exact quote spans, and judgment fields are internally consistent for the selected packet. Filesystem isolation and evaluator identity are not independently verified."
+}

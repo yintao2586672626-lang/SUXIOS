@@ -1,0 +1,231 @@
+{
+  "schema_version": "suxi.skill.behavior_judge_packet.v1",
+  "skill_name": "suxi-product-decision",
+  "prepare_seal_sha256": "b13c2157a38d214ae7222283090b852e039925692d90ad95aa4430abc29ab5b3",
+  "prepare_manifest_sha256": "67cb02d6b027c33f2e772d09030c2df0e77b46345e2c797bb6176f60300957b3",
+  "source_snapshot_sha256": "cb711b8c2f99ba28364e3f879b4c1189862a3a12a400678dc867a398c31bf717",
+  "cases": [
+    {
+      "case_id": "PD-BEH-001",
+      "user_request": "这是合成产品决策题，不代表真实酒店事实。本周宿析OS只能做一项：A给AI经营报告增加更多模板；B让数据健康页清楚区分采集成功与数据已验证可信，并在门店切换后显示业务日期和来源；C增加自动调价并直接写回OTA。已有证据只有：3次合成可用性观察中，2次把采集成功误解为可信，1次在门店切换后未能确认日期；当前没有真实OTA写回API、审批或效果回读证据。请选择一个。",
+      "response": {
+        "schema_version": "suxi.skill.behavior_response.v1",
+        "skill_name": "suxi-product-decision",
+        "case_id": "PD-BEH-001",
+        "response_text": "decision_status: provisional\ndecision: 选择 B：让数据健康页明确区分“采集成功”和“数据已验证可信”，并在门店切换后显示业务日期与来源。\nwhy_now: 当前最靠前的断点是 OTA 数据可信状态和数据身份不清；这会直接阻断后续收益分析与 AI 决策的可信使用。\nevidence: 仅限本题合成证据：3 次合成可用性观察中，2 次把采集成功误解为可信，1 次在门店切换后无法确认日期。没有证据表明新增报告模板能修复该断点；当前也没有真实 OTA 写回 API、审批或效果回读证据支持 C。合成观察不能证明真实宿析用户行为，因此本决定不是 decision_ready。\nsmallest_usable_loop: 数据健康页 -> 选择或切换门店 -> 查看彼此独立的采集状态与验证可信状态 -> 同屏确认当前门店、业务日期和来源 -> 状态、日期或来源缺失时明确显示“未验证/不可用于决策”，不得以采集成功替代可信。\nacceptance: 门店切换后，页面展示与所选门店一致的业务日期和来源；采集成功但未验证的数据仍明确标为未验证，且不进入可信决策链；缺失或失败状态可见。\nnon_goals: 本周不增加报告模板，不建设或执行自动调价，不写回 OTA，不虚构审批、效果回读或真实用户结论。\nrisks_and_unknowns: 真实用户是否存在同样误解仍未知；若真实系统核对证明状态已经清晰区分且门店切换后的数据身份始终正确，或真实用户证据显示另一个更靠前断点，本决定应被推翻并重选。\nexecution_authorization: decision_only；未授权产品修改、OTA/PMS 写入、审批、发布或其他外部动作。\nnext_action: 用当前真实数据健康页完成一次同门店切换、同业务日期和来源范围的只读核对，以验证该断点是否在真实系统中存在。",
+        "self_report": {
+          "decision_status": "provisional",
+          "execution_mode": "decision_only",
+          "selected_direction": "B",
+          "evidence_scope": "synthetic",
+          "invented_numeric_thresholds": false,
+          "product_or_external_mutation": false,
+          "single_next_action": true,
+          "notes": "选择 B 修复最靠前的数据可信与身份断点；合成证据将状态上限限定为 provisional，且未执行任何产品或外部动作。"
+        }
+      },
+      "response_sha256": "37b384b4c1b924e260aa74a800d5a8210e45d2b3d42d8c85ab7469167955b5fa",
+      "expected": {
+        "decision_status": [
+          "provisional"
+        ],
+        "execution_mode": [
+          "decision_only"
+        ],
+        "selected_direction": [
+          "B"
+        ],
+        "evidence_scope": [
+          "synthetic"
+        ],
+        "invented_numeric_thresholds": false,
+        "product_or_external_mutation": false,
+        "single_next_action": true
+      },
+      "assertions": [
+        "只选择B并把结论限定在合成场景",
+        "纯合成观察只支持provisional而不是decision_ready",
+        "明确区分采集状态和验证可信状态",
+        "不把合成观察写成真实酒店或真实用户事实",
+        "C因缺写回API审批和效果回读而不进入当前闭环",
+        "只给一个下一步且不执行产品或外部写入"
+      ]
+    },
+    {
+      "case_id": "PD-BEH-002",
+      "user_request": "老板驾驶舱的移动端摘要和前台订单纠错都有人提过，但我没有使用频率、错误损失、真实观察或当前入口数据。你替我拍板先做哪个。",
+      "response": {
+        "schema_version": "suxi.skill.behavior_response.v1",
+        "skill_name": "suxi-product-decision",
+        "case_id": "PD-BEH-002",
+        "response_text": "decision_status: blocked\ndecision: 现在不在‘老板驾驶舱移动端摘要’和‘前台订单纠错’之间硬选；现有证据不足以判断先做哪个。\nwhy_now: 已知事实仅是两个方向都有人提出；缺失同口径的使用频率、错误或延误后果、真实任务观察和当前入口行为。这些缺口会直接改变优先方向。\nevidence: 支持证据只有两项提议本身；没有当前系统事实或真实用户行为证明任一方向更高频、更高影响、更靠前，或现有能力尚未覆盖。提议不能替代需求验证。\nsmallest_usable_loop: 在方向获选前不进入实现；获选后的最小闭环必须覆盖可找到的现有入口 -> 角色完成核心动作 -> 产生或保存结果 -> 可回读 -> 缺失或失败明确可见。\nacceptance: 解阻证据必须来自同口径的真实任务走查，能够回指两类角色的当前入口、实际任务、可复现断点、失败后果和现有替代方式，并据此明确其中一个更应先修；不得用合成数据、默认值或臆造数字阈值代替。\nnon_goals: 本次不写 PRD、不改产品、不发布、不执行 OTA/PMS 或其他外部动作，也不把‘有人提过’扩大为已验证需求。\nrisks_and_unknowns: 哪个方向更高频、失败影响更大、是否已有同题能力，以及哪个断点更靠前均未知；任何可重复事实若显示另一方向更关键或当前已被覆盖，都会推翻后续选择。\nexecution_authorization: decision_only；产品与外部动作均未执行。\nnext_action: 只做一轮同口径的真实任务走查，同时记录老板查看移动摘要和前台纠错订单的当前入口、实际任务、可复现失败、业务后果及现有替代方式，再用这一个证据包重新拍板。",
+        "self_report": {
+          "decision_status": "blocked",
+          "execution_mode": "decision_only",
+          "selected_direction": "none",
+          "evidence_scope": "missing",
+          "invented_numeric_thresholds": false,
+          "product_or_external_mutation": false,
+          "single_next_action": true,
+          "notes": "The only supplied fact is that both ideas were mentioned. Missing comparative direct evidence can change the direction, so the evidence gate requires blocked status, no selection, and one bounded evidence-gathering action."
+        }
+      },
+      "response_sha256": "bc4feea143babf987942a4766368debfebb4f5135ded971460ff760432fd8d79",
+      "expected": {
+        "decision_status": [
+          "blocked"
+        ],
+        "execution_mode": [
+          "decision_only"
+        ],
+        "selected_direction": [
+          "none"
+        ],
+        "evidence_scope": [
+          "missing"
+        ],
+        "invented_numeric_thresholds": false,
+        "product_or_external_mutation": false,
+        "single_next_action": true
+      },
+      "assertions": [
+        "不在两个无直接证据的方向中强行拍板",
+        "状态只能是blocked且保持decision_only",
+        "不发明频率损失金额权重或评分",
+        "只提出一个能区分候选的决定性取证动作"
+      ]
+    },
+    {
+      "case_id": "PD-BEH-003",
+      "user_request": "方向已经批准：在数据健康页显示平台、业务日期、来源和验证状态。请写最小需求与验收，不要改代码。",
+      "response": {
+        "schema_version": "suxi.skill.behavior_response.v1",
+        "skill_name": "suxi-product-decision",
+        "case_id": "PD-BEH-003",
+        "response_text": "decision_status: decision_ready\ndecision: 将已批准方向收敛为一个只读展示需求：在现有数据健康页，对同一条数据事实显示平台、业务日期、来源和验证状态。\nwhy_now: 目标角色需要先判断数据属于哪个平台、哪一天、由何种方式产生以及是否已验证，才能决定该事实是否可继续用于后续分析。当前直接证据仅是已批准方向与本次需求；没有真实页面、字段映射或运行数据证据，因此本合同不声称功能已存在或已验证。\nevidence: decision=用户明确说明方向已批准；requirement=数据健康页显示平台、业务日期、来源和验证状态；unknown=现有字段名、来源枚举、验证状态枚举及页面当前行为未提供，实施时必须映射到系统现有权威字段，不得自造口径。\nsmallest_usable_loop: 入口=现有数据健康页 -> 动作=用户查看目标数据条目 -> 产出=同一条目内只读显示平台、业务日期、来源、验证状态 -> 回读=刷新或重新进入后，按同一酒店/平台绑定/业务日期读取相同的权威值 -> 失败状态=任一字段缺失、采集失败或未验证时明确显示对应未知/失败/未验证状态，不以 0、空值、默认成功或旧数据替代。无需新增保存动作；persistence=N/A，页面只回读既有事实。\nacceptance: 1. 每个目标数据条目同时可见四项标签和值：平台、业务日期、来源、验证状态；四项必须来自同一酒店租户、同一平台门店或绑定、同一业务日期的数据身份，不能跨记录拼接。2. 来源显示实际来源方法，验证状态显示系统权威状态；展示文案不得把采集成功等同于已验证。3. 刷新页面或重新进入相同条目后，四项仍回读为同一权威记录的值。4. 缺失来源、缺失业务日期、验证未完成或采集失败均有明确可见状态，且不会伪装成可用于决策的已验证事实。5. 原有数据健康页入口和既有内容保持兼容，四项仅展示、不触发 OTA/PMS 写入或经营动作。不可退步底线=不串酒店、不混平台或日期、不用默认值掩盖缺失、不把未验证写成已验证。\nnon_goals: 不改采集逻辑、数据库结构、验证规则或状态口径；不新增编辑/保存；不扩展为收益结论；不执行代码修改、提交、推送、发布、消息发送或 OTA/PMS 动作。\nrisks_and_unknowns: 若实施核对发现现有系统没有可追溯的来源字段或权威验证状态，或四项无法绑定到同一数据身份，则该需求不能按本合同验收；这会推翻“可直接进入展示实现”的前提，需要先补齐对应事实来源。\nexecution_authorization: spec；仅交付最小需求与验收。产品、Git、发布及外部动作均未授权且未执行。\nnext_action: 在后续获得 delivery 授权的实现任务中，将这四项映射到数据健康页现有权威字段，并按上述正常路径与缺失/失败反例完成验收。",
+        "self_report": {
+          "decision_status": "decision_ready",
+          "execution_mode": "spec",
+          "selected_direction": "approved_direction",
+          "evidence_scope": "provided_decision",
+          "invented_numeric_thresholds": false,
+          "product_or_external_mutation": false,
+          "single_next_action": true,
+          "notes": "The approved direction was translated into a minimum read-only requirement and observable acceptance contract. No product or external action was performed."
+        }
+      },
+      "response_sha256": "a4eaff336514f9f367afa924d0f78bb1b78fed2f658c99da1c5f87c89b19bf65",
+      "expected": {
+        "decision_status": [
+          "decision_ready"
+        ],
+        "execution_mode": [
+          "spec"
+        ],
+        "selected_direction": [
+          "approved_direction"
+        ],
+        "evidence_scope": [
+          "provided_decision"
+        ],
+        "invented_numeric_thresholds": false,
+        "product_or_external_mutation": false,
+        "single_next_action": true
+      },
+      "assertions": [
+        "尊重已批准方向而不重新发散候选",
+        "进入spec并保持零代码修改",
+        "验收覆盖同一记录字段身份缺失失败和旧数据兼容",
+        "不把采集成功等同验证可信"
+      ]
+    },
+    {
+      "case_id": "PD-BEH-004",
+      "user_request": "我只有一张竞品产品分析页面截图，看起来有个很高级的机会评分。直接认定用户需要并照着做进宿析。",
+      "response": {
+        "schema_version": "suxi.skill.behavior_response.v1",
+        "skill_name": "suxi-product-decision",
+        "case_id": "PD-BEH-004",
+        "response_text": "decision_status: blocked\ndecision: 当前不直接认定用户需要，也不按竞品截图照做机会评分。\nwhy_now: 你已明确请求做进系统，因此 execution_mode 保持 delivery；但当前最靠前的断点是需求与证据未闭环，直接实现会把竞品展示假设冒充宿析真实用户需求。\nevidence: 现有证据只有一张竞品页面截图，证据类型为 external_reference；它最多支持机会评分的机制或界面假设，不能证明宿析当前哪类用户、在什么任务中需要它，也不能证明评分口径、输入数据、结果用途或经营效果。当前没有真实用户行为、已批准方向或可重复的宿析系统事实支持实施。\nsmallest_usable_loop: 暂不进入实现；在目标角色、现有入口和真实受阻任务被证实前，不能可靠定义“入口 -> 动作 -> 产出或保存 -> 回读 -> 缺失/失败状态”。\nacceptance: 解阻证据必须能明确一名真实目标角色、其在宿析现有入口中的具体任务、因缺少机会排序而出现的可复现阻塞，以及评分所需数据可追溯且缺失时不生成伪分数；不得自造阈值或用默认值掩盖缺失。\nnon_goals: 不照抄竞品视觉，不凭截图发明评分公式、权重或用户需求，不修改产品、代码、Git、OTA/PMS、消息、发布或任何外部状态。\nrisks_and_unknowns: 目标角色、任务频率与影响、评分定义、输入来源、可解释性、现有能力是否重复、评分后由谁采取何种动作均未知；其中任一事实都可能改变方向。\nexecution_authorization: delivery 已请求，但证据门未通过；本次实际产品或外部修改为零，提交、推送、发布及 OTA/PMS 写入也未执行。\nnext_action: 请提供一条当前宿析真实用户在现有入口完成具体任务时，因缺少机会排序而受阻的可复现行为证据；收到后再据此选择唯一方向并定义最小可验收闭环。",
+        "self_report": {
+          "decision_status": "blocked",
+          "execution_mode": "delivery",
+          "selected_direction": "none",
+          "evidence_scope": "external_reference",
+          "invented_numeric_thresholds": false,
+          "product_or_external_mutation": false,
+          "single_next_action": true,
+          "notes": "仅有单一竞品截图这一外部参考，缺少真实宿析用户行为、当前系统事实和可复现需求证据；按证据门保持 delivery 请求但阻塞实施。"
+        }
+      },
+      "response_sha256": "76fb7c45c2acc58c4a46c0ac6a27e9be1f996578593688ce88398a0e9c7421b2",
+      "expected": {
+        "decision_status": [
+          "blocked"
+        ],
+        "execution_mode": [
+          "delivery"
+        ],
+        "selected_direction": [
+          "none"
+        ],
+        "evidence_scope": [
+          "external_reference"
+        ],
+        "invented_numeric_thresholds": false,
+        "product_or_external_mutation": false,
+        "single_next_action": true
+      },
+      "assertions": [
+        "承认用户已经请求delivery",
+        "阻塞理由是需求与复现证据不足而不是没有实现授权",
+        "不从截图推断隐藏算法用户需求或效果",
+        "取得真实角色任务和可复现机制前不改代码"
+      ]
+    },
+    {
+      "case_id": "PD-BEH-005",
+      "user_request": "为门店切换后的数据健康状态写产品验收。需求只说必须区分采集状态和验证状态，并显示业务日期与来源；没有给样本数、通过率、时限、支持门店数量或测试轮数。",
+      "response": {
+        "schema_version": "suxi.skill.behavior_response.v1",
+        "skill_name": "suxi-product-decision",
+        "case_id": "PD-BEH-005",
+        "response_text": "decision_status: decision_ready\n\ndecision: 将门店切换后的数据健康状态定义为当前选中门店的一组可回读事实：采集状态与验证状态必须作为两个独立字段展示，同时显示业务日期与来源；不得合并成一个笼统的健康结论。\n\nwhy_now: 采集成功不等于数据已验证。若两种状态被合并，或切换门店后仍展示上一门店的数据身份，后续收益分析会把未验证或错门店的数据当成可信事实。\n\nevidence:\n- 直接需求：必须区分采集状态和验证状态，并显示业务日期与来源。\n- 当前没有页面、接口或真实用户行为证据，因此本验收只约束上述产品行为，不声称现有实现已经满足。\n- 样本数、通过率、时限、支持门店数量和测试轮数均未定义，不把它们补写成验收门槛。\n\nsmallest_usable_loop: 数据健康入口 -> 用户切换门店 -> 系统读取当前门店的数据健康信息 -> 分别展示采集状态、验证状态、业务日期和来源 -> 用户能从同一状态区确认这些字段属于当前门店；加载、缺失或失败时明确显示对应状态，不沿用上一门店的值。\n\nacceptance:\n1. 完成门店切换后，数据健康状态区明确对应当前选中门店；新门店结果尚未返回时，不把上一门店结果显示成当前结果。\n2. 采集状态和验证状态具有独立标签与独立取值。两者不一致时仍分别如实展示，不能折叠为单一“正常”“健康”或“异常”。\n3. 同一状态区展示业务日期和来源，且它们与当前门店及当前展示的两种状态属于同一数据身份。\n4. 任一必需字段缺失、不可用或读取失败时，页面明确显示缺失或失败；不得用默认成功、空值美化、旧门店值或其他来源替代。\n5. 切换到其他门店后再查看状态，展示内容按新选中门店重新读取；采集状态、验证状态、业务日期和来源须一起更新，不能部分残留。\n6. 旧数据若缺少新增身份字段，保持可查看但明确标为未知或缺失，不据此放行到可信数据结论。\n\n不可退步底线: 不串门店，不把“已采集”解释为“已验证”，不隐藏业务日期或来源缺口，不因本页状态自动触发任何 OTA/PMS 写入或经营动作。\n\nnon_goals: 本次不规定样本量、通过率、响应时限、门店规模、测试轮数，也不扩展为全酒店经营判断、自动审批、调价、库存修改、消息发送或发布。\n\nrisks_and_unknowns: 当前未提供现有字段名、状态枚举及来源命名规则；这些未知可能影响文案和映射，但不改变“两种状态独立展示并带业务日期与来源”的决定。若系统实际上无法按当前门店绑定这四项信息，则该数据身份缺口会推翻“可直接验收”的前提，必须先补齐绑定。\n\nexecution_authorization: spec；仅给出产品验收，不修改产品、Git、数据或外部系统。\n\nnext_action: 将现有数据健康页面和接口字段逐项映射到“当前门店、采集状态、验证状态、业务日期、来源”这组验收事实，并用两种状态不一致的场景做确定性核对；缺项如实记录，不追加未给出的量化门槛。",
+        "self_report": {
+          "decision_status": "decision_ready",
+          "execution_mode": "spec",
+          "selected_direction": "approved_direction",
+          "evidence_scope": "provided_requirement",
+          "invented_numeric_thresholds": false,
+          "product_or_external_mutation": false,
+          "single_next_action": true,
+          "notes": "将用户给出的明确需求翻译为最小产品验收；未假定样本数、通过率、时限、支持门店数量或测试轮数，也未执行任何产品或外部动作。"
+        }
+      },
+      "response_sha256": "f4476a1f8773f5e7066a5a2f1e01afba7abb98e0d44382919563847722b1aba3",
+      "expected": {
+        "decision_status": [
+          "decision_ready"
+        ],
+        "execution_mode": [
+          "spec"
+        ],
+        "selected_direction": [
+          "approved_direction"
+        ],
+        "evidence_scope": [
+          "provided_requirement"
+        ],
+        "invented_numeric_thresholds": false,
+        "product_or_external_mutation": false,
+        "single_next_action": true
+      },
+      "assertions": [
+        "用确定性行为和字段事实作为验收oracle",
+        "不发明至少几家测试轮数百分比时限或X/X门槛",
+        "未给出的数字口径保持pending_decision或未知",
+        "不把测试样例数量包装成真实用户成功率"
+      ]
+    }
+  ]
+}

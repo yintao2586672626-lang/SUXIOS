@@ -158,9 +158,16 @@ export function normalizeMeituanOrderRows(value, options = {}) {
     quantitySources.add(quantityFact.source);
   }
 
+  const dateSource = options.requestDateEvidence?.date_source
+    || 'capture_context.default_data_date';
+  const dateBasis = options.requestDateEvidence?.date
+    ? 'order_date'
+    : 'unknown';
+
   return [{
     dataDate: normalizedDate,
-    date_source: options.requestDateEvidence?.date_source || 'capture_context.default_data_date',
+    date_basis: dateBasis,
+    date_source: dateSource,
     amount: Math.round(amountCents) / 100,
     quantity: roomNights,
     room_nights: roomNights,
@@ -173,8 +180,11 @@ export function normalizeMeituanOrderRows(value, options = {}) {
     amount_source_unit: 'cent',
     amount_storage_unit: 'yuan',
     quantity_scope: 'booked_room_nights',
+    room_nights_basis: 'booked_room_nights',
     quantity_source: [...quantitySources].sort().join('|'),
+    order_count_basis: 'listed_orders',
     order_count_source: 'data.results.length',
+    record_kind: 'order_daily_aggregate',
     result_total: resultTotal ?? rows.length,
     pagination_complete: true,
     floor_price_used_as_revenue: false,
@@ -527,6 +537,30 @@ export function normalizeMeituanSearchKeywordRows(value, options = {}) {
       data_value: item.value ?? item.dataValue ?? item.heat ?? null,
     }, 'search_keyword', `search_keywords.${index}`, options);
   });
+}
+
+export function normalizeMeituanAdvertisingRows(value, options = {}) {
+  const rows = firstArrayAtPath(value, [
+    ['data', 'cureShops'],
+    ['data', 'data', 'cureShops'],
+    ['data', 'records'],
+    ['data', 'list'],
+    ['data', 'rows'],
+    ['cureShops'],
+    ['records'],
+    ['list'],
+    ['rows'],
+    ['data'],
+  ]);
+
+  return rows
+    .filter(item => item && typeof item === 'object' && !Array.isArray(item))
+    .map((item, index) => decorateSupplementalRow(
+      { ...item },
+      'advertising',
+      joinSourcePath(options.sourcePath || '', ['advertising_rows', index]),
+      options,
+    ));
 }
 
 export function normalizeMeituanTrafficForecastRows(value, options = {}) {

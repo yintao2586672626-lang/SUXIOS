@@ -5,6 +5,7 @@ import path from 'node:path';
 import test from 'node:test';
 import vm from 'node:vm';
 import { fileURLToPath } from 'node:url';
+import { readRouteContractSource } from '../../scripts/lib/route_contract_source.mjs';
 import { readAppMainContractSource } from './helpers/frontend_source.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -23,7 +24,7 @@ const startupHelperBundle = read('public/app-startup-helpers.min.js');
 const appBootstrap = read('public/app-bootstrap.js');
 const appMain = readAppMainContractSource();
 const ctripPage = read('resources/frontend/templates/fragments/24-page-ctrip-ebooking.html');
-const routes = read('route/app.php');
+const routes = readRouteContractSource(repoRoot);
 const syncController = read('app/controller/ota/SyncController.php');
 const actionCatalog = read('app/domain/Ota/OtaActionCatalog.php');
 const actionDispatcher = read('app/service/Ota/OtaActionDispatcher.php');
@@ -206,11 +207,20 @@ test('floating operating consultant loads only after the user opens it and opens
   assert.equal(gate.props.style, 'z-index:75', 'the lightweight entry must remain above the mobile navigation before deferred styles load');
   const componentPromise = gate.props.onClick();
   await Promise.resolve();
-  assert.equal(scripts.length, 1, 'the first explicit click starts the full assistant load');
+  assert.equal(scripts.length, 1, 'the first explicit click starts the analyst dependency load');
+  const analystScript = scripts.find(script => script.src.includes('hotel-data-analyst-components.js'));
+  assert.ok(analystScript, 'the analyst dependency must load before the full assistant');
+  window.SUXI_HOTEL_DATA_ANALYST_COMPONENTS = {
+    create: () => ({}),
+  };
+  analystScript.dispatch('load');
+  await new Promise(resolve => setImmediate(resolve));
+  const fullScript = scripts.find(script => script.src.includes('operating-intelligence-components.js'));
+  assert.ok(fullScript, 'the full assistant must load after the analyst dependency');
   window.SUXI_OPERATING_INTELLIGENCE_COMPONENTS_FULL = {
     create: () => ({ operatingQuestionConsultant: { name: 'OperatingQuestionConsultant' } }),
   };
-  scripts[0].dispatch('load');
+  fullScript.dispatch('load');
   await componentPromise;
   const opened = render();
   assert.equal(opened.type.name, 'OperatingQuestionConsultant');
@@ -264,6 +274,9 @@ test('deferred component bridges replace a completed script that did not registe
       removeEventListener: () => {},
       dispatchEvent: () => {},
     };
+    if (contract.filename === 'operating-intelligence-loader.js') {
+      window.SUXI_HOTEL_DATA_ANALYST_COMPONENTS = { create: () => ({}) };
+    }
     const CustomEvent = class {
       constructor(type) { this.type = type; }
     };
@@ -278,14 +291,14 @@ test('deferred component bridges replace a completed script that did not registe
     const components = window[contract.bridgeKey].create({ Vue, h: () => null });
 
     const firstAttempt = components[contract.componentKey].loader();
-    await Promise.resolve();
+    await new Promise(resolve => setImmediate(resolve));
     assert.equal(scripts.length, 1, `${contract.filename} must create its first full-script node`);
     scripts[0].dispatch('load');
     await assert.rejects(firstAttempt, contract.expectedError);
     assert.equal(scripts.length, 0, `${contract.filename} must remove a completed unregistered script`);
 
     const retry = components[contract.componentKey].loader();
-    await Promise.resolve();
+    await new Promise(resolve => setImmediate(resolve));
     assert.equal(scripts.length, 1, `${contract.filename} retry must create a fresh full-script node`);
     window[contract.fullKey] = {
       create: () => ({ [contract.componentKey]: { name: contract.componentKey } }),
@@ -348,6 +361,9 @@ test('deferred component bridges discard a failed manifest script before retryin
       removeEventListener: () => {},
       dispatchEvent: () => {},
     };
+    if (contract.filename === 'operating-intelligence-loader.js') {
+      window.SUXI_HOTEL_DATA_ANALYST_COMPONENTS = { create: () => ({}) };
+    }
     const CustomEvent = class {
       constructor(type) { this.type = type; }
     };
@@ -362,14 +378,14 @@ test('deferred component bridges discard a failed manifest script before retryin
     const components = window[contract.bridgeKey].create({ Vue, h: () => null });
 
     const firstAttempt = components[contract.componentKey].loader();
-    await Promise.resolve();
+    await new Promise(resolve => setImmediate(resolve));
     assert.equal(scripts.length, 1, `${contract.filename} must reuse the manifest-created script`);
     manifestScript.dispatch('error');
     await assert.rejects(firstAttempt, contract.expectedError);
     assert.equal(scripts.length, 0, `${contract.filename} must remove the failed manifest-created script`);
 
     const retry = components[contract.componentKey].loader();
-    await Promise.resolve();
+    await new Promise(resolve => setImmediate(resolve));
     assert.equal(scripts.length, 1, `${contract.filename} retry must create a fresh script after manifest failure`);
     window[contract.fullKey] = {
       create: () => ({ [contract.componentKey]: { name: contract.componentKey } }),
@@ -393,7 +409,7 @@ test('Ctrip upload page renders immediate import preview and the persisted range
   ]) {
     assert.ok(panel.includes(binding), `lazy upload preview must render ${binding}`);
   }
-  assert.match(ctripPage, /<ctrip-order-analysis-panel\s+:ctx="\$root"><\/ctrip-order-analysis-panel>/);
+  assert.match(ctripPage, /<ctrip-order-analysis-panel\s+:ctx="\$root"\s+detail-mode="ctrip"><\/ctrip-order-analysis-panel>/);
   assert.match(appMain, /const openCtripChannelOrderEvidenceUpload = \(\) => \{/);
   assert.match(appMain, /ctripChannelOrderUploadOpen\.value = true/);
   assert.match(appMain, /\[data-testid="ctrip-channel-order-upload"\]/);

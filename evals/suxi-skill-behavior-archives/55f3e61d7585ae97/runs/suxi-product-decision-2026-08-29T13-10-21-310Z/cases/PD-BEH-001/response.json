@@ -1,0 +1,16 @@
+{
+  "schema_version": "suxi.skill.behavior_response.v1",
+  "skill_name": "suxi-product-decision",
+  "case_id": "PD-BEH-001",
+  "response_text": "decision_status: provisional\ndecision: 选择 B：让数据健康页明确区分“采集成功”和“数据已验证可信”，并在门店切换后显示业务日期与来源。\nwhy_now: 当前最靠前的断点是 OTA 数据可信状态和数据身份不清；这会直接阻断后续收益分析与 AI 决策的可信使用。\nevidence: 仅限本题合成证据：3 次合成可用性观察中，2 次把采集成功误解为可信，1 次在门店切换后无法确认日期。没有证据表明新增报告模板能修复该断点；当前也没有真实 OTA 写回 API、审批或效果回读证据支持 C。合成观察不能证明真实宿析用户行为，因此本决定不是 decision_ready。\nsmallest_usable_loop: 数据健康页 -> 选择或切换门店 -> 查看彼此独立的采集状态与验证可信状态 -> 同屏确认当前门店、业务日期和来源 -> 状态、日期或来源缺失时明确显示“未验证/不可用于决策”，不得以采集成功替代可信。\nacceptance: 门店切换后，页面展示与所选门店一致的业务日期和来源；采集成功但未验证的数据仍明确标为未验证，且不进入可信决策链；缺失或失败状态可见。\nnon_goals: 本周不增加报告模板，不建设或执行自动调价，不写回 OTA，不虚构审批、效果回读或真实用户结论。\nrisks_and_unknowns: 真实用户是否存在同样误解仍未知；若真实系统核对证明状态已经清晰区分且门店切换后的数据身份始终正确，或真实用户证据显示另一个更靠前断点，本决定应被推翻并重选。\nexecution_authorization: decision_only；未授权产品修改、OTA/PMS 写入、审批、发布或其他外部动作。\nnext_action: 用当前真实数据健康页完成一次同门店切换、同业务日期和来源范围的只读核对，以验证该断点是否在真实系统中存在。",
+  "self_report": {
+    "decision_status": "provisional",
+    "execution_mode": "decision_only",
+    "selected_direction": "B",
+    "evidence_scope": "synthetic",
+    "invented_numeric_thresholds": false,
+    "product_or_external_mutation": false,
+    "single_next_action": true,
+    "notes": "选择 B 修复最靠前的数据可信与身份断点；合成证据将状态上限限定为 provisional，且未执行任何产品或外部动作。"
+  }
+}

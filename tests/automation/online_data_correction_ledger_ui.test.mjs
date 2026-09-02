@@ -28,7 +28,12 @@ test('correction-ledger routes keep permission, hotel scope, and restore readbac
   assert.match(controller, /function restoreData\(\): Response[\s\S]*checkActionPermission\('can_delete_online_data'\)/);
   assert.match(controller, /permittedHotelIdsForAction\('can_delete_online_data'\)/);
   assert.match(controller, /\$row\['can_restore'\]/);
-  assert.match(service, /snapshotMatches\(\$before, \$restored\)/);
+  assert.match(
+    service,
+    /\$writableBefore = \$this->writableRestoreSnapshot\(\$before\);[\s\S]*snapshotMatches\(\$writableBefore, \$restored\)/,
+  );
+  assert.match(service, /!str_contains\(\$extra, 'GENERATED'\)/);
+  assert.match(service, /\(int\)\(\$column\['hidden'\] \?\? 0\) === 0/);
   assert.match(service, /online_data_restore_readback_mismatch/);
   assert.match(service, /\$ledgerId = \(int\)Db::name\(self::LEDGER_TABLE\)->insertGetId\(/);
 });
@@ -36,9 +41,21 @@ test('correction-ledger routes keep permission, hotel scope, and restore readbac
 test('data-record page exposes a permission-gated ledger with truthful states', () => {
   const frontend = read('public/app-main.js');
   const template = read('resources/frontend/templates/fragments/35-page-online-data.html');
+  const loadStart = frontend.indexOf('const loadOnlineDataCorrectionLedger');
+  const loadEnd = frontend.indexOf('const toggleOnlineDataCorrectionLedger', loadStart);
+  assert.ok(loadStart >= 0 && loadEnd > loadStart, 'correction ledger loader must exist');
+  const loadBlock = frontend.slice(loadStart, loadEnd);
 
   assert.match(frontend, /user\.value\?\.is_super_admin === true \|\| userHasPermission\('can_delete_online_data'\)/);
-  assert.match(frontend, /request\(`\/online-data\/correction-ledger\?\$\{params\.toString\(\)\}`\)/);
+  assert.match(loadBlock, /normalizeRequestCacheOptions\(options\)/);
+  assert.match(loadBlock, /if \(force\) params\.set\('_readback', `\$\{Date\.now\(\)\}-\$\{requestSeq\}`\)/);
+  assert.match(loadBlock, /scope: 'session'/);
+  assert.match(loadBlock, /direct: true/);
+  assert.match(loadBlock, /priority: force \? 'action' : 'current'/);
+  assert.doesNotMatch(loadBlock, /currentPageReadPolicy/);
+  assert.match(loadBlock, /force \? \{ cache: 'no-store' \} : \{\}/);
+  assert.match(loadBlock, /request\(`\/online-data\/correction-ledger\?\$\{params\.toString\(\)\}`/);
+  assert.match(frontend, /onlineDataCorrectionLedgerOpen\.value[\s\S]*?loadOnlineDataCorrectionLedger\(\{ page: 1, force: true \}\)/);
   assert.match(frontend, /!Array\.isArray\(res\?\.data\?\.list\)/);
   assert.match(frontend, /onlineDataCorrectionLedgerError\.value = String\(error\?\.message/);
   assert.match(template, /v-if="canUseOnlineDataCorrectionLedger"[^>]*data-testid="online-data-correction-ledger-toggle"/);
@@ -48,7 +65,7 @@ test('data-record page exposes a permission-gated ledger with truthful states', 
   assert.match(template, /row\.can_restore === true/);
 });
 
-test('restore requires the in-app confirmation form and verifies ledger readback before success', () => {
+test('restore requires the in-app confirmation form and verifies server ledger readback before success', () => {
   const frontend = read('public/app-main.js');
   const start = frontend.indexOf('const restoreOnlineDataCorrectionLedger');
   const end = frontend.indexOf('const loadOnlineDataList', start);
@@ -60,12 +77,13 @@ test('restore requires the in-app confirmation form and verifies ledger readback
   assert.doesNotMatch(restoreBlock, /\b(?:prompt|confirm)\s*\(/);
   assert.match(restoreBlock, /request\('\/online-data\/restore-data'/);
   assert.match(restoreBlock, /JSON\.stringify\(\{ ledger_id: ledgerId \}\)/);
-  assert.match(restoreBlock, /await loadOnlineDataCorrectionLedger/);
-  assert.match(restoreBlock, /readback\.can_restore !== false/);
-  assert.match(restoreBlock, /readback\.restored_at/);
-  assert.match(restoreBlock, /Number\(readback\.online_data_id \|\| 0\) !== restoredId/);
+  assert.match(restoreBlock, /const ledgerReadback = res\?\.data\?\.ledger/);
+  assert.match(restoreBlock, /ledgerReadback\.can_restore !== false/);
+  assert.match(restoreBlock, /ledgerReadback\.restored_at/);
+  assert.match(restoreBlock, /Number\(ledgerReadback\.online_data_id \|\| 0\) !== restoredId/);
+  assert.match(restoreBlock, /onlineDataCorrectionLedgerList\.value = onlineDataCorrectionLedgerList\.value\.map/);
   assert.ok(
-    restoreBlock.indexOf('showToast(`数据记录 #${restoredId} 已恢复') > restoreBlock.indexOf('readback.can_restore !== false'),
+    restoreBlock.indexOf('showToast(`数据记录 #${restoredId} 已恢复') > restoreBlock.indexOf('ledgerReadback.can_restore !== false'),
     'success toast must be emitted only after readback checks',
   );
 });

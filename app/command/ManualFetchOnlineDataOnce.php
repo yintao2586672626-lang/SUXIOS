@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace app\command;
 
+use app\service\BrowserCaptureTaskExecutionService;
 use app\service\OtaFailureNotificationService;
 use app\service\ManualOnlineFetchTaskService;
 use think\console\Command;
@@ -27,10 +28,24 @@ class ManualFetchOnlineDataOnce extends Command
         $taskService = new ManualOnlineFetchTaskService();
         if ($taskId === '' || $inputPath === '' || !is_file($inputPath)) {
             if ($taskId !== '') {
-                $taskService->markTaskFailed($taskId, 'background manual fetch task input is missing', 'input_missing');
+                $current = $taskService->readTaskStatus($taskId);
+                if ($current !== [] && strtolower(trim((string)($current['status'] ?? ''))) !== 'queued') {
+                    $output->writeln('Manual fetch task was already claimed or is terminal.');
+                    return 0;
+                }
+                if ($current === [] || strtolower(trim((string)($current['status'] ?? ''))) === 'queued') {
+                    $taskService->markTaskFailed($taskId, 'background manual fetch task input is missing', 'input_missing');
+                }
             }
             $output->writeln('Missing task input.');
             return 1;
+        }
+
+        $ownerId = 'manual-fetch:' . max(0, (int)getmypid()) . ':' . bin2hex(random_bytes(8));
+        $claim = $taskService->claimTaskForExecution($taskId, $ownerId);
+        if (($claim['claimed'] ?? false) !== true) {
+            $output->writeln('Manual fetch task was already claimed or is terminal.');
+            return 0;
         }
 
         try {
@@ -44,7 +59,7 @@ class ManualFetchOnlineDataOnce extends Command
             return 1;
         }
 
-        $taskStatus = $taskService->readTaskStatus($taskId);
+        $taskStatus = is_array($claim['status'] ?? null) ? $claim['status'] : [];
         if ((string)($task['task_id'] ?? '') !== $taskId
             || $taskStatus === []
             || (int)($taskStatus['hotel_id'] ?? 0) !== (int)($task['hotel_id'] ?? 0)
@@ -54,8 +69,6 @@ class ManualFetchOnlineDataOnce extends Command
             $output->writeln('Task input scope is invalid.');
             return 1;
         }
-
-        $taskService->markTaskRunning($taskId);
 
         $hotelId = (int)($task['hotel_id'] ?? 0);
         $apiUrl = trim((string)($task['api_url'] ?? ''));
@@ -74,7 +87,9 @@ class ManualFetchOnlineDataOnce extends Command
         $body['task_id'] = $taskId;
 
         try {
-            $result = $this->postJson($apiUrl, $authorization, $body, (int)($task['timeout_seconds'] ?? 3600));
+            $result = $this->isBrowserCaptureTask((string)($task['task_kind'] ?? ''))
+                ? (new BrowserCaptureTaskExecutionService())->execute($apiUrl, $authorization, $body)
+                : $this->postJson($apiUrl, $authorization, $body, (int)($task['timeout_seconds'] ?? 3600));
             $completion = $taskService->completeTask(
                 $taskId,
                 is_array($result['response'] ?? null) ? $result['response'] : [],
@@ -104,6 +119,14 @@ class ManualFetchOnlineDataOnce extends Command
         $status = (string)($completion['status'] ?? 'unverified');
         $output->writeln('Manual fetch task finished with status: ' . $status . '.');
         return $status === 'success' ? 0 : 2;
+    }
+
+    private function isBrowserCaptureTask(string $taskKind): bool
+    {
+        return in_array(strtolower(trim($taskKind)), [
+            'ctrip_browser_profile',
+            'meituan_browser_profile',
+        ], true);
     }
 
     private function resolveAuthorization(array $task): string

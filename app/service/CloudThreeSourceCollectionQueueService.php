@@ -84,6 +84,9 @@ final class CloudThreeSourceCollectionQueueService
     /** @var callable|null */
     private $canonicalHistoryFinalizer;
 
+    /** @var callable|null */
+    private $attemptStateLoader;
+
     private string $applicationRoot;
 
     public function __construct(
@@ -98,7 +101,8 @@ final class CloudThreeSourceCollectionQueueService
         ?callable $collectionAborter = null,
         ?callable $sleeper = null,
         ?callable $runReceiptWriter = null,
-        ?callable $canonicalHistoryFinalizer = null
+        ?callable $canonicalHistoryFinalizer = null,
+        ?callable $attemptStateLoader = null
     ) {
         $this->planLoader = $planLoader;
         $this->hotelLoader = $hotelLoader;
@@ -112,19 +116,19 @@ final class CloudThreeSourceCollectionQueueService
         $this->sleeper = $sleeper;
         $this->runReceiptWriter = $runReceiptWriter;
         $this->canonicalHistoryFinalizer = $canonicalHistoryFinalizer;
+        $this->attemptStateLoader = $attemptStateLoader;
     }
 
     /** @param array<string,mixed> $options @return array<string,mixed> */
     public function run(array $options = []): array
     {
         $now = $this->now();
-        $targetDate = trim((string)($options['target_date'] ?? $now->format('Y-m-d')));
+        $requestedTargetDate = trim((string)($options['target_date'] ?? ''));
         $childTimeoutSeconds = max(60, min(900, (int)($options['child_timeout_seconds'] ?? 540)));
         $deadlineSeconds = max(60, min(3300, (int)($options['deadline_seconds'] ?? 1500)));
         $controlTokenFile = trim((string)($options['control_token_file']
             ?? self::CONTROL_TOKEN_FILES[0]));
-        if (!$this->validDate($targetDate)
-            || $targetDate !== $now->format('Y-m-d')
+        if (($requestedTargetDate !== '' && !$this->validDate($requestedTargetDate))
             || !in_array($controlTokenFile, self::CONTROL_TOKEN_FILES, true)
         ) {
             return $this->queueFailure('cloud_three_source_queue_arguments_invalid');
@@ -153,7 +157,8 @@ final class CloudThreeSourceCollectionQueueService
                 'execution_mode' => 'global_serial',
                 'source_order' => self::SOURCE_ORDER,
                 'retry_policy' => $this->retryPolicy(),
-                'target_date' => $targetDate,
+                'target_date' => $requestedTargetDate !== '' ? $requestedTargetDate : null,
+                'target_dates' => [],
                 'eligible_plan_count' => 0,
                 'verified_hotel_count' => 0,
                 'blocked_hotel_count' => 0,
@@ -173,9 +178,50 @@ final class CloudThreeSourceCollectionQueueService
         $deadlineAt = $this->monotonicNow() + $deadlineSeconds;
         $hotelReceipts = [];
         $verifiedHotelCount = 0;
+        $duePlanCount = 0;
+        $skippedPlanCount = 0;
+        $blockedPlanCount = 0;
         $deadlineReached = false;
         $gatewayCleanupVerified = true;
+        $resolvedTargetDates = [];
         foreach ($plans as $plan) {
+            $executionWindow = $this->resolveExecutionWindow(
+                $plan,
+                $now,
+                $requestedTargetDate
+            );
+            $targetDate = (string)($executionWindow['target_date'] ?? '');
+            $runMode = (string)($executionWindow['run_mode'] ?? '');
+            if (($executionWindow['status'] ?? '') !== 'ready') {
+                $hotelReceipts[] = $this->blockedHotelReceipt(
+                    $plan,
+                    $targetDate,
+                    (string)($executionWindow['reason'] ?? 'collection_plan_execution_window_invalid')
+                );
+                $blockedPlanCount++;
+                continue;
+            }
+            $resolvedTargetDates[$targetDate] = true;
+            $due = $this->executionDue($plan, $targetDate, $runMode, $now);
+            if (($due['status'] ?? '') !== 'ready') {
+                if (($due['status'] ?? '') === 'not_due') {
+                    $hotelReceipts[] = $this->skippedHotelReceipt(
+                        $plan,
+                        $targetDate,
+                        (string)($due['reason'] ?? 'collection_plan_not_due')
+                    );
+                    $skippedPlanCount++;
+                } else {
+                    $hotelReceipts[] = $this->blockedHotelReceipt(
+                        $plan,
+                        $targetDate,
+                        (string)($due['reason'] ?? 'collection_plan_due_state_blocked')
+                    );
+                    $blockedPlanCount++;
+                }
+                continue;
+            }
+            $duePlanCount++;
             if (!$gatewayCleanupVerified) {
                 $hotelReceipts[] = $this->blockedHotelReceipt(
                     $plan,
@@ -198,6 +244,7 @@ final class CloudThreeSourceCollectionQueueService
             $receipt = $this->runPlan(
                 $plan,
                 $targetDate,
+                $runMode,
                 $controlTokenFile,
                 $childTimeoutSeconds,
                 $deadlineAt
@@ -214,23 +261,82 @@ final class CloudThreeSourceCollectionQueueService
             $hotelReceipts[] = $receipt;
         }
 
-        $allVerified = $verifiedHotelCount === count($plans) && !$deadlineReached;
+        $allVerified = $duePlanCount > 0
+            && $verifiedHotelCount === $duePlanCount
+            && $blockedPlanCount === 0
+            && !$deadlineReached;
         return [
-            'status' => $allVerified
-                ? 'all_hotels_saved_and_readback_verified'
-                : 'partial_or_blocked',
+            'status' => $duePlanCount === 0 && $blockedPlanCount === 0
+                ? 'no_due_plans'
+                : ($allVerified ? 'all_hotels_saved_and_readback_verified' : 'partial_or_blocked'),
             'execution_mode' => 'global_serial',
             'source_order' => self::SOURCE_ORDER,
             'retry_policy' => $this->retryPolicy(),
-            'target_date' => $targetDate,
+            'target_date' => count($resolvedTargetDates) === 1
+                ? (string)array_key_first($resolvedTargetDates)
+                : null,
+            'target_dates' => array_values(array_keys($resolvedTargetDates)),
             'eligible_plan_count' => count($plans),
+            'due_plan_count' => $duePlanCount,
+            'skipped_plan_count' => $skippedPlanCount,
+            'blocked_plan_count' => $blockedPlanCount,
             'verified_hotel_count' => $verifiedHotelCount,
-            'blocked_hotel_count' => count($plans) - $verifiedHotelCount,
+            'blocked_hotel_count' => max(0, $duePlanCount - $verifiedHotelCount) + $blockedPlanCount,
             'deadline_reached' => $deadlineReached,
             'gateway_cleanup_verified' => $gatewayCleanupVerified,
             'hotels' => $hotelReceipts,
             'message_sent' => false,
             'sensitive_values_exposed' => false,
+        ];
+    }
+
+    /**
+     * Resolve the business date from the persisted plan instead of forcing
+     * every queue run into the same-day realtime contract. An explicit date is
+     * accepted only when it matches the plan's current policy window.
+     *
+     * @param array<string,mixed> $plan
+     * @return array{status:string,target_date:string,run_mode:string,reason:?string}
+     */
+    private function resolveExecutionWindow(
+        array $plan,
+        DateTimeImmutable $now,
+        string $requestedTargetDate
+    ): array {
+        $policy = strtolower(trim((string)($plan['business_date_policy'] ?? '')));
+        $runMode = match ($policy) {
+            'same_day_realtime' => 'realtime',
+            'previous_business_day' => 'daily',
+            default => '',
+        };
+        if ($runMode === '') {
+            return [
+                'status' => 'blocked',
+                'target_date' => $requestedTargetDate,
+                'run_mode' => '',
+                'reason' => 'collection_plan_business_date_policy_unsupported',
+            ];
+        }
+
+        $expectedTargetDate = $policy === 'previous_business_day'
+            ? $now->modify('-1 day')->format('Y-m-d')
+            : $now->format('Y-m-d');
+        if ($requestedTargetDate !== '' && $requestedTargetDate !== $expectedTargetDate) {
+            return [
+                'status' => 'blocked',
+                'target_date' => $requestedTargetDate,
+                'run_mode' => $runMode,
+                'reason' => 'collection_plan_target_date_policy_mismatch',
+            ];
+        }
+
+        return [
+            'status' => 'ready',
+            'target_date' => $requestedTargetDate !== ''
+                ? $requestedTargetDate
+                : $expectedTargetDate,
+            'run_mode' => $runMode,
+            'reason' => null,
         ];
     }
 
@@ -241,6 +347,7 @@ final class CloudThreeSourceCollectionQueueService
     private function runPlan(
         array $plan,
         string $targetDate,
+        string $runMode,
         string $controlTokenFile,
         int $childTimeoutSeconds,
         float $deadlineAt
@@ -259,9 +366,19 @@ final class CloudThreeSourceCollectionQueueService
         ) {
             return $this->blockedHotelReceipt($plan, $targetDate, 'collection_plan_scope_invalid');
         }
-        if (strtolower(trim((string)($plan['business_date_policy'] ?? ''))) !== 'same_day_realtime') {
+        $businessDatePolicy = strtolower(trim((string)($plan['business_date_policy'] ?? '')));
+        $expectedRunMode = match ($businessDatePolicy) {
+            'same_day_realtime' => 'realtime',
+            'previous_business_day' => 'daily',
+            default => '',
+        };
+        if ($expectedRunMode === '') {
             return $this->blockedHotelReceipt($plan, $targetDate, 'collection_plan_business_date_policy_unsupported');
         }
+        if ($runMode !== $expectedRunMode) {
+            return $this->blockedHotelReceipt($plan, $targetDate, 'collection_plan_execution_mode_mismatch');
+        }
+        $dataPeriod = $runMode === 'daily' ? 'historical_daily' : 'realtime_snapshot';
 
         $sourcePlan = $this->decodeArray($plan['source_plan_json'] ?? null);
         $ctripSourceId = (int)($sourcePlan['ctrip']['data_source_id'] ?? 0);
@@ -272,6 +389,15 @@ final class CloudThreeSourceCollectionQueueService
             || !array_key_exists($pmsProvider, self::PMS_PROFILE_PLATFORM)
         ) {
             return $this->blockedHotelReceipt($plan, $targetDate, 'collection_plan_source_scope_invalid');
+        }
+        if ($runMode === 'daily'
+            && $pmsProvider === HotelPmsBindingService::PROVIDER_MEITUAN_CLOUD
+        ) {
+            return $this->blockedHotelReceipt(
+                $plan,
+                $targetDate,
+                'collection_plan_pms_historical_unsupported'
+            );
         }
 
         try {
@@ -296,7 +422,7 @@ final class CloudThreeSourceCollectionQueueService
                 $targetDate,
                 [$ctripSourceId, $meituanSourceId],
                 ['ctrip', 'meituan'],
-                'realtime'
+                $runMode
             );
         } catch (\Throwable $error) {
             return $this->blockedHotelReceipt(
@@ -317,11 +443,14 @@ final class CloudThreeSourceCollectionQueueService
             && (int)($authorization['system_hotel_id'] ?? 0) === $hotelId
             && (int)($authorization['execution_owner_user_id'] ?? 0) === $ownerUserId
             && (int)($authorization['plan_id'] ?? 0) === $planId
+            && (string)($authorization['business_date'] ?? '') === $targetDate
+            && (string)($authorization['run_mode'] ?? '') === $runMode
             && hash_equals(
                 $planHash,
                 strtolower(trim((string)($authorization['plan_hash'] ?? '')))
             )
             && $authorizedSourceIds === $expectedSourceIds
+            && $this->platformList($authorization['actual_platforms'] ?? []) === ['ctrip', 'meituan']
             && ($authorization['plan_readback_verified'] ?? false) === true
             && ($authorization['binding_digest_matches'] ?? false) === true;
 
@@ -331,7 +460,8 @@ final class CloudThreeSourceCollectionQueueService
         $runGate['tenant_id'] = $tenantId;
         $runGate['system_hotel_id'] = $hotelId;
         $runGate['business_date'] = $targetDate;
-        $runGate['run_mode'] = 'realtime';
+        $runGate['run_mode'] = $runMode;
+        $runGate['data_period'] = $dataPeriod;
         $runGate['plan_id'] = $planId;
         $runGate['plan_version'] = max(0, (int)($plan['plan_version'] ?? 0));
         $runGate['plan_hash'] = $planHash;
@@ -369,6 +499,7 @@ final class CloudThreeSourceCollectionQueueService
                 $tenantId,
                 $hotelId,
                 $targetDate,
+                $runMode,
                 $expectedSourceIds,
                 $authorizationVerified ? 'started' : 'blocked'
             )) {
@@ -417,6 +548,7 @@ final class CloudThreeSourceCollectionQueueService
                 $pmsProvider,
                 $ctripSourceId,
                 $meituanSourceId,
+                $runMode,
                 $reason
             );
             $blocked = $this->blockedHotelReceipt(
@@ -442,6 +574,7 @@ final class CloudThreeSourceCollectionQueueService
             '--owner-user-id=' . $ownerUserId,
             '--profile-id=' . $profiles['pms']['profile_public_id'],
             '--target-date=' . $targetDate,
+            '--run-mode=' . $runMode,
             '--control-token-file=' . $controlTokenFile,
             '--no-push',
         ];
@@ -459,6 +592,7 @@ final class CloudThreeSourceCollectionQueueService
                 '--owner-user-id=' . $ownerUserId,
                 '--profile-id=' . $profiles['ctrip']['profile_public_id'],
                 '--target-date=' . $targetDate,
+                '--run-mode=' . $runMode,
                 '--control-token-file=' . $controlTokenFile,
                 '--timeout-seconds=' . $otaCaptureTimeoutSeconds,
                 '--dispatcher-run-id=' . $dispatcherRunId,
@@ -472,6 +606,7 @@ final class CloudThreeSourceCollectionQueueService
                 '--owner-user-id=' . $ownerUserId,
                 '--profile-id=' . $profiles['meituan']['profile_public_id'],
                 '--target-date=' . $targetDate,
+                '--run-mode=' . $runMode,
                 '--control-token-file=' . $controlTokenFile,
                 '--timeout-seconds=' . $otaCaptureTimeoutSeconds,
                 '--dispatcher-run-id=' . $dispatcherRunId,
@@ -555,6 +690,7 @@ final class CloudThreeSourceCollectionQueueService
                             'owner_user_id' => $ownerUserId,
                             'data_source_id' => $sourceIds[$sourceKey],
                             'target_date' => $targetDate,
+                            'run_mode' => $runMode,
                             'dispatcher_run_id' => $dispatcherRunId,
                             'profile_public_id' => $profiles[$sourceKey]['profile_public_id'],
                             'attempt_count' => $attemptCount,
@@ -566,7 +702,8 @@ final class CloudThreeSourceCollectionQueueService
                         $child,
                         $dispatcherRunId,
                         $hotelId,
-                        $targetDate
+                        $targetDate,
+                        $dataPeriod
                     );
                     if (($receipt['timed_out'] ?? false) === true) {
                         $processCleanupVerified = ($child['process_group_cleanup_verified'] ?? false) === true;
@@ -663,7 +800,8 @@ final class CloudThreeSourceCollectionQueueService
                     $hotelId,
                     $targetDate,
                     [$ctripSourceId, $meituanSourceId],
-                    $sourceReceipts
+                    $sourceReceipts,
+                    $dataPeriod
                 );
                 $finalizationBudgetSeconds = (int)floor(
                     $deadlineAt - $this->monotonicNow()
@@ -694,10 +832,18 @@ final class CloudThreeSourceCollectionQueueService
                         $canonicalFinalization['canonical_history_complete'] = false;
                     }
                 }
+                $policy = new ScheduledAutoFetchPolicy();
+                if ($dataPeriod === 'historical_daily') {
+                    $finalizationReceipt = $policy->attachAuthorityVerifier(
+                        $finalizationReceipt,
+                        is_array($canonicalFinalization['overall_verifier'] ?? null)
+                            ? $canonicalFinalization['overall_verifier']
+                            : []
+                    );
+                }
                 $finalizationReceipt['canonical_history_finalization'] = $canonicalFinalization;
                 $finalizationReceipt['canonical_history_complete'] =
                     ($canonicalFinalization['canonical_history_complete'] ?? false) === true;
-                $policy = new ScheduledAutoFetchPolicy();
                 $trustedReady = $allVerified
                     && $policy->dailyTrustReceiptReady(
                         $finalizationReceipt,
@@ -743,6 +889,7 @@ final class CloudThreeSourceCollectionQueueService
                     $pmsProvider,
                     $sourceReceipts,
                     $finalizationReceipt,
+                    $runMode,
                     $trustedReady
                 );
             } catch (\Throwable) {
@@ -800,7 +947,7 @@ final class CloudThreeSourceCollectionQueueService
             return is_array($rows) ? array_values(array_filter($rows, 'is_array')) : [];
         }
         return Db::name('hotel_collection_plans')
-            ->field('id,tenant_id,system_hotel_id,plan_version,plan_status,enabled,active_slot,business_date_policy,execution_owner_user_id,binding_digest,plan_hash,source_plan_json,validation_status')
+            ->field('id,tenant_id,system_hotel_id,plan_version,plan_status,enabled,active_slot,business_date_policy,timezone,schedule_time,retry_interval_minutes,max_attempts,execution_owner_user_id,binding_digest,plan_hash,source_plan_json,validation_status')
             ->where('enabled', 1)
             ->where('active_slot', 1)
             ->where('plan_status', 'active')
@@ -817,6 +964,172 @@ final class CloudThreeSourceCollectionQueueService
             && (int)($plan['active_slot'] ?? 0) === 1
             && strtolower(trim((string)($plan['plan_status'] ?? ''))) === 'active'
             && strtolower(trim((string)($plan['validation_status'] ?? ''))) === 'ready';
+    }
+
+    /** @param array<string,mixed> $attempt */
+    private function planAttemptRetryAllowed(array $attempt): bool
+    {
+        $pmsStatus = strtolower(trim((string)($attempt['pms_status'] ?? '')));
+        $parentReceipt = $this->decodeArray($attempt['receipt_json'] ?? null);
+        $pmsAttempt = is_array($parentReceipt['pms_attempt'] ?? null)
+            ? $parentReceipt['pms_attempt']
+            : [];
+        if ($pmsStatus !== 'failed'
+            || ($pmsAttempt['business_data_persisted'] ?? null) !== false
+            || !in_array(
+                $this->safeCode((string)($pmsAttempt['reason_code'] ?? '')),
+                self::TRANSIENT_FAILURE_CODES,
+                true
+            )
+        ) {
+            return false;
+        }
+        $sources = array_values(array_filter(
+            is_array($attempt['source_receipts'] ?? null) ? $attempt['source_receipts'] : [],
+            'is_array'
+        ));
+        if (count($sources) !== 2) {
+            return false;
+        }
+        $platforms = [];
+        foreach ($sources as $source) {
+            $platform = strtolower(trim((string)($source['platform'] ?? '')));
+            $receipt = $this->decodeArray($source['receipt_json'] ?? null);
+            if (!in_array($platform, ['ctrip', 'meituan'], true)
+                || strtolower(trim((string)($source['status'] ?? ''))) !== 'failed'
+                || (int)($source['saved_row_count'] ?? 0) !== 0
+                || (int)($source['readback_row_count'] ?? 0) !== 0
+                || (int)($source['readback_verified'] ?? 0) !== 0
+                || ($receipt['business_data_persisted'] ?? null) !== false
+                || !in_array(
+                    $this->safeCode((string)($source['failure_code'] ?? $receipt['failure_code'] ?? '')),
+                    self::TRANSIENT_FAILURE_CODES,
+                    true
+                )
+            ) {
+                return false;
+            }
+            $platforms[$platform] = true;
+        }
+        $keys = array_keys($platforms);
+        sort($keys, SORT_STRING);
+        return $keys === ['ctrip', 'meituan'];
+    }
+
+    /** @param array<string,mixed> $plan @return array{status:string,reason:?string,attempt_number:int} */
+    private function executionDue(
+        array $plan,
+        string $targetDate,
+        string $runMode,
+        DateTimeImmutable $now
+    ): array {
+        $planId = (int)($plan['id'] ?? 0);
+        $planVersion = max(0, (int)($plan['plan_version'] ?? 0));
+        $tenantId = (int)($plan['tenant_id'] ?? 0);
+        $hotelId = (int)($plan['system_hotel_id'] ?? 0);
+        $timezone = trim((string)($plan['timezone'] ?? self::TIMEZONE));
+        $scheduleTime = trim((string)($plan['schedule_time'] ?? ''));
+        $retryMinutes = max(1, min(1440, (int)($plan['retry_interval_minutes'] ?? 14)));
+        $maxAttempts = max(1, min(50, (int)($plan['max_attempts'] ?? 7)));
+        if ($planId <= 0 || $tenantId <= 0 || $hotelId <= 0
+            || $timezone !== self::TIMEZONE
+            || preg_match('/^(?:[01][0-9]|2[0-3]):[0-5][0-9]$/D', $scheduleTime) !== 1
+            || !in_array($runMode, ['daily', 'realtime'], true)
+        ) {
+            return ['status' => 'blocked', 'reason' => 'collection_plan_schedule_invalid', 'attempt_number' => 0];
+        }
+        $scheduleAt = new DateTimeImmutable(
+            $now->setTimezone(new DateTimeZone(self::TIMEZONE))->format('Y-m-d') . ' ' . $scheduleTime . ':00',
+            new DateTimeZone(self::TIMEZONE)
+        );
+        if ($now < $scheduleAt) {
+            return ['status' => 'not_due', 'reason' => 'collection_plan_schedule_not_due', 'attempt_number' => 0];
+        }
+        try {
+            if ($this->attemptStateLoader !== null) {
+                $loaded = call_user_func(
+                    $this->attemptStateLoader,
+                    $plan,
+                    $targetDate,
+                    $runMode,
+                    $now
+                );
+                if (!is_array($loaded)) {
+                    throw new RuntimeException('collection_plan_attempt_state_invalid');
+                }
+                $attempts = array_values(array_filter($loaded, 'is_array'));
+            } else {
+                $attemptQuery = Db::name('hotel_collection_plan_runs')
+                ->field('id,status,failure_code,pms_status,pms_readback_verified,receipt_json,started_at,finished_at,update_time')
+                ->where('tenant_id', $tenantId)
+                ->where('system_hotel_id', $hotelId)
+                ->where('business_date', $targetDate)
+                ->where('run_mode', $runMode)
+                ->where('plan_id', $planId)
+                ->where('plan_version', $planVersion);
+                if ($runMode === 'realtime') {
+                    $attemptQuery->where(
+                        'started_at',
+                        '>=',
+                        $now->setTime((int)$now->format('H'), 0)->format('Y-m-d H:i:s')
+                    );
+                }
+                $attempts = $attemptQuery
+                    ->order('id', 'desc')
+                    ->limit($maxAttempts + 1)
+                    ->select()
+                    ->toArray();
+                foreach ($attempts as &$attempt) {
+                    if (!is_array($attempt) || (int)($attempt['id'] ?? 0) <= 0) continue;
+                    $attempt['source_receipts'] = Db::name('hotel_collection_plan_run_sources')
+                        ->field('platform,status,saved_row_count,readback_row_count,readback_verified,failure_code,receipt_json')
+                        ->where('run_id', (int)$attempt['id'])
+                        ->order('platform', 'asc')
+                        ->select()
+                        ->toArray();
+                }
+                unset($attempt);
+            }
+        } catch (\Throwable) {
+            return ['status' => 'blocked', 'reason' => 'collection_plan_attempt_state_unavailable', 'attempt_number' => 0];
+        }
+        foreach ($attempts as $attempt) {
+            if (is_array($attempt) && (string)($attempt['status'] ?? '') === 'succeeded') {
+                return ['status' => 'not_due', 'reason' => 'collection_plan_target_already_succeeded', 'attempt_number' => count($attempts)];
+            }
+        }
+        $attemptCount = count(array_filter($attempts, 'is_array'));
+        $latest = is_array($attempts[0] ?? null) ? $attempts[0] : [];
+        $latestAt = $this->timestamp((string)(
+            $latest['finished_at'] ?? $latest['update_time'] ?? $latest['started_at'] ?? ''
+        ));
+        if (in_array((string)($latest['status'] ?? ''), ['started', 'in_progress', 'collected'], true)
+            && $latestAt instanceof DateTimeImmutable
+            && $latestAt > $now->modify('-35 minutes')
+        ) {
+            return ['status' => 'not_due', 'reason' => 'collection_plan_attempt_in_progress', 'attempt_number' => $attemptCount];
+        }
+        if ($attemptCount > 0) {
+            foreach ($attempts as $attempt) {
+                if (!is_array($attempt) || !$this->planAttemptRetryAllowed($attempt)) {
+                    return [
+                        'status' => 'not_due',
+                        'reason' => 'collection_plan_manual_recovery_required',
+                        'attempt_number' => $attemptCount,
+                    ];
+                }
+            }
+        }
+        if ($attemptCount >= $maxAttempts) {
+            return ['status' => 'not_due', 'reason' => 'collection_plan_attempts_exhausted', 'attempt_number' => $attemptCount];
+        }
+        if ($attemptCount > 0
+            && $latestAt instanceof DateTimeImmutable
+            && $latestAt->modify('+' . $retryMinutes . ' minutes') > $now
+        ) {
+            return ['status' => 'not_due', 'reason' => 'collection_plan_retry_not_due', 'attempt_number' => $attemptCount + 1];
+        }
+        return ['status' => 'ready', 'reason' => null, 'attempt_number' => $attemptCount + 1];
     }
 
     /** @return array<string,mixed> */
@@ -1102,7 +1415,8 @@ final class CloudThreeSourceCollectionQueueService
         array $child,
         string $dispatcherRunId,
         int $hotelId,
-        string $targetDate
+        string $targetDate,
+        string $expectedDataPeriod
     ): array
     {
         $receipt = is_array($child['receipt'] ?? null) ? $child['receipt'] : [];
@@ -1122,6 +1436,11 @@ final class CloudThreeSourceCollectionQueueService
         $captureId = null;
         $taskId = null;
         $runReadback = [];
+        $receiptDataPeriod = strtolower(trim((string)($receipt['data_period'] ?? '')));
+        $historicalCoreStatus = strtolower(trim((string)(
+            $receipt['historical_core_contract_status']
+                ?? ($expectedDataPeriod === 'historical_daily' ? 'blocked' : 'not_required')
+        )));
         if ($sourceKey === 'pms') {
             $rawCaptureId = max(0, (int)($receipt['capture_id'] ?? 0));
             $captureId = $rawCaptureId > 0 ? $rawCaptureId : null;
@@ -1133,6 +1452,7 @@ final class CloudThreeSourceCollectionQueueService
                 && $status === 'saved_and_readback_verified'
                 && (string)($receipt['identity_status'] ?? '') === 'matched'
                 && (string)($receipt['readback_status'] ?? '') === 'readback_verified'
+                && $receiptDataPeriod === $expectedDataPeriod
                 && ($receipt['push_orchestration']['disabled_by_invocation'] ?? false) === true
                 && $savedCount === 1
                 && $readbackCount === 1;
@@ -1140,7 +1460,8 @@ final class CloudThreeSourceCollectionQueueService
             $rawTaskId = max(0, (int)($receipt['task_id'] ?? 0));
             $taskId = $rawTaskId > 0 ? $rawTaskId : null;
             $runReadback = $this->sanitizeRunReadback(
-                is_array($receipt['run_readback'] ?? null) ? $receipt['run_readback'] : []
+                is_array($receipt['run_readback'] ?? null) ? $receipt['run_readback'] : [],
+                $expectedDataPeriod
             );
             $runReadbackMatches = $runReadback !== []
                 && (string)($runReadback['dispatcher_run_id'] ?? '') === $dispatcherRunId
@@ -1149,6 +1470,8 @@ final class CloudThreeSourceCollectionQueueService
                 && (int)($runReadback['system_hotel_id'] ?? 0) === $hotelId
                 && (string)($runReadback['platform'] ?? '') === $sourceKey
                 && (string)($runReadback['target_date'] ?? '') === $targetDate
+                && (string)($runReadback['data_period'] ?? '') === $expectedDataPeriod
+                && (array)($runReadback['source_trace_ids'] ?? []) !== []
                 && (int)($runReadback['readback_count'] ?? 0) === $readbackCount
                 && count((array)($runReadback['row_ids'] ?? [])) === $readbackCount
                 && ($runReadback['readback_verified'] ?? false) === true
@@ -1157,12 +1480,17 @@ final class CloudThreeSourceCollectionQueueService
                 && (string)($runReadback['page_field_fact_status'] ?? '') === 'ready'
                 && (string)($runReadback['platform_hotel_identifier_status'] ?? '') === 'ready'
                 && (array)($runReadback['missing_traffic_metric_keys'] ?? []) === [];
+            $coreContractMatches = $expectedDataPeriod === 'historical_daily'
+                ? $historicalCoreStatus === 'ready'
+                : $historicalCoreStatus === 'not_required';
             $verified = !$timedOut
                 && !$messagePolicyViolated
                 && $exitCode === 0
                 && $status === 'saved_and_readback_verified'
                 && $taskId !== null
                 && $runReadbackMatches
+                && $receiptDataPeriod === $expectedDataPeriod
+                && $coreContractMatches
                 && ($receipt['business_data_persisted'] ?? false) === true
                 && ($receipt['readback_verified'] ?? false) === true
                 && ($receipt['gateway_receipt_readback_verified'] ?? false) === true
@@ -1188,6 +1516,8 @@ final class CloudThreeSourceCollectionQueueService
             'capture_id' => $captureId,
             'task_id' => $taskId,
             'run_readback' => $runReadback,
+            'data_period' => $receiptDataPeriod !== '' ? $receiptDataPeriod : null,
+            'historical_core_contract_status' => $historicalCoreStatus,
             'readback_verified' => $verified,
             'gateway_receipt_readback_verified' => $sourceKey === 'pms'
                 ? null
@@ -1258,6 +1588,7 @@ final class CloudThreeSourceCollectionQueueService
         int $tenantId,
         int $hotelId,
         string $businessDate,
+        string $expectedRunMode,
         array $expectedSourceIds,
         string $expectedStatus = 'started'
     ): bool {
@@ -1271,6 +1602,7 @@ final class CloudThreeSourceCollectionQueueService
             && (int)($receipt['tenant_id'] ?? 0) === $tenantId
             && (int)($receipt['system_hotel_id'] ?? 0) === $hotelId
             && (string)($receipt['business_date'] ?? '') === $businessDate
+            && (string)($receipt['run_mode'] ?? '') === $expectedRunMode
             && (string)($receipt['status'] ?? '') === $expectedStatus
             && ($receipt['ledger_structure_verified'] ?? false) === true
             && $sourceIds === $expectedSourceIds;
@@ -1284,6 +1616,7 @@ final class CloudThreeSourceCollectionQueueService
         string $pmsProvider,
         int $ctripSourceId,
         int $meituanSourceId,
+        string $runMode,
         string $reason
     ): bool {
         $pmsReceipt = $this->blockedSourceReceipt('pms', 0, $reason);
@@ -1331,7 +1664,8 @@ final class CloudThreeSourceCollectionQueueService
                 $hotelId,
                 $businessDate,
                 $pmsProvider,
-                [$pmsReceipt, $ctripReceipt, $meituanReceipt]
+                [$pmsReceipt, $ctripReceipt, $meituanReceipt],
+                $runMode
             );
         } catch (\Throwable) {
             return false;
@@ -1414,7 +1748,9 @@ final class CloudThreeSourceCollectionQueueService
             'status' => $verified ? 'success' : 'failed',
             'source_task_status' => $verified ? 'success' : 'failed',
             'ingestion_method' => 'browser_profile',
-            'historical_core_contract_status' => $verified ? 'not_required' : 'blocked',
+            'historical_core_contract_status' => strtolower(trim((string)(
+                $receipt['historical_core_contract_status'] ?? ($verified ? 'not_required' : 'blocked')
+            ))),
             'dispatcher_run_id' => $dispatcherRunId,
             'system_hotel_id' => $hotelId,
             'target_date' => $businessDate,
@@ -1423,6 +1759,11 @@ final class CloudThreeSourceCollectionQueueService
             'saved_count' => max(0, (int)($receipt['saved_count'] ?? 0)),
             'readback_count' => max(0, (int)($receipt['readback_count'] ?? 0)),
             'readback_verified' => $verified && ($receipt['readback_verified'] ?? false) === true,
+            'business_data_persisted' => array_key_exists('business_data_persisted', $receipt)
+                ? (($receipt['business_data_persisted'] ?? null) === true
+                    ? true
+                    : (($receipt['business_data_persisted'] ?? null) === false ? false : null))
+                : null,
             'run_readback' => is_array($receipt['run_readback'] ?? null)
                 ? $receipt['run_readback']
                 : [],
@@ -1462,12 +1803,14 @@ final class CloudThreeSourceCollectionQueueService
         int $hotelId,
         string $businessDate,
         string $pmsProvider,
-        array $sourceReceipts
+        array $sourceReceipts,
+        string $expectedRunMode
     ): bool {
         if ((string)($receipt['dispatcher_run_id'] ?? '') !== $dispatcherRunId
             || (int)($receipt['tenant_id'] ?? 0) !== $tenantId
             || (int)($receipt['system_hotel_id'] ?? 0) !== $hotelId
             || (string)($receipt['business_date'] ?? '') !== $businessDate
+            || (string)($receipt['run_mode'] ?? '') !== $expectedRunMode
             || ($receipt['ledger_structure_verified'] ?? false) !== true
         ) {
             return false;
@@ -1526,7 +1869,8 @@ final class CloudThreeSourceCollectionQueueService
         int $hotelId,
         string $targetDate,
         array $sourceIds,
-        array $sourceReceipts
+        array $sourceReceipts,
+        string $dataPeriod
     ): array {
         $platformResults = [];
         $savedCount = 0;
@@ -1565,7 +1909,7 @@ final class CloudThreeSourceCollectionQueueService
             $sourceIds,
             $outcome,
             $result,
-            'realtime_snapshot'
+            $dataPeriod
         );
         $receipt['dispatcher_run_id'] = $dispatcherRunId;
         return $receipt;
@@ -1675,6 +2019,7 @@ final class CloudThreeSourceCollectionQueueService
         string $pmsProvider,
         array $sourceReceipts,
         array $receipt,
+        string $expectedRunMode,
         bool $trustedReady
     ): bool {
         if (!$this->finalRunReceiptVerified(
@@ -1684,7 +2029,8 @@ final class CloudThreeSourceCollectionQueueService
             $hotelId,
             $targetDate,
             $pmsProvider,
-            $sourceReceipts
+            $sourceReceipts,
+            $expectedRunMode
         ) || ($runReceipt['readback_verified'] ?? false) !== true) {
             return false;
         }
@@ -1704,7 +2050,7 @@ final class CloudThreeSourceCollectionQueueService
     }
 
     /** @return array<string,mixed> */
-    private function sanitizeRunReadback(array $receipt): array
+    private function sanitizeRunReadback(array $receipt, string $expectedDataPeriod): array
     {
         $dispatcherRunId = strtolower(trim((string)($receipt['dispatcher_run_id'] ?? '')));
         if (preg_match('/^[a-f0-9]{8}-[a-f0-9]{4}-[1-5][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/D', $dispatcherRunId) !== 1) {
@@ -1712,6 +2058,7 @@ final class CloudThreeSourceCollectionQueueService
         }
         $targetDate = trim((string)($receipt['target_date'] ?? ''));
         $platform = strtolower(trim((string)($receipt['platform'] ?? '')));
+        $dataPeriod = strtolower(trim((string)($receipt['data_period'] ?? '')));
         $triggerType = strtolower(trim((string)($receipt['trigger_type'] ?? '')));
         $syncTaskId = max(0, (int)($receipt['sync_task_id'] ?? 0));
         $sourceId = max(0, (int)($receipt['data_source_id'] ?? 0));
@@ -1734,15 +2081,19 @@ final class CloudThreeSourceCollectionQueueService
             is_array($receipt['row_ids'] ?? null) ? $receipt['row_ids'] : []
         ))));
         sort($rowIds, SORT_NUMERIC);
+        $sourceTraceIds = $this->safeStringList($receipt['source_trace_ids'] ?? [], 50, 160);
         if ($dispatcherRunId === ''
             || !$this->validDate($targetDate)
             || !in_array($platform, ['ctrip', 'meituan'], true)
+            || !in_array($expectedDataPeriod, ['historical_daily', 'realtime_snapshot'], true)
+            || $dataPeriod !== $expectedDataPeriod
             || $triggerType !== 'daily_profile_reuse'
             || $syncTaskId <= 0
             || $sourceId <= 0
             || $hotelId <= 0
             || $readbackCount <= 0
             || count($rowIds) !== $readbackCount
+            || $sourceTraceIds === []
             || ($receipt['readback_verified'] ?? false) !== true
             || $p0Status !== 'ready'
             || $fieldFactStatus !== 'ready'
@@ -1761,6 +2112,7 @@ final class CloudThreeSourceCollectionQueueService
             'system_hotel_id' => $hotelId,
             'platform' => $platform,
             'target_date' => $targetDate,
+            'data_period' => $dataPeriod,
             'started_at' => trim((string)($receipt['started_at'] ?? '')),
             'p0_status' => $p0Status,
             'field_fact_status' => $fieldFactStatus,
@@ -1769,6 +2121,7 @@ final class CloudThreeSourceCollectionQueueService
             'missing_traffic_metric_keys' => [],
             'readback_count' => $readbackCount,
             'row_ids' => $rowIds,
+            'source_trace_ids' => $sourceTraceIds,
             'readback_verified' => true,
         ];
     }
@@ -1898,6 +2251,23 @@ final class CloudThreeSourceCollectionQueueService
             'retry_policy' => $this->retryPolicy(),
             'sources' => [],
             'deadline_reached' => $reason === 'queue_deadline_reached',
+            'message_sent' => false,
+            'sensitive_values_exposed' => false,
+        ];
+    }
+
+    /** @param array<string,mixed> $plan @return array<string,mixed> */
+    private function skippedHotelReceipt(array $plan, string $targetDate, string $reason): array
+    {
+        return [
+            'status' => 'not_due',
+            'reason' => $this->safeCode($reason) ?: 'collection_plan_not_due',
+            'plan_id' => (int)($plan['id'] ?? 0) ?: null,
+            'tenant_id' => (int)($plan['tenant_id'] ?? 0) ?: null,
+            'system_hotel_id' => (int)($plan['system_hotel_id'] ?? 0) ?: null,
+            'target_date' => $targetDate,
+            'sources' => [],
+            'deadline_reached' => false,
             'message_sent' => false,
             'sensitive_values_exposed' => false,
         ];
@@ -2042,5 +2412,45 @@ final class CloudThreeSourceCollectionQueueService
     {
         $value = trim((string)preg_replace('/[^a-zA-Z0-9_-]+/', '_', strtolower($value)), '_');
         return substr($value, 0, 120);
+    }
+
+    /** @return list<string> */
+    private function platformList(mixed $values): array
+    {
+        if (!is_array($values)) {
+            return [];
+        }
+        $platforms = [];
+        foreach ($values as $value) {
+            $platform = strtolower(trim((string)$value));
+            if (in_array($platform, ['ctrip', 'meituan'], true)) {
+                $platforms[$platform] = true;
+            }
+        }
+        $result = array_keys($platforms);
+        sort($result, SORT_STRING);
+        return $result;
+    }
+
+    /** @return list<string> */
+    private function safeStringList(mixed $values, int $limit, int $maxLength): array
+    {
+        if (!is_array($values)) {
+            return [];
+        }
+        $result = [];
+        foreach ($values as $value) {
+            $text = trim((string)$value);
+            if ($text === '' || strlen($text) > $maxLength
+                || preg_match('/^[A-Za-z0-9._:-]+$/D', $text) !== 1
+            ) {
+                continue;
+            }
+            $result[$text] = true;
+            if (count($result) >= $limit) {
+                break;
+            }
+        }
+        return array_keys($result);
     }
 }

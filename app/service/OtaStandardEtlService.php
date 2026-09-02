@@ -1417,6 +1417,9 @@ class OtaStandardEtlService
         $priceGap = $this->nullableNumber($row, $raw, ['price_gap', 'priceGap', 'price_difference', 'priceDifference']);
         $bookingDate = $this->dateValue($this->firstText($row, $raw, ['booking_date', 'bookingDate', 'order_date', 'orderDate', 'create_date', 'createDate']));
         $checkinDate = $this->dateValue($this->firstText($row, $raw, ['checkin_date', 'checkinDate', 'arrival_date', 'arrivalDate', 'stay_date', 'stayDate']));
+        $orderCountBasis = $this->orderCountBasis($row, $raw, $source, $dataType);
+        $roomNightsBasis = $this->roomNightsBasis($row, $raw, $source, $dataType);
+        $recordKind = $this->orderRecordKind($row, $raw, $dataType);
         if ($priceGap === null && $ourPrice !== null && $competitorPrice !== null) {
             $priceGap = round($ourPrice - $competitorPrice, 2);
         }
@@ -1444,6 +1447,9 @@ class OtaStandardEtlService
             'available_room_nights' => $availableRoomNights !== null ? round($availableRoomNights, 2) : null,
             'occupied_room_nights' => $occupiedRoomNights !== null ? round($occupiedRoomNights, 2) : null,
             'order_count' => $orders,
+            'order_count_basis' => $orderCountBasis,
+            'room_nights_basis' => $roomNightsBasis,
+            'record_kind' => $recordKind,
             'adr' => $roomRevenue !== null && $roomNights !== null && $roomNights > 0 ? round($roomRevenue / $roomNights, 2) : null,
             'occ' => $availableRoomNights !== null && $availableRoomNights > 0 && $occupiedRoomNights !== null
                 ? round($occupiedRoomNights / $availableRoomNights * 100, 2)
@@ -2478,6 +2484,110 @@ class OtaStandardEtlService
                 && $sourcePath !== '';
         }
         return false;
+    }
+
+    /** @param array<string, mixed> $row @param array<string, mixed> $raw */
+    private function orderCountBasis(
+        array $row,
+        array $raw,
+        string $source,
+        string $dataType
+    ): string {
+        if ($dataType !== 'order') {
+            return 'unknown';
+        }
+        $basis = strtolower($this->firstText($row, $raw, [
+            'order_count_basis',
+            'orderCountBasis',
+        ]));
+        if (in_array($basis, [
+            'active_non_cancelled_orders',
+            'listed_orders',
+            'paid_orders',
+            'source_aggregate_orders',
+            'source_order_count',
+            'one_order_row',
+        ], true)) {
+            return $basis;
+        }
+        if ($source === 'ctrip'
+            && trim((string)($raw['import_contract'] ?? '')) === 'ctrip_order_aggregate_v2'
+        ) {
+            return 'active_non_cancelled_orders';
+        }
+        if ($source === 'meituan'
+            && trim((string)($raw['order_count_source'] ?? '')) === 'data.results.length'
+        ) {
+            return 'listed_orders';
+        }
+        return 'unknown';
+    }
+
+    /** @param array<string, mixed> $row @param array<string, mixed> $raw */
+    private function roomNightsBasis(
+        array $row,
+        array $raw,
+        string $source,
+        string $dataType
+    ): string {
+        if ($dataType !== 'order') {
+            return 'unknown';
+        }
+        $basis = strtolower($this->firstText($row, $raw, [
+            'room_nights_basis',
+            'roomNightsBasis',
+            'quantity_scope',
+            'quantityScope',
+        ]));
+        if (in_array($basis, [
+            'active_non_cancelled_booked_room_nights',
+            'booked_room_nights',
+            'paid_room_nights',
+            'stayed_room_nights',
+        ], true)) {
+            return $basis;
+        }
+        if ($source === 'ctrip'
+            && trim((string)($raw['import_contract'] ?? '')) === 'ctrip_order_aggregate_v2'
+        ) {
+            return 'active_non_cancelled_booked_room_nights';
+        }
+        return 'unknown';
+    }
+
+    /** @param array<string, mixed> $row @param array<string, mixed> $raw */
+    private function orderRecordKind(array $row, array $raw, string $dataType): string
+    {
+        if ($dataType !== 'order') {
+            return 'unknown';
+        }
+        $kind = strtolower($this->firstText($row, $raw, [
+            'record_kind',
+            'recordKind',
+        ]));
+        if (str_contains($kind, 'aggregate') || str_contains($kind, 'summary')) {
+            return 'aggregate';
+        }
+        if (str_contains($kind, 'detail') || str_contains($kind, 'row')) {
+            return 'detail';
+        }
+        $dimension = strtolower(trim((string)($row['dimension'] ?? $raw['dimension'] ?? '')));
+        if (str_contains($dimension, 'aggregate') || str_starts_with($dimension, 'channel_order:')) {
+            return 'aggregate';
+        }
+        if ($this->verifiedOrderIdentityHash($row, $raw) !== '') {
+            return 'detail';
+        }
+        if ($this->nullableNumber($row, $raw, [
+            'book_order_num',
+            'bookOrderNum',
+            'order_count',
+            'orderCount',
+            'orders',
+        ]) !== null) {
+            return 'aggregate';
+        }
+        return 'unknown';
     }
 
     /**

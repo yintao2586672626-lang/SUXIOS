@@ -107,8 +107,8 @@ export async function buildDataConfigDialogsComponent(template) {
 }
 
 export async function buildBusinessClosureViewsComponent(views) {
-  if (!Array.isArray(views) || views.length !== 8) {
-    throw new Error('Business closure component build requires exactly eight extracted views.');
+  if (!Array.isArray(views) || views.length === 0) {
+    throw new Error('Business closure component build requires at least one extracted runtime view.');
   }
   const componentKeys = new Set();
   const definitions = views.map((view) => {
@@ -305,7 +305,6 @@ async function inspectFrontendTemplateBuildUnlocked(repoRoot) {
     '<knowledge-feature-finder-view :ctx="$root"></knowledge-feature-finder-view>',
     '<knowledge-promotion-workbench-view :ctx="$root"></knowledge-promotion-workbench-view>',
     '<operating-goal-intervention-view :ctx="$root"></operating-goal-intervention-view>',
-    '<home-temporal-trial-view v-if="!dualOtaPmsSelected" :ctx="$root"></home-temporal-trial-view>',
     '<knowledge-xlsx-import-dialog-view v-if="showKnowledgeCenterImportModal" :ctx="$root"></knowledge-xlsx-import-dialog-view>',
     '<meituan-review-order-evidence-view v-if="onlineDataTab === \'meituan-review-match\'" :ctx="$root"></meituan-review-order-evidence-view>',
     '<ai-daily-trusted-broadcast-view :ctx="$root"></ai-daily-trusted-broadcast-view>',
@@ -319,7 +318,6 @@ async function inspectFrontendTemplateBuildUnlocked(repoRoot) {
     'KnowledgeFeatureFinderBody',
     'KnowledgePromotionWorkbenchBody',
     'OperatingGoalInterventionBody',
-    'HomeTemporalTrialBody',
     'KnowledgeXlsxImportDialogBody',
     'MeituanReviewOrderEvidenceBody',
     'AiDailyTrustedBroadcastBody',

@@ -1,0 +1,63 @@
+{
+  "schema_version": "suxi.skill.behavior_test_execution_started.v1",
+  "execution_id": "b8e990f4-2084-4eaf-bd12-c80d8589678f",
+  "attempt_number": 1,
+  "previous_attempt_receipt_sha256": null,
+  "started_at": "2026-08-29T17:11:45.413Z",
+  "target": {
+    "archive_path_sha256": "4ed0cb511ef12a012bd28cf95ca88838c34bf5945480a32fb575390eb053b050",
+    "archive_manifest_sha256": "a8ed6b4490a9396efa1bf6410d0dccf7f8cbe33ae6a59217f37e51da5427bc9a",
+    "source_ledger_sha256": "55f3e61d7585ae97557fe1173351531d41e368b28b64c6b04fb3df293912688c",
+    "archive_seal_sha256": "203b7eeb757f882bd9f5019a6995046358c8f6b02dbb535ef99add34786fc968",
+    "verifier_receipt_sha256": "32a3b7d5828738a65625a6b11b86d5fc9a37470c04cb670d6a7f417a2e45915f",
+    "verifier_profile_sha256": "5c8ba945d81b81f78b69d92426807e95067dc9156cb858f31f78c139e63c85d2",
+    "verified_counts": {
+      "runs": 3,
+      "files": 155,
+      "bytes": 503173,
+      "seals": 6
+    }
+  },
+  "execution_profile": {
+    "schema_version": "suxi.skill.behavior_test_execution_profile.v1",
+    "wrapper": {
+      "path": "scripts/suxi_skill_test_execution.mjs",
+      "sha256": "8e4ec37943cf4059afca075fee044b66981388f6c93e2ad7f0b5db3f7bc396b6",
+      "bytes": 72196
+    },
+    "wrapper_contract_test": {
+      "path": "tests/automation/suxi_skill_test_execution_receipt.test.mjs",
+      "sha256": "81c20d82c68208e9e6a75f479e98fab963d8d426cc16113b23353cdb15a9ccfa",
+      "bytes": 16471
+    },
+    "node_executable": {
+      "realpath_sha256": "cfef83d46ea5e69b511ea30aaf1b6ab8fbf7caa6bcfef169d4993fed7c675c20",
+      "sha256": "ac51903c4c111815d52280b1fdcc8da067cbb37e2fe1a765097b85c3292c8582",
+      "bytes": 92540232
+    },
+    "runtime": {
+      "node_version": "v24.18.1",
+      "v8_version": "13.6.233.17-node.50",
+      "platform": "win32",
+      "arch": "x64"
+    },
+    "command_argv": [
+      "--test",
+      "--test-reporter=tap",
+      "tests/automation/suxi_skill_behavior_eval.test.mjs",
+      "tests/automation/suxi_skill_contracts.test.mjs"
+    ],
+    "command_argv_sha256": "4f7c113485054f8d27a10bd1a6c56fdb35a5140ab74d482d01bc75efcad7811d",
+    "cwd_policy_id": "suxi.private_frozen_workspace.v1",
+    "shell": false,
+    "environment_policy_id": "suxi.synthetic_fixed_node_test_env.v1",
+    "environment_sha256": "c0e35412e12141937d5d809a51370f82532905813c7e4632d05a9eee7c2a8b66",
+    "timeout_ms": 60000,
+    "output_limit_bytes": 8388608,
+    "workspace_manifest_sha256": "27bf1483fe68bc386cf4259e02feabc865b7490e5c6d5796721303e832a2d3b3"
+  },
+  "execution_profile_sha256": "268c5375fe763ae817b45d0cf0a99aef45b9f62f1ccb7a48622c924f7a9aaf32",
+  "workspace_manifest_sha256": "27bf1483fe68bc386cf4259e02feabc865b7490e5c6d5796721303e832a2d3b3",
+  "workspace_path_sha256": "a56ad2a542961f387155b779850c1a84f7cc9dfa8de17742dbe2b9b8db2e2f7b",
+  "preflight_snapshot_sha256": "d8d3d1d757af033991f006743f3187d3ac4f08df54cc48eb143d8a740b0506a6"
+}

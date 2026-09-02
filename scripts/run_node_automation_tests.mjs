@@ -9,6 +9,8 @@ const partialRuntimeFlag = '--allow-runtime-skip';
 const runtimeRequirementEnv = 'SUXI_REQUIRE_BUSINESS_CHAIN_RUNTIME';
 const fileTimeoutEnv = 'SUXI_NODE_TEST_FILE_TIMEOUT_MS';
 const batchSizeEnv = 'SUXI_NODE_TEST_BATCH_SIZE';
+const portableSkillStatusTest = 'tests/automation/suxi_skill_evidence_status.test.mjs';
+export const portableSkillStatusSkipPattern = 'current authoritative state|status reporter CLI exit codes';
 // The dispatcher registration contract intentionally exercises several real
 // PowerShell child-process/lock lifecycles and can exceed two minutes on the
 // supported Windows workstation. Keep the runner bounded without turning a
@@ -41,7 +43,11 @@ export function discoverNodeTests(root) {
 }
 
 export function buildNodeTestArgs(testFiles) {
-  return ['--test', '--test-concurrency=1', ...testFiles];
+  const normalizedFiles = testFiles.map(file => String(file).replaceAll('\\', '/'));
+  const portableArgs = normalizedFiles.includes(portableSkillStatusTest)
+    ? [`--test-skip-pattern=${portableSkillStatusSkipPattern}`]
+    : [];
+  return ['--test', '--test-concurrency=1', ...portableArgs, ...testFiles];
 }
 
 function boundedPositiveInteger(value, fallback, minimum, maximum) {

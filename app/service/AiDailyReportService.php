@@ -4,12 +4,14 @@ declare(strict_types=1);
 namespace app\service;
 
 use app\service\concern\AiDailyReportReadinessConcern;
+use app\service\concern\AiDailyReportExecutionReadConcern;
 use think\facade\Db;
 use Throwable;
 
 class AiDailyReportService
 {
     use AiDailyReportReadinessConcern;
+    use AiDailyReportExecutionReadConcern;
 
     private const TABLE = 'ai_daily_reports';
     private const DATA_OK = 'ok';
@@ -819,7 +821,13 @@ class AiDailyReportService
             static fn(array $row): int => (int)($row['id'] ?? 0),
             $rows
         ), static fn(int $id): bool => $id > 0));
-        $executionItemsByReportId = $this->executionItemsByReportId($hotelIds, $hotelId, $reportIds);
+        $executionLookup = $this->executionItemsByReportId($hotelIds, $hotelId, $reportIds);
+        $executionItemsByReportId = is_array($executionLookup['items_by_report_id'] ?? null)
+            ? $executionLookup['items_by_report_id']
+            : [];
+        $executionReadState = is_array($executionLookup['read_state'] ?? null)
+            ? $executionLookup['read_state']
+            : [];
         $humanJudgmentsByReportId = $this->humanJudgmentsByReportId($reportIds);
 
         $result = [];
@@ -828,7 +836,8 @@ class AiDailyReportService
             $result[] = $this->normalizeReportRow(
                 $row,
                 $executionItemsByReportId[$reportId] ?? [],
-                $humanJudgmentsByReportId[$reportId] ?? []
+                $humanJudgmentsByReportId[$reportId] ?? [],
+                $executionReadState
             );
         }
 
@@ -1162,83 +1171,6 @@ class AiDailyReportService
         ]);
     }
 
-    private function executionItemsByReportId(array $hotelIds, ?int $hotelId, array $reportIds): array
-    {
-        $reportIds = array_values(array_unique(array_filter(array_map('intval', $reportIds), static fn(int $id): bool => $id > 0)));
-        if (empty($reportIds) || !$this->tableExists('operation_execution_intents')) {
-            return [];
-        }
-
-        try {
-            $query = Db::name('operation_execution_intents')
-                ->whereNull('deleted_at')
-                ->where('source_module', 'ai_daily_report')
-                ->whereIn('source_record_id', $reportIds);
-            $this->applyHotelScope($query, $hotelIds, $hotelId);
-            $intentRows = $query->order('id', 'desc')->select()->toArray();
-            if (empty($intentRows)) {
-                return [];
-            }
-
-            $intentIds = array_map(static fn(array $row): int => (int)$row['id'], $intentRows);
-            $tasksByIntent = [];
-            $evidenceByIntent = [];
-            if ($this->tableExists('operation_execution_tasks')) {
-                $taskRows = Db::name('operation_execution_tasks')
-                    ->whereIn('intent_id', $intentIds)
-                    ->whereNull('deleted_at')
-                    ->order('id', 'desc')
-                    ->select()
-                    ->toArray();
-                $taskIntentMap = [];
-                foreach ($taskRows as $taskRow) {
-                    $intentId = (int)($taskRow['intent_id'] ?? 0);
-                    $taskId = (int)($taskRow['id'] ?? 0);
-                    if ($intentId <= 0) {
-                        continue;
-                    }
-                    $tasksByIntent[$intentId][] = $taskRow;
-                    if ($taskId > 0) {
-                        $taskIntentMap[$taskId] = $intentId;
-                    }
-                }
-
-                if (!empty($taskIntentMap) && $this->tableExists('operation_execution_evidence')) {
-                    $evidenceRows = Db::name('operation_execution_evidence')
-                        ->whereIn('task_id', array_keys($taskIntentMap))
-                        ->whereNull('deleted_at')
-                        ->order('id', 'desc')
-                        ->select()
-                        ->toArray();
-                    foreach ($evidenceRows as $evidenceRow) {
-                        $taskId = (int)($evidenceRow['task_id'] ?? 0);
-                        $intentId = $taskIntentMap[$taskId] ?? 0;
-                        if ($intentId > 0) {
-                            $evidenceByIntent[$intentId][] = $evidenceRow;
-                        }
-                    }
-                }
-            }
-
-            $itemsByReportId = [];
-            foreach ($intentRows as $intentRow) {
-                $intentId = (int)($intentRow['id'] ?? 0);
-                $reportId = (int)($intentRow['source_record_id'] ?? 0);
-                if ($intentId <= 0 || $reportId <= 0) {
-                    continue;
-                }
-                $itemsByReportId[$reportId][] = $this->operationService->buildExecutionFlowItem(
-                    $intentRow,
-                    $tasksByIntent[$intentId] ?? [],
-                    $evidenceByIntent[$intentId] ?? []
-                );
-            }
-
-            return $itemsByReportId;
-        } catch (Throwable $e) {
-            return [];
-        }
-    }
 
     private function enrichRecommendedActions(array $actions, array $executionItems, array $context = []): array
     {
@@ -4663,7 +4595,8 @@ class AiDailyReportService
     private function normalizeReportRow(
         array $row,
         array $executionItems = [],
-        array $persistedHumanJudgments = []
+        array $persistedHumanJudgments = [],
+        array $executionReadState = []
     ): array
     {
         foreach (['id', 'hotel_id', 'created_by', 'cache_hit_count'] as $field) {
@@ -4762,6 +4695,13 @@ class AiDailyReportService
             'review_window' => '执行后按约定复核时间，对比同酒店、同来源范围、同指标口径的执行前后数据',
         ];
         $row['recommended_actions'] = $this->enrichRecommendedActions($actions, $executionItems, $decisionQualityContext);
+        if (($executionReadState['data_status'] ?? '') === 'read_failed') {
+            $row['execution_evidence'] = $executionReadState;
+            $row['recommended_actions'] = $this->blockActionsForExecutionEvidenceReadFailure(
+                $row['recommended_actions'],
+                $executionReadState
+            );
+        }
         $row['recommendation_quality'] = $this->decisionQualityService->summarize(
             $row['recommended_actions'],
             $decisionQualityContext
@@ -4851,6 +4791,12 @@ class AiDailyReportService
         $row['result_readiness'] = $this->buildResultReadiness($row);
         $row['result_status'] = $row['result_readiness'];
         $row['workflow_readiness'] = $this->buildReportReadiness($row, $executionItems);
+        if (($executionReadState['data_status'] ?? '') === 'read_failed') {
+            $row['workflow_readiness'] = $this->blockWorkflowForExecutionEvidenceReadFailure(
+                $row['workflow_readiness'],
+                $executionReadState
+            );
+        }
         $row['workflow_status'] = $row['workflow_readiness'];
         // Compatibility alias for existing clients. This describes the operation
         // workflow only; result_readiness is the independent report usability state.

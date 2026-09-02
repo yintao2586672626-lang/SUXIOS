@@ -11,6 +11,7 @@ test('project copy keeps the OTA evidence to action review logic explicit', () =
   const terminology = read('docs/ota_i18n_terminology_logic.md');
   const publicEntry = readFrontendContractSource();
   const systemStatic = read('public/system-static.js');
+  const frozenLifecycle = read('resources/frontend/templates/fragments/29-page-lifecycle.html');
 
   assert.match(readme, /授权 OTA 可见数据 -> 采集证据 -> 字段目录 -> 标准事实/);
   assert.match(readme, /收益\/流量\/转化\/竞争圈诊断 -> 待确认 AI 建议/);
@@ -25,8 +26,9 @@ test('project copy keeps the OTA evidence to action review logic explicit', () =
   assert.match(terminology, /商旅渠道表现/);
   assert.match(terminology, /不把竞争圈当作市场全量/);
 
-  assert.match(publicEntry, /围绕授权 OTA 可见数据的线上获客、收益诊断、动作追踪和效果复盘/);
-  assert.match(publicEntry, />OTA数据<[^]*?>收益诊断<[^]*?>运营动作<[^]*?>效果复盘<[^]*?>投前辅助</);
+  assert.doesNotMatch(publicEntry, /data-testid="page-lifecycle"/);
+  assert.match(frozenLifecycle, /围绕授权 OTA 可见数据的线上获客、收益诊断、动作追踪和效果复盘/);
+  assert.match(frozenLifecycle, />OTA数据<[^]*?>收益诊断<[^]*?>运营动作<[^]*?>效果复盘<[^]*?>投前辅助</);
 
   assert.match(systemStatic, /name: '线上数据'/);
   assert.match(systemStatic, /name: '收益分析中心'/);

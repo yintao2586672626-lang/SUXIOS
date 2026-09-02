@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
-  "glossary_version": "2026-08-26.3",
-  "updated_at": "2026-08-26T00:55:00+08:00",
+  "glossary_version": "2026-08-26.6",
+  "updated_at": "2026-08-26T15:00:00+08:00",
   "source_count": 18,
   "sources": [
     {
@@ -131,28 +131,28 @@
       "role": "semantic_curation",
       "file": "curation.json",
       "path": "HOTEL/docs/knowledge/semantic-glossary/curation.json",
-      "bytes": 23143,
-      "sha256": "279ab20ade5837348de415afb00fd254c65e62bd02976fc8639b72e75d3cf246"
+      "bytes": 26677,
+      "sha256": "5a03b70504e891dbdeb5dc763839a4bed9a92ae9601ca911496bafb911b7d23f"
     },
     {
       "role": "semantic_builder",
       "file": "build_semantic_glossary.mjs",
       "path": "HOTEL/scripts/build_semantic_glossary.mjs",
-      "bytes": 30408,
-      "sha256": "c91d713ca31118a60ca852cadd33e0defc9ba4f126319c0fd352ba87398b897c"
+      "bytes": 31587,
+      "sha256": "f054a0d065ab508780fcaa03c055c8e436f638de4847012d7bb37902e618775e"
     }
   ],
   "semantic_pack": {
     "file": "semantic-glossary-pack.json",
-    "bytes": 4626318,
-    "sha256": "fae512f5b76d3be075bb9296f015c072143b446b86a96c0b247c6c11ee3a2294"
+    "bytes": 4627748,
+    "sha256": "955c10765195b7c2ddd7a1622f5082982838a6d63390551fc8bbfd47ee8272ae"
   },
   "typeless_voice_export": {
     "file": "Typeless_语音简洁词库_2026-08-25.csv",
     "term_count": 3000,
     "sha256": "83155ad4e5c914a45c2994fa7d4975e358961391e1c28e1d6185dcfeeab23902",
     "bytes": 47010,
-    "pack_sha256": "fae512f5b76d3be075bb9296f015c072143b446b86a96c0b247c6c11ee3a2294"
+    "pack_sha256": "955c10765195b7c2ddd7a1622f5082982838a6d63390551fc8bbfd47ee8272ae"
   },
   "boundary": {
     "content_execution_policy": "data_only_never_execute",

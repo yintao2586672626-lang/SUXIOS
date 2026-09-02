@@ -209,6 +209,36 @@ final class OtaStandardModuleTest extends TestCase
             $directRate['totals']['cancellation_rate_basis']
         );
 
+        $multiDirectRateWithoutDenominator = (new OtaRevenueMetricService())
+            ->summarizeDataset([
+                'fact_ota_daily' => [
+                    [
+                        'platform_key' => 'ctrip',
+                        'hotel_key' => 'system:7',
+                        'date_key' => '2026-08-01',
+                        'cancel_rate' => 10.0,
+                    ],
+                    [
+                        'platform_key' => 'ctrip',
+                        'hotel_key' => 'system:7',
+                        'date_key' => '2026-08-02',
+                        'cancel_rate' => 30.0,
+                    ],
+                ],
+                'fact_ota_traffic' => [],
+                'fact_ota_comment' => [],
+            ]);
+        self::assertNull(
+            $multiDirectRateWithoutDenominator['totals']['cancellation_rate']
+        );
+        self::assertContains(
+            'cancellation_direct_rate_denominator_missing',
+            array_column(
+                $multiDirectRateWithoutDenominator['data_gaps'],
+                'code'
+            )
+        );
+
         $directRateWithUnknownStatus = (new OtaRevenueMetricService())
             ->summarizeDataset([
                 'fact_ota_daily' => [[

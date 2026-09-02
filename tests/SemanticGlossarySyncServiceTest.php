@@ -71,6 +71,25 @@ final class SemanticGlossarySyncServiceTest extends TestCase
         );
     }
 
+    public function testNonPersistentValidationMatchesCurrentVersionAndSafetyBoundary(): void
+    {
+        $validated = (new SemanticGlossarySyncService())->sync(false);
+
+        self::assertSame('validated', $validated['status']);
+        self::assertFalse($validated['persisted']);
+        self::assertSame('2026-08-26.6', $validated['glossary_version']);
+        self::assertSame(7, $validated['revision_no']);
+        self::assertSame(2990, $validated['source_term_count']);
+        self::assertSame(3013, $validated['recognition_term_count']);
+        self::assertSame(2926, $validated['concept_count']);
+        self::assertSame(12, $validated['category_counts']['metric_alias']);
+        self::assertSame(5, $validated['ambiguous_alias_count']);
+        self::assertSame(0, $validated['failed_entry_count']);
+        self::assertFalse($validated['boundary']['decision_safe']);
+        self::assertFalse($validated['boundary']['task_draft_safe']);
+        self::assertFalse($validated['boundary']['external_write_authorized']);
+    }
+
     public function testTwoIdenticalPersistsKeepExactUnitMirrorAndChunkIds(): void
     {
         $service = new SemanticGlossarySyncService();
@@ -82,7 +101,7 @@ final class SemanticGlossarySyncServiceTest extends TestCase
         self::assertTrue($first['readback']['readback_verified']);
         self::assertSame(119, $first['readback']['inserted_chunk_count']);
         self::assertSame(0, $first['readback']['reused_chunk_count']);
-        self::assertSame(2927, $first['readback']['readback_concept_count']);
+        self::assertSame(2926, $first['readback']['readback_concept_count']);
         self::assertSame(119, $first['readback']['readback_active_chunk_count']);
         self::assertSame(0, $first['readback']['unsafe_chunk_count']);
         self::assertSame(0, $first['readback']['mismatch_count']);
@@ -117,9 +136,9 @@ final class SemanticGlossarySyncServiceTest extends TestCase
         $manifest = json_decode((string)file_get_contents($manifestPath), true);
         self::assertIsArray($pack);
         self::assertIsArray($manifest);
-        $pack['glossary_version'] = '2026-08-26.4-test';
-        $pack['revision_no'] = 5;
-        $pack['updated_at'] = '2026-08-26T01:00:00+08:00';
+        $pack['glossary_version'] = '2026-08-26.7-test';
+        $pack['revision_no'] = 8;
+        $pack['updated_at'] = '2026-08-26T02:00:00+08:00';
         $pack['change_summary'] = [
             'added_count' => 0,
             'removed_count' => 0,
@@ -161,7 +180,7 @@ final class SemanticGlossarySyncServiceTest extends TestCase
         self::assertSame(119, (int)Db::name('knowledge_chunks')->where('lifecycle_status', 'superseded')->count());
         self::assertSame(238, (int)Db::name('knowledge_chunks')->count());
         self::assertSame(
-            ['2026-08-26.3', '2026-08-26.4-test'],
+            ['2026-08-26.6', '2026-08-26.7-test'],
             array_values(array_unique(array_map(static function (mixed $content): string {
                 $decoded = json_decode((string)$content, true);
                 return is_array($decoded) ? (string)($decoded['seed_version'] ?? '') : '';

@@ -5,6 +5,7 @@ namespace app\controller;
 
 use app\service\OperatingOpportunityLabService;
 use app\service\OperatingOpportunityApprovalService;
+use app\service\WeeklyOperatingPlanSnapshotService;
 use InvalidArgumentException;
 use RuntimeException;
 use think\Response;
@@ -14,12 +15,14 @@ final class OperatingOpportunity extends Base
 {
     private OperatingOpportunityLabService $service;
     private OperatingOpportunityApprovalService $approvalService;
+    private WeeklyOperatingPlanSnapshotService $weeklyPlanService;
 
     public function __construct(\think\App $app)
     {
         parent::__construct($app);
         $this->service = new OperatingOpportunityLabService();
         $this->approvalService = new OperatingOpportunityApprovalService($this->service);
+        $this->weeklyPlanService = new WeeklyOperatingPlanSnapshotService();
     }
 
     public function overview(): Response
@@ -91,6 +94,31 @@ final class OperatingOpportunity extends Base
         }
     }
 
+    public function dailyPreviewFeedback(): Response
+    {
+        try {
+            $input = $this->requestData();
+            [$tenantId, $hotelId] = $this->resolveSingleHotelScope(
+                'operation.view',
+                (int)($input['hotel_id'] ?? $input['system_hotel_id'] ?? 0)
+            );
+            return $this->success($this->service->recordDailyPreviewFeedback(
+                $tenantId,
+                $hotelId,
+                (int)($this->currentUser->id ?? 0),
+                (string)($input['business_date'] ?? ''),
+                (string)($input['expected_selection_digest'] ?? ''),
+                (string)($input['expected_context_digest'] ?? ''),
+                (string)($input['expected_decision_digest'] ?? ''),
+                (string)($input['feedback_status'] ?? ''),
+                (string)($input['reason_code'] ?? ''),
+                (string)($input['idempotency_key'] ?? '')
+            ), '个人预览反馈已保存并精确回读');
+        } catch (Throwable $e) {
+            return $this->error($this->safeMessage($e, '个人预览反馈保存失败'), $this->statusCode($e));
+        }
+    }
+
     public function read(int $id): Response
     {
         try {
@@ -123,6 +151,39 @@ final class OperatingOpportunity extends Base
         }
     }
 
+    public function weeklyPlanLatest(): Response
+    {
+        try {
+            [$tenantId, $hotelId] = $this->resolveSingleHotelScope('operation.view');
+            $weekEnd = trim((string)$this->request->param('week_end', ''));
+            if ($weekEnd === '') {
+                $today = new \DateTimeImmutable('now', new \DateTimeZone('Asia/Shanghai'));
+                $weekEnd = $today->modify('-' . (int)$today->format('N') . ' days')->format('Y-m-d');
+            }
+            return $this->success($this->weeklyPlanService->readLatest(
+                $tenantId,
+                $hotelId,
+                $weekEnd
+            ));
+        } catch (Throwable $e) {
+            return $this->error($this->safeMessage($e, '读取周度经营计划失败'), $this->statusCode($e));
+        }
+    }
+
+    public function weeklyPlanRead(int $id): Response
+    {
+        try {
+            [$tenantId, $hotelId] = $this->resolveSingleHotelScope('operation.view');
+            return $this->success($this->weeklyPlanService->readExact(
+                $tenantId,
+                $hotelId,
+                $id
+            ));
+        } catch (Throwable $e) {
+            return $this->error($this->safeMessage($e, '读取周度经营计划快照失败'), $this->statusCode($e));
+        }
+    }
+
     /** @return array{0:int,1:int} */
     private function resolveSingleHotelScope(string $capability, int $inputHotelId = 0): array
     {
@@ -142,6 +203,7 @@ final class OperatingOpportunity extends Base
     {
         if ($e instanceof InvalidArgumentException) return 422;
         if ((int)$e->getCode() === 409) return 409;
+        if ((int)$e->getCode() === 404) return 404;
         if ((int)$e->getCode() === 503) return 503;
         $message = trim($e->getMessage());
         if ($message === '未登录') return 401;

@@ -21,6 +21,7 @@ class OperationManagementService
     use \app\service\operation\OperationExecutionTenantConcern;
     use \app\service\operation\OperationExecutionPersistenceConcern;
     use \app\service\operation\OperationActionLifecycleConcern;
+    use \app\service\operation\OperationExecutionAssigneeConcern;
 
     private RevenuePricingRecommendationService $pricingRecommendationService;
     private ExecutionOutcomeService $executionOutcomeService;
@@ -686,10 +687,7 @@ class OperationManagementService
         }
 
         $query = $this->scopeExecutionIntentQueryToCurrentHotelTenant($query);
-        $matchedTotal = (int)(clone $query)->count();
-        $limit = max(1, min(500, (int)($filters['limit'] ?? 100)));
-        $intentRows = $query->order('id', 'desc')->limit($limit)->select()->toArray();
-        $truncated = $matchedTotal > count($intentRows);
+        ['assigneeId' => $assigneeId, 'matchedTotal' => $matchedTotal, 'limit' => $limit, 'intentRows' => $intentRows, 'truncated' => $truncated] = $this->prepareExecutionFlowQuery($query, $filters);
         if (empty($intentRows)) {
             return $this->emptyExecutionFlowResponse();
         }
@@ -761,6 +759,8 @@ class OperationManagementService
                 $evidenceByIntent[$intentId] ?? []
             );
         }
+        $assigneeScope = $this->scopeExecutionFlowItemsToAssignee($items, $assigneeId, $limit, $matchedTotal, $truncated, $dataGaps);
+        ['items' => $items, 'summaryItems' => $summaryItems, 'matchedTotal' => $matchedTotal, 'truncated' => $truncated] = $assigneeScope;
         $identityGapCount = array_sum(array_map(
             static fn(array $item): int => (int)($item['identity']['gap_count'] ?? 0),
             $items
@@ -772,7 +772,7 @@ class OperationManagementService
             ];
         }
 
-        $summary = $this->buildExecutionFlowSummary($items);
+        $summary = $this->buildExecutionFlowSummary($summaryItems);
 
         return [
             'summary' => $summary,
@@ -798,7 +798,7 @@ class OperationManagementService
         $tasks = array_map([$this, 'normalizeExecutionTaskRow'], $taskRows);
         $evidence = array_map([$this, 'normalizeExecutionEvidenceRow'], $evidenceRows);
         $item = $this->executionFlowReadService->buildItem($intent, $tasks, $evidence);
-        $managedIntent = (new OperationActionLifecycleService())->decorateIntent(array_merge($intent, [
+        $managedIntent = (new OperationActionLifecycleService())->decorateCurrentDatabaseAggregate(array_merge($intent, [
             'tasks' => $tasks,
         ]));
         if (is_array($managedIntent['action_management'] ?? null)) {
@@ -2288,7 +2288,7 @@ class OperationManagementService
             ? $intent['target_value']
             : $this->decodeJson((string)($intent['target_value_json'] ?? ''));
         $card = is_array($target['action_card'] ?? null) ? $target['action_card'] : [];
-        if ((string)($card['contract_version'] ?? '') === OperationActionLifecycleService::CARD_CONTRACT_VERSION) {
+        if (in_array((string)($card['contract_version'] ?? ''), [OperationActionLifecycleService::CARD_CONTRACT_VERSION, OperationActionLifecycleService::DAILY_CARD_CONTRACT_VERSION], true)) {
             $contract = is_array($card['metric_contract'] ?? null) ? $card['metric_contract'] : [];
             return strtolower(trim((string)($contract['expected_direction'] ?? ''))) === 'observe'
                 && strtolower(trim((string)($contract['target_type'] ?? ''))) === 'observation'

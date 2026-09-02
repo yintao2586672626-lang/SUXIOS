@@ -4,9 +4,14 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import vm from 'node:vm';
 
+const revenueCockpitStaticSource = readFileSync('public/revenue-cockpit-static.js', 'utf8');
+const revenueAiStaticSource = readFileSync('public/revenue-ai-static.js', 'utf8');
 const context = { window: {}, URLSearchParams };
 vm.runInNewContext(readFileSync('public/revenue-overview-contract-static.js', 'utf8'), context, {
   filename: 'public/revenue-overview-contract-static.js',
+});
+vm.runInNewContext(revenueCockpitStaticSource, context, {
+  filename: 'public/revenue-cockpit-static.js',
 });
 vm.runInNewContext(readFileSync('public/revenue-ai-static.js', 'utf8'), context, {
   filename: 'public/revenue-ai-static.js',
@@ -227,7 +232,7 @@ test('Revenue AI entry lazy-loads the versioned helper outside the startup chain
   assert.match(appMain, /buildAiDailyFactGate: \(\) => \(\{[\s\S]*status: 'not_loaded'[\s\S]*configuredCount: null/);
   assert.match(appMain, /aiDailyReportActionExecutionReady: \(\) => false/);
   assert.match(appMain, /const HOME_SECONDARY_PANEL_DELAY_MS = 4200;/);
-  assert.match(appMain, /homeSecondaryPanelsReady\.value = true;[\s\S]*ensureRevenueAiStaticReady\(\)[\s\S]*loadRevenueAiOverview\(\)/);
+  assert.match(appMain, /ensureHomeSecondaryStaticRuntimeReady\(\)[\s\S]*ensureRevenueAiStaticReady\(\)[\s\S]*homeSecondaryPanelsReady\.value = isCompassDataPage\(\);[\s\S]*homeSecondaryPanelsReady\.value \? loadRevenueAiOverview\(\) : null/);
   assert.match(appMain, /if \(newPage === 'agent-center'\) \{[\s\S]*runPageLoadOnce\(newPage, 'revenue-ai-static', \(\) => ensureRevenueAiStaticReady\(\)\)/);
   assert.match(appMain, /if \(newPage === 'ai-daily-report'\) \{[\s\S]*await ensureRevenueAiStaticReady\(\);[\s\S]*return loadAiDailyReport\(\);/);
   assert.match(html, /requireRevenueAiStatic\('buildRevenueAiBusinessClosure'\)/);
@@ -245,6 +250,69 @@ test('Revenue AI entry lazy-loads the versioned helper outside the startup chain
   assert.match(html, /requireRevenueAiStatic\('buildRevenueAiPricingGenerationPreflightSummary'\)/);
   assert.match(html, /requireRevenueAiStatic\('buildRevenueAiPriceSuggestionGenerateResult'\)/);
   assert.doesNotMatch(html, /已生成 \$\{res\.data\?\.created_count \|\| 0\} 条建议/);
+});
+
+test('Revenue cockpit domain lazy-loads from a bounded helper and composes the stable public API', async () => {
+  assert.ok(revenueAiStaticSource.split(/\r?\n/).length < 4900, 'Revenue AI shell must stay below 4,900 lines');
+  assert.ok(revenueCockpitStaticSource.split(/\r?\n/).length < 5000, 'cockpit helper must not become a new hotspot');
+  assert.doesNotMatch(revenueAiStaticSource, /const revenueCockpitPlatformLabel =/);
+  assert.match(revenueCockpitStaticSource, /window\.SUXI_REVENUE_COCKPIT_STATIC = Object\.freeze/);
+  assert.match(revenueAiStaticSource, /const revenueCockpitStaticScript = 'revenue-cockpit-static\.js';/);
+  const cockpitHash = crypto.createHash('sha256')
+    .update(readFileSync('public/revenue-cockpit-static.js'))
+    .digest('hex')
+    .slice(0, 10);
+  assert.match(
+    revenueAiStaticSource,
+    new RegExp(`const revenueCockpitStaticVersion = '[^']*-h${cockpitHash}';`),
+  );
+
+  const appendedSources = [];
+  const scriptNodes = [];
+  let lazyContext;
+  const document = {
+    head: {
+      appendChild(script) {
+        scriptNodes.push(script);
+        appendedSources.push(script.src);
+        queueMicrotask(() => {
+          vm.runInNewContext(revenueCockpitStaticSource, lazyContext, {
+            filename: 'public/revenue-cockpit-static.js',
+          });
+          script.onload();
+        });
+      },
+    },
+    createElement(tagName) {
+      assert.equal(tagName, 'script');
+      return {
+        dataset: {},
+        remove() {},
+      };
+    },
+    querySelector(selector) {
+      if (!selector.includes('data-suxi-revenue-cockpit-static')) return null;
+      return scriptNodes.find((script) => script.dataset.loaded !== '1') || null;
+    },
+  };
+  lazyContext = { window: {}, document, URLSearchParams };
+  vm.runInNewContext(readFileSync('public/revenue-overview-contract-static.js', 'utf8'), lazyContext, {
+    filename: 'public/revenue-overview-contract-static.js',
+  });
+  vm.runInNewContext(revenueAiStaticSource, lazyContext, {
+    filename: 'public/revenue-ai-static.js',
+  });
+  const lazyApi = lazyContext.window.SUXI_REVENUE_AI_STATIC;
+  assert.equal(lazyContext.window.SUXI_REVENUE_COCKPIT_STATIC, undefined);
+  assert.equal(lazyApi.resolveRevenueCockpitScope({}).status, 'not_loaded');
+  assert.equal(lazyApi.buildRevenueCockpitModel({}).status, 'loading');
+  const loaded = await lazyApi.loadRevenueCockpitStatic();
+  assert.equal(appendedSources.length, 1);
+  assert.match(appendedSources[0], new RegExp(`^revenue-cockpit-static\\.js\\?v=[^&]+-h${cockpitHash}$`));
+  assert.equal(typeof loaded.buildRevenueCockpitModel, 'function');
+  assert.equal(lazyApi.buildRevenueCockpitModel({}).status, 'blocked');
+  assert.equal(lazyContext.window.SUXI_REVENUE_AI_STATIC, lazyApi, 'public API object identity must stay stable');
+  assert.equal(Object.isFrozen(lazyApi), true);
 });
 
 test('AI daily report generation uses background tasks, exact readback, and sync compatibility', () => {
@@ -3669,7 +3737,7 @@ test('revenue decision snapshot posts and reads back the same canonical model di
 });
 
 test('daily revenue cockpit template exposes unified context, evidence, download and human-gated handoffs', () => {
-  const cockpitRuntime = readFileSync('public/revenue-ai-static.js', 'utf8');
+  const cockpitRuntime = `${revenueAiStaticSource}\n${revenueCockpitStaticSource}`;
   for (const marker of [
     'data-testid="revenue-daily-cockpit"',
     'data-testid="revenue-cockpit-hotel"',

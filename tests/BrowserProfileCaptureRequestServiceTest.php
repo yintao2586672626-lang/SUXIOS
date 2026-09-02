@@ -354,7 +354,10 @@ final class BrowserProfileCaptureRequestServiceTest extends TestCase
         self::assertSame('poi-1', $plan['poi_id']);
         self::assertSame(120, $plan['timeout_seconds']);
         self::assertStringEndsWith('runtime' . DIRECTORY_SEPARATOR . 'meituan_capture', $plan['output_dir']);
-        self::assertStringEndsWith('meituan_capture_store-1_20260612010101.json', $plan['output_path']);
+        self::assertMatchesRegularExpression(
+            '/meituan_capture_store-1_20260612010101_\d{6}_[a-f0-9]{16}\.json$/D',
+            str_replace('\\', '/', $plan['output_path'])
+        );
         self::assertSame([
             'node',
             'D:\\project' . DIRECTORY_SEPARATOR . 'scripts' . DIRECTORY_SEPARATOR . 'meituan_browser_capture.mjs',
@@ -492,7 +495,10 @@ final class BrowserProfileCaptureRequestServiceTest extends TestCase
         self::assertSame('system_9', $plan['profile_id']);
         self::assertSame(60, $plan['timeout_seconds']);
         self::assertStringEndsWith('runtime' . DIRECTORY_SEPARATOR . 'ctrip_capture', $plan['output_dir']);
-        self::assertStringEndsWith('ctrip_browser_capture_system_9_20260612010101.json', $plan['output_path']);
+        self::assertMatchesRegularExpression(
+            '/ctrip_browser_capture_system_9_20260612010101_\d{6}_[a-f0-9]{16}\.json$/D',
+            str_replace('\\', '/', $plan['output_path'])
+        );
         self::assertSame([
             'node',
             'D:\\project' . DIRECTORY_SEPARATOR . 'scripts' . DIRECTORY_SEPARATOR . 'ctrip_browser_capture.mjs',

@@ -266,7 +266,17 @@ final class LongitudinalEvidenceLearningServiceTest extends TestCase
         self::assertSame(3, $summary['reviewed_observation_count']);
         self::assertSame(2, $summary['duplicate_review_count']);
         self::assertSame(1, $summary['pattern_candidate_count']);
+        self::assertSame(1, $summary['outcome_tie_break_candidate_count']);
         self::assertSame('pattern_candidate', $summary['items'][0]['learning_stage']);
+        self::assertTrue($summary['items'][0]['outcome_tie_break_eligible']);
+        self::assertSame(80, $summary['items'][0]['scope']['system_hotel_id']);
+        self::assertSame('meituan', $summary['items'][0]['scope']['platform']);
+        self::assertSame('advertising_roas', $summary['items'][0]['scope']['metric_key']);
+        self::assertSame(0, $summary['indeterminate_review_count']);
+        self::assertSame(
+            'after_exact_four_dimension_tie_before_stable_candidate_key',
+            $summary['outcome_tie_break_policy']['position']
+        );
         self::assertFalse($summary['items'][0]['candidate_sop_eligible']);
         self::assertFalse($summary['automatic_sop_promotion']);
 
@@ -288,6 +298,28 @@ final class LongitudinalEvidenceLearningServiceTest extends TestCase
         self::assertSame('contradictory_evidence', $withContradiction['status']);
         self::assertSame('contradictory_evidence', $withContradiction['items'][0]['status']);
         self::assertSame('action_reviewed', $withContradiction['items'][0]['learning_stage']);
+        self::assertFalse($withContradiction['items'][0]['outcome_tie_break_eligible']);
+
+        $indeterminate = [
+            ...$third,
+            'action' => [
+                ...$third['action'],
+                'action_ref' => 'operation_execution_task#207',
+                'evidence_refs' => ['operation_execution_task#207'],
+                'expectation_status' => 'indeterminate',
+            ],
+            'followup' => [
+                ...$third['followup'],
+                'captured_at' => '2026-07-26 08:00:00',
+                'evidence_refs' => ['online_daily_data#108'],
+            ],
+        ];
+        $withIndeterminate = $service->summarizeReviews([$first, $second, $third, $indeterminate]);
+        self::assertSame('accumulating', $withIndeterminate['status']);
+        self::assertSame(0, $withIndeterminate['pattern_candidate_count']);
+        self::assertSame(1, $withIndeterminate['indeterminate_review_count']);
+        self::assertSame(1, $withIndeterminate['items'][0]['not_declared_count']);
+        self::assertFalse($withIndeterminate['items'][0]['outcome_tie_break_eligible']);
 
         $differentAction = [
             ...$third,
@@ -306,6 +338,43 @@ final class LongitudinalEvidenceLearningServiceTest extends TestCase
         $splitActions = $service->summarizeReviews([$first, $second, $differentAction]);
         self::assertSame(2, count($splitActions['items']));
         self::assertSame(0, $splitActions['pattern_candidate_count']);
+    }
+
+    public function testLegacyPartialReviewsRemainVisibleButCannotDriveOutcomeTieBreak(): void
+    {
+        $comparisonKey = 'longitudinal:' . str_repeat('a', 64);
+        $reviews = [];
+        foreach ([1, 2, 3] as $index) {
+            $reviews[] = [
+                'status' => 'verified',
+                'learning_stage' => 'action_reviewed',
+                'comparison_key' => $comparisonKey,
+                'causality_claimed' => false,
+                'action' => [
+                    'action_ref' => 'legacy_task#' . $index,
+                    'action_type' => 'advertising_budget_review',
+                    'expected_direction' => 'increase',
+                    'expectation_status' => 'aligned',
+                ],
+                'followup' => [
+                    'period_start' => '2026-07-' . (string)(20 + $index),
+                    'period_end' => '2026-07-' . (string)(20 + $index),
+                    'captured_at' => '2026-07-' . (string)(20 + $index) . ' 08:00:00',
+                    'evidence_refs' => ['online_daily_data#legacy-' . $index],
+                ],
+                'delta' => ['movement' => 'increase'],
+            ];
+        }
+
+        $summary = (new LongitudinalEvidenceLearningService())->summarizeReviews($reviews);
+
+        self::assertSame('pattern_candidate', $summary['status']);
+        self::assertSame(1, $summary['pattern_candidate_count']);
+        self::assertSame(0, $summary['outcome_tie_break_candidate_count']);
+        self::assertFalse($summary['items'][0]['strict_scope_verified']);
+        self::assertSame([], $summary['items'][0]['scope']);
+        self::assertFalse($summary['items'][0]['outcome_tie_break_eligible']);
+        self::assertFalse($summary['automatic_sop_promotion']);
     }
 
     /** @param array<string, mixed> $overrides @return array<string, mixed> */

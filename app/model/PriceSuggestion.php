@@ -35,10 +35,11 @@ class PriceSuggestion extends BaseTenantModel
         'confidence_score' => 'float',
         'competitor_data' => 'json',
         'factors' => 'json',
+        'decision_source_refs' => 'json',
         'applied_by' => 'integer',
     ];
     
-    protected $json = ['competitor_data', 'factors'];
+    protected $json = ['competitor_data', 'factors', 'decision_source_refs'];
     protected $jsonAssoc = true;
     protected $hidden = ['active_dedupe_key'];
 

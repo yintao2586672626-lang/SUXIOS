@@ -83,7 +83,11 @@ final class ExpansionExecutionIntentIdempotencyTest extends TestCase
 
     public function testQuantSimulationSaveRequiresAuthoritativeHotelTableAndWritesNothing(): void
     {
-        Db::name('users')->insert(['id' => 3, 'tenant_id' => 7, 'hotel_id' => 7]);
+        if ((int)Db::name('users')->where('id', 3)->count() === 0) {
+            Db::name('users')->insert(['id' => 3, 'tenant_id' => 7, 'hotel_id' => 7]);
+        } else {
+            Db::name('users')->where('id', 3)->update(['tenant_id' => 7, 'hotel_id' => 7]);
+        }
         $before = (int)Db::name('quant_simulation_records')->count();
         $client = new class extends LlmClient {
             public function createJsonResponse(
@@ -127,6 +131,52 @@ final class ExpansionExecutionIntentIdempotencyTest extends TestCase
         }
 
         self::assertSame($before, (int)Db::name('quant_simulation_records')->count());
+    }
+
+    public function testQuantRecordAccessFilterRunsBeforeTheThirtyRowLimitAndKeepsLegacyReadOnlyRows(): void
+    {
+        Db::name('users')->insert(['id' => 3, 'tenant_id' => 7, 'hotel_id' => 7]);
+        $now = '2026-08-30 10:00:00';
+        Db::name('quant_simulation_records')->insert([
+            'tenant_id' => 7,
+            'project_name' => 'legacy-visible',
+            'input_json' => '{}',
+            'result_json' => '{}',
+            'scenarios_json' => '[]',
+            'risk_hints_json' => '[]',
+            'monthly_net_cashflow' => 0,
+            'payback_months' => null,
+            'risk_level' => '',
+            'created_by' => 3,
+            'created_at' => $now,
+            'updated_at' => $now,
+        ]);
+        for ($index = 1; $index <= 31; $index++) {
+            Db::name('quant_simulation_records')->insert([
+                'tenant_id' => 7,
+                'project_name' => 'newer-denied-' . $index,
+                'input_json' => json_encode(['hotel_id' => 8, 'system_hotel_id' => 8], JSON_THROW_ON_ERROR),
+                'result_json' => '{}',
+                'scenarios_json' => '[]',
+                'risk_hints_json' => '[]',
+                'monthly_net_cashflow' => 0,
+                'payback_months' => null,
+                'risk_level' => '',
+                'created_by' => 3,
+                'created_at' => $now,
+                'updated_at' => $now,
+            ]);
+        }
+
+        $records = (new QuantSimulationService())->recordsForAccess(
+            3,
+            false,
+            static fn(array $record): bool => ($record['access_policy']['mode'] ?? '') === 'legacy_read_only'
+        );
+
+        self::assertCount(1, $records);
+        self::assertSame('legacy-visible', $records[0]['project_name']);
+        self::assertSame('legacy_hotel_binding_required', $records[0]['access_policy']['reason_code']);
     }
 
     public function testTrustedExpansionIntentCreationReplaysTheExistingIntent(): void
@@ -1532,6 +1582,132 @@ final class ExpansionExecutionIntentIdempotencyTest extends TestCase
         $currentIntentId = $this->insertSourceIntent('opening', 31, 8, 7);
         self::assertSame($currentIntentId, $service->projects([7], 3, true)[0]['execution_intent_id']);
         self::assertSame($currentIntentId, $service->projects([7], 3, true)[0]['execution_intent_id']);
+    }
+
+    public function testOpeningBoundProjectIsSharedWithinPermittedHotelButUnboundDraftStaysPrivate(): void
+    {
+        $this->insertOpeningFixture();
+        $service = new OpeningService(
+            null,
+            null,
+            null,
+            static fn(int $userId, int $hotelId, string $capability): bool =>
+                $userId === 8 && $hotelId === 7 && $capability === 'operation.execute'
+        );
+
+        $collaboratorProjects = $service->projects([7], 8, false);
+        self::assertSame([31], array_column($collaboratorProjects, 'id'));
+        $updated = $service->forActor(8, false)->updateProject(31, [
+            'manager_name' => '同店协作负责人',
+        ], [7]);
+        self::assertSame('同店协作负责人', $updated['manager_name']);
+
+        try {
+            (new OpeningService(null, null, null, static fn(): bool => false))
+                ->forActor(8, false)
+                ->updateProject(31, ['manager_name' => '越权修改'], [7]);
+            self::fail('read-only hotel collaborator must not mutate an opening project');
+        } catch (\RuntimeException $exception) {
+            self::assertStringContainsString('operation.execute', $exception->getMessage());
+        }
+        self::assertSame('同店协作负责人', Db::name('opening_projects')->where('id', 31)->value('manager_name'));
+
+        try {
+            $service->forActor(8, false)->updateProject(31, ['hotel_id' => 0], [7]);
+            self::fail('non-owner collaborator must not unbind a shared opening project');
+        } catch (\RuntimeException $exception) {
+            self::assertStringContainsString('无权操作', $exception->getMessage());
+        }
+        self::assertSame(7, (int)Db::name('opening_projects')->where('id', 31)->value('hotel_id'));
+
+        Db::name('users')->where('id', 3)->update(['tenant_id' => 7, 'hotel_id' => 7]);
+        $unboundId = $service->createProject([
+            'project_name' => '未绑定筹建草稿',
+            'hotel_name' => '待定酒店',
+            'opening_date' => '2026-12-01',
+            'status' => 'preparing',
+        ], 3, [7, 8]);
+        self::assertSame(0, (int)Db::name('opening_projects')->where('id', $unboundId)->value('hotel_id'));
+        self::assertContains($unboundId, array_column($service->projects([7, 8], 3, false), 'id'));
+        self::assertNotContains($unboundId, array_column($service->projects([7, 8], 8, false), 'id'));
+
+        Db::name('users')->where('id', 3)->update(['tenant_id' => 8]);
+        self::assertNotContains($unboundId, array_column($service->projects([7, 8], 3, false), 'id'));
+        Db::name('users')->where('id', 3)->update(['tenant_id' => 7]);
+
+        Db::name('hotels')->where('id', 7)->update(['tenant_id' => 8]);
+        self::assertSame([], $service->projects([7], 8, false));
+    }
+
+    public function testOpeningTaskGenerationCallsTheLlmOnceAfterTheWriteTransactionCommits(): void
+    {
+        $this->insertOpeningFixture();
+        Db::name('opening_tasks')->where('project_id', 31)->delete();
+        $client = new class extends LlmClient {
+            /** @var list<bool> */
+            public array $transactionStates = [];
+
+            public function createJsonResponse(
+                array $messages,
+                array $schema,
+                string $modelKey = 'deepseek_v4_default'
+            ): array {
+                $this->transactionStates[] = Db::connect()->getPdo()->inTransaction();
+                return ['suggestions' => ['提交后生成的开业建议']];
+            }
+        };
+        $service = new OpeningService(
+            $client,
+            null,
+            null,
+            static fn(int $userId, int $hotelId, string $capability): bool =>
+                $userId === 3 && $hotelId === 7 && $capability === 'operation.execute'
+        );
+
+        $result = $service->generateTasks(31, [7], 3, false);
+
+        self::assertTrue($result['generated']);
+        self::assertNotEmpty($result['tasks']);
+        self::assertSame([false], $client->transactionStates);
+        self::assertSame('llm', $result['overview']['opening_suggestion_source']);
+    }
+
+    public function testOpeningTaskUpdateRollsBackWhenAggregateRecalculationFails(): void
+    {
+        $this->insertOpeningFixture();
+        $beforeTask = Db::name('opening_tasks')->where('id', 41)->find();
+        $beforeProject = Db::name('opening_projects')->where('id', 31)->find();
+        self::assertIsArray($beforeTask);
+        self::assertIsArray($beforeProject);
+        Db::execute(<<<'SQL'
+CREATE TRIGGER fail_opening_project_recalculation
+BEFORE UPDATE OF overall_score ON opening_projects
+WHEN OLD.id = 31
+BEGIN
+    SELECT RAISE(ABORT, 'forced opening aggregate failure');
+END
+SQL);
+        $service = new OpeningService(
+            null,
+            null,
+            null,
+            static fn(int $userId, int $hotelId, string $capability): bool =>
+                $userId === 3 && $hotelId === 7 && $capability === 'operation.execute'
+        );
+        $failure = null;
+
+        try {
+            $service->updateTask(41, ['progress_percent' => 75], [7], 3, false);
+        } catch (Throwable $exception) {
+            $failure = $exception;
+        } finally {
+            Db::execute('DROP TRIGGER IF EXISTS fail_opening_project_recalculation');
+        }
+
+        self::assertInstanceOf(Throwable::class, $failure);
+        self::assertStringContainsString('forced opening aggregate failure', $failure->getMessage());
+        self::assertSame($beforeTask, Db::name('opening_tasks')->where('id', 41)->find());
+        self::assertSame($beforeProject, Db::name('opening_projects')->where('id', 31)->find());
     }
 
     public function testTransferResponseKeepsHistoricalTrackingButProjectsOnlyTheCurrentTenantIntent(): void

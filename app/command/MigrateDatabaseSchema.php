@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace app\command;
 
+use app\service\DatabaseMigrationExecutionGuard;
 use app\service\SchemaVersionService;
 use app\service\SchemaVersionStatusCache;
 use Throwable;
@@ -31,6 +32,11 @@ final class MigrateDatabaseSchema extends Command
             $default = (string)config('database.default', 'mysql');
             $config = (array)config("database.connections.{$default}", []);
             $root = app()->getRootPath();
+            DatabaseMigrationExecutionGuard::assertAllowed(
+                $root,
+                (string)($config['database'] ?? ''),
+                (string)($config['type'] ?? $default)
+            );
             $statusCache = new SchemaVersionStatusCache($config, $root);
             if (!$statusCache->clear()) {
                 $output->writeln(

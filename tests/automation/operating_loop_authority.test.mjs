@@ -8,6 +8,7 @@ const appMain = readAppMainContractSource();
 const shell = fs.readFileSync('resources/frontend/templates/fragments/23-page-home-shell-open.html', 'utf8');
 const summary = fs.readFileSync('resources/frontend/templates/fragments/23a-page-compass-summary.html', 'utf8');
 const detail = fs.readFileSync('resources/frontend/templates/fragments/23c-page-compass-detail.html', 'utf8');
+const style = fs.readFileSync('public/compass-authority-polish.css', 'utf8');
 const routes = readRouteContractSource(process.cwd());
 
 test('Compass is the only canonical landing surface while the old workbench remains an alias', () => {
@@ -33,6 +34,13 @@ test('Compass projects the kernel answers and reconciles only against an explici
   assert.match(appMain, /loop\.readback_verified/);
   assert.match(appMain, /scope\.metric_version/);
   assert.match(appMain, /Array\.isArray\(loop\.stages\)/);
+  assert.match(appMain, /'data-testid': 'operating-loop-empty-state'/);
+  assert.match(appMain, /建立并检查闭环/);
+  assert.match(appMain, /查看八阶段明细/);
+  assert.match(appMain, /openHomeQuickEntry\(\{ page: 'online-data', tab: 'data-health' \}\)/);
+  assert.match(style, /\.operating-loop-authority-shell[\s\S]*?linear-gradient\(135deg, #06110d/);
+  assert.match(style, /\.home-facts-shell[\s\S]*?background: transparent !important/);
+  assert.match(style, /\.home-facts-loading-state[\s\S]*?min-height: 88px/);
   assert.match(appMain, /params\.append\('business_date', operationYesterday\)/);
   assert.match(appMain, /request\('\/operating-loop\/reconcile'/);
   assert.match(appMain, /business_date: operationYesterday/);

@@ -6,6 +6,7 @@
 
 - **渐进加载**：`SKILL.md`只保留每次都需要的核心步骤，详细路线按需放入一层 `references/`，脚本只在需要时运行。
 - **触发优先**：description前置关键用途、触发语境和边界；用正负近似样例验证过宽与漏触发。
+- **展示名不等于包身份**：市场名称、图标、简介、分类和使用量只是展示证据；只有 package ID/真实目录、版本/ref/commit 与实际文件树可以唯一定位待审包。未唯一对应时保持 `mapping_status=unverified`，不把同名或相邻包的规则当成目标卡片事实。
 - **先预览后安装**：在线Skill、Prompt、脚本和插件一律视为不受信任输入；先看完整文件树、指令、脚本和权限，再决定复用。
 - **来源可追踪**：记录仓库URL、tag/ref、提交或tree SHA、获取时间、许可、兼容性和依赖；需要稳定复用时锁定版本。
 - **可移植性**：Skill内部使用相对路径，声明运行环境和外部工具；避免把开发者机器的绝对路径写入可分发能力。
@@ -20,6 +21,7 @@
 ## 在线Skill接入记录
 
 ```text
+display_identity / package_id_or_path / package_version / mapping_status /
 source_url / source_ref / commit_or_tree_sha / fetched_at /
 license / compatibility / runtime_dependencies / mcp_dependencies /
 requested_tool_permissions / file_tree_sha256 / name_collision /

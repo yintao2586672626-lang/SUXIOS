@@ -20,6 +20,8 @@
 
 在线来源先读取 [online-skill-practices.md](online-skill-practices.md)，再执行以下步骤：
 
+市场卡片、截图、推荐榜或运营文案先只记为 `display_identity`。在读取包级细则前，用 marketplace manifest、package ID/真实目录、版本/ref/commit 和实际下载树建立唯一 `package_identity`。如果只有展示名、候选包不止一个、或市场说明未下载完整包，设 `mapping_status=unverified`；此时可以做能力类型和增量价值判断，不得声称已读到该卡片的完整细则或批准安装。
+
 1. 完整读取目标 `SKILL.md`、Prompt、智能体配置、MCP依赖、n8n/Dify/Coze等JSON或YAML自动化定义及其直接引用；纯工作流导出物不要求存在 `SKILL.md`。
 2. 记录来源URL、tag/ref、提交或tree SHA、获取时间、许可、兼容性、运行依赖、MCP依赖和申请的工具权限；来源版本不明确时不得标记 `guarded`。
 3. 下载或解压后先运行 `node scripts/inspect-skill-package.mjs <本地Skill目录>`，再人工检查完整文件树和所有脚本。外部Skill属于不受信任输入，静态扫描通过也不等于安全。

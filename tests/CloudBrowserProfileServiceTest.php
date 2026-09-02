@@ -234,6 +234,22 @@ final class CloudBrowserProfileServiceTest extends TestCase
         self::assertSame('today_only', $validated['source_scope']);
         self::assertSame('敦煌漠蓝新', $validated['expected_hotel_name']);
 
+        $previousDate = (new \DateTimeImmutable(
+            'now',
+            new \DateTimeZone('Asia/Shanghai')
+        ))->modify('-1 day')->format('Y-m-d');
+        $historical = $service->validateDingdandaoCollectionProfile(
+            (string)$entry['profile']['profile_id'],
+            8,
+            80,
+            7,
+            $previousDate
+        );
+        self::assertTrue($historical['validated']);
+        self::assertSame('operating_target_historical', $historical['collection_kind']);
+        self::assertSame('historical_single_date', $historical['source_scope']);
+        self::assertSame('historical_daily', $historical['data_period']);
+
         try {
             $service->validateDingdandaoCollectionProfile(
                 (string)$entry['profile']['profile_id'],
@@ -317,6 +333,23 @@ final class CloudBrowserProfileServiceTest extends TestCase
             self::assertSame($case['source_id'], $validated['data_source_id']);
             self::assertSame($case['platform_hotel_id'], $validated['platform_hotel_id']);
             self::assertSame($case['platform'], $validated['profile']['platform']);
+
+            $previousDate = (new \DateTimeImmutable(
+                'now',
+                new \DateTimeZone('Asia/Shanghai')
+            ))->modify('-1 day')->format('Y-m-d');
+            $historical = $service->validateOtaDataSourceCollectionProfile(
+                (string)$entry['profile']['profile_id'],
+                $case['source_id'],
+                8,
+                80,
+                7,
+                $previousDate,
+                $case['platform']
+            );
+            self::assertTrue($historical['validated']);
+            self::assertSame('historical_daily', $historical['data_period']);
+            self::assertSame($previousDate, $historical['target_date']);
         }
 
         try {
@@ -358,6 +391,21 @@ final class CloudBrowserProfileServiceTest extends TestCase
         self::assertSame('ota_target_date', $validated['collection_kind']);
         self::assertSame('target_date_only', $validated['source_scope']);
         self::assertSame('ctrip', $validated['profile']['platform']);
+
+        $previousDate = (new \DateTimeImmutable(
+            'now',
+            new \DateTimeZone('Asia/Shanghai')
+        ))->modify('-1 day')->format('Y-m-d');
+        $historical = $service->validateOtaCollectionProfile(
+            (string)$entry['profile']['profile_id'],
+            8,
+            80,
+            7,
+            $previousDate,
+            'ctrip'
+        );
+        self::assertSame('historical_daily', $historical['data_period']);
+        self::assertSame($previousDate, $historical['target_date']);
 
         try {
             $service->validateOtaCollectionProfile(

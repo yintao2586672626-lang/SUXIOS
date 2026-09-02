@@ -157,7 +157,15 @@ function createFixtureRepository() {
     import fs from 'node:fs';
     assert.equal(fs.readFileSync('AGENTS.md', 'utf8'), fs.readFileSync('vault/project-state.md', 'utf8'));
   `);
-  write(root, 'verify-integration.mjs', 'process.exit(0);\n');
+  write(root, 'verify-integration.mjs', `
+    import assert from 'node:assert/strict';
+    import path from 'node:path';
+    import { spawnSync } from 'node:child_process';
+    assert.ok(path.isAbsolute(process.env.GIT_DIR || ''), 'staged verifier must inherit the source Git directory');
+    assert.equal(path.resolve(process.env.GIT_WORK_TREE || ''), process.cwd(), 'staged verifier Git worktree must be the index snapshot');
+    const head = spawnSync('git', ['rev-parse', '--verify', 'HEAD^{commit}'], { encoding: 'utf8' });
+    assert.equal(head.status, 0, 'staged verifier must retain read-only base-ref access');
+  `);
   write(root, 'scripts/lib/frontend_template_build.mjs', '');
   writeFixtureState(root, 'base');
   write(root, 'public/style.css', '/* contract:base */');

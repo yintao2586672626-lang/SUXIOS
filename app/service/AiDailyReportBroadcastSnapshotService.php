@@ -39,7 +39,7 @@ final class AiDailyReportBroadcastSnapshotService
         'adr',
     ];
     private const FIELD_LABELS = [
-        'exposure' => '曝光',
+        'exposure' => '曝光人数',
         'visits' => '访客',
         'conversion' => '曝光到访率',
         'order_count' => '订单量',
@@ -729,8 +729,8 @@ final class AiDailyReportBroadcastSnapshotService
         $headlines = [];
         if (!$this->fieldIsFact($ctripExposure)) {
             $headlines[] = in_array((string)($ctripExposure['status'] ?? ''), self::FAILURE_STATUSES, true)
-                ? '携程曝光采集失败'
-                : '携程曝光事实缺失';
+                ? '携程曝光人数采集失败'
+                : '携程曝光人数事实缺失';
         }
         if ($this->moneyCaliberUncertain($platforms)
             || !$this->fieldIsFact((array)($platforms['ctrip']['fields']['revenue'] ?? []))
@@ -757,10 +757,10 @@ final class AiDailyReportBroadcastSnapshotService
         $moneyUnconfirmed = $this->moneyCaliberUncertain($platforms)
             || !$this->fieldIsFact((array)($platforms['meituan']['fields']['revenue'] ?? []));
         if ($ctripExposureMissing && $moneyUnconfirmed) {
-            return '优先补齐携程曝光事实并核对收入口径；补齐前只跟踪已确认的美团渠道事实。';
+            return '优先补齐携程曝光人数事实并核对收入口径；补齐前只跟踪已确认的美团渠道事实。';
         }
         if ($ctripExposureMissing) {
-            return '优先补齐携程曝光事实；补齐前不形成双平台竞争判断。';
+            return '优先补齐携程曝光人数事实；补齐前不形成双平台竞争判断。';
         }
         if ($moneyUnconfirmed) {
             return '优先核对收入口径；确认前不形成收益结论。';

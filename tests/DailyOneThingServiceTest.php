@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Tests;
 
 use app\service\DailyOneThingService;
+use app\service\LongitudinalEvidenceLearningService;
 use InvalidArgumentException;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
@@ -23,11 +24,26 @@ final class DailyOneThingServiceTest extends TestCase
         self::assertSame('draft', $result['status']);
         self::assertSame('gap:ctrip:core_facts', $result['selected']['candidate_key']);
         self::assertSame('draft', $result['selected']['approval_status']);
+        self::assertSame('daily_one_thing.explainable.v3', $result['experience_version']);
+        self::assertSame(
+            'daily_one_thing_explanation.v1',
+            $result['selected']['recommendation_explanation']['contract_version']
+        );
+        self::assertNotSame('', $result['selected']['recommendation_explanation']['why_now']['summary']);
+        self::assertNotSame('', $result['selected']['recommendation_explanation']['why_recommended']['summary']);
+        self::assertSame(
+            'not_applied',
+            $result['selected']['recommendation_explanation']['personalization']['status']
+        );
+        self::assertFalse(
+            $result['selected']['recommendation_explanation']['personalization']['facts_changed']
+        );
         self::assertSame(3, $result['candidate_count']);
         self::assertArrayNotHasKey('candidates', $result);
         self::assertFalse($result['selection_policy']['full_candidate_list_exposed']);
         self::assertFalse($result['can_execute']);
         self::assertSame(0, $result['selected']['external_write_boundary']['external_write_count_before_approval']);
+        self::assertSame('not_calculable', $result['selected']['impact_estimate']['status']);
     }
 
     #[DataProvider('rankingProvider')]
@@ -77,6 +93,146 @@ final class DailyOneThingServiceTest extends TestCase
         ], '2026-08-26');
 
         self::assertSame('signal:a:item', $result['selected']['candidate_key']);
+    }
+
+    public function testOutcomeLearningBreaksOnlyAnExactFourDimensionTieBeforeStableKey(): void
+    {
+        $reviews = $this->reviewedObservations();
+        $stable = $this->candidate('signal:a:item', 'strict_fact_signal', [80, 80, 80, 20], 'ctrip');
+        $learned = $this->candidate('signal:z:item', 'strict_fact_signal', [80, 80, 80, 20], 'ctrip');
+        $learned['outcome_learning_binding'] = [
+            'comparison_key' => $reviews[0]['comparison_key'],
+            'action_type' => 'human_reviewed_operating_check',
+            'expected_direction' => 'increase',
+        ];
+
+        $result = (new DailyOneThingService())->select(
+            [$stable, $learned],
+            '2026-08-26',
+            $reviews
+        );
+
+        self::assertSame('signal:z:item', $result['selected']['candidate_key']);
+        self::assertSame(2, $result['selection_policy']['base_tie_group_size']);
+        self::assertTrue($result['selection_policy']['outcome_learning_applied']);
+        self::assertSame(
+            'after_exact_base_rank_tie_before_candidate_key',
+            $result['selection_policy']['outcome_learning_position']
+        );
+        self::assertSame('pattern_candidate_applied', $result['selected']['outcome_learning']['status']);
+        self::assertSame(3, $result['selected']['outcome_learning']['sample_count']);
+        self::assertSame(
+            'highest_base_rank_outcome_learning_tie_break',
+            $result['selected']['recommendation_explanation']['why_recommended']['reason_code']
+        );
+        self::assertFalse($result['selected']['outcome_learning']['causality_claimed']);
+        self::assertFalse($result['selected']['outcome_learning']['automatic_sop_promotion']);
+        self::assertTrue($result['requires_human_approval']);
+        self::assertFalse($result['can_execute']);
+
+        $higherBase = $this->candidate('signal:y:item', 'strict_fact_signal', [81, 80, 80, 20], 'ctrip');
+        $baseWins = (new DailyOneThingService())->select(
+            [$learned, $higherBase],
+            '2026-08-26',
+            $reviews
+        );
+        self::assertSame('signal:y:item', $baseWins['selected']['candidate_key']);
+        self::assertFalse($baseWins['selection_policy']['outcome_learning_applied']);
+    }
+
+    public function testSingleContradictoryOrIndeterminateReviewsNeverAffectTieBreak(): void
+    {
+        $reviews = $this->reviewedObservations();
+        $stable = $this->candidate('signal:a:item', 'strict_fact_signal', [80, 80, 80, 20], 'ctrip');
+        $learned = $this->candidate('signal:z:item', 'strict_fact_signal', [80, 80, 80, 20], 'ctrip');
+        $learned['outcome_learning_binding'] = [
+            'comparison_key' => $reviews[0]['comparison_key'],
+            'action_type' => 'human_reviewed_operating_check',
+            'expected_direction' => 'increase',
+        ];
+
+        $single = (new DailyOneThingService())->select(
+            [$stable, $learned],
+            '2026-08-26',
+            [$reviews[0]]
+        );
+        self::assertSame('signal:a:item', $single['selected']['candidate_key']);
+        self::assertFalse($single['selection_policy']['outcome_learning_applied']);
+        self::assertSame(0, $single['outcome_learning_summary']['pattern_candidate_count']);
+
+        $contradicted = $reviews[2];
+        $contradicted['action']['action_ref'] = 'operation_execution_task#304';
+        $contradicted['action']['evidence_refs'] = ['operation_execution_task#304'];
+        $contradicted['action']['expectation_status'] = 'contradicted';
+        $contradicted['followup']['captured_at'] = '2026-08-14 08:00:00';
+        $contradicted['followup']['evidence_refs'] = ['online_daily_data#304'];
+        $withCounterexample = (new DailyOneThingService())->select(
+            [$stable, $learned],
+            '2026-08-26',
+            [...$reviews, $contradicted]
+        );
+        self::assertSame('signal:a:item', $withCounterexample['selected']['candidate_key']);
+        self::assertSame(1, $withCounterexample['outcome_learning_summary']['contradictory_pattern_count']);
+
+        $indeterminate = $contradicted;
+        $indeterminate['action']['action_ref'] = 'operation_execution_task#305';
+        $indeterminate['action']['evidence_refs'] = ['operation_execution_task#305'];
+        $indeterminate['action']['expectation_status'] = 'indeterminate';
+        $indeterminate['followup']['captured_at'] = '2026-08-15 08:00:00';
+        $indeterminate['followup']['evidence_refs'] = ['online_daily_data#305'];
+        $withIndeterminate = (new DailyOneThingService())->select(
+            [$stable, $learned],
+            '2026-08-26',
+            [...$reviews, $indeterminate]
+        );
+        self::assertSame('signal:a:item', $withIndeterminate['selected']['candidate_key']);
+        self::assertSame(1, $withIndeterminate['outcome_learning_summary']['indeterminate_review_count']);
+        self::assertFalse($withIndeterminate['selection_policy']['outcome_learning_applied']);
+    }
+
+    public function testImpactProjectionDoesNotChangeRankingAndMismatchedScopeFallsBack(): void
+    {
+        $withImpact = $this->candidate(
+            'gap:meituan:traffic_only_scope',
+            'explicit_data_gap',
+            [80, 80, 80, 20],
+            'meituan'
+        );
+        $withImpact['impact_estimate'] = [
+            'low' => 80,
+            'high' => 80,
+            'unit' => 'users',
+            'formula' => 'exposure_users - detail_visitors',
+            'input_refs' => ['online_daily_data#101'],
+            'scope' => [
+                'tenant_id' => 80,
+                'hotel_id' => 80,
+                'platform' => 'meituan',
+                'business_date' => '2026-08-26',
+                'metric_scope' => 'ota_channel',
+            ],
+            'status' => 'deterministic_point_estimate',
+        ];
+        $higherRank = $this->candidate(
+            'gap:ctrip:core_facts',
+            'explicit_data_gap',
+            [81, 80, 80, 20],
+            'ctrip'
+        );
+        $ranked = (new DailyOneThingService())->select([$withImpact, $higherRank], '2026-08-26');
+        self::assertSame('gap:ctrip:core_facts', $ranked['selected']['candidate_key']);
+
+        $accepted = (new DailyOneThingService())->select([$withImpact], '2026-08-26');
+        self::assertSame('deterministic_point_estimate', $accepted['selected']['impact_estimate']['status']);
+        self::assertSame(80.0, $accepted['selected']['impact_estimate']['low']);
+        self::assertSame(80.0, $accepted['selected']['impact_estimate']['high']);
+
+        $withImpact['impact_estimate']['scope']['hotel_id'] = 81;
+        $blocked = (new DailyOneThingService())->select([$withImpact], '2026-08-26');
+        self::assertSame('gap:meituan:traffic_only_scope', $blocked['selected']['candidate_key']);
+        self::assertSame('not_calculable', $blocked['selected']['impact_estimate']['status']);
+        self::assertNull($blocked['selected']['impact_estimate']['low']);
+        self::assertNull($blocked['selected']['impact_estimate']['high']);
     }
 
     public function testExplicitGapMaterialIdentityIgnoresVolatileRuntimeSnapshotDigest(): void
@@ -169,5 +325,74 @@ final class DailyOneThingServiceTest extends TestCase
                 'causality_claimed' => false,
             ],
         ];
+    }
+
+    /** @return list<array<string,mixed>> */
+    private function reviewedObservations(): array
+    {
+        $learning = new LongitudinalEvidenceLearningService();
+        $baseline = [
+            'system_hotel_id' => 80,
+            'platform' => 'ctrip',
+            'platform_hotel_id' => 'ctrip-80',
+            'business_module' => 'daily_one_thing',
+            'subject' => 'ota_fact_scope',
+            'metric_key' => 'detail_exposure',
+            'unit' => 'exposure_count',
+            'source_method' => 'trusted_fact_readback',
+            'date_role' => 'business_date',
+            'fact_scope' => 'ota_channel',
+            'period_start' => '2026-08-10',
+            'period_end' => '2026-08-10',
+            'target_stay_date' => '',
+            'captured_at' => '2026-08-10 08:00:00',
+            'quality_status' => 'verified',
+            'readback_status' => 'readback_verified',
+            'value' => 10,
+            'evidence_refs' => ['online_daily_data#300'],
+        ];
+        $followup = [
+            ...$baseline,
+            'period_start' => '2026-08-11',
+            'period_end' => '2026-08-11',
+            'captured_at' => '2026-08-11 08:00:00',
+            'value' => 12,
+            'evidence_refs' => ['online_daily_data#301'],
+        ];
+        $first = $learning->reviewAction($baseline, $followup, [
+            'action_ref' => 'operation_execution_task#301',
+            'action_type' => 'human_reviewed_operating_check',
+            'execution_status' => 'executed',
+            'executed_at' => '2026-08-10 10:00:00',
+            'evidence_refs' => ['operation_execution_task#301'],
+            'expected_direction' => 'increase',
+        ]);
+        $second = [
+            ...$first,
+            'action' => [
+                ...$first['action'],
+                'action_ref' => 'operation_execution_task#302',
+                'evidence_refs' => ['operation_execution_task#302'],
+            ],
+            'followup' => [
+                ...$first['followup'],
+                'captured_at' => '2026-08-12 08:00:00',
+                'evidence_refs' => ['online_daily_data#302'],
+            ],
+        ];
+        $third = [
+            ...$second,
+            'action' => [
+                ...$second['action'],
+                'action_ref' => 'operation_execution_task#303',
+                'evidence_refs' => ['operation_execution_task#303'],
+            ],
+            'followup' => [
+                ...$second['followup'],
+                'captured_at' => '2026-08-13 08:00:00',
+                'evidence_refs' => ['online_daily_data#303'],
+            ],
+        ];
+        return [$first, $second, $third];
     }
 }

@@ -80,6 +80,56 @@ final class OnlineDataFieldFactServiceTest extends TestCase
         );
     }
 
+    public function testMetricStatusPreservesNonSensitiveSemanticFieldIdentity(): void
+    {
+        $traceId = 'meituan:' . str_repeat('a', 64);
+        $sourceUrlHash = str_repeat('b', 64);
+        $row = [
+            'platform' => 'meituan',
+            'source' => 'meituan',
+            'data_type' => 'traffic',
+            'list_exposure' => 1422,
+            'source_trace_id' => $traceId,
+            'source_url_hash' => $sourceUrlHash,
+        ];
+        $raw = ['field_facts' => [[
+            'metric_key' => 'list_exposure',
+            'source_key' => 'exposureUV',
+            'source_path' => 'data.myHotel.exposureUV',
+            'storage_field' => 'online_daily_data.list_exposure',
+            'status' => 'captured',
+            'stored_value_present' => true,
+            'semantic_metric_key' => 'meituan_exposure_users',
+            'semantic_label' => '曝光人数',
+            'unit' => 'users',
+            'semantic_contract_version' => 'ota_field_semantics.v1',
+            'capture_evidence' => [
+                'source_trace_id' => $traceId,
+                'source_url_hash' => $sourceUrlHash,
+            ],
+        ]]];
+
+        $status = OnlineDataFieldFactService::buildMetricStatus(
+            $row,
+            $raw,
+            ['list_exposure']
+        );
+        $identity = $status['sample_facts'][0] ?? [];
+
+        self::assertSame('ready', $status['status']);
+        self::assertSame([], $status['missing_requested_metric_keys']);
+        self::assertSame('list_exposure', $identity['metric_key'] ?? null);
+        self::assertSame('exposureUV', $identity['source_key'] ?? null);
+        self::assertSame('data.myHotel.exposureUV', $identity['source_path'] ?? null);
+        self::assertSame('online_daily_data.list_exposure', $identity['storage_field'] ?? null);
+        self::assertSame('captured', $identity['status'] ?? null);
+        self::assertTrue($identity['stored_value_present'] ?? false);
+        self::assertSame('meituan_exposure_users', $identity['semantic_metric_key'] ?? null);
+        self::assertSame('曝光人数', $identity['semantic_label'] ?? null);
+        self::assertSame('users', $identity['semantic_unit'] ?? null);
+        self::assertSame('ota_field_semantics.v1', $identity['semantic_contract_version'] ?? null);
+    }
+
     public function testFieldFactStatusRequiresDesensitizedCaptureEvidence(): void
     {
         $row = [

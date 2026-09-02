@@ -18,6 +18,15 @@ final class WecomAibotService
     private const EVENT_TABLE = WecomInboundService::EVENT_TABLE;
     private const CONTRACT_VERSION = WecomInboundService::CONTRACT_VERSION;
 
+    /** @var callable(array<string,mixed>):array<string,mixed> */
+    private $taskReceiptProjector;
+
+    public function __construct(?callable $taskReceiptProjector = null)
+    {
+        $this->taskReceiptProjector = $taskReceiptProjector
+            ?? static fn(array $event): array => (new WecomTaskReceiptService())->projectArchivedEvent($event);
+    }
+
     /** @return array<string,mixed> */
     /** @param list<int> $hotelIds @return array<string,mixed> */
     public function capability(int $tenantId = 0, array $hotelIds = []): array
@@ -330,6 +339,8 @@ final class WecomAibotService
             $answer,
             $bindingConfirmation || !$isBindingCommand
         );
+        $event['sender_binding_projection'] = $this->projectSenderBinding($event);
+        $event['task_receipt_projection'] = $this->projectTaskReceipt($event);
         $eventAnswer = is_array($event['answer'] ?? null) ? $event['answer'] : [];
         $event['reply_allowed'] = ($event['duplicate'] ?? false) !== true
             && (string)($event['delivery_status'] ?? 'not_sent') === 'not_sent'
@@ -337,6 +348,39 @@ final class WecomAibotService
         $event['binding_confirmation'] = $bindingConfirmation;
         $event['reply_text'] = $event['reply_allowed'] ? (string)($eventAnswer['reply_text'] ?? '') : '';
         return $event;
+    }
+
+    /** @param array<string,mixed> $event @return array<string,mixed> */
+    private function projectSenderBinding(array $event): array
+    {
+        try {
+            return (new WecomTaskReceiptService())->consumeSenderBindingChallenge($event);
+        } catch (Throwable $error) {
+            $code = trim($error->getMessage());
+            if (!str_starts_with($code, 'wecom_sender_binding_')) {
+                $code = 'wecom_sender_binding_projection_failed';
+            }
+            return ['status' => 'blocked', 'code' => $code];
+        }
+    }
+
+    /** @param array<string,mixed> $event @return array<string,mixed> */
+    private function projectTaskReceipt(array $event): array
+    {
+        $projection = ($this->taskReceiptProjector)($event);
+        if (!is_array($projection)) {
+            throw new RuntimeException('wecom_task_receipt_projection_result_invalid', 503);
+        }
+        if ((string)($projection['status'] ?? '') === 'blocked'
+            && ($projection['retry_required'] ?? false) === true
+        ) {
+            $code = trim((string)($projection['code'] ?? ''));
+            throw new RuntimeException(
+                $code !== '' ? $code : 'wecom_task_receipt_projection_retry_required',
+                503
+            );
+        }
+        return $projection;
     }
 
     /** @return array<string,mixed> */

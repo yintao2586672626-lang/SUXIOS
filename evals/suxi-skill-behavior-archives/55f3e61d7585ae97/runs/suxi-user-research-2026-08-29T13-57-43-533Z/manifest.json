@@ -1,0 +1,400 @@
+{
+  "schema_version": "suxi.skill.behavior_run.v2",
+  "run_id": "suxi-user-research-2026-08-29T13-57-43-533Z",
+  "skill_name": "suxi-user-research",
+  "created_at": "2026-08-29T13:57:43.533Z",
+  "behavior_contract_path": ".agents/skills/suxi-user-research/evals/behavior-evals.json",
+  "behavior_contract_sha256": "3bc9e11d5c6775d096480047f0647ced8491ead8cac7834a88a25e4a2abfe20b",
+  "source_snapshot_sha256": "7718d7dda223ec5e1d89c0b049c0c3e9739d0d7680511813dc80fb475357f265",
+  "source_snapshot_files": [
+    {
+      "path": "SKILL.md",
+      "sha256": "c4d3b9dd4a2281260be607b178bc9f18eec7fcdbd4e91e20a6ebf3efd2788db1",
+      "bytes": 6700
+    },
+    {
+      "path": "agents/openai.yaml",
+      "sha256": "83695ffd236af4e65c6c66e9f60e0758c34564c9f871cdcc06d69609999a9d9d",
+      "bytes": 354
+    }
+  ],
+  "judgment_schema_version": "suxi.skill.behavior_judgments.v2",
+  "case_ids": [
+    "UR-BEH-001",
+    "UR-BEH-002",
+    "UR-BEH-003",
+    "UR-BEH-004",
+    "UR-BEH-005",
+    "UR-BEH-006",
+    "UR-BEH-007"
+  ],
+  "cases": [
+    {
+      "case_id": "UR-BEH-001",
+      "workspace": "cases/UR-BEH-001/workspace",
+      "response_path": "cases/UR-BEH-001/response.json",
+      "skill_snapshot_sha256": "7718d7dda223ec5e1d89c0b049c0c3e9739d0d7680511813dc80fb475357f265",
+      "snapshot_files": [
+        {
+          "path": "SKILL.md",
+          "sha256": "c4d3b9dd4a2281260be607b178bc9f18eec7fcdbd4e91e20a6ebf3efd2788db1",
+          "bytes": 6700
+        },
+        {
+          "path": "agents/openai.yaml",
+          "sha256": "83695ffd236af4e65c6c66e9f60e0758c34564c9f871cdcc06d69609999a9d9d",
+          "bytes": 354
+        }
+      ],
+      "workspace_files": [
+        {
+          "path": ".agents/skills/suxi-user-research/SKILL.md",
+          "sha256": "c4d3b9dd4a2281260be607b178bc9f18eec7fcdbd4e91e20a6ebf3efd2788db1",
+          "bytes": 6700
+        },
+        {
+          "path": ".agents/skills/suxi-user-research/agents/openai.yaml",
+          "sha256": "83695ffd236af4e65c6c66e9f60e0758c34564c9f871cdcc06d69609999a9d9d",
+          "bytes": 354
+        },
+        {
+          "path": "AGENTS.md",
+          "sha256": "7fed39a86106ef0dadecf22baadf76df0664b86e73eb13d0e62f773c53d4dd21",
+          "bytes": 538
+        },
+        {
+          "path": "respondent-output.schema.json",
+          "sha256": "bd238853989f46ed84c4b67b118628807adab7bbdcb17478a014285fa39a48d7",
+          "bytes": 3565
+        },
+        {
+          "path": "respondent-prompt.md",
+          "sha256": "ffe496c25abd23e080e8e5ef0e1e0e92d70140ac6009c74539d600b0cced0438",
+          "bytes": 519
+        },
+        {
+          "path": "respondent-request.json",
+          "sha256": "7d391d6e4807e3348c4246da156827a4bcb41ee6d39b9cad567801fb5d441aa8",
+          "bytes": 295
+        }
+      ],
+      "expectations_in_workspace": false,
+      "filesystem_isolation": "instruction_only"
+    },
+    {
+      "case_id": "UR-BEH-002",
+      "workspace": "cases/UR-BEH-002/workspace",
+      "response_path": "cases/UR-BEH-002/response.json",
+      "skill_snapshot_sha256": "7718d7dda223ec5e1d89c0b049c0c3e9739d0d7680511813dc80fb475357f265",
+      "snapshot_files": [
+        {
+          "path": "SKILL.md",
+          "sha256": "c4d3b9dd4a2281260be607b178bc9f18eec7fcdbd4e91e20a6ebf3efd2788db1",
+          "bytes": 6700
+        },
+        {
+          "path": "agents/openai.yaml",
+          "sha256": "83695ffd236af4e65c6c66e9f60e0758c34564c9f871cdcc06d69609999a9d9d",
+          "bytes": 354
+        }
+      ],
+      "workspace_files": [
+        {
+          "path": ".agents/skills/suxi-user-research/SKILL.md",
+          "sha256": "c4d3b9dd4a2281260be607b178bc9f18eec7fcdbd4e91e20a6ebf3efd2788db1",
+          "bytes": 6700
+        },
+        {
+          "path": ".agents/skills/suxi-user-research/agents/openai.yaml",
+          "sha256": "83695ffd236af4e65c6c66e9f60e0758c34564c9f871cdcc06d69609999a9d9d",
+          "bytes": 354
+        },
+        {
+          "path": "AGENTS.md",
+          "sha256": "7fed39a86106ef0dadecf22baadf76df0664b86e73eb13d0e62f773c53d4dd21",
+          "bytes": 538
+        },
+        {
+          "path": "respondent-output.schema.json",
+          "sha256": "c9ced05f37c3f256760489a9aa92a8a1348762c4ec8c6bf23b61974a690e7417",
+          "bytes": 3565
+        },
+        {
+          "path": "respondent-prompt.md",
+          "sha256": "13a7d213b1cfeeb2b47475857e1a9d09a0d3048a6b27ae68eb99100c096c2da2",
+          "bytes": 519
+        },
+        {
+          "path": "respondent-request.json",
+          "sha256": "5ecc26a505402a12df965190a6ce7b719d88bc84d06081574294017fbba9527a",
+          "bytes": 337
+        }
+      ],
+      "expectations_in_workspace": false,
+      "filesystem_isolation": "instruction_only"
+    },
+    {
+      "case_id": "UR-BEH-003",
+      "workspace": "cases/UR-BEH-003/workspace",
+      "response_path": "cases/UR-BEH-003/response.json",
+      "skill_snapshot_sha256": "7718d7dda223ec5e1d89c0b049c0c3e9739d0d7680511813dc80fb475357f265",
+      "snapshot_files": [
+        {
+          "path": "SKILL.md",
+          "sha256": "c4d3b9dd4a2281260be607b178bc9f18eec7fcdbd4e91e20a6ebf3efd2788db1",
+          "bytes": 6700
+        },
+        {
+          "path": "agents/openai.yaml",
+          "sha256": "83695ffd236af4e65c6c66e9f60e0758c34564c9f871cdcc06d69609999a9d9d",
+          "bytes": 354
+        }
+      ],
+      "workspace_files": [
+        {
+          "path": ".agents/skills/suxi-user-research/SKILL.md",
+          "sha256": "c4d3b9dd4a2281260be607b178bc9f18eec7fcdbd4e91e20a6ebf3efd2788db1",
+          "bytes": 6700
+        },
+        {
+          "path": ".agents/skills/suxi-user-research/agents/openai.yaml",
+          "sha256": "83695ffd236af4e65c6c66e9f60e0758c34564c9f871cdcc06d69609999a9d9d",
+          "bytes": 354
+        },
+        {
+          "path": "AGENTS.md",
+          "sha256": "7fed39a86106ef0dadecf22baadf76df0664b86e73eb13d0e62f773c53d4dd21",
+          "bytes": 538
+        },
+        {
+          "path": "respondent-output.schema.json",
+          "sha256": "725b51850394486f7eba0565767cb84647063ba6b22556c408a5eee0b36ff9aa",
+          "bytes": 3565
+        },
+        {
+          "path": "respondent-prompt.md",
+          "sha256": "e37ab9b67f0d31875dddcf1da64a2644002a576c814a22596d1618cc32e00411",
+          "bytes": 519
+        },
+        {
+          "path": "respondent-request.json",
+          "sha256": "8460419722d490e8fcfda043ceda77f9f3bf7bf75d79e3ff37a014878fb5d47b",
+          "bytes": 253
+        }
+      ],
+      "expectations_in_workspace": false,
+      "filesystem_isolation": "instruction_only"
+    },
+    {
+      "case_id": "UR-BEH-004",
+      "workspace": "cases/UR-BEH-004/workspace",
+      "response_path": "cases/UR-BEH-004/response.json",
+      "skill_snapshot_sha256": "7718d7dda223ec5e1d89c0b049c0c3e9739d0d7680511813dc80fb475357f265",
+      "snapshot_files": [
+        {
+          "path": "SKILL.md",
+          "sha256": "c4d3b9dd4a2281260be607b178bc9f18eec7fcdbd4e91e20a6ebf3efd2788db1",
+          "bytes": 6700
+        },
+        {
+          "path": "agents/openai.yaml",
+          "sha256": "83695ffd236af4e65c6c66e9f60e0758c34564c9f871cdcc06d69609999a9d9d",
+          "bytes": 354
+        }
+      ],
+      "workspace_files": [
+        {
+          "path": ".agents/skills/suxi-user-research/SKILL.md",
+          "sha256": "c4d3b9dd4a2281260be607b178bc9f18eec7fcdbd4e91e20a6ebf3efd2788db1",
+          "bytes": 6700
+        },
+        {
+          "path": ".agents/skills/suxi-user-research/agents/openai.yaml",
+          "sha256": "83695ffd236af4e65c6c66e9f60e0758c34564c9f871cdcc06d69609999a9d9d",
+          "bytes": 354
+        },
+        {
+          "path": "AGENTS.md",
+          "sha256": "7fed39a86106ef0dadecf22baadf76df0664b86e73eb13d0e62f773c53d4dd21",
+          "bytes": 538
+        },
+        {
+          "path": "respondent-output.schema.json",
+          "sha256": "b88abc5c7377fb12996f6e18c01ad9e4216ebc048cc4fae215f171b57f42b8f2",
+          "bytes": 3565
+        },
+        {
+          "path": "respondent-prompt.md",
+          "sha256": "e85d89b77fca9ce751394f0da8415cfe6f7f31b6cf2ba5142ab28deca7238783",
+          "bytes": 519
+        },
+        {
+          "path": "respondent-request.json",
+          "sha256": "699903023373694bf5321b49758bee9a1a55f6196b364ae7bf43267144ad0702",
+          "bytes": 351
+        }
+      ],
+      "expectations_in_workspace": false,
+      "filesystem_isolation": "instruction_only"
+    },
+    {
+      "case_id": "UR-BEH-005",
+      "workspace": "cases/UR-BEH-005/workspace",
+      "response_path": "cases/UR-BEH-005/response.json",
+      "skill_snapshot_sha256": "7718d7dda223ec5e1d89c0b049c0c3e9739d0d7680511813dc80fb475357f265",
+      "snapshot_files": [
+        {
+          "path": "SKILL.md",
+          "sha256": "c4d3b9dd4a2281260be607b178bc9f18eec7fcdbd4e91e20a6ebf3efd2788db1",
+          "bytes": 6700
+        },
+        {
+          "path": "agents/openai.yaml",
+          "sha256": "83695ffd236af4e65c6c66e9f60e0758c34564c9f871cdcc06d69609999a9d9d",
+          "bytes": 354
+        }
+      ],
+      "workspace_files": [
+        {
+          "path": ".agents/skills/suxi-user-research/SKILL.md",
+          "sha256": "c4d3b9dd4a2281260be607b178bc9f18eec7fcdbd4e91e20a6ebf3efd2788db1",
+          "bytes": 6700
+        },
+        {
+          "path": ".agents/skills/suxi-user-research/agents/openai.yaml",
+          "sha256": "83695ffd236af4e65c6c66e9f60e0758c34564c9f871cdcc06d69609999a9d9d",
+          "bytes": 354
+        },
+        {
+          "path": "AGENTS.md",
+          "sha256": "7fed39a86106ef0dadecf22baadf76df0664b86e73eb13d0e62f773c53d4dd21",
+          "bytes": 538
+        },
+        {
+          "path": "respondent-output.schema.json",
+          "sha256": "c4120efd30cd016d709876bc9883f945ed476378b7f21024465be84225b231ed",
+          "bytes": 3565
+        },
+        {
+          "path": "respondent-prompt.md",
+          "sha256": "452708a4cda6f06d1297d01eb521bc71a8442d3c738c67a53577d90bdbc7baef",
+          "bytes": 519
+        },
+        {
+          "path": "respondent-request.json",
+          "sha256": "03373fca2620dc6028c54afe3d88019610d26c1dce1efaa089c9e952be06ae95",
+          "bytes": 252
+        }
+      ],
+      "expectations_in_workspace": false,
+      "filesystem_isolation": "instruction_only"
+    },
+    {
+      "case_id": "UR-BEH-006",
+      "workspace": "cases/UR-BEH-006/workspace",
+      "response_path": "cases/UR-BEH-006/response.json",
+      "skill_snapshot_sha256": "7718d7dda223ec5e1d89c0b049c0c3e9739d0d7680511813dc80fb475357f265",
+      "snapshot_files": [
+        {
+          "path": "SKILL.md",
+          "sha256": "c4d3b9dd4a2281260be607b178bc9f18eec7fcdbd4e91e20a6ebf3efd2788db1",
+          "bytes": 6700
+        },
+        {
+          "path": "agents/openai.yaml",
+          "sha256": "83695ffd236af4e65c6c66e9f60e0758c34564c9f871cdcc06d69609999a9d9d",
+          "bytes": 354
+        }
+      ],
+      "workspace_files": [
+        {
+          "path": ".agents/skills/suxi-user-research/SKILL.md",
+          "sha256": "c4d3b9dd4a2281260be607b178bc9f18eec7fcdbd4e91e20a6ebf3efd2788db1",
+          "bytes": 6700
+        },
+        {
+          "path": ".agents/skills/suxi-user-research/agents/openai.yaml",
+          "sha256": "83695ffd236af4e65c6c66e9f60e0758c34564c9f871cdcc06d69609999a9d9d",
+          "bytes": 354
+        },
+        {
+          "path": "AGENTS.md",
+          "sha256": "7fed39a86106ef0dadecf22baadf76df0664b86e73eb13d0e62f773c53d4dd21",
+          "bytes": 538
+        },
+        {
+          "path": "respondent-output.schema.json",
+          "sha256": "0c13b43acc8bdf817de31ba6b1003ae114525fb16aef1d9beee1469eeab57d65",
+          "bytes": 3565
+        },
+        {
+          "path": "respondent-prompt.md",
+          "sha256": "03e1abd15e48c12f197e7999867850ab27cc9f03a30619474ba5f417acbd5560",
+          "bytes": 519
+        },
+        {
+          "path": "respondent-request.json",
+          "sha256": "25c63bd3a4103d79fa65a0c70cb4ba1c80ea7adff0be17490a08506c38c48b6c",
+          "bytes": 302
+        }
+      ],
+      "expectations_in_workspace": false,
+      "filesystem_isolation": "instruction_only"
+    },
+    {
+      "case_id": "UR-BEH-007",
+      "workspace": "cases/UR-BEH-007/workspace",
+      "response_path": "cases/UR-BEH-007/response.json",
+      "skill_snapshot_sha256": "7718d7dda223ec5e1d89c0b049c0c3e9739d0d7680511813dc80fb475357f265",
+      "snapshot_files": [
+        {
+          "path": "SKILL.md",
+          "sha256": "c4d3b9dd4a2281260be607b178bc9f18eec7fcdbd4e91e20a6ebf3efd2788db1",
+          "bytes": 6700
+        },
+        {
+          "path": "agents/openai.yaml",
+          "sha256": "83695ffd236af4e65c6c66e9f60e0758c34564c9f871cdcc06d69609999a9d9d",
+          "bytes": 354
+        }
+      ],
+      "workspace_files": [
+        {
+          "path": ".agents/skills/suxi-user-research/SKILL.md",
+          "sha256": "c4d3b9dd4a2281260be607b178bc9f18eec7fcdbd4e91e20a6ebf3efd2788db1",
+          "bytes": 6700
+        },
+        {
+          "path": ".agents/skills/suxi-user-research/agents/openai.yaml",
+          "sha256": "83695ffd236af4e65c6c66e9f60e0758c34564c9f871cdcc06d69609999a9d9d",
+          "bytes": 354
+        },
+        {
+          "path": "AGENTS.md",
+          "sha256": "7fed39a86106ef0dadecf22baadf76df0664b86e73eb13d0e62f773c53d4dd21",
+          "bytes": 538
+        },
+        {
+          "path": "respondent-output.schema.json",
+          "sha256": "7c36736f8378de2ed3ccdb91f156c2c1c7b47fe5aed5b47712d47ebb50fed260",
+          "bytes": 3565
+        },
+        {
+          "path": "respondent-prompt.md",
+          "sha256": "6df7ae280c1ac2471802c921f41a408dbc38ea34f6bd621b90fec472233695a8",
+          "bytes": 519
+        },
+        {
+          "path": "respondent-request.json",
+          "sha256": "0ef5f7e485ec202b050ee6d622677d1a327a098d84917b86d459c52223ff9241",
+          "bytes": 279
+        }
+      ],
+      "expectations_in_workspace": false,
+      "filesystem_isolation": "instruction_only"
+    }
+  ],
+  "model_execution": "NOT_RUN",
+  "external_or_product_mutation": "N/A",
+  "execution_boundary": "No model or API is called by this script. Packet contents are minimized, but respondent and judge filesystem separation is instruction-only unless an external sandbox is supplied."
+}

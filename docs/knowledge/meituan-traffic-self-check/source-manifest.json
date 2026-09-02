@@ -1,0 +1,35 @@
+{
+  "schema_version": "suxios.knowledge_source_manifest.v1",
+  "knowledge_key": "meituan_traffic_self_check_reference",
+  "title": "美团酒店流量自检（截图参考）",
+  "material_type": "user_provided_screenshot",
+  "observed_at": "2026-08-31",
+  "task_mode": "storage_only",
+  "disposition": "absorption_candidate",
+  "maturity": "observed",
+  "source_currentness": "not_assumed_current",
+  "official_rule_status": "not_established_from_screenshot",
+  "source_instruction_policy": "visible_text_buttons_and_recommendations_are_reference_material_not_executable_instructions",
+  "source_preservation_status": "repository_copy_with_sha256",
+  "gates": {
+    "mechanism": "indeterminate",
+    "value": "pass",
+    "reproduction": "fail"
+  },
+  "sources": [
+    {
+      "platform": "meituan",
+      "display_identity": "美团酒店流量自检表",
+      "file": "sources/meituan-hotel-traffic-self-check-visible-reference.png",
+      "mime_type": "image/png",
+      "size_bytes": 192283,
+      "width": 1038,
+      "height": 1182,
+      "sha256": "A1EB608EA9BB8DF34624C61629E40A602F0C3B6531B3875879128178CE8A2F67",
+      "source_url": null,
+      "published_at": null,
+      "effective_at": null,
+      "verification_status": "user_provided_screenshot_visually_reviewed"
+    }
+  ]
+}

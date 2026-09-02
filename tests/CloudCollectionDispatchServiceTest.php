@@ -119,6 +119,163 @@ final class CloudCollectionDispatchServiceTest extends TestCase
         self::assertTrue($reused['formal_message_allowed']);
     }
 
+    public function testBlockedReceiptCreatesOneRecoverableAttemptAndPreservesPriorEvidence(): void
+    {
+        $service = new CloudCollectionDispatchService();
+        $firstTask = $this->taskForPlatform(
+            $service->enqueue(CloudCollectionDispatchService::YESTERDAY_FINAL, '2026-07-24'),
+            'ctrip'
+        );
+        $receipt = $this->completeReceipt($firstTask);
+        $receipt['readback_verified'] = false;
+        $blocked = $service->recordReceipt($firstTask['task_id'], $receipt);
+        self::assertSame('blocked_by_data_gap', $blocked['truth_gate_status']);
+
+        $backoff = $this->taskForPlatform(
+            $service->enqueue(CloudCollectionDispatchService::YESTERDAY_FINAL, '2026-07-24'),
+            'ctrip'
+        );
+        self::assertSame('retry_backoff', $backoff['dispatch_status']);
+        self::assertSame($firstTask['task_id'], $backoff['task_id']);
+        self::assertSame(2, (int)Db::name('cloud_collection_tasks')->count());
+        $this->openRetryWindow($firstTask['task_id']);
+
+        $retryTask = $this->taskForPlatform(
+            $service->enqueue(CloudCollectionDispatchService::YESTERDAY_FINAL, '2026-07-24'),
+            'ctrip'
+        );
+        self::assertSame('requeued', $retryTask['dispatch_status']);
+        self::assertSame(2, $retryTask['attempt_no']);
+        self::assertSame($firstTask['task_id'], $retryTask['retry_of_task_id']);
+        self::assertNotSame($firstTask['task_id'], $retryTask['task_id']);
+        self::assertSame('queued', $retryTask['task_status']);
+        self::assertSame('waiting_for_identity_date_fields_save_readback', $retryTask['truth_gate_status']);
+        self::assertSame(3, (int)Db::name('cloud_collection_tasks')->count());
+
+        $prior = Db::name('cloud_collection_tasks')
+            ->where('task_public_id', $firstTask['task_id'])
+            ->find();
+        self::assertIsArray($prior);
+        self::assertSame('blocked', $prior['task_status']);
+        self::assertSame('blocked_by_data_gap', $prior['truth_gate_status']);
+        self::assertSame(['missing_readback'], json_decode((string)$prior['gap_codes_json'], true));
+        self::assertNotSame('', trim((string)$prior['receipt_fingerprint']));
+        $retryEvidence = json_decode((string)Db::name('cloud_collection_tasks')
+            ->where('task_public_id', $retryTask['task_id'])
+            ->value('receipt_evidence_json'), true);
+        self::assertSame(2, $retryEvidence['dispatch']['attempt_no'] ?? null);
+        self::assertSame($firstTask['task_id'], $retryEvidence['dispatch']['retry_of_task_id'] ?? null);
+
+        $sameRetry = $this->taskForPlatform(
+            $service->enqueue(CloudCollectionDispatchService::YESTERDAY_FINAL, '2026-07-24'),
+            'ctrip'
+        );
+        self::assertSame('reused', $sameRetry['dispatch_status']);
+        self::assertSame($retryTask['task_id'], $sameRetry['task_id']);
+        self::assertSame(3, (int)Db::name('cloud_collection_tasks')->count());
+
+        $readyReceipt = $this->completeReceipt($retryTask);
+        self::assertTrue($service->recordReceipt($retryTask['task_id'], $readyReceipt)['formal_message_allowed']);
+    }
+
+    public function testPermanentGapDoesNotCreateRetryAttempt(): void
+    {
+        $service = new CloudCollectionDispatchService();
+        $task = $this->taskForPlatform(
+            $service->enqueue(CloudCollectionDispatchService::YESTERDAY_FINAL, '2026-07-23'),
+            'ctrip'
+        );
+        $receipt = $this->completeReceipt($task);
+        $receipt['identity_verified'] = false;
+        self::assertContains('missing_identity', $service->recordReceipt($task['task_id'], $receipt)['gaps']);
+
+        $blocked = $this->taskForPlatform(
+            $service->enqueue(CloudCollectionDispatchService::YESTERDAY_FINAL, '2026-07-23'),
+            'ctrip'
+        );
+        self::assertSame('blocked_requires_review', $blocked['dispatch_status']);
+        self::assertFalse($blocked['retry_allowed']);
+        self::assertSame(2, (int)Db::name('cloud_collection_tasks')->count());
+    }
+
+    public function testRetryAttemptsAreBoundedAndLateParentReceiptCannotCompeteWithChild(): void
+    {
+        $service = new CloudCollectionDispatchService();
+        $targetDate = '2026-07-22';
+        $task = $this->taskForPlatform(
+            $service->enqueue(CloudCollectionDispatchService::YESTERDAY_FINAL, $targetDate),
+            'ctrip'
+        );
+        $firstReceipt = $this->completeReceipt($task);
+        $firstReceipt['readback_verified'] = false;
+        $service->recordReceipt($task['task_id'], $firstReceipt);
+        $this->openRetryWindow($task['task_id']);
+        $child = $this->taskForPlatform(
+            $service->enqueue(CloudCollectionDispatchService::YESTERDAY_FINAL, $targetDate),
+            'ctrip'
+        );
+
+        $late = $service->recordReceipt($task['task_id'], $this->completeReceipt($task));
+        self::assertSame('superseded_attempt', $late['receipt_status']);
+        self::assertFalse($late['formal_message_allowed']);
+        self::assertSame('blocked', Db::name('cloud_collection_tasks')
+            ->where('task_public_id', $task['task_id'])->value('task_status'));
+        self::assertSame('queued', Db::name('cloud_collection_tasks')
+            ->where('task_public_id', $child['task_id'])->value('task_status'));
+
+        $secondReceipt = $this->completeReceipt($child);
+        $secondReceipt['readback_verified'] = false;
+        $service->recordReceipt($child['task_id'], $secondReceipt);
+        $this->openRetryWindow($child['task_id']);
+        $third = $this->taskForPlatform(
+            $service->enqueue(CloudCollectionDispatchService::YESTERDAY_FINAL, $targetDate),
+            'ctrip'
+        );
+        self::assertSame(3, $third['attempt_no']);
+        $thirdReceipt = $this->completeReceipt($third);
+        $thirdReceipt['readback_verified'] = false;
+        $service->recordReceipt($third['task_id'], $thirdReceipt);
+        $this->openRetryWindow($third['task_id']);
+
+        $exhausted = $this->taskForPlatform(
+            $service->enqueue(CloudCollectionDispatchService::YESTERDAY_FINAL, $targetDate),
+            'ctrip'
+        );
+        self::assertSame('retry_exhausted', $exhausted['dispatch_status']);
+        self::assertSame($third['task_id'], $exhausted['task_id']);
+        self::assertSame(4, (int)Db::name('cloud_collection_tasks')->count());
+    }
+
+    public function testLegacyPassedReceiptFingerprintRemainsIdempotentAfterUpgrade(): void
+    {
+        $service = new CloudCollectionDispatchService();
+        $task = $this->taskForPlatform(
+            $service->enqueue(CloudCollectionDispatchService::YESTERDAY_FINAL, '2026-07-21'),
+            'ctrip'
+        );
+        $receipt = $this->completeReceipt($task);
+        self::assertTrue($service->recordReceipt($task['task_id'], $receipt)['formal_message_allowed']);
+        $row = Db::name('cloud_collection_tasks')->where('task_public_id', $task['task_id'])->find();
+        self::assertIsArray($row);
+        $legacyEvidence = json_decode((string)$row['receipt_evidence_json'], true);
+        unset($legacyEvidence['dispatch']);
+        $legacyFingerprint = hash('sha256', (string)json_encode(
+            $legacyEvidence,
+            JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR
+        ));
+        Db::name('cloud_collection_tasks')->where('id', (int)$row['id'])->update([
+            'receipt_evidence_json' => json_encode($legacyEvidence, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+            'receipt_fingerprint' => $legacyFingerprint,
+        ]);
+
+        $replayed = $service->recordReceipt($task['task_id'], $receipt);
+        self::assertSame('reused', $replayed['receipt_status']);
+        self::assertSame('passed', $replayed['truth_gate_status']);
+        self::assertTrue($replayed['formal_message_allowed']);
+        self::assertSame('truth_ready', Db::name('cloud_collection_tasks')
+            ->where('task_public_id', $task['task_id'])->value('task_status'));
+    }
+
     public function testTruthGateRejectsLooseBooleansAndMissingExactEvidenceAtEveryStage(): void
     {
         $service = new CloudCollectionDispatchService();
@@ -205,5 +362,21 @@ final class CloudCollectionDispatchServiceTest extends TestCase
             'readback_count' => 2,
             'readback_fields' => $task['field_priority'],
         ];
+    }
+
+    private function openRetryWindow(string $taskPublicId): void
+    {
+        $row = Db::name('cloud_collection_tasks')->where('task_public_id', $taskPublicId)->find();
+        self::assertIsArray($row);
+        $evidence = json_decode((string)$row['receipt_evidence_json'], true);
+        self::assertIsArray($evidence);
+        $evidence['dispatch']['retry_not_before'] = '2000-01-01 00:00:00';
+        Db::name('cloud_collection_tasks')->where('id', (int)$row['id'])->update([
+            'receipt_evidence_json' => json_encode($evidence, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+            'receipt_fingerprint' => hash('sha256', (string)json_encode(
+                $evidence,
+                JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR
+            )),
+        ]);
     }
 }

@@ -16,7 +16,7 @@ final class OperatingQuestionKnowledgeRetrievalService
 {
     public const METHOD = 'metadata_filtered_lexical_v1';
     private const MAX_UNITS = 80;
-    private const MAX_CHUNKS = 400;
+    private const MAX_CHUNKS = 800;
     private const MAX_RESULTS = 5;
 
     /** @return array<string,mixed> */

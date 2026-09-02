@@ -24,6 +24,40 @@
         return /^[a-f0-9]{64}$/i.test(text) ? text.slice(0, 12) : '-';
     };
     const scopeKey = (hotelId, businessDate) => `${Number(hotelId || 0)}|${String(businessDate || '')}`;
+    const normalizedExplanation = (selected = {}, receipt = null) => {
+        const stored = selected?.recommendation_explanation && typeof selected.recommendation_explanation === 'object'
+            ? selected.recommendation_explanation
+            : {};
+        const factBasis = Array.isArray(selected?.fact_basis) ? selected.fact_basis : [];
+        const rankingReasons = selected?.ranking?.reasons && typeof selected.ranking.reasons === 'object'
+            ? selected.ranking.reasons
+            : {};
+        const personalization = receipt && typeof receipt === 'object'
+            ? receipt
+            : (stored.personalization && typeof stored.personalization === 'object'
+                ? stored.personalization
+                : {
+                    status: 'not_applied',
+                    why_you: { summary: '旧记录未提供个人偏好参与凭证，因此不宣称已个性化。' },
+                    not_applied_reasons: ['legacy_daily_selection_without_personalization_receipt'],
+                });
+        const sourceRefs = Array.from(new Set([
+            ...(Array.isArray(stored?.why_now?.source_refs) ? stored.why_now.source_refs : []),
+            ...(Array.isArray(stored?.why_recommended?.source_refs) ? stored.why_recommended.source_refs : []),
+            ...(Array.isArray(selected?.source?.fact_refs) ? selected.source.fact_refs : []),
+        ].map(value => String(value || '').trim()).filter(Boolean)));
+        return {
+            whyNow: String(stored?.why_now?.summary || factBasis[0]?.statement || '当前营业日的严格事实或明确缺口需要优先核对。'),
+            whyRecommended: String(stored?.why_recommended?.summary || [
+                rankingReasons.impact,
+                rankingReasons.urgency,
+                rankingReasons.evidence_strength,
+                rankingReasons.execution_cost,
+            ].filter(Boolean).join('；') || '按影响、紧迫性、证据强度和执行成本完成公共基础排序。'),
+            personalization,
+            sourceRefs,
+        };
+    };
 
     components.OperatingOpportunityLabBody = {
         name: 'OperatingOpportunityLabBody',
@@ -35,8 +69,10 @@
             openTask: { type: Function, default: null },
         },
         data: () => ({
-            hotelId: '', businessDate: today(), loading: false, saving: false,
+            hotelId: '', businessDate: today(), loading: false, savingScope: '',
             error: '', overview: null, requestSeq: 0, loadedScope: '',
+            feedbackSavingScope: '', feedbackStatus: '',
+            feedbackReadbackBlocked: false, feedbackReadbackReason: '',
         }),
         computed: {
             normalizedHotels() {
@@ -49,17 +85,33 @@
             },
             todayResult() { return this.overview?.today || null; },
             selected() { return this.todayResult?.selected || null; },
+            personalizedTodayResult() { return this.overview?.personalized_today_preview || null; },
+            personalizedSelected() { return this.personalizedTodayResult?.selected || null; },
+            personalizationReceipt() {
+                return this.personalizedTodayResult?.personalization_receipt
+                    || this.overview?.personalization_receipt
+                    || null;
+            },
+            personalizedSelectionDiffers() {
+                return Boolean(this.personalizedSelected
+                    && this.selected
+                    && String(this.personalizedSelected.candidate_key || '')
+                        !== String(this.selected.candidate_key || ''));
+            },
+            saving() { return this.savingScope === scopeKey(this.hotelId, this.businessDate); },
+            feedbackSaving() { return this.feedbackSavingScope === scopeKey(this.hotelId, this.businessDate); },
             intent() { return this.overview?.today_execution_intent || null; },
             intentId() { return Number(this.overview?.today_execution_intent_id || this.todayResult?.execution_intent_id || 0); },
             taskId() { return Number(this.overview?.today_execution_task_id || this.todayResult?.execution_task_id || 0); },
             currentStatus() {
+                if (this.overview?.today_state === 'saved_stale') return 'draft';
                 return String(this.overview?.today_lifecycle_status || this.todayResult?.status || 'draft');
             },
             isSavedCurrent() { return this.overview?.today_state === 'saved_current'; },
             canSave() {
                 return Boolean(this.hotelId
                     && this.selected
-                    && this.overview?.today_state !== 'source_unavailable'
+                    && ['not_saved', 'saved_without_lifecycle'].includes(String(this.overview?.today_state || ''))
                     && !this.saving
                     && !this.isSavedCurrent);
             },
@@ -120,8 +172,34 @@
                         || String(data.today_preview?.contract_version || '') !== 'daily_one_thing.v2'
                         || data.today_preview?.selection_policy?.full_candidate_list_exposed !== false
                     ) throw new Error('每日一件事没有按当前酒店、日期和唯一选择合同精确回读');
+                    if (data.personalized_today_preview
+                        && (String(data.personalized_today_preview?.contract_version || '') !== 'daily_one_thing.v2'
+                            || String(data.personalized_today_preview?.personalization_receipt?.contract_version || '')
+                                !== 'daily_one_thing_personalization.v1'
+                            || Number(data.personalized_today_preview?.personalization_receipt?.scope?.hotel_id || 0) !== hotelId
+                            || data.personalized_today_preview?.personalization_receipt?.facts_changed !== false
+                            || data.personalized_today_preview?.personalization_receipt?.eligibility_changed !== false
+                            || data.personalized_today_preview?.personalization_receipt?.external_write_authorized !== false)
+                    ) throw new Error('每日一件事个性化预览没有通过服务端范围与边界回读');
                     this.overview = data;
                     this.loadedScope = requestScope;
+                    const currentFeedback = data.personalized_today_preview
+                        ?.personalization_receipt?.current_feedback
+                        || data.personalization_receipt?.current_feedback
+                        || null;
+                    const feedbackStatus = String(currentFeedback?.status || '');
+                    const feedbackVerified = currentFeedback?.readback_verified === true;
+                    this.feedbackStatus = feedbackStatus === 'recorded' && feedbackVerified
+                        ? String(currentFeedback.reason_code || '')
+                        : '';
+                    this.feedbackReadbackBlocked = Boolean(currentFeedback)
+                        && !(
+                            (feedbackStatus === 'recorded' || feedbackStatus === 'not_recorded')
+                            && feedbackVerified
+                        );
+                    this.feedbackReadbackReason = this.feedbackReadbackBlocked
+                        ? String(currentFeedback?.reason_code || 'daily_preview_feedback_readback_unavailable')
+                        : '';
                     return data;
                 } catch (error) {
                     if (seq !== this.requestSeq) return null;
@@ -138,7 +216,7 @@
                 const businessDate = String(this.businessDate || '');
                 const mutationScope = scopeKey(hotelId, businessDate);
                 if (!this.canSave) return;
-                this.saving = true;
+                this.savingScope = mutationScope;
                 this.error = '';
                 try {
                     const res = await this.request('/operating-opportunities/priority', {
@@ -179,7 +257,60 @@
                     this.notify(this.error, 'error');
                     return null;
                 } finally {
-                    if (mutationScope === scopeKey(this.hotelId, this.businessDate)) this.saving = false;
+                    if (this.savingScope === mutationScope) this.savingScope = '';
+                }
+            },
+            async submitPreviewFeedback(feedbackStatus, reasonCode) {
+                const hotelId = Number(this.hotelId || 0);
+                const businessDate = String(this.businessDate || '');
+                const selected = this.personalizedSelected;
+                const receipt = this.personalizationReceipt;
+                const mutationScope = scopeKey(hotelId, businessDate);
+                if (!selected || !receipt || this.feedbackSaving || this.feedbackStatus
+                    || this.feedbackReadbackBlocked) return null;
+                const selectionDigest = String(selected.content_digest || '');
+                const contextDigest = String(receipt.context_digest || '');
+                const decisionDigest = String(receipt.decision_digest || '');
+                if (![selectionDigest, contextDigest, decisionDigest].every(value => /^[a-f0-9]{64}$/i.test(value))) {
+                    this.error = '个人预览摘要未完成精确回读，不能保存反馈';
+                    return null;
+                }
+                this.feedbackSavingScope = mutationScope;
+                this.error = '';
+                try {
+                    const res = await this.request('/operating-opportunities/daily-preview/feedback', {
+                        method: 'POST',
+                        businessContext: { hotelId },
+                        body: JSON.stringify({
+                            hotel_id: hotelId,
+                            business_date: businessDate,
+                            expected_selection_digest: selectionDigest,
+                            expected_context_digest: contextDigest,
+                            expected_decision_digest: decisionDigest,
+                            feedback_status: feedbackStatus,
+                            reason_code: reasonCode,
+                            idempotency_key: `daily_preview_feedback_${hotelId}_${businessDate.replaceAll('-', '')}_${selectionDigest.slice(0, 24)}`,
+                        }),
+                    });
+                    if (mutationScope !== scopeKey(this.hotelId, this.businessDate)) return null;
+                    if (res.code !== 200
+                        || res.data?.readback_verified !== true
+                        || Number(res.data?.system_hotel_id || 0) !== hotelId
+                        || String(res.data?.business_date || '') !== businessDate
+                        || res.data?.hotel_shared_daily_item_changed !== false
+                        || res.data?.execution_intent_created !== false
+                        || Number(res.data?.external_write_count ?? -1) !== 0
+                    ) throw new Error(res.message || '个人预览反馈未完成精确回读');
+                    this.feedbackStatus = reasonCode;
+                    this.notify('反馈已保存；只用于你的个人预览学习，不改写酒店正式事项');
+                    return res.data;
+                } catch (error) {
+                    if (mutationScope !== scopeKey(this.hotelId, this.businessDate)) return null;
+                    this.error = error?.message || '个人预览反馈保存失败';
+                    this.notify(this.error, 'error');
+                    return null;
+                } finally {
+                    if (this.feedbackSavingScope === mutationScope) this.feedbackSavingScope = '';
                 }
             },
             openOriginalAction() {
@@ -209,7 +340,101 @@
             const responsibility = selected?.responsibility || {};
             const boundary = selected?.external_write_boundary || {};
             const ranking = selected?.ranking || {};
+            const impactEstimate = selected?.impact_estimate && typeof selected.impact_estimate === 'object'
+                ? selected.impact_estimate
+                : {};
+            const impactScope = impactEstimate?.scope && typeof impactEstimate.scope === 'object'
+                ? impactEstimate.scope
+                : {};
+            const impactRefs = Array.isArray(impactEstimate?.input_refs)
+                ? impactEstimate.input_refs.map(item => String(item || '').trim()).filter(Boolean)
+                : [];
+            const impactReady = String(impactEstimate?.status || '') === 'deterministic_point_estimate'
+                && Number.isFinite(Number(impactEstimate?.low))
+                && Number.isFinite(Number(impactEstimate?.high));
+            const impactUnit = ({ users: '人' })[String(impactEstimate?.unit || '')]
+                || String(impactEstimate?.unit || '');
+            const impactValueText = impactReady
+                ? `${Number(impactEstimate.low).toLocaleString('zh-CN', { maximumFractionDigits: 6 })} ${impactUnit}`.trim()
+                : '当前不可计算';
             const currentIndex = lifecycle.indexOf(this.currentStatus);
+            const personalSelected = this.personalizedSelected;
+            const personalReceipt = this.personalizationReceipt;
+            const personalExplanation = normalizedExplanation(personalSelected || {}, personalReceipt);
+            const explanation = normalizedExplanation(selected || {}, null);
+            const personalizationStatus = String(explanation.personalization?.status || 'not_applied');
+            const personalizationText = String(
+                explanation.personalization?.why_you?.summary
+                || explanation.personalization?.summary
+                || (this.personalizedSelectionDiffers
+                    ? '你的个人预览与酒店公共基础事项不同；上方个人预览不会自动改写共享任务。'
+                    : '当前未使用个人偏好改变酒店公共基础事项。')
+            );
+            const currentFeedback = personalReceipt?.current_feedback || null;
+            const feedbackRecordedText = this.feedbackStatus === 'useful'
+                ? '已记录：这个重点合适'
+                : (this.feedbackStatus === 'wrong_focus' ? '已记录：重点不合适' : '');
+            const historyReadbackErrors = Array.isArray(this.overview?.history_readback_errors)
+                ? this.overview.history_readback_errors
+                : [];
+            const personalPreviewPanel = personalSelected ? h('section', {
+                class: 'rounded-2xl border border-emerald-200 bg-emerald-50/70 p-4',
+                'data-testid': 'daily-one-thing-personalized-preview',
+            }, [
+                h('div', { class: 'flex flex-wrap items-center justify-between gap-2' }, [
+                    h('strong', { class: 'text-sm text-emerald-950' }, this.personalizedSelectionDiffers
+                        ? '为你推荐 · 个人预览'
+                        : '个人预览 · 与公共基础事项一致'),
+                    h('span', { class: 'rounded-full border border-emerald-200 bg-white px-2 py-1 text-[11px] text-emerald-700' },
+                        personalReceipt?.status === 'applied' ? '已在基础并列组内个性化' : '保持公共默认顺序'),
+                ]),
+                this.personalizedSelectionDiffers
+                    ? h('h3', { class: 'mt-2 text-base font-semibold text-slate-900' }, String(personalSelected.problem || '个人预览事项'))
+                    : null,
+                h('p', { class: 'mt-2 text-sm leading-6 text-slate-700', 'data-testid': 'daily-one-thing-personalized-why-you' },
+                    String(personalExplanation.personalization?.why_you?.summary
+                        || personalExplanation.personalization?.summary
+                        || '当前个人偏好或反馈没有改变基础并列组默认顺序。')),
+                h('div', {
+                    class: 'mt-3 flex flex-wrap gap-2',
+                    'data-testid': 'daily-one-thing-preview-feedback',
+                    'aria-busy': this.feedbackSaving ? 'true' : 'false',
+                }, [
+                    h('button', {
+                        type: 'button',
+                        class: 'rounded-lg border border-emerald-300 bg-white px-3 py-1.5 text-xs font-semibold text-emerald-800 disabled:opacity-50',
+                        disabled: this.feedbackSaving || Boolean(this.feedbackStatus) || this.feedbackReadbackBlocked,
+                        'aria-pressed': this.feedbackStatus === 'useful' ? 'true' : 'false',
+                        'data-testid': 'daily-one-thing-feedback-useful',
+                        onClick: () => this.submitPreviewFeedback('accepted', 'useful'),
+                    }, this.feedbackSaving ? '保存中…' : '这个重点合适'),
+                    h('button', {
+                        type: 'button',
+                        class: 'rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 disabled:opacity-50',
+                        disabled: this.feedbackSaving || Boolean(this.feedbackStatus) || this.feedbackReadbackBlocked,
+                        'aria-pressed': this.feedbackStatus === 'wrong_focus' ? 'true' : 'false',
+                        'data-testid': 'daily-one-thing-feedback-wrong-focus',
+                        onClick: () => this.submitPreviewFeedback('rejected', 'wrong_focus'),
+                    }, '重点不合适'),
+                    this.feedbackStatus
+                        ? h('span', {
+                            class: 'self-center text-xs text-emerald-700',
+                            role: 'status',
+                            'aria-live': 'polite',
+                        }, feedbackRecordedText || '反馈已精确回读')
+                        : (this.feedbackReadbackBlocked
+                            ? h('span', {
+                                class: 'self-center text-xs text-amber-800',
+                                role: 'alert',
+                                'data-testid': 'daily-one-thing-feedback-readback-blocked',
+                            }, `反馈回读暂不可用，已阻止继续写入（${this.feedbackReadbackReason}）`)
+                            : null),
+                ]),
+                h('small', { class: 'mt-2 block text-[11px] leading-5 text-emerald-800' },
+                    currentFeedback?.status === 'recorded'
+                        ? '同一用户、酒店、营业日、事项类型和事实版本只计一次反馈；反馈不创建行动、不审批、不执行，也不修改 OTA/PMS。'
+                        : '个人预览只在四维基础完全并列的合格事项中排序；反馈不创建行动、不审批、不执行，也不修改 OTA/PMS。'),
+            ].filter(Boolean)) : null;
 
             return h('div', { class: 'mx-auto max-w-6xl space-y-5', 'data-testid': 'daily-one-thing-workbench' }, [
                 h('section', { class: 'overflow-hidden rounded-3xl border border-[#2c4f45] bg-[#06110d] p-5 text-white shadow-xl sm:p-6' }, [
@@ -227,7 +452,22 @@
                     ]),
                 ]),
                 this.error ? h('div', { class: 'rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700', role: 'alert' }, this.error) : null,
-                this.loading && !this.overview ? h('div', { class: 'rounded-2xl border border-slate-200 bg-white p-8 text-center text-sm text-slate-500' }, '正在读取严格事实、已保存问题和明确缺口…') : null,
+                this.loading && !this.overview ? h('div', {
+                    class: 'rounded-2xl border border-slate-200 bg-white p-8 text-center text-sm text-slate-500',
+                    role: 'status',
+                    'aria-live': 'polite',
+                }, '正在读取严格事实、已保存问题和明确缺口…') : null,
+                historyReadbackErrors.length ? h('div', {
+                    class: 'rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800',
+                    role: 'alert',
+                    'data-testid': 'daily-one-thing-history-integrity-warning',
+                }, [
+                    h('strong', `有 ${historyReadbackErrors.length} 条历史记录完整性校验失败`),
+                    h('p', { class: 'mt-1 text-xs leading-5' }, historyReadbackErrors.slice(0, 5).map(item => (
+                        `${String(item.business_date || '日期未知')} · 记录 #${Number(item.id || 0)} · ${String(item.reason_code || 'integrity_failed')}`
+                    )).join('；')),
+                ]) : null,
+                personalPreviewPanel,
                 !this.loading && this.overview && !selected ? h('div', { class: 'rounded-2xl border border-amber-200 bg-amber-50 p-5 text-sm text-amber-800' }, this.overview?.today_state === 'source_unavailable'
                     ? '严格事实来源暂不可读取；系统已阻止保存和送审，不会把系统故障伪装成数据缺口。'
                     : '当前没有通过来源门槛的每日事项；系统没有用空值或泛化建议补位。') : null,
@@ -245,13 +485,34 @@
                             ]),
                             h('div', { class: 'flex shrink-0 flex-col gap-2 sm:items-end' }, [
                                 this.canSave ? h('button', { type: 'button', disabled: this.saving, class: 'rounded-xl bg-gradient-to-r from-[#a88a52] to-[#6f572f] px-4 py-2.5 text-sm font-semibold text-white shadow-sm disabled:opacity-50', onClick: () => this.savePriority(), 'data-testid': 'daily-one-thing-save' }, this.saving ? '保存并回读中' : '保存为待人工审批') : null,
-                                this.isSavedCurrent && this.intentId ? h('button', { type: 'button', class: 'rounded-xl border border-[#a88a52] bg-white px-4 py-2.5 text-sm font-semibold text-[#6f572f]', onClick: () => this.openOriginalAction(), 'data-testid': 'daily-one-thing-open-original' }, this.taskId ? '继续原任务' : '打开原行动审批') : null,
+                                this.intentId ? h('button', { type: 'button', class: 'rounded-xl border border-[#a88a52] bg-white px-4 py-2.5 text-sm font-semibold text-[#6f572f]', onClick: () => this.openOriginalAction(), 'data-testid': 'daily-one-thing-open-original' }, this.overview?.today_state === 'saved_stale' ? '查看已保留的原任务' : (this.taskId ? '继续原任务' : '打开原行动审批')) : null,
                                 this.overview?.today_state === 'saved_stale' ? h('span', { class: 'max-w-[240px] text-right text-xs leading-5 text-amber-700' }, '旧快照已保留；当前事实身份已变化，不能静默改写原任务。') : null,
                             ]),
                         ]),
                     ]),
                     h('div', { class: 'grid gap-5 p-5 sm:p-6 lg:grid-cols-[minmax(0,1.35fr)_minmax(300px,0.65fr)]' }, [
                         h('div', { class: 'space-y-5' }, [
+                            h('section', {
+                                class: 'grid gap-3 sm:grid-cols-2',
+                                'data-testid': 'daily-one-thing-explanation',
+                            }, [
+                                h('div', { class: 'rounded-xl border border-slate-200 bg-white p-4' }, [
+                                    h('h4', { class: 'text-sm font-semibold text-slate-900' }, '为什么现在做'),
+                                    h('p', { class: 'mt-2 text-sm leading-6 text-slate-700', 'data-testid': 'daily-one-thing-why-now' }, explanation.whyNow),
+                                ]),
+                                h('div', { class: 'rounded-xl border border-slate-200 bg-white p-4' }, [
+                                    h('h4', { class: 'text-sm font-semibold text-slate-900' }, '为什么推荐给你'),
+                                    h('p', { class: 'mt-2 text-sm leading-6 text-slate-700', 'data-testid': 'daily-one-thing-why-recommended' }, explanation.whyRecommended),
+                                    h('p', {
+                                        class: 'mt-2 text-xs leading-5 text-slate-500',
+                                        'data-testid': 'daily-one-thing-personalization',
+                                    }, `${personalizationStatus === 'applied' ? '个性化已参与' : '个性化未应用'}：${personalizationText}`),
+                                    explanation.sourceRefs.length ? h('details', { class: 'mt-2 text-[11px] text-slate-400' }, [
+                                        h('summary', '查看解释依据'),
+                                        h('p', { class: 'mt-1 break-all leading-5', 'data-testid': 'daily-one-thing-explanation-sources' }, explanation.sourceRefs.join(' · ')),
+                                    ]) : null,
+                                ]),
+                            ]),
                             h('section', [
                                 h('h4', { class: 'text-sm font-semibold text-slate-900' }, '事实依据'),
                                 h('div', { class: 'mt-2 space-y-2' }, factBasis.map((fact, index) => h('div', { key: `${fact.evidence_ref}-${index}`, class: 'rounded-xl border border-slate-200 bg-white px-4 py-3' }, [
@@ -270,6 +531,32 @@
                                 h('div', { class: 'rounded-xl border border-slate-200 bg-white p-4' }, [h('div', { class: 'text-xs text-slate-400' }, '预期观察指标'), h('div', { class: 'mt-1 text-sm font-semibold text-slate-900' }, metric.label || metric.key), h('div', { class: 'mt-1 text-xs text-slate-500' }, `基线 ${metric.baseline_value} ${metric.unit} · 只观察变化`)]),
                                 h('div', { class: 'rounded-xl border border-slate-200 bg-white p-4' }, [h('div', { class: 'text-xs text-slate-400' }, '适用范围'), h('div', { class: 'mt-1 text-sm font-semibold text-slate-900' }, `${scope.platform || '-'} · ${scope.business_date || '-'}`), h('div', { class: 'mt-1 text-xs leading-5 text-slate-500' }, scope.scope_note)]),
                             ]),
+                            h('section', {
+                                class: `rounded-xl border p-4 ${impactReady ? 'border-emerald-200 bg-emerald-50/70' : 'border-slate-200 bg-white'}`,
+                                'data-testid': 'daily-one-thing-impact-estimate',
+                                'data-impact-status': String(impactEstimate?.status || 'not_calculable'),
+                                'data-impact-low': impactReady ? String(impactEstimate.low) : '',
+                                'data-impact-high': impactReady ? String(impactEstimate.high) : '',
+                            }, [
+                                h('div', { class: 'flex flex-wrap items-center justify-between gap-2' }, [
+                                    h('h4', { class: 'text-sm font-semibold text-slate-900' }, '影响估算'),
+                                    h('span', {
+                                        class: `rounded-full border px-2 py-1 text-[11px] ${impactReady ? 'border-emerald-200 bg-white text-emerald-700' : 'border-slate-200 bg-slate-50 text-slate-500'}`,
+                                    }, impactReady ? '确定性点值' : '不可计算'),
+                                ]),
+                                h('div', { class: `mt-2 text-xl font-semibold ${impactReady ? 'text-emerald-900' : 'text-slate-500'}` }, impactValueText),
+                                h('p', { class: 'mt-2 text-xs leading-5 text-slate-600' }, impactReady
+                                    ? '当前值是同范围曝光人数减详情访客人数的漏斗差值；没有真实区间来源，因此 low 与 high 相同。它不是置信区间、可挽回人数、收益或因果效果。'
+                                    : '缺少同租户、同酒店、同平台、同营业日的严格分子、分母或来源引用；不会用排序分、默认值或模型猜测补齐。'),
+                                impactReady ? h('dl', { class: 'mt-3 grid gap-2 text-xs sm:grid-cols-2' }, [
+                                    h('div', [h('dt', { class: 'text-slate-400' }, '公式'), h('dd', { class: 'mt-1 break-words font-medium text-slate-700' }, String(impactEstimate.formula || '-'))]),
+                                    h('div', [h('dt', { class: 'text-slate-400' }, '范围'), h('dd', { class: 'mt-1 font-medium text-slate-700' }, `${impactScope.platform || '-'} · ${impactScope.business_date || '-'}`)]),
+                                ]) : null,
+                                impactReady && impactRefs.length ? h('details', { class: 'mt-3 text-[11px] text-slate-500' }, [
+                                    h('summary', { class: 'cursor-pointer font-medium' }, '查看计算输入引用'),
+                                    h('p', { class: 'mt-1 break-all leading-5', 'data-testid': 'daily-one-thing-impact-input-refs' }, impactRefs.join(' · ')),
+                                ]) : null,
+                            ].filter(Boolean)),
                         ]),
                         h('aside', { class: 'space-y-4' }, [
                             h('div', { class: 'rounded-2xl border border-slate-200 bg-white p-4' }, [

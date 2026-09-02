@@ -2593,7 +2593,7 @@ test('Meituan historical percent-only stay and sales remain partial without appr
   assert.match(html, /未抓到 · 已尝试/);
 });
 
-test('Ctrip identity conflict still displays queried rows and reports save blocked', async () => {
+test('Ctrip identity conflict still displays queried rows but stays unavailable to trusted downstream use', async () => {
   const notifications = [];
   const onlineResults = [];
   const displayedRows = [];
@@ -2644,7 +2644,7 @@ test('Ctrip identity conflict still displays queried rows and reports save block
   assert.equal(result.status, 'display_only');
   assert.equal(displayedRows[0]?.hotelName, '古镇江景');
   assert.equal(onlineResults.length, 1);
-  assert.equal(fetchSuccessWrites.at(-1), true);
+  assert.equal(fetchSuccessWrites.at(-1), false);
   assert.equal(savedCountWrites.at(-1), 0);
   assert.deepEqual(notifications.at(-1), {
     message: '数据已获取，但当前配置实际返回另一家酒店，本次未入库。',
@@ -3433,6 +3433,7 @@ test('Home lower dashboard panels mount after the first OTA navigation window', 
   assert.match(html, /const HOME_SECONDARY_PANEL_DELAY_MS = 4200;/);
   assert.match(html, /const COMPASS_WEATHER_REFRESH_DELAY_MS = 3200;/);
   assert.match(html, /const homeSecondaryPanelsReady = ref\(false\);/);
+  assert.match(html, /const ensureHomeSecondaryStaticRuntimeReady = async \(\) => \{[\s\S]*SUXI_LOAD_DEFERRED_AUTHENTICATED_ASSET[\s\S]*app-deferred-helpers\.min\.js/);
   assert.match(html, /const scheduleHomeSecondaryPanelsReady = \(delayMs = HOME_SECONDARY_PANEL_DELAY_MS\) => \{/);
   assert.match(currentPageWatcher, /clearHomeSecondaryPanelsReadyTimer\(\);\s*clearDualOtaSystemMetricDrilldownHydrationTimer\(\);\s*homeSecondaryPanelsReady\.value = false;\s*destroyHomeTrendChart\(\);/);
   assert.match(currentPageWatcher, /homeSecondaryPanelsReady\.value = false;\s*scheduleHomeSecondaryPanelsReady\(\);[\s\S]{0,620}?const requestPolicy = currentCompassReadPolicy\(newPage, 'current'\);/);
@@ -4717,29 +4718,23 @@ test('Online analysis tab reuses recent analysis and detail reads during tab ret
     '\n\n            const loadOnlineDataList'
   );
 
-  assert.match(analysisCache, /const onlineAnalysisDataResultCache = new Map\(\);/);
-  assert.match(analysisCache, /const onlineAnalysisRowsResultCache = new Map\(\);/);
-  assert.match(analysisCache, /const onlineAnalysisDataRequestPromises = new Map\(\);/);
-  assert.match(analysisCache, /const onlineAnalysisRowsRequestPromises = new Map\(\);/);
-  assert.match(analysisCache, /const clearOnlineAnalysisReadCaches = \(\) => \{/);
-  assert.match(analysisCache, /const readOnlineAnalysisResultCache = \(cache, key, cacheMs\) => \{/);
-  assert.match(analysisCache, /const writeOnlineAnalysisResultCache = \(cache, key, data, cacheMs\) => \{/);
-  assert.match(loadAnalysisData, /const cacheMs = Number\(options\?\.cacheMs \?\? ONLINE_ANALYSIS_PANEL_CACHE_TTL_MS\);/);
-  assert.match(loadAnalysisData, /const cached = readOnlineAnalysisResultCache\(onlineAnalysisDataResultCache, requestKey, cacheMs\);/);
-  assert.match(loadAnalysisData, /if \(onlineAnalysisDataRequestPromises\.has\(requestKey\)\) \{/);
-  assert.match(loadAnalysisData, /request\(`\/online-data\/data-analysis\?\$\{params\}`,\s*\{\s*businessContext:\s*\{\s*hotelId:\s*onlineDataFilter\.value\.hotel_id\s*\|\|\s*'',\s*tenantId:\s*'',?\s*\},?\s*\}\)/);
-  assert.match(loadAnalysisData, /writeOnlineAnalysisResultCache\(onlineAnalysisDataResultCache, requestKey, data, cacheMs\);/);
-  assert.match(loadOnlineAnalysisRows, /const cached = readOnlineAnalysisResultCache\(onlineAnalysisRowsResultCache, requestKey, cacheMs\);/);
-  assert.match(loadOnlineAnalysisRows, /if \(onlineAnalysisRowsRequestPromises\.has\(requestKey\)\) \{/);
-  assert.match(loadOnlineAnalysisRows, /request\(`\/online-data\/daily-data-list\?\$\{params\}`\)/);
-  assert.match(loadOnlineAnalysisRows, /writeOnlineAnalysisResultCache\(onlineAnalysisRowsResultCache, requestKey, data, cacheMs\);/);
+  assert.match(analysisCache, /const captureOnlineAnalysisRequestOwner = \(\) => \(\{/);
+  assert.match(analysisCache, /tenantId: String\([\s\S]*userId: String\([\s\S]*hotelId: String\(/);
+  assert.match(analysisCache, /const resetOnlineAnalysisSessionState = \(\) => \{[\s\S]*onlineAnalysisPagination\.value = \{ total: 0[\s\S]*onlineAnalysisSourceRecord\.value = null;/);
+  assert.doesNotMatch(analysisCache, /onlineAnalysis(?:Data|Rows)(?:ResultCache|RequestPromises)/);
+  assert.match(loadAnalysisData, /const requestOwner = captureOnlineAnalysisRequestOwner\(\);/);
+  assert.match(loadAnalysisData, /tenantId: requestOwner\.tenantId,[\s\S]*userId: requestOwner\.userId,[\s\S]*systemHotelId: requestOwner\.hotelId,[\s\S]*ttlMs: Number\(options\?\.cacheMs \?\? ONLINE_ANALYSIS_PANEL_CACHE_TTL_MS\),[\s\S]*force: options\?\.force === true/);
+  assert.match(loadAnalysisData, /request\(`\/online-data\/data-analysis\?\$\{params\}`,[\s\S]*requestPolicy/);
+  assert.match(loadAnalysisData, /if \(!isCurrentRequest\(\)\) return null;[\s\S]*analysisData\.value = res\.data/);
+  assert.match(loadOnlineAnalysisRows, /const requestOwner = captureOnlineAnalysisRequestOwner\(\);/);
+  assert.match(loadOnlineAnalysisRows, /request\(`\/online-data\/daily-data-list\?\$\{params\}`, \{ requestPolicy \}\)/);
+  assert.match(loadOnlineAnalysisRows, /if \(!isCurrentRequest\(\)\) return \[\];[\s\S]*applyOnlineAnalysisRowsResponse\(res\.data/);
   assert.match(refreshOnlineAnalysis, /cacheMs: ONLINE_ANALYSIS_PANEL_CACHE_TTL_MS,/);
-  assert.match(refreshOnlineAnalysis, /if \(loadOptions\.force === true\) \{\s*clearOnlineAnalysisReadCaches\(\);/);
   assert.match(refreshOnlineAnalysis, /loadAnalysisData\(null, loadOptions\)/);
   assert.match(refreshOnlineAnalysis, /loadOnlineDataSummary\(loadOptions\)/);
   assert.match(refreshOnlineAnalysis, /loadOnlineAnalysisRows\(loadOptions\)/);
   assert.match(scheduleOnlineDataTabLoad, /return refreshOnlineAnalysis\(options\);/);
-  assert.match(clearOnlineDataReadCaches, /clearOnlineAnalysisReadCaches\(\);/);
+  assert.match(clearOnlineDataReadCaches, /clearCoordinatedGetSuccessCache\(\);/);
   assert.match(html, /@click="refreshOnlineAnalysis\(\{ force: true \}\)"/);
   assert.match(html, /@click="loadOnlineAnalysisRows\(\{ force: true \}\)"/);
 });

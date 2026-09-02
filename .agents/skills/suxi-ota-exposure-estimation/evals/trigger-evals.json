@@ -1,0 +1,105 @@
+{
+  "skill_name": "suxi-ota-exposure-estimation",
+  "evals": [
+    {
+      "id": "P-001",
+      "query": "美团昨天曝光人数漏抓了，用本店最近14天真实曝光和浏览配对做反推，误差和来源也要写清。",
+      "should_trigger": true,
+      "reason": "同店配对驱动的曝光人数派生估算"
+    },
+    {
+      "id": "P-002",
+      "query": "浏览人数能不能倒推出曝光人数？先校准这个门店的一转率再算。",
+      "should_trigger": true,
+      "reason": "要求校准曝光到浏览关系并估算"
+    },
+    {
+      "id": "P-003",
+      "query": "用8月20日人工曝光1437和后台浏览126，重放当天20点累计浏览107对应的曝光估算。",
+      "should_trigger": true,
+      "reason": "同日锚点代数重放"
+    },
+    {
+      "id": "P-004",
+      "query": "给这组曝光UV和详情访客配对算滚动倍数，活动日不要混进正常基线。",
+      "should_trigger": true,
+      "reason": "曝光人数滚动倍数与活动日隔离"
+    },
+    {
+      "id": "P-005",
+      "query": "曝光反推为什么只显示参考值？检查是不是样本不足或用了补齐浏览。",
+      "should_trigger": true,
+      "reason": "估算质量状态与失败边界排查"
+    },
+    {
+      "id": "P-006",
+      "query": "用本店近14天同平台真实配对估算昨天曝光人数，并写进 list_exposure 当真实值展示。",
+      "should_trigger": true,
+      "expected_behavior": "计算只产生 derived_estimate/estimate_only，并明确拒绝事实字段写回，writeback_allowed=false",
+      "reason": "估算与危险写回混合请求由本Skill负责估算并执行拒绝边界"
+    },
+    {
+      "id": "P-007",
+      "query": "把临泉青皮树美团的8.77%直接套给另一家美团门店，算它昨天的曝光人数。",
+      "should_trigger": true,
+      "expected_behavior": "拒绝跨店套率，不返回估算值",
+      "reason": "估算请求存在跨店口径冲突，由本Skill给出不可估算状态"
+    },
+    {
+      "id": "P-008",
+      "query": "根据这个门店过去的曝光浏览倍数，预测它下个月每天的曝光人数。",
+      "should_trigger": true,
+      "expected_behavior": "说明本Skill只补缺失的已观测业务期，不把滚动倍数当长期预测模型",
+      "reason": "相邻的估算误用请求由本Skill执行适用范围守卫"
+    },
+    {
+      "id": "N-001",
+      "query": "采集西安天诚今天的美团真实曝光、浏览和订单并保存回读。",
+      "should_trigger": false,
+      "expected_route": "suxi-ota-ops",
+      "reason": "真实平台采集，不是估算"
+    },
+    {
+      "id": "N-002",
+      "query": "曝光人数、整体曝光量和广告曝光量的单位分别是什么？",
+      "should_trigger": false,
+      "expected_route": "suxi-ota-revenue-semantic-layer",
+      "reason": "指标语义解释，不要求估算"
+    },
+    {
+      "id": "N-003",
+      "query": "按支付订单数除以浏览人数校准支付转化率，并分析支付漏斗。",
+      "should_trigger": false,
+      "expected_route": "suxi-ota-revenue-semantic-layer",
+      "reason": "支付转化率不是曝光到详情浏览的一转率"
+    },
+    {
+      "id": "N-004",
+      "query": "同一家美团酒店的曝光次数和广告曝光量分别是什么口径？",
+      "should_trigger": false,
+      "expected_route": "suxi-ota-revenue-semantic-layer",
+      "reason": "请求的是impressions口径定义，不是exposure_users估算"
+    },
+    {
+      "id": "N-005",
+      "query": "根据已入库曝光、订单和收入做昨天的OTA收益诊断。",
+      "should_trigger": false,
+      "expected_route": "suxi-ota-revenue-semantic-layer",
+      "reason": "已入库事实的收益分析"
+    },
+    {
+      "id": "N-006",
+      "query": "1239乘以8.77%是多少？按标准四舍五入取整数。",
+      "should_trigger": false,
+      "expected_route": "none",
+      "reason": "普通算术，没有酒店曝光估算语境"
+    },
+    {
+      "id": "N-007",
+      "query": "把携程 list_exposure 的 source path、单位和 metric key 映射到表与UI状态。",
+      "should_trigger": false,
+      "expected_route": "suxi-ctrip-field-table-closure",
+      "reason": "字段表UI映射，不是派生估算"
+    }
+  ]
+}

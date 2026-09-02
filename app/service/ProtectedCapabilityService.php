@@ -170,7 +170,10 @@ class ProtectedCapabilityService
                     'module' => 'operation_decision',
                     'controller_hotel_scope' => true,
                     'paths' => [
-                        ['path' => 'api/revenue-ai/cockpit/pending-approval', 'methods' => ['POST']],
+                        [
+                            'path' => 'api/revenue-ai/cockpit/decision-snapshots/*/pending-approval',
+                            'methods' => ['POST'],
+                        ],
                         [
                             'path' => 'api/revenue-ai/price-suggestions/*/execution-intent',
                             'methods' => ['POST'],
@@ -202,6 +205,11 @@ class ProtectedCapabilityService
                         ['path' => 'api/operating-opportunities/evaluate', 'methods' => ['POST']],
                         ['path' => 'api/operating-opportunities/priority', 'methods' => ['POST']],
                         ['path' => 'api/operating-opportunities/runs/*/pending-approval', 'methods' => ['POST']],
+                        ['path' => 'api/operating-finance/settlements/import', 'methods' => ['POST']],
+                        ['path' => 'api/operating-finance/settlements/import-file', 'methods' => ['POST']],
+                        ['path' => 'api/operating-finance/on-books-snapshots', 'methods' => ['POST']],
+                        ['path' => 'api/operating-finance/demand-events', 'methods' => ['POST']],
+                        ['path' => 'api/operating-finance/monthly-finance', 'methods' => ['POST']],
                         ['path' => 'api/operation/execution-intents', 'methods' => ['POST']],
                         ['path' => 'api/operation/execution-tasks/*', 'methods' => ['POST']],
                         ['path' => 'api/online-data/public-page-diagnosis/execution-intent', 'methods' => ['POST']],
@@ -232,6 +240,7 @@ class ProtectedCapabilityService
                         'api/operation',
                         'api/operating-loop',
                         ['path' => 'api/operating-opportunities', 'methods' => ['GET']],
+                        ['path' => 'api/operating-finance', 'methods' => ['GET']],
                     ],
                     'response_mode' => 'summary_only',
                     'rate_limit' => ['scope' => 'protected_operation', 'limit' => 60, 'window' => 3600],

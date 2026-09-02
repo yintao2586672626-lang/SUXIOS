@@ -201,7 +201,7 @@ final class OtaClosureDataBoundaryTest extends TestCase
         ], $columns);
         self::assertSame('next_30_days', $forecast['data_period']);
         self::assertSame(0, $forecast['is_final']);
-        self::assertNull($forecast['snapshot_time']);
+        self::assertNotNull($forecast['snapshot_time']);
 
         $forecastDates = [
             date('Y-m-d', strtotime('-1 day')),
@@ -217,7 +217,7 @@ final class OtaClosureDataBoundaryTest extends TestCase
                 ], $columns);
                 self::assertSame('next_30_days', $persisted['data_period']);
                 self::assertSame(0, $persisted['is_final']);
-                self::assertNull($persisted['snapshot_time']);
+                self::assertNotNull($persisted['snapshot_time']);
 
                 $syncMetadata = $this->invokeNonPublic(new PlatformDataSyncService(), 'resolveDataPeriodMetadata', [[
                     'data_type' => $forecastType,
@@ -225,7 +225,7 @@ final class OtaClosureDataBoundaryTest extends TestCase
                 ], [], [], $forecastDate]);
                 self::assertSame('next_30_days', $syncMetadata['data_period']);
                 self::assertSame(0, $syncMetadata['is_final']);
-                self::assertNull($syncMetadata['snapshot_time']);
+                self::assertNotNull($syncMetadata['snapshot_time']);
             }
         }
 

@@ -1,0 +1,6 @@
+interface:
+  display_name: "宿析产品决策"
+  short_description: "从业务事实、用户证据和现有能力收敛一个可验证的产品决定"
+  default_prompt: "使用 $suxi-product-decision 为当前宿析OS产品问题选择一个最高价值方向，并给出证据、边界和可验证闭环。"
+policy:
+  allow_implicit_invocation: false

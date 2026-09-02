@@ -16,6 +16,7 @@ use app\service\OperatingQuestionService;
 use app\service\OperatingSopService;
 use app\service\WecomInboundService;
 use app\service\WecomAibotService;
+use app\service\WecomTaskReceiptService;
 use InvalidArgumentException;
 use RuntimeException;
 use think\facade\Db;
@@ -63,7 +64,8 @@ final class OperatingIntelligence extends Base
                 (string)($input['date_end'] ?? ''),
                 (int)($this->currentUser->id ?? 0),
                 (string)($input['model_key'] ?? 'local_second_brain'),
-                (string)($input['decision_object'] ?? '')
+                (string)($input['decision_object'] ?? ''),
+                is_array($input['media_evidence_ids'] ?? null) ? $input['media_evidence_ids'] : []
             ));
         } catch (Throwable $e) {
             return $this->error($this->safeMessage($e, '经营问题保存失败'), $this->status($e));
@@ -342,25 +344,39 @@ final class OperatingIntelligence extends Base
         }
     }
 
-    public function runQuestionCouncil(int $id): Response
+    public function createWecomInboundSenderBindingCode(): Response
     {
-        // A five-lens local council performs five bounded reviews plus one
-        // synthesis call. Keep the longer budget scoped to this user-triggered
-        // endpoint instead of raising the application's global PHP limit.
-        if (function_exists('set_time_limit')) {
-            set_time_limit(180);
-        }
         try {
             $input = $this->requestData();
-            return $this->success((new OperatingQuestionCouncilService())->runShadow(
+            [$hotelId, $tenantId] = $this->resolveHotel(
+                (int)($input['hotel_id'] ?? 0),
+                'operation.execute'
+            );
+            $actorId = (int)($this->currentUser->id ?? 0);
+            return $this->success((new WecomTaskReceiptService())->createSenderBindingChallenge(
+                $tenantId,
+                $hotelId,
+                $actorId
+            ));
+        } catch (Throwable $e) {
+            return $this->error($this->safeMessage($e, '企业微信发送人绑定码创建失败'), $this->status($e));
+        }
+    }
+
+    public function runQuestionCouncil(int $id): Response
+    {
+        try {
+            $input = $this->requestData();
+            return $this->success((new OperatingQuestionCouncilService())->reserveShadow(
                 $id,
                 $this->currentTenantId(),
                 $this->accessibleHotels('operation.view'),
                 (int)($this->currentUser->id ?? 0),
-                (string)($input['client_run_key'] ?? '')
-            ));
+                (string)($input['client_run_key'] ?? ''),
+                true
+            ), '经营顾问会诊已保留，后台逐视角处理中');
         } catch (Throwable $e) {
-            return $this->error($this->safeMessage($e, '经营顾问会诊失败'), $this->status($e));
+            return $this->error($this->safeMessage($e, '经营顾问会诊保留失败'), $this->status($e));
         }
     }
 
@@ -374,6 +390,20 @@ final class OperatingIntelligence extends Base
             ));
         } catch (Throwable $e) {
             return $this->error($this->safeMessage($e, '经营顾问会诊回读失败'), $this->status($e));
+        }
+    }
+
+    public function resumeQuestionCouncil(int $id, int $runId): Response
+    {
+        try {
+            return $this->success((new OperatingQuestionCouncilService())->resumeRun(
+                $runId,
+                $id,
+                $this->currentTenantId(),
+                $this->accessibleHotels('operation.view')
+            ), '经营顾问会诊已按原 run 恢复');
+        } catch (Throwable $e) {
+            return $this->error($this->safeMessage($e, '经营顾问会诊恢复失败'), $this->status($e));
         }
     }
 

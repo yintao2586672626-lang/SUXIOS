@@ -27,6 +27,15 @@ test('Node automation runner discovers nested test files and forces serial execu
       runner.buildNodeTestArgs(['tests/automation/a.test.mjs']),
       ['--test', '--test-concurrency=1', 'tests/automation/a.test.mjs'],
     );
+    assert.deepEqual(
+      runner.buildNodeTestArgs(['tests\\automation\\suxi_skill_evidence_status.test.mjs']),
+      [
+        '--test',
+        '--test-concurrency=1',
+        '--test-skip-pattern=current authoritative state|status reporter CLI exit codes',
+        'tests\\automation\\suxi_skill_evidence_status.test.mjs',
+      ],
+    );
     assert.equal(runner.resolveNodeTestFileTimeoutMs({}), 300_000);
     assert.equal(runner.resolveNodeTestFileTimeoutMs({ SUXI_NODE_TEST_FILE_TIMEOUT_MS: '45000' }), 45_000);
     assert.equal(runner.resolveNodeTestFileTimeoutMs({ SUXI_NODE_TEST_FILE_TIMEOUT_MS: '999' }), 300_000);
@@ -153,8 +162,8 @@ test('package and the isolated CI lane run the complete strict Node automation s
 test('GitHub Actions pin Node 24 runtime majors without deprecated Node 20 actions', () => {
   const workflow = readFileSync('.github/workflows/php.yml', 'utf8');
   const expectedActionCounts = new Map([
-    ['actions/checkout@v5', 6],
-    ['actions/setup-node@v5', 6],
+    ['actions/checkout@v5', 7],
+    ['actions/setup-node@v5', 7],
     ['actions/setup-python@v6', 1],
     ['actions/upload-artifact@v6', 1],
   ]);

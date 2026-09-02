@@ -3,6 +3,8 @@
 declare(strict_types=1);
 
 use app\service\CloudBrowserProfileService;
+use app\service\OtaHistoricalCoreReadbackVerifier;
+use app\service\OtaOrderedCollectionPlanner;
 use app\service\OtaProfileSessionProofService;
 use app\service\PlatformDataSyncService;
 use app\service\platform\CtripBrowserProfileDataSourceAdapter;
@@ -26,18 +28,27 @@ $options = getopt('', [
     'owner-user-id:',
     'profile-id:',
     'target-date::',
+    'run-mode::',
     'gateway-url::',
     'cdp-url::',
     'control-token-file::',
     'timeout-seconds::',
     'dispatcher-run-id::',
 ]);
-$today = (new DateTimeImmutable('now', new DateTimeZone(OTA_CLOUD_COLLECTION_TIMEZONE)))
-    ->format('Y-m-d');
+$now = new DateTimeImmutable('now', new DateTimeZone(OTA_CLOUD_COLLECTION_TIMEZONE));
+$today = $now->format('Y-m-d');
+$previousBusinessDay = $now->modify('-1 day')->format('Y-m-d');
 $sourceId = positiveInt($options['data-source-id'] ?? null, 'data_source_id_invalid');
 $ownerUserId = positiveInt($options['owner-user-id'] ?? null, 'owner_user_id_invalid');
 $profileId = opaqueId((string)($options['profile-id'] ?? ''), 'cbp_', 'profile_id_invalid');
 $targetDate = trim((string)($options['target-date'] ?? $today));
+$runModeInput = strtolower(trim((string)($options['run-mode'] ?? '')));
+$runMode = $runModeInput;
+if ($runMode === '') {
+    $runMode = $targetDate === $previousBusinessDay ? 'daily' : 'realtime';
+}
+$historicalCollection = $runMode === 'daily';
+$dataPeriod = $historicalCollection ? 'historical_daily' : 'realtime_snapshot';
 $gatewayUrl = rtrim(trim((string)($options['gateway-url'] ?? 'http://127.0.0.1:8787')), '/');
 $cdpUrl = rtrim(trim((string)($options['cdp-url'] ?? 'http://127.0.0.1:9223')), '/');
 $tokenFile = trim((string)($options['control-token-file']
@@ -85,7 +96,7 @@ $controlToken = '';
 $failureOptions = [
     'data_date' => validDate($targetDate) ? $targetDate : '',
     'target_date' => validDate($targetDate) ? $targetDate : '',
-    'data_period' => 'realtime_snapshot',
+    'data_period' => $dataPeriod,
     'trigger_type' => $dispatcherRunId !== '' ? 'daily_profile_reuse' : 'cloud_browser_profile',
 ];
 if ($dispatcherRunId !== '') {
@@ -93,7 +104,11 @@ if ($dispatcherRunId !== '') {
 }
 try {
     if (!validDate($targetDate)
-        || $targetDate !== $today
+        || !in_array($targetDate, [$today, $previousBusinessDay], true)
+        || !in_array($runMode, ['daily', 'realtime'], true)
+        || ($runMode === 'daily' && $targetDate !== $previousBusinessDay)
+        || ($runMode === 'realtime' && $targetDate !== $today)
+        || ($dispatcherRunId !== '' && $runModeInput === '')
         || ($dispatcherRunIdInput !== '' && $dispatcherRunId === '')
         || $gatewayUrl !== 'http://127.0.0.1:8787'
         || preg_match('#^http://127\.0\.0\.1:[1-9][0-9]{1,4}$#D', $cdpUrl) !== 1
@@ -141,6 +156,7 @@ try {
         'owner_user_id' => $ownerUserId,
         'target_date' => $targetDate,
         'collection_kind' => 'ota_channel_profile',
+        'data_period' => $dataPeriod,
         'access_mode' => 'read_only',
     ], 90);
     $gatewayOpenAccepted = ($opened['status'] ?? '') === 'collection_open';
@@ -164,6 +180,9 @@ try {
         || (int)($opened['data_source_id'] ?? 0) !== $sourceId
         || (string)($opened['platform'] ?? '') !== $platform
         || (string)($opened['target_date'] ?? '') !== $targetDate
+        || (string)($opened['collection_kind'] ?? '') !== 'ota_channel_profile'
+        || (string)($opened['data_period'] ?? '') !== $dataPeriod
+        || (string)($opened['source_scope'] ?? '') !== 'ota_channel'
         || ($opened['browser_started'] ?? null) !== true
     ) {
         throw new RuntimeException('cloud_ota_gateway_open_unverified');
@@ -172,7 +191,7 @@ try {
     $captureOptions = [
         'cdp_url' => $cdpUrl,
         'data_date' => $targetDate,
-        'data_period' => 'realtime_snapshot',
+        'data_period' => $dataPeriod,
         'snapshot_time' => (new DateTimeImmutable(
             'now',
             new DateTimeZone(OTA_CLOUD_COLLECTION_TIMEZONE)
@@ -188,8 +207,8 @@ try {
         $captureOptions['dispatcher_run_id'] = $dispatcherRunId;
     }
     if ($platform === 'ctrip') {
-        $captureOptions['collector_flow'] = 'realtime';
-        $captureOptions['capture_plan'] = 'realtime';
+        $captureOptions['collector_flow'] = $historicalCollection ? 'historical' : 'realtime';
+        $captureOptions['capture_plan'] = $historicalCollection ? 'historical_review' : 'realtime';
         $captureOptions['capture_sections'] = 'business_overview,traffic_report';
         $captureOptions['bounded_capture_sections'] = 'business_overview,traffic_report';
         // The cloud gateway guards exactly one page target. Keep formal cloud
@@ -199,12 +218,13 @@ try {
         $captureOptions['sequential_sections'] = true;
         $captureAdapter = new CtripBrowserProfileDataSourceAdapter($root);
     } else {
-        // Match the product's existing current-day Meituan temporal contract:
-        // collect the real-time business/traffic snapshot without traversing
-        // yesterday, 7-day, 30-day and every peer-ranking tab.
-        $captureOptions['capture_sections'] = 'traffic';
+        // Read exactly one policy-approved period; never traverse unrelated
+        // 7-day, 30-day or peer-ranking tabs in the formal queue.
+        $captureOptions['capture_sections'] = $historicalCollection
+            ? implode(',', OtaOrderedCollectionPlanner::defaultSections('meituan'))
+            : 'traffic';
         $captureOptions['capture_mode'] = 'temporal_summary';
-        $captureOptions['temporal_scope'] = 'current_day';
+        $captureOptions['temporal_scope'] = $historicalCollection ? 'yesterday' : 'current_day';
         $captureAdapter = new MeituanBrowserProfileDataSourceAdapter($root);
     }
 
@@ -278,16 +298,34 @@ try {
         || (int)($runReadback['system_hotel_id'] ?? 0) !== $hotelId
         || (string)($runReadback['platform'] ?? '') !== $platform
         || (string)($runReadback['target_date'] ?? '') !== $targetDate
+        || (string)($runReadback['data_period'] ?? '') !== $dataPeriod
         || (string)($runReadback['p0_status'] ?? '') !== 'ready'
         || (string)($runReadback['field_fact_status'] ?? '') !== 'ready'
         || (string)($runReadback['page_field_fact_status'] ?? '') !== 'ready'
         || (string)($runReadback['platform_hotel_identifier_status'] ?? '') !== 'ready'
         || (array)($runReadback['missing_traffic_metric_keys'] ?? []) !== []
+        || sanitizedTraceIds($runReadback['source_trace_ids'] ?? []) === []
         || (int)($runReadback['readback_count'] ?? 0) <= 0
         || count((array)($runReadback['row_ids'] ?? [])) !== (int)($runReadback['readback_count'] ?? 0)
     ) {
         $postSyncFailure = true;
         throw new RuntimeException('cloud_ota_required_fields_or_exact_run_readback_incomplete');
+    }
+    $historicalCoreContractStatus = $historicalCollection
+        && (new OtaHistoricalCoreReadbackVerifier())->verify(
+            $platform,
+            $tenantId,
+            $sourceId,
+            $hotelId,
+            $targetDate,
+            $dataPeriod,
+            $runReadback
+        )
+        ? 'ready'
+        : ($historicalCollection ? 'blocked' : 'not_required');
+    if ($historicalCollection && $historicalCoreContractStatus !== 'ready') {
+        $postSyncFailure = true;
+        throw new RuntimeException('cloud_ota_historical_core_contract_incomplete');
     }
     $fieldFactsHash = hash('sha256', json_encode([
         'p0_status' => $runReadback['p0_status'],
@@ -296,6 +334,8 @@ try {
         'complete_traffic_metric_keys' => $runReadback['complete_traffic_metric_keys'] ?? [],
         'missing_traffic_metric_keys' => [],
         'row_ids' => $runReadback['row_ids'],
+        'data_period' => $dataPeriod,
+        'historical_core_contract_status' => $historicalCoreContractStatus,
     ], JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR));
     $closeOutcome = 'completed';
     $result = [
@@ -304,6 +344,10 @@ try {
         'data_source_id' => $sourceId,
         'hotel_id' => $hotelId,
         'target_date' => $targetDate,
+        'run_mode' => $runMode,
+        'data_period' => $dataPeriod,
+        'collection_kind' => 'ota_channel_profile',
+        'historical_core_contract_status' => $historicalCoreContractStatus,
         'task_id' => $taskId,
         'normalized_count' => (int)($syncResult['normalized_count'] ?? 0),
         'saved_count' => $savedCount,
@@ -396,6 +440,8 @@ try {
         'owner_user_id' => $ownerUserId,
         'data_source_id' => $sourceId,
         'target_date' => $targetDate,
+        'data_period' => $dataPeriod,
+        'collection_kind' => 'ota_channel_profile',
         'close_receipt_id' => $closeReceiptId,
         'close_receipt_hash' => $closeReceiptHash,
         'source_method' => 'cloud_browser_profile',
@@ -431,6 +477,8 @@ try {
         || (int)($gatewayReceiptPayload['owner_user_id'] ?? 0) !== $ownerUserId
         || (int)($gatewayReceiptPayload['data_source_id'] ?? 0) !== $sourceId
         || (string)($gatewayReceiptPayload['target_date'] ?? '') !== $targetDate
+        || (string)($gatewayReceiptPayload['data_period'] ?? '') !== $dataPeriod
+        || (string)($gatewayReceiptPayload['collection_kind'] ?? '') !== 'ota_channel_profile'
         || (string)($gatewayReceiptPayload['close_receipt_id'] ?? '') !== $closeReceiptId
         || !hash_equals($closeReceiptHash, strtolower(trim((string)($gatewayReceiptPayload['close_receipt_hash'] ?? ''))))
         || (string)($gatewayReceiptPayload['status'] ?? '') !== 'saved'
@@ -652,6 +700,22 @@ function firstValue(array $values, array $keys): string
         }
     }
     return '';
+}
+
+/** @return list<string> */
+function sanitizedTraceIds(mixed $values): array
+{
+    if (!is_array($values)) {
+        return [];
+    }
+    $traceIds = [];
+    foreach ($values as $value) {
+        $traceId = trim((string)$value);
+        if (preg_match('/^[A-Za-z0-9._:-]{1,160}$/D', $traceId) === 1) {
+            $traceIds[$traceId] = true;
+        }
+    }
+    return array_slice(array_keys($traceIds), 0, 50);
 }
 
 function positiveInt(mixed $value, string $reason): int

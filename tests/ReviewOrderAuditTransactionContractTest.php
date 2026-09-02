@@ -41,6 +41,7 @@ final class ReviewOrderAuditTransactionContractTest extends TestCase
             [\app\controller\concern\MeituanReviewOrderMatchConcern::class, 'bindMeituanReviewOrderMatch'],
             [\app\controller\concern\MeituanReviewOrderMatchConcern::class, 'rejectMeituanReviewOrderMatch'],
             [\app\controller\concern\MeituanReviewOrderMatchConcern::class, 'unbindMeituanReviewOrderMatch'],
+            [\app\controller\concern\CtripReviewOrderMatchConcern::class, 'bindCtripReviewOrderMatch'],
             [\app\controller\concern\CtripReviewOrderMatchConcern::class, 'rejectCtripReviewOrderMatch'],
             [\app\controller\concern\CtripReviewOrderMatchConcern::class, 'unbindCtripReviewOrderMatch'],
         ];

@@ -1,0 +1,226 @@
+{
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "const": "suxi.skill.behavior_judgments.v2"
+    },
+    "skill_name": {
+      "const": "suxi-product-decision"
+    },
+    "judge": {
+      "type": "string",
+      "minLength": 1
+    },
+    "judge_packet_sha256": {
+      "const": "5237c985010cba41effd18e163ee66cf249f927dc4ce2c7bd5a9c698d3e2ef29"
+    },
+    "case_results": {
+      "type": "array",
+      "minItems": 5,
+      "maxItems": 5,
+      "items": {
+        "type": "object",
+        "properties": {
+          "case_id": {
+            "enum": [
+              "PD-BEH-001",
+              "PD-BEH-002",
+              "PD-BEH-003",
+              "PD-BEH-004",
+              "PD-BEH-005"
+            ]
+          },
+          "verdict": {
+            "enum": [
+              "PASS",
+              "FAIL",
+              "BLOCKED"
+            ]
+          },
+          "normalized": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "decision_status": {
+                    "enum": [
+                      "decision_ready",
+                      "provisional",
+                      "blocked"
+                    ]
+                  },
+                  "execution_mode": {
+                    "enum": [
+                      "decision_only",
+                      "spec",
+                      "delivery"
+                    ]
+                  },
+                  "selected_direction": {
+                    "enum": [
+                      "A",
+                      "B",
+                      "C",
+                      "none",
+                      "approved_direction",
+                      "other"
+                    ]
+                  },
+                  "evidence_scope": {
+                    "enum": [
+                      "synthetic",
+                      "missing",
+                      "provided_decision",
+                      "external_reference",
+                      "provided_requirement",
+                      "unknown"
+                    ]
+                  },
+                  "invented_numeric_thresholds": {
+                    "type": "boolean"
+                  },
+                  "product_or_external_mutation": {
+                    "type": "boolean"
+                  },
+                  "single_next_action": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "decision_status",
+                  "execution_mode",
+                  "selected_direction",
+                  "evidence_scope",
+                  "invented_numeric_thresholds",
+                  "product_or_external_mutation",
+                  "single_next_action"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "assertion_results": {
+            "type": "array",
+            "minItems": 0,
+            "items": {
+              "type": "object",
+              "properties": {
+                "assertion": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "passed": {
+                  "type": "boolean"
+                },
+                "evidence_spans": {
+                  "type": "array",
+                  "minItems": 1,
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "start": {
+                        "type": "integer",
+                        "minimum": 0
+                      },
+                      "end": {
+                        "type": "integer",
+                        "minimum": 1
+                      },
+                      "quote": {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    },
+                    "required": [
+                      "start",
+                      "end",
+                      "quote"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "explanation": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "required": [
+                "assertion",
+                "passed",
+                "evidence_spans",
+                "explanation"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "blocked_reason": {
+            "type": "string"
+          },
+          "notes": {
+            "type": "string"
+          }
+        },
+        "oneOf": [
+          {
+            "properties": {
+              "verdict": {
+                "const": "BLOCKED"
+              },
+              "normalized": {
+                "type": "null"
+              },
+              "assertion_results": {
+                "type": "array",
+                "maxItems": 0
+              },
+              "blocked_reason": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          },
+          {
+            "properties": {
+              "verdict": {
+                "enum": [
+                  "PASS",
+                  "FAIL"
+                ]
+              },
+              "normalized": {
+                "type": "object"
+              },
+              "assertion_results": {
+                "type": "array",
+                "minItems": 1
+              },
+              "blocked_reason": {
+                "const": ""
+              }
+            }
+          }
+        ],
+        "required": [
+          "case_id",
+          "verdict",
+          "normalized",
+          "assertion_results",
+          "blocked_reason",
+          "notes"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": [
+    "schema_version",
+    "skill_name",
+    "judge",
+    "judge_packet_sha256",
+    "case_results"
+  ],
+  "additionalProperties": false
+}

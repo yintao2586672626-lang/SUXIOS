@@ -165,10 +165,10 @@ try {
         'COALESCE(is_final, -1) <> 0',
     ];
     if (isset($columns['snapshot_time'])) {
-        $roleMismatch[] = 'snapshot_time IS NOT NULL';
+        $roleMismatch[] = 'snapshot_time IS NULL';
     }
     if (isset($columns['snapshot_bucket'])) {
-        $roleMismatch[] = "COALESCE(snapshot_bucket, '') <> ''";
+        $roleMismatch[] = "COALESCE(snapshot_bucket, '') = ''";
     }
     $where = [
         'system_hotel_id = ?',
@@ -232,14 +232,30 @@ try {
             unset($row[$generatedColumn]);
         }
         $updated = $row;
-        $updated['data_period'] = 'next_30_days';
-        $updated['is_final'] = 0;
-        if (isset($columns['snapshot_time'])) {
-            $updated['snapshot_time'] = null;
+        $observationValue = trim((string)(
+            $raw['ingested_at']
+            ?? $raw['captured_at']
+            ?? $row['snapshot_time']
+            ?? $row['create_time']
+            ?? $row['update_time']
+            ?? ''
+        ));
+        $observationTimestamp = strtotime($observationValue);
+        if ($observationTimestamp === false) {
+            throw new RuntimeException(
+                'future-search row has no usable observation time: ' . (int)$row['id']
+            );
         }
-        if (isset($columns['snapshot_bucket'])) {
-            $updated['snapshot_bucket'] = '';
-        }
+        $observationTime = date('Y-m-d H:i:s', $observationTimestamp);
+        $taskId = max(0, (int)($row['sync_task_id'] ?? 0));
+        $observationBucket = $taskId > 0
+            ? substr('task:' . $taskId, 0, 20)
+            : 'time:' . date('YmdHi', $observationTimestamp);
+        $updated = array_replace($updated, OnlineDailyDataPersistenceService::applyPeriodFields([
+            'data_period' => 'next_30_days',
+            'snapshot_time' => $observationTime,
+            'snapshot_bucket' => $observationBucket,
+        ], $columns, $row));
         $updated['readback_verified'] = 0;
         if (isset($columns['readback_verified_at'])) {
             $updated['readback_verified_at'] = null;
@@ -322,15 +338,15 @@ try {
         $set = [
             "data_period = 'next_30_days'",
             'is_final = 0',
-            'persistence_identity_hash = ?',
-            'readback_verified = 0',
         ];
         if (isset($columns['snapshot_time'])) {
-            $set[] = 'snapshot_time = NULL';
+            $set[] = 'snapshot_time = ?';
         }
         if (isset($columns['snapshot_bucket'])) {
-            $set[] = "snapshot_bucket = ''";
+            $set[] = 'snapshot_bucket = ?';
         }
+        $set[] = 'persistence_identity_hash = ?';
+        $set[] = 'readback_verified = 0';
         if (isset($columns['readback_verified_at'])) {
             $set[] = 'readback_verified_at = NULL';
         }
@@ -360,7 +376,14 @@ try {
                 $updated = $candidate['updated'];
                 $originalWasVerified = (int)($original['readback_verified'] ?? 0) === 1;
                 $repairTime = date('Y-m-d H:i:s');
-                $updateParams = [(string)$updated['persistence_identity_hash']];
+                $updateParams = [];
+                if (isset($columns['snapshot_time'])) {
+                    $updateParams[] = $updated['snapshot_time'];
+                }
+                if (isset($columns['snapshot_bucket'])) {
+                    $updateParams[] = $updated['snapshot_bucket'];
+                }
+                $updateParams[] = (string)$updated['persistence_identity_hash'];
                 if (isset($columns['update_time'])) {
                     $updateParams[] = $repairTime;
                     $updated['update_time'] = $repairTime;

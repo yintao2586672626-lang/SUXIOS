@@ -1,0 +1,18 @@
+{
+  "schema_version": "suxi.skill.behavior_response.v1",
+  "skill_name": "suxi-user-research",
+  "case_id": "UR-BEH-005",
+  "response_text": "状态：planned（尚无研究发现）\n\n要支持的一个决定：是否需要优先优化酒店店长确认某个业务日期的 OTA 数据是否可用、并找到下一步处理入口的流程。\n\n研究问题：酒店店长在最近一次确认某业务日期 OTA 数据可用性并决定下一步时，依据了什么信息，在哪里出现理解、查找或操作困难？\n\n角色与边界：\n- 目标角色：实际承担日常经营管理和 OTA 数据确认的酒店店长。\n- 酒店或租户范围、抽样母体、样本人数、分组配额、问卷时间窗与停止条件：pending_decision。\n- 当前入口或流程尚未提供；问卷不预设页面、卡片、状态或具体 UI 方案。\n\n问卷中的真实任务：\n1. 回忆最近一次需要确认某业务日期 OTA 数据是否可用的真实情境，描述从哪里开始、查看了什么、如何作出判断。\n2. 描述当时在来源、平台、业务日期、状态或阻断原因上遇到的困难，以及是否返回、求助或采用其他绕行方式。\n3. 描述完成判断后实际要继续做的下一项工作，并说明为什么。\n\n中立提示：以“请回忆最近一次……”开头，先收集开放式自述，再按已确认的母体、时间窗和流程设计分类题；不使用“这个入口是不是很难找”等诱导句。问卷回答统一标为 verbatim_or_self_report，不当作 observed_behavior 或 system_fact。\n\n最小证据字段：participant_scope / hotel_or_tenant_scope / task_id / item_id / task_prompt / response_type / verbatim_or_self_report / recalled_path / completion_status_if_applicable / critical_error / backtrack / help_needed / difficulty_category / business_date_scope / platform_scope / evidence_ref / notes。\n\n隐私与同意：当前仅制定计划，不联系、不发送、不录音录屏，因此本轮不需要执行同意。正式发放前需确认酒店或租户边界、目标名单、联系方式、知情同意和最小数据保存范围；不收集姓名、手机号、住客信息、订单明细、密码、Cookie、Profile 或令牌。\n\n验收与停止条件：题项只有在一个产品决定、酒店或租户边界、抽样母体、回忆时间窗、隐私说明和分析口径确认后才定稿；样本人数、分组配额、整体通过率和提前停止数均为 pending_decision。没有真实答卷前，不输出研究发现、比例或产品结论。\n\n唯一下一步：请产品负责人确认这份问卷要支持的一个具体产品决定，并同时给出目标酒店或租户范围、抽样母体和回忆时间窗；确认后再定稿问卷，是否发放仍由用户主动决定。",
+  "self_report": {
+    "research_status": "planned",
+    "research_mode": "plan",
+    "evidence_scope": "none",
+    "outreach_status": "not_requested",
+    "consent_status": "not_required",
+    "invented_research_findings": false,
+    "invented_numeric_thresholds": false,
+    "external_or_recording_action": false,
+    "single_next_action": true,
+    "notes": "No participant evidence or current product-flow evidence was supplied. This is a plan only; no outreach or recording occurred, and all unapproved numeric thresholds remain pending_decision."
+  }
+}

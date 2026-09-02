@@ -319,7 +319,11 @@ class AiDailyReport extends Base
                 $audience
             );
             if (!is_array($currentSpec)) {
-                return $this->error('AI daily report presentation spec not found', 404);
+                return $this->success($this->emptyPresentationArtifactState(
+                    $report,
+                    $audience,
+                    'presentation_spec_not_generated'
+                ));
             }
             $currentSpecId = (int)($currentSpec['record_id'] ?? 0);
             $currentSpecFingerprint = strtolower(trim((string)($currentSpec['spec_fingerprint'] ?? '')));
@@ -333,7 +337,12 @@ class AiDailyReport extends Base
                 $currentSpecFingerprint
             );
             if (!is_array($stored)) {
-                return $this->error('AI daily report presentation artifact not found', 404);
+                return $this->success($this->emptyPresentationArtifactState(
+                    $report,
+                    $audience,
+                    'presentation_artifact_not_generated',
+                    $currentSpec
+                ));
             }
 
             return $this->success($stored);
@@ -432,6 +441,36 @@ class AiDailyReport extends Base
         }
 
         return [$permitted, count($permitted) === 1 ? $permitted[0] : null];
+    }
+
+    /**
+     * A missing optional presentation artifact is a normal page empty state,
+     * not a missing report or failed request. Keep the 404 contract only for
+     * invalid report/artifact identities requested explicitly by ID.
+     *
+     * @param array<string,mixed> $report
+     * @param array<string,mixed>|null $spec
+     * @return array<string,mixed>
+     */
+    private function emptyPresentationArtifactState(
+        array $report,
+        string $audience,
+        string $reason,
+        ?array $spec = null
+    ): array {
+        return [
+            'status' => 'not_generated',
+            'render_status' => 'not_generated',
+            'failure_reason' => $reason,
+            'report_id' => (int)($report['id'] ?? 0),
+            'hotel_id' => (int)($report['hotel_id'] ?? 0),
+            'audience' => trim($audience) ?: 'owner',
+            'presentation_spec_id' => (int)($spec['record_id'] ?? 0) ?: null,
+            'spec_fingerprint' => strtolower(trim((string)($spec['spec_fingerprint'] ?? ''))) ?: null,
+            'artifact_id' => null,
+            'artifact_readback_verified' => false,
+            'bundle_base64' => null,
+        ];
     }
 
 }

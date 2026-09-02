@@ -1,0 +1,71 @@
+{
+  "schema_version": "suxi.skill.behavior_grade.v1",
+  "skill_name": "suxi-product-decision",
+  "run_id": "suxi-product-decision-2026-08-29T13-10-21-310Z",
+  "status": "PASS",
+  "case_results": [
+    {
+      "case_id": "PD-BEH-001",
+      "status": "PASS",
+      "failures": []
+    },
+    {
+      "case_id": "PD-BEH-002",
+      "status": "PASS",
+      "failures": []
+    },
+    {
+      "case_id": "PD-BEH-003",
+      "status": "PASS",
+      "failures": []
+    },
+    {
+      "case_id": "PD-BEH-004",
+      "status": "PASS",
+      "failures": []
+    },
+    {
+      "case_id": "PD-BEH-005",
+      "status": "PASS",
+      "failures": []
+    }
+  ],
+  "counts": {
+    "pass": 5,
+    "fail": 0,
+    "blocked": 0
+  },
+  "hashes": {
+    "behavior_contract_sha256": "dc176b7e9ae7a4221641a7d7862f4ce5bbb098192e8a63000db7cd0e874ec68c",
+    "prepare_seal_sha256": "b13c2157a38d214ae7222283090b852e039925692d90ad95aa4430abc29ab5b3",
+    "prepare_manifest_sha256": "67cb02d6b027c33f2e772d09030c2df0e77b46345e2c797bb6176f60300957b3",
+    "source_snapshot_sha256": "cb711b8c2f99ba28364e3f879b4c1189862a3a12a400678dc867a398c31bf717",
+    "judge_packet_sha256": "5237c985010cba41effd18e163ee66cf249f927dc4ce2c7bd5a9c698d3e2ef29",
+    "judgments_sha256": "405dff1c1b385d28943a6acdda72e604c42e4580b5c77278f7af1c3162d0d205",
+    "responses": [
+      {
+        "case_id": "PD-BEH-001",
+        "sha256": "37b384b4c1b924e260aa74a800d5a8210e45d2b3d42d8c85ab7469167955b5fa"
+      },
+      {
+        "case_id": "PD-BEH-002",
+        "sha256": "bc4feea143babf987942a4766368debfebb4f5135ded971460ff760432fd8d79"
+      },
+      {
+        "case_id": "PD-BEH-003",
+        "sha256": "a4eaff336514f9f367afa924d0f78bb1b78fed2f658c99da1c5f87c89b19bf65"
+      },
+      {
+        "case_id": "PD-BEH-004",
+        "sha256": "76fb7c45c2acc58c4a46c0ac6a27e9be1f996578593688ce88398a0e9c7421b2"
+      },
+      {
+        "case_id": "PD-BEH-005",
+        "sha256": "f4476a1f8773f5e7066a5a2f1e01afba7abb98e0d44382919563847722b1aba3"
+      }
+    ]
+  },
+  "separation_status": "instruction_only",
+  "judge_identity_verified": false,
+  "evidence_boundary": "Responses, exact quote spans, and judgment fields are internally consistent for the selected packet. Filesystem isolation and evaluator identity are not independently verified."
+}

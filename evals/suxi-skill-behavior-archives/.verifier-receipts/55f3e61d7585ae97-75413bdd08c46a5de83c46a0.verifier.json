@@ -1,0 +1,37 @@
+{
+  "schema_version": "suxi.skill.behavior_archive_verifier_receipt.v1",
+  "archive_path_sha256": "75413bdd08c46a5de83c46a03a7e980e58ab862569a5b5b36970ee409618e873",
+  "archive_manifest_sha256": "a8ed6b4490a9396efa1bf6410d0dccf7f8cbe33ae6a59217f37e51da5427bc9a",
+  "source_ledger_sha256": "55f3e61d7585ae97557fe1173351531d41e368b28b64c6b04fb3df293912688c",
+  "archive_seal_sha256": "563ad804f38e972edbd6d03626de21d88c316a160b4a7c2c430216ebc23713c3",
+  "verifier_profile": {
+    "schema_version": "suxi.skill.behavior_archive_verifier_profile.v1",
+    "files": [
+      {
+        "role": "runner",
+        "path": "scripts/suxi_skill_behavior_eval.mjs",
+        "sha256": "eafb9897e9bfe416b2966e03833b5db8414943ca33bf034299af75087191ae59",
+        "bytes": 147989
+      },
+      {
+        "role": "behavior_test",
+        "path": "tests/automation/suxi_skill_behavior_eval.test.mjs",
+        "sha256": "daf3074ff8387b085c5889700d8803d779a601380532cb11a796036d52094cd4",
+        "bytes": 88021
+      },
+      {
+        "role": "contract_test",
+        "path": "tests/automation/suxi_skill_contracts.test.mjs",
+        "sha256": "c6afe60fc5093882d52c92b934a315afd1e6f686ac84eecb262d32b15c93add5",
+        "bytes": 15607
+      }
+    ],
+    "runtime": {
+      "node_version": "v24.18.1",
+      "v8_version": "13.6.233.17-node.50",
+      "platform": "win32",
+      "arch": "x64"
+    }
+  },
+  "verifier_profile_sha256": "5c8ba945d81b81f78b69d92426807e95067dc9156cb858f31f78c139e63c85d2"
+}

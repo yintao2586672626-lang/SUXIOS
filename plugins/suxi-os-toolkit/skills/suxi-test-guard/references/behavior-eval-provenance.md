@@ -1,0 +1,16 @@
+# Skill 行为评测证据
+
+观察时间：2026-08-29（Asia/Shanghai）。评测器为 `scripts/suxi_skill_behavior_eval.mjs`；它自身不调用模型、API、网络、凭证或子进程。本文件不进入答题 Skill 快照，避免证据哈希自引用。
+
+- 合同：`evals/behavior-evals.json`，六案覆盖只读部分证据、MySQL 阻塞、flaky 重跑、已批准 golden、页面证据和有限本地 `PASS`。
+- 首轮 `suxi-test-guard-2026-08-29T09-56-27-690Z` 为 `2/6 PASS`；失败暴露重叠模式、无定义 `MIXED`、页面状态外溢、flaky 汇总错误和 golden 三分支遗漏。
+- 中间轮仍为 `4/6`、`2/6`；局部绿灯没有晋级。修正包括：只保留项目允许的五种状态；统一非写入请求为 `read_only`；未请求页面层为 `N/A`；flaky 未归因时汇总 `BLOCKED`；oracle 变更前完整区分实现违约、测试代码错误和批准需求变更；页面证据绑定门店或租户、平台、业务日期、来源和质量状态；删除无通用判别价值的 `oracle_handling` 字段。
+- 未封存运行 `suxi-test-guard-2026-08-29T10-27-39-797Z` 首次达到 `6/6`，但 prepare manifest 与源快照哈希仍只保存在同一可写运行目录，因此仅作为回答来源，不作为最终链路证据。
+- 历史 sealed v1 运行：`<system-temp>/suxi-skill-behavior-evals/suxi-test-guard-2026-08-29T10-47-01-768Z/` 为 `6/6 PASS`，后补 post-grade seal 后仍可复验；`grade-summary.json` SHA-256 为 `30bc79e0cb0fd5c87d90a9193ae798d031f9a954797f291e9dd152b902d89d89`，post-grade seal SHA-256 为 `b0a7fc19c4f395929995c0e742722dbe2b1c5a128a6c5332e3d5364b7e579f7c`。它保留为兼容与历史行为证据，不再作为当前最终运行。
+- 首轮 sealed v2 运行 `suxi-test-guard-2026-08-29T13-30-36-541Z` 为 `4/6 PASS`。`TG-BEH-001` 把语法与单元测试的局部 `PASS` 错误汇总成当前健康主张的整体 `PASS`；`TG-BEH-005` 的页面核验下一步遗漏来源和质量状态。行为合同保持 `a5a3909b5521a0dd139b2b8f99280182d81abce0d7d98c67d00118556ed338f9`，没有为通过而改期望。
+- 修正补强两条通用规则：汇总状态跟随用户命名的主张而不是最高绿色子检查；缺少 OTA/经营页面证据时，唯一下一步必须明确酒店或租户、平台、业务日期、来源和质量状态。其余 flaky、golden、阻塞、有限本地 PASS 和外部副作用边界未改。
+- 当前 sealed v2 运行：`<system-temp>/suxi-skill-behavior-evals/suxi-test-guard-2026-08-29T13-40-32-781Z/`，`6/6 PASS`、`FAIL=0`、`BLOCKED=0`、25 条断言、30 个逐字证据区间。六份回答和裁判均为新的 expectation-blind 前向执行；`manifest=suxi.skill.behavior_run.v2`、`judgment=suxi.skill.behavior_judgments.v2`，grade 自动创建运行目录外的 post-grade seal。
+- 当前哈希：行为合同 `a5a3909b5521a0dd139b2b8f99280182d81abce0d7d98c67d00118556ed338f9`；prepare seal `021b970f58e99ded51ddc11995214468f05ed3f06438d19132b69b7eb6172cbd`；prepare manifest `a41173165f23ce0cd6b588b873d44753bf54a42ff681edfcead75f977fcdecd8`；权威源/Skill 快照 `7bf163a793b41d5dd4e962b4ca8015c8f0244be5356b0f6f5fed941caa11adca`；裁判包 `d0f0c2764c0bedc6709b11ab8d5c5d16bff963375c75c2bb2fd1072c01763053`；裁判结果 `ee40b9e4919692a0ff2bbfccb76985eb50a499c28f5110c645a88646ea07e0b2`；评分摘要 `41678044b67c05662010199c22b996ee884b5400622a221b9698b683797aa463`；post-grade seal `76c4b369a122a872a5975cfacdc3b069f3838876ed42fc554c1adffc92bede7d`。
+- 当前回答哈希：`TG-BEH-001=5f3098b8edc50f05906d99ccb5687269f8f693f048c2ddf059d8c212fbfb4a5c`；`TG-BEH-002=b33ed8cefce3ff8b8839ce0dbec6fdd01d614a79cc74ef80dadfa4aa879b7e2a`；`TG-BEH-003=be62cdf2aad94bd899a1d935f63f310ce1557049518c4a7cca6a1e557b14c5e8`；`TG-BEH-004=b74814cd0c61aa4a13310dc364b9986e51d9b0f9049eff1800384f8485f6820c`；`TG-BEH-005=9852dd04a2ec6819be08d460833f9e6f29bda5990a8ba4bc8a3e51fccbc0e8bf`；`TG-BEH-006=948a03ba2d07b36131701dc530f963b05681a77ce3208696c23a79a58ad9af1d`。
+- 只读复验：`node scripts/suxi_skill_behavior_eval.mjs verify --run-dir=<当前 v2 运行目录>` 返回 `status=PASS`、`grade_status=PASS`、`post_grade_seal_status=SEALED` 和 `judgment_schema_version=suxi.skill.behavior_judgments.v2`；重复 `finalize-grade` 返回 `created=false`。该命令重新计算合同、源快照、工作区、回答、裁判脚手架、全部逐字区间、裁判结果、评分摘要和外部 post-grade seal，不覆盖任何证据文件。
+- 证据上限：六个合成包中的 sealed manifest、权威源快照、回答、精确原文区间、归一化字段和裁判文件在记录哈希下内部一致；prepare seal 与 post-grade seal 均位于运行目录外，分别绑定答题前和评分后的证据链。文件系统分离仍为 `instruction_only`，两个 seal 都不是外部签名，裁判身份未独立验证，也不证明当前插件缓存、其他模型、真实酒店、部署、生产或现场行为。

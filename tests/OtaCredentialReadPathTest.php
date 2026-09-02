@@ -381,6 +381,8 @@ final class OtaCredentialReadPathTest extends TestCase
 
             public ?object $currentUser = null;
             public bool $requestSawCredential = false;
+            public ?string $ctripResponseDate = 'request';
+            public int $parseAndSaveCalls = 0;
 
             public function __construct(private readonly object $replacementVault)
             {
@@ -404,11 +406,21 @@ final class OtaCredentialReadPathTest extends TestCase
             private function sendHttpRequest(string $url, array $postData, string $cookies, array $authData = []): array
             {
                 $this->requestSawCredential = $cookies === 'AUTO_FETCH_SENTINEL_SECRET';
-                return ['success' => true, 'data' => ['responseStatus' => 0, 'rows' => [['value' => 1]]]];
+                $data = [
+                    'responseStatus' => 0,
+                    'rows' => [['value' => 1]],
+                ];
+                if ($this->ctripResponseDate !== null) {
+                    $data['dataDate'] = $this->ctripResponseDate === 'request'
+                        ? (string)($postData['startDate'] ?? '')
+                        : $this->ctripResponseDate;
+                }
+                return ['success' => true, 'data' => $data];
             }
 
             private function parseAndSaveData($responseData, $startDate, $endDate, ?int $systemHotelId = null): int
             {
+                $this->parseAndSaveCalls++;
                 return 2;
             }
 
@@ -551,8 +563,9 @@ final class OtaCredentialReadPathTest extends TestCase
 
     public function testEveryManualCredentialEndpointEnablesTruthfulStageClassification(): void
     {
-        $manualSource = (string)file_get_contents(
-            dirname(__DIR__) . '/app/controller/concern/OnlineDataManualFetchConcern.php'
+        $manualSource = SourceAggregate::read(
+            dirname(__DIR__),
+            'app/controller/concern/OnlineDataManualFetchConcern.php'
         );
         $requestSource = (string)file_get_contents(
             dirname(__DIR__) . '/app/controller/concern/OnlineDataRequestConcern.php'
@@ -1785,11 +1798,8 @@ final class OtaCredentialReadPathTest extends TestCase
 
     public function testCtripIdentityConflictIsDisplayableButNeverPersisted(): void
     {
-        $source = (string)file_get_contents(dirname(__DIR__) . '/app/controller/concern/OnlineDataManualFetchConcern.php');
-        $execute = $this->methodSource(
-            $source,
-            'private function executeCtripManualFetch',
-            'private function ctripBusinessQunarVisitorQuality'
+        $execute = (string)file_get_contents(
+            dirname(__DIR__) . '/app/controller/concern/CtripManualFetchExecutionConcern.php'
         );
 
         self::assertStringContainsString("'save_status' => 'blocked'", $execute);
@@ -1831,7 +1841,7 @@ final class OtaCredentialReadPathTest extends TestCase
 
     public function testCtripIdentitySourceUsesSafeReaderAndAtomicVerifiedBindingPath(): void
     {
-        $source = (string)file_get_contents(dirname(__DIR__) . '/app/controller/concern/OnlineDataManualFetchConcern.php');
+        $source = SourceAggregate::read(dirname(__DIR__), 'app/controller/concern/OnlineDataManualFetchConcern.php');
         $configSource = (string)file_get_contents(dirname(__DIR__) . '/app/controller/concern/OtaConfigConcern.php');
         $resolve = $this->methodSource($source, 'private function resolveCtripManualBusinessIdentityConfig', 'private function resolveCtripManualBusinessHotelIdentityFromResponse');
         $find = $this->methodSource($source, 'private function findCtripSystemHotelMatchesByPlatformIds', 'private function appendCtripSystemHotelIdentityMatches');
@@ -1900,7 +1910,7 @@ final class OtaCredentialReadPathTest extends TestCase
         self::assertFalse($harness->isContinuousList([0 => '1', 2 => '7']));
         self::assertFalse($harness->isContinuousList(['range' => '1']));
 
-        $source = (string)file_get_contents(dirname(__DIR__) . '/app/controller/concern/OnlineDataManualFetchConcern.php');
+        $source = SourceAggregate::read(dirname(__DIR__), 'app/controller/concern/OnlineDataManualFetchConcern.php');
         self::assertStringNotContainsString('array_is_list', $source);
         self::assertStringContainsString('isContinuousManualFetchList($value)', $source);
     }
@@ -1965,8 +1975,9 @@ final class OtaCredentialReadPathTest extends TestCase
 
     public function testPrimaryManualConsumersAndAsyncTasksUseOnlySanitizedRequestData(): void
     {
-        $source = (string)file_get_contents(dirname(__DIR__) . '/app/controller/concern/OnlineDataManualFetchConcern.php');
+        $source = SourceAggregate::read(dirname(__DIR__), 'app/controller/concern/OnlineDataManualFetchConcern.php');
         $ctrip = $this->methodSource($source, 'public function fetchCtrip()', 'private function ctripBusinessQunarVisitorQuality');
+        $ctrip .= (string)file_get_contents(dirname(__DIR__) . '/app/controller/concern/CtripManualFetchExecutionConcern.php');
         $meituan = $this->methodSource($source, 'public function fetchMeituan()', 'private function validateMeituanManualFetchHotelIdentity');
 
         self::assertStringContainsString('sanitizeCtripManualFetchRequestData($rawRequestData)', $ctrip);
@@ -1986,8 +1997,9 @@ final class OtaCredentialReadPathTest extends TestCase
 
     public function testPrimaryManualFetchEndpointsUseVaultAndDoNotHydrateSavedSecrets(): void
     {
-        $source = (string)file_get_contents(dirname(__DIR__) . '/app/controller/concern/OnlineDataManualFetchConcern.php');
+        $source = SourceAggregate::read(dirname(__DIR__), 'app/controller/concern/OnlineDataManualFetchConcern.php');
         $ctrip = $this->methodSource($source, 'public function fetchCtrip()', 'private function ctripBusinessQunarVisitorQuality');
+        $ctrip .= (string)file_get_contents(dirname(__DIR__) . '/app/controller/concern/CtripManualFetchExecutionConcern.php');
         $meituan = $this->methodSource($source, 'public function fetchMeituan()', 'private function validateMeituanManualFetchHotelIdentity');
 
         foreach ([['ctrip', $ctrip], ['meituan', $meituan]] as [$platform, $method]) {
@@ -2273,7 +2285,7 @@ final class OtaCredentialReadPathTest extends TestCase
 
     public function testCtripTrafficAndAdsSourcesUseVaultCallbacksAndSafeErrors(): void
     {
-        $manualSource = (string)file_get_contents(dirname(__DIR__) . '/app/controller/concern/OnlineDataManualFetchConcern.php');
+        $manualSource = SourceAggregate::read(dirname(__DIR__), 'app/controller/concern/OnlineDataManualFetchConcern.php');
         $this->assertExecutionSourcesUseVaultCallbacksAndSafeErrors([
             ['ctrip', 'sanitizeCtripTrafficExecutionRequestData', 'executeCtripTrafficFetch', $this->methodSource($manualSource, 'public function fetchCtripTraffic()', 'public function fetchCtripAds()')],
             ['ctrip', 'sanitizeCtripAdsExecutionRequestData', 'executeCtripAdsFetch', $this->methodSource($manualSource, 'public function fetchCtripAds()', 'public function fetchMeituanTraffic()')],
@@ -2282,7 +2294,7 @@ final class OtaCredentialReadPathTest extends TestCase
 
     public function testMeituanRemainingSourcesUseVaultCallbacksAndSafeErrors(): void
     {
-        $manualSource = (string)file_get_contents(dirname(__DIR__) . '/app/controller/concern/OnlineDataManualFetchConcern.php');
+        $manualSource = SourceAggregate::read(dirname(__DIR__), 'app/controller/concern/OnlineDataManualFetchConcern.php');
         $this->assertExecutionSourcesUseVaultCallbacksAndSafeErrors([
             ['meituan', 'sanitizeMeituanTrafficExecutionRequestData', 'executeMeituanTrafficFetch', $this->methodSource($manualSource, 'public function fetchMeituanTraffic()', 'public function fetchMeituanOrders()')],
             ['meituan', 'sanitizeMeituanBusinessExecutionRequestData', 'executeMeituanManualBusinessSection', $this->methodSource($manualSource, 'private function fetchMeituanManualBusinessSection', 'public function fetchMeituanComments()')],
@@ -2291,7 +2303,7 @@ final class OtaCredentialReadPathTest extends TestCase
 
     public function testMeituanManualOrdersAndAdsReturnOnlySanitizedNormalizedRows(): void
     {
-        $manualSource = (string)file_get_contents(dirname(__DIR__) . '/app/controller/concern/OnlineDataManualFetchConcern.php');
+        $manualSource = SourceAggregate::read(dirname(__DIR__), 'app/controller/concern/OnlineDataManualFetchConcern.php');
         $executionSource = $this->methodSource(
             $manualSource,
             'private function executeMeituanManualBusinessSection(',
@@ -2420,6 +2432,37 @@ final class OtaCredentialReadPathTest extends TestCase
             $vault->calls
         );
         self::assertStringNotContainsString('SENTINEL', json_encode($meituan, JSON_THROW_ON_ERROR));
+    }
+
+    public function testControllerAutoFetchRejectsMissingOrMismatchedCtripBusinessDateBeforeSave(): void
+    {
+        foreach ([null, '2026-07-08'] as $responseDate) {
+            $vault = $this->fakeVault([
+                'cookies' => 'AUTO_FETCH_SENTINEL_SECRET',
+                'auth_data' => [],
+            ]);
+            $controller = $this->autoFetchExecutionHarness($vault);
+            $controller->ctripResponseDate = $responseDate;
+
+            $result = $controller->runCtrip([
+                'config_id' => 'ctrip-58',
+                'system_hotel_id' => 58,
+                'url' => 'https://ebooking.ctrip.com/api/report',
+                'node_id' => '24588',
+                'start_date' => '2026-07-09',
+                'end_date' => '2026-07-09',
+            ], 58);
+
+            self::assertFalse($result['success']);
+            self::assertSame(0, $result['saved_count']);
+            self::assertSame('target_date_unverified', $result['status']);
+            self::assertSame(0, $controller->parseAndSaveCalls);
+            self::assertArrayNotHasKey('run_readback', $result);
+            self::assertSame(
+                $responseDate === null ? 'response_business_date_missing' : 'response_business_date_mismatch',
+                $result['message']
+            );
+        }
     }
 
     public function testOtaConfigResolversDoNotFallBackToLegacySecretStores(): void
@@ -2645,7 +2688,7 @@ final class OtaCredentialReadPathTest extends TestCase
     public function testCtripRuntimeInputFilesUseOwnerOnlyPermissionsAndFailClosed(): void
     {
         $source = (string)file_get_contents(dirname(__DIR__) . '/app/controller/concern/PlatformProfileCaptureConcern.php');
-        $methods = [
+        $directMethods = [
             $this->methodSource(
                 $source,
                 'private function prepareCtripCookieApiCaptureFiles(',
@@ -2656,19 +2699,35 @@ final class OtaCredentialReadPathTest extends TestCase
                 'private function prepareCtripEndpointEvidenceValidationFiles(',
                 'private function buildCtripEndpointEvidenceBundleFromRequest('
             ),
-            $this->methodSource(
-                $source,
-                'private function createCtripProfileFieldConfigFile(',
-                'private function buildCtripProfileFieldConfigPayload('
-            ),
         ];
 
-        foreach ($methods as $method) {
+        foreach ($directMethods as $method) {
             self::assertStringContainsString('LOCK_EX', $method);
             self::assertStringContainsString('chmod(', $method);
             self::assertStringContainsString('0600', $method);
             self::assertStringContainsString('unlink(', $method);
         }
+
+        $fieldConfigMethod = $this->methodSource(
+            $source,
+            'private function createCtripProfileFieldConfigFile(',
+            'private function buildCtripProfileFieldConfigPayload('
+        );
+        self::assertStringContainsString(
+            'BrowserProfileCaptureRequestService::createEphemeralCaptureJson(',
+            $fieldConfigMethod
+        );
+        $helper = (string)file_get_contents(
+            dirname(__DIR__) . '/app/service/BrowserProfileCaptureRequestService.php'
+        );
+        $ephemeralWriter = $this->methodSource(
+            $helper,
+            'public static function createEphemeralCaptureJson(',
+            'public static function createEphemeralCaptureFile('
+        );
+        self::assertStringContainsString('flock($handle, LOCK_EX)', $ephemeralWriter);
+        self::assertStringContainsString('chmod($path, 0600)', $ephemeralWriter);
+        self::assertStringContainsString('unlink($path)', $ephemeralWriter);
     }
 
     public function testDisabledCookieReceiverAuditNeverStoresRequestControlledSecretText(): void

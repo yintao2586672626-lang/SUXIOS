@@ -12,6 +12,8 @@ test('unbound opening projects stay explicitly blocked from execution tracking',
   assert.match(service, /\$hotelId <= 0 => 'binding_missing'/);
   assert.match(service, /'binding_missing' => '未绑定门店'/);
   assert.match(service, /hotel_id is required for opening execution tracking/);
+  assert.match(service, /'readback_verified' => \$projectId > 0/);
+  assert.match(service, /'status' => 'pending_approval'/);
   assert.match(template, /data-testid="opening-binding-missing"[\s\S]*binding_missing：项目尚未绑定系统门店/);
   assert.match(template, /:disabled="openingLoading \|\| !openingExecutionReady \|\| openingExecutionIntentId"/);
   assert.match(template, /openingProjectBindingDirty[\s\S]*尚未保存/);
@@ -21,4 +23,6 @@ test('unbound opening projects stay explicitly blocked from execution tracking',
   assert.match(appMain, /const openingExecutionReady = computed/);
   assert.match(appMain, /createOpeningExecutionIntent = async[\s\S]*if \(!openingExecutionReady\.value\)[\s\S]*门店绑定尚未保存/);
   assert.match(appMain, /selectOpeningProject = async[\s\S]*openingOverview\.value = null[\s\S]*loadOpeningOverview/);
+  assert.match(appMain, /loadOpeningProjects/);
+  assert.match(appMain, /loadOpeningOverview/);
 });

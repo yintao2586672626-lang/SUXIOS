@@ -22,14 +22,18 @@ final class AiReportGenerationTaskService
     /** @var callable|null */
     private $launcher;
     private AiModelRoutingService $modelRoutingService;
+    private ?string $taskLogDirectory;
 
     public function __construct(
         ?callable $launcher = null,
-        ?AiModelRoutingService $modelRoutingService = null
+        ?AiModelRoutingService $modelRoutingService = null,
+        ?string $taskLogDirectory = null
     )
     {
         $this->launcher = $launcher;
         $this->modelRoutingService = $modelRoutingService ?? new AiModelRoutingService();
+        $taskLogDirectory = $taskLogDirectory !== null ? trim($taskLogDirectory) : '';
+        $this->taskLogDirectory = $taskLogDirectory !== '' ? rtrim($taskLogDirectory, "\\/") : null;
     }
 
     public function enqueue(
@@ -601,7 +605,7 @@ final class AiReportGenerationTaskService
             return false;
         }
 
-        $runtime = $root . DIRECTORY_SEPARATOR . 'runtime' . DIRECTORY_SEPARATOR . 'ai_report_tasks';
+        $runtime = $this->taskLogDirectory();
         if (!is_dir($runtime) && !mkdir($runtime, 0775, true) && !is_dir($runtime)) {
             return false;
         }
@@ -800,7 +804,7 @@ final class AiReportGenerationTaskService
      */
     private function taskLogPaths(array $taskIds): array
     {
-        $runtime = dirname(__DIR__, 2) . DIRECTORY_SEPARATOR . 'runtime' . DIRECTORY_SEPARATOR . 'ai_report_tasks';
+        $runtime = $this->taskLogDirectory();
         if (!is_dir($runtime)) {
             return [];
         }
@@ -823,7 +827,7 @@ final class AiReportGenerationTaskService
     /** @return array<int, string> */
     private function orphanTaskLogPaths(string $cutoff, int $limit): array
     {
-        $runtime = dirname(__DIR__, 2) . DIRECTORY_SEPARATOR . 'runtime' . DIRECTORY_SEPARATOR . 'ai_report_tasks';
+        $runtime = $this->taskLogDirectory();
         if (!is_dir($runtime)) {
             return [];
         }
@@ -855,6 +859,12 @@ final class AiReportGenerationTaskService
             }
         }
         return $paths;
+    }
+
+    private function taskLogDirectory(): string
+    {
+        return $this->taskLogDirectory
+            ?? dirname(__DIR__, 2) . DIRECTORY_SEPARATOR . 'runtime' . DIRECTORY_SEPARATOR . 'ai_report_tasks';
     }
 
     /** @param array<int, string> $paths */

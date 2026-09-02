@@ -5,6 +5,7 @@ namespace app\controller\concern;
 
 use app\model\OperationLog;
 use app\service\CtripOrderAnalysisService;
+use app\service\DualOtaOrderQuickAnalysisService;
 use app\service\OtaBrowserAssistImportService;
 use app\service\OtaCapabilityStateService;
 use app\service\OtaCollectionQualityStateService;
@@ -104,6 +105,52 @@ trait PlatformDataSourceConcern
             return $this->error($e->getMessage(), $this->safeHttpCode($e->getCode()));
         } catch (\Throwable $e) {
             return $this->error('携程订单分析回读失败。', 500);
+        }
+    }
+
+    public function dualOtaOrderAnalysis(): Response
+    {
+        $this->checkPermission();
+        $this->checkActionPermission('can_view_online_data');
+
+        try {
+            $requestData = $this->request->get();
+            $systemHotelId = $this->resolveOnlineDataSystemHotelId(
+                $requestData['system_hotel_id']
+                ?? $requestData['systemHotelId']
+                ?? null
+            );
+            if (!$systemHotelId) {
+                throw new \RuntimeException('请选择酒店后查看携程/美团订单快析。', 422);
+            }
+            if (!$this->currentUser->isSuperAdmin()
+                && !$this->currentUser->hasHotelPermission((int)$systemHotelId, 'can_view_online_data')
+            ) {
+                throw new \RuntimeException('无权查看该酒店的携程/美团订单快析。', 403);
+            }
+
+            $hotel = Db::name('hotels')
+                ->where('id', (int)$systemHotelId)
+                ->field('id,name,tenant_id')
+                ->find();
+            if (!is_array($hotel) || (int)($hotel['tenant_id'] ?? 0) <= 0) {
+                throw new \RuntimeException('目标酒店不存在或缺少租户范围。', 422);
+            }
+
+            $analysis = (new DualOtaOrderQuickAnalysisService())->analyze(
+                (int)$systemHotelId,
+                (int)$hotel['tenant_id'],
+                isset($requestData['date_from']) ? trim((string)$requestData['date_from']) : null,
+                isset($requestData['date_to']) ? trim((string)$requestData['date_to']) : null,
+                $hotel
+            );
+            return $this->success($analysis, '携程/美团订单快析已回读');
+        } catch (\think\exception\HttpException $e) {
+            return $this->error($e->getMessage(), $this->safeHttpCode($e->getStatusCode()));
+        } catch (\RuntimeException $e) {
+            return $this->error($e->getMessage(), $this->safeHttpCode($e->getCode()));
+        } catch (\Throwable $e) {
+            return $this->error('携程/美团订单快析回读失败。', 500);
         }
     }
 

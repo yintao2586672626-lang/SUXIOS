@@ -62,6 +62,13 @@ final class CtripOrderExportImportServiceTest extends TestCase
         self::assertSame(5.0, $ctrip['avg_lead_days']);
         self::assertLessThanOrEqual(64, strlen($ctrip['source_trace_id']));
         self::assertSame('reference_bottom_price_not_confirmed_revenue', $ctrip['raw_data']['amount_semantics']);
+        self::assertSame('stay_date', $ctrip['raw_data']['date_basis']);
+        self::assertSame('stay_date', $ctrip['raw_data']['date_source']);
+        self::assertSame('active_non_cancelled_orders', $ctrip['raw_data']['order_count_basis']);
+        self::assertSame(
+            'active_non_cancelled_booked_room_nights',
+            $ctrip['raw_data']['room_nights_basis']
+        );
         self::assertSame('explicit_test_fixture', $ctrip['raw_data']['fixture_status']);
         self::assertSame(1, $ctrip['raw_data']['source_file_count']);
         self::assertSame('biff_xls', $ctrip['raw_data']['source_format']);
@@ -81,6 +88,9 @@ final class CtripOrderExportImportServiceTest extends TestCase
         self::assertNull($fact['revenue']);
         self::assertNull($fact['gross_revenue']);
         self::assertNull($fact['room_revenue']);
+        self::assertSame('active_non_cancelled_orders', $fact['order_count_basis']);
+        self::assertSame('active_non_cancelled_booked_room_nights', $fact['room_nights_basis']);
+        self::assertSame('aggregate', $fact['record_kind']);
 
         $qunar = $byChannel['qunar'];
         self::assertSame(0, $qunar['book_order_num']);
@@ -140,6 +150,42 @@ final class CtripOrderExportImportServiceTest extends TestCase
         self::assertStringNotContainsString('PRIVATE-携程订单-张三-13800138000.xls', $returnedJson);
     }
 
+    public function testFutureStayDateImportUsesVersionedOnBooksPeriodWithoutBecomingFinalFact(): void
+    {
+        $rows = [[
+            '城市' => '测试城',
+            '酒店名称' => '匿名酒店（测试fixture）',
+            '订单号' => 'ANON-FUTURE-OTB-1',
+            '订单类型' => '新订',
+            '订单状态' => '已接单',
+            '入住日期' => '2026-09-20',
+            '离店日期' => '2026-09-21',
+            '预订时间' => '2026-08-08 10:00:00',
+            '通知时间' => '2026-08-09 12:50:00',
+            '晚数' => '1',
+            '房间数' => '1',
+            '底价' => '300',
+            '预订网站' => '携程',
+            '_source_format' => 'biff_xls',
+            '_source_layout' => 'ctrip_order_export_25_columns',
+        ]];
+
+        $normalized = (new CtripOrderExportImportService())->normalizeRows($rows, [
+            'system_hotel_id' => 64,
+            'hotel_name' => '匿名酒店（测试fixture）',
+            'test_fixture' => true,
+            'observed_at' => '2026-08-09 12:55:05',
+        ]);
+
+        self::assertCount(1, $normalized);
+        self::assertSame('future_on_books', $normalized[0]['data_period']);
+        self::assertSame('2026-08-09 12:55:05', $normalized[0]['snapshot_time']);
+        self::assertSame('202608091255', $normalized[0]['snapshot_bucket']);
+        self::assertSame('future_stay_date', $normalized[0]['raw_data']['date_role']);
+        self::assertSame('stay_date', $normalized[0]['raw_data']['business_date_basis']);
+        self::assertStringContainsString('ctrip_order:', $normalized[0]['source_trace_id']);
+    }
+
     public function testUnsupportedAndMalformedXlsContentFailsClosedWithoutPathOrParserDetails(): void
     {
         $service = new CtripOrderExportImportService();
@@ -187,6 +233,49 @@ final class CtripOrderExportImportServiceTest extends TestCase
         self::assertSame($rows, (new CtripOrderExportImportService())->normalizeRows($rows, [
             'system_hotel_id' => 80,
         ]));
+    }
+
+    public function testMixedStayAndBookingFallbackDatesRemainExplicitlyMixed(): void
+    {
+        $base = [
+            '城市' => '测试城',
+            '酒店名称' => '测试酒店',
+            '订单类型' => '新订',
+            '订单状态' => '已接单',
+            '离店日期' => '2026-08-09',
+            '通知时间' => '2026-08-08 10:05:00',
+            '晚数' => '1',
+            '房间数' => '1',
+            '底价' => '300',
+            '预订网站' => '携程',
+            '_source_format' => 'biff_xls',
+            '_source_layout' => 'ctrip_order_export_25_columns',
+        ];
+        $rows = (new CtripOrderExportImportService())->normalizeRows([
+            array_replace($base, [
+                '订单号' => 'MIXED-DATE-1',
+                '入住日期' => '2026-08-08',
+                '预订时间' => '2026-08-01 10:00:00',
+            ]),
+            array_replace($base, [
+                '订单号' => 'MIXED-DATE-2',
+                '入住日期' => '',
+                '预订时间' => '2026-08-08 11:00:00',
+            ]),
+        ], [
+            'system_hotel_id' => 80,
+            'hotel_name' => '测试酒店',
+            'test_fixture' => true,
+        ]);
+
+        self::assertCount(1, $rows);
+        self::assertSame('mixed', $rows[0]['raw_data']['business_date_basis']);
+        self::assertSame('mixed', $rows[0]['raw_data']['date_basis']);
+        self::assertSame('mixed', $rows[0]['raw_data']['date_source']);
+        self::assertSame(
+            ['booking_date_fallback', 'stay_date'],
+            $rows[0]['raw_data']['date_sources']
+        );
     }
 
     public function testRealHotelAliasMatchesSelectedSystemHotelAndWrongHotelFailsClosed(): void

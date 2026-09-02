@@ -12,6 +12,10 @@ const authenticatedStyle = readFileSync('public/style.min.css', 'utf8');
 const entry = readFileSync('public/index.html', 'utf8');
 const appMain = readFileSync('public/app-main.js', 'utf8');
 const template = loadFrontendTemplateSource(repoRoot).template;
+const frozenAiWorkbenchTemplate = readFileSync(
+  path.join(repoRoot, 'resources/frontend/templates/fragments/23b-page-ai-workbench.html'),
+  'utf8',
+);
 
 test('AI workbench buttons expose visible hover, press and keyboard feedback', () => {
   assert.match(css, /AI 工作台交互可发现性/);
@@ -41,9 +45,10 @@ test('AI workbench metric cards expose drilldown and keyboard affordance', () =>
   assert.match(appMain, /document\.addEventListener\('keydown', handleDualOtaSystemMetricDomKeydown\)/);
 });
 
-test('hotel order dialog escapes page stacking contexts through the app-managed teleport', () => {
-  assert.match(template, /<teleport to="body">[\s\S]*data-testid="dual-ota-hotel-order-dialog"/);
-  assert.match(template, /class="dual-ota-hotel-order-overlay[^"]*"/);
+test('frozen hotel order dialog source retains the app-managed teleport contract', () => {
+  assert.doesNotMatch(template, /data-testid="dual-ota-hotel-order-dialog"/);
+  assert.match(frozenAiWorkbenchTemplate, /<teleport to="body">[\s\S]*data-testid="dual-ota-hotel-order-dialog"/);
+  assert.match(frozenAiWorkbenchTemplate, /class="dual-ota-hotel-order-overlay[^"]*"/);
   assert.match(css, /\.dual-ota-hotel-order-overlay \{[\s\S]*z-index: 80/);
   assert.match(css, /\.dual-ota-hotel-order-panel button\[class\*="bg-amber-700"\] \{[\s\S]*background: linear-gradient/);
 });

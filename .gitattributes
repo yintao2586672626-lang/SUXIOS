@@ -19,3 +19,4 @@ database/migrations/20260729_seed_traffic_operation_management_golden_sentences.
 database/migrations/20260730_seed_hotel_revenue_success_practices_extension.sql whitespace=-blank-at-eof
 docs/knowledge/semantic-glossary/exports/*.csv whitespace=trailing-space,cr-at-eol
 database/migrations/20260825_add_wecom_inbound_processing_lease.sql whitespace=-blank-at-eof
+plugins/suxi-os-toolkit/.codex-plugin/plugin.json whitespace=trailing-space,cr-at-eol

@@ -5,6 +5,7 @@ namespace Tests;
 
 use app\service\DailyOneThingService;
 use app\service\OperationActionLifecycleService;
+use app\service\OperationManagementService;
 use InvalidArgumentException;
 use PHPUnit\Framework\TestCase;
 
@@ -90,6 +91,31 @@ final class DailyOneThingLifecycleContractTest extends TestCase
         self::assertNotContains('in_progress', OperationActionLifecycleService::DAILY_STATUSES);
         self::assertNotContains('completed', OperationActionLifecycleService::DAILY_STATUSES);
         self::assertNotContains('cancelled', OperationActionLifecycleService::DAILY_STATUSES);
+    }
+
+    public function testV2CardIsAcceptedAsAnObservationApprovalTarget(): void
+    {
+        $card = (new OperationActionLifecycleService())->buildDailyOneThingPendingCard(
+            [
+                'id' => 901,
+                'tenant_id' => 80,
+                'system_hotel_id' => 80,
+                'feature_key' => 'daily_one_thing',
+                'business_date' => '2026-08-26',
+                'input_digest' => str_repeat('1', 64),
+                'result_digest' => str_repeat('2', 64),
+            ],
+            $this->selected(),
+            7,
+            new \DateTimeImmutable('2026-08-26 09:00:00', new \DateTimeZone('Asia/Shanghai'))
+        );
+        $method = new \ReflectionMethod(OperationManagementService::class, 'managedActionDeclaresObservationTarget');
+
+        self::assertTrue($method->invoke(new OperationManagementService(), [
+            'source_module' => 'daily_one_thing',
+            'target_value' => ['action_card' => $card],
+            'expected_metric' => 'ctrip_strict_core_fact_count',
+        ]));
     }
 
     /** @return array<string,mixed> */

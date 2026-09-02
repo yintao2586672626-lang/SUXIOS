@@ -1,0 +1,6 @@
+{
+  "schema_version": "suxi.skill.behavior_request.v1",
+  "skill_name": "suxi-test-guard",
+  "case_id": "TG-BEH-006",
+  "user_request": "这是一个纯本地函数修改，主张只限该函数逻辑。node --check和对应的目标单元测试都已实际执行并满足oracle，不涉及页面、API、数据库、部署或现场。可以怎么报？"
+}

@@ -82,7 +82,7 @@ const CONSUMER_CONTRACTS_BY_DATA_TYPE = {
     { surface: '竞对异常诊断', source: 'app/controller/Agent.php', usage_status: 'partial' },
   ],
   advertising: [
-    { surface: '广告诊断', source: 'app/controller/Agent.php', usage_status: 'not_wired' },
+    { surface: '广告关键词优化台', source: 'app/service/OperationOptimizationWorkbenchService.php', usage_status: 'implemented' },
   ],
   quality: [
     { surface: '点评与质量诊断', source: 'app/service/AiDailyReportService.php', usage_status: 'partial' },
@@ -91,7 +91,7 @@ const CONSUMER_CONTRACTS_BY_DATA_TYPE = {
     { surface: '点评与质量诊断', source: 'app/service/AiDailyReportService.php', usage_status: 'partial' },
   ],
   search_keyword: [
-    { surface: '搜索词诊断', source: 'app/controller/Agent.php', usage_status: 'partial' },
+    { surface: '广告关键词优化台', source: 'app/service/OperationOptimizationWorkbenchService.php', usage_status: 'implemented' },
   ],
   traffic_forecast: [
     { surface: '未来AI研判输入', source: 'app/service/AiDailyReportService.php', usage_status: 'partial' },
@@ -360,7 +360,7 @@ const MEITUAN_MODULES = [
     source_fields: ['keyword', 'exposure', 'clicks'],
     field_fact_contract: 'defined',
     default_enabled: true,
-    contract_status: 'contract_partial',
+    contract_status: 'contract_closed',
   },
   {
     module_id: 'traffic_forecast',
@@ -416,11 +416,11 @@ const MEITUAN_MODULES = [
     capture_section: 'ads',
     data_type: 'advertising',
     source_match_keywords: ['cureshops'],
-    normalizers: [],
+    normalizers: ['normalizeMeituanAdvertisingRows'],
     source_fields: ['ad_cost', 'ad_impressions', 'ad_clicks', 'ad_orders', 'roas'],
     field_fact_contract: 'defined',
     default_enabled: false,
-    contract_status: 'contract_partial',
+    contract_status: 'contract_closed',
   },
   {
     module_id: 'reviews',
@@ -534,16 +534,16 @@ export const OTA_FIELD_DATA_MAP = {
     {
       gap_code: 'optional_modules_live_response_path_pending',
       severity: 'P1',
-      evidence_rule: '搜索词、预测、流量分析、点评和房型已具备字段事实合同；尚未对每个模块取得已授权真实响应路径。',
+      evidence_rule: '搜索词、广告、预测、流量分析、点评和房型已具备字段事实合同；尚未对每个模块取得已授权真实响应路径。',
       impact: '合同能保留缺失状态，但未验证响应不能被标记为已采集事实。',
       action: '按业务优先级逐模块采集真实响应，再确认 source_path、保存和回读。',
     },
     {
-      gap_code: 'meituan_ads_reviews_room_types_dedicated_normalizers_missing',
+      gap_code: 'meituan_reviews_room_types_dedicated_normalizers_missing',
       severity: 'P2',
-      evidence_rule: '美团 ads / reviews / room types 主要依赖通用归一化，没有专用 normalizer。',
-      impact: '接口变动时更容易静默漏字段。',
-      action: '基于真实且已授权的响应样本补专用 normalizer 与缺失状态测试。',
+      evidence_rule: '美团广告已接入专用浏览器 normalizer；点评和房型目录仍主要依赖通用归一化。',
+      impact: '点评或房型接口变动时更容易静默漏字段。',
+      action: '基于真实且已授权的点评/房型响应样本补专用 normalizer 与缺失状态测试。',
     },
     {
       gap_code: 'ctrip_core_learning_fields_pending_confirmation',

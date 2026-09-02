@@ -655,25 +655,30 @@ trait MeituanCapturedDataConcern
     private function normalizeMeituanCapturedSearchKeywordRow(array $item, array $context): ?array
     {
         $keyword = trim((string)$this->firstMeituanValue($item, ['keyword', 'searchKeyword', 'searchWord', 'name', 'dimension'], ''));
-        $dataValue = $this->meituanNumber($item, ['data_value', 'dataValue', 'value', 'heat', 'rank'], 0.0);
-        $impressions = (int)$this->meituanNumber($item, ['impressions', 'exposure', 'exposure_count', 'exposureCount', 'listExposure'], 0);
-        $clicks = (int)$this->meituanNumber($item, ['clicks', 'click_count', 'clickCount', 'detailExposure'], 0);
-        if ($keyword === '' && $dataValue <= 0 && $impressions <= 0 && $clicks <= 0) {
+        $dataValue = $this->nullableNumberFromKeys($item, ['data_value', 'dataValue', 'value', 'heat', 'rank']);
+        $impressionsValue = $this->nullableNumberFromKeys($item, ['impressions', 'exposure', 'exposure_count', 'exposureCount', 'listExposure']);
+        $clicksValue = $this->nullableNumberFromKeys($item, ['clicks', 'click_count', 'clickCount', 'detailExposure']);
+        // Preserve invalid counters until the shared persistence validator can
+        // quarantine them. Coercing a negative capture to zero would turn bad
+        // source evidence into a verified business fact.
+        $impressions = $impressionsValue !== null ? (int)$impressionsValue : null;
+        $clicks = $clicksValue !== null ? (int)$clicksValue : null;
+        if ($keyword === '' && $dataValue === null && $impressions === null && $clicks === null) {
             return null;
-        }
-        if ($dataValue <= 0 && $impressions > 0) {
-            $dataValue = (float)$impressions;
         }
 
         $dataDate = $this->normalizeOnlineDataDate($this->firstMeituanValue($item, ['data_date', 'dataDate', 'date', 'statDate', 'stat_date'], ''))
-            ?: ($context['default_data_date'] ?? date('Y-m-d'));
+            ?: $this->normalizeOnlineDataDate((string)($context['default_data_date'] ?? ''));
+        if ($dataDate === '') {
+            return null;
+        }
 
         return $this->baseMeituanCapturedRow($item, $context, [
             'data_date' => $dataDate,
-            'amount' => 0,
-            'quantity' => 0,
-            'book_order_num' => 0,
-            'comment_score' => 0,
+            'amount' => null,
+            'quantity' => null,
+            'book_order_num' => null,
+            'comment_score' => null,
             'data_value' => $dataValue,
             'data_type' => 'search_keyword',
             'dimension' => $keyword !== '' ? $keyword : 'search_keyword',
@@ -916,8 +921,57 @@ trait MeituanCapturedDataConcern
             return null;
         }
 
-        $dataDate = $this->normalizeOnlineDataDate($this->firstMeituanValue($item, ['order_time', 'orderTime', 'createTime', 'buyTime', 'purchase_time', 'purchaseTime', '购买时间', 'check_in_date', 'checkInDate', 'checkIn', 'data_date', 'dataDate', 'statDate', 'date'], ''))
-            ?: ($context['default_data_date'] ?? date('Y-m-d'));
+        $orderDate = $this->normalizeOnlineDataDate($this->firstMeituanValue(
+            $item,
+            ['order_time', 'orderTime', 'createTime', 'buyTime', 'purchase_time', 'purchaseTime', '购买时间'],
+            ''
+        ));
+        $stayDate = $this->normalizeOnlineDataDate($this->firstMeituanValue(
+            $item,
+            ['check_in_date', 'checkInDate', 'checkIn'],
+            ''
+        ));
+        $genericDate = $this->normalizeOnlineDataDate($this->firstMeituanValue(
+            $item,
+            ['data_date', 'dataDate', 'statDate', 'date'],
+            ''
+        ));
+        $explicitDateBasis = strtolower(trim((string)($item['date_basis'] ?? $item['dateBasis'] ?? '')));
+        $dateSource = trim((string)($item['date_source'] ?? $item['dateSource'] ?? ''));
+        $fallbackDate = $genericDate ?: ($context['default_data_date'] ?? date('Y-m-d'));
+        if ($explicitDateBasis === 'order_date') {
+            if ($orderDate === '' && $stayDate !== '') {
+                return null;
+            }
+            $dataDate = $orderDate !== '' ? $orderDate : $fallbackDate;
+            $dateBasis = 'order_date';
+            $dateSource = $orderDate !== ''
+                ? 'order_time'
+                : ($dateSource !== ''
+                    ? $dateSource
+                    : ($genericDate !== '' ? 'row.data_date' : 'capture_context.default_data_date'));
+        } elseif ($explicitDateBasis === 'stay_date') {
+            if ($stayDate === '' && $orderDate !== '') {
+                return null;
+            }
+            $dataDate = $stayDate !== '' ? $stayDate : $fallbackDate;
+            $dateBasis = 'stay_date';
+            $dateSource = $stayDate !== ''
+                ? 'check_in_date'
+                : ($dateSource !== ''
+                    ? $dateSource
+                    : ($genericDate !== '' ? 'row.data_date' : 'capture_context.default_data_date'));
+        } else {
+            $dataDate = $orderDate ?: ($stayDate ?: $fallbackDate);
+            $dateBasis = $orderDate !== '' ? 'order_date' : ($stayDate !== '' ? 'stay_date' : 'unknown');
+            $dateSource = $orderDate !== ''
+                ? 'order_time'
+                : ($stayDate !== ''
+                    ? 'check_in_date'
+                    : ($dateSource !== ''
+                        ? $dateSource
+                        : ($genericDate !== '' ? 'row.data_date' : 'capture_context.default_data_date')));
+        }
         if ($orderIdHash !== '') {
             $identity = $orderIdHash;
         } elseif ($orderId !== '') {
@@ -939,7 +993,41 @@ trait MeituanCapturedDataConcern
             ? $roomCount * $nights
             : $roomNights;
 
-        return $this->baseMeituanCapturedRow($item, $context, [
+        $recordKind = strtolower(trim((string)($item['record_kind'] ?? $item['recordKind'] ?? '')));
+        if (!in_array($recordKind, ['order_daily_aggregate', 'order_detail'], true)) {
+            $recordKind = $aggregateOnly ? 'order_daily_aggregate' : 'order_detail';
+        }
+        $orderCountBasis = strtolower(trim((string)($item['order_count_basis'] ?? $item['orderCountBasis'] ?? '')));
+        if (!in_array($orderCountBasis, [
+            'active_non_cancelled_orders',
+            'listed_orders',
+            'paid_orders',
+            'source_aggregate_orders',
+            'source_order_count',
+            'one_order_row',
+        ], true)) {
+            $orderCountBasis = $aggregateOnly
+                ? 'source_aggregate_orders'
+                : ($orderCount !== null ? 'source_order_count' : 'one_order_row');
+        }
+        $roomNightsBasis = strtolower(trim((string)($item['room_nights_basis'] ?? $item['roomNightsBasis'] ?? '')));
+        if (!in_array($roomNightsBasis, [
+            'active_non_cancelled_booked_room_nights',
+            'booked_room_nights',
+            'paid_room_nights',
+            'stayed_room_nights',
+        ], true)) {
+            $roomNightsBasis = $quantity !== null ? 'booked_room_nights' : 'unknown';
+        }
+        $factSource = array_merge($item, [
+            'date_basis' => $dateBasis,
+            'date_source' => $dateSource,
+            'order_count_basis' => $orderCountBasis,
+            'room_nights_basis' => $roomNightsBasis,
+            'record_kind' => $recordKind,
+        ]);
+
+        return $this->baseMeituanCapturedRow($factSource, $context, [
             'data_date' => $dataDate,
             'amount' => $amount !== null ? round($amount, 2) : null,
             'quantity' => $quantity,

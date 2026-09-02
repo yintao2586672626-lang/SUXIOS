@@ -149,6 +149,53 @@ test('Meituan helper bindings resolve the deferred bundle at call time', () => {
   assert.doesNotMatch(bindingSource, /const meituanStatic = window\.SUXI_MEITUAN_STATIC/);
 });
 
+test('Meituan helper fallback stays silent while deferred assets load and reports a real post-load gap', () => {
+  const bindingStart = appMain.indexOf('const currentMeituanStatic =');
+  const bindingEnd = appMain.indexOf('const OTA_BROWSER_ASSIST_STATIC_ASSET', bindingStart);
+  const bindingSource = appMain.slice(bindingStart, bindingEnd);
+  const warnings = [];
+  const toasts = [];
+  const windowMock = {};
+  const documentMock = { documentElement: { dataset: {} } };
+  const bindingFactory = Function(
+    'window',
+    'document',
+    'showToast',
+    'console',
+    `"use strict";
+      ${bindingSource}
+      return { requireMeituanStatic, missingMeituanStaticHelpers };`,
+  );
+  const bindings = bindingFactory(
+    windowMock,
+    documentMock,
+    (message, level) => toasts.push({ message, level }),
+    { warn: (...args) => warnings.push(args) },
+  );
+  const helper = bindings.requireMeituanStatic('buildMeituanFetchPresentation');
+
+  const pendingResult = helper([]);
+  assert.equal(pendingResult.status, 'static_helper_missing');
+  assert.equal(warnings.length, 0, 'expected deferred loading must not emit a false missing-helper warning');
+  assert.equal(toasts.length, 0, 'expected deferred loading must not show an unavailable-feature toast');
+  assert.deepEqual(bindings.missingMeituanStaticHelpers, []);
+
+  documentMock.documentElement.dataset.suxiFullRenderReady = '1';
+  const missingResult = helper([]);
+  assert.equal(missingResult.status, 'static_helper_missing');
+  assert.ok(warnings.length >= 1, 'a real post-load gap must remain visible in the console');
+  assert.equal(toasts.length, 1, 'a real post-load gap must remain visible to the user');
+  assert.deepEqual(bindings.missingMeituanStaticHelpers, ['buildMeituanFetchPresentation']);
+
+  const warningCountBeforeRecovery = warnings.length;
+  windowMock.SUXI_MEITUAN_STATIC = {
+    buildMeituanFetchPresentation: rows => ({ status: 'ready', rowCount: rows.length }),
+  };
+  assert.deepEqual(helper([{}, {}]), { status: 'ready', rowCount: 2 });
+  assert.equal(warnings.length, warningCountBeforeRecovery, 'calling the real helper must not add another warning');
+  assert.deepEqual(bindings.missingMeituanStaticHelpers, []);
+});
+
 test('authenticated asset loads share in-flight work and recover after error or timeout', async () => {
   const loader = createAuthenticatedAssetLoaderHarness(10);
 
@@ -290,7 +337,13 @@ test('public login shell defers the authenticated application asset chain', () =
   const styleAssets = entries
     .filter((entry) => entry.type === 'style')
     .map((entry) => stripFrontendAssetQuery(entry.src));
-  assert.deepEqual(styleAssets, ['tailwind.min.css', 'style-startup.min.css', 'style.min.css', 'ai-custom.css']);
+  assert.deepEqual(styleAssets, [
+    'tailwind.min.css',
+    'style-startup.min.css',
+    'style.min.css',
+    'ai-custom.css',
+    'compass-authority-polish.css',
+  ]);
   assert.match(index, /<link rel="stylesheet" href="login-critical\.css\?v=[^"]+"/);
   assert.doesNotMatch(index, /<link[^>]+href="(?:tailwind\.min|style|ai-custom)\.css/);
   assert.equal(scriptAssets[0], 'vue.runtime.global.prod.js');
@@ -301,6 +354,7 @@ test('public login shell defers the authenticated application asset chain', () =
   assert.equal(entries.find((entry) => stripFrontendAssetQuery(entry.src) === 'style-startup.min.css')?.phase, 'startup');
   assert.equal(entries.find((entry) => stripFrontendAssetQuery(entry.src) === 'style.min.css')?.phase, 'after-first-paint');
   assert.equal(entries.find((entry) => stripFrontendAssetQuery(entry.src) === 'ai-custom.css')?.phase, 'after-first-paint');
+  assert.equal(entries.find((entry) => stripFrontendAssetQuery(entry.src) === 'compass-authority-polish.css')?.phase, 'after-first-paint');
   assert.equal(
     entries.find((entry) => stripFrontendAssetQuery(entry.src) === 'app-deferred-helpers.min.js')?.phase,
     'after-first-paint',
@@ -566,7 +620,10 @@ test('authenticated startup paints the compact page before progressively hydrati
 test('deferred component bridges keep startup components small and preserve full factories', () => {
   assert.match(appMainComponentsLoader, /window\.SUXI_APP_MAIN_COMPONENTS = Object\.freeze\(\{ create \}\)/);
   assert.match(appMainComponentsLoader, /window\.SUXI_APP_MAIN_COMPONENTS_FULL/);
-  assert.match(operatingIntelligenceLoader, /window\.SUXI_OPERATING_INTELLIGENCE_COMPONENTS = Object\.freeze\(\{ create \}\)/);
+  assert.match(
+    operatingIntelligenceLoader,
+    /window\.SUXI_OPERATING_INTELLIGENCE_COMPONENTS = Object\.freeze\(\{\s*create, submitCouncilRun, pollCouncilRun, councilReadbackIntegrityMatches,\s*\}\)/,
+  );
   assert.match(operatingIntelligenceLoader, /window\.SUXI_OPERATING_INTELLIGENCE_COMPONENTS_FULL/);
   assert.match(operatingIntelligenceLoader, /SUXI_LOAD_DEFERRED_AUTHENTICATED_ASSET/);
   assert.match(operatingIntelligenceLoader, /style\.min\.css/);

@@ -5,11 +5,15 @@ namespace app\service;
 
 use app\model\CompetitorAnalysis;
 use app\model\DemandForecast;
+use app\model\PriceSuggestion;
+use app\model\RoomType;
 use think\facade\Db;
 
 class RevenuePricingRecommendationService
 {
     public const TRUSTED_DECISION_CONTRACT_VERSION = 'revenue_ai_trusted_decision.v1';
+    public const PRICE_SUGGESTION_DECISION_ATTESTATION_VERSION = 'price_suggestion_decision_attestation.v1';
+    public const PRICE_SUGGESTION_PLATFORM = 'ctrip';
 
     private const MODEL_VERSION = 'advisory_revenue_pricing_v1';
     private const MAX_CHANGE_RATE = 0.20;
@@ -17,11 +21,16 @@ class RevenuePricingRecommendationService
     private const MIN_PRIMARY_SIGNAL_COUNT = 2;
     private const COMPETITOR_LOOKBACK_DAYS = 7;
     private const CTRIP_TRAFFIC_HISTORY_DAYS = 14;
+    private const DB_BIND_PARAMETER_BUDGET = 60000;
+    private const DB_IN_KEY_CHUNK_SIZE = 1000;
+    private const BULK_INSERT_PACKET_BUDGET_BYTES = 2000000;
+    private const PENDING_BATCH_INSERT_ATTEMPTS = 3;
     private const CTRIP_TRAFFIC_SOURCE_ALIASES = ['ctrip', 'ctrip_business', 'ctrip_manual_overview', 'ctrip_browser_profile'];
     private const CTRIP_COMPETITOR_PLATFORM_VALUES = [CompetitorAnalysis::PLATFORM_CTRIP, '1', 'ctrip'];
 
     private TrustedOtaFactRepository $trustedOtaFacts;
     private AiDecisionQualityService $decisionQualityService;
+    private StrictCtripTrafficHistoryReader $strictTrafficHistory;
 
     /** @var array<string, array<string, mixed>> */
     private array $hotelSignalCache = [];
@@ -29,13 +38,24 @@ class RevenuePricingRecommendationService
     /** @var array<int, string> */
     private array $hotelNameCache = [];
 
+    /** @var array<string, array<string, mixed>> */
+    private array $forecastSignalCache = [];
+
+    /** @var array<string, array<string, mixed>> */
+    private array $competitorSignalCache = [];
+
+    /** @var array<string, array<string, mixed>> */
+    private array $ctripTrafficForecastSignalCache = [];
+
     public function __construct(
         ?TrustedOtaFactRepository $trustedOtaFacts = null,
-        ?AiDecisionQualityService $decisionQualityService = null
+        ?AiDecisionQualityService $decisionQualityService = null,
+        ?StrictCtripTrafficHistoryReader $strictTrafficHistory = null
     )
     {
         $this->trustedOtaFacts = $trustedOtaFacts ?? new TrustedOtaFactRepository();
         $this->decisionQualityService = $decisionQualityService ?? new AiDecisionQualityService();
+        $this->strictTrafficHistory = $strictTrafficHistory ?? new StrictCtripTrafficHistoryReader();
     }
 
     /**
@@ -63,6 +83,772 @@ class RevenuePricingRecommendationService
         )));
 
         return $this->recommendFromSignals($roomType, $signals);
+    }
+
+    /**
+     * Preload every database-backed signal needed by one bounded generation
+     * request, then calculate each hotel/date/room recommendation in memory.
+     * The returned recommendation payload is the same payload produced by
+     * recommend(); only the read strategy changes.
+     *
+     * @param array<int, array<string, mixed>> $roomTypes
+     * @param array<int, string> $targetDates
+     * @return array<string, array<string, mixed>> keyed by date|room_type_id
+     */
+    public function recommendBatch(int $hotelId, array $roomTypes, array $targetDates): array
+    {
+        $targetDates = array_values(array_unique(array_filter(array_map(
+            static fn(mixed $date): string => trim((string)$date),
+            $targetDates
+        ), static fn(string $date): bool => preg_match('/^\d{4}-\d{2}-\d{2}$/D', $date) === 1)));
+        sort($targetDates, SORT_STRING);
+
+        $roomTypesById = [];
+        foreach ($roomTypes as $roomType) {
+            if (!is_array($roomType)) {
+                continue;
+            }
+            $roomTypeId = (int)($roomType['id'] ?? 0);
+            if ($roomTypeId > 0) {
+                $roomTypesById[$roomTypeId] = $roomType;
+            }
+        }
+        if ($hotelId <= 0 || $targetDates === [] || $roomTypesById === []) {
+            return [];
+        }
+
+        $roomTypeIds = array_map('intval', array_keys($roomTypesById));
+        $this->primeHotelSignalsBatch($hotelId, $targetDates);
+        $this->primeForecastSignalsBatch($hotelId, $roomTypeIds, $targetDates);
+        $this->primeCompetitorSignalsBatch($hotelId, $roomTypeIds, $targetDates, $roomTypesById);
+
+        $recommendations = [];
+        foreach ($targetDates as $targetDate) {
+            foreach ($roomTypesById as $roomTypeId => $roomType) {
+                $recommendations[self::batchRecommendationKey((int)$roomTypeId, $targetDate)] =
+                    $this->recommend($hotelId, $roomType, $targetDate);
+            }
+        }
+        return $recommendations;
+    }
+
+    public static function batchRecommendationKey(int $roomTypeId, string $targetDate): string
+    {
+        return trim($targetDate) . '|' . $roomTypeId;
+    }
+
+    /**
+     * Build the complete bounded generation set outside the write transaction,
+     * insert eligible pending suggestions in one statement, then verify every
+     * inserted identity with one readback query.
+     *
+     * @param array<int, array<string, mixed>> $roomTypes
+     * @param array<int, string> $targetDates
+     * @return array{0:array<int,array<string,mixed>>,1:array<int,array<string,mixed>>}
+     */
+    public function generatePendingBatch(int $hotelId, array $roomTypes, array $targetDates): array
+    {
+        $targetDates = array_values(array_unique(array_filter(array_map(
+            static fn(mixed $date): string => trim((string)$date),
+            $targetDates
+        ), static fn(string $date): bool => preg_match('/^\d{4}-\d{2}-\d{2}$/D', $date) === 1)));
+        sort($targetDates, SORT_STRING);
+        if ($hotelId <= 0 || $roomTypes === [] || $targetDates === []) {
+            return [[], []];
+        }
+        $authoritativeTenantId = filter_var(
+            Db::name('hotels')->where('id', $hotelId)->value('tenant_id'),
+            FILTER_VALIDATE_INT,
+            ['options' => ['min_range' => 1]]
+        );
+        if ($authoritativeTenantId === false) {
+            throw new \RuntimeException('price suggestion batch hotel tenant unavailable');
+        }
+
+        $requestedRoomTypes = [];
+        foreach ($roomTypes as $roomType) {
+            if (!is_array($roomType)) {
+                throw new \InvalidArgumentException('price suggestion batch room scope invalid');
+            }
+            $roomTypeId = (int)($roomType['id'] ?? 0);
+            if ($roomTypeId <= 0) {
+                throw new \InvalidArgumentException('price suggestion batch room scope invalid');
+            }
+            $requestedRoomTypes[$roomTypeId] = $roomType;
+        }
+        $authoritativeRooms = RoomType::whereIn('id', array_map('intval', array_keys($requestedRoomTypes)))
+            ->where('tenant_id', (int)$authoritativeTenantId)
+            ->where('hotel_id', $hotelId)
+            ->select()
+            ->toArray();
+        $roomTypesById = [];
+        foreach ($authoritativeRooms as $roomType) {
+            if (is_array($roomType) && (int)($roomType['id'] ?? 0) > 0) {
+                $roomTypesById[(int)$roomType['id']] = $roomType;
+            }
+        }
+        $authoritativeRoomIds = array_map('intval', array_keys($roomTypesById));
+        $requestedRoomIds = array_map('intval', array_keys($requestedRoomTypes));
+        sort($authoritativeRoomIds, SORT_NUMERIC);
+        sort($requestedRoomIds, SORT_NUMERIC);
+        if ($authoritativeRoomIds !== $requestedRoomIds) {
+            throw new \InvalidArgumentException('price suggestion batch room scope invalid');
+        }
+        foreach ($requestedRoomTypes as $roomTypeId => $requested) {
+            if ((int)($requested['tenant_id'] ?? 0) !== (int)$authoritativeTenantId
+                || (int)($requested['hotel_id'] ?? 0) !== $hotelId
+                || (int)($roomTypesById[$roomTypeId]['tenant_id'] ?? 0) !== (int)$authoritativeTenantId
+                || (int)($roomTypesById[$roomTypeId]['hotel_id'] ?? 0) !== $hotelId
+            ) {
+                throw new \InvalidArgumentException('price suggestion batch room scope invalid');
+            }
+        }
+
+        $expectedDedupeByKey = [];
+        foreach ($targetDates as $targetDate) {
+            foreach (array_keys($roomTypesById) as $roomTypeId) {
+                $key = self::batchRecommendationKey((int)$roomTypeId, $targetDate);
+                $expectedDedupeByKey[$key] = PriceSuggestion::activeDedupeKey(
+                    (int)$authoritativeTenantId,
+                    $hotelId,
+                    (int)$roomTypeId,
+                    $targetDate
+                );
+            }
+        }
+        $pendingByDedupe = $this->pendingSuggestionsByDedupeKeys(
+            array_values($expectedDedupeByKey),
+            (int)$authoritativeTenantId,
+            $hotelId
+        );
+        $pendingByKey = [];
+        foreach ($expectedDedupeByKey as $key => $dedupeKey) {
+            if (isset($pendingByDedupe[$dedupeKey])) {
+                $pendingByKey[$key] = $pendingByDedupe[$dedupeKey];
+            }
+        }
+
+        $expectedKeySet = array_fill_keys(array_keys($expectedDedupeByKey), true);
+        $pendingKeySet = array_fill_keys(array_keys($pendingByKey), true);
+        ksort($expectedKeySet, SORT_STRING);
+        ksort($pendingKeySet, SORT_STRING);
+        if ($pendingKeySet === $expectedKeySet) {
+            $skipped = [];
+            foreach ($targetDates as $targetDate) {
+                foreach ($roomTypesById as $roomTypeId => $roomType) {
+                    $key = self::batchRecommendationKey((int)$roomTypeId, $targetDate);
+                    $skipped[] = $this->pendingSuggestionSkip(
+                        $pendingByKey[$key],
+                        (int)$roomTypeId,
+                        (string)($roomType['name'] ?? ''),
+                        $targetDate
+                    );
+                }
+            }
+            return [[], $skipped];
+        }
+
+        $recommendations = $this->recommendBatch(
+            $hotelId,
+            array_values($roomTypesById),
+            $targetDates
+        );
+        $candidates = [];
+        $skipped = [];
+        $now = date('Y-m-d H:i:s');
+        foreach ($targetDates as $targetDate) {
+            foreach ($roomTypesById as $roomTypeId => $roomType) {
+                $key = self::batchRecommendationKey((int)$roomTypeId, $targetDate);
+                $roomTypeName = (string)($roomType['name'] ?? '');
+                if (isset($pendingByKey[$key])) {
+                    $skipped[] = $this->pendingSuggestionSkip(
+                        $pendingByKey[$key],
+                        (int)$roomTypeId,
+                        $roomTypeName,
+                        $targetDate
+                    );
+                    continue;
+                }
+                $recommendation = $recommendations[$key] ?? [];
+                $exactGaps = $this->exactTargetSignalGaps(
+                    $recommendation,
+                    (int)$roomTypeId,
+                    $targetDate
+                );
+                if ($exactGaps !== []) {
+                    $skipped[] = $this->exactTargetGapSkip(
+                        $recommendation,
+                        (int)$roomTypeId,
+                        $roomTypeName,
+                        $targetDate,
+                        $exactGaps
+                    );
+                    continue;
+                }
+                if (($recommendation['should_create'] ?? false) !== true) {
+                    $skipped[] = $this->notCreatedSuggestionSkip(
+                        $recommendation,
+                        (int)$roomTypeId,
+                        $roomTypeName,
+                        $targetDate
+                    );
+                    continue;
+                }
+
+                $tenantId = (int)$authoritativeTenantId;
+                $activeDedupeKey = PriceSuggestion::activeDedupeKey(
+                    $tenantId,
+                    $hotelId,
+                    (int)$roomTypeId,
+                    $targetDate
+                );
+                $persistedFactorsJson = json_encode(
+                    $recommendation['factors'] ?? [],
+                    JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR
+                );
+                $persistedFactors = json_decode(
+                    $persistedFactorsJson,
+                    true,
+                    flags: JSON_THROW_ON_ERROR
+                );
+                $attestation = $this->buildPriceSuggestionDecisionAttestation([
+                    'tenant_id' => $tenantId,
+                    'hotel_id' => $hotelId,
+                    'room_type_id' => (int)$roomTypeId,
+                    'suggestion_date' => $targetDate,
+                    'current_price' => (float)$recommendation['current_price'],
+                    'min_price' => (float)($roomType['min_price'] ?? 0),
+                    'max_price' => (float)($roomType['max_price'] ?? 0),
+                    'platform' => self::PRICE_SUGGESTION_PLATFORM,
+                    'decision_as_of_time' => $now,
+                    'model_version' => (string)($persistedFactors['model'] ?? ''),
+                    'factors' => $persistedFactors,
+                ]);
+                $candidates[$key] = [
+                    'key' => $key,
+                    'tenant_id' => $tenantId,
+                    'hotel_id' => $hotelId,
+                    'room_type_id' => (int)$roomTypeId,
+                    'room_type_name' => $roomTypeName,
+                    'target_date' => $targetDate,
+                    'active_dedupe_key' => $activeDedupeKey,
+                    'recommendation' => $recommendation,
+                    'row' => [
+                        'tenant_id' => $tenantId,
+                        'hotel_id' => $hotelId,
+                        'room_type_id' => (int)$roomTypeId,
+                        'suggestion_type' => PriceSuggestion::TYPE_DYNAMIC,
+                        'status' => PriceSuggestion::STATUS_PENDING,
+                        'suggestion_date' => $targetDate,
+                        'current_price' => (float)$recommendation['current_price'],
+                        'suggested_price' => (float)$recommendation['suggested_price'],
+                        'min_price' => (float)($roomType['min_price'] ?? 0),
+                        'max_price' => (float)($roomType['max_price'] ?? 0),
+                        'confidence_score' => (float)$recommendation['confidence_score'],
+                        'competitor_data' => json_encode(
+                            $recommendation['competitor_data'] ?? [],
+                            JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR
+                        ),
+                        'factors' => $persistedFactorsJson,
+                        'demand_forecast_id' => (int)($recommendation['factors']['signals']['demand_forecast']['id'] ?? 0),
+                        'platform' => (string)$attestation['platform'],
+                        'decision_as_of_time' => (string)$attestation['decision_as_of_time'],
+                        'model_version' => (string)$attestation['model_version'],
+                        'decision_input_digest' => (string)$attestation['decision_input_digest'],
+                        'decision_source_refs' => json_encode(
+                            $attestation['decision_source_refs'],
+                            JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR
+                        ),
+                        'reason' => (string)$recommendation['reason'],
+                        'active_dedupe_key' => $activeDedupeKey,
+                        'create_time' => $now,
+                        'update_time' => $now,
+                    ],
+                ];
+            }
+        }
+
+        if ($candidates === []) {
+            return [[], $skipped];
+        }
+        [$insertedCandidates, $raceSkips, $created] = $this->insertPendingSuggestionBatch($candidates);
+        array_push($skipped, ...$raceSkips);
+        if ($insertedCandidates === []) {
+            return [[], $skipped];
+        }
+        return [$this->markGeneratedSuggestionRows($this->enrichSuggestionRows($created)), $skipped];
+    }
+
+    /**
+     * Rebuild the immutable decision-input attestation carried by one newly
+     * generated price suggestion. The digest covers only saved inputs and
+     * source identities; it never implies approval, execution, or OTA write.
+     *
+     * @param array<string,mixed> $suggestion
+     * @return array<string,mixed>
+     */
+    public function buildPriceSuggestionDecisionAttestation(array $suggestion): array
+    {
+        $tenantId = (int)($suggestion['tenant_id'] ?? 0);
+        $hotelId = (int)($suggestion['hotel_id'] ?? 0);
+        $roomTypeId = (int)($suggestion['room_type_id'] ?? 0);
+        $targetDate = trim((string)($suggestion['suggestion_date'] ?? ''));
+        if ($tenantId <= 0 || $hotelId <= 0 || $roomTypeId <= 0
+            || !$this->isExactDate($targetDate)
+        ) {
+            throw new \InvalidArgumentException('price_suggestion_decision_attestation_scope_invalid');
+        }
+
+        $platform = strtolower(trim((string)($suggestion['platform'] ?? '')));
+        if ($platform !== self::PRICE_SUGGESTION_PLATFORM) {
+            throw new \InvalidArgumentException('price_suggestion_decision_attestation_platform_invalid');
+        }
+        $decisionAsOfTime = $this->normalizeDecisionAsOfTime(
+            $suggestion['decision_as_of_time'] ?? null
+        );
+        $factors = is_array($suggestion['factors'] ?? null)
+            ? $suggestion['factors']
+            : $this->decodeJsonObject($suggestion['factors'] ?? null);
+        $signals = is_array($factors['signals'] ?? null) ? $factors['signals'] : [];
+        $modelVersion = trim((string)($suggestion['model_version'] ?? ''));
+        $factorModelVersion = trim((string)($factors['model'] ?? ''));
+        if ($signals === [] || $modelVersion === '' || $factorModelVersion === ''
+            || $modelVersion !== $factorModelVersion
+        ) {
+            throw new \InvalidArgumentException('price_suggestion_decision_attestation_model_or_signals_invalid');
+        }
+
+        $currentPrice = $this->toNullableFloat($suggestion['current_price'] ?? null);
+        $minPrice = $this->toNullableFloat($suggestion['min_price'] ?? null);
+        $maxPrice = $this->toNullableFloat($suggestion['max_price'] ?? null);
+        if ($currentPrice === null || $currentPrice <= 0
+            || $minPrice === null || $minPrice < 0
+            || $maxPrice === null || $maxPrice < 0
+        ) {
+            throw new \InvalidArgumentException('price_suggestion_decision_attestation_price_scope_invalid');
+        }
+
+        $sourceRefs = $this->priceSuggestionDecisionSourceRefs(
+            $signals,
+            $hotelId,
+            $roomTypeId,
+            $targetDate
+        );
+        if ($sourceRefs === []) {
+            throw new \InvalidArgumentException('price_suggestion_decision_attestation_source_refs_missing');
+        }
+        $observedTimeCheck = $this->priceSuggestionObservedTimeCheck(
+            $signals,
+            $decisionAsOfTime
+        );
+        if ($observedTimeCheck['violations'] !== []) {
+            throw new \InvalidArgumentException('price_suggestion_decision_attestation_future_input_detected');
+        }
+
+        $inputSnapshot = [
+            'contract_version' => self::PRICE_SUGGESTION_DECISION_ATTESTATION_VERSION,
+            'tenant_id' => $tenantId,
+            'hotel_id' => $hotelId,
+            'room_type_id' => $roomTypeId,
+            'platform' => $platform,
+            'target_stay_date' => $targetDate,
+            'decision_as_of_time' => $decisionAsOfTime,
+            'model_version' => $modelVersion,
+            'room_snapshot' => [
+                'id' => $roomTypeId,
+                'base_price' => round($currentPrice, 2),
+                'min_price' => round($minPrice, 2),
+                'max_price' => round($maxPrice, 2),
+            ],
+            'signals' => $signals,
+            'source_refs' => $sourceRefs,
+            'observed_time_check' => $observedTimeCheck,
+            'decision_boundary' => 'manual_review_required_no_auto_rate_write',
+        ];
+
+        return [
+            'contract_version' => self::PRICE_SUGGESTION_DECISION_ATTESTATION_VERSION,
+            'platform' => $platform,
+            'decision_as_of_time' => $decisionAsOfTime,
+            'model_version' => $modelVersion,
+            'decision_input_digest' => hash(
+                'sha256',
+                $this->canonicalDecisionJson($inputSnapshot)
+            ),
+            'decision_source_refs' => $sourceRefs,
+            'input_snapshot' => $inputSnapshot,
+            'advisory_only' => true,
+            'automatic_approval' => false,
+            'automatic_price_write' => false,
+            'external_write_count' => 0,
+        ];
+    }
+
+    /**
+     * @param array<string, array<string, mixed>> $candidates
+     * @return array{0:array<string,array<string,mixed>>,1:array<int,array<string,mixed>>,2:array<int,array<string,mixed>>}
+     */
+    private function insertPendingSuggestionBatch(array $candidates): array
+    {
+        $raceSkips = [];
+        $lastConflict = null;
+        for ($attempt = 1; $attempt <= self::PENDING_BATCH_INSERT_ATTEMPTS; $attempt++) {
+            $this->beforePendingBatchInsertAttempt($candidates, $attempt);
+            try {
+                $created = Db::transaction(function () use ($candidates): array {
+                    $this->insertCandidateChunks($candidates);
+                    return $this->readBackPendingSuggestionBatch($candidates);
+                });
+                return [$candidates, $raceSkips, $created];
+            } catch (\Throwable $error) {
+                if (!$this->isActiveDedupeConflict($error)) {
+                    throw $error;
+                }
+                $lastConflict = $error;
+            }
+
+            // Db::transaction has fully rolled back before this exact read.
+            // Earlier chunks from the failed attempt cannot masquerade as a
+            // concurrent winner; only committed rows are removed as races.
+            $first = reset($candidates);
+            $raced = $this->pendingSuggestionsByDedupeKeys(
+                array_column($candidates, 'active_dedupe_key'),
+                (int)($first['tenant_id'] ?? 0),
+                (int)($first['hotel_id'] ?? 0)
+            );
+            foreach ($candidates as $key => $candidate) {
+                $dedupeKey = (string)$candidate['active_dedupe_key'];
+                if (!isset($raced[$dedupeKey])) {
+                    continue;
+                }
+                $raceSkips[] = $this->pendingSuggestionSkip(
+                    $raced[$dedupeKey],
+                    (int)$candidate['room_type_id'],
+                    (string)$candidate['room_type_name'],
+                    (string)$candidate['target_date'],
+                    true
+                );
+                unset($candidates[$key]);
+            }
+            if ($candidates === []) {
+                return [[], $raceSkips, []];
+            }
+        }
+
+        throw new \RuntimeException(
+            'price_suggestion_batch_dedupe_conflict_exhausted',
+            0,
+            $lastConflict
+        );
+    }
+
+    /** @param array<string,array<string,mixed>> $candidates */
+    protected function beforePendingBatchInsertAttempt(array $candidates, int $attempt): void
+    {
+    }
+
+    /** @param array<string,array<string,mixed>> $candidates */
+    private function insertCandidateChunks(array $candidates): void
+    {
+        foreach ($this->chunkCandidatesForInsert($candidates) as $chunk) {
+            Db::name('price_suggestions')->insertAll(array_column($chunk, 'row'));
+        }
+    }
+
+    /**
+     * @param array<string,array<string,mixed>> $candidates
+     * @return array<int,array<string,array<string,mixed>>>
+     */
+    private function chunkCandidatesForInsert(array $candidates): array
+    {
+        $chunks = [];
+        $current = [];
+        $parameterCount = 0;
+        $estimatedBytes = 0;
+        foreach ($candidates as $key => $candidate) {
+            $row = is_array($candidate['row'] ?? null) ? $candidate['row'] : [];
+            $rowParameters = count($row);
+            $encoded = json_encode(
+                $row,
+                JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR
+            );
+            $rowBytes = (strlen((string)$encoded) * 2) + ($rowParameters * 32);
+            if ($rowParameters <= 0
+                || $rowParameters > self::DB_BIND_PARAMETER_BUDGET
+                || $rowBytes > self::BULK_INSERT_PACKET_BUDGET_BYTES
+            ) {
+                throw new \RuntimeException('price suggestion batch row exceeds database write budget');
+            }
+            if ($current !== []
+                && ($parameterCount + $rowParameters > self::DB_BIND_PARAMETER_BUDGET
+                    || $estimatedBytes + $rowBytes > self::BULK_INSERT_PACKET_BUDGET_BYTES)
+            ) {
+                $chunks[] = $current;
+                $current = [];
+                $parameterCount = 0;
+                $estimatedBytes = 0;
+            }
+            $current[$key] = $candidate;
+            $parameterCount += $rowParameters;
+            $estimatedBytes += $rowBytes;
+        }
+        if ($current !== []) {
+            $chunks[] = $current;
+        }
+        return $chunks;
+    }
+
+    /**
+     * @param array<string, array<string, mixed>> $candidates
+     * @return array<int, array<string, mixed>>
+     */
+    private function readBackPendingSuggestionBatch(array $candidates): array
+    {
+        $first = reset($candidates);
+        $persistedByDedupe = $this->pendingSuggestionsByDedupeKeys(
+            array_column($candidates, 'active_dedupe_key'),
+            (int)($first['tenant_id'] ?? 0),
+            (int)($first['hotel_id'] ?? 0)
+        );
+        $created = [];
+        foreach ($candidates as $candidate) {
+            $dedupeKey = (string)$candidate['active_dedupe_key'];
+            $persisted = $persistedByDedupe[$dedupeKey] ?? null;
+            $recommendation = (array)$candidate['recommendation'];
+            if (!$persisted instanceof PriceSuggestion
+                || (int)$persisted->tenant_id !== (int)$candidate['tenant_id']
+                || (int)$persisted->hotel_id !== (int)$candidate['hotel_id']
+                || (int)$persisted->room_type_id !== (int)$candidate['room_type_id']
+                || (string)$persisted->suggestion_date !== (string)$candidate['target_date']
+                || (int)$persisted->status !== PriceSuggestion::STATUS_PENDING
+                || (string)($persisted->getData()['active_dedupe_key'] ?? '') !== $dedupeKey
+                || abs((float)$persisted->current_price - (float)$recommendation['current_price']) > 0.001
+                || abs((float)$persisted->suggested_price - (float)$recommendation['suggested_price']) > 0.001
+                || !$this->priceSuggestionAttestationReadbackMatches(
+                    $persisted,
+                    (array)$candidate['row']
+                )
+            ) {
+                throw new \RuntimeException('price suggestion saved readback identity mismatch');
+            }
+            $row = $persisted->toArray();
+            $row['risk_level'] = (string)($recommendation['risk_level'] ?? 'medium');
+            $row['review_checklist'] = array_values((array)($recommendation['review_checklist'] ?? []));
+            $created[] = $row;
+        }
+        return $created;
+    }
+
+    /** @param array<string,mixed> $expected */
+    private function priceSuggestionAttestationReadbackMatches(
+        PriceSuggestion $persisted,
+        array $expected
+    ): bool {
+        $row = $persisted->toArray();
+        $storedRefs = is_array($row['decision_source_refs'] ?? null)
+            ? array_values($row['decision_source_refs'])
+            : array_values($this->decodeJsonObject($row['decision_source_refs'] ?? null));
+        $expectedRefs = array_values($this->decodeJsonObject(
+            $expected['decision_source_refs'] ?? null
+        ));
+        if (strtolower(trim((string)($row['platform'] ?? '')))
+                !== (string)($expected['platform'] ?? '')
+            || trim((string)($row['decision_as_of_time'] ?? ''))
+                !== (string)($expected['decision_as_of_time'] ?? '')
+            || trim((string)($row['model_version'] ?? ''))
+                !== (string)($expected['model_version'] ?? '')
+            || strtolower(trim((string)($row['decision_input_digest'] ?? '')))
+                !== (string)($expected['decision_input_digest'] ?? '')
+            || $storedRefs !== $expectedRefs
+        ) {
+            return false;
+        }
+        try {
+            $rebuilt = $this->buildPriceSuggestionDecisionAttestation($row);
+        } catch (\Throwable) {
+            return false;
+        }
+        return hash_equals(
+            (string)$expected['decision_input_digest'],
+            (string)($rebuilt['decision_input_digest'] ?? '')
+        ) && $expectedRefs === (array)($rebuilt['decision_source_refs'] ?? []);
+    }
+
+    /** @param array<int,string> $dedupeKeys @return array<string,PriceSuggestion> */
+    protected function pendingSuggestionsByDedupeKeys(
+        array $dedupeKeys,
+        int $tenantId = 0,
+        int $hotelId = 0
+    ): array
+    {
+        $dedupeKeys = array_values(array_unique(array_filter(array_map(
+            'strval',
+            $dedupeKeys
+        ))));
+        if ($dedupeKeys === []) {
+            return [];
+        }
+        $indexed = [];
+        foreach (array_chunk($dedupeKeys, self::DB_IN_KEY_CHUNK_SIZE) as $keyChunk) {
+            $query = PriceSuggestion::whereIn('active_dedupe_key', $keyChunk)
+                ->where('status', PriceSuggestion::STATUS_PENDING);
+            if ($tenantId > 0) {
+                $query->where('tenant_id', $tenantId);
+            }
+            if ($hotelId > 0) {
+                $query->where('hotel_id', $hotelId);
+            }
+            foreach ($query->select() as $suggestion) {
+                if (!$suggestion instanceof PriceSuggestion) {
+                    continue;
+                }
+                $key = (string)($suggestion->getData()['active_dedupe_key'] ?? '');
+                if ($key !== '') {
+                    $indexed[$key] = $suggestion;
+                }
+            }
+        }
+        return $indexed;
+    }
+
+    private function isActiveDedupeConflict(\Throwable $error): bool
+    {
+        $message = strtolower($error->getMessage());
+        return (str_contains($message, 'duplicate') || str_contains($message, 'unique constraint'))
+            && (str_contains($message, 'active_dedupe_key')
+                || str_contains($message, 'uq_price_suggestions_active_dedupe'));
+    }
+
+    /** @return array<string,mixed> */
+    private function pendingSuggestionSkip(
+        PriceSuggestion $suggestion,
+        int $roomTypeId,
+        string $roomTypeName,
+        string $targetDate,
+        bool $deduplicated = false
+    ): array {
+        return [
+            'suggestion_date' => $targetDate,
+            'target_stay_date' => $targetDate,
+            'room_type_id' => $roomTypeId,
+            'room_type_name' => $roomTypeName,
+            'reason' => 'pending_suggestion_exists',
+            'existing_suggestion_id' => (int)$suggestion->id,
+            'existing_readback_verified' => (int)$suggestion->id > 0,
+            'deduplicated' => $deduplicated,
+            'primary_signal_count' => null,
+            'price_change_rate' => null,
+            'risk_level' => 'medium',
+            'data_gaps' => [],
+            'review_checklist' => ['Review or close the existing pending suggestion before generating another one.'],
+        ];
+    }
+
+    /** @param array<string,mixed> $recommendation @return array<int,string> */
+    private function exactTargetSignalGaps(
+        array $recommendation,
+        int $roomTypeId,
+        string $targetDate
+    ): array {
+        $signals = is_array($recommendation['factors']['signals'] ?? null)
+            ? $recommendation['factors']['signals'] : [];
+        $forecast = is_array($signals['demand_forecast'] ?? null) ? $signals['demand_forecast'] : [];
+        $competitor = is_array($signals['competitor'] ?? null) ? $signals['competitor'] : [];
+        $gaps = [];
+        if (($forecast['data_status'] ?? '') !== 'ok'
+            || (string)($forecast['source'] ?? '') !== 'demand_forecasts'
+            || (int)($forecast['id'] ?? 0) <= 0
+            || (int)($forecast['room_type_id'] ?? 0) !== $roomTypeId
+            || (string)($forecast['forecast_date'] ?? '') !== $targetDate
+        ) {
+            $gaps[] = 'exact_target_room_type_demand_forecast_missing';
+        }
+        if (($competitor['data_status'] ?? '') !== 'ok'
+            || (string)($competitor['source_scope'] ?? '') !== 'room_type'
+            || (string)($competitor['source_date'] ?? '') !== $targetDate
+            || (int)($competitor['sample_count'] ?? 0) <= 0
+        ) {
+            $gaps[] = 'exact_target_room_type_competitor_price_missing';
+        }
+        return $gaps;
+    }
+
+    /** @param array<string,mixed> $recommendation @param array<int,string> $exactGaps */
+    private function exactTargetGapSkip(
+        array $recommendation,
+        int $roomTypeId,
+        string $roomTypeName,
+        string $targetDate,
+        array $exactGaps
+    ): array {
+        return [
+            'suggestion_date' => $targetDate,
+            'target_stay_date' => $targetDate,
+            'room_type_id' => $roomTypeId,
+            'room_type_name' => $roomTypeName,
+            'reason' => 'exact_target_signals_missing',
+            'primary_signal_count' => (int)($recommendation['primary_signal_count'] ?? 0),
+            'price_change_rate' => array_key_exists('price_change_rate', $recommendation)
+                ? (float)$recommendation['price_change_rate'] : null,
+            'risk_level' => 'high',
+            'data_gaps' => array_values(array_unique(array_merge(
+                (array)($recommendation['factors']['signals']['data_gaps'] ?? []),
+                $exactGaps
+            ))),
+            'review_checklist' => [
+                'Provide same-hotel, same-room-type, same-target-date demand and competitor evidence.',
+            ],
+        ];
+    }
+
+    /** @param array<string,mixed> $recommendation */
+    private function notCreatedSuggestionSkip(
+        array $recommendation,
+        int $roomTypeId,
+        string $roomTypeName,
+        string $targetDate
+    ): array {
+        return [
+            'suggestion_date' => $targetDate,
+            'target_stay_date' => $targetDate,
+            'room_type_id' => $roomTypeId,
+            'room_type_name' => $roomTypeName,
+            'reason' => (string)($recommendation['skip_reason'] ?? 'not_created'),
+            'primary_signal_count' => (int)($recommendation['primary_signal_count'] ?? 0),
+            'price_change_rate' => array_key_exists('price_change_rate', $recommendation)
+                ? (float)$recommendation['price_change_rate'] : null,
+            'risk_level' => (string)($recommendation['risk_level'] ?? 'high'),
+            'data_gaps' => array_values((array)($recommendation['factors']['signals']['data_gaps'] ?? [])),
+            'review_checklist' => array_values((array)($recommendation['review_checklist'] ?? [])),
+        ];
+    }
+
+    /** @param array<int,array<string,mixed>> $rows @return array<int,array<string,mixed>> */
+    private function markGeneratedSuggestionRows(array $rows): array
+    {
+        return array_map(static function (array $row): array {
+            $targetDate = (string)($row['suggestion_date'] ?? '');
+            $complete = (int)($row['id'] ?? 0) > 0
+                && (int)($row['tenant_id'] ?? 0) > 0
+                && (int)($row['hotel_id'] ?? 0) > 0
+                && (int)($row['room_type_id'] ?? 0) > 0
+                && preg_match('/^\d{4}-\d{2}-\d{2}$/D', $targetDate) === 1
+                && (float)($row['current_price'] ?? 0) > 0
+                && (float)($row['suggested_price'] ?? 0) > 0
+                && (int)($row['status'] ?? 0) > 0;
+            $row['target_stay_date'] = $targetDate;
+            $row['persistence'] = [
+                'saved' => (int)($row['id'] ?? 0) > 0,
+                'storage' => 'price_suggestions',
+                'loaded_from_storage' => (int)($row['id'] ?? 0) > 0,
+                'exact_identity_complete' => $complete,
+                'readback_verified' => $complete,
+            ];
+            $row['advisory_only'] = true;
+            $row['manual_review_required'] = true;
+            $row['auto_write_ota'] = false;
+            return $row;
+        }, $rows);
     }
 
     /**
@@ -380,10 +1166,81 @@ class RevenuePricingRecommendationService
         return array_map(function (array $row) use ($executionItemsByRecordId): array {
             $row = $this->normalizeSuggestionDisplayFields($row);
             $id = (int)($row['id'] ?? 0);
+            $row['decision_attestation'] = $this->describePriceSuggestionDecisionAttestation($row);
             $row['pricing_readiness'] = $this->buildSuggestionReadiness($row, $executionItemsByRecordId[$id] ?? null);
             $row = $this->enrichSuggestionDecisionQuality($row);
             return $row;
         }, $rows);
+    }
+
+    /** @param array<string,mixed> $row @return array<string,mixed> */
+    public function describePriceSuggestionDecisionAttestation(array $row): array
+    {
+        $fields = [
+            'platform', 'decision_as_of_time', 'model_version',
+            'decision_input_digest', 'decision_source_refs',
+        ];
+        $present = [];
+        foreach ($fields as $field) {
+            $value = $row[$field] ?? null;
+            $present[$field] = is_array($value)
+                ? $value !== []
+                : trim((string)($value ?? '')) !== '';
+        }
+        $presentCount = count(array_filter($present));
+        $base = [
+            'contract_version' => self::PRICE_SUGGESTION_DECISION_ATTESTATION_VERSION,
+            'status' => 'invalid',
+            'status_label' => '决策证明不完整',
+            'decision_as_of_time' => null,
+            'model_version' => null,
+            'source_ref_count' => 0,
+            'digest_prefix' => null,
+            'observed_timestamp_count' => 0,
+            'readback_verified' => false,
+            'advisory_only' => true,
+            'automatic_price_write' => false,
+            'external_write_count' => 0,
+        ];
+        if ($presentCount === 0) {
+            return [
+                ...$base,
+                'status' => 'legacy_reconstructed',
+                'status_label' => '历史建议·未冻结证明',
+            ];
+        }
+        if ($presentCount !== count($fields)) {
+            return $base;
+        }
+        try {
+            $rebuilt = $this->buildPriceSuggestionDecisionAttestation($row);
+            $storedRefs = is_array($row['decision_source_refs'] ?? null)
+                ? array_values($row['decision_source_refs'])
+                : array_values(json_decode(
+                    (string)($row['decision_source_refs'] ?? '[]'),
+                    true,
+                    flags: JSON_THROW_ON_ERROR
+                ));
+            $storedDigest = strtolower(trim((string)($row['decision_input_digest'] ?? '')));
+            if (!hash_equals($storedDigest, (string)$rebuilt['decision_input_digest'])
+                || $storedRefs !== (array)$rebuilt['decision_source_refs']
+            ) {
+                return $base;
+            }
+            return [
+                ...$base,
+                'status' => 'attested',
+                'status_label' => '决策输入已冻结',
+                'decision_as_of_time' => (string)$rebuilt['decision_as_of_time'],
+                'model_version' => (string)$rebuilt['model_version'],
+                'source_ref_count' => count($storedRefs),
+                'digest_prefix' => substr($storedDigest, 0, 12),
+                'observed_timestamp_count' => (int)($rebuilt['input_snapshot']['observed_time_check']['explicit_timestamp_count'] ?? 0),
+                'readback_verified' => true,
+            ];
+        } catch (\Throwable) {
+            return $base;
+        }
     }
 
     /** @return array<string, mixed> */
@@ -1216,6 +2073,81 @@ class RevenuePricingRecommendationService
         $asOfDate = min($targetDate, date('Y-m-d'));
         $historyStart = date('Y-m-d', strtotime($asOfDate . ' -60 days'));
         $history = $this->trustedOtaFacts->pricingHistory($hotelId, $historyStart, $asOfDate);
+
+        return $this->hotelSignalCache[$cacheKey] = $this->buildHotelSignals(
+            $hotelId,
+            $targetDate,
+            $asOfDate,
+            $historyStart,
+            $history
+        );
+    }
+
+    /**
+     * @param array<int, string> $targetDates
+     */
+    private function primeHotelSignalsBatch(int $hotelId, array $targetDates): void
+    {
+        $missingDates = array_values(array_filter(
+            $targetDates,
+            fn(string $targetDate): bool => !isset($this->hotelSignalCache[$hotelId . '|' . $targetDate])
+        ));
+        if ($missingDates === []) {
+            return;
+        }
+
+        $today = date('Y-m-d');
+        $asOfDates = [];
+        foreach ($missingDates as $targetDate) {
+            $asOfDates[$targetDate] = min($targetDate, $today);
+        }
+        $windows = [];
+        $windowKeyByTarget = [];
+        foreach ($missingDates as $targetDate) {
+            $asOfDate = $asOfDates[$targetDate];
+            $historyStart = date('Y-m-d', strtotime($asOfDate . ' -60 days'));
+            $windowKey = $historyStart . '|' . $asOfDate;
+            $windowKeyByTarget[$targetDate] = $windowKey;
+            $windows[$windowKey] = [
+                'start_date' => $historyStart,
+                'end_date' => $asOfDate,
+            ];
+        }
+        $histories = $this->trustedOtaFacts->pricingHistoryBatch($hotelId, $windows);
+        foreach ($missingDates as $targetDate) {
+            $asOfDate = $asOfDates[$targetDate];
+            $windowKey = $windowKeyByTarget[$targetDate];
+            $historyStart = $windows[$windowKey]['start_date'];
+            $history = is_array($histories[$windowKey] ?? null)
+                ? $histories[$windowKey]
+                : [
+                    'data_status' => 'blocked',
+                    'rows' => [],
+                    'data_gaps' => ['pricing_history_query_failed'],
+                    'source_policy' => [],
+                    'data_quality' => [],
+                ];
+            $this->hotelSignalCache[$hotelId . '|' . $targetDate] = $this->buildHotelSignals(
+                $hotelId,
+                $targetDate,
+                $asOfDate,
+                $historyStart,
+                $history
+            );
+        }
+    }
+
+    /**
+     * @param array<string, mixed> $history
+     * @return array<string, mixed>
+     */
+    private function buildHotelSignals(
+        int $hotelId,
+        string $targetDate,
+        string $asOfDate,
+        string $historyStart,
+        array $history
+    ): array {
         $historyRows = is_array($history['rows'] ?? null) ? $history['rows'] : [];
         $historyRows = array_values(array_filter($historyRows, static function (array $row): bool {
             $source = strtolower(trim((string)($row['source'] ?? '')));
@@ -1238,7 +2170,7 @@ class RevenuePricingRecommendationService
             $holiday['data_gaps'] ?? []
         )));
 
-        return $this->hotelSignalCache[$cacheKey] = [
+        return [
             'pickup' => $pickup,
             'elasticity' => $elasticity,
             'backtest' => $backtest,
@@ -1269,27 +2201,137 @@ class RevenuePricingRecommendationService
      */
     private function forecastSignal(int $hotelId, int $roomTypeId, string $targetDate, array $roomType): array
     {
+        $cacheKey = self::batchRecommendationKey($roomTypeId, $targetDate) . '|hotel:' . $hotelId;
+        if (isset($this->forecastSignalCache[$cacheKey])) {
+            return $this->forecastSignalCache[$cacheKey];
+        }
         $forecast = DemandForecast::latestForPricing($hotelId, $roomTypeId, $targetDate);
 
         if ($forecast) {
-            $sourceMetadata = $this->manualInputMetadata($forecast->historical_data ?? null, 'manual_demand_forecast');
-            return [
-                'data_status' => 'ok',
-                'source' => 'demand_forecasts',
-                'id' => (int)$forecast->id,
-                'room_type_id' => (int)$forecast->room_type_id,
-                'forecast_date' => (string)$forecast->forecast_date,
-                'predicted_occupancy' => $this->toFloat($forecast->predicted_occupancy ?? 0),
-                'predicted_demand' => (int)($forecast->predicted_demand ?? 0),
-                'confidence_score' => $this->toFloat($forecast->confidence_score ?? 0),
-                'event_type' => (int)($forecast->event_type ?? 0),
-                'is_event_driven' => (int)($forecast->is_event_driven ?? 0),
-                'source_metadata' => $sourceMetadata,
-                'data_gaps' => [],
-            ];
+            return $this->forecastSignalCache[$cacheKey] = $this->forecastSignalFromModel($forecast);
         }
 
         $trafficForecast = $this->ctripTrafficDemandForecastSignal($hotelId, $targetDate);
+        return $this->forecastSignalCache[$cacheKey] = $this->forecastSignalFromTrafficFallback($trafficForecast);
+    }
+
+    /**
+     * @param array<int, int> $roomTypeIds
+     * @param array<int, string> $targetDates
+     */
+    private function primeForecastSignalsBatch(
+        int $hotelId,
+        array $roomTypeIds,
+        array $targetDates
+    ): void {
+        $forecasts = DemandForecast::where('hotel_id', $hotelId)
+            ->whereIn('room_type_id', $roomTypeIds)
+            ->whereBetween('forecast_date', [$targetDates[0], $targetDates[count($targetDates) - 1]])
+            ->select();
+        $byKey = [];
+        foreach ($forecasts as $forecast) {
+            if (!$forecast instanceof DemandForecast) {
+                continue;
+            }
+            $key = self::batchRecommendationKey(
+                (int)$forecast->room_type_id,
+                (string)$forecast->forecast_date
+            );
+            $byKey[$key][] = $forecast;
+        }
+
+        $missingDates = [];
+        foreach ($targetDates as $targetDate) {
+            foreach ($roomTypeIds as $roomTypeId) {
+                $key = self::batchRecommendationKey($roomTypeId, $targetDate);
+                $cacheKey = $key . '|hotel:' . $hotelId;
+                $selected = $this->latestForecastForPricingFromBatch($byKey[$key] ?? []);
+                if ($selected instanceof DemandForecast) {
+                    $this->forecastSignalCache[$cacheKey] = $this->forecastSignalFromModel($selected);
+                    continue;
+                }
+                $missingDates[$targetDate] = true;
+            }
+        }
+
+        if ($missingDates !== []) {
+            $this->primeCtripTrafficForecastSignalsBatch($hotelId, array_keys($missingDates));
+        }
+        foreach ($targetDates as $targetDate) {
+            foreach ($roomTypeIds as $roomTypeId) {
+                $cacheKey = self::batchRecommendationKey($roomTypeId, $targetDate) . '|hotel:' . $hotelId;
+                if (isset($this->forecastSignalCache[$cacheKey])) {
+                    continue;
+                }
+                $trafficKey = $hotelId . '|' . $targetDate;
+                $trafficForecast = $this->ctripTrafficForecastSignalCache[$trafficKey]
+                    ?? $this->ctripTrafficDemandForecastSignal($hotelId, $targetDate);
+                $this->forecastSignalCache[$cacheKey] = $this->forecastSignalFromTrafficFallback($trafficForecast);
+            }
+        }
+    }
+
+    /** @param array<int, DemandForecast> $forecasts */
+    private function latestForecastForPricingFromBatch(array $forecasts): ?DemandForecast
+    {
+        if ($forecasts === []) {
+            return null;
+        }
+        usort($forecasts, static function (DemandForecast $left, DemandForecast $right): int {
+            foreach (['update_time', 'create_time'] as $field) {
+                $rightValue = $right->{$field} ?? null;
+                $leftValue = $left->{$field} ?? null;
+                $rightTime = is_int($rightValue) || (is_string($rightValue) && ctype_digit($rightValue))
+                    ? (int)$rightValue
+                    : (strtotime((string)$rightValue) ?: 0);
+                $leftTime = is_int($leftValue) || (is_string($leftValue) && ctype_digit($leftValue))
+                    ? (int)$leftValue
+                    : (strtotime((string)$leftValue) ?: 0);
+                $comparison = $rightTime <=> $leftTime;
+                if ($comparison !== 0) {
+                    return $comparison;
+                }
+            }
+            return (int)$right->id <=> (int)$left->id;
+        });
+        $latest = $forecasts[0];
+        foreach ($forecasts as $forecast) {
+            $metadata = is_array($forecast->historical_data ?? null)
+                ? $forecast->historical_data
+                : $this->decodeJsonObject($forecast->historical_data ?? null);
+            if ((string)($metadata['input_type'] ?? '') === DemandForecast::MANUAL_INPUT_TYPE) {
+                return $forecast;
+            }
+        }
+        return $latest;
+    }
+
+    /** @return array<string, mixed> */
+    private function forecastSignalFromModel(DemandForecast $forecast): array
+    {
+        $sourceMetadata = $this->manualInputMetadata(
+            $forecast->historical_data ?? null,
+            'manual_demand_forecast'
+        );
+        return [
+            'data_status' => 'ok',
+            'source' => 'demand_forecasts',
+            'id' => (int)$forecast->id,
+            'room_type_id' => (int)$forecast->room_type_id,
+            'forecast_date' => (string)$forecast->forecast_date,
+            'predicted_occupancy' => $this->toFloat($forecast->predicted_occupancy ?? 0),
+            'predicted_demand' => (int)($forecast->predicted_demand ?? 0),
+            'confidence_score' => $this->toFloat($forecast->confidence_score ?? 0),
+            'event_type' => (int)($forecast->event_type ?? 0),
+            'is_event_driven' => (int)($forecast->is_event_driven ?? 0),
+            'source_metadata' => $sourceMetadata,
+            'data_gaps' => [],
+        ];
+    }
+
+    /** @param array<string, mixed> $trafficForecast @return array<string, mixed> */
+    private function forecastSignalFromTrafficFallback(array $trafficForecast): array
+    {
         if (($trafficForecast['data_status'] ?? '') === 'ok') {
             return $trafficForecast;
         }
@@ -1314,30 +2356,110 @@ class RevenuePricingRecommendationService
      */
     public function ctripTrafficDemandForecastSignal(int $hotelId, string $targetDate): array
     {
+        $cacheKey = $hotelId . '|' . $targetDate;
+        if (isset($this->ctripTrafficForecastSignalCache[$cacheKey])) {
+            return $this->ctripTrafficForecastSignalCache[$cacheKey];
+        }
         $endDate = $this->ctripTrafficForecastHistoryEndDate($targetDate);
         $startDate = date('Y-m-d', strtotime($endDate . ' -' . (self::CTRIP_TRAFFIC_HISTORY_DAYS - 1) . ' days'));
 
-        try {
-            $rows = $this->ctripTrafficRows($hotelId, $startDate, $endDate);
-        } catch (\Throwable) {
+        $history = $this->strictTrafficHistory->read($hotelId, $startDate, $endDate);
+        return $this->ctripTrafficForecastSignalCache[$cacheKey] = $this->buildTrafficForecastFromStrictHistory(
+            $history,
+            $targetDate,
+            $startDate,
+            $endDate,
+            $hotelId
+        );
+    }
+
+    /** @param array<int, string> $targetDates */
+    private function primeCtripTrafficForecastSignalsBatch(int $hotelId, array $targetDates): void
+    {
+        $targetDates = array_values(array_unique(array_filter(array_map(
+            static fn(mixed $date): string => trim((string)$date),
+            $targetDates
+        ))));
+        if ($targetDates === []) {
+            return;
+        }
+        sort($targetDates, SORT_STRING);
+
+        $windows = [];
+        $windowKeyByTarget = [];
+        foreach ($targetDates as $targetDate) {
+            $endDate = $this->ctripTrafficForecastHistoryEndDate($targetDate);
+            $startDate = date('Y-m-d', strtotime($endDate . ' -' . (self::CTRIP_TRAFFIC_HISTORY_DAYS - 1) . ' days'));
+            $windowKey = $startDate . '|' . $endDate;
+            $windowKeyByTarget[$targetDate] = $windowKey;
+            $windows[$windowKey] = [
+                'start' => $startDate,
+                'end' => $endDate,
+            ];
+        }
+        $historyByWindow = $this->strictTrafficHistory->readBatch($hotelId, $windows);
+        foreach ($targetDates as $targetDate) {
+            $windowKey = $windowKeyByTarget[$targetDate];
+            $window = $windows[$windowKey];
+            $history = is_array($historyByWindow[$windowKey] ?? null)
+                ? $historyByWindow[$windowKey]
+                : [
+                    'data_status' => 'blocked',
+                    'rows' => [],
+                    'data_gaps' => ['ctrip_traffic_history_query_failed'],
+                    'data_quality' => [],
+                ];
+            $this->ctripTrafficForecastSignalCache[$hotelId . '|' . $targetDate] =
+                $this->buildTrafficForecastFromStrictHistory(
+                    $history,
+                    $targetDate,
+                    $window['start'],
+                    $window['end'],
+                    $hotelId
+                );
+        }
+    }
+
+    /** @param array<string,mixed> $history @return array<string,mixed> */
+    private function buildTrafficForecastFromStrictHistory(
+        array $history,
+        string $targetDate,
+        string $startDate,
+        string $endDate,
+        int $hotelId
+    ): array {
+        $gaps = array_values(array_filter(array_map(
+            'strval',
+            is_array($history['data_gaps'] ?? null) ? $history['data_gaps'] : []
+        )));
+        $quality = is_array($history['data_quality'] ?? null) ? $history['data_quality'] : [];
+        if ((string)($history['data_status'] ?? '') !== 'ready' || $gaps !== []) {
+            if ($gaps === []) {
+                $gaps[] = 'ctrip_traffic_history_strict_evidence_incomplete';
+            }
             return $this->ctripTrafficDemandForecastUnavailable(
                 $targetDate,
                 $startDate,
                 $endDate,
                 $hotelId,
-                'failed',
-                'ctrip_traffic_demand_history_read_failed'
+                'blocked',
+                $gaps[0],
+                [
+                    'data_gaps' => $this->uniqueStrings($gaps),
+                    'strict_history_quality' => $quality,
+                ]
             );
         }
-
-        return $this->buildCtripTrafficDemandForecastSignal(
-            $this->ctripTrafficDailySeries($rows),
+        $forecast = $this->buildCtripTrafficDemandForecastSignal(
+            $this->ctripTrafficDailySeries((array)($history['rows'] ?? [])),
             $targetDate,
             $startDate,
             $endDate,
             $hotelId,
             self::CTRIP_TRAFFIC_HISTORY_DAYS
         );
+        $forecast['strict_history_quality'] = $quality;
+        return $forecast;
     }
 
     /**
@@ -1452,16 +2574,107 @@ class RevenuePricingRecommendationService
      */
     private function competitorSignal(int $hotelId, int $roomTypeId, string $targetDate, float $currentPrice): array
     {
-        $lookups = [
-            [
-                'source_scope' => 'room_type',
-                'lookup' => $this->latestCompetitorRows($hotelId, $roomTypeId, $targetDate),
-            ],
-            [
+        $cacheKey = self::batchRecommendationKey($roomTypeId, $targetDate) . '|hotel:' . $hotelId;
+        if (isset($this->competitorSignalCache[$cacheKey])) {
+            return $this->competitorSignalCache[$cacheKey];
+        }
+        $roomLookup = $this->latestCompetitorRows($hotelId, $roomTypeId, $targetDate);
+        $lookups = [['source_scope' => 'room_type', 'lookup' => $roomLookup]];
+        if ($this->competitorPrices((array)($roomLookup['rows'] ?? [])) === []) {
+            $lookups[] = [
                 'source_scope' => 'hotel',
                 'lookup' => $this->latestCompetitorRows($hotelId, 0, $targetDate),
-            ],
+            ];
+        }
+
+        return $this->competitorSignalCache[$cacheKey] = $this->buildCompetitorSignal(
+            $lookups,
+            $targetDate,
+            $currentPrice
+        );
+    }
+
+    /**
+     * @param array<int, int> $roomTypeIds
+     * @param array<int, string> $targetDates
+     * @param array<int, array<string, mixed>> $roomTypesById
+     */
+    private function primeCompetitorSignalsBatch(
+        int $hotelId,
+        array $roomTypeIds,
+        array $targetDates,
+        array $roomTypesById
+    ): void {
+        $startDate = date(
+            'Y-m-d',
+            strtotime($targetDates[0] . ' -' . self::COMPETITOR_LOOKBACK_DAYS . ' days')
+        );
+        $rows = CompetitorAnalysis::where('hotel_id', $hotelId)
+            ->whereBetween('analysis_date', [$startDate, $targetDates[count($targetDates) - 1]])
+            ->whereIn('ota_platform', self::CTRIP_COMPETITOR_PLATFORM_VALUES)
+            ->order('analysis_date', 'desc')
+            ->order('id', 'desc')
+            ->select()
+            ->toArray();
+
+        foreach ($targetDates as $targetDate) {
+            $hotelLookup = null;
+            foreach ($roomTypeIds as $roomTypeId) {
+                $roomLookup = $this->latestCompetitorRowsFromBatch($rows, $roomTypeId, $targetDate);
+                $lookups = [['source_scope' => 'room_type', 'lookup' => $roomLookup]];
+                if ($this->competitorPrices((array)($roomLookup['rows'] ?? [])) === []) {
+                    $hotelLookup ??= $this->latestCompetitorRowsFromBatch($rows, 0, $targetDate);
+                    $lookups[] = ['source_scope' => 'hotel', 'lookup' => $hotelLookup];
+                }
+                $currentPrice = (float)($roomTypesById[$roomTypeId]['base_price'] ?? 0);
+                $cacheKey = self::batchRecommendationKey($roomTypeId, $targetDate) . '|hotel:' . $hotelId;
+                $this->competitorSignalCache[$cacheKey] = $this->buildCompetitorSignal(
+                    $lookups,
+                    $targetDate,
+                    $currentPrice
+                );
+            }
+        }
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $rows
+     * @return array{rows: array<int, array<string, mixed>>, source_date: string|null}
+     */
+    private function latestCompetitorRowsFromBatch(
+        array $rows,
+        int $roomTypeId,
+        string $targetDate
+    ): array {
+        $startDate = date('Y-m-d', strtotime($targetDate . ' -' . self::COMPETITOR_LOOKBACK_DAYS . ' days'));
+        $matches = array_values(array_filter(
+            $rows,
+            static function (array $row) use ($roomTypeId, $startDate, $targetDate): bool {
+                $date = (string)($row['analysis_date'] ?? '');
+                return $date >= $startDate
+                    && $date <= $targetDate
+                    && ($roomTypeId <= 0 || (int)($row['room_type_id'] ?? 0) === $roomTypeId);
+            }
+        ));
+        if ($matches === []) {
+            return ['rows' => [], 'source_date' => null];
+        }
+        $sourceDate = (string)($matches[0]['analysis_date'] ?? '');
+        return [
+            'rows' => array_values(array_filter(
+                $matches,
+                static fn(array $row): bool => (string)($row['analysis_date'] ?? '') === $sourceDate
+            )),
+            'source_date' => $sourceDate !== '' ? $sourceDate : null,
         ];
+    }
+
+    /**
+     * @param array<int, array{source_scope:string,lookup:array<string,mixed>}> $lookups
+     * @return array<string, mixed>
+     */
+    private function buildCompetitorSignal(array $lookups, string $targetDate, float $currentPrice): array
+    {
 
         $rows = [];
         $sourceScope = 'room_type';
@@ -1835,77 +3048,6 @@ class RevenuePricingRecommendationService
     }
 
     /**
-     * @return array<int, array<string, mixed>>
-     */
-    private function ctripTrafficRows(int $hotelId, string $startDate, string $endDate): array
-    {
-        if (!$this->tableExists('online_daily_data')) {
-            return [];
-        }
-        $columns = $this->tableColumns('online_daily_data');
-        $tenantId = $this->authoritativeTenantIdForHotel($hotelId);
-        if ($tenantId <= 0 || !isset($columns['tenant_id'], $columns['source'], $columns['data_date'])) {
-            return [];
-        }
-        $hotelColumn = isset($columns['system_hotel_id']) ? 'system_hotel_id' : (isset($columns['hotel_id']) ? 'hotel_id' : '');
-        if ($hotelColumn === '') {
-            return [];
-        }
-
-        $fields = array_values(array_intersect([
-            'id',
-            'system_hotel_id',
-            'hotel_id',
-            'source',
-            'platform',
-            'data_date',
-            'data_type',
-            'dimension',
-            'quantity',
-            'book_order_num',
-            'list_exposure',
-            'detail_exposure',
-            'order_filling_num',
-            'order_submit_num',
-            'raw_data',
-        ], array_keys($columns)));
-
-        $query = Db::name('online_daily_data')
-            ->field(implode(',', $fields))
-            ->whereIn('source', self::CTRIP_TRAFFIC_SOURCE_ALIASES)
-            ->whereBetween('data_date', [$startDate, $endDate])
-            ->where('tenant_id', $tenantId)
-            ->where($hotelColumn, $hotelId);
-        if (isset($columns['data_type'])) {
-            $query->where(function ($q): void {
-                $q->whereIn('data_type', ['traffic', 'traffic_analysis', 'flow', 'flow_analysis'])
-                    ->whereOr('data_type', 'like', '%traffic%')
-                    ->whereOr('data_type', 'like', '%flow%');
-            });
-        }
-        if (isset($columns['platform'])) {
-            $query->whereRaw('LOWER(TRIM(`platform`)) = :ctrip_platform', [
-                'ctrip_platform' => 'ctrip',
-            ]);
-        }
-
-        return $query->order('data_date', 'asc')->order('id', 'asc')->limit(2000)->select()->toArray();
-    }
-
-    private function authoritativeTenantIdForHotel(int $hotelId): int
-    {
-        if ($hotelId <= 0) {
-            return 0;
-        }
-
-        try {
-            return max(0, (int)Db::name('hotels')->where('id', $hotelId)->value('tenant_id'));
-        } catch (\Throwable) {
-            return 0;
-        }
-    }
-
-    /**
      * @param array<int, array<string, mixed>> $rows
      * @return array<int, array<string, mixed>>
      */
@@ -1954,7 +3096,9 @@ class RevenuePricingRecommendationService
      */
     private function ctripTrafficMetrics(array $row): array
     {
-        $raw = $this->decodeJsonObject($row['raw_data'] ?? null);
+        $raw = ($row['_strict_traffic_history_verified'] ?? false) === true
+            ? []
+            : $this->decodeJsonObject($row['raw_data'] ?? null);
         return [
             'list_exposure' => max(0.0, (float)($this->rowNumber($row, ['list_exposure']) ?? $this->rawNumber($raw, ['listExposure', 'list_exposure', 'exposure']) ?? 0)),
             'detail_exposure' => max(0.0, (float)($this->rowNumber($row, ['detail_exposure']) ?? $this->rawNumber($raw, ['detailExposure', 'detail_exposure', 'totalDetailNum', 'detailVisitors', 'qunarDetailVisitors']) ?? 0)),
@@ -2301,6 +3445,197 @@ class RevenuePricingRecommendationService
         return array_keys($result);
     }
 
+    private function isExactDate(string $value): bool
+    {
+        if (preg_match('/^\d{4}-\d{2}-\d{2}$/D', $value) !== 1) {
+            return false;
+        }
+        [$year, $month, $day] = array_map('intval', explode('-', $value));
+        return checkdate($month, $day, $year);
+    }
+
+    private function normalizeDecisionAsOfTime(mixed $value): string
+    {
+        $text = trim(str_replace('T', ' ', (string)$value));
+        if (preg_match('/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}(?::\d{2})?$/D', $text) !== 1) {
+            throw new \InvalidArgumentException('price_suggestion_decision_as_of_time_invalid');
+        }
+        if (strlen($text) === 16) {
+            $text .= ':00';
+        }
+        $timestamp = \DateTimeImmutable::createFromFormat('!Y-m-d H:i:s', $text);
+        $errors = \DateTimeImmutable::getLastErrors();
+        if (!$timestamp instanceof \DateTimeImmutable
+            || ($errors !== false && ((int)$errors['warning_count'] > 0 || (int)$errors['error_count'] > 0))
+            || $timestamp->format('Y-m-d H:i:s') !== $text
+        ) {
+            throw new \InvalidArgumentException('price_suggestion_decision_as_of_time_invalid');
+        }
+        return $text;
+    }
+
+    /** @return array<int,string> */
+    private function priceSuggestionDecisionSourceRefs(
+        array $signals,
+        int $hotelId,
+        int $roomTypeId,
+        string $targetDate
+    ): array {
+        $refs = ['room_types#' . $roomTypeId];
+        $forecast = is_array($signals['demand_forecast'] ?? null)
+            ? $signals['demand_forecast'] : [];
+        $forecastId = (int)($forecast['id'] ?? 0);
+        if ($forecastId > 0) {
+            $refs[] = 'demand_forecasts#' . $forecastId;
+        }
+        $competitor = is_array($signals['competitor'] ?? null)
+            ? $signals['competitor'] : [];
+        $competitorDate = trim((string)($competitor['source_date'] ?? ''));
+        if ($competitorDate !== '' && $this->isExactDate($competitorDate)) {
+            $refs[] = implode('', [
+                'competitor_analysis#hotel:',
+                $hotelId,
+                ':room_type:',
+                $roomTypeId,
+                ':date:',
+                $competitorDate,
+            ]);
+        }
+
+        $walk = function (mixed $node) use (&$walk, &$refs): void {
+            if (is_array($node)) {
+                foreach ($node as $item) {
+                    $walk($item);
+                }
+                return;
+            }
+            if (!is_scalar($node)) {
+                return;
+            }
+            $text = trim((string)$node);
+            if (preg_match('/^[a-z][a-z0-9_]*#[a-z0-9:_|,.-]+$/iD', $text) === 1) {
+                $refs[] = $text;
+            }
+        };
+        $walk($signals);
+
+        $refs = array_values(array_unique(array_filter($refs)));
+        sort($refs, SORT_STRING);
+        return $refs;
+    }
+
+    /** @return array{explicit_timestamp_count:int,all_at_or_before_as_of:bool,violations:array<int,string>} */
+    private function priceSuggestionObservedTimeCheck(array $signals, string $asOfAt): array
+    {
+        $cutoff = $this->pricingEvidenceTimestampMicroseconds($asOfAt);
+        if ($cutoff === null) {
+            throw new \InvalidArgumentException('price_suggestion_decision_as_of_time_invalid');
+        }
+        $timeKeys = [
+            'observed_at' => true,
+            'collected_at' => true,
+            'captured_at' => true,
+            'snapshot_time' => true,
+            'source_observed_at' => true,
+        ];
+        $checked = 0;
+        $violations = [];
+        $walk = function (mixed $node, string $path = 'signals') use (
+            &$walk,
+            &$checked,
+            &$violations,
+            $timeKeys,
+            $cutoff
+        ): void {
+            if (!is_array($node)) {
+                return;
+            }
+            foreach ($node as $key => $item) {
+                $nextPath = $path . '.' . (string)$key;
+                if (isset($timeKeys[strtolower((string)$key)]) && is_scalar($item)) {
+                    $text = trim(str_replace('T', ' ', (string)$item));
+                    if ($text !== '') {
+                        $timestamp = $this->pricingEvidenceTimestampMicroseconds($text);
+                        $checked++;
+                        if ($timestamp === null || $timestamp > $cutoff) {
+                            $violations[] = $nextPath;
+                        }
+                    }
+                }
+                if (is_array($item)) {
+                    $walk($item, $nextPath);
+                }
+            }
+        };
+        $walk($signals);
+        $violations = array_values(array_unique($violations));
+        sort($violations, SORT_STRING);
+        return [
+            'explicit_timestamp_count' => $checked,
+            'all_at_or_before_as_of' => $violations === [],
+            'violations' => $violations,
+        ];
+    }
+
+    private function pricingEvidenceTimestampMicroseconds(string $value): ?int
+    {
+        $text = trim(str_replace('T', ' ', $value));
+        if (preg_match(
+            '/^(\d{4}-\d{2}-\d{2} \d{2}:\d{2})(?::(\d{2}))?(?:\.(\d{1,6}))?(Z|[+-]\d{2}:\d{2})?$/D',
+            $text,
+            $matches
+        ) !== 1) {
+            return null;
+        }
+        if (($matches[3] ?? '') !== '' && ($matches[2] ?? '') === '') {
+            return null;
+        }
+        $seconds = ($matches[2] ?? '') !== '' ? $matches[2] : '00';
+        $microseconds = str_pad((string)($matches[3] ?? ''), 6, '0');
+        $offset = (string)($matches[4] ?? '');
+        if ($offset === 'Z') {
+            $offset = '+00:00';
+        }
+        $normalized = $matches[1] . ':' . $seconds . '.' . $microseconds . $offset;
+        $format = '!Y-m-d H:i:s.u' . ($offset !== '' ? 'P' : '');
+        $timezone = $offset === '' ? new \DateTimeZone('Asia/Shanghai') : null;
+        $timestamp = \DateTimeImmutable::createFromFormat($format, $normalized, $timezone);
+        $errors = \DateTimeImmutable::getLastErrors();
+        if (!$timestamp instanceof \DateTimeImmutable
+            || ($errors !== false && ((int)$errors['warning_count'] > 0 || (int)$errors['error_count'] > 0))
+            || $timestamp->format('Y-m-d H:i:s.u' . ($offset !== '' ? 'P' : '')) !== $normalized
+        ) {
+            return null;
+        }
+        return ((int)$timestamp->format('U') * 1_000_000) + (int)$timestamp->format('u');
+    }
+
+    private function canonicalDecisionJson(mixed $value): string
+    {
+        return json_encode(
+            $this->canonicalizeDecisionInput($value),
+            JSON_UNESCAPED_UNICODE
+                | JSON_UNESCAPED_SLASHES
+                | JSON_PRESERVE_ZERO_FRACTION
+                | JSON_THROW_ON_ERROR
+        );
+    }
+
+    private function canonicalizeDecisionInput(mixed $value): mixed
+    {
+        if (!is_array($value)) {
+            return $value;
+        }
+        if (array_is_list($value)) {
+            return array_map([$this, 'canonicalizeDecisionInput'], $value);
+        }
+        ksort($value, SORT_STRING);
+        foreach ($value as $key => $item) {
+            $value[$key] = $this->canonicalizeDecisionInput($item);
+        }
+        return $value;
+    }
+
     /**
      * @return array<string, mixed>
      */
@@ -2363,54 +3698,6 @@ class RevenuePricingRecommendationService
         }
 
         return null;
-    }
-
-    private function tableExists(string $table): bool
-    {
-        if (!preg_match('/^[A-Za-z0-9_]+$/', $table)) {
-            return false;
-        }
-        try {
-            return !empty(Db::query("SHOW TABLES LIKE '" . addslashes($table) . "'"));
-        } catch (\Throwable) {
-            try {
-                return !empty(Db::query('PRAGMA table_info(`' . $table . '`)'));
-            } catch (\Throwable) {
-                return false;
-            }
-        }
-    }
-
-    /**
-     * @return array<string, bool>
-     */
-    private function tableColumns(string $table): array
-    {
-        if (!preg_match('/^[A-Za-z0-9_]+$/', $table)) {
-            return [];
-        }
-        $columns = [];
-        try {
-            foreach (Db::query('SHOW COLUMNS FROM `' . str_replace('`', '``', $table) . '`') as $row) {
-                $field = (string)($row['Field'] ?? '');
-                if ($field !== '') {
-                    $columns[$field] = true;
-                }
-            }
-        } catch (\Throwable) {
-            try {
-                foreach (Db::query('PRAGMA table_info(`' . $table . '`)') as $row) {
-                    $field = (string)($row['name'] ?? '');
-                    if ($field !== '') {
-                        $columns[$field] = true;
-                    }
-                }
-            } catch (\Throwable) {
-                return [];
-            }
-        }
-
-        return $columns;
     }
 
     /**

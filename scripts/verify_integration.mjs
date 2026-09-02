@@ -23,6 +23,11 @@ export function integrationChecks({ staged = false } = {}) {
       args: ['scripts/verify_verifier_domain_registry.mjs'],
     },
     {
+      id: 'migration_checksum_lock',
+      command: process.execPath,
+      args: ['scripts/verify_migration_checksum_lock.mjs'],
+    },
+    {
       id: 'source_hotspot_budget',
       command: process.execPath,
       args: ['scripts/verify_source_hotspot_budget.mjs'],

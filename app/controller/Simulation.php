@@ -29,6 +29,13 @@ class Simulation extends Base
             [$hotelIds, $hotelId] = $this->resolveExecutionHotelScope((int)(
                 $rawInput['hotel_id'] ?? $rawInput['system_hotel_id'] ?? $payload['hotel_id'] ?? 0
             ));
+            if (($denied = $this->hotelCapabilityDeniedResponse(
+                $hotelId,
+                'investment.simulate',
+                'investment.simulate permission is required for this hotel'
+            )) !== null) {
+                return $denied;
+            }
             $payload['input'] = array_merge($rawInput, [
                 'hotel_id' => $hotelId,
                 'system_hotel_id' => $hotelId,
@@ -48,7 +55,11 @@ class Simulation extends Base
     {
         try {
             $this->ensureLogin();
-            $list = $this->service->records((int)($this->currentUser->id ?? 0), $this->currentUser->isSuperAdmin());
+            $list = $this->service->recordsForAccess(
+                (int)($this->currentUser->id ?? 0),
+                $this->currentUser->isSuperAdmin(),
+                fn(array $record): bool => $this->canAccessInvestmentRecord($record, 'investment.view')
+            );
             return $this->success(['list' => $list]);
         } catch (Throwable $e) {
             return $this->error('获取量化模拟记录失败：' . $e->getMessage(), 400);
@@ -63,7 +74,18 @@ class Simulation extends Base
                 return $this->error('量化模拟记录ID无效', 422);
             }
 
-            return $this->success($this->service->detail($id, (int)($this->currentUser->id ?? 0), $this->currentUser->isSuperAdmin()));
+            $record = $this->service->detail($id, (int)($this->currentUser->id ?? 0), $this->currentUser->isSuperAdmin());
+            if (!$this->isLegacyReadOnlyRecord($record)) {
+                $hotelId = $this->recordHotelId($record);
+                if (($denied = $this->hotelCapabilityDeniedResponse(
+                    $hotelId,
+                    'investment.view',
+                    'investment.view permission is required for this hotel'
+                )) !== null) {
+                    return $denied;
+                }
+            }
+            return $this->success($record);
         } catch (Throwable $e) {
             return $this->error('获取量化模拟记录详情失败：' . $e->getMessage(), 400);
         }
@@ -77,6 +99,15 @@ class Simulation extends Base
                 return $this->error('量化模拟记录ID无效', 422);
             }
 
+            $record = $this->service->detail($id, (int)($this->currentUser->id ?? 0), $this->currentUser->isSuperAdmin());
+            $hotelId = $this->recordHotelId($record);
+            if (($denied = $this->hotelCapabilityDeniedResponse(
+                $hotelId,
+                'investment.simulate',
+                'investment.simulate permission is required for this hotel'
+            )) !== null) {
+                return $denied;
+            }
             $archived = $this->service->archive($id, (int)($this->currentUser->id ?? 0), $this->currentUser->isSuperAdmin());
             if (!$archived) {
                 return $this->error('量化模拟记录不存在或无权归档', 404);
@@ -105,6 +136,13 @@ class Simulation extends Base
                 return $this->error('quant simulation hotel scope mismatch', 409);
             }
             [$hotelIds, $hotelId] = $this->resolveExecutionHotelScope($sourceHotelId);
+            if (($denied = $this->hotelCapabilityDeniedResponse(
+                $hotelId,
+                'investment.view',
+                'investment.view permission is required for this hotel'
+            )) !== null) {
+                return $denied;
+            }
             if (($denied = $this->hotelCapabilityDeniedResponse(
                 $hotelId,
                 'operation.execute',
@@ -145,6 +183,44 @@ class Simulation extends Base
         if (!$this->currentUser) {
             throw new \RuntimeException('请先登录');
         }
+    }
+
+    /** @param array<string,mixed> $record */
+    private function recordHotelId(array $record): int
+    {
+        $hotelId = (new SimulationExecutionReadinessService())->quantExecutionHotelId($record);
+        if ($hotelId <= 0) {
+            throw new \RuntimeException('quant simulation record has no hotel scope');
+        }
+        return $hotelId;
+    }
+
+    /** @param array<string,mixed> $record */
+    private function canAccessInvestmentRecord(array $record, string $capability): bool
+    {
+        // Pre-hotel-binding records remain visible only through the service's
+        // exact tenant-and-owner read scope. They cannot be archived or sent
+        // into an execution intent until a new scoped simulation is created.
+        if ($this->isLegacyReadOnlyRecord($record)) {
+            return true;
+        }
+
+        try {
+            $hotelId = $this->recordHotelId($record);
+            return $this->currentUser?->hasHotelPermission($hotelId, $capability) === true;
+        } catch (Throwable) {
+            return false;
+        }
+    }
+
+    /** @param array<string,mixed> $record */
+    private function isLegacyReadOnlyRecord(array $record): bool
+    {
+        $policy = is_array($record['access_policy'] ?? null) ? $record['access_policy'] : [];
+        return ($policy['mode'] ?? '') === 'legacy_read_only'
+            && ($policy['hotel_binding_required'] ?? false) === true
+            && ($policy['mutation_allowed'] ?? true) === false
+            && ($policy['reason_code'] ?? '') === 'legacy_hotel_binding_required';
     }
 
     /**

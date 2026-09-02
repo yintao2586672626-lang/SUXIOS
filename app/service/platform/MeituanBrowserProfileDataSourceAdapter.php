@@ -154,10 +154,11 @@ final class MeituanBrowserProfileDataSourceAdapter implements DataSourceAdapter
             $args[] = '--profile-dir=' . $outputDir . DIRECTORY_SEPARATOR . 'meituan_cdp_profile_stub';
         }
 
+        $runResult = ['process_started' => false];
         try {
             $runResult = $this->runProcess($args, $this->projectRoot, $timeoutSeconds);
         } finally {
-            $this->releaseLock($lock);
+            BrowserProfileCaptureRequestService::finalizeProfileCaptureLock($lock, $runResult);
         }
 
         if (!is_file($outputPath)) {
@@ -167,17 +168,30 @@ final class MeituanBrowserProfileDataSourceAdapter implements DataSourceAdapter
             );
             return [
                 'status' => 'failed',
+                'status_code' => (string)($runResult['status_code'] ?? 'capture_process_failed'),
+                'error_code' => (string)($runResult['status_code'] ?? 'capture_process_failed'),
                 'message' => $message,
                 'payload' => [
                     'error_summary' => $message,
                     'stdout' => $this->trimLog((string)($runResult['stdout'] ?? '')),
                     'stderr' => $this->trimLog((string)($runResult['stderr'] ?? '')),
+                    'process_status_code' => $runResult['status_code'] ?? null,
+                    'process_tree_exit_confirmed' => $runResult['process_tree_exit_confirmed'] ?? null,
+                    'process_termination' => $runResult['termination'] ?? null,
                 ],
             ];
         }
 
         $payload = json_decode((string)file_get_contents($outputPath), true);
         if (!is_array($payload)) {
+            if (($runResult['success'] ?? false) !== true) {
+                return $this->processFailureResult(
+                    $runResult,
+                    [],
+                    'capture_payload_invalid_json',
+                    'Meituan browser capture process failed'
+                );
+            }
             return [
                 'status' => 'failed',
                 'message' => 'Meituan browser capture output is not valid JSON.',
@@ -207,6 +221,15 @@ final class MeituanBrowserProfileDataSourceAdapter implements DataSourceAdapter
         }
         if ($snapshotTime !== '' && empty($payload['snapshot_time'])) {
             $payload['snapshot_time'] = $snapshotTime;
+        }
+
+        if (($runResult['success'] ?? false) !== true) {
+            return $this->processFailureResult(
+                $runResult,
+                $payload,
+                $this->capturePayloadFailureReason($payload),
+                'Meituan browser capture process failed'
+            );
         }
 
         $authStatus = is_array($payload['auth_status'] ?? null) ? $payload['auth_status'] : [];
@@ -277,24 +300,6 @@ final class MeituanBrowserProfileDataSourceAdapter implements DataSourceAdapter
         }
         if (($identityCheck['ok'] ?? false) !== true) {
             return $this->platformIdentityFailureResult($payload, $runResult, $identityCheck);
-        }
-
-        // The Node collector can persist a diagnostic payload before a
-        // non-zero exit. Keep those diagnostics, but never turn them into
-        // successful business rows. The run-unique path also prevents a rapid
-        // retry from reading a prior invocation's file.
-        if (($runResult['success'] ?? false) !== true) {
-            $message = $this->buildProcessFailureMessage(
-                'Meituan browser capture process failed',
-                $runResult
-            );
-            return [
-                'status' => 'failed',
-                'status_code' => 'capture_process_failed',
-                'error_code' => 'capture_process_failed',
-                'message' => $message,
-                'payload' => $this->compactFailurePayload($payload, $runResult),
-            ];
         }
 
         $validatedPlatformIdentifier = trim((string)(
@@ -594,7 +599,49 @@ final class MeituanBrowserProfileDataSourceAdapter implements DataSourceAdapter
             'output' => $payload['output'] ?? '',
             'stdout' => $this->trimLog((string)($runResult['stdout'] ?? '')),
             'stderr' => $this->trimLog((string)($runResult['stderr'] ?? '')),
+            'process_status_code' => $runResult['status_code'] ?? null,
+            'process_tree_exit_confirmed' => $runResult['process_tree_exit_confirmed'] ?? null,
+            'process_termination' => $runResult['termination'] ?? null,
         ];
+    }
+
+    /** @return array<string,mixed> */
+    private function processFailureResult(
+        array $runResult,
+        array $payload,
+        string $payloadFailureReason,
+        string $fallbackMessage
+    ): array {
+        $statusCode = trim((string)($runResult['status_code'] ?? '')) ?: 'capture_process_failed';
+        $failurePayload = $this->compactFailurePayload($payload, $runResult);
+        $failurePayload['payload_failure_reason'] = $payloadFailureReason;
+        return [
+            'status' => 'failed',
+            'status_code' => $statusCode,
+            'error_code' => $statusCode,
+            'message' => $this->buildProcessFailureMessage($fallbackMessage, $runResult),
+            'payload' => $failurePayload,
+        ];
+    }
+
+    private function capturePayloadFailureReason(array $payload): string
+    {
+        $authStatus = is_array($payload['auth_status'] ?? null) ? $payload['auth_status'] : [];
+        if (($authStatus['ok'] ?? false) !== true) {
+            return trim((string)($authStatus['status'] ?? '')) ?: 'profile_session_unverified';
+        }
+        $gate = is_array($payload['capture_gate'] ?? null) ? $payload['capture_gate'] : [];
+        if ($gate !== [] && ($gate['status'] ?? 'fail') !== 'pass') {
+            $ids = array_values(array_filter(array_map(
+                'strval',
+                is_array($gate['failed_check_ids'] ?? null) ? $gate['failed_check_ids'] : []
+            )));
+            return $ids !== [] ? 'capture_gate:' . implode(',', $ids) : 'capture_gate_failed';
+        }
+        $identity = strtolower(trim((string)($payload['platform_identity_validation']['status'] ?? '')));
+        return $identity !== '' && !in_array($identity, ['matched', 'verified'], true)
+            ? 'platform_identity_' . $identity
+            : '';
     }
 
     /** @return array<int, array<string, mixed>> */
@@ -708,94 +755,38 @@ final class MeituanBrowserProfileDataSourceAdapter implements DataSourceAdapter
 
     private function runProcess(array $args, string $cwd, int $timeoutSeconds): array
     {
-        if ($this->processRunner !== null) {
-            return (array)call_user_func($this->processRunner, $args, $cwd, $timeoutSeconds);
-        }
-
-        $command = implode(' ', array_map('escapeshellarg', $args));
-        $descriptors = [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']];
-        $process = proc_open($command, $descriptors, $pipes, $cwd);
-        if (!is_resource($process)) {
-            return ['success' => false, 'message' => 'Cannot start Meituan browser capture process.', 'stdout' => '', 'stderr' => ''];
-        }
-
-        fclose($pipes[0]);
-        stream_set_blocking($pipes[1], false);
-        stream_set_blocking($pipes[2], false);
-        $stdout = '';
-        $stderr = '';
-        $startedAt = time();
-        $timedOut = false;
-        while (true) {
-            $stdout .= (string)stream_get_contents($pipes[1]);
-            $stderr .= (string)stream_get_contents($pipes[2]);
-            $status = proc_get_status($process);
-            if (!$status['running']) {
-                break;
-            }
-            if (time() - $startedAt > $timeoutSeconds) {
-                $timedOut = true;
-                proc_terminate($process);
-                break;
-            }
-            usleep(250000);
-        }
-        $stdout .= (string)stream_get_contents($pipes[1]);
-        $stderr .= (string)stream_get_contents($pipes[2]);
-        fclose($pipes[1]);
-        fclose($pipes[2]);
-        $exitCode = proc_close($process);
-
-        if ($timedOut) {
-            return ['success' => false, 'message' => 'Meituan browser capture timed out.', 'stdout' => $stdout, 'stderr' => $stderr];
-        }
-        if ($exitCode !== 0 && $exitCode !== -1) {
-            return ['success' => false, 'message' => 'Meituan browser capture exited with code ' . $exitCode, 'stdout' => $stdout, 'stderr' => $stderr];
-        }
-
-        return ['success' => true, 'message' => 'ok', 'stdout' => $stdout, 'stderr' => $stderr];
+        return BrowserProfileCaptureRequestService::runCaptureProcess(
+            $args,
+            $cwd,
+            $timeoutSeconds,
+            ['label' => 'Meituan browser capture'],
+            $this->processRunner
+        );
     }
 
     private function captureOutputPath(string $outputDir, string $storeId): string
     {
-        $runToken = bin2hex(random_bytes(16));
         return $outputDir
             . DIRECTORY_SEPARATOR
             . 'meituan_browser_source_'
             . $this->safeName($storeId)
             . '_'
-            . date('YmdHis')
-            . '_'
-            . $runToken
+            . BrowserProfileCaptureRequestService::uniqueCaptureRunToken()
             . '.json';
     }
 
     private function acquireLock(string $platform, string $profileId)
     {
-        $dir = $this->projectRoot . DIRECTORY_SEPARATOR . 'runtime' . DIRECTORY_SEPARATOR . 'locks';
-        if (!is_dir($dir) && !mkdir($dir, 0775, true) && !is_dir($dir)) {
-            return null;
-        }
-        $path = $dir . DIRECTORY_SEPARATOR . 'profile_capture_' . $platform . '_' . $this->safeName($profileId) . '.lock';
-        $handle = fopen($path, 'c+');
-        if (!$handle) {
-            return null;
-        }
-        if (!flock($handle, LOCK_EX | LOCK_NB)) {
-            fclose($handle);
-            return null;
-        }
-        ftruncate($handle, 0);
-        fwrite($handle, json_encode(['platform' => $platform, 'profile_id' => $profileId, 'pid' => getmypid(), 'locked_at' => date('c')], JSON_UNESCAPED_SLASHES));
-        return $handle;
+        return BrowserProfileCaptureRequestService::acquireProfileCaptureLock(
+            $this->projectRoot,
+            $platform,
+            $profileId
+        );
     }
 
     private function releaseLock($lock): void
     {
-        if (is_resource($lock)) {
-            flock($lock, LOCK_UN);
-            fclose($lock);
-        }
+        BrowserProfileCaptureRequestService::releaseProfileCaptureLock($lock);
     }
 
     private function resolveNodeBinary(): string

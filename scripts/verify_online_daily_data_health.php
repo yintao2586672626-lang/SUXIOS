@@ -105,13 +105,14 @@ try {
             FROM online_daily_data
         "),
         'periods' => query_all($pdo, "
-            SELECT data_period, COALESCE(NULLIF(snapshot_bucket, ''), '(empty)') AS snapshot_bucket,
-                   is_final, COUNT(*) AS rows_count, MIN(data_date) AS min_data_date,
+            SELECT data_period, is_final, COUNT(*) AS rows_count,
+                   COUNT(DISTINCT NULLIF(snapshot_bucket, '')) AS snapshot_batches,
+                   SUM(is_final = 0 AND COALESCE(snapshot_bucket, '') = '') AS missing_snapshot_identity_rows,
+                   MIN(data_date) AS min_data_date,
                    MAX(data_date) AS max_data_date, MAX(update_time) AS latest_update_time
             FROM online_daily_data
-            GROUP BY data_period, COALESCE(NULLIF(snapshot_bucket, ''), '(empty)'), is_final
+            GROUP BY data_period, is_final
             ORDER BY rows_count DESC
-            LIMIT 20
         "),
         'duplicate_source_trace' => query_one($pdo, "
             SELECT COUNT(*) AS duplicate_groups,
@@ -149,6 +150,10 @@ try {
                      COALESCE(NULLIF(hotel_id, ''), CONCAT('name:', COALESCE(hotel_name, ''))) AS hotel_key,
                      COUNT(*) AS cnt
               FROM online_daily_data
+              WHERE NOT (
+                  LOWER(TRIM(COALESCE(validation_status, ''))) = 'quarantined'
+                  AND COALESCE(validation_flags, '') LIKE '%duplicate_business_key_superseded%'
+              )
               GROUP BY source_key, platform_key, data_type_key, dimension_key, compare_type_key,
                        data_date, period_key, bucket_key, task_snapshot_key, system_hotel_key, hotel_key
               HAVING COUNT(*) > 1
@@ -156,6 +161,9 @@ try {
         "),
         'anomalies' => query_one($pdo, "
             SELECT SUM(source IS NULL OR TRIM(source) = '') AS missing_source,
+                   SUM(platform IS NULL OR TRIM(platform) = '') AS missing_platform,
+                   SUM((platform IS NULL OR TRIM(platform) = '')
+                       AND create_time >= DATE_SUB(NOW(), INTERVAL 7 DAY)) AS recent_missing_platform,
                    SUM(data_type IS NULL OR TRIM(data_type) = '') AS missing_data_type,
                    SUM(hotel_id IS NULL OR TRIM(hotel_id) = '') AS missing_hotel_id,
                    SUM(system_hotel_id IS NULL) AS missing_system_hotel_id,
@@ -164,10 +172,28 @@ try {
                         data_type = 'traffic_forecast'
                         OR data_period IN ('next_7_days', 'next_30_days', 'forecast', 'future_forecast')
                     )) AS allowed_future_forecast_rows,
+                    SUM(data_date > CURDATE()
+                        AND data_type = 'order'
+                        AND data_period = 'future_on_books'
+                        AND JSON_UNQUOTE(JSON_EXTRACT(
+                            IF(JSON_VALID(raw_data), raw_data, '{}'),
+                            '$.row.raw_data.business_date_basis'
+                        )) = 'stay_date'
+                    ) AS allowed_future_on_books_rows,
                     SUM(data_date > CURDATE() AND NOT (
                         data_type = 'traffic_forecast'
                         OR data_period IN ('next_7_days', 'next_30_days', 'forecast', 'future_forecast')
+                        OR (
+                            data_type = 'order'
+                            AND data_period = 'future_on_books'
+                            AND JSON_UNQUOTE(JSON_EXTRACT(
+                                IF(JSON_VALID(raw_data), raw_data, '{}'),
+                                '$.row.raw_data.business_date_basis'
+                            )) = 'stay_date'
+                        )
                     )) AS invalid_future_date_rows,
+                    SUM((data_type = 'traffic_forecast' OR data_period = 'next_30_days')
+                        AND COALESCE(snapshot_bucket, '') = '') AS unversioned_forecast_rows,
                     SUM(data_period = 'next_30_days'
                         AND COALESCE(snapshot_time, create_time, update_time) IS NOT NULL
                         AND data_date > DATE_ADD(DATE(COALESCE(snapshot_time, create_time, update_time)), INTERVAL 30 DAY)
@@ -180,6 +206,16 @@ try {
                        OR order_filling_num < 0 OR order_submit_num < 0) AS negative_numeric_rows,
                    SUM(flow_rate > 100) AS flow_rate_over_100_rows,
                    SUM(comment_score < 0 OR comment_score > 5 OR qunar_comment_score < 0 OR qunar_comment_score > 5) AS score_out_of_range_rows,
+                   SUM((
+                       amount < 0 OR quantity < 0 OR book_order_num < 0 OR data_value < 0
+                       OR list_exposure < 0 OR detail_exposure < 0 OR flow_rate < 0
+                       OR order_filling_num < 0 OR order_submit_num < 0 OR flow_rate > 100
+                       OR comment_score < 0 OR comment_score > 5
+                       OR qunar_comment_score < 0 OR qunar_comment_score > 5
+                   ) AND LOWER(TRIM(COALESCE(validation_status, ''))) NOT IN
+                       ('abnormal', 'quarantined', 'unverified')) AS unsafe_numeric_status_rows,
+                   SUM(LOWER(TRIM(COALESCE(validation_status, ''))) = 'quarantined'
+                       AND COALESCE(validation_flags, '') LIKE '%duplicate_business_key_superseded%') AS quarantined_duplicate_rows,
                    SUM(data_type = 'business' AND amount > 0 AND quantity = 0) AS business_amount_without_quantity_rows,
                    SUM(CHAR_LENGTH(COALESCE(dimension, '')) >= {$dimensionLength}) AS dimension_at_limit_rows,
                    SUM(CHAR_LENGTH(COALESCE(validation_status, '')) >= {$validationStatusLength}) AS validation_status_at_limit_rows
@@ -198,7 +234,16 @@ try {
         $errors[] = 'online_daily_data contains invalid raw_data JSON.';
     }
     if ((int)($summary['anomalies']['invalid_future_date_rows'] ?? 0) > 0) {
-        $errors[] = 'online_daily_data contains non-forecast future data_date rows.';
+        $errors[] = 'online_daily_data contains future rows without a supported period role.';
+    }
+    if ((int)($summary['anomalies']['unversioned_forecast_rows'] ?? 0) > 0) {
+        $errors[] = 'online_daily_data contains forecast rows without snapshot identity.';
+    }
+    if ((int)($summary['anomalies']['recent_missing_platform'] ?? 0) > 0) {
+        $errors[] = 'online_daily_data contains recent rows without platform identity.';
+    }
+    if ((int)($summary['anomalies']['unsafe_numeric_status_rows'] ?? 0) > 0) {
+        $errors[] = 'online_daily_data contains out-of-domain values not marked unsafe.';
     }
     if ($strict && (int)($summary['duplicate_business_key']['extra_rows'] ?? 0) > 0) {
         $errors[] = 'online_daily_data contains duplicate business-key rows.';
@@ -219,7 +264,11 @@ try {
         echo 'invalid_raw_json=' . ($summary['anomalies']['invalid_raw_json'] ?? 0)
             . ' future_date_rows=' . ($summary['anomalies']['future_date_rows'] ?? 0)
             . ' allowed_future_forecast_rows=' . ($summary['anomalies']['allowed_future_forecast_rows'] ?? 0)
+            . ' allowed_future_on_books_rows=' . ($summary['anomalies']['allowed_future_on_books_rows'] ?? 0)
             . ' invalid_future_date_rows=' . ($summary['anomalies']['invalid_future_date_rows'] ?? 0)
+            . ' unversioned_forecast_rows=' . ($summary['anomalies']['unversioned_forecast_rows'] ?? 0)
+            . ' recent_missing_platform=' . ($summary['anomalies']['recent_missing_platform'] ?? 0)
+            . ' unsafe_numeric_status_rows=' . ($summary['anomalies']['unsafe_numeric_status_rows'] ?? 0)
             . ' forecast_rows_beyond_declared_window=' . ($summary['anomalies']['forecast_rows_beyond_declared_window'] ?? 0)
             . ' dimension_at_limit_rows=' . ($summary['anomalies']['dimension_at_limit_rows'] ?? 0) . PHP_EOL;
         foreach ($errors as $error) {

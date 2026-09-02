@@ -1,0 +1,6 @@
+{
+  "schema_version": "suxi.skill.behavior_request.v1",
+  "skill_name": "suxi-test-guard",
+  "case_id": "TG-BEH-002",
+  "user_request": "订单保存回归需要MySQL，但本机数据库没启动。代码语法和两个单元测试过了，可以说验证通过吗？只判断证据，不修改文件。"
+}

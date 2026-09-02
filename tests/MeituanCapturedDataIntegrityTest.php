@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Tests;
 
 use app\controller\OnlineData;
+use app\service\OnlineDailyDataPersistenceService;
 use InvalidArgumentException;
 use PHPUnit\Framework\TestCase;
 use ReflectionClass;
@@ -129,6 +130,79 @@ final class MeituanCapturedDataIntegrityTest extends TestCase
         self::assertSame(9, $row['book_order_num']);
         self::assertSame(6.0, $row['data_value']);
         self::assertSame(4.5, $row['flow_rate']);
+    }
+
+    public function testSearchKeywordMissingMetricsStayNullAndExplicitZeroSurvives(): void
+    {
+        $reflection = new ReflectionClass(OnlineData::class);
+        $controller = $reflection->newInstanceWithoutConstructor();
+
+        $rows = $this->invokeNonPublic($controller, 'buildMeituanCapturedDailyRows', [[
+            'storeId' => 'store-80',
+            'poiId' => '1029642156589279',
+            'defaultDataDate' => '2026-07-11',
+            'searchKeywords' => [
+                ['keyword' => '机场酒店'],
+                ['keyword' => '敦煌酒店', 'data_value' => 0, 'impressions' => 0, 'clicks' => 0],
+            ],
+        ], 80]);
+
+        self::assertCount(2, $rows);
+        self::assertSame('search_keyword', $rows[0]['data_type']);
+        self::assertNull($rows[0]['data_value']);
+        self::assertNull($rows[0]['list_exposure']);
+        self::assertNull($rows[0]['detail_exposure']);
+        self::assertNull($rows[0]['amount']);
+        self::assertNull($rows[0]['quantity']);
+        self::assertNull($rows[0]['book_order_num']);
+        self::assertNull($rows[0]['comment_score']);
+
+        self::assertSame(0.0, $rows[1]['data_value']);
+        self::assertSame(0, $rows[1]['list_exposure']);
+        self::assertSame(0, $rows[1]['detail_exposure']);
+    }
+
+    public function testSearchKeywordNegativeCountersReachPersistenceValidationUnchanged(): void
+    {
+        $reflection = new ReflectionClass(OnlineData::class);
+        $controller = $reflection->newInstanceWithoutConstructor();
+
+        $rows = $this->invokeNonPublic($controller, 'buildMeituanCapturedDailyRows', [[
+            'storeId' => 'store-80',
+            'poiId' => '1029642156589279',
+            'defaultDataDate' => '2026-07-11',
+            'searchKeywords' => [[
+                'keyword' => '异常搜索词',
+                'impressions' => -3,
+                'clicks' => -1,
+            ]],
+        ], 80]);
+
+        self::assertCount(1, $rows);
+        self::assertSame(-3, $rows[0]['list_exposure']);
+        self::assertSame(-1, $rows[0]['detail_exposure']);
+
+        $validation = OnlineDailyDataPersistenceService::buildValidationFields($rows[0]);
+        self::assertSame('abnormal', $validation['validation_status']);
+        $flags = json_decode((string)$validation['validation_flags'], true, 512, JSON_THROW_ON_ERROR);
+        self::assertSame(
+            ['list_exposure', 'detail_exposure'],
+            array_values(array_column($flags, 'field'))
+        );
+    }
+
+    public function testSearchKeywordWithoutAPlatformOrCaptureDateIsRejected(): void
+    {
+        $reflection = new ReflectionClass(OnlineData::class);
+        $controller = $reflection->newInstanceWithoutConstructor();
+
+        $rows = $this->invokeNonPublic($controller, 'buildMeituanCapturedDailyRows', [[
+            'storeId' => 'store-80',
+            'poiId' => '1029642156589279',
+            'searchKeywords' => [['keyword' => '机场酒店', 'impressions' => 1]],
+        ], 80]);
+
+        self::assertSame([], $rows);
     }
 
     public function testCapturedRankSeparatesDateRangeAndDoesNotUseRankAsMetricValue(): void
@@ -268,6 +342,10 @@ final class MeituanCapturedDataIntegrityTest extends TestCase
         self::assertNull($byType['order']['quantity']);
         self::assertNull($byType['order']['book_order_num']);
         self::assertNull($byType['order']['data_value']);
+        $orderRaw = json_decode((string)$byType['order']['raw_data'], true);
+        self::assertSame('order_date', $orderRaw['date_basis']);
+        self::assertSame('order_time', $orderRaw['date_source']);
+        self::assertSame('order_detail', $orderRaw['record_kind']);
     }
 
     public function testCapturedOrderHashAliasesRemainStableForDeduplication(): void
@@ -317,6 +395,10 @@ final class MeituanCapturedDataIntegrityTest extends TestCase
                 'roomNights' => 4,
                 'dataDate' => '2026-07-11',
                 'date_source' => 'request.query.dataDate',
+                'date_basis' => 'order_date',
+                'order_count_basis' => 'listed_orders',
+                'room_nights_basis' => 'booked_room_nights',
+                'record_kind' => 'order_daily_aggregate',
                 '_source_path' => '$.data.summary',
                 'order_id_hash' => 'not-a-valid-hash',
             ],
@@ -342,8 +424,54 @@ final class MeituanCapturedDataIntegrityTest extends TestCase
         self::assertIsArray($raw);
         self::assertSame(3, $raw['orderCount']);
         self::assertSame(4, $raw['roomNights']);
+        self::assertSame('order_date', $raw['date_basis']);
+        self::assertSame('request.query.dataDate', $raw['date_source']);
+        self::assertSame('listed_orders', $raw['order_count_basis']);
+        self::assertSame('booked_room_nights', $raw['room_nights_basis']);
+        self::assertSame('order_daily_aggregate', $raw['record_kind']);
         self::assertArrayNotHasKey('amount', $raw);
         self::assertArrayNotHasKey('order_id_hash', $raw);
+    }
+
+    public function testOrderDateBasisMustMatchTheDateFieldActuallySelected(): void
+    {
+        $reflection = new ReflectionClass(OnlineData::class);
+        $controller = $reflection->newInstanceWithoutConstructor();
+
+        $rows = $this->invokeNonPublic($controller, 'buildMeituanCapturedDailyRows', [[
+            'storeId' => 'store-80',
+            'poiId' => 'poi-80',
+            'defaultDataDate' => '2026-07-12',
+            'orders' => [
+                [
+                    'order_id' => 'ORDER-CHECKIN-ONLY',
+                    'total_amount' => 500,
+                    'checkInDate' => '2026-07-14',
+                    'date_basis' => 'order_date',
+                ],
+                [
+                    'order_id' => 'ORDER-CREATED-ONLY',
+                    'total_amount' => 600,
+                    'createTime' => '2026-07-11 09:30:00',
+                    'date_basis' => 'stay_date',
+                ],
+                [
+                    'order_id' => 'ORDER-BOTH-DATES',
+                    'total_amount' => 700,
+                    'createTime' => '2026-07-11 10:30:00',
+                    'checkInDate' => '2026-07-15',
+                    'date_basis' => 'stay_date',
+                    'date_source' => 'order_time',
+                ],
+            ],
+        ], 80]);
+
+        self::assertCount(1, $rows);
+        self::assertSame('2026-07-15', $rows[0]['data_date']);
+        $raw = json_decode((string)$rows[0]['raw_data'], true);
+        self::assertIsArray($raw);
+        self::assertSame('stay_date', $raw['date_basis']);
+        self::assertSame('check_in_date', $raw['date_source']);
     }
 
     public function testOrderFlowRowsKeepDirectionPeriodAndZeroValuesTruthful(): void

@@ -417,11 +417,16 @@ class OtaRevenueMetricService
                             'message' => 'The gross-order denominator is verified as zero, so a cancellation rate is not calculable.',
                         ];
                     }
-                } else {
-                    $cancellationRate = $this->average(
-                        $validDirectCancelRateRows,
-                        'cancel_rate'
+                } elseif (count($validDirectCancelRateRows) === 1) {
+                    $cancellationRate = round(
+                        (float)$validDirectCancelRateRows[0]['cancel_rate'],
+                        2
                     );
+                } else {
+                    $dataGaps[] = [
+                        'code' => 'cancellation_direct_rate_denominator_missing',
+                        'message' => 'Multiple direct cancellation-rate rows lack an aligned gross-order denominator and cannot be averaged into a period rate.',
+                    ];
                 }
             }
         } else {
