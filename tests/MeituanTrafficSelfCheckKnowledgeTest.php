@@ -17,9 +17,10 @@ final class MeituanTrafficSelfCheckKnowledgeTest extends TestCase
         $sourcePath = $root . '/docs/knowledge/meituan-traffic-self-check/sources/meituan-hotel-traffic-self-check-visible-reference.png';
         $documentPath = $root . '/docs/capability-absorption/2026-08-31-meituan-traffic-self-check.md';
         $migrationPath = $root . '/database/migrations/20260831_z_seed_meituan_traffic_self_check_reference.sql';
+        $sourceIdentityMigrationPath = $root . '/database/migrations/20260831_zz_fix_meituan_traffic_self_check_source_identity.sql';
         $verifierPath = $root . '/scripts/verify_meituan_traffic_self_check_knowledge.php';
 
-        foreach ([$manifestPath, $packPath, $sourcePath, $documentPath, $migrationPath, $verifierPath] as $path) {
+        foreach ([$manifestPath, $packPath, $sourcePath, $documentPath, $migrationPath, $sourceIdentityMigrationPath, $verifierPath] as $path) {
             self::assertFileExists($path);
         }
 
@@ -98,10 +99,20 @@ final class MeituanTrafficSelfCheckKnowledgeTest extends TestCase
         self::assertStringNotContainsString('DELETE FROM `knowledge_chunks`', $migration);
         self::assertStringNotContainsString('DELETE FROM `knowledge_units`', $migration);
         self::assertStringNotContainsString("'external_write_authorized', true", $migration);
-
         self::assertStringNotContainsString(
             'user_provided_meituan_traffic_self_check_screenshot',
             $migration
         );
+
+        $sourceIdentityMigration = (string)file_get_contents($sourceIdentityMigrationPath);
+        self::assertStringContainsString(
+            "`source` = 'user_meituan_traffic_self_check_screenshot'",
+            $sourceIdentityMigration
+        );
+        self::assertStringContainsString(
+            "`stable_key` = 'global:meituan_traffic_self_check_reference'",
+            $sourceIdentityMigration
+        );
+        self::assertStringNotContainsString('ALTER TABLE', $sourceIdentityMigration);
     }
 }

@@ -275,14 +275,35 @@ main[data-current-page="compass"] .home-facts-shell {
     padding: 0 !important;
 }
 
+/* The drilldown is a data workspace, not a second marketing hero. */
+main[data-current-page="compass"] .compass-hero-bezel {
+    padding: 1px;
+    border: 1px solid rgba(125, 100, 55, 0.2);
+    border-radius: 23px;
+    background: linear-gradient(135deg, rgba(216, 181, 108, 0.7), rgba(20, 58, 49, 0.2));
+    box-shadow: 0 16px 42px rgba(58, 45, 24, 0.1);
+    animation: none;
+}
+
+main[data-current-page="compass"] .compass-hero-core {
+    padding: 26px !important;
+    border: 0;
+    border-radius: 21px;
+    color: #17231d;
+    background:
+        radial-gradient(circle at 92% 0%, rgba(216, 181, 108, 0.12), transparent 32%),
+        #fffdf9;
+    box-shadow: none;
+}
+
 main[data-current-page="compass"] .home-facts-header {
     align-items: center !important;
-    border-bottom: 1px solid rgba(216, 181, 108, 0.14);
-    padding: 2px 2px 16px;
+    border-bottom: 1px solid #e9dfce;
+    padding: 0 0 18px;
 }
 
 main[data-current-page="compass"] .home-facts-header h2 {
-    color: #f1f3ee !important;
+    color: #17231d !important;
     font-size: 21px !important;
     letter-spacing: -0.025em;
 }
@@ -293,13 +314,14 @@ main[data-current-page="compass"] .home-facts-header p:first-child {
 }
 
 main[data-current-page="compass"] .home-facts-header h2 + p {
-    color: #9aaba2 !important;
+    max-width: 700px;
+    color: #66756d !important;
 }
 
 main[data-current-page="compass"] .home-facts-header .rounded-full {
-    border-color: rgba(216, 181, 108, 0.3) !important;
-    background: rgba(216, 181, 108, 0.09) !important;
-    color: #e5ca8b !important;
+    border-color: #dfc994 !important;
+    background: #f8efd9 !important;
+    color: #765a26 !important;
 }
 
 main[data-current-page="compass"] .home-facts-controls {
@@ -308,17 +330,17 @@ main[data-current-page="compass"] .home-facts-controls {
 
 main[data-current-page="compass"] .home-facts-controls .input-field {
     min-height: 38px;
-    border: 1px solid rgba(216, 181, 108, 0.2) !important;
+    border: 1px solid #d8d8cf !important;
     border-radius: 10px !important;
-    background: rgba(255, 255, 255, 0.055) !important;
-    color: #e6ece8 !important;
+    background: #ffffff !important;
+    color: #1e2d26 !important;
     font-size: 12px !important;
     padding: 8px 11px !important;
 }
 
 main[data-current-page="compass"] .home-facts-controls option {
-    background: #0c1913;
-    color: #edf3ef;
+    background: #ffffff;
+    color: #1e2d26;
 }
 
 main[data-current-page="compass"] .home-facts-refresh {
@@ -327,10 +349,10 @@ main[data-current-page="compass"] .home-facts-refresh {
     align-items: center;
     justify-content: center;
     gap: 7px;
-    border: 1px solid rgba(216, 181, 108, 0.24);
+    border: 1px solid #143a31;
     border-radius: 10px;
-    background: rgba(255, 255, 255, 0.045);
-    color: #dfe7e2;
+    background: #143a31;
+    color: #f7f3e9;
     font-size: 12px;
     font-weight: 650;
     padding: 8px 12px;
@@ -342,10 +364,10 @@ main[data-current-page="compass"] .home-facts-state {
     align-items: center;
     gap: 18px 26px;
     margin-top: 16px;
-    border: 1px solid rgba(216, 181, 108, 0.18);
+    border: 1px solid #e3dac9;
     border-radius: 16px;
-    background: linear-gradient(105deg, rgba(255, 255, 255, 0.045), rgba(216, 181, 108, 0.025));
-    padding: 18px 20px 14px;
+    background: linear-gradient(105deg, #f8f6ef, #f5f0e5);
+    padding: 20px 22px 14px;
 }
 
 main[data-current-page="compass"] .home-facts-state.is-error {
@@ -381,14 +403,15 @@ main[data-current-page="compass"] .home-facts-state-kicker {
 }
 
 main[data-current-page="compass"] .home-facts-state h3 {
-    color: #f3f4ef;
+    color: #17231d;
     font-size: 16px;
     font-weight: 700;
 }
 
 main[data-current-page="compass"] .home-facts-state-copy p {
     margin-top: 6px;
-    color: #a8b6af;
+    max-width: 760px;
+    color: #596961;
     font-size: 12px;
     line-height: 1.65;
 }
@@ -398,29 +421,35 @@ main[data-current-page="compass"] .home-facts-state-meta {
     flex-wrap: wrap;
     gap: 5px 14px;
     margin-top: 9px;
-    color: #81938a;
+    color: #718078;
     font-size: 11px;
 }
 
 main[data-current-page="compass"] .home-facts-state-details {
     grid-column: 1 / -1;
-    border-top: 1px solid rgba(216, 181, 108, 0.11);
-    padding-top: 10px;
+    border-top: 1px solid #e3dac9;
+    padding-top: 12px;
 }
 
 main[data-current-page="compass"] .home-facts-state-details summary {
     width: fit-content;
     cursor: pointer;
-    color: #91a299;
+    color: #53655c;
     font-size: 11px;
     font-weight: 650;
 }
 
 main[data-current-page="compass"] .home-facts-state-details p {
     margin-top: 8px;
-    color: #81938a;
+    color: #66756d;
     font-size: 11px;
     line-height: 1.65;
+    overflow-wrap: anywhere;
+}
+
+main[data-current-page="compass"] .home-facts-state-details p + p {
+    padding-top: 8px;
+    border-top: 1px dashed #ddd3c2;
 }
 
 main[data-current-page="compass"] .home-facts-loading-state {
@@ -429,9 +458,9 @@ main[data-current-page="compass"] .home-facts-loading-state {
     align-items: center;
     gap: 14px;
     margin-top: 16px;
-    border: 1px solid rgba(216, 181, 108, 0.15);
+    border: 1px solid #e3dac9;
     border-radius: 16px;
-    background: rgba(255, 255, 255, 0.035);
+    background: #f8f6ef;
     padding: 18px 20px;
 }
 
@@ -446,13 +475,13 @@ main[data-current-page="compass"] .home-facts-loading-orbit {
 }
 
 main[data-current-page="compass"] .home-facts-loading-state strong {
-    color: #ecf0ed;
+    color: #17231d;
     font-size: 13px;
 }
 
 main[data-current-page="compass"] .home-facts-loading-state p {
     margin-top: 4px;
-    color: #899b92;
+    color: #718078;
     font-size: 11px;
 }
 
@@ -488,7 +517,100 @@ main[data-current-page="compass"] .home-fact-card-derived {
 }
 
 main[data-current-page="compass"] .home-facts-source-note {
-    color: #7f9188 !important;
+    color: #68776f !important;
+}
+
+main[data-current-page="compass"] .home-scope-grid .compass-signal-card {
+    border-color: #e3dac9;
+    color: #17231d;
+    background: #ffffff;
+    box-shadow: none;
+}
+
+main[data-current-page="compass"] .home-scope-grid .compass-signal-card:hover {
+    transform: translateY(-2px);
+    border-color: #ceb778;
+    background: #fffdf8;
+}
+
+main[data-current-page="compass"] .home-scope-grid .compass-signal-label {
+    color: #66756d;
+}
+
+main[data-current-page="compass"] .home-scope-grid .compass-signal-card strong {
+    color: #17231d;
+}
+
+main[data-current-page="compass"] .home-scope-grid .compass-signal-card > p {
+    color: #68776f !important;
+}
+
+main[data-current-page="compass"] .compass-blocker-strip {
+    border-color: #e4d5b7;
+    background: #fbf5e7;
+}
+
+main[data-current-page="compass"] .compass-blocker-strip span,
+main[data-current-page="compass"] .compass-blocker-strip p {
+    color: #65746c;
+}
+
+main[data-current-page="compass"] .compass-temporal-fold {
+    border-color: #dfe2dc;
+    background: #f6f8f5;
+}
+
+main[data-current-page="compass"] .compass-temporal-summary {
+    color: #17231d;
+}
+
+main[data-current-page="compass"] .compass-temporal-summary-title > span {
+    background: #e7eeea;
+    color: #24483c;
+}
+
+main[data-current-page="compass"] .compass-temporal-summary-note {
+    color: #68776f;
+}
+
+main[data-current-page="compass"] .compass-temporal-summary::after {
+    border-color: #cbd5cf;
+    color: #385a4f;
+}
+
+main[data-current-page="compass"] .compass-temporal-fold[open] > .compass-temporal-summary {
+    border-bottom-color: #dde2de;
+}
+
+main[data-current-page="compass"] .home-temporal-stage {
+    border-left-color: #dde2de;
+}
+
+main[data-current-page="compass"] .home-temporal-stage > div {
+    color: #385a4f;
+}
+
+main[data-current-page="compass"] .home-temporal-stage > strong {
+    color: #17231d;
+}
+
+main[data-current-page="compass"] .home-temporal-stage > p {
+    color: #68776f;
+}
+
+main[data-current-page="compass"] .home-temporal-stage > button {
+    color: #765a26;
+}
+
+main[data-current-page="compass"] .home-competitor-reference {
+    border-color: #dde2de;
+    color: #203129;
+    background: #ffffff;
+}
+
+main[data-current-page="compass"] .home-competitor-reference p {
+    border-top-color: #dde2de;
+    color: #68776f;
 }
 
 @keyframes authority-orbit {
@@ -496,6 +618,15 @@ main[data-current-page="compass"] .home-facts-source-note {
 }
 
 @media (max-width: 760px) {
+    main[data-current-page="compass"] .compass-hero-bezel {
+        border-radius: 18px;
+    }
+
+    main[data-current-page="compass"] .compass-hero-core {
+        padding: 18px 14px !important;
+        border-radius: 17px;
+    }
+
     main[data-current-page="compass"] .operating-loop-authority-head {
         padding: 18px !important;
     }

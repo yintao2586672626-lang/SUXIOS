@@ -2640,6 +2640,27 @@ final class OtaCredentialResponseTest extends TestCase
         self::assertArrayNotHasKey('token_preview', $sanitized);
     }
 
+    public function testSanitizeCtripConfigRoomCountsDoNotRequireMeituanStatusHelper(): void
+    {
+        $sanitized = $this->otaConfigHarness()->sanitize([
+            'id' => 'ctrip-safe',
+            'config_id' => 'ctrip-safe',
+            'system_hotel_id' => 58,
+            'hotel_id' => 58,
+            'hotel_room_count' => 16,
+            'competitor_room_count' => 200,
+            'has_cookies' => true,
+            'secret_mask' => 'ct****et',
+        ]);
+
+        self::assertSame('ctrip-safe', $sanitized['config_id']);
+        self::assertSame(16, $sanitized['hotel_room_count']);
+        self::assertSame(200, $sanitized['competitor_room_count']);
+        self::assertTrue($sanitized['has_cookies']);
+        self::assertArrayNotHasKey('missing_fields', $sanitized);
+        self::assertArrayNotHasKey('credential_requirement', $sanitized);
+    }
+
     public function testRuntimeConfigListCacheIsMetadataOnlyAndBlocksLegacySecretRows(): void
     {
         $sanitized = $this->otaConfigHarness()->sanitizeRuntimeList([

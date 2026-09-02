@@ -33,6 +33,7 @@ test('operations page exposes a scoped three-question manager score loop', () =>
   }
   for (const marker of [
     "'data-testid': 'manager-capability-panel'",
+    "'data-testid': 'manager-capability-empty'",
     "'data-testid': 'manager-capability-manager'",
     "'data-testid': 'manager-capability-dimensions'",
     "'data-testid': 'manager-capability-form'",
@@ -50,6 +51,8 @@ test('operations page exposes a scoped three-question manager score loop', () =>
     '保存本次复查',
     '原始三问不会被覆盖',
     '不用于跨店排名、处罚或自动触发运营动作',
+    '当前酒店尚无可评分负责人',
+    "openHomeQuickEntry?.({ page: 'users' })",
   ]) {
     assert.ok(components.includes(marker), marker);
   }
@@ -110,6 +113,39 @@ test('deferred component bridge resolves the manager score panel and loop author
   const loopAuthority = await facade.OperatingLoopAuthority.loader();
   assert.equal(panel?.name, 'ManagerCapabilityPanel');
   assert.equal(loopAuthority?.name, 'OperatingLoopAuthority');
+});
+
+test('unconfigured manager scope renders one authorization empty state instead of six blank score cards', async () => {
+  const runtimeWindow = {
+    SUXI_ONLINE_DATA_COMPONENTS: {},
+    SUXI_SYSTEM_COMPONENTS: {},
+  };
+  const h = (type, props, children) => ({ type, props: props || {}, children: children ?? null });
+  const Vue = {
+    h,
+    defineAsyncComponent: loader => ({ loader }),
+  };
+  new Function('window', components)(runtimeWindow);
+  const panel = runtimeWindow.SUXI_APP_MAIN_COMPONENTS_FULL.create({ Vue, h }).ManagerCapabilityPanel;
+  const tree = panel.render.call({
+    profile: null,
+    followupQueue: null,
+    dailySubmission: {
+      status: 'data_insufficient', attention_status: 'unknown', case_count: 0,
+      last_submission_date: null, consecutive_missing_days: null,
+    },
+    normalizedHotelId: 1,
+    managers: [],
+    loading: false,
+    error: '',
+    $root: { user: { is_super_admin: true }, openHomeQuickEntry() {} },
+  });
+  const serialized = JSON.stringify(tree);
+  assert.match(serialized, /manager-capability-empty/);
+  assert.match(serialized, /当前酒店尚无可评分负责人/);
+  assert.match(serialized, /配置用户授权/);
+  assert.doesNotMatch(serialized, /manager-capability-dimensions/);
+  assert.doesNotMatch(serialized, /最近评分案例/);
 });
 
 test('authenticated page dependency receives Vue ref and pins the repaired asset', () => {
