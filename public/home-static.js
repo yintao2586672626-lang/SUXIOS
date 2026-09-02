@@ -2088,7 +2088,7 @@ window.SUXI_HOME_STATIC = (() => {
                     h('div', { class: 'min-w-0' }, [
                         h('div', { class: 'home-facts-state-kicker' }, displayMode === 'error' ? '读取异常' : '目标日暂无事实'),
                         h('h3', null, displayMode === 'error' ? '经营事实读取失败' : '当前没有可用于经营判断的数据'),
-                        h('p', null, primaryBlocker.detail || yesterday.summary || '当前门店、当前业务日尚无通过保存与精确回读的经营事实。'),
+                        h('p', null, yesterday.summary || primaryBlocker.title || '当前门店、当前业务日尚无通过保存与精确回读的经营事实。'),
                         h('div', { class: 'home-facts-state-meta' }, [
                             h('span', `${model.hotelName || '当前门店'} · ${yesterday.date || '目标日待确认'}`),
                             h('span', `已验证 ${Number(yesterday.availableFactCount || 0)}/${Number(yesterday.totalFactCount || 0)} 项`),
@@ -2107,7 +2107,8 @@ window.SUXI_HOME_STATIC = (() => {
                     h('i', { class: 'fas fa-arrow-right', 'aria-hidden': 'true' }),
                 ]) : null,
                 h('details', { class: 'home-facts-state-details', 'data-testid': 'home-yesterday-empty-details' }, [
-                    h('summary', null, '查看事实边界'),
+                    h('summary', null, '查看事实边界与数据缺口'),
+                    primaryBlocker.detail ? h('p', null, primaryBlocker.detail) : null,
                     h('p', null, 'PMS 全酒店事实、携程/美团 OTA 渠道事实和同日对账，只在当前门店、当前业务日完成保存与精确回读后展开。'),
                 ]),
             ]) : null;

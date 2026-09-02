@@ -2333,10 +2333,10 @@
                     : '当前范围未找到历史提交；缺失天数保持未知');
 
             return h('section', {
-                class: 'overflow-hidden rounded-2xl border border-[#d8e4df] bg-white shadow-sm',
+                class: 'manager-capability-panel overflow-hidden rounded-2xl border border-[#d8e4df] bg-white shadow-sm',
                 'data-testid': 'manager-capability-panel',
             }, [
-                h('div', { class: 'flex flex-col gap-3 border-b border-slate-100 bg-[#f6faf8] px-5 py-4 lg:flex-row lg:items-start lg:justify-between' }, [
+                h('div', { class: 'manager-capability-header flex flex-col gap-3 border-b border-slate-100 bg-[#f6faf8] px-5 py-4 lg:flex-row lg:items-start lg:justify-between' }, [
                     h('div', [
                         h('div', { class: 'flex flex-wrap items-center gap-2' }, [
                             h('h3', { class: 'font-bold text-slate-900' }, '店长能力评分'),
@@ -2354,7 +2354,36 @@
                 ]),
                 this.normalizedHotelId <= 0
                     ? h('div', { style: 'margin:1.25rem', class: 'rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800' }, '请先在页面顶部选择一个门店；评分不会汇总多个酒店。')
-                    : h('div', { class: 'grid gap-5 p-5 xl:grid-cols-[minmax(0,1.25fr)_minmax(360px,0.9fr)]' }, [
+                    : (this.managers.length === 0
+                        ? h('div', {
+                            class: ['manager-capability-empty', this.loading ? 'is-loading' : ''],
+                            'data-testid': 'manager-capability-empty',
+                        }, [
+                            h('span', { class: 'manager-capability-empty-mark', 'aria-hidden': 'true' }, [
+                                h('i', { class: this.loading ? 'fas fa-spinner fa-spin' : (this.error ? 'fas fa-user-slash' : 'fas fa-user-shield') }),
+                            ]),
+                            h('div', { class: 'manager-capability-empty-copy' }, [
+                                h('p', { class: 'manager-capability-empty-kicker' }, this.loading ? '正在读取负责人范围' : '负责人授权待完成'),
+                                h('h4', this.loading ? '正在读取可评分负责人' : (this.error ? '负责人范围读取失败' : '当前酒店尚无可评分负责人')),
+                                h('p', this.loading
+                                    ? '系统正在核对当前门店的用户身份与酒店授权。'
+                                    : (this.error || '完成用户身份与酒店授权后，系统才会按个人生成六维证据分；无证据继续留空，不按 0 分。')),
+                            ]),
+                            this.loading ? null : h('div', {
+                                class: 'manager-capability-empty-dimensions',
+                                'aria-label': '授权后建立的六项能力证据',
+                            }, managerCapabilityDefaultDimensions.map(([key, label]) => h('span', { key }, label))),
+                            this.loading ? null : h('div', { class: 'manager-capability-empty-action' }, [
+                                h('p', this.$root?.user?.is_super_admin
+                                    ? '先配置当前门店的负责人，再回来录入三问案例。'
+                                    : '请联系具备账号权限的管理员完成当前门店负责人授权。'),
+                                this.$root?.user?.is_super_admin ? h('button', {
+                                    type: 'button',
+                                    onClick: () => this.$root?.openHomeQuickEntry?.({ page: 'users' }),
+                                }, [h('span', '配置用户授权'), h('i', { class: 'fas fa-arrow-right', 'aria-hidden': 'true' })]) : null,
+                            ]),
+                        ])
+                        : h('div', { class: 'grid gap-5 p-5 xl:grid-cols-[minmax(0,1.25fr)_minmax(360px,0.9fr)]' }, [
                         h('div', { class: 'space-y-4' }, [
                             h('div', { class: 'flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between' }, [
                                 field('店长 / 负责人', h('select', {
@@ -2613,7 +2642,7 @@
                             h('p', { class: 'mt-2' }, this.profile?.permissions?.policy || '当前账号可看汇总，但不能查看或修改案例证据。'),
                             h('p', { class: 'mt-2 text-xs' }, '如需新增、复查、纠错、作废或人工复核，请由具备当前门店运营执行权限的管理者操作。'),
                         ]),
-                    ]),
+                    ])),
             ]);
         },
     };

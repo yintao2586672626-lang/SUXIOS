@@ -40,6 +40,8 @@ test('Compass projects the kernel answers and reconciles only against an explici
   assert.match(appMain, /openHomeQuickEntry\(\{ page: 'online-data', tab: 'data-health' \}\)/);
   assert.match(style, /\.operating-loop-authority-shell[\s\S]*?linear-gradient\(135deg, #06110d/);
   assert.match(style, /\.home-facts-shell[\s\S]*?background: transparent !important/);
+  assert.match(style, /\.compass-hero-core[\s\S]*?#fffdf9/);
+  assert.match(style, /\.compass-temporal-fold[\s\S]*?background: #f6f8f5/);
   assert.match(style, /\.home-facts-loading-state[\s\S]*?min-height: 88px/);
   assert.match(appMain, /params\.append\('business_date', operationYesterday\)/);
   assert.match(appMain, /request\('\/operating-loop\/reconcile'/);
