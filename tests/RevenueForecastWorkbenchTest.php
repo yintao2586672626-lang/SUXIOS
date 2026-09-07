@@ -179,6 +179,7 @@ final class RevenueForecastWorkbenchTest extends TestCase
     {
         $saved = $this->service->save(Fixture::input(), Fixture::scope());
         $path = (glob($this->root . '/*/*.json') ?: [])[0];
+        $saved = json_decode((string)file_get_contents($path), true, 512, JSON_THROW_ON_ERROR);
         $saved['payload']['input']['evidence']['authorization'] = 'synthetic-legacy-sentinel';
         $normalize = function ($value) use (&$normalize) {
             if (!is_array($value)) return $value;
@@ -186,6 +187,8 @@ final class RevenueForecastWorkbenchTest extends TestCase
             return array_map($normalize, $value);
         };
         $saved['id'] = hash('sha256', json_encode($normalize($saved['payload']), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRESERVE_ZERO_FRACTION | JSON_THROW_ON_ERROR));
+        unset($saved['envelope_sha256']);
+        $saved['envelope_sha256'] = hash('sha256', json_encode($normalize($saved), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRESERVE_ZERO_FRACTION | JSON_THROW_ON_ERROR));
         $legacyPath = dirname($path) . '/' . $saved['id'] . '.json';
         file_put_contents($legacyPath, json_encode($saved, JSON_PRESERVE_ZERO_FRACTION | JSON_THROW_ON_ERROR));
         $items = array_column($this->service->history(Fixture::scope()), null, 'id');
@@ -256,6 +259,66 @@ final class RevenueForecastWorkbenchTest extends TestCase
         self::assertTrue($this->service->save(Fixture::input(), Fixture::scope())['readback_verified']);
     }
 
+    public function testSourceReferencesRejectCredentialShapedTextBeforeStorage(): void
+    {
+        foreach (['Authorization: Bearer synthetic-only', 'https://example.invalid/data?sig=synthetic-only', 'cookie=synthetic-only', 'eyJfake.eyJfake.fake'] as $reference) {
+            $input = Fixture::input(); $input['evidence']['observations'][0]['source_ref'] = $reference;
+            try { $this->service->save($input, Fixture::scope()); self::fail('Unsafe source reference accepted'); }
+            catch (\InvalidArgumentException $e) {
+                self::assertStringNotContainsString($reference, $e->getMessage());
+                self::assertDirectoryDoesNotExist($this->root);
+            }
+        }
+    }
+
+    public function testReplayIdentityPreservesFractionalCutoffs(): void
+    {
+        $input = Fixture::input();
+        $input['evidence']['as_of_at'] = '2026-09-01T08:00:00.100000+08:00';
+        $input['evidence']['evaluation_at'] = '2026-09-01T08:00:00.900000+08:00';
+        $late = end($input['evidence']['observations']);
+        $late['available_at'] = '2026-09-01T08:00:00.500000+08:00'; $late['value'] = 100;
+        $input['evidence']['observations'][] = $late;
+        $early = $this->service->preview($input, Fixture::scope())['replay'];
+        self::assertSame($input['evidence']['as_of_at'], $early['as_of_at']);
+        self::assertSame($input['evidence']['evaluation_at'], $early['evaluation_at']);
+        self::assertStringContainsString('.100000+08:00', $early['comparisons'][7]['folds'][0]['origin_at']);
+        $input['evidence']['as_of_at'] = '2026-09-01T08:00:00.700000+08:00';
+        $later = $this->service->preview($input, Fixture::scope())['replay'];
+        self::assertNotSame($early['as_of_at'], $later['as_of_at']);
+        self::assertNotSame($early['forecasts'], $later['forecasts']);
+    }
+
+    public function testOlderTrainingFailuresRemainVisibleWithEnoughReadySamples(): void
+    {
+        $input = Fixture::input();
+        foreach ([200 => 'failed', 201 => 'missing'] as $index => $quality) {
+            $row = $input['evidence']['observations'][$index];
+            $row['available_at'] = '2026-09-01T07:00:00+08:00'; $row['quality_status'] = $quality; $row['value'] = null;
+            $input['evidence']['observations'][] = $row;
+        }
+        $replay = $this->service->preview($input, Fixture::scope())['replay'];
+        self::assertSame('partial', $replay['data_status']);
+        self::assertSame(['ready' => 54, 'missing' => 1, 'failed' => 1, 'unobserved' => 0], $replay['input_evidence']['training_quality']);
+        foreach ($replay['forecasts'] as $forecast) self::assertSame('partial', $forecast['status']);
+    }
+
+    public function testEnvelopeMetadataAndStoredSafetyFlagsCannotOverrideVerification(): void
+    {
+        $saved = $this->service->save(Fixture::input(), Fixture::scope());
+        $path = (glob($this->root . '/*/*.json') ?: [])[0];
+        $raw = (string)file_get_contents($path);
+        foreach (['created_at' => '2026-01-01T00:00:00+00:00', 'readback_verified' => true, 'automatic_price_write' => true, 'causality_claimed' => true] as $key => $value) {
+            $doc = json_decode($raw, true, 512, JSON_THROW_ON_ERROR); $doc[$key] = $value;
+            file_put_contents($path, json_encode($doc, JSON_PRESERVE_ZERO_FRACTION | JSON_THROW_ON_ERROR));
+            $rejected = false;
+            try { $this->service->read($saved['id'], Fixture::scope()); }
+            catch (\RuntimeException) { $rejected = true; }
+            self::assertTrue($rejected, 'Altered envelope accepted');
+            self::assertFileExists($path);
+        }
+    }
+
     public function testConfiguredExternalStorageSurvivesServiceRestartAndMissingProductionPathFails(): void
     {
         $names = ['SUXIOS_FORECAST_PLAN_PATH', 'SUXIOS_REQUIRE_PERSISTENT_LOCAL_STATE'];
@@ -275,7 +338,7 @@ final class RevenueForecastWorkbenchTest extends TestCase
             self::assertSame(230, (new RevenueForecastWorkbenchService())->read($nextSaved['id'], Fixture::scope())['payload']['input']['scenario']['proposed_price']);
             self::assertCount(2, (new RevenueForecastWorkbenchService())->history(Fixture::scope()));
             app()->setRuntimePath($originalRuntime);
-            foreach (['', 'runtime/forecasts', runtime_path() . 'forecasts'] as $invalid) {
+            foreach (['', 'runtime/forecasts', runtime_path() . 'forecasts', (string)getenv('SUXIOS_CACHE_PATH') . '/forecasts'] as $invalid) {
                 putenv('SUXIOS_FORECAST_PLAN_PATH=' . $invalid);
                 $service = new RevenueForecastWorkbenchService();
                 self::assertSame('synthetic', $service->preview(Fixture::input(), Fixture::scope())['replay']['source_kind']);

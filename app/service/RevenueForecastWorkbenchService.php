@@ -13,12 +13,18 @@ final class RevenueForecastWorkbenchService
     {
     }
 
+    public function storageRoot(): string
+    {
+        return $this->root ??= $this->defaultStorageRoot();
+    }
+
     private function defaultStorageRoot(): string
     {
         $configured = getenv('SUXIOS_FORECAST_PLAN_PATH');
         $configured = trim((string)($configured === false ? env('SUXIOS_FORECAST_PLAN_PATH', '') : $configured));
         $project = str_replace('\\', '/', rtrim(root_path(), '/\\'));
-        $persistentRequired = LocalStatePathPolicy::resolve()['persistent_paths_required'] || preg_match('~/releases/[^/]+$~i', $project);
+        $policy = LocalStatePathPolicy::resolve();
+        $persistentRequired = $policy['persistent_paths_required'] || preg_match('~/releases/[^/]+$~i', $project);
         if ($configured === '') {
             if ($persistentRequired) throw new RuntimeException('方案持久化目录未配置；请将 SUXIOS_FORECAST_PLAN_PATH 配置到发布目录之外。');
             return runtime_path() . 'revenue-forecast-workbench';
@@ -32,6 +38,12 @@ final class RevenueForecastWorkbenchService
         // Resolve an existing ancestor too, so an external-looking symlink cannot point into this release.
         $ancestor = $configured;
         while (!file_exists($ancestor) && dirname($ancestor) !== $ancestor) $ancestor = dirname($ancestor);
+        foreach (array_filter([$policy['cache_path'], $policy['lock_path']]) as $statePath) {
+            $state = strtolower(str_replace('\\', '/', rtrim((string)(realpath($statePath) ?: $statePath), '/\\'))) . '/';
+            $plan = strtolower($normalized) . '/';
+            $resolvedAncestor = strtolower(str_replace('\\', '/', (string)realpath($ancestor))) . '/';
+            if (str_starts_with($plan, $state) || str_starts_with($state, $plan) || str_starts_with($resolvedAncestor, $state)) throw new RuntimeException('方案持久化目录必须与缓存及锁目录分离。');
+        }
         foreach ([$normalized, str_replace('\\', '/', (string)realpath($ancestor))] as $candidate) {
             $base = strtolower(str_replace('\\', '/', (string)(realpath($project) ?: $project)));
             if (strtolower($candidate) === $base || str_starts_with(strtolower($candidate), $base . '/')
@@ -64,7 +76,8 @@ final class RevenueForecastWorkbenchService
             $path = $dir . '/' . $id . '.json';
             $replay = is_file($path);
             if (!$replay) {
-                $envelope = $this->json(['id' => $id, 'created_at' => gmdate(DATE_ATOM), 'payload' => $payload]);
+                $document = ['id' => $id, 'created_at' => gmdate(DATE_ATOM), 'payload' => $payload];
+                $envelope = $this->json($document + ['envelope_sha256' => hash('sha256', $this->json($document))]);
                 $temporary = $dir . '/' . $id . '.' . bin2hex(random_bytes(4)) . '.tmp';
                 try {
                     if (file_put_contents($temporary, $envelope, LOCK_EX) !== strlen($envelope) || !rename($temporary, $path)) {
@@ -85,6 +98,13 @@ final class RevenueForecastWorkbenchService
         if (!is_file($path)) throw new InvalidArgumentException('当前范围内找不到该方案。');
         try { $doc = json_decode((string)file_get_contents($path), true, 512, JSON_THROW_ON_ERROR); }
         catch (\Throwable) { throw new RuntimeException('方案已损坏，未通过回读校验。'); }
+        $keys = is_array($doc) ? array_keys($doc) : []; sort($keys);
+        if ($keys !== ['created_at', 'envelope_sha256', 'id', 'payload']) throw new RuntimeException('方案封装版本不支持或含额外字段；保留原文件，请重新导入证据保存。');
+        $created = is_string($doc['created_at']) ? \DateTimeImmutable::createFromFormat(DATE_ATOM, $doc['created_at']) : false;
+        $envelopeDigest = $doc['envelope_sha256'];
+        $envelope = $doc; unset($envelope['envelope_sha256']);
+        if (!$created || $created->format(DATE_ATOM) !== $doc['created_at'] || !is_string($envelopeDigest)
+            || !hash_equals(hash('sha256', $this->json($envelope)), $envelopeDigest)) throw new RuntimeException('方案封装元数据校验失败。');
         $payload = $doc['payload'] ?? null;
         if (!is_array($payload) || ($payload['schema_version'] ?? '') !== 'revenue_forecast_document.v1') {
             throw new RuntimeException('方案版本不支持；保留原文件，不升级为已验证方案。');
@@ -94,7 +114,7 @@ final class RevenueForecastWorkbenchService
             throw new RuntimeException('方案身份或内容校验失败。');
         }
         $this->assertInputContract($payload['input'] ?? []);
-        return $doc + ['readback_verified' => true, 'automatic_price_write' => false, 'causality_claimed' => false];
+        return array_replace($doc, ['readback_verified' => true, 'automatic_price_write' => false, 'causality_claimed' => false]);
     }
 
     public function history(array $scope): array
@@ -141,6 +161,7 @@ final class RevenueForecastWorkbenchService
         foreach ($evidence['observations'] as $row) {
             if (!is_array($row)) throw new InvalidArgumentException('历史版本格式错误。');
             $check($row, ['tenant_id', 'hotel_id', 'platform', 'platform_store_id', 'room_scope', 'business_date', 'available_at', 'quality_status', 'value', 'source_ref']);
+            if (!is_string($row['source_ref'] ?? null) || !preg_match(TemporalForecastReplayService::SOURCE_REFERENCE_PATTERN, $row['source_ref'])) throw new InvalidArgumentException('source_ref 仅接受 synthetic- 或 manual- 开头的脱敏引用编号，不接受URL、标头或凭证文本。');
         }
         if (isset($input['scenario'])) $check($input['scenario'], ['horizon_days', 'current_price', 'proposed_price', 'elasticity', 'inventory_room_nights', 'inventory_scope', 'price_unit']);
     }
@@ -148,8 +169,7 @@ final class RevenueForecastWorkbenchService
     private function directory(array $scope): string
     {
         (new TemporalForecastReplayService())->scope($scope);
-        $this->root ??= $this->defaultStorageRoot();
-        return $this->root . '/' . hash('sha256', $this->json($scope));
+        return $this->storageRoot() . '/' . hash('sha256', $this->json($scope));
     }
 
     private function json(mixed $value): string

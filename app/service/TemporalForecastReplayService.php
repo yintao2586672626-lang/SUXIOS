@@ -11,6 +11,7 @@ final class TemporalForecastReplayService
 {
     public const VERSION = 'temporal_replay.v1';
     public const DEFINITION = 'net_stay_room_nights_excluding_cancelled';
+    public const SOURCE_REFERENCE_PATTERN = '/^(?:synthetic|manual)[-_][A-Za-z0-9][A-Za-z0-9_-]{0,155}$/D';
 
     public function __construct(private ?TemporalInsightService $forecast = null)
     {
@@ -55,8 +56,8 @@ final class TemporalForecastReplayService
             $availableDate = $available->setTimezone(new \DateTimeZone('Asia/Shanghai'))->format('Y-m-d');
             if ($availableDate <= $date) throw new InvalidArgumentException('最终入住间夜不能在入住日结束前可见。');
             if (!in_array($row['quality_status'] ?? '', ['ready', 'missing', 'failed'], true)
-                || !is_string($row['source_ref'] ?? null) || trim($row['source_ref']) === '' || strlen($row['source_ref']) > 180) {
-                throw new InvalidArgumentException('历史版本缺少质量状态或脱敏 source_ref。');
+                || !is_string($row['source_ref'] ?? null) || !preg_match(self::SOURCE_REFERENCE_PATTERN, $row['source_ref'])) {
+                throw new InvalidArgumentException('历史版本需有质量状态；source_ref 仅接受 synthetic- 或 manual- 开头的字母数字/下划线/连字符引用编号。');
             }
             $value = $row['value'] ?? null;
             if ($row['quality_status'] === 'ready' && (!is_numeric($value) || !is_finite((float)$value)
@@ -71,12 +72,17 @@ final class TemporalForecastReplayService
         }
         $versions = array_values($versions);
         usort($versions, static fn($a, $b) => (float)$a['_available'] <=> (float)$b['_available']);
-        $training = $this->window($this->select($versions, $asOf, $asOfDate), $asOfDate);
+        $visibleTraining = $this->window($this->select($versions, $asOf, $asOfDate, true), $asOfDate);
+        $quality = ['ready' => 0, 'missing' => 0, 'failed' => 0, 'unobserved' => 56 - count($visibleTraining)];
+        foreach ($visibleTraining as $row) $quality[$row['quality_status']]++;
+        $training = array_filter($visibleTraining, static fn($row) => $row['quality_status'] === 'ready');
+        $hasUnavailableTraining = $quality['missing'] + $quality['failed'] > 0;
         $allActuals = $this->select($versions, $evaluation, $evaluation->setTimezone(new \DateTimeZone('Asia/Shanghai'))->format('Y-m-d'));
         $forecasts = [];
         $comparisons = [];
         foreach ([7, 14, 30] as $horizon) {
             $plan = $this->plan($training, $asOfDate, $horizon);
+            if ($hasUnavailableTraining && $plan['status'] === 'ready') $plan['status'] = 'partial';
             $forecasts[$horizon] = $plan;
             $folds = [];
             $pairs = [];
@@ -96,7 +102,7 @@ final class TemporalForecastReplayService
                     if ($actual !== null && $point['baseline_weekly'] !== null && $point['baseline_mean7'] !== null) $pairs[] = $point;
                     $foldPoints[] = $point;
                 }
-                $folds[] = ['origin_at' => $cutoff->format(DATE_ATOM), 'training_sample_count' => count($train),
+                $folds[] = ['origin_at' => $this->timeIdentity($cutoff), 'training_sample_count' => count($train),
                     'training_refs' => array_column($train, 'source_ref'), 'training_max_available_at' => $this->latestAt($train),
                     'status' => $foldPlan['status'], 'points' => $foldPoints];
             }
@@ -113,10 +119,11 @@ final class TemporalForecastReplayService
             $comparisons[$horizon] = $stats + ['folds' => $folds];
         }
         return ['schema_version' => self::VERSION, 'scope' => $scope, 'source_kind' => $input['source_kind'],
-            'data_status' => $training === [] ? 'blocked' : (count($training) < 28 ? 'partial' : 'unverified'),
-            'as_of_at' => $asOf->format(DATE_ATOM), 'evaluation_at' => $evaluation->format(DATE_ATOM),
+            'data_status' => $training === [] ? 'blocked' : ($hasUnavailableTraining || count($training) < 28 ? 'partial' : 'unverified'),
+            'as_of_at' => $this->timeIdentity($asOf), 'evaluation_at' => $this->timeIdentity($evaluation),
             'metric_definition' => self::DEFINITION, 'unit' => 'room_nights', 'date_basis' => 'stay_date',
             'input_evidence' => ['version_count' => count($versions), 'training_sample_count' => count($training),
+                'training_quality' => $quality,
                 'training_refs' => array_column($training, 'source_ref'), 'training_max_available_at' => $this->latestAt($training),
                 'excluded_after_as_of_count' => count(array_filter($versions, static fn($r) => (float)$r['_available'] > (float)$asOf->format('U.u')))],
             'forecasts' => $forecasts, 'comparisons' => $comparisons,
@@ -131,7 +138,7 @@ final class TemporalForecastReplayService
             'automatic_price_write' => false, 'causality_claimed' => false];
     }
 
-    private function select(array $rows, DateTimeImmutable $cutoff, string $beforeDate): array
+    private function select(array $rows, DateTimeImmutable $cutoff, string $beforeDate, bool $includeUnavailable = false): array
     {
         $selected = [];
         foreach ($rows as $row) {
@@ -140,7 +147,7 @@ final class TemporalForecastReplayService
             }
         }
         // Latest missing/failed revisions invalidate an older value instead of falling back.
-        $selected = array_filter($selected, static fn($r) => $r['quality_status'] === 'ready');
+        if (!$includeUnavailable) $selected = array_filter($selected, static fn($r) => $r['quality_status'] === 'ready');
         ksort($selected);
         return $selected;
     }
@@ -219,6 +226,11 @@ final class TemporalForecastReplayService
         $date = DateTimeImmutable::createFromFormat('!Y-m-d', $value);
         if (!$date || $date->format('Y-m-d') !== $value) throw new InvalidArgumentException('日期无效。');
         return $value;
+    }
+
+    private function timeIdentity(DateTimeImmutable $value): string
+    {
+        return $value->format($value->format('u') === '000000' ? DATE_ATOM : 'Y-m-d\TH:i:s.uP');
     }
 
     private function timestamp(mixed $value): DateTimeImmutable

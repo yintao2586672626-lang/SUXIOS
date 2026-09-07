@@ -2,6 +2,7 @@
 declare(strict_types=1);
 
 use app\service\LocalStatePathPolicy;
+use app\service\RevenueForecastWorkbenchService;
 use think\App;
 
 require dirname(__DIR__) . '/vendor/autoload.php';
@@ -18,13 +19,19 @@ try {
     if (!is_array($policy) || $policy === []) {
         $policy = LocalStatePathPolicy::resolve();
     }
+    $policy['forecast_path'] = (new RevenueForecastWorkbenchService())->storageRoot();
+    if (in_array('--forecast-path-only', $argv, true)) {
+        if (empty($policy['persistent_paths_required'])) throw new RuntimeException('Production persistence policy must be enabled.');
+        fwrite(STDOUT, $policy['forecast_path'] . PHP_EOL);
+        exit(0);
+    }
 } catch (Throwable $exception) {
     fwrite(STDERR, '[FAIL] ' . $exception->getMessage() . PHP_EOL);
     exit(1);
 }
 
 $root = realpath(dirname(__DIR__));
-foreach (['cache_path', 'lock_path'] as $key) {
+foreach (['cache_path', 'lock_path', 'forecast_path'] as $key) {
     $path = (string)$policy[$key];
     if ($path === '') {
         $failures[] = $key . ' is not configured';
@@ -113,4 +120,15 @@ if ($failures !== []) {
     exit(1);
 }
 
-fwrite(STDOUT, '[PASS] single-instance cache and lock paths are persistent, active, and writable' . PHP_EOL);
+$forecastProbe = $policy['forecast_path'] . '/.release-probe-' . bin2hex(random_bytes(8));
+$forecastProbeFailed = false;
+try {
+    if (file_put_contents($forecastProbe, 'forecast-storage-probe', LOCK_EX) !== 22
+        || file_get_contents($forecastProbe) !== 'forecast-storage-probe') throw new RuntimeException('Forecast storage write/read probe failed.');
+} catch (Throwable $exception) {
+    fwrite(STDERR, '[FAIL] forecast storage write/read probe failed' . PHP_EOL);
+    $forecastProbeFailed = true;
+} finally { if (is_file($forecastProbe)) @unlink($forecastProbe); }
+if ($forecastProbeFailed) exit(1);
+
+fwrite(STDOUT, '[PASS] single-instance cache, lock and forecast paths are persistent, active, and writable' . PHP_EOL);

@@ -56,6 +56,7 @@ export function checkProductionEnvFile({ repoRoot, envFile, requireOutsideRepo }
   const persistentLocalState = (env.get('SUXIOS_REQUIRE_PERSISTENT_LOCAL_STATE') ?? '').toLowerCase();
   const cachePath = env.get('SUXIOS_CACHE_PATH') ?? '';
   const lockPath = env.get('SUXIOS_LOCAL_LOCK_PATH') ?? '';
+  const forecastPath = env.get('SUXIOS_FORECAST_PLAN_PATH') ?? '';
 
   const placeholderFields = [
     'DB_HOST',
@@ -65,6 +66,7 @@ export function checkProductionEnvFile({ repoRoot, envFile, requireOutsideRepo }
     'AI_CONFIG_SECRET',
     'SUXIOS_CACHE_PATH',
     'SUXIOS_LOCAL_LOCK_PATH',
+    'SUXIOS_FORECAST_PLAN_PATH',
   ].filter((field) => {
     return isPlaceholder(env.get(field));
   });
@@ -122,6 +124,7 @@ export function checkProductionEnvFile({ repoRoot, envFile, requireOutsideRepo }
   for (const [field, value] of [
     ['SUXIOS_CACHE_PATH', cachePath],
     ['SUXIOS_LOCAL_LOCK_PATH', lockPath],
+    ['SUXIOS_FORECAST_PLAN_PATH', forecastPath],
   ]) {
     if (isPlaceholder(value)) {
       continue;
@@ -130,12 +133,18 @@ export function checkProductionEnvFile({ repoRoot, envFile, requireOutsideRepo }
       failures.push(`${field} must be an absolute path outside the release directory.`);
       continue;
     }
-    if (isPathInsideRepo(repoRoot, value)) {
+    if (isPathInsideRepo(repoRoot, value) || (field === 'SUXIOS_FORECAST_PLAN_PATH' && /\/(?:releases|current)(?:\/|$)/i.test(value.replaceAll('\\', '/')))) {
       failures.push(`${field} must be outside the repository/release directory.`);
       continue;
     }
     passes.push(`${field} is an absolute external path.`);
   }
+
+  if (forecastPath && [cachePath, lockPath].filter(Boolean).some(other => {
+    const plan = path.resolve(forecastPath).toLowerCase() + path.sep;
+    const state = path.resolve(other).toLowerCase() + path.sep;
+    return plan.startsWith(state) || state.startsWith(plan);
+  })) failures.push('SUXIOS_FORECAST_PLAN_PATH must be separate from cache and lock directories.');
 
   return { passes, failures };
 }

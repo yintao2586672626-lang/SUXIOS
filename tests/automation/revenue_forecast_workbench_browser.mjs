@@ -91,6 +91,13 @@ try {
     await page.getByTestId('forecast-sample').click();
     await page.waitForFunction(() => document.querySelector('[data-testid=forecast-evidence]').value.includes('synthetic-day-242'));
     await page.getByTestId('forecast-run').click(); await page.getByTestId('forecast-result').waitFor();
+    const qualityEvidence = JSON.parse(await page.getByTestId('forecast-evidence').inputValue());
+    qualityEvidence.observations.push({ ...qualityEvidence.observations[200], available_at: '2026-09-01T07:00:00+08:00', quality_status: 'failed', value: null });
+    await page.getByTestId('forecast-evidence').fill(JSON.stringify(qualityEvidence));
+    await page.getByTestId('forecast-run').click(); await page.getByTestId('forecast-result').waitFor();
+    assert.match(await page.getByTestId('forecast-training-quality').innerText(), /采集失败 1 天/);
+    assert.match(await page.getByTestId('forecast-result').innerText(), /状态：partial/);
+    await page.screenshot({ path: path.join(out, 'L05-mobile-partial-synthetic.png'), fullPage: true });
     await page.getByTestId('forecast-hotel').selectOption('90002');
     assert.equal(await page.getByTestId('forecast-result').count(), 0);
     assert.match(await page.getByTestId('forecast-history-status').innerText(), /尚未读取/);
