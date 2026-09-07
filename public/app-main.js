@@ -48219,6 +48219,13 @@
                         });
                         if (!isCurrentRequest()) return [];
                         if (res && res.code === 200) {
+                            if (typeof window.SUXI_CTRIP_STATIC_FULL?.buildCtripConfigFormForHotel !== 'function') {
+                                const loadDeferredAsset = window.SUXI_LOAD_DEFERRED_AUTHENTICATED_ASSET;
+                                if (typeof loadDeferredAsset !== 'function') throw new Error('携程配置展示工具加载器不可用');
+                                await loadDeferredAsset('app-deferred-helpers.min.js');
+                                if (!isCurrentRequest()) return [];
+                                if (typeof window.SUXI_CTRIP_STATIC_FULL?.buildCtripConfigFormForHotel !== 'function') throw new Error('携程配置展示工具加载完成但未注册');
+                            }
                             const list = res.data || [];
                             ctripConfigList.value = Array.isArray(list) ? list : Object.values(list);
                             ctripConfigListLoaded.value = true;
