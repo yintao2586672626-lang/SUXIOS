@@ -63,7 +63,7 @@ export const SOURCE_HOTSPOT_BUDGETS = Object.freeze([
   { path: 'app/service/concern/AiDailyReportReadinessConcern.php', max_lines: 150, boundary: 'AI daily report authoritative-loop readiness' },
   { path: 'app/service/concern/AiDailyReportExecutionReadConcern.php', max_lines: 250, boundary: 'AI daily report operation execution readback' },
   { path: 'app/service/concern/RevenueAiOverviewLabelConcern.php', max_lines: 50, boundary: 'Revenue AI overview label mapping' },
-  { path: 'route/app.php', max_lines: 500, ratchet_max_lines: 784, boundary: 'legacy route bootstrap; AI daily reports, Agent guidance, AI governance, operations, and WeCom domains extracted; zero-growth until the next authenticated domain manifest' },
+  { path: 'route/app.php', max_lines: 500, ratchet_max_lines: 778, boundary: 'legacy route bootstrap; AI daily reports, Agent guidance, Revenue AI, AI governance, operations, and WeCom domains extracted; zero-growth until the next authenticated domain manifest' },
   { path: 'scripts/verify_p0_ota_field_loop_closure.php', max_lines: 4_000, ratchet_max_lines: 8_563, boundary: 'P0 OTA field-loop verifier debt; split by platform and evidence tier before growth' },
   { path: 'scripts/verify_e2e_contracts.mjs', max_lines: 4_000, ratchet_max_lines: 8_071, boundary: 'legacy cross-domain token verifier; zero-growth while checks migrate to domain contracts and runtime assertions' },
   { path: 'scripts/inspect_phase1_ota_live_closure.php', max_lines: 4_000, ratchet_max_lines: 6_925, boundary: 'phase-one live closure inspector; zero-growth until evidence-domain extraction' },
