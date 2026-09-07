@@ -1,7 +1,7 @@
 (() => {
     'use strict';
 
-    const fullScript = 'components/system/app-main-components.js?v=20260830-operating-finance-h907acda610';
+    const fullScript = 'components/system/app-main-components.js?v=20260830-operating-finance-hf72f119c27';
     let fullScriptPromise = null;
 
     const loadFullScript = () => {
@@ -166,7 +166,7 @@
             'LocalCollectorLoginHandoff', 'PmsRealtimeSyncResult', 'HotelThreeSourceOnboardingPanel',
             'OperatingLoopAuthority', 'ManagerCapabilityPanel', 'OperatingOpportunityLab',
             'OperatingFinanceControlCenter', 'OperatingNetworkReplicationList',
-            'MeituanSearchKeywordWorkbench', 'SimulationHeroActions',
+            'MeituanSearchKeywordWorkbench', 'SimulationHeroActions', 'ForecastDecisionWorkbench',
             'RevenueCockpitOpportunityDetails', 'RevenueCockpitSnapshotStatus',
             'RevenueCockpitActionRestoreStatus',
         ];

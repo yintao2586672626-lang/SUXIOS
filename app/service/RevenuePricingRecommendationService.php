@@ -15,6 +15,42 @@ class RevenuePricingRecommendationService
     public const PRICE_SUGGESTION_DECISION_ATTESTATION_VERSION = 'price_suggestion_decision_attestation.v1';
     public const PRICE_SUGGESTION_PLATFORM = 'ctrip';
 
+    /** Explicit assumptions only. Never persists suggestions or calls an OTA pricing endpoint. */
+    public function simulateForecastScenario(array $replay, array $input): array
+    {
+        $horizon = $input['horizon_days'] ?? null;
+        if (!in_array($horizon, [7, 14, 30], true)) throw new \InvalidArgumentException('情景周期须为7、14或30天。');
+        foreach (['current_price', 'proposed_price', 'elasticity', 'inventory_room_nights'] as $key) {
+            if (!isset($input[$key]) || !is_numeric($input[$key]) || !is_finite((float)$input[$key])) throw new \InvalidArgumentException('情景缺少有效输入：' . $key);
+        }
+        $current = (float)$input['current_price']; $price = (float)$input['proposed_price'];
+        $elasticity = (float)$input['elasticity']; $inventory = (float)$input['inventory_room_nights'];
+        if ($current <= 0 || $price <= 0 || $current > 100000 || $price > 100000 || $price / $current < 0.5 || $price / $current > 1.5
+            || $elasticity > 0 || $elasticity < -5 || $inventory < 0 || $inventory > 1000000 || floor($inventory) !== $inventory
+            || ($input['price_unit'] ?? '') !== 'CNY_per_room_night'
+            || ($input['inventory_scope'] ?? '') !== ($replay['scope']['room_scope'] ?? null)) {
+            throw new \InvalidArgumentException('价格须为元/间夜，变动限±50%，弹性[-5,0]，库存为同房型同渠道全周期非负整数间夜。');
+        }
+        $plan = $replay['forecasts'][$horizon] ?? [];
+        $demand = $plan['total_predicted_room_nights'] ?? null;
+        if ($demand === null) return ['status' => 'blocked', 'reason' => 'forecast_missing', 'assumptions' => $input,
+            'automatic_price_write' => false, 'causality_claimed' => false];
+        $factor = ($price / $current) ** $elasticity;
+        $baseNights = min($inventory, $demand);
+        $proposedNights = min($inventory, $demand * $factor);
+        $baseAmount = $baseNights * $current;
+        $proposedAmount = $proposedNights * $price;
+        return ['status' => 'hypothetical', 'assumptions' => $input, 'scope' => $replay['scope'],
+            'base_room_nights' => $baseNights, 'proposed_room_nights' => $proposedNights,
+            'base_amount_cny' => round($baseAmount, 2), 'proposed_amount_cny' => round($proposedAmount, 2),
+            'hypothetical_difference_cny' => round($proposedAmount - $baseAmount, 2),
+            'formula' => 'min(period_channel_inventory, forecast_net_stay_nights * (proposed_price/current_price)^assumed_elasticity) * proposed_price',
+            'limitations' => ['弹性为人工假设，未从历史价格拟合；金额未扣佣金、税费或成本。',
+                '库存为全周期聚合假设，不能证明每日可售；预测已排除取消，不能再扣一次取消率。',
+                '价格对照金额不是调价因果增收，即使回测优于基线也不证明经营效果。'],
+            'automatic_price_write' => false, 'causality_claimed' => false];
+    }
+
     private const MODEL_VERSION = 'advisory_revenue_pricing_v1';
     private const MAX_CHANGE_RATE = 0.20;
     private const MIN_MATERIAL_CHANGE = 1.0;

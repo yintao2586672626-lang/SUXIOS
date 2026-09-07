@@ -18,6 +18,12 @@ final class TemporalForecastTrialService
     public const OPERATION_SOURCE_MODULE = 'temporal_forecast_trial';
     public const POLICY_VERSION = 'limited_pilot_v1';
 
+    /** Offline replay is independent of the frozen/approval-controlled operational pilot. */
+    public function replayEvidence(array $input, array $scope): array
+    {
+        return (new TemporalForecastReplayService($this->temporalInsight))->run($input, $scope);
+    }
+
     private const TRIAL_TABLE = 'temporal_forecast_trials';
     private const POINT_TABLE = 'temporal_forecast_trial_points';
     private const FORECAST_TABLE = 'temporal_forecast_snapshots';

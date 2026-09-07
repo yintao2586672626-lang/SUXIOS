@@ -10132,6 +10132,7 @@
 
                                 <div v-if="agentTab === 'revenue'">
                                     <div class="flex flex-wrap gap-2 mb-5">
+                                        <button @click="revenueAgentTab = 'forecast'" :class="['px-4 py-2 rounded-lg font-medium transition', revenueAgentTab==='forecast' ? 'bg-green-600 text-white' : 'bg-gray-100 text-gray-600']">时点回测与定价情景</button>
                                         <button @click="revenueAgentTab = 'analysis'; loadRevenueCockpit({ reloadScope: true })" :class="['px-4 py-2 rounded-lg font-medium transition', revenueAgentTab==='analysis' ? 'bg-green-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200']">
                                             <i class="fas fa-tachometer-alt mr-2"></i>经营驾驶舱
                                         </button>
@@ -10142,6 +10143,8 @@
                                             <i class="fas fa-calendar-alt mr-2"></i>远期定价台账
                                         </button>
                                     </div>
+
+                                    <forecast-decision-workbench v-if="revenueAgentTab === 'forecast'" :request="managerCapabilityRequest" :hotels="operationHotelOptions" :hotel-id="filterReportHotel"></forecast-decision-workbench>
 
                                     <div v-if="revenueAgentTab === 'config'" class="max-w-2xl">
                                         <div class="bg-white rounded-xl border border-gray-200 p-6">

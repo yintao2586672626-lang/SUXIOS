@@ -653,7 +653,7 @@ final class TemporalInsightService
     public function buildForecastPlan(array $dailySeries, string $asOfDate, int $futureDays = 7): array
     {
         $asOf = $this->date($asOfDate, 'as_of_date');
-        $futureDays = max(3, min(14, $futureDays));
+        $futureDays = max(3, min(30, $futureDays));
         usort($dailySeries, static fn(array $a, array $b): int => strcmp((string)($a['date'] ?? ''), (string)($b['date'] ?? '')));
 
         $metricPlans = [];
@@ -663,7 +663,9 @@ final class TemporalInsightService
             foreach ($dailySeries as $item) {
                 $date = (string)($item['date'] ?? '');
                 $value = $item[$metricKey] ?? ($item[$factKey] ?? null);
-                if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $date) === 1 && is_numeric($value)) {
+                // Only completed business dates before this forecast origin are training data.
+                if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $date) === 1 && $date < $asOf
+                    && is_numeric($value) && is_finite((float)$value) && (float)$value >= 0) {
                     $valuesByDate[$date] = (float)$value;
                 }
             }
