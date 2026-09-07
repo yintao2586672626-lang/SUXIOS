@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace app\controller;
 
 use app\service\RevenueForecastWorkbenchService;
+use app\service\TemporalForecastReplayService;
 use InvalidArgumentException;
 use think\App;
 use think\facade\Db;
@@ -29,7 +30,9 @@ final class RevenueForecastWorkbench extends Base
             if (!$this->currentUser) return $this->error('请先登录。', 401);
             $input = in_array($operation, ['preview', 'save'], true) ? $this->requestData() : $this->request->get();
             if (strlen(json_encode($input, JSON_THROW_ON_ERROR)) > 2000000) throw new InvalidArgumentException('证据输入超过2MB。');
-            $hotelId = filter_var($input['hotel_id'] ?? null, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
+            $submittedHotel = $input['hotel_id'] ?? null;
+            if (!is_int($submittedHotel) && !(is_string($submittedHotel) && ctype_digit($submittedHotel))) throw new InvalidArgumentException('酒店编号须为正整数。');
+            $hotelId = filter_var($submittedHotel, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
             if (!$hotelId) throw new InvalidArgumentException('请选择酒店。');
             if (!$this->currentUser->isSuperAdmin() && !in_array($hotelId, array_map('intval', $this->currentUser->getPermittedHotelIds()), true)) {
                 return $this->error('无权访问该酒店。', 403);
@@ -39,6 +42,7 @@ final class RevenueForecastWorkbench extends Base
             if ($tenantId <= 0) return $this->error('酒店租户绑定不可用。', 422);
             $scope = ['tenant_id' => $tenantId, 'hotel_id' => $hotelId, 'platform' => $input['platform'] ?? '',
                 'platform_store_id' => $input['platform_store_id'] ?? '', 'room_scope' => $input['room_scope'] ?? ''];
+            (new TemporalForecastReplayService())->scope($scope);
             $payload = ['evidence' => $input['evidence'] ?? []];
             if (isset($input['scenario'])) $payload['scenario'] = $input['scenario'];
             $data = match ($operation) {

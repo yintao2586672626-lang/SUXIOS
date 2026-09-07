@@ -289,6 +289,28 @@ final class RevenueForecastWorkbenchTest extends TestCase
         self::assertNotSame($early['forecasts'], $later['forecasts']);
     }
 
+    public function testRfc3339ClockAndOffsetRangesAreEnforced(): void
+    {
+        foreach (['+24:00', '-24:00', '+08:60', '-99:00'] as $offset) {
+            $input = Fixture::input(); $input['evidence']['evaluation_at'] = '2026-09-03T08:00:00' . $offset;
+            try { $this->service->preview($input, Fixture::scope()); self::fail('Invalid offset accepted'); }
+            catch (\InvalidArgumentException) { self::assertTrue(true); }
+        }
+    }
+
+    public function testObservationScopeDoesNotCoerceBooleansOrNumbers(): void
+    {
+        foreach ([['tenant_id', 1, true], ['hotel_id', 90001, '90001'], ['platform_store_id', '123', 123]] as [$key, $scopeValue, $rowValue]) {
+            $scope = Fixture::scope(); $scope[$key] = $scopeValue;
+            $input = Fixture::input();
+            foreach ($input['evidence']['observations'] as &$row) $row[$key] = $scopeValue;
+            unset($row);
+            $input['evidence']['observations'][0][$key] = $rowValue;
+            try { $this->service->save($input, $scope); self::fail('Coerced scope accepted'); }
+            catch (\InvalidArgumentException) { self::assertDirectoryDoesNotExist($this->root); }
+        }
+    }
+
     public function testOlderTrainingFailuresRemainVisibleWithEnoughReadySamples(): void
     {
         $input = Fixture::input();

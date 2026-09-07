@@ -158,9 +158,12 @@ final class RevenueForecastWorkbenchService
         if (!is_array($evidence['observations'] ?? null) || !array_is_list($evidence['observations']) || count($evidence['observations']) > 3000) {
             throw new InvalidArgumentException('observations 必须为最多3000条历史版本的列表。');
         }
+        $scopeKeys = array_flip(['tenant_id', 'hotel_id', 'platform', 'platform_store_id', 'room_scope']);
+        $scopeValidator = new TemporalForecastReplayService();
         foreach ($evidence['observations'] as $row) {
             if (!is_array($row)) throw new InvalidArgumentException('历史版本格式错误。');
             $check($row, ['tenant_id', 'hotel_id', 'platform', 'platform_store_id', 'room_scope', 'business_date', 'available_at', 'quality_status', 'value', 'source_ref']);
+            $scopeValidator->scope(array_intersect_key($row, $scopeKeys));
             if (!is_string($row['source_ref'] ?? null) || !preg_match(TemporalForecastReplayService::SOURCE_REFERENCE_PATTERN, $row['source_ref'])) throw new InvalidArgumentException('source_ref 仅接受 synthetic- 或 manual- 开头的脱敏引用编号，不接受URL、标头或凭证文本。');
         }
         if (isset($input['scenario'])) $check($input['scenario'], ['horizon_days', 'current_price', 'proposed_price', 'elasticity', 'inventory_room_nights', 'inventory_scope', 'price_unit']);

@@ -47,7 +47,7 @@ final class TemporalForecastReplayService
         foreach ($rows as $row) {
             if (!is_array($row)) throw new InvalidArgumentException('历史版本格式错误。');
             foreach ($scope as $key => $value) {
-                if (!isset($row[$key]) || (string)$row[$key] !== (string)$value) {
+                if (!isset($row[$key]) || $row[$key] !== $value) {
                     throw new InvalidArgumentException('历史版本范围不匹配：' . $key);
                 }
             }
@@ -235,7 +235,7 @@ final class TemporalForecastReplayService
 
     private function timestamp(mixed $value): DateTimeImmutable
     {
-        if (!is_string($value) || !preg_match('/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?(?:Z|[+-]\d{2}:\d{2})$/D', $value)) throw new InvalidArgumentException('时点须为带时区的 RFC3339 时间。');
+        if (!is_string($value) || !preg_match('/^\d{4}-\d{2}-\d{2}T(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d{1,6})?(?:Z|[+-](?:[01]\d|2[0-3]):[0-5]\d)$/D', $value)) throw new InvalidArgumentException('时点须为有效时钟及偏移范围的 RFC3339 时间。');
         try { $date = new DateTimeImmutable($value); } catch (\Throwable) { throw new InvalidArgumentException('时点无效。'); }
         $errors = DateTimeImmutable::getLastErrors();
         if ($errors !== false && ($errors['warning_count'] || $errors['error_count'])) throw new InvalidArgumentException('时点无效。');

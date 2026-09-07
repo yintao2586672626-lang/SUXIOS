@@ -91,4 +91,15 @@ final class RevenueForecastWorkbenchControllerTest extends TestCase
         $input['evidence'] = 'bad';
         self::assertSame(422, $this->controller($input)->preview()->getCode());
     }
+
+    public function testContextValidatesTheSameScopeContractAsReplay(): void
+    {
+        $valid = $this->controller(Fixture::scope(), false)->context();
+        self::assertSame(200, $valid->getCode());
+        self::assertSame(Fixture::scope(), $valid->getData()['data']['scope']);
+        foreach (['platform' => 'unsupported', 'platform_store_id' => 123, 'room_scope' => '', 'hotel_id' => true] as $key => $value) {
+            $scope = Fixture::scope(); $scope[$key] = $value;
+            self::assertSame(422, $this->controller($scope, false)->context()->getCode());
+        }
+    }
 }
