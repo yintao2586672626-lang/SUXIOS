@@ -6,13 +6,14 @@ namespace Tests;
 use app\controller\RevenueAi;
 use PHPUnit\Framework\TestCase;
 use ReflectionClass;
+use Tests\Support\RouteContractSource;
 
 final class RevenueAiRouteExposureContractTest extends TestCase
 {
     public function testObsoleteCockpitApprovalActionIsNotPublicOrRouted(): void
     {
         $controller = new ReflectionClass(RevenueAi::class);
-        $routes = (string)file_get_contents(__DIR__ . '/../route/app.php');
+        $routes = RouteContractSource::read(dirname(__DIR__));
 
         self::assertFalse($controller->hasMethod('createCockpitPendingApproval'));
         self::assertStringNotContainsString(
