@@ -3,6 +3,7 @@ import crypto from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import vm from 'node:vm';
+import { readRouteContractSource } from '../../scripts/lib/route_contract_source.mjs';
 
 const revenueCockpitStaticSource = readFileSync('public/revenue-cockpit-static.js', 'utf8');
 const revenueAiStaticSource = readFileSync('public/revenue-ai-static.js', 'utf8');
@@ -27,7 +28,7 @@ const systemStatic = readFileSync('public/system-static.js', 'utf8');
 const appMain = `${readFileSync('public/components/system/app-main-components.js', 'utf8')}\n${readFileSync('public/operation-static.js', 'utf8')}\n${readFileSync('public/app-main.js', 'utf8')}`;
 const appTemplate = readFileSync('resources/frontend/app-template.html', 'utf8');
 const aiDailyReportFragment = readFileSync('resources/frontend/templates/fragments/16-page-ai-daily-report.html', 'utf8');
-const routeApp = readFileSync('route/app.php', 'utf8');
+const routeApp = readRouteContractSource();
 const html = `${indexHtml}\n${appTemplate}\n${appMain}`;
 
 const createRevenueAiGapNavigationHarness = (initialFilter = {}, harnessOptions = {}) => {
