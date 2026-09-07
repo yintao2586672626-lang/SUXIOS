@@ -16,9 +16,7 @@ final class RevenueForecastWorkbenchService
 
     public function preview(array $input, array $scope): array
     {
-        if (!is_array($input['evidence'] ?? null) || (isset($input['scenario']) && !is_array($input['scenario']))) {
-            throw new InvalidArgumentException('证据和情景须为对象。');
-        }
+        $this->assertInputContract($input);
         $replay = (new TemporalForecastTrialService())->replayEvidence($input['evidence'] ?? [], $scope);
         return ['replay' => $replay,
             'scenario' => isset($input['scenario']) ? (new RevenuePricingRecommendationService())->simulateForecastScenario($replay, $input['scenario']) : null];
@@ -67,6 +65,7 @@ final class RevenueForecastWorkbenchService
             || !hash_equals($id, hash('sha256', $this->json($payload)))) {
             throw new RuntimeException('方案身份或内容校验失败。');
         }
+        $this->assertInputContract($payload['input'] ?? []);
         return $doc + ['readback_verified' => true, 'automatic_price_write' => false, 'causality_claimed' => false];
     }
 
@@ -87,6 +86,35 @@ final class RevenueForecastWorkbenchService
             } catch (\Throwable) { $out[] = ['id' => $id, 'status' => 'unverified_or_unsupported']; }
         }
         return $out;
+    }
+
+    /** Only the declared contract may enter storage or leave legacy storage. Never echo rejected values. */
+    private function assertInputContract(array $input): void
+    {
+        $check = static function (array $object, array $allowed, array $containers = []): void {
+            if (array_diff(array_keys($object), $allowed) !== []) {
+                throw new InvalidArgumentException('导入内容含未声明字段；请仅保留证据和情景约定字段，不得包含凭证。');
+            }
+            foreach ($object as $key => $value) {
+                if (!in_array($key, $containers, true) && !is_scalar($value) && $value !== null) {
+                    throw new InvalidArgumentException('导入字段不允许嵌套内容；不得包含凭证。');
+                }
+            }
+        };
+        $check($input, ['evidence', 'scenario'], ['evidence', 'scenario']);
+        if (!is_array($input['evidence'] ?? null) || (array_key_exists('scenario', $input) && !is_array($input['scenario']))) {
+            throw new InvalidArgumentException('证据和情景须为对象。');
+        }
+        $evidence = $input['evidence'];
+        $check($evidence, ['schema_version', 'source_kind', 'metric_definition', 'date_basis', 'unit', 'as_of_at', 'evaluation_at', 'backtest_start', 'backtest_end', 'observations'], ['observations']);
+        if (!is_array($evidence['observations'] ?? null) || !array_is_list($evidence['observations']) || count($evidence['observations']) > 3000) {
+            throw new InvalidArgumentException('observations 必须为最多3000条历史版本的列表。');
+        }
+        foreach ($evidence['observations'] as $row) {
+            if (!is_array($row)) throw new InvalidArgumentException('历史版本格式错误。');
+            $check($row, ['tenant_id', 'hotel_id', 'platform', 'platform_store_id', 'room_scope', 'business_date', 'available_at', 'quality_status', 'value', 'source_ref']);
+        }
+        if (isset($input['scenario'])) $check($input['scenario'], ['horizon_days', 'current_price', 'proposed_price', 'elasticity', 'inventory_room_nights', 'inventory_scope', 'price_unit']);
     }
 
     private function directory(array $scope): string

@@ -49,7 +49,7 @@ test('late history cannot reappear after scope changes', async () => {
 test('history read rejects another document in the same scope and accepts the requested document', async () => {
     const requestedId = 'a'.repeat(64);
     let returnedId = 'b'.repeat(64);
-    const c = create(async () => ({ code: 200, data: { id: returnedId, readback_verified: true, payload: { scope, result: response().data } } }));
+    const c = create(async () => ({ code: 200, data: { id: returnedId, readback_verified: true, payload: { scope, input: { evidence: {} }, result: response().data } } }));
     await c.action('read', scope, requestedId);
     assert.equal(c.state.result, null);
     assert.equal(c.state.savedId, '');
@@ -67,6 +67,22 @@ test('saved result requires a content ID and a boolean verified flag', async () 
         assert.equal(c.state.result, null);
         assert.equal(c.state.savedId, '');
     }
+});
+
+test('protected summary read stays restricted and malformed full read fails closed', async () => {
+    const id = 'a'.repeat(64);
+    let redacted = true;
+    const c = create(async () => ({ code: 200, redacted, data: { id, readback_verified: true, payload: { scope, input: {}, result: response().data } } }));
+    await c.action('read', scope, id);
+    assert.equal(c.state.inputRestricted, true);
+    assert.equal(c.state.savedId, id);
+    c.invalidate();
+    assert.equal(c.state.inputRestricted, false);
+    redacted = false;
+    await c.action('read', scope, id);
+    assert.equal(c.state.savedId, '');
+    assert.equal(c.state.result, null);
+    assert.match(c.state.error, /原始输入缺失/);
 });
 
 test('editing scenario inputs preserves pending history for the same scope', async () => {

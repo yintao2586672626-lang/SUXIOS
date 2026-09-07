@@ -3,18 +3,18 @@
     const endpoint = '/revenue-ai/forecast-workbench';
     // Independent state machine lets slow responses fail closed after any input/scope edit.
     function createController(request) {
-        const state = { busy: false, error: '', result: null, savedId: '', history: [], historyError: '' };
+        const state = { busy: false, error: '', result: null, savedId: '', inputRestricted: false, history: [], historyError: '' };
         let epoch = 0;
         let historyEpoch = 0;
         const invalidate = (clearHistory = false) => {
-            epoch++; state.busy = false; state.result = null; state.savedId = ''; state.error = '';
+            epoch++; state.busy = false; state.result = null; state.savedId = ''; state.inputRestricted = false; state.error = '';
             if (clearHistory) { historyEpoch++; state.history = []; state.historyError = ''; }
         };
         const scopeMatches = (actual, expected) => actual && ['hotel_id', 'platform', 'platform_store_id', 'room_scope'].every(k => String(actual[k]) === String(expected[k]));
         async function action(kind, payload, id = '') {
             if (state.busy) return null;
             const ticket = ++epoch;
-            state.busy = true; state.error = ''; state.result = null; state.savedId = '';
+            state.busy = true; state.error = ''; state.result = null; state.savedId = ''; state.inputRestricted = false;
             try {
                 const query = new URLSearchParams(Object.fromEntries(['hotel_id', 'platform', 'platform_store_id', 'room_scope'].map(k => [k, payload[k]])));
                 const res = await request(kind === 'read' ? `${endpoint}/plans/${encodeURIComponent(id)}?${query}` : `${endpoint}/${kind === 'save' ? 'plans' : 'preview'}`,
@@ -25,7 +25,9 @@
                 const result = doc ? doc.payload?.result : res.data;
                 if (!scopeMatches(result?.replay?.scope, payload) || (doc && (doc.readback_verified !== true || !scopeMatches(doc.payload?.scope, payload)))) throw new Error('返回范围或精确回读标记不一致。');
                 if (doc && (typeof doc.id !== 'string' || !/^[a-f0-9]{64}$/.test(doc.id) || (kind === 'read' && doc.id !== id))) throw new Error('返回方案编号与请求不一致，未确认精确回读。');
-                state.result = result; state.savedId = doc?.id || '';
+                const inputRestricted = Boolean(doc && res.redacted === true);
+                if (doc && !inputRestricted && (!doc.payload?.input?.evidence || typeof doc.payload.input.evidence !== 'object' || Array.isArray(doc.payload.input.evidence))) throw new Error('方案原始输入缺失，未恢复为可编辑方案。');
+                state.result = result; state.savedId = doc?.id || ''; state.inputRestricted = inputRestricted;
                 return doc || result;
             } catch (e) { if (ticket === epoch) state.error = e.message || '请求失败，请重试。'; return null; }
             finally { if (ticket === epoch) state.busy = false; }
@@ -90,11 +92,12 @@
                 const result = await pending;
                 if (result?.payload && kind === 'read') {
                     const documentResult = result.payload.result;
-                    evidence.value = JSON.stringify(result.payload.input.evidence, null, 2);
-                    const scenario = result.payload.input.scenario;
+                    const inputRestricted = controller.state.inputRestricted;
+                    evidence.value = inputRestricted ? '' : JSON.stringify(result.payload.input.evidence, null, 2);
+                    const scenario = inputRestricted ? null : result.payload.input.scenario;
                     for (const key of ['current_price', 'proposed_price', 'elasticity', 'inventory_room_nights']) form[key] = scenario?.[key] ?? '';
                     form.horizon_days = scenario?.horizon_days ?? 7;
-                    controller.state.result = documentResult; controller.state.savedId = result.id;
+                    controller.state.result = documentResult; controller.state.savedId = result.id; controller.state.inputRestricted = inputRestricted;
                 }
                 redraw();
                 if (kind === 'save' && result) { await controller.history(scope()); redraw(); }
@@ -113,7 +116,7 @@
             }
             const display = value => value === null || value === undefined ? '缺失' : Number(value).toLocaleString('zh-CN', { maximumFractionDigits: 2 });
             const labels = { insufficient_samples: '样本不足', better_on_this_sample: '本样本优于两基线', not_better_than_baseline: '未优于基线' };
-            const button = (label, fn, testId) => h('button', { type: 'button', disabled: controller.state.busy, onClick: fn, 'data-testid': testId }, label);
+            const button = (label, fn, testId, disabled = false) => h('button', { type: 'button', disabled: controller.state.busy || disabled, onClick: fn, 'data-testid': testId }, label);
             return () => {
                 void revision.value;
                 const current = controller.state;
@@ -131,9 +134,9 @@
                     h('label', { class: 'fw-field' }, ['导入证据 JSON 文件', h('input', { type: 'file', accept: '.json,application/json', onChange: async e => { const file = e.target.files?.[0]; if (!file) return; if (file.size > 2000000) { controller.state.error = '文件超过2MB'; redraw(); return; } const before = inputKey(); const value = await file.text(); if (before === inputKey()) evidence.value = value; } })]),
                     h('p', '情景可选：全部留空只回测。填写后四项均必填；弹性是人工假设，库存为同渠道同房型全周期可用间夜。'),
                     h('div', { class: 'fw-grid' }, [h('label', { class: 'fw-field' }, ['情景周期', h('select', { value: form.horizon_days, onChange: e => { form.horizon_days = Number(e.target.value); } }, [7, 14, 30].map(n => h('option', { value: n }, `${n}天`)))]), field('当前房价（元/间夜）', 'current_price', 'number'), field('方案房价（元/间夜）', 'proposed_price', 'number'), field('价格弹性假设（-5至0）', 'elasticity', 'number'), field('全周期渠道库存（间夜）', 'inventory_room_nights', 'number')]),
-                    h('div', { class: 'fw-actions' }, [button(current.busy ? '处理中…' : '运行回测和情景', () => run('preview'), 'forecast-run'), button('保存并精确回读', () => run('save'), 'forecast-save')]),
+                    h('div', { class: 'fw-actions' }, [button(current.busy ? '处理中…' : '运行回测和情景', () => run('preview'), 'forecast-run', !evidence.value.trim()), button('保存并精确回读', () => run('save'), 'forecast-save', !evidence.value.trim())]),
                     current.error ? h('p', { role: 'alert' }, current.error) : null,
-                    current.savedId ? h('p', { 'data-testid': 'forecast-saved' }, `方案已精确回读：${current.savedId}。编辑输入后须重新计算/保存。`) : null,
+                    current.savedId ? h('p', { 'data-testid': 'forecast-saved' }, current.inputRestricted ? `服务器已校验方案，当前仅显示摘要：${current.savedId}。原始输入受权限限制；历史回读后需重新导入证据再计算/保存。` : `方案已精确回读：${current.savedId}。编辑输入后须重新计算/保存。`) : null,
                     replay ? h('div', { 'data-testid': 'forecast-result' }, [h('p', `来源：${replay.source_kind} · 状态：${replay.data_status} · 预测时点：${replay.as_of_at} · 实际评价时点：${replay.evaluation_at}`),
                         h('p', `证据版本 ${replay.input_evidence.version_count}；可见训练样本 ${replay.input_evidence.training_sample_count}；排除预测时点后版本 ${replay.input_evidence.excluded_after_as_of_count}。单位：间夜，取消已排除。`),
                         h('div', { style: 'overflow-x:auto' }, [h('table', [h('thead', [h('tr', ['周期', '预测间夜/状态', '配对样本/完整折', '模型MAE', '周基线MAE', '均值基线MAE', '区间覆盖%', '判断'].map(s => h('th', s)))]), h('tbody', [7, 14, 30].map(n => { const c = replay.comparisons[n]; const f = replay.forecasts[n]; return h('tr', [h('td', `${n}天`), h('td', `${display(f.total_predicted_room_nights)} / ${f.status}`), h('td', `${c.sample_count}/${c.complete_fold_count}（缺${c.unpaired_point_count}点）`), h('td', display(c.metrics.model.mae)), h('td', display(c.metrics.weekly.mae)), h('td', display(c.metrics.mean7.mae)), h('td', display(c.interval_coverage_percent)), h('td', labels[c.assessment.status] || c.assessment.status)]); }))])]),
@@ -141,7 +144,7 @@
                         h('details', [h('summary', '逐日预测、时间折、来源与全部误差（RMSE/WAPE/偏差）'), h('pre', JSON.stringify(replay, null, 2))])]) : null,
                     scenario ? h('div', { 'data-testid': 'forecast-scenario' }, [h('h4', '价格假设对照（不代表因果增收）'), scenario.status === 'blocked' ? h('p', '预测缺失，情景被阻塞。') : h('p', `基准金额 ${display(scenario.base_amount_cny)} 元 → 假设方案金额 ${display(scenario.proposed_amount_cny)} 元；假设差额 ${display(scenario.hypothetical_difference_cny)} 元。`), ...(scenario.limitations || []).map(s => h('p', s))]) : null,
                     current.historyError ? h('p', { role: 'alert' }, current.historyError) : null,
-                    h('details', { open: current.history.length > 0 }, [h('summary', '历史方案（当前酒店/渠道/门店/房型；最近50条）'), ...current.history.map(item => h('p', [button(`${item.as_of_at || item.id.slice(0, 12)} · ${item.source_kind || ''} · ${item.status}`, () => run('read', item.id), 'forecast-read')]))]),
+                    h('details', { open: current.history.length > 0 }, [h('summary', '历史方案（当前酒店/渠道/门店/房型；最近50条）'), ...current.history.map(item => h('p', [button(`方案 ${item.id.slice(0, 12)} · 保存 ${item.created_at || '时间未知'} · 预测 ${item.as_of_at || '时点未知'} · ${item.source_kind || ''} · ${item.status}`, () => run('read', item.id), 'forecast-read')]))]),
                 ]);
             };
         },

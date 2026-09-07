@@ -155,6 +155,48 @@ final class RevenueForecastWorkbenchTest extends TestCase
         $this->service->save($input, Fixture::scope());
     }
 
+    public function testUnexpectedAndNestedImportFieldsRejectBeforeStorage(): void
+    {
+        foreach (['root', 'evidence', 'observation', 'scenario', 'nested_leaf'] as $location) {
+            $input = Fixture::input();
+            $sentinel = 'synthetic-secret-field-must-never-persist';
+            match ($location) {
+                'root' => $input['password'] = $sentinel,
+                'evidence' => $input['evidence']['authorization'] = $sentinel,
+                'observation' => $input['evidence']['observations'][0]['cookie'] = $sentinel,
+                'scenario' => $input['scenario']['token'] = $sentinel,
+                'nested_leaf' => $input['evidence']['observations'][0]['source_ref'] = ['password' => $sentinel],
+            };
+            try { $this->service->save($input, Fixture::scope()); self::fail('Undeclared import field accepted'); }
+            catch (\InvalidArgumentException $e) {
+                self::assertStringNotContainsString($sentinel, $e->getMessage());
+                self::assertDirectoryDoesNotExist($this->root);
+            }
+        }
+    }
+
+    public function testLegacyDocumentWithUndeclaredInputStaysUnreadableAndPreserved(): void
+    {
+        $saved = $this->service->save(Fixture::input(), Fixture::scope());
+        $path = (glob($this->root . '/*/*.json') ?: [])[0];
+        $saved['payload']['input']['evidence']['authorization'] = 'synthetic-legacy-sentinel';
+        $normalize = function ($value) use (&$normalize) {
+            if (!is_array($value)) return $value;
+            if (!array_is_list($value)) ksort($value);
+            return array_map($normalize, $value);
+        };
+        $saved['id'] = hash('sha256', json_encode($normalize($saved['payload']), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRESERVE_ZERO_FRACTION | JSON_THROW_ON_ERROR));
+        $legacyPath = dirname($path) . '/' . $saved['id'] . '.json';
+        file_put_contents($legacyPath, json_encode($saved, JSON_PRESERVE_ZERO_FRACTION | JSON_THROW_ON_ERROR));
+        $items = array_column($this->service->history(Fixture::scope()), null, 'id');
+        self::assertSame('unverified_or_unsupported', $items[$saved['id']]['status']);
+        try { $this->service->read($saved['id'], Fixture::scope()); self::fail('Undeclared legacy content returned'); }
+        catch (\InvalidArgumentException $e) {
+            self::assertStringNotContainsString('synthetic-legacy-sentinel', $e->getMessage());
+            self::assertFileExists($legacyPath);
+        }
+    }
+
     public function testSaveReadbackInputChangeHistoryAndTenantSeparation(): void
     {
         $input = Fixture::input(); $scope = Fixture::scope();

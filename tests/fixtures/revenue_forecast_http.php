@@ -28,7 +28,7 @@ $actor = $_SERVER['HTTP_X_SYNTHETIC_ACTOR'] ?? 'allowed';
 $request->user = $actor === 'anonymous' ? null : new class($actor) {
     public function __construct(private string $actor) {}
     public function isSuperAdmin(): bool { return false; }
-    public function getPermittedHotelIds(): array { return $this->actor === 'allowed' ? [90001] : [90002]; }
+    public function getPermittedHotelIds(): array { return in_array($this->actor, ['allowed', 'summary'], true) ? [90001] : [90002]; }
 };
 app()->instance('request', $request);
 $controller = new \app\controller\RevenueForecastWorkbench(app(), new \app\service\RevenueForecastWorkbenchService($state . '/plans'));
@@ -42,4 +42,11 @@ $response = match (true) {
     default => json(['code' => 404, 'message' => 'fixture route missing'], 404),
 };
 http_response_code($response->getCode()); header('Content-Type: application/json; charset=utf-8');
+if ($actor === 'summary') {
+    $protection = new \app\service\ProtectedCapabilityService(\app\service\ProtectedCapabilityService::defaultPolicy());
+    $capability = $protection->classifyPath($method, (string)$path);
+    if ($capability === null || ($capability['response_mode'] ?? '') !== 'summary_only') throw new \RuntimeException('Expected protected summary policy');
+    echo json_encode($protection->redactPayload(json_decode($response->getContent(), true), $capability, 'synthetic-summary-request'), JSON_UNESCAPED_UNICODE);
+    return;
+}
 echo $response->getContent();
