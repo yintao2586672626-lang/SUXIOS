@@ -3,12 +3,12 @@
     const endpoint = '/revenue-ai/forecast-workbench';
     // Independent state machine lets slow responses fail closed after any input/scope edit.
     function createController(request) {
-        const state = { busy: false, error: '', result: null, savedId: '', inputRestricted: false, history: [], historyError: '' };
+        const state = { busy: false, error: '', result: null, savedId: '', inputRestricted: false, history: [], historyError: '', historyStatus: 'idle' };
         let epoch = 0;
         let historyEpoch = 0;
         const invalidate = (clearHistory = false) => {
             epoch++; state.busy = false; state.result = null; state.savedId = ''; state.inputRestricted = false; state.error = '';
-            if (clearHistory) { historyEpoch++; state.history = []; state.historyError = ''; }
+            if (clearHistory) { historyEpoch++; state.history = []; state.historyError = ''; state.historyStatus = 'idle'; }
         };
         const scopeMatches = (actual, expected) => actual && ['hotel_id', 'platform', 'platform_store_id', 'room_scope'].every(k => String(actual[k]) === String(expected[k]));
         async function action(kind, payload, id = '') {
@@ -34,13 +34,14 @@
         }
         async function history(scope) {
             const ticket = ++historyEpoch;
-            state.historyError = ''; state.history = [];
+            state.historyError = ''; state.history = []; state.historyStatus = 'loading';
             try {
                 const res = await request(`${endpoint}/plans?${new URLSearchParams(scope)}`, { method: 'GET', businessContext: { hotelId: scope.hotel_id } });
                 if (ticket !== historyEpoch) return;
                 if (res?.code !== 200 || !scopeMatches(res.data?.scope, scope) || !Array.isArray(res.data?.items)) throw new Error(res?.message || '历史范围或响应错误。');
                 state.history = res.data.items;
-            } catch (e) { if (ticket === historyEpoch) state.historyError = e.message; }
+                state.historyStatus = state.history.length ? 'ready' : 'empty';
+            } catch (e) { if (ticket === historyEpoch) { state.historyError = e.message; state.historyStatus = 'error'; } }
         }
         return { state, invalidate, action, history };
     }
@@ -100,7 +101,7 @@
                     controller.state.result = documentResult; controller.state.savedId = result.id; controller.state.inputRestricted = inputRestricted;
                 }
                 redraw();
-                if (kind === 'save' && result) { await controller.history(scope()); redraw(); }
+                if (kind === 'save' && result) await loadHistory();
             }
             async function sample() {
                 controller.invalidate(); redraw();
@@ -117,6 +118,7 @@
             const display = value => value === null || value === undefined ? '缺失' : Number(value).toLocaleString('zh-CN', { maximumFractionDigits: 2 });
             const labels = { insufficient_samples: '样本不足', better_on_this_sample: '本样本优于两基线', not_better_than_baseline: '未优于基线' };
             const button = (label, fn, testId, disabled = false) => h('button', { type: 'button', disabled: controller.state.busy || disabled, onClick: fn, 'data-testid': testId }, label);
+            async function loadHistory() { const pending = controller.history(scope()); redraw(); await pending; redraw(); }
             return () => {
                 void revision.value;
                 const current = controller.state;
@@ -129,7 +131,7 @@
                     h('p', { class: 'fw-note' }, '输入脱敏证据，冻结预测时点可见版本，比较未来7/14/30天净入住间夜。人工导入待核验，示例仅synthetic；不自动改价。'),
                     h('div', { class: 'fw-grid' }, [h('label', { class: 'fw-field' }, ['酒店', h('select', { value: form.hotel_id, 'data-testid': 'forecast-hotel', onChange: e => { form.hotel_id = e.target.value; } }, [h('option', { value: '' }, '选择酒店'), ...props.hotels.map(item => h('option', { value: item.id }, item.name || String(item.id)))])]),
                         h('label', { class: 'fw-field' }, ['渠道', h('select', { value: form.platform, onChange: e => { form.platform = e.target.value; } }, [h('option', { value: 'ctrip' }, '携程'), h('option', { value: 'meituan' }, '美团')])]), field('平台门店标识（导入声明待核）', 'platform_store_id'), field('房型/库存范围', 'room_scope')]),
-                    h('div', { class: 'fw-actions' }, [button('载入 synthetic 验收示例', sample, 'forecast-sample'), button('读取历史方案', async () => { await controller.history(scope()); redraw(); }, 'forecast-history')]),
+                    h('div', { class: 'fw-actions' }, [button('载入 synthetic 验收示例', sample, 'forecast-sample'), button(current.historyStatus === 'loading' ? '正在读取历史…' : '读取历史方案', loadHistory, 'forecast-history', current.historyStatus === 'loading')]),
                     h('label', { class: 'fw-field' }, ['证据 JSON（包含带时区 available_at、入住日、净间夜、质量状态及 source_ref；不得包含凭证）', h('textarea', { value: evidence.value, 'data-testid': 'forecast-evidence', onInput: e => { evidence.value = e.target.value; } })]),
                     h('label', { class: 'fw-field' }, ['导入证据 JSON 文件', h('input', { type: 'file', accept: '.json,application/json', onChange: async e => { const file = e.target.files?.[0]; if (!file) return; if (file.size > 2000000) { controller.state.error = '文件超过2MB'; redraw(); return; } const before = inputKey(); const value = await file.text(); if (before === inputKey()) evidence.value = value; } })]),
                     h('p', '情景可选：全部留空只回测。填写后四项均必填；弹性是人工假设，库存为同渠道同房型全周期可用间夜。'),
@@ -144,6 +146,7 @@
                         h('details', [h('summary', '逐日预测、时间折、来源与全部误差（RMSE/WAPE/偏差）'), h('pre', JSON.stringify(replay, null, 2))])]) : null,
                     scenario ? h('div', { 'data-testid': 'forecast-scenario' }, [h('h4', '价格假设对照（不代表因果增收）'), scenario.status === 'blocked' ? h('p', '预测缺失，情景被阻塞。') : h('p', `基准金额 ${display(scenario.base_amount_cny)} 元 → 假设方案金额 ${display(scenario.proposed_amount_cny)} 元；假设差额 ${display(scenario.hypothetical_difference_cny)} 元。`), ...(scenario.limitations || []).map(s => h('p', s))]) : null,
                     current.historyError ? h('p', { role: 'alert' }, current.historyError) : null,
+                    ['idle', 'loading', 'empty'].includes(current.historyStatus) ? h('p', { role: 'status', 'data-testid': 'forecast-history-status' }, { idle: '尚未读取当前范围的历史方案。', loading: '正在读取当前范围的历史方案…', empty: '已读取：当前范围暂无已保存方案。' }[current.historyStatus]) : null,
                     h('details', { open: current.history.length > 0 }, [h('summary', '历史方案（当前酒店/渠道/门店/房型；最近50条）'), ...current.history.map(item => h('p', [button(`方案 ${item.id.slice(0, 12)} · 保存 ${item.created_at || '时间未知'} · 预测 ${item.as_of_at || '时点未知'} · ${item.source_kind || ''} · ${item.status}`, () => run('read', item.id), 'forecast-read')]))]),
                 ]);
             };

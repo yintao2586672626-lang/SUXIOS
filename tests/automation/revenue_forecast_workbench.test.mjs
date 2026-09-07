@@ -46,6 +46,23 @@ test('late history cannot reappear after scope changes', async () => {
     assert.equal(c.state.history.length, 0);
 });
 
+test('history distinguishes loading, confirmed empty, error and a new scope', async () => {
+    const pending = deferred();
+    const c = create(() => pending.promise);
+    assert.equal(c.state.historyStatus, 'idle');
+    const request = c.history(scope);
+    assert.equal(c.state.historyStatus, 'loading');
+    pending.resolve({ code: 200, data: { scope, items: [] } });
+    await request;
+    assert.equal(c.state.historyStatus, 'empty');
+    c.invalidate(true);
+    assert.equal(c.state.historyStatus, 'idle');
+    const failed = create(async () => ({ code: 403, message: 'synthetic denied' }));
+    await failed.history(scope);
+    assert.equal(failed.state.historyStatus, 'error');
+    assert.match(failed.state.historyError, /denied/);
+});
+
 test('history read rejects another document in the same scope and accepts the requested document', async () => {
     const requestedId = 'a'.repeat(64);
     let returnedId = 'b'.repeat(64);

@@ -401,12 +401,16 @@
       "inherited_fragment_ids": [],
       "inheritance_reason": "无继承片段。",
       "scope_dimensions": ["hotel", "business_date", "source", "fact_status"],
-      "state_requirements": ["loading", "ready", "partial", "unverified", "blocked", "error"],
+      "state_requirements": ["loading", "ready", "empty", "partial", "unverified", "blocked", "error"],
       "contract_dimensions": ["scope_identity", "truthful_states", "source_date", "pending_approval", "save_readback", "failure_visibility", "focused_regression"],
       "source_checks": [
         {
           "path": "resources/frontend/templates/fragments/27-page-agent-center.html",
           "includes": ["otaDiagnosisForm.hotel_id", "otaDiagnosisForm.start_date", "otaDiagnosisForm.end_date", "data-testid=\"ota-diagnosis-decision-status\"", "data-testid=\"revenue-daily-cockpit\"", "data-testid=\"revenue-cockpit-save-snapshot\"", "ignoreSavedSnapshot: true", "pending_approval", "readback_verified"]
+        },
+        {
+          "path": "public/components/revenue/forecast-decision-workbench.js",
+          "includes": ["ForecastDecisionWorkbench", "scopeMatches", "readback_verified", "inputRestricted", "historyStatus"]
         }
       ],
       "regression_checks": [
@@ -417,6 +421,10 @@
         {
           "path": "tests/automation/revenue_ai_static.test.mjs",
           "includes": ["daily revenue cockpit accepts only the exact server-issued canonical model and digest", "daily revenue cockpit template exposes unified context, evidence, download and human-gated handoffs", "saveRevenueDecisionSnapshotWithReadback", "createRevenueOpportunityPendingApprovalWithReadback"]
+        },
+        {
+          "path": "tests/automation/revenue_forecast_workbench.test.mjs",
+          "includes": ["history read rejects another document in the same scope", "protected summary read stays restricted", "history distinguishes loading"]
         }
       ],
       "evidence_maturity": "unit_contract_pass",

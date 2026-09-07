@@ -23,6 +23,15 @@ try {
     await page.goto(base);
     await page.getByTestId('forecast-platform_store_id').fill('synthetic-store');
     await page.getByTestId('forecast-room_scope').fill('synthetic-room');
+    assert.match(await page.getByTestId('forecast-history-status').innerText(), /尚未读取/);
+    let releaseHistory;
+    const historyRelease = new Promise(resolve => { releaseHistory = resolve; });
+    await page.route('**/api/revenue-ai/forecast-workbench/plans?*', async route => { await historyRelease; await route.continue(); }, { times: 1 });
+    await page.getByTestId('forecast-history').click();
+    assert.match(await page.getByTestId('forecast-history-status').innerText(), /正在读取/);
+    assert.equal(await page.getByTestId('forecast-history').isDisabled(), true);
+    releaseHistory();
+    await page.waitForFunction(() => document.querySelector('[data-testid=forecast-history-status]').textContent.includes('暂无已保存方案'));
     await page.getByTestId('forecast-sample').click();
     await page.waitForFunction(() => document.querySelector('[data-testid=forecast-evidence]').value.includes('synthetic-day-242'));
     for (const [key, value] of Object.entries({ current_price: '200', proposed_price: '220', elasticity: '-1', inventory_room_nights: '210' })) await page.getByTestId(`forecast-${key}`).fill(value);
@@ -84,6 +93,7 @@ try {
     await page.getByTestId('forecast-run').click(); await page.getByTestId('forecast-result').waitFor();
     await page.getByTestId('forecast-hotel').selectOption('90002');
     assert.equal(await page.getByTestId('forecast-result').count(), 0);
+    assert.match(await page.getByTestId('forecast-history-status').innerText(), /尚未读取/);
     await page.getByTestId('forecast-run').click(); await page.getByRole('alert').waitFor();
     assert.match(await page.getByRole('alert').innerText(), /无权/);
     const scope = 'hotel_id=90001&platform=ctrip&platform_store_id=synthetic-store&room_scope=synthetic-room';

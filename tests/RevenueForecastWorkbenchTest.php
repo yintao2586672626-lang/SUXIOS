@@ -255,4 +255,36 @@ final class RevenueForecastWorkbenchTest extends TestCase
         } finally { unlink($this->root); }
         self::assertTrue($this->service->save(Fixture::input(), Fixture::scope())['readback_verified']);
     }
+
+    public function testConfiguredExternalStorageSurvivesServiceRestartAndMissingProductionPathFails(): void
+    {
+        $names = ['SUXIOS_FORECAST_PLAN_PATH', 'SUXIOS_REQUIRE_PERSISTENT_LOCAL_STATE'];
+        $before = array_combine($names, array_map('getenv', $names));
+        $originalRuntime = app()->getRuntimePath();
+        try {
+            putenv('SUXIOS_FORECAST_PLAN_PATH=' . $this->root);
+            putenv('SUXIOS_REQUIRE_PERSISTENT_LOCAL_STATE=true');
+            app()->setRuntimePath($this->root . '-release-a/runtime/');
+            $saved = (new RevenueForecastWorkbenchService())->save(Fixture::input(), Fixture::scope());
+            self::assertCount(1, glob($this->root . '/*/*.json') ?: []);
+            app()->setRuntimePath($this->root . '-release-b/runtime/');
+            self::assertSame($saved['payload'], (new RevenueForecastWorkbenchService())->read($saved['id'], Fixture::scope())['payload']);
+            $next = Fixture::input(); $next['scenario']['proposed_price'] = 230;
+            $nextSaved = (new RevenueForecastWorkbenchService())->save($next, Fixture::scope());
+            app()->setRuntimePath($this->root . '-release-a/runtime/');
+            self::assertSame(230, (new RevenueForecastWorkbenchService())->read($nextSaved['id'], Fixture::scope())['payload']['input']['scenario']['proposed_price']);
+            self::assertCount(2, (new RevenueForecastWorkbenchService())->history(Fixture::scope()));
+            app()->setRuntimePath($originalRuntime);
+            foreach (['', 'runtime/forecasts', runtime_path() . 'forecasts'] as $invalid) {
+                putenv('SUXIOS_FORECAST_PLAN_PATH=' . $invalid);
+                $service = new RevenueForecastWorkbenchService();
+                self::assertSame('synthetic', $service->preview(Fixture::input(), Fixture::scope())['replay']['source_kind']);
+                try { $service->save(Fixture::input(), Fixture::scope()); self::fail('Invalid production plan path accepted'); }
+                catch (\RuntimeException $e) { self::assertStringContainsString('持久化', $e->getMessage()); }
+            }
+        } finally {
+            app()->setRuntimePath($originalRuntime);
+            foreach ($before as $name => $value) putenv($value === false ? $name : $name . '=' . $value);
+        }
+    }
 }

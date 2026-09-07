@@ -11,7 +11,35 @@ final class RevenueForecastWorkbenchService
 {
     public function __construct(private ?string $root = null)
     {
-        $this->root ??= runtime_path() . 'revenue-forecast-workbench';
+    }
+
+    private function defaultStorageRoot(): string
+    {
+        $configured = getenv('SUXIOS_FORECAST_PLAN_PATH');
+        $configured = trim((string)($configured === false ? env('SUXIOS_FORECAST_PLAN_PATH', '') : $configured));
+        $project = str_replace('\\', '/', rtrim(root_path(), '/\\'));
+        $persistentRequired = LocalStatePathPolicy::resolve()['persistent_paths_required'] || preg_match('~/releases/[^/]+$~i', $project);
+        if ($configured === '') {
+            if ($persistentRequired) throw new RuntimeException('方案持久化目录未配置；请将 SUXIOS_FORECAST_PLAN_PATH 配置到发布目录之外。');
+            return runtime_path() . 'revenue-forecast-workbench';
+        }
+        $normalized = str_replace('\\', '/', rtrim($configured, '/\\'));
+        if (str_contains($configured, "\0") || !preg_match('~^(?:/|[A-Za-z]:/)~', $normalized)
+            || $normalized === '' || preg_match('~^(?:/|[A-Za-z]:)$~', $normalized)
+            || preg_match('~/(?:\.{1,2}|releases|current)(?:/|$)~i', $normalized)) {
+            throw new RuntimeException('方案持久化目录必须是发布目录之外的绝对路径。');
+        }
+        // Resolve an existing ancestor too, so an external-looking symlink cannot point into this release.
+        $ancestor = $configured;
+        while (!file_exists($ancestor) && dirname($ancestor) !== $ancestor) $ancestor = dirname($ancestor);
+        foreach ([$normalized, str_replace('\\', '/', (string)realpath($ancestor))] as $candidate) {
+            $base = strtolower(str_replace('\\', '/', (string)(realpath($project) ?: $project)));
+            if (strtolower($candidate) === $base || str_starts_with(strtolower($candidate), $base . '/')
+                || preg_match('~/(?:releases|current)(?:/|$)~i', $candidate)) {
+                throw new RuntimeException('方案持久化目录不得位于应用或发布目录内。');
+            }
+        }
+        return $configured;
     }
 
     public function preview(array $input, array $scope): array
@@ -120,6 +148,7 @@ final class RevenueForecastWorkbenchService
     private function directory(array $scope): string
     {
         (new TemporalForecastReplayService())->scope($scope);
+        $this->root ??= $this->defaultStorageRoot();
         return $this->root . '/' . hash('sha256', $this->json($scope));
     }
 
