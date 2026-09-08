@@ -132,8 +132,8 @@ for (const [file, needle, label] of codeChecks) {
 
 const testChecks = [
   ['tests/automation/business-chains.spec.js', 'business chain: OTA import to revenue', 'OTA to operation E2E chain'],
-  ['tests/automation/business-chains.spec.js', 'business chain: market evaluation to transfer', 'market to transfer E2E chain'],
-  ['tests/automation/business-chains.spec.js', 'business chain: strategy, quant simulation, feasibility', 'investment E2E chain'],
+  ['tests/automation/business-chains.spec.js', 'business chain: retired modules preserve history and reject generation or execution', 'retired-module rejection and historical readback E2E chain'],
+  ['tests/automation/business-chains.spec.js', 'business chain: quantitative calculator remains available with saved readback', 'active quantitative calculator E2E chain'],
   ['tests/OperationExecutionLoopTest.php', 'testExecutedTaskWithoutEvidenceIsBlocked', 'execution evidence cannot be skipped'],
   ['tests/OperationExecutionLoopTest.php', 'testExecutionFlowSummaryExposesMoneyAndConversionRates', 'execution ROI summary'],
   ['tests/TransferDecisionServiceTest.php', 'TransferDecisionService', 'transfer decision service tests'],

@@ -741,14 +741,16 @@ function e2eSeedRetiredHistory(string $prefix): array
 {
     $names = e2eNames($prefix);
     $hotelId = (int)getenv('SUXI_E2E_HOTEL_ID');
-    $userId = (int)getenv('SUXI_E2E_USER_ID');
-    $hotel = Db::name('hotels')->where('id', $hotelId)->find();
-    $user = Db::name('users')->where('id', $userId)->find();
+    $expectedUserId = (int)getenv('SUXI_E2E_USER_ID');
+    $hotel = Db::name('hotels')->where('id', $hotelId)->field('id,name,tenant_id')->find();
+    $user = Db::name('users')->where('username', $names['username'])->field('id,username,tenant_id')->find();
     if (!$hotel || !$user || $hotel['name'] !== $names['hotel_name']
         || $user['username'] !== $names['username']
+        || ($expectedUserId > 0 && (int)$user['id'] !== $expectedUserId)
         || (int)$hotel['tenant_id'] !== (int)$user['tenant_id']) {
         throw new RuntimeException('Retired history fixture requires the isolated hotel and user');
     }
+    $userId = (int)$user['id'];
 
     return Db::transaction(function () use ($prefix, $hotel, $hotelId, $userId): array {
         $records = [];
