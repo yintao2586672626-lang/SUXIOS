@@ -9684,7 +9684,7 @@
                                                     </tr>
                                                     <tr v-if="meituanDownloadData.adsRowsCount === 0">
                                                         <td colspan="8" class="px-4 py-8 text-center text-gray-400">
-                                                            {{ isMeituanAdsNotApplicableForHotel(onlineDataFilter.hotel_id || meituanForm.hotelId) ? '当前酒店未开通美团广告服务（不适用）' : '暂无美团广告数据' }}
+                                                            {{ isMeituanAdsNotApplicableForHotel(onlineDataLoadedQuery?.params?.system_hotel_id) ? '当前酒店未开通美团广告服务（不适用）' : '暂无美团广告数据' }}
                                                         </td>
                                                     </tr>
                                                 </tbody>

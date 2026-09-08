@@ -353,6 +353,24 @@ test('competition-table return restores the original history snapshot and logout
   }
 });
 
+test('advertising availability belongs to the loaded result hotel, including all-hotel queries', () => {
+  const source = readFileSync('resources/frontend/templates/fragments/26-page-meituan-ebooking.html', 'utf8');
+  const start = source.indexOf('<tr v-if="meituanDownloadData.adsRowsCount === 0">');
+  assert.ok(start >= 0);
+  const template = source.slice(start, source.indexOf('</tr>', start) + 5);
+  const render = new Function('Vue', compile(template, { prefixIdentifiers: true }).code)(Vue);
+  for (const [loadedHotel, draftHotel] of [['80', '81'], ['81', '80'], ['', '81']]) {
+    let checkedHotel;
+    const tree = render({
+      meituanDownloadData: { adsRowsCount: 0 }, onlineDataLoadedQuery: { params: { system_hotel_id: loadedHotel } },
+      onlineDataFilter: { hotel_id: draftHotel }, meituanForm: { hotelId: draftHotel },
+      isMeituanAdsNotApplicableForHotel: id => { checkedHotel = id; return id === '81'; },
+    }, []);
+    assert.equal(checkedHotel, loadedHotel);
+    assert.equal(tree.children[0].children.includes('不适用'), loadedHotel === '81');
+  }
+});
+
 test('CSV metadata identifies exported scope while formula prefixes and null metrics remain safe', () => {
   const data = meituan.buildMeituanDownloadData([row(1, { hotel_name: '\t=HYPERLINK("x")', dimension: '@SUM(1)', list_exposure: 0, detail_exposure: null, amount: null })]);
   const csv = meituan.buildMeituanStoredPageCsvPayload('ads', data, { hotelId: 80, startDate: '2026-08-01', endDate: '2026-08-03', scope: 'filtered', page: 9, createStart: '2026-08-02', createEnd: '2026-08-03', dataTypes: 'advertising' });

@@ -246,10 +246,10 @@ test('peer-rank rows keep captured competitor names separate from the bound syst
   assert.deepEqual(Array.from(result.overviewRows, row => row.hotel_name), ['敦煌漠蓝新', '敦煌漠蓝新']);
 });
 
-test('stored ads empty state loads and checks all Profile evidence for the selected hotel', () => {
+test('stored ads empty state loads Profile evidence for the loaded result hotel', () => {
   assert.match(appMain, /context\.source === 'meituan'[\s\S]*loadPlatformDataSources\(\{ cacheMs: PLATFORM_SOURCE_PANEL_CACHE_TTL_MS \}\)/);
   assert.match(appMain, /resolveMeituanAdsApplicability\(platformDataSources\.value, hotelId\)/);
-  assert.match(meituanTemplate, /onlineDataFilter\.hotel_id \|\| meituanForm\.hotelId/);
+  assert.match(meituanTemplate, /isMeituanAdsNotApplicableForHotel\(onlineDataLoadedQuery\?\.params\?\.system_hotel_id\)/);
   assert.match(meituanTemplate, /isMeituanAdsNotApplicableForHotel/);
   assert.match(meituanTemplate, /当前酒店未开通美团广告服务（不适用）/);
   assert.match(meituanTemplate, /源记录共[\s\S]*本页显示[\s\S]*条去重事实/);
