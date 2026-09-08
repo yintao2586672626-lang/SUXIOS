@@ -49,6 +49,8 @@ const user = {
 test('remembered compass session stays startup-safe while secondary panels become ready', async ({ page }) => {
   test.setTimeout(45000);
   const pageErrors = [];
+  let weeklyFailure = false;
+  let weeklyReads = 0;
   page.on('pageerror', error => pageErrors.push(String(error?.message || error)));
   await page.addInitScript((profile) => {
     sessionStorage.setItem('token', 'transition-probe-token');
@@ -58,8 +60,10 @@ test('remembered compass session stays startup-safe while secondary panels becom
     }));
   }, user);
   await page.route('**/api/**', async route => {
-    const pathname = new URL(route.request().url()).pathname;
+    const requestUrl = new URL(route.request().url());
+    const pathname = requestUrl.pathname;
     let data = { list: [], items: [], total: 0 };
+    let status = 200;
     if (pathname === '/api/auth/info') data = user;
     if (pathname === '/api/hotels') {
       data = {
@@ -67,10 +71,24 @@ test('remembered compass session stays startup-safe while secondary panels becom
         total: 1,
       };
     }
+    if (pathname === '/api/operating-opportunities/weekly-plan/latest') {
+      weeklyReads += 1;
+      status = weeklyFailure ? 503 : 200;
+      data = weeklyFailure ? null : {
+        tenant_id: 7,
+        hotel_id: Number(requestUrl.searchParams.get('hotel_id')),
+        week_end: requestUrl.searchParams.get('week_end'),
+        status: 'not_generated',
+        readback_verified: false,
+      };
+    }
+    if (pathname === '/api/operation/execution-flow') {
+      data = { list: [], capabilities: { hotel_id: Number(requestUrl.searchParams.get('hotel_id') || 0) || null } };
+    }
     await route.fulfill({
-      status: 200,
+      status,
       contentType: 'application/json',
-      body: JSON.stringify({ code: 200, data, message: 'ok' }),
+      body: JSON.stringify({ code: status, data, message: status === 200 ? 'ok' : '读取周度经营计划失败' }),
     });
   });
 
@@ -88,6 +106,14 @@ test('remembered compass session stays startup-safe while secondary panels becom
     startupError: '',
   });
   expect(pageErrors.filter(message => /缺少数据健康静态展示工具项|Revenue AI 数据基准日合同工具尚未加载/.test(message))).toEqual([]);
+  await expect.poll(() => weeklyReads).toBeGreaterThan(0);
+  const weeklySummary = page.locator('.home-weekly-fold > summary');
+  await expect(weeklySummary).toContainText('尚未生成');
+  await weeklySummary.click();
+  await expect(page.getByTestId('home-weekly-operating-plan')).toContainText('周度经营计划尚未生成');
+  weeklyFailure = true;
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await expect(page.locator('.home-weekly-fold > summary')).toContainText('读取失败', { timeout: 15000 });
 });
 
 test('remembered authenticated deep link waits for the full render before page work starts', async ({ page }) => {

@@ -2859,7 +2859,7 @@ window.SUXI_HOME_STATIC = (() => {
                 homeWeeklyOperatingPlan.value = res.data;
                 return true;
             } catch (error) {
-                if (currentSeq !== requestSeq) return false;
+                if (currentSeq !== requestSeq || hotelId !== String(getHotelId() || '').trim()) return false;
                 const previousMatches = previousPlan?.readback_verified === true
                     && Number(previousPlan?.hotel_id || 0) === Number(hotelId)
                     && String(previousPlan?.week_end || '') === weekEnd;

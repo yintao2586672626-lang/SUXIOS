@@ -9,6 +9,51 @@ use PHPUnit\Framework\TestCase;
 
 final class WeeklyOperatingPlanSnapshotServiceTest extends TestCase
 {
+    public function testMissingLatestIsScopedNotGeneratedWhileExactMissingRemains404(): void
+    {
+        $reads = [];
+        $service = new WeeklyOperatingPlanSnapshotService(
+            snapshotReader: static function (string $action, array $scope) use (&$reads): mixed {
+                $reads[] = [$action, $scope];
+                return null;
+            },
+            scopeVerifier: static fn(int $tenant, int $hotel): bool => $tenant === 80 && $hotel === 8
+        );
+        self::assertSame([
+            'tenant_id' => 80, 'hotel_id' => 8, 'week_start' => '2026-08-17',
+            'week_end' => '2026-08-23', 'status' => 'not_generated', 'readback_verified' => false,
+        ], $service->readLatest(80, 8, '2026-08-23'));
+        self::assertSame(['latest', [
+            'tenant_id' => 80, 'hotel_id' => 8, 'week_start' => '2026-08-17', 'week_end' => '2026-08-23',
+        ]], $reads[0]);
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionCode(404);
+        $service->readExact(80, 8, 99);
+    }
+
+    public function testLatestReadFailureIsNotConvertedToNotGenerated(): void
+    {
+        $service = new WeeklyOperatingPlanSnapshotService(
+            snapshotReader: static fn() => throw new \RuntimeException('database_unavailable', 503),
+            scopeVerifier: static fn() => true
+        );
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionCode(503);
+        $service->readLatest(80, 8, '2026-08-23');
+    }
+
+    public function testMissingLatestDoesNotBypassHotelScope(): void
+    {
+        $service = new WeeklyOperatingPlanSnapshotService(
+            snapshotReader: static function (): mixed {
+                self::fail('unauthorized hotel must not reach snapshot reads');
+            },
+            scopeVerifier: static fn() => false
+        );
+        $this->expectExceptionMessage('weekly_plan_hotel_scope_unavailable');
+        $service->readLatest(80, 9, '2026-08-23');
+    }
+
     public function testRepeatedGapBecomesTheOnlyNextWeekFocus(): void
     {
         $service = new WeeklyOperatingPlanSnapshotService(
