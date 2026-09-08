@@ -687,6 +687,10 @@ test('business chain: OTA import to revenue, operation task, and tracking', asyn
 
       await goModule(page, MODULE.AI_DAILY_REPORT);
       await goModule(page, MODULE.EXECUTION_TRACKING);
+      // This manual fixture is unassigned; the page now correctly starts in "my tasks".
+      const taskScope = page.getByTestId('page-ops-track').getByLabel('任务范围', { exact: true });
+      await expect(taskScope).toHaveValue('mine');
+      await taskScope.selectOption('all');
       const closedLoopRow = page.getByTestId('page-ops-track').locator('tbody tr').filter({
         hasText: observingSummary,
       }).first();

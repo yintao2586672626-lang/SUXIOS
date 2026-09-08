@@ -16,7 +16,7 @@ const mockEnd = visualSource.indexOf('\nasync function login(', mockStart);
 assert.ok(mockStart >= 0 && mockEnd > mockStart);
 const baseData = vm.runInNewContext(visualSource.slice(mockStart, mockEnd) + '\nbuildMockApiData;', { URL });
 const results = [], errors = [], requests = [], writes = [];
-let historyMode = 'ok', releaseHistory;
+let historyMode = 'ok', releaseHistory, taskAssigned = true;
 const item = { id: 41, hotel_id: 1, action: '合成任务：复核渠道可售房型', status: 'approved',
   action_management: { action_card: { action: { title: '合成任务：复核渠道可售房型' } } },
   execution: { task_id: 91, status: 'pending' },
@@ -64,7 +64,7 @@ await page.route('**/*', async route => {
   if (api === '/ai-daily-reports/510') data = report;
   if (/\/execution-intents\/41$/.test(api)) data = item;
   if (['/operation/execution-flow', '/operation/my-tasks'].includes(api)) data = {
-    data_status: 'ok', list: [item], summary: {}, stages: [], data_gaps: [],
+    data_status: 'ok', list: api === '/operation/my-tasks' && !taskAssigned ? [] : [item], summary: {}, stages: [], data_gaps: [],
     capabilities: { hotel_id: 1 }, scope: { hotel_id: 1 },
   };
   if (api === '/agent/operating-questions/71') data = answer;
@@ -193,6 +193,16 @@ try {
   await page.evaluate(async () => { await window.__reviewVm.loadOnlineDataList({ force: true }); });
   await page.getByText('暂无美团广告数据', { exact: true }).waitFor({ state: 'visible' });
   results.push({ flow: 'history failure is distinct from a successful empty result', status: 'passed' });
+  taskAssigned = false;
+  await go('ops-track');
+  const taskScope = page.getByLabel('任务范围', { exact: true });
+  await taskScope.selectOption('mine');
+  await page.waitForFunction(() => !window.__reviewVm.operationLoading.actions && window.__reviewVm.operationExecutionItems.length === 0);
+  assert.doesNotMatch(await page.getByTestId('operation-mobile-task-list').innerText(), /合成任务/);
+  await taskScope.selectOption('all');
+  await page.getByTestId('operation-mobile-task-list').waitFor({ state: 'visible' });
+  assert.match(await page.getByTestId('operation-mobile-task-list').innerText(), /合成任务/);
+  results.push({ flow: 'personal scope excludes unassigned fixture and all scope reads it back', status: 'passed' });
   await page.getByRole('button', { name: '经营助手', exact: true }).click();
   await page.getByTestId('system-guide-floating-panel').waitFor({ state: 'visible' });
   await page.getByTestId('system-guide-input').waitFor({ state: 'visible' });
