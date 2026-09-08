@@ -936,6 +936,7 @@
                                             </div>
                                             <div v-if="phase1EmployeeMissingFieldOverflowText" class="mt-2 text-xs text-amber-700 truncate" :title="phase1EmployeeMissingFieldOverflowText">{{ phase1EmployeeMissingFieldOverflowText }}</div>
                                         </div>
+                                        <button type="button" @click="openOnlineDataEntryTab('platform-sources')" class="mb-3 rounded-lg border border-indigo-200 px-3 py-2 text-xs text-indigo-700" data-testid="data-health-collection-recovery-entry">查看采集回执与原日期恢复</button>
                                         <div v-if="dataHealthFieldGapActionRows.length" data-testid="data-health-field-gap-action-board" class="mb-4 rounded-lg border border-amber-100 bg-white p-3">
                                             <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-3">
                                                 <div>
@@ -2321,6 +2322,70 @@
                                             <div v-if="localCollectorStatus.status === 'migration_required'" class="border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">{{ localCollectorStatus.message }}</div>
 
                                             <local-collector-login-handoff />
+
+                                            <section data-testid="local-collector-collection-receipts" class="rounded-xl border border-slate-200 bg-white">
+                                                <div class="border-b border-slate-100 px-4 py-3">
+                                                    <h4 class="text-sm font-semibold text-slate-900">采集任务与回执</h4>
+                                                    <p class="mt-1 text-xs leading-5 text-slate-500">回传、保存、本平台核验分别显示；安全证据仅供核对，不是正式经营事实。</p>
+                                                </div>
+                                                <div v-if="localCollectorLoading &amp;&amp; !localCollectorCollectionTaskRows.length" class="p-4 text-sm text-slate-500">正在读取采集任务…</div>
+                                                <div v-else-if="localCollectorError" class="p-4 text-sm text-red-700">当前任务列表未完成刷新：{{ localCollectorError }}</div>
+                                                <div v-else-if="!localCollectorCollectionTaskRows.length" class="p-4 text-sm text-slate-500">当前权限范围尚无可回读的采集或补抓任务。</div>
+                                                <div v-else class="divide-y divide-slate-100">
+                                                    <article v-for="row in localCollectorCollectionTaskRows" :key="row.evidenceKey" :data-testid="'local-collector-receipt-' + row.taskId" class="p-4">
+                                                        <div class="flex flex-wrap items-start justify-between gap-2">
+                                                            <div class="min-w-0">
+                                                                <div class="text-sm font-medium text-slate-900">{{ row.hotelName }} · {{ localCollectorPlatformText(row.platform) }} · {{ row.businessDate }}</div>
+                                                                <div class="mt-1 break-words text-xs text-slate-500">任务 #{{ row.taskId }} · {{ row.task.task_type === 'backfill' ? '补抓' : '采集' }} · {{ row.updatedAt }}</div>
+                                                            </div>
+                                                            <span :class="['rounded-full border px-2.5 py-1 text-xs font-medium', row.stateClass]" data-testid="local-collector-receipt-state">{{ row.stateText }}</span>
+                                                        </div>
+                                                        <dl class="mt-3 grid grid-cols-1 gap-2 text-xs sm:grid-cols-2 xl:grid-cols-3">
+                                                            <div><dt class="text-slate-500">本次采集</dt><dd class="mt-1 text-slate-800">{{ row.captureText }}</dd></div>
+                                                            <div><dt class="text-slate-500">结果回传</dt><dd class="mt-1 text-slate-800">{{ row.deliveryText }}</dd></div>
+                                                            <div><dt class="text-slate-500">正式保存</dt><dd class="mt-1 text-slate-800">{{ row.savedText }}</dd></div>
+                                                            <div><dt class="text-slate-500">本次回读</dt><dd class="mt-1 text-slate-800">{{ row.readbackText }}</dd></div>
+                                                            <div><dt class="text-slate-500">本平台历史事实</dt><dd class="mt-1 text-slate-800">{{ row.historyText }}</dd></div>
+                                                            <div><dt class="text-slate-500">双 OTA 就绪</dt><dd class="mt-1 text-slate-800">{{ row.authorityText }}</dd></div>
+                                                        </dl>
+                                                        <p v-if="row.failureText" data-testid="local-collector-receipt-failure" class="mt-3 break-words rounded-lg bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-900">{{ row.failureText }}</p>
+                                                        <p v-if="row.recoveryText" class="mt-2 text-xs leading-5 text-slate-600">下一步：{{ row.recoveryText }}</p>
+                                                        <div v-if="row.recoveryItem" data-testid="local-collector-recovery" class="mt-3 rounded-lg border border-indigo-100 bg-indigo-50 p-3 text-xs leading-5">
+                                                            <p class="break-words text-slate-700">{{ row.recoveryScopeText }} · 原回执任务 #{{ row.taskId }} / 第 {{ row.recoveryItem.attempt }} 次</p>
+                                                            <p v-if="row.recoveryMissingText" class="mt-1 text-amber-800">缺失项：{{ row.recoveryMissingText }}</p>
+                                                            <p v-if="row.recoveryEvidenceText" class="mt-1 text-amber-800">仍缺证据：{{ row.recoveryEvidenceText }}</p>
+                                                            <p v-if="row.recoveryItem.recovery_task_id" class="mt-1 text-indigo-700">已关联恢复任务 #{{ row.recoveryItem.recovery_task_id }}，可在本列表刷新查看。</p>
+                                                            <div class="mt-2 flex flex-wrap gap-2">
+                                                                <button v-for="action in row.recoveryActions" :key="action.code" type="button" @click="runLocalCollectorRecovery(row, action.code)" :disabled="row.recoveryView?.loading" :data-testid="'local-collector-recovery-' + action.code" class="rounded-lg border border-indigo-200 bg-white px-3 py-2 font-medium text-indigo-700 disabled:opacity-50">{{ row.recoveryView?.loading ? '处理中…' : action.label }}</button>
+                                                            </div>
+                                                            <p v-if="row.recoveryView?.error" role="alert" class="mt-2 break-words text-red-700">{{ row.recoveryView.error }}</p>
+                                                            <p v-if="row.recoveryView?.message" role="status" class="mt-2 break-words text-slate-700">{{ row.recoveryView.message }}</p>
+                                                        </div>
+                                                        <details class="mt-3 rounded-lg border border-slate-200">
+                                                            <summary class="cursor-pointer px-3 py-2 text-xs font-medium text-slate-700">回执与安全证据</summary>
+                                                            <div class="space-y-3 border-t border-slate-100 p-3 text-xs">
+                                                                <p class="break-words text-slate-600">数据源 #{{ row.sourceId }} · 同步任务 #{{ row.syncTaskId }} · 数据记录：{{ row.rowIds.length ? row.rowIds.map(id => 'online_daily_data#' + id).join('、') : '未返回可核对记录编号' }}</p>
+                                                                <p v-if="row.evidenceNote" class="text-slate-500">{{ row.evidenceNote }}</p>
+                                                                <button v-if="row.canQueryEvidence" type="button" @click="loadLocalCollectorTaskEvidence(row)" :disabled="row.evidenceView?.loading" class="rounded-lg border border-slate-300 bg-white px-3 py-2 font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50" data-testid="local-collector-evidence-query">{{ row.evidenceView?.loading ? '读取中…' : '查询安全证据' }}</button>
+                                                                <p v-if="row.evidenceView?.error" role="alert" class="break-words text-red-700">{{ row.evidenceView.error }}</p>
+                                                                <template v-if="row.evidenceView?.data">
+                                                                    <p class="text-slate-600">记录状态 {{ row.evidenceView.data.status }} · {{ row.evidenceView.data.bytes }} · 接收时间 {{ row.evidenceView.data.acceptedAt }}</p>
+                                                                    <p class="text-slate-600">采集记录 {{ row.evidenceView.data.captureId }} · 来源采集时间 {{ row.evidenceView.data.capturedAt }}</p>
+                                                                    <p class="rounded-lg bg-amber-50 px-3 py-2 text-amber-900">以下是脱敏回传证据，仅供核对，不是正式经营事实。质量状态：{{ row.evidenceView.data.quality }}</p>
+                                                                    <div v-if="row.evidenceView.data.businessRows.length" class="overflow-x-auto">
+                                                                        <table class="w-full min-w-[520px] text-left text-xs">
+                                                                            <thead class="bg-slate-50 text-slate-600"><tr><th class="px-2 py-2">类型 / 对象</th><th class="px-2 py-2">来源 / 业务日</th><th class="px-2 py-2">核心字段</th></tr></thead>
+                                                                            <tbody class="divide-y divide-slate-100"><tr v-for="item in row.evidenceView.data.businessRows" :key="item.key"><td class="max-w-48 break-words px-2 py-2">{{ item.kind }}<div class="mt-1 text-slate-500">{{ item.subject }}</div></td><td class="px-2 py-2">{{ item.source }}<div class="mt-1 text-slate-500">{{ item.date }}</div></td><td class="max-w-80 break-words px-2 py-2">{{ item.metricText }}</td></tr></tbody>
+                                                                        </table>
+                                                                    </div>
+                                                                    <p v-else class="text-slate-500">证据未返回可展示的业务行；不解释为零业绩。</p>
+                                                                    <p v-if="row.evidenceView.data.truncated" class="text-slate-500">当前展示前 50 行，未展示部分不影响回执状态。</p>
+                                                                </template>
+                                                            </div>
+                                                        </details>
+                                                    </article>
+                                                </div>
+                                            </section>
 
                                             <details class="rounded-xl border border-slate-200 bg-slate-50" :open="!(localCollectorStatus.devices || []).length">
                                                 <summary class="cursor-pointer px-4 py-3 text-sm font-semibold text-slate-800">第 1 步：连接账户使用者电脑</summary>

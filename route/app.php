@@ -221,19 +221,6 @@ Route::group('api/operating-targets', function () {
     Route::post('/', 'OperatingTarget/save');
 })->middleware(\app\middleware\Auth::class);
 
-// Hotel notification templates, formal schedules, test sends, and receipts.
-Route::group('api/manual-notifications', function () {
-    Route::get('/metadata', 'ManualNotification/metadata');
-    Route::get('/monitor', 'ManualNotification/monitor');
-    Route::get('/history', 'ManualNotification/history');
-    Route::get('/dispatch-history', 'ManualNotification/dispatchHistory');
-    Route::post('/preview', 'ManualNotification/preview');
-    Route::post('/dispatches/:dispatchId/retry', 'ManualNotification/retryDispatch');
-    Route::post('/:id/test-push', 'ManualNotification/testPush');
-    Route::get('/:id', 'ManualNotification/read');
-    Route::post('/', 'ManualNotification/save');
-})->middleware(\app\middleware\Auth::class);
-
 Route::group('api/ai-daily-reports', function () {
     require __DIR__ . '/domain/ai_daily_reports.php';
     Route::post('/:id/send-wecom', 'admin.CompetitorWechatRobotController/apiSendAiDailyReport');
@@ -343,6 +330,8 @@ Route::group('api/online-data', function () {
     Route::post('/profile-login-trigger/:platform', 'ota.ProfileController/triggerPlatformProfileLogin');
     Route::get('/profile-login-status/:platform', 'ota.ProfileController/platformProfileLoginStatus');
     Route::get('/local-collector/status', 'ota.LocalCollectorController/status');
+    Route::get('/local-collector/tasks/:taskId/evidence', 'ota.LocalCollectorController/evidence');
+    Route::post('/local-collector/tasks/:taskId/recover', 'ota.LocalCollectorController/recover');
     Route::post('/local-collector/pair-code', 'ota.LocalCollectorController/pairCode');
     Route::post('/local-collector/accounts', 'ota.LocalCollectorController/createAccount');
     Route::post('/local-collector/accounts/:accountId/hotels', 'ota.LocalCollectorController/bindHotel');

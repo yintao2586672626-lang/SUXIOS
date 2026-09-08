@@ -52,7 +52,7 @@ test('extracted method, URL, handler, order and Auth middleware surface matches 
   for (const prefix of extractedPrefixes) {
     const escapedPrefix = prefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const group = effectiveSource.match(new RegExp(
-      `Route::group\\('${escapedPrefix}', function \\(\\) \\{([\\s\\S]*?)\\}\\)->middleware\\(\\\\app\\\\middleware\\\\Auth::class\\);`,
+      `Route::group\\('${escapedPrefix}', function \\(\\) \\{([\\s\\S]*?)\\}\\)->middleware\\(\\\\app\\\\middleware\\\\Auth::class\\)(?:->middleware\\(\\\\app\\\\middleware\\\\RetiredFeatureReadOnly::class, '[^']+'\\))?;`,
     ));
     assert.ok(group, `missing authenticated group ${prefix}`);
     for (const route of group[1].matchAll(/Route::(get|post|put|delete|patch|any|rule)\('([^']+)', '([^']+)'\);/g)) {
@@ -60,9 +60,18 @@ test('extracted method, URL, handler, order and Auth middleware surface matches 
     }
   }
 
-  assert.equal(tuples.length, 129);
+  const workflowRoutes = [
+    'api/operation|get|/task-workflows|OperationManagement/taskWorkflows',
+    'api/operation|post|/task-workflow-proposals|OperationManagement/proposeTaskWorkflow',
+    'api/operation|get|/execution-tasks/:id/workflow|OperationManagement/readTaskWorkflow',
+    'api/operation|post|/execution-tasks/:id/workflow|OperationManagement/mutateTaskWorkflow',
+  ];
+  assert.deepEqual(tuples.filter(tuple => workflowRoutes.includes(tuple)), workflowRoutes);
+  const legacyTuples = tuples.filter(tuple => !workflowRoutes.includes(tuple));
+  assert.equal(tuples.length, 133);
+  assert.equal(legacyTuples.length, 129);
   assert.equal(
-    createHash('sha256').update(tuples.join('\n')).digest('hex'),
+    createHash('sha256').update(legacyTuples.join('\n')).digest('hex'),
     '75d2a7a5a0105890c833715e65ccd584296b0f8fd8dc70e6ce93588f2652b550',
   );
 });

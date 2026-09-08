@@ -3727,7 +3727,7 @@ final class OtaLocalCollectorServiceTest extends TestCase
             ->count());
     }
 
-    public function testScheduledCollectionSuccessReturnsExactDispatcherReadbackAndBothTaskIds(): void
+    public function testScheduledLegacyCollectionKeepsHistoricalReadbackWithoutClaimingCurrentProof(): void
     {
         $syncTaskId = 9901;
         $service = new OtaLocalCollectorService(
@@ -3872,13 +3872,15 @@ final class OtaLocalCollectorServiceTest extends TestCase
         self::assertSame($summary['run_readback'], $storedSummary['run_readback']);
 
         $polled = $service->schedulePlanCollection($fixture['scope']);
-        self::assertSame('success', $polled['status']);
-        self::assertTrue($polled['success']);
+        self::assertSame('result_unknown', $polled['status']);
+        self::assertFalse($polled['success']);
         self::assertSame($fixture['scope']['dispatcher_run_id'], $polled['dispatcher_run_id']);
         self::assertSame($localTaskId, (int)$polled['local_collector_task_id']);
         self::assertSame($syncTaskId, (int)$polled['platform_sync_task_id']);
-        self::assertSame([8101, 8102], $polled['run_readback']['row_ids']);
-        self::assertTrue($polled['readback_verified']);
+        self::assertFalse($polled['readback_verified']);
+        self::assertSame('blocked', $polled['historical_core_contract_status']);
+        self::assertSame('original_receipt_missing', $polled['failure_reason']);
+        self::assertSame($stored['result_summary_json'], Db::name('ota_local_collector_tasks')->where('id', $localTaskId)->value('result_summary_json'));
         self::assertSame(1, Db::name('ota_local_collector_tasks')->count());
     }
 

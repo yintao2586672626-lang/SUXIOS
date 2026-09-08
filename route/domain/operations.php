@@ -4,6 +4,13 @@ declare(strict_types=1);
 use think\facade\Route;
 
 // ==================== 运营管理 API ====================
+Route::group('api/promotion-experiments', function () {
+    Route::post('/preview', 'PromotionExperiment/preview');
+    Route::post('/versions', 'PromotionExperiment/save');
+    Route::get('/versions', 'PromotionExperiment/history');
+    Route::get('/versions/:id', 'PromotionExperiment/read');
+})->middleware(\app\middleware\Auth::class);
+
 Route::group('api/operating-loop', function () {
     Route::get('/current', 'OperatingLoop/current');
     Route::post('/reconcile', 'OperatingLoop/reconcile');
@@ -60,6 +67,10 @@ Route::group('api/operation', function () {
     Route::post('/execution-intents/:id/cancel', 'OperationManagement/cancelExecutionIntent');
     Route::post('/execution-tasks/:id/execute', 'OperationManagement/executeExecutionTask');
     Route::post('/execution-tasks/:id/evidence', 'OperationManagement/executionTaskEvidence');
+    Route::get('/task-workflows', 'OperationManagement/taskWorkflows');
+    Route::post('/task-workflow-proposals', 'OperationManagement/proposeTaskWorkflow');
+    Route::get('/execution-tasks/:id/workflow', 'OperationManagement/readTaskWorkflow');
+    Route::post('/execution-tasks/:id/workflow', 'OperationManagement/mutateTaskWorkflow');
     Route::post('/execution-tasks/:id/intervention-assessments', 'OperationManagement/assessExecutionTaskIntervention');
     Route::post('/execution-tasks/:id/reconcile-review', 'OperationManagement/reconcileExecutionTaskReview');
     Route::post('/execution-tasks/:id/review', 'OperationManagement/reviewExecutionTask');

@@ -26,6 +26,13 @@ class QuantSimulationService
         $hotelId = $this->resolvePersistedHotelId($payload, $userId, $permittedHotelIds);
         $input['hotel_id'] = $hotelId;
         $input['system_hotel_id'] = $hotelId;
+        $requestId = $payload['client_request_id'] ?? null;
+        if ($requestId !== null) {
+            if (!is_string($requestId) || preg_match('/^[a-zA-Z0-9-]{8,80}$/D', $requestId) !== 1) {
+                throw new \InvalidArgumentException('量化模拟请求标识无效');
+            }
+            $input['client_request_id'] = $requestId;
+        }
         $projectName = trim((string)($payload['project_name'] ?? $payload['projectName'] ?? '量化模拟项目'));
         if ($projectName === '') {
             $projectName = '量化模拟项目';
@@ -42,7 +49,7 @@ class QuantSimulationService
         $result['modelAnalysis'] = $modelAnalysis;
         $now = date('Y-m-d H:i:s');
 
-        $id = (int)Db::name('quant_simulation_records')->insertGetId([
+        $stored = [
             'tenant_id' => $this->tenantIdForUser($userId),
             'project_name' => $projectName,
             'input_json' => json_encode($input, JSON_UNESCAPED_UNICODE),
@@ -55,7 +62,27 @@ class QuantSimulationService
             'created_by' => $userId,
             'created_at' => $now,
             'updated_at' => $now,
-        ]);
+        ];
+        $id = Db::transaction(function () use ($stored, $requestId, $userId): int {
+            if ($requestId !== null) {
+                // Serialize a user's inserts on the existing owner row; no new schema is needed.
+                Db::name('users')->where('id', $userId)->lock(true)->find();
+                $candidates = Db::name('quant_simulation_records')->where('tenant_id', $stored['tenant_id'])
+                    ->where('created_by', $userId)
+                    ->whereLike('input_json', '%' . $requestId . '%')->select()->toArray();
+                foreach ($candidates as $existing) {
+                    // Native MySQL JSON reorders keys and changes whitespace on readback.
+                    // Match the actual field and normalized values, never serialized byte layout.
+                    $existingInput = $this->decodeJson($existing['input_json']);
+                    if (($existingInput['client_request_id'] ?? null) !== $requestId) continue;
+                    if ($existingInput != $this->decodeJson($stored['input_json']) || $existing['project_name'] !== $stored['project_name'] || $existing['deleted_at'] !== null) {
+                        throw new \InvalidArgumentException('请求标识已用于另一份或已归档方案；请使用新的请求标识');
+                    }
+                    return (int)$existing['id'];
+                }
+            }
+            return (int)Db::name('quant_simulation_records')->insertGetId($stored);
+        });
 
         return $this->detail($id, $userId, true);
     }
@@ -213,7 +240,7 @@ class QuantSimulationService
     private function calculateSimulation(array $input): array
     {
         $roomCount = (float)$input['roomCount'];
-        $revenue = $this->calculateRevenueSummary($input);
+        $revenue = $this->calculateRevenueSummary($input, !isset($input['operatingScenario']));
         $adr = (float)$revenue['adr'];
         $occupancyRate = $this->percentToDecimal((float)$revenue['occupancyRate']);
         $otaRate = $this->percentToDecimal((float)$input['otaCommissionRate']);
@@ -257,7 +284,9 @@ class QuantSimulationService
             'revPAR' => round($revPAR, 2),
             'paybackMonths' => $paybackMonths === null ? null : round($paybackMonths, 2),
             'rentRatio' => $rentRatio === null ? null : round($rentRatio, 4),
-            'breakEvenOccupancy' => round($breakEvenOccupancy, 4),
+            'breakEvenOccupancy' => $breakEvenOccupancy === null ? null : round($breakEvenOccupancy, 4),
+            'breakEvenOccupancyStatus' => $breakEvenOccupancy === null || $breakEvenOccupancy > 1
+                ? 'unreachable' : 'reachable',
             'riskLevel' => $this->calculateRiskLevel($monthlyNetCashflow, $paybackMonths, $rentRatio, $breakEvenOccupancy),
         ];
 
@@ -269,6 +298,12 @@ class QuantSimulationService
             $input['terminal_value']
         )) {
             $result = array_merge($result, $this->buildCashflowSeriesResult($input));
+        }
+        if (isset($input['operatingScenario'])) {
+            // Display totals must never become inputs to cash or payback decisions.
+            $scenarioBasis = array_replace($result, ['totalInvestment' => $totalInvestment, 'roomRevenue' => $roomRevenue]);
+            $result['operatingScenario'] = (new QuantOperatingScenarioService())->calculate($input, $scenarioBasis);
+            $result['scenarioBoundary'] = (new InvestmentDecisionSupportService())->explainQuantScenario($input, $result['operatingScenario']);
         }
         return $result;
     }
@@ -291,10 +326,15 @@ class QuantSimulationService
         $valuationDate = (string)$input['valuation_date'];
         $baseDate = new \DateTimeImmutable($valuationDate);
         $series = [];
+        $anchorDay = (int)$baseDate->format('d');
+        $anchorMonth = $baseDate->modify('first day of this month');
         foreach ($values as $period => $value) {
+            $month = $anchorMonth->modify('+' . $period . ' months');
+            $periodDate = $month->setDate((int)$month->format('Y'), (int)$month->format('m'),
+                min($anchorDay, (int)$month->format('t')));
             $series[] = [
                 'period' => $period,
-                'date' => $baseDate->modify('+' . $period . ' months')->format('Y-m-d'),
+                'date' => $periodDate->format('Y-m-d'),
                 'value' => round((float)$value, 2),
             ];
         }
@@ -323,7 +363,7 @@ class QuantSimulationService
         float $availableRoomNights,
         float $adr,
         float $otaRate
-    ): float {
+    ): ?float {
         $requiredRoomMargin = max(0.0, $fixedMonthlyCost - $otherIncome);
         if ($requiredRoomMargin <= 0) {
             return 0.0;
@@ -331,7 +371,7 @@ class QuantSimulationService
 
         $netRoomRevenuePerFullOccupancy = $availableRoomNights * $adr * max(0.0, 1 - $otaRate);
         if ($netRoomRevenuePerFullOccupancy <= 0) {
-            return 1.0;
+            return null;
         }
 
         return $requiredRoomMargin / $netRoomRevenuePerFullOccupancy;
@@ -364,7 +404,7 @@ class QuantSimulationService
         return array_merge(['scenarioType' => $scenarioType], $this->calculateSimulation($scenarioInput));
     }
 
-    private function calculateRevenueSummary(array $input): array
+    private function calculateRevenueSummary(array $input, bool $roundForDisplay = true): array
     {
         $roomCount = (float)$input['roomCount'];
         $totalDays = 0.0;
@@ -394,16 +434,17 @@ class QuantSimulationService
             $this->otherIncomeFields()
         ));
 
-        return [
-            'totalDays' => round($totalDays, 2),
-            'availableRoomNights' => round($availableRoomNights, 2),
-            'occupiedRoomNights' => round($occupiedRoomNights, 2),
-            'roomRevenue' => round($roomRevenue, 2),
-            'otherIncome' => round($otherIncome, 2),
-            'monthlyRevenue' => round($roomRevenue + $otherIncome, 2),
-            'adr' => round($adr, 2),
-            'occupancyRate' => round($occupancyRate, 2),
+        $summary = [
+            'totalDays' => $totalDays,
+            'availableRoomNights' => $availableRoomNights,
+            'occupiedRoomNights' => $occupiedRoomNights,
+            'roomRevenue' => $roomRevenue,
+            'otherIncome' => $otherIncome,
+            'monthlyRevenue' => $roomRevenue + $otherIncome,
+            'adr' => $adr,
+            'occupancyRate' => $occupancyRate,
         ];
+        return $roundForDisplay ? array_map(static fn(float $value): float => round($value, 2), $summary) : $summary;
     }
 
     private function adjustScenarioRevenueDetails(array &$input, float $adrDelta, float $occupancyDelta, float $targetOtherIncome): void
@@ -434,6 +475,16 @@ class QuantSimulationService
 
     private function buildRiskHints(array $result): array
     {
+        if (isset($result['operatingScenario'])) {
+            $s = $result['operatingScenario'];
+            return array_map(static fn(array $item): array => array_merge($item, [
+                'riskLevel' => '需复核', 'className' => 'bg-amber-50 border-amber-100 text-amber-800',
+            ]), [
+                ['title' => '现金约束', 'content' => '假设下额外现金缺口为' . $s['additional_cash_gap'] . '元；来源及可用现金仍需核对。'],
+                ['title' => '回本约束', 'content' => $s['equity_payback']['months'] === null ? '当前假设下无适用回本月数；请查看逐月结果的具体状态。' : '股东回本约' . $s['equity_payback']['months'] . '个月，仅在当前假设与测算期内成立。'],
+                ['title' => '保本约束', 'content' => $s['cash_break_even_status'] === 'unreachable' ? '含债务与现金目标的入住率不可达，不能视作100%可保本。' : '保本边界覆盖测算期每个稳定月的实际天数与当月债务，非经营预测。'],
+            ]);
+        }
         $rentRatio = isset($result['rentRatio']) && is_numeric($result['rentRatio'])
             ? (float)$result['rentRatio']
             : null;
@@ -453,11 +504,13 @@ class QuantSimulationService
                     ? ['riskLevel' => '中风险', 'content' => '回本周期偏长，需关注现金流稳定性。', 'className' => 'bg-yellow-50 border-yellow-100 text-yellow-800']
                     : ['riskLevel' => '高风险', 'content' => '回本周期过长，需重新评估投资规模。', 'className' => 'bg-red-50 border-red-100 text-red-800']));
 
-        $breakEvenRisk = $result['breakEvenOccupancy'] >= 0.65
+        $breakEvenRisk = ($result['breakEvenOccupancy'] ?? null) === null || $result['breakEvenOccupancy'] > 1
+            ? ['riskLevel' => '高风险', 'content' => '当前成本与佣金条件下无法保本，满房仍不能覆盖成本。', 'className' => 'bg-red-50 border-red-100 text-red-800']
+            : ($result['breakEvenOccupancy'] >= 0.65
             ? ['riskLevel' => '高风险', 'content' => '保本入住率过高，需要长期高入住才能盈利。', 'className' => 'bg-red-50 border-red-100 text-red-800']
             : ($result['breakEvenOccupancy'] >= 0.55
                 ? ['riskLevel' => '中风险', 'content' => '保本入住率偏高，需持续跟踪淡季入住。', 'className' => 'bg-yellow-50 border-yellow-100 text-yellow-800']
-                : ['riskLevel' => '低风险', 'content' => '保本入住率处于相对安全区间。', 'className' => 'bg-green-50 border-green-100 text-green-800']);
+                : ['riskLevel' => '低风险', 'content' => '保本入住率处于相对安全区间。', 'className' => 'bg-green-50 border-green-100 text-green-800']));
 
         return [
             array_merge(['title' => '租金压力'], $rentRisk),
@@ -468,6 +521,14 @@ class QuantSimulationService
 
     private function buildModelAnalysis(array $input, array $result, array $scenarios, array $riskHints, string $modelKey): array
     {
+        if (isset($result['scenarioBoundary'])) {
+            return $this->normalizeModelAnalysis([
+                'source' => 'deterministic_formula',
+                'summary' => $result['scenarioBoundary']['explanation'],
+                'decision' => '仅解释条件与缺口，不形成投资交易建议或收益承诺。',
+                'assumptions' => $result['operatingScenario']['formulas'],
+            ]);
+        }
         $messages = [
             [
                 'role' => 'system',
@@ -507,7 +568,7 @@ class QuantSimulationService
         $rentRatio = isset($result['rentRatio']) && is_numeric($result['rentRatio'])
             ? (float)$result['rentRatio']
             : null;
-        $breakEven = (float)($result['breakEvenOccupancy'] ?? 0);
+        $breakEven = isset($result['breakEvenOccupancy']) ? (float)$result['breakEvenOccupancy'] : null;
 
         $decision = ($riskLevel === '高风险' || $netCashflow <= 0)
             ? '暂缓推进，先复核租金、ADR、入住率和投资规模。'
@@ -554,7 +615,7 @@ class QuantSimulationService
                 ],
                 [
                     'metric' => '保本入住率',
-                    'threshold' => round($breakEven * 100, 1) . '%',
+                    'threshold' => $breakEven === null ? '当前条件无法保本' : round($breakEven * 100, 1) . '%',
                     'action' => '高于55%需补充淡季入住率和竞品供给验证。',
                 ],
             ],
@@ -766,11 +827,30 @@ class QuantSimulationService
         );
         $input = array_merge($input, $this->otaCommissionGroup($raw, $input));
         $input = array_merge($input, $this->normalizeCashflowSeriesInput($raw));
-        $revenue = $this->calculateRevenueSummary($input);
+        $revenue = $this->calculateRevenueSummary($input, !isset($raw['operatingScenario']));
         $input['adr'] = (float)$revenue['adr'];
         $input['occupancyRate'] = (float)$revenue['occupancyRate'];
         $input['otherIncome'] = (float)$revenue['otherIncome'];
         $input['otaCommissionRate'] = $this->weightedOtaCommissionRate($input);
+
+        if (array_key_exists('operatingScenario', $raw) && $raw['operatingScenario'] !== null) {
+            if (!is_array($raw['operatingScenario'])) throw new \InvalidArgumentException('经营情景参数必须为对象');
+            $input['operatingScenario'] = (new QuantOperatingScenarioService())->normalize($raw['operatingScenario'], $input);
+            if ($input['roomCount'] > 100000) throw new \InvalidArgumentException('经营情景房间数不能超过100000');
+            foreach ($input as $value) {
+                if (is_numeric($value) && abs((float)$value) > 100000000000) throw new \InvalidArgumentException('经营情景金额或数量超出支持范围，请核对元与万元单位');
+            }
+            $calendarDays = (int)(new \DateTimeImmutable($input['operatingScenario']['start_month'] . '-01'))->format('t');
+            $hasDayDetails = $this->hasAnyAlias($raw, ['weekdayDays', 'weekday_days', 'weekendDays', 'weekend_days', 'holidayDays', 'holiday_days']);
+            if (!$hasDayDetails) $input['weekdayDays'] = (float)$calendarDays;
+            $days = $input['weekdayDays'] + $input['weekendDays'] + $input['holidayDays'];
+            if ($days !== (float)$calendarDays || floor($input['roomCount']) !== $input['roomCount']) {
+                throw new \InvalidArgumentException('经营情景房间数须为整数；平日、周末、节假日天数合计须等于起始月实际天数');
+            }
+            foreach (['weekdayDays', 'weekendDays', 'holidayDays'] as $key) {
+                if (floor($input[$key]) !== $input[$key]) throw new \InvalidArgumentException('经营情景天数须为整数');
+            }
+        }
 
         if ($input['roomCount'] <= 0) {
             throw new \InvalidArgumentException('房间数必须大于0');
@@ -915,9 +995,9 @@ class QuantSimulationService
         return $values;
     }
 
-    private function calculateRiskLevel(float $monthlyNetCashflow, ?float $paybackMonths, ?float $rentRatio, float $breakEvenOccupancy): string
+    private function calculateRiskLevel(float $monthlyNetCashflow, ?float $paybackMonths, ?float $rentRatio, ?float $breakEvenOccupancy): string
     {
-        if ($monthlyNetCashflow <= 0 || $paybackMonths === null || $rentRatio === null || $breakEvenOccupancy >= 0.65) {
+        if ($monthlyNetCashflow <= 0 || $paybackMonths === null || $rentRatio === null || $breakEvenOccupancy === null || $breakEvenOccupancy >= 0.65) {
             return '高风险';
         }
         if ($rentRatio >= 0.4 || $paybackMonths > 30) {
@@ -966,6 +1046,9 @@ class QuantSimulationService
                 'monthlyNetCashflow' => $resultNumber('monthlyNetCashflow'),
                 'paybackMonths' => $result['paybackMonths'] ?? null,
                 'riskLevel' => (string)($result['riskLevel'] ?? ($row['risk_level'] ?? '')),
+                'operatingScenario' => isset($result['operatingScenario']) ? array_intersect_key($result['operatingScenario'], array_flip([
+                    'case_name', 'case_type', 'start_month', 'end_month', 'equity_payback', 'additional_cash_gap', 'target_status',
+                ])) : null,
             ],
             'truth_context' => $truthContext,
             'access_policy' => $this->quantRecordAccessPolicy($truthContext),
@@ -1040,6 +1123,11 @@ class QuantSimulationService
             'scope_label' => '投资情景测算，不是OTA数据，也不是全酒店经营实绩',
             'hotels' => $hotelId > 0 ? [['system_hotel_id' => $hotelId]] : [],
             'hotel_id' => $hotelId > 0 ? $hotelId : null,
+            'tenant_id' => isset($row['tenant_id']) ? (int)$row['tenant_id'] : null,
+            'scenario_period' => isset($input['operatingScenario']) ? [
+                'start_month' => $input['operatingScenario']['start_month'],
+                'horizon_months' => $input['operatingScenario']['horizon_months'],
+            ] : null,
             'platforms' => ['not_applicable'],
             'date_range' => ['start' => $date, 'end' => $date],
             'source_methods' => ['user_input', 'deterministic_formula'],
@@ -1093,9 +1181,11 @@ class QuantSimulationService
         ] as $metricKey) {
             $value = array_key_exists($metricKey, $result) ? $result[$metricKey] : null;
             $calculated = $value !== null && is_numeric($value) && is_finite((float)$value);
+            $unreachable = $metricKey === 'breakEvenOccupancy'
+                && ($result['breakEvenOccupancyStatus'] ?? '') === 'unreachable';
             $metrics[$metricKey] = array_merge($truthContext, [
                 'metric_key' => $metricKey,
-                'calculation_status' => $calculated ? 'calculated' : 'missing',
+                'calculation_status' => $unreachable ? 'unreachable' : ($calculated ? 'calculated' : 'missing'),
                 'value_observed' => $calculated,
                 'calculation_basis' => 'deterministic_formula_from_user_input',
             ]);

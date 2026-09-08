@@ -532,7 +532,8 @@ main[data-current-page="compass"] .macro-signal-card .macro-signal-metric{backgr
 }@media (max-width: 980px){.login-stage{grid-template-columns:1fr !important;justify-items:center !important
     }.login-context-panel{display:none !important
     }
-}@media (max-width: 480px){.login-bg{padding:16px !important
+}@media (max-width: 480px){.login-bg{padding:16px !important;flex-direction:column !important
+    }.login-stage{flex-shrink:0
     }.login-public-footer{position:static;margin-top:14px;padding:8px 4px 2px
     }.login-bg .login-stage .login-card{max-width:calc(100vw - 32px) !important;padding:32px 22px 24px !important
     }.login-bg .login-title{font-size:1.64rem !important
@@ -1231,4 +1232,8 @@ main[data-current-page="ai-workbench"] .holiday-advice-card{position:relative;mi
 }@keyframes knowledge-feature-dialog-in{from{opacity:0;transform:translateY(8px) scale(0.99)
     }to{opacity:1;transform:translateY(0) scale(1)
     }
+}.home-daily-workflows{display:grid;grid-template-columns:repeat(5, minmax(0, 1fr));gap:10px;margin:0 0 18px
+}.home-daily-workflows button{min-width:0;min-height:64px;text-align:left;padding:12px;border:1px solid var(--sx-dashboard-border, #dbe4df);border-radius:12px;background:var(--sx-dashboard-surface, #fff);color:var(--sx-luxury-green, #143a31)
+}.home-daily-workflows button:hover, .home-daily-workflows button:focus-visible{border-color:var(--sx-luxury-gold, #dcc591);outline:2px solid var(--sx-luxury-gold, #dcc591);outline-offset:2px
+}.home-daily-workflows strong, .home-daily-workflows span{display:block;overflow-wrap:anywhere }.home-daily-workflows strong{font-size:14px }.home-daily-workflows span{margin-top:4px;font-size:12px;color:#52665d }.home-daily-workflow-error{grid-column:1 / -1;margin:0;color:#9f1239;font-size:14px }@media (max-width: 760px){.home-daily-workflows{grid-template-columns:repeat(2, minmax(0, 1fr)) }.home-daily-workflows button:first-child{grid-column:1 / -1 }
 }

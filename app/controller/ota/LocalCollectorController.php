@@ -42,6 +42,11 @@ final class LocalCollectorController extends Base
         );
     }
 
+    public function recover(int $taskId): Response
+    {
+        return $this->run(fn(): array => $this->service()->recoverCollectionTask($this->currentUser, $taskId, $this->requestData()));
+    }
+
     public function createAccount(): Response
     {
         return $this->run(

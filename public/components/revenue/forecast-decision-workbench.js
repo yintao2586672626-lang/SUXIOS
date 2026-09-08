@@ -3,12 +3,12 @@
     const endpoint = '/revenue-ai/forecast-workbench';
     // Independent state machine lets slow responses fail closed after any input/scope edit.
     function createController(request) {
-        const state = { busy: false, error: '', result: null, savedId: '', inputRestricted: false, history: [], historyError: '', historyStatus: 'idle' };
+        const state = { busy: false, error: '', result: null, savedId: '', inputRestricted: false, history: [], historyError: '', historyStatus: 'idle', historyPagination: null };
         let epoch = 0;
         let historyEpoch = 0;
         const invalidate = (clearHistory = false) => {
             epoch++; state.busy = false; state.result = null; state.savedId = ''; state.inputRestricted = false; state.error = '';
-            if (clearHistory) { historyEpoch++; state.history = []; state.historyError = ''; state.historyStatus = 'idle'; }
+            if (clearHistory) { historyEpoch++; state.history = []; state.historyError = ''; state.historyStatus = 'idle'; state.historyPagination = null; }
         };
         const scopeMatches = (actual, expected) => actual && ['hotel_id', 'platform', 'platform_store_id', 'room_scope'].every(k => String(actual[k]) === String(expected[k]));
         async function action(kind, payload, id = '') {
@@ -32,14 +32,24 @@
             } catch (e) { if (ticket === epoch) state.error = e.message || '请求失败，请重试。'; return null; }
             finally { if (ticket === epoch) state.busy = false; }
         }
-        async function history(scope) {
+        async function history(scope, page = 1) {
             const ticket = ++historyEpoch;
-            state.historyError = ''; state.history = []; state.historyStatus = 'loading';
+            const requestedScope = { ...scope };
+            state.historyError = ''; state.history = []; state.historyStatus = 'loading'; state.historyPagination = null;
             try {
-                const res = await request(`${endpoint}/plans?${new URLSearchParams(scope)}`, { method: 'GET', businessContext: { hotelId: scope.hotel_id } });
+                if (!Number.isSafeInteger(page) || page < 1) throw new Error('历史页码须为正整数。');
+                const res = await request(`${endpoint}/plans?${new URLSearchParams({ ...requestedScope, page })}`, { method: 'GET', businessContext: { hotelId: requestedScope.hotel_id } });
                 if (ticket !== historyEpoch) return;
-                if (res?.code !== 200 || !scopeMatches(res.data?.scope, scope) || !Array.isArray(res.data?.items)) throw new Error(res?.message || '历史范围或响应错误。');
-                state.history = res.data.items;
+                if (res?.code !== 200) throw new Error(res?.message || '历史方案读取失败。');
+                const data = res.data;
+                if (!scopeMatches(data?.scope, requestedScope) || !Array.isArray(data?.items)) throw new Error('历史范围或响应错误。');
+                if (data.page !== page || data.page_size !== 50 || !Number.isSafeInteger(data.total) || data.total < 0
+                    || !Number.isSafeInteger(data.total_pages) || data.total_pages !== Math.max(1, Math.ceil(data.total / 50))
+                    || page > data.total_pages || data.items.length !== Math.min(50, data.total - (page - 1) * 50)) throw new Error('历史分页信息不一致，请重新读取第一页。');
+                if (data.items.some(item => !item || typeof item.id !== 'string' || !/^[a-f0-9]{64}$/.test(item.id))
+                    || new Set(data.items.map(item => item.id)).size !== data.items.length) throw new Error('历史方案编号缺失或重复，请重新读取。');
+                state.history = data.items;
+                state.historyPagination = { page, page_size: data.page_size, total: data.total, total_pages: data.total_pages };
                 state.historyStatus = state.history.length ? 'ready' : 'empty';
             } catch (e) { if (ticket === historyEpoch) { state.historyError = e.message; state.historyStatus = 'error'; } }
         }
@@ -118,7 +128,7 @@
             const display = value => value === null || value === undefined ? '缺失' : Number(value).toLocaleString('zh-CN', { maximumFractionDigits: 2 });
             const labels = { insufficient_samples: '样本不足', better_on_this_sample: '本样本优于两基线', not_better_than_baseline: '未优于基线' };
             const button = (label, fn, testId, disabled = false) => h('button', { type: 'button', disabled: controller.state.busy || disabled, onClick: fn, 'data-testid': testId }, label);
-            async function loadHistory() { const pending = controller.history(scope()); redraw(); await pending; redraw(); }
+            async function loadHistory(page = 1) { const pending = controller.history(scope(), page); redraw(); await pending; redraw(); }
             return () => {
                 void revision.value;
                 const current = controller.state;
@@ -131,7 +141,8 @@
                     h('p', { class: 'fw-note' }, '输入脱敏证据，冻结预测时点可见版本，比较未来7/14/30天净入住间夜。人工导入待核验，示例仅synthetic；不自动改价。'),
                     h('div', { class: 'fw-grid' }, [h('label', { class: 'fw-field' }, ['酒店', h('select', { value: form.hotel_id, 'data-testid': 'forecast-hotel', onChange: e => { form.hotel_id = e.target.value; } }, [h('option', { value: '' }, '选择酒店'), ...props.hotels.map(item => h('option', { value: item.id }, item.name || String(item.id)))])]),
                         h('label', { class: 'fw-field' }, ['渠道', h('select', { value: form.platform, onChange: e => { form.platform = e.target.value; } }, [h('option', { value: 'ctrip' }, '携程'), h('option', { value: 'meituan' }, '美团')])]), field('平台门店标识（导入声明待核）', 'platform_store_id'), field('房型/库存范围', 'room_scope')]),
-                    h('div', { class: 'fw-actions' }, [button('载入 synthetic 验收示例', sample, 'forecast-sample'), button(current.historyStatus === 'loading' ? '正在读取历史…' : '读取历史方案', loadHistory, 'forecast-history', current.historyStatus === 'loading')]),
+                    h('p', { 'data-testid': 'forecast-scope-guidance' }, '门店标识和房型范围仅接受字母、数字、下划线及连字符，支持中文，每项最多100字节。填写脱敏业务编号，不要填写网址、请求头或凭证。'),
+                    h('div', { class: 'fw-actions' }, [button('载入 synthetic 验收示例', sample, 'forecast-sample'), button(current.historyStatus === 'loading' ? '正在读取历史…' : '读取历史方案', () => loadHistory(), 'forecast-history', current.historyStatus === 'loading')]),
                     h('label', { class: 'fw-field' }, ['证据 JSON（含带时区 available_at、入住日、净间夜、质量状态；synthetic 来源用 synthetic- 编号，manual_unverified 用 manual- 编号，仅接受字母数字/下划线/连字符，禁止URL及凭证；证据范围编号不得含首尾空白）', h('textarea', { value: evidence.value, 'data-testid': 'forecast-evidence', onInput: e => { evidence.value = e.target.value; } })]),
                     h('label', { class: 'fw-field' }, ['导入证据 JSON 文件', h('input', { type: 'file', accept: '.json,application/json', onChange: async e => { const file = e.target.files?.[0]; if (!file) return; if (file.size > 2000000) { controller.state.error = '文件超过2MB'; redraw(); return; } const before = inputKey(); const value = await file.text(); if (before === inputKey()) evidence.value = value; } })]),
                     h('p', '情景可选：全部留空只回测。填写后四项均必填；弹性是人工假设，库存为同渠道同房型全周期可用间夜。'),
@@ -144,7 +155,7 @@
                         h('p', { 'data-testid': 'forecast-training-quality' }, replay.input_evidence.training_quality ? `56天训练窗口：有效 ${display(replay.input_evidence.training_quality.ready)} 天；声明缺失 ${display(replay.input_evidence.training_quality.missing)} 天；采集失败 ${display(replay.input_evidence.training_quality.failed)} 天；无可见版本 ${display(replay.input_evidence.training_quality.unobserved)} 天。` : '旧方案未记录训练质量计数；需重新计算后核验。'),
                         h('div', { 'data-testid': 'forecast-backtest-quality' }, [7, 14, 30].map(n => {
                             const c = replay.comparisons[n]; const q = c.actual_quality;
-                            return h('p', q ? `${n}天回测目标：有效 ${display(q.ready)}，声明缺失 ${display(q.missing)}，采集失败 ${display(q.failed)}，无可见版本 ${display(q.unobserved)}；训练含缺失/失败的时间折 ${display(c.unavailable_training_fold_count)}。缺口存在时不支持完整优劣比较，误差仅为已配对样本统计。` : `${n}天旧方案未记录回测质量细分；需重新计算后核验。`);
+                            return h('p', q ? `${n}天回测目标：有效 ${display(q.ready)}，声明缺失 ${display(q.missing)}，采集失败 ${display(q.failed)}，无可见版本 ${display(q.unobserved)}；训练含缺失、失败或无可见版本的时间折 ${display(c.unavailable_training_fold_count)}。缺口存在时不支持完整优劣比较，误差仅为已配对样本统计。` : `${n}天旧方案未记录回测质量细分；需重新计算后核验。`);
                         })),
                         h('div', { style: 'overflow-x:auto' }, [h('table', [h('thead', [h('tr', ['周期', '预测间夜/状态', '配对样本/完整折', '模型MAE', '周基线MAE', '均值基线MAE', '区间覆盖%', '判断'].map(s => h('th', s)))]), h('tbody', [7, 14, 30].map(n => { const c = replay.comparisons[n]; const f = replay.forecasts[n]; return h('tr', [h('td', `${n}天`), h('td', `${display(f.total_predicted_room_nights)} / ${f.status}`), h('td', `${c.sample_count}/${c.complete_fold_count}（缺${c.unpaired_point_count}点）`), h('td', display(c.metrics.model.mae)), h('td', display(c.metrics.weekly.mae)), h('td', display(c.metrics.mean7.mae)), h('td', display(c.interval_coverage_percent)), h('td', labels[c.assessment.status] || c.assessment.status)]); }))])]),
                         h('p', replay.interval_semantics), ...replay.applicability.map(s => h('p', s)),
@@ -152,7 +163,11 @@
                     scenario ? h('div', { 'data-testid': 'forecast-scenario' }, [h('h4', '价格假设对照（不代表因果增收）'), scenario.status === 'blocked' ? h('p', '预测缺失，情景被阻塞。') : h('p', `基准金额 ${display(scenario.base_amount_cny)} 元 → 假设方案金额 ${display(scenario.proposed_amount_cny)} 元；假设差额 ${display(scenario.hypothetical_difference_cny)} 元。`), ...(scenario.limitations || []).map(s => h('p', s))]) : null,
                     current.historyError ? h('p', { role: 'alert' }, current.historyError) : null,
                     ['idle', 'loading', 'empty'].includes(current.historyStatus) ? h('p', { role: 'status', 'data-testid': 'forecast-history-status' }, { idle: '尚未读取当前范围的历史方案。', loading: '正在读取当前范围的历史方案…', empty: '已读取：当前范围暂无已保存方案。' }[current.historyStatus]) : null,
-                    h('details', { open: current.history.length > 0 }, [h('summary', '历史方案（当前酒店/渠道/门店/房型；最近50条）'), ...current.history.map(item => h('p', [button(`方案 ${item.id.slice(0, 12)} · 保存 ${item.created_at || '时间未知'} · 预测 ${item.as_of_at || '时点未知'} · ${item.source_kind || ''} · ${item.status}`, () => run('read', item.id), 'forecast-read')]))]),
+                    current.historyPagination ? h('nav', { 'aria-label': '历史方案分页', 'data-testid': 'forecast-history-pagination' }, [
+                        h('p', { role: 'status', 'data-testid': 'forecast-history-page' }, `第 ${current.historyPagination.page} / ${current.historyPagination.total_pages} 页，共 ${current.historyPagination.total} 份方案，每页 ${current.historyPagination.page_size} 份。`),
+                        h('div', { class: 'fw-actions' }, [button('上一页', () => loadHistory(current.historyPagination.page - 1), 'forecast-history-prev', current.historyPagination.page <= 1), button('下一页', () => loadHistory(current.historyPagination.page + 1), 'forecast-history-next', current.historyPagination.page >= current.historyPagination.total_pages)])
+                    ]) : null,
+                    h('details', { open: current.history.length > 0 }, [h('summary', '历史方案（当前酒店/渠道/门店/房型）'), ...current.history.map(item => h('p', { key: item.id }, [button(`方案 ${item.id.slice(0, 12)} · 保存 ${item.created_at || '时间未知'} · 预测 ${item.as_of_at || '时点未知'} · ${item.source_kind || ''} · ${item.status}`, () => run('read', item.id), 'forecast-read')]))]),
                 ]);
             };
         },

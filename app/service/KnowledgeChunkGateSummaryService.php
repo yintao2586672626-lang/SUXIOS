@@ -36,6 +36,7 @@ final class KnowledgeChunkGateSummaryService
         }
 
         $entriesByUnit = [];
+        $superseded = KnowledgeRevisionService::supersededIds($chunks);
         foreach ($chunks as $chunk) {
             $unitId = (int)($chunk['unit_id'] ?? 0);
             if (!isset($unitsById[$unitId], $summaries[$unitId])) {
@@ -47,6 +48,7 @@ final class KnowledgeChunkGateSummaryService
                 $content = is_array($decoded) ? $decoded : [];
             }
             $content = is_array($content) ? $content : [];
+            if (isset($superseded[(int)($chunk['chunk_id'] ?? 0)])) $content['lifecycle_status'] = 'stale';
             $isFormal = strtolower(trim((string)($chunk['type'] ?? ''))) === 'formal_operating_sop'
                 || strtolower(trim((string)($content['formal_record_type'] ?? ''))) === 'operating_sop'
                 || (int)($chunk['promotion_candidate_id'] ?? 0) > 0

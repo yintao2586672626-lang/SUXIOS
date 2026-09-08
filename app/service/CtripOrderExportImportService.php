@@ -210,6 +210,11 @@ final class CtripOrderExportImportService
                 continue;
             }
             $rawRowCount++;
+            $currency = strtoupper($this->text($row['币种'] ?? ''));
+            if ($currency !== '' && !in_array($currency, ['CNY', 'RMB', '人民币'], true)) {
+                throw new RuntimeException('携程订单包含非人民币金额，当前汇总不支持混合币种或自动换汇，请按币种核对后重新导入。', 422);
+            }
+            $row['_normalized_currency'] = $currency === '' ? null : 'CNY';
             $sourceFileId = max(1, (int)($row['_source_file_index'] ?? 1));
             $datasetSourceFileIds[$sourceFileId] = true;
             $orderId = $this->text($row['订单号'] ?? '');
@@ -261,6 +266,7 @@ final class CtripOrderExportImportService
                 'nights' => $this->text($row['晚数'] ?? ''),
                 'rooms' => $this->text($row['房间数'] ?? ''),
                 'bottom_price' => $this->text($row['底价'] ?? ''),
+                'currency' => $row['_normalized_currency'],
                 'channel' => $this->channel($row['预订网站'] ?? '')[0],
             ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR));
             if ($dataDate === '') {
@@ -287,7 +293,9 @@ final class CtripOrderExportImportService
                     'cancelled_orders' => 0,
                     'unknown_status_orders' => 0,
                     'room_nights' => 0.0,
+                    'room_nights_missing_orders' => 0,
                     'gross_room_nights' => 0.0,
+                    'gross_room_nights_missing_orders' => 0,
                     'bottom_price_sum' => 0.0,
                     'bottom_price_room_nights' => 0.0,
                     'bottom_price_valid_orders' => 0,
@@ -317,9 +325,11 @@ final class CtripOrderExportImportService
                     'source_formats' => [],
                     'source_layouts' => [],
                     'source_file_ids' => [],
+                    'currencies' => [],
                 ];
             }
             $group =& $groups[$groupKey];
+            $group['currencies'][$row['_normalized_currency'] ?? 'unknown'] = true;
             $group['date_sources'][$dateSource] = true;
             $group['gross_orders']++;
             $group['status_family_counts'][$statusFamily]++;
@@ -336,10 +346,17 @@ final class CtripOrderExportImportService
             $sourceFileId = max(1, (int)($row['_source_file_index'] ?? 1));
             $group['source_file_ids'][$sourceFileId] = true;
 
-            $nights = max(0.0, $this->number($row['晚数'] ?? null) ?? 0.0);
-            $rooms = max(0.0, $this->number($row['房间数'] ?? null) ?? 0.0);
+            $nights = $this->number($row['晚数'] ?? null);
+            $rooms = $this->number($row['房间数'] ?? null);
+            if (($nights !== null && $nights < 0) || ($rooms !== null && $rooms < 0)) {
+                throw new RuntimeException('携程订单晚数或房间数为负值，请核对原始文件后重新导入，不能按 0 处理。', 422);
+            }
+            $roomNightsKnown = $nights !== null && $rooms !== null;
+            $nights ??= 0.0;
+            $rooms ??= 0.0;
             $orderRoomNights = $nights * $rooms;
             $group['gross_room_nights'] += $orderRoomNights;
+            if (!$roomNightsKnown) $group['gross_room_nights_missing_orders']++;
             $group['order_fact_fingerprints'][] = hash('sha256', json_encode([
                 'order' => (string)$row['_order_fingerprint'],
                 'state' => $state,
@@ -349,6 +366,7 @@ final class CtripOrderExportImportService
                 'nights' => $nights,
                 'rooms' => $rooms,
                 'bottom_price' => $this->text($row['底价'] ?? ''),
+                'currency' => $row['_normalized_currency'],
                 'channel' => $channelKey,
             ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR));
 
@@ -370,12 +388,14 @@ final class CtripOrderExportImportService
                 $group['active_not_stayed_orders']++;
             }
             $group['room_nights'] += $orderRoomNights;
+            if (!$roomNightsKnown) $group['room_nights_missing_orders']++;
             $roomType = mb_substr($this->text($row['房型名称'] ?? ''), 0, 120, 'UTF-8');
             if ($roomType !== '') {
                 if (!isset($group['room_types'][$roomType])) {
                     $group['room_types'][$roomType] = [
                         'active_orders' => 0,
                         'room_nights' => 0.0,
+                        'room_nights_complete' => true,
                         'bottom_price_sum' => 0.0,
                         'bottom_price_room_nights' => 0.0,
                         'bottom_price_valid_orders' => 0,
@@ -383,6 +403,7 @@ final class CtripOrderExportImportService
                 }
                 $group['room_types'][$roomType]['active_orders']++;
                 $group['room_types'][$roomType]['room_nights'] += $orderRoomNights;
+                $group['room_types'][$roomType]['room_nights_complete'] = $group['room_types'][$roomType]['room_nights_complete'] && $roomNightsKnown;
             }
             $bottomPriceText = $this->text($row['底价'] ?? '');
             $bottomPrice = $this->number($bottomPriceText);
@@ -485,14 +506,14 @@ final class CtripOrderExportImportService
                 $roomTypeMetrics[] = [
                     'name' => $roomType,
                     'active_orders' => (int)$metric['active_orders'],
-                    'room_nights' => (float)$metric['room_nights'],
+                    'room_nights' => $metric['room_nights_complete'] ? (float)$metric['room_nights'] : null,
                     'reference_bottom_price_total' => (int)$metric['bottom_price_valid_orders'] > 0
                         ? (float)$metric['bottom_price_sum']
                         : null,
-                    'reference_bottom_price_adr' => (float)$metric['bottom_price_room_nights'] > 0
+                    'reference_bottom_price_adr' => $metric['room_nights_complete'] && (float)$metric['bottom_price_room_nights'] > 0
                         ? (float)$metric['bottom_price_sum'] / (float)$metric['bottom_price_room_nights']
                         : null,
-                    'bottom_price_room_nights' => (float)$metric['bottom_price_room_nights'],
+                    'bottom_price_room_nights' => $metric['room_nights_complete'] ? (float)$metric['bottom_price_room_nights'] : null,
                     'bottom_price_valid_order_count' => (int)$metric['bottom_price_valid_orders'],
                 ];
             }
@@ -530,7 +551,7 @@ final class CtripOrderExportImportService
                 : ($group['bottom_price_valid_orders'] === $group['active_orders']
                     ? 'complete'
                     : ($group['bottom_price_valid_orders'] > 0 ? 'partial' : 'missing'));
-            $bottomPriceAdr = $referenceBottomPriceTotal !== null && $group['bottom_price_room_nights'] > 0
+            $bottomPriceAdr = $group['room_nights_missing_orders'] === 0 && $referenceBottomPriceTotal !== null && $group['bottom_price_room_nights'] > 0
                 ? $group['bottom_price_sum'] / $group['bottom_price_room_nights']
                 : null;
             $sourceLayouts = array_keys($group['source_layouts']);
@@ -584,7 +605,7 @@ final class CtripOrderExportImportService
                 'cancel_order_num' => $group['cancelled_orders'],
                 'unknown_status_order_num' => $group['unknown_status_orders'],
                 'cancel_rate' => $cancelRate,
-                'quantity' => $group['room_nights'],
+                'quantity' => $group['room_nights_missing_orders'] === 0 ? $group['room_nights'] : null,
                 // The generic amount field is consumed by the standard OTA ETL
                 // as revenue. A Ctrip order export only provides a reference
                 // bottom price, so it must remain outside revenue facts.
@@ -624,9 +645,14 @@ final class CtripOrderExportImportService
                     'cancel_rate_basis' => $group['unknown_status_orders'] === 0
                         ? 'cancelled_orders_over_gross_orders_complete_classification'
                         : 'unavailable_unknown_status_orders_present',
-                    'room_nights' => $group['room_nights'],
-                    'gross_room_nights' => $group['gross_room_nights'],
+                    'room_nights' => $group['room_nights_missing_orders'] === 0 ? $group['room_nights'] : null,
+                    'room_nights_missing_order_count' => $group['room_nights_missing_orders'],
+                    'room_nights_completeness' => $group['room_nights_missing_orders'] === 0 ? 'complete' : 'partial',
+                    'gross_room_nights' => $group['gross_room_nights_missing_orders'] === 0 ? $group['gross_room_nights'] : null,
                     'bottom_price_sum' => $referenceBottomPriceTotal,
+                    'bottom_price_room_nights' => $group['room_nights_missing_orders'] === 0
+                        ? $group['bottom_price_room_nights']
+                        : null,
                     'bottom_price_valid_order_count' => $group['bottom_price_valid_orders'],
                     'bottom_price_missing_order_count' => $group['bottom_price_missing_orders'],
                     'bottom_price_invalid_order_count' => $group['bottom_price_invalid_orders'],
@@ -639,6 +665,10 @@ final class CtripOrderExportImportService
                     'bottom_price_adr' => $bottomPriceAdr,
                     'amount_basis' => 'ctrip_export_bottom_price_sum',
                     'amount_semantics' => 'reference_bottom_price_not_confirmed_revenue',
+                    'currency' => isset($group['currencies']['unknown']) ? null : 'CNY',
+                    'currency_status' => isset($group['currencies']['unknown']) ? 'missing_source_currency' : 'source_declared',
+                    'amount_storage_unit' => isset($group['currencies']['unknown']) ? 'unknown' : 'yuan',
+                    'currency_contract_version' => 'ctrip_order_currency.v1',
                     'record_kind' => 'channel_daily_aggregate',
                     'import_contract' => self::IMPORT_CONTRACT,
                     'pii_policy' => 'aggregate_only_no_guest_staff_reservation_notes',
@@ -873,8 +903,11 @@ final class CtripOrderExportImportService
         if (mb_strlen($targetCore, 'UTF-8') < 4) {
             return false;
         }
-        $fileWithoutCity = str_replace($city, '', $file);
-        return str_contains($fileWithoutCity, $targetCore);
+        // A brand substring cannot establish the identity of a particular
+        // property. Only city/punctuation and generic lodging descriptions
+        // may differ; specific branch/location words must remain equal.
+        $fileCore = $this->distinctiveHotelCore($file, $city);
+        return hash_equals($targetCore, $fileCore);
     }
 
     private function distinctiveHotelCore(string $normalizedName, string $normalizedCity): string
@@ -882,7 +915,7 @@ final class CtripOrderExportImportService
         $core = str_replace($normalizedCity, '', $normalizedName);
         foreach ([
             '湖畔酒店', '度假酒店', '精品酒店', '国际酒店', '商务酒店', '大酒店',
-            '景区店', '旗舰店', '度假村', '酒店', '宾馆', '客栈', '民宿', '公寓', '旅馆', '旅舍', '分店',
+            '度假村', '酒店', '宾馆', '客栈', '民宿', '公寓', '旅馆', '旅舍',
         ] as $genericTerm) {
             $core = str_replace($genericTerm, '', $core);
         }
@@ -981,10 +1014,16 @@ final class CtripOrderExportImportService
         if ($value === null || $value === '') {
             return null;
         }
-        $normalized = is_string($value)
-            ? str_replace([',', '¥', '￥', ' '], '', $value)
-            : $value;
-        return is_numeric($normalized) ? (float)$normalized : null;
+        $normalized = $value;
+        if (is_string($normalized)) {
+            $normalized = trim($normalized);
+            $normalized = preg_replace('/^[¥￥]\s*/u', '', $normalized);
+            if (str_contains($normalized, ',')) {
+                if (!preg_match('/^[+-]?\d{1,3}(?:,\d{3})+(?:\.\d+)?$/D', $normalized)) return null;
+                $normalized = str_replace(',', '', $normalized);
+            }
+        }
+        return is_numeric($normalized) && is_finite((float)$normalized) ? (float)$normalized : null;
     }
 
     private function text(mixed $value): string

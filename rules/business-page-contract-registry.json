@@ -503,12 +503,24 @@
       ],
       "regression_checks": [
         {
+          "path": "tests/automation/promotion_experiment_panel.test.mjs",
+          "includes": ["promotion panel rejects late scope results", "promotion panel blocks duplicate submits"]
+        },
+        {
+          "path": "tests/automation/commission_acquisition_integration.test.mjs",
+          "includes": ["existing quant simulation entry exposes a lazy native commission panel"]
+        },
+        {
           "path": "tests/automation/phase1_product_scope_reduction.test.mjs",
           "includes": ["existing quant simulation page is discoverable from the revenue workbench", "ai-simulation"]
         },
         {
           "path": "tests/automation/quant_simulation_realization.test.mjs",
           "includes": ["quant simulation is findable and requires an explicit permitted hotel", "legacy_read_only", "readback_verified"]
+        },
+        {
+          "path": "tests/automation/quant_operating_scenario.test.mjs",
+          "includes": ["comparison enforces exact tenant hotel date type horizon and currency", "actual app handler prevents duplicate submission"]
         }
       ],
       "evidence_maturity": "unit_contract_pass",

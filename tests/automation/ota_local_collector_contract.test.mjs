@@ -212,6 +212,8 @@ test('server contract exposes paired device endpoints and never accepts central 
     appMain,
     reassignmentMigration,
     notifications,
+    deliveryConcern,
+    historyCoordinator,
   ] = await Promise.all([
     read('route/app.php'),
     read('app/service/OtaLocalCollectorService.php'),
@@ -226,6 +228,8 @@ test('server contract exposes paired device endpoints and never accepts central 
     readAppMainContractSource(),
     read('database/migrations/20260802_allow_ota_local_collector_account_reassignment.sql'),
     read('app/service/OtaFailureNotificationService.php'),
+    read('app/service/concern/OtaLocalCollectorResultDeliveryConcern.php'),
+    read('app/service/OtaCanonicalHistoryPromotionCoordinator.php'),
   ]);
 
   for (const endpoint of [
@@ -254,7 +258,9 @@ test('server contract exposes paired device endpoints and never accepts central 
   assert.match(service, /服务器保存结果的租户、来源、同步任务、酒店、平台、日期或行集合回读凭据不一致/);
   assert.match(service, /刚刚被其他账户绑定/);
   assert.match(service, /ordered_collection/);
-  assert.match(service, /P0OtaFieldLoopVerifierRunner/);
+  assert.match(service, /finalizeLocalHistory\(\$receipt, \$tenantId, \$hotelId\)/);
+  assert.match(deliveryConcern, /OtaCanonicalHistoryPromotionCoordinator\(\)\)->finalize/);
+  assert.match(historyCoordinator, /P0OtaFieldLoopVerifierRunner\(\)\)->verify/);
   assert.match(service, /online_data_historical_executed_/);
   assert.match(service, /P0OtaDownstreamGateService/);
   assert.match(service, /explicit_gap_report/);

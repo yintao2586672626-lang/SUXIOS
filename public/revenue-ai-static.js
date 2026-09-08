@@ -3683,7 +3683,7 @@
         'restoreRevenueCockpitPendingApprovalWithReadback',
     ]);
     const revenueCockpitStaticScript = 'revenue-cockpit-static.js';
-    const revenueCockpitStaticVersion = '20260831-cockpit-domain-h11e25d7498';
+    const revenueCockpitStaticVersion = '20260831-cockpit-domain-h6dd6fa56dc';
     let revenueCockpitStaticHelpers = null;
     let revenueCockpitStaticLoadPromise = null;
 

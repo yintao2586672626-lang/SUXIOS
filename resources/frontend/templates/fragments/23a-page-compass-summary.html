@@ -1,12 +1,46 @@
-                                <operating-loop-authority v-if="currentPage === 'compass'"></operating-loop-authority>
-
-                                <div v-if="currentPage === 'compass'" class="mb-3 text-xs font-semibold tracking-wide text-slate-400">专业下钻 · 以下内容不决定权威闭环状态</div>
+                                <header v-if="currentPage === 'compass'" class="home-workspace-toolbar" data-testid="home-workspace-scope">
+                                    <div class="home-workspace-title">
+                                        <p>经营工作台</p>
+                                        <h2>{{ homeBusinessTimeModel.hotelName || '请选择门店' }}</h2>
+                                        <span>查看经营事实，安排今天的工作</span>
+                                    </div>
+                                    <div class="home-workspace-controls">
+                                        <label>
+                                            <span>当前门店</span>
+                                            <select v-model="filterReportHotel" class="input-field" aria-label="首页门店">
+                                                <option value="">请选择具体门店</option>
+                                                <option v-for="hotel in compassHotelOptions" :key="hotel.id" :value="hotel.id">{{ hotel.name }}</option>
+                                            </select>
+                                        </label>
+                                        <label>
+                                            <span>经营事实日期</span>
+                                            <input type="date" class="input-field" aria-label="经营事实业务日期"
+                                                :value="homeBusinessTimeModel.selectedBusinessDate"
+                                                :max="homeBusinessTimeModel.maxBusinessDate"
+                                                @change="homeRevenueFactBusinessDate = $event.target.value">
+                                        </label>
+                                        <button class="home-facts-refresh" @click="refreshCompassDashboard" :disabled="compassLoading || homeRevenueFactLayerLoading">
+                                            <i :class="compassLoading || homeRevenueFactLayerLoading ? 'fas fa-spinner fa-spin' : 'fas fa-rotate'" aria-hidden="true"></i>
+                                            {{ compassLoading || homeRevenueFactLayerLoading ? '读取中' : '刷新事实' }}
+                                        </button>
+                                    </div>
+                                </header>
+                                <nav v-if="currentPage === 'compass'" class="home-daily-workflows" data-testid="home-daily-workflows" aria-label="五条日常经营流程">
+                                    <button type="button" @click="openHomeDailyWorkflow('facts')"><strong>可信经营状态</strong><span>刷新所选门店和日期的事实</span></button>
+                                    <button type="button" @click="openHomeDailyWorkflow('query')"><strong>中文查数 / 追溯</strong><span>按编号回读来源与缺失状态</span></button>
+                                    <button type="button" @click="openHomeDailyWorkflow('health')"><strong>采集缺口定位</strong><span>核对采集、入库与回读</span></button>
+                                    <button type="button" @click="openHomeDailyWorkflow('tasks')"><strong>任务执行核实</strong><span>该酒店全部任务 · 各自原始日期与平台</span></button>
+                                    <button type="button" @click="openHomeDailyWorkflow('review')"><strong>效果复盘</strong><span>该酒店待复盘任务 · 各自原始日期与平台</span></button>
+                                    <p v-if="homeDailyWorkflowError" class="home-daily-workflow-error" role="alert">{{ homeDailyWorkflowError }}</p>
+                                </nav>
+                                <div v-if="currentPage === 'compass'" class="home-priority-layout">
                                 <section v-if="currentPage === 'compass'" class="compass-hero-bezel" data-testid="home-executive-answer">
                                     <div class="compass-hero-core">
                                         <home-yesterday-operating-facts
                                             :model="homeBusinessTimeModel"
                                             :show-header="true"
-                                            :show-controls="true"
+                                            :show-controls="false"
+                                            :compact="true"
                                             :hotel-options="compassHotelOptions"
                                             :selected-hotel-id="filterReportHotel"
                                             :refreshing="compassLoading || homeRevenueFactLayerLoading"
@@ -15,20 +49,13 @@
                                             @refresh="refreshCompassDashboard">
                                         </home-yesterday-operating-facts>
 
-                                        <!-- 昨天事实 / 今天状态 / 未来 AI 研判 · data-testid="home-temporal-axis" data-testid="home-competitor-diagnostic-reference" -->
-                                        <home-business-time-axis
-                                            :model="homeBusinessTimeModel"
-                                            :competitor-readiness="homeCompetitorReadiness"
-                                            :generating="homeTemporalGenerating"
-                                            :selected-hotel-id="homeTemporalSelectedHotelId"
-                                            @generate="generateHomeTemporalForecast">
-                                        </home-business-time-axis>
                                     </div>
                                 </section>
 
                                 <home-operating-orchestration
                                     v-if="currentPage === 'compass'"
                                     :model="homeOperatingScheduleModel"
+                                    :compact="true"
                                     :loading="homeOperatingScheduleLoading"
                                     :weekly-plan="homeWeeklyOperatingPlan"
                                     :weekly-loading="homeWeeklyOperatingPlanLoading"
@@ -38,3 +65,22 @@
                                     @open="openHomeOperatingScheduleItem"
                                     @open-all="openHomeOperatingScheduleAll">
                                 </home-operating-orchestration>
+                                </div>
+
+                                <!-- 昨天事实 / 今天状态 / 未来 AI 研判 · data-testid="home-temporal-axis" data-testid="home-competitor-diagnostic-reference" -->
+                                <home-business-time-axis
+                                    v-if="currentPage === 'compass'"
+                                    :model="homeBusinessTimeModel"
+                                    :competitor-readiness="homeCompetitorReadiness"
+                                    :generating="homeTemporalGenerating"
+                                    :selected-hotel-id="homeTemporalSelectedHotelId"
+                                    @generate="generateHomeTemporalForecast">
+                                </home-business-time-axis>
+
+                                <details v-if="currentPage === 'compass'" class="home-records-fold" data-testid="home-operating-records-details">
+                                    <summary>
+                                        <span><strong>经营记录与核验</strong><small>概览与待办反映各自来源，经营闭环状态以核验记录为准</small></span>
+                                        <span class="home-records-status">{{ operatingLoopStateLabel || '未核验' }} · {{ operatingLoop?.readback_verified ? '记录已核验' : '记录尚未核验' }}</span>
+                                    </summary>
+                                    <operating-loop-authority></operating-loop-authority>
+                                </details>

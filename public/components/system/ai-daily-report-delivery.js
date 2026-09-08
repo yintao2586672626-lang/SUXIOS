@@ -179,6 +179,14 @@
             ? ctx.aiDailyReport
             : {};
         const reportId = Number(currentReport.id || 0);
+        if (currentReport.evidence_snapshot) {
+            const delivery = buildEvidenceDelivery(ctx);
+            return { status: delivery.status, statusLabel: delivery.ready ? '已保存证据诊断' : '当前范围尚未回读',
+                text: delivery.text, canUse: delivery.ready,
+                verifiedMetricCount: delivery.snapshot?.fact_pack?.facts?.length || 0,
+                excludedMetricCount: 0, sourceRefCount: currentReport.source_refs?.length || 0,
+                gapCount: delivery.snapshot?.fact_pack?.gaps?.length || 0, scopeLabel: 'OTA 渠道证据快照' };
+        }
         if (!reportId) {
             return {
                 status: 'empty',
@@ -729,12 +737,33 @@
         });
     };
 
+    const buildEvidenceDelivery = (ctx = {}) => {
+        const report = ctx.aiDailyReport || {};
+        const snapshot = report.evidence_snapshot;
+        const form = ctx.aiDailyReportForm || {};
+        const ready = Boolean(report.id && snapshot
+            && report.evidence_readback_status === 'exact_readback_verified'
+            && snapshot.contract_version === 'ai_evidence_reasoning.v1'
+            && Number(snapshot.scope?.hotel_id) === Number(report.hotel_id)
+            && Number(snapshot.scope?.tenant_id) === Number(report.tenant_id)
+            && snapshot.scope?.business_date === report.report_date
+            && (!form.hotel_id || Number(form.hotel_id) === Number(report.hotel_id))
+            && (!form.report_date || form.report_date === report.report_date)
+            && snapshot.final_text === report.final_text
+            && /^[a-f0-9]{64}$/.test(snapshot.final_text_sha256 || '')
+            && /^[a-f0-9]{64}$/.test(snapshot.snapshot_fingerprint || ''));
+        return { ready, text: ready ? snapshot.final_text : '', snapshot: ready ? snapshot : null,
+            identity: ready ? `${report.id}:${snapshot.snapshot_fingerprint}` : '', reportId: report.id,
+            status: ready ? 'exact_readback_verified' : (snapshot ? 'scope_or_readback_blocked' : 'legacy_unverified') };
+    };
+
     const setup = (props) => {
         const { ref, watch, onBeforeUnmount } = Vue;
         const aiDailyReportAudience = ref('owner');
         const aiDailyReportPresentationGenerating = ref(false);
         const aiDailyReportPresentationLoading = ref(false);
         const aiDailyReportPresentationResult = ref(null);
+        const aiEvidenceProposals = ref({});
         const aiDailyReportBroadcastSpeaking = ref(false);
         let presentationReadSequence = 0;
         let presentationGenerationSequence = 0;
@@ -743,6 +772,74 @@
         const context = () => props.ctx || {};
         const report = () => context().aiDailyReport || {};
         const notify = (message, type) => context().showToast?.(message, type);
+        const aiDailyEvidenceDelivery = () => buildEvidenceDelivery(context());
+        const verifiedEvidenceDelivery = async () => {
+            const captured = aiDailyEvidenceDelivery();
+            if (!captured.ready) throw new Error('请读取当前酒店和日期的已保存诊断');
+            const digest = await globalThis.crypto.subtle.digest('SHA-256', new TextEncoder().encode(captured.text));
+            const hex = Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, '0')).join('');
+            if (hex !== captured.snapshot.final_text_sha256 || aiDailyEvidenceDelivery().identity !== captured.identity) {
+                throw new Error('诊断内容或当前范围已变化，请重新读取');
+            }
+            return captured;
+        };
+        const copyAiDailyEvidenceSnapshot = async () => {
+            try {
+                const captured = await verifiedEvidenceDelivery();
+                await globalThis.navigator.clipboard.writeText(captured.text);
+                if (aiDailyEvidenceDelivery().identity === captured.identity) notify('已复制同一版本证据诊断', 'success');
+                return true;
+            } catch (error) { notify(error.message || '复制失败', 'warning'); return false; }
+        };
+        const downloadAiDailyEvidenceSnapshot = async () => {
+            try {
+                const captured = await verifiedEvidenceDelivery();
+                downloadBlob(new Blob([JSON.stringify(captured.snapshot, null, 2)], { type: 'application/json;charset=utf-8' }),
+                    `suxios-evidence-r${captured.reportId}-${captured.snapshot.snapshot_fingerprint.slice(0, 12)}.json`);
+                return true;
+            } catch (error) { notify(error.message || '导出失败', 'warning'); return false; }
+        };
+        const aiEvidenceProposalState = (recommendation) => aiEvidenceProposals.value[
+            `${aiDailyEvidenceDelivery().identity}:${recommendation.recommendation_id}`
+        ] || {};
+        const proposeAiEvidenceTask = async (recommendation) => {
+            const delivery = aiDailyEvidenceDelivery();
+            const stored = delivery.snapshot?.diagnosis?.recommendations?.find(item => item.recommendation_id === recommendation.recommendation_id);
+            if (!delivery.ready || !stored || stored.handoff_status !== 'ready_for_task_proposal') return false;
+            const key = `${delivery.identity}:${stored.recommendation_id}`;
+            if (['pending', 'saved'].includes(aiEvidenceProposals.value[key]?.status)) return false;
+            aiEvidenceProposals.value[key] = { status: 'pending', message: '正在保存待人工审批提议…' };
+            try {
+                await verifiedEvidenceDelivery();
+                if (aiDailyEvidenceDelivery().identity !== delivery.identity) throw new Error('报告范围已变化，请重新读取后提议');
+                const response = await request('/operation/task-workflow-proposals', { method: 'POST',
+                    body: JSON.stringify({ hotel_id: stored.scope.hotel_id, recommendation: stored }) });
+                const result = response.data || {};
+                const intent = result.intent || {};
+                const scope = stored.scope;
+                const proposal = intent.evidence?.workflow_proposal;
+                if (response.code !== 200) throw new Error(response.message || '运营提议保存失败');
+                if (result.readback_verified !== true || !(Number(intent.id) > 0)
+                    || Number(intent.hotel_id) !== Number(scope.hotel_id) || Number(intent.tenant_id) !== Number(scope.tenant_id)
+                    || intent.platform !== scope.platform || intent.date_start !== scope.date_start || intent.date_end !== scope.date_end
+                    || proposal?.recommendation_id !== stored.recommendation_id || proposal?.source_digest !== stored.source_digest
+                    || proposal?.evidence_snapshot?.fingerprint !== stored.evidence_snapshot.fingerprint
+                    || proposal?.evidence_snapshot?.scope?.object_ref !== scope.object_ref
+                    || intent.evidence?.source_snapshot_digest !== stored.evidence_snapshot.fingerprint
+                    || intent.target_value?.object_ref !== scope.object_ref) {
+                    throw new Error('运营提议范围或精确回读未通过校验');
+                }
+                const message = `已关联意图 #${intent.id}（${intent.status === 'pending_approval' ? '待人工审批' : intent.status}）；尚未证明执行或效果。`;
+                aiEvidenceProposals.value[key] = { status: 'saved', message, intent_id: intent.id,
+                    task_ids: (intent.tasks || []).map(task => task.id), readback_verified: true };
+                if (aiDailyEvidenceDelivery().identity === delivery.identity) notify(message, 'success');
+                return true;
+            } catch (error) {
+                aiEvidenceProposals.value[key] = { status: 'error', message: error.message || '保存提议失败，可以重试' };
+                if (aiDailyEvidenceDelivery().identity === delivery.identity) notify(error.message || '保存提议失败', 'warning');
+                return false;
+            }
+        };
         const aiDailyOperationsBroadcast = () => buildAiDailyOperationsBroadcast(context());
         const aiDailyReportBroadcastSpeechSupported = () => Boolean(
             window?.speechSynthesis && typeof window.SpeechSynthesisUtterance === 'function'
@@ -755,6 +852,7 @@
             aiDailyReportBroadcastSpeaking.value = false;
         };
         const copyAiDailyOperationsBroadcast = async () => {
+            if (report().evidence_snapshot) return copyAiDailyEvidenceSnapshot();
             const broadcast = aiDailyOperationsBroadcast();
             if (!broadcast.canUse) {
                 notify('请先读取或生成一份已保存日报', 'warning');
@@ -1012,6 +1110,10 @@
             const humanJudgments = objectList(ctx.aiDailyReportHumanJudgments);
             const common = {
                 package_version: 'ai_daily_share.v1',
+                ...(audience !== 'training' && aiDailyEvidenceDelivery().ready ? {
+                    evidence_snapshot: aiDailyEvidenceDelivery().snapshot,
+                    final_text: aiDailyEvidenceDelivery().text,
+                } : {}),
                 audience,
                 report_date: currentReport.report_date || '',
                 summary: currentReport.summary || '',
@@ -1159,6 +1261,11 @@
         });
 
         const local = {
+            aiDailyEvidenceDelivery,
+            copyAiDailyEvidenceSnapshot,
+            downloadAiDailyEvidenceSnapshot,
+            aiEvidenceProposalState,
+            proposeAiEvidenceTask,
             aiDailyReportAudience,
             aiDailyReportPresentationGenerating,
             aiDailyReportPresentationLoading,
@@ -1219,5 +1326,6 @@
         downloadCompetitionReport,
         buildAiDailyOperationsBroadcast,
         normalizeTrustedBroadcast,
+        buildEvidenceDelivery,
     });
 })();

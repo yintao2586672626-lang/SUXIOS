@@ -107,6 +107,39 @@ final class RevenueForecastWorkbenchControllerTest extends TestCase
         self::assertCount(1, $this->controller(Fixture::scope(), false)->history()->getData()['data']['items']);
     }
 
+    public function testStorageFailuresIdentifySaveHistoryAndDetailWithoutExposingPaths(): void
+    {
+        file_put_contents($this->root . '/plans', 'synthetic blocked storage');
+        $save = $this->controller(Fixture::scope() + Fixture::input())->save();
+        self::assertSame(500, $save->getCode());
+        self::assertSame('save', $save->getData()['data']['operation'] ?? null);
+        self::assertStringContainsString('方案保存失败', $save->getData()['message']);
+        $history = $this->controller(Fixture::scope(), false)->history();
+        self::assertSame(500, $history->getCode());
+        self::assertSame('history', $history->getData()['data']['operation']);
+        self::assertStringContainsString('历史方案读取失败', $history->getData()['message']);
+        self::assertStringNotContainsString($this->root, json_encode($history->getData()));
+        unlink($this->root . '/plans');
+        $saved = $this->controller(Fixture::scope() + Fixture::input())->save()->getData()['data'];
+        $file = glob($this->root . '/plans/*/' . $saved['id'] . '.json')[0];
+        file_put_contents($file, '{synthetic corruption');
+        $detail = $this->controller(Fixture::scope(), false)->detail($saved['id']);
+        self::assertSame(500, $detail->getCode());
+        self::assertSame('read', $detail->getData()['data']['operation']);
+        self::assertStringContainsString('方案回读校验失败', $detail->getData()['message']);
+        self::assertFileExists($file);
+    }
+
+    public function testHistoryRejectsInvalidPaginationAndReturnsExplicitTotals(): void
+    {
+        foreach ([0, -1, '2x', true, ['1']] as $page) {
+            self::assertSame(422, $this->controller(Fixture::scope() + ['page' => $page], false)->history()->getCode());
+        }
+        $data = $this->controller(Fixture::scope(), false)->history()->getData()['data'];
+        self::assertSame(0, $data['total']); self::assertSame(1, $data['page']);
+        self::assertSame(50, $data['page_size']); self::assertSame(1, $data['total_pages']);
+    }
+
     public function testContextValidatesTheSameScopeContractAsReplay(): void
     {
         $valid = $this->controller(Fixture::scope(), false)->context();

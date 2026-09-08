@@ -30,8 +30,13 @@ try {
     await page.getByTestId('forecast-history').click();
     assert.match(await page.getByTestId('forecast-history-status').innerText(), /正在读取/);
     assert.equal(await page.getByTestId('forecast-history').isDisabled(), true);
+    assert.equal(await page.getByTestId('forecast-history-pagination').count(), 0);
     releaseHistory();
     await page.waitForFunction(() => document.querySelector('[data-testid=forecast-history-status]').textContent.includes('暂无已保存方案'));
+    assert.match(await page.getByTestId('forecast-history-page').innerText(), /第 1 \/ 1 页，共 0 份方案/);
+    assert.equal(await page.getByTestId('forecast-history-prev').isDisabled(), true);
+    assert.equal(await page.getByTestId('forecast-history-next').isDisabled(), true);
+    assert.match(await page.getByTestId('forecast-scope-guidance').innerText(), /支持中文，每项最多100字节/);
     await page.getByTestId('forecast-sample').click();
     await page.waitForFunction(() => document.querySelector('[data-testid=forecast-evidence]').value.includes('synthetic-day-242'));
     for (const [key, value] of Object.entries({ current_price: '200', proposed_price: '220', elasticity: '-1', inventory_room_nights: '210' })) await page.getByTestId(`forecast-${key}`).fill(value);
@@ -90,6 +95,62 @@ try {
     assert.match(await restricted.getByTestId('forecast-saved').innerText(), /仅显示摘要/);
     assert.match(await restricted.getByTestId('forecast-evidence').inputValue(), /synthetic-day-242/);
     await restricted.close();
+    // Save through the real controller and its isolated persistence, with no prebuilt history response.
+    const historyScope = { hotel_id: 90001, platform: 'ctrip', platform_store_id: 'synthetic-store', room_scope: 'synthetic-room' };
+    const bulkEvidence = JSON.parse(await page.getByTestId('forecast-evidence').inputValue());
+    const bulkIds = new Set();
+    for (let proposed_price = 221; proposed_price <= 270; proposed_price++) {
+        const saved = await fetch(`${base}/api/revenue-ai/forecast-workbench/plans`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
+            ...historyScope, evidence: bulkEvidence, scenario: { horizon_days: 7, current_price: 200, proposed_price, elasticity: -1, inventory_room_nights: 210, inventory_scope: historyScope.room_scope, price_unit: 'CNY_per_room_night' },
+        }) });
+        assert.equal(saved.status, 200);
+        const doc = await saved.json();
+        assert.equal(doc.code, 200);
+        assert.equal(doc.data.readback_verified, true);
+        assert.equal(doc.data.payload.input.scenario.proposed_price, proposed_price);
+        bulkIds.add(doc.data.id);
+    }
+    assert.equal(bulkIds.size, 50);
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    await page.getByTestId('forecast-history').click();
+    await page.waitForFunction(() => document.querySelector('[data-testid=forecast-history-page]')?.textContent.includes('共 53 份方案'));
+    assert.match(await page.getByTestId('forecast-history-page').innerText(), /第 1 \/ 2 页/);
+    assert.equal(await page.getByTestId('forecast-read').count(), 50);
+    assert.equal(await page.getByTestId('forecast-history-prev').isDisabled(), true);
+    assert.equal(await page.getByTestId('forecast-history-next').isDisabled(), false);
+    const firstPageLabels = await page.getByTestId('forecast-read').allInnerTexts();
+    let releaseSecondPage;
+    const secondPageRelease = new Promise(resolve => { releaseSecondPage = resolve; });
+    await page.route('**/api/revenue-ai/forecast-workbench/plans?*page=2', async route => { await secondPageRelease; await route.continue(); }, { times: 1 });
+    await page.getByTestId('forecast-history-next').click();
+    assert.match(await page.getByTestId('forecast-history-status').innerText(), /正在读取/);
+    assert.equal(await page.getByTestId('forecast-read').count(), 0);
+    assert.equal(await page.getByTestId('forecast-history-pagination').count(), 0);
+    releaseSecondPage();
+    await page.waitForFunction(() => document.querySelector('[data-testid=forecast-history-page]')?.textContent.includes('第 2 / 2 页'));
+    assert.equal(await page.getByTestId('forecast-read').count(), 3);
+    assert.equal(await page.getByTestId('forecast-history-prev').isDisabled(), false);
+    assert.equal(await page.getByTestId('forecast-history-next').isDisabled(), true);
+    assert.equal(new Set([...firstPageLabels, ...await page.getByTestId('forecast-read').allInnerTexts()]).size, 53);
+    await page.getByTestId('forecast-read').filter({ hasText: originalId.slice(0, 12) }).click();
+    await page.getByTestId('forecast-saved').waitFor();
+    assert.equal(await page.getByTestId('forecast-saved').innerText(), originalSaved);
+    assert.equal(await page.getByTestId('forecast-proposed_price').inputValue(), '220');
+    await page.getByTestId('forecast-history-page').scrollIntoViewIfNeeded();
+    await page.screenshot({ path: path.join(out, 'L05-desktop-history-pagination.png') });
+    await page.getByTestId('forecast-history-prev').click();
+    await page.waitForFunction(() => document.querySelector('[data-testid=forecast-history-page]')?.textContent.includes('第 1 / 2 页'));
+    assert.equal(await page.getByTestId('forecast-read').count(), 50);
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.getByTestId('forecast-history-next').click();
+    await page.waitForFunction(() => document.querySelector('[data-testid=forecast-history-page]')?.textContent.includes('第 2 / 2 页'));
+    await page.getByTestId('forecast-read').filter({ hasText: originalId.slice(0, 12) }).click();
+    await page.getByTestId('forecast-saved').waitFor();
+    assert.equal(await page.getByTestId('forecast-saved').innerText(), originalSaved);
+    assert.equal(await page.getByTestId('forecast-proposed_price').inputValue(), '220');
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+    await page.getByTestId('forecast-history-page').scrollIntoViewIfNeeded();
+    await page.screenshot({ path: path.join(out, 'L05-mobile-history-pagination.png') });
     await page.getByTestId('forecast-evidence').fill('{bad json');
     await page.getByTestId('forecast-run').click();
     await page.getByRole('alert').waitFor();
@@ -106,8 +167,17 @@ try {
     assert.match(await page.getByTestId('forecast-result').innerText(), /状态：partial/);
     const backtestQuality = await page.getByTestId('forecast-backtest-quality').innerText();
     assert.match(backtestQuality, /采集失败 1/);
-    assert.match(backtestQuality, /训练含缺失\/失败的时间折 [1-9]/);
+    assert.match(backtestQuality, /训练含缺失、失败或无可见版本的时间折 [1-9]/);
     await page.screenshot({ path: path.join(out, 'L05-mobile-partial-synthetic.png'), fullPage: true });
+    const unobservedEvidence = structuredClone(bulkEvidence);
+    const unobservedDates = [unobservedEvidence.observations[20].business_date, unobservedEvidence.observations[220].business_date];
+    unobservedEvidence.observations = unobservedEvidence.observations.filter(row => !unobservedDates.includes(row.business_date));
+    await page.getByTestId('forecast-evidence').fill(JSON.stringify(unobservedEvidence));
+    await page.getByTestId('forecast-run').click(); await page.getByTestId('forecast-result').waitFor();
+    assert.match(await page.getByTestId('forecast-training-quality').innerText(), /无可见版本 1 天/);
+    assert.match(await page.getByTestId('forecast-result').innerText(), /状态：partial/);
+    assert.match(await page.getByTestId('forecast-backtest-quality').innerText(), /训练含缺失、失败或无可见版本的时间折 [1-9]/);
+    await page.screenshot({ path: path.join(out, 'L05-mobile-unobserved-synthetic.png'), fullPage: true });
     await page.getByTestId('forecast-hotel').selectOption('90002');
     assert.equal(await page.getByTestId('forecast-result').count(), 0);
     assert.match(await page.getByTestId('forecast-history-status').innerText(), /尚未读取/);
@@ -117,7 +187,7 @@ try {
     const anonymous = await fetch(`${base}/api/revenue-ai/forecast-workbench/plans?${scope}`, { headers: { 'X-Synthetic-Actor': 'anonymous' } });
     assert.equal(anonymous.status, 401);
     assert.deepEqual(errors, []);
-    const receipt = { status: 'passed', evidence_tier: 'isolated_browser_real_controller_synthetic_sqlite', viewports: ['1440x1000', '390x844'], checks: ['7/14/30 forecasts and baseline comparison', 'explicit pricing assumptions', 'save and exact replay', 'distinct history labels for price variants', 'actual protected-summary redactor: read and reimport recovery and save', 'input change invalidation', 'invalid JSON recovery', 'cross hotel rejection', 'anonymous rejection', 'no horizontal viewport overflow', 'no page errors'], screenshot_paths: ['output/long-goal/L05-desktop-synthetic.png', 'output/long-goal/L05-mobile-synthetic.png', 'output/long-goal/L05-mobile-summary-synthetic.png'] };
+    const receipt = { status: 'passed', evidence_tier: 'isolated_browser_real_controller_synthetic_sqlite', viewports: ['1440x1000', '390x844'], saved_history_count: 53, checks: ['7/14/30 forecasts and baseline comparison', 'explicit pricing assumptions', 'save and exact replay', 'distinct history labels for price variants', 'actual protected-summary redactor: read and reimport recovery and save', '53 real saved documents on two pages: next and previous, older exact ID and price restored on desktop and mobile', 'explicit empty history and loading clears stale rows and pagination', 'scope identifier guidance matches Unicode identifier contract', 'input change invalidation', 'invalid JSON recovery', 'missing, failed and unobserved dates remain partial in current and historical training', 'cross hotel rejection', 'anonymous rejection', 'no horizontal viewport overflow', 'no page errors'], screenshot_paths: ['output/long-goal/L05-desktop-synthetic.png', 'output/long-goal/L05-mobile-synthetic.png', 'output/long-goal/L05-mobile-summary-synthetic.png', 'output/long-goal/L05-desktop-history-pagination.png', 'output/long-goal/L05-mobile-history-pagination.png', 'output/long-goal/L05-mobile-partial-synthetic.png', 'output/long-goal/L05-mobile-unobserved-synthetic.png'] };
     fs.writeFileSync(path.join(out, 'browser-verification.json'), JSON.stringify(receipt, null, 2));
     console.log(JSON.stringify(receipt));
 } finally {

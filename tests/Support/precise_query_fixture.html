@@ -1,0 +1,12 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>L03 Synthetic 精准查数验收</title><link rel="stylesheet" href="/style.css"></head>
+<body style="background:#eff3f7;color:#172b43;font-family:system-ui"><header style="padding:24px"><h1>L03 精准查数隔离验收</h1><p>SYNTHETIC · 独立SQLite · 无真实酒店/OTA数据</p></header><div id="app"></div>
+<script src="/vue.js"></script><script src="/analyst.js"></script><script src="/query.js"></script>
+<script>
+const ctx=Vue.reactive({user:{id:7,tenant_id:10,hotel_id:80},currentPage:'compass',operatingQuestionForm:{hotel_id:80,platform:'',date_start:'',date_end:''},
+  operatingQuestionSelectedHotel:{id:80,name:'湖畔酒店'}, operatingQuestionState:{quality_feedback_by_question_id:{}}, canAccessPage:()=>true,
+  managerCapabilityRequest:async(path,options={})=>{const response=await fetch('/api'+path,{...options,headers:{'Content-Type':'application/json'}});return response.json();}
+});
+const factory=window.SUXI_OPERATING_INTELLIGENCE_COMPONENTS_FULL.create(Vue);
+Vue.createApp({render:()=>Vue.h(factory.operatingQuestionConsultant,{ctx,openOnMount:true})}).mount('#app');
+</script></body></html>

@@ -94,6 +94,7 @@
         let knowledgeCenterImportActionEpoch = 0;
         let knowledgePromotionLoadEpoch = 0;
         let knowledgePromotionActionEpoch = 0;
+        let knowledgeChunkLoadEpoch = 0;
 
             const normalizeKnowledgeChunkContent = (value) => {
                 if (value && typeof value === 'object') return value;
@@ -1684,35 +1685,77 @@
                 }
             };
 
-            const openKnowledgeChunks = async (unit) => {
-                knowledgeCenterSelectedUnit.value = unit;
+            const openKnowledgeChunks = async (unit, options = {}) => {
+                if (options.editChunk) {
+                    const chunk = options.editChunk;
+                    knowledgeCenterChunkForm.value = { type: chunk.type, content: JSON.stringify(chunk.content, null, 2), replaces_chunk_id: chunk.chunk_id, expected_digest: chunk.revision_digest };
+                    return;
+                }
+                const epoch = ++knowledgeChunkLoadEpoch;
+                const auth = typeof captureAuthSession === 'function' ? captureAuthSession() : null;
+                const isCurrent = () => epoch === knowledgeChunkLoadEpoch && Number(knowledgeCenterSelectedUnit.value?.unit_id) === Number(unit.unit_id)
+                    && (auth === null || isAuthSessionCurrent(auth));
+                const query = options.refresh && unit.applicability_query ? { ...unit.applicability_query } : {
+                    hotel_id: unit.hotel_id || defaultKnowledgeCenterHotelId() || '',
+                    platform: knowledgeCenterFilter.value.platform || 'all_ota',
+                    as_of: new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Shanghai' }),
+                    question: '', hotel_conditions: '{}',
+                };
+                const querySignature = new URLSearchParams(query).toString();
+                const isQueryCurrent = () => new URLSearchParams(knowledgeCenterSelectedUnit.value?.applicability_query || {}).toString() === querySignature;
+                knowledgeCenterSelectedUnit.value = { ...unit, applicability_query: { ...query }, chunks_loading: true, chunks_error: '', evaluation: null, retrieval_preview: null };
                 knowledgeCenterChunks.value = [];
-                knowledgeCenterChunkForm.value = { type: '经验片段', content: defaultKnowledgeExperienceChunk() };
+                if (!options.refresh) knowledgeCenterChunkForm.value = { type: '经验片段', content: defaultKnowledgeExperienceChunk() };
                 showKnowledgeCenterChunksModal.value = true;
-                const res = await request(`/knowledge/${unit.unit_id}`);
-                if (res.code === 0) {
-                    knowledgeCenterSelectedUnit.value = res.data?.unit || unit;
+                try {
+                    const params = new URLSearchParams({ ...query, evaluate: options.evaluate ? '1' : '0' });
+                    const res = await request(`/knowledge/${unit.unit_id}?${params}`);
+                    if (!isCurrent()) return;
+                    if (!isQueryCurrent()) throw new Error('适用条件已变化，请重新核验');
+                    if (res.code !== 0) throw new Error(res.msg || '片段加载失败');
+                    knowledgeCenterSelectedUnit.value = { ...(res.data?.unit || unit), applicability_query: { ...query }, chunks_loading: false, chunks_error: '', evaluation: res.data?.evaluation, retrieval_preview: res.data?.retrieval_preview, reevaluation: unit.reevaluation };
                     knowledgeCenterChunks.value = res.data?.chunks || [];
-                } else {
-                    showToast(res.msg || '片段加载失败', 'error');
+                } catch (error) {
+                    if (isCurrent()) knowledgeCenterSelectedUnit.value.chunks_error = isQueryCurrent() ? (error.message || '片段加载失败') : '适用条件已变化，请重新核验';
+                } finally {
+                    if (isCurrent()) knowledgeCenterSelectedUnit.value.chunks_loading = false;
                 }
             };
 
             const saveKnowledgeChunk = async () => {
                 const unitId = knowledgeCenterSelectedUnit.value?.unit_id;
-                if (!unitId) return;
+                const form = knowledgeCenterChunkForm.value;
+                if (!unitId || form.saving) return;
+                const epoch = knowledgeChunkLoadEpoch;
+                const auth = typeof captureAuthSession === 'function' ? captureAuthSession() : null;
+                const isCurrent = () => epoch === knowledgeChunkLoadEpoch && Number(knowledgeCenterSelectedUnit.value?.unit_id) === Number(unitId)
+                    && (auth === null || isAuthSessionCurrent(auth));
+                form.saving = true;
                 const payload = {
-                    type: knowledgeCenterChunkForm.value.type || 'manual',
-                    content: parseKnowledgeContent(knowledgeCenterChunkForm.value.content),
+                    type: form.type || 'manual',
+                    content: parseKnowledgeContent(form.content),
+                    replaces_chunk_id: form.replaces_chunk_id || 0,
+                    expected_digest: form.expected_digest || '',
                 };
-                const res = await request(`/knowledge/${unitId}/add-chunk`, { method: 'POST', body: JSON.stringify(payload) });
-                if (res.code === 0) {
+                if (form.request_payload !== JSON.stringify(payload)) {
+                    form.request_id = globalThis.crypto?.randomUUID?.() || `knowledge-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+                    form.request_payload = JSON.stringify(payload);
+                }
+                payload.request_id = form.request_id;
+                try {
+                    const params = new URLSearchParams(knowledgeCenterSelectedUnit.value.applicability_query || {});
+                    const res = await request(`/knowledge/${unitId}/add-chunk?${params}`, { method: 'POST', body: JSON.stringify(payload) });
+                    if (!isCurrent()) return;
+                    if (res.code !== 0 || res.data?.readback_verified !== true) throw new Error(res.msg || '片段保存或精确回读失败');
+                    knowledgeCenterSelectedUnit.value.reevaluation = res.data.reevaluation;
                     knowledgeCenterChunkForm.value = { type: '经验片段', content: defaultKnowledgeExperienceChunk() };
-                    await openKnowledgeChunks(knowledgeCenterSelectedUnit.value);
+                    await openKnowledgeChunks(knowledgeCenterSelectedUnit.value, { refresh: true });
                     await loadKnowledgeCenter();
-                    showToast('经验片段已写入');
-                } else {
-                    showToast(res.msg || '片段写入失败', 'error');
+                    showToast('片段已保存并精确回读；修改内容保持未核验参考状态');
+                } catch (error) {
+                    if (isCurrent()) showToast(error.message || '片段写入失败', 'error');
+                } finally {
+                    form.saving = false;
                 }
             };
 

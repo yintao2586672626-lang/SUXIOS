@@ -73,7 +73,7 @@ final class TemporalForecastReplayService
         $visibleTraining = $this->window($this->select($versions, $asOf, $asOfDate), $asOfDate);
         $quality = $this->trainingQuality($visibleTraining);
         $training = array_filter($visibleTraining, static fn($row) => $row['quality_status'] === 'ready');
-        $hasUnavailableTraining = $quality['missing'] + $quality['failed'] > 0;
+        $hasUnavailableTraining = $quality['missing'] + $quality['failed'] + $quality['unobserved'] > 0;
         $allActuals = $this->select($versions, $evaluation, $evaluation->setTimezone(new \DateTimeZone('Asia/Shanghai'))->format('Y-m-d'));
         $forecasts = [];
         $comparisons = [];
@@ -92,7 +92,7 @@ final class TemporalForecastReplayService
                 $foldQuality = $this->trainingQuality($visible);
                 $train = array_filter($visible, static fn($row) => $row['quality_status'] === 'ready');
                 $foldPlan = $this->plan($train, $origin, $horizon);
-                if ($foldQuality['missing'] + $foldQuality['failed'] > 0 && $foldPlan['status'] === 'ready') $foldPlan['status'] = 'partial';
+                if ($foldQuality['missing'] + $foldQuality['failed'] + $foldQuality['unobserved'] > 0 && $foldPlan['status'] === 'ready') $foldPlan['status'] = 'partial';
                 $foldPoints = [];
                 foreach ($foldPlan['points'] as $point) {
                     $revision = $allActuals[$point['target_date']] ?? null;
@@ -120,7 +120,7 @@ final class TemporalForecastReplayService
             $stats['complete_fold_count'] = $completeFolds;
             $stats['missing_actual_count'] = $missingActuals;
             $stats['actual_quality'] = $actualQuality;
-            $stats['unavailable_training_fold_count'] = count(array_filter($folds, static fn($fold) => $fold['training_quality']['missing'] + $fold['training_quality']['failed'] > 0));
+            $stats['unavailable_training_fold_count'] = count(array_filter($folds, static fn($fold) => $fold['training_quality']['missing'] + $fold['training_quality']['failed'] + $fold['training_quality']['unobserved'] > 0));
             $stats['expected_point_count'] = count($folds) * $horizon;
             $stats['unpaired_point_count'] = $stats['expected_point_count'] - count($pairs);
             $stats['assessment'] = (new RevenueForecastReadinessService())->assessReplay($stats, $input['source_kind']);
@@ -139,7 +139,7 @@ final class TemporalForecastReplayService
             'interval_semantics' => '启发式范围，未校准；覆盖率仅为同折样本外实际落入范围的比例，不承诺名义概率。',
             'confidence_semantics' => 'confidence_score 是未校准的规则就绪指数，不是预测准确率或命中概率。',
             'applicability' => ['仅当前渠道、门店及房型范围的净入住间夜；不是未受库存限制的潜在需求。',
-                '至少7个有效历史日才出预测；近期不足7日或历史不足28日显示部分。',
+                '至少7个有效历史日才出预测；56天训练窗口存在缺失、失败或无可见版本日期时显示部分。',
                 '每个周期至少3个完整时间折且所有目标可配对才比较优劣；不代表统计显著性。',
                 '导入的可见时刻与来源尚未经采集链核验；synthetic 结果仅为工具验收。',
                 '历史拟合、样本外预测与调价因果效果不同；无自动调价或审批。'],
@@ -239,7 +239,7 @@ final class TemporalForecastReplayService
             || !is_int($scope['tenant_id']) || $scope['tenant_id'] <= 0 || !is_int($scope['hotel_id']) || $scope['hotel_id'] <= 0
             || !in_array($scope['platform'], ['ctrip', 'meituan'], true)) throw new InvalidArgumentException('酒店/租户/平台范围无效。');
         foreach (['platform_store_id', 'room_scope'] as $key) {
-            if (!is_string($scope[$key]) || trim($scope[$key]) === '' || trim($scope[$key]) !== $scope[$key] || strlen($scope[$key]) > 100) throw new InvalidArgumentException('需明确平台门店和房型范围，证据中的范围编号不得含首尾空白。');
+            if (!is_string($scope[$key]) || strlen($scope[$key]) > 100 || !preg_match('/^[\p{L}\p{N}][\p{L}\p{N}_-]*$/uD', $scope[$key])) throw new InvalidArgumentException('门店和房型范围仅接受文字、数字、下划线及连字符编号（最多100字节）；不得使用空白、URL、标头或凭证文本。');
         }
     }
 

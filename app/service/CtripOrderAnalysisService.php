@@ -18,6 +18,8 @@ final class CtripOrderAnalysisService
 {
     private const CONTRACT_V1 = 'ctrip_order_aggregate_v1';
     private const CONTRACT_V2 = 'ctrip_order_aggregate_v2';
+    // Read-time compatibility only. Never backfill a contract into stored data.
+    private const LEGACY_READ_ADAPTER = 'ctrip_order_legacy_saved_aggregate';
     private const MAX_RANGE_DAYS = 1096;
     private const MANUAL_METHODS = ['manual', 'import_excel', 'import_csv', 'import_json'];
 
@@ -64,6 +66,11 @@ final class CtripOrderAnalysisService
             $batchKey = $taskId > 0
                 ? 'task:' . $taskId
                 : 'legacy-source:' . $sourceId;
+            if ($taskId === 0 && $candidate['contract'] === self::LEGACY_READ_ADAPTER) {
+                $snapshotHash = trim((string)($candidate['detail']['snapshot_hash'] ?? ''));
+                // A missing import identity must not combine unrelated old snapshots.
+                $batchKey .= $snapshotHash !== '' ? ':snapshot:' . $snapshotHash : ':row:' . (int)$row['id'];
+            }
             if (!isset($batches[$batchKey])) {
                 $batches[$batchKey] = [
                     'task_id' => $taskId,
@@ -276,7 +283,7 @@ final class CtripOrderAnalysisService
             if ($roomRows === null || ($detail['room_type_metrics_truncated'] ?? false) === true) {
                 $roomTypesAvailable = false;
             } else {
-                $this->mergeRoomTypes($roomTypes, $roomRows);
+                $this->mergeRoomTypes($roomTypes, $roomRows, OtaStandardEtlService::monetaryUnitEvidence($canonical, $detail));
             }
         }
 
@@ -314,6 +321,19 @@ final class CtripOrderAnalysisService
         }
 
         $missingDimensions = [];
+        foreach ($summary['monetary_failure_reasons'] as $reason) {
+            $missingDimensions[] = $this->missingDimension($reason, '金额币种与单位',
+                '来源明确标注币种或金额单位缺失、不支持，参考金额和均价不可计算；订单数与间夜保留。',
+                '核对原始导出中的币种与金额单位后重新导入，不猜测或回填旧记录。');
+        }
+        if ($summary['bottom_price_room_nights_status'] === 'evidence_missing') {
+            $missingDimensions[] = $this->missingDimension(
+                'bottom_price_room_nights',
+                '参考底价对应间夜',
+                '已保存聚合缺少有效金额对应间夜，不能用金额和均价反推分母。',
+                '重新导入同一酒店原始订单文件以保存精确分母；已有订单数、参考金额和覆盖率仍可查看。'
+            );
+        }
         if (!$classificationAvailable) {
             $missingDimensions[] = $this->missingDimension('status_classification', '已入住与状态分类', '旧聚合未保存逐状态计数');
         }
@@ -340,11 +360,15 @@ final class CtripOrderAnalysisService
             && is_array($candidates[0]['detail']['dataset_receipt'] ?? null)
                 ? $candidates[0]['detail']['dataset_receipt']
                 : null;
+        $isLegacy = $contract === self::LEGACY_READ_ADAPTER;
+        $isLegacyFixture = $isLegacy && count(array_filter($candidates, static fn(array $candidate): bool =>
+            ($candidate['detail']['fixture_status'] ?? '') === 'explicit_test_fixture'
+        )) > 0;
 
         return [
             'status' => $missingDimensions === [] ? 'available_unverified' : 'available_partial',
-            'quality_status' => 'user_provided_unverified',
-            'quality_label' => '人工文件导入 / 来源待核验',
+            'quality_status' => $isLegacyFixture ? 'test_fixture' : 'user_provided_unverified',
+            'quality_label' => $isLegacyFixture ? '测试样例（非真实经营数据）' : '人工文件导入 / 来源待核验',
             'persistence_readback_status' => 'verified',
             'metric_scope' => 'ota_channel',
             'hotel' => ['id' => $systemHotelId ?? 0, 'name' => $hotelName],
@@ -354,12 +378,13 @@ final class CtripOrderAnalysisService
                 'to' => $dateList !== [] ? $dateList[count($dateList) - 1] : null,
                 'requested_from' => $dateFrom,
                 'requested_to' => $dateTo,
-                'basis' => 'stay_date_with_booking_date_fallback',
+                'basis' => $isLegacy ? 'stored_business_date' : 'stay_date_with_booking_date_fallback',
             ],
             'batch' => [
                 'sync_task_id' => 0,
                 'data_source_id' => 0,
-                'import_contract' => $contract,
+                'import_contract' => $isLegacy ? null : $contract,
+                'read_adapter' => $isLegacy ? self::LEGACY_READ_ADAPTER : null,
                 'dataset_hash' => $contract === self::CONTRACT_V2 ? array_key_first($datasetHashes) : null,
                 'row_count' => count($candidates),
                 'dataset_receipt' => $datasetReceipt,
@@ -381,7 +406,9 @@ final class CtripOrderAnalysisService
                 : ['status' => 'evidence_missing', 'rows' => [], 'reason' => '完整房型聚合不可恢复'],
             'missing_dimensions' => $missingDimensions,
             'amount_semantics' => 'reference_bottom_price_not_confirmed_revenue',
-            'note' => '只分析已保存并完成值级回读的单一人工导入批次；不会拼接其他批次。',
+            'note' => $isLegacy
+                ? '已回读旧版保存汇总；无需重新上传即可查看基础数据。未保存的逐单明细和分布不可恢复，不会拼接其他批次。'
+                : '只分析已保存并完成值级回读的单一人工导入批次；不会拼接其他批次。',
             'generated_at' => date('Y-m-d H:i:s'),
         ];
     }
@@ -393,17 +420,30 @@ final class CtripOrderAnalysisService
         $canonical = is_array($stored['row'] ?? null) ? $stored['row'] : $row;
         $detail = $this->decodeArray($canonical['raw_data'] ?? []);
         $contract = trim((string)($detail['import_contract'] ?? ''));
-        if (!in_array($contract, [self::CONTRACT_V1, self::CONTRACT_V2], true)
+        $isLegacy = $contract === ''
+            && ($detail['pii_policy'] ?? '') === 'guest_name_and_raw_order_id_excluded'
+            && is_string($detail['channel_key'] ?? null) && trim($detail['channel_key']) !== ''
+            && array_key_exists('gross_order_num', $detail)
+            && array_key_exists('active_order_num', $detail)
+            && array_key_exists('room_nights', $detail);
+        if ((!$isLegacy && !in_array($contract, [self::CONTRACT_V1, self::CONTRACT_V2], true))
             || strtolower(trim((string)($canonical['platform'] ?? ''))) !== 'ctrip'
             || strtolower(trim((string)($canonical['data_type'] ?? ''))) !== 'order'
             || (string)($detail['amount_semantics'] ?? '') !== 'reference_bottom_price_not_confirmed_revenue'
-            || (string)($detail['pii_policy'] ?? '') !== 'aggregate_only_no_guest_staff_reservation_notes'
+            || (!$isLegacy && (string)($detail['pii_policy'] ?? '') !== 'aggregate_only_no_guest_staff_reservation_notes')
             || ($contract === self::CONTRACT_V2 && (string)($detail['record_kind'] ?? '') !== 'channel_daily_aggregate')
         ) {
             return null;
         }
         $outerSource = strtolower(trim((string)($row['source'] ?? '')));
         if ($stored !== [] && isset($stored['row']) && $outerSource !== '' && $outerSource !== 'ctrip') {
+            return null;
+        }
+        if (isset($stored['row']) && (
+            (isset($row['platform']) && strtolower(trim((string)$row['platform'])) !== 'ctrip')
+            || (isset($row['system_hotel_id'], $canonical['system_hotel_id'])
+                && (int)$row['system_hotel_id'] !== (int)$canonical['system_hotel_id'])
+        )) {
             return null;
         }
         $date = trim((string)($canonical['data_date'] ?? $row['data_date'] ?? ''));
@@ -416,7 +456,7 @@ final class CtripOrderAnalysisService
         return [
             'canonical' => $canonical,
             'detail' => $detail,
-            'contract' => $contract,
+            'contract' => $isLegacy ? self::LEGACY_READ_ADAPTER : $contract,
             'date' => $date,
             'readback_verified' => $readbackVerified,
         ];
@@ -436,6 +476,7 @@ final class CtripOrderAnalysisService
             'reference_bottom_price_total' => 0.0,
             'bottom_price_value_seen' => false,
             'bottom_price_room_nights' => 0.0,
+            'bottom_price_room_nights_complete' => true,
             'bottom_price_valid_orders' => 0.0,
             'los_weighted_sum' => 0.0,
             'los_weight' => 0.0,
@@ -443,13 +484,22 @@ final class CtripOrderAnalysisService
             'single_night_weight' => 0.0,
             'lead_weighted_sum' => 0.0,
             'lead_weight' => 0.0,
-            'core_complete' => true,
+            'metric_complete' => array_fill_keys([
+                'gross_orders', 'active_orders', 'cancelled_orders', 'unknown_status_orders', 'room_nights',
+            ], true),
+            'currency_evidence' => [],
+            'monetary_failure_reasons' => [],
         ];
     }
 
     /** @param array<string, mixed> $accumulator @param array<string, mixed> $canonical @param array<string, mixed> $detail */
     private function addCandidate(array &$accumulator, array $canonical, array $detail, string $contract): void
     {
+        $currencyEvidence = OtaStandardEtlService::monetaryUnitEvidence($canonical, $detail);
+        $accumulator['currency_evidence'][json_encode($currencyEvidence)] = $currencyEvidence;
+        $accumulator['monetary_failure_reasons'] = array_values(array_unique(array_merge(
+            $accumulator['monetary_failure_reasons'], $currencyEvidence['failure_reasons']
+        )));
         foreach ([
             'gross_orders' => $canonical['gross_order_num'] ?? $detail['gross_order_num'] ?? null,
             'active_orders' => $canonical['book_order_num'] ?? $detail['active_order_num'] ?? null,
@@ -459,25 +509,26 @@ final class CtripOrderAnalysisService
         ] as $field => $value) {
             $number = $this->number($value);
             if ($number === null) {
-                $accumulator['core_complete'] = false;
+                $accumulator['metric_complete'][$field] = false;
             } else {
                 $accumulator[$field] += $number;
             }
         }
-        $bottomPrice = $this->number($detail['bottom_price_sum'] ?? null);
+        $bottomPrice = $currencyEvidence['failure_reasons'] === []
+            ? $this->number($detail['bottom_price_sum'] ?? null) : null;
         if ($bottomPrice !== null) {
             $accumulator['reference_bottom_price_total'] += $bottomPrice;
             $accumulator['bottom_price_value_seen'] = true;
         }
-        $bottomPriceNights = $this->number($detail['bottom_price_room_nights'] ?? null);
-        if ($bottomPriceNights === null && $bottomPrice !== null) {
-            $rowBottomPriceAdr = $this->number($canonical['bottom_price_adr'] ?? $detail['bottom_price_adr'] ?? null);
-            if ($rowBottomPriceAdr !== null && $rowBottomPriceAdr > 0) {
-                $bottomPriceNights = $bottomPrice / $rowBottomPriceAdr;
-            }
-        }
+        $bottomPriceNights = $this->bottomPriceRoomNights(
+            $detail,
+            $this->number($canonical['book_order_num'] ?? $detail['active_order_num'] ?? null),
+            $this->number($canonical['quantity'] ?? $detail['room_nights'] ?? null)
+        );
         if ($bottomPriceNights !== null) {
             $accumulator['bottom_price_room_nights'] += $bottomPriceNights;
+        } else {
+            $accumulator['bottom_price_room_nights_complete'] = false;
         }
         $bottomValidOrders = $this->number($detail['bottom_price_valid_order_count'] ?? null);
         if ($bottomValidOrders !== null) {
@@ -507,6 +558,27 @@ final class CtripOrderAnalysisService
         }
     }
 
+    /** Resolve an exact denominator, including read-only legacy compatibility. */
+    private function bottomPriceRoomNights(array $detail, ?float $activeOrders, ?float $roomNights): ?float
+    {
+        if (array_key_exists('bottom_price_room_nights', $detail)) {
+            $value = $this->number($detail['bottom_price_room_nights']);
+            return $value !== null && $value >= 0 ? $value : null;
+        }
+        $pricedOrders = $this->number($detail['bottom_price_valid_order_count'] ?? null);
+        if ($pricedOrders === 0.0) {
+            return 0.0;
+        }
+        // When every active order has a valid price, its exact saved total
+        // nights are also the priced nights. Partial coverage proves no such
+        // equality, even when an old rounded ADR happens to be available.
+        return $pricedOrders !== null && $activeOrders !== null
+            && $pricedOrders > 0 && $pricedOrders === $activeOrders
+            && $roomNights !== null && $roomNights >= 0
+                ? $roomNights
+                : null;
+    }
+
     /** @param array<string, mixed> $target @param array<string, mixed> $source */
     private function mergeAccumulators(array &$target, array $source): void
     {
@@ -519,16 +591,24 @@ final class CtripOrderAnalysisService
             $target[$field] += (float)($source[$field] ?? 0);
         }
         $target['bottom_price_value_seen'] = $target['bottom_price_value_seen'] || ($source['bottom_price_value_seen'] ?? false);
-        $target['core_complete'] = $target['core_complete'] && ($source['core_complete'] ?? false);
+        foreach ($target['metric_complete'] as $field => $complete) {
+            $target['metric_complete'][$field] = $complete && ($source['metric_complete'][$field] ?? false);
+        }
+        $target['bottom_price_room_nights_complete'] = $target['bottom_price_room_nights_complete']
+            && $source['bottom_price_room_nights_complete'];
+        $target['currency_evidence'] += $source['currency_evidence'];
+        $target['monetary_failure_reasons'] = array_values(array_unique(array_merge(
+            $target['monetary_failure_reasons'], $source['monetary_failure_reasons']
+        )));
     }
 
     /** @param array<string, mixed> $accumulator @return array<string, mixed> */
     private function finalizeAccumulator(array $accumulator): array
     {
-        $gross = $accumulator['core_complete'] ? $accumulator['gross_orders'] : null;
-        $active = $accumulator['core_complete'] ? $accumulator['active_orders'] : null;
-        $cancelled = $accumulator['core_complete'] ? $accumulator['cancelled_orders'] : null;
-        $unknown = $accumulator['core_complete'] ? $accumulator['unknown_status_orders'] : null;
+        $gross = $accumulator['metric_complete']['gross_orders'] ? $accumulator['gross_orders'] : null;
+        $active = $accumulator['metric_complete']['active_orders'] ? $accumulator['active_orders'] : null;
+        $cancelled = $accumulator['metric_complete']['cancelled_orders'] ? $accumulator['cancelled_orders'] : null;
+        $unknown = $accumulator['metric_complete']['unknown_status_orders'] ? $accumulator['unknown_status_orders'] : null;
         return [
             'key' => $accumulator['key'],
             'label' => $accumulator['label'],
@@ -539,15 +619,23 @@ final class CtripOrderAnalysisService
             'cancel_rate' => $gross !== null && $gross > 0 && $cancelled !== null && $unknown === 0.0
                 ? $cancelled / $gross
                 : null,
-            'room_nights' => $accumulator['core_complete'] ? $accumulator['room_nights'] : null,
+            'room_nights' => $accumulator['metric_complete']['room_nights'] ? $accumulator['room_nights'] : null,
+            'currency_evidence' => array_values($accumulator['currency_evidence']),
+            'monetary_failure_reasons' => $accumulator['monetary_failure_reasons'],
             'reference_bottom_price_total' => $accumulator['bottom_price_value_seen']
+                && $accumulator['monetary_failure_reasons'] === []
                 ? $accumulator['reference_bottom_price_total']
                 : null,
             'reference_bottom_price_adr' => $accumulator['bottom_price_value_seen']
+                && $accumulator['monetary_failure_reasons'] === []
+                && $accumulator['bottom_price_room_nights_complete']
                 && $accumulator['bottom_price_room_nights'] > 0
                     ? $accumulator['reference_bottom_price_total'] / $accumulator['bottom_price_room_nights']
                     : null,
+            'bottom_price_room_nights_status' => $accumulator['bottom_price_room_nights_complete']
+                ? 'available' : 'evidence_missing',
             'reference_bottom_price_coverage_rate' => $active !== null && $active > 0
+                && $accumulator['monetary_failure_reasons'] === []
                 ? $accumulator['bottom_price_valid_orders'] / $active
                 : null,
             'average_los' => $accumulator['los_weight'] > 0
@@ -604,7 +692,7 @@ final class CtripOrderAnalysisService
     }
 
     /** @param array<string, array<string, mixed>> $target @param array<int, mixed> $rows */
-    private function mergeRoomTypes(array &$target, array $rows): void
+    private function mergeRoomTypes(array &$target, array $rows, array $currencyEvidence): void
     {
         foreach ($rows as $row) {
             if (!is_array($row)) {
@@ -619,26 +707,39 @@ final class CtripOrderAnalysisService
                     'name' => $name,
                     'active_orders' => 0.0,
                     'room_nights' => 0.0,
+                    'room_nights_complete' => true,
                     'reference_bottom_price_total' => 0.0,
                     'bottom_price_value_seen' => false,
                     'bottom_price_room_nights' => 0.0,
+                    'bottom_price_room_nights_complete' => true,
+                    'currency_evidence' => [],
+                    'monetary_failure_reasons' => [],
                 ];
             }
+            $target[$name]['currency_evidence'][json_encode($currencyEvidence)] = $currencyEvidence;
+            $target[$name]['monetary_failure_reasons'] = array_values(array_unique(array_merge(
+                $target[$name]['monetary_failure_reasons'], $currencyEvidence['failure_reasons']
+            )));
             $target[$name]['active_orders'] += max(0.0, (float)($row['active_orders'] ?? 0));
-            $target[$name]['room_nights'] += max(0.0, (float)($row['room_nights'] ?? 0));
-            $bottom = $this->number($row['reference_bottom_price_total'] ?? null);
+            $roomNights = $this->number($row['room_nights'] ?? null);
+            if ($roomNights === null || $roomNights < 0) {
+                $target[$name]['room_nights_complete'] = false;
+            } else {
+                $target[$name]['room_nights'] += $roomNights;
+            }
+            $bottom = $currencyEvidence['failure_reasons'] === []
+                ? $this->number($row['reference_bottom_price_total'] ?? null) : null;
             if ($bottom !== null) {
                 $target[$name]['reference_bottom_price_total'] += $bottom;
                 $target[$name]['bottom_price_value_seen'] = true;
             }
-            $bottomPriceRoomNights = $this->number($row['bottom_price_room_nights'] ?? null);
-            if ($bottomPriceRoomNights !== null && $bottomPriceRoomNights > 0) {
+            $bottomPriceRoomNights = $this->bottomPriceRoomNights(
+                $row, $this->number($row['active_orders'] ?? null), $roomNights
+            );
+            if ($bottomPriceRoomNights !== null) {
                 $target[$name]['bottom_price_room_nights'] += $bottomPriceRoomNights;
             } else {
-                $adr = $this->number($row['reference_bottom_price_adr'] ?? null);
-                if ($bottom !== null && $adr !== null && $adr > 0) {
-                    $target[$name]['bottom_price_room_nights'] += $bottom / $adr;
-                }
+                $target[$name]['bottom_price_room_nights_complete'] = false;
             }
         }
     }
@@ -649,13 +750,19 @@ final class CtripOrderAnalysisService
         $result = array_values(array_map(static function (array $row): array {
             $row['active_orders'] = (int)round((float)$row['active_orders']);
             $row['reference_bottom_price_total'] = $row['bottom_price_value_seen']
+                && $row['monetary_failure_reasons'] === []
                 ? (float)$row['reference_bottom_price_total']
                 : null;
             $row['reference_bottom_price_adr'] = $row['bottom_price_value_seen']
+                && $row['monetary_failure_reasons'] === []
+                && $row['room_nights_complete']
+                && $row['bottom_price_room_nights_complete']
                 && $row['bottom_price_room_nights'] > 0
                     ? $row['reference_bottom_price_total'] / $row['bottom_price_room_nights']
                     : null;
-            unset($row['bottom_price_value_seen'], $row['bottom_price_room_nights']);
+            if (!$row['room_nights_complete']) $row['room_nights'] = null;
+            $row['currency_evidence'] = array_values($row['currency_evidence']);
+            unset($row['bottom_price_value_seen'], $row['bottom_price_room_nights'], $row['room_nights_complete'], $row['bottom_price_room_nights_complete']);
             return $row;
         }, $rows));
         usort($result, static fn(array $left, array $right): int => (

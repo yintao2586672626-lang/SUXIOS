@@ -117,14 +117,26 @@ final class RevenueForecastWorkbenchService
         return array_replace($doc, ['readback_verified' => true, 'automatic_price_write' => false, 'causality_claimed' => false]);
     }
 
-    public function history(array $scope): array
+    public function history(array $scope, int $page = 1): array
     {
+        return $this->historyPage($scope, $page)['items'];
+    }
+
+    public function historyPage(array $scope, int $page = 1): array
+    {
+        if ($page < 1) throw new InvalidArgumentException('历史页码须为正整数。');
         $dir = $this->directory($scope);
-        if (!is_dir($dir)) return [];
-        $paths = glob($dir . '/*.json') ?: [];
-        usort($paths, static fn($a, $b) => filemtime($b) <=> filemtime($a));
+        $ancestor = $dir;
+        while (!file_exists($ancestor) && dirname($ancestor) !== $ancestor) $ancestor = dirname($ancestor);
+        if (!is_dir($ancestor) || !is_readable($ancestor)) throw new RuntimeException('历史存储不可读取。');
+        $paths = is_dir($dir) ? glob($dir . '/*.json') : [];
+        if ($paths === false) throw new RuntimeException('历史文件列表读取失败。');
+        usort($paths, static fn($a, $b) => (filemtime($b) <=> filemtime($a)) ?: strcmp($b, $a));
+        $total = count($paths);
+        $totalPages = max(1, (int)ceil($total / 50));
+        if ($page > $totalPages) throw new InvalidArgumentException('历史页码超出范围，请重新读取第一页。');
         $out = [];
-        foreach (array_slice($paths, 0, 50) as $path) {
+        foreach (array_slice($paths, ($page - 1) * 50, 50) as $path) {
             $id = basename($path, '.json');
             try {
                 $doc = $this->read($id, $scope);
@@ -133,7 +145,7 @@ final class RevenueForecastWorkbenchService
                     'source_kind' => $doc['payload']['result']['replay']['source_kind']];
             } catch (\Throwable) { $out[] = ['id' => $id, 'status' => 'unverified_or_unsupported']; }
         }
-        return $out;
+        return ['items' => $out, 'page' => $page, 'page_size' => 50, 'total' => $total, 'total_pages' => $totalPages];
     }
 
     /** Only the declared contract may enter storage or leave legacy storage. Never echo rejected values. */

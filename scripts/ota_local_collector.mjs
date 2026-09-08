@@ -6,6 +6,12 @@ import { createServer } from 'node:http';
 import { pathToFileURL } from 'node:url';
 import process from 'node:process';
 import { buildOtaMapCollectionPlan } from './lib/ota_field_data_map.mjs';
+import {
+  collectorApiRequest, collectorError, DEFAULT_OUTBOX_DIR, deliverPendingResult,
+  flushPendingResults, persistPendingResult, sanitizeBusinessValue, retryBlockedResult,
+} from './lib/ota_local_collector_outbox.mjs';
+
+export { sanitizeBusinessValue };
 
 const COLLECTOR_VERSION = '1.0.0';
 const DEFAULT_CONFIG = resolve('storage/local_collector/device.json');
@@ -138,6 +144,7 @@ export function classifyCaptureFailure(payload = {}, exitCode = 0) {
       || payload.status_code
       || (exitCode === 0 ? 'collection_failed' : 'browser_start_failed'),
   ).toLowerCase();
+  if (/redirect|^http_30[12378]$|^30[12378]$/u.test(raw)) return 'redirect_unverified';
   if (/anti.?bot|captcha|verification|human/u.test(raw)) return 'verification_required';
   if (/login|required|expired|unauthorized|not.?logged/u.test(raw)) return 'login_required';
   if (/permission|forbidden/u.test(raw)) return 'permission_denied';
@@ -232,7 +239,13 @@ export function extractSanitizedRows(payload, task) {
     if (seen.has(fingerprint)) continue;
     seen.add(fingerprint);
     rows.push(sanitized);
-    if (rows.length >= MAX_UPLOAD_ROWS) break;
+    if (rows.length > MAX_UPLOAD_ROWS) {
+      const error = collectorError('row_limit_exceeded', '业务结果超过 2000 行，已停止上传；不会把前 2000 行当成完整结果。', { retryable: false });
+      error.observed_count_at_least = rows.length;
+      error.limit = MAX_UPLOAD_ROWS;
+      // Preserve the complete source separately before stopping this attempt.
+      throw error;
+    }
   }
   return rows;
 }
@@ -365,78 +378,7 @@ function orderedCapturedFieldKeys(platform, rows) {
   return (ORDERED_REQUIRED_FIELDS[platform] || []).filter(field => captured.has(field));
 }
 
-export function sanitizeBusinessValue(value, key = '') {
-  const normalizedKey = normalizeSensitiveKey(key);
-  if (isSensitiveBusinessKey(normalizedKey)) {
-    return undefined;
-  }
-  if (Array.isArray(value)) {
-    return value.map(item => sanitizeBusinessValue(item)).filter(item => item !== undefined);
-  }
-  if (value && typeof value === 'object') {
-    const result = {};
-    for (const [childKey, childValue] of Object.entries(value)) {
-      const sanitized = sanitizeBusinessValue(childValue, childKey);
-      if (sanitized !== undefined) result[childKey] = sanitized;
-    }
-    return result;
-  }
-  if (typeof value === 'string') {
-    if (/\b(?:cookie|set-cookie|authorization|proxy-authorization|x-api-key)\s*[:=]/iu.test(value)
-      || /\bbearer\s+[A-Za-z0-9._~+/=:-]{8,}/iu.test(value)) {
-      return '[敏感内容已在本机移除]';
-    }
-    return value.length > 20_000 ? value.slice(0, 20_000) : value;
-  }
-  return value;
-}
-
-// Browser scripts often return camelCase keys.  Normalize before checking so
-// cookieValue/sessionToken/rawSession cannot bypass the local-data boundary.
-function normalizeSensitiveKey(key) {
-  return String(key)
-    .replace(/([a-z0-9])([A-Z])/gu, '$1_$2')
-    .replace(/([A-Z]+)([A-Z][a-z])/gu, '$1_$2')
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/gu, '_')
-    .replace(/^_+|_+$/gu, '');
-}
-
-function isSensitiveBusinessKey(normalizedKey) {
-  if (/(^|_)(?:cookies?|tokens?|authorization|password|secret|api_key|headers?|profile_dir|profile_path|local_storage|session_storage|webhook|raw_(?:response|request|data|session))($|_)/u.test(normalizedKey)) {
-    return true;
-  }
-  return /(^|_)(?:cookie|token|auth|session|profile)_(?:value|token|cookie|cookies|header|headers|path|dir|data|storage|raw)($|_)/u.test(normalizedKey)
-    || /^(?:cookie|token|auth|session|profile)(?:value|token|cookie|cookies|header|headers|path|dir|data|storage|raw)$/u.test(normalizedKey);
-}
-
-async function apiRequest(server, path, { method = 'GET', body, device } = {}) {
-  const headers = { Accept: 'application/json' };
-  if (body !== undefined) headers['Content-Type'] = 'application/json';
-  if (device) {
-    headers['X-Collector-Device-Id'] = device.device_public_id;
-    headers.Authorization = `Collector ${device.device_token}`;
-  }
-  const response = await fetch(`${server}${path}`, {
-    method,
-    headers,
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
-  const text = await response.text();
-  let decoded = {};
-  try {
-    decoded = text ? JSON.parse(text) : {};
-  } catch {
-    decoded = {};
-  }
-  if (!response.ok || Number(decoded.code || response.status) >= 400) {
-    const error = new Error(String(decoded.message || `HTTP ${response.status}`));
-    error.status = response.status;
-    error.response = decoded;
-    throw error;
-  }
-  return decoded.data ?? decoded;
-}
+const apiRequest = collectorApiRequest;
 
 async function saveDeviceConfig(configPath, device) {
   await mkdir(dirname(configPath), { recursive: true });
@@ -571,8 +513,8 @@ export function createLocalConnectServer({
   });
 }
 
-async function postProgress(device, task, status, message) {
-  return apiRequest(device.server, `/api/ota-local-collector/tasks/${task.id}/progress`, {
+async function postProgress(device, task, status, message, request = apiRequest) {
+  return request(device.server, `/api/ota-local-collector/tasks/${task.id}/progress`, {
     method: 'POST',
     device,
     body: {
@@ -583,8 +525,12 @@ async function postProgress(device, task, status, message) {
   });
 }
 
-async function postResult(device, task, result) {
-  return apiRequest(device.server, `/api/ota-local-collector/tasks/${task.id}/result`, {
+async function postResult(device, task, result, request = apiRequest, directory) {
+  if (['collect', 'backfill'].includes(task.task_type)) {
+    const pending = await persistPendingResult(device, task, result, { directory });
+    return deliverPendingResult(device, pending, { directory, request });
+  }
+  const response = await request(device.server, `/api/ota-local-collector/tasks/${task.id}/result`, {
     method: 'POST',
     device,
     body: {
@@ -592,6 +538,10 @@ async function postResult(device, task, result) {
       ...result,
     },
   });
+  if (!response || typeof response.status !== 'string' || !response.status) {
+    throw collectorError('result_ack_invalid', '服务器未明确确认任务结果，原始本机结果已保留。');
+  }
+  return response;
 }
 
 async function runCapture(task, outputPath) {
@@ -636,16 +586,19 @@ async function runCapture(task, outputPath) {
   });
 }
 
-async function executeTask(device, task) {
-  const outputPath = resolve(`storage/local_collector/results/task_${task.id}_${Date.now()}.json`);
+export async function executeTask(device, task, {
+  request = apiRequest, capture = runCapture, directory = DEFAULT_OUTBOX_DIR,
+  resultsDirectory = resolve('storage/local_collector/results'), logger = console,
+} = {}) {
+  const outputPath = resolve(resultsDirectory, `task_${task.id}_${Date.now()}.json`);
   await mkdir(dirname(outputPath), { recursive: true });
-  console.log(`开始任务 #${task.id}：${task.account_alias} / ${task.platform} / ${task.task_type}`);
+  logger.log(`开始任务 #${task.id}：${task.account_alias} / ${task.platform} / ${task.task_type}`);
   const progressStatus = task.task_type === 'login' ? 'waiting_user_login' : 'running';
   const progressMessage = task.task_type === 'login'
     ? '等待运营人员在原设备、原账号和原酒店 Profile 完成登录。'
     : '本机浏览器任务已启动。';
-  await postProgress(device, task, progressStatus, progressMessage);
-  const capture = await runCapture(task, outputPath);
+  await postProgress(device, task, progressStatus, progressMessage, request);
+  const captured = await capture(task, outputPath);
   let payload = {};
   if (existsSync(outputPath)) {
     try {
@@ -656,52 +609,74 @@ async function executeTask(device, task) {
   }
 
   if (task.task_type === 'login' || task.task_type === 'session_probe') {
-    if (capture.exitCode === 0 && sessionVerified(payload)) {
+    if (captured.exitCode === 0 && sessionVerified(payload)) {
       const response = await postResult(device, task, {
         success: true,
         session_status: 'current_session_verified',
         session_verified_at: new Date().toISOString(),
         message: '平台登录状态已在账户使用者电脑验证。',
-      });
+      }, request);
+      if (response.status !== 'success') {
+        throw collectorError('result_ack_invalid', '服务器未确认登录验证成功，原始本机结果已保留。');
+      }
       if (existsSync(outputPath)) await unlink(outputPath);
-      console.log(`任务 #${task.id} 登录验证成功。`);
+      logger.log(`任务 #${task.id} 登录验证成功。`);
       return response;
     }
-    const errorCode = classifyCaptureFailure(payload, capture.exitCode);
+    const errorCode = classifyCaptureFailure(payload, captured.exitCode);
     const response = await postResult(device, task, {
       success: false,
       error_code: errorCode,
       error_summary: localFailureSummary(errorCode),
-    });
-    console.log(`任务 #${task.id} 需要处理：${response.recovery?.next_action || localFailureSummary(errorCode)}`);
+    }, request);
+    logger.log(`任务 #${task.id} 需要处理：${response.recovery?.next_action || localFailureSummary(errorCode)}`);
     return response;
   }
 
-  if (capture.exitCode !== 0) {
-    const errorCode = classifyCaptureFailure(payload, capture.exitCode);
+  if (captured.exitCode !== 0) {
+    const errorCode = classifyCaptureFailure(payload, captured.exitCode);
     const response = await postResult(device, task, {
       success: false,
       error_code: errorCode,
       error_summary: localFailureSummary(errorCode),
-    });
-    console.log(`任务 #${task.id} 失败：${response.recovery?.next_action || localFailureSummary(errorCode)}`);
+    }, request, directory);
+    logger.log(`任务 #${task.id} 失败：${response.recovery?.next_action || localFailureSummary(errorCode)}`);
     return response;
   }
 
-  const rows = extractSanitizedRows(payload, task);
+  let rows;
+  try {
+    rows = extractSanitizedRows(payload, task);
+  } catch (error) {
+    if (error?.code !== 'row_limit_exceeded') throw error;
+    await persistPendingResult(device, task, {
+      success: false,
+      error_code: error.code,
+      error_summary: error.message,
+      observed_count_at_least: error.observed_count_at_least,
+      row_limit: error.limit,
+      // This local-only evidence is never sent as a partial successful upload.
+      collection_evidence: sanitizeBusinessValue(payload),
+    }, { directory, blocked: { code: error.code } });
+    throw error;
+  }
   const captureSummary = buildCaptureResultSummary(payload, task, rows);
-  const response = await postResult(device, task, rows.length > 0
-    ? { success: true, rows, capture_summary: captureSummary }
-    : {
-        success: false,
-        error_code: 'zero_rows',
-        capture_summary: captureSummary,
-        error_summary: '目标日期未采集到可验证的业务行，未使用 0 或旧数据冒充成功。',
-      });
+  if (rows.length === 0) {
+    return postResult(device, task, {
+      success: false,
+      error_code: 'zero_rows',
+      capture_summary: captureSummary,
+      error_summary: '目标日期未采集到可验证的业务行，未使用 0 或旧数据冒充成功。',
+    }, request, directory);
+  }
+  const pending = await persistPendingResult(device, task, {
+    success: true, rows, capture_summary: captureSummary,
+  }, { directory });
+  const response = await deliverPendingResult(device, pending, { directory, request });
   if (response.status === 'success' && existsSync(outputPath)) {
     await unlink(outputPath);
   }
-  console.log(response.status === 'success'
+  logger.log(response.status === 'success'
     ? `任务 #${task.id} 已保存并通过服务端读回：${response.summary?.saved_count || 0} 行。`
     : `任务 #${task.id} 未完成：${response.recovery?.next_action || '请查看宿析OS本机采集页面。'}`);
   return response;
@@ -709,6 +684,7 @@ async function executeTask(device, task) {
 
 function localFailureSummary(errorCode) {
   return {
+    redirect_unverified: '平台返回重定向，登录状态待核实；先在原设备验证会话及门店。',
     login_required: '平台登录状态已失效，请在当前电脑重新登录。',
     verification_required: '平台要求验证码或人工验证，请在当前电脑完成。',
     permission_denied: '当前账户或门店权限不足，请检查映射后联系管理员。',
@@ -718,8 +694,8 @@ function localFailureSummary(errorCode) {
   }[errorCode] || '本机采集失败，请查看宿析OS中的脱敏错误摘要。';
 }
 
-async function heartbeat(device) {
-  return apiRequest(device.server, '/api/ota-local-collector/heartbeat', {
+async function heartbeat(device, request = apiRequest) {
+  return request(device.server, '/api/ota-local-collector/heartbeat', {
     method: 'POST',
     device,
     body: {
@@ -729,12 +705,15 @@ async function heartbeat(device) {
   });
 }
 
-async function runOneCycle(device) {
-  await pruneLocalResultFiles();
-  await heartbeat(device);
-  const next = await apiRequest(device.server, '/api/ota-local-collector/tasks/next', { device });
+export async function runOneCycle(device, options = {}) {
+  const request = options.request || apiRequest;
+  const restored = await flushPendingResults(device, { directory: options.directory, request });
+  if (restored.processed) return { idle: false, pollAfter: 1, restored: true };
+  await pruneLocalResultFiles(options.resultsDirectory);
+  await heartbeat(device, request);
+  const next = await request(device.server, '/api/ota-local-collector/tasks/next', { device });
   if (next.status !== 'leased' || !next.task) return { idle: true, pollAfter: next.poll_after_seconds || 15 };
-  await executeTask(device, next.task);
+  await executeTask(device, next.task, options);
   return { idle: false, pollAfter: 1 };
 }
 
@@ -746,6 +725,7 @@ async function runCollectorLoop(configPath, pollMs) {
       const cycle = await runOneCycle(device);
       await new Promise(resolveWait => setTimeout(resolveWait, cycle.pollAfter * 1_000 || pollMs));
     } catch (error) {
+      if (error?.retryable === false) throw error;
       console.error(`Local collector retry: ${error.message}`);
       await new Promise(resolveWait => setTimeout(resolveWait, pollMs));
     }
@@ -790,6 +770,11 @@ async function main() {
   }
   const device = await loadDeviceConfig(configPath);
   const once = command === 'once';
+  if (command === 'retry-result') {
+    const response = await retryBlockedResult(device, Number(args.taskId), { resultId: args.resultId });
+    console.log(`原结果回执：${response.status}；未发起新采集。`);
+    return;
+  }
   const pollMs = Math.max(3_000, Number(args.pollMs || DEFAULT_POLL_MS));
   console.log(`本机采集器已启动：${device.device_name || device.device_public_id}`);
   console.log('登录态、Cookie 与 Profile 保留在本机；仅同步结构化业务结果和脱敏状态。');
@@ -800,6 +785,7 @@ async function main() {
       await new Promise(resolveWait => setTimeout(resolveWait, cycle.pollAfter * 1_000 || pollMs));
     } catch (error) {
       console.error(`本机采集器暂时无法继续：${error.message}`);
+      if (error?.retryable === false) throw error;
       console.error('将自动重试；若设备被撤销或持续失败，请在宿析OS重新配对并联系管理员。');
       if (once) throw error;
       await new Promise(resolveWait => setTimeout(resolveWait, pollMs));

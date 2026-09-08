@@ -133,6 +133,8 @@ function cloudHotelIdColumnRegistry(): array
         ['operation_action_lifecycle_events', 'hotel_id', 'hotel_id'],
         ['operation_action_reviews', 'hotel_id', 'hotel_id'],
         ['operation_effect_reviews', 'hotel_id', 'hotel_id'],
+        ['operation_task_workflow_events', 'hotel_id', 'hotel_id'],
+        ['operation_task_workflow_proposals', 'hotel_id', 'hotel_id'],
         ['operation_intervention_assessments', 'hotel_id', 'hotel_id'],
         ['operation_intervention_contracts', 'hotel_id', 'hotel_id'],
         ['ota_failure_wecom_deliveries', 'hotel_id', 'hotel_id'],
@@ -154,6 +156,7 @@ function cloudHotelIdColumnRegistry(): array
         ['hotel_automation_lifecycles', 'system_hotel_id', 'canonical_foreign_key'],
         ['hotel_collection_quality_judgments', 'system_hotel_id', 'canonical_foreign_key'],
         ['operating_opportunity_runs', 'system_hotel_id', 'canonical_foreign_key'],
+        ['promotion_experiment_versions', 'system_hotel_id', 'canonical_foreign_key'],
         ['revenue_decision_snapshots', 'system_hotel_id', 'canonical_foreign_key'],
         ['manager_capability_cases', 'hotel_id', 'hotel_id'],
         ['manager_capability_score_snapshots', 'hotel_id', 'hotel_id'],
@@ -190,6 +193,7 @@ function cloudHotelIdColumnRegistry(): array
         ['hotel_demand_event_facts', 'source_hotel_id', 'immutable_source_hotel_id_evidence'],
         ['hotel_monthly_operating_finance_snapshots', 'source_hotel_id', 'immutable_source_hotel_id_evidence'],
         // OTA/competitor/provider identifiers are not SUXIOS system hotel IDs.
+        ['promotion_experiment_versions', 'platform_store_id', 'ota_platform_hotel_id'],
         ['online_daily_data', 'hotel_id', 'ota_platform_hotel_id'],
         ['competitor_price_log', 'hotel_id', 'competitor_entity_id'],
         ['competitor_price_log', 'ota_hotel_id', 'ota_platform_hotel_id'],
@@ -363,6 +367,7 @@ function cloudHotelIdJsonPolicyRegistry(): array
         ],
     ];
     $immutable = [
+        ['promotion_experiment_versions', 'payload_json'],
         ['platform_data_raw_records', 'raw_payload'],
         ['strategy_data_snapshots', 'raw_json'],
         ['operation_action_tracks', 'before_data_json'],
@@ -401,6 +406,8 @@ function cloudHotelIdJsonPolicyRegistry(): array
         ['operation_intervention_assessments', 'stop_evidence_refs_json'],
         ['operation_action_lifecycle_events', 'event_payload_json'],
         ['operation_action_reviews', 'evidence_refs_json'],
+        ['operation_task_workflow_events', 'payload_json'],
+        ['operation_task_workflow_proposals', 'proposal_json'],
         ['manager_capability_case_adjustments', 'effective_payload_json'],
     ];
 

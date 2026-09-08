@@ -72,6 +72,9 @@ class RevenueAiOverviewService
             )
             : [];
 
+        $revenueFactLayer = (new RevenueAnalysisDiagnosticsService())->withOverviewEvidence(
+            $revenueFactLayer, $hotelId, $businessDate, $channels
+        );
         $context = [
                 'business_date' => $businessDate,
                 'as_of_date' => RevenueOverviewDateContract::serverAsOfDate(),
@@ -426,6 +429,9 @@ class RevenueAiOverviewService
         $revenueFactLayer = is_array($context['revenue_fact_layer'] ?? null)
             ? $context['revenue_fact_layer']
             : [];
+        (new RevenueAnalysisDiagnosticsService())->assertOverviewEvidenceScope(
+            $revenueFactLayer, $hotelId, $businessDate, $enabledChannels !== [] ? $enabledChannels : self::CHANNELS
+        );
         $pmsFactSelection = $revenueFactLayer === [] ? []
             : (new RevenuePmsFactSelectorService())->select($revenueFactLayer);
         $signals = $this->signals($metricsSummary, $actualScopedSourceChannels, $marketSignals, $businessDate, $hotelId);
@@ -648,6 +654,7 @@ class RevenueAiOverviewService
             'execution_summary' => $executionSummary,
             'ai_to_operation_handoff' => $pricingReadiness['ai_to_operation_handoff'],
             'three_source_fact_layer' => $revenueFactLayer,
+            'evidence_reasoning' => (new RevenueAnalysisDiagnosticsService())->evidenceReasoning($revenueFactLayer),
             'manual_order_imports' => $manualOrderImports,
             'actions' => $this->actions($missingDatasets, $qualityIssues, $pricingReadiness, $reviewQueue, $pricingGenerationPreflight),
             'metric_summary' => [

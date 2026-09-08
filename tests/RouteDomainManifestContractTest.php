@@ -79,7 +79,7 @@ final class RouteDomainManifestContractTest extends TestCase
 
         foreach (self::EXPECTED_GROUPS as $prefix => $expectedRoutes) {
             $groupPattern = sprintf(
-                "/Route::group\\('%s', function \\(\\) \\{(?P<body>.*?)\\}\\)->middleware\\(\\\\app\\\\middleware\\\\Auth::class\\);/s",
+                "/Route::group\\('%s', function \\(\\) \\{(?P<body>.*?)\\}\\)->middleware\\(\\\\app\\\\middleware\\\\Auth::class\\)(?:->middleware\\(\\\\app\\\\middleware\\\\RetiredFeatureReadOnly::class, '[^']+'\\))?;/s",
                 preg_quote($prefix, '/')
             );
             self::assertSame(1, preg_match($groupPattern, $manifest, $groupMatch), "Missing authenticated route group {$prefix}");
@@ -174,7 +174,7 @@ final class RouteDomainManifestContractTest extends TestCase
         $tuples = [];
         foreach (self::EXTRACTED_GROUP_PREFIXES as $prefix) {
             $pattern = sprintf(
-                "/Route::group\\('%s', function \\(\\) \\{(?P<body>.*?)\\}\\)->middleware\\(\\\\app\\\\middleware\\\\Auth::class\\);/s",
+                "/Route::group\\('%s', function \\(\\) \\{(?P<body>.*?)\\}\\)->middleware\\(\\\\app\\\\middleware\\\\Auth::class\\)(?:->middleware\\(\\\\app\\\\middleware\\\\RetiredFeatureReadOnly::class, '[^']+'\\))?;/s",
                 preg_quote($prefix, '/')
             );
             self::assertSame(1, preg_match($pattern, $source, $groupMatch), "Missing authenticated route group {$prefix}");
@@ -189,10 +189,19 @@ final class RouteDomainManifestContractTest extends TestCase
             }
         }
 
-        self::assertCount(self::EXTRACTED_ROUTE_SURFACE_COUNT, $tuples);
+        $workflowRoutes = [
+            'api/operation|get|/task-workflows|OperationManagement/taskWorkflows',
+            'api/operation|post|/task-workflow-proposals|OperationManagement/proposeTaskWorkflow',
+            'api/operation|get|/execution-tasks/:id/workflow|OperationManagement/readTaskWorkflow',
+            'api/operation|post|/execution-tasks/:id/workflow|OperationManagement/mutateTaskWorkflow',
+        ];
+        self::assertSame($workflowRoutes, array_values(array_filter($tuples, static fn(string $tuple): bool => in_array($tuple, $workflowRoutes, true))));
+        $legacyTuples = array_values(array_filter($tuples, static fn(string $tuple): bool => !in_array($tuple, $workflowRoutes, true)));
+        self::assertCount(self::EXTRACTED_ROUTE_SURFACE_COUNT + count($workflowRoutes), $tuples);
+        self::assertCount(self::EXTRACTED_ROUTE_SURFACE_COUNT, $legacyTuples);
         self::assertSame(
             self::EXTRACTED_ROUTE_SURFACE_SHA256,
-            hash('sha256', implode("\n", $tuples)),
+            hash('sha256', implode("\n", $legacyTuples)),
             'An extracted route changed method, URL, handler, order, or authentication boundary'
         );
     }

@@ -330,6 +330,9 @@ final class HotelDataAnalystQualityReceiptService
     private function metricAssessment(array $answer): array
     {
         $precise = is_array($answer['precise_result'] ?? null) ? $answer['precise_result'] : [];
+        if (in_array((string)($precise['kind'] ?? ''), ['operating_period_metric','operating_period_comparison'], true)) {
+            return $this->periodMetricAssessment($answer, $precise);
+        }
         if ($precise === []) {
             return [
                 'check' => $this->check('metric_integrity', '指标资格', 'passed', '本次不是确定性指标查询。'),
@@ -447,6 +450,48 @@ final class HotelDataAnalystQualityReceiptService
             'verified_count' => $verified,
             'blocked_count' => $blocked,
             'has_precise_result' => true,
+        ];
+    }
+
+    /** @return array{check:array<string,mixed>,verified_portion:bool} */
+    private function periodMetricAssessment(array $answer, array $precise): array
+    {
+        $scope = (array)($answer['query_router']['parsed_scope'] ?? []);
+        $metricKey = (string)($precise['metric']['key'] ?? '');
+        $service = new PreciseQueryPeriodService();
+        $valid = true;
+        $windows = !empty($precise['comparison'])
+            ? [[$scope, $precise['comparison']['current']], [(array)($scope['comparison'] ?? []), $precise['comparison']['baseline']]]
+            : [[$scope, $precise]];
+        foreach ($windows as [$window, $stored]) {
+            if (empty($window['dates']) || !is_array($stored)) { $valid=false; break; }
+            $daily=[];
+            foreach ((array)($stored['daily_facts'] ?? []) as $day) {
+                $date=(string)($day['business_date'] ?? '');
+                if ($date==='' || isset($daily[$date]) || !in_array($date,$window['dates'],true)) { $valid=false; break; }
+                $daily[$date]=$day;
+            }
+            $computed=$service->aggregate($window,$daily,$metricKey);
+            foreach (['value','partial_value','unit','identity','coverage'] as $key) {
+                if (($computed[$key] ?? null) !== ($stored[$key] ?? null)) $valid=false;
+            }
+        }
+        if (!empty($precise['comparison'])) {
+            $computed=$service->compare($precise['comparison']['current'],$precise['comparison']['baseline']);
+            foreach (['comparable','difference','change_percent','change_status'] as $key) {
+                if (($computed[$key] ?? null) !== ($precise['comparison'][$key] ?? null)) $valid=false;
+            }
+        }
+        $status=(string)($answer['status'] ?? '');
+        $blocked=!$valid || str_starts_with($status,'blocked');
+        $partial=!$blocked && $status==='partial_period';
+        $available=(int)($precise['coverage']['available_days'] ?? 0);
+        $missing=(int)($precise['coverage']['expected_days'] ?? 0)-$available;
+        return [
+            'check'=>$this->check('metric_integrity','指标资格',$blocked?'blocked':($partial?'partial':'passed'),
+                !$valid?'期间覆盖、日事实、汇总或比较计算与保存结果不一致。':($blocked?'期间事实不足或比较口径不一致，结论保持阻断。':($partial?'已逐日复核已有部分；缺失日期未补零，全期间值不可用。':'日事实、覆盖和同口径计算已逐项复核。')),
+                !$valid?'precise_period_recalculation_mismatch':($blocked?'precise_period_blocked':($partial?'precise_period_partial':''))),
+            'verified_count'=>$blocked?0:$available,'blocked_count'=>$blocked?max(1,$missing):$missing,'has_precise_result'=>true,
         ];
     }
 

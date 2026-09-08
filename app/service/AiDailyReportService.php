@@ -12,12 +12,13 @@ class AiDailyReportService
 {
     use AiDailyReportReadinessConcern;
     use AiDailyReportExecutionReadConcern;
+    use \app\service\concern\AiDailyReportEvidenceConcern;
 
     private const TABLE = 'ai_daily_reports';
     private const DATA_OK = 'ok';
     private const DATA_PENDING = 'pending';
     private const DEFAULT_MODEL_KEY = 'deepseek_v4_default';
-    private const PROMPT_VERSION = 'ai_daily_report.v4';
+    private const PROMPT_VERSION = 'ai_daily_report.v5';
     private const TRUSTED_INPUT_VERSION = 'ai_daily_trusted_input.v2';
     private const RESULT_CONTRACT_VERSION = 'ai_daily_result.v2';
     private const METRIC_CONTRACT_VERSION = 'ota_operating_metrics.v2';
@@ -41,6 +42,8 @@ class AiDailyReportService
     private AiModelRoutingService $modelRoutingService;
     /** @var callable(array<int,int>,int,int,string):array<string,mixed> */
     private $temporalOverviewLoader;
+    private $evidenceFactLoader;
+    private $evidenceKnowledgeLoader;
 
     public function __construct(
         ?OperationManagementService $operationService = null,
@@ -48,7 +51,9 @@ class AiDailyReportService
         ?AiDecisionQualityService $decisionQualityService = null,
         ?OtaCompetitionAnalysisBundleService $competitionBundleService = null,
         ?AiModelRoutingService $modelRoutingService = null,
-        ?callable $temporalOverviewLoader = null
+        ?callable $temporalOverviewLoader = null,
+        ?callable $evidenceFactLoader = null,
+        ?callable $evidenceKnowledgeLoader = null
     )
     {
         $this->operationService = $operationService ?? new OperationManagementService();
@@ -56,6 +61,8 @@ class AiDailyReportService
         $this->decisionQualityService = $decisionQualityService ?? new AiDecisionQualityService();
         $this->competitionBundleService = $competitionBundleService ?? new OtaCompetitionAnalysisBundleService();
         $this->modelRoutingService = $modelRoutingService ?? new AiModelRoutingService();
+        $this->evidenceFactLoader = $evidenceFactLoader;
+        $this->evidenceKnowledgeLoader = $evidenceKnowledgeLoader;
         $this->temporalOverviewLoader = $temporalOverviewLoader
             ?? static fn(array $hotelIds, int $historyDays, int $futureDays, string $today): array =>
                 (new TemporalInsightService())->overview($hotelIds, $historyDays, $futureDays, $today);
@@ -200,11 +207,15 @@ class AiDailyReportService
         $selectedHotelId = $this->resolveSingleHotelId($hotelIds, $hotelId);
         $reportDate = $this->normalizeDate($reportDate);
         $snapshot = $this->buildSnapshot($hotelIds, $selectedHotelId, $reportDate);
+        $snapshot['evidence_fact_pack'] = $this->loadEvidencePack($selectedHotelId, $reportDate);
+        $snapshot['evidence_diagnosis'] = $this->evidenceDiagnosis($snapshot['evidence_fact_pack']);
         $edition = OtaCompetitionAnalysisBundleService::normalizeEdition($options['edition'] ?? 'lite');
         $actorIsAdmin = ($options['actor_is_admin'] ?? false) === true;
         OtaCompetitionAnalysisBundleService::assertGenerationAllowed($edition, $actorIsAdmin);
         $useLlm = !array_key_exists('use_llm', $options) || filter_var($options['use_llm'], FILTER_VALIDATE_BOOL);
         $requestedModelKey = trim((string)($options['model_key'] ?? ''));
+        $modelRoutingFailed = false;
+        try {
         $modelSelection = $useLlm
             ? $this->modelRoutingService->resolve(
                 $requestedModelKey,
@@ -220,6 +231,11 @@ class AiDailyReportService
                 'requested_model_key' => $requestedModelKey,
                 'config_id' => 0,
             ];
+        } catch (Throwable) {
+            $modelRoutingFailed = true;
+            $modelSelection = ['model_key' => $requestedModelKey ?: self::DEFAULT_MODEL_KEY,
+                'provider' => '', 'usage_scene' => 'report', 'selection_mode' => 'not_configured'];
+        }
         $modelKey = (string)$modelSelection['model_key'];
         $snapshot['model_selection'] = $modelSelection;
 
@@ -274,6 +290,7 @@ class AiDailyReportService
             );
         }
 
+        $ruleReport = $this->projectEvidenceReport($ruleReport, $snapshot['evidence_fact_pack'], $snapshot['evidence_diagnosis']);
         $inputFingerprint = $this->buildInputFingerprint(
             $snapshot,
             $ruleReport,
@@ -283,7 +300,19 @@ class AiDailyReportService
             $modelKey,
             $useLlm
         );
-        $cachedInput = $inputTrust['verified']
+        if ($this->tableHasColumn(self::TABLE, 'input_fingerprint')) {
+            $sameInput = Db::name(self::TABLE)->where('hotel_id', $selectedHotelId)->where('report_date', $reportDate)
+                ->where('input_fingerprint', $inputFingerprint)->whereNull('deleted_at')
+                ->where('model_status', $useLlm ? 'ok' : 'not_requested')->find();
+            if (is_array($sameInput)) {
+                $saved = $this->read((int)$sameInput['id'], [$selectedHotelId]);
+                if (($saved['evidence_readback_status'] ?? '') === 'exact_readback_verified') {
+                    $saved['cache_hit'] = true;
+                    return $saved;
+                }
+            }
+        }
+        $cachedInput = $inputTrust['verified'] && !isset($snapshot['evidence_fact_pack'])
             ? $this->findReusableInputCache($selectedHotelId, $reportDate, $modelKey, $useLlm, $inputFingerprint)
             : null;
         $cacheHit = is_array($cachedInput);
@@ -305,7 +334,10 @@ class AiDailyReportService
                 );
                 $generationMode = 'llm';
             }
-        } elseif (!$inputTrust['verified']) {
+        } elseif ($modelRoutingFailed) {
+            $modelStatus = 'not_configured';
+            $modelMessage = '模型配置不可用，已保留确定性证据诊断。';
+        } elseif (!$inputTrust['verified'] && !isset($snapshot['evidence_fact_pack'])) {
             $modelStatus = 'blocked_by_data_quality';
             $modelMessage = $this->trustedInputBlockMessage($inputTrust['gaps']);
         } elseif ($useLlm) {
@@ -314,7 +346,10 @@ class AiDailyReportService
             ]);
             $modelStatus = $llmResult['model_status'];
             $modelMessage = $llmResult['model_message'];
-            if (is_array($llmResult['report'])) {
+            if (is_array($llmResult['report']) && isset($snapshot['evidence_fact_pack'])) {
+                $finalReport['ai_interpretation'] = $llmResult['report']['ai_interpretation'];
+                $generationMode = 'llm';
+            } elseif (is_array($llmResult['report'])) {
                 $finalReport = $this->mergeLlmReport(
                     $ruleReport,
                     $llmResult['report'],
@@ -332,12 +367,17 @@ class AiDailyReportService
             }
         }
 
+        $selectedHypotheses = $finalReport['ai_interpretation']['selected_hypothesis_ids'] ?? [];
         $finalReport['ai_interpretation'] = $this->normalizeAiInterpretation(
             is_array($finalReport['ai_interpretation'] ?? null) ? $finalReport['ai_interpretation'] : [],
             (string)($finalReport['ai_explanation'] ?? ''),
             $modelStatus,
             $modelMessage
         );
+        $finalReport['ai_interpretation']['selected_hypothesis_ids'] = $selectedHypotheses;
+        $snapshot['evidence_snapshot'] = $this->sealEvidenceSnapshot($snapshot['evidence_fact_pack'],
+            $snapshot['evidence_diagnosis'], $modelStatus, $finalReport['ai_interpretation']);
+        $snapshot['evidence_projection_digest'] = AiDailyReportEvidenceService::projectionDigest($finalReport);
         $finalReport['operating_diagnosis'] = $this->buildOperatingDiagnosis($snapshot, $finalReport);
         if (($finalReport['operating_diagnosis']['ai_assistance']['status'] ?? '') === 'blocked_by_data_conflict') {
             $finalReport['ai_interpretation'] = $finalReport['operating_diagnosis']['ai_assistance'];
@@ -449,6 +489,10 @@ class AiDailyReportService
             );
         }
         $result = $this->read($id, [$selectedHotelId]) ?? [];
+        if (($result['evidence_readback_status'] ?? '') !== 'exact_readback_verified'
+            || ($result['evidence_snapshot']['snapshot_fingerprint'] ?? '') !== $snapshot['evidence_snapshot']['snapshot_fingerprint']) {
+            throw new \RuntimeException('diagnosis_report_exact_readback_failed');
+        }
         if (($result['competition_bundle_readback']['exact_readback_verified'] ?? false) !== true) {
             throw new \RuntimeException('competition_bundle_readback_failed');
         }
@@ -649,6 +693,7 @@ class AiDailyReportService
                 'current_value' => is_array($action['current_value'] ?? null) ? $action['current_value'] : [],
                 'target_value' => $targetValue,
                 'evidence' => [
+                    'evidence_recommendation' => $action['evidence_recommendation'] ?? null,
                     'ai_daily_report_id' => $reportId,
                     'action_index' => $actionIndex,
                     'action_idempotency_key' => $idempotencyKey,
@@ -2180,6 +2225,8 @@ class AiDailyReportService
             'model_key' => $modelKey,
             'use_llm' => $useLlm,
             'trusted_rows' => $trustedRows,
+            'evidence_fact_pack' => $snapshot['evidence_fact_pack'] ?? null,
+            'evidence_diagnosis' => $snapshot['evidence_diagnosis'] ?? null,
             'competition_circle_bundle' => $snapshot['competition_circle_bundle'] ?? [],
             'trusted_llm_payload' => $this->buildTrustedLlmPayload($ruleReport, $snapshot),
         ]);
@@ -2576,6 +2623,9 @@ class AiDailyReportService
         array $governanceContext = []
     ): array
     {
+        if (isset($snapshot['evidence_fact_pack'], $snapshot['evidence_diagnosis'])) {
+            return $this->tryEvidenceModel($snapshot, $modelKey);
+        }
         $trustedPayload = $this->buildTrustedLlmPayload($ruleReport, $snapshot);
         $readinessBlock = $this->llmSnapshotReadinessBlock($snapshot, $trustedPayload);
         if ($readinessBlock !== '') {
@@ -2749,52 +2799,6 @@ class AiDailyReportService
             }
         }
         return $result;
-    }
-
-    private function normalizeAiInterpretation(
-        array $interpretation,
-        string $legacyExplanation,
-        string $modelStatus,
-        string $modelMessage
-    ): array {
-        $normalizeList = static function (mixed $value, int $limit): array {
-            $items = is_array($value) ? $value : [$value];
-            $items = array_values(array_unique(array_filter(array_map(
-                static fn(mixed $item): string => mb_substr(trim((string)$item), 0, 600),
-                $items
-            ))));
-            return array_slice($items, 0, $limit);
-        };
-        $possible = $normalizeList($interpretation['possible_explanations'] ?? [], 3);
-        if (empty($possible) && trim($legacyExplanation) !== '') {
-            $possible[] = mb_substr(trim($legacyExplanation), 0, 600);
-        }
-        $confidence = (string)($interpretation['confidence'] ?? 'not_assessed');
-        if (!in_array($confidence, ['low', 'medium', 'high', 'not_assessed', 'unavailable'], true)) {
-            $confidence = 'not_assessed';
-        }
-        $status = (string)($interpretation['status'] ?? '');
-        if ($status === '') {
-            if ($modelStatus === 'not_requested') {
-                $status = 'not_requested';
-            } elseif (in_array($modelStatus, ['failed', 'blocked_by_data_quality', 'blocked_by_data_conflict', 'invalid_output'], true)) {
-                $status = $modelStatus;
-                $confidence = 'unavailable';
-            } else {
-                $status = !empty($possible) ? 'available' : 'unavailable';
-            }
-        }
-
-        return [
-            'version' => self::AI_INTERPRETATION_VERSION,
-            'status' => $status,
-            'possible_explanations' => $possible,
-            'conflicting_evidence' => $normalizeList($interpretation['conflicting_evidence'] ?? [], 3),
-            'missing_information' => $normalizeList($interpretation['missing_information'] ?? [], 5),
-            'confidence' => $confidence,
-            'model_message' => mb_substr(trim($modelMessage), 0, 500),
-            'boundary' => 'AI仅辅助解读，不替用户决策、执行或表达观点。',
-        ];
     }
 
     private function validatedLlmSummary(array $ruleReport, array $llmReport): ?string
@@ -3566,6 +3570,15 @@ class AiDailyReportService
 
     private function buildOperatingDiagnosis(array $snapshot, array $report): array
     {
+        if (isset($snapshot['evidence_diagnosis'])) {
+            return ['version' => AiDailyReportEvidenceService::VERSION, 'language' => 'zh-CN',
+                'scope' => $snapshot['evidence_fact_pack']['scope'],
+                'facts' => ['current_period' => ['items' => $report['yesterday_result']['metrics'] ?? []]],
+                'judgments' => [], 'gaps' => $snapshot['evidence_fact_pack']['gaps'],
+                'evidence_reasoning' => $snapshot['evidence_diagnosis'],
+                'ai_assistance' => $report['ai_interpretation'] ?? [],
+                'decision_boundary' => $snapshot['evidence_diagnosis']['boundary']];
+        }
         $operation = is_array($snapshot['operation'] ?? null) ? $snapshot['operation'] : [];
         $ota = is_array($operation['ota'] ?? null) ? $operation['ota'] : [];
         $competitors = is_array($operation['competitors'] ?? null) ? $operation['competitors'] : [];
@@ -4614,6 +4627,21 @@ class AiDailyReportService
             $row[$field] = $this->decodeJson((string)($row[$field . '_json'] ?? ''));
             unset($row[$field . '_json']);
         }
+        if (isset($row['snapshot']['evidence_snapshot'])) {
+            $evidenceService = new AiDailyReportEvidenceService();
+            $expectedScope = $evidenceService->scope((int)($row['tenant_id'] ?? 0), $row['hotel_id'], (string)$row['report_date']);
+            $evidenceService->verify($row['snapshot']['evidence_snapshot'], $expectedScope);
+            $evidenceService->assertProjection($row, $row['snapshot']['evidence_snapshot']);
+            if (($row['snapshot']['evidence_projection_digest'] ?? '') !== AiDailyReportEvidenceService::projectionDigest($row)) {
+                throw new \RuntimeException('diagnosis_report_projection_mismatch');
+            }
+            $row['evidence_snapshot'] = $row['snapshot']['evidence_snapshot'];
+            $row['evidence_recommendations'] = $row['evidence_snapshot']['diagnosis']['recommendations'];
+            $row['final_text'] = $row['evidence_snapshot']['final_text'];
+            $row['evidence_readback_status'] = 'exact_readback_verified';
+        } else {
+            $row['evidence_readback_status'] = 'legacy_unverified';
+        }
         $actions = (array)($row['recommended_actions'] ?? []);
         $trustedSnapshot = self::isTrustedSnapshotForExecution((array)($row['snapshot'] ?? []));
         if (!$trustedSnapshot) {
@@ -4772,11 +4800,13 @@ class AiDailyReportService
                 'report_date' => (string)($row['report_date'] ?? ''),
                 'scope_note' => 'Legacy report scope inferred from persisted hotel_id and report_date.',
             ];
-        $row['operating_diagnosis'] = is_array($row['snapshot']['operation'] ?? null)
+        $row['operating_diagnosis'] = isset($row['evidence_snapshot'])
+            ? (array)($row['snapshot']['operating_diagnosis'] ?? [])
+            : (is_array($row['snapshot']['operation'] ?? null)
             ? $this->buildOperatingDiagnosis($row['snapshot'], $row)
             : (is_array($row['snapshot']['operating_diagnosis'] ?? null)
                 ? $row['snapshot']['operating_diagnosis']
-                : []);
+                : []));
         $row['snapshot']['operating_diagnosis'] = $row['operating_diagnosis'];
         if (($row['operating_diagnosis']['ai_assistance']['status'] ?? '') === 'blocked_by_data_conflict') {
             $row['ai_interpretation'] = $row['operating_diagnosis']['ai_assistance'];
@@ -4989,14 +5019,13 @@ class AiDailyReportService
     private function tableHasColumn(string $table, string $column): bool
     {
         static $cache = [];
-        $key = $table . '.' . $column;
+        $key = spl_object_id(Db::connect()) . '.' . $table . '.' . $column;
         if (array_key_exists($key, $cache)) {
             return $cache[$key];
         }
 
         try {
-            $rows = Db::query('SHOW COLUMNS FROM `' . str_replace('`', '', $table) . '`');
-            $columns = array_fill_keys(array_map(static fn(array $row): string => (string)$row['Field'], $rows), true);
+            $columns = Db::connect()->getFields($table);
             return $cache[$key] = isset($columns[$column]);
         } catch (Throwable $e) {
             return $cache[$key] = false;

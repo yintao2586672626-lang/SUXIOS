@@ -904,6 +904,37 @@
                                         </div>
 
                                         <template v-else>
+                                            <section v-if="revenueCockpitModel.operatingLedger" class="rounded-xl border border-slate-200 bg-white p-4" data-testid="revenue-operating-ledger">
+                                                <h3 class="font-semibold text-slate-900">经营底账 · 来源与差额</h3>
+                                                <p class="mt-1 text-xs leading-5 text-slate-500">点击指标展开来源、公式和日期覆盖。订单额、住宿房费、预计房费及结算分别核对；未解释差额不会自动调平。随“保存决策快照”保存当前版本。</p>
+                                                <p v-if="revenueCockpitModel.operatingLedger.scope.evidence_mode === 'synthetic'" class="mt-2 text-sm text-amber-800">synthetic 测试样本，不是现场经营事实</p>
+                                                <p class="mt-2 break-all text-xs text-slate-500">{{ revenueCockpitModel.operatingLedger.scope.start_date }} 至 {{ revenueCockpitModel.operatingLedger.scope.end_date }} · 版本 {{ revenueCockpitModel.operatingLedger.version }}</p>
+                                                <div class="mt-3 grid grid-cols-1 gap-3 lg:grid-cols-2">
+                                                    <details v-for="metric in revenueCockpitModel.operatingLedger.metrics" :key="metric.key" class="rounded-lg border border-slate-200 p-3" :data-ledger-metric="metric.key">
+                                                        <summary class="cursor-pointer text-sm font-medium text-slate-800">{{ metric.platform }} · {{ metric.label }}：{{ metric.value ?? '未形成完整可信金额' }} <span v-if="metric.value !== null">元</span><span class="ml-2 text-xs text-slate-500">{{ {ready:'已验证',partial:'部分覆盖',missing:'缺失/未验证',conflict:'存在冲突'}[metric.status] || metric.status }}</span></summary>
+                                                        <p v-if="metric.partial_value !== null" class="mt-2 text-sm text-amber-800">非全期间金额：{{ metric.partial_value }} 元</p>
+                                                        <p class="mt-2 text-xs leading-5 text-slate-600">{{ metric.definition }}<br>公式：{{ metric.formula }}<br>已覆盖：{{ metric.covered_dates.join('、') || '无' }}<br>缺失或未验证：{{ metric.missing_dates.join('、') || '无' }}<br>币种：{{ metric.currency }} · 日期基准：{{ metric.date_bases.join('、') || '待确认' }} · 排除重复快照：{{ metric.duplicate_snapshots }}</p>
+                                                        <p v-if="metric.status === 'conflict'" class="mt-2 text-sm text-rose-700">同指标来源或日期口径冲突，暂停汇总，请逐条核对。</p>
+                                                        <div v-for="day in metric.days" :key="day.business_date" class="mt-2 border-t border-slate-100 pt-2 text-xs leading-5">
+                                                            <strong>{{ day.business_date }} · {{ day.status }}</strong>
+                                                            <p v-if="!day.entries.length">当日来源缺失</p>
+                                                            <div v-for="entry in day.entries" :key="entry.fact_identity" class="mt-1 break-all text-slate-600">
+                                                                观察值：{{ entry.value ?? '缺失' }} {{ entry.currency || '币种待确认' }} / {{ entry.unit || '单位待确认' }}；{{ entry.source_field }}<br>
+                                                                来源：{{ entry.source_refs.join('、') || '来源引用缺失' }}；采集：{{ entry.collected_at || '未记录' }}<br>
+                                                                日期基准：{{ entry.date_basis || '未确认' }}；原订单日：{{ entry.origin_business_date || '未提供' }}<br>
+                                                                状态：{{ entry.status === 'ready' ? '已验证' : '未验证' }}；{{ entry.reason_texts.join('；') }}<br>
+                                                                来源版本：{{ entry.source_version || '旧数据未记录版本' }}<br>事实身份：{{ entry.fact_identity }}
+                                                            </div>
+                                                        </div>
+                                                    </details>
+                                                </div>
+                                                <details v-for="difference in revenueCockpitModel.operatingLedger.differences" :key="difference.key" class="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3" :data-ledger-difference="difference.platform">
+                                                    <summary class="cursor-pointer text-sm font-medium">{{ difference.platform }} · {{ difference.label }}：{{ difference.observed_difference ?? '无法计算' }}；未解释：{{ difference.unexplained_difference ?? '无法计算' }}</summary>
+                                                    <p class="mt-2 text-xs leading-5">{{ difference.formula }}<br>有证据解释：{{ difference.explained_difference ?? '无法计算' }} 元<br>{{ difference.boundary }}<br>待核对：{{ difference.reason_texts.join('；') || '当前已关联证据' }}</p>
+                                                    <p v-for="(component, index) in difference.components" :key="index" class="mt-2 break-all text-xs leading-5">{{ component.label }} · {{ component.business_date }} · 原订单日 {{ component.origin_business_date || '未提供' }} · 观察 {{ component.observed_value ?? '未验证' }} 元 · 已解释 {{ component.explained_value ?? '未关联' }} · {{ {linked_evidence:'关联凭证已核对',cross_period:'跨期退款',unlinked:'关联证据不足'}[component.status] }} · {{ component.source_refs.join('、') }}</p>
+                                                </details>
+                                            </section>
+                                            <p v-else class="rounded-lg border border-slate-200 bg-white p-3 text-sm text-slate-500" data-testid="revenue-ledger-legacy">此旧版本未保存经营底账明细；刷新事实后可查看来源与差额，不重算旧快照金额。</p>
                                             <section v-for="section in revenueCockpitModel.visibleSections" :key="section.key" :data-testid="`revenue-cockpit-section-${section.key}`" class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm lg:p-5">
                                                 <div class="mb-4 flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
                                                     <div>

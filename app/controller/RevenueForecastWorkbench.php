@@ -46,18 +46,34 @@ final class RevenueForecastWorkbench extends Base
                 if (is_string($scope[$key])) $scope[$key] = trim($scope[$key]);
             }
             (new TemporalForecastReplayService())->scope($scope);
+            $page = 1;
+            if ($operation === 'history') {
+                $submittedPage = $input['page'] ?? 1;
+                if (!is_int($submittedPage) && !(is_string($submittedPage) && ctype_digit($submittedPage))) throw new InvalidArgumentException('历史页码须为正整数。');
+                $page = filter_var($submittedPage, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
+                if ($page === false) throw new InvalidArgumentException('历史页码须为正整数。');
+            }
             $payload = ['evidence' => $input['evidence'] ?? []];
             if (isset($input['scenario'])) $payload['scenario'] = $input['scenario'];
             $data = match ($operation) {
                 'context' => ['scope' => $scope, 'source_status' => 'manual_unverified'],
                 'preview' => $this->service->preview($payload, $scope),
                 'save' => $this->service->save($payload, $scope),
-                'history' => ['scope' => $scope, 'items' => $this->service->history($scope)],
+                'history' => ['scope' => $scope] + $this->service->historyPage($scope, $page),
                 'read' => $this->service->read($id, $scope),
             };
             return $this->success($data);
         } catch (InvalidArgumentException $e) { return $this->error($e->getMessage(), 422); }
-        catch (\Throwable $e) { return $this->error('预测方案处理失败；未确认保存或回读成功，请重试或核对输入。', 500); }
+        catch (\Throwable $e) {
+            $message = match ($operation) {
+                'preview' => '回测计算失败；本次没有生成结果，请重试。',
+                'save' => '方案保存失败；未确认保存成功，请先读取历史核对，再重试保存。',
+                'history' => '历史方案读取失败；尚未取得历史列表，请重试或联系维护人员检查存储。',
+                'read' => '方案回读校验失败；当前文件未确认为可用，请重试或重新导入原始证据。',
+                default => '范围核对失败；请重试或联系维护人员。',
+            };
+            return $this->error($message, 500, ['operation' => $operation, 'status' => 'failed']);
+        }
     }
 
     private function resolveTenant(int $hotelId): int

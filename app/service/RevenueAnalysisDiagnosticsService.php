@@ -5,8 +5,8 @@ namespace app\service;
 
 /**
  * Converts the canonical three-source fact layer into a decision-facing
- * validation and metric-diagnostic contract. It never reloads or repairs data;
- * the fact layer remains the only authority for values and readback status.
+ * validation and metric-diagnostic contract. The overview adapter obtains a
+ * scoped read-only fact pack; diagnostic builders never repair source data.
  */
 final class RevenueAnalysisDiagnosticsService
 {
@@ -18,6 +18,48 @@ final class RevenueAnalysisDiagnosticsService
         'ctrip_ota' => '携程OTA渠道事实',
         'meituan_ota' => '美团OTA渠道事实',
     ];
+
+    /** Attach the overview's strict fact pack without changing its existing read-failure policy. */
+    public function withOverviewEvidence(
+        array $factLayer,
+        ?int $hotelId,
+        string $businessDate,
+        array $channels
+    ): array {
+        if ($hotelId === null || (int)($factLayer['hotel']['tenant_id'] ?? 0) <= 0) {
+            return $factLayer;
+        }
+        $evidenceService = new AiDailyReportEvidenceService();
+        $evidenceScope = $evidenceService->scope((int)$factLayer['hotel']['tenant_id'], $hotelId, $businessDate, $channels);
+        try {
+            $closure = (new AiDailyReportBroadcastFactService())->build($hotelId, $businessDate);
+        } catch (\Throwable) {
+            $closure = null;
+        }
+        $factLayer['evidence_fact_pack'] = $closure === null
+            ? $evidenceService->unavailablePack($evidenceScope, 'fact_read_failed')
+            : $evidenceService->factPack($closure, $evidenceScope);
+        $factLayer['analysis_diagnostics'] = $this->build($factLayer);
+        return $factLayer;
+    }
+
+    /** Keep the request identity check separate from the fact pack's internal identity check. */
+    public function assertOverviewEvidenceScope(
+        array $factLayer,
+        ?int $hotelId,
+        string $businessDate,
+        array $requestedPlatforms
+    ): void {
+        if (!isset($factLayer['evidence_fact_pack'])) {
+            return;
+        }
+        $scope = $factLayer['evidence_fact_pack']['scope'] ?? [];
+        sort($requestedPlatforms);
+        if (($scope['hotel_id'] ?? 0) !== $hotelId || ($scope['business_date'] ?? '') !== $businessDate
+            || ($scope['platforms'] ?? []) !== $requestedPlatforms) {
+            throw new \RuntimeException('revenue_diagnosis_request_scope_mismatch', 422);
+        }
+    }
 
     /** @return array<string,mixed> */
     public function build(array $factLayer): array
@@ -207,6 +249,7 @@ final class RevenueAnalysisDiagnosticsService
             'checks' => $checks,
             'source_checks' => $sourceChecks,
             'metric_diagnostics' => $metricDiagnostics,
+            'evidence_reasoning' => $this->evidenceReasoning($factLayer),
             'issues' => $issues,
             'next_action' => $nextAction,
             'evidence_summary' => [
@@ -217,6 +260,22 @@ final class RevenueAnalysisDiagnosticsService
                 'issue_count' => count($issues),
             ],
         ];
+    }
+
+    /** Shared diagnostic consumer; never upgrades aggregate metrics or knowledge to facts. */
+    public function evidenceReasoning(array $factLayer): array
+    {
+        $pack = $factLayer['evidence_fact_pack'] ?? null;
+        if (!is_array($pack)) return ['status' => 'unavailable', 'reason' => 'strict_fact_pack_missing',
+            'hypotheses' => [], 'recommendations' => [], 'causality' => 'not_established'];
+        $hotel = $factLayer['hotel'] ?? [];
+        $scope = $pack['scope'] ?? [];
+        if (($scope['tenant_id'] ?? 0) !== (int)($hotel['tenant_id'] ?? 0)
+            || ($scope['hotel_id'] ?? 0) !== (int)($hotel['system_hotel_id'] ?? 0)
+            || ($scope['business_date'] ?? '') !== ($factLayer['business_date'] ?? '')) {
+            throw new \RuntimeException('revenue_diagnosis_scope_mismatch', 422);
+        }
+        return (new AiDailyReportEvidenceService())->diagnose($pack, $factLayer['previous_evidence_fact_pack'] ?? null);
     }
 
     /** @return array<string,mixed> */

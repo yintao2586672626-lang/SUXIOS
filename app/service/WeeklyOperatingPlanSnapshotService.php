@@ -156,6 +156,30 @@ final class WeeklyOperatingPlanSnapshotService
         return $this->normalizeStored($row, false, false);
     }
 
+    /** Read availability without interpreting a missing latest plan as an infrastructure failure.
+     * @return array<string,mixed>
+     */
+    public function readLatestAvailability(int $tenantId, int $hotelId, string $weekEnd): array
+    {
+        try {
+            return $this->readLatest($tenantId, $hotelId, $weekEnd);
+        } catch (\RuntimeException $error) {
+            if ($error->getCode() !== 404 || $error->getMessage() !== 'weekly_plan_snapshot_not_found') {
+                throw $error;
+            }
+            [$weekStart, $weekEnd] = $this->week($weekEnd);
+            return [
+                'contract_version' => self::CONTRACT_VERSION,
+                'tenant_id' => $tenantId,
+                'hotel_id' => $hotelId,
+                'week_start' => $weekStart,
+                'week_end' => $weekEnd,
+                'status' => 'not_generated',
+                'readback_verified' => false,
+            ];
+        }
+    }
+
     /** @return array<string,mixed> */
     public function readExact(int $tenantId, int $hotelId, int $snapshotId): array
     {
@@ -216,6 +240,7 @@ final class WeeklyOperatingPlanSnapshotService
             static fn(mixed $value): string => trim((string)$value),
             (array)($sources['source_errors'] ?? [])
         ))));
+        $tasks = $this->withVerifiedReviewCompletion($tenantId, $hotelId, $intents, $tasks, $sourceErrors);
         usort($intents, static fn(array $left, array $right): int => (int)($left['id'] ?? 0) <=> (int)($right['id'] ?? 0));
         usort($tasks, static fn(array $left, array $right): int => (int)($left['id'] ?? 0) <=> (int)($right['id'] ?? 0));
         sort($sourceErrors, SORT_STRING);
@@ -234,6 +259,7 @@ final class WeeklyOperatingPlanSnapshotService
             'trusted_broadcast' => array_values(array_diff($dates, array_keys($broadcastByDate))),
         ];
         $lifecycle = $this->lifecycleSummary($intents, $tasks);
+        $lifecycle['task_workflow'] = $sources['task_workflow'] ?? ['status' => 'not_loaded'];
         $gaps = $this->repeatedGaps($dailyByDate);
         $focus = $this->selectFocus(
             $gaps,
@@ -431,6 +457,12 @@ final class WeeklyOperatingPlanSnapshotService
             ->whereNull('deleted_at')
             ->order('id', 'asc')
             ->select()->toArray(), 'tasks_unavailable', $errors);
+        try {
+            $taskWorkflow = (new OperationTaskWorkflowService())->weeklySummary($tenantId, $hotelId, $tasks);
+        } catch (\Throwable $error) {
+            $taskWorkflow = ['status' => 'unavailable'];
+            $errors[] = 'task_workflow_readback_unavailable';
+        }
         $outcomeLearning = (new OperatingOutcomeLearningRuntimeService())->load($tenantId, $hotelId);
         $reviewedObservations = ($outcomeLearning['usable_for_tie_break'] ?? false) === true
             ? array_values((array)($outcomeLearning['reviewed_observations'] ?? []))
@@ -438,6 +470,7 @@ final class WeeklyOperatingPlanSnapshotService
         return compact('hotelName', 'dailyRuns', 'broadcasts', 'intents', 'tasks') + [
             'hotel_name' => $hotelName,
             'daily_runs' => $dailyRuns,
+            'task_workflow' => $taskWorkflow,
             'reviewed_observations' => $reviewedObservations,
             'outcome_learning_runtime' => [
                 'contract_version' => OperatingOutcomeLearningRuntimeService::CONTRACT_VERSION,
@@ -468,10 +501,79 @@ final class WeeklyOperatingPlanSnapshotService
         }
         foreach ($tasks as $task) {
             $result = strtolower(trim((string)($task['result_status'] ?? '')));
-            if (in_array($result, ['success', 'near_success', 'failed'], true)) $summary['reviewed']++;
+            $review = $task['_weekly_review_completion'] ?? null;
+            if (is_array($review)
+                ? ($review['status'] ?? '') === 'reviewed'
+                : in_array($result, ['success', 'near_success', 'failed'], true)
+            ) $summary['reviewed']++;
             elseif ($this->taskNeedsReview($task)) $summary['review_pending']++;
         }
         return $summary;
+    }
+
+    /**
+     * An observation stays "observing" after review. Only persisted, verified
+     * event/review chains can attest its completion; caller projections cannot.
+     * @return list<array<string,mixed>>
+     */
+    private function withVerifiedReviewCompletion(
+        int $tenantId,
+        int $hotelId,
+        array $intents,
+        array $tasks,
+        array &$sourceErrors
+    ): array {
+        foreach ($tasks as &$task) unset($task['_weekly_review_completion']);
+        unset($task);
+        $lifecycle = new OperationActionLifecycleService();
+        foreach ($intents as $intent) {
+            if (!$lifecycle->isManagedIntent($intent)) continue;
+            $intentId = (int)($intent['id'] ?? 0);
+            $indexes = array_keys(array_filter($tasks, static fn(array $task): bool =>
+                (int)($task['intent_id'] ?? 0) === $intentId));
+            if ($indexes === []) continue;
+            foreach ($indexes as $index) {
+                $tasks[$index]['_weekly_review_completion'] = ['status' => 'pending'];
+            }
+            try {
+                if ((int)($intent['tenant_id'] ?? 0) !== $tenantId
+                    || (int)($intent['hotel_id'] ?? 0) !== $hotelId
+                ) throw new \RuntimeException('weekly_review_intent_scope_mismatch');
+                // Both readers verify content digests, chain links and stored task scope.
+                $events = $lifecycle->eventsForIntent($tenantId, $hotelId, $intentId);
+                $reviews = $lifecycle->reviewsForIntent($tenantId, $hotelId, $intentId);
+                $event = $events === [] ? [] : $events[count($events) - 1];
+                foreach ($indexes as $index) {
+                    $task = $tasks[$index];
+                    $taskId = (int)($task['id'] ?? 0);
+                    if ($taskId <= 0 || (int)($task['tenant_id'] ?? 0) !== $tenantId
+                        || (int)($task['hotel_id'] ?? 0) !== $hotelId
+                    ) throw new \RuntimeException('weekly_review_task_scope_mismatch');
+                    $review = array_values(array_filter($reviews, static fn(array $row): bool =>
+                        (int)($row['task_id'] ?? 0) === $taskId))[0] ?? [];
+                    $completed = ($event['to_status'] ?? '') === 'reviewed'
+                        && (int)($event['task_id'] ?? 0) === $taskId;
+                    if ($completed && ((int)($review['id'] ?? 0) <= 0
+                        || ($event['event_payload']['review_ref'] ?? '') !== 'operation_action_reviews#' . (int)$review['id']
+                        || (string)($task['status'] ?? '') !== 'executed'
+                        || ($lifecycle->isDailyOneThingIntent($intent) && ($review['evidence_sufficiency'] ?? '') !== 'sufficient')
+                    )) throw new \RuntimeException('weekly_review_completion_evidence_missing');
+                    $tasks[$index]['_weekly_review_completion'] = [
+                        'status' => $completed ? 'reviewed' : 'pending',
+                        'event_id' => (int)($event['id'] ?? 0),
+                        'event_digest' => (string)($event['content_digest'] ?? ''),
+                        'review_id' => (int)($review['id'] ?? 0),
+                        'review_digest' => (string)($review['content_digest'] ?? ''),
+                    ];
+                }
+            } catch (\Throwable) {
+                $sourceErrors[] = 'action_review_integrity_failed_' . $intentId;
+                foreach ($indexes as $index) {
+                    $tasks[$index]['_weekly_review_completion'] = ['status' => 'unavailable'];
+                }
+            }
+        }
+        return $tasks;
     }
 
     /** @return list<array<string,mixed>> */
@@ -541,6 +643,17 @@ final class WeeklyOperatingPlanSnapshotService
                 'title' => '处理本周最早的待审批事项',
                 'reason' => '仍有 ' . (int)$lifecycle['pending_approval'] . ' 项等待人工决定。',
                 'evidence_refs' => [(int)($intent['id'] ?? 0) > 0 ? 'operation_execution_intents#' . (int)$intent['id'] : ''],
+            ];
+        }
+        $workflowNext = $lifecycle['task_workflow']['next_task'] ?? null;
+        if (is_array($workflowNext)) {
+            return [
+                'type' => 'task_workflow_next_step', 'key' => $workflowNext['next_step']['key'],
+                'title' => '推进原任务 #' . (int)$workflowNext['task_id'],
+                'reason' => $workflowNext['next_step']['label'],
+                'evidence_refs' => ['operation_execution_tasks#' . (int)$workflowNext['task_id']],
+                'scope' => $workflowNext['scope'],
+                'boundary' => '任务完成、执行核实与复盘分别计数，前后变化不声明因果效果',
             ];
         }
         if ((int)$lifecycle['review_pending'] > 0) {
@@ -763,6 +876,11 @@ final class WeeklyOperatingPlanSnapshotService
             '待审批：' . (int)$lifecycle['pending_approval']
                 . '；待复盘：' . (int)$lifecycle['review_pending']
                 . '；已复盘：' . (int)$lifecycle['reviewed'] . '。',
+            ($lifecycle['task_workflow']['status'] ?? '') === 'ready'
+                ? '任务治理：完成填报 ' . (int)$lifecycle['task_workflow']['task_completed']
+                    . '；人工核实 ' . (int)$lifecycle['task_workflow']['execution_verified']
+                    . '；已复盘观察 ' . (int)$lifecycle['task_workflow']['reviewed'] . '。前后变化不证明因果效果。'
+                : '任务治理：尚无可核实汇总，保留原任务状态。',
             '下周唯一重点：' . (string)($focus['title'] ?? '等待可确认事项'),
             '选择依据：' . (string)($focus['reason'] ?? '当前证据不足。'),
             '效果学习：' . $this->renderOutcomeLearning((array)($focus['outcome_learning_summary'] ?? []))
@@ -829,6 +947,7 @@ final class WeeklyOperatingPlanSnapshotService
             'result_status' => (string)($row['result_status'] ?? ''),
             'executed_at' => (string)($row['executed_at'] ?? ''),
             'updated_at' => (string)($row['updated_at'] ?? $row['update_time'] ?? ''),
+            'review_completion' => $row['_weekly_review_completion'] ?? null,
         ];
     }
 
@@ -903,6 +1022,10 @@ final class WeeklyOperatingPlanSnapshotService
 
     private function taskNeedsReview(array $task): bool
     {
+        if (is_array($task['_weekly_review_completion'] ?? null)) {
+            return (string)($task['status'] ?? '') === 'executed'
+                && ($task['_weekly_review_completion']['status'] ?? '') !== 'reviewed';
+        }
         return strtolower(trim((string)($task['status'] ?? ''))) === 'executed'
             && !in_array(
                 strtolower(trim((string)($task['result_status'] ?? ''))),

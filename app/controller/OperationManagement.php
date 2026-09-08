@@ -33,7 +33,9 @@ class OperationManagement extends Base
                 ? $this->currentBusinessDate()
                 : $this->normalizeDate((string)$requestedDate);
 
-            return $this->success($this->service->fullData($hotelIds, $hotelId, $date));
+            $data = $this->service->fullData($hotelIds, $hotelId, $date);
+            $data['query_scope'] = ['hotel_id' => $hotelId ?? 0, 'business_date' => $date];
+            return $this->success($data);
         } catch (Throwable $e) {
             return $this->error($this->safeErrorMessage($e, '获取运营数据汇总失败'), 400);
         }
@@ -49,7 +51,9 @@ class OperationManagement extends Base
                 : $this->currentBusinessDate();
             $problemType = trim((string)($input['problem_type'] ?? ''));
 
-            return $this->success($this->service->rootCause($hotelIds, $hotelId, $date, $problemType));
+            $data = $this->service->rootCause($hotelIds, $hotelId, $date, $problemType);
+            $data['query_scope'] = ['hotel_id' => $hotelId ?? 0, 'business_date' => $date];
+            return $this->success($data);
         } catch (Throwable $e) {
             return $this->error($this->safeErrorMessage($e, '可能影响因素分析失败'), $this->operationThrowableStatus($e));
         }
@@ -724,6 +728,51 @@ class OperationManagement extends Base
         }
     }
 
+    public function taskWorkflows(): Response
+    {
+        try {
+            [$hotelIds, $hotelId] = $this->resolveHotelScope();
+            if (!$hotelId) throw new \InvalidArgumentException('请选择一个酒店读取任务工作流');
+            return $this->success((new \app\service\OperationTaskWorkflowService())->listing($hotelIds, $hotelId));
+        } catch (Throwable $e) {
+            return $this->error($this->safeErrorMessage($e, '任务工作流读取失败'), $this->operationThrowableStatus($e));
+        }
+    }
+
+    public function readTaskWorkflow(int $id): Response
+    {
+        try {
+            [$hotelIds] = $this->resolveHotelScope();
+            $version = $this->request->param('version', null);
+            if ($version !== null && (filter_var($version, FILTER_VALIDATE_INT) === false || (int)$version < 1)) throw new \InvalidArgumentException('历史版本号无效');
+            return $this->success((new \app\service\OperationTaskWorkflowService())->read($id, $hotelIds, $version === null ? null : (int)$version));
+        } catch (Throwable $e) {
+            return $this->error($this->safeErrorMessage($e, '任务历史读取失败'), $this->operationThrowableStatus($e));
+        }
+    }
+
+    public function mutateTaskWorkflow(int $id): Response
+    {
+        try {
+            $input = $this->requestData();
+            [$hotelIds] = $this->resolveRequiredWriteHotelScope($input);
+            return $this->success((new \app\service\OperationTaskWorkflowService())->mutate($id, $hotelIds, $input, (int)$this->currentUser->id));
+        } catch (Throwable $e) {
+            return $this->error($this->safeErrorMessage($e, '任务保存失败，请回读原任务后重试'), $this->operationThrowableStatus($e));
+        }
+    }
+
+    public function proposeTaskWorkflow(): Response
+    {
+        try {
+            $input = $this->requestData();
+            [$hotelIds, $hotelId] = $this->resolveRequiredWriteHotelScope($input);
+            return $this->success((new \app\service\OperationTaskWorkflowService())->propose($hotelIds, $hotelId, (array)($input['recommendation'] ?? []), (int)$this->currentUser->id));
+        } catch (Throwable $e) {
+            return $this->error($this->safeErrorMessage($e, '建议保存失败，请用同一建议编号回读重试'), $this->operationThrowableStatus($e));
+        }
+    }
+
     private function resolveHotelScope(int $inputHotelId = 0, string $capability = 'operation.view'): array
     {
         if (!$this->currentUser) {
@@ -896,6 +945,7 @@ class OperationManagement extends Base
 
     private function operationThrowableStatus(Throwable $e): int
     {
+        if ($e instanceof \RuntimeException && in_array($e->getCode(), [409, 503], true)) return $e->getCode();
         $message = trim($e->getMessage());
         if ($message === '未登录') {
             return 401;

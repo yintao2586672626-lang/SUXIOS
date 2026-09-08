@@ -28,7 +28,8 @@ final class PreciseQueryRouterService
         'exposure_to_visit_rate' => ['name' => '曝光到访率', 'unit' => '%'],
         'intent_payment_conversion_rate' => ['name' => '意向支付转化率', 'unit' => '%'],
         'room_revenue' => ['name' => '房费收入', 'unit' => '来源金额单位'],
-        'amount' => ['name' => 'OTA成交金额', 'unit' => '来源金额单位'],
+        'settlement_amount' => ['name' => '结算金额', 'unit' => '来源金额单位'],
+        'amount' => ['name' => '订单金额', 'unit' => '来源金额单位'],
         'book_order_num' => ['name' => '订单量', 'unit' => '单'],
         'quantity' => ['name' => '销售间夜', 'unit' => '间夜'],
         'adr' => ['name' => 'OTA ADR', 'unit' => '来源金额单位/间夜'],
@@ -41,6 +42,9 @@ final class PreciseQueryRouterService
 
     /** @var Closure(int,string):array<string,mixed>|null */
     private ?Closure $scopeClosureReader;
+    private string $clientRequestKey = '';
+    private string $clientRequestDigest = '';
+    private array $inputScope = [];
 
     /**
      * @param null|Closure(array<string,mixed>):array<string,mixed> $systemGuideResolver
@@ -70,7 +74,40 @@ final class PreciseQueryRouterService
      * @param array<string,mixed> $payload
      * @return array<string,mixed>
      */
-    public function route(
+    public function route(int $tenantId, array $accessibleHotelIds, int $userId, array $payload): array
+    {
+        $key = trim((string)($payload['client_request_key'] ?? ''));
+        if ($key === '') return $this->routeOnce($tenantId, $accessibleHotelIds, $userId, $payload);
+        if (preg_match('/^[A-Za-z0-9._:-]{8,96}$/D', $key) !== 1) throw new InvalidArgumentException('client_request_key格式无效');
+        $requestKey = 'precise-client:v1:' . substr($this->digest([$tenantId,$userId,$key]), 0, 48);
+        $directory = LocalStatePathPolicy::scopedLockDirectory('precise-query') ?: runtime_path() . 'precise-query-locks';
+        if (!is_dir($directory) && !@mkdir($directory, 0770, true) && !is_dir($directory)) throw new RuntimeException('精准查数请求锁不可用', 503);
+        $handle = @fopen($directory . DIRECTORY_SEPARATOR . hash('sha256', $requestKey) . '.lock', 'c');
+        if (!$handle) throw new RuntimeException('精准查数请求锁不可用', 503);
+        if (!flock($handle, LOCK_EX | LOCK_NB)) { fclose($handle); throw new RuntimeException('同一精准查数请求正在保存，请稍后使用相同请求键重试', 429); }
+        $this->clientRequestKey = $requestKey;
+        $this->clientRequestDigest = $this->digest([
+            'query'=>trim((string)($payload['query'] ?? $payload['question'] ?? '')),
+            'current_scope'=>$payload['current_scope'] ?? [], 'parent_question_id'=>(int)($payload['parent_question_id'] ?? 0),
+            'requested_mode'=>$payload['requested_mode'] ?? 'auto', 'current_page'=>$payload['current_page'] ?? '',
+            'visible_topic_keys'=>$payload['visible_topic_keys'] ?? [],
+        ]);
+        try {
+            $existing = Db::name(OperatingQuestionService::TABLE)->where('request_key', $requestKey)->whereNull('deleted_at')->find();
+            if (is_array($existing)) {
+                $record = $this->read((int)$existing['id'], $tenantId, $accessibleHotelIds);
+                $stored = $this->decode($existing['answer_json'] ?? null);
+                if (!hash_equals((string)($stored['query_router']['client_request_digest'] ?? ''), $this->clientRequestDigest)) throw new RuntimeException('精准查数幂等键已用于不同内容', 409);
+                return $record;
+            }
+            return $this->routeOnce($tenantId, $accessibleHotelIds, $userId, $payload);
+        } finally {
+            $this->clientRequestKey = ''; $this->clientRequestDigest = '';
+            flock($handle, LOCK_UN); fclose($handle);
+        }
+    }
+
+    private function routeOnce(
         int $tenantId,
         array $accessibleHotelIds,
         int $userId,
@@ -84,9 +121,61 @@ final class PreciseQueryRouterService
             'intval',
             $accessibleHotelIds
         ), static fn(int $id): bool => $id > 0)));
-        $currentScope = is_array($payload['current_scope'] ?? null) ? $payload['current_scope'] : [];
+        $currentScope = array_intersect_key(
+            is_array($payload['current_scope'] ?? null) ? $payload['current_scope'] : [],
+            array_flip(['hotel_id', 'hotel_name', 'platform', 'business_date', 'date_start', 'date_end'])
+        );
+        $this->inputScope = $this->selectionIdentity($currentScope);
+        // Only a saved, integrity-checked record may supply conversational context.
+        $parentId = max(0, (int)($payload['parent_question_id'] ?? 0));
+        if ($parentId > 0) {
+            $parent = $this->read($parentId, $tenantId, $accessibleHotelIds);
+            $previous = (array)$parent['parsed_scope'];
+            $explicitHotel = $this->resolveHotel($query, $currentScope, $accessibleHotelIds);
+            $activeHotel = (int)($explicitHotel['id'] ?? 0);
+            $unresolvedHotel = $parent['route_type'] === 'clarification' && (int)($previous['hotel_id'] ?? 0) === 0;
+            $sameHotel = $activeHotel > 0 && ($activeHotel === (int)($previous['hotel_id'] ?? 0) || $unresolvedHotel);
+            $selectionChanged = $this->selectionChanged($this->inputScope, $parent);
+            if ($sameHotel && !$selectionChanged) {
+                $currentScope = array_replace($previous, array_filter($currentScope, static fn($v): bool => $v !== '' && $v !== null));
+                if (!empty($previous['platform'])) $currentScope['platform'] = $previous['platform'];
+                // An unchanged page selector is background context. A clarified
+                // period comes from the saved parent, not the still-selected day.
+                if (!empty($previous['date_start']) || !empty($previous['business_date'])) {
+                    foreach (['business_date', 'date_start', 'date_end', 'date_grain', 'date_source', 'dates', 'expected_days', 'comparison', 'timezone'] as $key) {
+                        unset($currentScope[$key]);
+                        if (array_key_exists($key, $previous)) $currentScope[$key] = $previous[$key];
+                    }
+                }
+                $currentScope['hotel_id'] = $activeHotel;
+                if ($parent['route_type'] === 'clarification') {
+                    $originalQuery = (string)$parent['question'];
+                    foreach ((array)($previous['hotel_candidates'] ?? []) as $candidate) $originalQuery = str_replace((string)$candidate['name'], '', $originalQuery);
+                    $inheritedPlatform = PreciseQueryLexicon::platform($query) ?: PreciseQueryLexicon::platform($originalQuery);
+                    if (empty($currentScope['platform']) && $inheritedPlatform !== '') $currentScope['platform'] = $inheritedPlatform;
+                    if (empty($currentScope['metric_keys'])) $currentScope['metric_keys'] = PreciseQueryLexicon::metrics($originalQuery, (string)($currentScope['platform'] ?? ''));
+                    if (empty($currentScope['date_start']) && empty($currentScope['business_date'])) {
+                        $pendingDate = (new PreciseQueryPeriodService())->compile($originalQuery, $currentScope, $this->now());
+                        if (is_array($pendingDate) && !isset($pendingDate['clarifying_question'])) $currentScope = array_replace($currentScope, $pendingDate);
+                        else {
+                            $pendingDate = $this->resolveBusinessDate($originalQuery, $currentScope, $this->hotelTenantId($activeHotel), $activeHotel,
+                                (string)($currentScope['platform'] ?? ''), $this->hotelName($activeHotel));
+                            if (!empty($pendingDate['business_date'])) $currentScope['business_date'] = $pendingDate['business_date'];
+                        }
+                    }
+                }
+                $currentScope['parent_question_id'] = $parentId;
+                $currentScope['context_verified'] = true;
+            } else {
+                // Keep explicitly selected new scope, never merge prior dates,
+                // comparisons or metrics into another hotel/selection.
+                if ((int)($currentScope['hotel_id'] ?? 0) !== $activeHotel) $currentScope = ['hotel_id'=>$activeHotel];
+                $currentScope['context_reset_reason'] = $sameHotel ? 'selection_changed' : 'hotel_changed';
+            }
+        }
         $requestedMode = strtolower(trim((string)($payload['requested_mode'] ?? 'auto')));
         $routeType = $this->classify($query, $requestedMode);
+        if ($routeType === 'clarification' && ($currentScope['context_verified'] ?? false)) $routeType = 'operating_query';
 
         return match ($routeType) {
             'system_navigation' => $this->routeSystemNavigation(
@@ -123,6 +212,32 @@ final class PreciseQueryRouterService
         };
     }
 
+    private function selectionIdentity(array $scope): array
+    {
+        $day = trim((string)($scope['business_date'] ?? ''));
+        $start = trim((string)($scope['date_start'] ?? '')) ?: $day;
+        $end = trim((string)($scope['date_end'] ?? '')) ?: ($day ?: $start);
+        $identity = ['hotel_id'=>max(0, (int)($scope['hotel_id'] ?? 0))];
+        if (array_key_exists('platform', $scope)) $identity['platform'] = PreciseQueryLexicon::platform((string)$scope['platform']);
+        if (array_key_exists('business_date', $scope) || array_key_exists('date_start', $scope) || array_key_exists('date_end', $scope)) {
+            $identity['date_start'] = $start;
+            $identity['date_end'] = $end;
+        }
+        return $identity;
+    }
+
+    /** Only a server-saved input selector can prove that page context is unchanged. */
+    private function selectionChanged(array $current, array $parent): bool
+    {
+        $before = is_array($parent['input_scope'] ?? null)
+            ? $parent['input_scope']
+            : $this->selectionIdentity((array)($parent['parsed_scope'] ?? []));
+        foreach (['platform', 'date_start', 'date_end'] as $key) {
+            if (array_key_exists($key, $current) && $current[$key] !== (string)($before[$key] ?? '')) return true;
+        }
+        return false;
+    }
+
     /** @param list<int> $accessibleHotelIds @return array<string,mixed> */
     public function read(int $id, int $tenantId, array $accessibleHotelIds): array
     {
@@ -149,6 +264,11 @@ final class PreciseQueryRouterService
         $router = is_array($answer['query_router'] ?? null) ? $answer['query_router'] : [];
         if ((string)($router['contract_version'] ?? '') !== self::CONTRACT_VERSION) {
             throw new RuntimeException('该记录不是宿析精准查数问题');
+        }
+        $storedScope = (array)($router['parsed_scope'] ?? []);
+        if ($hotelId > 0 && ((int)$row['tenant_id'] !== $this->hotelTenantId($hotelId)
+            || ((int)($storedScope['hotel_id'] ?? 0) > 0 && (int)$storedScope['hotel_id'] !== $hotelId))) {
+            throw new RuntimeException('精准查数问题不存在或无权访问');
         }
         $factRefs = $this->stringList($this->decode($row['fact_refs_json'] ?? null));
         $memoryRefs = $this->stringList($this->decode($row['memory_refs_json'] ?? null));
@@ -311,7 +431,8 @@ final class PreciseQueryRouterService
                 $storageHotelId,
                 $userId,
                 $platform,
-                $term
+                $term,
+                ['tenant_id' => $storageHotelId > 0 ? $this->hotelTenantId($storageHotelId) : $tenantId]
             );
         $knowledge = is_array($knowledge) ? $knowledge : [];
         $items = array_values(array_filter(
@@ -404,13 +525,31 @@ final class PreciseQueryRouterService
         if (($hotel['error'] ?? '') !== '') {
             throw new RuntimeException((string)$hotel['error']);
         }
+        if (($hotel['clarifying_question'] ?? '') !== '') {
+            return $this->persistClarification($tenantId, $accessibleHotelIds, $userId, $query, $currentScope,
+                $hotel['clarifying_question'], 'hotel_name_ambiguous', ['hotel_candidates'=>$hotel['candidates']]);
+        }
+        if (($hotel['source'] ?? '') !== 'current_scope'
+            && (int)($currentScope['hotel_id'] ?? 0) > 0
+            && (int)($hotel['id'] ?? 0) !== (int)$currentScope['hotel_id']) {
+            $currentScope = ['hotel_id'=>(int)$hotel['id'], 'context_reset_reason'=>'hotel_changed'];
+        }
         $queryPlatform = PreciseQueryLexicon::platform($query);
         $scopePlatform = PreciseQueryLexicon::platform((string)($currentScope['platform'] ?? ''));
+        // A glossary metric may have a channel association. It is not an
+        // explicit platform choice and cannot override the selected platform.
+        if ($scopePlatform !== '' && preg_match('/携程|ctrip|ebooking|生意通|美团|meituan|两个平台|两平台|哪个平台|全部ota|全ota|所有ota/iu', $query) !== 1) {
+            $queryPlatform = '';
+        }
         $platformConflict = $queryPlatform !== ''
             && $scopePlatform !== ''
-            && $queryPlatform !== $scopePlatform;
+            && $queryPlatform !== $scopePlatform
+            && !($currentScope['context_verified'] ?? false);
         $platform = $queryPlatform !== '' ? $queryPlatform : $scopePlatform;
         $metricKeys = PreciseQueryLexicon::metrics($query, $platform);
+        if ($metricKeys === [] && ($currentScope['context_verified'] ?? false)) {
+            $metricKeys = array_values(array_intersect((array)($currentScope['metric_keys'] ?? []), array_keys(self::METRIC_META)));
+        }
         $metricKey = $metricKeys[0] ?? '';
         $comparison = $this->isComparisonQuestion($query);
         if ($comparison) {
@@ -425,6 +564,8 @@ final class PreciseQueryRouterService
             'metric_key' => $metricKey !== '' ? $metricKey : null,
             'metric_keys' => $metricKeys,
             'source_scope' => 'ota_channel',
+            'parent_question_id' => $currentScope['parent_question_id'] ?? null,
+            'context_reset_reason' => $currentScope['context_reset_reason'] ?? null,
         ];
         if ($platformConflict) {
             return $this->persistClarification(
@@ -472,12 +613,44 @@ final class PreciseQueryRouterService
             throw new RuntimeException('目标酒店缺少可核对的租户归属');
         }
 
+        $calendar = new PreciseQueryPeriodService();
+        $datePlan = $calendar->compile($query, array_replace($currentScope, $knownScope), $this->now());
+        $ambiguousRevenue = preg_match('/收入|营收/u', $query)
+            && !preg_match('/房费收入|客房收入|全酒店收入|订单(?:额|金额)|成交(?:额|金额)|结算/u', $query);
+        if ($ambiguousRevenue) {
+            $pendingScope = $knownScope;
+            if (is_array($datePlan) && !isset($datePlan['clarifying_question'])) $pendingScope = array_replace($pendingScope, $datePlan);
+            else {
+                $pendingDate = $this->resolveBusinessDate($query, $currentScope, $tenantId, (int)$hotel['id'], $platform, (string)$hotel['name']);
+                if (!empty($pendingDate['business_date'])) $pendingScope['business_date'] = $pendingDate['business_date'];
+            }
+            return $this->persistClarification($tenantId, $accessibleHotelIds, $userId, $query, $currentScope,
+                '这里的“收入”指订单金额、实住房费收入，还是结算金额？这三种口径不能互相替代。', 'revenue_definition_ambiguous', $pendingScope);
+        }
+        if (is_array($datePlan)) {
+            if (isset($datePlan['clarifying_question'])) {
+                return $this->persistClarification($tenantId, $accessibleHotelIds, $userId, $query, $currentScope,
+                    $datePlan['clarifying_question'], $datePlan['reason'], $knownScope + ['date_grain'=>'period', 'business_date'=>null]);
+            }
+            if (count($metricKeys) !== 1) {
+                return $this->persistClarification($tenantId, $accessibleHotelIds, $userId, $query, $currentScope,
+                    '本次期间查询要核对哪个指标：订单金额、订单量还是间夜？', 'period_metric_required', array_replace($knownScope, $datePlan));
+            }
+            if ($datePlan['expected_days'] > 1 && !in_array($metricKey, ['amount','book_order_num','quantity','room_revenue','settlement_amount'], true)) {
+                return $this->persistClarification($tenantId, $accessibleHotelIds, $userId, $query, $currentScope,
+                    '当前期间支持订单金额、订单量和间夜相加；访客不可跨日去重，比例不能按日相加。请选可汇总指标或明确单日。',
+                    'period_metric_not_additive', array_replace($knownScope, $datePlan));
+            }
+            return $this->routePeriodQuery($tenantId, $accessibleHotelIds, $userId, $query, array_replace($knownScope, $datePlan), $metricKey);
+        }
+
         $date = $this->resolveBusinessDate(
             $query,
             $currentScope,
             $tenantId,
             (int)$hotel['id'],
-            $platform
+            $platform,
+            (string)$hotel['name']
         );
         if (($date['clarifying_question'] ?? '') !== '') {
             return $this->persistClarification(
@@ -488,7 +661,7 @@ final class PreciseQueryRouterService
                 $currentScope,
                 (string)$date['clarifying_question'],
                 (string)($date['reason'] ?? 'business_date_required'),
-                $knownScope
+                $knownScope + (array)($date['requested_scope'] ?? [])
             );
         }
         $businessDate = (string)($date['business_date'] ?? '');
@@ -572,7 +745,10 @@ final class PreciseQueryRouterService
             $businessDate,
             $businessDate,
             $userId,
-            'deterministic_lookup'
+            'deterministic_lookup',
+            '',
+            [],
+            $this->clientRequestKey
         );
         $question = is_array($created['question'] ?? null) ? $created['question'] : [];
         $id = (int)($question['id'] ?? 0);
@@ -587,6 +763,70 @@ final class PreciseQueryRouterService
             throw new RuntimeException('精准查数经营问题保存与回读不一致');
         }
         return $readback;
+    }
+
+    private function routePeriodQuery(int $tenantId, array $allowed, int $userId, string $query, array $scope, string $metricKey): array
+    {
+        $calendar = new PreciseQueryPeriodService();
+        $router = $this->routerEnvelope('operating_query', empty($scope['comparison']) ? 'period_metric_lookup' : 'same_scope_comparison',
+            $scope + ['tenant_id'=>$tenantId, 'scope_applicable'=>true], ['deterministic_calendar', 'strict_daily_coverage']);
+        $daily = [];
+        $dates = array_unique(array_merge($scope['dates'], (array)($scope['comparison']['dates'] ?? [])));
+        foreach ($dates as $date) {
+            $dayScope = array_replace($scope, ['business_date'=>$date]);
+            $closure = $this->fieldClosureReader !== null ? ($this->fieldClosureReader)((int)$scope['hotel_id'], $date) : null;
+            if (!is_array($closure)) {
+                $daily[$date] = ['business_date'=>$date,'value'=>null,'blocked_reason'=>'可信日事实服务未提供可核验记录。'];
+                continue;
+            }
+            $this->fieldClosureEvidence($closure, $tenantId, (int)$scope['hotel_id'], (string)$scope['platform'], $date, [$metricKey]);
+            $answer = $this->singleCanonicalMetricResult($closure, $dayScope, $metricKey, $router);
+            $daily[$date] = $answer['precise_result'];
+            // Bind the selected field's explicit scope; a closure header cannot repair a wrong field.
+            foreach ((array)($closure['platforms'][$scope['platform']]['fields'] ?? []) as $field) {
+                if (($field['metric_key'] ?? $field['key'] ?? '') !== $this->canonicalFieldKeyForMetric($metricKey)) continue;
+                if ((int)($field['tenant_id'] ?? 0) !== $tenantId || (int)($field['system_hotel_id'] ?? 0) !== (int)$scope['hotel_id']
+                    || ($field['platform'] ?? '') !== $scope['platform'] || ($field['business_date'] ?? '') !== $date) {
+                    $daily[$date]['value'] = null;
+                    $daily[$date]['blocked_reason'] = '字段租户、酒店、平台或日期范围不一致。';
+                }
+            }
+        }
+        $current = $calendar->aggregate($scope, array_intersect_key($daily, array_flip($scope['dates'])), $metricKey);
+        $comparison = null;
+        if (!empty($scope['comparison'])) {
+            $baseline = $calendar->aggregate($scope['comparison'], array_intersect_key($daily, array_flip($scope['comparison']['dates'])), $metricKey);
+            $comparison = $calendar->compare($current, $baseline);
+        }
+        $status = $comparison !== null && !$comparison['comparable'] ? 'blocked_by_incomparable_scope'
+            : ($current['status'] === 'ready' ? 'answered_from_period_facts' : ($current['status'] === 'partial' ? 'partial_period' : 'blocked_by_period_facts'));
+        $valueText = $current['value'] !== null ? $this->number((float)$current['value'], 2) . ' ' . $current['unit']
+            : ($current['partial_value'] !== null ? $current['subtotal_label'] . ' ' . $this->number((float)$current['partial_value'], 2) . ' ' . $current['unit'] : '无法计算');
+        $summary = sprintf('%s｜%s｜%s 至 %s｜%s：%s。覆盖 %d/%d。', $scope['hotel_name'], $this->platformLabel($scope['platform']),
+            $scope['date_start'], $scope['date_end'], self::METRIC_META[$metricKey]['name'], $valueText, $current['coverage']['available_days'], $current['coverage']['expected_days']);
+        if ($current['coverage']['missing_dates'] !== []) $summary .= '缺失日期：' . implode('、', $current['coverage']['missing_dates']) . '。';
+        if ($comparison !== null) $summary .= $comparison['comparable']
+            ? '同口径差额 ' . $this->number((float)$comparison['difference'], 2) . ' ' . $current['unit'] . '；' . ($comparison['change_percent'] === null ? '对比期为0，变化率不可计算。' : '变化率 ' . $this->number((float)$comparison['change_percent'], 2) . '%。')
+            : $comparison['blocked_reason'];
+        $refs = array_values(array_unique(array_merge($current['source_records'], (array)($comparison['baseline']['source_records'] ?? []))));
+        $result = array_replace($current, [
+            'kind'=>$comparison === null ? 'operating_period_metric' : 'operating_period_comparison',
+            'hotel'=>['id'=>$scope['hotel_id'], 'name'=>$scope['hotel_name']],
+            'platform'=>['key'=>$scope['platform'], 'name'=>$this->platformLabel($scope['platform'])],
+            'metric'=>['key'=>$metricKey,'name'=>self::METRIC_META[$metricKey]['name']],
+            'business_date'=>null, 'comparison'=>$comparison, 'source_records'=>$refs,
+            'verification_status'=>$current['status'], 'readback_status'=>'readback_verified',
+            'data_scope'=>'OTA渠道范围；Asia/Shanghai；每日事实严格回读；不可扩大为全酒店。',
+        ]);
+        $answer = ['contract_version'=>self::RECORD_CONTRACT_VERSION, 'mode'=>'deterministic_precise_query', 'status'=>$status,
+            'scope'=>$scope + ['tenant_id'=>$tenantId],
+            'evidence_counts'=>['facts'=>count($refs),'fact_platforms'=>[$scope['platform']=>count($refs)],'knowledge'=>0,'memories'=>0,'executions'=>0],
+            'summary'=>$summary,'query_router'=>$router,'precise_result'=>$result,'used_evidence_refs'=>$refs,
+            'data_gaps'=>array_merge($current['data_gaps'], (array)($comparison['baseline']['data_gaps'] ?? [])),
+            'ai_runtime'=>['status'=>'not_called_deterministic'], 'boundaries'=>$this->boundaries()];
+        if ($current['blocked_reason'] !== null && $answer['data_gaps'] === []) $answer['data_gaps'][] = ['code'=>'period_identity_conflict','message'=>$current['blocked_reason']];
+        if ($comparison !== null && $comparison['blocked_reason'] !== null) $answer['data_gaps'][] = ['code'=>$comparison['change_status'],'message'=>$comparison['blocked_reason']];
+        return $this->persistDirect($tenantId, (int)$scope['hotel_id'], $userId, $query, $scope['platform'], $scope['date_start'], $answer, $refs, [], $allowed);
     }
 
     /**
@@ -892,6 +1132,10 @@ final class PreciseQueryRouterService
             $reason = '可信事实底座没有已核验的房费收入字段；OTA成交金额、支付金额或结算金额不能替代房费收入。';
             return $this->canonicalBlockedMetric($base, $router, 'room_revenue_semantic_missing', $reason, []);
         }
+        if ($metricKey === 'settlement_amount') {
+            return $this->canonicalBlockedMetric($base, $router, 'settlement_amount_semantic_missing',
+                '可信事实底座尚无已核验的结算金额字段；订单金额或房费收入不能替代结算金额。', []);
+        }
         if ($metricKey === 'ota_exposure_volume') {
             $reason = '当前严格事实只证明曝光人数（UV），没有展示次数/impressions 字段；不会把 exposureUV 当成曝光量。';
             return $this->canonicalBlockedMetric($base, $router, 'exposure_volume_semantic_missing', $reason, []);
@@ -927,6 +1171,7 @@ final class PreciseQueryRouterService
         $field = is_array($fieldMap[$canonicalKey] ?? null) ? $fieldMap[$canonicalKey] : [];
         if ($field !== []) {
             $base['metric']['name'] = (string)($field['label'] ?? $base['metric']['name']);
+            if ($metricKey === 'amount') $base['metric']['name'] = '订单金额';
             $base['metric']['semantic_key'] = (string)($field['semantic_metric_key'] ?? $metricKey);
             $base['metric']['semantic_status'] = (string)($field['semantic_metric_status'] ?? 'unknown');
         }
@@ -963,6 +1208,15 @@ final class PreciseQueryRouterService
                 return $this->canonicalBlockedMetric($base, $router, 'adr_room_revenue_semantic_missing', $reason, $refs);
             }
         }
+        if ($metricKey === 'amount' && ($field['revenue_analysis_consumable'] ?? false) === true) {
+            $identities = (array)($field['field_fact_identities'] ?? []);
+            $orderAmountProven = $identities !== [] && count(array_filter($identities, static fn($identity): bool => is_array($identity)
+                && in_array(strtolower((string)($identity['normalized_metric_key'] ?? '')), ['order_amount','booking_order_amount'], true))) === count($identities);
+            if (!$orderAmountProven || (string)($field['unit'] ?? '') !== 'CNY') {
+                return $this->canonicalBlockedMetric($base, $router, 'order_amount_definition_missing',
+                    '订单金额需要明确的订单额字段及人民币元单位证据；业务卡收入、房费或结算金额不能替代。', $refs);
+            }
+        }
         $allowedStatuses = array_values(array_unique(array_map(
             'strval',
             (array)($closure['consumer_contract']['allowed_fact_statuses'] ?? [])
@@ -974,7 +1228,9 @@ final class PreciseQueryRouterService
             && ($field['strict_final_gate'] ?? false) === true
             && (string)($field['readback_status'] ?? '') === 'readback_verified'
             && (is_int($value) || is_float($value) || (is_string($value) && is_numeric($value)))
-            && $refs !== [];
+            && is_finite((float)$value)
+            && $refs !== []
+            && count(array_filter($refs, static fn(string $ref): bool => preg_match('/^online_daily_data#[1-9][0-9]*$/D', $ref) !== 1)) === 0;
         if (!$ready) {
             $reason = trim((string)($field['note'] ?? ''));
             $nextAction = trim((string)($field['next_action'] ?? ''));
@@ -1015,6 +1271,7 @@ final class PreciseQueryRouterService
         $base['source_paths'] = (array)($field['source_paths'] ?? []);
         $base['semantic_contract_version'] = (string)($field['semantic_contract_version'] ?? '');
         $base['field_fact_identities'] = (array)($field['field_fact_identities'] ?? []);
+        $base['platform_store_id'] = $field['platform_store_id'] ?? null;
         $base['capture_ref'] = $field['capture_ref'] ?? null;
         if ($canonicalKey === 'conversion') {
             foreach ([
@@ -1538,12 +1795,30 @@ final class PreciseQueryRouterService
     {
         $hotelId = 0;
         $source = '';
+        preg_match_all('/(?:hotel|酒店|门店)\s*#?\s*([1-9][0-9]*)/iu', $query, $allHotelIds);
+        if (count(array_unique($allHotelIds[1])) > 1) return ['id'=>0, 'candidates'=>[], 'clarifying_question'=>'本次精准查数先核对一家酒店，请明确酒店编号。'];
         if (preg_match('/(?:hotel|酒店|门店)\s*#?\s*([1-9][0-9]*)/iu', $query, $matches) === 1) {
             $hotelId = (int)$matches[1];
             $source = 'question_text';
         } else {
+            $matchesByName = [];
+            foreach (Db::name('hotels')->whereIn('id', $accessibleHotelIds)->where('status', 1)->field('id,name')->select()->toArray() as $candidate) {
+                $name = trim((string)$candidate['name']);
+                $short = (string)preg_replace('/(?:酒店|门店)$/u', '', $name);
+                if ($name !== '' && (str_contains(PreciseQueryLexicon::normalize($query), PreciseQueryLexicon::normalize($name))
+                    || (mb_strlen($short) >= 2 && str_contains(PreciseQueryLexicon::normalize($query), PreciseQueryLexicon::normalize($short))))) $matchesByName[] = $candidate;
+            }
+            if (count($matchesByName) > 1) return ['id'=>0, 'candidates'=>$matchesByName, 'clarifying_question'=>'酒店名称匹配多家可访问门店，请指定酒店编号：' . implode('、', array_map(static fn(array $h): string => $h['name'] . '（酒店' . $h['id'] . '）', $matchesByName))];
+            if (count($matchesByName) === 1) {
+                $hotelId = (int)$matchesByName[0]['id'];
+                $source = 'explicit_accessible_name';
+            }
+            if ($matchesByName === [] && preg_match('/[\p{Han}]{2,}(?:酒店|客栈|宾馆|门店)/u', $query)
+                && !preg_match('/全酒店|当前酒店|这家酒店|本酒店/u', $query)) {
+                return ['id'=>0,'candidates'=>[],'clarifying_question'=>'未匹配到可访问的酒店名称，请指定酒店编号。'];
+            }
             $contextId = max(0, (int)($currentScope['hotel_id'] ?? 0));
-            if ($contextId > 0) {
+            if ($hotelId === 0 && $contextId > 0) {
                 $hotelId = $contextId;
                 $source = 'current_selected_scope';
             }
@@ -1565,14 +1840,31 @@ final class PreciseQueryRouterService
         array $currentScope,
         int $tenantId,
         int $hotelId,
-        string $platform
+        string $platform,
+        string $hotelName = ''
     ): array {
         $today = $this->now();
-        if (preg_match('/\b(20[0-9]{2})[-\/.年](0?[1-9]|1[0-2])[-\/.月](0?[1-9]|[12][0-9]|3[01])日?\b/u', $query, $matches) === 1) {
+        $originalQuery = $query;
+        if ($hotelName !== '') {
+            $query = str_replace($hotelName, '', $query);
+        }
+        $query = (string)preg_replace(
+            '/今年\s*(?=[0-9]{1,2}月[0-9]{1,2}[日号])/u',
+            $today->format('Y') . '年',
+            $query
+        );
+        $period = $this->unsupportedPeriodDate($query, $currentScope, $platform);
+        if ($period !== []) {
+            if (($period['requested_scope']['date_source'] ?? '') === 'explicit_unsupported_period') {
+                $period['requested_scope']['requested_date_expression'] = $originalQuery;
+            }
+            return $period;
+        }
+        if (preg_match('/(?<![0-9])(20[0-9]{2})[-\/.年](0?[1-9]|1[0-2])[-\/.月](0?[1-9]|[12][0-9]|3[01])日?(?![0-9])/u', $query, $matches) === 1) {
             $date = sprintf('%04d-%02d-%02d', (int)$matches[1], (int)$matches[2], (int)$matches[3]);
             return $this->validatedDate($date, 'explicit_full_date');
         }
-        if (preg_match('/(?<![0-9])(0?[1-9]|1[0-2])月(0?[1-9]|[12][0-9]|3[01])日/u', $query, $matches) === 1) {
+        if (preg_match('/(?<![0-9])(0?[1-9]|1[0-2])(?:月|\/)(0?[1-9]|[12][0-9]|3[01])(?:[日号]|(?![0-9]))/u', $query, $matches) === 1) {
             $date = sprintf('%04d-%02d-%02d', (int)$today->format('Y'), (int)$matches[1], (int)$matches[2]);
             $validated = $this->validatedDate($date, 'explicit_month_day_current_year');
             if (($validated['business_date'] ?? '') !== '' && $date > $today->format('Y-m-d')) {
@@ -1621,6 +1913,89 @@ final class PreciseQueryRouterService
             return ['business_date' => $contextDate, 'source' => 'current_selected_scope'];
         }
         return ['clarifying_question' => '请告诉我需要查询哪一个业务日期。', 'reason' => 'business_date_required'];
+    }
+
+    /**
+     * Daily fact readers cannot prove period coverage or aggregate ratios/unique
+     * visitors. Recognize period intent before any daily-date fallback occurs.
+     * @param array<string,mixed> $currentScope
+     * @return array<string,mixed>
+     */
+    private function unsupportedPeriodDate(string $query, array $currentScope, string $platform): array
+    {
+        $dayPattern = '/(?<![0-9])(?:20[0-9]{2}[-\/.年][0-9]{1,2}[-\/.月][0-9]{1,2}日?'
+            . '|[0-9]{1,2}月[0-9]{1,2}[日号]|[0-9]{1,2}\/[0-9]{1,2})(?![0-9])|前天|昨天|昨日|今天|今日/u';
+        $dayCount = preg_match_all($dayPattern, $query, $mentions);
+        $dayKeys = array_unique(array_map(fn(string $mention): string => $this->dateMentionKey($mention), $mentions[0]));
+        $masked = (string)preg_replace($dayPattern, '@date@', $query);
+        $explicitPeriod = count($dayKeys) > 1
+            || preg_match('/@date@\s*(?:到|至|~|～|—|–|-)/u', $masked) === 1
+            || preg_match('/(?:周|星期)[一二三四五六日天]\s*(?:到|至|~|～|—|–|-)\s*(?:(?:周|星期))?[一二三四五六日天]/u', $masked) === 1
+            || preg_match('/(?:上|本|这|当|下)(?:个)?月|(?:上|本|这|下)(?:个)?(?:周|星期)'
+                . '|今年|去年|前年|本年|全年|季度|半年|整月'
+                . '|(?:最近|过去|近)\s*(?:[0-9]+|[一二两三四五六七八九十百]+)\s*(?:个?月|天|日|周|星期|年)'
+                . '|[0-9一二三四五六七八九十]{1,3}月|20[0-9]{2}年'
+                . '|(?<![0-9])20[0-9]{2}[-\/.](?:0?[1-9]|1[0-2])(?![-\/.0-9])/u', $masked) === 1;
+        $start = trim((string)($currentScope['date_start'] ?? $currentScope['business_date'] ?? ''));
+        $end = trim((string)($currentScope['date_end'] ?? $start));
+        $contextPeriod = !$explicitPeriod && $dayCount === 0
+            && preg_match('/最近一次|最新一次|最新/u', $query) !== 1
+            && $start !== '' && $end !== '' && $start !== $end;
+        if (!$explicitPeriod && !$contextPeriod) {
+            return [];
+        }
+
+        $requestedScope = [
+            'business_date' => null,
+            'date_grain' => 'period',
+            'date_source' => $explicitPeriod ? 'explicit_unsupported_period' : 'current_selected_period',
+            'requested_date_expression' => $explicitPeriod ? $query : $start . ' 至 ' . $end,
+        ];
+        if ($contextPeriod) {
+            $requestedScope['date_start'] = $start;
+            $requestedScope['date_end'] = $end;
+        } elseif (preg_match_all('/(?<![0-9])(20[0-9]{2})[-\/.年]([0-9]{1,2})[-\/.月]([0-9]{1,2})日?(?![0-9])/u', $query, $dates, PREG_SET_ORDER) === 2) {
+            $range = array_map(static fn(array $date): string => sprintf(
+                '%04d-%02d-%02d', (int)$date[1], (int)$date[2], (int)$date[3]
+            ), $dates);
+            if (($this->validatedDate($range[0], 'range')['business_date'] ?? '') !== ''
+                && ($this->validatedDate($range[1], 'range')['business_date'] ?? '') !== '') {
+                $requestedScope['date_start'] = $range[0];
+                $requestedScope['date_end'] = $range[1];
+            }
+        }
+        $entry = match ($platform) {
+            'ctrip' => '“携程数据”',
+            'meituan' => '“美团数据”',
+            default => '对应平台的数据页面',
+        };
+        return [
+            'clarifying_question' => '识别到期间或多个日期；当前精准查数只支持单日，尚不支持期间汇总或多日对比。'
+                . '请改为一个明确业务日期，或前往' . $entry . '按日期范围查看已保存的历史记录。',
+            'reason' => 'business_date_range_unsupported',
+            'requested_scope' => $requestedScope,
+        ];
+    }
+
+    private function dateMentionKey(string $mention): string
+    {
+        $today = $this->now();
+        $offset = match ($mention) {
+            '前天' => -2,
+            '昨天', '昨日' => -1,
+            '今天', '今日' => 0,
+            default => null,
+        };
+        if ($offset !== null) {
+            return $today->modify($offset . ' days')->format('Y-m-d');
+        }
+        if (preg_match('/^(20[0-9]{2})[-\/.年]([0-9]{1,2})[-\/.月]([0-9]{1,2})/u', $mention, $date) === 1) {
+            return sprintf('%04d-%02d-%02d', (int)$date[1], (int)$date[2], (int)$date[3]);
+        }
+        if (preg_match('/^([0-9]{1,2})(?:月|\/)([0-9]{1,2})/u', $mention, $date) === 1) {
+            return sprintf('%04d-%02d-%02d', (int)$today->format('Y'), (int)$date[1], (int)$date[2]);
+        }
+        return $mention;
     }
 
     /** @return array<string,mixed> */
@@ -1733,7 +2108,7 @@ final class PreciseQueryRouterService
             'knowledge_refs' => $knowledgeRefs,
             'execution_refs' => [],
         ]);
-        $requestKey = 'precise-query:v1:' . substr($this->digest([
+        $requestKey = $this->clientRequestKey ?: 'precise-query:v1:' . substr($this->digest([
             $tenantId,
             $hotelId,
             $query,
@@ -1757,8 +2132,8 @@ final class PreciseQueryRouterService
                 'request_key' => $requestKey,
                 'question_text' => $query,
                 'platform' => $platform,
-                'date_start' => $storageDate,
-                'date_end' => $storageDate,
+                'date_start' => $answer['query_router']['parsed_scope']['date_start'] ?? $storageDate,
+                'date_end' => $answer['query_router']['parsed_scope']['date_end'] ?? $storageDate,
                 'answer_status' => (string)($answer['status'] ?? 'clarification_required'),
                 'answer_summary' => (string)($answer['summary'] ?? ''),
                 'answer_json' => $this->encode($answer),
@@ -1850,6 +2225,7 @@ final class PreciseQueryRouterService
             'status' => (string)($answer['status'] ?? $row['answer_status']),
             'answer_summary' => (string)($answer['summary'] ?? $row['answer_summary']),
             'parsed_scope' => (array)($router['parsed_scope'] ?? []),
+            'input_scope' => is_array($router['input_scope'] ?? null) ? $router['input_scope'] : null,
             'answer' => is_array($routeAnswer) ? $routeAnswer : [],
             'operating_question' => $routeType === 'operating_query' ? $question : null,
             'analysis_quality_receipt' => $routeType === 'operating_query' ? $question['analysis_quality_receipt'] : null,
@@ -1884,6 +2260,8 @@ final class PreciseQueryRouterService
             'lexicon' => PreciseQueryLexicon::metadata(),
             'number_generation_policy' => 'database_or_deterministic_calculation_only',
             'model_number_generation_allowed' => false,
+            'client_request_digest' => $this->clientRequestDigest,
+            'input_scope' => $this->inputScope,
         ];
     }
 

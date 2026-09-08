@@ -180,6 +180,12 @@ final class RevenueFactLayerService
             $roomTypes = ['load_status' => 'read_failed'];
         }
 
+        $ledgerEntries = [];
+        foreach (['ctrip', 'meituan'] as $platform) {
+            $ledgerEntries = array_merge($ledgerEntries, (new OtaRevenueMetricService())->ledgerEntries(
+                (array)($otaOperationalDatasets[$platform] ?? []), $tenantId, $hotelId, $platform
+            ));
+        }
         return $this->assemble(
             $hotel,
             $businessDate,
@@ -188,7 +194,8 @@ final class RevenueFactLayerService
             is_array($roomTypes) ? $roomTypes : [],
             $otaOperationalMetrics,
             $pmsDateEvidence,
-            $pmsBinding
+            $pmsBinding,
+            $ledgerEntries
         );
     }
 
@@ -209,7 +216,8 @@ final class RevenueFactLayerService
         array $roomTypes,
         array $otaOperationalMetrics = [],
         array $pmsDateEvidence = [],
-        array $pmsBinding = []
+        array $pmsBinding = [],
+        array $ledgerEntries = []
     ): array {
         $businessDate = $this->date($businessDate);
         $hotelId = (int)($hotel['id'] ?? 0);
@@ -321,8 +329,17 @@ final class RevenueFactLayerService
                 );
                 if ($claimReasonCodes !== []) {
                     $gap['evidence_gap_codes'] = $claimReasonCodes;
+                    $gap['evidence_state'] = $status === 'read_failed'
+                        ? 'read_failed'
+                        : ((int)($pms['source']['record_id'] ?? 0) > 0
+                            ? 'source_unverified' : 'source_missing');
+                    $reasonPrefix = match ($gap['evidence_state']) {
+                        'read_failed' => 'PMS 事实读取失败，当前无法确认保存或回读结果：',
+                        'source_missing' => '目标业务日尚未回读到 PMS 采集记录：',
+                        default => 'PMS 采集记录尚未通过来源证据核验：',
+                    };
                     $gap['display_reason'] =
-                        'PMS capture 已保存回读，但未通过当前来源证据合同：'
+                        $reasonPrefix
                         . implode('、', array_map(
                             fn(string $code): string =>
                                 $this->pmsClaimGapLabel($code),
@@ -478,6 +495,7 @@ final class RevenueFactLayerService
                 'ota_lead_price_may_be_used_as_floor_price' => false,
             ],
         ];
+        $result['operating_ledger'] = (new RevenueOperatingLedgerService())->fromFactLayer($result, $ledgerEntries);
         $result['analysis_diagnostics'] =
             (new RevenueAnalysisDiagnosticsService())->build($result);
 

@@ -122,6 +122,53 @@ final class OperatingQuestionReadbackIntegrityTest extends TestCase
         $service->read($id, 10, [80]);
     }
 
+    public function testHistoryReturnsTheSameVerifiedRecordAsExactReadback(): void
+    {
+        [$service, $id] = $this->savedQuestion();
+        $history = $service->list(10, [80], 80);
+
+        self::assertSame('ok', $history['data_status']);
+        self::assertSame(1, $history['count']);
+        self::assertSame($service->read($id, 10, [80]), $history['list'][0]);
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('historyDriftCases')]
+    public function testHistoryRejectsDriftInsteadOfDisplayingItAsSaved(array $changes): void
+    {
+        [$service, $id] = $this->savedQuestion();
+        Db::name(OperatingQuestionService::TABLE)->where('id', $id)->update($changes);
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('operating_question_readback_digest_drift');
+        $service->list(10, [80], 80);
+    }
+
+    public static function historyDriftCases(): array
+    {
+        return [
+            'summary' => [['answer_summary' => '未经核验的经营结论']],
+            'answer' => [['answer_json' => '{invalid json']],
+            'facts' => [['fact_refs_json' => '["online_daily_data#999"]']],
+            'scope' => [['platform' => 'ctrip']],
+            'quality state' => [['answer_status' => 'answered_by_grounded_ai']],
+        ];
+    }
+
+    public function testHistoryDoesNotReadCorruptRecordsOutsideTheAuthorizedScope(): void
+    {
+        [$service, $id] = $this->savedQuestion();
+        $foreign = Db::name(OperatingQuestionService::TABLE)->where('id', $id)->find();
+        unset($foreign['id']);
+        $foreign['tenant_id'] = 11;
+        $foreign['hotel_id'] = 81;
+        $foreign['answer_json'] = '{invalid json';
+        Db::name(OperatingQuestionService::TABLE)->insert($foreign);
+
+        $history = $service->list(10, [80], 80);
+        self::assertSame(1, $history['count']);
+        self::assertSame($id, $history['list'][0]['id']);
+    }
+
     /** @return array{OperatingQuestionService,int} */
     private function savedQuestion(): array
     {

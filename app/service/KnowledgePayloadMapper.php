@@ -123,18 +123,21 @@ final class KnowledgePayloadMapper
             'review_due_at',
             'current_verification_status',
             'live_verification_status',
-            'valid_from',
-            'valid_until',
-            'effective_from',
-            'effective_until',
             'resolution_status',
             'conflict_status',
+            'source_verification_status',
+            'knowledge_revision',
         ] as $authorityField) {
             unset($content[$authorityField]);
         }
         $content['scope'] = 'hotel_specific_reference_unverified';
         $content['evidence_level'] = 'user_provided_unverified';
         $content['evidence_grade'] = 'D';
+        $content['reference_only'] = true;
+        $content['decision_safe'] = false;
+        $content['task_draft_safe'] = false;
+        $content['external_write_authorized'] = false;
+        $content['source_verification_status'] = 'unverified';
         $content['requires_current_verification'] = true;
         $content['current_verification_status'] = 'unverified';
         $content['decision_policy'] = 'reference_only_until_separate_review';
@@ -144,6 +147,10 @@ final class KnowledgePayloadMapper
         )));
         if ($submittedEvidenceLevel !== '') {
             $content['submitted_evidence_level'] = mb_substr($submittedEvidenceLevel, 0, 120);
+        }
+        $dateGate = (new KnowledgeDecisionGateService())->assess([], $content);
+        if (array_intersect(['knowledge_date_invalid', 'knowledge_validity_range_invalid'], $dateGate['reason_codes']) !== []) {
+            throw new ValidateException('知识有效期必须是有效日期，且结束日期不得早于开始日期');
         }
 
         return [
@@ -324,6 +331,8 @@ final class KnowledgePayloadMapper
             'integrity_status' => $integrityStatus,
             'content' => $content,
             'created_by' => (int)($row['created_by'] ?? 0),
+            'revision_digest' => (new KnowledgeContentDigestService())->digest($content),
+            'revision_no' => (int)($content['knowledge_revision']['number'] ?? 1),
             'created_at' => (string)($row['created_at'] ?? ''),
         ];
     }

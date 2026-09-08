@@ -8,6 +8,14 @@ use PHPUnit\Framework\TestCase;
 
 final class RevenueCockpitStrictEvidenceServiceTest extends TestCase
 {
+    public function testOverviewTenantCannotDisagreeWithCanonicalClosureTenant(): void
+    {
+        $overview = $this->overview();
+        $overview['tenant_id'] = 999;
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('revenue_cockpit_strict_overview_scope_mismatch');
+        (new RevenueCockpitStrictEvidenceService())->build($overview, 10, 20, '2026-08-20', 'meituan', $this->closure(true));
+    }
     public function testMetricAndSourceFailClosedWhenCanonicalRowsMissTheStrictGate(): void
     {
         $service = new RevenueCockpitStrictEvidenceService();

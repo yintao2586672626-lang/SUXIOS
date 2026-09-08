@@ -14,13 +14,13 @@ use think\facade\Db;
  */
 final class OperatingQuestionKnowledgeRetrievalService
 {
-    public const METHOD = 'metadata_filtered_lexical_v1';
+    public const METHOD = 'applicability_filtered_lexical_v2';
     private const MAX_UNITS = 80;
     private const MAX_CHUNKS = 800;
     private const MAX_RESULTS = 5;
 
     /** @return array<string,mixed> */
-    public function retrieve(int $hotelId, int $userId, string $platform, string $question): array
+    public function retrieve(int $hotelId, int $userId, string $platform, string $question, array $context = []): array
     {
         if ($hotelId <= 0 || trim($question) === '') {
             return $this->result('no_match', [], 0, 0, 'invalid_or_empty_scope');
@@ -41,6 +41,7 @@ final class OperatingQuestionKnowledgeRetrievalService
             isset($unitColumns['review_due_at']) ? 'review_due_at' : null,
             isset($unitColumns['current_chunk_id']) ? 'current_chunk_id' : null,
             isset($unitColumns['stable_key']) ? 'stable_key' : null,
+            isset($unitColumns['tenant_id']) ? 'tenant_id' : null,
         ]));
 
         $unitQuery = Db::name('knowledge_units')
@@ -71,9 +72,12 @@ final class OperatingQuestionKnowledgeRetrievalService
         }
         $unitRows = $unitQuery
             ->order('unit_id', 'desc')
-            ->limit(self::MAX_UNITS)
+            ->limit(self::MAX_UNITS + 1)
             ->select()
             ->toArray();
+        if (count($unitRows) > self::MAX_UNITS) {
+            return $this->result('unavailable', [], 0, 0, 'knowledge_unit_window_truncated');
+        }
         $unitIds = array_values(array_filter(array_map(
             static fn(array $row): int => (int)($row['unit_id'] ?? 0),
             $unitRows
@@ -90,21 +94,25 @@ final class OperatingQuestionKnowledgeRetrievalService
             isset($chunkColumns['version_no']) ? 'version_no' : null,
             isset($chunkColumns['lifecycle_status']) ? 'lifecycle_status' : null,
             isset($chunkColumns['superseded_by_chunk_id']) ? 'superseded_by_chunk_id' : null,
+            isset($chunkColumns['content_digest']) ? 'content_digest' : null,
         ]));
         $chunkRows = Db::name('knowledge_chunks')
             ->field(implode(',', $chunkFields))
             ->whereIn('unit_id', $unitIds)
             ->order('chunk_id', 'desc')
-            ->limit(self::MAX_CHUNKS)
+            ->limit(self::MAX_CHUNKS + 1)
             ->select()
             ->toArray();
+        if (count($chunkRows) > self::MAX_CHUNKS) {
+            return $this->result('unavailable', [], 0, 0, 'knowledge_chunk_window_truncated');
+        }
 
-        return $this->buildFromRows($unitRows, $chunkRows, [
+        return $this->buildFromRows($unitRows, $chunkRows, array_replace($context, [
             'hotel_id' => $hotelId,
             'user_id' => max(0, $userId),
             'platform' => $platform,
             'question' => $question,
-        ]);
+        ]));
     }
 
     /**
@@ -127,6 +135,7 @@ final class OperatingQuestionKnowledgeRetrievalService
 
         $units = [];
         foreach ($unitRows as $unit) {
+            if ((int)($unit['tenant_id'] ?? 0) > 0 && (int)$unit['tenant_id'] !== (int)($scope['tenant_id'] ?? 0)) continue;
             $unitId = (int)($unit['unit_id'] ?? 0);
             $unitHotelId = max(0, (int)($unit['hotel_id'] ?? 0));
             $createdBy = array_key_exists('created_by', $unit) ? (int)$unit['created_by'] : -1;
@@ -153,7 +162,10 @@ final class OperatingQuestionKnowledgeRetrievalService
         }
 
         $gate = new KnowledgeDecisionGateService();
+        $applicability = new KnowledgeApplicabilityService();
+        $superseded = KnowledgeRevisionService::supersededIds($chunkRows);
         $candidates = [];
+        $exclusions = [];
         $excludedCount = 0;
         foreach ($chunkRows as $row) {
             $chunkId = (int)($row['chunk_id'] ?? 0);
@@ -161,6 +173,17 @@ final class OperatingQuestionKnowledgeRetrievalService
             $unit = $units[$unitId] ?? null;
             if ($chunkId <= 0 || !is_array($unit)) {
                 $excludedCount++;
+                continue;
+            }
+            $decoded = $this->decodeContent($row['content'] ?? null);
+            $excerpt = $this->excerpt($decoded ?? []);
+            $titleText = mb_strtolower(trim((string)($unit['name'] ?? '')) . ' '
+                . trim((string)($unit['description'] ?? '')) . ' ' . trim((string)($row['type'] ?? '')));
+            $score = $this->score($terms, $titleText, mb_strtolower($excerpt));
+            $assessment = $applicability->assess($unit, $decoded ?? [], $scope, $row + ['_revision_superseded' => isset($superseded[$chunkId])]);
+            if (($assessment['retrieval_safe'] ?? false) !== true) {
+                $excludedCount++;
+                if ($score > 0) $exclusions[] = ['ref' => 'knowledge_chunks#' . $chunkId, 'reason_codes' => $assessment['reason_codes'], 'applicability' => $assessment];
                 continue;
             }
             $rowLifecycle = strtolower(trim((string)($row['lifecycle_status'] ?? 'active')));
@@ -196,30 +219,10 @@ final class OperatingQuestionKnowledgeRetrievalService
                 $excludedCount++;
                 continue;
             }
-            if (!$this->platformMatches($platform, $content['platforms'] ?? [])) {
-                $excludedCount++;
-                continue;
-            }
-            $assessment = $gate->assess($unit, $content);
-            if (($assessment['retrieval_safe'] ?? false) !== true) {
-                $excludedCount++;
-                continue;
-            }
-
-            $excerpt = $this->excerpt($content);
             if ($excerpt === '') {
                 $excludedCount++;
                 continue;
             }
-            $titleText = mb_strtolower(trim((string)($unit['name'] ?? '')) . ' '
-                . trim((string)($unit['description'] ?? '')) . ' '
-                . trim((string)($row['type'] ?? '')));
-            $contentText = mb_strtolower($excerpt);
-            $score = $this->score($terms, $titleText, $contentText);
-            if ($score <= 0) {
-                continue;
-            }
-
             $gateStatus = (string)($assessment['status'] ?? KnowledgeDecisionGateService::STATUS_REFERENCE_ONLY);
             $candidates[] = [
                 'ref' => 'knowledge_chunks#' . $chunkId,
@@ -231,9 +234,16 @@ final class OperatingQuestionKnowledgeRetrievalService
                 'authority' => (int)($unit['hotel_id'] ?? 0) === 0 ? 'global_system' : 'hotel_scoped',
                 'knowledge_type' => mb_substr(trim((string)($row['type'] ?? '')), 0, 80),
                 'scope' => mb_substr(trim((string)($content['scope'] ?? '')), 0, 160),
-                'platforms' => $this->normalizePlatforms($content['platforms'] ?? []),
+                'platforms' => $assessment['scope']['platforms'],
                 'evidence_grade' => (string)($assessment['evidence_grade'] ?? 'U'),
                 'gate_status' => $gateStatus,
+                'applicability' => $assessment,
+                'content_digest' => $assessment['content_digest'],
+                'version' => $assessment['version'],
+                'decision_safe' => $assessment['decision_safe'],
+                'task_draft_safe' => $assessment['task_draft_safe'],
+                'fact_safe' => false,
+                'external_write_authorized' => false,
                 'usage_policy' => $gateStatus === KnowledgeDecisionGateService::STATUS_APPROVED
                     ? 'decision_support'
                     : ($gateStatus === KnowledgeDecisionGateService::STATUS_KNOWN_UNKNOWN ? 'known_unknown' : 'reference_only'),
@@ -246,7 +256,9 @@ final class OperatingQuestionKnowledgeRetrievalService
         }
 
         $resolved = $gate->resolveConflictingClaims($candidates);
-        $candidates = array_values((array)($resolved['entries'] ?? []));
+        $relevantIds = array_column(array_filter($candidates, static fn($candidate) => $candidate['retrieval_score'] > 0), 'chunk_id');
+        $relevantConflicts = array_values(array_filter($resolved['conflicts'], static fn($conflict) => array_intersect($relevantIds, [...$conflict['withheld_chunk_ids'], $conflict['selected_chunk_id'] ?? 0]) !== []));
+        $candidates = array_values(array_filter((array)($resolved['entries'] ?? []), static fn(array $candidate): bool => $candidate['retrieval_score'] > 0));
         foreach ($candidates as &$candidate) {
             unset($candidate['content']);
         }
@@ -254,6 +266,12 @@ final class OperatingQuestionKnowledgeRetrievalService
         $excludedCount += max(0, (int)($resolved['excluded_entry_count'] ?? 0));
 
         usort($candidates, static function (array $left, array $right): int {
+            // Among relevant results, current decision support outranks a stale
+            // reference. Lexical similarity never upgrades evidence or versions.
+            $use = (int)$right['decision_safe'] <=> (int)$left['decision_safe'];
+            if ($use !== 0) {
+                return $use;
+            }
             $score = (int)$right['retrieval_score'] <=> (int)$left['retrieval_score'];
             if ($score !== 0) {
                 return $score;
@@ -274,7 +292,14 @@ final class OperatingQuestionKnowledgeRetrievalService
             $matchedCount,
             $excludedCount,
             $items === [] ? 'lexical_no_match' : ''
-        );
+        ) + [
+            'exclusions' => array_slice($exclusions, 0, 80),
+            'exclusions_truncated' => count($exclusions) > 80,
+            'conflicts' => $relevantConflicts,
+            'evaluation_context' => ['hotel_id' => $hotelId, 'tenant_id' => $scope['tenant_id'] ?? null, 'platform' => $platform, 'as_of' => $scope['as_of'] ?? $scope['business_date'] ?? date('Y-m-d H:i:s')],
+            'fact_safe' => false,
+            'external_write_authorized' => false,
+        ];
     }
 
     /** @return array<string,mixed> */
@@ -465,7 +490,7 @@ final class OperatingQuestionKnowledgeRetrievalService
             return;
         }
         $normalizedKey = strtolower(trim($key));
-        if ($normalizedKey !== '' && preg_match('/api[_-]?key|authorization|bearer|cookie|password|secret|token|credential|header|raw_text|document_text|ai_distilled|source_data|model|source_refs/i', $normalizedKey) === 1) {
+        if ($normalizedKey !== '' && preg_match('/api[_-]?key|authorization|bearer|cookie|password|secret|token|credential|header|raw_text|document_text|ai_distilled|source_data|model|source_refs|knowledge_revision|applicability|verification_status|valid_from|valid_until/i', $normalizedKey) === 1) {
             return;
         }
         if (is_array($value)) {

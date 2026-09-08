@@ -36,6 +36,7 @@ final class RevenueOperationsKnowledgeService
         $hotelId = max(0, (int)($filters['hotel_id'] ?? 0));
         $unitColumns = $this->tableColumns('knowledge_units');
         $unitFields = ['unit_id', 'name', 'source', 'status', 'description'];
+        if (isset($unitColumns['tenant_id'])) $unitFields[] = 'tenant_id';
         if (isset($unitColumns['hotel_id'])) {
             $unitFields[] = 'hotel_id';
         }
@@ -107,7 +108,7 @@ final class RevenueOperationsKnowledgeService
         $chunkRows = Db::name('knowledge_chunks')
             ->field('chunk_id,unit_id,type,content')
             ->whereIn('unit_id', $unitIds)
-            ->order('chunk_id', 'asc')
+            ->order('chunk_id', 'desc')
             ->limit(2001)
             ->select()
             ->toArray();
@@ -143,10 +144,13 @@ final class RevenueOperationsKnowledgeService
         $limit = max(1, min(100, (int)($filters['limit'] ?? 50)));
         $decisionGate = new KnowledgeDecisionGateService();
         $asOf = $filters['as_of'] ?? null;
+        $superseded = KnowledgeRevisionService::supersededIds($chunkRows);
+        $applicabilityExclusions = [];
 
         $unitMap = [];
         $unitOrder = [];
         foreach ($unitRows as $row) {
+            if ((int)($row['tenant_id'] ?? 0) > 0 && (int)$row['tenant_id'] !== (int)($filters['tenant_id'] ?? 0)) continue;
             $unitId = (int)($row['unit_id'] ?? 0);
             $unitHotelId = max(0, (int)($row['hotel_id'] ?? 0));
             $lifecycleStatus = strtolower(trim((string)($row['lifecycle_status'] ?? 'active')));
@@ -252,7 +256,18 @@ final class RevenueOperationsKnowledgeService
             }
 
             $unit = $unitMap[$unitId];
-            $knowledgeGate = $decisionGate->assess($unit, $content, $asOf);
+            $knowledgeGate = (new KnowledgeApplicabilityService())->assess($unit, $content, array_replace($filters, [
+                'platform' => count($platforms) === 1 ? $platforms[0] : 'all_ota', 'as_of' => $asOf,
+            ]), $row + ['_revision_superseded' => isset($superseded[(int)($row['chunk_id'] ?? 0)])]);
+            if (($filters['_unit_fetch_truncated'] ?? false) || ($filters['_chunk_fetch_truncated'] ?? false)) {
+                $knowledgeGate['decision_safe'] = false;
+                $knowledgeGate['task_draft_safe'] = false;
+                if ($knowledgeGate['status'] === 'approved') {
+                    $knowledgeGate['status'] = 'reference_only'; $knowledgeGate['status_label'] = '范围不完整，仅供参考';
+                }
+                $knowledgeGate['reason_codes'][] = 'knowledge_candidate_window_truncated';
+                $knowledgeGate['reason_labels'][] = '候选知识未完整读取，无法确认版本或冲突';
+            }
             $explicitCaseReferenceAllowed = $scope === self::CASE_SCOPE
                 && $caseKey !== ''
                 && ($knowledgeGate['reference_safe'] ?? false) === true;
@@ -260,6 +275,7 @@ final class RevenueOperationsKnowledgeService
                 && !$explicitCaseReferenceAllowed
             ) {
                 $excludedDecisionGateCount++;
+                $applicabilityExclusions[] = ['chunk_id' => (int)($row['chunk_id'] ?? 0), 'applicability' => $knowledgeGate];
                 $dataGaps[] = $this->gateGap((string)($knowledgeGate['primary_reason'] ?? ''));
                 continue;
             }
@@ -276,12 +292,15 @@ final class RevenueOperationsKnowledgeService
                 'unit_hotel_id' => max(0, (int)($unit['hotel_id'] ?? 0)),
                 'knowledge_type' => $type,
                 'scope' => $scope,
-                'platforms' => $entryPlatforms,
+                'platforms' => $knowledgeGate['scope']['platforms'],
                 'module_id' => $entryModuleId,
                 'evidence_level' => $evidenceLevel,
                 'source_refs' => array_values($sourceRefs),
                 'evidence_grade' => (string)($knowledgeGate['evidence_grade'] ?? 'U'),
                 'knowledge_gate' => $knowledgeGate,
+                'applicability' => $knowledgeGate,
+                'fact_safe' => false,
+                'external_write_authorized' => false,
                 'known_knowns' => $knownKnowns,
                 'known_unknowns' => $knownUnknowns,
                 'truth_profile_version' => trim((string)($unit['truth_profile_version'] ?? '')),
@@ -411,6 +430,11 @@ final class RevenueOperationsKnowledgeService
             'decision_safe_entry_count' => $decisionSafeEntryCount,
             'known_unknown_entry_count' => $knownUnknownEntryCount,
             'entries' => $entries,
+            'applicability_contract' => KnowledgeApplicabilityService::CONTRACT,
+            'applicability_exclusions' => $applicabilityExclusions,
+            'conflicts' => $conflictResolution['conflicts'],
+            'fact_safe' => false,
+            'external_write_authorized' => false,
             'data_gaps' => $dataGaps,
             'protected_boundary' => 'only traceable, applicable and temporally eligible knowledge enters retrieval; unresolved version conflicts remain known_unknown; case_reference requires explicit case_key and never becomes current-hotel fact or an automatic OTA write instruction',
         ];
@@ -563,6 +587,10 @@ final class RevenueOperationsKnowledgeService
         foreach ($this->normalizeList($value) as $item) {
             $normalized = mb_strtolower(trim($item));
             $normalized = $aliases[$normalized] ?? $aliases[$item] ?? $normalized;
+            if (in_array($normalized, ['all_ota', 'all', 'ota', 'all-ota'], true)) {
+                $platforms['ctrip'] = 'ctrip'; $platforms['meituan'] = 'meituan';
+                continue;
+            }
             if ($normalized !== '') {
                 $platforms[$normalized] = $normalized;
             }

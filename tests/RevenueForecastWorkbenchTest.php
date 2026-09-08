@@ -193,6 +193,67 @@ final class RevenueForecastWorkbenchTest extends TestCase
         self::assertTrue($this->service->save($input, Fixture::scope())['readback_verified']);
     }
 
+    public function testScopeIdentifiersRejectCredentialShapedTextBeforePersistence(): void
+    {
+        foreach (['Authorization: Bearer synthetic-example', 'cookie=synthetic-example', 'https://synthetic.invalid/p?sig=not-a-secret', 'eyJmb28iOiJiYXIifQ.synthetic.signature'] as $value) {
+            foreach (['platform_store_id', 'room_scope'] as $key) {
+                $scope = Fixture::scope(); $scope[$key] = $value;
+                $input = Fixture::input();
+                foreach ($input['evidence']['observations'] as &$row) $row[$key] = $value;
+                unset($row);
+                if ($key === 'room_scope') $input['scenario']['inventory_scope'] = $value;
+                $rejected = false;
+                try { $this->service->save($input, $scope); } catch (\InvalidArgumentException $e) {
+                    $rejected = true; self::assertStringNotContainsString($value, $e->getMessage());
+                }
+                self::assertTrue($rejected, 'Credential-shaped scope accepted');
+                self::assertDirectoryDoesNotExist($this->root);
+            }
+        }
+        $scope = Fixture::scope(); $scope['room_scope'] = '标准大床房_01';
+        $input = Fixture::input(); $input['scenario']['inventory_scope'] = $scope['room_scope'];
+        foreach ($input['evidence']['observations'] as &$row) $row['room_scope'] = $scope['room_scope'];
+        unset($row);
+        self::assertTrue($this->service->save($input, $scope)['readback_verified']);
+    }
+
+    public function testUnobservedCalendarDaysRemainPartialInCurrentAndHistoricalTraining(): void
+    {
+        $input = Fixture::input();
+        unset($input['evidence']['observations'][20], $input['evidence']['observations'][200]);
+        $input['evidence']['observations'] = array_values($input['evidence']['observations']);
+        $replay = $this->service->preview($input, Fixture::scope())['replay'];
+        self::assertSame(1, $replay['input_evidence']['training_quality']['unobserved']);
+        self::assertSame('partial', $replay['data_status']);
+        foreach ([7, 14, 30] as $horizon) {
+            self::assertSame('partial', $replay['forecasts'][$horizon]['status']);
+            $stats = $replay['comparisons'][$horizon];
+            self::assertSame(1, $stats['folds'][0]['training_quality']['unobserved']);
+            self::assertSame('partial', $stats['folds'][0]['status']);
+            self::assertFalse($stats['assessment']['comparison_supported']);
+        }
+    }
+
+    public function testEverySavedPlanRemainsDiscoverableBeyondTheFirstFifty(): void
+    {
+        $ids = [];
+        for ($i = 0; $i < 52; $i++) {
+            $input = Fixture::input(); $input['scenario']['proposed_price'] = 220 + $i;
+            $ids[] = $this->service->save($input, Fixture::scope())['id'];
+        }
+        $first = $this->service->history(Fixture::scope(), 1);
+        $second = $this->service->history(Fixture::scope(), 2);
+        self::assertCount(50, $first); self::assertCount(2, $second);
+        $found = array_column(array_merge($first, $second), 'id');
+        sort($found); sort($ids); self::assertSame($ids, $found);
+        $page = $this->service->historyPage(Fixture::scope(), 2);
+        self::assertSame(52, $page['total']); self::assertSame(2, $page['page']);
+        self::assertSame(2, $page['total_pages']);
+        self::assertTrue($this->service->read($second[0]['id'], Fixture::scope())['readback_verified']);
+        $this->expectException(\InvalidArgumentException::class);
+        $this->service->historyPage(Fixture::scope(), 3);
+    }
+
     public function testIdentityUnitsCancellationAndTimesRejectBeforeSaving(): void
     {
         $cases = [

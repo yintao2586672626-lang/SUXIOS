@@ -425,7 +425,7 @@ trait OperationExecutionPersistenceConcern
             return null;
         }
         $value = trim($value);
-        if (preg_match('/^(?:expansion:v1:[1-9][0-9]*|ota_diagnosis_action_[a-f0-9]{32}:attempt:[1-9][0-9]*|operation_alert_[a-f0-9]{32}|operating_target_[a-f0-9]{32}|operation_optimizer_[a-f0-9]{32}|operating_network_replication_[a-f0-9]{32}|operating_question_action_[a-f0-9]{32}|operation_action_[a-f0-9]{32}|daily_one_thing_action_[a-f0-9]{32}|source_intent_[a-f0-9]{32})$/D', $value) !== 1) {
+        if (preg_match('/^(?:expansion:v1:[1-9][0-9]*|ota_diagnosis_action_[a-f0-9]{32}:attempt:[1-9][0-9]*|operation_alert_[a-f0-9]{32}|operating_target_[a-f0-9]{32}|operation_optimizer_[a-f0-9]{32}|operating_network_replication_[a-f0-9]{32}|operating_question_action_[a-f0-9]{32}|operation_action_[a-f0-9]{32}|daily_one_thing_action_[a-f0-9]{32}|workflow_proposal_[a-f0-9]{32}|source_intent_[a-f0-9]{32})$/D', $value) !== 1) {
             throw new \InvalidArgumentException('trusted execution-intent idempotency key is invalid');
         }
         return $value;

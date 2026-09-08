@@ -160,7 +160,7 @@ window.SUXI_OPERATION_STATIC = (() => {
             };
         }
 
-        const flags = data.abnormal_flags || [];
+        const flags = Array.isArray(data.abnormal_flags) ? data.abnormal_flags : [];
         if (flags.length) {
             return {
                 status: '优先复核',
@@ -181,7 +181,7 @@ window.SUXI_OPERATION_STATIC = (() => {
         if (missingModules.length) {
             return {
                 status: '样本不足',
-                summary: `先补齐${missingModules.join('、')}，否则只能看到结果，无法判断收入变化的真实原因。`,
+                summary: `当前缺少或尚未核验：${missingModules.join('、')}。可先查看已有来源记录，补齐后再排查可能影响因素。`,
                 className: 'bg-gray-50 text-gray-500',
             };
         }
@@ -250,13 +250,14 @@ window.SUXI_OPERATION_STATIC = (() => {
         && item?.recommendation?.source_module !== 'daily_one_thing'
         && ['pending_execute', 'executing', 'executed'].includes(item?.execution?.status || '')
         && Number(item?.execution?.task_id || 0) > 0;
-    const operationCanReviewExecution = (item) => !operationIsProtectedSystemAnalysis(item) && item?.execution?.status === 'executed' && item?.review?.is_available !== false && !['success', 'near_success', 'failed'].includes(item?.review?.status || '') && Number(item?.execution?.task_id || 0) > 0;
+    const operationHasTerminalReview = (item) => ['success', 'near_success', 'failed'].includes(item?.review?.reported_status || item?.review?.status || '');
+    const operationCanReviewExecution = (item) => !operationIsProtectedSystemAnalysis(item) && item?.execution?.status === 'executed' && item?.review?.is_available !== false && !operationHasTerminalReview(item) && Number(item?.execution?.task_id || 0) > 0;
     const operationCanReconcileExecution = (item) => !operationIsProtectedSystemAnalysis(item)
         && item?.execution?.status === 'executed'
         && item?.review?.is_available === true
         && item?.evidence_truth?.source_verified !== true
         && ['ota_diagnosis_saved', 'operating_question', 'revenue_cockpit_action', 'daily_one_thing'].includes(item?.recommendation?.source_module)
-        && !['success', 'near_success', 'failed'].includes(item?.review?.status || '')
+        && !operationHasTerminalReview(item)
         && Number(item?.execution?.task_id || 0) > 0;
     const operationExecutionActionAvailable = (item) => operationCanApproveExecution(item)
         || operationCanExecuteWithEvidence(item)
@@ -281,6 +282,8 @@ window.SUXI_OPERATION_STATIC = (() => {
         ];
     };
     const operationExecutionBottleneckText = (summary = {}, helpers = {}) => {
+        if (!operationHasDisplayValue(summary.total)) return '流程尚未读取，暂不能判断';
+        if (Number(summary.total) === 0) return '当前范围暂无流程，暂不能判断';
         const bottleneck = summary?.bottleneck || {};
         if (!bottleneck.stage || !bottleneck.count) return '暂无明显瓶颈';
         const statusLabel = typeof helpers.statusLabel === 'function' ? helpers.statusLabel : (status => status || '-');
@@ -300,7 +303,7 @@ window.SUXI_OPERATION_STATIC = (() => {
     }[String(status || '')] || 'border-gray-100 bg-gray-50 text-gray-600');
     const operationExecutionSourceText = (item) => {
         const source = item?.recommendation?.source || '';
-        const resolved = source && !source.endsWith('#0') ? source : (item?.recommendation?.source_module || '');
+        const resolved = item?.recommendation?.source_module || (source && !source.endsWith('#0') ? source : '');
         const sourceKey = String(resolved).toLowerCase();
         if (sourceKey === 'manual') return '人工创建';
         if (sourceKey.startsWith('canonical_ota_investigation')) {

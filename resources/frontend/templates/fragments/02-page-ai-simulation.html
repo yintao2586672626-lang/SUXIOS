@@ -1,10 +1,33 @@
                     <div v-if="currentPage === 'ai-simulation'">
                         <div class="ai-page-hero mb-6 rounded-2xl p-6 text-white bg-gradient-to-r from-slate-900 via-cyan-900 to-blue-800 shadow-sm">
-                            <simulation-hero-actions data-testid="simulation-hotel-selector" v-model:hotel-id="aiSimulationParams.hotel_id" :hotels="operationHotelOptions" :hotel-valid="simulationHotelSelectionValid" :loading="aiSimulationLoading" @run="handleSimulation" @refresh="loadSimulationRecords"></simulation-hero-actions>
+                            <simulation-hero-actions data-testid="simulation-hotel-selector" :request="managerCapabilityRequest" v-model:hotel-id="aiSimulationParams.hotel_id" :hotels="operationHotelOptions" :hotel-valid="simulationHotelSelectionValid" :loading="aiSimulationLoading" @run="handleSimulation" @refresh="loadSimulationRecords" @open-finance="currentPage = 'operating-finance'"></simulation-hero-actions>
                         </div>
 
                         <div class="grid grid-cols-1 xl:grid-cols-12 gap-6">
-                            <div class="xl:col-span-5 space-y-5">
+                            <div class="xl:col-span-5 space-y-5 min-w-0">
+                                <section class="bg-white rounded-xl border border-gray-100 p-5" data-testid="operating-scenario-input">
+                                    <h3 class="font-bold text-gray-800 mb-3">经营约束与投资情景</h3>
+                                    <p class="text-xs text-amber-800 mb-3">金额统一为人民币元；入住率、利率填百分数。输入均为人工假设或待核验值，保存不代表经营事实已验证。</p>
+                                    <div class="flex flex-wrap gap-2 mb-3">
+                                        <button v-if="!aiSimulationParams.operatingScenario" @click="enableOperatingScenario" class="px-3 py-2 border rounded-lg">启用经营约束测算</button>
+                                        <button @click="loadOperatingExample('existing_hotel')" class="px-3 py-2 border rounded-lg" data-testid="scenario-example-existing">现有酒店示例</button>
+                                        <button @click="loadOperatingExample('proposed_investment')" class="px-3 py-2 border rounded-lg" data-testid="scenario-example-proposed">拟投资示例</button>
+                                    </div>
+                                    <div v-if="aiSimulationParams.operatingScenario" class="space-y-3">
+                                        <label class="block text-xs text-gray-600">案例类型（拟投资项目归属于所选酒店权限范围，不代表已有门店实绩）
+                                            <select v-model="aiSimulationParams.operatingScenario.case_type" class="w-full border rounded-lg p-2 mt-1"><option value="existing_hotel">现有酒店</option><option value="proposed_investment">拟投资项目</option></select>
+                                        </label>
+                                        <label class="block text-xs text-gray-600">方案名称（修改后另存为新记录，原方案保留）<input v-model="aiSimulationParams.operatingScenario.case_name" maxlength="80" class="w-full border rounded-lg p-2 mt-1" data-testid="scenario-name"></label>
+                                        <label class="block text-xs text-gray-600">起始自然月（变更后自动调整下方平日天数，请复核）<input type="month" v-model="aiSimulationParams.operatingScenario.start_month" @change="syncSimulationCalendar" class="w-full border rounded-lg p-2 mt-1" data-testid="scenario-month"></label>
+                                        <label class="block text-xs text-gray-600">输入证据范围<select v-model="aiSimulationParams.operatingScenario.evidence_basis" class="w-full border rounded-lg p-2 mt-1"><option value="assumptions">全部为情景假设</option><option value="ota_only">仅OTA订单额，缺全店及成本</option><option value="manual_pms_cost_unverified">人工PMS/成本值，尚未核验</option></select></label>
+                                        <label class="block text-xs text-gray-600">来源、业务日期及假设说明<textarea v-model="aiSimulationParams.operatingScenario.source_note" maxlength="1000" class="w-full border rounded-lg p-2 mt-1"></textarea></label>
+                                        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                            <label v-for="field in operatingScenarioFields" :key="field.key" class="block text-xs text-gray-600">{{ field.label }}<input type="number" v-model.number="aiSimulationParams.operatingScenario[field.key]" :min="field.min" :max="field.max" :step="field.step" :data-testid="'scenario-' + field.key" class="w-full border rounded-lg p-2 mt-1"></label>
+                                        </div>
+                                        <p class="text-xs text-gray-500">贷款为等额本金、首月开始还款。租金、人工、能耗及其他成本见下方月成本；装修等见投资参数。现有酒店只填本次希望收回的投资，零值需明确输入。</p>
+                                    </div>
+                                    <p v-else class="text-xs text-gray-500">当前为旧版单月测算。旧记录不补造融资、爬坡或现金数据；启用后补齐再保存。</p>
+                                </section>
                                 <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
                                     <div class="flex items-center justify-between gap-3 mb-4">
                                         <h3 class="font-bold text-gray-800">投资参数</h3>
@@ -150,7 +173,8 @@
                                 </div>
                             </div>
 
-                            <div class="xl:col-span-7 space-y-5">
+                            <div class="xl:col-span-7 space-y-5 min-w-0">
+                                <p class="text-xs text-gray-500">概览卡片为单月稳态公式结果；融资与爬坡后的股东回本、现金缺口见逐月经营约束。</p>
                                 <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
                                     <div v-for="card in simulationMetricCards" :key="card.label" class="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
                                         <div class="text-xs text-gray-500">{{ card.label }}</div>
@@ -172,9 +196,10 @@
 
                                 <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
                                     <div class="flex items-center justify-between mb-4">
-                                        <h3 class="font-bold text-gray-800">三情景模拟</h3>
+                                        <h3 class="font-bold text-gray-800">三情景模拟 · 单月稳态</h3>
                                         <span v-if="baseSimulation" :class="['px-2 py-1 rounded text-xs border', riskBadgeClass(baseSimulation.riskLevel)]">{{ baseSimulation.riskLevel }}</span>
                                     </div>
+                                    <p class="text-xs text-gray-500 mb-3">下表回本为总投资÷单月净现金流，未计融资和爬坡；保守/乐观分别调整ADR ±20元、入住率 ±10个百分点、其他月收入 ±1700元，并非概率预测。经营约束的逐月结果见下方。</p>
                                     <div class="overflow-x-auto">
                                         <table class="min-w-full text-sm">
                                             <thead>
@@ -197,13 +222,57 @@
                                                     <td class="px-4 py-3 text-right font-semibold" :class="row.monthlyNetCashflow &gt; 0 ? 'text-green-600' : 'text-red-600'">{{ formatCurrency(row.monthlyNetCashflow) }}</td>
                                                     <td class="px-4 py-3 text-right">{{ formatCurrency(row.revPAR) }}</td>
                                                     <td class="px-4 py-3 text-right">{{ row.paybackMonths === null ? '不可回本' : row.paybackMonths.toFixed(1) + '个月' }}</td>
-                                                    <td class="px-4 py-3 text-right">{{ formatPercent(row.breakEvenOccupancy) }}</td>
+                                                    <td class="px-4 py-3 text-right">{{ row.breakEvenOccupancyStatus === 'unreachable' ? '当前条件无法保本' : formatPercent(row.breakEvenOccupancy) }}</td>
                                                     <td class="px-4 py-3 text-right">{{ formatPercent(row.rentRatio) }}</td>
                                                 </tr>
                                             </tbody>
                                         </table>
                                     </div>
                                 </div>
+
+                                <section v-if="baseSimulation?.operatingScenario" class="bg-white rounded-xl border border-gray-100 p-5 space-y-4" data-testid="operating-scenario-result">
+                                    <h3 class="font-bold text-gray-800">{{ baseSimulation.operatingScenario.case_name }} · 逐月经营约束</h3>
+                                    <p class="text-xs text-gray-500">{{ baseSimulation.operatingScenario.case_type === 'existing_hotel' ? '现有酒店' : '拟投资项目' }} · {{ baseSimulation.operatingScenario.start_month }} 至 {{ baseSimulation.operatingScenario.end_month }} · 人民币元 · 假设计算</p>
+                                    <div class="rounded-lg bg-amber-50 p-3 text-sm text-amber-800" data-testid="scenario-boundary">{{ baseSimulation.scenarioBoundary?.explanation }}</div>
+                                    <div class="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+                                        <div>项目回本（融资前）：<strong>{{ operatingPaybackText(baseSimulation.operatingScenario.project_payback) }}</strong></div>
+                                        <div>股东回本（融资后）：<strong>{{ operatingPaybackText(baseSimulation.operatingScenario.equity_payback) }}</strong></div>
+                                        <div>最大自有资金需求：<strong>{{ formatCurrency(baseSimulation.operatingScenario.funding_required) }}</strong></div>
+                                        <div>额外现金缺口：<strong>{{ baseSimulation.operatingScenario.additional_cash_gap_status === 'gap' &amp;&amp; baseSimulation.operatingScenario.additional_cash_gap === 0 ? '存在不足0.01元的缺口' : formatCurrency(baseSimulation.operatingScenario.additional_cash_gap) }}</strong></div>
+                                        <div>期末现金余额：<strong>{{ baseSimulation.operatingScenario.ending_cash_status === 'negative' &amp;&amp; baseSimulation.operatingScenario.ending_cash_balance === 0 ? '负值，绝对值不足0.01元' : formatCurrency(baseSimulation.operatingScenario.ending_cash_balance) }}</strong></div>
+                                        <div>期末未偿贷款：<strong>{{ formatCurrency(baseSimulation.operatingScenario.outstanding_loan) }}</strong></div>
+                                        <div>覆盖每个稳定月债务与现金目标的保本入住率：<strong>{{ baseSimulation.operatingScenario.cash_break_even_status === 'unreachable' ? '不可达（超过100%或无客房贡献）' : formatPercent(baseSimulation.operatingScenario.cash_break_even_occupancy) }}</strong></div>
+                                        <div>月租金承受范围：<strong>{{ baseSimulation.operatingScenario.rent_range ? '0 至 ' + formatCurrency(baseSimulation.operatingScenario.monthly_rent_ceiling) : '不可达：零租金仍不满足现金目标' }}</strong><span v-if="baseSimulation.operatingScenario.rent_status === 'above_ceiling'">（当前租金已超上限）</span></div>
+                                        <div>目标 {{ baseSimulation.operatingScenario.target_payback_months }} 月回本的月租金上限：<strong>{{ baseSimulation.operatingScenario.target_status === 'unreachable_even_without_rent' ? '不可达：零租金也不能达标' : formatCurrency(baseSimulation.operatingScenario.target_rent_ceiling) }}</strong></div>
+                                        <div>当前租金下目标：<strong>{{ baseSimulation.operatingScenario.target_status === 'met_under_assumptions' ? '假设下满足' : '假设下不满足' }}</strong></div>
+                                    </div>
+                                    <p class="text-xs text-gray-600">最低月现金目标从 {{ baseSimulation.operatingScenario.monthly_cash_target.start_month }} 至期末逐月核对；爬坡期另计资金缺口。月租金上限由 {{ baseSimulation.operatingScenario.rent_reference_month }} 限制。</p>
+                                    <div v-if="baseSimulation.operatingScenario.monthly_cash_target.violations.length" class="text-sm text-amber-800">
+                                        <p class="font-semibold">未满足最低月现金目标的月份</p>
+                                        <p v-for="row in baseSimulation.operatingScenario.monthly_cash_target.violations" :key="row.month">{{ row.month }}（{{ row.days }}天）：股东现金流 {{ formatCurrency(row.equity_cashflow) }}，距目标差 {{ row.shortfall === 0 ? '不足0.01元' : formatCurrency(row.shortfall) }}。</p>
+                                    </div>
+                                    <details><summary class="cursor-pointer font-semibold text-sm">敏感因素（单因素变化，按期末现金影响排序）</summary>
+                                        <div class="overflow-x-auto"><table class="min-w-full text-sm"><thead><tr><th class="p-2 text-left">变化</th><th class="p-2">输入前→后</th><th class="p-2">期末现金变化</th><th class="p-2">额外缺口</th><th class="p-2">股东回本</th></tr></thead><tbody>
+                                            <tr v-for="row in baseSimulation.operatingScenario.sensitivity" :key="row.factor"><td class="p-2">{{ row.label }}</td><td class="p-2">{{ row.from ?? '--' }} → {{ row.to ?? '--' }}</td><td class="p-2">{{ row.status === 'not_applicable_no_loan' ? '无贷款，不适用' : formatCurrency(row.ending_cash_delta) }}</td><td class="p-2">{{ formatCurrency(row.additional_cash_gap) }}</td><td class="p-2">{{ operatingPaybackText(row.equity_payback) }}</td></tr>
+                                        </tbody></table></div>
+                                    </details>
+                                    <details><summary class="cursor-pointer font-semibold text-sm">每月现金流与贷款余额（含期初投资）</summary>
+                                        <div class="overflow-x-auto"><table class="min-w-full text-sm"><thead><tr><th class="p-2">月份</th><th class="p-2">天数</th><th class="p-2">入住率%</th><th class="p-2">项目现金流</th><th class="p-2">本金</th><th class="p-2">利息</th><th class="p-2">股东现金流</th><th class="p-2">累计股东现金流</th><th class="p-2">可用现金</th><th class="p-2">未偿贷款</th></tr></thead><tbody>
+                                            <tr v-for="row in baseSimulation.operatingScenario.cashflow_series" :key="row.month"><td class="p-2 whitespace-nowrap">{{ row.month === 0 ? '期初' : row.date.slice(0,7) }}</td><td class="p-2">{{ row.days }}</td><td class="p-2">{{ row.occupancy_pct ?? '--' }}</td><td class="p-2">{{ formatCurrency(row.project_cashflow) }}</td><td class="p-2">{{ formatCurrency(row.principal) }}</td><td class="p-2">{{ formatCurrency(row.interest) }}</td><td class="p-2">{{ formatCurrency(row.equity_cashflow) }}</td><td class="p-2">{{ formatCurrency(row.equity_cumulative) }}</td><td class="p-2">{{ formatCurrency(row.cash_balance) }}</td><td class="p-2">{{ formatCurrency(row.loan_balance) }}</td></tr>
+                                        </tbody></table></div>
+                                    </details>
+                                    <details><summary class="cursor-pointer font-semibold text-sm">公式与适用条件</summary><p v-for="formula in baseSimulation.operatingScenario.formulas" :key="formula" class="text-xs text-gray-600 mt-2">{{ formula }}</p></details>
+                                </section>
+
+                                <section class="bg-white rounded-xl border border-gray-100 p-5 space-y-3" data-testid="scenario-comparison">
+                                    <h3 class="font-bold text-gray-800">已保存方案比较</h3>
+                                    <p class="text-xs text-gray-500">在历史记录中选2–4份方案；须同酒店、案例类型、起始月和期限。每份从保存记录精确回读。</p>
+                                    <p class="text-xs">已选 {{ simulationComparisonRecords.length }} 份 <button v-if="simulationComparisonRecords.length" @click="clearSimulationComparison" class="underline">清空选择</button></p>
+                                    <p v-if="simulationComparisonError" role="alert" class="text-sm text-red-600">{{ simulationComparisonError }}</p>
+                                    <div v-if="simulationComparisonRows.length" class="overflow-x-auto"><table class="min-w-full text-sm"><thead><tr><th class="p-2 text-left">方案/记录</th><th class="p-2">月租金</th><th class="p-2">人工/能耗</th><th class="p-2">装修</th><th class="p-2">贷款/爬坡月</th><th class="p-2">股东回本</th><th class="p-2">额外现金缺口</th><th class="p-2">期末现金</th></tr></thead><tbody>
+                                        <tr v-for="row in simulationComparisonRows" :key="row.id"><td class="p-2">{{ row.name }} #{{ row.id }}</td><td class="p-2">{{ formatCurrency(row.input.monthlyRent) }}</td><td class="p-2">{{ formatCurrency(row.input.laborCost) }} / {{ formatCurrency(row.input.utilityCost) }}</td><td class="p-2">{{ formatCurrency(row.input.decorationInvestment) }}</td><td class="p-2">{{ formatCurrency(row.input.operatingScenario.loan_amount) }} / {{ row.input.operatingScenario.ramp_months }}</td><td class="p-2">{{ operatingPaybackText(row.equity_payback) }}</td><td class="p-2">{{ formatCurrency(row.additional_cash_gap) }}</td><td class="p-2">{{ formatCurrency(row.ending_cash_balance) }}</td></tr>
+                                    </tbody></table></div>
+                                </section>
 
                                 <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
                                     <h3 class="font-bold text-gray-800 mb-4">风险提示</h3>
@@ -232,7 +301,7 @@
                                             {{ simulationModelAnalysis.summary }}
                                         </div>
                                         <div v-if="simulationModelAnalysis.decision" class="rounded-lg bg-slate-50 border border-slate-100 px-4 py-3">
-                                            <div class="text-xs text-gray-500 mb-1">投决建议</div>
+                                            <div class="text-xs text-gray-500 mb-1">条件说明</div>
                                             <div class="text-sm font-medium text-gray-800">{{ simulationModelAnalysis.decision }}</div>
                                         </div>
                                         <div v-if="simulationModelAnalysis.recommendations.length" class="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -288,6 +357,7 @@
                                                 <span v-if="record.execution_readiness" :class="['px-2 py-1 rounded text-xs border whitespace-nowrap', simulationReadinessBadgeClass(record.execution_readiness.stage)]">{{ record.execution_readiness.status_label }}</span>
                                                 <button @click="loadSimulationDetail(record.id)" :data-testid="`history-simulation-view-${record.id}`" class="px-3 py-1.5 rounded-lg border border-gray-200 text-gray-600 text-xs hover:bg-gray-50">查看</button>
                                                 <button @click="reuseSimulationRecord(record)" :data-testid="`history-simulation-reuse-${record.id}`" class="px-3 py-1.5 rounded-lg bg-blue-600 text-white text-xs hover:bg-blue-700">复用输入</button>
+                                                <button v-if="record.summary?.operatingScenario" @click="toggleSimulationComparison(record)" :data-testid="`history-simulation-compare-${record.id}`" class="px-3 py-1.5 rounded-lg border text-xs">{{ simulationComparisonRecords.some(item => item.id === record.id) ? '移出比较' : '加入比较' }}</button>
                                                 <button @click="createSimulationExecutionIntent(record)" :disabled="simulationTaskDisabled(record)" :data-testid="`history-simulation-task-${record.id}`">{{ simulationTaskLabel(record) }}</button>
                                                 <button v-if="canArchiveSim(record)" @click="archiveSim(record)" :data-testid="`history-simulation-archive-${record.id}`" class="btn-danger">归档</button>
                                             </div>

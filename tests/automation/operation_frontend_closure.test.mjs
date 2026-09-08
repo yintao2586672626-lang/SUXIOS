@@ -111,7 +111,7 @@ test('revenue research execution bridge creates only an intent then opens ops-tr
   const openEnd = appMain.indexOf('const createRevenueResearchExecutionIntent = async', openStart);
   const openBridge = appMain.slice(openStart, openEnd);
   assert.match(openBridge, /currentPage\.value = 'ops-track'/);
-  assert.match(openBridge, /await loadOperationActions\(\)/);
+  assert.match(openBridge, /await loadOperationActions\((?:\{ focusIntentId: Number\(intent\.id\) \})?\)/);
 });
 
 test('AI daily report keeps execution tracking on the selected hotel', () => {

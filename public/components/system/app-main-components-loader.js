@@ -1,7 +1,7 @@
 (() => {
     'use strict';
 
-    const fullScript = 'components/system/app-main-components.js?v=20260830-operating-finance-hf685d7ef0b';
+    const fullScript = 'components/system/app-main-components.js?v=20260830-operating-finance-h88fd14357d';
     let fullScriptPromise = null;
 
     const loadFullScript = () => {
@@ -185,6 +185,7 @@
         return Object.freeze({
             ...lazyComponents,
             ...delegatedHelpers,
+            OperationTaskWorkflowPanel: Vue.defineAsyncComponent(() => loadOnlineDataComponentScript('components/operations/task-workflow-panel.js?v=20260908-workflow-v1').then(() => window.SUXI_TASK_WORKFLOW_PANEL.create({ Vue, h }))),
             OnlineTruthSummary,
             onlineDataComponents,
             loadOnlineDataComponentScript,

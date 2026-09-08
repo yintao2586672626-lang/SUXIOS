@@ -415,11 +415,34 @@
                     <!-- 运营管理：策案·策略模拟 -->
                     <div v-if="currentPage === 'ai-simulation'">
                         <div class="ai-page-hero mb-6 rounded-2xl p-6 text-white bg-gradient-to-r from-slate-900 via-cyan-900 to-blue-800 shadow-sm">
-                            <simulation-hero-actions data-testid="simulation-hotel-selector" v-model:hotel-id="aiSimulationParams.hotel_id" :hotels="operationHotelOptions" :hotel-valid="simulationHotelSelectionValid" :loading="aiSimulationLoading" @run="handleSimulation" @refresh="loadSimulationRecords"></simulation-hero-actions>
+                            <simulation-hero-actions data-testid="simulation-hotel-selector" :request="managerCapabilityRequest" v-model:hotel-id="aiSimulationParams.hotel_id" :hotels="operationHotelOptions" :hotel-valid="simulationHotelSelectionValid" :loading="aiSimulationLoading" @run="handleSimulation" @refresh="loadSimulationRecords" @open-finance="currentPage = 'operating-finance'"></simulation-hero-actions>
                         </div>
 
                         <div class="grid grid-cols-1 xl:grid-cols-12 gap-6">
-                            <div class="xl:col-span-5 space-y-5">
+                            <div class="xl:col-span-5 space-y-5 min-w-0">
+                                <section class="bg-white rounded-xl border border-gray-100 p-5" data-testid="operating-scenario-input">
+                                    <h3 class="font-bold text-gray-800 mb-3">经营约束与投资情景</h3>
+                                    <p class="text-xs text-amber-800 mb-3">金额统一为人民币元；入住率、利率填百分数。输入均为人工假设或待核验值，保存不代表经营事实已验证。</p>
+                                    <div class="flex flex-wrap gap-2 mb-3">
+                                        <button v-if="!aiSimulationParams.operatingScenario" @click="enableOperatingScenario" class="px-3 py-2 border rounded-lg">启用经营约束测算</button>
+                                        <button @click="loadOperatingExample('existing_hotel')" class="px-3 py-2 border rounded-lg" data-testid="scenario-example-existing">现有酒店示例</button>
+                                        <button @click="loadOperatingExample('proposed_investment')" class="px-3 py-2 border rounded-lg" data-testid="scenario-example-proposed">拟投资示例</button>
+                                    </div>
+                                    <div v-if="aiSimulationParams.operatingScenario" class="space-y-3">
+                                        <label class="block text-xs text-gray-600">案例类型（拟投资项目归属于所选酒店权限范围，不代表已有门店实绩）
+                                            <select v-model="aiSimulationParams.operatingScenario.case_type" class="w-full border rounded-lg p-2 mt-1"><option value="existing_hotel">现有酒店</option><option value="proposed_investment">拟投资项目</option></select>
+                                        </label>
+                                        <label class="block text-xs text-gray-600">方案名称（修改后另存为新记录，原方案保留）<input v-model="aiSimulationParams.operatingScenario.case_name" maxlength="80" class="w-full border rounded-lg p-2 mt-1" data-testid="scenario-name"></label>
+                                        <label class="block text-xs text-gray-600">起始自然月（变更后自动调整下方平日天数，请复核）<input type="month" v-model="aiSimulationParams.operatingScenario.start_month" @change="syncSimulationCalendar" class="w-full border rounded-lg p-2 mt-1" data-testid="scenario-month"></label>
+                                        <label class="block text-xs text-gray-600">输入证据范围<select v-model="aiSimulationParams.operatingScenario.evidence_basis" class="w-full border rounded-lg p-2 mt-1"><option value="assumptions">全部为情景假设</option><option value="ota_only">仅OTA订单额，缺全店及成本</option><option value="manual_pms_cost_unverified">人工PMS/成本值，尚未核验</option></select></label>
+                                        <label class="block text-xs text-gray-600">来源、业务日期及假设说明<textarea v-model="aiSimulationParams.operatingScenario.source_note" maxlength="1000" class="w-full border rounded-lg p-2 mt-1"></textarea></label>
+                                        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                            <label v-for="field in operatingScenarioFields" :key="field.key" class="block text-xs text-gray-600">{{ field.label }}<input type="number" v-model.number="aiSimulationParams.operatingScenario[field.key]" :min="field.min" :max="field.max" :step="field.step" :data-testid="'scenario-' + field.key" class="w-full border rounded-lg p-2 mt-1"></label>
+                                        </div>
+                                        <p class="text-xs text-gray-500">贷款为等额本金、首月开始还款。租金、人工、能耗及其他成本见下方月成本；装修等见投资参数。现有酒店只填本次希望收回的投资，零值需明确输入。</p>
+                                    </div>
+                                    <p v-else class="text-xs text-gray-500">当前为旧版单月测算。旧记录不补造融资、爬坡或现金数据；启用后补齐再保存。</p>
+                                </section>
                                 <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
                                     <div class="flex items-center justify-between gap-3 mb-4">
                                         <h3 class="font-bold text-gray-800">投资参数</h3>
@@ -565,7 +588,8 @@
                                 </div>
                             </div>
 
-                            <div class="xl:col-span-7 space-y-5">
+                            <div class="xl:col-span-7 space-y-5 min-w-0">
+                                <p class="text-xs text-gray-500">概览卡片为单月稳态公式结果；融资与爬坡后的股东回本、现金缺口见逐月经营约束。</p>
                                 <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
                                     <div v-for="card in simulationMetricCards" :key="card.label" class="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
                                         <div class="text-xs text-gray-500">{{ card.label }}</div>
@@ -587,9 +611,10 @@
 
                                 <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
                                     <div class="flex items-center justify-between mb-4">
-                                        <h3 class="font-bold text-gray-800">三情景模拟</h3>
+                                        <h3 class="font-bold text-gray-800">三情景模拟 · 单月稳态</h3>
                                         <span v-if="baseSimulation" :class="['px-2 py-1 rounded text-xs border', riskBadgeClass(baseSimulation.riskLevel)]">{{ baseSimulation.riskLevel }}</span>
                                     </div>
+                                    <p class="text-xs text-gray-500 mb-3">下表回本为总投资÷单月净现金流，未计融资和爬坡；保守/乐观分别调整ADR ±20元、入住率 ±10个百分点、其他月收入 ±1700元，并非概率预测。经营约束的逐月结果见下方。</p>
                                     <div class="overflow-x-auto">
                                         <table class="min-w-full text-sm">
                                             <thead>
@@ -612,13 +637,57 @@
                                                     <td class="px-4 py-3 text-right font-semibold" :class="row.monthlyNetCashflow &gt; 0 ? 'text-green-600' : 'text-red-600'">{{ formatCurrency(row.monthlyNetCashflow) }}</td>
                                                     <td class="px-4 py-3 text-right">{{ formatCurrency(row.revPAR) }}</td>
                                                     <td class="px-4 py-3 text-right">{{ row.paybackMonths === null ? '不可回本' : row.paybackMonths.toFixed(1) + '个月' }}</td>
-                                                    <td class="px-4 py-3 text-right">{{ formatPercent(row.breakEvenOccupancy) }}</td>
+                                                    <td class="px-4 py-3 text-right">{{ row.breakEvenOccupancyStatus === 'unreachable' ? '当前条件无法保本' : formatPercent(row.breakEvenOccupancy) }}</td>
                                                     <td class="px-4 py-3 text-right">{{ formatPercent(row.rentRatio) }}</td>
                                                 </tr>
                                             </tbody>
                                         </table>
                                     </div>
                                 </div>
+
+                                <section v-if="baseSimulation?.operatingScenario" class="bg-white rounded-xl border border-gray-100 p-5 space-y-4" data-testid="operating-scenario-result">
+                                    <h3 class="font-bold text-gray-800">{{ baseSimulation.operatingScenario.case_name }} · 逐月经营约束</h3>
+                                    <p class="text-xs text-gray-500">{{ baseSimulation.operatingScenario.case_type === 'existing_hotel' ? '现有酒店' : '拟投资项目' }} · {{ baseSimulation.operatingScenario.start_month }} 至 {{ baseSimulation.operatingScenario.end_month }} · 人民币元 · 假设计算</p>
+                                    <div class="rounded-lg bg-amber-50 p-3 text-sm text-amber-800" data-testid="scenario-boundary">{{ baseSimulation.scenarioBoundary?.explanation }}</div>
+                                    <div class="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+                                        <div>项目回本（融资前）：<strong>{{ operatingPaybackText(baseSimulation.operatingScenario.project_payback) }}</strong></div>
+                                        <div>股东回本（融资后）：<strong>{{ operatingPaybackText(baseSimulation.operatingScenario.equity_payback) }}</strong></div>
+                                        <div>最大自有资金需求：<strong>{{ formatCurrency(baseSimulation.operatingScenario.funding_required) }}</strong></div>
+                                        <div>额外现金缺口：<strong>{{ baseSimulation.operatingScenario.additional_cash_gap_status === 'gap' &amp;&amp; baseSimulation.operatingScenario.additional_cash_gap === 0 ? '存在不足0.01元的缺口' : formatCurrency(baseSimulation.operatingScenario.additional_cash_gap) }}</strong></div>
+                                        <div>期末现金余额：<strong>{{ baseSimulation.operatingScenario.ending_cash_status === 'negative' &amp;&amp; baseSimulation.operatingScenario.ending_cash_balance === 0 ? '负值，绝对值不足0.01元' : formatCurrency(baseSimulation.operatingScenario.ending_cash_balance) }}</strong></div>
+                                        <div>期末未偿贷款：<strong>{{ formatCurrency(baseSimulation.operatingScenario.outstanding_loan) }}</strong></div>
+                                        <div>覆盖每个稳定月债务与现金目标的保本入住率：<strong>{{ baseSimulation.operatingScenario.cash_break_even_status === 'unreachable' ? '不可达（超过100%或无客房贡献）' : formatPercent(baseSimulation.operatingScenario.cash_break_even_occupancy) }}</strong></div>
+                                        <div>月租金承受范围：<strong>{{ baseSimulation.operatingScenario.rent_range ? '0 至 ' + formatCurrency(baseSimulation.operatingScenario.monthly_rent_ceiling) : '不可达：零租金仍不满足现金目标' }}</strong><span v-if="baseSimulation.operatingScenario.rent_status === 'above_ceiling'">（当前租金已超上限）</span></div>
+                                        <div>目标 {{ baseSimulation.operatingScenario.target_payback_months }} 月回本的月租金上限：<strong>{{ baseSimulation.operatingScenario.target_status === 'unreachable_even_without_rent' ? '不可达：零租金也不能达标' : formatCurrency(baseSimulation.operatingScenario.target_rent_ceiling) }}</strong></div>
+                                        <div>当前租金下目标：<strong>{{ baseSimulation.operatingScenario.target_status === 'met_under_assumptions' ? '假设下满足' : '假设下不满足' }}</strong></div>
+                                    </div>
+                                    <p class="text-xs text-gray-600">最低月现金目标从 {{ baseSimulation.operatingScenario.monthly_cash_target.start_month }} 至期末逐月核对；爬坡期另计资金缺口。月租金上限由 {{ baseSimulation.operatingScenario.rent_reference_month }} 限制。</p>
+                                    <div v-if="baseSimulation.operatingScenario.monthly_cash_target.violations.length" class="text-sm text-amber-800">
+                                        <p class="font-semibold">未满足最低月现金目标的月份</p>
+                                        <p v-for="row in baseSimulation.operatingScenario.monthly_cash_target.violations" :key="row.month">{{ row.month }}（{{ row.days }}天）：股东现金流 {{ formatCurrency(row.equity_cashflow) }}，距目标差 {{ row.shortfall === 0 ? '不足0.01元' : formatCurrency(row.shortfall) }}。</p>
+                                    </div>
+                                    <details><summary class="cursor-pointer font-semibold text-sm">敏感因素（单因素变化，按期末现金影响排序）</summary>
+                                        <div class="overflow-x-auto"><table class="min-w-full text-sm"><thead><tr><th class="p-2 text-left">变化</th><th class="p-2">输入前→后</th><th class="p-2">期末现金变化</th><th class="p-2">额外缺口</th><th class="p-2">股东回本</th></tr></thead><tbody>
+                                            <tr v-for="row in baseSimulation.operatingScenario.sensitivity" :key="row.factor"><td class="p-2">{{ row.label }}</td><td class="p-2">{{ row.from ?? '--' }} → {{ row.to ?? '--' }}</td><td class="p-2">{{ row.status === 'not_applicable_no_loan' ? '无贷款，不适用' : formatCurrency(row.ending_cash_delta) }}</td><td class="p-2">{{ formatCurrency(row.additional_cash_gap) }}</td><td class="p-2">{{ operatingPaybackText(row.equity_payback) }}</td></tr>
+                                        </tbody></table></div>
+                                    </details>
+                                    <details><summary class="cursor-pointer font-semibold text-sm">每月现金流与贷款余额（含期初投资）</summary>
+                                        <div class="overflow-x-auto"><table class="min-w-full text-sm"><thead><tr><th class="p-2">月份</th><th class="p-2">天数</th><th class="p-2">入住率%</th><th class="p-2">项目现金流</th><th class="p-2">本金</th><th class="p-2">利息</th><th class="p-2">股东现金流</th><th class="p-2">累计股东现金流</th><th class="p-2">可用现金</th><th class="p-2">未偿贷款</th></tr></thead><tbody>
+                                            <tr v-for="row in baseSimulation.operatingScenario.cashflow_series" :key="row.month"><td class="p-2 whitespace-nowrap">{{ row.month === 0 ? '期初' : row.date.slice(0,7) }}</td><td class="p-2">{{ row.days }}</td><td class="p-2">{{ row.occupancy_pct ?? '--' }}</td><td class="p-2">{{ formatCurrency(row.project_cashflow) }}</td><td class="p-2">{{ formatCurrency(row.principal) }}</td><td class="p-2">{{ formatCurrency(row.interest) }}</td><td class="p-2">{{ formatCurrency(row.equity_cashflow) }}</td><td class="p-2">{{ formatCurrency(row.equity_cumulative) }}</td><td class="p-2">{{ formatCurrency(row.cash_balance) }}</td><td class="p-2">{{ formatCurrency(row.loan_balance) }}</td></tr>
+                                        </tbody></table></div>
+                                    </details>
+                                    <details><summary class="cursor-pointer font-semibold text-sm">公式与适用条件</summary><p v-for="formula in baseSimulation.operatingScenario.formulas" :key="formula" class="text-xs text-gray-600 mt-2">{{ formula }}</p></details>
+                                </section>
+
+                                <section class="bg-white rounded-xl border border-gray-100 p-5 space-y-3" data-testid="scenario-comparison">
+                                    <h3 class="font-bold text-gray-800">已保存方案比较</h3>
+                                    <p class="text-xs text-gray-500">在历史记录中选2–4份方案；须同酒店、案例类型、起始月和期限。每份从保存记录精确回读。</p>
+                                    <p class="text-xs">已选 {{ simulationComparisonRecords.length }} 份 <button v-if="simulationComparisonRecords.length" @click="clearSimulationComparison" class="underline">清空选择</button></p>
+                                    <p v-if="simulationComparisonError" role="alert" class="text-sm text-red-600">{{ simulationComparisonError }}</p>
+                                    <div v-if="simulationComparisonRows.length" class="overflow-x-auto"><table class="min-w-full text-sm"><thead><tr><th class="p-2 text-left">方案/记录</th><th class="p-2">月租金</th><th class="p-2">人工/能耗</th><th class="p-2">装修</th><th class="p-2">贷款/爬坡月</th><th class="p-2">股东回本</th><th class="p-2">额外现金缺口</th><th class="p-2">期末现金</th></tr></thead><tbody>
+                                        <tr v-for="row in simulationComparisonRows" :key="row.id"><td class="p-2">{{ row.name }} #{{ row.id }}</td><td class="p-2">{{ formatCurrency(row.input.monthlyRent) }}</td><td class="p-2">{{ formatCurrency(row.input.laborCost) }} / {{ formatCurrency(row.input.utilityCost) }}</td><td class="p-2">{{ formatCurrency(row.input.decorationInvestment) }}</td><td class="p-2">{{ formatCurrency(row.input.operatingScenario.loan_amount) }} / {{ row.input.operatingScenario.ramp_months }}</td><td class="p-2">{{ operatingPaybackText(row.equity_payback) }}</td><td class="p-2">{{ formatCurrency(row.additional_cash_gap) }}</td><td class="p-2">{{ formatCurrency(row.ending_cash_balance) }}</td></tr>
+                                    </tbody></table></div>
+                                </section>
 
                                 <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
                                     <h3 class="font-bold text-gray-800 mb-4">风险提示</h3>
@@ -647,7 +716,7 @@
                                             {{ simulationModelAnalysis.summary }}
                                         </div>
                                         <div v-if="simulationModelAnalysis.decision" class="rounded-lg bg-slate-50 border border-slate-100 px-4 py-3">
-                                            <div class="text-xs text-gray-500 mb-1">投决建议</div>
+                                            <div class="text-xs text-gray-500 mb-1">条件说明</div>
                                             <div class="text-sm font-medium text-gray-800">{{ simulationModelAnalysis.decision }}</div>
                                         </div>
                                         <div v-if="simulationModelAnalysis.recommendations.length" class="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -703,6 +772,7 @@
                                                 <span v-if="record.execution_readiness" :class="['px-2 py-1 rounded text-xs border whitespace-nowrap', simulationReadinessBadgeClass(record.execution_readiness.stage)]">{{ record.execution_readiness.status_label }}</span>
                                                 <button @click="loadSimulationDetail(record.id)" :data-testid="`history-simulation-view-${record.id}`" class="px-3 py-1.5 rounded-lg border border-gray-200 text-gray-600 text-xs hover:bg-gray-50">查看</button>
                                                 <button @click="reuseSimulationRecord(record)" :data-testid="`history-simulation-reuse-${record.id}`" class="px-3 py-1.5 rounded-lg bg-blue-600 text-white text-xs hover:bg-blue-700">复用输入</button>
+                                                <button v-if="record.summary?.operatingScenario" @click="toggleSimulationComparison(record)" :data-testid="`history-simulation-compare-${record.id}`" class="px-3 py-1.5 rounded-lg border text-xs">{{ simulationComparisonRecords.some(item => item.id === record.id) ? '移出比较' : '加入比较' }}</button>
                                                 <button @click="createSimulationExecutionIntent(record)" :disabled="simulationTaskDisabled(record)" :data-testid="`history-simulation-task-${record.id}`">{{ simulationTaskLabel(record) }}</button>
                                                 <button v-if="canArchiveSim(record)" @click="archiveSim(record)" :data-testid="`history-simulation-archive-${record.id}`" class="btn-danger">归档</button>
                                             </div>
@@ -2789,13 +2859,17 @@
                     </div>
 
                     <!-- 运营管理：策行·效果追踪 -->
-                    <div v-if="currentPage === 'ops-track'" class="max-w-7xl mx-auto space-y-6">
+                    <div v-if="currentPage === 'ops-track' && authContext.permissionStatus !== 'allowed'" role="status" data-testid="operation-access-pending" class="max-w-7xl mx-auto rounded-xl border border-slate-200 bg-white p-6 text-slate-600">
+                        {{ authContext.permissionStatus === 'denied' ? '当前门店访问范围不可用，请重新选择有权限的门店。' : '正在确认门店访问范围，确认后读取原事项；此时尚不能判断是否有任务。' }}
+                    </div>
+                    <div v-if="currentPage === 'ops-track' && authContext.permissionStatus === 'allowed'" class="max-w-7xl mx-auto space-y-6">
                         <div class="overflow-hidden rounded-3xl border border-[#eadfc9] bg-gradient-to-br from-[#fffdf8] to-[#f7f5ef] p-5 shadow-sm sm:p-6">
                             <div class="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
                                 <div>
                                     <p class="text-xs font-semibold tracking-[0.22em] text-[#96743f]">运营自动化中心 · 执行闭环</p>
                                     <h2 class="mt-2 text-2xl font-semibold text-slate-900">任务执行与复盘</h2>
                                     <p class="mt-2 max-w-3xl text-sm leading-6 text-slate-600">人工审批、执行证据、同口径复盘；缺证不生成收入或 ROI。</p>
+                                    <p class="mt-2 max-w-3xl text-sm leading-6 text-slate-600" data-testid="operation-task-scope-boundary">当前门店的全部任务；首页经营日期不筛选此列表。每项任务按各自原始日期、平台和口径核实与复盘。</p>
                                 </div>
                                 <label class="w-full lg:w-72">
                                     <span class="mb-1 block text-xs text-slate-500">查看门店</span>
@@ -2806,6 +2880,7 @@
                                 </label>
                             </div>
                         </div>
+                        <operation-task-workflow-panel :hotel-id="operationFilters.hotel_id" :request="managerCapabilityRequest" :context="authContext" :can-execute="operationFinanceCanExecute"></operation-task-workflow-panel>
                         <manager-capability-panel
                             :hotel-id="operationFilters.hotel_id"
                             :request="managerCapabilityRequest"
@@ -2948,8 +3023,8 @@
                                     </tbody>
                                 </table>
                             </div>
-                            <div v-if="!operationExecutionItems.length &amp;&amp; !operationLoading.actions" class="p-6 text-center text-gray-400">暂无执行闭环记录</div>
-                            <div v-else-if="!operationExecutionFilteredItems.length &amp;&amp; !operationLoading.actions" class="p-6 text-center text-gray-500">
+                            <div v-if="!operationExecutionItems.length &amp;&amp; !operationLoading.actions &amp;&amp; !operationError.actions" class="p-6 text-center text-gray-400">暂无执行闭环记录</div>
+                            <div v-else-if="!operationExecutionFilteredItems.length &amp;&amp; !operationLoading.actions &amp;&amp; !operationError.actions" class="p-6 text-center text-gray-500">
                                 当前阶段暂无任务。
                                 <button type="button" @click="setOperationExecutionStageFilter('')" class="ml-1 font-medium text-[#315d50] hover:underline">查看全部阶段</button>
                             </div>
@@ -2983,7 +3058,9 @@
                                 {{ operationEffectDataGapText }}
                             </div>
                         </div>
-                        <div class="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
+                        <details data-testid="operation-strategy-detail" class="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
+                            <summary class="cursor-pointer px-5 py-4 text-sm font-medium text-gray-700">策略跟踪明细 · 当前已读 {{ operationActions.length }} 条</summary>
+                            <p class="px-5 pb-4 text-xs text-gray-500">历史记录保留原始日期；效果以同口径证据复核结果为准。</p>
                             <div class="overflow-x-auto">
                                 <table class="min-w-full text-sm">
                                     <thead class="bg-gray-50 text-gray-500">
@@ -3012,7 +3089,7 @@
                                             <td class="px-4 py-3">
                                                 <span class="px-2 py-1 rounded-full text-xs bg-blue-50 text-blue-600">{{ operationActionStatusLabel(action.result?.status || action.status) }}</span>
                                             </td>
-                                            <td class="px-4 py-3 text-gray-600">{{ action.result_summary || action.result?.message || '观察中' }}</td>
+                                            <td class="px-4 py-3 text-gray-600">{{ action.result?.message || action.result_summary || '观察中' }}</td>
                                             <td class="px-4 py-3">
                                                 <button v-if="action.status !== 'finished'" @click="finishOperationAction(action.id)" class="px-3 py-1.5 bg-gray-900 text-white rounded-lg text-xs hover:bg-gray-700">结束</button>
                                                 <span v-else="" class="text-xs text-gray-400">已结束</span>
@@ -3021,8 +3098,8 @@
                                     </tbody>
                                 </table>
                             </div>
-                            <div v-if="!operationActions.length &amp;&amp; !operationLoading.actions" class="p-8 text-center text-gray-400">暂无策略动作</div>
-                        </div>
+                            <div v-if="!operationActions.length &amp;&amp; !operationLoading.actions &amp;&amp; !operationError.actions" class="p-8 text-center text-gray-400">暂无策略动作</div>
+                        </details>
 
                         <div v-if="operationEvidenceModalOpen" @click.self="closeOperationEvidenceModal" class="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4" data-testid="operation-evidence-modal" role="dialog" aria-modal="true" aria-labelledby="operation-evidence-modal-title">
                             <section class="w-full max-w-2xl overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl">
@@ -4568,15 +4645,49 @@
                                 </div>
                             </div>
                             <div class="compass-content-stage flex flex-col gap-3 bg-[#f2eadc] px-4 py-4 lg:px-6">
-                                <operating-loop-authority v-if="currentPage === 'compass'"></operating-loop-authority>
-
-                                <div v-if="currentPage === 'compass'" class="mb-3 text-xs font-semibold tracking-wide text-slate-400">专业下钻 · 以下内容不决定权威闭环状态</div>
+                                <header v-if="currentPage === 'compass'" class="home-workspace-toolbar" data-testid="home-workspace-scope">
+                                    <div class="home-workspace-title">
+                                        <p>经营工作台</p>
+                                        <h2>{{ homeBusinessTimeModel.hotelName || '请选择门店' }}</h2>
+                                        <span>查看经营事实，安排今天的工作</span>
+                                    </div>
+                                    <div class="home-workspace-controls">
+                                        <label>
+                                            <span>当前门店</span>
+                                            <select v-model="filterReportHotel" class="input-field" aria-label="首页门店">
+                                                <option value="">请选择具体门店</option>
+                                                <option v-for="hotel in compassHotelOptions" :key="hotel.id" :value="hotel.id">{{ hotel.name }}</option>
+                                            </select>
+                                        </label>
+                                        <label>
+                                            <span>经营事实日期</span>
+                                            <input type="date" class="input-field" aria-label="经营事实业务日期"
+                                                :value="homeBusinessTimeModel.selectedBusinessDate"
+                                                :max="homeBusinessTimeModel.maxBusinessDate"
+                                                @change="homeRevenueFactBusinessDate = $event.target.value">
+                                        </label>
+                                        <button class="home-facts-refresh" @click="refreshCompassDashboard" :disabled="compassLoading || homeRevenueFactLayerLoading">
+                                            <i :class="compassLoading || homeRevenueFactLayerLoading ? 'fas fa-spinner fa-spin' : 'fas fa-rotate'" aria-hidden="true"></i>
+                                            {{ compassLoading || homeRevenueFactLayerLoading ? '读取中' : '刷新事实' }}
+                                        </button>
+                                    </div>
+                                </header>
+                                <nav v-if="currentPage === 'compass'" class="home-daily-workflows" data-testid="home-daily-workflows" aria-label="五条日常经营流程">
+                                    <button type="button" @click="openHomeDailyWorkflow('facts')"><strong>可信经营状态</strong><span>刷新所选门店和日期的事实</span></button>
+                                    <button type="button" @click="openHomeDailyWorkflow('query')"><strong>中文查数 / 追溯</strong><span>按编号回读来源与缺失状态</span></button>
+                                    <button type="button" @click="openHomeDailyWorkflow('health')"><strong>采集缺口定位</strong><span>核对采集、入库与回读</span></button>
+                                    <button type="button" @click="openHomeDailyWorkflow('tasks')"><strong>任务执行核实</strong><span>该酒店全部任务 · 各自原始日期与平台</span></button>
+                                    <button type="button" @click="openHomeDailyWorkflow('review')"><strong>效果复盘</strong><span>该酒店待复盘任务 · 各自原始日期与平台</span></button>
+                                    <p v-if="homeDailyWorkflowError" class="home-daily-workflow-error" role="alert">{{ homeDailyWorkflowError }}</p>
+                                </nav>
+                                <div v-if="currentPage === 'compass'" class="home-priority-layout">
                                 <section v-if="currentPage === 'compass'" class="compass-hero-bezel" data-testid="home-executive-answer">
                                     <div class="compass-hero-core">
                                         <home-yesterday-operating-facts
                                             :model="homeBusinessTimeModel"
                                             :show-header="true"
-                                            :show-controls="true"
+                                            :show-controls="false"
+                                            :compact="true"
                                             :hotel-options="compassHotelOptions"
                                             :selected-hotel-id="filterReportHotel"
                                             :refreshing="compassLoading || homeRevenueFactLayerLoading"
@@ -4585,20 +4696,13 @@
                                             @refresh="refreshCompassDashboard">
                                         </home-yesterday-operating-facts>
 
-                                        <!-- 昨天事实 / 今天状态 / 未来 AI 研判 · data-testid="home-temporal-axis" data-testid="home-competitor-diagnostic-reference" -->
-                                        <home-business-time-axis
-                                            :model="homeBusinessTimeModel"
-                                            :competitor-readiness="homeCompetitorReadiness"
-                                            :generating="homeTemporalGenerating"
-                                            :selected-hotel-id="homeTemporalSelectedHotelId"
-                                            @generate="generateHomeTemporalForecast">
-                                        </home-business-time-axis>
                                     </div>
                                 </section>
 
                                 <home-operating-orchestration
                                     v-if="currentPage === 'compass'"
                                     :model="homeOperatingScheduleModel"
+                                    :compact="true"
                                     :loading="homeOperatingScheduleLoading"
                                     :weekly-plan="homeWeeklyOperatingPlan"
                                     :weekly-loading="homeWeeklyOperatingPlanLoading"
@@ -4608,6 +4712,25 @@
                                     @open="openHomeOperatingScheduleItem"
                                     @open-all="openHomeOperatingScheduleAll">
                                 </home-operating-orchestration>
+                                </div>
+
+                                <!-- 昨天事实 / 今天状态 / 未来 AI 研判 · data-testid="home-temporal-axis" data-testid="home-competitor-diagnostic-reference" -->
+                                <home-business-time-axis
+                                    v-if="currentPage === 'compass'"
+                                    :model="homeBusinessTimeModel"
+                                    :competitor-readiness="homeCompetitorReadiness"
+                                    :generating="homeTemporalGenerating"
+                                    :selected-hotel-id="homeTemporalSelectedHotelId"
+                                    @generate="generateHomeTemporalForecast">
+                                </home-business-time-axis>
+
+                                <details v-if="currentPage === 'compass'" class="home-records-fold" data-testid="home-operating-records-details">
+                                    <summary>
+                                        <span><strong>经营记录与核验</strong><small>概览与待办反映各自来源，经营闭环状态以核验记录为准</small></span>
+                                        <span class="home-records-status">{{ operatingLoopStateLabel || '未核验' }} · {{ operatingLoop?.readback_verified ? '记录已核验' : '记录尚未核验' }}</span>
+                                    </summary>
+                                    <operating-loop-authority></operating-loop-authority>
+                                </details>
                                 <details v-if="currentPage === 'compass'" class="suxi-evidence-fold" data-testid="home-full-detail-fold">
                                     <summary>
                                         <span>完整明细</span>
@@ -10632,6 +10755,37 @@
                                         </div>
 
                                         <template v-else>
+                                            <section v-if="revenueCockpitModel.operatingLedger" class="rounded-xl border border-slate-200 bg-white p-4" data-testid="revenue-operating-ledger">
+                                                <h3 class="font-semibold text-slate-900">经营底账 · 来源与差额</h3>
+                                                <p class="mt-1 text-xs leading-5 text-slate-500">点击指标展开来源、公式和日期覆盖。订单额、住宿房费、预计房费及结算分别核对；未解释差额不会自动调平。随“保存决策快照”保存当前版本。</p>
+                                                <p v-if="revenueCockpitModel.operatingLedger.scope.evidence_mode === 'synthetic'" class="mt-2 text-sm text-amber-800">synthetic 测试样本，不是现场经营事实</p>
+                                                <p class="mt-2 break-all text-xs text-slate-500">{{ revenueCockpitModel.operatingLedger.scope.start_date }} 至 {{ revenueCockpitModel.operatingLedger.scope.end_date }} · 版本 {{ revenueCockpitModel.operatingLedger.version }}</p>
+                                                <div class="mt-3 grid grid-cols-1 gap-3 lg:grid-cols-2">
+                                                    <details v-for="metric in revenueCockpitModel.operatingLedger.metrics" :key="metric.key" class="rounded-lg border border-slate-200 p-3" :data-ledger-metric="metric.key">
+                                                        <summary class="cursor-pointer text-sm font-medium text-slate-800">{{ metric.platform }} · {{ metric.label }}：{{ metric.value ?? '未形成完整可信金额' }} <span v-if="metric.value !== null">元</span><span class="ml-2 text-xs text-slate-500">{{ {ready:'已验证',partial:'部分覆盖',missing:'缺失/未验证',conflict:'存在冲突'}[metric.status] || metric.status }}</span></summary>
+                                                        <p v-if="metric.partial_value !== null" class="mt-2 text-sm text-amber-800">非全期间金额：{{ metric.partial_value }} 元</p>
+                                                        <p class="mt-2 text-xs leading-5 text-slate-600">{{ metric.definition }}<br>公式：{{ metric.formula }}<br>已覆盖：{{ metric.covered_dates.join('、') || '无' }}<br>缺失或未验证：{{ metric.missing_dates.join('、') || '无' }}<br>币种：{{ metric.currency }} · 日期基准：{{ metric.date_bases.join('、') || '待确认' }} · 排除重复快照：{{ metric.duplicate_snapshots }}</p>
+                                                        <p v-if="metric.status === 'conflict'" class="mt-2 text-sm text-rose-700">同指标来源或日期口径冲突，暂停汇总，请逐条核对。</p>
+                                                        <div v-for="day in metric.days" :key="day.business_date" class="mt-2 border-t border-slate-100 pt-2 text-xs leading-5">
+                                                            <strong>{{ day.business_date }} · {{ day.status }}</strong>
+                                                            <p v-if="!day.entries.length">当日来源缺失</p>
+                                                            <div v-for="entry in day.entries" :key="entry.fact_identity" class="mt-1 break-all text-slate-600">
+                                                                观察值：{{ entry.value ?? '缺失' }} {{ entry.currency || '币种待确认' }} / {{ entry.unit || '单位待确认' }}；{{ entry.source_field }}<br>
+                                                                来源：{{ entry.source_refs.join('、') || '来源引用缺失' }}；采集：{{ entry.collected_at || '未记录' }}<br>
+                                                                日期基准：{{ entry.date_basis || '未确认' }}；原订单日：{{ entry.origin_business_date || '未提供' }}<br>
+                                                                状态：{{ entry.status === 'ready' ? '已验证' : '未验证' }}；{{ entry.reason_texts.join('；') }}<br>
+                                                                来源版本：{{ entry.source_version || '旧数据未记录版本' }}<br>事实身份：{{ entry.fact_identity }}
+                                                            </div>
+                                                        </div>
+                                                    </details>
+                                                </div>
+                                                <details v-for="difference in revenueCockpitModel.operatingLedger.differences" :key="difference.key" class="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3" :data-ledger-difference="difference.platform">
+                                                    <summary class="cursor-pointer text-sm font-medium">{{ difference.platform }} · {{ difference.label }}：{{ difference.observed_difference ?? '无法计算' }}；未解释：{{ difference.unexplained_difference ?? '无法计算' }}</summary>
+                                                    <p class="mt-2 text-xs leading-5">{{ difference.formula }}<br>有证据解释：{{ difference.explained_difference ?? '无法计算' }} 元<br>{{ difference.boundary }}<br>待核对：{{ difference.reason_texts.join('；') || '当前已关联证据' }}</p>
+                                                    <p v-for="(component, index) in difference.components" :key="index" class="mt-2 break-all text-xs leading-5">{{ component.label }} · {{ component.business_date }} · 原订单日 {{ component.origin_business_date || '未提供' }} · 观察 {{ component.observed_value ?? '未验证' }} 元 · 已解释 {{ component.explained_value ?? '未关联' }} · {{ {linked_evidence:'关联凭证已核对',cross_period:'跨期退款',unlinked:'关联证据不足'}[component.status] }} · {{ component.source_refs.join('、') }}</p>
+                                                </details>
+                                            </section>
+                                            <p v-else class="rounded-lg border border-slate-200 bg-white p-3 text-sm text-slate-500" data-testid="revenue-ledger-legacy">此旧版本未保存经营底账明细；刷新事实后可查看来源与差额，不重算旧快照金额。</p>
                                             <section v-for="section in revenueCockpitModel.visibleSections" :key="section.key" :data-testid="`revenue-cockpit-section-${section.key}`" class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm lg:p-5">
                                                 <div class="mb-4 flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
                                                     <div>
@@ -13103,6 +13257,7 @@
                                             </div>
                                             <div v-if="phase1EmployeeMissingFieldOverflowText" class="mt-2 text-xs text-amber-700 truncate" :title="phase1EmployeeMissingFieldOverflowText">{{ phase1EmployeeMissingFieldOverflowText }}</div>
                                         </div>
+                                        <button type="button" @click="openOnlineDataEntryTab('platform-sources')" class="mb-3 rounded-lg border border-indigo-200 px-3 py-2 text-xs text-indigo-700" data-testid="data-health-collection-recovery-entry">查看采集回执与原日期恢复</button>
                                         <div v-if="dataHealthFieldGapActionRows.length" data-testid="data-health-field-gap-action-board" class="mb-4 rounded-lg border border-amber-100 bg-white p-3">
                                             <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-3">
                                                 <div>
@@ -14488,6 +14643,70 @@
                                             <div v-if="localCollectorStatus.status === 'migration_required'" class="border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">{{ localCollectorStatus.message }}</div>
 
                                             <local-collector-login-handoff />
+
+                                            <section data-testid="local-collector-collection-receipts" class="rounded-xl border border-slate-200 bg-white">
+                                                <div class="border-b border-slate-100 px-4 py-3">
+                                                    <h4 class="text-sm font-semibold text-slate-900">采集任务与回执</h4>
+                                                    <p class="mt-1 text-xs leading-5 text-slate-500">回传、保存、本平台核验分别显示；安全证据仅供核对，不是正式经营事实。</p>
+                                                </div>
+                                                <div v-if="localCollectorLoading &amp;&amp; !localCollectorCollectionTaskRows.length" class="p-4 text-sm text-slate-500">正在读取采集任务…</div>
+                                                <div v-else-if="localCollectorError" class="p-4 text-sm text-red-700">当前任务列表未完成刷新：{{ localCollectorError }}</div>
+                                                <div v-else-if="!localCollectorCollectionTaskRows.length" class="p-4 text-sm text-slate-500">当前权限范围尚无可回读的采集或补抓任务。</div>
+                                                <div v-else class="divide-y divide-slate-100">
+                                                    <article v-for="row in localCollectorCollectionTaskRows" :key="row.evidenceKey" :data-testid="'local-collector-receipt-' + row.taskId" class="p-4">
+                                                        <div class="flex flex-wrap items-start justify-between gap-2">
+                                                            <div class="min-w-0">
+                                                                <div class="text-sm font-medium text-slate-900">{{ row.hotelName }} · {{ localCollectorPlatformText(row.platform) }} · {{ row.businessDate }}</div>
+                                                                <div class="mt-1 break-words text-xs text-slate-500">任务 #{{ row.taskId }} · {{ row.task.task_type === 'backfill' ? '补抓' : '采集' }} · {{ row.updatedAt }}</div>
+                                                            </div>
+                                                            <span :class="['rounded-full border px-2.5 py-1 text-xs font-medium', row.stateClass]" data-testid="local-collector-receipt-state">{{ row.stateText }}</span>
+                                                        </div>
+                                                        <dl class="mt-3 grid grid-cols-1 gap-2 text-xs sm:grid-cols-2 xl:grid-cols-3">
+                                                            <div><dt class="text-slate-500">本次采集</dt><dd class="mt-1 text-slate-800">{{ row.captureText }}</dd></div>
+                                                            <div><dt class="text-slate-500">结果回传</dt><dd class="mt-1 text-slate-800">{{ row.deliveryText }}</dd></div>
+                                                            <div><dt class="text-slate-500">正式保存</dt><dd class="mt-1 text-slate-800">{{ row.savedText }}</dd></div>
+                                                            <div><dt class="text-slate-500">本次回读</dt><dd class="mt-1 text-slate-800">{{ row.readbackText }}</dd></div>
+                                                            <div><dt class="text-slate-500">本平台历史事实</dt><dd class="mt-1 text-slate-800">{{ row.historyText }}</dd></div>
+                                                            <div><dt class="text-slate-500">双 OTA 就绪</dt><dd class="mt-1 text-slate-800">{{ row.authorityText }}</dd></div>
+                                                        </dl>
+                                                        <p v-if="row.failureText" data-testid="local-collector-receipt-failure" class="mt-3 break-words rounded-lg bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-900">{{ row.failureText }}</p>
+                                                        <p v-if="row.recoveryText" class="mt-2 text-xs leading-5 text-slate-600">下一步：{{ row.recoveryText }}</p>
+                                                        <div v-if="row.recoveryItem" data-testid="local-collector-recovery" class="mt-3 rounded-lg border border-indigo-100 bg-indigo-50 p-3 text-xs leading-5">
+                                                            <p class="break-words text-slate-700">{{ row.recoveryScopeText }} · 原回执任务 #{{ row.taskId }} / 第 {{ row.recoveryItem.attempt }} 次</p>
+                                                            <p v-if="row.recoveryMissingText" class="mt-1 text-amber-800">缺失项：{{ row.recoveryMissingText }}</p>
+                                                            <p v-if="row.recoveryEvidenceText" class="mt-1 text-amber-800">仍缺证据：{{ row.recoveryEvidenceText }}</p>
+                                                            <p v-if="row.recoveryItem.recovery_task_id" class="mt-1 text-indigo-700">已关联恢复任务 #{{ row.recoveryItem.recovery_task_id }}，可在本列表刷新查看。</p>
+                                                            <div class="mt-2 flex flex-wrap gap-2">
+                                                                <button v-for="action in row.recoveryActions" :key="action.code" type="button" @click="runLocalCollectorRecovery(row, action.code)" :disabled="row.recoveryView?.loading" :data-testid="'local-collector-recovery-' + action.code" class="rounded-lg border border-indigo-200 bg-white px-3 py-2 font-medium text-indigo-700 disabled:opacity-50">{{ row.recoveryView?.loading ? '处理中…' : action.label }}</button>
+                                                            </div>
+                                                            <p v-if="row.recoveryView?.error" role="alert" class="mt-2 break-words text-red-700">{{ row.recoveryView.error }}</p>
+                                                            <p v-if="row.recoveryView?.message" role="status" class="mt-2 break-words text-slate-700">{{ row.recoveryView.message }}</p>
+                                                        </div>
+                                                        <details class="mt-3 rounded-lg border border-slate-200">
+                                                            <summary class="cursor-pointer px-3 py-2 text-xs font-medium text-slate-700">回执与安全证据</summary>
+                                                            <div class="space-y-3 border-t border-slate-100 p-3 text-xs">
+                                                                <p class="break-words text-slate-600">数据源 #{{ row.sourceId }} · 同步任务 #{{ row.syncTaskId }} · 数据记录：{{ row.rowIds.length ? row.rowIds.map(id => 'online_daily_data#' + id).join('、') : '未返回可核对记录编号' }}</p>
+                                                                <p v-if="row.evidenceNote" class="text-slate-500">{{ row.evidenceNote }}</p>
+                                                                <button v-if="row.canQueryEvidence" type="button" @click="loadLocalCollectorTaskEvidence(row)" :disabled="row.evidenceView?.loading" class="rounded-lg border border-slate-300 bg-white px-3 py-2 font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50" data-testid="local-collector-evidence-query">{{ row.evidenceView?.loading ? '读取中…' : '查询安全证据' }}</button>
+                                                                <p v-if="row.evidenceView?.error" role="alert" class="break-words text-red-700">{{ row.evidenceView.error }}</p>
+                                                                <template v-if="row.evidenceView?.data">
+                                                                    <p class="text-slate-600">记录状态 {{ row.evidenceView.data.status }} · {{ row.evidenceView.data.bytes }} · 接收时间 {{ row.evidenceView.data.acceptedAt }}</p>
+                                                                    <p class="text-slate-600">采集记录 {{ row.evidenceView.data.captureId }} · 来源采集时间 {{ row.evidenceView.data.capturedAt }}</p>
+                                                                    <p class="rounded-lg bg-amber-50 px-3 py-2 text-amber-900">以下是脱敏回传证据，仅供核对，不是正式经营事实。质量状态：{{ row.evidenceView.data.quality }}</p>
+                                                                    <div v-if="row.evidenceView.data.businessRows.length" class="overflow-x-auto">
+                                                                        <table class="w-full min-w-[520px] text-left text-xs">
+                                                                            <thead class="bg-slate-50 text-slate-600"><tr><th class="px-2 py-2">类型 / 对象</th><th class="px-2 py-2">来源 / 业务日</th><th class="px-2 py-2">核心字段</th></tr></thead>
+                                                                            <tbody class="divide-y divide-slate-100"><tr v-for="item in row.evidenceView.data.businessRows" :key="item.key"><td class="max-w-48 break-words px-2 py-2">{{ item.kind }}<div class="mt-1 text-slate-500">{{ item.subject }}</div></td><td class="px-2 py-2">{{ item.source }}<div class="mt-1 text-slate-500">{{ item.date }}</div></td><td class="max-w-80 break-words px-2 py-2">{{ item.metricText }}</td></tr></tbody>
+                                                                        </table>
+                                                                    </div>
+                                                                    <p v-else class="text-slate-500">证据未返回可展示的业务行；不解释为零业绩。</p>
+                                                                    <p v-if="row.evidenceView.data.truncated" class="text-slate-500">当前展示前 50 行，未展示部分不影响回执状态。</p>
+                                                                </template>
+                                                            </div>
+                                                        </details>
+                                                    </article>
+                                                </div>
+                                            </section>
 
                                             <details class="rounded-xl border border-slate-200 bg-slate-50" :open="!(localCollectorStatus.devices || []).length">
                                                 <summary class="cursor-pointer px-4 py-3 text-sm font-semibold text-slate-800">第 1 步：连接账户使用者电脑</summary>
@@ -15916,7 +16135,7 @@
 
         <!-- 智能知识中枢：片段查看 -->
         <div v-if="showKnowledgeCenterChunksModal" class="fixed inset-0 z-50 flex items-center justify-center modal-overlay">
-            <div class="bg-white rounded-lg shadow-xl w-full max-w-4xl mx-4 max-h-[88vh] overflow-hidden flex flex-col">
+            <div class="bg-white rounded-lg shadow-xl w-full max-w-4xl mx-4 max-h-[88vh] overflow-hidden flex flex-col" style="max-height: 88vh;">
                 <div class="p-4 border-b flex justify-between items-center sticky top-0 bg-white">
                     <div>
                         <h3 class="text-lg font-semibold">{{ knowledgeCenterSelectedUnit?.name || '知识片段' }}</h3>
@@ -15926,12 +16145,39 @@
                         <i class="fas fa-times"></i>
                     </button>
                 </div>
-                <div class="p-4 grid grid-cols-1 lg:grid-cols-3 gap-4 overflow-hidden">
+                <div v-if="knowledgeCenterSelectedUnit?.applicability_query" class="p-3 border-b bg-slate-50 space-y-2 text-sm overflow-y-auto" style="flex-shrink: 0; max-height: 34vh;">
+                    <div class="flex flex-wrap gap-2 items-center">
+                        <span>适用酒店 #{{ knowledgeCenterSelectedUnit.applicability_query.hotel_id || '未选择' }}</span>
+                        <label>平台 <select v-model="knowledgeCenterSelectedUnit.applicability_query.platform" class="border rounded p-1"><option value="all_ota">携程/美团渠道参考</option><option value="ctrip">携程</option><option value="meituan">美团</option></select></label>
+                        <label>适用日 <input v-model="knowledgeCenterSelectedUnit.applicability_query.as_of" type="date" class="border rounded p-1"></label>
+                        <button type="button" @click="openKnowledgeChunks(knowledgeCenterSelectedUnit, { refresh: true, evaluate: true })" :disabled="knowledgeCenterSelectedUnit.chunks_loading" class="px-3 py-1 border rounded bg-white disabled:opacity-50">检查适用性与32题检索</button>
+                    </div>
+                    <div class="flex gap-2"><input v-model="knowledgeCenterSelectedUnit.applicability_query.question" placeholder="输入经营问题，查看这份知识的可用引用" class="min-w-0 flex-1 border rounded p-2"><button type="button" @click="openKnowledgeChunks(knowledgeCenterSelectedUnit, { refresh: true })" :disabled="knowledgeCenterSelectedUnit.chunks_loading" class="px-3 border rounded bg-white">预览引用</button></div>
+                    <details><summary>酒店适用条件</summary><label class="block mt-2">已知条件 JSON（缺失条件保持阻塞）<input v-model="knowledgeCenterSelectedUnit.applicability_query.hotel_conditions" placeholder='{"store_stage":"new"}' class="w-full border rounded p-2"></label></details>
+                    <p v-if="knowledgeCenterSelectedUnit.chunks_loading">正在读取当前范围…</p>
+                    <p v-if="knowledgeCenterSelectedUnit.chunks_error" class="text-red-700">{{ knowledgeCenterSelectedUnit.chunks_error }}；可重新检查。</p>
+                    <div v-if="knowledgeCenterSelectedUnit.retrieval_preview" class="text-slate-700">
+                        <p>{{ knowledgeCenterSelectedUnit.retrieval_preview.items?.length ? '当前可引用片段：' : '当前无可用匹配；不能据此补齐经营事实。' }}</p>
+                        <p v-for="item in knowledgeCenterSelectedUnit.retrieval_preview.items" :key="item.ref">{{ item.ref }} · {{ item.name }} · {{ item.applicability?.status_label }}</p>
+                        <p v-if="knowledgeCenterSelectedUnit.retrieval_preview.conflicts?.length" class="text-amber-800">存在规则冲突：{{ knowledgeCenterSelectedUnit.retrieval_preview.conflicts.length }} 组；以详情中的裁决状态为准。</p>
+                    </div>
+                    <details v-if="knowledgeCenterSelectedUnit.evaluation"><summary>已评估 {{ knowledgeCenterSelectedUnit.evaluation.question_count }} 个固定问题（本经验单元的引用选择，不代表模型回答或经营效果）</summary><p v-for="q in knowledgeCenterSelectedUnit.evaluation.questions" :key="q.id">{{ q.id }} {{ q.question }} · {{ q.refs.length ? q.refs.join('、') : '无可用引用' }}</p></details>
+                    <details v-if="knowledgeCenterSelectedUnit.reevaluation"><summary>保存后重评：{{ knowledgeCenterSelectedUnit.reevaluation.affected_count ?? 0 }} 个问题的结果变化</summary><p v-for="q in knowledgeCenterSelectedUnit.reevaluation.affected_questions" :key="q.id">{{ q.question }} · {{ q.before.refs.join('、') || '无引用' }} → {{ q.after.refs.join('、') || '无引用' }}</p></details>
+                </div>
+                <div class="p-4 grid grid-cols-1 lg:grid-cols-3 gap-4 overflow-y-auto" style="min-height: 0;">
                     <div class="lg:col-span-2 space-y-3 max-h-[68vh] overflow-y-auto pr-1">
                         <div v-for="chunk in knowledgeCenterVisibleChunks" :key="chunk.chunk_id" class="border border-gray-100 rounded-lg p-4">
                             <div class="flex items-center justify-between mb-2">
                                 <span :title="chunk.type || ''" class="px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 text-xs font-medium">{{ knowledgeCenterDisplayLabel(chunk.type || 'manual', '其他类型') }}</span>
                                 <span class="text-xs text-gray-400">#{{ chunk.chunk_id }} · {{ chunk.created_at || '-' }}</span>
+                            </div>
+                            <div v-if="chunk.applicability" class="mb-3 rounded border p-3 bg-slate-50 text-xs leading-5">
+                                <p class="font-semibold">{{ chunk.applicability.status_label }} · 来源等级 {{ chunk.applicability.evidence_grade }} · 版本 {{ chunk.revision_no }}</p>
+                                <p>有效期：{{ chunk.applicability.valid_from || '未记录起始日' }} 至 {{ chunk.applicability.valid_until || '未记录截止日' }}</p>
+                                <p>来源核验：{{ chunk.applicability.source_verification_status === 'verified' ? '已记录核验' : '未核验或未记录，需确认来源' }}</p>
+                                <p v-for="reason in chunk.applicability.reason_labels" :key="reason" class="text-amber-800">{{ reason }}</p>
+                                <p>知识参考不证明本店经营事实，不授予经营操作权限。</p>
+                                <button v-if="knowledgeCenterSelectedUnit?.can_edit !== false &amp;&amp; !chunk.revision_superseded" type="button" @click="openKnowledgeChunks(knowledgeCenterSelectedUnit, { editChunk: chunk })" :disabled="knowledgeCenterChunkForm.saving" class="mt-2 px-2 py-1 border rounded bg-white">修改并保存新版本</button>
                             </div>
                             <template v-for="view in [knowledgeChunkView(chunk)]" :key="'chunk-view-' + chunk.chunk_id">
                                 <h4 v-if="view.title" class="text-base font-semibold text-gray-900 mb-2">{{ view.title }}</h4>
@@ -16011,7 +16257,7 @@
                         <div v-if="knowledgeCenterVisibleChunks.length === 0" class="border border-dashed border-gray-200 rounded-lg p-8 text-center text-gray-500">当前筛选条件下暂无匹配片段</div>
                     </div>
                     <form v-if="knowledgeCenterSelectedUnit?.can_edit !== false" @submit.prevent="saveKnowledgeChunk" class="border border-gray-100 rounded-lg p-4 space-y-4 h-fit">
-                        <h4 class="font-semibold text-gray-800">新增经验片段</h4>
+                        <h4 class="font-semibold text-gray-800">{{ knowledgeCenterChunkForm.replaces_chunk_id ? '修改片段 #' + knowledgeCenterChunkForm.replaces_chunk_id + '（追加版本）' : '新增经验片段' }}</h4>
                         <div>
                             <label class="block text-sm font-medium text-gray-700 mb-1">类型</label>
                             <input v-model="knowledgeCenterChunkForm.type" type="text" placeholder="视频 / 链接 / 文本 / 策略复盘" class="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
@@ -16019,12 +16265,13 @@
                         <div>
                             <label class="block text-sm font-medium text-gray-700 mb-1">内容 JSON</label>
                             <textarea v-model="knowledgeCenterChunkForm.content" rows="8" class="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono text-sm"></textarea>
+                            <p class="mt-2 text-xs text-gray-500">可填写 source_refs、platforms、valid_from、valid_until、applicability.hotel_conditions 与 conflict_key。编辑内容保留为未核验参考，不能自行提升来源等级或授权。</p>
                         </div>
-                        <button type="submit" class="w-full px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600">写入片段</button>
+                        <button type="submit" :disabled="knowledgeCenterChunkForm.saving" class="w-full px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:opacity-50">{{ knowledgeCenterChunkForm.saving ? '保存与回读中…' : '保存并精确回读' }}</button>
                     </form>
                     <div v-else class="border border-blue-100 bg-blue-50 rounded-lg p-4 h-fit text-sm text-blue-800">
                         <div class="font-semibold">系统参考知识（只读）</div>
-                        <p class="mt-2 leading-6">可检索、查看并用于生成运营任务；来源版本由系统维护，避免门店误改公共模板。</p>
+                        <p class="mt-2 leading-6">可查看适用性与引用。转运营任务须另行通过既有门禁；来源版本由系统维护。</p>
                     </div>
                 </div>
             </div>

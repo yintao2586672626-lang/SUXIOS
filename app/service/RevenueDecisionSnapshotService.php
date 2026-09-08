@@ -391,6 +391,14 @@ final class RevenueDecisionSnapshotService
                 $status = hash_equals((string)$snapshot['evidence_digest'], self::digest($currentRefs))
                     ? 'matched_current'
                     : 'stale_current_evidence';
+                $currentLedger = (new RevenueOperatingLedgerService())->forOverview(
+                    $currentOverview, (int)$snapshot['tenant_id'], (int)$snapshot['system_hotel_id'],
+                    (string)$snapshot['business_date'], (string)$snapshot['platform']
+                );
+                $savedLedgerVersion = (string)($snapshot['visible_model']['operatingLedger']['version'] ?? '');
+                if (!hash_equals($savedLedgerVersion, (string)($currentLedger['version'] ?? ''))) {
+                    $status = 'stale_current_evidence';
+                }
             }
         }
         $snapshot['persistence_status'] = 'readback_verified';

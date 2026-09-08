@@ -28,7 +28,7 @@ final class KnowledgeDecisionGateService
      */
     public function assess(array $unit, array $content, mixed $asOf = null): array
     {
-        $asOfDate = $this->normalizeDate($asOf) ?? new DateTimeImmutable('now');
+        $asOfDate = $this->normalizeDate($asOf) ?? new DateTimeImmutable('now', new \DateTimeZone('Asia/Shanghai'));
         $unitLifecycle = $this->normalizeLifecycle($unit['lifecycle_status'] ?? 'active');
         $chunkLifecycle = $this->normalizeLifecycle($content['lifecycle_status'] ?? 'active');
         $scope = strtolower(trim((string)($content['scope'] ?? '')));
@@ -83,6 +83,28 @@ final class KnowledgeDecisionGateService
         );
 
         $reasons = [];
+        if ($asOf !== null && $this->normalizeDate($asOf) === null) {
+            $reasons[] = 'knowledge_as_of_invalid';
+        }
+        foreach (['valid_from', 'valid_until', 'effective_from', 'effective_until', 'effective_at', 'expires_at', 'reviewed_at', 'review_due_at'] as $dateField) {
+            foreach ([$content, $unit] as $metadata) {
+                if (isset($metadata[$dateField]) && $metadata[$dateField] !== '' && $this->normalizeDate($metadata[$dateField]) === null) {
+                    $reasons[] = 'knowledge_date_invalid';
+                }
+            }
+        }
+        // Calendar end dates include the entire Shanghai business day.
+        foreach (['valid_until', 'expires_at', 'effective_until'] as $field) {
+            if (!empty($content[$field])) {
+                if (is_string($content[$field]) && preg_match('/^\d{4}-\d{2}-\d{2}$/D', $content[$field])) {
+                    $validUntil = $validUntil?->setTime(23, 59, 59);
+                }
+                break;
+            }
+        }
+        if ($validFrom !== null && $validUntil !== null && $validUntil < $validFrom) {
+            $reasons[] = 'knowledge_validity_range_invalid';
+        }
         if ($unitLifecycle !== 'active') {
             $reasons[] = 'knowledge_unit_not_active';
         }
@@ -127,6 +149,19 @@ final class KnowledgeDecisionGateService
             $reasons[] = 'knowledge_evidence_unrated';
         }
 
+        $decisionPolicy = $content['decision_policy'] ?? '';
+        $policyText = is_scalar($decisionPolicy) ? (string)$decisionPolicy : implode(' ', $this->normalizeList($decisionPolicy));
+        $referenceOnly = filter_var($content['reference_only'] ?? false, FILTER_VALIDATE_BOOL)
+            || str_contains($scope, 'reference')
+            || str_contains(strtolower($policyText), 'reference_only');
+        $sourceVerification = strtolower(trim((string)($content['source_verification_status'] ?? 'not_recorded')));
+        $sourceUnverified = in_array($sourceVerification, ['unverified', 'unavailable', 'failed', 'unverifiable'], true);
+        if ($referenceOnly) {
+            $reasons[] = 'knowledge_reference_only';
+        }
+        if ($sourceUnverified) {
+            $reasons[] = 'knowledge_source_unverifiable';
+        }
         $status = self::STATUS_APPROVED;
         if ($hardBlocked) {
             $status = self::STATUS_BLOCKED;
@@ -134,6 +169,9 @@ final class KnowledgeDecisionGateService
             $status = self::STATUS_KNOWN_UNKNOWN;
         } elseif (
             $freshnessStatus !== 'current'
+            || $referenceOnly
+            || $sourceUnverified
+            || (array_key_exists('decision_safe', $content) && !filter_var($content['decision_safe'], FILTER_VALIDATE_BOOL))
             || $requiresCurrentVerification
             || in_array($evidenceGrade, ['C', 'D', 'U'], true)
         ) {
@@ -142,11 +180,16 @@ final class KnowledgeDecisionGateService
 
         $referenceSafe = !$hardBlocked;
         $retrievalSafe = $referenceSafe
+            && (!array_key_exists('retrieval_safe', $content) || filter_var($content['retrieval_safe'], FILTER_VALIDATE_BOOL))
+            && !$sourceUnverified
             && ($knownUnknownBoundary || in_array($evidenceGrade, ['A', 'B', 'C'], true));
         $decisionSafe = $status === self::STATUS_APPROVED
             && in_array($evidenceGrade, ['A', 'B'], true)
             && (!$requiresCurrentVerification || $hasCurrentVerification);
         $taskDraftSafe = $referenceSafe
+            && !$referenceOnly
+            && !$sourceUnverified
+            && (!array_key_exists('task_draft_safe', $content) || filter_var($content['task_draft_safe'], FILTER_VALIDATE_BOOL))
             && !$knownUnknownBoundary
             && $freshnessStatus === 'current'
             && in_array($evidenceGrade, ['A', 'B', 'C'], true)
@@ -173,6 +216,9 @@ final class KnowledgeDecisionGateService
             'retrieval_safe' => $retrievalSafe,
             'decision_safe' => $decisionSafe,
             'task_draft_safe' => $taskDraftSafe,
+            'fact_safe' => false,
+            'external_write_authorized' => false,
+            'source_verification_status' => $sourceVerification,
             'reason_codes' => $reasons,
             'primary_reason' => $reasons[0] ?? '',
             'as_of' => $asOfDate->format('Y-m-d H:i:s'),
@@ -198,13 +244,20 @@ final class KnowledgeDecisionGateService
     public function resolveConflictingClaims(array $entries): array
     {
         $groups = [];
+        $groupKeys = [];
+        $claimPools = [];
         foreach ($entries as $index => $entry) {
             $content = is_array($entry['content'] ?? null) ? $entry['content'] : [];
+            if (!in_array($content['lifecycle_status'] ?? 'active', ['', 'active'], true)) continue;
             $conflictKey = trim((string)($content['conflict_key'] ?? ''));
             if ($conflictKey === '' || !array_key_exists('claim_value', $content)) {
                 continue;
             }
-            $groups[$conflictKey][] = [
+            $claimPlatforms = (new KnowledgeApplicabilityService())->platforms($entry['applicability']['scope']['platforms'] ?? $content['platforms'] ?? []);
+            sort($claimPlatforms);
+            if (in_array('all_ota', $claimPlatforms, true)) $claimPlatforms = ['ctrip', 'meituan'];
+            $claimPools[$conflictKey][] = [
+                'platforms' => $claimPlatforms,
                 'index' => $index,
                 'claim' => $this->canonicalValue($content['claim_value']),
                 'resolution_status' => strtolower(trim((string)(
@@ -215,13 +268,25 @@ final class KnowledgeDecisionGateService
                 'chunk_id' => (int)($entry['chunk_id'] ?? 0),
             ];
         }
+        foreach ($claimPools as $conflictKey => $pool) {
+            $platforms = array_values(array_unique(array_merge([], ...array_column($pool, 'platforms'))));
+            if ($platforms === []) $platforms = ['unspecified'];
+            foreach ($pool as $candidate) {
+                foreach ($candidate['platforms'] ?: $platforms as $platform) {
+                    $groupKey = $conflictKey . ':' . $platform;
+                    $groupKeys[$groupKey] = $conflictKey;
+                    $groups[$groupKey][] = $candidate;
+                }
+            }
+        }
 
         $excluded = [];
         $conflicts = [];
         $resolvedCount = 0;
         $unresolvedCount = 0;
 
-        foreach ($groups as $conflictKey => $candidates) {
+        foreach ($groups as $groupKey => $candidates) {
+            $conflictKey = $groupKeys[$groupKey];
             $claims = array_values(array_unique(array_column($candidates, 'claim')));
             if (count($claims) <= 1) {
                 continue;
@@ -418,13 +483,22 @@ final class KnowledgeDecisionGateService
     private function normalizeDate(mixed $value): ?DateTimeImmutable
     {
         if ($value instanceof DateTimeImmutable) {
-            return $value;
+            return $value->setTimezone(new \DateTimeZone('Asia/Shanghai'));
         }
         if (!is_scalar($value) || trim((string)$value) === '') {
             return null;
         }
         try {
-            return new DateTimeImmutable(trim((string)$value));
+            $text = trim((string)$value);
+            if (preg_match('/^\d{4}-\d{2}-\d{2}(?:[ T]\d{2}:\d{2}:\d{2}(?:[.]\d+)?(?:Z|[+-]\d{2}:\d{2})?)?$/D', $text) !== 1) {
+                return null;
+            }
+            $date = new DateTimeImmutable($text, new \DateTimeZone('Asia/Shanghai'));
+            $errors = DateTimeImmutable::getLastErrors();
+            if ($errors !== false && ($errors['warning_count'] || $errors['error_count'])) {
+                return null;
+            }
+            return $date->setTimezone(new \DateTimeZone('Asia/Shanghai'));
         } catch (Throwable) {
             return null;
         }

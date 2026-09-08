@@ -277,7 +277,7 @@
         const buildRevenueCockpitDownloadRows = (model = {}) => {
             const sections = Array.isArray(model.visibleSections) ? model.visibleSections : [];
             let order = 0;
-            return sections.flatMap((section) => (
+            const cardRows = sections.flatMap((section) => (
                 (Array.isArray(section.cards) ? section.cards : []).map((card) => {
                     order += 1;
                     return {
@@ -301,6 +301,23 @@
                     };
                 })
             ));
+            const ledger = model.operatingLedger;
+            if (!ledger) return cardRows;
+            const base = { section: '经营底账 · 来源与差额', business_date: `${ledger.scope.start_date} 至 ${ledger.scope.end_date}`,
+                unit: 'CNY 元', causality_claimed: 'false', evidence_level: ledger.scope.evidence_mode };
+            const metrics = (ledger.metrics || []).map((metric) => ({ ...base, order: ++order,
+                card: metric.label, display: metric.value ?? '未形成完整可信金额', source: metric.platform,
+                verification_status: metric.status, scope: metric.scope,
+                missing_state: metric.missing_dates.join('、'),
+                explanation: `${metric.definition}；${metric.formula}；非全期间金额：${metric.partial_value ?? '无'}；已覆盖：${metric.covered_dates.join('、')}`,
+                evidence: JSON.stringify({ version: ledger.version, days: metric.days, source_refs: metric.source_refs }) }));
+            const differences = (ledger.differences || []).map((item) => ({ ...base, order: ++order,
+                card: item.label, display: item.observed_difference ?? '无法计算', source: item.platform,
+                verification_status: item.status, scope: item.boundary,
+                missing_state: item.reason_codes.join('、'),
+                explanation: `${item.formula}；有证据解释：${item.explained_difference ?? '无法计算'}；未解释：${item.unexplained_difference ?? '无法计算'}`,
+                evidence: JSON.stringify({ version: ledger.version, components: item.components }) }));
+            return [...cardRows, ...metrics, ...differences];
         };
 
         const revenueCockpitCsvCell = (value) => `"${String(value ?? '').replace(/"/g, '""')}"`;

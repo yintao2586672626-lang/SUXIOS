@@ -8,6 +8,99 @@ use think\facade\Db;
 
 class OtaStandardEtlService
 {
+    /** Persisted inputs consumed by ETL; collector content proof uses this exact shared projection. */
+    public const SOURCE_ROW_FIELDS = [
+        'id',
+        'tenant_id',
+        'system_hotel_id',
+        'hotel_id',
+        'hotel_name',
+        'data_date',
+        'amount',
+        'room_revenue',
+        'gross_revenue',
+        'net_revenue',
+        'settlement_amount',
+        'refund_amount',
+        'settlement_date',
+        'refund_date',
+        'fee_date',
+        'refund_origin_business_date',
+        'reconciliation_group',
+        'quantity',
+        'book_order_num',
+        'comment_score',
+        'qunar_comment_score',
+        'raw_data',
+        'data_value',
+        'source',
+        'dimension',
+        'data_type',
+        'platform',
+        'compare_type',
+        'list_exposure',
+        'detail_exposure',
+        'flow_rate',
+        'order_filling_num',
+        'order_submit_num',
+        'available_rooms',
+        'available_room_nights',
+        'salable_rooms',
+        'salable_room_nights',
+        'total_rooms_count',
+        'rooms_total',
+        'occupied_rooms',
+        'occupied_room_nights',
+        'commission_amount',
+        'commission',
+        'commission_rate',
+        'ota_commission',
+        'ota_commission_rate',
+        'cancel_order_num',
+        'cancel_room_nights',
+        'cancel_rate',
+        'our_price',
+        'competitor_price',
+        'price_gap',
+        'price_difference',
+        'booking_date',
+        'order_date',
+        'checkin_date',
+        'checkout_date',
+        'lead_time_days',
+        'booking_window',
+        'update_time',
+        'updated_at',
+        'create_time',
+        'created_at',
+        'status',
+        'save_status',
+        'validation_status',
+        'history_status',
+        'validation_flags',
+        'readback_verified',
+        'readback_verified_at',
+        'error_info',
+        'failure_reason',
+        'failed_reason',
+        'data_source_id',
+        'sync_task_id',
+        'ingestion_method',
+        'source_trace_id',
+        'data_period',
+        'collected_at',
+        'snapshot_time',
+        'snapshot_bucket',
+        'is_final',
+    ];
+
+    public const MONETARY_DAILY_FIELDS = [
+        'amount', 'revenue', 'gross_revenue', 'room_revenue', 'net_revenue',
+        'settlement_amount', 'refund_amount', 'commission_amount', 'commission_rate',
+        'adr', 'revpar', 'net_revpar', 'our_price', 'competitor_price',
+        'price_gap', 'price_gap_rate',
+    ];
+
     private const CTRIP_MARKET_OVERVIEW_BOOKING_DIMENSION =
         'semantic:ctrip_business_market_overview:booking_order_count';
     private const CTRIP_MARKET_OVERVIEW_BOOKING_PROJECTION_VERSION =
@@ -21,7 +114,8 @@ class OtaStandardEtlService
      */
     public function buildDataset(array $filters = []): array
     {
-        $dataset = $this->buildDatasetFromRows($this->fetchRows($filters));
+        $rows = app(OtaLocalCollectorReadbackProofService::class)->projectRows($this->fetchRows($filters));
+        $dataset = $this->buildDatasetFromRows($rows);
         if (is_array($dataset['data_quality']['order_dedup'] ?? null)) {
             $dataset['data_quality']['order_dedup']['evidence_status'] =
                 'trusted_query_only';
@@ -164,6 +258,12 @@ class OtaStandardEtlService
             );
         }
 
+        $monetaryUnitGaps = [];
+        foreach ($dailyFacts as $fact) {
+            foreach ($fact['monetary_unit_evidence']['failure_reasons'] ?? [] as $reason) {
+                $monetaryUnitGaps[$reason] = ($monetaryUnitGaps[$reason] ?? 0) + 1;
+            }
+        }
         $acceptedCount = count($dailyFacts)
             + count($trafficFacts)
             + count($advertisingFacts)
@@ -196,8 +296,13 @@ class OtaStandardEtlService
             : ($trustedCount === $acceptedCount
                 ? 'ready'
                 : ($trustedCount > 0 ? 'partial' : 'blocked'));
+        if ($datasetStatus === 'ready' && $monetaryUnitGaps !== []) {
+            $datasetStatus = 'partial';
+        }
         return [
             'status' => $datasetStatus,
+            'read_contract_version' => 'ota_standard_read.20260904.v3',
+            'numeric_unit_policy' => 'explicit_money_units_guarded_traffic_fraction_requires_unit_or_counts',
             'dim_hotel' => array_values($hotels),
             'dim_platform' => array_values($platforms),
             'fact_ota_daily' => $dailyFacts,
@@ -223,6 +328,7 @@ class OtaStandardEtlService
                 'accepted_rows' => $acceptedCount,
                 'trusted_rows' => $trustedCount,
                 'untrusted_rows' => $acceptedCount - $trustedCount,
+                'monetary_unit_gaps' => $monetaryUnitGaps,
                 'rejected_rows' => $rejectedRows,
             ],
         ];
@@ -752,83 +858,7 @@ class OtaStandardEtlService
         }
 
         $columns = $this->tableColumns('online_daily_data');
-        $fields = array_values(array_intersect([
-            'id',
-            'tenant_id',
-            'system_hotel_id',
-            'hotel_id',
-            'hotel_name',
-            'data_date',
-            'amount',
-            'room_revenue',
-            'gross_revenue',
-            'net_revenue',
-            'quantity',
-            'book_order_num',
-            'comment_score',
-            'qunar_comment_score',
-            'raw_data',
-            'data_value',
-            'source',
-            'dimension',
-            'data_type',
-            'platform',
-            'compare_type',
-            'list_exposure',
-            'detail_exposure',
-            'flow_rate',
-            'order_filling_num',
-            'order_submit_num',
-            'available_rooms',
-            'available_room_nights',
-            'salable_rooms',
-            'salable_room_nights',
-            'total_rooms_count',
-            'rooms_total',
-            'occupied_rooms',
-            'occupied_room_nights',
-            'commission_amount',
-            'commission',
-            'commission_rate',
-            'ota_commission',
-            'ota_commission_rate',
-            'cancel_order_num',
-            'cancel_room_nights',
-            'cancel_rate',
-            'our_price',
-            'competitor_price',
-            'price_gap',
-            'price_difference',
-            'booking_date',
-            'order_date',
-            'checkin_date',
-            'checkout_date',
-            'lead_time_days',
-            'booking_window',
-            'update_time',
-            'updated_at',
-            'create_time',
-            'created_at',
-            'status',
-            'save_status',
-            'validation_status',
-            'history_status',
-            'validation_flags',
-            'readback_verified',
-            'readback_verified_at',
-            'error_info',
-            'failure_reason',
-            'failed_reason',
-            'data_source_id',
-            'sync_task_id',
-            'ingestion_method',
-            'source_trace_id',
-            'data_period',
-            'collected_at',
-            'snapshot_time',
-            'snapshot_bucket',
-            'is_final',
-        ], array_keys($columns)));
+        $fields = array_values(array_intersect(self::SOURCE_ROW_FIELDS, array_keys($columns)));
 
         $query = Db::name('online_daily_data')->field($fields ?: '*');
         $strictReadbackOnly = in_array(
@@ -1424,7 +1454,7 @@ class OtaStandardEtlService
             $priceGap = round($ourPrice - $competitorPrice, 2);
         }
 
-        return [
+        $fact = [
             'date_key' => $date,
             'hotel_key' => $hotelKey,
             'platform_key' => $source,
@@ -1439,6 +1469,14 @@ class OtaStandardEtlService
             'room_revenue_basis' => $roomRevenueBasis,
             'net_revenue' => $netRevenue !== null ? round($netRevenue, 2) : null,
             'settlement_amount' => $settlementAmount !== null ? round($settlementAmount, 2) : null,
+            'refund_amount' => $this->nullableNumber($row, $raw, ['refund_amount', 'refundAmount']),
+            'financial_dates' => [
+                'settlement_amount' => $this->dateValue($this->firstText($row, $raw, ['settlement_date', 'settlementDate'])),
+                'refund_amount' => $this->dateValue($this->firstText($row, $raw, ['refund_date', 'refundDate'])),
+                'fee_amount' => $this->dateValue($this->firstText($row, $raw, ['fee_date', 'feeDate'])),
+            ],
+            'refund_origin_business_date' => $this->dateValue($this->firstText($row, $raw, ['refund_origin_business_date', 'original_order_date'])),
+            'reconciliation_group' => $this->firstText($row, $raw, ['reconciliation_group']),
             'commission_amount' => $commissionAmount !== null ? round($commissionAmount, 2) : null,
             'commission_rate' => $commissionRate !== null ? round($commissionRate, 2) : null,
             'net_revenue_basis' => $netRevenueBasis,
@@ -1481,6 +1519,75 @@ class OtaStandardEtlService
                 : null,
             'raw_data' => $raw,
             'source_trace' => $this->rowTrace($row, $hotelKey, $source, $dataType, $date),
+        ];
+        $fact['monetary_unit_evidence'] = self::monetaryUnitEvidence($row, $raw);
+        if ($fact['monetary_unit_evidence']['failure_reasons'] !== []) {
+            foreach (self::MONETARY_DAILY_FIELDS as $field) {
+                if (array_key_exists($field, $fact)) {
+                    $fact[$field] = null;
+                }
+            }
+        }
+        return $fact;
+    }
+
+    /**
+     * Explicit declarations only: legacy absence is not a new CNY/unit proof.
+     * Stored import wrappers are inspected without changing their source values.
+     */
+    public static function monetaryUnitEvidence(array $row, array $raw = []): array
+    {
+        $sources = [$row, $raw];
+        $currencies = $units = $statuses = [];
+        for ($depth = 0; $depth < 4 && $sources !== []; $depth++) {
+            $children = [];
+            foreach ($sources as $source) {
+                foreach (['currency' => &$currencies, 'amount_storage_unit' => &$units, 'currency_status' => &$statuses] as $key => &$values) {
+                    $value = is_scalar($source[$key] ?? null) ? trim((string)$source[$key]) : '';
+                    if ($value !== '') $values[strtolower($value)] = $value;
+                }
+                unset($values);
+                foreach (['row', 'raw_data'] as $key) {
+                    $child = $source[$key] ?? null;
+                    if (is_string($child)) $child = json_decode($child, true);
+                    if (is_array($child)) $children[] = $child;
+                }
+            }
+            $sources = $children;
+        }
+        $failures = [];
+        if (array_intersect(array_keys($statuses), ['unknown', 'missing', 'missing_source_currency']) !== []
+            || array_intersect(array_keys($currencies), ['unknown', 'missing']) !== []) {
+            $failures[] = 'missing_source_currency';
+        }
+        if (array_intersect(array_keys($statuses), ['unsupported', 'unsupported_currency', 'unsupported_source_currency']) !== []) {
+            $failures[] = 'unsupported_source_currency';
+        }
+        foreach (array_keys($currencies) as $currency) {
+            if (!in_array($currency, ['cny', 'rmb', '人民币', 'unknown', 'missing'], true)) {
+                $failures[] = 'unsupported_source_currency';
+            }
+        }
+        foreach (array_keys($units) as $unit) {
+            if (in_array($unit, ['unknown', 'missing'], true)) {
+                $failures[] = 'missing_source_amount_unit';
+            } elseif (!in_array($unit, ['yuan', '元', '人民币元'], true)) {
+                $failures[] = 'unsupported_amount_storage_unit';
+            }
+        }
+        $knownCurrency = $currencies !== []
+            && array_diff(array_keys($currencies), ['cny', 'rmb', '人民币']) === [];
+        return [
+            'currency' => $knownCurrency ? 'CNY' : null,
+            'currency_status' => in_array('missing_source_currency', $failures, true)
+                ? 'missing_source_currency'
+                : (in_array('unsupported_source_currency', $failures, true)
+                    ? 'unsupported_source_currency' : ($knownCurrency ? 'source_declared' : 'legacy_unspecified')),
+            'amount_storage_unit' => count($units) === 1 ? (string)reset($units) : null,
+            'source_currency_values' => array_values($currencies),
+            'source_currency_statuses' => array_values($statuses),
+            'source_amount_units' => array_values($units),
+            'failure_reasons' => array_values(array_unique($failures)),
         ];
     }
 
@@ -1550,20 +1657,33 @@ class OtaStandardEtlService
     {
         $listExposure = $this->nullableNumber($row, $raw, ['list_exposure', 'listExposure', 'exposure_count', 'exposureCount']);
         $detailExposure = $this->nullableNumber($row, $raw, ['detail_exposure', 'detailExposure', 'page_views', 'pageViews']);
-        $storedFlowRate = $this->nullablePercent($row, $raw, ['flow_rate', 'flowRate', 'conversion_rate', 'conversionRate']);
+        $flowRateKeys = ['flow_rate', 'flowRate', 'conversion_rate', 'conversionRate'];
+        $flowRateEvidence = $this->trafficPercentEvidence($row, $raw, $flowRateKeys);
+        $ambiguousFlowRate = $flowRateEvidence['unverified_value'];
+        $storedFlowRate = $flowRateEvidence['value'];
         $flowRate = $storedFlowRate;
-        $flowRateBasis = $flowRate !== null ? 'stored_flow_rate' : 'missing';
-        $flowRateValidationStatus = $flowRate !== null ? 'strict_readback' : 'missing';
-        $flowRateQualityFlags = [];
+        $flowRateBasis = $flowRate !== null ? 'stored_flow_rate' : ($ambiguousFlowRate !== null ? 'source_unit_unverified' : 'missing');
+        $flowRateValidationStatus = $flowRate !== null ? 'strict_readback' : $flowRateBasis;
+        $flowRateQualityFlags = $ambiguousFlowRate !== null ? ['flow_rate_unit_unverified'] : [];
         if ($source === 'meituan') {
             $detail = $this->rawDetail($raw);
-            $platformExposureToBrowseRate = $this->nullablePercent([], $detail, [
+            $platformRateKeys = [
                 'exposure_to_browse_rate',
                 'exposureToBrowseRate',
                 'intentionPerExposure',
                 'expose_visit_rate',
                 'exposeVisitRate',
-            ]);
+            ];
+            $platformRateEvidence = $this->trafficPercentEvidence([], $detail, $platformRateKeys);
+            $ambiguousPlatformRate = $platformRateEvidence['unverified_value'];
+            $platformExposureToBrowseRate = $platformRateEvidence['value'];
+            if ($ambiguousPlatformRate !== null) {
+                $flowRateQualityFlags[] = 'flow_rate_unit_unverified';
+                if ($flowRate === null) {
+                    $flowRateBasis = 'source_unit_unverified';
+                    $flowRateValidationStatus = 'source_unit_unverified';
+                }
+            }
             $calculatedExposureToBrowseRate = $listExposure !== null
                 && $listExposure > 0
                 && $detailExposure !== null
@@ -1598,8 +1718,21 @@ class OtaStandardEtlService
                 $flowRateQualityFlags[] = 'legacy_stored_flow_rate_semantic_mismatch';
             }
         }
+        if (($listExposure !== null && $listExposure < 0)
+            || ($detailExposure !== null && $detailExposure < 0)
+            || ($listExposure !== null && $detailExposure !== null && $detailExposure > $listExposure)) {
+            $flowRate = null;
+            $flowRateBasis = 'counts_invalid';
+            $flowRateValidationStatus = 'counts_invalid';
+            $flowRateQualityFlags[] = 'flow_rate_counts_invalid';
+        }
         $orderFilling = $this->nullableNumber($row, $raw, ['order_filling_num', 'orderFillingNum', 'click_count', 'clickCount']);
         $orderSubmit = $this->nullableNumber($row, $raw, ['order_submit_num', 'orderSubmitNum', 'submit_users', 'submitUsers']);
+        $submitCountsInvalid = ($orderFilling !== null && $orderFilling < 0)
+            || ($orderSubmit !== null && $orderSubmit < 0)
+            || ($orderFilling !== null && $orderSubmit !== null && $orderSubmit > $orderFilling);
+        $submitRate = !$submitCountsInvalid && $orderFilling !== null && $orderFilling > 0 && $orderSubmit !== null
+            ? round($orderSubmit / $orderFilling * 100, 2) : null;
 
         return [
             'date_key' => $date,
@@ -1610,14 +1743,16 @@ class OtaStandardEtlService
             'detail_exposure' => $detailExposure !== null ? (int)round($detailExposure) : null,
             'flow_rate' => $flowRate !== null ? round($flowRate, 2) : null,
             'stored_flow_rate' => $storedFlowRate !== null ? round($storedFlowRate, 2) : null,
+            'flow_rate_source_value' => $ambiguousFlowRate,
             'flow_rate_basis' => $flowRateBasis,
             'flow_rate_validation_status' => $flowRateValidationStatus,
             'flow_rate_quality_flags' => array_values(array_unique($flowRateQualityFlags)),
             'order_filling_num' => $orderFilling !== null ? (int)round($orderFilling) : null,
             'order_submit_num' => $orderSubmit !== null ? (int)round($orderSubmit) : null,
-            'submit_rate' => $orderFilling !== null && $orderFilling > 0 && $orderSubmit !== null
-                ? round($orderSubmit / $orderFilling * 100, 2)
-                : null,
+            'submit_rate' => $submitRate,
+            'submit_rate_validation_status' => $submitCountsInvalid ? 'counts_invalid'
+                : ($submitRate !== null ? 'verified_calculation' : 'missing'),
+            'submit_rate_quality_flags' => $submitCountsInvalid ? ['submit_rate_counts_invalid'] : [],
             'raw_data' => $raw,
             'source_trace' => $this->rowTrace($row, $hotelKey, $source, 'traffic', $date),
         ];
@@ -1909,6 +2044,13 @@ class OtaStandardEtlService
     private function rowTrace(array $row, string $hotelKey, string $source, string $dataType, string $date): array
     {
         $failureReasons = [];
+        $collectorRow = is_array($row['_local_collector_readback_proof'] ?? null)
+            || strtolower(trim((string)($row['ingestion_method'] ?? ''))) === 'local_collector';
+        $collectorProof = is_array($row['_local_collector_readback_proof'] ?? null) ? $row['_local_collector_readback_proof'] : [];
+        $collectorVerified = !$collectorRow || ($collectorProof['readback_verified'] ?? false) === true;
+        if (!$collectorVerified) {
+            $failureReasons[] = (string)($collectorProof['reason_code'] ?? 'original_receipt_missing');
+        }
         $status = strtolower(trim((string)($row['status'] ?? $row['save_status'] ?? '')));
         if (in_array($status, OnlineDataTrustStatusService::blockingRowStatuses(), true)) {
             $failureReasons[] = 'row_status_' . $status;
@@ -1972,10 +2114,10 @@ class OtaStandardEtlService
             'data_period' => trim((string)($row['data_period'] ?? '')),
             'is_final' => $this->isFinalPeriodRow($row),
             'stored' => isset($row['id']) && trim((string)$row['id']) !== '',
-            'readback_verified' => (int)($row['readback_verified'] ?? 0) === 1,
+            'readback_verified' => (int)($row['readback_verified'] ?? 0) === 1 && $collectorVerified,
             'saved_success' => empty($failureReasons),
             'failure_reasons' => array_values(array_unique($failureReasons)),
-        ];
+        ] + ($collectorRow ? ['collector_readback_proof' => $collectorProof] : []);
     }
 
     /**
@@ -2610,8 +2752,14 @@ class OtaStandardEtlService
         foreach ($keys as $key) {
             foreach ([$row, $raw] as $source) {
                 if (array_key_exists($key, $source) && $source[$key] !== '' && $source[$key] !== null) {
-                    $value = is_string($source[$key]) ? str_replace(['%', ','], '', trim($source[$key])) : $source[$key];
-                    if (is_numeric($value)) {
+                    $value = is_string($source[$key]) ? trim($source[$key]) : $source[$key];
+                    if (is_string($value) && str_contains($value, ',')) {
+                        if (preg_match('/^[+-]?\d{1,3}(?:,\d{3})+(?:\.\d+)?$/D', $value) !== 1) {
+                            continue;
+                        }
+                        $value = str_replace(',', '', $value);
+                    }
+                    if (is_numeric($value) && is_finite((float)$value)) {
                         return (float)$value;
                     }
                 }
@@ -2627,15 +2775,64 @@ class OtaStandardEtlService
      */
     private function nullablePercent(array $row, array $raw, array $keys): ?float
     {
-        $value = $this->nullableNumber($row, $raw, $keys);
-        if ($value === null) {
-            return null;
+        foreach ($keys as $key) {
+            foreach ([$row, $raw] as $source) {
+                $rawValue = $source[$key] ?? null;
+                $explicitPercent = is_string($rawValue) && str_ends_with(trim($rawValue), '%');
+                $value = $this->nullableNumber(['value' => $explicitPercent
+                    ? trim(substr(trim($rawValue), 0, -1)) : $rawValue], [], ['value']);
+                if ($value === null) {
+                    continue;
+                }
+                // An explicit percent sign fixes the unit. Legacy unlabelled
+                // fractions retain their existing interpretation for compatibility.
+                $percent = !$explicitPercent && $value > 0 && $value <= 1 ? $value * 100 : $value;
+                return $percent >= 0 && $percent <= 100 ? $percent : null;
+            }
         }
-        if ($value < 0) {
-            return null;
+        return null;
+    }
+
+    /** A matching original percent suffix can prove the normalized numeric column's unit. */
+    private function trafficPercentEvidence(array $row, array $raw, array $keys): array
+    {
+        $ambiguous = $this->unlabelledFractionValue($row, $raw, $keys);
+        if ($ambiguous === null) {
+            return ['value' => $this->nullablePercent($row, $raw, $keys), 'unverified_value' => null];
         }
-        $percent = $value > 0 && $value <= 1 ? $value * 100 : $value;
-        return $percent <= 100 ? $percent : null;
+        foreach ($keys as $key) {
+            foreach ([$row, $raw] as $source) {
+                $candidate = $source[$key] ?? null;
+                if (is_string($candidate) && str_ends_with(trim($candidate), '%')) {
+                    $explicit = $this->nullablePercent([], [$key => $candidate], [$key]);
+                    if ($explicit !== null && $explicit === (float)$ambiguous) {
+                        return ['value' => $explicit, 'unverified_value' => null];
+                    }
+                }
+            }
+        }
+        return ['value' => null, 'unverified_value' => $ambiguous];
+    }
+
+    /** Keep ambiguous 0–1 source values as evidence, not asserted percentages. */
+    private function unlabelledFractionValue(array $row, array $raw, array $keys): mixed
+    {
+        foreach ($keys as $key) {
+            foreach ([$row, $raw] as $source) {
+                $value = $source[$key] ?? null;
+                if (is_string($value) && str_ends_with(trim($value), '%')) {
+                    if ($this->nullablePercent([], [$key => $value], [$key]) !== null) {
+                        return null;
+                    }
+                    continue;
+                }
+                $number = $this->nullableNumber([], ['value' => $value], ['value']);
+                if ($number !== null) {
+                    return $number > 0 && $number <= 1 ? $value : null;
+                }
+            }
+        }
+        return null;
     }
 
     /**
@@ -2660,12 +2857,14 @@ class OtaStandardEtlService
      */
     private function supplementalPercent(array $row, array $raw, array $keys): ?float
     {
-        $value = $this->supplementalNumber($row, $raw, $keys);
-        if ($value === null || $value < 0) {
-            return null;
+        foreach ($keys as $key) {
+            if (array_key_exists($key, $raw) && $raw[$key] !== null && $raw[$key] !== '') {
+                $value = $this->nullablePercent([], $raw, $keys);
+                return $value !== null ? round($value, 2) : null;
+            }
         }
-        $percent = $value > 0 && $value <= 1 ? $value * 100 : $value;
-        return $percent <= 100 ? round($percent, 2) : null;
+        $value = $this->nullablePercent($row, [], $keys);
+        return $value !== null && $value != 0.0 ? round($value, 2) : null;
     }
 
     /**

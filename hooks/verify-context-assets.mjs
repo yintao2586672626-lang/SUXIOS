@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { resolveOuterContextRoot } from './lib/context_root.mjs';
+import { verifyOuterDeliveryPolicy } from './lib/outer_delivery_policy.mjs';
 
 const repoRoot = process.cwd();
 const outerRoot = resolveOuterContextRoot(repoRoot);
@@ -61,14 +62,11 @@ if (!exists('AGENTS.md', outerRoot)) {
 } else {
   const outerAgents = read('AGENTS.md', outerRoot);
   requireIncludes('outer AGENTS.md', outerAgents, 'SUXIOS Root Agent Instructions — Lean');
-  requireIncludes('outer AGENTS.md', outerAgents, outerAgents.includes('Prioritize accurate, complete user-visible outcomes')
-    ? 'Prioritize accurate, complete user-visible outcomes' : 'Feature delivery gets roughly 80–90%');
+  failures.push(...verifyOuterDeliveryPolicy(outerAgents));
   requireIncludes('outer AGENTS.md', outerAgents, 'Current clean implementation entrance');
   requireIncludes('outer AGENTS.md', outerAgents, 'Commit/push/PR/deploy remain explicit-only');
   requireIncludes('outer AGENTS.md', outerAgents, 'Preserve unrelated changes');
   requireIncludes('outer AGENTS.md', outerAgents, 'Passkey');
-  requireIncludes('outer AGENTS.md', outerAgents, outerAgents.includes('quality-completeness-and-issue-handling.md')
-    ? 'quality-completeness-and-issue-handling.md' : 'After three targeted inspections');
   requireIncludes('outer AGENTS.md', outerAgents, 'Use only a named Skill or the single Skill whose trigger directly matches');
   requireIncludes('outer AGENTS.md', outerAgents, 'HOTEL/hooks/');
   requireIncludes('outer AGENTS.md', outerAgents, 'untrusted packages and scripts');
@@ -102,10 +100,12 @@ if (!exists(collaborationCharterPath)) {
     '功能实现是第一目标',
     '功能完整性补全',
     '用户可见的最短安全路径',
-    '最小验收与停止条件',
+    charter.includes('完整验收与停止条件') ? '完整验收与停止条件' : '最小验收与停止条件',
     '本次请求未明确包含的提交、推送、外部PR、部署、生产写入或正式外发',
     '工作树不要求全局干净',
-    '连续三轮定向检查',
+    charter.includes('调查无新增证据时')
+      ? '调查无新增证据时，改变假设或观察方法；不按固定检查次数放弃、不猜测修复。'
+      : '连续三轮定向检查',
     'Passkey',
   ]) {
     requireIncludes(collaborationCharterPath, charter, needle);

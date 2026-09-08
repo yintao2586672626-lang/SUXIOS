@@ -643,7 +643,7 @@ test('Ctrip manual execution uses platform authorization and legacy Cookie stora
   assert.match(fetchCtripData, /runCtripFetchDataFlow\(\{/);
   assert.match(fetchCtripData, /const preparingConfig = ctripManualFetchConfigProofPending\(\);/);
   assert.doesNotMatch(fetchCtripData, /ensureCtripConfigSecret|cookies|auth_data/);
-  assert.match(fetchCtripData, /finally \{\s*if \(preparingConfig\) \{\s*fetchingData\.value = false;\s*\}\s*\}/);
+  assert.match(fetchCtripData, /finally \{\s*if \(isActive\(\)\) \{\s*fetchingData\.value = false;\s*\}\s*\}/);
   assert.match(fetchCtripData, /body: JSON\.stringify\(requestBody\)/);
   assert.match(ctripStatic, /const isCtripRankingFormAlignedWithConfig = \(form = \{\}, config = \{\}, options = \{\}\) =>/);
   assert.match(ctripStatic, /if \(selectedConfig && !isCtripRankingFormAlignedWithConfig\(form, selectedConfig, \{ selectedHotelId: selectedCtripHotelId \}\)\) \{/);
@@ -4838,7 +4838,11 @@ test('Operation action loads reject stale request and hotel responses', () => {
   );
 
   assert.match(operationActionsLoader, /const requestSeq = \+\+operationActionsRequestSeq;/);
-  assert.match(operationActionsLoader, /requestSeq === operationActionsRequestSeq\s*&& requestHotelId === String\(operationFilters\.value\.hotel_id \|\| ''\)\.trim\(\)/);
+  const scopeGuard = operationActionsLoader.match(/const isCurrentRequest = \(\) => \(([\s\S]*?)\n\s*\);/)?.[1] || '';
+  assert.match(scopeGuard, /requestSeq === operationActionsRequestSeq/);
+  assert.match(scopeGuard, /&& isAuthSessionCurrent\(requestSession\)/);
+  assert.match(scopeGuard, /&& requestPage === currentPage\.value/);
+  assert.match(scopeGuard, /&& requestHotelId === String\(operationFilters\.value\.hotel_id \|\| ''\)\.trim\(\)/);
   assert.match(operationActionsLoader, /const \[actionResult, flowResult, closureResult, , learningResult\] = await Promise\.allSettled\([\s\S]*if \(!isCurrentRequest\(\)\) return;/);
   assert.match(operationActionsLoader, /catch \(error\) \{\s*if \(!isCurrentRequest\(\)\) return;/);
   assert.match(operationActionsLoader, /finally \{\s*if \(requestSeq === operationActionsRequestSeq\) \{\s*operationLoading\.value\.actions = false;/);
