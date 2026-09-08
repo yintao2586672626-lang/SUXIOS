@@ -172,7 +172,7 @@ test('authenticated public-page evidence closes into an exact, reschedulable and
   const firstIntentId = Number(createBody.data?.execution_intent?.id || 0);
   expect(firstIntentId).toBeGreaterThan(0);
 
-  const firstRow = page.locator(`[data-operation-execution-intent-id="${firstIntentId}"]`);
+  const firstRow = page.locator(`[data-operation-execution-intent-id="${firstIntentId}"]:visible`);
   await expect(page.getByTestId('app-main')).toHaveAttribute('data-current-page', 'ops-track');
   await expect(firstRow).toBeVisible({ timeout: 15000 });
   await expect(firstRow.getByTestId('operation-execution-schedule-readback')).toBeVisible();
@@ -228,7 +228,7 @@ test('authenticated public-page evidence closes into an exact, reschedulable and
   expect(Number(retrySummary.retry_of_intent_id || 0)).toBe(firstIntentId);
   const retryIntentId = Number(retrySummary.id || 0);
   expect(retryIntentId).toBeGreaterThan(firstIntentId);
-  await expect(page.locator(`[data-operation-execution-intent-id="${retryIntentId}"]`)).toBeVisible({ timeout: 15000 });
+  await expect(page.locator(`[data-operation-execution-intent-id="${retryIntentId}"]:visible`)).toBeVisible({ timeout: 15000 });
   expect(exactFlowIntentIds).toContain(retryIntentId);
   expect(pageErrors).toEqual([]);
 });

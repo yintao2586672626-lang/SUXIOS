@@ -30,6 +30,7 @@ function harness() {
     onlineDataPage: { value: 1 }, onlineDataPagination: { value: { total: 0, page: 1, page_size: 30 } },
     onlineDataList: { value: [] }, onlineDataQualitySummary: { value: null },
     onlineDataListError: { value: '' }, onlineDataListLoading: { value: false },
+    downloadCenterTab: { value: 'all' }, onlineDataLoadedQuery: { value: null },
     onlineDataListRequestPromises: new Map(), onlineDataListResultCache: new Map(),
     onlineDataListActiveRequestKey: '', onlineDataListSnapshotKey: '', onlineDataListSnapshotSession: {},
     captureAuthSession: () => ({ epoch: context.authSessionEpoch }),

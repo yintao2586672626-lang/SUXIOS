@@ -1,4 +1,8 @@
                     <div v-if="currentPage === 'ctrip-ebooking'">
+                        <div v-if="onlineHistoryListReturn" class="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white p-3 text-sm">
+                            <span>正在查看保存记录的竞争圈明细；原查询条件和页码已保留。</span>
+                            <button type="button" @click="returnToOnlineHistoryList" class="min-h-10 rounded-lg border border-[#143a31] px-3 text-[#143a31]">返回历史查询</button>
+                        </div>
                         <div class="bg-white rounded-lg shadow">
                             <div class="p-4 border-b">
                                 <h3 class="font-medium">携程 eBooking 数据基石</h3>

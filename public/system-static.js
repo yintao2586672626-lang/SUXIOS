@@ -2431,6 +2431,74 @@ window.SUXI_SYSTEM_STATIC = (() => {
         return 'bg-gray-50 text-gray-600 border-gray-200';
     };
 
+    const buildOnlineHistoryRecordDetail = (record = {}) => {
+        const columns = [
+            ['id', '保存记录编号'], ['hotel_name', '酒店'], ['system_hotel_id', '系统酒店编号'],
+            ['source', '平台来源'], ['data_date', '业务日期'], ['data_type', '记录类型'],
+            ['dimension', '来源维度'], ['metric_key', '来源指标'], ['data_value', '来源记录值'],
+            ['amount', '来源金额'], ['quantity', '来源数量'], ['book_order_num', '来源订单数'],
+            ['list_exposure', '列表曝光'], ['detail_exposure', '详情访问'], ['flow_rate', '来源转化率'],
+            ['order_amount', '来源订单金额'], ['comment_score', '平台点评分'], ['review_count', '点评数量'],
+            ['validation_status', '验证状态'], ['data_quality_status', '数据质量状态'],
+            ['readback_verified', '保存回读核验'], ['snapshot_time', '快照时间'],
+            ['collected_at', '取得时间'], ['created_at', '保存时间'], ['create_time', '保存时间'],
+        ];
+        return columns.filter(([key]) => Object.prototype.hasOwnProperty.call(record, key))
+            .map(([key, label]) => {
+                const raw = record[key];
+                const value = raw === null || raw === undefined || raw === '' ? '未提供'
+                    : key === 'readback_verified' ? (raw === true || raw === 1 || raw === '1' ? '已核验' : '尚未核验')
+                    : typeof raw === 'object' ? '结构化内容，请查看对应业务表格' : String(raw);
+                return { key, label, value };
+            });
+    };
+    const assertOnlineHistoryRowScope = (row, query) => {
+        // OTA hotel_id identifies the external property, not our internal hotel scope.
+        const hotelId = Number(row?.system_hotel_id);
+        const types = [query.data_type, ...String(query.data_types || '').split(',')].filter(Boolean);
+        const businessDate = String(row?.data_date || '');
+        const createdDate = String(row?.create_time || '').slice(0, 10);
+        const createStart = query.create_start || query.create_end;
+        const createEnd = query.create_end || query.create_start;
+        if ((query.source && String(row?.source) !== String(query.source))
+            || (query.system_hotel_id && hotelId !== Number(query.system_hotel_id))
+            || (types.length && !types.includes(String(row?.data_type || '')))
+            || ((query.start_date || query.end_date) && !/^\d{4}-\d{2}-\d{2}$/.test(businessDate))
+            || (query.start_date && businessDate < query.start_date)
+            || (query.end_date && businessDate > query.end_date)
+            || (createStart && (!/^\d{4}-\d{2}-\d{2}$/.test(createdDate) || createdDate < createStart))
+            || (createEnd && createdDate > createEnd)) {
+            throw new Error('历史导出记录不属于当前查询范围，请重新查询');
+        }
+    };
+    const readOnlineHistoryExportRows = async ({ query, requestPage, isCurrent, maxRows = 2000 } = {}) => {
+        const rows = [], seen = new Set();
+        let expectedTotal = null;
+        for (let page = 1; page <= Math.ceil(maxRows / 100); page += 1) {
+            if (!isCurrent()) throw new Error('查询结果或登录范围已变化，导出已取消');
+            const response = await requestPage({ ...query, page, page_size: 100 });
+            if (!isCurrent()) throw new Error('查询结果或登录范围已变化，导出已取消');
+            const data = response?.data;
+            const rawTotal = data?.pagination?.total;
+            const total = Number(rawTotal);
+            if (response?.code !== 200 || !Array.isArray(data?.list)
+                || rawTotal === null || rawTotal === undefined || rawTotal === '' || typeof rawTotal === 'boolean'
+                || !Number.isSafeInteger(total) || total < 0
+                || Number(data?.pagination?.page) !== page) throw new Error(response?.message || '历史导出分页返回不完整');
+            if (total > maxRows) throw new Error(`筛选结果超过 ${maxRows} 条，请缩小日期或酒店范围后导出`);
+            if (expectedTotal !== null && total !== expectedTotal) throw new Error('导出期间记录发生变化，请重新查询后导出');
+            expectedTotal = total;
+            for (const row of data.list) {
+                const id = Number(row?.id);
+                if (!Number.isSafeInteger(id) || id <= 0 || seen.has(id)) throw new Error('历史导出记录重复或编号不完整，请重新查询');
+                assertOnlineHistoryRowScope(row, query);
+                seen.add(id); rows.push(row);
+            }
+            if (rows.length === total) return rows;
+            if (!data.list.length || rows.length > total) throw new Error('历史导出记录数量与分页不一致');
+        }
+        throw new Error('历史导出未取得完整筛选结果，请缩小范围后重试');
+    };
     const operationDataStatusText = (status) => status === 'ok' ? '已返回来源记录' : (status || '待接入可验证来源数据');
     const operationProblemLevelLabel = (level) => ({
         high: '高风险',
@@ -2765,7 +2833,7 @@ window.SUXI_SYSTEM_STATIC = (() => {
         pricingReadinessBadgeClass,
         priceSuggestionReviewReadinessClass,
         agentClosureReadinessBadgeClass,
-        operationDataStatusText,
+        operationDataStatusText, buildOnlineHistoryRecordDetail, assertOnlineHistoryRowScope, readOnlineHistoryExportRows,
         operationProblemLevelLabel,
         operationAlertLevelLabel,
         operationAlertStatusLabel,

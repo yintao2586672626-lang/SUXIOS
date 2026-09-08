@@ -2473,6 +2473,7 @@
                 preference_saving_key: '',
                 feedback_status: {},
                 journey_transition_status: '',
+                evidence_errors: {},
             });
             const journeyStorageVersion = 1;
             const widgetStorageVersion = 1;
@@ -4128,27 +4129,17 @@
                         : '没有使用历史偏好改变本次结果。'),
                 ]);
             };
-            const openOperatingWorkspace = async () => {
-                const ctx = props.ctx || {};
-                ctx.currentPage = 'agent-center';
-                await nextTick();
-                return focusTopicAnchor(topicByKey('agent-toolbox'));
-            };
-            const operatingScopeText = (result) => {
-                const hotelId = Number(result?.hotel_id || 0);
-                const hotel = (Array.isArray(props.ctx?.otaDiagnosisHotelOptions) ? props.ctx.otaDiagnosisHotelOptions : [])
-                    .find((item) => Number(item?.value || 0) === hotelId);
-                const hotelText = String(hotel?.name || (hotelId > 0 ? `酒店 #${hotelId}` : '未锁定酒店'));
-                const platformText = String(props.ctx?.operatingQuestionPlatformText?.(result?.platform) || result?.platform || '未锁定平台');
-                const dateStart = String(result?.date_start || '');
-                const dateEnd = String(result?.date_end || '');
-                const dateText = dateStart ? `${dateStart}${dateEnd && dateEnd !== dateStart ? ` 至 ${dateEnd}` : ''}` : '未锁定日期';
-                return `${hotelText} · ${platformText} · ${dateText}`;
-            };
+            const { operatingEvidenceTarget, renderEvidenceButton, operatingScopeText } =
+                window.SUXI_OPERATING_INTELLIGENCE_COMPONENTS.createEvidenceNavigation({
+                    state, getContext: () => props.ctx || {}, canOpen: () => canOpenTopic(topicByKey('agent-toolbox')),
+                    nextTick, focus: () => focusTopicAnchor(topicByKey('agent-toolbox')), h, icon,
+                });
             const renderOperatingResult = (guideResult, turn, isLatest = false) => {
                 const assistantMode = String(guideResult?.assistant_mode || 'guide');
                 if (!['report', 'action'].includes(assistantMode)) return null;
                 const exact = guideResult?.operating_result || null;
+                const evidenceTarget = operatingEvidenceTarget(guideResult, turn);
+                const evidenceError = evidenceTarget.error || state.value.evidence_errors[evidenceTarget.key] || '';
                 if (!exact) {
                     return h('section', {
                         class: 'sx-ai-consultant-operating-result is-blocked',
@@ -4164,10 +4155,11 @@
                                 type: 'button',
                                 onClick: (event) => openTopic(event, topicByKey('data-health'), turn),
                             }, [icon('fa-shield-alt'), h('span', '去数据健康查阻塞')]),
-                            h('button', { type: 'button', onClick: openOperatingWorkspace }, [
-                                icon('fa-arrow-right'), h('span', '打开专业问答'),
+                            h('button', { type: 'button', disabled: true }, [
+                                icon('fa-arrow-right'), h('span', '暂无已保存回答可查看'),
                             ]),
                         ]),
+                        h('p', { class: 'sx-ai-consultant-error', role: 'status' }, evidenceError),
                     ]);
                 }
                 const answer = exact.answer && typeof exact.answer === 'object' ? exact.answer : {};
@@ -4286,12 +4278,13 @@
                             onClick: (event) => openTopic(event, topicByKey('data-health'), turn),
                         }, [icon('fa-shield-alt'), h('span', partial ? '补齐阻塞指标' : '补齐可信事实')])
                         : null,
-                    h('button', {
-                        type: 'button',
-                        'data-testid': isLatest ? 'system-guide-open-operating-workspace' : undefined,
-                        onClick: openOperatingWorkspace,
-                    }, [icon('fa-arrow-right'), h('span', assistantMode === 'action' ? '到专业页面复核草案' : '查看完整证据与引用')]),
+                    renderEvidenceButton(guideResult, turn, isLatest, assistantMode, evidenceTarget),
                 ].filter(Boolean)));
+                if (evidenceError) children.push(h('p', {
+                    class: 'sx-ai-consultant-error',
+                    role: 'alert',
+                    'data-testid': `system-guide-evidence-error-${turn?.id || exact.id}`,
+                }, evidenceError));
                 return h('section', {
                     class: ['sx-ai-consultant-operating-result', blocked ? 'is-blocked' : 'is-ready', partial ? 'is-partial' : ''],
                     'data-testid': isLatest ? 'system-guide-operating-result' : undefined,
