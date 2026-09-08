@@ -137,6 +137,20 @@ final class AuthMiddlewareAuditTest extends TestCase
         }
     }
 
+    public function testCollectionProgressUsesOrdinaryReadQuotaWithoutChangingDiagnosticQuota(): void
+    {
+        $middleware = new Auth();
+        $capability = ['key'=>'collection_health','rate_limit'=>['scope'=>'protected_collection_health','limit'=>60,'window'=>3600]];
+        $progress = $this->invokeNonPublic($middleware,'resolveRateLimitPolicy',['GET','/api/online-data/auto-fetch-status?hotel_id=7&include_detail=0',$capability]);
+        $ordinary = $this->invokeNonPublic($middleware,'resolveRateLimitPolicy',['GET','/api/hotels',null]);
+        self::assertSame($ordinary['limit'],$progress['limit']);
+        self::assertSame($ordinary['window'],$progress['window']);
+        self::assertGreaterThan($progress['window'] / 2,$progress['limit'], 'The existing two-second poll must fit in a read window.');
+        $diagnostic = $this->invokeNonPublic($middleware,'resolveRateLimitPolicy',['GET','/api/online-data/collection-reliability',$capability]);
+        self::assertSame(60,$diagnostic['limit']);
+        self::assertSame(3600,$diagnostic['window']);
+    }
+
     public function testRateLimitCacheKeyIncludesTenantUserIpEndpointAndWindowNamespace(): void
     {
         $key = $this->invokeNonPublic(new Auth(), 'buildRateLimitCacheKey', [

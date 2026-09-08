@@ -373,6 +373,7 @@
             const isLoggedIn = ref(!!token.value && !!cachedAuthUser);
             const user = ref(cachedAuthUser);
             let authSessionEpoch = 0;
+            const readRequestCooldown = appSystemStatic.createReadRequestCooldown();
             const captureAuthSession = () => ({
                 epoch: authSessionEpoch,
                 token: String(token.value || ''),
@@ -1119,6 +1120,10 @@
                 || userHasCapability('ai.view')
                 || userHasCapability('ai.execute');
             const guardSuperAdminPageAccess = (page, options = {}) => {
+                if (!appSystemStatic.isPageModuleAvailable(page, user.value)) {
+                    if (options.notify !== false) showToast('此模块尚未开通或角色无权使用，请联系管理员确认范围', 'warning');
+                    return false;
+                }
                 const targetPage = String(page || '').trim();
                 if (targetPage === 'agent-center') {
                     if (canUseRevenueAi()) return true;
@@ -10859,6 +10864,8 @@
             let autoFetchRunStartedAtMs = 0;
             let autoFetchProgressTimer = null;
             let autoFetchProgressRequestRunning = false;
+            let autoFetchProgressGeneration = 0;
+            let autoFetchProgressFailureCount = 0;
             const AUTO_FETCH_PROGRESS_POLL_MS = 2000;
             const formatAutoFetchElapsed = (seconds) => (
                 typeof autoFetchStatic.value?.formatAutoFetchElapsed === 'function'
@@ -10936,8 +10943,10 @@
                 autoFetchRunTimer = null;
             };
             const stopAutoFetchProgressMonitor = () => {
-                if (!autoFetchProgressTimer) return;
-                clearTimeout(autoFetchProgressTimer);
+                autoFetchProgressGeneration += 1;
+                autoFetchProgressRequestRunning = false;
+                autoFetchProgressFailureCount = 0;
+                if (autoFetchProgressTimer) clearTimeout(autoFetchProgressTimer);
                 autoFetchProgressTimer = null;
             };
             const scheduleAutoFetchProgressPoll = (delayMs = AUTO_FETCH_PROGRESS_POLL_MS) => {
@@ -10945,6 +10954,7 @@
                 autoFetchProgressTimer = setTimeout(pollAutoFetchProgress, Math.max(0, Number(delayMs) || 0));
             };
             const syncAutoFetchRunStateFromStatus = (status = autoFetchStatus.value) => {
+                autoFetchProgressFailureCount = 0;
                 const runningTask = status?.running_task;
                 const lastResult = status?.last_result || {};
                 const statusCode = String(lastResult.status || '').toLowerCase();
@@ -10966,8 +10976,13 @@
                     return true;
                 }
 
-                const wasActive = autoFetchRunState.value.active || !!autoFetchProgressTimer || autoFetchProgressRequestRunning;
+                const wasActive = autoFetchRunState.value.active || autoFetchRunState.value.type === 'status_unavailable'
+                    || !!autoFetchProgressTimer || autoFetchProgressRequestRunning;
                 if (!wasActive) return false;
+                if (typeof lastResult.success !== 'boolean' && !['success', 'failed', 'error', 'cancelled', 'partial'].includes(statusCode)) {
+                    reportAutoFetchStatusReadFailure(new Error('本次状态未返回任务结果'));
+                    return false;
+                }
                 stopAutoFetchProgressMonitor();
                 stopAutoFetchRunTimer();
                 fetchingData.value = false;
@@ -10989,16 +11004,45 @@
                     scheduleAutoFetchProgressPoll();
                     return;
                 }
+                const generation = autoFetchProgressGeneration;
                 autoFetchProgressRequestRunning = true;
                 try {
                     resetAutoFetchStatusResultCache();
-                    await loadAutoFetchStatus({ detail: false, force: true });
+                    const freshStatus = await loadAutoFetchStatus({ detail: false, force: true, progressGeneration: generation });
+                    if (generation !== autoFetchProgressGeneration || !freshStatus) return;
+                    if (autoFetchRunState.value.active) scheduleAutoFetchProgressPoll();
                 } finally {
-                    autoFetchProgressRequestRunning = false;
+                    if (generation === autoFetchProgressGeneration) autoFetchProgressRequestRunning = false;
                 }
-                if (syncAutoFetchRunStateFromStatus(autoFetchStatus.value)) {
-                    scheduleAutoFetchProgressPoll();
-                }
+            };
+            const reportAutoFetchStatusReadFailure = (error) => {
+                if (error?.name === 'AbortError') return;
+                const shouldMonitor = autoFetchProgressRequestRunning || !!autoFetchProgressTimer
+                    || autoFetchRunState.value.active || autoFetchRunState.value.type === 'status_unavailable';
+                const statusCode = Number(error?.status || error?.data?.code || 0);
+                const terminal = statusCode === 401 || statusCode === 403;
+                autoFetchProgressFailureCount += 1;
+                const header = String(error?.retryAfter || '').trim();
+                const bodySeconds = Number(error?.data?.data?.retry_after);
+                const headerSeconds = /^\d+(?:\.\d+)?$/.test(header)
+                    ? Number(header) : (Date.parse(header) - Date.now()) / 1000;
+                const seconds = Number.isFinite(bodySeconds) && bodySeconds > 0 ? bodySeconds : headerSeconds;
+                const delayMs = Number.isFinite(seconds) && seconds > 0
+                    ? Math.max(AUTO_FETCH_PROGRESS_POLL_MS, Math.min(2147483647, Math.ceil(seconds * 1000)))
+                    : statusCode === 429 ? 60000 : Math.min(60000, AUTO_FETCH_PROGRESS_POLL_MS * 2 ** Math.min(5, autoFetchProgressFailureCount));
+                const recovery = terminal ? '请检查登录或门店访问权限后重新读取状态。'
+                    : shouldMonitor ? `将在 ${Math.ceil(delayMs / 1000)} 秒后重新读取状态。` : '请稍后刷新状态。';
+                stopAutoFetchRunTimer();
+                fetchingData.value = false;
+                autoFetchRunState.value = {
+                    active: false,
+                    type: 'status_unavailable',
+                    message: `暂时无法读取采集状态，尚不能确认任务是否结束。${recovery}`,
+                    started_at: autoFetchRunState.value.started_at || '',
+                    finished_at: '',
+                };
+                if (terminal) stopAutoFetchProgressMonitor();
+                else if (shouldMonitor) scheduleAutoFetchProgressPoll(delayMs);
             };
             const startAutoFetchProgressMonitor = (context = {}) => {
                 if (context.startedAt) startAutoFetchRunTimer(context.startedAt);
@@ -12918,6 +12962,13 @@
                     || user.value?.hotel_id
                     || '';
             };
+            watch(() => String(getAutoFetchHotelId() || ''), () => {
+                stopAutoFetchProgressMonitor();
+                stopAutoFetchRunTimer();
+                fetchingData.value = false;
+                autoFetchRunState.value = { active: false, type: 'scope_changed', message: '', started_at: '', finished_at: '' };
+                autoFetchStatus.value = {};
+            });
             const collectionReliabilityHasCurrentSnapshot = computed(() => {
                 const snapshot = collectionReliability.value;
                 if (!snapshot || typeof snapshot !== 'object') return false;
@@ -13089,7 +13140,8 @@
                 const requestScopeKey = `${requestSession.epoch}:${requestHotelId}`;
                 const requestKey = `${requestScopeKey}|${includeDetail ? 'full' : 'light'}`;
                 const isCurrentHotel = () => isAuthSessionCurrent(requestSession)
-                    && String(getAutoFetchHotelId() || '') === requestHotelId;
+                    && String(getAutoFetchHotelId() || '') === requestHotelId
+                    && (options.progressGeneration === undefined || options.progressGeneration === autoFetchProgressGeneration);
                 const statusAtRequest = autoFetchStatusAppliedScopeKey === requestScopeKey
                     && autoFetchStatus.value && typeof autoFetchStatus.value === 'object'
                     ? autoFetchStatus.value
@@ -13174,11 +13226,13 @@
                             applyStatusSnapshot(nextStatus);
                             return nextStatus;
                         }
-                        autoFetchStatusResultCache.delete(requestKey);
-                        return null;
+                        const error = new Error(res.message || res.msg || '采集状态读取失败');
+                        error.data = res;
+                        throw error;
                     } catch (error) {
                         autoFetchStatusResultCache.delete(requestKey);
                         if (!isCurrentHotel()) return null;
+                        reportAutoFetchStatusReadFailure(error);
                         if (error?.name !== 'AbortError') console.error('加载自动获取状态失败:', error);
                         return null;
                     } finally {
@@ -14938,7 +14992,7 @@
                 coreOperationsProfileSessionRows.value.filter(row => row.hasProfile && !row.currentSessionVerified)
             ));
             const coreOperationsSourceFetchRunning = computed(() => (
-                ['checking_session', 'submitting', 'running', 'verifying'].includes(String(coreOperationsSourceFetchVisibleState.value.status || ''))
+                ['checking_session', 'submitting', 'running', 'status_unavailable', 'verifying'].includes(String(coreOperationsSourceFetchVisibleState.value.status || ''))
             ));
             const coreOperationsSourceFetchActionText = computed(() => {
                 const status = String(coreOperationsSourceFetchVisibleState.value.status || '');
@@ -14949,12 +15003,14 @@
                 if (status === 'checking_session') return `${hotelName} · 检查 Profile`;
                 if (status === 'submitting') return `${hotelName} · 提交${modeText}补采`;
                 if (status === 'running') return `${hotelName} · ${modeText}采集中`;
+                if (status === 'status_unavailable') return `${hotelName} · 采集状态待确认`;
                 if (status === 'verifying') return `${hotelName} · 核对入库结果`;
                 if (fetchingData.value) return '其他采集任务运行中';
                 return `${hotelName} · ${modeText}补采`;
             });
             const coreOperationsSourceFetchStatusClass = computed(() => {
                 const status = String(coreOperationsSourceFetchVisibleState.value.status || '');
+                if (status === 'status_unavailable') return 'border-amber-200 bg-amber-50 text-amber-800';
                 if (status === 'verified') return 'border-emerald-200 bg-emerald-50 text-emerald-800';
                 if (['partial', 'unverified', 'verified_existing', 'verified_mixed', 'written_unbound'].includes(status)) return 'border-amber-200 bg-amber-50 text-amber-800';
                 if (['login_required', 'blocked', 'failed'].includes(status)) return 'border-red-200 bg-red-50 text-red-800';
@@ -14962,6 +15018,7 @@
             });
             const coreOperationsSourceFetchDisplayStatus = computed(() => {
                 const status = String(coreOperationsSourceFetchVisibleState.value.status || '').trim().toLowerCase();
+                if (status === 'status_unavailable') return 'unverified';
                 if (['login_required', 'blocked', 'failed'].includes(status)) return 'blocked';
                 if (['partial', 'unverified', 'verified_existing', 'verified_mixed', 'written_unbound'].includes(status)) return 'partial';
                 if (status === 'verified') return 'verified';
@@ -15304,7 +15361,15 @@
             };
             watch(autoFetchRunState, (current, previous) => {
                 const state = coreOperationsSourceFetchState.value || {};
-                if (state.status !== 'running' || current?.active === true) return;
+                if (current?.type === 'scope_changed' || !['running', 'status_unavailable'].includes(state.status)) return;
+                if (current?.type === 'status_unavailable') {
+                    coreOperationsSourceFetchState.value = { ...state, status: 'status_unavailable', message: current.message };
+                    return;
+                }
+                if (current?.active === true) {
+                    coreOperationsSourceFetchState.value = { ...state, status: 'running', message: current.message };
+                    return;
+                }
                 const taskJustFinished = previous?.active === true || Boolean(current?.finished_at);
                 if (!taskJustFinished) return;
                 const expectedTaskId = String(state.taskId || '').trim();
@@ -15984,6 +16049,8 @@
                 }
             };
             const clearSessionScopedFrontendTimers = () => {
+                stopAutoFetchProgressMonitor();
+                stopAutoFetchRunTimer();
                 clearPostFetchRefreshTimers();
                 clearHomeQuickLayoutAutoSaveTimer();
                 clearPlatformProfileLoginTimers();
@@ -16159,6 +16226,16 @@
                 }
                 const previousPage = previousPageLifecycleKey;
                 previousPageLifecycleKey = newPage;
+                if (previousPage !== newPage) {
+                    const awaitingStatus = autoFetchRunState.value.active || autoFetchRunState.value.type === 'status_unavailable';
+                    stopAutoFetchProgressMonitor();
+                    stopAutoFetchRunTimer();
+                    if (awaitingStatus) {
+                        fetchingData.value = false;
+                        autoFetchRunState.value = { ...autoFetchRunState.value, active: false, type: 'status_unavailable', finished_at: '',
+                            message: '页面已切换，暂停读取采集状态；后台任务结果尚未确认，请返回采集页刷新查看。' };
+                    }
+                }
                 pageRequestGeneration += 1;
                 if (previousPage === 'ai-strategy' && newPage !== 'ai-strategy') {
                     invalidateStrategyPageRequests();
@@ -19544,6 +19621,9 @@
                 );
                 const fetchOptions = { ...requestOptions };
                 delete fetchOptions.expectedHttpStatuses;
+                const cooldownMethod = String(fetchOptions.method || 'GET').toUpperCase();
+                const cooldownError = readRequestCooldown.check(requestSession.epoch, cooldownMethod, requestUrl);
+                if (cooldownError) throw cooldownError;
                 try {
                     const response = await fetch(API_BASE + requestUrl, {
                         ...fetchOptions,
@@ -19590,6 +19670,9 @@
                     if (!response.ok) {
                         const error = new Error(data.message || data.msg || `HTTP错误: ${response.status}`);
                         error.data = data;
+                        error.status = response.status;
+                        error.retryAfter = response.headers?.get?.('Retry-After') || '';
+                        if (isAuthSessionCurrent(requestSession)) readRequestCooldown.record(requestSession.epoch, cooldownMethod, requestUrl, error);
                         error.expectedHttpStatus = expectedHttpStatuses.has(response.status);
                         throw error;
                     }
@@ -19624,6 +19707,8 @@
                     ...requestOptions
                 } = contextualRequest.options || {};
                 const method = String(requestOptions.method || 'GET').toUpperCase();
+                const accessDenial = appSystemStatic.protectedRequestDenial(requestUrl, method, user.value);
+                if (accessDenial) throw accessDenial;
                 const isSafeRead = method === 'GET' || method === 'HEAD';
                 if (!isSafeRead) {
                     return executeApiRequest({ requestSession, requestUrl, requestOptions, headers });
@@ -40543,6 +40628,12 @@
                     system_hotel_id: hotelId,
                     probe_login: '1',
                 });
+                const account = otaConfigOverviewAccountResolver(row.config || {}, platform, hotelId);
+                const sourceId = Number(account?.data_source_id || row?.config?.data_source_id || 0);
+                if (platform === 'ctrip' && (!Number.isInteger(sourceId) || sourceId <= 0)) {
+                    return { ok: false, requestOk: false, statusCode: 'missing_data_source', message: '请先完成当前门店的携程数据源绑定，再检测授权' };
+                }
+                if (Number.isInteger(sourceId) && sourceId > 0) params.set('data_source_id', String(sourceId));
                 const res = await request(`/online-data/${platform}-profile-status?${params.toString()}`);
                 const statusCode = String(res?.data?.status_code || '').trim().toLowerCase();
                 const currentStatus = String(res?.data?.current_status || '').trim();

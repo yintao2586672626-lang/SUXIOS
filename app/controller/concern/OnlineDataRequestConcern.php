@@ -3375,10 +3375,10 @@ trait OnlineDataRequestConcern
         $response = @file_get_contents($url, false, $context);
 
         if ($response === false) {
-            $error = error_get_last();
             return [
                 'success' => false,
-                'error' => $error['message'] ?? 'Unknown error',
+                'reason' => 'upstream_transport_failed', 'stage' => 'upstream_request',
+                'error' => '平台连接失败，请稍后重试；本次未取得业务数据',
             ];
         }
 
@@ -3399,25 +3399,10 @@ trait OnlineDataRequestConcern
             }
         }
 
-        // 检查HTTP响应码
-        if ($httpCode !== 200) {
-            return [
-                'success' => false,
-                'error' => "HTTP错误: {$httpCode}" . ($httpCode === 302 ? ' (Cookie已失效，请重新登录携程)' : ''),
-                'http_code' => $httpCode,
-                'raw' => $decodedResponse,
-            ];
-        }
-
-        // 检查是否返回了HTML而不是JSON
-        if (preg_match('/^\s*<!DOCTYPE|^\s*<html/i', $decodedResponse)) {
-            return [
-                'success' => false,
-                'error' => '返回了HTML页面而非JSON数据，未获取到业务数据；请检查登录状态与请求参数后重试',
-                'http_code' => $httpCode,
-                'raw' => substr($decodedResponse, 0, 500),
-            ];
-        }
+        $failure = \app\service\OtaUpstreamFailureService::httpFailure(
+            $httpCode, preg_match('/^\s*(?:<!DOCTYPE|<html)/i', (string)$decodedResponse) === 1
+        );
+        if ($failure !== null) return $failure;
 
         $decoded = json_decode($decodedResponse, true);
 
@@ -3425,9 +3410,9 @@ trait OnlineDataRequestConcern
         if ($decoded === null && !empty($decodedResponse)) {
             return [
                 'success' => false,
-                'error' => 'JSON解析失败: ' . json_last_error_msg(),
+                'reason' => 'upstream_invalid_json', 'stage' => 'upstream_request',
+                'error' => '平台未返回可解析的业务数据',
                 'http_code' => $httpCode,
-                'raw' => substr($decodedResponse, 0, 500),
             ];
         }
 
@@ -3492,8 +3477,6 @@ trait OnlineDataRequestConcern
         ]);
 
         $rawResponse = curl_exec($ch);
-        $curlError = curl_error($ch);
-        $curlErrno = curl_errno($ch);
         $httpCode = (int)curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
         curl_close($ch);
 
@@ -3502,41 +3485,12 @@ trait OnlineDataRequestConcern
                 'http_code' => $httpCode,
                 'raw_response' => '',
                 'decoded_data' => null,
-                'error' => '请求携程流量接口失败: ' . ($curlError ?: 'cURL 错误 ' . $curlErrno),
+                'reason' => 'upstream_transport_failed', 'stage' => 'upstream_request',
+                'error' => '请求携程流量接口失败，请稍后重试',
             ];
         }
 
-        $result = [
-            'http_code' => $httpCode,
-            'raw_response' => $rawResponse,
-            'decoded_data' => null,
-            'error' => '',
-        ];
-
-        if ($httpCode !== 200) {
-            if (in_array($httpCode, [301, 302], true)) {
-                $result['error'] = 'Cookie已失效，请重新登录携程 eBooking 后复制 Cookie';
-            } elseif ($httpCode === 415) {
-                $result['error'] = '携程流量接口必须使用 JSON Body，请检查 Content-Type 和 POSTFIELDS';
-            } else {
-                $result['error'] = '携程流量接口 HTTP 错误: ' . $httpCode;
-            }
-            return $result;
-        }
-
-        if (preg_match('/^\s*<!DOCTYPE|^\s*<html/i', $rawResponse)) {
-            $result['error'] = '携程接口返回异常，请检查 Cookie / 日期参数';
-            return $result;
-        }
-
-        $decodedData = json_decode($rawResponse, true);
-        if (json_last_error() !== JSON_ERROR_NONE) {
-            $result['error'] = '携程接口返回异常，请检查 Cookie / 日期参数';
-            return $result;
-        }
-
-        $result['decoded_data'] = $decodedData;
-        return $result;
+        return \app\service\OtaUpstreamFailureService::ctripJsonResponse($rawResponse, $httpCode);
     }
 
     private function sendCtripAdsRequest(string $url, array $params, string $cookies, string $method = 'POST'): array
@@ -3652,41 +3606,9 @@ trait OnlineDataRequestConcern
      */
     private function getCtripTrafficApiError($responseData): string
     {
-        if (!is_array($responseData)) {
-            return '';
-        }
-
-        $code = $responseData['code'] ?? $responseData['resultCode'] ?? $responseData['status'] ?? null;
-        $message = $responseData['message']
-            ?? $responseData['msg']
-            ?? $responseData['errorMessage']
-            ?? $responseData['error_description']
-            ?? $responseData['error']
-            ?? '';
-
-        if (isset($responseData['success']) && $responseData['success'] === false) {
-            return '携程流量接口返回失败: ' . ($message ?: '未知错误');
-        }
-
-        if (isset($responseData['error'])) {
-            return '携程流量接口返回异常: ' . ($message ?: (string)$responseData['error']);
-        }
-
-        if ($code !== null && !in_array((string)$code, ['0', '200', 'success', 'SUCCESS'], true)) {
-            $error = '携程流量接口返回异常: ' . ($message ?: ('code=' . (string)$code));
-            if (preg_match('/登录|过期|权限|未授权|unauthorized|forbidden/i', (string)$message)) {
-                $error .= '，请重新登录携程后台复制Cookie';
-            }
-            return $error;
-        }
-
-        $ack = $responseData['ResponseStatus']['Ack'] ?? null;
-        if ($ack !== null && !in_array((string)$ack, ['Success', 'SUCCESS'], true)) {
-            $errorMessage = $responseData['ResponseStatus']['Errors'][0]['Message'] ?? $message ?: '未知错误';
-            return '携程流量接口返回异常: ' . $errorMessage;
-        }
-
-        return '';
+        return is_array($responseData)
+            ? (string)(\app\service\OtaUpstreamFailureService::ctripBusinessFailure($responseData)['error'] ?? '')
+            : '';
     }
 
     /**

@@ -277,8 +277,7 @@ final class DailyWorkbenchPatrolServiceTest extends TestCase
         $this->writeSnapshot($patrolService, 7, 'North Hotel');
         $hotelEight = $this->writeSnapshot($patrolService, 8, 'South Hotel');
 
-        $this->expectException(\RuntimeException::class);
-        $this->expectExceptionMessage('snapshot not found');
+        $this->expectException(\app\exception\MissingPatrolSnapshotException::class);
         (new Phase3OperationEffectLoopService())->build([
             'run_id' => $hotelEight['run_id'],
             'scope_hotel_id' => 7,

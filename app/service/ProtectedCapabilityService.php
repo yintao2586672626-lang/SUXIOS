@@ -359,6 +359,35 @@ class ProtectedCapabilityService
         return null;
     }
 
+    /** UI hints only: every request still passes the live hotel and tenant checks. */
+    public function clientAccessManifest(User $user): array
+    {
+        $tenantId = $this->resolveTenantId($user);
+        $admin = $user->isSuperAdmin();
+        $result = [];
+        foreach ($this->policy['capabilities'] as $key => $capability) {
+            if (!is_array($capability)) continue;
+            $module = (string)($capability['module'] ?? '');
+            $permission = (string)($capability['permission'] ?? '');
+            $reason = !$admin && $tenantId <= 0 ? 'tenant_context_missing'
+                : (!$admin && !$this->moduleEntitled($tenantId, $module) ? 'module_not_entitled'
+                    : (!$admin && $permission !== '' && !$this->roleAllows($user, $permission) ? 'role_permission_denied' : 'available'));
+            $paths = [];
+            foreach (($capability['paths'] ?? []) as $rule) {
+                $normalized = $this->normalizePathRule($rule);
+                if ($normalized !== null) $paths[] = $normalized;
+            }
+            $result[] = ['key' => (string)$key, 'module' => $module, 'allowed' => $reason === 'available', 'reason' => $reason, 'paths' => $paths];
+        }
+        return $result;
+    }
+
+    public function moduleAvailableToUser(User $user, string $module): bool
+    {
+        return $user->isSuperAdmin() || ($this->resolveTenantId($user) > 0
+            && $this->moduleEntitled($this->resolveTenantId($user), $module));
+    }
+
     /**
      * @param array<string, mixed> $capability
      * @param array<string, mixed> $params

@@ -1015,12 +1015,18 @@ test('manual one-click fetch display helpers stay pure and status aware', () => 
   assert.match(directIssueBuckets, /\['partial', '部分入库'/);
 });
 
-test('manual fetch credential errors use deterministic wording', () => {
+test('manual fetch failures use evidence-based classification without guessing credential expiry', () => {
   for (const source of [onlineDataRequestConcern, ctripOverviewRequestConcern, businessDisplayConcern]) {
     assert.doesNotMatch(source, /可能Cookie|Cookie 可能/);
   }
-  assert.match(onlineDataRequestConcern, /HTTP错误: \{\$httpCode\}[\s\S]*Cookie已失效，请重新登录携程/);
-  assert.match(businessDisplayConcern, /Cookie已失效或当前账号无权限/);
+  assert.match(onlineDataRequestConcern, /OtaUpstreamFailureService::ctripJsonResponse\(\$rawResponse, \$httpCode\)/);
+  assert.match(businessDisplayConcern, /OtaUpstreamFailureService::httpFailure\(/);
+  assert.match(businessDisplayConcern, /OtaUpstreamFailureService::meituanBusinessFailure\(/);
+  const meituanFetch = businessDisplayConcern.slice(
+    businessDisplayConcern.indexOf('private function sendMeituanRequest('),
+    businessDisplayConcern.indexOf('private function fetchMeituanSelfTradeMetricValues('),
+  );
+  assert.doesNotMatch(meituanFetch, /Cookie已失效或当前账号无权限/);
 });
 
 test('full data health panel refresh includes release evidence status without light refresh', async () => {

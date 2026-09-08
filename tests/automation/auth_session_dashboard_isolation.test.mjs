@@ -239,8 +239,8 @@ test('notification refreshes and no-hotel OTA entry cannot reuse another authent
 });
 
 test('no-hotel accounts see a concise Chinese Ctrip and Meituan preview with a hotel CTA', () => {
-  const filterSource = sliceSystemBetween(
-    'const filterVisibleMenuItems = (items = [], currentUser = null) => {',
+    const filterSource = sliceSystemBetween(
+    'const pageModuleKey = (page) => ({',
     'const firstNonEmptyText = (...values) => {',
   );
   const filterVisibleMenuItems = Function(`${filterSource}; return filterVisibleMenuItems;`)();
