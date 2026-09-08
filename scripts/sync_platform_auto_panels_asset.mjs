@@ -8,7 +8,8 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const releaseLock = await acquireFrontendTemplateLock(root, { owner: 'sync-platform-auto-panels' });
 try {
   const asset = 'components/online-data/platform-auto-settings-panels.js';
-  const hash = crypto.createHash('sha256').update(fs.readFileSync(path.join(root, 'public', asset))).digest('hex').slice(0, 10);
+  const source = fs.readFileSync(path.join(root, 'public', asset), 'utf8').replace(/\r\n/g, '\n');
+  const hash = crypto.createHash('sha256').update(source).digest('hex').slice(0, 10);
   for (const relative of ['public/components/system/app-main-components.js', 'public/components/system/app-main-components-loader.js']) {
     const file = path.join(root, relative);
     const before = fs.readFileSync(file, 'utf8');

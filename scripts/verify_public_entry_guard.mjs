@@ -183,7 +183,7 @@ if (!fs.existsSync(indexPath)) {
   const platformAutoSettingsPanelsContent = fs.existsSync(platformAutoSettingsPanelsPath)
     ? fs.readFileSync(platformAutoSettingsPanelsPath, 'utf8')
     : '';
-  const platformAutoPanelsHash = crypto.createHash('sha256').update(platformAutoSettingsPanelsContent).digest('hex').slice(0, 10);
+  const platformAutoPanelsHash = crypto.createHash('sha256').update(platformAutoSettingsPanelsContent.replace(/\r\n/g, '\n')).digest('hex').slice(0, 10);
   const platformAutoPanelsScriptDeclaration = `const platformAutoPanelsScript = 'components/online-data/platform-auto-settings-panels.js?v=20260908-status-recovery-h${platformAutoPanelsHash}';`;
   const ctripProfileFieldConfigPanelPath = path.join(repoRoot, 'public/components/online-data/ctrip-profile-field-config-panel.js');
   const ctripProfileFieldConfigPanelContent = fs.existsSync(ctripProfileFieldConfigPanelPath)

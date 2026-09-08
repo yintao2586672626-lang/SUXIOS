@@ -255,6 +255,9 @@ class Auth
             $failed = $statusCode >= 400;
             $failureEvidence = $failed
                 ? \app\service\FailureEvidenceService::fromResponse((array)$response->getData()) : [];
+            if (($failureEvidence['reason_code'] ?? '') === 'unclassified_response_failure') {
+                $failureEvidence['reason_code'] = 'http_response_failure';
+            }
 
             OperationLog::record(
                 $audit['module'],
