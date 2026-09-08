@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { resolveOuterContextRoot } from './lib/context_root.mjs';
+import { verifyOuterDeliveryPolicy } from './lib/outer_delivery_policy.mjs';
 
 const repoRoot = process.cwd();
 const outerRoot = resolveOuterContextRoot(repoRoot);
@@ -56,29 +57,16 @@ function requireIncludes(label, text, needle) {
   }
 }
 
-function requireAnyIncludes(label, text, alternatives) {
-  if (!alternatives.some(needle => text.includes(needle))) {
-    failures.push(`${label} is missing required text: ${alternatives.join(' OR ')}`);
-  }
-}
-
 if (!exists('AGENTS.md', outerRoot)) {
   failures.push('outer AGENTS.md is missing');
 } else {
   const outerAgents = read('AGENTS.md', outerRoot);
   requireIncludes('outer AGENTS.md', outerAgents, 'SUXIOS Root Agent Instructions — Lean');
-  requireAnyIncludes('outer AGENTS.md', outerAgents, [
-    'Prioritize accurate, complete user-visible outcomes',
-    'Feature delivery gets roughly 80–90%',
-  ]);
+  failures.push(...verifyOuterDeliveryPolicy(outerAgents));
   requireIncludes('outer AGENTS.md', outerAgents, 'Current clean implementation entrance');
   requireIncludes('outer AGENTS.md', outerAgents, 'Commit/push/PR/deploy remain explicit-only');
   requireIncludes('outer AGENTS.md', outerAgents, 'Preserve unrelated changes');
   requireIncludes('outer AGENTS.md', outerAgents, 'Passkey');
-  requireAnyIncludes('outer AGENTS.md', outerAgents, [
-    'When inspection stops producing evidence, change the hypothesis or observation method',
-    'After three targeted inspections',
-  ]);
   requireIncludes('outer AGENTS.md', outerAgents, 'Use only a named Skill or the single Skill whose trigger directly matches');
   requireIncludes('outer AGENTS.md', outerAgents, 'HOTEL/hooks/');
   requireIncludes('outer AGENTS.md', outerAgents, 'untrusted packages and scripts');

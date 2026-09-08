@@ -45464,7 +45464,7 @@
                         refreshLatestCtripData: scheduleLatestCtripRefresh,
                         getOnlineDataTab: () => onlineDataTab.value,
                         refreshOnlineData: scheduleOnlineDataRefresh,
-                        handleFetchFailure: message => handleCtripFetchFailure(message, isActive),
+                        handleFetchFailure: (message, isCurrent = isActive) => handleCtripFetchFailure(message, isCurrent),
                         hasVisibleSnapshot: hasVisibleCtripSnapshot,
                         logError: (...args) => console.error(...args),
                         background: options?.background === true,
@@ -46054,7 +46054,7 @@
                         refreshOnlineHistory: scheduleOnlineHistoryRefresh,
                         getOnlineDataTab: () => onlineDataTab.value,
                         refreshOnlineData: scheduleOnlineDataRefresh,
-                        handleFetchFailure: message => handleCtripFetchFailure(message, isActive),
+                        handleFetchFailure: (message, isCurrent = isActive) => handleCtripFetchFailure(message, isCurrent),
                     });
                 } finally {
                     if (preparingConfig && isActive()) {

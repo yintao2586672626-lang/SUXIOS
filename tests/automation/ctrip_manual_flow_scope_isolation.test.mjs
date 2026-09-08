@@ -154,3 +154,25 @@ test('failure recovery cannot display an old error after a session change', asyn
   await pending;
   assert.equal(h.notifications.length, 0);
 });
+
+test('date changes during asynchronous failure recovery suppress the old query error', async () => {
+  for (const name of flows) {
+    for (const outcome of ['failure', 'exception']) {
+      const h = harness();
+      let finishRecovery;
+      h.context.loadLatestCtripData = () => new Promise(resolve => { finishRecovery = resolve; });
+      vm.runInContext(declaration('handleCtripFetchFailure'), h.context);
+      const pending = h.context.flows[name]();
+      if (outcome === 'exception') h.requests[0].reject(new Error('Synthetic query error'));
+      else h.requests[0].resolve({ code: 500, message: 'Synthetic query error' });
+      for (let step = 0; step < 5 && !finishRecovery; step++) await Promise.resolve();
+      assert.equal(typeof finishRecovery, 'function', 'production failure recovery is waiting');
+      h.switchScope('date');
+      finishRecovery();
+      assert.equal((await pending).status, 'stale');
+      assert.equal(h.notifications.length, 0, 'no obsolete error toast after the query changed');
+      assert.equal(h.context.onlineDataResult.value, null);
+      assert.equal(h.context.fetchingData.value, false);
+    }
+  }
+});
