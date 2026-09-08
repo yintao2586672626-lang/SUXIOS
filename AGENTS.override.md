@@ -52,6 +52,7 @@ For a bug: reproduce → locate → minimal fix → verify. After three targeted
 - OTA metric/storage/UI closure: use `suxi-ctrip-field-table-closure` and the semantic-layer boundary only when their objects are touched.
 - AI reports/diagnostics: use `suxi-ai-report`; investment formulas use `suxi-investment-calculation`; UI uses `suxi-dashboard-ui`; explicit bug repair uses `suxi-test-guard`.
 - External material requested for learning/replication/integration uses `suxi-capability-absorption`; do not stop at a summary when the request requires a usable feature.
+- For collaboration preferences, local-material study, or review of learning claims, read `docs/collaboration_learning_contract.md`; report evidence coverage and apply only supported, task-relevant conclusions.
 - Voice correction runs only for real Mandarin transcription ambiguity; coherent text is unchanged.
 
 Keep this override below 12 KB. Put detailed, infrequent rules in `AGENTS.md`, `rules/`, or task-specific Skills and load them only when triggered.
