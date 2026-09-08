@@ -707,217 +707,74 @@ test('business chain: OTA import to revenue, operation task, and tracking', asyn
   );
 });
 
-test('business chain: market evaluation to transfer decision dashboard', async ({ page, request }) => {
-  await runBusinessCase(
-    page,
-    request,
-    'market-transfer',
-    [MODULE.AI_WORKBENCH, MODULE.EXECUTION_TRACKING],
-    async ({ api, hotelContext, cleanups }) => {
-      const projectName = `${hotelContext.objectPrefix}_market`;
-      const e2eFallbackModelKey = `${hotelContext.objectPrefix}_missing_model`;
-
-      const market = await api.post('/api/expansion/market-evaluation', {
-        project_name: projectName,
-        city_tier: '一线',
-        city: '上海',
-        business_area: '浦东新区世纪大道',
-        property_area: 3200,
-        estimated_rent: 180000,
-        target_room_count: 88,
-        decoration_level: '中端精选-标准',
-        primary_customer: '商务差旅',
-        secondary_customer: '会议会展',
-        expected_adr: 328,
-        expected_occupancy_rate: 76,
-        competitor_count: 12,
-        ota_market_penetration_rate: 68,
-        model_key: e2eFallbackModelKey,
-      }, { label: 'market evaluation' });
-      expect(Number(market.record_id)).toBeGreaterThan(0);
-      expect(market.ai_evaluation?.source).toBe('fallback');
-      cleanups.push(() => api.delete(`/api/expansion/records/${market.record_id}`, { label: 'archive market record' }).catch(() => null));
-
-      const marketDetail = await api.get(`/api/expansion/records/${market.record_id}`, { label: 'market detail echo' });
-      expect(marketDetail.input.city).toBe('上海');
-      expect(marketDetail.result.decision).toBeTruthy();
-
-      const benchmark = await api.post('/api/expansion/benchmark-model', {
-        project_name: projectName,
-        city: marketDetail.input.city,
-        business_area: marketDetail.input.business_area,
-        target_price_band: market.price_band_suggestion || '300-400',
-        hotel_type: '中端商务',
-        target_room_count: marketDetail.input.target_room_count,
-        model_key: e2eFallbackModelKey,
-      }, { label: 'benchmark model reads market input' });
-      expect(Number(benchmark.record_id)).toBeGreaterThan(0);
-      expect(benchmark.ai_evaluation?.source).toBe('fallback');
-      cleanups.push(() => api.delete(`/api/expansion/records/${benchmark.record_id}`, { label: 'archive benchmark record' }).catch(() => null));
-      expect((benchmark.recommended_benchmarks || []).length).toBeGreaterThan(0);
-
-      const pricing = await api.post('/api/transfer/pricing', {
-        hotel_id: hotelContext.hotelId,
-        hotel_name: hotelContext.hotelName,
-        location: `${marketDetail.input.city}${marketDetail.input.business_area}`,
-        room_count: marketDetail.input.target_room_count,
-        monthly_revenue: 120,
-        monthly_rent: 18,
-        labor_cost: 8,
-        utility_cost: 2,
-        ota_commission: 3,
-        other_fixed_cost: 1,
-        decoration_investment: 260,
-        remaining_lease_months: 72,
-        expected_transfer_price: 320,
-        occupancy_rate: 78,
-        adr: 320,
-        rating: 4.7,
-        order_count: 600,
-        licenses_complete: true,
-        has_data_anomaly: false,
-      }, { label: 'asset pricing' });
-      expect(Number(pricing.record_id)).toBeGreaterThan(0);
-      cleanups.push(() => api.delete(`/api/transfer/records/${pricing.record_id}`, { label: 'archive pricing record' }).catch(() => null));
-      expect(pricing.valuation.reasonable_valuation).toBeGreaterThan(0);
-
-      const timing = await api.post('/api/transfer/timing', {
-        hotel_id: hotelContext.hotelId,
-        current_revenue: 120,
-        previous_revenue: 110,
-        current_orders: 600,
-        previous_orders: 560,
-        current_adr: 320,
-        previous_adr: 300,
-        current_occupancy_rate: 78,
-        previous_occupancy_rate: 72,
-        rating: 4.7,
-        holiday_days: 21,
-        is_peak_season: true,
-        has_data_anomaly: false,
-        has_data_gap: false,
-      }, { label: 'transfer timing' });
-      expect(Number(timing.record_id)).toBeGreaterThan(0);
-      cleanups.push(() => api.delete(`/api/transfer/records/${timing.record_id}`, { label: 'archive timing record' }).catch(() => null));
-      expect(timing.decision).toBeTruthy();
-
-      const dashboard = await api.post('/api/transfer/dashboard', {
-        hotel_id: hotelContext.hotelId,
-        pricing,
-        timing,
-        metrics: { source: 'business-chain', risk_points: market.not_recommended_risks || [] },
-      }, { label: 'transfer dashboard reads pricing and timing' });
-      expect(Number(dashboard.record_id)).toBeGreaterThan(0);
-      cleanups.push(() => api.delete(`/api/transfer/records/${dashboard.record_id}`, { label: 'archive dashboard record' }).catch(() => null));
-      expect(dashboard.final_judgement).toBeTruthy();
-      expect((dashboard.cards || []).some((card) => String(card.value).includes(String(timing.timing_score)))).toBe(true);
-
-      return [
-        '页面展示正确',
-        '市场评估和标杆选模已保存并可回显',
-        '资产定价和时机推演已保存',
-        '数据看板读取资产定价与时机推演结果',
-        '空值由服务端默认值兜底',
+// Requirement revision: retired modules reject writes and preserve history.
+// The active OTA/operations chain above and the calculator below remain covered.
+test('business chain: retired modules preserve history and reject generation or execution', async ({ page, request }) => {
+  await runBusinessCase(page, request, 'retired-history', [MODULE.AI_WORKBENCH, MODULE.EXECUTION_TRACKING],
+    async ({ api, hotelContext }) => {
+      const fixture = runIsolationFixture('seed-retired-history', 'Retired historical records', hotelContext);
+      const modules = [
+        { key: 'expansion', list: '/api/expansion/records', detail: '/api/expansion/records/', writes: ['/api/expansion/market-evaluation', '/api/expansion/benchmark-model', '/api/expansion/collaboration-efficiency'] },
+        { key: 'transfer', list: '/api/transfer/records', detail: '/api/transfer/records/', writes: ['/api/transfer/pricing', '/api/transfer/timing', '/api/transfer/dashboard'] },
+        { key: 'strategy', list: '/api/strategy/records', detail: '/api/strategy/records/', writes: ['/api/strategy/simulate'] },
+        { key: 'feasibility', list: '/api/agent/feasibility-report/list', detail: '/api/agent/feasibility-report/detail/', writes: ['/api/agent/feasibility-report/generate'] },
       ];
-    },
-  );
+      for (const mod of modules) {
+        const saved = fixture[mod.key];
+        expect(Number(saved.id)).toBeGreaterThan(0);
+        const before = await api.get(mod.list, { label: mod.key + ' history before' });
+        expect(before.list.some((row) => Number(row.id) === Number(saved.id))).toBe(true);
+        const detailPath = mod.detail + saved.id;
+        const detail = await api.get(detailPath, { label: mod.key + ' historical detail' });
+        expect(Number(detail.id)).toBe(Number(saved.id));
+        expect((detail.input || detail.input_json).project_name).toBe(saved.project_name);
+        const mutationPath = mod.key === 'feasibility'
+          ? '/api/agent/feasibility-report/' + saved.id
+          : detailPath;
+        const writes = [...mod.writes, mutationPath + '/execution-intent'];
+        if (mod.key === 'feasibility') writes.push('/api/agent/feasibility-report/regenerate/' + saved.id);
+        const expectedRejection = { expectedStatus: 410, expectedCode: 410, returnEnvelope: true };
+        for (const pathname of writes) {
+          const rejection = await api.post(pathname, {
+            hotel_id: hotelContext.hotelId, project_name: saved.project_name,
+          }, { ...expectedRejection, label: mod.key + ' retired write rejected' });
+          expect(rejection.data).toEqual({
+            status: 'retired_read_only', history_preserved: true, next_entry: 'ops-track',
+          });
+        }
+        const deletion = await api.delete(mutationPath, {
+          ...expectedRejection, label: mod.key + ' history deletion rejected',
+        });
+        expect(deletion.data.history_preserved).toBe(true);
+        const after = await api.get(mod.list, { label: mod.key + ' history unchanged' });
+        expect(after.list.map((row) => Number(row.id))).toEqual(before.list.map((row) => Number(row.id)));
+        const readback = await api.get(detailPath, { label: mod.key + ' exact historical readback' });
+        expect(readback.input || readback.input_json).toEqual(detail.input || detail.input_json);
+      }
+      return ['四类停用模块均拒绝生成、执行和删除', '历史列表及原始输入保持可回读', '合成历史夹具由隔离运行器清理'];
+    });
 });
 
-test('business chain: strategy, quant simulation, feasibility report, and investment decision', async ({ page, request }) => {
-  await runBusinessCase(
-    page,
-    request,
-    'investment-decision',
-    [MODULE.AI_WORKBENCH, MODULE.EXECUTION_TRACKING],
+test('business chain: quantitative calculator remains available with saved readback', async ({ page, request }) => {
+  await runBusinessCase(page, request, 'quantitative-calculator', [MODULE.AI_WORKBENCH, MODULE.EXECUTION_TRACKING],
     async ({ api, hotelContext, cleanups }) => {
-      const projectName = `${hotelContext.objectPrefix}_investment`;
-      const e2eFallbackModelKey = `${hotelContext.objectPrefix}_missing_model`;
-
-      const strategy = await api.post('/api/strategy/simulate', {
-        project_name: projectName,
-        model_key: e2eFallbackModelKey,
-        city: '上海',
-        district: '浦东新区',
-        address: '世纪大道链路测试物业',
-        property_area: 3200,
-        room_count: 88,
-        monthly_rent: 180000,
-        decoration_budget: 2200000,
-        lease_years: 10,
-        rent_free_months: 4,
-        business_type: '核心商务区',
-        primary_customer: '商务差旅',
-        competitor_count: 8,
-        target_grade: '中端精选',
-      }, { label: 'strategy simulate' });
-      expect(Number(strategy.record_id)).toBeGreaterThan(0);
-      cleanups.push(() => api.delete(`/api/strategy/records/${strategy.record_id}`, { label: 'archive strategy record' }).catch(() => null));
-      expect(strategy.recommendation.decision_direction || strategy.decision).toBeTruthy();
-
-      const strategyDetail = await api.get(`/api/strategy/records/${strategy.record_id}`, { label: 'strategy detail echo' });
-      expect(strategyDetail.input.project_name).toBe(projectName);
-
+      const projectName = hotelContext.objectPrefix + '_investment';
       const simulationInput = {
-        roomCount: 88,
-        decorationInvestment: 2200000,
-        furnitureInvestment: 360000,
-        openingCost: 220000,
-        otherInvestment: 120000,
-        adr: 328,
-        occupancyRate: 76,
-        otherIncome: 12000,
-        monthlyRent: 180000,
-        laborCost: 88000,
-        utilityCost: 26000,
-        otaCommissionRate: 12,
-        consumableCost: 18000,
-        maintenanceCost: 12000,
-        otherFixedCost: 10000,
+        roomCount: 88, decorationInvestment: 2200000, furnitureInvestment: 360000,
+        openingCost: 220000, otherInvestment: 120000, adr: 328, occupancyRate: 76,
+        otherIncome: 12000, monthlyRent: 180000, laborCost: 88000, utilityCost: 26000,
+        otaCommissionRate: 12, consumableCost: 18000, maintenanceCost: 12000, otherFixedCost: 10000,
       };
       const simulation = await api.post('/api/simulation/calculate', {
-        project_name: projectName,
-        input: simulationInput,
+        project_name: projectName, input: simulationInput,
       }, { label: 'quant simulation calculate' });
       expect(Number(simulation.id)).toBeGreaterThan(0);
-      cleanups.push(() => api.delete(`/api/simulation/records/${simulation.id}`, { label: 'archive simulation record' }).catch(() => null));
-      expect(simulation.result.revPAR).toBeGreaterThan(0);
-
-      const feasibility = await api.post('/api/agent/feasibility-report/generate', {
-        project_name: projectName,
-        city: '上海',
-        district: '浦东新区',
-        address: '世纪大道链路测试物业',
-        property_area: 3200,
-        room_count: 88,
-        monthly_rent: 180000,
-        lease_years: 10,
-        decoration_budget: 2200000,
-        transfer_fee: 0,
-        opening_cost: 220000,
-        adr: simulationInput.adr,
-        occ: simulationInput.occupancyRate,
-        target_brand_level: '中端精选',
-        target_customer: '商务差旅',
-        notes: `读取战略记录 ${strategy.record_id} 与量化记录 ${simulation.id}`,
-        model_key: e2eFallbackModelKey,
-      }, { label: 'feasibility report generate with fallback' });
-      expect(Number(feasibility.id)).toBeGreaterThan(0);
-      cleanups.push(() => api.delete(`/api/agent/feasibility-report/${feasibility.id}`, { label: 'archive feasibility report' }).catch(() => null));
-      expect(feasibility.project_name).toBe(projectName);
-      expect(['A', 'B', 'C', 'D']).toContain(feasibility.conclusion_grade);
-
-      const feasibilityDetail = await api.get(`/api/agent/feasibility-report/detail/${feasibility.id}`, { label: 'feasibility detail echo' });
-      expect(feasibilityDetail.input.project_name).toBe(projectName);
-      expect((feasibilityDetail.report.financial_scenarios || []).length).toBe(3);
-      expect(feasibilityDetail.report.summary.room_count).toBe(88);
-
-      return [
-        '页面展示正确',
-        '战略推演保存并可回显',
-        '量化模拟保存并可回显',
-        '可行性报告保存并读取战略/量化输入',
-        `投资决策结论=${feasibility.conclusion_grade}`,
-      ];
-    },
-  );
+      cleanups.push(() => api.delete('/api/simulation/records/' + simulation.id, { label: 'archive simulation record' }));
+      expect(simulation.result.revPAR).toBeCloseTo(328 * 0.76, 2);
+      const readback = await api.get('/api/simulation/records/' + simulation.id, { label: 'quant simulation saved readback' });
+      expect(Number(readback.id)).toBe(Number(simulation.id));
+      expect(readback.project_name).toBe(projectName);
+      expect(readback.result.revPAR).toBeCloseTo(simulation.result.revPAR, 2);
+      return ['量化计算仍可使用', '独立假设计算结果保存并精确回读', '不生成停用模块报告或经营执行'];
+    });
 });
