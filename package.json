@@ -51,7 +51,7 @@
     "verify:field-asset-ledger": "node scripts/verify_field_asset_ledger_contract.mjs",
     "backfill:meituan-vip-tags": "C:\\xampp\\php\\php.exe scripts\\backfill_meituan_vip_tags.php",
     "backfill:meituan-vip-tags:execute": "C:\\xampp\\php\\php.exe scripts\\backfill_meituan_vip_tags.php --execute",
-    "build:frontend": "npm run build:frontend-template && npm run build:operating-finance-component && npm run build:frontend-entry && npm run build:tailwind-runtime && npm run build:login-critical-css && npm run build:authenticated-style && npm run build:frontend-startup-helpers",
+    "build:frontend": "node scripts/sync_platform_auto_panels_asset.mjs && npm run build:frontend-template && npm run build:operating-finance-component && npm run build:frontend-entry && npm run build:tailwind-runtime && npm run build:login-critical-css && npm run build:authenticated-style && npm run build:frontend-startup-helpers",
     "build:operating-finance-component": "node scripts/build_operating_finance_component.mjs",
     "build:frontend-entry": "node scripts/build_frontend_entry.mjs",
     "verify:frontend-entry-build": "node scripts/verify_frontend_entry_build.mjs",

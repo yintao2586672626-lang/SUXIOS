@@ -183,6 +183,8 @@ if (!fs.existsSync(indexPath)) {
   const platformAutoSettingsPanelsContent = fs.existsSync(platformAutoSettingsPanelsPath)
     ? fs.readFileSync(platformAutoSettingsPanelsPath, 'utf8')
     : '';
+  const platformAutoPanelsHash = crypto.createHash('sha256').update(platformAutoSettingsPanelsContent.replace(/\r\n/g, '\n')).digest('hex').slice(0, 10);
+  const platformAutoPanelsScriptDeclaration = `const platformAutoPanelsScript = 'components/online-data/platform-auto-settings-panels.js?v=20260908-status-recovery-h${platformAutoPanelsHash}';`;
   const ctripProfileFieldConfigPanelPath = path.join(repoRoot, 'public/components/online-data/ctrip-profile-field-config-panel.js');
   const ctripProfileFieldConfigPanelContent = fs.existsSync(ctripProfileFieldConfigPanelPath)
     ? fs.readFileSync(ctripProfileFieldConfigPanelPath, 'utf8')
@@ -365,7 +367,7 @@ if (!runtimeAssetPaths.includes('app-startup-helpers.min.js')
       failures.push(`${file} must keep OTA authorization copy on account-owner local-computer authorization and must not contain legacy server/login-task wording: ${text}`);
     }
   }
-  if (!content.includes("const platformAutoPanelsScript = 'components/online-data/platform-auto-settings-panels.js?v=20260811-windows-scheduler-h80-v3';")
+  const platformAutoPanelsContractMissing = !content.includes(platformAutoPanelsScriptDeclaration)
     || !content.includes("const PlatformAutoSettingsPanels = {")
     || !content.includes("const PlatformAutoSecondaryPanels = {")
     || !content.includes('const ensurePlatformAutoPanelsReady = async () => {')
@@ -375,7 +377,8 @@ if (!runtimeAssetPaths.includes('app-startup-helpers.min.js')
     || !content.includes('platformAutoSecondaryPanelsBody')
     || !platformAutoSettingsPanelsContent.includes('components.PlatformAutoSettingsPanelsBody')
     || !platformAutoSettingsPanelsContent.includes('components.PlatformAutoSecondaryPanelsBody')
-    || content.includes('<script src="components/online-data/platform-auto-settings-panels.js')) {
+    || content.includes('<script src="components/online-data/platform-auto-settings-panels.js');
+  if (platformAutoPanelsContractMissing) {
     failures.push('public/index.html must lazy-load the platform-auto extension panels instead of loading them before Vue mount.');
   }
   if (!content.includes('components/online-data/ctrip-profile-field-config-panel.js?v=20260613-profile-template-split')
@@ -2096,10 +2099,7 @@ if (!runtimeAssetPaths.includes('app-startup-helpers.min.js')
   }
   if (!platformAutoTemplateSource.includes('<platform-auto-settings-panels')
     || !platformAutoTemplateSource.includes(':ctx="$root"')
-    || !content.includes("const platformAutoPanelsScript = 'components/online-data/platform-auto-settings-panels.js?v=20260811-windows-scheduler-h80-v3';")
-    || !content.includes('const ensurePlatformAutoPanelsReady = async () => {')
-    || !content.includes("requireOnlineDataComponent('PlatformAutoSettingsPanelsBody')")
-    || !content.includes("requireOnlineDataComponent('PlatformAutoSecondaryPanelsBody')")
+    || platformAutoPanelsContractMissing
     || !content.includes('data-testid="platform-auto-settings-panels-loading"')
     || !platformAutoSettingsPanelsContent.includes('data-testid="platform-auto-settings-panels"')
     || !platformAutoSettingsPanelsContent.includes('v-model.number="ctx.autoFetchRealtimeIntervalHours"')

@@ -660,7 +660,7 @@
             });
         },
     };
-    const platformAutoPanelsScript = 'components/online-data/platform-auto-settings-panels.js?v=20260811-windows-scheduler-h80-v3';
+    const platformAutoPanelsScript = 'components/online-data/platform-auto-settings-panels.js?v=20260908-status-recovery-h1abce191b5';
     const ctripProfileFieldConfigPanelScript = 'components/online-data/ctrip-profile-field-config-panel.js?v=20260613-profile-template-split';
     const competitorDeviceManagementScript = 'components/admin/competitor-device-management.js?v=20260719-device-lifecycle-v3';
     const dataConfigDialogsScript = 'components/system/data-config-dialogs.js?v=20260720-data-config-template-split-v1';

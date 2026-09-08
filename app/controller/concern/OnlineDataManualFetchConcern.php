@@ -1908,13 +1908,8 @@ trait OnlineDataManualFetchConcern
 
             if (!$result['success']) {
                 $this->recordCookieAlert('meituan', 'fetch-meituan', (string)($result['error'] ?? ''), $systemHotelId ? (int)$systemHotelId : null);
-                return $this->error('请求失败: ' . $result['error'], 400, [
-                    'reason' => $result['reason'] ?? 'meituan_request_failed',
-                    'credential_status' => $result['credential_status'] ?? '',
-                    'business_code' => $result['business_code'] ?? null,
-                    'business_message' => $result['business_message'] ?? '',
-                    'http_code' => $result['http_code'] ?? null,
-                ]);
+                return $this->error('请求失败: ' . $result['error'], 400,
+                    \app\service\FailureEvidenceService::upstreamResponseData($result, 'meituan_request_failed'));
             }
 
             $responseData = $result['data'] ?? [];
@@ -2564,21 +2559,17 @@ trait OnlineDataManualFetchConcern
 
             $result = $this->sendCtripJsonRequest($requestUrl, $postData, $cookies);
             if (!empty($result['error'])) {
-                $this->recordCookieAlert(strtolower($platform), 'fetch-ctrip-traffic', 'ctrip_traffic_request_failed', $systemHotelId);
-                return $this->error('携程流量请求失败', 400, [
-                    'reason' => 'ctrip_traffic_request_failed',
-                    'http_code' => (int)($result['http_code'] ?? 0),
-                ]);
+                $this->recordCookieAlert(strtolower($platform), 'fetch-ctrip-traffic', (string)($result['error'] ?? ''), $systemHotelId);
+                return $this->error('携程流量请求失败', 400,
+                    \app\service\FailureEvidenceService::upstreamResponseData($result, 'ctrip_traffic_request_failed'));
             }
 
             $responseData = $result['decoded_data'];
             $apiError = $this->getCtripTrafficApiError($responseData);
             if ($apiError !== '') {
-                $this->recordCookieAlert(strtolower($platform), 'fetch-ctrip-traffic', 'ctrip_traffic_api_rejected', $systemHotelId);
-                return $this->error('携程流量接口未返回可用业务数据', 400, [
-                    'reason' => 'ctrip_traffic_api_rejected',
-                    'http_code' => (int)($result['http_code'] ?? 0),
-                ]);
+                $this->recordCookieAlert(strtolower($platform), 'fetch-ctrip-traffic', $apiError, $systemHotelId);
+                return $this->error($apiError, 400, \app\service\FailureEvidenceService::upstreamResponseData(
+                    array_merge(['http_code' => (int)($result['http_code'] ?? 0)], \app\service\OtaUpstreamFailureService::ctripBusinessFailure($responseData) ?? []), 'ctrip_traffic_api_rejected'));
             }
 
             $trafficRows = is_array($responseData) ? $this->extractCtripTrafficRows($responseData) : [];

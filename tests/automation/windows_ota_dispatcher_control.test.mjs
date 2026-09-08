@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import vm from 'node:vm';
@@ -99,7 +100,11 @@ test('page exposes an independent status card and a safe enable exact readback a
   assert.match(panels, /状态未验证，无法启用/);
   assert.match(panels, /data-testid="natural-daily-acceptance-status"/);
   assert.match(appMain, /\/online-data\/enable-windows-ota-dispatcher/);
-  assert.match(appMain, /platform-auto-settings-panels\.js\?v=20260811-windows-scheduler-h80-v3/);
+  const panelsHash = createHash('sha256').update(panels.replace(/\r\n/g, '\n')).digest('hex').slice(0, 10);
+  const expectedPanelsUrl = `components/online-data/platform-auto-settings-panels.js?v=20260908-status-recovery-h${panelsHash}`;
+  for (const source of [appMain, readFileSync('public/components/system/app-main-components-loader.js', 'utf8')]) {
+    assert.equal(source.match(/components\/online-data\/platform-auto-settings-panels\.js\?v=[^'"\s]+/)?.[0], expectedPanelsUrl);
+  }
   assert.match(appMain, /autoFetchStaticVersion = '20260811-windows-scheduler-h80-v3'/);
   assert.match(appMain, /expected_contract_digest: currentStatus\.contract_digest/);
   assert.match(appMain, /res\.data\?\.catch_up_disabled !== true/);

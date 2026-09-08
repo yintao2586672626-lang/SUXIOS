@@ -266,7 +266,7 @@
 
                 <div v-if="ctx.autoFetchRunState.active || ctx.autoFetchRunState.message || ctx.autoFetchStatus?.last_result" class="rounded-lg border bg-white px-4 py-3 text-sm">
                     <span class="font-medium text-gray-900">最近结果：</span>
-                    <span :class="ctx.autoFetchRunState.active ? 'text-blue-700' : ((ctx.autoFetchStatus?.last_result?.success === true || ctx.autoFetchRunState.type === 'success') ? 'text-green-700' : 'text-red-700')">
+                    <span :class="ctx.autoFetchRunState.type === 'status_unavailable' ? 'text-amber-700' : (ctx.autoFetchRunState.active ? 'text-blue-700' : ((ctx.autoFetchStatus?.last_result?.success === true || ctx.autoFetchRunState.type === 'success') ? 'text-green-700' : 'text-red-700'))">
                         {{ ctx.autoFetchResultMessage(ctx.autoFetchRunState.message || ctx.autoFetchStatus?.last_result?.message) }}
                     </span>
                     <div v-if="ctx.autoFetchCanonicalOperationStatus?.visible" class="mt-3 rounded-md border px-3 py-2 text-xs" :class="ctx.autoFetchCanonicalOperationStatus.status_class" data-testid="canonical-daily-operation-status">

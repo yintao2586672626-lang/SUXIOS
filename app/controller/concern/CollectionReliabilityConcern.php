@@ -869,7 +869,7 @@ trait CollectionReliabilityConcern
 
     private function isCookieAuthError(string $message): bool
     {
-        return preg_match('/cookie|login|auth|unauthorized|forbidden|expired|302|401|403|html|登录|授权|过期|失效|权限/i', $message) === 1;
+        return \app\service\OtaUpstreamFailureService::explicitlyRequiresLogin($message);
     }
 
     private function recordCookieAlert(string $platform, string $name, string $message, ?int $hotelId = null): void

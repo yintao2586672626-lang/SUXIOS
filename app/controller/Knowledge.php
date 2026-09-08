@@ -66,15 +66,7 @@ class Knowledge extends Base
                 $query->where('hotel_id', $hotelId);
             }
             if ($keyword !== '') {
-                $query->where(function ($q) use ($keyword, $chunkMatchedUnitIds) {
-                    $q->whereLike('name', '%' . $keyword . '%')
-                        ->whereOrLike('description', '%' . $keyword . '%');
-                    if ($chunkMatchedUnitIds !== []) {
-                        $q->whereOr(function ($subQuery) use ($chunkMatchedUnitIds): void {
-                            $subQuery->whereIn('unit_id', $chunkMatchedUnitIds);
-                        });
-                    }
-                });
+                $this->applyKnowledgeKeywordFilter($query, $keyword, $chunkMatchedUnitIds);
             }
             if ($hasChunkFilters) {
                 $chunkMatchedUnitIds === []
@@ -1100,6 +1092,22 @@ class Knowledge extends Base
      * @param array<string,string> $filters
      * @return array<int,int>
      */
+    private function applyKnowledgeKeywordFilter($query, string $keyword, array $chunkMatchedUnitIds): void
+    {
+        if ($keyword === '') {
+            return;
+        }
+        $query->where(function ($q) use ($keyword, $chunkMatchedUnitIds): void {
+            $q->whereLike('name', '%' . $keyword . '%')
+                ->whereLike('description', '%' . $keyword . '%', 'OR');
+            if ($chunkMatchedUnitIds !== []) {
+                $q->whereOr(function ($subQuery) use ($chunkMatchedUnitIds): void {
+                    $subQuery->whereIn('unit_id', $chunkMatchedUnitIds);
+                });
+            }
+        });
+    }
+
     private function knowledgeChunkMatchingUnitIds(string $keyword, array $filters): array
     {
         $query = KnowledgeChunk::field($this->knowledgeChunkGateFields());

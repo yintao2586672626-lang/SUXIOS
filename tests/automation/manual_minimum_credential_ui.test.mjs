@@ -1477,13 +1477,11 @@ test('Meituan API login failures stay explicit across backend and manual fetch r
   );
   const fetchResultPanel = sliceFrom('<!-- 获取结果显示 -->', '<!-- 原始JSON数据 -->');
 
-  assert.match(failureBuilder, /\['303', '401', '403'\]/);
-  assert.match(failureBuilder, /login_required/);
-  assert.match(failureBuilder, /credential_status/);
-  assert.match(failureBuilder, /美团登录态已失效/);
-  assert.match(onlineDataManualFetchConcern, /'reason'\s*=>\s*\$result\['reason'\]\s*\?\?\s*'meituan_request_failed'/);
-  assert.match(onlineDataManualFetchConcern, /'credential_status'\s*=>\s*\$result\['credential_status'\]\s*\?\?\s*''/);
-  assert.match(onlineDataManualFetchConcern, /'business_code'\s*=>\s*\$result\['business_code'\]\s*\?\?\s*null/);
+  assert.match(failureBuilder, /OtaUpstreamFailureService::meituanBusinessFailure\(\$businessCode, \$businessMsg\)/);
+  assert.match(onlineDataManualFetchConcern, /FailureEvidenceService::upstreamResponseData\(\$result, 'meituan_request_failed'\)/);
+  const failureService = readFileSync('app/service/OtaUpstreamFailureService.php', 'utf8');
+  assert.match(failureService, /'credential_status' => \$loginRequired \? 'login_required' : 'api_error'/);
+  assert.match(failureService, /美团要求重新登录/);
   assert.match(fetchResultPanel, /onlineDataResult\s*&&\s*onlineDataResult\.length\s*>\s*0/);
   assert.match(fetchResultPanel, /数据获取失败/);
 });
