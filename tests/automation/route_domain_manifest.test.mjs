@@ -51,7 +51,7 @@ test('extracted method, URL, handler, order and Auth middleware surface matches 
   for (const prefix of extractedPrefixes) {
     const escapedPrefix = prefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const group = effectiveSource.match(new RegExp(
-      `Route::group\\('${escapedPrefix}', function \\(\\) \\{([\\s\\S]*?)\\}\\)->middleware\\(\\\\app\\\\middleware\\\\Auth::class\\);`,
+      `Route::group\\('${escapedPrefix}', function \\(\\) \\{([\\s\\S]*?)\\}\\)->middleware\\(\\\\app\\\\middleware\\\\Auth::class\\)(?:->middleware\\(\\\\app\\\\middleware\\\\RetiredFeatureReadOnly::class, '[^']+'\\))?;`,
     ));
     assert.ok(group, `missing authenticated group ${prefix}`);
     for (const route of group[1].matchAll(/Route::(get|post|put|delete|patch|any|rule)\('([^']+)', '([^']+)'\);/g)) {
