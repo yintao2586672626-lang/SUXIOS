@@ -152,6 +152,7 @@ final class WeeklyOperatingPlanSnapshotService
         ]);
         if (!is_array($row)) {
             return [
+                'contract_version' => self::CONTRACT_VERSION,
                 'tenant_id' => $tenantId,
                 'hotel_id' => $hotelId,
                 'week_start' => $weekStart,
