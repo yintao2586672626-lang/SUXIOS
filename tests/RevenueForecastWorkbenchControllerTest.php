@@ -92,6 +92,21 @@ final class RevenueForecastWorkbenchControllerTest extends TestCase
         self::assertSame(422, $this->controller($input)->preview()->getCode());
     }
 
+    public function testScopeWhitespaceDoesNotHideSavedPlans(): void
+    {
+        $scope = Fixture::scope();
+        foreach (['platform_store_id', 'room_scope'] as $key) $scope[$key] = '  ' . $scope[$key] . "\t";
+        self::assertSame(Fixture::scope(), $this->controller($scope, false)->context()->getData()['data']['scope']);
+        $saved = $this->controller($scope + Fixture::input())->save()->getData();
+        self::assertSame(200, $saved['code']);
+        $canonicalScope = Fixture::scope(); ksort($canonicalScope);
+        self::assertSame($canonicalScope, $saved['data']['payload']['scope']);
+        $canonical = $this->controller(Fixture::scope(), false)->detail($saved['data']['id'])->getData();
+        self::assertSame($saved['data']['payload'], $canonical['data']['payload']);
+        self::assertCount(1, $this->controller($scope, false)->history()->getData()['data']['items']);
+        self::assertCount(1, $this->controller(Fixture::scope(), false)->history()->getData()['data']['items']);
+    }
+
     public function testContextValidatesTheSameScopeContractAsReplay(): void
     {
         $valid = $this->controller(Fixture::scope(), false)->context();

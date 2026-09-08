@@ -7,7 +7,8 @@ final class RevenueForecastReadinessService
 {
     public function assessReplay(array $stats, string $sourceKind): array
     {
-        $enough = ($stats['complete_fold_count'] ?? 0) >= 3 && ($stats['unpaired_point_count'] ?? 1) === 0;
+        $enough = ($stats['complete_fold_count'] ?? 0) >= 3 && ($stats['unpaired_point_count'] ?? 1) === 0
+            && ($stats['unavailable_training_fold_count'] ?? 0) === 0;
         $model = $stats['metrics']['model']['mae'] ?? null;
         $weekly = $stats['metrics']['weekly']['mae'] ?? null;
         $mean = $stats['metrics']['mean7']['mae'] ?? null;

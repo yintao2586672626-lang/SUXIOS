@@ -21,8 +21,8 @@ try {
     const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
     const errors = []; page.on('pageerror', e => errors.push(e.message));
     await page.goto(base);
-    await page.getByTestId('forecast-platform_store_id').fill('synthetic-store');
-    await page.getByTestId('forecast-room_scope').fill('synthetic-room');
+    await page.getByTestId('forecast-platform_store_id').fill('  synthetic-store  ');
+    await page.getByTestId('forecast-room_scope').fill('  synthetic-room  ');
     assert.match(await page.getByTestId('forecast-history-status').innerText(), /尚未读取/);
     let releaseHistory;
     const historyRelease = new Promise(resolve => { releaseHistory = resolve; });
@@ -54,6 +54,12 @@ try {
     await page.getByTestId('forecast-read').filter({ hasText: originalId.slice(0, 12) }).click();
     await page.getByTestId('forecast-saved').waitFor();
     assert.equal(await page.getByTestId('forecast-proposed_price').inputValue(), '220');
+    assert.equal(await page.getByTestId('forecast-saved').innerText(), originalSaved);
+    await page.getByTestId('forecast-platform_store_id').fill('synthetic-store');
+    await page.getByTestId('forecast-room_scope').fill('synthetic-room');
+    await page.getByTestId('forecast-history').click();
+    await page.getByTestId('forecast-read').filter({ hasText: originalId.slice(0, 12) }).click();
+    await page.getByTestId('forecast-saved').waitFor();
     assert.equal(await page.getByTestId('forecast-saved').innerText(), originalSaved);
     await page.screenshot({ path: path.join(out, 'L05-desktop-synthetic.png'), fullPage: true });
     await page.setViewportSize({ width: 390, height: 844 });
@@ -93,10 +99,14 @@ try {
     await page.getByTestId('forecast-run').click(); await page.getByTestId('forecast-result').waitFor();
     const qualityEvidence = JSON.parse(await page.getByTestId('forecast-evidence').inputValue());
     qualityEvidence.observations.push({ ...qualityEvidence.observations[200], available_at: '2026-09-01T07:00:00+08:00', quality_status: 'failed', value: null });
+    qualityEvidence.observations.push({ ...qualityEvidence.observations[20], available_at: '2026-02-01T07:00:00+08:00', quality_status: 'missing', value: null });
     await page.getByTestId('forecast-evidence').fill(JSON.stringify(qualityEvidence));
     await page.getByTestId('forecast-run').click(); await page.getByTestId('forecast-result').waitFor();
     assert.match(await page.getByTestId('forecast-training-quality').innerText(), /采集失败 1 天/);
     assert.match(await page.getByTestId('forecast-result').innerText(), /状态：partial/);
+    const backtestQuality = await page.getByTestId('forecast-backtest-quality').innerText();
+    assert.match(backtestQuality, /采集失败 1/);
+    assert.match(backtestQuality, /训练含缺失\/失败的时间折 [1-9]/);
     await page.screenshot({ path: path.join(out, 'L05-mobile-partial-synthetic.png'), fullPage: true });
     await page.getByTestId('forecast-hotel').selectOption('90002');
     assert.equal(await page.getByTestId('forecast-result').count(), 0);

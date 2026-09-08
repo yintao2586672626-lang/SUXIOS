@@ -69,7 +69,7 @@
             onBeforeUnmount(() => controller.invalidate(true));
             const revision = ref(0);
             const redraw = () => revision.value++;
-            const scope = () => ({ hotel_id: Number(form.hotel_id), platform: form.platform, platform_store_id: form.platform_store_id, room_scope: form.room_scope });
+            const scope = () => ({ hotel_id: Number(form.hotel_id), platform: form.platform, platform_store_id: form.platform_store_id.trim(), room_scope: form.room_scope.trim() });
             const inputKey = () => JSON.stringify([form, evidence.value]);
             watch(inputKey, () => { controller.invalidate(); redraw(); }, { flush: 'sync' });
             watch(() => JSON.stringify(scope()), () => { controller.invalidate(true); redraw(); }, { flush: 'sync' });
@@ -81,7 +81,7 @@
                 if (keys.some(k => form[k] !== '')) {
                     if (keys.some(k => String(form[k]).trim() === '')) throw new Error('价格情景四项均须填写，留空不按零计算。');
                     value.scenario = Object.fromEntries(keys.map(k => [k, Number(form[k])]));
-                    Object.assign(value.scenario, { horizon_days: Number(form.horizon_days), price_unit: 'CNY_per_room_night', inventory_scope: form.room_scope });
+                    Object.assign(value.scenario, { horizon_days: Number(form.horizon_days), price_unit: 'CNY_per_room_night', inventory_scope: value.room_scope });
                 }
                 return value;
             };
@@ -132,7 +132,7 @@
                     h('div', { class: 'fw-grid' }, [h('label', { class: 'fw-field' }, ['酒店', h('select', { value: form.hotel_id, 'data-testid': 'forecast-hotel', onChange: e => { form.hotel_id = e.target.value; } }, [h('option', { value: '' }, '选择酒店'), ...props.hotels.map(item => h('option', { value: item.id }, item.name || String(item.id)))])]),
                         h('label', { class: 'fw-field' }, ['渠道', h('select', { value: form.platform, onChange: e => { form.platform = e.target.value; } }, [h('option', { value: 'ctrip' }, '携程'), h('option', { value: 'meituan' }, '美团')])]), field('平台门店标识（导入声明待核）', 'platform_store_id'), field('房型/库存范围', 'room_scope')]),
                     h('div', { class: 'fw-actions' }, [button('载入 synthetic 验收示例', sample, 'forecast-sample'), button(current.historyStatus === 'loading' ? '正在读取历史…' : '读取历史方案', loadHistory, 'forecast-history', current.historyStatus === 'loading')]),
-                    h('label', { class: 'fw-field' }, ['证据 JSON（含带时区 available_at、入住日、净间夜、质量状态；source_ref 用 synthetic- 或 manual- 开头的字母数字/下划线/连字符编号，禁止URL及凭证）', h('textarea', { value: evidence.value, 'data-testid': 'forecast-evidence', onInput: e => { evidence.value = e.target.value; } })]),
+                    h('label', { class: 'fw-field' }, ['证据 JSON（含带时区 available_at、入住日、净间夜、质量状态；synthetic 来源用 synthetic- 编号，manual_unverified 用 manual- 编号，仅接受字母数字/下划线/连字符，禁止URL及凭证；证据范围编号不得含首尾空白）', h('textarea', { value: evidence.value, 'data-testid': 'forecast-evidence', onInput: e => { evidence.value = e.target.value; } })]),
                     h('label', { class: 'fw-field' }, ['导入证据 JSON 文件', h('input', { type: 'file', accept: '.json,application/json', onChange: async e => { const file = e.target.files?.[0]; if (!file) return; if (file.size > 2000000) { controller.state.error = '文件超过2MB'; redraw(); return; } const before = inputKey(); const value = await file.text(); if (before === inputKey()) evidence.value = value; } })]),
                     h('p', '情景可选：全部留空只回测。填写后四项均必填；弹性是人工假设，库存为同渠道同房型全周期可用间夜。'),
                     h('div', { class: 'fw-grid' }, [h('label', { class: 'fw-field' }, ['情景周期', h('select', { value: form.horizon_days, onChange: e => { form.horizon_days = Number(e.target.value); } }, [7, 14, 30].map(n => h('option', { value: n }, `${n}天`)))]), field('当前房价（元/间夜）', 'current_price', 'number'), field('方案房价（元/间夜）', 'proposed_price', 'number'), field('价格弹性假设（-5至0）', 'elasticity', 'number'), field('全周期渠道库存（间夜）', 'inventory_room_nights', 'number')]),
@@ -142,6 +142,10 @@
                     replay ? h('div', { 'data-testid': 'forecast-result' }, [h('p', `来源：${replay.source_kind} · 状态：${replay.data_status} · 预测时点：${replay.as_of_at} · 实际评价时点：${replay.evaluation_at}`),
                         h('p', `证据版本 ${replay.input_evidence.version_count}；可见训练样本 ${replay.input_evidence.training_sample_count}；排除预测时点后版本 ${replay.input_evidence.excluded_after_as_of_count}。单位：间夜，取消已排除。`),
                         h('p', { 'data-testid': 'forecast-training-quality' }, replay.input_evidence.training_quality ? `56天训练窗口：有效 ${display(replay.input_evidence.training_quality.ready)} 天；声明缺失 ${display(replay.input_evidence.training_quality.missing)} 天；采集失败 ${display(replay.input_evidence.training_quality.failed)} 天；无可见版本 ${display(replay.input_evidence.training_quality.unobserved)} 天。` : '旧方案未记录训练质量计数；需重新计算后核验。'),
+                        h('div', { 'data-testid': 'forecast-backtest-quality' }, [7, 14, 30].map(n => {
+                            const c = replay.comparisons[n]; const q = c.actual_quality;
+                            return h('p', q ? `${n}天回测目标：有效 ${display(q.ready)}，声明缺失 ${display(q.missing)}，采集失败 ${display(q.failed)}，无可见版本 ${display(q.unobserved)}；训练含缺失/失败的时间折 ${display(c.unavailable_training_fold_count)}。缺口存在时不支持完整优劣比较，误差仅为已配对样本统计。` : `${n}天旧方案未记录回测质量细分；需重新计算后核验。`);
+                        })),
                         h('div', { style: 'overflow-x:auto' }, [h('table', [h('thead', [h('tr', ['周期', '预测间夜/状态', '配对样本/完整折', '模型MAE', '周基线MAE', '均值基线MAE', '区间覆盖%', '判断'].map(s => h('th', s)))]), h('tbody', [7, 14, 30].map(n => { const c = replay.comparisons[n]; const f = replay.forecasts[n]; return h('tr', [h('td', `${n}天`), h('td', `${display(f.total_predicted_room_nights)} / ${f.status}`), h('td', `${c.sample_count}/${c.complete_fold_count}（缺${c.unpaired_point_count}点）`), h('td', display(c.metrics.model.mae)), h('td', display(c.metrics.weekly.mae)), h('td', display(c.metrics.mean7.mae)), h('td', display(c.interval_coverage_percent)), h('td', labels[c.assessment.status] || c.assessment.status)]); }))])]),
                         h('p', replay.interval_semantics), ...replay.applicability.map(s => h('p', s)),
                         h('details', [h('summary', '逐日预测、时间折、来源与全部误差（RMSE/WAPE/偏差）'), h('pre', JSON.stringify(replay, null, 2))])]) : null,

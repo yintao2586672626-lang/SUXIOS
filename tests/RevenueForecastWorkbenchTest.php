@@ -124,6 +124,75 @@ final class RevenueForecastWorkbenchTest extends TestCase
         self::assertSame('insufficient_samples', $partial['replay']['comparisons'][7]['assessment']['status']);
     }
 
+    public function testActualRevisionQualityDistinguishesFailedMissingAndUnobserved(): void
+    {
+        $input = Fixture::input();
+        foreach ([60 => 'failed', 61 => 'missing'] as $index => $quality) {
+            $revision = $input['evidence']['observations'][$index];
+            $revision['available_at'] = '2026-09-01T07:00:00+08:00';
+            $revision['quality_status'] = $quality; $revision['value'] = null;
+            $revision['source_ref'] = 'synthetic-revision-' . $quality;
+            $input['evidence']['observations'][] = $revision;
+        }
+        unset($input['evidence']['observations'][62]);
+        $input['evidence']['observations'] = array_values($input['evidence']['observations']);
+        $saved = $this->service->save($input, Fixture::scope());
+        $result = $this->service->read($saved['id'], Fixture::scope())['payload']['result']['replay'];
+        foreach ($result['comparisons'] as $stats) {
+            $points = array_column($stats['folds'][0]['points'], null, 'target_date');
+            foreach (['2026-03-02' => 'failed', '2026-03-03' => 'missing', '2026-03-04' => 'unobserved'] as $date => $quality) {
+                self::assertSame($quality, $points[$date]['actual_quality_status'] ?? null);
+                self::assertNull($points[$date]['actual_value']);
+                self::assertSame($quality === 'unobserved' ? null : 'synthetic-revision-' . $quality, $points[$date]['actual_source_ref']);
+            }
+            self::assertSame(1, $stats['actual_quality']['failed']);
+            self::assertSame(1, $stats['actual_quality']['missing']);
+            self::assertSame(1, $stats['actual_quality']['unobserved']);
+            self::assertSame(3, $stats['missing_actual_count']);
+            self::assertFalse($stats['assessment']['comparison_supported']);
+        }
+    }
+
+    public function testEveryFoldPreservesUnavailableTrainingAndBlocksFullComparison(): void
+    {
+        $input = Fixture::input();
+        foreach ([20 => 'missing', 21 => 'failed'] as $index => $quality) {
+            $revision = $input['evidence']['observations'][$index];
+            $revision['available_at'] = '2026-02-01T07:00:00+08:00';
+            $revision['quality_status'] = $quality; $revision['value'] = null;
+            $revision['source_ref'] = 'synthetic-fold-' . $quality;
+            $input['evidence']['observations'][] = $revision;
+        }
+        $replay = $this->service->preview($input, Fixture::scope())['replay'];
+        self::assertSame(0, $replay['input_evidence']['training_quality']['failed']);
+        foreach ($replay['comparisons'] as $stats) {
+            $fold = $stats['folds'][0];
+            self::assertSame('partial', $fold['status']);
+            self::assertSame(['ready' => 54, 'missing' => 1, 'failed' => 1, 'unobserved' => 0], $fold['training_quality']);
+            self::assertCount(2, $fold['unavailable_training_refs']);
+            self::assertGreaterThan(0, $stats['unavailable_training_fold_count']);
+            self::assertFalse($stats['assessment']['comparison_supported']);
+            self::assertSame(0, $stats['unpaired_point_count']);
+        }
+    }
+
+    public function testReferencePrefixMustAgreeWithDeclaredSource(): void
+    {
+        foreach (['synthetic' => 'manual-row', 'manual_unverified' => 'synthetic-row'] as $kind => $reference) {
+            $input = Fixture::input(); $input['evidence']['source_kind'] = $kind;
+            foreach ($input['evidence']['observations'] as &$row) $row['source_ref'] = $reference;
+            unset($row);
+            $rejected = false;
+            try { $this->service->save($input, Fixture::scope()); } catch (\InvalidArgumentException) { $rejected = true; }
+            self::assertTrue($rejected, 'Contradictory provenance accepted');
+            self::assertDirectoryDoesNotExist($this->root);
+        }
+        $input['evidence']['source_kind'] = 'manual_unverified';
+        foreach ($input['evidence']['observations'] as &$row) $row['source_ref'] = str_replace('synthetic-', 'manual-', $row['source_ref']);
+        unset($row);
+        self::assertTrue($this->service->save($input, Fixture::scope())['readback_verified']);
+    }
+
     public function testIdentityUnitsCancellationAndTimesRejectBeforeSaving(): void
     {
         $cases = [

@@ -2738,7 +2738,7 @@
     };
 
     const ForecastDecisionWorkbench = Vue.defineAsyncComponent({
-        loader: () => loadOnlineDataComponentScript('components/revenue/forecast-decision-workbench.js?v=20260908-v4')
+        loader: () => loadOnlineDataComponentScript('components/revenue/forecast-decision-workbench.js?v=20260908-v5')
             .then(() => requireSystemComponent('ForecastDecisionWorkbench')),
         loadingComponent: { render: () => h('p', { role: 'status' }, '正在加载时点回测…') },
         errorComponent: { render: () => h('p', { role: 'alert' }, '回测工具加载失败，请刷新后重试。') },

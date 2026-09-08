@@ -42,6 +42,9 @@ final class RevenueForecastWorkbench extends Base
             if ($tenantId <= 0) return $this->error('酒店租户绑定不可用。', 422);
             $scope = ['tenant_id' => $tenantId, 'hotel_id' => $hotelId, 'platform' => $input['platform'] ?? '',
                 'platform_store_id' => $input['platform_store_id'] ?? '', 'room_scope' => $input['room_scope'] ?? ''];
+            foreach (['platform_store_id', 'room_scope'] as $key) {
+                if (is_string($scope[$key])) $scope[$key] = trim($scope[$key]);
+            }
             (new TemporalForecastReplayService())->scope($scope);
             $payload = ['evidence' => $input['evidence'] ?? []];
             if (isset($input['scenario'])) $payload['scenario'] = $input['scenario'];

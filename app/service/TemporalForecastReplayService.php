@@ -55,10 +55,8 @@ final class TemporalForecastReplayService
             $available = $this->timestamp($row['available_at'] ?? '');
             $availableDate = $available->setTimezone(new \DateTimeZone('Asia/Shanghai'))->format('Y-m-d');
             if ($availableDate <= $date) throw new InvalidArgumentException('最终入住间夜不能在入住日结束前可见。');
-            if (!in_array($row['quality_status'] ?? '', ['ready', 'missing', 'failed'], true)
-                || !is_string($row['source_ref'] ?? null) || !preg_match(self::SOURCE_REFERENCE_PATTERN, $row['source_ref'])) {
-                throw new InvalidArgumentException('历史版本需有质量状态；source_ref 仅接受 synthetic- 或 manual- 开头的字母数字/下划线/连字符引用编号。');
-            }
+            if (!in_array($row['quality_status'] ?? '', ['ready', 'missing', 'failed'], true)) throw new InvalidArgumentException('历史版本需有明确质量状态。');
+            self::assertSourceReference($row['source_ref'] ?? null, $input['source_kind']);
             $value = $row['value'] ?? null;
             if ($row['quality_status'] === 'ready' && (!is_numeric($value) || !is_finite((float)$value)
                 || (float)$value < 0 || (float)$value > 1000000 || floor((float)$value) !== (float)$value)) {
@@ -72,9 +70,8 @@ final class TemporalForecastReplayService
         }
         $versions = array_values($versions);
         usort($versions, static fn($a, $b) => (float)$a['_available'] <=> (float)$b['_available']);
-        $visibleTraining = $this->window($this->select($versions, $asOf, $asOfDate, true), $asOfDate);
-        $quality = ['ready' => 0, 'missing' => 0, 'failed' => 0, 'unobserved' => 56 - count($visibleTraining)];
-        foreach ($visibleTraining as $row) $quality[$row['quality_status']]++;
+        $visibleTraining = $this->window($this->select($versions, $asOf, $asOfDate), $asOfDate);
+        $quality = $this->trainingQuality($visibleTraining);
         $training = array_filter($visibleTraining, static fn($row) => $row['quality_status'] === 'ready');
         $hasUnavailableTraining = $quality['missing'] + $quality['failed'] > 0;
         $allActuals = $this->select($versions, $evaluation, $evaluation->setTimezone(new \DateTimeZone('Asia/Shanghai'))->format('Y-m-d'));
@@ -87,32 +84,43 @@ final class TemporalForecastReplayService
             $folds = [];
             $pairs = [];
             $missingActuals = 0;
+            $actualQuality = ['ready' => 0, 'missing' => 0, 'failed' => 0, 'unobserved' => 0];
             for ($origin = $start; $this->shift($origin, $horizon) <= $end; $origin = $this->shift($origin, $horizon)) {
                 // Replay at the same Shanghai wall time as the declared forecast origin.
                 $cutoff = new DateTimeImmutable($origin . 'T' . $asOf->setTimezone(new \DateTimeZone('Asia/Shanghai'))->format('H:i:s.uP'));
-                $train = $this->window($this->select($versions, $cutoff, $origin), $origin);
+                $visible = $this->window($this->select($versions, $cutoff, $origin), $origin);
+                $foldQuality = $this->trainingQuality($visible);
+                $train = array_filter($visible, static fn($row) => $row['quality_status'] === 'ready');
                 $foldPlan = $this->plan($train, $origin, $horizon);
+                if ($foldQuality['missing'] + $foldQuality['failed'] > 0 && $foldPlan['status'] === 'ready') $foldPlan['status'] = 'partial';
                 $foldPoints = [];
                 foreach ($foldPlan['points'] as $point) {
-                    $actual = $allActuals[$point['target_date']]['value'] ?? null;
+                    $revision = $allActuals[$point['target_date']] ?? null;
+                    $point['actual_quality_status'] = $revision['quality_status'] ?? 'unobserved';
+                    $actualQuality[$point['actual_quality_status']]++;
+                    $actual = $point['actual_quality_status'] === 'ready' ? $revision['value'] : null;
                     $point['actual_value'] = $actual;
-                    $point['actual_source_ref'] = $allActuals[$point['target_date']]['source_ref'] ?? null;
-                    $point['actual_available_at'] = $allActuals[$point['target_date']]['available_at'] ?? null;
+                    $point['actual_source_ref'] = $revision['source_ref'] ?? null;
+                    $point['actual_available_at'] = $revision['available_at'] ?? null;
                     if ($actual === null) $missingActuals++;
                     if ($actual !== null && $point['baseline_weekly'] !== null && $point['baseline_mean7'] !== null) $pairs[] = $point;
                     $foldPoints[] = $point;
                 }
                 $folds[] = ['origin_at' => $this->timeIdentity($cutoff), 'training_sample_count' => count($train),
+                    'training_quality' => $foldQuality,
+                    'unavailable_training_refs' => array_column(array_filter($visible, static fn($row) => $row['quality_status'] !== 'ready'), 'source_ref'),
                     'training_refs' => array_column($train, 'source_ref'), 'training_max_available_at' => $this->latestAt($train),
                     'status' => $foldPlan['status'], 'points' => $foldPoints];
             }
             $stats = $this->statistics($pairs);
-            $completeFolds = count(array_filter($folds, static fn($fold) => count($fold['points']) === $horizon
+            $completeFolds = count(array_filter($folds, static fn($fold) => $fold['status'] === 'ready' && count($fold['points']) === $horizon
                 && count(array_filter($fold['points'], static fn($point) => $point['actual_value'] !== null
                     && $point['baseline_weekly'] !== null && $point['baseline_mean7'] !== null)) === $horizon));
             $stats['fold_count'] = count($folds);
             $stats['complete_fold_count'] = $completeFolds;
             $stats['missing_actual_count'] = $missingActuals;
+            $stats['actual_quality'] = $actualQuality;
+            $stats['unavailable_training_fold_count'] = count(array_filter($folds, static fn($fold) => $fold['training_quality']['missing'] + $fold['training_quality']['failed'] > 0));
             $stats['expected_point_count'] = count($folds) * $horizon;
             $stats['unpaired_point_count'] = $stats['expected_point_count'] - count($pairs);
             $stats['assessment'] = (new RevenueForecastReadinessService())->assessReplay($stats, $input['source_kind']);
@@ -138,7 +146,7 @@ final class TemporalForecastReplayService
             'automatic_price_write' => false, 'causality_claimed' => false];
     }
 
-    private function select(array $rows, DateTimeImmutable $cutoff, string $beforeDate, bool $includeUnavailable = false): array
+    private function select(array $rows, DateTimeImmutable $cutoff, string $beforeDate): array
     {
         $selected = [];
         foreach ($rows as $row) {
@@ -146,8 +154,7 @@ final class TemporalForecastReplayService
                 $selected[$row['business_date']] = $row;
             }
         }
-        // Latest missing/failed revisions invalidate an older value instead of falling back.
-        if (!$includeUnavailable) $selected = array_filter($selected, static fn($r) => $r['quality_status'] === 'ready');
+        // Keep the latest unavailable revision so every consumer can report why its value is absent.
         ksort($selected);
         return $selected;
     }
@@ -183,6 +190,22 @@ final class TemporalForecastReplayService
         return array_filter($selected, fn($r) => $r['business_date'] >= $this->shift($origin, -56));
     }
 
+    private function trainingQuality(array $visible): array
+    {
+        $quality = ['ready' => 0, 'missing' => 0, 'failed' => 0, 'unobserved' => 56 - count($visible)];
+        foreach ($visible as $row) $quality[$row['quality_status']]++;
+        return $quality;
+    }
+
+    public static function assertSourceReference(mixed $reference, mixed $sourceKind): void
+    {
+        $prefix = match ($sourceKind) { 'synthetic' => 'synthetic', 'manual_unverified' => 'manual', default => null };
+        if ($prefix === null || !is_string($reference) || !preg_match(self::SOURCE_REFERENCE_PATTERN, $reference)
+            || !preg_match('/^' . $prefix . '[-_]/', $reference)) {
+            throw new InvalidArgumentException('source_ref 须与 source_kind 一致：synthetic 使用 synthetic- 编号，manual_unverified 使用 manual- 编号；仅接受脱敏字母数字/下划线/连字符，不接受URL或凭证文本。');
+        }
+    }
+
     private function statistics(array $pairs): array
     {
         $n = count($pairs);
@@ -216,7 +239,7 @@ final class TemporalForecastReplayService
             || !is_int($scope['tenant_id']) || $scope['tenant_id'] <= 0 || !is_int($scope['hotel_id']) || $scope['hotel_id'] <= 0
             || !in_array($scope['platform'], ['ctrip', 'meituan'], true)) throw new InvalidArgumentException('酒店/租户/平台范围无效。');
         foreach (['platform_store_id', 'room_scope'] as $key) {
-            if (!is_string($scope[$key]) || trim($scope[$key]) === '' || strlen($scope[$key]) > 100) throw new InvalidArgumentException('需明确平台门店和房型范围。');
+            if (!is_string($scope[$key]) || trim($scope[$key]) === '' || trim($scope[$key]) !== $scope[$key] || strlen($scope[$key]) > 100) throw new InvalidArgumentException('需明确平台门店和房型范围，证据中的范围编号不得含首尾空白。');
         }
     }
 
