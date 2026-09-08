@@ -155,9 +155,11 @@ const compileCoordinator = (fetchImpl) => {
     terminalAuthFailureReason: () => '',
     token: { value: 'token-a' },
     user: { value: { hotel_id: 80 } },
+    window: {},
     withBusinessRequestContext: (url, options) => ({ url, options }),
     applyAuthContext() {},
   });
+  vm.runInContext(`${readFileSync('public/system-static.js', 'utf8')}\nconst appSystemStatic = window.SUXI_SYSTEM_STATIC;\nconst readRequestCooldown = appSystemStatic.createReadRequestCooldown();`, context);
   vm.runInContext(`${coordinatorSource}\n    globalThis.__coordinator = {
       request,
       cancelPageGetConsumers,

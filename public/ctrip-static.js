@@ -2340,7 +2340,7 @@ window.SUXI_CTRIP_STATIC = window.SUXI_CTRIP_STATIC_FULL = (() => {
             systemHotelId: selectedCtripHotelId || null,
         });
         const directRequestBody = { ...requestBody, async: false, background: false };
-        const queryKey = () => JSON.stringify([getForm()?.dateRange || '', getForm()?.startDate || '', getForm()?.endDate || '']);
+        const queryKey = () => JSON.stringify([getForm()?.platform || '', getForm()?.dateRange || '', getForm()?.startDate || '', getForm()?.endDate || '']);
         const requestedQuery = queryKey();
         const isCurrent = () => isActive()
             && String(getSelectedCtripHotelId() || '') === selectedCtripHotelId

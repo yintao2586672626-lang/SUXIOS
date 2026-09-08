@@ -82,6 +82,8 @@ trait BusinessDisplayConcern
             'http' => [
                 'method' => 'GET',
                 'timeout' => 30,
+                'ignore_errors' => true,
+                'follow_location' => 0,
                 'header' => implode("\r\n", $headers),
             ],
             'ssl' => $this->buildStreamSslOptions(),
@@ -91,9 +93,7 @@ trait BusinessDisplayConcern
         $response = @file_get_contents($fullUrl, false, $context);
 
         if ($response === false) {
-            $error = error_get_last();
-            $errorMsg = is_array($error) ? ($error['message'] ?? '请求失败') : '请求失败';
-            return ['success' => false, 'error' => $errorMsg];
+            return ['success' => false, 'reason' => 'upstream_transport_failed', 'stage' => 'upstream_request', 'error' => '平台连接失败，请稍后重试'];
         }
 
         // 解析HTTP响应头获取状态码
@@ -107,12 +107,17 @@ trait BusinessDisplayConcern
             }
         }
 
+        $failure = \app\service\OtaUpstreamFailureService::httpFailure(
+            $httpCode, preg_match('/^\s*(?:<!DOCTYPE|<html)/i', $response) === 1
+        );
+        if ($failure !== null) return $failure;
+
         // 在JSON解析之前清理响应字符串中的无效UTF-8字符
         $response = $this->sanitizeJsonString($response);
 
         $data = json_decode($response, true);
         if (json_last_error() !== JSON_ERROR_NONE) {
-            return ['success' => false, 'error' => 'JSON解析失败: ' . substr((string)$response, 0, 200)];
+            return ['success' => false, 'reason' => 'upstream_invalid_json', 'stage' => 'upstream_request', 'error' => '平台未返回可解析的业务数据'];
         }
 
         // 递归清理数据中的无效UTF-8字符
@@ -130,11 +135,9 @@ trait BusinessDisplayConcern
                 'success' => false,
                 'error' => $failure['error'],
                 'reason' => $failure['reason'],
+                'stage' => 'upstream_request',
                 'credential_status' => $failure['credential_status'],
                 'business_code' => $businessCode,
-                'business_message' => (string)$businessMsg,
-                'data' => $data,
-                'raw' => $response,
                 'http_code' => $httpCode,
             ];
         }
@@ -149,24 +152,7 @@ trait BusinessDisplayConcern
 
     private function buildMeituanBusinessFailurePayload($businessCode, string $businessMsg, int $httpCode): array
     {
-        $message = trim($businessMsg);
-        $codeText = strtolower(trim((string)$businessCode));
-        $loginRequired = in_array($codeText, ['303', '401', '403'], true)
-            || preg_match('/未登录|尚未登录|重新登录|登录已过期|登录失效|login|required|unauthorized|forbidden/i', $message) === 1;
-
-        if ($loginRequired) {
-            return [
-                'reason' => 'login_required',
-                'credential_status' => 'login_required',
-                'error' => '美团登录态已失效，请重新登录美团后台后更新 Cookie/API 辅助内容',
-            ];
-        }
-
-        return [
-            'reason' => 'meituan_api_error',
-            'credential_status' => 'api_error',
-            'error' => '美团API返回错误: ' . ($message !== '' ? $message : "状态码: $businessCode"),
-        ];
+        return \app\service\OtaUpstreamFailureService::meituanBusinessFailure($businessCode, $businessMsg);
     }
 
     private function fetchMeituanSelfTradeMetricValues(

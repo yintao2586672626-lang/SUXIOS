@@ -18,11 +18,11 @@ function harness({ preparing = false } = {}) {
   const state = { epoch: 1, hotelEpoch: 1 };
   const config = { id: 'ctrip-901', config_id: 'ctrip-901', hotel_id: 901, system_hotel_id: 901,
     node_id: '24588', credential_status: 'ready', has_cookies: true, configuration_verified: true };
-  const form = () => ({ nodeId: '24588', dateRange: 'custom', startDate: '2026-09-01', endDate: '2026-09-01' });
+  const form = () => ({ nodeId: '24588', platform: 'Ctrip', dateRange: 'custom', startDate: '2026-09-01', endDate: '2026-09-01' });
   const context = {
     window: { setTimeout }, console, URLSearchParams,
     fetchingData: { value: false }, ctripRankingHistoryLoading: { value: false },
-    ctripManualFetchRequestSeq: 0,
+    ctripManualFetchRequestSeq: 0, ctripManualFetchActive: false,
     isLoggedIn: { value: true }, selectedCtripHotelId: { value: 901 },
     ctripForm: { value: form() }, ctripTrafficForm: { value: form() },
     ctripFetchSuccess: { value: false }, ctripSavedCount: { value: 0 }, showRawData: { value: false },
@@ -36,6 +36,7 @@ function harness({ preparing = false } = {}) {
     isAuthSessionCurrent: session => session.epoch === state.epoch,
     capturePlatformHotelRequestContext: () => ({ hotelId: context.selectedCtripHotelId.value, epoch: state.hotelEpoch }),
     isPlatformHotelRequestContextCurrent: captured => captured.hotelId === context.selectedCtripHotelId.value && captured.epoch === state.hotelEpoch,
+    invalidatePlatformHotelRequestContext: () => { state.hotelEpoch++; },
     debugLog: () => {}, showToast: (...args) => notifications.push(args),
     useCtripDisplayHotels: rows => { effects.push('display'); return rows; },
     useCtripTrafficDisplayRows: rows => { effects.push('traffic'); return rows; },
@@ -65,6 +66,40 @@ function harness({ preparing = false } = {}) {
     context.fetchingData.value = true; // A new scope owns this loading state.
   }
   return { context, requests, effects, notifications, switchScope };
+}
+
+function installRealDisplayClear(h) {
+  for (const name of ['ctripHotelsList', 'topTenHotels', 'ctripTrafficRows', 'ctripTrafficSummary',
+    'ctripTrafficAnalysis', 'ctripRealtimeTrafficRecord', 'latestTrafficData', 'ctripCommentResult',
+    'ctripCommentBrowserCaptureResult', 'ctripBrowserCaptureResult', 'ctripOverviewResult',
+    'ctripFlowOverviewResult', 'ctripAdsBrowserCaptureResult', 'ctripSearchOpportunityPayload',
+    'ctripSearchOpportunityError', 'ctripSearchOpportunityLoading', 'ctripSearchOpportunitySaving',
+    'ctripCommentBrowserCaptureRunning', 'ctripDiagnosisSnapshotLoading', 'ctripRankingDisplayActivated',
+    'ctripLatestComparison']) h.context[name] ||= { value: null };
+  Object.assign(h.context, {
+    ctripCommentBrowserCaptureRequestSeq: 0, ctripDiagnosisSnapshotRequestSeq: 0,
+    ctripSearchOpportunityRequestSeq: 0,
+    ctripReviewMatchControllerBindings: { invalidateCtripReviewMatch() {},
+      ctripReviewMatchResult: { value: null }, ctripReviewMatchLoading: { value: '' },
+      ctripReviewMatchLookupLoadingCommentId: { value: '' } },
+  });
+  return vm.runInContext(declaration('clearCtripOverviewDisplayState') + '\nclearCtripOverviewDisplayState', h.context);
+}
+
+function installRealRecovery(h) {
+  const actualHelper = h.context.window.SUXI_CTRIP_STATIC;
+  Object.assign(h.context, {
+    token: { value: '' }, currentPage: { value: 'ctrip-ebooking' },
+    ctripLatestRequestSeq: 0, ctripLatestRequestPromises: new Map(), ctripLatestLoading: { value: false },
+    ctripLatestComparison: { value: null }, dualOtaSelectedRange: { value: '' }, filterReportHotel: { value: '' },
+    isCompassDataPage: () => false,
+    getSelectedCtripHotelId: () => String(h.context.selectedCtripHotelId.value),
+    buildCtripFetchDateRange: actualHelper.buildCtripFetchDateRange,
+    buildLatestCtripSnapshotModel: actualHelper.buildLatestCtripSnapshotModel,
+    isCtripLatestRequestCurrent: actualHelper.isCtripLatestRequestCurrent,
+  });
+  vm.runInContext(['applyLatestCtripSnapshot', 'resolveCtripLatestRequestRange',
+    'shouldHydrateLatestCtripDisplay', 'loadLatestCtripData', 'handleCtripFetchFailure'].map(declaration).join('\n'), h.context);
 }
 
 for (const name of flows) {
@@ -173,6 +208,99 @@ test('date changes during asynchronous failure recovery suppress the old query e
       assert.equal(h.notifications.length, 0, 'no obsolete error toast after the query changed');
       assert.equal(h.context.onlineDataResult.value, null);
       assert.equal(h.context.fetchingData.value, false);
+    }
+  }
+});
+
+test('the real hotel display clear releases a pending manual request so the new hotel can fetch', async () => {
+  for (const name of flows) {
+    for (const preparing of [false, true]) {
+      const h = harness({ preparing });
+      const clear = installRealDisplayClear(h);
+      const previous = h.context.flows[name]();
+      assert.equal(h.context.fetchingData.value, true);
+      const newConfig = { ...h.context.getActiveCtripConfig(), hotel_id: 902, system_hotel_id: 902 };
+      h.context.selectedCtripHotelId.value = 902;
+      h.context.getActiveCtripConfig = h.context.ctripManualFetchConfigCandidate = () => newConfig;
+      clear();
+      assert.equal(h.context.fetchingData.value, false, 'the real invalidation releases the old loading slot');
+      const current = h.context.flows[name]();
+      assert.equal(h.requests.length, 2, 'the newly selected hotel really starts an HTTP request');
+      assert.equal(String(JSON.parse(h.requests[1].options.body).system_hotel_id), '902');
+      h.requests[0].resolve({ code: 200, data: { status: 'accepted', task_id: 'synthetic-old' } });
+      assert.equal((await previous).status, 'stale');
+      assert.equal(h.context.fetchingData.value, true, 'old completion cannot clear the genuinely newer request');
+      assert.equal(h.context.onlineDataResult.value, null);
+      h.requests[1].resolve({ code: 200, data: { status: 'accepted', task_id: 'synthetic-current' } });
+      assert.equal((await current).status, 'accepted');
+      assert.equal(h.context.fetchingData.value, false);
+      assert.equal(h.context.ctripManualFetchActive, false);
+    }
+  }
+});
+
+test('display invalidation does not release loading when no Ctrip manual request owns it', () => {
+  const h = harness();
+  const clear = installRealDisplayClear(h);
+  h.context.fetchingData.value = true;
+  clear();
+  assert.equal(h.context.fetchingData.value, true);
+});
+
+test('traffic platform changes discard every old response and allow a subsequent request', async () => {
+  for (const outcome of ['success', 'failure', 'exception']) {
+    const h = harness();
+    const previous = h.context.flows.fetchCtripTrafficData();
+    assert.equal(JSON.parse(h.requests[0].options.body).platform, 'Ctrip');
+    h.context.ctripTrafficForm.value.platform = 'Qunar';
+    if (outcome === 'exception') h.requests[0].reject(new Error('Synthetic old platform failure'));
+    else h.requests[0].resolve(outcome === 'success'
+      ? { code: 200, data: { status: 'accepted', task_id: 'synthetic-old' } }
+      : { code: 500, message: 'Synthetic old platform failure' });
+    assert.equal((await previous).status, 'stale');
+    assert.equal(h.context.onlineDataResult.value, null);
+    assert.equal(h.notifications.length, 0);
+    assert.equal(h.effects.length, 0);
+    assert.equal(h.context.fetchingData.value, false);
+    const current = h.context.flows.fetchCtripTrafficData();
+    assert.equal(JSON.parse(h.requests[1].options.body).platform, 'Qunar');
+    h.requests[1].resolve({ code: 200, data: { status: 'accepted', task_id: 'synthetic-current' } });
+    assert.equal((await current).status, 'accepted');
+  }
+});
+
+test('real latest-snapshot recovery writes only while the complete query is still current', async () => {
+  for (const name of flows) {
+    for (const kind of ['unchanged', 'date', ...(name === 'fetchCtripTrafficData' ? ['platform'] : [])]) {
+      const h = harness();
+      installRealRecovery(h);
+      const pending = h.context.flows[name]();
+      h.requests[0].resolve({ code: 500, message: 'Synthetic query error' });
+      for (let step = 0; step < 5 && h.requests.length < 2; step++) await Promise.resolve();
+      assert.equal(h.requests.length, 2, 'production recovery issues its real latest read');
+      assert.match(h.requests[1].url, /^\/online-data\/ctrip\/latest\?/);
+      if (kind === 'date') h.context.ctripForm.value.startDate = h.context.ctripTrafficForm.value.startDate = '2026-09-02';
+      if (kind === 'platform') h.context.ctripTrafficForm.value.platform = 'Qunar';
+      const selectedResult = { source: 'synthetic-selected-query' };
+      const selectedMeta = { status: 'synthetic-selected-query' };
+      h.context.onlineDataResult.value = selectedResult;
+      h.context.ctripLatestMeta.value = selectedMeta;
+      h.requests[1].resolve({ code: 200, data: { metadata: { hotel_id: '901', status: 'success' },
+        traffic: { rows: [{ date: '2026-09-01', visitor_count: 12 }] } } });
+      const result = await pending;
+      if (kind === 'unchanged') {
+        assert.equal(result.status, 'failed');
+        assert.equal(h.context.onlineDataResult.value.source, 'latest', 'positive control exercises the real write');
+        assert.equal(h.context.ctripLatestMeta.value.status, 'success');
+        assert.equal(h.notifications.length, 1);
+      } else {
+        assert.equal(result.status, 'stale');
+        assert.equal(h.context.onlineDataResult.value, selectedResult, 'stale recovery cannot replace the selected result');
+        assert.equal(h.context.ctripLatestMeta.value, selectedMeta, 'stale recovery cannot replace selected metadata');
+        assert.equal(h.notifications.length, 0);
+      }
+      assert.equal(h.context.fetchingData.value, false);
+      assert.equal(h.context.ctripLatestLoading.value, false);
     }
   }
 });

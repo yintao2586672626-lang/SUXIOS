@@ -392,6 +392,7 @@ class Auth extends Base
             'capabilities' => $this->buildUserCapabilities($user),
             'hotel_scope' => $user->getHotelScopeContext(),
             'modules' => $this->buildUserModules($user),
+            'protected_access' => (new \app\service\ProtectedCapabilityService())->clientAccessManifest($user),
             'notices' => $this->buildLoginNotices($user, $permittedHotels),
         ];
     }
@@ -563,7 +564,7 @@ class Auth extends Base
         $allows = static fn(string $capability): bool => in_array('all', $capabilities, true)
             || in_array($capability, $capabilities, true);
 
-        return [
+        $modules = [
             'ai' => $allows('ai.view') || $allows('ai.execute'),
             'investment' => $allows('investment.view') || $allows('investment.simulate'),
             'operation' => $allows('operation.view') || $allows('operation.execute'),
@@ -578,6 +579,12 @@ class Auth extends Base
             'ai_governance' => $allows('ai.governance')
                 || $this->roleAllows($user, 'can_manage_ai_governance'),
         ];
+        $service = new \app\service\ProtectedCapabilityService();
+        foreach ($modules as $module => $allowed) {
+            $moduleKey = ['ai' => 'ai_decision', 'operation' => 'operation_decision'][$module] ?? $module;
+            $modules[$module] = $allowed && $service->moduleAvailableToUser($user, $moduleKey);
+        }
+        return $modules;
     }
 
     private function roleAllows(User $user, string $permission): bool
@@ -674,6 +681,7 @@ class Auth extends Base
             'capabilities' => $this->buildUserCapabilities($user),
             'hotel_scope' => $user->getHotelScopeContext(),
             'modules' => $this->buildUserModules($user),
+            'protected_access' => (new \app\service\ProtectedCapabilityService())->clientAccessManifest($user),
             'context' => $authContext,
             'notices' => $this->buildLoginNotices($user, $permittedHotels),
         ]);

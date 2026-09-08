@@ -273,6 +273,7 @@ final class OtaFailureNotificationService
             ];
         }
 
+        $deliveryStage = 'notification_create';
         try {
             $notification = SystemNotification::recordEvent([
                 'hotel_id' => $hotelId,
@@ -309,27 +310,35 @@ final class OtaFailureNotificationService
                     $reasonCode,
                 ]),
             ]);
+            $deliveryStage = 'notification_user_state';
             SystemNotificationUserState::resetForNotificationUser(
                 (int)$notification->id,
                 (int)$recipient['user_id']
             );
         } catch (Throwable $e) {
+            $failure = FailureEvidenceService::fromException($e, $deliveryStage);
+            $failureReason = $failure['reason'] === 'config_save_failed' ? 'notification_write_failed' : $failure['reason'];
             $this->auditDeliveryGap(
                 $hotelId,
                 $platform,
                 $reasonCode,
                 $dataDate,
                 $actorUserId,
-                'notification_write_failed'
+                'notification_write_failed',
+                ['failure_reason' => $failureReason, 'failure_stage' => $deliveryStage]
             );
-            Log::warning('OTA failure notification write failed', [
+            try { Log::warning('OTA failure notification write failed', [
                 'hotel_id' => $hotelId,
                 'platform' => $platform,
                 'reason_code' => $reasonCode,
                 'exception_type' => get_debug_type($e),
-            ]);
+                'failure_reason' => $failureReason,
+                'failure_stage' => $deliveryStage,
+            ]); } catch (Throwable) { /* Logging must not replace the delivery failure receipt. */ }
             return [
                 'status' => 'notification_write_failed',
+                'failure_reason' => $failureReason,
+                'failure_stage' => $deliveryStage,
                 'hotel_id' => $hotelId,
                 'platform' => $platform,
                 'reason_code' => $reasonCode,
@@ -992,7 +1001,8 @@ final class OtaFailureNotificationService
         string $reasonCode,
         string $dataDate,
         ?int $actorUserId,
-        string $deliveryStatus
+        string $deliveryStatus,
+        array $failureEvidence = []
     ): void {
         $tenantId = null;
         try {
@@ -1017,6 +1027,8 @@ final class OtaFailureNotificationService
             'platform' => $platform,
             'reason_code' => $reasonCode,
             'data_date' => $dataDate,
+            'failure_reason' => $failureEvidence['failure_reason'] ?? null,
+            'failure_stage' => $failureEvidence['failure_stage'] ?? null,
         ];
         if ($tenantId !== null) {
             $extra['tenant_id'] = $tenantId;
