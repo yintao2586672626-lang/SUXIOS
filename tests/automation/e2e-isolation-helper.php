@@ -736,6 +736,59 @@ function e2eSeedSyntheticAiReport(string $prefix): array
     ];
 }
 
+/** Seed synthetic pre-retirement history in the guarded isolated database only. */
+function e2eSeedRetiredHistory(string $prefix): array
+{
+    $names = e2eNames($prefix);
+    $hotelId = (int)getenv('SUXI_E2E_HOTEL_ID');
+    $expectedUserId = (int)getenv('SUXI_E2E_USER_ID');
+    $hotel = Db::name('hotels')->where('id', $hotelId)->field('id,name,tenant_id')->find();
+    $user = Db::name('users')->where('username', $names['username'])->field('id,username,tenant_id')->find();
+    if (!$hotel || !$user || $hotel['name'] !== $names['hotel_name']
+        || $user['username'] !== $names['username']
+        || ($expectedUserId > 0 && (int)$user['id'] !== $expectedUserId)
+        || (int)$hotel['tenant_id'] !== (int)$user['tenant_id']) {
+        throw new RuntimeException('Retired history fixture requires the isolated hotel and user');
+    }
+    $userId = (int)$user['id'];
+
+    return Db::transaction(function () use ($prefix, $hotel, $hotelId, $userId): array {
+        $records = [];
+        foreach ([
+            'expansion' => ['expansion_records', 'market'],
+            'transfer' => ['transfer_records', 'pricing'],
+            'strategy' => ['strategy_simulation_records', ''],
+            'feasibility' => ['feasibility_reports', ''],
+        ] as $feature => [$table, $recordType]) {
+            $projectName = $prefix . '_retired_' . $feature;
+            $input = ['project_name' => $projectName, 'hotel_id' => $hotelId, 'city' => '上海', 'synthetic' => true];
+            $payload = e2eFilterPayload($table, [
+                'tenant_id' => (int)$hotel['tenant_id'],
+                'created_by' => $userId,
+                'hotel_id' => $hotelId,
+                'hotel_name' => $hotel['name'],
+                'project_name' => $projectName,
+                'record_type' => $recordType,
+                'city' => '上海',
+                'input_json' => json_encode($input, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR),
+                'result_json' => '{}',
+                'report_json' => '{}',
+                'snapshot_json' => '{}',
+                'created_at' => '2026-05-17 12:00:00',
+                'updated_at' => '2026-05-17 12:00:00',
+            ]);
+            $id = (int)Db::name($table)->insertGetId($payload);
+            $stored = Db::name($table)->where('id', $id)->find();
+            if ($id <= 0 || !$stored || (int)$stored['created_by'] !== $userId
+                || json_decode((string)$stored['input_json'], true) !== $input) {
+                throw new RuntimeException('Retired history fixture exact readback failed');
+            }
+            $records[$feature] = ['id' => $id, 'project_name' => $projectName];
+        }
+        return $records;
+    });
+}
+
 /**
  * Promote only the freshly saved temporal-axis synthetic rows into trusted
  * E2E fixtures. The public save endpoint deliberately cannot invent capture
@@ -1075,6 +1128,7 @@ try {
             'seed' => e2eSeed($prefix),
             'seed-ai-report-inputs' => e2eSeedAiReportInputs($prefix),
             'seed-synthetic-ai-report' => e2eSeedSyntheticAiReport($prefix),
+            'seed-retired-history' => e2eSeedRetiredHistory($prefix),
             'verify-temporal-inputs' => e2eVerifyTemporalInputs($prefix),
             'cleanup' => e2eCleanup($prefix),
             default => throw new RuntimeException('Unknown E2E isolation action'),

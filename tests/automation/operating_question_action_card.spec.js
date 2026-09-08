@@ -453,6 +453,7 @@ const installAuthenticatedMocks = async (page, calls, {
       const list = mockState.created ? [buildExecutionFlowItem(mockState.intent)] : [];
       data = {
         data_status: 'ok',
+        capabilities: { hotel_id: Number(requestUrl.searchParams.get('hotel_id') || 0) || null },
         summary: { total: list.length, stage_counts: {} },
         stages: [],
         list,

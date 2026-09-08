@@ -1026,7 +1026,9 @@ window.SUXI_HOME_STATIC = (() => {
                 yesterdayStatus = anyStrictFactReady
                     ? '部分取得'
                     : '未取得';
-                yesterdaySummary = `${targetDate}双口径事实仅部分取得；已验证值按两个口径分开显示，缺失指标、来源和分母保持“未取得”。`;
+                yesterdaySummary = anyStrictFactReady
+                    ? `${targetDate}双口径事实仅部分取得；已验证值按两个口径分开显示，缺失指标、来源和分母保持“未取得”。`
+                    : `${targetDate}尚未取得可验证的 PMS 或 OTA 经营事实，暂不可对照；请查看数据来源和历史记录，缺失值不按 0 展示。`;
             }
         } else if (factLayerHotelMismatch) {
             yesterdayStatus = '读取失败';
@@ -1038,6 +1040,13 @@ window.SUXI_HOME_STATIC = (() => {
         if (factLayerError && !anyStrictFactReady) {
             yesterdayStatus = '读取失败';
             yesterdaySummary = `基础经营事实读取失败：${factLayerError}。各指标暂不重复报错，恢复后按同酒店、同日期重新读取。`;
+        } else if (loadError && !anyStrictFactReady) {
+            yesterdayStatus = '读取失败';
+            yesterdaySummary = `${targetDate || '目标日'}经营事实读取失败：${loadError}；尚无可验证事实，不能判断为无数据。`;
+        }
+        if ((loading || factLayerLoading) && !anyStrictFactReady) {
+            yesterdayStatus = '正在读取';
+            yesterdaySummary = `正在读取 ${targetDate || '目标日'} 的经营事实，结果返回前不判断为无数据。`;
         }
 
         const blockingIssues = [];
@@ -1092,7 +1101,7 @@ window.SUXI_HOME_STATIC = (() => {
             ? 'scope_required'
             : (businessFactsLoading && strictReadyFactCount === 0
                 ? 'loading'
-                : (businessFactsError && strictReadyFactCount === 0
+                : ((businessFactsError || factLayerHotelMismatch) && strictReadyFactCount === 0
                     ? 'error'
                     : (strictReadyFactCount === 0
                         ? 'empty'
@@ -1100,6 +1109,21 @@ window.SUXI_HOME_STATIC = (() => {
         const latestAvailableDate = latestHistoricalDate && latestHistoricalDate !== targetDate
             ? latestHistoricalDate
             : '';
+        const storedHistory = factLayer.stored_history || {};
+        const storedHistoryMatches = factLayerMatchesTarget
+            && String(storedHistory.system_hotel_id || '') === selectedHotelKey
+            && String(storedHistory.tenant_id || '') === String(factLayer.hotel?.tenant_id || '')
+            && String(storedHistory.requested_business_date || '') === targetDate;
+        const storedHistoryEntries = storedHistoryMatches && !revenueFactLayerLoading && !revenueFactLayerError
+            ? (Array.isArray(storedHistory.platforms) ? storedHistory.platforms : []).filter(row =>
+                ['ctrip', 'meituan'].includes(row?.platform) && row?.status === 'stored'
+                && /^\d{4}-\d{2}-\d{2}$/.test(String(row.latest_stored_date || ''))
+                && row.latest_stored_date < targetDate).map(row => ({
+                    platform: row.platform,
+                    label: row.platform === 'ctrip' ? '携程' : '美团',
+                    date: row.latest_stored_date,
+                }))
+            : [];
         const compactGapReason = factLayerHotelMismatch
             ? '返回事实与当前门店身份不一致，系统已阻止展示。'
             : (exactDateBlocked
@@ -1196,11 +1220,15 @@ window.SUXI_HOME_STATIC = (() => {
             otaPlatformRows,
             dateSourceRows,
             reconciliationRows,
-            reconciliationStatus: homeReconciliationStatusText(reconciliation.status),
-            reconciliationStatusClass: homeBusinessStatusClass(
-                reconciliation.status === 'blocked'
+            reconciliationStatus: reconciliation.status === 'blocked'
+                ? homeReconciliationStatusText(reconciliation.status)
+                : (yesterdayStatus === '读取失败'
                     ? '读取失败'
-                    : (reconciliation.status === 'matched_with_scope_caveats' ? '已验证' : '部分取得')
+                    : (!anyStrictFactReady ? (loading || factLayerLoading ? '正在读取' : '未取得') : homeReconciliationStatusText(reconciliation.status))),
+            reconciliationStatusClass: homeBusinessStatusClass(
+                yesterdayStatus === '读取失败' || reconciliation.status === 'blocked'
+                    ? '读取失败'
+                    : (!anyStrictFactReady ? '未取得' : (reconciliation.status === 'matched_with_scope_caveats' ? '已验证' : '部分取得'))
             ),
             dateAlignmentStatus: String(dateAlignment.status || 'incomplete'),
             dateAlignmentMessage: String(dateAlignment.message || '尚未取得三源同日证据。'),
@@ -1212,6 +1240,8 @@ window.SUXI_HOME_STATIC = (() => {
             availableFactCount: strictReadyFactCount,
             totalFactCount: strictFacts.length,
             latestAvailableDate,
+            storedHistoryEntries,
+            storedHistoryReadFailed: storedHistoryMatches && ['error', 'partial'].includes(storedHistory.status),
             compactGap: {
                 title: yesterdayDisplayMode === 'error'
                     ? '经营事实读取失败'
@@ -1623,6 +1653,7 @@ window.SUXI_HOME_STATIC = (() => {
     const HomeOperatingOrchestration = {
         name: 'HomeOperatingOrchestration',
         props: {
+            compact: { type: Boolean, default: false },
             model: { type: Object, default: () => ({}) },
             loading: { type: Boolean, default: false },
             weeklyPlan: { type: Object, default: null },
@@ -1662,7 +1693,10 @@ window.SUXI_HOME_STATIC = (() => {
                     h('small', { title: [item.sourceLabel, item.sourceRef].filter(Boolean).join(' · ') },
                         `来源 ${item.sourceLabel || '未返回'}${item.sourceRef ? ` · ${item.sourceRef}` : ''}`),
                     item.blockedReason
-                        ? h('em', { class: 'is-error' }, item.blockedReason)
+                        ? h('em', { class: 'is-error', title: item.blockedReason },
+                            item.blockedReason === 'operator_attested_only'
+                                ? '只有人工确认，仍需补充来源证据'
+                                : item.blockedReason)
                         : (item.nextAction ? h('em', null, `下一步 ${item.nextAction}`) : null),
                 ]),
             ]);
@@ -1704,7 +1738,7 @@ window.SUXI_HOME_STATIC = (() => {
                             : null,
                     ]
                     : [
-                        h('strong', { class: 'text-sm text-slate-800' }, '周度经营计划尚未生成'),
+                        h('strong', { class: 'text-sm text-slate-800' }, this.weeklyError ? '周度经营计划读取失败' : '周度经营计划尚未生成'),
                         h('p', { class: 'mt-1 text-xs leading-5 text-slate-600' }, this.weeklyError || '等待后台完成一周事实、每日事项和生命周期汇总；不会从临时文案猜测下周重点。'),
                     ]));
             const anomalyItems = Array.isArray(model.anomalyItems) ? model.anomalyItems : [];
@@ -1727,7 +1761,7 @@ window.SUXI_HOME_STATIC = (() => {
                     class: 'mb-3 h-20 animate-pulse rounded-xl border border-slate-100 bg-slate-50',
                 })))
                 : h('div', { class: 'home-orchestration-body' }, [
-                    entry(model.fact || {}, true),
+                    this.compact ? null : entry(model.fact || {}, true),
                     dailyFocus
                         ? h('div', {
                             class: 'rounded-2xl border border-amber-200 bg-amber-50/60 p-3',
@@ -1766,10 +1800,10 @@ window.SUXI_HOME_STATIC = (() => {
                                 ]),
                             ]),
                         ])
-                        : h('div', {
+                        : (this.compact ? null : h('div', {
                             class: 'rounded-xl border border-dashed border-slate-300 bg-slate-50 px-4 py-3 text-sm text-slate-600',
                             'data-testid': 'home-daily-one-thing-missing',
-                        }, '自动计划尚未生成或严格事实来源不可用；这不等于今天无事。'),
+                        }, '自动计划尚未生成或严格事实来源不可用；这不等于今天无事。')),
                     h('div', { class: 'home-orchestration-now', 'aria-hidden': 'true' }, [
                         h('span'), h('b', null, '现在'), h('span'),
                     ]),
@@ -1785,11 +1819,23 @@ window.SUXI_HOME_STATIC = (() => {
                                 h('button', { type: 'button', onClick: () => this.$emit('openAll') }, '查看完整任务列表'),
                             ])
                             : h('div', { class: 'home-orchestration-empty', 'data-testid': 'home-operating-orchestration-empty' }, [
-                                h('strong', null, model.stateCode === 'waiting' ? '任务数据仍在等待接入' : '今天没有匹配的运营任务'),
-                                h('p', null, '这不等于经营已完成；可进入任务执行与复盘查看其他日期或补建人工动作。'),
+                                h('strong', null, anomalyScopeUnknown && model.stateCode !== 'waiting'
+                                    ? '暂时无法确认今日待办'
+                                    : (model.stateCode === 'waiting' ? '任务数据仍在等待接入' : '今天没有匹配的运营任务')),
+                                h('p', null, anomalyScopeUnknown && model.stateCode !== 'waiting'
+                                    ? '任务数据尚未完整读取，不代表今天无事。可重新读取，或进入任务列表核对。'
+                                    : '这不等于经营已完成；可进入任务执行与复盘查看其他日期或补建人工动作。'),
                                 h('button', { type: 'button', onClick: () => this.$emit('openAll') }, '进入任务执行与复盘'),
                             ])),
-                    h('div', { class: 'space-y-4', 'data-testid': 'home-operating-task-list' }, [
+                    this.compact
+                        ? (taskItems.length ? h('p', {
+                            class: 'text-xs text-slate-500',
+                            'data-testid': 'home-operating-anomaly-summary',
+                        }, model.anomalyStateLabel || '异动状态未返回') : null)
+                        : h('div', {
+                        class: 'space-y-4',
+                        'data-testid': 'home-operating-task-list',
+                    }, [
                         h('div', {
                             class: 'flex flex-col gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3 sm:flex-row sm:items-center sm:justify-between',
                             'data-testid': 'home-operating-anomaly-summary',
@@ -1828,27 +1874,27 @@ window.SUXI_HOME_STATIC = (() => {
                         : null,
                 ]);
             return h('section', {
-                class: 'home-orchestration',
+                class: ['home-orchestration', this.compact ? 'is-compact' : ''],
                 'data-testid': 'home-operating-orchestration',
             }, [
                 h('div', { class: 'home-orchestration-header' }, [
                     h('div', { class: 'home-orchestration-copy' }, [
                         h('div', { class: 'home-orchestration-heading-row' }, [
-                            h('p', { class: 'home-orchestration-eyebrow' }, 'TODAY · OPERATING ORCHESTRATION'),
+                            h('p', { class: 'home-orchestration-eyebrow' }, this.compact ? '今日工作' : 'TODAY · OPERATING ORCHESTRATION'),
                             pill(model.stateLabel, model.stateClass),
                         ]),
-                        h('h2', null, '今日经营编排'),
-                        h('p', null, `${model.scopeHotelName || '酒店范围未返回'} · ${model.date || '日期未返回'} · 每项均标明酒店、业务日期、来源与回读状态`),
+                        h('h2', null, this.compact ? '今日待办与异常' : '今日经营编排'),
+                        h('p', null, `${model.scopeHotelName || '酒店范围未返回'} · ${model.date || '日期未返回'}${this.compact ? '' : ' · 每项均标明酒店、业务日期、来源与回读状态'}`),
                         model.lastReadAt ? h('small', null, `最近回读 ${model.lastReadAt}`) : null,
                     ]),
                     h('div', { class: 'home-orchestration-actions' }, [
-                        h('span', { class: 'home-orchestration-clock' }, `现在 ${this.currentClockText || '--:--'}`),
+                        this.compact ? null : h('span', { class: 'home-orchestration-clock' }, `现在 ${this.currentClockText || '--:--'}`),
                         h('button', {
                             type: 'button',
                             class: 'home-orchestration-secondary',
                             disabled: this.loading,
                             onClick: () => this.$emit('refresh'),
-                        }, this.loading ? '刷新中' : '刷新编排'),
+                        }, this.loading ? '刷新中' : (this.compact ? '刷新待办' : '刷新编排')),
                         h('button', {
                             type: 'button',
                             class: 'home-orchestration-primary',
@@ -1860,14 +1906,19 @@ window.SUXI_HOME_STATIC = (() => {
                     class: ['home-orchestration-notice', model.stateClass],
                     'data-testid': 'home-operating-orchestration-notice',
                 }, model.notice) : null,
-                weeklyPanel,
+                this.compact ? null : weeklyPanel,
                 body,
+                this.compact ? h('details', { class: 'home-weekly-fold' }, [
+                    h('summary', null, `周度计划 · ${this.weeklyLoading ? '读取中' : (this.weeklyError ? '读取失败' : (weeklyPlan?.readback_verified ? '已保存' : '尚未生成'))}`),
+                    weeklyPanel,
+                ]) : null,
             ]);
         },
     };
     const HomeYesterdayOperatingFacts = {
         name: 'HomeYesterdayOperatingFacts',
         props: {
+            compact: { type: Boolean, default: false },
             model: { type: Object, default: () => ({}) },
             showHeader: { type: Boolean, default: false },
             showControls: { type: Boolean, default: false },
@@ -1876,7 +1927,6 @@ window.SUXI_HOME_STATIC = (() => {
             refreshing: { type: Boolean, default: false },
         },
         emits: ['update:selectedHotelId', 'update:selectedBusinessDate', 'refresh', 'open-data-health'],
-        emits: ['update:selectedHotelId', 'refresh', 'open-data-health'],
         render() {
             const h = window.Vue?.h;
             const Fragment = window.Vue?.Fragment;
@@ -2039,8 +2089,10 @@ window.SUXI_HOME_STATIC = (() => {
                     h('p', { class: 'text-xs font-semibold uppercase tracking-wide text-amber-700' }, (
                         model.isHistoricalBusinessDate ? '历史经营事实' : '昨日经营事实'
                     )),
-                    h('h2', { class: 'mt-1 text-xl font-semibold text-slate-900' }, `${model.hotelName || '门店'} · ${yesterday.date || '目标日待确认'}`),
-                    h('p', { class: 'mt-1 text-sm leading-6 text-slate-600' }, yesterday.summary || '等待读取经营事实。'),
+                    h('h2', { class: 'mt-1 text-xl font-semibold text-slate-900' }, this.compact ? '经营概览' : `${model.hotelName || '门店'} · ${yesterday.date || '目标日待确认'}`),
+                    h('p', { class: 'mt-1 text-sm leading-6 text-slate-600' }, this.compact
+                        ? `${yesterday.date || '目标日待确认'} · PMS 全酒店与 OTA 渠道分别查看`
+                        : (yesterday.summary || '等待读取经营事实。')),
                 ]),
                 h('div', { class: 'flex flex-col items-end gap-2' }, [
                     statusPill(yesterday.reconciliationStatus, yesterday.reconciliationStatusClass),
@@ -2088,7 +2140,7 @@ window.SUXI_HOME_STATIC = (() => {
                     h('div', { class: 'min-w-0' }, [
                         h('div', { class: 'home-facts-state-kicker' }, displayMode === 'error' ? '读取异常' : '目标日暂无事实'),
                         h('h3', null, displayMode === 'error' ? '经营事实读取失败' : '当前没有可用于经营判断的数据'),
-                        h('p', null, primaryBlocker.detail || yesterday.summary || '当前门店、当前业务日尚无通过保存与精确回读的经营事实。'),
+                        h('p', null, yesterday.summary || primaryBlocker.title || '当前门店、当前业务日尚无通过保存与精确回读的经营事实。'),
                         h('div', { class: 'home-facts-state-meta' }, [
                             h('span', `${model.hotelName || '当前门店'} · ${yesterday.date || '目标日待确认'}`),
                             h('span', `已验证 ${Number(yesterday.availableFactCount || 0)}/${Number(yesterday.totalFactCount || 0)} 项`),
@@ -2098,7 +2150,7 @@ window.SUXI_HOME_STATIC = (() => {
                         ]),
                     ]),
                 ]),
-                this.showControls ? h('button', {
+                this.showControls || this.compact ? h('button', {
                     type: 'button',
                     class: 'home-facts-recovery-action',
                     onClick: openDataHealth,
@@ -2107,9 +2159,23 @@ window.SUXI_HOME_STATIC = (() => {
                     h('i', { class: 'fas fa-arrow-right', 'aria-hidden': 'true' }),
                 ]) : null,
                 h('details', { class: 'home-facts-state-details', 'data-testid': 'home-yesterday-empty-details' }, [
-                    h('summary', null, '查看事实边界'),
+                    h('summary', null, '查看事实边界与数据缺口'),
+                    primaryBlocker.detail ? h('p', null, primaryBlocker.detail) : null,
                     h('p', null, 'PMS 全酒店事实、携程/美团 OTA 渠道事实和同日对账，只在当前门店、当前业务日完成保存与精确回读后展开。'),
                 ]),
+                (yesterday.storedHistoryEntries || []).length ? h('div', {
+                    class: 'home-facts-state-details', 'data-testid': 'home-stored-history',
+                }, [
+                    h('p', null, '同一门店有以下已存历史；查看时会重新核验，不替代当前业务日。'),
+                    ...(yesterday.storedHistoryEntries || []).map(entry => h('button', {
+                        key: entry.platform, type: 'button', class: 'home-facts-recovery-action',
+                        'data-testid': `home-stored-history-${entry.platform}`,
+                        onClick: () => this.$emit('update:selectedBusinessDate', entry.date),
+                    }, `${entry.label} · 查看 ${entry.date} 历史`)),
+                ]) : null,
+                yesterday.storedHistoryReadFailed
+                    ? h('p', { class: 'home-facts-state-details', role: 'status' }, '历史日期查询未完成，请重试或进入数据质量与回读。')
+                    : null,
             ]) : null;
             const loadingState = displayMode === 'loading' ? h('div', {
                 class: 'home-facts-loading-state',
@@ -2122,6 +2188,34 @@ window.SUXI_HOME_STATIC = (() => {
                     h('p', null, `${model.hotelName || '当前门店'} · ${yesterday.date || '目标日待确认'} · 只显示完成回读的事实`),
                 ]),
             ]) : null;
+            const fullFacts = h(Fragment, null, [
+                blockerSummary,
+                h('div', {
+                    class: 'home-fact-scope-grid mt-4 grid gap-4 lg:grid-cols-2',
+                    'data-testid': 'home-yesterday-dual-scope',
+                }, [pmsPanel, otaPanel]),
+                reconciliation,
+                h('p', { class: 'home-facts-source-note mt-3 text-xs text-slate-500' }, yesterday.sourceText || ''),
+            ]);
+            const overviewGroups = [
+                { key: 'pms', label: 'PMS · 全酒店', facts: [
+                    ...(Array.isArray(yesterday.wholeHotelDerivedFacts) ? yesterday.wholeHotelDerivedFacts : []),
+                    ...(Array.isArray(yesterday.wholeHotelFacts) ? yesterday.wholeHotelFacts : []),
+                ].filter(fact => ['room_revenue', 'occupancy_rate_percent'].includes(fact.key)) },
+                { key: 'ota', label: 'OTA · 携程与美团渠道', facts: (
+                    Array.isArray(yesterday.otaChannelFacts) ? yesterday.otaChannelFacts : []
+                ).filter(fact => ['ota_orders', 'ota_room_nights'].includes(fact.key)) },
+            ];
+            const compactFacts = h('div', { class: 'home-facts-overview', 'data-testid': 'home-facts-overview' }, [
+                ...overviewGroups.map(group => h('section', { class: 'home-overview-group', key: group.key, 'data-scope': group.key }, [
+                    h('h3', null, group.label),
+                    h('div', { class: 'home-overview-metrics' }, group.facts.map(factCard)),
+                ])),
+                h('details', { class: 'home-full-facts-fold' }, [
+                    h('summary', null, '完整指标、来源与同日对账'),
+                    fullFacts,
+                ]),
+            ]);
             const body = yesterday.requiresHotelSelection
                 ? h('div', {
                     class: 'home-facts-scope-required mt-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900',
@@ -2129,15 +2223,7 @@ window.SUXI_HOME_STATIC = (() => {
                 }, '请选择一个具体门店后读取事实。PMS 与 OTA 不允许跨门店汇总后对账。')
                 : (loadingState
                     || unavailableState
-                    || h(Fragment, null, [
-                        blockerSummary,
-                        h('div', {
-                            class: 'home-fact-scope-grid mt-4 grid gap-4 lg:grid-cols-2',
-                            'data-testid': 'home-yesterday-dual-scope',
-                        }, [pmsPanel, otaPanel]),
-                        reconciliation,
-                        h('p', { class: 'home-facts-source-note mt-3 text-xs text-slate-500' }, yesterday.sourceText || ''),
-                    ]));
+                    || (this.compact ? compactFacts : fullFacts));
             return h('section', {
                 class: this.showHeader
                     ? 'home-facts-shell rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5'
@@ -2756,24 +2842,31 @@ window.SUXI_HOME_STATIC = (() => {
                 const params = new URLSearchParams({ hotel_id: hotelId, week_end: weekEnd });
                 const res = await apiRequest(`/operating-opportunities/weekly-plan/latest?${params.toString()}`);
                 if (currentSeq !== requestSeq || hotelId !== String(getHotelId() || '').trim()) return false;
-                if (res.code !== 200 || res.data?.readback_verified !== true) {
-                    throw new Error(res.message || '周度经营计划尚未生成');
+                if (res.code !== 200) {
+                    throw new Error(res.message || '读取周度经营计划失败');
                 }
-                if (Number(res.data.hotel_id || 0) !== Number(hotelId)
-                    || String(res.data.week_end || '') !== weekEnd) {
+                if (Number(res.data?.hotel_id || 0) !== Number(hotelId)
+                    || String(res.data?.week_end || '') !== weekEnd) {
                     throw new Error('周度经营计划返回的酒店或周期身份不一致');
+                }
+                if (res.data.status === 'not_generated' && res.data.readback_verified === false) {
+                    homeWeeklyOperatingPlan.value = null;
+                    return true;
+                }
+                if (res.data?.readback_verified !== true) {
+                    throw new Error('周度经营计划尚未通过精确回读');
                 }
                 homeWeeklyOperatingPlan.value = res.data;
                 return true;
             } catch (error) {
-                if (currentSeq !== requestSeq) return false;
+                if (currentSeq !== requestSeq || hotelId !== String(getHotelId() || '').trim()) return false;
                 const previousMatches = previousPlan?.readback_verified === true
                     && Number(previousPlan?.hotel_id || 0) === Number(hotelId)
                     && String(previousPlan?.week_end || '') === weekEnd;
                 if (!previousMatches) homeWeeklyOperatingPlan.value = null;
                 const message = typeof errorMessage === 'function'
-                    ? errorMessage(error, '周度经营计划尚未生成')
-                    : (error?.message || '周度经营计划尚未生成');
+                    ? errorMessage(error, '读取周度经营计划失败')
+                    : (error?.message || '读取周度经营计划失败');
                 homeWeeklyOperatingPlanError.value = previousMatches
                     ? `刷新失败，保留上次已验证周计划：${message}`
                     : message;

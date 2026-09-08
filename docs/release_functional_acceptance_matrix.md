@@ -1,6 +1,6 @@
 # Release Functional Acceptance Matrix
 
-Updated: 2026-05-30
+Updated: 2026-09-08
 
 Scope: OTA data -> revenue analysis -> AI decision -> operations management -> investment decision.
 
@@ -16,7 +16,7 @@ Current Chinese acceptance report: `docs/functional_acceptance_report.zh-CN.md`.
 | Revenue analysis | OTA imported rows feed revenue summary, ADR, conversion, order, room-night, and service-quality views without labeling OTA-only data as whole-hotel facts. | `OnlineData::dataAnalysis`, revenue metric docs, business-chain E2E contract, OTA supplement scope guard. | `npm run review:functional-readiness` and `npm run verify:e2e-contracts`. | Structurally controlled; production data quality must still be monitored by source status. |
 | AI decision | AI conclusions are routed through `LlmClient`, prompt governance, model config, decision impact, confidence, sources, and human confirmation rules. | `LlmClient`, `ai_model_configs`, AI governance tables, strategy/expansion/simulation/feasibility prompt schemas. | `npm run review:functional-readiness` plus `npm run review:release-llm` for production connectivity. | Code path is controlled; production connectivity attestation is still missing. |
 | Operations management | Revenue diagnosis becomes alerts, strategy simulation, execution intent, approval, execution evidence, tracking, review, and ROI feedback. | `/api/operation/*`, operation execution migrations, `OperationExecutionLoopTest.php`, operation execution UI, action tracking. | `npm run review:functional-readiness`, `composer test`, and `npm run test:e2e:business` when a runtime is available. | Structurally controlled; no claim of real OTA auto-execution without field mapping, authorization, platform callback, and evidence. |
-| Investment decision | Strategy simulation, quant simulation, feasibility report, expansion evaluation, transfer pricing, timing, and dashboard outputs are persisted and reviewable. | `/api/strategy`, `/api/simulation`, `/api/agent/feasibility-report`, `/api/expansion`, `/api/transfer`, record detail/archive services, business-chain E2E contract. | `npm run review:functional-readiness`, `npm run verify:transfer-p2`, and `npm run test:e2e:business` when a runtime is available. | Structurally controlled; real market, competitor, and transaction data sources still need production evidence. |
+| Investment decision | Quantitative simulation remains an explicit assumptions calculator with saved readback. Strategy, expansion, transfer and feasibility retain authenticated history while rejecting generation, execution and deletion with HTTP 410. | `/api/simulation` save/detail, frozen-module GET list/detail, `RetiredFeatureReadOnly`, isolated historical fixtures and business-chain E2E. | `npm run review:functional-readiness` and `npm run test:e2e:business` when a runtime is available. | Scope revised by the user's low-frequency feature reduction request; calculator and history evidence does not prove real investment outcomes. |
 
 ## Plugin Handoff Coverage
 

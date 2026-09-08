@@ -546,7 +546,7 @@ Route::group('api/strategy', function () {
     Route::delete('/records/:id', 'StrategySimulation/archive');
     Route::get('/records/:id', 'StrategySimulation/detail');
     Route::get('/records', 'StrategySimulation/records');
-})->middleware(\app\middleware\Auth::class);
+})->middleware(\app\middleware\Auth::class)->middleware(\app\middleware\RetiredFeatureReadOnly::class, '战略推演');
 // ==================== 智算·量化模拟 API ====================
 Route::group('api/simulation', function () {
     Route::post('/calculate', 'Simulation/calculate');
@@ -723,11 +723,11 @@ Route::group('api/agent', function () {
 
     // 智策·可行性报告
     // Feasibility report
-    Route::post('/feasibility-report/generate', 'Agent/feasibilityReportGenerate');
+    Route::post('/feasibility-report/generate', 'Agent/feasibilityReportGenerate')->middleware(\app\middleware\RetiredFeatureReadOnly::class, '可研报告');
     Route::get('/feasibility-report/detail/:id', 'Agent/feasibilityReportDetail');
-    Route::post('/feasibility-report/regenerate/:id', 'Agent/feasibilityReportRegenerate');
-    Route::post('/feasibility-report/:id/execution-intent', 'Agent/createFeasibilityExecutionIntent');
-    Route::delete('/feasibility-report/:id', 'Agent/feasibilityReportArchive');
+    Route::post('/feasibility-report/regenerate/:id', 'Agent/feasibilityReportRegenerate')->middleware(\app\middleware\RetiredFeatureReadOnly::class, '可研报告');
+    Route::post('/feasibility-report/:id/execution-intent', 'Agent/createFeasibilityExecutionIntent')->middleware(\app\middleware\RetiredFeatureReadOnly::class, '可研报告');
+    Route::delete('/feasibility-report/:id', 'Agent/feasibilityReportArchive')->middleware(\app\middleware\RetiredFeatureReadOnly::class, '可研报告');
     Route::get('/feasibility-report/list', 'Agent/feasibilityReportList');
     // 配置管理
     Route::get('/config', 'Agent/getConfig');

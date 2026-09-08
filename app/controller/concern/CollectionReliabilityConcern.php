@@ -1546,9 +1546,11 @@ trait CollectionReliabilityConcern
                 throw new \InvalidArgumentException('请选择有效业务日期，格式为 YYYY-MM-DD');
             }
 
-            return $this->success(
-                (new \app\service\RevenueFactLayerService())->build((int)$hotelId, $businessDate)
+            $facts = (new \app\service\RevenueFactLayerService())->build((int)$hotelId, $businessDate);
+            $facts['stored_history'] = (new \app\service\StoredOtaHistoryLocator())->locate(
+                (int)($facts['hotel']['tenant_id'] ?? 0), (int)$hotelId, $businessDate
             );
+            return $this->success($facts);
         } catch (\InvalidArgumentException $e) {
             return $this->error($e->getMessage(), 422);
         } catch (HttpException $e) {

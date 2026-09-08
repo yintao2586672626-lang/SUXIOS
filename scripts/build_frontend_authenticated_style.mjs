@@ -21,12 +21,15 @@ const sourcePath = path.join(publicRoot, FRONTEND_AUTHENTICATED_STYLE_SOURCE);
 const artifactPath = path.join(publicRoot, FRONTEND_AUTHENTICATED_STYLE_ARTIFACT);
 const startupArtifactPath = path.join(publicRoot, FRONTEND_AUTHENTICATED_STARTUP_STYLE_ARTIFACT);
 const indexPath = path.join(publicRoot, 'index.html');
+const dashboardStyleName = 'compass-authority-polish.css';
+const dashboardStylePath = path.join(publicRoot, dashboardStyleName);
 const releaseLock = await acquireFrontendTemplateLock(repoRoot, {
   owner: 'build-frontend-authenticated-style',
 });
 
 try {
   const source = fs.readFileSync(sourcePath, 'utf8');
+  const dashboardStyle = fs.readFileSync(dashboardStylePath);
   const indexSource = fs.readFileSync(indexPath, 'utf8');
   const artifact = buildFrontendAuthenticatedStyle(source);
   const startupInputs = loadFrontendAuthenticatedStartupStyleInputs(repoRoot);
@@ -41,9 +44,17 @@ try {
     FRONTEND_AUTHENTICATED_STARTUP_STYLE_ARTIFACT,
     startupArtifact,
   );
+  const dashboardVersionUpdate = updateFrontendAssetVersion(
+    versionUpdate.html,
+    dashboardStyleName,
+    dashboardStyle,
+  );
 
   if (fs.readFileSync(sourcePath, 'utf8') !== source) {
     throw new Error('public/style.css changed during compilation; refusing to publish a stale stylesheet.');
+  }
+  if (!fs.readFileSync(dashboardStylePath).equals(dashboardStyle)) {
+    throw new Error('Dashboard stylesheet changed during compilation; refusing to publish a stale asset version.');
   }
   if (fs.readFileSync(indexPath, 'utf8') !== indexSource) {
     throw new Error('public/index.html changed during stylesheet compilation; refusing to publish mixed asset versions.');
@@ -61,7 +72,7 @@ try {
   const startupArtifactChanged = !fs.existsSync(startupArtifactPath)
     || !fs.readFileSync(startupArtifactPath).equals(nextStartupArtifact);
   if (startupArtifactChanged) writeFileAtomic(startupArtifactPath, nextStartupArtifact);
-  const nextIndex = Buffer.from(versionUpdate.html, 'utf8');
+  const nextIndex = Buffer.from(dashboardVersionUpdate.html, 'utf8');
   const indexChanged = !fs.readFileSync(indexPath).equals(nextIndex);
   if (indexChanged) writeFileAtomic(indexPath, nextIndex);
 
@@ -76,6 +87,7 @@ try {
     startup_artifact_bytes: Buffer.byteLength(startupArtifact),
     startup_artifact_hash: versionUpdate.hash,
     startup_artifact_changed: startupArtifactChanged,
+    dashboard_style_hash: dashboardVersionUpdate.hash,
     index_changed: indexChanged,
   }, null, 2));
 } finally {

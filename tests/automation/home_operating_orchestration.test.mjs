@@ -294,7 +294,7 @@ test('home entry opens exact fact or intent and refreshes from execution readbac
   assert.match(homeStaticSource, /今日异动速览/);
   assert.match(homeStaticSource, /后续行动与复盘/);
   assert.match(appMain, /HomeOperatingOrchestration = window\.SUXI_HOME_STATIC\?\.HomeOperatingOrchestration/);
-  assert.match(appMain, /apiRequest\(`\/operation\/execution-flow\?\$\{params\.toString\(\)\}`\)/);
+  assert.match(appMain, /apiRequest\(\x60\/operation\/execution-flow\?\$\{params\.toString\(\)\}\x60,\s*\{\s*requestPolicy: currentCompassReadPolicy\(\),\s*\}\)/);
   assert.match(appMain, /params\.set\('system_hotel_id', hotelId\)/);
   assert.match(appMain, /params\.append\('system_hotel_id', requestHotelId\)/);
   assert.match(appMain, /flow\.list\.find\(item => Number\(item\?\.hotel_id \|\| 0\) !== Number\(scopedHotelId\)\)/);
@@ -302,6 +302,46 @@ test('home entry opens exact fact or intent and refreshes from execution readbac
   assert.match(appMain, /applyHomeOperatingScheduleFlow\(operationExecutionFlow\.value, requestHotelId\)/);
   assert.match(appMain, /homeOperatingScheduleLoading\.value = true;[\s\S]*scheduleDelayedPageTask\(\(\) => \{[\s\S]*return loadHomeOperatingSchedule\(\{ hotelId: compassHotelId \}\);[\s\S]*\}, HOME_SECONDARY_PANEL_DELAY_MS\);/);
   assert.doesNotMatch(appMain, /const homeOperatingSchedulePromise = requestPage === 'compass'/);
+});
+
+test('weekly plan missing snapshot is empty while unrelated HTTP failures remain errors', async () => {
+  let failure;
+  const controller = createHomeWeeklyOperatingPlanController({
+    ref: value => ({ value }),
+    apiRequest: async () => {
+      if (failure) throw failure;
+      return { code: 200, data: { hotel_id: 5, week_end: '2026-08-23', status: 'not_generated', readback_verified: false } };
+    },
+    getHotelId: () => '5',
+    getToday: () => '2026-08-29',
+  });
+  assert.equal(await controller.loadHomeWeeklyOperatingPlan(), true);
+  assert.equal(controller.homeWeeklyOperatingPlan.value, null);
+  assert.equal(controller.homeWeeklyOperatingPlanError.value, '');
+  assert.equal(controller.homeWeeklyOperatingPlanLoading.value, false);
+  for (const [status, message] of [[404, 'route_not_found'], [403, 'permission_denied'], [503, 'database_unavailable']]) {
+    failure = Object.assign(new Error(message), { status, data: { code: status, message } });
+    assert.equal(await controller.loadHomeWeeklyOperatingPlan(), false);
+    assert.equal(controller.homeWeeklyOperatingPlanError.value, message);
+  }
+});
+
+test('late weekly snapshot failure cannot overwrite a newly selected hotel', async () => {
+  let reject, hotel = '5';
+  const controller = createHomeWeeklyOperatingPlanController({
+    ref: value => ({ value }),
+    apiRequest: () => new Promise((resolve, no) => { reject = no; }),
+    getHotelId: () => hotel,
+    getToday: () => '2026-08-29',
+  });
+  const pending = controller.loadHomeWeeklyOperatingPlan();
+  hotel = '6';
+  const current = { hotel_id: 6, readback_verified: true };
+  controller.homeWeeklyOperatingPlan.value = current;
+  reject(Object.assign(new Error('database_unavailable'), { status: 503 }));
+  assert.equal(await pending, false);
+  assert.equal(controller.homeWeeklyOperatingPlan.value, current);
+  assert.equal(controller.homeWeeklyOperatingPlanError.value, '');
 });
 
 test('weekly plan refresh failure preserves the last verified same-scope snapshot', async () => {

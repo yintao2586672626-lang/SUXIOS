@@ -51,3 +51,15 @@ export function syncRevenueAiStaticVersion(source, revenueAiStatic) {
     hash,
   };
 }
+
+// The operation helper is also loaded after mount.
+export function syncOperationStaticVersion(source, operationStatic) {
+  const pattern = /\bconst operationStaticScriptVersion = '([^'\r\n]+)-h[a-f0-9]{10}';/g;
+  const matches = [...String(source).matchAll(pattern)];
+  if (matches.length !== 1) throw new Error('Expected exactly one versioned operation static loader.');
+  const hash = buildFrontendAssetHash(operationStatic);
+  return {
+    source: String(source).replace(pattern, () => `const operationStaticScriptVersion = '${matches[0][1]}-h${hash}';`),
+    hash,
+  };
+}

@@ -49,7 +49,7 @@ test('Compass projects the kernel answers and reconciles only against an explici
 });
 
 test('Professional drilldowns cannot label their component result as the authoritative loop', () => {
-  assert.match(summary, /以下内容不决定权威闭环状态/);
+  assert.match(summary, /概览与待办反映各自来源，经营闭环状态以核验记录为准/);
   assert.match(detail, /P1 收益分析诊断（不决定权威闭环）/);
   assert.doesNotMatch(detail, /P1 收益分析闭环/);
   assert.doesNotMatch(detail, /数据缺口闭环/);

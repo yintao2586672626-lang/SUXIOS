@@ -4836,7 +4836,7 @@ test('Operation action loads reject stale request and hotel responses', () => {
   );
 
   assert.match(operationActionsLoader, /const requestSeq = \+\+operationActionsRequestSeq;/);
-  assert.match(operationActionsLoader, /requestSeq === operationActionsRequestSeq\s*&& requestHotelId === String\(operationFilters\.value\.hotel_id \|\| ''\)\.trim\(\)/);
+  assert.match(operationActionsLoader, /requestSeq === operationActionsRequestSeq\s*&& isAuthSessionCurrent\(requestSession\)\s*&& requestPage === currentPage\.value\s*&& requestHotelId === String\(operationFilters\.value\.hotel_id \|\| ''\)\.trim\(\)/);
   assert.match(operationActionsLoader, /const \[actionResult, flowResult, closureResult, , learningResult\] = await Promise\.allSettled\([\s\S]*if \(!isCurrentRequest\(\)\) return;/);
   assert.match(operationActionsLoader, /catch \(error\) \{\s*if \(!isCurrentRequest\(\)\) return;/);
   assert.match(operationActionsLoader, /finally \{\s*if \(requestSeq === operationActionsRequestSeq\) \{\s*operationLoading\.value\.actions = false;/);

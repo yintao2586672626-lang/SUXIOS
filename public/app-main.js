@@ -16917,7 +16917,6 @@
                         { type: 'source', sourcePath: 'operation-optimizer', overrides: { name: '运营优化台' } },
                         { type: 'source', sourcePath: 'operating-opportunities', overrides: { name: '经营机会' } },
                         { type: 'source', sourcePath: 'operating-finance', overrides: { name: '净收与恢复' } },
-                        { type: 'source', sourcePath: 'ai-simulation', overrides: { name: '酒店量化模拟' } },
                         { type: 'source', sourcePath: 'operating-targets', overrides: { name: '目标与事实' } },
                         { type: 'source', sourcePath: 'ai-daily-report', overrides: { name: 'AI经营日报' } },
                     ],
@@ -16943,9 +16942,6 @@
                         { type: 'source', sourcePath: 'wechat-notification', overrides: { name: '企业微信推送' } },
                         { type: 'source', sourcePath: 'automation-monitor', overrides: { name: '自动化运行监控' } },
                         { type: 'source', sourcePath: 'ops-track', overrides: { name: '任务执行与复盘' } },
-                        { type: 'source', sourcePath: 'operating-growth-archive', overrides: { name: '经营成长档案' } },
-                        { type: 'source', sourcePath: 'opening-overview', overrides: { name: '开业管理总览' } },
-                        { type: 'source', sourcePath: 'opening-checklist', overrides: { name: '开业检查清单' } },
                     ],
                 },
                 {
@@ -16963,6 +16959,15 @@
                     icon: 'fas fa-ellipsis-h',
                     testid: 'nav-lean-more',
                     children: [
+                        {
+                            type: 'group', name: '专项工具', icon: 'fas fa-toolbox',
+                            children: [
+                                { type: 'source', sourcePath: 'ai-simulation', overrides: { name: '酒店量化模拟' } },
+                                { type: 'source', sourcePath: 'opening-overview', overrides: { name: '开业管理总览' } },
+                                { type: 'source', sourcePath: 'opening-checklist', overrides: { name: '开业检查清单' } },
+                                { type: 'source', sourcePath: 'operating-growth-archive', overrides: { name: '经营成长档案' } },
+                            ],
+                        },
                         { type: 'source', sourcePath: 'knowledge-center', overrides: { name: '知识与经验' } },
                         { type: 'source', sourcePath: 'agent-center', overrides: { name: '高级AI工具箱' } },
                         { type: 'source', sourcePath: 'ai-governance', overrides: { name: 'AI决策审计' } },
@@ -23381,7 +23386,7 @@
             const platformSyncActionText = (message) => autoFetchStatic.value?.platformSyncActionText?.(message) || '';
 
             const operationStaticScript = 'operation-static.js';
-            const operationStaticScriptVersion = '20260901-task-bluebook-v1-h3ea1c85333';
+            const operationStaticScriptVersion = '20260901-task-bluebook-v1-hfd77d4ebde';
             const operationStaticIntegrityKeys = [
                 'operationAlertFilters',
                 'operationStrategyTypes',
@@ -30472,11 +30477,16 @@
             let operatingMemoryRequestSeq = 0;
             const loadOperatingMemories = async (options = {}) => {
                 const requestSeq = ++operatingMemoryRequestSeq;
+                const requestSession = captureAuthSession();
                 const requestedHotelId = String(
                     options?.hotelId !== undefined ? options.hotelId : operationFilters.value.hotel_id || ''
                 ).trim();
                 operatingMemoryLoading.value = true;
                 operatingMemoryError.value = '';
+                operatingMemories.value = { data_status: 'loading', list: [], count: 0, data_gaps: [] };
+                const isCurrentRead = () => requestSeq === operatingMemoryRequestSeq
+                    && isAuthSessionCurrent(requestSession)
+                    && requestedHotelId === String(operationFilters.value.hotel_id || '').trim();
                 try {
                     const params = new URLSearchParams();
                     if (requestedHotelId) {
@@ -30484,17 +30494,23 @@
                         params.set('system_hotel_id', requestedHotelId);
                     }
                     const query = params.toString() ? `?${params.toString()}` : '';
-                    const res = await apiRequest(`/operation/operating-memories${query}`);
-                    if (requestSeq !== operatingMemoryRequestSeq) return null;
+                    const res = await apiRequest(`/operation/operating-memories${query}`, {
+                        businessContext: { hotelId: requestedHotelId, tenantId: '', platform: '' },
+                        requestPolicy: { ...currentPageReadPolicy(), systemHotelId: '', businessDate: '' },
+                    });
+                    if (!isCurrentRead()) return null;
                     if (res.code !== 200) throw new Error(res.message || '经营记忆加载失败');
                     const payload = res.data && typeof res.data === 'object' ? res.data : null;
                     if (!payload || !Array.isArray(payload.list) || !Array.isArray(payload.data_gaps)) {
                         throw new Error('经营记忆回读结构不完整');
                     }
+                    if (requestedHotelId && payload.list.some(row => Number(row?.hotel_id || 0) !== Number(requestedHotelId))) {
+                        throw new Error('经营记忆返回的酒店身份不一致');
+                    }
                     operatingMemories.value = payload;
                     return payload;
                 } catch (error) {
-                    if (requestSeq !== operatingMemoryRequestSeq) return null;
+                    if (!isCurrentRead()) return null;
                     operatingMemories.value = { data_status: 'readback_failed', list: [], count: 0, data_gaps: [] };
                     operatingMemoryError.value = operationErrorMessage(error, '经营记忆加载失败');
                     return null;
@@ -30505,8 +30521,9 @@
 
             const saveOperationExecutionMemory = async (item) => {
                 const taskId = Number(item?.execution?.task_id || 0);
-                if (!Number.isInteger(taskId) || taskId <= 0) {
-                    showToast('执行任务ID无效，不能沉淀经营记忆', 'error');
+                const hotelId = operationExecutionHotelId(item);
+                if (!Number.isInteger(taskId) || taskId <= 0 || !Number.isInteger(hotelId) || hotelId <= 0) {
+                    showToast('执行任务或酒店ID无效，不能沉淀经营记忆', 'error');
                     return;
                 }
                 if (!operationCanSaveOperatingMemory(item)) {
@@ -30514,8 +30531,10 @@
                     return;
                 }
                 operatingMemorySavingTaskId.value = taskId;
+                const scopedOptions = { businessContext: { hotelId, tenantId: '', platform: '' } };
                 try {
                     const res = await apiRequest(`/operation/execution-tasks/${taskId}/operating-memory`, {
+                        ...scopedOptions,
                         method: 'POST',
                         body: JSON.stringify({}),
                     });
@@ -30529,7 +30548,7 @@
                     ) {
                         throw new Error('经营记忆保存结果未通过边界与回读校验');
                     }
-                    const readbackRes = await apiRequest(`/operation/operating-memories/${memoryId}`);
+                    const readbackRes = await apiRequest(`/operation/operating-memories/${memoryId}`, scopedOptions);
                     if (readbackRes.code !== 200) throw new Error(readbackRes.message || '经营记忆严格回读失败');
                     const readback = readbackRes.data || {};
                     if (Number(readback.id || 0) !== memoryId
@@ -30598,7 +30617,9 @@
                         params.set('hotel_id', hotelId);
                         params.set('system_hotel_id', hotelId);
                     }
-                    const res = await apiRequest(`/operation/execution-flow?${params.toString()}`);
+                    const res = await apiRequest(`/operation/execution-flow?${params.toString()}`, {
+                        requestPolicy: currentCompassReadPolicy(),
+                    });
                     if (!isCurrentRequest()) return false;
                     if (res.code !== 200) throw new Error(res.message || '今日经营编排读取失败');
                     const flow = res.data && typeof res.data === 'object' ? res.data : null;
@@ -30955,26 +30976,39 @@
             let operationActionsRequestSeq = 0;
             const loadOperationActions = async (options = {}) => {
                 const requestSeq = ++operationActionsRequestSeq;
+                const requestSession = captureAuthSession();
+                const requestPage = currentPage.value;
                 const focusIntentId = Number(options?.focusIntentId || 0);
                 if (focusIntentId > 0) operationExecutionViewMode.value = 'all';
-                await ensureOperationStaticReady();
-                if (requestSeq !== operationActionsRequestSeq) return;
                 operationLoading.value.actions = true;
                 operationError.value.actions = '';
                 operatingGoalInterventionLoading.value = true;
                 operatingGoalInterventionError.value = '';
-                let requestHotelId = '';
+                operationExecutionFlow.value = { summary: {}, stages: [], list: [], data_gaps: [], data_status: 'loading' };
+                operationActions.value = [];
+                operationEffectValidation.value = { status: 'loading', metrics: [], data_gaps: [], action_counts: {} };
+                operationClosureOverview.value = { summary: {}, modules: [], weak_modules: [], data_gaps: [], data_status: 'loading' };
+                operatingGoalInterventionOverview.value = { data_status: 'loading', current_goal_contract: null, goal_contracts: [], interventions: [], assessments: [], summary: {}, data_gaps: [] };
+                let requestHotelId = String(operationFilters.value.hotel_id || '').trim();
+                let flowAccepted = false;
                 const isCurrentRequest = () => (
                     requestSeq === operationActionsRequestSeq
+                    && isAuthSessionCurrent(requestSession)
+                    && requestPage === currentPage.value
                     && requestHotelId === String(operationFilters.value.hotel_id || '').trim()
                 );
                 try {
+                    await ensureOperationStaticReady();
+                    if (!isCurrentRequest()) return;
                     const params = new URLSearchParams();
                     const hotelId = normalizeOperationHotelSelection(operationFilters, {
                         errorKey: 'actions',
                         fallbackMessage: '请选择有权限的酒店',
                     });
-                    if (hotelId === null) return;
+                    if (hotelId === null) {
+                        requestHotelId = String(operationFilters.value.hotel_id || '').trim();
+                        throw new Error('请选择有权限的酒店');
+                    }
                     requestHotelId = String(hotelId || '').trim();
                     if (requestHotelId) {
                         params.append('hotel_id', requestHotelId);
@@ -30992,13 +31026,20 @@
                     const flowEndpoint = operationExecutionViewMode.value === 'mine'
                         ? '/operation/my-tasks'
                         : '/operation/execution-flow';
+                    // This selector owns the read scope; an empty hotel means all permitted hotels.
+                    const readOptions = {
+                        businessContext: { hotelId: requestHotelId, tenantId: '', platform: '' },
+                        // This page has its own hotel selector and no report-date filter.
+                        // Hydrating the dashboard scope must not cancel these reads.
+                        requestPolicy: { ...currentPageReadPolicy(), systemHotelId: '', businessDate: '' },
+                    };
                     const [actionResult, flowResult, closureResult, , learningResult] = await Promise.allSettled([
-                        apiRequest(`/operation/action-tracking${query}`),
-                        apiRequest(`${flowEndpoint}${flowQuery}`),
-                        apiRequest(`/operation/closure-overview${closureQuery}`),
+                        apiRequest(`/operation/action-tracking${query}`, readOptions),
+                        apiRequest(`${flowEndpoint}${flowQuery}`, readOptions),
+                        apiRequest(`/operation/closure-overview${closureQuery}`, readOptions),
                         loadOperatingMemories({ hotelId: requestHotelId }),
                         requestHotelId
-                            ? apiRequest(`/operation/goal-intervention-overview${query}`, { businessContext: { hotelId: Number(requestHotelId) } })
+                            ? apiRequest(`/operation/goal-intervention-overview${query}`, readOptions)
                             : Promise.resolve({ code: 200, data: { data_status: 'select_single_hotel', current_goal_contract: null, goal_contracts: [], interventions: [], assessments: [], summary: {}, data_gaps: ['select_single_hotel'] } }),
                     ]);
                     if (!isCurrentRequest()) return;
@@ -31008,8 +31049,21 @@
                     const learningRes = learningResult.status === 'fulfilled' ? learningResult.value : null;
 
                     if (flowRes?.code === 200) {
+                        if (!Array.isArray(flowRes.data?.list)) throw new Error('执行闭环回读结构不完整');
+                        const flowHotelId = flowEndpoint === '/operation/my-tasks'
+                            ? flowRes.data?.scope?.hotel_id
+                            : flowRes.data?.capabilities?.hotel_id;
+                        if (requestHotelId && (
+                            Number(flowHotelId || 0) !== Number(requestHotelId)
+                            || flowRes.data.list.some(row => Number(row?.hotel_id || 0) !== Number(requestHotelId))
+                        )) throw new Error('执行闭环返回的酒店身份不一致');
+                        if (focusIntentId > 0 && !flowRes.data?.list?.some(row => Number(row?.id || 0) === focusIntentId)) {
+                            throw new Error('对应任务未能按当前酒店权限回读');
+                        }
                         operationExecutionFlow.value = flowRes.data || { summary: {}, stages: [], list: [], data_gaps: [], data_status: '' };
+                        flowAccepted = true;
                         if (focusIntentId === 0
+                            && operationExecutionViewMode.value === 'all'
                             && requestHotelId === String(filterReportHotel.value || '').trim()
                         ) {
                             applyHomeOperatingScheduleFlow(operationExecutionFlow.value, requestHotelId);
@@ -31061,15 +31115,21 @@
                     if (flowRes?.code !== 200) throw new Error(flowRes?.message || '执行闭环加载失败');
                     if (res?.code !== 200) throw new Error(res?.message || '策略追踪加载失败');
                     if (closureRes?.code !== 200) throw new Error(closureRes?.message || '闭环总览加载失败');
+                    return true;
                 } catch (error) {
                     if (!isCurrentRequest()) return;
+                    if (!flowAccepted) {
+                        operationExecutionFlow.value = { summary: {}, stages: [], list: [], data_gaps: ['execution_flow_read_failed'], data_status: 'load_failed' };
+                    }
                     operationError.value.actions = operationErrorMessage(error, '策略追踪加载失败');
                     if (focusIntentId === 0
+                        && operationExecutionViewMode.value === 'all'
                         && requestHotelId === String(filterReportHotel.value || '').trim()
                     ) {
                         homeOperatingScheduleError.value = operationError.value.actions;
                     }
                     showToast(operationError.value.actions, 'error');
+                    return false;
                 } finally {
                     if (requestSeq === operationActionsRequestSeq) {
                         operationLoading.value.actions = false;
@@ -51272,6 +51332,11 @@
                             }
                             requestSuxiFullRenderForPage(currentPage.value);
                             loadData();
+                            if (currentPage.value === 'ops-track') {
+                                // The full renderer remounts the app on this page; its
+                                // page watcher does not fire for the initial value.
+                                void nextTick(() => runPageLoadOnce('ops-track', 'main', () => loadOperationActions()));
+                            }
                             if (currentPage.value === 'agent-center') {
                                 if (!guardSuperAdminPageAccess('agent-center', { notify: false })) {
                                     agentTab.value = 'overview';
@@ -53236,12 +53301,12 @@
                 operationActionStatusLabel, operationMetricRows, operationActionDataText, operationActionTarget,
                 operationEffectMetricCards, operationEffectDataGapText, operationEffectStatusLabel, operationEffectStatusClass, operationEffectMetricStatusLabel, operationEffectMetricValue,
                     operationClosureModules, operationClosureSummaryBadge, operationClosureSummaryCards, operationClosureStatusClass, operationClosureScoreClass, operationClosureGapText, openOperationClosureModule,
-                    operationExecutionItems, operationExecutionStages, operationExecutionStageFilter, operationExecutionStageFilterLabel, operationExecutionFilteredItems, setOperationExecutionStageFilter, operationExecutionSummaryCards, operationExecutionSourceText, operationExecutionActionText,
+                    operationExecutionItems, operationExecutionStages, operationExecutionStageFilter, operationExecutionStageFilterLabel, operationExecutionFilteredItems, setOperationExecutionStageFilter, operationExecutionSummaryCards, operationExecutionSourceText: (...args) => operationExecutionSourceText(...args), operationExecutionActionText,
                 operatingGoalInterventionOverview, operatingGoalInterventionLoading, operatingGoalInterventionError, currentOperatingGoalContract, currentOperatingGoalContractText, operatingGoalMonitorModel, operatingGoalInterventionSummary, operatingGoalInterventionDataGapText,
-                operationInterventionLearningModelForItem, operationCanDefineIntervention, operationCanAssessIntervention, openOperatingGoalContractForm, openOperatingInterventionForm, assessOperatingIntervention, operationLearningVerdictLabel, operationLearningVerdictClass,
+                operationInterventionLearningModelForItem, operationCanDefineIntervention, operationCanAssessIntervention, openOperatingGoalContractForm, openOperatingInterventionForm, assessOperatingIntervention, operationLearningVerdictLabel: (...args) => operationLearningVerdictLabel(...args), operationLearningVerdictClass: (...args) => operationLearningVerdictClass(...args),
                 operationExecutionStatusLabel, operationExecutionStatusClass, operationExecutionReviewText, nodeText, operationExecutionRoiText,
                 operationExecutionBottleneckText, operationExecutionMoneyStatusText, operationExecutionMoneyStatusClass, operationExecutionNextActionClass,
-                operationCanApproveExecution, operationCanStartExecution, operationCanCancelExecution, operationCanExecuteWithEvidence, operationCanRecordNodeCheck, operationCanReconcileExecution, operationCanReviewExecution, operationCanSaveOperatingMemory, operationExecutionActionAvailable, operationExecutionRowClass, operationExecutionTraceRows,
+                operationCanApproveExecution: (...args) => operationCanApproveExecution(...args), operationCanStartExecution, operationCanCancelExecution, operationCanExecuteWithEvidence: (...args) => operationCanExecuteWithEvidence(...args), operationCanRecordNodeCheck: (...args) => operationCanRecordNodeCheck(...args), operationCanReconcileExecution: (...args) => operationCanReconcileExecution(...args), operationCanReviewExecution: (...args) => operationCanReviewExecution(...args), operationCanSaveOperatingMemory, operationExecutionActionAvailable: (...args) => operationExecutionActionAvailable(...args), operationExecutionRowClass, operationExecutionTraceRows,
                 operationApprovalConfirming, operationApprovalText, operationRejectText, approveOperationExecutionIntent, rejectOrCancelOperationApproval, startOperationExecutionTask, cancelOperationExecution, recordOperationRevenueNodeCheck, recordOperationExecutionEvidence, reconcileOperationExecutionReview, reviewOperationExecutionTask, saveOperationExecutionMemory,
                 operatingMemoryItems, coreOperationsSopProgress, operatingMemoryDataGapText, operatingMemoryPanelMessage, operatingMemoryPanelTestId, operatingMemoryPanelBody, operatingMemoryDisplayText, operatingMemoryLayerLabel, operatingMemoryQualityLabel, operatingMemoryQualityClass, operatingMemoryUsageLabel, operatingMemoryEvidenceCount, loadOperatingMemories,
                 canSaveMemo, saveMemo, memoBody,

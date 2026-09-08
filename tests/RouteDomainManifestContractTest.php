@@ -173,7 +173,7 @@ final class RouteDomainManifestContractTest extends TestCase
         $tuples = [];
         foreach (self::EXTRACTED_GROUP_PREFIXES as $prefix) {
             $pattern = sprintf(
-                "/Route::group\\('%s', function \\(\\) \\{(?P<body>.*?)\\}\\)->middleware\\(\\\\app\\\\middleware\\\\Auth::class\\);/s",
+                "/Route::group\\('%s', function \\(\\) \\{(?P<body>.*?)\\}\\)->middleware\\(\\\\app\\\\middleware\\\\Auth::class\\)(?:->middleware\\(\\\\app\\\\middleware\\\\RetiredFeatureReadOnly::class, '[^']+'\\))?;/s",
                 preg_quote($prefix, '/')
             );
             self::assertSame(1, preg_match($pattern, $source, $groupMatch), "Missing authenticated route group {$prefix}");
