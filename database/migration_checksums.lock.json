@@ -217,7 +217,8 @@
     "20260901_create_wecom_inbound_sender_bindings.sql": "5511bd3bb9009efddba6f4b44019232b60b1ecef9fbac0b21435062d94ac9fee",
     "20260901_refine_reference_knowledge_availability.sql": "670519e492fc31fe17d360586418e604dd3493ef48f86180a89577d9bafb82b7",
     "20260901_z_seed_workbench_reverse_interview_reference.sql": "76897d8c0bbdf5f1eb1d04dc42b9025d9274d3ceeba513523a3cd2f31eeb2227",
-    "20260901_zz_seed_ai_agent_learning_reference.sql": "4e8e2912b30627c6c5acdaa6c9676572f3e023152105f4445c2977320707665e"
+    "20260901_zz_seed_ai_agent_learning_reference.sql": "4e8e2912b30627c6c5acdaa6c9676572f3e023152105f4445c2977320707665e",
+    "20260908_remove_duplicate_online_daily_trust_index.sql": "4fa93f160c3d8f8e0a0626c8239254401c3f5e94263cc1f9bf156128c27be556"
   },
   "frozen_sources": {
     "database/complaint_tables.sql": "0b691d925eca181aaffe7281e89855f662a2741fe92e7f673adedcbb4c630e66",

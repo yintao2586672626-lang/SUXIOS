@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { syncStartupLazyComponentVersions } from './lib/frontend_lazy_asset_versions.mjs';
 import {
   buildFrontendBootstrap,
   buildFrontendDeferredHelpers,
@@ -29,11 +30,12 @@ try {
   const indexSource = fs.readFileSync(indexPath, 'utf8');
   const bootstrapPath = path.join(publicRoot, FRONTEND_BOOTSTRAP_SOURCE);
   const bootstrapSource = fs.readFileSync(bootstrapPath, 'utf8');
-  const helperSources = FRONTEND_STARTUP_HELPER_SOURCES.map((name) => ({
+  const lazyPlan = syncStartupLazyComponentVersions(FRONTEND_STARTUP_HELPER_SOURCES.map((name) => ({
     name,
     path: path.join(publicRoot, name),
     source: fs.readFileSync(path.join(publicRoot, name), 'utf8'),
-  }));
+  })), name => fs.readFileSync(path.join(publicRoot, name)));
+  const helperSources = lazyPlan.sources;
   const deferredHelperSources = FRONTEND_DEFERRED_HELPER_SOURCES.map((name) => ({
     name,
     path: path.join(publicRoot, name),
@@ -57,10 +59,15 @@ try {
     );
   }
   for (const source of [...helperSources, ...deferredHelperSources]) {
-    if (fs.readFileSync(source.path, 'utf8') !== source.source) {
+    if (fs.readFileSync(source.path, 'utf8') !== (source.originalSource ?? source.source)) {
       throw new Error(
         `public/${source.name} changed during compilation; refusing to publish a stale startup bundle.`,
       );
+    }
+  }
+  for (const [name, bytes] of lazyPlan.dependencies) {
+    if (!fs.readFileSync(path.join(publicRoot, name)).equals(bytes)) {
+      throw new Error(`public/${name} changed during compilation; refusing to publish a stale lazy loader.`);
     }
   }
   if (fs.readFileSync(indexPath, 'utf8') !== indexSource) {
@@ -76,6 +83,7 @@ try {
     return true;
   };
 
+  const lazyLoadersChanged = helperSources.filter(source => writeFileIfChanged(source.path, source.source)).map(source => source.name);
   const bootstrapChanged = writeFileIfChanged(
     path.join(publicRoot, FRONTEND_BOOTSTRAP_ARTIFACT),
     bootstrapArtifact,
@@ -91,6 +99,7 @@ try {
   const indexChanged = writeFileIfChanged(indexPath, nextIndex);
 
   console.log(JSON.stringify({
+    lazy_loaders_changed: lazyLoadersChanged,
     bootstrap_artifact: `public/${FRONTEND_BOOTSTRAP_ARTIFACT}`,
     bootstrap_artifact_bytes: Buffer.byteLength(bootstrapArtifact),
     bootstrap_changed: bootstrapChanged,

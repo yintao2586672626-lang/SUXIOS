@@ -1830,6 +1830,8 @@
                 { key: 'sales_avg_price', label: '销售均价', unit: '元' },
             ]);
             const fetchingData = ref(false);
+            let ctripManualFetchRequestSeq = 0;
+            let ctripManualFetchActive = false;
             const onlineDataResult = ref(null);
             const latestTrafficData = ref(null); // 本次获取的流量数据
             const topTenHotels = ref([]); // 前十名酒店数据
@@ -45506,6 +45508,12 @@
             // 线上数据获取相关方法
             const fetchCtripData = async (options = {}) => {
                 if (fetchingData.value) return { status: 'busy' };
+                const requestSeq = ++ctripManualFetchRequestSeq;
+                ctripManualFetchActive = true;
+                const session = captureAuthSession();
+                const hotelContext = capturePlatformHotelRequestContext('ctrip');
+                const isActive = () => requestSeq === ctripManualFetchRequestSeq
+                    && isAuthSessionCurrent(session) && isPlatformHotelRequestContextCurrent(hotelContext);
                 const preparingConfig = ctripManualFetchConfigProofPending();
                 if (preparingConfig) {
                     fetchingData.value = true;
@@ -45513,6 +45521,7 @@
                 clearCtripRankingDisplayState();
                 try {
                     const runOnce = () => runCtripFetchDataFlow({
+                        isActive,
                         isLoggedIn: () => isLoggedIn.value,
                         getSelectedCtripHotelId: () => selectedCtripHotelId.value,
                         notify: showToast,
@@ -45548,14 +45557,16 @@
                         refreshLatestCtripData: scheduleLatestCtripRefresh,
                         getOnlineDataTab: () => onlineDataTab.value,
                         refreshOnlineData: scheduleOnlineDataRefresh,
-                        handleFetchFailure: message => handleCtripFetchFailure(message),
+                        handleFetchFailure: (message, isCurrent = isActive) => handleCtripFetchFailure(message, isCurrent),
                         hasVisibleSnapshot: hasVisibleCtripSnapshot,
                         logError: (...args) => console.error(...args),
                         background: options?.background === true,
                         suppressPostFetchRefresh: options?.suppressPostFetchRefresh === true,
                     });
                     let result = await runOnce();
+                    if (!isActive() || result?.status === 'stale') return { status: 'stale' };
                     if (options?.background === true) return result;
+                    const retryQuery = JSON.stringify([ctripForm.value.startDate, ctripForm.value.endDate]);
 
                     let qunarRetryCount = 0;
                     const qunarAutoRetryAllowed = manualOneClickFetchQunarAutoRetryAllowedAt();
@@ -45574,6 +45585,9 @@
                             resolve,
                             Math.min(1800, 600 * qunarRetryCount),
                         ));
+                        if (!isActive() || retryQuery !== JSON.stringify([ctripForm.value.startDate, ctripForm.value.endDate])) {
+                            return { status: 'stale' };
+                        }
                         result = await runOnce();
                     }
 
@@ -45587,7 +45601,8 @@
                     }
                     return { ...result, qunarRetryCount };
                 } finally {
-                    if (preparingConfig) {
+                    if (isActive()) {
+                        ctripManualFetchActive = false;
                         fetchingData.value = false;
                     }
                 }
@@ -45928,10 +45943,11 @@
             };
 
             let ctripLatestRequestSeq = 0;
-            const loadLatestCtripData = async ({ silent = false, hotelId = '', hydrateDisplay = null, hydrateRealtime = false, range = '', returnSnapshot = false } = {}) => {
+            const loadLatestCtripData = async ({ silent = false, hotelId = '', hydrateDisplay = null, hydrateRealtime = false, range = '', returnSnapshot = false, isActive = () => true } = {}) => {
                 const latestResult = (available, payload = null, status = '') => returnSnapshot
                     ? { available, payload, status }
                     : available;
+                if (!isActive()) return latestResult(false, null, 'stale');
                 if (!isLoggedIn.value && !token.value) return latestResult(false, null, 'not_logged_in');
                 const requestSession = captureAuthSession();
                 const requestPage = currentPage.value;
@@ -45944,7 +45960,7 @@
                     ? String(filterReportHotel.value || '').trim()
                     : String(getSelectedCtripHotelId()).trim();
                 const isCurrentRequest = () => (
-                    isAuthSessionCurrent(requestSession)
+                    isActive() && isAuthSessionCurrent(requestSession)
                     && currentPage.value === requestPage
                     && isCtripLatestRequestCurrent(
                         { seq: requestSeq, hotelId: selectedHotelId, range: requestRange },
@@ -46093,19 +46109,29 @@
                     || !!(ctripCommentResult.value?.data && ctripCommentResult.value.data.length > 0);
             };
 
-            const handleCtripFetchFailure = async (fallbackMessage) => {
-                await loadLatestCtripData({ silent: true, hydrateDisplay: false });
+            const handleCtripFetchFailure = async (fallbackMessage, isActive = () => true) => {
+                if (!isActive()) return;
+                await loadLatestCtripData({ silent: true, hydrateDisplay: false, isActive });
+                if (!isActive()) return;
                 showToast(fallbackMessage || '获取失败', 'error');
             };
 
             // 携程 / 去哪儿流量对比数据获取
             const fetchCtripTrafficData = async () => {
+                if (fetchingData.value) return { status: 'busy' };
+                const requestSeq = ++ctripManualFetchRequestSeq;
+                ctripManualFetchActive = true;
+                const session = captureAuthSession();
+                const hotelContext = capturePlatformHotelRequestContext('ctrip');
+                const isActive = () => requestSeq === ctripManualFetchRequestSeq
+                    && isAuthSessionCurrent(session) && isPlatformHotelRequestContextCurrent(hotelContext);
                 const preparingConfig = ctripManualFetchConfigProofPending();
                 if (preparingConfig) {
                     fetchingData.value = true;
                 }
                 try {
                     return await runCtripTrafficFetchFlow({
+                        isActive,
                         getSelectedCtripHotelId: () => selectedCtripHotelId.value,
                         notify: showToast,
                         getActiveCtripConfig,
@@ -46124,10 +46150,11 @@
                         refreshOnlineHistory: scheduleOnlineHistoryRefresh,
                         getOnlineDataTab: () => onlineDataTab.value,
                         refreshOnlineData: scheduleOnlineDataRefresh,
-                        handleFetchFailure: handleCtripFetchFailure,
+                        handleFetchFailure: (message, isCurrent = isActive) => handleCtripFetchFailure(message, isCurrent),
                     });
                 } finally {
-                    if (preparingConfig) {
+                    if (isActive()) {
+                        ctripManualFetchActive = false;
                         fetchingData.value = false;
                     }
                 }
@@ -46992,6 +47019,11 @@
 
             const clearCtripOverviewDisplayState = () => {
                 invalidatePlatformHotelRequestContext('ctrip');
+                if (ctripManualFetchActive) {
+                    ctripManualFetchActive = false;
+                    ctripManualFetchRequestSeq += 1;
+                    fetchingData.value = false;
+                }
                 ctripCommentBrowserCaptureRequestSeq += 1;
                 ctripDiagnosisSnapshotRequestSeq += 1;
                 ctripReviewMatchControllerBindings.invalidateCtripReviewMatch();
