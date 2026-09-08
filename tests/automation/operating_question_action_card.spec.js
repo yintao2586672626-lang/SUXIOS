@@ -364,7 +364,7 @@ const installAuthenticatedMocks = async (page, calls, {
     const request = route.request();
     const requestUrl = new URL(request.url());
     const pathname = requestUrl.pathname;
-    calls.push({ method: request.method(), pathname, body: request.postDataJSON?.() || null });
+    calls.push({ method: request.method(), pathname, query: Object.fromEntries(requestUrl.searchParams), body: request.postDataJSON?.() || null });
     let data = { list: [], items: [], total: 0 };
     if (pathname === '/api/auth/info') data = user;
     if (pathname === '/api/hotels') data = { list: user.permitted_hotels, total: 1 };
@@ -453,7 +453,8 @@ const installAuthenticatedMocks = async (page, calls, {
       const list = mockState.created ? [buildExecutionFlowItem(mockState.intent)] : [];
       data = {
         data_status: 'ok',
-        capabilities: { hotel_id: Number(requestUrl.searchParams.get('hotel_id') || 0) || null },
+        capabilities: { hotel_id: user.hotel_id, can_view: true, can_generate_diagnosis: true,
+          can_execute: true, can_collect_ota: true },
         summary: { total: list.length, stage_counts: {} },
         stages: [],
         list,
@@ -521,6 +522,9 @@ test('operating question action stays pending until double-confirmed approval, r
   expect(consoleErrors, `console errors: ${consoleErrors.join(' | ')}`).toEqual([]);
   const actionRow = page.locator('[data-operation-execution-intent-id="901"]');
   await expect(actionRow).toBeVisible({ timeout: 15000 });
+  expect(calls.some(call => call.pathname === '/api/operation/execution-flow'
+    && call.query.hotel_id === '7' && call.query.system_hotel_id === '7'
+    && call.query.intent_id === '901')).toBe(true);
   const approveButton = actionRow.getByTestId('operation-approve');
   await expect(approveButton).toHaveText('审批');
 

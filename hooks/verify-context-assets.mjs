@@ -100,10 +100,12 @@ if (!exists(collaborationCharterPath)) {
     '功能实现是第一目标',
     '功能完整性补全',
     '用户可见的最短安全路径',
-    '最小验收与停止条件',
+    charter.includes('完整验收与停止条件') ? '完整验收与停止条件' : '最小验收与停止条件',
     '本次请求未明确包含的提交、推送、外部PR、部署、生产写入或正式外发',
     '工作树不要求全局干净',
-    '连续三轮定向检查',
+    charter.includes('调查无新增证据时')
+      ? '调查无新增证据时，改变假设或观察方法；不按固定检查次数放弃、不猜测修复。'
+      : '连续三轮定向检查',
     'Passkey',
   ]) {
     requireIncludes(collaborationCharterPath, charter, needle);

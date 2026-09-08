@@ -187,7 +187,7 @@ final class PreciseQueryRouterServiceTest extends TestCase
             '02 conversational same-day visitors' => ['当天美团来了多少访客？', $meituanDay, 'operating_query', 'answered_deterministically', 'detail_exposure', 206, null],
             '03 deterministic exposure-to-visit formula' => ['曝光到访率是多少，怎么算的？', $meituanDay, 'operating_query', 'answered_deterministically_partial_metadata', 'exposure_to_visit_rate', 14.49, null],
             '04 Ctrip missing conversion denominator' => ['携程为什么没有曝光转化率？', $ctripDay, 'operating_query', 'blocked_by_missing_metric', 'exposure_to_visit_rate', null, null],
-            '05 revenue semantic gap' => ['收入为什么没有出来？', $meituanDay, 'operating_query', 'blocked_by_missing_metric', 'room_revenue', null, null],
+            '05 revenue definition clarification' => ['收入为什么没有出来？', $meituanDay, 'clarification', 'clarification_required', null, null, null],
             '06 refuse vague platform comparison' => ['昨天哪个平台表现更好？', $h80, 'operating_query', 'blocked_by_incomparable_scope', null, null, null],
             '07 AI daily report navigation' => ['AI经营日报在哪？', [], 'system_navigation', 'navigation_ready', null, null, 'ai-daily-report'],
             '08 trusted broadcast copy navigation' => ['可信播报怎么复制？', [], 'system_navigation', 'navigation_ready', null, null, 'ai-daily-report'],
@@ -207,6 +207,156 @@ final class PreciseQueryRouterServiceTest extends TestCase
             '22 unknown intent asks one route clarification' => ['帮我看看。', [], 'clarification', 'clarification_required', null, null, null],
             '23 intent-payment rate stays blocked without aligned inputs' => ['Hotel 80 8月23日美团意向支付转化率多少？', [], 'operating_query', 'blocked_by_missing_metric', 'intent_payment_conversion_rate', null, null],
             '24 Codex collaboration navigation' => ['我想让 Codex 帮我检查或完善宿析OS，应该怎么说？', [], 'system_navigation', 'navigation_ready', null, null, 'codex-collaboration'],
+        ];
+    }
+
+    #[DataProvider('unsupportedPeriodProvider')]
+    public function testPeriodNeverFallsBackToASingleDay(string $question, array $dateScope): void
+    {
+        $readerCalls = 0;
+        $requestedDates = [];
+        $router = $this->router(static function (int $hotelId, string $date) use (&$readerCalls, &$requestedDates): array {
+            $readerCalls++;
+            $requestedDates[] = $date;
+            $closure = \Tests\Support\PreciseQuerySyntheticFixture::closure($hotelId, $date);
+            $closure['platforms']['ctrip']['fields'] = [];
+            return $closure;
+        });
+        $result = $router->route(10, [80], 7, [
+            'query' => $question,
+            'current_scope' => ['hotel_id' => 80, 'platform' => 'ctrip'] + $dateScope,
+        ]);
+
+        $expectedRange = match ($question) {
+            '携程 2026-08-01 到 2026-08-31 的订单量' => ['2026-08-01','2026-08-31'],
+            '携程8月1日至8月23日订单量', '携程8月1日到23日订单量', '携程8/1到8/23的订单量', '携程订单量' => ['2026-08-01','2026-08-23'],
+            '携程上月订单量', '携程上个月订单量', '携程2026年7月订单量' => ['2026-07-01','2026-07-31'],
+            '携程近7天订单量' => ['2026-08-18','2026-08-24'],
+            '携程上周订单量' => ['2026-08-17','2026-08-23'],
+            '携程昨天到今天订单量' => ['2026-08-24','2026-08-25'],
+            default => null,
+        };
+        if ($expectedRange === null) {
+            self::assertSame('clarification_required', $result['status']);
+            self::assertSame(0, $readerCalls);
+        } else {
+            [$start,$end] = $expectedRange;
+            self::assertSame('blocked_by_period_facts', $result['status']);
+            self::assertSame($start, $result['parsed_scope']['date_start']);
+            self::assertSame($end, $result['parsed_scope']['date_end']);
+            self::assertSame($start, $requestedDates[0]);
+            self::assertSame($end, $requestedDates[count($requestedDates)-1]);
+            self::assertSame((int)(new DateTimeImmutable($start))->diff(new DateTimeImmutable($end))->days + 1, $readerCalls);
+            self::assertNull($result['answer']['value']);
+            self::assertNull($result['answer']['partial_value']);
+        }
+        self::assertNull($result['parsed_scope']['business_date']);
+        self::assertSame('period', $result['parsed_scope']['date_grain']);
+        self::assertSame([], $result['fact_refs']);
+        self::assertSame($result, $router->read($result['id'], 10, [80]));
+    }
+
+    public static function unsupportedPeriodProvider(): array
+    {
+        $selectedDay = ['date_start' => '2026-08-23', 'date_end' => '2026-08-23'];
+        return [
+            'full date range' => ['携程 2026-08-01 到 2026-08-31 的订单量', $selectedDay],
+            'Chinese range' => ['携程8月1日至8月23日订单量', $selectedDay],
+            'abbreviated end day' => ['携程8月1日到23日订单量', $selectedDay],
+            'two independent dates' => ['携程8月22日和8月23日订单量', $selectedDay],
+            'previous month' => ['携程上月订单量', $selectedDay],
+            'previous month longer phrase' => ['携程上个月订单量', $selectedDay],
+            'named month' => ['携程2026年7月订单量', $selectedDay],
+            'recent days' => ['携程近7天订单量', $selectedDay],
+            'previous week' => ['携程上周订单量', $selectedDay],
+            'relative endpoints' => ['携程昨天到今天订单量', $selectedDay],
+            'slash range without year' => ['携程8/1到8/23的订单量', $selectedDay],
+            'weekday range' => ['携程周一到周五的订单量', $selectedDay],
+            'range inherited from selection' => ['携程订单量', ['date_start' => '2026-08-01', 'date_end' => '2026-08-23']],
+        ];
+    }
+
+    public function testExplicitSingleDayOverridesSelectedPeriodAndPreservesTheWrittenYear(): void
+    {
+        $result = $this->router()->route(10, [80], 7, [
+            'query' => '携程2025年8月23日订单量',
+            'current_scope' => [
+                'hotel_id' => 80,
+                'platform' => 'ctrip',
+                'date_start' => '2026-08-01',
+                'date_end' => '2026-08-23',
+            ],
+        ]);
+
+        self::assertSame('operating_query', $result['route_type']);
+        self::assertSame('2025-08-23', $result['parsed_scope']['business_date']);
+        self::assertSame([], $result['fact_refs']);
+    }
+
+    #[DataProvider('singleDayAliasProvider')]
+    public function testSingleDayAliasesAndHotelNamesDoNotBecomePeriods(string $query, string $expectedDate): void
+    {
+        Db::name('hotels')->where('id', 80)->update(['name' => '七月酒店']);
+        $router = new PreciseQueryRouterService(clock: static fn(): DateTimeImmutable => new DateTimeImmutable(
+            '2026-09-05 12:00:00', new DateTimeZone('Asia/Shanghai')
+        ));
+        $result = $router->route(10, [80], 7, [
+            'query' => $query,
+            'current_scope' => ['hotel_id' => 80, 'platform' => 'ctrip', 'business_date' => '2026-08-23'],
+        ]);
+
+        self::assertSame('operating_query', $result['route_type']);
+        self::assertSame($expectedDate, $result['parsed_scope']['business_date']);
+        self::assertSame('七月酒店', $result['parsed_scope']['hotel_name']);
+        self::assertSame([], $result['fact_refs']);
+        self::assertSame($result, $router->read($result['id'], 10, [80]));
+    }
+
+    public static function singleDayAliasProvider(): array
+    {
+        return [
+            'today with exact date' => ['携程今天（2026年9月5日）的订单量', '2026-09-05'],
+            'yesterday and month in hotel name' => ['七月酒店携程昨天的订单量', '2026-09-04'],
+            'same date repeated in Chinese and ISO' => ['携程2026-09-04（2026年9月4日）的订单量', '2026-09-04'],
+            'same date repeated without year' => ['携程今天（9月5日）的订单量', '2026-09-05'],
+            'exact date and month in hotel name' => ['七月酒店携程2026年9月4日的订单量', '2026-09-04'],
+            'current year with an explicit day' => ['携程今年9月4日订单量', '2026-09-04'],
+        ];
+    }
+
+    #[DataProvider('distinctDateProvider')]
+    public function testDistinctDatesAndExplicitRangesRemainBlockedAfterRemovingTheHotelName(string $query): void
+    {
+        Db::name('hotels')->where('id', 80)->update(['name' => '七月酒店']);
+        $router = new PreciseQueryRouterService(clock: static fn(): DateTimeImmutable => new DateTimeImmutable(
+            '2026-09-05 12:00:00', new DateTimeZone('Asia/Shanghai')
+        ));
+        $result = $router->route(10, [80], 7, [
+            'query' => $query,
+            'current_scope' => ['hotel_id' => 80, 'platform' => 'ctrip', 'business_date' => '2026-08-23'],
+        ]);
+
+        if (str_contains($query, '和')) self::assertSame('distinct_dates_need_operator', $result['answer']['reason']);
+        elseif (str_contains($query, '到')) {
+            self::assertSame('2026-09-05', $result['parsed_scope']['date_start']);
+            self::assertSame('2026-09-05', $result['parsed_scope']['date_end']);
+            self::assertSame('blocked_by_period_facts', $result['status']);
+        }
+        else {
+            self::assertSame('2026-07-01', $result['parsed_scope']['date_start']);
+            self::assertSame('2026-07-31', $result['parsed_scope']['date_end']);
+            self::assertSame('blocked_by_period_facts', $result['status']);
+        }
+        if (!str_contains($query, '到')) self::assertNull($result['parsed_scope']['business_date']);
+        self::assertSame([], $result['fact_refs']);
+    }
+
+    public static function distinctDateProvider(): array
+    {
+        return [
+            'two different dates' => ['七月酒店携程今天和2026年9月4日的订单量'],
+            'explicit range with same day' => ['七月酒店携程今天到2026年9月5日的订单量'],
+            'hotel name with a genuine month request' => ['七月酒店携程七月的订单量'],
         ];
     }
 

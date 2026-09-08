@@ -40,6 +40,8 @@ test('Compass projects the kernel answers and reconciles only against an explici
   assert.match(appMain, /openHomeQuickEntry\(\{ page: 'online-data', tab: 'data-health' \}\)/);
   assert.match(style, /\.operating-loop-authority-shell[\s\S]*?linear-gradient\(135deg, #06110d/);
   assert.match(style, /\.home-facts-shell[\s\S]*?background: transparent !important/);
+  assert.match(style, /\.compass-hero-core[\s\S]*?#fffdf9/);
+  assert.match(style, /\.compass-temporal-fold[\s\S]*?background: #f6f8f5/);
   assert.match(style, /\.home-facts-loading-state[\s\S]*?min-height: 88px/);
   assert.match(appMain, /params\.append\('business_date', operationYesterday\)/);
   assert.match(appMain, /request\('\/operating-loop\/reconcile'/);
@@ -50,6 +52,7 @@ test('Compass projects the kernel answers and reconciles only against an explici
 
 test('Professional drilldowns cannot label their component result as the authoritative loop', () => {
   assert.match(summary, /概览与待办反映各自来源，经营闭环状态以核验记录为准/);
+  assert.match(summary, /data-testid="home-operating-records-details"[\s\S]*?<operating-loop-authority><\/operating-loop-authority>[\s\S]*?<\/details>/);
   assert.match(detail, /P1 收益分析诊断（不决定权威闭环）/);
   assert.doesNotMatch(detail, /P1 收益分析闭环/);
   assert.doesNotMatch(detail, /数据缺口闭环/);

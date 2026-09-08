@@ -15,13 +15,15 @@ function syncQuotedLazyReference(source, name, bytes) {
   const matches = [...source.matchAll(pattern)];
   if (matches.length !== 1) throw new Error(`Startup lazy reference must occur exactly once: ${name}`);
   const match = matches[0];
-  // Older component loaders used 12 hash characters. Keep the canonical writer strict.
+  // Older component loaders used 12 hash characters. Migrate that established
+  // format through the canonical version writer without weakening its contract.
   const reference = match[2].replace(/-h([a-f0-9]{10})[a-f0-9]{2}$/, '-h$1');
   const updated = updateFrontendAssetVersion(`"${reference}"`, name, bytes).html.slice(1, -1);
   return source.slice(0, match.index) + match[1] + updated + match[1] + source.slice(match.index + match[0].length);
 }
 
-// Pin loader dependencies before bundling; retain their bytes for the publication check.
+// The startup bundle contains these loaders. Pin dependencies before building
+// that bundle, and retain their bytes so callers can reject concurrent changes.
 export function syncStartupLazyComponentVersions(entries, readAsset) {
   const dependencies = new Map();
   const sources = entries.map(entry => {
@@ -60,6 +62,48 @@ export function syncOperationStaticVersion(source, operationStatic) {
   const hash = buildFrontendAssetHash(operationStatic);
   return {
     source: String(source).replace(pattern, () => `const operationStaticScriptVersion = '${matches[0][1]}-h${hash}';`),
+    hash,
+  };
+}
+
+export function syncRevenueStaticVersions(appMain, revenueAi, cockpit) {
+  const sync = (source, name, bytes) => {
+    const pattern = new RegExp(`\\bconst ${name} = '([^'\\r\\n]+)-h[a-f0-9]{10}';`, 'g');
+    const matches = [...String(source).matchAll(pattern)];
+    if (matches.length !== 1) throw new Error(`Expected exactly one versioned ${name} loader.`);
+    const hash = buildFrontendAssetHash(bytes);
+    return { source: String(source).replace(pattern, () => `const ${name} = '${matches[0][1]}-h${hash}';`), hash };
+  };
+  const child = sync(revenueAi, 'revenueCockpitStaticVersion', cockpit);
+  const parent = syncRevenueAiStaticVersion(appMain, child.source);
+  return { appMain: parent.source, revenueAi: child.source, cockpitHash: child.hash, revenueAiHash: parent.hash };
+}
+
+
+export function syncKnowledgeDomainVersion(source, domain) {
+  const pattern = /(components\/system\/knowledge-center-domain\.js\?v=[^'"\r\n]*-h)[a-f0-9]{10}/g;
+  if ([...String(source).matchAll(pattern)].length !== 1) throw new Error('Expected one knowledge domain loader.');
+  return String(source).replace(pattern, (_, prefix) => prefix + buildFrontendAssetHash(domain));
+}
+
+
+
+export function syncSimulationStaticVersion(source, simulationStatic) {
+  const pattern = /\bconst simulationStaticScriptVersion = '([^'\r\n]+)-h[a-f0-9]{10}';/g;
+  const matches = [...String(source).matchAll(pattern)];
+  if (matches.length !== 1) throw new Error('Expected exactly one versioned simulation static loader.');
+  const hash = buildFrontendAssetHash(simulationStatic);
+  return { source: String(source).replace(pattern, () => `const simulationStaticScriptVersion = '${matches[0][1]}-h${hash}';`), hash };
+}
+
+// The assistant is loaded on demand; the startup bundle must request its current bytes.
+export function syncOperatingIntelligenceVersion(source, component) {
+  const pattern = /\bconst fullScript = 'components\/system\/operating-intelligence-components\.js\?v=([^'\r\n]+)-h[a-f0-9]{10}';/g;
+  const matches = [...String(source).matchAll(pattern)];
+  if (matches.length !== 1) throw new Error('Expected exactly one versioned operating intelligence loader.');
+  const hash = buildFrontendAssetHash(component);
+  return {
+    source: String(source).replace(pattern, () => `const fullScript = 'components/system/operating-intelligence-components.js?v=${matches[0][1]}-h${hash}';`),
     hash,
   };
 }

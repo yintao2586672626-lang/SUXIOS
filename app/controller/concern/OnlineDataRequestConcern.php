@@ -3579,8 +3579,9 @@ trait OnlineDataRequestConcern
             return $result;
         }
         if ($httpCode !== 200) {
-            if (in_array($httpCode, [301, 302], true)) {
-                $result['error'] = 'Cookie已失效，请重新登录携程 eBooking 后复制 Cookie';
+            if (in_array($httpCode, [301, 302, 303, 307, 308], true)) {
+                $result['error'] = '携程返回重定向，登录状态待核实；请先在原设备核对会话和门店';
+                $result['error_code'] = 'redirect_unverified';
             } else {
                 $result['error'] = '携程广告接口 HTTP 错误: ' . $httpCode;
             }

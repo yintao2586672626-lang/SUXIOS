@@ -251,7 +251,8 @@ final class OperatingQuestionService
         int $createdBy,
         string $modelKey = OperatingQuestionAiAnswerService::DIRECT_MODEL_KEY,
         string $decisionObject = '',
-        array $mediaEvidenceIds = []
+        array $mediaEvidenceIds = [],
+        string $deterministicRequestKey = ''
     ): array {
         $this->assertTableReady();
         $this->assertHotelIdentity($tenantId, $hotelId);
@@ -552,7 +553,12 @@ final class OperatingQuestionService
         }
         // The idempotency identity is resolved before model-assisted tool
         // planning. A retry of the same scoped question must not rerun tools.
-        $requestKey = 'operating-question:v6:' . substr($this->digest([
+        if ($deterministicRequestKey !== '' && ($this->deterministicAnswerFinalizer === null
+            || $modelKey !== 'deterministic_lookup'
+            || preg_match('/^precise-client:v1:[a-f0-9]{48}$/D', $deterministicRequestKey) !== 1)) {
+            throw new InvalidArgumentException('确定性查数请求键无效');
+        }
+        $requestKey = $deterministicRequestKey ?: 'operating-question:v6:' . substr($this->digest([
             $tenantId,
             $hotelId,
             $platform,
@@ -867,7 +873,10 @@ final class OperatingQuestionService
         $rows = $query->order('id', 'desc')->limit(50)->select()->toArray();
         return [
             'data_status' => 'ok',
-            'list' => array_map([$this, 'normalizeRow'], $rows),
+            'list' => array_map(
+                fn(array $row): array => $this->assertReadbackDigest($this->normalizeRow($row)),
+                $rows
+            ),
             'count' => count($rows),
             'data_gaps' => [],
         ];
@@ -1123,7 +1132,8 @@ final class OperatingQuestionService
             $hotelId,
             max(0, $createdBy),
             $platform,
-            $question
+            $question,
+            ['tenant_id' => $tenantId]
         );
         $memoryRetrieval = (new OperatingMemoryRetrievalService())->retrieve(
             $tenantId,

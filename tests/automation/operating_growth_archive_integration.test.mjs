@@ -141,10 +141,16 @@ test('archive operation task sources load and focus the exact execution task bef
   assert.match(handler, /来源任务 #\$\{sourceId\} 已回读，但页面未能定位对应记录/);
   assert.doesNotMatch(handler, /已进入任务执行与复盘/);
 
-  const loadIndex = handler.indexOf('await loadOperationActions();');
+  const loadIndex = handler.search(/await loadOperationActions\((?:\{[^{}]*\})?\);/);
   const exactTaskIndex = handler.indexOf('operationExecutionItems.value.find');
   const focusIndex = handler.indexOf('revenueAiExecutionFocus.value = { taskId: sourceId };');
-  const rowIndex = handler.indexOf('document.querySelector(`[data-operation-execution-intent-id="${sourceIntentId}"]`)');
+  const usesVisibleRowLocator = handler.includes('findVisibleOperationIntentRow(sourceIntentId)');
+  const rowIndex = usesVisibleRowLocator
+    ? handler.indexOf('findVisibleOperationIntentRow(sourceIntentId)')
+    : handler.indexOf('document.querySelector(`[data-operation-execution-intent-id="${sourceIntentId}"]`)');
+  if (usesVisibleRowLocator) {
+    assert.match(appMain, /const findVisibleOperationIntentRow = \(intentId\) => Array\.from\([\s\S]*?document\.querySelectorAll\([\s\S]*?Number\(intentId\)[\s\S]*?\.find\(node => node\.getClientRects\(\)\.length > 0\) \|\| null;/);
+  }
   const focusRowIndex = handler.indexOf("sourceRow.focus({ preventScroll: true });");
   const scrollIndex = handler.indexOf("sourceRow.scrollIntoView({ behavior: 'smooth', block: 'center' });");
   const successIndex = handler.indexOf('showToast(`已定位来源任务 #${sourceId}`');

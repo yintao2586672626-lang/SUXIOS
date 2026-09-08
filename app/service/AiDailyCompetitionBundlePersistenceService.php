@@ -57,6 +57,16 @@ final class AiDailyCompetitionBundlePersistenceService
         int $hotelId,
         string $reportDate
     ): array {
+        $expectedSnapshot = self::decode((string)($payload['snapshot_json'] ?? ''));
+        if (isset($expectedSnapshot['evidence_snapshot'])) {
+            $service = new AiDailyReportEvidenceService();
+            $service->verify($expectedSnapshot['evidence_snapshot'],
+                $service->scope((int)($payload['tenant_id'] ?? 0), $hotelId, $reportDate));
+            $service->assertProjection($payload, $expectedSnapshot['evidence_snapshot']);
+            if (($expectedSnapshot['evidence_projection_digest'] ?? '') !== AiDailyReportEvidenceService::projectionDigest($payload)) {
+                throw new RuntimeException('diagnosis_report_invalid_before_persistence');
+            }
+        }
         return Db::transaction(static function () use ($existing, $payload, $now, $hotelId, $reportDate): array {
             if (is_array($existing)) {
                 $id = (int)$existing['id'];
@@ -80,6 +90,17 @@ final class AiDailyCompetitionBundlePersistenceService
                 ->find();
             if (!is_array($row)) {
                 throw new RuntimeException('competition_report_scope_mismatch');
+            }
+            $expected = self::decode((string)($payload['snapshot_json'] ?? ''));
+            if (isset($expected['evidence_snapshot'])) {
+                $actual = self::decode((string)($row['snapshot_json'] ?? ''));
+                $service = new AiDailyReportEvidenceService();
+                $service->verify((array)($actual['evidence_snapshot'] ?? []),
+                    $service->scope((int)$payload['tenant_id'], $hotelId, $reportDate));
+                if ($expected['evidence_snapshot']['snapshot_fingerprint'] !== ($actual['evidence_snapshot']['snapshot_fingerprint'] ?? '')
+                    || ($actual['evidence_projection_digest'] ?? '') !== AiDailyReportEvidenceService::projectionDigest($row)) {
+                    throw new RuntimeException('diagnosis_report_exact_readback_failed');
+                }
             }
             $receipt = self::receipt(self::decode((string)($row['snapshot_json'] ?? '')));
             if (($receipt['exact_readback_verified'] ?? false) !== true) {

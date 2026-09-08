@@ -21,6 +21,9 @@ final class PreciseQuery extends Base
         '精准查数问题不存在或无权访问' => 404,
         '精准查数幂等键已用于不同内容' => 409,
         '该记录不是宿析精准查数问题' => 422,
+        '无权查询该酒店' => 403,
+        '同一精准查数请求正在保存，请稍后使用相同请求键重试' => 429,
+        '精准查数可信事实底座范围不一致' => 422,
     ];
 
     private PreciseQueryRouterService $router;

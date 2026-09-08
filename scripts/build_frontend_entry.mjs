@@ -3,7 +3,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildFrontendEntry } from './lib/frontend_entry_build.mjs';
 import { updateFrontendAssetVersion } from './lib/frontend_asset_version.mjs';
-import { syncOperationStaticVersion, syncRevenueAiStaticVersion } from './lib/frontend_lazy_asset_versions.mjs';
+import { syncOperationStaticVersion, syncRevenueStaticVersions, syncKnowledgeDomainVersion, syncSimulationStaticVersion } from './lib/frontend_lazy_asset_versions.mjs';
 import {
   acquireFrontendTemplateLock,
   writeFileAtomic,
@@ -20,9 +20,18 @@ const operationStaticPath = path.join(repoRoot, 'public/operation-static.js');
 const operationStatic = fs.readFileSync(operationStaticPath);
 const lazyVersion = syncOperationStaticVersion(originalSource, operationStatic);
 const revenueAiPath = path.join(repoRoot, 'public/revenue-ai-static.js');
+const cockpitPath = path.join(repoRoot, 'public/revenue-cockpit-static.js');
 const revenueAiStatic = fs.readFileSync(revenueAiPath);
-const revenueAiVersion = syncRevenueAiStaticVersion(lazyVersion.source, revenueAiStatic);
-const source = revenueAiVersion.source;
+const originalRevenueAi = revenueAiStatic.toString('utf8');
+const cockpitSource = fs.readFileSync(cockpitPath);
+const revenueVersion = syncRevenueStaticVersions(lazyVersion.source, originalRevenueAi, cockpitSource);
+const knowledgeDomainPath = path.join(repoRoot, 'public/components/system/knowledge-center-domain.js');
+const knowledgeDomain = fs.readFileSync(knowledgeDomainPath);
+const knowledgeSource = syncKnowledgeDomainVersion(revenueVersion.appMain, knowledgeDomain);
+const simulationStaticPath = path.join(repoRoot, 'public/simulation-static.js');
+const simulationStatic = fs.readFileSync(simulationStaticPath);
+const simulationVersion = syncSimulationStaticVersion(knowledgeSource, simulationStatic);
+const source = simulationVersion.source;
 const indexSource = fs.readFileSync(indexPath, 'utf8');
 const artifact = await buildFrontendEntry(source);
 const versionUpdate = updateFrontendAssetVersion(indexSource, 'app-main.min.js', artifact);
@@ -33,8 +42,12 @@ if (fs.readFileSync(sourcePath, 'utf8') !== originalSource) {
 if (!fs.readFileSync(operationStaticPath).equals(operationStatic)) {
   throw new Error('public/operation-static.js changed during compilation; refusing to publish a stale lazy helper version.');
 }
-if (!fs.readFileSync(revenueAiPath).equals(revenueAiStatic)) {
-  throw new Error('public/revenue-ai-static.js changed during compilation; refusing to publish a stale lazy helper version.');
+if (!fs.readFileSync(revenueAiPath).equals(revenueAiStatic) || !fs.readFileSync(cockpitPath).equals(cockpitSource)) {
+  throw new Error('Revenue helper changed during compilation; refusing stale loader versions.');
+}
+if (!fs.readFileSync(knowledgeDomainPath).equals(knowledgeDomain)) throw new Error('Knowledge domain changed during compilation.');
+if (!fs.readFileSync(simulationStaticPath).equals(simulationStatic)) {
+  throw new Error('simulation-static.js changed during compilation; refusing a stale loader.');
 }
 if (fs.readFileSync(indexPath, 'utf8') !== indexSource) {
   throw new Error('public/index.html changed during entry compilation; refusing to publish mixed asset versions.');
@@ -48,6 +61,7 @@ function writeFileIfChanged(file, content) {
 }
 
 const sourceChanged = writeFileIfChanged(sourcePath, source);
+const revenueAiChanged = writeFileIfChanged(revenueAiPath, revenueVersion.revenueAi);
 const artifactChanged = writeFileIfChanged(artifactPath, artifact);
 const indexChanged = writeFileIfChanged(indexPath, versionUpdate.html);
 console.log(JSON.stringify({
@@ -57,7 +71,11 @@ console.log(JSON.stringify({
   artifact_bytes: Buffer.byteLength(artifact),
   artifact_hash: versionUpdate.hash,
   operation_static_hash: lazyVersion.hash,
-  revenue_ai_static_hash: revenueAiVersion.hash,
+  revenue_cockpit_hash: revenueVersion.cockpitHash,
+  revenue_ai_hash: revenueVersion.revenueAiHash,
+  revenue_ai_loader_changed: revenueAiChanged,
+  simulation_static_hash: simulationVersion.hash,
+  revenue_ai_static_hash: revenueVersion.revenueAiHash,
   source_version_changed: sourceChanged,
   source_changed: sourceChanged,
   artifact_changed: artifactChanged,

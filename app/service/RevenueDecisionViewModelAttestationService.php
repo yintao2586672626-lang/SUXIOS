@@ -100,6 +100,7 @@ final class RevenueDecisionViewModelAttestationService
         'canCreatePendingApproval',
         'canSaveSnapshot',
         'actionDisabledReason',
+        'operatingLedger',
     ];
 
     /** @var array<string,array{title:string,business_order:int,possible_cause:string,action:string}> */
@@ -605,6 +606,8 @@ final class RevenueDecisionViewModelAttestationService
             'canSaveSnapshot' => $expectedTop['canSaveSnapshot'],
             'actionDisabledReason' => $expectedTop['actionDisabledReason'],
         ];
+        $ledger = (new RevenueOperatingLedgerService())->forOverview($overview, $tenantId, $hotelId, $businessDate, $platform);
+        if ($ledger !== null) $authoritativeModel['operatingLedger'] = $ledger;
         $this->assertCanonicalEqual($model, $authoritativeModel, 'authoritative_model');
 
         return $this->canonicalize($authoritativeModel);

@@ -21,7 +21,8 @@ final class SchemaVersionService
      * Applied migrations remain immutable by default. These revisions are
      * narrowly allowed because they only added retry guards after the original
      * DDL had already been applied, added a fail-closed empty-table preflight,
-     * or normalized trailing whitespace without changing the resulting schema.
+     * folded an already-registered idempotent follow-up into the original file,
+     * or normalized trailing whitespace without changing the resulting state.
      * Both the old and current hashes must match exactly.
      * The historical registry value is preserved; compatibility must never
      * rewrite the evidence of which bytes were originally registered.
@@ -68,6 +69,14 @@ final class SchemaVersionService
         '20260812_za_harden_hotel_operating_cycle_kernel.sql' => [
             '9bd56641ec22e020765cbef99a1ee3cfb3f4bdc6285af6d76827487903d5e853'
                 => 'dcc2e1d86528e34b4f4328e563be44a8c36513382e20274600112e8d503059b6',
+        ],
+        '20260822_zzzz_refine_manager_capability_event_timestamps.sql' => [
+            'f03b5e1e722f220803516b70f478dd2bbce3f1d43b058ca984709ccd5ed352ea'
+                => '79b7f4540fbfb60ae0d417b57a59d2d3a5408503bd9ab2e318e1c9511f4be7a3',
+        ],
+        '20260831_z_seed_meituan_traffic_self_check_reference.sql' => [
+            'cb0f77d704aac3b7a2623ba9e085d7665a533b706920296e183ce29858a5a996'
+                => '1f75d34c03bf63f9d4a9e5813f939675877f7fa2bdc6c753335fcb3835b76c66',
         ],
     ];
     private const HISTORICAL_NOT_APPLICABLE_GUARDS = [

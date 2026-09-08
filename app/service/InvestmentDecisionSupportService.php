@@ -14,6 +14,34 @@ class InvestmentDecisionSupportService
 
     private const COMPETITOR_BOOKABLE_STATUSES = ['available', 'bookable'];
 
+    /** Reuse the existing pure evidence gate; user claims never satisfy its authority. */
+    public function explainQuantScenario(array $input, array $calculation): array
+    {
+        $gate = $this->buildOperatingGate([], []);
+        $scenario = $input['operatingScenario'];
+        $otaOnly = $scenario['evidence_basis'] === 'ota_only';
+        $missing = $otaOnly ? ['pms_whole_hotel_revenue_missing', 'verified_costs_missing'] : ['verified_whole_hotel_revenue_and_costs_missing'];
+        $conditions = [];
+        if ($calculation['cash_break_even_status'] === 'unreachable') $conditions[] = '含债务及现金目标的保本入住率不可达';
+        if (($calculation['additional_cash_gap_status'] ?? '') === 'gap') $conditions[] = '可用现金低于测算期最大资金需求';
+        if (($calculation['monthly_cash_target']['status'] ?? '') === 'not_met') {
+            $conditions[] = '稳定期最低月现金目标在' . implode('、', array_column($calculation['monthly_cash_target']['violations'], 'month')) . '未满足';
+        }
+        if ($calculation['rent_status'] !== 'within_ceiling') $conditions[] = '当前租金高于覆盖每个稳定月现金目标的承受范围';
+        if ($calculation['target_status'] !== 'met_under_assumptions') $conditions[] = '当前租金不满足目标月回本条件';
+        return [
+            'status' => 'assumptions_only', 'verified_facts' => [],
+            'user_declared_basis' => $scenario['evidence_basis'], 'source_note' => $scenario['source_note'],
+            'whole_hotel_gop' => null, 'verified_payback_months' => null,
+            'can_use_for_investment_judgement' => $gate['can_use_for_investment_judgement'],
+            'investment_gate_status' => $gate['status'], 'missing_evidence' => $missing,
+            'conditions' => $conditions,
+            'explanation' => ($otaOnly ? '仅有OTA渠道订单额，缺PMS全店与核验成本，不能推出可信全店GOP或精确回本。' : '人工录入及示例仍为未核验假设，不能作为全店经营实绩。')
+                . ($conditions === [] ? '所列现金与回本约束在本组假设下满足。' : '本组假设下：' . implode('；', $conditions) . '。')
+                . '所有金额来自确定性公式；需逐项核对输入来源、日期、成本和融资条款。',
+        ];
+    }
+
     public function overview(
         array $hotelIds,
         ?int $hotelId,

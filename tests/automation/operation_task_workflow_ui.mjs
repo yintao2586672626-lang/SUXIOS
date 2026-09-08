@@ -1,0 +1,97 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
+import net from 'node:net';
+import { fileURLToPath } from 'node:url';
+import { spawn, spawnSync } from 'node:child_process';
+import { chromium } from 'playwright';
+
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
+const out = path.join(root, 'output/long-goal/ui'); fs.mkdirSync(out, { recursive: true });
+const database = path.join(out, `l06-synthetic-${Date.now()}.sqlite`);
+const env = { ...process.env, L06_SYNTHETIC_DB: database };
+const php = 'C:/xampp/php/php.exe';
+const router = path.join(root, 'tests/fixtures/operation_workflow_router.php');
+const init = spawnSync(php, [router, '--init'], { cwd: root, env, encoding: 'utf8', windowsHide: true });
+assert.equal(init.status, 0, init.stdout + init.stderr);
+const probe = net.createServer(); await new Promise(resolve => probe.listen(0, '127.0.0.1', resolve));
+const port = probe.address().port; await new Promise(resolve => probe.close(resolve));
+const server = spawn(php, ['-S', `127.0.0.1:${port}`, router], { cwd: root, env, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
+let serverLog = ''; server.stderr.on('data', chunk => { serverLog += chunk; });
+let browser;
+try {
+    const base = `http://127.0.0.1:${port}`;
+    for (let i = 0; i < 100; i++) { try { if ((await fetch(base)).ok) break; } catch {} await new Promise(resolve => setTimeout(resolve, 100)); }
+    browser = await chromium.launch({ headless: true });
+    const page = await browser.newPage({ viewport: { width: 1280, height: 1000 } });
+    const errors = []; page.on('pageerror', error => errors.push(error.message));
+    await page.goto(base);
+    await page.getByRole('button', { name: /^#1 / }).click();
+    await page.getByRole('button', { name: '设置任务条件', exact: true }).click();
+    await page.getByLabel('工作流类型', { exact: true }).selectOption('price_check');
+    await page.getByLabel('负责人用户编号', { exact: true }).fill('3');
+    await page.getByLabel('逐项完成条件（每行一条）', { exact: true }).fill('核对同房型展示\n记录发现与处理');
+    for (const [label, value] of [['前窗起日','2026-09-08'], ['前窗止日','2026-09-08'], ['后窗起日','2026-09-09'], ['后窗止日','2026-09-09']]) await page.getByLabel(label, { exact: true }).fill(value);
+    await page.getByRole('button', { name: '保存任务条件', exact: true }).click();
+    await page.getByText('已保存并回读版本 1。', { exact: true }).waitFor();
+    await page.getByRole('button', { name: '开始或恢复', exact: true }).click();
+    await page.getByText('已保存并回读版本 2。', { exact: true }).waitFor();
+    await page.getByRole('button', { name: '登记执行材料', exact: true }).click();
+    await page.getByLabel('实际执行日期（区别于业务日）', { exact: true }).fill('2026-09-08');
+    await page.getByLabel('材料引用', { exact: true }).fill('synthetic:ui-check');
+    await page.getByLabel('执行记录', { exact: true }).fill('synthetic：已逐项核查房型展示与问题记录');
+    await page.getByLabel('核对同房型展示', { exact: true }).check();
+    await page.getByLabel('记录发现与处理', { exact: true }).check();
+    // Server commits the save, but the client loses the response. Recovery must GET the same task.
+    let lost = false;
+    await page.route('**/operation/execution-tasks/1/workflow', async route => {
+        if (!lost && route.request().method() === 'POST') { lost = true; await route.fetch(); await route.abort('timedout'); }
+        else await route.continue();
+    });
+    await page.getByRole('button', { name: '保存执行材料', exact: true }).click();
+    await page.getByRole('button', { name: '回读确认保存', exact: true }).waitFor();
+    await page.getByRole('button', { name: '回读确认保存', exact: true }).click();
+    await page.getByText('已从历史核实上次保存成功，没有重复提交。', { exact: true }).waitFor();
+    const recovered = await (await fetch(`${base}/operation/execution-tasks/1/workflow?hotel_id=7`)).json();
+    assert.equal(recovered.data.version, 3); assert.equal(recovered.data.execution_records.length, 1);
+    await page.getByRole('button', { name: '完成填报', exact: true }).click();
+    await page.getByLabel('核对同房型展示', { exact: true }).check();
+    await page.getByLabel('记录发现与处理', { exact: true }).check();
+    await page.getByRole('button', { name: '确认完成填报', exact: true }).click();
+    await page.getByText('已保存并回读版本 4。', { exact: true }).waitFor();
+    await page.screenshot({ path: path.join(out, 'desktop-completed-pending-verification.png'), fullPage: true });
+    await page.getByRole('button', { name: '人工核实', exact: true }).click();
+    await page.getByLabel('核实说明', { exact: true }).fill('synthetic：人工核实全部完成条件');
+    await page.getByLabel('我已人工核对同对象执行与全部完成条件', { exact: true }).check();
+    await page.getByRole('button', { name: '保存人工核实', exact: true }).click();
+    await page.getByText('已保存并回读版本 5。', { exact: true }).waitFor();
+    await page.getByRole('button', { name: '复盘观察', exact: true }).click();
+    await page.getByLabel('复盘结论与其他影响因素', { exact: true }).fill('synthetic：后续经营数据尚缺失，不能判断效果');
+    await page.getByRole('button', { name: '保存复盘观察', exact: true }).click();
+    await page.getByText('已保存并回读版本 6。', { exact: true }).waitFor();
+    await page.getByTestId('workflow-review-result').waitFor();
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.screenshot({ path: path.join(out, 'mobile-review-missing.png'), fullPage: true });
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), true, 'mobile overflow');
+    await page.getByRole('button', { name: '历史 v1', exact: true }).click();
+    await page.getByText('任务 #1 · 原意图 #1 · 版本 1（历史）', { exact: true }).waitFor();
+    assert.equal(await page.getByRole('button', { name: '重开任务', exact: true }).count(), 0);
+    await page.getByRole('button', { name: '读取最新版本', exact: true }).click();
+    await page.getByRole('button', { name: '重开任务', exact: true }).click();
+    await page.getByLabel('操作原因', { exact: true }).fill('synthetic：再次核查新问题');
+    await page.getByRole('button', { name: '保存状态变更', exact: true }).click();
+    await page.getByText('已保存并回读版本 7。', { exact: true }).waitFor();
+    await page.getByLabel('原任务编号', { exact: true }).fill('4');
+    await page.getByRole('button', { name: '读取指定任务', exact: true }).click();
+    await page.getByRole('alert').filter({ hasText: 'not found' }).waitFor();
+    const exact = await (await fetch(`${base}/operation/execution-tasks/1/workflow?hotel_id=7`)).json();
+    assert.equal(exact.data.version, 7); assert.equal(exact.data.task_status, 'reopened');
+    assert.equal(exact.data.verification.status, 'pending'); assert.equal(exact.data.review.effect_status, 'unestablished');
+    assert.deepEqual(errors, []);
+    fs.writeFileSync(path.join(out, 'api-readback.json'), JSON.stringify(exact, null, 2));
+    fs.writeFileSync(path.join(out, 'result.json'), JSON.stringify({ status: 'passed', synthetic: true, isolatedPort: port, database, ui: ['desktop', '390px mobile'], savedVersions: 7, timeoutRecoveredWithoutDuplicate: true, historyReadOnly: true, crossHotelRejected: true, pageErrors: errors }, null, 2));
+    console.log('PASS: synthetic UI -> isolated PHP API -> SQLite -> exact history; timeout recovery, manual verification, missing review, reopen, mobile, cross-hotel.');
+} finally {
+    if (browser) await browser.close(); server.kill();
+    fs.writeFileSync(path.join(out, 'server.log'), serverLog);
+}

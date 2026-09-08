@@ -140,7 +140,9 @@ test('professional operating questions remain evidence-gated while the global en
   assert.match(aiAnswers, /knowledge_context/);
   assert.match(aiAnswers, /createJsonResponseEnvelope/);
   assert.match(knowledgeRetrieval, /KnowledgeDecisionGateService/);
-  assert.match(knowledgeRetrieval, /metadata_filtered_lexical_v1/);
+  assert.match(knowledgeRetrieval, /applicability_filtered_lexical_v2/);
+  assert.match(knowledgeRetrieval, /KnowledgeApplicabilityService/);
+  assert.match(knowledgeRetrieval, /retrieval_safe/);
   assert.match(knowledgeRetrieval, /globalSystemOwned/);
   assert.match(knowledgeRetrieval, /formalShared/);
   assert.match(llmClient, /provider_fallback_enabled' => false/);

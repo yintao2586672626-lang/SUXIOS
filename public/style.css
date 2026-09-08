@@ -6382,6 +6382,12 @@ main[data-current-page="compass"] .macro-signal-card .macro-signal-action {
     line-height: 1.65 !important;
 }
 
+.login-bg .login-product-guide {
+    color: inherit;
+    text-decoration: underline;
+    text-underline-offset: 4px;
+}
+
 .login-bg .input-label {
     display: block;
     margin-bottom: 0.5rem;
@@ -6878,6 +6884,11 @@ main[data-current-page="compass"] .macro-signal-card .macro-signal-action {
 @media (max-width: 480px) {
     .login-bg {
         padding: 16px !important;
+        flex-direction: column !important;
+    }
+
+    .login-stage {
+        flex-shrink: 0;
     }
 
     .login-public-footer {
@@ -18380,6 +18391,35 @@ main[data-current-page="ai-workbench"] .dual-ota-current-data-state-action:hover
         transition: none !important;
         transform: none !important;
     }
+}
+.home-daily-workflows {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 10px;
+    margin: 0 0 18px;
+}
+.home-daily-workflows button {
+    min-width: 0;
+    min-height: 64px;
+    text-align: left;
+    padding: 12px;
+    border: 1px solid var(--sx-dashboard-border, #dbe4df);
+    border-radius: 12px;
+    background: var(--sx-dashboard-surface, #fff);
+    color: var(--sx-luxury-green, #143a31);
+}
+.home-daily-workflows button:hover, .home-daily-workflows button:focus-visible {
+    border-color: var(--sx-luxury-gold, #dcc591);
+    outline: 2px solid var(--sx-luxury-gold, #dcc591);
+    outline-offset: 2px;
+}
+.home-daily-workflows strong, .home-daily-workflows span { display: block; overflow-wrap: anywhere; }
+.home-daily-workflows strong { font-size: 14px; }
+.home-daily-workflows span { margin-top: 4px; font-size: 12px; color: #52665d; }
+.home-daily-workflow-error { grid-column: 1 / -1; margin: 0; color: #9f1239; font-size: 14px; }
+@media (max-width: 760px) {
+    .home-daily-workflows { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .home-daily-workflows button:first-child { grid-column: 1 / -1; }
 }
 
 /* Workspace visual contract — rules/interface-design-standard.md.

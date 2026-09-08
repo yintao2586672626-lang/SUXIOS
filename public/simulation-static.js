@@ -2,6 +2,7 @@ window.SUXI_SIMULATION_STATIC = (() => {
     const defaultSimulationInput = {
         hotel_id: '',
         input_source_status: 'example_prefill_unverified',
+        operatingScenario: null,
         roomCount: 86,
         decorationInvestment: 1600000,
         decorationHardCost: 1200000,
@@ -761,6 +762,7 @@ window.SUXI_SIMULATION_STATIC = (() => {
 
     function simulationModelSourceLabel(analysis) {
         const source = analysis?.source;
+        if (source === 'deterministic_formula') return '确定性公式解释（假设测算）';
         if (source === 'llm') return 'AI\u6a21\u578b';
         if (source === 'fallback') return '\u672c\u5730\u6a21\u62df\u515c\u5e95\uff08\u975eAI\uff0c\u4e0d\u8fdb\u5165\u771f\u5b9e\u51b3\u7b56\uff09';
         return '\u6765\u6e90\u672a\u6838\u9a8c\uff08\u4e0d\u8fdb\u5165\u771f\u5b9e\u51b3\u7b56\uff09';
@@ -829,6 +831,7 @@ window.SUXI_SIMULATION_STATIC = (() => {
         const normalized = {
             hotel_id: raw.hotel_id ?? raw.system_hotel_id,
             input_source_status: raw.input_source_status,
+            operatingScenario: raw.operatingScenario ? JSON.parse(JSON.stringify(raw.operatingScenario)) : null,
             roomCount: raw.roomCount ?? raw.room_count,
             decorationInvestment: raw.decorationInvestment ?? raw.decoration_investment,
             decorationHardCost: raw.decorationHardCost ?? raw.decoration_hard_cost,
@@ -959,6 +962,8 @@ window.SUXI_SIMULATION_STATIC = (() => {
     }
 
     function validateSimulationInput(input) {
+        const scenarioError = validateOperatingScenario(input);
+        if (scenarioError) return scenarioError;
         const investmentFields = [
             'decorationInvestment', 'furnitureInvestment', 'openingCost', 'otherInvestment',
             ...simulationInvestmentFieldGroups.flatMap(group => group.fields.map(field => field.key)),
@@ -1114,6 +1119,8 @@ window.SUXI_SIMULATION_STATIC = (() => {
     function simulationRecordSummary(record, { getHotelNameById = () => '', formatCurrency = value => value ?? '--' } = {}) {
         const hotelId = record?.truth_context?.hotel_id || record?.input?.hotel_id;
         const hotel = getHotelNameById(hotelId) || '未绑定酒店';
+        const scenario = record?.summary?.operatingScenario;
+        if (scenario) return `${hotel} · ${scenario.case_type === 'existing_hotel' ? '现有酒店' : '拟投资'} · ${scenario.start_month} 至 ${scenario.end_month} · 股东回本 ${operatingPaybackText(scenario.equity_payback)} · 假设测算`;
         const payback = record?.payback_months === null ? '不可回本' : `${record?.payback_months}个月`;
         return `${hotel} · 月净现金流 ${formatCurrency(record?.monthly_net_cashflow)} · 回本 ${payback} · ${record?.created_at || '-'}`;
     }
@@ -1206,7 +1213,7 @@ window.SUXI_SIMULATION_STATIC = (() => {
     async function runSimulationCalculationUiFlow({
         input = {}, hotels = [], projectName = '', ensureReady = async () => {},
         setInput = () => {}, saveInput = () => {}, setLoading = () => {},
-        request, applyRecord, loadRecords, showToast = () => {},
+        request, applyRecord, loadRecords, showToast = () => {}, isCurrent = () => true, clientRequestId,
     } = {}) {
         if (!simulationHotelSelectionIsPermitted(input, hotels)) {
             const clearedInput = { ...input, hotel_id: '' };
@@ -1218,19 +1225,20 @@ window.SUXI_SIMULATION_STATIC = (() => {
         setLoading(true);
         try {
             await ensureReady();
-            const result = await runSimulationCalculationFlow({ input, projectName, request, applyRecord, loadRecords });
-            showToast('三情景模拟已完成并保存');
+            if (!isCurrent()) return null;
+            const result = await runSimulationCalculationFlow({ input, projectName, request, applyRecord, loadRecords, isCurrent, clientRequestId });
+            if (isCurrent()) showToast('模拟已完成并精确回读保存记录');
             return result;
         } catch (error) {
-            showToast(error?.message || '量化模拟失败，请修复后端错误后重试', 'error');
+            if (isCurrent()) showToast(error?.message || '量化模拟失败，请修复后端错误后重试', 'error');
             return null;
         } finally {
-            setLoading(false);
+            if (isCurrent()) setLoading(false);
         }
     }
 
-    async function runSimulationCalculationFlow({ input = {}, projectName = '', request, applyRecord, loadRecords } = {}) {
-        const payloadInput = { ...input };
+    async function runSimulationCalculationFlow({ input = {}, projectName = '', request, applyRecord, loadRecords, isCurrent = () => true, clientRequestId } = {}) {
+        const payloadInput = JSON.parse(JSON.stringify(input));
         const hotelId = Number(payloadInput.hotel_id || 0);
         payloadInput.hotel_id = hotelId;
         payloadInput.system_hotel_id = hotelId;
@@ -1239,12 +1247,91 @@ window.SUXI_SIMULATION_STATIC = (() => {
         if (message) throw new Error(message);
         const res = await request('/simulation/calculate', {
             method: 'POST',
-            body: JSON.stringify({ hotel_id: hotelId, project_name: projectName || '量化模拟项目', input: payloadInput }),
+            body: JSON.stringify({ hotel_id: hotelId, project_name: projectName || '量化模拟项目', input: payloadInput, client_request_id: clientRequestId }),
         });
         if (res.code !== 200) throw new Error(res.message || '量化模拟保存失败');
+        if (!isCurrent()) return null;
+        if (payloadInput.operatingScenario) {
+            const expected = normalizedOperatingScenario(payloadInput.operatingScenario);
+            const readback = res.data?.input?.operatingScenario;
+            const sameScenario = Object.entries(expected).every(([key, value]) => readback?.[key] === value);
+            if (Number(res.data?.truth_context?.hotel_id) !== hotelId || !res.data?.truth_context?.persistence?.readback_verified
+                || !sameScenario) {
+                throw new Error('保存回读的酒店或经营情景与本次输入不一致');
+            }
+        }
         applyRecord(res.data, true);
         await loadRecords();
         return res.data;
+    }
+
+    function createOperatingScenario(caseType = 'existing_hotel') {
+        const now = new Date();
+        return {
+            case_type: caseType, case_name: caseType === 'existing_hotel' ? '现有酒店经营方案' : '拟投资方案',
+            start_month: `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`,
+            evidence_basis: 'assumptions', source_note: '示例假设，所有金额待人工核对', currency: 'CNY', monetary_unit: 'yuan',
+            schema_version: 'quant-operating.v1', horizon_months: 60, target_payback_months: 36,
+            ramp_months: 0, ramp_start_occupancy: 0, loan_amount: 0, annual_interest_rate: 0,
+            loan_term_months: 0, opening_cash: 0, minimum_monthly_cashflow: 0,
+        };
+    }
+
+    const operatingScenarioFields = [
+        ['horizon_months', '测算期限（月）', 1, 360, 1], ['target_payback_months', '目标股东回本（月）', 1, 360, 1],
+        ['ramp_months', '爬坡期（月；0表示直接稳定）', 0, 359, 1], ['ramp_start_occupancy', '爬坡起始入住率（%）', 0, 100, 0.1],
+        ['loan_amount', '期初贷款（元）', 0, 1e11, 1], ['annual_interest_rate', '贷款年利率（%）', 0, 100, 0.1],
+        ['loan_term_months', '贷款期限（月；无贷款填0）', 0, 360, 1], ['opening_cash', '自有可用现金（元）', 0, 1e11, 1],
+        ['minimum_monthly_cashflow', '稳定期最低月现金目标（元）', 0, 1e11, 1],
+    ].map(([key, label, min, max, step]) => ({ key, label, min, max, step }));
+
+    function normalizedOperatingScenario(s) {
+        const out = {};
+        ['case_type', 'case_name', 'start_month', 'evidence_basis', 'source_note', 'currency', 'monetary_unit'].forEach(key => { out[key] = s[key]; });
+        out.schema_version = 'quant-operating.v1';
+        operatingScenarioFields.forEach(({ key }) => { out[key] = Number(s[key]); });
+        return out;
+    }
+
+    function validateOperatingScenario(input) {
+        const s = input?.operatingScenario;
+        if (!s) return '';
+        if (!['existing_hotel', 'proposed_investment'].includes(s.case_type) || !String(s.case_name || '').trim()) return '请选择案例类型并填写方案名称';
+        if (!/^(19\d{2}|20\d{2}|21\d{2}|2200)-(0[1-9]|1[0-2])$/.test(s.start_month)) return '请填写有效起始月份';
+        if (s.currency !== 'CNY' || s.monetary_unit !== 'yuan') return '所有金额须以人民币元输入';
+        if (!['assumptions', 'ota_only', 'manual_pms_cost_unverified'].includes(s.evidence_basis) || !String(s.source_note || '').trim()) return '请填写输入来源及假设说明';
+        for (const f of operatingScenarioFields) {
+            const value = s[f.key];
+            if (value === '' || value === null || value === undefined || typeof value === 'boolean' || !Number.isFinite(Number(value)) || Number(value) < f.min || Number(value) > f.max
+                || (['horizon_months', 'target_payback_months', 'ramp_months', 'loan_term_months'].includes(f.key) && !Number.isInteger(Number(value)))) return `${f.label}缺失或超出范围`;
+        }
+        if (Number(s.target_payback_months) > Number(s.horizon_months) || Number(s.ramp_months) >= Number(s.horizon_months)) return '回本目标及爬坡期必须在测算期内';
+        const totalDays = simulationRoomRevenueDefinitions.reduce((sum, r) => sum + Number(input[r.daysKey]), 0);
+        const stableOccupancy = totalDays > 0 ? simulationRoomRevenueDefinitions.reduce((sum, r) => sum + Number(input[r.daysKey]) * Number(input[r.occupancyKey]), 0) / totalDays : Number(input.occupancyRate);
+        if (Number(s.ramp_start_occupancy) > stableOccupancy) return '爬坡起始入住率不得高于稳定入住率';
+        if (Number(s.loan_amount) > 0 ? Number(s.loan_term_months) < 1 : Number(s.loan_term_months) !== 0 || Number(s.annual_interest_rate) !== 0) return '有贷款须填期限；无贷款时期限及利率均须为0';
+        const investment = simulationInvestmentTotalFromGroups(buildSimulationInvestmentGroups(input));
+        if (Number(s.loan_amount) > investment) return '贷款不得超过总投资';
+        const [year, month] = s.start_month.split('-').map(Number);
+        const days = new Date(Date.UTC(year, month, 0)).getUTCDate();
+        if (!Number.isInteger(Number(input.roomCount)) || ['weekdayDays', 'weekendDays', 'holidayDays'].some(k => !Number.isInteger(Number(input[k])))
+            || ['weekdayDays', 'weekendDays', 'holidayDays'].reduce((sum, k) => sum + Number(input[k]), 0) !== days) return `房间数及天数须为整数，起始月天数合计须为${days}`;
+        return '';
+    }
+
+    function operatingPaybackText(payback) {
+        if (!payback) return '未测算';
+        const labels = { never_within_horizon: '测算期内始终不回本', not_recovered_within_horizon: '测算期内未回本', no_initial_outlay: '无初始出资，回本不适用', no_initial_outlay_with_debt: '无初始出资，期末仍有债务' };
+        return labels[payback.status] || (Number.isFinite(payback.months) ? `${payback.months.toFixed(2)}个月（假设）` : '未测算');
+    }
+
+    function compareOperatingRecords(records) {
+        if (!Array.isArray(records) || records.length < 2) throw new Error('请选择至少两份已保存的经营情景');
+        const first = records[0];
+        const scope = r => JSON.stringify([r.truth_context?.tenant_id, r.truth_context?.hotel_id, r.input?.operatingScenario?.case_type,
+            r.input?.operatingScenario?.start_month, r.input?.operatingScenario?.horizon_months, r.input?.operatingScenario?.currency, r.input?.operatingScenario?.monetary_unit]);
+        if (records.some(r => !r.result?.operatingScenario || !r.truth_context?.persistence?.readback_verified || scope(r) !== scope(first))) throw new Error('比较须使用同租户、酒店、案例类型、起始月、期限和单位的精确回读记录');
+        return records.map(r => ({ id: r.id, name: r.input.operatingScenario.case_name, input: r.input, ...r.result.operatingScenario }));
     }
 
     async function runSimulationArchiveFlow({ record, confirmAction, request, showToast, clearCurrent, loadRecords } = {}) {
@@ -1420,6 +1507,7 @@ window.SUXI_SIMULATION_STATIC = (() => {
 
     return {
         defaultSimulationInput,
+        createOperatingScenario, operatingScenarioFields, validateOperatingScenario, normalizedOperatingScenario, operatingPaybackText, compareOperatingRecords,
         benchmarkModelDetailFields,
         collaborationStatusOptions,
         expansionRecordPageTypes,

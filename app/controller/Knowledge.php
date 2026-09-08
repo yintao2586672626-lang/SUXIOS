@@ -13,6 +13,10 @@ use app\service\KnowledgeContentDigestService;
 use app\service\KnowledgeDistillationService;
 use app\service\KnowledgeMaterialIngestionService;
 use app\service\KnowledgePayloadMapper;
+use app\service\KnowledgeApplicabilityService;
+use app\service\KnowledgeRevisionService;
+use app\service\KnowledgeRetrievalEvaluationService;
+use app\service\OperatingQuestionKnowledgeRetrievalService;
 use app\service\KnowledgeSopExecutionProvenanceService;
 use app\service\OperationManagementService;
 use InvalidArgumentException;
@@ -124,12 +128,18 @@ class Knowledge extends Base
 
             $chunks = KnowledgeChunk::where('unit_id', $unit_id)->order('chunk_id', 'asc')->select()->toArray();
             $unitRow = $unit->toArray();
+            $context = $this->knowledgeApplicabilityContext($unitRow);
+            $superseded = KnowledgeRevisionService::supersededIds($chunks);
+            $applicableRows = (new KnowledgeApplicabilityService())->assessRows($unitRow, $chunks, $context);
             $gateSummary = $this->knowledgeChunkGateSummaries([$unitRow], $chunks)[$unit_id] ?? null;
             $currentChunkId = (int)($unitRow['current_chunk_id'] ?? 0);
-            $formattedChunks = array_map(function (array $row) use ($currentChunkId): array {
+            $formattedChunks = array_map(function (array $row) use ($currentChunkId, $unitRow, $context, $superseded, $applicableRows): array {
                 $row['_is_current'] = $currentChunkId > 0
                     && (int)($row['chunk_id'] ?? 0) === $currentChunkId;
-                return $this->formatChunkRow($row);
+                $formatted = $this->formatChunkRow($row);
+                $formatted['revision_superseded'] = isset($superseded[(int)$row['chunk_id']]);
+                $formatted['applicability'] = $applicableRows['assessments'][(int)$row['chunk_id']];
+                return $formatted;
             }, $chunks);
             $currentChunk = null;
             $historyChunks = [];
@@ -146,7 +156,17 @@ class Knowledge extends Base
                 'chunks' => $formattedChunks,
                 'current_chunk' => $currentChunk,
                 'history_chunks' => $historyChunks,
+                'evaluation_context' => $context,
+                'conflicts' => $applicableRows['conflicts'],
+                'evaluation' => $this->request->param('evaluate', '') === '1'
+                    ? (new KnowledgeRetrievalEvaluationService())->evaluate([$unitRow], $chunks, $context)
+                    : null,
+                'retrieval_preview' => trim((string)$this->request->param('question', '')) !== ''
+                    ? (new OperatingQuestionKnowledgeRetrievalService())->buildFromRows([$unitRow], $chunks, $context + ['question' => (string)$this->request->param('question')])
+                    : null,
             ]);
+        } catch (ValidateException $e) {
+            return $this->fail($e->getMessage(), 422);
         } catch (\Throwable $e) {
             return $this->fail('Failed to load knowledge unit: ' . $e->getMessage(), 500);
         }
@@ -366,15 +386,16 @@ class Knowledge extends Base
                 return $this->fail('Knowledge unit not found', 404);
             }
 
-            $data = $this->normalizeChunkData($this->requestData(), $unit_id);
+            $input = $this->requestData();
+            $data = $this->normalizeChunkData($input, $unit_id);
             $data['created_by'] = $this->currentUserId();
-            $chunk = KnowledgeChunk::create($data);
-
-            return $this->ok(['chunk' => $this->formatChunkRow($chunk->toArray())], 'created');
+            $saved = (new KnowledgeRevisionService())->save($unit->toArray(), $data, $input, $this->knowledgeApplicabilityContext($unit->toArray()));
+            $saved['chunk'] = $this->formatChunkRow($saved['chunk']);
+            return $this->ok($saved, $saved['replayed'] ? 'replayed' : 'created_and_readback_verified');
         } catch (ValidateException $e) {
             return $this->fail($e->getMessage(), 422);
         } catch (\Throwable $e) {
-            return $this->fail('Failed to create knowledge chunk: ' . $e->getMessage(), 500);
+            return $this->fail('Failed to create knowledge chunk: ' . $e->getMessage(), $e->getCode() === 409 ? 409 : 500);
         }
     }
 
@@ -920,6 +941,31 @@ class Knowledge extends Base
         return $this->payloadMapper()->shortErrorMessage($message);
     }
 
+    private function knowledgeApplicabilityContext(array $unit): array
+    {
+        $hotelId = (int)($unit['hotel_id'] ?? 0);
+        $requestedHotel = (int)$this->request->param('hotel_id', $hotelId);
+        if ($requestedHotel > 0) {
+            $hotelId = $this->resolveKnowledgeImportHotelId($requestedHotel);
+        }
+        $conditions = $this->request->param('hotel_conditions', []);
+        if (is_string($conditions)) {
+            $conditions = json_decode($conditions, true);
+        }
+        if (!is_array($conditions)) {
+            throw new ValidateException('hotel_conditions must be a JSON object');
+        }
+        return [
+            'hotel_id' => $hotelId,
+            'user_id' => $this->currentUserId(),
+            // Tenant identity comes from authentication, never submitted content.
+            'tenant_id' => (int)($this->currentUser->tenant_id ?? 0),
+            'platform' => (string)$this->request->param('platform', 'all_ota'),
+            'as_of' => (string)$this->request->param('as_of', date('Y-m-d H:i:s')),
+            'hotel_conditions' => $conditions,
+        ];
+    }
+
     private function findAccessibleUnit(int $unitId): ?KnowledgeUnit
     {
         $unit = KnowledgeUnit::find($unitId);
@@ -949,6 +995,13 @@ class Knowledge extends Base
         $userId = $this->currentUserId();
         $hasHotelColumn = $this->knowledgeUnitHasHotelColumn();
         $permittedHotelIds = $this->permittedKnowledgeHotelIds();
+        if (isset($this->tableColumns('knowledge_units')['tenant_id'])) {
+            $tenantId = (int)($this->currentUser->tenant_id ?? 0);
+            $query->where(function ($tenantScope) use ($tenantId): void {
+                $tenantScope->whereNull('tenant_id')->whereOr('tenant_id', 0);
+                if ($tenantId > 0) $tenantScope->whereOr('tenant_id', $tenantId);
+            });
+        }
         $query->where(function ($scope) use ($userId, $hasHotelColumn, $permittedHotelIds): void {
             $scope->where(function ($owned) use ($userId, $hasHotelColumn, $permittedHotelIds): void {
                 $owned->where('created_by', $userId);
@@ -977,6 +1030,7 @@ class Knowledge extends Base
 
     private function canAccessOwnedRow(array $row): bool
     {
+        if (!$this->isSuperAdmin() && (int)($row['tenant_id'] ?? 0) > 0 && (int)$row['tenant_id'] !== (int)($this->currentUser->tenant_id ?? 0)) return false;
         if ($this->isSuperAdmin() || $this->isGlobalSystemKnowledgeRow($row)) {
             return true;
         }
@@ -994,6 +1048,7 @@ class Knowledge extends Base
 
     private function canModifyOwnedRow(array $row): bool
     {
+        if (!$this->isSuperAdmin() && (int)($row['tenant_id'] ?? 0) > 0 && (int)$row['tenant_id'] !== (int)($this->currentUser->tenant_id ?? 0)) return false;
         if ($this->isGlobalSystemKnowledgeRow($row) || $this->isFormalKnowledgeUnitRow($row)) {
             return false;
         }

@@ -78,11 +78,11 @@ final class PreciseQueryLexicon
         'ai-daily-report' => ['可信经营播报', '可信播报', '复制播报稿', '经营播报', 'ai经营日报', 'ai日报'],
         'knowledge-search' => ['知识与经验', '知识中心', '知识库', '操作手册', 'sop'],
         'data-health' => ['数据健康', '采集失败', '数据断档', '数据质量门禁阻塞'],
-        'revenue-report' => ['收益分析中心', '经营问答'],
+        'revenue-report' => ['收益分析中心', '经营问答', '收益报表'],
         'operation-optimizer' => ['运营优化台'],
-        'operations' => ['任务执行与复盘'],
+        'operations' => ['任务执行与复盘', '运营任务'],
         'agent-toolbox' => ['酒店ai工具箱'],
-        'auto-collect' => ['自动采集设置'],
+        'auto-collect' => ['自动采集设置', '自动采集'],
         'automation-monitor' => ['自动化运行监控'],
         'hotel-settings' => ['门店管理'],
         'operating-targets' => ['目标与事实'],
@@ -201,6 +201,9 @@ final class PreciseQueryLexicon
     /** @return list<string> */
     public static function metrics(string $query, string $platform = ''): array
     {
+        // These are distinct requested monetary definitions, never synonyms for room revenue.
+        if (preg_match('/结算(?:金额|收入|额)?/u', $query)) return ['settlement_amount'];
+        if (preg_match('/订单(?:金额|额)|成交(?:金额|额)|销售额/u', $query)) return ['amount'];
         $resolution = (new SemanticGlossaryService())->resolveMetrics($query, $platform);
         $semanticKeys = array_values(array_filter(array_map(
             static fn(array $metric): string => trim((string)($metric['metric_key'] ?? '')),

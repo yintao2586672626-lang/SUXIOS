@@ -330,6 +330,8 @@ Route::group('api/online-data', function () {
     Route::post('/profile-login-trigger/:platform', 'ota.ProfileController/triggerPlatformProfileLogin');
     Route::get('/profile-login-status/:platform', 'ota.ProfileController/platformProfileLoginStatus');
     Route::get('/local-collector/status', 'ota.LocalCollectorController/status');
+    Route::get('/local-collector/tasks/:taskId/evidence', 'ota.LocalCollectorController/evidence');
+    Route::post('/local-collector/tasks/:taskId/recover', 'ota.LocalCollectorController/recover');
     Route::post('/local-collector/pair-code', 'ota.LocalCollectorController/pairCode');
     Route::post('/local-collector/accounts', 'ota.LocalCollectorController/createAccount');
     Route::post('/local-collector/accounts/:accountId/hotels', 'ota.LocalCollectorController/bindHotel');
@@ -492,13 +494,7 @@ Route::group('api/ota-standard', function () {
 
 // ==================== Revenue AI 首页只读总览 API ====================
 Route::group('api/revenue-ai', function () {
-    Route::get('/overview', 'RevenueAi/overview');
-    Route::get('/cockpit/decision-snapshots', 'RevenueAi/readCockpitDecisionSnapshot');
-    Route::post('/cockpit/decision-snapshots/:id/pending-approval', 'RevenueAi/createCockpitOpportunityPendingApproval');
-    Route::post('/cockpit/decision-snapshots', 'RevenueAi/createCockpitDecisionSnapshot');
-    Route::get('/cockpit/pending-approval', 'RevenueAi/readCockpitPendingApproval');
-    Route::post('/price-suggestions/:id/review', 'RevenueAi/reviewPriceSuggestion');
-    Route::post('/price-suggestions/:id/execution-intent', 'RevenueAi/createPriceSuggestionExecutionIntent');
+    require __DIR__ . '/domain/revenue_ai.php';
 })->middleware(\app\middleware\Auth::class);
 
 // AI model configuration and governance routes are kept in one authenticated

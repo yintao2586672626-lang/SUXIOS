@@ -23,6 +23,8 @@ final class OtaLocalCollectorService
 {
     use OtaLocalCollectorLeaseConcern;
     use OtaLocalCollectorManualLoginConcern;
+    use \app\service\concern\OtaLocalCollectorResultDeliveryConcern;
+    use \app\service\concern\OtaLocalCollectorRecoveryConcern;
 
     private const CONTRACT_VERSION = 'ota_local_collector.v1';
     private const PAIR_TTL_SECONDS = 600;
@@ -44,6 +46,7 @@ final class OtaLocalCollectorService
         'retry_wait',
         'waiting_user_login',
         'verification_required',
+        'result_unknown',
     ];
     private const MANUAL_RETRYABLE_TASK_STATUSES = [
         'failed',
@@ -89,19 +92,25 @@ final class OtaLocalCollectorService
     /** @var callable|null */
     private $autopilotKickEnqueuer;
 
+    /** @var callable|null */
+    private $canonicalHistoryFinalizer;
+
     public function __construct(
         ?callable $collectionImporter = null,
         private readonly ?OtaFailureNotificationService $failureNotifier = null,
         ?callable $trustResolver = null,
         ?callable $authorityVerifier = null,
         ?callable $downstreamGateResolver = null,
-        ?callable $autopilotKickEnqueuer = null
+        ?callable $autopilotKickEnqueuer = null,
+        private readonly ?OtaLocalCollectorEvidenceStore $deliveryEvidenceStore = null,
+        ?callable $canonicalHistoryFinalizer = null
     ) {
         $this->collectionImporter = $collectionImporter;
         $this->trustResolver = $trustResolver;
         $this->authorityVerifier = $authorityVerifier;
         $this->downstreamGateResolver = $downstreamGateResolver;
         $this->autopilotKickEnqueuer = $autopilotKickEnqueuer;
+        $this->canonicalHistoryFinalizer = $canonicalHistoryFinalizer;
     }
 
     /** @return array<string, mixed> */
@@ -440,6 +449,11 @@ final class OtaLocalCollectorService
                 && $hasActiveMapping;
         }));
         foreach ($tasks as &$task) {
+            if (in_array((string)$task['task_type'], ['collect', 'backfill'], true)) {
+                $taskMapping = array_values(array_filter($mappingsByAccount[(int)$task['account_id']] ?? [],
+                    static fn(array $row): bool => (int)$row['system_hotel_id'] === (int)$task['system_hotel_id']))[0] ?? [];
+                $task['recovery_item'] = $this->collectionRecoveryItem($task, $taskMapping);
+            }
             $taskRequest = $this->decodeJson($task['request_json'] ?? null);
             $task['_ordered_missing_field_count'] = $this->privateTaskMissingFieldCount($taskRequest);
             $task['request_summary'] = $this->publicTaskRequest($taskRequest);
@@ -512,7 +526,7 @@ final class OtaLocalCollectorService
                     $tasks,
                     static fn(array $row): bool => in_array(
                         (string)($row['status'] ?? ''),
-                        ['failed', 'login_required', 'verification_required', 'retry_wait'],
+                        ['failed', 'login_required', 'verification_required', 'retry_wait', 'result_unknown'],
                         true
                     )
                 )),
@@ -1403,6 +1417,7 @@ final class OtaLocalCollectorService
                 return null;
             }
             $candidates = array_values(array_filter($candidates, function (array $candidate) use ($device): bool {
+                if ($this->pendingResultDelivery($candidate)) return false;
                 if ($this->taskIdentity($candidate) === null) {
                     return false;
                 }
@@ -1593,11 +1608,20 @@ final class OtaLocalCollectorService
         if ($rawBytes > self::MAX_RESULT_BYTES) {
             throw new RuntimeException('本机采集结果超过 3MB 上限，请缩小模块范围后重试。', 413);
         }
+        $delivery = $this->decodeResultDeliveryEnvelope($input);
         $inspectableInput = $input;
         unset($inspectableInput['lease_token']);
         $this->assertNoSensitiveMaterial($inspectableInput);
         $device = $this->authenticateDevice($publicId, $token);
+        if ($delivery !== []) {
+            $deliveryTask = $this->resultDeliveryTask($device, $taskId);
+            $accepted = $this->acceptedResultDelivery($deliveryTask, $delivery);
+            if ($accepted !== null) {
+                return $accepted;
+            }
+        }
         $task = $this->leasedTask($device, $taskId, (string)($input['lease_token'] ?? ''));
+        $this->validateResultDelivery($task, $delivery);
         $account = $this->scopedAccountQuery($task)
             ->where('device_id', (int)$device['id'])
             ->find();
@@ -1614,10 +1638,11 @@ final class OtaLocalCollectorService
         $success = ($input['success'] ?? false) === true
             || in_array(strtolower(trim((string)($input['status'] ?? ''))), ['success', 'succeeded'], true);
         if (!$success) {
-            return $this->handleTaskFailure(
+            return $this->finishFailedResultDelivery(
                 $task,
                 $account,
                 $device,
+                $delivery,
                 $this->normalizeFailureCode($input['error_code'] ?? $input['status'] ?? 'collection_failed'),
                 $this->safeText((string)($input['error_summary'] ?? $input['message'] ?? '本机采集失败'), 500)
             );
@@ -1658,10 +1683,11 @@ final class OtaLocalCollectorService
                         strtolower((string)$mapping['platform_hotel_id']),
                         $validatedIdentifier
                     ));
-            return $this->handleTaskFailure(
+            return $this->finishFailedResultDelivery(
                 $task,
                 $account,
                 $device,
+                $delivery,
                 $identityConflict ? 'identity_mismatch' : 'identity_unverified',
                 $identityError
             );
@@ -1669,12 +1695,13 @@ final class OtaLocalCollectorService
 
         $rows = is_array($input['rows'] ?? null) ? array_values($input['rows']) : [];
         if ($rows === []) {
-            return $this->handleTaskFailure($task, $account, $device, 'zero_rows', '目标日期未采集到业务行，未用空数据冒充成功。');
+            return $this->finishFailedResultDelivery($task, $account, $device, $delivery, 'zero_rows', '目标日期未采集到业务行，未用空数据冒充成功。');
         }
         if (count($rows) > self::MAX_ROWS_PER_RESULT) {
             throw new RuntimeException('单次本机采集最多上传 2000 行，请拆分模块。', 413);
         }
         $rows = $this->normalizeCollectionRows($rows, $task, $mapping);
+        $delivery = $this->retainResultDelivery($task, $delivery);
         $request = $this->decodeJson($task['request_json'] ?? null);
         $orderedPlan = is_array($request['ordered_collection'] ?? null)
             ? $request['ordered_collection']
@@ -1863,6 +1890,15 @@ final class OtaLocalCollectorService
         $fieldGap = $missingFieldKeys !== []
             || $syncStatus !== 'success'
             || !$p0Satisfied;
+        $summary['canonical_history'] = $this->unavailableLocalHistory(
+            (int)$task['tenant_id'], (int)$task['system_hotel_id'], (string)$task['data_date'],
+            $fieldGap ? 'local_collector_core_fields_incomplete' : 'local_collector_finalization_pending',
+            $fieldGap ? 'blocked' : 'pending'
+        );
+        $deliveryReceipt = $this->acceptResultDelivery($task, $delivery, $summary, $fieldGap);
+        if ($deliveryReceipt !== []) {
+            $summary['result_delivery'] = $deliveryReceipt;
+        }
         if ($fieldGap) {
             $this->requireLeasedTaskWrite($task, [
                 'result_summary_json' => json_encode($summary, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
@@ -1886,6 +1922,33 @@ final class OtaLocalCollectorService
                 '目标日期数据已保存并回读，但尚未达到正式门禁：' . implode('；', $gapParts)
             );
             Db::commit();
+            // A saved partial result still needs a scoped post-commit receipt.
+            // Keep field_gap and its accepted delivery independent of verification.
+            try {
+                $savedSummaryJson = json_encode($summary, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+                $summary['dual_ota_authority'] = $this->refreshDualOtaAuthorityReceipt($task);
+                $summary['canonical_history'] = $summary['dual_ota_authority']['canonical_history'];
+                $finalSummaryJson = json_encode($summary, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+                // Retrying tasks have no finished_at. Fence on the exact saved
+                // result instead, so a newer attempt cannot be overwritten.
+                $updated = $this->scopedTaskQuery($task, true)
+                    ->where('status', (string)$failure['status'])
+                    ->where('lease_token_hash', '')
+                    ->where('result_summary_json', $savedSummaryJson)
+                    ->update(['result_summary_json' => $finalSummaryJson]);
+                if ($updated !== 1 || $this->scopedTaskQuery($task, true)->value('result_summary_json') !== $finalSummaryJson) {
+                    throw new OtaLocalCollectorLeaseConflict('local_collector_partial_receipt_readback_mismatch', 409);
+                }
+            } catch (Throwable) {
+                $summary['canonical_history'] = $this->unavailableLocalHistory(
+                    (int)$task['tenant_id'], (int)$task['system_hotel_id'], (string)$task['data_date'],
+                    'local_collector_post_commit_finalization_failed'
+                );
+            }
+            $failure['summary'] = $summary;
+            if ($deliveryReceipt !== []) {
+                $failure['delivery'] = $deliveryReceipt;
+            }
             return $failure;
         }
         Db::transaction(function () use ($task, $account, $summary, $now): void {
@@ -1915,16 +1978,13 @@ final class OtaLocalCollectorService
                 '采集成功后账号状态精确回读失败。'
             );
         });
-        $summary['dual_ota_authority'] = $this->refreshDualOtaAuthorityReceipt(
-            $task
-        );
-        $this->requireCompletedTaskWrite($task, 'success', $now, [
-            'result_summary_json' => json_encode($summary, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
-            'update_time' => date('Y-m-d H:i:s'),
-        ]);
             Db::commit();
         } catch (OtaLocalCollectorLeaseConflict $e) {
             Db::rollback();
+            if ($delivery !== []) {
+                $accepted = $this->acceptedResultDelivery($this->resultDeliveryTask($device, $taskId), $delivery);
+                if ($accepted !== null) return $accepted;
+            }
             throw $e;
         } catch (Throwable $e) {
             Db::rollback();
@@ -1936,6 +1996,21 @@ final class OtaLocalCollectorService
                 '结构化结果入库或回读失败：' . $this->safeText($e->getMessage(), 360)
             );
         }
+        // External verification must see committed rows. Its failure cannot
+        // roll back a durable upload or turn it into an upload retry.
+        try {
+            $summary['dual_ota_authority'] = $this->refreshDualOtaAuthorityReceipt($task);
+            $summary['canonical_history'] = $summary['dual_ota_authority']['canonical_history'];
+            $this->requireCompletedTaskWrite($task, 'success', $now, [
+                'result_summary_json' => json_encode($summary, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+                'update_time' => date('Y-m-d H:i:s'),
+            ]);
+        } catch (Throwable) {
+            $summary['canonical_history'] = $this->unavailableLocalHistory(
+                (int)$task['tenant_id'], (int)$task['system_hotel_id'], (string)$task['data_date'],
+                'local_collector_post_commit_finalization_failed'
+            );
+        }
         $this->touchDevice($device);
         $this->resolveFailureNotification($task);
 
@@ -1943,6 +2018,7 @@ final class OtaLocalCollectorService
             'status' => 'success',
             'task_id' => (int)$task['id'],
             'summary' => $summary,
+            'delivery' => $deliveryReceipt,
             'next_action' => '服务器已保存并回读；本机可安全清理本次临时结果文件。',
         ];
     }
@@ -1955,6 +2031,11 @@ final class OtaLocalCollectorService
         string $nextRetryAt = ''
     ): array {
         $platformLabel = strtolower($platform) === 'meituan' ? '美团' : '携程';
+        if ($errorCode === 'result_unknown') {
+            return ['status' => 'result_unknown', 'message' => '原采集结果是否保存尚未明确。',
+                'next_action' => '先核对原任务保存记录；保持原设备运行，仅恢复同一结果，不重新采集。',
+                'action_code' => 'reconcile', 'auto_retry' => false, 'contact_admin' => false];
+        }
         if ($deviceStatus !== 'online') {
             return [
                 'status' => 'device_offline',
@@ -1975,6 +2056,12 @@ final class OtaLocalCollectorService
                 'auto_retry' => false,
                 'contact_admin' => false,
             ];
+        }
+
+        if (in_array($errorCode, ['redirect_unverified', 'http_301', 'http_302', 'http_303', 'http_307', 'http_308'], true)) {
+            return ['status' => 'redirect_unverified', 'message' => '平台请求发生重定向，登录状态尚未核实。',
+                'next_action' => '先在原设备验证会话及门店，不能仅凭重定向判定登录失效。',
+                'action_code' => 'verify_session', 'auto_retry' => false, 'contact_admin' => false];
         }
 
         $code = $this->normalizeFailureCode($errorCode);
@@ -2936,6 +3023,9 @@ final class OtaLocalCollectorService
     ): array {
         $sessionTask = in_array($taskType, ['login', 'session_probe'], true);
         $collectionTask = in_array($taskType, ['collect', 'backfill'], true);
+        if ($collectionTask) {
+            $request['collection_scope'] = ['platform_hotel_id' => (string)$mapping['platform_hotel_id']];
+        }
         $scheduledDispatcherRunId = ($collectionTask || $sessionTask)
             ? $this->normalizeDispatcherRunId((string)($request['dispatcher_run_id'] ?? ''))
             : '';
@@ -3031,6 +3121,10 @@ final class OtaLocalCollectorService
         }
         if (is_array($latest)) {
             $latestStatus = strtolower(trim((string)($latest['status'] ?? '')));
+            if ($collectionTask && ($this->pendingResultDelivery($latest) || $latestStatus === 'result_unknown')) {
+                $latest['_created'] = false;
+                return $latest;
+            }
             $latestRequest = $this->decodeJson($latest['request_json'] ?? null);
             $latestDispatcherRunId = $this->normalizeDispatcherRunId((string)(
                 $latestRequest['dispatcher_run_id'] ?? ''
@@ -3066,6 +3160,10 @@ final class OtaLocalCollectorService
             $newCollectionAttempt = $collectionTask
                 && $manualRequest
                 && in_array($latestStatus, self::MANUAL_RETRYABLE_TASK_STATUSES, true);
+            $newVerifiedRecovery = $collectionTask
+                && (int)($request['recovery_source_task_id'] ?? 0) === (int)$latest['id']
+                && in_array($latestStatus, ['failed', 'cancelled', 'login_required', 'verification_required'], true)
+                && (string)($account['session_status'] ?? '') === 'current_session_verified';
             if ($collectionTask
                 && $recoveryOfTaskId === 0
                 && $scheduledDispatcherRunId !== ''
@@ -3093,6 +3191,7 @@ final class OtaLocalCollectorService
                 && !$newSessionRecoveryAttempt
                 && !$newSameDispatcherSessionRetry
                 && !$newCollectionAttempt
+                && !$newVerifiedRecovery
                 && !$newRecoveryAttempt
                 && !$newScheduledAttempt
             ) {
@@ -3100,7 +3199,9 @@ final class OtaLocalCollectorService
                 return $latest;
             }
 
-            if ($newRecoveryAttempt) {
+            if ($newVerifiedRecovery) {
+                $request['retry_trigger'] = 'verified_recovery_source';
+            } elseif ($newRecoveryAttempt) {
                 $request['retry_trigger'] = 'session_recovery';
                 $request['recovery_of_task_id'] = $recoveryOfTaskId;
             } elseif ($newSessionRecoveryAttempt) {
@@ -3126,6 +3227,7 @@ final class OtaLocalCollectorService
         $idempotencyKey = hash(
             'sha256',
             $scopeKey
+                . ((int)($request['recovery_source_task_id'] ?? 0) > 0 ? '|source_recovery|' . (int)$request['recovery_source_task_id'] : '')
                 . ($scheduledDispatcherRunId !== ''
                     ? '|dispatcher|' . $scheduledDispatcherRunId
                     : '')
@@ -4221,144 +4323,6 @@ final class OtaLocalCollectorService
         return $task;
     }
 
-    /**
-     * @param array<string,mixed> $task
-     * @param array<string,mixed> $source
-     * @param array<string,mixed> $device
-     * @return array<string,mixed>
-     */
-    private function scheduledPlanTaskReceipt(
-        array $task,
-        array $source,
-        array $device,
-        string $dispatcherRunId,
-        string $businessDate,
-        bool $sessionPreflight
-    ): array {
-        $taskId = (int)($task['id'] ?? 0);
-        $taskStatus = strtolower(trim((string)($task['status'] ?? '')));
-        $platform = strtolower(trim((string)($source['platform'] ?? '')));
-        $sourceId = (int)($source['id'] ?? 0);
-        $deviceStatus = $this->effectiveDeviceStatus($device);
-        $base = [
-            'dispatcher_run_id' => $dispatcherRunId,
-            'system_hotel_id' => (int)($source['system_hotel_id'] ?? 0),
-            'target_date' => $businessDate,
-            'platform' => $platform,
-            'data_source_id' => $sourceId,
-            'local_collector_task_id' => $taskId > 0 ? $taskId : null,
-            'task_id' => $taskId > 0 ? $taskId : null,
-            'success' => false,
-            'saved_count' => 0,
-            'readback_count' => 0,
-            'readback_verified' => false,
-            'run_readback' => [],
-            'historical_core_contract_status' => 'blocked',
-            'automatic_device_substitution' => false,
-            'sensitive_values_exposed' => false,
-        ];
-        if ($sessionPreflight) {
-            return [
-                ...$base,
-                'status' => $deviceStatus === 'device_offline'
-                    ? 'device_offline'
-                    : 'waiting_user_login',
-                'reused_active_task' => true,
-                'failure_reason' => $deviceStatus === 'device_offline'
-                    ? 'device_offline'
-                    : 'waiting_user_login',
-                'message' => 'local_collector_session_recovery_queued',
-            ];
-        }
-
-        $request = $this->decodeJson($task['request_json'] ?? null);
-        if ($this->normalizeDispatcherRunId((string)(
-            $request['dispatcher_run_id'] ?? ''
-        )) !== $dispatcherRunId) {
-            return [
-                ...$base,
-                'local_collector_task_id' => null,
-                'task_id' => null,
-                'status' => 'blocked',
-                'failure_reason' => 'local_collector_plan_dispatcher_scope_mismatch',
-                'message' => 'local_collector_plan_dispatcher_scope_mismatch',
-            ];
-        }
-
-        $summary = $this->decodeJson($task['result_summary_json'] ?? null);
-        $runReadback = is_array($summary['run_readback'] ?? null)
-            ? $summary['run_readback']
-            : [];
-        $summaryDispatcher = $this->normalizeDispatcherRunId((string)(
-            $summary['dispatcher_run_id']
-            ?? $runReadback['dispatcher_run_id']
-            ?? ''
-        ));
-        $syncTaskId = (int)(
-            $summary['sync_task_id']
-            ?? $runReadback['sync_task_id']
-            ?? 0
-        );
-        $rowIds = array_values(array_unique(array_filter(array_map(
-            'intval',
-            is_array($runReadback['row_ids'] ?? null) ? $runReadback['row_ids'] : []
-        ), static fn(int $id): bool => $id > 0)));
-        $strictSuccess = $taskStatus === 'success'
-            && $summaryDispatcher === $dispatcherRunId
-            && (int)($summary['local_collector_task_id'] ?? 0) === $taskId
-            && (int)($summary['data_source_id'] ?? 0) === $sourceId
-            && $syncTaskId > 0
-            && ($summary['readback_verified'] ?? false) === true
-            && ($runReadback['readback_verified'] ?? false) === true
-            && (int)($runReadback['data_source_id'] ?? 0) === $sourceId
-            && (int)($runReadback['sync_task_id'] ?? 0) === $syncTaskId
-            && (int)($runReadback['system_hotel_id'] ?? 0)
-                === (int)($source['system_hotel_id'] ?? 0)
-            && strtolower(trim((string)($runReadback['platform'] ?? ''))) === $platform
-            && $this->normalizeDate((string)($runReadback['target_date'] ?? ''))
-                === $businessDate
-            && $this->normalizeDispatcherRunId((string)(
-                $runReadback['dispatcher_run_id'] ?? ''
-            )) === $dispatcherRunId
-            && strtolower(trim((string)($runReadback['trigger_type'] ?? '')))
-                === 'local_collector_upload'
-            && $rowIds !== [];
-        if ($strictSuccess) {
-            return [
-                ...$base,
-                'status' => 'success',
-                'success' => true,
-                'platform_sync_task_id' => $syncTaskId,
-                'saved_count' => max(0, (int)($summary['saved_count'] ?? 0)),
-                'readback_count' => count($rowIds),
-                'readback_verified' => true,
-                'run_readback' => $runReadback,
-                'historical_core_contract_status' => 'ready',
-                'failure_reason' => '',
-                'message' => 'local_collector_save_readback_verified',
-            ];
-        }
-
-        $active = in_array($taskStatus, self::ACTIVE_TASK_STATUSES, true);
-        $failureCode = $this->normalizeFailureCode(
-            $task['error_code']
-                ?? ($active ? 'collection_in_progress' : 'local_collector_result_not_verified')
-        );
-        return [
-            ...$base,
-            'status' => $deviceStatus === 'device_offline' && $active
-                ? 'device_offline'
-                : ($active ? ($taskStatus === 'queued' ? 'queued' : 'in_progress') : 'failed'),
-            'reused_active_task' => $active,
-            'failure_reason' => $deviceStatus === 'device_offline' && $active
-                ? 'device_offline'
-                : $failureCode,
-            'message' => $active
-                ? 'local_collector_task_in_progress'
-                : 'local_collector_result_not_verified',
-        ];
-    }
-
     /** @return array<string, mixed> */
     private function publicTaskRequest(array $request): array
     {
@@ -4367,6 +4331,9 @@ final class OtaLocalCollectorService
             : [];
         return [
             'reason' => $this->safeText((string)($request['reason'] ?? ''), 180),
+            'result_delivery' => is_array($request['result_delivery'] ?? null)
+                ? array_intersect_key($request['result_delivery'], array_flip(['status', 'result_id', 'result_hash', 'attempt']))
+                : null,
             'sections' => $this->sanitizeSections($request['sections'] ?? []),
             'ordered_collection' => $ordered === [] ? null : [
                 'contract_version' => (string)($ordered['contract_version'] ?? OtaOrderedCollectionPlanner::CONTRACT_VERSION),
@@ -4994,6 +4961,10 @@ final class OtaLocalCollectorService
             'historical_daily'
         );
 
+        $canonicalHistory = $this->finalizeLocalHistory($receipt, $tenantId, $hotelId);
+        $receipt['canonical_history_finalization'] = $canonicalHistory;
+        $receipt['canonical_history_complete'] = ($canonicalHistory['canonical_history_complete'] ?? false) === true;
+
         if ($complete && ($receipt['collection_complete'] ?? false) === true) {
             try {
                 $verifier = $this->authorityVerifier !== null
@@ -5004,12 +4975,8 @@ final class OtaLocalCollectorService
                         self::PLATFORMS,
                         (string)($receipt['collection_anchor_hash'] ?? '')
                     )
-                    : (new P0OtaFieldLoopVerifierRunner())->verify(
-                        $hotelId,
-                        $targetDate,
-                        self::PLATFORMS,
-                        (string)($receipt['collection_anchor_hash'] ?? '')
-                    );
+                    : (is_array($canonicalHistory['overall_verifier'] ?? null)
+                        ? $canonicalHistory['overall_verifier'] : []);
             } catch (Throwable $exception) {
                 $verifier = [
                     'verification_source' => 'external_p0_verifier',
@@ -5071,6 +5038,7 @@ final class OtaLocalCollectorService
                 ? 'ready'
                 : ($complete ? 'verifier_incomplete' : 'awaiting_other_platform'),
             'ready' => $ready,
+            'canonical_history' => $canonicalHistory,
             'verification_source' => (string)($verifier['verification_source'] ?? 'external_p0_verifier'),
             'verifier_status' => (string)($verifier['status'] ?? 'not_run'),
             'verified_platforms' => $this->sanitizeFieldKeys($verifier['verified_platforms'] ?? []),

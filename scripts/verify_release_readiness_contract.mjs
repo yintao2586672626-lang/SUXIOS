@@ -156,6 +156,7 @@ function writeReadinessFixture(evidenceDir, options = {}) {
     'SUXIOS_REQUIRE_PERSISTENT_LOCAL_STATE=true',
     'SUXIOS_CACHE_PATH=/var/lib/suxios/app-cache',
     'SUXIOS_LOCAL_LOCK_PATH=/var/lib/suxios/app-locks',
+    'SUXIOS_FORECAST_PLAN_PATH=/var/lib/suxios/forecast-plans',
     'AI_CONFIG_SECRET=12345678901234567890123456789012',
     'DB_HOST=prod-db.internal',
     'DB_NAME=hotelx_prod',

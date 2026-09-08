@@ -245,6 +245,8 @@ fi
 
 sudo -u www-data php think list --raw >/dev/null
 
+FORECAST_PLAN_PATH="$(php scripts/verify_single_instance_state_paths.php --forecast-path-only)"
+
 if [[ $ACTIVATE_EXISTING -eq 0 ]]; then
   write_release_manifest
 fi
@@ -254,6 +256,9 @@ if [[ $NO_SWITCH -eq 1 ]]; then
     "$RELEASE_DIR" "$SOURCE_COMMIT" "$ACTUAL_SHA256" "$PREVIOUS_RELEASE"
   exit 0
 fi
+
+install -d -o www-data -g www-data -m 0770 "$FORECAST_PLAN_PATH"
+sudo -u www-data php scripts/verify_single_instance_state_paths.php
 
 # A release-pinned formal notification service must follow the application
 # release without installing an optional timer that was never installed or

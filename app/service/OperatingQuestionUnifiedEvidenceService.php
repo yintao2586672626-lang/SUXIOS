@@ -31,7 +31,8 @@ final class OperatingQuestionUnifiedEvidenceService
                 (int)$scope['hotel_id'],
                 (int)$scope['user_id'],
                 (string)$scope['platform'],
-                $question
+                $question,
+                ['tenant_id' => (int)$scope['tenant_id']]
             );
         });
         $this->memoryLoader = Closure::fromCallable($memoryLoader ?? static function (

@@ -397,6 +397,26 @@
                                 </div>
                                 <div class="mt-4 grid grid-cols-1 gap-4 xl:grid-cols-2">
                                     <section data-testid="ai-daily-presentation-delivery" class="rounded-lg border border-gray-100 bg-white p-4">
+                                <section data-testid="ai-evidence-diagnosis" class="rounded-lg border border-slate-200 bg-white p-4">
+                                    <div class="flex flex-wrap items-center justify-between gap-2">
+                                        <h3 class="font-semibold text-slate-900">证据诊断与待确认建议</h3>
+                                        <div class="flex flex-wrap gap-2">
+                                            <button type="button" data-testid="ai-evidence-copy" @click="copyAiDailyEvidenceSnapshot" :disabled="!aiDailyEvidenceDelivery().ready" class="rounded border px-3 py-1.5 text-xs disabled:opacity-50">复制诊断</button>
+                                            <button type="button" data-testid="ai-evidence-export" @click="downloadAiDailyEvidenceSnapshot" :disabled="!aiDailyEvidenceDelivery().ready" class="rounded border px-3 py-1.5 text-xs disabled:opacity-50">导出同版快照</button>
+                                        </div>
+                                    </div>
+                                    <p v-if="!aiDailyEvidenceDelivery().ready" class="mt-2 text-sm text-amber-700">当前范围尚无精确回读的证据诊断；历史日报需要重新生成以绑定事实包。</p>
+                                    <template v-else="">
+                                        <p class="mt-2 text-xs text-slate-500">比较支持、反证、未知项和补证建议。建议待人工确认，任务完成不代表改善或因果成立。</p>
+                                        <div v-for="suggestion in aiDailyEvidenceDelivery().snapshot.diagnosis.recommendations" :key="suggestion.recommendation_id" class="mt-3 rounded border border-slate-100 p-3 text-xs">
+                                            <p class="font-medium text-slate-800">{{ suggestion.platform }} · {{ suggestion.problem }}</p>
+                                            <p class="mt-1 text-slate-500">建议复盘：{{ suggestion.review_window.followup_start }} 至 {{ suggestion.review_window.followup_end }}</p>
+                                            <button type="button" data-testid="ai-evidence-propose" @click="proposeAiEvidenceTask(suggestion)" :disabled="suggestion.handoff_status !== 'ready_for_task_proposal' || ['pending','saved'].includes(aiEvidenceProposalState(suggestion).status)" class="mt-2 rounded border border-blue-200 px-3 py-1.5 text-blue-700 disabled:opacity-50">转为待人工审批任务</button>
+                                            <p v-if="aiEvidenceProposalState(suggestion).message" class="mt-2 text-slate-600">{{ aiEvidenceProposalState(suggestion).message }}</p>
+                                        </div>
+                                        <pre data-testid="ai-evidence-text" class="mt-3 overflow-y-auto whitespace-pre-wrap break-words text-sm leading-6 text-slate-700" style="font-family:inherit;max-height:36rem">{{ aiDailyEvidenceDelivery().text }}</pre>
+                                    </template>
+                                </section>
                                         <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                                             <div>
                                                 <div class="text-sm font-semibold text-gray-900">经营播报与结果交付</div>

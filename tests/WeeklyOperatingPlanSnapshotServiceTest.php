@@ -20,6 +20,7 @@ final class WeeklyOperatingPlanSnapshotServiceTest extends TestCase
             scopeVerifier: static fn(int $tenant, int $hotel): bool => $tenant === 80 && $hotel === 8
         );
         self::assertSame([
+            'contract_version' => WeeklyOperatingPlanSnapshotService::CONTRACT_VERSION,
             'tenant_id' => 80, 'hotel_id' => 8, 'week_start' => '2026-08-17',
             'week_end' => '2026-08-23', 'status' => 'not_generated', 'readback_verified' => false,
         ], $service->readLatest(80, 8, '2026-08-23'));

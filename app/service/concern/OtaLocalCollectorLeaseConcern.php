@@ -182,6 +182,15 @@ trait OtaLocalCollectorLeaseConcern
                     throw new RuntimeException('租约恢复任务身份不完整，已停止回收。', 409);
                 }
                 $attempt = (int)($row['attempt'] ?? 0);
+                if ($this->pendingResultDelivery($row)) {
+                    $this->requireScopedTaskWrite($row, [
+                        'status' => 'result_unknown', 'error_code' => 'result_unknown',
+                        'error_summary' => '原结果回传中断，先核对保存结果；仅允许同一结果恢复上传。',
+                        'lease_token_hash' => '', 'lease_expires_at' => null, 'finished_at' => null,
+                        'update_time' => $now,
+                    ], true);
+                    continue;
+                }
                 $maxAttempts = max(1, (int)($row['max_attempts'] ?? 3));
                 $previousStatus = (string)($row['status'] ?? '');
                 $previousLeaseHash = (string)($row['lease_token_hash'] ?? '');

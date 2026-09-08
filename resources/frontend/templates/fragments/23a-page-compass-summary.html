@@ -25,6 +25,14 @@
                                         </button>
                                     </div>
                                 </header>
+                                <nav v-if="currentPage === 'compass'" class="home-daily-workflows" data-testid="home-daily-workflows" aria-label="五条日常经营流程">
+                                    <button type="button" @click="openHomeDailyWorkflow('facts')"><strong>可信经营状态</strong><span>刷新所选门店和日期的事实</span></button>
+                                    <button type="button" @click="openHomeDailyWorkflow('query')"><strong>中文查数 / 追溯</strong><span>按编号回读来源与缺失状态</span></button>
+                                    <button type="button" @click="openHomeDailyWorkflow('health')"><strong>采集缺口定位</strong><span>核对采集、入库与回读</span></button>
+                                    <button type="button" @click="openHomeDailyWorkflow('tasks')"><strong>任务执行核实</strong><span>该酒店全部任务 · 各自原始日期与平台</span></button>
+                                    <button type="button" @click="openHomeDailyWorkflow('review')"><strong>效果复盘</strong><span>该酒店待复盘任务 · 各自原始日期与平台</span></button>
+                                    <p v-if="homeDailyWorkflowError" class="home-daily-workflow-error" role="alert">{{ homeDailyWorkflowError }}</p>
+                                </nav>
                                 <div v-if="currentPage === 'compass'" class="home-priority-layout">
                                 <section v-if="currentPage === 'compass'" class="compass-hero-bezel" data-testid="home-executive-answer">
                                     <div class="compass-hero-core">

@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
+import { spawnSync } from 'node:child_process';
 import { checkProductionEnvFile } from '../../scripts/lib/release_env_checks.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -16,6 +17,7 @@ function productionEnv(overrides = {}) {
     SUXIOS_REQUIRE_PERSISTENT_LOCAL_STATE: 'true',
     SUXIOS_CACHE_PATH: '/var/lib/suxios/app-cache',
     SUXIOS_LOCAL_LOCK_PATH: '/var/lib/suxios/app-locks',
+    SUXIOS_FORECAST_PLAN_PATH: '/var/lib/suxios/forecast-plans',
     DB_HOST: 'prod-db.internal',
     DB_NAME: 'hotelx_prod',
     DB_USER: 'hotel_app',
@@ -68,6 +70,38 @@ test('production env rejects multi-instance mode before distributed state exists
     result.failures.join('\n'),
     /SUXIOS_DEPLOYMENT_MODE must be single_instance/
   );
+});
+
+test('production env requires a dedicated external forecast plan path', () => {
+  for (const value of ['', 'runtime/forecast-plans', '/var/www/suxios/releases/v1/plans', '/var/lib/suxios/app-cache/plans']) {
+    assert.match(runCheck(productionEnv({ SUXIOS_FORECAST_PLAN_PATH: value })).failures.join('\n'), /SUXIOS_FORECAST_PLAN_PATH/);
+  }
+});
+
+test('forecast deployment path and writable probe use the configured external directory', () => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'suxios-forecast-path-probe-'));
+  const env = { ...process.env, APP_DEBUG: 'false', SUXIOS_DEPLOYMENT_MODE: 'single_instance', SUXIOS_REQUIRE_PERSISTENT_LOCAL_STATE: 'true' };
+  for (const [name, dir] of [['SUXIOS_CACHE_PATH', 'cache'], ['SUXIOS_LOCAL_LOCK_PATH', 'locks'], ['SUXIOS_FORECAST_PLAN_PATH', 'plans']]) {
+    env[name] = path.join(tempRoot, dir); fs.mkdirSync(env[name]);
+  }
+  const php = process.env.SUXI_PHP || (process.platform === 'win32' ? 'C:/xampp/php/php.exe' : 'php');
+  try {
+    const resolve = spawnSync(php, ['scripts/verify_single_instance_state_paths.php', '--forecast-path-only'], { cwd: repoRoot, env, encoding: 'utf8', timeout: 20000, windowsHide: true });
+    assert.equal(resolve.status, 0, resolve.stderr);
+    assert.equal(resolve.stdout.trim(), env.SUXIOS_FORECAST_PLAN_PATH);
+    const probe = spawnSync(php, ['scripts/verify_single_instance_state_paths.php'], { cwd: repoRoot, env, encoding: 'utf8', timeout: 20000, windowsHide: true });
+    assert.equal(probe.status, 0, probe.stderr);
+    assert.match(probe.stdout, /forecast paths are persistent, active, and writable/);
+    assert.deepEqual(fs.readdirSync(env.SUXIOS_FORECAST_PLAN_PATH), []);
+  } finally {
+    assert.ok(fs.realpathSync(tempRoot).startsWith(fs.realpathSync(os.tmpdir()) + path.sep + 'suxios-forecast-path-probe-'));
+    fs.rmSync(tempRoot, { recursive: true, force: true });
+  }
+  const installer = fs.readFileSync(path.join(repoRoot, 'deploy/cloud/install_release.sh'), 'utf8');
+  const provision = installer.indexOf('install -d -o www-data -g www-data -m 0770 "$FORECAST_PLAN_PATH"');
+  assert.ok(provision > installer.indexOf('if [[ $NO_SWITCH -eq 1 ]]'), 'staging must not create shared state');
+  assert.ok(provision < installer.indexOf('sudo -u www-data php scripts/verify_single_instance_state_paths.php'));
+  assert.ok(provision < installer.indexOf('ROLLBACK_LINK='));
 });
 
 test('production env rejects missing persistence enforcement and relative paths', () => {

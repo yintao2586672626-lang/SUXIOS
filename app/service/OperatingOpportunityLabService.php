@@ -719,6 +719,17 @@ final class OperatingOpportunityLabService
             return null;
         }
         $closure = (new DualOtaFieldClosureService())->build($hotelId, $businessDate);
+        return $this->strictFactCountReadbackFromClosure($task, $intent, $selected, $closure);
+    }
+
+    /** Project an already-read closure without performing collection or writes. */
+    private function strictFactCountReadbackFromClosure(array $task, array $intent, array $selected, array $closure): ?array
+    {
+        $hotelId = (int)($intent['hotel_id'] ?? 0);
+        $tenantId = (int)($intent['tenant_id'] ?? 0);
+        $businessDate = substr(trim((string)($intent['date_start'] ?? '')), 0, 10);
+        $executedTimestamp = strtotime(trim((string)($task['executed_at'] ?? '')));
+        $metricKey = strtolower(trim((string)($intent['expected_metric'] ?? '')));
         if ((int)($closure['tenant_id'] ?? 0) !== $tenantId
             || (int)($closure['hotel_id'] ?? 0) !== $hotelId
             || (string)($closure['business_date'] ?? '') !== $businessDate
@@ -750,7 +761,9 @@ final class OperatingOpportunityLabService
             'intval',
             (array)($platform['current_receipt_record_ids'] ?? [])
         ), static fn(int $id): bool => $id > 0)));
-        if ($sourceIds === [] || $afterValue <= $beforeValue) {
+        // Observation evidence records the measured outcome, including no
+        // improvement or deterioration. It does not assert action success.
+        if ($sourceIds === []) {
             return null;
         }
         sort($sourceIds, SORT_NUMERIC);

@@ -1447,7 +1447,7 @@ final class PlatformDataSyncVaultBoundaryTest extends TestCase
 
             public function hasHotelPermission(int $hotelId, string $permission): bool
             {
-                return $hotelId === 101 && in_array($permission, ['can_fetch_online_data', 'can_delete_online_data'], true);
+                return $hotelId === 101 && in_array($permission, ['can_view_online_data', 'can_fetch_online_data', 'can_delete_online_data'], true);
             }
 
             public function getPermittedHotelIds(): array

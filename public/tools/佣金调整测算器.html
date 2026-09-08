@@ -1,0 +1,488 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <meta name="calculator-version" content="1.1.0">
+  <meta name="description" content="酒店佣金调整计算器：自由填写房价，在10%—15%之间调整佣金，计算需要增长或可以减少多少已入住间夜。单文件，可离线使用。">
+  <title>佣金调整测算器 · 算清每一间夜</title>
+  <!--
+    独立离线工具；无账户、网络请求、跟踪、浏览器存储或第三方依赖。
+    假设：比较期、房价、每间夜成本与其他条件不变；佣金适用于全部测算间夜。
+    不填成本时只比较扣佣收入，不把未知成本当作实际为零，不声称真实保本。
+    10%—15%为用户指定的试算范围，不是对任何平台现行政策的声明。
+    设计：以“调整前 / 调整后”的账本对照为主线，数字优先；手机为单列。
+  -->
+  <style>
+    :root { --paper:#f5f3ed; --card:#fffefb; --ink:#24392f; --muted:#667168; --line:#dedfd5; --green:#285a46; --green-dark:#193e30; --soft:#eaf0e7; --ochre:#856020; --warning:#fff3d9; --error:#973d30; --radius:20px; }
+    * { box-sizing:border-box; }
+    [hidden] { display:none !important; }
+    body { margin:0; background:var(--paper); color:var(--ink); font:15px/1.6 "Segoe UI","PingFang SC","Microsoft YaHei",sans-serif; -webkit-font-smoothing:antialiased; }
+    button,input,textarea { font:inherit; }
+    button { cursor:pointer; touch-action:manipulation; }
+    button:disabled { cursor:not-allowed; opacity:.45; }
+    button:focus-visible,input:focus-visible,summary:focus-visible,textarea:focus-visible { outline:3px solid #c99438; outline-offset:4px; }
+    button { color:inherit; }
+    a { color:var(--green); }
+    .shell { width:min(1160px,calc(100% - 64px)); margin:auto; }
+    .masthead { display:flex; justify-content:space-between; align-items:center; gap:16px; padding:28px 0 22px; border-bottom:1px solid var(--line); }
+    .wordmark { display:flex; gap:11px; align-items:center; font-size:16px; font-weight:700; letter-spacing:.08em; }
+    .mark { width:28px; height:28px; background:var(--green); border-radius:50%; display:grid; place-items:center; color:white; font:19px Georgia,serif; }
+    .offline { font-size:12px; letter-spacing:.07em; color:var(--muted); }
+    header { padding:35px 0 28px; }
+    .eyebrow { margin:0 0 12px; color:var(--green); font-size:12px; font-weight:700; letter-spacing:.2em; }
+    h1 { margin:0; font:600 clamp(27px,3.3vw,42px)/1.35 "Noto Serif CJK SC","Songti SC","SimSun",serif; letter-spacing:.035em; }
+    .intro { margin:12px 0 0; color:var(--muted); max-width:780px; }
+    .workspace { display:grid; grid-template-columns:420px minmax(0,1fr); gap:24px; align-items:start; }
+    .panel { background:var(--card); border:1px solid var(--line); border-radius:var(--radius); padding:28px; }
+    h2 { margin:0; font-size:18px; font-weight:650; }
+    .section-heading { display:flex; align-items:center; gap:10px; margin-bottom:24px; }
+    .step { color:var(--green); font:italic 18px Georgia,serif; }
+    .fields { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+    label { display:block; font-size:14px; font-weight:600; }
+    .input-box { display:flex; align-items:center; gap:8px; border:1px solid #cbd2c7; border-radius:10px; background:#fff; padding:0 12px; margin-top:8px; min-width:0; }
+    .input-box:focus-within { border-color:var(--green); box-shadow:0 0 0 2px #285a4612; }
+    .input-box input { width:100%; min-width:0; border:0; background:transparent; padding:11px 0; color:var(--ink); font:500 22px/1.4 "Segoe UI",sans-serif; font-variant-numeric:tabular-nums; outline:none; }
+    .input-box input:focus-visible { outline:none; }
+    .unit { color:var(--muted); font-size:12px; white-space:nowrap; }
+    .hint { color:var(--muted); font-size:12px; margin:7px 0 0; }
+    .divider { border:0; border-top:1px solid var(--line); margin:23px 0; }
+    .rates-heading { display:flex; justify-content:space-between; align-items:center; gap:10px; margin-bottom:17px; }
+    .text-button { border:0; background:none; color:var(--green); padding:5px 2px; font-size:13px; text-decoration:underline; text-underline-offset:4px; }
+    .rate-row + .rate-row { margin-top:18px; }
+    .rate-label { display:flex; justify-content:space-between; align-items:center; gap:12px; }
+    .rate-number { display:flex; align-items:center; border:1px solid #cbd2c7; border-radius:8px; padding:2px 9px; background:white; }
+    .rate-number input { width:69px; padding:5px 0; border:0; color:var(--ink); background:transparent; font-weight:600; text-align:right; }
+    .rate-number span { padding-left:5px; color:var(--muted); font-size:13px; }
+    input[type=range] { width:100%; height:28px; margin:8px 0 0; accent-color:var(--green); cursor:pointer; }
+    .range-labels { display:flex; justify-content:space-between; color:var(--muted); font-size:12px; line-height:1; }
+    .presets { display:flex; gap:8px; margin-top:18px; }
+    .chip { border:1px solid var(--line); background:#f4f6ef; border-radius:7px; padding:7px 10px; font-size:12px; flex:1; }
+    .chip:hover { border-color:var(--green); }
+    .cost-toggle { display:flex; align-items:center; gap:9px; cursor:pointer; font-weight:500; }
+    input[type=checkbox] { width:18px; height:18px; accent-color:var(--green); flex-shrink:0; }
+    .cost-details { margin-top:15px; padding:16px; background:#f4f5ef; border-radius:10px; }
+    .reset-line { margin-top:18px; display:flex; justify-content:space-between; align-items:center; gap:10px; }
+    .result { min-width:0; }
+    .hero { position:relative; background:var(--green-dark); color:#f7f7eb; border-radius:var(--radius); padding:29px 30px; overflow:hidden; }
+    .hero-top { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px; }
+    .mode-badge { border:1px solid #6d8c79; padding:4px 9px; border-radius:5px; font-size:12px; color:#e5efdd; }
+    .rate-path { font-size:14px; color:#c5d4c7; font-variant-numeric:tabular-nums; }
+    .threshold-title { margin:25px 0 0; font-size:16px; font-weight:500; }
+    .big-number { display:flex; align-items:baseline; gap:8px; margin:2px 0 0; line-height:1.2; font-variant-numeric:tabular-nums; }
+    .big-number strong { font:400 clamp(46px,5.5vw,72px)/1.18 Georgia,"Times New Roman",serif; letter-spacing:-.035em; }
+    .big-number span { font:24px Georgia,serif; color:#c9d6ba; }
+    .threshold-note { color:#c5d4c7; font-size:12px; margin:8px 0 24px; }
+    .night-line { display:grid; grid-template-columns:1fr auto 1.3fr; gap:14px; border-top:1px solid #486758; padding-top:21px; align-items:center; }
+    .night-caption { color:#c5d4c7; font-size:12px; margin:0 0 5px; }
+    .night-value { font:400 27px/1.35 Georgia,"Times New Roman",serif; overflow-wrap:anywhere; }
+    .night-value small { font:12px "Microsoft YaHei",sans-serif; color:#d2decd; padding-left:5px; }
+    .night-arrow { color:#b1c8b7; font-size:25px; }
+    .night-delta { margin:18px 0 0; font-size:13px; color:#e4eddc; }
+    .scope-note { margin:14px 0 18px; padding:13px 16px; background:var(--warning); color:#71521c; border-radius:10px; font-size:13px; }
+    .scope-note.known { background:var(--soft); color:#355d45; }
+    .comparison { display:grid; grid-template-columns:1fr 1fr; border:1px solid var(--line); background:var(--card); border-radius:14px; }
+    .comparison > div { padding:18px 22px; min-width:0; }
+    .comparison > div + div { border-left:1px solid var(--line); }
+    .comparison p { margin:0 0 5px; color:var(--muted); font-size:12px; }
+    .comparison strong { font:500 26px/1.4 "Segoe UI",sans-serif; font-variant-numeric:tabular-nums; overflow-wrap:anywhere; }
+    .comparison small { display:block; font-size:12px; color:var(--muted); }
+    .forecast { margin-top:18px; padding:19px 22px; border:1px solid var(--line); border-radius:14px; background:var(--card); }
+    .forecast-top { display:flex; align-items:center; justify-content:space-between; gap:20px; }
+    .forecast-top label { font-size:13px; }
+    .forecast .input-box { width:150px; margin:0; }
+    .forecast .input-box input { font-size:18px; padding:8px 0; }
+    #forecast-result { margin:12px 0 0; font-size:13px; color:var(--muted); }
+    #forecast-result.good { color:var(--green); }
+    #forecast-result.bad { color:var(--error); }
+    .error-box { border:1px solid #ddafa2; background:#fff0e9; padding:25px; border-radius:var(--radius); }
+    .error-box h2 { color:var(--error); }
+    .error-box p { margin-bottom:0; }
+    .actions { display:flex; gap:10px; margin-top:18px; }
+    .button { border:1px solid var(--green); border-radius:9px; padding:12px 16px; font-size:14px; font-weight:500; background:var(--green); color:white; }
+    .button.secondary { color:var(--green); background:transparent; }
+    .actions .button { flex:1; }
+    .share-hint { margin-top:8px; color:var(--muted); font-size:12px; }
+    .rate-table-panel { margin-top:26px; }
+    .table-title { display:flex; justify-content:space-between; gap:15px; align-items:baseline; margin-bottom:18px; }
+    .table-title p { margin:0; color:var(--muted); font-size:12px; }
+    table { width:100%; border-collapse:collapse; font-variant-numeric:tabular-nums; }
+    th { color:var(--muted); font-size:12px; font-weight:500; padding:0 12px 12px; text-align:right; }
+    th:first-child,td:first-child { text-align:left; }
+    td { border-top:1px solid #e8e9df; padding:11px 12px; text-align:right; font-size:14px; }
+    tr.selected { background:var(--soft); }
+    .rate-pick { border:0; background:transparent; padding:5px 3px; color:var(--green); font-size:15px; font-weight:650; }
+    .table-tag { display:inline-block; color:var(--muted); font-size:11px; margin-left:6px; font-weight:400; }
+    .table-footnote { margin:15px 0 0; color:var(--muted); font-size:12px; }
+    details { margin:25px 0 0; border-top:1px solid var(--line); padding-top:19px; }
+    summary { cursor:pointer; font-weight:600; font-size:14px; }
+    .explanation { color:var(--muted); font-size:13px; max-width:960px; padding-top:10px; }
+    .formula { background:#eaece2; color:var(--ink); border-radius:8px; padding:14px 18px; line-height:1.9; }
+    .explanation ul { padding-left:20px; }
+    .explanation li { margin-bottom:7px; }
+    footer { padding:24px 0 34px; font-size:12px; color:var(--muted); display:flex; justify-content:space-between; flex-wrap:wrap; gap:10px; }
+    #toast { position:fixed; bottom:25px; left:50%; transform:translateX(-50%); padding:12px 20px; background:#24392f; color:white; border-radius:8px; box-shadow:0 4px 22px #0002; max-width:calc(100% - 32px); z-index:5; font-size:14px; }
+    .copy-fallback { margin-top:16px; border:1px solid var(--line); padding:20px; border-radius:12px; background:white; }
+    .copy-fallback textarea { width:100%; height:230px; border:1px solid var(--line); padding:12px; font-size:13px; color:var(--ink); }
+    .mobile-summary { display:none; }
+    fieldset.input-controls { padding:0; margin:0; border:0; min-width:0; }
+    .startup-notice { margin:0 0 22px; padding:20px 24px; border:1px solid #d9bf83; background:var(--warning); border-radius:14px; color:#71521c; }
+    .startup-notice h2 { font-size:17px; margin:0 0 7px; }
+    .startup-notice p { margin:0; font-size:14px; }
+    .startup-notice p + p { margin-top:7px; }
+    fieldset:disabled input,.forecast input:disabled { color:var(--muted); cursor:not-allowed; }
+    @media(max-width:960px) { .workspace { grid-template-columns:360px minmax(0,1fr); gap:18px; } .panel { padding:22px; } .hero { padding:25px; } .shell { width:calc(100% - 40px); } .big-number strong { font-size:52px; } .forecast-top { gap:10px; } }
+    @media(max-width:760px) { body { padding-bottom:85px; } .shell { width:calc(100% - 32px); } .masthead { padding:20px 0 17px; } .wordmark { font-size:15px; } .offline { font-size:11px; } header { padding:28px 0 22px; } h1 { font-size:29px; } .intro { font-size:14px; } .workspace { grid-template-columns:1fr; } .panel { padding:22px; } .hero { padding:25px; } .big-number strong { font-size:62px; } .rate-table-panel { margin-top:22px; padding:20px 13px; } .table-title { display:block; padding:0 7px; } .table-title p { margin-top:6px; } td,th { padding-left:7px; padding-right:7px; } .table-tag { display:block; margin:0; font-size:10px; } .night-value { font-size:28px; } .comparison > div { padding:17px; } .table-footnote { padding:0 7px; } .mobile-summary { position:fixed; bottom:0; left:0; right:0; z-index:3; display:flex; align-items:center; justify-content:space-between; gap:12px; padding:11px 18px calc(11px + env(safe-area-inset-bottom)); background:var(--green-dark); color:white; text-decoration:none; box-shadow:0 -3px 14px #0001; } .mobile-summary small { display:block; color:#ceddc9; font-size:11px; } .mobile-summary strong { font-size:16px; font-weight:600; } .mobile-summary > span:last-child { font-size:12px; white-space:nowrap; } #toast { bottom:92px; } }
+    @media(max-width:380px) { .shell { width:calc(100% - 24px); } .panel,.hero { padding:18px; } h1 { font-size:26px; } .big-number strong { font-size:52px; } .fields { gap:10px; } .input-box { padding:0 9px; } .input-box input { font-size:20px; } .button { padding:12px 8px; font-size:13px; } .night-line { gap:9px; } .offline { letter-spacing:0; } }
+    @media print { body { background:white; padding-bottom:0; } .shell { width:100%; } .actions,.share-hint,.reset-line,.presets,#toast,.copy-fallback,.mobile-summary { display:none!important; } .workspace { grid-template-columns:42% 1fr; } .hero { print-color-adjust:exact; -webkit-print-color-adjust:exact; } .panel,.hero { break-inside:avoid; } header { padding:20px 0; } }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <div class="masthead">
+      <div class="wordmark"><span class="mark" aria-hidden="true">%</span>佣金调整测算器</div>
+      <span class="offline">离线可用 · 无需登录</span>
+    </div>
+    <header>
+      <p class="eyebrow">算清每一间夜</p>
+      <h1>佣金变了，多少订单才不吃亏？</h1>
+      <p class="intro">涨佣要多卖多少，降佣能少卖多少。填入房价，拖动佣金，就能看到持平门槛。</p>
+    </header>
+    <main>
+      <aside class="startup-notice" id="startup-notice" role="status">
+        <h2>当前是静态预览，计算尚未启动</h2>
+        <p>下方保留了这份文件的测算数字。为避免改了输入、结果却不更新，输入和计算按钮已锁定；这些数字不是重新计算的结果。</p>
+        <p>需要调整参数时：将HTML文件保存到本机，用 <strong>Microsoft Edge 或 Google Chrome</strong> 打开，不要只在聊天软件或文件预览窗口里查看。正常打开不需要联网。</p>
+      </aside>
+      <div class="workspace">
+        <section class="panel" aria-labelledby="input-title">
+          <div class="section-heading"><span class="step">01</span><h2 id="input-title">填入你的测算条件</h2></div>
+          <form id="calculator-form" novalidate>
+            <fieldset class="input-controls" id="input-controls" disabled aria-label="测算条件">
+            <div class="fields">
+              <div><label for="price">平均房价</label><div class="input-box"><input id="price" type="number" min="0.01" max="1000000" step="0.01" inputmode="decimal" value="300" required><span class="unit">元/间夜</span></div></div>
+              <div><label for="nights">调整前已入住间夜</label><div class="input-box"><input id="nights" type="number" min="1" max="1000000" step="1" inputmode="numeric" value="1000" required><span class="unit">间夜</span></div></div>
+            </div>
+            <p class="hint">初始数字仅作示例，请改成你的情况。1间房住2晚＝2间夜。</p>
+            <hr class="divider">
+            <div class="rates-heading"><label>佣金怎么调</label><button class="text-button" id="swap" type="button">交换前后</button></div>
+            <div class="rate-row">
+              <div class="rate-label"><label for="old-rate">调整前</label><div class="rate-number"><input id="old-rate" type="number" min="10" max="15" step="0.1" value="10" inputmode="decimal" required><span>%</span></div></div>
+              <input id="old-slider" type="range" min="10" max="15" step="0.1" value="10" aria-label="调整前佣金滑块"><div class="range-labels"><span>10%</span><span>15%</span></div>
+            </div>
+            <div class="rate-row">
+              <div class="rate-label"><label for="new-rate">调整后</label><div class="rate-number"><input id="new-rate" type="number" min="10" max="15" step="0.1" value="15" inputmode="decimal" required><span>%</span></div></div>
+              <input id="new-slider" type="range" min="10" max="15" step="0.1" value="15" aria-label="调整后佣金滑块"><div class="range-labels"><span>10%</span><span>15%</span></div>
+            </div>
+            <div class="presets"><button type="button" class="chip" id="preset-up">试算涨佣 10 → 15%</button><button type="button" class="chip" id="preset-down">试算降佣 15 → 10%</button></div>
+            <hr class="divider">
+            <label class="cost-toggle" for="cost-enabled"><input id="cost-enabled" type="checkbox">我知道单间变动成本，算得更细一点</label>
+            <p class="hint">不知道也能先算。未填成本时，只比较扣佣收入。</p>
+            <div class="cost-details" id="cost-details" hidden>
+              <label for="cost">每多卖一个间夜，额外花多少钱？</label>
+              <div class="input-box"><input id="cost" type="number" min="0" max="1000000" step="0.01" inputmode="decimal" placeholder="填写你店的成本"><span class="unit">元/间夜</span></div>
+              <p class="hint">例如清洁、布草、耗品等新增支出。不含固定租金和固定工资；每家店不同，这里不预设统一成本。</p>
+            </div>
+            <div class="reset-line"><span class="hint">佣金可按0.1个百分点微调</span><button class="text-button" id="reset" type="button">重置示例</button></div>
+            </fieldset>
+          </form>
+        </section>
+        <section class="result" aria-label="测算结果" aria-live="polite" aria-atomic="false">
+          <div id="error" class="error-box" role="alert" hidden><h2>暂时不能计算</h2><p id="error-message"></p></div>
+          <div id="valid-result">
+            <div class="hero">
+              <div class="hero-top"><span class="mode-badge" id="mode-badge">扣佣收入持平线</span><span class="rate-path" id="rate-path">10% → 15%</span></div>
+              <h2 class="threshold-title" id="threshold-title">涨佣后，间夜量至少增长</h2>
+              <div class="big-number"><strong id="threshold-value">5.88</strong><span>%</span></div>
+              <p class="threshold-note">临界比例为近似展示；执行时以向上取整后的最低间夜数为准。</p>
+              <div class="night-line">
+                <div><p class="night-caption">原来卖出</p><div class="night-value"><span id="old-nights">1,000</span><small>间夜</small></div></div>
+                <span class="night-arrow" aria-hidden="true">→</span>
+                <div><p class="night-caption">调整后至少保留</p><div class="night-value"><span id="minimum-nights">1,059</span><small>间夜</small></div></div>
+              </div>
+              <p class="night-delta" id="night-delta">至少多卖 59 间夜，才能维持原来的总扣佣收入。</p>
+            </div>
+            <div class="scope-note" id="scope-note">未计变动成本：这是扣佣收入的持平门槛，不是真实保本线。房价会影响金额，但在此简化模式下不影响百分比。</div>
+            <div class="comparison">
+              <div><p id="old-margin-label">调整前 · 每间夜扣佣收入</p><strong id="old-margin">¥270.00</strong><small id="old-total">原总额 ¥270,000.00</small></div>
+              <div><p id="new-margin-label">调整后 · 每间夜扣佣收入</p><strong id="new-margin">¥255.00</strong><small id="new-total">最低间夜对应 ¥270,045.00</small></div>
+            </div>
+            <div class="forecast">
+              <div class="forecast-top"><div><label for="forecast">预计调整后能卖多少？</label><p class="hint">选填，用同一比较期的间夜量</p></div><div class="input-box"><input id="forecast" type="number" min="0" max="1000000" step="1" inputmode="numeric" placeholder="选填" disabled><span class="unit">间夜</span></div></div>
+              <p id="forecast-result">填入你的预计间夜数，看看总额比原来多还是少。</p>
+            </div>
+          </div>
+          <div class="actions"><button type="button" class="button" id="download" disabled>下载这份计算器</button><button type="button" class="button secondary" id="copy" disabled>复制测算结果</button></div>
+          <p class="share-hint">下载为单个HTML文件，保留当前输入和结果。收到文件后请保存到本机，用Edge/Chrome打开；若出现“静态预览”提示，只能查看保存的数字，不能实时计算。</p>
+          <div class="copy-fallback" id="copy-fallback" hidden><label for="share-text">浏览器未允许自动复制，请全选复制以下文字</label><textarea id="share-text" readonly></textarea><button class="text-button" id="close-copy" type="button">收起</button></div>
+        </section>
+      </div>
+      <section class="panel rate-table-panel" id="rate-table-panel" aria-labelledby="table-title">
+        <div class="table-title"><h2 id="table-title">每个佣金点，单独算一遍</h2><p id="table-subtitle">统一对比当前 10% 佣金</p></div>
+        <table><thead><tr><th scope="col">调整后佣金</th><th scope="col" id="table-money-title">每间夜扣佣收入</th><th scope="col">间夜量变化门槛</th></tr></thead><tbody id="rate-table-body">
+          <tr><td><button type="button" class="rate-pick" disabled>10%</button><span class="table-tag">调整前基准</span></td><td>¥270.00</td><td>持平，间夜量不变</td></tr>
+          <tr><td><button type="button" class="rate-pick" disabled>11%</button></td><td>¥267.00</td><td>至少增长 1.12%</td></tr>
+          <tr><td><button type="button" class="rate-pick" disabled>12%</button></td><td>¥264.00</td><td>至少增长 2.27%</td></tr>
+          <tr><td><button type="button" class="rate-pick" disabled>13%</button></td><td>¥261.00</td><td>至少增长 3.45%</td></tr>
+          <tr><td><button type="button" class="rate-pick" disabled>14%</button></td><td>¥258.00</td><td>至少增长 4.65%</td></tr>
+          <tr class="selected"><td><button type="button" class="rate-pick" disabled>15%</button><span class="table-tag">当前试算</span></td><td>¥255.00</td><td>至少增长 5.88%</td></tr>
+        </tbody></table>
+        <p class="table-footnote">点击佣金数字可切换试算。所有档位均与上方“调整前”比较，不是逐行环比。结果不是平台流量承诺。</p>
+      </section>
+      <details id="method"><summary>怎么算的？哪些情况不能直接套用？</summary>
+        <div class="explanation">
+          <div class="formula">不填成本：每间夜扣佣收入＝房价 ×（1－佣金率）<br>填入成本：每间夜净贡献＝房价 ×（1－佣金率）－变动成本<br>最低间夜数＝调整前间夜数 × 调整前每间夜金额 ÷ 调整后每间夜金额，向上取整<br>间夜量变化临界值＝调整前每间夜金额 ÷ 调整后每间夜金额－1</div>
+          <ul>
+            <li><strong>不知道成本，不代表成本为零。</strong>简化模式比较的是扣佣收入，不是真实利润，也不是真实保本线。此时房价会改变金额，但在比例中约去，所以不改变百分比门槛。</li>
+            <li><strong>同房价、同成本、同一比较期。</strong>如果调佣同时降价、改补贴或改变房型结构，这个单价模型不够；请按日期、房型分开测算。</li>
+            <li><strong>只看同一渠道的贡献。</strong>新增OTA间夜若来自直销或其他渠道转移，还要扣掉那些渠道原本能留下的贡献；旺季满房也不能假设可以无限多卖。</li>
+            <li><strong>“持平”不是酒店整体盈利。</strong>本工具不核算固定租金、固定工资、税费差异、额外广告费和新增阶梯成本，也不预测佣金能换来多少流量。成交价须与佣金计费基数一致，否则需另行核算。</li>
+            <li><strong>佣金范围是本工具的试算设定。</strong>10%—15%并非对任何平台当前政策或实际可用档位的确认；小数金额与百分比为展示舍入。</li>
+          </ul>
+        </div>
+      </details>
+    </main>
+    <footer><span>算的是门槛，不是订单增长承诺。</span><span>离线版 1.1 · 所有计算在本机完成 · 不上传输入</span></footer>
+  </div>
+  <a class="mobile-summary" id="mobile-summary" href="#valid-result" hidden><span><small id="mobile-basis"></small><strong id="mobile-threshold"></strong></span><span>查看完整结果 ↑</span></a>
+  <div id="toast" role="status" hidden></div>
+  <noscript><p>当前环境没有运行JavaScript，仅显示文件中保存的测算快照。请在支持交互的浏览器中打开HTML文件后再调整参数。</p></noscript>
+  <script id="calculator-core">
+    'use strict';
+    // Money uses cents; rates use tenths of a percentage point. Integer units
+    // preserve commission fractions, and BigInt makes the final ceiling exact.
+    function parseNumber(raw, label, min, max, decimals) {
+      const text = String(raw == null ? '' : raw).trim();
+      if (!text) throw new Error('请填写' + label + '，空白不会按0计算。');
+      const pattern = decimals === 0 ? /^\d+$/ : new RegExp('^\\d+(?:\\.\\d{1,' + decimals + '})?$');
+      const value = Number(text);
+      if (!pattern.test(text) || !Number.isFinite(value) || value < min || value > max) {
+        throw new Error(label + '需在' + min + '—' + max + '之间，' + (decimals ? '最多' + decimals + '位小数。' : '请填写整数。'));
+      }
+      return value;
+    }
+    function calculateCommission(raw) {
+      const price = parseNumber(raw.price, '平均房价', 0.01, 1000000, 2);
+      const nights = parseNumber(raw.nights, '调整前已入住间夜', 1, 1000000, 0);
+      const oldRate = parseNumber(raw.oldRate, '调整前佣金', 10, 15, 1);
+      const newRate = parseNumber(raw.newRate, '调整后佣金', 10, 15, 1);
+      const costEnabled = raw.costEnabled === true;
+      const cost = costEnabled ? parseNumber(raw.cost, '单间变动成本', 0, 1000000, 2) : null;
+      const priceCents = Math.round(price * 100);
+      const oldTenths = Math.round(oldRate * 10);
+      const newTenths = Math.round(newRate * 10);
+      const oldRevenueUnits = priceCents * (1000 - oldTenths);
+      const newRevenueUnits = priceCents * (1000 - newTenths);
+      const oldUnits = costEnabled ? oldRevenueUnits - Math.round(cost * 100) * 1000 : oldRevenueUnits;
+      const newUnits = costEnabled ? newRevenueUnits - Math.round(cost * 100) * 1000 : newRevenueUnits;
+      if (oldUnits <= 0) throw new Error('调整前每间夜净贡献已经不为正，常规增长/流失门槛不适用。请先检查房价与成本。');
+      if (newUnits <= 0) throw new Error('调整后每间夜净贡献不为正，靠增加订单无法维持原来的正净贡献。请检查佣金、房价与成本。');
+      const oldTotalUnits = BigInt(nights) * BigInt(oldUnits);
+      const minimumBig = (oldTotalUnits + BigInt(newUnits) - 1n) / BigInt(newUnits);
+      if (minimumBig > BigInt(Number.MAX_SAFE_INTEGER)) throw new Error('最低间夜量超出可精确显示范围，请缩小测算规模。');
+      const minimumNights = Number(minimumBig);
+      return { price, nights, oldRate, newRate, costEnabled, cost, oldUnits, newUnits,
+        oldMargin: oldUnits / 100000, newMargin: newUnits / 100000,
+        percent: (oldUnits - newUnits) / newUnits * 100, minimumNights,
+        direction: Math.sign(oldUnits - newUnits), oldTotalUnits,
+        minimumTotalUnits: minimumBig * BigInt(newUnits) };
+    }
+    function calculateForecast(result, rawNights) {
+      if (String(rawNights == null ? '' : rawNights).trim() === '') return null;
+      const nights = parseNumber(rawNights, '预计调整后间夜', 0, 1000000, 0);
+      const totalUnits = BigInt(nights) * BigInt(result.newUnits);
+      return { nights, totalUnits, differenceUnits: totalUnits - result.oldTotalUnits };
+    }
+  </script>
+  <script id="calculator-ui">
+    'use strict';
+    const el = id => document.getElementById(id);
+    const integer = value => new Intl.NumberFormat('zh-CN', { maximumFractionDigits:0 }).format(value);
+    const rateText = value => Number(value).toFixed(1).replace(/\.0$/, '') + '%';
+    const percentText = value => Math.abs(value).toFixed(2);
+    const money = value => '¥' + new Intl.NumberFormat('zh-CN', { minimumFractionDigits:2, maximumFractionDigits:2 }).format(value);
+    const unitMoney = units => {
+      const abs = units < 0n ? -units : units;
+      const cents = (abs + 500n) / 1000n;
+      return (units < 0n ? '−' : '') + '¥' + (cents / 100n).toLocaleString('zh-CN') + '.' + String(cents % 100n).padStart(2, '0');
+    };
+    const formInputs = ['price', 'nights', 'old-rate', 'new-rate', 'cost'];
+    let currentResult = null;
+    let copyText = '';
+    let toastTimer;
+    function readInputs() {
+      return { price:el('price').value, nights:el('nights').value, oldRate:el('old-rate').value,
+        newRate:el('new-rate').value, costEnabled:el('cost-enabled').checked, cost:el('cost').value };
+    }
+    function setRates(oldRate, newRate) {
+      el('old-rate').value = oldRate; el('new-rate').value = newRate;
+      el('old-slider').value = oldRate; el('new-slider').value = newRate;
+      render();
+    }
+    function thresholdDescription(result) {
+      if (result.direction > 0) return '至少增长 ' + percentText(result.percent) + '%';
+      if (result.direction < 0) return '最多下降 ' + percentText(result.percent) + '%';
+      return '持平，间夜量不变';
+    }
+    function renderTable(raw, result) {
+      const rates = [...new Set([10,11,12,13,14,15,result.oldRate,result.newRate])].sort((a,b) => a-b);
+      const body = el('rate-table-body'); body.replaceChildren();
+      el('table-subtitle').textContent = '统一对比当前 ' + rateText(result.oldRate) + ' 佣金';
+      el('table-money-title').textContent = result.costEnabled ? '每间夜净贡献' : '每间夜扣佣收入';
+      rates.forEach(rate => {
+        const row = document.createElement('tr');
+        if (rate === result.newRate) row.className = 'selected';
+        const rateCell = document.createElement('td');
+        const pick = document.createElement('button'); pick.type = 'button'; pick.className = 'rate-pick';
+        pick.textContent = rateText(rate); pick.setAttribute('aria-label', '试算调整到' + rateText(rate));
+        pick.setAttribute('aria-pressed', String(rate === result.newRate));
+        pick.addEventListener('click', () => setRates(result.oldRate, rate)); rateCell.append(pick);
+        if (rate === result.oldRate || rate === result.newRate) {
+          const tag = document.createElement('span'); tag.className = 'table-tag';
+          tag.textContent = rate === result.oldRate ? '调整前基准' : '当前试算'; rateCell.append(tag);
+        }
+        const amount = document.createElement('td'); const change = document.createElement('td');
+        try { const variant = calculateCommission({ ...raw, newRate:rate }); amount.textContent = money(variant.newMargin); change.textContent = thresholdDescription(variant); }
+        catch { amount.textContent = '净贡献不为正'; change.textContent = '无法按此门槛计算'; }
+        row.append(rateCell, amount, change); body.append(row);
+      });
+    }
+    function summaryText(result, forecastText) {
+      const basis = result.costEnabled ? '净贡献持平' : '扣佣收入持平（未计成本，非真实保本线）';
+      return ['佣金调整测算', '口径：' + basis,
+        '房价：' + money(result.price) + '/间夜；变动成本：' + (result.costEnabled ? money(result.cost) + '/间夜' : '未填写，不作实际为零的假设'),
+        '佣金：' + rateText(result.oldRate) + ' → ' + rateText(result.newRate),
+        '间夜量门槛：' + thresholdDescription(result) + '（百分比为近似值）',
+        '原来 ' + integer(result.nights) + ' 间夜，调整后至少 ' + integer(result.minimumNights) + ' 间夜（向上取整）。',
+        '每间夜' + (result.costEnabled ? '净贡献' : '扣佣收入') + '：' + money(result.oldMargin) + ' → ' + money(result.newMargin),
+        '原总额 ' + unitMoney(result.oldTotalUnits) + '；最低整数间夜对应总额 ' + unitMoney(result.minimumTotalUnits) + '。',
+        forecastText || '',
+        '前提：同房价、同成本、同一比较期；仅限所测渠道，不等于酒店整体盈利。不预测流量，也未扣除其他渠道转移损失、额外广告费等。'].filter(Boolean).join('\n');
+    }
+    function renderForecast() {
+      if (!currentResult) return;
+      const target = el('forecast-result'); target.className = '';
+      let forecastText = '';
+      try {
+        const estimate = calculateForecast(currentResult, el('forecast').value);
+        if (!estimate) target.textContent = '填入你的预计间夜数，看看总额比原来多还是少。';
+        else {
+          const diff = estimate.differenceUnits;
+          target.className = diff < 0n ? 'bad' : 'good';
+          const difference = diff < 0n ? '少 ' + unitMoney(-diff) : diff > 0n ? '多 ' + unitMoney(diff) : '持平';
+          forecastText = '预计 ' + integer(estimate.nights) + ' 间夜，总' + (currentResult.costEnabled ? '净贡献' : '扣佣收入') + ' ' + unitMoney(estimate.totalUnits) + '，比原来' + difference + '。';
+          target.textContent = forecastText;
+        }
+      } catch (error) { target.className = 'bad'; target.textContent = error.message; forecastText = '预计间夜输入无效，未参与计算。'; }
+      copyText = summaryText(currentResult, forecastText);
+      el('copy-fallback').hidden = true;
+    }
+    function render() {
+      const raw = readInputs();
+      el('cost-details').hidden = !raw.costEnabled;
+      el('cost').required = raw.costEnabled;
+      el('copy-fallback').hidden = true;
+      try {
+        const result = calculateCommission(raw); currentResult = result;
+        el('error').hidden = true; el('valid-result').hidden = false; el('rate-table-panel').hidden = false;
+        el('download').disabled = false; el('copy').disabled = false;
+        const basis = result.costEnabled ? '净贡献' : '扣佣收入';
+        el('mobile-summary').hidden = false;
+        el('mobile-basis').textContent = result.costEnabled ? '净贡献持平 · 不等于整体盈利' : '扣佣收入持平 · 未计成本';
+        el('mobile-threshold').textContent = thresholdDescription(result);
+        el('mode-badge').textContent = basis + '持平线';
+        el('rate-path').textContent = rateText(result.oldRate) + ' → ' + rateText(result.newRate);
+        el('threshold-title').textContent = result.direction > 0 ? '涨佣后，间夜量至少增长' : result.direction < 0 ? '降佣后，间夜量最多下降' : '佣金未变，间夜量保持不变';
+        el('threshold-value').textContent = percentText(result.percent);
+        el('old-nights').textContent = integer(result.nights);
+        el('minimum-nights').textContent = integer(result.minimumNights);
+        const delta = result.minimumNights - result.nights;
+        el('night-delta').textContent = delta > 0 ? '至少多卖 ' + integer(delta) + ' 间夜，才能维持原来的总' + basis + '。' : delta < 0 ? '最多少卖 ' + integer(-delta) + ' 间夜，仍可维持原来的总' + basis + '。' : '按整数间夜计算，需要保留原来的间夜量。';
+        el('scope-note').className = 'scope-note' + (result.costEnabled ? ' known' : '');
+        el('scope-note').textContent = result.costEnabled ? '已按你填写的成本计算净贡献。不含固定成本，持平不等于酒店整体盈利。' : '未计变动成本：这是扣佣收入的持平门槛，不是真实保本线。房价会影响金额，但在此简化模式下不影响百分比。';
+        el('old-margin-label').textContent = '调整前 · 每间夜' + basis;
+        el('new-margin-label').textContent = '调整后 · 每间夜' + basis;
+        el('old-margin').textContent = money(result.oldMargin); el('new-margin').textContent = money(result.newMargin);
+        el('old-total').textContent = '原总额 ' + unitMoney(result.oldTotalUnits);
+        el('new-total').textContent = '最低间夜对应 ' + unitMoney(result.minimumTotalUnits);
+        renderTable(raw, result); renderForecast();
+      } catch (error) {
+        currentResult = null; copyText = '';
+        el('mobile-summary').hidden = true;
+        el('error').hidden = false; el('error-message').textContent = error.message;
+        el('valid-result').hidden = true; el('rate-table-panel').hidden = true;
+        el('download').disabled = true; el('copy').disabled = true;
+      }
+    }
+    function showToast(message) {
+      clearTimeout(toastTimer); el('toast').textContent = message; el('toast').hidden = false;
+      toastTimer = setTimeout(() => { el('toast').hidden = true; }, 3500);
+    }
+    function buildDownloadHtml() {
+      const clone = document.documentElement.cloneNode(true);
+      document.querySelectorAll('input').forEach(input => {
+        const copy = clone.querySelector('#' + input.id);
+        if (input.type === 'checkbox') { if (input.checked) copy.setAttribute('checked',''); else copy.removeAttribute('checked'); }
+        else copy.setAttribute('value', input.value);
+      });
+      clone.querySelector('#toast').setAttribute('hidden','');
+      clone.querySelector('#copy-fallback').setAttribute('hidden','');
+      clone.querySelector('#share-text').textContent = '';
+      // A forwarded file must stay honest even in a script-blocking preview.
+      // Keep the rendered snapshot, but lock inputs until calculation starts.
+      clone.querySelector('#startup-notice').removeAttribute('hidden');
+      clone.querySelector('#input-controls').setAttribute('disabled','');
+      ['forecast','download','copy'].forEach(id => clone.querySelector('#' + id).setAttribute('disabled',''));
+      clone.querySelectorAll('.rate-pick').forEach(button => button.setAttribute('disabled',''));
+      clone.querySelector('#mobile-summary').setAttribute('hidden','');
+      return '<!doctype html>\n' + clone.outerHTML;
+    }
+    formInputs.forEach(id => el(id).addEventListener('input', () => {
+      if (id === 'old-rate' || id === 'new-rate') {
+        const value = Number(el(id).value);
+        if (el(id).value !== '' && Number.isFinite(value) && value >= 10 && value <= 15) el(id.replace('rate','slider')).value = value;
+      }
+      render();
+    }));
+    ['old','new'].forEach(prefix => el(prefix + '-slider').addEventListener('input', () => {
+      el(prefix + '-rate').value = el(prefix + '-slider').value; render();
+    }));
+    el('calculator-form').addEventListener('submit', event => event.preventDefault());
+    el('cost-enabled').addEventListener('change', () => { render(); if (el('cost-enabled').checked) el('cost').focus(); });
+    el('forecast').addEventListener('input', renderForecast);
+    el('swap').addEventListener('click', () => setRates(el('new-rate').value, el('old-rate').value));
+    el('preset-up').addEventListener('click', () => setRates(10,15));
+    el('preset-down').addEventListener('click', () => setRates(15,10));
+    el('reset').addEventListener('click', () => {
+      el('price').value = '300'; el('nights').value = '1000'; el('cost-enabled').checked = false;
+      el('cost').value = ''; el('forecast').value = ''; setRates(10,15); showToast('已重置为示例，变动成本未填写。');
+    });
+    el('download').addEventListener('click', () => {
+      if (!currentResult) return;
+      try {
+        const blob = new Blob([buildDownloadHtml()], { type:'text/html;charset=utf-8' });
+        const url = URL.createObjectURL(blob); const link = document.createElement('a');
+        link.href = url; link.download = '佣金调整测算器.html'; document.body.append(link); link.click(); link.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+        showToast('已发起HTML下载，请在浏览器下载列表确认。');
+      } catch { showToast('当前浏览器不支持下载，请使用浏览器“另存为”保存HTML。'); }
+    });
+    el('copy').addEventListener('click', async () => {
+      if (!currentResult) return;
+      try {
+        if (!navigator.clipboard || !navigator.clipboard.writeText) throw new Error('Clipboard unavailable');
+        await navigator.clipboard.writeText(copyText); showToast('测算结果已复制，包含计算口径与假设。');
+      } catch {
+        el('copy-fallback').hidden = false; el('share-text').value = copyText;
+        el('share-text').focus(); el('share-text').select();
+      }
+    });
+    el('close-copy').addEventListener('click', () => { el('copy-fallback').hidden = true; el('copy').focus(); });
+    render();
+    el('input-controls').disabled = false;
+    el('forecast').disabled = false;
+    el('startup-notice').hidden = true;
+  </script>
+</body>
+</html>

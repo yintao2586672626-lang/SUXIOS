@@ -42,7 +42,7 @@ class AiDailyReport extends Base
     {
         try {
             [$hotelIds, $hotelId] = $this->resolveHotelScope((int)$this->request->param('hotel_id', 0));
-            return $this->success($this->service->list($hotelIds, $hotelId, $this->request->get()));
+            return $this->reportReadResponse($this->service->list($hotelIds, $hotelId, $this->request->get()));
         } catch (Throwable $e) {
             return ApiExceptionMapper::response($e, 'AI daily reports query failed', self::API_BUSINESS_EXCEPTIONS);
         }
@@ -52,7 +52,7 @@ class AiDailyReport extends Base
     {
         try {
             [$hotelIds, $hotelId] = $this->resolveHotelScope((int)$this->request->param('hotel_id', 0));
-            return $this->success($this->service->latest($hotelIds, $hotelId));
+            return $this->reportReadResponse($this->service->latest($hotelIds, $hotelId));
         } catch (Throwable $e) {
             return ApiExceptionMapper::response($e, 'AI daily report query failed', self::API_BUSINESS_EXCEPTIONS);
         }
@@ -67,7 +67,7 @@ class AiDailyReport extends Base
                 return $this->error('AI daily report not found', 404);
             }
 
-            return $this->success($report);
+            return $this->reportReadResponse($report);
         } catch (Throwable $e) {
             return ApiExceptionMapper::response($e, 'AI daily report read failed', self::API_BUSINESS_EXCEPTIONS);
         }
@@ -130,6 +130,14 @@ class AiDailyReport extends Base
         } catch (Throwable $e) {
             return ApiExceptionMapper::response($e, 'AI daily report generate failed', self::API_BUSINESS_EXCEPTIONS);
         }
+    }
+
+    private function reportReadResponse(array $report): Response
+    {
+        if (in_array($report['data_status'] ?? '', ['read_failed', 'missing_table'], true)) {
+            return $this->error('日报读取或证据校验未通过，请恢复数据读取后重试。', 503, $report);
+        }
+        return $this->success($report);
     }
 
     public function generationTask(string $taskId): Response

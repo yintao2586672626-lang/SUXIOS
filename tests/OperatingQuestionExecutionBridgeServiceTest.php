@@ -821,7 +821,8 @@ final class OperatingQuestionExecutionBridgeServiceTest extends TestCase
     public function testLifecycleWriteControllerAndMigrationKeepExactHotelAndDuplicateFailureContracts(): void
     {
         $controller = (string)file_get_contents(dirname(__DIR__) . '/app/controller/OperationManagement.php');
-        self::assertSame(6, substr_count($controller, 'resolveRequiredWriteHotelScope($input)'));
+        // The six lifecycle writes and both workflow writes require exact hotel scope.
+        self::assertSame(8, substr_count($controller, 'resolveRequiredWriteHotelScope($input)'));
         self::assertStringContainsString('hotel_id 与 system_hotel_id 不一致', $controller);
         self::assertStringContainsString('运营写入必须明确指定 hotel_id', $controller);
         self::assertMatchesRegularExpression(

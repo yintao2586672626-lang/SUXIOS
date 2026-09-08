@@ -161,6 +161,7 @@ final class CtripOrderAnalysisServiceTest extends TestCase
     {
         $base = [
             '城市' => '桂林',
+            '币种' => 'CNY',
             '酒店名称' => '匿名酒店（订单分析测试 fixture）',
             '订单类型' => '新订',
             '离店日期' => '2026-08-10',

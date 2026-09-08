@@ -68,12 +68,8 @@
     const preciseMetricUnitLabel = (value) => {
         const unit = String(value || '').trim();
         const labels = {
-            people: '人',
-            users: '人',
-            impressions: '次',
-            percent: '%',
-            orders: '单',
-            room_nights: '间夜',
+            people: '人', users: '人', impressions: '次',
+            percent: '%', orders: '单', room_nights: '间夜',
         };
         return labels[unit.toLowerCase()] || unit;
     };
@@ -124,17 +120,14 @@
                 const hasValue = preciseMetricHasValue(value);
                 const verificationStatus = String(raw.verification_status || '').trim().toLowerCase();
                 const readbackStatus = String(raw.readback_status || '').trim().toLowerCase();
-                const requiresStrictEvidence = true;
                 const statusBlocked = /^(?:blocked|missing|unavailable|failed|error|not_)/i.test(status);
                 const sourceRecords = Array.from(new Set([
                     String(raw.source_record || ''),
                     ...(Array.isArray(raw.source_records) ? raw.source_records.map((item) => String(item || '')) : []),
                 ].filter(Boolean)));
-                const strictEvidenceReady = !requiresStrictEvidence || (
-                    ['verified', 'derived_verified'].includes(verificationStatus)
+                const strictEvidenceReady = ['verified', 'derived_verified'].includes(verificationStatus)
                     && readbackStatus === 'readback_verified'
-                    && sourceRecords.length > 0
-                );
+                    && sourceRecords.length > 0;
                 const blockedReason = String(raw.blocked_reason || (
                     !strictEvidenceReady ? '指标缺少 verified/derived_verified、readback_verified 或来源记录凭证' : ''
                 ));
@@ -196,7 +189,56 @@
             ? `${label} ${String(value)}${unit ? ` ${unit}` : ''}`
             : label;
     };
+    // PRECISE_QUERY_EXPLANATION_START
+    const renderPreciseQueryConditions = (result = {}) => {
+        const scope = result.precise_query_scope || {};
+        if (!result.precise_query_id) return null;
+        const metricNames = { amount: '订单金额', room_revenue: '实住房费收入', settlement_amount: '结算金额', book_order_num: '订单量', quantity: '间夜', list_exposure: '曝光人数', detail_exposure: '访客人数', exposure_to_visit_rate: '曝光到访率' };
+        const fields = [
+            ['历史编号', `#${result.precise_query_id} · ${result.persistence_status === 'readback_verified' ? '已按编号回读' : '待回读'}`],
+            ['酒店', scope.hotel_id ? `${scope.hotel_name || '酒店'}（${scope.hotel_id}）` : '待确认'],
+            ['渠道', ({ ctrip: '携程', meituan: '美团', all_ota: '携程与美团（分别核验口径）' })[scope.platform] || '待确认'],
+            ['期间', scope.date_start ? `${scope.date_start} 至 ${scope.date_end}` : (scope.business_date || '待确认')],
+            ['指标口径', (scope.metric_keys || []).map(key => metricNames[key] || key).join('、') || '待确认'],
+            ['时间说明', scope.date_source === 'completed_recent_days' ? '上海业务日；最近N天不含今天' : '上海业务日（Asia/Shanghai）'],
+        ];
+        if (scope.comparison) fields.push(['对比条件', `${scope.comparison.date_start} 至 ${scope.comparison.date_end}；同口径、同天数、完整覆盖`]);
+        if (scope.parent_question_id) fields.push(['追问来源', `已保存问题 #${scope.parent_question_id}`]);
+        return h('section', { class: 'sx-ai-consultant-gaps', 'data-testid': 'precise-query-conditions' }, [
+            h('strong', '解释后的查询条件'),
+            ...fields.map(([label, text]) => h('p', { key: label }, `${label}：${text}`)),
+        ]);
+    };
+    const renderPrecisePeriodEvidence = (precise = {}, options = {}) => {
+        const comparison = precise.comparison;
+        const windows = comparison ? [['本期', comparison.current], ['对比期', comparison.baseline]] : [['查询期间', precise]];
+        const valueText = (value, unit) => value === null || value === undefined ? '不可计算' : `${value} ${preciseMetricUnitLabel(unit)}`;
+        return h('section', { class: 'sx-ai-consultant-gaps', 'data-testid': options.testId || 'precise-query-period' }, [
+            ...windows.map(([label, item]) => h('article', { key: label, 'data-period-status': item.status }, [
+                h('strong', `${label}：${item.date_start} 至 ${item.date_end}`),
+                h('p', `覆盖：${item.coverage?.available_days ?? 0}/${item.coverage?.expected_days ?? 0}`),
+                h('p', `全期间值：${valueText(item.value, item.unit)}`),
+                item.partial_value !== null && item.partial_value !== undefined ? h('p', `${item.subtotal_label || '非全期间小计'}：${valueText(item.partial_value, item.unit)}`) : null,
+                h('p', `缺失日期：${(item.coverage?.missing_dates || []).join('、') || '无'}`),
+                h('p', `计算：${item.formula || '暂无可用计算'}`),
+                item.blocked_reason ? h('p', String(item.blocked_reason)) : null,
+                h('details', [
+                    h('summary', '逐日事实与引用'),
+                    ...(item.daily_facts || []).map(day => h('p', { key: day.business_date }, `${day.business_date}：${valueText(day.value, day.unit)}；来源 ${(day.source_records || []).join('、') || '缺失'}；${day.blocked_reason || day.readback_status || '未核验'}`)),
+                ]),
+            ].filter(Boolean))),
+            comparison ? h('div', [
+                h('p', `同口径差额：${valueText(comparison.difference, precise.unit)}`),
+                h('p', `变化率：${valueText(comparison.change_percent, '%')}`),
+                h('p', String(comparison.formula || '')),
+                comparison.blocked_reason ? h('p', String(comparison.blocked_reason)) : null,
+            ].filter(Boolean)) : null,
+            h('p', '数值来自确定性日事实；OTA渠道范围，不代表全酒店。'),
+        ].filter(Boolean));
+    };
+    // PRECISE_QUERY_EXPLANATION_END
     const renderPreciseMetricEvidence = (answer = {}, options = {}) => {
+        if (['operating_period_metric', 'operating_period_comparison'].includes(answer?.precise_result?.kind)) return renderPrecisePeriodEvidence(answer.precise_result, options);
         const normalized = options.normalized || normalizePreciseMetricSet(answer);
         if (!normalized.items.length) return null;
         const overallGaps = Array.isArray(options.dataGaps) ? options.dataGaps : [];
@@ -2436,7 +2478,46 @@
             const widgetStorageVersion = 1;
             const pendingCoachStorageVersion = 1;
             const preciseQueryStorageVersion = 1;
+            let preciseRequestGeneration = 0;
+            let preciseComponentDisposed = false;
+            let pendingPreciseQuery = null;
+            const preciseQueryScope = () => {
+                const ctx = props.ctx || {};
+                const form = ctx.operatingQuestionForm || {};
+                const onHome = ctx.currentPage === 'compass';
+                return {
+                    user_id: Number(ctx.user?.id || 0),
+                    tenant_id: Number(ctx.authContext?.tenantId || ctx.user?.tenant_id || 0),
+                    hotel_id: Number(onHome ? (ctx.filterReportHotel || 0) : (form.hotel_id ?? ctx.filterReportHotel ?? ctx.user?.hotel_id ?? 0)),
+                    platform: String(form.platform || ''),
+                    date_start: String((onHome ? ctx.homeRevenueFactBusinessDate : form.date_start) || ''),
+                    date_end: String((onHome ? ctx.homeRevenueFactBusinessDate : form.date_end) || ''),
+                };
+            };
+            const preciseQueryScopeKey = () => JSON.stringify(preciseQueryScope());
+            const preciseQuerySession = () => props.ctx?.assistantSessionEpoch?.() ?? props.ctx?.user;
+            const beginPreciseQueryRequest = () => {
+                const generation = ++preciseRequestGeneration;
+                const scopeKey = preciseQueryScopeKey();
+                const session = preciseQuerySession();
+                return () => !preciseComponentDisposed && generation === preciseRequestGeneration
+                    && scopeKey === preciseQueryScopeKey() && session === preciseQuerySession();
+            };
+            const resetPreciseQueryScope = () => {
+                preciseRequestGeneration += 1;
+                pendingPreciseQuery = null;
+                state.value.turns = [];
+                state.value.query = '';
+                state.value.error = '';
+                state.value.loading = false;
+                state.value.restoring_precise_query = false;
+            };
             const widgetRoot = ref(null);
+            const revealPreciseQueryFeedback = async (isCurrent, selector) => {
+                await nextTick();
+                if (!isCurrent()) return;
+                widgetRoot.value?.querySelector(selector)?.scrollIntoView?.({ block: 'nearest', behavior: 'instant' });
+            };
             const widgetOpen = ref(false);
             const widgetDragging = ref(false);
             const widgetPosition = ref({ right: null, bottom: null });
@@ -2496,12 +2577,7 @@
                 .filter((topic) => canOpenTopic(topic))
                 .map((topic) => topic.key);
             const currentLearningHotelId = () => Number(
-                props.ctx?.operatingQuestionForm?.hotel_id
-                || props.ctx?.filterReportHotel
-                || latestPreciseOperatingScope?.()?.hotel_id
-                || props.ctx?.user?.default_hotel_id
-                || props.ctx?.user?.hotel_id
-                || 0
+                preciseQueryScope().hotel_id
             );
             const currentLearningUserId = () => Number(props.ctx?.user?.id || 0);
             const currentLearningTenantId = (hotelId) => {
@@ -2559,7 +2635,7 @@
             };
             const preciseQueryStorageKey = () => {
                 const userId = Number(props.ctx?.user?.id || 0);
-                return `suxios_precise_query_last_v1:${userId > 0 ? userId : 'session'}`;
+                return `suxios_precise_query_last_v1:${userId > 0 ? userId : 'session'}:${preciseQueryScopeKey()}`;
             };
             const savePreciseQueryPointer = (readback) => {
                 const id = Number(readback?.id || 0);
@@ -2570,6 +2646,7 @@
                         version: preciseQueryStorageVersion,
                         id,
                         content_digest: digest,
+                        request_scope: preciseQueryScopeKey(),
                         saved_at: Date.now(),
                     }));
                     return true;
@@ -2579,16 +2656,39 @@
             };
             const readPreciseQueryPointer = () => {
                 try {
-                    const raw = JSON.parse(localStorage.getItem(preciseQueryStorageKey()) || 'null');
+                    const userId = Number(props.ctx?.user?.id || 0);
+                    const raw = JSON.parse(localStorage.getItem(preciseQueryStorageKey())
+                        || localStorage.getItem(`suxios_precise_query_last_v1:${userId > 0 ? userId : 'session'}`) || 'null');
                     if (!raw
                         || Number(raw.version || 0) !== preciseQueryStorageVersion
                         || Number(raw.id || 0) <= 0
                         || !String(raw.content_digest || '')
                     ) return null;
+                    if (raw.request_scope && raw.request_scope !== preciseQueryScopeKey()) return null;
                     return raw;
                 } catch (error) {
                     return null;
                 }
+            };
+            const persistPendingPreciseQuery = () => {
+                try {
+                    const key = `${preciseQueryStorageKey()}:pending`;
+                    if (pendingPreciseQuery) sessionStorage.setItem(key, JSON.stringify(pendingPreciseQuery));
+                    else sessionStorage.removeItem(key);
+                } catch (_) { /* Storage may be disabled; same-page retry still works. */ }
+            };
+            const restorePendingPreciseQuery = () => {
+                try {
+                    const pending = JSON.parse(sessionStorage.getItem(`${preciseQueryStorageKey()}:pending`) || 'null');
+                    if (pending?.scope_key !== preciseQueryScopeKey() || !pending?.payload?.client_request_key
+                        || !String(pending?.payload?.query || '').trim()) return false;
+                    pendingPreciseQuery = pending;
+                    state.value.query = pending.payload.query;
+                    state.value.error = pending.id
+                        ? `查询 #${pending.id} 已保存，点击重试继续按编号回读。`
+                        : '上次查询的保存结果尚未确认，点击重试将沿用同一请求编号。';
+                    return true;
+                } catch (_) { return false; }
             };
             const preciseQueryRequest = (...args) => {
                 const handler = props.ctx?.managerCapabilityRequest;
@@ -2654,20 +2754,34 @@
                     idempotency_key: String(payload?.idempotency_key || systemLearningRequestId('feedback')),
                 }),
             });
-            const askPreciseQuery = async (payload = {}) => {
-                const response = await preciseQueryRequest('/agent/precise-queries', {
-                    method: 'POST',
-                    body: JSON.stringify(payload && typeof payload === 'object' ? payload : {}),
-                });
+            const askPreciseQuery = async (payload = {}, isCurrent = () => true) => {
+                const pending = pendingPreciseQuery;
+                let saved = pending?.saved;
+                if (!pending?.id) {
+                    const response = await preciseQueryRequest('/agent/precise-queries', {
+                        method: 'POST',
+                        body: JSON.stringify(payload && typeof payload === 'object' ? payload : {}),
+                    });
+                    if (!isCurrent()) return null;
                 if (response.code !== 200 || !response.data || typeof response.data !== 'object') {
                     throw new Error(response.message || '宿析精准查数没有返回有效结果');
                 }
-                const saved = response.data;
+                    saved = response.data;
+                    if (Number(saved.id || 0) > 0 && pending) {
+                        pending.id = Number(saved.id);
+                        pending.saved = {
+                            id: pending.id, content_digest: saved.content_digest, question: saved.question,
+                            route_type: saved.route_type, persistence_status: saved.persistence_status,
+                        };
+                        persistPendingPreciseQuery();
+                    }
+                }
                 const id = Number(saved.id || 0);
                 if (!id || saved.persistence_status !== 'readback_verified') {
                     throw new Error('宿析精准查数没有返回保存回读编号');
                 }
                 const exact = await readPreciseQuery(id);
+                if (!isCurrent()) return null;
                 if (String(exact.content_digest || '') !== String(saved.content_digest || '')
                     || String(exact.question || '') !== String(saved.question || '')
                     || String(exact.route_type || '') !== String(saved.route_type || '')
@@ -3579,11 +3693,12 @@
                 for (let index = state.value.turns.length - 1; index >= 0; index -= 1) {
                     const result = state.value.turns[index]?.result;
                     const scope = result?.precise_query_scope;
-                    if (result?.route_type === 'operating_query'
+                    const selectedHotel = Number(props.ctx?.operatingQuestionForm?.hotel_id || props.ctx?.filterReportHotel || 0);
+                    if (['operating_query', 'clarification'].includes(result?.route_type)
                         && scope && typeof scope === 'object'
                         && Number(scope.hotel_id || 0) > 0
-                        && String(scope.business_date || '')
-                    ) return scope;
+                        && (!selectedHotel || selectedHotel === Number(scope.hotel_id))
+                    ) return { ...scope, parent_question_id: Number(result.precise_query_id || 0) };
                 }
                 return null;
             };
@@ -3729,6 +3844,7 @@
                     precise_query_digest: String(raw.content_digest || ''),
                     precise_query_status: String(raw.status || ''),
                     precise_query_scope: raw.parsed_scope && typeof raw.parsed_scope === 'object' ? raw.parsed_scope : {},
+                    precise_query_answer: raw.answer && typeof raw.answer === 'object' ? raw.answer : {},
                     precise_query_lexicon: raw.lexicon && typeof raw.lexicon === 'object' ? raw.lexicon : {},
                     knowledge_refs: Array.isArray(raw.knowledge_refs) ? raw.knowledge_refs : [],
                     fact_refs: Array.isArray(raw.fact_refs) ? raw.fact_refs : [],
@@ -3746,7 +3862,7 @@
                     const topic = topicByKey('revenue-report');
                     return {
                         ...common,
-                        status: 'ready',
+                        status: String(raw.status || '').startsWith('blocked') ? 'blocked' : (raw.status === 'partial_period' ? 'partial' : 'ready'),
                         mode: 'deterministic',
                         route_type: routeType,
                         assistant_mode: 'report',
@@ -3813,6 +3929,8 @@
             };
             const ask = async () => {
                 if (state.value.loading) return false;
+                const isCurrent = beginPreciseQueryRequest();
+                state.value.restoring_precise_query = false;
                 const query = String(state.value.query || '').trim();
                 state.value.error = '';
                 if (!query) {
@@ -3823,45 +3941,62 @@
                 state.value.query = '';
                 const requestedMode = String(state.value.selected_mode || 'auto');
                 const conversationScope = latestPreciseOperatingScope();
+                const currentScope = preciseQueryScope();
                 const requestPayload = {
                     query,
                     requested_mode: requestedMode,
                     current_page: String(props.ctx?.currentPage || ''),
                     page_title: currentPageText(),
                     current_scope: {
-                        hotel_id: Number(
-                            conversationScope?.hotel_id
-                            ||
-                            props.ctx?.operatingQuestionForm?.hotel_id
-                            || props.ctx?.filterReportHotel
-                            || props.ctx?.user?.hotel_id
-                            || 0
-                        ),
+                        hotel_id: currentScope.hotel_id,
                         hotel_name: String(conversationScope?.hotel_name || props.ctx?.operatingQuestionSelectedHotel?.name || ''),
                         platform: String(conversationScope?.platform || props.ctx?.operatingQuestionForm?.platform || ''),
-                        date_start: String(conversationScope?.business_date || props.ctx?.operatingQuestionForm?.date_start || ''),
-                        date_end: String(conversationScope?.business_date || props.ctx?.operatingQuestionForm?.date_end || ''),
+                        date_start: String(conversationScope?.business_date || currentScope.date_start),
+                        date_end: String(conversationScope?.business_date || currentScope.date_end),
                     },
                     visible_topic_keys: visibleTopicKeys(),
                     active_journey: activeJourneyContext(),
                     history: conversationHistory(),
+                    parent_question_id: Number([...state.value.turns].reverse().find(turn =>
+                        ['operating_query', 'clarification'].includes(turn.result?.route_type)
+                        && turn.result?.persistence_status === 'readback_verified')?.result?.precise_query_id || 0) || undefined,
                 };
+                if (!pendingPreciseQuery || pendingPreciseQuery.scope_key !== preciseQueryScopeKey()
+                    || pendingPreciseQuery.payload.query !== query
+                    || pendingPreciseQuery.payload.requested_mode !== requestedMode) {
+                    pendingPreciseQuery = {
+                        scope_key: preciseQueryScopeKey(),
+                        payload: { ...requestPayload, client_request_key: systemLearningRequestId('precise') },
+                        id: 0,
+                    };
+                    persistPendingPreciseQuery();
+                }
                 let result;
                 try {
                     if (typeof props.ctx?.managerCapabilityRequest === 'function') {
-                        const exact = await askPreciseQuery(requestPayload);
+                        const exact = await askPreciseQuery(pendingPreciseQuery.payload, isCurrent);
+                        if (!isCurrent()) return false;
                         result = normalizePreciseQueryResult(exact, query);
                         savePreciseQueryPointer(exact);
+                        pendingPreciseQuery = null;
+                        persistPendingPreciseQuery();
                     } else {
                         result = normalizeResult(await props.ctx?.askSystemUsageGuide?.(requestPayload), query);
+                        if (!isCurrent()) return false;
                         result = await runOperatingWorkflow(result, query);
                     }
                 } catch (error) {
-                    result = localFallbackResult(query, 'request_failed', requestedMode);
-                    result = await runOperatingWorkflow(result, query);
+                    if (!isCurrent()) return false;
+                    state.value.query = query;
+                    state.value.error = `${error?.message || '查询请求失败'}。${pendingPreciseQuery?.id
+                        ? `查询 #${pendingPreciseQuery.id} 已保存，重试仅按编号回读。`
+                        : '保存结果尚未确认；重试将沿用同一请求编号。'}`;
+                    void revealPreciseQueryFeedback(isCurrent, '[data-testid="system-guide-error"]');
+                    return false;
                 } finally {
-                    state.value.loading = false;
+                    if (isCurrent()) state.value.loading = false;
                 }
+                if (!isCurrent()) return false;
                 state.value.turns.push({
                     id: `${Date.now()}-${state.value.turns.length}`,
                     query,
@@ -3873,17 +4008,31 @@
                 if (state.value.turns.length > 6) {
                     state.value.turns.splice(0, state.value.turns.length - 6);
                 }
+                void revealPreciseQueryFeedback(isCurrent, '[data-testid="system-guide-result"]');
                 return true;
             };
             const restorePreciseQueryReadback = async () => {
-                if (state.value.turns.length || state.value.restoring_precise_query) return false;
+                if (state.value.turns.length || state.value.loading || state.value.restoring_precise_query) return false;
+                if (restorePendingPreciseQuery()) return false;
                 const pointer = readPreciseQueryPointer();
                 if (!pointer || typeof props.ctx?.managerCapabilityRequest !== 'function') return false;
+                const isCurrent = beginPreciseQueryRequest();
                 state.value.restoring_precise_query = true;
                 try {
                     const exact = await readPreciseQuery(pointer.id);
+                    if (!isCurrent()) return false;
                     if (String(exact?.content_digest || '') !== String(pointer.content_digest || '')) {
                         throw new Error('刷新后的问题摘要与上次保存不一致');
+                    }
+                    if (!pointer.request_scope) {
+                        const scope = preciseQueryScope();
+                        const savedScope = exact.parsed_scope || {};
+                        if (Number(savedScope.hotel_id || 0) !== scope.hotel_id
+                            || String(savedScope.platform || '') !== scope.platform
+                            || String(savedScope.business_date || savedScope.date_start || '') !== scope.date_start
+                            || String(savedScope.date_end || savedScope.business_date || '') !== scope.date_end) {
+                            throw new Error('旧版保存查询的范围与当前酒店、日期或平台不一致，请重新查数。');
+                        }
                     }
                     const query = String(exact?.question || '');
                     const result = normalizePreciseQueryResult(exact, query);
@@ -3892,12 +4041,14 @@
                         query,
                         result,
                     });
+                    void revealPreciseQueryFeedback(isCurrent, '[data-testid="system-guide-result"]');
                     return true;
                 } catch (error) {
+                    if (!isCurrent()) return false;
                     state.value.error = error?.message || '刷新后按编号回读失败';
                     return false;
                 } finally {
-                    state.value.restoring_precise_query = false;
+                    if (isCurrent()) state.value.restoring_precise_query = false;
                 }
             };
             const openTopic = async (event, topic, turn, options = {}) => {
@@ -4042,13 +4193,13 @@
                 const blocked = preciseMetrics.isMetricSet && preciseMetrics.items.length
                     ? preciseMetrics.allBlocked
                     : answerBlocked;
-                const partial = preciseMetrics.isMetricSet && preciseMetrics.isPartial;
+                const partial = (preciseMetrics.isMetricSet && preciseMetrics.isPartial) || exact.answer_status === 'partial_period';
                 const children = [
                     h('div', { class: 'sx-ai-consultant-operating-result-head' }, [
                         h('span', {
                             class: ['sx-ai-consultant-status', blocked ? 'is-blocked' : ''],
                         }, partial
-                            ? '部分指标可用'
+                            ? (exact.answer_status === 'partial_period' ? '部分日期可用，非全期间小计' : '部分指标可用')
                             : (blocked
                                 ? '缺少可信事实'
                                 : String(props.ctx?.operatingQuestionAnswerStatusText?.(exact.answer_status) || '已严格回读'))),
@@ -4301,7 +4452,14 @@
                 state.value.active_journey = readActiveJourney();
                 void loadLearningContext();
             });
+            window.Vue.watch(preciseQueryScopeKey, () => {
+                resetPreciseQueryScope();
+                void restorePreciseQueryReadback();
+            }, { flush: 'sync' });
+            window.Vue.watch(() => props.ctx?.user, () => resetPreciseQueryScope(), { flush: 'sync' });
             onUnmounted(() => {
+                preciseComponentDisposed = true;
+                preciseRequestGeneration += 1;
                 window.removeEventListener('resize', handleWidgetViewportResize);
                 if (resizeFrame) window.cancelAnimationFrame(resizeFrame);
                 if (preciseRestoreTimer) window.clearTimeout(preciseRestoreTimer);
@@ -4355,6 +4513,8 @@
                         h('p', String(result.assistant_message || '')),
                     ];
                     const personalizationReceipt = renderPersonalizationReceipt(result, isLatest);
+                    const queryConditions = renderPreciseQueryConditions(result);
+                    if (queryConditions) answerChildren.push(queryConditions);
                     if (personalizationReceipt) answerChildren.push(personalizationReceipt);
                     const operatingResult = renderOperatingResult(result, turn, isLatest);
                     if (operatingResult) answerChildren.push(operatingResult);
@@ -4754,6 +4914,7 @@
                         class: 'sx-ai-consultant-launcher',
                         'data-testid': 'system-guide-floating-launcher',
                         'aria-label': widgetOpen.value ? '收起宿析精准查数' : '打开宿析精准查数',
+                        'aria-expanded': widgetOpen.value ? 'true' : 'false',
                         title: widgetOpen.value ? '收起为悬浮按钮' : '打开宿析精准查数；按住可移动',
                         onPointerdown: (event) => startWidgetDrag(event, 'launcher'),
                         onPointermove: moveWidgetDrag,
@@ -4805,6 +4966,8 @@
                                 ]),
                                 h('em', state.value.active_journey ? '任务路线已保留' : `可引导 ${visibleTopicKeys().length} 项功能`),
                             ]),
+                            h('p', { class: 'sx-ai-consultant-boundary', 'data-testid': 'precise-query-scope' },
+                                `查询上下文：酒店 ${preciseQueryScope().hotel_id || '未选择'} · ${preciseQueryScope().platform || '平台待明确'} · ${preciseQueryScope().date_start || '日期待明确'}${preciseQueryScope().date_end !== preciseQueryScope().date_start ? ` 至 ${preciseQueryScope().date_end}` : ''}`),
                             h('p', { class: 'sx-ai-consultant-boundary' }, '只引导当前账号可用的真实功能，并跨页面保留任务路线。涉及结论、执行或外发时，仍以严格回读和人工确认为准。'),
                             preferencePanel,
                             modeSwitcher,

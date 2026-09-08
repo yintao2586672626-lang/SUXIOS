@@ -5,6 +5,19 @@ namespace app\service;
 
 final class RevenueForecastReadinessService
 {
+    public function assessReplay(array $stats, string $sourceKind): array
+    {
+        $enough = ($stats['complete_fold_count'] ?? 0) >= 3 && ($stats['unpaired_point_count'] ?? 1) === 0
+            && ($stats['unavailable_training_fold_count'] ?? 0) === 0;
+        $model = $stats['metrics']['model']['mae'] ?? null;
+        $weekly = $stats['metrics']['weekly']['mae'] ?? null;
+        $mean = $stats['metrics']['mean7']['mae'] ?? null;
+        $better = $model !== null && $weekly !== null && $mean !== null && $model < min($weekly, $mean);
+        return ['status' => !$enough ? 'insufficient_samples' : ($better ? 'better_on_this_sample' : 'not_better_than_baseline'),
+            'comparison_supported' => $enough, 'beats_both_baselines' => $enough ? $better : null,
+            'source_kind' => $sourceKind, 'execution_ready' => false, 'causal_effect_established' => false];
+    }
+
     public function enrichForecastRows(iterable $rows, array $suggestionStatsByForecastId = []): array
     {
         $result = [];

@@ -113,6 +113,8 @@ final class CtripManualFetchRequestServiceTest extends TestCase
         self::assertSame('verified', $verified['status']);
         self::assertSame('2026-08-29', $verified['source_business_date']);
         self::assertFalse($missing['verified']);
+        self::assertSame('target_date_unverified', $missing['status']);
+        self::assertNull($missing['source_business_date']);
         self::assertSame('response_business_date_missing', $missing['reason']);
         self::assertFalse($mismatch['verified']);
         self::assertSame('target_date_mismatch', $mismatch['status']);

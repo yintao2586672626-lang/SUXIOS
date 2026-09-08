@@ -23,6 +23,8 @@ function harness({ preparing = false } = {}) {
     window: { setTimeout }, console, URLSearchParams,
     fetchingData: { value: false }, ctripRankingHistoryLoading: { value: false },
     ctripManualFetchRequestSeq: 0, ctripManualFetchActive: false,
+    ctripRankingHistoryRequestSeq: 0, ctripRankingHistoryRange: { value: '' }, ctripRankingHistoryMessage: { value: '' },
+    ctripRankingStoredDate: { value: '' },
     isLoggedIn: { value: true }, selectedCtripHotelId: { value: 901 },
     ctripForm: { value: form() }, ctripTrafficForm: { value: form() },
     ctripFetchSuccess: { value: false }, ctripSavedCount: { value: 0 }, showRawData: { value: false },

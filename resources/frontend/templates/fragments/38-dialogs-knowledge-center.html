@@ -122,7 +122,7 @@
 
         <!-- 智能知识中枢：片段查看 -->
         <div v-if="showKnowledgeCenterChunksModal" class="fixed inset-0 z-50 flex items-center justify-center modal-overlay">
-            <div class="bg-white rounded-lg shadow-xl w-full max-w-4xl mx-4 max-h-[88vh] overflow-hidden flex flex-col">
+            <div class="bg-white rounded-lg shadow-xl w-full max-w-4xl mx-4 max-h-[88vh] overflow-hidden flex flex-col" style="max-height: 88vh;">
                 <div class="p-4 border-b flex justify-between items-center sticky top-0 bg-white">
                     <div>
                         <h3 class="text-lg font-semibold">{{ knowledgeCenterSelectedUnit?.name || '知识片段' }}</h3>
@@ -132,12 +132,39 @@
                         <i class="fas fa-times"></i>
                     </button>
                 </div>
-                <div class="p-4 grid grid-cols-1 lg:grid-cols-3 gap-4 overflow-hidden">
+                <div v-if="knowledgeCenterSelectedUnit?.applicability_query" class="p-3 border-b bg-slate-50 space-y-2 text-sm overflow-y-auto" style="flex-shrink: 0; max-height: 34vh;">
+                    <div class="flex flex-wrap gap-2 items-center">
+                        <span>适用酒店 #{{ knowledgeCenterSelectedUnit.applicability_query.hotel_id || '未选择' }}</span>
+                        <label>平台 <select v-model="knowledgeCenterSelectedUnit.applicability_query.platform" class="border rounded p-1"><option value="all_ota">携程/美团渠道参考</option><option value="ctrip">携程</option><option value="meituan">美团</option></select></label>
+                        <label>适用日 <input v-model="knowledgeCenterSelectedUnit.applicability_query.as_of" type="date" class="border rounded p-1"></label>
+                        <button type="button" @click="openKnowledgeChunks(knowledgeCenterSelectedUnit, { refresh: true, evaluate: true })" :disabled="knowledgeCenterSelectedUnit.chunks_loading" class="px-3 py-1 border rounded bg-white disabled:opacity-50">检查适用性与32题检索</button>
+                    </div>
+                    <div class="flex gap-2"><input v-model="knowledgeCenterSelectedUnit.applicability_query.question" placeholder="输入经营问题，查看这份知识的可用引用" class="min-w-0 flex-1 border rounded p-2"><button type="button" @click="openKnowledgeChunks(knowledgeCenterSelectedUnit, { refresh: true })" :disabled="knowledgeCenterSelectedUnit.chunks_loading" class="px-3 border rounded bg-white">预览引用</button></div>
+                    <details><summary>酒店适用条件</summary><label class="block mt-2">已知条件 JSON（缺失条件保持阻塞）<input v-model="knowledgeCenterSelectedUnit.applicability_query.hotel_conditions" placeholder='{"store_stage":"new"}' class="w-full border rounded p-2"></label></details>
+                    <p v-if="knowledgeCenterSelectedUnit.chunks_loading">正在读取当前范围…</p>
+                    <p v-if="knowledgeCenterSelectedUnit.chunks_error" class="text-red-700">{{ knowledgeCenterSelectedUnit.chunks_error }}；可重新检查。</p>
+                    <div v-if="knowledgeCenterSelectedUnit.retrieval_preview" class="text-slate-700">
+                        <p>{{ knowledgeCenterSelectedUnit.retrieval_preview.items?.length ? '当前可引用片段：' : '当前无可用匹配；不能据此补齐经营事实。' }}</p>
+                        <p v-for="item in knowledgeCenterSelectedUnit.retrieval_preview.items" :key="item.ref">{{ item.ref }} · {{ item.name }} · {{ item.applicability?.status_label }}</p>
+                        <p v-if="knowledgeCenterSelectedUnit.retrieval_preview.conflicts?.length" class="text-amber-800">存在规则冲突：{{ knowledgeCenterSelectedUnit.retrieval_preview.conflicts.length }} 组；以详情中的裁决状态为准。</p>
+                    </div>
+                    <details v-if="knowledgeCenterSelectedUnit.evaluation"><summary>已评估 {{ knowledgeCenterSelectedUnit.evaluation.question_count }} 个固定问题（本经验单元的引用选择，不代表模型回答或经营效果）</summary><p v-for="q in knowledgeCenterSelectedUnit.evaluation.questions" :key="q.id">{{ q.id }} {{ q.question }} · {{ q.refs.length ? q.refs.join('、') : '无可用引用' }}</p></details>
+                    <details v-if="knowledgeCenterSelectedUnit.reevaluation"><summary>保存后重评：{{ knowledgeCenterSelectedUnit.reevaluation.affected_count ?? 0 }} 个问题的结果变化</summary><p v-for="q in knowledgeCenterSelectedUnit.reevaluation.affected_questions" :key="q.id">{{ q.question }} · {{ q.before.refs.join('、') || '无引用' }} → {{ q.after.refs.join('、') || '无引用' }}</p></details>
+                </div>
+                <div class="p-4 grid grid-cols-1 lg:grid-cols-3 gap-4 overflow-y-auto" style="min-height: 0;">
                     <div class="lg:col-span-2 space-y-3 max-h-[68vh] overflow-y-auto pr-1">
                         <div v-for="chunk in knowledgeCenterVisibleChunks" :key="chunk.chunk_id" class="border border-gray-100 rounded-lg p-4">
                             <div class="flex items-center justify-between mb-2">
                                 <span :title="chunk.type || ''" class="px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 text-xs font-medium">{{ knowledgeCenterDisplayLabel(chunk.type || 'manual', '其他类型') }}</span>
                                 <span class="text-xs text-gray-400">#{{ chunk.chunk_id }} · {{ chunk.created_at || '-' }}</span>
+                            </div>
+                            <div v-if="chunk.applicability" class="mb-3 rounded border p-3 bg-slate-50 text-xs leading-5">
+                                <p class="font-semibold">{{ chunk.applicability.status_label }} · 来源等级 {{ chunk.applicability.evidence_grade }} · 版本 {{ chunk.revision_no }}</p>
+                                <p>有效期：{{ chunk.applicability.valid_from || '未记录起始日' }} 至 {{ chunk.applicability.valid_until || '未记录截止日' }}</p>
+                                <p>来源核验：{{ chunk.applicability.source_verification_status === 'verified' ? '已记录核验' : '未核验或未记录，需确认来源' }}</p>
+                                <p v-for="reason in chunk.applicability.reason_labels" :key="reason" class="text-amber-800">{{ reason }}</p>
+                                <p>知识参考不证明本店经营事实，不授予经营操作权限。</p>
+                                <button v-if="knowledgeCenterSelectedUnit?.can_edit !== false &amp;&amp; !chunk.revision_superseded" type="button" @click="openKnowledgeChunks(knowledgeCenterSelectedUnit, { editChunk: chunk })" :disabled="knowledgeCenterChunkForm.saving" class="mt-2 px-2 py-1 border rounded bg-white">修改并保存新版本</button>
                             </div>
                             <template v-for="view in [knowledgeChunkView(chunk)]" :key="'chunk-view-' + chunk.chunk_id">
                                 <h4 v-if="view.title" class="text-base font-semibold text-gray-900 mb-2">{{ view.title }}</h4>
@@ -217,7 +244,7 @@
                         <div v-if="knowledgeCenterVisibleChunks.length === 0" class="border border-dashed border-gray-200 rounded-lg p-8 text-center text-gray-500">当前筛选条件下暂无匹配片段</div>
                     </div>
                     <form v-if="knowledgeCenterSelectedUnit?.can_edit !== false" @submit.prevent="saveKnowledgeChunk" class="border border-gray-100 rounded-lg p-4 space-y-4 h-fit">
-                        <h4 class="font-semibold text-gray-800">新增经验片段</h4>
+                        <h4 class="font-semibold text-gray-800">{{ knowledgeCenterChunkForm.replaces_chunk_id ? '修改片段 #' + knowledgeCenterChunkForm.replaces_chunk_id + '（追加版本）' : '新增经验片段' }}</h4>
                         <div>
                             <label class="block text-sm font-medium text-gray-700 mb-1">类型</label>
                             <input v-model="knowledgeCenterChunkForm.type" type="text" placeholder="视频 / 链接 / 文本 / 策略复盘" class="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
@@ -225,12 +252,13 @@
                         <div>
                             <label class="block text-sm font-medium text-gray-700 mb-1">内容 JSON</label>
                             <textarea v-model="knowledgeCenterChunkForm.content" rows="8" class="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono text-sm"></textarea>
+                            <p class="mt-2 text-xs text-gray-500">可填写 source_refs、platforms、valid_from、valid_until、applicability.hotel_conditions 与 conflict_key。编辑内容保留为未核验参考，不能自行提升来源等级或授权。</p>
                         </div>
-                        <button type="submit" class="w-full px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600">写入片段</button>
+                        <button type="submit" :disabled="knowledgeCenterChunkForm.saving" class="w-full px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:opacity-50">{{ knowledgeCenterChunkForm.saving ? '保存与回读中…' : '保存并精确回读' }}</button>
                     </form>
                     <div v-else class="border border-blue-100 bg-blue-50 rounded-lg p-4 h-fit text-sm text-blue-800">
                         <div class="font-semibold">系统参考知识（只读）</div>
-                        <p class="mt-2 leading-6">可检索、查看并用于生成运营任务；来源版本由系统维护，避免门店误改公共模板。</p>
+                        <p class="mt-2 leading-6">可查看适用性与引用。转运营任务须另行通过既有门禁；来源版本由系统维护。</p>
                     </div>
                 </div>
             </div>

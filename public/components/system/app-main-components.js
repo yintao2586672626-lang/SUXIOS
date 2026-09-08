@@ -512,7 +512,7 @@
     };
     const systemComponents = window.SUXI_SYSTEM_COMPONENTS || (window.SUXI_SYSTEM_COMPONENTS = {});
     const ctripOrderAnalysisPanelBodyKey = 'CtripOrderAnalysisPanelBody';
-    const ctripOrderAnalysisPanelBodyScript = 'components/online-data/ctrip-order-analysis-panel.js?v=20260813-order-analysis-h7ec5d31239';
+    const ctripOrderAnalysisPanelBodyScript = 'components/online-data/ctrip-order-analysis-panel.js?v=20260813-order-analysis-ha0c2e7ec24';
     let ctripOrderAnalysisPanelBodyPromise = null;
     const loadCtripOrderAnalysisPanelBody = () => {
         if (systemComponents[ctripOrderAnalysisPanelBodyKey]) {
@@ -2333,10 +2333,10 @@
                     : '当前范围未找到历史提交；缺失天数保持未知');
 
             return h('section', {
-                class: 'overflow-hidden rounded-2xl border border-[#d8e4df] bg-white shadow-sm',
+                class: 'manager-capability-panel overflow-hidden rounded-2xl border border-[#d8e4df] bg-white shadow-sm',
                 'data-testid': 'manager-capability-panel',
             }, [
-                h('div', { class: 'flex flex-col gap-3 border-b border-slate-100 bg-[#f6faf8] px-5 py-4 lg:flex-row lg:items-start lg:justify-between' }, [
+                h('div', { class: 'manager-capability-header flex flex-col gap-3 border-b border-slate-100 bg-[#f6faf8] px-5 py-4 lg:flex-row lg:items-start lg:justify-between' }, [
                     h('div', [
                         h('div', { class: 'flex flex-wrap items-center gap-2' }, [
                             h('h3', { class: 'font-bold text-slate-900' }, '店长能力评分'),
@@ -2354,7 +2354,44 @@
                 ]),
                 this.normalizedHotelId <= 0
                     ? h('div', { style: 'margin:1.25rem', class: 'rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800' }, '请先在页面顶部选择一个门店；评分不会汇总多个酒店。')
-                    : h('div', { class: 'grid gap-5 p-5 xl:grid-cols-[minmax(0,1.25fr)_minmax(360px,0.9fr)]' }, [
+                    : (this.managers.length === 0
+                        ? h('div', {
+                            class: ['manager-capability-empty', this.loading ? 'is-loading' : ''],
+                            'data-testid': 'manager-capability-empty',
+                        }, [
+                            h('span', { class: 'manager-capability-empty-mark', 'aria-hidden': 'true' }, [
+                                h('i', { class: this.loading ? 'fas fa-spinner fa-spin' : (this.error ? 'fas fa-user-slash' : 'fas fa-user-shield') }),
+                            ]),
+                            h('div', { class: 'manager-capability-empty-copy' }, [
+                                h('p', { class: 'manager-capability-empty-kicker' }, this.loading
+                                    ? '正在读取负责人范围'
+                                    : (this.error ? '系统读取异常' : '负责人授权待完成')),
+                                h('h4', this.loading ? '正在读取可评分负责人' : (this.error ? '负责人范围读取失败' : '当前酒店尚无可评分负责人')),
+                                h('p', this.loading
+                                    ? '系统正在核对当前门店的用户身份与酒店授权。'
+                                    : (this.error || '完成用户身份与酒店授权后，系统才会按个人生成六维证据分；无证据继续留空，不按 0 分。')),
+                            ]),
+                            this.loading || this.error ? null : h('div', {
+                                class: 'manager-capability-empty-dimensions',
+                                'aria-label': '授权后建立的六项能力证据',
+                            }, managerCapabilityDefaultDimensions.map(([key, label]) => h('span', { key }, label))),
+                            this.loading ? null : (this.error ? h('div', { class: 'manager-capability-empty-action' }, [
+                                h('p', '当前无法判断负责人授权状态，请先重新读取。'),
+                                h('button', {
+                                    type: 'button',
+                                    onClick: () => this.load(),
+                                }, [h('span', '重新读取'), h('i', { class: 'fas fa-rotate-right', 'aria-hidden': 'true' })]),
+                            ]) : h('div', { class: 'manager-capability-empty-action' }, [
+                                h('p', this.$root?.user?.is_super_admin
+                                    ? '先配置当前门店的负责人，再回来录入三问案例。'
+                                    : '请联系具备账号权限的管理员完成当前门店负责人授权。'),
+                                this.$root?.user?.is_super_admin ? h('button', {
+                                    type: 'button',
+                                    onClick: () => this.$root?.openHomeQuickEntry?.({ page: 'users' }),
+                                }, [h('span', '配置用户授权'), h('i', { class: 'fas fa-arrow-right', 'aria-hidden': 'true' })]) : null,
+                            ])),
+                        ])
+                        : h('div', { class: 'grid gap-5 p-5 xl:grid-cols-[minmax(0,1.25fr)_minmax(360px,0.9fr)]' }, [
                         h('div', { class: 'space-y-4' }, [
                             h('div', { class: 'flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between' }, [
                                 field('店长 / 负责人', h('select', {
@@ -2613,7 +2650,7 @@
                             h('p', { class: 'mt-2' }, this.profile?.permissions?.policy || '当前账号可看汇总，但不能查看或修改案例证据。'),
                             h('p', { class: 'mt-2 text-xs' }, '如需新增、复查、纠错、作废或人工复核，请由具备当前门店运营执行权限的管理者操作。'),
                         ]),
-                    ]),
+                    ])),
             ]);
         },
     };
@@ -2667,22 +2704,42 @@
         },
     };
 
+    const ForecastDecisionWorkbench = Vue.defineAsyncComponent({
+        loader: () => loadOnlineDataComponentScript('components/revenue/forecast-decision-workbench.js?v=20260908-v6')
+            .then(() => requireSystemComponent('ForecastDecisionWorkbench')),
+        loadingComponent: { render: () => h('p', { role: 'status' }, '正在加载时点回测…') },
+        errorComponent: { render: () => h('p', { role: 'alert' }, '回测工具加载失败，请刷新后重试。') },
+        timeout: 15000,
+    });
+    const CommissionAcquisitionCalculatorPanel = Vue.defineAsyncComponent({
+        loader: () => loadOnlineDataComponentScript('components/revenue/commission-calculator-core.js?v=20260904-acquisition-v1')
+            .then(() => loadOnlineDataComponentScript('components/revenue/commission-paid-traffic-core.js?v=20260904-acquisition-v1'))
+            .then(() => loadOnlineDataComponentScript('components/revenue/promotion-experiment-panel.js?v=20260908-promotion-v1'))
+            .then(() => loadOnlineDataComponentScript('components/revenue/commission-acquisition-panel.js?v=20260908-acquisition-v3'))
+            .then(() => requireSystemComponent('CommissionAcquisitionCalculatorPanel')),
+        loadingComponent: { render: () => h('p', { class: 'p-4 text-sm text-white', role: 'status' }, '正在加载佣金与付费流量测算…') },
+        errorComponent: { render: () => h('p', { class: 'rounded-lg bg-red-50 p-4 text-sm text-red-700', role: 'alert' }, '佣金测算组件加载失败，请刷新后重试；未生成测算结果。') },
+        delay: 80,
+        timeout: 15000,
+    });
     const SimulationHeroActions = {
         name: 'SimulationHeroActions',
         inheritAttrs: false,
-        emits: ['update:hotelId', 'run', 'refresh'],
+        emits: ['update:hotelId', 'run', 'refresh', 'open-finance'],
         props: {
+            request: { type: Function, default: null },
             hotelId: { type: [String, Number], default: '' },
             hotels: { type: Array, default: () => [] },
             loading: { type: Boolean, default: false },
             hotelValid: { type: Boolean, default: false },
         },
+        data: () => ({ commissionCalculatorOpen: false, commissionCalculatorMounted: false }),
         render() {
             const options = [h('option', { value: '' }, '选择酒店'), ...this.hotels.map(hotel => h('option', {
                 key: hotel?.id,
                 value: hotel?.id,
             }, String(hotel?.name || hotel?.id || '未命名酒店')))];
-            return h('div', { class: 'flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between' }, [
+            return h('div', { class: 'space-y-5' }, [h('div', { class: 'flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between' }, [
                 h('div', [
                     h('h2', { class: 'text-2xl font-bold' }, '智算·量化模拟'),
                     h('p', { class: 'mt-1 text-sm text-cyan-100' }, '示例假设 · 未验证；预填值不是经营事实。'),
@@ -2704,11 +2761,24 @@
                     class: 'flex items-center justify-center gap-2 rounded-lg border border-white/20 bg-white/10 px-4 py-2 text-white transition hover:bg-white/15 disabled:opacity-50',
                     onClick: () => this.$emit('refresh'),
                 }, [h('i', { class: 'fas fa-history' }), h('span', '刷新历史')]),
+                h('button', {
+                    type: 'button',
+                    'data-testid': 'open-commission-acquisition',
+                    'aria-expanded': String(this.commissionCalculatorOpen),
+                    class: 'rounded-lg border border-amber-200 bg-amber-100 px-4 py-2 text-sm font-semibold text-emerald-950',
+                    onClick: () => {
+                        this.commissionCalculatorMounted = true;
+                        this.commissionCalculatorOpen = !this.commissionCalculatorOpen;
+                    },
+                }, this.commissionCalculatorOpen ? '收起佣金与流量测算' : '佣金与付费流量测算'),
+            ]), this.commissionCalculatorMounted ? h('div', {
+                style: { display: this.commissionCalculatorOpen ? '' : 'none' },
+            }, [h(CommissionAcquisitionCalculatorPanel, { hotelId: this.hotelId, hotels: this.hotels, request: this.request, openFinance: () => this.$emit('open-finance') })]) : null,
             ]);
         },
     };
 
-        return Object.freeze({ AiDecisionQualityDetails, OnlineTruthSummary, DualOtaAcceptanceReceipt, DualOtaPageVerificationPanel, resolveRevenueCockpitIntentLifecycle, parseOperationEvidenceNumber, parseOptionalOperationEvidenceNumber, operationEvidenceFirstText, operationEvidenceCleanObject, operationEvidenceLocalTimestamp, normalizeOperationEvidenceDateTime, normalizeOperationReviewStatus, RevenueCockpitOpportunityDetails, RevenueCockpitSnapshotStatus, RevenueCockpitActionRestoreStatus, onlineDataComponents, loadOnlineDataComponentScript, readOnlineDataComponent, requireOnlineDataComponent, systemComponents, CtripOrderAnalysisPanel, requireSystemComponent, operatingOpportunityLabScript, OperatingOpportunityLab, operatingFinanceControlCenterScript, OperatingFinanceControlCenter, platformAutoPanelsScript, ctripProfileFieldConfigPanelScript, competitorDeviceManagementScript, dataConfigDialogsScript, automationCollectionContractScript, PlatformAutoSettingsPanels, PlatformAutoSecondaryPanels, CtripProfileFieldConfigPanel, CompetitorDeviceManagement, DataConfigDialogs, aiDailyReportTaskPositiveInteger, aiDailyReportModelIsLimited, normalizeAiDailyReportGenerationTask, formatAiDailyReportGenerationStage, resolveAiDailyReportGenerationOutcome, pollAiDailyReportGenerationTask, SessionProofNotice, LocalCollectorLoginHandoff, PmsRealtimeSyncResult, HotelThreeSourceOnboardingPanel, OperatingLoopAuthority, ManagerCapabilityPanel, OperatingNetworkReplicationList, MeituanSearchKeywordWorkbench, SimulationHeroActions });
+        return Object.freeze({ AiDecisionQualityDetails, OnlineTruthSummary, DualOtaAcceptanceReceipt, DualOtaPageVerificationPanel, resolveRevenueCockpitIntentLifecycle, parseOperationEvidenceNumber, parseOptionalOperationEvidenceNumber, operationEvidenceFirstText, operationEvidenceCleanObject, operationEvidenceLocalTimestamp, normalizeOperationEvidenceDateTime, normalizeOperationReviewStatus, RevenueCockpitOpportunityDetails, RevenueCockpitSnapshotStatus, RevenueCockpitActionRestoreStatus, onlineDataComponents, loadOnlineDataComponentScript, readOnlineDataComponent, requireOnlineDataComponent, systemComponents, CtripOrderAnalysisPanel, requireSystemComponent, operatingOpportunityLabScript, OperatingOpportunityLab, operatingFinanceControlCenterScript, OperatingFinanceControlCenter, platformAutoPanelsScript, ctripProfileFieldConfigPanelScript, competitorDeviceManagementScript, dataConfigDialogsScript, automationCollectionContractScript, PlatformAutoSettingsPanels, PlatformAutoSecondaryPanels, CtripProfileFieldConfigPanel, CompetitorDeviceManagement, DataConfigDialogs, aiDailyReportTaskPositiveInteger, aiDailyReportModelIsLimited, normalizeAiDailyReportGenerationTask, formatAiDailyReportGenerationStage, resolveAiDailyReportGenerationOutcome, pollAiDailyReportGenerationTask, SessionProofNotice, LocalCollectorLoginHandoff, PmsRealtimeSyncResult, HotelThreeSourceOnboardingPanel, OperatingLoopAuthority, ManagerCapabilityPanel, OperatingNetworkReplicationList, MeituanSearchKeywordWorkbench, SimulationHeroActions, ForecastDecisionWorkbench });
     };
 
     const exportedFactory = Object.freeze({ create });

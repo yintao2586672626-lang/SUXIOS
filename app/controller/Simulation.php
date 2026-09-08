@@ -26,9 +26,17 @@ class Simulation extends Base
             $this->ensureLogin();
             $payload = $this->request->post();
             $rawInput = is_array($payload['input'] ?? null) ? $payload['input'] : $payload;
-            [$hotelIds, $hotelId] = $this->resolveExecutionHotelScope((int)(
-                $rawInput['hotel_id'] ?? $rawInput['system_hotel_id'] ?? $payload['hotel_id'] ?? 0
-            ));
+            $requestedIds = [];
+            foreach ([$rawInput['hotel_id'] ?? null, $rawInput['system_hotel_id'] ?? null, $payload['hotel_id'] ?? null, $payload['system_hotel_id'] ?? null] as $requestedId) {
+                if ($requestedId === null || $requestedId === '' || $requestedId === 0) continue;
+                if (!is_numeric($requestedId) || (float)$requestedId <= 0 || floor((float)$requestedId) !== (float)$requestedId) {
+                    throw new \InvalidArgumentException('quant simulation hotel scope must be a positive integer');
+                }
+                $requestedIds[] = (int)$requestedId;
+            }
+            $requestedIds = array_values(array_unique($requestedIds));
+            if (count($requestedIds) > 1) throw new \InvalidArgumentException('quant simulation source hotel scope conflict');
+            [$hotelIds, $hotelId] = $this->resolveExecutionHotelScope($requestedIds[0] ?? 0);
             if (($denied = $this->hotelCapabilityDeniedResponse(
                 $hotelId,
                 'investment.simulate',

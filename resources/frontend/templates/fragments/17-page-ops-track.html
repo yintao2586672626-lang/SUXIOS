@@ -1,10 +1,14 @@
-                    <div v-if="currentPage === 'ops-track'" class="max-w-7xl mx-auto space-y-6">
+                    <div v-if="currentPage === 'ops-track' && authContext.permissionStatus !== 'allowed'" role="status" data-testid="operation-access-pending" class="max-w-7xl mx-auto rounded-xl border border-slate-200 bg-white p-6 text-slate-600">
+                        {{ authContext.permissionStatus === 'denied' ? '当前门店访问范围不可用，请重新选择有权限的门店。' : '正在确认门店访问范围，确认后读取原事项；此时尚不能判断是否有任务。' }}
+                    </div>
+                    <div v-if="currentPage === 'ops-track' && authContext.permissionStatus === 'allowed'" class="max-w-7xl mx-auto space-y-6">
                         <div class="overflow-hidden rounded-3xl border border-[#eadfc9] bg-gradient-to-br from-[#fffdf8] to-[#f7f5ef] p-5 shadow-sm sm:p-6">
                             <div class="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
                                 <div>
                                     <p class="text-xs font-semibold tracking-[0.22em] text-[#96743f]">运营自动化中心 · 执行闭环</p>
                                     <h2 class="mt-2 text-2xl font-semibold text-slate-900">任务执行与复盘</h2>
                                     <p class="mt-2 max-w-3xl text-sm leading-6 text-slate-600">人工审批、执行证据、同口径复盘；缺证不生成收入或 ROI。</p>
+                                    <p class="mt-2 max-w-3xl text-sm leading-6 text-slate-600" data-testid="operation-task-scope-boundary">当前门店的全部任务；首页经营日期不筛选此列表。每项任务按各自原始日期、平台和口径核实与复盘。</p>
                                 </div>
                                 <label class="w-full lg:w-72">
                                     <span class="mb-1 block text-xs text-slate-500">查看门店</span>
@@ -15,6 +19,7 @@
                                 </label>
                             </div>
                         </div>
+                        <operation-task-workflow-panel :hotel-id="operationFilters.hotel_id" :request="managerCapabilityRequest" :context="authContext" :can-execute="operationFinanceCanExecute"></operation-task-workflow-panel>
                         <div class="bg-white rounded-xl border border-gray-100 p-5 shadow-sm">
                             <div class="flex flex-col md:flex-row md:items-start md:justify-between gap-3 mb-4">
                                 <div>
@@ -238,8 +243,9 @@
                             <div v-if="operationEffectDataGapText" class="mt-4 text-sm text-amber-700 bg-amber-50 border border-amber-100 rounded-lg p-3">
                                 {{ operationEffectDataGapText }}
                             </div>
-                        </div>
-                        <div class="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
+                        <details data-testid="operation-strategy-detail" class="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
+                            <summary class="cursor-pointer px-5 py-4 text-sm font-medium text-gray-700">策略跟踪明细 · 当前已读 {{ operationActions.length }} 条</summary>
+                            <p class="px-5 pb-4 text-xs text-gray-500">历史记录保留原始日期；效果以同口径证据复核结果为准。</p>
                             <div class="overflow-x-auto">
                                 <table class="min-w-full text-sm">
                                     <thead class="bg-gray-50 text-gray-500">
@@ -268,7 +274,7 @@
                                             <td class="px-4 py-3">
                                                 <span class="px-2 py-1 rounded-full text-xs bg-blue-50 text-blue-600">{{ operationActionStatusLabel(action.result?.status || action.status) }}</span>
                                             </td>
-                                            <td class="px-4 py-3 text-gray-600">{{ action.result_summary || action.result?.message || '观察中' }}</td>
+                                            <td class="px-4 py-3 text-gray-600">{{ action.result?.message || action.result_summary || '观察中' }}</td>
                                             <td class="px-4 py-3">
                                                 <button v-if="action.status !== 'finished'" @click="finishOperationAction(action.id)" class="px-3 py-1.5 bg-gray-900 text-white rounded-lg text-xs hover:bg-gray-700">结束</button>
                                                 <span v-else="" class="text-xs text-gray-400">已结束</span>
@@ -278,6 +284,7 @@
                                 </table>
                             </div>
                             <div v-if="!operationActions.length &amp;&amp; !operationLoading.actions &amp;&amp; !operationError.actions" class="p-8 text-center text-gray-400">暂无策略动作</div>
+                        </details>
                             </div>
                         </details>
 

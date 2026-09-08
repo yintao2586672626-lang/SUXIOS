@@ -51,7 +51,9 @@ final class RevenueCockpitStrictEvidenceService
         $overviewDate = (string)($overview['business_date']
             ?? $overview['three_source_fact_layer']['business_date']
             ?? '');
+        $overviewTenantId = (int)($overview['tenant_id'] ?? $overview['three_source_fact_layer']['hotel']['tenant_id'] ?? 0);
         if (($overviewHotelId > 0 && $overviewHotelId !== $hotelId)
+            || ($overviewTenantId > 0 && $overviewTenantId !== $tenantId)
             || ($overviewDate !== '' && $overviewDate !== $businessDate)
         ) {
             throw new RuntimeException('revenue_cockpit_strict_overview_scope_mismatch', 422);
