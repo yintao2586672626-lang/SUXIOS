@@ -354,7 +354,8 @@ test('public login shell defers the authenticated application asset chain', () =
   assert.equal(entries.find((entry) => stripFrontendAssetQuery(entry.src) === 'style-startup.min.css')?.phase, 'startup');
   assert.equal(entries.find((entry) => stripFrontendAssetQuery(entry.src) === 'style.min.css')?.phase, 'after-first-paint');
   assert.equal(entries.find((entry) => stripFrontendAssetQuery(entry.src) === 'ai-custom.css')?.phase, 'after-first-paint');
-  assert.equal(entries.find((entry) => stripFrontendAssetQuery(entry.src) === 'compass-authority-polish.css')?.phase, 'after-first-paint');
+  assert.equal(entries.find((entry) => stripFrontendAssetQuery(entry.src) === 'compass-authority-polish.css')?.phase, 'startup',
+    'the initial homepage must load its scoped layout and readable states before mounting');
   assert.equal(
     entries.find((entry) => stripFrontendAssetQuery(entry.src) === 'app-deferred-helpers.min.js')?.phase,
     'after-first-paint',

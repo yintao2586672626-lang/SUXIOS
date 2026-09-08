@@ -429,6 +429,10 @@ async function inspectPage(page, state) {
           && document.fonts.check(`${style.fontWeight} ${style.fontSize} ${style.fontFamily}`);
       }),
       operationReadError,
+      homeStylesApplied: targetState.pageKey !== 'compass' || (
+        getComputedStyle(document.querySelector('.home-workspace-toolbar')).display === 'flex'
+        && Number.parseFloat(getComputedStyle(document.querySelector('.home-workspace-title h2')).fontSize) >= 24
+      ),
     };
   }, state);
 
@@ -493,6 +497,7 @@ function validatePageResult(result) {
   if (result.mainHorizontalOverflow || result.bodyHorizontalOverflow) issues.push('page content requires horizontal scrolling');
   if (!result.fontAwesomeReady) issues.push('FontAwesome glyphs are not ready for visual inspection');
   if (result.operationReadError) issues.push(`operation read failed: ${result.operationReadError}`);
+  if (!result.homeStylesApplied) issues.push('homepage critical styles were not applied before inspection');
   if (result.pageKey === 'compass') {
     if (result.navigationFocus && (!result.navigationFocus.childFocused
       || result.navigationFocus.role !== 'button' || !result.navigationFocus.focusVisible
