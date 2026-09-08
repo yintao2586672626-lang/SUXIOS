@@ -30,7 +30,13 @@ const requiredPageKeys = [...new Set([...pageKeys]
   .map(canonicalPageKey))]
   .sort();
 
-const visualStates = buildVisualStates(requiredPageKeys);
+const requestedPageKeys = (process.env.E2E_TASTE_PAGES || '').split(',').map((key) => key.trim()).filter(Boolean);
+for (const pageKey of requestedPageKeys) {
+  if (!requiredPageKeys.includes(pageKey)) throw new Error(`Unknown visual smoke page: ${pageKey}`);
+}
+const visualStates = buildVisualStates(requiredPageKeys)
+  .filter((state) => !requestedPageKeys.length || requestedPageKeys.includes(state.pageKey));
+const testedPageCount = new Set(visualStates.map((state) => state.pageKey)).size;
 
 const baseURL = process.env.E2E_BASE_URL || 'http://127.0.0.1:8080/';
 const username = process.env.E2E_USERNAME || 'admin';
@@ -156,7 +162,7 @@ function shouldIgnoreRequestFailure(url) {
 function buildMockApiData(requestUrl) {
   const url = new URL(requestUrl);
   const apiPath = url.pathname.replace(/^.*\/api/, '');
-  const hotel = { id: 1, name: '视觉验证门店', hotel_name: '视觉验证门店' };
+  const hotel = { id: 1, tenant_id: 999001, name: '视觉验证门店', hotel_name: '视觉验证门店' };
 
   if (apiPath === '/auth/info') {
     return {
@@ -166,6 +172,8 @@ function buildMockApiData(requestUrl) {
       role_id: 1,
       role_name: '超级管理员',
       hotel_id: 1,
+      tenant_id: 999001,
+      context: { tenantId: 999001, hotelId: 1, currentHotelName: hotel.name, permissionStatus: 'allowed', platform: 'ctrip' },
       hotel,
       is_super_admin: true,
       is_hotel_manager: true,
@@ -189,6 +197,31 @@ function buildMockApiData(requestUrl) {
     };
   }
   if (apiPath === '/hotels/all') return [hotel];
+  if (apiPath === '/dashboard/revenue-facts') return {
+    hotel: { system_hotel_id: Number(url.searchParams.get('hotel_id') || hotel.id) },
+    business_date: url.searchParams.get('business_date'),
+    status: 'missing',
+  };
+  if (['/operation/execution-flow', '/operation/my-tasks'].includes(apiPath)) return {
+    data_status: 'ok', list: [],
+    capabilities: { hotel_id: Number(url.searchParams.get('hotel_id') || hotel.id) },
+    scope: { hotel_id: Number(url.searchParams.get('hotel_id') || hotel.id) },
+  };
+  if (apiPath === '/operation/closure-overview') return {
+    summary: { status: 'unverified', authoritative_state: 'not_started', readback_verified: false },
+    modules: [], weak_modules: [], process_weak_modules: [], roi_weak_modules: [],
+    data_status: 'data_gap', data_gaps: ['visual_smoke_fixture_only'],
+    operating_loop: { authoritative_state: 'not_started', readback_verified: false },
+    source_scope: 'hotel_operating_cycle_kernel_only',
+  };
+  if (apiPath === '/operation/action-tracking') return {
+    actions: [], effect_validation: { status: 'data_gap', metrics: [], data_gaps: ['visual_smoke_fixture_only'], action_counts: {} },
+  };
+  if (apiPath === '/operation/goal-intervention-overview') return {
+    hotel_id: Number(url.searchParams.get('hotel_id') || hotel.id),
+    data_status: 'data_gap', current_goal_contract: null, goal_contracts: [], interventions: [], assessments: [],
+    summary: {}, data_gaps: ['visual_smoke_fixture_only'],
+  };
   if (apiPath === '/users') {
     return {
       list: [],
@@ -261,21 +294,52 @@ async function login(page) {
     await page.getByTestId('login-submit').click();
   }
   await page.getByTestId('app-main').waitFor({ state: 'visible', timeout: 15000 });
+  await waitForVisualAssets(page);
+  await page.waitForFunction(() => {
+    const root = document.querySelector('#app');
+    const proxy = (root?._vnode?.component || root?.__vue_app__?._container?._vnode?.component)?.proxy;
+    return proxy?.authContext?.permissionStatus === 'allowed'
+      && !proxy.homeOperatingScheduleLoading && !proxy.homeWeeklyOperatingPlanLoading
+      && !proxy.homeRevenueFactLayerLoading && !proxy.revenueAiOverviewLoading;
+  }, null, { timeout: 15000 });
+}
+
+async function waitForVisualAssets(page) {
+  await page.waitForFunction(() => {
+    const fullRenderReady = document.documentElement.dataset.suxiFullRenderReady === '1';
+    const assets = JSON.parse(document.querySelector('#suxi-authenticated-assets')?.textContent || '[]');
+    const requiredStyles = assets.filter((asset) => asset.type === 'style'
+      && (asset.phase !== 'after-first-paint' || fullRenderReady));
+    const styles = [...document.querySelectorAll('link[rel="stylesheet"]')];
+    return requiredStyles.every((asset) => styles.some((link) => link.href === new URL(asset.src, location.href).href && link.sheet))
+      && !!document.querySelector('link[data-suxi-fontawesome="1"]')?.sheet;
+  }, null, { timeout: 15000 });
+  await page.evaluate(async () => {
+    let timeout;
+    try {
+      await Promise.race([
+        document.fonts.ready,
+        new Promise((_, reject) => { timeout = setTimeout(() => reject(new Error('Visual smoke font loading timed out')), 5000); }),
+      ]);
+      await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    } finally {
+      clearTimeout(timeout);
+    }
+  });
 }
 
 async function setCurrentState(page, state) {
+  await page.waitForFunction(() => {
+    const root = document.querySelector('#app');
+    const proxy = (root?._vnode?.component || root?.__vue_app__?._container?._vnode?.component)?.proxy;
+    return proxy?.authContext?.permissionStatus === 'allowed';
+  }, null, { timeout: 10000 });
   const changed = await page.evaluate(async (targetState) => {
     const root = document.querySelector('#app');
     const component = root?._vnode?.component || root?.__vue_app__?._container?._vnode?.component;
     const proxy = component?.proxy;
     if (!proxy) return false;
 
-    const clearTransientUi = () => {
-      if (!proxy.toast || typeof proxy.toast !== 'object') return;
-      proxy.toast = { show: false, message: '', type: 'success' };
-    };
-
-    clearTransientUi();
     proxy.currentPage = targetState.pageKey;
     if (targetState.onlineDataTab) {
       proxy.onlineDataTab = targetState.onlineDataTab;
@@ -289,8 +353,7 @@ async function setCurrentState(page, state) {
       proxy.ctripTableTab = targetState.ctripTableTab;
     }
 
-    await new Promise((resolve) => setTimeout(resolve, 650));
-    clearTransientUi();
+    await proxy.$nextTick();
     await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
     return true;
   }, state);
@@ -298,6 +361,17 @@ async function setCurrentState(page, state) {
   if (!changed) {
     throw new Error('Vue root proxy is not available for page switching');
   }
+  await page.waitForFunction((targetState) => {
+    const root = document.querySelector('#app');
+    const proxy = (root?._vnode?.component || root?.__vue_app__?._container?._vnode?.component)?.proxy;
+    const activePage = document.querySelector('[data-testid="app-main"]')?.getAttribute('data-current-page');
+    if (activePage !== (targetState.expectedPageKey || targetState.pageKey)) return false;
+    if (document.querySelector('[data-testid="deferred-page-loading"]')) return false;
+    if (targetState.pageKey === 'ops-track' && (proxy?.operationLoading?.actions
+      || !proxy?.operationExecutionFlow?.data_status || proxy.operationExecutionFlow.data_status === 'loading')) return false;
+    return true;
+  }, state, { timeout: 15000 });
+  await waitForVisualAssets(page);
 }
 
 async function inspectPage(page, state) {
@@ -307,6 +381,9 @@ async function inspectPage(page, state) {
     const root = document.querySelector('#app');
     const component = root?._vnode?.component || root?.__vue_app__?._container?._vnode?.component;
     const toastState = component?.proxy?.toast;
+    const operationReadError = targetState.pageKey === 'ops-track'
+      ? [component?.proxy?.operationError?.actions, component?.proxy?.operatingGoalInterventionError].filter(Boolean).join(' | ')
+      : '';
     const main = document.querySelector('[data-testid="app-main"]');
     const shell = document.querySelector('.suxi-app-shell');
     const body = document.querySelector('.suxi-page-body');
@@ -322,6 +399,8 @@ async function inspectPage(page, state) {
       const style = getComputedStyle(element);
       return style.display !== 'none' && style.visibility !== 'hidden' && element.getClientRects().length;
     });
+    const icons = [...document.querySelectorAll('.fa, .fas, .far, .fab, .fa-solid, .fa-regular')]
+      .filter((element) => element.getClientRects().length && getComputedStyle(element).visibility !== 'hidden');
 
     return {
       label: targetState.label,
@@ -342,8 +421,56 @@ async function inspectPage(page, state) {
       visiblePanels: panels.length,
       visibleControls: controls.length,
       horizontalOverflow: document.documentElement.scrollWidth > document.documentElement.clientWidth + 2,
+      mainHorizontalOverflow: !!main && main.scrollWidth > main.clientWidth + 2,
+      bodyHorizontalOverflow: !!body && body.scrollWidth > body.clientWidth + 2,
+      fontAwesomeReady: icons.every((icon) => {
+        const style = getComputedStyle(icon);
+        return /Font\s*Awesome/i.test(style.fontFamily)
+          && document.fonts.check(`${style.fontWeight} ${style.fontSize} ${style.fontFamily}`);
+      }),
+      operationReadError,
+      homeStylesApplied: targetState.pageKey !== 'compass' || (
+        getComputedStyle(document.querySelector('.home-workspace-toolbar')).display === 'flex'
+        && Number.parseFloat(getComputedStyle(document.querySelector('.home-workspace-title h2')).fontSize) >= 24
+      ),
     };
   }, state);
+
+  if (state.pageKey === 'compass') {
+    if (viewport.width >= 900) {
+      const group = page.getByRole('button', { name: '运营自动化中心', exact: true });
+      const initiallyOpen = await group.getAttribute('aria-expanded') === 'true';
+      await group.focus();
+      if (!initiallyOpen) await page.keyboard.press('Space');
+      await page.keyboard.press('Tab');
+      result.navigationFocus = await page.evaluate(() => {
+        const current = document.activeElement;
+        const style = getComputedStyle(current);
+        return { childFocused: !!current.closest('.mobile-nav-submenu'),
+          role: current.getAttribute('role'), focusVisible: current.matches(':focus-visible'),
+          outlineStyle: style.outlineStyle, outlineColor: style.outlineColor };
+      });
+      if (!initiallyOpen) { await group.focus(); await page.keyboard.press('Space'); }
+    }
+    await page.getByRole('combobox', { name: '首页门店', exact: true }).focus();
+    await page.keyboard.press('Tab');
+    result.focusedControl = await page.evaluate(() => {
+      const control = document.activeElement;
+      const main = document.querySelector('[data-testid="app-main"]');
+      const bounds = control.getBoundingClientRect();
+      const mainBounds = main.getBoundingClientRect();
+      const style = getComputedStyle(control);
+      return {
+        label: control.getAttribute('aria-label') || '',
+        type: control.getAttribute('type') || '',
+        focusVisible: control.matches(':focus-visible'),
+        outlineStyle: style.outlineStyle,
+        outlineWidth: Number.parseFloat(style.outlineWidth),
+        visibleInMain: bounds.top >= Math.max(0, mainBounds.top) - 1
+          && bounds.bottom <= Math.min(innerHeight, mainBounds.bottom) + 1,
+      };
+    });
+  }
 
   if (screenshotMode === 'all') {
     await page.screenshot({
@@ -367,6 +494,22 @@ function validatePageResult(result) {
   if (result.hasRawVueTemplate) issues.push('raw Vue template markers are visible');
   if (result.hasVisibleToast) issues.push(`transient toast leaked into page capture: ${result.toastMessage || '(empty)'}`);
   if (result.horizontalOverflow) issues.push('horizontal overflow detected');
+  if (result.mainHorizontalOverflow || result.bodyHorizontalOverflow) issues.push('page content requires horizontal scrolling');
+  if (!result.fontAwesomeReady) issues.push('FontAwesome glyphs are not ready for visual inspection');
+  if (result.operationReadError) issues.push(`operation read failed: ${result.operationReadError}`);
+  if (!result.homeStylesApplied) issues.push('homepage critical styles were not applied before inspection');
+  if (result.pageKey === 'compass') {
+    if (result.navigationFocus && (!result.navigationFocus.childFocused
+      || result.navigationFocus.role !== 'button' || !result.navigationFocus.focusVisible
+      || result.navigationFocus.outlineStyle === 'none')) {
+      issues.push(`navigation keyboard focus is unavailable: ${JSON.stringify(result.navigationFocus)}`);
+    }
+    const focus = result.focusedControl;
+    if (focus?.label !== '经营事实业务日期' || focus?.type !== 'date'
+      || !focus?.focusVisible || !focus?.visibleInMain || focus?.outlineStyle === 'none' || !(focus?.outlineWidth > 0)) {
+      issues.push(`home keyboard focus is not visible after hotel-to-date Tab: ${JSON.stringify(focus)}`);
+    }
+  }
   if (result.visiblePanels === 0 && result.visibleControls === 0) {
     issues.push('no visible panels or controls detected');
   }
@@ -444,13 +587,27 @@ async function main() {
         baseURL,
         authMode,
         viewport,
-        pageCount: requiredPageKeys.length,
+        pageCount: testedPageCount,
         stateCount: visualStates.length,
         results,
         browserEvents,
         failures,
       }, null, 2));
     }
+  } catch (error) {
+    const state = await page.evaluate(() => {
+      const root = document.querySelector('#app');
+      const proxy = (root?._vnode?.component || root?.__vue_app__?._container?._vnode?.component)?.proxy;
+      return {
+        page: proxy?.currentPage,
+        permissionStatus: proxy?.authContext?.permissionStatus,
+        loading: { home: proxy?.homeOperatingScheduleLoading, facts: proxy?.homeRevenueFactLayerLoading, operations: proxy?.operationLoading?.actions },
+        operationStatus: proxy?.operationExecutionFlow?.data_status,
+        styles: [...document.querySelectorAll('link[rel="stylesheet"]')].map(link => ({ path: new URL(link.href).pathname, ready: !!link.sheet })),
+      };
+    });
+    console.error(JSON.stringify({ visualFailureState: state, pageErrors: browserEvents.pageErrors }, null, 2));
+    throw error;
   } finally {
     await browser.close();
   }
@@ -460,7 +617,7 @@ async function main() {
     process.exit(1);
   }
 
-  console.log(`Taste visual smoke passed (${requiredPageKeys.length} logged-in page keys, ${visualStates.length} visual states, auth=${authMode}).`);
+  console.log(`Taste visual smoke passed (${testedPageCount} logged-in page keys, ${visualStates.length} visual states, auth=${authMode}).`);
 }
 
 main().catch((error) => {

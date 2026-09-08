@@ -19,6 +19,38 @@ final class PreciseQueryAcceptanceTest extends TestCase
     }
     public static function tearDownAfterClass(): void { Db::connect('sqlite')->close(); @unlink(self::$path); }
 
+    public static function chineseDayCounts(): array
+    {
+        $names = ['一','二','三','四','五','六','七','八','九','十','十一','十二','十三','十四','十五','十六','十七','十八','十九','二十','二十一','二十二','二十三','二十四','二十五','二十六','二十七','二十八','二十九','三十','三十一'];
+        $cases = [];
+        foreach ($names as $index => $name) $cases[$name] = [$name, $index + 1];
+        $cases['两'] = ['两', 2];
+        return $cases;
+    }
+
+    #[DataProvider('chineseDayCounts')]
+    public function testEverySupportedChineseDayCountUsesExactPeriodAndReadback(string $number, int $days): void
+    {
+        $router = Fixture::router();
+        $query = '携程最近' . $number . '天订单额';
+        $result = $router->route(10, [80], 7, ['query' => $query, 'current_scope' => ['hotel_id' => 80, 'business_date' => '2026-09-03']]);
+        self::assertSame('answered_from_period_facts', $result['status'], $query);
+        self::assertSame($days, $result['answer']['coverage']['expected_days']);
+        self::assertSame((new DateTimeImmutable('2026-09-08'))->modify('-' . $days . ' days')->format('Y-m-d'), $result['parsed_scope']['date_start']);
+        self::assertSame('2026-09-07', $result['parsed_scope']['date_end']);
+        self::assertSame($result, $router->read($result['id'], 10, [80]));
+    }
+
+    public function testOutOfRangeChineseDayCountsCannotFallBackToSelectedDay(): void
+    {
+        foreach (['零', '三十二', '九十九', '一百'] as $number) {
+            $result = Fixture::router()->route(10, [80], 7, ['query' => '携程过去的' . $number . '天订单额',
+                'current_scope' => ['hotel_id' => 80, 'business_date' => '2026-09-03']]);
+            self::assertSame('clarification_required', $result['status'], $number);
+            self::assertSame('period_limit', $result['answer']['reason'], $number);
+        }
+    }
+
     #[DataProvider('questions')]
     public function testDailyUsageQuestion(string $query, string $route, string $status, array $scope = [], array $expected = []): void
     {

@@ -54,7 +54,7 @@ export function syncRevenueAiStaticVersion(source, revenueAiStatic) {
   };
 }
 
-// The operation helper is loaded after mount, so its URL is versioned inside app-main.
+// The operation helper is also loaded after mount.
 export function syncOperationStaticVersion(source, operationStatic) {
   const pattern = /\bconst operationStaticScriptVersion = '([^'\r\n]+)-h[a-f0-9]{10}';/g;
   const matches = [...String(source).matchAll(pattern)];

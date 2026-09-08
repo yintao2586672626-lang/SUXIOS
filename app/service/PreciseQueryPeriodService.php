@@ -46,9 +46,16 @@ final class PreciseQueryPeriodService
     private function window(string $query, array $scope, DateTimeImmutable $now): ?array
     {
         $year = (int)$now->format('Y');
-        $cn = ['一'=>1,'二'=>2,'三'=>3,'四'=>4,'五'=>5,'六'=>6,'七'=>7,'八'=>8,'九'=>9,'十'=>10,'十一'=>11,'十二'=>12,'十四'=>14,'三十'=>30,'三十一'=>31];
-        $query = preg_replace_callback('/[一二三四五六七八九十]+(?=天|月)/u', static fn(array $m): string => (string)($cn[$m[0]] ?? $m[0]), $query);
-        if (preg_match('/(?:最近|近|过去|过去的)([0-9]+)天/u', $query, $m)) {
+        $digits = ['零'=>0,'〇'=>0,'一'=>1,'二'=>2,'两'=>2,'三'=>3,'四'=>4,'五'=>5,'六'=>6,'七'=>7,'八'=>8,'九'=>9];
+        $query = preg_replace_callback('/[零〇一二两三四五六七八九十百千万]+(?=天|月)/u', static function (array $match) use ($digits): string {
+            if (isset($digits[$match[0]])) return (string)$digits[$match[0]];
+            if (preg_match('/^([一二三四五六七八九])?十([一二三四五六七八九])?$/u', $match[0], $parts)) {
+                return (string)(10 * ($digits[$parts[1] ?? ''] ?? 1) + ($digits[$parts[2] ?? ''] ?? 0));
+            }
+            return $match[0];
+        }, $query);
+        if (preg_match('/(?:最近|近|过去的|过去)([0-9零〇一二两三四五六七八九十百千万]+)天/u', $query, $m)) {
+            if (!ctype_digit($m[1])) return $this->clarify('period_limit', '单次支持1至31个业务日，请缩小日期范围。');
             $days = (int)$m[1];
             if ($days < 1 || $days > 31) return $this->clarify('period_limit', '单次支持1至31个业务日，请缩小日期范围。');
             return $this->range($now->modify('-' . $days . ' days')->format('Y-m-d'), $now->modify('-1 day')->format('Y-m-d'), 'completed_recent_days');

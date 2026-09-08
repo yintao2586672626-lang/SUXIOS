@@ -151,7 +151,14 @@ final class WeeklyOperatingPlanSnapshotService
             'week_end' => $weekEnd,
         ]);
         if (!is_array($row)) {
-            throw new \RuntimeException('weekly_plan_snapshot_not_found', 404);
+            return [
+                'tenant_id' => $tenantId,
+                'hotel_id' => $hotelId,
+                'week_start' => $weekStart,
+                'week_end' => $weekEnd,
+                'status' => 'not_generated',
+                'readback_verified' => false,
+            ];
         }
         return $this->normalizeStored($row, false, false);
     }

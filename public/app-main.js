@@ -30994,6 +30994,7 @@
                     const query = params.toString() ? `?${params.toString()}` : '';
                     const res = await apiRequest(`/operation/operating-memories${query}`, {
                         businessContext: { hotelId: requestedHotelId, tenantId: '', platform: '' },
+                        requestPolicy: { ...currentPageReadPolicy(), systemHotelId: '', businessDate: '' },
                     });
                     if (!isCurrentRead()) return null;
                     if (res.code !== 200) throw new Error(res.message || '经营记忆加载失败');
@@ -31605,7 +31606,12 @@
                         ? '/operation/my-tasks'
                         : '/operation/execution-flow';
                     // This selector owns the read scope; an empty hotel means all permitted hotels.
-                    const readOptions = { businessContext: { hotelId: requestHotelId, tenantId: '', platform: '' } };
+                    const readOptions = {
+                        businessContext: { hotelId: requestHotelId, tenantId: '', platform: '' },
+                        // This page has its own hotel selector and no report-date filter.
+                        // Hydrating the dashboard scope must not cancel these reads.
+                        requestPolicy: { ...currentPageReadPolicy(), systemHotelId: '', businessDate: '' },
+                    };
                     const [actionResult, flowResult, closureResult, , learningResult] = await Promise.allSettled([
                         apiRequest(`/operation/action-tracking${query}`, readOptions),
                         apiRequest(`${flowEndpoint}${flowQuery}`, readOptions),
@@ -54056,17 +54062,12 @@
                 operationActionStatusLabel, operationMetricRows, operationActionDataText, operationActionTarget,
                 operationEffectMetricCards, operationEffectDataGapText, operationEffectStatusLabel, operationEffectStatusClass, operationEffectMetricStatusLabel, operationEffectMetricValue,
                     operationClosureModules, operationClosureSummaryBadge, operationClosureSummaryCards, operationClosureStatusClass, operationClosureScoreClass, operationClosureGapText, openOperationClosureModule,
-                operationExecutionItems, operationExecutionStages, operationExecutionStageFilter, operationExecutionStageFilterLabel, operationExecutionFilteredItems, setOperationExecutionStageFilter, operationExecutionSummaryCards, operationExecutionSourceText: item => operationExecutionSourceText(item), operationExecutionActionText,
+                    operationExecutionItems, operationExecutionStages, operationExecutionStageFilter, operationExecutionStageFilterLabel, operationExecutionFilteredItems, setOperationExecutionStageFilter, operationExecutionSummaryCards, operationExecutionSourceText: (...args) => operationExecutionSourceText(...args), operationExecutionActionText,
                 operatingGoalInterventionOverview, operatingGoalInterventionLoading, operatingGoalInterventionError, currentOperatingGoalContract, currentOperatingGoalContractText, operatingGoalMonitorModel, operatingGoalInterventionSummary, operatingGoalInterventionDataGapText,
-                operationInterventionLearningModelForItem, operationCanDefineIntervention, operationCanAssessIntervention, openOperatingGoalContractForm, openOperatingInterventionForm, assessOperatingIntervention, operationLearningVerdictLabel: verdict => operationLearningVerdictLabel(verdict), operationLearningVerdictClass: verdict => operationLearningVerdictClass(verdict),
+                operationInterventionLearningModelForItem, operationCanDefineIntervention, operationCanAssessIntervention, openOperatingGoalContractForm, openOperatingInterventionForm, assessOperatingIntervention, operationLearningVerdictLabel: (...args) => operationLearningVerdictLabel(...args), operationLearningVerdictClass: (...args) => operationLearningVerdictClass(...args),
                 operationExecutionStatusLabel, operationExecutionStatusClass, operationExecutionReviewText, nodeText, operationExecutionRoiText,
                 operationExecutionBottleneckText, operationExecutionMoneyStatusText, operationExecutionMoneyStatusClass, operationExecutionNextActionClass,
-                operationCanApproveExecution: item => operationCanApproveExecution(item), operationCanStartExecution, operationCanCancelExecution,
-                operationCanExecuteWithEvidence: item => operationCanExecuteWithEvidence(item),
-                operationCanRecordNodeCheck: item => operationCanRecordNodeCheck(item),
-                operationCanReconcileExecution: item => operationCanReconcileExecution(item),
-                operationCanReviewExecution: item => operationCanReviewExecution(item),
-                operationCanSaveOperatingMemory, operationExecutionActionAvailable: item => operationExecutionActionAvailable(item), operationExecutionRowClass, operationExecutionTraceRows,
+                operationCanApproveExecution: (...args) => operationCanApproveExecution(...args), operationCanStartExecution, operationCanCancelExecution, operationCanExecuteWithEvidence: (...args) => operationCanExecuteWithEvidence(...args), operationCanRecordNodeCheck: (...args) => operationCanRecordNodeCheck(...args), operationCanReconcileExecution: (...args) => operationCanReconcileExecution(...args), operationCanReviewExecution: (...args) => operationCanReviewExecution(...args), operationCanSaveOperatingMemory, operationExecutionActionAvailable: (...args) => operationExecutionActionAvailable(...args), operationExecutionRowClass, operationExecutionTraceRows,
                 operationApprovalConfirming, operationApprovalText, operationRejectText, approveOperationExecutionIntent, rejectOrCancelOperationApproval, startOperationExecutionTask, cancelOperationExecution, recordOperationRevenueNodeCheck, recordOperationExecutionEvidence, reconcileOperationExecutionReview, reviewOperationExecutionTask, saveOperationExecutionMemory,
                 operatingMemoryItems, coreOperationsSopProgress, operatingMemoryDataGapText, operatingMemoryPanelMessage, operatingMemoryPanelTestId, operatingMemoryPanelBody, operatingMemoryDisplayText, operatingMemoryLayerLabel, operatingMemoryQualityLabel, operatingMemoryQualityClass, operatingMemoryUsageLabel, operatingMemoryEvidenceCount, loadOperatingMemories,
                 canSaveMemo, saveMemo, memoBody,

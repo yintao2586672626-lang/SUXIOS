@@ -1101,7 +1101,7 @@ window.SUXI_HOME_STATIC = (() => {
             ? 'scope_required'
             : (businessFactsLoading && strictReadyFactCount === 0
                 ? 'loading'
-                : (businessFactsError && strictReadyFactCount === 0
+                : ((businessFactsError || factLayerHotelMismatch) && strictReadyFactCount === 0
                     ? 'error'
                     : (strictReadyFactCount === 0
                         ? 'empty'
@@ -1693,7 +1693,10 @@ window.SUXI_HOME_STATIC = (() => {
                     h('small', { title: [item.sourceLabel, item.sourceRef].filter(Boolean).join(' · ') },
                         `来源 ${item.sourceLabel || '未返回'}${item.sourceRef ? ` · ${item.sourceRef}` : ''}`),
                     item.blockedReason
-                        ? h('em', { class: 'is-error' }, item.blockedReason)
+                        ? h('em', { class: 'is-error', title: item.blockedReason },
+                            item.blockedReason === 'operator_attested_only'
+                                ? '只有人工确认，仍需补充来源证据'
+                                : item.blockedReason)
                         : (item.nextAction ? h('em', null, `下一步 ${item.nextAction}`) : null),
                 ]),
             ]);
@@ -1824,11 +1827,15 @@ window.SUXI_HOME_STATIC = (() => {
                                     : '这不等于经营已完成；可进入任务执行与复盘查看其他日期或补建人工动作。'),
                                 h('button', { type: 'button', onClick: () => this.$emit('openAll') }, '进入任务执行与复盘'),
                             ])),
-                    h(this.compact && !anomalyItems.length ? 'details' : 'div', {
-                        class: ['space-y-4', this.compact && !anomalyItems.length ? 'home-anomaly-fold' : ''],
+                    this.compact
+                        ? (taskItems.length ? h('p', {
+                            class: 'text-xs text-slate-500',
+                            'data-testid': 'home-operating-anomaly-summary',
+                        }, model.anomalyStateLabel || '异动状态未返回') : null)
+                        : h('div', {
+                        class: 'space-y-4',
                         'data-testid': 'home-operating-task-list',
                     }, [
-                        this.compact && !anomalyItems.length ? h('summary', null, model.anomalyStateLabel || '查看异动核验状态') : null,
                         h('div', {
                             class: 'flex flex-col gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3 sm:flex-row sm:items-center sm:justify-between',
                             'data-testid': 'home-operating-anomaly-summary',
@@ -2852,7 +2859,7 @@ window.SUXI_HOME_STATIC = (() => {
                 homeWeeklyOperatingPlan.value = res.data;
                 return true;
             } catch (error) {
-                if (currentSeq !== requestSeq) return false;
+                if (currentSeq !== requestSeq || hotelId !== String(getHotelId() || '').trim()) return false;
                 const previousMatches = previousPlan?.readback_verified === true
                     && Number(previousPlan?.hotel_id || 0) === Number(hotelId)
                     && String(previousPlan?.week_end || '') === weekEnd;

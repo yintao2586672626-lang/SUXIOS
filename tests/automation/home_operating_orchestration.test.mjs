@@ -304,6 +304,46 @@ test('home entry opens exact fact or intent and refreshes from execution readbac
   assert.doesNotMatch(appMain, /const homeOperatingSchedulePromise = requestPage === 'compass'/);
 });
 
+test('weekly plan missing snapshot is empty while unrelated HTTP failures remain errors', async () => {
+  let failure;
+  const controller = createHomeWeeklyOperatingPlanController({
+    ref: value => ({ value }),
+    apiRequest: async () => {
+      if (failure) throw failure;
+      return { code: 200, data: { hotel_id: 5, week_end: '2026-08-23', status: 'not_generated', readback_verified: false } };
+    },
+    getHotelId: () => '5',
+    getToday: () => '2026-08-29',
+  });
+  assert.equal(await controller.loadHomeWeeklyOperatingPlan(), true);
+  assert.equal(controller.homeWeeklyOperatingPlan.value, null);
+  assert.equal(controller.homeWeeklyOperatingPlanError.value, '');
+  assert.equal(controller.homeWeeklyOperatingPlanLoading.value, false);
+  for (const [status, message] of [[404, 'route_not_found'], [403, 'permission_denied'], [503, 'database_unavailable']]) {
+    failure = Object.assign(new Error(message), { status, data: { code: status, message } });
+    assert.equal(await controller.loadHomeWeeklyOperatingPlan(), false);
+    assert.equal(controller.homeWeeklyOperatingPlanError.value, message);
+  }
+});
+
+test('late weekly snapshot failure cannot overwrite a newly selected hotel', async () => {
+  let reject, hotel = '5';
+  const controller = createHomeWeeklyOperatingPlanController({
+    ref: value => ({ value }),
+    apiRequest: () => new Promise((resolve, no) => { reject = no; }),
+    getHotelId: () => hotel,
+    getToday: () => '2026-08-29',
+  });
+  const pending = controller.loadHomeWeeklyOperatingPlan();
+  hotel = '6';
+  const current = { hotel_id: 6, readback_verified: true };
+  controller.homeWeeklyOperatingPlan.value = current;
+  reject(Object.assign(new Error('database_unavailable'), { status: 503 }));
+  assert.equal(await pending, false);
+  assert.equal(controller.homeWeeklyOperatingPlan.value, current);
+  assert.equal(controller.homeWeeklyOperatingPlanError.value, '');
+});
+
 test('weekly plan refresh failure preserves the last verified same-scope snapshot', async () => {
   const ref = value => ({ value });
   let fail = false;

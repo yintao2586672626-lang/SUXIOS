@@ -54,6 +54,7 @@ final class StoredOtaHistoryLocatorTest extends TestCase
             ['data_period' => 'realtime_snapshot', 'data_date' => '2020-01-08'],
             ['data_period' => 'future_on_books', 'data_date' => '2020-01-08'],
             ['data_type' => 'competitor', 'data_date' => '2020-01-07'],
+            ['data_date' => '2020-01-10'],
             ['data_date' => '2020-02-01'],
         ] as $override) {
             Db::name('online_daily_data')->insert(array_replace($base, $override));

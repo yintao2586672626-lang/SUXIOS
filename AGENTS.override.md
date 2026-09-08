@@ -48,6 +48,8 @@ For a bug: reproduce → locate → minimal fix → verify. After three targeted
 
 ## Task-specific routing
 
+- Visual UI changes follow `rules/interface-design-standard.md` for the affected page and shared shell, including actual states and responsive verification.
+
 - OTA collection/import/login: use the matching `suxi-ota-ops` or `scrapling` instructions only for an authorized source.
 - OTA metric/storage/UI closure: use `suxi-ctrip-field-table-closure` and the semantic-layer boundary only when their objects are touched.
 - AI reports/diagnostics: use `suxi-ai-report`; investment formulas use `suxi-investment-calculation`; UI uses `suxi-dashboard-ui`; explicit bug repair uses `suxi-test-guard`.

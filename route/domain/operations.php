@@ -131,7 +131,7 @@ Route::group('api/expansion', function () {
     Route::delete('/records', 'Expansion/clearRecords');
     Route::get('/records/:id', 'Expansion/detail');
     Route::get('/records', 'Expansion/records');
-})->middleware(\app\middleware\Auth::class);
+})->middleware(\app\middleware\Auth::class)->middleware(\app\middleware\RetiredFeatureReadOnly::class, '扩张测算');
 
 // ==================== 转让管理 API ====================
 Route::group('api/transfer', function () {
@@ -143,4 +143,4 @@ Route::group('api/transfer', function () {
     Route::delete('/records/:id', 'TransferDecision/archive');
     Route::get('/records/:id', 'TransferDecision/detail');
     Route::get('/records', 'TransferDecision/records');
-})->middleware(\app\middleware\Auth::class);
+})->middleware(\app\middleware\Auth::class)->middleware(\app\middleware\RetiredFeatureReadOnly::class, '转让测算');

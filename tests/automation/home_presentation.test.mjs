@@ -64,6 +64,19 @@ test('compact data-source action remains available after the filters move to the
   assert.equal(opened.tab, 'data-health');
 });
 
+test('hotel identity mismatch renders a failed read instead of a confirmed empty state', () => {
+  const model = buildHomeBusinessTimeModel({
+    selectedHotelId: 80, selectedBusinessDate: '2026-09-06',
+    revenueFactLayer: { hotel: { system_hotel_id: 81 }, business_date: '2026-09-06' },
+  });
+  assert.equal(model.yesterday.displayMode, 'error');
+  const tree = renderFacts(model);
+  const state = nodes(tree).find(node => node.props?.['data-testid'] === 'home-yesterday-empty-state');
+  assert.equal(state.props['data-state'], 'error');
+  assert.ok(nodes(state).some(node => node.type === 'h3' && node.children === '经营事实读取失败'));
+  assert.ok(!nodes(tree).some(node => node.props?.['data-testid'] === 'home-facts-overview'));
+});
+
 test('compact failed task reads stay visible and never claim there are no tasks', () => {
   const tree = HomeOperatingOrchestration.render.call({
     model: { stateCode: 'failed', stateLabel: '读取失败', notice: 'synthetic task read failure', items: [], anomalyItems: [] },

@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { parse } from '@vue/compiler-dom';
 
 export const FRONTEND_RUNTIME_EXCLUDED_FRAGMENT_IDS = Object.freeze([
   'page-ai-strategy',
@@ -110,7 +111,7 @@ const BUSINESS_CLOSURE_TEMPLATE_VIEW_DEFINITIONS = Object.freeze([
     fragmentId: 'page-ops-track',
     componentKey: 'OperatingGoalInterventionBody',
     start: '                        <div data-testid="operating-goal-intervention-learning"',
-    end: '                        <div class="bg-white rounded-xl border border-gray-100 p-5 shadow-sm">',
+    endAtElement: true,
     wrapper: '                        <operating-goal-intervention-view :ctx="$root"></operating-goal-intervention-view>\n\n',
   }),
   Object.freeze({
@@ -147,6 +148,20 @@ const BUSINESS_CLOSURE_TEMPLATE_VIEW_DEFINITIONS = Object.freeze([
   }),
 ]);
 
+function findTemplateElementEnd(source, start) {
+  if (start < 0) return -1;
+  const elementStart = source.indexOf('<', start);
+  const findEnd = (node) => {
+    if (node.type === 1 && node.loc.start.offset === elementStart) return node.loc.end.offset;
+    for (const child of node.children || []) {
+      const end = findEnd(child);
+      if (end >= 0) return end;
+    }
+    return -1;
+  };
+  return findEnd(parse(source));
+}
+
 function extractBusinessClosureTemplateViews(fragments) {
   const views = [];
   const nextFragments = fragments.map((fragment) => {
@@ -158,7 +173,9 @@ function extractBusinessClosureTemplateViews(fragments) {
     let source = fragment.source;
     for (const definition of definitions) {
       const start = source.indexOf(definition.start);
-      const end = source.indexOf(definition.end, start + definition.start.length);
+      const end = definition.endAtElement
+        ? findTemplateElementEnd(source, start)
+        : source.indexOf(definition.end, start + definition.start.length);
       if (start < 0 || end <= start) {
         throw new Error(`Business closure template boundary drifted: ${definition.id}.`);
       }

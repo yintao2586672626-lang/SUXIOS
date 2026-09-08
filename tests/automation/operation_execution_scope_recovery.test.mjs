@@ -21,6 +21,9 @@ function harness({ hotel = '', ready, fetch } = {}) {
   const context = vm.createContext({
     URLSearchParams, Set, FormData,
     epoch: 1,
+    pageRequestGeneration: 1,
+    globalBusinessDate: '2026-09-07',
+    policyTenantId: '770',
     BUSINESS_CONTEXT_ENDPOINT_PREFIXES: ['/operation/'],
     STRICT_OTA_MANUAL_EXECUTION_PATHS: new Set(),
     authContext: ref({ permissionStatus: 'allowed', hotelId: '77', tenantId: '770', platform: 'meituan' }),
@@ -45,6 +48,11 @@ function harness({ hotel = '', ready, fetch } = {}) {
     homeOperatingScheduleError: ref(''),
     captureAuthSession: () => context.epoch,
     isAuthSessionCurrent: epoch => epoch === context.epoch,
+    currentPageReadPolicy: () => ({
+      scope: 'page', pageKey: context.currentPage.value, pageGeneration: context.pageRequestGeneration,
+      sessionEpoch: context.epoch, tenantId: context.policyTenantId,
+      systemHotelId: context.filterReportHotel.value, businessDate: context.globalBusinessDate,
+    }),
     ensureOperationStaticReady: async () => { await ready?.(); },
     normalizeOperationHotelSelection: form => form.value.hotel_id,
     loadOperatingMemories: async () => {},
@@ -76,6 +84,12 @@ test('all permitted hotels never inherit the home hotel, tenant or platform filt
   for (const call of h.calls) {
     const url = new URL(call.url, 'http://fixture.invalid');
     for (const key of ['hotel_id', 'system_hotel_id', 'tenant_id', 'platform']) assert.equal(url.searchParams.has(key), false, call.url);
+    assert.equal(call.options.requestPolicy.systemHotelId, '');
+    assert.equal(call.options.requestPolicy.businessDate, '');
+    assert.equal(call.options.requestPolicy.tenantId, '770');
+    assert.equal(call.options.requestPolicy.scope, 'page');
+    assert.equal(call.options.requestPolicy.pageGeneration, 1);
+    assert.equal(call.options.requestPolicy.sessionEpoch, 1);
   }
   assert.deepEqual(Array.from(h.context.operationExecutionFlow.value.list, row => row.hotel_id), [7, 8]);
 });
@@ -157,11 +171,82 @@ function memoryHarness(options = {}) {
   return h;
 }
 
+function coordinatorReply(h) {
+  Object.assign(h.context, {
+    coordinatedGetRequests: new Map(),
+    coordinatedGetSuccessCache: new Map(),
+    createRequestAbortError: () => Object.assign(new Error('scope changed'), { name: 'AbortError' }),
+    settleCoordinatedGetConsumer: (entry, consumer, status, value) => consumer[status](value),
+  });
+  vm.runInContext(section('const finishCoordinatedGet =', 'const addCoordinatedGetConsumer =')
+    + '\nglobalThis.finishRead = finishCoordinatedGet;', h.context);
+  return (policy, value = { code: 200, data: {} }) => new Promise((resolve, reject) => {
+    const consumer = { ...policy, requestSession: policy.sessionEpoch, resolve, reject };
+    const entry = { key: 'fixture', ttlMs: 0, controller: { signal: { aborted: false } }, consumers: new Map([[1, consumer]]) };
+    h.context.finishRead(entry, 'resolve', value);
+  });
+}
+
+test('dashboard hotel and date hydration cannot abort a task read with an independent hotel selector', async () => {
+  const gate = deferred();
+  let settle;
+  const h = harness({ hotel: '7', fetch: call => gate.promise.then(value => settle(call.options.requestPolicy, value)) });
+  settle = coordinatorReply(h);
+  const dashboardPolicy = h.context.currentPageReadPolicy();
+  const pending = h.context.loadFlow();
+  await flush();
+  h.context.filterReportHotel.value = '8';
+  h.context.globalBusinessDate = '2026-09-08';
+  await assert.rejects(settle(dashboardPolicy), { name: 'AbortError' }, 'the previous default policy reproduces the hydration cancellation');
+  gate.resolve({ code: 200, data: { capabilities: { hotel_id: 7 }, list: [{ id: 71, hotel_id: 7 }], hotel_id: 7, actions: [] } });
+  assert.equal(await pending, true);
+  assert.equal(h.context.operationExecutionFlow.value.list[0].hotel_id, 7);
+  assert.equal(h.context.operationError.value.actions, '');
+});
+
+test('dashboard hotel and date hydration cannot abort an independently scoped memory read', async () => {
+  const gate = deferred();
+  let settle;
+  const h = memoryHarness({ hotel: '7', fetch: call => gate.promise.then(value => settle(call.options.requestPolicy, value)) });
+  settle = coordinatorReply(h);
+  const pending = h.context.loadMemories();
+  h.context.filterReportHotel.value = '8';
+  h.context.globalBusinessDate = '2026-09-08';
+  gate.resolve({ code: 200, data: { list: [{ id: 71, hotel_id: 7 }], data_gaps: [] } });
+  const result = await pending;
+  assert.equal(result.list[0].hotel_id, 7);
+  assert.equal(h.context.operatingMemoryError.value, '');
+});
+
+test('independent task and memory policies still reject stale tenant, login, page and page-generation consumers', async () => {
+  for (const kind of ['tasks', 'memories']) {
+    for (const change of [
+      context => { context.policyTenantId = '771'; },
+      context => { context.epoch += 1; },
+      context => { context.currentPage.value = 'compass'; },
+      context => { context.pageRequestGeneration += 2; },
+    ]) {
+      const h = kind === 'tasks' ? harness({ hotel: '7' }) : memoryHarness({ hotel: '7', fetch: async () => ({ code: 200, data: { list: [], data_gaps: [] } }) });
+      if (kind === 'tasks') await h.context.loadFlow();
+      else await h.context.loadMemories();
+      const policy = h.calls[0].options.requestPolicy;
+      const settle = coordinatorReply(h);
+      change(h.context);
+      await assert.rejects(settle(policy), { name: 'AbortError' });
+    }
+  }
+});
+
 test('all-hotel memories use the same explicit scope as the task list', async () => {
   const h = memoryHarness({ fetch: async () => ({ code: 200, data: { list: [{ id: 1, hotel_id: 7 }], data_gaps: [] } }) });
   await h.context.loadMemories();
   const params = new URL(h.calls[0].url, 'http://fixture.invalid').searchParams;
   for (const key of ['system_hotel_id', 'hotel_id', 'tenant_id', 'platform']) assert.equal(params.has(key), false);
+  assert.equal(h.calls[0].options.requestPolicy.systemHotelId, '');
+  assert.equal(h.calls[0].options.requestPolicy.businessDate, '');
+  assert.equal(h.calls[0].options.requestPolicy.tenantId, '770');
+  assert.equal(h.calls[0].options.requestPolicy.scope, 'page');
+  assert.equal(h.calls[0].options.requestPolicy.pageGeneration, 1);
   assert.equal(h.context.operatingMemories.value.list[0].hotel_id, 7);
 });
 

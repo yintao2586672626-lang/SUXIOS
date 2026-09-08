@@ -22,6 +22,7 @@ const state=fs.mkdtempSync(path.join(os.tmpdir(),'l10-integrated-synthetic-'));
 const phpBinary=option('--php') || 'C:/xampp/php/php.exe';
 const phpFixture=path.join(ownerRoot,'tests/fixtures/integrated_workflows_api.php');
 const measuredPaths=['public/app-main.min.js','public/app-render.min.js','resources/frontend/app-template.html','app/service/PreciseQueryRouterService.php','app/service/PreciseQueryPeriodService.php','public/components/system/operating-intelligence-components.js','app/service/OperationTaskWorkflowService.php','public/components/operations/task-workflow-panel.js'];
+measuredPaths.push('public/index.html', 'public/app-startup-helpers.min.js', 'public/home-static.js', 'public/style.min.css', 'public/style-startup.min.css', 'public/compass-authority-polish.css');
 const measure=()=>Object.fromEntries(measuredPaths.map(name=>[name,createHash('sha256').update(fs.readFileSync(path.join(root,name))).digest('hex')]));
 const manifest={root,output,state,synthetic:true,mode:'complete_app_with_explicit_synthetic_http_and_target_services',
   assets:measure()};
@@ -183,6 +184,15 @@ try {
     await prepareHome(desktop);await screenshot('01-home-desktop');
     await page.setViewportSize(mobile);await screenshot('01-home-mobile');
     assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1));
+    await page.setViewportSize({width:320,height:844});
+    await page.getByTestId('home-daily-workflows').scrollIntoViewIfNeeded();
+    const narrowControls=await page.getByTestId('home-daily-workflows').locator('button').evaluateAll(buttons=>buttons.map(button=>{
+      const rect=button.getBoundingClientRect();return {width:rect.width,height:rect.height,left:rect.left,right:rect.right};
+    }));
+    assert.equal(narrowControls.length,5);
+    for(const rect of narrowControls)assert.ok(rect.width>=24&&rect.height>=44&&rect.left>=0&&rect.right<=321);
+    assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1));
+    await screenshot('01-home-narrow-320');
   });
   await check('02-query-save-readback',async()=>{
     await prepareHome(mobile);

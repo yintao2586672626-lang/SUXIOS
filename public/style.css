@@ -18421,3 +18421,219 @@ main[data-current-page="ai-workbench"] .dual-ota-current-data-state-action:hover
     .home-daily-workflows { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .home-daily-workflows button:first-child { grid-column: 1 / -1; }
 }
+
+/* Workspace visual contract — rules/interface-design-standard.md.
+ * These existing semantic tokens apply only after login. */
+.suxi-app-shell {
+    --color-bg: #f4f6f4;
+    --color-bg-soft: #f8faf8;
+    --color-surface-warm: #f7f9f7;
+    --color-surface-muted: #edf2ee;
+    --color-sidebar: #102c25;
+    --color-sidebar-hover: #193e33;
+    --color-sidebar-active: #244c3e;
+    --color-text: #1c3028;
+    --color-text-muted: #5b6d63;
+    --color-text-subtle: #63756a;
+    --color-border: #dfe7e1;
+    --color-border-strong: #aebfb3;
+    --color-gold: #8d682e;
+    --color-gold-hover: #735323;
+    --color-gold-soft: #f5eddd;
+    --color-gold-muted: #d9c59c;
+    --color-teal-deep: #235c4b;
+    --color-teal-soft: #e7f1eb;
+    --shadow-card: 0 2px 6px rgba(19, 47, 34, .035);
+    --shadow-card-hover: 0 4px 14px rgba(19, 47, 34, .06);
+    --radius-lg: 16px;
+    --radius-xl: 20px;
+    color: var(--color-text);
+    background: var(--color-bg) !important;
+    font-size: 14px;
+    line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+}
+
+.suxi-app-shell main[data-testid="app-main"] {
+    min-width: 0;
+    background: var(--color-bg) !important;
+    scroll-padding-top: 96px;
+}
+.suxi-app-shell main[data-testid="app-main"]::before,
+.suxi-app-shell main[data-testid="app-main"]::after {
+    display: none !important;
+}
+.suxi-app-shell main[data-testid="app-main"] > .suxi-page-body { padding: 28px 32px !important; }
+.suxi-app-shell .suxi-page-body::before { display: none !important; }
+
+.suxi-app-shell aside.sidebar.sidebar {
+    background: var(--color-sidebar) !important;
+    border-right: 0 !important;
+    box-shadow: none !important;
+}
+.suxi-app-shell aside.sidebar::after { display: none !important; }
+.suxi-app-shell .suxi-brand-symbol {
+    color: #ead9b3;
+    border: 1px solid rgba(234, 217, 179, .28);
+    background: #204639;
+    box-shadow: none;
+}
+.suxi-app-shell aside.sidebar > div:first-child { padding: 22px 16px; }
+.suxi-app-shell aside.sidebar > div:first-child .font-bold { font-weight: 600; letter-spacing: .035em; }
+.suxi-app-shell aside.sidebar nav[data-testid="app-nav"] { padding: 20px 0; }
+.suxi-app-shell aside.sidebar .sidebar-item {
+    min-height: 44px;
+    margin: 3px 12px;
+    padding: 12px;
+    border: 1px solid transparent !important;
+    border-radius: 9px;
+    background: transparent !important;
+    color: #c6d7cd !important;
+    font-size: 14px;
+    line-height: 20px;
+    box-shadow: none !important;
+    transition: background-color 160ms ease, color 160ms ease;
+}
+.suxi-app-shell aside.sidebar .sidebar-item i {
+    color: #a9c1b4 !important;
+    width: 20px;
+    font-size: 14px;
+}
+.suxi-app-shell aside.sidebar .sidebar-item:hover {
+    background: var(--color-sidebar-hover) !important;
+    color: #fff !important;
+    transform: none !important;
+}
+.suxi-app-shell aside.sidebar .sidebar-item.active,
+.suxi-app-shell aside.sidebar.collapsed .sidebar-item.active {
+    border-color: #446653 !important;
+    background: var(--color-sidebar-active) !important;
+    color: #fff !important;
+    box-shadow: inset 3px 0 #d8c396 !important;
+    font-weight: 600;
+}
+.suxi-app-shell aside.sidebar .sidebar-item.active i { color: #e6d3a9 !important; }
+.suxi-app-shell aside.sidebar:not(.collapsed) .sidebar-item > i:first-child { margin-right: 10px; }
+.suxi-app-shell aside.sidebar:not(.collapsed) .sidebar-item > div.flex { gap: 10px; }
+.suxi-app-shell aside.sidebar:not(.collapsed) .sidebar-item > div.flex > i { margin-right: 0; }
+.suxi-app-shell aside.sidebar .mobile-nav-submenu .sidebar-item { margin-left: 24px; padding: 10px 12px; }
+.suxi-app-shell aside.sidebar.collapsed > div:first-child { padding: 18px 8px; }
+.suxi-app-shell aside.sidebar.collapsed .sidebar-item { margin-inline: 8px; padding-inline: 10px; }
+
+.suxi-app-shell main[data-testid="app-main"] > .suxi-workspace-header {
+    min-height: 80px;
+    padding: 16px 32px;
+    border-bottom: 1px solid var(--color-border) !important;
+    background: #fff !important;
+    color: var(--color-text) !important;
+    box-shadow: none !important;
+    backdrop-filter: none !important;
+}
+.suxi-app-shell .suxi-workspace-header::before,
+.suxi-app-shell .suxi-workspace-header::after { display: none !important; }
+.suxi-app-shell .suxi-workspace-header h1 {
+    color: var(--color-text) !important;
+    font-size: 19px !important;
+    font-weight: 600;
+    letter-spacing: -.02em;
+}
+.suxi-app-shell .suxi-workspace-header .header-page-eyebrow {
+    color: var(--color-text-muted) !important;
+    font-size: 10px;
+    letter-spacing: .1em;
+}
+.suxi-app-shell .suxi-workspace-header .header-utility-cluster { gap: 10px; }
+.suxi-app-shell .suxi-workspace-header .header-utility-cluster > :is(button, div:not(.relative)),
+.suxi-app-shell .suxi-workspace-header .header-notification-control > .header-notification-button {
+    border-color: var(--color-border) !important;
+    border-radius: 10px !important;
+    background: #f7f9f7 !important;
+    color: var(--color-text) !important;
+    box-shadow: none !important;
+}
+.suxi-app-shell .suxi-workspace-header .header-utility-icon {
+    color: #47745b !important;
+    background: #e9f0eb !important;
+    box-shadow: none !important;
+}
+.suxi-app-shell .suxi-workspace-header .header-time-copy,
+.suxi-app-shell .suxi-workspace-header .header-notification-title,
+.suxi-app-shell .suxi-workspace-header .header-clock-row strong { color: var(--color-text) !important; }
+.suxi-app-shell .suxi-workspace-header :is(.header-clock-row small, .header-date-row) { color: var(--color-text-muted) !important; }
+
+.suxi-app-shell [data-testid="ota-auth-strong-reminder-banner"] { padding: 20px 32px 0; }
+.suxi-app-shell [data-testid="ota-auth-strong-reminder-banner"] > section {
+    border: 1px solid #ecd7cb !important;
+    border-left: 3px solid #b57541 !important;
+    border-radius: 10px;
+    background: #fffaf3 !important;
+    padding: 12px 16px;
+    box-shadow: none !important;
+}
+.suxi-app-shell [data-testid="ota-auth-strong-reminder-banner"] .bg-red-600 {
+    width: 32px;
+    height: 32px;
+    color: #93522a !important;
+    background: #f7e8d8 !important;
+}
+.suxi-app-shell [data-testid="ota-auth-strong-reminder-banner"] :is(.text-red-900, .text-red-700) { color: #804820 !important; }
+.suxi-app-shell [data-testid="ota-auth-strong-reminder-banner"] :is(.ota-auth-reminder-primary, .ota-auth-reminder-ignore) {
+    min-height: 36px;
+    padding: 7px 12px;
+    border: 1px solid #dbc4ae !important;
+    border-radius: 7px !important;
+    background: #fff !important;
+    color: #804820 !important;
+    box-shadow: none !important;
+}
+.suxi-app-shell [data-testid="ota-auth-strong-reminder-banner"] .ota-auth-reminder-primary { font-weight: 600; }
+#app .suxi-app-shell :where(button, a[href], [role="button"], input, select, textarea, summary):focus-visible {
+    outline: 2px solid #286d50 !important;
+    outline-offset: 3px;
+}
+#app .suxi-app-shell aside.sidebar :is(a, button, [tabindex]):focus-visible {
+    outline: 2px solid #ead9b3 !important;
+    outline-offset: -3px;
+}
+#app .suxi-app-shell main :where(button, a):is([class*="bg-yellow-500"], [class*="bg-amber-500"], [class*="bg-orange-500"]) {
+    color: #fff !important;
+}
+.suxi-app-shell main[data-current-page] :where(table) { font-variant-numeric: tabular-nums; }
+.suxi-app-shell main[data-current-page] :where(th) { font-weight: 600; }
+.suxi-app-shell main[data-current-page="ops-track"] :where(thead) { background: #f4f7f4; }
+.suxi-app-shell main[data-current-page="ops-track"] :where(tbody tr:hover) { background: #f6f9f6; }
+.suxi-app-shell main[data-current-page="ops-track"] button.text-white[class~="bg-[#315d50]"] {
+    border-color: #235b43 !important;
+    background: #235b43 !important;
+    color: #fff !important;
+}
+.suxi-app-shell main[data-current-page="ops-track"] [data-testid="operating-memory-panel"] {
+    margin: 0;
+    padding: 20px;
+    border: 1px solid var(--color-border);
+    border-radius: 12px;
+    background: #fff;
+    color: var(--color-text-muted);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    font-family: inherit;
+    font-size: 14px;
+    line-height: 1.75;
+}
+
+@media (max-width: 767px) {
+    .suxi-app-shell main[data-testid="app-main"] > .suxi-page-body { padding: 18px 16px calc(env(safe-area-inset-bottom, 0px) + 132px) !important; }
+    .suxi-app-shell main[data-testid="app-main"] > .suxi-workspace-header { padding: 14px 16px; min-height: 70px; }
+    .suxi-app-shell [data-testid="ota-auth-strong-reminder-banner"] { padding: 14px 16px 0; }
+    .suxi-app-shell aside.sidebar > div:first-child { padding: 12px; }
+    .suxi-app-shell aside.sidebar nav[data-testid="app-nav"] { padding: 4px 0; }
+    .suxi-app-shell aside.sidebar .sidebar-item { margin: 3px 6px; min-height: 44px; }
+}
+@media (prefers-reduced-motion: reduce) {
+    .suxi-app-shell *, .suxi-app-shell *::before, .suxi-app-shell *::after {
+        animation-duration: .01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: .01ms !important;
+        scroll-behavior: auto !important;
+    }
+}

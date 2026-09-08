@@ -36,7 +36,9 @@ final class StoredOtaHistoryLocator
             return array_replace($result, ['status' => 'error']);
         }
         $lastCompletedDate = (new DateTimeImmutable('yesterday', new DateTimeZone('Asia/Shanghai')))->format('Y-m-d');
-        $cutoff = min($requestedDate, $lastCompletedDate);
+        // The shortcut points to an earlier business day. A stored but unverified
+        // row on the requested day must not hide an older navigable record.
+        $cutoff = min($date->modify('-1 day')->format('Y-m-d'), $lastCompletedDate);
         foreach (['ctrip', 'meituan'] as $platform) {
             try {
                 $storedDate = Db::name('online_daily_data')
