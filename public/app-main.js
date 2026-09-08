@@ -12210,12 +12210,15 @@
             const loadOnlineDataList = async (options = {}) => {
                 const loadOptions = normalizeRequestCacheOptions(options);
                 let requestKey = '';
+                let lifecycleKey = '';
                 const session = captureAuthSession();
+                const requestPolicy = currentPageReadPolicy(currentPage.value, 'current');
                 const currentScope = () => JSON.stringify({ filter: onlineDataFilter.value,
                     page: onlineDataPage.value, pageSize: onlineDataPagination.value.page_size || 30 });
                 const scopeAtRequest = currentScope();
-                const isCurrent = () => requestKey === onlineDataListActiveRequestKey
-                    && scopeAtRequest === currentScope() && isAuthSessionCurrent(session);
+                const ownsLoading = () => lifecycleKey === onlineDataListActiveRequestKey && isAuthSessionCurrent(session);
+                const isCurrent = () => ownsLoading() && scopeAtRequest === currentScope()
+                    && isPageLoadPolicyCurrent(requestPolicy);
                 try {
                     const params = new URLSearchParams({
                         page: onlineDataPage.value,
@@ -12248,7 +12251,8 @@
                         params.append('end_date', onlineDataFilter.value.end_date);
                     }
                     requestKey = params.toString();
-                    onlineDataListActiveRequestKey = requestKey;
+                    lifecycleKey = JSON.stringify([requestKey, requestPolicy]);
+                    onlineDataListActiveRequestKey = lifecycleKey;
                     const force = loadOptions.force === true;
                     const cacheMs = Number(loadOptions.cacheMs || 0);
                     if (force) {
@@ -12266,14 +12270,14 @@
                     onlineDataList.value = [];
                     onlineDataQualitySummary.value = null;
                     onlineDataPagination.value = { ...onlineDataPagination.value, total: null };
-                    if (onlineDataListRequestPromises.has(requestKey)) {
-                        return await onlineDataListRequestPromises.get(requestKey);
+                    if (onlineDataListRequestPromises.has(lifecycleKey)) {
+                        return await onlineDataListRequestPromises.get(lifecycleKey);
                     }
                     const run = (async () => {
                     debugLog('加载数据列表，参数:', params.toString());
-                    const res = await request(`/online-data/daily-data-list?${params}`, { withBusinessContext: false });
+                    const res = await request(`/online-data/daily-data-list?${params}`, { withBusinessContext: false, requestPolicy });
                     if (!isCurrent()) {
-                        if (requestKey === onlineDataListActiveRequestKey && isAuthSessionCurrent(session)) {
+                        if (ownsLoading() && isPageLoadPolicyCurrent(requestPolicy)) {
                             onlineDataListError.value = '筛选条件已变化，请重新查询；未使用上一范围结果。';
                         }
                         return null;
@@ -12293,13 +12297,16 @@
                         throw new Error(res.message || '历史记录响应不完整，请重试；不能确认为无数据。');
                     }
                     })().finally(() => {
-                        onlineDataListRequestPromises.delete(requestKey);
+                        if (onlineDataListRequestPromises.get(lifecycleKey) === run) {
+                            onlineDataListRequestPromises.delete(lifecycleKey);
+                        }
                     });
-                    onlineDataListRequestPromises.set(requestKey, run);
+                    onlineDataListRequestPromises.set(lifecycleKey, run);
                     return await run;
                 } catch (error) {
+                    if (error?.name === 'AbortError') return null;
                     if (!isCurrent()) {
-                        if (requestKey === onlineDataListActiveRequestKey && isAuthSessionCurrent(session)) {
+                        if (ownsLoading() && isPageLoadPolicyCurrent(requestPolicy)) {
                             onlineDataListError.value = '筛选条件已变化，请重新查询；未使用上一范围结果。';
                         }
                         return null;
@@ -12312,7 +12319,7 @@
                     console.error('加载数据列表失败:', error);
                     return null;
                 } finally {
-                    if (requestKey === onlineDataListActiveRequestKey && isAuthSessionCurrent(session)) {
+                    if (ownsLoading()) {
                         onlineDataListLoading.value = false;
                     }
                 }
