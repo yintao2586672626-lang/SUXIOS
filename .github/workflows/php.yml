@@ -325,6 +325,13 @@ jobs:
           fi
           printf 'SUXI_MIGRATION_LOCK_BASE_REF=%s\n' "$base_ref" >> "$GITHUB_ENV"
 
+      - name: Verify collaboration and outer-context policy compatibility
+        run: >-
+          node --test
+          tests/automation/project_collaboration_rules.test.mjs
+          tests/automation/outer_delivery_policy.test.mjs
+          tests/automation/context_root.test.mjs
+
       - name: Run canonical integration gate
         run: npm run verify:integration
 
