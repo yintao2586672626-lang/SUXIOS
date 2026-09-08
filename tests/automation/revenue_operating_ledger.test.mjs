@@ -1,12 +1,34 @@
 import assert from 'node:assert/strict';
-import { readFileSync, mkdirSync } from 'node:fs';
+import { readFileSync, mkdirSync, mkdtempSync, existsSync, unlinkSync, rmdirSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import os from 'node:os';
 import path from 'node:path';
 import vm from 'node:vm';
 import test from 'node:test';
 import { chromium } from 'playwright-core';
 import { parse, compile } from '@vue/compiler-dom';
 
-const model = JSON.parse(readFileSync('output/long-goal/synthetic-model.json', 'utf8'));
+function savedSyntheticModel() {
+  const directory = mkdtempSync(path.join(os.tmpdir(), 'suxi-ledger-model-'));
+  const target = path.join(directory, 'model.json');
+  const php = process.env.PHP_BINARY || process.env.SUXI_PHP
+    || (process.platform === 'win32' ? 'C:/xampp/php/php.exe' : 'php');
+  try {
+    // Exercise the real attestation, isolated SQLite save and exact readback each run.
+    // A parallel backend job or a previous local run must not supply this fixture.
+    execFileSync(php, ['vendor/bin/phpunit', '--colors=never',
+      '--filter', 'testServerAttestationAndSqliteSnapshotSaveDuplicateExactVersionRecoveryAndOldData',
+      'tests/RevenueOperatingLedgerServiceTest.php'], {
+      env: { ...process.env, SUXI_LEDGER_MODEL_FIXTURE_OUTPUT: target },
+      windowsHide: true, timeout: 60_000, stdio: 'pipe',
+    });
+    return JSON.parse(readFileSync(target, 'utf8'));
+  } finally {
+    if (existsSync(target)) unlinkSync(target);
+    rmdirSync(directory);
+  }
+}
+const model = savedSyntheticModel();
 const context = { window: {}, URLSearchParams };
 vm.runInNewContext(readFileSync('public/revenue-overview-contract-static.js', 'utf8'), context);
 vm.runInNewContext(readFileSync('public/revenue-cockpit-static.js', 'utf8'), context);
@@ -40,7 +62,8 @@ test('actual ledger template renders, drills into evidence and recovers on deskt
   assert.ok(section, 'Actual revenue analysis ledger section exists');
   const template = fragment.slice(section.loc.start.offset, section.loc.end.offset);
   const compiled = compile(template, { mode: 'function' }).code;
-  const browser = await chromium.launch({ headless: true, channel: 'msedge' });
+  const browser = await chromium.launch({ headless: true,
+    ...(process.platform === 'win32' ? { channel: 'msedge' } : {}) });
   mkdirSync('output/long-goal', { recursive: true });
   const errors = [];
   try {

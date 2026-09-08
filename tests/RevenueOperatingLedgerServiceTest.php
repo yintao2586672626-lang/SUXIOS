@@ -438,7 +438,13 @@ final class RevenueOperatingLedgerServiceTest extends TestCase
             catch (\RuntimeException $e) { self::assertSame('revenue_decision_snapshot_readback_json_invalid', $e->getMessage()); }
             Db::name('revenue_decision_snapshots')->where('id', $saved['id'])->update(['visible_model_json' => $storedJson]);
             self::assertSame($model, $snapshots->readExact($saved['id'], 9, 80)['visible_model']);
-            file_put_contents(__DIR__ . '/../output/long-goal/synthetic-model.json', json_encode($model, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT | JSON_THROW_ON_ERROR));
+            $fixtureOutput = getenv('SUXI_LEDGER_MODEL_FIXTURE_OUTPUT');
+            if (is_string($fixtureOutput) && $fixtureOutput !== '') {
+                self::assertNotFalse(file_put_contents($fixtureOutput, json_encode(
+                    $snapshots->readExact($saved['id'], 9, 80)['visible_model'],
+                    JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT | JSON_THROW_ON_ERROR
+                )));
+            }
         } finally { Db::connect('l02_synthetic')->close(); Config::set($original, 'database'); }
     }
     public function testProjectionRejectsTamperedOrForeignLedgerAndDoesNotIncludeOtherOta(): void
