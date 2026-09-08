@@ -551,7 +551,7 @@
         }
       ],
       "evidence_maturity": "static_contract_only",
-      "evidence_limit": "当前阶段隐藏下游入口，仅保护模板和冻结边界；不宣称可发现、可操作或现场有效。",
+      "evidence_limit": "下游模板保持冻结；战略推演、扩张、转让及可研的生成、修改、归档与转执行接口返回410，历史GET仍走原鉴权和回读。聚焦中间件及路由回归见RetiredFeatureReadOnlyTest与retired_feature_routes；不宣称现场有效。",
       "known_limits": ["阶段一导航隐藏", "未执行真实策略、可研、扩张、资产定价或正式投决现场验收"]
     },
     {

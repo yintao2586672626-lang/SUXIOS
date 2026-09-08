@@ -13,7 +13,8 @@ main[data-current-page="compass"] {
     --authority-muted: #9eafa7;
 }
 
-main[data-current-page="compass"] .operating-loop-authority-shell {
+/* Outrank the generic light nested-card rule so this dark panel retains readable light text. */
+main[data-current-page="compass"] .compass-dashboard .compass-shell-card .operating-loop-authority-shell {
     position: relative;
     overflow: hidden;
     border: 1px solid var(--authority-line) !important;
@@ -268,21 +269,53 @@ main[data-current-page="compass"] [data-testid="operating-loop-authority"] + div
     content: "";
 }
 
-main[data-current-page="compass"] .home-facts-shell {
+#app main[data-current-page="compass"] .home-facts-shell {
     border: 0 !important;
     background: transparent !important;
     box-shadow: none !important;
     padding: 0 !important;
 }
 
+/* The drilldown is a data workspace, not a second marketing hero. */
+#app main[data-current-page="compass"] .compass-hero-bezel {
+    padding: 1px;
+    border: 1px solid rgba(125, 100, 55, 0.2);
+    border-radius: 23px;
+    background: linear-gradient(135deg, rgba(216, 181, 108, 0.7), rgba(20, 58, 49, 0.2));
+    box-shadow: 0 16px 42px rgba(58, 45, 24, 0.1);
+    animation: none;
+}
+
+#app main[data-current-page="compass"] .compass-hero-core {
+    padding: 26px !important;
+    border: 0;
+    border-radius: 21px;
+    color: #17231d;
+    background:
+        radial-gradient(circle at 92% 0%, rgba(216, 181, 108, 0.12), transparent 32%),
+        #fffdf9;
+    box-shadow: none;
+}
+
 main[data-current-page="compass"] .home-facts-header {
     align-items: center !important;
-    border-bottom: 1px solid rgba(216, 181, 108, 0.14);
-    padding: 2px 2px 16px;
+    flex-wrap: wrap;
+    border-bottom: 1px solid #e9dfce;
+    padding: 0 0 18px;
+}
+
+main[data-current-page="compass"] .home-facts-header > div:first-child {
+    flex: 1 1 320px;
+    min-width: 0;
+}
+
+main[data-current-page="compass"] .home-facts-header > div:last-child {
+    flex: 0 1 280px;
+    max-width: 100%;
 }
 
 main[data-current-page="compass"] .home-facts-header h2 {
-    color: #f1f3ee !important;
+    color: #17231d !important;
     font-size: 21px !important;
     letter-spacing: -0.025em;
 }
@@ -293,13 +326,14 @@ main[data-current-page="compass"] .home-facts-header p:first-child {
 }
 
 main[data-current-page="compass"] .home-facts-header h2 + p {
-    color: #9aaba2 !important;
+    max-width: 700px;
+    color: #66756d !important;
 }
 
 main[data-current-page="compass"] .home-facts-header .rounded-full {
-    border-color: rgba(216, 181, 108, 0.3) !important;
-    background: rgba(216, 181, 108, 0.09) !important;
-    color: #e5ca8b !important;
+    border-color: #dfc994 !important;
+    background: #f8efd9 !important;
+    color: #765a26 !important;
 }
 
 main[data-current-page="compass"] .home-facts-controls {
@@ -308,17 +342,17 @@ main[data-current-page="compass"] .home-facts-controls {
 
 main[data-current-page="compass"] .home-facts-controls .input-field {
     min-height: 38px;
-    border: 1px solid rgba(216, 181, 108, 0.2) !important;
+    border: 1px solid #d8d8cf !important;
     border-radius: 10px !important;
-    background: rgba(255, 255, 255, 0.055) !important;
-    color: #e6ece8 !important;
+    background: #ffffff !important;
+    color: #1e2d26 !important;
     font-size: 12px !important;
     padding: 8px 11px !important;
 }
 
 main[data-current-page="compass"] .home-facts-controls option {
-    background: #0c1913;
-    color: #edf3ef;
+    background: #ffffff;
+    color: #1e2d26;
 }
 
 main[data-current-page="compass"] .home-facts-refresh {
@@ -327,10 +361,10 @@ main[data-current-page="compass"] .home-facts-refresh {
     align-items: center;
     justify-content: center;
     gap: 7px;
-    border: 1px solid rgba(216, 181, 108, 0.24);
+    border: 1px solid #143a31;
     border-radius: 10px;
-    background: rgba(255, 255, 255, 0.045);
-    color: #dfe7e2;
+    background: #143a31;
+    color: #f7f3e9;
     font-size: 12px;
     font-weight: 650;
     padding: 8px 12px;
@@ -342,10 +376,10 @@ main[data-current-page="compass"] .home-facts-state {
     align-items: center;
     gap: 18px 26px;
     margin-top: 16px;
-    border: 1px solid rgba(216, 181, 108, 0.18);
+    border: 1px solid #e3dac9;
     border-radius: 16px;
-    background: linear-gradient(105deg, rgba(255, 255, 255, 0.045), rgba(216, 181, 108, 0.025));
-    padding: 18px 20px 14px;
+    background: linear-gradient(105deg, #f8f6ef, #f5f0e5);
+    padding: 20px 22px 14px;
 }
 
 main[data-current-page="compass"] .home-facts-state.is-error {
@@ -381,14 +415,15 @@ main[data-current-page="compass"] .home-facts-state-kicker {
 }
 
 main[data-current-page="compass"] .home-facts-state h3 {
-    color: #f3f4ef;
+    color: #17231d;
     font-size: 16px;
     font-weight: 700;
 }
 
 main[data-current-page="compass"] .home-facts-state-copy p {
     margin-top: 6px;
-    color: #a8b6af;
+    max-width: 760px;
+    color: #596961;
     font-size: 12px;
     line-height: 1.65;
 }
@@ -398,29 +433,35 @@ main[data-current-page="compass"] .home-facts-state-meta {
     flex-wrap: wrap;
     gap: 5px 14px;
     margin-top: 9px;
-    color: #81938a;
+    color: #718078;
     font-size: 11px;
 }
 
 main[data-current-page="compass"] .home-facts-state-details {
     grid-column: 1 / -1;
-    border-top: 1px solid rgba(216, 181, 108, 0.11);
-    padding-top: 10px;
+    border-top: 1px solid #e3dac9;
+    padding-top: 12px;
 }
 
 main[data-current-page="compass"] .home-facts-state-details summary {
     width: fit-content;
     cursor: pointer;
-    color: #91a299;
+    color: #53655c;
     font-size: 11px;
     font-weight: 650;
 }
 
 main[data-current-page="compass"] .home-facts-state-details p {
     margin-top: 8px;
-    color: #81938a;
+    color: #66756d;
     font-size: 11px;
     line-height: 1.65;
+    overflow-wrap: anywhere;
+}
+
+main[data-current-page="compass"] .home-facts-state-details p + p {
+    padding-top: 8px;
+    border-top: 1px dashed #ddd3c2;
 }
 
 main[data-current-page="compass"] .home-facts-loading-state {
@@ -429,9 +470,9 @@ main[data-current-page="compass"] .home-facts-loading-state {
     align-items: center;
     gap: 14px;
     margin-top: 16px;
-    border: 1px solid rgba(216, 181, 108, 0.15);
+    border: 1px solid #e3dac9;
     border-radius: 16px;
-    background: rgba(255, 255, 255, 0.035);
+    background: #f8f6ef;
     padding: 18px 20px;
 }
 
@@ -446,13 +487,13 @@ main[data-current-page="compass"] .home-facts-loading-orbit {
 }
 
 main[data-current-page="compass"] .home-facts-loading-state strong {
-    color: #ecf0ed;
+    color: #17231d;
     font-size: 13px;
 }
 
 main[data-current-page="compass"] .home-facts-loading-state p {
     margin-top: 4px;
-    color: #899b92;
+    color: #718078;
     font-size: 11px;
 }
 
@@ -488,7 +529,100 @@ main[data-current-page="compass"] .home-fact-card-derived {
 }
 
 main[data-current-page="compass"] .home-facts-source-note {
-    color: #7f9188 !important;
+    color: #68776f !important;
+}
+
+main[data-current-page="compass"] .home-scope-grid .compass-signal-card {
+    border-color: #e3dac9;
+    color: #17231d;
+    background: #ffffff;
+    box-shadow: none;
+}
+
+main[data-current-page="compass"] .home-scope-grid .compass-signal-card:hover {
+    transform: translateY(-2px);
+    border-color: #ceb778;
+    background: #fffdf8;
+}
+
+main[data-current-page="compass"] .home-scope-grid .compass-signal-label {
+    color: #66756d;
+}
+
+main[data-current-page="compass"] .home-scope-grid .compass-signal-card strong {
+    color: #17231d;
+}
+
+main[data-current-page="compass"] .home-scope-grid .compass-signal-card > p {
+    color: #68776f !important;
+}
+
+main[data-current-page="compass"] .compass-blocker-strip {
+    border-color: #e4d5b7;
+    background: #fbf5e7;
+}
+
+main[data-current-page="compass"] .compass-blocker-strip span,
+main[data-current-page="compass"] .compass-blocker-strip p {
+    color: #65746c;
+}
+
+main[data-current-page="compass"] .compass-temporal-fold {
+    border-color: #dfe2dc;
+    background: #f6f8f5;
+}
+
+main[data-current-page="compass"] .compass-temporal-summary {
+    color: #17231d;
+}
+
+main[data-current-page="compass"] .compass-temporal-summary-title > span {
+    background: #e7eeea;
+    color: #24483c;
+}
+
+main[data-current-page="compass"] .compass-temporal-summary-note {
+    color: #68776f;
+}
+
+main[data-current-page="compass"] .compass-temporal-summary::after {
+    border-color: #cbd5cf;
+    color: #385a4f;
+}
+
+main[data-current-page="compass"] .compass-temporal-fold[open] > .compass-temporal-summary {
+    border-bottom-color: #dde2de;
+}
+
+main[data-current-page="compass"] .home-temporal-stage {
+    border-left-color: #dde2de;
+}
+
+main[data-current-page="compass"] .home-temporal-stage > div {
+    color: #385a4f;
+}
+
+main[data-current-page="compass"] .home-temporal-stage > strong {
+    color: #17231d;
+}
+
+main[data-current-page="compass"] .home-temporal-stage > p {
+    color: #68776f;
+}
+
+main[data-current-page="compass"] .home-temporal-stage > button {
+    color: #765a26;
+}
+
+main[data-current-page="compass"] .home-competitor-reference {
+    border-color: #dde2de;
+    color: #203129;
+    background: #ffffff;
+}
+
+main[data-current-page="compass"] .home-competitor-reference p {
+    border-top-color: #dde2de;
+    color: #68776f;
 }
 
 @keyframes authority-orbit {
@@ -496,6 +630,15 @@ main[data-current-page="compass"] .home-facts-source-note {
 }
 
 @media (max-width: 760px) {
+    #app main[data-current-page="compass"] .compass-hero-bezel {
+        border-radius: 18px;
+    }
+
+    #app main[data-current-page="compass"] .compass-hero-core {
+        padding: 18px 14px !important;
+        border-radius: 17px;
+    }
+
     main[data-current-page="compass"] .operating-loop-authority-head {
         padding: 18px !important;
     }
@@ -529,4 +672,670 @@ main[data-current-page="compass"] .home-facts-source-note {
     main[data-current-page="compass"] .home-facts-recovery-action {
         transition: none;
     }
+}
+
+/* Home presentation: scope first, facts and work side by side, evidence on demand. */
+#app main[data-current-page="compass"] .compass-dashboard {
+    --sx-dashboard-bg: #f4f6f4;
+    --sx-dashboard-card: #ffffff;
+    --sx-dashboard-border: #dfe7e1;
+    --sx-dashboard-title: #1c3028;
+    --sx-dashboard-text: #354c3f;
+    --sx-dashboard-muted: #5b6d63;
+    background: var(--sx-dashboard-bg) !important;
+}
+
+#app main[data-current-page="compass"] .compass-dashboard > .compass-shell-card {
+    padding: 0 !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    background: transparent !important;
+    box-shadow: none !important;
+}
+
+main[data-current-page="compass"] .home-workspace-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 16px 24px;
+    margin-bottom: 20px;
+    padding: 4px 0;
+    color: var(--sx-dashboard-title);
+}
+
+main[data-current-page="compass"] .home-workspace-title p {
+    margin: 0 0 6px;
+    color: var(--sx-dashboard-muted);
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: .12em;
+}
+
+main[data-current-page="compass"] .home-workspace-title h2 {
+    margin: 0;
+    font-size: clamp(22px, 2vw, 28px);
+    font-weight: 700;
+    line-height: 1.3;
+    overflow-wrap: anywhere;
+}
+
+main[data-current-page="compass"] .home-workspace-title > span {
+    display: block;
+    margin-top: 6px;
+    color: var(--sx-dashboard-muted);
+    font-size: 13px;
+}
+
+main[data-current-page="compass"] .home-workspace-controls {
+    display: flex;
+    align-items: flex-end;
+    flex-wrap: wrap;
+    gap: 10px;
+    max-width: 100%;
+}
+
+main[data-current-page="compass"] .home-workspace-controls label {
+    display: grid;
+    gap: 6px;
+    min-width: 0;
+    color: var(--sx-dashboard-muted);
+    font-size: 12px;
+}
+
+main[data-current-page="compass"] .home-workspace-controls .input-field {
+    width: auto;
+    max-width: 100%;
+    min-height: 40px;
+    border: 1px solid var(--sx-dashboard-border);
+    border-radius: 9px;
+    background: #fff;
+    color: var(--sx-dashboard-title);
+    font-size: 14px;
+    padding: 8px 10px;
+}
+
+main[data-current-page="compass"] .home-workspace-controls select {
+    width: 220px !important;
+}
+
+main[data-current-page="compass"] .home-workspace-controls .home-facts-refresh {
+    min-height: 40px;
+    border-radius: 9px;
+    box-shadow: none;
+}
+
+main[data-current-page="compass"] .home-priority-layout {
+    display: grid;
+    grid-template-columns: minmax(0, 1.3fr) minmax(340px, 1fr);
+    align-items: start;
+    gap: 20px;
+}
+
+#app main[data-current-page="compass"] .home-priority-layout > .compass-hero-bezel,
+#app main[data-current-page="compass"] .home-priority-layout > .home-orchestration {
+    min-width: 0;
+    margin: 0;
+    padding: 0;
+    border: 1px solid var(--sx-dashboard-border) !important;
+    border-radius: 16px;
+    background: var(--sx-dashboard-card) !important;
+    box-shadow: 0 3px 12px rgba(6, 17, 13, .035) !important;
+}
+
+#app main[data-current-page="compass"] .home-priority-layout .compass-hero-core {
+    padding: 20px !important;
+    border-radius: 16px;
+    background: var(--sx-dashboard-card) !important;
+    box-shadow: none !important;
+}
+
+#app main[data-current-page="compass"] .home-priority-layout .home-facts-shell {
+    padding: 0 !important;
+    margin: 0;
+}
+
+main[data-current-page="compass"] .home-priority-layout .home-facts-header {
+    flex-direction: row;
+    align-items: flex-start !important;
+    flex-wrap: nowrap;
+    gap: 12px;
+    padding-bottom: 16px;
+    border-color: var(--sx-dashboard-border);
+}
+
+main[data-current-page="compass"] .home-priority-layout .home-facts-header > div:first-child {
+    flex: 1 1 auto;
+}
+
+main[data-current-page="compass"] .home-priority-layout .home-facts-header > div:last-child {
+    flex: 0 0 auto;
+}
+
+main[data-current-page="compass"] .home-priority-layout .home-facts-header p:first-child,
+main[data-current-page="compass"] .home-orchestration.is-compact .home-orchestration-eyebrow {
+    color: var(--sx-dashboard-muted) !important;
+    font-size: 12px;
+    letter-spacing: .06em;
+}
+
+main[data-current-page="compass"] .home-priority-layout .home-facts-header h2 {
+    margin-top: 5px;
+    font-size: 21px !important;
+}
+
+main[data-current-page="compass"] .home-priority-layout .home-facts-header h2 + p {
+    margin-top: 5px;
+    color: var(--sx-dashboard-muted) !important;
+    font-size: 13px;
+    line-height: 1.6;
+}
+
+main[data-current-page="compass"] .home-priority-layout .home-facts-state {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 14px;
+    margin-top: 16px;
+    padding: 18px;
+    border-color: var(--sx-dashboard-border);
+    border-radius: 12px;
+    background: #f5f7f2;
+}
+
+main[data-current-page="compass"] .home-priority-layout .home-facts-state.is-error {
+    border-color: #e8c6bd;
+    background: #fff4f0;
+}
+
+main[data-current-page="compass"] .home-priority-layout .home-facts-state h3 {
+    font-size: 17px;
+    line-height: 1.5;
+}
+
+main[data-current-page="compass"] .home-priority-layout .home-facts-state-copy p {
+    color: var(--sx-dashboard-text);
+    font-size: 13px;
+    line-height: 1.75;
+}
+
+main[data-current-page="compass"] .home-priority-layout .home-facts-state-meta {
+    color: var(--sx-dashboard-muted);
+    font-size: 12px;
+}
+
+main[data-current-page="compass"] .home-priority-layout .home-facts-recovery-action {
+    justify-self: start;
+    min-height: 40px;
+    box-shadow: none;
+}
+
+main[data-current-page="compass"] .home-priority-layout .home-facts-state-details {
+    margin-top: 0;
+    padding-top: 12px;
+}
+
+main[data-current-page="compass"] .home-facts-overview {
+    padding-top: 16px;
+}
+
+main[data-current-page="compass"] .home-overview-group + .home-overview-group {
+    margin-top: 18px;
+}
+
+main[data-current-page="compass"] .home-overview-group > h3 {
+    margin: 0 0 9px;
+    color: var(--sx-dashboard-text);
+    font-size: 13px;
+    font-weight: 600;
+}
+
+main[data-current-page="compass"] .home-overview-metrics {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+}
+
+main[data-current-page="compass"] .home-overview-metrics .home-fact-card {
+    min-width: 0;
+    padding: 14px !important;
+    border: 1px solid var(--sx-dashboard-border) !important;
+    border-radius: 10px;
+    box-shadow: none !important;
+}
+
+main[data-current-page="compass"] .home-overview-metrics .home-fact-card strong {
+    color: var(--sx-dashboard-title);
+    font-size: clamp(21px, 2vw, 28px);
+    font-variant-numeric: tabular-nums;
+    line-height: 1.35;
+    overflow-wrap: anywhere;
+}
+
+main[data-current-page="compass"] .home-overview-metrics .home-fact-card > div:first-child {
+    flex-wrap: wrap;
+}
+
+main[data-current-page="compass"] .home-full-facts-fold,
+main[data-current-page="compass"] .home-weekly-fold,
+main[data-current-page="compass"] .home-anomaly-fold {
+    margin-top: 16px;
+    border-top: 1px solid var(--sx-dashboard-border);
+    padding-top: 12px;
+}
+
+main[data-current-page="compass"] :is(.home-full-facts-fold, .home-weekly-fold, .home-anomaly-fold) > summary {
+    cursor: pointer;
+    color: var(--sx-dashboard-text);
+    font-size: 13px;
+    line-height: 1.65;
+}
+
+main[data-current-page="compass"] .home-full-facts-fold .home-fact-scope-grid {
+    grid-template-columns: minmax(0, 1fr);
+}
+
+main[data-current-page="compass"] .home-orchestration.is-compact .home-orchestration-header {
+    display: block;
+    padding: 20px;
+    border-color: var(--sx-dashboard-border);
+}
+
+main[data-current-page="compass"] .home-orchestration.is-compact .home-orchestration-copy h2 {
+    margin-top: 5px;
+    color: var(--sx-dashboard-title);
+    font-size: 21px;
+    font-weight: 700;
+}
+
+main[data-current-page="compass"] .home-orchestration.is-compact .home-orchestration-copy > p {
+    font-size: 13px;
+}
+
+main[data-current-page="compass"] .home-orchestration.is-compact .home-orchestration-actions {
+    margin-top: 12px;
+}
+
+main[data-current-page="compass"] .home-orchestration.is-compact .home-orchestration-notice {
+    margin: 16px 20px 0;
+    padding: 10px 12px;
+    line-height: 1.65;
+}
+
+main[data-current-page="compass"] .home-orchestration.is-compact .home-orchestration-body {
+    padding: 16px 20px;
+}
+
+main[data-current-page="compass"] .home-orchestration.is-compact .home-orchestration-now {
+    display: none;
+}
+
+main[data-current-page="compass"] .home-orchestration.is-compact .home-orchestration-empty {
+    margin: 0;
+    padding: 16px;
+    border-color: var(--sx-dashboard-border);
+    border-radius: 10px;
+    background: #f5f7f2;
+}
+
+main[data-current-page="compass"] .home-orchestration.is-compact .home-weekly-fold {
+    margin: 0 20px 18px;
+}
+
+main[data-current-page="compass"] .home-orchestration.is-compact [data-testid="home-weekly-operating-plan"] {
+    margin: 12px 0 0;
+    border-radius: 10px;
+}
+
+main[data-current-page="compass"] .home-records-fold {
+    margin-top: 16px;
+    overflow: hidden;
+    border: 1px solid var(--sx-dashboard-border);
+    border-radius: 12px;
+    background: var(--sx-dashboard-card);
+}
+
+main[data-current-page="compass"] .home-records-fold > summary {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 12px;
+    padding: 16px 20px;
+    color: var(--sx-dashboard-title);
+    cursor: pointer;
+}
+
+main[data-current-page="compass"] .home-records-fold > summary > span:first-child {
+    display: grid;
+    gap: 4px;
+}
+
+main[data-current-page="compass"] .home-records-fold small,
+main[data-current-page="compass"] .home-records-status {
+    color: var(--sx-dashboard-muted);
+    font-size: 12px;
+}
+
+main[data-current-page="compass"] .home-records-fold .operating-loop-authority-shell {
+    margin: 0 !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+}
+
+main[data-current-page="compass"] :is(.home-workspace-toolbar, .home-priority-layout, .home-records-fold) :is(button, select, input, summary):focus-visible {
+    outline: 3px solid #987744;
+    outline-offset: 3px;
+}
+
+@media (max-width: 1080px) {
+    main[data-current-page="compass"] .home-priority-layout {
+        grid-template-columns: minmax(0, 1fr);
+    }
+}
+
+@media (max-width: 600px) {
+    main[data-current-page="compass"] .home-workspace-controls {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        width: 100%;
+    }
+
+    main[data-current-page="compass"] .home-workspace-controls label:first-child {
+        grid-column: 1 / -1;
+    }
+
+    main[data-current-page="compass"] .home-workspace-controls select,
+    main[data-current-page="compass"] .home-workspace-controls .input-field {
+        width: 100% !important;
+        min-width: 0;
+    }
+
+    #app main[data-current-page="compass"] .home-priority-layout .compass-hero-core {
+        padding: 16px !important;
+    }
+
+    main[data-current-page="compass"] .home-priority-layout .home-facts-state {
+        padding: 14px;
+    }
+
+    main[data-current-page="compass"] .home-overview-metrics {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    main[data-current-page="compass"] .home-priority-layout .home-facts-header {
+        flex-wrap: wrap;
+    }
+}
+
+/* Daily workspace: one page title, two working panels, then supporting evidence. */
+#app main[data-current-page="compass"] .compass-dashboard {
+    max-width: 1520px;
+    margin: 0 auto;
+    border: 0 !important;
+    border-radius: 0 !important;
+    background: transparent !important;
+    box-shadow: none !important;
+}
+#app main[data-current-page="compass"] .compass-dashboard .compass-content-stage {
+    gap: 24px;
+    padding: 0 !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    background: transparent !important;
+    box-shadow: none !important;
+}
+#app main[data-current-page="compass"] :is(.compass-dashboard, .compass-shell-card, .compass-content-stage, .compass-hero-bezel)::before,
+#app main[data-current-page="compass"] :is(.compass-dashboard, .compass-shell-card, .compass-content-stage, .compass-hero-bezel)::after {
+    display: none !important;
+}
+main[data-current-page="compass"] .home-workspace-toolbar {
+    gap: 24px;
+    margin: 0;
+    padding: 8px 0 4px;
+}
+main[data-current-page="compass"] .home-workspace-title p {
+    margin-bottom: 10px;
+    color: #5b7161;
+    font-size: 10px;
+    line-height: 16px;
+    font-weight: 600;
+    letter-spacing: .16em;
+}
+main[data-current-page="compass"] .home-workspace-title p span { margin: 0 7px; color: #a6b7ab; }
+main[data-current-page="compass"] .home-workspace-title h2 {
+    font-size: clamp(26px, 2.6vw, 34px);
+    font-weight: 600;
+    letter-spacing: -.035em;
+    line-height: 1.3;
+}
+main[data-current-page="compass"] .home-workspace-title > span { margin-top: 9px; font-size: 14px; }
+main[data-current-page="compass"] .home-workspace-controls { gap: 12px; }
+main[data-current-page="compass"] .home-workspace-controls select { width: 200px !important; }
+main[data-current-page="compass"] .home-workspace-controls .input-field {
+    min-height: 42px;
+    border-color: #7d9082 !important;
+    border-radius: 8px;
+    background: #fff;
+    padding: 9px 12px;
+}
+main[data-current-page="compass"] .home-workspace-controls .home-facts-refresh {
+    min-height: 42px;
+    border: 1px solid #c9d5cc !important;
+    background: #fff !important;
+    color: #315d45 !important;
+    font-weight: 600;
+    padding: 9px 14px;
+    box-shadow: none !important;
+}
+main[data-current-page="compass"] .home-priority-layout {
+    grid-template-columns: minmax(0, 1.12fr) minmax(0, 1fr);
+    align-items: stretch;
+    gap: 24px;
+}
+#app main[data-current-page="compass"] .home-priority-layout > :is(.compass-hero-bezel, .home-orchestration) {
+    border-radius: 16px !important;
+    box-shadow: 0 2px 6px rgba(17, 47, 33, .025) !important;
+}
+#app main[data-current-page="compass"] .home-priority-layout .compass-hero-core {
+    padding: 24px !important;
+    border: 0 !important;
+    background: transparent !important;
+}
+#app main[data-current-page="compass"] .home-priority-layout .home-facts-shell {
+    padding: 0 !important;
+    border: 0 !important;
+    box-shadow: none !important;
+    background: transparent !important;
+}
+main[data-current-page="compass"] .home-priority-layout .home-facts-header {
+    padding: 0 0 18px;
+    margin-bottom: 20px;
+    border-bottom-color: var(--sx-dashboard-border);
+}
+main[data-current-page="compass"] .home-priority-layout .home-facts-header h2,
+main[data-current-page="compass"] .home-orchestration-title h2 {
+    color: var(--sx-dashboard-title) !important;
+    font-size: 20px !important;
+    font-weight: 600;
+    line-height: 28px;
+    letter-spacing: -.025em;
+}
+main[data-current-page="compass"] .home-priority-layout .home-facts-header p:first-child,
+main[data-current-page="compass"] .home-orchestration-kicker {
+    color: #5b7162 !important;
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: .05em;
+}
+main[data-current-page="compass"] .home-priority-layout .home-facts-header h2 + p {
+    margin-top: 5px;
+    font-size: 12px;
+    line-height: 20px;
+}
+#app main[data-current-page="compass"] .home-priority-layout .home-facts-state {
+    border: 0 !important;
+    border-radius: 10px !important;
+    padding: 20px !important;
+    background: #f4f8f3 !important;
+    box-shadow: none !important;
+}
+#app main[data-current-page="compass"] .home-priority-layout .home-facts-state.is-error { background: #fff4f1 !important; }
+main[data-current-page="compass"] .home-priority-layout .home-facts-state h3 {
+    font-size: 17px;
+    line-height: 26px;
+    font-weight: 600;
+}
+main[data-current-page="compass"] .home-priority-layout .home-facts-state-copy p {
+    color: #4e6556;
+    font-size: 13px;
+    line-height: 1.8;
+}
+main[data-current-page="compass"] .home-priority-layout .home-facts-state-meta {
+    color: #5b7060;
+    font-size: 12px;
+    line-height: 20px;
+    gap: 6px 12px;
+}
+#app main[data-current-page="compass"] .home-facts-recovery-action {
+    min-height: 42px;
+    border: 1px solid #235b43 !important;
+    border-radius: 8px !important;
+    background: #235b43 !important;
+    color: #fff !important;
+    font-size: 13px;
+    font-weight: 600;
+    padding: 10px 16px;
+    box-shadow: none !important;
+}
+#app main[data-current-page="compass"] .home-facts-state-details button {
+    min-height: 32px;
+    margin: 3px 14px 0 0;
+    padding: 4px 0 !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    background: transparent !important;
+    color: #2c6549 !important;
+    font-size: 12px;
+    box-shadow: none !important;
+    text-decoration: underline;
+    text-underline-offset: 4px;
+}
+main[data-current-page="compass"] .home-facts-state-details { line-height: 1.7; }
+#app main[data-current-page="compass"] .home-facts-state-kicker { color: #806026 !important; font-size: 11px; }
+#app main[data-current-page="compass"] .home-orchestration-header small { color: #5d7265 !important; }
+main[data-current-page="compass"] .home-overview-metrics { gap: 12px; }
+#app main[data-current-page="compass"] .home-overview-metrics .home-fact-card {
+    border: 0 !important;
+    border-radius: 9px !important;
+    background: #f5f8f5 !important;
+    padding: 16px !important;
+}
+main[data-current-page="compass"] .home-overview-metrics .home-fact-card strong { font-weight: 600; letter-spacing: -.025em; }
+
+#app main[data-current-page="compass"] .home-orchestration.is-compact .home-orchestration-header {
+    padding: 24px 24px 18px !important;
+    gap: 16px;
+    background: transparent !important;
+    border-bottom: 1px solid var(--sx-dashboard-border);
+}
+main[data-current-page="compass"] .home-orchestration.is-compact .home-orchestration-body { padding: 16px 24px !important; }
+#app main[data-current-page="compass"] .home-orchestration.is-compact .home-orchestration-entry {
+    margin: 0;
+    padding: 16px 4px 16px 0;
+    border: 0 !important;
+    border-bottom: 1px solid #e7ede7 !important;
+    border-radius: 0 !important;
+    background: transparent !important;
+    box-shadow: none !important;
+    transition: background-color 160ms ease;
+}
+#app main[data-current-page="compass"] .home-orchestration.is-compact .home-orchestration-entry:hover { background: #f6f9f4 !important; transform: none; }
+main[data-current-page="compass"] .home-orchestration.is-compact .home-orchestration-time { width: 58px; }
+main[data-current-page="compass"] .home-orchestration.is-compact .home-orchestration-time strong { color: #875521; font-size: 12px; }
+main[data-current-page="compass"] .home-orchestration.is-compact .home-orchestration-time span { color: #607366; font-size: 12px; }
+main[data-current-page="compass"] .home-orchestration.is-compact .home-orchestration-entry-heading > strong { font-size: 14px; line-height: 22px; font-weight: 600; }
+main[data-current-page="compass"] .home-orchestration.is-compact .home-orchestration-content > :is(p, small, em) { font-size: 12px; line-height: 20px; }
+main[data-current-page="compass"] .home-orchestration.is-compact .home-orchestration-content > small { color: #617365; }
+#app main[data-current-page="compass"] .home-orchestration.is-compact .home-orchestration-primary {
+    min-height: 38px;
+    border: 1px solid #baccbc !important;
+    border-radius: 8px !important;
+    background: #f1f6f0 !important;
+    color: #285a40 !important;
+    box-shadow: none !important;
+}
+main[data-current-page="compass"] .home-orchestration.is-compact .home-weekly-fold { margin: 0 24px 20px; }
+
+#app main[data-current-page="compass"] .compass-temporal-fold {
+    margin: 0;
+    overflow: hidden;
+    border: 1px solid var(--sx-dashboard-border) !important;
+    border-radius: 14px !important;
+    background: #fff !important;
+    box-shadow: none !important;
+    color: var(--sx-dashboard-text) !important;
+}
+#app main[data-current-page="compass"] .compass-temporal-summary {
+    padding: 18px 22px !important;
+    border-bottom: 1px solid var(--sx-dashboard-border);
+    background: transparent !important;
+    color: var(--sx-dashboard-title) !important;
+}
+#app main[data-current-page="compass"] .compass-temporal-summary-title { color: #2f4b39 !important; font-size: 14px; font-weight: 600; }
+#app main[data-current-page="compass"] .compass-temporal-summary-title > span { color: #527b58 !important; }
+#app main[data-current-page="compass"] .compass-temporal-summary-note { color: #617360 !important; font-size: 12px; }
+#app main[data-current-page="compass"] .compass-temporal-summary::after { color: #536b5b !important; border-color: #dfe7e1 !important; background: #fff !important; }
+#app main[data-current-page="compass"] .home-temporal-grid { padding: 20px 22px !important; gap: 24px; }
+#app main[data-current-page="compass"] .home-temporal-stage {
+    padding: 0 22px 0 0 !important;
+    border-color: #e4ebe1 !important;
+    background: transparent !important;
+    color: var(--sx-dashboard-text) !important;
+}
+#app main[data-current-page="compass"] .home-temporal-stage:last-child { padding-right: 0 !important; }
+#app main[data-current-page="compass"] .home-temporal-stage > div > span:first-child { color: #56704f !important; font-size: 12px; }
+#app main[data-current-page="compass"] .home-temporal-stage > strong { color: #273d2a !important; font-size: 14px; font-weight: 600; line-height: 22px; }
+#app main[data-current-page="compass"] .home-temporal-stage > p { color: #5c6f59 !important; font-size: 12px; line-height: 20px; }
+#app main[data-current-page="compass"] .home-temporal-stage > button { color: #316139 !important; font-size: 12px; min-height: 32px; }
+main[data-current-page="compass"] :is(.home-records-fold, .home-competitor-reference) {
+    margin: 0;
+    background: #fff;
+    border-radius: 12px;
+    box-shadow: none;
+}
+#app main[data-current-page="compass"] .home-competitor-reference {
+    border: 1px solid var(--sx-dashboard-border) !important;
+    background: #fff !important;
+    color: var(--sx-dashboard-text) !important;
+}
+#app main[data-current-page="compass"] .home-competitor-reference summary { color: #354c3f !important; }
+#app main[data-current-page="compass"] .home-competitor-reference p { color: #5b6d63 !important; }
+#app main[data-current-page="compass"] .home-orchestration .text-orange-700 { color: #83571c !important; }
+#app main[data-current-page="compass"] :is(.compass-temporal-fold, .home-records-fold, .home-competitor-reference) > summary:focus-visible {
+    outline-offset: -3px;
+}
+
+@media (max-width: 1199px) {
+    main[data-current-page="compass"] .home-workspace-toolbar { align-items: flex-start; }
+    main[data-current-page="compass"] .home-workspace-controls { width: 100%; }
+    main[data-current-page="compass"] .home-workspace-controls label:first-child { flex: 1; }
+    main[data-current-page="compass"] .home-workspace-controls select { width: 100% !important; }
+}
+@media (max-width: 899px) {
+    main[data-current-page="compass"] .home-priority-layout { grid-template-columns: minmax(0, 1fr); }
+    #app main[data-current-page="compass"] .home-temporal-grid { gap: 18px; }
+}
+@media (max-width: 599px) {
+    #app main[data-current-page="compass"] .compass-dashboard .compass-content-stage { gap: 18px; }
+    main[data-current-page="compass"] .home-workspace-controls { display: grid; grid-template-columns: minmax(0, 1fr) auto; }
+    main[data-current-page="compass"] .home-workspace-controls label:first-child { grid-column: 1 / -1; }
+    main[data-current-page="compass"] .home-workspace-controls .input-field { width: 100%; min-height: 44px; }
+    main[data-current-page="compass"] .home-workspace-controls .home-facts-refresh { min-height: 44px; }
+    #app main[data-current-page="compass"] .home-priority-layout .compass-hero-core { padding: 20px !important; }
+    #app main[data-current-page="compass"] .home-priority-layout .home-facts-state { padding: 16px !important; }
+    #app main[data-current-page="compass"] .home-orchestration.is-compact .home-orchestration-header { padding: 20px !important; }
+    main[data-current-page="compass"] .home-orchestration.is-compact .home-orchestration-body { padding: 12px 20px !important; }
+    #app main[data-current-page="compass"] .home-temporal-grid { grid-template-columns: minmax(0, 1fr); }
+    #app main[data-current-page="compass"] .home-temporal-stage { padding: 0 0 18px !important; border: 0; border-bottom: 1px solid #e4ebe1; }
+    #app main[data-current-page="compass"] .home-temporal-stage:last-child { padding-bottom: 0 !important; border-bottom: 0; }
+    #app main[data-current-page="compass"] .compass-temporal-summary { flex-wrap: wrap; gap: 8px; }
 }

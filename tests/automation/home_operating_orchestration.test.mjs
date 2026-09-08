@@ -294,7 +294,7 @@ test('home entry opens exact fact or intent and refreshes from execution readbac
   assert.match(homeStaticSource, /今日异动速览/);
   assert.match(homeStaticSource, /后续行动与复盘/);
   assert.match(appMain, /HomeOperatingOrchestration = window\.SUXI_HOME_STATIC\?\.HomeOperatingOrchestration/);
-  assert.match(appMain, /apiRequest\(`\/operation\/execution-flow\?\$\{params\.toString\(\)\}`\)/);
+  assert.match(appMain, /apiRequest\(\x60\/operation\/execution-flow\?\$\{params\.toString\(\)\}\x60,\s*\{\s*requestPolicy: currentCompassReadPolicy\(\),\s*\}\)/);
   assert.match(appMain, /params\.set\('system_hotel_id', hotelId\)/);
   assert.match(appMain, /params\.append\('system_hotel_id', requestHotelId\)/);
   assert.match(appMain, /flow\.list\.find\(item => Number\(item\?\.hotel_id \|\| 0\) !== Number\(scopedHotelId\)\)/);

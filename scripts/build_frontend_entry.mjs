@@ -3,6 +3,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildFrontendEntry } from './lib/frontend_entry_build.mjs';
 import { updateFrontendAssetVersion } from './lib/frontend_asset_version.mjs';
+import { syncOperationStaticVersion, syncRevenueAiStaticVersion } from './lib/frontend_lazy_asset_versions.mjs';
 import {
   acquireFrontendTemplateLock,
   writeFileAtomic,
@@ -14,13 +15,26 @@ try {
 const sourcePath = path.join(repoRoot, 'public/app-main.js');
 const artifactPath = path.join(repoRoot, 'public/app-main.min.js');
 const indexPath = path.join(repoRoot, 'public/index.html');
-const source = fs.readFileSync(sourcePath, 'utf8');
+const originalSource = fs.readFileSync(sourcePath, 'utf8');
+const operationStaticPath = path.join(repoRoot, 'public/operation-static.js');
+const operationStatic = fs.readFileSync(operationStaticPath);
+const lazyVersion = syncOperationStaticVersion(originalSource, operationStatic);
+const revenueAiPath = path.join(repoRoot, 'public/revenue-ai-static.js');
+const revenueAiStatic = fs.readFileSync(revenueAiPath);
+const revenueAiVersion = syncRevenueAiStaticVersion(lazyVersion.source, revenueAiStatic);
+const source = revenueAiVersion.source;
 const indexSource = fs.readFileSync(indexPath, 'utf8');
 const artifact = await buildFrontendEntry(source);
 const versionUpdate = updateFrontendAssetVersion(indexSource, 'app-main.min.js', artifact);
 
-if (fs.readFileSync(sourcePath, 'utf8') !== source) {
+if (fs.readFileSync(sourcePath, 'utf8') !== originalSource) {
   throw new Error('public/app-main.js changed during compilation; refusing to publish a stale runtime entry.');
+}
+if (!fs.readFileSync(operationStaticPath).equals(operationStatic)) {
+  throw new Error('public/operation-static.js changed during compilation; refusing to publish a stale lazy helper version.');
+}
+if (!fs.readFileSync(revenueAiPath).equals(revenueAiStatic)) {
+  throw new Error('public/revenue-ai-static.js changed during compilation; refusing to publish a stale lazy helper version.');
 }
 if (fs.readFileSync(indexPath, 'utf8') !== indexSource) {
   throw new Error('public/index.html changed during entry compilation; refusing to publish mixed asset versions.');
@@ -33,6 +47,7 @@ function writeFileIfChanged(file, content) {
   return true;
 }
 
+const sourceChanged = writeFileIfChanged(sourcePath, source);
 const artifactChanged = writeFileIfChanged(artifactPath, artifact);
 const indexChanged = writeFileIfChanged(indexPath, versionUpdate.html);
 console.log(JSON.stringify({
@@ -41,6 +56,9 @@ console.log(JSON.stringify({
   source_bytes: Buffer.byteLength(source),
   artifact_bytes: Buffer.byteLength(artifact),
   artifact_hash: versionUpdate.hash,
+  operation_static_hash: lazyVersion.hash,
+  revenue_ai_static_hash: revenueAiVersion.hash,
+  source_version_changed: sourceChanged,
   artifact_changed: artifactChanged,
   index_changed: indexChanged,
 }, null, 2));
