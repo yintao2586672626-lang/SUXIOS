@@ -1815,6 +1815,47 @@ final class OtaCredentialResponseTest extends TestCase
         self::assertTrue($saved['has_cookies']);
     }
 
+    public function testMeituanSavedConfigRemainsReadableWhenPostSaveRefreshFails(): void
+    {
+        $vault = new class {
+            public function store(int $tenantId, int $hotelId, string $platform, string $configId, array $payload, int $actorId): array
+            {
+                return ['credential_ref' => 910, 'credential_status' => 'ready', 'secret_mask' => 'fixture-mask'];
+            }
+        };
+        $endpoint = new class($this->otaConfigHarness($vault)) {
+            use \app\controller\concern\MeituanConfigConcern;
+            public function __construct(private readonly object $persistence) {}
+            private function checkPermission(): void {}
+            protected function requestData(): array { return []; }
+            private function saveMeituanConfigPayload(array $requestData, bool $allowCreateWithProvidedId = false, string $defaultScope = ''): array
+            {
+                return $this->persistence->persistMeituan([
+                    'id' => 'fixture-refresh-58', 'config_id' => 'fixture-refresh-58',
+                    'system_hotel_id' => 58, 'hotel_id' => '58', 'poi_id' => 'fixture-poi',
+                    'partner_id' => 'fixture-partner', 'cookies' => 'synthetic-fixture-secret',
+                ], 77, false);
+            }
+            private function clearAutoFetchLightConfigListCache(string $platform): void
+            {
+                throw new \RuntimeException('synthetic-private-cache-error');
+            }
+            protected function success(mixed $data = null, string $message = '成功'): \think\Response
+            {
+                return json(['code' => 200, 'data' => $data, 'message' => $message]);
+            }
+        };
+        $response = $endpoint->saveMeituanConfigItem();
+        $data = $response->getData();
+        self::assertSame(200, $response->getCode());
+        self::assertSame('refresh_unavailable', $data['data']['post_save_status']);
+        $saved = json_decode((string)Db::name('system_configs')->where('config_key', 'meituan_config_list')->value('config_value'), true);
+        self::assertSame(910, $saved['fixture-refresh-58']['credential_ref']);
+        self::assertSame(58, $saved['fixture-refresh-58']['system_hotel_id']);
+        self::assertStringContainsString('配置已保存', $data['message']);
+        self::assertStringNotContainsString('synthetic-', json_encode([$saved, $data]));
+    }
+
     public function testMeituanPersistenceEmptySecretUpdateKeepsCredentialMetadataWithoutStore(): void
     {
         Db::name('system_configs')->insert([
@@ -2482,7 +2523,10 @@ final class OtaCredentialResponseTest extends TestCase
         $content = (string)$response->getContent();
 
         self::assertSame(500, $response->getCode());
-        self::assertStringContainsString('"message":"保存失败"', $content);
+        $payload = json_decode($content, true);
+        self::assertSame('config_save_failed', $payload['data']['reason']);
+        self::assertSame('request_validation', $payload['data']['stage']);
+        self::assertArrayHasKey('reference_id', $payload['data']);
         foreach (['SQL', 'C:\\secret\\path', 'ota-cred:v1:', 'ciphertext'] as $forbidden) {
             self::assertStringNotContainsString($forbidden, $content);
         }

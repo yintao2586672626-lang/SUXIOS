@@ -141,6 +141,54 @@ final class OtaFailureNotificationServiceTest extends TestCase
         self::assertStringContainsString('2026-07-14', (string)SystemNotification::find((int)$notification->id)->message);
     }
 
+    public function testNotificationStorageFailureHasDurableSafeStageAndDoesNotThrow(): void
+    {
+        $this->seedHotelAndUsers();
+        $this->grantHotel(101, 7);
+        $this->seedConfig(7, 'ctrip', 101);
+        Db::execute("CREATE TRIGGER fail_notification_fixture BEFORE INSERT ON system_notifications BEGIN SELECT RAISE(ABORT, 'synthetic-private-database-detail'); END");
+        try {
+            $result = (new OtaFailureNotificationService())->recordCollectionOutcome([
+                'hotel_id' => 7, 'platform' => 'ctrip', 'reason_code' => 'login_expired',
+                'data_date' => '2026-09-07', 'success' => false, 'saved_count' => 0,
+            ]);
+            $delivery = $result['deliveries'][0];
+            self::assertSame('notification_write_failed', $delivery['status']);
+            self::assertSame('notification_create', $delivery['failure_stage']);
+            self::assertSame(0, SystemNotification::where('hotel_id', 7)->count());
+            $audit = Db::name('operation_logs')->where('action', 'ota_failure_notification_notification_write_failed')->find();
+            self::assertNotEmpty($audit);
+            $extra = json_decode($audit['extra_data'], true);
+            self::assertSame($delivery['failure_reason'], $extra['failure_reason']);
+            self::assertSame('notification_create', $extra['failure_stage']);
+            self::assertStringNotContainsString('synthetic-private', json_encode([$result, $audit]));
+        } finally { Db::execute('DROP TRIGGER fail_notification_fixture'); }
+    }
+
+    public function testHttpFailureAuditPersistsSafeCauseAndExactRequestHotel(): void
+    {
+        $this->seedHotelAndUsers();
+        $request = (new \think\Request())->setMethod('POST')->setUrl('/api/online-data/fetch-meituan')
+            ->withServer(['REQUEST_METHOD' => 'POST'])
+            ->withPost(['system_hotel_id' => 7]);
+        $request->request_id = 'fixture-customer-failure-01';
+        self::assertSame(7, $request->param('system_hotel_id'));
+        $response = json(['code' => 400, 'data' => [
+            'reason' => 'login_required', 'stage' => 'upstream_request', 'http_code' => 200,
+            'business_code' => 303, 'raw_response' => 'synthetic-private-response',
+        ]], 400);
+        $method = new \ReflectionMethod(\app\middleware\Auth::class, 'recordDataAudit');
+        $method->invoke(new \app\middleware\Auth(), $request, $response, \app\model\User::find(101));
+        $row = Db::name('operation_logs')->where('hotel_id', 7)->find();
+        self::assertNotEmpty($row);
+        $extra = json_decode($row['extra_data'], true);
+        self::assertSame('login_required', $extra['reason_code']);
+        self::assertSame('upstream_request', $extra['failure_stage']);
+        self::assertSame(303, $extra['upstream_business_code']);
+        self::assertSame('fixture-customer-failure-01', $extra['request_id']);
+        self::assertStringNotContainsString('synthetic-private-response', $row['extra_data']);
+    }
+
     public function testWechatFailureDeliveryUsesDurableClaimBeforeSending(): void
     {
         $this->seedHotelAndUsers();

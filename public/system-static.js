@@ -496,6 +496,7 @@ window.SUXI_SYSTEM_STATIC = (() => {
             capabilities,
             hotel_scope: profile.hotel_scope && typeof profile.hotel_scope === 'object' ? { ...profile.hotel_scope } : null,
             modules: profile.modules && typeof profile.modules === 'object' ? { ...profile.modules } : {},
+            protected_access: Array.isArray(profile.protected_access) ? profile.protected_access : [],
             permitted_hotels: permitted,
         };
     };
@@ -1837,6 +1838,64 @@ window.SUXI_SYSTEM_STATIC = (() => {
         }
         return resolved;
     });
+    const createReadRequestCooldown = (now = () => Date.now()) => {
+        const deadlines = new Map();
+        const keyFor = (epoch, method, url) => `${epoch}|${method}|${String(url).split('?')[0]}`;
+        return {
+            check(epoch, method, url) {
+                if (method !== 'GET') return null;
+                const key = keyFor(epoch, method, url), deadline = deadlines.get(key) || 0;
+                for (const [entry, until] of deadlines) if (until <= now() || !entry.startsWith(`${epoch}|`)) deadlines.delete(entry);
+                if (deadline <= now()) return null;
+                const seconds = Math.ceil((deadline - now()) / 1000);
+                const error = new Error(`请求较频繁，请等待 ${seconds} 秒后重试`);
+                error.status = 429;
+                error.retryAfter = String(seconds);
+                error.data = {code:429,message:error.message,data:{retry_after:seconds}};
+                return error;
+            },
+            record(epoch, method, url, error) {
+                if (method !== 'GET' || Number(error?.status) !== 429) return;
+                const header = String(error?.retryAfter || '');
+                const bodySeconds = Number(error?.data?.data?.retry_after);
+                const headerSeconds = /^\d+(?:\.\d+)?$/.test(header) ? Number(header) : (Date.parse(header) - now()) / 1000;
+                const seconds = bodySeconds > 0 ? bodySeconds : headerSeconds > 0 ? headerSeconds : 60;
+                deadlines.set(keyFor(epoch, method, url), now() + Math.min(2147483647, Math.ceil(seconds * 1000)));
+            },
+        };
+    };
+    const pageModuleKey = (page) => ({
+        'trusted-revenue-analysis': 'ai', 'revenue-research-center': 'ai', 'agent-center': 'ai',
+        'ai-daily-report': 'ai', 'operation-optimizer': 'operation', 'operating-opportunities': 'operation',
+        'operating-finance': 'operation', 'operating-targets': 'operation', 'ops-track': 'operation',
+        'operating-growth-archive': 'operation', 'ai-governance': 'ai_governance', 'ai-model-config': 'ai_governance',
+    }[String(page || '')] || '');
+    const isPageModuleAvailable = (page, currentUser) => currentUser?.is_super_admin === true
+        || currentUser?.modules?.[pageModuleKey(page)] !== false;
+    const protectedRequestDenial = (url, method, currentUser) => {
+        if (currentUser?.is_super_admin === true) return null;
+        const path = `api/${String(url || '').split('?')[0].replace(/^\/?api\//, '').replace(/^\/+|\/+$/g, '')}`.toLowerCase();
+        for (const capability of (currentUser?.protected_access || [])) {
+            for (const rule of (capability.paths || [])) {
+                if (rule.methods?.length && !rule.methods.includes(String(method || 'GET').toUpperCase())) continue;
+                const pattern = String(rule.path || '').toLowerCase().replace(/^\/+|\/+$/g, '');
+                const match = pattern.endsWith('/*') ? path.startsWith(`${pattern.slice(0, -2)}/`)
+                    : pattern.includes('*') ? new RegExp(`^${pattern.split('*').map(part => part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('.*')}$`).test(path)
+                        : path === pattern || path.startsWith(`${pattern}/`);
+                if (!match) continue;
+                if (capability.allowed !== false) return null;
+                const reason = capability.reason;
+                const message = reason === 'module_not_entitled' ? '当前租户尚未开通此模块，请联系管理员确认开通范围'
+                    : reason === 'tenant_context_missing' ? '账号缺少租户归属，请联系管理员补全'
+                        : '当前账号没有此功能权限，请联系管理员核对角色';
+                const error = new Error(message);
+                error.status = 403;
+                error.data = { code: 403, message, data: { redacted_reason: reason, required_module: capability.module } };
+                return error;
+            }
+        }
+        return null;
+    };
     const filterVisibleMenuItems = (items = [], currentUser = null) => {
         if (!currentUser) return [];
         if (currentUser.is_super_admin) return Array.isArray(items) ? items : [];
@@ -1849,6 +1908,7 @@ window.SUXI_SYSTEM_STATIC = (() => {
         const hasCapability = (key) => Array.isArray(currentUser.capabilities)
             && (currentUser.capabilities.includes('all') || currentUser.capabilities.includes(key));
         const isItemVisible = (item) => {
+            if (!isPageModuleAvailable(item.path, currentUser)) return false;
             if (item.requireSuper) return false;
             if (item.requireManager && currentUser.role_id !== 2 && !currentUser.is_hotel_manager) return false;
             if (item.permissions && item.permissions.length > 0) {
@@ -2593,6 +2653,9 @@ window.SUXI_SYSTEM_STATIC = (() => {
         languageOptions,
         hotelAiToolboxLinks,
         menuItemDefinitions,
+        isPageModuleAvailable,
+        protectedRequestDenial,
+        createReadRequestCooldown,
         resetOperatingTargetFormForContext,
         replaceManualNotificationVariables,
         testIdNameMap,

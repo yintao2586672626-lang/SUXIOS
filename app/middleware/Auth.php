@@ -253,6 +253,8 @@ class Auth
             $params = $this->sanitizeAuditRequestParams($request, (string)$audit['path']);
             $hotelId = $this->resolveAuditHotelId($params, $user);
             $failed = $statusCode >= 400;
+            $failureEvidence = $failed
+                ? \app\service\FailureEvidenceService::fromResponse((array)$response->getData()) : [];
 
             OperationLog::record(
                 $audit['module'],
@@ -270,7 +272,11 @@ class Auth
                     'outcome' => $failed ? 'failed' : 'success',
                     'http_status' => $statusCode,
                     'response_status' => $statusCode,
-                    'reason_code' => $failed ? 'http_response_failure' : null,
+                    'reason_code' => $failureEvidence['reason_code'] ?? null,
+                    'failure_stage' => $failureEvidence['failure_stage'] ?? null,
+                    'upstream_http_status' => $failureEvidence['upstream_http_status'] ?? null,
+                    'upstream_business_code' => $failureEvidence['upstream_business_code'] ?? null,
+                    'save_status' => $failureEvidence['save_status'] ?? null,
                 ]
             );
         } catch (\Throwable $e) {
@@ -439,7 +445,7 @@ class Auth
 
             return json([
                 'code' => 429,
-                'message' => 'Too many requests',
+                'message' => '请求较频繁，请等待 ' . $retryAfter . ' 秒后重试',
                 'data' => [
                     'retry_after' => $retryAfter,
                     'limit' => $limit,
@@ -467,6 +473,12 @@ class Auth
     {
         $path = $this->normalizeRateLimitPath($uri);
         $method = strtoupper($method);
+
+        // Progress is a frequently refreshed read, not an hourly diagnostic run.
+        // Reuse the ordinary read quota while preserving authentication and scope checks.
+        if ($method === 'GET' && $path === 'api/online-data/auto-fetch-status') {
+            return ['scope' => 'collection_status_read', 'path' => $path, 'limit' => 180, 'window' => 60];
+        }
 
         if ($method === 'GET' && in_array($path, [
             'api/online-data/get-ctrip-config-list',

@@ -27,7 +27,7 @@ final class Phase3OperationEffectLoopService
             $snapshot = $runId !== '' ? $patrolService->findByRunId($runId) : $patrolService->latest();
         }
         if ($snapshot === null) {
-            throw new \RuntimeException('Daily workbench patrol snapshot not found.');
+            throw new \app\exception\MissingPatrolSnapshotException();
         }
 
         return $this->buildFromSnapshot($snapshot, $options);

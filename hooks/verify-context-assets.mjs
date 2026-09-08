@@ -51,8 +51,9 @@ function requireMatchingTrees(label, leftDirectory, rightDirectory) {
 }
 
 function requireIncludes(label, text, needle) {
-  if (!text.includes(needle)) {
-    failures.push(`${label} is missing required text: ${needle}`);
+  const revisions = Array.isArray(needle) ? needle : [needle];
+  if (!revisions.some((revision) => text.includes(revision))) {
+    failures.push(`${label} is missing required text: ${revisions.join(' OR ')}`);
   }
 }
 
@@ -61,12 +62,12 @@ if (!exists('AGENTS.md', outerRoot)) {
 } else {
   const outerAgents = read('AGENTS.md', outerRoot);
   requireIncludes('outer AGENTS.md', outerAgents, 'SUXIOS Root Agent Instructions — Lean');
-  requireIncludes('outer AGENTS.md', outerAgents, 'Feature delivery gets roughly 80–90%');
+  requireIncludes('outer AGENTS.md', outerAgents, ['Feature delivery gets roughly 80–90%', 'Prioritize accurate, complete user-visible outcomes.']);
   requireIncludes('outer AGENTS.md', outerAgents, 'Current clean implementation entrance');
   requireIncludes('outer AGENTS.md', outerAgents, 'Commit/push/PR/deploy remain explicit-only');
   requireIncludes('outer AGENTS.md', outerAgents, 'Preserve unrelated changes');
   requireIncludes('outer AGENTS.md', outerAgents, 'Passkey');
-  requireIncludes('outer AGENTS.md', outerAgents, 'After three targeted inspections');
+  requireIncludes('outer AGENTS.md', outerAgents, ['After three targeted inspections', 'When inspection stops producing evidence, change the hypothesis or observation method.']);
   requireIncludes('outer AGENTS.md', outerAgents, 'Use only a named Skill or the single Skill whose trigger directly matches');
   requireIncludes('outer AGENTS.md', outerAgents, 'HOTEL/hooks/');
   requireIncludes('outer AGENTS.md', outerAgents, 'untrusted packages and scripts');
