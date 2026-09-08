@@ -834,7 +834,7 @@ if (!runtimeAssetPaths.includes('app-startup-helpers.min.js')
   if (!/const\s+revenueResearchStaticScript\s*=\s*["']revenue-research-static\.js["']/.test(content) || !/const\s+loadRevenueResearchStatic\s*=\s*\(\)\s*=>/.test(content)) {
     failures.push('public/index.html must keep an explicit lazy loader for revenue-research-static.js.');
   }
-  if (!/newPage === ['"]revenue-research-center['"]/.test(content) || !/ensureRevenueResearchReady\(\)/.test(content)) {
+  if (!/watch\(\[currentPage, isLoggedIn\], \(\[page, loggedIn\]\) => \{\s*if \(page === ['"]revenue-research-center['"] && loggedIn && !revenueResearchProducts\.value\.length\) \{\s*void retryRevenueResearchCatalog\(\);/.test(content) || !/const retryRevenueResearchCatalog = \(\) => ensureRevenueResearchReady\(\)/.test(content)) {
     failures.push('public/index.html must load revenue research static data only when revenue-research-center is opened.');
   }
   if (/<script\s+src=["']ai-analysis-static\.js["']/.test(content)) {

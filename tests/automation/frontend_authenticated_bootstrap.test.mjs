@@ -623,7 +623,7 @@ test('deferred component bridges keep startup components small and preserve full
   assert.match(appMainComponentsLoader, /window\.SUXI_APP_MAIN_COMPONENTS_FULL/);
   assert.match(
     operatingIntelligenceLoader,
-    /window\.SUXI_OPERATING_INTELLIGENCE_COMPONENTS = Object\.freeze\(\{\s*create, submitCouncilRun, pollCouncilRun, councilReadbackIntegrityMatches,\s*\}\)/,
+    /window\.SUXI_OPERATING_INTELLIGENCE_COMPONENTS = Object\.freeze\(\{\s*createEvidenceNavigation,\s*create, submitCouncilRun, pollCouncilRun, councilReadbackIntegrityMatches,\s*\}\)/,
   );
   assert.match(operatingIntelligenceLoader, /window\.SUXI_OPERATING_INTELLIGENCE_COMPONENTS_FULL/);
   assert.match(operatingIntelligenceLoader, /SUXI_LOAD_DEFERRED_AUTHENTICATED_ASSET/);

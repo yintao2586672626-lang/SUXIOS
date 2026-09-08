@@ -926,9 +926,27 @@
                                         <button @click="queryMeituanStoredData" class="px-4 py-2 bg-blue-500 text-white rounded-lg">
                                             <i class="fas fa-search mr-2"></i>查询
                                         </button>
-                                        <button v-if="['ads', 'keywords'].includes(downloadCenterTab)" data-testid="meituan-download-current-page-csv" @click="downloadMeituanCurrentPageCsv">下载当前页 CSV</button>
+                                        <button v-if="['ads', 'keywords'].includes(downloadCenterTab)" data-testid="meituan-download-current-page-csv" :disabled="onlineDataListLoading || !onlineDataLoadedQuery" @click="downloadMeituanCurrentPageCsv" class="min-h-10 rounded-lg border border-slate-300 px-3 text-sm disabled:opacity-50">导出当前页 CSV</button>
+                                        <button v-if="['ads', 'keywords'].includes(downloadCenterTab)" data-testid="meituan-download-filtered-csv" :disabled="onlineHistoryExporting || onlineDataListLoading || !onlineDataLoadedQuery" @click="downloadMeituanFilteredCsv" class="min-h-10 rounded-lg border border-[#143a31] px-3 text-sm text-[#143a31] disabled:opacity-50">{{ onlineHistoryExporting ? '正在核对并导出…' : '导出筛选结果（最多 2000 条）' }}</button>
                                     </div>
 
+                                    <div v-if="downloadCenterTab !== 'traffic'" data-testid="meituan-history-result-scope" class="mb-4 rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
+                                        <div><b>当前结果：</b>{{ onlineHistoryResultScopeText }}</div>
+                                        <div v-if="onlineHistoryQueryChanged" class="mt-1 text-amber-800">筛选条件已修改，点击“查询”后更新结果；现在导出的仍是上面已加载的范围。</div>
+                                        <details v-if="onlineDataLoadedQuery &amp;&amp; !onlineDataListLoading &amp;&amp; !onlineDataListError &amp;&amp; onlineDataList.length" class="mt-2">
+                                            <summary class="cursor-pointer font-medium text-[#143a31]">查看本页保存记录与详情（{{ onlineDataList.length }}）</summary>
+                                            <div class="mt-2 divide-y divide-slate-200">
+                                                <div v-for="row in onlineDataList" :key="row.id" class="flex flex-wrap items-center justify-between gap-2 py-2">
+                                                    <span class="min-w-0 break-words">#{{ row.id }} · {{ row.hotel_name || '未提供酒店名称' }} · {{ row.data_date || '未提供日期' }} · {{ onlineAnalysisDataTypeText(row.data_type) }}</span>
+                                                    <button type="button" @click="viewOnlineDataDetail(row)" class="min-h-10 rounded-lg border border-slate-300 bg-white px-3 text-[#143a31]">查看详情</button>
+                                                </div>
+                                            </div>
+                                        </details>
+                                    </div>
+
+                                    <div v-if="onlineDataListError &amp;&amp; downloadCenterTab !== 'traffic'" role="alert" class="rounded-lg border border-red-200 bg-red-50 p-4 text-red-800">{{ onlineDataListError }}</div>
+                                    <div v-else-if="onlineDataListLoading &amp;&amp; downloadCenterTab !== 'traffic'" role="status" aria-live="polite" class="rounded-lg border border-slate-200 bg-slate-50 p-4 text-slate-700">正在读取已保存数据…</div>
+                                    <template v-else>
                                     <div v-if="downloadCenterTab === 'all'">
                                         <div v-for="item in meituanDownloadData.allRows" :key="item.id" class="flex gap-3 border p-2 text-sm">
                                             <span>{{ item.data_date || '-' }}</span>
@@ -1262,6 +1280,8 @@
                                     </div>
 
 
+
+                                    </template>
 
                                     <!-- 未验证竞对数据预览 - 弹窗 -->
                                     <div v-if="showMeituanAIAnalysis" class="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">

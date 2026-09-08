@@ -36,7 +36,7 @@ test('threshold alerts expose an idempotent pending-task bridge without automati
   assert.match(service, /'auto_write_ota' => false/);
   assert.match(appMain, /apiRequest\(`\/operation\/alerts\/\$\{alertId\}\/execution-intent`/);
   assert.match(appMain, /loadOperationActions\(\{ focusIntentId: intentId \}\)/);
-  assert.match(appMain, /data-operation-execution-intent-id="\$\{intentId\}"/);
+  assert.match(appMain, /findVisibleOperationIntentRow\(intentId\)/);
   assert.match(alertPage, /data-testid="operation-alert-create-task"/);
   assert.match(alertPage, /直接转任务/);
   assert.match(alertPage, /查看任务 #/);
@@ -45,6 +45,20 @@ test('threshold alerts expose an idempotent pending-task bridge without automati
   assert.match(service, /'scope' => 'single_hotel'/);
   assert.match(service, /'can_execute' => \$canExecute/);
   assert.match(service, /\$filters\['intent_id'\]/);
+});
+
+test('task navigation selects the visible mobile card instead of its hidden desktop duplicate', () => {
+  const start = appMain.indexOf('const findVisibleOperationIntentRow =');
+  const end = appMain.indexOf('let revenueAiOverviewRequestSeq', start);
+  assert.ok(start >= 0 && end > start);
+  const hidden = { getClientRects: () => [] };
+  const mobile = { getClientRects: () => [{ width: 320 }] };
+  let selector;
+  const find = vm.runInNewContext(appMain.slice(start, end) + '\nfindVisibleOperationIntentRow;', {
+    document: { querySelectorAll: value => { selector = value; return [hidden, mobile]; } },
+  });
+  assert.equal(find(41), mobile);
+  assert.equal(selector, '[data-operation-execution-intent-id="41"]');
 });
 
 test('competitor microscope prioritizes the largest absolute current gap and preserves source truth', () => {

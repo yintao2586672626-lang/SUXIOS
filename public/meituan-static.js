@@ -812,10 +812,13 @@ window.SUXI_MEITUAN_STATIC = (() => {
         if (!mode) return { ok: false, message: '当前页不支持广告/搜索词 CSV 下载', rows: [] };
         const rows = Array.isArray(mode.rows) ? mode.rows : [];
         if (!rows.length) return { ok: false, message: '当前页面没有可下载的数据', rows: [] };
-        const csvRows = rows.map(item => [item?.hotel_name ?? '', item?.data_date ?? '', ...mode.values(item)]);
-        const csv = `\uFEFF${[mode.headers, ...csvRows].map(row => row.map(meituanCsvCell).join(',')).join('\r\n')}`;
+        const exportScope = context.scope === 'filtered' ? '全部筛选结果' : '当前页';
+        const metadata = ['meituan', context.hotelId || '全部有权限门店', context.startDate || '', context.endDate || '', exportScope, context.scope === 'filtered' ? '' : (context.page || 1), context.createStart || '', context.createEnd || '', context.dataTypes || ''];
+        const headers = [...mode.headers, '查询平台', '查询酒店编号', '查询开始日期', '查询结束日期', '导出范围', '查询页码', '采集开始日期', '采集结束日期', '查询记录类型'];
+        const csvRows = rows.map(item => [item?.hotel_name ?? '', item?.data_date ?? '', ...mode.values(item), ...metadata]);
+        const csv = `\uFEFF${[headers, ...csvRows].map(row => row.map(meituanCsvCell).join(',')).join('\r\n')}`;
         const token = value => String(value || 'all').trim().replace(/[^0-9A-Za-z_-]+/g, '-') || 'all';
-        return { ok: true, message: `已下载当前页 ${rows.length} 条${mode.label}数据`, fileName: `meituan-${mode.slug}-${token(context.hotelId)}-${token(context.startDate)}-page-${token(context.page || 1)}.csv`, csv, rows };
+        return { ok: true, message: `已下载${exportScope} ${rows.length} 条${mode.label}数据`, fileName: `meituan-${mode.slug}-${token(context.hotelId)}-${token(context.startDate)}-${token(context.endDate)}-${context.scope === 'filtered' ? 'filtered' : `page-${token(context.page || 1)}`}.csv`, csv, rows };
     };
 
     const formatMeituanKeywordRow = (item, formatNumber = String) => { const metric = value => value === null ? '-' : formatNumber(value); return `${item?.keyword_label || '-'} · ${item?.hotel_name || '-'} · ${item?.data_date || '-'} · 值 ${metric(item?.keyword_value)} · 曝光 ${metric(item?.keyword_impressions)} · 点击 ${metric(item?.keyword_clicks)}`; };

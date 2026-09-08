@@ -127,7 +127,9 @@ test('Meituan current-page CSV separates ads and keywords while preserving null 
   assert.doesNotMatch(ads.csv, /机场酒店/);
   assert.match(keywords.csv, /机场酒店,,0,,/);
   assert.doesNotMatch(keywords.csv, /campaign-a/);
-  assert.equal(keywords.fileName, 'meituan-search-keywords-80-2026-07-11-page-2.csv');
+  assert.equal(keywords.fileName, 'meituan-search-keywords-80-2026-07-11-all-page-2.csv');
+  assert.match(keywords.csv, /查询平台,查询酒店编号,查询开始日期,查询结束日期,导出范围,查询页码/);
+  assert.match(keywords.csv, /meituan,80,2026-07-11,,当前页,2/);
 });
 
 test('Meituan CSV neutralizes spreadsheet formula prefixes from OTA text', () => {

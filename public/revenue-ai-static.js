@@ -2512,8 +2512,8 @@
     };
 
     const aiDailyReportActionButtonText = (action) => {
+        if (action?.execution_intent_id) return '查看对应任务';
         if (aiDailyReportActionIsInvestigationOnly(action)) return '查看证据';
-        if (action?.execution_intent_id) return '已转单';
         if (!aiDailyReportActionExecutionReady(action)) return '处理缺口';
         if (aiDailyReportActionBlockedText(action)) return '待处理';
         return '转单';

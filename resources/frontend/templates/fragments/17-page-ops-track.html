@@ -20,6 +20,11 @@
                             </div>
                         </div>
                         <operation-task-workflow-panel :hotel-id="operationFilters.hotel_id" :request="managerCapabilityRequest" :context="authContext" :can-execute="operationFinanceCanExecute"></operation-task-workflow-panel>
+                        <div v-if="aiDailyReportTaskReturn" data-testid="operation-daily-report-return" class="flex flex-col gap-3 rounded-xl border border-[#d8e4df] bg-[#f6faf8] p-4 sm:flex-row sm:items-center sm:justify-between">
+                            <p class="text-sm leading-6 text-[#315d50]">来自日报 #{{ aiDailyReportTaskReturn.reportId }} · {{ aiDailyReportTaskReturn.reportDate }} · 对应任务 #{{ aiDailyReportTaskReturn.intentId }}</p>
+                            <button type="button" @click="returnToAiDailyReport" class="min-h-[44px] rounded-xl border border-[#315d50] bg-white px-4 py-2.5 text-sm font-semibold text-[#315d50] hover:bg-emerald-50">返回日报并刷新进展</button>
+                        </div>
+
                         <div class="bg-white rounded-xl border border-gray-100 p-5 shadow-sm">
                             <div class="flex flex-col md:flex-row md:items-start md:justify-between gap-3 mb-4">
                                 <div>
@@ -27,6 +32,7 @@
                                 </div>
                                 <div class="flex flex-wrap items-center gap-2">
                                     <button type="button" @click="setOperationExecutionStageFilter(''); setOperationExecutionViewMode('mine')" :disabled="operationLoading.actions" :aria-pressed="operationExecutionViewMode === 'mine' &amp;&amp; !operationExecutionStageFilter" data-testid="operation-my-tasks-tab" :class="['min-h-[44px] rounded-xl border px-4 py-2.5 text-sm font-semibold disabled:opacity-50', operationExecutionViewMode === 'mine' &amp;&amp; !operationExecutionStageFilter ? 'border-[#315d50] bg-[#315d50] text-white' : 'border-[#d8e4df] bg-[#f6faf8] text-[#315d50]']">我的待办</button>
+                                    <button type="button" @click="openOperationPendingReviews()" :disabled="operationLoading.actions" :aria-pressed="operationExecutionStageFilter === 'review'" data-testid="operation-pending-reviews-tab" :class="['min-h-[44px] rounded-xl border px-4 py-2.5 text-sm font-semibold disabled:opacity-50', operationExecutionStageFilter === 'review' ? 'border-[#315d50] bg-[#315d50] text-white' : 'border-[#d8e4df] bg-[#f6faf8] text-[#315d50]']">{{ operationExecutionViewMode === 'mine' ? '我的待复盘' : '待复盘' }}</button>
                                     <label class="sr-only" for="operation-execution-view">任务范围</label>
                                     <select id="operation-execution-view" :value="operationExecutionViewMode" @change="setOperationExecutionViewMode($event.target.value)" :disabled="operationLoading.actions" class="min-h-[44px] rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700"><option value="all">全部流程</option><option value="mine">我的待办</option></select>
                                     <button type="button" @click="loadOperationActions" :disabled="operationLoading.actions" class="min-h-[44px] rounded-xl border border-gray-200 px-3 py-2 text-sm text-gray-600 hover:bg-gray-50 disabled:opacity-50">刷新</button>
@@ -49,6 +55,9 @@
                                     <div class="text-xl font-bold text-gray-900 mt-1">{{ stage.count || 0 }}</div>
                                 </button>
                             </div>
+                            <details data-testid="operation-execution-overview" class="mb-4 rounded-xl border border-gray-100 bg-gray-50/50">
+                                <summary class="cursor-pointer px-3 py-3 text-sm font-medium text-gray-700">流程统计与证据概览</summary>
+                                <div class="p-3">
                             <div class="grid grid-cols-1 md:grid-cols-3 xl:grid-cols-6 gap-3 mb-4">
                                 <div v-for="card in operationExecutionSummaryCards" :key="card.label" class="rounded-lg border border-gray-100 p-3">
                                     <div class="text-xs text-gray-500">{{ card.label }}</div>
@@ -73,11 +82,69 @@
                                     <div class="mt-2 text-xs text-gray-500 leading-relaxed break-words">{{ row.detail }}</div>
                                 </div>
                             </div>
+                                </div>
+                            </details>
                             <div class="mb-3 flex flex-wrap items-center justify-between gap-2 text-xs text-gray-500">
-                                <span>当前显示：<b class="text-gray-700">{{ operationExecutionViewMode === 'mine' ? '我的待办' : operationExecutionStageFilterLabel }}</b> · {{ operationExecutionFilteredItems.length }} 条</span>
+                                <span>当前显示：<b class="text-gray-700">{{ operationExecutionViewMode === 'mine' ? '我的待办 · ' + operationExecutionStageFilterLabel : operationExecutionStageFilterLabel }}</b> · {{ operationExecutionFilteredItems.length }} 条</span>
                                 <button v-if="operationExecutionStageFilter" type="button" @click="setOperationExecutionStageFilter('')" class="rounded-lg px-2.5 py-1.5 font-medium text-[#315d50] hover:bg-emerald-50">查看全部阶段</button>
                             </div>
-                            <div class="overflow-x-auto">
+                            <div data-testid="operation-mobile-task-list" class="space-y-3 lg:hidden">
+                                <article v-for="item in operationExecutionFilteredItems" :key="item.id" :data-operation-execution-intent-id="item.id" :class="operationExecutionRowClass(item)" class="min-w-0 rounded-2xl border border-[#d8e4df] bg-[#fffdf8] p-4">
+                                    <div class="flex items-start justify-between gap-3">
+                                        <h4 class="min-w-0 break-words text-base font-semibold leading-6 text-slate-900">{{ operationExecutionActionText(item) }}</h4>
+                                        <span :class="operationExecutionStatusClass(item.execution?.status)" class="shrink-0 rounded-full px-2 py-1 text-xs">{{ operationExecutionStatusLabel(item.execution?.status) }}</span>
+                                    </div>
+                                    <p class="mt-2 break-words text-xs leading-5 text-gray-500">{{ operationExecutionSourceText(item) }} · 行动 #{{ item.id }} · 任务 #{{ item.execution?.task_id || '尚未创建' }} · {{ item.recommendation?.platform || '平台未返回' }} · {{ item.recommendation?.date_start || '业务日期未返回' }}</p>
+                                    <dl class="mt-3 grid grid-cols-2 gap-3 rounded-xl border border-gray-100 bg-white p-3 text-sm">
+                                        <div class="min-w-0"><dt class="text-xs text-gray-500">负责人</dt><dd class="mt-1 break-words font-medium text-gray-800">{{ item.assignment?.assignee_name || (item.assignment?.assignee_id ? '用户 #' + item.assignment.assignee_id : '尚未指派') }}</dd></div>
+                                        <div class="min-w-0"><dt class="text-xs text-gray-500">截止期限</dt><dd class="mt-1 break-words font-medium text-gray-800">{{ item.assignment?.due_at || '尚未设置' }}</dd></div>
+                                        <div class="min-w-0"><dt class="text-xs text-gray-500">评审状态</dt><dd class="mt-1 text-gray-800">{{ operationExecutionStatusLabel(item.approval?.status) }}</dd></div>
+                                        <div class="min-w-0"><dt class="text-xs text-gray-500">复核时间</dt><dd class="mt-1 break-words text-gray-800">{{ item.assignment?.review_at || '尚未设置' }}</dd></div>
+                                    </dl>
+                                    <p v-if="item.approval?.blocked_reason" class="mt-3 rounded-lg border border-amber-100 bg-amber-50 p-2 text-xs leading-5 text-amber-800">{{ item.approval.blocked_reason }}</p>
+                                    <div class="my-3 rounded-xl border border-[#d8e4df] bg-[#f6faf8] p-3">
+                                        <p class="text-xs font-medium text-[#315d50]">下一步</p>
+                                        <p :class="operationExecutionNextActionClass(item.next_action)" class="mt-1 break-words text-sm font-semibold">{{ item.next_action?.label || '本次未返回下一步' }}</p>
+                                    </div>
+                                                <div class="flex flex-wrap gap-2" data-testid="operation-mobile-actions">
+                                                    <button v-if="operationCanApproveExecution(item)" data-testid="operation-approve" :data-confirming="operationApprovalConfirming(item)" :disabled="operationLoading.actions" @click="approveOperationExecutionIntent(item, true)" class="min-h-[44px] px-3 py-2.5 text-sm rounded-lg bg-green-600 text-white hover:bg-green-700 disabled:cursor-wait disabled:opacity-50">{{ operationApprovalText(item) }}</button>
+                                                    <button v-if="operationCanApproveExecution(item)" data-testid="operation-reject" :disabled="operationLoading.actions" @click="rejectOrCancelOperationApproval(item)" class="min-h-[44px] px-3 py-2.5 text-sm rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50 disabled:cursor-wait disabled:opacity-50">{{ operationRejectText(item) }}</button>
+                                                    <button v-if="operationCanStartExecution(item)" data-testid="operation-start-task" @click="startOperationExecutionTask(item)" class="min-h-[44px] px-3 py-2.5 text-sm rounded-lg bg-[#315d50] font-medium text-white hover:bg-[#264a40]">开始任务</button>
+                                                    <button v-if="operationCanRecordNodeCheck(item)" data-testid="operation-node-check-action" @click="recordOperationRevenueNodeCheck(item)" class="min-h-[44px] px-3 py-2.5 text-sm rounded-lg border border-[#d8e4df] bg-[#f6faf8] text-[#315d50] hover:bg-[#eaf3ee]">{{ item.evidence_summary?.node_record?.status === 'available' ? '更新节点' : '节点检查' }}</button>
+                                                    <button v-if="operationCanExecuteWithEvidence(item)" @click="recordOperationExecutionEvidence(item)" class="min-h-[44px] px-3 py-2.5 text-sm rounded-lg bg-[#315d50] text-white hover:bg-[#264a40]">录证据</button>
+                                                    <button v-if="operationCanCancelExecution(item) &amp;&amp; !operationCanApproveExecution(item)" data-testid="operation-cancel-action" @click="cancelOperationExecution(item)" class="min-h-[44px] px-3 py-2.5 text-sm rounded-lg border border-rose-200 bg-white text-rose-700 hover:bg-rose-50">取消</button>
+                                                    <button v-if="operationCanReconcileExecution(item) || operationCanReviewExecution(item)" data-testid="operation-review-action" @click="operationCanReconcileExecution(item) ? reconcileOperationExecutionReview(item) : reviewOperationExecutionTask(item)" class="min-h-[44px] px-3 py-2.5 text-sm rounded-lg bg-gray-900 text-white hover:bg-gray-700">{{ operationCanReconcileExecution(item) ? '读取事实' : '复盘' }}</button>
+                                                    <span v-else-if="item.execution?.status === 'executed' &amp;&amp; item.review?.is_available === false" class="text-xs text-amber-700">{{ item.review.available_at || item.review.available_on || '次日' }} 可读取</span>
+                                                    <button v-if="operationCanDefineIntervention(item)" type="button" @click="openOperatingInterventionForm(item)" class="min-h-[44px] px-3 py-2.5 text-sm rounded-lg border border-[#315d50] bg-white font-medium text-[#315d50] hover:bg-emerald-50">定义干预</button>
+                                                    <span v-if="operationCanAssessIntervention(item)" class="rounded-lg border border-[#d8e4df] bg-[#f6faf8] px-2.5 py-1 text-xs font-medium text-[#315d50]">系统自动观察与判定</span>
+                                                    <button v-if="canSaveMemo(item)" @click="saveMemo(item)" data-testid="save-operating-memory" class="min-h-[44px] rounded-lg border border-[#d8e4df] bg-white px-3 py-2.5 text-sm text-[#315d50]">沉淀记忆</button>
+                                                    <span v-if="!operationExecutionActionAvailable(item)" class="text-xs text-gray-400">-</span>
+                                                </div>
+                                    <details class="mt-3 border-t border-[#d8e4df] pt-2" data-testid="operation-mobile-task-evidence">
+                                        <summary class="cursor-pointer py-2 text-xs font-medium text-[#315d50]">查看依据、节点证据与复盘</summary>
+                                        <div class="space-y-3 pt-2 text-xs leading-5 break-words">
+                                            <span v-if="item.action_management" :class="operationExecutionStatusClass(item.action_management.lifecycle?.status)" class="inline-flex rounded-full px-2 py-0.5">{{ operationExecutionStatusLabel(item.action_management.lifecycle?.status) }}</span>
+                                            <div v-if="item.action_management?.action_card" class="space-y-1 rounded-lg border border-[#d8e4df] bg-[#f6faf8] p-2">
+                                                <div><b>原因：</b>{{ item.action_management.action_card.reason || '未返回' }}</div>
+                                                <div><b>风险：</b>{{ item.action_management.action_card.risk?.summary || '未返回' }}</div>
+                                                <div><b>事实：</b>{{ (item.action_management.action_card.fact_refs || []).join('、') || '未返回' }}</div>
+                                                <div><b>指标：</b>{{ item.action_management.action_card.metric_contract?.metric_key || '未返回' }} · {{ item.action_management.action_card.metric_contract?.unit || '单位缺失' }}</div>
+                                            </div>
+                                            <div><span :class="operationInterventionLearningModelForItem(item).className">{{ operationInterventionLearningModelForItem(item).label }}</span><p>{{ operationInterventionLearningModelForItem(item).summary }}</p></div>
+                                            <div v-if="item.recommendation?.evidence?.ai_independent_review?.contract_version === 'operation_action_ai_independent_review.v1'" class="rounded-lg border border-[#d8e4df] bg-[#f6faf8] p-2">
+                                                <b>AI 独立评审 · {{ item.recommendation.evidence.ai_independent_review.status }}</b>
+                                                <p>{{ item.recommendation.evidence.ai_independent_review.summary || '评审摘要未回读' }}</p>
+                                                <p class="text-gray-500">{{ item.recommendation.evidence.ai_independent_review.provider || '-' }} · {{ item.recommendation.evidence.ai_independent_review.model || '-' }}</p>
+                                            </div>
+                                            <p><b>节点证据：</b>{{ nodeText(item) }}</p>
+                                            <p class="whitespace-pre-line"><b>复盘：</b>{{ operationExecutionReviewText(item) }}</p>
+                                            <p v-if="item.action_management?.latest_review?.non_attribution_reasons?.length" class="text-amber-700">非归因：{{ item.action_management.latest_review.non_attribution_reasons.join('、') }}</p>
+                                            <p><b>ROI：</b><span :class="item.roi?.status === 'ready' ? 'text-green-700 font-semibold' : 'text-gray-500'">{{ operationExecutionRoiText(item.roi) }}</span></p>
+                                        </div>
+                                    </details>
+                                </article>
+                            </div>
+                            <div data-testid="operation-desktop-task-table" class="hidden overflow-x-auto lg:block">
                                 <table class="min-w-full text-sm">
                                     <thead class="bg-gray-50 text-gray-500">
                                         <tr>
