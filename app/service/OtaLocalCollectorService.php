@@ -5342,15 +5342,7 @@ final class OtaLocalCollectorService
         $request = is_array($task['request_summary'] ?? null)
             ? $task['request_summary']
             : $this->publicTaskRequest($this->decodeJson($task['request_json'] ?? null));
-        $ordered = is_array($request['ordered_collection'] ?? null) ? $request['ordered_collection'] : [];
-        $missing = is_array($ordered['missing_field_keys'] ?? null) ? $ordered['missing_field_keys'] : [];
-        if ($missing !== []) {
-            return count($missing);
-        }
-        if ((string)($ordered['stage'] ?? '') === 'yesterday_core') {
-            return count((array)($ordered['required_field_keys'] ?? []));
-        }
-        return 0;
+        return $this->privateTaskMissingFieldCount($request);
     }
 
     private function privateTaskMissingFieldCount(array $request): int

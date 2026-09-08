@@ -15,15 +15,13 @@ function syncQuotedLazyReference(source, name, bytes) {
   const matches = [...source.matchAll(pattern)];
   if (matches.length !== 1) throw new Error(`Startup lazy reference must occur exactly once: ${name}`);
   const match = matches[0];
-  // Older component loaders used 12 hash characters. Migrate that established
-  // format through the canonical version writer without weakening its contract.
+  // Older component loaders used 12 hash characters. Keep the canonical writer strict.
   const reference = match[2].replace(/-h([a-f0-9]{10})[a-f0-9]{2}$/, '-h$1');
   const updated = updateFrontendAssetVersion(`"${reference}"`, name, bytes).html.slice(1, -1);
   return source.slice(0, match.index) + match[1] + updated + match[1] + source.slice(match.index + match[0].length);
 }
 
-// The startup bundle contains these loaders. Pin dependencies before building
-// that bundle, and retain their bytes so callers can reject concurrent changes.
+// Pin loader dependencies before bundling; retain their bytes for the publication check.
 export function syncStartupLazyComponentVersions(entries, readAsset) {
   const dependencies = new Map();
   const sources = entries.map(entry => {
@@ -42,7 +40,7 @@ export function syncStartupLazyComponentVersions(entries, readAsset) {
   return { sources, dependencies };
 }
 
-// The operation helper is loaded after mount, so its URL is versioned inside app-main.
+// Revenue AI is loaded after mount, so its version is embedded in app-main.
 export function syncRevenueAiStaticVersion(source, revenueAiStatic) {
   const pattern = /\bconst revenueAiStaticVersion = '([^'\r\n]+)-h[a-f0-9]{10}';/g;
   const matches = [...String(source).matchAll(pattern)];
@@ -54,6 +52,7 @@ export function syncRevenueAiStaticVersion(source, revenueAiStatic) {
   };
 }
 
+// The operation helper is also loaded after mount.
 export function syncOperationStaticVersion(source, operationStatic) {
   const pattern = /\bconst operationStaticScriptVersion = '([^'\r\n]+)-h[a-f0-9]{10}';/g;
   const matches = [...String(source).matchAll(pattern)];

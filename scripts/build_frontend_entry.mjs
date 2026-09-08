@@ -59,6 +59,7 @@ console.log(JSON.stringify({
   operation_static_hash: lazyVersion.hash,
   revenue_ai_static_hash: revenueAiVersion.hash,
   source_version_changed: sourceChanged,
+  source_changed: sourceChanged,
   artifact_changed: artifactChanged,
   index_changed: indexChanged,
 }, null, 2));

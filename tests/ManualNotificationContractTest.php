@@ -9,7 +9,7 @@ final class ManualNotificationContractTest extends TestCase
 {
     public function testRoutesStayBehindAuthenticationMiddleware(): void
     {
-        $routes = (string)file_get_contents(dirname(__DIR__) . '/route/app.php');
+        $routes = \Tests\Support\RouteContractSource::read(dirname(__DIR__));
         self::assertMatchesRegularExpression(
             "/Route::group\\('api\\/manual-notifications'.*?"
             . "Route::get\\('\\/metadata', 'ManualNotification\\/metadata'\\);.*?"
