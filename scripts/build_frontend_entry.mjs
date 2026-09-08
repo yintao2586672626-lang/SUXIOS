@@ -21,8 +21,9 @@ const operationStatic = fs.readFileSync(operationStaticPath);
 const lazyVersion = syncOperationStaticVersion(originalSource, operationStatic);
 const revenueAiPath = path.join(repoRoot, 'public/revenue-ai-static.js');
 const cockpitPath = path.join(repoRoot, 'public/revenue-cockpit-static.js');
-const originalRevenueAi = fs.readFileSync(revenueAiPath, 'utf8');
-const cockpitSource = fs.readFileSync(cockpitPath, 'utf8');
+const revenueAiStatic = fs.readFileSync(revenueAiPath);
+const originalRevenueAi = revenueAiStatic.toString('utf8');
+const cockpitSource = fs.readFileSync(cockpitPath);
 const revenueVersion = syncRevenueStaticVersions(lazyVersion.source, originalRevenueAi, cockpitSource);
 const knowledgeDomainPath = path.join(repoRoot, 'public/components/system/knowledge-center-domain.js');
 const knowledgeDomain = fs.readFileSync(knowledgeDomainPath);
@@ -41,7 +42,7 @@ if (fs.readFileSync(sourcePath, 'utf8') !== originalSource) {
 if (!fs.readFileSync(operationStaticPath).equals(operationStatic)) {
   throw new Error('public/operation-static.js changed during compilation; refusing to publish a stale lazy helper version.');
 }
-if (fs.readFileSync(revenueAiPath, 'utf8') !== originalRevenueAi || fs.readFileSync(cockpitPath, 'utf8') !== cockpitSource) {
+if (!fs.readFileSync(revenueAiPath).equals(revenueAiStatic) || !fs.readFileSync(cockpitPath).equals(cockpitSource)) {
   throw new Error('Revenue helper changed during compilation; refusing stale loader versions.');
 }
 if (!fs.readFileSync(knowledgeDomainPath).equals(knowledgeDomain)) throw new Error('Knowledge domain changed during compilation.');
@@ -76,6 +77,7 @@ console.log(JSON.stringify({
   simulation_static_hash: simulationVersion.hash,
   revenue_ai_static_hash: revenueVersion.revenueAiHash,
   source_version_changed: sourceChanged,
+  source_changed: sourceChanged,
   artifact_changed: artifactChanged,
   index_changed: indexChanged,
 }, null, 2));

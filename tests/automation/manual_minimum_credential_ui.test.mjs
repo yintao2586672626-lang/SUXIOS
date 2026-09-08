@@ -643,7 +643,7 @@ test('Ctrip manual execution uses platform authorization and legacy Cookie stora
   assert.match(fetchCtripData, /runCtripFetchDataFlow\(\{/);
   assert.match(fetchCtripData, /const preparingConfig = ctripManualFetchConfigProofPending\(\);/);
   assert.doesNotMatch(fetchCtripData, /ensureCtripConfigSecret|cookies|auth_data/);
-  assert.match(fetchCtripData, /finally \{\s*if \(isActive\(\)\) \{\s*fetchingData\.value = false;\s*\}\s*\}/);
+  assert.match(fetchCtripData, /finally \{\s*if \(isActive\(\)\) \{\s*ctripManualFetchActive = false;\s*fetchingData\.value = false;\s*\}\s*\}/);
   assert.match(fetchCtripData, /body: JSON\.stringify\(requestBody\)/);
   assert.match(ctripStatic, /const isCtripRankingFormAlignedWithConfig = \(form = \{\}, config = \{\}, options = \{\}\) =>/);
   assert.match(ctripStatic, /if \(selectedConfig && !isCtripRankingFormAlignedWithConfig\(form, selectedConfig, \{ selectedHotelId: selectedCtripHotelId \}\)\) \{/);

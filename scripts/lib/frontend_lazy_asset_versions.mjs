@@ -42,7 +42,7 @@ export function syncStartupLazyComponentVersions(entries, readAsset) {
   return { sources, dependencies };
 }
 
-// The operation helper is loaded after mount, so its URL is versioned inside app-main.
+// Revenue AI is loaded after mount, so its version is embedded in app-main.
 export function syncRevenueAiStaticVersion(source, revenueAiStatic) {
   const pattern = /\bconst revenueAiStaticVersion = '([^'\r\n]+)-h[a-f0-9]{10}';/g;
   const matches = [...String(source).matchAll(pattern)];
@@ -54,6 +54,7 @@ export function syncRevenueAiStaticVersion(source, revenueAiStatic) {
   };
 }
 
+// The operation helper is loaded after mount, so its URL is versioned inside app-main.
 export function syncOperationStaticVersion(source, operationStatic) {
   const pattern = /\bconst operationStaticScriptVersion = '([^'\r\n]+)-h[a-f0-9]{10}';/g;
   const matches = [...String(source).matchAll(pattern)];
@@ -74,7 +75,7 @@ export function syncRevenueStaticVersions(appMain, revenueAi, cockpit) {
     return { source: String(source).replace(pattern, () => `const ${name} = '${matches[0][1]}-h${hash}';`), hash };
   };
   const child = sync(revenueAi, 'revenueCockpitStaticVersion', cockpit);
-  const parent = sync(appMain, 'revenueAiStaticVersion', child.source);
+  const parent = syncRevenueAiStaticVersion(appMain, child.source);
   return { appMain: parent.source, revenueAi: child.source, cockpitHash: child.hash, revenueAiHash: parent.hash };
 }
 

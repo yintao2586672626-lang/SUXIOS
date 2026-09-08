@@ -19,6 +19,17 @@ final class CloudOtaProfileLeaseRecoveryTest extends TestCase
             'unexpected status' => [['status' => 'incomplete'], true],
             'different hotel' => [['hotel_id' => 6], false],
             'different profile' => [['profile_id' => 'cbp_otherabcdefghijkl'], false],
+            'different tenant' => [['tenant_id' => 2], false],
+            'different owner' => [['owner_user_id' => 2], false],
+            'different platform' => [['platform' => 'meituan'], false],
+            'different target date' => [['target_date' => '1900-01-01'], false],
+            'different collection kind' => [['collection_kind' => 'interactive'], false],
+            'different period' => [['data_period' => 'historical'], false],
+            'different access mode' => [['access_mode' => 'read_write'], false],
+            'different session owner' => [['session_owner' => 'user_browser'], false],
+            'missing session owner' => [['session_owner' => null], false],
+            'external browser required' => [['external_browser_required' => true], true],
+            'user browser was closed' => [['user_browser_closed' => true], true],
             'invalid lease id' => [['collection_session_id' => 'invalid'], false],
         ];
     }

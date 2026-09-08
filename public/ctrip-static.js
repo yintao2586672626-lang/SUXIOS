@@ -2166,7 +2166,7 @@ window.SUXI_CTRIP_STATIC = window.SUXI_CTRIP_STATIC_FULL = (() => {
 
             const errorMsg = res.message || '获取失败';
             const rawResponse = res.data?.raw_response || res.data?.raw || '';
-            await handleFetchFailure(errorMsg);
+            await handleFetchFailure(errorMsg, isCurrent);
             if (!isCurrent()) return { status: 'stale' };
             if (rawResponse && !hasVisibleSnapshot()) {
                 setOnlineDataResult(buildCtripFetchRawFailureResult({
@@ -2179,7 +2179,7 @@ window.SUXI_CTRIP_STATIC = window.SUXI_CTRIP_STATIC_FULL = (() => {
         } catch (error) {
             if (!isCurrent()) return { status: 'stale' };
             logError('携程数据请求异常:', error);
-            await handleFetchFailure('请求失败: ' + error.message);
+            await handleFetchFailure('请求失败: ' + error.message, isCurrent);
             if (!isCurrent()) return { status: 'stale' };
             return { status: 'error', error };
         } finally {
@@ -2340,7 +2340,7 @@ window.SUXI_CTRIP_STATIC = window.SUXI_CTRIP_STATIC_FULL = (() => {
             systemHotelId: selectedCtripHotelId || null,
         });
         const directRequestBody = { ...requestBody, async: false, background: false };
-        const queryKey = () => JSON.stringify([getForm()?.dateRange || '', getForm()?.startDate || '', getForm()?.endDate || '']);
+        const queryKey = () => JSON.stringify([getForm()?.platform || '', getForm()?.dateRange || '', getForm()?.startDate || '', getForm()?.endDate || '']);
         const requestedQuery = queryKey();
         const isCurrent = () => isActive()
             && String(getSelectedCtripHotelId() || '') === selectedCtripHotelId
@@ -2414,14 +2414,14 @@ window.SUXI_CTRIP_STATIC = window.SUXI_CTRIP_STATIC_FULL = (() => {
                 };
             }
 
-            await handleFetchFailure(res.message || '获取失败');
+            await handleFetchFailure(res.message || '获取失败', isCurrent);
             if (!isCurrent()) return { status: 'stale' };
             return { status: 'failed', response: res, requestBody: directRequestBody };
         } catch (error) {
             if (!isCurrent()) {
                 return { status: 'stale' };
             }
-            await handleFetchFailure('请求失败: ' + error.message);
+            await handleFetchFailure('请求失败: ' + error.message, isCurrent);
             if (!isCurrent()) return { status: 'stale' };
             return { status: 'exception', error, requestBody: directRequestBody };
         } finally {
