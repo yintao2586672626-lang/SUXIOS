@@ -3579,10 +3579,8 @@ window.SUXI_MEITUAN_STATIC = (() => {
     };
 
     const normalizeMeituanOrderFetchForm = (form = {}) => {
-        form.url = String(form.url || '').trim();
+        normalizeMeituanTrafficFetchForm(form);
         form.method = String(form.method || 'GET').toUpperCase();
-        form.partnerId = String(form.partnerId || '').trim();
-        form.poiId = String(form.poiId || '').trim();
         return form;
     };
 
@@ -4083,10 +4081,7 @@ window.SUXI_MEITUAN_STATIC = (() => {
     };
 
     const normalizeMeituanAdsFetchForm = (form = {}) => {
-        form.url = String(form.url || '').trim();
-        form.method = String(form.method || 'GET').toUpperCase();
-        form.partnerId = String(form.partnerId || '').trim();
-        form.poiId = String(form.poiId || '').trim();
+        normalizeMeituanOrderFetchForm(form);
         form.shopId = String(form.shopId || '').trim();
         return form;
     };

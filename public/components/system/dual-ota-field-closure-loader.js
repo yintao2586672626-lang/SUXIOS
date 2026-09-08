@@ -6,7 +6,7 @@
 
     const systemComponents = window.SUXI_SYSTEM_COMPONENTS
         || (window.SUXI_SYSTEM_COMPONENTS = {});
-    const panelScript = 'components/system/dual-ota-field-closure-panel.js?v=20260826-trusted-ota-fact-h57e7704cdade';
+    const panelScript = 'components/system/dual-ota-field-closure-panel.js?v=20260826-trusted-ota-fact-h57e7704cda';
     let panelPromise = null;
 
     const loadPanel = () => {

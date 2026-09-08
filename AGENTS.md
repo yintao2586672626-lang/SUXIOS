@@ -349,7 +349,7 @@ C:\xampp\php\php.exe -l <file>
 |------|------|
 | 本地运行依赖 | Vue 3 runtime-only、Tailwind、FontAwesome 均从 `public/` 本地加载；根模板已预编译 |
 | 请求封装 | 使用 `async function apiRequest()` 统一处理 token 和错误 |
-| Token 存储 | `localStorage.getItem('token')` |
+| Token 存储 | 运行代码使用 sessionStorage；兼容入口只将旧 localStorage 会话迁移后移除。开发诊断不得读取任一存储中的实际令牌 |
 | 页面切换 | 通过 `currentPage` ref 变量控制 v-if 显示 |
 | 模板编辑源 | 只编辑 `resources/frontend/templates/fragments/*.html` 中对应业务页面；`app-template.html` 是同步生成的兼容快照 |
 | 生成与验证 | 修改分片后依次同步快照、构建运行产物并运行 `verify:frontend-template` |
@@ -384,7 +384,7 @@ C:\xampp\php\php.exe -l <file>
 |------|------|
 | 提交信息 | 使用中文，格式：`[模块] 简短描述` |
 | 提交前 | 确认模板分片、兼容快照、运行产物一致，且 `public/index.html` 未被 Vite 覆盖 |
-| 高优先级保存点 | 只 stage 与当前 P0/P1/P2 目标相关文件，确认后 push |
+| 高优先级保存点 | 仅在本次明确授权提交时 stage 相关文件；push、PR 和部署分别需要范围匹配的明确授权，本地修复不包含这些动作 |
 
 ---
 
@@ -397,7 +397,7 @@ C:\xampp\php\php.exe -l <file>
 | `public/index.html` | 前端运行启动壳，被 Vite 覆盖过一次 | 修改前检查该文件及关联生成物的 Git 状态与差异；只在目标改动无法安全合并时停下，不要求全局工作区干净 |
 | `route/app.php` | 所有 API 路由集中在此 | 新增路由时严格按规范注册 |
 | `app/middleware/Auth.php` | 认证核心，改动影响全局安全 | 运行 Auth 目标测试和直接依赖回归；只有大型核心重构才运行完整套件 |
-| `.env` | 数据库连接等运行时配置 | 改后通知团队成员 |
+| `.env` | 数据库连接等运行时配置 | 不读取、输出或修改真实凭证；优先通过健康检查和脱敏诊断定位，凭证处理由用户在原设备完成 |
 | `database/init_full.sql` | 冻结数据库基线 | 禁止追加新 migration；结构变更只新增 `database/migrations/*.sql` 并由版本 runner 登记 |
 
 ---

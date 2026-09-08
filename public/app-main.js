@@ -45413,8 +45413,14 @@
             };
 
             // 线上数据获取相关方法
+            let ctripManualFetchRequestSeq = 0;
             const fetchCtripData = async (options = {}) => {
                 if (fetchingData.value) return { status: 'busy' };
+                const requestSeq = ++ctripManualFetchRequestSeq;
+                const session = captureAuthSession();
+                const hotelContext = capturePlatformHotelRequestContext('ctrip');
+                const isActive = () => requestSeq === ctripManualFetchRequestSeq
+                    && isAuthSessionCurrent(session) && isPlatformHotelRequestContextCurrent(hotelContext);
                 const preparingConfig = ctripManualFetchConfigProofPending();
                 if (preparingConfig) {
                     fetchingData.value = true;
@@ -45422,6 +45428,7 @@
                 clearCtripRankingDisplayState();
                 try {
                     const runOnce = () => runCtripFetchDataFlow({
+                        isActive,
                         isLoggedIn: () => isLoggedIn.value,
                         getSelectedCtripHotelId: () => selectedCtripHotelId.value,
                         notify: showToast,
@@ -45457,14 +45464,16 @@
                         refreshLatestCtripData: scheduleLatestCtripRefresh,
                         getOnlineDataTab: () => onlineDataTab.value,
                         refreshOnlineData: scheduleOnlineDataRefresh,
-                        handleFetchFailure: message => handleCtripFetchFailure(message),
+                        handleFetchFailure: message => handleCtripFetchFailure(message, isActive),
                         hasVisibleSnapshot: hasVisibleCtripSnapshot,
                         logError: (...args) => console.error(...args),
                         background: options?.background === true,
                         suppressPostFetchRefresh: options?.suppressPostFetchRefresh === true,
                     });
                     let result = await runOnce();
+                    if (!isActive() || result?.status === 'stale') return { status: 'stale' };
                     if (options?.background === true) return result;
+                    const retryQuery = JSON.stringify([ctripForm.value.startDate, ctripForm.value.endDate]);
 
                     let qunarRetryCount = 0;
                     const qunarAutoRetryAllowed = manualOneClickFetchQunarAutoRetryAllowedAt();
@@ -45483,6 +45492,9 @@
                             resolve,
                             Math.min(1800, 600 * qunarRetryCount),
                         ));
+                        if (!isActive() || retryQuery !== JSON.stringify([ctripForm.value.startDate, ctripForm.value.endDate])) {
+                            return { status: 'stale' };
+                        }
                         result = await runOnce();
                     }
 
@@ -45496,7 +45508,7 @@
                     }
                     return { ...result, qunarRetryCount };
                 } finally {
-                    if (preparingConfig) {
+                    if (isActive()) {
                         fetchingData.value = false;
                     }
                 }
@@ -46002,19 +46014,28 @@
                     || !!(ctripCommentResult.value?.data && ctripCommentResult.value.data.length > 0);
             };
 
-            const handleCtripFetchFailure = async (fallbackMessage) => {
+            const handleCtripFetchFailure = async (fallbackMessage, isActive = () => true) => {
+                if (!isActive()) return;
                 await loadLatestCtripData({ silent: true, hydrateDisplay: false });
+                if (!isActive()) return;
                 showToast(fallbackMessage || '获取失败', 'error');
             };
 
             // 携程 / 去哪儿流量对比数据获取
             const fetchCtripTrafficData = async () => {
+                if (fetchingData.value) return { status: 'busy' };
+                const requestSeq = ++ctripManualFetchRequestSeq;
+                const session = captureAuthSession();
+                const hotelContext = capturePlatformHotelRequestContext('ctrip');
+                const isActive = () => requestSeq === ctripManualFetchRequestSeq
+                    && isAuthSessionCurrent(session) && isPlatformHotelRequestContextCurrent(hotelContext);
                 const preparingConfig = ctripManualFetchConfigProofPending();
                 if (preparingConfig) {
                     fetchingData.value = true;
                 }
                 try {
                     return await runCtripTrafficFetchFlow({
+                        isActive,
                         getSelectedCtripHotelId: () => selectedCtripHotelId.value,
                         notify: showToast,
                         getActiveCtripConfig,
@@ -46033,10 +46054,10 @@
                         refreshOnlineHistory: scheduleOnlineHistoryRefresh,
                         getOnlineDataTab: () => onlineDataTab.value,
                         refreshOnlineData: scheduleOnlineDataRefresh,
-                        handleFetchFailure: handleCtripFetchFailure,
+                        handleFetchFailure: message => handleCtripFetchFailure(message, isActive),
                     });
                 } finally {
-                    if (preparingConfig) {
+                    if (preparingConfig && isActive()) {
                         fetchingData.value = false;
                     }
                 }

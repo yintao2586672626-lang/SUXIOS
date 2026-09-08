@@ -1908,6 +1908,7 @@ window.SUXI_CTRIP_STATIC = window.SUXI_CTRIP_STATIC_FULL = (() => {
         hint: '请检查: 1.Cookie是否过期 2.API地址是否正确',
     });
     const runCtripFetchDataFlow = async ({
+        isActive = () => true,
         isLoggedIn = () => false,
         getSelectedCtripHotelId = () => '',
         notify = () => {},
@@ -1976,6 +1977,11 @@ window.SUXI_CTRIP_STATIC = window.SUXI_CTRIP_STATIC_FULL = (() => {
             return { status: 'invalid_request', requestContext };
         }
         const { startDate, endDate } = requestContext;
+        const queryKey = () => JSON.stringify([getForm()?.startDate || '', getForm()?.endDate || '']);
+        const requestedQuery = queryKey();
+        const isCurrent = () => isActive()
+            && String(getSelectedCtripHotelId() || '') === selectedCtripHotelId
+            && queryKey() === requestedQuery;
 
         setFetching(true);
         setShowRawData(false);
@@ -1991,6 +1997,7 @@ window.SUXI_CTRIP_STATIC = window.SUXI_CTRIP_STATIC_FULL = (() => {
                 ? requestTemporaryFetch
                 : requestFetch;
             const res = await fetchRequest(requestBody);
+            if (!isCurrent()) return { status: 'stale' };
             debugLog('携程数据响应:', res);
 
             const responseStatus = String(res.data?.status || '').toLowerCase();
@@ -2160,6 +2167,7 @@ window.SUXI_CTRIP_STATIC = window.SUXI_CTRIP_STATIC_FULL = (() => {
             const errorMsg = res.message || '获取失败';
             const rawResponse = res.data?.raw_response || res.data?.raw || '';
             await handleFetchFailure(errorMsg);
+            if (!isCurrent()) return { status: 'stale' };
             if (rawResponse && !hasVisibleSnapshot()) {
                 setOnlineDataResult(buildCtripFetchRawFailureResult({
                     errorMsg,
@@ -2169,11 +2177,13 @@ window.SUXI_CTRIP_STATIC = window.SUXI_CTRIP_STATIC_FULL = (() => {
             }
             return { status: 'failed', response: res };
         } catch (error) {
+            if (!isCurrent()) return { status: 'stale' };
             logError('携程数据请求异常:', error);
             await handleFetchFailure('请求失败: ' + error.message);
+            if (!isCurrent()) return { status: 'stale' };
             return { status: 'error', error };
         } finally {
-            setFetching(false);
+            if (isActive()) setFetching(false);
         }
     };
 
@@ -2286,6 +2296,7 @@ window.SUXI_CTRIP_STATIC = window.SUXI_CTRIP_STATIC_FULL = (() => {
     };
 
     const runCtripTrafficFetchFlow = async ({
+        isActive = () => true,
         getSelectedCtripHotelId = () => '',
         notify = () => {},
         getActiveCtripConfig = () => null,
@@ -2300,7 +2311,7 @@ window.SUXI_CTRIP_STATIC = window.SUXI_CTRIP_STATIC_FULL = (() => {
         refreshOnlineData = () => {},
         handleFetchFailure = async () => {},
     } = {}) => {
-        const selectedCtripHotelId = getSelectedCtripHotelId();
+        const selectedCtripHotelId = String(getSelectedCtripHotelId() || '');
         if (!selectedCtripHotelId) {
             notify('请选择目标酒店', 'error');
             return { status: 'missing_hotel' };
@@ -2329,9 +2340,14 @@ window.SUXI_CTRIP_STATIC = window.SUXI_CTRIP_STATIC_FULL = (() => {
             systemHotelId: selectedCtripHotelId || null,
         });
         const directRequestBody = { ...requestBody, async: false, background: false };
+        const queryKey = () => JSON.stringify([getForm()?.dateRange || '', getForm()?.startDate || '', getForm()?.endDate || '']);
+        const requestedQuery = queryKey();
+        const isCurrent = () => isActive()
+            && String(getSelectedCtripHotelId() || '') === selectedCtripHotelId
+            && queryKey() === requestedQuery;
         try {
             const res = await requestFetch(directRequestBody);
-            if (String(getSelectedCtripHotelId() || '') !== selectedCtripHotelId) {
+            if (!isCurrent()) {
                 return { status: 'stale' };
             }
             if (isCtripBackgroundAcceptedResponse(res)) {
@@ -2399,15 +2415,17 @@ window.SUXI_CTRIP_STATIC = window.SUXI_CTRIP_STATIC_FULL = (() => {
             }
 
             await handleFetchFailure(res.message || '获取失败');
+            if (!isCurrent()) return { status: 'stale' };
             return { status: 'failed', response: res, requestBody: directRequestBody };
         } catch (error) {
-            if (String(getSelectedCtripHotelId() || '') !== selectedCtripHotelId) {
+            if (!isCurrent()) {
                 return { status: 'stale' };
             }
             await handleFetchFailure('请求失败: ' + error.message);
+            if (!isCurrent()) return { status: 'stale' };
             return { status: 'exception', error, requestBody: directRequestBody };
         } finally {
-            setFetching(false);
+            if (isActive()) setFetching(false);
         }
     };
 
