@@ -151,8 +151,21 @@ final class KnowledgeDecisionGateService
 
         $decisionPolicy = $content['decision_policy'] ?? '';
         $policyText = is_scalar($decisionPolicy) ? (string)$decisionPolicy : implode(' ', $this->normalizeList($decisionPolicy));
+        // A reviewed internal architecture contract may support design choices.
+        // Its explicit use restrictions still forbid hotel facts and actions;
+        // source, freshness and explicit reference-only gates remain in force.
+        $architectureDecisionSupport = $scope === 'global_architecture_reference'
+            && $evidenceLevel === 'external_source_code_reviewed_reference'
+            && $evidenceGrade === 'B'
+            && ($content['content_type'] ?? '') === 'governance_contract'
+            && trim((string)($content['module_id'] ?? '')) !== ''
+            && $this->normalizeList($content['platforms'] ?? []) === ['suxios_internal']
+            && in_array('architecture_decision_support', $this->normalizeList($content['allowed_uses'] ?? []), true)
+            && array_diff(['current_hotel_fact', 'operation_task_creation', 'operation_execution', 'automatic_operation_task', 'automatic_ota_write'], $this->normalizeList($content['blocked_uses'] ?? [])) === []
+            && in_array($content['contains_current_hotel_fact'] ?? null, [false, 0, '0'], true)
+            && in_array($content['external_write_authorized'] ?? null, [false, 0, '0'], true);
         $referenceOnly = filter_var($content['reference_only'] ?? false, FILTER_VALIDATE_BOOL)
-            || str_contains($scope, 'reference')
+            || (str_contains($scope, 'reference') && !$architectureDecisionSupport)
             || str_contains(strtolower($policyText), 'reference_only');
         $sourceVerification = strtolower(trim((string)($content['source_verification_status'] ?? 'not_recorded')));
         $sourceUnverified = in_array($sourceVerification, ['unverified', 'unavailable', 'failed', 'unverifiable'], true);

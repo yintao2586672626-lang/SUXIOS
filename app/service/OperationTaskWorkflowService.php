@@ -408,7 +408,7 @@ final class OperationTaskWorkflowService
     private function hotel(array $hotelIds, int $hotel, bool $lock = false): int
     {
         if ($hotel < 1 || !in_array($hotel, array_map('intval', $hotelIds), true)) throw new RuntimeException('酒店 not found', 404);
-        $row = Db::name('hotels')->where('id', $hotel)->whereNull('deleted_at')->lock($lock)->find();
+        $row = Db::name('hotels')->where('id', $hotel)->lock($lock)->find();
         if (!$row || (int)($row['tenant_id'] ?? 0) <= 0) throw new RuntimeException('酒店 not found', 404);
         return (int)$row['tenant_id'];
     }

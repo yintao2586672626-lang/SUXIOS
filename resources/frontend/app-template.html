@@ -15599,6 +15599,11 @@
                                                     失败不回退旧数据。
                                                 </div>
 
+                                                <div v-if="autoFetchRunState.type === 'status_unavailable'" data-testid="auto-fetch-status-unavailable" role="status" class="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
+                                                    <div>{{ autoFetchRunState.message }}</div>
+                                                    <button type="button" @click="loadAutoFetchStatus({ detail: false, force: true })" class="mt-2 rounded border border-amber-300 bg-white px-3 py-1.5 font-medium">重新读取采集状态</button>
+                                                </div>
+
                                                 <platform-auto-settings-panels v-if="platformAutoSettingsPanelsReady" :ctx="$root">
                                                 </platform-auto-settings-panels>
 

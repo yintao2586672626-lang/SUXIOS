@@ -33,6 +33,9 @@ final class XyosLearningKernelKnowledgeTest extends TestCase
             "'evidence_level', 'external_source_code_reviewed_reference'",
             "'$.content_type', 'governance_contract'",
             "'$.module_id', 'xyos_learning_kernel'",
+            "'$.platforms', JSON_ARRAY('suxios_internal')",
+            "'architecture_decision_support'",
+            "'knowledge_governance_design'",
             "'current_hotel_fact'",
             "'operation_task_creation'",
             "'automatic_operation_task'",
@@ -123,7 +126,9 @@ final class XyosLearningKernelKnowledgeTest extends TestCase
                     'reviewed_at' => '2026-07-31 00:00:00',
                     'review_due_at' => '2026-10-29 00:00:00',
                     'review_interval_days' => 90,
+                    'allowed_uses' => ['architecture_decision_support', 'knowledge_governance_design', 'manual_review', 'test_contract_design'],
                     'blocked_uses' => [
+                        'current_hotel_fact',
                         'operation_task_creation',
                         'operation_execution',
                         'automatic_operation_task',
@@ -145,6 +150,7 @@ final class XyosLearningKernelKnowledgeTest extends TestCase
             [
                 'hotel_id' => 80,
                 'module_id' => 'xyos_learning_kernel',
+                'platform' => 'suxios_internal',
                 'limit' => 10,
                 'as_of' => '2026-07-31 12:00:00',
             ]
@@ -179,23 +185,76 @@ final class XyosLearningKernelKnowledgeTest extends TestCase
             'lifecycle_status' => 'active',
             'reviewed_at' => '2026-07-31 00:00:00',
             'review_due_at' => '2026-10-29 00:00:00',
-        ], [
-            'lifecycle_status' => 'active',
-            'scope' => 'global_architecture_reference',
-            'evidence_level' => 'external_source_code_reviewed_reference',
-            'evidence_grade' => 'B',
-            'source_refs' => ['archive://ota_watchdog_deliver_20260730.zip'],
-            'blocked_uses' => [
-                'operation_task_creation',
-                'operation_execution',
-                'automatic_ota_write',
-            ],
-        ], '2026-07-31 12:00:00');
+        ], $this->reviewedArchitectureContract(), '2026-07-31 12:00:00');
 
         self::assertSame('approved', $gate['status']);
         self::assertSame('B', $gate['evidence_grade']);
         self::assertTrue($gate['retrieval_safe']);
         self::assertTrue($gate['decision_safe']);
         self::assertFalse($gate['task_draft_safe']);
+        self::assertFalse($gate['fact_safe']);
+        self::assertFalse($gate['external_write_authorized']);
+    }
+
+    public function testArchitectureSupportRequiresItsExplicitReviewedAndBoundedContract(): void
+    {
+        $content = $this->reviewedArchitectureContract();
+        foreach ([
+            ['allowed_uses' => []], ['content_type' => 'manual'], ['module_id' => ''], ['platforms' => ['ctrip']],
+            ['blocked_uses' => ['operation_task_creation']], ['contains_current_hotel_fact' => true],
+            ['external_write_authorized' => true], ['evidence_level' => 'external_source_code_reference'],
+            ['reference_only' => true], ['decision_policy' => 'reference_only'],
+            ['source_verification_status' => 'unverified'], ['source_refs' => []],
+            ['review_due_at' => '2026-07-30'], ['valid_until' => '2026-07-30'],
+            ['reviewed_at' => null, 'review_due_at' => null],
+        ] as $override) {
+            $gate = (new KnowledgeDecisionGateService())->assess([], array_replace($content, $override), '2026-07-31 12:00:00');
+            self::assertFalse($gate['decision_safe'], json_encode($override));
+            self::assertFalse($gate['task_draft_safe'], json_encode($override));
+            self::assertFalse($gate['fact_safe']); self::assertFalse($gate['external_write_authorized']);
+        }
+    }
+
+    public function testInternalArchitecturePlatformCannotWidenIntoOtaOrAnUnspecifiedScope(): void
+    {
+        $service = new \app\service\KnowledgeApplicabilityService();
+        $content = $this->reviewedArchitectureContract();
+        $scope = ['hotel_id' => 80, 'platform' => 'suxios_internal', 'as_of' => '2026-07-31 12:00:00'];
+        $unit = ['unit_id' => 731, 'hotel_id' => 0, 'created_by' => 0, 'lifecycle_status' => 'active'];
+        self::assertTrue($service->assess($unit, $content, $scope)['decision_safe']);
+        foreach (['ctrip', 'meituan', 'all_ota', '', 'unknown_ota'] as $platform) {
+            $gate = $service->assess($unit, $content, array_replace($scope, ['platform' => $platform]));
+            self::assertFalse($gate['retrieval_safe'], $platform);
+            self::assertFalse($gate['decision_safe'], $platform);
+        }
+        $content['applicability'] = ['platforms' => ['all_ota']];
+        self::assertFalse($service->assess($unit, $content, $scope)['retrieval_safe']);
+    }
+
+    /** Mirrors the reviewed migration's explicit use contract; no live evidence is fabricated. */
+    private function reviewedArchitectureContract(): array
+    {
+        return [
+            'lifecycle_status' => 'active',
+            'scope' => 'global_architecture_reference',
+            'evidence_level' => 'external_source_code_reviewed_reference',
+            'evidence_grade' => 'B',
+            'source_refs' => ['archive://ota_watchdog_deliver_20260730.zip'],
+            'content_type' => 'governance_contract',
+            'module_id' => 'xyos_learning_kernel',
+            'platforms' => ['suxios_internal'],
+            'reviewed_at' => '2026-07-31 00:00:00',
+            'review_due_at' => '2026-10-29 00:00:00',
+            'allowed_uses' => ['architecture_decision_support', 'knowledge_governance_design', 'manual_review', 'test_contract_design'],
+            'blocked_uses' => [
+                'current_hotel_fact',
+                'operation_task_creation',
+                'operation_execution',
+                'automatic_operation_task',
+                'automatic_ota_write',
+            ],
+            'contains_current_hotel_fact' => false,
+            'external_write_authorized' => false,
+        ];
     }
 }

@@ -105,29 +105,21 @@ trait CtripManualFetchExecutionConcern
                     return json([
                         'code' => 500,
                         'message' => $currentDate . ' 请求失败: ' . ($result['error'] ?? '请求失败'),
-                        'data' => ['raw_response' => $result['raw'] ?? '']
+                        'data' => ['reason' => $result['reason'] ?? 'ctrip_request_failed', 'stage' => 'upstream_request', 'http_code' => (int)($result['http_code'] ?? 0)]
                     ], 500);
                 }
 
                 $dayResponseData = $result['data'];
 
-                // 检查携程API返回的错误
+                // Preserve safe business diagnostics without returning upstream text/body.
                 if (is_array($dayResponseData)) {
-                    if (isset($dayResponseData['error'])) {
-                        $errorMsg = $dayResponseData['error_description'] ?? $dayResponseData['error'];
-                        return json([
-                            'code' => 400,
-                            'message' => $currentDate . ' 携程API错误: ' . $errorMsg,
-                            'data' => ['raw_response' => $result['raw']]
-                        ], 400);
-                    }
-                    if (isset($dayResponseData['code']) && $dayResponseData['code'] != 0 && $dayResponseData['code'] != 200) {
-                        $errorMsg = $dayResponseData['message'] ?? $dayResponseData['msg'] ?? '未知错误';
-                        return json([
-                            'code' => 400,
-                            'message' => $currentDate . ' 携程API返回错误: ' . $errorMsg,
-                            'data' => ['raw_response' => $result['raw']]
-                        ], 400);
+                    // The main business report has never used root status as an API error code.
+                    $failure = \app\service\OtaUpstreamFailureService::ctripBusinessFailure($dayResponseData, false);
+                    if ($failure !== null) {
+                        $this->recordCookieAlert('ctrip', 'fetch-ctrip', $failure['error'], $systemHotelId ?: null);
+                        return json(['code' => 400, 'message' => $currentDate . ' ' . $failure['error'],
+                            'data' => \app\service\FailureEvidenceService::upstreamResponseData(
+                                array_merge(['http_code' => (int)($result['http_code'] ?? 0)], $failure), 'ctrip_api_error')], 400);
                     }
                 }
 
@@ -205,6 +197,7 @@ trait CtripManualFetchExecutionConcern
                     'message' => $message,
                     'data' => array_merge([
                         'reason' => $reason,
+                        'stage' => 'date_validation',
                         'status' => $responseDateStatus,
                         'data' => $responseData,
                         'date_results' => $dateResults,
@@ -255,6 +248,7 @@ trait CtripManualFetchExecutionConcern
                         'message' => (string)($identityCheck['message'] ?? '携程返回酒店身份未能自动匹配本系统门店，已获取但未入库。'),
                         'data' => array_merge([
                             'reason' => (string)($identityCheck['status'] ?? 'ctrip_hotel_identity_blocked'),
+                            'stage' => 'identity_validation',
                         ], $payload),
                     ], $responseCode);
                 }

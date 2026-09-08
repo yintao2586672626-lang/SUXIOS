@@ -14,6 +14,7 @@ use think\facade\Log;
 
 trait OtaConfigConcern
 {
+    private string $otaConfigPersistenceStage = '';
     private ?OtaCredentialVault $otaCredentialVaultInstance = null;
     private ?OtaConfigVerificationService $otaConfigVerificationServiceInstance = null;
 
@@ -1448,6 +1449,7 @@ trait OtaConfigConcern
         ?string $expectedScope = null
     ): array
     {
+        $this->otaConfigPersistenceStage = 'request_validation';
         $id = trim((string)($config['id'] ?? ''));
         $configId = trim((string)($config['config_id'] ?? $id));
         if ($id === '' || $configId === '' || !hash_equals($id, $configId)) {
@@ -1476,6 +1478,7 @@ trait OtaConfigConcern
             $expectedScope
         ): array {
             $key = 'meituan_config_list';
+            $this->otaConfigPersistenceStage = 'metadata_lock';
             $row = Db::name('system_configs')->where('config_key', $key)->lock(true)->find();
             $list = [];
             if ($row) {
@@ -1486,6 +1489,7 @@ trait OtaConfigConcern
                 $list = $decoded;
             }
 
+            $this->otaConfigPersistenceStage = 'validate_existing_metadata';
             foreach ($list as $siblingKey => $sibling) {
                 $siblingId = (string)$siblingKey;
                 if ($siblingId === '' || !is_array($sibling)) {
@@ -1584,6 +1588,7 @@ trait OtaConfigConcern
                 throw new \InvalidArgumentException('Meituan credential is required.');
             }
 
+            $this->otaConfigPersistenceStage = 'credential_store';
             $credentialMetadata = $this->storeOtaConfigCredential(
                 $systemHotelId,
                 'meituan',
@@ -1599,6 +1604,7 @@ trait OtaConfigConcern
             $metadata['configuration_verified'] = false;
             $metadata['verified_at'] = '';
             $list[$id] = $metadata;
+            $this->otaConfigPersistenceStage = 'metadata_write';
             $jsonValue = json_encode(
                 $list,
                 JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR
@@ -1623,7 +1629,9 @@ trait OtaConfigConcern
             return $metadata;
         });
 
-        SystemConfig::clearProtectedOtaCaches();
+        $this->otaConfigPersistenceStage = 'after_save';
+        try { SystemConfig::clearProtectedOtaCaches(); }
+        catch (\Throwable) { $saved['post_save_status'] = 'refresh_unavailable'; }
         return $saved;
     }
 

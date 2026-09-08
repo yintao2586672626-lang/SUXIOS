@@ -414,6 +414,12 @@ trait OperationWorkbenchConcern
             ]);
 
             return $this->success($payload);
+        } catch (\app\exception\MissingPatrolSnapshotException $e) {
+            return $this->error($e->getMessage(), 409, [
+                'status' => 'blocked', 'reason' => 'missing_patrol_snapshot',
+                'stage' => 'upstream_snapshot', 'hotel_id' => $hotelId,
+                'next_action' => 'generate_hotel_patrol',
+            ]);
         } catch (\InvalidArgumentException $e) {
             return $this->error($e->getMessage());
         } catch (HttpException $e) {

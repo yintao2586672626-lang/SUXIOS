@@ -20,7 +20,8 @@ final class OperationTaskWorkflowFixture
 
     public static function schema(): void
     {
-        Db::execute('CREATE TABLE hotels (id INTEGER PRIMARY KEY, tenant_id INTEGER, deleted_at TEXT)');
+        // The governed hotels table has no soft-delete column.
+        Db::execute('CREATE TABLE hotels (id INTEGER PRIMARY KEY, tenant_id INTEGER)');
         Db::execute('CREATE TABLE operation_execution_intents (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER, hotel_id INTEGER, source_module TEXT, source_record_id INTEGER, platform TEXT, object_type TEXT, action_type TEXT, date_start TEXT, date_end TEXT, current_value_json TEXT, target_value_json TEXT, evidence_json TEXT, expected_metric TEXT, expected_delta REAL, risk_level TEXT, status TEXT, blocked_reason TEXT, created_by INTEGER, approved_by INTEGER, approved_at TEXT, review_remark TEXT, idempotency_key TEXT UNIQUE, created_at TEXT, updated_at TEXT, deleted_at TEXT)');
         Db::execute('CREATE TABLE operation_execution_tasks (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER, hotel_id INTEGER, intent_id INTEGER UNIQUE, execution_mode TEXT, operator_id INTEGER, target_value_json TEXT, current_value_json TEXT, status TEXT, blocked_reason TEXT, result_status TEXT, result_summary TEXT, executed_at TEXT, created_at TEXT, updated_at TEXT, deleted_at TEXT)');
         Db::execute('CREATE TABLE operation_execution_evidence (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER, task_id INTEGER, evidence_type TEXT, before_json TEXT, after_json TEXT, attachment_path TEXT, platform_response_json TEXT, remark TEXT, created_by INTEGER, created_at TEXT, updated_at TEXT, deleted_at TEXT)');

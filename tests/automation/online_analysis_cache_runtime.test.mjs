@@ -156,8 +156,10 @@ const createHarness = () => {
     structuredClone,
     terminalAuthFailureReason: () => '',
     token,
+    window: {},
     withBusinessRequestContext: (url, options) => ({ url, options }),
   });
+  vm.runInContext(`${readFileSync('public/system-static.js', 'utf8')}\nconst appSystemStatic = window.SUXI_SYSTEM_STATIC;\nconst readRequestCooldown = appSystemStatic.createReadRequestCooldown();`, context);
   vm.runInContext(
     `${ownerSource}\n${analysisSource}\n${rowsSource}\n${coordinatorSource}\n`
     + `globalThis.__onlineAnalysis = {

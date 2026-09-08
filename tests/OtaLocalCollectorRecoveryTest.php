@@ -264,6 +264,32 @@ final class OtaLocalCollectorRecoveryTest extends TestCase
         $this->recover($this->input('backfill'));
     }
 
+    public function testEvidenceControllerReadsExactReceiptAndRejectsAnotherOwner(): void
+    {
+        $envelope = $this->fixture->envelope($this->fixture->businessResult());
+        $this->fixture->submit($envelope);
+        $app = \think\Container::getInstance();
+        $app->bind(\app\service\OtaLocalCollectorService::class, fn() => $this->fixture->service);
+        foreach ([false, true] as $anotherOwner) {
+            $request = (new \think\Request())->setMethod('GET')->withGet([
+                'result_hash' => $envelope['result_hash'], 'result_id' => $envelope['result_id'], 'attempt' => $envelope['attempt'],
+            ]);
+            $actor = $this->fixture->actor();
+            if ($anotherOwner) $actor->id += 100;
+            $request->user = $actor;
+            $app->instance('request', $request);
+            $response = (new \app\controller\ota\LocalCollectorController($app))->evidence((int)$this->fixture->task['id']);
+            self::assertSame($anotherOwner ? 404 : 200, $response->getCode());
+            $payload = json_decode($response->getContent(), true, 512, JSON_THROW_ON_ERROR);
+            if (!$anotherOwner) {
+                self::assertSame($envelope['result_id'], $payload['data']['receipt']['result_id']);
+                self::assertSame($envelope['result_hash'], $payload['data']['receipt']['result_hash']);
+                self::assertSame(101, $payload['data']['scope']['system_hotel_id']);
+                self::assertFalse($payload['data']['raw_data_exposed']);
+            }
+        }
+    }
+
     public function testExistingManualBackfillCannotBypassAnUnknownFailedUpload(): void
     {
         $this->fixture->envelope($this->fixture->businessResult());

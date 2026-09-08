@@ -46,7 +46,7 @@ final class KnowledgeApplicabilityService
         $platform = $this->platform((string)($context['platform'] ?? ''));
         if ($platforms !== null) {
             $requestedPlatforms = $platform === 'all_ota' ? ['ctrip', 'meituan'] : [$platform];
-            if (!in_array($platform, ['ctrip', 'meituan', 'qunar', 'dianping', 'pms', 'dingdandao', 'all_ota'], true) || array_intersect($requestedPlatforms, $platforms) === []) {
+            if (!in_array($platform, ['ctrip', 'meituan', 'qunar', 'dianping', 'pms', 'dingdandao', 'suxios_internal', 'all_ota'], true) || array_intersect($requestedPlatforms, $platforms) === []) {
                 $reasons[] = $platform === '' ? 'knowledge_platform_missing' : 'knowledge_platform_mismatch';
             }
         }

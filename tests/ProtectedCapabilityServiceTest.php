@@ -10,6 +10,22 @@ use PHPUnit\Framework\TestCase;
 
 final class ProtectedCapabilityServiceTest extends TestCase
 {
+    public function testClientManifestHonorsEntitlementsAndDoesNotGrantHotelScope(): void
+    {
+        $user = $this->userWithPermissions(['all']);
+        $service = new ProtectedCapabilityService([]);
+        $manifest = array_column($service->clientAccessManifest($user), null, 'key');
+        self::assertFalse($manifest['ai_decision']['allowed']);
+        self::assertSame('module_not_entitled', $manifest['ai_decision']['reason']);
+        self::assertTrue($manifest['collection_health']['allowed']);
+        self::assertFalse($service->moduleAvailableToUser($user, 'operation_decision'));
+        $enabled = new ProtectedCapabilityService(['tenant_modules' => ['71' => ['ai_decision', 'operation_decision']]]);
+        self::assertTrue($enabled->moduleAvailableToUser($user, 'operation_decision'));
+        self::assertTrue(array_column($enabled->clientAccessManifest($user), null, 'key')['ai_decision']['allowed']);
+        $denied = $enabled->authorizeContext($user, $enabled->classifyPath('POST', '/api/agent/ota-diagnosis'), ['hotel_id' => 8]);
+        self::assertSame('hotel_permission_denied', $denied['reason']);
+        foreach ($service->clientAccessManifest($this->userWithPermissions([], true)) as $entry) self::assertTrue($entry['allowed']);
+    }
     public function testNonSuperUserWithoutCapabilityPermissionIsDenied(): void
     {
         $service = new ProtectedCapabilityService([

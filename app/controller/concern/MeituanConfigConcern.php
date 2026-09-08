@@ -17,19 +17,34 @@ use think\Response;
  */
 trait MeituanConfigConcern
 {
+    private string $meituanSaveStage = 'request_validation';
+
+    private function meituanSaveFailureResponse(\Throwable $error): Response
+    {
+        $failure = \app\service\FailureEvidenceService::fromException($error, ($this->otaConfigPersistenceStage ?? '') ?: $this->meituanSaveStage);
+        try {
+            \think\facade\Log::warning('Meituan configuration save failed', [
+                'reason_code' => $failure['reason'], 'failure_stage' => $failure['stage'],
+                'request_id' => (string)($this->request->request_id ?? ''),
+            ]);
+        } catch (\Throwable) { /* Preserve the primary failure response. */ }
+        return $this->error($failure['message'], $failure['status'], [
+            'reason' => $failure['reason'], 'stage' => $failure['stage'],
+            'reference_id' => (string)($this->request->request_id ?? ''),
+        ]);
+    }
     public function saveMeituanConfig(): Response
     {
         try {
             $this->checkPermission();
             $saved = $this->saveMeituanConfigPayload($this->requestData(), true, '');
-            $this->clearAutoFetchLightConfigListCache('meituan');
-            return $this->success($saved, '配置保存成功');
+            return $this->completeMeituanConfigSave($saved);
         } catch (HttpException $e) {
             return $this->error($e->getMessage(), $e->getStatusCode());
         } catch (\InvalidArgumentException $e) {
             return $this->error($e->getMessage(), 400);
-        } catch (\Throwable) {
-            return $this->error('保存失败', 500);
+        } catch (\Throwable $e) {
+            return $this->meituanSaveFailureResponse($e);
         }
     }
 
@@ -66,15 +81,22 @@ trait MeituanConfigConcern
         try {
             $this->checkPermission();
             $saved = $this->saveMeituanConfigPayload($this->requestData(), false, '');
-            $this->clearAutoFetchLightConfigListCache('meituan');
-            return $this->success($saved, '配置保存成功');
+            return $this->completeMeituanConfigSave($saved);
         } catch (HttpException $e) {
             return $this->error($e->getMessage(), $e->getStatusCode());
         } catch (\InvalidArgumentException $e) {
             return $this->error($e->getMessage(), 400);
-        } catch (\Throwable) {
-            return $this->error('保存失败', 500);
+        } catch (\Throwable $e) {
+            return $this->meituanSaveFailureResponse($e);
         }
+    }
+
+    private function completeMeituanConfigSave(array $saved): Response
+    {
+        try { $this->clearAutoFetchLightConfigListCache('meituan'); }
+        catch (\Throwable) { $saved['post_save_status'] = 'refresh_unavailable'; }
+        return $this->success($saved, empty($saved['post_save_status']) ? '配置保存成功'
+            : '配置已保存，但刷新或附加记录未完成；请重新读取核对，勿重复提交');
     }
 
     /**
@@ -88,6 +110,8 @@ trait MeituanConfigConcern
     ): array
     {
         $id = trim((string)($requestData['id'] ?? ''));
+        $this->otaConfigPersistenceStage = '';
+        $this->meituanSaveStage = 'read_metadata';
         $list = $this->meituanConfigList();
         $originalConfig = $id !== '' && is_array($list[$id] ?? null) ? $list[$id] : [];
         $isUpdate = $originalConfig !== [];
@@ -129,6 +153,7 @@ trait MeituanConfigConcern
             }
         }
 
+        $this->meituanSaveStage = 'request_validation';
         $safeOriginal = $this->sanitizeSecretConfig($originalConfig);
         [$requestMetadata, $requestSecrets] = $this->splitOtaConfigSecrets($requestData);
         $originalScope = trim((string)($safeOriginal['scope'] ?? ''));
@@ -197,26 +222,28 @@ trait MeituanConfigConcern
                 : (int)($this->currentUser->id ?? 0),
         ], $requestSecrets);
 
+        $this->meituanSaveStage = 'config_save';
         $saved = $this->persistMeituanConfigMetadata(
             $config,
             (int)($this->currentUser->id ?? 0),
             $isUpdate,
             $scope
         );
-        $actorId = (int)($this->currentUser->id ?? 0);
-        $tenantId = $this->otaCredentialTenantIdForHotel($systemHotelId);
-        OperationLog::record('online_data', 'save_meituan_config', 'OTA credential metadata saved', $actorId, $systemHotelId, null, [
-            'audit_type' => 'security',
-            'lifecycle_action' => 'save',
-            'actor_id' => $actorId,
-            'tenant_id' => $tenantId,
-            'system_hotel_id' => $systemHotelId,
-            'platform' => 'meituan',
-            'config_id' => (string)($saved['config_id'] ?? $saved['id'] ?? $id),
-            'credential_ref' => (int)($saved['credential_ref'] ?? 0),
-            'status' => (string)($saved['credential_status'] ?? ''),
-            'outcome' => 'success',
-        ]);
+        $this->meituanSaveStage = 'after_save';
+        try {
+            $actorId = (int)($this->currentUser->id ?? 0);
+            $tenantId = $this->otaCredentialTenantIdForHotel($systemHotelId);
+            OperationLog::record('online_data', 'save_meituan_config', 'OTA credential metadata saved', $actorId, $systemHotelId, null, [
+                'audit_type' => 'security', 'lifecycle_action' => 'save',
+                'actor_id' => $actorId, 'tenant_id' => $tenantId,
+                'system_hotel_id' => $systemHotelId, 'platform' => 'meituan',
+                'config_id' => (string)($saved['config_id'] ?? $saved['id'] ?? $id),
+                'credential_ref' => (int)($saved['credential_ref'] ?? 0),
+                'status' => (string)($saved['credential_status'] ?? ''), 'outcome' => 'success',
+            ]);
+        } catch (\Throwable) {
+            $saved['post_save_status'] = 'audit_unavailable';
+        }
 
         return $saved;
     }

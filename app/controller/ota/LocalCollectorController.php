@@ -35,6 +35,14 @@ final class LocalCollectorController extends Base
         return $this->run(fn(): array => $this->service()->status($this->currentUser));
     }
 
+    public function evidence(int $taskId): Response
+    {
+        return $this->run(fn(): array => $this->service()->resultEvidence(
+            $this->currentUser, $taskId, (string)$this->request->get('result_hash', ''),
+            (string)$this->request->get('result_id', ''), (int)$this->request->get('attempt', 0)
+        ));
+    }
+
     public function pairCode(): Response
     {
         return $this->run(

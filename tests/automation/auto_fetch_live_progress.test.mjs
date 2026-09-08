@@ -69,6 +69,7 @@ const createAutoFetchStatusHarness = () => {
       });
     }),
     syncAutoFetchRunStateFromStatus: status => syncMarkers.push(status?.marker || ''),
+    reportAutoFetchStatusReadFailure: () => {},
   };
 
   vm.runInNewContext(
