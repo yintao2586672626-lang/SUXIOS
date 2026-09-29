@@ -18,6 +18,7 @@ class OperationManagementService
     use \app\service\operation\OperationAlertAnalysisConcern;
     use \app\service\operation\OperationExecutionReceiptConcern;
     use \app\service\operation\OperationEffectReadbackConcern;
+    use \app\service\operation\OperationEffectValidationConcern;
     use \app\service\operation\OperationExecutionTenantConcern;
     use \app\service\operation\OperationExecutionPersistenceConcern;
     use \app\service\operation\OperationActionLifecycleConcern;
@@ -578,15 +579,20 @@ class OperationManagementService
     public function actionTracking(array $hotelIds, ?int $hotelId): array
     {
         if (!$this->tableExists('operation_action_tracks')) {
+            $gap = ['code' => 'operation_action_tracks_missing', 'message' => '策略动作追踪表不存在'];
             return [
                 'actions' => [],
                 'effect_validation' => $this->buildEffectValidationSummary(
                     [],
-                    ['total' => 0, 'adopted' => 0, 'data_status' => self::DATA_PENDING],
-                    ['reviewed' => 0, 'accurate' => 0, 'data_status' => self::DATA_PENDING],
-                    [['code' => 'operation_action_tracks_missing', 'message' => '策略动作追踪表不存在']]
+                    ['total' => 0, 'adopted' => 0, 'data_status' => 'migration_required'],
+                    ['reviewed' => 0, 'accurate' => 0, 'data_status' => 'migration_required'],
+                    [$gap]
                 ),
-                'data_status' => self::DATA_PENDING,
+                'data_status' => 'migration_required',
+                'data_gaps' => [$gap],
+                'matched_total' => 0,
+                'returned_count' => 0,
+                'truncated' => false,
             ];
         }
         if (($tenantSchemaGap = $this->operationActionTrackTenantSchemaGap()) !== null) {
@@ -600,7 +606,9 @@ class OperationManagementService
             $query->whereIn('hotel_id', $hotelIds);
         }
 
-        $rows = $this->scopeOperationActionTrackQueryToCurrentTenant($query)
+        $query = $this->scopeOperationActionTrackQueryToCurrentTenant($query);
+        $matchedTotal = (int)(clone $query)->count();
+        $rows = $query
             ->order('id', 'desc')
             ->limit(100)
             ->select()
@@ -608,10 +616,22 @@ class OperationManagementService
         $actions = [];
         foreach ($rows as $row) {
             $before = $this->decodeJson((string)($row['before_data_json'] ?? ''));
-            $after = $this->afterData($row);
-            $result = $this->evaluateActionResult($row, $before, $after);
+            if ((string)($row['status'] ?? '') === 'finished') {
+                $after = $this->decodeJson((string)($row['after_data_json'] ?? ''));
+                $savedStatus = (string)($row['result_status'] ?? '');
+                $savedSummary = trim((string)($row['result_summary'] ?? ''));
+                $hasSavedConclusion = $after !== [] && $savedSummary !== ''
+                    && in_array($savedStatus, ['observing', 'success', 'near_success', 'failed'], true);
+                $result = $hasSavedConclusion
+                    ? ['status' => $savedStatus, 'message' => $savedSummary]
+                    : ['status' => 'unknown', 'message' => '已结束记录缺少可核验的保存效果结论'];
+            } else {
+                $after = $this->afterData($row);
+                $result = $this->evaluateActionResult($row, $before, $after);
+            }
             $actions[] = [
                 'id' => (int)$row['id'],
+                'hotel_id' => (int)$row['hotel_id'],
                 'action_title' => (string)$row['action_title'],
                 'action_type' => (string)$row['action_type'],
                 'start_date' => (string)$row['start_date'],
@@ -628,9 +648,30 @@ class OperationManagementService
             ];
         }
 
+        $returnedCount = count($actions);
+        $truncated = $matchedTotal > $returnedCount;
+        $dataGaps = $truncated ? [[
+            'code' => 'operation_action_tracking_truncated',
+            'message' => "策略追踪仅返回 {$returnedCount}/{$matchedTotal} 条；效果汇总仅基于已回读记录",
+        ]] : [];
+        $effectValidation = $this->buildEffectValidation($hotelIds, $hotelId, $actions);
+        if ($truncated) {
+            $effectValidation['data_gaps'] = array_merge($effectValidation['data_gaps'] ?? [], $dataGaps);
+            if (($effectValidation['status'] ?? '') === 'ready') {
+                $effectValidation['status'] = 'partial';
+            }
+            if (($effectValidation['data_status'] ?? '') === 'ready') {
+                $effectValidation['data_status'] = 'partial';
+            }
+        }
         return [
             'actions' => $actions,
-            'effect_validation' => $this->buildEffectValidation($hotelIds, $hotelId, $actions),
+            'effect_validation' => $effectValidation,
+            'data_status' => $truncated ? 'partial' : self::DATA_OK,
+            'data_gaps' => $dataGaps,
+            'matched_total' => $matchedTotal,
+            'returned_count' => $returnedCount,
+            'truncated' => $truncated,
         ];
     }
 
@@ -823,6 +864,9 @@ class OperationManagementService
             $id,
             $hotelIds,
             function (array $row) use ($id): bool {
+                if ((string)($row['status'] ?? '') === 'finished') {
+                    return true;
+                }
                 $before = $this->decodeJson((string)($row['before_data_json'] ?? ''));
                 $after = $this->afterData($row);
                 $result = $this->evaluateActionResult($row, $before, $after);
@@ -969,6 +1013,11 @@ class OperationManagementService
         $dateEnd = array_key_exists('date_end', $input)
             ? (string)$input['date_end']
             : (array_key_exists('end_date', $input) ? (string)$input['end_date'] : $dateStart);
+        $normalizedStart = $this->normalizeExecutionDate($dateStart);
+        $normalizedEnd = $this->normalizeExecutionDate($dateEnd !== '' ? $dateEnd : $dateStart);
+        if ($normalizedEnd < $normalizedStart) {
+            throw new \InvalidArgumentException('date_end must not precede date_start');
+        }
 
         return [
             'source_module' => $this->canonicalExecutionSourceModule($input['source_module'] ?? 'manual'),
@@ -977,8 +1026,8 @@ class OperationManagementService
             'platform' => strtolower(trim((string)($input['platform'] ?? ''))),
             'object_type' => $objectType,
             'action_type' => trim((string)($input['action_type'] ?? '')),
-            'date_start' => $this->normalizeExecutionDate($dateStart),
-            'date_end' => $this->normalizeExecutionDate($dateEnd !== '' ? $dateEnd : $dateStart),
+            'date_start' => $normalizedStart,
+            'date_end' => $normalizedEnd,
             'current_value' => $currentValue,
             'target_value' => $targetValue,
             'evidence' => $evidence,
@@ -1073,7 +1122,7 @@ class OperationManagementService
     }
 
     /** @param array<string, mixed> $recommendation */
-    private function decisionRecommendationDigest(array $recommendation): string
+    public function decisionRecommendationDigest(array $recommendation): string
     {
         $stable = [];
         foreach ([
@@ -1389,6 +1438,7 @@ class OperationManagementService
             );
         } else {
             $intent = $this->executionIntentDetail((int)$intent['id'], $hotelIds);
+            $this->assertStoredPatrolSourceMatchesInput($intent, $input, $sourceRecordId);
         }
 
         $task = $this->latestExecutionTask(is_array($intent['tasks'] ?? null) ? $intent['tasks'] : []);
@@ -2680,10 +2730,27 @@ class OperationManagementService
         }
 
         if ($sourceModule === 'ai_daily_report') {
+            $currentTenantId = is_array($authorization['hotel'] ?? null)
+                ? (int)($authorization['hotel']['tenant_id'] ?? 0)
+                : $this->tenantIdForHotel($hotelId);
+            if ($currentTenantId <= 0) {
+                throw new \InvalidArgumentException('AI daily report source is no longer valid');
+            }
+            $executionStart = $this->normalizeExecutionDate(trim((string)($intent['date_start'] ?? '')));
+            $executionEnd = $this->normalizeExecutionDate(trim((string)(
+                $intent['date_end'] ?? $intent['date_start'] ?? ''
+            )));
+            if ($executionEnd < $executionStart) {
+                throw new \InvalidArgumentException('执行日期区间倒置，请重新制定行动日期');
+            }
+            if ($executionEnd < $this->operationShanghaiToday()) {
+                throw new \InvalidArgumentException('执行日期已过期，请重新生成当前日报或制定新行动');
+            }
             $actionIndex = filter_var($evidence['action_index'] ?? null, FILTER_VALIDATE_INT);
             $report = Db::name('ai_daily_reports')
                 ->where('id', $sourceRecordId)
                 ->where('hotel_id', $hotelId)
+                ->where('tenant_id', $currentTenantId)
                 ->whereNull('deleted_at')
                 ->find();
             if ($actionIndex === false || $actionIndex < 0 || !is_array($report)) {
@@ -2694,12 +2761,21 @@ class OperationManagementService
                 ? $reports[0]['recommended_actions']
                 : [];
             $currentRecommendation = is_array($actions[$actionIndex] ?? null) ? $actions[$actionIndex] : [];
-            if ($currentRecommendation === []
-                || !hash_equals($storedDigest, $this->decisionRecommendationDigest($currentRecommendation))
-            ) {
-                throw new \InvalidArgumentException('AI daily report decision provenance changed; create a new execution intent');
-            }
+            $this->assertAiDailyReportRecommendationCurrent($recommendation, $currentRecommendation, $storedDigest, $intent);
             return;
+        }
+
+        if ($sourceModule === 'revenue_research') {
+            $executionStart = $this->normalizeExecutionDate(trim((string)($intent['date_start'] ?? '')));
+            $executionEnd = $this->normalizeExecutionDate(trim((string)(
+                $intent['date_end'] ?? $intent['date_start'] ?? ''
+            )));
+            if ($executionEnd < $executionStart) {
+                throw new \InvalidArgumentException('执行日期区间倒置，请重新制定行动日期');
+            }
+            if ($executionEnd < $this->operationShanghaiToday()) {
+                throw new \InvalidArgumentException('执行日期已过期，请重新运行收益研究并制定新行动');
+            }
         }
 
         if (($evidence['execution_ready'] ?? false) !== true
@@ -2707,6 +2783,20 @@ class OperationManagementService
             || ($evidence['metric_scope'] ?? '') !== 'ota_channel'
         ) {
             throw new \InvalidArgumentException('revenue research provenance is no longer execution ready');
+        }
+    }
+
+    /** @param array<string,mixed> $stored @param array<string,mixed> $current */
+    private function assertAiDailyReportRecommendationCurrent(
+        array $stored, array $current, string $storedDigest, array $intent
+    ): void
+    {
+        if ($current === []
+            || !hash_equals($storedDigest, $this->decisionRecommendationDigest($current))
+            || !AiDailyReportService::sameBusinessAction($stored, $current)
+            || !AiDailyReportService::sameExecutionBasis($intent, $stored)
+        ) {
+            throw new \InvalidArgumentException('AI daily report decision provenance changed; create a new execution intent');
         }
     }
 
@@ -4145,8 +4235,8 @@ class OperationManagementService
                 : 'source_readback_supersedes_intent_snapshot');
         $targetValue = is_array($intent['target_value'] ?? null) ? $intent['target_value'] : [];
         $metricUnit = trim((string)(
-            $targetValue['action_card']['metric_contract']['unit']
-            ?? $targetValue['metric_definition']['unit']
+            $targetValue['metric_definition']['unit']
+            ?? $targetValue['action_card']['metric_contract']['unit']
             ?? 'source_defined_value'
         ));
 
@@ -5517,11 +5607,6 @@ class OperationManagementService
         return $this->executionFlowReadService->latestTask($tasks);
     }
 
-    private function dailyWorkbenchPatrolSourceRecordId(string $runId, int $hotelId, string $actionCode, string $questionKey): int
-    {
-        return (int)sprintf('%u', crc32($runId . '|' . $hotelId . '|' . $actionCode . '|' . $questionKey));
-    }
-
     private function findDailyWorkbenchPatrolIntent(int $hotelId, int $sourceRecordId): ?array
     {
         $row = Db::name('operation_execution_intents')
@@ -5689,291 +5774,6 @@ class OperationManagementService
             }
             if (is_numeric($value)) {
                 return (float)$value;
-            }
-        }
-
-        return null;
-    }
-
-    private function buildEffectValidation(array $hotelIds, ?int $hotelId, array $actions): array
-    {
-        $dataGaps = [];
-        $priceSuggestionStats = $this->priceSuggestionAdoptionStats($hotelIds, $hotelId, 30, $dataGaps);
-        $alertAccuracyStats = $this->alertAccuracyStats($hotelIds, $hotelId, 30, $dataGaps);
-
-        return $this->buildEffectValidationSummary($actions, $priceSuggestionStats, $alertAccuracyStats, $dataGaps);
-    }
-
-    private function buildEffectValidationSummary(array $actions, array $priceSuggestionStats, array $alertAccuracyStats, array $dataGaps): array
-    {
-        $reviewedStatuses = ['success', 'near_success', 'failed'];
-        $hitStatuses = ['success', 'near_success'];
-        $counts = [
-            'total' => count($actions),
-            'reviewed' => 0,
-            'observing' => 0,
-            'success' => 0,
-            'near_success' => 0,
-            'failed' => 0,
-        ];
-        $revenue = ['before' => 0.0, 'after' => 0.0, 'sample_count' => 0];
-        $conversion = ['before' => 0.0, 'after' => 0.0, 'sample_count' => 0];
-        $pricing = ['reviewed' => 0, 'hit' => 0];
-
-        foreach ($actions as $action) {
-            $result = is_array($action['result'] ?? null) ? $action['result'] : [];
-            $status = (string)($result['status'] ?? $action['result_status'] ?? 'observing');
-            $before = is_array($action['before'] ?? null) ? $action['before'] : [];
-            $after = is_array($action['after'] ?? null) ? $action['after'] : [];
-            $comparability = $this->assessComparableActionEffectEvidence(
-                (string)($action['target_metric'] ?? ''),
-                $before,
-                $after
-            );
-            if (in_array($status, $reviewedStatuses, true) && !$comparability['comparable']) {
-                $status = 'observing';
-                $dataGaps[] = [
-                    'code' => $comparability['gap_code'],
-                    'message' => $comparability['message'],
-                ];
-            }
-            if (in_array($status, $reviewedStatuses, true)) {
-                $counts['reviewed']++;
-                $counts[$status]++;
-            } else {
-                $counts['observing']++;
-            }
-
-            if ((string)($action['action_type'] ?? '') === 'price_adjust' && in_array($status, $reviewedStatuses, true)) {
-                $pricing['reviewed']++;
-                if (in_array($status, $hitStatuses, true)) {
-                    $pricing['hit']++;
-                }
-            }
-
-            $revenueComparable = $this->assessComparableActionEffectEvidence('revenue', $before, $after)['comparable'];
-            $conversionComparable = $this->assessComparableActionEffectEvidence('conversion', $before, $after)['comparable'];
-            if ($revenueComparable || $conversionComparable) {
-                $beforeRevenue = (float)($before['avg_revenue'] ?? 0);
-                $afterRevenue = (float)($after['avg_revenue'] ?? 0);
-                if ($revenueComparable && $beforeRevenue > 0) {
-                    $revenue['before'] += $beforeRevenue;
-                    $revenue['after'] += $afterRevenue;
-                    $revenue['sample_count']++;
-                }
-
-                $beforeConversion = (float)($before['avg_conversion'] ?? 0);
-                $afterConversion = (float)($after['avg_conversion'] ?? 0);
-                if ($conversionComparable && $beforeConversion > 0) {
-                    $conversion['before'] += $beforeConversion;
-                    $conversion['after'] += $afterConversion;
-                    $conversion['sample_count']++;
-                }
-            }
-        }
-
-        $metrics = [
-            $this->effectRateMetric(
-                'revenue_lift_rate',
-                '收益提升',
-                $revenue['after'] - $revenue['before'],
-                $revenue['before'],
-                (int)$revenue['sample_count'],
-                '(执行后日均收入 - 执行前日均收入) / 执行前日均收入'
-            ),
-            $this->effectRateMetric(
-                'conversion_lift_rate',
-                '转化提升',
-                $conversion['after'] - $conversion['before'],
-                $conversion['before'],
-                (int)$conversion['sample_count'],
-                '(执行后平均转化率 - 执行前平均转化率) / 执行前平均转化率'
-            ),
-            $this->effectRateMetric(
-                'pricing_hit_rate',
-                '调价命中率',
-                (float)$pricing['hit'],
-                (float)$pricing['reviewed'],
-                (int)$pricing['reviewed'],
-                '调价动作中复盘结果为有效或接近有效的数量 / 已复盘调价动作数量'
-            ),
-            $this->effectRateMetric(
-                'suggestion_adoption_rate',
-                '建议采纳率',
-                (float)($priceSuggestionStats['adopted'] ?? 0),
-                (float)($priceSuggestionStats['total'] ?? 0),
-                (int)($priceSuggestionStats['total'] ?? 0),
-                '已批准或已应用的定价建议数量 / 近30天定价建议总数'
-            ),
-            $this->effectRateMetric(
-                'alert_accuracy_rate',
-                '预警准确率',
-                (float)($alertAccuracyStats['accurate'] ?? 0),
-                (float)($alertAccuracyStats['reviewed'] ?? 0),
-                (int)($alertAccuracyStats['reviewed'] ?? 0),
-                '标记为准确的预警数量 / 已复盘准确性的预警数量'
-            ),
-        ];
-
-        $readyCount = count(array_filter($metrics, static fn(array $metric): bool => ($metric['status'] ?? '') === 'ready'));
-        $status = $readyCount === count($metrics) ? 'ready' : ($readyCount > 0 ? 'partial' : 'data_gap');
-        $dataStatus = array_filter(
-            $dataGaps,
-            static fn(array $gap): bool => ($gap['migration_required'] ?? false) === true
-        ) !== [] ? 'migration_required' : $status;
-
-        return [
-            'status' => $status,
-            'data_status' => $dataStatus,
-            'period' => [
-                'price_suggestion_days' => 30,
-                'alert_accuracy_days' => 30,
-            ],
-            'action_counts' => $counts,
-            'metrics' => $metrics,
-            'data_gaps' => array_values($dataGaps),
-        ];
-    }
-
-    private function effectRateMetric(string $key, string $label, float $numerator, float $denominator, int $sampleCount, string $formula): array
-    {
-        return [
-            'key' => $key,
-            'label' => $label,
-            'value' => $denominator > 0 ? round($numerator / $denominator * 100, 2) : null,
-            'unit' => '%',
-            'status' => $denominator > 0 ? 'ready' : 'insufficient_data',
-            'sample_count' => $sampleCount,
-            'numerator' => round($numerator, 2),
-            'denominator' => round($denominator, 2),
-            'formula' => $formula,
-        ];
-    }
-
-    private function priceSuggestionAdoptionStats(array $hotelIds, ?int $hotelId, int $days, array &$dataGaps): array
-    {
-        if (!$this->tableExists('price_suggestions')) {
-            $dataGaps[] = ['code' => 'price_suggestions_missing', 'message' => '定价建议表不存在'];
-            return ['total' => 0, 'adopted' => 0, 'data_status' => self::DATA_PENDING];
-        }
-        if (($gap = $this->priceSuggestionTenantSchemaGap()) !== null) {
-            $dataGaps[] = $gap;
-            return ['total' => 0, 'adopted' => 0, 'data_status' => 'migration_required'];
-        }
-
-        $end = $this->operationShanghaiToday();
-        $start = (new DateTimeImmutable($end, new DateTimeZone('Asia/Shanghai')))
-            ->modify('-' . max(0, $days - 1) . ' days')
-            ->format('Y-m-d');
-        try {
-            $query = Db::name('price_suggestions')->field('status')->whereBetween('suggestion_date', [$start, $end]);
-            if ($hotelId !== null && $hotelId > 0) {
-                $query->where('hotel_id', $hotelId);
-            } elseif (!empty($hotelIds)) {
-                $query->whereIn('hotel_id', $hotelIds);
-            }
-            $rows = $this->scopePriceSuggestionQueryToCurrentTenant($query)->select()->toArray();
-        } catch (Throwable $e) {
-            $dataGaps[] = [
-                'code' => 'price_suggestions_tenant_read_failed',
-                'message' => 'current-tenant price suggestions could not be read',
-                'migration_required' => false,
-            ];
-            return ['total' => 0, 'adopted' => 0, 'data_status' => 'read_failed'];
-        }
-
-        $adopted = 0;
-        foreach ($rows as $row) {
-            if (in_array((int)($row['status'] ?? 0), [2, 4], true)) {
-                $adopted++;
-            }
-        }
-
-        if (empty($rows)) {
-            $dataGaps[] = ['code' => 'price_suggestions_no_samples', 'message' => '近30天没有定价建议样本'];
-        }
-
-        return ['total' => count($rows), 'adopted' => $adopted, 'data_status' => empty($rows) ? 'empty' : self::DATA_OK];
-    }
-
-    private function alertAccuracyStats(array $hotelIds, ?int $hotelId, int $days, array &$dataGaps): array
-    {
-        if (!$this->tableExists('operation_alerts')) {
-            $dataGaps[] = ['code' => 'operation_alerts_missing', 'message' => '运营预警表不存在'];
-            return ['reviewed' => 0, 'accurate' => 0, 'data_status' => self::DATA_PENDING];
-        }
-        if (($gap = $this->operationAlertTenantSchemaGap()) !== null) {
-            $dataGaps[] = $gap;
-            return ['reviewed' => 0, 'accurate' => 0, 'data_status' => 'migration_required'];
-        }
-
-        $end = $this->operationShanghaiToday();
-        $start = (new DateTimeImmutable($end, new DateTimeZone('Asia/Shanghai')))
-            ->modify('-' . max(0, $days - 1) . ' days')
-            ->format('Y-m-d');
-        try {
-            $query = Db::name('operation_alerts')
-                ->field('raw_data')
-                ->whereNull('deleted_at')
-                ->whereBetween('related_date', [$start, $end]);
-            if ($hotelId !== null && $hotelId > 0) {
-                $query->where('hotel_id', $hotelId);
-            } elseif (!empty($hotelIds)) {
-                $query->whereIn('hotel_id', $hotelIds);
-            }
-            $rows = $this->scopeOperationAlertQueryToCurrentTenant($query)->select()->toArray();
-        } catch (Throwable $e) {
-            $dataGaps[] = [
-                'code' => 'operation_alerts_tenant_read_failed',
-                'message' => 'current-tenant operation alert accuracy could not be read',
-                'migration_required' => false,
-            ];
-            return ['reviewed' => 0, 'accurate' => 0, 'data_status' => 'read_failed'];
-        }
-
-        $reviewed = 0;
-        $accurate = 0;
-        foreach ($rows as $row) {
-            $raw = $this->decodeJson((string)($row['raw_data'] ?? ''));
-            $label = $this->alertAccuracyLabel($raw);
-            if ($label === null) {
-                continue;
-            }
-            $reviewed++;
-            if ($label) {
-                $accurate++;
-            }
-        }
-
-        if (empty($rows)) {
-            $dataGaps[] = ['code' => 'operation_alerts_no_samples', 'message' => '近30天没有预警样本'];
-        } elseif ($reviewed === 0) {
-            $dataGaps[] = ['code' => 'operation_alerts_accuracy_label_missing', 'message' => '预警缺少准确/误报复盘标签'];
-        }
-
-        return ['reviewed' => $reviewed, 'accurate' => $accurate, 'data_status' => $reviewed > 0 ? self::DATA_OK : 'unlabeled'];
-    }
-
-    private function alertAccuracyLabel(array $raw): ?bool
-    {
-        if (array_key_exists('is_accurate', $raw) && is_bool($raw['is_accurate'])) {
-            return $raw['is_accurate'];
-        }
-        $accuracyReview = $raw['accuracy_review'] ?? null;
-        if (is_array($accuracyReview) && is_bool($accuracyReview['accurate'] ?? null)) {
-            return $accuracyReview['accurate'];
-        }
-
-        foreach (['accuracy_status', 'review_status', 'accuracy', 'verification_result'] as $key) {
-            $value = strtolower(trim((string)($raw[$key] ?? '')));
-            if ($value === '') {
-                continue;
-            }
-            if (in_array($value, ['accurate', 'hit', 'true_positive', 'valid', '准确', '命中'], true)) {
-                return true;
-            }
-            if (in_array($value, ['false_positive', 'false_alarm', 'invalid', 'inaccurate', '误报', '不准确'], true)) {
-                return false;
             }
         }
 

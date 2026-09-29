@@ -405,8 +405,8 @@
                                                          <h5 class="mt-1 text-base font-bold text-slate-900">待审批意图、运营任务与补充数据</h5>
                                                          <p class="mt-1 text-xs leading-5 text-slate-500">建议先进入人工审批；只有批准并冻结成功标准后才生成运营任务。补充清单不会自动改价、改库存或写入平台。</p>
                                                     </div>
-                                                    <template v-if="!dailyWorkbenchPatrolLatest &amp;&amp; coreOperationsCanExecute">
-                                                        <button data-testid="core-loop-generate-action-list" @click="runDailyWorkbenchPatrol" :disabled="dailyWorkbenchPatrolRunning || dailyWorkbenchLoading" class="bg-slate-900 text-white">{{ dailyWorkbenchPatrolRunning ? '生成中' : dailyWorkbenchPatrolConfirming ? '确认生成' : '生成清单' }}</button>
+                                                    <template v-if="(!dailyWorkbenchPatrolLatest || dailyWorkbenchPatrolActionDataIncomplete) &amp;&amp; coreOperationsCanExecute">
+                                                        <button data-testid="core-loop-generate-action-list" @click="runDailyWorkbenchPatrol" :disabled="dailyWorkbenchPatrolRunning || dailyWorkbenchLoading" class="bg-slate-900 text-white">{{ dailyWorkbenchPatrolRunning ? '生成中' : dailyWorkbenchPatrolConfirming ? '确认生成' : dailyWorkbenchPatrolLatest ? '重新生成清单' : '生成清单' }}</button>
                                                         <div v-if="dailyWorkbenchPatrolConfirming">
                                                             {{ dailyWorkbenchWriteBoundary.run.confirmText }}
                                                             <button @click="cancelDailyWorkbenchPatrolConfirmation">取消</button>
@@ -435,7 +435,7 @@
                                                             <span v-else-if="action.trackedStatus === 'in_progress'" class="shrink-0 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-semibold text-blue-700">已进入执行闭环</span>
                                                         </div>
                                                     </article>
-                                                     <div v-if="!coreOperationsActionRows.length" class="rounded-xl border border-slate-200 bg-slate-50 p-5 text-center text-xs text-slate-500">{{ dailyWorkbenchPatrolLatest ? '该目标日没有待处理的补证行动。' : '生成行动清单后，可在这里逐条转为补证任务。' }}</div>
+                                                     <div v-if="!coreOperationsActionRows.length" class="rounded-xl border border-slate-200 bg-slate-50 p-5 text-center text-xs text-slate-500">{{ dailyWorkbenchPatrolActionDataIncomplete ? '巡检快照行动数据不完整，请重新生成清单后再处理。' : dailyWorkbenchPatrolLatest ? '该目标日没有待处理的补证行动。' : '生成行动清单后，可在这里逐条转为补证任务。' }}</div>
                                                 </div>
                                                 <div data-testid="daily-workbench-write-boundary" class="mt-4 rounded-lg border border-amber-100 bg-amber-50 px-3 py-2 text-[11px] leading-5 text-amber-800">{{ dailyWorkbenchPatrolBoundaryText }}</div>
                                             </section>
@@ -767,7 +767,10 @@
                                                                 <button v-if="canRetryManualOneClickFetchRow(row)" type="button" @click="retryManualOneClickFetchFailure(row)" :disabled="manualOneClickFetchRunning || fetchingData" class="inline-flex items-center rounded-lg border border-blue-200 bg-blue-50 px-2.5 py-1.5 text-[11px] font-medium text-blue-700 hover:border-blue-300 hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-50">
                                                                     <i class="fas fa-redo-alt mr-1"></i>重试
                                                                 </button>
-                                                                <span v-if="!canEditManualOneClickFetchRow(row) &amp;&amp; !canRetryManualOneClickFetchRow(row) &amp;&amp; !canDeleteManualOneClickFetchRow(row) &amp;&amp; !canSupplementManualOneClickFetchRow(row)" class="text-[11px] text-gray-400">-</span>
+                                                                <button v-if="canVerifyManualOneClickFetchRow(row)" type="button" @click="verifyManualOneClickFetchStatus(row)" :disabled="manualOneClickFetchRunning || fetchingData" class="text-[11px] font-medium text-amber-800 underline disabled:opacity-50">
+                                                                    继续核验原任务
+                                                                </button>
+                                                                <span v-if="!canEditManualOneClickFetchRow(row) &amp;&amp; !canRetryManualOneClickFetchRow(row) &amp;&amp; !canVerifyManualOneClickFetchRow(row) &amp;&amp; !canDeleteManualOneClickFetchRow(row) &amp;&amp; !canSupplementManualOneClickFetchRow(row)" class="text-[11px] text-gray-400">-</span>
                                                             </div>
                                                             <div v-if="canDeleteManualOneClickFetchRow(row) || canSupplementManualOneClickFetchRow(row)" class="mt-1.5 flex flex-wrap items-center gap-1.5">
                                                                 <button v-if="canDeleteManualOneClickFetchRow(row)" type="button" @click="deleteManualOneClickFetchConfig(row)" :disabled="manualOneClickFetchRunning || fetchingData" class="inline-flex items-center rounded-lg border border-red-200 bg-red-50 px-2.5 py-1.5 text-[11px] font-medium text-red-700 hover:border-red-300 hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-50">
@@ -779,7 +782,7 @@
                                                             </div>
                                                         </td>
                                                         <td class="px-3 py-3 align-top text-right">
-                                                            <div class="text-sm font-semibold text-gray-900">{{ row.existingCount || row.savedCount || 0 }}</div>
+                                                            <div class="text-sm font-semibold text-gray-900">{{ row.savedCountUnknown || row.savedCountKnown === false ? '—' : (row.existingCount || row.savedCount || 0) }}</div>
                                                             <div class="text-[11px] text-gray-400">{{ row.platform === 'ctrip' ? '家' : '条' }}</div>
                                                         </td>
                                                     </tr>
@@ -1751,6 +1754,9 @@
 
                                 <!-- 数据分析 -->
                                 <div v-if="onlineDataTab === 'analysis'" data-testid="online-data-analysis-panel" class="space-y-5">
+                                    <div v-if="onlineDataSummaryViewState === 'loading'" class="rounded-lg border border-blue-100 bg-blue-50 p-4 text-sm text-slate-600" data-testid="online-analysis-summary-loading">正在读取当前筛选范围的 OTA 补充摘要…</div>
+                                    <div v-else-if="onlineDataSummaryViewState === 'error'" role="alert" class="rounded-lg border border-red-100 bg-red-50 p-4 text-sm text-red-700" data-testid="online-analysis-summary-error">{{ onlineDataSummaryState.error }} · 摘要读取失败，可点击查询或刷新口碑事实重试。</div>
+                                    <div v-else-if="onlineDataSummaryViewState === 'unqueried'" class="rounded-lg border border-gray-200 bg-gray-50 p-4 text-sm text-slate-600" data-testid="online-analysis-summary-unqueried">当前筛选范围尚未查询，请点击查询或刷新口碑事实。</div>
                                     <section v-if="onlineDataFilter.data_type === 'review'" data-testid="reputation-workbench" class="space-y-4">
                                         <div class="overflow-hidden rounded-2xl border border-slate-800 bg-slate-950 text-white shadow-sm">
                                             <div class="flex flex-col gap-4 p-5 lg:flex-row lg:items-center lg:justify-between">
@@ -1764,14 +1770,14 @@
                                                 </button>
                                             </div>
                                             <div class="grid gap-px border-t border-slate-800 bg-slate-800 sm:grid-cols-2 xl:grid-cols-4">
-                                                <div class="bg-slate-900 px-4 py-3 text-xs text-slate-300">门店：{{ onlineDataSummary?.ota_channel_supplement?.reviews?.identity?.system_hotel_id || '未选择' }}</div>
+                                                <div class="bg-slate-900 px-4 py-3 text-xs text-slate-300">门店：{{ onlineDataSummaryViewState === 'ready' ? (onlineDataSummary?.ota_channel_supplement?.reviews?.identity?.system_hotel_id || '未选择') : '待查询' }}</div>
                                                 <div class="bg-slate-900 px-4 py-3 text-xs text-slate-300">范围：OTA 渠道口碑，不代表全酒店经营</div>
                                                 <div class="bg-slate-900 px-4 py-3 text-xs text-slate-300">口径：平台原始分，不跨平台平均</div>
                                                 <div class="bg-slate-900 px-4 py-3 text-xs text-slate-300">隐私：只读聚合指标，不显示点评正文与身份</div>
                                             </div>
                                         </div>
 
-                                        <template v-if="onlineDataSummary?.ota_channel_supplement?.reviews">
+                                        <template v-if="onlineDataSummaryViewState === 'ready' &amp;&amp; onlineDataSummary?.ota_channel_supplement?.reviews">
                                             <div v-if="onlineDataSummary.ota_channel_supplement.reviews.scope_blocker === 'hotel_scope_mixed'" class="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">当前范围包含多个酒店，已阻止跨店合并点评。请先选择单一酒店再刷新。</div>
                                             <div class="grid gap-4 md:grid-cols-2" data-testid="reputation-platform-cards">
                                                 <article v-for="platform in onlineDataSummary.ota_channel_supplement.reviews.platforms" :key="platform.source" class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
@@ -1908,7 +1914,7 @@
                                             </details>
                                         </template>
 
-                                        <div v-else class="rounded-2xl border border-dashed border-slate-300 bg-white p-8 text-center text-sm text-slate-500">口碑汇总尚未返回；刷新后仍缺失时，请进入对应平台核对采集与酒店绑定。</div>
+                                        <div v-else-if="onlineDataSummaryViewState === 'ready'" class="rounded-2xl border border-dashed border-slate-300 bg-white p-8 text-center text-sm text-slate-500">口碑汇总尚未返回；刷新后仍缺失时，请进入对应平台核对采集与酒店绑定。</div>
                                     </section>
 
                                     <div v-else class="online-analysis-summary-grid" data-testid="online-analysis-summary-grid">
@@ -2120,7 +2126,7 @@
                                         </div>
                                     </div>
 
-                                    <div v-if="onlineDataSummary?.ota_channel_supplement" class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                                    <div v-if="onlineDataSummaryViewState === 'ready' &amp;&amp; onlineDataSummary?.ota_channel_supplement" class="grid grid-cols-1 lg:grid-cols-2 gap-4">
                                         <div class="border rounded-lg bg-white p-4">
                                             <div class="flex items-center justify-between mb-3">
                                                 <h5 class="font-medium text-gray-800">广告投放</h5>
@@ -2160,11 +2166,12 @@
                                                     <button @click="loadAnalysisData('month')" :class="['px-3 py-1 rounded text-sm', analysisDimension==='month' ? 'bg-blue-600 text-white' : 'bg-gray-100 hover:bg-gray-200']">月</button>
                                                 </div>
                                             </div>
-                                            <div v-if="analysisData.chart_data &amp;&amp; analysisData.summary?.period_count" class="h-72">
+                                            <div v-if="!onlineAnalysisAggregationNotice &amp;&amp; analysisData.chart_data &amp;&amp; analysisData.summary?.period_count" class="h-72 relative">
                                                 <canvas id="analysisChart" height="280"></canvas>
+                                                <chart-render-feedback :state="analysisChartStatus" @retry="retryAnalysisChart"></chart-render-feedback>
                                             </div>
                                             <div v-else="" class="h-48 flex items-center justify-center text-sm text-gray-500 border rounded-lg bg-gray-50">
-                                                当前筛选范围暂无可绘制趋势数据
+                                                {{ onlineAnalysisAggregationNotice || '暂无可绘制趋势' }}
                                             </div>
                                         </div>
 
@@ -2939,19 +2946,21 @@
                                             <div class="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4">
                                                 <div class="bg-gray-50 border border-gray-200 rounded-lg p-4">
                                                     <h4 class="font-medium text-gray-800 mb-3">手工 / 文件内容导入</h4>
-                                                    <select v-model="platformImportForm.data_source_id" @change="platformImportResult = null" class="w-full px-3 py-2 border rounded-lg mb-3">
+                                                    <select v-model="platformImportForm.data_source_id" :disabled="platformImportBusy || platformImportLocked" class="w-full px-3 py-2 border rounded-lg mb-3">
                                                         <option value="">选择数据源</option>
                                                         <option v-for="source in platformDataSources" :key="source.id" :value="source.id">{{ source.name }}</option>
                                                     </select>
-                                                    <textarea v-model="platformImportForm.rows_json" @input="platformImportResult = null" rows="7" class="w-full px-3 py-2 border rounded-lg font-mono text-xs" placeholder="粘贴 JSON 数组，例如 [{&quot;data_date&quot;:&quot;2026-05-28&quot;,&quot;source&quot;:&quot;ctrip&quot;,&quot;data_type&quot;:&quot;traffic&quot;,&quot;hotel_id&quot;:&quot;H001&quot;,&quot;metric_value&quot;:123}]"></textarea>
-                                                    <button @click="importPlatformDataRowsFromText" :disabled="platformDataImporting" class="mt-3 w-full px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:bg-gray-400">
-                                                        <i class="fas fa-file-import mr-1"></i>{{ platformDataImporting ? '导入中...' : '导入并入库' }}
+                                                    <textarea v-model="platformImportForm.rows_json" :disabled="platformImportBusy || platformImportLocked" rows="7" class="w-full px-3 py-2 border rounded-lg font-mono text-xs" :placeholder="manualImportPlaceholder"></textarea>
+                                                    <button @click="importPlatformDataRowsFromText" :disabled="platformImportBusy || platformImportLocked" class="mt-3 w-full px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:bg-gray-400">
+                                                        <i class="fas fa-file-import mr-1"></i>{{ platformImportBusy ? '导入中...' : (platformImportLocked ? '请先核对历史' : '导入并入库') }}
                                                     </button>
                                                     <div v-if="platformImportResult" data-testid="manual-import-truth-result" class="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-950">
-                                                        <p class="font-semibold">已入库，但不等于已验证 OTA 事实</p>
+                                                        <p class="font-semibold">{{ platformImportResult.receipt_status === 'confirmed' ? '已入库，但不等于已验证 OTA 事实' : '保存结果未确认，原稿已保留' }}</p>
                                                         <p class="mt-2 leading-5">{{ platformImportResultSummaryText }}</p>
-                                                        <p class="mt-2">人工粘贴或文件内容不会冒充平台在线采集结果；当前不进入可信收益分析。</p>
+                                                        <p v-if="platformImportResult.receipt_status === 'confirmed' &amp;&amp; platformImportResult.analysis_eligible_count === 0" class="mt-1">当前不进入可信收益分析；人工导入来源仍需独立核验。</p>
                                                     </div>
+                                                    <p v-if="platformImportRecovery" data-testid="import-review">{{ platformImportRecoveryText }}</p>
+                                                    <button v-if="platformImportLocked" @click="unlockManualImport" :disabled="platformImportBusy" class="mt-2">核对后解锁重试</button>
                                                 </div>
                                                 <div class="bg-white border border-emerald-200 rounded-lg p-4" data-testid="browser-assist-import-panel">
                                                     <div class="flex items-start justify-between gap-3 mb-3">
@@ -2975,37 +2984,49 @@
                                                             <input type="file" accept="application/json,.json,.txt" class="sr-only" @change="readBrowserAssistCaptureFile">
                                                         </label>
                                                         <button type="button" @click="importBrowserAssistCaptureFromText" :disabled="browserAssistImporting" class="inline-flex items-center justify-center rounded-lg bg-emerald-600 px-3 py-2 text-sm text-white hover:bg-emerald-700 disabled:bg-gray-400">
-                                                            <i :class="browserAssistImporting ? 'fas fa-spinner fa-spin mr-2' : 'fas fa-file-import mr-2'"></i>{{ browserAssistImporting ? '导入中...' : '导入采集 JSON' }}
+                                                            <i :class="browserAssistImporting ? 'fas fa-spinner fa-spin mr-2' : 'fas fa-file-import mr-2'"></i>{{ browserAssistImporting ? '导入中...' : (browserAssistImportResult && browserAssistImportResult.receipt_status !== 'success' ? '核对后重新导入' : '导入采集 JSON') }}
                                                         </button>
                                                         <button type="button" @click="clearBrowserAssistImportForm" class="inline-flex items-center justify-center rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-600 hover:bg-gray-50">
                                                             清空
                                                         </button>
                                                     </div>
                                                     <div v-if="browserAssistImportFileName" class="mt-2 text-xs text-gray-500">已读取：{{ browserAssistImportFileName }}</div>
-                                                    <div v-if="browserAssistImportResult" class="mt-3 rounded-lg border border-emerald-100 bg-emerald-50 p-3 text-xs text-emerald-800">
-                                                        <div class="font-medium">分包 {{ browserAssistImportResult.package_count || 0 }} 个 · 解析 {{ browserAssistImportResult.row_count || 0 }} 行 · 入库 {{ browserAssistImportResult.saved_count || 0 }} 行</div>
-                                                        <div v-if="browserAssistImportPackages.length" class="mt-2 flex flex-wrap gap-2">
-                                                            <span v-for="pkg in browserAssistImportPackages" :key="pkg.platform + ':' + pkg.data_type" class="rounded-full border border-emerald-200 bg-white px-2 py-0.5">
-                                                                {{ pkg.platform }}/{{ pkg.data_type }}：{{ pkg.saved_count || 0 }}/{{ pkg.row_count || 0 }}
-                                                            </span>
+                                                    <div v-if="browserAssistImportResult" class="mt-3 rounded-lg border p-3 text-xs" :class="browserAssistImportResult.receipt_status === 'success' ? 'border-emerald-100 bg-emerald-50 text-emerald-800' : 'border-amber-200 bg-amber-50 text-amber-900'">
+                                                        <div class="font-medium">{{ browserAssistImportStatusText(browserAssistImportResult.receipt_status) }} · 分包 {{ browserAssistImportCountText(browserAssistImportResult.package_count) }} 个 · 解析 {{ browserAssistImportCountText(browserAssistImportResult.row_count) }} 行 · 入库回执 {{ browserAssistImportCountText(browserAssistImportResult.saved_count) }} 行</div>
+                                                        <p class="mt-1">本次提交酒店 #{{ browserAssistImportResult.requested_system_hotel_id }}；仅归入 OTA 渠道补充证据，数据库回读不等于收益事实已验证。</p>
+                                                        <p v-if="browserAssistImportResult.saved_count_complete === false" class="mt-2 font-medium">总数未确认：以上仅汇总已返回回执，另有 {{ browserAssistImportCountText(browserAssistImportResult.unconfirmed_package_count) }} 个分包结果未确认。</p>
+                                                        <p v-if="browserAssistImportResult.receipt_status !== 'success'" class="mt-2">请先核对回执和提醒，不要直接重复导入整份文件。原稿已保留。</p>
+                                                        <div v-if="browserAssistImportPackages.length" class="mt-2 space-y-2">
+                                                            <div v-for="pkg in browserAssistImportPackages" :key="pkg.platform + ':' + pkg.data_type" class="rounded border border-gray-200 bg-white px-2 py-2">
+                                                                <div class="font-medium">{{ pkg.platform || '平台未返回' }}/{{ pkg.data_type || '类型未返回' }} · {{ browserAssistImportStatusText(pkg.status) }}</div>
+                                                                <div class="mt-1">入库回执 {{ browserAssistImportCountText(pkg.saved_count) }} 行 / 请求 {{ browserAssistImportCountText(pkg.row_count) }} 行 · 数据库回读{{ pkg.readback_verified === true ? '已回读' : '未验证' }} · 任务 #{{ Number(pkg.sync_task_id) > 0 ? pkg.sync_task_id : '未返回' }}</div>
+                                                                <div class="mt-1">请求范围（非保存回读证明）：酒店 #{{ Number(pkg.request_scope?.system_hotel_id) > 0 ? pkg.request_scope.system_hotel_id : '未返回' }} · 业务日期 {{ Array.isArray(pkg.request_scope?.business_dates) && pkg.request_scope.business_dates.length ? pkg.request_scope.business_dates.join('、') : '未返回' }}</div>
+                                                                <p v-if="pkg.status !== 'success'" class="mt-1">{{ pkg.message || '失败原因未返回，请查看任务状态' }}</p>
+                                                            </div>
                                                         </div>
                                                         <div v-if="browserAssistImportWarnings.length" class="mt-2 text-amber-700">
-                                                            提醒 {{ browserAssistImportWarnings.length }} 条：{{ browserAssistImportWarnings[0].message || browserAssistImportWarnings[0].code || '请查看后端导入结果' }}
+                                                            提醒 {{ browserAssistImportWarnings.length }} 条：{{ browserAssistImportWarningSummaryText }}
                                                         </div>
                                                     </div>
+                                                </div>
+                                                <div v-if="platformSyncLogScope" class="bg-blue-50 p-3 text-blue-900">
+                                                    {{ platformSyncLogScopeText }}
+                                                    <button type="button" @click="clearPlatformSyncLogScope" class="underline">全部获授权酒店</button>
                                                 </div>
                                                 <div class="bg-white border border-gray-200 rounded-lg p-4">
                                                     <div class="flex items-center justify-between mb-3">
                                                         <h4 class="font-medium text-gray-800">同步日志</h4>
-                                                        <button @click="schedulePlatformSyncLogPanelRefresh({ force: true })" class="text-sm text-blue-600 hover:text-blue-700">刷新日志</button>
+                                                        <button @click="refreshPlatformSyncHistory" :disabled="platformSyncLogsRefreshing" class="text-blue-600">{{ syncRefreshLabel('logs') }}</button>
                                                     </div>
-                                                    <div v-if="!platformSyncLogs.length" class="text-sm text-gray-500">暂无同步日志。</div>
+                                                    <div v-if="platformSyncLogsLoadFailed" class="text-sm text-red-600">同步日志加载失败；请重试。未读取不代表没有历史记录。</div>
+                                                    <div v-else-if="!platformSyncLogs.length" class="text-sm text-gray-500">暂无同步日志。</div>
                                                     <div v-else="" class="space-y-2 max-h-72 overflow-y-auto">
                                                         <div v-for="log in platformSyncLogs" :key="log.id" class="border rounded-lg p-3">
                                                             <div class="flex justify-between gap-3 text-sm">
                                                                 <span :class="log.level === 'error' ? 'text-red-600' : (log.level === 'warning' ? 'text-amber-600' : 'text-gray-700')">{{ log.event }}</span>
                                                                 <span class="text-xs text-gray-400">{{ log.create_time }}</span>
                                                             </div>
+                                                            <div class="text-xs text-gray-500 mt-1">{{ platformSyncLogIdentityText(log) }}</div>
                                                             <div class="text-xs text-gray-600 mt-1">{{ log.message || '-' }}</div>
                                                         </div>
                                                     </div>
@@ -3015,23 +3036,24 @@
                                             <div class="bg-white border border-gray-200 rounded-lg p-4">
                                                 <div class="flex items-center justify-between mb-3">
                                                     <h4 class="font-medium text-gray-800">最近同步任务</h4>
-                                                    <button @click="schedulePlatformSyncLogPanelRefresh({ force: true })" class="text-sm text-blue-600 hover:text-blue-700">刷新任务</button>
+                                                    <button @click="refreshPlatformSyncHistory" :disabled="platformSyncTasksRefreshing" class="text-blue-600">{{ syncRefreshLabel('tasks') }}</button>
                                                 </div>
-                                                <div v-if="!platformSyncTasks.length" class="text-sm text-gray-500">暂无同步任务。</div>
+                                                <div v-if="platformSyncTasksLoadFailed" class="text-sm text-red-600">同步任务加载失败；请重试。未读取不代表没有历史任务。</div>
+                                                <div v-else-if="!platformSyncTasks.length" class="text-sm text-gray-500">暂无同步任务。</div>
                                                 <div v-else="" class="overflow-x-auto">
                                                     <table class="min-w-full text-sm">
                                                         <thead class="bg-gray-50 text-gray-600">
                                                             <tr>
-                                                                <th class="px-3 py-2 text-left">任务</th>
+                                                                <th class="px-3 py-2 text-left">酒店 / 任务</th>
                                                                 <th class="px-3 py-2 text-left">来源</th>
                                                                 <th class="px-3 py-2 text-left">状态</th>
                                                                 <th class="px-3 py-2 text-left">结果</th>
-                                                                <th class="px-3 py-2 text-left">重试时间</th>
+                                                                <th class="px-3 py-2 text-left">建议重试</th>
                                                             </tr>
                                                         </thead>
                                                         <tbody class="divide-y">
                                                             <tr v-for="task in platformSyncTasks" :key="task.id">
-                                                                <td class="px-3 py-2">#{{ task.id }}</td>
+                                                                <td class="px-3 py-2">酒店 #{{ task.system_hotel_id || '未关联' }} / #{{ task.id }}</td>
                                                                 <td class="px-3 py-2">{{ task.platform }} / {{ task.data_type }} / {{ task.trigger_type }}</td>
                                                                 <td class="px-3 py-2"><span :class="['px-2 py-1 rounded-full text-xs', platformTaskStatusClass(task.effective_status || task.status)]">{{ task.effective_status || task.status }}</span></td>
                                                                 <td class="px-3 py-2 text-gray-600">
@@ -3043,6 +3065,7 @@
                                                         </tbody>
                                                     </table>
                                                 </div>
+                                                <Pager />
                                             </div>
                                         </div>
                                     </div>
@@ -3352,6 +3375,10 @@
                                         </button>
                                     </div>
 
+                                    <div v-if="onlineDataListSnapshotScopeNotice()" role="status" aria-live="polite" data-testid="online-data-list-stale-scope" class="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                                        {{ onlineDataListSnapshotScopeNotice() }}
+                                    </div>
+
                                     <section v-if="canUseOnlineDataCorrectionLedger &amp;&amp; onlineDataCorrectionLedgerOpen" data-testid="online-data-correction-ledger-panel" class="mb-5 rounded-xl border border-[#e5dcc8] bg-[#fcfaf5] p-4">
                                         <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                                             <div>
@@ -3423,7 +3450,10 @@
                                     </section>
 
                                 <!-- 数据表格 -->
-                                <div v-if="onlineDataSummary?.ota_channel_supplement" class="mb-4 rounded-lg border border-blue-100 bg-blue-50/60 p-4" data-testid="online-data-ota-supplement">
+                                <div v-if="onlineDataSummaryViewState === 'loading'" class="mb-4 rounded-lg border border-blue-100 bg-blue-50/60 p-4 text-sm text-slate-600" data-testid="online-data-summary-loading">正在读取当前筛选范围的 OTA 补充摘要…</div>
+                                <div v-else-if="onlineDataSummaryViewState === 'error'" role="alert" class="mb-4 rounded-lg border border-red-100 bg-red-50 p-4 text-sm text-red-700" data-testid="online-data-summary-error">{{ onlineDataSummaryState.error }} · 摘要读取失败，可点击查询重试；未展示上一范围摘要。</div>
+                                <div v-else-if="onlineDataSummaryViewState === 'unqueried'" class="mb-4 rounded-lg border border-gray-200 bg-gray-50 p-4 text-sm text-slate-600" data-testid="online-data-summary-unqueried">当前筛选范围尚未查询，请点击查询读取摘要。</div>
+                                <div v-else-if="onlineDataSummary?.ota_channel_supplement" class="mb-4 rounded-lg border border-blue-100 bg-blue-50/60 p-4" data-testid="online-data-ota-supplement">
                                     <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-2 mb-3">
                                         <div>
                                             <div class="text-sm font-semibold text-gray-900">日报 OTA 补充摘要</div>
@@ -3461,6 +3491,14 @@
                                     </div>
                                 </div>
 
+                                    <div v-if="!onlineDataListLoading &amp;&amp; !onlineDataListError &amp;&amp; onlineDataPagination.total !== null" data-testid="online-data-list-quality" class="mb-3 rounded-lg border border-gray-200 bg-gray-50 px-4 py-3 text-sm text-gray-700">
+                                        <template v-if="onlineDataQualitySummary">
+                                            <span :class="['mr-2 inline-flex rounded border px-2 py-0.5 text-xs font-medium', onlineDataQualityStatusClass(onlineDataQualitySummary)]">当前页质量：{{ onlineDataQualityStatusText(onlineDataQualitySummary) }}</span>
+                                            <span>{{ onlineDataQualityScopeText(onlineDataQualitySummary) }}</span>
+                                            <span class="ml-2">需复核 {{ onlineDataQualitySummary.issue_records }} 条。</span>
+                                        </template>
+                                        <span v-else class="text-amber-800">当前页质量摘要未取得或与列表不一致；不能确认数据完整性。</span>
+                                    </div>
                                     <div class="overflow-x-auto border rounded-lg">
                                         <table class="w-full">
                                             <thead class="bg-gray-50">
@@ -3513,7 +3551,13 @@
                                                         </button>
                                                     </td>
                                                 </tr>
-                                                <tr v-if="onlineDataList.length === 0">
+                                                <tr v-if="onlineDataListLoading" data-testid="online-data-records-loading">
+                                                    <td colspan="13" class="px-4 py-8 text-center text-gray-500">正在读取当前范围记录…</td>
+                                                </tr>
+                                                <tr v-else-if="onlineDataListError" data-testid="online-data-records-error">
+                                                    <td colspan="13" role="alert" class="px-4 py-8 text-center text-red-700">{{ onlineDataListError }} · 可点击查询重试。</td>
+                                                </tr>
+                                                <tr v-else-if="onlineDataList.length === 0">
                                                     <td colspan="13" class="px-4 py-8 text-center text-gray-500">暂无入库数据，请先完成平台采集或数据导入。</td>
                                                 </tr>
                                             </tbody>
@@ -3616,50 +3660,51 @@
                                 <div class="space-y-4 px-6 py-5">
                                     <label class="block">
                                         <span class="text-xs font-medium text-slate-600">执行结果 *</span>
-                                        <select v-model="operationEvidenceForm.execution_status" class="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm">
+                                        <select v-model="operationEvidenceForm.execution_status" :disabled="operationEvidenceSaving || operationEvidenceForm.supplementing_executed" class="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm">
                                             <option value="executed">已执行，等待效果观察</option>
-                                            <option value="failed">执行失败</option>
+                                            <option v-if="!operationEvidenceForm.supplementing_executed" value="failed">执行失败</option>
                                         </select>
+                                        <p v-if="operationEvidenceForm.supplementing_executed" data-testid="operation-evidence-supplement-status" class="mt-1 text-xs font-normal text-slate-500">该任务已执行，本次仅补充证据，不修改执行结果。</p>
                                     </label>
                                     <label class="block">
                                         <span class="text-xs font-medium text-slate-600">实际操作说明 {{ operationEvidenceForm.execution_status === 'executed' ? '*' : '' }}</span>
-                                        <textarea v-model.trim="operationEvidenceForm.completed_action" rows="4" placeholder="例如：已人工调整主图顺序，并在携程后台复核展示" class="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"></textarea>
+                                        <textarea v-model.trim="operationEvidenceForm.completed_action" :disabled="operationEvidenceSaving" rows="4" placeholder="例如：已人工调整主图顺序，并在携程后台复核展示" class="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"></textarea>
                                     </label>
                                     <label v-if="operationEvidenceForm.execution_status === 'failed'" class="block">
                                         <span class="text-xs font-medium text-slate-600">执行失败原因 *</span>
-                                        <textarea v-model.trim="operationEvidenceForm.failure_reason" rows="3" class="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"></textarea>
+                                        <textarea v-model.trim="operationEvidenceForm.failure_reason" :disabled="operationEvidenceSaving" rows="3" class="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"></textarea>
                                     </label>
                                     <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
                                         <label class="block">
                                             <span class="text-xs font-medium text-slate-600">截图或附件引用</span>
-                                            <input v-model.trim="operationEvidenceForm.receipt_path" placeholder="例如 screenshot#20260719-01" class="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm">
+                                            <input v-model.trim="operationEvidenceForm.receipt_path" :disabled="operationEvidenceSaving" placeholder="例如 screenshot#20260719-01" class="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm">
                                         </label>
                                         <label class="block">
                                             <span class="text-xs font-medium text-slate-600">平台回执 / 回执编号</span>
-                                            <input v-model.trim="operationEvidenceForm.platform_receipt" class="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm">
+                                            <input v-model.trim="operationEvidenceForm.platform_receipt" :disabled="operationEvidenceSaving" class="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm">
                                         </label>
                                         <label class="block">
                                             <span class="text-xs font-medium text-slate-600">正式记录引用</span>
-                                            <input v-model.trim="operationEvidenceForm.formal_record_ref" class="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm">
+                                            <input v-model.trim="operationEvidenceForm.formal_record_ref" :disabled="operationEvidenceSaving" class="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm">
                                         </label>
                                         <label class="block">
                                             <span class="text-xs font-medium text-slate-600">执行人 *</span>
-                                            <input v-model.trim="operationEvidenceForm.executed_by" class="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm">
+                                            <input v-model.trim="operationEvidenceForm.executed_by" :disabled="operationEvidenceSaving" class="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm">
                                         </label>
                                         <label class="block">
                                             <span class="text-xs font-medium text-slate-600">执行时间 *</span>
-                                            <input v-model="operationEvidenceForm.executed_at" placeholder="YYYY-MM-DD HH:mm:ss" class="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm">
+                                            <input v-model="operationEvidenceForm.executed_at" :disabled="operationEvidenceSaving" placeholder="YYYY-MM-DD HH:mm:ss" class="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm">
                                         </label>
                                         <label class="block">
                                             <span class="text-xs font-medium text-slate-600">次日复盘日期</span>
-                                            <input v-model="operationEvidenceForm.next_review_date" type="date" class="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm">
+                                            <input v-model="operationEvidenceForm.next_review_date" :disabled="operationEvidenceSaving" type="date" class="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm">
                                         </label>
                                     </div>
                                     <div class="rounded-lg border border-amber-100 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800">保存后状态为“已执行、效果待观察”。没有同口径次日数据时，不会自动生成收入或 ROI。</div>
                                 </div>
                                 <div class="flex justify-end gap-3 border-t border-slate-100 bg-slate-50 px-6 py-4">
-                                    <button type="button" @click="closeOperationEvidenceModal" :disabled="operationLoading.actions" class="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm text-slate-700 disabled:opacity-60">取消</button>
-                                    <button type="button" @click="submitOperationExecutionEvidence" :disabled="operationLoading.actions" class="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60">{{ operationLoading.actions ? '保存中...' : '保存执行证据' }}</button>
+                                    <button type="button" @click="closeOperationEvidenceModal" :disabled="operationLoading.actions || operationEvidenceSaving" class="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm text-slate-700 disabled:opacity-60">取消</button>
+                                    <button type="button" @click="submitOperationExecutionEvidence" :disabled="operationLoading.actions || operationEvidenceSaving" class="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60">{{ operationLoading.actions || operationEvidenceSaving ? '保存中...' : '保存执行证据' }}</button>
                                 </div>
                             </section>
                         </div>
@@ -3670,7 +3715,7 @@
                                     <h3 id="core-loop-operation-review-title" class="text-lg font-bold text-slate-900">记录次日效果复盘</h3>
                                     <p class="mt-1 text-xs leading-5 text-slate-500">没有同酒店、同平台、同口径证据时请选择“继续观察”，不要提前判断达成。</p>
                                 </div>
-                                <div class="space-y-4 px-6 py-5">
+                                <fieldset :disabled="operationLoading.actions" class="m-0 min-w-0 space-y-4 px-6 py-5">
                                     <label class="block">
                                         <span class="text-xs font-medium text-slate-600">复盘结论</span>
                                         <select v-model="operationReviewForm.status" class="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm">
@@ -3687,7 +3732,7 @@
                                     <div v-if="['success', 'near_success', 'failed'].includes(operationReviewForm.status)" class="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-xs leading-5 text-emerald-800">
                                         复盘结论只采用已读取的同酒店、同平台、同指标来源事实。人工在此确认结论；系统会把效果复盘独立保存，不会把人工填值写成来源事实，也不会自动修改 OTA。
                                     </div>
-                                </div>
+                                </fieldset>
                                 <div class="flex justify-end gap-3 border-t border-slate-100 bg-slate-50 px-6 py-4">
                                     <button type="button" @click="closeOperationReviewModal" :disabled="operationLoading.actions" class="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm text-slate-700 disabled:opacity-60">取消</button>
                                     <button type="button" @click="submitOperationExecutionReview" :disabled="operationLoading.actions" class="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800 disabled:opacity-60">{{ operationLoading.actions ? '保存中...' : '保存复盘' }}</button>

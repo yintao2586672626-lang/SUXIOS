@@ -440,6 +440,7 @@ Route::group('api/ota-local-collector', function () {
     Route::get('/tasks/next', 'ota.LocalCollectorController/nextTask');
     Route::post('/tasks/:taskId/progress', 'ota.LocalCollectorController/progress');
     Route::post('/tasks/:taskId/result', 'ota.LocalCollectorController/result');
+    Route::post('/tasks/:taskId/resume-upload', 'ota.LocalCollectorController/resumeUpload');
 });
 
 // ==================== 酒店数据驾驶舱 API ====================
@@ -457,7 +458,6 @@ Route::group('api/knowledge', function () {
     Route::get('/list', 'Knowledge/unitList');
     Route::post('/add', 'Knowledge/add');
     Route::post('/import', 'Knowledge/importMaterials');
-    Route::post('/document-text', 'Knowledge/extractDocumentText');
     Route::get('/promotions', 'KnowledgePromotion/candidates');
     Route::post('/promotions/from-sop-candidate', 'KnowledgePromotion/createCandidate');
     Route::get('/promotions/:id/events', 'KnowledgePromotion/events');

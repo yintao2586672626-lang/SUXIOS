@@ -46,7 +46,8 @@
                     importSeq++;
                     ticket = ++seq; const capturedScope = scopeKey(), capturedRevision = revision;
                     const active = () => ticket === seq && capturedScope === scopeKey() && capturedRevision === revision;
-                    state.busy = true; state.error = ''; state.notice = ''; state.result = null; state.saved = null;
+                    state.busy = true; state.error = ''; state.notice = '';
+                    if (kind !== 'history') { state.result = null; state.saved = null; }
                     const params = new URLSearchParams(currentScope());
                     let path = '/promotion-experiments/' + (kind === 'preview' ? 'preview' : 'versions');
                     let options = { businessContext: { hotelId: Number(props.hotelId) } };
@@ -82,7 +83,7 @@
                         state.key = data.experiment_key; state.version = data.version_no; state.result = data.result; state.saved = data;
                         pending = null; state.notice = `版本 ${data.version_no} 已${kind === 'save' ? '保存并' : ''}精确回读；来源质量未升级。`;
                     }
-                } catch (error) { if (ticket == null || ticket === seq) { state.error = error.message; state.result = null; state.saved = null; } }
+                } catch (error) { if (ticket == null || ticket === seq) { state.error = error.message; if (kind !== 'history') { state.result = null; state.saved = null; } } }
                 finally { if (ticket === seq) state.busy = false; }
             };
             const addRow = () => {

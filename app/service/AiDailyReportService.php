@@ -12,6 +12,7 @@ class AiDailyReportService
 {
     use AiDailyReportReadinessConcern;
     use AiDailyReportExecutionReadConcern;
+    use \app\service\concern\AiDailyReportStorageReadConcern;
     use \app\service\concern\AiDailyReportEvidenceConcern;
 
     private const TABLE = 'ai_daily_reports';
@@ -96,6 +97,7 @@ class AiDailyReportService
         try {
             $query = Db::name(self::TABLE)->whereNull('deleted_at');
             $this->applyHotelScope($query, $hotelIds, $hotelId);
+            $this->applyReportTenantScope($query);
 
             $date = trim((string)($filters['report_date'] ?? $filters['date'] ?? ''));
             if ($date !== '') {
@@ -130,37 +132,6 @@ class AiDailyReportService
         ];
     }
 
-    public function latest(array $hotelIds, ?int $hotelId): array
-    {
-        try {
-            $reportTableExists = $this->tableExists(self::TABLE);
-        } catch (Throwable) {
-            return $this->blockedReportRead('latest');
-        }
-        if (!$reportTableExists) {
-            return [
-                'report' => null,
-                'data_status' => 'missing_table',
-                'data_gaps' => [['code' => 'ai_daily_reports_table_missing', 'message' => 'ai_daily_reports table does not exist']],
-            ];
-        }
-
-        try {
-            $query = Db::name(self::TABLE)->whereNull('deleted_at');
-            $this->applyHotelScope($query, $hotelIds, $hotelId);
-            $row = $query->order('report_date', 'desc')->order('id', 'desc')->find();
-            $reports = is_array($row) ? $this->enrichReportRows([$row], $hotelIds, $hotelId) : [];
-        } catch (Throwable) {
-            return $this->blockedReportRead('latest');
-        }
-
-        return [
-            'report' => $reports[0] ?? null,
-            'data_status' => is_array($row) ? self::DATA_OK : self::DATA_PENDING,
-            'data_gaps' => is_array($row) ? [] : [['code' => 'ai_daily_report_not_generated', 'message' => 'AI daily report has not been generated for the selected hotel']],
-        ];
-    }
-
     public function read(int $id, array $hotelIds): ?array
     {
         try {
@@ -177,11 +148,12 @@ class AiDailyReportService
         }
 
         try {
-            $row = Db::name(self::TABLE)
+            $query = Db::name(self::TABLE)
                 ->where('id', $id)
                 ->whereIn('hotel_id', $hotelIds)
-                ->whereNull('deleted_at')
-                ->find();
+                ->whereNull('deleted_at');
+            $this->applyReportTenantScope($query);
+            $row = $query->find();
         } catch (Throwable) {
             return $this->blockedReportRead('read', ['report_id' => $id]);
         }
@@ -206,6 +178,7 @@ class AiDailyReportService
 
         $selectedHotelId = $this->resolveSingleHotelId($hotelIds, $hotelId);
         $reportDate = $this->normalizeDate($reportDate);
+        $this->assertReportDateTenantOwnership($selectedHotelId, $reportDate);
         $snapshot = $this->buildSnapshot($hotelIds, $selectedHotelId, $reportDate);
         $snapshot['evidence_fact_pack'] = $this->loadEvidencePack($selectedHotelId, $reportDate);
         $snapshot['evidence_diagnosis'] = $this->evidenceDiagnosis($snapshot['evidence_fact_pack']);
@@ -290,7 +263,12 @@ class AiDailyReportService
             );
         }
 
-        $ruleReport = $this->projectEvidenceReport($ruleReport, $snapshot['evidence_fact_pack'], $snapshot['evidence_diagnosis']);
+        $ruleReport = $this->projectEvidenceReport(
+            $ruleReport,
+            $snapshot['evidence_fact_pack'],
+            $snapshot['evidence_diagnosis'],
+            $inputTrust['gaps']
+        );
         $inputFingerprint = $this->buildInputFingerprint(
             $snapshot,
             $ruleReport,
@@ -400,6 +378,7 @@ class AiDailyReportService
             ->where('report_date', $reportDate)
             ->whereNull('deleted_at')
             ->find();
+        $this->assertReportTenantOwnership($existing, $selectedHotelId);
         $existingSnapshot = is_array($existing)
             ? $this->decodeJson((string)($existing['snapshot_json'] ?? ''))
             : [];
@@ -424,13 +403,14 @@ class AiDailyReportService
                 : [],
             $referenceVersionRecord
         );
-        $previousRow = Db::name(self::TABLE)
+        $previousQuery = Db::name(self::TABLE)
             ->where('hotel_id', $selectedHotelId)
             ->where('report_date', '<', $reportDate)
             ->whereNull('deleted_at')
             ->order('report_date', 'desc')
-            ->order('id', 'desc')
-            ->find();
+            ->order('id', 'desc');
+        $this->applyReportTenantScope($previousQuery);
+        $previousRow = $previousQuery->find();
         $previousSnapshot = is_array($previousRow)
             ? $this->decodeJson((string)($previousRow['snapshot_json'] ?? ''))
             : [];
@@ -535,91 +515,129 @@ class AiDailyReportService
             throw new \InvalidArgumentException('human judgment reason is required');
         }
 
-        $row = Db::name(self::TABLE)
-            ->where('id', $reportId)
-            ->whereIn('hotel_id', $hotelIds)
-            ->whereNull('deleted_at')
-            ->find();
-        if (!is_array($row)) {
-            throw new \RuntimeException('AI daily report not found');
+        if (isset($input['request_id']) && !is_string($input['request_id'])) {
+            throw new \InvalidArgumentException('human judgment request_id must be a UUID');
         }
-
-        $snapshot = $this->decodeJson((string)($row['snapshot_json'] ?? ''));
-        $history = array_values(array_filter(
-            is_array($snapshot['human_judgments'] ?? null) ? $snapshot['human_judgments'] : [],
-            'is_array'
-        ));
-        $resultContract = is_array($snapshot['result_contract'] ?? null) ? $snapshot['result_contract'] : [];
-        $targetKey = mb_substr(trim((string)($input['target_key'] ?? '')), 0, 120);
-        $beforeValue = match ($targetType) {
-            'ai_interpretation' => $snapshot['ai_interpretation'] ?? null,
-            'anomaly_signal' => $this->decodeJson((string)($row['abnormal_metrics_json'] ?? '')),
-            'reference_set' => $resultContract['reference_set'] ?? null,
-            'report_usefulness' => $snapshot['trial_validation']['user_confirmed_useful'] ?? null,
-            default => $resultContract,
-        };
-        $recordedAt = date('Y-m-d H:i:s');
-        $judgment = [
-            'id' => bin2hex(random_bytes(8)),
+        $requestId = strtolower(trim((string)($input['request_id'] ?? '')));
+        if ($requestId !== '' && preg_match('/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/D', $requestId) !== 1) {
+            throw new \InvalidArgumentException('human judgment request_id must be a UUID');
+        }
+        $content = $this->humanJudgmentContent([
             'target_type' => $targetType,
-            'target_key' => $targetKey,
+            'target_key' => $input['target_key'] ?? '',
             'decision' => $decision,
-            'comment' => mb_substr($comment, 0, 1000),
-            'correction' => mb_substr($correction, 0, 1000),
-            'user_id' => $userId,
-            'user_label' => mb_substr(trim($userLabel), 0, 80),
-            'recorded_at' => $recordedAt,
-            'result_version_at_recording' => (string)($resultContract['result_version'] ?? ''),
-            'scope' => 'single_report_single_hotel',
-            'propagate_to_other_hotels' => false,
-        ];
-        if ($this->tableExists('ai_report_human_reviews')) {
-            $reviewId = (int)Db::name('ai_report_human_reviews')->insertGetId([
-                'tenant_id' => (int)($row['tenant_id'] ?? $this->resolveHotelTenantId((int)$row['hotel_id'])),
-                'hotel_id' => (int)$row['hotel_id'],
-                'report_id' => $reportId,
-                'subject_type' => $targetType,
-                'subject_key' => $targetKey,
-                'decision' => $decision,
-                'before_json' => $beforeValue === null ? null : $this->json($beforeValue),
-                'correction_json' => $this->json([
-                    'comment' => mb_substr($comment, 0, 1000),
-                    'correction' => mb_substr($correction, 0, 1000),
-                ]),
-                'reason' => mb_substr($comment !== '' ? $comment : $correction, 0, 1000),
-                'result_version' => (string)($resultContract['result_version'] ?? ''),
-                'created_by' => $userId,
-                'created_at' => $recordedAt,
-            ]);
-            $judgment['storage_status'] = 'append_only_persisted';
-            $judgment['review_record_id'] = $reviewId;
-        } else {
-            $judgment['storage_status'] = 'snapshot_compatibility_migration_required';
-            $judgment['review_record_id'] = null;
-        }
-        $history[] = $judgment;
-        $snapshot['human_judgments'] = array_slice($history, -100);
-        $previousRow = Db::name(self::TABLE)
-            ->where('hotel_id', (int)$row['hotel_id'])
-            ->where('report_date', '<', (string)($row['report_date'] ?? ''))
-            ->whereNull('deleted_at')
-            ->order('report_date', 'desc')
-            ->order('id', 'desc')
-            ->find();
-        $previousSnapshot = is_array($previousRow)
-            ? $this->decodeJson((string)($previousRow['snapshot_json'] ?? ''))
-            : [];
-        $snapshot['trial_validation'] = $this->buildTrialValidation($snapshot, $previousSnapshot);
+            'comment' => $comment,
+            'correction' => $correction,
+        ]);
 
-        Db::name(self::TABLE)
-            ->where('id', $reportId)
-            ->where('hotel_id', (int)$row['hotel_id'])
-            ->whereNull('deleted_at')
-            ->update([
-                'snapshot_json' => $this->json($snapshot),
-                'updated_at' => date('Y-m-d H:i:s'),
-            ]);
+        Db::transaction(function () use ($reportId, $hotelIds, $userId, $userLabel, $requestId, $content): void {
+            // Serialize the receipt lookup and both writes for this authorized report.
+            $query = Db::name(self::TABLE)
+                ->where('id', $reportId)
+                ->whereIn('hotel_id', $hotelIds)
+                ->whereNull('deleted_at');
+            $this->applyReportTenantScope($query);
+            $row = $query->lock(true)->find();
+            if (!is_array($row)) {
+                throw new \RuntimeException('AI daily report not found');
+            }
 
+            $snapshot = $this->decodeJson((string)($row['snapshot_json'] ?? ''));
+            $history = array_values(array_filter(
+                is_array($snapshot['human_judgments'] ?? null) ? $snapshot['human_judgments'] : [],
+                'is_array'
+            ));
+            $appendOnly = $this->tableExists('ai_report_human_reviews');
+            if ($requestId !== '') {
+                $persisted = $appendOnly ? ($this->humanJudgmentsByReportId([$reportId], true)[$reportId] ?? []) : [];
+                $snapshotReceipts = array_filter($history, static fn(array $entry): bool =>
+                    !$appendOnly || (int)($entry['review_record_id'] ?? 0) <= 0);
+                foreach (array_merge($persisted, $snapshotReceipts) as $entry) {
+                    if ((int)($entry['user_id'] ?? 0) !== $userId
+                        || strtolower(trim((string)($entry['request_id'] ?? ''))) !== $requestId) {
+                        continue;
+                    }
+                    if ($this->humanJudgmentContent($entry) !== $content) {
+                        throw new \InvalidArgumentException('human judgment request_id conflicts with an existing judgment');
+                    }
+                    return;
+                }
+            }
+
+            $resultContract = is_array($snapshot['result_contract'] ?? null) ? $snapshot['result_contract'] : [];
+            $beforeValue = match ($content['target_type']) {
+                'ai_interpretation' => $snapshot['ai_interpretation'] ?? null,
+                'anomaly_signal' => $this->decodeJson((string)($row['abnormal_metrics_json'] ?? '')),
+                'reference_set' => $resultContract['reference_set'] ?? null,
+                'report_usefulness' => $snapshot['trial_validation']['user_confirmed_useful'] ?? null,
+                default => $resultContract,
+            };
+            $recordedAt = date('Y-m-d H:i:s');
+            $judgment = array_merge(['id' => bin2hex(random_bytes(8))], $content, [
+                'request_id' => $requestId,
+                'user_id' => $userId,
+                'user_label' => mb_substr(trim($userLabel), 0, 80),
+                'recorded_at' => $recordedAt,
+                'result_version_at_recording' => (string)($resultContract['result_version'] ?? ''),
+                'scope' => 'single_report_single_hotel',
+                'propagate_to_other_hotels' => false,
+            ]);
+            if ($appendOnly) {
+                $reviewId = (int)Db::name('ai_report_human_reviews')->insertGetId([
+                    'tenant_id' => (int)($row['tenant_id'] ?? $this->resolveHotelTenantId((int)$row['hotel_id'])),
+                    'hotel_id' => (int)$row['hotel_id'],
+                    'report_id' => $reportId,
+                    'subject_type' => $content['target_type'],
+                    'subject_key' => $content['target_key'],
+                    'decision' => $content['decision'],
+                    'before_json' => $beforeValue === null ? null : $this->json($beforeValue),
+                    'correction_json' => $this->json([
+                        'request_id' => $requestId,
+                        'comment' => $content['comment'],
+                        'correction' => $content['correction'],
+                    ]),
+                    'reason' => $content['comment'] !== '' ? $content['comment'] : $content['correction'],
+                    'result_version' => (string)($resultContract['result_version'] ?? ''),
+                    'created_by' => $userId,
+                    'created_at' => $recordedAt,
+                ]);
+                $judgment['storage_status'] = 'append_only_persisted';
+                $judgment['review_record_id'] = $reviewId;
+            } else {
+                $judgment['storage_status'] = 'snapshot_compatibility_migration_required';
+                $judgment['review_record_id'] = null;
+            }
+            $history[] = $judgment;
+            $recentStart = max(0, count($history) - 100);
+            // Snapshot-only keyed receipts cannot expire when the recent display cache is trimmed.
+            $snapshot['human_judgments'] = array_values(array_filter($history,
+                static fn(array $entry, int $index): bool => $index >= $recentStart
+                    || ((int)($entry['review_record_id'] ?? 0) <= 0 && trim((string)($entry['request_id'] ?? '')) !== ''),
+                ARRAY_FILTER_USE_BOTH));
+            $previousQuery = Db::name(self::TABLE)
+                ->where('hotel_id', (int)$row['hotel_id'])
+                ->where('report_date', '<', (string)($row['report_date'] ?? ''))
+                ->whereNull('deleted_at')
+                ->order('report_date', 'desc')
+                ->order('id', 'desc');
+            $this->applyReportTenantScope($previousQuery);
+            $previousRow = $previousQuery->find();
+            $previousSnapshot = is_array($previousRow)
+                ? $this->decodeJson((string)($previousRow['snapshot_json'] ?? ''))
+                : [];
+            $snapshot['trial_validation'] = $this->buildTrialValidation($snapshot, $previousSnapshot);
+
+            Db::name(self::TABLE)
+                ->where('id', $reportId)
+                ->where('hotel_id', (int)$row['hotel_id'])
+                ->whereNull('deleted_at')
+                ->update([
+                    'snapshot_json' => $this->json($snapshot),
+                    'updated_at' => $recordedAt,
+                ]);
+        });
+
+        // A failed projection must not roll back the committed receipt: the same request can recover it.
         $updated = $this->read($reportId, $hotelIds);
         if (!is_array($updated)) {
             throw new \RuntimeException('AI daily report judgment readback failed');
@@ -627,16 +645,28 @@ class AiDailyReportService
         return $updated;
     }
 
+    private function humanJudgmentContent(array $judgment): array
+    {
+        return [
+            'target_type' => strtolower(trim((string)($judgment['target_type'] ?? 'overall'))),
+            'target_key' => trim(mb_substr(trim((string)($judgment['target_key'] ?? '')), 0, 120)),
+            'decision' => strtolower(trim((string)($judgment['decision'] ?? ''))),
+            'comment' => trim(mb_substr(trim((string)($judgment['comment'] ?? '')), 0, 1000)),
+            'correction' => trim(mb_substr(trim((string)($judgment['correction'] ?? '')), 0, 1000)),
+        ];
+    }
+
     public function createExecutionIntentFromAction(int $reportId, int $actionIndex, array $hotelIds, int $userId): array
     {
         $hotelIds = array_values(array_unique(array_filter(array_map('intval', $hotelIds), static fn(int $id): bool => $id > 0)));
         return Db::transaction(function () use ($reportId, $actionIndex, $hotelIds, $userId): array {
-            $row = Db::name(self::TABLE)
+            $query = Db::name(self::TABLE)
                 ->where('id', $reportId)
                 ->whereIn('hotel_id', $hotelIds)
                 ->whereNull('deleted_at')
-                ->lock(true)
-                ->find();
+                ->lock(true);
+            $this->applyReportTenantScope($query);
+            $row = $query->find();
             if (!is_array($row)) {
                 throw new \RuntimeException('AI daily report not found');
             }
@@ -671,15 +701,21 @@ class AiDailyReportService
 
             $targetValue = is_array($action['target_value'] ?? null) ? $action['target_value'] : [];
             if ($targetValue === []) {
-                $targetValue = $this->defaultTargetValue($action);
+                $targetValue = self::defaultTargetValue($action);
             }
             $idempotencyKey = $this->dailyReportActionIdempotencyKey($reportId, $actionIndex, $action);
-            $existing = $this->findDailyReportActionIntent($reportId, $hotelId, $actionIndex, $idempotencyKey, $action);
+            $existing = $this->findDailyReportActionIntent(
+                $reportId, $hotelId, $actionIndex, $idempotencyKey, $action, (string)$row['report_date']
+            );
             $retryableTerminal = is_array($existing)
                 && $this->isRetryableExecutionIntentTerminal((string)($existing['status'] ?? ''));
             $retryAttempt = is_array($existing)
                 ? max(1, $this->executionIntentAttempt($existing)) + ($retryableTerminal ? 1 : 0)
                 : 1;
+            $reused = is_array($existing) && !$retryableTerminal;
+            [$dateStart, $dateEnd] = $reused
+                ? [(string)($existing['date_start'] ?? ''), (string)($existing['date_end'] ?? '')]
+                : $this->dailyReportActionExecutionDates($action, (string)$row['report_date']);
 
             $input = [
                 'source_module' => 'ai_daily_report',
@@ -688,8 +724,8 @@ class AiDailyReportService
                 'platform' => (string)($action['platform'] ?? 'ota'),
                 'object_type' => (string)($action['object_type'] ?? 'campaign'),
                 'action_type' => (string)($action['action_type'] ?? 'promotion'),
-                'date_start' => (string)($action['execution_time'] ?? $row['report_date']),
-                'date_end' => (string)($action['date_end'] ?? $row['report_date']),
+                'date_start' => $dateStart,
+                'date_end' => $dateEnd,
                 'current_value' => is_array($action['current_value'] ?? null) ? $action['current_value'] : [],
                 'target_value' => $targetValue,
                 'evidence' => [
@@ -710,7 +746,6 @@ class AiDailyReportService
                 'risk_level' => (string)($action['risk_level'] ?? 'medium'),
             ];
 
-            $reused = is_array($existing) && !$retryableTerminal;
             $intent = $reused
                 ? $this->executionIntentSummary($existing)
                 : $this->operationService->createExecutionIntent(
@@ -765,6 +800,30 @@ class AiDailyReportService
         });
     }
 
+    /** @return array{string,string} */
+    private function dailyReportActionExecutionDates(array $action, string $reportDate): array
+    {
+        $start = trim((string)($action['execution_time'] ?? $action['date_start'] ?? $reportDate));
+        $end = trim((string)($action['date_end'] ?? $start));
+        foreach ([$start, $end] as $date) {
+            $parsed = \DateTimeImmutable::createFromFormat('!Y-m-d', $date, new \DateTimeZone('Asia/Shanghai'));
+            $errors = \DateTimeImmutable::getLastErrors();
+            if ($parsed === false || $parsed->format('Y-m-d') !== $date
+                || ($errors !== false && ($errors['warning_count'] > 0 || $errors['error_count'] > 0))) {
+                throw new \InvalidArgumentException('执行日期格式无效，须为 YYYY-MM-DD');
+            }
+        }
+        if ($end < $start) {
+            throw new \InvalidArgumentException('执行日期区间倒置，请重新制定行动日期');
+        }
+        $today = (new \DateTimeImmutable('today', new \DateTimeZone('Asia/Shanghai')))->format('Y-m-d');
+        if ($end < $today) {
+            throw new \InvalidArgumentException('执行日期已过期，请重新生成当前日报或制定新行动');
+        }
+
+        return [$start, $end];
+    }
+
     /** @param array<string, mixed> $snapshot */
     public static function isTrustedSnapshotForExecution(array $snapshot): bool
     {
@@ -800,20 +859,43 @@ class AiDailyReportService
         int $hotelId,
         int $actionIndex,
         string $idempotencyKey,
-        array $action
+        array $action,
+        string $reportDate
     ): ?array {
         if (!$this->tableExists('operation_execution_intents')) {
             return null;
         }
+        $expectedStart = trim((string)($action['execution_time'] ?? $action['date_start'] ?? $reportDate));
+        $expectedEnd = trim((string)($action['date_end'] ?? $expectedStart));
+        $sameWindow = static fn(array $intent): bool => (string)($intent['date_start'] ?? '') === $expectedStart
+            && (string)($intent['date_end'] ?? $intent['date_start'] ?? '') === $expectedEnd;
+        $expectedDigest = $this->operationService->decisionRecommendationDigest($action);
+        $sameRecommendation = function (array $intent) use ($expectedDigest, $action): bool {
+            $evidence = $this->decodeJson((string)($intent['evidence_json'] ?? ''));
+            $storedDigest = strtolower(trim((string)($evidence['decision_recommendation_digest'] ?? '')));
+            $storedRecommendation = $evidence['decision_recommendation'] ?? null;
+            $persistedBasis = [
+                'target_value' => $this->decodeJson((string)($intent['target_value_json'] ?? '')),
+                'current_value' => $this->decodeJson((string)($intent['current_value_json'] ?? '')),
+                'expected_delta' => $intent['expected_delta'] ?? null,
+                'risk_level' => $intent['risk_level'] ?? null,
+            ];
+            return preg_match('/^[a-f0-9]{64}$/D', $storedDigest) === 1
+                && hash_equals($expectedDigest, $storedDigest)
+                && is_array($storedRecommendation)
+                && self::sameBusinessAction($storedRecommendation, $action)
+                && self::sameExecutionBasis($persistedBasis, $action);
+        };
         $linkedId = (int)($action['execution_intent_id'] ?? 0);
         $query = Db::name('operation_execution_intents')
             ->where('source_module', 'ai_daily_report')
             ->where('source_record_id', $reportId)
             ->where('hotel_id', $hotelId)
+            ->whereRaw('operation_execution_intents.tenant_id = (SELECT tenant_id FROM hotels WHERE hotels.id = operation_execution_intents.hotel_id)')
             ->whereNull('deleted_at');
         if ($linkedId > 0) {
             $linked = (clone $query)->where('id', $linkedId)->find();
-            if (is_array($linked)) {
+            if (is_array($linked) && $sameWindow($linked) && $sameRecommendation($linked)) {
                 return $linked;
             }
         }
@@ -825,13 +907,43 @@ class AiDailyReportService
             }
             $evidence = $this->decodeJson((string)($row['evidence_json'] ?? ''));
             $storedKey = trim((string)($evidence['action_idempotency_key'] ?? ''));
-            if (($storedKey !== '' && hash_equals($idempotencyKey, $storedKey))
+            if ($sameWindow($row) && $sameRecommendation($row)
+                && (($storedKey !== '' && hash_equals($idempotencyKey, $storedKey))
                 || ($storedKey === '' && (int)($evidence['action_index'] ?? -1) === $actionIndex)
-            ) {
+            )) {
                 return $row;
             }
         }
         return null;
+    }
+
+    /** @param array<string,mixed> $stored @param array<string,mixed> $current */
+    public static function sameBusinessAction(array $stored, array $current): bool
+    {
+        foreach ([
+            'execution_intent_id', 'execution_status', 'execution_blocked_reason',
+            'execution_idempotency_key', 'execution_attempt', 'execution_retry_of_intent_id',
+            'execution_flow', 'action_readiness',
+        ] as $presentationField) {
+            unset($stored[$presentationField], $current[$presentationField]);
+        }
+        return $stored == $current;
+    }
+
+    /** @param array<string,mixed> $intent @param array<string,mixed> $action */
+    public static function sameExecutionBasis(array $intent, array $action): bool
+    {
+        $expectedTarget = is_array($action['target_value'] ?? null) ? $action['target_value'] : [];
+        if ($expectedTarget === []) {
+            $expectedTarget = self::defaultTargetValue($action);
+        }
+        $expectedCurrent = is_array($action['current_value'] ?? null) ? $action['current_value'] : [];
+        // The execution table stores this metric as DECIMAL(10,2).
+        $expectedDelta = round((float)($action['expected_delta'] ?? 0), 2);
+        return is_array($intent['target_value'] ?? null) && $intent['target_value'] == $expectedTarget
+            && is_array($intent['current_value'] ?? null) && $intent['current_value'] == $expectedCurrent
+            && isset($intent['expected_delta']) && (float)$intent['expected_delta'] === $expectedDelta
+            && (string)($intent['risk_level'] ?? '') === trim((string)($action['risk_level'] ?? 'medium'));
     }
 
     private function isRetryableExecutionIntentTerminal(string $status): bool
@@ -889,14 +1001,28 @@ class AiDailyReportService
         return $result;
     }
 
-    private function humanJudgmentsByReportId(array $reportIds): array
+    private function humanJudgmentsByReportId(array $reportIds, bool $forUpdate = false): array
     {
         $reportIds = array_values(array_unique(array_filter(array_map('intval', $reportIds), static fn(int $id): bool => $id > 0)));
         if (empty($reportIds) || !$this->tableExists('ai_report_human_reviews')) {
             return [];
         }
-        $rows = Db::name('ai_report_human_reviews')
+        $reportTable = Db::name(self::TABLE)->getTable();
+        $hotelTable = Db::name('hotels')->getTable();
+        $query = Db::name('ai_report_human_reviews')->alias('judgment_review')
             ->whereIn('report_id', $reportIds)
+            ->whereRaw('judgment_review.hotel_id = (SELECT hotel_id FROM ' . $reportTable . ' AS judgment_report WHERE judgment_report.id = judgment_review.report_id AND judgment_report.deleted_at IS NULL)');
+        if ($this->tableHasColumn(self::TABLE, 'tenant_id')) {
+            $query->whereRaw('judgment_review.tenant_id = (SELECT tenant_id FROM ' . $reportTable . ' AS judgment_report WHERE judgment_report.id = judgment_review.report_id)');
+        }
+        if ($this->tableHasColumn('hotels', 'tenant_id')) {
+            $query->whereRaw('judgment_review.tenant_id = (SELECT tenant_id FROM ' . $hotelTable . ' AS judgment_hotel WHERE judgment_hotel.id = judgment_review.hotel_id)');
+        }
+        if ($forUpdate) {
+            // A retry needs a current read even if its transaction already has a REPEATABLE READ snapshot.
+            $query->lock(true);
+        }
+        $rows = $query
             ->order('created_at', 'asc')
             ->order('id', 'asc')
             ->select()
@@ -911,6 +1037,7 @@ class AiDailyReportService
             $result[$reportId][] = [
                 'id' => 'review-' . (int)($row['id'] ?? 0),
                 'review_record_id' => (int)($row['id'] ?? 0),
+                'request_id' => (string)($correction['request_id'] ?? ''),
                 'target_type' => (string)($row['subject_type'] ?? ''),
                 'target_key' => (string)($row['subject_key'] ?? ''),
                 'decision' => (string)($row['decision'] ?? ''),
@@ -2930,7 +3057,8 @@ class AiDailyReportService
             }
         }
 
-        if ($reportDate === date('Y-m-d')) {
+        if ($reportDate === (new \DateTimeImmutable('now', new \DateTimeZone('Asia/Shanghai')))
+            ->format('Y-m-d')) {
             return [
                 'time_scope' => 'current_day_process',
                 'time_label' => '当日过程快照',
@@ -4035,7 +4163,7 @@ class AiDailyReportService
         return $points;
     }
 
-    private function defaultTargetValue(array $action): array
+    private static function defaultTargetValue(array $action): array
     {
         $objectType = (string)($action['object_type'] ?? '');
         if ($objectType === 'campaign') {
@@ -4627,21 +4755,7 @@ class AiDailyReportService
             $row[$field] = $this->decodeJson((string)($row[$field . '_json'] ?? ''));
             unset($row[$field . '_json']);
         }
-        if (isset($row['snapshot']['evidence_snapshot'])) {
-            $evidenceService = new AiDailyReportEvidenceService();
-            $expectedScope = $evidenceService->scope((int)($row['tenant_id'] ?? 0), $row['hotel_id'], (string)$row['report_date']);
-            $evidenceService->verify($row['snapshot']['evidence_snapshot'], $expectedScope);
-            $evidenceService->assertProjection($row, $row['snapshot']['evidence_snapshot']);
-            if (($row['snapshot']['evidence_projection_digest'] ?? '') !== AiDailyReportEvidenceService::projectionDigest($row)) {
-                throw new \RuntimeException('diagnosis_report_projection_mismatch');
-            }
-            $row['evidence_snapshot'] = $row['snapshot']['evidence_snapshot'];
-            $row['evidence_recommendations'] = $row['evidence_snapshot']['diagnosis']['recommendations'];
-            $row['final_text'] = $row['evidence_snapshot']['final_text'];
-            $row['evidence_readback_status'] = 'exact_readback_verified';
-        } else {
-            $row['evidence_readback_status'] = 'legacy_unverified';
-        }
+        $row = $this->verifyStoredEvidenceProjection($row);
         $actions = (array)($row['recommended_actions'] ?? []);
         $trustedSnapshot = self::isTrustedSnapshotForExecution((array)($row['snapshot'] ?? []));
         if (!$trustedSnapshot) {
@@ -4723,6 +4837,23 @@ class AiDailyReportService
             'review_window' => '执行后按约定复核时间，对比同酒店、同来源范围、同指标口径的执行前后数据',
         ];
         $row['recommended_actions'] = $this->enrichRecommendedActions($actions, $executionItems, $decisionQualityContext);
+        foreach ($row['recommended_actions'] as &$action) {
+            if (!is_array($action) || (int)($action['execution_intent_id'] ?? 0) > 0
+                || ($action['can_create_execution_intent'] ?? false) !== true) {
+                continue;
+            }
+            try {
+                $this->dailyReportActionExecutionDates($action, (string)$row['report_date']);
+            } catch (\InvalidArgumentException $error) {
+                $action['can_create_execution_intent'] = false;
+                $action['blocked_reason'] = $error->getMessage();
+                if (is_array($action['decision_quality'] ?? null)) {
+                    $action['decision_quality']['execution_ready'] = false;
+                }
+                $action['action_readiness'] = $this->buildActionReadiness($action);
+            }
+        }
+        unset($action);
         if (($executionReadState['data_status'] ?? '') === 'read_failed') {
             $row['execution_evidence'] = $executionReadState;
             $row['recommended_actions'] = $this->blockActionsForExecutionEvidenceReadFailure(
@@ -4759,6 +4890,7 @@ class AiDailyReportService
             'is_array'
         ));
         $judgmentsByKey = [];
+        $judgmentKeys = [[], []];
         foreach (array_merge($snapshotJudgments, $persistedHumanJudgments) as $index => $judgment) {
             if (!is_array($judgment)) {
                 continue;
@@ -4768,8 +4900,30 @@ class AiDailyReportService
                 ? 'review-' . $recordId
                 : 'snapshot-' . (string)($judgment['id'] ?? $index);
             $judgmentsByKey[$key] = $judgment;
+            $judgmentKeys[$index < count($snapshotJudgments) ? 0 : 1][] = $key;
         }
-        $row['human_judgments'] = array_values($judgmentsByKey);
+        // Merge the snapshot's saved order with the database's created_at/id order; values above remain database-authoritative.
+        $orderedJudgments = [];
+        $positions = [0, 0];
+        $timestampPattern = '/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/';
+        while (isset($judgmentKeys[0][$positions[0]]) || isset($judgmentKeys[1][$positions[1]])) {
+            $snapshotKey = $judgmentKeys[0][$positions[0]] ?? null;
+            $persistedKey = $judgmentKeys[1][$positions[1]] ?? null;
+            $snapshotJudgment = $judgmentsByKey[$snapshotKey] ?? [];
+            $persistedJudgment = $judgmentsByKey[$persistedKey] ?? [];
+            $snapshotTime = trim((string)($snapshotJudgment['recorded_at'] ?? ''));
+            $persistedTime = trim((string)($persistedJudgment['recorded_at'] ?? ''));
+            $timeOrder = preg_match($timestampPattern, $snapshotTime) && preg_match($timestampPattern, $persistedTime)
+                ? strcmp($snapshotTime, $persistedTime) : 0;
+            $snapshotId = (int)($snapshotJudgment['review_record_id'] ?? 0);
+            $persistedId = (int)($persistedJudgment['review_record_id'] ?? 0);
+            $reviewOrder = $snapshotId > 0 && $persistedId > 0 ? $snapshotId <=> $persistedId : 0;
+            $takeSnapshot = $persistedKey === null || ($snapshotKey !== null && ($timeOrder < 0 || ($timeOrder === 0 && $reviewOrder <= 0)));
+            $side = $takeSnapshot ? 0 : 1;
+            $key = $judgmentKeys[$side][$positions[$side]++];
+            if (!isset($orderedJudgments[$key])) $orderedJudgments[$key] = $judgmentsByKey[$key];
+        }
+        $row['human_judgments'] = array_values($orderedJudgments);
         $row['snapshot']['human_judgments'] = $row['human_judgments'];
         $row['trial_validation'] = is_array($row['snapshot']['trial_validation'] ?? null)
             ? $row['snapshot']['trial_validation']
@@ -4835,200 +4989,4 @@ class AiDailyReportService
         return $row;
     }
 
-    private function applyHotelScope($query, array $hotelIds, ?int $hotelId): void
-    {
-        if ($hotelId !== null && $hotelId > 0) {
-            $query->where('hotel_id', $hotelId);
-            return;
-        }
-        if (!empty($hotelIds)) {
-            $query->whereIn('hotel_id', array_values(array_map('intval', $hotelIds)));
-        }
-    }
-
-    private function normalizeDate(string $date): string
-    {
-        $timestamp = strtotime($date);
-        if ($timestamp === false) {
-            throw new \InvalidArgumentException('date is invalid');
-        }
-
-        return date('Y-m-d', $timestamp);
-    }
-
-    private function numericOrNull(mixed $value): ?float
-    {
-        if ($value === null || $value === '') {
-            return null;
-        }
-        return is_numeric($value) ? (float)$value : null;
-    }
-
-    private function metricValue(array $metrics, string $key): ?float
-    {
-        foreach ($metrics as $metric) {
-            if (is_array($metric) && ($metric['key'] ?? '') === $key) {
-                return $this->numericOrNull($metric['value'] ?? null);
-            }
-        }
-
-        return null;
-    }
-
-    private function uniqueByCodeAndMessage(array $items): array
-    {
-        $seen = [];
-        $result = [];
-        foreach ($items as $item) {
-            $key = (string)($item['code'] ?? '') . '|' . (string)($item['message'] ?? '');
-            if (isset($seen[$key])) {
-                continue;
-            }
-            $seen[$key] = true;
-            $result[] = $item;
-        }
-
-        return $result;
-    }
-
-    private function dedupeActions(array $actions): array
-    {
-        $seen = [];
-        $result = [];
-        foreach ($actions as $action) {
-            $key = (string)($action['title'] ?? '') . '|' . (string)($action['action_type'] ?? '');
-            if (isset($seen[$key])) {
-                continue;
-            }
-            $seen[$key] = true;
-            $result[] = $action;
-        }
-
-        return $result;
-    }
-
-    private function json(array $value): string
-    {
-        return json_encode($value, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?: '{}';
-    }
-
-    private function decodeJson(string $value): array
-    {
-        $decoded = json_decode($value, true);
-        return is_array($decoded) ? $decoded : [];
-    }
-
-    /** @return array<string, mixed> */
-    private function blockedReportRead(string $stage, array $extra = []): array
-    {
-        $shape = match ($stage) {
-            'list' => [
-                'list' => [],
-                'pagination' => [
-                    'total' => null,
-                    'page' => null,
-                    'page_size' => null,
-                    'total_page' => null,
-                ],
-            ],
-            'latest' => ['report' => null],
-            default => [],
-        };
-
-        return array_merge($shape, [
-            'status' => 'blocked',
-            'data_status' => 'read_failed',
-            'reason_code' => 'ai_daily_reports_read_failed',
-            'stage' => $stage,
-            'data_gaps' => [[
-                'code' => 'ai_daily_reports_read_failed',
-                'data_status' => 'read_failed',
-                'stage' => $stage,
-                'message' => 'AI daily report storage could not be read; the result was not treated as missing or empty.',
-            ]],
-        ], $extra);
-    }
-
-    private function tableExists(string $table): bool
-    {
-        try {
-            Db::query('SELECT 1 FROM `' . str_replace('`', '', $table) . '` LIMIT 1');
-            return true;
-        } catch (Throwable $e) {
-            if ($this->isMissingTableException($e, $table)) {
-                return false;
-            }
-            throw new \RuntimeException(
-                'database_table_probe_failed:' . $table,
-                503,
-                $e
-            );
-        }
-    }
-
-    private function isMissingTableException(Throwable $exception, string $table): bool
-    {
-        $table = strtolower(str_replace('`', '', $table));
-        $current = $exception;
-        do {
-            $code = strtoupper(trim((string)$current->getCode()));
-            $message = strtolower($current->getMessage());
-            if ($code === '42S02'
-                || str_contains($message, "table '{$table}' doesn't exist")
-                || str_contains($message, 'table `' . $table . '` does not exist')
-                || str_contains($message, 'relation "' . $table . '" does not exist')
-                || preg_match(
-                    '/table\s+[' . "'`\"" . '](?:[a-z0-9_]+\.)?'
-                        . preg_quote($table, '/')
-                        . '[' . "'`\"" . ']\s+(?:doesn.t|does not)\s+exist/i',
-                    $message
-                ) === 1
-                || preg_match(
-                    '/no such table:\s*(?:[a-z0-9_]+\.)?[`"\[]?'
-                        . preg_quote($table, '/')
-                        . '[`"\]]?(?:\s|$)/i',
-                    $message
-                ) === 1
-            ) {
-                return true;
-            }
-            $current = $current->getPrevious();
-        } while ($current instanceof Throwable);
-
-        return false;
-    }
-
-    private function withTenantId(array $data, string $table, int $hotelId): array
-    {
-        if ($this->tableHasColumn($table, 'tenant_id')) {
-            $data['tenant_id'] = $this->resolveHotelTenantId($hotelId);
-        }
-
-        return $data;
-    }
-
-    private function resolveHotelTenantId(int $hotelId): ?int
-    {
-        if ($hotelId <= 0) {
-            return null;
-        }
-        $tenantId = (int)(Db::name('hotels')->where('id', $hotelId)->value('tenant_id') ?? 0);
-        return $tenantId > 0 ? $tenantId : null;
-    }
-
-    private function tableHasColumn(string $table, string $column): bool
-    {
-        static $cache = [];
-        $key = spl_object_id(Db::connect()) . '.' . $table . '.' . $column;
-        if (array_key_exists($key, $cache)) {
-            return $cache[$key];
-        }
-
-        try {
-            $columns = Db::connect()->getFields($table);
-            return $cache[$key] = isset($columns[$column]);
-        } catch (Throwable $e) {
-            return $cache[$key] = false;
-        }
-    }
 }

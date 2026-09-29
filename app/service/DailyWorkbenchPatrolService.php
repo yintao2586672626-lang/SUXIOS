@@ -9,6 +9,9 @@ final class DailyWorkbenchPatrolService
 {
     private const SNAPSHOT_DIR = 'phase2_daily_workbench_patrol';
     private const LATEST_FILE = 'latest.json';
+    private static int $lastCreatedAtMicroseconds = 0;
+    private array $snapshotOrderPaths = [];
+    private ?array $snapshotOrderCache = null;
 
     public function write(array $workbenchPayload, array $context = []): array
     {
@@ -23,10 +26,8 @@ final class DailyWorkbenchPatrolService
 
         $fileName = $snapshot['run_id'] . '.json';
         $path = $dir . DIRECTORY_SEPARATOR . $fileName;
-        $json = json_encode($snapshot, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT);
-        if ($json === false || file_put_contents($path, $json . PHP_EOL, LOCK_EX) === false) {
-            throw new \RuntimeException('Daily workbench patrol snapshot write failed.');
-        }
+        $this->writeNewSnapshotFile($path, $snapshot);
+        $this->snapshotOrderCache = null;
 
         $latestPath = $this->baseDir() . DIRECTORY_SEPARATOR . self::LATEST_FILE;
         $latest = $snapshot;
@@ -35,10 +36,8 @@ final class DailyWorkbenchPatrolService
             'latest_path' => $this->relativePath($latestPath),
             'retention_policy' => 'runtime_json_snapshot_only',
         ];
-        $latestJson = json_encode($latest, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT);
-        if ($latestJson === false || file_put_contents($latestPath, $latestJson . PHP_EOL, LOCK_EX) === false) {
-            throw new \RuntimeException('Daily workbench latest patrol index write failed.');
-        }
+        // The independent run is already saved; publishing this index is a separate write.
+        $this->publishJsonFile($latestPath, $latest, 'Daily workbench latest patrol index write failed.');
 
         return $latest;
     }
@@ -64,6 +63,23 @@ final class DailyWorkbenchPatrolService
         }
 
         return null;
+    }
+
+    public function readForHotelDate(int $hotelId, string $targetDate): array
+    {
+        $hotelId = $this->requireHotelId($hotelId);
+        $targetDate = $this->normalizeDate($targetDate);
+        $latest = null;
+        foreach ($this->snapshotFiles() as $path) {
+            $snapshot = $this->readSnapshot($path);
+            if ($snapshot !== null && ($snapshot['scope']['target_date'] ?? null) === $targetDate
+                && $this->snapshotWithinHotelScope($snapshot, $hotelId)
+            ) {
+                $latest = $snapshot;
+                break;
+            }
+        }
+        return ['latest' => $latest, 'health' => $this->buildHealth($targetDate, $latest)];
     }
 
     public function findByRunId(string $runId): ?array
@@ -161,14 +177,26 @@ final class DailyWorkbenchPatrolService
         }
 
         $scope = is_array($latest['scope'] ?? null) ? $latest['scope'] : [];
-        $latestTargetDate = $this->normalizeDate((string)($scope['target_date'] ?? ''));
+        $latestTargetDate = (string)($scope['target_date'] ?? '');
+        $latestNormalizedDate = null;
+        if (trim($latestTargetDate) !== '') {
+            try {
+                $latestNormalizedDate = $this->normalizeDate($latestTargetDate);
+            } catch (\InvalidArgumentException) {
+                // A legacy snapshot stays readable, but an invalid date cannot prove readiness.
+            }
+        }
         $latestTrigger = (string)($latest['trigger_type'] ?? '');
-        $isTargetDateReady = $latestTargetDate === $targetDate;
+        $isTargetDateReady = $latestNormalizedDate === $targetDate;
         $isAutoPatrol = $latestTrigger === 'cron';
         $status = 'stale';
         $nextAction = 'run_patrol_now';
         $message = 'Latest patrol snapshot is not for the target date.';
-        if ($isTargetDateReady && $isAutoPatrol) {
+        if ($latestNormalizedDate === null) {
+            $message = trim($latestTargetDate) === ''
+                ? 'Latest patrol snapshot target_date is missing. Run the patrol for the requested date.'
+                : 'Latest patrol snapshot target_date is invalid. Run the patrol for the requested date.';
+        } elseif ($isTargetDateReady && $isAutoPatrol) {
             $status = 'auto_ready';
             $nextAction = 'review_actions';
             $message = 'Target date automatic patrol snapshot is ready.';
@@ -280,6 +308,7 @@ final class DailyWorkbenchPatrolService
 
         $key = $this->actionTrackingKey($hotelId, $actionCode, $questionKey);
         $items = is_array($snapshot['action_tracking']['items'] ?? null) ? $snapshot['action_tracking']['items'] : [];
+        $stored = is_array($items[$key] ?? null) ? $items[$key] : [];
         $items[$key] = [
             'hotel_id' => $hotelId,
             'action_code' => $actionCode,
@@ -293,6 +322,19 @@ final class DailyWorkbenchPatrolService
         ];
         if (is_array($input['operation_execution'] ?? null)) {
             $items[$key]['operation_execution'] = $input['operation_execution'];
+        }
+        if ($this->isSameActionStatusReplay($stored, $items[$key])) {
+            $items[$key] = array_replace($stored, $items[$key]);
+            $items[$key]['review_state'] = $stored['review_state'] ?? $items[$key]['review_state'];
+            if (is_array($stored['operation_execution'] ?? null)) {
+                $operation = array_replace($stored['operation_execution'], $items[$key]['operation_execution'] ?? []);
+                foreach (['task_id', 'intent_id', 'source_record_id', 'review_status', 'review_summary', 'reviewed_at'] as $field) {
+                    if (array_key_exists($field, $stored['operation_execution'])) {
+                        $operation[$field] = $stored['operation_execution'][$field];
+                    }
+                }
+                $items[$key]['operation_execution'] = $operation;
+            }
         }
 
         $snapshot['action_tracking'] = $this->summarizeActionTracking(
@@ -310,7 +352,7 @@ final class DailyWorkbenchPatrolService
                 'latest_path' => $this->relativePath($latestPath),
                 'retention_policy' => 'runtime_json_snapshot_only',
             ];
-            $this->writeSnapshotFile($latestPath, $snapshot);
+            $this->publishJsonFile($latestPath, $snapshot, 'Daily workbench latest patrol index write failed.');
         }
 
         return $snapshot;
@@ -408,7 +450,7 @@ final class DailyWorkbenchPatrolService
                 'latest_path' => $this->relativePath($latestPath),
                 'retention_policy' => 'runtime_json_snapshot_only',
             ];
-            $this->writeSnapshotFile($latestPath, $snapshot);
+            $this->publishJsonFile($latestPath, $snapshot, 'Daily workbench latest patrol index write failed.');
         }
 
         return $snapshot;
@@ -433,16 +475,17 @@ final class DailyWorkbenchPatrolService
         $rows = array_values(array_filter((array)($workbenchPayload['rows'] ?? []), static fn($row): bool => is_array($row)));
         $nextActions = array_values(array_filter((array)($workbenchPayload['next_actions'] ?? []), static fn($row): bool => is_array($row)));
         $targetDate = $this->normalizeDate((string)($scope['target_date'] ?? $context['target_date'] ?? date('Y-m-d')));
-        $createdAt = date('Y-m-d H:i:s');
-        $runId = 'daily_workbench_' . str_replace('-', '', $targetDate) . '_' . date('His') . '_' . substr(sha1($createdAt . json_encode([
-            'hotel_id' => $scope['hotel_id'] ?? null,
-            'summary' => $summary,
-        ])), 0, 8);
+        $createdAtMicroseconds = max((int)floor(microtime(true) * 1000000), self::$lastCreatedAtMicroseconds + 1);
+        self::$lastCreatedAtMicroseconds = $createdAtMicroseconds;
+        $createdAtTimestamp = intdiv($createdAtMicroseconds, 1000000);
+        $createdAt = date('Y-m-d H:i:s', $createdAtTimestamp);
+        $runId = 'daily_workbench_' . str_replace('-', '', $targetDate) . '_' . date('His', $createdAtTimestamp) . '_' . bin2hex(random_bytes(16));
 
         return [
             'run_id' => $runId,
             'snapshot_type' => 'phase2_daily_workbench_patrol',
             'created_at' => $createdAt,
+            'created_at_microseconds' => $createdAtMicroseconds,
             'trigger_type' => (string)($context['trigger_type'] ?? 'manual'),
             'created_by_user_id' => isset($context['user_id']) && is_numeric($context['user_id']) ? (int)$context['user_id'] : null,
             'scope' => [
@@ -682,12 +725,71 @@ final class DailyWorkbenchPatrolService
         return is_array($decoded) ? $decoded : null;
     }
 
-    private function writeSnapshotFile(string $path, array $snapshot): void
+    private function writeNewSnapshotFile(string $path, array $snapshot): void
     {
         $json = json_encode($snapshot, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT);
-        if ($json === false || file_put_contents($path, $json . PHP_EOL, LOCK_EX) === false) {
-            throw new \RuntimeException('Daily workbench patrol snapshot update failed.');
+        if ($json === false) {
+            throw new \RuntimeException('Daily workbench patrol snapshot write failed.');
         }
+        $handle = @fopen($path, 'xb');
+        if ($handle === false) {
+            throw new \RuntimeException('Daily workbench patrol snapshot cannot be created.');
+        }
+        $complete = false;
+        try {
+            $contents = $json . PHP_EOL;
+            if (fwrite($handle, $contents) !== strlen($contents) || !fflush($handle)) {
+                throw new \RuntimeException('Daily workbench patrol snapshot write failed.');
+            }
+            $complete = true;
+        } finally {
+            fclose($handle);
+            if (!$complete) @unlink($path);
+        }
+    }
+
+    private function publishJsonFile(string $path, array $payload, string $failureMessage): void
+    {
+        $handle = null;
+        $temporaryPath = '';
+        $ownsTemporaryFile = false;
+        try {
+            $json = json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT);
+            if ($json === false) throw new \RuntimeException($failureMessage);
+            $contents = $json . PHP_EOL;
+            $temporaryPath = $path . '.' . bin2hex(random_bytes(16)) . '.tmp';
+            $handle = @fopen($temporaryPath, 'xb');
+            if ($handle === false) throw new \RuntimeException($failureMessage);
+            $ownsTemporaryFile = true;
+            if (fwrite($handle, $contents) !== strlen($contents) || !fflush($handle)) {
+                throw new \RuntimeException($failureMessage);
+            }
+            $closed = fclose($handle);
+            $handle = null;
+            if (!$closed || !rename($temporaryPath, $path)) throw new \RuntimeException($failureMessage);
+            $ownsTemporaryFile = false;
+        } catch (\Throwable $error) {
+            throw new \RuntimeException($failureMessage, 0, $error);
+        } finally {
+            try {
+                if (is_resource($handle)) @fclose($handle);
+            } catch (\Throwable) {
+                // Keep the publication failure while still attempting our temporary-file cleanup.
+            } finally {
+                if ($ownsTemporaryFile) {
+                    try {
+                        @unlink($temporaryPath);
+                    } catch (\Throwable) {
+                        // Never replace the original publication error with a cleanup error.
+                    }
+                }
+            }
+        }
+    }
+
+    private function writeSnapshotFile(string $path, array $snapshot): void
+    {
+        $this->publishJsonFile($path, $snapshot, 'Daily workbench patrol snapshot update failed.');
     }
 
     private function findSnapshotPath(string $runId): ?string
@@ -700,8 +802,35 @@ final class DailyWorkbenchPatrolService
     private function snapshotFiles(): array
     {
         $files = glob($this->baseDir() . DIRECTORY_SEPARATOR . '*' . DIRECTORY_SEPARATOR . 'daily_workbench_*.json') ?: [];
-        rsort($files, SORT_STRING);
+        if ($this->snapshotOrderCache !== null && $files === $this->snapshotOrderPaths) {
+            return $this->snapshotOrderCache;
+        }
+        $this->snapshotOrderPaths = $files;
+        $creationTimes = [];
+        foreach ($files as $path) {
+            $creationTimes[$path] = $this->snapshotCreationMicroseconds($this->readSnapshot($path) ?? []);
+        }
+        usort($files, static fn(string $a, string $b): int => ($creationTimes[$b] <=> $creationTimes[$a]) ?: strcmp($b, $a));
+        $this->snapshotOrderCache = $files;
         return $files;
+    }
+
+    private function snapshotCreationMicroseconds(array $snapshot): int
+    {
+        $microseconds = $snapshot['created_at_microseconds'] ?? null;
+        if (is_int($microseconds) && $microseconds > 0) {
+            return $microseconds;
+        }
+        $createdAt = (string)($snapshot['created_at'] ?? '');
+        if (!preg_match('/^(\d{4})-(\d{2})-(\d{2}) \d{2}:\d{2}:\d{2}$/D', $createdAt, $parts)
+            || !checkdate((int)$parts[2], (int)$parts[3], (int)$parts[1])
+        ) {
+            return 0;
+        }
+        $parsed = \DateTimeImmutable::createFromFormat('!Y-m-d H:i:s', $createdAt);
+        return $parsed !== false && $parsed->format('Y-m-d H:i:s') === $createdAt
+            ? $parsed->getTimestamp() * 1000000
+            : 0;
     }
 
     private function snapshotHotelId(array $snapshot): int
@@ -747,7 +876,7 @@ final class DailyWorkbenchPatrolService
     private function safeRunId(string $value): string
     {
         $value = trim($value);
-        return preg_match('/^daily_workbench_\d{8}_\d{6}_[a-f0-9]{8}$/', $value) ? $value : '';
+        return preg_match('/^daily_workbench_\d{8}_\d{6}_(?:[a-f0-9]{8}|[a-f0-9]{32})$/', $value) ? $value : '';
     }
 
     private function normalizeActionStatus(string $status): string
@@ -759,6 +888,32 @@ final class DailyWorkbenchPatrolService
         }
 
         return $status;
+    }
+
+    private function isSameActionStatusReplay(array $stored, array $incoming): bool
+    {
+        foreach (['hotel_id', 'action_code', 'question_key', 'status'] as $field) {
+            if (!array_key_exists($field, $stored) || (string)$stored[$field] !== (string)$incoming[$field]) {
+                return false;
+            }
+        }
+        $storedOperation = is_array($stored['operation_execution'] ?? null) ? $stored['operation_execution'] : [];
+        $incomingOperation = $incoming['operation_execution'] ?? $storedOperation;
+        foreach (['task_id', 'intent_id', 'source_record_id'] as $field) {
+            $previous = $storedOperation[$field] ?? null;
+            $next = $incomingOperation[$field] ?? null;
+            if ($previous === null || $next === null) {
+                if ($previous !== $next) return false;
+                continue;
+            }
+            if ((!is_int($previous) && !(is_string($previous) && ctype_digit($previous)))
+                || (!is_int($next) && !(is_string($next) && ctype_digit($next)))
+                || (int)$previous !== (int)$next
+            ) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private function mergeReviewOperationExecution(array $stored, array $incoming, array $input): array
@@ -820,6 +975,7 @@ final class DailyWorkbenchPatrolService
 
         $tracking['items'] = $items;
         $tracking['status_summary'] = $summary;
+        $tracking['review_summary'] = $this->summarizeReviewTracking($items);
         $tracking['updated_action_count'] = count($items);
         $tracking['review_state'] = ($summary['done'] ?? 0) > 0 || ($summary['review_needed'] ?? 0) > 0
             ? 'review_ready'
@@ -859,7 +1015,15 @@ final class DailyWorkbenchPatrolService
     private function normalizeDate(string $value): string
     {
         $value = trim($value);
-        return preg_match('/^\d{4}-\d{2}-\d{2}$/', $value) ? $value : date('Y-m-d');
+        if ($value === '') {
+            return date('Y-m-d');
+        }
+        if (!preg_match('/^(\d{4})-(\d{2})-(\d{2})$/', $value, $parts)
+            || !checkdate((int)$parts[2], (int)$parts[3], (int)$parts[1])
+        ) {
+            throw new \InvalidArgumentException('Daily workbench patrol target_date must be a valid YYYY-MM-DD date.');
+        }
+        return $value;
     }
 
     private function baseDir(): string

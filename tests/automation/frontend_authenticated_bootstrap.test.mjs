@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import test from 'node:test';
+import vm from 'node:vm';
 import {
   extractAuthenticatedAssetEntries,
   extractAuthenticatedAssetReferences,
@@ -157,11 +158,14 @@ test('Meituan helper fallback stays silent while deferred assets load and report
   const toasts = [];
   const windowMock = {};
   const documentMock = { documentElement: { dataset: {} } };
+  const staticContext = { window: {}, console: { warn: (...args) => warnings.push(args) } };
+  vm.runInNewContext(fs.readFileSync(new URL('../../public/system-static.js', import.meta.url), 'utf8'), staticContext);
   const bindingFactory = Function(
     'window',
     'document',
     'showToast',
     'console',
+    'appSystemStatic',
     `"use strict";
       ${bindingSource}
       return { requireMeituanStatic, missingMeituanStaticHelpers };`,
@@ -171,6 +175,7 @@ test('Meituan helper fallback stays silent while deferred assets load and report
     documentMock,
     (message, level) => toasts.push({ message, level }),
     { warn: (...args) => warnings.push(args) },
+    staticContext.window.SUXI_SYSTEM_STATIC,
   );
   const helper = bindings.requireMeituanStatic('buildMeituanFetchPresentation');
 
@@ -623,7 +628,7 @@ test('deferred component bridges keep startup components small and preserve full
   assert.match(appMainComponentsLoader, /window\.SUXI_APP_MAIN_COMPONENTS_FULL/);
   assert.match(
     operatingIntelligenceLoader,
-    /window\.SUXI_OPERATING_INTELLIGENCE_COMPONENTS = Object\.freeze\(\{\s*create, submitCouncilRun, pollCouncilRun, councilReadbackIntegrityMatches,\s*\}\)/,
+    /window\.SUXI_OPERATING_INTELLIGENCE_COMPONENTS = Object\.freeze\(\{\s*createEvidenceNavigation,\s*create, submitCouncilRun, pollCouncilRun, councilReadbackIntegrityMatches,\s*\}\)/,
   );
   assert.match(operatingIntelligenceLoader, /window\.SUXI_OPERATING_INTELLIGENCE_COMPONENTS_FULL/);
   assert.match(operatingIntelligenceLoader, /SUXI_LOAD_DEFERRED_AUTHENTICATED_ASSET/);
@@ -661,7 +666,7 @@ test('data-health helper calls stay lazy until the progressive full-page bundle 
   );
   assert.match(
     appMain,
-    /const scheduleOnlineHistoryRefresh = \(\) => schedulePostFetchRefresh\('online-history',[\s\S]*window\.SUXI_DATA_HEALTH_STATIC[\s\S]*refreshOnlineHistory\(\{ refreshHotels: false \}\)[\s\S]*:\s*null/,
+    /const scheduleOnlineHistoryRefresh = \(isCurrent = \(\) => true\) => schedulePostFetchRefresh\('online-history',[\s\S]*window\.SUXI_DATA_HEALTH_STATIC[\s\S]*refreshOnlineHistory\(\{ refreshHotels: false \}\)[\s\S]*:\s*null/,
     'post-fetch history refresh must skip the startup shell until deferred data-health helpers are ready',
   );
   assert.match(

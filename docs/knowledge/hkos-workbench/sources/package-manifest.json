@@ -1,0 +1,9 @@
+{
+  "id": "yusheng-hotel-knowledge-os",
+  "name": "裕生老师·酒店经营 Knowledge OS",
+  "version": "1.3.56",
+  "minAppVersion": "1.8.0",
+  "description": "裕生老师的本地优先酒店经营知识工作台。",
+  "author": "版权作者：百度搜索丨莫裕生",
+  "isDesktopOnly": true
+}

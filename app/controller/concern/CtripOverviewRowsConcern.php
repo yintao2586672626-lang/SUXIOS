@@ -392,6 +392,11 @@ trait CtripOverviewRowsConcern
         return $this->parseAndSaveData(['data' => $rows], $dataDate, $dataDate, $systemHotelId);
     }
 
+    private function ctripOverviewReadbackComplete(int $rowCount, int $savedCount): bool
+    {
+        return $rowCount > 0 && $savedCount === $rowCount;
+    }
+
     private function summarizeCtripOverviewRows(array $rows): array
     {
         return CtripOverviewSummaryService::summarizeRows($rows);

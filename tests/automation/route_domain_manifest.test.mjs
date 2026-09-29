@@ -61,6 +61,10 @@ test('extracted method, URL, handler, order and Auth middleware surface matches 
   }
 
   const workflowRoutes = [
+    'api/operation|get|/manager-capability/coaching|ManagerCapability/coachingList',
+    'api/operation|post|/manager-capability/coaching|ManagerCapability/coachingCreate',
+    'api/operation|get|/manager-capability/coaching/:id|ManagerCapability/coachingRead',
+    'api/operation|post|/manager-capability/coaching/:id/:action|ManagerCapability/coachingAction',
     'api/operation|get|/task-workflows|OperationManagement/taskWorkflows',
     'api/operation|post|/task-workflow-proposals|OperationManagement/proposeTaskWorkflow',
     'api/operation|get|/execution-tasks/:id/workflow|OperationManagement/readTaskWorkflow',
@@ -68,7 +72,7 @@ test('extracted method, URL, handler, order and Auth middleware surface matches 
   ];
   assert.deepEqual(tuples.filter(tuple => workflowRoutes.includes(tuple)), workflowRoutes);
   const legacyTuples = tuples.filter(tuple => !workflowRoutes.includes(tuple));
-  assert.equal(tuples.length, 133);
+  assert.equal(tuples.length, 129 + workflowRoutes.length);
   assert.equal(legacyTuples.length, 129);
   assert.equal(
     createHash('sha256').update(legacyTuples.join('\n')).digest('hex'),

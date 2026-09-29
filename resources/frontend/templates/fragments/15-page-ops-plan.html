@@ -29,11 +29,11 @@
                                         <input v-model="strategyForm.discount_rate" :disabled="!operationStrategyDiscountRequired" type="number" data-testid="ops-plan-discount-rate" placeholder="仅促销策略使用" :class="['w-full px-3 py-2 border border-gray-200 rounded-lg text-sm', !operationStrategyDiscountRequired ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : '']">
                                     </label>
                                     <label class="block">
-                                        <span class="text-xs text-gray-500 mb-1 block">开始日期 <b class="text-red-500">*</b></span>
+                                        <span class="text-xs text-gray-500 mb-1 block">计划开始日期 <b class="text-red-500">*</b></span>
                                         <input v-model="strategyForm.start_date" type="date" data-testid="ops-plan-start-date" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm">
                                     </label>
                                     <label class="block">
-                                        <span class="text-xs text-gray-500 mb-1 block">结束日期 <b class="text-red-500">*</b></span>
+                                        <span class="text-xs text-gray-500 mb-1 block">计划结束日期 <b class="text-red-500">*</b></span>
                                         <input v-model="strategyForm.end_date" type="date" data-testid="ops-plan-end-date" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm">
                                     </label>
                                     <div class="rounded-lg bg-blue-50 border border-blue-100 text-blue-700 px-3 py-2 text-xs leading-relaxed">{{ operationStrategyRequirementText }}</div>
@@ -47,10 +47,17 @@
                                 <div v-if="operationLoading.strategy" class="p-8 text-center text-gray-500">正在模拟策略...</div>
                                 <div v-if="operationError.strategy" class="bg-red-50 border border-red-100 text-red-600 rounded-xl p-4 text-sm mb-4">{{ operationError.strategy }}</div>
                                 <template v-if="operationStrategyResult">
-                                    <div class="mb-4 rounded-lg bg-amber-50 text-amber-700 p-3 text-sm">固定规则系数生成的情景结果，仅供运营排查，不是经营预测；风险未命中明确规则时显示“待评估”。</div>
+                                    <div class="mb-4 rounded-lg bg-amber-50 text-amber-700 p-3 text-sm">{{ operationStrategyResult.simulated === false ? (operationStrategyResult.disclaimer || '当前证据不足，未生成规则情景；请查看基线数据缺口。') : '固定规则系数生成的情景结果，仅供运营排查，不是经营预测；风险未命中明确规则时显示“待评估”。' }}</div>
+                                    <div data-testid="ops-strategy-evidence" class="mb-4 rounded-lg border border-blue-100 bg-blue-50 p-3 text-sm text-blue-900 space-y-1">
+                                        <div>目标酒店：{{ operationStrategyEvidenceView.hotel }}</div>
+                                        <div>计划日期：{{ operationStrategyEvidenceView.planDates }}；不改变下方历史基线窗口，也不代表该日期的预测。</div>
+                                        <div>历史基线窗口：{{ operationStrategyEvidenceView.baselineDates }}；有效覆盖 {{ operationStrategyEvidenceView.coverage }}；数据状态 {{ operationStrategyEvidenceView.status }}。</div>
+                                        <div v-for="row in operationStrategyEvidenceView.metrics" :key="row.label">{{ row.label }}：{{ row.detail }}</div>
+                                        <div v-for="(gap, index) in operationStrategyEvidenceView.gaps" :key="index">数据缺口：{{ gap }}</div>
+                                    </div>
                                     <div class="flex items-center justify-between mb-4">
                                         <div class="text-xl font-bold text-gray-900">{{ operationStrategyResult.strategy_name || '策略模拟' }}</div>
-                                        <span class="px-2 py-1 rounded-full bg-amber-50 text-amber-700 text-xs">规则情景</span>
+                                        <span class="px-2 py-1 rounded-full bg-amber-50 text-amber-700 text-xs">{{ operationStrategyResult.simulated === false ? '未生成' : '规则情景' }}</span>
                                     </div>
                                     <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
                                         <div class="rounded-lg bg-gray-50 p-3">
@@ -58,11 +65,11 @@
                                             <div v-for="row in operationMetricRows(operationStrategyResult.baseline)" :key="row.label" class="flex justify-between text-sm py-1"><span>{{ row.label }}</span><b>{{ row.value }}</b></div>
                                         </div>
                                         <div class="rounded-lg bg-gray-50 p-3">
-                                            <div class="text-xs text-gray-500 mb-2">规则情景（非预测）</div>
+                                            <div class="text-xs text-gray-500 mb-2">{{ operationStrategyResult.simulated === false ? '未生成规则情景' : '规则情景（非预测）' }}</div>
                                             <div v-for="row in operationMetricRows(operationStrategyResult.rule_scenario || operationStrategyResult.forecast)" :key="row.label" class="flex justify-between text-sm py-1"><span>{{ row.label }}</span><b>{{ row.value }}</b></div>
                                         </div>
                                         <div class="rounded-lg bg-gray-50 p-3">
-                                            <div class="text-xs text-gray-500 mb-2">影响</div>
+                                            <div class="text-xs text-gray-500 mb-2">{{ operationStrategyResult.simulated === false ? '影响未计算' : '影响' }}</div>
                                             <div v-for="row in operationMetricRows(operationStrategyResult.impact)" :key="row.label" class="flex justify-between text-sm py-1"><span>{{ row.label }}</span><b>{{ row.value }}</b></div>
                                         </div>
                                     </div>

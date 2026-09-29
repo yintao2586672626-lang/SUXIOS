@@ -30,6 +30,7 @@
             knowledgeCenterImportSourceDocument,
             knowledgeCenterImporting,
             knowledgeCenterLoading,
+            knowledgeCenterListError,
             knowledgeCenterPagination,
             knowledgeCenterSelectedUnit,
             knowledgeCenterUnits,
@@ -75,6 +76,7 @@
             operatingNetworkReplicationForm,
             operatingNetworkReviewForm,
             operatingNetworkReviews,
+            operatingNetworkReviewState,
             operationFilters,
             operationStatic,
             parseKnowledgeTags,
@@ -91,10 +93,98 @@
             showToast,
         } = context;
 
+        let knowledgeCenterListRequestEpoch = 0;
+        let knowledgeCenterConfirmedListScope = null;
+        let knowledgeCenterConfirmedListSession = null;
         let knowledgeCenterImportActionEpoch = 0;
         let knowledgePromotionLoadEpoch = 0;
         let knowledgePromotionActionEpoch = 0;
+        const referenceDrafts = new Map();
+        let knowledgeReferenceEpoch = 0;
+
+        const editKnowledgeReference = async (chunk = null, asCopy = false) => {
+            const epoch = ++knowledgeReferenceEpoch;
+            const unit = knowledgeCenterSelectedUnit.value;
+            const hotelId = Number(unit?.hotel_id || knowledgeCenterFilter.value?.hotel_id || defaultKnowledgeCenterHotelId());
+            const session = captureAuthSession();
+            if (hotelId <= 0) { showToast('请先选择保存参考稿的门店', 'error'); return; }
+            const scope = () => JSON.stringify([currentPage.value, knowledgeCenterFilter.value,
+                knowledgeCenterSelectedUnit.value?.unit_id, selectedKnowledgeCenterUnitIds.value, knowledgeCenterListRequestEpoch, String(defaultKnowledgeCenterHotelId())]);
+            const capturedScope = scope();
+            const draftKey = `${hotelId}:${chunk ? `${unit?.unit_id}:${chunk.chunk_id}` : `merge:${selectedKnowledgeCenterUnitIds.value.join(',')}`}:${asCopy}`;
+            let draft = referenceDrafts.get(draftKey);
+            if (draft && !isAuthSessionCurrent(draft.session)) { referenceDrafts.delete(draftKey); draft = null; }
+            const current = () => epoch === knowledgeReferenceEpoch && isAuthSessionCurrent(session) && capturedScope === scope();
+            try {
+                const content = normalizeKnowledgeChunkContent(chunk?.content);
+                let chunkIds = chunk ? (content.citations?.length ? [...new Set(content.citations.map(c => Number(c.chunk_id)))] : [Number(chunk.chunk_id)]) : [];
+                if (!chunk) {
+                    const ids = [...selectedKnowledgeCenterUnitIds.value];
+                    if (ids.length > 8) throw new Error('每次最多合并 8 项资料，请减少勾选');
+                    if (!ids.length) throw new Error('请先勾选要合并整理的资料');
+                    for (const id of ids) {
+                        const r = await request(`/knowledge/${id}`);
+                        if (!current()) return;
+                        if (![0, 200].includes(r.code)) throw new Error(r.message || r.msg || '来源读取失败');
+                        const selected = r.data?.chunks?.find(c => Number(c.chunk_id) === Number(r.data.unit.current_chunk_id))
+                            || r.data?.chunks?.filter(c => (c.lifecycle_status || 'active') === 'active').at(-1);
+                        if (selected) chunkIds.push(Number(selected.chunk_id));
+                    }
+                }
+                const sources = [];
+                for (const id of chunkIds) {
+                    const r = await request(`/knowledge/reference-sources/${id}?hotel_id=${hotelId}`);
+                    if (!current()) return;
+                    if (r.code !== 200) throw new Error(r.message || '来源不可用，请读取有效版本');
+                    sources.push(r.data);
+                }
+                const options = sources.flatMap(s => s.source_segments.map(segment => ({
+                    value: `${s.chunk_id}:${segment.id}`, label: `${s.title} / ${segment.locator}：${segment.quote.slice(0, 100)}`,
+                    citation: { chunk_id: s.chunk_id, source_digest: s.digest, segment_id: segment.id, quote: segment.quote },
+                })));
+                if (!options.length) throw new Error('来源没有可定位的文字片段');
+                const labels = { objective: '目标', steps: '步骤（每行一项，可摘取部分另存）', applicability: '适用条件', stop_conditions: '停止条件', acceptance_criteria: '验收方法' };
+                const existing = content.reference_fields || {};
+                const fields = [{ name: 'title', label: '参考稿标题', required: true, value: draft?.values?.title || content.title || unit?.name || '' }];
+                for (const [key, label] of Object.entries(labels)) {
+                    const citation = content.citations?.find(c => c.field_paths?.includes(key));
+                    fields.push({ name: key, label, type: 'textarea', required: true, value: draft?.values?.[key] ?? existing[key] ?? '' });
+                    fields.push({ name: `${key}_source`, label: `${label}的原文依据`, type: 'select', required: true,
+                        value: draft?.values?.[`${key}_source`] || (citation ? `${citation.chunk_id}:${citation.segment_id}` : ''),
+                        options: [{ value: '', label: '请选择原文片段' }, ...options.map(({ value, label }) => ({ value, label }))] });
+                }
+                const values = await openWorkflowFormDialog({ title: content.content_type === 'reference_sop' && !asCopy ? '修订参考 SOP' : '整理为参考 SOP',
+                    description: '逐项选择原文依据并填写适用边界。引用位置会核对；内容为人工改写，不自动认定为酒店事实或正式标准。遇到冲突会保留草稿。', submitText: '保存参考稿并回读', fields });
+                if (!values || !current()) return;
+                const idempotencyKey = draft && sameAiGovernanceJson(draft.values, values) ? draft.key : knowledgePromotionRequestId();
+                referenceDrafts.set(draftKey, { values, key: idempotencyKey, session });
+                const payload = { hotel_id: hotelId, title: values.title, idempotency_key: idempotencyKey, citations: [] };
+                for (const key of Object.keys(labels)) {
+                    payload[key] = values[key];
+                    const chosen = options.find(o => o.value === values[`${key}_source`]);
+                    if (!chosen) throw new Error('所选原文片段已变化，请重新选择');
+                    payload.citations.push({ ...chosen.citation, field_paths: [key] });
+                }
+                if (!asCopy && content.content_type === 'reference_sop' && Number(unit?.hotel_id) === hotelId) {
+                    payload.unit_id = Number(unit.unit_id); payload.expected_chunk_id = Number(chunk.chunk_id);
+                }
+                const saved = await request('/knowledge/references', { method: 'POST', body: JSON.stringify(payload) });
+                if (!current()) return;
+                if (saved.code !== 200) throw new Error(saved.message || '参考稿保存失败');
+                const exact = await request(`/knowledge/${saved.data.unit.unit_id}`);
+                if (!current()) return;
+                const read = exact.data?.chunks?.find(c => Number(c.chunk_id) === Number(saved.data.chunk.chunk_id));
+                if (![0, 200].includes(exact.code) || Number(exact.data?.unit?.hotel_id) !== hotelId || !read
+                    || !sameAiGovernanceJson(read.content, saved.data.chunk.content)) throw new Error('参考稿独立回读不一致');
+                referenceDrafts.delete(draftKey);
+                showToast('参考稿已保存并回读；可在知识中心查看原文引用和历史版本');
+                await loadKnowledgeCenter();
+                await openKnowledgeChunks(exact.data.unit);
+            } catch (error) { if (current()) showToast(`${error.message || '整理失败'}；草稿已保留，再次打开可继续。`, 'error'); }
+        };
+        let knowledgeSopCandidateRequestEpoch = 0;
         let knowledgeChunkLoadEpoch = 0;
+        let knowledgeChunkClosedDraft = null;
 
             const normalizeKnowledgeChunkContent = (value) => {
                 if (value && typeof value === 'object') return value;
@@ -187,6 +277,14 @@
                     worksheetHeaders,
                     worksheetRows,
                     rawText,
+                    sourceSegments: Array.isArray(content.source_segments) ? content.source_segments : [],
+                    citations: Array.isArray(content.citations) ? content.citations : [],
+                    ingestion: content.ingestion || null,
+                    isReference: content.content_type === 'reference_sop',
+                    isHistorical: (chunk?.lifecycle_status || 'active') !== 'active',
+                    isQuarantined: content.entry?.disposition === 'reject_or_quarantine',
+                    canPrepareReference: (chunk?.lifecycle_status || 'active') === 'active'
+                        && content.entry?.disposition !== 'reject_or_quarantine',
                     fullJson: formatKnowledgeJson(content),
                     taskTemplate,
                     platforms: knowledgeChunkTextList(content.platforms, 20)
@@ -213,7 +311,10 @@
                 return true;
             };
 
-            const knowledgeCenterVisibleChunks = computed(() => knowledgeCenterChunks.value.filter(knowledgeChunkMatchesCurrentFilter));
+            const knowledgeCenterVisibleChunks = computed(() => knowledgeCenterChunks.value
+                .filter(knowledgeChunkMatchesCurrentFilter)
+                .sort((a, b) => Number((a.lifecycle_status || 'active') !== 'active')
+                    - Number((b.lifecycle_status || 'active') !== 'active')));
 
             const parseKnowledgeContent = (raw) => {
                 const text = String(raw || '').trim();
@@ -225,11 +326,14 @@
                 }
             };
 
-            const loadKnowledgeCenter = async ({ hotelId = '' } = {}) => {
+            const loadKnowledgeCenter = async ({ hotelId = '', page = knowledgeCenterPagination.value.page || 1 } = {}) => {
+                const requestEpoch = ++knowledgeCenterListRequestEpoch;
+                const session = captureAuthSession();
                 knowledgeCenterLoading.value = true;
+                knowledgeCenterListError.value = '';
                 try {
                     const params = new URLSearchParams({
-                        page: String(knowledgeCenterPagination.value.page || 1),
+                        page: String(page),
                         page_size: String(knowledgeCenterPagination.value.page_size || 10),
                     });
                     if (knowledgeCenterFilter.value.keyword) params.append('keyword', knowledgeCenterFilter.value.keyword.trim());
@@ -242,26 +346,61 @@
                     }
                     const requestedHotelId = String(hotelId || '').trim();
                     if (requestedHotelId) params.append('hotel_id', requestedHotelId);
+                    const requestedScope = JSON.stringify([
+                        currentPage?.value || 'knowledge-center',
+                        typeof defaultKnowledgeCenterHotelId === 'function' ? String(defaultKnowledgeCenterHotelId()) : '',
+                        [...params].filter(([key]) => key !== 'page' && key !== 'page_size'),
+                    ]);
+                    if (knowledgeCenterConfirmedListScope === null || (
+                        requestedScope !== knowledgeCenterConfirmedListScope
+                        || !isAuthSessionCurrent(knowledgeCenterConfirmedListSession)
+                    )) {
+                        knowledgeCenterUnits.value = [];
+                        selectedKnowledgeCenterUnitIds.value = [];
+                    }
 
                     const res = await request(`/knowledge/list?${params.toString()}`);
+                    if (requestEpoch !== knowledgeCenterListRequestEpoch || !isAuthSessionCurrent(session)) return false;
                     if (res.code === 0) {
-                        knowledgeCenterUnits.value = res.data?.list || [];
-                        const visibleIds = new Set(knowledgeCenterUnits.value.map(unit => String(unit.unit_id)));
-                        selectedKnowledgeCenterUnitIds.value = selectedKnowledgeCenterUnitIds.value.filter(id => visibleIds.has(String(id)));
-                        knowledgeCenterPagination.value = {
-                            total: res.data?.pagination?.total || 0,
-                            page: res.data?.pagination?.page || 1,
-                            page_size: res.data?.pagination?.page_size || 10,
-                            total_page: res.data?.pagination?.total_page || 1,
+                        const rows = res.data?.list;
+                        const pagination = res.data?.pagination;
+                        const readInteger = (value, minimum) => {
+                            if (typeof value !== 'number' && (typeof value !== 'string' || !/^\d+$/.test(value.trim()))) return null;
+                            const number = Number(value);
+                            return Number.isSafeInteger(number) && number >= minimum ? number : null;
                         };
+                        const nextPagination = {
+                            total: readInteger(pagination?.total, 0),
+                            page: readInteger(pagination?.page, 1),
+                            page_size: readInteger(pagination?.page_size, 1),
+                            total_page: readInteger(pagination?.total_page, 0),
+                        };
+                        if (!Array.isArray(rows) || !rows.every(unit => unit && typeof unit === 'object' && !Array.isArray(unit) && readInteger(unit.unit_id, 1) !== null)
+                            || !pagination || typeof pagination !== 'object' || Array.isArray(pagination)
+                            || Object.values(nextPagination).some(value => value === null)) {
+                            throw new Error('知识列表回执不完整，请重新刷新');
+                        }
+                        const visibleIds = new Set(rows.map(unit => String(unit.unit_id)));
+                        const nextSelection = selectedKnowledgeCenterUnitIds.value.filter(id => visibleIds.has(String(id)));
+                        knowledgeCenterUnits.value = rows;
+                        knowledgeCenterPagination.value = nextPagination;
+                        selectedKnowledgeCenterUnitIds.value = nextSelection;
+                        knowledgeCenterConfirmedListScope = requestedScope;
+                        knowledgeCenterConfirmedListSession = session;
+                        return true;
                     } else {
-                        showToast(res.msg || '知识单元加载失败', 'error');
+                        throw new Error(res.msg || res.message || '知识单元加载失败');
                     }
                 } catch (error) {
-                    showToast(error.message || '知识单元加载失败', 'error');
+                    if (requestEpoch !== knowledgeCenterListRequestEpoch || !isAuthSessionCurrent(session)) return false;
+                    knowledgeCenterListError.value = error.message || '知识单元加载失败';
+                    showToast(knowledgeCenterListError.value, 'error');
                 } finally {
-                    knowledgeCenterLoading.value = false;
+                    if (requestEpoch === knowledgeCenterListRequestEpoch) {
+                        knowledgeCenterLoading.value = false;
+                    }
                 }
+                return false;
             };
 
             const knowledgePromotionRequestId = () => {
@@ -314,6 +453,7 @@
                 return {
                     kind: isAction ? 'action' : 'load',
                     epoch,
+                    selectionEpoch: knowledgePromotionLoadEpoch,
                     session: captureAuthSession(),
                     page: String(currentPage.value || ''),
                     hotelId: Number(knowledgePromotionHotelId.value || 0),
@@ -325,6 +465,7 @@
                     ? knowledgePromotionActionEpoch
                     : knowledgePromotionLoadEpoch;
                 return Number(context.epoch) === Number(currentEpoch)
+                    && (context.kind !== 'action' || Number(context.selectionEpoch) === knowledgePromotionLoadEpoch)
                     && isAuthSessionCurrent(context.session)
                     && context.page === 'knowledge-center'
                     && currentPage.value === context.page
@@ -606,6 +747,8 @@
             };
 
             const changeKnowledgePromotionHotel = () => {
+                knowledgeSopCandidateRequestEpoch += 1;
+                knowledgeSopCandidateAction.value = '';
                 knowledgePromotionLoadEpoch += 1;
                 knowledgePromotionActionEpoch += 1;
                 knowledgePromotionAction.value = '';
@@ -627,6 +770,7 @@
                 const hotelId = Number(knowledgePromotionHotelId.value || 0);
                 if (candidateId <= 0 || hotelId <= 0) return;
                 const context = captureKnowledgePromotionContext('load');
+                knowledgePromotionSelectedCandidate.value = null;
                 knowledgePromotionLoading.value = true;
                 knowledgePromotionError.value = '';
                 try {
@@ -677,7 +821,12 @@
                 try {
                     const response = await request(url, {
                         method: 'POST',
-                        body: JSON.stringify({ ...body, idempotency_key: knowledgePromotionRequestId() }),
+                        body: JSON.stringify({ ...body,
+                            ...(knowledgePromotionSelectedCandidate.value ? {
+                                expected_row_version: Number(knowledgePromotionSelectedCandidate.value.row_version),
+                                expected_revision_id: Number(knowledgePromotionSelectedCandidate.value.current_revision_id),
+                            } : {}),
+                            idempotency_key: knowledgePromotionRequestId() }),
                     });
                     if (!isKnowledgePromotionContextCurrent(context)) return null;
                     if (response.code !== 200 || !response.data) {
@@ -739,6 +888,17 @@
                     knowledgeSopCandidateError.value = '候选 SOP 的来源记忆必须属于同一平台和事实范围。';
                     return null;
                 }
+                const requestContext = {
+                    epoch: ++knowledgeSopCandidateRequestEpoch,
+                    session: captureAuthSession(),
+                    page: String(currentPage.value || ''),
+                    hotelId,
+                };
+                const isCurrentRequest = () => requestContext.epoch === knowledgeSopCandidateRequestEpoch
+                    && isAuthSessionCurrent(requestContext.session)
+                    && requestContext.page === 'knowledge-center'
+                    && currentPage.value === requestContext.page
+                    && Number(knowledgePromotionHotelId.value || 0) === requestContext.hotelId;
                 knowledgeSopCandidateAction.value = 'save';
                 knowledgeSopCandidateError.value = '';
                 knowledgeSopCandidateReadback.value = null;
@@ -755,6 +915,7 @@
                         method: 'POST',
                         body: JSON.stringify(payload),
                     });
+                    if (!isCurrentRequest()) return null;
                     if (saved.code !== 200) throw new Error(saved.message || '候选 SOP 保存失败');
                     const savedVersion = saved.data?.version || {};
                     const boundaries = saved.data?.write_boundaries || {};
@@ -767,6 +928,7 @@
                         || boundaries.external_message !== false
                     ) throw new Error('候选 SOP 没有返回受控保存回读凭证');
                     const readback = await request(`/operation/operating-sops/${versionId}`);
+                    if (!isCurrentRequest()) return null;
                     if (readback.code !== 200) throw new Error(readback.message || '候选 SOP 回读失败');
                     const exact = readback.data || {};
                     const exactMemoryIds = Array.isArray(exact.source_memory_ids)
@@ -784,15 +946,19 @@
                     ) throw new Error('候选 SOP 保存与精确回读不一致');
                     knowledgeSopCandidateReadback.value = exact;
                     await loadKnowledgePromotionWorkbench();
+                    if (!isCurrentRequest()) return null;
                     knowledgePromotionForm.value.source_version_id = String(versionId);
                     showToast('候选 SOP 已保存并精确回读；是否进入正式晋级仍由你主动决定。');
                     return exact;
                 } catch (error) {
+                    if (!isCurrentRequest()) return null;
                     knowledgeSopCandidateError.value = error?.message || '候选 SOP 保存失败';
                     showToast(knowledgeSopCandidateError.value, 'error');
                     return null;
                 } finally {
-                    knowledgeSopCandidateAction.value = '';
+                    if (requestContext.epoch === knowledgeSopCandidateRequestEpoch) {
+                        knowledgeSopCandidateAction.value = '';
+                    }
                 }
             };
 
@@ -1021,6 +1187,7 @@
                 operatingNetworkLastReplication.value = null;
                 operatingNetworkExecutionIntent.value = null;
                 operatingNetworkReviews.value = [];
+                operatingNetworkReviewState.value = { replication_id: 0, status: 'idle', error: '' };
                 operatingNetworkReplicationForm.value = {
                     source_sop_version_id: '',
                     target_date_start: '',
@@ -1178,24 +1345,33 @@
 
             const loadOperatingNetworkReviews = async (replicationId) => {
                 const id = Number(replicationId || 0);
-                if (id <= 0) {
-                    operatingNetworkReviews.value = [];
-                    return [];
+                operatingNetworkReviews.value = [];
+                operatingNetworkReviewState.value = { replication_id: id, status: id > 0 ? 'loading' : 'idle', error: '' };
+                if (id <= 0) return [];
+                try {
+                    const response = await request(`/operation/operating-sop-replications/${id}/reviews`);
+                    if (response.code !== 200 || response.data?.data_status !== 'ok') {
+                        throw new Error(response.msg || '复制复盘回读失败');
+                    }
+                    const rows = Array.isArray(response.data.list) ? response.data.list : [];
+                    const rawCount = response.data.count;
+                    const count = (typeof rawCount === 'number' || typeof rawCount === 'string')
+                        && /^\d+$/.test(String(rawCount).trim()) ? Number(rawCount) : NaN;
+                    if (!Array.isArray(response.data.list) || !Number.isSafeInteger(count)
+                        || Number(response.data.replication_id || 0) !== id
+                        || count !== rows.length
+                        || rows.some((row) => Number(row.replication_id || 0) !== id)
+                    ) {
+                        throw new Error('复制复盘独立回读不一致');
+                    }
+                    assertOperatingNetworkBoundaries(response.data.boundaries);
+                    operatingNetworkReviews.value = rows;
+                    operatingNetworkReviewState.value = { replication_id: id, status: 'ready', error: '' };
+                    return rows;
+                } catch (error) {
+                    operatingNetworkReviewState.value = { replication_id: id, status: 'error', error: error.message || '复制复盘回读失败' };
+                    throw error;
                 }
-                const response = await request(`/operation/operating-sop-replications/${id}/reviews`);
-                if (response.code !== 200 || response.data?.data_status !== 'ok') {
-                    throw new Error(response.msg || '复制复盘回读失败');
-                }
-                const rows = Array.isArray(response.data.list) ? response.data.list : [];
-                if (Number(response.data.replication_id || 0) !== id
-                    || Number(response.data.count || 0) !== rows.length
-                    || rows.some((row) => Number(row.replication_id || 0) !== id)
-                ) {
-                    throw new Error('复制复盘独立回读不一致');
-                }
-                assertOperatingNetworkBoundaries(response.data.boundaries);
-                operatingNetworkReviews.value = rows;
-                return rows;
             };
 
             const generateOperatingNetworkReplicationDraft = async () => {
@@ -1559,16 +1735,14 @@
             };
 
             const reloadKnowledgeCenter = () => {
-                knowledgeCenterPagination.value.page = 1;
                 selectedKnowledgeCenterUnitIds.value = [];
-                loadKnowledgeCenter();
+                loadKnowledgeCenter({ page: 1 });
             };
 
             const changeKnowledgeCenterPage = (page) => {
                 const nextPage = Math.max(1, Math.min(page, knowledgeCenterPagination.value.total_page || 1));
                 if (nextPage === knowledgeCenterPagination.value.page) return;
-                knowledgeCenterPagination.value.page = nextPage;
-                loadKnowledgeCenter();
+                loadKnowledgeCenter({ page: nextPage });
             };
 
             const resetKnowledgeCenterFilter = () => {
@@ -1656,8 +1830,9 @@
             };
 
             const refreshKnowledgeUnit = async () => {
-                await loadKnowledgeCenter();
-                showToast('已刷新');
+                const refreshed = await loadKnowledgeCenter();
+                if (refreshed) showToast('已刷新');
+                return refreshed;
             };
 
             const runKnowledgeDistillation = async (mode = 'kd') => {
@@ -1687,15 +1862,26 @@
 
             const openKnowledgeChunks = async (unit, options = {}) => {
                 if (options.editChunk) {
+                    knowledgeChunkClosedDraft = null;
                     const chunk = options.editChunk;
                     knowledgeCenterChunkForm.value = { type: chunk.type, content: JSON.stringify(chunk.content, null, 2), replaces_chunk_id: chunk.chunk_id, expected_digest: chunk.revision_digest };
                     return;
                 }
+                const pendingSave = knowledgeCenterChunkForm.value?.pending_save;
+                const restorePendingSave = !options.refresh
+                    && Number(knowledgeCenterSelectedUnit.value?.unit_id) === Number(unit.unit_id)
+                    && pendingSave?.isCurrent();
+                const restoreClosedDraft = !options.refresh
+                    && Number(knowledgeChunkClosedDraft?.unitId) === Number(unit.unit_id)
+                    && knowledgeChunkClosedDraft.isCurrent();
+                if (!options.refresh) knowledgeChunkClosedDraft = null;
                 const epoch = ++knowledgeChunkLoadEpoch;
                 const auth = typeof captureAuthSession === 'function' ? captureAuthSession() : null;
                 const isCurrent = () => epoch === knowledgeChunkLoadEpoch && Number(knowledgeCenterSelectedUnit.value?.unit_id) === Number(unit.unit_id)
                     && (auth === null || isAuthSessionCurrent(auth));
-                const query = options.refresh && unit.applicability_query ? { ...unit.applicability_query } : {
+                const query = restorePendingSave
+                    ? Object.fromEntries(new URLSearchParams(pendingSave.url.slice(pendingSave.url.indexOf('?') + 1)))
+                    : options.refresh && unit.applicability_query ? { ...unit.applicability_query } : {
                     hotel_id: unit.hotel_id || defaultKnowledgeCenterHotelId() || '',
                     platform: knowledgeCenterFilter.value.platform || 'all_ota',
                     as_of: new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Shanghai' }),
@@ -1705,7 +1891,7 @@
                 const isQueryCurrent = () => new URLSearchParams(knowledgeCenterSelectedUnit.value?.applicability_query || {}).toString() === querySignature;
                 knowledgeCenterSelectedUnit.value = { ...unit, applicability_query: { ...query }, chunks_loading: true, chunks_error: '', evaluation: null, retrieval_preview: null };
                 knowledgeCenterChunks.value = [];
-                if (!options.refresh) knowledgeCenterChunkForm.value = { type: '经验片段', content: defaultKnowledgeExperienceChunk() };
+                if (!options.refresh && !restoreClosedDraft && !restorePendingSave) knowledgeCenterChunkForm.value = { type: '经验片段', content: defaultKnowledgeExperienceChunk() };
                 showKnowledgeCenterChunksModal.value = true;
                 try {
                     const params = new URLSearchParams({ ...query, evaluate: options.evaluate ? '1' : '0' });
@@ -1726,34 +1912,84 @@
                 const unitId = knowledgeCenterSelectedUnit.value?.unit_id;
                 const form = knowledgeCenterChunkForm.value;
                 if (!unitId || form.saving) return;
-                const epoch = knowledgeChunkLoadEpoch;
                 const auth = typeof captureAuthSession === 'function' ? captureAuthSession() : null;
-                const isCurrent = () => epoch === knowledgeChunkLoadEpoch && Number(knowledgeCenterSelectedUnit.value?.unit_id) === Number(unitId)
+                const isCurrent = () => Number(knowledgeCenterSelectedUnit.value?.unit_id) === Number(unitId)
+                    && knowledgeCenterChunkForm.value === form
                     && (auth === null || isAuthSessionCurrent(auth));
-                form.saving = true;
-                const payload = {
-                    type: form.type || 'manual',
-                    content: parseKnowledgeContent(form.content),
-                    replaces_chunk_id: form.replaces_chunk_id || 0,
-                    expected_digest: form.expected_digest || '',
-                };
-                if (form.request_payload !== JSON.stringify(payload)) {
-                    form.request_id = globalThis.crypto?.randomUUID?.() || `knowledge-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-                    form.request_payload = JSON.stringify(payload);
+                const draftSignature = () => JSON.stringify([form.type, form.content, form.replaces_chunk_id, form.expected_digest]);
+                if (form.pending_save && !form.pending_save.isCurrent()) {
+                    showToast('登录或编辑范围已变化，请重新打开片段后保存', 'error');
+                    return;
                 }
-                payload.request_id = form.request_id;
-                try {
+                if (!form.pending_save) {
+                    const payload = {
+                        type: form.type || 'manual',
+                        content: parseKnowledgeContent(form.content),
+                        replaces_chunk_id: form.replaces_chunk_id || 0,
+                        expected_digest: form.expected_digest || '',
+                    };
+                    if (form.request_payload !== JSON.stringify(payload)) {
+                        form.request_id = globalThis.crypto?.randomUUID?.() || `knowledge-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+                        form.request_payload = JSON.stringify(payload);
+                    }
                     const params = new URLSearchParams(knowledgeCenterSelectedUnit.value.applicability_query || {});
-                    const res = await request(`/knowledge/${unitId}/add-chunk?${params}`, { method: 'POST', body: JSON.stringify(payload) });
+                    form.pending_save = { url: `/knowledge/${unitId}/add-chunk?${params}`, submitted_draft: draftSignature(), isCurrent };
+                }
+                const pending = form.pending_save;
+                const payload = { ...JSON.parse(form.request_payload), request_id: form.request_id };
+                form.saving = true;
+                try {
+                    const res = await request(pending.url, { method: 'POST', body: JSON.stringify(payload) });
                     if (!isCurrent()) return;
-                    if (res.code !== 0 || res.data?.readback_verified !== true) throw new Error(res.msg || '片段保存或精确回读失败');
+                    if (res.code !== 0 || res.data?.readback_verified !== true) {
+                        const error = new Error(res.msg || '片段保存或精确回读失败');
+                        error.data = res;
+                        throw error;
+                    }
+                    const hasNewEdits = draftSignature() !== pending.submitted_draft;
+                    {
+                        const chunk = res.data.chunk;
+                        const revision = chunk?.content?.knowledge_revision;
+                        const isPositiveId = value => (typeof value === 'number' || typeof value === 'string')
+                            && /^[1-9]\d*$/.test(String(value)) && Number.isSafeInteger(Number(value));
+                        const parentId = Number(payload.replaces_chunk_id);
+                        const matchesParent = parentId > 0
+                            ? isPositiveId(revision?.parent_chunk_id) && Number(revision.parent_chunk_id) === parentId
+                                && revision.parent_digest === String(payload.expected_digest).trim().toLowerCase()
+                            : revision?.parent_chunk_id === null && revision?.parent_digest === null;
+                        if (!chunk || Array.isArray(chunk) || !isPositiveId(chunk.chunk_id) || !isPositiveId(chunk.unit_id)
+                            || Number(chunk.unit_id) !== Number(unitId) || Number(chunk.chunk_id) === parentId
+                            || typeof chunk.revision_digest !== 'string' || !/^[a-f0-9]{64}$/i.test(chunk.revision_digest)
+                            || !revision || Array.isArray(revision) || revision.request_id !== payload.request_id || !matchesParent) {
+                            throw new Error('片段保存回执不匹配，当前输入已保留，请确认上次保存');
+                        }
+                        delete form.pending_save;
+                        if (hasNewEdits) {
+                            // The submitted revision superseded the old parent; keep newer edits on its exact saved successor.
+                            form.replaces_chunk_id = Number(chunk.chunk_id);
+                            form.expected_digest = chunk.revision_digest;
+                            delete form.request_id;
+                            delete form.request_payload;
+                            if (!showKnowledgeCenterChunksModal.value) knowledgeChunkClosedDraft = { unitId, isCurrent };
+                        } else {
+                            knowledgeCenterChunkForm.value = { type: '经验片段', content: defaultKnowledgeExperienceChunk() };
+                        }
+                    }
                     knowledgeCenterSelectedUnit.value.reevaluation = res.data.reevaluation;
-                    knowledgeCenterChunkForm.value = { type: '经验片段', content: defaultKnowledgeExperienceChunk() };
-                    await openKnowledgeChunks(knowledgeCenterSelectedUnit.value, { refresh: true });
+                    if (showKnowledgeCenterChunksModal.value) await openKnowledgeChunks(knowledgeCenterSelectedUnit.value, { refresh: true });
                     await loadKnowledgeCenter();
-                    showToast('片段已保存并精确回读；修改内容保持未核验参考状态');
+                    showToast(hasNewEdits
+                        ? '提交的片段已保存并精确回读；新修改已保留，尚未保存，请再次保存'
+                        : '片段已保存并精确回读；修改内容保持未核验参考状态');
                 } catch (error) {
-                    if (isCurrent()) showToast(error.message || '片段写入失败', 'error');
+                    if (isCurrent()) {
+                        const httpStatus = Number(error?.status);
+                        const status = httpStatus > 0 ? httpStatus : Number(error?.data?.code);
+                        if ([400, 401, 403, 404, 409, 422].includes(status)) delete form.pending_save;
+                        showToast(form.pending_save
+                            ? `${error.message || '片段写入失败'}；保存结果待确认，新修改已保留，请确认上次保存`
+                            : error.message || '片段写入失败', 'error');
+                    }
                 } finally {
                     form.saving = false;
                 }
@@ -1859,6 +2095,10 @@
             const batchDeleteKnowledgeUnits = async () => {
                 const ids = [...new Set(selectedKnowledgeCenterUnitIds.value.map(id => String(id)).filter(Boolean))];
                 if (ids.length === 0 || knowledgeCenterBatchDeleting.value) return;
+                if (knowledgeCenterUnits.value.some(unit => ids.includes(String(unit.unit_id)) && unit.can_edit === false)) {
+                    showToast('所选资料含保护版本，可合并为参考稿；批量删除前请取消勾选保护版本。', 'error');
+                    return;
+                }
 
                 if (!confirm(`确认删除当前选中的 ${ids.length} 条知识？该操作会同时删除对应片段。`)) {
                     return;
@@ -1879,7 +2119,15 @@
                     }
 
                     selectedKnowledgeCenterUnitIds.value = [];
-                    await loadKnowledgeCenter();
+                    const refreshed = await loadKnowledgeCenter();
+                    if (!refreshed) {
+                        const confirmedDeletedCount = ids.length - failures.length;
+                        const failureSummary = failures.length > 0
+                            ? `，${failures.length} 条删除失败或未确认：${failures.slice(0, 2).join('；')}`
+                            : '';
+                        showToast(`已确认删除 ${confirmedDeletedCount} 条知识${failureSummary}；本次列表刷新未确认，请刷新确认`, 'error');
+                        return;
+                    }
                     if (failures.length > 0) {
                         showToast(`批量删除完成，失败 ${failures.length} 条：${failures.slice(0, 2).join('；')}`, 'error');
                     } else {
@@ -1979,9 +2227,10 @@
                     `${label}.char_count`,
                     { positive: true }
                 );
-                if (!filename || extension !== 'xlsx' || !/^[a-f0-9]{64}$/.test(sha256) || !/^[a-f0-9]{64}$/.test(textSha256)) {
+                if (!filename || !knowledgeDocumentSupportedExtensions.includes(extension) || !/^[a-f0-9]{64}$/.test(sha256) || !/^[a-f0-9]{64}$/.test(textSha256)) {
                     throw new Error(`${label} 的文件名、扩展名或 SHA-256 无效`);
                 }
+                if (extension !== 'xlsx') return { filename, extension, sha256, text_sha256: textSha256, char_count: charCount };
                 const sheetsSource = requireKnowledgeImportField(source, 'sheets', label);
                 if (!Array.isArray(sheetsSource) || sheetsSource.length === 0) {
                     throw new Error(`${label}.sheets 未返回工作表`);
@@ -2029,7 +2278,7 @@
                 const expectedNormalized = normalizeKnowledgeSourceDocumentForReadback(expected, '预览 source_document');
                 const actualNormalized = normalizeKnowledgeSourceDocumentForReadback(actual, label);
                 if (JSON.stringify(actualNormalized) !== JSON.stringify(expectedNormalized)) {
-                    throw new Error(`${label} 与预览的完整 XLSX 来源元数据不一致`);
+                    throw new Error(`${label} 与预览的完整文档来源元数据不一致`);
                 }
                 return actualNormalized;
             };
@@ -2106,15 +2355,17 @@
                     throw new Error(`${file.name} 超过 5MB`);
                 }
 
-                if (knowledgeDocumentTextExtensions.includes(extension)) {
-                    const text = await file.text();
+                if (knowledgeDocumentTextExtensions.includes(extension) || knowledgeDocumentHtmlExtensions.includes(extension)) {
+                    const bytes = await file.arrayBuffer();
                     assertKnowledgeImportActionCurrent(actionContext);
-                    return { text: normalizeKnowledgeDocumentText(text), source_document: null };
-                }
-                if (knowledgeDocumentHtmlExtensions.includes(extension)) {
-                    const html = await file.text();
-                    assertKnowledgeImportActionCurrent(actionContext);
-                    return { text: extractKnowledgeTextFromHtml(html), source_document: null };
+                    const decoder = new TextDecoder('utf-8', { fatal: true });
+                    let text;
+                    try {
+                        text = decoder.decode(bytes);
+                    } catch {
+                        throw new Error('文本文档必须使用 UTF-8 编码；非 UTF-8 文档请复制正文后直接粘贴');
+                    }
+                    // Local decoding validates UTF-8; server extraction preserves the uploaded original and fingerprint.
                 }
 
                 const extracted = await extractKnowledgeDocumentByApi(file, actionContext);
@@ -2135,6 +2386,7 @@
                 knowledgeCenterImportDocumentNotice.value = '读取中...';
                 try {
                     const xlsxFiles = list.filter(file => knowledgeDocumentExtension(file) === 'xlsx');
+                    if (list.length !== 1) throw new Error('每次选择一个文件以保留原文件指纹；可逐个导入后在参考稿中合并引用');
                     if (xlsxFiles.length > 0 && (xlsxFiles.length !== 1 || list.length !== 1)) {
                         throw new Error('XLSX 必须单独选择；每次导入一个工作簿以保持来源指纹可核验');
                     }
@@ -2147,11 +2399,11 @@
                         }
                         parsed.push({ name: file.name, file, ...extracted });
                     }
-                    if (xlsxFiles.length === 1) {
+                    if (parsed.length === 1) {
                         const workbook = parsed[0];
                         const sourceDocument = normalizeKnowledgeSourceDocumentForReadback(
                             workbook.source_document,
-                            'XLSX 预览 source_document'
+                            '文档预览 source_document'
                         );
                         assertKnowledgeImportActionCurrent(actionContext);
                         knowledgeCenterImportSelectedFile.value = workbook.file;
@@ -2159,16 +2411,24 @@
                         knowledgeCenterImportPreviewRaw.value = normalizeKnowledgeDocumentText(workbook.text);
                         knowledgeCenterImportForm.value = {
                             ...knowledgeCenterImportForm.value,
-                            mode: 'xlsx',
+                            mode: sourceDocument.extension,
                             source: 'manual_template',
                             raw: workbook.text,
                         };
-                        const sheetNames = sourceDocument.sheets.map(sheet => sheet.name).filter(Boolean);
-                        knowledgeCenterImportDocumentNotice.value = `已由服务端读取 ${workbook.name} · SHA-256 ${String(sourceDocument.sha256).slice(0, 12)}… · ${sheetNames.length} 个工作表`;
-                        showToast('XLSX 已预览；提交时服务端会重新解析同一文件');
+                        const sheetNames = (sourceDocument.sheets || []).map(sheet => sheet.name).filter(Boolean);
+                        knowledgeCenterImportDocumentNotice.value = `已由服务端读取 ${workbook.name} · SHA-256 ${String(sourceDocument.sha256).slice(0, 12)}…${sheetNames.length ? ` · ${sheetNames.length} 个工作表` : ''}`;
+                        showToast('文件已预览；提交时服务端会重新解析同一文件');
                         return;
                     }
                     assertKnowledgeImportActionCurrent(actionContext);
+                    if (knowledgeCenterImportSelectedFile.value) {
+                        knowledgeCenterImportForm.value = {
+                            ...knowledgeCenterImportForm.value,
+                            mode: 'document',
+                            source: 'document',
+                            raw: '',
+                        };
+                    }
                     knowledgeCenterImportSelectedFile.value = null;
                     knowledgeCenterImportSourceDocument.value = null;
                     knowledgeCenterImportPreviewRaw.value = '';
@@ -2296,6 +2556,7 @@
                     ? normalizeKnowledgeSourceDocumentForReadback(expected.sourceDocument, '预览 source_document')
                     : null;
                 const singleXlsx = expected.singleXlsx === true;
+                const singleDocument = String(expected.mode || '') === 'document';
                 const created = Array.isArray(importData?.created) ? importData.created : [];
                 if (created.length === 0) {
                     throw new Error('导入响应没有返回可精确回读的知识记录');
@@ -2318,6 +2579,9 @@
                 ) {
                     throw new Error('AI 摘要未全部成功，导入结果不会关闭或标记为完成');
                 }
+                if (singleDocument && created.length !== 1) {
+                    throw new Error('导入已提交，但文档原文回读不一致：单份文档没有返回单条知识记录');
+                }
                 if (expectedSourceDocument) {
                     const importContext = importData?.import_context;
                     if (!importContext || typeof importContext !== 'object'
@@ -2326,7 +2590,7 @@
                         || importContext.verification_status !== 'unverified'
                         || importContext.container_scope !== 'authorized_hotel_container_only'
                     ) {
-                        throw new Error('XLSX 导入响应丢失人工模板、行业通用或未核验边界');
+                        throw new Error('文档导入响应丢失人工模板、行业通用或未核验边界');
                     }
                     assertKnowledgeSourceDocumentExact(
                         expectedSourceDocument,
@@ -2361,6 +2625,9 @@
                     ) {
                         throw new Error('导入已提交，但服务端保存回读未确认');
                     }
+                    if (singleDocument && normalizeKnowledgeDocumentText(postContent.raw_text) !== expectedRawText) {
+                        throw new Error(`知识 #${unitId} 导入已提交，但文档原文回读不一致，请保留原稿并检查已提交记录`);
+                    }
                     const responseReadbackUnit = item?.readback?.unit_snapshot || {};
                     const responseReadbackChunk = item?.readback?.chunk_snapshot || {};
                     if (Number(responseReadbackUnit.unit_id || 0) !== unitId
@@ -2380,7 +2647,7 @@
                         ];
                         const tags = Array.isArray(postUnit.tags) ? postUnit.tags : [];
                         if (normalizeKnowledgeDocumentText(postContent.raw_text) !== expectedRawText
-                            || postContent.material_type !== 'xlsx'
+                            || postContent.material_type !== expectedSourceDocument.extension
                             || postContent.source !== 'manual_template'
                             || postContent.material_classification !== 'manual_template'
                             || postContent.knowledge_scope !== 'industry_general'
@@ -2391,7 +2658,7 @@
                             || !knowledgeExactJsonMatches(postContent.blocked_uses, expectedBlockedUses)
                             || !['人工模板', '行业通用', '未核验'].every(tag => tags.includes(tag))
                         ) {
-                            throw new Error(`知识 #${unitId} 的 XLSX 原文或事实使用边界不一致`);
+                            throw new Error(`知识 #${unitId} 的文档原文或事实使用边界不一致`);
                         }
                         assertKnowledgeSourceDocumentExact(
                             expectedSourceDocument,
@@ -2430,7 +2697,7 @@
                             || String(detailContent.ai_distilled?.summary || '').trim() !== postSummary
                             || String(detailUnit.description || '') !== Array.from(postSummary).slice(0, 1000).join('')
                         ) {
-                            throw new Error(`知识 #${unitId} 的 XLSX 原文或 AI 摘要独立回读不一致`);
+                            throw new Error(`知识 #${unitId} 的文档原文或 AI 摘要独立回读不一致`);
                         }
                     }
                     verifiedUnits.push({
@@ -2461,7 +2728,7 @@
                     return;
                 }
                 if (selectedFile && (!lockedPreviewRaw || raw !== lockedPreviewRaw)) {
-                    knowledgeCenterImportDocumentError.value = 'XLSX 预览原文已变化，请重新选择同一工作簿后再提交';
+                    knowledgeCenterImportDocumentError.value = '文档预览原文已变化，请重新选择同一文件后再提交';
                     showToast(knowledgeCenterImportDocumentError.value, 'error');
                     return;
                 }
@@ -2474,7 +2741,7 @@
                             '提交前预览 source_document'
                         );
                     } catch (error) {
-                        knowledgeCenterImportDocumentError.value = error?.message || 'XLSX 预览来源未锁定';
+                        knowledgeCenterImportDocumentError.value = error?.message || '文档预览来源未锁定';
                         showToast(knowledgeCenterImportDocumentError.value, 'error');
                         return;
                     }
@@ -2529,6 +2796,7 @@
                         hotelId,
                         modelKey: String(form.model_key || 'deepseek_chat'),
                         rawText: frozenRaw,
+                        mode: selectedFile ? 'xlsx' : String(requestBody.mode || ''),
                         sourceDocument,
                         singleXlsx: !!selectedFile,
                     });
@@ -2612,6 +2880,7 @@
             runKnowledgeDistillation,
             openKnowledgeChunks,
             saveKnowledgeChunk,
+            editKnowledgeReference,
             createKnowledgeSopTask,
             isAllKnowledgeCenterPageSelected,
             toggleSelectAllKnowledgeCenterUnits,

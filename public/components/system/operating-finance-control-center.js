@@ -73,16 +73,22 @@
                 return row;
             });
     };
-    const sha256 = async text => {
-        const bytes = new TextEncoder().encode(String(text));
+    const sha256Bytes = async bytes => {
         const digest = await crypto.subtle.digest('SHA-256', bytes);
         return [...new Uint8Array(digest)].map(value => value.toString(16).padStart(2, '0')).join('');
     };
+    const sha256 = async text => sha256Bytes(new TextEncoder().encode(String(text)));
+    const matchesSettlementScope = (scope, tenantId, hotelId, platform, first, last) => !!scope
+        && Number.isSafeInteger(scope.tenant_id) && scope.tenant_id > 0
+        && (!tenantId || scope.tenant_id === tenantId)
+        && scope.hotel_id === hotelId && scope.platform === platform
+        && scope.period_start === first && scope.period_end === last;
     const statusText = value => ({
         ready: '已就绪', available: '已取得', partial: '部分可用', invalid: '无效批次', blocked: '已阻塞', missing: '未取得',
         empty: '暂无记录', baseline_only: '仅建立基线', no_blocker_observed: '未观察到阻塞',
         evidence_missing: '缺少证据', sender_mapping_and_verified_event_required: '待员工映射与已验证事件',
-        reference_only: '仅作参考', verified_source: '来源已核对', operator_attested: '人工已核对', unverified: '未核验',
+        reference_only: '仅作参考', verified_source: '来源已核对', verified_export: '平台导出已核验',
+        operator_attested: '人工已核对', unverified: '未核验', synthetic_test_only: '仅测试模拟',
         not_applicable: '不适用',
         same_scope_comparable: '同口径可比', same_scope_manual_snapshot_comparable: '同口径人工快照可比',
         blocked_incomplete_or_mixed_scope: '口径不齐，暂不可比',
@@ -94,6 +100,9 @@
     const sourceText = value => ({
         ctrip: '携程', meituan: '美团', dingdandao_pms: '订单来了 PMS', manual_all_channels: '人工全渠道',
     })[String(value || '')] || String(value || '未取得');
+    const settlementSourceText = value => ({
+        manual_export: '人工导入', authorized_api_export: '授权接口导出', synthetic_test_fixture: '测试模拟',
+    })[String(value || '')] || String(value || '来源未取得');
     const discrepancyText = value => ({
         source_direct_gross: '来源直接给出的成交总额差异',
         source_direct_settlement: '来源直接给出的结算金额差异',
@@ -179,15 +188,24 @@
             activeTab: 'settlement', loading: false, error: '', overview: null, requestSeq: 0,
             settlementText: '', settlementUploadFile: null, settlementFileName: '', settlementVerified: false,
             settlementInputKey: 0, settlementParserVersion: 'canonical_settlement_json.v1', savingSettlement: false,
-            settlementImportNotice: null,
+            settlementImportNotice: null, settlementSaveSeq: 0, settlementScopeSeq: 0,
+            settlementDraftRevision: 0, settlementFileSeq: 0,
+            settlementHistoryState: 'idle', settlementHistory: null, settlementHistoryError: '',
+            settlementHistorySeq: 0, settlementDetailState: 'idle', settlementDetail: null,
+            settlementDetailError: '', settlementDetailSeq: 0, settlementDetailLinePage: 1,
+            settlementSelectedBatchId: 0,
             onBooks: emptyOnBooks(),
-            savingOnBooks: false,
+            savingOnBooks: false, onBooksSaveSeq: 0, onBooksDraftRevision: 0,
             eventForm: emptyEventForm(),
-            savingEvent: false,
+            savingEvent: false, eventSaveSeq: 0, eventDraftRevision: 0,
             financeForm: emptyFinanceForm(),
-            savingFinance: false,
+            savingFinance: false, financeSaveSeq: 0, financeDraftRevision: 0,
         }),
         computed: {
+            overviewReadNotice() {
+                return this.loading ? '正在读取当前范围数据。'
+                    : (this.hotelId ? '当前范围数据尚未取得，请刷新重试。' : '请选择可用酒店。');
+            },
             normalizedHotels() {
                 return (Array.isArray(this.hotels) ? this.hotels : [])
                     .filter(hotel => Number(hotel?.id || 0) > 0)
@@ -216,13 +234,33 @@
             visibleFinanceFields() {
                 return financeFields.filter(field => field.scopes.includes(this.financeForm.fact_scope));
             },
+            settlementDetailLinePages() {
+                return Math.max(1, Math.ceil((this.settlementDetail?.lines?.length || 0) / 20));
+            },
+            visibleSettlementDetailLines() {
+                const start = (this.settlementDetailLinePage - 1) * 20;
+                return (this.settlementDetail?.lines || []).slice(start, start + 20);
+            },
             financeScopeHint() {
                 if (this.financeForm.fact_scope === 'ota_channel') return '只记录 OTA 渠道净收入，不计算全酒店 GOP。';
                 if (this.financeForm.fact_scope === 'accommodation_room_fee') return '只计算住宿房费范围贡献；费用也必须是同一住宿范围，不扩大为全酒店 GOP。';
                 return 'GOP 需要客房、非房收入和两类经营费用；业主现金代理还需要租金与其他固定现金成本。';
             },
         },
+        beforeUnmount() {
+            this.settlementSaveSeq += 1;
+            this.settlementFileSeq += 1;
+            this.settlementHistorySeq += 1;
+            this.settlementDetailSeq += 1;
+            this.financeSaveSeq += 1;
+            this.onBooksSaveSeq += 1;
+            this.eventSaveSeq += 1;
+        },
         watch: {
+            settlementVerified: { flush: 'sync', handler() { this.settlementDraftRevision += 1; } },
+            onBooks: { deep: true, flush: 'sync', handler() { this.onBooksDraftRevision += 1; } },
+            eventForm: { deep: true, flush: 'sync', handler() { this.eventDraftRevision += 1; } },
+            financeForm: { deep: true, flush: 'sync', handler() { this.financeDraftRevision += 1; } },
             selectedHotelId: { immediate: true, handler(value, previous) {
                 const candidate = String(value || '');
                 if (!candidate
@@ -243,15 +281,19 @@
                     this.hotelId = this.normalizedHotels.some(hotel => String(hotel.id) === preferred)
                         ? preferred : String(this.normalizedHotels[0]?.id || '');
                 }
-                if (this.hotelId) void this.loadOverview();
+                void this.loadOverview();
             } },
             hotelId(value, previous) {
-                if (previous != null && String(value) !== String(previous)) this.resetAllWriteDrafts();
+                if (previous != null && String(value) !== String(previous)) {
+                    this.resetAllWriteDrafts();
+                    this.resetSettlementHistory();
+                }
             },
             businessDate() { if (this.hotelId) void this.loadOverview(); },
             periodMonth(value, previous) {
                 if (previous != null && value !== previous) {
                     this.resetSettlementDraft();
+                    this.resetSettlementHistory();
                     this.resetFinanceDraft();
                 }
                 if (this.hotelId) void this.loadOverview();
@@ -263,24 +305,31 @@
             platform(value, previous) {
                 if (previous != null && value !== previous) {
                     this.resetSettlementDraft();
+                    this.resetSettlementHistory();
                     this.resetOnBooksDraft();
                 }
                 if (this.hotelId) void this.loadOverview();
             },
         },
         methods: {
+            moduleReadNotice(module) {
+                return module?.message || (module?.status === 'blocked'
+                    ? '该模块暂不可用，请刷新重试。' : this.overviewReadNotice);
+            },
             notify(message, type = 'success') { this.$root?.showToast?.(message, type); },
             statusText,
             scopeText,
             sourceText,
+            settlementSourceText,
             discrepancyText,
             gapText,
             money(value) { return value == null || value === '' ? '未取得' : `¥${Number(value).toLocaleString('zh-CN', { maximumFractionDigits: 2 })}`; },
             async loadOverview() {
                 const hotelId = Number(this.hotelId || 0);
-                if (hotelId <= 0) return;
                 const seq = ++this.requestSeq;
-                this.loading = true; this.error = '';
+                this.overview = null; this.error = ''; this.loading = false;
+                if (hotelId <= 0) return;
+                this.loading = true;
                 try {
                     const params = new URLSearchParams({
                         hotel_id: String(hotelId), business_date: this.businessDate, period_month: this.periodMonth,
@@ -300,11 +349,18 @@
                 } finally { if (seq === this.requestSeq) this.loading = false; }
             },
             clearSettlementFile() {
+                this.settlementFileSeq += 1;
+                this.settlementDraftRevision += 1;
                 this.settlementUploadFile = null;
                 this.settlementFileName = '';
                 this.settlementInputKey += 1;
             },
             resetSettlementDraft() {
+                this.settlementScopeSeq += 1;
+                if (this.savingSettlement) {
+                    this.settlementSaveSeq += 1;
+                    this.savingSettlement = false;
+                }
                 this.clearSettlementFile();
                 this.settlementText = '';
                 this.settlementVerified = false;
@@ -319,12 +375,151 @@
                 this.resetEventDraft();
                 this.resetFinanceDraft();
             },
+            resetSettlementHistory() {
+                this.settlementHistorySeq += 1;
+                this.settlementDetailSeq += 1;
+                this.settlementHistoryState = 'idle';
+                this.settlementHistory = null;
+                this.settlementHistoryError = '';
+                this.settlementDetailState = 'idle';
+                this.settlementDetail = null;
+                this.settlementDetailError = '';
+                this.settlementDetailLinePage = 1;
+                this.settlementSelectedBatchId = 0;
+            },
+            async loadSettlementHistory(page = 1) {
+                if (!this.hotelId || !this.settlementPlatformSupported || !Number.isSafeInteger(page) || page < 1) return;
+                const seq = ++this.settlementHistorySeq;
+                const scopeSeq = this.settlementScopeSeq;
+                const hotelId = Number(this.hotelId);
+                const platform = this.platform;
+                const month = this.periodMonth;
+                const tenantId = Number(this.overview?.hotel_id) === hotelId ? Number(this.overview?.tenant_id) : 0;
+                const ownsScope = () => seq === this.settlementHistorySeq
+                    && scopeSeq === this.settlementScopeSeq && Number(this.hotelId) === hotelId
+                    && this.platform === platform && this.periodMonth === month;
+                this.settlementDetailSeq += 1;
+                this.settlementDetailState = 'idle';
+                this.settlementDetail = null;
+                this.settlementDetailError = '';
+                this.settlementSelectedBatchId = 0;
+                this.settlementHistoryState = 'loading';
+                this.settlementHistory = null;
+                this.settlementHistoryError = '';
+                try {
+                    const first = `${month}-01`, last = monthEndDate(month);
+                    const params = new URLSearchParams({ hotel_id: String(hotelId), platform,
+                        period_month: month, page: String(page), page_size: '20' });
+                    const response = await this.request(`/operating-finance/settlements/history?${params}`, {
+                        businessContext: { hotelId },
+                    });
+                    if (!ownsScope()) return;
+                    const data = response.data;
+                    if (response.code !== 200 || data?.contract_version !== 'ota_settlement_history.v1'
+                        || !matchesSettlementScope(data?.scope, tenantId, hotelId, platform, first, last)
+                        || data.page !== page || data.page_size !== 20
+                        || !Number.isSafeInteger(data.total) || data.total < 0
+                        || !Number.isSafeInteger(data.pages) || data.pages !== Math.ceil(data.total / 20)
+                        || !Array.isArray(data.items) || data.items.length > 20
+                        || data.items.length !== Math.max(0, Math.min(20, data.total - (page - 1) * 20))
+                        || data.read_status !== (data.items.length ? 'available' : 'empty')
+                        || data.items.some(item => !Number.isSafeInteger(item?.batch_id) || item.batch_id <= 0
+                            || !/^[a-f0-9]{64}$/i.test(String(item.batch_fingerprint || ''))
+                            || !['available', 'partial', 'invalid'].includes(item.batch_status)
+                            || !item.imported_at || !item.source
+                            || !['manual_export', 'authorized_api_export', 'synthetic_test_fixture'].includes(item.source.source_method)
+                            || !['verified_export', 'operator_attested', 'unverified', 'synthetic_test_only'].includes(item.source.source_quality_status)
+                            || !/^[a-f0-9]{64}$/i.test(String(item.source.file_sha256 || ''))
+                            || !item.source.parser_version
+                            || !Number.isSafeInteger(item.counts?.line_count) || item.counts.line_count < 0
+                            || item.totals?.net_revenue?.value === undefined)
+                        || new Set(data.items.map(item => item.batch_id)).size !== data.items.length
+                    ) throw new Error('结算历史范围或分页回读不一致');
+                    this.settlementHistory = data;
+                    this.settlementHistoryState = data.read_status;
+                } catch (error) {
+                    if (ownsScope()) {
+                        this.settlementHistoryState = 'error';
+                        this.settlementHistoryError = error?.message || '结算历史读取失败，请重试';
+                    }
+                }
+            },
+            async readSettlementBatch(batchId) {
+                if (!Number.isSafeInteger(batchId) || batchId <= 0
+                    || !this.settlementHistory?.items?.some(item => item.batch_id === batchId)) return;
+                const seq = ++this.settlementDetailSeq;
+                const scopeSeq = this.settlementScopeSeq;
+                const historySeq = this.settlementHistorySeq;
+                const selected = this.settlementHistory.items.find(item => item.batch_id === batchId);
+                const hotelId = Number(this.hotelId);
+                const platform = this.platform;
+                const month = this.periodMonth;
+                const tenantId = Number(this.overview?.hotel_id) === hotelId ? Number(this.overview?.tenant_id) : 0;
+                const ownsScope = () => seq === this.settlementDetailSeq
+                    && historySeq === this.settlementHistorySeq && scopeSeq === this.settlementScopeSeq
+                    && Number(this.hotelId) === hotelId && this.platform === platform && this.periodMonth === month;
+                this.settlementDetailState = 'loading';
+                this.settlementDetail = null;
+                this.settlementDetailError = '';
+                this.settlementDetailLinePage = 1;
+                this.settlementSelectedBatchId = batchId;
+                try {
+                    const first = `${month}-01`, last = monthEndDate(month);
+                    const params = new URLSearchParams({ hotel_id: String(hotelId), platform, period_month: month });
+                    const response = await this.request(`/operating-finance/settlements/${batchId}?${params}`, {
+                        businessContext: { hotelId },
+                    });
+                    if (!ownsScope()) return;
+                    const data = response.data;
+                    if (response.code !== 200 || data?.contract_version !== 'ota_settlement_reconciliation.v1'
+                        || data.batch_id !== batchId || data.read_status !== 'available'
+                        || data.readback_verified !== true || !data.imported_at
+                        || data.batch_fingerprint !== selected.batch_fingerprint
+                        || data.batch_status !== selected.batch_status
+                        || data.imported_at !== selected.imported_at
+                        || !matchesSettlementScope(data.scope, tenantId, hotelId, platform, first, last)
+                        || !['available', 'partial', 'invalid'].includes(data.batch_status)
+                        || !/^[a-f0-9]{64}$/i.test(String(data.batch_fingerprint || ''))
+                        || !data.source || data.source.source_method !== selected.source.source_method
+                        || data.source.source_quality_status !== selected.source.source_quality_status
+                        || data.source.file_sha256 !== selected.source.file_sha256
+                        || data.source.parser_version !== selected.source.parser_version
+                        || !Number.isSafeInteger(data.scope.source_hotel_id)
+                        || data.scope.source_hotel_id <= 0
+                        || !Number.isSafeInteger(data.counts?.line_count) || data.counts.line_count < 0
+                        || data.counts.line_count !== selected.counts.line_count
+                        || !Array.isArray(data.lines) || data.lines.length !== data.counts.line_count
+                        || data.lines.some(line => Number(line?.batch_id) !== batchId)
+                        || data.totals?.net_revenue?.value === undefined
+                        || data.totals.net_revenue.value !== selected.totals.net_revenue.value
+                        || !data.authorization || !['external_write_authorized', 'ota_write_authorized',
+                            'pms_write_authorized', 'accounting_write_authorized'].every(key => data.authorization[key] === false)
+                    ) throw new Error('指定结算批次身份或内容回读不一致');
+                    this.settlementDetail = data;
+                    this.settlementDetailState = 'available';
+                } catch (error) {
+                    if (ownsScope()) {
+                        this.settlementDetailState = 'error';
+                        this.settlementDetailError = error?.message || '指定结算批次读取失败，请重试';
+                    }
+                }
+            },
             onSettlementTextInput() {
+                this.settlementDraftRevision += 1;
                 if (this.settlementUploadFile) this.clearSettlementFile();
             },
             async onSettlementFile(event) {
                 const file = event?.target?.files?.[0];
                 if (!file) return;
+                const selectionId = ++this.settlementFileSeq;
+                const scopeId = this.settlementScopeSeq;
+                const hotelId = Number(this.hotelId);
+                const platform = this.platform;
+                const periodMonth = this.periodMonth;
+                const ownsSelection = () => selectionId === this.settlementFileSeq
+                    && scopeId === this.settlementScopeSeq && Number(this.hotelId) === hotelId
+                    && this.platform === platform && this.periodMonth === periodMonth;
+                this.settlementDraftRevision += 1;
                 this.error = '';
                 this.settlementVerified = false;
                 try {
@@ -336,143 +531,341 @@
                         return;
                     }
                     const text = await file.text();
+                    if (!ownsSelection() || this.settlementUploadFile !== file) return;
                     const lines = parseCanonicalFile(text, file.name);
                     this.settlementText = JSON.stringify(lines, null, 2);
                 } catch (error) {
+                    if (!ownsSelection()) return;
                     this.clearSettlementFile();
                     this.error = error?.message || '结算文件解析失败';
                     this.notify(this.error, 'error');
                 }
             },
             async importSettlement() {
-                if (!this.hotelId) return;
+                if (this.savingSettlement || !this.canExecute || !this.hotelId) return;
                 if (!this.settlementPlatformSupported) {
                     this.error = '结算导入只适用于携程或美团；PMS与人工全渠道来源不会静默代换成携程。';
                     this.notify(this.error, 'error');
                     return;
                 }
+                const saveId = ++this.settlementSaveSeq;
+                const hotelId = Number(this.hotelId);
+                const tenantId = Number(this.overview?.hotel_id) === hotelId ? Number(this.overview?.tenant_id) : 0;
+                const platform = this.platform;
+                const periodMonth = this.periodMonth;
+                const scopeId = this.settlementScopeSeq;
+                const draftRevision = this.settlementDraftRevision;
+                const draftFile = this.settlementUploadFile;
+                const draftText = this.settlementText;
+                const attested = this.settlementVerified;
+                const parserVersion = this.settlementParserVersion;
+                const historyWasOpen = this.settlementHistoryState !== 'idle';
+                const label = `酒店 #${hotelId} · ${platform} · 账期 ${periodMonth}`;
+                const ownsSave = () => saveId === this.settlementSaveSeq;
+                const ownsScope = () => ownsSave() && this.canExecute
+                    && scopeId === this.settlementScopeSeq && Number(this.hotelId) === hotelId
+                    && this.platform === platform && this.periodMonth === periodMonth;
                 this.savingSettlement = true; this.error = ''; this.settlementImportNotice = null;
                 try {
-                    const first = `${this.periodMonth}-01`;
-                    const periodEnd = monthEndDate(this.periodMonth);
+                    const first = `${periodMonth}-01`;
+                    const periodEnd = monthEndDate(periodMonth);
+                    let submittedLines = null;
+                    let submittedFileHash = null;
                     let response;
-                    if (this.settlementUploadFile) {
+                    if (draftFile) {
+                        submittedFileHash = await sha256Bytes(await draftFile.arrayBuffer());
+                        if (!ownsScope()) return;
                         const body = new FormData();
-                        body.append('file', this.settlementUploadFile);
-                        body.append('hotel_id', String(this.hotelId));
-                        body.append('platform', this.platform);
+                        body.append('file', draftFile);
+                        body.append('hotel_id', String(hotelId));
+                        body.append('platform', platform);
                         body.append('period_start', first);
                         body.append('period_end', periodEnd);
                         body.append('amount_scope', 'settlement');
-                        body.append('operator_attested', this.settlementVerified ? '1' : '0');
+                        body.append('operator_attested', attested ? '1' : '0');
                         response = await this.request('/operating-finance/settlements/import-file', {
-                            method: 'POST', businessContext: { hotelId: Number(this.hotelId) }, body,
+                            method: 'POST', businessContext: { hotelId }, body,
                         });
                     } else {
-                        const lines = JSON.parse(this.settlementText || '[]');
-                        if (!Array.isArray(lines) || !lines.length) throw new Error('请上传或粘贴至少一行规范结算明细');
-                        const serialized = JSON.stringify(lines);
+                        submittedLines = JSON.parse(draftText || '[]');
+                        if (!Array.isArray(submittedLines) || !submittedLines.length) throw new Error('请上传或粘贴至少一行规范结算明细');
+                        const serialized = JSON.stringify(submittedLines);
                         const fileSha = await sha256(serialized);
+                        if (!ownsScope()) return;
                         response = await this.request('/operating-finance/settlements/import', {
-                            method: 'POST', businessContext: { hotelId: Number(this.hotelId) }, body: JSON.stringify({
-                                hotel_id: Number(this.hotelId), lines, scope: {
-                                    platform: this.platform, period_start: first, period_end: periodEnd, file_sha256: fileSha,
-                                    source_method: 'manual_export', operator_attested: this.settlementVerified,
-                                    parser_version: this.settlementParserVersion,
+                            method: 'POST', businessContext: { hotelId }, body: JSON.stringify({
+                                hotel_id: hotelId, lines: submittedLines, scope: {
+                                    platform, period_start: first, period_end: periodEnd, file_sha256: fileSha,
+                                    source_method: 'manual_export', operator_attested: attested,
+                                    parser_version: parserVersion,
                                 },
                             }),
                         });
                     }
-                    if (response.code !== 200
-                        || response.data?.readback_verified !== true
-                        || response.data?.request_status !== 'saved_and_readback_verified'
-                    ) throw new Error(response.message || '结算批次保存后未完成精确回读');
-                    const batchStatus = String(response.data?.business_result_status || response.data?.batch_status || '');
-                    if (!['available', 'partial', 'invalid'].includes(batchStatus)) throw new Error('结算批次业务状态无效');
-                    if (batchStatus === 'available' && response.data?.business_success !== true) throw new Error('结算批次成功状态与业务结果不一致');
-                    if (batchStatus !== 'available' && response.data?.business_success !== false) throw new Error('结算批次警告状态与业务结果不一致');
-                    const gapCodes = [...new Set((response.data?.lines || []).flatMap(row => Array.isArray(row?.gap_codes) ? row.gap_codes : []))];
+                    if (response.code !== 200) throw new Error(response.message || '结算批次导入失败');
+                    const saved = response.data;
+                    const batchStatus = saved?.batch_status;
+                    const counts = saved?.counts;
+                    const netValue = saved?.totals?.net_revenue?.value;
+                    const fileExtension = draftFile ? /\.([^.]+)$/.exec(String(draftFile.name || ''))?.[1]?.toLowerCase() : '';
+                    const expectedParser = draftFile ? `canonical_settlement_${fileExtension}.v1` : parserVersion;
+                    if (!saved || Array.isArray(saved)
+                        || saved.contract_version !== 'ota_settlement_reconciliation.v1'
+                        || !Number.isSafeInteger(saved.batch_id) || saved.batch_id <= 0
+                        || !/^[a-f0-9]{64}$/i.test(String(saved.batch_fingerprint || ''))
+                        || saved.read_status !== 'available' || saved.readback_verified !== true
+                        || saved.request_status !== 'saved_and_readback_verified'
+                        || !['partial', 'invalid'].includes(batchStatus)
+                        || saved.business_result_status !== batchStatus || saved.business_success !== false
+                        || saved.warning_code !== (batchStatus === 'invalid'
+                            ? 'settlement_attempt_invalid_no_usable_fact' : 'settlement_batch_partial_review_required')
+                        || netValue === undefined
+                        || saved.usable_net_revenue_fact_created !== (batchStatus !== 'invalid' && netValue !== null)
+                        || !saved.scope || !Number.isSafeInteger(saved.scope.tenant_id) || saved.scope.tenant_id <= 0
+                        || (tenantId > 0 && saved.scope.tenant_id !== tenantId)
+                        || saved.scope.hotel_id !== hotelId
+                        || !Number.isSafeInteger(saved.scope.source_hotel_id) || saved.scope.source_hotel_id <= 0
+                        || saved.scope.platform !== platform || saved.scope.period_start !== first
+                        || saved.scope.period_end !== periodEnd
+                        || !saved.source || !/^[a-f0-9]{64}$/i.test(String(saved.source.file_sha256 || ''))
+                        || (submittedFileHash && saved.source.file_sha256 !== submittedFileHash)
+                        || saved.source.source_evidence_sha256 !== null
+                        || saved.source.source_method !== 'manual_export'
+                        || saved.source.source_quality_status !== (attested ? 'operator_attested' : 'unverified')
+                        || saved.source.parser_version !== expectedParser
+                        || !counts || !Number.isSafeInteger(counts.line_count) || counts.line_count < 0
+                        || !['available', 'partial', 'invalid'].every(key => Number.isSafeInteger(counts[key]) && counts[key] >= 0)
+                        || counts.available + counts.partial + counts.invalid !== counts.line_count
+                        || !Array.isArray(saved.lines) || saved.lines.length !== counts.line_count
+                        || saved.lines.some(line => Number(line?.batch_id) !== saved.batch_id)
+                        || (submittedLines && counts.line_count !== submittedLines.length)
+                        || !saved.authorization || !['external_write_authorized', 'ota_write_authorized',
+                            'pms_write_authorized', 'accounting_write_authorized'].every(key => saved.authorization[key] === false)
+                        || (draftFile && (!saved.file_parser
+                            || saved.file_parser.contract_version !== 'ota_settlement_file_parser.v1'
+                            || saved.file_parser.parser_version !== expectedParser
+                            || saved.file_parser.file_sha256 !== saved.source.file_sha256
+                            || saved.file_parser.row_count !== counts.line_count
+                            || saved.file_parser.original_filename_retained !== false))
+                        || (!draftFile && saved.file_parser != null)
+                    ) throw new Error('结算批次回读身份、来源或业务状态不一致，保存结果未确认，请核对后重试');
+                    if (!ownsScope()) return;
+                    const edited = this.settlementDraftRevision !== draftRevision
+                        || this.settlementUploadFile !== draftFile || this.settlementVerified !== attested
+                        || this.settlementParserVersion !== parserVersion
+                        || (!draftFile && this.settlementText !== draftText);
+                    const gapCodes = [...new Set(saved.lines.flatMap(row => Array.isArray(row?.gap_codes) ? row.gap_codes : []))];
                     const notice = {
                         status: batchStatus,
-                        message: response.message || (batchStatus === 'invalid'
-                            ? '结算失败尝试已留痕；未形成可用净收入事实'
-                            : (batchStatus === 'partial' ? '结算批次仅部分可用' : '结算批次已保存并回读')),
+                        message: `${label}：${batchStatus === 'invalid'
+                            ? '结算失败尝试已留痕并精确回读；未形成可用净收入事实'
+                            : '结算批次已保存并精确回读，但仅部分可用；请按缺口修正后再用于经营判断'}${edited ? '；保存的是提交版本，后续修改已保留' : ''}`,
                         gap_codes: gapCodes,
                     };
-                    this.notify(notice.message, batchStatus === 'available' ? 'success' : 'warning');
-                    this.resetSettlementDraft();
+                    this.notify(notice.message, 'warning');
+                    if (!edited) this.resetSettlementDraft();
                     this.settlementImportNotice = notice;
+                    this.resetSettlementHistory();
                     await this.loadOverview();
-                } catch (error) { this.error = error?.message || '结算批次导入失败'; this.notify(this.error, 'error'); }
-                finally { this.savingSettlement = false; }
+                    if (historyWasOpen && Number(this.hotelId) === hotelId
+                        && this.platform === platform && this.periodMonth === periodMonth) {
+                        await this.loadSettlementHistory(1);
+                    }
+                } catch (error) {
+                    if (ownsScope()) {
+                        this.error = `${label}：${error?.message || '结算批次导入未确认，请核对后重试'}`;
+                        this.notify(this.error, 'error');
+                    }
+                } finally { if (ownsSave()) this.savingSettlement = false; }
             },
             async saveOnBooks() {
+                if (this.savingOnBooks || !this.canExecute) return;
+                const saveId = ++this.onBooksSaveSeq;
+                const hotelId = Number(this.hotelId);
+                const platform = this.platform;
+                const stayDate = this.stayDate;
+                const draft = this.onBooks;
+                const draftRevision = this.onBooksDraftRevision;
+                const draftText = JSON.stringify(draft);
+                const readSeq = this.requestSeq;
+                const label = `酒店 #${hotelId} · ${platform} · 入住日 ${stayDate}`;
+                const ownsSave = () => saveId === this.onBooksSaveSeq;
+                const ownsScope = () => ownsSave() && this.canExecute
+                    && Number(this.hotelId) === hotelId && this.platform === platform
+                    && this.stayDate === stayDate && this.onBooks === draft;
                 this.savingOnBooks = true; this.error = '';
                 try {
                     const content = {
-                        hotel_id: Number(this.hotelId), platform: this.platform,
-                        fact_scope: ['ctrip', 'meituan'].includes(this.platform) ? 'ota_channel' : 'accommodation_room_fee',
-                        stay_date: this.stayDate, captured_at: this.onBooks.captured_at,
-                        source_ref: this.onBooks.source_ref, on_books_room_nights: asNumberOrNull(this.onBooks.rooms),
-                        on_books_room_revenue: asNumberOrNull(this.onBooks.revenue),
-                        cumulative_cancel_room_nights: asNumberOrNull(this.onBooks.cancelled),
-                        gross_booking_room_nights: asNumberOrNull(this.onBooks.gross),
-                        operator_attested: this.onBooks.confirmed,
+                        hotel_id: hotelId, platform,
+                        fact_scope: ['ctrip', 'meituan'].includes(platform) ? 'ota_channel' : 'accommodation_room_fee',
+                        stay_date: stayDate, captured_at: draft.captured_at,
+                        source_ref: draft.source_ref, on_books_room_nights: asNumberOrNull(draft.rooms),
+                        on_books_room_revenue: asNumberOrNull(draft.revenue),
+                        cumulative_cancel_room_nights: asNumberOrNull(draft.cancelled),
+                        gross_booking_room_nights: asNumberOrNull(draft.gross),
+                        operator_attested: draft.confirmed,
                     };
                     content.idempotency_key = `onbooks:${await sha256(JSON.stringify(content))}`;
+                    const expectedReceiptKey = await sha256(`operating-finance-idempotency-v1|${content.idempotency_key}`);
+                    const sourceRef = String(content.source_ref).replace(/^[\x00\x09\x0a\x0b\x0d\x20]+|[\x00\x09\x0a\x0b\x0d\x20]+$/g, '');
+                    const expectedSourceHash = await sha256(`on-books-source-v1|${sourceRef}`);
+                    const captured = /^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2})(?::(\d{2})(?:\.(\d{1,6}))?)?$/.exec(String(content.captured_at || '').trim());
+                    const expectedCapturedAt = captured
+                        ? `${captured[1]} ${captured[2]}:${captured[3] || '00'}.${(captured[4] || '').padEnd(6, '0')}` : '';
                     const response = await this.request('/operating-finance/on-books-snapshots', {
-                        method: 'POST', businessContext: { hotelId: Number(this.hotelId) }, body: JSON.stringify(content),
+                        method: 'POST', businessContext: { hotelId }, body: JSON.stringify(content),
                     });
-                    if (response.code !== 200 || Number(response.data?.id || 0) <= 0) throw new Error(response.message || '在手预订保存失败');
-                    this.notify(this.onBooks.confirmed ? '人工核对快照已保存并完成本地回读，可进入同范围基线' : '在手预订已保存为未核验，不参与正式节奏');
-                    this.resetOnBooksDraft();
-                    await this.loadOverview();
-                } catch (error) { this.error = error?.message || '在手预订保存失败'; this.notify(this.error, 'error'); }
-                finally { this.savingOnBooks = false; }
+                    const saved = response.data;
+                    if (response.code !== 200 || !saved || Array.isArray(saved)
+                        || saved.contract_version !== 'hotel_on_books_snapshot.v1'
+                        || !Number.isSafeInteger(saved.id) || saved.id <= 0
+                        || saved.hotel_id !== hotelId || saved.source_hotel_id !== hotelId
+                        || saved.platform !== platform || saved.stay_date !== stayDate
+                        || saved.fact_scope !== content.fact_scope || saved.captured_at !== expectedCapturedAt
+                        || !expectedCapturedAt || saved.source_method !== 'manual_entry'
+                        || saved.source_ref_hash !== expectedSourceHash || saved.idempotency_key !== expectedReceiptKey
+                        || saved.quality_status !== (content.operator_attested ? 'manual_confirmed' : 'unverified')
+                        || saved.readback_verified !== true || saved.external_write_count !== 0
+                        || !/^[a-f0-9]{64}$/i.test(String(saved.content_digest || ''))
+                    ) throw new Error('在手快照回读身份或来源质量不一致，保存结果未确认，请核对后重试');
+                    if (!ownsScope()) return;
+                    const edited = this.onBooksDraftRevision !== draftRevision || JSON.stringify(this.onBooks) !== draftText;
+                    if (!edited) this.resetOnBooksDraft();
+                    const result = saved.quality_status === 'manual_confirmed'
+                        ? '人工核对的在手快照已保存并完成本地回读'
+                        : '在手快照已保存为未核验，不参与正式节奏';
+                    this.notify(`${label}：${result}${edited ? '；保存的是提交版本，后续修改已保留' : ''}`);
+                    if (this.requestSeq === readSeq) await this.loadOverview();
+                } catch (error) {
+                    if (ownsScope() && this.requestSeq === readSeq) {
+                        this.error = `${label}：${error?.message || '在手快照保存未确认，请核对后重试'}`;
+                        this.notify(this.error, 'error');
+                    }
+                } finally { if (ownsSave()) this.savingOnBooks = false; }
             },
             async saveEvent() {
+                if (this.savingEvent || !this.canExecute) return;
+                const saveId = ++this.eventSaveSeq;
+                const hotelId = Number(this.hotelId);
+                const tenantId = Number(this.overview?.hotel_id) === hotelId ? Number(this.overview?.tenant_id) : 0;
+                const draft = this.eventForm;
+                const draftRevision = this.eventDraftRevision;
+                const draftText = JSON.stringify(draft);
+                const readSeq = this.requestSeq;
+                const label = `酒店 #${hotelId} · 需求事件`;
+                const ownsSave = () => saveId === this.eventSaveSeq;
+                const ownsScope = () => ownsSave() && this.canExecute
+                    && Number(this.hotelId) === hotelId && this.eventForm === draft;
+                const phpTrim = value => String(value ?? '').replace(/^[\x00\x09\x0a\x0b\x0d\x20]+|[\x00\x09\x0a\x0b\x0d\x20]+$/g, '');
                 this.savingEvent = true; this.error = '';
                 try {
                     const content = {
-                        hotel_id: Number(this.hotelId), event_name: this.eventForm.name, event_type: this.eventForm.type,
-                        event_start_date: this.eventForm.start, event_end_date: this.eventForm.end, area_label: this.eventForm.area,
-                        source_method: 'manual_reference', source_ref: this.eventForm.source_ref,
-                        source_status: 'reference_only', observed_at: this.eventForm.observed_at,
+                        hotel_id: hotelId, event_name: draft.name, event_type: draft.type,
+                        event_start_date: draft.start, event_end_date: draft.end, area_label: draft.area,
+                        source_method: 'manual_reference', source_ref: draft.source_ref,
+                        source_status: 'reference_only', observed_at: draft.observed_at,
                     };
                     content.idempotency_key = `event:${await sha256(JSON.stringify(content))}`;
+                    const expectedReceiptKey = await sha256(`operating-finance-idempotency-v1|${content.idempotency_key}`);
+                    const expectedSourceHash = await sha256(`demand-event-source-v1|${phpTrim(content.source_ref)}`);
+                    const observed = /^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2})(?::(\d{2})(?:\.(\d{1,6}))?)?$/.exec(phpTrim(content.observed_at));
+                    const expectedObservedAt = observed
+                        ? `${observed[1]} ${observed[2]}:${observed[3] || '00'}.${(observed[4] || '').padEnd(6, '0')}` : '';
                     const response = await this.request('/operating-finance/demand-events', {
-                        method: 'POST', businessContext: { hotelId: Number(this.hotelId) }, body: JSON.stringify(content),
+                        method: 'POST', businessContext: { hotelId }, body: JSON.stringify(content),
                     });
-                    if (response.code !== 200 || Number(response.data?.id || 0) <= 0) throw new Error(response.message || '需求事件保存失败');
-                    this.notify('需求事件已保存为参考事实，不会自动触发调价');
-                    this.resetEventDraft();
-                    await this.loadOverview();
-                } catch (error) { this.error = error?.message || '需求事件保存失败'; this.notify(this.error, 'error'); }
-                finally { this.savingEvent = false; }
+                    if (response.code !== 200) throw new Error(response.message || '需求事件保存失败');
+                    const saved = response.data;
+                    if (!saved || Array.isArray(saved)
+                        || saved.contract_version !== 'hotel_demand_event_fact.v1'
+                        || !Number.isSafeInteger(saved.id) || saved.id <= 0
+                        || !Number.isSafeInteger(saved.tenant_id) || saved.tenant_id <= 0
+                        || (tenantId > 0 && saved.tenant_id !== tenantId)
+                        || saved.hotel_id !== hotelId || saved.source_hotel_id !== hotelId
+                        || saved.event_name !== phpTrim(content.event_name)
+                        || saved.event_type !== phpTrim(content.event_type).toLowerCase()
+                        || saved.event_start_date !== phpTrim(content.event_start_date)
+                        || saved.event_end_date !== phpTrim(content.event_end_date)
+                        || saved.area_label !== phpTrim(content.area_label)
+                        || saved.observed_at !== expectedObservedAt || !expectedObservedAt
+                        || saved.source_method !== 'manual_reference'
+                        || saved.source_ref_hash !== expectedSourceHash
+                        || saved.source_status !== 'reference_only' || saved.reference_only !== true
+                        || saved.idempotency_key !== expectedReceiptKey
+                        || !/^[a-f0-9]{64}$/i.test(String(saved.content_digest || ''))
+                        || saved.causality_claimed !== false || saved.automatic_pricing !== false
+                        || saved.external_write_count !== 0
+                    ) throw new Error('需求事件回读身份或来源状态不一致，保存结果未确认，请核对后重试');
+                    if (!ownsScope()) return;
+                    const edited = this.eventDraftRevision !== draftRevision || JSON.stringify(this.eventForm) !== draftText;
+                    if (!edited) this.resetEventDraft();
+                    this.notify(`${label}已保存为仅作参考并完成服务端回读，不会自动触发调价${edited ? '；保存的是提交版本，后续修改已保留' : ''}`);
+                    if (this.requestSeq === readSeq) await this.loadOverview();
+                } catch (error) {
+                    if (ownsScope() && this.requestSeq === readSeq) {
+                        this.error = `${label}：${error?.message || '保存未确认，请核对后重试'}`;
+                        this.notify(this.error, 'error');
+                    }
+                } finally { if (ownsSave()) this.savingEvent = false; }
             },
             async saveFinance() {
+                if (this.savingFinance || !this.canExecute) return;
+                const saveId = ++this.financeSaveSeq;
+                const hotelId = Number(this.hotelId);
+                const periodMonth = this.periodMonth;
+                const draft = this.financeForm;
+                const draftRevision = this.financeDraftRevision;
+                const draftText = JSON.stringify(draft);
+                const readSeq = this.requestSeq;
+                const label = `酒店 #${hotelId} · ${periodMonth}`;
+                const ownsSave = () => saveId === this.financeSaveSeq;
+                const ownsScope = () => ownsSave() && this.canExecute
+                    && Number(this.hotelId) === hotelId && this.periodMonth === periodMonth && this.financeForm === draft;
                 this.savingFinance = true; this.error = '';
                 try {
                     const inputs = Object.fromEntries(financeFields.map(field => [field.key, null]));
                     for (const field of this.visibleFinanceFields) {
-                        inputs[field.key] = asNumberOrNull(this.financeForm[field.key], field.key === 'budget_gop' ? false : true);
+                        inputs[field.key] = asNumberOrNull(draft[field.key], field.key === 'budget_gop' ? false : true);
                     }
-                    const sourceRefs = this.financeForm.source_refs.split(/[,，\n]/).map(value => value.trim()).filter(Boolean);
+                    const sourceRefs = draft.source_refs.split(/[,，\n]/).map(value => value.trim()).filter(Boolean);
                     const content = {
-                        hotel_id: Number(this.hotelId), period_month: this.periodMonth,
-                        fact_scope: this.financeForm.fact_scope, tax_basis: this.financeForm.tax_basis,
-                        operator_attested: this.financeForm.operator_attested, inputs, source_refs: sourceRefs,
+                        hotel_id: hotelId, period_month: periodMonth,
+                        fact_scope: draft.fact_scope, tax_basis: draft.tax_basis,
+                        operator_attested: draft.operator_attested, inputs, source_refs: sourceRefs,
                     };
                     content.idempotency_key = `monthly:${await sha256(JSON.stringify(content))}`;
+                    const expectedReceiptKey = await sha256(`monthly-operating-finance-idempotency-v1|${content.idempotency_key}`);
                     const response = await this.request('/operating-finance/monthly-finance', {
-                        method: 'POST', businessContext: { hotelId: Number(this.hotelId) }, body: JSON.stringify(content),
+                        method: 'POST', businessContext: { hotelId }, body: JSON.stringify(content),
                     });
-                    if (response.code !== 200 || response.data?.readback_verified !== true) throw new Error(response.message || '月度经营财务保存后未完成精确回读');
-                    this.notify('月度经营财务快照已保存并回读');
-                    this.resetFinanceDraft();
-                    await this.loadOverview();
-                } catch (error) { this.error = error?.message || '月度经营财务保存失败'; this.notify(this.error, 'error'); }
-                finally { this.savingFinance = false; }
+                    const saved = response.data;
+                    const refs = [...new Set(sourceRefs)].sort();
+                    if (response.code !== 200 || !saved || Array.isArray(saved)
+                        || saved.contract_version !== 'hotel_monthly_operating_finance.v1'
+                        || !Number.isSafeInteger(saved.id) || saved.id <= 0
+                        || !Number.isSafeInteger(saved.version_no) || saved.version_no <= 0
+                        || saved.hotel_id !== hotelId || saved.source_hotel_id !== hotelId
+                        || saved.period_month !== periodMonth || saved.fact_scope !== content.fact_scope
+                        || saved.idempotency_key !== expectedReceiptKey
+                        || saved.readback_verified !== true || saved.external_write_count !== 0
+                        || saved.source?.source_method !== 'manual_entry' || saved.source?.currency !== 'CNY'
+                        || saved.source?.source_quality_status !== (content.operator_attested ? 'operator_attested' : 'unverified')
+                        || saved.source?.tax_basis !== content.tax_basis
+                        || saved.source?.metric_definition_version !== 'hotel_monthly_operating_finance_metrics.v1'
+                        || !Array.isArray(saved.source_refs) || JSON.stringify(saved.source_refs) !== JSON.stringify(refs)
+                        || !/^[a-f0-9]{64}$/i.test(String(saved.content_digest || ''))
+                    ) throw new Error('月度快照回读身份或来源不一致，保存结果未确认，请核对后重试');
+                    if (!ownsScope()) return;
+                    const edited = this.financeDraftRevision !== draftRevision || JSON.stringify(this.financeForm) !== draftText;
+                    if (!edited) this.resetFinanceDraft();
+                    this.notify(`${label} 月度快照已保存并回读${edited ? '；保存的是提交版本，后续修改已保留' : ''}`);
+                    if (this.requestSeq === readSeq) await this.loadOverview();
+                } catch (error) {
+                    if (ownsScope() && this.requestSeq === readSeq) {
+                        this.error = `${label}：${error?.message || '月度快照保存未确认，请核对后重试'}`;
+                        this.notify(this.error, 'error');
+                    }
+                } finally { if (ownsSave()) this.savingFinance = false; }
             },
         },
         template: `
@@ -496,7 +889,7 @@
                 </nav>
 
                 <section v-if="activeTab === 'settlement'" class="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(360px,.75fr)]" data-testid="operating-finance-settlement">
-                    <div class="rounded-2xl border border-slate-200 bg-white p-5">
+                    <div class="min-w-0 rounded-2xl border border-slate-200 bg-white p-5">
                         <div class="flex items-center justify-between"><h3 class="font-bold text-slate-900">OTA净收入与差异</h3><span class="rounded-full border px-2 py-1 text-xs">{{ statusText(currentSettlement.batch_status || currentSettlement.status) }}</span></div>
                         <p v-if="currentSettlement.projection_status === 'latest_non_invalid_with_newer_invalid_attempt'" class="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs leading-5 text-amber-800">最新一次导入（批次 #{{ currentSettlement.latest_attempt?.batch_id }}，{{ currentSettlement.latest_attempt?.imported_at }}）校验失败；下方暂显示上一份未判无效的批次。失败尝试未覆盖旧事实，请修正文件后重新导入。</p>
                         <div class="mt-4 grid grid-cols-2 gap-3 lg:grid-cols-3"><div class="rounded-xl bg-slate-50 p-3"><div class="text-xs text-slate-400">OTA订单成交总额</div><div class="mt-1 font-bold">{{ money(currentSettlementBasis.order_gross_amount?.value) }}</div><div class="mt-1 text-[10px] text-slate-400">{{ currentSettlementBasis.order_gross_amount?.basis || '口径未取得' }}</div></div><div class="rounded-xl bg-slate-50 p-3"><div class="text-xs text-slate-400">佣金</div><div class="mt-1 font-bold">{{ money(currentSettlementBasis.commission_amount?.value) }}</div><div class="mt-1 text-[10px] text-slate-400">{{ currentSettlementBasis.commission_amount?.basis || '口径未取得' }}</div></div><div class="rounded-xl bg-slate-50 p-3"><div class="text-xs text-slate-400">退款</div><div class="mt-1 font-bold">{{ money(currentSettlementBasis.refund_amount?.value) }}</div><div class="mt-1 text-[10px] text-slate-400">{{ currentSettlementBasis.refund_amount?.basis || '口径未取得' }}</div></div><div class="rounded-xl bg-slate-50 p-3"><div class="text-xs text-slate-400">平台补贴调账</div><div class="mt-1 font-bold">{{ money(currentSettlementBasis.adjustment?.value) }}</div><div class="mt-1 text-[10px] text-slate-400">只代表已取得的平台补贴，不代表全部调账</div></div><div class="rounded-xl bg-sky-50 p-3"><div class="text-xs text-sky-600">结算金额</div><div class="mt-1 font-bold text-sky-900">{{ money(currentSettlementBasis.settlement_amount?.value) }}</div><div class="mt-1 text-[10px] text-sky-600">结算金额不自动等于净收入</div></div><div class="rounded-xl bg-emerald-50 p-3"><div class="text-xs text-emerald-600">渠道净收入</div><div class="mt-1 font-bold text-emerald-900">{{ money(currentSettlementBasis.net_revenue?.value) }}</div><div class="mt-1 text-[10px] text-emerald-600">仅当前OTA渠道，不代表全酒店GOP</div></div></div>
@@ -504,7 +897,7 @@
                         <p v-else class="mt-4 text-sm text-slate-500">没有同账期已回读结算批次，或当前批次没有可排序差异。</p>
                         <div v-if="currentSettlementRecovery.selected" data-testid="operating-finance-settlement-recovery-candidate" class="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-4"><div class="flex items-center justify-between gap-3"><strong class="text-sm text-amber-950">唯一恢复事项</strong><span class="rounded-full bg-white px-2 py-1 text-[11px] text-amber-800">{{ currentSettlementRecovery.selected.reason_code }}</span></div><p class="mt-2 text-sm font-medium text-amber-950">{{ currentSettlementRecovery.selected.title }}</p><p class="mt-2 text-xs leading-5 text-amber-800">仅提示人工复核；没有创建审批、执行任务或财务写入。</p></div>
                     </div>
-                    <form v-if="settlementPlatformSupported && canExecute" @submit.prevent="importSettlement" class="rounded-2xl border border-slate-200 bg-white p-5">
+                    <form v-if="settlementPlatformSupported && canExecute" @submit.prevent="importSettlement" class="min-w-0 rounded-2xl border border-slate-200 bg-white p-5">
                         <h3 class="font-bold text-slate-900">导入规范 JSON / CSV / XLSX</h3>
                         <p class="mt-1 text-xs leading-5 text-slate-500">支持规范字段导入；平台原始 Excel 若不是规范表头仍需对应解析模板，不能凭列名猜测。订单和住宿号只存哈希。</p>
                         <div v-if="settlementImportNotice" data-testid="operating-finance-settlement-import-notice" :class="['mt-3 rounded-xl border p-3 text-xs leading-5', settlementImportNotice.status === 'available' ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-amber-200 bg-amber-50 text-amber-800']">
@@ -524,6 +917,20 @@
                     </form>
                     <div v-else-if="!settlementPlatformSupported" class="rounded-2xl border border-slate-200 bg-white p-5 text-sm leading-6 text-slate-600">结算导入只适用于携程或美团。当前来源是 {{ sourceText(currentSettlement.scope?.platform || platform) }}，系统未代换为其他平台，也没有显示跨来源结算事实。</div>
                     <div v-else data-testid="operating-finance-view-only" class="rounded-2xl border border-slate-200 bg-slate-50 p-5 text-sm leading-6 text-slate-600">当前账号只有查看权限；可读取结算事实和差异，但不能导入文件、保存快照或创建经营记录。</div>
+                    <div v-if="settlementPlatformSupported" data-testid="operating-finance-settlement-history" class="min-w-0 rounded-2xl border border-slate-200 bg-white p-5 xl:col-span-2">
+                        <div class="flex flex-wrap items-start justify-between gap-3"><div><h3 class="font-bold text-slate-900">同账期结算批次历史</h3><p class="mt-1 text-xs leading-5 text-slate-500">只读取当前酒店、{{ sourceText(platform) }}、{{ periodMonth }} 的已保存批次；历史批次不会替换上方最新可用投影，也不代表全酒店收入。</p></div><button type="button" data-testid="operating-finance-settlement-history-load" @click="loadSettlementHistory(1)" :disabled="settlementHistoryState === 'loading'" class="operating-finance-link text-sm font-semibold disabled:opacity-50">{{ settlementHistoryState === 'idle' ? '查看历史批次' : '刷新历史批次' }}</button></div>
+                        <p v-if="settlementHistoryState === 'loading'" role="status" class="mt-4 text-sm text-slate-500">正在读取当前范围的历史批次…</p>
+                        <div v-else-if="settlementHistoryState === 'empty'" data-testid="operating-finance-settlement-history-empty" class="mt-4 text-sm text-slate-500"><p>当前页没有已保存结算批次。</p><button v-if="settlementHistory?.page > 1" type="button" @click="loadSettlementHistory(settlementHistory.page - 1)" class="operating-finance-link mt-2 font-semibold">返回上一页</button></div>
+                        <div v-else-if="settlementHistoryState === 'error'" data-testid="operating-finance-settlement-history-error" class="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900"><p>历史批次未确认：{{ settlementHistoryError }}</p><button type="button" @click="loadSettlementHistory(1)" class="mt-2 font-semibold underline">重试读取</button></div>
+                        <template v-else-if="settlementHistoryState === 'available'">
+                            <p class="mt-3 text-xs text-slate-500">共 {{ settlementHistory.total }} 个批次 · 第 {{ settlementHistory.page }} / {{ settlementHistory.pages }} 页。无效导入尝试也保留在历史中。</p>
+                            <div class="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-3"><button v-for="batch in settlementHistory.items" :key="batch.batch_id" type="button" :data-batch-id="batch.batch_id" @click="readSettlementBatch(batch.batch_id)" :class="['rounded-xl border p-3 text-left text-sm transition-colors', settlementSelectedBatchId === batch.batch_id ? 'border-emerald-500 bg-emerald-50' : 'border-slate-200 hover:border-emerald-300']"><span class="flex items-center justify-between gap-2"><strong>批次 #{{ batch.batch_id }}</strong><span class="text-xs">{{ statusText(batch.batch_status) }}</span></span><span class="mt-1 block text-xs text-slate-500">导入 {{ batch.imported_at }} · {{ settlementSourceText(batch.source.source_method) }} · {{ statusText(batch.source.source_quality_status) }}</span><span class="mt-1 block text-xs text-slate-500">{{ batch.counts.line_count }} 行 · 可用 {{ batch.counts.available }} / 部分 {{ batch.counts.partial }} / 无效 {{ batch.counts.invalid }}</span><span class="mt-1 block text-xs text-slate-500">渠道净收入 {{ money(batch.totals.net_revenue.value) }} · {{ batch.totals.net_revenue.basis || '口径未取得' }}</span></button></div>
+                            <div class="mt-3 flex items-center justify-end gap-3 text-xs"><button type="button" @click="loadSettlementHistory(settlementHistory.page - 1)" :disabled="settlementHistory.page <= 1" class="operating-finance-link font-semibold disabled:opacity-40">上一页</button><button type="button" @click="loadSettlementHistory(settlementHistory.page + 1)" :disabled="settlementHistory.page >= settlementHistory.pages" class="operating-finance-link font-semibold disabled:opacity-40">下一页</button></div>
+                        </template>
+                        <p v-if="settlementDetailState === 'loading'" role="status" class="mt-4 text-sm text-slate-500">正在精确回读批次 #{{ settlementSelectedBatchId }}…</p>
+                        <div v-else-if="settlementDetailState === 'error'" data-testid="operating-finance-settlement-detail-error" class="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900"><p>批次 #{{ settlementSelectedBatchId }} 明细未确认：{{ settlementDetailError }}</p><button type="button" @click="readSettlementBatch(settlementSelectedBatchId)" class="mt-2 font-semibold underline">重试回读此批次</button></div>
+                        <div v-else-if="settlementDetailState === 'available'" data-testid="operating-finance-settlement-detail" class="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4"><div class="flex flex-wrap items-center justify-between gap-2"><strong>批次 #{{ settlementDetail.batch_id }} · {{ statusText(settlementDetail.batch_status) }}</strong><span class="text-xs text-slate-500">{{ settlementDetail.imported_at }} · 已按批次 ID 精确回读</span></div><p class="mt-2 text-xs leading-5 text-slate-600">酒店 #{{ settlementDetail.scope.hotel_id }}<span v-if="settlementDetail.scope.source_hotel_id !== settlementDetail.scope.hotel_id">（原始来源酒店 #{{ settlementDetail.scope.source_hotel_id }}）</span> · {{ sourceText(settlementDetail.scope.platform) }} · {{ settlementDetail.scope.period_start }} 至 {{ settlementDetail.scope.period_end }} · {{ settlementSourceText(settlementDetail.source.source_method) }} · {{ statusText(settlementDetail.source.source_quality_status) }}</p><p class="mt-1 break-all text-[11px] leading-5 text-slate-500">文件 SHA-256：{{ settlementDetail.source.file_sha256 }} · 解析器：{{ settlementDetail.source.parser_version }}<span v-if="settlementDetail.supersedes_batch_id"> · 替代批次 #{{ settlementDetail.supersedes_batch_id }}</span></p><p class="mt-2 text-xs text-slate-600">渠道净收入 {{ money(settlementDetail.totals.net_revenue.value) }} · {{ settlementDetail.totals.net_revenue.basis || '口径未取得' }}；明细 {{ settlementDetail.counts.line_count }} 行（可用 {{ settlementDetail.counts.available }} / 部分 {{ settlementDetail.counts.partial }} / 无效 {{ settlementDetail.counts.invalid }}）。</p><p v-if="settlementDetail.batch_status === 'invalid'" class="mt-2 text-xs text-amber-800">这是无效导入尝试，未形成可用净收入事实。</p><div class="mt-3 overflow-x-auto"><table class="min-w-full text-left text-xs"><thead class="border-b text-slate-500"><tr><th class="px-2 py-2">来源行</th><th class="px-2 py-2">业务日</th><th class="px-2 py-2">质量</th><th class="px-2 py-2">成交额</th><th class="px-2 py-2">佣金</th><th class="px-2 py-2">渠道净收入</th><th class="px-2 py-2">差异/缺口</th></tr></thead><tbody><tr v-for="line in visibleSettlementDetailLines" :key="line.source_line_no" class="border-b border-slate-200 align-top"><td class="px-2 py-2">{{ line.source_line_no }}</td><td class="px-2 py-2">{{ line.business_date || '未取得' }}</td><td class="px-2 py-2">{{ statusText(line.quality_status) }}</td><td class="px-2 py-2">{{ money(line.gross_amount) }}</td><td class="px-2 py-2">{{ money(line.commission_amount) }}</td><td class="px-2 py-2">{{ money(line.net_revenue) }}</td><td class="px-2 py-2">{{ money(line.discrepancy_amount) }}<span v-if="line.gap_codes?.length" class="mt-1 block text-amber-700">{{ line.gap_codes.map(gapText).join('、') }}</span></td></tr></tbody></table></div><div v-if="settlementDetailLinePages > 1" class="mt-3 flex items-center justify-end gap-3 text-xs"><button type="button" @click="settlementDetailLinePage -= 1" :disabled="settlementDetailLinePage <= 1" class="operating-finance-link font-semibold disabled:opacity-40">上一组明细</button><span>{{ settlementDetailLinePage }} / {{ settlementDetailLinePages }}</span><button type="button" @click="settlementDetailLinePage += 1" :disabled="settlementDetailLinePage >= settlementDetailLinePages" class="operating-finance-link font-semibold disabled:opacity-40">下一组明细</button></div></div>
+                    </div>
                 </section>
 
                 <section v-if="activeTab === 'recovery'" class="rounded-2xl border border-slate-200 bg-white p-5" data-testid="operating-finance-recovery"><div class="flex items-center justify-between"><h3 class="font-bold text-slate-900">唯一当前阻塞</h3><span class="rounded-full border px-2 py-1 text-xs">{{ statusText(currentRecovery.status) }}</span></div><div v-if="currentRecovery.selected" class="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-5"><div class="flex flex-wrap gap-2 text-xs"><span class="rounded-full bg-white px-2 py-1">{{ currentRecovery.selected.source_label }}</span><span class="rounded-full bg-white px-2 py-1">{{ currentRecovery.selected.category_label }}</span><span class="rounded-full bg-white px-2 py-1">{{ currentRecovery.selected.business_impact }}</span></div><h4 class="mt-3 font-bold text-amber-950">{{ currentRecovery.selected.reason }}</h4><p class="mt-2 text-sm leading-6 text-amber-900">{{ currentRecovery.selected.next_action }}</p><p class="mt-2 text-xs text-amber-700">{{ currentRecovery.selected.resumable ? '满足恢复条件后，可由操作者重新进行同范围只读核验；当前不会自动执行。' : '必须由有权人员主动处理；当前不会自动执行。' }}</p></div><div v-else class="mt-4 rounded-xl bg-emerald-50 p-4 text-sm text-emerald-800">{{ currentRecovery.status === 'no_blocker_observed' ? '当前同范围证据未观察到阻塞；系统没有执行任何恢复动作。' : '阻塞证据尚未取得；不能据此判断系统正常。' }}</div></section>
@@ -538,17 +945,17 @@
                             <p v-if="window.data_gaps?.length" class="mt-3 text-[11px] leading-5 text-amber-700">{{ window.data_gaps.slice(0, 4).map(gapText).join(' · ') }}</p>
                         </article>
                     </div>
-                    <p v-else class="mt-4 text-sm text-slate-500">明天至未来7天暂无已回读在手快照；系统不会用今天、长期预测或默认值补齐。</p>
+                    <p v-else class="mt-4 text-sm text-slate-500">{{ moduleReadNotice(currentDemandPlan) }}</p>
                 </section>
 
-                <section v-if="activeTab === 'booking'" class="grid gap-4 xl:grid-cols-2" data-testid="operating-finance-booking"><div class="rounded-2xl border border-slate-200 bg-white p-5"><h3 class="font-bold text-slate-900">选定入住日的真实预订节奏</h3><div class="mt-4 grid grid-cols-2 gap-3"><div class="rounded-xl bg-slate-50 p-3"><div class="text-xs text-slate-400">净拾取</div><div class="mt-1 font-bold">{{ currentBooking.net_pickup_room_nights ?? '未取得' }} 间夜</div></div><div class="rounded-xl bg-slate-50 p-3"><div class="text-xs text-slate-400">毛拾取</div><div class="mt-1 font-bold">{{ currentBooking.gross_pickup_room_nights ?? '未取得' }} 间夜</div></div><div class="rounded-xl bg-slate-50 p-3"><div class="text-xs text-slate-400">每小时净拾取</div><div class="mt-1 font-bold">{{ currentBooking.pickup_room_nights_per_hour ?? '未取得' }}</div></div><div class="rounded-xl bg-slate-50 p-3"><div class="text-xs text-slate-400">取消率</div><div class="mt-1 font-bold">{{ currentBooking.cancellation_rate_percent ?? '未取得' }}<span v-if="currentBooking.cancellation_rate_percent != null">%</span></div></div></div><p class="mt-3 text-xs leading-5 text-slate-500">{{ (currentBooking.data_gaps || []).map(gapText).join(' · ') || '两个同范围已核对且本地回读的快照可比。' }}</p></div><form v-if="canExecute" @submit.prevent="saveOnBooks" class="rounded-2xl border border-slate-200 bg-white p-5"><h3 class="font-bold text-slate-900">记录一条在手快照</h3><div class="mt-3 grid grid-cols-2 gap-3"><input v-model="onBooks.captured_at" type="datetime-local" step="1" class="col-span-2 rounded-lg border p-2 text-sm"><input v-model="onBooks.rooms" inputmode="decimal" placeholder="在手间夜" class="rounded-lg border p-2 text-sm"><input v-model="onBooks.revenue" inputmode="decimal" placeholder="在手房费" class="rounded-lg border p-2 text-sm"><input v-model="onBooks.cancelled" inputmode="decimal" placeholder="累计取消间夜，可空" class="rounded-lg border p-2 text-sm"><input v-model="onBooks.gross" inputmode="decimal" placeholder="累计毛预订间夜，可空" class="rounded-lg border p-2 text-sm"><input v-model="onBooks.source_ref" placeholder="来源引用/文件指纹" class="col-span-2 rounded-lg border p-2 text-sm"></div><label class="mt-3 flex items-start gap-2 text-xs text-slate-600"><input v-model="onBooks.confirmed" type="checkbox" class="mt-0.5">我已人工核对酒店、平台、入住日和来源；否则只保存为未核验，不进入正式节奏。本地回读由服务端完成，不由此勾选声明。</label><button type="submit" :disabled="savingOnBooks" class="operating-finance-primary-action mt-3 w-full rounded-xl px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50">{{ savingOnBooks ? '保存中…' : '保存快照' }}</button></form><div v-else data-testid="operating-finance-view-only" class="rounded-2xl border border-slate-200 bg-slate-50 p-5 text-sm text-slate-600">当前账号只有查看权限，不能保存新的在手预订快照。</div></section>
+                <section v-if="activeTab === 'booking'" class="grid gap-4 xl:grid-cols-2" data-testid="operating-finance-booking"><div class="rounded-2xl border border-slate-200 bg-white p-5"><h3 class="font-bold text-slate-900">选定入住日的真实预订节奏</h3><div class="mt-4 grid grid-cols-2 gap-3"><div class="rounded-xl bg-slate-50 p-3"><div class="text-xs text-slate-400">净拾取</div><div class="mt-1 font-bold">{{ currentBooking.net_pickup_room_nights ?? '未取得' }} 间夜</div></div><div class="rounded-xl bg-slate-50 p-3"><div class="text-xs text-slate-400">毛拾取</div><div class="mt-1 font-bold">{{ currentBooking.gross_pickup_room_nights ?? '未取得' }} 间夜</div></div><div class="rounded-xl bg-slate-50 p-3"><div class="text-xs text-slate-400">每小时净拾取</div><div class="mt-1 font-bold">{{ currentBooking.pickup_room_nights_per_hour ?? '未取得' }}</div></div><div class="rounded-xl bg-slate-50 p-3"><div class="text-xs text-slate-400">取消率</div><div class="mt-1 font-bold">{{ currentBooking.cancellation_rate_percent ?? '未取得' }}<span v-if="currentBooking.cancellation_rate_percent != null">%</span></div></div></div><p class="mt-3 text-xs leading-5 text-slate-500">{{ (currentBooking.data_gaps || []).map(gapText).join(' · ') || (currentBooking.status === 'ready' ? '两个同范围已核对且本地回读的快照可比。' : moduleReadNotice(currentBooking)) }}</p></div><form v-if="canExecute" @submit.prevent="saveOnBooks" class="rounded-2xl border border-slate-200 bg-white p-5"><h3 class="font-bold text-slate-900">记录一条在手快照</h3><div class="mt-3 grid grid-cols-2 gap-3"><input v-model="onBooks.captured_at" type="datetime-local" step="1" class="col-span-2 rounded-lg border p-2 text-sm"><input v-model="onBooks.rooms" inputmode="decimal" placeholder="在手间夜" class="rounded-lg border p-2 text-sm"><input v-model="onBooks.revenue" inputmode="decimal" placeholder="在手房费" class="rounded-lg border p-2 text-sm"><input v-model="onBooks.cancelled" inputmode="decimal" placeholder="累计取消间夜，可空" class="rounded-lg border p-2 text-sm"><input v-model="onBooks.gross" inputmode="decimal" placeholder="累计毛预订间夜，可空" class="rounded-lg border p-2 text-sm"><input v-model="onBooks.source_ref" placeholder="来源引用/文件指纹" class="col-span-2 rounded-lg border p-2 text-sm"></div><label class="mt-3 flex items-start gap-2 text-xs text-slate-600"><input v-model="onBooks.confirmed" type="checkbox" class="mt-0.5">我已人工核对酒店、平台、入住日和来源；否则只保存为未核验，不进入正式节奏。本地回读由服务端完成，不由此勾选声明。</label><button type="submit" :disabled="savingOnBooks" class="operating-finance-primary-action mt-3 w-full rounded-xl px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50">{{ savingOnBooks ? '保存中…' : '保存快照' }}</button></form><div v-else data-testid="operating-finance-view-only" class="rounded-2xl border border-slate-200 bg-slate-50 p-5 text-sm text-slate-600">当前账号只有查看权限，不能保存新的在手预订快照。</div></section>
 
                 <section v-if="activeTab === 'demand'" class="grid gap-4 xl:grid-cols-2" data-testid="operating-finance-demand">
-                    <div class="rounded-2xl border border-slate-200 bg-white p-5"><h3 class="font-bold text-slate-900">明天至未来7天本地需求事件</h3><div v-if="currentDemand.events?.length" class="mt-3 space-y-2"><div v-for="event in currentDemand.events" :key="event.id" class="rounded-xl border border-slate-200 p-3"><div class="flex items-center justify-between gap-3"><strong class="text-sm">{{ event.event_name }}</strong><span class="text-xs text-slate-400">{{ event.event_start_date }}—{{ event.event_end_date }}</span></div><p class="mt-1 text-xs text-slate-500">{{ event.area_label }} · {{ statusText(event.source_status) }} · 观察于 {{ event.observed_at }}</p></div></div><p v-else class="mt-4 text-sm text-slate-500">明天至未来7天没有已保存事件；天气和节假日之外的本地活动必须有来源才能进入。</p></div>
+                    <div class="rounded-2xl border border-slate-200 bg-white p-5"><h3 class="font-bold text-slate-900">明天至未来7天本地需求事件</h3><div v-if="currentDemand.events?.length" class="mt-3 space-y-2"><div v-for="event in currentDemand.events" :key="event.id" class="rounded-xl border border-slate-200 p-3"><div class="flex items-center justify-between gap-3"><strong class="text-sm">{{ event.event_name }}</strong><span class="text-xs text-slate-400">{{ event.event_start_date }}—{{ event.event_end_date }}</span></div><p class="mt-1 text-xs text-slate-500">{{ event.area_label }} · {{ statusText(event.source_status) }} · 观察于 {{ event.observed_at }}</p></div></div><p v-else-if="currentDemand.status === 'empty'" class="mt-4 text-sm text-slate-500">明天至未来7天没有已保存事件；天气和节假日之外的本地活动必须有来源才能进入。</p><p v-else class="mt-4 text-sm text-slate-500">{{ moduleReadNotice(currentDemand) }}</p></div>
                     <form v-if="canExecute" @submit.prevent="saveEvent" class="rounded-2xl border border-slate-200 bg-white p-5"><h3 class="font-bold text-slate-900">添加参考事件</h3><div class="mt-3 grid grid-cols-2 gap-3"><input v-model="eventForm.name" placeholder="事件名称" class="col-span-2 rounded-lg border p-2 text-sm"><select v-model="eventForm.type" class="rounded-lg border p-2 text-sm"><option value="exhibition">会展</option><option value="concert">演出</option><option value="exam">考试</option><option value="transport">交通</option><option value="weather">天气</option><option value="holiday">节假日</option><option value="policy">政策</option><option value="other">其他</option></select><input v-model="eventForm.area" placeholder="影响区域" class="rounded-lg border p-2 text-sm"><input v-model="eventForm.start" type="date" class="rounded-lg border p-2 text-sm"><input v-model="eventForm.end" type="date" class="rounded-lg border p-2 text-sm"><input v-model="eventForm.observed_at" type="datetime-local" step="1" class="col-span-2 rounded-lg border p-2 text-sm"><input v-model="eventForm.source_ref" placeholder="来源引用/内容指纹" class="col-span-2 rounded-lg border p-2 text-sm"></div><p class="mt-2 text-xs leading-5 text-slate-500">手工添加始终保存为“仅作参考”，不会由客户端自行升级为已验证来源，也不会自动触发调价。</p><button type="submit" :disabled="savingEvent" class="operating-finance-primary-action mt-3 w-full rounded-xl px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50">{{ savingEvent ? '保存中…' : '保存为参考事件' }}</button></form><div v-else data-testid="operating-finance-view-only" class="rounded-2xl border border-slate-200 bg-slate-50 p-5 text-sm text-slate-600">当前账号只有查看权限，不能保存需求事件。</div>
                 </section>
 
-                <section v-if="activeTab === 'wecom'" class="rounded-2xl border border-slate-200 bg-white p-5" data-testid="operating-finance-wecom"><div class="flex items-center justify-between"><h3 class="font-bold text-slate-900">企业微信员工执行回执</h3><span class="rounded-full border px-2 py-1 text-xs">{{ statusText(currentWecom.status) }}</span></div><p class="mt-3 text-sm leading-6 text-slate-600">当前已记录 {{ currentWecom.receipt_count ?? 0 }} 条结构化员工自报。回执服务只接收事件 ID，并由服务端重读已归档终态事件；回执不等于审批、执行成功或财务证据。原消息正文、结果和证据说明不会复制到新表，只保存摘要与可关联的发送者伪名哈希。</p><pre class="mt-4 overflow-x-auto rounded-xl bg-slate-950 p-4 text-xs leading-5 text-emerald-100">{"task_id":321,"status":"acknowledged|in_progress|completed|blocked|failed","result":"1-500字","evidence_note":"1-500字","amount":"120.50"}</pre><p class="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs leading-5 text-amber-800">现场启用前必须建立“企微发送者哈希 → 宿析OS员工”验证映射，并确认员工正是任务负责人。缺映射时保持阻断，不允许用当前登录用户或自由文本冒充。</p></section>
+                <section v-if="activeTab === 'wecom'" class="rounded-2xl border border-slate-200 bg-white p-5" data-testid="operating-finance-wecom"><div class="flex items-center justify-between"><h3 class="font-bold text-slate-900">企业微信员工执行回执</h3><span class="rounded-full border px-2 py-1 text-xs">{{ statusText(currentWecom.status) }}</span></div><p class="mt-3 text-sm leading-6 text-slate-600"><span v-if="['ready', 'sender_mapping_and_verified_event_required'].includes(currentWecom.status) && currentWecom.receipt_count != null">当前已记录 {{ currentWecom.receipt_count }} 条结构化员工自报。</span><span v-else>{{ moduleReadNotice(currentWecom) }}</span>回执服务只接收事件 ID，并由服务端重读已归档终态事件；回执不等于审批、执行成功或财务证据。原消息正文、结果和证据说明不会复制到新表，只保存摘要与可关联的发送者伪名哈希。</p><pre class="mt-4 overflow-x-auto rounded-xl bg-slate-950 p-4 text-xs leading-5 text-emerald-100">{"task_id":321,"status":"acknowledged|in_progress|completed|blocked|failed","result":"1-500字","evidence_note":"1-500字","amount":"120.50"}</pre><p class="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs leading-5 text-amber-800">现场启用前必须建立“企微发送者哈希 → 宿析OS员工”验证映射，并确认员工正是任务负责人。缺映射时保持阻断，不允许用当前登录用户或自由文本冒充。</p></section>
 
                 <section v-if="activeTab === 'finance'" class="grid gap-4 xl:grid-cols-2" data-testid="operating-finance-monthly">
                     <div class="rounded-2xl border border-slate-200 bg-white p-5">

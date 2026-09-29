@@ -100,6 +100,8 @@ function cloudHotelIdColumnRegistry(): array
         ['ai_report_input_cache', 'hotel_id', 'hotel_id'],
         ['ai_daily_report_broadcast_snapshots', 'hotel_id', 'hotel_id'],
         ['weekly_operating_plan_snapshots', 'hotel_id', 'hotel_id'],
+        ['manager_coaching_plans', 'hotel_id', 'hotel_id'],
+        ['manager_coaching_events', 'hotel_id', 'hotel_id'],
         ['operation_scheduled_review_scan_cursors', 'hotel_id', 'hotel_id'],
         ['user_learning_memory_events', 'hotel_id', 'hotel_id'],
         ['user_learning_memory_preferences', 'hotel_id', 'hotel_id'],

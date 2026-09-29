@@ -1,0 +1,132 @@
+// src/usage-dashboard-telemetry.cjs
+var require_usage_dashboard_telemetry = __commonJS({
+  "src/usage-dashboard-telemetry.cjs"(exports2, module2) {
+    var TELEMETRY_VERSION = 1;
+    var MAX_SEARCH_KEYS = 200;
+    var SAVE_DEBOUNCE_MS = 15e3;
+    function normalize(raw) {
+      const source = raw && typeof raw === "object" ? raw : {};
+      const numbers = (value) => {
+        const out = {};
+        if (value && typeof value === "object") {
+          for (const [key, count] of Object.entries(value)) {
+            const n = Number(count);
+            if (key && Number.isFinite(n) && n > 0) out[String(key)] = Math.floor(n);
+          }
+        }
+        return out;
+      };
+      return {
+        version: TELEMETRY_VERSION,
+        sinceDay: typeof source.sinceDay === "string" ? source.sinceDay : "",
+        featureOpens: numbers(source.featureOpens),
+        folderOpens: numbers(source.folderOpens),
+        searches: numbers(source.searches),
+        inboxStreak: Number.isFinite(Number(source.inboxStreak)) && Number(source.inboxStreak) > 0 ? Math.floor(Number(source.inboxStreak)) : 0,
+        lastInboxDay: typeof source.lastInboxDay === "string" ? source.lastInboxDay : ""
+      };
+    }
+    function pruneSearches(searches) {
+      const entries = Object.entries(searches);
+      if (entries.length <= MAX_SEARCH_KEYS) return searches;
+      entries.sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+      return Object.fromEntries(entries.slice(0, MAX_SEARCH_KEYS));
+    }
+    function topSectionOf(path2) {
+      const parts = String(path2 || "").split("/");
+      return parts.length > 1 ? parts[0] : "";
+    }
+    function createUsageTelemetryStore2({ read, write, today, schedule } = {}) {
+      const nowDay = () => typeof today === "function" ? today() : String(today || "");
+      let state = normalize(typeof read === "function" ? read() : null);
+      let dirty = false;
+      let timer = null;
+      const flush = () => {
+        if (timer) {
+          clearTimeout(timer);
+          timer = null;
+        }
+        if (!dirty) return false;
+        dirty = false;
+        if (typeof write === "function") {
+          try {
+            write(JSON.parse(JSON.stringify(state)));
+          } catch (error) {
+            return false;
+          }
+        }
+        return true;
+      };
+      const touch = () => {
+        dirty = true;
+        if (timer) return;
+        const run = () => {
+          timer = null;
+          flush();
+        };
+        if (typeof schedule === "function") timer = schedule(run, SAVE_DEBOUNCE_MS);
+        else if (typeof setTimeout === "function") timer = setTimeout(run, SAVE_DEBOUNCE_MS);
+        if (timer && typeof timer === "object" && typeof timer.unref === "function") timer.unref();
+      };
+      const ensureSince = () => {
+        if (!state.sinceDay) {
+          state.sinceDay = nowDay();
+          touch();
+        }
+      };
+      return {
+        snapshot() {
+          return {
+            sinceDay: state.sinceDay,
+            featureOpens: { ...state.featureOpens },
+            folderOpens: { ...state.folderOpens },
+            searches: { ...state.searches },
+            inboxFreeStreak: state.inboxStreak
+          };
+        },
+        recordFeatureOpen(route) {
+          const key = String(route || "").trim();
+          if (!key) return;
+          ensureSince();
+          state.featureOpens[key] = (state.featureOpens[key] || 0) + 1;
+          touch();
+        },
+        recordFileOpen(path2) {
+          const section = topSectionOf(path2);
+          if (!section) return;
+          ensureSince();
+          state.folderOpens[section] = (state.folderOpens[section] || 0) + 1;
+          touch();
+        },
+        recordSearch(query) {
+          const key = String(query || "").trim().slice(0, 60);
+          if (key.length < 2) return;
+          ensureSince();
+          state.searches[key] = (state.searches[key] || 0) + 1;
+          state.searches = pruneSearches(state.searches);
+          touch();
+        },
+        /** 每天最多记一次：Inbox 积压 ≤ 5 条算「今天也是清爽的」，否则连续天数归零。 */
+        markInboxDay(inboxCount) {
+          const day = nowDay();
+          if (!day || state.lastInboxDay === day) return false;
+          ensureSince();
+          state.lastInboxDay = day;
+          state.inboxStreak = Number(inboxCount) <= 5 ? state.inboxStreak + 1 : 0;
+          touch();
+          return true;
+        },
+        flush,
+        __state: () => state
+      };
+    }
+    module2.exports = {
+      TELEMETRY_VERSION,
+      MAX_SEARCH_KEYS,
+      SAVE_DEBOUNCE_MS,
+      normalize,
+      pruneSearches,
+      createUsageTelemetryStore: createUsageTelemetryStore2
+    };
+  }
+});

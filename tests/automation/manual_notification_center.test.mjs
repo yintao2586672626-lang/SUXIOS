@@ -10,7 +10,8 @@ const manualNotificationOrchestrationSource = fs.readFileSync(
   'public/manual-notification-orchestration-static.js',
   'utf8',
 );
-const appMainSource = `${appMainEntrySource}\n${manualNotificationOrchestrationSource}`;
+const pageProjectionSource = fs.readFileSync('public/system-page-projections.js', 'utf8');
+const appMainSource = `${appMainEntrySource}\n${manualNotificationOrchestrationSource}\n${systemStaticSource}\n${pageProjectionSource}`;
 const serviceSource = fs.readFileSync('app/service/ManualNotificationService.php', 'utf8');
 const scheduleRuleSource = fs.readFileSync(
   'app/service/ManualNotificationScheduleRuleService.php',
@@ -78,7 +79,7 @@ test('operating target missing-record reset preserves new context and clears sta
   assert.equal(result.quality_status, 'unverified');
   assert.match(
     appMainSource,
-    /applyOperatingTargetRecord\(operatingTargetResult\.value,\s*context\)/,
+    /applyOperatingTargetRecord\(operatingTargetResult\.value,\s*context,\s*helpers\)/,
   );
 });
 
@@ -456,7 +457,7 @@ test('operating target desktop layout prioritizes entry with a compact evidence 
   );
   assert.match(
     operatingTargetFragmentSource,
-    /设置当日住宿房费总目标[\s\S]*data-testid="operating-target-pms-facts"[\s\S]*<aside class="space-y-4">/,
+    /设置当日经营总目标[\s\S]*data-testid="operating-target-pms-facts"[\s\S]*<aside class="space-y-4">/,
   );
   assert.match(
     operatingTargetFragmentSource,
@@ -481,21 +482,22 @@ test('operating targets keep one revenue goal and show PMS facts as read-only ev
   assert.match(operatingTargetFragmentSource, /data-testid="operating-target-task-draft-error"/);
   assert.match(operatingTargetFragmentSource, /进入任务执行与复盘/);
 
-  assert.match(appMainSource, /target_occupancy_rate_percent: null/);
-  assert.match(appMainSource, /target_revpar: null/);
-  assert.match(appMainSource, /fact_scope: 'accommodation_room_fee'/);
+  const saveSource = fs.readFileSync('public/operation-static.js', 'utf8');
+  assert.match(saveSource, /target_occupancy_rate_percent: null/);
+  assert.match(saveSource, /target_revpar: null/);
+  assert.match(saveSource, /fact_scope: form\.fact_scope \|\| 'accommodation_room_fee'/);
   for (const key of [
     'target_revenue',
     'actual_revenue',
     'completion_rate_percent',
     'remaining_revenue',
   ]) {
-    assert.match(appMainSource, new RegExp(`key: '${key}'`));
+    assert.match(saveSource, new RegExp(`key: '${key}'`));
   }
   for (const label of ['实际住宿房费', '已售间夜', '可售房夜', '入住率', 'ADR', 'RevPAR']) {
-    assert.match(appMainSource, new RegExp(`label: '${label}'`));
+    assert.ok(saveSource.includes(`'${label}'`));
   }
-  assert.match(appMainSource, /apiRequest\('\/operating-targets\/task-draft'/);
+  assert.match(saveSource, /request\('\/operating-targets\/task-draft'/);
   assert.match(appMainSource, /operatingTargetTaskDraftError\.value = operationErrorMessage/);
   assert.match(appMainSource, /currentPage\.value = 'ops-track'/);
   assert.doesNotMatch(appMainSource, /Number\([^)]*actual_revenue[^)]*\)\s*\|\|\s*0/);

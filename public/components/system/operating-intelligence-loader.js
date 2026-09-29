@@ -1,8 +1,8 @@
 (() => {
     'use strict';
 
-    const fullScript = 'components/system/operating-intelligence-components.js?v=20260902-dirty-merge-h4e7d569d33';
-    const analystScript = 'components/system/hotel-data-analyst-components.js?v=20260831-precise-range-hfa596d333c';
+    const fullScript = 'components/system/operating-intelligence-components.js?v=20260902-dirty-merge-hfa5690baeb';
+    const analystScript = 'components/system/hotel-data-analyst-components.js?v=20260831-precise-range-h6b9ed47fc8';
     const fullStyle = 'style.min.css';
     let fullScriptPromise = null;
     let analystScriptPromise = null;
@@ -323,7 +323,14 @@
         });
     };
 
+    const createEvidenceNavigation = options => {
+        const factory = window.SUXI_OPERATING_EVIDENCE_NAVIGATION;
+        if (!factory?.createEvidenceNavigation) throw new Error('经营证据导航组件尚未加载');
+        return factory.createEvidenceNavigation(options);
+    };
+
     window.SUXI_OPERATING_INTELLIGENCE_COMPONENTS = Object.freeze({
+        createEvidenceNavigation,
         create, submitCouncilRun, pollCouncilRun, councilReadbackIntegrityMatches,
     });
 })();

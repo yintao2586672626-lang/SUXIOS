@@ -25,9 +25,18 @@ use think\facade\Db;
 
 trait AutoFetchConcern
 {
+    use AutoFetchRunModeConcern;
     use AutoFetchProfileSyncConcern;
     use CtripAutoFetchExecutionConcern;
     use MeituanAutoFetchExecutionConcern;
+
+    private function autoFetchTargetBusinessDate(string $dataPeriod): string
+    {
+        $today = new \DateTimeImmutable('now', new \DateTimeZone('Asia/Shanghai'));
+        return $dataPeriod === 'realtime_snapshot'
+            ? $today->format('Y-m-d')
+            : $today->modify('-1 day')->format('Y-m-d');
+    }
 
     public function autoFetch(): Response
     {
@@ -61,7 +70,7 @@ trait AutoFetchConcern
                 'user_id' => $this->currentUser->id,
                 'hotel_id' => $systemHotelId
             ]);
-            $this->recordAutoFetchNotification((int)$systemHotelId, false, '未配置携程或美团抓取凭证，请先在酒店管理中关联平台配置', date('Y-m-d'), [
+            $this->recordAutoFetchNotification((int)$systemHotelId, false, '未配置携程或美团抓取凭证，请先在酒店管理中关联平台配置', $this->autoFetchTargetBusinessDate('realtime_snapshot'), [
                 'data_period' => 'realtime_snapshot',
             ], 'auto_fetch');
             return $this->error('未配置携程或美团抓取凭证，请先在酒店管理中关联平台配置');
@@ -73,7 +82,7 @@ trait AutoFetchConcern
         if ($dataPeriod === '') {
             $dataPeriod = 'realtime_snapshot';
         }
-        $targetDataDate = $dataPeriod === 'realtime_snapshot' ? date('Y-m-d') : date('Y-m-d', strtotime('-1 day'));
+        $targetDataDate = $this->autoFetchTargetBusinessDate($dataPeriod);
         $ctripCollectorFlowInput = trim((string)(
             $requestData['ctrip_collector_flow']
             ?? $requestData['ctripCollectorFlow']
@@ -94,9 +103,7 @@ trait AutoFetchConcern
             $dataPeriod = (string)$ctripFlowOptions['data_period'];
             $targetDataDate = (string)(
                 $ctripFlowOptions['data_date']
-                ?? ($dataPeriod === 'historical_daily'
-                    ? date('Y-m-d', strtotime('-1 day'))
-                    : date('Y-m-d'))
+                ?? $this->autoFetchTargetBusinessDate($dataPeriod)
             );
         }
         $requestedDataDateRaw = trim((string)($requestData['data_date'] ?? $requestData['dataDate'] ?? ''));
@@ -944,25 +951,27 @@ trait AutoFetchConcern
 
     private function nextHistoricalAutoFetchRunTime(string $scheduleTime): string
     {
-        $timestamp = strtotime(date('Y-m-d') . ' ' . $scheduleTime . ':00');
-        if ($timestamp === false || $timestamp <= time()) {
-            $timestamp = strtotime('+1 day', $timestamp ?: time());
+        $now = new \DateTimeImmutable('now', new \DateTimeZone('Asia/Shanghai'));
+        [$hour, $minute] = array_map('intval', explode(':', $scheduleTime, 2));
+        $next = $now->setTime($hour, $minute);
+        if ($next <= $now) {
+            $next = $next->modify('+1 day');
         }
-        return date('Y-m-d H:i', $timestamp);
+        return $next->format('Y-m-d H:i');
     }
 
     private function nextRealtimeAutoFetchRunTime(int $scheduleMinute, int $intervalHours = 2): string
     {
         $intervalHours = $this->normalizeAutoFetchScheduleIntervalHours($intervalHours) ?? 2;
-        $base = strtotime(date('Y-m-d H') . sprintf(':%02d:00', $scheduleMinute));
-        $now = time();
+        $now = new \DateTimeImmutable('now', new \DateTimeZone('Asia/Shanghai'));
+        $base = $now->setTime((int)$now->format('G'), $scheduleMinute);
         for ($offset = 0; $offset <= 48; $offset++) {
-            $timestamp = strtotime("+{$offset} hour", $base ?: $now);
-            if ($timestamp !== false && $timestamp > $now && $this->isRealtimeAutoFetchHourDue((int)date('G', $timestamp), $intervalHours)) {
-                return date('Y-m-d H:i', $timestamp);
+            $candidate = $base->modify("+{$offset} hour");
+            if ($candidate > $now && $this->isRealtimeAutoFetchHourDue((int)$candidate->format('G'), $intervalHours)) {
+                return $candidate->format('Y-m-d H:i');
             }
         }
-        return date('Y-m-d H:i', strtotime("+{$intervalHours} hour", $base ?: $now) ?: $now);
+        return $base->modify("+{$intervalHours} hour")->format('Y-m-d H:i');
     }
 
     private function normalizeAutoFetchTiming(array $timing): array
@@ -4534,6 +4543,19 @@ trait AutoFetchConcern
         return $this->normalizeAutoFetchScheduleStatus($status);
     }
 
+    private function retryAutoFetchDateError(string $dataDate): string
+    {
+        if (preg_match('/^(\d{4})-(\d{2})-(\d{2})$/D', $dataDate, $parts) !== 1
+            || !checkdate((int)($parts[2] ?? 0), (int)($parts[3] ?? 0), (int)($parts[1] ?? 0))) {
+            return '请选择要补抓的数据日期';
+        }
+        if ($dataDate > $this->autoFetchTargetBusinessDate('realtime_snapshot')) {
+            return '补抓日期不能晚于今天';
+        }
+
+        return '';
+    }
+
     public function retryAutoFetch(): Response
     {
         $this->checkPermission();
@@ -4551,11 +4573,9 @@ trait AutoFetchConcern
         if (!$this->hasAnyPlatformFetchConfigForHotel((int)$hotelId)) {
             return $this->error('未配置携程或美团抓取凭证，请先在酒店管理中关联平台配置');
         }
-        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $dataDate)) {
-            return $this->error('请选择要补抓的数据日期');
-        }
-        if (strtotime($dataDate) === false || strtotime($dataDate) > strtotime(date('Y-m-d'))) {
-            return $this->error('补抓日期不能晚于今天');
+        $dateError = $this->retryAutoFetchDateError($dataDate);
+        if ($dateError !== '') {
+            return $this->error($dateError);
         }
 
         $requestData = $this->requestData();
@@ -5274,140 +5294,6 @@ trait AutoFetchConcern
             'one_time_required_fields' => ['Partner ID', 'POI ID'],
             'network_required_fields' => [],
         ];
-    }
-
-    private function normalizeAutoFetchMode($value): string
-    {
-        $mode = strtolower(str_replace(['-', ' '], '_', trim((string)$value)));
-        return match ($mode) {
-            'cookie', 'cookies', 'cookie_auto', 'cookie_config', 'config', 'api', 'direct_api' => 'cookie_config',
-            'profile', 'browser', 'browser_profile', 'profile_browser' => 'profile_browser',
-            default => 'hybrid_auto',
-        };
-    }
-
-    private function platformAutoFetchModeOptionsFromRequest(array $requestData): array
-    {
-        $options = [];
-        foreach ([
-            'ctrip_auto_fetch_mode',
-            'ctripAutoFetchMode',
-            'ctrip_auto_mode',
-            'ctripAutoMode',
-        ] as $key) {
-            if (array_key_exists($key, $requestData) && trim((string)$requestData[$key]) !== '') {
-                $options['ctrip_auto_fetch_mode'] = $this->normalizeAutoFetchMode($requestData[$key]);
-                break;
-            }
-        }
-        foreach ([
-            'meituan_auto_fetch_mode',
-            'meituanAutoFetchMode',
-            'meituan_auto_mode',
-            'meituanAutoMode',
-        ] as $key) {
-            if (array_key_exists($key, $requestData) && trim((string)$requestData[$key]) !== '') {
-                $options['meituan_auto_fetch_mode'] = $this->normalizeAutoFetchMode($requestData[$key]);
-                break;
-            }
-        }
-
-        return $options;
-    }
-
-    private function autoFetchModeLabel(string $mode): string
-    {
-        return match ($this->normalizeAutoFetchMode($mode)) {
-            'cookie_config' => 'Cookie/配置自动',
-            'profile_browser' => '浏览器 Profile 自动采集',
-            default => '接口直连自动',
-        };
-    }
-
-    private function resolveAutoFetchRunMode(int $hotelId, array $options = []): string
-    {
-        foreach (['auto_fetch_mode', 'autoMode', 'auto_mode', 'fetch_mode'] as $key) {
-            if (array_key_exists($key, $options) && trim((string)$options[$key]) !== '') {
-                return $this->normalizeAutoFetchMode($options[$key]);
-            }
-        }
-
-        $status = cache($this->autoFetchStatusKey($hotelId));
-        if (is_array($status)) {
-            foreach (['auto_fetch_mode', 'autoMode', 'auto_mode', 'fetch_mode'] as $key) {
-                if (array_key_exists($key, $status) && trim((string)$status[$key]) !== '') {
-                    return $this->normalizeAutoFetchMode($status[$key]);
-                }
-            }
-        }
-
-        return 'hybrid_auto';
-    }
-
-    private function resolvePlatformAutoFetchMode(array $config, array $options, string $platform): string
-    {
-        foreach ([
-            $platform . '_auto_fetch_mode',
-            $platform . '_auto_mode',
-            'auto_fetch_mode',
-            'autoMode',
-            'auto_mode',
-            'fetch_mode',
-        ] as $key) {
-            if (array_key_exists($key, $options) && trim((string)$options[$key]) !== '') {
-                return $this->normalizeAutoFetchMode($options[$key]);
-            }
-        }
-
-        foreach (['auto_fetch_mode', 'autoMode', 'auto_mode', 'fetch_mode'] as $key) {
-            if (array_key_exists($key, $config) && trim((string)$config[$key]) !== '') {
-                return $this->normalizeAutoFetchMode($config[$key]);
-            }
-        }
-
-        return 'hybrid_auto';
-    }
-
-    private function shouldRunCookieConfigTasks(string $mode): bool
-    {
-        return $this->normalizeAutoFetchMode($mode) !== 'profile_browser';
-    }
-
-    private function shouldRunProfileBrowser(string $mode): bool
-    {
-        return $this->normalizeAutoFetchMode($mode) === 'profile_browser';
-    }
-
-    private function shouldRunProfileBrowserForCost(string $mode, int $savedCount): bool
-    {
-        $mode = $this->normalizeAutoFetchMode($mode);
-        if ($mode === 'cookie_config') {
-            return false;
-        }
-        if ($mode === 'profile_browser') {
-            return true;
-        }
-
-        return false;
-    }
-
-    private function shouldRunCtripProfileBrowser(string $mode, array $browserProfileSources): bool
-    {
-        $mode = $this->normalizeAutoFetchMode($mode);
-        if ($mode === 'profile_browser') {
-            return true;
-        }
-
-        return $mode === 'hybrid_auto' && $browserProfileSources !== [];
-    }
-
-    private function shouldRunCtripProfileBrowserForCost(string $mode, int $savedCount, array $browserProfileSources): bool
-    {
-        if ($this->normalizeAutoFetchMode($mode) === 'profile_browser') {
-            return true;
-        }
-
-        return $this->shouldRunCtripProfileBrowser($mode, $browserProfileSources);
     }
 
     private function autoFetchStatusCode(array $result): string

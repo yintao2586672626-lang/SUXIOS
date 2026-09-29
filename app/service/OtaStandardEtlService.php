@@ -891,6 +891,17 @@ class OtaStandardEtlService
             $blocked = OnlineDataTrustStatusService::quotedSqlList(OnlineDataTrustStatusService::blockingRowStatuses());
             $query->whereRaw("(`status` IS NULL OR LOWER(TRIM(`status`)) NOT IN ({$blocked}))");
         }
+        if (isset($columns['source'], $columns['platform'])) {
+            // Ctrip storage can carry Qunar sub-channel facts; other known
+            // cross-channel identities must not become trusted revenue facts.
+            $normalize = static fn(string $column): string => "CASE LOWER(TRIM(COALESCE(`{$column}`, '')))
+                WHEN '携程' THEN 'ctrip' WHEN '美团' THEN 'meituan' WHEN '去哪儿' THEN 'qunar'
+                ELSE LOWER(TRIM(COALESCE(`{$column}`, ''))) END";
+            $source = $normalize('source');
+            $platform = $normalize('platform');
+            $known = "('ctrip', 'meituan', 'qunar')";
+            $query->whereRaw("($source NOT IN $known OR $platform NOT IN $known OR $source = $platform OR ($source = 'ctrip' AND $platform = 'qunar'))");
+        }
         $this->applySystemHotelScopeFilter($query, $filters, $columns);
         $sourceFilter = trim((string)($filters['source'] ?? $filters['platform'] ?? ''));
         if ($sourceFilter !== '') {
@@ -1364,7 +1375,8 @@ class OtaStandardEtlService
             && $verifiedRoomRevenueBasis !== null
             && $grossRevenue !== null
             && $roomNights !== null
-            && $roomNights > 0
+            && ($roomNights > 0 || (in_array($verifiedRoomRevenueBasis, ['verified_ctrip_checkout_sales', 'verified_meituan_business_sales_cards'], true)
+                && $roomNights == 0.0 && $grossRevenue == 0.0))
         ) {
             $roomRevenue = $grossRevenue;
             $roomRevenueBasis = $verifiedRoomRevenueBasis;
@@ -2073,6 +2085,12 @@ class OtaStandardEtlService
         ) {
             $failureReasons[] = 'readback_unverified';
         }
+        if ((in_array($dataType, ['traffic', 'order', 'business'], true)
+                && !OtaTrafficAttributionService::rowDateScopeIsAuthoritative($row, $source))
+            || ($source === 'ctrip'
+                && !OtaTrafficAttributionService::ctripCatalogDateScopeIsAuthoritative($row))) {
+            $failureReasons[] = $dataType . '_date_source_not_authoritative';
+        }
 
         $sourceTraceId = $this->sourceTraceId($row);
         $dataSourceId = (int)($row['data_source_id'] ?? 0);
@@ -2491,12 +2509,21 @@ class OtaStandardEtlService
             : [];
         $compareType = strtolower(trim((string)($detail['compare_type'] ?? $row['compare_type'] ?? '')));
         $dateScope = (string)($detail['date_scope_evidence'] ?? '');
+        // Generic sync and direct browser capture use different names for the same stored sales fields.
+        $capturedSalesFields = (
+            $this->hasCapturedFieldFactSource($raw, 'order_amount', 'online_daily_data.amount', 'amount')
+            && $this->hasCapturedFieldFactSource($raw, 'room_nights', 'online_daily_data.quantity', 'quantity')
+        ) || (
+            $this->hasCapturedFieldFactSource($raw, 'sales_amount', 'online_daily_data.amount', 'sales_amount')
+            && $this->hasCapturedFieldFactSource($raw, 'sales_room_nights', 'online_daily_data.quantity', 'sales_room_nights')
+        );
 
         if ($amount === null
             || $salesAmount === null
             || abs($amount - $salesAmount) > 0.01
             || $roomNights === null
-            || $roomNights <= 0
+            || $roomNights < 0
+            || ($roomNights == 0.0 && ($amount != 0.0 || ($salesAvgPrice !== null && $salesAvgPrice != 0.0)))
             || $salesRoomNights === null
             || abs($roomNights - $salesRoomNights) > 0.001
             || ($salesAvgPrice !== null
@@ -2515,18 +2542,7 @@ class OtaStandardEtlService
             || trim((string)($amountSource['source_path'] ?? '')) === ''
             || (string)($roomNightsSource['source_kind'] ?? '') !== 'card'
             || trim((string)($roomNightsSource['source_path'] ?? '')) === ''
-            || !$this->hasCapturedFieldFactSource(
-                $raw,
-                'order_amount',
-                'online_daily_data.amount',
-                'amount'
-            )
-            || !$this->hasCapturedFieldFactSource(
-                $raw,
-                'room_nights',
-                'online_daily_data.quantity',
-                'quantity'
-            )
+            || !$capturedSalesFields
         ) {
             return null;
         }
@@ -2553,7 +2569,8 @@ class OtaStandardEtlService
             || $rawAmount === null
             || abs($amount - $rawAmount) > 0.01
             || $roomNights === null
-            || $roomNights <= 0
+            || $roomNights < 0
+            || ($roomNights == 0.0 && $amount != 0.0)
             || $rawRoomNights === null
             || abs($roomNights - $rawRoomNights) > 0.001
             || !$this->hasCapturedFieldFactSource(

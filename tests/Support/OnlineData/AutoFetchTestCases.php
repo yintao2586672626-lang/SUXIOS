@@ -16,6 +16,141 @@ use think\App;
 
 trait AutoFetchTestCases
 {
+    use AutoFetchReceiptTestCases;
+    public function testAutoFetchTargetDatesUseShanghaiBusinessDay(): void
+    {
+        $controller = $this->controller();
+        $shanghaiToday = new \DateTimeImmutable('now', new \DateTimeZone('Asia/Shanghai'));
+        $originalTimezone = date_default_timezone_get();
+
+        try {
+            foreach (['Pacific/Honolulu', 'Pacific/Kiritimati'] as $timezone) {
+                date_default_timezone_set($timezone);
+                if (date('Y-m-d') !== $shanghaiToday->format('Y-m-d')) {
+                    break;
+                }
+            }
+            self::assertNotSame($shanghaiToday->format('Y-m-d'), date('Y-m-d'));
+            self::assertSame(
+                $shanghaiToday->format('Y-m-d'),
+                $this->invokeNonPublic($controller, 'autoFetchTargetBusinessDate', ['realtime_snapshot'])
+            );
+            self::assertSame(
+                $shanghaiToday->modify('-1 day')->format('Y-m-d'),
+                $this->invokeNonPublic($controller, 'autoFetchTargetBusinessDate', ['historical_daily'])
+            );
+        } finally {
+            date_default_timezone_set($originalTimezone);
+        }
+    }
+
+    public function testRetryAutoFetchRejectsNonexistentCalendarDate(): void
+    {
+        $controller = $this->controller();
+        self::assertSame(
+            '请选择要补抓的数据日期',
+            $this->invokeNonPublic($controller, 'retryAutoFetchDateError', ['2025-02-30'])
+        );
+        self::assertSame(
+            '',
+            $this->invokeNonPublic($controller, 'retryAutoFetchDateError', ['2025-02-28'])
+        );
+    }
+
+    public function testRetryAutoFetchAcceptsShanghaiTodayAcrossProcessTimezones(): void
+    {
+        $controller = $this->controller();
+        $shanghaiToday = new \DateTimeImmutable('now', new \DateTimeZone('Asia/Shanghai'));
+        $originalTimezone = date_default_timezone_get();
+
+        try {
+            foreach (['Pacific/Honolulu', 'Pacific/Kiritimati'] as $timezone) {
+                date_default_timezone_set($timezone);
+                if (date('Y-m-d') !== $shanghaiToday->format('Y-m-d')) {
+                    break;
+                }
+            }
+            self::assertNotSame($shanghaiToday->format('Y-m-d'), date('Y-m-d'));
+            self::assertSame(
+                '',
+                $this->invokeNonPublic($controller, 'retryAutoFetchDateError', [$shanghaiToday->format('Y-m-d')])
+            );
+            self::assertSame(
+                '补抓日期不能晚于今天',
+                $this->invokeNonPublic($controller, 'retryAutoFetchDateError', [
+                    $shanghaiToday->modify('+1 day')->format('Y-m-d'),
+                ])
+            );
+        } finally {
+            date_default_timezone_set($originalTimezone);
+        }
+    }
+
+    public function testNextHistoricalAutoFetchRunDisplaysShanghaiSchedule(): void
+    {
+        $controller = $this->controller();
+        $shanghaiNow = new \DateTimeImmutable('now', new \DateTimeZone('Asia/Shanghai'));
+        $scheduleTime = $shanghaiNow->modify('-2 hours')->format('H:i');
+        $scheduled = $shanghaiNow->setTime((int)substr($scheduleTime, 0, 2), (int)substr($scheduleTime, 3, 2));
+        if ($scheduled <= $shanghaiNow) {
+            $scheduled = $scheduled->modify('+1 day');
+        }
+        $originalTimezone = date_default_timezone_get();
+
+        try {
+            foreach (['Pacific/Honolulu', 'Pacific/Kiritimati'] as $timezone) {
+                date_default_timezone_set($timezone);
+                if (date('Y-m-d') !== $shanghaiNow->format('Y-m-d')) {
+                    break;
+                }
+            }
+            self::assertNotSame($shanghaiNow->format('Y-m-d'), date('Y-m-d'));
+            self::assertSame(
+                $scheduled->format('Y-m-d H:i'),
+                $this->invokeNonPublic($controller, 'nextHistoricalAutoFetchRunTime', [$scheduleTime])
+            );
+            $status = $this->invokeNonPublic($controller, 'normalizeAutoFetchScheduleStatus', [[
+                'enabled' => true,
+                'historical_enabled' => true,
+                'realtime_enabled' => false,
+                'historical_schedule_time' => $scheduleTime,
+            ]]);
+            self::assertSame($status['historical']['next_run_time'], $status['next_run_time']);
+        } finally {
+            date_default_timezone_set($originalTimezone);
+        }
+    }
+
+    public function testNextRealtimeAutoFetchRunDisplaysShanghaiSchedule(): void
+    {
+        $controller = $this->controller();
+        $shanghaiNow = new \DateTimeImmutable('now', new \DateTimeZone('Asia/Shanghai'));
+        $minute = ((int)$shanghaiNow->format('i') + 5) % 60;
+        $expected = $shanghaiNow->setTime((int)$shanghaiNow->format('H'), $minute);
+        if ($expected <= $shanghaiNow) {
+            $expected = $expected->modify('+1 hour');
+        }
+        $originalTimezone = date_default_timezone_get();
+
+        try {
+            date_default_timezone_set('Pacific/Honolulu');
+            self::assertSame(
+                $expected->format('Y-m-d H:i'),
+                $this->invokeNonPublic($controller, 'nextRealtimeAutoFetchRunTime', [$minute, 1])
+            );
+            $status = $this->invokeNonPublic($controller, 'normalizeAutoFetchScheduleStatus', [[
+                'enabled' => true,
+                'historical_enabled' => false,
+                'realtime_enabled' => true,
+                'realtime_schedule_minute' => $minute,
+                'realtime_schedule_interval_hours' => 1,
+            ]]);
+            self::assertSame($expected->format('Y-m-d H:i'), $status['realtime']['next_run_time']);
+            self::assertSame($status['realtime']['next_run_time'], $status['next_run_time']);
+        } finally {
+            date_default_timezone_set($originalTimezone);
+        }
+    }
 
     public function testAutoFetchTaskPlanIgnoresLegacyCommentCredentialConfigs(): void
     {
@@ -254,102 +389,6 @@ trait AutoFetchTestCases
         self::assertTrue($this->invokeNonPublic($controller, 'shouldRunProfileBrowserForCost', ['profile_browser', 10]));
         self::assertFalse($this->invokeNonPublic($controller, 'shouldRunProfileBrowserForCost', ['hybrid_auto', 3]));
         self::assertFalse($this->invokeNonPublic($controller, 'shouldRunProfileBrowserForCost', ['hybrid_auto', 0]));
-    }
-
-    public function testAutoFetchResultMetaKeepsFailureActionExplicit(): void
-    {
-        $controller = $this->controller();
-
-        $cookieResult = $this->invokeNonPublic($controller, 'withAutoFetchResultMeta', [[
-            'module' => 'day_report_api',
-            'saved_count' => 0,
-            'success' => false,
-            'skipped' => true,
-            'message' => '未配置携程 Cookie',
-        ], 'cookie_config']);
-        self::assertSame('cookie_config', $cookieResult['strategy']);
-        self::assertSame('needs_cookie', $cookieResult['status_code']);
-        self::assertSame('更新 Cookie 或重新登录 OTA 后台', $cookieResult['next_action']);
-
-        $profileResult = $this->invokeNonPublic($controller, 'withAutoFetchResultMeta', [[
-            'module' => 'browser_profile',
-            'saved_count' => 0,
-            'success' => false,
-            'skipped' => true,
-            'message' => '未发现本地美团浏览器 Profile',
-        ], 'profile_browser']);
-        self::assertSame('needs_profile', $profileResult['status_code']);
-        self::assertSame('建立或重新登录浏览器 Profile', $profileResult['next_action']);
-
-        $profileLoginTimeoutResult = $this->invokeNonPublic($controller, 'withAutoFetchResultMeta', [[
-            'module' => 'browser_profile',
-            'saved_count' => 0,
-            'success' => false,
-            'message' => 'Ctrip login timeout after 30 seconds',
-        ], 'profile_browser']);
-        self::assertSame('needs_profile', $profileLoginTimeoutResult['status_code']);
-        self::assertStringContainsString('Profile', $profileLoginTimeoutResult['next_action']);
-
-        $costSkippedResult = $this->invokeNonPublic($controller, 'withAutoFetchResultMeta', [[
-            'module' => 'browser_profile',
-            'saved_count' => 0,
-            'success' => false,
-            'skipped' => true,
-            'message' => '当前策略未启动 Profile',
-        ], 'profile_browser']);
-        self::assertSame('skipped', $costSkippedResult['status_code']);
-        self::assertSame('', $costSkippedResult['next_action']);
-
-        $meituanMissingResult = $this->invokeNonPublic($controller, 'withAutoFetchResultMeta', [[
-            'module' => 'ranking_api',
-            'saved_count' => 0,
-            'success' => false,
-            'skipped' => true,
-            'message' => '缺少美团 Partner ID / POI ID / Cookies',
-        ], 'cookie_config']);
-        self::assertSame('needs_config', $meituanMissingResult['status_code']);
-        self::assertSame('补齐美团 Partner ID / POI ID / Cookies', $meituanMissingResult['next_action']);
-    }
-
-    public function testAutoFetchSuccessRequiresExactCurrentRunCoreReadbackReceipt(): void
-    {
-        $controller = $this->controller();
-        $valid = [
-            'readback_verified' => true,
-            'p0_status' => 'ready',
-            'sync_task_id' => 901,
-            'data_source_id' => 101,
-            'started_at' => '2026-07-20 08:00:00',
-            'row_ids' => [7001, 7002],
-            'source_trace_ids' => ['f4c8e90d2c3b4a5f'],
-            'verified_metric_keys' => ['revenue', 'room_nights', 'adr'],
-        ];
-
-        self::assertTrue($this->invokeNonPublic($controller, 'autoFetchRunReadbackCoreVerified', [$valid]));
-        self::assertFalse($this->invokeNonPublic($controller, 'autoFetchRunReadbackCoreVerified', [array_merge($valid, [
-            'sync_task_id' => 0,
-        ])]));
-        self::assertFalse($this->invokeNonPublic($controller, 'autoFetchRunReadbackCoreVerified', [array_merge($valid, [
-            'verified_metric_keys' => ['revenue', 'room_nights'],
-        ])]));
-        self::assertFalse($this->invokeNonPublic($controller, 'autoFetchRunReadbackCoreVerified', [array_merge($valid, [
-            'source_trace_ids' => [],
-        ])]));
-
-        $selected = $this->invokeNonPublic($controller, 'selectAutoFetchRunReadback', [[
-            ['saved_count' => 99],
-            ['run_readback' => array_merge($valid, ['sync_task_id' => 900])],
-            ['run_readback' => $valid],
-        ]]);
-        self::assertSame(901, $selected['sync_task_id']);
-
-        // A platform result is successful only when this run both wrote rows
-        // and returned an exact, source-bound core-metric readback receipt.
-        self::assertTrue($this->invokeNonPublic($controller, 'autoFetchPlatformRunSucceeded', [1, $valid]));
-        self::assertFalse($this->invokeNonPublic($controller, 'autoFetchPlatformRunSucceeded', [0, $valid]));
-        self::assertFalse($this->invokeNonPublic($controller, 'autoFetchPlatformRunSucceeded', [1, array_merge($valid, [
-            'verified_metric_keys' => ['revenue', 'room_nights'],
-        ])]));
     }
 
     public function testMeituanAutoFetchConfigStatusReportsMissingFields(): void

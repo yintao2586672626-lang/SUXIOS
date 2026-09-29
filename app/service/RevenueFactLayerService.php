@@ -627,6 +627,10 @@ final class RevenueFactLayerService
         )));
         $notVerifiedReason = $sourceKey . '_not_readback_verified';
         $bindingStatus = (string)($binding['binding_status'] ?? '');
+        $adrReady = $trusted && $sold > 0;
+        $adrReason = !$trusted
+            ? $notVerifiedReason
+            : ($adrReady ? '' : 'pms_sold_room_nights_denominator_zero');
 
         $facts = [
             'room_revenue' => $trusted ? round($roomRevenue, 2) : null,
@@ -641,7 +645,9 @@ final class RevenueFactLayerService
             'occupancy_rate_percent' => $trusted
                 ? round($occupancy, 2)
                 : null,
-            'adr' => $trusted ? round($adr, 2) : null,
+            // Keep the provider's reported value in the immutable capture;
+            // an ADR ratio has no usable denominator when no room was sold.
+            'adr' => $adrReady ? round($adr, 2) : null,
             'revpar' => $trusted ? round($revpar, 2) : null,
         ];
 
@@ -705,10 +711,10 @@ final class RevenueFactLayerService
                     'reason' => $trusted ? '' : $notVerifiedReason,
                 ],
                 'adr' => [
-                    'status' => $trusted
+                    'status' => $adrReady
                         ? ($meituanCloud ? 'readback_verified' : 'derived_verified')
                         : 'not_calculable',
-                    'reason' => $trusted ? '' : $notVerifiedReason,
+                    'reason' => $adrReason,
                     'formula' => 'room_revenue / sold_room_nights',
                 ],
                 'revpar' => [
@@ -2233,7 +2239,12 @@ final class RevenueFactLayerService
                 'CNY',
                 'whole_hotel_accommodation',
                 'room_revenue / sold_room_nights',
-                $pmsReady ? '' : $pmsNotVerifiedReason
+                $pmsReady
+                    ? (string)($pms['fact_statuses']['adr']['reason'] ?? '')
+                    : $pmsNotVerifiedReason,
+                $pmsReady && $pmsSold === 0.0
+                    ? '出租房晚为0，ADR无可用计算分母；来源原值保留在采集记录。'
+                    : ''
             ),
             'whole_hotel_revpar' => $this->operatingMetric(
                 $pmsFacts['revpar'] ?? null,

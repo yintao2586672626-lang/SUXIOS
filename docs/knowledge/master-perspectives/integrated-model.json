@@ -1,0 +1,388 @@
+{
+  "schema_version": "suxios.master_perspectives.integrated_model.v1",
+  "model_key": "suxios.hotel_operating_multi_lens_review.v1",
+  "version": "2026-08-20.1",
+  "source_outer_zip_sha256": "32c06de45983119efd6f7cfa9b1e8ca5ce59f8a4e5339267dc383a5fc0ee3970",
+  "learning_stage": "understood",
+  "objective": "把165份人物视角材料转化为证据优先、有限视角、保留分歧、可复核的酒店经营审视方法；不安装人物角色，不把风格模仿或历史归因带入经营事实。",
+  "source_assessment": {
+    "source_entries": 165,
+    "categories": 18,
+    "usable_pattern": "同一问题可由不同问题框架提出互补追问，再以证据、冲突和小步验证收敛。",
+    "rejected_pattern": "同时召唤大量人物、模仿口吻、生成未经一手来源核实的名言，或以人物权威替代数据与人工判断。",
+    "integration_choice": "全量来源保留在可追溯方法索引中；宿析运行时只使用有限领域视角卡，默认最多5张。",
+    "installation_status": "none_of_165_skills_installed"
+  },
+  "fact_scope_contract": {
+    "required_when_operating_facts_are_involved": [
+      "tenant_id",
+      "system_hotel_id",
+      "platform_or_source",
+      "business_date_or_period",
+      "metric_definition",
+      "source_method",
+      "captured_or_exported_at",
+      "quality_status",
+      "persistence_and_readback_status"
+    ],
+    "fact_layers": [
+      "verified_fact",
+      "derived_metric",
+      "perspective_hypothesis",
+      "unknown",
+      "human_decision"
+    ],
+    "fail_closed_rule": "缺少酒店、来源、日期或指标口径时，只能输出问题框架和缺口清单，状态为not_ready；不得补数、扩大为全酒店结论或生成执行建议。"
+  },
+  "lens_domains": [
+    {
+      "lens_id": "evidence_and_uncertainty",
+      "label": "证据与不确定性",
+      "business_question": "我们真正测到了什么，哪些只是噪声、偏差或未经反证的解释？",
+      "source_lenses": [
+        {
+          "display_name": "费曼",
+          "skill_name": "feynman-perspective",
+          "adapted_probe": "能否用可观察字段、分母和简单语言重述结论？"
+        },
+        {
+          "display_name": "香农",
+          "skill_name": "shannon-perspective",
+          "adapted_probe": "哪些信号重复、缺失或被采集噪声污染？"
+        },
+        {
+          "display_name": "卡尼曼",
+          "skill_name": "kahneman-perspective",
+          "adapted_probe": "是否忽略基准率、样本量、选择偏差或事后解释？"
+        },
+        {
+          "display_name": "达尔文",
+          "skill_name": "darwin-perspective",
+          "adapted_probe": "哪条反证最可能推翻当前假设，能否渐进验证？"
+        }
+      ]
+    },
+    {
+      "lens_id": "customer_and_value",
+      "label": "客户与价值",
+      "business_question": "这个变化对应哪类客人的哪一步真实体验与选择？",
+      "source_lenses": [
+        {
+          "display_name": "德鲁克",
+          "skill_name": "drucker-perspective",
+          "adapted_probe": "目标客人认可的价值是什么，现有指标是否测到了它？"
+        },
+        {
+          "display_name": "贝佐斯",
+          "skill_name": "bezos-perspective",
+          "adapted_probe": "从客人最终结果倒推，最早的阻塞步骤在哪里？"
+        },
+        {
+          "display_name": "铃木敏文",
+          "skill_name": "suzukitoshifumi-perspective",
+          "adapted_probe": "能否把消费心理判断写成一个可验证假设？"
+        },
+        {
+          "display_name": "张小龙",
+          "skill_name": "zhangxiaolong-perspective",
+          "adapted_probe": "能否减少一步操作、一个认知负担或一次无效打扰？"
+        }
+      ]
+    },
+    {
+      "lens_id": "competition_and_strategy",
+      "label": "竞争与战略",
+      "business_question": "在信息、资源和约束下，哪里是最值得投入且可验证的突破口？",
+      "source_lenses": [
+        {
+          "display_name": "孙子",
+          "skill_name": "sunzi-perspective",
+          "adapted_probe": "行动前哪些胜负条件尚未具备，哪些信息仍缺失？"
+        },
+        {
+          "display_name": "大前研一",
+          "skill_name": "ohmae-perspective",
+          "adapted_probe": "本店、客人和竞争环境三者的约束是否被同时考虑？"
+        },
+        {
+          "display_name": "安迪·格鲁夫",
+          "skill_name": "grove-perspective",
+          "adapted_probe": "这是日常波动还是需要改变资源配置的战略转折？"
+        },
+        {
+          "display_name": "梁建章",
+          "skill_name": "liangjianzhang-perspective",
+          "adapted_probe": "数据结论能否经得住非主流解释与长期影响的检验？"
+        }
+      ]
+    },
+    {
+      "lens_id": "operations_and_execution",
+      "label": "运营与执行",
+      "business_question": "怎样把认知变成最小动作、负责人、停止条件和回读证据？",
+      "source_lenses": [
+        {
+          "display_name": "王阳明",
+          "skill_name": "wangyangming-perspective",
+          "adapted_probe": "当前最小知行闭环是什么，何时回读结果？"
+        },
+        {
+          "display_name": "曾国藩",
+          "skill_name": "zengguofan-perspective",
+          "adapted_probe": "能否把复杂方案改成稳定重复的日课与检查点？"
+        },
+        {
+          "display_name": "安迪·格鲁夫",
+          "skill_name": "grove-perspective",
+          "adapted_probe": "哪个动作具备最高管理杠杆，负责人和复核节奏是什么？"
+        },
+        {
+          "display_name": "杜威",
+          "skill_name": "dewey-perspective",
+          "adapted_probe": "能否通过一次真实操作产生下一轮学习证据？"
+        }
+      ]
+    },
+    {
+      "lens_id": "risk_and_resilience",
+      "label": "风险与韧性",
+      "business_question": "下行风险、不可逆性和模型失效点在哪里，怎样先保留选择权？",
+      "source_lenses": [
+        {
+          "display_name": "塔勒布",
+          "skill_name": "taleb-perspective",
+          "adapted_probe": "哪种尾部事件会让当前方案失效，如何限制暴露？"
+        },
+        {
+          "display_name": "霍华德·马克斯",
+          "skill_name": "marks-perspective",
+          "adapted_probe": "被忽略的风险是什么，结果好是否只是承担了更多风险？"
+        },
+        {
+          "display_name": "巴菲特",
+          "skill_name": "buffett-perspective",
+          "adapted_probe": "是否存在足够安全边际，是否超出可解释与可控制范围？"
+        },
+        {
+          "display_name": "达利欧",
+          "skill_name": "dalio-perspective",
+          "adapted_probe": "决策原则、错误记录和复盘触发条件是否显式？"
+        }
+      ]
+    },
+    {
+      "lens_id": "communication_and_alignment",
+      "label": "沟通与协同",
+      "business_question": "哪些概念、利益、异议或未说出口的信息阻碍了协同？",
+      "source_lenses": [
+        {
+          "display_name": "苏格拉底",
+          "skill_name": "socrates-perspective",
+          "adapted_probe": "关键概念和前提是否经得住连续追问？"
+        },
+        {
+          "display_name": "查理·罗斯",
+          "skill_name": "charlierose-perspective",
+          "adapted_probe": "是否先听清对方事实、约束和异议，再形成方案？"
+        },
+        {
+          "display_name": "奥威尔",
+          "skill_name": "orwell-perspective",
+          "adapted_probe": "表达是否被空话、模糊词或无证据因果污染？"
+        },
+        {
+          "display_name": "孔子",
+          "skill_name": "kongzi-perspective",
+          "adapted_probe": "角色、责任和相互尊重是否清楚且一致？"
+        }
+      ]
+    },
+    {
+      "lens_id": "ethics_and_fairness",
+      "label": "伦理与公平",
+      "business_question": "方案是否把人当作目的，是否存在跨酒店、歧视、操纵或不公平归因？",
+      "source_lenses": [
+        {
+          "display_name": "墨子",
+          "skill_name": "mozi-perspective",
+          "adapted_probe": "资源与影响是否被一致、公平地衡量？"
+        },
+        {
+          "display_name": "康德",
+          "skill_name": "kant-perspective",
+          "adapted_probe": "这个规则能否普遍适用，是否把客人或员工仅当作手段？"
+        },
+        {
+          "display_name": "曼德拉",
+          "skill_name": "mandela-perspective",
+          "adapted_probe": "冲突处理是否保留尊严、制度修复与长期协作？"
+        },
+        {
+          "display_name": "荀子",
+          "skill_name": "xunzi-perspective",
+          "adapted_probe": "制度是否按真实行为风险设计，而不是依赖理想化假设？"
+        }
+      ]
+    }
+  ],
+  "panel_selection_contract": {
+    "maximum_lenses": 5,
+    "minimum_lenses": 2,
+    "required_domains_for_operating_diagnosis": [
+      "evidence_and_uncertainty",
+      "customer_and_value"
+    ],
+    "conditional_domains": {
+      "涉及竞品、渠道定位或资源选择": "competition_and_strategy",
+      "涉及执行、SOP或团队协同": "operations_and_execution",
+      "涉及不可逆动作、投资或高不确定性": "risk_and_resilience",
+      "涉及跨部门、员工或客诉": "communication_and_alignment",
+      "涉及员工评价、隐私、权限或客群差异": "ethics_and_fairness"
+    },
+    "diversity_rule": "同一问题不重复选择表达相近的视角；至少保留一个反证或风险视角。",
+    "selection_basis": "按业务问题和证据缺口选择，不按人物名气、偏好或所谓权威排序。"
+  },
+  "review_workflow": [
+    {
+      "step": 1,
+      "name": "锁定事实范围",
+      "result": "列出酒店、平台、日期、指标、来源、质量与回读状态；不完整则not_ready。"
+    },
+    {
+      "step": 2,
+      "name": "选择有限视角",
+      "result": "按问题选2至5个领域视角，并说明每个视角要检查的证据。"
+    },
+    {
+      "step": 3,
+      "name": "独立提出假设",
+      "result": "每个视角分别列支持证据、冲突证据、未知和可证伪条件。"
+    },
+    {
+      "step": 4,
+      "name": "保留张力",
+      "result": "先记录一致项与分歧项；缺证据时不投票、不强行共识。"
+    },
+    {
+      "step": 5,
+      "name": "形成最小动作草案",
+      "result": "只生成一个待人工确认的本地动作草案，包含负责人、复核指标、周期、停止条件和回滚。"
+    },
+    {
+      "step": 6,
+      "name": "保存回读与复盘",
+      "result": "动作获批并执行后，用同酒店、平台、日期口径回读；相关性不自动升级为因果。"
+    }
+  ],
+  "output_contract": {
+    "status_values": [
+      "not_ready",
+      "reference_only_panel",
+      "reviewed_draft",
+      "pending_approval"
+    ],
+    "required_sections": [
+      "verified_facts",
+      "derived_metrics",
+      "unknowns",
+      "selected_lenses",
+      "lens_findings",
+      "agreements",
+      "disagreements",
+      "falsification_checks",
+      "smallest_action_draft",
+      "approval_and_external_action_status"
+    ],
+    "lens_finding_fields": [
+      "lens_id",
+      "adapted_probe",
+      "supporting_evidence_refs",
+      "conflicting_evidence_refs",
+      "hypothesis",
+      "missing_evidence",
+      "confidence"
+    ],
+    "consensus_rule": "只有同口径证据支持时才形成共同结论；观点数量和人物名气不构成证据。"
+  },
+  "boundaries": {
+    "evidence_grade": "C",
+    "decision_policy": "reference_only_human_review",
+    "decision_safe": false,
+    "task_draft_safe": false,
+    "contains_current_hotel_fact": false,
+    "contains_current_ota_fact": false,
+    "external_write_authorized": false,
+    "blocked_uses": [
+      "persona_impersonation_as_authority",
+      "unverified_historical_quote",
+      "medical_or_psychological_diagnosis",
+      "legal_conclusion",
+      "financial_or_investment_execution",
+      "employee_ranking_or_discriminatory_inference",
+      "cross_hotel_fact_reuse",
+      "automatic_pricing",
+      "automatic_inventory_change",
+      "automatic_ota_or_pms_write",
+      "automatic_message_or_social_publication"
+    ]
+  },
+  "golden_cases": [
+    {
+      "case_id": "synthetic_ctrip_exposure_drop",
+      "data_kind": "synthetic_contract_example",
+      "input": {
+        "system_hotel_id": 999001,
+        "platform": "ctrip",
+        "business_date": "2099-01-15",
+        "quality_status": "available",
+        "saved_and_read_back": true,
+        "question": "同口径曝光下降但订单未同步下降，先做什么？"
+      },
+      "expected": {
+        "status": "pending_approval",
+        "required_lenses": [
+          "evidence_and_uncertainty",
+          "customer_and_value",
+          "risk_and_resilience"
+        ],
+        "must_not_claim": [
+          "platform_penalty_confirmed",
+          "whole_hotel_revenue_decline",
+          "causal_effect_confirmed"
+        ],
+        "action_shape": "one_bounded_review_draft_with_stop_and_readback"
+      }
+    },
+    {
+      "case_id": "missing_hotel_and_date",
+      "data_kind": "synthetic_contract_example",
+      "input": {
+        "platform": "meituan",
+        "question": "订单少了怎么办？"
+      },
+      "expected": {
+        "status": "not_ready",
+        "missing": [
+          "system_hotel_id",
+          "business_date_or_period",
+          "metric_definition",
+          "source_and_readback"
+        ],
+        "smallest_action_draft": null
+      }
+    },
+    {
+      "case_id": "lens_disagreement_without_decisive_evidence",
+      "data_kind": "synthetic_contract_example",
+      "input": {
+        "facts": "同一渠道价格降低，曝光与订单同时上升，但竞品、活动成本和PMS净收入缺失。"
+      },
+      "expected": {
+        "status": "reference_only_panel",
+        "disagreement_preserved": true,
+        "causality_claimed": false,
+        "automatic_price_action": false
+      }
+    }
+  ]
+}

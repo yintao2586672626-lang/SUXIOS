@@ -1,5 +1,10 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import vm from 'node:vm';
+import { fileURLToPath } from 'node:url';
+import { createSSRApp, computed, ref } from 'vue';
+import { parse } from '@vue/compiler-dom';
+import { renderToString } from '@vue/server-renderer';
 import { readFrontendContractSource } from '../tests/automation/helpers/frontend_source.mjs';
 
 const root = process.cwd();
@@ -205,26 +210,137 @@ includesAll('resources/frontend/app-template.html + public/app-main.js', 'phase3
   'phase3OperationEffectLoopBoundaryText',
 ]);
 
-includesAll('resources/frontend/app-template.html + public/app-main.js', 'phase3 frontend keeps missing states and OTA boundary visible', frontendSurface, [
-  '未留执行证据',
-  '未形成复盘结论',
-  'SOP条件不足',
-  '暂无可复制门店',
-  '只读巡检快照/执行证据/指标窗口',
-  '不触发携程或美团采集',
-  '尚无可复盘的巡检动作；先生成每日巡检快照。',
-]);
+/** Exercise the retained adapter separately from the currently mounted UI. */
+export async function verifyPhase3FrontendSemantics({ appMain, onlineTemplate, knowledgeTemplate }) {
+  const results = [];
+  const require = (ok, code) => { if (!ok) throw new Error(code); };
+  const extract = (start, end) => {
+    const a = appMain.indexOf(start), b = appMain.indexOf(end, a);
+    require(a >= 0 && b > a, `function_boundary_missing:${start}`);
+    return appMain.slice(a, b);
+  };
+  const find = (node, predicate) => {
+    if (predicate(node)) return node;
+    for (const child of node.children || []) { const found = find(child, predicate); if (found) return found; }
+    return null;
+  };
+  const attribute = (node, name) => (node.props || []).find(prop => prop.type === 6 && prop.name === name);
+  const binding = (node, name, token) => (node.props || []).some(prop => prop.type === 7 && prop.name === name && prop.exp?.content.includes(token));
+  const tagged = id => node => node.type === 1 && attribute(node, 'data-testid')?.value?.content === id;
+  const text = html => html.replace(/<!--[\s\S]*?-->/g, '').replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim();
+  const hasGapMeaning = value => /没有|暂无|尚无|缺少|缺失|不足|未|不全|不能|待|继续.*(?:积累|补)/.test(value);
+  const claimsReplication = value => {
+    const unnegated = String(value).replace(/(?:尚|暂|并)?不(?:代表|意味着|表示)?(?:可以|可|允许|能够)(?:直接|立即|自动)?复制/g, '');
+    return /(?:可|可以|允许|能够)(?:直接|立即|自动)?复制|已(?:满足|具备)复制(?:条件|资格)/.test(unnegated);
+  };
+  const run = async (key, label, verify) => {
+    try { await verify(); results.push({ key, label, ok: true, detail: '' }); }
+    catch (error) { results.push({ key, label, ok: false, detail: String(error.message || error) }); }
+  };
 
-const failed = checks.filter((item) => !item.ok);
-for (const item of checks) {
-  const status = item.ok ? 'PASS' : 'FAIL';
-  const detail = item.detail ? ` (${item.detail})` : '';
-  console.log(`${status} ${item.file} - ${item.label}${detail}`);
+  await run('adapter', 'retained unmounted Phase3 row adapter preserves missing and screening-only states', async () => {
+    const context = vm.createContext({});
+    vm.runInContext(extract('const normalizePhase3OperationEffectLoopRow = (row)', 'const phase3OperationEffectLoopRows = computed')
+      + '\nglobalThis.normalize = normalizePhase3OperationEffectLoopRow;', context, { timeout: 1000 });
+    const empty = context.normalize({ hotel_id: 7, stages: {} });
+    require(empty.executionStatus === 'execution_missing' && empty.reviewStatus === 'review_missing'
+      && empty.sopStatus === 'not_ready' && empty.replicationStatus === 'not_ready', 'adapter_missing_state_lost');
+    for (const field of ['executionText', 'reviewText', 'sopText', 'replicationText']) {
+      require(hasGapMeaning(String(empty[field] || '')), `adapter_missing_explanation:${field}`);
+    }
+    const screening = context.normalize({ hotel_id: 7, stages: { replication: {
+      status: 'screening_only', target_hotels: [{ hotel_id: 8, hotel_name: 'Synthetic peer' }],
+    } } });
+    require(screening.replicationStatus === 'screening_only' && !claimsReplication(screening.replicationText), 'screening_promoted_to_replication');
+  });
+
+  await run('visible', 'current SOP gate and knowledge-center replication entry visibly retain evidence gaps and disabled actions', async () => {
+    const context = vm.createContext({ computed, ref, coreOperationsHotelId: ref('7'), operatingMemories: ref(null),
+      phase3OperationEffectLoop: ref(null), dailyWorkbench: ref({ scope: { target_date: '2026-09-13' } }) });
+    vm.runInContext(extract('const buildCoreOperationsSopProgress = ', 'const buildPlatformAccountCenterRows = ')
+      + '\nglobalThis.appSystemStatic = { buildCoreOperationsSopProgress };', context, { timeout: 1000 });
+    vm.runInContext(extract('const operatingMemoryItems = computed', 'const operatingMemoryDataGapText = computed')
+      + extract('const phase3OperationEffectLoopBoundaryText = computed', 'const phase3OperationEffectLoopLedgerText = computed')
+      + '\nglobalThis.progress = coreOperationsSopProgress; globalThis.boundary = phase3OperationEffectLoopBoundaryText;', context, { timeout: 1000 });
+    const onlineTree = parse(onlineTemplate), knowledgeTree = parse(knowledgeTemplate);
+    const sop = find(onlineTree, tagged('core-loop-sop-progress'));
+    const boundary = find(onlineTree, tagged('phase3-operation-effect-loop'));
+    const draft = find(knowledgeTree, tagged('operating-network-replication-draft'));
+    const comparable = find(knowledgeTree, node => node.type === 1 && node.tag === 'div'
+      && node.children.some(child => child.type === 1 && binding(child, 'if', 'comparable_hotels')));
+    require(sop && boundary && draft && comparable, 'active_readiness_panel_missing');
+    const render = async (template, values) => renderToString(createSSRApp({ template, setup: () => values }));
+    const boundaryHtml = await render(boundary.loc.source, { phase3OperationEffectLoopBoundaryText: context.boundary.value });
+    require(/OTA/.test(text(boundaryHtml)) && /只读|仅读/.test(text(boundaryHtml))
+      && /不触发|不会触发/.test(text(boundaryHtml)), 'visible_ota_readonly_boundary_missing');
+    const memory = (id, verified) => ({ hotel_id: 7, memory_layer: 'execution_review', quality_status: verified ? 'verified' : 'unverified',
+      usage_level: 'decision_support', source_record_id: id, business_date: id === 3 ? '2026-09-14' : '2026-09-13',
+      platform: 'ctrip', source_scope: 'ota_channel', context: { source_verified: verified, outcome_verified: verified, positive_outcome_verified: verified } });
+    for (const [rows, ready] of [[[], false], [[1, 2, 3].map(id => memory(id, false)), false], [[1, 2, 3].map(id => memory(id, true)), true]]) {
+      context.operatingMemories.value = { list: rows };
+      const progress = context.progress.value;
+      require(progress.ready === ready, 'unverified_review_ready_state_mismatch');
+      const visible = text(await render(sop.loc.source, { coreOperationsSopProgress: progress }));
+      require(visible.length > 0 && !claimsReplication(visible), 'sop_gate_promoted_to_replication');
+      if (!ready) require(hasGapMeaning(visible) && /复盘|证据|核验/.test(visible), 'sop_gap_explanation_missing');
+      else require(/候选|验证|核验/.test(visible), 'sop_candidate_boundary_missing');
+    }
+    // Keep the original entry controls and notices, stopping before its separate
+    // saved-plan component; no component registration or external action is needed.
+    const savedPlansIndex = draft.children.findIndex(node => node.type === 1 && node.tag === 'operating-network-replication-list');
+    require(savedPlansIndex >= 0, 'replication_entry_boundary_missing');
+    const comparableGap = find(comparable, node => node.type === 1 && binding(node, 'if', 'comparable_hotels'));
+    const comparableGapText = text(await render(comparableGap.loc.source, { operatingNetworkData: { comparable_hotels: [] } }));
+    require(hasGapMeaning(comparableGapText) && /候选|门店|酒店|前置|接入/.test(comparableGapText), 'comparable_gap_explanation_missing');
+    const entry = '<div>' + comparable.loc.source + draft.children.slice(0, savedPlansIndex).map(node => node.loc.source).join('') + '</div>';
+    for (const scenario of ['missing', 'incomplete', 'eligible']) {
+      const eligible = scenario === 'eligible';
+      const html = await render(entry, {
+        operatingNetworkData: { data_status: 'ok', comparable_hotels: [], verified_sops: scenario === 'missing' ? []
+          : [{ id: 1, hotel_name: 'Synthetic', title: 'Synthetic SOP', profile_dimension_count: eligible ? 8 : 0,
+            replication_eligibility: eligible ? 'eligible_for_validation_draft' : 'incomplete' }] },
+        operatingNetworkReplicationForm: { source_sop_version_id: eligible ? '1' : '', target_date_start: '2026-09-13', target_date_end: '2026-09-14' },
+        operatingNetworkAction: '', generateOperatingNetworkReplicationDraft() {},
+      });
+      const rendered = parse(html);
+      const button = find(rendered, node => node.type === 1 && node.tag === 'button');
+      if (eligible) {
+        require(button && !attribute(button, 'disabled'), 'eligible_sop_generation_disabled');
+        require(/待.*验证|验证.*草稿|候选.*核验/.test(text(button.loc.source))
+          && !claimsReplication(text(button.loc.source)), 'eligible_sop_exceeds_validation_draft');
+      } else {
+        require(button && attribute(button, 'disabled'), 'missing_sop_generation_enabled');
+        const notice = find(rendered, node => node.type === 1 && node.tag === 'p'
+          && /SOP/.test(text(node.loc.source)) && hasGapMeaning(text(node.loc.source)));
+        require(notice, 'replication_gap_explanation_missing');
+      }
+      if (scenario !== 'missing') {
+        const option = find(rendered, node => node.type === 1 && node.tag === 'option' && attribute(node, 'value')?.value?.content === '1');
+        if (eligible) require(option && !attribute(option, 'disabled') && attribute(option, 'selected'), 'eligible_sop_not_selected_or_selectable');
+        else require(option && attribute(option, 'disabled'), 'incomplete_sop_selectable');
+      }
+    }
+  });
+  return results;
 }
 
-if (failed.length > 0) {
-  console.error(`Phase 3 operation effect loop contract failed ${failed.length}/${checks.length} checks.`);
-  process.exit(1);
-}
+if (fileURLToPath(import.meta.url) === path.resolve(process.argv[1] || '')) {
+  const semanticChecks = await verifyPhase3FrontendSemantics({ appMain: read('public/app-main.js')
+    + '\n' + read('public/system-page-projections.js'),
+    onlineTemplate: read('resources/frontend/templates/fragments/35-page-online-data.html'),
+    knowledgeTemplate: read('resources/frontend/templates/fragments/20-page-knowledge-center.html') });
+  for (const item of semanticChecks) check('public/app-main.js + mounted frontend fragments', item.label, item.ok, item.detail);
+  const failed = checks.filter((item) => !item.ok);
+  for (const item of checks) {
+    const status = item.ok ? 'PASS' : 'FAIL';
+    const detail = item.detail ? ` (${item.detail})` : '';
+    console.log(`${status} ${item.file} - ${item.label}${detail}`);
+  }
 
-console.log(`Phase 3 operation effect loop contract passed ${checks.length} checks.`);
+  if (failed.length > 0) {
+    console.error(`Phase 3 operation effect loop contract failed ${failed.length}/${checks.length} checks.`);
+    process.exitCode = 1;
+  } else {
+    console.log(`Phase 3 operation effect loop contract passed ${checks.length} checks.`);
+  }
+}

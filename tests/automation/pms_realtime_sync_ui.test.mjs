@@ -14,7 +14,7 @@ test('PMS page separates saved readback from explicit realtime synchronization',
   assert.match(page, /<pms-realtime-sync-result\s*\/>/);
   assert.match(appMain, /const operatingPmsRealtimeActionText = computed[\s\S]*实时同步 PMS[\s\S]*补采所选业务日 PMS/);
   assert.match(appMain, /apiRequest\('\/operating-targets\/pms\/realtime-sync'/);
-  assert.match(appMain, /loadOperatingTarget\(\{ preserveRealtimeResult: true \}\)/);
+  assert.match(appMain, /loadOperatingTarget\(\{ preserveRealtimeResult: true, inputOwner: owner \}\)/);
   assert.match(appMain, /name: 'PmsRealtimeSyncResult'/);
   assert.match(appMain, /data-testid': 'pms-realtime-sync-result'/);
   assert.match(appMain, /data-testid': 'pms-execution-environment'/);

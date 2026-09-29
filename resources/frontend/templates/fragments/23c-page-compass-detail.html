@@ -185,7 +185,7 @@
                                     </div>
                                 </div>
                                 </details>
-                                <section v-if="revenueAiOverview?.manual_order_imports?.rows?.length" data-testid="revenue-ai-ctrip-order-import-readback" class="rounded-2xl border border-amber-200 bg-amber-50/60 p-3 text-xs text-slate-700">
+                                <section v-if="!revenueAiOverviewError &amp;&amp; revenueAiOverview?.manual_order_imports?.rows?.length" data-testid="revenue-ai-ctrip-order-import-readback" class="rounded-2xl border border-amber-200 bg-amber-50/60 p-3 text-xs text-slate-700">
                                     <b class="text-slate-900">携程订单文件 · 保存回读 · 人工导入待核验</b>；来源、业务日期及指标均来自值级回读，参考底价不是确认收入。
                                     <p v-for="row in revenueAiOverview.manual_order_imports.rows" :key="row.row_id" class="mt-2 rounded-lg border border-amber-100 bg-white p-2">
                                         来源 / 渠道：{{ row.channel_label }} · 业务日期：{{ row.business_date }}（{{ row.business_date_basis === 'stay_date' ? '入住日' : '预订日回退' }}）<br>
@@ -202,7 +202,7 @@
                                                     数据基准日：{{ revenueAiOverviewAsOfDate.ok ? revenueAiOverviewAsOfDate.asOfDate : '未取得' }} · {{ revenueAiOverviewAsOfDate.ok ? revenueAiOverviewAsOfDate.contractVersion : revenueAiOverviewAsOfDate.message }}
                                                 </div>
                                             </div>
-                                            <span :class="['rounded-full border px-2 py-0.5 text-xs whitespace-nowrap', revenueAiOverviewLoading ? revenueAiStatusClass('unknown') : revenueAiStatusClass(revenueAiOverview?.data_status || 'unknown')]">{{ revenueAiOverviewLoading ? '加载中' : revenueAiStatusLabel(revenueAiOverview?.data_status || 'unknown') }}</span>
+                                            <span :class="['rounded-full border px-2 py-0.5 text-xs whitespace-nowrap', revenueAiOverviewLoading ? revenueAiStatusClass('unknown') : revenueAiOverviewError ? revenueAiStatusClass('failed') : revenueAiStatusClass(revenueAiOverview?.data_status || 'unknown')]">{{ revenueAiOverviewLoading ? '加载中' : revenueAiOverviewError ? '读取失败' : revenueAiStatusLabel(revenueAiOverview?.data_status || 'unknown') }}</span>
                                         </div>
                                         <div class="grid grid-cols-1 gap-2 md:grid-cols-2">
                                             <div v-for="signal in revenueAiSignalRows" :key="signal.key" class="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5">

@@ -81,7 +81,7 @@ function calculationHarness() {
     const start=app.indexOf('let simulationCalculationRequestId = 0;');
     const end=app.indexOf('const operatingScenarioFields =',start);
     const pending=[], states=[], applied=[], watchers=[], messages=[];
-    const state={crypto:webcrypto,JSON, aiSimulationLoading:{value:false},aiSimulationParams:{value:input()},aiProject:{value:{project_name:'synthetic'}},operationHotelOptions:{value:[{id:901}]},currentPage:{value:'ai-simulation'},
+    const state={crypto:webcrypto,JSON,simulationDetailRequestId:0, aiSimulationLoading:{value:false},aiSimulationParams:{value:input()},aiProject:{value:{project_name:'synthetic'}},operationHotelOptions:{value:[{id:901}]},currentPage:{value:'ai-simulation'},
         requireSimulationStatic:k=>api[k],ensureSimulationStaticReady:async()=>{},saveSimulationInputOnly:()=>{},loadSimulationRecords:async()=>{},showToast:m=>messages.push(m),
         session:1,captureAuthSession:()=>state.session,isAuthSessionCurrent:s=>s===state.session,isStillOnRequestPage:p=>state.currentPage.value===p,
         watch:(ref,cb)=>watchers.push(cb),applySimulationRecord:r=>applied.push(r.id),request:(url,opts)=>new Promise((resolve,reject)=>pending.push({resolve,reject,body:JSON.parse(opts.body)}))};

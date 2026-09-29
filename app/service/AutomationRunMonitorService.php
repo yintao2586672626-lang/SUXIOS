@@ -231,7 +231,7 @@ final class AutomationRunMonitorService
         $deliveryEvidence = is_array($runtimeEvidence['delivery'] ?? null)
             ? $runtimeEvidence['delivery']
             : [];
-        $delivery = $this->deliveryState($tasks, $pms, $deliveryEvidence);
+        $delivery = $this->deliveryState($tasks, $pms, $deliveryEvidence, $businessDate);
         if (!$wechatRobotConfigured) {
             $robotBlocker = '尚未为门店绑定并启用企业微信机器人。';
             $schedule = [
@@ -289,6 +289,7 @@ final class AutomationRunMonitorService
             'push_result' => $delivery['label'],
             'push_result_at' => $delivery['at'],
             'push_success_count' => isset($deliveryEvidence['success_count'])
+                && ($deliveryEvidence['status'] ?? '') === 'verified'
                 && is_numeric($deliveryEvidence['success_count'])
                     ? max(0, (int)$deliveryEvidence['success_count'])
                     : null,
@@ -936,14 +937,15 @@ final class AutomationRunMonitorService
     private function deliveryState(
         array $overview,
         array $pms,
-        array $deliveryEvidence = []
+        array $deliveryEvidence = [],
+        string $businessDate = ''
     ): array
     {
         $successCount = isset($deliveryEvidence['success_count'])
             && is_numeric($deliveryEvidence['success_count'])
                 ? max(0, (int)$deliveryEvidence['success_count'])
                 : 0;
-        if ($successCount > 0) {
+        if ($successCount > 0 && ($deliveryEvidence['status'] ?? '') === 'verified') {
             return [
                 'status' => 'sent',
                 'label' => '企业微信已送达',
@@ -959,15 +961,20 @@ final class AutomationRunMonitorService
             : null;
         if ($dispatch !== null) {
             $status = (string)($dispatch['delivery_status'] ?? '');
+            $dispatchDate = trim((string)($dispatch['business_date'] ?? $dispatch['data_date'] ?? ''));
             if (in_array($status, ['sent', 'already_sent'], true)) {
+                // Only the date-scoped receipt query above can establish success.
+                // A latest dispatch may belong to an older business date, or its
+                // date may be absent in legacy rows. Keep it as a reference.
+                $historical = $dispatchDate !== '' && $dispatchDate !== $businessDate;
                 return [
-                    'status' => 'sent',
-                    'label' => '企业微信已送达',
+                    'status' => 'unverified',
+                    'label' => $historical ? '历史送达记录（非当前业务日）' : '送达记录待目标日核验',
                     'at' => $dispatch['delivered_at'] ?? null,
-                    'blocker' => '',
+                    'blocker' => '尚未取得目标业务日的已核验送达回执。',
                 ];
             }
-            if (in_array($status, ['failed', 'partial', 'binding_missing'], true)) {
+            if ($dispatchDate === $businessDate && in_array($status, ['failed', 'partial', 'binding_missing'], true)) {
                 $reason = trim((string)($dispatch['error_summary'] ?? ''));
                 return [
                     'status' => 'failed',
@@ -982,6 +989,7 @@ final class AutomationRunMonitorService
             (array)($overview['tasks'] ?? []),
             static fn(mixed $task): bool => is_array($task)
                 && trim((string)($task['last_run_at'] ?? '')) !== ''
+                && (string)($task['business_date'] ?? $task['data_date'] ?? '') === $businessDate
         ));
         $latest = $this->latestTask($tasks, 'last_run_at');
         if ($latest === null) {
@@ -997,8 +1005,8 @@ final class AutomationRunMonitorService
         $sent = str_contains($result, '已发送') || str_contains($result, '已送达');
         $failed = str_contains($result, '失败');
         return [
-            'status' => $sent ? 'sent' : ($failed ? 'failed' : 'unverified'),
-            'label' => $result !== '' ? $result : '执行结果待核验',
+            'status' => $failed ? 'failed' : 'unverified',
+            'label' => $sent ? '执行记录待送达回执核验' : ($result !== '' ? $result : '执行结果待核验'),
             'at' => (string)($latest['last_run_at'] ?? '') ?: null,
             'blocker' => $failed ? $result : '',
         ];

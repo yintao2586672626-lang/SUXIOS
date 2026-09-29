@@ -76,6 +76,7 @@ final class DailyOneThingInputService
         [$dueAt, $reviewAt] = $this->schedule($businessDate, $now);
         $candidates = [];
         $sourceErrors = [];
+        $strictFactReadbackReady = false;
         try {
             $closure = ($this->fieldClosureReader)($hotelId, $businessDate);
             $this->assertClosureScope($closure, $tenantId, $hotelId, $businessDate);
@@ -83,6 +84,7 @@ final class DailyOneThingInputService
                 $candidates,
                 $this->closureCandidates($closure, $tenantId, $hotelId, $businessDate, $ownerId, $dueAt, $reviewAt)
             );
+            $strictFactReadbackReady = true;
         } catch (\Throwable $error) {
             $closure = [
                 'contract_version' => 'dual_ota_field_closure.v1',
@@ -176,6 +178,7 @@ final class DailyOneThingInputService
             'source_errors' => $sourceErrors,
         ];
         return $stable + [
+            'strict_fact_status' => $strictFactReadbackReady ? 'readback_ready' : 'source_unavailable',
             'candidates' => $candidates,
             'source_snapshot' => [
                 'dual_ota_field_closure' => $closure,

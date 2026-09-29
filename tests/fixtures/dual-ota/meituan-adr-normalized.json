@@ -1,0 +1,167 @@
+{
+    "rows": [
+        {
+            "hotel_id": "fixture-poi",
+            "hotel_name": "Synthetic Meituan",
+            "data_date": "2026-08-23",
+            "amount": 0,
+            "quantity": 3,
+            "book_order_num": 1,
+            "comment_score": null,
+            "qunar_comment_score": null,
+            "system_hotel_id": 80,
+            "tenant_id": 7,
+            "data_value": null,
+            "source": "meituan",
+            "dimension": "business:temporal_summary",
+            "data_type": "business",
+            "platform": "meituan",
+            "compare_type": "self",
+            "list_exposure": null,
+            "detail_exposure": null,
+            "flow_rate": null,
+            "order_filling_num": null,
+            "order_submit_num": null,
+            "validation_status": "normal",
+            "validation_flags": "[]",
+            "data_source_id": 101,
+            "sync_task_id": 4352,
+            "ingestion_method": "browser_profile",
+            "source_trace_id": "1c2cd50c04205100d41ca353476be5a7ad9082fe7ccfb31ce0ea240db138385d",
+            "data_period": "historical_daily",
+            "snapshot_time": "2026-08-24 09:00:00",
+            "snapshot_bucket": "",
+            "is_final": 1,
+            "raw_data": "{\"row\":{\"hotel_id\":\"fixture-poi\",\"poi_id\":\"fixture-poi\",\"data_date\":\"2026-08-23\",\"compare_type\":\"self\",\"data_period\":\"historical_daily\",\"data_type\":\"business\",\"amount\":0,\"quantity\":3,\"book_order_num\":1,\"dimension\":\"business:temporal_summary\",\"_capture_source\":\"xhr:traffic:business_data\"},\"data_source_id\":101,\"data_source_name\":\"Synthetic Meituan\",\"sync_task_id\":4352,\"source_trace_id\":\"1c2cd50c04205100d41ca353476be5a7ad9082fe7ccfb31ce0ea240db138385d\",\"ingested_at\":\"2026-09-27 04:02:43\",\"data_period\":\"historical_daily\",\"snapshot_time\":\"2026-08-24 09:00:00\",\"snapshot_bucket\":\"\",\"captured_at\":\"2026-08-24 09:00:00\",\"platform_hotel_identifier_present\":true,\"platform_hotel_identifier_source\":\"poi_id_family\",\"platform_hotel_identifier_proof\":\"row_field_present\",\"field_facts\":[{\"metric_key\":\"order_amount\",\"data_type\":\"business\",\"source_key\":\"amount\",\"source_path\":\"xhr:traffic:business_data.amount\",\"storage_table\":\"online_daily_data\",\"storage_field\":\"online_daily_data.amount\",\"normalized_field\":\"amount\",\"status\":\"captured\",\"missing_state\":\"field_missing\",\"stored_value_present\":true,\"capture_evidence\":{\"capture_source\":\"xhr:traffic:business_data\",\"source_trace_id\":\"1c2cd50c04205100d41ca353476be5a7ad9082fe7ccfb31ce0ea240db138385d\"}},{\"metric_key\":\"room_nights\",\"data_type\":\"business\",\"source_key\":\"quantity\",\"source_path\":\"xhr:traffic:business_data.quantity\",\"storage_table\":\"online_daily_data\",\"storage_field\":\"online_daily_data.quantity\",\"normalized_field\":\"quantity\",\"status\":\"captured\",\"missing_state\":\"field_missing\",\"stored_value_present\":true,\"capture_evidence\":{\"capture_source\":\"xhr:traffic:business_data\",\"source_trace_id\":\"1c2cd50c04205100d41ca353476be5a7ad9082fe7ccfb31ce0ea240db138385d\"}},{\"metric_key\":\"order_count\",\"data_type\":\"business\",\"source_key\":\"book_order_num\",\"source_path\":\"xhr:traffic:business_data.book_order_num\",\"storage_table\":\"online_daily_data\",\"storage_field\":\"online_daily_data.book_order_num\",\"normalized_field\":\"book_order_num\",\"status\":\"captured\",\"missing_state\":\"field_missing\",\"stored_value_present\":true,\"capture_evidence\":{\"capture_source\":\"xhr:traffic:business_data\",\"source_trace_id\":\"1c2cd50c04205100d41ca353476be5a7ad9082fe7ccfb31ce0ea240db138385d\"}},{\"metric_key\":\"data_value\",\"data_type\":\"business\",\"source_key\":\"\",\"source_path\":\"\",\"storage_table\":\"online_daily_data\",\"storage_field\":\"online_daily_data.data_value\",\"normalized_field\":\"data_value\",\"status\":\"missing\",\"missing_state\":\"optional_missing\",\"stored_value_present\":false},{\"metric_key\":\"lead_price\",\"data_type\":\"business\",\"source_key\":\"\",\"source_path\":\"\",\"storage_table\":\"online_daily_data\",\"storage_field\":\"raw_data.lead_price\",\"normalized_field\":\"raw_data\",\"status\":\"missing\",\"missing_state\":\"optional_missing\",\"stored_value_present\":false},{\"metric_key\":\"sales_avg_price\",\"data_type\":\"business\",\"source_key\":\"\",\"source_path\":\"\",\"storage_table\":\"online_daily_data\",\"storage_field\":\"online_daily_data.data_value\",\"normalized_field\":\"data_value\",\"status\":\"missing\",\"missing_state\":\"optional_missing\",\"stored_value_present\":false},{\"metric_key\":\"exposure_users\",\"data_type\":\"business\",\"source_key\":\"\",\"source_path\":\"\",\"storage_table\":\"online_daily_data\",\"storage_field\":\"online_daily_data.list_exposure\",\"normalized_field\":\"list_exposure\",\"status\":\"missing\",\"missing_state\":\"optional_missing\",\"stored_value_present\":false},{\"metric_key\":\"detail_visitors\",\"data_type\":\"business\",\"source_key\":\"\",\"source_path\":\"\",\"storage_table\":\"online_daily_data\",\"storage_field\":\"online_daily_data.detail_exposure\",\"normalized_field\":\"detail_exposure\",\"status\":\"missing\",\"missing_state\":\"optional_missing\",\"stored_value_present\":false},{\"metric_key\":\"browse_to_pay_rate\",\"data_type\":\"business\",\"source_key\":\"\",\"source_path\":\"\",\"storage_table\":\"online_daily_data\",\"storage_field\":\"online_daily_data.flow_rate\",\"normalized_field\":\"flow_rate\",\"status\":\"missing\",\"missing_state\":\"optional_missing\",\"stored_value_present\":false}],\"field_fact_summary\":{\"captured_count\":3,\"missing_count\":6,\"capture_evidence_count\":3,\"desensitized_capture_evidence_count\":0,\"captured_metric_keys\":[\"order_amount\",\"room_nights\",\"order_count\"],\"missing_metric_keys\":[\"data_value\",\"lead_price\",\"sales_avg_price\",\"exposure_users\",\"detail_visitors\",\"browse_to_pay_rate\"]}}",
+            "persistence_identity_hash": "cfb870655c970e67a2c27cc31a47d753c9560ebe58672524e14c0364649ff634",
+            "id": 101874,
+            "readback_verified": 1,
+            "history_status": "partial"
+        },
+        {
+            "hotel_id": "fixture-poi",
+            "hotel_name": "Synthetic Meituan",
+            "data_date": "2026-08-23",
+            "amount": 0,
+            "quantity": 0,
+            "book_order_num": 0,
+            "comment_score": null,
+            "qunar_comment_score": null,
+            "system_hotel_id": 80,
+            "tenant_id": 7,
+            "data_value": null,
+            "source": "meituan",
+            "dimension": "order:aggregate:fixture",
+            "data_type": "order",
+            "platform": "meituan",
+            "compare_type": "self",
+            "list_exposure": null,
+            "detail_exposure": null,
+            "flow_rate": null,
+            "order_filling_num": null,
+            "order_submit_num": null,
+            "validation_status": "normal",
+            "validation_flags": "[]",
+            "data_source_id": 101,
+            "sync_task_id": 4352,
+            "ingestion_method": "browser_profile",
+            "source_trace_id": "c4038ce7e8bc454a3fd111aa9b0990721bb76fb2d519b758b59e6f918f38d629",
+            "data_period": "historical_daily",
+            "snapshot_time": "2026-08-24 09:00:00",
+            "snapshot_bucket": "",
+            "is_final": 1,
+            "raw_data": "{\"row\":{\"hotel_id\":\"fixture-poi\",\"poi_id\":\"fixture-poi\",\"data_date\":\"2026-08-23\",\"compare_type\":\"self\",\"data_period\":\"historical_daily\",\"data_type\":\"order\",\"amount\":0,\"quantity\":0,\"book_order_num\":0,\"dimension\":\"order:aggregate:fixture\",\"_capture_source\":\"xhr:orders:daily_summary\"},\"data_source_id\":101,\"data_source_name\":\"Synthetic Meituan\",\"sync_task_id\":4352,\"source_trace_id\":\"c4038ce7e8bc454a3fd111aa9b0990721bb76fb2d519b758b59e6f918f38d629\",\"ingested_at\":\"2026-09-27 04:02:43\",\"data_period\":\"historical_daily\",\"snapshot_time\":\"2026-08-24 09:00:00\",\"snapshot_bucket\":\"\",\"captured_at\":\"2026-08-24 09:00:00\",\"platform_hotel_identifier_present\":true,\"platform_hotel_identifier_source\":\"poi_id_family\",\"platform_hotel_identifier_proof\":\"row_field_present\",\"field_facts\":[{\"metric_key\":\"order_amount\",\"data_type\":\"order\",\"source_key\":\"amount\",\"source_path\":\"xhr:orders:daily_summary.amount\",\"storage_table\":\"online_daily_data\",\"storage_field\":\"online_daily_data.amount\",\"normalized_field\":\"amount\",\"status\":\"captured\",\"missing_state\":\"field_missing\",\"stored_value_present\":true,\"capture_evidence\":{\"capture_source\":\"xhr:orders:daily_summary\",\"source_trace_id\":\"c4038ce7e8bc454a3fd111aa9b0990721bb76fb2d519b758b59e6f918f38d629\"}},{\"metric_key\":\"room_nights\",\"data_type\":\"order\",\"source_key\":\"quantity\",\"source_path\":\"xhr:orders:daily_summary.quantity\",\"storage_table\":\"online_daily_data\",\"storage_field\":\"online_daily_data.quantity\",\"normalized_field\":\"quantity\",\"status\":\"captured\",\"missing_state\":\"field_missing\",\"stored_value_present\":true,\"capture_evidence\":{\"capture_source\":\"xhr:orders:daily_summary\",\"source_trace_id\":\"c4038ce7e8bc454a3fd111aa9b0990721bb76fb2d519b758b59e6f918f38d629\"}},{\"metric_key\":\"order_count\",\"data_type\":\"order\",\"source_key\":\"book_order_num\",\"source_path\":\"xhr:orders:daily_summary.book_order_num\",\"storage_table\":\"online_daily_data\",\"storage_field\":\"online_daily_data.book_order_num\",\"normalized_field\":\"book_order_num\",\"status\":\"captured\",\"missing_state\":\"field_missing\",\"stored_value_present\":true,\"capture_evidence\":{\"capture_source\":\"xhr:orders:daily_summary\",\"source_trace_id\":\"c4038ce7e8bc454a3fd111aa9b0990721bb76fb2d519b758b59e6f918f38d629\"}}],\"field_fact_summary\":{\"captured_count\":3,\"missing_count\":0,\"capture_evidence_count\":3,\"desensitized_capture_evidence_count\":0,\"captured_metric_keys\":[\"order_amount\",\"room_nights\",\"order_count\"],\"missing_metric_keys\":[]}}",
+            "persistence_identity_hash": "ee12387b0133e4f646c6ad17513eaf71fa387f701dbe377a0b8e5cee51e21d64",
+            "id": 101931,
+            "readback_verified": 1,
+            "history_status": "partial"
+        }
+    ],
+    "trust": {
+        "days": [
+            {
+                "date": "2026-08-23",
+                "platforms": [
+                    {
+                        "platform": "ctrip",
+                        "acceptance_status": "partial",
+                        "target_date": "2026-08-23",
+                        "p0_status": "blocked",
+                        "sync_task_status": "partial_success",
+                        "steps": {
+                            "source": true,
+                            "account_profile_binding": true,
+                            "hotel": true,
+                            "date": true
+                        },
+                        "acceptance_receipt": {
+                            "status": "partial",
+                            "target_date": "2026-08-23",
+                            "target_date_status": "matched",
+                            "platform_hotel_status": "verified",
+                            "data_source_id": 25,
+                            "sync_task_id": 4351,
+                            "sync_task_status": "partial_success",
+                            "data_period": "realtime_snapshot",
+                            "reason_codes": [
+                                "critical_fields_incomplete"
+                            ],
+                            "run_readback_scope": {
+                                "status": "verified",
+                                "receipt_record_ids": [
+                                    101518,
+                                    101519,
+                                    101810
+                                ],
+                                "accepted_record_ids": [
+                                    101518,
+                                    101519,
+                                    101810
+                                ]
+                            },
+                            "claim_allowed": false
+                        }
+                    },
+                    {
+                        "platform": "meituan",
+                        "acceptance_status": "partial",
+                        "target_date": "2026-08-23",
+                        "p0_status": "blocked",
+                        "sync_task_status": "partial_success",
+                        "steps": {
+                            "source": true,
+                            "account_profile_binding": true,
+                            "hotel": true,
+                            "date": true
+                        },
+                        "acceptance_receipt": {
+                            "status": "partial",
+                            "target_date": "2026-08-23",
+                            "target_date_status": "matched",
+                            "platform_hotel_status": "verified",
+                            "data_source_id": 101,
+                            "sync_task_id": 4352,
+                            "sync_task_status": "partial_success",
+                            "data_period": "historical_daily",
+                            "reason_codes": [
+                                "critical_fields_incomplete"
+                            ],
+                            "run_readback_scope": {
+                                "status": "verified",
+                                "receipt_record_ids": [
+                                    101874,
+                                    101931
+                                ],
+                                "accepted_record_ids": [
+                                    101874,
+                                    101931
+                                ]
+                            },
+                            "claim_allowed": false
+                        }
+                    }
+                ]
+            }
+        ]
+    }
+}

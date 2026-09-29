@@ -38,6 +38,8 @@ Route::group('api/operating-opportunities', function () {
 // OTA/PMS write, external send or automatic approval.
 Route::group('api/operating-finance', function () {
     Route::get('/overview', 'OperatingFinance/overview');
+    Route::get('/settlements/history', 'OperatingFinance/settlementHistory');
+    Route::get('/settlements/:batchId', 'OperatingFinance/settlementRead');
     Route::post('/settlements/import', 'OperatingFinance/importSettlement');
     Route::post('/settlements/import-file', 'OperatingFinance/importSettlementFile');
     Route::post('/on-books-snapshots', 'OperatingFinance/saveOnBooksSnapshot');
@@ -51,6 +53,10 @@ Route::group('api/operation', function () {
     Route::get('/manager-capability/managers', 'ManagerCapability/managers');
     Route::get('/manager-capability/profile', 'ManagerCapability/profile');
     Route::get('/manager-capability/followup-queue', 'ManagerCapability/followupQueue');
+    Route::get('/manager-capability/coaching', 'ManagerCapability/coachingList');
+    Route::post('/manager-capability/coaching', 'ManagerCapability/coachingCreate');
+    Route::get('/manager-capability/coaching/:id', 'ManagerCapability/coachingRead');
+    Route::post('/manager-capability/coaching/:id/:action', 'ManagerCapability/coachingAction');
     Route::get('/manager-capability/cases/:id', 'ManagerCapability/readCase');
     Route::post('/manager-capability/cases/:id/followups', 'ManagerCapability/createFollowup');
     Route::post('/manager-capability/cases/:id/adjustments', 'ManagerCapability/createAdjustment');
@@ -144,3 +150,10 @@ Route::group('api/transfer', function () {
     Route::get('/records/:id', 'TransferDecision/detail');
     Route::get('/records', 'TransferDecision/records');
 })->middleware(\app\middleware\Auth::class)->middleware(\app\middleware\RetiredFeatureReadOnly::class, '转让测算');
+
+// Source-backed knowledge references use the same authenticated API scope.
+Route::group('api/knowledge', function () {
+    Route::get('/reference-sources/:chunk_id', 'Knowledge/referenceSource');
+    Route::post('/references', 'Knowledge/saveReference');
+    Route::post('/document-text', 'Knowledge/extractDocumentText');
+})->middleware(\app\middleware\Auth::class);

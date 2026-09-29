@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { minify } from 'terser';
+import { updateFrontendAssetVersion } from './lib/frontend_asset_version.mjs';
 import {
   compileFrontendTemplate,
   FRONTEND_TEMPLATE_MINIFY_OPTIONS,
@@ -38,7 +39,13 @@ const loaderPath = path.join(repoRoot, 'public/components/system/app-main-compon
 const loaderSource = fs.readFileSync(loaderPath, 'utf8');
 const loaderPattern = /components\/system\/operating-finance-control-center\.min\.js\?v=20260830-operating-finance-h[0-9a-f]{10}/;
 if (!loaderPattern.test(loaderSource)) throw new Error('Operating-finance component cache identity is missing.');
-const nextLoaderSource = loaderSource.replace(
+const opportunityAsset = 'components/system/operating-opportunity-lab.js';
+const opportunityVersion = updateFrontendAssetVersion(
+  loaderSource,
+  opportunityAsset,
+  fs.readFileSync(path.join(repoRoot, 'public', opportunityAsset)),
+);
+const nextLoaderSource = opportunityVersion.html.replace(
   loaderPattern,
   `components/system/operating-finance-control-center.min.js?v=20260830-operating-finance-h${artifactSha256.slice(0, 10)}`,
 );
@@ -68,6 +75,7 @@ console.log(JSON.stringify({
   artifact_bytes: Buffer.byteLength(artifact),
   changed: existing !== artifact,
   loader_cache_identity_changed: nextLoaderSource !== loaderSource,
+  opportunity_cache_identity_changed: opportunityVersion.changed,
   app_main_components_sha256: fullComponentSha256,
   bridge_cache_identity_changed: nextBridgeSource !== bridgeSource,
   index_cache_identity_changed: nextIndexSource !== indexSource,

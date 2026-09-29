@@ -16,6 +16,8 @@ final class DailyWorkbenchPatrolServiceTest extends TestCase
     private bool $baseDirExisted;
     private bool $latestExisted;
     private string $latestContents = '';
+    private string $originalRuntimePath;
+    private string $temporaryRuntimePath;
 
     /** @var array<int, string> */
     private array $createdSnapshotPaths = [];
@@ -25,6 +27,10 @@ final class DailyWorkbenchPatrolServiceTest extends TestCase
 
     protected function setUp(): void
     {
+        $this->originalRuntimePath = app()->getRuntimePath();
+        $this->temporaryRuntimePath = sys_get_temp_dir() . DIRECTORY_SEPARATOR
+            . 'synthetic_patrol_status_' . getmypid() . '_' . bin2hex(random_bytes(4)) . DIRECTORY_SEPARATOR;
+        app()->setRuntimePath($this->temporaryRuntimePath);
         $this->baseDir = rtrim(runtime_path(), DIRECTORY_SEPARATOR)
             . DIRECTORY_SEPARATOR
             . 'phase2_daily_workbench_patrol';
@@ -64,6 +70,10 @@ final class DailyWorkbenchPatrolServiceTest extends TestCase
             && (glob($this->baseDir . DIRECTORY_SEPARATOR . '*') ?: []) === []
         ) {
             rmdir($this->baseDir);
+        }
+        app()->setRuntimePath($this->originalRuntimePath);
+        if (is_dir($this->temporaryRuntimePath) && count(scandir($this->temporaryRuntimePath)) === 2) {
+            rmdir($this->temporaryRuntimePath);
         }
     }
 
@@ -138,6 +148,147 @@ final class DailyWorkbenchPatrolServiceTest extends TestCase
         self::assertSame(801, $item['operation_execution']['task_id']);
     }
 
+    #[\PHPUnit\Framework\Attributes\DataProvider('replayedReviewResults')]
+    public function testSameStatusReplayPreservesExactReviewAndExecutionBinding(string $resultStatus, bool $includeBinding): void
+    {
+        $service = new DailyWorkbenchPatrolService();
+        [$input, $reviewed] = $this->writeReviewedAction($service, $resultStatus);
+        $before = $reviewed['action_tracking']['items']['7|price_adjust'];
+        $input['note'] = 'Synthetic repeated completion request.';
+        if ($includeBinding) {
+            foreach (['task_id', 'intent_id', 'source_record_id'] as $field) {
+                $input['operation_execution'][$field] = (string)$input['operation_execution'][$field];
+            }
+            $input['operation_execution']['execution_evidence_count'] = 3;
+        } else {
+            unset($input['operation_execution']);
+        }
+        $service->updateActionStatusForHotel($input, 7, 8);
+        $read = $service->findByRunIdForHotel($input['run_id'], 7);
+        $after = $read['action_tracking']['items']['7|price_adjust'];
+        self::assertSame($before['review_result'], $after['review_result']);
+        self::assertSame($before['review_state'], $after['review_state']);
+        self::assertSame($before['reviewed_at'], $after['reviewed_at']);
+        self::assertSame($before['reviewed_by_user_id'], $after['reviewed_by_user_id']);
+        foreach (['task_id', 'intent_id', 'source_record_id', 'review_status', 'review_summary', 'reviewed_at'] as $field) {
+            self::assertSame($before['operation_execution'][$field], $after['operation_execution'][$field], $field);
+        }
+        self::assertSame($input['note'], $after['note']);
+        self::assertSame(1, $read['action_tracking']['review_summary'][$resultStatus]);
+        self::assertSame($resultStatus === 'observing' ? 0 : 1, $read['action_tracking']['review_summary']['reviewed_count']);
+        self::assertSame($after, $service->latestForHotel(7)['action_tracking']['items']['7|price_adjust']);
+        if ($includeBinding) self::assertSame(3, $after['operation_execution']['execution_evidence_count']);
+    }
+
+    public static function replayedReviewResults(): array
+    {
+        return [['success', true], ['observing', true], ['failed', true], ['success', false]];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('changedReviewContexts')]
+    public function testChangedActionStatusOrBindingDoesNotInheritReviewAndRecountsSummary(string $change): void
+    {
+        $service = new DailyWorkbenchPatrolService();
+        [$input] = $this->writeReviewedAction($service);
+        if (in_array($change, ['task_id', 'intent_id', 'source_record_id'], true)) {
+            $input['operation_execution'][$change]++;
+        } elseif ($change === 'missing_binding') {
+            unset($input['operation_execution']['task_id']);
+        } elseif ($change === 'invalid_binding') {
+            $input['operation_execution']['task_id'] = true;
+        } elseif ($change === 'question_key') {
+            $input['question_key'] = 'different_question';
+        } else {
+            $input['status'] = $change;
+        }
+        $service->updateActionStatusForHotel($input, 7, 8);
+        $read = $service->findByRunIdForHotel($input['run_id'], 7);
+        $item = $read['action_tracking']['items']['7|price_adjust'];
+        self::assertArrayNotHasKey('review_result', $item);
+        self::assertArrayNotHasKey('reviewed_at', $item);
+        self::assertSame(0, $read['action_tracking']['review_summary']['success']);
+        self::assertSame(0, $read['action_tracking']['review_summary']['reviewed_count']);
+        self::assertSame($input['status'], $item['status']);
+        self::assertSame($input['status'] === 'done' ? 'pending_review' : ($input['status'] === 'review_needed' ? 'needs_review' : 'open'), $item['review_state']);
+    }
+
+    public static function changedReviewContexts(): array
+    {
+        return array_map(static fn(string $value): array => [$value], [
+            'task_id', 'intent_id', 'source_record_id', 'missing_binding', 'invalid_binding', 'question_key',
+            'pending', 'in_progress', 'skipped', 'review_needed',
+        ]);
+    }
+
+    public function testStatusReplayCannotInheritReviewFromAnotherActionOrHotel(): void
+    {
+        $service = new DailyWorkbenchPatrolService();
+        [$input, $reviewed] = $this->writeReviewedAction($service);
+        $original = $reviewed['action_tracking']['items']['7|price_adjust'];
+        $otherAction = array_replace($input, ['action_code' => 'inventory_check']);
+        $service->updateActionStatusForHotel($otherAction, 7, 8);
+        $read = $service->findByRunIdForHotel($input['run_id'], 7);
+        self::assertSame($original, $read['action_tracking']['items']['7|price_adjust']);
+        self::assertArrayNotHasKey('review_result', $read['action_tracking']['items']['7|inventory_check']);
+        self::assertSame(1, $read['action_tracking']['review_summary']['success']);
+
+        $otherRun = $this->writeSnapshot($service, 7, 'Synthetic second run', 2);
+        self::assertNotSame($input['run_id'], $otherRun['run_id']);
+        $service->updateActionStatusForHotel(array_replace($input, ['run_id' => $otherRun['run_id']]), 7, 8);
+        self::assertArrayNotHasKey('review_result', $service->findByRunIdForHotel($otherRun['run_id'], 7)['action_tracking']['items']['7|price_adjust']);
+        self::assertSame($original, $service->findByRunIdForHotel($input['run_id'], 7)['action_tracking']['items']['7|price_adjust']);
+
+        $hotelEight = $this->writeSnapshot($service, 8, 'Synthetic other hotel');
+        $otherHotel = array_replace($input, ['run_id' => $hotelEight['run_id'], 'hotel_id' => 8]);
+        $service->updateActionStatusForHotel($otherHotel, 8, 8);
+        $otherRead = $service->findByRunIdForHotel($hotelEight['run_id'], 8);
+        self::assertArrayNotHasKey('review_result', $otherRead['action_tracking']['items']['8|price_adjust']);
+        self::assertSame(0, $otherRead['action_tracking']['review_summary']['reviewed_count']);
+        self::assertSame($original, $service->findByRunIdForHotel($input['run_id'], 7)['action_tracking']['items']['7|price_adjust']);
+        try {
+            $service->updateActionStatusForHotel($input, 8, 8);
+            self::fail('A status replay must remain scoped to the requested hotel.');
+        } catch (\RuntimeException $error) {
+            self::assertStringContainsString('selected hotel scope', $error->getMessage());
+        }
+    }
+
+    private function writeReviewedAction(DailyWorkbenchPatrolService $service, string $resultStatus = 'success'): array
+    {
+        $snapshot = $this->writeSnapshot($service);
+        $input = [
+            'run_id' => $snapshot['run_id'], 'hotel_id' => 7,
+            'action_code' => 'price_adjust', 'question_key' => 'conversion_gap',
+            'status' => 'done', 'operation_execution' => [
+                'intent_id' => 701, 'source_record_id' => 601, 'task_id' => 801,
+                'task_status' => 'executed',
+            ],
+        ];
+        $service->updateActionStatusForHotel($input, 7, 5);
+        return [$input, $service->updateActionReviewForHotel($input + [
+            'result_status' => $resultStatus, 'result_summary' => 'Synthetic scoped review.',
+        ], 7, 6)];
+    }
+
+    public function testFailedStatusReplayPreservesSavedReviewAndCanRetry(): void
+    {
+        $service = new DailyWorkbenchPatrolService();
+        [$input] = $this->writeReviewedAction($service);
+        $before = $service->findByRunIdForHotel($input['run_id'], 7);
+        $invalidInput = $input;
+        $invalidInput['operation_execution']['synthetic_invalid_utf8'] = "\xB1";
+        try {
+            $service->updateActionStatusForHotel($invalidInput, 7, 8);
+            self::fail('A failed status save must leave the original snapshot readable.');
+        } catch (\RuntimeException $error) {
+            self::assertStringContainsString('snapshot update failed', $error->getMessage());
+        }
+        self::assertSame($before, $service->findByRunIdForHotel($input['run_id'], 7));
+        $service->updateActionStatusForHotel($input, 7, 8);
+        self::assertSame($before['action_tracking']['items']['7|price_adjust']['review_result'],
+            $service->findByRunIdForHotel($input['run_id'], 7)['action_tracking']['items']['7|price_adjust']['review_result']);
+    }
+
     public function testReviewRejectsEveryRuntimeIdentityConflictWithoutChangingSnapshot(): void
     {
         $service = new DailyWorkbenchPatrolService();
@@ -178,6 +329,74 @@ final class DailyWorkbenchPatrolServiceTest extends TestCase
             }
             self::assertSame($before, (string)file_get_contents($snapshotPath), $field);
         }
+    }
+
+    public function testPatrolActionInputUsesPersistedSourceMetadata(): void
+    {
+        $service = new DailyWorkbenchPatrolService();
+        $snapshot = $this->writeSnapshot($service);
+        $controller = (new ReflectionClass(OnlineData::class))->newInstanceWithoutConstructor();
+        $request = [
+            'run_id' => $snapshot['run_id'], 'hotel_id' => 7,
+            'action_code' => 'price_adjust', 'question_key' => 'conversion_gap',
+            'status' => 'done', 'note' => 'Synthetic employee note.',
+            'target_date' => '2099-12-30', 'platform' => 'meituan', 'priority' => 'low',
+            'action_text' => 'Synthetic request override.', 'entry' => '/synthetic-replacement',
+            'data_gaps' => ['synthetic_request_gap'],
+        ];
+        $input = (new \ReflectionMethod($controller, 'dailyWorkbenchPatrolActionInput'))->invoke($controller, $snapshot, $request);
+        self::assertSame('2099-12-31', $input['target_date']);
+        self::assertSame('ota', $input['platform']);
+        self::assertSame('high', $input['priority']);
+        self::assertSame('Review OTA price and inventory.', $input['action_text']);
+        self::assertSame('', $input['entry']);
+        self::assertSame(['conversion_gap'], $input['data_gaps']);
+        foreach (['run_id', 'hotel_id', 'action_code', 'question_key', 'status', 'note'] as $field) {
+            self::assertSame($request[$field], $input[$field], $field);
+        }
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('patrolActionIdentities')]
+    public function testPatrolActionInputPreservesSingleIdentitySourceKey(string $actionCode, string $questionKey): void
+    {
+        $snapshot = $this->writeSnapshot(new DailyWorkbenchPatrolService());
+        $request = ['run_id' => $snapshot['run_id'], 'hotel_id' => 7,
+            'action_code' => $actionCode, 'question_key' => $questionKey, 'status' => 'in_progress'];
+        $controller = (new ReflectionClass(OnlineData::class))->newInstanceWithoutConstructor();
+        $input = (new \ReflectionMethod($controller, 'dailyWorkbenchPatrolActionInput'))->invoke($controller, $snapshot, $request);
+        self::assertSame($actionCode, $input['action_code']);
+        self::assertSame($questionKey, $input['question_key']);
+        $recordId = new \ReflectionMethod(\app\service\OperationManagementService::class, 'dailyWorkbenchPatrolSourceRecordId');
+        self::assertSame((int)sprintf('%u', crc32($request['run_id'] . '|7|' . $actionCode . '|' . $questionKey)),
+            $recordId->invoke(new \app\service\OperationManagementService(), $input['run_id'], 7, $input['action_code'], $input['question_key']));
+    }
+
+    public static function patrolActionIdentities(): array
+    {
+        return [['price_adjust', ''], ['', 'conversion_gap'], ['price_adjust', 'conversion_gap']];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('conflictingPatrolActionIdentities')]
+    public function testPatrolActionContextRejectsConflictingPairedIdentity(string $actionCode, string $questionKey): void
+    {
+        $service = new DailyWorkbenchPatrolService();
+        $snapshot = $this->writeSnapshot($service);
+        $before = $service->findByRunIdForHotel($snapshot['run_id'], 7);
+        $controller = (new ReflectionClass(OnlineData::class))->newInstanceWithoutConstructor();
+        try {
+            (new \ReflectionMethod($controller, 'dailyWorkbenchPatrolActionContext'))->invoke($controller, $snapshot, [
+                'hotel_id' => 7, 'action_code' => $actionCode, 'question_key' => $questionKey,
+            ]);
+            self::fail('A matching identity field must not authorize a conflicting second identity.');
+        } catch (\InvalidArgumentException $error) {
+            self::assertStringContainsString('not in this snapshot', $error->getMessage());
+        }
+        self::assertSame($before, $service->findByRunIdForHotel($snapshot['run_id'], 7));
+    }
+
+    public static function conflictingPatrolActionIdentities(): array
+    {
+        return [['price_adjust', 'synthetic_other_question'], ['synthetic_other_action', 'conversion_gap']];
     }
 
     public function testReviewTaskRequestCannotOverrideRuntimeTaskIdentity(): void
@@ -286,7 +505,7 @@ final class DailyWorkbenchPatrolServiceTest extends TestCase
     }
 
     /** @return array<string, mixed> */
-    private function writeSnapshot(DailyWorkbenchPatrolService $service, int $hotelId = 7, string $hotelName = 'North Hotel'): array
+    private function writeSnapshot(DailyWorkbenchPatrolService $service, int $hotelId = 7, string $hotelName = 'North Hotel', int $actionCount = 1): array
     {
         $dateDir = $this->baseDir . DIRECTORY_SEPARATOR . '20991231';
         $dateDirExisted = is_dir($dateDir);
@@ -298,7 +517,7 @@ final class DailyWorkbenchPatrolServiceTest extends TestCase
             ],
             'summary' => [
                 'hotel_count' => 1,
-                'high_priority_action_count' => 1,
+                'high_priority_action_count' => $actionCount,
             ],
             'rows' => [[
                 'hotel_id' => $hotelId,

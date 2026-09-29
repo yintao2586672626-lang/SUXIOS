@@ -502,6 +502,8 @@ final class Tc200ImportAtomicityL8Test extends TestCase
             $payload = [
                 'data_source_id' => $sourceId,
                 'rows' => [[
+                    'system_hotel_id' => self::SYSTEM_HOTEL_ID,
+                    'platform' => $case['platform'],
                     $case['row_identifier_key'] => $case['platform_hotel_id'],
                     'data_date' => self::FRESH_DATA_DATE,
                     'amount' => 888.5,
@@ -555,6 +557,12 @@ final class Tc200ImportAtomicityL8Test extends TestCase
                 json_decode((string)($stored['validation_flags'] ?? '[]'), true)
             );
             self::assertSame(1, (int)($stored['readback_verified'] ?? 0));
+            $readback = $service->readImportedRows($this->authorizedUser(), $first);
+            self::assertCount(1, $readback);
+            self::assertSame((int)$stored['id'], $readback[0]['_persisted_row_id']);
+            self::assertSame(self::SYSTEM_HOTEL_ID, $readback[0]['system_hotel_id']);
+            self::assertSame($case['platform'], $readback[0]['platform']);
+            self::assertTrue($readback[0]['_readback_verified']);
 
             $retry = $service->importRows($this->authorizedUser(), $payload);
             self::assertSame('success', $retry['status'] ?? null);
@@ -568,6 +576,464 @@ final class Tc200ImportAtomicityL8Test extends TestCase
                 ->count());
             self::assertSame($sourceBefore, Db::name('platform_data_sources')->where('id', $sourceId)->find());
         }
+    }
+
+    #[DataProvider('manualImportConflictingScopeProvider')]
+    public function testManualSourceRejectsConflictingRowScope(string $platform, string $scopeField, $scopeValue): void
+    {
+        $sourceId = $this->createManualSource('conflicting-row-scope');
+        Db::name('platform_data_sources')->where('id', $sourceId)->update(['platform' => $platform]);
+        $adapter = new Tc200ManualImportAdapter('success');
+        $result = $this->service($adapter)->importRows($this->authorizedUser(), [
+            'data_source_id' => $sourceId,
+            'rows' => [[
+                'system_hotel_id' => self::SYSTEM_HOTEL_ID,
+                'platform' => $platform,
+                'data_date' => self::FRESH_DATA_DATE,
+                'amount' => 123,
+                $scopeField => $scopeValue,
+            ]],
+        ]);
+
+        $stored = Db::name('online_daily_data')->where('data_source_id', $sourceId)->find();
+        $raw = is_array($stored) ? json_decode((string)($stored['raw_data'] ?? '{}'), true) : [];
+        self::assertSame('failed', $result['status'] ?? null, json_encode([
+            'saved_count' => $result['saved_count'] ?? null,
+            'readback_verified' => $result['readback_verified'] ?? null,
+            'stored_system_hotel_id' => $stored['system_hotel_id'] ?? null,
+            'raw_system_hotel_id' => $raw['row']['system_hotel_id'] ?? null,
+            'stored_source' => $stored['source'] ?? null,
+            'stored_platform' => $stored['platform'] ?? null,
+            'raw_platform' => $raw['row']['platform'] ?? null,
+        ], JSON_UNESCAPED_SLASHES));
+        self::assertSame($sourceId, (int)($result['selected_data_source_id'] ?? 0));
+        self::assertSame($sourceId, (int)($result['effective_import_source_id'] ?? 0));
+        self::assertSame(0, (int)($result['saved_count'] ?? -1));
+        self::assertFalse($result['readback_verified'] ?? null);
+        self::assertSame(0, (int)Db::name('online_daily_data')->count());
+        self::assertSame(0, (int)Db::name('platform_data_raw_records')->count());
+    }
+
+    public static function manualImportConflictingScopeProvider(): array
+    {
+        $cases = [];
+        foreach (['custom', 'ctrip', 'meituan'] as $platform) {
+            $cases[$platform . ' other hotel'] = [$platform, 'system_hotel_id', 201];
+            $cases[$platform . ' other platform'] = [$platform, 'platform', $platform === 'ctrip' ? 'meituan' : 'ctrip'];
+        }
+        return $cases;
+    }
+
+    public function testCustomManualImportReadsBackExactSelectedScopeWithZeroAndPartialFields(): void
+    {
+        $sourceId = $this->createManualSource('exact-custom-readback');
+        $service = $this->service(new Tc200ManualImportAdapter('success'));
+        $payload = [
+            'data_source_id' => $sourceId,
+            'rows' => [
+                [
+                    'system_hotel_id' => self::SYSTEM_HOTEL_ID,
+                    'platform' => 'custom',
+                    'data_date' => self::FRESH_DATA_DATE,
+                    'dimension' => 'zero',
+                    'amount' => 0,
+                    'quantity' => 0,
+                    'book_order_num' => 0,
+                ],
+                [
+                    'system_hotel_id' => self::SYSTEM_HOTEL_ID,
+                    'platform' => 'custom',
+                    'data_date' => self::FRESH_DATA_DATE,
+                    'dimension' => 'partial',
+                    'quantity' => 3,
+                ],
+            ],
+        ];
+
+        $first = $service->importRows($this->authorizedUser(), $payload);
+        $readback = $service->readImportedRows($this->authorizedUser(), $first);
+        $stored = Db::name('online_daily_data')->order('id', 'asc')->select()->toArray();
+        self::assertSame('success', $first['status'] ?? null);
+        self::assertSame($sourceId, (int)$first['selected_data_source_id']);
+        self::assertSame($sourceId, (int)$first['effective_import_source_id']);
+        self::assertSame('user_provided_unverified', $first['import_provenance_status']);
+        self::assertSame(0, $first['analysis_eligible_count']);
+        self::assertTrue($first['readback_verified']);
+        self::assertSame(2, $first['readback_count']);
+        self::assertCount(2, $stored);
+        self::assertCount(2, $readback);
+        $rowIds = array_map('intval', array_column($stored, 'id'));
+        self::assertSame($rowIds, array_column($readback, '_persisted_row_id'));
+        foreach ($stored as $index => $row) {
+            self::assertSame(self::TENANT_ID, (int)$row['tenant_id']);
+            self::assertSame(self::SYSTEM_HOTEL_ID, (int)$row['system_hotel_id']);
+            self::assertSame($sourceId, (int)$row['data_source_id']);
+            self::assertSame((int)$first['task_id'], (int)$row['sync_task_id']);
+            self::assertSame('custom', $row['source']);
+            self::assertSame('custom', $row['platform']);
+            self::assertSame('business', $row['data_type']);
+            self::assertSame('manual', $row['ingestion_method']);
+            self::assertSame('unverified', $row['validation_status']);
+            self::assertSame(self::FRESH_DATA_DATE, $row['data_date']);
+            self::assertSame($payload['rows'][$index] + [
+                '_persisted_row_id' => (int)$row['id'],
+                '_readback_verified' => true,
+            ], $readback[$index]);
+            $raw = json_decode((string)$row['raw_data'], true);
+            self::assertArrayNotHasKey('platform_hotel_binding_status', $raw);
+        }
+        self::assertSame(0.0, (float)$stored[0]['amount']);
+        self::assertSame(0, (int)$stored[0]['quantity']);
+        self::assertSame(0, (int)$stored[0]['book_order_num']);
+        self::assertNull($stored[1]['amount']);
+        self::assertNull($stored[1]['book_order_num']);
+        self::assertSame(3, (int)$stored[1]['quantity']);
+
+        $retry = $service->importRows($this->authorizedUser(), $payload);
+        self::assertSame('success', $retry['status']);
+        self::assertSame(0, $retry['inserted_count']);
+        self::assertSame(2, $retry['updated_count']);
+        $retryReadback = $service->readImportedRows($this->authorizedUser(), $retry);
+        self::assertSame($readback, $retryReadback);
+        self::assertSame(2, (int)Db::name('online_daily_data')->count());
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('manual_import_exact_readback_count_mismatch');
+        $service->readImportedRows($this->authorizedUser(), $first);
+    }
+
+    #[DataProvider('changedSourceScopeProvider')]
+    public function testSavingChangedSourceScopeClearsSyncConclusionAndPreservesHistoricalRows(
+        string $originalPlatform,
+        int $targetHotelId,
+        string $targetPlatform,
+        string $targetDataType
+    ): void {
+        $sourceId = $this->createManualSource('changed-source-scope');
+        Db::name('platform_data_sources')->where('id', $sourceId)->update(['platform' => $originalPlatform]);
+        if ($targetHotelId !== self::SYSTEM_HOTEL_ID) {
+            Db::name('hotels')->insert(['id' => $targetHotelId, 'tenant_id' => 21]);
+        }
+        $actor = new class {
+            public int $id = 2001;
+            public function isSuperAdmin(): bool { return true; }
+        };
+        $service = $this->service(new Tc200ManualImportAdapter('success'));
+        $row = [
+            'system_hotel_id' => self::SYSTEM_HOTEL_ID,
+            'platform' => $originalPlatform,
+            'data_date' => self::FRESH_DATA_DATE,
+            'amount' => 0,
+            'quantity' => 1,
+            'list_exposure' => 0,
+        ];
+        try {
+            $first = $service->importRows($actor, ['data_source_id' => $sourceId, 'rows' => [$row]]);
+            self::assertSame('success', $first['status']);
+            $oldReadback = $service->readImportedRows($actor, $first);
+            $oldRowId = $oldReadback[0]['_persisted_row_id'];
+            $oldRow = Db::name('online_daily_data')->where('id', $oldRowId)->find();
+            $oldTask = Db::name('platform_data_sync_tasks')->where('id', $first['task_id'])->find();
+            $saved = $service->saveDataSource($actor, [
+                'id' => $sourceId,
+                'system_hotel_id' => $targetHotelId,
+                'platform' => $targetPlatform,
+                'data_type' => $targetDataType,
+                'ingestion_method' => 'manual',
+                'name' => 'Synthetic source in new scope',
+            ]);
+            $listed = $service->listDataSources($actor, [
+                'system_hotel_id' => $targetHotelId,
+                'platform' => $targetPlatform,
+                'data_type' => $targetDataType,
+            ]);
+            self::assertCount(1, $listed);
+            $storedSource = Db::name('platform_data_sources')->withoutField('secret_json')->where('id', $sourceId)->find();
+            foreach ([$saved, $listed[0], $storedSource] as $source) {
+                self::assertSame($sourceId, (int)$source['id']);
+                self::assertSame($targetHotelId, (int)$source['system_hotel_id']);
+                self::assertSame($targetHotelId === self::SYSTEM_HOTEL_ID ? self::TENANT_ID : 21, (int)$source['tenant_id']);
+                self::assertSame($targetPlatform, $source['platform']);
+                self::assertSame($targetDataType, $source['data_type']);
+                self::assertSame('ready', $source['status']);
+                self::assertNull($source['last_sync_time']);
+                self::assertNull($source['last_sync_status']);
+                self::assertSame('', (string)$source['last_error']);
+            }
+            self::assertSame(0, (int)Db::name('online_daily_data')
+                ->where('data_source_id', $sourceId)->where('system_hotel_id', $targetHotelId)
+                ->where('source', $targetPlatform)->where('data_type', $targetDataType)->count());
+            self::assertSame($oldRow, Db::name('online_daily_data')->where('id', $oldRowId)->find());
+            self::assertSame($oldTask, Db::name('platform_data_sync_tasks')->where('id', $first['task_id'])->find());
+
+            $row['system_hotel_id'] = $targetHotelId;
+            $row['platform'] = $targetPlatform;
+            $second = $service->importRows($actor, ['data_source_id' => $sourceId, 'rows' => [$row]]);
+            self::assertSame('success', $second['status']);
+            self::assertTrue($second['readback_verified']);
+            self::assertSame($sourceId, $second['selected_data_source_id']);
+            self::assertSame($sourceId, $second['effective_import_source_id']);
+            $readback = $service->readImportedRows($actor, $second);
+            self::assertCount(1, $readback);
+            self::assertNotSame($oldRowId, $readback[0]['_persisted_row_id']);
+            self::assertSame($row + ['_persisted_row_id' => $readback[0]['_persisted_row_id'], '_readback_verified' => true], $readback[0]);
+            $newRow = Db::name('online_daily_data')->where('id', $readback[0]['_persisted_row_id'])->find();
+            self::assertSame($targetHotelId, (int)$newRow['system_hotel_id']);
+            self::assertSame($targetHotelId === self::SYSTEM_HOTEL_ID ? self::TENANT_ID : 21, (int)$newRow['tenant_id']);
+            self::assertSame($sourceId, (int)$newRow['data_source_id']);
+            self::assertSame($targetPlatform, $newRow['source']);
+            self::assertSame($targetDataType, $newRow['data_type']);
+            self::assertSame($second['task_id'], (int)$newRow['sync_task_id']);
+            self::assertSame($oldRow, Db::name('online_daily_data')->where('id', $oldRowId)->find());
+            self::assertSame($oldTask, Db::name('platform_data_sync_tasks')->where('id', $first['task_id'])->find());
+        } finally {
+            if ($targetHotelId !== self::SYSTEM_HOTEL_ID) {
+                Db::name('hotels')->where('id', $targetHotelId)->delete();
+            }
+        }
+    }
+
+    public static function changedSourceScopeProvider(): array
+    {
+        return [
+            'hotel and tenant change' => ['custom', 201, 'custom', 'business'],
+            'platform change' => ['meituan', self::SYSTEM_HOTEL_ID, 'custom', 'business'],
+            'data type change' => ['custom', self::SYSTEM_HOTEL_ID, 'custom', 'traffic'],
+        ];
+    }
+
+    public function testSameScopeEditsAndFailedScopeSaveKeepSyncHistoryAndConfiguration(): void
+    {
+        $sourceId = $this->createManualSource('source-save-compatibility');
+        $service = $this->service(new Tc200ManualImportAdapter('success'));
+        $service->importRows($this->authorizedUser(), ['data_source_id' => $sourceId, 'rows' => [[
+            'data_date' => self::FRESH_DATA_DATE, 'amount' => 0,
+        ]]]);
+        $sourcePayload = [
+            'id' => $sourceId, 'system_hotel_id' => self::SYSTEM_HOTEL_ID, 'platform' => 'custom',
+            'data_type' => 'business', 'ingestion_method' => 'manual',
+            'name' => 'Renamed same-scope source', 'config' => ['import_note' => 'synthetic edited config'],
+        ];
+        foreach (['success', 'failed'] as $status) {
+            $history = [
+                'last_sync_time' => '2026-07-15 10:00:00', 'last_sync_status' => $status,
+                'last_error' => $status === 'failed' ? 'collection_failed' : null,
+            ];
+            Db::name('platform_data_sources')->where('id', $sourceId)->update($history);
+            $saved = $service->saveDataSource($this->authorizedUser(), $sourcePayload);
+            $stored = Db::name('platform_data_sources')->withoutField('secret_json')->where('id', $sourceId)->find();
+            self::assertSame($history, array_intersect_key($stored, $history));
+            self::assertSame($sourcePayload['config'], json_decode($stored['config_json'], true));
+            self::assertSame($sourcePayload['name'], $stored['name']);
+            self::assertSame($status === 'failed' ? 'collection_failed' : 'platform_data_synchronized', $saved['last_error']);
+        }
+        $before = Db::name('platform_data_sources')->where('id', $sourceId)->find();
+        Db::execute("CREATE TRIGGER tc200_source_save_failure BEFORE UPDATE ON platform_data_sources BEGIN SELECT RAISE(ABORT, 'synthetic source save failure'); END");
+        try {
+            $service->saveDataSource($this->authorizedUser(), array_replace($sourcePayload, [
+                'data_type' => 'traffic', 'name' => 'Rejected name', 'config' => ['import_note' => 'must not persist'],
+            ]));
+            self::fail('Synthetic failed source save unexpectedly succeeded');
+        } catch (\Throwable $exception) {
+            self::assertStringContainsString('synthetic source save failure', $exception->getMessage());
+        } finally {
+            Db::execute('DROP TRIGGER tc200_source_save_failure');
+        }
+        self::assertSame($before, Db::name('platform_data_sources')->where('id', $sourceId)->find());
+        self::assertSame(1, (int)Db::name('online_daily_data')->count());
+    }
+
+    public function testChangedScopeWaitingConfigAndOtaSourceDoNotDisplayOldSyncError(): void
+    {
+        $adapter = new Tc200ManualImportAdapter('success');
+        $service = $this->service($adapter);
+        foreach ([['custom', 'api', 'waiting_config'], ['ctrip', 'browser_assist_dom', 'ready']] as [$platform, $method, $expectedStatus]) {
+            $payload = [
+                'system_hotel_id' => self::SYSTEM_HOTEL_ID, 'platform' => $platform,
+                'data_type' => 'business', 'ingestion_method' => $method,
+            ];
+            if ($platform === 'ctrip') {
+                $payload['config'] = ['platform_hotel_id' => 'synthetic-ctrip-200'];
+            }
+            $created = $service->saveDataSource($this->authorizedUser(), $payload);
+            Db::name('platform_data_sources')->where('id', $created['id'])->update([
+                'last_sync_time' => '2026-07-15 10:00:00', 'last_sync_status' => 'failed', 'last_error' => 'collection_failed',
+            ]);
+            $saved = $service->saveDataSource($this->authorizedUser(), $payload + ['id' => $created['id']]);
+            self::assertSame('collection_failed', $saved['last_error']);
+            $saved = $service->saveDataSource($this->authorizedUser(), array_replace($payload, ['id' => $created['id'], 'data_type' => 'traffic']));
+            $actor = new class { public function isSuperAdmin(): bool { return true; } };
+            $listed = $service->listDataSources($actor, ['system_hotel_id' => self::SYSTEM_HOTEL_ID, 'platform' => $platform]);
+            self::assertCount(1, $listed);
+            foreach ([$saved, $listed[0]] as $source) {
+                self::assertSame($expectedStatus, $source['status']);
+                self::assertNull($source['last_sync_time']);
+                self::assertNull($source['last_sync_status']);
+                self::assertSame('', $source['last_error']);
+            }
+        }
+        self::assertSame(0, $adapter->calls);
+    }
+
+    #[DataProvider('inFlightSourceScopeProvider')]
+    public function testInFlightSyncOnlyProjectsItsConclusionToTheSameSourceScope(string $outcome, string $scopeChange): void
+    {
+        $sourceId = $this->createManualSource('in-flight-source-scope');
+        $originalPlatform = $scopeChange === 'platform' ? 'meituan' : 'custom';
+        Db::name('platform_data_sources')->where('id', $sourceId)->update(['platform' => $originalPlatform]);
+        $service = $this->service(new Tc200ManualImportAdapter('success'));
+        $actor = $this->authorizedUser();
+        $sourceAfterEdit = [];
+        $sourceFields = 'id,platform,data_type,status,last_sync_time,last_sync_status,last_error';
+        $onFetch = function (array $source, array $options) use ($service, $actor, $sourceId, $scopeChange, $outcome, $sourceFields, &$sourceAfterEdit): array {
+            $service->saveDataSource($actor, [
+                'id' => $sourceId, 'system_hotel_id' => self::SYSTEM_HOTEL_ID, 'platform' => 'custom',
+                'data_type' => $scopeChange === 'data_type' ? 'traffic' : 'business',
+                'ingestion_method' => 'manual', 'name' => 'Edited during synthetic fetch',
+            ]);
+            $sourceAfterEdit = Db::name('platform_data_sources')->field($sourceFields)->where('id', $sourceId)->find();
+            if ($outcome === 'failed') {
+                return ['status' => 'failed', 'message' => 'collection_failed', 'payload' => [], 'http_status' => 503];
+            }
+            return (new ManualImportDataSourceAdapter())->fetch($source, $options);
+        };
+        $adapter = new class($onFetch) implements DataSourceAdapter {
+            public function __construct(private readonly \Closure $onFetch) {}
+            public function supports(array $source): bool { return ($source['ingestion_method'] ?? '') === 'manual'; }
+            public function fetch(array $source, array $options = []): array { return ($this->onFetch)($source, $options); }
+        };
+        (new \ReflectionProperty($service, 'adapters'))->setValue($service, [$adapter]);
+        $result = $service->importRows($actor, ['data_source_id' => $sourceId, 'rows' => [[
+            'system_hotel_id' => self::SYSTEM_HOTEL_ID, 'platform' => $originalPlatform,
+            'data_date' => self::FRESH_DATA_DATE, 'amount' => 0,
+        ]]]);
+
+        self::assertSame($outcome, $result['status']);
+        $task = Db::name('platform_data_sync_tasks')->where('id', $result['task_id'])->find();
+        self::assertSame($outcome, $task['status']);
+        self::assertSame($originalPlatform, $task['platform']);
+        self::assertSame('business', $task['data_type']);
+        self::assertSame(self::SYSTEM_HOTEL_ID, (int)$task['system_hotel_id']);
+        self::assertSame(self::TENANT_ID, (int)$task['tenant_id']);
+        self::assertNotEmpty($task['finished_at']);
+        $sourceAfterFinish = Db::name('platform_data_sources')->field($sourceFields)->where('id', $sourceId)->find();
+        if ($scopeChange === 'unchanged') {
+            self::assertSame($outcome, $sourceAfterFinish['last_sync_status']);
+            self::assertSame($outcome, $sourceAfterFinish['status']);
+            self::assertNotEmpty($sourceAfterFinish['last_sync_time']);
+            self::assertSame($outcome === 'failed' ? 'collection_failed' : null, $sourceAfterFinish['last_error']);
+        } else {
+            self::assertSame($sourceAfterEdit, $sourceAfterFinish);
+        }
+        $rows = Db::name('online_daily_data')->where('data_source_id', $sourceId)->select()->toArray();
+        self::assertCount($outcome === 'success' ? 1 : 0, $rows);
+        if ($outcome === 'success') {
+            self::assertTrue($result['readback_verified']);
+            self::assertSame($originalPlatform, $rows[0]['source']);
+            self::assertSame('business', $rows[0]['data_type']);
+            self::assertSame(self::SYSTEM_HOTEL_ID, (int)$rows[0]['system_hotel_id']);
+            self::assertSame(self::TENANT_ID, (int)$rows[0]['tenant_id']);
+        } else {
+            self::assertFalse($result['readback_verified']);
+        }
+    }
+
+    public static function inFlightSourceScopeProvider(): array
+    {
+        $cases = [];
+        foreach (['success', 'failed'] as $outcome) {
+            foreach (['platform', 'data_type', 'unchanged'] as $scopeChange) {
+                $cases[$scopeChange . ' old task ' . $outcome] = [$outcome, $scopeChange];
+            }
+        }
+        return $cases;
+    }
+
+    #[DataProvider('inFlightAdsScopeProvider')]
+    public function testInFlightAdsModuleStateOnlyUpdatesItsOriginalSourceScope(string $outcome, string $scopeChange): void
+    {
+        $sourceId = $this->createManualSource('in-flight-ads-scope');
+        $originalPlatform = $scopeChange === 'platform' ? 'meituan' : 'custom';
+        Db::name('platform_data_sources')->where('id', $sourceId)->update([
+            'platform' => $originalPlatform, 'config_json' => '{"import_note":"synthetic retained config"}',
+        ]);
+        $service = $this->service(new Tc200ManualImportAdapter('success'));
+        $actor = $this->authorizedUser();
+        $mainResult = $service->importRows($actor, ['data_source_id' => $sourceId, 'rows' => [[
+            'system_hotel_id' => self::SYSTEM_HOTEL_ID, 'platform' => $originalPlatform,
+            'data_date' => self::FRESH_DATA_DATE, 'amount' => 10,
+        ]]]);
+        self::assertSame('success', $mainResult['status']);
+        $mainRow = Db::name('online_daily_data')->where('data_source_id', $sourceId)->find();
+        $mainTask = Db::name('platform_data_sync_tasks')->where('id', $mainResult['task_id'])->find();
+        $sourceAfterEdit = [];
+        $moduleState = $outcome === 'not_applicable' ? 'not_applicable' : 'blocked';
+        $moduleReason = $outcome === 'not_applicable' ? 'ads_service_not_opened' : 'ads_collection_failed';
+        $onFetch = function () use ($service, $actor, $sourceId, $scopeChange, $outcome, $moduleState, $moduleReason, &$sourceAfterEdit): array {
+            if ($scopeChange !== 'unchanged') {
+                $service->saveDataSource($actor, [
+                    'id' => $sourceId, 'system_hotel_id' => self::SYSTEM_HOTEL_ID,
+                    'platform' => 'custom', 'data_type' => $scopeChange === 'data_type' ? 'traffic' : 'business',
+                    'ingestion_method' => 'manual', 'config' => ['import_note' => 'synthetic new-scope config'],
+                ]);
+            }
+            $sourceAfterEdit = Db::name('platform_data_sources')->withoutField('secret_json')->where('id', $sourceId)->find();
+            return [
+                'status' => $outcome, 'message' => $moduleReason, 'http_status' => 200,
+                'payload' => ['module_status' => [
+                    'module' => 'ads', 'status' => $moduleState, 'reason' => $moduleReason,
+                    'external_action_required' => true,
+                ]],
+            ];
+        };
+        $adapter = new class($onFetch) implements DataSourceAdapter {
+            public function __construct(private readonly \Closure $onFetch) {}
+            public function supports(array $source): bool { return ($source['ingestion_method'] ?? '') === 'manual'; }
+            public function fetch(array $source, array $options = []): array { return ($this->onFetch)(); }
+        };
+        (new \ReflectionProperty($service, 'adapters'))->setValue($service, [$adapter]);
+        $result = $service->importRows($actor, ['data_source_id' => $sourceId, 'rows' => []]);
+        self::assertSame($outcome, $result['status']);
+        $task = Db::name('platform_data_sync_tasks')->where('id', $result['task_id'])->find();
+        self::assertSame($outcome, $task['status']);
+        self::assertSame($originalPlatform, $task['platform']);
+        self::assertSame('business', $task['data_type']);
+        self::assertSame(self::SYSTEM_HOTEL_ID, (int)$task['system_hotel_id']);
+        self::assertSame(self::TENANT_ID, (int)$task['tenant_id']);
+        self::assertNotEmpty($task['finished_at']);
+        $sourceAfterFinish = Db::name('platform_data_sources')->withoutField('secret_json')->where('id', $sourceId)->find();
+        if ($scopeChange !== 'unchanged') {
+            self::assertSame($sourceAfterEdit, $sourceAfterFinish);
+        } else {
+            foreach (['status', 'last_sync_time', 'last_sync_status', 'last_error'] as $field) {
+                self::assertSame($sourceAfterEdit[$field], $sourceAfterFinish[$field]);
+            }
+            self::assertSame('success', $sourceAfterFinish['status']);
+            self::assertSame('success', $sourceAfterFinish['last_sync_status']);
+            $config = json_decode($sourceAfterFinish['config_json'], true);
+            self::assertSame('synthetic retained config', $config['import_note']);
+            self::assertSame($moduleState, $config['ads_status']);
+            self::assertSame($moduleReason, $config['ads_status_reason']);
+            self::assertNotEmpty($config['ads_status_checked_at']);
+            self::assertSame([
+                'status' => $moduleState, 'reason' => $moduleReason,
+                'checked_at' => $config['ads_status_checked_at'], 'external_action_required' => true,
+            ], $config['module_states']['ads']);
+        }
+        self::assertSame($mainRow, Db::name('online_daily_data')->where('id', $mainRow['id'])->find());
+        self::assertSame($mainTask, Db::name('platform_data_sync_tasks')->where('id', $mainResult['task_id'])->find());
+        self::assertSame(1, (int)Db::name('online_daily_data')->count());
+    }
+
+    public static function inFlightAdsScopeProvider(): array
+    {
+        $cases = [];
+        foreach (['failed', 'not_applicable'] as $outcome) {
+            foreach (['platform', 'data_type', 'unchanged'] as $scopeChange) {
+                $cases[$scopeChange . ' old ads ' . $outcome] = [$outcome, $scopeChange];
+            }
+        }
+        return $cases;
     }
 
     public function testRestrictedActorCannotCreateDedicatedManualSourceFromExecutableSource(): void

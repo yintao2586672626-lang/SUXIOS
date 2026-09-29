@@ -1,4 +1,5 @@
 import { spawnSync } from 'node:child_process';
+import { readSourceAggregate } from './lib/source_aggregate.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -96,7 +97,7 @@ if (!fs.existsSync(frontendTemplatePath) || fs.statSync(frontendTemplatePath).si
 
 const meituanStaticPath = path.join(repoRoot, 'public/meituan-static.js');
 const meituanIndexSource = fs.existsSync(publicIndexPath) ? fs.readFileSync(publicIndexPath, 'utf8') : '';
-const meituanStaticSource = fs.existsSync(meituanStaticPath) ? fs.readFileSync(meituanStaticPath, 'utf8') : '';
+const meituanStaticSource = fs.existsSync(meituanStaticPath) ? readSourceAggregate('public/meituan-static.js', { repoRoot }) : '';
 if (!meituanStaticSource.includes('background = false')
   || !meituanStaticSource.includes('const requestBody = { ...task.body, async: background === true, background: background === true }')) {
   failures.push('Meituan manual ranking fetch must default to direct results and allow explicit background execution.');

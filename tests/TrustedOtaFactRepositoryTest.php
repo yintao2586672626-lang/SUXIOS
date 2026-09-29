@@ -153,6 +153,17 @@ final class TrustedOtaFactRepositoryTest extends TestCase
         self::assertSame([], $result['data_gaps']);
     }
 
+    public function testPricingHistoryRejectsCrossChannelIdentity(): void
+    {
+        $this->insertRow([
+            'source' => 'ctrip', 'platform' => 'meituan', 'amount' => 400,
+            'hotel_id' => 'mt-80',
+        ]);
+        $result = (new TrustedOtaFactRepository())->pricingHistory(80, '2026-07-01', '2026-07-01');
+        self::assertSame([], $result['rows']);
+        self::assertSame(1, $result['data_quality']['rejected_reasons']['source_platform_conflict'] ?? 0);
+    }
+
     public function testFailsClosedWhenSystemHotelScopeColumnIsMissing(): void
     {
         $this->recreateTable(

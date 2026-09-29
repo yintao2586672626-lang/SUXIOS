@@ -312,6 +312,23 @@ final class DualOtaFieldClosureServiceTest extends TestCase
         self::assertContains('identity_binding_not_verified', $fields['revenue']['revenue_analysis_blockers']);
         self::assertSame('identity_binding_not_verified', $platform['revenue_analysis']['blocked_reason']);
         self::assertSame('partial', $platform['identity_status']);
+
+        $hotel = ['id' => 80, 'tenant_id' => 7, 'name' => 'Hotel 80'];
+        $broadcastClosure = (new \app\service\AiDailyReportBroadcastFactService(
+            static fn(int $hotelId): array => $hotel,
+            null,
+            null,
+            static fn(int $hotelId, string $businessDate): array => $closure
+        ))->build(80, '2026-08-23');
+        $broadcast = (new \app\service\AiDailyReportBroadcastSnapshotService())->buildDraft(
+            $hotel,
+            $broadcastClosure,
+            '2026-08-24 09:00:00'
+        );
+
+        self::assertSame([], $broadcast['facts']);
+        self::assertSame('', $broadcast['final_text']);
+        self::assertFalse($broadcast['can_generate']);
     }
 
     public function testReceiptTaskSourceAndTenantAreFailClosed(): void
@@ -893,6 +910,109 @@ final class DualOtaFieldClosureServiceTest extends TestCase
             $closure['page_identity'],
             $closure['consumer_contract']['closure_identity']
         );
+
+        $conflictingRow = $row;
+        $conflictingRow['source'] = 'ctrip';
+        $conflictingRow['platform'] = 'meituan';
+        $conflictingClosure = DualOtaFieldClosureService::evaluate(
+            ['id' => 80, 'tenant_id' => 7, 'name' => 'Hotel 80'],
+            '2026-08-23', [$conflictingRow], $trust
+        );
+        $conflictingExposure = $this->fields($conflictingClosure['platforms']['meituan']['fields'])['exposure'];
+        self::assertNull($conflictingExposure['value']);
+        self::assertFalse($conflictingExposure['revenue_analysis_consumable']);
+
+        $defaultDateRow = $row;
+        $defaultDateRaw = $raw;
+        $defaultDateRaw['date_source'] = 'capture_context.default_data_date';
+        $defaultDateRow['raw_data'] = json_encode($defaultDateRaw, JSON_THROW_ON_ERROR);
+        $defaultDateClosure = DualOtaFieldClosureService::evaluate(
+            ['id' => 80, 'tenant_id' => 7, 'name' => 'Hotel 80'],
+            '2026-08-23', [$defaultDateRow], $trust
+        );
+        $defaultDateExposure = $this->fields($defaultDateClosure['platforms']['meituan']['fields'])['exposure'];
+        self::assertNull($defaultDateExposure['value']);
+        self::assertFalse($defaultDateExposure['revenue_analysis_consumable']);
+    }
+
+    public function testMeituanOrderWithCaptureDefaultDateCannotBecomeCurrentReceiptRevenue(): void
+    {
+        $row = $this->row(101919, 'meituan', 'order', [
+            'amount' => 7025.14,
+            'quantity' => 12,
+            'book_order_num' => 8,
+            'history_status' => 'success',
+            'validation_status' => 'verified',
+            'raw_data' => json_encode([
+                'date_basis' => 'unknown',
+                'date_source' => 'capture_context.default_data_date',
+                'row' => ['_capture_source' => 'xhr:orders:daily_summary'],
+            ], JSON_THROW_ON_ERROR),
+        ]);
+        $trust = $this->trust();
+        $meituan = &$trust['days'][0]['platforms'][1];
+        $meituan['acceptance_receipt']['run_readback_scope'] = [
+            'status' => 'verified',
+            'receipt_record_ids' => [101919],
+            'accepted_record_ids' => [101919],
+        ];
+        unset($meituan);
+
+        $bad = DualOtaFieldClosureService::evaluate(
+            ['id' => 80, 'tenant_id' => 7], '2026-08-23', [$row], $trust
+        );
+        $badRevenue = $this->fields($bad['platforms']['meituan']['fields'])['revenue'];
+        self::assertNull($badRevenue['value']);
+        self::assertFalse($badRevenue['revenue_analysis_consumable']);
+
+        $row['raw_data'] = json_encode([
+            'date_basis' => 'order_date',
+            'date_source' => 'order_time',
+            'row' => ['_capture_source' => 'xhr:orders:daily_summary'],
+        ], JSON_THROW_ON_ERROR);
+        $good = DualOtaFieldClosureService::evaluate(
+            ['id' => 80, 'tenant_id' => 7], '2026-08-23', [$row], $trust
+        );
+        self::assertSame(7025.14, $this->fields($good['platforms']['meituan']['fields'])['revenue']['value']);
+    }
+
+    public function testMeituanBusinessWithCaptureDefaultDateCannotBecomeCurrentReceiptRevenue(): void
+    {
+        $row = $this->row(101874, 'meituan', 'business', [
+            'amount' => 7895.43,
+            'quantity' => 12,
+            'book_order_num' => 8,
+            'history_status' => 'success',
+            'validation_status' => 'verified',
+            'raw_data' => json_encode([
+                'date_source' => 'capture_context.default_data_date',
+                'row' => ['_capture_source' => 'xhr:traffic:business_data'],
+            ], JSON_THROW_ON_ERROR),
+        ]);
+        $trust = $this->trust();
+        $meituan = &$trust['days'][0]['platforms'][1];
+        $meituan['acceptance_receipt']['run_readback_scope'] = [
+            'status' => 'verified',
+            'receipt_record_ids' => [101874],
+            'accepted_record_ids' => [101874],
+        ];
+        unset($meituan);
+
+        $bad = DualOtaFieldClosureService::evaluate(
+            ['id' => 80, 'tenant_id' => 7], '2026-08-23', [$row], $trust
+        );
+        $badRevenue = $this->fields($bad['platforms']['meituan']['fields'])['revenue'];
+        self::assertNull($badRevenue['value']);
+        self::assertFalse($badRevenue['revenue_analysis_consumable']);
+
+        $row['raw_data'] = json_encode([
+            'date_source' => 'page.business_period_selection.readback',
+            'row' => ['_capture_source' => 'xhr:traffic:business_data'],
+        ], JSON_THROW_ON_ERROR);
+        $good = DualOtaFieldClosureService::evaluate(
+            ['id' => 80, 'tenant_id' => 7], '2026-08-23', [$row], $trust
+        );
+        self::assertSame(7895.43, $this->fields($good['platforms']['meituan']['fields'])['revenue']['value']);
     }
 
     public function testMeituanExposureWithWrongSourcePathDoesNotGainExposureUserSemantics(): void

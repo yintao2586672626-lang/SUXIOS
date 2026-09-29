@@ -99,11 +99,47 @@ class QuantSimulationService
         int $limit = 30
     ): array
     {
-        $this->ensureTable();
+        $list = $this->accessibleRecordRows($userId, $isSuperAdmin, $recordFilter, max(1, min(100, $limit)));
+        return (new SimulationExecutionBridgeService())->attachToRecords($list, 'quant_simulation');
+    }
 
-        $limit = max(1, min(100, $limit));
+    public function recordsPageForAccess(
+        int $userId,
+        bool $isSuperAdmin,
+        ?callable $recordFilter = null,
+        int $pageSize = 30,
+        ?int $beforeId = null
+    ): array
+    {
+        if ($pageSize < 1 || $pageSize > 100 || ($beforeId !== null && $beforeId <= 0)) {
+            throw new \InvalidArgumentException('量化模拟分页参数无效');
+        }
+        // The extra authorized row proves continuation; it belongs to the next page.
+        $rows = $this->accessibleRecordRows($userId, $isSuperAdmin, $recordFilter, $pageSize + 1, $beforeId);
+        $hasMore = count($rows) > $pageSize;
+        $list = array_slice($rows, 0, $pageSize);
+        $nextBeforeId = $hasMore ? (int)$list[count($list) - 1]['id'] : null;
+        return [
+            'list' => (new SimulationExecutionBridgeService())->attachToRecords($list, 'quant_simulation'),
+            'pagination' => [
+                'page_size' => $pageSize,
+                'returned_count' => count($list),
+                'has_more' => $hasMore,
+                'next_before_id' => $nextBeforeId,
+            ],
+        ];
+    }
+
+    private function accessibleRecordRows(
+        int $userId,
+        bool $isSuperAdmin,
+        ?callable $recordFilter,
+        int $limit,
+        ?int $beforeId = null
+    ): array
+    {
+        $this->ensureTable();
         $batchSize = max(100, $limit);
-        $beforeId = null;
         $list = [];
 
         do {
@@ -134,7 +170,7 @@ class QuantSimulationService
             }
         } while (count($rows) === $batchSize && $beforeId > 0);
 
-        return (new SimulationExecutionBridgeService())->attachToRecords($list, 'quant_simulation');
+        return $list;
     }
 
     public function detail(int $id, int $userId, bool $isSuperAdmin): array

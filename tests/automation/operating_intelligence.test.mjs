@@ -49,6 +49,11 @@ const operatingQuestionScopeLoader = sliceBetween(
   'const loadOperatingQuestionScopeOptions = async (options = {}) => {',
   'const applyOperatingQuestionIntentReadback = (question = {}) => {',
 );
+const operatingQuestionActionEligibility = sliceBetween(
+  appMain,
+  'const operatingQuestionActionIsCurrent =',
+  'const otaDiagnosisLoading =',
+);
 const operatingQuestionScopeCooldownSource = sliceBetween(
   systemStatic,
   'const createOperatingQuestionState = () => ({',
@@ -174,9 +179,8 @@ test('professional operating questions remain evidence-gated while the global en
   assert.match(operatingIntelligenceComponents, /ready \? '证据门已通过' : '需补齐后提交'/);
   assert.match(operatingIntelligenceComponents, /行动草案缺少完整证据、步骤或停止条件，暂不能提交/);
   assert.match(operatingIntelligenceComponents, /提交后由服务端重新核验事实；只保存待人工审批意图，不创建执行任务，也不采集或写 OTA/);
-  assert.match(appMain, /const humanReviewContract = String\(runtime\?\.prompt_version \|\| ''\) === 'operating_question_grounded_ai\.zh-CN\.v4'/);
-  assert.match(appMain, /\['operating_question_action_draft\.v1', 'operating_question_action_draft\.v2'\]/);
-  assert.match(appMain, /&& humanReviewContract/);
+  assert.match(operatingQuestionActionEligibility, /runtime\.prompt_version === 'operating_question_grounded_ai\.zh-CN\.v4'/);
+  assert.match(operatingQuestionActionEligibility, /\['operating_question_action_draft\.v1', 'operating_question_action_draft\.v2'\]\s*\.includes\(action\?\.contract_version\)/);
   assert.match(appMain, /新运营行动必须保持待人工审批且不得提前创建任务/);
   assert.match(appMain, /行动已保存为待人工审批；尚未创建执行任务，也未写 OTA/);
 

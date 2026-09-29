@@ -1082,7 +1082,13 @@ final class OperatingQuestionExecutionBridgeServiceTest extends TestCase
         self::assertFalse($cancelled['action_management']['historical_records_mutated']);
     }
 
-    public function testApprovedActionRunsThroughTaskEvidenceAndSourceBasedReviewWithExactTraceability(): void
+    public static function persistedListExposureUnitCases(): array
+    {
+        return ['current UV definition' => [false], 'stored legacy visitor count' => [true]];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('persistedListExposureUnitCases')]
+    public function testApprovedActionRunsThroughTaskEvidenceAndSourceBasedReviewWithExactTraceability(bool $legacyStoredUnit): void
     {
         $questionService = $this->readyQuestionService();
         $saved = $questionService->create(
@@ -1247,10 +1253,46 @@ final class OperatingQuestionExecutionBridgeServiceTest extends TestCase
         self::assertTrue($reconciled['source_verified']);
         $reconciledTask = $management->readExecutionTask($taskId, [20]);
         self::assertCount(3, $reconciledTask['evidence']);
+        $sourceReadbacks = array_values(array_filter($reconciledTask['evidence'], static fn(array $row): bool => $row['evidence_type'] === 'source_verified_metric_readback'));
+        self::assertSame('unique_users', $sourceReadbacks[0]['platform_response']['metric_unit']);
         self::assertContains(
             'source_verified_metric_readback',
             array_column($reconciledTask['evidence'], 'evidence_type')
         );
+
+        $sourceEvidence = array_values(array_filter($reconciledTask['evidence'],
+            static fn(array $row): bool => $row['evidence_type'] === 'source_verified_metric_readback'))[0];
+        if ($legacyStoredUnit) {
+            // Reproduce an already stored legacy receipt, then independently
+            // read that record. The new reconciliation above remains UV.
+            $legacyContext = array_replace($sourceEvidence['platform_response'], ['metric_unit' => 'visitor_count']);
+            Db::name('operation_execution_evidence')->where('id', $sourceEvidence['id'])->update([
+                'platform_response_json' => json_encode($legacyContext, JSON_THROW_ON_ERROR),
+            ]);
+            $legacyTask = $management->readExecutionTask($taskId, [20]);
+            $sourceEvidence = array_values(array_filter($legacyTask['evidence'],
+                static fn(array $row): bool => (int)$row['id'] === (int)$sourceEvidence['id']))[0];
+        }
+        $storedUnit = $legacyStoredUnit ? 'visitor_count' : 'unique_users';
+        self::assertSame($storedUnit, $sourceEvidence['platform_response']['metric_unit']);
+        foreach (['exposure_count', 'percent'] as $wrongUnit) {
+            $changedContext = array_replace($sourceEvidence['platform_response'], ['metric_unit' => $wrongUnit]);
+            Db::name('operation_execution_evidence')->where('id', $sourceEvidence['id'])->update([
+                'platform_response_json' => json_encode($changedContext, JSON_THROW_ON_ERROR),
+            ]);
+            $failure = null;
+            try {
+                $management->reviewExecutionTask($taskId, [20], [
+                    'result_status' => 'success', 'result_summary' => 'Synthetic incompatible unit must be rejected',
+                ], 8);
+            } catch (\InvalidArgumentException $error) { $failure = $error; }
+            self::assertInstanceOf(\InvalidArgumentException::class, $failure);
+            self::assertStringContainsString('单位', $failure->getMessage());
+            self::assertSame(0, Db::name('operation_effect_reviews')->count());
+        }
+        Db::name('operation_execution_evidence')->where('id', $sourceEvidence['id'])->update([
+            'platform_response_json' => json_encode($sourceEvidence['platform_response'], JSON_THROW_ON_ERROR),
+        ]);
 
         $reviewed = $management->reviewExecutionTask($taskId, [20], [
             'result_status' => 'success',
@@ -1265,7 +1307,7 @@ final class OperatingQuestionExecutionBridgeServiceTest extends TestCase
         $managedReview = $reviewed['action_management']['latest_review'];
         $strictReview = $reviewed['active_effect_review'];
         self::assertSame('list_exposure', $managedReview['metric_key']);
-        self::assertSame('visitor_count', $managedReview['metric_unit']);
+        self::assertSame('unique_users', $managedReview['metric_unit']);
         self::assertSame(1800.0, $managedReview['before_value']);
         self::assertSame(1950.0, $managedReview['after_value']);
         self::assertSame(150.0, $managedReview['delta_value']);
@@ -1286,6 +1328,9 @@ final class OperatingQuestionExecutionBridgeServiceTest extends TestCase
 
         $exact = $management->readExecutionTask($taskId, [20]);
         self::assertSame($taskId, (int)$exact['id']);
+        $storedSourceReceipt = array_values(array_filter($exact['evidence'],
+            static fn(array $row): bool => (int)$row['id'] === (int)$sourceEvidence['id']))[0];
+        self::assertSame($storedUnit, $storedSourceReceipt['platform_response']['metric_unit']);
         self::assertSame(
             'hotel_operating_questions#' . (int)$saved['question']['id'],
             $exact['action_management']['traceability']['question_ref']

@@ -107,6 +107,31 @@ final class MeituanCloudPmsCaptureServiceTest extends TestCase
         );
     }
 
+    public function testLateSavedOlderCaptureDoesNotReplaceLatestBusinessFact(): void
+    {
+        $service = $this->service();
+        $newer = $service->save(8, 80, 7, '敦煌漠蓝新', $this->validInput(), true, 'mt-hotel-80');
+        $olderInput = $this->validInput();
+        $olderInput['captured_at'] = '2026-07-28 11:50:00';
+        $olderInput['summary']['sale_order_count'] = 4;
+        $older = $service->save(8, 80, 7, '敦煌漠蓝新', $olderInput, true, 'mt-hotel-80');
+
+        self::assertNotSame($newer['id'], $older['id']);
+        self::assertSame($newer['id'], $service->latest(8, 80, '2026-07-28')['id']);
+        self::assertSame($newer['id'], $service->history(8, 80, '2026-07-28', 2)[0]['id']);
+        self::assertSame($newer['id'], $service->prefill(8, 80, '2026-07-28')['capture']['id']);
+
+        $sameTimeInput = $this->validInput();
+        $sameTimeInput['summary']['sale_order_count'] = 6;
+        $sameTime = $service->save(8, 80, 7, '敦煌漠蓝新', $sameTimeInput, true, 'mt-hotel-80');
+        self::assertSame($sameTime['id'], $service->latest(8, 80, '2026-07-28')['id']);
+        self::assertSame($sameTime['id'], $service->prefill(8, 80, '2026-07-28')['capture']['id']);
+        self::assertSame(
+            [$sameTime['id'], $newer['id'], $older['id']],
+            array_column($service->history(8, 80, '2026-07-28', 3), 'id')
+        );
+    }
+
     public function testTrustedCaptureRejectsAvailabilityDifferenceAboveDynamicTolerance(): void
     {
         $service = $this->service();

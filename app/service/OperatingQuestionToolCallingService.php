@@ -76,7 +76,7 @@ final class OperatingQuestionToolCallingService
                 $selectionStatus = 'planner_unavailable';
                 $plannerMeta = [
                     'error_code' => 'tool_planner_unavailable',
-                    'message' => mb_substr(trim($exception->getMessage()), 0, 240),
+                    'message' => '模型工具选择失败，已按只读规则检索；本次模型调用结果未确认。',
                     'model_attempted' => true,
                     'llm_client_invoked' => true,
                     'external_llm_called' => null,

@@ -10,7 +10,7 @@ const router = read('app/service/PreciseQueryRouterService.php');
 const lexicon = read('app/service/PreciseQueryLexicon.php');
 const questions = read('app/service/OperatingQuestionService.php');
 const appMain = read('public/app-main.js');
-const component = read('public/components/system/operating-intelligence-components.js');
+const component = `${read('public/components/system/operating-intelligence-components.js')}\n${read('public/components/system/hotel-data-analyst-components.js')}`;
 const sliceBetween = (source, startMarker, endMarker) => {
   const start = source.indexOf(startMarker);
   const end = source.indexOf(endMarker, start + startMarker.length);
@@ -19,7 +19,7 @@ const sliceBetween = (source, startMarker, endMarker) => {
   return source.slice(start, end);
 };
 const preciseMetricSetHelpers = sliceBetween(
-  component,
+  read('public/components/system/hotel-data-analyst-components.js'),
   '// PRECISE_METRIC_SET_HELPERS_START',
   '// PRECISE_METRIC_SET_HELPERS_END',
 );

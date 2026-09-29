@@ -1,3 +1,4 @@
+import { readSourceAggregate as readStaticContractSource } from '../../scripts/lib/source_aggregate.mjs';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
@@ -12,13 +13,20 @@ const ctripOverviewRequestConcern = readFileSync('app/controller/concern/CtripOv
 const businessDisplayConcern = readFileSync('app/controller/concern/BusinessDisplayConcern.php', 'utf8');
 const routeApp = readFileSync('route/app.php', 'utf8');
 const publicEntry = readFrontendContractSource();
-const dataHealthStaticSource = readFileSync('public/data-health-static.js', 'utf8');
+const dataHealthStaticSource = readStaticContractSource('public/data-health-static.js');
 const deferredHelpersRuntime = readFileSync('public/app-deferred-helpers.min.js', 'utf8');
 vm.runInNewContext(dataHealthStaticSource, context, {
   filename: 'public/data-health-static.js',
 });
 
 const helpers = context.window.SUXI_DATA_HEALTH_STATIC;
+
+test('missing hotel evidence is unknown rather than a binding failure', () => {
+  assert.equal(helpers.onlineTruthHotelText({ status: 'unverified' }), '门店证据未返回');
+  assert.equal(helpers.onlineTruthHotelText({ hotel: {} }), '门店证据未返回');
+  assert.equal(helpers.onlineTruthHotelText({ hotel: { system_hotel_id: 121, name: '测试门店' } }), '测试门店（ID 121）');
+  assert.equal(helpers.onlineTruthFailureText({ failure_reason: 'binding_missing' }), '门店绑定不完整');
+});
 
 test('truth summaries use concise Chinese and hide raw storage codes by default', () => {
   const missingText = helpers.onlineTruthDetailText({

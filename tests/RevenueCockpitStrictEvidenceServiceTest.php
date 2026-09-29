@@ -65,6 +65,31 @@ final class RevenueCockpitStrictEvidenceServiceTest extends TestCase
         self::assertTrue($evidence['platforms']['meituan']['metrics']['list_exposure']['strict_readback']);
     }
 
+    public function testBlockedOptionalMetricCannotBorrowAnotherMetricAcceptanceOfTheSameRecord(): void
+    {
+        $closure = $this->closure(true);
+        $closure['platforms']['meituan']['fields'][] = [
+            'key' => 'cancellation',
+            'metric_key' => 'cancellation',
+            'consumer_metric_keys' => ['cancellation_rate_percent'],
+            'status' => 'caliber_uncertain',
+            'source_record_ids' => [101],
+            'readback_status' => 'readback_verified',
+            'strict_final_gate' => false,
+            'revenue_analysis_consumable' => false,
+        ];
+
+        $evidence = (new RevenueCockpitStrictEvidenceService())->build(
+            $this->overview(), 10, 20, '2026-08-20', 'meituan', $closure
+        );
+
+        self::assertSame('blocked', $evidence['status']);
+        self::assertFalse($evidence['platforms']['meituan']['source_strict_readback']);
+        self::assertSame([101], $evidence['platforms']['meituan']['rejected_row_ids']);
+        self::assertFalse($evidence['platforms']['meituan']['metrics']['cancellation_rate_percent']['strict_readback']);
+        self::assertSame([101], $evidence['platforms']['meituan']['metrics']['cancellation_rate_percent']['rejected_row_ids']);
+    }
+
     /** @return array<string,mixed> */
     private function overview(): array
     {

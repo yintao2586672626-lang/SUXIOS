@@ -10,6 +10,62 @@ use think\facade\Db;
 
 trait OperationExecutionTenantConcern
 {
+    private function dailyWorkbenchPatrolSourceRecordId(string $runId, int $hotelId, string $actionCode, string $questionKey): int
+    {
+        return (int)sprintf('%u', crc32($runId . '|' . $hotelId . '|' . $actionCode . '|' . $questionKey));
+    }
+
+    private function assertStoredPatrolSourceMatchesInput(array $intent, array $input, int $sourceRecordId): void
+    {
+        $expected = $this->buildDailyWorkbenchPatrolExecutionIntentInput($input, $sourceRecordId);
+        $message = 'stored patrol source conflicts with this snapshot; preserve the original intent and verify the patrol source';
+        foreach (['action_type' => true, 'date_start' => array_key_exists('target_date', $input),
+            'date_end' => array_key_exists('target_date', $input), 'platform' => array_key_exists('platform', $input),
+            'risk_level' => array_key_exists('priority', $input)] as $field => $declared
+        ) {
+            if ($declared && trim((string)($intent[$field] ?? '')) !== (string)$expected[$field]) {
+                throw new \InvalidArgumentException($message);
+            }
+        }
+        $target = is_array($intent['target_value'] ?? null) ? $intent['target_value'] : [];
+        foreach (['target_date' => array_key_exists('target_date', $input), 'question_key' => true,
+            'action_text' => array_key_exists('action_text', $input) || array_key_exists('action', $input),
+            'entry' => array_key_exists('entry', $input)] as $field => $declared
+        ) {
+            if ($declared && array_key_exists($field, $target)
+                && trim((string)$target[$field]) !== (string)$expected['target_value'][$field]
+            ) {
+                throw new \InvalidArgumentException($message);
+            }
+        }
+        $evidence = is_array($intent['evidence'] ?? null) ? $intent['evidence'] : [];
+        $sourceRuns = [];
+        foreach ((array)($evidence['evidence_refs'] ?? []) as $reference) {
+            $sourceRef = is_scalar($reference)
+                ? trim((string)$reference)
+                : trim((string)($reference['source_ref'] ?? $reference['ref'] ?? ''));
+            if (str_starts_with($sourceRef, 'daily_workbench_patrol#')) {
+                $sourceRuns[trim(substr($sourceRef, strlen('daily_workbench_patrol#')))] = true;
+            }
+        }
+        $runId = trim((string)($input['run_id'] ?? ''));
+        if ($runId === '' || count($sourceRuns) !== 1 || !isset($sourceRuns[$runId])) {
+            throw new \InvalidArgumentException($message);
+        }
+        if ((array_key_exists('data_gaps', $input) || array_key_exists('blocking_missing_codes', $input))
+            && array_key_exists('data_gaps', $evidence)
+        ) {
+            $gapSet = static function (array $values): array {
+                $values = array_values(array_unique(array_filter(array_map('strval', $values))));
+                sort($values, SORT_STRING);
+                return $values;
+            };
+            if ($gapSet((array)$evidence['data_gaps']) !== $gapSet($expected['evidence']['data_gaps'])) {
+                throw new \InvalidArgumentException($message);
+            }
+        }
+    }
+
     /** @return array{code:string,message:string}|null */
     private function operationActionTrackTenantSchemaGap(): ?array
     {
@@ -64,6 +120,9 @@ trait OperationExecutionTenantConcern
             ),
             'data_status' => 'migration_required',
             'data_gaps' => [$gap],
+            'matched_total' => 0,
+            'returned_count' => 0,
+            'truncated' => false,
         ];
     }
 

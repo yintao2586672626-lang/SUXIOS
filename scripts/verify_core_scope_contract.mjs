@@ -15,6 +15,8 @@ const read = (file) => file === 'public/index.html'
   ? `${readRaw(file)}\n${readRaw('resources/frontend/app-template.html')}\n${readRaw('public/app-main.js')}`
   : file === 'route/app.php'
     ? readRouteContractSource(root)
+  : file === 'app/service/RevenueAiOverviewService.php'
+    ? `${readRaw(file)}\n${readRaw('app/service/RevenueAiOverviewSignalConcern.php')}`
   : readRaw(file);
 const failures = [];
 
@@ -170,7 +172,7 @@ includesAll('route/app.php', 'authenticated Revenue AI route group', [
 ]);
 
 includesAll('app/service/RevenueAiOverviewService.php', 'Revenue AI metric scope and missing-data contract', [
-  "'scope' => 'ota'",
+  'use \\app\\service\\concern\\RevenueAiOverviewMarketStructureConcern;',
   "'date_basis' => 'data_date'",
   "'ota_room_revenue'",
   "'ota_room_nights'",
@@ -178,6 +180,9 @@ includesAll('app/service/RevenueAiOverviewService.php', 'Revenue AI metric scope
   "'ota_contribution_revpar'",
   "'available_room_nights_missing'",
   "'hotel_required'",
+]);
+includesAll('app/service/concern/RevenueAiOverviewMarketStructureConcern.php', 'extracted Revenue AI market structure scope', [
+  "'scope' => 'ota'",
 ]);
 
 includesAll('app/controller/RevenueAi.php', 'manual review and no OTA write contract', [

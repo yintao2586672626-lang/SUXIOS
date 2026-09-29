@@ -222,6 +222,86 @@ final class LlmClientTest extends TestCase
         self::assertArrayNotHasKey('x-governance', $payload['response_format']['json_schema']['schema']);
     }
 
+    public function testOpenAiStrictSchemaClosesNestedObjectsAndPreservesOptionalFields(): void
+    {
+        $schema = [
+            'type' => 'object',
+            'required' => ['facts'],
+            'properties' => [
+                'facts' => ['type' => 'array', 'items' => [
+                    'type' => 'object',
+                    'required' => ['value'],
+                    'properties' => [
+                        'value' => ['type' => 'number'],
+                        'note' => ['type' => 'string', 'enum' => ['estimated']],
+                    ],
+                ]],
+            ],
+        ];
+        $client = new ScriptedLlmClient(ScriptedLlmClient::modelConfig('openai_test', 'openai'), [], [
+            'openai_test' => [ScriptedLlmClient::success('{"facts":[{"value":0,"note":null}]}')],
+        ]);
+        $result = $client->createJsonResponseEnvelope([['role' => 'user', 'content' => 'Test only.']], $schema, 'openai_test');
+        $sent = $client->calls[0]['payload']['response_format']['json_schema']['schema'];
+        self::assertFalse($sent['additionalProperties'] ?? true);
+        self::assertFalse($sent['properties']['facts']['items']['additionalProperties'] ?? true);
+        self::assertSame(['value', 'note'], $sent['properties']['facts']['items']['required']);
+        self::assertSame(['facts' => [['value' => 0]]], $result['data']);
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('invalidStructuredBoundaryCases')]
+    public function testDirectEnvelopeRejectsStructuredBoundaryViolations(array $fieldSchema, mixed $value): void
+    {
+        $client = new ScriptedLlmClient(ScriptedLlmClient::modelConfig('deepseek_chat', 'deepseek'), [], [
+            'deepseek_chat' => [ScriptedLlmClient::success(json_encode(['value' => $value], JSON_THROW_ON_ERROR))],
+        ]);
+        $this->expectException(\app\exception\LlmDirectRequestException::class);
+        $client->createJsonResponseEnvelope([['role' => 'user', 'content' => 'Test only.']], [
+            'type' => 'object', 'required' => ['value'], 'properties' => ['value' => $fieldSchema],
+        ], 'deepseek_chat');
+    }
+
+    public static function invalidStructuredBoundaryCases(): array
+    {
+        return [
+            'extra action' => [['type' => 'array', 'maxItems' => 1, 'items' => ['type' => 'string']], ['a', 'b']],
+            'missing evidence' => [['type' => 'array', 'minItems' => 1, 'items' => ['type' => 'string']], []],
+            'unknown field' => [['type' => 'object', 'additionalProperties' => false, 'properties' => ['ok' => ['type' => 'boolean']]], ['ok' => true, 'execute' => true]],
+            'too high' => [['type' => 'number', 'maximum' => 1], 1.1],
+            'too low' => [['type' => 'number', 'minimum' => 0], -1],
+            'empty text' => [['type' => 'string', 'minLength' => 1], ''],
+            'long text' => [['type' => 'string', 'maxLength' => 2], '甲乙丙'],
+            'list is not object' => [['type' => 'object'], []],
+            'object is not list' => [['type' => 'array'], new \stdClass()],
+        ];
+    }
+
+    public function testNullableStructuredValueKeepsMissingDistinctFromZero(): void
+    {
+        $client = new ScriptedLlmClient(ScriptedLlmClient::modelConfig('deepseek_chat', 'deepseek'), [], [
+            'deepseek_chat' => [ScriptedLlmClient::success('{"missing":null,"zero":0}')],
+        ]);
+        $result = $client->createJsonResponseEnvelope([['role' => 'user', 'content' => 'Test only.']], [
+            'type' => 'object', 'required' => ['missing', 'zero'], 'properties' => [
+                'missing' => ['type' => ['number', 'null']], 'zero' => ['type' => 'number', 'minimum' => 0],
+            ],
+        ], 'deepseek_chat');
+        self::assertSame(['missing' => null, 'zero' => 0], $result['data']);
+    }
+
+    public function testStructuredListKeepsItsOuterArrayWhenItContainsObjects(): void
+    {
+        $client = new ScriptedLlmClient(ScriptedLlmClient::modelConfig('deepseek_chat', 'deepseek'), [], [
+            'deepseek_chat' => [ScriptedLlmClient::success('[{"value":0}]')],
+        ]);
+        $result = $client->createJsonResponseEnvelope([['role' => 'user', 'content' => 'Test only.']], [
+            'type' => 'array', 'items' => ['type' => 'object', 'required' => ['value'], 'properties' => [
+                'value' => ['type' => 'number'],
+            ]],
+        ], 'deepseek_chat');
+        self::assertSame([['value' => 0]], $result['data']);
+    }
+
     public function testDeepSeekPayloadUsesJsonObjectDisablesThinkingAndCarriesAnonymousUser(): void
     {
         $client = new LlmClient();

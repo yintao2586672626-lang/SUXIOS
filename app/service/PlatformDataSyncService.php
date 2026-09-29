@@ -954,12 +954,6 @@ final class PlatformDataSyncService
     private function assertGenericOtaPayloadBinding(array $source, array $payload): array
     {
         $platform = strtolower(trim((string)($source['platform'] ?? '')));
-        if (!$this->isOtaPlatform($platform) || $this->isOtaBrowserProfileSource($source)) {
-            return [];
-        }
-        if ($this->isOtaBrowserAssistSource($source)) {
-            return $this->assertBrowserAssistPayloadBinding($source, $payload);
-        }
         if ($this->isManualImportSource($source)) {
             $sourceHotelId = (int)($source['system_hotel_id'] ?? 0);
             if ($sourceHotelId <= 0) {
@@ -982,10 +976,16 @@ final class PlatformDataSyncService
                     throw new RuntimeException('manual_import_platform_binding_mismatch', 409);
                 }
             }
-            return [
+            return $this->isOtaPlatform($platform) ? [
                 'status' => 'user_selected_system_hotel',
                 'proof' => 'tenant_scoped_manual_import_source',
-            ];
+            ] : [];
+        }
+        if (!$this->isOtaPlatform($platform) || $this->isOtaBrowserProfileSource($source)) {
+            return [];
+        }
+        if ($this->isOtaBrowserAssistSource($source)) {
+            return $this->assertBrowserAssistPayloadBinding($source, $payload);
         }
 
         $keys = $this->otaHotelIdentifierKeys($platform);
@@ -1498,6 +1498,7 @@ final class PlatformDataSyncService
         ];
         $targetTenantId = $this->resolveHotelTenantId((int)$source['system_hotel_id']);
         $data['tenant_id'] = $targetTenantId;
+        $data = $this->clearSyncConclusionForChangedSourceScope($data, $existing);
 
         if ($id > 0) {
             if (!$hasSecretInput) {
@@ -1518,6 +1519,25 @@ final class PlatformDataSyncService
             ->where('system_hotel_id', (int)$source['system_hotel_id'])
             ->find();
         return $this->sanitizeSourceRow($row ?: []);
+    }
+
+    /** @param array<string, mixed> $data @param array<string, mixed>|null $existing */
+    private function clearSyncConclusionForChangedSourceScope(array $data, ?array $existing): array
+    {
+        if ($existing !== null && (
+            (int)($existing['system_hotel_id'] ?? 0) !== (int)($data['system_hotel_id'] ?? 0)
+            || strtolower(trim((string)($existing['platform'] ?? ''))) !== strtolower(trim((string)($data['platform'] ?? '')))
+            || strtolower(trim((string)($existing['data_type'] ?? ''))) !== strtolower(trim((string)($data['data_type'] ?? '')))
+        )) {
+            // Historical rows/tasks retain their original scope. Their last
+            // sync conclusion cannot describe the source's newly selected scope.
+            foreach (['last_sync_time', 'last_sync_status', 'last_error'] as $field) {
+                if (array_key_exists($field, $existing)) {
+                    $data[$field] = null;
+                }
+            }
+        }
+        return $data;
     }
 
     /**
@@ -1766,6 +1786,7 @@ final class PlatformDataSyncService
                 'update_time' => $now,
             ];
             $data['tenant_id'] = $tenantId;
+            $data = $this->clearSyncConclusionForChangedSourceScope($data, $existing);
 
             if ($id > 0) {
                 $updateQuery = Db::name('platform_data_sources');
@@ -2799,6 +2820,10 @@ final class PlatformDataSyncService
         if (!empty($filters['status'])) {
             $query->where('status', (string)$filters['status']);
         }
+        $beforeId = max(0, (int)($filters['before_id'] ?? 0));
+        if ($beforeId > 0) {
+            $query->where('id', '<', $beforeId);
+        }
         $rows = $query->limit(max(1, min(200, (int)($filters['limit'] ?? 50))))->select()->toArray();
         foreach ($rows as &$row) {
             $effectiveStatus = self::effectiveSyncTaskStatus(is_array($row) ? $row : []);
@@ -2816,15 +2841,57 @@ final class PlatformDataSyncService
     {
         $query = Db::name('platform_data_sync_logs')->order('id', 'desc');
         $this->applyTaskScope($query, $user);
+        $hotelId = (int)($filters['system_hotel_id'] ?? 0);
+        if ($hotelId > 0) {
+            $query->where('system_hotel_id', $hotelId);
+        }
+        $platform = strtolower(trim((string)($filters['platform'] ?? '')));
+        if ($platform !== '') {
+            $query->whereIn('sync_task_id', function ($taskQuery) use ($user, $hotelId, $platform): void {
+                $taskQuery->name('platform_data_sync_tasks')->field('id');
+                $this->applyTaskScope($taskQuery, $user);
+                if ($hotelId > 0) {
+                    $taskQuery->where('system_hotel_id', $hotelId);
+                }
+                $taskQuery->where('platform', $platform);
+            });
+        }
         if (!empty($filters['sync_task_id'])) {
             $query->where('sync_task_id', (int)$filters['sync_task_id']);
         }
         if (!empty($filters['data_source_id'])) {
             $query->where('data_source_id', (int)$filters['data_source_id']);
         }
+        $beforeId = max(0, (int)($filters['before_id'] ?? 0));
+        if ($beforeId > 0) {
+            $query->where('id', '<', $beforeId);
+        }
         $rows = $query->limit(max(1, min(200, (int)($filters['limit'] ?? 50))))->select()->toArray();
+        $taskIds = array_values(array_unique(array_filter(array_map(
+            static fn(array $row): int => (int)($row['sync_task_id'] ?? 0),
+            array_values(array_filter($rows, 'is_array'))
+        ))));
+        $taskById = [];
+        if (!empty($taskIds)) {
+            $taskQuery = Db::name('platform_data_sync_tasks')
+                ->field('id,tenant_id,system_hotel_id,platform')
+                ->whereIn('id', $taskIds);
+            $this->applyTaskScope($taskQuery, $user);
+            foreach ($taskQuery->select()->toArray() as $task) {
+                if (is_array($task)) {
+                    $taskById[(int)$task['id']] = $task;
+                }
+            }
+        }
         return array_values(array_map(
-            fn(array $row): array => $this->sanitizeSyncLogRowForResponse($row),
+            function (array $row) use ($taskById): array {
+                $task = $taskById[(int)($row['sync_task_id'] ?? 0)] ?? null;
+                $sameScopeTask = is_array($task)
+                    && (int)($task['tenant_id'] ?? 0) === (int)($row['tenant_id'] ?? 0)
+                    && (int)($task['system_hotel_id'] ?? 0) === (int)($row['system_hotel_id'] ?? 0);
+                $row['platform'] = $sameScopeTask ? strtolower((string)($task['platform'] ?? '')) : '';
+                return $this->sanitizeSyncLogRowForResponse($row);
+            },
             array_values(array_filter($rows, 'is_array'))
         ));
     }
@@ -3272,54 +3339,6 @@ final class PlatformDataSyncService
         return $statuses;
     }
 
-    private function safeSyncTaskMessage(string $status, string $message): string
-    {
-        $message = strtolower(trim($message));
-        if (preg_match('/^cloud_ota_[a-z0-9_]{1,100}$/D', $message) === 1) {
-            return $message;
-        }
-        $knownMessages = [
-            'platform data synchronized.' => 'platform_data_synchronized',
-            'platform_data_synchronized' => 'platform_data_synchronized',
-            'platform_returned_authoritative_empty' => 'platform_returned_authoritative_empty',
-            'no business rows were found in payload.' => 'sync_completed_without_saved_rows',
-            'sync_completed_without_saved_rows' => 'sync_completed_without_saved_rows',
-            'target_date_traffic_ready' => 'target_date_traffic_ready',
-            'manual_login_state_not_verified' => 'manual_login_state_not_verified',
-            'profile_reused_no_target_date_traffic_rows' => 'profile_reused_no_target_date_traffic_rows',
-            'traffic_field_facts_missing' => 'traffic_field_facts_missing',
-            'permission_denied' => 'permission_denied',
-            'credential_execution_failed' => 'credential_execution_failed',
-            'credential_locator_missing' => 'credential_locator_missing',
-            'credential_not_ready' => 'credential_not_ready',
-            'credential_not_found' => 'credential_not_found',
-            'credential_revoked' => 'credential_revoked',
-            'credential_scope_invalid' => 'credential_scope_invalid',
-            'ota_source_url_not_allowed' => 'ota_source_url_not_allowed',
-            'ota_source_inline_secret_requires_migration' => 'ota_source_inline_secret_requires_migration',
-            'collection_failed' => 'collection_failed',
-            'collection_partial' => 'collection_partial',
-            'ads_service_not_opened' => 'ads_service_not_opened',
-            'ads_collection_failed' => 'ads_collection_failed',
-            'profile_session_unverified' => 'profile_session_unverified',
-            'profile_session_expired' => 'profile_session_expired',
-            'stale_running_task' => 'stale_running_task',
-        ];
-        if (isset($knownMessages[$message])) {
-            return $knownMessages[$message];
-        }
-
-        return match (strtolower(trim($status))) {
-            'success' => 'platform_data_synchronized',
-            'partial_success' => 'collection_partial',
-            'not_applicable' => $message === 'ads_service_not_opened' ? 'ads_service_not_opened' : 'not_applicable',
-            'permission_denied', 'unauthorized', 'forbidden' => 'permission_denied',
-            'login_expired', 'waiting_login', 'session_expired' => 'login_state_unverified',
-            'stale_running' => 'stale_running_task',
-            default => 'collection_failed',
-        };
-    }
-
     /** @param array<string, mixed> $payload */
     private function isAuthoritativeEmptySyncPayload(array $payload): bool
     {
@@ -3333,6 +3352,7 @@ final class PlatformDataSyncService
             str_contains($message, 'binding_mismatch') => 'binding_mismatch',
             str_contains($message, 'binding_missing') => 'binding_missing',
             str_contains($message, 'binding_unverified') => 'binding_unverified',
+            str_contains($message, 'profile_session_probe_failed') => 'profile_session_probe_failed',
             str_contains($message, 'profile_session_expired') => 'profile_session_expired',
             str_contains($message, 'profile_session_unverified') => 'profile_session_unverified',
             str_contains($message, 'current_session_verified'),
@@ -3692,82 +3712,6 @@ final class PlatformDataSyncService
                 $latestTimestamp = $timestamp;
             }
         }
-        return $latest;
-    }
-
-    /**
-     * @param array<string, mixed>|null $task
-     */
-    public static function effectiveSyncTaskStatus(?array $task): string
-    {
-        $status = strtolower(trim((string)($task['status'] ?? '')));
-        if ($status === '') {
-            return '';
-        }
-
-        return self::isStaleRunningSyncTask($task) ? 'stale_running' : $status;
-    }
-
-    /**
-     * @param array<string, mixed>|null $task
-     */
-    public static function isStaleRunningSyncTask(?array $task, int $staleSeconds = self::STALE_RUNNING_TASK_SECONDS): bool
-    {
-        if (empty($task)) {
-            return false;
-        }
-
-        $status = strtolower(trim((string)($task['status'] ?? '')));
-        if (!in_array($status, self::ACTIVE_SYNC_TASK_STATUSES, true)) {
-            return false;
-        }
-
-        $ageSeconds = self::syncTaskAgeSeconds($task);
-        return $ageSeconds !== null && $ageSeconds > max(60, $staleSeconds);
-    }
-
-    /**
-     * @param array<string, mixed>|null $task
-     */
-    public static function syncTaskAgeSeconds(?array $task): ?int
-    {
-        if (empty($task)) {
-            return null;
-        }
-
-        $timestamp = self::syncTaskLatestTimestamp($task, ['update_time', 'updated_at', 'started_at', 'create_time', 'created_at']);
-        if ($timestamp === null) {
-            return null;
-        }
-
-        return max(0, time() - $timestamp);
-    }
-
-    /**
-     * @param array<string, mixed>|null $task
-     * @param array<int, string> $keys
-     */
-    private static function syncTaskLatestTimestamp(?array $task, array $keys): ?int
-    {
-        if (empty($task)) {
-            return null;
-        }
-
-        $latest = null;
-        foreach ($keys as $key) {
-            $timeText = trim((string)($task[$key] ?? ''));
-            if ($timeText === '') {
-                continue;
-            }
-            $timestamp = strtotime($timeText);
-            if ($timestamp === false) {
-                continue;
-            }
-            if ($latest === null || $timestamp > $latest) {
-                $latest = $timestamp;
-            }
-        }
-
         return $latest;
     }
 

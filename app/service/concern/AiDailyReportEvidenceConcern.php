@@ -11,6 +11,27 @@ use Throwable;
 
 trait AiDailyReportEvidenceConcern
 {
+    /** Verifies persisted report evidence before exposing its projection. */
+    private function verifyStoredEvidenceProjection(array $row): array
+    {
+        if (isset($row['snapshot']['evidence_snapshot'])) {
+            $evidenceService = new AiDailyReportEvidenceService();
+            $expectedScope = $evidenceService->scope((int)($row['tenant_id'] ?? 0), $row['hotel_id'], (string)$row['report_date']);
+            $evidenceService->verify($row['snapshot']['evidence_snapshot'], $expectedScope);
+            $evidenceService->assertProjection($row, $row['snapshot']['evidence_snapshot']);
+            if (($row['snapshot']['evidence_projection_digest'] ?? '') !== AiDailyReportEvidenceService::projectionDigest($row)) {
+                throw new \RuntimeException('diagnosis_report_projection_mismatch');
+            }
+            $row['evidence_snapshot'] = $row['snapshot']['evidence_snapshot'];
+            $row['evidence_recommendations'] = $row['evidence_snapshot']['diagnosis']['recommendations'];
+            $row['final_text'] = $row['evidence_snapshot']['final_text'];
+            $row['evidence_readback_status'] = 'exact_readback_verified';
+        } else {
+            $row['evidence_readback_status'] = 'legacy_unverified';
+        }
+        return $row;
+    }
+
     private function loadEvidencePack(int $hotelId, string $date): array
     {
         $service = new AiDailyReportEvidenceService();
@@ -47,7 +68,7 @@ trait AiDailyReportEvidenceConcern
     }
 
     /** All newly generated report numbers come from the same verified, channel-specific pack. */
-    private function projectEvidenceReport(array $report, array $pack, array $diagnosis): array
+    private function projectEvidenceReport(array $report, array $pack, array $diagnosis, array $trustedInputGaps = []): array
     {
         $metrics = array_map([AiDailyReportEvidenceService::class, 'reportMetric'], $pack['facts']);
         $report['yesterday_result'] = ['report_date' => $pack['scope']['business_date'],
@@ -56,8 +77,11 @@ trait AiDailyReportEvidenceConcern
         $report['summary'] = $pack['facts'] === [] ? '缺少可信事实，经营归因已阻塞。' : '已保存渠道事实与待验证解释；变化不证明因果。';
         $report['abnormal_metrics'] = array_map([AiDailyReportEvidenceService::class, 'reportObservation'], $diagnosis['observations']);
         $report['competitor_changes'] = [];
-        $report['data_gaps'] = array_map(static fn(array $gap): array => ['code' => 'diagnosis_' . ($gap['metric_key'] ?? 'facts') . '_' . $gap['status'],
-            'message' => $gap['next_action'], 'platform' => $gap['platform'] ?? '', 'status' => $gap['status']], $pack['gaps']);
+        $report['data_gaps'] = array_merge(
+            array_map(static fn(array $gap): array => ['code' => 'diagnosis_' . ($gap['metric_key'] ?? 'facts') . '_' . $gap['status'],
+                'message' => $gap['next_action'], 'platform' => $gap['platform'] ?? '', 'status' => $gap['status']], $pack['gaps']),
+            array_values(array_filter($trustedInputGaps, 'is_array'))
+        );
         $report['source_refs'] = AiDailyReportEvidenceService::reportSources($pack['facts']);
         $report['report_scope'] = array_merge($pack['scope'], ['report_date' => $pack['scope']['business_date'],
             'whole_hotel_conclusions_allowed' => false, 'scope_note' => $diagnosis['boundary']]);

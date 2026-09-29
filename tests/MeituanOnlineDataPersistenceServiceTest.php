@@ -6,9 +6,77 @@ namespace Tests;
 use app\service\MeituanOnlineDataPersistenceService;
 use PHPUnit\Framework\TestCase;
 use ReflectionMethod;
+use think\facade\Config;
+use think\facade\Db;
 
 final class MeituanOnlineDataPersistenceServiceTest extends TestCase
 {
+    #[\PHPUnit\Framework\Attributes\RunInSeparateProcess]
+    #[\PHPUnit\Framework\Attributes\PreserveGlobalState(false)]
+    public function testRankRetryDoesNotReassignForeignTenantRow(): void
+    {
+        Config::set(['default' => 'file', 'stores' => ['file' => [
+            'type' => 'File', 'path' => (string)getenv('SUXIOS_CACHE_PATH'),
+        ]]], 'cache');
+        Config::set(['default' => 'file', 'channels' => ['file' => [
+            'type' => 'File', 'path' => (string)getenv('SUXIOS_CACHE_PATH') . '/logs/',
+        ]]], 'log');
+        Config::set(['default' => 'rank_tenant', 'connections' => ['rank_tenant' => [
+            'type' => 'sqlite', 'database' => ':memory:', 'prefix' => '', 'fields_strict' => false,
+        ]]], 'database');
+        Db::connect(null, true);
+        Db::execute('CREATE TABLE hotels (id INTEGER PRIMARY KEY, tenant_id INTEGER NOT NULL)');
+        Db::execute('INSERT INTO hotels VALUES (80,8)');
+        Db::execute('CREATE TABLE online_daily_data (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER, system_hotel_id INTEGER,
+            hotel_id TEXT, hotel_name TEXT, data_date TEXT, source TEXT,
+            dimension TEXT, data_type TEXT, data_value REAL, amount REAL, quantity REAL,
+            book_order_num REAL, comment_score REAL, qunar_comment_score REAL,
+            raw_data TEXT, validation_status TEXT, validation_flags TEXT,
+            readback_verified INTEGER DEFAULT 0, readback_verified_at TEXT
+        )');
+        $response = ['data' => ['peerRankData' => [[
+            'dimName' => '入住间夜', 'aiMetricName' => 'P_RZ_NIGHT_COUNT',
+            'roundRanks' => [[
+                'poiId' => '8', 'poiName' => 'Synthetic Meituan Hotel',
+                'date' => '2026-07-11 08:30:00', 'dataValue' => 9,
+            ]],
+        ]]]];
+        $service = new MeituanOnlineDataPersistenceService();
+        $context = ['rank_type' => 'P_RZ', 'date_range' => '1'];
+        self::assertSame(1, $service->parseAndSaveMeituanData(
+            $response, '2026-07-11', '2026-07-11', 80, $context
+        ));
+        $first = Db::name('online_daily_data')->where('source', 'meituan')->find();
+        self::assertIsArray($first);
+        $foreignId = (int)$first['id'];
+        Db::name('online_daily_data')->where('id', $foreignId)->update([
+            'tenant_id' => 9, 'data_value' => 999, 'readback_verified' => 0,
+        ]);
+
+        self::assertSame(1, $service->parseAndSaveMeituanData(
+            $response, '2026-07-11', '2026-07-11', 80, $context
+        ));
+        $foreign = Db::name('online_daily_data')->where('id', $foreignId)->find();
+        self::assertSame(9, (int)$foreign['tenant_id']);
+        self::assertSame(999.0, (float)$foreign['data_value']);
+        $trusted = Db::name('online_daily_data')->where('tenant_id', 8)->find();
+        self::assertIsArray($trusted);
+        self::assertNotSame($foreignId, (int)$trusted['id']);
+        self::assertSame(1, (int)$trusted['readback_verified']);
+
+        $corrected = $response;
+        $corrected['data']['peerRankData'][0]['roundRanks'][0]['dataValue'] = 11;
+        self::assertSame(1, $service->parseAndSaveMeituanData(
+            $corrected, '2026-07-11', '2026-07-11', 80, $context
+        ));
+        $sameTenant = Db::name('online_daily_data')->where('tenant_id', 8)->find();
+        self::assertSame((int)$trusted['id'], (int)$sameTenant['id']);
+        self::assertSame(11.0, (float)$sameTenant['data_value']);
+        self::assertSame(1, (int)$sameTenant['readback_verified']);
+        self::assertSame(2, Db::name('online_daily_data')->count());
+    }
+
     public function testBooleanVipTagIsPersistedAsVipPlatformTag(): void
     {
         $service = new MeituanOnlineDataPersistenceService();

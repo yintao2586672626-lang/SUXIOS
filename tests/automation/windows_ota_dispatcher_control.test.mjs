@@ -105,7 +105,8 @@ test('page exposes an independent status card and a safe enable exact readback a
   for (const source of [appMain, readFileSync('public/components/system/app-main-components-loader.js', 'utf8')]) {
     assert.equal(source.match(/components\/online-data\/platform-auto-settings-panels\.js\?v=[^'"\s]+/)?.[0], expectedPanelsUrl);
   }
-  assert.match(appMain, /autoFetchStaticVersion = '20260811-windows-scheduler-h80-v3'/);
+  const staticHash = createHash('sha256').update(staticSource.replace(/\r\n/g, '\n')).digest('hex').slice(0, 10);
+  assert.ok(appMain.includes(`autoFetchStaticVersion = '20260811-windows-scheduler-h80-v3-h${staticHash}'`));
   assert.match(appMain, /expected_contract_digest: currentStatus\.contract_digest/);
   assert.match(appMain, /res\.data\?\.catch_up_disabled !== true/);
   assert.match(appMain, /res\.data\?\.control_state_verified !== true/);

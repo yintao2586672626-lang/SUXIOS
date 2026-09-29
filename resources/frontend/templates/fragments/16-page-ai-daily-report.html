@@ -4,7 +4,8 @@
                                 <div>
                                     <div class="text-xs font-semibold text-blue-200 uppercase tracking-wide">AI Daily Operations</div>
                                     <h2 class="text-2xl font-bold mt-2">AI经营日报</h2>
-                                    <p class="text-sm text-slate-300 mt-2 max-w-3xl">自动读取已保存的携程、美团竞争圈，分别分析后生成同一份可追溯报告。</p>
+                                    <p class="text-sm text-slate-300 mt-2 max-w-3xl">先查看已确认事实，再查看分析与建议；已转出的事项可以直接进入对应任务继续跟进。</p>
+                                    <p v-if="aiDailyReportTaskReturn" class="mt-2 text-xs text-amber-200">正在回看原日报 #{{ aiDailyReportTaskReturn.reportId }} · {{ aiDailyReportTaskReturn.reportDate }}；刷新读取同一份日报及其最新任务状态。</p>
                                 </div>
                                 <div class="flex flex-wrap items-center gap-2">
                                     <button @click="loadAiDailyReport" :disabled="operationLoading.aiDailyReport || aiDailyReportGenerationTaskPolling" class="px-3 py-2 rounded-lg border border-white/15 bg-white/10 text-sm text-white hover:bg-white/15 disabled:opacity-60">
@@ -17,7 +18,7 @@
                                         <option value="lite">企业微信简版</option>
                                         <option v-if="user?.is_super_admin" value="flagship">企业微信旗舰版</option>
                                     </select>
-                                    <button v-if="aiDailyReport" @click="sendAiDailyReportToWecom" :disabled="aiDailyReportWecomSending" data-testid="ai-daily-report-send-wecom" class="px-3 py-2 rounded-lg border border-emerald-300/40 bg-emerald-500/20 text-sm text-emerald-50 hover:bg-emerald-500/30 disabled:opacity-60">
+                                    <button v-if="aiDailyReport" @click="sendAiDailyReportToWecom" :disabled="aiDailyReportWecomSending || !aiDailyReportSendScopeCurrent()" data-testid="ai-daily-report-send-wecom" class="px-3 py-2 rounded-lg border border-emerald-300/40 bg-emerald-500/20 text-sm text-emerald-50 hover:bg-emerald-500/30 disabled:opacity-60">
                                         <i :class="aiDailyReportWecomSending ? 'fas fa-spinner fa-spin' : 'fas fa-paper-plane'" class="mr-2"></i>{{ aiDailyReportWecomSending ? '发送中' : ('发送' + (user?.is_super_admin && aiDailyReportWecomEdition === 'flagship' ? '旗舰版' : '简版')) }}
                                     </button>
                                     <button @click="currentPage = 'ops-track'; loadOperationActions()" class="px-3 py-2 rounded-lg bg-white text-sm text-slate-900 hover:bg-slate-100">
@@ -171,6 +172,7 @@
                                     </button>
                                 </div>
                             </div>
+                            <ai-daily-report-history-panel :hotel-id="aiDailyReportForm.hotel_id" :report-id="aiDailyReport?.id" :busy="operationLoading.aiDailyReport || aiDailyReportGenerationTaskPolling" :request="aiDailyReportDeliveryRequest" :capture-context="captureAiDailyReportHistoryContext" :open-report="openAiDailyReportHistory"></ai-daily-report-history-panel>
                             <div data-testid="ai-daily-competition-input-status" :class="aiDailyCompetitionInputStatusClass" class="mb-4 rounded-lg border px-3 py-2 text-xs">{{ aiDailyCompetitionInputStatusText }}</div>
                             <div v-if="aiDailyReportGenerationTask" data-testid="ai-daily-report-generation-task" :class="aiDailyReportGenerationStatusClass" class="mb-4 rounded-lg border px-4 py-3">
                                 <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
@@ -191,6 +193,7 @@
                                 <p class="mt-2 text-xs leading-5">{{ aiDailyReportGenerationDetailText }}</p>
                                 <p v-if="aiDailyReportGenerationOutcome.limited" class="mt-1 text-xs font-medium">该状态只表示规则报告可回读，不表示 AI 已形成完整经营结论。</p>
                             </div>
+                            <div v-if="operationAiDailySourceNotice &amp;&amp; operationAiDailySourceNotice.displayedReport === aiDailyReport" data-testid="ai-daily-source-location" role="status" :class="operationAiDailySourceNotice.status === 'error' ? 'border-red-100 bg-red-50 text-red-700' : 'border-blue-100 bg-blue-50 text-blue-700'" class="mb-4 rounded-lg border px-3 py-2 text-sm">{{ operationAiDailySourceNotice.message }}</div>
                             <div v-if="operationError.aiDailyReport" class="mb-4 rounded-lg border border-red-100 bg-red-50 px-3 py-2 text-sm text-red-600">{{ operationError.aiDailyReport }}</div>
                             <div v-if="!aiDailyReport &amp;&amp; !operationLoading.aiDailyReport" class="rounded-lg border border-dashed border-gray-200 p-8 text-center">
                                 <div class="mx-auto w-11 h-11 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center mb-3">
@@ -240,6 +243,7 @@
                                             <span class="rounded-full bg-white text-gray-500 px-2 py-1">缺失 {{ aiDailyReportDataGaps.length }} 项</span>
                                             <span class="rounded-full bg-white text-gray-500 px-2 py-1">可转单 {{ aiDailyReportTransferableCount }} 条</span>
                                         </div>
+                                        <div v-if="!aiDailyReportSendScopeCurrent()" data-testid="ai-daily-report-scope-notice" class="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">已显示日报与当前所选酒店或营业日不一致。如需转执行单或保存人工判断，请从历史中打开对应日报。</div>
                                         <div v-if="aiDailyReportWorkflowReadiness?.next_action" class="mt-2 text-xs text-blue-700">
                                             经营下一步：{{ aiDailyReportWorkflowReadiness.next_action }}
                                         </div>
@@ -368,7 +372,7 @@
                                             </div>
                                         </div>
                                         <div class="col-span-6 md:col-span-1 md:text-right">
-                                            <button @click="handleAiDailyReportActionPrimary(action, index)" :disabled="operationLoading.aiDailyReport || revenueAiStaticLoading || !revenueAiStaticReady || action.execution_intent_id" class="px-3 py-1.5 rounded-lg bg-blue-600 text-white text-xs hover:bg-blue-700 disabled:opacity-50">{{ aiDailyReportActionButtonText(action) }}</button>
+                                            <button @click="handleAiDailyReportActionPrimary(action, index)" :disabled="operationLoading.aiDailyReport || revenueAiStaticLoading || !revenueAiStaticReady || aiDailyReportTaskOpeningId > 0" :aria-busy="aiDailyReportTaskOpeningId > 0 &amp;&amp; aiDailyReportTaskOpeningId === Number(action.execution_intent_id)" class="px-3 py-1.5 rounded-lg bg-[#143a31] text-white text-xs hover:bg-[#264a40] disabled:opacity-50">{{ aiDailyReportTaskOpeningId > 0 &amp;&amp; aiDailyReportTaskOpeningId === Number(action.execution_intent_id) ? '正在打开…' : aiDailyReportActionButtonText(action) }}</button>
                                         </div>
                                     </div>
                                 </div>
@@ -412,6 +416,7 @@
                                             <p class="font-medium text-slate-800">{{ suggestion.platform }} · {{ suggestion.problem }}</p>
                                             <p class="mt-1 text-slate-500">建议复盘：{{ suggestion.review_window.followup_start }} 至 {{ suggestion.review_window.followup_end }}</p>
                                             <button type="button" data-testid="ai-evidence-propose" @click="proposeAiEvidenceTask(suggestion)" :disabled="suggestion.handoff_status !== 'ready_for_task_proposal' || ['pending','saved'].includes(aiEvidenceProposalState(suggestion).status)" class="mt-2 rounded border border-blue-200 px-3 py-1.5 text-blue-700 disabled:opacity-50">转为待人工审批任务</button>
+                                            <button v-if="aiEvidenceProposalState(suggestion).status === 'saved' && aiEvidenceProposalState(suggestion).readback_verified" type="button" data-testid="ai-evidence-open-intent" @click="openAiEvidenceProposal(suggestion)" :disabled="aiEvidenceProposalState(suggestion).opening" class="mt-2 ml-2 rounded border border-blue-200 px-3 py-1.5 text-blue-700 disabled:opacity-50">{{ aiEvidenceProposalState(suggestion).opening ? '正在定位…' : '查看已关联行动 #' + aiEvidenceProposalState(suggestion).intent_id }}</button>
                                             <p v-if="aiEvidenceProposalState(suggestion).message" class="mt-2 text-slate-600">{{ aiEvidenceProposalState(suggestion).message }}</p>
                                         </div>
                                         <pre data-testid="ai-evidence-text" class="mt-3 overflow-y-auto whitespace-pre-wrap break-words text-sm leading-6 text-slate-700" style="font-family:inherit;max-height:36rem">{{ aiDailyEvidenceDelivery().text }}</pre>
@@ -456,7 +461,7 @@
                                         <div class="flex flex-wrap items-start justify-between gap-2">
                                             <div>
                                                 <div class="text-sm font-semibold text-gray-900">专家/老板人工判断</div>
-                                                <div class="mt-1 text-xs text-gray-500">意见只记录在当前酒店、当前报告，不自动扩散。</div>
+                                                <div class="mt-1 text-xs text-gray-500">意见只记录在此日报；请先核对酒店和营业日，输入会保留。</div>
                                             </div>
                                             <span class="rounded-full bg-slate-50 px-2 py-1 text-xs text-slate-500">{{ aiDailyReportHumanJudgments.length }} 条</span>
                                         </div>
@@ -479,14 +484,16 @@
                                             <textarea v-if="aiDailyReportJudgmentForm.decision === 'corrected'" v-model="aiDailyReportJudgmentForm.correction" rows="2" maxlength="1000" placeholder="修正意见（不会直接改写来源事实）" class="rounded-lg border border-gray-200 px-3 py-2 text-xs text-gray-700 sm:col-span-2"></textarea>
                                         </div>
                                         <div class="mt-3 flex justify-end">
-                                            <button type="button" @click="submitAiDailyReportJudgment" :disabled="aiDailyReportJudgmentSaving" class="rounded-lg bg-blue-600 px-3 py-2 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-50">
+                                            <button type="button" @click="submitAiDailyReportJudgment" :disabled="aiDailyReportJudgmentDisabled" class="rounded-lg bg-blue-600 px-3 py-2 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-50">
                                                 <i :class="aiDailyReportJudgmentSaving ? 'fas fa-spinner fa-spin' : 'fas fa-check'" class="mr-1"></i>{{ aiDailyReportJudgmentSaving ? '保存中' : '保存并回读' }}
                                             </button>
                                         </div>
                                         <div v-if="aiDailyReportHumanJudgments.length" class="mt-3 max-h-40 space-y-2 overflow-y-auto border-t border-gray-100 pt-3">
-                                            <div v-for="item in aiDailyReportHumanJudgments.slice().reverse().slice(0, 5)" :key="item.id" class="rounded-md bg-slate-50 px-2.5 py-2 text-xs text-slate-600">
+                                            <div v-for="item in aiDailyReportHumanJudgments.slice().reverse()" :key="item.id" class="rounded-md bg-slate-50 px-2.5 py-2 text-xs text-slate-600">
                                                 <div class="font-medium text-slate-800">{{ aiDailyReportJudgmentTargetText(item.target_type) }} · {{ aiDailyReportJudgmentDecisionText(item.decision) }}</div>
-                                                <div v-if="item.comment || item.correction" class="mt-1">{{ item.correction || item.comment }}</div>
+                                                <div v-if="item.target_key" class="mt-1 break-words">具体对象：{{ item.target_key }}</div>
+                                                <div v-if="item.comment" class="mt-1 whitespace-pre-wrap break-words">判断理由：{{ item.comment }}</div>
+                                                <div v-if="item.correction" class="mt-1 whitespace-pre-wrap break-words">修正意见：{{ item.correction }}</div>
                                                 <div class="mt-1 text-[10px] text-slate-400">{{ item.user_label || ('用户' + item.user_id) }} · {{ item.recorded_at }}</div>
                                             </div>
                                         </div>

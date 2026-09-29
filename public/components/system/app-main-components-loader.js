@@ -1,7 +1,7 @@
 (() => {
     'use strict';
 
-    const fullScript = 'components/system/app-main-components.js?v=20260830-operating-finance-h4690042f9d';
+    const fullScript = 'components/system/app-main-components.js?v=20260830-operating-finance-ha488dcdfa0';
     let fullScriptPromise = null;
 
     const loadFullScript = () => {
@@ -30,7 +30,6 @@
             }
             script.src = fullScript;
             script.async = true;
-            script.dataset.suxiAppMainComponents = fullScript;
             script.addEventListener('load', finish, { once: true });
             script.addEventListener('error', () => {
                 fullScriptPromise = null;
@@ -160,13 +159,14 @@
         };
 
         const lazyKeys = [
-            'AiDecisionQualityDetails', 'DualOtaAcceptanceReceipt', 'DualOtaPageVerificationPanel',
+            'OperationExecutionEvidenceViewer',
+            'AiDailyReportHistoryPanel', 'AiDecisionQualityDetails', 'DualOtaAcceptanceReceipt', 'DualOtaPageVerificationPanel',
             'PlatformAutoSettingsPanels', 'PlatformAutoSecondaryPanels', 'CtripProfileFieldConfigPanel',
             'CompetitorDeviceManagement', 'DataConfigDialogs', 'SessionProofNotice',
             'LocalCollectorLoginHandoff', 'PmsRealtimeSyncResult', 'HotelThreeSourceOnboardingPanel',
             'OperatingLoopAuthority', 'ManagerCapabilityPanel', 'OperatingOpportunityLab',
             'OperatingFinanceControlCenter', 'OperatingNetworkReplicationList',
-            'MeituanSearchKeywordWorkbench', 'SimulationHeroActions', 'ForecastDecisionWorkbench',
+            'MeituanStoredRecordDetail', 'MeituanSearchKeywordWorkbench', 'SimulationHeroActions', 'ForecastDecisionWorkbench',
             'RevenueCockpitOpportunityDetails', 'RevenueCockpitSnapshotStatus',
             'RevenueCockpitActionRestoreStatus',
         ];
@@ -185,7 +185,7 @@
         return Object.freeze({
             ...lazyComponents,
             ...delegatedHelpers,
-            OperationTaskWorkflowPanel: Vue.defineAsyncComponent(() => loadOnlineDataComponentScript('components/operations/task-workflow-panel.js?v=20260908-workflow-v1').then(() => window.SUXI_TASK_WORKFLOW_PANEL.create({ Vue, h }))),
+            OperationTaskWorkflowPanel: Vue.defineAsyncComponent(() => loadOnlineDataComponentScript('components/operations/task-workflow-panel.js?v=20260908-workflow-v1-h7e09aa4830').then(() => window.SUXI_TASK_WORKFLOW_PANEL.create({ Vue, h }))),
             OnlineTruthSummary,
             onlineDataComponents,
             loadOnlineDataComponentScript,

@@ -723,7 +723,9 @@ final class OnlineDataTest extends TestCase
 
         $empty = CtripTrafficDisplayService::buildAppTrafficDerivedAnalysis([]);
         self::assertSame([], $empty['rows']);
-        self::assertSame(0.0, $empty['summary']['self']['exposure']);
+        self::assertSame('missing', $empty['status']);
+        self::assertNull($empty['summary']);
+        self::assertSame([], $empty['recommendations']);
     }
 
     public function testDailyOperatingSummaryExcludesNonRevenueAndLegacyRankRows(): void

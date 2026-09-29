@@ -1,0 +1,36 @@
+{
+  "schema_version": "suxios.reference_source.v1",
+  "title": "逐日经营诊断：证据校验与输入边界",
+  "reviewed_at": "2026-09-30 00:00:00",
+  "review_due_at": "2026-12-29 00:00:00",
+  "source_filename": "某酒店_逐日经营诊断_2609300226.html",
+  "source_sha256": "56FB49531A7BF1BBB22E52F3802CB2F12D8E4BD599E36779AFF7BA331FF8F5B6",
+  "source_bytes": 275630,
+  "source_provenance": "user_provided_anonymous_hotel_html",
+  "source_claims_independently_verified": false,
+  "task_mode": "classify",
+  "storage_disposition": "store_only",
+  "capability_disposition": "absorption_candidate",
+  "capability_maturity": "understood",
+  "usage_policy": "reference_only",
+  "repository_publication": "summary_contracts_and_source_fingerprint_only",
+  "retained_files": [
+    {
+      "path": "docs/knowledge/daily-diagnosis-20260930/sources/report.html.txt",
+      "repository_publication": "local_only_unlicensed_source",
+      "sha256": "56FB49531A7BF1BBB22E52F3802CB2F12D8E4BD599E36779AFF7BA331FF8F5B6"
+    },
+    {
+      "path": ".agents/skills/suxi-ai-report/references/daily-operating-diagnosis.md",
+      "sha256": "6A92D39334F83D51601F57A46F6BDDE9691E6A095ACC3D993D80941574C742B0"
+    },
+    {
+      "path": "docs/knowledge/daily-diagnosis-20260930/verification.json",
+      "sha256": "28CAA0D5D0EB868313FBD20D43C94C9B155D1E82AC054A4438763F2CDC89C686"
+    },
+    {
+      "path": "scripts/verify_daily_diagnosis_reference.py",
+      "sha256": "A49892C6B419A8CE21CFF9C5BF6AF80F1413AD3AFA9CCEE1E9D05964E8CE09B2"
+    }
+  ]
+}

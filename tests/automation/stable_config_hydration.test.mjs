@@ -1,10 +1,11 @@
+import { readSourceAggregate as readStaticContractSource } from '../../scripts/lib/source_aggregate.mjs';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import vm from 'node:vm';
 
 const appMain = readFileSync('public/app-main.js', 'utf8');
-const meituanStaticSource = readFileSync('public/meituan-static.js', 'utf8');
+const meituanStaticSource = readStaticContractSource('public/meituan-static.js');
 const ctripStaticSource = readFileSync('public/ctrip-static.js', 'utf8');
 const sandbox = { console, window: {} };
 vm.runInNewContext(

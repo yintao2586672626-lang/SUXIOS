@@ -115,9 +115,24 @@ final class OtaTrafficAttributionService
 
         $raw = self::decodeRawData($row['raw_data'] ?? null);
         $dateSource = strtolower(trim((string)($raw['date_source'] ?? $raw['dateSource'] ?? '')));
-        return $dateSource !== 'response.rtdataupdatetime'
+        return !str_contains($dateSource, 'default_data_date')
+            && $dateSource !== 'response.rtdataupdatetime'
             && $dateSource !== 'page.visible_update_time'
             && preg_match('/(?:^|\.)cards\.rtdataupdatetime$/', $dateSource) !== 1;
+    }
+
+    /** @param array<string, mixed> $row */
+    public static function ctripCatalogDateScopeIsAuthoritative(array $row): bool
+    {
+        if (!str_starts_with(strtolower(trim((string)($row['dimension'] ?? ''))), 'catalog:')) {
+            return true;
+        }
+        $raw = self::decodeRawData($row['raw_data'] ?? null);
+        $observedDate = trim((string)($raw['data_date'] ?? $raw['dataDate'] ?? ''));
+        $dateSource = strtolower(trim((string)($raw['date_source'] ?? $raw['dateSource'] ?? '')));
+        return $observedDate !== ''
+            && $observedDate === trim((string)($row['data_date'] ?? ''))
+            && preg_match('/^(?:row(?:\.|$)|response\.|request(?:\.|$)|page\.)/D', $dateSource) === 1;
     }
 
     private static function dimensionChannel(string $dimension): string

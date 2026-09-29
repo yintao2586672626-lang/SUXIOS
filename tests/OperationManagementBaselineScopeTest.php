@@ -264,6 +264,296 @@ final class OperationManagementBaselineScopeTest extends TestCase
         self::assertNull($result['rule_scenario']['avg_revenue']);
     }
 
+    public function testEditedDailyRevenueZeroOverridesLegacyColumnInOperationBaseline(): void
+    {
+        $date = date('Y-m-d', strtotime('-1 day'));
+        Db::name('daily_reports')->insert([
+            'tenant_id' => 1, 'hotel_id' => 7, 'report_date' => $date,
+            'status' => 2, 'revenue' => 800,
+            'report_data' => json_encode(['revenue' => 0, 'total_rooms' => 0, 'order_count' => 0]),
+            'create_time' => $date . ' 23:00:00', 'update_time' => $date . ' 23:00:00',
+        ]);
+
+        $result = (new OperationManagementService())->strategySimulation(
+            [7], 7, ['strategy_type' => 'price_adjust', 'adjust_amount' => -5]
+        );
+
+        self::assertSame(0.0, $result['baseline']['avg_revenue']);
+    }
+
+    public function testSingleDailyChannelRevenueDoesNotBecomeWholeHotelBaseline(): void
+    {
+        $service = new OperationManagementService();
+        $method = new \ReflectionMethod($service, 'buildSummaryFromRows');
+        $method->setAccessible(true);
+
+        $summary = $method->invoke($service, [[
+            'tenant_id' => 1, 'hotel_id' => 7, 'report_date' => '2026-08-12', 'status' => 2,
+            'report_data' => json_encode(['xb_revenue' => 1200]),
+        ]], [], [7], 7, '2026-08-12');
+
+        self::assertNull($summary['revenue']);
+        self::assertNotContains('whole_hotel_daily_report', $summary['metric_scopes']['revenue'] ?? []);
+    }
+
+    public function testCompleteDailyRevenuePartsProduceWholeHotelBaseline(): void
+    {
+        $service = new OperationManagementService();
+        $method = new \ReflectionMethod($service, 'buildSummaryFromRows');
+        $method->setAccessible(true);
+
+        $summary = $method->invoke($service, [[
+            'tenant_id' => 1, 'hotel_id' => 7, 'report_date' => '2026-08-12', 'status' => 2,
+            'report_data' => json_encode([
+                'online_revenue' => 100, 'offline_revenue' => 50,
+                'parking_revenue' => 20, 'dining_revenue' => 0, 'meeting_revenue' => 0,
+                'goods_revenue' => 0, 'member_card_revenue' => 0, 'other_revenue' => 0,
+            ]),
+        ]], [], [7], 7, '2026-08-12');
+
+        self::assertSame(170.0, $summary['revenue']);
+        self::assertContains('whole_hotel_daily_report', $summary['metric_scopes']['revenue'] ?? []);
+    }
+
+    public function testSingleDailyChannelRoomNightsDoNotBecomeWholeHotelBaseline(): void
+    {
+        $service = new OperationManagementService();
+        $method = new \ReflectionMethod($service, 'buildSummaryFromRows');
+        $method->setAccessible(true);
+
+        $summary = $method->invoke($service, [[
+            'tenant_id' => 1, 'hotel_id' => 7, 'report_date' => '2026-08-12', 'status' => 2,
+            'report_data' => json_encode(['xb_rooms' => 4]),
+        ]], [], [7], 7, '2026-08-12');
+
+        self::assertNull($summary['room_nights']);
+        self::assertNotContains('whole_hotel_daily_report', $summary['metric_scopes']['room_nights'] ?? []);
+    }
+
+    public function testCompleteDailyRoomNightPartsProduceWholeHotelBaseline(): void
+    {
+        $service = new OperationManagementService();
+        $method = new \ReflectionMethod($service, 'buildSummaryFromRows');
+        $method->setAccessible(true);
+
+        $summary = $method->invoke($service, [[
+            'tenant_id' => 1, 'hotel_id' => 7, 'report_date' => '2026-08-12', 'status' => 2,
+            'report_data' => json_encode(['online_rooms' => 4, 'offline_rooms' => 2]),
+        ]], [], [7], 7, '2026-08-12');
+
+        self::assertSame(6.0, $summary['room_nights']);
+        self::assertContains('whole_hotel_daily_report', $summary['metric_scopes']['room_nights'] ?? []);
+    }
+
+    public function testDailyRoomNightZeroIsRecordedButInvalidPartialIsMissing(): void
+    {
+        $service = new OperationManagementService();
+        $method = new \ReflectionMethod($service, 'buildSummaryFromRows');
+        $method->setAccessible(true);
+        $row = [
+            'tenant_id' => 1, 'hotel_id' => 7, 'report_date' => '2026-08-12', 'status' => 2,
+        ];
+
+        $zero = $method->invoke($service, [$row + ['report_data' => json_encode(['total_rooms' => 0])]], [], [7], 7, '2026-08-12');
+        self::assertSame(0.0, $zero['room_nights']);
+        self::assertContains('whole_hotel_daily_report', $zero['metric_scopes']['room_nights'] ?? []);
+
+        $invalid = $method->invoke($service, [$row + ['report_data' => json_encode(['online_rooms' => 1.5, 'offline_rooms' => 2])]], [], [7], 7, '2026-08-12');
+        self::assertNull($invalid['room_nights']);
+        self::assertNotContains('whole_hotel_daily_report', $invalid['metric_scopes']['room_nights'] ?? []);
+    }
+
+    public function testInvalidEditedDailyTotalsDoNotFallBackToStaleComponents(): void
+    {
+        $service = new OperationManagementService();
+        $method = new \ReflectionMethod($service, 'buildSummaryFromRows');
+        $method->setAccessible(true);
+
+        $summary = $method->invoke($service, [[
+            'tenant_id' => 1, 'hotel_id' => 7, 'report_date' => '2026-08-12', 'status' => 2,
+            'revenue' => 800,
+            'report_data' => json_encode([
+                'revenue' => -5, 'room_revenue' => 100, 'other_revenue_total' => 20,
+                'total_rooms' => -1, 'online_rooms' => 4, 'offline_rooms' => 2,
+            ]),
+        ]], [], [7], 7, '2026-08-12');
+
+        self::assertNull($summary['revenue']);
+        self::assertNull($summary['room_nights']);
+        self::assertNotContains('whole_hotel_daily_report', $summary['metric_scopes']['revenue'] ?? []);
+        self::assertNotContains('whole_hotel_daily_report', $summary['metric_scopes']['room_nights'] ?? []);
+    }
+
+    public function testEditedSalableRoomsOverrideLegacyInventoryForRevpar(): void
+    {
+        $service = new OperationManagementService();
+        $method = new \ReflectionMethod($service, 'buildSummaryFromRows');
+        $method->setAccessible(true);
+
+        $summary = $method->invoke($service, [[
+            'tenant_id' => 1, 'hotel_id' => 7, 'report_date' => '2026-08-12', 'status' => 2,
+            'room_count' => 10,
+            'report_data' => json_encode(['revenue' => 800, 'total_rooms' => 4, 'salable_rooms_total' => 8]),
+        ]], [], [7], 7, '2026-08-12');
+
+        self::assertSame(100.0, $summary['revpar']);
+        self::assertSame(50.0, $summary['occ']);
+    }
+
+    public function testClosedOrInvalidSalableRoomsDoNotUseLegacyInventory(): void
+    {
+        $service = new OperationManagementService();
+        $method = new \ReflectionMethod($service, 'buildSummaryFromRows');
+        $method->setAccessible(true);
+        $row = [
+            'tenant_id' => 1, 'hotel_id' => 7, 'report_date' => '2026-08-12', 'status' => 2,
+            'room_count' => 10,
+        ];
+
+        foreach ([0, -1, 1.5] as $salableRooms) {
+            $summary = $method->invoke($service, [$row + [
+                'report_data' => json_encode([
+                    'revenue' => 800, 'total_rooms' => 4, 'salable_rooms_total' => $salableRooms,
+                ]),
+            ]], [], [7], 7, '2026-08-12');
+            self::assertNull($summary['revpar']);
+            self::assertNull($summary['occ']);
+        }
+    }
+
+    public function testEditedDailyRoomFactsOverrideLegacyOccupancyRate(): void
+    {
+        $service = new OperationManagementService();
+        $method = new \ReflectionMethod($service, 'buildSummaryFromRows');
+        $method->setAccessible(true);
+
+        $summary = $method->invoke($service, [[
+            'tenant_id' => 1, 'hotel_id' => 7, 'report_date' => '2026-08-12', 'status' => 2,
+            'occupancy_rate' => 90,
+            'report_data' => json_encode(['total_rooms' => 4, 'salable_rooms' => 8]),
+        ]], [], [7], 7, '2026-08-12');
+
+        self::assertSame(50.0, $summary['occ']);
+    }
+
+    public function testOccupancyUsesMatchingDayRoomCountsAndRejectsPartialDenominator(): void
+    {
+        $service = new OperationManagementService();
+        $method = new \ReflectionMethod($service, 'buildSummaryFromRows');
+        $method->setAccessible(true);
+        $first = [
+            'tenant_id' => 1, 'hotel_id' => 7, 'report_date' => '2026-08-11', 'status' => 2,
+            'occupancy_rate' => 90,
+            'report_data' => json_encode(['total_rooms' => 4, 'salable_rooms' => 8]),
+        ];
+        $second = [
+            'tenant_id' => 1, 'hotel_id' => 7, 'report_date' => '2026-08-12', 'status' => 2,
+            'report_data' => json_encode(['total_rooms' => 6, 'salable_rooms' => 12]),
+        ];
+
+        $complete = $method->invoke($service, [$first, $second], [], [7], 7, '2026-08-12');
+        self::assertSame(50.0, $complete['occ']);
+
+        unset($first['occupancy_rate']);
+        $second['report_data'] = json_encode(['total_rooms' => 6]);
+        $partial = $method->invoke($service, [$first, $second], [], [7], 7, '2026-08-12');
+        self::assertNull($partial['occ']);
+        $occGaps = array_column($partial['optional_data_gaps'], 'message', 'code');
+        self::assertStringContainsString('日期', $occGaps['operation_occ_not_calculable']);
+    }
+
+    public function testRevparRequiresRevenueAndSalableRoomsForSameDailyDates(): void
+    {
+        $service = new OperationManagementService();
+        $method = new \ReflectionMethod($service, 'buildSummaryFromRows');
+        $method->setAccessible(true);
+        $first = [
+            'tenant_id' => 1, 'hotel_id' => 7, 'report_date' => '2026-08-11', 'status' => 2,
+            'report_data' => json_encode(['revenue' => 800, 'salable_rooms' => 8]),
+        ];
+        $second = [
+            'tenant_id' => 1, 'hotel_id' => 7, 'report_date' => '2026-08-12', 'status' => 2,
+            'report_data' => json_encode(['revenue' => 1200, 'salable_rooms' => 12]),
+        ];
+
+        $complete = $method->invoke($service, [$first, $second], [], [7], 7, '2026-08-12');
+        self::assertSame(100.0, $complete['revpar']);
+
+        $second['report_data'] = json_encode(['salable_rooms' => 12]);
+        $partial = $method->invoke($service, [$first, $second], [], [7], 7, '2026-08-12');
+        self::assertNull($partial['revpar']);
+        $revparGaps = array_column($partial['optional_data_gaps'], 'message', 'code');
+        self::assertStringContainsString('日期', $revparGaps['operation_revpar_not_calculable']);
+
+        $second['report_data'] = json_encode(['revenue' => 1200]);
+        $missingCount = $method->invoke($service, [$first, $second], [], [7], 7, '2026-08-12');
+        self::assertNull($missingCount['revpar']);
+    }
+
+    public function testAdrRequiresRevenueAndRoomNightsForSameDailyDates(): void
+    {
+        $service = new OperationManagementService();
+        $method = new \ReflectionMethod($service, 'buildSummaryFromRows');
+        $method->setAccessible(true);
+        $first = [
+            'tenant_id' => 1, 'hotel_id' => 7, 'report_date' => '2026-08-11', 'status' => 2,
+            'report_data' => json_encode(['revenue' => 800, 'total_rooms' => 4]),
+        ];
+        $second = [
+            'tenant_id' => 1, 'hotel_id' => 7, 'report_date' => '2026-08-12', 'status' => 2,
+            'report_data' => json_encode(['revenue' => 1200, 'total_rooms' => 6]),
+        ];
+
+        $complete = $method->invoke($service, [$first, $second], [], [7], 7, '2026-08-12');
+        self::assertSame(200.0, $complete['adr']);
+
+        $second['report_data'] = json_encode(['total_rooms' => 6]);
+        $missingRevenue = $method->invoke($service, [$first, $second], [], [7], 7, '2026-08-12');
+        self::assertNull($missingRevenue['adr']);
+
+        $second['report_data'] = json_encode(['revenue' => 1200]);
+        $missingRooms = $method->invoke($service, [$first, $second], [], [7], 7, '2026-08-12');
+        self::assertNull($missingRooms['adr']);
+    }
+
+    public function testOtaAdrRequiresRevenueAndRoomNightsForSamePlatformDate(): void
+    {
+        $this->insertOtaDay('2026-08-11', 800, 4, 4);
+        $this->insertOtaDay('2026-08-12', 1200, 6, 6);
+        $service = new OperationManagementService();
+        $method = new \ReflectionMethod($service, 'buildSummaryFromRows');
+        $method->setAccessible(true);
+        $rows = Db::name('online_daily_data')->select()->toArray();
+
+        $complete = $method->invoke($service, [], $rows, [7], 7, '2026-08-12');
+        self::assertSame(200.0, $complete['adr']);
+
+        Db::name('online_daily_data')->where('data_date', '2026-08-11')->update(['quantity' => null]);
+        Db::name('online_daily_data')->where('data_date', '2026-08-12')->update(['amount' => null]);
+        $partial = $method->invoke($service, [], Db::name('online_daily_data')->select()->toArray(), [7], 7, '2026-08-12');
+        self::assertNull($partial['adr']);
+        $adrGaps = array_column($partial['optional_data_gaps'], 'message', 'code');
+        self::assertStringContainsString('日期', $adrGaps['operation_adr_not_calculable']);
+    }
+
+    public function testOtaAdrDoesNotDivideDifferentPlatformsOnSameDate(): void
+    {
+        $date = '2026-08-12';
+        $this->insertOtaDay($date, 800, 4, 4, 'ctrip', 'ctrip');
+        $this->insertOtaDay($date, 1200, 6, 6, 'meituan', 'meituan');
+        Db::name('online_daily_data')->where('source', 'ctrip')->update(['quantity' => null]);
+        Db::name('online_daily_data')->where('source', 'meituan')->update(['amount' => null]);
+
+        $service = new OperationManagementService();
+        $method = new \ReflectionMethod($service, 'buildSummaryFromRows');
+        $method->setAccessible(true);
+        $summary = $method->invoke($service, [], Db::name('online_daily_data')->select()->toArray(), [7], 7, $date);
+
+        self::assertSame(800.0, $summary['revenue']);
+        self::assertSame(6.0, $summary['room_nights']);
+        self::assertNull($summary['adr']);
+    }
+
     public function testThirtySubmittedProductionSchemaRowsCanProduceThirtyDaySimulation(): void
     {
         for ($offset = 30; $offset >= 1; --$offset) {
@@ -420,6 +710,93 @@ final class OperationManagementBaselineScopeTest extends TestCase
         self::assertSame('active', Db::name('operation_action_tracks')->where('id', $oldId)->value('status'));
         self::assertTrue($service->finishAction($currentId, [7]));
         self::assertSame('finished', Db::name('operation_action_tracks')->where('id', $currentId)->value('status'));
+    }
+
+    public function testActionTrackingMarksTheHundredRowWindowAsPartial(): void
+    {
+        for ($index = 0; $index < 101; $index++) {
+            $this->insertActionTrack(1, 'history action ' . $index);
+        }
+        $this->insertActionTrack(2, 'other tenant action');
+
+        $tracking = (new OperationManagementService())->actionTracking([7], 7);
+
+        self::assertSame('partial', $tracking['data_status']);
+        self::assertSame(101, $tracking['matched_total']);
+        self::assertSame(100, $tracking['returned_count']);
+        self::assertTrue($tracking['truncated']);
+        self::assertContains('operation_action_tracking_truncated', array_column($tracking['data_gaps'], 'code'));
+        self::assertNotSame('ready', $tracking['effect_validation']['data_status']);
+        self::assertContains('operation_action_tracking_truncated', array_column($tracking['effect_validation']['data_gaps'], 'code'));
+    }
+
+    public function testMissingActionTrackingTableDoesNotConfirmEmptyHistory(): void
+    {
+        Db::execute('DROP TABLE operation_action_tracks');
+
+        $tracking = (new OperationManagementService())->actionTracking([7], 7);
+
+        self::assertSame('migration_required', $tracking['data_status']);
+        self::assertSame([], $tracking['actions']);
+        self::assertContains('operation_action_tracks_missing', array_column($tracking['data_gaps'], 'code'));
+        self::assertSame(0, $tracking['returned_count']);
+    }
+
+    public function testRepeatingFinishKeepsOriginalResultAndTrackingReturnsHotelIdentity(): void
+    {
+        $actionId = $this->insertActionTrack(1, 'one time finish');
+        $service = new OperationManagementService();
+        self::assertTrue($service->finishAction($actionId, [7]));
+        $summary = (string)Db::name('operation_action_tracks')->where('id', $actionId)->value('result_summary');
+        Db::name('operation_action_tracks')->where('id', $actionId)->update(['updated_at' => '2000-01-01 00:00:00']);
+
+        self::assertTrue($service->finishAction($actionId, [7]));
+        $row = Db::name('operation_action_tracks')->where('id', $actionId)->find();
+        self::assertSame('2000-01-01 00:00:00', (string)$row['updated_at']);
+        self::assertSame($summary, (string)$row['result_summary']);
+
+        $tracking = $service->actionTracking([7], 7);
+        $action = $tracking['actions'][0] ?? [];
+        self::assertSame($actionId, $action['id'] ?? null);
+        self::assertSame(7, $action['hotel_id'] ?? null);
+        self::assertSame('finished', $action['status'] ?? null);
+    }
+
+    public function testFinishedActionHistoryReadsSavedEffectWhileActiveActionKeepsLiveEvaluation(): void
+    {
+        $finishedId = $this->insertActionTrack(1, 'frozen historical action');
+        $savedAfter = ['avg_orders' => 123.0, 'avg_revenue' => 456.0, 'data_status' => 'ok'];
+        Db::name('operation_action_tracks')->where('id', $finishedId)->update([
+            'status' => 'finished',
+            'after_data_json' => json_encode($savedAfter, JSON_UNESCAPED_UNICODE | JSON_PRESERVE_ZERO_FRACTION),
+            'result_status' => 'failed',
+            'result_summary' => '已保存的历史结论',
+        ]);
+        $activeId = $this->insertActionTrack(1, 'still active action');
+        Db::name('operation_action_tracks')->where('id', $activeId)->update([
+            'after_data_json' => json_encode(['avg_orders' => 999.0]),
+        ]);
+
+        $actions = (new OperationManagementService())->actionTracking([7], 7)['actions'];
+        $byId = array_column($actions, null, 'id');
+        self::assertSame($savedAfter, $byId[$finishedId]['after']);
+        self::assertSame('failed', $byId[$finishedId]['result']['status']);
+        self::assertSame('已保存的历史结论', $byId[$finishedId]['result']['message']);
+        self::assertNotSame(999.0, $byId[$activeId]['after']['avg_orders'] ?? null);
+    }
+
+    public function testLegacyFinishedActionWithoutSavedConclusionDoesNotInventSuccess(): void
+    {
+        $actionId = $this->insertActionTrack(1, 'legacy missing effect');
+        Db::name('operation_action_tracks')->where('id', $actionId)->update([
+            'status' => 'finished', 'after_data_json' => '{}',
+            'result_status' => 'observing', 'result_summary' => '',
+        ]);
+        $action = (new OperationManagementService())->actionTracking([7], 7)['actions'][0] ?? [];
+        self::assertSame($actionId, $action['id'] ?? null);
+        self::assertSame([], $action['after'] ?? null);
+        self::assertSame('unknown', $action['result']['status'] ?? null);
+        self::assertStringContainsString('缺少', (string)($action['result']['message'] ?? ''));
     }
 
     public function testFinishActionPersistsShanghaiTimestampOutsideProcessTimezone(): void
@@ -1101,6 +1478,8 @@ final class OperationManagementBaselineScopeTest extends TestCase
             'report_date' => '2026-08-12',
             'validation_status' => 'verified',
             'report_data' => json_encode([
+                'revenue' => 1200,
+                'total_rooms' => 4,
                 'xb_revenue' => 1200,
                 'xb_rooms' => 4,
                 'order_count' => 6,
@@ -1516,6 +1895,145 @@ final class OperationManagementBaselineScopeTest extends TestCase
         self::assertSame(20.0, $result['baseline']['avg_conversion']);
     }
 
+    public function testLatestMeituanFlowWithDefaultDateDoesNotReuseOlderFlowOrHideCtrip(): void
+    {
+        $date = date('Y-m-d', strtotime('-1 day'));
+        $validId = $this->insertTrafficDay($date, 'meituan', 'meituan', 80, 8, 400, '10:00:00');
+        $badId = $this->insertTrafficDay($date, 'meituan', 'meituan', 200, 20, 900, '12:00:00');
+        foreach ([$validId => 'page.business_date', $badId => 'capture_context.default_data_date'] as $id => $dateSource) {
+            Db::name('online_daily_data')->where('id', $id)->update([
+                'raw_data' => json_encode([
+                    'exposure' => $id === $validId ? 400 : 900,
+                    'visitors' => $id === $validId ? 80 : 200,
+                    'orders' => $id === $validId ? 8 : 20,
+                    'date_source' => $dateSource,
+                    'capture_evidence' => ['endpoint_id' => 'traffic_flow_transform'],
+                ], JSON_THROW_ON_ERROR),
+            ]);
+        }
+
+        $service = new OperationManagementService();
+        $ota = $service->fullData([7], 7, $date)['ota'];
+        self::assertNull($ota['exposure'], 'An untrusted latest capture must not fall back to an older Meituan day.');
+
+        $this->insertTrafficDay($date, 'ctrip', 'ctrip', 50, 5, 300, '11:00:00');
+        $otaWithCtrip = $service->fullData([7], 7, $date)['ota'];
+        self::assertSame(300, $otaWithCtrip['exposure'], 'An independent Ctrip fact remains usable.');
+    }
+
+    public function testCtripCatalogFlowNeedsObservedBusinessDateBeforeOperatingUse(): void
+    {
+        $date = date('Y-m-d', strtotime('-1 day'));
+        $olderId = $this->insertTrafficDay($date, 'ctrip', 'ctrip', 50, 5, 300, '10:00:00');
+        Db::name('online_daily_data')->where('id', $olderId)->update([
+            'raw_data' => json_encode([
+                'source' => 'ctrip_catalog_facts',
+                'exposure' => 300,
+                'visitors' => 50,
+                'orders' => 5,
+                'data_date' => $date,
+                'date_source' => 'page.business_date',
+                'capture_evidence' => ['endpoint_id' => 'traffic_flow_transform'],
+            ], JSON_THROW_ON_ERROR),
+        ]);
+        $id = $this->insertTrafficDay($date, 'ctrip', 'ctrip', 200, 20, 900, '12:00:00');
+        Db::name('online_daily_data')->where('id', $id)->update([
+            'raw_data' => json_encode([
+                'source' => 'ctrip_catalog_facts',
+                'exposure' => 900,
+                'visitors' => 200,
+                'orders' => 20,
+                'capture_evidence' => ['endpoint_id' => 'traffic_flow_transform'],
+            ], JSON_THROW_ON_ERROR),
+        ]);
+
+        $service = new OperationManagementService();
+        $missing = $service->fullData([7], 7, $date)['ota'];
+        self::assertNull($missing['exposure']);
+        self::assertNull($missing['visitors']);
+
+        Db::name('online_daily_data')->where('id', $id)->update([
+            'raw_data' => json_encode([
+                'source' => 'ctrip_catalog_facts',
+                'exposure' => 900,
+                'visitors' => 200,
+                'orders' => 20,
+                'data_date' => date('Y-m-d', strtotime('-2 days')),
+                'date_source' => 'page.business_date',
+                'capture_evidence' => ['endpoint_id' => 'traffic_flow_transform'],
+            ], JSON_THROW_ON_ERROR),
+        ]);
+        $mismatched = $service->fullData([7], 7, $date)['ota'];
+        self::assertNull($mismatched['exposure']);
+
+        Db::name('online_daily_data')->where('id', $id)->update([
+            'raw_data' => json_encode([
+                'source' => 'ctrip_catalog_facts',
+                'exposure' => 900,
+                'visitors' => 200,
+                'orders' => 20,
+                'data_date' => $date,
+                'date_source' => 'page.business_date',
+                'capture_evidence' => ['endpoint_id' => 'traffic_flow_transform'],
+            ], JSON_THROW_ON_ERROR),
+        ]);
+        $observed = $service->fullData([7], 7, $date)['ota'];
+        self::assertSame(900, $observed['exposure']);
+        self::assertSame(200, $observed['visitors']);
+    }
+
+    public function testMeituanOrderWithCaptureDefaultDateCannotSupportOperatingSummary(): void
+    {
+        $date = date('Y-m-d', strtotime('-1 day'));
+        $this->insertOtaDay($date, 500, 2, 3, 'meituan', 'meituan');
+        $query = Db::name('online_daily_data')->where('data_date', $date)->where('source', 'meituan');
+        $query->update([
+            'data_type' => 'order',
+            'source_trace_id' => 'meituan-order-default-date',
+            'raw_data' => json_encode([
+                'date_basis' => 'unknown',
+                'date_source' => 'capture_context.default_data_date',
+            ], JSON_THROW_ON_ERROR),
+        ]);
+
+        $service = new OperationManagementService();
+        $bad = $service->fullData([7], 7, $date)['summary'];
+        self::assertNull($bad['orders']);
+        self::assertNull($bad['revenue']);
+
+        Db::name('online_daily_data')->where('data_date', $date)->where('source', 'meituan')->update([
+            'raw_data' => json_encode([
+                'date_basis' => 'order_date',
+                'date_source' => 'order_time',
+            ], JSON_THROW_ON_ERROR),
+        ]);
+        $good = $service->fullData([7], 7, $date)['summary'];
+        self::assertSame(2, $good['orders']);
+        self::assertSame(500.0, $good['revenue']);
+    }
+
+    public function testMeituanBusinessWithCaptureDefaultDateCannotSupportOperatingSummary(): void
+    {
+        $date = date('Y-m-d', strtotime('-1 day'));
+        $this->insertOtaDay($date, 700, 3, 4, 'meituan', 'meituan');
+        Db::name('online_daily_data')->where('data_date', $date)->where('source', 'meituan')->update([
+            'source_trace_id' => 'meituan-business-default-date',
+            'raw_data' => json_encode(['date_source' => 'capture_context.default_data_date'], JSON_THROW_ON_ERROR),
+        ]);
+
+        $service = new OperationManagementService();
+        $bad = $service->fullData([7], 7, $date)['summary'];
+        self::assertNull($bad['orders']);
+        self::assertNull($bad['revenue']);
+
+        Db::name('online_daily_data')->where('data_date', $date)->where('source', 'meituan')->update([
+            'raw_data' => json_encode(['date_source' => 'page.business_period_selection.readback'], JSON_THROW_ON_ERROR),
+        ]);
+        $good = $service->fullData([7], 7, $date)['summary'];
+        self::assertSame(3, $good['orders']);
+        self::assertSame(700.0, $good['revenue']);
+    }
+
     public function testPersistenceFallbackDoesNotAdmitTimestampLessRowsWithoutCollectionEndpointEvidence(): void
     {
         $date = date('Y-m-d', strtotime('-1 day'));
@@ -1581,6 +2099,8 @@ final class OperationManagementBaselineScopeTest extends TestCase
             'hotel_id' => 7,
             'report_date' => $date,
             'report_data' => json_encode([
+                'revenue' => $revenue,
+                'total_rooms' => $roomNights,
                 'xb_revenue' => $revenue,
                 'xb_rooms' => $roomNights,
                 'order_count' => $orders,

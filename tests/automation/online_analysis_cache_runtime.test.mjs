@@ -29,6 +29,8 @@ const rowsSource = sliceBetween(
   'const applyOnlineAnalysisRowsResponse = (data = {}, requestOwner = null) => {',
   'const resolveDefaultOnlineAnalysisHotelId = async () => {',
 );
+const feedSource = sliceBetween(appMain, 'const loadCompetitorEventFeed =', 'const competitorObservationOffsetDate =');
+const futureWindowSource = appMain.match(/const \{[^\n]*\} = ctripStatic\.createCompetitorFutureWindowController\([^\n]+/)[0];
 const coordinatorSource = sliceBetween(
   appMain,
   'const COORDINATED_GET_MAX_CONCURRENCY = 3;',
@@ -68,6 +70,11 @@ const createHarness = () => {
     onlineAnalysisPagination: { value: { total: 0, page: 1, page_size: 100 } },
     onlineAnalysisQualitySummary: { value: null },
     onlineAnalysisSourceRecord: { value: null },
+    competitorEventFeed: { value: null },
+    competitorEventFeedLoading: { value: false },
+    competitorEventFeedError: { value: '' },
+    competitorEventFeedStayDate: { value: '2026-08-24' },
+    selectedCtripHotelId: { value: '80' },
   };
   const currentPage = { value: 'online-data' };
   const filterReportHotel = { value: '80' };
@@ -150,6 +157,7 @@ const createHarness = () => {
     nextTick: () => Promise.resolve(),
     normalizeTokenStatusFromReason: () => 'expired',
     onlineAnalysisPageSize: 100,
+    competitorEventFeedRequestSeq: 0,
     pageRequestGeneration,
     scheduleAnalysisChartRender() {},
     showToast() {},
@@ -157,18 +165,25 @@ const createHarness = () => {
     terminalAuthFailureReason: () => '',
     token,
     window: {},
+    ref: value => ({ value }),
+    computed: getter => ({ get value() { return getter(); } }),
+    shanghaiToday: () => '2026-08-24',
     withBusinessRequestContext: (url, options) => ({ url, options }),
   });
   vm.runInContext(`${readFileSync('public/system-static.js', 'utf8')}\nconst appSystemStatic = window.SUXI_SYSTEM_STATIC;\nconst readRequestCooldown = appSystemStatic.createReadRequestCooldown();`, context);
+  vm.runInContext(`${readFileSync('public/ctrip-static-loader.js', 'utf8')}\nconst ctripStatic = window.SUXI_CTRIP_STATIC;\n${futureWindowSource}`, context);
   vm.runInContext(
-    `${ownerSource}\n${analysisSource}\n${rowsSource}\n${coordinatorSource}\n`
+    `${ownerSource}\n${analysisSource}\n${rowsSource}\n${coordinatorSource}\n${feedSource}\n`
     + `globalThis.__onlineAnalysis = {
       loadAnalysisData,
+      loadCompetitorEventFeed,
       loadOnlineAnalysisRows,
       resetOnlineAnalysisSessionState,
       resetGetRequestCoordinator,
       coordinatedGetScopeKey,
       coordinatedGetSuccessCache,
+      loadCompetitorFutureWindow,
+      competitorFutureWindowPanelModel,
     };`,
     context,
     { filename: 'public/app-main.js#online-analysis-auth-cache' },
@@ -251,6 +266,61 @@ test('online analysis delegates in-flight, TTL, and force behavior to the shared
   assert.equal(duplicateRowResult[0].marker, 'row-a');
   assert.equal((await harness.loadOnlineAnalysisRows({ cacheMs: 8000 }))[0].marker, 'row-a');
   assert.equal(harness.requests.length, 3);
+});
+
+const futureWindowReply = (name = 'synthetic account A') => ({ code: 200, data: {
+  system_hotel_id: 80, platform: 'ctrip', start_date: '2026-08-24', end_date: '2026-09-13', days: 21,
+  matrix: [{ stay_date: '2026-08-24', cells: [{ competitor_hotel_name: name, price: 318 }] }],
+} });
+
+test('future competitor window clears already loaded account A facts on account B login', async () => {
+  const h = createHarness();
+  const loaded = h.loadCompetitorFutureWindow(); await flushCoordinator();
+  h.resolveTransport(h.pendingTransport('/competitor/future-window?'), futureWindowReply()); await loaded;
+  assert.match(h.competitorFutureWindowPanelModel.value.dayText, /synthetic account A/);
+  h.loginAccountB();
+  assert.equal(h.competitorFutureWindowPanelModel.value.empty, true);
+  assert.doesNotMatch(h.competitorFutureWindowPanelModel.value.dayText, /synthetic account A/);
+});
+
+test('future competitor window ignores prior-session cancellation and recovers for account B', async () => {
+  const h = createHarness();
+  const old = h.loadCompetitorFutureWindow(); await flushCoordinator();
+  const oldTransport = h.pendingTransport('/competitor/future-window?');
+  h.loginAccountB();
+  const current = h.loadCompetitorFutureWindow(); await old; await flushCoordinator();
+  assert.equal(h.competitorFutureWindowPanelModel.value.error, '');
+  assert.equal(h.competitorFutureWindowPanelModel.value.loading, true, 'old catch/finally cannot finish the new request');
+  h.resolveTransport(oldTransport, futureWindowReply()); await flushCoordinator();
+  assert.equal(h.competitorFutureWindowPanelModel.value.empty, true);
+  h.resolveTransport(h.pendingTransport('/competitor/future-window?'), futureWindowReply('synthetic account B')); await current;
+  assert.match(h.competitorFutureWindowPanelModel.value.dayText, /synthetic account B/);
+  assert.doesNotMatch(h.competitorFutureWindowPanelModel.value.dayText, /synthetic account A/);
+});
+
+test('future competitor window terminal 401 clears the loaded snapshot and stale error', async () => {
+  const h = createHarness();
+  const loaded = h.loadCompetitorFutureWindow(); await flushCoordinator();
+  h.resolveTransport(h.pendingTransport('/competitor/future-window?'), futureWindowReply()); await loaded;
+  const failure = h.loadOnlineAnalysisRows(); await flushCoordinator();
+  h.resolveTransport(h.requests.find(item => !item.settled), { code: 401, message: 'expired' }, 401); await failure;
+  assert.equal(h.competitorFutureWindowPanelModel.value.empty, true);
+  assert.equal(h.competitorFutureWindowPanelModel.value.error, '');
+});
+
+test('future competitor window with no Ctrip hotel does not borrow the online-analysis hotel', async () => {
+  const h = createHarness();
+  h.refs.selectedCtripHotelId.value = '';
+  assert.equal(h.refs.onlineDataFilter.value.hotel_id, '80');
+  const empty = h.loadCompetitorFutureWindow({ systemHotelId: '', platform: 'ctrip' }); await flushCoordinator();
+  assert.equal(h.requests.length, 0);
+  assert.equal(await empty, null);
+  assert.equal(h.competitorFutureWindowPanelModel.value.empty, true);
+  assert.equal(h.competitorFutureWindowPanelModel.value.loading, false);
+  h.refs.selectedCtripHotelId.value = '80';
+  const recovered = h.loadCompetitorFutureWindow(); await flushCoordinator();
+  h.resolveTransport(h.pendingTransport('/competitor/future-window?'), futureWindowReply('restored Ctrip hotel')); await recovered;
+  assert.match(h.competitorFutureWindowPanelModel.value.dayText, /restored Ctrip hotel/);
 });
 
 test('automatic 401 followed by same-page account B login rejects account A cache and late analysis responses', async () => {
@@ -345,6 +415,73 @@ test('automatic 401 followed by same-page account B login rejects account A cach
   assert.ok([...harness.coordinatedGetSuccessCache.keys()].every(
     key => key.startsWith('3::tenant-b::user-b::80::'),
   ));
+});
+
+test('account changes clear an already loaded competition feed and its hotel permission', async () => {
+  const h = createHarness();
+  const pending = h.loadCompetitorEventFeed(); await flushCoordinator();
+  h.resolveTransport(h.pendingTransport('/competitor/events?'), {code:200,data:{system_hotel_id:80,stay_date:'2026-08-24',platforms:['ctrip'],events:[{id:901}],can_collect_manual_observation:true}});
+  await pending;
+  assert.equal(h.refs.competitorEventFeed.value.events[0].id,901);
+  h.refs.competitorEventFeedError.value = 'Previous synthetic account message';
+  h.loginAccountB();
+  assert.equal(h.refs.competitorEventFeed.value,null);
+  assert.equal(h.refs.competitorEventFeedError.value,'');
+  assert.equal(h.refs.competitorEventFeedLoading.value,false);
+});
+
+test('cancelled old-session competition reads cannot restore an error or clear the new read; current account can recover', async () => {
+  const h = createHarness(), old = h.loadCompetitorEventFeed(); await flushCoordinator();
+  const oldTransport = h.pendingTransport('/competitor/events?');
+  h.loginAccountB(); await old;
+  assert.equal(h.refs.competitorEventFeedError.value,'');
+  const current = h.loadCompetitorEventFeed(); await flushCoordinator();
+  const newTransport = h.requests.find(row=>row!==oldTransport && !row.settled && row.url.includes('/competitor/events?'));
+  h.resolveTransport(oldTransport, {code:200,data:{events:[{id:901}],can_collect_manual_observation:true}}); await flushCoordinator();
+  assert.equal(h.refs.competitorEventFeedLoading.value,true);
+  assert.equal(h.refs.competitorEventFeed.value,null);
+  h.resolveTransport(newTransport, {code:200,data:{system_hotel_id:80,stay_date:'2026-08-24',platforms:['ctrip'],events:[{id:902}],can_collect_manual_observation:false}});
+  await current;
+  assert.equal(h.refs.competitorEventFeed.value.events[0].id,902);
+  assert.equal(h.refs.competitorEventFeed.value.can_collect_manual_observation,false);
+  assert.equal(h.refs.competitorEventFeedError.value,'');
+  assert.equal(h.refs.competitorEventFeedLoading.value,false);
+});
+
+test('competition feed failures preserve service messages and the missing-message fallback, then recover', async () => {
+  for (const message of ['合成服务暂不可用', '', undefined]) {
+    const h = createHarness();
+    const pending = h.loadCompetitorEventFeed(); await flushCoordinator();
+    h.resolveTransport(h.pendingTransport('/competitor/events?'), { code: 422, message });
+    assert.equal(await pending, null);
+    assert.equal(h.refs.competitorEventFeedError.value, message || '统一竞争事件读取失败');
+    assert.equal(h.refs.competitorEventFeed.value, null);
+    assert.equal(h.refs.competitorEventFeedLoading.value, false);
+    const recovery = h.loadCompetitorEventFeed(); await flushCoordinator();
+    h.resolveTransport(h.pendingTransport('/competitor/events?'), { code: 200, data: { events: [] } });
+    await recovery;
+    assert.equal(h.refs.competitorEventFeedError.value, '');
+    assert.equal(h.refs.competitorEventFeedLoading.value, false);
+  }
+});
+
+test('clearing the feed hotel or date clears loading without a request and invalidates the earlier read', async () => {
+  for (const key of ['hotel', 'date']) {
+    const h = createHarness(), old = h.loadCompetitorEventFeed(); await flushCoordinator();
+    const oldTransport = h.pendingTransport('/competitor/events?');
+    h.refs.competitorEventFeed.value = { events: [{ id: 901 }] };
+    if (key === 'hotel') h.refs.onlineDataFilter.value.hotel_id = '';
+    else h.refs.competitorEventFeedStayDate.value = '';
+    const requestCount = h.requests.length;
+    assert.equal(await h.loadCompetitorEventFeed(), null);
+    assert.equal(h.requests.length, requestCount);
+    assert.equal(h.refs.competitorEventFeed.value, null);
+    assert.equal(h.refs.competitorEventFeedLoading.value, false);
+    h.resolveTransport(oldTransport, { code: 200, data: { events: [{ id: 901 }] } }); await old;
+    assert.equal(h.refs.competitorEventFeed.value, null);
+    assert.equal(h.refs.competitorEventFeedError.value, '');
+    assert.equal(h.refs.competitorEventFeedLoading.value, false);
+  }
 });
 
 test('manual analysis query and row refresh explicitly force the shared coordinator', () => {

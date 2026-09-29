@@ -118,17 +118,8 @@ final class OnlineDataAutoFetchStatusStore
         if (is_dir($this->lockDirectory)) {
             return;
         }
-        // Another worker may create the directory between the first stat and
-        // this check. Windows can otherwise retain the initial negative stat
-        // result long enough for file_exists() to observe the new path while
-        // is_dir() still reports false.
-        clearstatcache(true, $this->lockDirectory);
-        if (is_dir($this->lockDirectory)) {
-            return;
-        }
-        if (file_exists($this->lockDirectory)) {
-            throw new RuntimeException('online_data_auto_fetch_status_lock_directory_unavailable');
-        }
+        // A peer may create the directory after is_dir(). Do not reject an
+        // existing path before retrying the directory check after mkdir().
         if (@mkdir($this->lockDirectory, 0700, true)) {
             return;
         }

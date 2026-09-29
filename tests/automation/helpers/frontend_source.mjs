@@ -13,6 +13,8 @@ export function readAppMainContractSource() {
     read('public/components/system/app-main-components.js'),
     read('public/components/system/operating-intelligence-components.js'),
     read('public/components/system/knowledge-center-domain.js'),
+    read('public/system-page-projections.js'),
+    read('public/system-static.js'),
     read('public/app-main.js'),
   ].join('\n');
 }

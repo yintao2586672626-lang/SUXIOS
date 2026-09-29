@@ -21,7 +21,7 @@ test('my tasks API binds assignee scope to the authenticated user', () => {
 });
 
 test('operations page loads server-scoped my tasks instead of filtering a truncated client list', () => {
-  assert.match(appMain, /const operationExecutionViewMode = ref\('all'\)/);
+  assert.match(appMain, /const operationExecutionViewMode = ref\('mine'\)/);
   assert.match(appMain, /operationExecutionViewMode\.value === 'mine'[\s\S]*'\/operation\/my-tasks'/);
   assert.match(appMain, /businessContext: \{ hotelId: requestHotelId, tenantId: '', platform: '' \}/);
   assert.match(appMain, /requestPolicy: \{ \.\.\.currentPageReadPolicy\(\), systemHotelId: '', businessDate: '' \}/);

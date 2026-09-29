@@ -8,6 +8,41 @@ use Throwable;
 
 trait AiDailyReportExecutionReadConcern
 {
+    public function latest(array $hotelIds, ?int $hotelId, ?string $reportDate = null): array
+    {
+        try {
+            $reportTableExists = $this->tableExists(self::TABLE);
+        } catch (Throwable) {
+            return $this->blockedReportRead('latest');
+        }
+        if (!$reportTableExists) {
+            return [
+                'report' => null,
+                'data_status' => 'missing_table',
+                'data_gaps' => [['code' => 'ai_daily_reports_table_missing', 'message' => 'ai_daily_reports table does not exist']],
+            ];
+        }
+
+        try {
+            $query = Db::name(self::TABLE)->whereNull('deleted_at');
+            $this->applyHotelScope($query, $hotelIds, $hotelId);
+            $this->applyReportTenantScope($query);
+            if ($reportDate !== null && trim($reportDate) !== '') {
+                $query->where('report_date', $this->normalizeDate($reportDate));
+            }
+            $row = $query->order('report_date', 'desc')->order('id', 'desc')->find();
+            $reports = is_array($row) ? $this->enrichReportRows([$row], $hotelIds, $hotelId) : [];
+        } catch (Throwable) {
+            return $this->blockedReportRead('latest');
+        }
+
+        return [
+            'report' => $reports[0] ?? null,
+            'data_status' => is_array($row) ? self::DATA_OK : self::DATA_PENDING,
+            'data_gaps' => is_array($row) ? [] : [['code' => 'ai_daily_report_not_generated', 'message' => 'AI daily report has not been generated for the selected hotel']],
+        ];
+    }
+
     /**
      * @return array{
      *   items_by_report_id:array<int,array<int,array<string,mixed>>>,
@@ -34,7 +69,8 @@ trait AiDailyReportExecutionReadConcern
             $query = Db::name('operation_execution_intents')
                 ->whereNull('deleted_at')
                 ->where('source_module', 'ai_daily_report')
-                ->whereIn('source_record_id', $reportIds);
+                ->whereIn('source_record_id', $reportIds)
+                ->whereRaw('operation_execution_intents.tenant_id = (SELECT tenant_id FROM hotels WHERE hotels.id = operation_execution_intents.hotel_id)');
             $this->applyHotelScope($query, $hotelIds, $hotelId);
             $intentRows = $query->order('id', 'desc')->select()->toArray();
             if (empty($intentRows)) {

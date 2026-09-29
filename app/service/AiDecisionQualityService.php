@@ -404,8 +404,15 @@ class AiDecisionQualityService
             ?? $source['data_status']
             ?? $source['status']
             ?? '')));
+        $onlineDailySource = in_array('online_daily_data', [
+            strtolower(trim((string)($source['source'] ?? ''))),
+            strtolower(trim((string)($source['table'] ?? ''))),
+        ], true);
+        $readbackContradiction = $onlineDailySource
+            && array_key_exists('readback_verified', $source)
+            && !in_array($source['readback_verified'], [true, 1, '1'], true);
         $quality = 'unverified';
-        if ($authority === 'server_context') {
+        if ($authority === 'server_context' && !$readbackContradiction) {
             if (($source['decision_eligible'] ?? null) === true || ($source['readback_verified'] ?? null) === true) {
                 $quality = 'verified';
             } elseif ($this->isTrustedStatus($sourceStatus)) {

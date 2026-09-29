@@ -87,6 +87,7 @@ test('Node automation runner reports the exact timed-out batch and last complete
   let call = 0;
   const result = runner.runNodeTestBatches({
     testFiles: ['tests/automation/a.test.mjs', 'tests/automation/b.test.mjs'],
+    batchSize: 1,
     timeoutMs: 12_345,
     spawn: (_command, _args, options) => {
       call += 1;

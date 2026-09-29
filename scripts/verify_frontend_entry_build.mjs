@@ -2,7 +2,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { inspectFrontendEntryBuild } from './lib/frontend_entry_build.mjs';
-import { syncOperationStaticVersion, syncRevenueStaticVersions, syncKnowledgeDomainVersion, syncSimulationStaticVersion } from './lib/frontend_lazy_asset_versions.mjs';
+import { updateFrontendAssetVersion } from './lib/frontend_asset_version.mjs';
+import { syncOperationStaticVersion, syncRevenueStaticVersions, syncKnowledgeDomainVersion, syncSimulationStaticVersion, syncActionLazyHelperVersions } from './lib/frontend_lazy_asset_versions.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const source = fs.readFileSync(path.join(repoRoot, 'public/app-main.js'), 'utf8');
@@ -12,6 +13,9 @@ const result = await inspectFrontendEntryBuild({
   html: fs.readFileSync(path.join(repoRoot, 'public/index.html'), 'utf8'),
 });
 try {
+  const indexSource = fs.readFileSync(path.join(repoRoot, 'public/index.html'), 'utf8');
+  if (updateFrontendAssetVersion(indexSource, 'ctrip-search-opportunity-static.js', fs.readFileSync(path.join(repoRoot, 'public/ctrip-search-opportunity-static.js'))).changed) result.failures.push('Search opportunity helper hash is stale; run build:frontend-entry.');
+  if (syncActionLazyHelperVersions(source, name => fs.readFileSync(path.join(repoRoot, 'public', name))).source !== source) result.failures.push('Action helper cache versions are stale; run build:frontend-entry.');
   const lazyVersion = syncOperationStaticVersion(source, fs.readFileSync(path.join(repoRoot, 'public/operation-static.js')));
   if (lazyVersion.source !== source) result.failures.push('operation-static.js loader hash is stale; run build:frontend-entry.');
   const revenueAi = fs.readFileSync(path.join(repoRoot, 'public/revenue-ai-static.js'), 'utf8');

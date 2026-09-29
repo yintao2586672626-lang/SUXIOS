@@ -92,6 +92,9 @@ final class CloudCollectionDispatchService
             if (!is_array($task)) {
                 throw new RuntimeException('cloud_collection_task_not_found');
             }
+            if (strtolower(trim((string)($task['platform'] ?? ''))) === 'dingdandao') {
+                throw new RuntimeException('dingdandao_collection_server_receipt_required');
+            }
             if ((string)($task['task_status'] ?? '') === 'blocked' && $this->hasNewerAttempt($task)) {
                 return $this->receiptResult(
                     $task,

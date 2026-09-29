@@ -50,6 +50,10 @@ final class OnlineDataCorrectionLedgerServiceTest extends TestCase
         @unlink(self::$databasePath);
         Db::connect(null, true);
         $this->createSchema();
+        Db::name('hotels')->insertAll([
+            ['id' => 10, 'tenant_id' => 1],
+            ['id' => 20, 'tenant_id' => 1],
+        ]);
         Db::name('online_daily_data')->insertAll([
             $this->row(1, 10, 100.0),
             $this->row(2, 20, 200.0),
@@ -123,6 +127,151 @@ final class OnlineDataCorrectionLedgerServiceTest extends TestCase
         self::assertCount(1, $result['ledger_ids']);
     }
 
+    public function testWrongTenantRowCannotBeUpdatedByAuthorizedHotelOperator(): void
+    {
+        $this->insertWrongTenantRow();
+        $rejection = null;
+        try {
+            (new OnlineDataCorrectionLedgerService())->update(3, ['amount' => 330.0], 9, [10]);
+        } catch (\RuntimeException $e) {
+            $rejection = $e;
+        }
+        self::assertSame('online_data_missing_or_forbidden', $rejection?->getMessage());
+        self::assertSame(300.0, (float)Db::name('online_daily_data')->where('id', 3)->value('amount'));
+        self::assertSame(0, (int)Db::name('online_data_correction_ledger')->count());
+    }
+
+    public function testWrongTenantRowCannotBeDeletedByAuthorizedHotelOperator(): void
+    {
+        $this->insertWrongTenantRow();
+        $rejection = null;
+        try {
+            (new OnlineDataCorrectionLedgerService())->delete(3, 9, [10]);
+        } catch (\RuntimeException $e) {
+            $rejection = $e;
+        }
+        self::assertSame('online_data_missing_or_forbidden', $rejection?->getMessage());
+        self::assertSame(1, (int)Db::name('online_daily_data')->where('id', 3)->count());
+        self::assertSame(0, (int)Db::name('online_data_correction_ledger')->count());
+    }
+
+    public function testMixedTenantBatchDeleteRollsBackEveryRow(): void
+    {
+        $this->insertWrongTenantRow();
+        $rejection = null;
+        try {
+            (new OnlineDataCorrectionLedgerService())->batchDelete([1, 3], 9, [10]);
+        } catch (\RuntimeException $e) {
+            $rejection = $e;
+        }
+        self::assertSame('online_data_batch_contains_missing_or_forbidden_rows', $rejection?->getMessage());
+        self::assertSame(2, (int)Db::name('online_daily_data')->whereIn('id', [1, 3])->count());
+        self::assertSame(0, (int)Db::name('online_data_correction_ledger')->count());
+    }
+
+    public function testWrongTenantLedgerCannotRestoreSnapshot(): void
+    {
+        $snapshot = array_replace($this->row(4, 10, 400.0), ['tenant_id' => 2]);
+        $ledgerId = (int)Db::name('online_data_correction_ledger')->insertGetId([
+            'online_data_id' => 4, 'tenant_id' => 2, 'system_hotel_id' => 10,
+            'operator_id' => 9, 'operation' => 'delete', 'changed_fields_json' => '[]',
+            'before_json' => json_encode($snapshot, JSON_THROW_ON_ERROR),
+            'after_json' => null, 'reason' => 'synthetic mismatch', 'restorable' => 1,
+            'created_at' => '2026-07-15 12:00:00',
+        ]);
+        $rejection = null;
+        try {
+            (new OnlineDataCorrectionLedgerService())->restore($ledgerId, 11, [10]);
+        } catch (\RuntimeException $e) {
+            $rejection = $e;
+        }
+        self::assertSame('online_data_restore_forbidden', $rejection?->getMessage());
+        self::assertSame(0, (int)Db::name('online_daily_data')->where('id', 4)->count());
+        self::assertSame(1, (int)Db::name('online_data_correction_ledger')->where('id', $ledgerId)->value('restorable'));
+        self::assertNull(Db::name('online_data_correction_ledger')->where('id', $ledgerId)->value('restored_at'));
+    }
+
+    public function testLedgerCannotRestoreSnapshotForAnotherHotel(): void
+    {
+        $snapshot = $this->row(4, 20, 400.0);
+        $ledgerId = (int)Db::name('online_data_correction_ledger')->insertGetId([
+            'online_data_id' => 4, 'tenant_id' => 1, 'system_hotel_id' => 10,
+            'operator_id' => 9, 'operation' => 'delete', 'changed_fields_json' => '[]',
+            'before_json' => json_encode($snapshot, JSON_THROW_ON_ERROR),
+            'after_json' => null, 'reason' => 'synthetic hotel mismatch', 'restorable' => 1,
+            'created_at' => '2026-07-15 12:00:00',
+        ]);
+        $rejection = null;
+        try {
+            (new OnlineDataCorrectionLedgerService())->restore($ledgerId, 11, [10]);
+        } catch (\RuntimeException $e) {
+            $rejection = $e;
+        }
+        self::assertSame('online_data_restore_forbidden', $rejection?->getMessage());
+        self::assertSame(0, (int)Db::name('online_daily_data')->where('id', 4)->count());
+        self::assertSame(1, (int)Db::name('online_data_correction_ledger')->where('id', $ledgerId)->value('restorable'));
+    }
+
+    public function testSuperAdminCannotRestoreLedgerWithWrongHotelSnapshot(): void
+    {
+        $snapshot = $this->row(4, 20, 400.0);
+        $ledgerId = (int)Db::name('online_data_correction_ledger')->insertGetId([
+            'online_data_id' => 4, 'tenant_id' => 1, 'system_hotel_id' => 10,
+            'operator_id' => 9, 'operation' => 'delete', 'changed_fields_json' => '[]',
+            'before_json' => json_encode($snapshot, JSON_THROW_ON_ERROR),
+            'after_json' => null, 'reason' => 'synthetic hotel mismatch', 'restorable' => 1,
+            'created_at' => '2026-07-15 12:00:00',
+        ]);
+        $rejection = null;
+        try {
+            (new OnlineDataCorrectionLedgerService())->restore($ledgerId, 11, null);
+        } catch (\RuntimeException $e) {
+            $rejection = $e;
+        }
+        self::assertSame('online_data_restore_forbidden', $rejection?->getMessage());
+        self::assertSame(0, (int)Db::name('online_daily_data')->where('id', 4)->count());
+    }
+
+    public function testSuperAdminCannotRestoreLedgerWithWrongTenantSnapshot(): void
+    {
+        $snapshot = array_replace($this->row(4, 10, 400.0), ['tenant_id' => 2]);
+        $ledgerId = (int)Db::name('online_data_correction_ledger')->insertGetId([
+            'online_data_id' => 4, 'tenant_id' => 2, 'system_hotel_id' => 10,
+            'operator_id' => 9, 'operation' => 'delete', 'changed_fields_json' => '[]',
+            'before_json' => json_encode($snapshot, JSON_THROW_ON_ERROR),
+            'after_json' => null, 'reason' => 'synthetic tenant mismatch', 'restorable' => 1,
+            'created_at' => '2026-07-15 12:00:00',
+        ]);
+        $rejection = null;
+        try {
+            (new OnlineDataCorrectionLedgerService())->restore($ledgerId, 11, null);
+        } catch (\RuntimeException $e) {
+            $rejection = $e;
+        }
+        self::assertSame('online_data_restore_forbidden', $rejection?->getMessage());
+        self::assertSame(0, (int)Db::name('online_daily_data')->where('id', 4)->count());
+    }
+
+    public function testLegacyDataWithoutTenantColumnStillSupportsCorrectionAndRestore(): void
+    {
+        Db::execute('ALTER TABLE online_daily_data DROP COLUMN tenant_id');
+        Db::connect(null, true);
+        $service = new OnlineDataCorrectionLedgerService();
+
+        $updated = $service->update(1, ['amount' => 125.0], 9, [10]);
+        self::assertSame(125.0, (float)$updated['row']['amount']);
+        $deleted = $service->delete(1, 9, [10]);
+        self::assertSame(0, (int)Db::name('online_daily_data')->where('id', 1)->count());
+        $restored = $service->restore((int)$deleted['ledger_id'], 11, [10]);
+        self::assertSame(1, $restored['id']);
+        self::assertSame(125.0, (float)Db::name('online_daily_data')->where('id', 1)->value('amount'));
+    }
+
+    private function insertWrongTenantRow(): void
+    {
+        Db::name('online_daily_data')->insert(array_replace($this->row(3, 10, 300.0), ['tenant_id' => 2]));
+    }
+
     /** @return array<string, mixed> */
     private function row(int $id, int $hotelId, float $amount): array
     {
@@ -144,6 +293,7 @@ final class OnlineDataCorrectionLedgerServiceTest extends TestCase
 
     private function createSchema(): void
     {
+        Db::execute('CREATE TABLE hotels (id INTEGER PRIMARY KEY, tenant_id INTEGER NOT NULL)');
         Db::execute('CREATE TABLE online_daily_data (
             id INTEGER PRIMARY KEY,
             tenant_id INTEGER NULL,

@@ -11,7 +11,7 @@ const helperStart = source.indexOf('\n', exportsStart) + 1;
 const helperEnd = source.indexOf('operationExecutionTraceRows,', helperStart) + 'operationExecutionTraceRows,'.length;
 const exportExpression = source.slice(helperStart, helperEnd);
 const names = [
-  'operationCanApproveExecution', 'operationCanStartExecution', 'operationCanCancelExecution',
+  'operationCanApproveExecution', 'operationAiDailyApprovalDateWarning', 'operationCanStartExecution', 'operationCanCancelExecution',
   'operationCanExecuteWithEvidence', 'operationCanRecordNodeCheck', 'operationCanReconcileExecution',
   'operationCanReviewExecution', 'operationCanSaveOperatingMemory', 'operationExecutionActionAvailable',
   'operationExecutionRowClass', 'operationExecutionTraceRows',

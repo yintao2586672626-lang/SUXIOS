@@ -42,7 +42,9 @@ class OtaRevenueMetricService
                     'source_field' => $field, 'source_version' => $trace['source_trace_id'] ?? '',
                     'collected_at' => $trace['collected_at'] ?? '', 'platform_hotel_id' => $trace['platform_hotel_id'] ?? '',
                     'readback_verified' => ($trace['readback_verified'] ?? false) === true,
-                    'quality_status' => ($trace['saved_success'] ?? false) === true && ($money['failure_reasons'] ?? []) === [] ? 'readback_verified' : 'unverified',
+                    'quality_status' => ($trace['saved_success'] ?? false) === true
+                        && ($trace['readback_verified'] ?? false) === true
+                        && ($money['failure_reasons'] ?? []) === [] ? 'readback_verified' : 'unverified',
                     'origin_business_date' => $key === 'refund_amount' && !empty($row['refund_origin_business_date']) ? $row['refund_origin_business_date'] : null,
                     'reconciliation_group' => $row['reconciliation_group'] ?? '',
                     'definition' => $key === 'fee_amount' ? '渠道佣金；未证明包含全部手续费、税费或其他扣款' : RevenueOperatingLedgerService::DEFINITIONS[$key]['meaning']];
@@ -132,7 +134,9 @@ class OtaRevenueMetricService
         $roomNights = $this->sum($roomNightRows, 'room_nights');
         $adrAggregate = $this->aggregateAdrByScope($daily);
         foreach ($adrAggregate['failure_reasons'] as $reason) {
-            $dataGaps[] = ['code' => $reason, 'message' => 'ADR requires room revenue and room nights within every hotel, platform and business-date scope.'];
+            $dataGaps[] = ['code' => $reason, 'message' => $reason === 'adr_denominator_zero'
+                ? 'ADR is not calculable: a hotel, platform or business-date scope has nonzero room revenue but zero room nights.'
+                : 'ADR requires room revenue and room nights within every hotel, platform and business-date scope.'];
         }
         if (!$roomNightRows) {
             $dataGaps[] = [
@@ -516,20 +520,48 @@ class OtaRevenueMetricService
             ];
         }
 
-        $cancelRoomNightRows = array_values(array_filter($daily, fn(array $row): bool => $this->hasNumericValue($row, 'cancel_room_nights') && $this->hasNumericValue($row, 'room_nights')));
+        $cancelRoomNightScopeRows = array_values(array_filter($daily, fn(array $row): bool =>
+            $this->orderCountSemanticAllowed($row)
+            && !in_array((string)($row['metric_semantic_scope'] ?? ''), [
+                'ctrip_capacity_daily', 'ctrip_non_revenue_business_fact',
+                'ctrip_booking_or_unverified_excluded', 'ctrip_market_overview_booking_daily',
+            ], true)
+        ));
+        $cancelRoomNightRows = array_values(array_filter($cancelRoomNightScopeRows, fn(array $row): bool => $this->hasNumericValue($row, 'cancel_room_nights') && $this->hasNumericValue($row, 'room_nights')));
         $roomNightCancellationRate = null;
-        if ($cancelRoomNightRows) {
-            $cancelledRoomNights = $this->sum($cancelRoomNightRows, 'cancel_room_nights');
-            $cancelRoomNightBase = $this->sum($cancelRoomNightRows, 'room_nights');
-            if ($cancelRoomNightBase > 0) {
-                $roomNightCancellationRate = round($cancelledRoomNights / $cancelRoomNightBase * 100, 2);
-            }
-        }
         if (!$cancelRoomNightRows) {
             $dataGaps[] = [
                 'code' => 'cancel_room_nights_missing',
                 'message' => 'Cancel room night fields are missing, so room-night cancellation rate is not calculable.',
             ];
+        } elseif (count($cancelRoomNightRows) !== count($cancelRoomNightScopeRows)) {
+            $dataGaps[] = [
+                'code' => 'cancel_room_nights_partial',
+                'message' => 'Cancellation and room-night counts must cover every requested OTA daily fact; a known subset is not a complete period rate.',
+            ];
+        }
+        foreach ($cancelRoomNightRows as $row) {
+            if ((float)$row['cancel_room_nights'] < 0 || (float)$row['room_nights'] < 0
+                || (float)$row['cancel_room_nights'] > (float)$row['room_nights']) {
+                $dataGaps[] = [
+                    'code' => 'cancel_room_nights_invalid',
+                    'message' => 'Cancellation and room-night counts must be nonnegative, and cancelled nights cannot exceed the same fact\'s room-night base.',
+                ];
+                break;
+            }
+        }
+        if ($cancelRoomNightRows && $this->dataGapCodesByPrefix($dataGaps, 'cancel_room_') === []) {
+            $cancelledRoomNights = $this->sum($cancelRoomNightRows, 'cancel_room_nights');
+            $cancelRoomNightBase = $this->sum($cancelRoomNightRows, 'room_nights');
+            if (!is_finite($cancelledRoomNights) || !is_finite($cancelRoomNightBase)) {
+                $dataGaps[] = ['code' => 'cancel_room_nights_invalid',
+                    'message' => 'Cancellation counts exceed the supported numeric range.'];
+            } elseif ($cancelRoomNightBase > 0) {
+                $roomNightCancellationRate = round($cancelledRoomNights / $cancelRoomNightBase * 100, 2);
+            } else {
+                $dataGaps[] = ['code' => 'cancel_room_nights_denominator_zero',
+                    'message' => 'The verified room-night base is zero, so the cancellation rate is not calculable.'];
+            }
         }
 
         $priceRows = array_values(array_filter($daily, static fn(array $row): bool => ($row['our_price'] ?? null) !== null && ($row['competitor_price'] ?? null) !== null));
@@ -577,7 +609,7 @@ class OtaRevenueMetricService
             $cancellationEvidenceRows !== []
                 ? $cancellationEvidenceRows
                 : ($cancelRows ?: $directCancelRateRows),
-            $cancelRoomNightRows
+            $cancelRoomNightScopeRows
         );
         $metricTrust['traffic.avg_flow_rate'] = $this->trust($flowAggregate['value'] === null ? [] : $trafficFlowRows, $flowAggregate['basis'], $flowAggregate['failure_reasons']);
         $metricTrust['traffic.avg_submit_rate'] = $this->trust($submitAggregate['value'] === null ? [] : $trafficSubmitRows, $submitAggregate['basis'], $submitAggregate['failure_reasons']);
@@ -1391,12 +1423,30 @@ class OtaRevenueMetricService
     private function canonicalTrafficMetricRows(
         array $rows,
         string $metricKey,
-        bool $keepMissing = false
+        bool $keepMissing = false,
+        bool $requireCompleteScope = true
     ): array {
         // Pick the authoritative batch before testing field presence. Filtering
         // first would silently backfill missing fields from an older batch.
         $metricRows = $this->canonicalMeituanTrafficMetricRows($rows, $metricKey);
         $metricRows = $this->canonicalCtripTrafficMetricRows($metricRows);
+        // A missing business-date proof in one selected day makes the whole
+        // requested traffic aggregate incomplete; dropping that day would
+        // present the remaining days as a complete range.
+        $authoritativeRows = [];
+        foreach ($metricRows as $row) {
+            if (!OtaTrafficAttributionService::rowDateScopeIsAuthoritative(
+                $row,
+                (string)($row['platform_key'] ?? '')
+            )) {
+                if ($requireCompleteScope) {
+                    return [];
+                }
+                continue;
+            }
+            $authoritativeRows[] = $row;
+        }
+        $metricRows = $authoritativeRows;
         // Rate aggregation must retain a day whose rate is absent; dropping
         // that day would disguise a partial range as a complete result.
         return $keepMissing ? $metricRows : $this->rowsWithNumeric($metricRows, $metricKey);
@@ -1850,6 +1900,16 @@ class OtaRevenueMetricService
             'complete_scope_count' => count($complete), 'failure_reasons' => []];
         if (count($complete) !== count($scopes)) {
             $result['failure_reasons'][] = 'adr_scope_incomplete';
+        }
+        foreach ($complete as $scope) {
+            // A different scope's positive nights cannot make this scope's
+            // nonzero revenue calculable. Confirmed zero/zero days are valid.
+            if ($scope['nights'] == 0.0 && $scope['revenue'] != 0.0) {
+                $result['failure_reasons'][] = 'adr_denominator_zero';
+                break;
+            }
+        }
+        if ($result['failure_reasons'] !== []) {
             return $result;
         }
         $revenue = array_sum(array_column($complete, 'revenue'));
@@ -2055,31 +2115,31 @@ class OtaRevenueMetricService
 
         foreach ($this->canonicalTrafficMetricRows(
             $traffic,
-            'list_exposure'
+            'list_exposure', false, false
         ) as $row) {
             $this->appendChannelMetric($metrics, $row, 'traffic', 'list_exposure', $row['list_exposure'] ?? null);
         }
         foreach ($this->canonicalTrafficMetricRows(
             $traffic,
-            'detail_exposure'
+            'detail_exposure', false, false
         ) as $row) {
             $this->appendChannelMetric($metrics, $row, 'traffic', 'detail_exposure', $row['detail_exposure'] ?? null);
         }
         foreach ($this->canonicalTrafficMetricRows(
             $traffic,
-            'flow_rate'
+            'flow_rate', false, false
         ) as $row) {
             $this->appendChannelMetric($metrics, $row, 'traffic', 'flow_rate', $row['flow_rate'] ?? null, $row['list_exposure'] ?? null);
         }
         foreach ($this->canonicalTrafficMetricRows(
             $traffic,
-            'order_filling_num'
+            'order_filling_num', false, false
         ) as $row) {
             $this->appendChannelMetric($metrics, $row, 'traffic', 'order_filling_num', $row['order_filling_num'] ?? null);
         }
         foreach ($this->canonicalTrafficMetricRows(
             $traffic,
-            'order_submit_num'
+            'order_submit_num', false, false
         ) as $row) {
             $this->appendChannelMetric($metrics, $row, 'traffic', 'order_submit_num', $row['order_submit_num'] ?? null, $row['order_filling_num'] ?? null);
         }
@@ -2515,7 +2575,7 @@ class OtaRevenueMetricService
                 ],
                 'room_night_cancellation_rate' => [
                     'formula' => 'cancel_room_nights / room_nights * 100',
-                    'not_calculable_when' => 'cancel_room_nights is missing, or room_nights is zero',
+                    'not_calculable_when' => 'aligned counts are missing or partial, counts are invalid, or the complete room-night denominator is zero',
                 ],
                 'competitor_price_gap' => [
                     'formula' => 'our_price - competitor_price',
@@ -2550,6 +2610,7 @@ class OtaRevenueMetricService
     {
         $traces = $this->sourceTraces($rows);
         $updatedAt = $this->latestUpdatedAt($traces);
+        $source = $this->sourceSummary($traces);
         if (!$traces) {
             $failureReasons[] = 'source_rows_missing';
         }
@@ -2559,6 +2620,19 @@ class OtaRevenueMetricService
 
         $allSaved = $traces !== [];
         foreach ($traces as $trace) {
+            foreach (['updated_at' => 'source_update_time_invalid', 'collected_at' => 'source_collection_time_invalid'] as $field => $reason) {
+                $value = trim((string)($trace[$field] ?? ''));
+                $hasKnownTime = $field === 'updated_at'
+                    ? $updatedAt !== null
+                    : $source['collected_at_range']['start'] !== null;
+                // Entirely absent collection metadata already prevents verified
+                // truth; one known row must not hide another missing time.
+                if ($value === '' && $hasKnownTime) {
+                    $failureReasons[] = str_replace('_invalid', '_missing', $reason);
+                } elseif ($value !== '' && $this->sourceMomentEpoch($value) === null) {
+                    $failureReasons[] = $reason;
+                }
+            }
             if (($trace['saved_success'] ?? false) !== true) {
                 $allSaved = false;
                 foreach ((array)($trace['failure_reasons'] ?? []) as $reason) {
@@ -2579,7 +2653,7 @@ class OtaRevenueMetricService
         )));
 
         $result = [
-            'source' => $this->sourceSummary($traces),
+            'source' => $source,
             'caliber' => $caliber,
             'updated_at' => $updatedAt,
             'failure_reasons' => $failureReasons,
@@ -2637,7 +2711,7 @@ class OtaRevenueMetricService
             static fn(mixed $value): string => trim((string)$value),
             $this->uniqueTraceValues($traces, 'collected_at')
         ), static fn(string $value): bool => $value !== ''));
-        sort($collectedTimes);
+        $collectedTimes = $this->sortSourceTimes($collectedTimes);
         $storedCount = count(array_filter($traces, static function (array $trace): bool {
             if (array_key_exists('stored', $trace)) {
                 return ($trace['stored'] ?? false) === true;
@@ -2755,11 +2829,43 @@ class OtaRevenueMetricService
                 $times[] = $updatedAt;
             }
         }
-        if (!$times) {
+        $times = $this->sortSourceTimes($times);
+        return $times !== [] ? $times[count($times) - 1] : null;
+    }
+
+    /** @param array<int, string> $times @return array<int, string> */
+    private function sortSourceTimes(array $times): array
+    {
+        $moments = [];
+        foreach ($times as $value) {
+            $epoch = $this->sourceMomentEpoch($value);
+            if ($epoch !== null) {
+                $moments[] = ['value' => $value, 'epoch' => $epoch];
+            }
+        }
+        usort($moments, static fn(array $left, array $right): int => $left['epoch'] <=> $right['epoch']);
+        return array_column($moments, 'value');
+    }
+
+    /** Source timestamps are absolute moments; unzoned legacy values use Shanghai time. */
+    private function sourceMomentEpoch(string $value): ?float
+    {
+        if (preg_match('/^\d{4}-\d{2}-\d{2}(?:[Tt ]|$)/', $value) !== 1) {
             return null;
         }
-        rsort($times);
-        return $times[0];
+        if (isset(date_parse($value)['relative'])) {
+            return null;
+        }
+        try {
+            $moment = new \DateTimeImmutable($value, new \DateTimeZone('Asia/Shanghai'));
+            $errors = \DateTimeImmutable::getLastErrors();
+            if (is_array($errors) && ($errors['warning_count'] > 0 || $errors['error_count'] > 0)) {
+                return null;
+            }
+            return (float)$moment->format('U.u');
+        } catch (\Exception) {
+            return null;
+        }
     }
 
     /**

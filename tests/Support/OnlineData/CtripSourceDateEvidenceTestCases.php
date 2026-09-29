@@ -3,6 +3,17 @@ declare(strict_types=1);
 
 namespace Tests\Support\OnlineData;
 
+use app\controller\OnlineData;
+use app\command\PlatformProfileLogin;
+use app\service\BrowserProfileCaptureRequestService;
+use app\service\CtripTrafficDisplayService;
+use InvalidArgumentException;
+use PHPUnit\Framework\TestCase;
+use ReflectionClass;
+use Tests\OnlineDataQuerySpy;
+use Tests\Support\ReflectionHelper;
+use think\App;
+
 use app\service\CtripCompetitionCirclePersistenceService;
 
 trait CtripSourceDateEvidenceTestCases
@@ -120,5 +131,83 @@ trait CtripSourceDateEvidenceTestCases
         $unreadProof = $this->invokeNonPublic($controller, 'buildCtripLatestStorageProof', [[$unreadRow]]);
         self::assertFalse($unreadProof['readback_verified']);
         self::assertFalse($unreadProof['source_verified']);
+    }
+
+    public function testCtripSearchOpportunityDoesNotPromoteUnchangedCumulativeSnapshotsAsZeroYesterdayFacts(): void
+    {
+        $controller = $this->controller();
+        $makeRow = static function (string $dataDate, string $scope): array {
+            return [
+                'data_date' => $dataDate,
+                'compare_type' => $scope === 'self' ? 'self' : 'competitor',
+                'ingestion_method' => 'ctrip_cookie_api',
+                'raw_data' => json_encode([
+                    'endpoint_id' => 'traffic_search_details',
+                    'dimension_values' => [
+                        'target_date' => '2026-07-11',
+                        'search_window' => 'cumulative',
+                        'compare_scope' => $scope,
+                    ],
+                    'metrics' => [
+                        'future_search_pv' => 100,
+                        'future_search_uv' => 80,
+                        'future_search_order_count' => null,
+                        'future_search_conversion_rate' => 2.0,
+                    ],
+                ], JSON_UNESCAPED_UNICODE),
+            ];
+        };
+
+        $payload = $this->invokeNonPublic($controller, 'buildCtripSearchOpportunityPayload', [
+            [$makeRow('2026-07-12', 'self'), $makeRow('2026-07-12', 'competitor_avg')],
+            '2026-07-12',
+            [$makeRow('2026-07-11', 'self'), $makeRow('2026-07-11', 'competitor_avg')],
+            '2026-07-11',
+        ]);
+
+        self::assertArrayNotHasKey('yesterday', $payload['dates'][0]);
+    }
+
+    public function testCtripSearchOpportunityDateValidationRejectsEmptyAggregateSentinel(): void
+    {
+        $controller = $this->controller();
+
+        self::assertFalse($this->invokeNonPublic($controller, 'isCtripSearchOpportunityDate', ['0']));
+        self::assertFalse($this->invokeNonPublic($controller, 'isCtripSearchOpportunityDate', ['']));
+        self::assertTrue($this->invokeNonPublic($controller, 'isCtripSearchOpportunityDate', ['2026-07-11']));
+    }
+
+    public function testCtripSearchOpportunityLatestDateKeepsTheFullDateString(): void
+    {
+        $controller = $this->controller();
+        $query = new OnlineDataQuerySpy();
+        $query->valueResult = '2026-07-11';
+
+        $latestDate = $this->invokeNonPublic($controller, 'resolveLatestCtripSearchOpportunityDate', [$query]);
+
+        self::assertSame('2026-07-11', $latestDate);
+        self::assertSame([
+            ['order', 'data_date', 'desc'],
+            ['value', 'data_date'],
+        ], $query->calls);
+    }
+
+    public function testCtripSearchOpportunityPreviousDateUsesTheLatestEarlierCapture(): void
+    {
+        $controller = $this->controller();
+        $query = new OnlineDataQuerySpy();
+        $query->valueResult = '2026-07-10';
+
+        $previousDate = $this->invokeNonPublic($controller, 'resolvePreviousCtripSearchOpportunityDate', [
+            $query,
+            '2026-07-11',
+        ]);
+
+        self::assertSame('2026-07-10', $previousDate);
+        self::assertSame([
+            ['where', 'data_date', '<', '2026-07-11'],
+            ['order', 'data_date', 'desc'],
+            ['value', 'data_date'],
+        ], $query->calls);
     }
 }

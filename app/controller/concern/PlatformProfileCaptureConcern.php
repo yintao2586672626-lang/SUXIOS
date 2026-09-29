@@ -605,9 +605,16 @@ trait PlatformProfileCaptureConcern
         array $credentialPayload = []
     ): array
     {
-        $dataDate = $this->normalizeOnlineDataDate($requestData['data_date'] ?? $requestData['dataDate'] ?? '');
+        $requestedDate = $requestData['data_date'] ?? $requestData['dataDate'] ?? '';
+        $dataDate = $this->normalizeOnlineDataDate($requestedDate);
+        if (trim((string)$requestedDate) !== '') {
+            $parsedDate = \DateTimeImmutable::createFromFormat('!Y-m-d', $dataDate);
+            if ($parsedDate === false || $parsedDate->format('Y-m-d') !== $dataDate) {
+                throw new \InvalidArgumentException('携程采集业务日期无效');
+            }
+        }
         if ($dataDate === '') {
-            $dataDate = date('Y-m-d');
+            $dataDate = (new \DateTimeImmutable('now', new \DateTimeZone('Asia/Shanghai')))->format('Y-m-d');
         }
         $hotelId = trim((string)(
             $requestData['hotel_id']

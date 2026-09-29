@@ -6,6 +6,7 @@ namespace app\controller\concern;
 use app\model\OperationLog;
 use app\service\OnlineDataFieldFactService;
 use app\service\OnlineDataTrustStatusService;
+use app\service\OtaReadDateRangeService;
 use think\Response;
 use think\facade\Db;
 
@@ -108,8 +109,10 @@ trait OnlineDataQualityConcern
                 return $this->error('未登录', 401);
             }
 
-            $startDate = $this->request->get('start_date', '');
-            $endDate = $this->request->get('end_date', '');
+            [$startDate, $endDate] = OtaReadDateRangeService::normalize(
+                $this->request->get('start_date', ''),
+                $this->request->get('end_date', '')
+            );
             $source = $this->request->get('source', '');
             $hotelId = trim((string)$this->request->get('system_hotel_id', $this->request->get('hotel_id', '')));  // 系统酒店筛选
             $otaHotelId = trim((string)$this->request->get('ota_hotel_id', '')); // OTA平台酒店ID筛选
@@ -118,8 +121,9 @@ trait OnlineDataQualityConcern
                 $dataType,
                 $this->request->get('data_types', '')
             );
-            $createStart = $this->request->get('create_start', ''); // 获取开始时间
-            $createEnd = $this->request->get('create_end', ''); // 获取结束时间
+            [$createStart, $createEnd] = \app\service\OtaReadDateRangeService::normalize(
+                $this->request->get('create_start', ''), $this->request->get('create_end', ''), '采集日期'
+            );
             $page = max(1, intval($this->request->get('page', 1)));
             $pageSizeInput = $this->request->get('page_size', 30);
             $fetchAllRequested = in_array(strtolower(trim((string)$pageSizeInput)), ['all', '全部'], true)
@@ -139,9 +143,11 @@ trait OnlineDataQualityConcern
             $query = Db::name('online_daily_data');
 
             // 按数据日期查询
-            if (!empty($startDate) && !empty($endDate)) {
-                $query->where('data_date', '>=', $startDate)
-                      ->where('data_date', '<=', $endDate);
+            if ($startDate !== '') {
+                $query->where('data_date', '>=', $startDate);
+            }
+            if ($endDate !== '') {
+                $query->where('data_date', '<=', $endDate);
             }
 
             // 按来源筛选
@@ -200,6 +206,7 @@ trait OnlineDataQualityConcern
                     ]);
                 }
                 $query->whereIn('system_hotel_id', $permittedHotelIds);
+                $this->applyOnlineDailyDataTenantBinding($query);
             }
 
             $total = (int)(clone $query)->count();
@@ -257,6 +264,14 @@ trait OnlineDataQualityConcern
                         $item['rank_type'] = $displayRawData['rankType'] ?? $displayRawData['rank_type'] ?? $item['rank_type'] ?? null;
                         $item['rank_metric'] = $displayRawData['dimension'] ?? $displayRawData['dimName'] ?? $item['rank_metric'] ?? null;
                         $item['metric_status'] = $displayRawData['metricStatus'] ?? $displayRawData['metric_status'] ?? $item['metric_status'] ?? null;
+                        if (($item['source'] ?? '') === 'meituan'
+                            && in_array((string)($item['data_type'] ?? ''), ['advertising', 'ads'], true)) {
+                            $orderAmount = $this->onlineDataQualityFirstNumber([], $displayRawData, [], [
+                                'order_amount', 'orderAmount', 'saleAmount', 'salesAmount', 'revenue', 'gmv',
+                            ]);
+                            $item['order_amount'] = $orderAmount !== null && is_finite($orderAmount)
+                                ? $orderAmount : null;
+                        }
                     }
                 }
                 $item['total_order_num'] = $rawTotalOrderNum ?? $bookOrderNum;
@@ -266,6 +281,7 @@ trait OnlineDataQualityConcern
                 $item['field_fact_status'] = $this->buildOnlineDataFieldFactStatus($item, $rawData);
                 $item['data_quality'] = $this->buildOnlineDataQuality($item);
                 $item['truth'] = OnlineDataTrustStatusService::truthEnvelope($item, $item['field_fact_status']);
+                $item = (new \app\service\OperationAuditSanitizerService())->sanitizeArray($item, PHP_INT_MAX);
             }
 
             return $this->success([
@@ -289,6 +305,9 @@ trait OnlineDataQualityConcern
                 ]),
             ]);
         } catch (\Throwable $e) {
+            if ($e instanceof \InvalidArgumentException && $e->getCode() === 422) {
+                return $this->error($e->getMessage(), 422);
+            }
             \think\facade\Log::error('获取线上数据列表失败: ' . $e->getMessage(), ['exception' => $e]);
             return $this->error('获取数据列表失败', 500);
         }
@@ -667,5 +686,28 @@ trait OnlineDataQualityConcern
         if (isset($columns['hotel_id'])) {
             $query->where('hotel_id', $hotelId);
         }
+    }
+
+    private function applyOnlineDailyDataTenantBinding($query): void
+    {
+        $columns = $this->getOnlineDailyDataColumns();
+        if (!isset($columns['tenant_id'], $columns['system_hotel_id'])) {
+            return;
+        }
+        $hotelFields = Db::name('hotels')->getTableFields();
+        if (!in_array('tenant_id', $hotelFields, true) && !array_key_exists('tenant_id', $hotelFields)) {
+            return;
+        }
+
+        $dataTable = (string)$query->getTable();
+        $hotelTable = (string)Db::name('hotels')->getTable();
+        $query->where('tenant_id', '>', 0)->whereExists(
+            static function ($hotelQuery) use ($dataTable, $hotelTable): void {
+                $hotelQuery->table([$hotelTable => 'daily_data_owner_hotel'])
+                    ->field('daily_data_owner_hotel.id')
+                    ->whereColumn('daily_data_owner_hotel.id', $dataTable . '.system_hotel_id')
+                    ->whereColumn('daily_data_owner_hotel.tenant_id', $dataTable . '.tenant_id');
+            }
+        );
     }
 }

@@ -187,13 +187,14 @@
     const revenueCockpitBlockedModel = (message = '服务端未签发当前经营驾驶舱模型', status = 'blocked') => ({
         contractVersion: REVENUE_COCKPIT_VIEW_MODEL_CONTRACT_VERSION,
         status,
-        statusLabel: status === 'loading' ? '读取中' : '已阻断',
-        statusClass: status === 'loading'
+        statusLabel: status === 'empty' ? '待补数据' : (status === 'loading' ? '读取中' : '已阻断'),
+        statusClass: status === 'loading' || status === 'empty'
             ? 'border-slate-200 bg-slate-50 text-slate-600'
             : 'border-rose-200 bg-rose-50 text-rose-700',
-        headline: status === 'loading' ? '正在读取服务端经营驾驶舱' : '经营驾驶舱已阻断',
+        headline: status === 'empty' ? '暂无严格回读的经营事实'
+            : (status === 'loading' ? '正在读取服务端经营驾驶舱' : '经营驾驶舱已阻断'),
         summary: String(message || '服务端未签发当前经营驾驶舱模型'),
-        dateNotice: '',
+        dateNotice: status === 'empty' ? '尚无严格可用业务日期' : '',
         scopeBoundary: 'PMS 与 OTA 口径保持分离。',
         sections: [],
         visibleSections: [],
@@ -260,9 +261,16 @@
         selectedPlatform = '',
         businessDate = '',
         loading = false,
+        loadStatus = '',
         error = '',
     } = {}) => {
         if (loading) return revenueCockpitBlockedModel('正在读取服务端签发的经营驾驶舱模型', 'loading');
+        if (!error && overview === null && loadStatus === 'empty') {
+            return revenueCockpitBlockedModel(
+                '当前门店尚无通过保存与精确回读核验的经营事实；补齐来源数据后，才能选择日期、分析收益并形成经营建议。',
+                'empty',
+            );
+        }
         const canonical = resolveRevenueCockpitCanonicalViewModel({
             overview,
             hotelId: Number(overview?.hotel_id || overview?.three_source_fact_layer?.hotel?.system_hotel_id || 0),
@@ -275,12 +283,23 @@
         return canonical.model;
     };
         const buildRevenueCockpitDownloadRows = (model = {}) => {
+            const reportContext = {
+                report_hotel_id: String(model.hotelId || ''),
+                report_hotel_name: String(model.hotelName || ''),
+                report_platform: String(model.selectedPlatformLabel || model.selectedPlatform || ''),
+                report_business_date: String(model.businessDate || ''),
+                report_as_of_date: String(model.asOfDate || ''),
+                report_status: String(model.statusLabel || model.status || ''),
+                report_scope: [model.scopeBoundary, model.dateNotice]
+                    .map(value => String(value || '').trim()).filter(Boolean).join('；'),
+            };
             const sections = Array.isArray(model.visibleSections) ? model.visibleSections : [];
             let order = 0;
             const cardRows = sections.flatMap((section) => (
                 (Array.isArray(section.cards) ? section.cards : []).map((card) => {
                     order += 1;
                     return {
+                        ...reportContext,
                         order,
                         section: String(section.title || ''),
                         card: String(card.label || ''),
@@ -303,7 +322,7 @@
             ));
             const ledger = model.operatingLedger;
             if (!ledger) return cardRows;
-            const base = { section: '经营底账 · 来源与差额', business_date: `${ledger.scope.start_date} 至 ${ledger.scope.end_date}`,
+            const base = { ...reportContext, section: '经营底账 · 来源与差额', business_date: `${ledger.scope.start_date} 至 ${ledger.scope.end_date}`,
                 unit: 'CNY 元', causality_claimed: 'false', evidence_level: ledger.scope.evidence_mode };
             const metrics = (ledger.metrics || []).map((metric) => ({ ...base, order: ++order,
                 card: metric.label, display: metric.value ?? '未形成完整可信金额', source: metric.platform,
@@ -341,6 +360,13 @@
                 ['causality_claimed', '是否因果结论'],
                 ['explanation', '说明'],
                 ['evidence', '证据'],
+                ['report_hotel_id', '酒店ID'],
+                ['report_hotel_name', '酒店名称'],
+                ['report_platform', '所选平台'],
+                ['report_business_date', '报告业务日期'],
+                ['report_as_of_date', '数据基准日'],
+                ['report_status', '报告状态'],
+                ['report_scope', '范围说明'],
             ];
             const rows = buildRevenueCockpitDownloadRows(model);
             return `\uFEFF${[
@@ -706,10 +732,12 @@
         return { ok: true, status: exact.status, snapshot: exact.snapshot, message: exact.message };
     };
 
-    const restoreRevenueDecisionSnapshotWithReadback = async ({ request, model = {}, hotelId = 0 } = {}) => {
+    const restoreRevenueDecisionSnapshotWithReadback = async ({ request, model = {}, modelDigest = '', hotelId = 0 } = {}) => {
         const normalizedHotelId = Number(hotelId || model.hotelId || 0);
+        const normalizedModelDigest = String(modelDigest || '').trim().toLowerCase();
         if (typeof request !== 'function'
             || !normalizedHotelId
+            || !/^[a-f0-9]{64}$/.test(normalizedModelDigest)
             || !model.businessDate
             || !revenueAiIsoDate(model.asOfDate)
             || String(model.asOfDateContractVersion || '') !== REVENUE_OVERVIEW_AS_OF_DATE_CONTRACT_VERSION
@@ -722,13 +750,23 @@
             requestPolicy: { scope: 'action', force: true },
         });
         if (Number(response?.code || 0) !== 200) throw new Error(response?.message || '收益决策快照恢复失败');
-        return resolveRevenueDecisionSnapshot(response.data, {
+        const restored = resolveRevenueDecisionSnapshot(response.data, {
             hotelId: normalizedHotelId,
             businessDate: model.businessDate,
             platform: model.selectedPlatform,
             asOfDate: model.asOfDate,
             asOfDateContractVersion: model.asOfDateContractVersion,
         });
+        if (!restored.ok || !restored.snapshot
+            || restored.status !== 'matched_current'
+            || restored.snapshot.visible_model_digest === normalizedModelDigest
+        ) return restored;
+        return {
+            ...restored,
+            status: 'stale_current_model',
+            snapshot: { ...restored.snapshot, evidence_identity_status: 'stale_current_model' },
+            message: `快照 #${restored.snapshot.id} 已精确回读，但当前页面模型已变化`,
+        };
     };
 
         const createRevenueOpportunityPendingApprovalWithReadback = async ({

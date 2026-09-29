@@ -18,6 +18,73 @@ trait CtripTestCases
 {
     use CtripSourceDateEvidenceTestCases;
 
+    public function testCtripCookieApiCaptureDefaultsToShanghaiBusinessDate(): void
+    {
+        $controller = $this->controller();
+        $shanghaiToday = (new \DateTimeImmutable('now', new \DateTimeZone('Asia/Shanghai')))->format('Y-m-d');
+        $originalTimezone = date_default_timezone_get();
+
+        try {
+            foreach (['Pacific/Honolulu', 'Pacific/Kiritimati'] as $timezone) {
+                date_default_timezone_set($timezone);
+                if (date('Y-m-d') !== $shanghaiToday) {
+                    break;
+                }
+            }
+            self::assertNotSame($shanghaiToday, date('Y-m-d'));
+
+            $request = [
+                'request_source' => 'quality_psi',
+                'hotel_id' => '974065',
+            ];
+            $config = $this->invokeNonPublic($controller, 'buildCtripCookieApiCaptureConfigFromRequest', [
+                $request,
+                80,
+                [],
+            ]);
+            self::assertSame($shanghaiToday, $config['data_date']);
+
+            $explicit = $this->invokeNonPublic($controller, 'buildCtripCookieApiCaptureConfigFromRequest', [
+                $request + ['data_date' => '2026-07-15'],
+                80,
+                [],
+            ]);
+            self::assertSame('2026-07-15', $explicit['data_date']);
+
+            $compact = $this->invokeNonPublic($controller, 'buildCtripCookieApiCaptureConfigFromRequest', [
+                $request + ['data_date' => '20260715'],
+                80,
+                [],
+            ]);
+            self::assertSame('2026-07-15', $compact['data_date']);
+        } finally {
+            date_default_timezone_set($originalTimezone);
+        }
+    }
+
+    public function testCtripManualCaptureRejectsExplicitInvalidBusinessDates(): void
+    {
+        $controller = $this->controller();
+
+        foreach (['2026-02-30', 'not-a-date'] as $invalidDate) {
+            foreach ([
+                ['buildCtripCookieApiCaptureConfigFromRequest', [[
+                    'request_source' => 'quality_psi',
+                    'hotel_id' => '974065',
+                    'data_date' => $invalidDate,
+                ], 80, []]],
+                ['resolveCtripOverviewDataDate', [['data_date' => $invalidDate]]],
+            ] as [$method, $arguments]) {
+                try {
+                    $this->invokeNonPublic($controller, $method, $arguments);
+                    self::fail($method . ' accepted invalid data_date ' . $invalidDate);
+                } catch (\InvalidArgumentException $exception) {
+                    self::assertStringContainsString('业务日期', $exception->getMessage());
+                }
+            }
+        }
+    }
+
 
     public function testCtripStableConfigInputReusesSavedHotelMetadataOnlyWhenRequestIsBlank(): void
     {
@@ -1088,11 +1155,6 @@ trait CtripTestCases
             $targetDate,
             $this->invokeNonPublic($controller, 'resolveCtripLatestTargetDate', [$targetDate])
         );
-        self::assertSame(
-            '',
-            $this->invokeNonPublic($controller, 'normalizeCtripLatestRange', ['2026-02-30'])
-        );
-
         $query = new OnlineDataQuerySpy();
         $this->invokeNonPublic($controller, 'applyCtripLatestPeriodScope', [
             $query,
@@ -1104,6 +1166,13 @@ trait CtripTestCases
             ['where', 'data_period', 'historical_daily'],
             ['where', 'is_final', 1],
         ], $query->calls);
+    }
+
+    public function testCtripLatestRejectsInvalidExactDateInsteadOfReadingUnfilteredLatest(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionCode(422);
+        $this->invokeNonPublic($this->controller(), 'normalizeCtripLatestRange', ['2026-02-30']);
     }
 
     public function testCtripExactDateTrafficKeepsLatestSelfAndCompetitorAverageAcrossAdjacentBatches(): void
@@ -1844,6 +1913,38 @@ trait CtripTestCases
         self::assertSame(10440, $metrics['top_competitor_list_exposure']);
         self::assertSame(76.0, $metrics['top_competitor_deal_rate']);
         self::assertCount(8, $rawRows);
+    }
+
+    public function testCtripOverviewDefaultYesterdayUsesShanghaiBusinessDate(): void
+    {
+        $controller = $this->controller();
+        $shanghaiYesterday = (new \DateTimeImmutable('now', new \DateTimeZone('Asia/Shanghai')))
+            ->modify('-1 day')->format('Y-m-d');
+        $originalTimezone = date_default_timezone_get();
+
+        try {
+            foreach (['Pacific/Honolulu', 'Pacific/Kiritimati'] as $timezone) {
+                date_default_timezone_set($timezone);
+                if (date('Y-m-d', strtotime('-1 day')) !== $shanghaiYesterday) {
+                    break;
+                }
+            }
+            self::assertNotSame($shanghaiYesterday, date('Y-m-d', strtotime('-1 day')));
+            self::assertSame(
+                $shanghaiYesterday,
+                $this->invokeNonPublic($controller, 'resolveCtripOverviewDataDate', [[]])
+            );
+            self::assertSame(
+                '2026-07-15',
+                $this->invokeNonPublic($controller, 'resolveCtripOverviewDataDate', [['data_date' => '2026-07-15']])
+            );
+            self::assertSame(
+                '2026-07-15',
+                $this->invokeNonPublic($controller, 'resolveCtripOverviewDataDate', [['data_date' => '20260715']])
+            );
+        } finally {
+            date_default_timezone_set($originalTimezone);
+        }
     }
 
     public function testCtripOverviewDirectApiValidationAndPayloadDefaults(): void
@@ -3420,81 +3521,4 @@ trait CtripTestCases
         self::assertSame('derived_from_cumulative_delta', $payload['dates'][0]['yesterday']['self']['metric_status']);
     }
 
-    public function testCtripSearchOpportunityDoesNotPromoteUnchangedCumulativeSnapshotsAsZeroYesterdayFacts(): void
-    {
-        $controller = $this->controller();
-        $makeRow = static function (string $dataDate, string $scope): array {
-            return [
-                'data_date' => $dataDate,
-                'compare_type' => $scope === 'self' ? 'self' : 'competitor',
-                'ingestion_method' => 'ctrip_cookie_api',
-                'raw_data' => json_encode([
-                    'endpoint_id' => 'traffic_search_details',
-                    'dimension_values' => [
-                        'target_date' => '2026-07-11',
-                        'search_window' => 'cumulative',
-                        'compare_scope' => $scope,
-                    ],
-                    'metrics' => [
-                        'future_search_pv' => 100,
-                        'future_search_uv' => 80,
-                        'future_search_order_count' => null,
-                        'future_search_conversion_rate' => 2.0,
-                    ],
-                ], JSON_UNESCAPED_UNICODE),
-            ];
-        };
-
-        $payload = $this->invokeNonPublic($controller, 'buildCtripSearchOpportunityPayload', [
-            [$makeRow('2026-07-12', 'self'), $makeRow('2026-07-12', 'competitor_avg')],
-            '2026-07-12',
-            [$makeRow('2026-07-11', 'self'), $makeRow('2026-07-11', 'competitor_avg')],
-            '2026-07-11',
-        ]);
-
-        self::assertArrayNotHasKey('yesterday', $payload['dates'][0]);
-    }
-
-    public function testCtripSearchOpportunityDateValidationRejectsEmptyAggregateSentinel(): void
-    {
-        $controller = $this->controller();
-
-        self::assertFalse($this->invokeNonPublic($controller, 'isCtripSearchOpportunityDate', ['0']));
-        self::assertFalse($this->invokeNonPublic($controller, 'isCtripSearchOpportunityDate', ['']));
-        self::assertTrue($this->invokeNonPublic($controller, 'isCtripSearchOpportunityDate', ['2026-07-11']));
-    }
-
-    public function testCtripSearchOpportunityLatestDateKeepsTheFullDateString(): void
-    {
-        $controller = $this->controller();
-        $query = new OnlineDataQuerySpy();
-        $query->valueResult = '2026-07-11';
-
-        $latestDate = $this->invokeNonPublic($controller, 'resolveLatestCtripSearchOpportunityDate', [$query]);
-
-        self::assertSame('2026-07-11', $latestDate);
-        self::assertSame([
-            ['order', 'data_date', 'desc'],
-            ['value', 'data_date'],
-        ], $query->calls);
-    }
-
-    public function testCtripSearchOpportunityPreviousDateUsesTheLatestEarlierCapture(): void
-    {
-        $controller = $this->controller();
-        $query = new OnlineDataQuerySpy();
-        $query->valueResult = '2026-07-10';
-
-        $previousDate = $this->invokeNonPublic($controller, 'resolvePreviousCtripSearchOpportunityDate', [
-            $query,
-            '2026-07-11',
-        ]);
-
-        self::assertSame('2026-07-10', $previousDate);
-        self::assertSame([
-            ['where', 'data_date', '<', '2026-07-11'],
-            ['order', 'data_date', 'desc'],
-            ['value', 'data_date'],
-        ], $query->calls);
-    }
 }

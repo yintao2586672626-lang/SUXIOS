@@ -70,6 +70,47 @@ final class AiDailyCompetitionBundlePersistenceService
         return Db::transaction(static function () use ($existing, $payload, $now, $hotelId, $reportDate): array {
             if (is_array($existing)) {
                 $id = (int)$existing['id'];
+                $current = Db::name(self::REPORT_TABLE)
+                    ->where('id', $id)
+                    ->where('hotel_id', $hotelId)
+                    ->where('report_date', $reportDate)
+                    ->whereNull('deleted_at')
+                    ->lock(true)
+                    ->find();
+                if (!is_array($current)
+                    || (array_key_exists('tenant_id', $current)
+                        && (int)($current['tenant_id'] ?? 0) !== (int)($payload['tenant_id'] ?? 0))) {
+                    throw new RuntimeException('competition_report_scope_mismatch');
+                }
+                if (array_key_exists('tenant_id', $payload)) {
+                    $hotel = Db::name('hotels')->where('id', $hotelId)->lock(true)->find();
+                    if (!is_array($hotel) || (array_key_exists('tenant_id', $hotel)
+                        && (int)$hotel['tenant_id'] !== (int)$payload['tenant_id'])) {
+                        throw new RuntimeException('competition_report_scope_mismatch');
+                    }
+                }
+                // Generation can be slow: merge from the locked current row, never its earlier input copy.
+                $nextSnapshot = self::decode((string)($payload['snapshot_json'] ?? ''));
+                $currentSnapshot = self::decode((string)($current['snapshot_json'] ?? ''));
+                $judgments = array_values(array_filter((array)($currentSnapshot['human_judgments'] ?? []), 'is_array'));
+                $nextSnapshot['human_judgments'] = $judgments;
+                if (isset($nextSnapshot['result_contract']['layers']['human_judgments'])) {
+                    $nextSnapshot['result_contract']['layers']['human_judgments']['count'] = count($judgments);
+                }
+                if (isset($nextSnapshot['trial_validation'])) {
+                    $manual = $currentSnapshot['trial_validation']['user_confirmed_useful'] ?? ['passed' => false, 'status' => 'not_confirmed'];
+                    foreach (array_reverse($judgments) as $judgment) {
+                        if (($judgment['target_type'] ?? '') !== 'report_usefulness') continue;
+                        $useful = ($judgment['decision'] ?? '') === 'accepted';
+                        $manual = ['passed' => $useful, 'status' => $useful ? 'confirmed_useful' : 'confirmed_not_useful'];
+                        break;
+                    }
+                    $nextSnapshot['trial_validation']['user_confirmed_useful'] = $manual;
+                    $nextSnapshot['trial_validation']['passed'] = ($nextSnapshot['trial_validation']['first_trusted_collection']['passed'] ?? false) === true
+                        && ($nextSnapshot['trial_validation']['second_same_scope_comparison']['passed'] ?? false) === true
+                        && ($manual['passed'] ?? false) === true;
+                }
+                $payload['snapshot_json'] = json_encode($nextSnapshot, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
                 Db::name(self::REPORT_TABLE)
                     ->where('id', $id)
                     ->where('hotel_id', $hotelId)

@@ -1,0 +1,48 @@
+{
+  "package_id": "yusheng-hotel-knowledge-os",
+  "package_version": "1.3.56",
+  "guide_version": "1.3.57",
+  "mapping_status": "verified_attachment_identity",
+  "source_instructions_executed": false,
+  "archive_sha256": "02EBA16E643BDB37A88450D4354574C69846516F532A006AE45C371D429FE34D",
+  "guide_sha256": "000D43A10E38A3FADED7A79FBD4C54054B0FAC1698583D0388C95A3A3E343BB1",
+  "archive_filename": "yusheng-hotel-knowledge-os-v1.3.56.zip",
+  "guide_filename": "HKOS小白使用指南(1).html",
+  "retained_sources": [
+    {
+      "file": "sources/package-readme.txt",
+      "sha256": "615819313582596C5D8911C71204B8990A24487D1B1DCC72B7D0DBE7265F6D46",
+      "origin": "archive:README.md"
+    },
+    {
+      "file": "sources/package-manifest.json",
+      "sha256": "A0C0A3B71E94823B6E3CA3B9091A9A2C405BA99A7C29F56876873D997DA60780",
+      "origin": "archive:manifest.json"
+    },
+    {
+      "file": "sources/LICENSE.txt",
+      "sha256": "1BCAB7AD951E13C9CCA47A638884BCC62A731A458F8756172663C82CE8228900",
+      "origin": "archive:LICENSE"
+    },
+    {
+      "file": "sources/commercial-quick-start.txt",
+      "sha256": "904C24CE6E46E045157956CA3CD84A23189E4834F575C909B90F0FFF2ABE2BC3",
+      "origin": "archive:commercial/docs/COMMERCIAL_QUICK_START.md"
+    },
+    {
+      "file": "sources/content-source-policy.txt",
+      "sha256": "E1CB971AF770454B7BB46E344E6CE79522A8CC851FD48F70DB7EDB791409049B",
+      "origin": "archive:commercial/docs/COMMERCIAL_CONTENT_SOURCE_POLICY.md"
+    },
+    {
+      "file": "sources/controlled-source-policy.cjs.txt",
+      "sha256": "EEEBE46B11ECEEA43ACEADAD35E71BD1992E446D2D793289505BC69F95ED17A3",
+      "origin": "archive:main.js#src/core/controlled-source-policy.cjs"
+    },
+    {
+      "file": "sources/customer-guide.txt",
+      "sha256": "83966C0D4CD8B0DE2CCB9F9092046008B2D2075132E1E937E168F43793E06A62",
+      "origin": "guide:HTML text, scripts/styles excluded"
+    }
+  ]
+}

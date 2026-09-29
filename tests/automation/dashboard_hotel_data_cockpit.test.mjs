@@ -1,3 +1,4 @@
+import { readSourceAggregate as readStaticContractSource } from '../../scripts/lib/source_aggregate.mjs';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
@@ -5,8 +6,9 @@ import { readSourceAggregate } from '../../scripts/lib/source_aggregate.mjs';
 import { readFrontendContractSource } from './helpers/frontend_source.mjs';
 
 const html = readFrontendContractSource();
-const dataHealthStatic = readFileSync('public/data-health-static.js', 'utf8');
-const appMain = readFileSync('public/app-main.js', 'utf8');
+const dataHealthStatic = readStaticContractSource('public/data-health-static.js');
+const pageProjectionSource = readFileSync('public/system-page-projections.js', 'utf8');
+const appMain = readFileSync('public/app-main.js', 'utf8') + '\n' + pageProjectionSource;
 const operationStatic = readFileSync('public/operation-static.js', 'utf8');
 const onlineDataFragment = readFileSync('resources/frontend/templates/fragments/35-page-online-data.html', 'utf8');
 const aiWorkbenchFragment = readFileSync('resources/frontend/templates/fragments/23b-page-ai-workbench.html', 'utf8');
@@ -256,9 +258,14 @@ test('dashboard frontend calls dedicated dashboard APIs while old collection rel
 test('core loop reads exact target-day OTA evidence without zero fallbacks', () => {
   const metricCardStart = appMain.indexOf('const coreOperationsMetricCardValueText =');
   const metricCardEnd = appMain.indexOf('const coreOperationsMeituanComparableValue =', metricCardStart);
-  const metricCardSource = metricCardStart >= 0 && metricCardEnd > metricCardStart
+  const metricHelpersSource = metricCardStart >= 0 && metricCardEnd > metricCardStart
     ? appMain.slice(metricCardStart, metricCardEnd)
     : '';
+  const platformProjectionStart = pageProjectionSource.indexOf('const buildCoreOperationsPlatformCards = ');
+  const platformProjectionEnd = pageProjectionSource.indexOf('const buildCoreOperationsCompetitorRows = ', platformProjectionStart);
+  assert.ok(platformProjectionStart >= 0 && platformProjectionEnd > platformProjectionStart);
+  const metricCardSource = metricHelpersSource + '\n'
+    + pageProjectionSource.slice(platformProjectionStart, platformProjectionEnd);
   assert.match(html, /coreOperationsTargetDate = ref\(ctripCompetitiveLocalDate\(-1\)\)/);
   assert.match(html, /\/ota-standard\/revenue-metrics/);
   assert.match(html, /source: platform/);

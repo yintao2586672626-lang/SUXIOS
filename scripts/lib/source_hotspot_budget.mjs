@@ -2,6 +2,22 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 export const SOURCE_HOTSPOT_BUDGETS = Object.freeze([
+  { path: 'app/controller/concern/OnlineDataAnalyticsConcern.php', max_lines: 668, boundary: 'canonical daily analysis controller delegates positive evidence, owner and metric grain gates' },
+  { path: 'app/controller/concern/OnlineDataAnalysisEvidenceConcern.php', max_lines: 214, boundary: 'positive saved evidence, source ownership and homogeneous canonical metric aggregation' },
+  // New extracted providers retain all existing parent ratchets and freeze
+  // their own current boundaries; none permits growth by moving debt back.
+  { path: 'app/controller/concern/AutoFetchRunModeConcern.php', max_lines: 163, boundary: 'captured auto-fetch run-mode and exact dispatcher receipt validation' },
+  { path: 'app/service/operation/OperationBaselineConcern.php', max_lines: 729, boundary: 'existing operation baseline facts and Shanghai date contracts' },
+  { path: 'app/service/operation/OperationServiceQualityConcern.php', max_lines: 232, boundary: 'operation service-quality facts and controlled-replication gap projection' },
+  { path: 'app/service/operation/OperationEffectValidationConcern.php', max_lines: 298, boundary: 'effect validation and operator evidence requirements' },
+  { path: 'app/service/concern/OtaLocalCollectorResultDeliveryConcern.php', max_lines: 367, boundary: 'exact result delivery, request scope and collector receipt readback' },
+  { path: 'app/service/concern/OtaLocalCollectorRecoveryConcern.php', max_lines: 399, boundary: 'collector recovery, current ownership and durable status readback' },
+  { path: 'app/service/concern/AiDailyReportStorageReadConcern.php', max_lines: 244, boundary: 'hotel tenant scope and stored AI report decoding' },
+  { path: 'app/service/concern/AiDailyReportEvidenceConcern.php', max_lines: 189, boundary: 'AI report evidence identity, shape and projection integrity' },
+  { path: 'app/service/concern/RevenueAiOverviewMarketStructureConcern.php', max_lines: 314, boundary: 'scope-bound market structure and confidence extraction' },
+  { path: 'tests/Support/OnlineData/CtripSourceDateEvidenceTestCases.php', max_lines: 213, boundary: 'Ctrip response-date evidence and cumulative snapshot test contracts' },
+  { path: 'tests/Support/OnlineData/AutoFetchReceiptTestCases.php', max_lines: 116, boundary: 'auto-fetch failure actions and exact receipt cardinality test contracts' },
+  { path: 'public/ota-fetch-flow-static.js', max_lines: 576, boundary: 'existing OTA fetch batch processing and failure guidance extracted unchanged' },
   // 2026-08-16 integration rebaseline: targets stay unchanged; exact ratchets freeze the combined reviewed baseline so future growth still fails closed.
   { path: 'public/app-main.js', max_lines: 49_934, ratchet_max_lines: 55_710, boundary: 'independent home revenue truth, guided three-source onboarding, and hourly notification closure after the generic OTA proxy UI was removed; zero-growth until another behavior-driven domain extraction' },
   { path: 'public/data-health-static.js', max_lines: 7_000, ratchet_max_lines: 7_447, boundary: 'data-health presentation domains; zero-growth until page-specific extraction' },

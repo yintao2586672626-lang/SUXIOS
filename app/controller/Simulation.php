@@ -63,12 +63,23 @@ class Simulation extends Base
     {
         try {
             $this->ensureLogin();
-            $list = $this->service->recordsForAccess(
+            $pageSize = $this->request->get('page_size', 30);
+            $beforeId = $this->request->get('before_id', null);
+            $positiveInteger = static fn($value): bool => (is_int($value) || is_string($value))
+                && preg_match('/^[1-9][0-9]*$/D', (string)$value) === 1
+                && filter_var($value, FILTER_VALIDATE_INT) !== false;
+            if (!$positiveInteger($pageSize) || (int)$pageSize > 100
+                || ($beforeId !== null && !$positiveInteger($beforeId))) {
+                return $this->error('量化模拟分页参数无效', 422);
+            }
+            $data = $this->service->recordsPageForAccess(
                 (int)($this->currentUser->id ?? 0),
                 $this->currentUser->isSuperAdmin(),
-                fn(array $record): bool => $this->canAccessInvestmentRecord($record, 'investment.view')
+                fn(array $record): bool => $this->canAccessInvestmentRecord($record, 'investment.view'),
+                (int)$pageSize,
+                $beforeId === null ? null : (int)$beforeId
             );
-            return $this->success(['list' => $list]);
+            return $this->success($data);
         } catch (Throwable $e) {
             return $this->error('获取量化模拟记录失败：' . $e->getMessage(), 400);
         }

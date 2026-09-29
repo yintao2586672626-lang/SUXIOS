@@ -569,7 +569,7 @@
                                     </div>
 
                                     <template v-else-if="meituanOrderFlowView.status !== 'empty'">
-                                        <div v-if="meituanOrderFlowView.status === 'partial'" class="rounded-xl border border-yellow-200 bg-yellow-50 px-4 py-3 text-sm text-yellow-800">美团本次只返回了部分方向，已按真实结果展示；未返回的一侧显示「-」。</div>
+                                        <div v-if="meituanOrderFlowView.warningMessage" class="rounded-xl border border-yellow-200 bg-yellow-50 px-4 py-3 text-sm text-yellow-800">{{ meituanOrderFlowView.warningMessage }}</div>
                                         <div data-testid="meituan-order-flow-summary" class="space-y-3">
                                             <div class="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between"><div><h5 class="font-semibold text-gray-900">期间概览</h5><p class="mt-1 text-xs text-gray-500">金额为主指标，订单与间夜为辅助口径</p></div><span class="text-xs text-gray-400"><i class="fas fa-hand-pointer mr-1"></i>点击卡片切换下方明细</span></div>
                                             <div class="grid grid-cols-1 gap-4 lg:grid-cols-2">
@@ -926,7 +926,33 @@
                                         <button @click="queryMeituanStoredData" class="px-4 py-2 bg-blue-500 text-white rounded-lg">
                                             <i class="fas fa-search mr-2"></i>查询
                                         </button>
-                                        <button v-if="['ads', 'keywords'].includes(downloadCenterTab)" data-testid="meituan-download-current-page-csv" @click="downloadMeituanCurrentPageCsv">下载当前页 CSV</button>
+                                        <button v-if="['ads', 'keywords'].includes(downloadCenterTab)" data-testid="meituan-download-current-page-csv" :disabled="onlineDataListLoading || !onlineDataLoadedQuery" @click="downloadMeituanCurrentPageCsv" class="min-h-10 rounded-lg border border-slate-300 px-3 text-sm disabled:opacity-50">导出当前页 CSV</button>
+                                        <button v-if="['ads', 'keywords'].includes(downloadCenterTab)" data-testid="meituan-download-filtered-csv" :disabled="onlineHistoryExporting || onlineDataListLoading || !onlineDataLoadedQuery" @click="downloadMeituanFilteredCsv" class="min-h-10 rounded-lg border border-[#143a31] px-3 text-sm text-[#143a31] disabled:opacity-50">{{ onlineHistoryExporting ? '正在核对并导出…' : '导出筛选结果（最多 2000 条）' }}</button>
+                                    </div>
+
+                                    <div v-if="onlineDataListSnapshotScopeNotice()" role="status" aria-live="polite" data-testid="meituan-stored-data-stale-scope" class="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                                        {{ onlineDataListSnapshotScopeNotice() }}
+                                    </div>
+                                    <div v-else-if="onlineDataListLoading" role="status" aria-live="polite" data-testid="meituan-stored-data-loading" class="mb-4 rounded-lg border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-900">
+                                        正在读取当前酒店、平台、数据类型和营业日期范围的美团已存记录…
+                                    </div>
+                                    <div v-else-if="onlineDataListError" role="alert" data-testid="meituan-stored-data-error" class="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-900">
+                                        美团已存记录读取失败：{{ onlineDataListError }}
+                                    </div>
+                                    <div v-else data-testid="meituan-stored-data-query-results">
+
+                                    <div v-if="downloadCenterTab !== 'traffic'" data-testid="meituan-history-result-scope" class="mb-4 rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
+                                        <div><b>当前结果：</b>{{ onlineHistoryResultScopeText }}</div>
+                                        <div v-if="onlineHistoryQueryChanged" class="mt-1 text-amber-800">筛选条件已修改，点击“查询”后更新结果；现在导出的仍是上面已加载的范围。</div>
+                                        <details v-if="onlineDataLoadedQuery &amp;&amp; !onlineDataListLoading &amp;&amp; !onlineDataListError &amp;&amp; onlineDataList.length" class="mt-2">
+                                            <summary class="cursor-pointer font-medium text-[#143a31]">查看本页保存记录与详情（{{ onlineDataList.length }}）</summary>
+                                            <div class="mt-2 divide-y divide-slate-200">
+                                                <div v-for="row in onlineDataList" :key="row.id" class="flex flex-wrap items-center justify-between gap-2 py-2">
+                                                    <span class="min-w-0 break-words">#{{ row.id }} · {{ row.hotel_name || '未提供酒店名称' }} · {{ row.data_date || '未提供日期' }} · {{ onlineAnalysisDataTypeText(row.data_type) }}</span>
+                                                    <meituan-stored-record-detail :record="row"></meituan-stored-record-detail>
+                                                </div>
+                                            </div>
+                                        </details>
                                     </div>
 
                                     <div v-if="downloadCenterTab === 'all'">
@@ -935,7 +961,7 @@
                                             <span class="font-medium">{{ item.hotel_name || '-' }}</span>
                                             <span>{{ onlineAnalysisDataTypeText(item.data_type) }}</span>
                                             <span>{{ onlineStorageStatusText(item) }}</span>
-                                            <button @click="viewOnlineDataDetail(item)">详情</button>
+                                            <meituan-stored-record-detail :record="item"></meituan-stored-record-detail>
                                         </div>
                                         <div v-if="meituanDownloadData.allRowsCount === 0">暂无美团已存数据</div>
                                     </div>
@@ -988,9 +1014,7 @@
                                                         </td>
                                                         <td class="px-4 py-2 border">{{ item.update_time || item.create_time || '-' }}</td>
                                                         <td class="px-4 py-2 border">
-                                                            <button @click="viewOnlineDataDetail(item)" class="text-blue-500 hover:text-blue-700 mr-2">
-                                                                <i class="fas fa-eye"></i>
-                                                            </button>
+                                                            <meituan-stored-record-detail :record="item"></meituan-stored-record-detail>
                                                             <button v-if="user?.is_super_admin" @click="deleteOnlineDataItem(item.id)" class="text-red-500 hover:text-red-700">
                                                                 <i class="fas fa-trash"></i>
                                                             </button>
@@ -1054,7 +1078,7 @@
                                             <div class="border-t p-3 text-sm">
                                                 <div v-for="item in meituanDownloadData.trafficRows" :key="item.id" :class="mtUi.rawRow">
                                                     <span>{{ item.data_date || '-' }} · {{ onlineAnalysisDataTypeText(item.data_type) }} · {{ item.dimension || item.rank_metric || '-' }} · {{ onlineStorageStatusText(item) }} · {{ item.snapshot_time || item.update_time || item.create_time || '-' }}</span>
-                                                    <span><button @click="viewOnlineDataDetail(item)" class="mr-2 text-blue-600">查看</button><button v-if="user?.is_super_admin" @click="deleteOnlineDataItem(item.id)" class="text-red-500">删除</button></span>
+                                                    <span><meituan-stored-record-detail :record="item"></meituan-stored-record-detail><button v-if="user?.is_super_admin" @click="deleteOnlineDataItem(item.id)" class="text-red-500">删除</button></span>
                                                 </div>
                                                 <p v-if="!meituanDownloadData.trafficRows.length" class="text-center text-gray-400">{{ mtCopy.rawEmpty }}</p>
                                             </div>
@@ -1064,6 +1088,7 @@
 
                                     <!-- 订单线索模块 -->
                                     <div v-if="downloadCenterTab === 'orders'">
+                                        <p class="mb-3 text-xs text-gray-600">当前页已保存的美团渠道样本；字段已取得不代表来源已验证。部分小计不代表完整经营结果。</p>
                                         <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
                                             <div class="bg-blue-50 border border-blue-200 rounded-lg p-4">
                                                 <div class="text-sm text-gray-500 mb-1">线索记录数</div>
@@ -1072,14 +1097,17 @@
                                             <div class="bg-green-50 border border-green-200 rounded-lg p-4">
                                                 <div class="text-sm text-gray-500 mb-1">订单线索量</div>
                                                 <div class="text-2xl font-bold text-green-600">{{ meituanDownloadData.orderBookOrder === null ? '-' : formatNumber(meituanDownloadData.orderBookOrder) }}</div>
+                                                <p class="mt-1 text-xs text-gray-600">{{ meituanDownloadData.orderCoverage.bookOrder.label }}</p>
                                             </div>
                                             <div class="bg-indigo-50 border border-indigo-200 rounded-lg p-4">
                                                 <div class="text-sm text-gray-500 mb-1">间夜量</div>
                                                 <div class="text-2xl font-bold text-indigo-600">{{ meituanDownloadData.orderQuantity === null ? '-' : formatNumber(meituanDownloadData.orderQuantity) }}</div>
+                                                <p class="mt-1 text-xs text-gray-600">{{ meituanDownloadData.orderCoverage.quantity.label }}</p>
                                             </div>
                                             <div class="bg-orange-50 border border-orange-200 rounded-lg p-4">
                                                 <div class="text-sm text-gray-500 mb-1">订单金额</div>
                                                 <div class="text-2xl font-bold text-orange-600">{{ meituanDownloadData.orderAmount === null ? '-' : ('¥' + formatNumber(meituanDownloadData.orderAmount)) }}</div>
+                                                <p class="mt-1 text-xs text-gray-600">{{ meituanDownloadData.orderCoverage.amount.label }}</p>
                                             </div>
                                         </div>
                                         <div class="overflow-x-auto table-container">
@@ -1106,9 +1134,7 @@
                                                         <td class="px-4 py-2 border">{{ Number(item.quantity) &gt; 0 &amp;&amp; item.amount !== null &amp;&amp; item.amount !== undefined &amp;&amp; item.amount !== '' ? ('¥' + toFixedSafe(safeDivide(item.amount, item.quantity), 2)) : '-' }}</td>
                                                         <td class="px-4 py-2 border">{{ item.dimension || '-' }}</td>
                                                         <td class="px-4 py-2 border">
-                                                            <button @click="viewOnlineDataDetail(item)" class="text-blue-500 hover:text-blue-700 mr-2">
-                                                                <i class="fas fa-eye"></i>
-                                                            </button>
+                                                            <meituan-stored-record-detail :record="item"></meituan-stored-record-detail>
                                                             <button v-if="user?.is_super_admin" @click="deleteOnlineDataItem(item.id)" class="text-red-500 hover:text-red-700">
                                                                 <i class="fas fa-trash"></i>
                                                             </button>
@@ -1130,20 +1156,24 @@
                                                 <div class="text-2xl font-bold text-purple-600">{{ meituanDownloadData.reviewRowsCount }}</div>
                                             </div>
                                             <div class="bg-amber-50 border border-amber-200 rounded-lg p-4">
-                                                <div class="text-sm text-gray-500 mb-1">平均点评分</div>
+                                                <div class="text-sm text-gray-500 mb-1">当前页记录评分均值</div>
                                                 <div class="text-2xl font-bold text-amber-600">{{ meituanDownloadData.reviewAverageScore === null ? '-' : toFixedSafe(meituanDownloadData.reviewAverageScore, 1) }}</div>
+                                                <p class="mt-1 text-xs text-gray-600">{{ meituanDownloadData.reviewCoverage.score.label }}</p>
                                             </div>
                                             <div class="bg-emerald-50 border border-emerald-200 rounded-lg p-4">
-                                                <div class="text-sm text-gray-500 mb-1">点评总量</div>
+                                                <div class="text-sm text-gray-500 mb-1">当前页点评数小计</div>
                                                 <div class="text-2xl font-bold text-emerald-600">{{ meituanDownloadData.reviewTotalCount === null ? '-' : formatNumber(meituanDownloadData.reviewTotalCount) }}</div>
+                                                <p class="mt-1 text-xs text-gray-600">{{ meituanDownloadData.reviewCoverage.count.label }}</p>
                                             </div>
                                             <div class="bg-rose-50 border border-rose-200 rounded-lg p-4">
-                                                <div class="text-sm text-gray-500 mb-1">低分/差评数</div>
+                                                <div class="text-sm text-gray-500 mb-1">当前页低分/差评数小计</div>
                                                 <div class="text-2xl font-bold text-rose-600">{{ meituanDownloadData.reviewBadCount === null ? '-' : formatNumber(meituanDownloadData.reviewBadCount) }}</div>
+                                                <p class="mt-1 text-xs text-gray-600">{{ meituanDownloadData.reviewCoverage.badCount.label }}</p>
                                             </div>
                                         </div>
                                         <div class="mb-4 rounded-lg border border-purple-100 bg-purple-50 px-4 py-3 text-xs leading-5 text-purple-800">
                                             点评页只读取已入库的美团 OTA 聚合指标：评分、点评数量、低分/差评数量和质量状态；不展示点评正文、客户姓名、手机号、订单号或匿名身份匹配候选。
+                                            卡片仅统计当前页记录，评分为已取得记录评分的算术均值；各日期和维度的聚合范围可能重叠，小计不代表去重后的平台点评总量。字段已取得不代表来源已验证。
                                         </div>
                                         <div class="overflow-x-auto table-container">
                                             <table class="min-w-full bg-white border table-striped">
@@ -1164,7 +1194,7 @@
                                                     <tr v-for="item in meituanDownloadData.reviewRows" :key="item.id" class="border-b hover:bg-gray-50">
                                                         <td class="px-4 py-2 border">{{ item.hotel_name }}</td>
                                                         <td class="px-4 py-2 border">{{ item.data_date }}</td>
-                                                        <td class="px-4 py-2 border">{{ item.review_score_value === null ? '-' : toFixedSafe(item.review_score_value, 1) }}</td>
+                                                        <td class="px-4 py-2 border">{{ item.review_score_status === 'invalid' ? '评分异常' : item.review_score_value === null ? '-' : toFixedSafe(item.review_score_value, 1) }}</td>
                                                         <td class="px-4 py-2 border">{{ item.review_count_value === null ? '-' : formatNumber(item.review_count_value) }}</td>
                                                         <td class="px-4 py-2 border">{{ item.bad_review_count_value === null ? '-' : formatNumber(item.bad_review_count_value) }}</td>
                                                         <td class="px-4 py-2 border">{{ item.review_dimension_label || '-' }}</td>
@@ -1173,9 +1203,7 @@
                                                         </td>
                                                         <td class="px-4 py-2 border">{{ item.update_time || item.create_time || '-' }}</td>
                                                         <td class="px-4 py-2 border">
-                                                            <button @click="viewOnlineDataDetail(item)" class="text-blue-500 hover:text-blue-700 mr-2">
-                                                                <i class="fas fa-eye"></i>
-                                                            </button>
+                                                            <meituan-stored-record-detail :record="item"></meituan-stored-record-detail>
                                                             <button v-if="user?.is_super_admin" @click="deleteOnlineDataItem(item.id)" class="text-red-500 hover:text-red-700">
                                                                 <i class="fas fa-trash"></i>
                                                             </button>
@@ -1189,10 +1217,11 @@
                                         </div>
                                     </div>
 
-                                    <meituan-search-keyword-workbench v-if="downloadCenterTab === 'keywords'" data-testid="meituan-search-keyword-workbench" :rows="meituanDownloadData.keywordRows" :format-row="formatMeituanKeywordRow" @view="viewOnlineDataDetail"></meituan-search-keyword-workbench>
+                                    <meituan-search-keyword-workbench v-if="downloadCenterTab === 'keywords'" data-testid="meituan-search-keyword-workbench" :rows="meituanDownloadData.keywordRows" :format-row="formatMeituanKeywordRow"></meituan-search-keyword-workbench>
 
                                     <!-- 广告数据模块 -->
                                     <div v-if="downloadCenterTab === 'ads'">
+                                        <p class="mb-3 text-xs text-gray-600">当前页已保存的美团渠道样本；字段已取得不代表来源已验证。部分小计不代表完整经营结果。</p>
                                         <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
                                             <div class="bg-red-50 border border-red-200 rounded-lg p-4">
                                                 <div class="text-sm text-gray-500 mb-1">广告记录数</div>
@@ -1201,14 +1230,17 @@
                                             <div class="bg-blue-50 border border-blue-200 rounded-lg p-4">
                                                 <div class="text-sm text-gray-500 mb-1">曝光量</div>
                                                 <div class="text-2xl font-bold text-blue-600">{{ meituanDownloadData.adsExposure === null ? '-' : formatNumber(meituanDownloadData.adsExposure) }}</div>
+                                                <p class="mt-1 text-xs text-gray-600">{{ meituanDownloadData.adsCoverage.exposure.label }}</p>
                                             </div>
                                             <div class="bg-green-50 border border-green-200 rounded-lg p-4">
                                                 <div class="text-sm text-gray-500 mb-1">点击量</div>
                                                 <div class="text-2xl font-bold text-green-600">{{ meituanDownloadData.adsClick === null ? '-' : formatNumber(meituanDownloadData.adsClick) }}</div>
+                                                <p class="mt-1 text-xs text-gray-600">{{ meituanDownloadData.adsCoverage.click.label }}</p>
                                             </div>
                                             <div class="bg-orange-50 border border-orange-200 rounded-lg p-4">
                                                 <div class="text-sm text-gray-500 mb-1">点击率</div>
                                                 <div class="text-2xl font-bold text-orange-600">{{ meituanDownloadData.adsClickRate === null ? '-' : (toFixedSafe(meituanDownloadData.adsClickRate, 2) + '%') }}</div>
+                                                <p class="mt-1 text-xs text-gray-600">{{ meituanDownloadData.adsRateNotice }}</p>
                                             </div>
                                         </div>
                                         <div class="overflow-x-auto table-container">
@@ -1235,9 +1267,7 @@
                                                         <td class="px-4 py-2 border">{{ item.dimension || '-' }}</td>
                                                         <td class="px-4 py-2 border">{{ item.create_time }}</td>
                                                         <td class="px-4 py-2 border">
-                                                            <button @click="viewOnlineDataDetail(item)" class="text-blue-500 hover:text-blue-700 mr-2">
-                                                                <i class="fas fa-eye"></i>
-                                                            </button>
+                                                            <meituan-stored-record-detail :record="item"></meituan-stored-record-detail>
                                                             <button v-if="user?.is_super_admin" @click="deleteOnlineDataItem(item.id)" class="text-red-500 hover:text-red-700">
                                                                 <i class="fas fa-trash"></i>
                                                             </button>
@@ -1245,7 +1275,7 @@
                                                     </tr>
                                                     <tr v-if="meituanDownloadData.adsRowsCount === 0">
                                                         <td colspan="8" class="px-4 py-8 text-center text-gray-400">
-                                                            {{ isMeituanAdsNotApplicableForHotel(onlineDataFilter.hotel_id || meituanForm.hotelId) ? '当前酒店未开通美团广告服务（不适用）' : '暂无美团广告数据' }}
+                                                            {{ isMeituanAdsNotApplicableForHotel(onlineDataLoadedQuery?.params?.system_hotel_id) ? '当前酒店未开通美团广告服务（不适用）' : '暂无美团广告数据' }}
                                                         </td>
                                                     </tr>
                                                 </tbody>
@@ -1259,6 +1289,7 @@
                                             <button type="button" @click="changeOnlineDataPage(onlineDataPage - 1)" :disabled="onlineDataPage &lt;= 1" class="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm text-gray-700 disabled:bg-gray-100 disabled:text-gray-400">上一页</button>
                                             <button type="button" @click="changeOnlineDataPage(onlineDataPage + 1)" :disabled="onlineDataPage * onlineDataPagination.page_size &gt;= onlineDataPagination.total" class="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm text-gray-700 disabled:bg-gray-100 disabled:text-gray-400">下一页</button>
                                         </div>
+                                    </div>
                                     </div>
 
 

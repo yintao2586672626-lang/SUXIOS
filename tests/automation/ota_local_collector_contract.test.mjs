@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import { readAppMainContractSource } from './helpers/frontend_source.mjs';
+import { loadSystemStaticApi } from './helpers/system_static_api.mjs';
 import {
   accountProfileDirectoryName,
   buildCaptureResultSummary,
@@ -375,6 +376,7 @@ test('waiting local login is visible on the exact original task without claiming
     'localCollectorStatusText',
     'localCollectorStatusClass',
     'getHotelNameById',
+    'appSystemStatic',
     `${rowsSource}
 return { localCollectorHasPollableTasks, localCollectorLoginTaskRows };`,
   )(
@@ -384,6 +386,7 @@ return { localCollectorHasPollableTasks, localCollectorLoginTaskRows };`,
     status => ({ waiting_user_login: '等待本机登录' }[status] || status),
     () => 'status-class',
     hotelId => ({ 80: '敦煌漠蓝新' }[hotelId] || ''),
+    loadSystemStaticApi(),
   );
 
   assert.equal(result.localCollectorHasPollableTasks.value, true);

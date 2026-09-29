@@ -304,13 +304,24 @@ test('home entry opens exact fact or intent and refreshes from execution readbac
   assert.doesNotMatch(appMain, /const homeOperatingSchedulePromise = requestPage === 'compass'/);
 });
 
+// These caller units keep their original non-reactive ref ports; the new
+// weekly_plan_history test separately exercises real Vue scope invalidation.
+const weeklyReadPorts = getHotelId => ({
+  watchEffect: effect => effect(),
+  captureReadContext: () => {
+    const hotelId = getHotelId();
+    return () => getHotelId() === hotelId;
+  },
+});
+
 test('weekly plan missing snapshot is empty while unrelated HTTP failures remain errors', async () => {
   let failure;
   const controller = createHomeWeeklyOperatingPlanController({
     ref: value => ({ value }),
+    ...weeklyReadPorts(() => '5'),
     apiRequest: async () => {
       if (failure) throw failure;
-      return { code: 200, data: { hotel_id: 5, week_end: '2026-08-23', status: 'not_generated', readback_verified: false } };
+      return { code: 200, data: { tenant_id: 9, hotel_id: 5, week_start: '2026-08-17', week_end: '2026-08-23', status: 'not_generated', readback_verified: false } };
     },
     getHotelId: () => '5',
     getToday: () => '2026-08-29',
@@ -322,7 +333,7 @@ test('weekly plan missing snapshot is empty while unrelated HTTP failures remain
   for (const [status, message] of [[404, 'route_not_found'], [403, 'permission_denied'], [503, 'database_unavailable']]) {
     failure = Object.assign(new Error(message), { status, data: { code: status, message } });
     assert.equal(await controller.loadHomeWeeklyOperatingPlan(), false);
-    assert.equal(controller.homeWeeklyOperatingPlanError.value, message);
+    assert.equal(controller.homeWeeklyOperatingPlanError.value, '所选周计划读取失败，请重试；未显示其他周期快照。');
   }
 });
 
@@ -330,6 +341,7 @@ test('late weekly snapshot failure cannot overwrite a newly selected hotel', asy
   let reject, hotel = '5';
   const controller = createHomeWeeklyOperatingPlanController({
     ref: value => ({ value }),
+    ...weeklyReadPorts(() => hotel),
     apiRequest: () => new Promise((resolve, no) => { reject = no; }),
     getHotelId: () => hotel,
     getToday: () => '2026-08-29',
@@ -349,10 +361,13 @@ test('weekly plan refresh failure preserves the last verified same-scope snapsho
   let fail = false;
   const controller = createHomeWeeklyOperatingPlanController({
     ref,
+    ...weeklyReadPorts(() => '5'),
     apiRequest: async () => fail
       ? { code: 503, message: '临时超时' }
       : { code: 200, data: {
           readback_verified: true,
+          tenant_id: 9,
+          version_no: 1,
           hotel_id: 5,
           week_start: '2026-08-17',
           week_end: '2026-08-23',
@@ -369,5 +384,5 @@ test('weekly plan refresh failure preserves the last verified same-scope snapsho
   fail = true;
   assert.equal(await controller.loadHomeWeeklyOperatingPlan({ hotelId: 5, weekEnd: '2026-08-23' }), false);
   assert.equal(controller.homeWeeklyOperatingPlan.value, verified);
-  assert.match(controller.homeWeeklyOperatingPlanError.value, /刷新失败，保留上次已验证周计划/);
+  assert.match(controller.homeWeeklyOperatingPlanError.value, /刷新失败，保留同周期上次已保存快照/);
 });

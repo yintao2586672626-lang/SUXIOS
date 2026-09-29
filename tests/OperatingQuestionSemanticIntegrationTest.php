@@ -70,6 +70,62 @@ final class OperatingQuestionSemanticIntegrationTest extends TestCase
         );
     }
 
+    public function testConflictingStoredPlatformAndSourceCannotEnterMeituanFactReadback(): void
+    {
+        Db::name('online_daily_data')->insert([
+            'id' => 102477, 'tenant_id' => 10, 'system_hotel_id' => 80,
+            'data_date' => '2026-08-23', 'platform' => 'meituan', 'source' => 'ctrip',
+            'data_type' => 'traffic', 'dimension' => 'hotel',
+            'validation_status' => 'verified', 'history_status' => 'success',
+            'readback_verified' => 1, 'ingestion_method' => 'browser_capture',
+            'source_trace_id' => 'trace-conflicting-platform', 'snapshot_time' => '2026-08-24 23:18:30',
+            'list_exposure' => 1422,
+        ]);
+        $facts = (new OperatingQuestionService())->readCurrentVerifiedFactsForRefs(
+            10, 80, 'meituan', '2026-08-23', '2026-08-23', ['online_daily_data#102477']
+        );
+        self::assertSame([], $facts);
+        Db::name('online_daily_data')->insertAll([[
+            'id' => 102478, 'tenant_id' => 10, 'system_hotel_id' => 80,
+            'data_date' => '2026-08-23', 'platform' => null, 'source' => 'meituan',
+            'data_type' => 'traffic', 'validation_status' => 'verified',
+            'history_status' => 'success', 'readback_verified' => 1,
+        ], [
+            'id' => 102479, 'tenant_id' => 10, 'system_hotel_id' => 80,
+            'data_date' => '2026-08-23', 'platform' => 'meituan', 'source' => null,
+            'data_type' => 'traffic', 'validation_status' => 'verified',
+            'history_status' => 'success', 'readback_verified' => 1,
+        ]]);
+        $legacy = (new OperatingQuestionService())->readCurrentVerifiedFactsForRefs(
+            10, 80, 'meituan', '2026-08-23', '2026-08-23',
+            ['online_daily_data#102478', 'online_daily_data#102479']
+        );
+        self::assertCount(2, $legacy);
+    }
+
+    public function testQunarSubchannelStoredByCtripCollectorRemainsQunarFact(): void
+    {
+        Db::name('online_daily_data')->insert([
+            'id' => 102480, 'tenant_id' => 10, 'system_hotel_id' => 80,
+            'data_date' => '2026-08-23', 'platform' => 'qunar', 'source' => 'ctrip',
+            'data_type' => 'traffic', 'dimension' => 'hotel',
+            'validation_status' => 'verified', 'history_status' => 'success',
+            'readback_verified' => 1, 'ingestion_method' => 'browser_capture',
+            'source_trace_id' => 'trace-qunar-subchannel', 'snapshot_time' => '2026-08-24 23:18:30',
+            'list_exposure' => 1422,
+        ]);
+        $service = new OperatingQuestionService();
+        $qunar = $service->readCurrentVerifiedFactsForRefs(
+            10, 80, 'qunar', '2026-08-23', '2026-08-23', ['online_daily_data#102480']
+        );
+        $ctrip = $service->readCurrentVerifiedFactsForRefs(
+            10, 80, 'ctrip', '2026-08-23', '2026-08-23', ['online_daily_data#102480']
+        );
+        self::assertCount(1, $qunar);
+        self::assertSame('qunar', $qunar[0]['platform']);
+        self::assertSame([], $ctrip);
+    }
+
     public function testProductionFactAdapterMetricDefinitionsFeedExposureToVisitReadback(): void
     {
         $rawData = json_encode([
@@ -145,6 +201,60 @@ final class OperatingQuestionSemanticIntegrationTest extends TestCase
             $result['precise_result']['metric_readback']['values'][0]['source_paths']
         );
         self::assertSame(['online_daily_data#102476'], $result['used_evidence_refs']);
+    }
+
+    public function testAnalysisVerbDoesNotHideUnregisteredMetrics(): void
+    {
+        $method = new \ReflectionMethod(OperatingQuestionService::class, 'unmatchedQuantitativeMetricTerm');
+        $service = new OperatingQuestionService();
+        self::assertSame('', $method->invoke($service, '请分析美团经营情况并给出复核建议'));
+        self::assertNotSame('', $method->invoke($service, '请分析美团利润率'));
+        self::assertNotSame('', $method->invoke($service, '请分析美团竞争力分'));
+    }
+
+    public function testAdvisoryQuestionSkipsRedundantPlannerButKeepsSelectedAnswerModel(): void
+    {
+        $facts = $this->hotel80MeituanTrafficFacts();
+        $plannerCalls = 0;
+        $answerModelKeys = [];
+        $tools = new \app\service\OperatingQuestionToolCallingService(
+            static function () use (&$plannerCalls): array {
+                $plannerCalls++;
+                return ['tool_calls' => []];
+            },
+            new \app\service\OperatingQuestionUnifiedEvidenceService(
+                static fn(): array => ['status' => 'no_match', 'items' => []],
+                static fn(): array => ['status' => 'no_match', 'items' => []]
+            )
+        );
+        $service = new OperatingQuestionService(
+            static fn(): array => [
+                'facts' => $facts, 'fact_count' => 1,
+                'fact_platform_counts' => ['meituan' => 1],
+                'fact_platform_dates' => ['meituan' => ['2026-08-23']],
+                'memories' => [], 'diagnoses' => [], 'knowledge' => [], 'executions' => [],
+            ],
+            static function (array $payload) use (&$answerModelKeys): array {
+                $answerModelKeys[] = $payload['model_key'];
+                return ['ok' => false, 'status' => 'failed', 'reason' => 'synthetic_answer_failure'];
+            },
+            null,
+            null,
+            static fn(array $payload): array => $tools->run(
+                $payload['scope'], $payload['question'], $payload['model_key'],
+                $payload['media_evidence_ids'], $payload['model_selection_allowed']
+            )
+        );
+        $created = $service->create(10, 80, '请分析美团经营情况并给出复核建议', 'meituan', '2026-08-23', '2026-08-23', 7, 'ollama_qwen3_8b');
+        self::assertSame(['ollama_qwen3_8b'], $answerModelKeys, json_encode($created['question']['answer']['data_gaps'], JSON_UNESCAPED_UNICODE));
+        self::assertSame(0, $plannerCalls);
+        $answer = $created['question']['answer'];
+        self::assertSame('deterministic_policy', $answer['tool_calling']['selection_mode']);
+        self::assertCount(2, $answer['tool_calling']['tool_call_receipts']);
+        self::assertSame(['online_daily_data#102476'], $created['question']['fact_refs']);
+        $readback = $service->read((int)$created['question']['id'], 10, [80]);
+        self::assertSame($answer, $readback['answer']);
+        self::assertSame($created['question']['content_digest'], $readback['content_digest']);
     }
 
     public function testPreciseMetricIsSavedReadBackIdempotentlyAndSkipsAi(): void

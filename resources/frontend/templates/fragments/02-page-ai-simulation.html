@@ -3,6 +3,16 @@
                             <simulation-hero-actions data-testid="simulation-hotel-selector" :request="managerCapabilityRequest" v-model:hotel-id="aiSimulationParams.hotel_id" :hotels="operationHotelOptions" :hotel-valid="simulationHotelSelectionValid" :loading="aiSimulationLoading" @run="handleSimulation" @refresh="loadSimulationRecords" @open-finance="currentPage = 'operating-finance'"></simulation-hero-actions>
                         </div>
 
+                        <section class="mb-5 rounded-xl border border-cyan-100 bg-cyan-50 p-4 text-sm text-cyan-900" data-testid="simulation-record-context">
+                            <template v-if="simulationDraft.record">
+                                <p class="font-semibold">{{ simulationDraft.dirty ? '基于记录 #' + simulationDraft.record.id + ' 的未保存修改' : '当前已读取记录 #' + simulationDraft.record.id }} · {{ simulationDraft.record.name || '名称未记录' }}</p>
+                                <p class="mt-1 text-xs">已存酒店：{{ simulationDraft.record.hotelId ? (getHotelNameById(simulationDraft.record.hotelId) || '酒店 #' + simulationDraft.record.hotelId) : '未绑定酒店' }} · 保存时间：{{ simulationDraft.record.savedAt || '未记录' }}</p>
+                                <p v-if="simulationDraft.record.hasScenario" class="mt-1 text-xs">已存情景起始月：{{ simulationDraft.record.scenarioStart || '未记录' }} · 期数：{{ simulationDraft.record.scenarioMonths ?? '未记录' }} 个月（情景假设期，不是保存日期）</p>
+                            </template>
+                            <p v-else>当前输入未关联已保存记录；本地恢复的输入或结果不代表已精确读取某条记录。</p>
+                            <p class="mt-1 text-xs">参数和名称修改后另存为新记录，原记录保留；保存不代表输入或经营事实已核验。</p>
+                        </section>
+
                         <div class="grid grid-cols-1 xl:grid-cols-12 gap-6">
                             <div class="xl:col-span-5 space-y-5 min-w-0">
                                 <section class="bg-white rounded-xl border border-gray-100 p-5" data-testid="operating-scenario-input">
@@ -26,7 +36,10 @@
                                         </div>
                                         <p class="text-xs text-gray-500">贷款为等额本金、首月开始还款。租金、人工、能耗及其他成本见下方月成本；装修等见投资参数。现有酒店只填本次希望收回的投资，零值需明确输入。</p>
                                     </div>
-                                    <p v-else class="text-xs text-gray-500">当前为旧版单月测算。旧记录不补造融资、爬坡或现金数据；启用后补齐再保存。</p>
+                                    <div v-else class="space-y-3">
+                                        <label class="block text-xs text-gray-600">方案名称（修改后另存为新记录，原方案保留）<input v-model.trim="simulationDraft.name" maxlength="80" class="w-full border rounded-lg p-2 mt-1" data-testid="simulation-legacy-name"></label>
+                                        <p class="text-xs text-gray-500">当前为旧版单月测算。旧记录不补造融资、爬坡或现金数据；启用后补齐再保存。</p>
+                                    </div>
                                 </section>
                                 <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
                                     <div class="flex items-center justify-between gap-3 mb-4">
@@ -199,7 +212,7 @@
                                         <h3 class="font-bold text-gray-800">三情景模拟 · 单月稳态</h3>
                                         <span v-if="baseSimulation" :class="['px-2 py-1 rounded text-xs border', riskBadgeClass(baseSimulation.riskLevel)]">{{ baseSimulation.riskLevel }}</span>
                                     </div>
-                                    <p class="text-xs text-gray-500 mb-3">下表回本为总投资÷单月净现金流，未计融资和爬坡；保守/乐观分别调整ADR ±20元、入住率 ±10个百分点、其他月收入 ±1700元，并非概率预测。经营约束的逐月结果见下方。</p>
+                                    <p class="text-xs text-gray-500 mb-3">下表回本为总投资÷单月净现金流，未计融资和爬坡；当前模型的保守情景调整ADR -20元、入住率 -10个百分点、其他月收入 -1700元；乐观情景分别 +20元、+8个百分点、+2000元，按有效范围截断，并非概率预测。历史记录未保存公式版本时不据此推定其计算参数。经营约束的逐月结果见下方。</p>
                                     <div class="overflow-x-auto">
                                         <table class="min-w-full text-sm">
                                             <thead>
@@ -267,7 +280,8 @@
                                 <section class="bg-white rounded-xl border border-gray-100 p-5 space-y-3" data-testid="scenario-comparison">
                                     <h3 class="font-bold text-gray-800">已保存方案比较</h3>
                                     <p class="text-xs text-gray-500">在历史记录中选2–4份方案；须同酒店、案例类型、起始月和期限。每份从保存记录精确回读。</p>
-                                    <p class="text-xs">已选 {{ simulationComparisonRecords.length }} 份 <button v-if="simulationComparisonRecords.length" @click="clearSimulationComparison" class="underline">清空选择</button></p>
+                                    <p class="text-xs">已选 {{ simulationComparisonRecords.length }} 份 <button v-if="simulationComparisonRecords.length || simulationComparisonLoading" @click="clearSimulationComparison" data-testid="simulation-comparison-clear" class="underline">{{ simulationComparisonLoading ? '取消读取并清空' : '清空选择' }}</button></p>
+                                    <p v-if="simulationComparisonLoading" role="status" data-testid="simulation-comparison-loading" class="text-xs text-blue-700">正在读取保存记录，请稍候再选择其他方案。</p>
                                     <p v-if="simulationComparisonError" role="alert" class="text-sm text-red-600">{{ simulationComparisonError }}</p>
                                     <div v-if="simulationComparisonRows.length" class="overflow-x-auto"><table class="min-w-full text-sm"><thead><tr><th class="p-2 text-left">方案/记录</th><th class="p-2">月租金</th><th class="p-2">人工/能耗</th><th class="p-2">装修</th><th class="p-2">贷款/爬坡月</th><th class="p-2">股东回本</th><th class="p-2">额外现金缺口</th><th class="p-2">期末现金</th></tr></thead><tbody>
                                         <tr v-for="row in simulationComparisonRows" :key="row.id"><td class="p-2">{{ row.name }} #{{ row.id }}</td><td class="p-2">{{ formatCurrency(row.input.monthlyRent) }}</td><td class="p-2">{{ formatCurrency(row.input.laborCost) }} / {{ formatCurrency(row.input.utilityCost) }}</td><td class="p-2">{{ formatCurrency(row.input.decorationInvestment) }}</td><td class="p-2">{{ formatCurrency(row.input.operatingScenario.loan_amount) }} / {{ row.input.operatingScenario.ramp_months }}</td><td class="p-2">{{ operatingPaybackText(row.equity_payback) }}</td><td class="p-2">{{ formatCurrency(row.additional_cash_gap) }}</td><td class="p-2">{{ formatCurrency(row.ending_cash_balance) }}</td></tr>
@@ -344,9 +358,9 @@
                                 <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
                                     <div class="flex items-center justify-between mb-4">
                                         <h3 class="font-bold text-gray-800">历史模拟记录</h3>
-                                        <span class="text-xs text-gray-400">{{ aiSimulationRecords.length }} 条</span>
+                                        <span class="text-xs text-gray-400">已显示 {{ simulationHistoryState.loaded ? aiSimulationRecords.length : 0 }} 条</span>
                                     </div>
-                                    <div v-if="aiSimulationRecords.length" class="divide-y divide-gray-100">
+                                    <div v-if="simulationHistoryState.loaded && aiSimulationRecords.length" class="divide-y divide-gray-100">
                                         <div v-for="record in aiSimulationRecords" :key="record.id" class="py-3 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
                                             <div>
                                                 <div class="font-medium text-gray-900">{{ record.project_name || '量化模拟项目' }}</div>
@@ -356,14 +370,23 @@
                                                 <span :class="['px-2 py-1 rounded text-xs border', riskBadgeClass(record.risk_level)]">{{ record.risk_level || '-' }}</span>
                                                 <span v-if="record.execution_readiness" :class="['px-2 py-1 rounded text-xs border whitespace-nowrap', simulationReadinessBadgeClass(record.execution_readiness.stage)]">{{ record.execution_readiness.status_label }}</span>
                                                 <button @click="loadSimulationDetail(record.id)" :data-testid="`history-simulation-view-${record.id}`" class="px-3 py-1.5 rounded-lg border border-gray-200 text-gray-600 text-xs hover:bg-gray-50">查看</button>
+                                                <button @click="downloadSimulationRecord(record)" :disabled="!!simulationExportLoadingId" :data-testid="`history-simulation-export-${record.id}`" class="px-3 py-1.5 rounded-lg border border-gray-200 text-gray-600 text-xs hover:bg-gray-50 disabled:opacity-50">{{ simulationExportLoadingId === record.id ? '导出中...' : '导出测算报告' }}</button>
                                                 <button @click="reuseSimulationRecord(record)" :data-testid="`history-simulation-reuse-${record.id}`" class="px-3 py-1.5 rounded-lg bg-blue-600 text-white text-xs hover:bg-blue-700">复用输入</button>
-                                                <button v-if="record.summary?.operatingScenario" @click="toggleSimulationComparison(record)" :data-testid="`history-simulation-compare-${record.id}`" class="px-3 py-1.5 rounded-lg border text-xs">{{ simulationComparisonRecords.some(item => item.id === record.id) ? '移出比较' : '加入比较' }}</button>
+                                                <button v-if="record.summary?.operatingScenario" @click="toggleSimulationComparison(record)" :disabled="simulationComparisonLoading" :data-testid="`history-simulation-compare-${record.id}`" class="px-3 py-1.5 rounded-lg border text-xs disabled:opacity-50">{{ simulationComparisonRecords.some(item => item.id === record.id) ? '移出比较' : '加入比较' }}</button>
                                                 <button @click="createSimulationExecutionIntent(record)" :disabled="simulationTaskDisabled(record)" :data-testid="`history-simulation-task-${record.id}`">{{ simulationTaskLabel(record) }}</button>
-                                                <button v-if="canArchiveSim(record)" @click="archiveSim(record)" :data-testid="`history-simulation-archive-${record.id}`" class="btn-danger">归档</button>
+                                                <button v-if="canArchiveSim(record)" @click="archiveSim(record)" :disabled="!!simulationArchivePending[record.id]" :data-testid="`history-simulation-archive-${record.id}`" class="btn-danger disabled:opacity-50">{{ simulationArchivePending[record.id] ? '归档中...' : '归档' }}</button>
                                             </div>
                                         </div>
                                     </div>
-                                    <div v-else="" class="py-8 text-center text-gray-400">暂无历史记录</div>
+                                    <div v-else-if="simulationHistoryState.loaded && !simulationHistoryState.loading && !simulationHistoryState.error" class="py-8 text-center text-gray-400">暂无可访问的历史记录</div>
+                                    <div class="mt-3 space-y-2 text-xs" data-testid="simulation-history-pagination">
+                                        <p v-if="simulationHistoryState.loading" class="text-gray-500" role="status">正在读取历史记录…</p>
+                                        <p v-else-if="simulationHistoryState.error" class="text-red-600" role="alert">{{ simulationHistoryState.error }}</p>
+                                        <p v-else-if="!simulationHistoryState.loaded" class="text-gray-500">尚未读取历史记录，请刷新历史。</p>
+                                        <p v-else-if="simulationHistoryState.hasMore === null" class="text-amber-700">分页信息未返回，暂不能继续读取；可刷新历史重试。</p>
+                                        <p v-else-if="!simulationHistoryState.hasMore" class="text-gray-500">已读取当前可访问范围的全部记录。</p>
+                                        <button v-if="simulationHistoryState.hasMore === true" @click="loadSimulationRecords({ append: true })" :disabled="simulationHistoryState.loading" data-testid="simulation-history-more" class="px-3 py-2 rounded-lg border border-gray-200 text-gray-700 disabled:opacity-50">加载更早记录</button>
+                                    </div>
                                 </div>
 
                             </div>

@@ -69,21 +69,20 @@ class RevenueResearch extends Base
             }
 
             $actorId = (int)($this->currentUser->id ?? 0);
-            $artifactService = new RevenueResearchExecutionArtifactService();
-            $research = $artifactService->consume($artifactId, $actorId, $hotelId);
-            $overrides = ['hotel_id' => $hotelId];
-            $researchService = new RevenueResearchService();
-            $operationService = new OperationManagementService();
-            $intentInput = $researchService->buildReadyExecutionIntentInput($research, $overrides);
-            $researchService->assertNoDuplicateExecutionIntent($intentInput, $this->existingExecutionIntentRows($intentInput, $hotelId));
-            $intent = $operationService->createExecutionIntent(
-                $hotelIds,
-                $hotelId,
-                $intentInput,
+            $artifactService = $this->executionArtifactService();
+            $researchService = $this->executionResearchService();
+            $operationService = $this->executionOperationService();
+            $intent = $artifactService->resolveExecutionIntent(
+                $artifactId,
                 $actorId,
-                false,
-                null,
-                true
+                $hotelId,
+                fn(string $key): ?array => $operationService->readExecutionIntentByIdempotencyKey($key, $hotelIds),
+                function (array $research, string $key, array $provenance) use ($researchService, $operationService, $hotelIds, $hotelId, $actorId): array {
+                    $intentInput = $researchService->buildReadyExecutionIntentInput($research, ['hotel_id' => $hotelId]);
+                    $researchService->assertNoDuplicateExecutionIntent($intentInput, $this->existingExecutionIntentRows($intentInput, $hotelId));
+                    $intentInput['evidence']['revenue_research_artifact'] = $provenance;
+                    return $operationService->createExecutionIntent($hotelIds, $hotelId, $intentInput, $actorId, false, $key, true);
+                }
             );
 
             return $this->success([
@@ -100,6 +99,21 @@ class RevenueResearch extends Base
         }
     }
 
+    protected function executionArtifactService(): RevenueResearchExecutionArtifactService
+    {
+        return new RevenueResearchExecutionArtifactService();
+    }
+
+    protected function executionResearchService(): RevenueResearchService
+    {
+        return new RevenueResearchService();
+    }
+
+    protected function executionOperationService(): OperationManagementService
+    {
+        return new OperationManagementService();
+    }
+
     /**
      * @param array<string, mixed> $intentInput
      * @return array<int, array<string, mixed>>
@@ -112,14 +126,21 @@ class RevenueResearch extends Base
             return [];
         }
 
+        $tenantId = (int)Db::name('hotels')->where('id', $hotelId)->value('tenant_id');
+        if ($tenantId <= 0) {
+            throw new RuntimeException('current hotel tenant is required for revenue research intent linkage', 422);
+        }
+        $today = (new \DateTimeImmutable('now', new \DateTimeZone('Asia/Shanghai')))->format('Y-m-d');
+
         return Db::name('operation_execution_intents')
             ->where('source_module', $sourceModule)
             ->where('source_record_id', $sourceRecordId)
             ->where('hotel_id', $hotelId)
+            ->where('tenant_id', $tenantId)
+            ->where('date_end', '>=', $today)
             ->whereNull('deleted_at')
-            ->field('id,source_module,source_record_id,hotel_id,status,deleted_at')
+            ->field('id,source_module,source_record_id,hotel_id,date_end,status,deleted_at')
             ->order('id', 'desc')
-            ->limit(1)
             ->select()
             ->toArray();
     }

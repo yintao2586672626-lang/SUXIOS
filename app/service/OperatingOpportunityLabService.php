@@ -936,8 +936,8 @@ final class OperatingOpportunityLabService
             || (int)($intent['source_record_id'] ?? 0) !== (int)$run['id']
             || (string)($card['contract_version'] ?? '') !== OperationActionLifecycleService::DAILY_CARD_CONTRACT_VERSION
             || !hash_equals((string)$selected['content_digest'], (string)($card['trace']['daily_selection_digest'] ?? ''))
-            || !in_array($status, ['pending_approval', 'approved'], true)
-            || ($status === 'pending_approval' && $tasks !== [])
+            || !in_array($status, ['pending_approval', 'approved', 'blocked'], true)
+            || (in_array($status, ['pending_approval', 'blocked'], true) && $tasks !== [])
             || ($status === 'approved' && count($tasks) !== 1)
         ) {
             throw new RuntimeException('每日一件事保存后生命周期精确回读失败');

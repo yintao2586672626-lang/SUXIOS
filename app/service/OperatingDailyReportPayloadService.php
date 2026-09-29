@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace app\service;
 
 use DateTimeImmutable;
+use DateTimeZone;
 use think\facade\Db;
 
 /**
@@ -1517,8 +1518,7 @@ final class OperatingDailyReportPayloadService
                     ->where('source', $source)
                     ->where('data_type', $dataType)
                     ->where('data_period', $period)
-                    ->where('is_final', $isFinal)
-                    ->where('readback_verified', 1);
+                    ->where('is_final', $isFinal);
                 if ($dimension !== null) {
                     $query->where('dimension', $dimension);
                 } else {
@@ -1548,6 +1548,14 @@ final class OperatingDailyReportPayloadService
                         return $row;
                     }
                     $this->rowResolutionFailures[$failureKey] ??= $rejection;
+                    if (in_array($rejection, [
+                        'readback_not_verified',
+                        'validation_status_untrusted',
+                        'blocking_validation_flag',
+                    ], true)
+                        || ($source === 'meituan' && $rejection === 'business_date_source_untrusted')) {
+                        return null;
+                    }
                 }
             }
             return null;
@@ -1563,7 +1571,8 @@ final class OperatingDailyReportPayloadService
      */
     private function otaPeriodRoles(string $businessDate): array
     {
-        $today = (new DateTimeImmutable('today'))->format('Y-m-d');
+        $today = (new DateTimeImmutable('today', new DateTimeZone('Asia/Shanghai')))
+            ->format('Y-m-d');
         if ($businessDate > $today) {
             return [];
         }
@@ -1635,6 +1644,10 @@ final class OperatingDailyReportPayloadService
             true
         )) {
             return 'validation_status_untrusted';
+        }
+        if ($source === 'meituan' && in_array($dataType, ['traffic', 'business'], true)
+            && !OtaTrafficAttributionService::rowDateScopeIsAuthoritative($row, 'meituan')) {
+            return 'business_date_source_untrusted';
         }
         foreach (['status', 'save_status'] as $field) {
             $status = strtolower(trim((string)($row[$field] ?? '')));

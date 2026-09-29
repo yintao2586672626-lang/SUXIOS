@@ -7,11 +7,13 @@ use app\service\OnlineDailyDataPersistenceService;
 use app\service\OnlineDataFieldFactService;
 use app\service\OnlineDataTrustStatusService;
 use app\service\OnlineTrafficDataExtractionService;
+use app\service\OtaReadDateRangeService;
 use think\Response;
 use think\facade\Db;
 
 trait OnlineDataAnalyticsConcern
 {
+    use OnlineDataAnalysisEvidenceConcern;
     /**
      * 获取酒店列表（用于筛选）- 根据用户权限过滤
      */
@@ -42,6 +44,7 @@ trait OnlineDataAnalyticsConcern
                     return $this->success([]);
                 }
                 $query->whereIn('system_hotel_id', $permittedHotelIds);
+                $this->applyOnlineDailyDataTenantBinding($query);
             }
 
             $hotelRows = $query->select()->toArray();
@@ -109,8 +112,14 @@ trait OnlineDataAnalyticsConcern
         $this->checkPermission();
 
         $dimension = $this->request->get('dimension', 'day'); // day, week, month
-        $startDate = $this->request->get('start_date', date('Y-m-d', strtotime('-30 days')));
-        $endDate = $this->request->get('end_date', date('Y-m-d'));
+        try {
+            [$startDate, $endDate] = OtaReadDateRangeService::normalize(
+                $this->request->get('start_date', date('Y-m-d', strtotime('-30 days'))),
+                $this->request->get('end_date', date('Y-m-d'))
+            );
+        } catch (\InvalidArgumentException $e) {
+            return $this->error($e->getMessage(), 422);
+        }
         $source = trim((string)$this->request->get('source', ''));
         $hotelId = trim((string)$this->request->get('system_hotel_id', $this->request->get('hotel_id', '')));
         $requestedDataType = trim((string)$this->request->get('data_type', ''));
@@ -161,12 +170,14 @@ trait OnlineDataAnalyticsConcern
                 ]);
             }
             $query->whereIn('system_hotel_id', $permittedHotelIds);
+            $this->applyOnlineDailyDataTenantBinding($query);
         }
 
         $this->applyDataTypeFilter($query, $dataType);
 
         $columns = $this->getOnlineDailyDataColumns();
         $scopedRecordCount = (int)(clone $query)->count();
+        $strictEvidenceContractAvailable = $this->applyStrictOnlineDataAnalysisEvidenceFilter($query, $columns);
         if (isset($columns['readback_verified'])) {
             $query->where('readback_verified', 1);
         }
@@ -179,7 +190,7 @@ trait OnlineDataAnalyticsConcern
             $query->whereRaw("(`status` IS NULL OR LOWER(TRIM(`status`)) NOT IN ({$blocked}))");
         }
 
-        $data = $query->order('data_date', 'asc')->select()->toArray();
+        $data = $strictEvidenceContractAvailable ? $query->order('data_date', 'asc')->select()->toArray() : [];
         $excludedUntrustedCount = max(0, $scopedRecordCount - count($data));
         $truthHotelIds = array_values(array_unique(array_filter(array_map(
             static fn(array $row): int => max(0, (int)($row['system_hotel_id'] ?? 0)),
@@ -208,8 +219,9 @@ trait OnlineDataAnalyticsConcern
             );
         }
 
-        // 按维度聚合数据
-        $aggregated = $this->aggregateByDimension($data, $dimension);
+        $aggregationGate = $this->buildOnlineDataCombinedAggregationGate($data, $strictEvidenceContractAvailable);
+        $aggregationAllowed = $aggregationGate['allowed'] === true;
+        $aggregated = $aggregationAllowed ? $this->aggregateByDimension($data, $dimension) : [];
 
         // 计算汇总统计 - 基于聚合数据
         $totalAmount = $this->sumNullableAggregateMetric($aggregated, 'amount');
@@ -218,10 +230,10 @@ trait OnlineDataAnalyticsConcern
         $totalOrders = $this->sumNullableAggregateMetric($aggregated, 'book_order_num');
         $periodCount = count($aggregated);
 
-        $validScores = array_values(array_filter(
+        $validScores = $aggregationAllowed ? array_values(array_filter(
             array_column($data, 'comment_score'),
             static fn($score): bool => is_numeric($score) && (float)$score > 0
-        ));
+        )) : [];
         $latestDataDate = '';
         foreach ($data as $row) {
             $rowDate = (string)($row['data_date'] ?? '');
@@ -240,7 +252,7 @@ trait OnlineDataAnalyticsConcern
             'scoped_record_count' => $scopedRecordCount,
             'trusted_record_count' => count($data),
             'excluded_untrusted_count' => $excludedUntrustedCount,
-            'trust_policy' => 'readback_verified_and_validation_usable',
+            'trust_policy' => 'history_success_validation_verified_readback_verified',
             'avg_score' => $validScores !== [] ? array_sum($validScores) / count($validScores) : null,
             'period_count' => $periodCount, // 维度周期数（天数/周数/月数）
             'hotel_count' => count(array_unique(array_filter(array_map([$this, 'onlineDataHotelKey'], $data), static fn($value): bool => $value !== ''))),
@@ -248,6 +260,7 @@ trait OnlineDataAnalyticsConcern
             'avg_quantity' => $this->averageNullableAggregateMetric($aggregated, 'quantity', $totalQuantity),
             'avg_data_value' => $this->averageNullableAggregateMetric($aggregated, 'data_value', $totalDataValue),
             'latest_data_date' => $latestDataDate,
+            'aggregation_gate' => $aggregationGate,
         ];
         $summary['data_gaps'] = array_keys(array_filter([
             'total_amount' => $totalAmount === null,
@@ -256,6 +269,7 @@ trait OnlineDataAnalyticsConcern
             'total_orders' => $totalOrders === null,
             'avg_score' => $validScores === [],
         ]));
+        $summary['data_gaps'] = array_values(array_unique(array_merge($summary['data_gaps'], $aggregationGate['blockers'])));
         $summary['truth_context'] = OnlineDataTrustStatusService::summarizeTruthEnvelopes($truthEnvelopes, [
             'start_date' => $startDate,
             'end_date' => $endDate,
@@ -265,15 +279,16 @@ trait OnlineDataAnalyticsConcern
                 : ($data === [] ? '当前筛选范围没有可核验的 OTA 入库数字' : ''),
         ]);
         $truthStatus = (string)($summary['truth_context']['status'] ?? 'unverified');
-        $summary['data_status'] = in_array($truthStatus, ['unverified', 'collection_failed'], true)
+        $summary['data_status'] = !$aggregationAllowed || in_array($truthStatus, ['unverified', 'collection_failed'], true)
             ? 'blocked'
             : (($truthStatus === 'partial' || $summary['data_gaps'] !== []) ? 'partial' : 'ok');
 
         // 图表数据
-        $chartData = $this->buildChartData($aggregated, $dimension);
+        $chartData = $aggregationAllowed ? $this->buildChartData($aggregated, $dimension) : null;
 
         // 酒店排名 - 按维度聚合
-        $hotelRanking = $this->buildHotelRanking($data, $dimension);
+        $hotelRanking = $aggregationAllowed ? $this->buildHotelRanking($data, $dimension) : [];
+        $analysisScope['aggregation_gate'] = $aggregationGate;
 
         return $this->success([
             'aggregated' => $aggregated,
@@ -281,6 +296,7 @@ trait OnlineDataAnalyticsConcern
             'chart_data' => $chartData,
             'hotel_ranking' => $hotelRanking,
             'query_scope' => $analysisScope,
+            'metric_groups' => $aggregationGate['metric_groups'],
             'truth' => $summary['truth_context'],
         ]);
     }
@@ -564,7 +580,7 @@ trait OnlineDataAnalyticsConcern
     /**
      * 解析并保存流量数据
      */
-    private function parseAndSaveTrafficData($responseData, $startDate, $endDate, string $source, ?int $systemHotelId = null, ?string $platform = null, ?string $expectedPlatformHotelId = null, ?string $ingestionMethod = null): int
+    private function parseAndSaveTrafficData($responseData, $startDate, $endDate, string $source, ?int $systemHotelId = null, ?string $platform = null, ?string $expectedPlatformHotelId = null, ?string $ingestionMethod = null, bool $strictSnapshot = false): int
     {
         return (new OnlineDailyDataPersistenceService())->parseAndSaveTrafficData(
             $responseData,
@@ -574,7 +590,8 @@ trait OnlineDataAnalyticsConcern
             $systemHotelId,
             $platform,
             $expectedPlatformHotelId,
-            $ingestionMethod
+            $ingestionMethod,
+            $strictSnapshot
         );
     }
     /**

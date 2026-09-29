@@ -4,7 +4,8 @@ import test from 'node:test';
 import vm from 'node:vm';
 
 const source = readFileSync('public/ota-diagnosis-static.js', 'utf8');
-const appMainSource = readFileSync('public/app-main.js', 'utf8');
+const appMainSource = readFileSync('public/app-main.js', 'utf8')
+  + '\n' + readFileSync('public/system-page-projections.js', 'utf8');
 const agentCenterTemplate = readFileSync('resources/frontend/templates/fragments/27-page-agent-center.html', 'utf8');
 const onlineDataTemplate = readFileSync('resources/frontend/templates/fragments/35-page-online-data.html', 'utf8');
 const sandbox = { window: {} };
