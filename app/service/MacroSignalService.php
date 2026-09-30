@@ -536,7 +536,8 @@ class MacroSignalService
             $source = &$rows[$date]['hotel_sources'][$hotelKey];
             $source ??= ['daily_revenue' => 0.0, 'daily_rooms' => 0.0,
                 'daily_revenue_known' => false, 'daily_rooms_known' => false,
-                'online_revenue' => 0.0, 'online_rooms' => 0.0];
+                'online_revenue' => 0.0, 'online_rooms' => 0.0,
+                'online_revenue_known' => false, 'online_rooms_known' => false];
             $source['daily_revenue'] += $revenue ?? 0.0;
             $source['daily_rooms'] += $roomNights ?? 0.0;
             $source['daily_revenue_known'] = $source['daily_revenue_known'] || $revenue !== null;
@@ -566,8 +567,15 @@ class MacroSignalService
             if (!$this->isOwnOperatingOnlineRow($row, $raw)) {
                 continue;
             }
-            $amount = $this->toPositiveFloat($row['amount'] ?? null) ?? 0.0;
-            $quantity = $this->toPositiveFloat($row['quantity'] ?? null) ?? 0.0;
+            $amount = $this->toFloat($row['amount'] ?? null);
+            $quantity = $this->toFloat($row['quantity'] ?? null);
+            $dataType = strtolower(trim((string)($row['data_type'] ?? $raw['data_type'] ?? '')));
+            $salesRow = OtaOperatingScope::isCoreBusinessDataType($dataType)
+                || ($dataType === '' && !preg_match('/曝光|点击|浏览|访客|转化|exposure|click|visitor|traffic|conversion|(?:^|:)uv$/i', (string)($row['dimension'] ?? '')));
+            $amountKnown = $amount !== null && is_finite($amount) && $amount >= 0 && ($amount > 0 || $salesRow);
+            $quantityKnown = $quantity !== null && is_finite($quantity) && $quantity >= 0 && ($quantity > 0 || $salesRow);
+            $amount = $amountKnown ? $amount : 0.0;
+            $quantity = $quantityKnown ? $quantity : 0.0;
             $orders = $this->toPositiveFloat($row['book_order_num'] ?? null)
                 ?? $this->firstPositiveNumber($raw, ['bookOrderNum', 'orderCount', 'orders', 'order_submit_num'])
                 ?? 0.0;
@@ -580,9 +588,12 @@ class MacroSignalService
             $source = &$rows[$date]['hotel_sources'][$hotelKey];
             $source ??= ['daily_revenue' => 0.0, 'daily_rooms' => 0.0,
                 'daily_revenue_known' => false, 'daily_rooms_known' => false,
-                'online_revenue' => 0.0, 'online_rooms' => 0.0];
+                'online_revenue' => 0.0, 'online_rooms' => 0.0,
+                'online_revenue_known' => false, 'online_rooms_known' => false];
             $source['online_revenue'] += $amount;
             $source['online_rooms'] += $quantity;
+            $source['online_revenue_known'] = $source['online_revenue_known'] || $amountKnown;
+            $source['online_rooms_known'] = $source['online_rooms_known'] || $quantityKnown;
             unset($source);
             $rows[$date]['orders'] += $orders;
             $rows[$date]['exposure'] += $this->firstPositiveNumber($raw, ['exposure', 'exposureNum', 'showCount', 'impression', 'displayNum']) ?? 0.0;
@@ -613,9 +624,9 @@ class MacroSignalService
             $roomNights = null;
             foreach ($row['hotel_sources'] as $source) {
                 $hotelRevenue = $source['daily_revenue_known'] ? $source['daily_revenue']
-                    : ($source['online_revenue'] > 0 ? $source['online_revenue'] : null);
+                    : ($source['online_revenue_known'] ? $source['online_revenue'] : null);
                 $hotelRooms = $source['daily_rooms_known'] ? $source['daily_rooms']
-                    : ($source['online_rooms'] > 0 ? $source['online_rooms'] : null);
+                    : ($source['online_rooms_known'] ? $source['online_rooms'] : null);
                 if ($hotelRevenue !== null) $revenue = ($revenue ?? 0.0) + $hotelRevenue;
                 if ($hotelRooms !== null) $roomNights = ($roomNights ?? 0.0) + $hotelRooms;
             }

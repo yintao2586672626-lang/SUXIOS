@@ -12,12 +12,20 @@ use think\facade\Db;
 final class ManagerCoachingPersistenceTest extends TestCase
 {
     private array $database;
+    private array $cache;
+    private array $log;
     private string $connection;
     private ManagerCoachingService $service;
 
     protected function setUp(): void
     {
         $this->database = Config::get('database', []);
+        $this->cache = Config::get('cache', []);
+        $this->log = Config::get('log', []);
+        Config::set(['default' => 'file', 'stores' => ['file' => ['type' => 'File',
+            'path' => (string)getenv('SUXIOS_CACHE_PATH')]]], 'cache');
+        Config::set(['default' => 'file', 'channels' => ['file' => ['type' => 'File',
+            'path' => (string)getenv('SUXIOS_CACHE_PATH') . '/logs']]], 'log');
         $this->connection = 'coaching_synthetic_' . bin2hex(random_bytes(6));
         Config::set(['default' => $this->connection, 'connections' => [$this->connection => [
             'type' => 'sqlite', 'database' => ':memory:', 'prefix' => '', 'fields_strict' => false,
@@ -42,6 +50,8 @@ final class ManagerCoachingPersistenceTest extends TestCase
     {
         Db::connect($this->connection)->close();
         Config::set($this->database, 'database');
+        Config::set($this->cache, 'cache');
+        Config::set($this->log, 'log');
         Db::connect(null, true);
     }
 
@@ -152,6 +162,57 @@ final class ManagerCoachingPersistenceTest extends TestCase
         self::assertSame('completed', $complete['plan']['status']);
         self::assertSame(6, (int)$complete['plan']['revision']);
         self::assertFalse($complete['boundaries']['operating_effect_verified']);
+    }
+
+    public function testRecurrenceCannotCompleteWithLaterRecordedButEarlierObservedEvidence(): void
+    {
+        $id = $this->create()['plan']['id'];
+        $this->service->mutate(1, 80, 7, 9, $id, 'evidence', $this->evidenceRequest('first-evidence', 1, '2026-09-03'));
+        $this->service->mutate(1, 80, 7, 9, $id, 'review', $this->reviewRequest('first-review', 2, '2026-09-03'));
+        $recurrence = $this->service->mutate(1, 80, 7, 9, $id, 'recur', $this->evidenceRequest('recurrence', 3, '2026-09-09') + ['next_review_on' => '2026-09-11']);
+        $this->service->testDate = '2026-09-12';
+        $backdated = $this->service->mutate(1, 80, 7, 9, $id, 'evidence', $this->evidenceRequest('backdated-evidence', 4, '2026-09-08'));
+        self::assertGreaterThan(end($recurrence['events'])['id'], end($backdated['events'])['id']);
+        self::assertSame('2026-09-08', end($backdated['events'])['payload']['observed_on']);
+        self::assertSame($backdated, $this->service->read(1, 80, 7, $id));
+
+        $error = null;
+        try { $this->service->mutate(1, 80, 7, 9, $id, 'review', $this->reviewRequest('backdated-review', 5, '2026-09-11')); } catch (InvalidArgumentException $failure) { $error = $failure; }
+        self::assertInstanceOf(InvalidArgumentException::class, $error);
+        self::assertStringContainsString('达到目标需要独立完成证据', $error->getMessage());
+        self::assertSame($backdated, $this->service->read(1, 80, 7, $id));
+        self::assertSame(5, Db::name('manager_coaching_events')->count());
+
+        $sameDay = $this->service->mutate(1, 80, 7, 9, $id, 'evidence', $this->evidenceRequest('same-day-evidence', 5, '2026-09-09'));
+        self::assertSame('2026-09-09', end($sameDay['events'])['payload']['observed_on']);
+        $request = $this->reviewRequest('same-day-review', 6, '2026-09-11');
+        $complete = $this->service->mutate(1, 80, 7, 9, $id, 'review', $request);
+        self::assertSame('completed', $complete['plan']['status']);
+        self::assertSame(7, (int)$complete['plan']['revision']);
+        self::assertSame($complete, $this->service->read(1, 80, 7, $id));
+        self::assertSame($complete, $this->service->mutate(1, 80, 7, 9, $id, 'review', $request));
+        self::assertFalse($complete['boundaries']['operating_effect_verified']);
+        self::assertSame(7, Db::name('manager_coaching_events')->count());
+    }
+
+    public function testRecurrenceWithoutStoredObservationDateCannotCloseUsingUnverifiedCycleDate(): void
+    {
+        $id = $this->create()['plan']['id'];
+        $this->service->mutate(1, 80, 7, 9, $id, 'evidence', $this->evidenceRequest('first-evidence', 1, '2026-09-03'));
+        $this->service->mutate(1, 80, 7, 9, $id, 'review', $this->reviewRequest('first-review', 2, '2026-09-03'));
+        $recurrence = $this->service->mutate(1, 80, 7, 9, $id, 'recur', $this->evidenceRequest('recurrence', 3, '2026-09-09') + ['next_review_on' => '2026-09-11']);
+        $event = end($recurrence['events']);
+        unset($event['payload']['observed_on']);
+        Db::name('manager_coaching_events')->where('id', $event['id'])->update(['payload_json' => json_encode($event['payload'], JSON_THROW_ON_ERROR)]);
+        $this->service->testDate = '2026-09-12';
+        $progress = $this->service->mutate(1, 80, 7, 9, $id, 'evidence', $this->evidenceRequest('new-evidence', 4, '2026-09-11'));
+        self::assertArrayNotHasKey('observed_on', $progress['events'][3]['payload']);
+        $error = null;
+        try { $this->service->mutate(1, 80, 7, 9, $id, 'review', $this->reviewRequest('undated-cycle-review', 5, '2026-09-11')); } catch (InvalidArgumentException $failure) { $error = $failure; }
+        self::assertInstanceOf(InvalidArgumentException::class, $error);
+        self::assertStringContainsString('复发证据日期格式无效', $error->getMessage());
+        self::assertSame($progress, $this->service->read(1, 80, 7, $id));
+        self::assertSame(5, Db::name('manager_coaching_events')->count());
     }
 
     public function testKnowledgeAdaptationRequiresExplicitAnonymizedAcceptanceCriteria(): void

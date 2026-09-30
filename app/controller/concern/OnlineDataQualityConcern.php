@@ -7,6 +7,7 @@ use app\model\OperationLog;
 use app\service\OnlineDataFieldFactService;
 use app\service\OnlineDataTrustStatusService;
 use app\service\OtaReadDateRangeService;
+use app\service\OtaStandardEtlService;
 use think\Response;
 use think\facade\Db;
 
@@ -156,7 +157,7 @@ trait OnlineDataQualityConcern
 
             // 按来源筛选
             if (!empty($source)) {
-                $query->where('source', $source);
+                $this->applyOnlineDataAnalysisPlatformFilter($query, (string)$source, $this->getOnlineDailyDataColumns());
             }
 
             if ($hotelId !== '') {
@@ -715,5 +716,34 @@ trait OnlineDataQualityConcern
                     ->whereColumn('daily_data_owner_hotel.tenant_id', $dataTable . '.tenant_id');
             }
         );
+    }
+
+    private function applyOnlineDataAnalysisPlatformFilter($query, string $source, array $columns): void
+    {
+        $platform = OtaStandardEtlService::canonicalPlatformKey($source);
+        if ($platform === '') {
+            if (isset($columns['source'])) {
+                $query->where('source', $source);
+            } else {
+                $query->whereRaw('1 = 0');
+            }
+            return;
+        }
+        // Match the history contract: explicit platform is the channel;
+        // source is a fallback only for old rows/schemas without platform.
+        $sourceSql = isset($columns['source']) ? "NULLIF(TRIM(COALESCE(`source`, '')), '')" : 'NULL';
+        $platformSql = isset($columns['platform']) ? "NULLIF(TRIM(COALESCE(`platform`, '')), '')" : 'NULL';
+        $normalize = static fn(string $value): string => "CASE LOWER(TRIM(COALESCE($value, '')))
+            WHEN '携程' THEN 'ctrip' WHEN '美团' THEN 'meituan' WHEN '去哪儿' THEN 'qunar'
+            ELSE LOWER(TRIM(COALESCE($value, ''))) END";
+        $query->whereRaw($normalize("COALESCE($platformSql, $sourceSql)") . ' = :analysis_platform', [
+            'analysis_platform' => $platform,
+        ]);
+        if (isset($columns['source'], $columns['platform'])) {
+            $rowSource = $normalize($sourceSql);
+            $rowPlatform = $normalize($platformSql);
+            $known = "('ctrip', 'meituan', 'qunar')";
+            $query->whereRaw("($rowSource NOT IN $known OR $rowPlatform NOT IN $known OR $rowSource = $rowPlatform OR ($rowSource = 'ctrip' AND $rowPlatform = 'qunar'))");
+        }
     }
 }

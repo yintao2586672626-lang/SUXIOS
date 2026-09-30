@@ -140,13 +140,14 @@ trait OnlineDataAnalyticsConcern
         $query = Db::name('online_daily_data')
             ->where('data_date', '>=', $startDate)
             ->where('data_date', '<=', $endDate);
+        $columns = $this->getOnlineDailyDataColumns();
 
         // 非超级管理员只能看有线上数据查看权的酒店。
         if ($hotelId !== '') {
             $this->applyOnlineDailyDataHotelFilter($query, $hotelId);
         }
         if ($source !== '') {
-            $query->where('source', $source);
+            $this->applyOnlineDataAnalysisPlatformFilter($query, $source, $columns);
         }
 
         $permittedHotelIds = $this->permittedHotelIdsForAction('can_view_online_data');
@@ -179,7 +180,6 @@ trait OnlineDataAnalyticsConcern
 
         $this->applyDataTypeFilter($query, $dataType);
 
-        $columns = $this->getOnlineDailyDataColumns();
         $metricQuery = clone $query;
         if (isset($columns['dimension'])) OnlineDataAnalysisMetricScopeService::apply($metricQuery, $metricDimension);
         $scopedRecordCount = (int)$metricQuery->count();
@@ -659,4 +659,5 @@ trait OnlineDataAnalyticsConcern
         }
         $query->where('data_type', $dataType);
     }
+
 }

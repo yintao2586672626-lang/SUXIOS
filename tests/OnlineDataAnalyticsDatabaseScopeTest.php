@@ -498,6 +498,200 @@ SQL);
         }
     }
 
+    public function testQunarSubchannelKeepsItsSavedIdentityAndPassesActualAnalysis(): void
+    {
+        $this->insertAnalysisSource(25, 'ctrip');
+        $row = $this->qunarAnalysisRow();
+        Db::name('online_daily_data')->insert($row);
+        $saved = Db::name('online_daily_data')->where('id', $row['id'])->find();
+        foreach (['source', 'platform', 'dimension', 'hotel_id', 'data_date'] as $field) {
+            self::assertSame($row[$field], $saved[$field], 'Saved identity must read back exactly: ' . $field);
+        }
+        foreach (['tenant_id', 'system_hotel_id', 'data_source_id', 'sync_task_id'] as $field) {
+            self::assertSame($row[$field], (int)$saved[$field]);
+        }
+        self::assertSame(400.0, (float)$saved['amount']);
+
+        $data = $this->analysisController('', ['metric_dimension' => $row['dimension']])->dataAnalysis()->getData()['data'];
+        self::assertTrue($data['summary']['aggregation_gate']['allowed']);
+        self::assertTrue($data['summary']['aggregation_gate']['source_ownership_gate']['allowed']);
+        self::assertSame(400.0, $data['summary']['total_amount']);
+        self::assertSame(['qunar'], array_column($data['metric_groups'], 'platform'));
+        self::assertSame([$row['dimension']], array_column($data['metric_dimension_options'], 'value'));
+        self::assertSame('ota_channel_business_operating_facts', $data['query_scope']['metric_scope']);
+        self::assertSame($saved, Db::name('online_daily_data')->where('id', $row['id'])->find(), 'Analysis must not rewrite facts');
+    }
+
+    public static function explicitAnalysisChannels(): iterable
+    {
+        yield 'Ctrip excludes shared-storage Qunar' => ['ctrip', 402, 100.0];
+        yield 'Qunar selects shared-storage subchannel' => ['qunar', 401, 400.0];
+        yield 'Meituan keeps its own channel' => ['meituan', 403, 300.0];
+        yield 'Qunar Chinese alias' => ['去哪儿', 401, 400.0];
+    }
+
+    #[DataProvider('explicitAnalysisChannels')]
+    public function testAnalysisAndDetailSelectTheSameActualChannel(string $channel, int $rowId, float $amount): void
+    {
+        $this->insertAnalysisSource(25, 'ctrip');
+        $this->insertAnalysisSource(26, 'meituan');
+        $base = $this->qunarAnalysisRow();
+        $dimension = $base['dimension'];
+        Db::name('online_daily_data')->insertAll([
+            $base,
+            array_replace($base, ['id' => 402, 'platform' => 'Ctrip', 'amount' => 100]),
+            array_replace($base, ['id' => 403, 'source' => 'meituan', 'platform' => 'Meituan', 'data_source_id' => 26, 'amount' => 300]),
+            array_replace($base, ['id' => 404, 'source' => 'meituan', 'platform' => 'qunar', 'amount' => 9000]),
+            array_replace($base, ['id' => 405, 'source' => 'qunar', 'platform' => 'ctrip', 'amount' => 9000]),
+            array_replace($base, ['id' => 406, 'system_hotel_id' => 81, 'tenant_id' => 8, 'amount' => 9000]),
+            array_replace($base, ['id' => 407, 'tenant_id' => 8, 'amount' => 9000]),
+            array_replace($base, ['id' => 408, 'data_date' => '2026-08-31', 'amount' => 9000]),
+        ]);
+        $controller = $this->analysisController('', ['source' => $channel, 'metric_dimension' => $dimension]);
+        $response = $controller->dataAnalysis()->getData();
+        self::assertSame(200, $response['code']);
+        $data = $response['data'];
+        self::assertTrue($data['summary']['aggregation_gate']['allowed']);
+        self::assertSame($amount, $data['summary']['total_amount']);
+        self::assertSame(1, $data['summary']['scoped_record_count']);
+        self::assertSame([$dimension], array_column($data['metric_dimension_options'], 'value'));
+        self::assertSame(['2026-08-30'], $data['chart_data']['labels']);
+        $detail = $controller->dailyDataList()->getData();
+        self::assertSame(200, $detail['code'], $detail['message'] ?? '');
+        self::assertSame([$rowId], array_column($detail['data']['list'], 'id'));
+        self::assertSame($dimension, $detail['data']['query_scope']['metric_dimension']);
+        self::assertSame(8, Db::name('online_daily_data')->count());
+    }
+
+    public function testCtripAndQunarStillCannotBeAggregatedEvenWithTheSameDimension(): void
+    {
+        $this->insertAnalysisSource(25, 'ctrip');
+        $base = $this->qunarAnalysisRow();
+        Db::name('online_daily_data')->insertAll([$base, array_replace($base, ['id' => 402, 'platform' => 'ctrip'])]);
+        $data = $this->analysisController('', ['metric_dimension' => $base['dimension']])->dataAnalysis()->getData()['data'];
+        self::assertFalse($data['summary']['aggregation_gate']['allowed']);
+        self::assertSame('heterogeneous_metric_scope', $data['summary']['aggregation_gate']['blocker']);
+        self::assertSame(['ctrip', 'qunar'], array_column($data['metric_groups'], 'platform'));
+        self::assertNull($data['summary']['total_amount']);
+        self::assertSame([], $data['aggregated']);
+        self::assertNull($data['chart_data']);
+    }
+
+    public function testQunarDimensionSelectionRestoresOneMetricButNeverDuplicateDailyGrains(): void
+    {
+        $this->insertAnalysisSource(25, 'ctrip');
+        $base = $this->qunarAnalysisRow();
+        Db::name('online_daily_data')->insertAll([
+            $base,
+            array_replace($base, ['id' => 402, 'dimension' => 'semantic:qunar:room_nights', 'amount' => 20]),
+        ]);
+        $unfiltered = $this->analysisController('', ['source' => 'qunar'])->dataAnalysis()->getData()['data'];
+        self::assertSame('heterogeneous_metric_scope', $unfiltered['summary']['aggregation_gate']['blocker']);
+        self::assertNull($unfiltered['summary']['total_amount']);
+        self::assertSame(['semantic:qunar:room_nights', $base['dimension']], array_column($unfiltered['metric_dimension_options'], 'value'));
+        $controller = $this->analysisController('', ['source' => 'qunar', 'metric_dimension' => $base['dimension']]);
+        $selected = $controller->dataAnalysis()->getData()['data'];
+        self::assertTrue($selected['summary']['aggregation_gate']['allowed']);
+        self::assertSame(400.0, $selected['summary']['total_amount']);
+        self::assertSame([401], array_column($controller->dailyDataList()->getData()['data']['list'], 'id'));
+        Db::name('online_daily_data')->insert(array_replace($base, ['id' => 403]));
+        $duplicated = $controller->dataAnalysis()->getData()['data'];
+        self::assertSame('duplicate_canonical_grain', $duplicated['summary']['aggregation_gate']['blocker']);
+        self::assertNull($duplicated['summary']['total_amount']);
+    }
+
+    public static function invalidQunarIdentities(): iterable
+    {
+        yield 'wrong storage owner channel' => [[], ['platform' => 'qunar']];
+        yield 'wrong source hotel' => [[], ['system_hotel_id' => 81]];
+        yield 'wrong source tenant' => [[], ['tenant_id' => 8]];
+        yield 'wrong source data type' => [[], ['data_type' => 'traffic']];
+        yield 'unknown source identity' => [['source' => 'unknown'], []];
+        yield 'missing source identity' => [['source' => ''], []];
+        yield 'missing tenant identity' => [['tenant_id' => null], []];
+        yield 'missing source row' => [['data_source_id' => 999], []];
+        yield 'other cross-channel pair' => [['source' => 'meituan'], ['platform' => 'meituan']];
+        yield 'unknown platform identity' => [['platform' => 'unknown'], []];
+        yield 'missing business date' => [['data_date' => ''], []];
+        yield 'missing metric dimension' => [['dimension' => ''], []];
+    }
+
+    #[DataProvider('invalidQunarIdentities')]
+    public function testQunarExceptionDoesNotRelaxSourceOwnershipOrAggregationIdentity(array $rowChanges, array $sourceChanges): void
+    {
+        $this->insertAnalysisSource(25, 'ctrip', $sourceChanges);
+        $subject = new class { use OnlineDataAnalyticsConcern; };
+        $gate = new ReflectionMethod($subject, 'buildOnlineDataCombinedAggregationGate');
+        $result = $gate->invoke($subject, [array_replace($this->qunarAnalysisRow(), $rowChanges)], true);
+        self::assertFalse($result['allowed']);
+        self::assertSame('blocked', $result['status']);
+    }
+
+    public static function untrustedQunarRows(): iterable
+    {
+        foreach (['history_status' => 'failed', 'validation_status' => 'partial', 'readback_verified' => 0,
+            'data_period' => 'realtime_snapshot', 'is_final' => 0, 'compare_type' => 'competitor_avg',
+            'hotel_id' => '', 'data_source_id' => 0, 'sync_task_id' => 0, 'source' => '', 'platform' => '',
+            'ingestion_method' => ''] as $field => $value) {
+            yield $field => [[$field => $value]];
+        }
+    }
+
+    #[DataProvider('untrustedQunarRows')]
+    public function testQunarAnalysisStillExcludesIncompleteOrUntrustedEvidence(array $changes): void
+    {
+        $this->insertAnalysisSource(25, 'ctrip');
+        Db::name('online_daily_data')->insert(array_replace($this->qunarAnalysisRow(), $changes));
+        $data = $this->analysisController('', ['source' => 'qunar'])->dataAnalysis()->getData()['data'];
+        self::assertNull($data['summary']['total_amount']);
+        self::assertSame([], $data['aggregated']);
+        self::assertSame([], $data['metric_dimension_options']);
+    }
+
+    public function testNativeQunarSourceRemainsValidAndLegacyMissingPlatformStaysVisibleOnlyInDetail(): void
+    {
+        $this->insertAnalysisSource(25, 'qunar');
+        $base = array_replace($this->qunarAnalysisRow(), ['source' => 'qunar']);
+        Db::name('online_daily_data')->insertAll([$base, array_replace($base, ['id' => 402, 'platform' => ''])]);
+        $controller = $this->analysisController('', ['source' => 'qunar']);
+        $data = $controller->dataAnalysis()->getData()['data'];
+        self::assertSame(400.0, $data['summary']['total_amount']);
+        self::assertTrue($data['summary']['aggregation_gate']['allowed']);
+        self::assertSame([402, 401], array_column($controller->dailyDataList()->getData()['data']['list'], 'id'));
+        Db::execute('ALTER TABLE online_daily_data RENAME COLUMN platform TO legacy_platform');
+        try {
+            $legacy = $controller->dailyDataList()->getData();
+            self::assertSame(200, $legacy['code'], $legacy['message'] ?? '');
+            self::assertSame([402, 401], array_column($legacy['data']['list'], 'id'));
+            $legacyAnalysis = $controller->dataAnalysis()->getData();
+            self::assertSame(200, $legacyAnalysis['code']);
+            self::assertSame('strict_evidence_contract_missing', $legacyAnalysis['data']['summary']['aggregation_gate']['blocker']);
+            self::assertNull($legacyAnalysis['data']['summary']['total_amount']);
+        } finally {
+            Db::execute('ALTER TABLE online_daily_data RENAME COLUMN legacy_platform TO platform');
+        }
+    }
+
+    private function insertAnalysisSource(int $id, string $platform, array $changes = []): void
+    {
+        Db::name('platform_data_sources')->insert(array_replace([
+            'id' => $id, 'tenant_id' => 7, 'system_hotel_id' => 80, 'platform' => $platform, 'data_type' => 'business',
+        ], $changes));
+    }
+
+    private function qunarAnalysisRow(): array
+    {
+        return [
+            'id' => 401, 'tenant_id' => 7, 'system_hotel_id' => 80, 'hotel_id' => 'ctrip-qunar-80',
+            'hotel_name' => 'Synthetic permitted hotel', 'data_source_id' => 25, 'sync_task_id' => 4567,
+            'platform' => 'qunar', 'source' => 'ctrip', 'data_type' => 'business',
+            'dimension' => 'semantic:qunar:room_revenue', 'data_period' => 'historical_daily',
+            'is_final' => 1, 'compare_type' => 'self', 'ingestion_method' => 'browser_profile',
+            'data_date' => '2026-08-30', 'amount' => 400,
+            'history_status' => 'success', 'validation_status' => 'verified', 'readback_verified' => 1,
+        ];
+    }
+
     public function testDailyDetailUsesTheSameExactDimensionAndAuthorizedHotelFilter(): void
     {
         Db::name('online_daily_data')->insertAll([

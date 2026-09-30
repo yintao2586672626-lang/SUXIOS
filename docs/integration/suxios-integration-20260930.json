@@ -98,7 +98,10 @@
     "existing_governance_permission_and_rate_limit_for_reference_writes",
     "physical_prefixed_report_and_execution_tables_with_connection_scoped_schema_cache",
     "fixed_reference_form_bindings_survive_only_typed_knowledge_redaction",
-    "redaction_never_restores_sensitive_citation_indexes"
+    "redaction_never_restores_sensitive_citation_indexes",
+    "recurrence_evidence_observation_must_follow_latest_recurrence",
+    "qunar_channel_identity_and_analysis_detail_filter_alignment",
+    "recorded_zero_ota_sales_distinct_from_missing_and_traffic_defaults"
   ],
   "verification": {
     "php": {
@@ -372,7 +375,7 @@
       "timeout_changed": false
     },
     "pr_review": {
-      "findings_repaired": 13,
+      "findings_repaired": 16,
       "monthly": {
         "tests": 43,
         "assertions": 349,
@@ -638,7 +641,734 @@
           "failure_reason": "SSR fixture omitted the newly required production permission helper",
           "product_source_changed": false
         },
-        "baseline_head": "4af007147a8fcefbf5c6d1dbde396b4a95b391b8"
+        "baseline_head": "4af007147a8fcefbf5c6d1dbde396b4a95b391b8",
+        "evidence_scope": "historical_thirteen_finding_baseline"
+      },
+      "latest_audit": {
+        "baseline_head": "1201914acacd5405cd36074df250c5072ee2e328",
+        "scope_inventory": [
+          {
+            "module": "historical_source_and_git_delivery",
+            "review": "Full prior source ledger preserved; all candidate file hashes will be checked against committed blobs; upstream/PR/head CI verified after push."
+          },
+          {
+            "module": "ota_capture_etl_analysis_detail",
+            "review": "Fresh Qunar actual-controller SQLite, channel selection, exact saved identity, tenant/hotel/date, trusted evidence, mixed metrics, duplicate grain and old-schema regressions; unchanged capture date evidence reused."
+          },
+          {
+            "module": "revenue_monthly_home_trends",
+            "review": "Fresh zero/unknown independent metrics, source-read failure, exact persistence/controller and compiled synthetic home page; unchanged submitted-only monthly baseline retained."
+          },
+          {
+            "module": "ai_reports_and_execution_evidence",
+            "review": "No product changes from baseline; prefixed storage/connection/tenant/422-vs-503 evidence retained, rechecked in latest complete CI."
+          },
+          {
+            "module": "operations_coaching_investment",
+            "review": "Fresh recurrence observed dates, immutable rejected state, successful recovery/retry/readback and case lock; unchanged other paths retain prior business journey proofs."
+          },
+          {
+            "module": "knowledge_frontend",
+            "review": "Fresh direct Node permission/selection/ownership/recovery; same compiled main/render hashes as six-state knowledge page baseline."
+          },
+          {
+            "module": "migrations_dependencies_runtime",
+            "review": "Fresh original hotspot/integration/219 migration/5 frozen source gates; dependency lock unchanged from accepted minimal upgrade; no deployment or real-account claims."
+          }
+        ],
+        "php": {
+          "tests": 188,
+          "assertions": 1226,
+          "errors": 0,
+          "failures": 0,
+          "skipped": 0,
+          "exit_code": 0,
+          "log": "audit-combined-php.log",
+          "junit": "audit-combined-php.xml"
+        },
+        "node": {
+          "tests": 22,
+          "pass": 22,
+          "fail": 0,
+          "skipped": 0,
+          "exit_code": 0,
+          "log": "audit-direct-node.log"
+        },
+        "macro": {
+          "review_thread_id": "PRRT_kwDOSXsMNc6ngavg",
+          "baseline_head": "1201914acacd5405cd36074df250c5072ee2e328",
+          "status": "local_fixed_and_synthetic_controller_verified",
+          "before": {
+            "tests": 15,
+            "assertions": 53,
+            "failures": 9,
+            "errors": 0,
+            "log": "macro-zero-audit-before-valid.log"
+          },
+          "after": {
+            "tests": 53,
+            "assertions": 271,
+            "failures": 0,
+            "log": "macro-zero-audit-after.log",
+            "junit": "macro-zero-audit-after.xml"
+          },
+          "changes": [
+            "Track OTA revenue and room-night presence independently from numerical sums.",
+            "Recorded finite nonnegative sales zero remains zero; missing/invalid/negative/nonfinite and traffic-default zero remain unknown.",
+            "Preserve existing daily-report precedence and positive legacy compatibility."
+          ],
+          "oracle": [
+            "Synthetic SQLite save and exact hotel/date/source/amount/quantity readback.",
+            "Actual permitted MacroSignal controller returns revenue [0,120], rooms [0,2], sample_days 2, zero-income-day card and OTA channel source label.",
+            "Exclude other hotel/date and competitor; dropping the synthetic source table reports read_failed and null series."
+          ],
+          "files": [
+            {
+              "path": "app/service/MacroSignalService.php",
+              "sha256": "57a61a54b7006fec3a5de862e20978fd6ca8189a2624fb8420df6358a891049c"
+            },
+            {
+              "path": "tests/MacroSignalZeroSalesTest.php",
+              "sha256": "ef6ea587bb8a7c9e51561153b2f5c3780080c154fcf9e519f079ef767d21187c"
+            }
+          ],
+          "boundary": "Synthetic SQLite/controller only; no real account, OTA/PMS, production data, deployment or operating effect."
+        },
+        "coaching": {
+          "regression": {
+            "tests": 2,
+            "assertions": 19,
+            "failures": 0,
+            "phpunit_exit": 0
+          },
+          "targeted": {
+            "filter": "ManagerCoaching(Persistence|Integration|CaseLockRevalidation)Test",
+            "tests": 19,
+            "assertions": 143,
+            "failures": 0,
+            "phpunit_exit": 0
+          },
+          "standalone_persistence": {
+            "tests": 10,
+            "assertions": 65,
+            "failures": 0,
+            "phpunit_exit": 0
+          },
+          "lint": {
+            "service": "passed",
+            "persistence_test": "passed"
+          },
+          "diff_check": "passed",
+          "confirmed": [
+            "Backdated evidence remains saved and exactly readable with its original observed_on.",
+            "Rejected target_met does not append an event, increment revision or alter the persisted projection.",
+            "Independent evidence observed on the recurrence day is eligible when recorded afterward and reviewed on/after that day; sample, criteria and due review gates remain active.",
+            "Completion save and exact readback and idempotent replay agree.",
+            "Existing pre-recurrence reuse and evidence observed after review date remain rejected.",
+            "Tenant/hotel/person scope, stale revisions, cause/failure states, case lock revalidation, knowledge adaptation and manual operating-effect boundary pass existing targeted tests."
+          ]
+        },
+        "qunar": [
+          {
+            "phase": "before_source_fix",
+            "command": "C:/xampp/php/php.exe vendor/bin/phpunit --colors=never --filter 'testQunarSubchannelKeepsItsSavedIdentityAndPassesActualAnalysis|testAnalysisAndDetailSelectTheSameActualChannel|testCtripAndQunarStillCannotBeAggregatedEvenWithTheSameDimension|testNativeQunarSourceRemainsValidAndLegacyMissingPlatformStaysVisibleOnlyInDetail' tests/OnlineDataAnalyticsDatabaseScopeTest.php",
+            "exit_code": 1,
+            "tests": 7,
+            "assertions": 30,
+            "failures": 7,
+            "observed": "Legal Qunar aggregation/native Qunar was rejected; shared-source explicit channel requests failed, and mixed Ctrip/Qunar was classified as missing platform instead of heterogeneous scope.",
+            "log": "output/integration-20260930/qunar-analysis-audit-before.log",
+            "log_sha256": "7338518e04277bc815c6901af0132046797e1e909bbf9ec4103ed47795db2f83"
+          },
+          {
+            "phase": "final_scoped_regression",
+            "command": "C:/xampp/php/php.exe vendor/bin/phpunit --configuration output/integration-20260930/qunar-analysis-audit-phpunit.xml --filter 'OnlineDataAnalyticsDatabaseScopeTest|OnlineDataHistoryAuthorizationContractTest|OnlineDataHistoryTenantScopeTest|OtaStandardEtlReadbackQueryTest' --colors=never",
+            "suite_files": [
+              "tests/OnlineDataAnalyticsDatabaseScopeTest.php",
+              "tests/OnlineDataHistoryAuthorizationContractTest.php",
+              "tests/OnlineDataHistoryTenantScopeTest.php",
+              "tests/OtaStandardEtlReadbackQueryTest.php"
+            ],
+            "exit_code": 0,
+            "tests": 116,
+            "assertions": 812,
+            "failures": 0,
+            "log": "output/integration-20260930/qunar-analysis-audit-final-regression.log",
+            "log_sha256": "c57f520be09f1512d571dd6a155f594f68e11f436b533539b0aab6bc08138892"
+          },
+          {
+            "phase": "syntax_and_scoped_diff",
+            "commands": [
+              "C:/xampp/php/php.exe -l app/controller/concern/OnlineDataAnalysisEvidenceConcern.php",
+              "C:/xampp/php/php.exe -l app/controller/concern/OnlineDataAnalyticsConcern.php",
+              "C:/xampp/php/php.exe -l app/controller/concern/OnlineDataQualityConcern.php",
+              "C:/xampp/php/php.exe -l tests/OnlineDataAnalyticsDatabaseScopeTest.php",
+              "git diff --check -- app/controller/concern/OnlineDataAnalysisEvidenceConcern.php app/controller/concern/OnlineDataAnalyticsConcern.php app/controller/concern/OnlineDataQualityConcern.php tests/OnlineDataAnalyticsDatabaseScopeTest.php"
+            ],
+            "exit_code": 0,
+            "log": "output/integration-20260930/qunar-analysis-audit-lint.log",
+            "observed": "All four PHP files have no syntax errors; scoped diff has no whitespace errors."
+          },
+          {
+            "phase": "changed_path_review",
+            "observed": "Reviewed the production-file diff for source ownership, strict evidence, SQL missing-column behavior, authorization preservation and mixed metric/grain handling. After moving the shared filter helper to QualityConcern, checked all three test files composing Analytics/Evidence: actual analysis/detail controllers also include Quality; Analytics-only harnesses call gates/type normalization, not source-filtered endpoints. One final four-file suite confirms the helper relocation. No unresolved in-scope findings."
+          }
+        ],
+        "browser": {
+          "status": "passed",
+          "evidence_kind": "synthetic_sqlite_actual_controller_and_compiled_public_page",
+          "origin": "http://127.0.0.1:50107",
+          "scenario_count": 1,
+          "check_count": 6,
+          "screenshot_count": 3,
+          "source_payload_sha256": "b8b42a2e7ff594eaba92c0c64c157bbb58217280a882d110d3e7868c21ff98c5",
+          "compiled_asset_sha256": {
+            "/app-main.min.js": "5a4dfd1431351ac79f3b78b5c1b3fce3c4f692562b4f1cd52ec73c3d09b88b76",
+            "/app-startup-render.min.js": "cc5f3346d9a11f44ba697e323f92eea0fe3421f8ecb21f2f6760f1064ed302da",
+            "/app-startup-helpers.min.js": "3d85ac4fedccb04d47d7b526aa6433c22fa21f77e598edbba275a7981654e1cd",
+            "/app-deferred-helpers.min.js": "87d2fa86b488500ceed043bd2acca579218971149d8cc2991d4df04c717e9388",
+            "/vendor/chart.umd.js": "74401d738dd3e03ee5dfb3b6841210fe2c4ead8a960c4011ca4ba0b78a9fd8f3"
+          },
+          "compiled_main_sha256": "5a4dfd1431351ac79f3b78b5c1b3fce3c4f692562b4f1cd52ec73c3d09b88b76",
+          "compiled_render_sha256": "90fed7cb9b70e8103f645fec0607a960a3444db2bf39c286305a17cbb8b8c5fa",
+          "compiled_render_usage": "full app-render.min.js is workspace snapshot; not served on home page",
+          "served_startup_render_sha256": "cc5f3346d9a11f44ba697e323f92eea0fe3421f8ecb21f2f6760f1064ed302da",
+          "checks": [
+            {
+              "scenario": "zero_positive_missing",
+              "check": "zero_day_counts_as_sample_missing_day_does_not",
+              "result": "passed",
+              "ui": {
+                "current_page": "compass",
+                "has_samples": true,
+                "chart_status": "ready",
+                "loading": false,
+                "observation": {
+                  "hotelName": "合成零值验收门店",
+                  "dataStatus": "可生成趋势",
+                  "updatedAt": "2026-09-30 20:05:07",
+                  "sampleDaysText": "2天"
+                },
+                "cards": [
+                  {
+                    "key": "revenue",
+                    "value": "¥120",
+                    "direction": "含零收入日",
+                    "status": "available",
+                    "source": "来源：逐店优先经营日报；缺日报门店仅取 OTA 渠道成交额",
+                    "data_quality_label": "混合口径待复核",
+                    "source_type_label": "经营日报 + OTA参考",
+                    "decision_allowed": false
+                  }
+                ]
+              }
+            },
+            {
+              "scenario": "zero_positive_missing",
+              "check": "visible_revenue_card_zero_state_channel_scope_and_review_gate",
+              "result": "passed",
+              "card": {
+                "key": "revenue",
+                "value": "¥120",
+                "direction": "含零收入日",
+                "status": "available",
+                "source": "来源：逐店优先经营日报；缺日报门店仅取 OTA 渠道成交额",
+                "data_quality_label": "混合口径待复核",
+                "source_type_label": "经营日报 + OTA参考",
+                "decision_allowed": false
+              }
+            },
+            {
+              "scenario": "zero_positive_missing",
+              "check": "rendered_chart_retains_zero_and_skips_null",
+              "result": "passed",
+              "metric": "营收",
+              "data": [
+                0,
+                null,
+                120
+              ]
+            },
+            {
+              "scenario": "zero_positive_missing",
+              "check": "rendered_chart_retains_zero_and_skips_null",
+              "result": "passed",
+              "metric": "间夜",
+              "data": [
+                0,
+                null,
+                2
+              ]
+            },
+            {
+              "scenario": "zero_positive_missing",
+              "check": "narrow_viewport_retains_visible_zero_and_null_series",
+              "result": "passed"
+            },
+            {
+              "scenario": "zero_positive_missing",
+              "check": "served_compiled_assets_match_workspace_hashes_and_remain_stable",
+              "result": "passed"
+            }
+          ],
+          "chart_evidence": [
+            {
+              "scenario": "zero_positive_missing",
+              "metric": "营收",
+              "label": "营收",
+              "labels": [
+                "05-01",
+                "05-02",
+                "05-03"
+              ],
+              "data": [
+                0,
+                null,
+                120
+              ],
+              "points": [
+                {
+                  "index": 0,
+                  "skip": false,
+                  "x": 34.021484375,
+                  "y": 257.6,
+                  "parsed_y": 0
+                },
+                {
+                  "index": 1,
+                  "skip": true,
+                  "x": 360.837890625,
+                  "y": 257.6,
+                  "parsed_y": null
+                },
+                {
+                  "index": 2,
+                  "skip": false,
+                  "x": 687.654296875,
+                  "y": 10.243270414624988,
+                  "parsed_y": 120
+                }
+              ],
+              "span_gaps": true,
+              "y_zero_pixel": 257.6,
+              "y_positive_pixel": 10.2,
+              "tooltip_zero": "营收: ¥0",
+              "tooltip_missing": "营收: -"
+            },
+            {
+              "scenario": "zero_positive_missing",
+              "metric": "间夜",
+              "label": "间夜",
+              "labels": [
+                "05-01",
+                "05-02",
+                "05-03"
+              ],
+              "data": [
+                0,
+                null,
+                2
+              ],
+              "points": [
+                {
+                  "index": 0,
+                  "skip": false,
+                  "x": 20.673828125,
+                  "y": 257.6,
+                  "parsed_y": 0
+                },
+                {
+                  "index": 1,
+                  "skip": true,
+                  "x": 354.1640625,
+                  "y": 257.6,
+                  "parsed_y": null
+                },
+                {
+                  "index": 2,
+                  "skip": false,
+                  "x": 687.654296875,
+                  "y": 10.200002474000001,
+                  "parsed_y": 2
+                }
+              ],
+              "span_gaps": true,
+              "y_zero_pixel": 257.6,
+              "y_positive_pixel": 10.2,
+              "tooltip_zero": "间夜: 0间",
+              "tooltip_missing": "间夜: -"
+            }
+          ],
+          "served_assets": [
+            {
+              "path": "/app-bootstrap.min.js",
+              "status": 200,
+              "sha256": "85a193c1f7076f90e33933e7c867fc5d051ff42d57c010fb463e84b2c536a212"
+            },
+            {
+              "path": "/app-main.min.js",
+              "status": 200,
+              "sha256": "5a4dfd1431351ac79f3b78b5c1b3fce3c4f692562b4f1cd52ec73c3d09b88b76"
+            },
+            {
+              "path": "/vue.runtime.global.prod.js",
+              "status": 200,
+              "sha256": "039d03af6b2ed9e2e9bc41803bc5dd2743b7c39f7533692e72bf353b107daa93"
+            },
+            {
+              "path": "/components/system/business-closure-loader.js",
+              "status": 200,
+              "sha256": "a6ae1827456452284ace325cd6168e444e726b8b02e3c1aa8ce3e74e4a611a42"
+            },
+            {
+              "path": "/app-startup-render.min.js",
+              "status": 200,
+              "sha256": "cc5f3346d9a11f44ba697e323f92eea0fe3421f8ecb21f2f6760f1064ed302da"
+            },
+            {
+              "path": "/app-startup-helpers.min.js",
+              "status": 200,
+              "sha256": "3d85ac4fedccb04d47d7b526aa6433c22fa21f77e598edbba275a7981654e1cd"
+            },
+            {
+              "path": "/components/system/app-main-components.js",
+              "status": 200,
+              "sha256": "a488dcdfa0faa884ee548b84776ceadb54db9a73a758ac958ce6faefc0c5c00e"
+            },
+            {
+              "path": "/app-deferred-helpers.min.js",
+              "status": 200,
+              "sha256": "87d2fa86b488500ceed043bd2acca579218971149d8cc2991d4df04c717e9388"
+            },
+            {
+              "path": "/operation-static.js",
+              "status": 200,
+              "sha256": "0547ee9c0c9e5a0c47f5422d33c0feb19ce3a41c6d31e819957fe8bd5591dfda"
+            },
+            {
+              "path": "/revenue-ai-static.js",
+              "status": 200,
+              "sha256": "f951698f93308b8fc795548c8262626934d0800e1a8325f356e2213c87d0a0fa"
+            },
+            {
+              "path": "/notification-static.js",
+              "status": 200,
+              "sha256": "bb6fbd15185de122d062ddf7d971abad5ecca2998faffd86cb801a7fb17144cb"
+            },
+            {
+              "path": "/vendor/chart.umd.js",
+              "status": 200,
+              "sha256": "74401d738dd3e03ee5dfb3b6841210fe2c4ead8a960c4011ca4ba0b78a9fd8f3"
+            }
+          ],
+          "screenshots": [
+            "macro-zero-page-revenue-desktop.png",
+            "macro-zero-page-room-nights-desktop.png",
+            "macro-zero-page-room-nights-narrow.png"
+          ],
+          "unexpected_errors": [],
+          "blocked_external_requests": [],
+          "requests": [
+            {
+              "scenario": "zero_positive_missing",
+              "method": "GET",
+              "path": "/health",
+              "query": ""
+            },
+            {
+              "scenario": "zero_positive_missing",
+              "method": "POST",
+              "path": "/auth/login",
+              "query": ""
+            },
+            {
+              "scenario": "zero_positive_missing",
+              "method": "GET",
+              "path": "/auth/info",
+              "query": ""
+            },
+            {
+              "scenario": "zero_positive_missing",
+              "method": "GET",
+              "path": "/dashboard/revenue-facts",
+              "query": "?hotel_id=121&business_date=2026-09-29&tenant_id=999001&platform=ctrip"
+            },
+            {
+              "scenario": "zero_positive_missing",
+              "method": "GET",
+              "path": "/compass",
+              "query": "?hotel_id=121&business_date=2026-09-29"
+            },
+            {
+              "scenario": "zero_positive_missing",
+              "method": "GET",
+              "path": "/hotels/all",
+              "query": ""
+            },
+            {
+              "scenario": "zero_positive_missing",
+              "method": "GET",
+              "path": "/hotels/automation-lifecycle",
+              "query": ""
+            },
+            {
+              "scenario": "zero_positive_missing",
+              "method": "GET",
+              "path": "/macro-signals/external",
+              "query": "?type=weather&city=%E6%88%90%E9%83%BD%E5%B8%82"
+            },
+            {
+              "scenario": "zero_positive_missing",
+              "method": "GET",
+              "path": "/operation/execution-flow",
+              "query": "?limit=100&hotel_id=121&system_hotel_id=121&tenant_id=999001&platform=ctrip"
+            },
+            {
+              "scenario": "zero_positive_missing",
+              "method": "GET",
+              "path": "/operating-opportunities/weekly-plan/latest",
+              "query": "?hotel_id=121&week_end=2026-09-27"
+            },
+            {
+              "scenario": "zero_positive_missing",
+              "method": "GET",
+              "path": "/notifications",
+              "query": "?page=1&page_size=20"
+            },
+            {
+              "scenario": "zero_positive_missing",
+              "method": "GET",
+              "path": "/system-config",
+              "query": "?scope=public"
+            },
+            {
+              "scenario": "zero_positive_missing",
+              "method": "GET",
+              "path": "/holiday-revenue/countdown",
+              "query": "?year=2026"
+            },
+            {
+              "scenario": "zero_positive_missing",
+              "method": "GET",
+              "path": "/macro-signals/overview",
+              "query": "?hotel_id=121"
+            },
+            {
+              "scenario": "zero_positive_missing",
+              "method": "GET",
+              "path": "/temporal-insights/overview",
+              "query": "?history_days=30&future_days=1&metric_key=ota_room_nights&hotel_id=121"
+            },
+            {
+              "scenario": "zero_positive_missing",
+              "method": "GET",
+              "path": "/temporal-insights/forecast-trials",
+              "query": "?hotel_id=121&limit=20"
+            },
+            {
+              "scenario": "zero_positive_missing",
+              "method": "GET",
+              "path": "/macro-signals/trends",
+              "query": "?range=30&hotel_id=121"
+            },
+            {
+              "scenario": "zero_positive_missing",
+              "method": "GET",
+              "path": "/macro-signals/trends",
+              "query": "?range=custom&hotel_id=121&start_date=2026-08-31&end_date=2026-09-30"
+            },
+            {
+              "scenario": "zero_positive_missing",
+              "method": "GET",
+              "path": "/macro-signals/trends",
+              "query": "?range=custom&hotel_id=121&start_date=2026-05-01&end_date=2026-09-30"
+            },
+            {
+              "scenario": "zero_positive_missing",
+              "method": "GET",
+              "path": "/macro-signals/trends",
+              "query": "?range=custom&hotel_id=121&start_date=2026-05-01&end_date=2026-05-03"
+            },
+            {
+              "scenario": "zero_positive_missing",
+              "method": "GET",
+              "path": "/hotels/automation-lifecycle",
+              "query": ""
+            },
+            {
+              "scenario": "zero_positive_missing",
+              "method": "GET",
+              "path": "/online-data/get-ctrip-config-list",
+              "query": ""
+            },
+            {
+              "scenario": "zero_positive_missing",
+              "method": "GET",
+              "path": "/online-data/get-meituan-config-list",
+              "query": ""
+            },
+            {
+              "scenario": "zero_positive_missing",
+              "method": "GET",
+              "path": "/online-data/data-sources",
+              "query": ""
+            }
+          ],
+          "unverified": [
+            {
+              "path": "Dynamic same-date refresh transition to missing/read_failed and recovery",
+              "status": "not_accepted",
+              "evidence": "No fresh trends HTTP response was observed before waitForResponse timeout.",
+              "cause": "not_located",
+              "product_defect_conclusion": "not_established",
+              "artifact": "macro-zero-page-dynamic-attempt.json"
+            }
+          ],
+          "attempts": [
+            {
+              "artifact": "macro-zero-page-dynamic-attempt.json",
+              "result": "inconclusive_extra_state_attempt",
+              "preserved_trace": "macro-zero-page-dynamic-trace.json",
+              "preserved_script": "macro-zero-page-audit-dynamic-attempt.mjs"
+            }
+          ],
+          "limitations": [
+            "No real account, OTA/PMS, production data, deployment or operating-effect evidence.",
+            "Chart retains missing nulls and marks missing points skipped; existing spanGaps=true connects surrounding observed points."
+          ],
+          "service_shutdown": {
+            "port": 50107,
+            "listen_count": 0,
+            "closed": true,
+            "checked_at": "2026-09-30T20:19:34.6358496+08:00",
+            "command": "Get-NetTCPConnection -LocalPort 50107 -State Listen"
+          },
+          "synthetic": true,
+          "real_account_used": false,
+          "real_business_data_used": false,
+          "acceptance_scope": "zero/null actual-controller-to-compiled-home-chart-and-card path only",
+          "states": [
+            {
+              "scenario": "zero_positive_missing",
+              "check": "zero_day_counts_as_sample_missing_day_does_not",
+              "result": "passed",
+              "ui": {
+                "current_page": "compass",
+                "has_samples": true,
+                "chart_status": "ready",
+                "loading": false,
+                "observation": {
+                  "hotelName": "合成零值验收门店",
+                  "dataStatus": "可生成趋势",
+                  "updatedAt": "2026-09-30 20:05:07",
+                  "sampleDaysText": "2天"
+                },
+                "cards": [
+                  {
+                    "key": "revenue",
+                    "value": "¥120",
+                    "direction": "含零收入日",
+                    "status": "available",
+                    "source": "来源：逐店优先经营日报；缺日报门店仅取 OTA 渠道成交额",
+                    "data_quality_label": "混合口径待复核",
+                    "source_type_label": "经营日报 + OTA参考",
+                    "decision_allowed": false
+                  }
+                ]
+              }
+            },
+            {
+              "scenario": "zero_positive_missing",
+              "check": "visible_revenue_card_zero_state_channel_scope_and_review_gate",
+              "result": "passed",
+              "card": {
+                "key": "revenue",
+                "value": "¥120",
+                "direction": "含零收入日",
+                "status": "available",
+                "source": "来源：逐店优先经营日报；缺日报门店仅取 OTA 渠道成交额",
+                "data_quality_label": "混合口径待复核",
+                "source_type_label": "经营日报 + OTA参考",
+                "decision_allowed": false
+              }
+            },
+            {
+              "scenario": "zero_positive_missing",
+              "check": "rendered_chart_retains_zero_and_skips_null",
+              "result": "passed",
+              "metric": "营收",
+              "data": [
+                0,
+                null,
+                120
+              ]
+            },
+            {
+              "scenario": "zero_positive_missing",
+              "check": "rendered_chart_retains_zero_and_skips_null",
+              "result": "passed",
+              "metric": "间夜",
+              "data": [
+                0,
+                null,
+                2
+              ]
+            },
+            {
+              "scenario": "zero_positive_missing",
+              "check": "narrow_viewport_retains_visible_zero_and_null_series",
+              "result": "passed"
+            },
+            {
+              "scenario": "zero_positive_missing",
+              "check": "served_compiled_assets_match_workspace_hashes_and_remain_stable",
+              "result": "passed"
+            }
+          ],
+          "screenshot_sha256": {
+            "macro-zero-page-revenue-desktop.png": "0db7a9fc6f0512f7c9df6eb98279f92cc4e85960df8c66d6d0a9b08f8c8cd828",
+            "macro-zero-page-room-nights-desktop.png": "8a7a575ab1370c8df45fc8d8e16120444229df3505de64262d14a6b6e0a644fa",
+            "macro-zero-page-room-nights-narrow.png": "ecd19c04fedcbddbfe6d35805839c70d0b2e4844dd5e4b2a7a9ce7c963b21e73"
+          },
+          "oracle": {
+            "hotel_id": 121,
+            "source": "ctrip",
+            "dataset_kind": "synthetic_sqlite",
+            "business_dates": [
+              "2026-05-01",
+              "2026-05-02",
+              "2026-05-03"
+            ],
+            "revenue": [
+              0,
+              null,
+              120
+            ],
+            "room_nights": [
+              0,
+              null,
+              2
+            ],
+            "sample_days": 2,
+            "zero_point_skip": false,
+            "missing_point_skip": true,
+            "revenue_card_value": "¥120",
+            "revenue_direction": "含零收入日",
+            "card_source_contains": "仅取 OTA 渠道成交额",
+            "decision_allowed": false,
+            "excludes_other_hotel_122_and_outside_date": true
+          },
+          "artifact_readback": "exact_json_and_screenshot_file_hashes_verified"
+        },
+        "migration": {
+          "migration_count": 219,
+          "frozen_source_count": 5,
+          "base_lock_checked": true,
+          "base_lock_source": "committed_lock",
+          "repaired_base_entry_count": 0,
+          "repaired_base_entries": []
+        },
+        "hotspot_failures": 0
       }
     }
   },
@@ -1018,6 +1748,78 @@
     {
       "name": "ci-new-review-failure.log",
       "sha256": "6a77a42b22be9ca1d5c5cbbad7ec60b1a150acc26e6047ac635f1cc8c36bbf07"
+    },
+    {
+      "name": "coaching-recurrence-audit-acceptance.json",
+      "sha256": "6520b1defdf2e62b5498ab3f679b7075a7e179b550faf885725a8d8e41df810d"
+    },
+    {
+      "name": "qunar-analysis-audit-acceptance.json",
+      "sha256": "af905a10d9a01f4f2e87760fbfd096f260151c9ccf6836e3c89468d098795402"
+    },
+    {
+      "name": "macro-zero-audit-acceptance.json",
+      "sha256": "9eeef14cddb582e0637adf8941e1c4d5879229187a37d20e218baba74c164dc6"
+    },
+    {
+      "name": "pr-review-sixteen-acceptance.json",
+      "sha256": "87da96ee7e7ab72f4d8411406b3ed847e3ccad494c96ac3882b7f40da0a96ebf"
+    },
+    {
+      "name": "audit-combined-php.log",
+      "sha256": "6da7eb0e8bb624dbaf3e2a4195811416016437b6cb3b0382017f8f7ce343ad52"
+    },
+    {
+      "name": "audit-combined-php.xml",
+      "sha256": "3c0baa1e0f73c510fa4de908291e4ba3627ec7d10a3183a6139abfa9b4695f21"
+    },
+    {
+      "name": "audit-direct-node.log",
+      "sha256": "5f96fb2db666a5359b0e10b051797ae52a1683e9457e61f1769bdc5a0dd303f1"
+    },
+    {
+      "name": "audit-integration.log",
+      "sha256": "c94efe877517ef1d2fa772f8f85f86d6f49b42cbf2d35fedf8b49fc5f8165820"
+    },
+    {
+      "name": "audit-hotspot.log",
+      "sha256": "6b590a5074e36b051c3cadf691e1bf331d166aed461437c94f676f119c2befae"
+    },
+    {
+      "name": "audit-migration.log",
+      "sha256": "00b4142dc863694366e9b68b2bda6418c8ef4b0f85c0e0dea703f3411b397ccf"
+    },
+    {
+      "name": "macro-zero-audit-before-valid.log",
+      "sha256": "064433f3fb7d32cf7c87452c018986b958b67f1c59f7b750af2af24430ef3f92"
+    },
+    {
+      "name": "macro-zero-audit-after.log",
+      "sha256": "32ff564f96f09426ffb15b7351267d74edc749848593aa414ca1d8c889572531"
+    },
+    {
+      "name": "macro-zero-audit-after.xml",
+      "sha256": "4b9e8a2f18832f166c794ecd414898cf805b41640f7ad5faa9e6fbc80c18eb34"
+    },
+    {
+      "name": "macro-zero-page-audit-acceptance.json",
+      "sha256": "8bf8ebff447079d743efe996fe05caac2ce5dbb3d4a94794fd6b36530f0ec69c"
+    },
+    {
+      "name": "github-thirteen-baseline-acceptance.json",
+      "sha256": "910a9a605563db1900199f34a8d8229ddeed88647ca5d3385fb58ffe8709cfd6"
+    },
+    {
+      "name": "macro-zero-page-revenue-desktop.png",
+      "sha256": "0db7a9fc6f0512f7c9df6eb98279f92cc4e85960df8c66d6d0a9b08f8c8cd828"
+    },
+    {
+      "name": "macro-zero-page-room-nights-desktop.png",
+      "sha256": "8a7a575ab1370c8df45fc8d8e16120444229df3505de64262d14a6b6e0a644fa"
+    },
+    {
+      "name": "macro-zero-page-room-nights-narrow.png",
+      "sha256": "ecd19c04fedcbddbfe6d35805839c70d0b2e4844dd5e4b2a7a9ce7c963b21e73"
     }
   ],
   "boundaries": {
@@ -1147,16 +1949,16 @@
       "sha256": "2127d26fd9340aa7ef866cd74f8a8991af41eb434cb5f7ea85545ef92afb8b00"
     },
     {
-      "state": "added",
       "path": "app/controller/concern/OnlineDataAnalysisEvidenceConcern.php",
-      "bytes": 9883,
-      "sha256": "6b077a5beed6d45f7c1f3c5f25c42230a5db3e0d2938d28793e7db4341c117d1"
+      "bytes": 10121,
+      "sha256": "ddc9a44db02e9787cbfb6a9f1f1f59c3c6a1f415b4456e0427b9bce38b3d8e48",
+      "state": "added"
     },
     {
       "path": "app/controller/concern/OnlineDataAnalyticsConcern.php",
-      "state": "modified",
-      "bytes": 27595,
-      "sha256": "48b14146c9f48dd4ece8ddd3c09e9a39b668498c79268b4e4c2d27bd07dd9e65"
+      "bytes": 27635,
+      "sha256": "8e9a0ea2e3f07664ff83b409fa4f9f5aae8e33ec38151f5f9ee42eef2c67f231",
+      "state": "modified"
     },
     {
       "state": "modified",
@@ -1172,9 +1974,9 @@
     },
     {
       "path": "app/controller/concern/OnlineDataQualityConcern.php",
-      "state": "modified",
-      "bytes": 35730,
-      "sha256": "ae2761652944955c8f15fa33108b2d61f98f0f8134be28f72eeb2b2102154a16"
+      "bytes": 37442,
+      "sha256": "75fd8e18feba7b3b44bb0a24fd3efec3e985af94316639271d9e562c669738e4",
+      "state": "modified"
     },
     {
       "state": "modified",
@@ -1519,16 +2321,16 @@
       "sha256": "32ba9f9d1b13f2f05448ddca9dce25090de78bf5842370507841ecdbab30f9d7"
     },
     {
-      "state": "modified",
       "path": "app/service/MacroSignalService.php",
-      "bytes": 93534,
-      "sha256": "191e116eb2ac5b565d370d8aa40e421c4e12929113da7030fa6c2a565a580e4c"
+      "bytes": 94560,
+      "sha256": "57a61a54b7006fec3a5de862e20978fd6ca8189a2624fb8420df6358a891049c",
+      "state": "modified"
     },
     {
       "path": "app/service/ManagerCoachingService.php",
-      "state": "added",
-      "bytes": 23148,
-      "sha256": "bde2039f44f0a88abcc5bd5fb057906f7c5ee1fedf926d51ad2915ec2221310b"
+      "bytes": 23575,
+      "sha256": "e94679aa24255e6cd626e2af8472f27684cc6f3fc304a3d15c5336652b4ecd08",
+      "state": "added"
     },
     {
       "state": "modified",
@@ -1988,8 +2790,8 @@
     },
     {
       "path": "docs/integration/suxios-integration-20260930.md",
-      "bytes": 13640,
-      "sha256": "9d01a6d1bf11ae4db59f642c87cf3975740ff567b9b683e302040dcbf053728f",
+      "bytes": 17143,
+      "sha256": "93452709fac276af4e8494a54d822e6a925d58484937c55a4a8fa9baae6d828a",
       "state": "added"
     },
     {
@@ -3968,8 +4770,8 @@
     },
     {
       "path": "tests/automation/knowledge_reference_permission.test.mjs",
-      "bytes": 3052,
-      "sha256": "97d33afae58e7a69088f1fed0c1c28dcb8035fe8d0d3ba6a15bd86da32ed9161",
+      "bytes": 3075,
+      "sha256": "b3c9d5954144254d13ea7f1dcf5a3d041260c62edcaf9ac987e381d14ceb84bb",
       "state": "added"
     },
     {
@@ -5671,6 +6473,12 @@
       "sha256": "a1c5c184d16e542fe499fce15ae1d1ae8403f83cf93d2c0896613aea3cc6acf6"
     },
     {
+      "path": "tests/MacroSignalZeroSalesTest.php",
+      "bytes": 7561,
+      "sha256": "ef6ea587bb8a7c9e51561153b2f5c3780080c154fcf9e519f079ef767d21187c",
+      "state": "added"
+    },
+    {
       "path": "tests/ManagerCoachingCaseLockRevalidationTest.php",
       "state": "added",
       "bytes": 6866,
@@ -5684,9 +6492,9 @@
     },
     {
       "path": "tests/ManagerCoachingPersistenceTest.php",
-      "state": "added",
-      "bytes": 13554,
-      "sha256": "b825e140a2c60cf4f2f648d9c21256e5ceb68e11788c29f0d38d627d52a48257"
+      "bytes": 18126,
+      "sha256": "6600a5ffed4ed0002a895b3c190a9820b739497eb6d263fb0178889c61a2ddbf",
+      "state": "added"
     },
     {
       "state": "modified",
@@ -5804,9 +6612,9 @@
     },
     {
       "path": "tests/OnlineDataAnalyticsDatabaseScopeTest.php",
-      "state": "modified",
-      "bytes": 27527,
-      "sha256": "907bfe63559bf41d0ff2612f380225fa1fed4f14b04bd525852f76cbf9f4b4f8"
+      "bytes": 39473,
+      "sha256": "cd7d5fc7fab1b6946bb51b19bd99caa9fe186c80dde63361370061aaed1417f6",
+      "state": "modified"
     },
     {
       "state": "modified",

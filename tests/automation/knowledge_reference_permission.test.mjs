@@ -26,7 +26,7 @@ const template=fs.readFileSync('resources/frontend/templates/fragments/20-page-k
 const ast=parse(template);const find=(nodes,id)=>{for(const n of nodes){if(n.type===1&&n.props?.some(p=>p.type===6&&p.name==='data-testid'&&p.value?.content===id))return n;const hit=n.children&&find(n.children,id);if(hit)return hit;}return null;};
 const button=find(ast.children,'knowledge-reference-merge');assert.ok(button);
 test('actual reference merge button reflects permission and selection independently',async()=>{
- const render=new Function('Vue',compile(button.loc.source,{mode:'function'}).code)(Vue);
+ const render=new Function('Vue',compile(button.loc.source,{mode:'function',prefixIdentifiers:true}).code)(Vue);
  for(const [allowed,ids,disabled] of [[false,[10],true],[true,[],true],[true,[10],false]]){
   const html=await renderToString(Vue.createSSRApp({data:()=>({selectedKnowledgeCenterUnitIds:ids}),methods:{canWriteKnowledgeReference:()=>allowed,editKnowledgeReference(){}},render}));
   assert.equal(/\sdisabled(?:=|\s|>)/.test(html),disabled,html);

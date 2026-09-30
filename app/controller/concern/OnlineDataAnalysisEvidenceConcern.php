@@ -27,7 +27,7 @@ trait OnlineDataAnalysisEvidenceConcern
             $hotelKey = $this->onlineDataHotelKey($row);
             $date = trim((string)($row['data_date'] ?? ''));
             $rowIdentityGaps = array_keys(array_filter([
-                'platform_identity_missing' => !in_array($platform, ['ctrip', 'meituan'], true),
+                'platform_identity_missing' => !in_array($platform, ['ctrip', 'meituan', 'qunar'], true),
                 'data_type_missing' => $dataType === '',
                 'metric_dimension_missing' => $metricDimension === '',
                 'business_date_missing' => preg_match('/^\d{4}-\d{2}-\d{2}$/D', $date) !== 1,
@@ -135,13 +135,14 @@ trait OnlineDataAnalysisEvidenceConcern
             $sourcePlatform = is_array($source)
                 ? OtaStandardEtlService::canonicalPlatformKey((string)($source['platform'] ?? ''))
                 : '';
+            // Ctrip owns collected Qunar facts while their metric channel stays Qunar.
+            $ctripQunarSubchannel = $rowSourcePlatform === 'ctrip' && $rowPlatform === 'qunar' && $sourcePlatform === 'ctrip';
             if (!is_array($source)
                 || (int)($source['system_hotel_id'] ?? 0) !== (int)($row['system_hotel_id'] ?? 0)
                 || (int)($row['tenant_id'] ?? 0) <= 0
                 || (int)($source['tenant_id'] ?? 0) !== (int)($row['tenant_id'] ?? 0)
                 || $rowPlatform === ''
-                || $rowSourcePlatform !== $rowPlatform
-                || $sourcePlatform !== $rowPlatform
+                || (!$ctripQunarSubchannel && ($rowSourcePlatform !== $rowPlatform || $sourcePlatform !== $rowPlatform))
                 || (trim((string)($source['data_type'] ?? '')) !== ''
                     && strtolower(trim((string)$source['data_type']))
                         !== strtolower(trim((string)($row['data_type'] ?? ''))))

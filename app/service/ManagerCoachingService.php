@@ -131,12 +131,18 @@ class ManagerCoachingService
                     }
                     if ($conclusion === 'target_met') {
                         $cycleStart = 0;
+                        $cycleObservedOn = $plan['business_date'];
                         foreach ($state['events'] as $prior) {
-                            if ($prior['event_type'] === 'recur') $cycleStart = (int)$prior['id'];
+                            if ($prior['event_type'] === 'recur') {
+                                $cycleStart = (int)$prior['id'];
+                                $cycleObservedOn = $prior['payload']['observed_on'] ?? '';
+                            }
                         }
+                        if ($cycleStart > 0) $cycleObservedOn = $this->date($cycleObservedOn, '复发证据日期');
                         $independent = array_filter($state['events'], static fn($e) =>
                             (int)$e['id'] > $cycleStart && $e['event_type'] === 'evidence'
                             && ($e['payload']['stage'] ?? '') === 'independent'
+                            && ($e['payload']['observed_on'] ?? '') >= $cycleObservedOn
                             && ($e['payload']['observed_on'] ?? '') <= $payload['observed_on']);
                         if (!$independent || ($input['criteria_confirmed'] ?? false) !== true) throw new InvalidArgumentException('达到目标需要独立完成证据并逐项确认验收标准');
                     }
