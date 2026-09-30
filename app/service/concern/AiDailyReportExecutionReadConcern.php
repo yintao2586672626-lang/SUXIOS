@@ -68,11 +68,14 @@ trait AiDailyReportExecutionReadConcern
                     'read_state' => [],
                 ];
             }
+            $intentTable = '`' . str_replace('`', '', Db::name('operation_execution_intents')->getTable()) . '`';
+            $hotelTable = '`' . str_replace('`', '', Db::name('hotels')->getTable()) . '`';
             $query = Db::name('operation_execution_intents')
                 ->whereNull('deleted_at')
                 ->where('source_module', 'ai_daily_report')
                 ->whereIn('source_record_id', $reportIds)
-                ->whereRaw('operation_execution_intents.tenant_id = (SELECT tenant_id FROM hotels WHERE hotels.id = operation_execution_intents.hotel_id)');
+                ->whereRaw($intentTable . '.tenant_id = (SELECT tenant_id FROM ' . $hotelTable
+                    . ' WHERE ' . $hotelTable . '.id = ' . $intentTable . '.hotel_id)');
             $this->applyHotelScope($query, $hotelIds, $hotelId);
             $intentRows = $query->order('id', 'desc')->select()->toArray();
             if (empty($intentRows)) {

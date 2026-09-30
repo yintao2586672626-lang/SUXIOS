@@ -163,6 +163,108 @@ final class ProtectedCapabilityServiceTest extends TestCase
         )['allowed']);
     }
 
+    public function testKnowledgeReferenceWriteUsesExistingGovernanceCapabilityAndReadStaysReadOnly(): void
+    {
+        $service = new ProtectedCapabilityService([]);
+        foreach (['/api/knowledge/references', '/api/knowledge/references?hotel_id=7'] as $path) {
+            $write = $service->classifyPath('POST', $path);
+            self::assertIsArray($write);
+            self::assertSame('ai_governance', $write['key']);
+            self::assertSame('can_manage_ai_governance', $write['permission']);
+            self::assertSame('ai_governance', $write['module']);
+        }
+        $source = $service->classifyPath('GET', '/api/knowledge/reference-sources/12?hotel_id=7');
+        self::assertSame('knowledge_read', $source['key'] ?? null);
+        self::assertSame('ai.view', $source['permission'] ?? null);
+    }
+
+    public function testKnowledgeReferenceWriteRejectsMembershipReadOnlyAndForeignScopeButAllowsEntitledManager(): void
+    {
+        $service = new ProtectedCapabilityService(['default_enabled_modules' => ['ai_governance']]);
+        $write = $service->classifyPath('POST', '/api/knowledge/references');
+        self::assertIsArray($write);
+        foreach ([[], ['ai.view']] as $permissions) {
+            $denied = $service->authorizeContext($this->userWithPermissions($permissions), $write, ['hotel_id' => 7]);
+            self::assertFalse($denied['allowed']);
+            self::assertSame('role_permission_denied', $denied['reason']);
+        }
+        $manager = $this->userWithPermissions(['can_manage_ai_governance']);
+        self::assertTrue($service->authorizeContext($manager, $write, ['hotel_id' => 7, 'tenant_id' => 71])['allowed']);
+        self::assertSame('hotel_permission_denied', $service->authorizeContext($manager, $write, ['hotel_id' => 8])['reason']);
+        self::assertSame('tenant_context_mismatch', $service->authorizeContext($manager, $write, ['hotel_id' => 7, 'tenant_id' => 72])['reason']);
+        $disabled = new ProtectedCapabilityService([]);
+        self::assertSame('module_not_entitled', $disabled->authorizeContext($manager, $write, ['hotel_id' => 7])['reason']);
+        self::assertTrue($service->authorizeContext($this->userWithPermissions([], true), $write, ['hotel_id' => 7])['allowed']);
+    }
+
+    public function testKnowledgeReferenceWriteReceivesExistingProtectedRateLimitInAuthMiddleware(): void
+    {
+        $capability = (new ProtectedCapabilityService([]))->classifyPath('POST', '/api/knowledge/references');
+        self::assertIsArray($capability);
+        $method = new \ReflectionMethod(\app\middleware\Auth::class, 'resolveRateLimitPolicy');
+        $method->setAccessible(true);
+        $policy = $method->invoke(new \app\middleware\Auth(), 'POST', '/api/knowledge/references?hotel_id=7', $capability);
+        self::assertSame('protected_ai_governance', $policy['scope']);
+        self::assertSame('ai_governance', $policy['capability']);
+        self::assertSame('api/knowledge/references', $policy['path']);
+        self::assertSame(20, $policy['limit']);
+        self::assertSame(3600, $policy['window']);
+    }
+
+    public function testKnowledgeReferenceCitationFieldBindingsSurviveOnlyKnowledgeRedaction(): void
+    {
+        $fields = array_fill_keys(['objective', 'steps', 'applicability', 'stop_conditions', 'acceptance_criteria'], 'Synthetic human reference');
+        $paths = array_keys($fields);
+        $citation = ['chunk_id' => 12, 'source_digest' => str_repeat('a', 64), 'quote' => 'Synthetic quote', 'field_paths' => $paths,
+            'source_path' => 'synthetic-sensitive-path', 'headers' => ['Synthetic' => 'private']];
+        $content = (new \app\service\KnowledgeReferenceService())->referenceContent('Synthetic reference', $fields, [$citation]);
+        $service = new ProtectedCapabilityService([]);
+        foreach (['knowledge_read', 'ai_governance'] as $key) {
+            $response = $service->redactPayload(['code' => 200, 'data' => ['chunk' => ['content' => $content]]], ['key' => $key], 'synthetic-reference-readback');
+            $actual = $response['data']['chunk']['content']['citations'][0];
+            self::assertSame($paths, $actual['field_paths'] ?? null);
+            self::assertSame($citation['source_digest'], $actual['source_digest']);
+            self::assertSame($citation['quote'], $actual['quote']);
+            self::assertArrayNotHasKey('source_path', $actual);
+            self::assertArrayNotHasKey('headers', $actual);
+            self::assertSame(2, $response['redacted_key_count']);
+        }
+        $other = $service->redactPayload(['data' => $content], ['key' => 'ai_decision'], 'synthetic-other-capability');
+        self::assertArrayNotHasKey('field_paths', $other['data']['citations'][0]);
+    }
+
+    public function testKnowledgeReferenceRedactionNeverExposesArbitraryFieldPathsOrUntypedPayloads(): void
+    {
+        $service = new ProtectedCapabilityService([]);
+        foreach ([['content_type' => 'reference_sop', 'scope' => 'reference_only'], [], ['content_type' => 'reference_sop', 'scope' => 'hotel_fact']] as $identity) {
+            $input = $identity + ['citations' => [['field_paths' => ['objective', '$.synthetic_sensitive_path', ['headers'], null],
+                'raw_payload' => 'synthetic-sensitive', 'source_path' => 'synthetic-sensitive']], 'field_paths' => ['steps']];
+            $response = $service->redactPayload(['data' => $input], ['key' => 'knowledge_read'], 'synthetic-redaction');
+            self::assertArrayNotHasKey('field_paths', $response['data']);
+            $citation = $response['data']['citations'][0];
+            self::assertArrayNotHasKey('raw_payload', $citation);
+            self::assertArrayNotHasKey('source_path', $citation);
+            if (($identity['scope'] ?? '') === 'reference_only') self::assertSame(['objective'], $citation['field_paths'] ?? null);
+            else self::assertArrayNotHasKey('field_paths', $citation);
+        }
+    }
+
+    public function testKnowledgeReferenceRedactionDoesNotRestoreRemovedCitationIndexes(): void
+    {
+        $response = (new ProtectedCapabilityService())->redactPayload(['data' => [
+            'content_type' => 'reference_sop', 'scope' => 'reference_only',
+            'citations' => [
+                0 => ['field_paths' => ['objective'], 'quote' => 'Synthetic quote'],
+                'headers_sensitive_fixture' => ['field_paths' => ['steps'], 'raw_payload' => 'synthetic-sensitive'],
+                'named_fixture' => ['field_paths' => ['applicability'], 'quote' => 'Synthetic named quote'],
+            ],
+        ]], ['key' => 'knowledge_read'], 'synthetic-citation-index');
+        self::assertArrayNotHasKey('headers_sensitive_fixture', $response['data']['citations']);
+        self::assertSame(['objective'], $response['data']['citations'][0]['field_paths']);
+        self::assertArrayNotHasKey('field_paths', $response['data']['citations']['named_fixture']);
+        self::assertSame(2, $response['redacted_key_count']);
+    }
+
     public function testRevenueAiReviewAndExecutionUseDistinctProtectedCapabilities(): void
     {
         $service = new ProtectedCapabilityService([

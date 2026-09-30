@@ -23,7 +23,8 @@ trait AiDailyReportStorageReadConcern
     private function applyReportTenantScope($query): void
     {
         if ($this->tableHasColumn(self::TABLE, 'tenant_id') && $this->tableHasColumn('hotels', 'tenant_id')) {
-            $query->whereRaw('ai_daily_reports.tenant_id = (SELECT tenant_id FROM hotels WHERE hotels.id = ai_daily_reports.hotel_id)');
+            $reportTable = '`' . str_replace('`', '', $query->getTable()) . '`'; $hotelTable = '`' . str_replace('`', '', Db::name('hotels')->getTable()) . '`';
+            $query->whereRaw($reportTable . '.tenant_id = (SELECT tenant_id FROM ' . $hotelTable . ' WHERE ' . $hotelTable . '.id = ' . $reportTable . '.hotel_id)');
         }
     }
 
@@ -161,11 +162,10 @@ trait AiDailyReportStorageReadConcern
 
     private function tableExists(string $table): bool
     {
-        try {
-            Db::query('SELECT 1 FROM `' . str_replace('`', '', $table) . '` LIMIT 1');
-            return true;
+        $physicalTable = Db::name($table)->getTable(); try {
+            Db::query('SELECT 1 FROM `' . str_replace('`', '', $physicalTable) . '` LIMIT 1'); return true;
         } catch (Throwable $e) {
-            if ($this->isMissingTableException($e, $table)) {
+            if ($this->isMissingTableException($e, $physicalTable)) {
                 return false;
             }
             throw new \RuntimeException(
@@ -229,14 +229,14 @@ trait AiDailyReportStorageReadConcern
     private function tableHasColumn(string $table, string $column): bool
     {
         static $cache = [];
-        $key = spl_object_id(Db::connect()) . '.' . $table . '.' . $column;
+        $connection = Db::connect(); $physicalTable = Db::name($table)->getTable();
+        $key = spl_object_id($connection) . '.' . $connection->getConfig('database') . '.' . $physicalTable . '.' . $column;
         if (array_key_exists($key, $cache)) {
             return $cache[$key];
         }
 
         try {
-            $columns = Db::connect()->getFields($table);
-            return $cache[$key] = isset($columns[$column]);
+            $columns = $connection->getFields($physicalTable); return $cache[$key] = isset($columns[$column]);
         } catch (Throwable $e) {
             return $cache[$key] = false;
         }

@@ -25,14 +25,46 @@ final class KnowledgeReferenceService
         return $result;
     }
 
-    public function source(int $chunkId, int $hotelId, int $actorId): array
+    /** Access context is supplied by a trusted caller, never by reference form input. */
+    public function source(int $chunkId, int $hotelId, int $actorId, array $accessContext = []): array
+    {
+        [$unit, $row, $content] = $this->validatedSource($chunkId, $hotelId, $actorId, $accessContext);
+        $text = (string)($content['raw_text'] ?? $content['summary'] ?? $content['text'] ?? '');
+        if ($text === '') $text = json_encode($content, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT | JSON_THROW_ON_ERROR);
+        return ['unit_id' => (int)$unit['unit_id'], 'chunk_id' => $chunkId, 'title' => $unit['name'],
+            'version_no' => isset($row['version_no']) ? (int)$row['version_no'] : null,
+            'digest' => (new KnowledgeContentDigestService())->digest($content),
+            'source_document' => $content['source_document'] ?? ['text_sha256' => hash('sha256', $text)],
+            'source_segments' => $this->segments($text), 'content' => $content,
+            'policy' => 'reference_only_human_adaptation_not_verified_hotel_fact'];
+    }
+
+    /** Selection follows the same permission, integrity and current-version checks as source reads. */
+    public function canReferenceSource(int $chunkId, int $hotelId, int $actorId, array $accessContext = [], int $expectedUnitId = 0): bool
+    {
+        if ($chunkId <= 0) return false;
+        try {
+            [$unit] = $this->validatedSource($chunkId, $hotelId, $actorId, $accessContext);
+            return $expectedUnitId <= 0 || (int)$unit['unit_id'] === $expectedUnitId;
+        } catch (InvalidArgumentException|RuntimeException|\JsonException $e) {
+            return false;
+        }
+    }
+
+    private function validatedSource(int $chunkId, int $hotelId, int $actorId, array $accessContext): array
     {
         $row = Db::name('knowledge_chunks')->where('chunk_id', $chunkId)->find();
         $unit = $row ? Db::name('knowledge_units')->where('unit_id', $row['unit_id'])->find() : null;
         $policy = new KnowledgeSourceAccessPolicy();
-        $tenantId = $unit && (int)($unit['tenant_id'] ?? 0) > 0
+        $unitTenantId = (int)($unit['tenant_id'] ?? 0);
+        $hotelTenantId = $unitTenantId > 0
             ? (int)Db::name('hotels')->where('id', $hotelId)->value('tenant_id') : 0;
-        if (!$unit || !$row || !$policy->canReadUnit($unit, $actorId, [$hotelId], $tenantId)) {
+        $tenantId = (int)($accessContext['tenant_id'] ?? $hotelTenantId);
+        $superAdmin = ($accessContext['super_admin'] ?? false) === true;
+        if (!$unit || !$row
+            || ((int)($unit['hotel_id'] ?? 0) > 0 && (int)$unit['hotel_id'] !== $hotelId)
+            || ($unitTenantId > 0 && $unitTenantId !== $hotelTenantId)
+            || !$policy->canReadUnit($unit, $actorId, [$hotelId], $tenantId, $superAdmin)) {
             throw new RuntimeException('无权读取该知识来源');
         }
         $content = $this->decode($row['content']);
@@ -49,14 +81,7 @@ final class KnowledgeReferenceService
             || ($content['lifecycle_status'] ?? 'active') !== 'active') {
             throw new InvalidArgumentException('知识来源已失效，请选择当前有效版本');
         }
-        $text = (string)($content['raw_text'] ?? $content['summary'] ?? $content['text'] ?? '');
-        if ($text === '') $text = json_encode($content, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT | JSON_THROW_ON_ERROR);
-        return ['unit_id' => (int)$unit['unit_id'], 'chunk_id' => $chunkId, 'title' => $unit['name'],
-            'version_no' => isset($row['version_no']) ? (int)$row['version_no'] : null,
-            'digest' => (new KnowledgeContentDigestService())->digest($content),
-            'source_document' => $content['source_document'] ?? ['text_sha256' => hash('sha256', $text)],
-            'source_segments' => $this->segments($text), 'content' => $content,
-            'policy' => 'reference_only_human_adaptation_not_verified_hotel_fact'];
+        return [$unit, $row, $content];
     }
 
     /** Immutable, bounded citation material; the complete source remains in its knowledge chunk. */
@@ -114,7 +139,7 @@ final class KnowledgeReferenceService
         return $snapshot;
     }
 
-    public function save(int $hotelId, int $actorId, array $input): array
+    public function save(int $hotelId, int $actorId, array $input, array $accessContext = []): array
     {
         $title = $this->text($input['title'] ?? '', '标题', 180);
         $fields = [];
@@ -128,7 +153,7 @@ final class KnowledgeReferenceService
         $validated = [];
         foreach ($citations as $citation) {
             $id = (int)($citation['chunk_id'] ?? 0);
-            $source = $sources[$id] ??= $this->source($id, $hotelId, $actorId);
+            $source = $sources[$id] ??= $this->source($id, $hotelId, $actorId, $accessContext);
             $segment = array_values(array_filter($source['source_segments'], static fn($s) => $s['id'] === ($citation['segment_id'] ?? '')))[0] ?? null;
             if (!$segment || !hash_equals($source['digest'], (string)($citation['source_digest'] ?? ''))
                 || (string)($citation['quote'] ?? '') !== $segment['quote']) {

@@ -588,6 +588,9 @@
                 return { url, options: nextOptions };
             };
             const userHasPermission = (key) => !!(user.value?.permissions || {})[key];
+            const canWriteKnowledgeReference = () => user.value?.is_super_admin === true
+                || (Array.isArray(user.value?.protected_access)
+                    && user.value.protected_access.some(item => item.key === 'ai_governance' && item.allowed === true));
             const userHasCapability = (key) => {
                 const capabilities = Array.isArray(user.value?.capabilities) ? user.value.capabilities : [];
                 return !!user.value?.is_super_admin || capabilities.includes('all') || capabilities.includes(key);
@@ -38529,7 +38532,10 @@
             const runKnowledgeDistillation = (...args) => callKnowledgeCenterDomain('runKnowledgeDistillation', args);
             const openKnowledgeChunks = (...args) => callKnowledgeCenterDomain('openKnowledgeChunks', args);
             const saveKnowledgeChunk = (...args) => callKnowledgeCenterDomain('saveKnowledgeChunk', args);
-            const editKnowledgeReference = (...args) => callKnowledgeCenterDomain('editKnowledgeReference', args);
+            const editKnowledgeReference = (...args) => {
+                if (!canWriteKnowledgeReference()) { showToast('需开通知识管理权限才能保存参考 SOP', 'error'); return null; }
+                return callKnowledgeCenterDomain('editKnowledgeReference', args);
+            };
             const createKnowledgeSopTask = (...args) => callKnowledgeCenterDomain('createKnowledgeSopTask', args);
             const isAllKnowledgeCenterPageSelected = (...args) => callKnowledgeCenterDomain('isAllKnowledgeCenterPageSelected', args, () => false);
             const toggleSelectAllKnowledgeCenterUnits = (...args) => callKnowledgeCenterDomain('toggleSelectAllKnowledgeCenterUnits', args);
@@ -54601,7 +54607,7 @@
                 filterByKnowledgeStatus, updateKnowledgeUnitStatus,
                 knowledgeCenterStatusLabel, knowledgeCenterStatusClass, knowledgeCenterReadinessClass, knowledgeCenterSourceLabel,
                 knowledgeCenterDisplayLabel, knowledgeCenterTagGroups, formatKnowledgeJson, knowledgeChunkView,
-                openKnowledgeUnitModal, saveKnowledgeUnit, deleteKnowledgeUnit, refreshKnowledgeUnit, runKnowledgeDistillation, openKnowledgeChunks, saveKnowledgeChunk, editKnowledgeReference, createKnowledgeSopTask, openKnowledgeImportModal, closeKnowledgeImportModal, setKnowledgeImportMode, importKnowledgeUnits,
+                openKnowledgeUnitModal, saveKnowledgeUnit, deleteKnowledgeUnit, refreshKnowledgeUnit, runKnowledgeDistillation, openKnowledgeChunks, saveKnowledgeChunk, editKnowledgeReference, canWriteKnowledgeReference, createKnowledgeSopTask, openKnowledgeImportModal, closeKnowledgeImportModal, setKnowledgeImportMode, importKnowledgeUnits,
                 handleKnowledgeDocumentPaste, handleKnowledgeDocumentDrop, handleKnowledgeDocumentFileSelect, openKnowledgeDocumentFilePicker, focusKnowledgeDocumentTextarea,
                 loadKnowledgePromotionWorkbench, changeKnowledgePromotionHotel, openKnowledgePromotionCandidate,
                 createKnowledgePromotionCandidate, saveKnowledgePromotionRevision, submitKnowledgePromotionCandidate,

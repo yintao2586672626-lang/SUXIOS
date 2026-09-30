@@ -67,6 +67,7 @@ class ProtectedCapabilityService
                         ['path' => 'api/knowledge/distillation/run', 'methods' => ['POST']],
                         ['path' => 'api/knowledge/add', 'methods' => ['POST']],
                         ['path' => 'api/knowledge/import', 'methods' => ['POST']],
+                        ['path' => 'api/knowledge/references', 'methods' => ['POST']],
                         ['path' => 'api/knowledge/document-text', 'methods' => ['POST']],
                         ['path' => 'api/knowledge/*/add-chunk', 'methods' => ['POST']],
                         ['path' => 'api/knowledge/*/update', 'methods' => ['POST']],
@@ -500,10 +501,11 @@ class ProtectedCapabilityService
     public function redactPayload(array $payload, array $capability, string $requestId): array
     {
         $removedCount = 0;
+        $referenceFields = in_array($capability['key'] ?? '', ['knowledge_read', 'ai_governance'], true);
         if (array_key_exists('data', $payload)) {
-            $payload['data'] = $this->redactValue($payload['data'], $removedCount);
+            $payload['data'] = $this->redactValue($payload['data'], $removedCount, $referenceFields);
         } else {
-            $payload = $this->redactValue($payload, $removedCount);
+            $payload = $this->redactValue($payload, $removedCount, $referenceFields);
             if (!is_array($payload)) {
                 $payload = ['result' => $payload];
             }
@@ -739,7 +741,7 @@ class ProtectedCapabilityService
         return false;
     }
 
-    private function redactValue($value, int &$removedCount)
+    private function redactValue($value, int &$removedCount, bool $referenceFields = false)
     {
         if (!is_array($value)) {
             return $value;
@@ -752,7 +754,19 @@ class ProtectedCapabilityService
                 continue;
             }
 
-            $redacted[$key] = $this->redactValue($child, $removedCount);
+            $redacted[$key] = $this->redactValue($child, $removedCount, $referenceFields);
+            if ($referenceFields && $key === 'citations' && is_array($child)
+                && ($value['content_type'] ?? '') === 'reference_sop' && ($value['scope'] ?? '') === 'reference_only') {
+                foreach ($child as $index => $citation) {
+                    if (!is_int($index) || !isset($redacted[$key][$index]) || !is_array($redacted[$key][$index])
+                        || !is_array($citation) || !is_array($citation['field_paths'] ?? null)) continue;
+                    // Preserve only the fixed reference-form field IDs, never raw evidence paths.
+                    $redacted[$key][$index]['field_paths'] = array_values(array_unique(array_filter($citation['field_paths'],
+                        static fn($path): bool => is_string($path) && in_array($path,
+                            ['objective', 'steps', 'applicability', 'stop_conditions', 'acceptance_criteria'], true))));
+                    if ($this->isSensitiveKey('field_paths')) $removedCount--;
+                }
+            }
         }
 
         return $redacted;

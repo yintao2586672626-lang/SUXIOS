@@ -92,7 +92,13 @@
     "validate_raw_ctrip_capture_calendar_dates_before_normalization",
     "latest_ai_report_validation_errors_reach_controller_422",
     "revalidate_effective_coaching_case_after_scoped_row_lock",
-    "explicit_metric_dimension_selection_for_analysis_and_details"
+    "explicit_metric_dimension_selection_for_analysis_and_details",
+    "reference_selection_matches_shared_source_policy_without_edit_grant",
+    "trusted_admin_and_tenant_context_for_reference_source_and_save",
+    "existing_governance_permission_and_rate_limit_for_reference_writes",
+    "physical_prefixed_report_and_execution_tables_with_connection_scoped_schema_cache",
+    "fixed_reference_form_bindings_survive_only_typed_knowledge_redaction",
+    "redaction_never_restores_sensitive_citation_indexes"
   ],
   "verification": {
     "php": {
@@ -110,7 +116,8 @@
       "baseline_head": "b48de571de0a567d38533f743ce407eca12cd10d",
       "source_state": "All backend review fixes stable before the final full PHP run; later frontend-only error race repaired and verified separately. Source fingerprints recorded before commit.",
       "count_note": "CLI total includes one skipped Cloud OTA setup. Eight isolated opening tests supplemented; four dedicated database cases remain local-only unverified.",
-      "dependency_version": "league/flysystem 3.35.3"
+      "dependency_version": "league/flysystem 3.35.3",
+      "evidence_scope": "historical_full_local_baseline_before_four_continuation_repairs"
     },
     "supplemental_opening_tasks": {
       "tests": 8,
@@ -129,7 +136,8 @@
       "excluded_by_portable_pattern": 2,
       "portable_skip_note": "Two workstation-authority cases are excluded by the unchanged portable skip pattern and are not included in the executed test count.",
       "baseline_head": "b48de571de0a567d38533f743ce407eca12cd10d",
-      "source_state": "All nine review fixes stable before this official full run; source fingerprints recorded before commit"
+      "source_state": "All nine review fixes stable before this official full run; source fingerprints recorded before commit",
+      "evidence_scope": "historical_full_local_baseline_before_four_continuation_repairs"
     },
     "frontend": {
       "build": "passed",
@@ -141,7 +149,7 @@
         "existing_migrations_unchanged": 216
       },
       "source_hotspots": "original_ratchets_passed",
-      "startup_gzip_bytes": 618901,
+      "startup_gzip_bytes": 619006,
       "original_target_bytes": 620000,
       "metric_selection_page": {
         "status": "passed",
@@ -162,6 +170,167 @@
         "compiled_main_sha256": "d17b8de875967f8d48a6e11c18791900b6fa07dd6f592662fc54b26e22635bac",
         "screenshot": "browser-metric-final.png",
         "scope_note": "Local synthetic API and compiled product assets; no real account, database or OTA/PMS data. Deliberate 503 is expected and verifies the visible recovery path."
+      },
+      "knowledge_reference_page": {
+        "status": "passed",
+        "mode": "local_synthetic_compiled_public_assets_no_real_account_database_or_business_write",
+        "states": [
+          {
+            "role": "reader",
+            "check": "same_hotel_other_author_formal_source_selectable",
+            "can_edit": false,
+            "can_select_reference": true,
+            "result": "passed"
+          },
+          {
+            "role": "reader",
+            "check": "merge_disabled_and_permission_notice_visible",
+            "result": "passed"
+          },
+          {
+            "role": "manager",
+            "check": "same_hotel_other_author_formal_source_selectable",
+            "can_edit": false,
+            "can_select_reference": true,
+            "result": "passed"
+          },
+          {
+            "role": "manager",
+            "check": "selected_source_enables_merge_and_five_original_source_selects",
+            "result": "passed"
+          },
+          {
+            "role": "manager",
+            "check": "reference_only_reference_sop_five_field_path_quotes_visible",
+            "field_paths": [
+              "objective",
+              "steps",
+              "applicability",
+              "stop_conditions",
+              "acceptance_criteria"
+            ],
+            "result": "passed"
+          },
+          {
+            "role": "manager",
+            "check": "edit_form_restores_all_five_values_and_original_source_selections",
+            "result": "passed"
+          }
+        ],
+        "compiled_main_sha256": "5a4dfd1431351ac79f3b78b5c1b3fce3c4f692562b4f1cd52ec73c3d09b88b76",
+        "compiled_render_sha256": "90fed7cb9b70e8103f645fec0607a960a3444db2bf39c286305a17cbb8b8c5fa",
+        "served_assets": [
+          {
+            "role": "reader",
+            "path": "/app-main.min.js",
+            "status": 200,
+            "sha256": "5a4dfd1431351ac79f3b78b5c1b3fce3c4f692562b4f1cd52ec73c3d09b88b76"
+          },
+          {
+            "role": "reader",
+            "path": "/app-render.min.js",
+            "status": 200,
+            "sha256": "90fed7cb9b70e8103f645fec0607a960a3444db2bf39c286305a17cbb8b8c5fa"
+          },
+          {
+            "role": "manager",
+            "path": "/app-main.min.js",
+            "status": 200,
+            "sha256": "5a4dfd1431351ac79f3b78b5c1b3fce3c4f692562b4f1cd52ec73c3d09b88b76"
+          },
+          {
+            "role": "manager",
+            "path": "/app-render.min.js",
+            "status": 200,
+            "sha256": "90fed7cb9b70e8103f645fec0607a960a3444db2bf39c286305a17cbb8b8c5fa"
+          }
+        ],
+        "screenshots": [
+          "browser-knowledge-reader-desktop.png",
+          "browser-knowledge-reader-narrow.png",
+          "browser-knowledge-manager-merge-desktop.png",
+          "browser-knowledge-manager-merge-narrow.png",
+          "browser-knowledge-manager-citations-desktop.png",
+          "browser-knowledge-manager-edit-desktop.png"
+        ],
+        "unexpected_errors": [],
+        "blocked_external_requests": [],
+        "requests": [
+          {
+            "role": "reader",
+            "method": "GET",
+            "path": "/health",
+            "query": ""
+          },
+          {
+            "role": "reader",
+            "method": "POST",
+            "path": "/auth/login",
+            "query": ""
+          },
+          {
+            "role": "reader",
+            "method": "GET",
+            "path": "/auth/info",
+            "query": ""
+          },
+          {
+            "role": "reader",
+            "method": "GET",
+            "path": "/knowledge/list",
+            "query": "?page=1&page_size=10"
+          },
+          {
+            "role": "manager",
+            "method": "GET",
+            "path": "/health",
+            "query": ""
+          },
+          {
+            "role": "manager",
+            "method": "POST",
+            "path": "/auth/login",
+            "query": ""
+          },
+          {
+            "role": "manager",
+            "method": "GET",
+            "path": "/auth/info",
+            "query": ""
+          },
+          {
+            "role": "manager",
+            "method": "GET",
+            "path": "/knowledge/list",
+            "query": "?page=1&page_size=10"
+          },
+          {
+            "role": "manager",
+            "method": "GET",
+            "path": "/knowledge/301",
+            "query": ""
+          },
+          {
+            "role": "manager",
+            "method": "GET",
+            "path": "/knowledge/reference-sources/1001",
+            "query": "?hotel_id=1"
+          },
+          {
+            "role": "manager",
+            "method": "GET",
+            "path": "/knowledge/302",
+            "query": "?hotel_id=1&platform=all_ota&as_of=2026-09-30&question=&hotel_conditions=%7B%7D&evaluate=0"
+          },
+          {
+            "role": "manager",
+            "method": "GET",
+            "path": "/knowledge/reference-sources/1001",
+            "query": "?hotel_id=1"
+          }
+        ],
+        "service_shutdown": "managed_finally",
+        "readback_verified": true
       }
     },
     "browser": {
@@ -203,7 +372,7 @@
       "timeout_changed": false
     },
     "pr_review": {
-      "findings_repaired": 9,
+      "findings_repaired": 13,
       "monthly": {
         "tests": 43,
         "assertions": 349,
@@ -259,6 +428,197 @@
         "append_only": true,
         "nonzero_pointers_preserved": true,
         "source_digest_not_rewritten": true
+      },
+      "continuation": {
+        "php": {
+          "tests": 113,
+          "assertions": 1052,
+          "errors": 0,
+          "failures": 0,
+          "skipped": 0,
+          "exit_code": 0,
+          "log": "new-review-php.log",
+          "junit": "new-review-php.xml"
+        },
+        "node": {
+          "tests": 12,
+          "pass": 12,
+          "fail": 0,
+          "skipped": 0,
+          "exit_code": 0,
+          "log": "new-review-node.log"
+        },
+        "browser": {
+          "status": "passed",
+          "mode": "local_synthetic_compiled_public_assets_no_real_account_database_or_business_write",
+          "states": [
+            {
+              "role": "reader",
+              "check": "same_hotel_other_author_formal_source_selectable",
+              "can_edit": false,
+              "can_select_reference": true,
+              "result": "passed"
+            },
+            {
+              "role": "reader",
+              "check": "merge_disabled_and_permission_notice_visible",
+              "result": "passed"
+            },
+            {
+              "role": "manager",
+              "check": "same_hotel_other_author_formal_source_selectable",
+              "can_edit": false,
+              "can_select_reference": true,
+              "result": "passed"
+            },
+            {
+              "role": "manager",
+              "check": "selected_source_enables_merge_and_five_original_source_selects",
+              "result": "passed"
+            },
+            {
+              "role": "manager",
+              "check": "reference_only_reference_sop_five_field_path_quotes_visible",
+              "field_paths": [
+                "objective",
+                "steps",
+                "applicability",
+                "stop_conditions",
+                "acceptance_criteria"
+              ],
+              "result": "passed"
+            },
+            {
+              "role": "manager",
+              "check": "edit_form_restores_all_five_values_and_original_source_selections",
+              "result": "passed"
+            }
+          ],
+          "compiled_main_sha256": "5a4dfd1431351ac79f3b78b5c1b3fce3c4f692562b4f1cd52ec73c3d09b88b76",
+          "compiled_render_sha256": "90fed7cb9b70e8103f645fec0607a960a3444db2bf39c286305a17cbb8b8c5fa",
+          "served_assets": [
+            {
+              "role": "reader",
+              "path": "/app-main.min.js",
+              "status": 200,
+              "sha256": "5a4dfd1431351ac79f3b78b5c1b3fce3c4f692562b4f1cd52ec73c3d09b88b76"
+            },
+            {
+              "role": "reader",
+              "path": "/app-render.min.js",
+              "status": 200,
+              "sha256": "90fed7cb9b70e8103f645fec0607a960a3444db2bf39c286305a17cbb8b8c5fa"
+            },
+            {
+              "role": "manager",
+              "path": "/app-main.min.js",
+              "status": 200,
+              "sha256": "5a4dfd1431351ac79f3b78b5c1b3fce3c4f692562b4f1cd52ec73c3d09b88b76"
+            },
+            {
+              "role": "manager",
+              "path": "/app-render.min.js",
+              "status": 200,
+              "sha256": "90fed7cb9b70e8103f645fec0607a960a3444db2bf39c286305a17cbb8b8c5fa"
+            }
+          ],
+          "screenshots": [
+            "browser-knowledge-reader-desktop.png",
+            "browser-knowledge-reader-narrow.png",
+            "browser-knowledge-manager-merge-desktop.png",
+            "browser-knowledge-manager-merge-narrow.png",
+            "browser-knowledge-manager-citations-desktop.png",
+            "browser-knowledge-manager-edit-desktop.png"
+          ],
+          "unexpected_errors": [],
+          "blocked_external_requests": [],
+          "requests": [
+            {
+              "role": "reader",
+              "method": "GET",
+              "path": "/health",
+              "query": ""
+            },
+            {
+              "role": "reader",
+              "method": "POST",
+              "path": "/auth/login",
+              "query": ""
+            },
+            {
+              "role": "reader",
+              "method": "GET",
+              "path": "/auth/info",
+              "query": ""
+            },
+            {
+              "role": "reader",
+              "method": "GET",
+              "path": "/knowledge/list",
+              "query": "?page=1&page_size=10"
+            },
+            {
+              "role": "manager",
+              "method": "GET",
+              "path": "/health",
+              "query": ""
+            },
+            {
+              "role": "manager",
+              "method": "POST",
+              "path": "/auth/login",
+              "query": ""
+            },
+            {
+              "role": "manager",
+              "method": "GET",
+              "path": "/auth/info",
+              "query": ""
+            },
+            {
+              "role": "manager",
+              "method": "GET",
+              "path": "/knowledge/list",
+              "query": "?page=1&page_size=10"
+            },
+            {
+              "role": "manager",
+              "method": "GET",
+              "path": "/knowledge/301",
+              "query": ""
+            },
+            {
+              "role": "manager",
+              "method": "GET",
+              "path": "/knowledge/reference-sources/1001",
+              "query": "?hotel_id=1"
+            },
+            {
+              "role": "manager",
+              "method": "GET",
+              "path": "/knowledge/302",
+              "query": "?hotel_id=1&platform=all_ota&as_of=2026-09-30&question=&hotel_conditions=%7B%7D&evaluate=0"
+            },
+            {
+              "role": "manager",
+              "method": "GET",
+              "path": "/knowledge/reference-sources/1001",
+              "query": "?hotel_id=1"
+            }
+          ],
+          "service_shutdown": "managed_finally",
+          "readback_verified": true
+        },
+        "migration": {
+          "migration_count": 219,
+          "frozen_source_count": 5,
+          "base_lock_checked": true,
+          "base_lock_source": "committed_lock",
+          "repaired_base_entry_count": 0,
+          "repaired_base_entries": []
+        },
+        "startup_gzip_bytes": 619006,
+        "baseline_head": "4af007147a8fcefbf5c6d1dbde396b4a95b391b8"
       }
     }
   },
@@ -518,6 +878,110 @@
     {
       "name": "ci-runtime-stability-final.log",
       "sha256": "f4e59ee8be60a05c7adabe5e7dc1ac2302a3533fca1dc5f90ecbdc17ebba2438"
+    },
+    {
+      "name": "pr-review-thirteen-acceptance.json",
+      "sha256": "f3f12c27706bca57f53b28226352c93b040e025100c1486b7159cb77509cafec"
+    },
+    {
+      "name": "knowledge-new-review-acceptance.json",
+      "sha256": "b8519af2d9c85712f65349cca4416edbfd09326138dd42931252c7e84ed8bc51"
+    },
+    {
+      "name": "ai-prefix-review-acceptance.json",
+      "sha256": "f8a3434a7b2f4be6a45aac07624a4dbe0e7f3d5bbabc463e5a7bc9a4f3e87c37"
+    },
+    {
+      "name": "knowledge-reference-redaction-inspection.json",
+      "sha256": "efa0d76e28e1e0ed5c6b9ea5d544600d8a1075a3017e14cf70fd21a3abf73ccb"
+    },
+    {
+      "name": "new-review-php.log",
+      "sha256": "3fc4abac64986693e87cc50942fc83ab9b12765cbd5dce1734df989ad2601786"
+    },
+    {
+      "name": "new-review-php.xml",
+      "sha256": "fde2173f4d4db754e1285dfc867f89f2bd0a51657c4af302d29cf16ee328fc92"
+    },
+    {
+      "name": "new-review-node.log",
+      "sha256": "7510d5d416a09b46367dc3bb2fe1c3b9ce18efc9005462f48943016705794677"
+    },
+    {
+      "name": "knowledge-new-review-before.log",
+      "sha256": "4e8014711f89898f8e9d69428ebf3e2678c9d2eba2a162fddfda2634a2c622ae"
+    },
+    {
+      "name": "ai-prefix-review-before.log",
+      "sha256": "70f435ff5536f9687d73adc6b5e671f9c814107c36109ff4d17478defa9a80c4"
+    },
+    {
+      "name": "knowledge-capability-review-before.log",
+      "sha256": "622daf03f26ee696a705e10c1a9a083f31c04b867813693ebac40225cdc5a448"
+    },
+    {
+      "name": "knowledge-reference-redaction-before.log",
+      "sha256": "41e2fac19d9ca34da5c575307562a34dd586f0866cd03d6cc9be02d5f73ec79b"
+    },
+    {
+      "name": "knowledge-citation-index-before.log",
+      "sha256": "9b5ed6432db507818aeb026dac253505f31d968fa0014c4eacdc067ade346c1d"
+    },
+    {
+      "name": "knowledge-reference-redaction-after.log",
+      "sha256": "706b441d30ce792173f217fd244fe5a0f1a557b9f1a2ac4288ffa3a52423b647"
+    },
+    {
+      "name": "frontend-sync-new-review.log",
+      "sha256": "073976b41d6b5a9e7e186c8fd8424a3a96c5a2981f281c9d8dc60f7c7cf234d8"
+    },
+    {
+      "name": "frontend-build-new-review.log",
+      "sha256": "d99de33d1d5c55fafeb5802ac66c38babc341f6ad70aca47e113becf21af5cd8"
+    },
+    {
+      "name": "public-entry-new-review.log",
+      "sha256": "5be41498b3eea973ab0521fb5e921bca84a2620231e33de40338f17e11190594"
+    },
+    {
+      "name": "integration-new-review.log",
+      "sha256": "c81998eb1cd342367c7621c41ec3c87365b402dff610134a1ecad409b7cdee58"
+    },
+    {
+      "name": "migration-new-review.log",
+      "sha256": "c28d4701ac5d85a59cf3bf14ebe94f5b9b426f635dc9d833eec2972daee2280d"
+    },
+    {
+      "name": "browser-knowledge-final.json",
+      "sha256": "841bcc9e8c4b835e9bb246598c1394c34a1b326f848540eb38990f5b5c23465e"
+    },
+    {
+      "name": "browser-knowledge-final.log",
+      "sha256": "84900928a34477759423d9913afd1f4949af93533bc6879437144901d3d58e24"
+    },
+    {
+      "name": "browser-knowledge-reader-desktop.png",
+      "sha256": "a7bd9114e4637ca6f7709cf398239ea60f9f2a29572f6ac4609f1eb70001f58e"
+    },
+    {
+      "name": "browser-knowledge-reader-narrow.png",
+      "sha256": "d445ce2804f43228d079b4b431b67093e66987ffb872395c3aeff3b03995bfc1"
+    },
+    {
+      "name": "browser-knowledge-manager-merge-desktop.png",
+      "sha256": "30590ef70a40cc2965fdaa512c49662986c60c6eea2ab4cb4e8abce323b8ba81"
+    },
+    {
+      "name": "browser-knowledge-manager-merge-narrow.png",
+      "sha256": "067f33415e8823b4e4887cc627583801af904fe3c514492aa0a0366ccb9fa011"
+    },
+    {
+      "name": "browser-knowledge-manager-citations-desktop.png",
+      "sha256": "5020aa5e180565429908cb4c08e0b7db63e42971529403cffd875dec08b61aae"
+    },
+    {
+      "name": "browser-knowledge-manager-edit-desktop.png",
+      "sha256": "922a6c1f61a82023d36a2ba92c351254976d562c91928058af130a33e799ddb7"
     }
   ],
   "boundaries": {
@@ -720,9 +1184,9 @@
     },
     {
       "path": "app/controller/Knowledge.php",
-      "state": "modified",
-      "bytes": 58358,
-      "sha256": "e1b1ab33ae5cc593830f3697279e50a7264778914cbe8221b287501c330e8589"
+      "bytes": 58880,
+      "sha256": "eb9cec3cf4b58433648ad02023f195f4c0ccf9002c210abbe5ec50b99aa898f7",
+      "state": "modified"
     },
     {
       "state": "modified",
@@ -858,15 +1322,15 @@
     },
     {
       "path": "app/service/concern/AiDailyReportExecutionReadConcern.php",
-      "state": "modified",
-      "bytes": 10417,
-      "sha256": "7d2697b080f0ac5d3f9584aae9d334f6d4ca5e8c6e77610052de70cf3987d24d"
+      "bytes": 10650,
+      "sha256": "f8b57415e260908f4c3df33a4ec87bc238c8b6da95a2aaab7428e5a64d0fa515",
+      "state": "modified"
     },
     {
-      "state": "added",
       "path": "app/service/concern/AiDailyReportStorageReadConcern.php",
-      "bytes": 7922,
-      "sha256": "ec3929e325fc960fd43313d927d4402173fff9def3b017e9b6ec01a4434a5fde"
+      "bytes": 8290,
+      "sha256": "1406590c4ab6bc5429c46f3a3055d1140f4995fcd63cfe58d8772c134e1107f8",
+      "state": "added"
     },
     {
       "state": "added",
@@ -978,9 +1442,9 @@
     },
     {
       "path": "app/service/KnowledgeReferenceService.php",
-      "state": "added",
-      "bytes": 18411,
-      "sha256": "7feeabffefe703f339bdf60fb8640862dc59ca557b2e61f35bc05e549313507b"
+      "bytes": 19809,
+      "sha256": "830ab909d73e63b59cd8fc721a48d44484db5608c774e2e2ef9b8ed62e5fbeb9",
+      "state": "added"
     },
     {
       "path": "app/service/KnowledgeSourceAccessPolicy.php",
@@ -1295,6 +1759,12 @@
       "sha256": "963d25edcb91cd07856eb2fc834650f47455182c5e04eb7020a9de7bc5d0e034"
     },
     {
+      "path": "app/service/ProtectedCapabilityService.php",
+      "bytes": 33448,
+      "sha256": "1daed9fa4ea966c476915977b1f3dd6d3c1c77dd5e55920986d4766d4e6da360",
+      "state": "added"
+    },
+    {
       "state": "modified",
       "path": "app/service/QuantSimulationService.php",
       "bytes": 74317,
@@ -1482,9 +1952,9 @@
     },
     {
       "path": "docs/integration/suxios-integration-20260930.md",
-      "state": "added",
-      "bytes": 10937,
-      "sha256": "64cdcfed6a810fc49f2b841db8e8fab59ab001915524a536f7dd0f9d4c4f2d2b"
+      "bytes": 13057,
+      "sha256": "50688a3ec92f5560271051229dc6ce8ec460d3a8eebf493421a50600d987fc92",
+      "state": "added"
     },
     {
       "state": "added",
@@ -1824,21 +2294,21 @@
     },
     {
       "path": "public/app-main.js",
-      "state": "modified",
-      "bytes": 3422119,
-      "sha256": "b731039a76b6474e00db0c95c3648f63643a2eb5694abcc842d46ceec759abb7"
+      "bytes": 3422602,
+      "sha256": "8339047c884b23a611faccf6a527907486bc4b9d211cb7c9c00283bd2ddb6b1b",
+      "state": "modified"
     },
     {
       "path": "public/app-main.min.js",
-      "state": "modified",
-      "bytes": 1329838,
-      "sha256": "d17b8de875967f8d48a6e11c18791900b6fa07dd6f592662fc54b26e22635bac"
+      "bytes": 1330100,
+      "sha256": "5a4dfd1431351ac79f3b78b5c1b3fce3c4f692562b4f1cd52ec73c3d09b88b76",
+      "state": "modified"
     },
     {
       "path": "public/app-render.min.js",
-      "state": "modified",
-      "bytes": 1286598,
-      "sha256": "61d982f50d40eff2d948dd26f28aca5cd2b282847edbbe2594c9a418a9b0aca4"
+      "bytes": 1286913,
+      "sha256": "90fed7cb9b70e8103f645fec0607a960a3444db2bf39c286305a17cbb8b8c5fa",
+      "state": "modified"
     },
     {
       "path": "public/app-startup-helpers.min.js",
@@ -2016,9 +2486,9 @@
     },
     {
       "path": "public/index.html",
-      "state": "modified",
       "bytes": 8588,
-      "sha256": "901cf1fd7b2b6e43768783bd033bad382b6cd7add0a5e3b5bf18a5a71fa1429f"
+      "sha256": "1a042b404ade2c505c02f5232a86db58daaa5a09350252b4d40b581c2994a9be",
+      "state": "modified"
     },
     {
       "state": "modified",
@@ -2112,9 +2582,9 @@
     },
     {
       "path": "resources/frontend/app-template.html",
-      "state": "modified",
-      "bytes": 2064239,
-      "sha256": "aaf2b74a0085d6a5e2c5a03915db8ab041f0540936b5f6dffd503845404729bd"
+      "bytes": 2064558,
+      "sha256": "00be50ab7764edc69a748cc9b765b818d12b4b574f3e8483c8f420e252606f18",
+      "state": "modified"
     },
     {
       "state": "modified",
@@ -2177,10 +2647,10 @@
       "sha256": "2d2ae39d368cbbb8db33cfd37fc30ba8acd4ed1c8e5295c0a4b267e413e7da22"
     },
     {
-      "state": "modified",
       "path": "resources/frontend/templates/fragments/20-page-knowledge-center.html",
-      "bytes": 142267,
-      "sha256": "fdb4f4c8f0467de28ccc0cf5d41425d3d1b515ea5b2f8ceb5f72de8e49c5f60f"
+      "bytes": 142586,
+      "sha256": "059b80e86027d9e102ea456558e3c890518a4ce13c8d3a60755cbdb5ac7809f5",
+      "state": "modified"
     },
     {
       "state": "modified",
@@ -2256,9 +2726,9 @@
     },
     {
       "path": "resources/frontend/templates/manifest.json",
-      "state": "modified",
       "bytes": 15365,
-      "sha256": "74994246410f1aef35bff62fc083610151a3080f589c13b6dd96264b2354d182"
+      "sha256": "f48b9425e398066d9300be61497e4366aac094d3ba95d97959afab7deed8c627",
+      "state": "modified"
     },
     {
       "state": "modified",
@@ -2589,6 +3059,12 @@
       "path": "tests/AiDailyReportP0GateContractTest.php",
       "bytes": 2453,
       "sha256": "ccaef23c2f97c7b87cf25736368c8e7dd2bd9975f6dc6ffd3c7a3ce53a07af28"
+    },
+    {
+      "path": "tests/AiDailyReportPrefixStorageTest.php",
+      "bytes": 18345,
+      "sha256": "bdb6354905aa60f477d84781939edd3ee4808ea3f12d5cddc09dbfced548f32e",
+      "state": "added"
     },
     {
       "state": "added",
@@ -3453,6 +3929,12 @@
       "path": "tests/automation/knowledge_promotion_selection_context.test.mjs",
       "bytes": 27824,
       "sha256": "48a695d5ca7718f80c4dfbd4c7231d3490eabeb139632c7d2c2b9815c8014ce3"
+    },
+    {
+      "path": "tests/automation/knowledge_reference_permission.test.mjs",
+      "bytes": 3052,
+      "sha256": "97d33afae58e7a69088f1fed0c1c28dcb8035fe8d0d3ba6a15bd86da32ed9161",
+      "state": "added"
     },
     {
       "state": "added",
@@ -5087,6 +5569,12 @@
       "sha256": "0ab637297214273b5b5016ce0aa0df9d407f1a46a71b3d40db0cccdba0271170"
     },
     {
+      "path": "tests/KnowledgeReferenceAccessContextTest.php",
+      "bytes": 17133,
+      "sha256": "f74f26519dfd50c0c69763d97bf57885372d614fcbb60871a25802f617ee3cec",
+      "state": "added"
+    },
+    {
       "path": "tests/KnowledgeReferenceSharedSnapshotTest.php",
       "state": "added",
       "bytes": 13820,
@@ -5547,6 +6035,12 @@
       "path": "tests/PreciseQueryRouterServiceTest.php",
       "bytes": 57689,
       "sha256": "0469b2dfc89f3066be4b60d4cb31bc00c598e9fe35a2691d1aae062b556259a9"
+    },
+    {
+      "path": "tests/ProtectedCapabilityServiceTest.php",
+      "bytes": 40049,
+      "sha256": "1218e502ff99dc864dc2a52c269ffbd2cce560d33925c2fcaf93a106856120c3",
+      "state": "added"
     },
     {
       "state": "added",

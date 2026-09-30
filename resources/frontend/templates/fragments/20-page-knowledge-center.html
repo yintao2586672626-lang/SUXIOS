@@ -753,12 +753,13 @@
                                 <button @click="loadKnowledgeCenter" class="btn-secondary text-sm flex items-center justify-center gap-2">
                                     <i class="fas fa-sync-alt" :class="{ 'fa-spin': knowledgeCenterLoading }"></i>刷新
                                 </button>
-                                <button type="button" @click="editKnowledgeReference()" :disabled="selectedKnowledgeCenterUnitIds.length === 0" class="min-h-[44px] rounded-lg border border-emerald-200 px-3 py-2 text-sm text-emerald-800 disabled:opacity-50">合并整理参考 SOP</button>
+                                <button type="button" data-testid="knowledge-reference-merge" @click="editKnowledgeReference()" :disabled="selectedKnowledgeCenterUnitIds.length === 0 || !canWriteKnowledgeReference()" class="min-h-[44px] rounded-lg border border-emerald-200 px-3 py-2 text-sm text-emerald-800 disabled:opacity-50">合并整理参考 SOP</button>
                                 <button @click="batchDeleteKnowledgeUnits" :disabled="selectedKnowledgeCenterUnitIds.length === 0 || knowledgeCenterBatchDeleting" class="px-4 py-2 rounded-lg border border-red-200 text-sm text-red-600 hover:bg-red-50 disabled:opacity-50 disabled:hover:bg-transparent flex items-center justify-center gap-2">
                                     <i class="fas fa-trash-alt"></i>
                                     批量删除<span v-if="selectedKnowledgeCenterUnitIds.length">({{ selectedKnowledgeCenterUnitIds.length }})</span>
                                 </button>
                             </div>
+                            <p v-if="!canWriteKnowledgeReference()" data-testid="knowledge-reference-permission-notice" class="mt-2 text-xs text-amber-700">需开通知识管理权限才能保存参考 SOP；已授权的资料仍可阅读。</p>
                             <div class="mt-3 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3">
                                 <select v-model="knowledgeCenterFilter.module" @change="reloadKnowledgeCenter" class="px-3 py-2 border border-gray-200 rounded-lg text-sm">
                                     <option value="">全部SOP模块</option>
