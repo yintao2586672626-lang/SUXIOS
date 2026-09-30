@@ -40,32 +40,52 @@ function e2eDatabaseSafetyGuard(): array
     );
 }
 
-/** @return array<string, bool> */
-function e2eTableColumns(string $table): array
+/** @return array<string, array<string, mixed>> */
+function e2eTableColumnMetadata(string $table): array
 {
     if (!preg_match('/^[A-Za-z0-9_]+$/D', $table)) {
         return [];
     }
     try {
-        $rows = Db::query("SHOW COLUMNS FROM `{$table}`");
-    } catch (Throwable) {
-        return [];
+        $rows = Db::query(
+            'SELECT COLUMN_NAME AS Field, EXTRA AS Extra, GENERATION_EXPRESSION AS GenerationExpression '
+            . 'FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = :table_name',
+            ['table_name' => $table]
+        );
+    } catch (Throwable $error) {
+        throw new RuntimeException('Isolated E2E column metadata lookup failed for ' . $table, 0, $error);
     }
 
     $columns = [];
     foreach ($rows as $row) {
         $name = (string)($row['Field'] ?? $row['field'] ?? '');
         if ($name !== '') {
-            $columns[$name] = true;
+            $columns[$name] = $row;
         }
     }
     return $columns;
 }
 
+/** @return array<string, bool> */
+function e2eTableColumns(string $table): array
+{
+    return array_fill_keys(array_keys(e2eTableColumnMetadata($table)), true);
+}
+
 /** @param array<string, mixed> $payload @return array<string, mixed> */
 function e2eFilterPayload(string $table, array $payload): array
 {
-    return array_intersect_key($payload, e2eTableColumns($table));
+    $writable = [];
+    foreach (e2eTableColumnMetadata($table) as $name => $column) {
+        // DEFAULT_GENERATED is a writable default, unlike STORED/VIRTUAL GENERATED.
+        $extra = (string)($column['Extra'] ?? $column['extra'] ?? '');
+        $expression = trim((string)($column['GenerationExpression'] ?? $column['generationexpression'] ?? ''));
+        if (preg_match('/\b(?:VIRTUAL|STORED)\s+GENERATED\b/i', $extra) || $expression !== '') {
+            continue;
+        }
+        $writable[$name] = true;
+    }
+    return array_intersect_key($payload, $writable);
 }
 
 function e2eHasColumn(string $table, string $column): bool
@@ -602,12 +622,12 @@ function e2eSeedAiReportInputs(string $prefix): array
                 ))) {
                 throw new RuntimeException('Isolated AI report input fixture readback failed');
             }
-            Db::name('online_daily_data')->where('id', $rowId)->update([
+            Db::name('online_daily_data')->where('id', $rowId)->update(e2eFilterPayload('online_daily_data', [
                 'readback_verified' => 1,
                 'readback_verified_at' => $now,
                 'validation_status' => 'verified',
                 'history_status' => 'success',
-            ]);
+            ]));
             $verified = Db::name('online_daily_data')->where('id', $rowId)->find();
             if (!is_array($verified) || (int)($verified['readback_verified'] ?? 0) !== 1
                 || (string)($verified['validation_status'] ?? '') !== 'verified'
@@ -1193,6 +1213,9 @@ try {
     $databaseSafety = e2eDatabaseSafetyGuard();
     if ($action === 'guard') {
         $result = array_merge($databaseSafety, e2eAssertSchemaReady());
+    } elseif ($action === 'verify-generated-column-compatibility') {
+        require __DIR__ . DIRECTORY_SEPARATOR . 'e2e-generated-column-compatibility.php';
+        $result = e2eVerifyGeneratedColumnCompatibility($databaseSafety);
     } else {
         $prefix = e2ePrefix();
         $result = match ($action) {

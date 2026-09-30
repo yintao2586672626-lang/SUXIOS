@@ -81,7 +81,8 @@
     "deferred_page_projections_without_budget_relaxation",
     "consultant_callable_navigation_dependency_and_retry",
     "flysystem_malformed_utf8_path_security_patch",
-    "isolated_business_fixtures_independent_source_and_exact_receipt"
+    "isolated_business_fixtures_independent_source_and_exact_receipt",
+    "generated_and_writable_column_metadata_compatibility"
   ],
   "verification": {
     "php": {
@@ -112,7 +113,8 @@
       "skipped": 0,
       "portable_skip_note": "Two workstation-authority cases are excluded by the existing portable skip pattern and are not included in the executed test count.",
       "excluded_by_portable_pattern": 2,
-      "initial_full_suite_commit": "d24ed073f53648b52f27377a48ffe0299b3132c5"
+      "initial_full_suite_commit": "d24ed073f53648b52f27377a48ffe0299b3132c5",
+      "full_suite_completed_before_generated_column_followup_commit": "3e198922471275011d600d0a1143629a1fc7f52a"
     },
     "frontend": {
       "build": "passed",
@@ -140,9 +142,19 @@
       "passed": 5,
       "failed": 0,
       "exit_code": 0,
-      "duration_seconds": 53.6,
+      "duration_seconds": 54.6,
       "mode": "protected_isolated_test_database_synthetic_source_and_exact_readback",
       "related_node_passed": 207
+    },
+    "generated_column_compatibility": {
+      "schema_cases": 2,
+      "negative_states_per_schema": 4,
+      "remaining_fixture_tables": 0,
+      "related_node_tests": 28,
+      "new_runtime_counterexamples": 6,
+      "product_php_changed": false,
+      "historical_migrations_changed": false,
+      "gate_relaxed": false
     }
   },
   "evidence_fingerprints": [
@@ -195,6 +207,14 @@
       "sha256": "d0069ee1c5f3bf5d4709e22653c2ffd8e2623841f7f10629a48027c676ef5078"
     },
     {
+      "name": "generated-column-final-acceptance.json",
+      "sha256": "37f2666d638c8eae653bc20c46812a947086e8eee0ce7f08b66bcec3b0c20046"
+    },
+    {
+      "name": "frontend-performance-followup-review.json",
+      "sha256": "f29160f44ddde9b687800616aa72acc31ef21375998dcf838e6768551551cecc"
+    },
+    {
       "name": "node-official-followup.log",
       "sha256": "e081916948cb3fa72e451d72729c6440d124e9c0342f29e0d9f18db4983e79dd"
     },
@@ -209,6 +229,10 @@
     {
       "name": "ci-business-chain-final-e2e.log",
       "sha256": "0e132922ce60473e85ae91c8244a59a8c59c25761d5bbec977972f0f34bbb931"
+    },
+    {
+      "name": "ci-generated-column-final-e2e.log",
+      "sha256": "b74fcc412476407809d605fac30e2d3836001867f513fac657b0756a11f501af"
     }
   ],
   "boundaries": {
@@ -1144,8 +1168,8 @@
     {
       "path": "docs/integration/suxios-integration-20260930.md",
       "state": "added",
-      "bytes": 6423,
-      "sha256": "fcdc7d2e397b14e073386d4426b9f180fb3f8c19e04c26f0a42a1e9aa9687917"
+      "bytes": 6747,
+      "sha256": "eb76daf9f87dab97fb578ddd5b6e3cb086f165fbb4b1996958277b8dc337838d"
     },
     {
       "state": "added",
@@ -2792,10 +2816,22 @@
       "sha256": "d84d636a6032ab4d331ff13a86582aa6aef7bbd38f14e05c70301173bc031926"
     },
     {
+      "path": "tests/automation/e2e_generated_column_metadata.test.mjs",
+      "state": "added",
+      "bytes": 3494,
+      "sha256": "e5bb66cbc64cb34491ad6213afa75c5af42677ecd46be3d9f249b4b20fe8039b"
+    },
+    {
+      "path": "tests/automation/e2e-generated-column-compatibility.php",
+      "state": "added",
+      "bytes": 6227,
+      "sha256": "8d104f65a34dfde37f79a3b22e6038d79f78aacf4955e972e95e6d099c2f8798"
+    },
+    {
       "path": "tests/automation/e2e-isolation-helper.php",
       "state": "modified",
-      "bytes": 54575,
-      "sha256": "d1eddedeb61f3ea3c5f6780d98071cd99d379ab9ccfd3a02d82d815d87d9287f"
+      "bytes": 55871,
+      "sha256": "d24b1dc9a89435437e3e774ca7d136208e6fca5c6ba732edaa8968a83a917c1f"
     },
     {
       "state": "added",
@@ -4212,6 +4248,12 @@
       "path": "tests/automation/route_domain_manifest.test.mjs",
       "bytes": 3689,
       "sha256": "fd6afd93fdf3f0e4caaac17416c9fc8764699ac4e6393127574d609ddb04208e"
+    },
+    {
+      "path": "tests/automation/run-quick-e2e-isolated.mjs",
+      "state": "modified",
+      "bytes": 30778,
+      "sha256": "ea8e73b380f096bb240030187bb1e09904a22fb422a92496528ff865a8c48a6a"
     },
     {
       "state": "added",
