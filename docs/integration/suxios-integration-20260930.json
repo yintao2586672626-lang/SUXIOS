@@ -78,7 +78,10 @@
     "loaded_csv_scope_and_meituan_record_detail",
     "mobile_execution_evidence_and_expired_approval_guard",
     "frontend_pager_scope_and_lazy_fallback_startup_order",
-    "deferred_page_projections_without_budget_relaxation"
+    "deferred_page_projections_without_budget_relaxation",
+    "consultant_callable_navigation_dependency_and_retry",
+    "flysystem_malformed_utf8_path_security_patch",
+    "isolated_business_fixtures_independent_source_and_exact_receipt"
   ],
   "verification": {
     "php": {
@@ -89,8 +92,9 @@
       "failures": 0,
       "skipped": 12,
       "exit_code": 0,
-      "duration": "05:30.297",
-      "count_note": "CLI count includes one skipped Cloud OTA setup. Backend JUnit count alone excludes that setup skip."
+      "duration": "05:29.142",
+      "count_note": "CLI count includes one skipped Cloud OTA setup. Backend JUnit count alone excludes that setup skip.",
+      "dependency_version": "league/flysystem 3.35.3"
     },
     "supplemental_opening_tasks": {
       "tests": 8,
@@ -99,15 +103,16 @@
     },
     "node": {
       "command": "npm run test:node",
-      "files": 596,
+      "files": 597,
       "batches": 60,
       "batch_size": 10,
-      "tests": 6361,
-      "pass": 6361,
+      "tests": 6368,
+      "pass": 6368,
       "fail": 0,
       "skipped": 0,
       "portable_skip_note": "Two workstation-authority cases are excluded by the existing portable skip pattern and are not included in the executed test count.",
-      "excluded_by_portable_pattern": 2
+      "excluded_by_portable_pattern": 2,
+      "initial_full_suite_commit": "d24ed073f53648b52f27377a48ffe0299b3132c5"
     },
     "frontend": {
       "build": "passed",
@@ -119,7 +124,7 @@
         "existing_migrations_unchanged": 216
       },
       "source_hotspots": "original_ratchets_passed",
-      "startup_gzip_bytes": 618502,
+      "startup_gzip_bytes": 618577,
       "original_target_bytes": 620000
     },
     "browser": {
@@ -129,6 +134,15 @@
       "page_errors": 0,
       "console_errors": 0,
       "request_failures": 0
+    },
+    "business_chain": {
+      "tests": 5,
+      "passed": 5,
+      "failed": 0,
+      "exit_code": 0,
+      "duration_seconds": 53.6,
+      "mode": "protected_isolated_test_database_synthetic_source_and_exact_readback",
+      "related_node_passed": 207
     }
   },
   "evidence_fingerprints": [
@@ -171,6 +185,30 @@
     {
       "name": "browser-smoke-final.log",
       "sha256": "6ac2fda3bc0f3cddfe25c4263aea81742eae787bb4866cb582272b002dcfbf50"
+    },
+    {
+      "name": "composer-dependency-final-acceptance.json",
+      "sha256": "8adf8b5fd6955e6dbe620f0057d6b063367c56652b29cd9d49aa739bf89a1b10"
+    },
+    {
+      "name": "ci-business-chain-final-acceptance.json",
+      "sha256": "d0069ee1c5f3bf5d4709e22653c2ffd8e2623841f7f10629a48027c676ef5078"
+    },
+    {
+      "name": "node-official-followup.log",
+      "sha256": "e081916948cb3fa72e451d72729c6440d124e9c0342f29e0d9f18db4983e79dd"
+    },
+    {
+      "name": "public-entry-followup.log",
+      "sha256": "9abd32193a9386b6cf9dc54f0ad5f166e82c25681d8643bbf6e565324eefd1b6"
+    },
+    {
+      "name": "integration-gate-followup.log",
+      "sha256": "872727556ea1c3b20176e050749296de4a77fe2bc84ccfc4d6cc84ef5cef95d4"
+    },
+    {
+      "name": "ci-business-chain-final-e2e.log",
+      "sha256": "0e132922ce60473e85ae91c8244a59a8c59c25761d5bbec977972f0f34bbb931"
     }
   ],
   "boundaries": {
@@ -1014,6 +1052,12 @@
       "sha256": "772dc90b3a2fc84c5d73b74a36d4123341c3537f6132181e18036871d23cdd90"
     },
     {
+      "path": "composer.lock",
+      "state": "modified",
+      "bytes": 123286,
+      "sha256": "c16082087fe7962c42a651119b8d27d63dde720e46f3c65caaa07b47eb519ece"
+    },
+    {
       "state": "added",
       "path": "config/dingdandao_hotel_alias_registry.php",
       "bytes": 801,
@@ -1098,10 +1142,10 @@
       "sha256": "6d310f8a81f84876979571aa84bfa9c63af3782a6e1106c4baed01da8efcc713"
     },
     {
-      "state": "added",
       "path": "docs/integration/suxios-integration-20260930.md",
-      "bytes": 5053,
-      "sha256": "f7bc434b125a44482b746e25a8d7bc5eef8d5fb75bdf498dce81441597355f7a"
+      "state": "added",
+      "bytes": 6423,
+      "sha256": "fcdc7d2e397b14e073386d4426b9f180fb3f8c19e04c26f0a42a1e9aa9687917"
     },
     {
       "state": "added",
@@ -1458,10 +1502,10 @@
       "sha256": "e02166b8033d74ce01e20537c7587f32170cbf2e92529830d4e97d5fd13a8068"
     },
     {
-      "state": "modified",
       "path": "public/app-startup-helpers.min.js",
-      "bytes": 269708,
-      "sha256": "a4defccfca4626fa206aae385d223f6c1612ce7ad9ad4545a00639af14d9b4be"
+      "state": "modified",
+      "bytes": 270166,
+      "sha256": "3d85ac4fedccb04d47d7b526aa6433c22fa21f77e598edbba275a7981654e1cd"
     },
     {
       "state": "modified",
@@ -1584,10 +1628,10 @@
       "sha256": "fa5690baeb1851176ce959a1428bbc63e6fde93f1df99e07beda09f93860c83c"
     },
     {
-      "state": "modified",
       "path": "public/components/system/operating-intelligence-loader.js",
-      "bytes": 17496,
-      "sha256": "a0c0aa2a98fb12c04bf33ce19d6839986cfcc3890d3166ab2746fa0456abc78f"
+      "state": "modified",
+      "bytes": 18198,
+      "sha256": "7cbc2a6ad1c7fa616bb56c647fe57a6bdad1ea2632e04c43014cfb2708fd2ef4"
     },
     {
       "state": "modified",
@@ -1632,10 +1676,10 @@
       "sha256": "20d68edf5c820a20a7c137f38c4819f460403921d7835178d9772c2a398ef0ae"
     },
     {
-      "state": "modified",
       "path": "public/index.html",
+      "state": "modified",
       "bytes": 8588,
-      "sha256": "182d927bcf0349d5a158947a888d36a1ffd75d6d2f027137574ad7c23faf8bfd"
+      "sha256": "41dbc2754d904b0c1182e0fbce2b66ed2aaa847160bded0fbe179a417a1dd906"
     },
     {
       "state": "modified",
@@ -2394,10 +2438,10 @@
       "sha256": "b39f09d73f34dd80b6f98a66239f994299129137213567b01351ac752bab2a04"
     },
     {
-      "state": "modified",
       "path": "tests/automation/business-chains.spec.js",
-      "bytes": 35551,
-      "sha256": "1d73632e74250e3b6a6ed7dfe10d390e67f254667076a197fb65b4b3123ccd74"
+      "state": "modified",
+      "bytes": 36105,
+      "sha256": "cb9e979a63449b11c66ba25aea5f70654398081cc26f6b8bee0eb77810cefea5"
     },
     {
       "state": "added",
@@ -2532,6 +2576,12 @@
       "sha256": "7c2bd344b4f4c87d9011dbea674131b5d486c361a535c414a114d2969a4f1312"
     },
     {
+      "path": "tests/automation/ctrip_order_analysis_panel.test.mjs",
+      "state": "modified",
+      "bytes": 27116,
+      "sha256": "b2f2f783767e8e8049130c6b6fd141348c2609a080828f4d87e56eb95333639a"
+    },
+    {
       "state": "added",
       "path": "tests/automation/ctrip_order_analysis_query_state.test.mjs",
       "bytes": 8562,
@@ -2658,6 +2708,12 @@
       "sha256": "ca33221ff4e54f5ec129041baf2bf2f8ed0b6ae84df0cbd581b86119c28e73e3"
     },
     {
+      "path": "tests/automation/daily_one_thing_personalization.spec.js",
+      "state": "modified",
+      "bytes": 12008,
+      "sha256": "1412b2e917c1f68c54cf63b9ec0043305ba3db0edcd590b8917cc06ca69557b8"
+    },
+    {
       "state": "added",
       "path": "tests/automation/daily_patrol_action_recovery.test.mjs",
       "bytes": 15297,
@@ -2734,6 +2790,12 @@
       "path": "tests/automation/dual_ota_order_quick_analysis_response_scope.test.mjs",
       "bytes": 3378,
       "sha256": "d84d636a6032ab4d331ff13a86582aa6aef7bbd38f14e05c70301173bc031926"
+    },
+    {
+      "path": "tests/automation/e2e-isolation-helper.php",
+      "state": "modified",
+      "bytes": 54575,
+      "sha256": "d1eddedeb61f3ea3c5f6780d98071cd99d379ab9ccfd3a02d82d815d87d9287f"
     },
     {
       "state": "added",
@@ -3484,6 +3546,12 @@
       "path": "tests/automation/operating_component_asset_build.test.mjs",
       "bytes": 6326,
       "sha256": "7037a599c43197f589f8d8eda20a413ecfb28e34e093f3389f1aa5ee172271ab"
+    },
+    {
+      "path": "tests/automation/operating_consultant_dependency_order.test.mjs",
+      "state": "added",
+      "bytes": 5178,
+      "sha256": "33a978644b1d851311b451b1b98ff581e99f88dc74775c7afed4603a8dac37f2"
     },
     {
       "state": "added",
@@ -5278,5 +5346,24 @@
     },
     "php_regressions_log_sha256": "4ee10377252864b3ed75424c8045edb53045daa45bd493e425b605e4b9e6bb71",
     "normalization_evidence_sha256": "3a78a1326224a940997b32e3d54a86eba8838930a529f89a7f0047677acbc04c"
+  },
+  "initial_integration_commit": "d24ed073f53648b52f27377a48ffe0299b3132c5",
+  "followup": {
+    "dependency": {
+      "package": "league/flysystem",
+      "before": "3.34.0",
+      "after": "3.35.3",
+      "advisory_url": "https://github.com/advisories/GHSA-cxf4-7mrp-vvpr",
+      "updated_packages": 1,
+      "other_packages_unchanged": 51,
+      "audit_advisories": 0,
+      "audit_abandoned": 0,
+      "compatibility_checks": 17
+    },
+    "business_chain": {
+      "source_fixture": "Synthetic isolated facts include independent sync source identity and ownership; business thresholds and rejection gates retained.",
+      "consultant": "Wait for a callable evidence-navigation factory before creating the full consultant; failed loads expose retry."
+    },
+    "github_checks": "Final followup commit must pass the full GitHub pipeline; recorded independently after push."
   }
 }

@@ -341,6 +341,8 @@ test('business chain: OTA import to revenue, operation task, and tracking', asyn
       expect(reportInputFixture.row_ids || []).toHaveLength(3);
       expect(Object.values(reportInputFixture.data_source_ids || {})).toHaveLength(2);
       expect(Object.values(reportInputFixture.data_source_ids || {}).every((id) => Number(id) > 0)).toBe(true);
+      expect(reportInputFixture.sync_task_ids || []).toHaveLength(3);
+      expect(reportInputFixture.sync_task_ids.every((id) => Number(id) > 0)).toBe(true);
       expect(reportInputFixture.data_dates || []).toEqual([baselineDate, dataDate]);
 
       const save = await api.post('/api/online-data/save-daily-data', {
@@ -372,11 +374,13 @@ test('business chain: OTA import to revenue, operation task, and tracking', asyn
       });
       const row = (imported.list || []).find((item) => (
         String(item.hotel_id) === otaHotelId && String(item.data_type) === 'business'
+        && String(item.ingestion_method) === 'user_provided_unverified'
       ));
       expect(row).toBeTruthy();
       expect(Number(row.system_hotel_id)).toBe(hotelContext.hotelId);
       expect(Number(row.readback_verified)).toBe(1);
       expect(String(row.readback_verified_at || '')).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/);
+      expect(String(row.ingestion_method)).toBe('user_provided_unverified');
       cleanups.push(() => api.post('/api/online-data/delete-data', { id: row.id }, { label: 'cleanup OTA row' }).catch(() => null));
 
       const revenue = await api.get('/api/online-data/data-analysis', {
@@ -385,6 +389,9 @@ test('business chain: OTA import to revenue, operation task, and tracking', asyn
       });
       expect(Number(revenue.summary.total_amount)).toBeGreaterThanOrEqual(120000);
       expect(Number(revenue.summary.total_orders)).toBeGreaterThanOrEqual(120);
+      expect(revenue.summary.aggregation_gate.allowed).toBe(true);
+      expect(revenue.summary.aggregation_gate.source_ownership_gate.allowed).toBe(true);
+      expect(Number(revenue.summary.excluded_untrusted_count)).toBeGreaterThanOrEqual(1);
 
       const fullData = await api.get('/api/operation/full-data', {
         params: { hotel_id: hotelContext.hotelId, date: dataDate },
