@@ -2085,6 +2085,50 @@ final class OperationManagementBaselineScopeTest extends TestCase
         self::assertSame(10.0, $result['baseline']['avg_conversion']);
     }
 
+    public function testFutureGregorianHolidayIsVisibleAndTriggersExistingRootCauseRule(): void
+    {
+        $service = new OperationManagementService();
+        $holiday = $service->fullData([7], 7, '2027-04-25')['holiday'];
+        self::assertSame('劳动节', $holiday['next_holiday']);
+        self::assertSame(6, $holiday['days_left']);
+        self::assertSame('partial', $holiday['calendar_scope']);
+        self::assertSame('pending', $holiday['schedule_status']);
+        self::assertNull($holiday['official_end_date']);
+        self::assertStringContainsString('放假调休安排待核验', $holiday['suggestion']);
+        $result = $service->rootCause([7], 7, '2027-04-25', '');
+        $causes = array_column($result['root_causes'], null, 'type');
+        self::assertArrayHasKey('holiday_near', $causes);
+        self::assertSame(6, $causes['holiday_near']['reference_basis']['measured_value']);
+        self::assertSame(15, $causes['holiday_near']['reference_basis']['reference_value']);
+        self::assertStringContainsString('需结合原始数据和业务现场复核', $result['analysis_scope']);
+        self::assertSame($result['candidate_factors'], $result['root_causes']);
+    }
+
+    public function testUnknownFutureLunarOrAdjustedHolidayDoesNotTriggerRootCause(): void
+    {
+        $service = new OperationManagementService();
+        foreach (['2027-02-05', '2027-05-03', '2027-10-04'] as $date) {
+            $holiday = $service->fullData([7], 7, $date)['holiday'];
+            self::assertSame('待接入真实数据', $holiday['data_status']);
+            self::assertNull($holiday['next_holiday']);
+            self::assertNull($holiday['days_left']);
+            $result = $service->rootCause([7], 7, $date, '');
+            self::assertNotContains('holiday_near', array_column($result['root_causes'], 'type'));
+        }
+    }
+
+    public function testPublished2026ExtendedHolidayRangeRemainsAvailable(): void
+    {
+        $service = new OperationManagementService();
+        $holiday = $service->fullData([7], 7, '2026-10-06')['holiday'];
+        self::assertSame('国庆节', $holiday['next_holiday']);
+        self::assertSame(0, $holiday['days_left']);
+        self::assertSame('verified', $holiday['schedule_status']);
+        self::assertSame('2026-10-07', $holiday['official_end_date']);
+        $result = $service->rootCause([7], 7, '2026-10-06', '');
+        self::assertContains('holiday_near', array_column($result['root_causes'], 'type'));
+    }
+
     private function insertWholeHotelDay(
         string $date,
         float $revenue,

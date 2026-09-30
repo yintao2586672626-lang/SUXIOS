@@ -13,6 +13,7 @@ use app\service\KnowledgeContentDigestService;
 use app\service\KnowledgeDistillationService;
 use app\service\KnowledgeMaterialIngestionService;
 use app\service\KnowledgeReferenceService;
+use app\service\KnowledgeSourceAccessPolicy;
 use app\service\KnowledgeSourceImportService;
 use app\service\KnowledgePayloadMapper;
 use app\service\KnowledgeApplicabilityService;
@@ -1031,7 +1032,7 @@ class Knowledge extends Base
                 });
                 if ($permittedHotelIds !== []) {
                     $scope->whereOr(function ($formal) use ($permittedHotelIds): void {
-                        $formal->where('source', 'formal_operating_sop')
+                        $formal->where('source', KnowledgeSourceAccessPolicy::FORMAL_SOURCE)
                             ->whereIn('hotel_id', $permittedHotelIds)
                             ->where('status', 'done');
                     });
@@ -1042,20 +1043,8 @@ class Knowledge extends Base
 
     private function canAccessOwnedRow(array $row): bool
     {
-        if (!$this->isSuperAdmin() && (int)($row['tenant_id'] ?? 0) > 0 && (int)$row['tenant_id'] !== (int)($this->currentUser->tenant_id ?? 0)) return false;
-        if ($this->isSuperAdmin() || $this->isGlobalSystemKnowledgeRow($row)) {
-            return true;
-        }
-        if ($this->isFormalKnowledgeUnitRow($row)) {
-            $hotelId = (int)($row['hotel_id'] ?? 0);
-            return $hotelId > 0 && in_array($hotelId, $this->permittedKnowledgeHotelIds(), true);
-        }
-        if ((int)($row['created_by'] ?? 0) !== $this->currentUserId()) {
-            return false;
-        }
-
-        $hotelId = (int)($row['hotel_id'] ?? 0);
-        return $hotelId > 0 && in_array($hotelId, $this->permittedKnowledgeHotelIds(), true);
+        return (new KnowledgeSourceAccessPolicy())->canReadUnit($row, $this->currentUserId(),
+            $this->permittedKnowledgeHotelIds(), (int)($this->currentUser->tenant_id ?? 0), $this->isSuperAdmin());
     }
 
     private function canModifyOwnedRow(array $row): bool
@@ -1106,9 +1095,7 @@ class Knowledge extends Base
 
     private function isGlobalSystemKnowledgeRow(array $row): bool
     {
-        return (int)($row['created_by'] ?? 0) === 0
-            && (int)($row['hotel_id'] ?? 0) === 0
-            && (string)($row['status'] ?? '') === 'done';
+        return (new KnowledgeSourceAccessPolicy())->isGlobalSystemUnit($row);
     }
 
     private function isFormalKnowledgeUnitRow(array $row): bool

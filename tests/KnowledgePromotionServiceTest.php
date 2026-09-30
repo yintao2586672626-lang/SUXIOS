@@ -4,6 +4,8 @@ declare(strict_types=1);
 namespace Tests;
 
 use app\service\KnowledgePromotionService;
+use app\service\KnowledgeReferenceService;
+use app\service\ManagerCoachingService;
 use app\service\KnowledgeSopExecutionProvenanceService;
 use app\service\OperatingSopService;
 use InvalidArgumentException;
@@ -368,6 +370,62 @@ final class KnowledgePromotionServiceTest extends TestCase
             self::fail('A retired formal knowledge version must not create a new operation intent.');
         } catch (InvalidArgumentException $exception) {
             self::assertStringContainsString('current active', $exception->getMessage());
+        }
+    }
+
+    public function testDifferentApproversPublishSameFormalUnitAndOtherHotelMemberReferencesItsCurrentVersion(): void
+    {
+        $memories = $this->insertVerifiedMemories(3);
+        $promotion = new KnowledgePromotionService();
+        $published = [];
+        foreach ([8, 9] as $approver) {
+            $candidate = $this->createSopCandidate([$memories[0]]);
+            $created = $promotion->createFromSopCandidate((int)$candidate['version']['id'], 10, [20], 7, 'shared-create-' . $approver);
+            $candidateId = (int)$created['candidate']['id'];
+            $promotion->submit($candidateId, 10, [20], ['note' => 'Synthetic verified source submitted',
+                'idempotency_key' => 'shared-submit-' . $approver], 7);
+            $published[] = $promotion->review($candidateId, 10, [20], ['decision' => 'approve',
+                'note' => 'Synthetic independent executions reviewed', 'evidence_memory_ids' => $memories,
+                'idempotency_key' => 'shared-approve-' . $approver], $approver)['knowledge_projection'];
+        }
+        self::assertSame($published[0]['knowledge_unit']['unit_id'], $published[1]['knowledge_unit']['unit_id']);
+        self::assertSame(8, $published[1]['knowledge_unit']['created_by']);
+        self::assertSame(9, $published[1]['knowledge_chunk']['created_by']);
+        $chunkId = (int)$published[1]['knowledge_chunk']['chunk_id'];
+        $references = new KnowledgeReferenceService();
+        $source = $references->source($chunkId, 20, 7);
+        self::assertSame($published[1]['knowledge_chunk']['content_digest'], $source['digest']);
+        self::assertSame(2, $source['version_no']);
+        self::assertSame($chunkId, $references->coachingSnapshot($chunkId, 20, 7)['chunk_id']);
+        Db::execute('ALTER TABLE knowledge_units ADD COLUMN known_knowns TEXT');
+        Db::execute('ALTER TABLE knowledge_units ADD COLUMN known_unknowns TEXT');
+        $fields = ['objective', 'steps', 'applicability', 'stop_conditions', 'acceptance_criteria'];
+        $input = array_fill_keys($fields, 'Synthetic human adaptation of the approved source');
+        $input += ['title' => 'Synthetic shared formal reference', 'idempotency_key' => 'shared-formal-reference', 'citations' => [[
+            'chunk_id' => $chunkId, 'source_digest' => $source['digest'], 'segment_id' => $source['source_segments'][0]['id'],
+            'quote' => $source['source_segments'][0]['quote'], 'field_paths' => $fields]]];
+        $saved = $references->save(20, 7, $input);
+        self::assertSame($source['digest'], $saved['chunk']['content']['citations'][0]['source_digest']);
+        self::assertSame($input['citations'][0]['quote'], $saved['chunk']['content']['citations'][0]['quote']);
+        Db::execute('CREATE TABLE manager_capability_cases (id INTEGER PRIMARY KEY, hotel_id INTEGER)');
+        Db::execute('INSERT INTO manager_capability_cases VALUES (1,20)');
+        $tables = new \ReflectionMethod(\Tests\Support\CoachingKnowledgeFixture::class, 'tablesFromMigration');
+        $tables->invoke(null, '20260926_create_manager_coaching.sql');
+        $coaching = new class extends ManagerCoachingService {
+            protected function caseForScope(int $tenantId, int $hotelId, int $managerId, int $caseId): array
+            {
+                if ([$tenantId, $hotelId, $managerId, $caseId] !== [10, 20, 7, 1]) throw new RuntimeException('Synthetic case outside scope');
+                return ['id' => 1, 'is_voided' => false, 'business_date' => date('Y-m-d'), 'problem_facts' => 'Synthetic manual case'];
+            }
+        };
+        $plan = $coaching->create(10, 20, 7, 7, array_replace(\Tests\Support\CoachingKnowledgeFixture::planInput(1),
+            ['cause' => 'knowledge', 'knowledge_chunk_ids' => [$chunkId]]));
+        self::assertSame($source['digest'], $plan['plan']['content']['knowledge_snapshots'][0]['digest']);
+        self::assertSame($plan['plan']['content']['knowledge_snapshots'], $coaching->read(10, 20, 7, (int)$plan['plan']['id'])['plan']['content']['knowledge_snapshots']);
+        self::assertSame($plan['plan']['content']['knowledge_snapshots'], $plan['events'][0]['payload']['plan']['knowledge_snapshots']);
+        foreach ([(int)$published[0]['knowledge_chunk']['chunk_id'], $chunkId] as $id) {
+            try { $references->source($id, $id === $chunkId ? 21 : 20, 7); self::fail('Old or cross-hotel version must not be readable'); }
+            catch (InvalidArgumentException|RuntimeException $e) { self::assertMatchesRegularExpression('/已失效|无权/u', $e->getMessage()); }
         }
     }
 

@@ -5,10 +5,9 @@ namespace app\service\operation;
 
 use app\service\OnlineDataFieldFactService;
 use app\service\OnlineDataTrustStatusService;
+use app\service\OperationHolidayCalendarService;
 use app\service\OtaStandardEtlService;
 use app\service\OtaTrafficAttributionService;
-use DateTimeImmutable;
-use DateTimeZone;
 use think\facade\Db;
 use Throwable;
 
@@ -152,38 +151,7 @@ trait OperationServiceQualityConcern
 
     private function buildHoliday(string $date): array
     {
-        $timezone = new DateTimeZone('Asia/Shanghai');
-        $today = DateTimeImmutable::createFromFormat('!Y-m-d', $date, $timezone) ?: new DateTimeImmutable('today', $timezone);
-        $holidays = [
-            ['name' => '元旦', 'start_date' => '2026-01-01', 'end_date' => '2026-01-03'],
-            ['name' => '春节', 'start_date' => '2026-02-15', 'end_date' => '2026-02-23'],
-            ['name' => '清明节', 'start_date' => '2026-04-04', 'end_date' => '2026-04-06'],
-            ['name' => '劳动节', 'start_date' => '2026-05-01', 'end_date' => '2026-05-05'],
-            ['name' => '端午节', 'start_date' => '2026-06-19', 'end_date' => '2026-06-21'],
-            ['name' => '中秋节', 'start_date' => '2026-09-25', 'end_date' => '2026-09-27'],
-            ['name' => '国庆节', 'start_date' => '2026-10-01', 'end_date' => '2026-10-07'],
-        ];
-
-        foreach ($holidays as $holiday) {
-            $end = DateTimeImmutable::createFromFormat('!Y-m-d', $holiday['end_date'], $timezone);
-            if ($end >= $today) {
-                $start = DateTimeImmutable::createFromFormat('!Y-m-d', $holiday['start_date'], $timezone);
-                $daysLeft = $today < $start ? (int)$today->diff($start)->format('%a') : 0;
-                return [
-                    'next_holiday' => $holiday['name'],
-                    'days_left' => $daysLeft,
-                    'suggestion' => $daysLeft < 15 ? '节假日临近，建议检查库存、价格和活动节奏' : '保持常规监控',
-                    'data_status' => self::DATA_OK,
-                ];
-            }
-        }
-
-        return [
-            'next_holiday' => null,
-            'days_left' => null,
-            'suggestion' => self::DATA_PENDING,
-            'data_status' => self::DATA_PENDING,
-        ];
+        return (new OperationHolidayCalendarService())->build($date);
     }
 
     private function averageOnlineMetrics(array $hotelIds, string $date, int $days): array

@@ -83,19 +83,29 @@
     "flysystem_malformed_utf8_path_security_patch",
     "isolated_business_fixtures_independent_source_and_exact_receipt",
     "generated_and_writable_column_metadata_compatibility",
-    "weekly_range_and_operation_list_fixture_contracts"
+    "weekly_range_and_operation_list_fixture_contracts",
+    "shared_formal_read_policy_with_private_owner_and_hotel_tenant_guards",
+    "future_statutory_dates_with_pending_full_adjusted_calendar",
+    "bounded_immutable_coaching_knowledge_excerpts",
+    "submitted_daily_reports_only_monthly_sum_and_coverage",
+    "append_only_seed_current_version_pointer_repair"
   ],
   "verification": {
     "php": {
-      "command": "php vendor/bin/phpunit",
-      "tests": 7333,
-      "assertions": 72991,
+      "command": "php vendor/bin/phpunit --colors=never --log-junit output/integration-20260930/phpunit-full-pr-review.xml",
+      "tests": 7387,
+      "assertions": 73492,
       "errors": 0,
       "failures": 0,
       "skipped": 12,
       "exit_code": 0,
-      "duration": "05:29.142",
-      "count_note": "CLI count includes one skipped Cloud OTA setup. Backend JUnit count alone excludes that setup skip.",
+      "duration": "05:42.544",
+      "memory": "382.00 MB",
+      "log": "phpunit-full-pr-review.log",
+      "junit": "phpunit-full-pr-review.xml",
+      "baseline_head": "fc821c91370e0914488759ed5a41a09d53e25acc",
+      "source_state": "review fixes present in working tree; source fingerprints recorded before commit",
+      "count_note": "CLI total includes one skipped Cloud OTA setup. Eight isolated opening tests supplemented; four dedicated database cases remain local-only unverified.",
       "dependency_version": "league/flysystem 3.35.3"
     },
     "supplemental_opening_tasks": {
@@ -122,7 +132,7 @@
       "public_entry": "passed",
       "integration": "passed",
       "migration_lock": {
-        "migrations": 218,
+        "migrations": 219,
         "frozen_sources": 5,
         "existing_migrations_unchanged": 216
       },
@@ -167,6 +177,39 @@
       "product_source_changed": false,
       "budget_changed": false,
       "timeout_changed": false
+    },
+    "pr_review": {
+      "findings_repaired": 5,
+      "monthly": {
+        "tests": 43,
+        "assertions": 349,
+        "before_failures": 2,
+        "submitted_reports_only": true
+      },
+      "knowledge": {
+        "tests": 77,
+        "assertions": 3791,
+        "related_node_tests": 11,
+        "formal_sharing_preserves_private_scope": true,
+        "excerpt_bytes_per_reference": 4096,
+        "snapshot_json_bytes_per_reference": 16384,
+        "total_snapshot_json_bytes": 131072,
+        "large_source_fixture_references": 8,
+        "large_source_bytes_per_reference": 5242878
+      },
+      "holiday": {
+        "tests": 184,
+        "assertions": 1167,
+        "verified_full_calendar_year": 2026,
+        "future_known_fixed_dates_only": true,
+        "future_adjusted_schedule_status": "pending",
+        "statutory_source": "https://www.gov.cn/zhengce/content/202411/content_6986380.htm"
+      },
+      "seed_migration": {
+        "append_only": true,
+        "nonzero_pointers_preserved": true,
+        "source_digest_not_rewritten": true
+      }
     }
   },
   "evidence_fingerprints": [
@@ -229,6 +272,58 @@
     {
       "name": "runtime-followup-final-acceptance.json",
       "sha256": "e7cd6b90008b939e0788e4979231dbd307802006da2189dbbbbe218961d98785"
+    },
+    {
+      "name": "pr-review-final-acceptance.json",
+      "sha256": "e102802ed5a84259a22f0e0705a1064413d02694073a40e9a67c80d43ea203e7"
+    },
+    {
+      "name": "pr-monthly-review-acceptance.json",
+      "sha256": "c6b7e782a1a0d4bc058888661288643faa177fa35344d5faa31ac9bc08a5948f"
+    },
+    {
+      "name": "holiday-review-acceptance.json",
+      "sha256": "eb3ec8281b97e4e50ceccdce059237962259b27d6ba0a5c98d8d9f3c1485fc0c"
+    },
+    {
+      "name": "pr-knowledge-review-acceptance.json",
+      "sha256": "1c842607b4041a90d23e504cb7f04ecb29fdac956e683100e0a4e16334cce291"
+    },
+    {
+      "name": "phpunit-full-pr-review.log",
+      "sha256": "359c4a91d77d5091bda4eed21f7b19a10be2df2e178d95749fa3843efad4a15d"
+    },
+    {
+      "name": "phpunit-full-pr-review.xml",
+      "sha256": "3e678e668797c5429f6dadfc9333173821bfa6d519867ed0911880c8a0997064"
+    },
+    {
+      "name": "phpunit-opening-pr-review.log",
+      "sha256": "af1e81d18ddb7ddb1c955d6002a396c1a547a9f6d8bb11f2952d34204c645c82"
+    },
+    {
+      "name": "public-entry-pr-review.log",
+      "sha256": "9abd32193a9386b6cf9dc54f0ad5f166e82c25681d8643bbf6e565324eefd1b6"
+    },
+    {
+      "name": "integration-pr-review.log",
+      "sha256": "3366271e5da13fbb423bf9868c7133810ae778f96a4b9b08b9a465ae0f0c7f52"
+    },
+    {
+      "name": "migration-pr-review.log",
+      "sha256": "c28d4701ac5d85a59cf3bf14ebe94f5b9b426f635dc9d833eec2972daee2280d"
+    },
+    {
+      "name": "hotspots-pr-review.log",
+      "sha256": "094d69a7263b39cdc367dbb64a09ef054d46e441f03e15178e2579a740f742d6"
+    },
+    {
+      "name": "pr-monthly-before.log",
+      "sha256": "e61e1d4e3c6876a5fd4030f76fc32935b200dcd1fd56b2a69b695446cc571d9d"
+    },
+    {
+      "name": "pr-knowledge-regression-final.log",
+      "sha256": "26cfdff8a3acb52f207b75f5dbb26d96cda96b118a7180bcd89cc0d2f10c961f"
     },
     {
       "name": "node-official-followup.log",
@@ -450,16 +545,16 @@
       "sha256": "bf0b5acb6bd8e3778b4a76562b65d56f318c60f7b746b7dd761c84061173136a"
     },
     {
-      "state": "modified",
       "path": "app/controller/DailyReport.php",
-      "bytes": 156371,
-      "sha256": "af9eb118ca0e2673614b30a751d1caa7f200c3465e7da59cca97c852d41d60c5"
+      "state": "modified",
+      "bytes": 156942,
+      "sha256": "69dfc778d9365c67d744b35a06feaae95df255b6f8a82a59f9558f4c7db9a73f"
     },
     {
-      "state": "modified",
       "path": "app/controller/Knowledge.php",
-      "bytes": 58906,
-      "sha256": "2ca1686bdbb2e16467d6c3833684ff9ed498b030b61486c403616591121129fb"
+      "state": "modified",
+      "bytes": 58358,
+      "sha256": "e1b1ab33ae5cc593830f3697279e50a7264778914cbe8221b287501c330e8589"
     },
     {
       "state": "modified",
@@ -714,10 +809,16 @@
       "sha256": "d51c1f4855063d67c162ff6817ad8813593668a696b3f0dc99e5788b2ed69485"
     },
     {
-      "state": "added",
       "path": "app/service/KnowledgeReferenceService.php",
-      "bytes": 14678,
-      "sha256": "6c8bea6ac995d453dab940b3ad86ed02491a6722d4994cba1cb36fb88a551c17"
+      "state": "added",
+      "bytes": 18411,
+      "sha256": "7feeabffefe703f339bdf60fb8640862dc59ca557b2e61f35bc05e549313507b"
+    },
+    {
+      "path": "app/service/KnowledgeSourceAccessPolicy.php",
+      "state": "added",
+      "bytes": 1250,
+      "sha256": "c7a6befa06a792390d61b6441dc18a9ee64c1b68f5a8216f0a4218d5686a23e7"
     },
     {
       "state": "added",
@@ -756,10 +857,10 @@
       "sha256": "191e116eb2ac5b565d370d8aa40e421c4e12929113da7030fa6c2a565a580e4c"
     },
     {
-      "state": "added",
       "path": "app/service/ManagerCoachingService.php",
-      "bytes": 21746,
-      "sha256": "8bc3c38d4bf129c38fa8d67886bf22362fbade5b9bb4b0d111af4965e64fd895"
+      "state": "added",
+      "bytes": 22642,
+      "sha256": "4eaba1c603e3495f1faa4daa054f3ff2d61581855c97fc96f82d83dc021da7fb"
     },
     {
       "state": "modified",
@@ -906,10 +1007,10 @@
       "sha256": "606bd0b0c0c60ef7052826d2f717374cfa1d0b38237fb6c64272e9ff0fbf71b2"
     },
     {
-      "state": "added",
       "path": "app/service/operation/OperationServiceQualityConcern.php",
-      "bytes": 9251,
-      "sha256": "4eb5fb16ff2c37a5f2eaf65d8306a5925a6df24871a6f1e015d04a757cdc1751"
+      "state": "added",
+      "bytes": 7524,
+      "sha256": "d5e80ed64988a85c0e386bc3776b61dc60118293ea9a3db27a7e32cafcabd0ff"
     },
     {
       "state": "modified",
@@ -922,6 +1023,12 @@
       "path": "app/service/OperationActionLifecycleService.php",
       "bytes": 112302,
       "sha256": "c1c0e0695f676ebc7b05a463e7bbc217eeb9f266ec079f0ed66532d8ce05a0c4"
+    },
+    {
+      "path": "app/service/OperationHolidayCalendarService.php",
+      "state": "added",
+      "bytes": 5669,
+      "sha256": "74f0a61847d5b33a9bb43c56d18045931ed478ba3c4635e3e55f4602e7096315"
     },
     {
       "state": "modified",
@@ -1116,10 +1223,10 @@
       "sha256": "acce490fbd172683d66e777d714cb28a4a388e443edf6420dfb9b9f3c1be8afe"
     },
     {
-      "state": "modified",
       "path": "database/migration_checksums.lock.json",
-      "bytes": 28355,
-      "sha256": "8de5b0eb7a528469f5f1338c7ea329c2f4cd05cbfef05fd0c729eb079206109f"
+      "state": "modified",
+      "bytes": 28496,
+      "sha256": "b9a88b20dd1530ddd2b4c14beaf4a92d334ca56824a19753db1ce6527cdc9082"
     },
     {
       "state": "added",
@@ -1132,6 +1239,12 @@
       "path": "database/migrations/20260926_create_manager_coaching.sql",
       "bytes": 1708,
       "sha256": "e396d540f0dc2978b10fc819478cf18c796151ec4936b670ff412b56539a121d"
+    },
+    {
+      "path": "database/migrations/20260930_repair_master_perspectives_reference_current_version.sql",
+      "state": "added",
+      "bytes": 2000,
+      "sha256": "b089130d278d4b05544a0b8ba106e757fdda1e87fd7587593342f1929a3798f2"
     },
     {
       "state": "added",
@@ -1196,8 +1309,8 @@
     {
       "path": "docs/integration/suxios-integration-20260930.md",
       "state": "added",
-      "bytes": 7253,
-      "sha256": "bf45f7a0d61cb1cdd0e27c3e3eeb6f2d65917b3fdb04509350c51a0b59c1ee4e"
+      "bytes": 9305,
+      "sha256": "798b85eb126c31f5cf6ac79203b54daf945b15f4b849f34c004b24e4c21871d6"
     },
     {
       "state": "added",
@@ -4566,16 +4679,22 @@
       "sha256": "55e0b414aea386cbc128264d90abd18f1bc1594a78862e063a22384452ef7e6d"
     },
     {
-      "state": "added",
       "path": "tests/DailyReportMonthBoundaryTest.php",
-      "bytes": 7033,
-      "sha256": "0977987b3795c50177da7d8393a0791734d334f3c9d7b133b40a3587739d50b7"
+      "state": "added",
+      "bytes": 9379,
+      "sha256": "5334b6db16840625bbe13656be3a111108fc82221a082ba9a405674273b07af6"
     },
     {
       "state": "added",
       "path": "tests/DailyReportPartialUpdateTest.php",
       "bytes": 6952,
       "sha256": "08df4139002742c83e5b0033fafb4d60ec437e05abe921e40fbf27d6f80e1323"
+    },
+    {
+      "path": "tests/DailyReportTest.php",
+      "state": "modified",
+      "bytes": 36295,
+      "sha256": "46e69736f60f9655654c79de2514c18f58f1b03b4202d8c79844a7df976e052a"
     },
     {
       "state": "added",
@@ -4776,10 +4895,22 @@
       "sha256": "f0de099f4029b7675a25d4fb5f47b0a9bbcf57e58d9823f203423a6cc3908559"
     },
     {
+      "path": "tests/KnowledgeOwnerScopeTest.php",
       "state": "modified",
+      "bytes": 7061,
+      "sha256": "74872f1109157bb1b2b6dc42d2825633d400ca6a62f12d19c6191113ca7383fb"
+    },
+    {
       "path": "tests/KnowledgePromotionServiceTest.php",
-      "bytes": 31293,
-      "sha256": "a32392bed1741802d1fbbd67aa3249cdb860929d0d57bab7b9f49cacd3540879"
+      "state": "modified",
+      "bytes": 35964,
+      "sha256": "75c4b1a0028a793711cab40db4a0d75b85bff2fbc507adad9fa0429a9731d9ae"
+    },
+    {
+      "path": "tests/KnowledgeReferenceSharedSnapshotTest.php",
+      "state": "added",
+      "bytes": 13820,
+      "sha256": "a6be7d9510e490b8d221f390103145297f00f30c2dbf6a79513eebd38546c0bc"
     },
     {
       "state": "added",
@@ -4864,6 +4995,12 @@
       "path": "tests/MasterPerspectivesKnowledgeTest.php",
       "bytes": 14364,
       "sha256": "fe83ac32500030cfec0784253acebf62c3aa584e2fad30bb609fa880dd141436"
+    },
+    {
+      "path": "tests/MasterPerspectivesReferenceVersionRepairTest.php",
+      "state": "added",
+      "bytes": 6700,
+      "sha256": "9ff7320afda03da1474dbc3082da0bc52f0ca4c5c6f16f84bb5f73c3b6312067"
     },
     {
       "state": "added",
@@ -5070,10 +5207,16 @@
       "sha256": "0e378fa424269f318f69cfccf64952d366ba1047a3d5d012d602e022092f9870"
     },
     {
-      "state": "modified",
+      "path": "tests/OperationHolidayCalendarServiceTest.php",
+      "state": "added",
+      "bytes": 6297,
+      "sha256": "f848c9756369bea46b3463a5d3dd1a97f8cfb43711d87a3bd55295693a6418f6"
+    },
+    {
       "path": "tests/OperationManagementBaselineScopeTest.php",
-      "bytes": 100682,
-      "sha256": "0bcc67cc979d326d7378f54130b5018115a23cf3a5bb94f33630f118616b5d10"
+      "state": "modified",
+      "bytes": 103180,
+      "sha256": "3fd20cb08206e26b37a3a5e70ea02ef20232193e9783576a9103f53e178edcb6"
     },
     {
       "state": "modified",

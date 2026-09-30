@@ -34,11 +34,8 @@ class ManagerCoachingService
             $plan['case_snapshot'] = ['id' => $caseId, 'business_date' => $case['business_date'],
                 'problem_facts' => $case['problem_facts'], 'source_quality_status' => 'manual_declared'];
             $plan['schema_version'] = self::VERSION;
-            $plan['knowledge_snapshots'] = [];
-            $refs = array_values(array_unique(array_map('intval', (array)($input['knowledge_chunk_ids'] ?? []))));
-            if (count($refs) > 8) throw new InvalidArgumentException('每个计划最多引用 8 个知识版本');
-            foreach ($refs as $chunkId) $plan['knowledge_snapshots'][] = (new KnowledgeReferenceService())->source($chunkId, $hotelId, $actorId);
-            if ($plan['cause'] === 'knowledge' && !$refs) throw new InvalidArgumentException('知识问题需要引用至少一个知识版本');
+            $plan['knowledge_snapshots'] = $this->knowledgeSnapshots($input, $hotelId, $actorId);
+            if ($plan['cause'] === 'knowledge' && !$plan['knowledge_snapshots']) throw new InvalidArgumentException('知识问题需要引用至少一个知识版本');
             $status = $plan['cause'] === 'unknown' ? 'pending_diagnosis' : 'planned';
             $now = date('Y-m-d H:i:s');
             $id = (int)Db::name('manager_coaching_plans')->insertGetId([
@@ -99,11 +96,7 @@ class ManagerCoachingService
                     if (array_filter($state['events'], static fn($e) => $e['event_type'] === 'evidence')) throw new InvalidArgumentException('已有实操证据，目标标准已冻结；请通过复查或新计划调整');
                     $updated = $this->normalizePlan($input, $hotelId, $actorId);
                     if ($updated['business_date'] < $case['business_date']) throw new InvalidArgumentException('计划起始日期不能早于来源案例日期');
-                    $snapshots = [];
-                    foreach (array_unique(array_map('intval', (array)($input['knowledge_chunk_ids'] ?? []))) as $chunkId) {
-                        if (count($snapshots) >= 8) throw new InvalidArgumentException('每个计划最多引用 8 个知识版本');
-                        $snapshots[] = (new KnowledgeReferenceService())->source($chunkId, $hotelId, $actorId);
-                    }
+                    $snapshots = $this->knowledgeSnapshots($input, $hotelId, $actorId, $plan['knowledge_snapshots'] ?? []);
                     if ($updated['cause'] === 'knowledge' && !$snapshots) throw new InvalidArgumentException('知识问题需要引用知识版本');
                     $plan = array_merge($plan, $updated, ['knowledge_snapshots' => $snapshots]);
                     $status = $plan['cause'] === 'unknown' ? 'pending_diagnosis' : 'planned';
@@ -200,6 +193,30 @@ class ManagerCoachingService
 
     protected function caseForScope(int $tenantId, int $hotelId, int $managerId, int $caseId): array
     { return (new ManagerCapabilityScoringService())->readCase($tenantId, $hotelId, $managerId, $caseId); }
+
+    private function knowledgeSnapshots(array $input, int $hotelId, int $actorId, array $previousSnapshots = []): array
+    {
+        $refs = array_values(array_unique(array_map('intval', (array)($input['knowledge_chunk_ids'] ?? []))));
+        if (count($refs) > 8) throw new InvalidArgumentException('每个计划最多引用 8 个知识版本');
+        $selections = $input['knowledge_excerpt_segment_ids'] ?? [];
+        if (!is_array($selections)) throw new InvalidArgumentException('知识摘录选择格式无效');
+        if (!array_key_exists('knowledge_excerpt_segment_ids', $input)) {
+            foreach ($previousSnapshots as $snapshot) {
+                if (($snapshot['excerpt_selection'] ?? '') === 'explicit_segment_selection') {
+                    $selections[(int)$snapshot['chunk_id']] = array_column($snapshot['source_segments'] ?? [], 'id');
+                }
+            }
+        }
+        $snapshots = [];
+        $reference = new KnowledgeReferenceService();
+        foreach ($refs as $chunkId) {
+            $selected = $selections[$chunkId] ?? null;
+            if (array_key_exists($chunkId, $selections) && !is_array($selected)) throw new InvalidArgumentException('知识摘录选择格式无效');
+            $snapshots[] = $reference->coachingSnapshot($chunkId, $hotelId, $actorId, $selected);
+        }
+        if (strlen($this->json($snapshots)) > 131072) throw new InvalidArgumentException('知识引用快照超过保存上限');
+        return $snapshots;
+    }
 
     private function normalizePlan(array $input, int $hotelId, int $actorId): array
     {

@@ -29,10 +29,10 @@ final class KnowledgeReferenceService
     {
         $row = Db::name('knowledge_chunks')->where('chunk_id', $chunkId)->find();
         $unit = $row ? Db::name('knowledge_units')->where('unit_id', $row['unit_id'])->find() : null;
-        if (!$unit || !$row || !(
-            ((int)$unit['hotel_id'] === $hotelId && (int)$unit['created_by'] === $actorId)
-            || ((int)$unit['hotel_id'] === 0 && (int)$unit['created_by'] === 0 && $unit['status'] === 'done')
-        )) {
+        $policy = new KnowledgeSourceAccessPolicy();
+        $tenantId = $unit && (int)($unit['tenant_id'] ?? 0) > 0
+            ? (int)Db::name('hotels')->where('id', $hotelId)->value('tenant_id') : 0;
+        if (!$unit || !$row || !$policy->canReadUnit($unit, $actorId, [$hotelId], $tenantId)) {
             throw new RuntimeException('无权读取该知识来源');
         }
         $content = $this->decode($row['content']);
@@ -41,9 +41,10 @@ final class KnowledgeReferenceService
         if ($storedDigest !== '' && !(new KnowledgeContentDigestService())->matches($storedDigest, $content)) {
             throw new RuntimeException('知识来源内容校验失败，请重新核对原始版本');
         }
+        $formal = $policy->isSharedFormalUnit($unit);
         if ($unit['status'] !== 'done' || ($unit['lifecycle_status'] ?? 'active') !== 'active'
             || (int)($unit['current_chunk_id'] ?? 0) !== $chunkId
-            || (int)($row['created_by'] ?? 0) !== (int)$unit['created_by']
+            || (!$formal && (int)($row['created_by'] ?? 0) !== (int)$unit['created_by'])
             || ($row['lifecycle_status'] ?? 'active') !== 'active'
             || ($content['lifecycle_status'] ?? 'active') !== 'active') {
             throw new InvalidArgumentException('知识来源已失效，请选择当前有效版本');
@@ -51,10 +52,66 @@ final class KnowledgeReferenceService
         $text = (string)($content['raw_text'] ?? $content['summary'] ?? $content['text'] ?? '');
         if ($text === '') $text = json_encode($content, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT | JSON_THROW_ON_ERROR);
         return ['unit_id' => (int)$unit['unit_id'], 'chunk_id' => $chunkId, 'title' => $unit['name'],
+            'version_no' => isset($row['version_no']) ? (int)$row['version_no'] : null,
             'digest' => (new KnowledgeContentDigestService())->digest($content),
             'source_document' => $content['source_document'] ?? ['text_sha256' => hash('sha256', $text)],
             'source_segments' => $this->segments($text), 'content' => $content,
             'policy' => 'reference_only_human_adaptation_not_verified_hotel_fact'];
+    }
+
+    /** Immutable, bounded citation material; the complete source remains in its knowledge chunk. */
+    public function coachingSnapshot(int $chunkId, int $hotelId, int $actorId, ?array $selectedSegmentIds = null): array
+    {
+        $source = $this->source($chunkId, $hotelId, $actorId);
+        $segments = $source['source_segments'];
+        if ($selectedSegmentIds !== null) {
+            if (!$selectedSegmentIds || count($selectedSegmentIds) > 4
+                || count(array_unique($selectedSegmentIds, SORT_REGULAR)) !== count($selectedSegmentIds)) {
+                throw new InvalidArgumentException('每个知识引用请选择 1–4 个不同摘录片段');
+            }
+            $selected = [];
+            foreach ($selectedSegmentIds as $id) {
+                $match = is_string($id) ? array_values(array_filter($segments, fn($segment) => $segment['id'] === $id)) : [];
+                if (!$match) throw new InvalidArgumentException('知识摘录片段不存在，请重新选择当前版本');
+                $selected[] = $match[0];
+            }
+            $segments = $selected;
+        }
+        $budget = 4096;
+        $excerpts = [];
+        $truncated = count($segments) > 4;
+        foreach (array_slice($segments, 0, 4) as $segment) {
+            if ($budget <= 0) { $truncated = true; break; }
+            $quote = mb_strcut($segment['quote'], 0, $budget, 'UTF-8');
+            $partial = strlen($quote) < strlen($segment['quote']);
+            $truncated = $truncated || $partial;
+            if ($quote === '') { $truncated = true; break; }
+            $excerpts[] = array_merge($segment, ['quote' => $quote,
+                'locator' => $segment['locator'] . ($partial ? '（节选）' : ''),
+                'segment_sha256' => hash('sha256', $segment['quote']), 'excerpt_sha256' => hash('sha256', $quote),
+                'excerpt_length' => mb_strlen($quote), 'excerpt_truncated' => $partial]);
+            $budget -= strlen($quote);
+        }
+        if ($truncated) {
+            foreach ($excerpts as &$excerpt) {
+                if (!str_contains($excerpt['locator'], '（节选）')) $excerpt['locator'] .= '（节选）';
+            }
+            unset($excerpt);
+        }
+        $text = (string)($source['content']['raw_text'] ?? $source['content']['summary'] ?? $source['content']['text'] ?? '');
+        if ($text === '') $text = json_encode($source['content'], JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT | JSON_THROW_ON_ERROR);
+        $snapshot = ['snapshot_schema_version' => 'manager_coaching.knowledge_excerpt.v1',
+            'unit_id' => $source['unit_id'], 'chunk_id' => $source['chunk_id'], 'version_no' => $source['version_no'],
+            'title' => mb_strcut((string)$source['title'], 0, 1024, 'UTF-8'), 'digest' => $source['digest'],
+            'source_text_sha256' => hash('sha256', $text), 'source_text_bytes' => strlen($text),
+            'source_document_digest' => (new KnowledgeContentDigestService())->digest($source['source_document']),
+            'source_segments' => $excerpts, 'excerpt_truncated' => $truncated,
+            'excerpt_selection' => $selectedSegmentIds === null ? 'leading_non_empty_segments' : 'explicit_segment_selection',
+            'excerpt_limit_bytes' => 4096, 'policy' => $source['policy']];
+        if (strlen(json_encode($snapshot, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR)) > 16384) {
+            throw new InvalidArgumentException('知识引用摘录超过保存上限');
+        }
+        return $snapshot;
     }
 
     public function save(int $hotelId, int $actorId, array $input): array

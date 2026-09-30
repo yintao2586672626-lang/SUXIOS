@@ -64,6 +64,12 @@ final class DailyReportMonthBoundaryTest extends TestCase
                 'report_data' => json_encode($revenue === null ? [] : ['revenue' => $revenue], JSON_THROW_ON_ERROR),
                 'submitter_id' => null, 'status' => 2]);
         }
+        foreach ([[731, '2026-11-01', 100, 2], [732, '2026-11-02', 900, 1],
+            [733, '2026-11-03', 300, 2], [741, '2026-12-01', 500, 1]] as [$id, $date, $revenue, $status]) {
+            Db::name('daily_reports')->insert(['id' => $id, 'tenant_id' => 70, 'hotel_id' => 7,
+                'report_date' => $date, 'report_data' => json_encode(['revenue' => $revenue], JSON_THROW_ON_ERROR),
+                'submitter_id' => null, 'status' => $status]);
+        }
 
         self::$controller = (new ReflectionClass(DailyReport::class))->newInstanceWithoutConstructor();
         $user = new class {
@@ -127,7 +133,7 @@ final class DailyReportMonthBoundaryTest extends TestCase
         self::assertContains('2026-09-02', $detail['month_coverage']['missing_dates']);
         self::assertContains('2026-09-19', $detail['month_coverage']['missing_dates']);
         self::assertContains('monthly_daily_reports_missing', array_column($detail['data_gaps'], 'code'));
-        self::assertStringContainsString('仅代表已填报日报的观察值', $detail['data_notice']);
+        self::assertStringContainsString('仅代表已提交日报的观察值', $detail['data_notice']);
     }
 
     public function testFirstBusinessDayWithItsReportHasCompleteCoverage(): void
@@ -147,5 +153,41 @@ final class DailyReportMonthBoundaryTest extends TestCase
         self::assertSame(2, $detail['month_coverage']['observed_days']);
         self::assertNull($detail['month_revenue']);
         self::assertSame('data_gap', $detail['metric_status']['month_revenue']['status']);
+    }
+
+    public function testDraftCannotFillCoverageOrContributeToMonthRevenue(): void
+    {
+        $detail = $this->detail(733);
+        self::assertEquals(400.0, $detail['month_revenue']);
+        self::assertSame('partial', $detail['metric_status']['month_revenue']['status']);
+        self::assertSame(2, $detail['month_coverage']['observed_days']);
+        self::assertSame(['2026-11-02'], $detail['month_coverage']['missing_dates']);
+        self::assertSame(2, $detail['month_coverage']['required_report_status']);
+        self::assertSame('submitted_daily_reports_only', $detail['month_coverage']['source_policy']);
+        self::assertStringContainsString('未提交日期', $detail['data_notice']);
+    }
+
+    public function testOnlyDraftReportsKeepMonthlyMetricsUnknown(): void
+    {
+        $detail = $this->detail(741);
+        self::assertNull($detail['month_revenue']);
+        self::assertSame('data_gap', $detail['metric_status']['month_revenue']['status']);
+        self::assertSame(0, $detail['month_coverage']['observed_days']);
+        self::assertSame(['2026-12-01'], $detail['month_coverage']['missing_dates']);
+    }
+
+    public function testSubmissionAddsTheSameDateToCoverageAndRevenue(): void
+    {
+        try {
+            Db::name('daily_reports')->where('id', 732)->update(['status' => 2]);
+            $detail = $this->detail(733);
+            self::assertEquals(1300.0, $detail['month_revenue']);
+            self::assertSame('ready', $detail['metric_status']['month_revenue']['status']);
+            self::assertSame('complete', $detail['month_coverage']['data_status']);
+            self::assertSame(3, $detail['month_coverage']['observed_days']);
+            self::assertSame([], $detail['month_coverage']['missing_dates']);
+        } finally {
+            Db::name('daily_reports')->where('id', 732)->update(['status' => 1]);
+        }
     }
 }

@@ -191,6 +191,7 @@ class DailyReport extends Base
         
         // 获取当月所有日报表数据（用于计算月累计）
         $monthReports = DailyReportModel::where('hotel_id', $report->hotel_id)
+            ->where('status', DailyReportModel::STATUS_SUBMITTED)
             ->where('report_date', '>=', sprintf('%04d-%02d-01', $year, $month))
             ->where('report_date', '<=', $reportDate)
             ->select();
@@ -233,6 +234,7 @@ class DailyReport extends Base
         $fieldCounts = [];
         $reportCount = 0;
         foreach ($reports as $report) {
+            if (!in_array($report->status ?? null, [DailyReportModel::STATUS_SUBMITTED, (string)DailyReportModel::STATUS_SUBMITTED], true)) continue;
             $reportCount++;
             $data = $this->normalizeReportData($report->report_data ?? []);
             foreach ($data as $key => $value) {
@@ -260,6 +262,7 @@ class DailyReport extends Base
         $expectedDays = (int)substr($reportDate, 8, 2);
         $observed = [];
         foreach ($reports as $report) {
+            if (!in_array($report->status ?? null, [DailyReportModel::STATUS_SUBMITTED, (string)DailyReportModel::STATUS_SUBMITTED], true)) continue;
             $date = (string)($report->report_date ?? '');
             if ($date >= $startDate && $date <= $reportDate) {
                 $observed[$date] = true;
@@ -272,6 +275,8 @@ class DailyReport extends Base
         }
         return [
             'source_table' => 'daily_reports',
+            'required_report_status' => DailyReportModel::STATUS_SUBMITTED,
+            'source_policy' => 'submitted_daily_reports_only',
             'scope' => 'whole_hotel_daily_report',
             'start_date' => $startDate,
             'end_date' => $reportDate,
@@ -497,7 +502,7 @@ class DailyReport extends Base
             $addGap('monthly_sold_room_nights_not_positive', '月累计出租间夜不大于 0，月 ADR 无定义，不以 0 代替。', ['month_adr']);
         }
         if (($monthCoverage['data_status'] ?? '') === 'partial') {
-            $addGap('monthly_daily_reports_missing', '业务月内存在未填报日期；月累计仅为已填报日报的观察值，不能当作完整月累计。', ['month_revenue', 'month_occ_rate', 'month_adr', 'month_revpar', 'month_complete_rate', 'month_revenue_diff']);
+            $addGap('monthly_daily_reports_missing', '业务月内存在未提交日期；月累计仅为已提交日报的观察值，不能当作完整月累计。', ['month_revenue', 'month_occ_rate', 'month_adr', 'month_revpar', 'month_complete_rate', 'month_revenue_diff']);
         }
         if ($monthRevenueTarget === null) {
             $addGap('monthly_revenue_target_missing', '未设置月营收目标，不生成完成率或目标差额。', ['month_complete_rate', 'month_revenue_diff', 'day_revenue_target', 'day_revenue_diff']);
@@ -635,7 +640,7 @@ class DailyReport extends Base
             'data_status' => $coreMetricsReady ? 'ready' : ($reportData === [] ? 'missing' : 'partial'),
             'core_metrics_ready' => $coreMetricsReady,
             'data_notice' => '经营指标仅基于 daily_reports 中已填报的全酒店经营字段；OTA 补充摘要保持 ota_channel 口径，不参与全酒店营收、OCC、ADR 或 RevPAR 推导。'
-                . (($monthCoverage['data_status'] ?? '') === 'partial' ? '月累计存在未填报日期，仅代表已填报日报的观察值。' : ''),
+                . (($monthCoverage['data_status'] ?? '') === 'partial' ? '月累计存在未提交日期，仅代表已提交日报的观察值。' : ''),
             'metric_status' => $metricStatus,
             'data_gaps' => $dataGaps,
             
@@ -1489,6 +1494,7 @@ class DailyReport extends Base
         
         // 获取当月所有日报表数据
         $monthReports = DailyReportModel::where('hotel_id', $report->hotel_id)
+            ->where('status', DailyReportModel::STATUS_SUBMITTED)
             ->where('report_date', '>=', sprintf('%04d-%02d-01', $year, $month))
             ->where('report_date', '<=', $reportDate)
             ->select();
