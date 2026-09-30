@@ -618,6 +618,26 @@
           "repaired_base_entries": []
         },
         "startup_gzip_bytes": 619006,
+        "node_full": {
+          "files": 599,
+          "tests": 6390,
+          "pass": 6390,
+          "fail": 0,
+          "skipped": 0,
+          "exit_code": 0,
+          "log": "node-official-continuation.log",
+          "portable_excluded_authority_cases": 2,
+          "source_state": "Product assets unchanged from 1edff361; original knowledge-list fixture loads the real permission helper; strict runtime mode and original assertions retained."
+        },
+        "fixture_compatibility": {
+          "tests": 17,
+          "pass": 17,
+          "fail": 0,
+          "skipped": 0,
+          "log": "knowledge-node-fixture-compat.log",
+          "failure_reason": "SSR fixture omitted the newly required production permission helper",
+          "product_source_changed": false
+        },
         "baseline_head": "4af007147a8fcefbf5c6d1dbde396b4a95b391b8"
       }
     }
@@ -881,7 +901,7 @@
     },
     {
       "name": "pr-review-thirteen-acceptance.json",
-      "sha256": "f3f12c27706bca57f53b28226352c93b040e025100c1486b7159cb77509cafec"
+      "sha256": "956184f06d1b1e535025f7735f572002e950395c0f689a126fae31414e58e9f3"
     },
     {
       "name": "knowledge-new-review-acceptance.json",
@@ -894,6 +914,10 @@
     {
       "name": "knowledge-reference-redaction-inspection.json",
       "sha256": "efa0d76e28e1e0ed5c6b9ea5d544600d8a1075a3017e14cf70fd21a3abf73ccb"
+    },
+    {
+      "name": "pr-review-thirteen-initial-acceptance.json",
+      "sha256": "f3f12c27706bca57f53b28226352c93b040e025100c1486b7159cb77509cafec"
     },
     {
       "name": "new-review-php.log",
@@ -982,6 +1006,18 @@
     {
       "name": "browser-knowledge-manager-edit-desktop.png",
       "sha256": "922a6c1f61a82023d36a2ba92c351254976d562c91928058af130a33e799ddb7"
+    },
+    {
+      "name": "node-official-continuation.log",
+      "sha256": "e89ff3ed3d580b2e4d861d4865201081efb9255a25ee44e9ae849a282a876ee2"
+    },
+    {
+      "name": "knowledge-node-fixture-compat.log",
+      "sha256": "a9c28deba0c242a38041f45f7f08821a9fcedbeb9c1afbba7f4c94480a910342"
+    },
+    {
+      "name": "ci-new-review-failure.log",
+      "sha256": "6a77a42b22be9ca1d5c5cbbad7ec60b1a150acc26e6047ac635f1cc8c36bbf07"
     }
   ],
   "boundaries": {
@@ -1952,8 +1988,8 @@
     },
     {
       "path": "docs/integration/suxios-integration-20260930.md",
-      "bytes": 13057,
-      "sha256": "50688a3ec92f5560271051229dc6ce8ec460d3a8eebf493421a50600d987fc92",
+      "bytes": 13640,
+      "sha256": "9d01a6d1bf11ae4db59f642c87cf3975740ff567b9b683e302040dcbf053728f",
       "state": "added"
     },
     {
@@ -3907,10 +3943,10 @@
       "sha256": "f98da614756758583836159660666a40555bdf0c596244720ee903d650fc81df"
     },
     {
-      "state": "added",
       "path": "tests/automation/knowledge_list_query_ownership.test.mjs",
-      "bytes": 31376,
-      "sha256": "61b156b4f9abcf7b46f5412005b1f0aa0192ac10205b1e5f71cc56410149b61f"
+      "bytes": 31405,
+      "sha256": "6415ee8e491553516a19c55c755c0fb042728a0383b07bd7d90d1adbf955666a",
+      "state": "added"
     },
     {
       "state": "added",
