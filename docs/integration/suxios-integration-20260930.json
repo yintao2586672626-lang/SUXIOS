@@ -82,7 +82,8 @@
     "consultant_callable_navigation_dependency_and_retry",
     "flysystem_malformed_utf8_path_security_patch",
     "isolated_business_fixtures_independent_source_and_exact_receipt",
-    "generated_and_writable_column_metadata_compatibility"
+    "generated_and_writable_column_metadata_compatibility",
+    "weekly_range_and_operation_list_fixture_contracts"
   ],
   "verification": {
     "php": {
@@ -155,6 +156,17 @@
       "product_php_changed": false,
       "historical_migrations_changed": false,
       "gate_relaxed": false
+    },
+    "runtime_journeys": {
+      "sequential_groups": 3,
+      "tests": 19,
+      "passed": 19,
+      "failed": 0,
+      "related_node_tests": 144,
+      "after_cleanup_total": 0,
+      "product_source_changed": false,
+      "budget_changed": false,
+      "timeout_changed": false
     }
   },
   "evidence_fingerprints": [
@@ -215,6 +227,10 @@
       "sha256": "f29160f44ddde9b687800616aa72acc31ef21375998dcf838e6768551551cecc"
     },
     {
+      "name": "runtime-followup-final-acceptance.json",
+      "sha256": "e7cd6b90008b939e0788e4979231dbd307802006da2189dbbbbe218961d98785"
+    },
+    {
       "name": "node-official-followup.log",
       "sha256": "e081916948cb3fa72e451d72729c6440d124e9c0342f29e0d9f18db4983e79dd"
     },
@@ -233,6 +249,18 @@
     {
       "name": "ci-generated-column-final-e2e.log",
       "sha256": "b74fcc412476407809d605fac30e2d3836001867f513fac657b0756a11f501af"
+    },
+    {
+      "name": "ci-runtime-transition-final.log",
+      "sha256": "01a5fb8485e80a10c53737a9def3b111bb7a273ddd8856072b0782049eac546c"
+    },
+    {
+      "name": "ci-runtime-operating-question-final.log",
+      "sha256": "e22381b20b22e060cefc6aa16eb7bbfbac98dfa998a806ab259dc75a0ceea366"
+    },
+    {
+      "name": "ci-runtime-stability-final.log",
+      "sha256": "f4e59ee8be60a05c7adabe5e7dc1ac2302a3533fca1dc5f90ecbdc17ebba2438"
     }
   ],
   "boundaries": {
@@ -1168,8 +1196,8 @@
     {
       "path": "docs/integration/suxios-integration-20260930.md",
       "state": "added",
-      "bytes": 6747,
-      "sha256": "eb76daf9f87dab97fb578ddd5b6e3cb086f165fbb4b1996958277b8dc337838d"
+      "bytes": 7253,
+      "sha256": "bf45f7a0d61cb1cdd0e27c3e3eeb6f2d65917b3fdb04509350c51a0b59c1ee4e"
     },
     {
       "state": "added",
@@ -2852,6 +2880,12 @@
       "sha256": "43180720c919277e4073bd5d07b7def70684c2a297f3785f41652ebabf034514"
     },
     {
+      "path": "tests/automation/frontend_full_render_transition.spec.js",
+      "state": "modified",
+      "bytes": 28544,
+      "sha256": "5f616a0dd8ee656e27eacd548d96c7a33268461a222d613361b443f7f38ece47"
+    },
+    {
       "state": "modified",
       "path": "tests/automation/frontend_lazy_asset_versions.test.mjs",
       "bytes": 5683,
@@ -3692,10 +3726,10 @@
       "sha256": "ffda439432264eb835a9f5de3e35dfc9068e1554fd076bb61a9680e8775e3215"
     },
     {
-      "state": "modified",
       "path": "tests/automation/operating_question_action_card.spec.js",
-      "bytes": 33447,
-      "sha256": "92e82e5fc6bdfe21cdd8ab6093ba9661d4091e4e3642193fefae8518992f1208"
+      "state": "modified",
+      "bytes": 34559,
+      "sha256": "6dc80ecd35928a1b390a44aebd662a027461b4f46272d453ca0faddcb30d3943"
     },
     {
       "state": "added",

@@ -24,6 +24,14 @@ const actionDigest = 'b'.repeat(64);
 const actionCardDigest = 'c'.repeat(64);
 const approvalTargetDigest = 'd'.repeat(64);
 const metricDefinitionDigest = 'e'.repeat(64);
+const strictScopeBoundary = {
+  silent_date_fallback: false,
+  source_scope: 'ota_channel',
+  strict_gate: 'dual_ota_field_closure.v1:revenue_analysis_consumable',
+  fact_authority: 'trusted_ota_daily_fact_consumer.v1',
+  pms_included: false,
+  whole_hotel_conclusion: false,
+};
 const reviewDate = (() => {
   const value = new Date(`${businessDate}T12:00:00`);
   value.setDate(value.getDate() + 1);
@@ -392,7 +400,7 @@ const installAuthenticatedMocks = async (page, calls, {
         hotel_id: 7,
         recommended: null,
         platforms: [],
-        boundary: { silent_date_fallback: false, source_scope: 'ota_channel' },
+        boundary: strictScopeBoundary,
         data_gaps: [{ code: 'strict_readback_fact_scope_missing' }],
       };
     }
@@ -454,14 +462,33 @@ const installAuthenticatedMocks = async (page, calls, {
     }
     if (pathname === '/api/operation/execution-flow' && request.method() === 'GET') {
       const list = mockState.created ? [buildExecutionFlowItem(mockState.intent)] : [];
+      const hotelId = Number(requestUrl.searchParams.get('hotel_id') || 0) || null;
       data = {
         data_status: 'ok',
-        capabilities: { hotel_id: user.hotel_id, can_view: true, can_generate_diagnosis: true,
+        capabilities: { hotel_id: hotelId, can_view: true, can_generate_diagnosis: true,
           can_execute: true, can_collect_ota: true },
         summary: { total: list.length, stage_counts: {} },
         stages: [],
         list,
         data_gaps: [],
+        returned_count: list.length,
+        matched_total: list.length,
+        truncated: false,
+        statistics: { execution_total_loaded: true },
+      };
+    }
+    if (pathname === '/api/operation/action-tracking' && request.method() === 'GET') {
+      data = {
+        hotel_id: Number(requestUrl.searchParams.get('hotel_id') || 0) || null,
+        data_status: 'ok', actions: [], data_gaps: [],
+        returned_count: 0, matched_total: 0, truncated: false,
+        effect_validation: { status: 'data_gap', metrics: [], data_gaps: [] },
+      };
+    }
+    if (pathname === '/api/operation/closure-overview' && request.method() === 'GET') {
+      data = {
+        hotel_id: Number(requestUrl.searchParams.get('hotel_id') || 0) || null,
+        data_status: 'data_gap', summary: {}, modules: [], weak_modules: [], data_gaps: [],
       };
     }
     if (pathname === '/api/operation/execution-intents/901' && request.method() === 'GET') {
@@ -691,7 +718,7 @@ test('latest strict scope and saved question restore without creating a new inte
         available_dates: ['2026-08-09'],
         available_date_count: 1,
       }],
-      boundary: { silent_date_fallback: false, source_scope: 'ota_channel' },
+      boundary: strictScopeBoundary,
       data_gaps: [],
     },
   });
