@@ -9,7 +9,7 @@ const slice = (start, end) => {
   assert.ok(a >= 0 && b > a, `${start} / ${end}`);
   return source.slice(a, b);
 };
-const scopeHelpers = slice('const captureOnlineAnalysisRequestOwner =', 'const resetOnlineAnalysisSessionState =');
+const scopeHelpers = slice('const captureOnlineAnalysisRequestOwner =', 'const onlineAnalysisQueryChanged =');
 const observation = slice('const competitorObservationOffsetDate =', 'const refreshOnlineAnalysis =');
 const deferred = () => { let resolve, reject; const promise = new Promise((a, b) => { resolve = a; reject = b; }); return { promise, resolve, reject }; };
 const drain = async () => { for (let i = 0; i < 10; i++) await Promise.resolve(); };
@@ -19,6 +19,7 @@ function fixture() {
   const targets = [], dialogs = [], posts = [], notices = [], refreshes = [];
   const state = {
     onlineDataFilter: { value: { hotel_id: '7', source: 'ctrip', end_date: '2026-09-28' } },
+    analysisDimension: { value: 'day' }, onlineAnalysisMetricDimension: { value: '' },
     authContext: { value: { tenantId: 42 } }, user: { value: { id: 11 } },
     competitorManualObservationSaving: { value: false }, session: 1, permission: true,
   };
@@ -48,6 +49,8 @@ const changes = {
   hotel: p => { p.state.onlineDataFilter.value.hotel_id = '8'; },
   date: p => { p.state.onlineDataFilter.value.end_date = '2026-09-29'; },
   platform: p => { p.state.onlineDataFilter.value.source = 'meituan'; },
+  dimension: p => { p.state.analysisDimension.value = 'month'; },
+  metric: p => { p.state.onlineAnalysisMetricDimension.value = 'revenue'; },
   account: p => { p.state.session++; },
   tenant: p => { p.state.authContext.value.tenantId = 43; },
 };

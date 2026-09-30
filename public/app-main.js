@@ -10258,19 +10258,34 @@
             let competitorEventFeedRequestSeq = 0;
             const onlineAnalysisLoading = computed(() => onlineAnalysisRowsLoading.value || competitorEventFeedLoading.value);
             const ONLINE_ANALYSIS_PANEL_CACHE_TTL_MS = 8000;
+            const onlineAnalysisMetricDimension = ref('');
+            const onlineAnalysisLoadedFilterKey = ref('');
+            const onlineAnalysisRowsLoadedScope = ref(null);
+            let onlineAnalysisRowsRequestVersion = 0;
             const captureOnlineAnalysisRequestOwner = () => ({
                 session: captureAuthSession(),
                 tenantId: String(authContext.value?.tenantId || authContext.value?.tenant_id || user.value?.tenant_id || ''),
                 userId: String(user.value?.id || user.value?.user_id || ''),
                 hotelId: String(onlineDataFilter.value.hotel_id || '').trim(),
+                scopeKey: JSON.stringify([analysisDimension.value, onlineDataFilter.value, onlineAnalysisMetricDimension.value]),
             });
             const isOnlineAnalysisRequestOwnerCurrent = (owner = {}) => (
                 isAuthSessionCurrent(owner.session)
                 && String(authContext.value?.tenantId || authContext.value?.tenant_id || user.value?.tenant_id || '') === owner.tenantId
                 && String(user.value?.id || user.value?.user_id || '') === owner.userId
                 && String(onlineDataFilter.value.hotel_id || '').trim() === owner.hotelId
+                && JSON.stringify([analysisDimension.value, onlineDataFilter.value, onlineAnalysisMetricDimension.value]) === owner.scopeKey
             );
+            const onlineAnalysisQueryChanged = computed(() => Boolean(onlineAnalysisLoadedFilterKey.value)
+                && captureOnlineAnalysisRequestOwner().scopeKey !== onlineAnalysisLoadedFilterKey.value);
+            const onlineAnalysisMetricOptions = computed(() => onlineAnalysisLoadedFilterKey.value
+                && JSON.stringify(JSON.parse(onlineAnalysisLoadedFilterKey.value)[1]) === JSON.stringify(onlineDataFilter.value)
+                ? (analysisData.value?.metric_dimension_options || []) : []);
             const resetOnlineAnalysisSessionState = () => {
+                onlineAnalysisMetricDimension.value = '';
+                onlineAnalysisLoadedFilterKey.value = '';
+                onlineAnalysisRowsLoadedScope.value = null;
+                onlineAnalysisRowsRequestVersion++;
                 resetCompetitorFutureWindow();
                 competitorEventFeedRequestSeq++;
                 competitorEventFeed.value = null;
@@ -10286,7 +10301,7 @@
             };
             const onlineAnalysisSummaryCards = computed(() => {
                 const summary = analysisData.value?.summary || {};
-                return buildOnlineAnalysisSummaryCards(summary, analysisDimension.value, formatNumber);
+                return buildOnlineAnalysisSummaryCards(summary, analysisData.value?.query_scope?.dimension || analysisDimension.value, formatNumber);
             });
             const buildOnlineAnalysisAggregationNotice = requireAppSystemStatic('buildOnlineAnalysisAggregationNotice');
             const onlineAnalysisAggregationNotice = computed(() => buildOnlineAnalysisAggregationNotice(
@@ -10477,10 +10492,11 @@
 
             // 加载数据分析
             const loadAnalysisData = async (dimension = null, options = {}) => {
+                if (dimension) analysisDimension.value = dimension;
                 const requestOwner = captureOnlineAnalysisRequestOwner();
                 const isCurrentRequest = () => isOnlineAnalysisRequestOwnerCurrent(requestOwner);
+                onlineAnalysisError.value = '';
                 try {
-                    if (dimension) analysisDimension.value = dimension;
                     debugLog('加载数据分析, 维度:', analysisDimension.value);
                     const params = new URLSearchParams({
                         dimension: analysisDimension.value,
@@ -10494,6 +10510,7 @@
                     if (onlineDataFilter.value.data_type) {
                         params.append('data_type', onlineDataFilter.value.data_type);
                     }
+                    if (onlineAnalysisMetricDimension.value) params.append('metric_dimension', onlineAnalysisMetricDimension.value);
                     const requestPolicy = {
                         ...currentPageReadPolicy(currentPage.value, 'current'),
                         tenantId: requestOwner.tenantId,
@@ -10509,8 +10526,12 @@
                     if (!isCurrentRequest()) return null;
                     debugLog('数据分析结果:', res.data);
                     if (res.code !== 200) throw new Error(res.message || '数据分析加载失败');
+                    if ((res.data?.query_scope || onlineAnalysisMetricDimension.value)
+                        && String(res.data?.query_scope?.metric_dimension || '') !== (params.get('metric_dimension') || '')) {
+                        throw new Error('返回指标口径与查询不一致，请重新查询');
+                    }
                     analysisData.value = res.data || { summary: null, chart_data: null, hotel_ranking: [] };
-                    onlineAnalysisError.value = '';
+                    onlineAnalysisLoadedFilterKey.value = requestOwner.scopeKey;
                     await nextTick();
                     if (!isCurrentRequest()) return null;
                     scheduleAnalysisChartRender();
@@ -12799,14 +12820,15 @@
                 onlineAnalysisRows.value = data?.list || [];
                 onlineAnalysisPagination.value = data?.pagination || { total: onlineAnalysisRows.value.length, page: 1, page_size: onlineAnalysisPageSize };
                 onlineAnalysisQualitySummary.value = data?.data_quality_summary || null;
-                onlineAnalysisError.value = '';
                 return onlineAnalysisRows.value;
             };
 
             const loadOnlineAnalysisRows = async (options = {}) => {
+                const requestVersion = ++onlineAnalysisRowsRequestVersion;
                 const requestOwner = captureOnlineAnalysisRequestOwner();
                 const isCurrentRequest = () => isOnlineAnalysisRequestOwnerCurrent(requestOwner);
                 if (!isCurrentRequest()) return [];
+                onlineAnalysisError.value = '';
                 onlineAnalysisRowsLoading.value = true;
                 try {
                     const params = new URLSearchParams({
@@ -12828,6 +12850,7 @@
                     if (onlineDataFilter.value.data_type) {
                         params.append('data_type', onlineDataFilter.value.data_type);
                     }
+                    if (onlineAnalysisMetricDimension.value) params.append('metric_dimension', onlineAnalysisMetricDimension.value);
                     const requestPolicy = {
                         ...currentPageReadPolicy(currentPage.value, 'current'),
                         tenantId: requestOwner.tenantId,
@@ -12839,16 +12862,22 @@
                     const res = await request(`/online-data/daily-data-list?${params}`, { requestPolicy });
                     if (!isCurrentRequest()) return [];
                     if (res.code !== 200) throw new Error(res.message || '入库明细加载失败');
+                    if ((res.data?.query_scope || onlineAnalysisMetricDimension.value)
+                        && String(res.data?.query_scope?.metric_dimension || '') !== (params.get('metric_dimension') || '')) {
+                        throw new Error('明细指标口径与查询不一致，请重新查询');
+                    }
+                    onlineAnalysisRowsLoadedScope.value = Object.fromEntries(params);
                     return applyOnlineAnalysisRowsResponse(res.data || {}, requestOwner) || [];
                 } catch (error) {
                     if (!isCurrentRequest() || error?.name === 'AbortError') return [];
                     console.error('加载入库明细失败:', error);
                     onlineAnalysisRows.value = [];
+                    onlineAnalysisRowsLoadedScope.value = null;
                     onlineAnalysisQualitySummary.value = null;
                     onlineAnalysisError.value = error.message || '入库明细加载失败';
                     return [];
                 } finally {
-                    if (isCurrentRequest()) {
+                    if (requestVersion === onlineAnalysisRowsRequestVersion) {
                         onlineAnalysisRowsLoading.value = false;
                     }
                 }
@@ -13397,6 +13426,7 @@
             };
 
             const openAutoFetchRecordAnalysis = async (item) => {
+                onlineAnalysisMetricDimension.value = '';
                 onlineAnalysisSourceRecord.value = item || null;
                 if (item?.data_date) {
                     onlineDataFilter.value.start_date = item.data_date;
@@ -54745,6 +54775,8 @@
                 selectAllMeituanAiHotels, clearMeituanAiHotelSelection, startMeituanAiAnalysis, copyMeituanAiAnalysisResult, viewMeituanAiAnalysisRecord,
                 // 数据分析
                 analysisDimension, analysisData, onlineAnalysisAggregationNotice, loadAnalysisData,
+                onlineAnalysisMetricDimension, onlineAnalysisMetricOptions, onlineAnalysisQueryChanged,
+                onlineAnalysisRowsLoadedScope,
                 onlineAnalysisRows, onlineAnalysisRowsLoading, onlineAnalysisLoading, onlineAnalysisError, onlineAnalysisPagination, onlineAnalysisQualitySummary, analysisChartStatus, retryAnalysisChart,
                 onlineAnalysisSourceRecord, onlineAnalysisSummaryCards, onlineAnalysisMetricDefinitionRows, onlineAnalysisSourceText, onlineAnalysisDataTypeText, onlineStorageStatusClass, onlineStorageStatusText,
                 onlineTruthStatusText, onlineTruthStatusClass, onlineTruthCalculationStatusText, onlineTruthDetailText, onlineAnalysisMetricText, onlineMetricTruthContext, buildOnlineAnalysisRowMetricCells,

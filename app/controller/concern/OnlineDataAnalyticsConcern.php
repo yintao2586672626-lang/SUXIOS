@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace app\controller\concern;
 
 use app\service\OnlineDailyDataPersistenceService;
+use app\service\OnlineDataAnalysisMetricScopeService;
 use app\service\OnlineDataFieldFactService;
 use app\service\OnlineDataTrustStatusService;
 use app\service\OnlineTrafficDataExtractionService;
@@ -113,6 +114,7 @@ trait OnlineDataAnalyticsConcern
 
         $dimension = $this->request->get('dimension', 'day'); // day, week, month
         try {
+            $metricDimension = OnlineDataAnalysisMetricScopeService::normalize($this->request->get('metric_dimension', ''));
             [$startDate, $endDate] = OtaReadDateRangeService::normalize(
                 $this->request->get('start_date', date('Y-m-d', strtotime('-30 days'))),
                 $this->request->get('end_date', date('Y-m-d'))
@@ -132,6 +134,8 @@ trait OnlineDataAnalyticsConcern
             $source,
             $hotelId
         );
+        $analysisScope['metric_dimension'] = $metricDimension;
+        $analysisScope['dimension'] = $dimension;
 
         $query = Db::name('online_daily_data')
             ->where('data_date', '>=', $startDate)
@@ -176,7 +180,9 @@ trait OnlineDataAnalyticsConcern
         $this->applyDataTypeFilter($query, $dataType);
 
         $columns = $this->getOnlineDailyDataColumns();
-        $scopedRecordCount = (int)(clone $query)->count();
+        $metricQuery = clone $query;
+        if (isset($columns['dimension'])) OnlineDataAnalysisMetricScopeService::apply($metricQuery, $metricDimension);
+        $scopedRecordCount = (int)$metricQuery->count();
         $strictEvidenceContractAvailable = $this->applyStrictOnlineDataAnalysisEvidenceFilter($query, $columns);
         if (isset($columns['readback_verified'])) {
             $query->where('readback_verified', 1);
@@ -190,7 +196,10 @@ trait OnlineDataAnalyticsConcern
             $query->whereRaw("(`status` IS NULL OR LOWER(TRIM(`status`)) NOT IN ({$blocked}))");
         }
 
-        $data = $strictEvidenceContractAvailable ? $query->order('data_date', 'asc')->select()->toArray() : [];
+        $scopeData = $strictEvidenceContractAvailable ? $query->order('data_date', 'asc')->select()->toArray() : [];
+        $metricOptions = ($this->buildOnlineDataSourceOwnershipGate($scopeData)['allowed'] ?? false) === true
+            ? OnlineDataAnalysisMetricScopeService::options($scopeData) : [];
+        $data = OnlineDataAnalysisMetricScopeService::select($scopeData, $metricDimension);
         $excludedUntrustedCount = max(0, $scopedRecordCount - count($data));
         $truthHotelIds = array_values(array_unique(array_filter(array_map(
             static fn(array $row): int => max(0, (int)($row['system_hotel_id'] ?? 0)),
@@ -297,6 +306,7 @@ trait OnlineDataAnalyticsConcern
             'hotel_ranking' => $hotelRanking,
             'query_scope' => $analysisScope,
             'metric_groups' => $aggregationGate['metric_groups'],
+            'metric_dimension_options' => $metricOptions,
             'truth' => $summary['truth_context'],
         ]);
     }
@@ -635,23 +645,7 @@ trait OnlineDataAnalyticsConcern
         string $source,
         string $hotelId
     ): array {
-        return [
-            'data_type' => $dataType,
-            'data_type_defaulted' => $defaulted,
-            'metric_scope' => $dataType === 'business'
-                ? 'ota_channel_business_operating_facts'
-                : 'ota_channel_typed_facts',
-            'truth_policy' => 'readback_verified_and_validation_usable',
-            'legacy_untyped_rows' => 'excluded',
-            'cross_type_aggregation' => false,
-            'excluded_default_types' => $defaulted
-                ? ['untyped', 'advertising', 'peer_rank', 'ranking', 'traffic']
-                : [],
-            'start_date' => $startDate,
-            'end_date' => $endDate,
-            'source' => $source !== '' ? $source : null,
-            'system_hotel_id' => $hotelId !== '' ? $hotelId : null,
-        ];
+        return OnlineDataAnalysisMetricScopeService::scope($dataType, $defaulted, $startDate, $endDate, $source, $hotelId);
     }
 
     private function applyDataTypeFilter($query, ?string $dataType): void

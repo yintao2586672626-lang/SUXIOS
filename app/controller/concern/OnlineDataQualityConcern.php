@@ -117,6 +117,9 @@ trait OnlineDataQualityConcern
             $hotelId = trim((string)$this->request->get('system_hotel_id', $this->request->get('hotel_id', '')));  // 系统酒店筛选
             $otaHotelId = trim((string)$this->request->get('ota_hotel_id', '')); // OTA平台酒店ID筛选
             $dataType = $this->request->get('data_type', ''); // 单一数据类型筛选（兼容旧调用）
+            $metricDimension = \app\service\OnlineDataAnalysisMetricScopeService::normalize($this->request->get('metric_dimension', ''));
+            $listScope = ['metric_dimension' => $metricDimension, 'start_date' => $startDate, 'end_date' => $endDate,
+                'system_hotel_id' => $hotelId !== '' ? $hotelId : null, 'source' => $source, 'data_type' => $dataType];
             $dataTypes = $this->normalizeOnlineDataTypeFilters(
                 $dataType,
                 $this->request->get('data_types', '')
@@ -141,6 +144,7 @@ trait OnlineDataQualityConcern
 
             // 简化查询，先不添加复杂的权限过滤
             $query = Db::name('online_daily_data');
+            \app\service\OnlineDataAnalysisMetricScopeService::apply($query, $metricDimension);
 
             // 按数据日期查询
             if ($startDate !== '') {
@@ -193,6 +197,7 @@ trait OnlineDataQualityConcern
                 if (empty($permittedHotelIds)) {
                     return $this->success([
                         'list' => [],
+                        'query_scope' => $listScope,
                         'pagination' => ['total' => 0, 'page' => $page, 'page_size' => $pageSize],
                         'data_quality_summary' => $this->buildOnlineDataQualitySummary([], [
                             'calculation_scope' => 'current_page',
@@ -286,6 +291,7 @@ trait OnlineDataQualityConcern
 
             return $this->success([
                 'list' => $list,
+                'query_scope' => $listScope,
                 'pagination' => [
                     'total' => $total,
                     'page' => $page,

@@ -85,6 +85,38 @@ trait CtripTestCases
         }
     }
 
+    #[\PHPUnit\Framework\Attributes\DataProvider('unsupportedCtripCaptureDates')]
+    public function testCtripCaptureRejectsUnsupportedRawBusinessDate(string $method, mixed $date): void
+    {
+        $request = ['request_source' => 'quality_psi', 'hotel_id' => '974065', 'data_date' => $date];
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('业务日期');
+        $this->invokeNonPublic($this->controller(), $method,
+            $method === 'resolveCtripOverviewDataDate' ? [$request] : [$request, 80, []]);
+    }
+
+    public static function unsupportedCtripCaptureDates(): array
+    {
+        $cases = [];
+        foreach (['buildCtripCookieApiCaptureConfigFromRequest', 'resolveCtripOverviewDataDate'] as $method) {
+            foreach (['tomorrow', '+1 day', 'next Monday', '2026-07-15 trailing', 'prefix 2026-07-15',
+                '20260230', '2026/02/30', '2026-07/15', '1784073600', 1784073600, 20260715.5, true, ['date' => '2026-07-15']] as $index => $date) {
+                $cases[$method . '-' . $index] = [$method, $date];
+            }
+        }
+        return $cases;
+    }
+
+    public function testCtripCapturePreservesExplicitCalendarFormatsAndAliases(): void
+    {
+        foreach (['2026-07-15', '20260715', 20260715, '2026/7/15', '2026.07.15', ' 2026-07-15 '] as $date) {
+            $request = ['request_source' => 'quality_psi', 'hotel_id' => '974065', 'dataDate' => $date];
+            $config = $this->invokeNonPublic($this->controller(), 'buildCtripCookieApiCaptureConfigFromRequest', [$request, 80, []]);
+            self::assertSame('2026-07-15', $config['data_date']);
+            self::assertSame('2026-07-15', $this->invokeNonPublic($this->controller(), 'resolveCtripOverviewDataDate', [$request]));
+        }
+    }
+
 
     public function testCtripStableConfigInputReusesSavedHotelMetadataOnlyWhenRequestIsBlank(): void
     {

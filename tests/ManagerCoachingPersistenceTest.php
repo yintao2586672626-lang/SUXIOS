@@ -23,8 +23,8 @@ final class ManagerCoachingPersistenceTest extends TestCase
             'type' => 'sqlite', 'database' => ':memory:', 'prefix' => '', 'fields_strict' => false,
         ]]], 'database');
         Db::connect(null, true);
-        Db::execute('CREATE TABLE manager_capability_cases (id INTEGER PRIMARY KEY, hotel_id INTEGER)');
-        Db::execute('INSERT INTO manager_capability_cases VALUES (1, 80)');
+        Db::execute('CREATE TABLE manager_capability_cases (id INTEGER PRIMARY KEY, tenant_id INTEGER, hotel_id INTEGER, manager_user_id INTEGER)');
+        Db::execute('INSERT INTO manager_capability_cases VALUES (1, 1, 80, 7)');
         Db::execute('CREATE TABLE manager_coaching_plans (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER, hotel_id INTEGER, manager_user_id INTEGER, case_id INTEGER, created_by INTEGER, idempotency_key TEXT, input_digest TEXT, revision INTEGER, status TEXT, plan_json TEXT, content_digest TEXT, due_on TEXT, review_on TEXT, created_at TEXT, updated_at TEXT, UNIQUE(tenant_id,hotel_id,created_by,idempotency_key))');
         Db::execute('CREATE TABLE manager_coaching_events (id INTEGER PRIMARY KEY AUTOINCREMENT, plan_id INTEGER, tenant_id INTEGER, hotel_id INTEGER, actor_id INTEGER, event_type TEXT, revision INTEGER, idempotency_key TEXT, input_digest TEXT, payload_json TEXT, created_at TEXT, UNIQUE(plan_id,actor_id,idempotency_key))');
         $this->service = new class extends ManagerCoachingService {

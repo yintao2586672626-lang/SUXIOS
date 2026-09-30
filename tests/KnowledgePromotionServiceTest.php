@@ -407,8 +407,8 @@ final class KnowledgePromotionServiceTest extends TestCase
         $saved = $references->save(20, 7, $input);
         self::assertSame($source['digest'], $saved['chunk']['content']['citations'][0]['source_digest']);
         self::assertSame($input['citations'][0]['quote'], $saved['chunk']['content']['citations'][0]['quote']);
-        Db::execute('CREATE TABLE manager_capability_cases (id INTEGER PRIMARY KEY, hotel_id INTEGER)');
-        Db::execute('INSERT INTO manager_capability_cases VALUES (1,20)');
+        Db::execute('CREATE TABLE manager_capability_cases (id INTEGER PRIMARY KEY, tenant_id INTEGER, hotel_id INTEGER, manager_user_id INTEGER)');
+        Db::execute('INSERT INTO manager_capability_cases VALUES (1,10,20,7)');
         $tables = new \ReflectionMethod(\Tests\Support\CoachingKnowledgeFixture::class, 'tablesFromMigration');
         $tables->invoke(null, '20260926_create_manager_coaching.sql');
         $coaching = new class extends ManagerCoachingService {

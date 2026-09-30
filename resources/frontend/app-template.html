@@ -14714,6 +14714,16 @@
                                                     <option v-for="h in hotels" :key="h.id" :value="h.id">{{ h.name }}</option>
                                                 </select>
                                             </div>
+                                            <div class="online-analysis-field">
+                                                <label for="online-analysis-metric-dimension">指标口径</label>
+                                                <select id="online-analysis-metric-dimension" data-testid="online-analysis-metric-dimension" v-model="onlineAnalysisMetricDimension" class="online-analysis-control">
+                                                    <option value="">全部口径（不同指标不合计）</option>
+                                                    <option v-if="onlineAnalysisMetricDimension &amp;&amp; !onlineAnalysisMetricOptions.some(option => option.value === onlineAnalysisMetricDimension)" :value="onlineAnalysisMetricDimension">{{ onlineAnalysisMetricDimension }}（当前范围待核验）</option>
+                                                    <option v-for="option in onlineAnalysisMetricOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
+                                                </select>
+                                                <span class="text-xs text-gray-500">先查询获取可信口径，再选择并查询；日/周/月只调整时间分组。</span>
+                                                <span v-if="analysisData.query_scope &amp;&amp; !onlineAnalysisMetricOptions.length" class="text-xs text-amber-700">已加载范围没有可选的可信指标口径，请核对来源与采集校验状态。</span>
+                                            </div>
                                             <div class="online-analysis-query-slot">
                                                 <button data-testid="online-analysis-query" @click="refreshOnlineAnalysis({ force: true })" :disabled="onlineAnalysisLoading" class="online-analysis-query-button">
                                                     <i :class="onlineAnalysisLoading ? 'fas fa-spinner fa-spin mr-2' : 'fas fa-search mr-2'"></i>{{ onlineAnalysisLoading ? '加载中' : '查询分析' }}
@@ -14723,6 +14733,10 @@
                                     </div>
 
                                     <div v-if="onlineAnalysisError" class="p-4 border border-red-100 rounded-lg bg-red-50 text-red-700 text-sm">{{ onlineAnalysisError }}</div>
+                                    <div v-if="analysisData.query_scope" data-testid="online-analysis-loaded-scope" class="text-xs text-gray-600">
+                                        已加载：{{ analysisData.query_scope.start_date }} 至 {{ analysisData.query_scope.end_date }} · 酒店 {{ analysisData.query_scope.system_hotel_id || '授权范围' }} · {{ analysisData.query_scope.source || '全部平台' }} · {{ analysisData.query_scope.data_type }} · {{ analysisData.query_scope.metric_dimension || '全部指标口径' }} · {{ analysisData.query_scope.dimension }}
+                                        <span v-if="onlineAnalysisQueryChanged" class="text-amber-700">筛选已改变，当前仍显示上述已加载快照，请查询分析。</span>
+                                    </div>
 
                                     <div v-if="onlineAnalysisSourceRecord" class="border border-blue-100 rounded-lg bg-blue-50 px-4 py-3 text-sm text-blue-800">
                                         <div class="font-medium">
@@ -14942,7 +14956,8 @@
                                         <div class="px-4 py-3 border-b flex items-center justify-between gap-3">
                                             <div>
                                                 <h5 class="font-medium text-gray-800">入库明细</h5>
-                                                <div class="text-xs text-gray-500">当前筛选 {{ onlineAnalysisMetricText(onlineAnalysisPagination.total, formatNumber) }} 条，展示 {{ onlineAnalysisMetricText(onlineAnalysisRows.length, formatNumber) }} 条；汇总已排除 {{ onlineAnalysisMetricText(analysisData.summary?.excluded_untrusted_count, formatNumber) }} 条未可信记录。</div>
+                                                <div class="text-xs text-gray-500">已加载明细 {{ onlineAnalysisMetricText(onlineAnalysisPagination.total, formatNumber) }} 条，展示 {{ onlineAnalysisMetricText(onlineAnalysisRows.length, formatNumber) }} 条；汇总已排除 {{ onlineAnalysisMetricText(analysisData.summary?.excluded_untrusted_count, formatNumber) }} 条未可信记录。</div>
+                                                <div v-if="onlineAnalysisRowsLoadedScope" data-testid="online-analysis-detail-scope" class="text-xs text-gray-500">明细范围：{{ onlineAnalysisRowsLoadedScope.start_date }} 至 {{ onlineAnalysisRowsLoadedScope.end_date }} · 酒店 {{ onlineAnalysisRowsLoadedScope.system_hotel_id || '授权范围' }} · {{ onlineAnalysisRowsLoadedScope.source || '全部平台' }} · {{ onlineAnalysisRowsLoadedScope.data_type || '全部类型' }} · {{ onlineAnalysisRowsLoadedScope.metric_dimension || '全部指标口径' }}</div>
                                                 <online-truth-summary :truth="analysisData.summary?.truth_context"></online-truth-summary>
                                                 <div v-if="onlineAnalysisQualitySummary" class="mt-1 text-xs text-amber-700">{{ onlineDataQualityScopeText(onlineAnalysisQualitySummary) }}</div>
                                             </div>

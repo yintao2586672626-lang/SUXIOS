@@ -32,6 +32,8 @@ trait AiDailyReportExecutionReadConcern
             }
             $row = $query->order('report_date', 'desc')->order('id', 'desc')->find();
             $reports = is_array($row) ? $this->enrichReportRows([$row], $hotelIds, $hotelId) : [];
+        } catch (\InvalidArgumentException $exception) {
+            throw $exception;
         } catch (Throwable) {
             return $this->blockedReportRead('latest');
         }

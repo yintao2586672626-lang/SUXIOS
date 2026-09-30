@@ -30,6 +30,7 @@ const rowsSource = sliceBetween(
   'const resolveDefaultOnlineAnalysisHotelId = async () => {',
 );
 const feedSource = sliceBetween(appMain, 'const loadCompetitorEventFeed =', 'const competitorObservationOffsetDate =');
+const refreshSource = sliceBetween(appMain, 'const refreshOnlineAnalysis =', 'const openOnlineAnalysisTab =');
 const futureWindowSource = appMain.match(/const \{[^\n]*\} = ctripStatic\.createCompetitorFutureWindowController\([^\n]+/)[0];
 const coordinatorSource = sliceBetween(
   appMain,
@@ -156,6 +157,9 @@ const createHarness = () => {
     isTerminalAuthFailureResponse: (response = {}, data = {}) => response.status === 401 || data.code === 401,
     nextTick: () => Promise.resolve(),
     normalizeTokenStatusFromReason: () => 'expired',
+    normalizeRequestCacheOptions: options => options,
+    loadOnlineDataSummary: async () => null,
+    resolveDefaultOnlineAnalysisHotelId: async () => String(filterReportHotel.value || ''),
     onlineAnalysisPageSize: 100,
     competitorEventFeedRequestSeq: 0,
     pageRequestGeneration,
@@ -173,17 +177,20 @@ const createHarness = () => {
   vm.runInContext(`${readFileSync('public/system-static.js', 'utf8')}\nconst appSystemStatic = window.SUXI_SYSTEM_STATIC;\nconst readRequestCooldown = appSystemStatic.createReadRequestCooldown();`, context);
   vm.runInContext(`${readFileSync('public/ctrip-static-loader.js', 'utf8')}\nconst ctripStatic = window.SUXI_CTRIP_STATIC;\n${futureWindowSource}`, context);
   vm.runInContext(
-    `${ownerSource}\n${analysisSource}\n${rowsSource}\n${coordinatorSource}\n${feedSource}\n`
+    `${ownerSource}\n${analysisSource}\n${rowsSource}\n${coordinatorSource}\n${feedSource}\n${refreshSource}\n`
     + `globalThis.__onlineAnalysis = {
       loadAnalysisData,
       loadCompetitorEventFeed,
       loadOnlineAnalysisRows,
+      refreshOnlineAnalysis,
       resetOnlineAnalysisSessionState,
       resetGetRequestCoordinator,
       coordinatedGetScopeKey,
       coordinatedGetSuccessCache,
       loadCompetitorFutureWindow,
       competitorFutureWindowPanelModel,
+      onlineAnalysisMetricDimension, onlineAnalysisLoadedFilterKey, onlineAnalysisQueryChanged,
+      onlineAnalysisMetricOptions, onlineAnalysisRowsLoadedScope,
     };`,
     context,
     { filename: 'public/app-main.js#online-analysis-auth-cache' },
@@ -482,6 +489,200 @@ test('clearing the feed hotel or date clears loading without a request and inval
     assert.equal(h.refs.competitorEventFeedError.value, '');
     assert.equal(h.refs.competitorEventFeedLoading.value, false);
   }
+});
+
+test('metric dimension selection is visible and distinguishes loaded summary and detail scopes', () => {
+  assert.match(onlineDataTemplate, /label for="online-analysis-metric-dimension">指标口径/);
+  assert.match(onlineDataTemplate, /data-testid="online-analysis-metric-dimension" v-model="onlineAnalysisMetricDimension"/);
+  assert.match(onlineDataTemplate, /onlineAnalysisMetricOptions/);
+  assert.match(onlineDataTemplate, /data-testid="online-analysis-loaded-scope"/);
+  assert.match(onlineDataTemplate, /analysisData.query_scope.metric_dimension/);
+  assert.match(onlineDataTemplate, /onlineAnalysisQueryChanged/);
+  assert.match(onlineDataTemplate, /data-testid="online-analysis-detail-scope"/);
+  assert.match(onlineDataTemplate, /onlineAnalysisRowsLoadedScope.metric_dimension/);
+  assert.match(onlineDataTemplate, /没有可选的可信指标口径/);
+});
+
+test('metric selection scopes requests and cache, preserves old snapshot on failure, and can return to all dimensions', async () => {
+  const h = createHarness();
+  const first = h.loadAnalysisData();
+  await flushCoordinator();
+  h.resolveTransport(h.requests[0], { code: 200, data: {
+    summary: { marker: 'all-blocked' }, query_scope: { metric_dimension: '' },
+    metric_dimension_options: [{ value: 'revenue', label: 'revenue' }, { value: 'nights', label: 'nights' }],
+  } });
+  await first;
+  assert.equal(h.onlineAnalysisQueryChanged.value, false);
+  assert.equal(h.onlineAnalysisMetricDimension.value, '', 'catalog does not auto-select a dimension');
+  assert.equal(h.onlineAnalysisMetricOptions.value.length, 2);
+  h.onlineAnalysisMetricDimension.value = 'revenue';
+  assert.equal(h.onlineAnalysisQueryChanged.value, true);
+  const selected = h.loadAnalysisData();
+  await flushCoordinator();
+  assert.match(h.requests[1].url, /metric_dimension=revenue/);
+  h.resolveTransport(h.requests[1], { code: 200, data: { summary: { marker: 'revenue' }, query_scope: { metric_dimension: 'revenue' } } });
+  assert.equal((await selected).summary.marker, 'revenue');
+  assert.equal(h.onlineAnalysisQueryChanged.value, false);
+  h.onlineAnalysisMetricDimension.value = 'nights';
+  const failed = h.loadAnalysisData();
+  await flushCoordinator();
+  assert.equal(h.requests.length, 3, 'another dimension cannot reuse revenue cache');
+  h.resolveTransport(h.requests[2], { code: 422, message: 'Synthetic unavailable dimension' });
+  assert.equal(await failed, null);
+  assert.equal(h.refs.analysisData.value.summary.marker, 'revenue');
+  assert.equal(h.onlineAnalysisQueryChanged.value, true);
+  assert.equal(h.refs.onlineAnalysisError.value, 'Synthetic unavailable dimension');
+  h.onlineAnalysisMetricDimension.value = '';
+  assert.equal((await h.loadAnalysisData()).summary.marker, 'all-blocked', 'all-dimension snapshot has its own scope cache');
+  assert.equal(h.onlineAnalysisQueryChanged.value, false);
+});
+
+for (const failedPanel of ['summary', 'detail']) {
+  test(`concurrent metric refresh retains ${failedPanel} failure after the other panel succeeds in either completion order`, async () => {
+    for (const failureFirst of [true, false]) {
+      const h = createHarness();
+      const summaryReply = (metric, marker) => ({ code: 200, data: {
+        summary: { marker }, query_scope: { metric_dimension: metric, dimension: 'day' },
+      } });
+      const detailReply = (metric, marker) => ({ code: 200, data: {
+        list: [{ id: 1, marker }], pagination: { total: 1, page: 1, page_size: 100 },
+        query_scope: { metric_dimension: metric }, data_quality_summary: { status: 'verified' },
+      } });
+      h.onlineAnalysisMetricDimension.value = 'revenue';
+      const baseline = h.refreshOnlineAnalysis({ force: true });
+      await flushCoordinator();
+      h.resolveTransport(h.pendingTransport('/data-analysis?'), summaryReply('revenue', 'known revenue summary'));
+      h.resolveTransport(h.pendingTransport('/daily-data-list?'), detailReply('revenue', 'known revenue detail'));
+      h.resolveTransport(h.pendingTransport('/competitor/events?'), { code: 200, data: { events: [] } });
+      await baseline;
+      const baselineKey = h.onlineAnalysisLoadedFilterKey.value;
+      h.onlineAnalysisMetricDimension.value = 'nights';
+      const pending = h.refreshOnlineAnalysis({ force: true });
+      await flushCoordinator();
+      const summaryTransport = h.pendingTransport('/data-analysis?');
+      const detailTransport = h.pendingTransport('/daily-data-list?');
+      assert.ok(summaryTransport && detailTransport, 'both panels must request concurrently');
+      assert.match(summaryTransport.url, /metric_dimension=nights/);
+      assert.match(detailTransport.url, /metric_dimension=nights/);
+      h.resolveTransport(h.pendingTransport('/competitor/events?'), { code: 200, data: { events: [] } });
+      const failureMessage = `Synthetic ${failedPanel} unavailable`;
+      const fail = () => h.resolveTransport(failedPanel === 'summary' ? summaryTransport : detailTransport,
+        { code: 503, message: failureMessage }, 503);
+      const succeed = () => h.resolveTransport(failedPanel === 'summary' ? detailTransport : summaryTransport,
+        failedPanel === 'summary' ? detailReply('nights', 'current nights detail') : summaryReply('nights', 'current nights summary'));
+      (failureFirst ? fail : succeed)();
+      await flushCoordinator();
+      if (failureFirst) assert.equal(h.refs.onlineAnalysisError.value, failureMessage);
+      (failureFirst ? succeed : fail)();
+      await pending;
+      assert.equal(h.refs.onlineAnalysisError.value, failureMessage,
+        `${failedPanel} failure remains visible when failureFirst=${failureFirst}`);
+      assert.equal(h.refs.onlineAnalysisRowsLoading.value, false);
+      if (failedPanel === 'summary') {
+        assert.equal(h.refs.analysisData.value.summary.marker, 'known revenue summary');
+        assert.equal(h.refs.analysisData.value.query_scope.metric_dimension, 'revenue');
+        assert.equal(h.onlineAnalysisLoadedFilterKey.value, baselineKey);
+        assert.equal(h.onlineAnalysisQueryChanged.value, true);
+        assert.equal(h.refs.onlineAnalysisRows.value[0].marker, 'current nights detail');
+        assert.equal(h.onlineAnalysisRowsLoadedScope.value.metric_dimension, 'nights');
+      } else {
+        assert.equal(h.refs.analysisData.value.summary.marker, 'current nights summary');
+        assert.equal(h.refs.analysisData.value.query_scope.metric_dimension, 'nights');
+        assert.equal(h.onlineAnalysisQueryChanged.value, false);
+        assert.equal(h.refs.onlineAnalysisRows.value.length, 0);
+        assert.equal(h.onlineAnalysisRowsLoadedScope.value, null);
+      }
+      const retry = failedPanel === 'summary'
+        ? h.loadAnalysisData(null, { force: true }) : h.loadOnlineAnalysisRows({ force: true });
+      assert.equal(h.refs.onlineAnalysisError.value, '', 'an explicit retry clears the previous attempt error');
+      await flushCoordinator();
+      h.resolveTransport(h.pendingTransport(failedPanel === 'summary' ? '/data-analysis?' : '/daily-data-list?'),
+        failedPanel === 'summary' ? summaryReply('nights', 'recovered nights summary') : detailReply('nights', 'recovered nights detail'));
+      await retry;
+      assert.equal(h.refs.onlineAnalysisError.value, '');
+      assert.equal(h.refs.analysisData.value.query_scope.metric_dimension, 'nights');
+      assert.equal(h.onlineAnalysisRowsLoadedScope.value.metric_dimension, 'nights');
+    }
+  });
+}
+
+test('selected metric rejects missing or mismatched response identity rather than showing all-metric totals', async () => {
+  for (const scope of [undefined, { metric_dimension: 'nights' }]) {
+    const h = createHarness();
+    h.onlineAnalysisMetricDimension.value = 'revenue';
+    const pending = h.loadAnalysisData();
+    await flushCoordinator();
+    h.resolveTransport(h.requests[0], { code: 200, data: { summary: { marker: 'wrong' }, query_scope: scope } });
+    assert.equal(await pending, null);
+    assert.equal(h.refs.analysisData.value.summary, null);
+    assert.match(h.refs.onlineAnalysisError.value, /口径与查询不一致/);
+  }
+});
+
+test('selected metric detail response requires independent scope identity', async () => {
+  const h = createHarness();
+  h.onlineAnalysisMetricDimension.value = 'revenue';
+  const pending = h.loadOnlineAnalysisRows();
+  await flushCoordinator();
+  h.resolveTransport(h.requests[0], { code: 200, data: { list: [{ id: 3, dimension: 'nights' }], query_scope: { metric_dimension: 'nights' } } });
+  assert.equal((await pending).length, 0);
+  assert.equal(h.refs.onlineAnalysisRows.value.length, 0);
+  assert.equal(h.onlineAnalysisRowsLoadedScope.value, null);
+  assert.match(h.refs.onlineAnalysisError.value, /明细指标口径与查询不一致/);
+  assert.equal(h.refs.onlineAnalysisRowsLoading.value, false);
+});
+
+test('metric options from an already loaded hotel or date are unavailable after draft scope changes', async () => {
+  const h = createHarness();
+  const pending = h.loadAnalysisData();
+  await flushCoordinator();
+  h.resolveTransport(h.requests[0], { code: 200, data: { summary: {}, query_scope: { metric_dimension: '' }, metric_dimension_options: [{ value: 'hotel-80-revenue', label: 'hotel-80-revenue' }] } });
+  await pending;
+  assert.equal(h.onlineAnalysisMetricOptions.value.length, 1);
+  h.refs.onlineDataFilter.value.hotel_id = '81';
+  assert.equal(h.onlineAnalysisMetricOptions.value.length, 0);
+  assert.equal(h.onlineAnalysisQueryChanged.value, true);
+  h.refs.onlineDataFilter.value.hotel_id = '80';
+  h.refs.onlineDataFilter.value.end_date = '2026-08-25';
+  assert.equal(h.onlineAnalysisMetricOptions.value.length, 0);
+});
+
+test('late old-dimension summary and row responses cannot overwrite selection or block the next query', async () => {
+  const h = createHarness();
+  h.onlineAnalysisMetricDimension.value = 'revenue';
+  const oldSummary = h.loadAnalysisData();
+  const oldRows = h.loadOnlineAnalysisRows();
+  await flushCoordinator();
+  const summaryTransport = h.pendingTransport('/data-analysis?');
+  const rowsTransport = h.pendingTransport('/daily-data-list?');
+  assert.match(rowsTransport.url, /metric_dimension=revenue/);
+  h.onlineAnalysisMetricDimension.value = 'nights';
+  h.resolveTransport(summaryTransport, { code: 200, data: { summary: { marker: 'old' }, query_scope: { metric_dimension: 'revenue' } } });
+  h.resolveTransport(rowsTransport, { code: 200, data: { list: [{ id: 1, dimension: 'revenue' }] } });
+  assert.equal(await oldSummary, null);
+  assert.equal((await oldRows).length, 0);
+  assert.equal(h.refs.analysisData.value.summary, null);
+  assert.equal(h.refs.onlineAnalysisRows.value.length, 0);
+  assert.equal(h.refs.onlineAnalysisRowsLoading.value, false, 'discarded response cannot strand the query button in loading');
+  const newRows = h.loadOnlineAnalysisRows();
+  await flushCoordinator();
+  h.resolveTransport(h.pendingTransport('/daily-data-list?'), { code: 200, data: { list: [{ id: 2, dimension: 'nights' }], pagination: { total: 1 }, query_scope: { metric_dimension: 'nights' } } });
+  assert.equal((await newRows)[0].dimension, 'nights');
+  assert.equal(h.onlineAnalysisRowsLoadedScope.value.metric_dimension, 'nights');
+  h.resetOnlineAnalysisSessionState();
+  assert.equal(h.onlineAnalysisMetricDimension.value, '');
+  assert.equal(h.onlineAnalysisRowsLoadedScope.value, null);
+  assert.equal(h.onlineAnalysisLoadedFilterKey.value, '');
+});
+
+test('late prior-date response is discarded even when the hotel and metric are unchanged', async () => {
+  const h = createHarness();
+  const pending = h.loadAnalysisData();
+  await flushCoordinator();
+  h.refs.onlineDataFilter.value.end_date = '2026-08-25';
+  h.resolveTransport(h.requests[0], { code: 200, data: { summary: { marker: 'old date' } } });
+  assert.equal(await pending, null);
+  assert.equal(h.refs.analysisData.value.summary, null);
 });
 
 test('manual analysis query and row refresh explicitly force the shared coordinator', () => {

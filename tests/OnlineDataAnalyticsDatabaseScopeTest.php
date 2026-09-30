@@ -407,6 +407,16 @@ SQL);
         yield 'source bound to another hotel' => [['source_hotel_id' => 81], 'source_ownership_unverified', null];
         yield 'failed history excluded' => [['history_status' => 'failed'], '', null];
         yield 'missing final evidence column' => [['missing_column' => 'is_final'], 'strict_evidence_contract_missing', null];
+        yield 'select revenue from heterogeneous rows' => [['second_dimension' => true, 'metric_dimension' => 'semantic:ctrip:room_revenue'], '', 100.0];
+        yield 'select nights from heterogeneous rows' => [['second_dimension' => true, 'metric_dimension' => 'semantic:ctrip:room_nights'], '', 100.0];
+        yield 'unknown dimension has no fallback' => [['second_dimension' => true, 'metric_dimension' => 'unknown'], '', null];
+        yield 'dimension identity remains case sensitive' => [['metric_dimension' => 'SEMANTIC:CTRIP:ROOM_REVENUE'], '', null];
+        yield 'selected dimension still rejects duplicate grain' => [['duplicate' => true, 'metric_dimension' => 'semantic:ctrip:room_revenue'], 'duplicate_canonical_grain', null];
+        yield 'selected dimension still rejects wrong source owner' => [['source_hotel_id' => 81, 'metric_dimension' => 'semantic:ctrip:room_revenue'], 'source_ownership_unverified', null];
+        yield 'selected dimension still rejects mixed platforms' => [['second_platform' => true, 'metric_dimension' => 'semantic:ctrip:room_revenue'], 'heterogeneous_metric_scope', null];
+        yield 'selected platform and dimension restore a single scope' => [['second_platform' => true, 'source' => 'ctrip', 'metric_dimension' => 'semantic:ctrip:room_revenue'], '', 100.0];
+        yield 'dimension catalog excludes unverified facts' => [['untrusted_second' => true], '', 100.0];
+        yield 'ordinary surrounding spaces agree in SQL and PHP' => [['row_dimension_spaces' => true, 'metric_dimension' => ' semantic:ctrip:room_revenue '], '', 100.0];
     }
 
     #[DataProvider('analysisScenarios')]
@@ -427,15 +437,29 @@ SQL);
             'readback_verified' => 1,
         ];
         $rows = [$ready];
+        if (isset($changes['row_dimension_spaces'])) $rows[0]['dimension'] = ' ' . $ready['dimension'] . ' ';
         if (isset($changes['second_dimension']) || isset($changes['duplicate'])) {
             $second = $ready; $second['id'] = 102;
             if (isset($changes['second_dimension'])) $second['dimension'] = 'semantic:ctrip:room_nights';
             $rows[] = $second;
         }
-        $outside = $ready; $outside['id'] = 103; $outside['system_hotel_id'] = 81; $outside['tenant_id'] = 8; $outside['amount'] = 9000;
+        if (isset($changes['second_platform'])) {
+            Db::name('platform_data_sources')->insert(['id' => 26, 'tenant_id' => 7, 'system_hotel_id' => 80, 'platform' => 'meituan', 'data_type' => 'business']);
+            $second = $ready; $second['id'] = 102; $second['platform'] = $second['source'] = 'meituan'; $second['data_source_id'] = 26;
+            $rows[] = $second;
+        }
+        if (isset($changes['untrusted_second'])) {
+            $second = $ready; $second['id'] = 102; $second['dimension'] = 'unverified_only'; $second['readback_verified'] = 0;
+            $rows[] = $second;
+        }
+        $metricDimension = \app\service\OnlineDataAnalysisMetricScopeService::normalize($changes['metric_dimension'] ?? '');
+        $scopedRows = isset($changes['source']) ? array_values(array_filter($rows, static fn(array $row): bool => $row['source'] === $changes['source'])) : $rows;
+        $scopedCount = count(\app\service\OnlineDataAnalysisMetricScopeService::select($scopedRows, $metricDimension));
+        $outside = $ready; $outside['id'] = 103; $outside['system_hotel_id'] = 81; $outside['tenant_id'] = 8; $outside['amount'] = 9000; $outside['dimension'] = 'other_hotel_only';
         $rows[] = $outside;
+        $outsideDate = $ready; $outsideDate['id'] = 104; $outsideDate['data_date'] = '2026-08-31'; $outsideDate['dimension'] = 'other_date_only'; $rows[] = $outsideDate;
         Db::name('online_daily_data')->insertAll($rows);
-        $controller = $this->analysisController($changes['missing_column'] ?? '');
+        $controller = $this->analysisController($changes['missing_column'] ?? '', ['metric_dimension' => $changes['metric_dimension'] ?? '', 'source' => $changes['source'] ?? '']);
         $response = $controller->dataAnalysis()->getData();
         self::assertTrue($controller->permissionChecked);
         self::assertSame(200, $response['code']);
@@ -443,7 +467,13 @@ SQL);
         self::assertSame($blocker, $data['summary']['aggregation_gate']['blocker']);
         self::assertSame($total, $data['summary']['total_amount']);
         self::assertSame($data['summary']['aggregation_gate'], $data['query_scope']['aggregation_gate']);
-        self::assertSame(isset($changes['second_dimension']) || isset($changes['duplicate']) ? 2 : 1, $data['summary']['scoped_record_count']);
+        self::assertSame($scopedCount, $data['summary']['scoped_record_count']);
+        self::assertSame($metricDimension, $data['query_scope']['metric_dimension']);
+        self::assertNotContains('unverified_only', array_column($data['metric_dimension_options'], 'value'));
+        self::assertNotContains('other_hotel_only', array_column($data['metric_dimension_options'], 'value'));
+        self::assertNotContains('other_date_only', array_column($data['metric_dimension_options'], 'value'));
+        self::assertSame(isset($changes['source_hotel_id']) || isset($changes['missing_column']) || isset($changes['history_status']) ? 0 : (isset($changes['second_dimension']) ? 2 : 1), count($data['metric_dimension_options']));
+        self::assertSame(count($rows), Db::name('online_daily_data')->count(), 'Analysis never rewrites stored facts');
         if ($total === null) {
             self::assertSame([], $data['aggregated']);
             self::assertSame([], $data['hotel_ranking']);
@@ -459,19 +489,53 @@ SQL);
         }
     }
 
-    private function analysisController(string $missingColumn): object
+    public function testInvalidMetricDimensionIsAnExplicitRequestError(): void
     {
-        return new class($missingColumn) {
+        foreach ([['not a scalar'], "dimension\ncontrol", str_repeat('x', 256)] as $dimension) {
+            $response = $this->analysisController('', ['metric_dimension' => $dimension])->dataAnalysis()->getData();
+            self::assertSame(422, $response['code']);
+            self::assertStringContainsString('指标口径', $response['message']);
+        }
+    }
+
+    public function testDailyDetailUsesTheSameExactDimensionAndAuthorizedHotelFilter(): void
+    {
+        Db::name('online_daily_data')->insertAll([
+            ['id' => 301, 'tenant_id' => 7, 'system_hotel_id' => 80, 'data_date' => '2026-08-30', 'dimension' => 'revenue'],
+            ['id' => 302, 'tenant_id' => 7, 'system_hotel_id' => 80, 'data_date' => '2026-08-30', 'dimension' => 'Revenue'],
+            ['id' => 303, 'tenant_id' => 7, 'system_hotel_id' => 80, 'data_date' => '2026-08-30', 'dimension' => 'nights'],
+            ['id' => 304, 'tenant_id' => 8, 'system_hotel_id' => 81, 'data_date' => '2026-08-30', 'dimension' => 'revenue'],
+            ['id' => 305, 'tenant_id' => 7, 'system_hotel_id' => 80, 'data_date' => '2026-08-30', 'dimension' => ' revenue '],
+        ]);
+        $response = $this->analysisController('', ['metric_dimension' => ' revenue '])->dailyDataList()->getData();
+        self::assertSame(200, $response['code'], $response['message'] ?? '');
+        self::assertSame(2, $response['data']['pagination']['total']);
+        self::assertSame([305, 301], array_column($response['data']['list'], 'id'));
+        self::assertSame('revenue', $response['data']['query_scope']['metric_dimension']);
+        self::assertSame(5, Db::name('online_daily_data')->count());
+    }
+
+    private function analysisController(string $missingColumn, array $params = []): object
+    {
+        return new class($missingColumn, $params) {
             use OnlineDataAnalyticsConcern;
             use OnlineDataQualityConcern;
             public bool $permissionChecked = false;
             public object $request;
-            public function __construct(private string $missingColumn)
+            public function __construct(private string $missingColumn, array $params)
             {
-                $this->request = new class {
+                $this->request = new class($params) {
+                    public object $user;
+                    public function __construct(private array $params) {
+                        $this->user = new class {
+                            public function isSuperAdmin(): bool { return false; }
+                            public function getPermittedHotelIds(): array { return [80]; }
+                            public function hasHotelPermission(int $hotelId, string $capability): bool { return $hotelId === 80 && $capability === 'can_view_online_data'; }
+                        };
+                    }
                     public function get(string $key, mixed $default = null): mixed
                     {
-                        return ['system_hotel_id' => '80', 'start_date' => '2026-08-30', 'end_date' => '2026-08-30'][$key] ?? $default;
+                        return array_replace(['system_hotel_id' => '80', 'start_date' => '2026-08-30', 'end_date' => '2026-08-30'], $this->params)[$key] ?? $default;
                     }
                 };
             }

@@ -606,13 +606,7 @@ trait PlatformProfileCaptureConcern
     ): array
     {
         $requestedDate = $requestData['data_date'] ?? $requestData['dataDate'] ?? '';
-        $dataDate = $this->normalizeOnlineDataDate($requestedDate);
-        if (trim((string)$requestedDate) !== '') {
-            $parsedDate = \DateTimeImmutable::createFromFormat('!Y-m-d', $dataDate);
-            if ($parsedDate === false || $parsedDate->format('Y-m-d') !== $dataDate) {
-                throw new \InvalidArgumentException('携程采集业务日期无效');
-            }
-        }
+        $dataDate = $this->normalizeCtripCaptureBusinessDate($requestedDate);
         if ($dataDate === '') {
             $dataDate = (new \DateTimeImmutable('now', new \DateTimeZone('Asia/Shanghai')))->format('Y-m-d');
         }

@@ -2624,13 +2624,7 @@ trait OnlineDataRequestConcern
     private function resolveCtripOverviewDataDate(array $requestData): string
     {
         $requestedDate = $requestData['data_date'] ?? $requestData['dataDate'] ?? '';
-        $dataDate = $this->normalizeOnlineDataDate($requestedDate);
-        if (trim((string)$requestedDate) !== '') {
-            $parsedDate = \DateTimeImmutable::createFromFormat('!Y-m-d', $dataDate);
-            if ($parsedDate === false || $parsedDate->format('Y-m-d') !== $dataDate) {
-                throw new \InvalidArgumentException('携程概况业务日期无效');
-            }
-        }
+        $dataDate = $this->normalizeCtripCaptureBusinessDate($requestedDate);
         return $dataDate !== ''
             ? $dataDate
             : (new \DateTimeImmutable('now', new \DateTimeZone('Asia/Shanghai')))->modify('-1 day')->format('Y-m-d');

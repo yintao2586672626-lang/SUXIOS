@@ -21,8 +21,13 @@ class ManagerCoachingService
         if (($case['is_voided'] ?? false) === true) throw new InvalidArgumentException('已作废案例不能发起带教计划');
         $key = $this->text($input['idempotency_key'] ?? '', '重试标识', 100);
         $inputDigest = $this->digest([$tenantId, $hotelId, $managerId, $actorId, $input]);
-        return Db::transaction(function () use ($tenantId, $hotelId, $managerId, $actorId, $input, $case, $caseId, $key, $inputDigest) {
-            Db::name('manager_capability_cases')->where('id', $caseId)->where('hotel_id', $hotelId)->lock(true)->find();
+        return Db::transaction(function () use ($tenantId, $hotelId, $managerId, $actorId, $input, $caseId, $key, $inputDigest) {
+            $lockedCase = Db::name('manager_capability_cases')->where('id', $caseId)->where('tenant_id', $tenantId)
+                ->where('hotel_id', $hotelId)->where('manager_user_id', $managerId)->lock(true)->find();
+            if (!$lockedCase) throw new RuntimeException('店长评分案例不存在');
+            // Adjustments lock the same base row. Read their current projection only after acquiring it.
+            $case = $this->caseForScope($tenantId, $hotelId, $managerId, $caseId);
+            if (($case['is_voided'] ?? false) === true) throw new InvalidArgumentException('已作废案例不能发起带教计划');
             $existing = Db::name('manager_coaching_plans')->where('tenant_id', $tenantId)->where('hotel_id', $hotelId)
                 ->where('created_by', $actorId)->where('idempotency_key', $key)->find();
             if ($existing) {

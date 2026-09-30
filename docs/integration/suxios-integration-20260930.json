@@ -88,23 +88,27 @@
     "future_statutory_dates_with_pending_full_adjusted_calendar",
     "bounded_immutable_coaching_knowledge_excerpts",
     "submitted_daily_reports_only_monthly_sum_and_coverage",
-    "append_only_seed_current_version_pointer_repair"
+    "append_only_seed_current_version_pointer_repair",
+    "validate_raw_ctrip_capture_calendar_dates_before_normalization",
+    "latest_ai_report_validation_errors_reach_controller_422",
+    "revalidate_effective_coaching_case_after_scoped_row_lock",
+    "explicit_metric_dimension_selection_for_analysis_and_details"
   ],
   "verification": {
     "php": {
-      "command": "php vendor/bin/phpunit --colors=never --log-junit output/integration-20260930/phpunit-full-pr-review.xml",
-      "tests": 7387,
-      "assertions": 73492,
+      "command": "php vendor/bin/phpunit --colors=never --log-junit output/integration-20260930/phpunit-full-final-review.xml",
+      "tests": 7436,
+      "assertions": 73841,
       "errors": 0,
       "failures": 0,
       "skipped": 12,
       "exit_code": 0,
-      "duration": "05:42.544",
+      "duration": "05:46.830",
       "memory": "382.00 MB",
-      "log": "phpunit-full-pr-review.log",
-      "junit": "phpunit-full-pr-review.xml",
-      "baseline_head": "fc821c91370e0914488759ed5a41a09d53e25acc",
-      "source_state": "review fixes present in working tree; source fingerprints recorded before commit",
+      "log": "phpunit-full-final-review.log",
+      "junit": "phpunit-full-final-review.xml",
+      "baseline_head": "b48de571de0a567d38533f743ce407eca12cd10d",
+      "source_state": "All backend review fixes stable before the final full PHP run; later frontend-only error race repaired and verified separately. Source fingerprints recorded before commit.",
       "count_note": "CLI total includes one skipped Cloud OTA setup. Eight isolated opening tests supplemented; four dedicated database cases remain local-only unverified.",
       "dependency_version": "league/flysystem 3.35.3"
     },
@@ -115,17 +119,17 @@
     },
     "node": {
       "command": "npm run test:node",
-      "files": 597,
+      "files": 598,
       "batches": 60,
       "batch_size": 10,
-      "tests": 6368,
-      "pass": 6368,
+      "tests": 6387,
+      "pass": 6387,
       "fail": 0,
       "skipped": 0,
-      "portable_skip_note": "Two workstation-authority cases are excluded by the existing portable skip pattern and are not included in the executed test count.",
       "excluded_by_portable_pattern": 2,
-      "initial_full_suite_commit": "d24ed073f53648b52f27377a48ffe0299b3132c5",
-      "full_suite_completed_before_generated_column_followup_commit": "3e198922471275011d600d0a1143629a1fc7f52a"
+      "portable_skip_note": "Two workstation-authority cases are excluded by the unchanged portable skip pattern and are not included in the executed test count.",
+      "baseline_head": "b48de571de0a567d38533f743ce407eca12cd10d",
+      "source_state": "All nine review fixes stable before this official full run; source fingerprints recorded before commit"
     },
     "frontend": {
       "build": "passed",
@@ -137,8 +141,28 @@
         "existing_migrations_unchanged": 216
       },
       "source_hotspots": "original_ratchets_passed",
-      "startup_gzip_bytes": 618577,
-      "original_target_bytes": 620000
+      "startup_gzip_bytes": 618901,
+      "original_target_bytes": 620000,
+      "metric_selection_page": {
+        "status": "passed",
+        "mode": "local_synthetic_compiled_assets_no_real_account_or_data",
+        "states": [
+          "mixed_dimensions_remain_blocked_and_offer_two_trusted_options",
+          "selected_metric_analysis_and_detail_echo_same_scope",
+          "failed_refresh_keeps_labelled_loaded_scope",
+          "retry_recovers_without_changing_metric",
+          "second_metric_replaces_both_scopes_after_query"
+        ],
+        "unexpected_errors": [],
+        "expected_failure_errors": [
+          "Failed to load resource: the server responded with a status of 503 (Service Unavailable)",
+          "API请求失败: /online-data/data-analysis?dimension=day&start_date=2026-09-28&end_date=2026-09-29&hotel_id=1&metric_dimension=semantic%3Actrip%3Aroom_revenue&platform=ctrip Error: 合成验收读取失败\n    at BW (http://127.0.0.1:50104/app-main.min.js?v=20260716-login-flow-hd17b8de875:1:336875)",
+          "加载分析数据失败: Error: 合成验收读取失败\n    at BW (http://127.0.0.1:50104/app-main.min.js?v=20260716-login-flow-hd17b8de875:1:336875)"
+        ],
+        "compiled_main_sha256": "d17b8de875967f8d48a6e11c18791900b6fa07dd6f592662fc54b26e22635bac",
+        "screenshot": "browser-metric-final.png",
+        "scope_note": "Local synthetic API and compiled product assets; no real account, database or OTA/PMS data. Deliberate 503 is expected and verifies the visible recovery path."
+      }
     },
     "browser": {
       "mode": "local_synthetic_no_database_no_external_business_writes",
@@ -179,7 +203,7 @@
       "timeout_changed": false
     },
     "pr_review": {
-      "findings_repaired": 5,
+      "findings_repaired": 9,
       "monthly": {
         "tests": 43,
         "assertions": 349,
@@ -187,15 +211,41 @@
         "submitted_reports_only": true
       },
       "knowledge": {
-        "tests": 77,
-        "assertions": 3791,
+        "tests": 81,
+        "assertions": 3828,
         "related_node_tests": 11,
         "formal_sharing_preserves_private_scope": true,
+        "scoped_case_lock_and_effective_state_revalidation": true,
+        "lock_window_counterexamples": 4,
         "excerpt_bytes_per_reference": 4096,
         "snapshot_json_bytes_per_reference": 16384,
         "total_snapshot_json_bytes": 131072,
         "large_source_fixture_references": 8,
         "large_source_bytes_per_reference": 5242878
+      },
+      "request_validation": {
+        "focused_php": {
+          "tests": 38,
+          "assertions": 128,
+          "failures": 0
+        },
+        "full_affected_php_paths": {
+          "tests": 379,
+          "assertions": 3541,
+          "failures": 0
+        },
+        "related_node": {
+          "tests": 26,
+          "passed": 26,
+          "failed": 0
+        },
+        "diff_check": "passed"
+      },
+      "metric_dimension": {
+        "selection": "explicit_only",
+        "truth_and_scope_gates": "preserved",
+        "analysis_and_detail_filter": "same_exact_dimension",
+        "source": "pr-metric-dimension-review-acceptance.json"
       },
       "holiday": {
         "tests": 184,
@@ -275,6 +325,10 @@
     },
     {
       "name": "pr-review-final-acceptance.json",
+      "sha256": "ca0085c2256eacb37fab7f9c0e3471a2c97f5da3414fd22f53bd4d94b191d7d8"
+    },
+    {
+      "name": "pr-review-first-five-acceptance.json",
       "sha256": "e102802ed5a84259a22f0e0705a1064413d02694073a40e9a67c80d43ea203e7"
     },
     {
@@ -288,6 +342,114 @@
     {
       "name": "pr-knowledge-review-acceptance.json",
       "sha256": "1c842607b4041a90d23e504cb7f04ecb29fdac956e683100e0a4e16334cce291"
+    },
+    {
+      "name": "pr-request-validation-review-acceptance.json",
+      "sha256": "7bbc3fd1039be9f490e4117a77dda93352e182a4b83ad66b842866dbe271caee"
+    },
+    {
+      "name": "pr-coaching-lock-review-acceptance.json",
+      "sha256": "9ecb69224ca04546a633ad17793211ce01418735a5329bcd9c868e4f890ac488"
+    },
+    {
+      "name": "pr-metric-dimension-review-acceptance.json",
+      "sha256": "22c143ee0dfabe54fba8b88444c59f5595b210ff33ce81b88aca8ba919686bfb"
+    },
+    {
+      "name": "phpunit-full-final-review.log",
+      "sha256": "221261de97e9cf3712d730520ab67352393932a31a833ae335ef03f6f14cf836"
+    },
+    {
+      "name": "phpunit-full-final-review.xml",
+      "sha256": "bf4949c9b1353ba45cd503ef61c5de30c29d35eccd737dfdb20519f8aa80c82c"
+    },
+    {
+      "name": "node-official-final-review.log",
+      "sha256": "12062b110f196017f990307d95ab2c3c4c7469250f082d8113f57d2878556026"
+    },
+    {
+      "name": "frontend-build-final-review.log",
+      "sha256": "0a6e9507c6fd26aa38aa3d3165a60299197fd56eeccb18450f521e9d4c18defb"
+    },
+    {
+      "name": "public-entry-final-review.log",
+      "sha256": "5ef5d4d06aff347a597293e9ecd51a71d221e70ee847d70275d5869b167ee403"
+    },
+    {
+      "name": "integration-final-review.log",
+      "sha256": "4a479ab7b9b8510bc0ce320386b72b4ccb7be0c30c722b37542af65d84303ca0"
+    },
+    {
+      "name": "migration-final-review.log",
+      "sha256": "c28d4701ac5d85a59cf3bf14ebe94f5b9b426f635dc9d833eec2972daee2280d"
+    },
+    {
+      "name": "hotspots-final-review.log",
+      "sha256": "902cc0893a2ed280ebeb85442863bee4131427d5c78a579fa08730d4bae9c3be"
+    },
+    {
+      "name": "pr-review-additional-dates-before.log",
+      "sha256": "ae28c5c5ba83399234ab2c5501c13137a8ecda732de15995416b3f659ca0e04b"
+    },
+    {
+      "name": "pr-review-additional-dates-after.log",
+      "sha256": "315845c3581539b922d04b9b854feebf2a6201f5ae43069824983ae01b47ae66"
+    },
+    {
+      "name": "pr-review-request-full-paths.log",
+      "sha256": "5227b639687ca41012e9085711acb141dfc6fe0eca3d8fe7afd5bf44e0bb3d65"
+    },
+    {
+      "name": "pr-review-ctrip-date-node.log",
+      "sha256": "3c1dad152fb1619df140966a7bedf1fced657512d18926c26a7542cea83154fa"
+    },
+    {
+      "name": "pr-coaching-lock-before.log",
+      "sha256": "9f27b8e40b14bbf1a3af1af061f4d00af523704c85cff0eac1c35ae01e02b405"
+    },
+    {
+      "name": "pr-coaching-lock-regression-final.log",
+      "sha256": "1a4602e560ff9186e9f38d51ee85534020eae32ad1999a7f9cb677bce29fba6c"
+    },
+    {
+      "name": "pr-coaching-lock-node-final.log",
+      "sha256": "c285a479309098eb3a6a68c12d3c1d566b94b38a871b8b7f01012c37415bfe50"
+    },
+    {
+      "name": "browser-metric-final.json",
+      "sha256": "84e3f4e93302e091e9348cbdb3d77d767381ed5cb980ddb390f251650f2696ec"
+    },
+    {
+      "name": "browser-metric-final.log",
+      "sha256": "28228dd156aa86fa05e4a7c86d657d2a9935a88047df8429df6c7d1d44b10352"
+    },
+    {
+      "name": "browser-metric-final.png",
+      "sha256": "6a3a7857d5505498a1183806e5a57722257c181b2b88835059589f0b149eeb05"
+    },
+    {
+      "name": "browser-metric-before-error-race-fix.json",
+      "sha256": "9efe61cae4139baee37e0fa86f06bea01845956712bb5f24466754a1953b7df4"
+    },
+    {
+      "name": "node-final-fixture-compat.log",
+      "sha256": "b3a05a26e8ee392d7f9d37525621315e31326783d138ce999f71ca2fc0ade96f"
+    },
+    {
+      "name": "node-official-final-review-before-fixture-fix.log",
+      "sha256": "f38d748279768110dc22c360d343643089d15918ac985a3e6bca1ce8ae5ee33d"
+    },
+    {
+      "name": "node-official-final-review-before-page-race-fix.log",
+      "sha256": "e1d6a698972a94836c391207a86552b547404a74f072a9ab1fbc027de2e85dd4"
+    },
+    {
+      "name": "node-analysis-error-race-final.log",
+      "sha256": "b6dbcae4ec8fabc943c758eb7a564b883843c543de956ec7a000baa148dd621e"
+    },
+    {
+      "name": "node-analysis-partial-failure-before.log",
+      "sha256": "c5ec3b59a551eb6623c512840b932a36b2deb15861b96322650174a4e4d50003"
     },
     {
       "name": "phpunit-full-pr-review.log",
@@ -455,6 +617,12 @@
       "sha256": "63a409bd7ea0c532b37da4189d0839b5cf7c3d18616a33c1fb2f379e595adf9c"
     },
     {
+      "path": "app/controller/concern/CtripCommentsConcern.php",
+      "state": "modified",
+      "bytes": 3952,
+      "sha256": "3856cf803ae2f39c51d7fac3dfe0bc41b43978cac9a3ff04ab1853eeb4e23cc6"
+    },
+    {
       "state": "modified",
       "path": "app/controller/concern/CtripOverviewRequestConcern.php",
       "bytes": 13637,
@@ -485,10 +653,10 @@
       "sha256": "6b077a5beed6d45f7c1f3c5f25c42230a5db3e0d2938d28793e7db4341c117d1"
     },
     {
-      "state": "modified",
       "path": "app/controller/concern/OnlineDataAnalyticsConcern.php",
-      "bytes": 27477,
-      "sha256": "60ef4106bf6df7f39720e12e54c1dc799b9c9289ea58591572d01bda3d6c89b9"
+      "state": "modified",
+      "bytes": 27595,
+      "sha256": "48b14146c9f48dd4ece8ddd3c09e9a39b668498c79268b4e4c2d27bd07dd9e65"
     },
     {
       "state": "modified",
@@ -503,10 +671,10 @@
       "sha256": "6c8840c73f9e14f093858b58375afd870cbd5de04f395bccd054cf01e34b1e9e"
     },
     {
-      "state": "modified",
       "path": "app/controller/concern/OnlineDataQualityConcern.php",
-      "bytes": 35160,
-      "sha256": "61c27e25a59adc9f2f787f47241a94b61fd792b3352675df63e03f9cf5ca5e3b"
+      "state": "modified",
+      "bytes": 35730,
+      "sha256": "ae2761652944955c8f15fa33108b2d61f98f0f8134be28f72eeb2b2102154a16"
     },
     {
       "state": "modified",
@@ -515,10 +683,10 @@
       "sha256": "137584c8d3ea57631b0f89ea3553fd0f61f7efe1dd77995bca061bb4b47ec275"
     },
     {
-      "state": "modified",
       "path": "app/controller/concern/OnlineDataRequestConcern.php",
-      "bytes": 181286,
-      "sha256": "4ae994cab2dca4a3db71952ea33d7d7aa95e4d5e6d53669bc162390c763db9c0"
+      "state": "modified",
+      "bytes": 180962,
+      "sha256": "d85f06cc76e34a744d275fbd163e9bd5d393d7b37e7571be5d64111024594ebd"
     },
     {
       "state": "modified",
@@ -539,10 +707,10 @@
       "sha256": "7224f9f5f8bb6e2245df7304055daa089cf4c609974850d3b93b9f60b3565742"
     },
     {
-      "state": "modified",
       "path": "app/controller/concern/PlatformProfileCaptureConcern.php",
-      "bytes": 73640,
-      "sha256": "bf0b5acb6bd8e3778b4a76562b65d56f318c60f7b746b7dd761c84061173136a"
+      "state": "modified",
+      "bytes": 73316,
+      "sha256": "e9f0b0320e5e369acce0eb00e952db258109e500f691054d80bbde79265c8a71"
     },
     {
       "path": "app/controller/DailyReport.php",
@@ -689,10 +857,10 @@
       "sha256": "6eec7c5582ac8d71b99e704f83bb8b8706c12d1cad3c496095216b9e9cf4ae83"
     },
     {
-      "state": "modified",
       "path": "app/service/concern/AiDailyReportExecutionReadConcern.php",
-      "bytes": 10330,
-      "sha256": "31c800bc91617f8b337e4deb3d976eaf06df1ead2acf726e0065a1144f5b22e8"
+      "state": "modified",
+      "bytes": 10417,
+      "sha256": "7d2697b080f0ac5d3f9584aae9d334f6d4ca5e8c6e77610052de70cf3987d24d"
     },
     {
       "state": "added",
@@ -859,8 +1027,8 @@
     {
       "path": "app/service/ManagerCoachingService.php",
       "state": "added",
-      "bytes": 22642,
-      "sha256": "4eaba1c603e3495f1faa4daa054f3ff2d61581855c97fc96f82d83dc021da7fb"
+      "bytes": 23148,
+      "sha256": "bde2039f44f0a88abcc5bd5fb057906f7c5ee1fedf926d51ad2915ec2221310b"
     },
     {
       "state": "modified",
@@ -903,6 +1071,12 @@
       "path": "app/service/OnlineDailyDataPersistenceService.php",
       "bytes": 49441,
       "sha256": "c54f1fece7c964d8c53c34818034fa3e2eaf31e6c09ce7ad39d0da82fd962408"
+    },
+    {
+      "path": "app/service/OnlineDataAnalysisMetricScopeService.php",
+      "state": "added",
+      "bytes": 2499,
+      "sha256": "d460a4b6272083345b1c9e889a3e441753f0eff189b2a1d2f70df894e2faa79d"
     },
     {
       "state": "modified",
@@ -1309,8 +1483,8 @@
     {
       "path": "docs/integration/suxios-integration-20260930.md",
       "state": "added",
-      "bytes": 9305,
-      "sha256": "798b85eb126c31f5cf6ac79203b54daf945b15f4b849f34c004b24e4c21871d6"
+      "bytes": 10937,
+      "sha256": "64cdcfed6a810fc49f2b841db8e8fab59ab001915524a536f7dd0f9d4c4f2d2b"
     },
     {
       "state": "added",
@@ -1649,22 +1823,22 @@
       "sha256": "87d2fa86b488500ceed043bd2acca579218971149d8cc2991d4df04c717e9388"
     },
     {
-      "state": "modified",
       "path": "public/app-main.js",
-      "bytes": 3419346,
-      "sha256": "d1f102c9e458a95b19c659f307d74db3d6b8891f326eea20e3175aadfd9a231d"
+      "state": "modified",
+      "bytes": 3422119,
+      "sha256": "b731039a76b6474e00db0c95c3648f63643a2eb5694abcc842d46ceec759abb7"
     },
     {
-      "state": "modified",
       "path": "public/app-main.min.js",
-      "bytes": 1328704,
-      "sha256": "36b1d35a55bc2cd8263a7720bb4fb203f875a18d2046e8e19acfd5bb0ed98974"
+      "state": "modified",
+      "bytes": 1329838,
+      "sha256": "d17b8de875967f8d48a6e11c18791900b6fa07dd6f592662fc54b26e22635bac"
     },
     {
-      "state": "modified",
       "path": "public/app-render.min.js",
-      "bytes": 1284161,
-      "sha256": "e02166b8033d74ce01e20537c7587f32170cbf2e92529830d4e97d5fd13a8068"
+      "state": "modified",
+      "bytes": 1286598,
+      "sha256": "61d982f50d40eff2d948dd26f28aca5cd2b282847edbbe2594c9a418a9b0aca4"
     },
     {
       "path": "public/app-startup-helpers.min.js",
@@ -1844,7 +2018,7 @@
       "path": "public/index.html",
       "state": "modified",
       "bytes": 8588,
-      "sha256": "41dbc2754d904b0c1182e0fbce2b66ed2aaa847160bded0fbe179a417a1dd906"
+      "sha256": "901cf1fd7b2b6e43768783bd033bad382b6cd7add0a5e3b5bf18a5a71fa1429f"
     },
     {
       "state": "modified",
@@ -1937,10 +2111,10 @@
       "sha256": "fadbbd705cdcdf432b04013f20ed21b6bf6b015342f613dd2a99838efd21a4e4"
     },
     {
-      "state": "modified",
       "path": "resources/frontend/app-template.html",
-      "bytes": 2061291,
-      "sha256": "fd21887e235d2f8a60cae250227be3b58dd1038b58e4324004bf6e4dee52f514"
+      "state": "modified",
+      "bytes": 2064239,
+      "sha256": "aaf2b74a0085d6a5e2c5a03915db8ab041f0540936b5f6dffd503845404729bd"
     },
     {
       "state": "modified",
@@ -2051,10 +2225,10 @@
       "sha256": "0a275b0eb945b04f68a21fec699e660af34d9dfe40e1556f11c2ea75ecc9ce70"
     },
     {
-      "state": "modified",
       "path": "resources/frontend/templates/fragments/35-page-online-data.html",
-      "bytes": 470207,
-      "sha256": "d105bc3848e586fed9042fa0e49028451ca0a59cbd656314554f061588440e29"
+      "state": "modified",
+      "bytes": 473155,
+      "sha256": "0a83a9ff5a0b7223bf96a7df05b2f18b6d76e56c61651b2d0cbbcec8a828f246"
     },
     {
       "state": "modified",
@@ -2081,10 +2255,10 @@
       "sha256": "3beac1dad91c81d6c0eb4fc4b2cd9fff9aad5c54ba10d8fee70192f20fa14e54"
     },
     {
-      "state": "modified",
       "path": "resources/frontend/templates/manifest.json",
+      "state": "modified",
       "bytes": 15365,
-      "sha256": "8f17bc9f57c48e8fe9bf8729a829ff20e40d30090e22eb4f927571f567f2013a"
+      "sha256": "74994246410f1aef35bff62fc083610151a3080f589c13b6dd96264b2354d182"
     },
     {
       "state": "modified",
@@ -2423,6 +2597,12 @@
       "sha256": "a3074cabd2aaa40df82eb437040249f250be781fdf670cfaf9b42f6b0a08b8b4"
     },
     {
+      "path": "tests/AiDailyReportReadFailureTest.php",
+      "state": "modified",
+      "bytes": 8297,
+      "sha256": "9c359b87a5daeca056b816597f7f4c0783eeba356e87fbff32121c3c57868f11"
+    },
+    {
       "state": "modified",
       "path": "tests/AiDailyReportReadinessServiceTest.php",
       "bytes": 34855,
@@ -2639,10 +2819,10 @@
       "sha256": "92abda138b957b866e58879157dfd564ad8bae464c34acd27fb9e1e1dc0115cf"
     },
     {
-      "state": "added",
       "path": "tests/automation/competitor_manual_observation_scope.test.mjs",
-      "bytes": 7918,
-      "sha256": "208ac60bf96f27ec154fc5a336ba5feaa3433b3371c330626ce69726e71995b0"
+      "state": "added",
+      "bytes": 8143,
+      "sha256": "12bf85fb72db5c5656e3cc2de3b37e65b8ad5347134e76ce0cd961fa0e46792f"
     },
     {
       "state": "added",
@@ -3641,10 +3821,10 @@
       "sha256": "7929e567dc9d1bad8743526ae39e24dcd881fcdfca435f04eb55225ee3e48003"
     },
     {
-      "state": "modified",
       "path": "tests/automation/online_analysis_cache_runtime.test.mjs",
-      "bytes": 23542,
-      "sha256": "df84526191f6d415498736ca4363d2a6e7ede84d0c4944e4f13f2fd748ef0153"
+      "state": "modified",
+      "bytes": 35926,
+      "sha256": "21b74f8dd93095f2943235631951f3ccd9b26c8fcf18d7e7b20923fe98616add"
     },
     {
       "state": "added",
@@ -4903,8 +5083,8 @@
     {
       "path": "tests/KnowledgePromotionServiceTest.php",
       "state": "modified",
-      "bytes": 35964,
-      "sha256": "75c4b1a0028a793711cab40db4a0d75b85bff2fbc507adad9fa0429a9731d9ae"
+      "bytes": 36013,
+      "sha256": "0ab637297214273b5b5016ce0aa0df9d407f1a46a71b3d40db0cccdba0271170"
     },
     {
       "path": "tests/KnowledgeReferenceSharedSnapshotTest.php",
@@ -4967,16 +5147,22 @@
       "sha256": "a1c5c184d16e542fe499fce15ae1d1ae8403f83cf93d2c0896613aea3cc6acf6"
     },
     {
+      "path": "tests/ManagerCoachingCaseLockRevalidationTest.php",
+      "state": "added",
+      "bytes": 6866,
+      "sha256": "1c73eeadeac6e2f6dd15463da8b22f70b037d15a7fa2e6f8309f21b215c88ee0"
+    },
+    {
       "state": "added",
       "path": "tests/ManagerCoachingIntegrationTest.php",
       "bytes": 10392,
       "sha256": "9bb5baac05a09f57713d519db2f152b579860c6103e4e033c3b08b190d3d6184"
     },
     {
-      "state": "added",
       "path": "tests/ManagerCoachingPersistenceTest.php",
-      "bytes": 13504,
-      "sha256": "856457fee28fc95d186c2e398159f08b8b9b92831e133ad59cc3430bf8f2fda5"
+      "state": "added",
+      "bytes": 13554,
+      "sha256": "b825e140a2c60cf4f2f648d9c21256e5ceb68e11788c29f0d38d627d52a48257"
     },
     {
       "state": "modified",
@@ -5093,10 +5279,10 @@
       "sha256": "6561b3eec5a5b36613f2f9af2cfe6493796f511b8f835da8bd6158881f1c77a6"
     },
     {
-      "state": "modified",
       "path": "tests/OnlineDataAnalyticsDatabaseScopeTest.php",
-      "bytes": 21393,
-      "sha256": "9b8d9bd918c3e81b55ef327910f9ee490183e8862be715d21f1e105c41dd5603"
+      "state": "modified",
+      "bytes": 27527,
+      "sha256": "907bfe63559bf41d0ff2612f380225fa1fed4f14b04bd525852f76cbf9f4b4f8"
     },
     {
       "state": "modified",
@@ -5495,10 +5681,10 @@
       "sha256": "ba1c2e79156b4fb5eca89caee5de61c275ec5620b48b2cdb3a757c7de2edae97"
     },
     {
-      "state": "modified",
       "path": "tests/Support/OnlineData/CtripTestCases.php",
-      "bytes": 163938,
-      "sha256": "bac92a136c2fbc49d521430b1f3720c14d3d8aeed24025c17dc2f83e7c93f4cc"
+      "state": "modified",
+      "bytes": 165745,
+      "sha256": "88e8d20a8826f4c1f5b5a409111e02b0e5945d589839dfef71f2a64c52cb2dc5"
     },
     {
       "state": "modified",
