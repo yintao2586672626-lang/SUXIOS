@@ -46160,7 +46160,22 @@
                 if (preparingConfig) {
                     fetchingData.value = true;
                 }
-                clearCtripRankingDisplayState();
+                const preserveSnapshot = ctripLatestMeta.value
+                    && typeof window.SUXI_CTRIP_STATIC?.canPreserveCtripRankingSnapshot === 'function'
+                    && window.SUXI_CTRIP_STATIC.canPreserveCtripRankingSnapshot({
+                        selectedHotelId: selectedCtripHotelId.value,
+                        form: ctripForm.value,
+                        meta: ctripLatestMeta.value,
+                        rows: ctripHotelsList.value,
+                        displayActivated: ctripRankingDisplayActivated.value,
+                        filterStartDate: onlineDataFilter.value.start_date,
+                        filterEndDate: onlineDataFilter.value.end_date,
+                    });
+                const preservedSnapshotLabel = preserveSnapshot ? {
+                    dataDate: String(ctripLatestMeta.value.data_date || ''),
+                    fetchedAt: String(ctripLatestMeta.value.fetched_at || ''),
+                } : null;
+                if (!preserveSnapshot) clearCtripRankingDisplayState();
                 try {
                     const runOnce = () => runCtripFetchDataFlow({
                         isActive,
@@ -46199,7 +46214,12 @@
                         refreshLatestCtripData: scheduleLatestCtripRefresh,
                         getOnlineDataTab: () => onlineDataTab.value,
                         refreshOnlineData: scheduleOnlineDataRefresh,
-                        handleFetchFailure: (message, isCurrent = isActive) => handleCtripFetchFailure(message, isCurrent),
+                        handleFetchFailure: (message, isCurrent = isActive) => handleCtripFetchFailure(
+                            preserveSnapshot
+                                ? `本次获取失败，仍显示 ${preservedSnapshotLabel.dataDate} 上次已验证数据（最后成功时间 ${preservedSnapshotLabel.fetchedAt}）。${message || '请查看失败原因'}`
+                                : message,
+                            isCurrent,
+                        ),
                         hasVisibleSnapshot: hasVisibleCtripSnapshot,
                         logError: (...args) => console.error(...args),
                         background: options?.background === true,
@@ -46208,14 +46228,17 @@
                     let result = await runOnce();
                     if (!isActive() || result?.status === 'stale') return { status: 'stale' };
                     if (options?.background === true) return result;
-                    const retryQuery = JSON.stringify([ctripForm.value.startDate, ctripForm.value.endDate]);
+                    const retryQueryKey = () => JSON.stringify([ctripForm.value.dateRange || '', ctripForm.value.startDate || '', ctripForm.value.endDate || '']);
+                    const retryQuery = retryQueryKey();
 
                     let qunarRetryCount = 0;
                     const qunarAutoRetryAllowed = manualOneClickFetchQunarAutoRetryAllowedAt();
                     const qunarQuality = () => result?.response?.data?.qunar_visitor_quality || null;
                     const canRetryResult = () => ['success', 'no_saved'].includes(String(result?.status || ''));
                     while (
-                        canRetryResult()
+                        isActive()
+                        && retryQuery === retryQueryKey()
+                        && canRetryResult()
                         && manualOneClickFetchQunarVisitorNeedsRetry(qunarQuality())
                         && qunarAutoRetryAllowed
                         && qunarRetryCount < CTRIP_QUNAR_VISITOR_AUTO_RETRY_LIMIT
@@ -46227,10 +46250,11 @@
                             resolve,
                             Math.min(1800, 600 * qunarRetryCount),
                         ));
-                        if (!isActive() || retryQuery !== JSON.stringify([ctripForm.value.startDate, ctripForm.value.endDate])) {
+                        if (!isActive() || retryQuery !== retryQueryKey()) {
                             return { status: 'stale' };
                         }
                         result = await runOnce();
+                        if (!isActive() || result?.status === 'stale') return { status: 'stale' };
                     }
 
                     if (canRetryResult() && manualOneClickFetchQunarVisitorNeedsRetry(qunarQuality())) {

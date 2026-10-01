@@ -1907,6 +1907,34 @@ window.SUXI_CTRIP_STATIC = window.SUXI_CTRIP_STATIC_FULL = (() => {
         raw: String(rawResponse || '').substring(0, limit),
         hint: '请检查: 1.Cookie是否过期 2.API地址是否正确',
     });
+    const canPreserveCtripRankingSnapshot = ({
+        selectedHotelId,
+        form = {},
+        meta = {},
+        rows = [],
+        displayActivated = false,
+        filterStartDate = '',
+        filterEndDate = '',
+    } = {}) => {
+        const hotelId = String(selectedHotelId || '').trim();
+        const range = buildCtripFetchDateRange(form);
+        const dataDate = String(meta?.data_date || '');
+        const fetchedAt = String(meta?.fetched_at || '');
+        return hotelId !== ''
+            && String(meta?.hotel_id || '') === hotelId
+            && meta?.platform === 'ctrip'
+            && isCtripVerifiedReportSource(meta || {})
+            && displayActivated === true
+            && range.startDate === range.endDate && range.endDate === dataDate
+            && filterStartDate === dataDate && filterEndDate === dataDate
+            && fetchedAt !== ''
+            && Array.isArray(rows) && rows.length > 0
+            && rows.every(row => row
+                && row._channelOrderDataDate === dataDate
+                && row._channelOrderTargetDataDate === dataDate
+                && row._channelOrderFetchedAt === fetchedAt);
+    };
+
     const runCtripFetchDataFlow = async ({
         isActive = () => true,
         isLoggedIn = () => false,
@@ -1939,6 +1967,7 @@ window.SUXI_CTRIP_STATIC = window.SUXI_CTRIP_STATIC_FULL = (() => {
         background = false,
         suppressPostFetchRefresh = false,
     } = {}) => {
+        if (!isActive()) return { status: 'stale' };
         if (!isLoggedIn()) {
             notify('请先登录', 'error');
             return { status: 'not_logged_in' };
@@ -1977,7 +2006,7 @@ window.SUXI_CTRIP_STATIC = window.SUXI_CTRIP_STATIC_FULL = (() => {
             return { status: 'invalid_request', requestContext };
         }
         const { startDate, endDate } = requestContext;
-        const queryKey = () => JSON.stringify([getForm()?.startDate || '', getForm()?.endDate || '']);
+        const queryKey = () => JSON.stringify([getForm()?.dateRange || '', getForm()?.startDate || '', getForm()?.endDate || '']);
         const requestedQuery = queryKey();
         const isCurrent = () => isActive()
             && String(getSelectedCtripHotelId() || '') === selectedCtripHotelId
@@ -2065,6 +2094,11 @@ window.SUXI_CTRIP_STATIC = window.SUXI_CTRIP_STATIC_FULL = (() => {
             if (res.code === 200) {
                 const data = res.data || {};
                 const persistenceOutcome = buildCtripPersistenceOutcome(data);
+                if (persistenceOutcome.businessFailed) {
+                    await handleFetchFailure(res.message || '携程数据已返回，但本次保存或回读校验未完成', isCurrent);
+                    if (!isCurrent()) return { status: 'stale' };
+                    return { status: 'business_failed', response: res, requestBody };
+                }
                 const savedCount = persistenceOutcome.savedCount;
                 const saveBlocked = data.save_status === 'blocked';
                 const temporaryDisplayOnly = data.save_status === 'display_only';
@@ -4316,6 +4350,7 @@ window.SUXI_CTRIP_STATIC = window.SUXI_CTRIP_STATIC_FULL = (() => {
         resolveCtripPlatformHotelIdFromConfig,
         buildCtripFetchMeta,
         isCtripVerifiedReportSource,
+        canPreserveCtripRankingSnapshot,
         buildCtripFetchRawFailureResult,
         runCtripFetchDataFlow,
         buildLatestCtripSnapshotModel,

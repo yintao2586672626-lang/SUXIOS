@@ -174,11 +174,19 @@ trait OtaConfigConcern
                 throw $e;
             }
             $forbidden = $e->getCode() === 403;
+            $configurationMismatch = in_array($e->getMessage(), [
+                'Credential cryptographic metadata is not executable.',
+                'OTA credential envelope key identifier does not match.',
+            ], true);
+            $credentialMessage = $configurationMismatch
+                ? 'OTA 凭据配置不一致，请联系管理员检查保存与执行环境配置'
+                : 'OTA 凭据不可用';
             throw new OtaExecutionStageException(
                 $forbidden ? 'authorization' : 'credential',
-                $forbidden ? '无权使用该门店 OTA 凭据' : 'OTA 凭据不可用',
+                $forbidden ? '无权使用该门店 OTA 凭据' : $credentialMessage,
                 $forbidden ? 403 : 409,
-                $e
+                $e,
+                !$forbidden && $configurationMismatch ? 'credential_configuration_mismatch' : ''
             );
         }
     }
@@ -193,10 +201,14 @@ trait OtaConfigConcern
             'exception_type' => get_debug_type($exception->getPrevious() ?? $exception),
         ]);
 
-        return $this->error($exception->safeMessage(), $exception->httpStatus(), [
+        $failureData = [
             'reason' => 'ota_manual_execution_failed',
             'stage' => $exception->stage(),
-        ]);
+        ];
+        if ($exception->failureCode() !== '') {
+            $failureData['failure_code'] = $exception->failureCode();
+        }
+        return $this->error($exception->safeMessage(), $exception->httpStatus(), $failureData);
     }
 
     private function otaUnknownExecutionFailureResponse(string $operation, \Throwable $exception): \think\Response
