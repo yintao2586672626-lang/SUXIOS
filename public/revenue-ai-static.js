@@ -56,6 +56,9 @@
 
     const revenueAiReasonText = (reason) => ({
         '': '数据已命中当前口径。',
+        signal_value_missing: '该经营信号未提供有效内容，依据仍缺失。',
+        signal_evidence_not_confirmed: '该经营信号的证据或适用状态尚未确认，不能作为已验证的经营输入。',
+        signal_confirmed_empty: '该经营信号确认无数据。',
         online_daily_data_empty: '目标经营日期没有可用 OTA 入库数据。',
         source_not_loaded: '未找到对应渠道的数据源或入库状态。',
         metric_scope_mismatch: '指标事实与当前酒店、平台或业务日期不一致。',
@@ -288,7 +291,7 @@
         };
     };
 
-    const resolveRevenueAiOverviewResponse = ({ response = null, error = null } = {}) => {
+    const resolveRevenueAiOverviewResponse = ({ response = null, error = null, expectedScope = null } = {}) => {
         if (error) {
             return {
                 overview: null,
@@ -308,6 +311,32 @@
                     status: 'blocked',
                     ok: false,
                 };
+            }
+            if (expectedScope !== null) {
+                const hotelIdentity = (value) => {
+                    if (typeof value !== 'number' && typeof value !== 'string') return '';
+                    const text = String(value).trim();
+                    return /^[1-9]\d*$/.test(text) && Number.isSafeInteger(Number(text)) ? text : '';
+                };
+                const validScope = expectedScope && typeof expectedScope === 'object' && !Array.isArray(expectedScope);
+                const portfolio = validScope && (expectedScope.hotelId === '' || expectedScope.hotelId === null);
+                const expectedHotel = validScope ? hotelIdentity(expectedScope.hotelId) : '';
+                const hotelMatches = portfolio ? overview.hotel_id === null
+                    : !!expectedHotel && hotelIdentity(overview.hotel_id) === expectedHotel;
+                const expectedDate = validScope ? String(expectedScope.businessDate ?? '').trim() : '';
+                const receivedDate = revenueOverviewContractStatic.revenueAiIsoDate(overview.business_date);
+                const dateMatches = !!receivedDate && (!expectedDate
+                    || (revenueOverviewContractStatic.revenueAiIsoDate(expectedDate) === expectedDate
+                        && receivedDate === expectedDate));
+                if (!hotelMatches || !dateMatches) {
+                    return {
+                        overview: null,
+                        errorMessage: revenueAiReasonText('overview_scope_mismatch'),
+                        reasonCode: 'overview_scope_mismatch',
+                        status: 'blocked',
+                        ok: false,
+                    };
+                }
             }
             return {
                 overview,
@@ -813,14 +842,27 @@
             const truth = metric?.truth && typeof metric.truth === 'object' ? metric.truth : {};
             const hasTruthStatus = ['verified', 'partial', 'unverified', 'collection_failed'].includes(String(truth?.status || '').toLowerCase());
             const truthStatus = overviewError ? 'collection_failed' : (hasTruthStatus ? String(truth.status).toLowerCase() : '');
+            const currentMetricNeedsReview = !overviewError && (
+                (truthStatus === 'verified' && revenueAiStatusTone(status) !== 'ok')
+                || reason === 'metric_scope_mismatch'
+                || ['failed', 'error', 'unauthorized', 'blocked', 'stale', 'missing'].includes(String(status).toLowerCase())
+            );
+            const currentTruthStatus = ['partial', 'unverified', 'collection_failed'].includes(String(status).toLowerCase())
+                ? String(status).toLowerCase() : '';
+            const badgeTruthStatus = currentMetricNeedsReview ? currentTruthStatus : truthStatus;
+            const hasBadgeTruthStatus = overviewError || (hasTruthStatus && badgeTruthStatus !== '');
             return {
                 key: definition.key,
                 label: metric.label || definition.label,
                 display: metricDisplayText(metric),
-                statusLabel: overviewError || hasTruthStatus ? revenueAiTruthStatusLabel(truthStatus) : revenueAiStatusLabel(status),
-                className: revenueAiStatusClass(overviewError || hasTruthStatus ? revenueAiTruthStatusTone(truthStatus) : status),
+                statusLabel: hasBadgeTruthStatus ? revenueAiTruthStatusLabel(badgeTruthStatus) : revenueAiStatusLabel(status),
+                className: revenueAiStatusClass(hasBadgeTruthStatus ? revenueAiTruthStatusTone(badgeTruthStatus) : status),
                 metricStatusLabel: revenueAiStatusLabel(status),
-                reasonText: truth?.failure_reason || metric.display_reason || revenueAiReasonText(reason),
+                reasonText: overviewError ? revenueAiReasonText(reason)
+                    : ((currentMetricNeedsReview || reason === 'metric_scope_mismatch')
+                        ? (metric.display_reason || (reason ? revenueAiReasonText(reason)
+                            : '当前指标尚未确认可用，请核对当前范围和来源证据后重读。'))
+                        : (truth?.failure_reason || metric.display_reason || revenueAiReasonText(reason))),
                 scopeLabel: revenueAiScopeLabel(metric.scope || definition.scope || overview?.scope || 'ota'),
                 dateBasisLabel: revenueAiDateBasisLabel(metric.date_basis || definition.dateBasis || overview?.date_basis || 'data_date'),
                 truth,
@@ -1063,8 +1105,9 @@
         ];
     };
 
-    const buildRevenueAiSignalRows = ({ overview = null } = {}) => {
+    const buildRevenueAiSignalRows = ({ overview = null, overviewError = '', overviewLoading = false } = {}) => {
         const signals = overview?.signals || {};
+        const readError = String(overviewError || '').trim();
         const definitions = [
             { key: 'holiday_event', label: '事件/节假日影响' },
             { key: 'demand_7d', label: '未来7天需求信号' },
@@ -1074,16 +1117,30 @@
             { key: 'pricing_advice', label: '今日调价建议' },
         ];
         return definitions.map((definition) => {
-            const signal = signals[definition.key] || {};
-            const status = signal.status || (overview ? 'unknown' : 'not_loaded');
-            const reason = signal.reason || (overview ? '' : 'overview_not_loaded');
+            const receivedSignal = signals[definition.key];
+            const signal = receivedSignal && typeof receivedSignal === 'object' && !Array.isArray(receivedSignal) ? receivedSignal : {};
+            const hasPreviousValue = (typeof signal.value === 'number' && Number.isFinite(signal.value))
+                || (typeof signal.value === 'string' && signal.value.trim() !== '' && signal.value.trim() !== '--');
+            const sourceStatus = signal.status || (overview ? (hasPreviousValue ? 'unknown' : 'missing') : 'not_loaded');
+            const missingReadyValue = !hasPreviousValue && revenueAiStatusTone(sourceStatus) === 'ok';
+            const status = readError ? 'failed' : (overviewLoading ? 'unknown' : (missingReadyValue ? 'missing' : sourceStatus));
+            const reason = signal.reason || (overview
+                ? (!hasPreviousValue ? (sourceStatus === 'empty_confirmed' ? 'signal_confirmed_empty' : 'signal_value_missing')
+                    : (revenueAiStatusTone(sourceStatus) === 'ok' ? '' : 'signal_evidence_not_confirmed'))
+                : 'overview_not_loaded');
+            const sourceReasonText = signal.detail || revenueAiReasonText(reason);
             return {
                 key: definition.key,
                 label: signal.label || definition.label,
-                value: signal.value || '--',
-                statusLabel: revenueAiStatusLabel(status),
+                value: hasPreviousValue ? signal.value : '--',
+                statusLabel: readError && hasPreviousValue ? `前次结果 · ${revenueAiStatusLabel(status)}`
+                    : (overviewLoading ? `${hasPreviousValue ? '前次结果 · ' : ''}读取中` : revenueAiStatusLabel(status)),
                 className: revenueAiStatusClass(status),
-                reasonText: signal.detail || revenueAiReasonText(reason),
+                reasonText: readError
+                    ? `${hasPreviousValue ? '保留前次同范围结果，当前适用性未确认；' : ''}本次未取得新的经营信号。${readError}`
+                    : (overviewLoading ? `${hasPreviousValue ? '保留前次同范围结果；' : ''}本次仍在读取，尚未确认新的经营信号。`
+                        : (missingReadyValue && (signal.detail || signal.reason)
+                            ? `${revenueAiReasonText('signal_value_missing')}${sourceReasonText}` : sourceReasonText)),
             };
         });
     };
@@ -1361,20 +1418,38 @@
         price_suggestions_pending_review: '存在待人工审核调价建议。',
     }[String(reason || '')] || revenueAiReasonText(reason || 'overview_not_loaded'));
 
-    const buildRevenueAiPricingGenerationPreflightSummary = ({ overview = null, action = null } = {}) => {
+    const buildRevenueAiPricingGenerationPreflightSummary = ({ overview = null, action = null, overviewError = '', overviewLoading = false } = {}) => {
+        const readError = String(overviewError || '').trim();
         const candidates = [
             action?.pricing_generation_preflight,
             overview?.pricing_generation_preflight,
             overview?.pricing_readiness?.pricing_generation_preflight,
         ];
         const preflight = candidates.find(item => item && typeof item === 'object' && Object.keys(item).length > 0) || {};
-        if (Object.keys(preflight).length === 0) {
+        const hasPreviousPreflight = Object.keys(preflight).length > 0;
+        if (!hasPreviousPreflight && !readError && !overviewLoading) {
             return { visible: false };
+        }
+        const readonlyContractConflict = Object.entries({ read_only: true, advisory_only: true, manual_review_required: true, auto_write_ota: false })
+            .some(([field, expected]) => preflight[field] !== undefined && preflight[field] !== expected);
+        if (readonlyContractConflict) {
+            const contractMessage = '调价预检声明与只读、人工审核、不自动写 OTA 的合同不一致，未采用该预检内容。';
+            const empty = buildRevenueAiPricingGenerationPreflightSummary({ overviewError: readError || contractMessage });
+            const contractStatus = readError ? 'failed' : (overviewLoading ? 'unknown' : 'blocked');
+            return {
+                ...empty,
+                status: contractStatus,
+                statusLabel: readError ? revenueAiPricingGenerationStatusLabel('failed') : (overviewLoading ? '读取中' : '只读合同不一致'),
+                className: revenueAiStatusClass(contractStatus),
+                reasonText: `${contractMessage}${readError ? readError : ''}`,
+                nextAction: '重新读取并核对只读预检声明；数据字段不能授予经营权限。',
+                skippedCandidateCount: null,
+            };
         }
 
         const rawStatus = String(preflight.status || 'unknown');
         const legacyUnverifiedSkip = rawStatus === 'skipped_by_operator_policy';
-        const status = legacyUnverifiedSkip ? 'blocked' : rawStatus;
+        let status = readError ? 'failed' : (overviewLoading ? 'unknown' : (legacyUnverifiedSkip ? 'blocked' : rawStatus));
         const reason = String(preflight.reason || '');
         const targetFilter = preflight.target_filter && typeof preflight.target_filter === 'object'
             ? preflight.target_filter
@@ -1417,37 +1492,94 @@
             })
             .filter(item => item.hotelId > 0 || item.targetDateRows > 0 || item.roomTypeCount > 0 || item.skipReasons.length > 0)
             .slice(0, 4);
-        const targetHotelIds = Array.isArray(preflight.target_hotel_ids)
-            ? preflight.target_hotel_ids.map(item => Number(item || 0)).filter(item => item > 0)
-            : [];
-        const detailParts = [
+        const summaryCount = (value) => {
+            if (typeof value !== 'number' && typeof value !== 'string') return null;
+            if (typeof value === 'string' && !/^\d+$/.test(value.trim())) return null;
+            const count = Number(value);
+            return Number.isSafeInteger(count) && count >= 0 ? count : null;
+        };
+        const sourceHotelIds = Array.isArray(preflight.target_hotel_ids) ? preflight.target_hotel_ids : null;
+        const completeHotelIds = sourceHotelIds !== null && sourceHotelIds.every(item => summaryCount(item) !== null && summaryCount(item) > 0);
+        const targetHotelIds = completeHotelIds
+            ? sourceHotelIds.map(summaryCount).filter((id, index, ids) => ids.indexOf(id) === index) : [];
+        const targetHotelCount = preflight.target_hotel_count === undefined && completeHotelIds
+            ? targetHotelIds.length : summaryCount(preflight.target_hotel_count);
+        const targetDateRows = summaryCount(preflight.target_date_rows);
+        const roomTypeCount = summaryCount(preflight.room_type_count);
+        const createCandidateCount = summaryCount(preflight.create_candidate_count);
+        const pendingSuggestionCount = summaryCount(preflight.pending_suggestion_count);
+        const overviewHasHotelScope = overview && Object.prototype.hasOwnProperty.call(overview, 'hotel_id');
+        const portfolioScope = overviewHasHotelScope && overview.hotel_id === null;
+        const expectedHotel = summaryCount(overview?.hotel_id);
+        const preflightHotelProvided = preflight.hotel_id !== undefined;
+        const filterHotelProvided = targetFilter.hotel_id !== undefined;
+        const hotelScopeMismatch = overviewHasHotelScope && (portfolioScope
+            ? ((preflightHotelProvided && preflight.hotel_id !== null)
+                || (filterHotelProvided && targetFilter.hotel_id !== null && summaryCount(targetFilter.hotel_id) !== 0))
+            : (!expectedHotel || !completeHotelIds || targetHotelIds.length !== 1 || targetHotelIds[0] !== expectedHotel
+                || (preflightHotelProvided && summaryCount(preflight.hotel_id) !== expectedHotel)
+                || (filterHotelProvided && summaryCount(targetFilter.hotel_id) !== expectedHotel)));
+        const overviewHasDateScope = overview && Object.prototype.hasOwnProperty.call(overview, 'business_date');
+        const expectedBusinessDate = revenueOverviewContractStatic.revenueAiIsoDate(overview?.business_date);
+        const preflightBusinessDate = revenueOverviewContractStatic.revenueAiIsoDate(preflight.business_date);
+        const dateScopeMismatch = overviewHasDateScope && (!expectedBusinessDate || preflightBusinessDate !== expectedBusinessDate
+            || (targetFilter.date !== undefined && revenueOverviewContractStatic.revenueAiIsoDate(targetFilter.date) !== expectedBusinessDate));
+        if (hotelScopeMismatch || dateScopeMismatch) {
+            const scopeMessage = hotelScopeMismatch ? '调价预检与当前酒店范围不一致，未采用该预检内容。'
+                : '调价预检未提供与当前业务日期一致的日期，未采用该预检内容。';
+            const empty = buildRevenueAiPricingGenerationPreflightSummary({ overviewError: readError || scopeMessage });
+            const scopeStatus = readError ? 'failed' : (overviewLoading ? 'unknown' : 'blocked');
+            return {
+                ...empty,
+                status: scopeStatus,
+                statusLabel: readError ? revenueAiPricingGenerationStatusLabel('failed') : (overviewLoading ? '读取中' : (hotelScopeMismatch ? '酒店范围不一致' : '业务日期未核验')),
+                className: revenueAiStatusClass(scopeStatus),
+                reasonText: `${scopeMessage}${readError ? readError : ''}`,
+                nextAction: '重新读取当前酒店与业务日期的总览和预检后核对。',
+                skippedCandidateCount: null,
+            };
+        }
+        const coherentReadiness = rawStatus === 'ready_for_manual_generation'
+            && preflight.can_generate_pending_suggestions === true
+            && completeHotelIds && targetHotelIds.length > 0 && targetHotelCount === targetHotelIds.length
+            && targetDateRows !== null && roomTypeCount > 0 && createCandidateCount > 0 && pendingSuggestionCount === 0;
+        const contradictoryReady = rawStatus === 'ready_for_manual_generation' && !coherentReadiness;
+        const contradictoryFlag = preflight.can_generate_pending_suggestions === true && rawStatus !== 'ready_for_manual_generation';
+        if (contradictoryReady && !readError && !overviewLoading) status = 'blocked';
+        const countText = (value) => value === null ? '未提供' : String(value);
+        const detailParts = hasPreviousPreflight ? [
             targetHotelIds.length ? `酒店 ${targetHotelIds.join(' / ')}` : '',
-            `OTA行 ${Number(preflight.target_date_rows || 0)}`,
-            `房型 ${Number(preflight.room_type_count || 0)}`,
-            `候选 ${Number(preflight.create_candidate_count || 0)}`,
-            `待审 ${Number(preflight.pending_suggestion_count || 0)}`,
-        ].filter(Boolean);
+            `OTA行 ${countText(targetDateRows)}`,
+            `房型 ${countText(roomTypeCount)}`,
+            `候选 ${countText(createCandidateCount)}`,
+            `待审 ${countText(pendingSuggestionCount)}`,
+        ].filter(Boolean) : [];
 
         return {
             visible: status !== 'not_loaded',
             title: '调价建议生成预检',
             status,
-            statusLabel: revenueAiPricingGenerationStatusLabel(status),
+            statusLabel: readError ? `${hasPreviousPreflight ? '前次预检 · ' : ''}${revenueAiPricingGenerationStatusLabel('failed')}`
+                : (overviewLoading ? `${hasPreviousPreflight ? '前次预检 · ' : ''}读取中` : revenueAiPricingGenerationStatusLabel(status)),
             className: revenueAiStatusClass(status),
-            reasonText: legacyUnverifiedSkip
+            reasonText: readError ? `本次未取得有效预检。${readError}`
+                : (overviewLoading ? '本次预检仍在读取，尚未确认新的候选依据。' : (contradictoryReady || contradictoryFlag
+                ? '预检状态、生成标记或酒店范围与关键计数不一致或不足，不能确认可生成待审。'
+                : (legacyUnverifiedSkip
                 ? revenueAiPricingGenerationReasonText('missing_pricing_inputs_skipped_by_operator_policy')
-                : (String(preflight.detail || '') || revenueAiPricingGenerationReasonText(reason)),
-            nextAction: String(preflight.next_action || ''),
-            detailText: detailParts.join(' · '),
+                : (String(preflight.detail || '') || revenueAiPricingGenerationReasonText(reason))))),
+            nextAction: readError ? '重试读取总览后重新核对预检。' : (overviewLoading ? '等待本次读取完成后核对预检。'
+                : (contradictoryReady || contradictoryFlag ? '重新读取并核对酒店范围、房型、候选和待审状态。' : String(preflight.next_action || ''))),
+            detailText: (readError || overviewLoading) && hasPreviousPreflight ? `前次预检，当前未确认 · ${detailParts.join(' · ')}` : detailParts.join(' · '),
             sourceScope: String(preflight.source_scope || ''),
             sourceChannels: Array.isArray(preflight.source_channels) ? preflight.source_channels.map(String) : [],
             targetHotelIds,
-            targetHotelCount: Number(preflight.target_hotel_count || targetHotelIds.length || 0),
-            targetDateRows: Number(preflight.target_date_rows || 0),
-            roomTypeCount: Number(preflight.room_type_count || 0),
-            createCandidateCount: Number(preflight.create_candidate_count || 0),
+            targetHotelCount,
+            targetDateRows,
+            roomTypeCount,
+            createCandidateCount,
             skippedCandidateCount: Number(preflight.skipped_candidate_count || 0),
-            pendingSuggestionCount: Number(preflight.pending_suggestion_count || 0),
+            pendingSuggestionCount,
             candidateSkipReasons: rawCandidateSkipReasons.slice(0, 4),
             hiddenCandidateSkipReasonCount: Math.max(0, rawCandidateSkipReasons.length - 4),
             candidateDataGaps: rawCandidateDataGaps.slice(0, 5),
@@ -1456,7 +1588,7 @@
             hiddenHotelCheckCount: Math.max(0, rawHotelChecks.length - hotelChecks.length),
             requiredInputs,
             hiddenRequiredInputCount: Math.max(0, rawRequiredInputs.length - requiredInputs.length),
-            canGeneratePendingSuggestions: preflight.can_generate_pending_suggestions === true,
+            canGeneratePendingSuggestions: !readError && !overviewLoading && coherentReadiness,
             readOnly: preflight.read_only !== false,
             autoWriteOta: preflight.auto_write_ota === true,
             advisoryOnly: preflight.advisory_only !== false,
@@ -1587,7 +1719,7 @@
         };
     };
 
-    const buildRevenueAiActionRows = ({ overview = null, overviewError = '' } = {}) => {
+    const buildRevenueAiActionRows = ({ overview = null, overviewError = '', overviewLoading = false } = {}) => {
         const actions = Array.isArray(overview?.actions) ? overview.actions : [];
         const rows = actions.length ? actions : [{
             key: 'pricing_review',
@@ -1649,7 +1781,7 @@
             const reviewQueueItems = buildRevenueAiReviewQueueItems(reviewQueue);
             const approvedExecutionPendingCount = reviewQueueItems.filter(item => item.canCreateExecutionIntent).length;
             const resolutionPlanSummary = buildRevenueAiResolutionPlanSummary({ overview, action });
-            const pricingGenerationPreflightSummary = buildRevenueAiPricingGenerationPreflightSummary({ overview, action });
+            const pricingGenerationPreflightSummary = buildRevenueAiPricingGenerationPreflightSummary({ overview, action, overviewError, overviewLoading });
             return {
                 key: action.key || action.title,
                 title: action.title || '暂无可审核调价建议',
@@ -2512,8 +2644,8 @@
     };
 
     const aiDailyReportActionButtonText = (action) => {
+        if (action?.execution_intent_id) return '查看对应任务';
         if (aiDailyReportActionIsInvestigationOnly(action)) return '查看证据';
-        if (action?.execution_intent_id) return '已转单';
         if (!aiDailyReportActionExecutionReady(action)) return '处理缺口';
         if (aiDailyReportActionBlockedText(action)) return '待处理';
         return '转单';
@@ -3683,7 +3815,7 @@
         'restoreRevenueCockpitPendingApprovalWithReadback',
     ]);
     const revenueCockpitStaticScript = 'revenue-cockpit-static.js';
-    const revenueCockpitStaticVersion = '20260831-cockpit-domain-h6dd6fa56dc';
+    const revenueCockpitStaticVersion = '20260831-cockpit-domain-h2817f0832f';
     let revenueCockpitStaticHelpers = null;
     let revenueCockpitStaticLoadPromise = null;
 

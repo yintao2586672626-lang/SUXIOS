@@ -522,34 +522,49 @@
         ctripOrderAnalysisPanelBodyPromise = new Promise((resolve, reject) => {
             const existing = document.querySelector(`script[data-suxi-ctrip-order-analysis-body="${ctripOrderAnalysisPanelBodyScript}"]`);
             const script = existing || document.createElement('script');
+            const cleanup = () => {
+                script.removeEventListener('load', finish);
+                script.removeEventListener('error', onError);
+            };
+            const fail = (message) => {
+                cleanup();
+                script.remove();
+                reject(new Error(message));
+            };
             const finish = () => {
                 const component = systemComponents[ctripOrderAnalysisPanelBodyKey];
                 if (component) {
+                    cleanup();
                     resolve(component);
                     return;
                 }
-                ctripOrderAnalysisPanelBodyPromise = null;
-                reject(new Error('订单分析组件未完成注册'));
+                fail('订单分析组件未完成注册');
             };
+            const onError = () => fail('订单分析组件加载失败');
             if (existing && systemComponents[ctripOrderAnalysisPanelBodyKey]) {
                 finish();
                 return;
             }
-            script.src = ctripOrderAnalysisPanelBodyScript;
-            script.async = true;
-            script.dataset.suxiCtripOrderAnalysisBody = ctripOrderAnalysisPanelBodyScript;
             script.addEventListener('load', finish, { once: true });
-            script.addEventListener('error', () => {
-                ctripOrderAnalysisPanelBodyPromise = null;
-                if (!existing) script.remove();
-                reject(new Error('订单分析组件加载失败'));
-            }, { once: true });
-            if (!existing) document.head.appendChild(script);
+            script.addEventListener('error', onError, { once: true });
+            if (!existing) {
+                script.src = ctripOrderAnalysisPanelBodyScript;
+                script.async = true;
+                script.dataset.suxiCtripOrderAnalysisBody = ctripOrderAnalysisPanelBodyScript;
+                document.head.appendChild(script);
+            }
+        }).catch((error) => {
+            ctripOrderAnalysisPanelBodyPromise = null;
+            throw error;
         });
         return ctripOrderAnalysisPanelBodyPromise;
     };
     const CtripOrderAnalysisPanel = systemComponents.CtripOrderAnalysisPanel || Vue.defineAsyncComponent({
         loader: loadCtripOrderAnalysisPanelBody,
+        onError(_error, retry, fail, attempts) {
+            if (attempts === 1) retry();
+            else fail();
+        },
         delay: 0,
         timeout: 15000,
         loadingComponent: {
@@ -661,7 +676,7 @@
         },
     };
     const platformAutoPanelsScript = 'components/online-data/platform-auto-settings-panels.js?v=20260908-status-recovery-h1abce191b5';
-    const ctripProfileFieldConfigPanelScript = 'components/online-data/ctrip-profile-field-config-panel.js?v=20260613-profile-template-split';
+    const ctripProfileFieldConfigPanelScript = 'components/online-data/ctrip-profile-field-config-panel.js?v=20260613-profile-template-split-hf777ce2a77';
     const competitorDeviceManagementScript = 'components/admin/competitor-device-management.js?v=20260719-device-lifecycle-v3';
     const dataConfigDialogsScript = 'components/system/data-config-dialogs.js?v=20260720-data-config-template-split-v1';
     const automationCollectionContractScript = 'components/operations/automation-collection-contract.js?v=20260811-h80-binding-onboarding-v1';
@@ -711,16 +726,28 @@
                 required: true,
             },
         },
-        template: `
-            <component
-                :is="ctx.ctripProfileFieldConfigPanelBody"
-                v-if="ctx.ctripProfileFieldConfigPanelReady && ctx.ctripProfileFieldConfigPanelBody"
-                :ctx="ctx">
-            </component>
-            <div v-else data-testid="ctrip-profile-field-config-loading" class="rounded-lg border border-gray-200 bg-white p-4 text-sm text-gray-500">
-                加载中...
-            </div>
-        `,
+        render() {
+            const ctx = this.ctx;
+            return ctx.ctripProfileFieldConfigPanelReady && ctx.ctripProfileFieldConfigPanelBody
+                ? h(ctx.ctripProfileFieldConfigPanelBody, { ctx })
+                : ctx.ctripProfileFieldConfigPanelError
+                    ? h('div', {
+                        'data-testid': 'ctrip-profile-field-config-error',
+                        role: 'alert',
+                        class: 'rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700',
+                    }, [
+                        h('p', {}, ctx.ctripProfileFieldConfigPanelError),
+                        h('button', {
+                            type: 'button',
+                            class: 'mt-3 rounded border border-red-200 bg-white px-3 py-2 hover:bg-red-100',
+                            onClick: () => ctx.retryCtripProfileFieldConfigPanel(),
+                        }, '重试加载字段配置'),
+                    ])
+                : h('div', {
+                    'data-testid': 'ctrip-profile-field-config-loading',
+                    class: 'rounded-lg border border-gray-200 bg-white p-4 text-sm text-gray-500',
+                }, '加载中...');
+        },
     };
     const CompetitorDeviceManagement = {
         name: 'CompetitorDeviceManagement',
@@ -1663,6 +1690,12 @@
         ['execution_prevention', '执行与预防'],
         ['closure', '闭环能力'],
     ];
+    const managerCoachingScript = 'components/system/manager-coaching-panel.js?v=20260926-v1-ha33ad93de8';
+    const ManagerCoachingPanel = Vue.defineAsyncComponent({
+        loader: () => loadOnlineDataComponentScript(managerCoachingScript).then(() => requireSystemComponent('ManagerCoachingPanel')),
+        timeout: 15000,
+        errorComponent: { render: () => h('p', { role: 'alert' }, '带教组件加载失败，请刷新重试。') },
+    });
     const ManagerCapabilityPanel = {
         name: 'ManagerCapabilityPanel',
         props: {
@@ -1771,6 +1804,10 @@
                 const hotelId = this.normalizedHotelId;
                 const managerUserId = Number(this.selectedManagerId || 0);
                 const requestSeq = ++this.profileRequestSeq;
+                // Cases and permissions belong to the profile identity, not the selector.
+                this.profile = null;
+                this.queueRequestSeq++;
+                this.queueLoading = false;
                 this.selectedFollowupCaseId = '';
                 this.selectedCaseRecord = null;
                 this.followupForm = managerCapabilityFollowupForm();
@@ -1855,6 +1892,11 @@
                 const hotelId = this.normalizedHotelId;
                 const requestSeq = ++this.managerRequestSeq;
                 this.profileRequestSeq++;
+                this.queueRequestSeq++;
+                this.managers = [];
+                this.profile = null;
+                this.followupQueue = null;
+                this.queueLoading = false;
                 if (hotelId <= 0) {
                     this.managers = [];
                     this.selectedManagerId = '';
@@ -2514,6 +2556,11 @@
                                     ]),
                                 ]),
                             ]) : null,
+                            this.canViewEvidenceDetail && this.profile ? h(ManagerCoachingPanel, {
+                                key: `${this.normalizedHotelId}:${this.selectedManagerId}`,
+                                hotelId: this.normalizedHotelId, managerId: this.selectedManagerId,
+                                request: this.request, cases: this.recentCases, canManage: this.canManageEvidence,
+                            }) : null,
                             h('div', { class: 'rounded-xl border border-slate-200 bg-slate-50 p-4' }, [
                                 h('div', { class: 'flex items-center justify-between gap-3' }, [h('h4', { class: 'text-sm font-semibold text-slate-800' }, '最近评分案例'), h('span', { class: 'text-xs text-slate-500' }, '按案例 ID 精确回读')]),
                                 !this.canViewEvidenceDetail && this.profile ? h('p', { class: 'mt-3 text-sm text-slate-500' }, '当前为汇总视图，案例与证据明细不展示。') : null,

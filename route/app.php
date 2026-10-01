@@ -440,6 +440,7 @@ Route::group('api/ota-local-collector', function () {
     Route::get('/tasks/next', 'ota.LocalCollectorController/nextTask');
     Route::post('/tasks/:taskId/progress', 'ota.LocalCollectorController/progress');
     Route::post('/tasks/:taskId/result', 'ota.LocalCollectorController/result');
+    Route::post('/tasks/:taskId/resume-upload', 'ota.LocalCollectorController/resumeUpload');
 });
 
 // ==================== 酒店数据驾驶舱 API ====================
@@ -458,6 +459,8 @@ Route::group('api/knowledge', function () {
     Route::post('/add', 'Knowledge/add');
     Route::post('/import', 'Knowledge/importMaterials');
     Route::post('/document-text', 'Knowledge/extractDocumentText');
+    Route::get('/reference-sources/:chunk_id', 'Knowledge/referenceSource');
+    Route::post('/references', 'Knowledge/saveReference');
     Route::get('/promotions', 'KnowledgePromotion/candidates');
     Route::post('/promotions/from-sop-candidate', 'KnowledgePromotion/createCandidate');
     Route::get('/promotions/:id/events', 'KnowledgePromotion/events');
@@ -531,10 +534,7 @@ Route::group('api/temporal-insights', function () {
 Route::group('api/lifecycle', function () {
     Route::get('/overview', 'Lifecycle/overview');
 })->middleware(\app\middleware\Auth::class);
-// ==================== P4 投资决策辅助 API ====================
-Route::group('api/investment-decision', function () {
-    Route::get('/overview', 'InvestmentDecision/overview');
-})->middleware(\app\middleware\Auth::class);
+require __DIR__ . '/domain/investment.php';
 // ==================== 智略·战略推演 API ====================
 Route::group('api/strategy', function () {
     Route::post('/simulate', 'StrategySimulation/simulate');

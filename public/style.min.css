@@ -653,7 +653,7 @@ main[data-current-page="operating-finance"] .operating-finance-primary-action{ba
 }main[data-current-page="operating-finance"] .operating-finance-link{color:#315d50 !important
 }.online-data-page{--online-data-green:var(--sx-luxury-green, #143a31);--online-data-green-deep:#0f2f28;--online-data-gold:var(--sx-luxury-gold, #dcc591);--online-data-gold-deep:#826333;--online-data-border:#dfd1b3;--online-data-surface-warm:#f3eee3;max-width:1280px;margin:0 auto
 }.online-data-page > div,
-.online-data-content{display:grid;gap:16px
+.online-data-content{display:grid;grid-template-columns:minmax(0, 1fr);gap:16px
 }.online-data-hero{position:relative;overflow:hidden;border:1px solid var(--online-data-border);border-radius:24px;background:linear-gradient(135deg, rgba(255, 255, 255, .99), rgba(255, 253, 248, .98) 52%, var(--online-data-surface-warm));padding:24px;box-shadow:0 16px 40px rgba(23, 49, 42, .08)
 }.online-data-hero::after{position:absolute;top:-84px;right:-60px;width:210px;height:210px;border-radius:999px;background:rgba(220, 197, 145, .28);filter:blur(48px);content:"";pointer-events:none
 }.online-data-hero-layout{position:relative;z-index:1;display:flex;align-items:flex-end;justify-content:space-between;gap:20px

@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { syncStartupLazyComponentVersions } from './lib/frontend_lazy_asset_versions.mjs';
+import { syncKnowledgeCoachingAssetVersions } from './lib/knowledge_coaching_asset_versions.mjs';
 import {
   buildFrontendBootstrap,
   buildFrontendDeferredHelpers,
@@ -20,6 +21,7 @@ import {
 } from './lib/frontend_template_lock.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+await syncKnowledgeCoachingAssetVersions(repoRoot);
 const publicRoot = path.join(repoRoot, 'public');
 const indexPath = path.join(publicRoot, 'index.html');
 const releaseLock = await acquireFrontendTemplateLock(repoRoot, {

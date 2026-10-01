@@ -312,6 +312,23 @@ final class DualOtaFieldClosureServiceTest extends TestCase
         self::assertContains('identity_binding_not_verified', $fields['revenue']['revenue_analysis_blockers']);
         self::assertSame('identity_binding_not_verified', $platform['revenue_analysis']['blocked_reason']);
         self::assertSame('partial', $platform['identity_status']);
+
+        $hotel = ['id' => 80, 'tenant_id' => 7, 'name' => 'Hotel 80'];
+        $broadcastClosure = (new \app\service\AiDailyReportBroadcastFactService(
+            static fn(int $hotelId): array => $hotel,
+            null,
+            null,
+            static fn(int $hotelId, string $businessDate): array => $closure
+        ))->build(80, '2026-08-23');
+        $broadcast = (new \app\service\AiDailyReportBroadcastSnapshotService())->buildDraft(
+            $hotel,
+            $broadcastClosure,
+            '2026-08-24 09:00:00'
+        );
+
+        self::assertSame([], $broadcast['facts']);
+        self::assertSame('', $broadcast['final_text']);
+        self::assertFalse($broadcast['can_generate']);
     }
 
     public function testReceiptTaskSourceAndTenantAreFailClosed(): void

@@ -961,6 +961,7 @@
         'runCtripConfigSaveFlow',
         'runCtripManualTabSwitch',
         'isCtripRankingFormAlignedWithConfig',
+        'canPreserveCtripRankingSnapshot',
         'buildCtripProfileFieldSmartDefaults',
         'buildCtripProfileFieldSavePayload',
         'normalizeCtripBrowserCaptureSections',

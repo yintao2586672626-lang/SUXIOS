@@ -10,6 +10,7 @@ use app\model\OperationLog;
 use app\service\AiEvaluationBatchReplayService;
 use app\service\AiEvaluationRunService;
 use app\service\LocalAiRuntimeService;
+use app\service\LlmUsageObservation;
 use InvalidArgumentException;
 use RuntimeException;
 use think\exception\HttpException;
@@ -64,6 +65,17 @@ class AiGovernance extends Base
         $this->checkSuperAdmin();
         $pagination = $this->getPagination();
         $query = AiModelCallLog::where([]);
+
+        $params = $this->request->param();
+        if (array_key_exists('hotel_id', $params)) {
+            $value = $params['hotel_id'];
+            $hotelId = (is_int($value) || is_string($value)) && preg_match('/^[1-9][0-9]*$/D', (string)$value) === 1
+                ? filter_var($value, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]) : false;
+            if ($hotelId === false) {
+                return $this->error('hotel_id 必须为正整数', 422);
+            }
+            $query->where('hotel_id', $hotelId);
+        }
 
         foreach (['request_id', 'module', 'scenario', 'model_key', 'status', 'prompt_version', 'human_confirmation_status', 'evaluation_set', 'eval_case_id'] as $field) {
             $value = trim((string)$this->request->param($field, ''));
@@ -451,8 +463,11 @@ class AiGovernance extends Base
     private function formatLogRow(array $row, bool $withDetail = false): array
     {
         $governance = is_array($row['governance_json'] ?? null) ? $row['governance_json'] : [];
+        $hotelId = isset($row['hotel_id']) && (int)$row['hotel_id'] > 0 ? (int)$row['hotel_id'] : null;
         $base = [
             'id' => (int)($row['id'] ?? 0),
+            'hotel_id' => $hotelId,
+            'hotel_scope_status' => $hotelId !== null ? 'recorded' : 'unknown',
             'request_id' => (string)($row['request_id'] ?? ''),
             'module' => (string)($row['module'] ?? ''),
             'scenario' => (string)($row['scenario'] ?? ''),
@@ -462,7 +477,9 @@ class AiGovernance extends Base
             'prompt_version' => (string)($row['prompt_version'] ?? ''),
             'status' => (string)($row['status'] ?? ''),
             'http_status' => (int)($row['http_status'] ?? 0),
-            'latency_ms' => (int)($row['latency_ms'] ?? 0),
+            'latency_ms' => isset($row['latency_ms']) ? (int)$row['latency_ms'] : null,
+            'usage_observation' => is_array($governance['usage_observation'] ?? null)
+                ? $governance['usage_observation'] : LlmUsageObservation::legacy(),
             'confidence_score' => $row['confidence_score'] ?? null,
             'low_confidence' => !empty($row['low_confidence']),
             'low_confidence_reason' => (string)($governance['low_confidence_reason'] ?? ''),

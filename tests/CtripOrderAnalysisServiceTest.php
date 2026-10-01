@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 use app\service\CtripOrderAnalysisService;
 use app\service\CtripOrderExportImportService;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 
 final class CtripOrderAnalysisServiceTest extends TestCase
@@ -116,6 +117,139 @@ final class CtripOrderAnalysisServiceTest extends TestCase
             'room_type_metrics',
             'exclusion_receipt',
         ], array_column($analysis['missing_dimensions'], 'key'));
+        self::assertSame('V1 聚合未保存逐状态分类回执。', $analysis['classification']['reason']);
+        $missing = array_column($analysis['missing_dimensions'], null, 'key');
+        self::assertSame('旧聚合仅保存平均连住与单晚占比', $missing['los_distribution']['reason']);
+        self::assertSame('旧聚合仅保存平均提前天数', $missing['lead_time_distribution']['reason']);
+        self::assertSame('旧聚合仅保存每日 Top5，无法恢复完整排名', $missing['room_type_metrics']['reason']);
+        self::assertStringNotContainsString('自动补算', $missing['room_type_metrics']['next_action']);
+    }
+
+    #[DataProvider('missingV2ReceiptCases')]
+    public function testMissingV2ReceiptUsesCurrentContractReasonAndReadbackAction(
+        string $receiptKey,
+        string $dimensionKey,
+        array $resultPath,
+        string $expectedReason
+    ): void {
+        $service = new CtripOrderAnalysisService();
+        $rows = $this->verifiedV2Rows();
+        $complete = $service->analyzeRows($rows, 64, '2026-08-08', '2026-08-09');
+        foreach ($rows as &$row) {
+            self::assertArrayHasKey($receiptKey, $row['raw_data']);
+            unset($row['raw_data'][$receiptKey]);
+        }
+        unset($row);
+        $before = $rows;
+        $analysis = $service->analyzeRows($rows, 64, '2026-08-08', '2026-08-09');
+        $missing = array_column($analysis['missing_dimensions'], null, 'key');
+
+        self::assertSame($expectedReason, $missing[$dimensionKey]['reason']);
+        self::assertSame(
+            '重新导入同一门店的原始携程 XLS，并确认 V2 回执已保存且完成回读。',
+            $missing[$dimensionKey]['next_action']
+        );
+        $evidence = $analysis;
+        foreach ($resultPath as $key) {
+            $evidence = $evidence[$key];
+        }
+        self::assertSame('evidence_missing', $evidence['status']);
+        self::assertSame($expectedReason, $evidence['reason']);
+        self::assertSame('ctrip_order_aggregate_v2', $analysis['batch']['import_contract']);
+        self::assertSame($complete['batch']['dataset_hash'], $analysis['batch']['dataset_hash']);
+        self::assertSame($complete['status'], $analysis['status']);
+        self::assertSame($complete['quality_status'], $analysis['quality_status']);
+        self::assertSame($complete['persistence_readback_status'], $analysis['persistence_readback_status']);
+        foreach (['gross_orders', 'active_orders', 'cancelled_orders', 'unknown_status_orders', 'room_nights', 'reference_bottom_price_total', 'reference_bottom_price_adr', 'amount', 'amount_semantics'] as $metric) {
+            self::assertSame($complete['summary'][$metric], $analysis['summary'][$metric], $metric);
+        }
+        self::assertSame($before, $rows, 'Missing-evidence explanations must not rewrite saved aggregates.');
+    }
+
+    public static function missingV2ReceiptCases(): array
+    {
+        return [
+            'classification' => [
+                'classification_receipt', 'status_classification', ['classification'],
+                'V2 聚合缺少逐状态分类回执，已入住与未入住计数不可核验。',
+            ],
+            'los' => [
+                'los_distribution', 'los_distribution', ['distributions', 'los'],
+                'V2 聚合的连住或提前预订分布回执缺失或不完整，无法核验完整连住分布。',
+            ],
+            'lead time' => [
+                'lead_time_distribution', 'lead_time_distribution', ['distributions', 'lead_time'],
+                'V2 聚合的连住或提前预订分布回执缺失或不完整，无法核验完整提前预订分布。',
+            ],
+            'room types' => [
+                'room_type_metrics', 'room_type_metrics', ['room_types'],
+                'V2 聚合缺少完整房型回执，无法核验完整排名。',
+            ],
+        ];
+    }
+
+    public function testV2TruncatedRoomReceiptExplainsCurrentLimitWithoutPromisingReuploadRecovery(): void
+    {
+        $sourceRows = [];
+        for ($index = 1; $index <= 101; $index++) {
+            $sourceRows[] = [
+                '酒店名称' => '匿名酒店（房型上限 fixture）',
+                '订单号' => 'ANON-ROOM-LIMIT-' . $index,
+                '订单状态' => '已入住',
+                '入住日期' => '2026-08-08',
+                '离店日期' => '2026-08-09',
+                '预订时间' => '2026-08-07 09:00:00',
+                '晚数' => '1', '房间数' => '1', '底价' => '100', '币种' => 'CNY',
+                '房型名称' => '匿名房型-' . $index, '预订网站' => '携程',
+            ];
+        }
+        $rows = (new CtripOrderExportImportService())->normalizeRows($sourceRows, [
+            'system_hotel_id' => 64, 'test_fixture' => true,
+        ]);
+        self::assertCount(1, $rows);
+        self::assertTrue($rows[0]['raw_data']['room_type_metrics_truncated']);
+        self::assertCount(100, $rows[0]['raw_data']['room_type_metrics']);
+        $rows[0]['_readback_verified'] = true;
+        $before = $rows;
+        $analysis = (new CtripOrderAnalysisService())->analyzeRows($rows, 64, '2026-08-08', '2026-08-08');
+        $missing = array_column($analysis['missing_dimensions'], null, 'key');
+
+        self::assertSame('V2 房型聚合已截断，当前保存回执不含全部房型。', $missing['room_type_metrics']['reason']);
+        self::assertSame($missing['room_type_metrics']['reason'], $analysis['room_types']['reason']);
+        self::assertSame(
+            '核对原始文件与房型数量；当前导入每个日期和渠道最多保存 100 个房型，超出部分需扩展保存契约后再导入，同一文件重复上传无法补齐。',
+            $missing['room_type_metrics']['next_action']
+        );
+        self::assertSame('evidence_missing', $analysis['room_types']['status']);
+        self::assertSame([], $analysis['room_types']['rows']);
+        self::assertSame(101, $analysis['summary']['active_orders']);
+        self::assertSame(101.0, $analysis['summary']['room_nights']);
+        self::assertSame(10100.0, $analysis['summary']['reference_bottom_price_total']);
+        self::assertSame($before, $rows);
+    }
+
+    public function testContractlessLegacyReasonsDoNotClaimTheV1Contract(): void
+    {
+        $row = $this->verifiedV1Row();
+        unset($row['raw_data']['import_contract']);
+        $row['raw_data']['pii_policy'] = 'guest_name_and_raw_order_id_excluded';
+        $row['raw_data']['gross_order_num'] = 3;
+        $row['raw_data']['active_order_num'] = 2;
+        $row['raw_data']['room_nights'] = 4.0;
+        $before = $row;
+        $analysis = (new CtripOrderAnalysisService())->analyzeRows([$row], 64, '2026-08-08', '2026-08-08');
+        $missing = array_column($analysis['missing_dimensions'], null, 'key');
+
+        self::assertNull($analysis['batch']['import_contract']);
+        self::assertSame('ctrip_order_legacy_saved_aggregate', $analysis['batch']['read_adapter']);
+        self::assertSame('旧版保存汇总未保存逐状态分类回执。', $analysis['classification']['reason']);
+        self::assertSame('旧聚合仅保存平均连住与单晚占比', $missing['los_distribution']['reason']);
+        self::assertSame('旧聚合仅保存平均提前天数', $missing['lead_time_distribution']['reason']);
+        self::assertSame('旧聚合仅保存每日 Top5，无法恢复完整排名', $missing['room_type_metrics']['reason']);
+        self::assertStringNotContainsString('自动补算', $missing['room_type_metrics']['next_action']);
+        self::assertSame(2, $analysis['summary']['active_orders']);
+        self::assertSame(4.0, $analysis['summary']['room_nights']);
+        self::assertSame($before, $row);
     }
 
     public function testV2DatasetHashConflictIsIndeterminateInsteadOfMixingFacts(): void
@@ -154,6 +288,36 @@ final class CtripOrderAnalysisServiceTest extends TestCase
         $this->expectExceptionMessage('最多为 1096 天');
 
         (new CtripOrderAnalysisService())->analyzeRows([], 64, '2024-01-01', '2027-01-01');
+    }
+
+    public function testReadEnvelopeKeepsRequestedDatesSeparateFromNarrowerCoverage(): void
+    {
+        $analysis = (new CtripOrderAnalysisService())->analyzeRows(
+            $this->verifiedV2Rows(),
+            64,
+            '2026-08-01',
+            '2026-08-31'
+        );
+        self::assertSame(64, $analysis['hotel']['id']);
+        self::assertSame('2026-08-01', $analysis['date_range']['requested_from']);
+        self::assertSame('2026-08-31', $analysis['date_range']['requested_to']);
+        self::assertSame('2026-08-08', $analysis['date_range']['from']);
+        self::assertSame('2026-08-09', $analysis['date_range']['to']);
+        self::assertNotSame('no_data', $analysis['status']);
+    }
+
+    public function testLegitimateNoDataEnvelopeStillEchoesTheHotelAndRequestedRange(): void
+    {
+        foreach ([['2026-08-01', '2026-08-31'], [null, null]] as [$from, $to]) {
+            $analysis = (new CtripOrderAnalysisService())->analyzeRows([], 64, $from, $to);
+            self::assertSame('no_data', $analysis['status']);
+            self::assertSame(64, $analysis['hotel']['id']);
+            self::assertSame($from, $analysis['date_range']['requested_from']);
+            self::assertSame($to, $analysis['date_range']['requested_to']);
+            self::assertNull($analysis['date_range']['from']);
+            self::assertNull($analysis['date_range']['to']);
+            self::assertSame([], $analysis['summary']);
+        }
     }
 
     /** @return array<int, array<string, mixed>> */

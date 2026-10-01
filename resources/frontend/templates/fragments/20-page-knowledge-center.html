@@ -747,6 +747,7 @@
                                 <button @click="loadKnowledgeCenter" class="btn-secondary text-sm flex items-center justify-center gap-2">
                                     <i class="fas fa-sync-alt" :class="{ 'fa-spin': knowledgeCenterLoading }"></i>刷新
                                 </button>
+                                <button type="button" @click="editKnowledgeReference()" :disabled="selectedKnowledgeCenterUnitIds.length === 0" class="min-h-[44px] rounded-lg border border-emerald-200 px-3 py-2 text-sm text-emerald-800 disabled:opacity-50">合并整理参考 SOP</button>
                                 <button @click="batchDeleteKnowledgeUnits" :disabled="selectedKnowledgeCenterUnitIds.length === 0 || knowledgeCenterBatchDeleting" class="px-4 py-2 rounded-lg border border-red-200 text-sm text-red-600 hover:bg-red-50 disabled:opacity-50 disabled:hover:bg-transparent flex items-center justify-center gap-2">
                                     <i class="fas fa-trash-alt"></i>
                                     批量删除<span v-if="selectedKnowledgeCenterUnitIds.length">({{ selectedKnowledgeCenterUnitIds.length }})</span>
@@ -791,7 +792,7 @@
                             </div>
                         </div>
 
-                        <div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+                        <div v-if="!knowledgeCenterListError" class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
                             <div class="overflow-x-auto">
                                 <table class="w-full">
                                     <thead>
@@ -814,7 +815,7 @@
                                         </tr>
                                         <tr v-for="unit in knowledgeCenterUnits" :key="unit.unit_id" class="border-b border-gray-100 hover:bg-blue-50/30 transition-colors" :class="selectedKnowledgeCenterUnitIds.includes(String(unit.unit_id)) ? 'bg-blue-50/60' : ''">
                                             <td class="px-4 py-4">
-                                                <input type="checkbox" v-model="selectedKnowledgeCenterUnitIds" :value="String(unit.unit_id)" :disabled="unit.can_edit === false" :aria-label="`选择知识：${unit.name || unit.unit_id}`" class="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500 disabled:opacity-40">
+                                                <input type="checkbox" v-model="selectedKnowledgeCenterUnitIds" :value="String(unit.unit_id)" :disabled="unit.can_edit === false && !unit.can_select_reference" :aria-label="`选择知识：${unit.name || unit.unit_id}`" class="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500 disabled:opacity-40">
                                             </td>
                                             <td class="px-6 py-4">
                                                 <div class="text-sm font-semibold text-gray-800">{{ unit.name }}</div>
@@ -867,7 +868,13 @@
                             </div>
                         </div>
 
-                        <div v-if="!knowledgeCenterLoading &amp;&amp; knowledgeCenterUnits.length === 0" class="bg-white rounded-xl shadow-sm border border-gray-100 p-12 text-center">
+                        <div v-if="knowledgeCenterListError" role="alert" data-testid="knowledge-center-list-error" class="bg-white rounded-xl border border-red-200 p-6">
+                            <h3 class="font-semibold text-red-700">知识读取失败</h3>
+                            <p class="mt-2 text-sm text-gray-700">{{ knowledgeCenterListError }}</p>
+                            <p class="mt-2 text-sm text-gray-500">当前无法判断匹配结果，请重试读取。</p>
+                            <button type="button" @click="reloadKnowledgeCenter" class="btn-secondary mt-3 text-sm">重试读取知识</button>
+                        </div>
+                        <div v-if="!knowledgeCenterLoading &amp;&amp; !knowledgeCenterListError &amp;&amp; knowledgeCenterUnits.length === 0" class="bg-white rounded-xl shadow-sm border border-gray-100 p-12 text-center">
                             <div class="w-20 h-20 bg-gray-50 rounded-full flex items-center justify-center mx-auto mb-4">
                                 <i class="fas fa-brain text-gray-300 text-3xl"></i>
                             </div>
@@ -879,7 +886,7 @@
                             </div>
                         </div>
 
-                        <div class="flex items-center justify-between bg-white rounded-xl shadow-sm border border-gray-100 p-4">
+                        <div v-if="!knowledgeCenterListError &amp;&amp; !knowledgeCenterLoading" class="flex items-center justify-between bg-white rounded-xl shadow-sm border border-gray-100 p-4">
                             <div class="text-sm text-gray-500">共 {{ knowledgeCenterPagination.total }} 条，每页 {{ knowledgeCenterPagination.page_size }} 条</div>
                             <div class="flex items-center gap-2">
                                 <button @click="changeKnowledgeCenterPage(knowledgeCenterPagination.page - 1)" :disabled="knowledgeCenterPagination.page &lt;= 1" class="btn-secondary text-sm">上一页</button>

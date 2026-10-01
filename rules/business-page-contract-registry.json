@@ -52,6 +52,48 @@
   },
   "surfaces": [
     {
+      "id": "investment-payback-ledger",
+      "product_chain_stage": "人工酒店投资资金台账、经营情景测算与回本跟踪",
+      "availability": "active",
+      "enforcement": "strict",
+      "fragment_ids": ["page-investment-payback"],
+      "inherited_fragment_ids": [],
+      "inheritance_reason": "无继承片段。",
+      "scope_dimensions": ["tenant", "hotel", "project_id", "investor_name", "business_date", "currency", "basis", "source", "fact_status"],
+      "state_requirements": ["loading", "ready", "empty", "unverified", "blocked", "error"],
+      "contract_dimensions": ["scope_identity", "truthful_states", "source_date", "save_readback", "failure_visibility", "focused_regression"],
+      "source_checks": [
+        {
+          "path": "public/system-static.js",
+          "includes": ["testid: 'nav-investment-payback'", "path: 'investment-payback'"]
+        },
+        {
+          "path": "resources/frontend/templates/fragments/28a-page-investment-payback.html",
+          "includes": ["data-testid=\"investment-payback-page\"", "investment-payback-view"]
+        },
+        {
+          "path": "public/components/system/investment-payback.js",
+          "includes": ["人工录入，来源未独立核验", "first_payback", "withBusinessContext: false"]
+        },
+        {
+          "path": "public/components/system/investment-scenario.js",
+          "includes": ["scenario-reference-example", "scenario-result-stale", "content_digest", "readback", "withBusinessContext: false"]
+        }
+      ],
+      "regression_checks": [
+        {
+          "path": "tests/automation/investment_payback_workbench.test.mjs",
+          "includes": ["the investment-payback workbench keeps source, scope and forecast boundaries visible"]
+        },
+        {
+          "path": "tests/automation/investment_scenario_workbench.test.mjs",
+          "includes": ["new and old projects start blank without implicit Qingyuan numbers or invented zeros"]
+        }
+      ],
+      "evidence_maturity": "unit_contract_pass",
+      "evidence_limit": "本地代码、隔离合成验收及保存回读；经营测算始终是人工假设，不代表实际酒店回款、会计现金流或生产部署。"
+    },
+    {
       "id": "decision-workbench",
       "product_chain_stage": "AI决策工作台",
       "availability": "active",

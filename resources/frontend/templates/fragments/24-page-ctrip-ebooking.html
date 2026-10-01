@@ -1,4 +1,8 @@
                     <div v-if="currentPage === 'ctrip-ebooking'">
+                        <div v-if="onlineHistoryListReturn" class="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white p-3 text-sm">
+                            <span>正在查看保存记录的竞争圈明细；原查询条件和页码已保留。</span>
+                            <button type="button" @click="returnToOnlineHistoryList" class="min-h-10 rounded-lg border border-[#143a31] px-3 text-[#143a31]">返回历史查询</button>
+                        </div>
                         <div class="bg-white rounded-lg shadow">
                             <div class="p-4 border-b">
                                 <h3 class="font-medium">携程 eBooking 数据基石</h3>
@@ -137,7 +141,7 @@
                                     <section data-testid="ctrip-channel-order-upload" class="rounded-xl border border-emerald-200 bg-emerald-50/60 p-4 text-sm">
                                         <b>门店渠道订单</b> · 自动绑定 {{ platformHotelSelectedName || '当前酒店' }} <button type="button" @click="ctripChannelOrderUploadOpen = !ctripChannelOrderUploadOpen" class="ml-2 rounded-lg bg-[#65502f] px-4 py-2 font-semibold text-white">{{ ctripChannelOrderUploadOpen ? '收起上传' : '上传渠道订单' }}</button>
                                         <div v-if="ctripChannelOrderUploadOpen" class="mt-3 border-t border-emerald-100 pt-3">
-                                            <input type="file" accept=".xls,.xlsx,.csv,.json" multiple @change="handleCtripChannelOrderFileChange" class="block w-full rounded-lg border bg-white p-2">
+                                            <input :key="ctripChannelOrderUploadInputKey" type="file" accept=".xls,.xlsx,.csv,.json" multiple :disabled="ctripChannelOrderUploading" @change="handleCtripChannelOrderFileChange" class="block w-full rounded-lg border bg-white p-2">
                                             <p class="mt-2 text-xs text-gray-500">支持同门店多份携程旧版 XLS 先合并去重；单文件也支持 XLSX、CSV、JSON。参考底价不是确认收入。</p>
                                             <p v-if="ctripChannelOrderUploadFile" class="mt-2 text-xs font-medium text-emerald-800">已选择 {{ ctripChannelOrderUploadFile.length }} 份文件；请确认顶部酒店与文件内门店一致。</p>
                                             <button type="button" @click="uploadCtripChannelOrders" :disabled="ctripChannelOrderUploading || !ctripChannelOrderUploadFile || !platformHotelSelectedId" class="mt-2 rounded bg-emerald-700 px-4 py-2 font-semibold text-white disabled:bg-gray-300">{{ ctripChannelOrderUploading ? '正在保存并回读' : '确认上传' }}</button>
@@ -480,19 +484,32 @@
                                             </div>
                                             <div v-else class="mt-1 text-sm text-slate-500">请先在顶栏选择酒店</div>
                                         </div>
-                                        <div v-if="ctripFetchSuccess" data-testid="ctrip-ranking-fetch-status" aria-live="polite" class="flex items-center gap-2 rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-700 lg:ml-auto lg:shrink-0">
+                                        <div v-if="ctripFetchSuccess &amp;&amp; !ctripRankingHistoryRange" data-testid="ctrip-ranking-fetch-status" aria-live="polite" class="flex items-center gap-2 rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-700 lg:ml-auto lg:shrink-0">
                                             <i class="fas fa-check-circle text-green-500"></i>
                                             <span class="font-medium text-green-800">获取成功</span>
                                             <span v-if="ctripSavedCount &gt; 0">已保存 {{ ctripSavedCount }} 条数据到数据库</span>
                                         </div>
-                                        <div class="flex flex-wrap gap-2 lg:shrink-0">
+                                        <fieldset :disabled="ctripRankingHistoryLoading" class="flex flex-wrap gap-2 lg:shrink-0">
                                             <button @click="fetchCtripData" data-testid="ctrip-ranking-fetch-button" :disabled="fetchingData || !canFetchCtripManualData()" class="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:bg-gray-400">
                                                 <i class="fas fa-download mr-2"></i>{{ fetchingData ? '获取中...' : '重新获取' }}
                                             </button>
                                             <button @click="openTargetSite(defaultCtripLoginUrl)" class="px-4 py-2 bg-gray-500 text-white rounded-lg hover:bg-gray-600">
                                                 <i class="fas fa-external-link-alt mr-2"></i>打开携程ebooking
                                             </button>
+                                        </fieldset>
+                                    </div>
+
+                                    <div data-testid="ctrip-ranking-history-controls" class="mb-4 rounded-lg border border-slate-200 bg-slate-50 px-3 py-3">
+                                        <div class="flex flex-wrap items-end gap-3">
+                                            <label class="block text-sm text-slate-700">
+                                                <span class="mb-1 block font-medium">历史业务日期</span>
+                                                <input type="date" data-testid="ctrip-ranking-history-date" v-model="ctripRankingStoredDate" :disabled="fetchingData || ctripRankingHistoryLoading" class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm" @keydown.enter.prevent="loadCtripRankingStoredData()">
+                                            </label>
+                                            <button type="button" data-testid="ctrip-ranking-history-read" @click="loadCtripRankingStoredData()" :disabled="!selectedCtripHotelId || !ctripRankingStoredDate || fetchingData || ctripRankingHistoryLoading" class="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm text-slate-800 disabled:opacity-50">{{ ctripRankingHistoryLoading ? '读取中…' : '读取已保存数据' }}</button>
+                                            <button type="button" data-testid="ctrip-ranking-history-latest" @click="loadCtripRankingStoredData({ latest: true })" :disabled="!selectedCtripHotelId || fetchingData || ctripRankingHistoryLoading" class="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm text-slate-800 disabled:opacity-50">最近一次保存</button>
                                         </div>
+                                        <div class="mt-2 text-xs text-slate-500">仅查询当前酒店已入库的携程竞争圈记录，不需要有效 Cookie，不发起采集；历史数据保留原业务日期和质量状态。</div>
+                                        <div v-if="ctripRankingHistoryMessage" data-testid="ctrip-ranking-history-status" role="status" class="mt-2 text-sm text-slate-700">{{ ctripRankingHistoryMessage }}</div>
                                     </div>
 
                                     <input type="hidden" v-model="ctripForm.nodeId">
@@ -507,14 +524,15 @@
                                     </div>
 
                                     <div v-if="!ctripRankingDisplayActivated" class="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
-                                        <div class="font-medium text-slate-800">{{ fetchingData ? '正在获取本次竞争圈数据…' : '本次获取尚未返回可展示数据。' }}</div>
-                                        <div class="mt-1 text-xs text-slate-500">进入本页后会自动获取当前门店；未开始或失败时，请检查携程数据源后点击“重新获取”。</div>
+                                        <div class="font-medium text-slate-800">{{ ctripRankingHistoryLoading ? '正在读取历史记录…' : (ctripRankingHistoryMessage || (fetchingData ? '正在获取本次竞争圈数据…' : '本次获取尚未返回可展示数据。')) }}</div>
+                                        <div class="mt-1 text-xs text-slate-500">可在上方选择历史日期或读取最近一次保存；只有需要新数据时，才使用“重新获取”。当前授权失效不会删除已保存记录。</div>
                                     </div>
 
                                     <!-- 详细数据表格 -->
                                     <div v-if="ctripRankingDisplayActivated &amp;&amp; ctripHotelsList &amp;&amp; ctripHotelsList.length &gt; 0" class="mt-4" data-download-target="ctrip-business">
+                                        <div v-if="!ctripCompetitionReportSourceReady" data-testid="ctrip-unverified-derivation-notice" role="status" class="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">当前显示平台返回的竞争圈字段，仅供参考；来源尚未核验，暂不显示汇总判断或渠道订单推算。请补齐同门店、同业务日期的来源与回读证据。</div>
                                         <!-- backend display summary -->
-                                        <div class="mb-4">
+                                        <div v-if="ctripCompetitionReportSourceReady" class="mb-4">
                                             <div class="ctrip-summary-card-toolbar">
                                                 <span><i class="fas fa-grip-horizontal" aria-hidden="true"></i> 拖拽卡片调整顺序</span>
                                                 <button v-if="ctripSummaryHasCustomOrder" type="button" @click="resetCtripSummaryCardOrder">恢复默认排序</button>
@@ -588,7 +606,8 @@
                                                         <td class="px-3 py-2 border text-center font-semibold text-blue-600">{{ hasDisplayValue(hotel.adr) ? Number(hotel.adr).toLocaleString('zh-CN', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) : '-' }}</td>
                                                         <td class="px-3 py-2 border text-center font-semibold">{{ formatOptionalNumber(hotel.bookOrderNum) }}</td>
                                                         <td class="ctrip-sales-order-cell px-3 py-2 border text-center font-semibold text-blue-700" :title="hotel.channelOrderBreakdownMeta?.formulas?.totalOrdersIncludingCancelled || '四舍五入（总订单（不含取消） ÷ 0.75）'">
-                                                            <span v-if="hotel.totalOrderIncludingCancelledEstimate !== null &amp;&amp; hotel.totalOrderIncludingCancelledEstimate !== undefined">{{ formatOptionalNumber(hotel.totalOrderIncludingCancelledEstimate) }}</span>
+                                                            <span v-if="hotel.channelOrderBreakdownMeta?.status === 'source_unverified'">未核验</span>
+                                                            <span v-else-if="hotel.totalOrderIncludingCancelledEstimate !== null &amp;&amp; hotel.totalOrderIncludingCancelledEstimate !== undefined">{{ formatOptionalNumber(hotel.totalOrderIncludingCancelledEstimate) }}</span>
                                                             <span v-else class="ctrip-sales-state">缺来源</span>
                                                         </td>
                                                         <td v-for="column in ctripSalesOrderColumns" :key="column.field" :class="['ctrip-sales-order-cell', ctripTrafficChannelCellClass(hotel, column)]" :title="ctripTrafficChannelCellTitle(hotel, column)">
@@ -1889,8 +1908,9 @@
                                         <p>待同步经营数据，请先在"竞争圈数据"中获取数据</p>
                                         </div>
                                         <div v-else="">
+                                        <div v-if="!ctripCompetitionReportSourceReady" data-testid="ctrip-unverified-derivation-notice" role="status" class="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">当前来源尚未核验：保留已存字段供审计，暂不显示汇总判断或渠道订单推算。请补齐同门店、同业务日期的来源与回读证据。</div>
                                         <!-- backend display summary -->
-                                        <div class="mb-4">
+                                        <div v-if="ctripCompetitionReportSourceReady" class="mb-4">
                                             <div class="ctrip-summary-card-toolbar">
                                                 <span><i class="fas fa-grip-horizontal" aria-hidden="true"></i> 拖拽卡片调整顺序</span>
                                                 <button v-if="ctripSummaryHasCustomOrder" type="button" @click="resetCtripSummaryCardOrder">恢复默认排序</button>
@@ -1957,7 +1977,8 @@
                                                         <td class="px-3 py-2 border text-center font-semibold text-blue-600">{{ hasDisplayValue(hotel.adr) ? Number(hotel.adr).toLocaleString('zh-CN', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) : '-' }}</td>
                                                         <td class="px-3 py-2 border text-center font-semibold">{{ formatOptionalNumber(hotel.bookOrderNum) }}</td>
                                                         <td class="ctrip-sales-order-cell px-3 py-2 border text-center font-semibold text-blue-700" :title="hotel.channelOrderBreakdownMeta?.formulas?.totalOrdersIncludingCancelled || '四舍五入（总订单（不含取消） ÷ 0.75）'">
-                                                            <span v-if="hotel.totalOrderIncludingCancelledEstimate !== null &amp;&amp; hotel.totalOrderIncludingCancelledEstimate !== undefined">{{ formatOptionalNumber(hotel.totalOrderIncludingCancelledEstimate) }}</span>
+                                                            <span v-if="hotel.channelOrderBreakdownMeta?.status === 'source_unverified'">未核验</span>
+                                                            <span v-else-if="hotel.totalOrderIncludingCancelledEstimate !== null &amp;&amp; hotel.totalOrderIncludingCancelledEstimate !== undefined">{{ formatOptionalNumber(hotel.totalOrderIncludingCancelledEstimate) }}</span>
                                                             <span v-else class="ctrip-sales-state">缺来源</span>
                                                         </td>
                                                         <td v-for="column in ctripSalesOrderColumns" :key="column.field" :class="['ctrip-sales-order-cell', ctripTrafficChannelCellClass(hotel, column)]" :title="ctripTrafficChannelCellTitle(hotel, column)">

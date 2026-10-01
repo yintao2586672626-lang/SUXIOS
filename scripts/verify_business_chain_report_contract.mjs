@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { readSourceAggregate } from './lib/source_aggregate.mjs';
 
 const root = process.cwd();
 const checks = [];
@@ -23,12 +24,12 @@ function excludesAll(label, source, needles) {
   check(label, present.length === 0, present.join(', '));
 }
 
-const report = read('scripts/report_business_chain_status.php');
+const report = readSourceAggregate('scripts/report_business_chain_status.php', { repoRoot: root });
 const runtimeTest = read('tests/automation/business_chain_status_report.test.mjs');
 const runtimeRunner = read('scripts/run_node_automation_tests.mjs');
 const runtimeContract = `${runtimeTest}\n${runtimeRunner}`;
 const p0ExecutionPlanTest = read('tests/BusinessChainP0ExecutionPlanTest.php');
-const revenueAi = read('app/service/RevenueAiOverviewService.php');
+const revenueAi = readSourceAggregate('app/service/RevenueAiOverviewService.php', { repoRoot: root });
 const pkg = read('package.json');
 const workflow = read('.github/workflows/php.yml');
 
@@ -95,7 +96,9 @@ includesAll('business-chain report supports explicit skip-P0 reference mode', re
   'skip-platform',
   'skip_p0_reference_only',
   'read_existing_latest_available_ota_rows_reference_only',
-  'target_date_p0_rows_missing_but_latest_real_ota_rows_exist',
+  'historical_rows_are_not_current_date_verified_facts',
+  'allowHistoricalReference',
+  'no_quality_qualified_target_date_sources',
   'forbidden_claims',
   'target_date_closure',
 ]);

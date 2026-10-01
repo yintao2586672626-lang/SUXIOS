@@ -1,13 +1,17 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import vm from 'node:vm';
 
 const source=fs.readFileSync('public/components/system/operating-intelligence-components.js','utf8');
 const between=(a,b)=>source.slice(source.indexOf(a)+a.length,source.indexOf(b));
 const h=(tag,props,children)=>({tag,props:children===undefined?{}:props,children:children===undefined?props:children});
 const helpers=between('// PRECISE_METRIC_SET_HELPERS_START','// PRECISE_METRIC_SET_HELPERS_END');
-const renderers=between('// PRECISE_QUERY_EXPLANATION_START','// PRECISE_QUERY_EXPLANATION_END');
-const {renderPreciseQueryConditions,renderPrecisePeriodEvidence}=new Function('h',helpers+renderers+';return {renderPreciseQueryConditions,renderPrecisePeriodEvidence};')(h);
+const metricHelpers=new Function(helpers+';return {preciseMetricUnitLabel,preciseMetricHasValue};')();
+const context={window:{}};
+vm.runInNewContext(fs.readFileSync('public/components/system/hotel-data-analyst-components.js','utf8'),context);
+const {renderPreciseQueryConditions,renderPrecisePeriodEvidence}=context.window.SUXI_HOTEL_DATA_ANALYST_COMPONENTS.create({h})
+  .createOperatingEvidenceRenderers(metricHelpers);
 const content=node=>node==null?'':(Array.isArray(node)?node.map(content).join('\n'):(typeof node==='object'?content(node.children):String(node)));
 test('actual renderer exposes interpreted conditions and verified historical parent',()=>{
   const text=content(renderPreciseQueryConditions({precise_query_id:41,persistence_status:'readback_verified',precise_query_scope:{hotel_id:80,hotel_name:'Synthetic酒店',platform:'ctrip',date_start:'2026-09-01',date_end:'2026-09-07',metric_keys:['amount'],date_source:'completed_recent_days',parent_question_id:40}}));

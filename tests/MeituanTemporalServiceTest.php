@@ -847,6 +847,122 @@ final class MeituanTemporalServiceTest extends TestCase
         self::assertSame('ready', $summary['today']['status']);
     }
 
+    public function testHistoricalReplaySurvivesCurrentSourceLoginFailure(): void
+    {
+        $summary = (new MeituanTemporalService())->buildSummaryFromRows([
+            $this->completeBusinessRow(80, 901, '2026-07-29', '2026-07-29 18:00:00'),
+            $this->completeTrafficRow(80, 901, '2026-07-29', '2026-07-29 18:00:00'),
+        ], 80, '2026-07-29', new DateTimeImmutable('2026-09-04 12:00:00', new DateTimeZone('Asia/Shanghai')), [
+            'status' => 'blocked', 'reason_code' => 'login_expired',
+        ]);
+
+        self::assertSame('ready', $summary['today']['status']);
+        self::assertSame(2026.78, $summary['today']['metrics']['sales_amount']['value']);
+        self::assertSame('blocked', $summary['source_state']['status']);
+    }
+
+    public function testHistoricalReplayCannotSeeSnapshotsCapturedAfterObservationDay(): void
+    {
+        $summary = (new MeituanTemporalService())->buildSummaryFromRows([
+            $this->completeBusinessRow(80, 901, '2026-07-29', '2026-07-29 18:00:00'),
+            $this->completeTrafficRow(80, 901, '2026-07-29', '2026-07-29 18:00:00'),
+            $this->completeBusinessRow(80, 902, '2026-07-29', '2026-07-30 10:00:00'),
+            $this->completeTrafficRow(80, 902, '2026-07-29', '2026-07-30 10:00:00'),
+        ], 80, '2026-07-29', new DateTimeImmutable('2026-09-04 12:00:00', new DateTimeZone('Asia/Shanghai')));
+
+        self::assertSame('2026-07-29 18:00:00', $summary['today']['captured_at']);
+        self::assertCount(1, $summary['today']['snapshots']);
+        self::assertSame(901, $summary['today']['snapshots'][0]['sync_task_id']);
+    }
+
+    public function testBlankSnapshotTimeUsesRecordedCaptureTimeInHistoricalReplay(): void
+    {
+        $row = $this->completeBusinessRow(80, 903, '2026-07-29', '2026-07-29 18:00:00');
+        $row['snapshot_time'] = '';
+        $summary = (new MeituanTemporalService())->buildSummaryFromRows([$row], 80, '2026-07-29');
+        self::assertSame('2026-07-29 18:00:00', $summary['today']['captured_at']);
+    }
+
+    public function testHistoricalReplayUsesShanghaiCutoffAndKeepsCurrentSourceBlock(): void
+    {
+        $rows = [
+            $this->completeBusinessRow(80, 904, '2026-07-29', '2026-07-29T15:59:00Z'),
+            $this->completeTrafficRow(80, 904, '2026-07-29', '2026-07-29T15:59:00Z'),
+            $this->completeBusinessRow(80, 905, '2026-07-29', '2026-07-29T16:01:00Z'),
+        ];
+        $source = ['status' => 'blocked', 'reason_code' => 'login_expired'];
+        $service = new MeituanTemporalService();
+        $past = $service->buildSummaryFromRows($rows, 80, '2026-07-29',
+            new DateTimeImmutable('2026-09-04', new DateTimeZone('Asia/Shanghai')), $source);
+        self::assertSame(904, $past['today']['snapshots'][0]['sync_task_id']);
+        self::assertCount(1, $past['today']['snapshots']);
+        self::assertSame('historical_as_of', $past['read_mode']);
+
+        $current = $service->buildSummaryFromRows($rows, 80, '2026-07-29',
+            new DateTimeImmutable('2026-07-29 23:59:00', new DateTimeZone('Asia/Shanghai')), $source);
+        self::assertSame('blocked', $current['today']['status']);
+        self::assertSame('current', $current['read_mode']);
+    }
+
+    public function testSnapshotOrderingUsesInstantsAcrossUtcAndShanghaiFormats(): void
+    {
+        foreach (['today' => '2026-07-29', 'yesterday' => '2026-07-28'] as $segment => $dataDate) {
+            $rows = [];
+            foreach ([901 => '2026-07-29T14:00:00Z', 902 => '2026-07-29 23:00:00'] as $taskId => $capturedAt) {
+                $rows[] = $this->completeBusinessRow(80, $taskId, $dataDate, $capturedAt);
+                $rows[] = $this->completeTrafficRow(80, $taskId, $dataDate, $capturedAt);
+            }
+            $summary = (new MeituanTemporalService())->buildSummaryFromRows(
+                $rows, 80, '2026-07-29',
+                new DateTimeImmutable('2026-09-04', new DateTimeZone('Asia/Shanghai'))
+            );
+            self::assertSame(902, $summary[$segment]['metrics']['sales_amount']['sync_task_id'], $segment);
+            self::assertSame('2026-07-29 23:00:00', $summary[$segment]['captured_at']);
+        }
+    }
+
+    public function testSnapshotCaptureTimeUsesTheLatestInstantWithinOneTask(): void
+    {
+        $summary = (new MeituanTemporalService())->buildSummaryFromRows([
+            $this->completeBusinessRow(80, 902, '2026-07-29', '2026-07-29T14:00:00Z'),
+            $this->completeTrafficRow(80, 902, '2026-07-29', '2026-07-29 23:00:00'),
+        ], 80, '2026-07-29', new DateTimeImmutable('2026-09-04', new DateTimeZone('Asia/Shanghai')));
+
+        self::assertSame('2026-07-29 23:00:00', $summary['today']['snapshots'][0]['captured_at']);
+    }
+
+    public function testFutureSnapshotOrderingUsesInstantsAcrossTimestampFormats(): void
+    {
+        $rows = [];
+        foreach ([901 => '2026-07-29T14:00:00Z', 902 => '2026-07-29 23:00:00'] as $taskId => $capturedAt) {
+            $rows[] = $this->row(80, $taskId, 'traffic_forecast', '2026-07-30', [
+                'data_value' => $taskId,
+                'dimension' => 'traffic_forecast:pv',
+            ], [
+                'forecast_type' => 'pv',
+                'current' => $taskId,
+                'peer_avg' => 12,
+            ], ['forecast_current', 'forecast_peer_average'], $capturedAt);
+        }
+        $summary = (new MeituanTemporalService())->buildSummaryFromRows(
+            $rows, 80, '2026-07-29',
+            new DateTimeImmutable('2026-09-04', new DateTimeZone('Asia/Shanghai'))
+        );
+
+        self::assertSame(902, $summary['future']['snapshots'][0]['sync_task_id']);
+        self::assertSame(902, $summary['future']['rows'][0]['metrics']['pv']['value']);
+    }
+
+    public function testEquivalentCaptureInstantsUseTaskIdAsTheTieBreaker(): void
+    {
+        $summary = (new MeituanTemporalService())->buildSummaryFromRows([
+            $this->completeBusinessRow(80, 901, '2026-07-29', '2026-07-29T15:00:00Z'),
+            $this->completeBusinessRow(80, 902, '2026-07-29', '2026-07-29 23:00:00'),
+        ], 80, '2026-07-29', new DateTimeImmutable('2026-09-04', new DateTimeZone('Asia/Shanghai')));
+
+        self::assertSame(902, $summary['today']['snapshots'][0]['sync_task_id']);
+    }
+
     private function completeBusinessRow(
         int $hotelId,
         int $taskId,

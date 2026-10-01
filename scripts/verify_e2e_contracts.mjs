@@ -3,6 +3,8 @@ import crypto from 'node:crypto';
 import path from 'node:path';
 import vm from 'node:vm';
 import { verifyFrozenAiWorkbenchContract } from './lib/frozen_ai_workbench_contract.mjs';
+import { createCtripFieldPanelSemanticContract } from './lib/ctrip_field_panel_semantic_contract.mjs';
+import { inspectCtripProfileFieldConfigPanel } from './lib/ctrip_profile_panel_contract.mjs';
 
 const root = process.cwd();
 const sourceCache = new Map();
@@ -634,19 +636,25 @@ requireOrder('public/index.html', '@click="triggerAutoFetch"', '<platform-auto-s
 requireText('public/index.html', 'data-testid="platform-auto-settings-panels-loading"', 'platform auto-fetch settings wrapper shows an explicit loading state while the lazy body loads');
 requireText('public/components/online-data/platform-auto-settings-panels.js', 'components.PlatformAutoSettingsPanelsBody', 'platform auto-fetch settings body registers under a lazy component key');
 requireText('public/components/online-data/platform-auto-settings-panels.js', 'data-testid="platform-auto-settings-panels" class="grid grid-cols-1 lg:grid-cols-2 gap-4"', 'platform auto-fetch schedule/browser settings stay in the split component');
-requireText('public/index.html', "const ctripProfileFieldConfigPanelScript = 'components/online-data/ctrip-profile-field-config-panel.js?v=20260613-profile-template-split';", 'Ctrip profile-field admin panel uses a versioned lazy component script');
+const fieldPanelContract = createCtripFieldPanelSemanticContract(readRaw); checks.push(fieldPanelContract('version', 'Ctrip profile-field admin panel uses a versioned lazy component script'));
 requireText('public/index.html', "const CtripProfileFieldConfigPanel = {", 'Ctrip profile-field admin panel uses a stable sync wrapper component');
 requireText('public/index.html', 'const ensureCtripProfileFieldConfigPanelReady = async () => {', 'Ctrip profile-field admin panel loads its heavy template only when the tab is opened');
 requireText('public/index.html', "requireOnlineDataComponent('CtripProfileFieldConfigPanelBody')", 'Ctrip profile-field admin panel resolves the lazy body component after script load');
 requireText('public/index.html', 'void ensureCtripProfileFieldConfigPanelReady().catch', 'Ctrip profile-field tab starts non-blocking component loading before field data rendering');
 requireText('public/index.html', '<ctrip-profile-field-config-panel', 'Ctrip profile-field admin panel mounts through the split wrapper component');
-requireText('public/index.html', 'data-testid="ctrip-profile-field-config-loading"', 'Ctrip profile-field admin panel shows an explicit loading state while the lazy body loads');
-requireText('public/components/online-data/ctrip-profile-field-config-panel.js', 'components.CtripProfileFieldConfigPanelBody', 'Ctrip profile-field admin body registers under a non-conflicting lazy component key');
-requireText('public/components/online-data/ctrip-profile-field-config-panel.js', 'data-testid=\\"ctrip-profile-field-config-panel\\"', 'Ctrip profile-field admin template stays in the lazy component');
-requireText('public/components/online-data/ctrip-profile-field-config-panel.js', 'return new Proxy({}, {', 'Ctrip profile-field lazy component bridges existing root bindings through a setup proxy');
-requireText('public/components/online-data/ctrip-profile-field-config-panel.js', 'return props.ctx?.[key] ?? target[key];', 'Ctrip profile-field lazy component reads root bindings from the passed context');
-requireText('public/components/online-data/ctrip-profile-field-config-panel.js', 'props.ctx[key] = value;', 'Ctrip profile-field lazy component writes v-model updates back to root bindings');
-requireText('public/components/online-data/ctrip-profile-field-config-panel.js', 'getOwnPropertyDescriptor() {', 'Ctrip profile-field lazy component exposes proxy properties to Vue setup-state lookup');
+checks.push(fieldPanelContract('loading', 'Ctrip profile-field admin panel shows an explicit loading state while the lazy body loads'));
+checks.push(fieldPanelContract('registration', 'Ctrip profile-field admin body registers under a non-conflicting lazy component key'));
+checks.push(fieldPanelContract('template', 'Ctrip profile-field admin template stays in the lazy component'));
+checks.push(fieldPanelContract('proxy', 'Ctrip profile-field lazy component bridges existing root bindings through a setup proxy'));
+checks.push(fieldPanelContract('read', 'Ctrip profile-field lazy component reads root bindings from the passed context'));
+checks.push(fieldPanelContract('write', 'Ctrip profile-field lazy component writes v-model updates back to root bindings'));
+checks.push(fieldPanelContract('descriptor', 'Ctrip profile-field lazy component exposes proxy properties to Vue setup-state lookup'));
+checks.push({
+  file: 'Ctrip profile-field entry + component + source template',
+  label: 'Ctrip profile-field panel retains versioned lazy loading, compiled registration, loading UI, editable root context and admin-only rendering',
+  ok: inspectCtripProfileFieldConfigPanel({ entry: read('public/index.html'), component: readRaw('public/components/online-data/ctrip-profile-field-config-panel.js'), template: readRaw('resources/frontend/templates/components/ctrip-profile-field-config-panel.html') }),
+  detail: 'Shared contract checks lazy wrapper/body/load markers, compiled render, zero/false reads, ctx writes, proxy descriptors and non-admin/non-tab exclusion.',
+});
 requireNoText('public/index.html', '携程登录会话字段配置', 'Ctrip profile-field admin template is no longer in the initial entry HTML');
 requireText('public/index.html', 'const PLATFORM_AUTO_SECONDARY_PANEL_DELAY_MS = 2600;', 'platform auto-fetch delays secondary status/result panels behind first paint');
 requireText('public/index.html', 'const platformAutoSecondaryPanelsReady = ref(false);', 'platform auto-fetch tracks secondary panel readiness separately from core controls');
@@ -2452,7 +2460,7 @@ requireText('app/model/SystemConfig.php', 'self::writeDurableValueCache($key, $f
 requireText('app/model/SystemConfig.php', 'self::writeDurableValueCache($key, true, $value);', 'system config setValue refreshes selected cross-request cache after writes');
 requireNoText('app/service/ProtectedCapabilityService.php', 'mightMatchDefaultCapabilityPath', 'protected capability classification must not be gated by default policy paths');
 requireNoText('app/middleware/Auth.php', 'ProtectedCapabilityService::mightMatchDefaultCapabilityPath', 'auth middleware must load the configured protected policy before classification');
-requireText('app/middleware/Auth.php', '$protectedCapabilityService = $this->protectedCapabilityService();\n        $capability = $protectedCapabilityService->classifyPath($request->method(), $request->url());', 'auth middleware classifies with the configured protected policy');
+requireText('app/middleware/Auth.php', "$protectedCapabilityService = $this->protectedCapabilityService();\n        $capability = $protectedCapabilityService->classifyPath($request->method(), '/' . ltrim($request->pathinfo(), '/'));", 'auth middleware classifies the router path with the configured protected policy');
 requireNoText('public/index.html', 'const isItemVisible = (item) => {', 'visible menu permission filter is not re-inlined');
 requireNoText('public/index.html', 'const platformNextActionMeta =', 'platform next action metadata is not re-inlined');
 requireNoText('public/index.html', 'const platformAccountStoreText =', 'platform account store text is not re-inlined');

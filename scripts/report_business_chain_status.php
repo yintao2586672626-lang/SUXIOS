@@ -14,6 +14,7 @@ if (!class_exists(\Composer\Autoload\ClassLoader::class, false)) {
 }
 
 date_default_timezone_set('Asia/Shanghai');
+require_once __DIR__ . '/lib/business_chain_p0_scope.php';
 
 /**
  * @return array<string, mixed>
@@ -463,12 +464,15 @@ function business_chain_stage_rows(
     array $revenue,
     array $closure,
     bool $skipP0,
-    array $p0Gate
+    array $p0Gate,
+    ?array $diagnosis = null
 ): array
 {
     $counts = business_chain_fact_counts($referenceDataset);
     $p0Blocked = (string)($p0Gate['status'] ?? '') !== 'ready';
-    $otaClaimAllowed = !$skipP0 && !$p0Blocked && $counts['accepted'] > 0;
+    $diagnosisBlocked = $diagnosis !== null
+        && (($diagnosis['status'] ?? '') === 'blocked' || business_chain_list($diagnosis['source_channels'] ?? []) === []);
+    $otaClaimAllowed = !$skipP0 && !$p0Blocked && !$diagnosisBlocked && $counts['accepted'] > 0;
     $revenueStatus = (string)(
         $revenue['revenue_analysis_status']
         ?? $revenue['data_status']
@@ -489,9 +493,9 @@ function business_chain_stage_rows(
         [
             'key' => 'ota_data',
             'label' => 'OTA data',
-            'status' => $skipP0
+            'status' => $diagnosisBlocked ? 'blocked_by_diagnosis_scope' : ($skipP0
                 ? 'reference_only'
-                : ($p0Blocked ? 'blocked_by_p0_ota_gate' : ($counts['accepted'] > 0 ? 'ready' : 'data_gap')),
+                : ($p0Blocked ? 'blocked_by_p0_ota_gate' : ($counts['accepted'] > 0 ? 'ready' : 'data_gap'))),
             'claim_allowed' => $otaClaimAllowed,
             'evidence' => $counts,
         ],
@@ -666,8 +670,8 @@ function business_chain_p0_hotel_id_lookup(mixed $value): array
  */
 function business_chain_p0_hotel_ready(array $gate, ?int $systemHotelId, bool $platformReady): bool
 {
-    if ($platformReady) {
-        return true;
+    if ($systemHotelId === null) {
+        return $platformReady;
     }
     if ($systemHotelId === null || $systemHotelId <= 0 || !array_key_exists('profile_scope_system_hotel_ids', $gate)) {
         return false;
@@ -709,440 +713,13 @@ function business_chain_p0_hotel_ready(array $gate, ?int $systemHotelId, bool $p
     return true;
 }
 
-/**
- * @param array<string, mixed> $plan
- */
-function business_chain_p0_execution_plan_ready(array $plan): bool
-{
-    $status = strtolower(trim((string)($plan['status'] ?? '')));
-    if (!in_array($status, ['passed', 'incomplete'], true)) {
-        return false;
-    }
-
-    $scope = is_array($plan['scope'] ?? null) ? $plan['scope'] : [];
-    $selectedHotelId = isset($scope['system_hotel_id']) && (int)$scope['system_hotel_id'] > 0
-        ? (int)$scope['system_hotel_id']
-        : null;
-    $summariesByPlatform = [];
-    foreach (business_chain_list($plan['platform_summaries'] ?? []) as $summary) {
-        if (!is_array($summary)) {
-            continue;
-        }
-        $platform = strtolower(trim((string)($summary['platform'] ?? '')));
-        if ($platform !== '') {
-            $summariesByPlatform[$platform] = $summary;
-        }
-    }
-
-    $requestedPlatforms = array_values(array_unique(array_filter(array_map(
-        static fn(mixed $platform): string => strtolower(trim((string)$platform)),
-        business_chain_list($scope['platforms'] ?? [])
-    ))));
-    if ($requestedPlatforms === []) {
-        $requestedPlatforms = array_keys($summariesByPlatform);
-    }
-    if ($requestedPlatforms === []) {
-        return false;
-    }
-
-    foreach ($requestedPlatforms as $platform) {
-        $summary = $summariesByPlatform[$platform] ?? null;
-        if (!is_array($summary)
-            || ($summary['operator_skip_active'] ?? false) === true
-            || (int)($summary['target_date_rows'] ?? 0) <= 0
-            || (int)($summary['traffic_rows'] ?? 0) <= 0
-            || ($summary['readback_check_supported'] ?? false) !== true
-            || strtolower(trim((string)($summary['readback_status'] ?? ''))) !== 'ready'
-            || (int)($summary['readback_verified_rows'] ?? 0) <= 0
-            || (int)($summary['readback_unverified_rows'] ?? 0) > 0) {
-            return false;
-        }
-
-        $scopeReady = ($summary['platform_ready'] ?? false) === true;
-        if ($selectedHotelId !== null) {
-            foreach (business_chain_list($summary['next_steps'] ?? []) as $step) {
-                if (!is_array($step) || (int)($step['system_hotel_id'] ?? 0) !== $selectedHotelId) {
-                    continue;
-                }
-                $scopeReady = $scopeReady
-                    || (($step['hotel_ready'] ?? false) === true
-                        && ($step['operator_skip_active'] ?? false) !== true);
-                break;
-            }
-        }
-        if (!$scopeReady) {
-            return false;
-        }
-    }
-
-    return true;
-}
-
-/**
- * @param array<string, mixed> $payload
- * @param array<int, string> $operatorSkippedPlatforms
- * @return array<string, mixed>
- */
-function business_chain_compact_p0_execution_plan(
-    array $payload,
-    string $targetDate,
-    ?int $systemHotelId,
-    int $exitCode,
-    array $operatorSkippedPlatforms = [],
-    array $platforms = ['ctrip', 'meituan']
-): array
-{
-    $platformSummaries = [];
-    $operatorSequence = [];
-    $operatorSkippedLookup = array_fill_keys(array_map('strtolower', $operatorSkippedPlatforms), true);
-    foreach (business_chain_list($payload['platforms'] ?? []) as $platformPayload) {
-        if (!is_array($platformPayload)) {
-            continue;
-        }
-        $platform = (string)($platformPayload['platform'] ?? '');
-        $gate = is_array($platformPayload['p0_traffic_gate'] ?? null) ? $platformPayload['p0_traffic_gate'] : [];
-        $platformReady = business_chain_p0_platform_ready($platformPayload, $gate);
-        $operatorSkipActive = isset($operatorSkippedLookup[strtolower($platform)]);
-        $activeHotelScopeDeclared = array_key_exists('profile_scope_system_hotel_ids', $gate);
-        $activeHotelLookup = business_chain_p0_hotel_id_lookup($gate['profile_scope_system_hotel_ids'] ?? []);
-        $steps = [];
-        foreach (business_chain_list($gate['hotel_scoped_next_steps'] ?? []) as $step) {
-            if (!is_array($step)) {
-                continue;
-            }
-            $stepHotelId = isset($step['system_hotel_id']) ? (int)$step['system_hotel_id'] : null;
-            if ($activeHotelScopeDeclared && ($stepHotelId === null || !isset($activeHotelLookup[$stepHotelId]))) {
-                continue;
-            }
-            $trigger = is_array($step['profile_login_trigger'] ?? null) ? $step['profile_login_trigger'] : [];
-            $afterLoginSync = is_array($trigger['after_login_sync'] ?? null) ? $trigger['after_login_sync'] : [];
-            $manualLoginVerified = ($step['manual_login_state_verified'] ?? false) === true;
-            $skipWithVerifiedLogin = $operatorSkipActive && $manualLoginVerified;
-            $hotelReady = business_chain_p0_hotel_ready($gate, $stepHotelId, $platformReady);
-            $compact = [
-                'platform' => $platform,
-                'system_hotel_id' => $stepHotelId,
-                'data_source_id' => isset($step['data_source_id']) ? (int)$step['data_source_id'] : null,
-                'data_source_status' => (string)($step['data_source_status'] ?? ''),
-                'last_sync_status' => (string)($step['last_sync_status'] ?? ''),
-                'manual_login_state_verified' => $manualLoginVerified,
-                'login_trigger_entry' => ($hotelReady || $skipWithVerifiedLogin) ? '' : (string)($trigger['entry'] ?? ''),
-                'login_trigger_status' => $hotelReady
-                    ? 'already_ready_no_login'
-                    : ($skipWithVerifiedLogin ? 'login_verified_reference_only' : (string)($trigger['status'] ?? '')),
-                'after_login_sync_entry' => ($hotelReady || $operatorSkipActive) ? '' : (string)($afterLoginSync['entry'] ?? ''),
-                'after_login_sync_status' => $hotelReady
-                    ? 'already_ready_no_sync'
-                    : ($operatorSkipActive ? 'skipped_by_operator_no_sync' : ''),
-                'verifier_command' => (string)($step['p0_verifier_command'] ?? ''),
-                'platform_ready' => $platformReady,
-                'hotel_ready' => $hotelReady,
-                'operator_skip_active' => $operatorSkipActive,
-            ];
-            $steps[] = $compact;
-            if ($hotelReady) {
-                $operatorSequence[] = [
-                    'type' => 'already_ready',
-                    'platform' => $platform,
-                    'system_hotel_id' => $compact['system_hotel_id'],
-                    'data_source_id' => $compact['data_source_id'],
-                    'status' => $platformReady ? 'p0_traffic_gate_ready' : 'p0_hotel_scope_ready',
-                    'boundary' => 'Target-date OTA rows and traffic field evidence are already ready for this hotel scope; do not start login or after-login sync from this report.',
-                ];
-                $operatorSequence[] = [
-                    'type' => 'single_scope_verifier',
-                    'platform' => $platform,
-                    'system_hotel_id' => $compact['system_hotel_id'],
-                    'data_source_id' => $compact['data_source_id'],
-                    'command' => $compact['verifier_command'],
-                    'required_result' => 'ready',
-                ];
-                continue;
-            }
-            if ($operatorSkipActive) {
-                $operatorSequence[] = [
-                    'type' => 'operator_skip',
-                    'platform' => $platform,
-                    'system_hotel_id' => $compact['system_hotel_id'],
-                    'data_source_id' => $compact['data_source_id'],
-                    'status' => 'p0_skipped_by_operator',
-                    'boundary' => 'No OTA collection or after-login sync should be started for this platform while the operator skip is active.',
-                ];
-                $operatorSequence[] = [
-                    'type' => 'single_scope_verifier',
-                    'platform' => $platform,
-                    'system_hotel_id' => $compact['system_hotel_id'],
-                    'data_source_id' => $compact['data_source_id'],
-                    'command' => $compact['verifier_command'],
-                    'required_result' => 'ready',
-                ];
-                continue;
-            }
-            $operatorSequence[] = [
-                'type' => 'manual_login',
-                'platform' => $platform,
-                'system_hotel_id' => $compact['system_hotel_id'],
-                'data_source_id' => $compact['data_source_id'],
-                'entry' => $compact['login_trigger_entry'],
-                'status' => $compact['login_trigger_status'],
-                'required_human_action' => 'Complete authorized OTA login, captcha/SMS/human verification, and permission confirmation in the opened browser Profile.',
-            ];
-            $operatorSequence[] = [
-                'type' => 'after_login_sync',
-                'platform' => $platform,
-                'system_hotel_id' => $compact['system_hotel_id'],
-                'data_source_id' => $compact['data_source_id'],
-                'entry' => $compact['after_login_sync_entry'],
-                'requires' => 'manual_login_state_verified=true',
-            ];
-            $operatorSequence[] = [
-                'type' => 'single_scope_verifier',
-                'platform' => $platform,
-                'system_hotel_id' => $compact['system_hotel_id'],
-                'data_source_id' => $compact['data_source_id'],
-                'command' => $compact['verifier_command'],
-                'required_result' => 'ready',
-            ];
-        }
-        $platformSummaries[] = [
-            'platform' => $platform,
-            'target_date_rows' => (int)($platformPayload['target_date_rows'] ?? 0),
-            'latest_available_date' => (string)($platformPayload['latest_available']['date'] ?? ''),
-            'latest_available_rows' => (int)($platformPayload['latest_available']['rows'] ?? 0),
-            'field_fact_status' => (string)($platformPayload['field_fact_status'] ?? ''),
-            'traffic_gate_status' => (string)($gate['status'] ?? ''),
-            'traffic_rows' => (int)($gate['traffic_rows'] ?? 0),
-            'readback_check_supported' => (bool)($gate['readback_check_supported'] ?? false),
-            'readback_verified_rows' => (int)($gate['readback_verified_rows'] ?? 0),
-            'readback_unverified_rows' => (int)($gate['readback_unverified_rows'] ?? 0),
-            'readback_status' => (string)($gate['readback_status'] ?? 'not_loaded'),
-            'action_entry' => $operatorSkipActive ? '' : (string)($gate['action_entry'] ?? ''),
-            'action_status' => $operatorSkipActive ? 'skipped_by_operator_no_capture' : (string)($gate['action_status'] ?? ''),
-            'platform_ready' => $platformReady,
-            'operator_skip_active' => $operatorSkipActive,
-            'operator_skip_policy' => $operatorSkipActive ? 'p0_skipped_by_operator_reference_only_no_collection' : '',
-            'missing_inputs' => array_values(array_map('strval', (array)($gate['action_missing_inputs'] ?? $gate['required_next_inputs'] ?? []))),
-            'next_steps' => $steps,
-        ];
-    }
-
-    $platformArg = business_chain_platform_scope_arg($platforms);
-    return [
-        'status' => (string)($payload['status'] ?? 'unknown'),
-        'verifier_exit_code' => $exitCode,
-        'source_policy' => 'read_p0_verifier_metadata_only_no_ota_collection',
-        'sensitive_values_policy' => 'metadata_only_no_cookie_token_profile_path_or_raw_payload',
-        'scope' => [
-            'target_date' => (string)($payload['scope']['date'] ?? $targetDate),
-            'system_hotel_id' => $systemHotelId,
-            'platforms' => array_values(array_unique(array_map(
-                static fn(string $platform): string => strtolower(trim($platform)),
-                $platforms
-            ))),
-            'metric_scope' => (string)($payload['scope']['metric_scope'] ?? 'ota_channel'),
-        ],
-        'summary' => is_array($payload['summary'] ?? null) ? $payload['summary'] : [],
-        'platform_summaries' => $platformSummaries,
-        'operator_sequence' => $operatorSequence,
-        'authorization_options' => [
-            [
-                'mode' => 'browser_profile_tiancheng_account',
-                'status' => 'allowed_with_human_login',
-                'scope_policy' => 'authorized_ota_account_only',
-                'required_inputs' => ['manual_login_state_verified', 'authorized_browser_profile', 'selected_system_hotel_match'],
-                'completion_gate' => 'p0_field_loop_verifier_ready',
-            ],
-            [
-                'mode' => 'authorized_cookie_api_temporary',
-                'status' => 'temporary_only',
-                'scope_policy' => 'authorized_cookie_or_headers_may_seed_collection_but_must_not_become_default_mainline',
-                'required_inputs' => ['authorized_cookie_or_headers', 'traffic_request_url_or_cdp_endpoint_evidence', 'target_date_traffic_response_captured'],
-                'forbidden_outputs' => ['raw_cookie_value_in_report', 'raw_token_value_in_report', 'cookie_api_as_default_mainline'],
-                'completion_gate' => 'target_date_rows_ingested_and_p0_field_loop_verifier_ready',
-            ],
-        ],
-        'completion_gate' => [
-            'command' => 'npm.cmd run verify:p0-ota-field-loop -- --date='
-                . $targetDate
-                . ($platformArg !== '' ? ' --platform=' . $platformArg : '')
-                . ($systemHotelId !== null ? ' --system-hotel-id=' . $systemHotelId : ''),
-            'required_status' => 'ready',
-            'current_status' => (string)($payload['status'] ?? 'unknown'),
-        ],
-    ];
-}
-
-/**
- * Add the stable source/date/quality contract required by the unified report.
- * Missing rows, bindings, and readback evidence remain explicit and never
- * become zero-valued business facts.
- *
- * @param array<int, array<string, mixed>> $sourceRows
- * @param array<string, mixed> $p0ExecutionPlan
- * @return array<int, array<string, mixed>>
- */
-function business_chain_attach_source_date_quality(array $sourceRows, array $p0ExecutionPlan): array
-{
-    $scope = is_array($p0ExecutionPlan['scope'] ?? null) ? $p0ExecutionPlan['scope'] : [];
-    $systemHotelId = isset($scope['system_hotel_id']) && (int)$scope['system_hotel_id'] > 0
-        ? (int)$scope['system_hotel_id']
-        : null;
-    $hotelIdentity = is_array($scope['system_hotel_identity'] ?? null)
-        ? $scope['system_hotel_identity']
-        : business_chain_system_hotel_identity($systemHotelId);
-    $hotelIdentityStatus = (string)($hotelIdentity['status'] ?? 'missing');
-    $hotelIdentityReady = $hotelIdentityStatus === 'ready';
-    $systemHotelName = trim((string)($hotelIdentity['system_hotel_name'] ?? ''));
-    $expectedHotelName = trim((string)($hotelIdentity['expected_hotel_name'] ?? ''));
-    $summaries = [];
-    foreach (business_chain_list($p0ExecutionPlan['platform_summaries'] ?? []) as $summary) {
-        if (!is_array($summary)) {
-            continue;
-        }
-        $platform = strtolower(trim((string)($summary['platform'] ?? '')));
-        if ($platform !== '') {
-            $summaries[$platform] = $summary;
-        }
-    }
-
-    foreach ($sourceRows as &$row) {
-        $source = strtolower(trim((string)($row['source'] ?? '')));
-        $summary = is_array($summaries[$source] ?? null) ? $summaries[$source] : [];
-        $missingInputs = array_values(array_unique(array_map(
-            'strval',
-            (array)($summary['missing_inputs'] ?? [])
-        )));
-        $trafficGateStatus = (string)($summary['traffic_gate_status'] ?? 'not_loaded');
-        $fieldFactStatus = (string)($summary['field_fact_status'] ?? 'not_loaded');
-        $targetDateRows = (int)($summary['target_date_rows'] ?? $row['target_counts']['accepted'] ?? 0);
-        $trafficRows = (int)($summary['traffic_rows'] ?? $row['target_counts']['traffic'] ?? 0);
-        $readbackStatus = (string)($summary['readback_status'] ?? 'not_loaded');
-        $platformReady = $hotelIdentityReady
-            && ($summary['platform_ready'] ?? false) === true
-            && (string)($row['target_status'] ?? '') === 'ready';
-        $bindingMissing = array_values(array_filter(
-            $missingInputs,
-            static function (string $item): bool {
-                $item = strtolower(trim($item));
-                foreach ([
-                    'data_source',
-                    'profile_dir',
-                    'platform_hotel',
-                    'poi_id',
-                    'profile_binding',
-                    'same_source_profile',
-                ] as $marker) {
-                    if (str_contains($item, $marker)) {
-                        return true;
-                    }
-                }
-                return false;
-            }
-        )) !== [];
-        $permissionDenied = str_contains(strtolower($trafficGateStatus), 'permission')
-            || array_values(array_filter(
-                $missingInputs,
-                static fn(string $item): bool => str_contains(strtolower($item), 'permission')
-            )) !== [];
-
-        $qualityStatus = 'unverified';
-        if (!$hotelIdentityReady) {
-            $qualityStatus = 'binding_missing';
-        } elseif ($platformReady) {
-            $qualityStatus = 'available';
-        } elseif ($bindingMissing) {
-            $qualityStatus = 'binding_missing';
-        } elseif ($permissionDenied) {
-            $qualityStatus = 'permission_denied';
-        } elseif ($targetDateRows > 0 || $trafficRows > 0) {
-            $qualityStatus = $fieldFactStatus === 'partial' ? 'partial' : 'unverified';
-        }
-
-        $qualityFlags = $missingInputs;
-        if (!$hotelIdentityReady) {
-            array_unshift($qualityFlags, 'system_hotel_identity_' . $hotelIdentityStatus);
-        }
-        if ($trafficGateStatus !== '' && $trafficGateStatus !== 'ready') {
-            $qualityFlags[] = $trafficGateStatus;
-        }
-        if ($source === 'meituan' && $readbackStatus !== 'ready') {
-            $qualityFlags[] = $readbackStatus === 'not_loaded'
-                ? 'target_date_readback_not_loaded'
-                : 'target_date_' . $readbackStatus;
-        }
-        $qualityFlags = array_values(array_unique(array_filter(array_map(
-            static fn(string $item): string => strtolower(trim($item)),
-            $qualityFlags
-        ), static fn(string $item): bool => $item !== '')));
-        $status = $platformReady
-            ? 'ready'
-            : (!$hotelIdentityReady || ($targetDateRows <= 0 && $trafficRows <= 0) ? 'blocked' : 'partial');
-
-        $contract = [
-            'contract_version' => 'ota-source-date-quality-v1',
-            'source' => $source,
-            'target_date' => (string)($row['target_date'] ?? ''),
-            'system_hotel_id' => $systemHotelId,
-            'system_hotel_name' => $systemHotelName !== '' ? $systemHotelName : null,
-            'expected_hotel_name' => $expectedHotelName !== '' ? $expectedHotelName : null,
-            'metric_scope' => 'ota_channel',
-            'status' => $status,
-            'quality_status' => $qualityStatus,
-            'quality_flags' => $qualityFlags,
-            'claim_allowed' => $platformReady,
-            'evidence' => [
-                'target_date_rows' => $targetDateRows,
-                'traffic_rows' => $trafficRows,
-                'system_hotel_identity_status' => $hotelIdentityStatus,
-                'expected_name_status' => (string)($hotelIdentity['expected_name_status'] ?? 'not_requested'),
-                'same_name_system_hotel_ids' => array_values(array_map(
-                    'intval',
-                    (array)($hotelIdentity['same_name_system_hotel_ids'] ?? [])
-                )),
-                'field_fact_status' => $fieldFactStatus,
-                'readback_check_supported' => (bool)($summary['readback_check_supported'] ?? false),
-                'readback_verified_rows' => (int)($summary['readback_verified_rows'] ?? 0),
-                'readback_unverified_rows' => (int)($summary['readback_unverified_rows'] ?? 0),
-                'readback_status' => $readbackStatus,
-                'p0_traffic_gate_status' => $trafficGateStatus,
-            ],
-            'next_action' => [
-                'entry' => $platformReady || !$hotelIdentityReady
-                    ? ''
-                    : (string)($summary['action_entry'] ?? ''),
-                'missing_inputs' => $platformReady
-                    ? []
-                    : array_values(array_unique(array_merge(
-                        $hotelIdentityReady ? [] : ['system_hotel_identity'],
-                        $missingInputs
-                    ))),
-            ],
-            'forbidden_fallbacks' => [
-                'zero_as_missing_data',
-                'historical_date_as_target_date',
-                'cross_hotel_profile_reuse',
-                'cross_platform_data_substitution',
-            ],
-            'sensitive_values_exposed' => false,
-        ];
-        $row['quality_status'] = $qualityStatus;
-        $row['quality_flags'] = $qualityFlags;
-        $row['system_hotel_id'] = $systemHotelId;
-        $row['system_hotel_name'] = $systemHotelName !== '' ? $systemHotelName : null;
-        $row['expected_hotel_name'] = $expectedHotelName !== '' ? $expectedHotelName : null;
-        $row['source_date_quality'] = $contract;
-    }
-    unset($row);
-
-    return $sourceRows;
-}
 
 /**
  * @param array<string, mixed> $revenue
  * @param array<string, mixed> $closure
  * @return array<string, mixed>
  */
-function business_chain_downstream_reference_scope(array $sourceRows, array $operatorSkippedPlatforms): array
+function business_chain_downstream_reference_scope(array $sourceRows, array $operatorSkippedPlatforms, array $requestedScope = []): array
 {
     $operatorSkippedLookup = array_fill_keys(array_map('strtolower', $operatorSkippedPlatforms), true);
     $targetReadyPlatforms = [];
@@ -1150,36 +727,90 @@ function business_chain_downstream_reference_scope(array $sourceRows, array $ope
     $targetReferenceOnlyPlatforms = [];
     $referenceReadyPlatforms = [];
     $operatorSkippedReadyPlatforms = [];
-    $targetDate = '';
+    $firstRow = is_array($sourceRows[0] ?? null) ? $sourceRows[0] : [];
+    $targetDate = (string)($requestedScope['target_date'] ?? $firstRow['target_date'] ?? '');
+    $hotelId = business_chain_p0_row_count($requestedScope['system_hotel_id'] ?? $firstRow['system_hotel_id'] ?? null);
+    $requestedPlatforms = array_values(array_unique(array_intersect(
+        array_map('strval', business_chain_list($requestedScope['platforms'] ?? array_column($sourceRows, 'source'))),
+        ['ctrip', 'meituan']
+    )));
+    $qualityBlockers = [];
+    $referenceDates = [];
+    $seen = [];
     foreach ($sourceRows as $row) {
         if (!is_array($row)) {
             continue;
         }
-        if ($targetDate === '') {
-            $targetDate = (string)($row['target_date'] ?? '');
-        }
         $source = strtolower(trim((string)($row['source'] ?? '')));
-        if ($source === '') {
+        if (!in_array($source, $requestedPlatforms, true)) {
             continue;
+        }
+        $seen[$source] = true;
+        $quality = is_array($row['source_date_quality'] ?? null) ? $row['source_date_quality'] : [];
+        $rowScopeReady = business_chain_business_date_valid($targetDate)
+            && ($row['target_date'] ?? null) === $targetDate
+            && $hotelId !== null && $hotelId > 0
+            && business_chain_p0_row_count($row['system_hotel_id'] ?? null) === $hotelId;
+        $reason = '';
+        if (!$rowScopeReady) {
+            $reason = 'requested_source_date_hotel_scope_mismatch';
+        } elseif (($quality['contract_version'] ?? '') !== 'ota-source-date-quality-v1') {
+            $reason = 'source_date_quality_missing_or_unknown';
+        } elseif (($quality['source'] ?? null) !== $source
+            || ($quality['target_date'] ?? null) !== $targetDate
+            || business_chain_p0_row_count($quality['system_hotel_id'] ?? null) !== $hotelId
+            || ($quality['metric_scope'] ?? '') !== 'ota_channel') {
+            $reason = 'source_date_quality_scope_mismatch';
+        } elseif (($quality['status'] ?? '') !== 'ready'
+            || ($quality['quality_status'] ?? '') !== 'available'
+            || ($quality['claim_allowed'] ?? false) !== true) {
+            $reason = 'source_date_quality_not_available';
+        } elseif (($row['target_status'] ?? '') !== 'ready'
+            || in_array(($row['target_dataset_status'] ?? ''), ['failed', 'error'], true)) {
+            $reason = 'target_date_dataset_not_ready';
         }
         $operatorSkipped = isset($operatorSkippedLookup[$source]);
         if ($operatorSkipped) {
-            $targetBlockedPlatforms[] = $source;
-        } elseif (($row['target_status'] ?? '') === 'ready') {
+            $reason = 'operator_skipped_current_platform';
+            $operatorSkippedReadyPlatforms[] = $source;
+        }
+        if ($reason === '') {
             $targetReadyPlatforms[] = $source;
         } else {
             $targetBlockedPlatforms[] = $source;
+            $qualityBlockers[$source][] = $reason;
             if (($row['target_status'] ?? '') === 'reference_only_non_traffic') {
                 $targetReferenceOnlyPlatforms[] = $source;
             }
         }
-        if (in_array(($row['reference_status'] ?? ''), ['ready', 'reference_only_non_traffic'], true)) {
+        $referenceDate = (string)($row['reference_date'] ?? '');
+        if ($rowScopeReady && business_chain_business_date_valid($referenceDate) && $referenceDate < $targetDate
+            && in_array(($row['reference_status'] ?? ''), ['ready', 'reference_only_non_traffic'], true)
+            && !in_array(($row['reference_dataset_status'] ?? ''), ['failed', 'error'], true)) {
             $referenceReadyPlatforms[] = $source;
-        }
-        if ($operatorSkipped) {
-            $operatorSkippedReadyPlatforms[] = $source;
+            $referenceDates[$source][] = $referenceDate;
         }
     }
+    foreach ($requestedPlatforms as $source) {
+        if (!isset($seen[$source])) {
+            $targetBlockedPlatforms[] = $source;
+            $qualityBlockers[$source][] = 'requested_platform_quality_missing';
+        }
+        if (isset($referenceDates[$source])) {
+            $dates = array_values(array_unique($referenceDates[$source]));
+            if (count($dates) === 1) {
+                $referenceDates[$source] = $dates[0];
+            } else {
+                unset($referenceDates[$source]);
+                $referenceReadyPlatforms = array_values(array_diff($referenceReadyPlatforms, [$source]));
+                $qualityBlockers[$source][] = 'historical_reference_dates_ambiguous';
+            }
+        }
+    }
+    $targetBlockedPlatforms = array_values(array_unique($targetBlockedPlatforms));
+    $targetReadyPlatforms = array_values(array_unique(array_diff($targetReadyPlatforms, $targetBlockedPlatforms)));
+    // Requested order is retained, including channels for which no quality row exists.
+    $targetBlockedPlatforms = array_values(array_intersect($requestedPlatforms, $targetBlockedPlatforms));
 
     $status = 'target_date_p0_required';
     if ($targetReadyPlatforms !== [] && $targetBlockedPlatforms !== []) {
@@ -1193,9 +824,15 @@ function business_chain_downstream_reference_scope(array $sourceRows, array $ope
     }
 
     return [
+        'contract_version' => 'ota-downstream-quality-v1',
         'status' => $status,
         'metric_scope' => 'ota_channel',
         'target_date' => $targetDate,
+        'system_hotel_id' => $hotelId,
+        'requested_platforms' => $requestedPlatforms,
+        'quality_blockers' => $qualityBlockers,
+        'reference_dates' => $referenceDates,
+        'reference_quality_status' => 'historical_reference_unverified_for_current_date',
         'target_ready_platforms' => array_values(array_unique($targetReadyPlatforms)),
         'target_blocked_platforms' => array_values(array_unique($targetBlockedPlatforms)),
         'target_reference_only_platforms' => array_values(array_unique($targetReferenceOnlyPlatforms)),
@@ -1203,6 +840,106 @@ function business_chain_downstream_reference_scope(array $sourceRows, array $ope
         'operator_skip_platforms' => array_values(array_unique($operatorSkippedReadyPlatforms)),
         'claim_policy' => 'ready_platform_rows_are_read_only_reference_until_all_required_p0_platforms_ready',
     ];
+}
+
+/** Select datasets before diagnosis; an empty qualified scope never falls back to all channels. */
+function business_chain_diagnosis_input(array $scope, array $targetDatasets, array $referenceDatasets, bool $allowHistoricalReference): array
+{
+    $date = (string)($scope['target_date'] ?? '');
+    $hotelId = business_chain_p0_row_count($scope['system_hotel_id'] ?? null);
+    $platforms = [];
+    $datasets = [];
+    $mode = 'blocked';
+    $reason = 'no_quality_qualified_target_date_sources';
+    $businessDate = $date;
+    if (($scope['contract_version'] ?? '') === 'ota-downstream-quality-v1'
+        && business_chain_business_date_valid($date) && $hotelId !== null && $hotelId > 0) {
+        $platforms = business_chain_list($scope['target_ready_platforms'] ?? []);
+        if ($platforms !== []) {
+            $datasets = array_intersect_key($targetDatasets, array_fill_keys($platforms, true));
+            $mode = 'target_date';
+            $reason = '';
+        } elseif ($allowHistoricalReference) {
+            $platforms = business_chain_list($scope['reference_ready_platforms'] ?? []);
+            $dates = array_intersect_key($scope['reference_dates'] ?? [], array_fill_keys($platforms, true));
+            $distinctDates = array_values(array_unique(array_values($dates)));
+            if ($platforms !== [] && count($dates) === count($platforms) && count($distinctDates) === 1
+                && business_chain_business_date_valid($distinctDates[0]) && $distinctDates[0] < $date) {
+                $datasets = array_intersect_key($referenceDatasets, array_fill_keys($platforms, true));
+                $mode = 'historical_reference';
+                $businessDate = $distinctDates[0];
+                $reason = 'historical_rows_are_not_current_date_verified_facts';
+            } elseif (count($distinctDates) > 1) {
+                $reason = 'historical_reference_dates_differ';
+            }
+        }
+    } else {
+        $reason = 'diagnosis_quality_scope_missing_or_invalid';
+    }
+    $datasetIssues = [];
+    if ($mode !== 'blocked') {
+        foreach ($platforms as $source) {
+            $datasetStatus = is_array($datasets[$source] ?? null) ? (string)($datasets[$source]['status'] ?? 'unverified') : 'not_loaded';
+            if ($datasetStatus !== 'ready') {
+                $datasetIssues[$source] = $datasetStatus;
+                unset($datasets[$source]);
+            }
+        }
+        if ($datasets === []) {
+            $mode = 'blocked';
+            $reason = 'selected_diagnosis_datasets_unavailable';
+        }
+    }
+    if ($mode === 'blocked') {
+        $platforms = [];
+    }
+    return [
+        'dataset' => business_chain_merge_datasets($datasets),
+        'channel_datasets' => $datasets,
+        'context' => ['business_date' => $businessDate, 'hotel_id' => $hotelId, 'enabled_channels' => $platforms],
+        'scope' => [
+            'mode' => $mode, 'reason' => $reason, 'requested_target_date' => $date,
+            'business_date' => $businessDate, 'system_hotel_id' => $hotelId,
+            'platforms' => $platforms, 'metric_scope' => 'ota_channel',
+            'claim_allowed' => false, 'reference_dates' => $scope['reference_dates'] ?? [],
+            'dataset_issues' => $datasetIssues,
+        ],
+    ];
+}
+
+/** The report's OTA diagnosis cannot borrow display-channel defaults or independent fact-layer values. */
+function business_chain_build_revenue_diagnosis(array $input, array $p0Gate = []): array
+{
+    $scope = is_array($input['scope'] ?? null) ? $input['scope'] : [];
+    $mode = (string)($scope['mode'] ?? 'blocked');
+    if (!in_array($mode, ['target_date', 'historical_reference'], true)) {
+        $reason = (string)($scope['reason'] ?? 'diagnosis_quality_scope_missing_or_invalid');
+        $metrics = [];
+        foreach (['ota_room_revenue', 'ota_room_nights', 'ota_adr', 'ota_contribution_revpar', 'data_completeness'] as $key) {
+            $metrics[$key] = ['key' => $key, 'value' => null, 'status' => 'blocked', 'reason' => $reason];
+        }
+        return [
+            'data_status' => 'blocked', 'business_date' => $scope['business_date'] ?? '',
+            'hotel_id' => $scope['system_hotel_id'] ?? null, 'source_channels' => [], 'actual_source_channels' => [],
+            'metrics' => $metrics, 'actions' => [], 'signals' => [],
+            'missing_datasets' => [['code' => 'quality_qualified_ota_sources_missing', 'reason' => $reason]],
+            'quality_issues' => [['code' => 'downstream_quality_blocked', 'reason' => $reason]],
+            'pricing_readiness' => ['status' => 'blocked', 'reason' => $reason],
+        ];
+    }
+    $datasets = is_array($input['channel_datasets'] ?? null) ? $input['channel_datasets'] : [];
+    // An absent dataset must be explicit empty input, not the shared service's absent-channel fallback.
+    foreach (business_chain_list($scope['platforms'] ?? []) as $source) {
+        if (!is_array($datasets[$source] ?? null)) {
+            $datasets[$source] = business_chain_merge_datasets([]);
+        }
+    }
+    return (new RevenueAiOverviewService())->buildOverviewFromDataset(
+        $input['dataset'], $datasets, [], array_replace($input['context'], [
+            'p0_downstream_gate' => $p0Gate,
+            'revenue_fact_layer' => [],
+        ])
+    );
 }
 
 /**
@@ -1217,8 +954,18 @@ function business_chain_revenue_to_ai_handoff(array $referenceScope, array $reve
     $targetBlockedPlatforms = array_values(array_unique(array_map('strval', business_chain_list($referenceScope['target_blocked_platforms'] ?? []))));
     $operatorSkipPlatforms = array_values(array_unique(array_map('strval', business_chain_list($referenceScope['operator_skip_platforms'] ?? []))));
     $sourceChannels = array_values(array_unique(array_map('strval', business_chain_list($revenueDiagnosis['source_channels'] ?? []))));
-    $sourcePlatforms = $targetReadyPlatforms !== [] ? $targetReadyPlatforms : $sourceChannels;
-    $metrics = is_array($revenueDiagnosis['metrics'] ?? null) ? $revenueDiagnosis['metrics'] : [];
+    $input = is_array($referenceScope['diagnosis_input'] ?? null) ? $referenceScope['diagnosis_input'] : [];
+    $inputMode = (string)($input['mode'] ?? 'blocked');
+    $qualifiedPlatforms = $inputMode === 'target_date' ? $targetReadyPlatforms
+        : ($inputMode === 'historical_reference' ? business_chain_list($referenceScope['reference_ready_platforms'] ?? []) : []);
+    $diagnosisScopeReady = ($referenceScope['contract_version'] ?? '') === 'ota-downstream-quality-v1'
+        && business_chain_business_date_valid((string)($input['business_date'] ?? ''))
+        && ($revenueDiagnosis['business_date'] ?? null) === ($input['business_date'] ?? null)
+        && business_chain_p0_row_count($revenueDiagnosis['system_hotel_id'] ?? null) !== null
+        && business_chain_p0_row_count($revenueDiagnosis['system_hotel_id'] ?? null) === ($input['system_hotel_id'] ?? null);
+    $sourcePlatforms = $diagnosisScopeReady
+        ? array_values(array_intersect($sourceChannels, $qualifiedPlatforms, business_chain_list($input['platforms'] ?? []))) : [];
+    $metrics = $sourcePlatforms !== [] && is_array($revenueDiagnosis['metrics'] ?? null) ? $revenueDiagnosis['metrics'] : [];
     $metricRows = [];
     foreach ($metrics as $key => $metric) {
         if (!is_array($metric)) {
@@ -1233,7 +980,7 @@ function business_chain_revenue_to_ai_handoff(array $referenceScope, array $reve
     }
 
     $actionRows = [];
-    foreach (business_chain_list($aiAdviceDraft['actions'] ?? []) as $action) {
+    foreach ($sourcePlatforms !== [] ? business_chain_list($aiAdviceDraft['actions'] ?? []) : [] as $action) {
         if (!is_array($action)) {
             continue;
         }
@@ -1251,7 +998,9 @@ function business_chain_revenue_to_ai_handoff(array $referenceScope, array $reve
     }
 
     $draftStatus = (string)($aiAdviceDraft['status'] ?? '');
-    $handoffReadyForReview = $sourcePlatforms !== [] && $draftStatus === 'ready_for_manual_review';
+    $handoffReadyForReview = $p0Ready && $inputMode === 'target_date' && $targetBlockedPlatforms === []
+        && $sourcePlatforms !== [] && count($sourcePlatforms) === count($targetReadyPlatforms)
+        && $draftStatus === 'ready_for_manual_review';
     $handoffReferenceOnly = $sourcePlatforms !== [] && $draftStatus === 'draft_reference_only';
     $requiredBeforeExecution = $p0Ready
         ? ['manual_review_workflow_connected', 'approved_ai_advice', 'operation_execution_intent_created_by_human_review']
@@ -1261,9 +1010,13 @@ function business_chain_revenue_to_ai_handoff(array $referenceScope, array $reve
         'status' => $handoffReadyForReview
             ? 'handoff_ready_for_manual_review'
             : ($handoffReferenceOnly ? 'handoff_reference_only' : 'handoff_blocked'),
-        'source_scope' => $targetReadyPlatforms !== []
-            ? implode('_', $targetReadyPlatforms) . '_target_date_ota_channel' . ($handoffReadyForReview ? '' : '_reference')
-            : 'ota_channel' . ($handoffReadyForReview ? '' : '_reference'),
+        'source_scope' => $sourcePlatforms !== []
+            ? implode('_', $sourcePlatforms) . ($inputMode === 'historical_reference' ? '_historical' : '_target_date')
+                . '_ota_channel' . ($handoffReadyForReview ? '' : '_reference')
+            : 'ota_channel_blocked_unverified',
+        'requested_target_date' => $input['requested_target_date'] ?? $referenceScope['target_date'] ?? '',
+        'business_date' => $input['business_date'] ?? '',
+        'system_hotel_id' => $input['system_hotel_id'] ?? null,
         'metric_scope' => 'ota_channel',
         'source_platforms' => $sourcePlatforms,
         'target_ready_platforms' => $targetReadyPlatforms,
@@ -2352,21 +2105,46 @@ function business_chain_next_required_gate(
  */
 function business_chain_downstream_reference_workflow(array $revenue, array $closure, bool $skipP0, array $referenceScope = [], bool $p0Ready = false): array
 {
-    $actions = business_chain_list($revenue['actions'] ?? []);
-    $metrics = is_array($revenue['metrics'] ?? null) ? $revenue['metrics'] : [];
     $targetReadyPlatforms = business_chain_list($referenceScope['target_ready_platforms'] ?? []);
     $targetBlockedPlatforms = business_chain_list($referenceScope['target_blocked_platforms'] ?? []);
-    $diagnosisSourceChannels = $targetReadyPlatforms !== []
-        ? $targetReadyPlatforms
-        : business_chain_list($revenue['source_channels'] ?? []);
-    $hasPartialTargetReadyScope = !$skipP0 && $targetReadyPlatforms !== [] && $targetBlockedPlatforms !== [];
-    $hasScopedReadyScope = $p0Ready && $targetReadyPlatforms !== [] && $targetBlockedPlatforms === [];
-    $referenceOnly = $skipP0 || $hasPartialTargetReadyScope;
+    $input = is_array($referenceScope['diagnosis_input'] ?? null) ? $referenceScope['diagnosis_input'] : [];
+    $inputMode = (string)($input['mode'] ?? 'blocked');
+    $qualifiedPlatforms = $inputMode === 'target_date' ? $targetReadyPlatforms
+        : ($inputMode === 'historical_reference' ? business_chain_list($referenceScope['reference_ready_platforms'] ?? []) : []);
+    $inputScopeReady = ($referenceScope['contract_version'] ?? '') === 'ota-downstream-quality-v1'
+        && business_chain_business_date_valid((string)($input['business_date'] ?? ''))
+        && ($revenue['business_date'] ?? null) === ($input['business_date'] ?? null)
+        && business_chain_p0_row_count($revenue['hotel_id'] ?? null) !== null
+        && business_chain_p0_row_count($revenue['hotel_id'] ?? null) === ($input['system_hotel_id'] ?? null);
+    $diagnosisSourceChannels = $inputScopeReady
+        ? array_values(array_intersect(business_chain_list($revenue['actual_source_channels'] ?? []),
+            $qualifiedPlatforms, business_chain_list($input['platforms'] ?? []))) : [];
+    $hasDiagnosis = $diagnosisSourceChannels !== [];
+    $actions = $hasDiagnosis ? business_chain_list($revenue['actions'] ?? []) : [];
+    $metrics = $hasDiagnosis && is_array($revenue['metrics'] ?? null) ? $revenue['metrics'] : [];
+    $diagnosisReason = !$hasDiagnosis
+        ? (($input['reason'] ?? '') ?: 'same_scope_diagnosis_facts_unavailable') : (string)($input['reason'] ?? '');
+    if (!$hasDiagnosis) {
+        foreach (['ota_room_revenue', 'ota_room_nights', 'ota_adr', 'ota_contribution_revpar', 'data_completeness'] as $key) {
+            $metrics[$key] = ['key' => $key, 'value' => null, 'status' => 'blocked', 'reason' => $diagnosisReason];
+        }
+    }
+    $hasPartialTargetReadyScope = $hasDiagnosis && $inputMode === 'target_date'
+        && ($targetBlockedPlatforms !== [] || count($diagnosisSourceChannels) !== count($targetReadyPlatforms));
+    $hasScopedReadyScope = $p0Ready && $hasDiagnosis && $inputMode === 'target_date'
+        && $targetBlockedPlatforms === [] && count($diagnosisSourceChannels) === count($targetReadyPlatforms);
+    $referenceOnly = $hasDiagnosis && ($inputMode === 'historical_reference' || $skipP0 || $hasPartialTargetReadyScope);
     $revenueDiagnosis = [
-        'status' => $skipP0
+        'status' => !$hasDiagnosis ? 'blocked' : ($inputMode === 'historical_reference' || $skipP0
             ? 'reference_only'
-            : ($hasPartialTargetReadyScope ? 'partial_reference_only' : (string)($revenue['data_status'] ?? 'unknown')),
+            : ($hasPartialTargetReadyScope ? 'partial_reference_only' : (string)($revenue['data_status'] ?? 'unknown'))),
+        'reason' => $diagnosisReason,
         'data_status' => (string)($revenue['data_status'] ?? ''),
+        'requested_target_date' => $input['requested_target_date'] ?? $referenceScope['target_date'] ?? '',
+        'business_date' => $input['business_date'] ?? '',
+        'system_hotel_id' => $input['system_hotel_id'] ?? null,
+        'input_mode' => $inputMode,
+        'quality_blockers' => $referenceScope['quality_blockers'] ?? [],
         'source_channels' => $diagnosisSourceChannels,
         'metric_scope' => 'ota_channel',
         'metrics' => [
@@ -2392,11 +2170,11 @@ function business_chain_downstream_reference_workflow(array $revenue, array $clo
     $ctripChainActionQueue = business_chain_ctrip_chain_action_queue($revenueToAiHandoff, $aiToOperationHandoff);
 
     return [
-        'status' => $skipP0
+        'status' => $hasDiagnosis && ($inputMode === 'historical_reference' || $skipP0)
             ? 'reference_workflow_ready_not_claimable'
             : ($hasScopedReadyScope ? 'scoped_workflow_ready_for_manual_review' : ($hasPartialTargetReadyScope ? 'partial_reference_workflow_not_claimable' : 'p0_required')),
         'claim_allowed' => false,
-        'source_policy' => $skipP0
+        'source_policy' => $hasDiagnosis && ($inputMode === 'historical_reference' || $skipP0)
             ? 'use_reference_ota_rows_for_diagnosis_only'
             : ($hasScopedReadyScope
                 ? 'use_scoped_target_date_ota_rows_for_ai_review'
@@ -2654,7 +2432,6 @@ function business_chain_report(array $options): array
     $referenceDataset = business_chain_merge_datasets($referenceDatasets);
     $targetDataset = business_chain_filter_dataset_platforms($targetDataset, $sources);
     $referenceDataset = business_chain_filter_dataset_platforms($referenceDataset, $sources);
-    $skipActive = $skipP0 && $targetDataset['status'] !== 'ready' && $referenceDataset['status'] === 'ready';
     $p0ExecutionPlan = business_chain_p0_execution_plan($targetDate, $systemHotelId, $options['skip_platforms'], $sources);
     $systemHotelIdentity = business_chain_system_hotel_identity($systemHotelId, $expectedHotelName);
     $p0ExecutionPlan['scope']['system_hotel_identity'] = $systemHotelIdentity;
@@ -2667,19 +2444,13 @@ function business_chain_report(array $options): array
     $p0ExecutionPlan['completion_gate']['nonblocking_global_issues_retained'] = $p0Ready
         && (string)($p0ExecutionPlan['status'] ?? '') !== 'passed';
     $sourceRows = business_chain_attach_source_date_quality($sourceRows, $p0ExecutionPlan);
+    $downstreamReferenceScope = business_chain_downstream_reference_scope($sourceRows, $options['skip_platforms'], [
+        'target_date' => $targetDate, 'system_hotel_id' => $systemHotelId, 'platforms' => $sources,
+    ]);
+    $diagnosisInput = business_chain_diagnosis_input($downstreamReferenceScope, $targetDatasets, $referenceDatasets, $skipP0);
+    $downstreamReferenceScope['diagnosis_input'] = $diagnosisInput['scope'];
+    $skipActive = $diagnosisInput['scope']['mode'] === 'historical_reference';
     $p0Gate = business_chain_gate($targetDate, $systemHotelId, $skipActive, $options['skip_platforms'], $sources, $p0Ready);
-    $downstreamReferenceScope = business_chain_downstream_reference_scope($sourceRows, $options['skip_platforms']);
-    $diagnosisPlatforms = business_chain_list($downstreamReferenceScope['target_ready_platforms'] ?? []);
-    $diagnosisReferenceDataset = $referenceDataset;
-    $diagnosisReferenceDatasets = $referenceDatasets;
-    if ($diagnosisPlatforms !== [] && business_chain_list($downstreamReferenceScope['target_blocked_platforms'] ?? []) !== []) {
-        $diagnosisReferenceDataset = business_chain_filter_dataset_platforms($referenceDataset, $diagnosisPlatforms);
-        $diagnosisReferenceDatasets = array_intersect_key(
-            $referenceDatasets,
-            array_fill_keys(array_values(array_map('strval', $diagnosisPlatforms)), true)
-        );
-    }
-    $diagnosisEnabledChannels = $diagnosisPlatforms !== [] ? $diagnosisPlatforms : $sources;
 
     $revenueFactLayer = $systemHotelId !== null
         ? (new RevenueFactLayerService())->build(
@@ -2687,18 +2458,7 @@ function business_chain_report(array $options): array
             $targetDate
         )
         : [];
-    $revenue = (new RevenueAiOverviewService())->buildOverviewFromDataset(
-        $diagnosisReferenceDataset,
-        $diagnosisReferenceDatasets,
-        [],
-        [
-            'business_date' => $targetDate,
-            'hotel_id' => $systemHotelId,
-            'p0_downstream_gate' => $p0Gate,
-            'enabled_channels' => $diagnosisEnabledChannels,
-            'revenue_fact_layer' => $revenueFactLayer,
-        ]
-    );
+    $revenue = business_chain_build_revenue_diagnosis($diagnosisInput, $p0Gate);
     $operationService = new OperationManagementService();
     $executionFlow = $systemHotelId !== null
         ? $operationService->executionFlow(
@@ -2756,7 +2516,8 @@ function business_chain_report(array $options): array
     }
     $downstreamReferenceWorkflow = business_chain_downstream_reference_workflow($revenue, $closure, $skipActive, $downstreamReferenceScope, $p0Ready);
     $focusedChain = business_chain_focused_ota_revenue_ai_chain($p0Gate, $downstreamReferenceWorkflow, $sources);
-    $stages = business_chain_stage_rows($referenceDataset, $revenue, $closure, $skipActive, $p0Gate);
+    $stages = business_chain_stage_rows($diagnosisInput['dataset'], $revenue, $closure, $skipActive, $p0Gate,
+        $downstreamReferenceWorkflow['revenue_diagnosis']);
     $nextRequiredGate = business_chain_next_required_gate(
         $p0Gate,
         $revenueFactLayer,
@@ -2796,7 +2557,7 @@ function business_chain_report(array $options): array
         'skip_p0_policy' => [
             'requested' => $skipP0,
             'active' => $skipActive,
-            'reason' => $skipActive ? 'target_date_p0_rows_missing_but_latest_real_ota_rows_exist' : '',
+            'reason' => $skipActive ? 'target_date_quality_unavailable_explicit_historical_reference_only' : $diagnosisInput['scope']['reason'],
             'forbidden_claims' => [
                 'target_date_closure',
                 'whole_hotel_operating_truth',
@@ -2805,6 +2566,7 @@ function business_chain_report(array $options): array
             ],
         ],
         'source_rows' => $sourceRows,
+        'diagnosis_input' => $diagnosisInput['scope'],
         'p0_downstream_gate' => $p0Gate,
         'p0_execution_plan' => $p0ExecutionPlan,
         'operator_skip_platforms' => $options['skip_platforms'],
@@ -2815,6 +2577,8 @@ function business_chain_report(array $options): array
         'revenue_ai_summary' => [
             'data_status' => $revenue['data_status'] ?? '',
             'source_channels' => $revenue['source_channels'] ?? [],
+            'actual_source_channels' => $revenue['actual_source_channels'] ?? [],
+            'business_date' => $revenue['business_date'] ?? '',
             'missing_datasets' => $revenue['missing_datasets'] ?? [],
             'pricing_status' => $revenue['pricing_readiness']['status'] ?? '',
         ],
@@ -2912,29 +2676,119 @@ function business_chain_markdown(array $report): string
         $completionGate = is_array($p0Plan['completion_gate'] ?? null)
             ? $p0Plan['completion_gate']
             : [];
+        $dateIdentity = is_array($p0Plan['scope']['date_identity'] ?? null)
+            ? $p0Plan['scope']['date_identity'] : [];
+        $dateScopeReady = business_chain_p0_date_scope_ready(
+            is_array($p0Plan['scope'] ?? null) ? $p0Plan['scope'] : []
+        );
+        if ($dateIdentity === []) {
+            $dateIdentity = business_chain_p0_date_identity((string)($p0Plan['scope']['target_date'] ?? ''), null);
+            $lines[] = '- date_recovery: 验证日期证据缺失，请按原请求日期重新核对。';
+        } elseif (!$dateScopeReady) {
+            $dateIdentity = business_chain_p0_date_identity(
+                (string)($p0Plan['scope']['target_date'] ?? ''),
+                $dateIdentity['verifier_target_date'] ?? null
+            );
+            if ($dateIdentity['status'] === 'ready') {
+                $dateIdentity['status'] = 'blocked';
+                $dateIdentity['reason'] = 'verifier_business_date_unverified';
+            }
+        }
+        if ($dateIdentity !== []) {
+            $lines[] = '- date_identity: `' . ($dateIdentity['status'] ?? 'unverified')
+                . '`, requested=`' . ($dateIdentity['requested_target_date'] ?? '')
+                . '`, verifier=`' . ($dateIdentity['verifier_target_date'] ?? '')
+                . '`, reason=`' . ($dateIdentity['reason'] ?? '') . '`';
+        }
+        $planScope = is_array($p0Plan['scope'] ?? null) ? $p0Plan['scope'] : [];
+        $hotelScopeReady = business_chain_p0_hotel_scope_ready($planScope);
+        $hotelIdentity = is_array($planScope['hotel_identity'] ?? null) ? $planScope['hotel_identity'] : [];
+        if (!$hotelScopeReady) {
+            $hotelIdentity['status'] = 'blocked';
+            $hotelIdentity['reason'] = (string)($hotelIdentity['reason'] ?? '') ?: 'verifier_system_hotel_scope_unverified';
+            $lines[] = '- hotel_recovery: 请按原请求门店核对验证范围和门店证据。';
+        }
+        $lines[] = '- hotel_identity: `' . ($hotelIdentity['status'] ?? 'blocked')
+            . '`, requested_hotel=`' . ($planScope['system_hotel_id'] ?? '')
+            . '`, verifier_hotel=`' . ($hotelIdentity['verifier_system_hotel_id'] ?? '')
+            . '`, reason=`' . ($hotelIdentity['reason'] ?? '') . '`';
         $lines[] = '- global_verifier_status: `' . ($completionGate['global_verifier_status'] ?? $p0Plan['status'] ?? 'unknown') . '`';
-        $lines[] = '- selected_scope_status: `' . ($completionGate['selected_scope_status'] ?? 'unknown')
+        $lines[] = '- selected_scope_status: `' . (business_chain_p0_execution_plan_ready($p0Plan) ? 'ready' : 'blocked')
             . '`, hotel_identity=`' . ($completionGate['system_hotel_identity_status'] ?? 'unknown')
             . '`, retained_global_issues=`'
             . (($completionGate['nonblocking_global_issues_retained'] ?? false) ? 'true' : 'false') . '`';
+        $summariesByPlatform = [];
+        foreach (business_chain_list($p0Plan['platform_summaries'] ?? []) as $summary) {
+            if (is_array($summary)) {
+                $summariesByPlatform[(string)($summary['platform'] ?? '')] = $summary;
+                $coverage = business_chain_p0_readback_coverage($summary);
+                $lines[] = '- readback_coverage `' . ($summary['platform'] ?? '') . '`: `' . $coverage['status']
+                    . '`, stored=`' . ($coverage['stored_target_date_traffic_rows'] ?? 'unknown')
+                    . '`, verified=`' . ($coverage['readback_verified_rows'] ?? 'unknown')
+                    . '`, unverified=`' . ($coverage['readback_unverified_rows'] ?? 'unknown')
+                    . '`, matched=`' . ($coverage['traffic_rows'] ?? 'unknown')
+                    . '`, reason=`' . $coverage['reason'] . '`';
+                $hasCoverageRecovery = false;
+                foreach ($operatorSequence as $item) {
+                    if (is_array($item) && ($item['type'] ?? '') === 'verify_target_date_readback_coverage'
+                        && ($item['platform'] ?? '') === ($summary['platform'] ?? '')) {
+                        $hasCoverageRecovery = true;
+                        break;
+                    }
+                }
+                if ($coverage['status'] !== 'ready' && $dateScopeReady && $hotelScopeReady
+                    && ($summary['operator_skip_active'] ?? false) !== true && !$hasCoverageRecovery) {
+                    $lines[] = '- readback_recovery: `' . $coverage['reason'] . '`; 按原请求门店、渠道和日期重新核对全部存储行的读回证明。';
+                    if (trim((string)($completionGate['command'] ?? '')) !== '') {
+                        $lines[] = '- verify_target_date_readback_coverage: `' . $completionGate['command'] . '`';
+                    }
+                }
+            }
+        }
         foreach ($operatorSequence as $item) {
             if (!is_array($item)) {
                 continue;
             }
             $type = (string)($item['type'] ?? '');
+            if (!$dateScopeReady && $type !== 'verify_requested_business_date') {
+                continue;
+            }
+            if (!$hotelScopeReady && !in_array($type, ['verify_requested_business_date', 'verify_requested_system_hotel'], true)) {
+                continue;
+            }
             $platform = (string)($item['platform'] ?? '');
             $hotel = (string)($item['system_hotel_id'] ?? '');
             $source = (string)($item['data_source_id'] ?? '');
+            if (isset($planScope['system_hotel_id'])
+                && !in_array($type, ['verify_requested_business_date', 'verify_requested_system_hotel'], true)
+                && (int)$hotel !== (int)$planScope['system_hotel_id']) {
+                continue;
+            }
             if ($type === 'manual_login') {
                 $lines[] = '- login `' . $platform . '` hotel `' . $hotel . '` source `' . $source . '`: `' . ($item['entry'] ?? '') . '`';
             } elseif ($type === 'after_login_sync') {
                 $lines[] = '- sync `' . $platform . '` hotel `' . $hotel . '` source `' . $source . '`: `' . ($item['entry'] ?? '') . '`';
             } elseif ($type === 'already_ready') {
+                $summary = $summariesByPlatform[$platform] ?? [];
+                if (business_chain_p0_readback_coverage($summary)['status'] !== 'ready' || !business_chain_p0_hotel_ready(
+                    is_array($summary['hotel_scope_evidence'] ?? null) ? $summary['hotel_scope_evidence'] : [],
+                    (int)$hotel,
+                    ($summary['platform_ready'] ?? false) === true
+                )) {
+                    continue;
+                }
                 $lines[] = '- already_ready `' . $platform . '` hotel `' . $hotel . '` source `' . $source . '`: `' . ($item['status'] ?? '') . '`';
             } elseif ($type === 'operator_skip') {
                 $lines[] = '- operator_skip `' . $platform . '` hotel `' . $hotel . '` source `' . $source . '`: `' . ($item['status'] ?? '') . '`';
             } elseif ($type === 'single_scope_verifier') {
                 $lines[] = '- verify `' . $platform . '` hotel `' . $hotel . '` source `' . $source . '`: `' . ($item['command'] ?? '') . '`';
+            } elseif (in_array($type, ['verify_requested_business_date', 'verify_requested_system_hotel', 'verify_target_date_readback_coverage'], true)) {
+                $lines[] = '- ' . ($type === 'verify_requested_business_date' ? 'date_recovery'
+                    : ($type === 'verify_requested_system_hotel' ? 'hotel_recovery' : 'readback_recovery'))
+                    . ': `' . ($item['reason'] ?? '') . '`; ' . ($item['boundary'] ?? '');
+                if (trim((string)($item['command'] ?? '')) !== '') {
+                    $lines[] = '- ' . $type . ': `' . $item['command'] . '`';
+                }
             }
         }
     }
@@ -2946,8 +2800,19 @@ function business_chain_markdown(array $report): string
         $lines[] = '- status: `' . ($workflow['status'] ?? '') . '`';
         $lines[] = '- source_policy: `' . ($workflow['source_policy'] ?? '') . '`';
         $lines[] = '- target_ready_platforms: `' . implode(',', business_chain_list($scope['target_ready_platforms'] ?? [])) . '`';
+        $lines[] = '- target_blocked_platforms: `' . implode(',', business_chain_list($scope['target_blocked_platforms'] ?? [])) . '`';
         $lines[] = '- operator_skip_platforms: `' . implode(',', business_chain_list($scope['operator_skip_platforms'] ?? [])) . '`';
         $lines[] = '- revenue_diagnosis: `' . ($workflow['revenue_diagnosis']['status'] ?? '') . '`';
+        $input = is_array($scope['diagnosis_input'] ?? null) ? $scope['diagnosis_input'] : [];
+        $lines[] = '- diagnosis_input: mode=`' . ($input['mode'] ?? 'blocked') . '`, requested_target_date=`'
+            . ($input['requested_target_date'] ?? '') . '`, business_date=`' . ($input['business_date'] ?? '')
+            . '`, system_hotel_id=`' . ($input['system_hotel_id'] ?? '') . '`, reason=`' . ($input['reason'] ?? '') . '`';
+        foreach ($scope['quality_blockers'] ?? [] as $platform => $reasons) {
+            $lines[] = '- quality_blocker[' . $platform . ']: `' . implode(',', business_chain_list($reasons)) . '`';
+        }
+        foreach ($input['dataset_issues'] ?? [] as $platform => $datasetStatus) {
+            $lines[] = '- diagnosis_dataset_issue[' . $platform . ']: `' . $datasetStatus . '`';
+        }
         $lines[] = '- ai_advice_draft: `' . ($workflow['ai_advice_draft']['status'] ?? '') . '`, action_count=`' . (int)($workflow['ai_advice_draft']['action_count'] ?? 0) . '`';
         $handoff = is_array($workflow['revenue_to_ai_handoff'] ?? null) ? $workflow['revenue_to_ai_handoff'] : [];
         $lines[] = '- revenue_to_ai_handoff: `' . ($handoff['status'] ?? '') . '`, source_scope=`' . ($handoff['source_scope'] ?? '') . '`';

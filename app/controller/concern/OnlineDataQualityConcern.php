@@ -108,8 +108,9 @@ trait OnlineDataQualityConcern
                 return $this->error('未登录', 401);
             }
 
-            $startDate = $this->request->get('start_date', '');
-            $endDate = $this->request->get('end_date', '');
+            [$startDate, $endDate] = \app\service\OtaReadDateRangeService::normalize(
+                $this->request->get('start_date', ''), $this->request->get('end_date', '')
+            );
             $source = $this->request->get('source', '');
             $hotelId = trim((string)$this->request->get('system_hotel_id', $this->request->get('hotel_id', '')));  // 系统酒店筛选
             $otaHotelId = trim((string)$this->request->get('ota_hotel_id', '')); // OTA平台酒店ID筛选
@@ -118,8 +119,9 @@ trait OnlineDataQualityConcern
                 $dataType,
                 $this->request->get('data_types', '')
             );
-            $createStart = $this->request->get('create_start', ''); // 获取开始时间
-            $createEnd = $this->request->get('create_end', ''); // 获取结束时间
+            [$createStart, $createEnd] = \app\service\OtaReadDateRangeService::normalize(
+                $this->request->get('create_start', ''), $this->request->get('create_end', ''), '采集日期'
+            );
             $page = max(1, intval($this->request->get('page', 1)));
             $pageSizeInput = $this->request->get('page_size', 30);
             $fetchAllRequested = in_array(strtolower(trim((string)$pageSizeInput)), ['all', '全部'], true)
@@ -139,9 +141,11 @@ trait OnlineDataQualityConcern
             $query = Db::name('online_daily_data');
 
             // 按数据日期查询
-            if (!empty($startDate) && !empty($endDate)) {
-                $query->where('data_date', '>=', $startDate)
-                      ->where('data_date', '<=', $endDate);
+            if ($startDate !== '') {
+                $query->where('data_date', '>=', $startDate);
+            }
+            if ($endDate !== '') {
+                $query->where('data_date', '<=', $endDate);
             }
 
             // 按来源筛选
@@ -266,6 +270,7 @@ trait OnlineDataQualityConcern
                 $item['field_fact_status'] = $this->buildOnlineDataFieldFactStatus($item, $rawData);
                 $item['data_quality'] = $this->buildOnlineDataQuality($item);
                 $item['truth'] = OnlineDataTrustStatusService::truthEnvelope($item, $item['field_fact_status']);
+                $item = (new \app\service\OperationAuditSanitizerService())->sanitizeArray($item, PHP_INT_MAX);
             }
 
             return $this->success([
@@ -289,6 +294,9 @@ trait OnlineDataQualityConcern
                 ]),
             ]);
         } catch (\Throwable $e) {
+            if ($e instanceof \InvalidArgumentException && $e->getCode() === 422) {
+                return $this->error($e->getMessage(), 422);
+            }
             \think\facade\Log::error('获取线上数据列表失败: ' . $e->getMessage(), ['exception' => $e]);
             return $this->error('获取数据列表失败', 500);
         }

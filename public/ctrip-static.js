@@ -1011,7 +1011,7 @@ window.SUXI_CTRIP_STATIC = window.SUXI_CTRIP_STATIC_FULL = (() => {
                     })
                     .filter(sample => sampleValueText(sample));
             }
-            const value = String(field.latest_value || '').trim();
+            const value = String(field.latest_value ?? '').trim();
             if (!value) return [];
             return value.split(' / ').map(item => ({ value: item })).filter(sample => sampleValueText(sample));
         };
@@ -2025,7 +2025,16 @@ window.SUXI_CTRIP_STATIC = window.SUXI_CTRIP_STATIC_FULL = (() => {
             const fetchRequest = requestContext.temporaryCookieQuery && typeof requestTemporaryFetch === 'function'
                 ? requestTemporaryFetch
                 : requestFetch;
-            const res = await fetchRequest(requestBody);
+            const res = await fetchRequest(requestBody).catch(error => {
+                // The shared HTTP transport rejects 422, but this particular
+                // response contains displayable rows with a blocked save.
+                const response = error?.data;
+                if (error?.httpStatus === 422 && response?.code === 422
+                    && response.data?.save_status === 'target_date_unverified') {
+                    return response;
+                }
+                throw error;
+            });
             if (!isCurrent()) return { status: 'stale' };
             debugLog('携程数据响应:', res);
 
@@ -2062,6 +2071,7 @@ window.SUXI_CTRIP_STATIC = window.SUXI_CTRIP_STATIC_FULL = (() => {
                         orderEstimateDataDate: endDate,
                         orderEstimateTargetDataDate: endDate,
                         orderEstimateFetchedAt: unverifiedDateData.fetched_at || '',
+                        sourceReady: false,
                     },
                 );
                 setOnlineDataFilterDates({ startDate, endDate });
@@ -3136,6 +3146,24 @@ window.SUXI_CTRIP_STATIC = window.SUXI_CTRIP_STATIC_FULL = (() => {
     };
 
     const buildCtripChannelOrderBreakdown = (row = {}, options = {}) => {
+        if (options.sourceReady === false) {
+            return {
+                totalOrdersIncludingCancelled: null,
+                totalOrderConversionRatio: null,
+                ctripOrders: null,
+                qunarOrders: null,
+                ctripUndistributedOrders: null,
+                ctripEstimateExcessOrders: null,
+                status: 'source_unverified',
+                displayLabel: '未核验',
+                sourceLabel: '当前门店、来源业务日期或回读证据未核验；仅保留已存字段供审计，不推算渠道订单。',
+                formulas: {},
+                inputs: {},
+                missingInputs: [],
+                provenance: {},
+                identity: ctripChannelOrderIdentity(row, options),
+            };
+        }
         const metricStatus = row?.metricSourceStatus && typeof row.metricSourceStatus === 'object'
             ? row.metricSourceStatus
             : {};

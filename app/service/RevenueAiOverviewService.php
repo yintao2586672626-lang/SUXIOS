@@ -11,16 +11,23 @@ class RevenueAiOverviewService
     public const AS_OF_DATE_CONTRACT_VERSION = RevenueOverviewDateContract::VERSION;
 
     use \app\service\concern\RevenueAiOverviewLabelConcern;
+    use RevenueAiOverviewIssueConcern;
+    use \app\service\concern\RevenueAiOverviewManualOrderConcern;
     private const CHANNELS = ['ctrip', 'meituan'];
     private const CTRIP_COMPETITOR_PLATFORM_VALUES = [1, '1', 'ctrip'];
 
     /** @var array<int, int> */
     private array $overviewScopeHotelIds = [];
     private P0OtaDownstreamGateService $p0GateService;
+    private ?RevenuePricingRecommendationService $pricingRecommendationService;
 
-    public function __construct(?P0OtaDownstreamGateService $p0GateService = null)
+    public function __construct(
+        ?P0OtaDownstreamGateService $p0GateService = null,
+        ?RevenuePricingRecommendationService $pricingRecommendationService = null
+    )
     {
         $this->p0GateService = $p0GateService ?? new P0OtaDownstreamGateService();
+        $this->pricingRecommendationService = $pricingRecommendationService;
     }
 
     /**
@@ -391,13 +398,13 @@ class RevenueAiOverviewService
         }
         $metricsSummary = (new OtaRevenueMetricService())->summarizeDataset($dataset);
         $dailyFacts = $this->list($dataset['fact_ota_daily'] ?? []);
-        $actualScopedSourceChannels = $this->sourceChannels($dataset, $channelDatasets);
+        $actualScopedSourceChannels = $this->sourceChannels($dataset);
         if ($enabledChannels !== []) {
             $actualScopedSourceChannels = array_values(array_intersect($actualScopedSourceChannels, $enabledChannels));
         }
         $displaySourceChannels = $this->displaySourceChannels($actualScopedSourceChannels, $enabledChannels);
         $lastSuccessAt = $this->lastSuccessAt($dataset, $sourceStatuses, $enabledChannels);
-        $channelStatuses = $this->channelStatuses($channelDatasets, $sourceStatuses, $businessDate, $enabledChannels);
+        $channelStatuses = $this->channelStatuses($channelDatasets, $sourceStatuses, $businessDate, $enabledChannels, $actualScopedSourceChannels);
         $channelMetricCoverage = $this->channelMetricCoverage(
             $channelDatasets,
             $businessDate,
@@ -459,18 +466,6 @@ class RevenueAiOverviewService
                 'summary' => [],
                 'note' => '人工订单导入回读未加载。',
             ];
-        $pricingReadiness = $this->pricingReadiness(
-            $metricsSummary,
-            $missingDatasets,
-            $qualityIssues,
-            $signals,
-            $reviewQueue,
-            $executionSummary,
-            $displaySourceChannels,
-            $pricingGenerationPreflight,
-            $revenueFactLayer
-        );
-        $pricingReadiness['ai_to_operation_handoff'] = $this->pricingAiToOperationHandoff($pricingReadiness, $executionSummary, $businessDate, $hotelId, $displaySourceChannels);
         $dailyMetricStatus = $dataStatus === 'empty_confirmed' ? 'empty_confirmed' : 'empty';
         $dailyMetricReason = $dataStatus === 'empty_confirmed' ? 'ZERO_CONFIRMED' : 'online_daily_data_empty';
 
@@ -605,8 +600,24 @@ class RevenueAiOverviewService
             $revenueFactLayer,
             $businessDate,
             $hotelId,
-            $channelMetricCoverage['statuses']
+            $channelMetricCoverage['statuses'],
+            $scopeChannels
         ));
+
+        $pricingReadiness = $this->pricingReadiness(
+            $metricsSummary,
+            $missingDatasets,
+            $qualityIssues,
+            $signals,
+            $reviewQueue,
+            $executionSummary,
+            $displaySourceChannels,
+            $pricingGenerationPreflight,
+            $revenueFactLayer,
+            $metrics,
+            array_merge($metricContext, ['data_status' => $dataStatus])
+        );
+        $pricingReadiness['ai_to_operation_handoff'] = $this->pricingAiToOperationHandoff($pricingReadiness, $executionSummary, $businessDate, $hotelId, $displaySourceChannels);
 
         return [
             'data_status' => $dataStatus,
@@ -666,156 +677,6 @@ class RevenueAiOverviewService
                 'data_gaps' => $metricsSummary['data_gaps'] ?? [],
             ],
             'generated_at' => date('Y-m-d H:i:s'),
-        ];
-    }
-
-    /**
-     * Read back only value-verified manual order aggregates. These rows remain
-     * user-provided/unverified and are deliberately kept outside confirmed
-     * room-revenue metrics and automated pricing readiness.
-     *
-     * @return array<string, mixed>
-     */
-    private function manualOrderImportSummary(string $businessDate, ?int $hotelId): array
-    {
-        $base = [
-            'status' => 'no_data',
-            'quality_status' => 'user_provided_unverified',
-            'business_date' => $businessDate,
-            'hotel_id' => $hotelId,
-            'rows' => [],
-            'summary' => [],
-            'note' => '仅展示已保存并精确回读的人工携程订单聚合；参考底价不是确认收入。',
-            'real_file_acceptance' => 'unverified',
-        ];
-        if ($hotelId === null || !$this->tableExists('online_daily_data')) {
-            $base['status'] = 'not_loaded';
-            return $base;
-        }
-        $columns = $this->tableColumns('online_daily_data');
-        foreach (['system_hotel_id', 'source', 'data_date', 'data_type', 'ingestion_method', 'raw_data', 'readback_verified'] as $required) {
-            if (!isset($columns[$required])) {
-                $base['status'] = 'readback_contract_unavailable';
-                $base['note'] = '人工订单导入缺少精确回读字段，当前不展示聚合结果。';
-                return $base;
-            }
-        }
-        $fields = array_values(array_filter([
-            'id', 'system_hotel_id', 'source', 'data_date', 'data_type', 'ingestion_method',
-            'validation_status', 'readback_verified', 'source_trace_id', 'raw_data',
-        ], static fn(string $field): bool => isset($columns[$field])));
-        try {
-            $rows = Db::name('online_daily_data')
-                ->field(implode(',', $fields))
-                ->where('system_hotel_id', $hotelId)
-                // online_daily_data.source is the authoritative OTA platform
-                // identity; per-order sales channels live inside raw_data.
-                ->where('source', 'ctrip')
-                ->where('data_date', $businessDate)
-                ->where('data_type', 'order')
-                ->whereIn('ingestion_method', ['manual', 'import_excel', 'import_csv', 'import_json'])
-                ->where('readback_verified', 1)
-                ->order('id', 'asc')
-                ->select()
-                ->toArray();
-        } catch (\Throwable) {
-            $base['status'] = 'readback_query_failed';
-            $base['note'] = '人工订单导入回读查询失败，当前不展示聚合结果。';
-            return $base;
-        }
-
-        $items = [];
-        foreach ($rows as $row) {
-            if (!is_array($row)) {
-                continue;
-            }
-            $item = $this->manualOrderImportItem($row, $businessDate);
-            if ($item !== null) {
-                $items[] = $item;
-            }
-        }
-        if ($items === []) {
-            return $base;
-        }
-
-        $base['status'] = 'available_unverified';
-        $base['rows'] = $items;
-        $acceptanceStatuses = array_values(array_unique(array_map(
-            static fn(array $item): string => (string)($item['real_file_acceptance'] ?? 'unverified'),
-            $items
-        )));
-        $base['real_file_acceptance'] = count($acceptanceStatuses) === 1
-            ? $acceptanceStatuses[0]
-            : 'mixed_local_acceptance';
-        $base['summary'] = [
-            'row_count' => count($items),
-            'active_orders' => array_sum(array_map(static fn(array $item): float => (float)($item['active_orders'] ?? 0), $items)),
-            'cancelled_orders' => array_sum(array_map(static fn(array $item): float => (float)($item['cancelled_orders'] ?? 0), $items)),
-            'room_nights' => array_sum(array_map(static fn(array $item): float => (float)($item['room_nights'] ?? 0), $items)),
-            'readback_verified' => true,
-        ];
-        return $base;
-    }
-    /**
-     * @param array<string, mixed> $row
-     * @return array<string, mixed>|null
-     */
-    private function manualOrderImportItem(array $row, string $businessDate): ?array
-    {
-        $stored = $this->jsonLikeArray($row['raw_data'] ?? []);
-        $canonical = is_array($stored['row'] ?? null) ? $stored['row'] : [];
-        $detail = is_array($canonical['raw_data'] ?? null) ? $canonical['raw_data'] : [];
-        $importContract = (string)($detail['import_contract'] ?? '');
-        if (strtolower(trim((string)($row['source'] ?? ''))) !== 'ctrip'
-            || strtolower(trim((string)($canonical['platform'] ?? ''))) !== 'ctrip'
-            || (string)($detail['amount_semantics'] ?? '') !== 'reference_bottom_price_not_confirmed_revenue'
-            || !in_array($importContract, ['ctrip_order_aggregate_v1', 'ctrip_order_aggregate_v2'], true)
-            || ($importContract === 'ctrip_order_aggregate_v2' && (string)($detail['record_kind'] ?? '') !== 'channel_daily_aggregate')
-            || (string)($detail['pii_policy'] ?? '') !== 'aggregate_only_no_guest_staff_reservation_notes'
-        ) {
-            return null;
-        }
-        $channelKey = strtolower(trim((string)($detail['channel_key'] ?? $canonical['source'] ?? '')));
-        if ($channelKey === '') {
-            return null;
-        }
-        $sourceFormatValue = $detail['source_format'] ?? null;
-        $sourceFormat = is_scalar($sourceFormatValue) ? trim((string)$sourceFormatValue) : null;
-        if ($sourceFormat === '') {
-            $sourceFormat = null;
-        }
-
-        return [
-            'row_id' => max(0, (int)($row['id'] ?? 0)),
-            'source' => 'ctrip_manual_order_import',
-            'source_label' => '携程订单文件人工导入',
-            'channel_key' => $channelKey,
-            'channel_label' => trim((string)($detail['channel_label'] ?? $channelKey)),
-            'business_date' => (string)($row['data_date'] ?? $businessDate),
-            'business_date_basis' => (string)($detail['business_date_basis'] ?? 'stay_date'),
-            'active_orders' => $this->numeric($canonical['book_order_num'] ?? $detail['active_order_num'] ?? null),
-            'gross_orders' => $this->numeric($canonical['gross_order_num'] ?? $detail['gross_order_num'] ?? null),
-            'cancelled_orders' => $this->numeric($canonical['cancel_order_num'] ?? $detail['cancel_order_num'] ?? null),
-            'unknown_status_orders' => $this->numeric($canonical['unknown_status_order_num'] ?? $detail['unknown_status_order_num'] ?? null),
-            'cancel_rate' => $this->numeric($canonical['cancel_rate'] ?? $detail['cancel_rate'] ?? null),
-            'room_nights' => $this->numeric($canonical['quantity'] ?? $detail['room_nights'] ?? null),
-            'average_booking_lead_days' => $this->numeric($canonical['avg_lead_days'] ?? $detail['average_booking_lead_days'] ?? null),
-            'reference_bottom_price_total' => $this->numeric($canonical['amount'] ?? $detail['bottom_price_sum'] ?? null),
-            'reference_bottom_price_adr' => $this->numeric($canonical['bottom_price_adr'] ?? $detail['bottom_price_adr'] ?? null),
-            'reference_bottom_price_coverage_rate' => $this->numeric($detail['bottom_price_coverage_rate'] ?? null),
-            'reference_bottom_price_completeness' => (string)($detail['bottom_price_completeness'] ?? 'unknown'),
-            'amount_semantics' => 'reference_bottom_price_not_confirmed_revenue',
-            'source_format' => $sourceFormat,
-            'source_layout' => is_scalar($detail['source_layout'] ?? null) ? trim((string)$detail['source_layout']) ?: null : null,
-            'source_file_count' => max(0, (int)($detail['source_file_count'] ?? 0)),
-            'import_contract' => $importContract,
-            'quality_status' => 'user_provided_unverified',
-            'readback_verified' => true,
-            'real_file_acceptance' => (string)($detail['fixture_status'] ?? '') === 'explicit_test_fixture'
-                ? 'test_fixture_only'
-                : ((string)($detail['file_layout_acceptance'] ?? '') === 'verified_25_column_layout'
-                    ? 'local_25_column_layout_and_readback_verified'
-                    : 'compatible_layout_readback_verified'),
         ];
     }
 
@@ -908,21 +769,23 @@ class RevenueAiOverviewService
 
     /**
      * @param array<string, mixed> $dataset
-     * @param array<string, array<string, mixed>> $channelDatasets
      * @return array<int, string>
      */
-    private function sourceChannels(array $dataset, array $channelDatasets): array
+    private function sourceChannels(array $dataset): array
     {
         $channels = [];
-        foreach ($this->list($dataset['dim_platform'] ?? []) as $platform) {
-            $key = strtolower(trim((string)($platform['platform_key'] ?? '')));
-            if (in_array($key, self::CHANNELS, true)) {
-                $channels[] = $key;
-            }
-        }
-        foreach (self::CHANNELS as $channel) {
-            if (($channelDatasets[$channel]['status'] ?? '') !== 'empty') {
-                $channels[] = $channel;
+        // The aggregate has already been rebuilt from hotel/date/channel-scoped facts.
+        // Optional dimensions and channel status objects do not establish fact presence.
+        foreach ([
+            'fact_ota_daily', 'fact_ota_traffic', 'fact_ota_advertising', 'fact_ota_quality',
+            'fact_ota_search_keyword', 'fact_ota_peer_rank', 'fact_ota_traffic_analysis',
+            'fact_ota_traffic_forecast', 'fact_ota_comment',
+        ] as $factKey) {
+            foreach ($this->list($dataset[$factKey] ?? []) as $fact) {
+                $key = strtolower(trim((string)($fact['platform_key'] ?? '')));
+                if (in_array($key, self::CHANNELS, true)) {
+                    $channels[] = $key;
+                }
             }
         }
         return array_values(array_unique($channels));
@@ -1488,6 +1351,15 @@ class RevenueAiOverviewService
                 ];
             }
         }
+        if (in_array(strtolower(trim((string)($dataset['status'] ?? ''))), ['failed', 'error'], true)) {
+            $issues[] = [
+                'key' => 'overview_dataset_read_failed',
+                'status' => 'failed',
+                'reason' => 'overview_dataset_read_failed',
+                'scope' => 'ota_channel',
+                'message' => '当前请求范围的 OTA 渠道汇总读取失败，已加载的部分事实不代表完整读取成功。',
+            ];
+        }
         return $this->uniqueIssueRows($this->enrichIssueRows($issues, 'quality_issue'));
     }
 
@@ -1577,6 +1449,9 @@ class RevenueAiOverviewService
         if (in_array('unauthorized', $mappedStatuses, true)) {
             return 'unauthorized';
         }
+        if (in_array(strtolower(trim((string)($dataset['status'] ?? ''))), ['failed', 'error'], true)) {
+            return 'failed';
+        }
         if (in_array('stale', $mappedStatuses, true) && ($dataset['status'] ?? '') === 'empty') {
             return 'stale';
         }
@@ -1605,21 +1480,28 @@ class RevenueAiOverviewService
     /**
      * @param array<string, array<string, mixed>> $channelDatasets
      * @param array<string, array<string, mixed>> $sourceStatuses
+     * @param array<int, string> $actualSourceChannels Channels with accepted facts in the requested scope.
      * @return array<string, array<string, mixed>>
      */
-    private function channelStatuses(array $channelDatasets, array $sourceStatuses, string $businessDate, array $enabledChannels = []): array
+    private function channelStatuses(array $channelDatasets, array $sourceStatuses, string $businessDate, array $enabledChannels, array $actualSourceChannels): array
     {
         $statuses = [];
         $channels = $enabledChannels !== [] ? $enabledChannels : self::CHANNELS;
         foreach ($channels as $channel) {
             $dataset = is_array($channelDatasets[$channel] ?? null) ? $channelDatasets[$channel] : [];
             $mapped = $this->mapSourceStatus($sourceStatuses[$channel] ?? []);
-            $hasRows = ($dataset['status'] ?? '') !== 'empty';
-            if ($hasRows && in_array($mapped['status'], ['unknown', 'stale'], true)) {
+            $hasRows = in_array($channel, $actualSourceChannels, true);
+            $datasetFailed = in_array(strtolower(trim((string)($dataset['status'] ?? ''))), ['failed', 'error'], true);
+            if ($datasetFailed && !in_array($mapped['status'], ['unauthorized', 'failed'], true)) {
+                $mapped['status'] = 'failed';
+                $mapped['label'] = '读取失败';
+                $mapped['reason'] = 'target_date_dataset_failed';
+                $mapped['detail'] = '目标日期 ' . $businessDate . ' 的渠道数据集读取失败，现有行不代表本次读取完整成功。';
+            } elseif ($hasRows && in_array($mapped['status'], ['unknown', 'stale'], true)) {
                 $mapped['status'] = 'ok';
                 $mapped['label'] = '有当日数据';
                 $mapped['reason'] = '';
-                $mapped['detail'] = 'online_daily_data has accepted rows for ' . $businessDate . '.';
+                $mapped['detail'] = '目标日期 ' . $businessDate . ' 范围内存在已接受的渠道事实记录，具体指标的可用性和验证状态需分别核对。';
             } elseif (!$hasRows && in_array($mapped['status'], ['ok', 'partial', 'empty_confirmed'], true)) {
                 if ($this->isBeforeBusinessDate($mapped['last_success_at'] ?? null, $businessDate)) {
                     $mapped['status'] = 'stale';
@@ -1753,20 +1635,28 @@ class RevenueAiOverviewService
         array $factLayer,
         string $businessDate,
         ?int $hotelId,
-        array $channelMetricStatuses = []
+        array $channelMetricStatuses = [],
+        array $requestedPlatforms = []
     ): array
     {
         $rows = is_array($factLayer['analysis_metrics'] ?? null)
             ? $factLayer['analysis_metrics']
             : [];
         $pmsFactSelection = (new RevenuePmsFactSelectorService())->select($factLayer);
+        $requestedPlatforms = $this->enabledChannels($requestedPlatforms);
+        sort($requestedPlatforms);
         $metrics = [];
         foreach ($rows as $key => $row) {
             if (!is_array($row)) {
                 continue;
             }
+            $isRequestedOtaMetric = in_array((string)$key, ['ota_room_revenue', 'ota_room_nights', 'ota_adr'], true);
+            $metricKeyMismatch = $isRequestedOtaMetric && array_key_exists('key', $row)
+                && (!is_string($row['key']) || $row['key'] !== (string)$key);
             $value = $this->numeric($row['value'] ?? null);
-            $unit = (string)($row['unit'] ?? '');
+            $unit = $isRequestedOtaMetric
+                ? (is_string($row['unit'] ?? null) ? $row['unit'] : '')
+                : (string)($row['unit'] ?? '');
             $format = $unit === 'CNY'
                 ? 'money'
                 : ($unit === '%' ? 'percent' : 'number');
@@ -1779,12 +1669,31 @@ class RevenueAiOverviewService
             ), static fn(string $channel): bool => trim($channel) !== ''));
             $status = (string)($row['status'] ?? ($value !== null ? 'ok' : 'not_calculable'));
             $reason = (string)($row['reason'] ?? '');
-            if ($value !== null) {
-                if ($this->metricTruthScopeMismatch(
+            if ($isRequestedOtaMetric && $value !== null && !is_finite($value)) {
+                $value = null;
+            }
+            // Pure OTA metrics require explicit channel/data-date semantics; missing
+            // metadata must not acquire a verified meaning from legacy defaults.
+            $metricScope = $isRequestedOtaMetric
+                ? (is_string($row['scope'] ?? null) ? $row['scope'] : '')
+                : (string)($row['scope'] ?? 'ota_channel');
+            $metricDateBasis = $isRequestedOtaMetric
+                ? (is_string($row['date_basis'] ?? null) ? $row['date_basis'] : '')
+                : (string)($row['date_basis'] ?? 'data_date');
+            if ($value !== null || ($isRequestedOtaMetric && in_array(strtolower(trim($status)), ['ok', 'ready', 'verified'], true))) {
+                $metricPlatforms = array_values(array_unique(array_map(
+                    static fn(string $channel): string => strtolower(trim($channel)),
+                    $sourceChannels
+                )));
+                sort($metricPlatforms);
+                if (($isRequestedOtaMetric && ($metricKeyMismatch || $metricPlatforms !== $requestedPlatforms
+                        || $metricScope !== 'ota_channel' || $metricDateBasis !== 'data_date'
+                        || $unit !== ((string)$key === 'ota_room_nights' ? 'room_nights' : 'CNY')))
+                    || $this->metricTruthScopeMismatch(
                     $truth,
                     $businessDate,
                     $hotelId,
-                    $sourceChannels
+                    $isRequestedOtaMetric ? $requestedPlatforms : $sourceChannels
                 )) {
                     $value = null;
                     $status = 'unverified';
@@ -1819,9 +1728,17 @@ class RevenueAiOverviewService
                     }
                 }
             }
+            if ($isRequestedOtaMetric && $value === null) {
+                if (in_array(strtolower(trim($status)), ['ok', 'ready', 'verified'], true)) {
+                    $status = 'not_calculable';
+                }
+                if ($reason === '') {
+                    $reason = 'metric_value_missing';
+                }
+            }
             $context = [
-                'scope' => (string)($row['scope'] ?? 'ota_channel'),
-                'date_basis' => (string)($row['date_basis'] ?? 'data_date'),
+                'scope' => $metricScope,
+                'date_basis' => $metricDateBasis,
                 'source_channels' => $sourceChannels,
                 'last_success_at' => '',
                 'scope_note' => (string)(
@@ -1836,7 +1753,7 @@ class RevenueAiOverviewService
                     $pmsFactSelection['data_status'] === 'readback_verified';
             }
             $metrics[(string)$key] = $this->metric(
-                (string)($row['key'] ?? $key),
+                $isRequestedOtaMetric ? (string)$key : (string)($row['key'] ?? $key),
                 (string)($row['label'] ?? $key),
                 $value,
                 $unit,
@@ -3312,7 +3229,7 @@ class RevenueAiOverviewService
             }
         }
 
-        $pricingService = new RevenuePricingRecommendationService();
+        $pricingService = $this->pricingRecommendationService ?? new RevenuePricingRecommendationService();
         $hotelChecks = [];
         $pendingSuggestionCount = 0;
         $demandForecastCount = 0;
@@ -3354,7 +3271,9 @@ class RevenueAiOverviewService
             }
             $trafficDemandForecast = [];
             $trafficDemandForecastReady = false;
-            if ($demandCount <= 0 && count($sourceChannels) === 1 && $sourceChannels[0] === 'ctrip') {
+            // The pricing model independently verifies Ctrip history; the
+            // overview's selected observation channels do not disable that input.
+            if ($demandCount <= 0) {
                 try {
                     $trafficDemandForecast = $pricingService->ctripTrafficDemandForecastSignal($targetHotelId, $businessDate);
                     $trafficDemandForecastReady = ($trafficDemandForecast['data_status'] ?? '') === 'ok';
@@ -5556,7 +5475,9 @@ class RevenueAiOverviewService
         array $executionSummary = [],
         array $sourceChannels = [],
         array $pricingGenerationPreflight = [],
-        array $revenueFactLayer = []
+        array $revenueFactLayer = [],
+        array $otaMetrics = [],
+        array $metricContext = []
     ): array
     {
         $competitorSignal = is_array($signals['competitor_price_warning'] ?? null) ? $signals['competitor_price_warning'] : [];
@@ -5591,7 +5512,7 @@ class RevenueAiOverviewService
                 $pricingGuard['minimum_floor_price'] ?? null
             ) !== null;
         $gates = [
-            $this->otaMetricsPricingGate($metricsSummary, $revenueFactLayer),
+            $this->otaMetricsPricingGate($otaMetrics, $metricContext, $qualityIssues),
             $this->pricingGate(
                 'data_quality',
                 '数据质量状态',
@@ -5733,48 +5654,96 @@ class RevenueAiOverviewService
     }
 
     /**
-     * @param array<string, mixed> $metricsSummary
+     * @param array<string, array<string, mixed>> $metrics Final overview metrics, including canonical replacements.
+     * @param array<string, mixed> $context Requested hotel/date/channel scope, independent of supplied metric labels.
      * @return array<string, mixed>
      */
     private function otaMetricsPricingGate(
-        array $metricsSummary,
-        array $revenueFactLayer = []
+        array $metrics,
+        array $context,
+        array $qualityIssues = []
     ): array
     {
-        $canonicalOtaFacts = is_array(
-            $revenueFactLayer['facts']['ota_channel']['combined'] ?? null
-        )
-            ? $revenueFactLayer['facts']['ota_channel']['combined']
-            : [];
-        $canonicalReady = (
-            $revenueFactLayer['all_three_sources_readback_verified']
-            ?? false
-        ) === true;
-        $status = $canonicalReady
-            ? 'ready'
-            : (string)($metricsSummary['status'] ?? 'empty');
-        $roomRevenue = $canonicalReady
-            ? $this->numeric($canonicalOtaFacts['revenue'] ?? null)
-            : $this->numeric($metricsSummary['totals']['room_revenue'] ?? null);
-        $roomNights = $canonicalReady
-            ? $this->numeric($canonicalOtaFacts['room_nights'] ?? null)
-            : $this->numeric($metricsSummary['totals']['room_nights'] ?? null);
-        $hasFactRows = $status !== 'empty';
-        $ready = $hasFactRows && $roomRevenue !== null && $roomNights !== null && $roomNights > 0;
-
-        if (!$hasFactRows) {
-            $reason = 'online_daily_data_empty';
-            $detail = '目标经营日期没有可用 OTA 入库数据。';
-        } elseif ($roomRevenue === null || $roomNights === null) {
-            $reason = 'ota_revenue_metrics_missing';
-            $detail = '已命中 OTA 目标日数据，但房费收入或间夜指标缺失，不能形成调价判断。';
-        } elseif ($roomNights <= 0) {
-            $reason = 'ota_room_nights_zero';
-            $detail = '已命中 OTA 目标日数据，但间夜为 0，不能计算 ADR 或形成调价判断。';
-        } else {
-            $reason = '';
-            $detail = '已命中 OTA 房费收入和间夜，可计算 ADR。';
+        $roomRevenueMetric = is_array($metrics['ota_room_revenue'] ?? null) ? $metrics['ota_room_revenue'] : [];
+        $roomNightsMetric = is_array($metrics['ota_room_nights'] ?? null) ? $metrics['ota_room_nights'] : [];
+        $roomRevenue = $this->numeric($roomRevenueMetric['value'] ?? null);
+        $roomNights = $this->numeric($roomNightsMetric['value'] ?? null);
+        $businessDate = (string)($context['business_date'] ?? '');
+        $hotelId = $this->hotelId($context['hotel_id'] ?? null);
+        $expectedChannels = $this->enabledChannels($context['source_channels'] ?? null);
+        if ($expectedChannels === []) {
+            $expectedChannels = self::CHANNELS;
         }
+        sort($expectedChannels);
+        $reason = '';
+        if (in_array($context['data_status'] ?? '', ['failed', 'unauthorized'], true)) {
+            $reason = $this->pricingQualityIssueReason($qualityIssues);
+            if ($reason === 'data_not_complete') {
+                $reason = 'metric_truth_collection_failed';
+            }
+        }
+        foreach ([$roomRevenueMetric, $roomNightsMetric] as $metric) {
+            if ($reason !== '') {
+                break;
+            }
+            $truth = is_array($metric['truth'] ?? null) ? $metric['truth'] : [];
+            $metricChannels = $this->enabledChannels($metric['source_channels'] ?? null);
+            sort($metricChannels);
+            if (($metric['reason'] ?? '') === 'metric_scope_mismatch'
+                || ($metric['scope'] ?? '') !== 'ota_channel'
+                || ($metric['date_basis'] ?? '') !== 'data_date'
+                || $metricChannels !== $expectedChannels
+                || $this->metricTruthScopeMismatch($truth, $businessDate, $hotelId, $expectedChannels)) {
+                $reason = 'metric_scope_mismatch';
+            }
+        }
+        $hasFactRows = $roomRevenue !== null || $roomNights !== null
+            || !in_array($roomRevenueMetric['status'] ?? 'empty', ['empty', 'empty_confirmed'], true)
+            || !in_array($roomNightsMetric['status'] ?? 'empty', ['empty', 'empty_confirmed'], true);
+        if ($reason === '' && !$hasFactRows) {
+            $reason = 'online_daily_data_empty';
+        } elseif ($reason === '' && ($roomRevenue === null || $roomNights === null)) {
+            $reason = 'ota_revenue_metrics_missing';
+        } elseif ($reason === '' && $roomNights <= 0) {
+            $reason = 'ota_room_nights_zero';
+        } elseif ($reason === '') {
+            foreach ([$roomRevenueMetric, $roomNightsMetric] as $metric) {
+                $truth = is_array($metric['truth'] ?? null) ? $metric['truth'] : [];
+                if (($metric['status'] ?? '') !== 'ok' || ($truth['status'] ?? '') !== 'verified') {
+                    $reason = (string)($metric['reason'] ?? '');
+                    if ($reason === '') {
+                        $reason = 'metric_truth_unverified';
+                    }
+                    break;
+                }
+                $source = is_array($truth['source'] ?? null) ? $truth['source'] : [];
+                $persistence = is_array($truth['persistence'] ?? null) ? $truth['persistence'] : [];
+                // Revalidate the persisted evidence using the existing metric truth contract.
+                $readbackTruth = OnlineDataTrustStatusService::metricTruthEnvelope([
+                    'source' => array_merge($source, [
+                        'hotels' => $truth['hotels'] ?? [], 'platforms' => $truth['platforms'] ?? [],
+                        'date_range' => $truth['date_range'] ?? [],
+                        'source_methods' => $truth['source_methods'] ?? ($source['methods'] ?? []),
+                        'collected_at_range' => $truth['collected_at_range'] ?? [],
+                        'row_count' => $persistence['record_count'] ?? 0,
+                        'stored_count' => $persistence['stored_count'] ?? 0,
+                        'readback_verified_count' => $persistence['readback_verified_count'] ?? 0,
+                    ]),
+                    'saved_success' => ($persistence['stored'] ?? false) === true
+                        && ($persistence['readback_verified'] ?? false) === true,
+                    'failure_reasons' => trim((string)($truth['failure_reason'] ?? '')) === ''
+                        ? [] : [(string)$truth['failure_reason']],
+                ]);
+                if ($readbackTruth['status'] !== 'verified') {
+                    $reason = 'metric_truth_' . $readbackTruth['status'];
+                    break;
+                }
+            }
+        }
+        $ready = $reason === '';
+        $detail = $ready
+            ? '已核对同酒店、渠道、经营日期的 OTA 房费收入和间夜，以及来源、保存和精确回读证据。'
+            : $this->issueMessage($reason);
 
         return $this->pricingGate(
             'ota_metrics',
@@ -5859,7 +5828,7 @@ class RevenueAiOverviewService
             if (in_array($category, ['auth', 'parser', 'stale', 'sync', 'source', 'field', 'network', 'platform'], true)) {
                 return $reason !== '' ? $reason : 'data_not_complete';
             }
-            if (in_array($reason, ['AUTH_EXPIRED', 'CAPTCHA_REQUIRED', 'DATA_STALE', 'source_disabled', 'sync_failed', 'FIELD_MISSING', 'PARSER_MISMATCH'], true)) {
+            if (in_array($reason, ['AUTH_EXPIRED', 'CAPTCHA_REQUIRED', 'DATA_STALE', 'source_disabled', 'sync_failed', 'FIELD_MISSING', 'PARSER_MISMATCH', 'overview_dataset_read_failed', 'target_date_dataset_failed'], true)) {
                 return $reason;
             }
         }
@@ -5869,6 +5838,7 @@ class RevenueAiOverviewService
     private function issueMessage(string $reason): string
     {
         return match ($reason) {
+            'metric_value_missing' => '当前指标值缺失，不能作为已验证指标；请核对同范围来源和精确回读。',
             'room_revenue_missing' => '暂缺已验证房费收入；订单 GMV、结算金额和参考底价不能替代。',
             'room_revenue_partial' => '只有部分 OTA 事实具备已验证房费收入，聚合仅使用已对齐记录。',
             'room_nights_missing' => '暂缺已验证间夜，不能用订单数、物理房间数或默认值替代。',
@@ -5892,7 +5862,7 @@ class RevenueAiOverviewService
             'competitor_price_fields_missing' => '暂缺竞对价格字段。',
             'competitor_price_fields_partial' => '只有部分 OTA 事实具备条件对齐的本店价与竞对价。',
             'overview_scope_mismatch' => '事实的酒店、平台或业务日期与当前总览范围不一致，已排除出目标日指标。',
-            'metric_scope_mismatch' => '指标事实身份与当前酒店、平台或业务日期不一致，不能作为目标范围已验证指标。',
+            'metric_scope_mismatch' => '指标名称、事实身份与当前酒店、平台或业务日期不一致，或币种、单位不符合目标口径，不能作为目标范围已验证指标。',
             'metric_truth_unverified' => '指标存在数值，但缺少完整来源、保存或精确回读证据，保持未验证。',
             'metric_truth_partial' => '指标只有部分来源事实通过保存和精确回读，保持部分数据。',
             'metric_truth_collection_failed' => '指标来源采集失败，当前数值不能提升为已验证事实。',
@@ -6169,211 +6139,4 @@ class RevenueAiOverviewService
         return $columns;
     }
 
-    /**
-     * @param array<int, array<string, mixed>> $rows
-     * @return array<int, array<string, mixed>>
-     */
-    private function uniqueIssueRows(array $rows): array
-    {
-        $seen = [];
-        $result = [];
-        foreach ($rows as $row) {
-            $key = (string)($row['key'] ?? $row['reason'] ?? json_encode($row));
-            if (isset($seen[$key])) {
-                continue;
-            }
-            $seen[$key] = true;
-            $result[] = $row;
-        }
-        return $result;
-    }
-
-    /**
-     * @param array<int, array<string, mixed>> $rows
-     * @return array<int, array<string, mixed>>
-     */
-    private function enrichIssueRows(array $rows, string $type): array
-    {
-        return array_map(fn(array $row): array => $this->enrichIssueRow($row, $type), $rows);
-    }
-
-    /**
-     * @param array<string, mixed> $row
-     * @return array<string, mixed>
-     */
-    private function enrichIssueRow(array $row, string $type): array
-    {
-        $reason = trim((string)($row['reason'] ?? 'data_not_complete'));
-        $channel = strtolower(trim((string)($row['channel'] ?? '')));
-        $meta = $this->issueReasonMeta($reason, $channel, $type);
-        $label = trim((string)($row['label'] ?? ''));
-        if ($label === '' && in_array($channel, self::CHANNELS, true)) {
-            $label = $this->channelLabel($channel) . '数据状态';
-        }
-        if ($label === '') {
-            $label = $type === 'missing_dataset' ? '缺失数据集' : '数据质量问题';
-        }
-        return array_merge($row, [
-            'type' => $row['type'] ?? $type,
-            'label' => $label,
-            'severity' => $row['severity'] ?? $meta['severity'],
-            'category' => $row['category'] ?? $meta['category'],
-            'display_reason' => $row['display_reason'] ?? $meta['display_reason'],
-            'next_action' => $row['next_action'] ?? $meta['next_action'],
-            'target_page' => $row['target_page'] ?? $meta['target_page'],
-            'target_tab' => $row['target_tab'] ?? $meta['target_tab'],
-            'target_platform' => $row['target_platform'] ?? ($channel !== '' ? $channel : $meta['target_platform']),
-            'evidence' => $row['evidence'] ?? ($row['message'] ?? $row['detail'] ?? $this->issueMessage($reason)),
-        ]);
-    }
-
-    /**
-     * @return array<string, string>
-     */
-    private function issueReasonMeta(string $reason, string $channel = '', string $type = 'quality_issue'): array
-    {
-        $platformLabel = in_array($channel, self::CHANNELS, true) ? $this->channelLabel($channel) : 'OTA';
-        $base = [
-            'severity' => 'medium',
-            'category' => 'data',
-            'display_reason' => $this->issueMessage($reason),
-            'next_action' => '进入数据健康面板复核原始状态。',
-            'target_page' => 'online-data',
-            'target_tab' => 'data-health',
-            'target_platform' => $channel,
-        ];
-        $overrides = [
-            'AUTH_EXPIRED' => ['severity' => 'high', 'category' => 'auth', 'display_reason' => $platformLabel . '登录或授权已失效，Cookie/Profile 状态需复核。', 'next_action' => '进入数据健康面板复核登录/Cookie 状态，必要时重新登录。'],
-            'CAPTCHA_REQUIRED' => ['severity' => 'high', 'category' => 'auth', 'display_reason' => $platformLabel . '需要验证码或人工登录确认。', 'next_action' => '进入平台账号状态处理验证码或人工登录。'],
-            'PAGE_CHANGED' => ['severity' => 'high', 'category' => 'parser', 'display_reason' => $platformLabel . '页面结构变化，采集解析需复核。', 'next_action' => '复核最近一次采集证据和字段映射。'],
-            'FIELD_MISSING' => ['severity' => 'high', 'category' => 'field', 'display_reason' => $platformLabel . '关键字段缺失。', 'next_action' => '进入数据健康面板查看缺字段明细。'],
-            'PARSER_MISMATCH' => ['severity' => 'high', 'category' => 'parser', 'display_reason' => $platformLabel . '解析器与平台返回结构不匹配。', 'next_action' => '复核平台返回样本和解析规则。'],
-            'NETWORK_ERROR' => ['severity' => 'medium', 'category' => 'network', 'display_reason' => $platformLabel . '平台请求网络异常。', 'next_action' => '查看同步日志并重试采集。'],
-            'RATE_LIMITED' => ['severity' => 'medium', 'category' => 'platform', 'display_reason' => $platformLabel . '平台请求被限流。', 'next_action' => '暂停高频重试，稍后复核采集任务。'],
-            'DATE_NOT_AVAILABLE' => ['severity' => 'medium', 'category' => 'data', 'display_reason' => $platformLabel . '未命中目标经营日期入库数据。', 'next_action' => '进入数据健康面板检查目标日期采集和入库记录。'],
-            'DATA_STALE' => ['severity' => 'high', 'category' => 'stale', 'display_reason' => $platformLabel . '数据过期，目标经营日期没有新入库证据。', 'next_action' => '进入数据健康面板复核最后同步时间并重新采集。'],
-            'overview_scope_mismatch' => ['severity' => 'high', 'category' => 'scope', 'display_reason' => '事实的酒店、平台或业务日期与当前总览范围不一致，已排除出目标日指标。', 'next_action' => '按当前酒店、平台和业务日期重新采集或导入，并核对来源 trace。'],
-            'metric_scope_mismatch' => ['severity' => 'high', 'category' => 'scope', 'display_reason' => $platformLabel . '指标事实身份与当前酒店、平台或业务日期不一致。', 'next_action' => '核对目标范围、来源 trace、保存记录和精确回读后再使用该指标。'],
-            'metric_truth_unverified' => ['severity' => 'high', 'category' => 'truth', 'display_reason' => $platformLabel . '指标数值缺少完整来源或精确回读证据。', 'next_action' => '补齐来源 trace、保存成功和精确回读证据。'],
-            'metric_truth_partial' => ['severity' => 'medium', 'category' => 'truth', 'display_reason' => $platformLabel . '指标只有部分事实通过真实性门禁。', 'next_action' => '补齐未验证记录的来源和精确回读证据。'],
-            'metric_truth_collection_failed' => ['severity' => 'high', 'category' => 'truth', 'display_reason' => $platformLabel . '指标来源采集失败。', 'next_action' => '先修复采集失败并重新保存、精确回读。'],
-            'available_room_nights_missing' => ['severity' => 'high', 'category' => 'denominator', 'display_reason' => '暂缺可信 OTA 渠道可售房晚分母，不能计算或外推全酒店 RevPAR。', 'next_action' => '补齐并核验 OTA 渠道可售房晚口径后再计算 OTA 渠道贡献RevPAR。', 'target_platform' => 'ota'],
-            'online_daily_data_empty' => ['severity' => 'medium', 'category' => 'data', 'display_reason' => $platformLabel . '目标经营日期没有可用 OTA 入库数据。', 'next_action' => '进入数据健康面板检查该日期采集、导入和字段校验状态。'],
-            'ota_revenue_metrics_missing' => ['severity' => 'high', 'category' => 'metric', 'display_reason' => '已命中 OTA 目标日数据，但房费收入或间夜指标缺失。', 'next_action' => '复核 online_daily_data 的 revenue、room_revenue、room_nights 字段映射和入库值。'],
-            'ota_room_nights_zero' => ['severity' => 'medium', 'category' => 'metric', 'display_reason' => '已命中 OTA 目标日数据，但间夜为 0，无法计算 ADR。', 'next_action' => '复核携程目标日 business 行的 room_nights/order_count；若确认为 0，则只做观察，不生成调价建议。'],
-            'ZERO_CONFIRMED' => ['severity' => 'low', 'category' => 'data', 'display_reason' => $platformLabel . '明确确认目标经营日期无数据。', 'next_action' => '无需填充假数据；如业务预期应有数据，再进入数据健康面板复核采集范围。'],
-            'source_not_loaded' => ['severity' => 'medium', 'category' => 'source', 'display_reason' => $platformLabel . '数据源未加载或未接入。', 'next_action' => '进入数据健康面板检查平台数据源配置。'],
-            'source_status_missing' => ['severity' => 'medium', 'category' => 'source', 'display_reason' => $platformLabel . '缺少平台数据源状态。', 'next_action' => '进入数据健康面板检查 platform_data_sources 绑定。'],
-            'source_status_unknown' => ['severity' => 'medium', 'category' => 'source', 'display_reason' => $platformLabel . '平台同步状态未知。', 'next_action' => '进入数据健康面板复核最近一次同步记录。'],
-            'waiting_config' => ['severity' => 'high', 'category' => 'auth', 'display_reason' => $platformLabel . '平台数据源待授权或配置。', 'next_action' => '补齐平台账号/授权配置后重新同步。'],
-            'source_disabled' => ['severity' => 'high', 'category' => 'source', 'display_reason' => $platformLabel . '平台数据源已禁用。', 'next_action' => '确认是否恢复该平台数据源。'],
-            'sync_failed' => ['severity' => 'high', 'category' => 'sync', 'display_reason' => $platformLabel . '平台同步失败。', 'next_action' => '进入数据健康面板查看失败原因并重试。'],
-            'competitor_price_fields_missing' => ['severity' => 'medium', 'category' => 'competitor', 'display_reason' => '暂缺竞对价格字段。', 'next_action' => '补齐竞对价格采集字段后再判断倒挂风险。'],
-            'competitor_price_above_competitor' => ['severity' => 'medium', 'category' => 'competitor', 'display_reason' => '本店均价高于竞对均价，需人工复核是否存在价格倒挂或竞争力风险。', 'next_action' => '复核竞对样本、房型口径和最低保护价后再进入人工调价审核。'],
-            'competitor_price_below_competitor_review_required' => ['severity' => 'medium', 'category' => 'competitor', 'display_reason' => '本店均价低于竞对均价，需复核是否低于保护价后再判断调价。', 'next_action' => '补齐最低保护价和需求信号后再形成可审核调价建议。'],
-            'competitor_price_aligned' => ['severity' => 'low', 'category' => 'competitor', 'display_reason' => '本店均价与竞对均价接近。', 'next_action' => '继续观察需求和转化数据，不自动生成调价建议。'],
-            'holiday_signal_not_loaded' => ['severity' => 'medium', 'category' => 'event_signal', 'display_reason' => '节假日/事件信号尚未读取。', 'next_action' => '等待 Revenue AI 总览接口返回节假日窗口。', 'target_platform' => 'hotel'],
-            'holiday_calendar_missing' => ['severity' => 'medium', 'category' => 'event_signal', 'display_reason' => '暂缺目标年份节假日日历。', 'next_action' => '补齐节假日日历后再判断事件影响。', 'target_platform' => 'hotel'],
-            'holiday_event_in_window' => ['severity' => 'medium', 'category' => 'event_signal', 'display_reason' => '当前处于节假日窗口。', 'next_action' => '复核库存、底价、竞对价格和渠道活动。', 'target_platform' => 'hotel'],
-            'holiday_event_nearby' => ['severity' => 'medium', 'category' => 'event_signal', 'display_reason' => '近期存在节假日窗口。', 'next_action' => '提前确认库存、底价、连住和高需求日调价节奏。', 'target_platform' => 'hotel'],
-            'holiday_event_upcoming' => ['severity' => 'low', 'category' => 'event_signal', 'display_reason' => '30 天内存在节假日窗口。', 'next_action' => '纳入人工调价复核，但不自动改价。', 'target_platform' => 'hotel'],
-            'holiday_event_none_nearby' => ['severity' => 'low', 'category' => 'event_signal', 'display_reason' => '30 天内暂无节假日窗口。', 'next_action' => '继续每日滚动观察需求和竞对变化。', 'target_platform' => 'hotel'],
-            'demand_forecasts_not_loaded' => ['severity' => 'medium', 'category' => 'demand_signal', 'display_reason' => '未来 7 天需求预测尚未读取。', 'next_action' => '等待 Revenue AI 总览接口返回 demand_forecasts 摘要。', 'target_platform' => 'hotel'],
-            'demand_forecasts_missing' => ['severity' => 'high', 'category' => 'demand_signal', 'display_reason' => '需求预测表 demand_forecasts 不存在。', 'next_action' => '恢复需求预测表后再展示未来 7 天信号。', 'target_platform' => 'hotel'],
-            'demand_forecasts_required_fields_missing' => ['severity' => 'high', 'category' => 'demand_signal', 'display_reason' => '需求预测表缺少 hotel_id 或 forecast_date 等必要字段。', 'next_action' => '修复 demand_forecasts 字段契约后再展示未来 7 天信号。', 'target_platform' => 'hotel'],
-            'demand_forecasts_metric_fields_missing' => ['severity' => 'high', 'category' => 'demand_signal', 'display_reason' => '需求预测表缺少 predicted_occupancy 或 predicted_demand。', 'next_action' => '补齐预测指标字段后再判断未来 7 天需求。', 'target_platform' => 'hotel'],
-            'demand_forecasts_read_failed' => ['severity' => 'high', 'category' => 'demand_signal', 'display_reason' => '未来 7 天需求预测读取失败。', 'next_action' => '检查 demand_forecasts 读取权限和数据库错误。', 'target_platform' => 'hotel'],
-            'demand_forecasts_empty' => ['severity' => 'medium', 'category' => 'demand_signal', 'display_reason' => '未来 7 天暂无需求预测记录。', 'next_action' => '生成或导入未来 7 天需求预测后再进入人工调价判断。', 'target_platform' => 'hotel'],
-            'demand_forecasts_metric_missing' => ['severity' => 'medium', 'category' => 'demand_signal', 'display_reason' => '需求预测记录缺少可计算指标。', 'next_action' => '补齐入住率或需求间夜后再判断未来需求。', 'target_platform' => 'hotel'],
-            'demand_forecasts_low_confidence' => ['severity' => 'medium', 'category' => 'demand_signal', 'display_reason' => '未来 7 天需求预测置信度偏低。', 'next_action' => '用近期订单和竞对样本校准预测后再进入调价审核。', 'target_platform' => 'hotel'],
-            'demand_forecasts_high_demand' => ['severity' => 'medium', 'category' => 'demand_signal', 'display_reason' => '未来 7 天存在高需求日期。', 'next_action' => '结合最低保护价和竞对价格进入人工调价复核。', 'target_platform' => 'hotel'],
-            'demand_forecasts_available' => ['severity' => 'low', 'category' => 'demand_signal', 'display_reason' => '已读取未来 7 天需求预测。', 'next_action' => '继续结合竞对、保护价和人工审核判断调价。', 'target_platform' => 'hotel'],
-            'floor_price_missing' => ['severity' => 'high', 'category' => 'pricing_guard', 'display_reason' => '暂缺最低保护价。', 'next_action' => '补齐房型/价格计划级最低保护价后再允许生成可审核调价建议。'],
-            'manual_review_workflow_not_connected' => ['severity' => 'high', 'category' => 'pricing_guard', 'display_reason' => '暂未接入人工审核工作流。', 'next_action' => '接入建议版本、批准/拒绝/转执行审计流后再开放调价建议。'],
-            'price_suggestions_missing' => ['severity' => 'high', 'category' => 'pricing_review', 'display_reason' => '定价建议表 price_suggestions 不存在。', 'next_action' => '恢复定价建议表后再展示人工审核队列。'],
-            'price_suggestions_required_fields_missing' => ['severity' => 'high', 'category' => 'pricing_review', 'display_reason' => '定价建议表缺少 status 或 suggestion_date 等必要字段。', 'next_action' => '修复 price_suggestions 字段契约后再展示人工审核队列。'],
-            'price_suggestions_read_failed' => ['severity' => 'high', 'category' => 'pricing_review', 'display_reason' => '定价建议审核队列读取失败。', 'next_action' => '检查 price_suggestions 读取权限和数据库错误。'],
-            'price_suggestions_empty' => ['severity' => 'low', 'category' => 'pricing_review', 'display_reason' => '目标经营日期暂无存量调价建议。', 'next_action' => '继续补齐需求、竞对、保护价等前置条件后再生成可审核建议。'],
-            'price_suggestions_pending_review' => ['severity' => 'medium', 'category' => 'pricing_review', 'display_reason' => '存在待人工审核调价建议。', 'next_action' => '进入定价建议列表完成人工批准、修改后批准、拒绝或转执行。'],
-            'price_suggestions_reviewed' => ['severity' => 'low', 'category' => 'pricing_review', 'display_reason' => '目标经营日期调价建议已处理。', 'next_action' => '复核已处理建议是否需要转执行或补充效果复盘证据。'],
-            'agent_logs_not_loaded' => ['severity' => 'medium', 'category' => 'agent_activity', 'display_reason' => '收益管理 Agent 日志尚未读取。', 'next_action' => '等待 Revenue AI 总览接口返回 Agent 日志摘要。'],
-            'agent_logs_missing' => ['severity' => 'high', 'category' => 'agent_activity', 'display_reason' => 'Agent 日志表 agent_logs 不存在。', 'next_action' => '恢复 Agent 日志表后再展示操作追溯。'],
-            'agent_logs_required_fields_missing' => ['severity' => 'high', 'category' => 'agent_activity', 'display_reason' => 'Agent 日志表缺少 agent_type、log_level 或 create_time 等必要字段。', 'next_action' => '修复 agent_logs 字段契约后再展示操作追溯。'],
-            'agent_logs_read_failed' => ['severity' => 'high', 'category' => 'agent_activity', 'display_reason' => '收益管理 Agent 日志读取失败。', 'next_action' => '检查 agent_logs 读取权限和数据库错误。'],
-            'agent_logs_empty' => ['severity' => 'low', 'category' => 'agent_activity', 'display_reason' => '目标经营日期暂无收益管理 Agent 操作日志。', 'next_action' => '如预期应有动作，检查收益管理 Agent 触发链路。'],
-            'agent_logs_available' => ['severity' => 'low', 'category' => 'agent_activity', 'display_reason' => '已读取收益管理 Agent 操作日志。', 'next_action' => '继续只读追踪，不把日志数量当作业务成功证据。'],
-            'agent_logs_warning_present' => ['severity' => 'medium', 'category' => 'agent_activity', 'display_reason' => '收益管理 Agent 存在警告日志。', 'next_action' => '复核警告是否影响今日调价判断。'],
-            'agent_logs_error_present' => ['severity' => 'high', 'category' => 'agent_activity', 'display_reason' => '收益管理 Agent 存在错误日志。', 'next_action' => '先处理错误日志，再继续生成或执行建议。'],
-            'operation_execution_not_loaded' => ['severity' => 'medium', 'category' => 'operation_execution', 'display_reason' => '运营执行闭环尚未读取。', 'next_action' => '等待 Revenue AI 总览接口返回执行摘要。', 'target_page' => 'ops-track', 'target_tab' => '', 'target_platform' => 'hotel'],
-            'operation_execution_intents_missing' => ['severity' => 'high', 'category' => 'operation_execution', 'display_reason' => '执行意图表 operation_execution_intents 不存在。', 'next_action' => '恢复执行意图表后再展示执行进度。', 'target_page' => 'ops-track', 'target_tab' => '', 'target_platform' => 'hotel'],
-            'operation_execution_tasks_missing' => ['severity' => 'high', 'category' => 'operation_execution', 'display_reason' => '执行任务表 operation_execution_tasks 不存在。', 'next_action' => '恢复执行任务表后再展示执行进度。', 'target_page' => 'ops-track', 'target_tab' => '', 'target_platform' => 'hotel'],
-            'operation_execution_evidence_missing' => ['severity' => 'high', 'category' => 'operation_execution', 'display_reason' => '执行证据表 operation_execution_evidence 不存在或缺少执行证据。', 'next_action' => '补齐执行证据后再判断效果复盘。', 'target_page' => 'ops-track', 'target_tab' => '', 'target_platform' => 'hotel'],
-            'operation_execution_read_failed' => ['severity' => 'high', 'category' => 'operation_execution', 'display_reason' => '运营执行闭环读取失败。', 'next_action' => '检查执行闭环表读取权限和数据库错误。', 'target_page' => 'ops-track', 'target_tab' => '', 'target_platform' => 'hotel'],
-            'operation_execution_empty' => ['severity' => 'low', 'category' => 'operation_execution', 'display_reason' => '目标经营日期暂无调价执行记录。', 'next_action' => '如已有人工审核建议，请在运营执行页转为执行意图后再追踪。', 'target_page' => 'ops-track', 'target_tab' => '', 'target_platform' => 'hotel'],
-            'operation_execution_pending_approval' => ['severity' => 'medium', 'category' => 'operation_execution', 'display_reason' => '存在待审批的调价执行意图。', 'next_action' => '进入运营执行页完成人工审批；Revenue AI 首页不直接批准。', 'target_page' => 'ops-track', 'target_tab' => '', 'target_platform' => 'hotel'],
-            'operation_execution_in_progress' => ['severity' => 'medium', 'category' => 'operation_execution', 'display_reason' => '存在待执行或执行中的调价任务。', 'next_action' => '进入运营执行页记录实际执行结果和执行人。', 'target_page' => 'ops-track', 'target_tab' => '', 'target_platform' => 'hotel'],
-            'operation_execution_evidence_needed' => ['severity' => 'medium', 'category' => 'operation_execution', 'display_reason' => '调价任务已执行但缺少执行前后证据。', 'next_action' => '补充执行前后价格、收入或平台回执证据。', 'target_page' => 'ops-track', 'target_tab' => '', 'target_platform' => 'hotel'],
-            'operation_execution_review_needed' => ['severity' => 'medium', 'category' => 'operation_execution', 'display_reason' => '调价执行已具备证据，等待效果复盘。', 'next_action' => '进入运营执行页触发效果复盘。', 'target_page' => 'ops-track', 'target_tab' => '', 'target_platform' => 'hotel'],
-            'operation_execution_reviewed' => ['severity' => 'low', 'category' => 'operation_execution', 'display_reason' => '目标经营日期调价执行已完成复盘。', 'next_action' => '复核 ROI 或增量收入证据，作为明日调价判断输入。', 'target_page' => 'ops-track', 'target_tab' => '', 'target_platform' => 'hotel'],
-            'operation_execution_blocked' => ['severity' => 'high', 'category' => 'operation_execution', 'display_reason' => '调价执行存在阻塞、拒绝或失败记录。', 'next_action' => '先处理审批、执行或平台回写阻塞原因。', 'target_page' => 'ops-track', 'target_tab' => '', 'target_platform' => 'hotel'],
-            'operation_execution_partial' => ['severity' => 'medium', 'category' => 'operation_execution', 'display_reason' => '调价执行闭环尚未形成完整进度。', 'next_action' => '继续在运营执行页维护执行记录和复盘证据。', 'target_page' => 'ops-track', 'target_tab' => '', 'target_platform' => 'hotel'],
-            'operation_execution_not_executed' => ['severity' => 'medium', 'category' => 'operation_execution', 'display_reason' => '调价任务尚未记录实际执行完成。', 'next_action' => '先记录执行结果，再做效果复盘。', 'target_page' => 'ops-track', 'target_tab' => '', 'target_platform' => 'hotel'],
-            'operation_effect_review_pending' => ['severity' => 'medium', 'category' => 'operation_execution', 'display_reason' => '调价效果复盘待处理。', 'next_action' => '区分执行完成和收益验证，补齐复盘记录。', 'target_page' => 'ops-track', 'target_tab' => '', 'target_platform' => 'hotel'],
-            'operation_effect_review_ready' => ['severity' => 'low', 'category' => 'operation_execution', 'display_reason' => '调价效果已有复盘和 ROI 证据。', 'next_action' => '将复盘结果作为明日调价判断输入。', 'target_page' => 'ops-track', 'target_tab' => '', 'target_platform' => 'hotel'],
-            'operation_roi_missing' => ['severity' => 'medium', 'category' => 'operation_execution', 'display_reason' => '调价复盘缺少 ROI 或增量收入证据。', 'next_action' => '补齐执行前后收入、成本或平台回执后再判断效果。', 'target_page' => 'ops-track', 'target_tab' => '', 'target_platform' => 'hotel'],
-            'adr_denominator_zero' => ['severity' => 'medium', 'category' => 'metric', 'display_reason' => 'OTA 间夜为 0，ADR 不可计算。', 'next_action' => '复核目标日期 OTA 间夜是否为渠道确认零值。'],
-        ];
-        $meta = array_merge($base, $overrides[$reason] ?? []);
-        $pricingGenerationMeta = match ($reason) {
-            'price_suggestion_generation_not_loaded' => ['severity' => 'medium', 'category' => 'pricing_generation', 'display_reason' => '调价建议生成预检尚未加载。', 'next_action' => '先加载 room_types、demand_forecasts、competitor_analysis 和 price_suggestions 的只读预检，再决定是否生成待审建议。'],
-            'pricing_generation_hotel_scope_missing' => ['severity' => 'high', 'category' => 'pricing_generation', 'display_reason' => '调价建议生成缺少目标系统酒店范围。', 'next_action' => '先选择或导入可映射到系统酒店的携程 OTA 数据，再生成待审调价建议。'],
-            'room_types_empty' => ['severity' => 'high', 'category' => 'pricing_generation', 'display_reason' => '携程目标酒店暂无启用房型，不能生成待审调价建议。', 'next_action' => '为携程目标酒店配置启用房型、基础价和最低保护价后，再补需求预测与竞对样本。'],
-            'pricing_candidate_signals_missing' => ['severity' => 'medium', 'category' => 'pricing_generation', 'display_reason' => '调价候选信号不足，当前不会生成待审建议。', 'next_action' => '补齐需求预测、竞对价格、历史价格变化和保护价信号，直到只读预检出现可生成候选。'],
-            'pricing_generation_candidates_ready' => ['severity' => 'low', 'category' => 'pricing_generation', 'display_reason' => '已存在可生成待审调价建议的只读候选。', 'next_action' => '进入收益 Agent 生成待审建议；生成后仍需人工审核，不写 OTA。'],
-            default => [],
-        };
-        if ($pricingGenerationMeta !== []) {
-            $meta = array_merge($meta, $pricingGenerationMeta);
-        }
-        if (str_starts_with($reason, 'price_suggestions_')
-            || in_array($reason, [
-                'price_suggestion_generation_not_loaded',
-                'pricing_generation_hotel_scope_missing',
-                'room_types_empty',
-                'pricing_candidate_signals_missing',
-                'pricing_generation_candidates_ready',
-            ], true)) {
-            $meta['target_page'] = 'agent-center';
-            $meta['target_tab'] = 'suggestions';
-            $meta['target_agent_tab'] = 'revenue';
-            $meta['target_revenue_tab'] = 'suggestions';
-        }
-        return $meta;
-    }
-
-    /**
-     * @param array<int, array<string, mixed>> $missingDatasets
-     * @param array<int, array<string, mixed>> $qualityIssues
-     * @return array<string, mixed>
-     */
-    private function issueSummary(array $missingDatasets, array $qualityIssues): array
-    {
-        $rows = array_merge($missingDatasets, $qualityIssues);
-        $bySeverity = [];
-        $byCategory = [];
-        foreach ($rows as $row) {
-            $severity = (string)($row['severity'] ?? 'medium');
-            $category = (string)($row['category'] ?? 'data');
-            $bySeverity[$severity] = ($bySeverity[$severity] ?? 0) + 1;
-            $byCategory[$category] = ($byCategory[$category] ?? 0) + 1;
-        }
-        return [
-            'total' => count($rows),
-            'missing_count' => count($missingDatasets),
-            'quality_count' => count($qualityIssues),
-            'high_count' => (int)($bySeverity['high'] ?? 0),
-            'by_severity' => $bySeverity,
-            'by_category' => $byCategory,
-        ];
-    }
 }

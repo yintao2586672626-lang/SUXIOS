@@ -31,7 +31,7 @@ test('room type pricing guard uses native positive-price validation before savin
     template,
     /v-model\.number="roomTypeConfigForm\.max_price"[^>]*min="0\.01"[^>]*step="0\.01"[^>]*required/,
   );
-  assert.match(template, /<button type="submit"[^>]*:disabled="roomTypeConfigSaving"/);
+  assert.match(template, /<button type="submit"[^>]*:disabled="roomTypeConfigSaving(?: \|\|[^\"]+)?"/);
 });
 
 test('missing room type prices remain visibly missing instead of becoming zero', () => {

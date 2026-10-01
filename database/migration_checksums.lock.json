@@ -221,7 +221,9 @@
     "20260901_zz_seed_ai_agent_learning_reference.sql": "4e8e2912b30627c6c5acdaa6c9676572f3e023152105f4445c2977320707665e",
     "20260908_create_operation_task_workflow.sql": "455fe679ff17860256ff9bac515ae0977edac17f322806d37b3f324a3f232b18",
     "20260908_create_promotion_experiment_versions.sql": "3a6f9dbd9afdd12b6eb35db99a220a358d0a47e7488de2564e2485fcc2f78954",
-    "20260908_remove_duplicate_online_daily_trust_index.sql": "4fa93f160c3d8f8e0a0626c8239254401c3f5e94263cc1f9bf156128c27be556"
+    "20260908_remove_duplicate_online_daily_trust_index.sql": "4fa93f160c3d8f8e0a0626c8239254401c3f5e94263cc1f9bf156128c27be556",
+    "20260926_create_manager_coaching.sql": "e396d540f0dc2978b10fc819478cf18c796151ec4936b670ff412b56539a121d",
+    "20261001_create_investment_payback_ledger.sql": "fd77dc4751665cefc02112ca95fcb1b4e614a1f680b0c8850e8a98a4f3f789de"
   },
   "frozen_sources": {
     "database/complaint_tables.sql": "0b691d925eca181aaffe7281e89855f662a2741fe92e7f673adedcbb4c630e66",

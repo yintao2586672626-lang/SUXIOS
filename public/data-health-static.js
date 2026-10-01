@@ -1,19 +1,15 @@
 window.SUXI_DATA_HEALTH_STATIC = (() => {
     const DATA_HEALTH_STATIC_CONTRACT_VERSION = '20260811-full-render-v1';
 
-    const onlineDataQualityStatusText = (quality) => {
-        const status = quality?.status || 'ok';
-        if (status === 'error') return '异常';
-        if (status === 'warning') return '需复核';
-        return '完整';
-    };
-
-    const onlineDataQualityStatusClass = (quality) => {
-        const status = quality?.status || 'ok';
-        if (status === 'error') return 'bg-red-50 text-red-700 border-red-200';
-        if (status === 'warning') return 'bg-amber-50 text-amber-700 border-amber-200';
-        return 'bg-emerald-50 text-emerald-700 border-emerald-200';
-    };
+    const ONLINE_DATA_QUALITY_STATES = new Map([
+        ['ok', ['完整', 'bg-emerald-50 text-emerald-700 border-emerald-200']],
+        ['warning', ['需复核', 'bg-amber-50 text-amber-700 border-amber-200']],
+        ['error', ['异常', 'bg-red-50 text-red-700 border-red-200']],
+    ]);
+    const onlineDataQualityState = quality => ONLINE_DATA_QUALITY_STATES.get(quality?.status)
+        || ['未验证', 'bg-gray-50 text-gray-600 border-gray-200'];
+    const onlineDataQualityStatusText = quality => onlineDataQualityState(quality)[0];
+    const onlineDataQualityStatusClass = quality => onlineDataQualityState(quality)[1];
 
     const onlineDataQualityPromptList = (quality, limit = 3) => {
         const prompts = quality?.prompts || quality?.top_prompts || [];
@@ -6647,6 +6643,7 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
         network_response: '授权网络响应',
         browser_assist: '浏览器辅助采集',
         scheduled_job: '定时任务',
+        manual: '人工来源（未验证）',
         manual_import: '人工导入（未验证）',
         manual_override: '人工更正（未验证）',
         import_csv: 'CSV 导入（未验证）',
@@ -6679,11 +6676,11 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
         const hotels = Array.isArray(truth.hotels)
             ? truth.hotels
             : (truth.hotel && typeof truth.hotel === 'object' ? [truth.hotel] : []);
-        if (!hotels.length) return '未绑定';
+        if (!hotels.length) return '门店证据未返回';
         const labels = hotels.map(hotel => {
             const name = String(hotel?.name || '').trim();
             const id = hotel?.system_hotel_id ?? hotel?.id ?? hotel?.hotel_id;
-            return name ? `${name}${id ? `（ID ${id}）` : ''}` : (id ? `门店 ID ${id}` : '未绑定');
+            return name ? `${name}${id ? `（ID ${id}）` : ''}` : (id ? `门店 ID ${id}` : '门店证据未返回');
         });
         return labels.slice(0, 3).join('、') + (labels.length > 3 ? ` 等 ${labels.length} 家` : '');
     };
@@ -6813,6 +6810,24 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
         return `${visible.join('；')}${labels.length > visible.length ? `；另有 ${labels.length - visible.length} 项信息待补` : ''}`;
     };
 
+    const onlineTruthFieldFactText = (subject = {}) => {
+        const facts = subject?.field_fact_status;
+        if (!facts || typeof facts !== 'object' || Array.isArray(facts)) return '';
+        const countText = value => {
+            if (typeof value !== 'number' && !(typeof value === 'string' && /^\d+$/.test(value.trim()))) return '未返回';
+            const count = Number(value);
+            return Number.isSafeInteger(count) && count >= 0 ? `${count} 项` : '未返回';
+        };
+        const labels = { order_amount: '订单金额', room_nights: '间夜', order_count: '订单数' };
+        const missingKeys = [...new Set((Array.isArray(facts.missing_metric_keys) ? facts.missing_metric_keys : [])
+            .filter(key => typeof key === 'string' && key.trim()).map(key => key.trim()))];
+        const knownLabels = missingKeys.filter(key => Object.prototype.hasOwnProperty.call(labels, key)).map(key => labels[key]);
+        const otherCount = missingKeys.length - knownLabels.length;
+        if (otherCount > 0) knownLabels.push(`其他指标 ${otherCount} 项`);
+        const missingText = knownLabels.length ? `；待补字段：${knownLabels.join('、')}` : '';
+        return `来源凭证已捕获 ${countText(facts.captured_count)}；缺失 ${countText(facts.missing_count)}${missingText}；脱敏来源凭证 ${countText(facts.desensitized_capture_evidence_count)}。这些数量表示凭证状态，不代表经营数值。`;
+    };
+
     const onlineTruthMetaRows = (subject = {}) => [
         { key: 'status', label: '状态', value: onlineTruthStatusText(subject) },
         { key: 'calculation', label: '计算', value: onlineTruthCalculationStatusText(subject) },
@@ -6823,6 +6838,7 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
         { key: 'collected_at', label: '采集时间', value: onlineTruthCollectedAtText(subject) },
         { key: 'persistence', label: '入库', value: onlineTruthPersistenceText(subject) },
         { key: 'failure', label: '原因', value: onlineTruthFailureText(subject) },
+        ...(onlineTruthFieldFactText(subject) ? [{ key: 'field_facts', label: '字段凭证', value: onlineTruthFieldFactText(subject) }] : []),
         { key: 'scope', label: '口径', value: String(onlineTruthEnvelope(subject).scope_label || 'OTA渠道数据，不代表全酒店经营') },
     ];
 
@@ -6834,7 +6850,7 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
         const persistence = onlineTruthPersistenceText(subject);
         const failure = onlineTruthFailureText(subject);
         const parts = [status];
-        if (!['未绑定', '未记录', '未提供'].includes(hotel)) parts.push(hotel);
+        if (!['未绑定', '未记录', '未提供', '门店证据未返回'].includes(hotel)) parts.push(hotel);
         if (!['未记录', '未提供'].includes(date)) parts.push(date);
         if (!['未记录', '未提供'].includes(source)) parts.push(source);
         if (status === '已验证' && /回读已验证|回读 \d+\/\d+/.test(persistence)) parts.push('入库已验证');
@@ -6903,55 +6919,27 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
     ];
 
     const buildOnlineAnalysisSummaryCards = (summary = {}, dimension = 'day', formatNumber = value => String(value ?? '')) => [
-        {
-            key: 'amount',
-            label: 'OTA销售额',
-            value: onlineAnalysisMetricText(summary.total_amount, formatNumber, '¥'),
+        { key: 'amount', label: 'OTA销售额', field: 'total_amount', prefix: '¥',
             sub: `${dimension === 'day' ? '日' : dimension === 'week' ? '周' : '月'}维度汇总`,
-            className: 'text-emerald-700',
-            truth: onlineMetricTruthContext(summary.truth_context || {}, summary.total_amount, '销售额字段缺失'),
-        },
-        {
-            key: 'quantity',
-            label: 'OTA间夜',
-            value: onlineAnalysisMetricText(summary.total_quantity, formatNumber),
+            className: 'text-emerald-700', missingReason: '销售额字段缺失' },
+        { key: 'quantity', label: 'OTA间夜', field: 'total_quantity',
             sub: `均值 ${onlineAnalysisMetricText(summary.avg_quantity, formatNumber)}`,
-            className: 'text-blue-700',
-            truth: onlineMetricTruthContext(summary.truth_context || {}, summary.total_quantity, '间夜字段缺失'),
-        },
-        {
-            key: 'orders',
-            label: 'OTA订单',
-            value: onlineAnalysisMetricText(summary.total_orders, formatNumber),
+            className: 'text-blue-700', missingReason: '间夜字段缺失' },
+        { key: 'orders', label: 'OTA订单', field: 'total_orders',
             sub: `评分 ${onlineAnalysisMetricText(summary.avg_score, formatNumber)}`,
-            className: 'text-amber-700',
-            truth: onlineMetricTruthContext(summary.truth_context || {}, summary.total_orders, '订单字段缺失'),
-        },
-        {
-            key: 'metric_value',
-            label: '指标值',
-            value: onlineAnalysisMetricText(summary.total_data_value, formatNumber),
-            sub: '流量/排名/服务等扩展指标',
-            className: 'text-indigo-700',
-            truth: onlineMetricTruthContext(summary.truth_context || {}, summary.total_data_value, '指标值字段缺失'),
-        },
-        {
-            key: 'records',
-            label: '入库事实行',
-            value: onlineAnalysisMetricText(summary.total_record_count, formatNumber),
-            sub: 'OTA 入库记录',
-            className: 'text-slate-900',
-            truth: onlineMetricTruthContext(summary.truth_context || {}, summary.total_record_count, '入库事实行数缺失'),
-        },
-        {
-            key: 'hotels',
-            label: '覆盖酒店',
-            value: onlineAnalysisMetricText(summary.hotel_count, formatNumber),
+            className: 'text-amber-700', missingReason: '订单字段缺失' },
+        { key: 'metric_value', label: '指标值', field: 'total_data_value',
+            sub: '流量/排名/服务等扩展指标', className: 'text-indigo-700', missingReason: '指标值字段缺失' },
+        { key: 'records', label: '入库事实行', field: 'total_record_count',
+            sub: 'OTA 入库记录', className: 'text-slate-900', missingReason: '入库事实行数缺失' },
+        { key: 'hotels', label: '覆盖酒店', field: 'hotel_count',
             sub: summary.latest_data_date ? `最新 ${summary.latest_data_date}` : '暂无日期',
-            className: 'text-gray-700',
-            truth: onlineMetricTruthContext(summary.truth_context || {}, summary.hotel_count, '覆盖门店数缺失'),
-        },
-    ];
+            className: 'text-gray-700', missingReason: '覆盖门店数缺失' },
+    ].map(({ field, prefix = '', missingReason, ...card }) => ({
+        ...card,
+        value: onlineAnalysisMetricText(summary[field], formatNumber, prefix),
+        truth: onlineMetricTruthContext(summary.truth_context || {}, summary[field], missingReason),
+    }));
 
     const buildOnlineAnalysisMetricDefinitionRows = (hasSamples = false) => [
         {

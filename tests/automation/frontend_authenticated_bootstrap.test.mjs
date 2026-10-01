@@ -19,7 +19,7 @@ const operatingIntelligenceLoader = fs.readFileSync('public/components/system/op
 const systemStatic = fs.readFileSync('public/system-static.js', 'utf8');
 const style = fs.readFileSync('public/style.css', 'utf8');
 
-function createAuthenticatedAssetLoaderHarness(timeoutMs = 20, manifestTimeoutMs = 80) {
+function createAuthenticatedAssetLoaderHarness(timeoutMs = 20, manifestTimeoutMs = 80, timerHost = globalThis) {
   const loaderStart = bootstrap.indexOf('const resolveAssetUrl = (src) => {');
   const loaderEnd = bootstrap.indexOf('\n\n    const waitForFirstAuthenticatedPaint', loaderStart);
   const manifestStart = bootstrap.indexOf('const loadDeferredAuthenticatedAssets = (assets = []) => {');
@@ -78,8 +78,8 @@ function createAuthenticatedAssetLoaderHarness(timeoutMs = 20, manifestTimeoutMs
     querySelectorAll: selector => (selector === 'link[rel="stylesheet"]' ? styles : []),
   };
   const windowMock = {
-    setTimeout: (callback, delay) => setTimeout(callback, delay),
-    clearTimeout: timerId => clearTimeout(timerId),
+    setTimeout: (callback, delay) => timerHost.setTimeout(callback, delay),
+    clearTimeout: timerId => timerHost.clearTimeout(timerId),
     dispatchEvent: event => {
       events.push(event);
       return true;
@@ -197,12 +197,27 @@ test('Meituan helper fallback stays silent while deferred assets load and report
 });
 
 test('authenticated asset loads share in-flight work and recover after error or timeout', async () => {
-  const loader = createAuthenticatedAssetLoaderHarness(10);
+  // This test controls the production timer boundary explicitly. Retry-node
+  // observation must not race a real 10 ms timer under host scheduling pressure.
+  const timers = new Map();
+  let nextTimerId = 0;
+  const timerHost = {
+    setTimeout(callback, delay) {
+      const timerId = ++nextTimerId;
+      timers.set(timerId, { callback, delay });
+      return timerId;
+    },
+    clearTimeout(timerId) {
+      timers.delete(timerId);
+    },
+  };
+  const loader = createAuthenticatedAssetLoaderHarness(10, 80, timerHost);
 
   const firstStyleLoad = loader.loadStylesheet('style.min.css?v=retry');
+  const firstStyleFailure = assert.rejects(firstStyleLoad, /style\.min\.css 加载失败/);
   const failedStyle = loader.styles[0];
   failedStyle.emit('error');
-  await assert.rejects(firstStyleLoad, /style\.min\.css 加载失败/);
+  await firstStyleFailure;
   assert.equal(failedStyle.dataset.suxiAssetFailed, '1');
   assert.equal(loader.styles.length, 0, 'a failed stylesheet must leave no terminal DOM node');
 
@@ -224,10 +239,11 @@ test('authenticated asset loads share in-flight work and recover after error or 
     type: 'script',
     src: 'deferred-retry.js?v=1',
   });
+  const deferredRetryResult = assert.doesNotReject(deferredRetry);
   const firstDeferredScript = loader.scripts.find(node => node.src.includes('deferred-retry.js'));
   assert.equal(firstDeferredScript.async, true, 'JS-sequential deferred scripts must not join the native ordered queue');
   firstDeferredScript.emit('error');
-  await new Promise(resolve => setImmediate(resolve));
+  await Promise.resolve();
   const retriedDeferredScript = loader.scripts.find(node => node.src.includes('deferred-retry.js'));
   assert.notEqual(retriedDeferredScript, firstDeferredScript, 'a deferred asset gets one fresh bounded retry');
   assert.equal(retriedDeferredScript.async, true);
@@ -238,11 +254,17 @@ test('authenticated asset loads share in-flight work and recover after error or 
     'the retry transport must retain the original versioned resource identity',
   );
   retriedDeferredScript.emit('load');
-  await deferredRetry;
+  await deferredRetryResult;
 
   const stalledLoad = loader.loadScript('stalled.js?v=1');
   const stalledScript = loader.scripts.find(node => node.src.startsWith('stalled.js'));
-  await assert.rejects(stalledLoad, /stalled\.js 加载超时/);
+  const stalledFailure = assert.rejects(stalledLoad, /stalled\.js 加载超时/);
+  assert.equal(timers.size, 1, 'only the stalled transport timeout remains scheduled');
+  const [stalledTimerId, stalledTimer] = [...timers.entries()][0];
+  assert.equal(stalledTimer.delay, 10, 'the loader uses the requested timeout unchanged');
+  timers.delete(stalledTimerId);
+  stalledTimer.callback();
+  await stalledFailure;
   assert.equal(stalledScript.dataset.suxiAssetFailed, undefined);
   assert(loader.scripts.includes(stalledScript), 'a timed-out script must remain canonical while its transport is pending');
 
@@ -253,6 +275,7 @@ test('authenticated asset loads share in-flight work and recover after error or 
   stalledScript.emit('load');
   await retryStalledLoad;
   assert.equal(stalledScript.dataset.suxiAssetLoaded, '1');
+  assert.equal(timers.size, 0, 'completed transports cancel every pending timeout');
 });
 
 test('a deferred timeout never creates a second script transport or duplicate execution path', async () => {
@@ -354,6 +377,8 @@ test('public login shell defers the authenticated application asset chain', () =
   assert.equal(entries.find((entry) => stripFrontendAssetQuery(entry.src) === 'style-startup.min.css')?.phase, 'startup');
   assert.equal(entries.find((entry) => stripFrontendAssetQuery(entry.src) === 'style.min.css')?.phase, 'after-first-paint');
   assert.equal(entries.find((entry) => stripFrontendAssetQuery(entry.src) === 'ai-custom.css')?.phase, 'after-first-paint');
+  // The default Compass landing does not load the deferred page group. Its
+  // semantic panel/empty-state styles must be available before first render.
   assert.equal(entries.find((entry) => stripFrontendAssetQuery(entry.src) === 'compass-authority-polish.css')?.phase, 'startup',
     'the initial homepage must load its scoped layout and readable states before mounting');
   assert.equal(

@@ -68,6 +68,7 @@ class ProtectedCapabilityService
                         ['path' => 'api/knowledge/add', 'methods' => ['POST']],
                         ['path' => 'api/knowledge/import', 'methods' => ['POST']],
                         ['path' => 'api/knowledge/document-text', 'methods' => ['POST']],
+                        ['path' => 'api/knowledge/references', 'methods' => ['POST']],
                         ['path' => 'api/knowledge/*/add-chunk', 'methods' => ['POST']],
                         ['path' => 'api/knowledge/*/update', 'methods' => ['POST']],
                         ['path' => 'api/knowledge/*/status', 'methods' => ['POST']],
@@ -569,6 +570,19 @@ class ProtectedCapabilityService
             $path = $uri;
         }
 
+        // Match ThinkPHP's route path: an accepted pseudo-static suffix must
+        // never turn the same handler into an unclassified capability.
+        $suffix = config('route.url_html_suffix', 'html');
+        $extension = pathinfo($path, PATHINFO_EXTENSION);
+        if ($suffix !== false && $extension !== '') {
+            $allowed = array_map(
+                static fn(string $value): string => strtolower(ltrim($value, '.')),
+                explode('|', (string)$suffix)
+            );
+            if (!$suffix || in_array(strtolower($extension), $allowed, true)) {
+                $path = substr($path, 0, -strlen($extension) - 1);
+            }
+        }
         return trim(strtolower($path), '/');
     }
 

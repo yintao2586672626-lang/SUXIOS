@@ -1,0 +1,144 @@
+<?php
+declare(strict_types=1);
+namespace Tests;
+
+use app\service\ManagerCoachingService;
+use app\service\KnowledgeReferenceService;
+use app\service\KnowledgeSourceImportService;
+use PHPUnit\Framework\TestCase;
+use Tests\Support\CoachingKnowledgeFixture;
+use think\facade\Db;
+
+final class ManagerCoachingIntegrationTest extends TestCase
+{
+    private string $path;
+    private array $case;
+    protected function setUp(): void
+    {
+        $this->path = sys_get_temp_dir() . '/suxi-coaching-' . bin2hex(random_bytes(6)) . '.sqlite';
+        CoachingKnowledgeFixture::connect($this->path);
+        $this->case = CoachingKnowledgeFixture::createCase();
+    }
+    protected function tearDown(): void { Db::connect()->close(); @unlink($this->path); }
+    private function service(): ManagerCoachingService { return new ManagerCoachingService(); }
+    private function create(array $extra = []): array
+    { return $this->service()->create(10, 20, 7, 7, array_replace(CoachingKnowledgeFixture::planInput((int)$this->case['id']), $extra)); }
+    private function action(array $state, string $kind, array $extra = []): array
+    {
+        return $this->service()->mutate(10, 20, 7, 7, (int)$state['plan']['id'], $kind, array_merge([
+            'expected_revision' => (int)$state['plan']['revision'], 'idempotency_key' => bin2hex(random_bytes(8)),
+            'observed_on' => date('Y-m-d'), 'sample_count' => 3, 'evidence_ref' => '隔离样例清单 #3',
+            'note' => '隔离样例：三笔记录逐项核对，留存独立完成观察。',
+        ], $extra));
+    }
+    private function rejects(callable $run, string $message): void
+    { try { $run(); self::fail('Expected failure: ' . $message); } catch (\InvalidArgumentException|\RuntimeException $e) { self::assertStringContainsString($message, $e->getMessage()); } }
+
+    public function testCompleteReviewRecurrenceAndKnowledgeReadbackWithoutChangingScore(): void
+    {
+        $before = Db::name('manager_capability_score_snapshots')->select()->toArray();
+        $plan = $this->create();
+        self::assertSame('planned', $plan['plan']['status']);
+        $this->rejects(fn() => $this->action($plan, 'evidence', ['stage' => 'practiced', 'evidence_ref' => '']), '证据位置');
+        $plan = $this->action($plan, 'evidence', ['stage' => 'independent']);
+        self::assertSame('awaiting_review', $plan['plan']['status']);
+        $this->rejects(fn() => $this->action($plan, 'review', ['conclusion' => 'target_met', 'criteria_confirmed' => false]), '逐项确认');
+        $plan = $this->action($plan, 'review', ['conclusion' => 'target_met', 'criteria_confirmed' => true]);
+        self::assertSame('completed', $plan['plan']['status']);
+        $plan = $this->action($plan, 'knowledge', ['title' => '交接复核参考经验', 'summary' => '示范后独立演练并核对证据',
+            'steps' => '示范、实操、抽样复查', 'applicability' => '已有交接清单的岗位', 'stop_conditions' => '标准不清或缺少观察证据时先核实', 'acceptance_criteria' => '抽样核对操作清单']);
+        $last = end($plan['events'])['payload'];
+        self::assertFalse($last['formal_knowledge']);
+        $knowledge = (new KnowledgeReferenceService())->source($last['knowledge_chunk_id'], 20, 7);
+        self::assertSame('reference_sop', $knowledge['content']['content_type']);
+        self::assertContains('operation_task_creation', $knowledge['content']['blocked_uses']);
+        self::assertArrayNotHasKey('problem_facts', $knowledge['content']);
+        $gate = (new \app\service\KnowledgeDecisionGateService())->assess(['lifecycle_status' => 'active'], $knowledge['content']);
+        self::assertFalse($gate['decision_safe']);
+        self::assertFalse($gate['task_draft_safe']);
+        $plan = $this->action($plan, 'recur', ['next_review_on' => date('Y-m-d', strtotime('+2 days'))]);
+        self::assertSame('needs_followup', $plan['plan']['status']);
+        $later = new class extends ManagerCoachingService {
+            protected function today(): string { return date('Y-m-d', strtotime('+2 days')); }
+        };
+        $this->rejects(fn() => $later->mutate(10, 20, 7, 7, (int)$plan['plan']['id'], 'review', [
+            'expected_revision' => $plan['plan']['revision'], 'idempotency_key' => 'reuse-before-recurrence',
+            'observed_on' => date('Y-m-d', strtotime('+2 days')), 'conclusion' => 'target_met', 'criteria_confirmed' => true,
+            'note' => '复发后的复查', 'sample_count' => 3, 'evidence_ref' => 'later-review',
+        ]), '独立完成证据');
+        self::assertCount(5, $plan['events']);
+        self::assertSame($before, Db::name('manager_capability_score_snapshots')->select()->toArray());
+    }
+
+    public function testMissingEvidenceCanBeDeferredAndSupplementedWithoutMonthlyFreeze(): void
+    {
+        $plan = $this->create();
+        $plan = $this->action($plan, 'review', ['conclusion' => 'insufficient', 'sample_count' => null, 'evidence_ref' => '', 'next_review_on' => date('Y-m-d', strtotime('+2 days'))]);
+        self::assertSame('awaiting_evidence', $plan['plan']['status']);
+        $plan = $this->action($plan, 'evidence', ['stage' => 'independent']);
+        self::assertSame('awaiting_review', $plan['plan']['status']);
+        $this->rejects(fn() => $this->action($plan, 'review', ['conclusion' => 'target_met', 'criteria_confirmed' => true]), '尚未到');
+        self::assertCount(3, $plan['events']);
+    }
+
+    public function testIdempotencyVersionConflictAndTenantHotelPersonIsolation(): void
+    {
+        $input = CoachingKnowledgeFixture::planInput((int)$this->case['id']);
+        $state = $this->service()->create(10, 20, 7, 7, $input);
+        self::assertSame($state['plan']['id'], $this->service()->create(10, 20, 7, 7, $input)['plan']['id']);
+        $this->rejects(fn() => $this->service()->create(10, 20, 7, 7, array_replace($input, ['title' => '另一内容'])), '重试标识');
+        foreach ([[11, 20, 7], [10, 21, 7], [10, 20, 8]] as [$tenant, $hotel, $manager]) {
+            $this->rejects(fn() => $this->service()->read($tenant, $hotel, $manager, (int)$state['plan']['id']), '无权');
+        }
+        $edited = $this->action($state, 'edit', array_replace($input, ['title' => '修订后的计划', 'idempotency_key' => bin2hex(random_bytes(8))]));
+        $this->rejects(fn() => $this->action($state, 'cancel', ['note' => '旧页面提交']), '版本冲突');
+        self::assertSame('修订后的计划', $edited['plan']['content']['title']);
+        $key = bin2hex(random_bytes(8));
+        $inputEvent = ['expected_revision' => $edited['plan']['revision'], 'idempotency_key' => $key, 'note' => '原因变化取消'];
+        $cancelled = $this->service()->mutate(10, 20, 7, 7, (int)$state['plan']['id'], 'cancel', $inputEvent);
+        self::assertSame($cancelled, $this->service()->mutate(10, 20, 7, 7, (int)$state['plan']['id'], 'cancel', $inputEvent));
+    }
+
+    public function testUnknownCauseCannotProduceCompletionAndObjectiveUsesManagementMethod(): void
+    {
+        $unknown = $this->create(['cause' => 'unknown']);
+        self::assertSame('pending_diagnosis', $unknown['plan']['status']);
+        $this->rejects(fn() => $this->action($unknown, 'evidence', ['stage' => 'independent']), '核实原因');
+        $objective = $this->create(['cause' => 'objective']);
+        self::assertSame('流程资源整改', $objective['plan']['content']['method']);
+    }
+
+    public function testSourceDedupRetriesExactCitationsAndReferenceVersionConflicts(): void
+    {
+        $store = new KnowledgeSourceImportService();
+        $raw = "先说明标准。\n再演练并复查。";
+        $key = $store->identity(20, 7, $raw, 'text', 'synthetic-model', []);
+        $unit = ['name' => '隔离来源', 'source' => 'text', 'status' => 'error', 'description' => '模拟分析失败', 'tags' => ['synthetic'], 'hotel_id' => 20, 'created_by' => 7];
+        $failed = $store->persist($unit, ['raw_text' => $raw, 'failure_code' => 'ANALYSIS_FAILED'], $key);
+        $saved = $store->persist(array_replace($unit, ['status' => 'done']), ['raw_text' => $raw], $key);
+        self::assertSame($failed['unit']['unit_id'], $saved['unit']['unit_id']);
+        self::assertSame(2, $saved['chunk']['content']['ingestion']['attempt']);
+        self::assertSame($saved['chunk']['chunk_id'], $store->persist(array_replace($unit, ['status' => 'done']), ['raw_text' => $raw], $key)['chunk']['chunk_id']);
+        self::assertNotSame($key, $store->identity(21, 7, $raw, 'text', 'synthetic-model', []));
+        $refs = new KnowledgeReferenceService();
+        $source = $refs->source($saved['chunk']['chunk_id'], 20, 7);
+        $this->rejects(fn() => $refs->source($saved['chunk']['chunk_id'], 21, 7), '无权');
+        $this->rejects(fn() => $refs->source($saved['chunk']['chunk_id'], 20, 8), '无权');
+        $fields = ['objective', 'steps', 'applicability', 'stop_conditions', 'acceptance_criteria'];
+        $input = array_fill_keys($fields, '依据原文人工改写的参考内容');
+        $input += ['title' => '人工参考稿', 'idempotency_key' => 'reference-1', 'citations' => [[
+            'chunk_id' => $source['chunk_id'], 'source_digest' => $source['digest'], 'segment_id' => $source['source_segments'][0]['id'],
+            'quote' => $source['source_segments'][0]['quote'], 'field_paths' => $fields,
+        ]]];
+        $forged = $input; $forged['citations'][0]['quote'] = '伪造引用';
+        $this->rejects(fn() => $refs->save(20, 7, $forged), '原文引用不匹配');
+        $reference = $refs->save(20, 7, $input);
+        $revision = $input + ['unit_id' => $reference['unit']['unit_id'], 'expected_chunk_id' => $reference['chunk']['chunk_id']];
+        $revision['title'] = '修订后的参考稿';
+        $latest = $refs->save(20, 7, $revision);
+        self::assertNotSame($reference['chunk']['chunk_id'], $latest['chunk']['chunk_id']);
+        self::assertSame($latest['chunk']['chunk_id'], $refs->save(20, 7, $revision)['chunk']['chunk_id']);
+        $this->rejects(fn() => $refs->save(20, 7, array_replace($revision, ['title' => '旧稿覆盖新稿', 'idempotency_key' => 'different-request'])), '版本冲突');
+        self::assertSame('superseded', Db::name('knowledge_chunks')->where('chunk_id', $reference['chunk']['chunk_id'])->value('lifecycle_status'));
+    }
+}

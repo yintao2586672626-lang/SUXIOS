@@ -20,6 +20,13 @@ vm.runInNewContext(dataHealthStaticSource, context, {
 
 const helpers = context.window.SUXI_DATA_HEALTH_STATIC;
 
+test('missing hotel evidence is unknown rather than a binding failure', () => {
+  assert.equal(helpers.onlineTruthHotelText({ status: 'unverified' }), '门店证据未返回');
+  assert.equal(helpers.onlineTruthHotelText({ hotel: {} }), '门店证据未返回');
+  assert.equal(helpers.onlineTruthHotelText({ hotel: { system_hotel_id: 121, name: '测试门店' } }), '测试门店（ID 121）');
+  assert.equal(helpers.onlineTruthFailureText({ failure_reason: 'binding_missing' }), '门店绑定不完整');
+});
+
 test('truth summaries use concise Chinese and hide raw storage codes by default', () => {
   const missingText = helpers.onlineTruthDetailText({
     status: 'unverified',

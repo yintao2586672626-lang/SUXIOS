@@ -1,0 +1,96 @@
+import assert from 'node:assert/strict';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { fileURLToPath } from 'node:url';
+import path from 'node:path';
+import { chromium } from 'playwright';
+
+const root = fileURLToPath(new URL('../', import.meta.url));
+const output = path.join(root, 'output/playwright/commission-acquisition-panel');
+await mkdir(output, { recursive: true });
+const browser = await chromium.launch({ headless: true });
+const errors = [];
+const requests = [];
+try {
+  const page = await browser.newPage({ viewport: { width: 1280, height: 900 }, acceptDownloads: true });
+  page.on('pageerror', error => errors.push(error.message));
+  page.on('request', request => requests.push(request.url()));
+  await page.setContent('<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>TEST-ONLY native commission component</title></head><body style="margin:0;background:#f3f4f1;padding:16px"><div id="fixture"></div></body></html>');
+  for (const name of ['vue.runtime.global.prod.js', 'components/revenue/commission-calculator-core.js', 'components/revenue/commission-paid-traffic-core.js', 'components/revenue/commission-acquisition-panel.js']) {
+    await page.addScriptTag({ path: path.join(root, 'public', name) });
+  }
+  await page.addScriptTag({ content: `const {createApp,h,ref}=Vue; createApp({setup(){const hotelId=ref('80');return()=>h('div',[h('button',{'data-testid':'fixture-switch-hotel',onClick:()=>{hotelId.value='81';}},'TEST-ONLY switch hotel'),h(window.SUXI_SYSTEM_COMPONENTS.CommissionAcquisitionCalculatorPanel,{hotelId:hotelId.value,hotels:[{id:80,name:'TEST-ONLY Hotel A'},{id:81,name:'TEST-ONLY Hotel B'}]})]);}}).mount('#fixture');` });
+  const by = id => page.getByTestId(id);
+  const fill = (key, value) => by('commission-field-' + key).fill(value);
+  assert.equal(await by('commission-threshold').innerText(), '5.88%');
+  assert.equal(await by('commission-paid-result').count(), 0);
+  assert.match(await page.locator('body').innerText(), /人工输入.*情景推算/);
+  await by('commission-cost-enabled').check();
+  assert.equal(await by('commission-threshold').count(), 0);
+  await fill('cost', '30');
+  assert.equal(await by('commission-threshold').innerText(), '6.67%');
+  assert.equal(await by('commission-minimum-nights').innerText(), '1,067');
+  await fill('historicalRoi', '3');
+  assert.equal(await by('commission-paid-budget').innerText(), '¥15,000.00');
+  assert.equal(await by('commission-paid-revenue').innerText(), '¥45,000.00');
+  assert.equal(await by('commission-paid-nights').innerText(), '150.00');
+  assert.equal(await by('commission-paid-amount').innerText(), '¥21,000.00');
+  await fill('incrementalityPercent', '50');
+  assert.equal(await by('commission-paid-incremental').innerText(), '75.00');
+  assert.equal(await by('commission-paid-amount').innerText(), '¥3,000.00');
+  await by('commission-swap').click();
+  assert.equal(await by('commission-threshold').innerText(), '6.25%');
+  assert.equal(await by('commission-minimum-nights').innerText(), '938');
+  assert.equal(await by('commission-paid-amount').innerText(), '¥3,000.00');
+  await fill('forecast', '938');
+  assert.match(await by('commission-forecast-result').innerText(), /多 ¥120.00/);
+  await fill('period', 'TEST-ONLY September weekdays');
+  await fill('historicalSource', 'TEST-ONLY historical ROAS assumption');
+  await by('commission-field-platform').selectOption('ctrip');
+  await page.screenshot({ path: path.join(output, 'desktop.png'), fullPage: true });
+  const [download] = await Promise.all([page.waitForEvent('download'), by('commission-save-scenario').click()]);
+  const savedPath = path.join(output, 'scenario.json');
+  await download.saveAs(savedPath);
+  const saved = JSON.parse(await readFile(savedPath, 'utf8'));
+  assert.equal(saved.schema, 'suxi.commission-acquisition-scenario.v1');
+  assert.equal(saved.hotel_id, 80);
+  assert.equal(saved.fact_status, 'unverified');
+  assert.equal(saved.input.historicalRoi, '3');
+  await fill('historicalRoi', '');
+  assert.equal(await by('commission-paid-result').count(), 0);
+  await by('commission-import-file').setInputFiles(savedPath);
+  await by('commission-notice').filter({ hasText: '已从测算方案恢复' }).waitFor();
+  assert.equal(await by('commission-paid-revenue').innerText(), '¥45,000.00');
+  assert.equal(await by('commission-field-historicalSource').inputValue(), saved.input.historicalSource);
+  const foreignPath = path.join(output, 'foreign-hotel-scenario.json');
+  await writeFile(foreignPath, JSON.stringify({ ...saved, hotel_id: 999 }));
+  await by('commission-import-file').setInputFiles(foreignPath);
+  await by('commission-notice').filter({ hasText: '方案门店与当前门店不同' }).waitFor();
+  assert.equal(await by('commission-paid-revenue').innerText(), '¥45,000.00');
+  await by('commission-field-budgetMode').selectOption('manual');
+  assert.equal(await by('commission-paid-result').count(), 0);
+  await fill('budget', '1000');
+  await fill('historicalRoi', '4');
+  assert.equal(await by('commission-paid-revenue').innerText(), '¥4,000.00');
+  await fill('incrementalityPercent', '0');
+  assert.match(await by('commission-paid-breakeven').innerText(), /无有效增量/);
+  assert.equal(await by('commission-paid-amount').innerText(), '¥-1,000.00');
+  await fill('incrementalityPercent', '100');
+  await fill('historicalRoi', '0');
+  assert.equal(await by('commission-paid-revenue').innerText(), '¥0.00');
+  await fill('historicalRoi', '3');
+  for (const width of [390, 320]) {
+    await page.setViewportSize({ width, height: 844 });
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, 'overflow at ' + width);
+  }
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.screenshot({ path: path.join(output, 'mobile.png'), fullPage: true });
+  await by('fixture-switch-hotel').click();
+  assert.equal(await by('commission-field-historicalRoi').inputValue(), '');
+  assert.equal(await by('commission-paid-result').count(), 0);
+  assert.match(await by('commission-notice').innerText(), /门店已变更/);
+  assert.deepEqual(errors, []);
+  assert.deepEqual(requests, []);
+  console.log(JSON.stringify({ status: 'passed', evidence: 'TEST-ONLY native component; no application login or real OTA data', checks: ['commission up/down', 'optional cost', 'manual/gap ad budget', 'ROAS missing/zero', 'incrementality', 'exact save/import', 'cross-hotel import rejection', 'hotel switch reset', '320/390px layout', 'no network requests or page errors'], output }, null, 2));
+} finally {
+  await browser.close();
+}

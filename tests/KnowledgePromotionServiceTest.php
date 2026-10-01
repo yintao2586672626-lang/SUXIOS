@@ -143,6 +143,23 @@ final class KnowledgePromotionServiceTest extends TestCase
         (new KnowledgePromotionService())->createFromSopCandidate($sourceId, 10, [20], 7, 'bad-source');
     }
 
+    public function testStaleExpectedVersionCannotOverwriteNewRevision(): void
+    {
+        $memoryIds = $this->insertVerifiedMemories(1);
+        $source = $this->createSopCandidate([$memoryIds[0]]);
+        $service = new KnowledgePromotionService();
+        $created = $service->createFromSopCandidate((int)$source['version']['id'], 10, [20], 7, 'version-create');
+        $candidate = $created['candidate'];
+        $expected = ['expected_row_version' => $candidate['row_version'], 'expected_revision_id' => $candidate['current_revision_id']];
+        $input = $expected + ['objective' => 'A clearer human review objective', 'idempotency_key' => 'version-edit'];
+        $saved = $service->createRevision((int)$candidate['id'], 10, [20], $input, 7);
+        self::assertGreaterThan($candidate['row_version'], $saved['candidate']['row_version']);
+        self::assertFalse($service->createRevision((int)$candidate['id'], 10, [20], $input, 7)['created']);
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('版本冲突');
+        $service->createRevision((int)$candidate['id'], 10, [20], array_replace($input, ['objective' => 'Stale competing edit', 'idempotency_key' => 'other-edit']), 7);
+    }
+
     public function testSubmitRequestChangesAndNewRevisionAreAuditedWithoutKnowledgeWrite(): void
     {
         $memoryIds = $this->insertVerifiedMemories(1);

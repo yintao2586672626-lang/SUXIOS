@@ -1813,10 +1813,7 @@ trait OtaConfigConcern
 
     private function sanitizeSecretConfig(array $item): array
     {
-        $isMeituanConfig = array_key_exists('partner_id', $item)
-            || array_key_exists('partnerId', $item)
-            || array_key_exists('poi_id', $item)
-            || array_key_exists('poiId', $item);
+        $isMeituanConfig = $this->isMeituanOtaConfigMetadata($item);
         $hasOpaqueCredentialMetadata = isset($item['credential_ref'])
             && in_array((string)($item['credential_status'] ?? ''), ['ready', 'revoked'], true);
         if ($isMeituanConfig && !$hasOpaqueCredentialMetadata) {
@@ -1870,12 +1867,7 @@ trait OtaConfigConcern
                 $metadata['has_cookies'] = false;
             }
 
-            $platform = array_key_exists('partner_id', $metadata)
-                || array_key_exists('partnerId', $metadata)
-                || array_key_exists('poi_id', $metadata)
-                || array_key_exists('poiId', $metadata)
-                ? 'meituan'
-                : 'ctrip';
+            $platform = $this->isMeituanOtaConfigMetadata($metadata) ? 'meituan' : 'ctrip';
             $metadata = array_merge(
                 $metadata,
                 $this->otaConfigVerificationService()->statusForConfig($metadata, $platform)
@@ -1885,6 +1877,18 @@ trait OtaConfigConcern
         }
 
         return $safeList;
+    }
+
+    private function isMeituanOtaConfigMetadata(array $item): bool
+    {
+        foreach (['partner_id', 'partnerId', 'poi_id', 'poiId', 'store_id', 'storeId'] as $key) {
+            if (array_key_exists($key, $item)) {
+                return true;
+            }
+        }
+
+        return strtolower(trim((string)($item['platform'] ?? ''))) === 'meituan'
+            || strtolower(trim((string)($item['scope'] ?? ''))) === 'meituan_ota_config';
     }
 
     /**

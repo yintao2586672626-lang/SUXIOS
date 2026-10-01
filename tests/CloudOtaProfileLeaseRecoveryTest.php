@@ -19,6 +19,7 @@ final class CloudOtaProfileLeaseRecoveryTest extends TestCase
             'unexpected status' => [['status' => 'incomplete'], true],
             'different hotel' => [['hotel_id' => 6], false],
             'different profile' => [['profile_id' => 'cbp_otherabcdefghijkl'], false],
+            // Foreign ownership or scope never authorizes cleanup of the returned lease.
             'different tenant' => [['tenant_id' => 2], false],
             'different owner' => [['owner_user_id' => 2], false],
             'different platform' => [['platform' => 'meituan'], false],
@@ -83,6 +84,8 @@ final class CloudOtaProfileLeaseRecoveryTest extends TestCase
             self::assertSame('/v1/collection/close', $calls[1]['path']);
             self::assertSame('cancelled', $calls[1]['body']['outcome']);
             self::assertSame('cbcs_abcdefghijklmnop', $calls[1]['body']['collection_session_id']);
+            self::assertSame('cbp_abcdefghijklmnop', $calls[1]['body']['profile_id']);
+            self::assertSame('ctrip', $calls[1]['body']['platform']);
         }
     }
 }

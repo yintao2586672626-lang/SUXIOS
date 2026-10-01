@@ -31,6 +31,7 @@ test('route bootstrap registers every domain manifest once and stays below the 8
     'route/domain/online_data_order_analysis.php',
     'route/domain/revenue_ai.php',
     'route/domain/ai_governance.php',
+    'route/domain/investment.php',
     'route/domain/operations.php',
     'route/domain/wecom_admin.php',
     'route/domain/wecom_api.php',
@@ -67,8 +68,15 @@ test('extracted method, URL, handler, order and Auth middleware surface matches 
     'api/operation|post|/execution-tasks/:id/workflow|OperationManagement/mutateTaskWorkflow',
   ];
   assert.deepEqual(tuples.filter(tuple => workflowRoutes.includes(tuple)), workflowRoutes);
-  const legacyTuples = tuples.filter(tuple => !workflowRoutes.includes(tuple));
-  assert.equal(tuples.length, 133);
+  const additions = [
+    'api/operation|get|/manager-capability/coaching|ManagerCapability/coachingList',
+    'api/operation|post|/manager-capability/coaching|ManagerCapability/coachingCreate',
+    'api/operation|get|/manager-capability/coaching/:id|ManagerCapability/coachingRead',
+    'api/operation|post|/manager-capability/coaching/:id/:action|ManagerCapability/coachingAction',
+  ];
+  assert.deepEqual(tuples.filter((tuple) => additions.includes(tuple)), additions);
+  const legacyTuples = tuples.filter(tuple => !workflowRoutes.includes(tuple) && !additions.includes(tuple));
+  assert.equal(tuples.length, 129 + workflowRoutes.length + additions.length);
   assert.equal(legacyTuples.length, 129);
   assert.equal(
     createHash('sha256').update(legacyTuples.join('\n')).digest('hex'),

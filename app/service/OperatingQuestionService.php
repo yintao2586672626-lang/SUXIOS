@@ -607,9 +607,11 @@ final class OperatingQuestionService
             $question,
             $modelKey,
             $mediaEvidenceIds,
-            $factCount > 0
-                && (string)($answer['status'] ?? '') !== 'blocked_by_missing_facts'
-                && (string)($answer['mode'] ?? '') !== 'deterministic_precise_query'
+            // Knowledge and memory are mandatory; explicitly selected media is
+            // mandatory too. A model plan cannot change this tool set, so do not
+            // spend another inference call selecting it. Answer generation below
+            // still uses the caller's selected model and verified evidence.
+            false
         );
         $evidencePlane = is_array($toolCalling['evidence_plane'] ?? null)
             ? $toolCalling['evidence_plane']
@@ -2490,7 +2492,7 @@ final class OperatingQuestionService
         }
         $remaining = preg_replace('/(?<!\\d)\\d{4}(?:[-\\/.．]\\d{1,2}[-\\/.．]\\d{1,2}|年\\d{1,2}月\\d{1,2}[日号]|\\d{4})(?!\\d)/u', ' ', $remaining) ?? $remaining;
         $remaining = str_replace([
-            '请问', '帮我', '帮忙', '查一下', '查询', '看看', '看下', '告诉我',
+            '请问', '帮我', '帮忙', '查一下', '查询', '看看', '看下', '告诉我', '分析',
             '是多少', '有多少', '多少', '怎么样', '如何', '情况', '数据', '指标',
             '今天', '今日', '当天', '指定业务日', '业务日',
             '分别', '各自', '还有', '以及', '并且', '和', '与', '及', '的', '是',

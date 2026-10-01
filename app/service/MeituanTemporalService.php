@@ -214,6 +214,7 @@ final class MeituanTemporalService
         $asOfText = $asOf->format('Y-m-d');
         $yesterdayText = $asOf->sub(new DateInterval('P1D'))->format('Y-m-d');
         $futureEnd = $asOf->add(new DateInterval('P29D'))->format('Y-m-d');
+        $isHistoricalReplay = $asOfText < $now->format('Y-m-d');
 
         $rows = array_values(array_filter($rows, static function ($row) use ($systemHotelId): bool {
             if (!is_array($row)) {
@@ -222,6 +223,23 @@ final class MeituanTemporalService
             return (int)($row['system_hotel_id'] ?? 0) === $systemHotelId
                 && strtolower(trim((string)($row['source'] ?? $row['platform'] ?? ''))) === 'meituan';
         }));
+        // Replay the evidence available on that observation day. Later captures
+        // belong to a later view, even if their target business date is the same.
+        if ($isHistoricalReplay) {
+            $rows = array_values(array_filter($rows, function (array $row) use ($asOfText): bool {
+                $capturedAt = $this->capturedAt($row);
+                if ($capturedAt === '') {
+                    return false;
+                }
+                try {
+                    $capturedDate = (new DateTimeImmutable($capturedAt, new DateTimeZone(self::TIMEZONE)))
+                        ->setTimezone(new DateTimeZone(self::TIMEZONE))->format('Y-m-d');
+                    return $capturedDate <= $asOfText;
+                } catch (\Throwable) {
+                    return false;
+                }
+            }));
+        }
         $todayRows = array_values(array_filter($rows, static fn(array $row): bool =>
             (string)($row['data_date'] ?? '') === $asOfText
             && in_array(strtolower((string)($row['data_type'] ?? '')), ['business', 'order', 'traffic', 'traffic_analysis'], true)
@@ -256,7 +274,7 @@ final class MeituanTemporalService
 
         $future = $this->buildFutureSection($futureRows, $asOfText, $futureEnd);
         $sourceBlocked = ($sourceState['status'] ?? '') === 'blocked';
-        if ($sourceBlocked) {
+        if ($sourceBlocked && !$isHistoricalReplay) {
             $blockedReason = (string)($sourceState['reason_code'] ?? 'meituan_source_blocked');
             $todayCurrent['status'] = 'blocked';
             $todayCurrent['reason_code'] = $blockedReason;
@@ -282,6 +300,7 @@ final class MeituanTemporalService
             'platform' => 'meituan',
             'data_scope' => 'ota_channel',
             'as_of_date' => $asOfText,
+            'read_mode' => $isHistoricalReplay ? 'historical_as_of' : 'current',
             'generated_at' => $now->format('Y-m-d H:i:s'),
             'source_state' => $sourceState,
             'today' => [
@@ -693,8 +712,9 @@ final class MeituanTemporalService
                 'metrics' => $metrics,
             ];
         }
-        usort($snapshots, static fn(array $a, array $b): int =>
-            strcmp((string)$b['captured_at'], (string)$a['captured_at'])
+        usort($snapshots, fn(array $a, array $b): int =>
+            (($this->capturedTimestamp($b['captured_at']) ?? PHP_INT_MIN)
+                <=> ($this->capturedTimestamp($a['captured_at']) ?? PHP_INT_MIN))
             ?: ((int)$b['sync_task_id'] <=> (int)$a['sync_task_id'])
         );
         return $snapshots;
@@ -785,8 +805,9 @@ final class MeituanTemporalService
             $snapshot['is_current_capture'] = $isCurrentCapture;
             $snapshots[] = $snapshot;
         }
-        usort($snapshots, static fn(array $a, array $b): int =>
-            strcmp((string)$b['captured_at'], (string)$a['captured_at'])
+        usort($snapshots, fn(array $a, array $b): int =>
+            (($this->capturedTimestamp($b['captured_at']) ?? PHP_INT_MIN)
+                <=> ($this->capturedTimestamp($a['captured_at']) ?? PHP_INT_MIN))
             ?: ((int)$b['sync_task_id'] <=> (int)$a['sync_task_id'])
         );
 
@@ -1282,21 +1303,43 @@ final class MeituanTemporalService
     /** @param array<int, array<string, mixed>> $rows */
     private function latestCapturedAt(array $rows): ?string
     {
-        $values = array_values(array_filter(array_map(fn(array $row): string => $this->capturedAt($row), $rows)));
-        rsort($values);
-        return $values[0] ?? null;
+        $latestValue = null;
+        $latestTimestamp = null;
+        foreach ($rows as $row) {
+            $value = $this->capturedAt($row);
+            $timestamp = $this->capturedTimestamp($value);
+            if ($timestamp !== null && ($latestTimestamp === null || $timestamp > $latestTimestamp)) {
+                $latestValue = $value;
+                $latestTimestamp = $timestamp;
+            }
+        }
+        return $latestValue;
+    }
+
+    private function capturedTimestamp(?string $value): ?int
+    {
+        $value = trim((string)$value);
+        if ($value === '') {
+            return null;
+        }
+        try {
+            return (new DateTimeImmutable($value, new DateTimeZone(self::TIMEZONE)))->getTimestamp();
+        } catch (\Throwable) {
+            return null;
+        }
     }
 
     private function capturedAt(array $row): string
     {
         $raw = $this->raw($row);
-        return trim((string)(
-            $row['snapshot_time']
-            ?? $raw['captured_at']
-            ?? $raw['snapshot_time']
-            ?? $row['create_time']
-            ?? ''
-        ));
+        foreach ([$row['snapshot_time'] ?? null, $raw['captured_at'] ?? null,
+            $raw['snapshot_time'] ?? null, $row['create_time'] ?? null] as $value) {
+            $value = trim((string)$value);
+            if ($value !== '') {
+                return $value;
+            }
+        }
+        return '';
     }
 
     private static function isOwnHotelRow(array $row): bool

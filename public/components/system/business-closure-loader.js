@@ -1,6 +1,6 @@
 (() => {
     const registry = window.SUXI_SYSTEM_COMPONENTS || (window.SUXI_SYSTEM_COMPONENTS = {});
-    const bodyScript = 'business-closure-views.js?v=20260803-business-closure-template-split-v1-h6e68d18684';
+    const bodyScript = 'business-closure-views.js?v=20260803-business-closure-template-split-v1-h6a9b141426';
     const aiDailyDeliveryScript = 'ai-daily-report-delivery.js?v=20260824-ai-daily-report-delivery-v1-h2ce7152f6e';
     let loadPromise = null;
 
@@ -33,6 +33,24 @@
             throw new Error('AI日报交付资源加载完成但未注册');
         }
         return delivery;
+    });
+
+    let paybackPromise = null;
+    registry.InvestmentPaybackView = Vue.defineAsyncComponent({
+        loader: () => {
+            if (!paybackPromise) {
+                paybackPromise = loadScript('investment-scenario.min.js?v=investment-scenario-ha97aae91d2').then(() => {
+                    if (!registry.InvestmentScenarioWorkbench) throw new Error('投资经营测算组件未注册');
+                    return loadScript('investment-payback.min.js?v=investment-payback-h1edaa03335');
+                }).then(() => {
+                    if (!registry.InvestmentPaybackBody) throw new Error('投资回本组件未注册');
+                    return registry.InvestmentPaybackBody;
+                }).catch(error => { paybackPromise = null; throw error; });
+            }
+            return paybackPromise;
+        },
+        errorComponent: { render() { return Vue.h('p', { role: 'alert', class: 'text-red-700 p-4' }, '投资回本模块加载失败，请刷新重试。'); } },
+        timeout: 15000,
     });
 
     const loadingComponent = {

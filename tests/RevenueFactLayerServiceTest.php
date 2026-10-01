@@ -1099,6 +1099,33 @@ final class RevenueFactLayerServiceTest extends TestCase
         );
     }
 
+    public function testMissingPmsCaptureDoesNotClaimItWasSavedOrReadBack(): void
+    {
+        $layer = (new RevenueFactLayerService())->assemble(
+            $this->hotel(), '2026-07-30', [], $this->otaResult(), [], $this->otaOperationalMetrics()
+        );
+        $gap = $layer['unique_remaining_gap'];
+        self::assertSame('blocked', $layer['revenue_analysis_status']);
+        self::assertNull($layer['facts']['whole_hotel_accommodation']['room_revenue']);
+        self::assertStringNotContainsString('已保存回读', $gap['display_reason']);
+        self::assertSame('source_missing', $gap['evidence_state']);
+        self::assertStringContainsString('尚未回读到', $gap['display_reason']);
+    }
+
+    public function testPmsReadFailureIsNotPresentedAsARecordOrAnEmptySuccess(): void
+    {
+        $layer = (new RevenueFactLayerService())->assemble(
+            $this->hotel(), '2026-07-30', ['load_status' => 'read_failed'],
+            $this->otaResult(), [], $this->otaOperationalMetrics()
+        );
+        $gap = $layer['unique_remaining_gap'];
+        self::assertSame('read_failed', $layer['sources']['dingdandao_pms']['data_status']);
+        self::assertSame('read_failed', $gap['evidence_state']);
+        self::assertStringContainsString('读取失败', $gap['display_reason']);
+        self::assertStringNotContainsString('已保存回读', $gap['display_reason']);
+        self::assertNull($layer['facts']['whole_hotel_accommodation']['room_revenue']);
+    }
+
     public function testDeniedPmsCollectionClaimKeepsFactsNullAndAnalysisBlocked(): void
     {
         $capture = $this->pmsCapture();

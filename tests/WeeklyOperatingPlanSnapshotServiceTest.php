@@ -135,6 +135,7 @@ final class WeeklyOperatingPlanSnapshotServiceTest extends TestCase
         $second = $service->generateAndReadback(80, 80, '2026-08-28');
         $exact = $service->readExact(80, 80, (int)$first['snapshot_id']);
         $latest = $service->readLatest(80, 80, '2026-08-28');
+        self::assertSame($latest, $service->readLatestAvailability(80, 80, '2026-08-28'));
 
         self::assertTrue($first['created']);
         self::assertSame('weekly_operating_plan.v2', $first['contract_version']);

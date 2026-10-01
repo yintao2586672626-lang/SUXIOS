@@ -6,6 +6,7 @@ namespace app\controller\concern;
 use app\service\CtripCompetitionCirclePersistenceService;
 use app\service\CtripTrafficDisplayService;
 use app\service\OnlineDataTrustStatusService;
+use app\service\OperationAuditSanitizerService;
 use think\Response;
 use think\facade\Db;
 
@@ -26,6 +27,11 @@ trait OnlineDataHistoryConcern
         }
 
         try {
+            $this->validatedOnlineHistoryDateBounds();
+            $platform = strtolower(trim((string)$this->request->get('platform', $this->request->get('source', ''))));
+            if (!in_array($platform, ['', 'all', 'ctrip', 'meituan', 'qunar'], true)) {
+                throw new \InvalidArgumentException('历史查询平台无效', 422);
+            }
             $page = max(1, intval($this->request->get('page', 1)));
             $pageSizeInput = $this->request->get('page_size', null);
             if ($pageSizeInput === null || $pageSizeInput === '') {
@@ -72,7 +78,7 @@ trait OnlineDataHistoryConcern
                 'summary' => $paginationPlan['summary'],
             ]);
         } catch (\Throwable $e) {
-            return $this->error('获取历史记录失败: ' . $e->getMessage());
+            return $this->error('获取历史记录失败: ' . $e->getMessage(), $e->getCode() === 422 ? 422 : 500);
         }
     }
 
@@ -120,7 +126,11 @@ trait OnlineDataHistoryConcern
 
         try {
             $hotelId = trim((string)$this->request->get('hotel_id', ''));
-            $range = $this->normalizeCtripLatestRange((string)$this->request->get('range', ''));
+            $requestedRange = trim((string)$this->request->get('range', ''));
+            $range = $this->normalizeCtripLatestRange($requestedRange);
+            if ($requestedRange !== '' && $range === '') {
+                return $this->error('日期范围无效，请使用真实的 YYYY-MM-DD 日期、today 或 yesterday', 422);
+            }
             $sections = [
                 'rank' => $this->buildCtripLatestSection('rank', $hotelId, $currentUser, $range),
                 'traffic' => $this->buildCtripLatestSection('traffic', $hotelId, $currentUser, $range),
@@ -153,6 +163,7 @@ trait OnlineDataHistoryConcern
         }
 
         try {
+            [$startDate, $endDate] = $this->validatedOnlineHistoryDateBounds();
             $page = max(1, intval($this->request->get('page', 1)));
             $pageSize = min(100, max(1, intval($this->request->get('page_size', $this->request->get('limit', 20)))));
             $hotelId = trim((string)$this->request->get('hotel_id', ''));
@@ -162,6 +173,12 @@ trait OnlineDataHistoryConcern
             $query = Db::name('online_daily_data');
             $this->applyCtripStorageFilter($query, $columns);
             $this->applyCtripHotelScope($query, $hotelId, $currentUser, $columns, $viewableHotelIds);
+            if ($startDate !== '') {
+                $query->where('data_date', '>=', $startDate);
+            }
+            if ($endDate !== '') {
+                $query->where('data_date', '<=', $endDate);
+            }
             if ($dataType !== '' && $dataType !== 'all') {
                 $this->applyCtripSectionTypeFilter($query, $dataType, $columns);
             }
@@ -187,8 +204,16 @@ trait OnlineDataHistoryConcern
                 'summary' => $summary,
             ]);
         } catch (\Throwable $e) {
-            return $this->error('获取携程采集历史失败: ' . $e->getMessage());
+            return $this->error('获取携程采集历史失败: ' . $e->getMessage(), $e->getCode() === 422 ? 422 : 500);
         }
+    }
+
+    /** @return array{0:string,1:string} */
+    private function validatedOnlineHistoryDateBounds(): array
+    {
+        return \app\service\OtaReadDateRangeService::normalize(
+            $this->request->get('start_date', ''), $this->request->get('end_date', '')
+        );
     }
 
     private function buildCtripLatestSection(string $section, string $hotelId, $currentUser, string $range = ''): array
@@ -1318,7 +1343,7 @@ trait OnlineDataHistoryConcern
         $driver = $this->onlineHistoryDatabaseDriver();
         $usesFoundRows = in_array($driver, ['mysql', 'mariadb'], true);
         $groupFields = [
-            ($usesFoundRows ? 'SQL_CALC_FOUND_ROWS ' : '') . "{$groupKeyExpression} AS history_group_key",
+            ($usesFoundRows ? 'SQL_CALC_FOUND_ROWS ' : '') . "{$groupKeyExpression} AS history_page_group_key",
             "MAX({$orderKeyExpression}) AS history_order_key",
             "MAX({$fetchTimeExpression}) AS group_fetch_time",
         ];
@@ -1328,7 +1353,7 @@ trait OnlineDataHistoryConcern
 
         $groupRows = (clone $query)
             ->fieldRaw(implode(', ', $groupFields))
-            ->group('history_group_key')
+            ->group('history_page_group_key')
             ->order('history_order_key', 'desc')
             ->limit(($page - 1) * $pageSize, $pageSize)
             ->select()
@@ -1357,7 +1382,7 @@ trait OnlineDataHistoryConcern
 
         $groupKeys = [];
         foreach ($groupRows as $row) {
-            $groupKey = (string)($row['history_group_key'] ?? '');
+            $groupKey = (string)($row['history_page_group_key'] ?? '');
             if ($groupKey !== '') {
                 $groupKeys[] = $groupKey;
             }
@@ -1442,6 +1467,17 @@ trait OnlineDataHistoryConcern
             return $query->whereRaw('1 = 0');
         }
 
+        // Narrow by the indexed legacy key before evaluating the snapshot
+        // suffix. This preserves bounded hydration on existing databases.
+        if ($groupKeyExpression !== '`history_group_key`'
+            && str_contains($groupKeyExpression, '`history_group_key`')) {
+            $baseKeys = array_values(array_unique(array_map(
+                static fn(string $key): string => explode('|snapshot@', $key, 2)[0],
+                $groupKeys
+            )));
+            $query->whereIn('history_group_key', $baseKeys);
+        }
+
         $placeholders = [];
         $bind = [];
         foreach ($groupKeys as $index => $groupKey) {
@@ -1450,8 +1486,15 @@ trait OnlineDataHistoryConcern
             $bind[$name] = $groupKey;
         }
 
+        $comparisonExpression = $groupKeyExpression;
+        if ($this->onlineHistoryDatabaseDriver() !== 'sqlite'
+            && str_contains($groupKeyExpression, '|snapshot@')) {
+            // Generated legacy columns and connection literals can carry
+            // different collations. Snapshot identities require exact bytes.
+            $comparisonExpression = 'CAST((' . $groupKeyExpression . ') AS BINARY)';
+        }
         return $query->whereRaw(
-            '(' . $groupKeyExpression . ') IN (' . implode(', ', $placeholders) . ')',
+            '(' . $comparisonExpression . ') IN (' . implode(', ', $placeholders) . ')',
             $bind
         );
     }
@@ -1462,7 +1505,10 @@ trait OnlineDataHistoryConcern
             // Keep the generated column bare so the page hydration IN query
             // can use idx_online_daily_history_group_fetch. Wrapping it in a
             // CAST/COALESCE forces MariaDB to scan the whole filtered scope.
-            return '`history_group_key`';
+            if (!isset($columns['data_period'])) {
+                return '`history_group_key`';
+            }
+            return $this->onlineHistorySqlSnapshotGroupExpression('`history_group_key`', $columns);
         }
 
         $dataDate = $this->onlineHistorySqlColumnText($columns, 'data_date');
@@ -1486,10 +1532,37 @@ trait OnlineDataHistoryConcern
         ];
 
         if ($this->onlineHistoryDatabaseDriver() === 'sqlite') {
-            return '(' . implode(" || '|' || ", $parts) . ')';
+            $base = '(' . implode(" || '|' || ", $parts) . ')';
+        } else {
+            $base = 'CONCAT(' . implode(", '|', ", $parts) . ')';
         }
 
-        return 'CONCAT(' . implode(", '|', ", $parts) . ')';
+        return $this->onlineHistorySqlSnapshotGroupExpression($base, $columns);
+    }
+
+    private function onlineHistorySqlSnapshotGroupExpression(string $base, array $columns): string
+    {
+        if (!isset($columns['data_period'])) {
+            return $base;
+        }
+        $concat = fn(array $parts): string => $this->onlineHistoryDatabaseDriver() === 'sqlite'
+            ? '(' . implode(' || ', $parts) . ')'
+            : 'CONCAT(' . implode(', ', $parts) . ')';
+        $period = 'LOWER(TRIM(' . $this->onlineHistorySqlColumnText($columns, 'data_period') . '))';
+        $snapshot = 'CASE ';
+        if (isset($columns['sync_task_id'])) {
+            $snapshot .= 'WHEN COALESCE(`sync_task_id`, 0) > 0 THEN '
+                . $concat(["'task:'", $this->onlineHistorySqlColumnText($columns, 'sync_task_id')]) . ' ';
+        }
+        foreach (['snapshot_bucket', 'snapshot_time', 'create_time'] as $field) {
+            if (isset($columns[$field])) {
+                $value = 'TRIM(' . $this->onlineHistorySqlColumnText($columns, $field) . ')';
+                $snapshot .= "WHEN {$value} <> '' THEN " . $concat(["'{$field}:'", $value]) . ' ';
+            }
+        }
+        $snapshot .= 'ELSE ' . $concat(["'row:'", $this->onlineHistorySqlColumnText($columns, 'id')]) . ' END';
+        return "CASE WHEN {$period} IN ('realtime_snapshot', 'next_30_days', 'future_on_books') THEN "
+            . $concat([$base, "'|snapshot@'", $period, "':'", $snapshot]) . " ELSE {$base} END";
     }
 
     private function onlineHistorySqlPlatformExpression(array $columns): string
@@ -1574,13 +1647,17 @@ trait OnlineDataHistoryConcern
     private function orderOnlineHistoryMergedGroups(array $groups, array $groupKeys): array
     {
         $positions = array_flip(array_values($groupKeys));
-        $hashedKeys = isset($groupKeys[0]) && preg_match('/^[a-f0-9]{64}$/i', (string)$groupKeys[0]) === 1;
+        $hashedKeys = isset($groupKeys[0]) && preg_match('/^[a-f0-9]{64}(?:\|snapshot@|$)/i', (string)$groupKeys[0]) === 1;
         usort($groups, function (array $left, array $right) use ($positions, $hashedKeys): int {
             $leftKey = $this->buildOnlineHistoryMergeKey($left);
             $rightKey = $this->buildOnlineHistoryMergeKey($right);
             if ($hashedKeys) {
-                $leftKey = hash('sha256', $leftKey);
-                $rightKey = hash('sha256', $rightKey);
+                $hashBase = static function (string $key): string {
+                    $parts = explode('|snapshot@', $key, 2);
+                    return hash('sha256', $parts[0]) . (isset($parts[1]) ? '|snapshot@' . $parts[1] : '');
+                };
+                $leftKey = $hashBase($leftKey);
+                $rightKey = $hashBase($rightKey);
             }
             return ($positions[$leftKey] ?? PHP_INT_MAX) <=> ($positions[$rightKey] ?? PHP_INT_MAX);
         });
@@ -1695,7 +1772,7 @@ trait OnlineDataHistoryConcern
         $isCompetitionCircle = $dataType === 'competitor'
             && (string)($row['dimension'] ?? '') === 'competition_circle_hotel';
 
-        return implode('|', [
+        $base = implode('|', [
             (string)($row['data_date'] ?? ''),
             $platform,
             $dataType,
@@ -1704,6 +1781,7 @@ trait OnlineDataHistoryConcern
             $isCompetitionCircle ? 'competition_circle' : $compareType,
             $isCompetitionCircle ? $fetchTime : '',
         ]);
+        return $this->appendOnlineHistorySnapshotKey($base, $row);
     }
 
     private function onlineHistoryLightweightFetchTime(array $row): string
@@ -1807,13 +1885,12 @@ trait OnlineDataHistoryConcern
     private function applyOnlineHistoryFilters($query, $currentUser, ?array $viewableHotelIds = null): void
     {
         $columns = $this->getOnlineDailyDataColumns();
-        $platform = strtolower((string)$this->request->get('platform', $this->request->get('source', '')));
+        $platform = strtolower(trim((string)$this->request->get('platform', $this->request->get('source', ''))));
         $dataType = (string)$this->request->get('data_type', '');
         $hotelScope = (string)$this->request->get('hotel_scope', 'all');
         $hotelId = (string)$this->request->get('hotel_id', '');
         $otaHotelId = (string)$this->request->get('ota_hotel_id', '');
-        $startDate = (string)$this->request->get('start_date', '');
-        $endDate = (string)$this->request->get('end_date', '');
+        [$startDate, $endDate] = $this->validatedOnlineHistoryDateBounds();
 
         if ($platform !== '' && $platform !== 'all') {
             if ($platform === 'ctrip') {
@@ -2146,7 +2223,9 @@ trait OnlineDataHistoryConcern
         $item['raw_data'] = $rawData;
         $item['metrics_summary'] = $this->buildHistoryMetricSummary($row, $rawData);
 
-        return $item;
+        // Legacy captures may predate ingestion redaction. Protect both the
+        // raw_data field and old response_json/data aliases at the read boundary.
+        return (new OperationAuditSanitizerService())->sanitizeArray($item, PHP_INT_MAX);
     }
 
     private function mergeOnlineHistoryRows(array $rows, array $hotelMap): array
@@ -2197,7 +2276,7 @@ trait OnlineDataHistoryConcern
     {
         $isCompetitionCircle = (string)($item['data_type'] ?? '') === 'competitor'
             && (string)($item['dimension'] ?? '') === 'competition_circle_hotel';
-        return implode('|', [
+        $base = implode('|', [
             (string)($item['data_date'] ?? ''),
             (string)($item['platform'] ?? ''),
             (string)($item['data_type'] ?? ''),
@@ -2206,6 +2285,28 @@ trait OnlineDataHistoryConcern
             $isCompetitionCircle ? 'competition_circle' : (string)($item['compare_type'] ?? ''),
             $isCompetitionCircle ? (string)($item['fetch_time'] ?? '') : '',
         ]);
+        return $this->appendOnlineHistorySnapshotKey($base, $item);
+    }
+
+    private function appendOnlineHistorySnapshotKey(string $base, array $item): string
+    {
+        $period = strtolower(trim((string)($item['data_period'] ?? '')));
+        if (!in_array($period, ['realtime_snapshot', 'next_30_days', 'future_on_books'], true)) {
+            return $base;
+        }
+        $snapshot = 'row:' . (string)($item['id'] ?? '');
+        if ((int)($item['sync_task_id'] ?? 0) > 0) {
+            $snapshot = 'task:' . (string)$item['sync_task_id'];
+        } else {
+            foreach (['snapshot_bucket', 'snapshot_time', 'create_time'] as $field) {
+                $value = trim((string)($item[$field] ?? ''));
+                if ($value !== '') {
+                    $snapshot = $field . ':' . $value;
+                    break;
+                }
+            }
+        }
+        return $base . '|snapshot@' . $period . ':' . $snapshot;
     }
 
     private function appendOnlineHistoryGroupRow(array &$group, array $item): void

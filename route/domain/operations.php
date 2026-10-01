@@ -51,6 +51,10 @@ Route::group('api/operation', function () {
     Route::get('/manager-capability/managers', 'ManagerCapability/managers');
     Route::get('/manager-capability/profile', 'ManagerCapability/profile');
     Route::get('/manager-capability/followup-queue', 'ManagerCapability/followupQueue');
+    Route::get('/manager-capability/coaching', 'ManagerCapability/coachingList');
+    Route::post('/manager-capability/coaching', 'ManagerCapability/coachingCreate');
+    Route::get('/manager-capability/coaching/:id', 'ManagerCapability/coachingRead');
+    Route::post('/manager-capability/coaching/:id/:action', 'ManagerCapability/coachingAction');
     Route::get('/manager-capability/cases/:id', 'ManagerCapability/readCase');
     Route::post('/manager-capability/cases/:id/followups', 'ManagerCapability/createFollowup');
     Route::post('/manager-capability/cases/:id/adjustments', 'ManagerCapability/createAdjustment');

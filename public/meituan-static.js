@@ -374,15 +374,19 @@ window.SUXI_MEITUAN_STATIC = (() => {
         return Array.isArray(rows) ? rows : [];
     };
 
-    const getOnlineDataMetricMaybeNumber = (item, keys) => {
+    const getOnlineDataMetricMaybeNumber = (item, keys, allowPercent = false) => {
         for (const key of keys) {
             const value = item?.[key];
-            if (value !== undefined && value !== null && value !== '') {
-                const number = Number(String(value).replace(/[,，%￥¥元\s]/g, ''));
-                if (Number.isFinite(number)) {
-                    return number;
-                }
+            if (typeof value !== 'string' && typeof value !== 'number') continue;
+            let text = String(value).trim().replace(/^[￥¥]\s*/, '').replace(/\s*元$/, '');
+            if (allowPercent) text = text.replace(/%$/, '').trim();
+            if (text.includes(',') || text.includes('，')) {
+                if (!/^[+-]?\d{1,3}(?:[,，]\d{3})+(?:\.\d+)?$/.test(text)) continue;
+                text = text.replace(/[,，]/g, '');
             }
+            if (!/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?$/i.test(text)) continue;
+            const number = Number(text);
+            if (Number.isFinite(number)) return number;
         }
         return null;
     };
@@ -437,20 +441,21 @@ window.SUXI_MEITUAN_STATIC = (() => {
     };
 
     const getMeituanExposureMetricValue = (item) => getOnlineDataMetricMaybeNumber(item, ['list_exposure', 'exposure_count', 'exposure']);
-    const getMeituanClickMetricValue = (item) => getOnlineDataMetricMaybeNumber(item, ['detail_exposure', 'click_count', 'clicks', 'order_filling_num']);
+    const getMeituanClickMetricValue = (item) => getOnlineDataMetricMaybeNumber(item, ['detail_exposure', 'click_count', 'clicks']);
     const getMeituanVisitorMetricValue = (item) => getOnlineDataMetricMaybeNumber(item, ['order_filling_num', 'visitor_count', 'unique_visitors', 'detail_exposure']);
     const getMeituanSubmitMetricValue = (item) => getOnlineDataMetricMaybeNumber(item, ['order_submit_num', 'submit_users', 'book_order_num']);
     const getMeituanFlowRateMetricValue = (item) => {
-        const explicit = getOnlineDataMetricMaybeNumber(item, ['flow_rate', 'conversion_rate', 'conversionRate']);
+        const explicit = getOnlineDataMetricMaybeNumber(item, ['flow_rate', 'conversion_rate', 'conversionRate'], true);
         if (explicit !== null) {
             return explicit;
         }
         const exposure = getMeituanExposureMetricValue(item);
         const click = getMeituanClickMetricValue(item);
-        if (exposure === null || click === null || exposure === 0) {
+        if (exposure === null || click === null || exposure <= 0 || click < 0) {
             return null;
         }
-        return safeDivideMetric(click, exposure) * 100;
+        const rate = click / exposure * 100;
+        return Number.isFinite(rate) ? rate : null;
     };
     const getMeituanExposureMetric = (item) => getMeituanExposureMetricValue(item) ?? 0;
     const getMeituanClickMetric = (item) => getMeituanClickMetricValue(item) ?? 0;
@@ -596,6 +601,37 @@ window.SUXI_MEITUAN_STATIC = (() => {
         return true;
     };
 
+    // A current-page summary is not a complete-period or unique-person total.
+    // Each contributing row must carry both counts. Multiple versions of the
+    // same daily dimension cannot be added as though they were distinct days.
+    const meituanVisibleCountRate = (rows) => {
+        if (rows.length === 0) return null;
+        let numerator = 0;
+        let denominator = 0;
+        const hotels = new Set();
+        const periods = new Set();
+        const scopes = new Set();
+        for (const row of rows) {
+            const top = getMeituanClickMetricValue(row);
+            const bottom = getMeituanExposureMetricValue(row);
+            if (top === null || bottom === null || top < 0 || bottom < 0 || (bottom === 0 && top !== 0)) return null;
+            const hotel = String(row.system_hotel_id ?? row.hotel_id ?? '').trim();
+            const date = String(row.data_date ?? '').trim();
+            if (hotel) hotels.add(hotel);
+            periods.add(String(row.data_period || 'historical_daily'));
+            if (hotel && date) {
+                const scope = JSON.stringify([hotel, date, row.dimension || '', row.compare_type || 'self']);
+                if (scopes.has(scope)) return null;
+                scopes.add(scope);
+            }
+            numerator += top;
+            denominator += bottom;
+        }
+        if (hotels.size > 1 || periods.size > 1 || denominator <= 0) return null;
+        const rate = numerator / denominator * 100;
+        return Number.isFinite(numerator) && Number.isFinite(denominator) && Number.isFinite(rate) ? rate : null;
+    };
+
     const buildMeituanDownloadData = (rows = []) => {
         const allRows = [];
         const overviewRows = [];
@@ -619,8 +655,6 @@ window.SUXI_MEITUAN_STATIC = (() => {
         let trafficClick = 0;
         let trafficExposureAvailable = false;
         let trafficClickAvailable = false;
-        let trafficFlowRateSum = 0;
-        let trafficFlowRateCount = 0;
         let orderBookOrder = 0;
         let orderQuantity = 0;
         let orderAmount = 0;
@@ -656,7 +690,7 @@ window.SUXI_MEITUAN_STATIC = (() => {
                 if (item?.data_date) overviewDates.add(String(item.data_date));
                 if (getOnlineDataMetricMaybeNumber(item, ['data_value']) !== null) overviewMetricValueCount++;
                 if (getOnlineDataMetricMaybeNumber(item, ['rank', 'ranking']) !== null) overviewRankCount++;
-                if (getOnlineDataMetricMaybeNumber(item, ['rank_percent', 'percent']) !== null) overviewPercentCount++;
+                if (getOnlineDataMetricMaybeNumber(item, ['rank_percent', 'percent'], true) !== null) overviewPercentCount++;
             }
 
             if (isMeituanTrafficDataRow(item)
@@ -673,11 +707,6 @@ window.SUXI_MEITUAN_STATIC = (() => {
                 if (click !== null) {
                     trafficClick += click;
                     trafficClickAvailable = true;
-                }
-                const flowRate = getMeituanFlowRateMetricValue(item);
-                if (flowRate !== null) {
-                    trafficFlowRateSum += flowRate;
-                    trafficFlowRateCount++;
                 }
             }
 
@@ -741,7 +770,10 @@ window.SUXI_MEITUAN_STATIC = (() => {
             }
         }
 
-        const trafficAvgFlowRate = trafficFlowRateCount > 0 ? trafficFlowRateSum / trafficFlowRateCount : null;
+        const trafficCountRate = meituanVisibleCountRate(trafficRows);
+        const trafficAvgFlowRate = trafficRows.length === 1
+            ? getMeituanFlowRateMetricValue(trafficRows[0])
+            : trafficCountRate;
         const trafficExposureValue = trafficExposureAvailable ? trafficExposure : null;
         const trafficClickValue = trafficClickAvailable ? trafficClick : null;
         const adsExposureValue = adsExposureAvailable ? adsExposure : null;
@@ -773,9 +805,8 @@ window.SUXI_MEITUAN_STATIC = (() => {
             trafficExposure: trafficExposureValue,
             trafficClick: trafficClickValue,
             trafficAvgFlowRate,
-            trafficClickRate: trafficExposureAvailable && trafficClickAvailable && trafficExposure !== 0
-                ? safeDivideMetric(trafficClick, trafficExposure) * 100
-                : null,
+            trafficClickRate: trafficCountRate,
+            trafficRateBasis: trafficRows.length === 1 ? 'single_source_row' : 'current_page_aligned_counts',
             orderRowsCount: orderRows.length,
             orderBookOrder: orderBookOrderAvailable ? orderBookOrder : null,
             orderQuantity: orderQuantityAvailable ? orderQuantity : null,
@@ -788,9 +819,7 @@ window.SUXI_MEITUAN_STATIC = (() => {
             adsRowsCount: adsRows.length,
             adsExposure: adsExposureValue,
             adsClick: adsClickValue,
-            adsClickRate: adsExposureAvailable && adsClickAvailable && adsExposure !== 0
-                ? safeDivideMetric(adsClick, adsExposure) * 100
-                : null,
+            adsClickRate: meituanVisibleCountRate(adsRows),
             keywordRowsCount: keywordRows.length,
         };
     };
@@ -812,10 +841,13 @@ window.SUXI_MEITUAN_STATIC = (() => {
         if (!mode) return { ok: false, message: '当前页不支持广告/搜索词 CSV 下载', rows: [] };
         const rows = Array.isArray(mode.rows) ? mode.rows : [];
         if (!rows.length) return { ok: false, message: '当前页面没有可下载的数据', rows: [] };
-        const csvRows = rows.map(item => [item?.hotel_name ?? '', item?.data_date ?? '', ...mode.values(item)]);
-        const csv = `\uFEFF${[mode.headers, ...csvRows].map(row => row.map(meituanCsvCell).join(',')).join('\r\n')}`;
+        const exportScope = context.scope === 'filtered' ? '全部筛选结果' : '当前页';
+        const metadata = ['meituan', context.hotelId || '全部有权限门店', context.startDate || '', context.endDate || '', exportScope, context.scope === 'filtered' ? '' : (context.page || 1), context.createStart || '', context.createEnd || '', context.dataTypes || ''];
+        const headers = [...mode.headers, '查询平台', '查询酒店编号', '查询开始日期', '查询结束日期', '导出范围', '查询页码', '采集开始日期', '采集结束日期', '查询记录类型'];
+        const csvRows = rows.map(item => [item?.hotel_name ?? '', item?.data_date ?? '', ...mode.values(item), ...metadata]);
+        const csv = `\uFEFF${[headers, ...csvRows].map(row => row.map(meituanCsvCell).join(',')).join('\r\n')}`;
         const token = value => String(value || 'all').trim().replace(/[^0-9A-Za-z_-]+/g, '-') || 'all';
-        return { ok: true, message: `已下载当前页 ${rows.length} 条${mode.label}数据`, fileName: `meituan-${mode.slug}-${token(context.hotelId)}-${token(context.startDate)}-page-${token(context.page || 1)}.csv`, csv, rows };
+        return { ok: true, message: `已下载${exportScope} ${rows.length} 条${mode.label}数据`, fileName: `meituan-${mode.slug}-${token(context.hotelId)}-${token(context.startDate)}-${token(context.endDate)}-${context.scope === 'filtered' ? 'filtered' : `page-${token(context.page || 1)}`}.csv`, csv, rows };
     };
 
     const formatMeituanKeywordRow = (item, formatNumber = String) => { const metric = value => value === null ? '-' : formatNumber(value); return `${item?.keyword_label || '-'} · ${item?.hotel_name || '-'} · ${item?.data_date || '-'} · 值 ${metric(item?.keyword_value)} · 曝光 ${metric(item?.keyword_impressions)} · 点击 ${metric(item?.keyword_clicks)}`; };
@@ -2397,7 +2429,8 @@ window.SUXI_MEITUAN_STATIC = (() => {
     const meituanRankMaxAttempts = () => 3;
     const meituanRetryDelayMs = (attempt = 1) => Math.min(2500, Math.max(600, Number(attempt || 1) * 600));
     const isMeituanNonRetryableFetchError = (error) => (
-        /登录态|登录失效|重新登录|login|required|unauthorized|forbidden|credential|配置.*不一致|跨门店|权限/i
+        Number(error?.status ?? error?.code) === 429
+        || /\b429\b|too many requests|rate.?limit|限流|过于频繁|登录态|登录失效|重新登录|login|required|unauthorized|forbidden|credential|配置.*不一致|跨门店|权限/i
             .test(String(error?.message || error || ''))
     );
     const meituanRankResponseQuality = (response = {}) => {
@@ -3478,10 +3511,22 @@ window.SUXI_MEITUAN_STATIC = (() => {
         system_hotel_id: systemHotelId,
     });
 
+    const createMeituanManualRequestGuard = (getSystemHotelId, captureRequestContext, isRequestContextCurrent) => {
+        const hotelId = String(getSystemHotelId() || '');
+        const requestContext = captureRequestContext();
+        return {
+            isCurrent: () => String(getSystemHotelId() || '') === hotelId
+                && isRequestContextCurrent(requestContext),
+            staleResult: () => ({ status: 'stale', platform: 'meituan', hotelId }),
+        };
+    };
+
     const runMeituanTrafficFetchFlow = async ({
         getForm = () => ({}),
         getConfigId = () => '',
         getSystemHotelId = () => null,
+        captureRequestContext = () => null,
+        isRequestContextCurrent = () => true,
         notify = () => {},
         setFetching = () => {},
         setOnlineDataResult = () => {},
@@ -3504,6 +3549,7 @@ window.SUXI_MEITUAN_STATIC = (() => {
             return { status: validation.status, validation, form };
         }
 
+        const requestGuard = createMeituanManualRequestGuard(getSystemHotelId, captureRequestContext, isRequestContextCurrent);
         setFetching(true);
         setOnlineDataResult(null);
         const requestBody = buildMeituanTrafficFetchRequestBody({
@@ -3514,6 +3560,7 @@ window.SUXI_MEITUAN_STATIC = (() => {
         const directRequestBody = { ...requestBody, async: false, background: false };
         try {
             const res = await requestFetch(directRequestBody);
+            if (!requestGuard.isCurrent()) return requestGuard.staleResult();
             if (isMeituanBackgroundAcceptedResponse(res)) {
                 const data = res.data || {};
                 const runningPayload = {
@@ -3571,10 +3618,11 @@ window.SUXI_MEITUAN_STATIC = (() => {
             notify(res.message || '获取失败', 'error');
             return { status: 'failed', response: res, requestBody: directRequestBody };
         } catch (error) {
+            if (!requestGuard.isCurrent()) return requestGuard.staleResult();
             notify('请求失败: ' + error.message, 'error');
             return { status: 'exception', error, requestBody: directRequestBody };
         } finally {
-            setFetching(false);
+            if (requestGuard.isCurrent()) setFetching(false);
         }
     };
 
@@ -3898,6 +3946,8 @@ window.SUXI_MEITUAN_STATIC = (() => {
         getForm = () => ({}),
         getConfigId = () => '',
         getSystemHotelId = () => null,
+        captureRequestContext = () => null,
+        isRequestContextCurrent = () => true,
         getHotelNameById = () => '',
         notify = () => {},
         setFetching = () => {},
@@ -3934,11 +3984,13 @@ window.SUXI_MEITUAN_STATIC = (() => {
             return { status: 'empty_csv_rows', requestBody };
         }
 
+        const requestGuard = createMeituanManualRequestGuard(getSystemHotelId, captureRequestContext, isRequestContextCurrent);
         setFetching(true);
         setOrderResult(null);
         setOnlineDataResult(null);
         try {
             const res = await requestSave(requestBody);
+            if (!requestGuard.isCurrent()) return requestGuard.staleResult();
             if (res.code === 200) {
                 const data = { ...(res.data || {}), import_row_count: requestBody.parsed_count };
                 setOrderResult(data);
@@ -3965,10 +4017,11 @@ window.SUXI_MEITUAN_STATIC = (() => {
             notify(res.message || 'CSV订单导入失败', 'error');
             return { status: 'failed', response: res, requestBody };
         } catch (error) {
+            if (!requestGuard.isCurrent()) return requestGuard.staleResult();
             notify('CSV订单导入失败: ' + error.message, 'error');
             return { status: 'exception', error, requestBody };
         } finally {
-            setFetching(false);
+            if (requestGuard.isCurrent()) setFetching(false);
         }
     };
 
@@ -3976,6 +4029,8 @@ window.SUXI_MEITUAN_STATIC = (() => {
         getForm = () => ({}),
         getConfigId = () => '',
         getSystemHotelId = () => null,
+        captureRequestContext = () => null,
+        isRequestContextCurrent = () => true,
         getHotelNameById = () => '',
         notify = () => {},
         setFetching = () => {},
@@ -3997,6 +4052,7 @@ window.SUXI_MEITUAN_STATIC = (() => {
             return { status: validation.status, validation, form };
         }
 
+        const requestGuard = createMeituanManualRequestGuard(getSystemHotelId, captureRequestContext, isRequestContextCurrent);
         setFetching(true);
         setOrderResult(null);
         setOnlineDataResult(null);
@@ -4010,6 +4066,7 @@ window.SUXI_MEITUAN_STATIC = (() => {
         const directRequestBody = { ...requestBody, async: false, background: false };
         try {
             const res = await requestFetch(directRequestBody);
+            if (!requestGuard.isCurrent()) return requestGuard.staleResult();
             if (isMeituanBackgroundAcceptedResponse(res)) {
                 const data = res.data || {};
                 const runningPayload = {
@@ -4070,13 +4127,14 @@ window.SUXI_MEITUAN_STATIC = (() => {
             notify(failureMessage, 'error');
             return { status: 'failed', response: res, requestBody: directRequestBody };
         } catch (error) {
+            if (!requestGuard.isCurrent()) return requestGuard.staleResult();
             const failureResult = { ...(error?.data?.data || {}), ui_flow_status: 'exception', error: error.message };
             setOrderResult(failureResult);
             setOnlineDataResult(failureResult);
             notify('订单数据获取失败: ' + error.message, 'error');
             return { status: 'exception', error, requestBody: directRequestBody };
         } finally {
-            setFetching(false);
+            if (requestGuard.isCurrent()) setFetching(false);
         }
     };
 
@@ -4122,6 +4180,8 @@ window.SUXI_MEITUAN_STATIC = (() => {
         getForm = () => ({}),
         getConfigId = () => '',
         getSystemHotelId = () => null,
+        captureRequestContext = () => null,
+        isRequestContextCurrent = () => true,
         getHotelNameById = () => '',
         notify = () => {},
         setFetching = () => {},
@@ -4143,6 +4203,7 @@ window.SUXI_MEITUAN_STATIC = (() => {
             return { status: validation.status, validation, form };
         }
 
+        const requestGuard = createMeituanManualRequestGuard(getSystemHotelId, captureRequestContext, isRequestContextCurrent);
         setFetching(true);
         setAdsResult(null);
         setOnlineDataResult(null);
@@ -4156,6 +4217,7 @@ window.SUXI_MEITUAN_STATIC = (() => {
         const directRequestBody = { ...requestBody, async: false, background: false };
         try {
             const res = await requestFetch(directRequestBody);
+            if (!requestGuard.isCurrent()) return requestGuard.staleResult();
             if (isMeituanBackgroundAcceptedResponse(res)) {
                 const data = res.data || {};
                 const runningPayload = {
@@ -4216,13 +4278,14 @@ window.SUXI_MEITUAN_STATIC = (() => {
             notify(failureMessage, 'error');
             return { status: 'failed', response: res, requestBody: directRequestBody };
         } catch (error) {
+            if (!requestGuard.isCurrent()) return requestGuard.staleResult();
             const failureResult = { ...(error?.data?.data || {}), ui_flow_status: 'exception', error: error.message };
             setAdsResult(failureResult);
             setOnlineDataResult(failureResult);
             notify('广告数据获取失败: ' + error.message, 'error');
             return { status: 'exception', error, requestBody: directRequestBody };
         } finally {
-            setFetching(false);
+            if (requestGuard.isCurrent()) setFetching(false);
         }
     };
 

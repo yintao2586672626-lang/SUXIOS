@@ -12,30 +12,49 @@ use DateTimeZone;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use think\App;
+use think\Container;
+use think\facade\Cache;
 use think\facade\Config;
 use think\facade\Db;
 
 final class PreciseQueryRouterServiceTest extends TestCase
 {
-    private static array $originalDatabaseConfig = [];
+    private static ?Container $originalContainer = null;
+    private static string $applicationRoot = '';
     private static string $sqlitePath = '';
 
     public static function setUpBeforeClass(): void
     {
-        $app = new App(dirname(__DIR__));
-        $app->initialize();
-        self::$originalDatabaseConfig = Config::get('database');
-        self::$sqlitePath = sys_get_temp_dir() . DIRECTORY_SEPARATOR
-            . 'precise_query_' . getmypid() . '_' . bin2hex(random_bytes(4)) . '.sqlite';
-        $config = self::$originalDatabaseConfig;
-        $config['default'] = 'sqlite';
-        $config['connections']['sqlite'] = [
-            'type' => 'sqlite',
-            'database' => self::$sqlitePath,
-            'prefix' => '',
-            'fields_strict' => false,
-        ];
-        Config::set($config, 'database');
+        self::$originalContainer = Container::getInstance();
+        self::$applicationRoot = sys_get_temp_dir() . DIRECTORY_SEPARATOR
+            . 'precise-query-synthetic-' . getmypid() . '-' . bin2hex(random_bytes(6));
+        if (!mkdir(self::$applicationRoot, 0700, true)) {
+            throw new \RuntimeException('Cannot create isolated precise-query fixture directory.');
+        }
+        self::$sqlitePath = self::$applicationRoot . DIRECTORY_SEPARATOR . 'fixture.sqlite';
+        // The empty temporary root cannot load the checkout's .env/config/runtime.
+        $app = new App(self::$applicationRoot);
+        $app->config->set([
+            'default' => 'file',
+            'stores' => ['file' => ['type' => 'File', 'path' => self::$applicationRoot . '/cache/', 'prefix' => 'synthetic_', 'expire' => 0]],
+        ], 'cache');
+        $app->config->set([
+            'default' => 'file',
+            'channels' => ['file' => ['type' => 'File', 'path' => self::$applicationRoot . '/log/']],
+        ], 'log');
+        try {
+            $app->initialize();
+        } finally {
+            restore_error_handler();
+            restore_exception_handler();
+        }
+        Config::set([
+            'default' => 'sqlite',
+            'connections' => ['sqlite' => [
+                'type' => 'sqlite', 'database' => self::$sqlitePath,
+                'prefix' => '', 'fields_strict' => false,
+            ]],
+        ], 'database');
         Db::connect(null, true);
     }
 
@@ -45,9 +64,21 @@ final class PreciseQueryRouterServiceTest extends TestCase
             Db::connect('sqlite')->close();
         } catch (\Throwable) {
         }
-        Config::set(self::$originalDatabaseConfig, 'database');
-        Db::connect(null, true);
-        @unlink(self::$sqlitePath);
+        Cache::clear();
+        if (self::$originalContainer !== null) {
+            Container::setInstance(self::$originalContainer);
+        }
+        // Remove only the synthetic root created above, including its SQLite/cache/log files.
+        if (is_dir(self::$applicationRoot)) {
+            $files = new \RecursiveIteratorIterator(
+                new \RecursiveDirectoryIterator(self::$applicationRoot, \FilesystemIterator::SKIP_DOTS),
+                \RecursiveIteratorIterator::CHILD_FIRST,
+            );
+            foreach ($files as $file) {
+                $file->isDir() ? rmdir($file->getPathname()) : unlink($file->getPathname());
+            }
+            rmdir(self::$applicationRoot);
+        }
     }
 
     protected function setUp(): void
@@ -238,18 +269,33 @@ final class PreciseQueryRouterServiceTest extends TestCase
         };
         if ($expectedRange === null) {
             self::assertSame('clarification_required', $result['status']);
-            self::assertSame(0, $readerCalls);
+            self::assertSame(match ($question) {
+                '携程8月22日和8月23日订单量' => 'distinct_dates_need_operator',
+                '携程周一到周五的订单量' => 'period_needs_explicit_dates',
+            }, $result['answer']['reason']);
+            self::assertSame(0, $readerCalls, 'An ambiguous period must not reach the daily fact reader.');
+            self::assertSame([], $requestedDates);
         } else {
             [$start,$end] = $expectedRange;
+            $expectedDates = [];
+            for ($date = new DateTimeImmutable($start); $date->format('Y-m-d') <= $end; $date = $date->modify('+1 day')) {
+                $expectedDates[] = $date->format('Y-m-d');
+            }
             self::assertSame('blocked_by_period_facts', $result['status']);
             self::assertSame($start, $result['parsed_scope']['date_start']);
             self::assertSame($end, $result['parsed_scope']['date_end']);
             self::assertSame($start, $requestedDates[0]);
             self::assertSame($end, $requestedDates[count($requestedDates)-1]);
             self::assertSame((int)(new DateTimeImmutable($start))->diff(new DateTimeImmutable($end))->days + 1, $readerCalls);
+            self::assertSame($expectedDates, $requestedDates, 'The entire requested period must be read once in calendar order.');
+            self::assertSame([
+                'available_days' => 0, 'expected_days' => count($expectedDates), 'missing_dates' => $expectedDates,
+            ], $result['answer']['coverage']);
             self::assertNull($result['answer']['value']);
             self::assertNull($result['answer']['partial_value']);
+            self::assertStringContainsString('携程', $result['answer_summary']);
         }
+        self::assertSame('ctrip', $result['parsed_scope']['platform']);
         self::assertNull($result['parsed_scope']['business_date']);
         self::assertSame('period', $result['parsed_scope']['date_grain']);
         self::assertSame([], $result['fact_refs']);
@@ -336,19 +382,29 @@ final class PreciseQueryRouterServiceTest extends TestCase
             'current_scope' => ['hotel_id' => 80, 'platform' => 'ctrip', 'business_date' => '2026-08-23'],
         ]);
 
-        if (str_contains($query, '和')) self::assertSame('distinct_dates_need_operator', $result['answer']['reason']);
-        elseif (str_contains($query, '到')) {
+        if (str_contains($query, '和')) {
+            self::assertSame('clarification_required', $result['status']);
+            self::assertSame('distinct_dates_need_operator', $result['answer']['reason']);
+        } elseif (str_contains($query, '到')) {
             self::assertSame('2026-09-05', $result['parsed_scope']['date_start']);
             self::assertSame('2026-09-05', $result['parsed_scope']['date_end']);
+            self::assertSame('2026-09-05', $result['parsed_scope']['business_date']);
+            self::assertSame('day', $result['parsed_scope']['date_grain']);
             self::assertSame('blocked_by_period_facts', $result['status']);
-        }
-        else {
+            self::assertNull($result['answer']['value']);
+            self::assertNull($result['answer']['partial_value']);
+        } else {
             self::assertSame('2026-07-01', $result['parsed_scope']['date_start']);
             self::assertSame('2026-07-31', $result['parsed_scope']['date_end']);
+            self::assertSame('period', $result['parsed_scope']['date_grain']);
             self::assertSame('blocked_by_period_facts', $result['status']);
+            self::assertNull($result['answer']['value']);
+            self::assertNull($result['answer']['partial_value']);
         }
         if (!str_contains($query, '到')) self::assertNull($result['parsed_scope']['business_date']);
         self::assertSame([], $result['fact_refs']);
+        self::assertSame('七月酒店', $result['parsed_scope']['hotel_name']);
+        self::assertSame($result, $router->read($result['id'], 10, [80]));
     }
 
     public static function distinctDateProvider(): array

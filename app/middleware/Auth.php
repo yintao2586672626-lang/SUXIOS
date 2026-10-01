@@ -84,7 +84,7 @@ class Auth
         $request->request_id = $requestId;
 
         $protectedCapabilityService = $this->protectedCapabilityService();
-        $capability = $protectedCapabilityService->classifyPath($request->method(), $request->url());
+        $capability = $protectedCapabilityService->classifyPath($request->method(), '/' . ltrim($request->pathinfo(), '/'));
 
         $rateLimitResponse = $this->enforceRateLimit($request, $user, $capability, $requestId);
         if ($rateLimitResponse !== null) {
@@ -538,12 +538,7 @@ class Auth
 
     private function normalizeRateLimitPath(string $uri): string
     {
-        $path = parse_url($uri, PHP_URL_PATH);
-        if (!is_string($path)) {
-            $path = $uri;
-        }
-
-        return trim(strtolower($path), '/');
+        return ($this->protectedCapabilityService ?? new ProtectedCapabilityService([]))->normalizePath($uri);
     }
 
     private function buildRateLimitCacheKey(

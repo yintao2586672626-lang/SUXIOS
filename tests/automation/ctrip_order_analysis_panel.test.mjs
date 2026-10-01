@@ -445,7 +445,7 @@ test('order-analysis panel performs a scoped authenticated GET and preserves mis
   assert.match(panel, /参考底价（非确认收入）/);
   assert.match(panel, /参考底价不是确认收入/);
   assert.match(panel, /旧聚合没有精确分布，不能从平均值反推/);
-  assert.match(panel, /现存 v1 聚合没有逐状态回执，已入住订单不可独立核验/);
+  assert.match(panel, /现存旧聚合没有逐状态回执，已入住订单不可独立核验/);
   assert.match(panel, /旧聚合仅保留每日 Top5，不能恢复完整房型排名/);
   assert.match(panel, /人工文件来源仍为待核验/);
   assert.match(panel, /旧聚合保存口径；缺逐单去重回执/);

@@ -28,6 +28,7 @@ final class LocalCollectorController extends Base
         'next_task' => ['limit' => 300, 'window' => 60],
         'progress' => ['limit' => 600, 'window' => 60],
         'result' => ['limit' => 120, 'window' => 60],
+        'resume_upload' => ['limit' => 120, 'window' => 60],
     ];
 
     public function status(): Response
@@ -126,6 +127,15 @@ final class LocalCollectorController extends Base
             $input = $this->requestData();
 
             return $this->service()->updateTaskProgress($deviceId, $token, $taskId, $input);
+        });
+    }
+
+    public function resumeUpload(int $taskId): Response
+    {
+        return $this->runDeviceEndpoint('resume_upload', function () use ($taskId): array {
+            $this->assertRequestBodyWithinLimit(self::DEVICE_BODY_LIMIT_BYTES);
+            [$deviceId, $token] = $this->deviceCredentials();
+            return $this->service()->resumeResultUpload($deviceId, $token, $taskId, $this->requestData());
         });
     }
 

@@ -1,3 +1,7 @@
+                                <div v-if="currentPage === 'compass' && revenueAiOverviewError" role="alert" data-testid="revenue-ai-overview-error" class="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+                                    <div class="min-w-0"><div class="font-semibold">收益 AI 总览读取失败</div><p class="mt-1 break-words">{{ revenueAiOverviewError }}</p></div>
+                                    <button type="button" @click="loadRevenueAiOverview({ force: true })" :disabled="revenueAiOverviewLoading || revenueAiStaticLoading" class="shrink-0 rounded-lg border border-red-200 bg-white px-3 py-2 text-xs font-semibold disabled:opacity-50">重试读取</button>
+                                </div>
                                 <details v-if="currentPage === 'compass'" class="suxi-evidence-fold" data-testid="home-full-detail-fold">
                                     <summary>
                                         <span>完整明细</span>
@@ -202,7 +206,7 @@
                                                     数据基准日：{{ revenueAiOverviewAsOfDate.ok ? revenueAiOverviewAsOfDate.asOfDate : '未取得' }} · {{ revenueAiOverviewAsOfDate.ok ? revenueAiOverviewAsOfDate.contractVersion : revenueAiOverviewAsOfDate.message }}
                                                 </div>
                                             </div>
-                                            <span :class="['rounded-full border px-2 py-0.5 text-xs whitespace-nowrap', revenueAiOverviewLoading ? revenueAiStatusClass('unknown') : revenueAiStatusClass(revenueAiOverview?.data_status || 'unknown')]">{{ revenueAiOverviewLoading ? '加载中' : revenueAiStatusLabel(revenueAiOverview?.data_status || 'unknown') }}</span>
+                                            <span :class="['rounded-full border px-2 py-0.5 text-xs whitespace-nowrap', revenueAiOverviewLoading ? revenueAiStatusClass('unknown') : revenueAiStatusClass(revenueAiOverviewError ? 'failed' : (revenueAiOverview?.data_status || 'unknown'))]">{{ revenueAiOverviewLoading ? '加载中' : revenueAiStatusLabel(revenueAiOverviewError ? 'failed' : (revenueAiOverview?.data_status || 'unknown')) }}</span>
                                         </div>
                                         <div class="grid grid-cols-1 gap-2 md:grid-cols-2">
                                             <div v-for="signal in revenueAiSignalRows" :key="signal.key" class="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5">

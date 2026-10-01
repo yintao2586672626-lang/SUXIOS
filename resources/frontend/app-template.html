@@ -9,16 +9,16 @@
             <div class="login-stage relative z-10">
                 <section class="login-context-panel" aria-label="宿析OS登录主视觉">
                     <div class="login-context-topline">
-                        <span class="login-context-kicker">酒店全周期经营决策系统</span>
+                        <span class="login-context-kicker">酒店 OTA 经营分析与行动工作台</span>
                     </div>
                     <p class="login-brand-mark">宿析OS</p>
                     <h2 class="login-hero-lines">
-                        <span>看见数据</span>
-                        <span>看懂经营</span>
-                            <span>评估未来情景</span>
+                        <span>查清数据</span>
+                        <span>找到重点</span>
+                        <span>跟进结果</span>
                     </h2>
-                    <p class="login-hero-lead">让酒店每个关键决策，都有数据依据</p>
-                    <p class="login-hero-subcopy">以数据采集、经营分析、策略推演、结果追踪为核心，帮助酒店从经验判断走向数据决策。</p>
+                    <p class="login-hero-lead">今天重点看哪里，下一步先做什么？</p>
+                    <p class="login-hero-subcopy">按酒店、渠道与日期核对已接入的数据，辅助识别经营重点，跟进任务与复盘。关键经营动作由人确认。</p>
                 </section>
 
                 <div class="login-card rounded-2xl p-10 w-full max-w-md relative">
@@ -32,6 +32,7 @@
                         <h1 class="login-title text-3xl font-bold mb-2">宿析OS</h1>
                         <p class="login-slogan text-base font-medium tracking-wide">进入宿析OS经营系统</p>
                         <p class="login-copy">让酒店经营从经验判断走向数据决策</p>
+                        <p class="login-copy"><a href="/product-guide.html" style="color:inherit;text-decoration:underline;text-underline-offset:4px;">查看产品能力与使用步骤 →</a></p>
                     </div>
 
                 <!-- 登录表单 -->
@@ -1275,7 +1276,7 @@
                                 <div>
                                     <div class="mb-1 text-sm font-medium text-emerald-700">运营管理</div>
                                     <h2 class="text-2xl font-bold text-gray-900">策源·多源数据核对</h2>
-                                    <p class="mt-1 max-w-3xl text-sm leading-6 text-gray-500">按门店与经营日期核对经营结果、OTA 渠道漏斗、竞对和服务质量。缺失来源会直接显示，不以 0 值代替真实数据。</p>
+                                    <p class="mt-1 max-w-3xl text-sm leading-6 text-gray-500">按门店与经营日期核对经营结果、OTA 渠道漏斗、竞对和平台服务质量。切换范围后重新读取，缺失来源会直接显示。</p>
                                 </div>
                                 <div class="flex flex-wrap items-end gap-2">
                                     <label class="block">
@@ -1303,6 +1304,11 @@
                             <div class="font-semibold">多源数据读取失败</div>
                             <div class="mt-1">{{ operationError.fullData }}</div>
                             <button type="button" @click="loadOperationFullData" class="mt-3 rounded-lg border border-red-200 bg-white px-3 py-1.5 text-xs font-medium text-red-700 hover:bg-red-100">重新读取</button>
+                        </div>
+                        <div v-else-if="!operationFullData" data-testid="ops-source-not-loaded" class="rounded-xl border border-gray-200 bg-white p-5 text-sm text-gray-600">
+                            <h3 class="font-semibold text-gray-900">先确认门店和日期，再读取数据</h3>
+                            <p class="mt-2">当前范围尚未读取。已有历史记录可在数据中心查询；缺数据不表示经营金额为零。</p>
+                            <a href="/product-guide.html#start" class="mt-3 inline-block text-emerald-800 underline">查看接入、核对与分析步骤</a>
                         </div>
                         <template v-else-if="operationFullData">
                             <div :class="['rounded-xl border p-4 text-sm', operationSourceBrief.className]" data-testid="ops-source-brief">
@@ -1363,7 +1369,7 @@
                                 </section>
 
                                 <section class="rounded-xl border border-gray-100 bg-white p-5 shadow-sm">
-                                    <h3 class="font-bold text-gray-900">服务质量与收益窗口</h3>
+                                    <h3 class="font-bold text-gray-900">平台服务质量与收益窗口</h3>
                                     <div class="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
                                         <div class="rounded-lg border border-gray-100 bg-gray-50 p-3">
                                             <div class="flex items-center justify-between text-xs text-gray-500"><span>服务质量</span><span>{{ operationDataStatusText(operationFullData.service_quality?.data_status) }}</span></div>
@@ -1396,7 +1402,7 @@
                                 <div v-if="(operationFullData.abnormal_flags || []).length" class="mt-4 space-y-2">
                                     <div v-for="flag in operationFullData.abnormal_flags" :key="flag" class="rounded-lg border border-amber-100 bg-amber-50 px-3 py-2 text-sm text-amber-800"><i class="fas fa-exclamation-triangle mr-2"></i>{{ flag }}</div>
                                 </div>
-                                <div v-else="" class="mt-4 rounded-lg border border-emerald-100 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">当前读取结果未返回显式数据异常；仍需结合可能因素分析和人工复核。</div>
+                                <div v-else="" class="mt-4 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-600">当前读取结果未返回显式数据异常；请结合上方来源状态判断是否具备分析条件，不代表数据完整或经营正常。</div>
                             </section>
                         </template>
                         <div v-else="" data-testid="ops-source-empty" class="rounded-xl border border-dashed border-gray-200 bg-white p-10 text-center text-sm text-gray-500">选择门店和日期后读取数据；系统不会用旧数据或默认值代替本次结果。</div>
@@ -2465,7 +2471,8 @@
                                 <div>
                                     <div class="text-xs font-semibold text-blue-200 uppercase tracking-wide">AI Daily Operations</div>
                                     <h2 class="text-2xl font-bold mt-2">AI经营日报</h2>
-                                    <p class="text-sm text-slate-300 mt-2 max-w-3xl">自动读取已保存的携程、美团竞争圈，分别分析后生成同一份可追溯报告。</p>
+                                    <p class="text-sm text-slate-300 mt-2 max-w-3xl">先查看已确认事实，再查看分析与建议；已转出的事项可以直接进入对应任务继续跟进。</p>
+                                    <p v-if="aiDailyReportTaskReturn" class="mt-2 text-xs text-amber-200">正在回看原日报 #{{ aiDailyReportTaskReturn.reportId }} · {{ aiDailyReportTaskReturn.reportDate }}；刷新读取同一份日报及其最新任务状态。</p>
                                 </div>
                                 <div class="flex flex-wrap items-center gap-2">
                                     <button @click="loadAiDailyReport" :disabled="operationLoading.aiDailyReport || aiDailyReportGenerationTaskPolling" class="px-3 py-2 rounded-lg border border-white/15 bg-white/10 text-sm text-white hover:bg-white/15 disabled:opacity-60">
@@ -2768,7 +2775,7 @@
                                             </div>
                                         </div>
                                         <div class="col-span-6 md:col-span-1 md:text-right">
-                                            <button @click="handleAiDailyReportActionPrimary(action, index)" :disabled="operationLoading.aiDailyReport || revenueAiStaticLoading || !revenueAiStaticReady || action.execution_intent_id" class="px-3 py-1.5 rounded-lg bg-blue-600 text-white text-xs hover:bg-blue-700 disabled:opacity-50">{{ aiDailyReportActionButtonText(action) }}</button>
+                                            <button @click="handleAiDailyReportActionPrimary(action, index)" :disabled="operationLoading.aiDailyReport || revenueAiStaticLoading || !revenueAiStaticReady || aiDailyReportTaskOpeningId > 0" :aria-busy="aiDailyReportTaskOpeningId > 0 &amp;&amp; aiDailyReportTaskOpeningId === Number(action.execution_intent_id)" class="px-3 py-1.5 rounded-lg bg-[#143a31] text-white text-xs hover:bg-[#264a40] disabled:opacity-50">{{ aiDailyReportTaskOpeningId > 0 &amp;&amp; aiDailyReportTaskOpeningId === Number(action.execution_intent_id) ? '正在打开…' : aiDailyReportActionButtonText(action) }}</button>
                                         </div>
                                     </div>
                                 </div>
@@ -2881,6 +2888,11 @@
                             </div>
                         </div>
                         <operation-task-workflow-panel :hotel-id="operationFilters.hotel_id" :request="managerCapabilityRequest" :context="authContext" :can-execute="operationFinanceCanExecute"></operation-task-workflow-panel>
+                        <div v-if="aiDailyReportTaskReturn" data-testid="operation-daily-report-return" class="flex flex-col gap-3 rounded-xl border border-[#d8e4df] bg-[#f6faf8] p-4 sm:flex-row sm:items-center sm:justify-between">
+                            <p class="text-sm leading-6 text-[#315d50]">来自日报 #{{ aiDailyReportTaskReturn.reportId }} · {{ aiDailyReportTaskReturn.reportDate }} · 对应任务 #{{ aiDailyReportTaskReturn.intentId }}</p>
+                            <button type="button" @click="returnToAiDailyReport" class="min-h-[44px] rounded-xl border border-[#315d50] bg-white px-4 py-2.5 text-sm font-semibold text-[#315d50] hover:bg-emerald-50">返回日报并刷新进展</button>
+                        </div>
+
                         <div class="bg-white rounded-xl border border-gray-100 p-5 shadow-sm">
                             <div class="flex flex-col md:flex-row md:items-start md:justify-between gap-3 mb-4">
                                 <div>
@@ -2888,6 +2900,7 @@
                                 </div>
                                 <div class="flex flex-wrap items-center gap-2">
                                     <button type="button" @click="setOperationExecutionStageFilter(''); setOperationExecutionViewMode('mine')" :disabled="operationLoading.actions" :aria-pressed="operationExecutionViewMode === 'mine' &amp;&amp; !operationExecutionStageFilter" data-testid="operation-my-tasks-tab" :class="['min-h-[44px] rounded-xl border px-4 py-2.5 text-sm font-semibold disabled:opacity-50', operationExecutionViewMode === 'mine' &amp;&amp; !operationExecutionStageFilter ? 'border-[#315d50] bg-[#315d50] text-white' : 'border-[#d8e4df] bg-[#f6faf8] text-[#315d50]']">我的待办</button>
+                                    <button type="button" @click="openOperationPendingReviews()" :disabled="operationLoading.actions" :aria-pressed="operationExecutionStageFilter === 'review'" data-testid="operation-pending-reviews-tab" :class="['min-h-[44px] rounded-xl border px-4 py-2.5 text-sm font-semibold disabled:opacity-50', operationExecutionStageFilter === 'review' ? 'border-[#315d50] bg-[#315d50] text-white' : 'border-[#d8e4df] bg-[#f6faf8] text-[#315d50]']">{{ operationExecutionViewMode === 'mine' ? '我的待复盘' : '待复盘' }}</button>
                                     <label class="sr-only" for="operation-execution-view">任务范围</label>
                                     <select id="operation-execution-view" :value="operationExecutionViewMode" @change="setOperationExecutionViewMode($event.target.value)" :disabled="operationLoading.actions" class="min-h-[44px] rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700"><option value="all">全部流程</option><option value="mine">我的待办</option></select>
                                     <button type="button" @click="loadOperationActions" :disabled="operationLoading.actions" class="min-h-[44px] rounded-xl border border-gray-200 px-3 py-2 text-sm text-gray-600 hover:bg-gray-50 disabled:opacity-50">刷新</button>
@@ -2910,6 +2923,9 @@
                                     <div class="text-xl font-bold text-gray-900 mt-1">{{ stage.count || 0 }}</div>
                                 </button>
                             </div>
+                            <details data-testid="operation-execution-overview" class="mb-4 rounded-xl border border-gray-100 bg-gray-50/50">
+                                <summary class="cursor-pointer px-3 py-3 text-sm font-medium text-gray-700">流程统计与证据概览</summary>
+                                <div class="p-3">
                             <div class="grid grid-cols-1 md:grid-cols-3 xl:grid-cols-6 gap-3 mb-4">
                                 <div v-for="card in operationExecutionSummaryCards" :key="card.label" class="rounded-lg border border-gray-100 p-3">
                                     <div class="text-xs text-gray-500">{{ card.label }}</div>
@@ -2934,11 +2950,69 @@
                                     <div class="mt-2 text-xs text-gray-500 leading-relaxed break-words">{{ row.detail }}</div>
                                 </div>
                             </div>
+                                </div>
+                            </details>
                             <div class="mb-3 flex flex-wrap items-center justify-between gap-2 text-xs text-gray-500">
-                                <span>当前显示：<b class="text-gray-700">{{ operationExecutionViewMode === 'mine' ? '我的待办' : operationExecutionStageFilterLabel }}</b> · {{ operationExecutionFilteredItems.length }} 条</span>
+                                <span>当前显示：<b class="text-gray-700">{{ operationExecutionViewMode === 'mine' ? '我的待办 · ' + operationExecutionStageFilterLabel : operationExecutionStageFilterLabel }}</b> · {{ operationExecutionFilteredItems.length }} 条</span>
                                 <button v-if="operationExecutionStageFilter" type="button" @click="setOperationExecutionStageFilter('')" class="rounded-lg px-2.5 py-1.5 font-medium text-[#315d50] hover:bg-emerald-50">查看全部阶段</button>
                             </div>
-                            <div class="overflow-x-auto">
+                            <div data-testid="operation-mobile-task-list" class="space-y-3 lg:hidden">
+                                <article v-for="item in operationExecutionFilteredItems" :key="item.id" :data-operation-execution-intent-id="item.id" :class="operationExecutionRowClass(item)" class="min-w-0 rounded-2xl border border-[#d8e4df] bg-[#fffdf8] p-4">
+                                    <div class="flex items-start justify-between gap-3">
+                                        <h4 class="min-w-0 break-words text-base font-semibold leading-6 text-slate-900">{{ operationExecutionActionText(item) }}</h4>
+                                        <span :class="operationExecutionStatusClass(item.execution?.status)" class="shrink-0 rounded-full px-2 py-1 text-xs">{{ operationExecutionStatusLabel(item.execution?.status) }}</span>
+                                    </div>
+                                    <p class="mt-2 break-words text-xs leading-5 text-gray-500">{{ operationExecutionSourceText(item) }} · 行动 #{{ item.id }} · 任务 #{{ item.execution?.task_id || '尚未创建' }} · {{ item.recommendation?.platform || '平台未返回' }} · {{ item.recommendation?.date_start || '业务日期未返回' }}</p>
+                                    <dl class="mt-3 grid grid-cols-2 gap-3 rounded-xl border border-gray-100 bg-white p-3 text-sm">
+                                        <div class="min-w-0"><dt class="text-xs text-gray-500">负责人</dt><dd class="mt-1 break-words font-medium text-gray-800">{{ item.assignment?.assignee_name || (item.assignment?.assignee_id ? '用户 #' + item.assignment.assignee_id : '尚未指派') }}</dd></div>
+                                        <div class="min-w-0"><dt class="text-xs text-gray-500">截止期限</dt><dd class="mt-1 break-words font-medium text-gray-800">{{ item.assignment?.due_at || '尚未设置' }}</dd></div>
+                                        <div class="min-w-0"><dt class="text-xs text-gray-500">评审状态</dt><dd class="mt-1 text-gray-800">{{ operationExecutionStatusLabel(item.approval?.status) }}</dd></div>
+                                        <div class="min-w-0"><dt class="text-xs text-gray-500">复核时间</dt><dd class="mt-1 break-words text-gray-800">{{ item.assignment?.review_at || '尚未设置' }}</dd></div>
+                                    </dl>
+                                    <p v-if="item.approval?.blocked_reason" class="mt-3 rounded-lg border border-amber-100 bg-amber-50 p-2 text-xs leading-5 text-amber-800">{{ item.approval.blocked_reason }}</p>
+                                    <div class="my-3 rounded-xl border border-[#d8e4df] bg-[#f6faf8] p-3">
+                                        <p class="text-xs font-medium text-[#315d50]">下一步</p>
+                                        <p :class="operationExecutionNextActionClass(item.next_action)" class="mt-1 break-words text-sm font-semibold">{{ item.next_action?.label || '本次未返回下一步' }}</p>
+                                    </div>
+                                                <div class="flex flex-wrap gap-2" data-testid="operation-mobile-actions">
+                                                    <button v-if="operationCanApproveExecution(item)" data-testid="operation-approve" :data-confirming="operationApprovalConfirming(item)" :disabled="operationLoading.actions" @click="approveOperationExecutionIntent(item, true)" class="min-h-[44px] px-3 py-2.5 text-sm rounded-lg bg-green-600 text-white hover:bg-green-700 disabled:cursor-wait disabled:opacity-50">{{ operationApprovalText(item) }}</button>
+                                                    <button v-if="operationCanApproveExecution(item)" data-testid="operation-reject" :disabled="operationLoading.actions" @click="rejectOrCancelOperationApproval(item)" class="min-h-[44px] px-3 py-2.5 text-sm rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50 disabled:cursor-wait disabled:opacity-50">{{ operationRejectText(item) }}</button>
+                                                    <button v-if="operationCanStartExecution(item)" data-testid="operation-start-task" @click="startOperationExecutionTask(item)" class="min-h-[44px] px-3 py-2.5 text-sm rounded-lg bg-[#315d50] font-medium text-white hover:bg-[#264a40]">开始任务</button>
+                                                    <button v-if="operationCanRecordNodeCheck(item)" data-testid="operation-node-check-action" @click="recordOperationRevenueNodeCheck(item)" class="min-h-[44px] px-3 py-2.5 text-sm rounded-lg border border-[#d8e4df] bg-[#f6faf8] text-[#315d50] hover:bg-[#eaf3ee]">{{ item.evidence_summary?.node_record?.status === 'available' ? '更新节点' : '节点检查' }}</button>
+                                                    <button v-if="operationCanExecuteWithEvidence(item)" @click="recordOperationExecutionEvidence(item)" class="min-h-[44px] px-3 py-2.5 text-sm rounded-lg bg-[#315d50] text-white hover:bg-[#264a40]">录证据</button>
+                                                    <button v-if="operationCanCancelExecution(item) &amp;&amp; !operationCanApproveExecution(item)" data-testid="operation-cancel-action" @click="cancelOperationExecution(item)" class="min-h-[44px] px-3 py-2.5 text-sm rounded-lg border border-rose-200 bg-white text-rose-700 hover:bg-rose-50">取消</button>
+                                                    <button v-if="operationCanReconcileExecution(item) || operationCanReviewExecution(item)" data-testid="operation-review-action" @click="operationCanReconcileExecution(item) ? reconcileOperationExecutionReview(item) : reviewOperationExecutionTask(item)" class="min-h-[44px] px-3 py-2.5 text-sm rounded-lg bg-gray-900 text-white hover:bg-gray-700">{{ operationCanReconcileExecution(item) ? '读取事实' : '复盘' }}</button>
+                                                    <span v-else-if="item.execution?.status === 'executed' &amp;&amp; item.review?.is_available === false" class="text-xs text-amber-700">{{ item.review.available_at || item.review.available_on || '次日' }} 可读取</span>
+                                                    <button v-if="operationCanDefineIntervention(item)" type="button" @click="openOperatingInterventionForm(item)" class="min-h-[44px] px-3 py-2.5 text-sm rounded-lg border border-[#315d50] bg-white font-medium text-[#315d50] hover:bg-emerald-50">定义干预</button>
+                                                    <span v-if="operationCanAssessIntervention(item)" class="rounded-lg border border-[#d8e4df] bg-[#f6faf8] px-2.5 py-1 text-xs font-medium text-[#315d50]">系统自动观察与判定</span>
+                                                    <button v-if="canSaveMemo(item)" @click="saveMemo(item)" data-testid="save-operating-memory" class="min-h-[44px] rounded-lg border border-[#d8e4df] bg-white px-3 py-2.5 text-sm text-[#315d50]">沉淀记忆</button>
+                                                    <span v-if="!operationExecutionActionAvailable(item)" class="text-xs text-gray-400">-</span>
+                                                </div>
+                                    <details class="mt-3 border-t border-[#d8e4df] pt-2" data-testid="operation-mobile-task-evidence">
+                                        <summary class="cursor-pointer py-2 text-xs font-medium text-[#315d50]">查看依据、节点证据与复盘</summary>
+                                        <div class="space-y-3 pt-2 text-xs leading-5 break-words">
+                                            <span v-if="item.action_management" :class="operationExecutionStatusClass(item.action_management.lifecycle?.status)" class="inline-flex rounded-full px-2 py-0.5">{{ operationExecutionStatusLabel(item.action_management.lifecycle?.status) }}</span>
+                                            <div v-if="item.action_management?.action_card" class="space-y-1 rounded-lg border border-[#d8e4df] bg-[#f6faf8] p-2">
+                                                <div><b>原因：</b>{{ item.action_management.action_card.reason || '未返回' }}</div>
+                                                <div><b>风险：</b>{{ item.action_management.action_card.risk?.summary || '未返回' }}</div>
+                                                <div><b>事实：</b>{{ (item.action_management.action_card.fact_refs || []).join('、') || '未返回' }}</div>
+                                                <div><b>指标：</b>{{ item.action_management.action_card.metric_contract?.metric_key || '未返回' }} · {{ item.action_management.action_card.metric_contract?.unit || '单位缺失' }}</div>
+                                            </div>
+                                            <div><span :class="operationInterventionLearningModelForItem(item).className">{{ operationInterventionLearningModelForItem(item).label }}</span><p>{{ operationInterventionLearningModelForItem(item).summary }}</p></div>
+                                            <div v-if="item.recommendation?.evidence?.ai_independent_review?.contract_version === 'operation_action_ai_independent_review.v1'" class="rounded-lg border border-[#d8e4df] bg-[#f6faf8] p-2">
+                                                <b>AI 独立评审 · {{ item.recommendation.evidence.ai_independent_review.status }}</b>
+                                                <p>{{ item.recommendation.evidence.ai_independent_review.summary || '评审摘要未回读' }}</p>
+                                                <p class="text-gray-500">{{ item.recommendation.evidence.ai_independent_review.provider || '-' }} · {{ item.recommendation.evidence.ai_independent_review.model || '-' }}</p>
+                                            </div>
+                                            <p><b>节点证据：</b>{{ nodeText(item) }}</p>
+                                            <p class="whitespace-pre-line"><b>复盘：</b>{{ operationExecutionReviewText(item) }}</p>
+                                            <p v-if="item.action_management?.latest_review?.non_attribution_reasons?.length" class="text-amber-700">非归因：{{ item.action_management.latest_review.non_attribution_reasons.join('、') }}</p>
+                                            <p><b>ROI：</b><span :class="item.roi?.status === 'ready' ? 'text-green-700 font-semibold' : 'text-gray-500'">{{ operationExecutionRoiText(item.roi) }}</span></p>
+                                        </div>
+                                    </details>
+                                </article>
+                            </div>
+                            <div data-testid="operation-desktop-task-table" class="hidden overflow-x-auto lg:block">
                                 <table class="min-w-full text-sm">
                                     <thead class="bg-gray-50 text-gray-500">
                                         <tr>
@@ -3026,9 +3100,9 @@
                             </div>
                         </div>
 
-                        <details data-testid="operation-advanced-tools" class="rounded-2xl border border-slate-200 bg-white p-4">
-                            <summary class="cursor-pointer font-medium text-slate-700">高级管理 · 经营目标与干预学习</summary>
-                            <div class="mt-4 space-y-4">
+                        <details data-testid="operation-advanced-tools" class="rounded-xl border border-[#d8e4df] bg-[#fffdf8]">
+                            <summary class="cursor-pointer px-5 py-4 text-sm font-semibold text-[#315d50] focus:outline-none focus:ring-2 focus:ring-[#315d50]/30">高级管理 · 经理能力、经营目标与干预学习</summary>
+                            <div class="space-y-4 border-t border-[#d8e4df] p-4">
                         <manager-capability-panel
                             :hotel-id="operationFilters.hotel_id"
                             :request="managerCapabilityRequest"
@@ -3816,19 +3890,19 @@
 
                     <!-- 收益分析 -->
                     <div v-if="currentPage === 'revenue-research-center'" class="max-w-7xl mx-auto space-y-4">
-                        <div class="bg-white rounded-xl p-5 shadow-sm border border-gray-100">
+                        <div class="rounded-3xl border border-[#eadfc9] bg-gradient-to-br from-[#fffdf8] to-[#f7f5ef] p-5 shadow-sm">
                             <div class="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
                                 <div>
-                                    <div class="text-sm font-medium text-blue-600 mb-1">收益分析</div>
+                                    <div class="text-sm font-medium text-[#315d50] mb-1">收益分析</div>
                                     <h2 class="text-2xl font-bold text-gray-900">已有信息研究</h2>
                                     <p class="text-sm text-gray-500 mt-2 max-w-3xl leading-relaxed">
                                         只读取本地已有 OTA 与经营记录；缺字段、未接入、尚未校准直接显示，不把研究情景当成全酒店经营事实。
                                     </p>
                                 </div>
                                 <div class="grid grid-cols-3 gap-2 text-sm">
-                                    <div class="rounded-lg border border-blue-100 bg-blue-50 px-4 py-3">
-                                        <div class="text-blue-500 text-xs mb-1">口径</div>
-                                        <div class="font-semibold text-blue-900">OTA/本地经营</div>
+                                    <div class="rounded-lg border border-[#d8e4df] bg-[#f6faf8] px-4 py-3">
+                                        <div class="text-[#55796b] text-xs mb-1">口径</div>
+                                        <div class="font-semibold text-[#264a40]">OTA/本地经营</div>
                                     </div>
                                     <div class="rounded-lg border border-gray-100 bg-gray-50 px-4 py-3">
                                         <div class="text-gray-400 text-xs mb-1">输出</div>
@@ -3853,12 +3927,17 @@
                                         <option value="">全部可见酒店</option>
                                         <option v-for="hotel in revenueResearchHotelOptions" :key="hotel.id" :value="hotel.id">{{ hotel.name }}</option>
                                     </select>
-                                    <span class="px-3 py-2 rounded-lg border border-blue-100 bg-blue-50 text-sm text-blue-700">
+                                    <span class="px-3 py-2 rounded-lg border border-[#d8e4df] bg-[#f6faf8] text-sm text-[#315d50]">
                                         <i class="fas fa-database mr-1.5"></i>读取已有信息
                                     </span>
                                 </div>
                             </div>
 
+                            <p v-if="revenueResearchCatalogLoading && !revenueResearchProducts.length" role="status" class="mb-4 text-sm text-slate-600">正在加载研究入口…</p>
+                            <div v-if="revenueResearchCatalogError" role="alert" class="mb-4 flex flex-wrap items-center gap-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+                                <span>{{ revenueResearchCatalogError }}</span>
+                                <button type="button" @click="retryRevenueResearchCatalog" :disabled="revenueResearchCatalogLoading" class="rounded-lg border border-amber-300 bg-white px-3 disabled:opacity-50" style="min-height:44px">重新加载研究入口</button>
+                            </div>
                             <div class="columns-1 gap-4 xl:columns-2">
                                 <div v-for="product in revenueResearchProducts" :key="product.key" class="mb-4 break-inside-avoid rounded-xl border border-gray-100 bg-gray-50/60 p-4">
                                     <div class="flex items-start justify-between gap-3 mb-3">
@@ -3876,7 +3955,7 @@
                                     </div>
 
                                     <div class="mt-4 flex flex-wrap gap-2">
-                                        <button @click="runRevenueResearchProduct(product)" :disabled="revenueResearchRunFor(product.key).loading" :data-testid="'button-revenue-research-run-' + product.key" :class="['px-3 py-2 rounded-lg text-sm text-white transition', revenueResearchRunFor(product.key).loading ? 'bg-blue-400 cursor-wait' : 'bg-blue-600 hover:bg-blue-700']">
+                                        <button @click="runRevenueResearchProduct(product)" :disabled="revenueResearchRunFor(product.key).loading" :data-testid="'button-revenue-research-run-' + product.key" :class="['px-3 py-2 rounded-lg text-sm text-white transition', revenueResearchRunFor(product.key).loading ? 'bg-[#7c9d90] cursor-wait' : 'bg-[#315d50] hover:bg-[#264a40]']">
                                             <i :class="[revenueResearchRunFor(product.key).loading ? 'fas fa-spinner fa-spin' : 'fas fa-play', 'mr-1.5']"></i>{{ revenueResearchRunFor(product.key).loading ? '分析中...' : '开始研究' }}
                                         </button>
                                         <button v-if="revenueResearchRunFor(product.key).result" @click="openRevenueResearchModule(product)" :disabled="!product.module" :data-testid="'button-revenue-research-module-' + product.key" :class="['px-3 py-2 rounded-lg text-sm border', product.module ? 'bg-green-50 border-green-100 text-green-700 hover:bg-green-100' : 'bg-gray-100 border-gray-200 text-gray-400 cursor-not-allowed']">
@@ -3906,7 +3985,7 @@
                                             <div v-if="revenueResearchRunFor(product.key).result.readiness" class="rounded-lg border border-slate-100 bg-slate-50 p-3 text-xs text-slate-700 leading-5">
                                                 <div class="font-medium text-slate-900">{{ revenueResearchRunFor(product.key).result.readiness.notice }}</div>
                                                 <div class="mt-1">{{ revenueResearchMissingText(revenueResearchRunFor(product.key).result.readiness) }}</div>
-                                                <div class="mt-1 text-blue-700">下一步：{{ revenueResearchRunFor(product.key).result.readiness.next_action }}</div>
+                                                <div class="mt-1 text-[#315d50]">下一步：{{ revenueResearchRunFor(product.key).result.readiness.next_action }}</div>
                                             </div>
                                             <div class="rounded-lg border border-emerald-100 bg-emerald-50/70 p-3" :data-testid="'revenue-research-execution-bridge-' + product.key">
                                                 <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -3930,61 +4009,102 @@
                                                     <span v-else="" class="text-xs leading-5 text-amber-800">{{ revenueResearchExecutionBlockedText(revenueResearchRunFor(product.key).result) }}</span>
                                                 </div>
                                             </div>
-                                            <p class="line-clamp-4 text-sm leading-relaxed text-gray-700" :title="revenueResearchRunFor(product.key).result.result?.summary || '本次未返回可展示的研究摘要。'">{{ revenueResearchRunFor(product.key).result.result?.summary || '本次未返回可展示的研究摘要。' }}</p>
+                                            <p class="line-clamp-4 whitespace-pre-line break-words text-sm leading-relaxed text-gray-700">{{ revenueResearchRunFor(product.key).result.result?.summary || '本次未返回可展示的研究摘要。' }}</p>
+                                            <p class="text-xs leading-5 text-amber-800" :data-testid="'revenue-research-result-counts-' + product.key">
+                                                已返回：来源 {{ (revenueResearchRunFor(product.key).result.local_sources || []).length }} 项 · 信息缺口 {{ (revenueResearchRunFor(product.key).result.gaps || []).length }} 项 · 就绪条件缺口 {{ (revenueResearchRunFor(product.key).result.readiness?.missing_evidence || []).length }} 项 · 研究缺口 {{ (revenueResearchRunFor(product.key).result.result?.data_gaps || []).length }} 项。
+                                                各类缺口可能重叠，完整内容可展开查看。
+                                            </p>
                                             <div v-if="revenueResearchForecastCards(revenueResearchRunFor(product.key).result).length" class="grid grid-cols-1 md:grid-cols-3 gap-3">
-                                                <div v-for="card in revenueResearchForecastCards(revenueResearchRunFor(product.key).result)" :key="card.label" class="rounded-lg bg-blue-50 border border-blue-100 p-3">
+                                                <div v-for="card in revenueResearchForecastCards(revenueResearchRunFor(product.key).result)" :key="card.label" class="rounded-lg bg-[#f6faf8] border border-[#d8e4df] p-3">
                                                     <div class="mb-1 flex items-start justify-between gap-2">
-                                                        <div class="text-xs text-blue-700">{{ card.label }}</div>
+                                                        <div class="text-xs text-[#315d50]">{{ card.label }}</div>
                                                         <span :class="card.truthClass">{{ card.truthStatus }}</span>
                                                     </div>
-                                                    <div class="text-lg font-semibold text-blue-950">{{ card.value }}</div>
-                                                    <div class="text-xs text-blue-700 mt-1">{{ card.note }}</div>
-                                                    <div class="mt-2 border-t border-blue-100 pt-2 text-[11px] leading-5 text-blue-800" data-testid="revenue-research-forecast-truth">{{ card.truthDetail }}</div>
+                                                    <div class="text-lg font-semibold text-[#264a40]">{{ card.value }}</div>
+                                                    <div class="text-xs text-[#315d50] mt-1">{{ card.note }}</div>
+                                                    <div class="mt-2 border-t border-[#d8e4df] pt-2 text-[11px] leading-5 text-[#315d50]" data-testid="revenue-research-forecast-truth">{{ card.truthDetail }}</div>
                                                 </div>
                                             </div>
+                                            <p :data-testid="'revenue-research-result-scope-' + product.key" class="rounded-lg border border-[#d8e4df] bg-[#f6faf8] px-3 py-2 text-xs leading-5 text-[#315d50] break-words">
+                                                <template v-if="revenueResearchRunFor(product.key).result.hotel_scope?.hotel_name || Number(revenueResearchRunFor(product.key).result.hotel_scope?.hotel_id) > 0">
+                                                    结果范围：{{ revenueResearchRunFor(product.key).result.hotel_scope.hotel_name || '酒店' }}<span v-if="Number(revenueResearchRunFor(product.key).result.hotel_scope.hotel_id) > 0"> · 酒店 #{{ revenueResearchRunFor(product.key).result.hotel_scope.hotel_id }}</span>。以本次结果身份为准。
+                                                </template>
+                                                <template v-else-if="revenueResearchRunFor(product.key).result.hotel_scope?.mode === 'all_permitted_hotels' &amp;&amp; (revenueResearchRunFor(product.key).result.hotel_scope?.hotel_ids || []).length">
+                                                    结果范围：本次返回的可见门店 · 酒店 #{{ revenueResearchRunFor(product.key).result.hotel_scope.hotel_ids.join('、#') }}。以本次结果身份为准。
+                                                </template>
+                                                <template v-else>结果范围未返回，请核对后使用</template>
+                                            </p>
+                                            <details :data-testid="'revenue-research-full-result-' + product.key" class="rounded-xl border border-[#d8e4df] bg-[#fffdf8]">
+                                                <summary class="cursor-pointer rounded-xl px-3 py-3 text-sm font-semibold text-[#315d50] focus:outline-none focus:ring-2 focus:ring-[#315d50]/30">查看完整结果 · 摘要、全部缺口与建议</summary>
+                                                <div class="space-y-3 border-t border-[#d8e4df] p-3 text-sm leading-6 break-words">
+                                                    <p class="text-xs text-gray-500">以下为本次已返回内容；展开不会重新生成研究。</p>
+                                                    <section>
+                                                        <h4 class="mb-2 font-semibold text-gray-900">完整摘要</h4>
+                                                        <p class="whitespace-pre-wrap text-gray-700" :data-testid="'revenue-research-full-summary-' + product.key">{{ revenueResearchRunFor(product.key).result.result?.summary || '本次未返回可展示的研究摘要。' }}</p>
+                                                    </section>
                                             <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
                                                 <div class="rounded-lg bg-gray-50 border border-gray-100 p-3">
-                                                    <div class="font-medium text-gray-800 text-xs mb-2">已有信息</div>
+                                                    <div class="font-medium text-gray-800 text-xs mb-2">已有信息 · {{ (revenueResearchRunFor(product.key).result.local_sources || []).length }} 项</div>
+                                                    <p v-if="!(revenueResearchRunFor(product.key).result.local_sources || []).length" class="text-xs text-gray-500">本次未返回来源记录</p>
                                                     <div class="space-y-1">
-                                                        <div v-for="source in (revenueResearchRunFor(product.key).result.local_sources || []).slice(0, 4)" :key="source.source" class="flex items-center justify-between gap-2 text-xs text-gray-600">
-                                                            <span class="truncate">{{ source.label }}</span>
-                                                            <span class="text-gray-400 whitespace-nowrap">{{ source.count ?? '—' }} 条</span>
+                                                        <div v-for="(source, sourceIndex) in (revenueResearchRunFor(product.key).result.local_sources || [])" :key="sourceIndex" class="border-b border-gray-100 py-2 text-xs text-gray-600 last:border-0">
+                                                            <div class="flex items-start justify-between gap-2"><span class="min-w-0 break-words">{{ source.label || source.source || source.table || '未命名来源' }}</span><span class="shrink-0 text-gray-500">{{ source.count ?? '—' }} 条</span></div>
+                                                            <div v-if="source.summary" class="mt-1 whitespace-pre-line leading-5">{{ source.summary }}</div>
                                                         </div>
                                                     </div>
                                                 </div>
                                                 <div class="rounded-lg bg-amber-50 border border-amber-100 p-3">
-                                                    <div class="font-medium text-amber-900 text-xs mb-2">缺失信息</div>
+                                                    <div class="font-medium text-amber-900 text-xs mb-2">缺失信息 · {{ (revenueResearchRunFor(product.key).result.gaps || []).length }} 项</div>
                                                     <div v-if="(revenueResearchRunFor(product.key).result.gaps || []).length === 0" class="text-xs text-amber-700">未返回关键缺口</div>
-                                                    <div v-for="gap in (revenueResearchRunFor(product.key).result.gaps || []).slice(0, 3)" :key="gap.table + gap.reason" class="text-xs text-amber-800 leading-relaxed mb-1">
+                                                    <div v-for="(gap, gapIndex) in (revenueResearchRunFor(product.key).result.gaps || [])" :key="gapIndex" class="text-xs text-amber-800 leading-relaxed mb-1">
                                                         {{ gap.label || gap.table }}：{{ gap.reason }}
                                                     </div>
                                                 </div>
                                             </div>
                                             <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
                                                 <div class="rounded-lg bg-rose-50 border border-rose-100 p-3">
-                                                    <div class="font-medium text-rose-900 text-xs mb-2">风险信号</div>
+                                                    <div class="font-medium text-rose-900 text-xs mb-2">风险信号 · {{ (revenueResearchRunFor(product.key).result.result?.risk_signals || []).length }} 项</div>
                                                     <div v-if="!(revenueResearchRunFor(product.key).result.result?.risk_signals || []).length" class="text-xs text-rose-700">未返回风险信号</div>
-                                                    <div v-for="risk in (revenueResearchRunFor(product.key).result.result?.risk_signals || []).slice(0, 4)" :key="risk" class="text-xs text-rose-800 leading-relaxed mb-1">
+                                                    <div v-for="(risk, riskIndex) in (revenueResearchRunFor(product.key).result.result?.risk_signals || [])" :key="riskIndex" class="text-xs text-rose-800 leading-relaxed mb-1">
                                                         {{ risk }}
                                                     </div>
                                                 </div>
                                                 <div class="rounded-lg bg-green-50 border border-green-100 p-3">
-                                                    <div class="font-medium text-green-900 text-xs mb-2">建议动作</div>
-                                                    <div v-if="!(revenueResearchRunFor(product.key).result.result?.decision_recommendations || []).length &amp;&amp; !(revenueResearchRunFor(product.key).result.result?.recommended_actions || []).length" class="text-xs text-green-700">等待模型生成建议动作</div>
-                                                    <div v-for="action in (revenueResearchRunFor(product.key).result.result?.decision_recommendations || []).slice(0, 4)" :key="action.priority + action.title" class="mb-2 rounded border border-green-100 bg-white/70 p-2 text-xs leading-5 text-green-900">
+                                                    <div class="font-medium text-green-900 text-xs mb-2">建议动作 · {{ (revenueResearchRunFor(product.key).result.result?.decision_recommendations || []).length }} 项结构化建议</div>
+                                                    <div v-if="!(revenueResearchRunFor(product.key).result.result?.decision_recommendations || []).length &amp;&amp; !(revenueResearchRunFor(product.key).result.result?.recommended_actions || []).length" class="text-xs text-green-700">本次未返回建议动作</div>
+                                                    <div v-for="(action, actionIndex) in (revenueResearchRunFor(product.key).result.result?.decision_recommendations || [])" :key="actionIndex" class="mb-2 rounded border border-green-100 bg-white/70 p-2 text-xs leading-5 text-green-900">
                                                         <div class="flex items-center gap-2"><span class="rounded border border-green-200 px-1.5 py-0.5 text-[10px] font-semibold">{{ action.priority }}</span><strong>{{ action.title }}</strong></div>
                                                         <div><span class="font-semibold">建议动作：</span>{{ action.action }}</div>
                                                         <ai-decision-quality-details :item="action"></ai-decision-quality-details>
                                                     </div>
-                                                    <div v-if="!(revenueResearchRunFor(product.key).result.result?.decision_recommendations || []).length &amp;&amp; (revenueResearchRunFor(product.key).result.result?.recommended_actions || []).length" class="rounded border border-amber-100 bg-amber-50 p-2 text-xs text-amber-800">历史建议结构不完整：{{ revenueResearchRunFor(product.key).result.result.recommended_actions.slice(0, 4).join('；') }}</div>
+                                                    <div v-if="(revenueResearchRunFor(product.key).result.result?.recommended_actions || []).length" class="rounded border border-amber-100 bg-amber-50 p-2 text-xs text-amber-800">
+                                                        <div class="mb-1 font-medium">原始文字建议 · {{ revenueResearchRunFor(product.key).result.result.recommended_actions.length }} 项</div>
+                                                        <p v-if="!(revenueResearchRunFor(product.key).result.result?.decision_recommendations || []).length" class="mb-2">历史建议结构不完整，以下保留原文。</p>
+                                                        <ol class="list-decimal space-y-1 pl-4"><li v-for="(action, actionIndex) in revenueResearchRunFor(product.key).result.result.recommended_actions" :key="actionIndex" class="whitespace-pre-line">{{ action }}</li></ol>
+                                                    </div>
                                                 </div>
                                             </div>
-                                            <div v-if="(revenueResearchRunFor(product.key).result.web_sources || []).length" class="rounded-lg bg-blue-50 border border-blue-100 px-3 py-2 text-xs text-blue-700">
-                                                外部引用 {{ revenueResearchRunFor(product.key).result.web_sources.length }} 条；默认判断仍以本地已有信息和缺口状态为准。
+                                            <section class="rounded-lg border border-amber-100 bg-amber-50 p-3 text-xs text-amber-800">
+                                                <h4 class="mb-2 font-medium">全部就绪条件缺口 · {{ (revenueResearchRunFor(product.key).result.readiness?.missing_evidence || []).length }} 项</h4>
+                                                <p v-if="!(revenueResearchRunFor(product.key).result.readiness?.missing_evidence || []).length">本次未返回就绪条件缺口；是否可执行仍以就绪状态为准。</p>
+                                                <ol class="list-decimal space-y-2 pl-4"><li v-for="(missing, missingIndex) in (revenueResearchRunFor(product.key).result.readiness?.missing_evidence || [])" :key="missingIndex"><b>{{ missing.label || missing.code }}</b><div v-if="missing.next_action" class="whitespace-pre-line">下一步：{{ missing.next_action }}</div></li></ol>
+                                            </section>
+                                            <section v-for="section in [{ key: 'forecast_assumptions', label: '情景假设' }, { key: 'key_metrics', label: '关键指标' }, { key: 'data_gaps', label: '研究缺口' }]" :key="section.key" class="rounded-lg border border-gray-100 bg-white p-3 text-xs text-gray-700">
+                                                <h4 class="mb-2 font-medium text-gray-900">{{ section.label }} · {{ (revenueResearchRunFor(product.key).result.result?.[section.key] || []).length }} 项</h4>
+                                                <p v-if="!(revenueResearchRunFor(product.key).result.result?.[section.key] || []).length">本次未返回{{ section.label }}</p>
+                                                <ol class="list-decimal space-y-1 pl-4"><li v-for="(entry, entryIndex) in (revenueResearchRunFor(product.key).result.result?.[section.key] || [])" :key="entryIndex" class="whitespace-pre-line">{{ entry }}</li></ol>
+                                            </section>
+                                            <div v-if="(revenueResearchRunFor(product.key).result.web_sources || []).length" class="rounded-lg bg-[#f6faf8] border border-[#d8e4df] p-3 text-xs text-[#315d50]">
+                                                <div class="mb-2 font-medium">外部引用 {{ revenueResearchRunFor(product.key).result.web_sources.length }} 条；默认判断仍以本地已有信息和缺口状态为准。</div>
+                                                <ol class="list-decimal space-y-2 pl-4"><li v-for="(source, sourceIndex) in revenueResearchRunFor(product.key).result.web_sources" :key="sourceIndex"><div>{{ source.title || '未命名引用' }}</div><div class="break-all text-gray-500">{{ source.url || '未返回链接' }}</div></li></ol>
                                             </div>
                                             <div class="rounded-lg bg-slate-50 border border-slate-100 p-3 text-xs text-slate-700">
                                                 研究/情景口径：{{ revenueResearchRunFor(product.key).result.business_forecast?.method || '方法未返回' }}；情景可信等级（未概率校准）：{{ revenueResearchRunFor(product.key).result.business_forecast?.confidence || '待补数据' }}
+                                                <p class="mt-2 whitespace-pre-line">可信度说明：{{ revenueResearchRunFor(product.key).result.result?.confidence_note || '本次未返回可信度说明' }}</p>
+                                                <p class="mt-1">下次复核日期：{{ revenueResearchRunFor(product.key).result.result?.next_review_date || '未返回复核日期' }}</p>
                                             </div>
+                                                </div>
+                                            </details>
                                         </div>
                                     </div>
                                 </div>
@@ -4082,6 +4202,7 @@
                                 <button @click="loadKnowledgeCenter" class="btn-secondary text-sm flex items-center justify-center gap-2">
                                     <i class="fas fa-sync-alt" :class="{ 'fa-spin': knowledgeCenterLoading }"></i>刷新
                                 </button>
+                                <button type="button" @click="editKnowledgeReference()" :disabled="selectedKnowledgeCenterUnitIds.length === 0" class="min-h-[44px] rounded-lg border border-emerald-200 px-3 py-2 text-sm text-emerald-800 disabled:opacity-50">合并整理参考 SOP</button>
                                 <button @click="batchDeleteKnowledgeUnits" :disabled="selectedKnowledgeCenterUnitIds.length === 0 || knowledgeCenterBatchDeleting" class="px-4 py-2 rounded-lg border border-red-200 text-sm text-red-600 hover:bg-red-50 disabled:opacity-50 disabled:hover:bg-transparent flex items-center justify-center gap-2">
                                     <i class="fas fa-trash-alt"></i>
                                     批量删除<span v-if="selectedKnowledgeCenterUnitIds.length">({{ selectedKnowledgeCenterUnitIds.length }})</span>
@@ -4126,7 +4247,7 @@
                             </div>
                         </div>
 
-                        <div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+                        <div v-if="!knowledgeCenterListError" class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
                             <div class="overflow-x-auto">
                                 <table class="w-full">
                                     <thead>
@@ -4149,7 +4270,7 @@
                                         </tr>
                                         <tr v-for="unit in knowledgeCenterUnits" :key="unit.unit_id" class="border-b border-gray-100 hover:bg-blue-50/30 transition-colors" :class="selectedKnowledgeCenterUnitIds.includes(String(unit.unit_id)) ? 'bg-blue-50/60' : ''">
                                             <td class="px-4 py-4">
-                                                <input type="checkbox" v-model="selectedKnowledgeCenterUnitIds" :value="String(unit.unit_id)" :disabled="unit.can_edit === false" :aria-label="`选择知识：${unit.name || unit.unit_id}`" class="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500 disabled:opacity-40">
+                                                <input type="checkbox" v-model="selectedKnowledgeCenterUnitIds" :value="String(unit.unit_id)" :disabled="unit.can_edit === false && !unit.can_select_reference" :aria-label="`选择知识：${unit.name || unit.unit_id}`" class="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500 disabled:opacity-40">
                                             </td>
                                             <td class="px-6 py-4">
                                                 <div class="text-sm font-semibold text-gray-800">{{ unit.name }}</div>
@@ -4202,7 +4323,13 @@
                             </div>
                         </div>
 
-                        <div v-if="!knowledgeCenterLoading &amp;&amp; knowledgeCenterUnits.length === 0" class="bg-white rounded-xl shadow-sm border border-gray-100 p-12 text-center">
+                        <div v-if="knowledgeCenterListError" role="alert" data-testid="knowledge-center-list-error" class="bg-white rounded-xl border border-red-200 p-6">
+                            <h3 class="font-semibold text-red-700">知识读取失败</h3>
+                            <p class="mt-2 text-sm text-gray-700">{{ knowledgeCenterListError }}</p>
+                            <p class="mt-2 text-sm text-gray-500">当前无法判断匹配结果，请重试读取。</p>
+                            <button type="button" @click="reloadKnowledgeCenter" class="btn-secondary mt-3 text-sm">重试读取知识</button>
+                        </div>
+                        <div v-if="!knowledgeCenterLoading &amp;&amp; !knowledgeCenterListError &amp;&amp; knowledgeCenterUnits.length === 0" class="bg-white rounded-xl shadow-sm border border-gray-100 p-12 text-center">
                             <div class="w-20 h-20 bg-gray-50 rounded-full flex items-center justify-center mx-auto mb-4">
                                 <i class="fas fa-brain text-gray-300 text-3xl"></i>
                             </div>
@@ -4214,7 +4341,7 @@
                             </div>
                         </div>
 
-                        <div class="flex items-center justify-between bg-white rounded-xl shadow-sm border border-gray-100 p-4">
+                        <div v-if="!knowledgeCenterListError &amp;&amp; !knowledgeCenterLoading" class="flex items-center justify-between bg-white rounded-xl shadow-sm border border-gray-100 p-4">
                             <div class="text-sm text-gray-500">共 {{ knowledgeCenterPagination.total }} 条，每页 {{ knowledgeCenterPagination.page_size }} 条</div>
                             <div class="flex items-center gap-2">
                                 <button @click="changeKnowledgeCenterPage(knowledgeCenterPagination.page - 1)" :disabled="knowledgeCenterPagination.page &lt;= 1" class="btn-secondary text-sm">上一页</button>
@@ -4744,6 +4871,10 @@
                                     </summary>
                                     <operating-loop-authority></operating-loop-authority>
                                 </details>
+                                <div v-if="currentPage === 'compass' && revenueAiOverviewError" role="alert" data-testid="revenue-ai-overview-error" class="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+                                    <div class="min-w-0"><div class="font-semibold">收益 AI 总览读取失败</div><p class="mt-1 break-words">{{ revenueAiOverviewError }}</p></div>
+                                    <button type="button" @click="loadRevenueAiOverview({ force: true })" :disabled="revenueAiOverviewLoading || revenueAiStaticLoading" class="shrink-0 rounded-lg border border-red-200 bg-white px-3 py-2 text-xs font-semibold disabled:opacity-50">重试读取</button>
+                                </div>
                                 <details v-if="currentPage === 'compass'" class="suxi-evidence-fold" data-testid="home-full-detail-fold">
                                     <summary>
                                         <span>完整明细</span>
@@ -4948,7 +5079,7 @@
                                                     数据基准日：{{ revenueAiOverviewAsOfDate.ok ? revenueAiOverviewAsOfDate.asOfDate : '未取得' }} · {{ revenueAiOverviewAsOfDate.ok ? revenueAiOverviewAsOfDate.contractVersion : revenueAiOverviewAsOfDate.message }}
                                                 </div>
                                             </div>
-                                            <span :class="['rounded-full border px-2 py-0.5 text-xs whitespace-nowrap', revenueAiOverviewLoading ? revenueAiStatusClass('unknown') : revenueAiStatusClass(revenueAiOverview?.data_status || 'unknown')]">{{ revenueAiOverviewLoading ? '加载中' : revenueAiStatusLabel(revenueAiOverview?.data_status || 'unknown') }}</span>
+                                            <span :class="['rounded-full border px-2 py-0.5 text-xs whitespace-nowrap', revenueAiOverviewLoading ? revenueAiStatusClass('unknown') : revenueAiStatusClass(revenueAiOverviewError ? 'failed' : (revenueAiOverview?.data_status || 'unknown'))]">{{ revenueAiOverviewLoading ? '加载中' : revenueAiStatusLabel(revenueAiOverviewError ? 'failed' : (revenueAiOverview?.data_status || 'unknown')) }}</span>
                                         </div>
                                         <div class="grid grid-cols-1 gap-2 md:grid-cols-2">
                                             <div v-for="signal in revenueAiSignalRows" :key="signal.key" class="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5">
@@ -5558,6 +5689,10 @@
 
                     <!-- 携程ebooking -->
                     <div v-if="currentPage === 'ctrip-ebooking'">
+                        <div v-if="onlineHistoryListReturn" class="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white p-3 text-sm">
+                            <span>正在查看保存记录的竞争圈明细；原查询条件和页码已保留。</span>
+                            <button type="button" @click="returnToOnlineHistoryList" class="min-h-10 rounded-lg border border-[#143a31] px-3 text-[#143a31]">返回历史查询</button>
+                        </div>
                         <div class="bg-white rounded-lg shadow">
                             <div class="p-4 border-b">
                                 <h3 class="font-medium">携程 eBooking 数据基石</h3>
@@ -5696,7 +5831,7 @@
                                     <section data-testid="ctrip-channel-order-upload" class="rounded-xl border border-emerald-200 bg-emerald-50/60 p-4 text-sm">
                                         <b>门店渠道订单</b> · 自动绑定 {{ platformHotelSelectedName || '当前酒店' }} <button type="button" @click="ctripChannelOrderUploadOpen = !ctripChannelOrderUploadOpen" class="ml-2 rounded-lg bg-[#65502f] px-4 py-2 font-semibold text-white">{{ ctripChannelOrderUploadOpen ? '收起上传' : '上传渠道订单' }}</button>
                                         <div v-if="ctripChannelOrderUploadOpen" class="mt-3 border-t border-emerald-100 pt-3">
-                                            <input type="file" accept=".xls,.xlsx,.csv,.json" multiple @change="handleCtripChannelOrderFileChange" class="block w-full rounded-lg border bg-white p-2">
+                                            <input :key="ctripChannelOrderUploadInputKey" type="file" accept=".xls,.xlsx,.csv,.json" multiple :disabled="ctripChannelOrderUploading" @change="handleCtripChannelOrderFileChange" class="block w-full rounded-lg border bg-white p-2">
                                             <p class="mt-2 text-xs text-gray-500">支持同门店多份携程旧版 XLS 先合并去重；单文件也支持 XLSX、CSV、JSON。参考底价不是确认收入。</p>
                                             <p v-if="ctripChannelOrderUploadFile" class="mt-2 text-xs font-medium text-emerald-800">已选择 {{ ctripChannelOrderUploadFile.length }} 份文件；请确认顶部酒店与文件内门店一致。</p>
                                             <button type="button" @click="uploadCtripChannelOrders" :disabled="ctripChannelOrderUploading || !ctripChannelOrderUploadFile || !platformHotelSelectedId" class="mt-2 rounded bg-emerald-700 px-4 py-2 font-semibold text-white disabled:bg-gray-300">{{ ctripChannelOrderUploading ? '正在保存并回读' : '确认上传' }}</button>
@@ -6039,19 +6174,32 @@
                                             </div>
                                             <div v-else class="mt-1 text-sm text-slate-500">请先在顶栏选择酒店</div>
                                         </div>
-                                        <div v-if="ctripFetchSuccess" data-testid="ctrip-ranking-fetch-status" aria-live="polite" class="flex items-center gap-2 rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-700 lg:ml-auto lg:shrink-0">
+                                        <div v-if="ctripFetchSuccess &amp;&amp; !ctripRankingHistoryRange" data-testid="ctrip-ranking-fetch-status" aria-live="polite" class="flex items-center gap-2 rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-700 lg:ml-auto lg:shrink-0">
                                             <i class="fas fa-check-circle text-green-500"></i>
                                             <span class="font-medium text-green-800">获取成功</span>
                                             <span v-if="ctripSavedCount &gt; 0">已保存 {{ ctripSavedCount }} 条数据到数据库</span>
                                         </div>
-                                        <div class="flex flex-wrap gap-2 lg:shrink-0">
+                                        <fieldset :disabled="ctripRankingHistoryLoading" class="flex flex-wrap gap-2 lg:shrink-0">
                                             <button @click="fetchCtripData" data-testid="ctrip-ranking-fetch-button" :disabled="fetchingData || !canFetchCtripManualData()" class="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:bg-gray-400">
                                                 <i class="fas fa-download mr-2"></i>{{ fetchingData ? '获取中...' : '重新获取' }}
                                             </button>
                                             <button @click="openTargetSite(defaultCtripLoginUrl)" class="px-4 py-2 bg-gray-500 text-white rounded-lg hover:bg-gray-600">
                                                 <i class="fas fa-external-link-alt mr-2"></i>打开携程ebooking
                                             </button>
+                                        </fieldset>
+                                    </div>
+
+                                    <div data-testid="ctrip-ranking-history-controls" class="mb-4 rounded-lg border border-slate-200 bg-slate-50 px-3 py-3">
+                                        <div class="flex flex-wrap items-end gap-3">
+                                            <label class="block text-sm text-slate-700">
+                                                <span class="mb-1 block font-medium">历史业务日期</span>
+                                                <input type="date" data-testid="ctrip-ranking-history-date" v-model="ctripRankingStoredDate" :disabled="fetchingData || ctripRankingHistoryLoading" class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm" @keydown.enter.prevent="loadCtripRankingStoredData()">
+                                            </label>
+                                            <button type="button" data-testid="ctrip-ranking-history-read" @click="loadCtripRankingStoredData()" :disabled="!selectedCtripHotelId || !ctripRankingStoredDate || fetchingData || ctripRankingHistoryLoading" class="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm text-slate-800 disabled:opacity-50">{{ ctripRankingHistoryLoading ? '读取中…' : '读取已保存数据' }}</button>
+                                            <button type="button" data-testid="ctrip-ranking-history-latest" @click="loadCtripRankingStoredData({ latest: true })" :disabled="!selectedCtripHotelId || fetchingData || ctripRankingHistoryLoading" class="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm text-slate-800 disabled:opacity-50">最近一次保存</button>
                                         </div>
+                                        <div class="mt-2 text-xs text-slate-500">仅查询当前酒店已入库的携程竞争圈记录，不需要有效 Cookie，不发起采集；历史数据保留原业务日期和质量状态。</div>
+                                        <div v-if="ctripRankingHistoryMessage" data-testid="ctrip-ranking-history-status" role="status" class="mt-2 text-sm text-slate-700">{{ ctripRankingHistoryMessage }}</div>
                                     </div>
 
                                     <input type="hidden" v-model="ctripForm.nodeId">
@@ -6066,14 +6214,15 @@
                                     </div>
 
                                     <div v-if="!ctripRankingDisplayActivated" class="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
-                                        <div class="font-medium text-slate-800">{{ fetchingData ? '正在获取本次竞争圈数据…' : '本次获取尚未返回可展示数据。' }}</div>
-                                        <div class="mt-1 text-xs text-slate-500">进入本页后会自动获取当前门店；未开始或失败时，请检查携程数据源后点击“重新获取”。</div>
+                                        <div class="font-medium text-slate-800">{{ ctripRankingHistoryLoading ? '正在读取历史记录…' : (ctripRankingHistoryMessage || (fetchingData ? '正在获取本次竞争圈数据…' : '本次获取尚未返回可展示数据。')) }}</div>
+                                        <div class="mt-1 text-xs text-slate-500">可在上方选择历史日期或读取最近一次保存；只有需要新数据时，才使用“重新获取”。当前授权失效不会删除已保存记录。</div>
                                     </div>
 
                                     <!-- 详细数据表格 -->
                                     <div v-if="ctripRankingDisplayActivated &amp;&amp; ctripHotelsList &amp;&amp; ctripHotelsList.length &gt; 0" class="mt-4" data-download-target="ctrip-business">
+                                        <div v-if="!ctripCompetitionReportSourceReady" data-testid="ctrip-unverified-derivation-notice" role="status" class="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">当前显示平台返回的竞争圈字段，仅供参考；来源尚未核验，暂不显示汇总判断或渠道订单推算。请补齐同门店、同业务日期的来源与回读证据。</div>
                                         <!-- backend display summary -->
-                                        <div class="mb-4">
+                                        <div v-if="ctripCompetitionReportSourceReady" class="mb-4">
                                             <div class="ctrip-summary-card-toolbar">
                                                 <span><i class="fas fa-grip-horizontal" aria-hidden="true"></i> 拖拽卡片调整顺序</span>
                                                 <button v-if="ctripSummaryHasCustomOrder" type="button" @click="resetCtripSummaryCardOrder">恢复默认排序</button>
@@ -6147,7 +6296,8 @@
                                                         <td class="px-3 py-2 border text-center font-semibold text-blue-600">{{ hasDisplayValue(hotel.adr) ? Number(hotel.adr).toLocaleString('zh-CN', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) : '-' }}</td>
                                                         <td class="px-3 py-2 border text-center font-semibold">{{ formatOptionalNumber(hotel.bookOrderNum) }}</td>
                                                         <td class="ctrip-sales-order-cell px-3 py-2 border text-center font-semibold text-blue-700" :title="hotel.channelOrderBreakdownMeta?.formulas?.totalOrdersIncludingCancelled || '四舍五入（总订单（不含取消） ÷ 0.75）'">
-                                                            <span v-if="hotel.totalOrderIncludingCancelledEstimate !== null &amp;&amp; hotel.totalOrderIncludingCancelledEstimate !== undefined">{{ formatOptionalNumber(hotel.totalOrderIncludingCancelledEstimate) }}</span>
+                                                            <span v-if="hotel.channelOrderBreakdownMeta?.status === 'source_unverified'">未核验</span>
+                                                            <span v-else-if="hotel.totalOrderIncludingCancelledEstimate !== null &amp;&amp; hotel.totalOrderIncludingCancelledEstimate !== undefined">{{ formatOptionalNumber(hotel.totalOrderIncludingCancelledEstimate) }}</span>
                                                             <span v-else class="ctrip-sales-state">缺来源</span>
                                                         </td>
                                                         <td v-for="column in ctripSalesOrderColumns" :key="column.field" :class="['ctrip-sales-order-cell', ctripTrafficChannelCellClass(hotel, column)]" :title="ctripTrafficChannelCellTitle(hotel, column)">
@@ -7448,8 +7598,9 @@
                                         <p>待同步经营数据，请先在"竞争圈数据"中获取数据</p>
                                         </div>
                                         <div v-else="">
+                                        <div v-if="!ctripCompetitionReportSourceReady" data-testid="ctrip-unverified-derivation-notice" role="status" class="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">当前来源尚未核验：保留已存字段供审计，暂不显示汇总判断或渠道订单推算。请补齐同门店、同业务日期的来源与回读证据。</div>
                                         <!-- backend display summary -->
-                                        <div class="mb-4">
+                                        <div v-if="ctripCompetitionReportSourceReady" class="mb-4">
                                             <div class="ctrip-summary-card-toolbar">
                                                 <span><i class="fas fa-grip-horizontal" aria-hidden="true"></i> 拖拽卡片调整顺序</span>
                                                 <button v-if="ctripSummaryHasCustomOrder" type="button" @click="resetCtripSummaryCardOrder">恢复默认排序</button>
@@ -7516,7 +7667,8 @@
                                                         <td class="px-3 py-2 border text-center font-semibold text-blue-600">{{ hasDisplayValue(hotel.adr) ? Number(hotel.adr).toLocaleString('zh-CN', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) : '-' }}</td>
                                                         <td class="px-3 py-2 border text-center font-semibold">{{ formatOptionalNumber(hotel.bookOrderNum) }}</td>
                                                         <td class="ctrip-sales-order-cell px-3 py-2 border text-center font-semibold text-blue-700" :title="hotel.channelOrderBreakdownMeta?.formulas?.totalOrdersIncludingCancelled || '四舍五入（总订单（不含取消） ÷ 0.75）'">
-                                                            <span v-if="hotel.totalOrderIncludingCancelledEstimate !== null &amp;&amp; hotel.totalOrderIncludingCancelledEstimate !== undefined">{{ formatOptionalNumber(hotel.totalOrderIncludingCancelledEstimate) }}</span>
+                                                            <span v-if="hotel.channelOrderBreakdownMeta?.status === 'source_unverified'">未核验</span>
+                                                            <span v-else-if="hotel.totalOrderIncludingCancelledEstimate !== null &amp;&amp; hotel.totalOrderIncludingCancelledEstimate !== undefined">{{ formatOptionalNumber(hotel.totalOrderIncludingCancelledEstimate) }}</span>
                                                             <span v-else class="ctrip-sales-state">缺来源</span>
                                                         </td>
                                                         <td v-for="column in ctripSalesOrderColumns" :key="column.field" :class="['ctrip-sales-order-cell', ctripTrafficChannelCellClass(hotel, column)]" :title="ctripTrafficChannelCellTitle(hotel, column)">
@@ -9229,9 +9381,27 @@
                                         <button @click="queryMeituanStoredData" class="px-4 py-2 bg-blue-500 text-white rounded-lg">
                                             <i class="fas fa-search mr-2"></i>查询
                                         </button>
-                                        <button v-if="['ads', 'keywords'].includes(downloadCenterTab)" data-testid="meituan-download-current-page-csv" @click="downloadMeituanCurrentPageCsv">下载当前页 CSV</button>
+                                        <button v-if="['ads', 'keywords'].includes(downloadCenterTab)" data-testid="meituan-download-current-page-csv" :disabled="onlineDataListLoading || !onlineDataLoadedQuery" @click="downloadMeituanCurrentPageCsv" class="min-h-10 rounded-lg border border-slate-300 px-3 text-sm disabled:opacity-50">导出当前页 CSV</button>
+                                        <button v-if="['ads', 'keywords'].includes(downloadCenterTab)" data-testid="meituan-download-filtered-csv" :disabled="onlineHistoryExporting || onlineDataListLoading || !onlineDataLoadedQuery" @click="downloadMeituanFilteredCsv" class="min-h-10 rounded-lg border border-[#143a31] px-3 text-sm text-[#143a31] disabled:opacity-50">{{ onlineHistoryExporting ? '正在核对并导出…' : '导出筛选结果（最多 2000 条）' }}</button>
                                     </div>
 
+                                    <div v-if="downloadCenterTab !== 'traffic'" data-testid="meituan-history-result-scope" class="mb-4 rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
+                                        <div><b>当前结果：</b>{{ onlineHistoryResultScopeText }}</div>
+                                        <div v-if="onlineHistoryQueryChanged" class="mt-1 text-amber-800">筛选条件已修改，点击“查询”后更新结果；现在导出的仍是上面已加载的范围。</div>
+                                        <details v-if="onlineDataLoadedQuery &amp;&amp; !onlineDataListLoading &amp;&amp; !onlineDataListError &amp;&amp; onlineDataList.length" class="mt-2">
+                                            <summary class="cursor-pointer font-medium text-[#143a31]">查看本页保存记录与详情（{{ onlineDataList.length }}）</summary>
+                                            <div class="mt-2 divide-y divide-slate-200">
+                                                <div v-for="row in onlineDataList" :key="row.id" class="flex flex-wrap items-center justify-between gap-2 py-2">
+                                                    <span class="min-w-0 break-words">#{{ row.id }} · {{ row.hotel_name || '未提供酒店名称' }} · {{ row.data_date || '未提供日期' }} · {{ onlineAnalysisDataTypeText(row.data_type) }}</span>
+                                                    <button type="button" @click="viewOnlineDataDetail(row)" class="min-h-10 rounded-lg border border-slate-300 bg-white px-3 text-[#143a31]">查看详情</button>
+                                                </div>
+                                            </div>
+                                        </details>
+                                    </div>
+
+                                    <div v-if="onlineDataListError" role="alert" data-testid="meituan-stored-query-error" class="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">{{ onlineDataListError }}</div>
+                                    <div v-else-if="onlineDataListLoading" role="status" class="py-4 text-sm text-gray-600">正在读取当前范围的已保存记录…</div>
+                                    <template v-else>
                                     <div v-if="downloadCenterTab === 'all'">
                                         <div v-for="item in meituanDownloadData.allRows" :key="item.id" class="flex gap-3 border p-2 text-sm">
                                             <span>{{ item.data_date || '-' }}</span>
@@ -9563,8 +9733,7 @@
                                             <button type="button" @click="changeOnlineDataPage(onlineDataPage + 1)" :disabled="onlineDataPage * onlineDataPagination.page_size &gt;= onlineDataPagination.total" class="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm text-gray-700 disabled:bg-gray-100 disabled:text-gray-400">下一页</button>
                                         </div>
                                     </div>
-
-
+                                    </template>
 
                                     <!-- 未验证竞对数据预览 - 弹窗 -->
                                     <div v-if="showMeituanAIAnalysis" class="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
@@ -10373,23 +10542,23 @@
                                             <div class="mt-3 grid grid-cols-2 md:grid-cols-5 gap-2 text-xs">
                                                 <div class="rounded border border-current/10 bg-white/60 p-2">
                                                     <div class="opacity-70">目标酒店</div>
-                                                    <div class="mt-1 font-semibold">{{ agentPricingGenerationPreflightSummary.targetHotelCount || agentPricingGenerationPreflightSummary.targetHotelIds?.length || 0 }}</div>
+                                                    <div class="mt-1 font-semibold">{{ agentPricingGenerationPreflightSummary.targetHotelCount == null ? '-' : agentPricingGenerationPreflightSummary.targetHotelCount }}</div>
                                                 </div>
                                                 <div class="rounded border border-current/10 bg-white/60 p-2">
                                                     <div class="opacity-70">OTA行数</div>
-                                                    <div class="mt-1 font-semibold">{{ agentPricingGenerationPreflightSummary.targetDateRows || 0 }}</div>
+                                                    <div class="mt-1 font-semibold">{{ agentPricingGenerationPreflightSummary.targetDateRows == null ? '-' : agentPricingGenerationPreflightSummary.targetDateRows }}</div>
                                                 </div>
                                                 <div class="rounded border border-current/10 bg-white/60 p-2">
                                                     <div class="opacity-70">启用房型</div>
-                                                    <div class="mt-1 font-semibold">{{ agentPricingGenerationPreflightSummary.roomTypeCount || 0 }}</div>
+                                                    <div class="mt-1 font-semibold">{{ agentPricingGenerationPreflightSummary.roomTypeCount == null ? '-' : agentPricingGenerationPreflightSummary.roomTypeCount }}</div>
                                                 </div>
                                                 <div class="rounded border border-current/10 bg-white/60 p-2">
                                                     <div class="opacity-70">可生成候选</div>
-                                                    <div class="mt-1 font-semibold">{{ agentPricingGenerationPreflightSummary.createCandidateCount || 0 }}</div>
+                                                    <div class="mt-1 font-semibold">{{ agentPricingGenerationPreflightSummary.createCandidateCount == null ? '-' : agentPricingGenerationPreflightSummary.createCandidateCount }}</div>
                                                 </div>
                                                 <div class="rounded border border-current/10 bg-white/60 p-2">
                                                     <div class="opacity-70">待审建议</div>
-                                                    <div class="mt-1 font-semibold">{{ agentPricingGenerationPreflightSummary.pendingSuggestionCount || 0 }}</div>
+                                                    <div class="mt-1 font-semibold">{{ agentPricingGenerationPreflightSummary.pendingSuggestionCount == null ? '-' : agentPricingGenerationPreflightSummary.pendingSuggestionCount }}</div>
                                                 </div>
                                             </div>
                                             <div class="mt-3 text-xs leading-5">
@@ -10405,29 +10574,45 @@
                                                     <h3 class="font-semibold text-gray-800">房型与最低保护价</h3>
                                                     <div class="mt-1 text-xs text-gray-500">人工配置项，仅用于携程调价预检；不是 OTA 自动采集事实，不写 OTA。</div>
                                                 </div>
-                                                <button @click="loadRoomTypes" class="btn-secondary text-sm">
+                                                <button data-testid="agent-room-type-refresh" @click="loadRoomTypes" :disabled="!filterReportHotel || roomTypeConfigReadState.status === 'loading'" class="btn-secondary text-sm disabled:opacity-50">
                                                     <i class="fas fa-rotate mr-1"></i>刷新
                                                 </button>
                                             </div>
-                                            <form @submit.prevent="saveRoomTypeConfig" class="mt-3 grid md:grid-cols-7 gap-2">
-                                                <input v-model.trim="roomTypeConfigForm.name" class="input-field" maxlength="80" required placeholder="房型名称">
-                                                <input type="number" v-model.number="roomTypeConfigForm.base_price" class="input-field" min="0.01" step="0.01" required placeholder="基础价">
-                                                <input type="number" v-model.number="roomTypeConfigForm.min_price" class="input-field" min="0.01" step="0.01" required placeholder="最低保护价">
-                                                <input type="number" v-model.number="roomTypeConfigForm.max_price" class="input-field" min="0.01" step="0.01" required placeholder="最高限制价">
-                                                <input type="number" v-model.number="roomTypeConfigForm.room_count" class="input-field" min="0" step="1" required placeholder="房量">
-                                                <select v-model.number="roomTypeConfigForm.is_enabled" class="input-field" aria-label="房型状态">
-                                                    <option :value="1">启用</option>
-                                                    <option :value="0">停用</option>
-                                                </select>
-                                                <div class="flex gap-2">
-                                                    <button type="submit" :disabled="roomTypeConfigSaving" class="btn-primary flex-1 disabled:opacity-50">
+                                            <form @submit.prevent="saveRoomTypeConfig" data-form-draft="off" class="mt-3 grid sm:grid-cols-2 xl:grid-cols-3 gap-3">
+                                                <label class="block min-w-0 text-xs text-gray-600">房型名称
+                                                    <input v-model.trim="roomTypeConfigForm.name" :disabled="roomTypeConfigSaving || roomTypeConfigSaveReadback?.status === 'reading'" class="input-field mt-1 w-full" maxlength="80" required placeholder="房型名称">
+                                                </label>
+                                                <label class="block min-w-0 text-xs text-gray-600">基础价（元）
+                                                    <input type="number" v-model.number="roomTypeConfigForm.base_price" :disabled="roomTypeConfigSaving || roomTypeConfigSaveReadback?.status === 'reading'" class="input-field mt-1 w-full" min="0.01" step="0.01" required placeholder="基础价">
+                                                </label>
+                                                <label class="block min-w-0 text-xs text-gray-600">最低保护价（元）
+                                                    <input type="number" v-model.number="roomTypeConfigForm.min_price" :disabled="roomTypeConfigSaving || roomTypeConfigSaveReadback?.status === 'reading'" class="input-field mt-1 w-full" min="0.01" step="0.01" required placeholder="最低保护价">
+                                                </label>
+                                                <label class="block min-w-0 text-xs text-gray-600">最高限制价（元）
+                                                    <input type="number" v-model.number="roomTypeConfigForm.max_price" :disabled="roomTypeConfigSaving || roomTypeConfigSaveReadback?.status === 'reading'" class="input-field mt-1 w-full" min="0.01" step="0.01" required placeholder="最高限制价">
+                                                </label>
+                                                <label class="block min-w-0 text-xs text-gray-600">房量（间）
+                                                    <input type="number" v-model.number="roomTypeConfigForm.room_count" :disabled="roomTypeConfigSaving || roomTypeConfigSaveReadback?.status === 'reading'" class="input-field mt-1 w-full" min="0" step="1" required placeholder="房量">
+                                                </label>
+                                                <label class="block min-w-0 text-xs text-gray-600">房型状态
+                                                    <select v-model.number="roomTypeConfigForm.is_enabled" :disabled="roomTypeConfigSaving || roomTypeConfigSaveReadback?.status === 'reading'" class="input-field mt-1 w-full" aria-label="房型状态">
+                                                        <option :value="1">启用</option>
+                                                        <option :value="0">停用</option>
+                                                    </select>
+                                                </label>
+                                                <div class="sm:col-span-2 xl:col-span-3 flex flex-wrap gap-2">
+                                                    <button type="submit" :disabled="roomTypeConfigSaving || roomTypeConfigSaveReadback?.status === 'reading' || (roomTypeConfigSaveReadback?.status === 'unconfirmed' &amp;&amp; !roomTypeConfigSaveReadback.recordId)" class="btn-primary flex-1 whitespace-nowrap disabled:opacity-50">
                                                         <i :class="roomTypeConfigSaving ? 'fas fa-spinner fa-spin' : 'fas fa-save'" class="mr-1"></i>{{ roomTypeConfigForm.id ? '更新' : '保存' }}
                                                     </button>
-                                                    <button type="button" @click="resetRoomTypeConfigForm" class="btn-secondary" title="清空">
+                                                    <button type="button" @click="resetRoomTypeConfigForm" :disabled="roomTypeConfigSaving || roomTypeConfigSaveReadback?.status === 'reading'" class="btn-secondary whitespace-nowrap disabled:opacity-50" title="清空" aria-label="清空房型表单">
                                                         <i class="fas fa-eraser"></i>
                                                     </button>
                                                 </div>
                                             </form>
+                                            <div v-if="roomTypeConfigSaveReadback" data-testid="agent-room-type-save-readback" role="status" :class="['mt-3 rounded-lg border p-3 text-xs', roomTypeConfigSaveReadback.status === 'verified' ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-amber-200 bg-amber-50 text-amber-800']">
+                                                <p>{{ roomTypeConfigSaveReadback.message }}</p>
+                                                <button v-if="['failed', 'unconfirmed'].includes(roomTypeConfigSaveReadback.status)" type="button" @click="verifyRoomTypeConfigSaveReadback()" :disabled="roomTypeConfigSaving || roomTypeConfigReadState.status === 'loading'" class="btn-secondary mt-2 text-sm disabled:opacity-50">重新核对保存结果</button>
+                                            </div>
                                             <div class="mt-3 overflow-auto">
                                                 <table class="w-full text-xs text-left">
                                                     <thead class="bg-gray-50 text-gray-500">
@@ -10454,45 +10639,65 @@
                                                                 </span>
                                                             </td>
                                                             <td class="p-2">
-                                                                <button @click="editRoomTypeConfig(item)" class="text-blue-600 hover:text-blue-800">编辑</button>
+                                                                <button @click="editRoomTypeConfig(item)" :disabled="roomTypeConfigSaving || roomTypeConfigSaveReadback?.status === 'reading'" class="text-blue-600 hover:text-blue-800 disabled:opacity-50">编辑</button>
                                                             </td>
                                                         </tr>
                                                         <tr v-if="roomTypeConfigList.length === 0">
-                                                            <td colspan="7" class="p-4 text-center text-gray-400">暂无房型配置，携程调价建议生成会保持受阻</td>
+                                                            <td data-testid="agent-room-type-read-status" colspan="7" class="p-4 text-center text-gray-500">
+                                                                <span v-if="!filterReportHotel">请选择酒店后读取房型配置</span>
+                                                                <span v-else-if="roomTypeConfigReadState.status === 'loading'">正在读取当前酒店的房型配置…</span>
+                                                                <div v-else-if="roomTypeConfigReadState.status === 'failed'" class="space-y-2 text-red-700">
+                                                                    <p>房型配置读取失败：{{ roomTypeConfigReadState.error || '读取未完成' }}。当前酒店是否有配置尚未核验。</p>
+                                                                    <button type="button" @click="loadRoomTypes()" class="btn-secondary text-sm">重新读取房型配置</button>
+                                                                </div>
+                                                                <span v-else-if="roomTypeConfigReadState.status === 'empty'">当前酒店暂无房型配置，携程调价建议生成会保持受阻</span>
+                                                                <span v-else>尚未读取当前酒店的房型配置，请点击刷新</span>
+                                                            </td>
                                                         </tr>
                                                     </tbody>
                                                 </table>
                                             </div>
                                         </div>
                                         <div data-testid="agent-price-suggestion-ctrip-preflight-inputs" class="mb-5 grid grid-cols-1 xl:grid-cols-2 gap-4">
-                                            <div data-testid="agent-suggestion-demand-forecast-manual-input" class="rounded-lg border border-emerald-100 bg-emerald-50 p-4">
+                                            <div data-testid="agent-suggestion-demand-forecast-manual-input" data-form-draft="off" class="rounded-lg border border-emerald-100 bg-emerald-50 p-4">
                                                 <div class="mb-3 flex flex-wrap items-start justify-between gap-2">
                                                     <div>
                                                         <h3 class="font-semibold text-emerald-900">目标日需求预测</h3>
                                                         <div class="mt-1 text-xs text-emerald-700">人工提供项，仅用于携程调价预检；不是 OTA 自动采集事实，不写 OTA。</div>
                                                     </div>
-                                                    <button @click="loadDemandForecasts" class="rounded border border-emerald-200 bg-white px-2.5 py-1.5 text-xs text-emerald-700 hover:bg-emerald-50">
-                                                        <i class="fas fa-rotate mr-1"></i>刷新
+                                                    <button data-testid="agent-demand-forecast-refresh" @click="loadDemandForecasts" :disabled="demandForecastReadState.status === 'loading'" class="rounded border border-emerald-200 bg-white px-2.5 py-1.5 text-xs text-emerald-700 hover:bg-emerald-50">
+                                                        <i class="fas fa-rotate mr-1"></i>{{ demandForecastReadState.status === 'failed' ? '重新读取需求预测' : '刷新' }}
                                                     </button>
                                                 </div>
+                                                <div data-testid="agent-demand-forecast-read-status" class="mb-3 text-xs" role="status">
+                                                    <div v-if="filterReportHotel" class="mb-1 text-gray-500">读取范围：{{ forecastFilter.start_date || '未选择' }} 至 {{ forecastFilter.end_date || '未选择' }}；补录日期单独选择。</div>
+                                                    <span v-if="!filterReportHotel" class="text-gray-500">请选择酒店后读取需求预测。</span>
+                                                    <span v-else-if="demandForecastReadState.status === 'loading'" class="text-emerald-700">正在读取所选日期范围的需求预测…</span>
+                                                    <span v-else-if="demandForecastReadState.status === 'failed'" class="text-red-700">需求预测读取失败：{{ demandForecastReadState.error || '当前范围尚未核验' }}。可重新读取；当前结果不能用于判断是否缺少预测。</span>
+                                                    <span v-else-if="demandForecastReadState.status === 'not_loaded'" class="text-gray-500">尚未读取当前范围的需求预测。</span>
+                                                    <span v-else-if="!demandForecasts.length" class="text-emerald-700">已读取：所选日期范围内暂无需求预测。</span>
+                                                    <span v-else class="text-emerald-700">已读取当前范围 {{ demandForecasts.length }} 条需求预测。</span>
+                                                </div>
+                                                <div v-if="demandForecastSaveReadback" data-testid="agent-demand-forecast-save-readback" class="mb-3 rounded border border-emerald-200 bg-white p-3 text-xs text-emerald-900" role="status">{{ demandForecastSaveReadback.message }}</div>
                                                 <div class="grid grid-cols-1 md:grid-cols-2 gap-2">
-                                                    <input type="date" v-model="demandForecastForm.forecast_date" class="input-field">
-                                                    <select v-model.number="demandForecastForm.room_type_id" class="input-field">
+                                                    <input type="date" v-model="demandForecastForm.forecast_date" :disabled="demandForecastSaving" aria-label="人工预测日期" class="input-field">
+                                                    <select v-model.number="demandForecastForm.room_type_id" :disabled="demandForecastSaving" class="input-field">
                                                         <option :value="0">选择房型</option>
                                                         <option v-for="item in roomTypeConfigList" :key="`suggestion-forecast-room-${item.id}`" :value="Number(item.id)" :disabled="Number(item.is_enabled) !== 1">
                                                             {{ item.name }}{{ Number(item.is_enabled) === 1 ? '' : '（停用）' }}
                                                         </option>
                                                     </select>
-                                                    <input type="number" v-model.number="demandForecastForm.predicted_occupancy" class="input-field" min="0" max="100" step="1" placeholder="预测入住率%">
-                                                    <input type="number" v-model.number="demandForecastForm.predicted_demand" class="input-field" min="0" step="1" placeholder="需求间夜">
-                                                    <input type="number" v-model.number="demandForecastForm.confidence_percent" class="input-field" min="1" max="100" step="1" placeholder="人工置信度%（必填）">
+                                                    <input type="number" v-model.number="demandForecastForm.predicted_occupancy" :disabled="demandForecastSaving" aria-label="人工预测入住率" class="input-field" min="0" max="100" step="1" placeholder="预测入住率%">
+                                                    <input type="number" v-model.number="demandForecastForm.predicted_demand" :disabled="demandForecastSaving" aria-label="人工预测需求间夜" class="input-field" min="0" step="1" placeholder="需求间夜">
+                                                    <input type="number" v-model.number="demandForecastForm.confidence_percent" :disabled="demandForecastSaving" aria-label="人工预测置信度" class="input-field" min="1" max="100" step="1" placeholder="人工置信度%（必填）">
                                                     <button @click="saveDemandForecastInput" :disabled="demandForecastSaving" class="rounded bg-emerald-700 px-3 py-2 text-sm text-white hover:bg-emerald-800 disabled:opacity-50">
                                                         <i :class="demandForecastSaving ? 'fas fa-spinner fa-spin' : 'fas fa-save'" class="mr-1"></i>保存预测
                                                     </button>
                                                 </div>
-                                                <input v-model.trim="demandForecastForm.remark" class="input-field mt-2 w-full" placeholder="预测口径备注（可选）">
+                                                <input v-model.trim="demandForecastForm.remark" :disabled="demandForecastSaving" aria-label="人工预测口径备注" class="input-field mt-2 w-full" placeholder="预测口径备注（可选）">
+                                                <button data-testid="agent-demand-forecast-clear" @click="resetDemandForecastForm" :disabled="demandForecastSaving" class="mt-2 rounded border border-emerald-200 bg-white px-2.5 py-1.5 text-xs text-emerald-700">清空需求预测表单</button>
                                             </div>
-                                            <div data-testid="agent-suggestion-ctrip-competitor-price-manual-input" class="rounded-lg border border-blue-100 bg-blue-50 p-4">
+                                            <div data-testid="agent-suggestion-ctrip-competitor-price-manual-input" data-form-draft="off" class="rounded-lg border border-blue-100 bg-blue-50 p-4">
                                                 <div class="mb-3 flex flex-wrap items-start justify-between gap-2">
                                                     <div>
                                                         <h3 class="font-semibold text-blue-900">携程竞品价样本</h3>
@@ -10502,22 +10707,27 @@
                                                         <i class="fas fa-rotate mr-1"></i>刷新
                                                     </button>
                                                 </div>
-                                                <div class="grid grid-cols-1 md:grid-cols-2 gap-2">
-                                                    <input type="date" v-model="competitorPriceForm.analysis_date" class="input-field">
+                                                <div v-if="competitorPriceSaveReadback" data-testid="agent-competitor-price-save-readback" class="mb-3 rounded border border-blue-200 bg-white p-3 text-xs text-blue-900" role="status">
+                                                    <div>{{ competitorPriceSaveReadback.message }}</div>
+                                                    <button v-if="competitorPriceSaveReadback.status === 'failed' &amp;&amp; competitorPriceSaveReadback.id" @click="verifyCompetitorPriceSaveReadback" :disabled="competitorPriceSaving" class="mt-2 rounded border border-blue-200 px-2 py-1">重试准确回读（不重复保存）</button>
+                                                </div>
+                                                <fieldset :disabled="competitorPriceSaving" class="grid grid-cols-1 md:grid-cols-2 gap-2">
+                                                    <input type="date" v-model="competitorPriceForm.analysis_date" aria-label="竞品样本采样日期" class="input-field">
                                                     <select v-model.number="competitorPriceForm.room_type_id" class="input-field">
                                                         <option :value="0">选择房型</option>
                                                         <option v-for="item in roomTypeConfigList" :key="`suggestion-competitor-room-${item.id}`" :value="Number(item.id)" :disabled="Number(item.is_enabled) !== 1">
                                                             {{ item.name }}{{ Number(item.is_enabled) === 1 ? '' : '（停用）' }}
                                                         </option>
                                                     </select>
-                                                    <input type="number" v-model.number="competitorPriceForm.our_price" class="input-field" min="0" step="1" placeholder="本店价">
-                                                    <input type="number" v-model.number="competitorPriceForm.competitor_price" class="input-field" min="0" step="1" placeholder="竞品价">
+                                                    <input type="number" v-model.number="competitorPriceForm.our_price" aria-label="竞品样本本店价" class="input-field" min="0" step="0.01" placeholder="本店价">
+                                                    <input type="number" v-model.number="competitorPriceForm.competitor_price" aria-label="竞品样本竞品价" class="input-field" min="0" step="0.01" placeholder="竞品价">
                                                     <input type="number" v-model.number="competitorPriceForm.competitor_hotel_id" class="input-field" min="1" step="1" placeholder="竞对ID（未知请留空）">
-                                                    <button @click="saveCompetitorPriceInput" :disabled="competitorPriceSaving" class="rounded bg-blue-700 px-3 py-2 text-sm text-white hover:bg-blue-800 disabled:opacity-50">
+                                                    <button @click="saveCompetitorPriceInput" :disabled="competitorPriceSaving || (competitorPriceSaveReadback &amp;&amp; competitorPriceSaveReadback.status !== 'verified')" class="rounded bg-blue-700 px-3 py-2 text-sm text-white hover:bg-blue-800 disabled:opacity-50">
                                                         <i :class="competitorPriceSaving ? 'fas fa-spinner fa-spin' : 'fas fa-save'" class="mr-1"></i>保存样本
                                                     </button>
-                                                </div>
-                                                <input v-model.trim="competitorPriceForm.competitor_name" class="input-field mt-2 w-full" placeholder="竞对名称（不知道ID时必填）">
+                                                </fieldset>
+                                                <input v-model.trim="competitorPriceForm.competitor_name" :disabled="competitorPriceSaving" aria-label="竞品样本竞对名称" class="input-field mt-2 w-full" placeholder="竞对名称（不知道ID时必填）">
+                                                <button data-testid="agent-competitor-price-clear" @click="resetCompetitorPriceForm" :disabled="competitorPriceSaving" class="mt-2 rounded border border-blue-200 bg-white px-2.5 py-1.5 text-xs text-blue-700">清空并重新录入</button>
                                             </div>
                                         </div>
                                         <div v-if="priceSuggestionGenerateResult" data-testid="agent-price-suggestion-generate-result" :class="['mb-5 rounded-lg border p-3 text-sm', priceSuggestionGenerateResult.className]">
@@ -10618,12 +10828,21 @@
                                                         </td>
                                                     </tr>
                                                     <tr v-if="priceSuggestions.length === 0">
-                                                    <td colspan="8" class="px-4 py-8 text-center text-gray-400">所选入住日期范围暂无已保存建议；缺少信号时系统不会用 0 或旧数据补齐</td>
+                                                        <td colspan="8" class="px-4 py-8 text-center text-gray-500">
+                                                            <span v-if="!filterReportHotel">请选择酒店后读取已保存建议</span>
+                                                            <span v-else-if="priceSuggestionListReadState.status === 'loading'">正在读取当前入住日期范围的已保存建议…</span>
+                                                            <div v-else-if="priceSuggestionListReadState.status === 'failed'" class="space-y-2 text-red-700">
+                                                                <p>建议读取失败：{{ priceSuggestionListReadState.error || '读取未完成' }}。当前范围是否有已保存建议尚未核验。</p>
+                                                                <button @click="loadPriceSuggestions()" class="btn-secondary text-sm">重新读取建议</button>
+                                                            </div>
+                                                            <span v-else-if="priceSuggestionListReadState.status === 'empty'">{{ priceSuggestionPagination.total &gt; 0 ? '当前页暂无已保存建议，可调整页码后重新读取' : '所选入住日期范围暂无已保存建议' }}；缺少信号时系统不会用 0 或旧数据补齐</span>
+                                                            <span v-else>尚未读取当前筛选范围，请点击查询</span>
+                                                        </td>
                                                     </tr>
                                                 </tbody>
                                             </table>
                                         </div>
-                                        <div v-if="priceSuggestionPagination.total &gt; 0" class="mt-3 flex flex-wrap items-center justify-between gap-3 text-sm text-gray-600">
+                                        <div v-if="['ready', 'empty'].includes(priceSuggestionListReadState.status) &amp;&amp; priceSuggestionPagination.total &gt; 0" class="mt-3 flex flex-wrap items-center justify-between gap-3 text-sm text-gray-600">
                                             <span>共 {{ priceSuggestionPagination.total }} 条 · 第 {{ priceSuggestionPagination.page }} / {{ Math.max(1, priceSuggestionPagination.total_page) }} 页</span>
                                             <div class="flex items-center gap-2">
                                                 <button @click="changePriceSuggestionPage(priceSuggestionPagination.page - 1)" :disabled="priceSuggestionPagination.page &lt;= 1" class="btn-secondary px-3 py-1.5 disabled:cursor-not-allowed disabled:opacity-40">上一页</button>
@@ -10679,10 +10898,16 @@
                                                             <span class="rounded-full border px-2.5 py-1 text-[11px] font-semibold tracking-wide" style="border-color:rgba(215,181,109,.4);background:rgba(215,181,109,.1);color:#f0d99f">DAILY REVENUE COCKPIT</span>
                                                             <span :class="['rounded-full border px-2.5 py-1 text-[11px] font-semibold', revenueCockpitModel.statusClass]">{{ revenueCockpitModel.statusLabel }}</span>
                                                         </div>
-                                                        <h2 class="mt-3 text-xl font-bold tracking-tight lg:text-2xl">{{ revenueCockpitModel.headline }}</h2>
+                                                        <h2 class="mt-3 text-xl font-bold tracking-tight lg:text-2xl" style="color:#f8fafc">{{ revenueCockpitModel.headline }}</h2>
                                                         <p class="mt-2 text-sm leading-6" style="color:rgba(236,253,245,.8)">{{ revenueCockpitModel.summary }}</p>
+                                                        <div v-if="revenueCockpitModel.status === 'empty'" class="mt-3 space-y-2">
+                                                            <button type="button" @click="openRevenueCockpitDataHealth" :disabled="!filterReportHotel || revenueCockpitDataHealthOpening" class="btn-primary min-h-[44px] px-4 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-50" data-testid="revenue-cockpit-data-health">
+                                                                {{ revenueCockpitDataHealthOpening ? '正在打开数据缺口…' : '查看当前门店数据缺口' }}
+                                                            </button>
+                                                            <p class="text-xs leading-5" style="color:rgba(236,253,245,.8)" data-testid="revenue-cockpit-data-health-scope">诊断范围：{{ getHotelNameById(filterReportHotel) || '未选择门店' }} · {{ coreOperationsMaxDate }} · 携程/美团。只读取来源状态，不启动采集。</p>
+                                                        </div>
                                                         <div class="mt-3 rounded-lg border px-3 py-2 text-sm leading-6" style="border-color:rgba(215,181,109,.25);background:rgba(0,0,0,.1);color:#f5e7c5" data-testid="revenue-cockpit-date-difference">
-                                                            <i class="fas fa-calendar-check mr-2"></i>{{ revenueCockpitModel.dateNotice || '正在确定最近严格可用日期…' }}
+                                                            <i class="fas fa-calendar-check mr-2"></i>{{ revenueCockpitModel.dateNotice || (revenueCockpitLoading ? '正在确定最近严格可用日期…' : '当前范围尚无可验证业务日期') }}
                                                             <div class="mt-1 text-xs" data-testid="revenue-cockpit-as-of-date">数据基准日：{{ revenueCockpitModel.asOfDate || '未取得' }} · {{ revenueCockpitModel.asOfDateContractVersion || '合同未取得' }}</div>
                                                         </div>
                                                         <p class="mt-3 text-xs leading-5" style="color:rgba(236,253,245,.65)">{{ revenueCockpitModel.scopeBoundary }}</p>
@@ -10694,13 +10919,6 @@
                                                     </div>
                                                     <div class="flex flex-wrap gap-2">
                                                         <button type="button" @click="loadRevenueCockpit({ reloadScope: true, ignoreSavedSnapshot: true })" :disabled="revenueCockpitLoading" class="rounded-lg border px-3.5 py-2 text-sm font-medium text-white hover:opacity-90 disabled:cursor-wait disabled:opacity-50" style="border-color:rgba(255,255,255,.2);background:rgba(255,255,255,.1)" data-testid="revenue-cockpit-refresh">
-                                                            {{ revenueCockpitLoading ? '读取中…' : '刷新事实' }}
-                                                        </button>
-                                                        <button type="button" @click="saveRevenueCockpitDecisionSnapshot" :disabled="revenueCockpitSnapshotSaving || !revenueCockpitModel.canSaveSnapshot" class="rounded-lg border px-3.5 py-2 text-sm font-medium hover:opacity-90 disabled:opacity-40" style="border-color:rgba(167,243,208,.35);background:rgba(16,185,129,.12);color:#d1fae5" data-testid="revenue-cockpit-save-snapshot">
-                                                            {{ revenueCockpitSnapshotSaving ? '保存并回读中…' : '保存决策快照' }}
-                                                        </button>
-                                                        <button type="button" @click="downloadRevenueCockpit" :disabled="!revenueCockpitModel.visibleSections?.length" class="rounded-lg border px-3.5 py-2 text-sm font-medium hover:opacity-90 disabled:opacity-40" style="border-color:rgba(215,181,109,.45);background:rgba(215,181,109,.15);color:#f7e6bd" data-testid="revenue-cockpit-download">
-                                                            按当前页面下载
                                                             <i :class="revenueCockpitLoading ? 'fas fa-spinner fa-spin' : 'fas fa-sync-alt'" class="mr-2"></i>{{ revenueCockpitLoading ? '读取中…' : '刷新事实' }}
                                                         </button>
                                                         <button type="button" @click="saveRevenueCockpitDecisionSnapshot" :disabled="revenueCockpitSnapshotSaving || !revenueCockpitModel.canSaveSnapshot" class="rounded-lg border px-3.5 py-2 text-sm font-medium hover:opacity-90 disabled:opacity-40" style="border-color:rgba(167,243,208,.35);background:rgba(16,185,129,.12);color:#d1fae5" data-testid="revenue-cockpit-save-snapshot">
@@ -10988,34 +11206,35 @@
                                             <div class="bg-white rounded-xl border border-gray-200 p-4">
                                                 <h3 class="font-semibold text-gray-800 mb-4">需求预测</h3>
                                                 <div class="flex flex-wrap gap-3 mb-4">
-                                                    <input type="date" v-model="forecastFilter.start_date" class="input-field">
-                                                    <input type="date" v-model="forecastFilter.end_date" class="input-field">
-                                                    <button @click="loadDemandForecasts" class="btn-primary"><i class="fas fa-search mr-2"></i>查询</button>
+                                                    <input type="date" v-model="forecastFilter.start_date" @change="invalidateDemandForecastRead" aria-label="需求预测开始日期" class="input-field">
+                                                    <input type="date" v-model="forecastFilter.end_date" @change="invalidateDemandForecastRead" aria-label="需求预测结束日期" class="input-field">
+                                                    <button @click="loadDemandForecasts" :disabled="demandForecastReadState.status === 'loading'" class="btn-primary"><i class="fas fa-search mr-2"></i>{{ demandForecastReadState.status === 'loading' ? '读取中…' : '查询' }}</button>
                                                 </div>
-                                                <div data-testid="agent-demand-forecast-manual-input" class="mb-4 rounded-lg border border-emerald-100 bg-emerald-50 p-3">
+                                                <div data-testid="agent-demand-forecast-manual-input" data-form-draft="off" class="mb-4 rounded-lg border border-emerald-100 bg-emerald-50 p-3">
                                                     <div class="mb-2 flex flex-wrap items-center justify-between gap-2">
                                                         <div>
                                                             <div class="text-sm font-semibold text-emerald-900">需求预测补录</div>
                                                             <div class="text-xs text-emerald-700">人工提供项，仅用于携程调价预检；不是 OTA 自动采集事实，不写 OTA。</div>
                                                         </div>
-                                                        <button @click="resetDemandForecastForm" class="rounded border border-emerald-200 bg-white px-2.5 py-1.5 text-xs text-emerald-700 hover:bg-emerald-50">
+                                                        <button @click="resetDemandForecastForm" :disabled="demandForecastSaving" class="rounded border border-emerald-200 bg-white px-2.5 py-1.5 text-xs text-emerald-700 hover:bg-emerald-50">
                                                             <i class="fas fa-eraser mr-1"></i>清空
                                                         </button>
                                                     </div>
+                                                    <div v-if="demandForecastSaveReadback" class="mb-3 rounded border border-emerald-200 bg-white p-3 text-xs text-emerald-900" role="status">{{ demandForecastSaveReadback.message }}</div>
                                                     <div class="grid grid-cols-1 md:grid-cols-6 gap-2">
-                                                        <input type="date" v-model="demandForecastForm.forecast_date" class="input-field">
-                                                        <select v-model.number="demandForecastForm.room_type_id" class="input-field md:col-span-2">
+                                                        <input type="date" v-model="demandForecastForm.forecast_date" :disabled="demandForecastSaving" class="input-field">
+                                                        <select v-model.number="demandForecastForm.room_type_id" :disabled="demandForecastSaving" class="input-field md:col-span-2">
                                                             <option :value="0">选择房型</option>
                                                             <option v-for="item in roomTypeConfigList" :key="`forecast-room-${item.id}`" :value="Number(item.id)" :disabled="Number(item.is_enabled) !== 1">
                                                                 {{ item.name }}{{ Number(item.is_enabled) === 1 ? '' : '（停用）' }}
                                                             </option>
                                                         </select>
-                                                        <input type="number" v-model.number="demandForecastForm.predicted_occupancy" class="input-field" min="0" max="100" step="1" placeholder="预测入住率%">
-                                                        <input type="number" v-model.number="demandForecastForm.predicted_demand" class="input-field" min="0" step="1" placeholder="需求间夜">
-                                                        <input type="number" v-model.number="demandForecastForm.confidence_percent" class="input-field" min="1" max="100" step="1" placeholder="人工置信度%（必填）">
+                                                        <input type="number" v-model.number="demandForecastForm.predicted_occupancy" :disabled="demandForecastSaving" class="input-field" min="0" max="100" step="1" placeholder="预测入住率%">
+                                                        <input type="number" v-model.number="demandForecastForm.predicted_demand" :disabled="demandForecastSaving" class="input-field" min="0" step="1" placeholder="需求间夜">
+                                                        <input type="number" v-model.number="demandForecastForm.confidence_percent" :disabled="demandForecastSaving" class="input-field" min="1" max="100" step="1" placeholder="人工置信度%（必填）">
                                                     </div>
                                                     <div class="mt-2 flex flex-wrap items-center gap-2">
-                                                        <input v-model.trim="demandForecastForm.remark" class="input-field flex-1 min-w-[220px]" placeholder="预测口径备注（可选）">
+                                                        <input v-model.trim="demandForecastForm.remark" :disabled="demandForecastSaving" class="input-field flex-1 min-w-[220px]" placeholder="预测口径备注（可选）">
                                                         <button @click="saveDemandForecastInput" :disabled="demandForecastSaving" class="rounded bg-emerald-700 px-3 py-2 text-sm text-white hover:bg-emerald-800 disabled:opacity-50">
                                                             <i :class="demandForecastSaving ? 'fas fa-spinner fa-spin' : 'fas fa-save'" class="mr-1"></i>保存预测
                                                         </button>
@@ -11033,6 +11252,17 @@
                                                             </tr>
                                                         </thead>
                                                         <tbody class="divide-y divide-gray-100">
+                                                            <tr v-if="!filterReportHotel"><td colspan="5" class="px-3 py-8 text-center text-gray-400">请选择酒店后读取需求预测。</td></tr>
+                                                            <tr v-else-if="demandForecastReadState.status === 'loading'"><td colspan="5" class="px-3 py-8 text-center text-gray-400">正在读取所选日期范围的需求预测…</td></tr>
+                                                            <tr v-else-if="demandForecastReadState.status === 'failed'">
+                                                                <td colspan="5" class="px-3 py-8 text-center text-red-700">
+                                                                    <div>需求预测读取失败：{{ demandForecastReadState.error || '当前范围尚未核验' }}</div>
+                                                                    <button @click="loadDemandForecasts" class="mt-2 btn-primary">重新读取需求预测</button>
+                                                                </td>
+                                                            </tr>
+                                                            <tr v-else-if="!['ready', 'empty'].includes(demandForecastReadState.status)"><td colspan="5" class="px-3 py-8 text-center text-gray-400">尚未读取当前范围的需求预测。</td></tr>
+                                                            <tr v-else-if="!demandForecasts.length"><td colspan="5" class="px-3 py-8 text-center text-gray-400">所选日期范围内暂无需求预测</td></tr>
+                                                            <template v-else>
                                                             <tr v-for="row in demandForecasts" :key="row.id || row.forecast_date">
                                                                 <td class="px-3 py-2 font-medium text-gray-800">{{ row.forecast_date }}</td>
                                                                 <td class="px-3 py-2 text-right">{{ row.predicted_occupancy === null || row.predicted_occupancy === undefined ? '—' : row.predicted_occupancy + '%' }}</td>
@@ -11047,9 +11277,7 @@
                                                                     </div>
                                                                 </td>
                                                             </tr>
-                                                            <tr v-if="!demandForecasts.length">
-                                                                <td colspan="5" class="px-3 py-8 text-center text-gray-400">暂无需求预测</td>
-                                                            </tr>
+                                                            </template>
                                                         </tbody>
                                                     </table>
                                                 </div>
@@ -11064,14 +11292,18 @@
                                                     </label>
                                                     <button @click="loadCompetitorAnalysis" :disabled="competitorAnalysisLoading" class="btn-primary w-full disabled:cursor-wait disabled:opacity-60 sm:w-auto"><i :class="competitorAnalysisLoading ? 'fas fa-spinner fa-spin' : 'fas fa-search'" class="mr-2"></i>{{ competitorAnalysisLoading ? '查询中...' : '查询' }}</button>
                                                 </div>
-                                                <div data-testid="agent-ctrip-competitor-price-manual-input" class="mb-4 rounded-lg border border-blue-100 bg-blue-50 p-3">
+                                                <div data-testid="agent-ctrip-competitor-price-manual-input" data-form-draft="off" class="mb-4 rounded-lg border border-blue-100 bg-blue-50 p-3">
                                                     <div class="mb-2 flex flex-wrap items-center justify-between gap-2">
                                                         <div>
                                                             <div class="text-sm font-semibold text-blue-900">携程竞品价样本补录</div>
                                                     <div class="text-xs text-blue-700">人工携程 OTA 样本；不代表全酒店经营数据，不写 OTA。</div>
                                                         </div>
                                                     </div>
-                                                    <div class="grid grid-cols-1 md:grid-cols-6 gap-2">
+                                                    <div v-if="competitorPriceSaveReadback" class="mb-3 rounded border border-blue-200 bg-white p-3 text-xs text-blue-900" role="status">
+                                                        <div>{{ competitorPriceSaveReadback.message }}</div>
+                                                        <button v-if="competitorPriceSaveReadback.status === 'failed' &amp;&amp; competitorPriceSaveReadback.id" @click="verifyCompetitorPriceSaveReadback" :disabled="competitorPriceSaving" class="mt-2 rounded border border-blue-200 px-2 py-1">重试准确回读（不重复保存）</button>
+                                                    </div>
+                                                    <fieldset :disabled="competitorPriceSaving" class="grid grid-cols-1 md:grid-cols-6 gap-2">
                                                         <input type="date" v-model="competitorPriceForm.analysis_date" class="input-field">
                                                         <select v-model.number="competitorPriceForm.room_type_id" class="input-field md:col-span-2">
                                                             <option :value="0">选择房型</option>
@@ -11079,16 +11311,17 @@
                                                                 {{ item.name }}{{ Number(item.is_enabled) === 1 ? '' : '（停用）' }}
                                                             </option>
                                                         </select>
-                                                        <input type="number" v-model.number="competitorPriceForm.our_price" class="input-field" min="0" step="1" placeholder="本店价">
-                                                        <input type="number" v-model.number="competitorPriceForm.competitor_price" class="input-field" min="0" step="1" placeholder="竞品价">
+                                                        <input type="number" v-model.number="competitorPriceForm.our_price" class="input-field" min="0" step="0.01" placeholder="本店价">
+                                                        <input type="number" v-model.number="competitorPriceForm.competitor_price" class="input-field" min="0" step="0.01" placeholder="竞品价">
                                                         <input type="number" v-model.number="competitorPriceForm.competitor_hotel_id" class="input-field" min="1" step="1" placeholder="竞对ID（未知请留空）">
-                                                    </div>
+                                                    </fieldset>
                                                     <div class="mt-2 flex flex-wrap items-center gap-2">
-                                                        <input v-model.trim="competitorPriceForm.competitor_name" class="input-field flex-1 min-w-[220px]" placeholder="竞对名称（不知道ID时必填）">
-                                                        <button @click="saveCompetitorPriceInput" :disabled="competitorPriceSaving" class="rounded bg-blue-700 px-3 py-2 text-sm text-white hover:bg-blue-800 disabled:opacity-50">
+                                                        <input v-model.trim="competitorPriceForm.competitor_name" :disabled="competitorPriceSaving" class="input-field flex-1 min-w-[220px]" placeholder="竞对名称（不知道ID时必填）">
+                                                        <button @click="saveCompetitorPriceInput" :disabled="competitorPriceSaving || (competitorPriceSaveReadback &amp;&amp; competitorPriceSaveReadback.status !== 'verified')" class="rounded bg-blue-700 px-3 py-2 text-sm text-white hover:bg-blue-800 disabled:opacity-50">
                                                             <i :class="competitorPriceSaving ? 'fas fa-spinner fa-spin' : 'fas fa-save'" class="mr-1"></i>保存样本
                                                         </button>
                                                     </div>
+                                                    <button @click="resetCompetitorPriceForm" :disabled="competitorPriceSaving" class="mt-2 rounded border border-blue-200 bg-white px-2.5 py-1.5 text-xs text-blue-700">清空并重新录入</button>
                                                 </div>
                                                 <div v-if="competitorAnalysisLoading" data-testid="competitor-microscope-loading" class="mb-4 rounded-lg bg-blue-50 p-4 text-center text-sm text-blue-700"><i class="fas fa-spinner fa-spin mr-2"></i>正在读取当前门店与日期...</div>
                                                 <div v-else-if="competitorAnalysisError" data-testid="competitor-microscope-error" class="mb-4 rounded-lg bg-red-50 p-4 text-sm text-red-700">读取失败：{{ competitorAnalysisError }}</div>
@@ -11236,6 +11469,9 @@
                                 </div>
                             </div>
                         </div>
+                    </div>
+                    <div v-if="currentPage === 'investment-payback'" class="max-w-7xl mx-auto" data-testid="investment-payback-page">
+                        <investment-payback-view :request="managerCapabilityRequest" :hotels="hotels"></investment-payback-view>
                     </div>
                     <div v-if="currentPage === 'operation-logs' &amp;&amp; user?.is_super_admin">
                         <section data-testid="security-monitor-overview" class="suxi-security-monitor-hero mb-6 overflow-hidden rounded-2xl border shadow-sm">
@@ -11973,7 +12209,11 @@
                                             {{ tab.label }}
                                         </button>
                                     </div>
-                                    <div v-if="aiGovernanceTab === 'logs'" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2 w-full xl:w-auto">
+                                    <div v-if="aiGovernanceTab === 'logs'" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2 w-full xl:w-auto">
+                                        <select v-model="aiGovernanceFilter.hotel_id" aria-label="调用日志酒店范围" data-testid="ai-governance-hotel-filter" class="min-w-0 px-3 py-2 border border-gray-200 rounded-lg text-sm">
+                                            <option value="">全部酒店（含酒店未记录）</option>
+                                            <option v-for="hotel in hotels" :key="hotel.id" :value="String(hotel.id)">{{ hotelSelectOptionText(hotel) }}</option>
+                                        </select>
                                         <input v-model="aiGovernanceFilter.module" placeholder="模块" class="px-3 py-2 border border-gray-200 rounded-lg text-sm">
                                         <input v-model="aiGovernanceFilter.scenario" placeholder="场景" class="px-3 py-2 border border-gray-200 rounded-lg text-sm">
                                         <select v-model="aiGovernanceFilter.status" class="px-3 py-2 border border-gray-200 rounded-lg text-sm">
@@ -11982,20 +12222,23 @@
                                             <option value="failed">失败</option>
                                             <option value="blocked">阻断</option>
                                         </select>
-                                        <button @click="loadAiGovernance" :disabled="aiGovernanceLoading" class="px-3 py-2 rounded-lg bg-gray-900 text-white text-sm disabled:opacity-60">查询</button>
+                                        <button @click="queryAiGovernanceLogs" :disabled="aiGovernanceLoading || aiGovernanceLogLoading" class="px-3 py-2 rounded-lg bg-gray-900 text-white text-sm disabled:opacity-60">查询</button>
                                     </div>
                                 </div>
                             </div>
 
                             <div v-if="aiGovernanceTab === 'logs'" class="overflow-x-auto">
+                                <p class="px-4 py-3 text-xs text-gray-600" data-testid="ai-governance-log-scope">{{ aiGovernanceLogScope ? '已加载列表范围：' + (aiGovernanceLogScope.hotel_id ? aiGovernanceHotelText(aiGovernanceLogScope.hotel_id) : '全部酒店（含酒店未记录）') : '尚未加载调用日志' }}{{ aiGovernanceLogScope?.filters?.module ? ' · 模块 ' + aiGovernanceLogScope.filters.module : '' }}{{ aiGovernanceLogScope?.filters?.scenario ? ' · 场景 ' + aiGovernanceLogScope.filters.scenario : '' }}{{ aiGovernanceLogScope?.filters?.status ? ' · 状态 ' + ({ success: '成功', failed: '失败', blocked: '阻断' })[aiGovernanceLogScope.filters.status] : '' }}。上方概览为全部酒店；修改筛选后点击查询。</p>
                                 <table class="min-w-full text-sm">
                                     <thead class="bg-gray-50 text-gray-500">
                                         <tr>
                                             <th class="px-4 py-3 text-left">时间</th>
+                                            <th class="px-4 py-3 text-left">酒店范围</th>
                                             <th class="px-4 py-3 text-left">模块 / 场景</th>
                                             <th class="px-4 py-3 text-left">模型</th>
                                             <th class="px-4 py-3 text-left">Prompt</th>
                                             <th class="px-4 py-3 text-left">状态</th>
+                                            <th class="px-4 py-3 text-left">Token / 调用耗时</th>
                                             <th class="px-4 py-3 text-left">置信度</th>
                                             <th class="px-4 py-3 text-left">人工确认</th>
                                             <th class="px-4 py-3 text-left">操作</th>
@@ -12004,6 +12247,7 @@
                                     <tbody class="divide-y divide-gray-100">
                                         <tr v-for="log in aiGovernanceLogs" :key="log.id" class="hover:bg-gray-50">
                                             <td class="px-4 py-3 whitespace-nowrap">{{ log.created_at || '-' }}</td>
+                                            <td class="px-4 py-3 whitespace-nowrap" data-testid="ai-governance-log-hotel">{{ aiGovernanceHotelText(log.hotel_id) }}</td>
                                             <td class="px-4 py-3">
                                                 <div class="font-medium text-gray-900">{{ log.module || '-' }}</div>
                                                 <div class="text-xs text-gray-500">{{ log.scenario || '-' }}</div>
@@ -12014,6 +12258,10 @@
                                             </td>
                                             <td class="px-4 py-3 font-mono text-xs text-gray-600 max-w-xs truncate" :title="log.prompt_version">{{ log.prompt_version || '-' }}</td>
                                             <td class="px-4 py-3"><span :class="['rounded-md border px-2 py-1 text-xs whitespace-nowrap', aiGovernanceStatusClass(log.status)]">{{ aiGovernanceStatusText(log.status) }}</span></td>
+                                            <td class="px-4 py-3 text-xs whitespace-nowrap">
+                                                <div>{{ log.usage_observation &amp;&amp; log.usage_observation.total_tokens != null ? log.usage_observation.total_tokens + ' Token' : '用量未知' }}</div>
+                                                <div class="text-gray-500">{{ log.usage_observation &amp;&amp; log.usage_observation.elapsed_ms != null ? log.usage_observation.elapsed_ms + ' ms' : '耗时未记录' }}</div>
+                                            </td>
                                             <td class="px-4 py-3">
                                                 <span :class="log.low_confidence ? 'text-amber-700 font-semibold' : 'text-gray-700'">{{ aiGovernanceConfidenceText(log) }}</span>
                                             </td>
@@ -12028,7 +12276,15 @@
                                         </tr>
                                     </tbody>
                                 </table>
-                                <div v-if="!aiGovernanceLogs.length &amp;&amp; !aiGovernanceLoading" class="p-8 text-center text-gray-400">暂无 AI 调用日志</div>
+                                <div v-if="!aiGovernanceLogScope &amp;&amp; !aiGovernanceLogLoading" class="p-8 text-center text-gray-400">尚未核实当前范围的调用日志</div>
+                                <div v-else-if="aiGovernanceLogScope &amp;&amp; !aiGovernanceLogs.length &amp;&amp; !aiGovernanceLogLoading" class="p-8 text-center text-gray-400">已加载范围内暂无 AI 调用日志</div>
+                                <nav class="flex flex-wrap items-center justify-between gap-3 border-t border-gray-100 px-4 py-3 text-sm" aria-label="AI调用日志分页" data-testid="ai-governance-log-pagination">
+                                    <p class="text-gray-600">{{ aiGovernanceLogPagination ? '共 ' + aiGovernanceLogPagination.total + ' 条 · 第 ' + aiGovernanceLogPagination.page + ' 页 · 每页 ' + aiGovernanceLogPagination.page_size + ' 条' : '总量和页码尚未核实' }}</p>
+                                    <div class="flex gap-2">
+                                        <button type="button" data-testid="ai-governance-log-prev" @click="changeAiGovernanceLogPage(aiGovernanceLogPagination.page - 1)" :disabled="aiGovernanceLoading || aiGovernanceLogLoading || !aiGovernanceLogPagination || aiGovernanceLogPagination.page &lt;= 1" class="rounded-lg border border-gray-200 px-3 py-1.5 disabled:opacity-50">上一页</button>
+                                        <button type="button" data-testid="ai-governance-log-next" @click="changeAiGovernanceLogPage(aiGovernanceLogPagination.page + 1)" :disabled="aiGovernanceLoading || aiGovernanceLogLoading || !aiGovernanceLogPagination || aiGovernanceLogPagination.page * aiGovernanceLogPagination.page_size &gt;= aiGovernanceLogPagination.total" class="rounded-lg border border-gray-200 px-3 py-1.5 disabled:opacity-50">下一页</button>
+                                    </div>
+                                </nav>
                             </div>
 
                             <div v-if="aiGovernanceTab === 'prompts'" class="p-4 grid grid-cols-1 lg:grid-cols-2 gap-3">
@@ -12097,10 +12353,24 @@
                             <div class="flex flex-col md:flex-row md:items-start md:justify-between gap-3 mb-4">
                                 <div>
                                     <h3 class="font-bold text-gray-900">调用详情 #{{ aiGovernanceSelectedLog.id }}</h3>
+                                    <p class="text-xs text-gray-600 mt-1" data-testid="ai-governance-detail-hotel">{{ aiGovernanceHotelText(aiGovernanceSelectedLog.hotel_id) }}</p>
                                     <p class="text-xs text-gray-500 mt-1">{{ aiGovernanceSelectedLog.request_id || '-' }}</p>
                                 </div>
-                                <button @click="aiGovernanceSelectedLog = null" class="px-3 py-2 rounded-lg border border-gray-200 text-sm hover:bg-gray-50">收起</button>
+                                <button @click="closeAiGovernanceLogDetail" class="px-3 py-2 rounded-lg border border-gray-200 text-sm hover:bg-gray-50">收起</button>
                             </div>
+                            <section v-if="aiGovernanceSelectedLog.usage_observation" class="rounded-lg border border-gray-200 bg-gray-50 p-3 mb-4" data-testid="ai-call-usage">
+                                <h4 class="text-sm font-semibold text-gray-900">调用用量与耗时</h4>
+                                <p class="mt-1 text-xs text-gray-600">{{ ({ reported: '供应商已返回完整用量', partial: '部分请求缺少用量，完整总量未知', unavailable: '供应商未提供有效用量', not_called: '本条记录未调用模型', legacy_unknown: '旧记录未保存用量' })[aiGovernanceSelectedLog.usage_observation.status] || '用量状态未知' }}</p>
+                                <dl class="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
+                                    <div><dt class="text-gray-500">输入 / 输出 Token</dt><dd class="mt-1 text-gray-900">{{ aiGovernanceSelectedLog.usage_observation.prompt_tokens ?? '未知' }} / {{ aiGovernanceSelectedLog.usage_observation.completion_tokens ?? '未知' }}</dd></div>
+                                    <div><dt class="text-gray-500">总 Token / 其中缓存命中</dt><dd class="mt-1 text-gray-900">{{ aiGovernanceSelectedLog.usage_observation.total_tokens ?? '未知' }} / {{ aiGovernanceSelectedLog.usage_observation.cached_tokens ?? '未知' }}</dd></div>
+                                    <div><dt class="text-gray-500">调用耗时（含重试等待）</dt><dd class="mt-1 text-gray-900">{{ aiGovernanceSelectedLog.usage_observation.elapsed_ms != null ? aiGovernanceSelectedLog.usage_observation.elapsed_ms + ' ms' : '未记录' }}</dd></div>
+                                    <div><dt class="text-gray-500">费用</dt><dd class="mt-1 text-gray-900">未知：尚无已核实的计价依据</dd></div>
+                                </dl>
+                                <p v-if="aiGovernanceSelectedLog.usage_observation.dispatched_count != null" class="mt-3 text-xs text-gray-600">请求 {{ aiGovernanceSelectedLog.usage_observation.dispatched_count }} 次，收到有效用量 {{ aiGovernanceSelectedLog.usage_observation.reported_count }} 次；已知部分合计 {{ aiGovernanceSelectedLog.usage_observation.observed_total_tokens ?? '未知' }} Token。</p>
+                                <p v-if="aiGovernanceSelectedLog.usage_observation.invalid_count" class="mt-2 text-xs text-amber-700">存在无效用量回执，已排除；不能据此计算完整费用。</p>
+                                <p class="mt-2 text-xs text-gray-500">仅统计本条供应商调用及其重试；切换供应商分别记录。完整任务还需计入工具调用与人工复核。</p>
+                            </section>
                             <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
                                 <div class="rounded-lg border border-gray-200 bg-gray-50 p-3">
                                     <div class="text-xs font-semibold text-gray-500 mb-2">Prompt 预览</div>
@@ -12387,6 +12657,9 @@
                                     </button>
                                 </div>
 
+                                <p v-if="onlineDataTab === 'profile-fields' &amp;&amp; user?.is_super_admin" class="text-xs text-slate-500" data-testid="ctrip-field-config-readonly-notice">
+                                    查看字段不会保存或同步配置；未保存的默认项仅作预览，配置变更以主动保存后的回读为准。此页不代表原记录已补齐来源凭证。
+                                </p>
                                 <ctrip-profile-field-config-panel v-if="onlineDataTab === 'profile-fields' &amp;&amp; user?.is_super_admin" :ctx="$root">
                                 </ctrip-profile-field-config-panel>
 
@@ -14310,12 +14583,12 @@
 
                                     <div v-if="onlineAnalysisSourceRecord" class="border border-blue-100 rounded-lg bg-blue-50 px-4 py-3 text-sm text-blue-800">
                                         <div class="font-medium">
-                                            从数据记录进入：{{ onlineAnalysisSourceRecord.data_date || '-' }} · {{ onlineAnalysisSourceRecord.hotel_name || '-' }} · {{ onlineAnalysisSourceRecord.platform_label || onlineAnalysisSourceText(onlineAnalysisSourceRecord.platform) }}
+                                            原入口记录：{{ onlineAnalysisSourceRecord.data_date || '-' }} · {{ onlineAnalysisSourceRecord.hotel_name || '-' }} · {{ onlineAnalysisSourceRecord.platform_label || onlineAnalysisSourceText(onlineAnalysisSourceRecord.platform) }}
                                         </div>
                                         <div class="mt-1 text-xs text-blue-700">
-                                            该采集任务入库 {{ onlineAnalysisSourceRecord.saved_count || 0 }} 条；下方展示同酒店、日期、平台当前库内明细 {{ onlineAnalysisPagination.total || 0 }} 条。
-                                            若两者不同，任务数表示本次写入/更新次数，明细数表示当前库内去重后的可展示行。
+                                            该原记录状态：{{ onlineStorageStatusText(onlineAnalysisSourceRecord) }}。下方按当前筛选查询明细；原记录仅供核对，不替代当前范围的事实，也不代表本次采集任务写入次数。
                                         </div>
+                                        <online-truth-summary :truth="onlineAnalysisSourceRecord" testid="online-analysis-source-truth"></online-truth-summary>
                                     </div>
 
                                     <section data-testid="competitor-event-feed-panel" class="overflow-hidden rounded-xl border border-[#e5dcc8] bg-white shadow-sm">
@@ -16198,6 +16471,8 @@
                                 <button v-if="knowledgeCenterSelectedUnit?.can_edit !== false &amp;&amp; !chunk.revision_superseded" type="button" @click="openKnowledgeChunks(knowledgeCenterSelectedUnit, { editChunk: chunk })" :disabled="knowledgeCenterChunkForm.saving" class="mt-2 px-2 py-1 border rounded bg-white">修改并保存新版本</button>
                             </div>
                             <template v-for="view in [knowledgeChunkView(chunk)]" :key="'chunk-view-' + chunk.chunk_id">
+                                <p v-if="view.isHistorical" class="mb-2 text-xs text-gray-500">历史版本，仅供追溯；当前引用使用有效版本。</p>
+                                <p v-if="view.isQuarantined" class="mb-2 text-xs text-red-700">已隔离：只保留来源说明，不能整理或引用为参考 SOP。</p>
                                 <h4 v-if="view.title" class="text-base font-semibold text-gray-900 mb-2">{{ view.title }}</h4>
                                 <div v-if="view.summary" class="text-sm text-gray-700 leading-6">{{ view.summary }}</div>
                                 <div v-if="view.sopFields.length" class="mt-3 space-y-2">
@@ -16266,6 +16541,21 @@
                                     <summary class="cursor-pointer px-3 py-2 text-xs font-medium text-gray-600">查看原文</summary>
                                     <pre class="px-3 pb-3 text-xs text-gray-700 whitespace-pre-wrap max-h-48 overflow-y-auto">{{ view.rawText }}</pre>
                                 </details>
+                                <div class="mt-3 flex flex-wrap gap-2" v-if="view.canPrepareReference">
+                                    <button type="button" @click="editKnowledgeReference(chunk)" class="min-h-[44px] rounded-lg border border-emerald-200 px-3 py-2 text-sm text-emerald-800">{{ view.isReference ? '修订参考 SOP' : '整理成参考 SOP' }}</button>
+                                    <button v-if="view.isReference" type="button" @click="editKnowledgeReference(chunk, true)" class="min-h-[44px] rounded-lg border border-slate-200 px-3 py-2 text-sm">摘取部分另存参考稿</button>
+                                </div>
+                                <p v-if="view.ingestion" class="mt-2 text-xs text-slate-600">第 {{ view.ingestion.attempt }} 次处理 · {{ view.ingestion.stage === 'ready_for_reference_review' ? '待人工核对引用' : view.ingestion.stage === 'parsing_failed' ? '文档解析失败，可重试' : 'AI 分析失败，可重试' }}。摘要中的主张尚未逐条核验。</p>
+                                <details v-if="view.sourceSegments.length || view.citations.length" class="mt-3 rounded-lg bg-slate-50 p-3">
+                                    <summary class="cursor-pointer text-sm font-medium">查看逐项原文依据</summary>
+                                    <div v-for="citation in view.citations" :key="citation.segment_id + citation.field_paths.join(',')" class="mt-2 text-xs">
+                                        <strong>{{ citation.field_paths.join('、') }} · {{ citation.locator }}</strong>
+                                        <p class="whitespace-pre-wrap break-words">{{ citation.quote }}</p>
+                                    </div>
+                                    <div v-for="segment in view.sourceSegments" :key="segment.id" class="mt-2 text-xs">
+                                        <strong>{{ segment.locator }}</strong><p class="whitespace-pre-wrap break-words">{{ segment.quote }}</p>
+                                    </div>
+                                </details>
                                 <details class="mt-2 rounded-lg border border-gray-100 bg-gray-50">
                                     <summary class="cursor-pointer px-3 py-2 text-xs font-medium text-gray-600">查看完整 JSON</summary>
                                     <pre class="px-3 pb-3 text-xs text-gray-700 overflow-auto whitespace-pre-wrap max-h-56">{{ view.fullJson }}</pre>
@@ -16290,6 +16580,8 @@
                     <div v-else class="border border-blue-100 bg-blue-50 rounded-lg p-4 h-fit text-sm text-blue-800">
                         <div class="font-semibold">系统参考知识（只读）</div>
                         <p class="mt-2 leading-6">可查看适用性与引用。转运营任务须另行通过既有门禁；来源版本由系统维护。</p>
+                        <div class="font-semibold">来源版本已保护</div>
+                        <p class="mt-2 leading-6">可查看原文并另存参考 SOP；自己的参考稿可通过“修订参考 SOP”保留历史版本。正式应用须通过现有知识审核。</p>
                     </div>
                 </div>
             </div>
@@ -17249,7 +17541,21 @@
 
         <!-- 数据配置模态框 -->
         <data-config-dialogs v-if="showDataConfigModal" :ctx="$root"></data-config-dialogs>
-        <div v-if="workflowFormDialog.visible" class="fixed inset-0 z-[70] flex items-center justify-center bg-slate-950/60 p-4" data-testid="workflow-form-dialog" role="dialog" aria-modal="true" :aria-label="workflowFormDialog.title" @click.self="closeWorkflowFormDialog()" @keydown.esc.stop="closeWorkflowFormDialog()">
+        <dialog v-if="onlineHistoryRecordDetail" id="online-history-record-dialog" aria-labelledby="online-history-record-title" @close="closeOnlineHistoryDetail" @click.self="closeOnlineHistoryDetail" class="rounded-2xl border border-slate-200 bg-white p-0 text-slate-800 shadow-2xl" style="width:min(640px,calc(100vw - 32px));max-height:85vh;">
+            <div class="sticky top-0 z-10 flex items-start justify-between gap-3 border-b border-slate-200 bg-white p-5">
+                <div class="min-w-0"><h2 id="online-history-record-title" class="text-lg font-bold">保存记录详情</h2><p class="mt-1 break-words text-xs text-slate-500">{{ onlineHistoryRecordDetail.scope }}</p></div>
+                <button type="button" autofocus @click="closeOnlineHistoryDetail" aria-label="关闭详情，返回原查询" class="shrink-0 whitespace-nowrap rounded-lg border border-slate-300 px-3" style="min-height:44px">关闭</button>
+            </div>
+            <div class="space-y-4 p-5">
+                <p class="text-sm text-slate-600">以下为已读取记录的字段；关闭后保留原筛选、排序和页码。</p>
+                <dl class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <div v-for="field in onlineHistoryDetailRows" :key="field.key" class="min-w-0 rounded-lg bg-slate-50 p-3"><dt class="text-xs text-slate-500">{{ field.label }}</dt><dd class="mt-1 break-words text-sm">{{ field.value }}</dd></div>
+                </dl>
+                <p v-if="!onlineHistoryDetailRows.length" class="text-sm text-slate-500">此记录未返回可展示的结构化字段。</p>
+                <button v-if="onlineHistoryRecordDetail.record.display_hotels?.length" type="button" @click="openOnlineHistoryCompetitionTable" class="min-h-10 rounded-lg bg-[#143a31] px-4 text-sm text-white">打开此记录的竞争圈表格</button>
+            </div>
+        </dialog>
+        <div v-if="workflowFormDialog.visible" class="fixed inset-0 flex items-center justify-center p-4" style="z-index:70;background:rgba(2,6,23,.6)" data-testid="workflow-form-dialog" role="dialog" aria-modal="true" :aria-label="workflowFormDialog.title" @click.self="closeWorkflowFormDialog()" @keydown.esc.stop="closeWorkflowFormDialog()">
             <form class="flex max-h-[90vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl" style="max-height: 90vh;" @submit.prevent="submitWorkflowFormDialog">
                 <div class="border-b border-slate-100 px-6 py-5">
                     <div class="flex items-start justify-between gap-4">
@@ -17278,7 +17584,7 @@
                 </div>
                 <div class="flex items-center justify-end gap-3 border-t border-slate-100 bg-slate-50 px-6 py-4">
                     <button type="button" class="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100" @click="closeWorkflowFormDialog()">取消</button>
-                    <button type="submit" class="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800">{{ workflowFormDialog.submitText }}</button>
+                    <button type="submit" class="rounded-lg bg-gray-900 px-4 py-2 text-sm font-semibold text-white hover:bg-gray-800">{{ workflowFormDialog.submitText }}</button>
                 </div>
             </form>
         </div>

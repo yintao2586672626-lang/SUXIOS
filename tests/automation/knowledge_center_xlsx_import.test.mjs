@@ -42,11 +42,11 @@ test('knowledge import makes XLSX discoverable and displays its truthful generic
     dialogTemplate,
     /<input[^>]+ref="knowledgeDocumentFileInput"[^>]+accept="[^"]*\.xlsx[^"]*"[^>]*>/,
   );
-  assert.match(dialogTemplate, /XLSX 来源已锁定，提交时由服务端重新解析/);
+  assert.match(dialogTemplate, /extension.toUpperCase\(\) }} 来源已锁定，提交时由服务端重新解析/);
   assert.match(dialogTemplate, /SHA-256 \{\{ knowledgeCenterImportSourceDocument\.sha256 \}\}/);
   assert.match(dialogTemplate, /knowledgeCenterImportSourceDocument\.sheets/);
   assert.match(dialogTemplate, /人工模板 \/ 行业通用 \/ 未核验/);
-  assert.match(dialogTemplate, /所选门店仅用于授权隔离，不代表表格内容是该店事实/);
+  assert.match(dialogTemplate, /所选门店仅用于授权隔离，不代表资料内容是该店事实/);
 });
 
 test('XLSX preview accepts one workbook, keeps the same File, and locks server provenance', () => {
@@ -76,7 +76,7 @@ test('XLSX preview accepts one workbook, keeps the same File, and locks server p
   assert.match(fileHandler, /'XLSX 预览 source_document'/);
   assert.match(fileHandler, /knowledgeCenterImportSelectedFile\.value = workbook\.file/);
   assert.match(fileHandler, /knowledgeCenterImportSourceDocument\.value = sourceDocument/);
-  assert.match(fileHandler, /mode: 'xlsx'/);
+  assert.match(fileHandler, /mode: sourceDocument.extension/);
   assert.match(fileHandler, /source: 'manual_template'/);
 });
 
@@ -273,8 +273,11 @@ test('server re-extracts uploaded XLSX bytes, persists provenance, and fails clo
   assert.match(serverExtractor, /\$sourceDocument\['sheets'\]/);
 
   assert.match(persistence, /\$content\['source_document'\] = \$importContext\['source_document'\]/);
-  assert.match(persistence, /KnowledgeUnit::where\('unit_id', \(int\)\$unit->unit_id\)->find\(\)/);
-  assert.match(persistence, /KnowledgeChunk::where\('unit_id', \(int\)\$unit->unit_id\)/);
+  assert.match(persistence, /KnowledgeSourceImportService/);
+  const sourceStore = fs.readFileSync(path.join(root, 'app/service/KnowledgeSourceImportService.php'), 'utf8');
+  assert.ok(sourceStore.includes('KnowledgeUnit::find($unit->unit_id)'));
+  assert.ok(sourceStore.includes("KnowledgeChunk::where('unit_id', $unit->unit_id)->where('chunk_id', $chunk->chunk_id)->find()"));
+  assert.ok(sourceStore.includes('$digest->matches($digest->digest($content), $actualChunk->content)'));
   assert.match(persistence, /verifyImportedKnowledgeReadbackRows/);
   assert.match(persistence, /'readback_verified' => true/);
   assert.match(exactVerifier, /Imported knowledge unit readback mismatch/);

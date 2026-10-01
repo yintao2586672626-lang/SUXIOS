@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildFrontendEntry } from './lib/frontend_entry_build.mjs';
+import { syncKnowledgeCoachingAssetVersions } from './lib/knowledge_coaching_asset_versions.mjs';
 import { updateFrontendAssetVersion } from './lib/frontend_asset_version.mjs';
 import { syncOperationStaticVersion, syncRevenueStaticVersions, syncKnowledgeDomainVersion, syncSimulationStaticVersion } from './lib/frontend_lazy_asset_versions.mjs';
 import {
@@ -10,6 +11,7 @@ import {
 } from './lib/frontend_template_lock.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+await syncKnowledgeCoachingAssetVersions(repoRoot);
 const releaseLock = await acquireFrontendTemplateLock(repoRoot, { owner: 'build-frontend-entry' });
 try {
 const sourcePath = path.join(repoRoot, 'public/app-main.js');

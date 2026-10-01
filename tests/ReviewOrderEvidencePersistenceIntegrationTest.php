@@ -22,8 +22,23 @@ final class ReviewOrderEvidencePersistenceIntegrationTest extends TestCase
 
     public static function setUpBeforeClass(): void
     {
+        $expectedDatabase = trim((string)getenv('SUXI_E2E_DB_NAME'));
+        if (
+            (string)getenv('SUXI_E2E_DB_OVERRIDE') !== '1'
+            || preg_match('/(?:^|[_-])(?:test(?:ing)?|e2e)(?:$|[_-])/iD', $expectedDatabase) !== 1
+        ) {
+            self::markTestSkipped('Review-order persistence integration requires explicit opt-in and a dedicated *_test/*_testing/*_e2e database.');
+        }
         self::$app = new App(dirname(__DIR__));
         self::$app->initialize();
+        $databaseRow = Db::query('SELECT DATABASE() AS database_name');
+        $databaseName = trim((string)($databaseRow[0]['database_name'] ?? ''));
+        if (
+            preg_match('/(?:^|[_-])(?:test(?:ing)?|e2e)(?:$|[_-])/iD', $databaseName) !== 1
+            || !hash_equals($expectedDatabase, $databaseName)
+        ) {
+            self::fail('Review-order persistence integration must connect to the explicitly selected dedicated test database.');
+        }
     }
 
     protected function setUp(): void

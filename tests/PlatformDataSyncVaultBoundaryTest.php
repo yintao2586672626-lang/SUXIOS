@@ -320,6 +320,60 @@ final class PlatformDataSyncVaultBoundaryTest extends TestCase
         self::assertSame('{}', (string)$stored['secret_json']);
     }
 
+    #[\PHPUnit\Framework\Attributes\DataProvider('localCollectorTransactionOutcomes')]
+    public function testRealLocalCollectorAdapterPreservesCallerTransaction(bool $commit, bool $invalidIdentity): void
+    {
+        // This uses the production adapter and sync path, not the replaceable
+        // OtaLocalCollectorService importer that missed the connection reset.
+        $service = $this->service(new \app\service\platform\LocalCollectorDataSourceAdapter());
+        $sourceId = (int)Db::name('platform_data_sources')->insertGetId([
+            'tenant_id' => 7, 'system_hotel_id' => 101, 'name' => 'Transaction fixture',
+            'platform' => 'ctrip', 'data_type' => 'business',
+            'ingestion_method' => 'local_collector', 'status' => 'ready', 'enabled' => 1,
+            'config_json' => json_encode([
+                'local_collector_account_id' => 31,
+                'collector_device_id_hash' => str_repeat('a', 64),
+                'profile_key_hash' => str_repeat('b', 64),
+                'platform_hotel_id' => 'CTRIP-101',
+                'current_session_verified' => true,
+            ], JSON_THROW_ON_ERROR),
+            'secret_json' => '{}',
+        ]);
+        $connection = Db::connect();
+        Db::startTrans();
+        try {
+            Db::name('platform_data_sources')->where('id', $sourceId)->update(['name' => 'Inside transaction']);
+            // An explicit empty result exercises real adapter failure/receipt
+            // persistence without any external request or invented OTA fact.
+            $result = $service->syncDataSource($this->user(), $sourceId, [
+                'trigger_type' => 'local_collector_upload',
+                'local_collector_verified' => true,
+                'local_collector_task_id' => 701,
+                'data_date' => '2026-09-04',
+                'payload' => ['rows' => $invalidIdentity ? [['data_date' => '2026-09-04']] : []],
+            ]);
+            self::assertSame($connection, Db::connect(), 'Local result import must not replace the caller connection.');
+            self::assertSame('failed', $result['status']);
+            self::assertSame(1, Db::name('platform_data_sync_tasks')->count());
+            self::assertSame('Inside transaction', Db::name('platform_data_sources')->where('id', $sourceId)->value('name'));
+            $commit ? Db::commit() : Db::rollback();
+            self::assertSame($commit ? 1 : 0, Db::name('platform_data_sync_tasks')->count());
+            self::assertSame($commit ? 'Inside transaction' : 'Transaction fixture', Db::name('platform_data_sources')->where('id', $sourceId)->value('name'));
+        } finally {
+            Db::rollback();
+        }
+    }
+
+    public static function localCollectorTransactionOutcomes(): array
+    {
+        return [
+            'commit adapter failure' => [true, false],
+            'rollback adapter failure' => [false, false],
+            'commit caught identity failure' => [true, true],
+            'rollback caught identity failure' => [false, true],
+        ];
+    }
+
     public function testLocalCollectorSourceRejectsCookieCustody(): void
     {
         $this->expectException(\RuntimeException::class);

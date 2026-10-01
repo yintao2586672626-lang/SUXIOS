@@ -173,6 +173,15 @@ function cloudHotelIdColumnRegistry(): array
         ['hotel_on_books_snapshots', 'hotel_id', 'hotel_id'],
         ['hotel_demand_event_facts', 'hotel_id', 'hotel_id'],
         ['hotel_monthly_operating_finance_snapshots', 'hotel_id', 'hotel_id'],
+        // Optional new business ledgers use the canonical SUXIOS hotel identity.
+        // Digest-bound payloads remain evidence; relational classification alone
+        // does not authorize rewriting their nested source identity.
+        ['investment_payback_projects', 'hotel_id', 'hotel_id'],
+        ['manager_coaching_plans', 'hotel_id', 'hotel_id'],
+        ['manager_coaching_events', 'hotel_id', 'hotel_id'],
+        ['operation_task_workflow_events', 'hotel_id', 'hotel_id'],
+        ['operation_task_workflow_proposals', 'hotel_id', 'hotel_id'],
+        ['promotion_experiment_versions', 'system_hotel_id', 'canonical_foreign_key'],
 
         // Both sides of a controlled SOP replication are system-hotel aliases.
         ['hotel_operating_sop_replications', 'source_hotel_id', 'source_hotel_id'],

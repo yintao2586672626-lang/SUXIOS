@@ -4,9 +4,7 @@ const read = (path) => readFileSync(path, 'utf8');
 const controllerSource = read('app/controller/OnlineData.php');
 const publicSource = read('public/index.html');
 const ctripProfileFieldComponentSource = read('public/components/online-data/ctrip-profile-field-config-panel.js');
-const ctripProfileFieldComponentTemplateSource = ctripProfileFieldComponentSource
-  .replace(/\\n/g, '\n')
-  .replace(/\\"/g, '"');
+const ctripProfileFieldComponentTemplateSource = read('resources/frontend/templates/components/ctrip-profile-field-config-panel.html');
 const profileUiSource = `${publicSource}\n${ctripProfileFieldComponentTemplateSource}`;
 const packageSource = read('package.json');
 

@@ -106,6 +106,17 @@ export async function buildDataConfigDialogsComponent(template) {
   return result.code;
 }
 
+export async function buildCtripProfileFieldConfigComponent(template) {
+  const compiled = compileFrontendTemplate(template);
+  const wrapped = `(()=>{const components=window.SUXI_ONLINE_DATA_COMPONENTS||(window.SUXI_ONLINE_DATA_COMPONENTS={});components.CtripProfileFieldConfigPanelBody={name:"CtripProfileFieldConfigPanelBody",props:{ctx:{type:Object,required:true}},setup(props){return new Proxy({},{get(target,key){if(key==="ctx")return props.ctx;return props.ctx?.[key]??target[key]},set(target,key,value){if(props.ctx){props.ctx[key]=value;return true}target[key]=value;return true},has(target,key){return key in target||!!props.ctx},ownKeys(target){return Reflect.ownKeys(target)},getOwnPropertyDescriptor(){return{enumerable:true,configurable:true}}})},render:(function(Vue){${compiled}})(Vue)}})();`;
+  const result = await minify(
+    { 'ctrip-profile-field-config-panel.js': wrapped },
+    structuredClone(FRONTEND_TEMPLATE_MINIFY_OPTIONS),
+  );
+  if (!result.code) throw new Error('Terser returned an empty Ctrip field-config component artifact.');
+  return result.code;
+}
+
 export async function buildBusinessClosureViewsComponent(views) {
   if (!Array.isArray(views) || views.length === 0) {
     throw new Error('Business closure component build requires at least one extracted runtime view.');

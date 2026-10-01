@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Tests;
 
 use app\controller\concern\OnlineDataHistoryConcern;
+use app\controller\concern\OnlineDataQualityConcern;
 use PHPUnit\Framework\TestCase;
 use RuntimeException;
 use think\App;
@@ -92,6 +93,57 @@ final class OnlineDataHistoryAuthorizationContractTest extends TestCase
         self::assertSame('无权查看该历史记录', $response['message']);
     }
 
+    public function testCtripHistoryAppliesBusinessDateBoundsToListAndCount(): void
+    {
+        Db::name('online_daily_data')->insert(array_replace($this->row(3, 7, 'Allowed hotel'), [
+            'data_date' => '2026-07-31', 'create_time' => '2026-08-03 12:00:00',
+        ]));
+        $user = $this->user([7, 8], [7]);
+        $response = $this->payload($this->controller($user, [
+            'start_date' => '2026-07-31', 'end_date' => '2026-07-31',
+        ])->ctripHistory());
+        self::assertSame(200, $response['code']);
+        self::assertSame(1, $response['data']['total']);
+        self::assertSame([3], array_column($response['data']['list'], 'id'));
+        self::assertSame('2026-07-31', $response['data']['list'][0]['data_date']);
+    }
+
+    public function testStoredHistoryNeverReturnsLegacyCredentialFields(): void
+    {
+        Db::name('online_daily_data')->where('id', 1)->update(['raw_data' => json_encode([
+            'cookies' => 'test-only-cookie-marker',
+            'nested' => ['authorization' => 'test-only-auth-marker'],
+            'amount' => 42,
+        ])]);
+        $response = $this->payload($this->controller($this->user([7], [7]))->historyDetail(1));
+        self::assertSame(200, $response['code']);
+        self::assertStringNotContainsString('test-only-cookie-marker', json_encode($response));
+        self::assertStringNotContainsString('test-only-auth-marker', json_encode($response));
+        self::assertSame(42, $response['data']['raw_data_json']['amount']);
+    }
+
+    public function testDailyListAppliesEitherBusinessDateBoundAndSurvivesHotelRename(): void
+    {
+        Db::name('online_daily_data')->insert(array_replace($this->row(3, 7, 'Old name'), ['data_date' => '2026-07-31']));
+        Db::name('hotels')->where('id', 7)->update(['name' => 'Renamed hotel']);
+        $user = $this->user([7, 8], [7]);
+        $from = $this->payload($this->controller($user, ['start_date' => '2026-08-01'])->dailyDataList());
+        $until = $this->payload($this->controller($user, ['end_date' => '2026-07-31'])->dailyDataList());
+        self::assertSame([1], array_column($from['data']['list'], 'id'));
+        self::assertSame([3], array_column($until['data']['list'], 'id'));
+        self::assertSame('Renamed hotel', $until['data']['list'][0]['hotel_name']);
+        self::assertSame(1, $until['data']['pagination']['total']);
+    }
+
+    public function testDailyListAlsoRedactsLegacyCredentialsWithoutMutatingStoredMetrics(): void
+    {
+        Db::name('online_daily_data')->where('id', 1)->update(['raw_data' => '{"cookies":"test-only-cookie-marker","amount":42}']);
+        $response = $this->payload($this->controller($this->user([7], [7]))->dailyDataList());
+        self::assertSame(200, $response['code']);
+        self::assertStringNotContainsString('test-only-cookie-marker', json_encode($response));
+        self::assertStringContainsString('test-only-cookie-marker', Db::name('online_daily_data')->where('id', 1)->value('raw_data'));
+    }
+
     private static function createSchema(): void
     {
         Db::execute(<<<'SQL'
@@ -130,28 +182,29 @@ CREATE TABLE online_daily_data (
 SQL);
     }
 
-    private function controller(object $user): object
+    private function controller(object $user, array $params = []): object
     {
-        return new class($user) {
+        return new class($user, $params) {
             use OnlineDataHistoryConcern;
+            use OnlineDataQualityConcern;
 
             public object $currentUser;
             public object $request;
 
-            public function __construct(object $user)
+            public function __construct(object $user, array $params)
             {
                 $this->currentUser = $user;
-                $this->request = new class($user) {
+                $this->request = new class($user, $params) {
                     public object $user;
 
-                    public function __construct(object $user)
+                    public function __construct(object $user, private array $params)
                     {
                         $this->user = $user;
                     }
 
                     public function get(string $key, mixed $default = null): mixed
                     {
-                        return $default;
+                        return $this->params[$key] ?? $default;
                     }
                 };
             }
@@ -163,6 +216,11 @@ SQL);
                     $columns[(string)$column['name']] = true;
                 }
                 return $columns;
+            }
+
+            private function normalizeOnlineDataTypeFilters(mixed $single, mixed $multiple): array
+            {
+                return [];
             }
 
             protected function success(mixed $data = null, string $message = '操作成功'): Response

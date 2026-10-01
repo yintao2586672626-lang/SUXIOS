@@ -3173,6 +3173,7 @@ main[data-current-page="operating-finance"] .operating-finance-link {
 .online-data-page > div,
 .online-data-content {
     display: grid;
+    grid-template-columns: minmax(0, 1fr);
     gap: 16px;
 }
 

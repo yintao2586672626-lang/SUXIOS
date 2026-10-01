@@ -3554,13 +3554,13 @@ test('Ctrip profile field config tab reuses recent list and sample reads', () =>
   assert.match(html, /requireOnlineDataComponent\('CtripProfileFieldConfigPanelBody'\)/);
   assert.match(html, /void ensureCtripProfileFieldConfigPanelReady\(\)\.catch/);
   assert.match(html, /<ctrip-profile-field-config-panel\s+v-if="onlineDataTab === 'profile-fields' && user\?\.is_super_admin"\s+:ctx="\$root">/);
-  assert.match(html, /data-testid="ctrip-profile-field-config-loading"/);
-  assert.match(ctripProfileFieldConfigPanel, /components\.CtripProfileFieldConfigPanelBody/);
-  assert.match(ctripProfileFieldConfigPanel, /data-testid=\\?"ctrip-profile-field-config-panel\\?"/);
-  assert.match(ctripProfileFieldConfigPanel, /return new Proxy\(\{\}, \{/);
-  assert.match(ctripProfileFieldConfigPanel, /return props\.ctx\?\.\[key\] \?\? target\[key\];/);
-  assert.match(ctripProfileFieldConfigPanel, /props\.ctx\[key\] = value;/);
-  assert.match(ctripProfileFieldConfigPanel, /getOwnPropertyDescriptor\(\) \{/);
+  assert.match(html, /'data-testid': 'ctrip-profile-field-config-loading'/);
+  assert.match(ctripProfileFieldConfigPanel, /CtripProfileFieldConfigPanelBody/);
+  assert.match(ctripProfileFieldConfigPanel, /"data-testid":"ctrip-profile-field-config-panel"/);
+  assert.match(ctripProfileFieldConfigPanel, /render:/);
+  assert.doesNotMatch(ctripProfileFieldConfigPanel, /template:/);
+  assert.match(ctripProfileFieldConfigPanel, /new Proxy/);
+  assert.match(ctripProfileFieldConfigPanel, /getOwnPropertyDescriptor/);
   assert.doesNotMatch(html, /携程登录会话字段配置/);
 });
 

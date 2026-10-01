@@ -187,13 +187,14 @@
     const revenueCockpitBlockedModel = (message = '服务端未签发当前经营驾驶舱模型', status = 'blocked') => ({
         contractVersion: REVENUE_COCKPIT_VIEW_MODEL_CONTRACT_VERSION,
         status,
-        statusLabel: status === 'loading' ? '读取中' : '已阻断',
-        statusClass: status === 'loading'
+        statusLabel: status === 'not_loaded' ? '尚未读取' : (status === 'empty' ? '待补数据' : (status === 'loading' ? '读取中' : '已阻断')),
+        statusClass: status === 'loading' || status === 'empty' || status === 'not_loaded'
             ? 'border-slate-200 bg-slate-50 text-slate-600'
             : 'border-rose-200 bg-rose-50 text-rose-700',
-        headline: status === 'loading' ? '正在读取服务端经营驾驶舱' : '经营驾驶舱已阻断',
+        headline: status === 'not_loaded' ? '当前门店经营事实尚未读取' : (status === 'empty' ? '暂无严格回读的经营事实'
+            : (status === 'loading' ? '正在读取服务端经营驾驶舱' : '经营驾驶舱已阻断')),
         summary: String(message || '服务端未签发当前经营驾驶舱模型'),
-        dateNotice: '',
+        dateNotice: status === 'not_loaded' ? '尚未读取当前范围的业务日期' : (status === 'empty' ? '尚无严格可用业务日期' : ''),
         scopeBoundary: 'PMS 与 OTA 口径保持分离。',
         sections: [],
         visibleSections: [],
@@ -260,9 +261,19 @@
         selectedPlatform = '',
         businessDate = '',
         loading = false,
+        loadStatus = '',
         error = '',
     } = {}) => {
         if (loading) return revenueCockpitBlockedModel('正在读取服务端签发的经营驾驶舱模型', 'loading');
+        if (!error && overview === null && loadStatus === 'not_loaded') {
+            return revenueCockpitBlockedModel('尚未读取当前门店经营事实，请点击“刷新事实”读取并核验当前范围。', 'not_loaded');
+        }
+        if (!error && overview === null && loadStatus === 'empty') {
+            return revenueCockpitBlockedModel(
+                '当前门店尚无通过保存与精确回读核验的经营事实；补齐来源数据后，才能选择日期、分析收益并形成经营建议。',
+                'empty',
+            );
+        }
         const canonical = resolveRevenueCockpitCanonicalViewModel({
             overview,
             hotelId: Number(overview?.hotel_id || overview?.three_source_fact_layer?.hotel?.system_hotel_id || 0),
