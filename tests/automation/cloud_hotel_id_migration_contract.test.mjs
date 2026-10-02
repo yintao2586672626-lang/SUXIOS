@@ -154,6 +154,7 @@ test('authoritative merge/delete relations and exact newer table aliases are pos
     'ai_report_presentation_artifacts.hotel_id',
     'manager_capability_score_snapshots.hotel_id',
     'manager_capability_case_followups.hotel_id',
+    'investment_payback_projects.hotel_id',
     'hotel_operating_sop_replications.source_hotel_id',
     'hotel_operating_sop_replications.target_hotel_id',
     'hotel_operating_sop_replication_reviews.source_hotel_id',
