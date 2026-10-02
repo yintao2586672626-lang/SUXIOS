@@ -1364,35 +1364,42 @@
     "shared_files_and_generated_assets": "semantic integration and target rebuild still pending"
   },
   "composed_acceptance": {
-    "at": "2026-10-02T12:02:18.623Z",
-    "prepared_against_head": "d342b73c3ed80f619d746f9ffecb6044db59015f",
+    "at": "2026-10-02T12:19:53.925Z",
+    "prepared_against_head": "66f04671fda8aaeea04d7e8948a387a4934f0fa0",
     "receipt": "docs/integration/receipts/composed-main-thread-20261002.json",
     "verification": {
-      "scope": "explicit composed target files; isolated synthetic fixtures",
+      "scope": "explicit composed target files including latest main; isolated synthetic fixtures",
       "php": {
-        "files": 34,
-        "tests": 527,
-        "assertions": 3805,
-        "skipped": 0
+        "files": 42,
+        "tests": 687,
+        "assertions": 6338,
+        "skipped": 0,
+        "deduplicated": true
       },
       "node": {
-        "files": 19,
-        "tests": 207,
-        "passed": 207,
-        "skipped": 0
+        "files": 22,
+        "tests": 245,
+        "passed": 245,
+        "skipped": 0,
+        "components": "19 files 207 + learning 35 + route 2 + legacy finance browser 1"
       },
-      "frontend_build": "npm run build:frontend passed",
+      "browser_probes": {
+        "original_composed": 3,
+        "latest_main_deferred_learning": 1,
+        "passed": true
+      },
+      "frontend_build": "npm run build:frontend passed after latest main composition",
       "public_entry": {
         "passed": true,
-        "startup_gzip_bytes": 619375,
+        "startup_gzip_bytes": 619406,
         "target": 620000
       },
       "routes": {
-        "controllers": 68,
-        "public_actions": 783,
+        "controllers": 69,
+        "public_actions": 787,
         "covered": true
       },
-      "integration_gate": "npm run verify:integration passed",
+      "integration_gate": "npm run verify:integration passed after semantic conflict resolution",
       "real_business_database_writes": false,
       "real_account_acceptance": false,
       "production_migration": false,

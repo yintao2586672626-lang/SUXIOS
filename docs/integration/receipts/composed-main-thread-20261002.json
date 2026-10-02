@@ -1,12 +1,12 @@
 {
   "contract": "suxios.composed_delivery.v1",
-  "at": "2026-10-02T12:02:18.623Z",
-  "phase": "checkpoint",
-  "prepared_against_head": "d342b73c3ed80f619d746f9ffecb6044db59015f",
+  "at": "2026-10-02T12:19:53.925Z",
+  "phase": "final",
+  "prepared_against_head": "66f04671fda8aaeea04d7e8948a387a4934f0fa0",
   "main_thread": "01a0eed4-02fb-7240-84ea-10ba830bae5c",
   "target_branch": "codex/integrate-suxios-20260930",
   "baseline_main_integrated": "51a512e6bd552c9553dca81a0d1670fc116fd327",
-  "latest_main_observed": "71a57340b663c504f4f193a242a70a372b6050cd",
+  "latest_main_observed": "535ffcc156bf434c32993f1279b28c1b024a3c45",
   "packages": [
     {
       "package": "payback",
@@ -110,35 +110,35 @@
           "source_state": "M",
           "disposition": "manual_semantic_hunk",
           "source_sha256": "9844afe67584011b1d15b0d2e1a7d4bff8187e5fb93c9dac9bfc34f4de45df13",
-          "target_sha256": "a4ac53d181b0905a6a9df24406df401ca50d21f1c21c26472f040415ff9ae906"
+          "target_sha256": "5f2624717b92ea336273eb089afdf24dcebaf62108f695807c58381036812ad7"
         },
         {
           "path": "public/app-main.js",
           "source_state": "M",
           "disposition": "manual_semantic_hunk",
           "source_sha256": "0c4face5f335c9e7720cd0e839498e498ee237c6192613f812a0719164534cec",
-          "target_sha256": "e0e5989b002a04aa4cf6acd1a5403a7e093252a6c24748a26fb6d22dd6afa282"
+          "target_sha256": "125231fbda4aab6ecd72394f1355082f2dfea669cf632841a9803f6f73346254"
         },
         {
           "path": "public/app-main.min.js",
           "source_state": "M",
           "disposition": "exclude_generated_rebuild",
           "source_sha256": "02cc9c3c2341edc8532e3a1856df8112b42e3a501488aab6ee666721f88e87d5",
-          "target_sha256": "a2dcf841753ca5275cadfb41b90339acba56c532e0626ac3ac428f36b28062d0"
+          "target_sha256": "d0ad8f23a95795af2af061abf59e77244d3cb7d9481cc66bbc20c8eb162a2c7c"
         },
         {
           "path": "public/app-render.min.js",
           "source_state": "M",
           "disposition": "exclude_generated_rebuild",
           "source_sha256": "a52bcfc7ecfe3f4fc6273dcee599a37ab07f90fd5014f729e8e206ecc7021dab",
-          "target_sha256": "6d990ad3a95af09c9abb6b6707fe4933c1cef1db6d79c1c82755303ece1b7045"
+          "target_sha256": "6d731783e57f92752124444b4bf45234ea86aef66ba057c598d532a7b8f53f6a"
         },
         {
           "path": "public/app-startup-helpers.min.js",
           "source_state": "M",
           "disposition": "exclude_generated_rebuild",
           "source_sha256": "34c701643a7ee5720e21a8bdad33a88c81055e3bcad687ead87a1c8260df6ddd",
-          "target_sha256": "3f272c5dae47690e8c8258a4682c6cd20a7df0641fda44d7a9c8847cf91cd6f3"
+          "target_sha256": "cf2706cc9a31088686b05f7e7075bd011535629694a91eba177137f3b0cb8920"
         },
         {
           "path": "public/components/system/business-closure-loader.js",
@@ -187,7 +187,7 @@
           "source_state": "M",
           "disposition": "exclude_generated_rebuild",
           "source_sha256": "46ed4596a2951ca690637e584b998c8e14a85f89c0915348a33c8d01b290e1c4",
-          "target_sha256": "3d05efb36b4a77b7120ef5f828ba07d535a07ddf3e816e666f4c08ba74a805a5"
+          "target_sha256": "e957625f1ac8a98a93458ac8ede5ded57c9a3333a3764595b7e5defdb14554b0"
         },
         {
           "path": "public/style-startup.min.css",
@@ -222,14 +222,14 @@
           "source_state": "M",
           "disposition": "exclude_generated_rebuild",
           "source_sha256": "8a67109d206decb7c8767f2023bc2e231f309233fb529ea6f33d6c42d886ca35",
-          "target_sha256": "641c76fdbc3d40f2c56970741331fcfe3ddbe7572f46ffa39a2a72683f025a2a"
+          "target_sha256": "a8b2ad41b1f05591a6ba1b535a140c4f75866d464120a2481fcc12a6e91db4df"
         },
         {
           "path": "resources/frontend/app-template.html",
           "source_state": "M",
           "disposition": "exclude_generated_rebuild",
           "source_sha256": "7859fef74cdc44cdae14e134eb8fb5bcec02d2992d5f3c6f5b3a22c227e7c466",
-          "target_sha256": "a2cd8442fd62e70c9c87e17351a386a11f8d121265dd748cfbeda64e785f9da4"
+          "target_sha256": "73ab8301c7d09a3161ce1a9702650fd06740adff9571635af5135f313356a196"
         },
         {
           "path": "resources/frontend/templates/fragments/28a-page-investment-payback.html",
@@ -243,7 +243,7 @@
           "source_state": "M",
           "disposition": "manual_conflict",
           "source_sha256": "0ca479090c9d00f6af212defff20144768327f96cfb975201616ba69dd66e291",
-          "target_sha256": "e0f94ee6f8902cbf4e1ac3497c6b3e94c0e670124bf34e5e28c7436ce0fbc7a6"
+          "target_sha256": "50dd649d177caf78fc6b39dea169692f54edfea85bb56c49d1c5e45216363be9"
         },
         {
           "path": "route/app.php",
@@ -580,7 +580,7 @@
           "source_state": "A",
           "disposition": "add_exact_committed_blob",
           "source_sha256": "e727fcfce9f8df2cec7e34696ba55d2b5cab5c3ab375c918b85a1f13d65ab36b",
-          "target_sha256": "e727fcfce9f8df2cec7e34696ba55d2b5cab5c3ab375c918b85a1f13d65ab36b"
+          "target_sha256": "d64411c818e4b4f788a14d545094a782735cee725798424fe11afe1267ec34f7"
         },
         {
           "path": "docs/knowledge/consumables-price-list-20261001/README.md",
@@ -650,7 +650,7 @@
           "source_state": "M",
           "disposition": "exclude_generated_rebuild",
           "source_sha256": "8d63ff91c462ba7427ce85f742f09a3b296353ab3214ef57a817276eb45993de",
-          "target_sha256": "3f272c5dae47690e8c8258a4682c6cd20a7df0641fda44d7a9c8847cf91cd6f3"
+          "target_sha256": "cf2706cc9a31088686b05f7e7075bd011535629694a91eba177137f3b0cb8920"
         },
         {
           "path": "public/components/system/ai-daily-report-delivery.js",
@@ -664,14 +664,14 @@
           "source_state": "M",
           "disposition": "apply_exact_delta_to_unchanged_base",
           "source_sha256": "6e4bffe6fb1403138f9f7062bc6efcfb9aece2930b513e573c5fdd425760e91f",
-          "target_sha256": "7a4009e2b6d7261ac194c60755a7d6c7e8bada8809f5b07a75355b7652f3a684"
+          "target_sha256": "4e630fad6f0ef8f38ab8ab05d999baace385972e960fa059de4f9aa051ed0e74"
         },
         {
           "path": "public/components/system/app-main-components.js",
           "source_state": "M",
           "disposition": "manual_semantic_hunk",
           "source_sha256": "d68c451c3990d4379da871039b1cb4cecff768843b0054fd3d59a51383aa1819",
-          "target_sha256": "d6707a60203e5bcd6ea1c485e06193313343457f14602f3bff006d2e78754b0e"
+          "target_sha256": "786d5902d62ab6180c2e9ed28009423103f7de5119aeb5fd991d9df1e39c76af"
         },
         {
           "path": "public/components/system/booking-monitoring-panel.js",
@@ -727,7 +727,7 @@
           "source_state": "M",
           "disposition": "exclude_generated_rebuild",
           "source_sha256": "3a51bed96f86ec3567f8a1bb1a10557a97645bd37b75090f1d7f033279097932",
-          "target_sha256": "3d05efb36b4a77b7120ef5f828ba07d535a07ddf3e816e666f4c08ba74a805a5"
+          "target_sha256": "e957625f1ac8a98a93458ac8ede5ded57c9a3333a3764595b7e5defdb14554b0"
         },
         {
           "path": "resources/frontend/templates/fragments/16-page-ai-daily-report.html",
@@ -904,31 +904,38 @@
     "mount real Meituan stale-scope clearing helper in the navigation fixture"
   ],
   "verification": {
-    "scope": "explicit composed target files; isolated synthetic fixtures",
+    "scope": "explicit composed target files including latest main; isolated synthetic fixtures",
     "php": {
-      "files": 34,
-      "tests": 527,
-      "assertions": 3805,
-      "skipped": 0
+      "files": 42,
+      "tests": 687,
+      "assertions": 6338,
+      "skipped": 0,
+      "deduplicated": true
     },
     "node": {
-      "files": 19,
-      "tests": 207,
-      "passed": 207,
-      "skipped": 0
+      "files": 22,
+      "tests": 245,
+      "passed": 245,
+      "skipped": 0,
+      "components": "19 files 207 + learning 35 + route 2 + legacy finance browser 1"
     },
-    "frontend_build": "npm run build:frontend passed",
+    "browser_probes": {
+      "original_composed": 3,
+      "latest_main_deferred_learning": 1,
+      "passed": true
+    },
+    "frontend_build": "npm run build:frontend passed after latest main composition",
     "public_entry": {
       "passed": true,
-      "startup_gzip_bytes": 619375,
+      "startup_gzip_bytes": 619406,
       "target": 620000
     },
     "routes": {
-      "controllers": 68,
-      "public_actions": 783,
+      "controllers": 69,
+      "public_actions": 787,
       "covered": true
     },
-    "integration_gate": "npm run verify:integration passed",
+    "integration_gate": "npm run verify:integration passed after semantic conflict resolution",
     "real_business_database_writes": false,
     "real_account_acceptance": false,
     "production_migration": false,

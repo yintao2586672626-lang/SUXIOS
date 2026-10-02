@@ -333,7 +333,7 @@
             return activeRender.apply(this, renderArgs);
         },
         components: {
-            ChartRenderFeedback,
+            ChartRenderFeedback, HotelLearningWorkbench: appMainComponents.HotelLearningWorkbench,
             OperationExecutionEvidenceViewer: appMainComponents.OperationExecutionEvidenceViewer,
             OperationTaskWorkflowPanel: appMainComponents.OperationTaskWorkflowPanel || Vue.defineAsyncComponent(() => loadOnlineDataComponentScript('components/operations/task-workflow-panel.js?v=20260908-workflow-v1').then(() => window.SUXI_TASK_WORKFLOW_PANEL.create({ Vue, h }))),
             CompassCardHeader,
