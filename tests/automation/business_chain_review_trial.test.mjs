@@ -79,8 +79,24 @@ for (const status of ['', 'unknown', 'failed', 'reference_only', 'partial_refere
 
 for (const status of ['', 'unknown', 'failed', 'blocked']) {
   test(`action status ${status || 'missing'} never grants approval without a blocking reason`, () => {
-    const packet = reportProbe(`$draft['actions'][0]['status'] = ${JSON.stringify(status)};
+    const workflow = reportProbe(`$revenue['actions'][0]['status'] = ${JSON.stringify(status)};
+      $scope=trial_scope([$row],$dataset);
+      echo json_encode(business_chain_downstream_reference_workflow($revenue,[],false,$scope,true), JSON_THROW_ON_ERROR);`);
+    const packet = workflow.revenue_to_ai_handoff.manual_review_packet;
+    assert.equal(packet.status, 'blocked_ready_for_manual_review');
+    assert.ok(packet.blockers.some(item => item.key === 'ai_action'));
+    assert.ok(!packet.blockers.some(item => item.key === 'diagnosis_scope'));
+    assertBlocked(packet);
+  });
+}
+
+for (const key of [null, '']) {
+  test(`an action with ${key === null ? 'no' : 'an empty'} key remains a diagnosis-scope failure`, () => {
+    const packet = reportProbe(`$draft['actions'][0]['key'] = ${JSON.stringify(key)};
+      $draft['actions'][0]['status']='blocked'; $draft['actions'][0]['reason']='floor_price_missing';
       echo json_encode(business_chain_manual_review_packet($handoff,$diagnosis,$draft), JSON_THROW_ON_ERROR);`);
+    assert.equal(packet.status, 'blocked_by_diagnosis_scope');
+    assert.ok(packet.blockers.some(item => item.key === 'diagnosis_scope'));
     assertBlocked(packet);
   });
 }
@@ -129,6 +145,55 @@ test('the actual revenue action builder keeps an eligible pending human-review q
   assert.equal(packet.status, 'ready_for_manual_review');
   assert.equal(packet.ai_decision_review_contract.approval_allowed, true);
   assert.equal(packet.ai_decision_review_contract.operation_intake_allowed, false);
+});
+
+test('actual blocked pricing actions retain basis gaps without inventing a diagnosis-scope failure', () => {
+  const workflows = reportProbe(String.raw`
+    require_once 'vendor/autoload.php';
+    $service=(new ReflectionClass(\app\service\RevenueAiOverviewService::class))->newInstanceWithoutConstructor();
+    $revenue['actions']=(new ReflectionMethod($service,'actions'))->invoke($service,[],[],[
+      'overall_status'=>'blocked',
+      'blocking_reasons'=>['competitor_price_fields_missing','available_room_nights_missing','floor_price_missing'],
+      'gates'=>[
+        ['key'=>'revpar_denominator','status'=>'blocked','reason'=>'available_room_nights_missing'],
+        ['key'=>'competitor_price','status'=>'blocked','reason'=>'competitor_price_fields_missing'],
+        ['key'=>'floor_price','status'=>'blocked','reason'=>'floor_price_missing'],
+      ],
+    ],['pending_count'=>0]);
+    $scope=trial_scope([$row],$dataset);
+    $cases=['valid_scope'=>$revenue,
+      'other_hotel'=>array_replace($revenue,['hotel_id'=>81]),
+      'other_date'=>array_replace($revenue,['business_date'=>'2026-10-01']),
+      'other_channel'=>array_replace($revenue,['source_channels'=>['meituan'],'actual_source_channels'=>['meituan']])];
+    $result=[];
+    foreach($cases as $name=>$value) $result[$name]=business_chain_downstream_reference_workflow($value,[],false,$scope,true);
+    echo json_encode($result,JSON_THROW_ON_ERROR);
+  `);
+  const workflow = workflows.valid_scope;
+  assert.equal(workflow.status, 'scoped_workflow_ready_for_manual_review');
+  assert.equal(workflow.revenue_diagnosis.status, 'ready');
+  assert.equal(workflow.revenue_to_ai_handoff.status, 'handoff_ready_for_manual_review');
+  const packet = workflow.revenue_to_ai_handoff.manual_review_packet;
+  assert.equal(packet.primary_action.key, 'pricing_review');
+  assert.equal(packet.primary_action.status, 'blocked');
+  assert.equal(packet.primary_action.reason, 'competitor_price_fields_missing');
+  assert.equal(packet.status, 'blocked_ready_for_manual_review');
+  assert.ok(!packet.blockers.some(item => item.key === 'diagnosis_scope'));
+  for (const reason of ['available_room_nights_missing', 'competitor_price_fields_missing', 'floor_price_missing']) {
+    assert.ok(packet.blockers.some(item => item.reason === reason));
+  }
+  assert.equal(packet.primary_blocker.reason, 'available_room_nights_missing');
+  assert.equal(packet.ai_decision_review_contract.manual_review_packet_status, 'blocked_ready_for_manual_review');
+  assert.equal(workflow.ctrip_chain_action_queue.items.find(item => item.code === 'approve_ai_manual_review').evidence_code, 'blocked_ready_for_manual_review');
+  assert.equal(workflow.revenue_to_ai_handoff.can_auto_write_ota, false);
+  assert.equal(workflow.revenue_to_ai_handoff.can_create_operation_execution, false);
+  assertBlocked(packet);
+  for (const name of ['other_hotel', 'other_date', 'other_channel']) {
+    const invalid = workflows[name].revenue_to_ai_handoff.manual_review_packet;
+    assert.equal(invalid.status, 'blocked_by_diagnosis_scope', name);
+    assert.ok(invalid.blockers.some(item => item.key === 'diagnosis_scope'), name);
+    assertBlocked(invalid);
+  }
 });
 
 const sourceCases = {

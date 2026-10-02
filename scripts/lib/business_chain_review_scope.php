@@ -17,17 +17,17 @@ function business_chain_manual_review_scope(array $handoff, array $diagnosis, ar
     $platforms = business_chain_list($handoff['source_platforms'] ?? []);
     $date = is_string($handoff['business_date'] ?? null) ? $handoff['business_date'] : '';
     $hotelId = business_chain_review_identity($diagnosis)['system_hotel_id'];
-    $ready = $platforms !== []
+    $scopeReady = $platforms !== []
         && array_diff($platforms, business_chain_list($diagnosis['source_channels'] ?? [])) === []
         && preg_match('/^(\d{4})-(\d{2})-(\d{2})$/D', $date, $dateParts) === 1
         && checkdate((int)$dateParts[2], (int)$dateParts[3], (int)$dateParts[1])
         && ($diagnosis['business_date'] ?? null) === $date
         && $hotelId !== null && $hotelId === ($handoff['system_hotel_id'] ?? null)
         && in_array($diagnosis['status'] ?? null, ['ok', 'ready'], true)
-        && in_array($action['status'] ?? null, ['ok', 'ready', 'pending_review'], true)
         && is_string($action['key'] ?? null)
         && trim((string)($action['key'] ?? '')) !== '';
-    if (!$ready) {
+    $actionReady = in_array($action['status'] ?? null, ['ok', 'ready', 'pending_review'], true);
+    if (!$scopeReady) {
         $reason = (string)(($diagnosis['reason'] ?? '') ?: 'same_scope_diagnosis_action_unavailable');
         $existing = array_filter($blockers, static fn(array $row): bool =>
             ($row['key'] ?? '') === 'diagnosis_scope');
@@ -35,11 +35,18 @@ function business_chain_manual_review_scope(array $handoff, array $diagnosis, ar
             $blockers[] = ['key' => 'diagnosis_scope', 'status' => 'blocked',
                 'reason' => $reason, 'category' => 'diagnosis_scope_evidence'];
         }
+    } elseif (!$actionReady) {
+        $existing = array_filter($blockers, static fn(array $row): bool =>
+            ($row['key'] ?? '') === 'ai_action');
+        if ($existing === []) {
+            $blockers[] = ['key' => 'ai_action', 'status' => 'blocked',
+                'reason' => 'scoped_ai_action_not_ready', 'category' => 'ai_action_status'];
+        }
     }
     $pendingReviewNotice = ($action['status'] ?? null) === 'pending_review'
         && $actionReason === 'price_suggestions_pending_review';
-    return [!$ready ? 'blocked_by_diagnosis_scope'
-        : ($blockers === [] && ($actionReason === '' || $pendingReviewNotice)
+    return [!$scopeReady ? 'blocked_by_diagnosis_scope'
+        : ($actionReady && $blockers === [] && ($actionReason === '' || $pendingReviewNotice)
             ? 'ready_for_manual_review' : 'blocked_ready_for_manual_review'), $blockers];
 }
 
