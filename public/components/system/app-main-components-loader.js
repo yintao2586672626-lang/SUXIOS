@@ -2,27 +2,46 @@
     'use strict';
 
     const fullScript = 'components/system/app-main-components.js?v=20260830-operating-finance-ha488dcdfa0';
+    const fullScriptAsset = fullScript.split('?', 1)[0];
     let fullScriptPromise = null;
+
+    const requireFullFactory = () => {
+        const factory = window.SUXI_APP_MAIN_COMPONENTS_FULL;
+        if (!factory?.create) throw new Error('主应用完整领域组件未完成注册');
+        return factory;
+    };
 
     const loadFullScript = () => {
         if (window.SUXI_APP_MAIN_COMPONENTS_FULL?.create) {
             return Promise.resolve(window.SUXI_APP_MAIN_COMPONENTS_FULL);
         }
         if (fullScriptPromise) return fullScriptPromise;
+
+        if (typeof window.SUXI_LOAD_DEFERRED_AUTHENTICATED_ASSET === 'function') {
+            fullScriptPromise = Promise.resolve()
+                .then(() => window.SUXI_LOAD_DEFERRED_AUTHENTICATED_ASSET(fullScriptAsset))
+                .then(requireFullFactory)
+                .catch(error => {
+                    fullScriptPromise = null;
+                    throw error;
+                });
+            return fullScriptPromise;
+        }
+
         fullScriptPromise = new Promise((resolve, reject) => {
             const resolvedSrc = new URL(fullScript, document.baseURI).href;
             const existing = [...document.scripts].find(script => script.src === resolvedSrc);
             const script = existing || document.createElement('script');
             const finish = () => {
-                const factory = window.SUXI_APP_MAIN_COMPONENTS_FULL;
-                if (factory?.create) {
+                try {
+                    const factory = requireFullFactory();
                     script.dataset.suxiAssetLoaded = '1';
                     resolve(factory);
-                    return;
+                } catch (error) {
+                    fullScriptPromise = null;
+                    script.remove();
+                    reject(error);
                 }
-                fullScriptPromise = null;
-                script.remove();
-                reject(new Error('主应用完整领域组件未完成注册'));
             };
             if (existing?.dataset?.suxiAssetLoaded === '1') {
                 finish();
