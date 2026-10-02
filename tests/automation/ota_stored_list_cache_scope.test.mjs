@@ -9,12 +9,15 @@ const body = source.slice(start, source.indexOf('// 加载数据汇总', start))
 function harness(request) {
   const env = {
     URLSearchParams, Date, Map, console: { error() {} },
+    currentPage: { value: 'meituan-ebooking' },
     onlineDataPage: { value: 1 }, onlineDataPagination: { value: { page_size: 30 } },
     onlineDataFilter: { value: { hotel_id: '80', source: 'meituan', start_date: '2026-08-01', end_date: '2026-08-01' } },
     onlineDataList: { value: [] }, onlineDataQualitySummary: { value: null },
     onlineDataListError: { value: '' }, onlineDataListLoading: { value: false },
     downloadCenterTab: { value: 'ads' }, onlineDataLoadedQuery: { value: null },
     normalizeRequestCacheOptions: x => x,
+    currentPageReadPolicy: (pageKey, priority = 'current') => ({ scope: 'page', pageKey, priority }),
+    isPageLoadPolicyCurrent: () => true,
     readRequestCache: (cache, key) => cache.has(key),
     writeRequestCache: (cache, key) => cache.set(key, { expiresAt: Date.now() + 100000 }),
     clearCoordinatedGetSuccessCache() {}, pruneSelectedOnlineDataIds() {}, debugLog() {},

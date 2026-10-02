@@ -179,10 +179,6 @@ function cloudHotelIdColumnRegistry(): array
         ['investment_payback_projects', 'hotel_id', 'hotel_id'],
         ['manager_coaching_plans', 'hotel_id', 'hotel_id'],
         ['manager_coaching_events', 'hotel_id', 'hotel_id'],
-        ['operation_task_workflow_events', 'hotel_id', 'hotel_id'],
-        ['operation_task_workflow_proposals', 'hotel_id', 'hotel_id'],
-        ['promotion_experiment_versions', 'system_hotel_id', 'canonical_foreign_key'],
-
         // Both sides of a controlled SOP replication are system-hotel aliases.
         ['hotel_operating_sop_replications', 'source_hotel_id', 'source_hotel_id'],
         ['hotel_operating_sop_replications', 'target_hotel_id', 'target_hotel_id'],

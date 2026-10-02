@@ -52,6 +52,10 @@ function mount(key, state) {
   const app = renderer.createApp({ setup: () => state, render });
   app.config.warnHandler = warning => { throw new Error(warning); };
   app.component('manager-capability-panel', { props: ['hotelId', 'request'], render: () => Vue.h('aside') });
+  app.component('operation-task-workflow-panel', {
+    props: ['hotelId', 'request', 'context', 'canExecute'],
+    render: () => Vue.h('aside'),
+  });
   app.component('term-help', { props: ['term'], render: () => Vue.h('span', 'ROI') });
   app.component('ai-decision-quality-details', {
     props: ['item'],
@@ -185,6 +189,7 @@ function taskState(items = []) {
     operatingGoalMonitorModel: { label: '未建立', detail: '无目标' }, operatingGoalInterventionLoading: false,
     operatingGoalInterventionOverview: {}, operatingGoalInterventionDataGapText: '', operatingGoalInterventionSummary: {},
     managerCapabilityRequest: invoke('managerRequest'),
+    operationFinanceCanExecute: false,
     memoBody: '', operationEffectValidation: { status: 'missing' }, operationEffectMetricCards: [], operationEffectDataGapText: '缺证',
     operationEvidenceModalOpen: false, operationReviewModalOpen: false,
     operationExecutionRowClass: () => '', operationExecutionStatusClass: () => '', operationExecutionNextActionClass: () => '',

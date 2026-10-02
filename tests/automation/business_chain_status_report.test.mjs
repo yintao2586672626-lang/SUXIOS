@@ -375,7 +375,9 @@ test('Business-chain report keeps the Ctrip path truthful at either ready or blo
   assert(resolutionPlan.forbidden_actions.includes('fill_missing_evidence_with_defaults'));
   assert(resolutionPlan.forbidden_actions.includes('approve_ai_advice_without_resolving_inputs'));
   assert(resolutionPlan.items.some((item) => item.code === 'revpar_denominator' && item.resolution_action === 'provide_available_room_nights_or_mark_metric_unusable' && item.forbidden_shortcut === 'default_available_room_nights'));
-  assert(resolutionPlan.items.some((item) => item.code === 'manual_review_workflow' && item.acceptance_check.includes('manual review record has reviewer')));
+  assert(resolutionPlan.items.some((item) => item.code === 'manual_review_workflow'
+    && item.resolution_action === 'persist_or_attach_manual_review_record'
+    && item.acceptance_check.includes('manual review record has reviewer')));
   if (resolutionPlan.items.some((item) => item.code === 'ota_metrics')) {
     assert(resolutionPlan.items.some((item) => item.code === 'ota_metrics' && item.resolution_action === 'verify_zero_room_nights_or_correct_ota_room_nights'));
   } else {

@@ -512,7 +512,7 @@
     };
     const systemComponents = window.SUXI_SYSTEM_COMPONENTS || (window.SUXI_SYSTEM_COMPONENTS = {});
     const ctripOrderAnalysisPanelBodyKey = 'CtripOrderAnalysisPanelBody';
-    const ctripOrderAnalysisPanelBodyScript = 'components/online-data/ctrip-order-analysis-panel.js?v=20260813-order-analysis-ha0c2e7ec24';
+    const ctripOrderAnalysisPanelBodyScript = 'components/online-data/ctrip-order-analysis-panel.js?v=20260813-order-analysis-h13b6a5582e';
     let ctripOrderAnalysisPanelBodyPromise = null;
     const loadCtripOrderAnalysisPanelBody = () => {
         if (systemComponents[ctripOrderAnalysisPanelBodyKey]) {

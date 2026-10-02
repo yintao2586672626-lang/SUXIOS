@@ -130,6 +130,8 @@ function workbenchHarness(request = async () => response([row(1)], 1, 1)) {
     onlineDataListLoading: ref(false), onlineDataListError: ref(''), onlineHistoryExporting: ref(false),
     onlineHistoryRecordDetail: ref(null), onlineHistoryListReturn: ref(null),
     normalizeRequestCacheOptions: value => value,
+    currentPageReadPolicy: (pageKey, priority = 'current') => ({ scope: 'page', pageKey, priority }),
+    isPageLoadPolicyCurrent: () => true,
     readRequestCache: (cache, key) => cache.has(key), writeRequestCache: (cache, key) => cache.set(key, true),
     clearCoordinatedGetSuccessCache() {}, pruneSelectedOnlineDataIds() {}, debugLog() {},
     requireAppSystemStatic: name => system[name], requireMeituanStatic: name => meituan[name],
