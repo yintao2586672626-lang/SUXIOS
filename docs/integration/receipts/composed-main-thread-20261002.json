@@ -1,8 +1,8 @@
 {
   "contract": "suxios.composed_delivery.v1",
-  "at": "2026-10-02T13:06:36.589Z",
+  "at": "2026-10-02T13:09:33.495Z",
   "phase": "final",
-  "prepared_against_head": "1f33bd5cf1072666f0e769cf7a88c812ccae96f0",
+  "prepared_against_head": "c8cfd5c902f155486ab09f14a8a1fb0da135c420",
   "main_thread": "01a0eed4-02fb-7240-84ea-10ba830bae5c",
   "target_branch": "codex/integrate-suxios-20260930",
   "baseline_main_integrated": "51a512e6bd552c9553dca81a0d1670fc116fd327",
@@ -973,6 +973,10 @@
     "parent": "f4013310ec20c1ae38feab8194f6b25be660b9e1",
     "scope": "Meituan report extracted-source check; monthly/on-books save ownership sibling registration",
     "target_completion": "four composed sibling components registered only in isolated ownership fixtures; original save, readback and warning assertions retained"
+  },
+  "latest_remote_budget": {
+    "commit": "cc170219b8973dcfede93ad99934a7ae859e5b38",
+    "scope": "freeze pricing evidence concern at133lines and P0 scope helper at742lines; no business source or acceptance oracle changed"
   },
   "dos_introduction": {
     "source_commit": "61554d9aa1081a39e242f95f66a9d721bc68b006",

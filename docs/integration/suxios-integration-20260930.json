@@ -1417,7 +1417,7 @@
       }
     },
     "delivery_20261002": {
-      "prepared_against_head": "1f33bd5cf1072666f0e769cf7a88c812ccae96f0",
+      "prepared_against_head": "c8cfd5c902f155486ab09f14a8a1fb0da135c420",
       "dos_introduction": {
         "source_commit": "61554d9aa1081a39e242f95f66a9d721bc68b006",
         "source_blob": "72aca9496737bad552726935934d19cf2a0f4b12",
@@ -1562,6 +1562,10 @@
         "parent": "f4013310ec20c1ae38feab8194f6b25be660b9e1",
         "scope": "Meituan report extracted-source check; monthly/on-books save ownership sibling registration",
         "target_completion": "four composed sibling components registered only in isolated ownership fixtures; original save, readback and warning assertions retained"
+      },
+      "latest_remote_budget": {
+        "commit": "cc170219b8973dcfede93ad99934a7ae859e5b38",
+        "scope": "freeze pricing evidence concern at133lines and P0 scope helper at742lines; no business source or acceptance oracle changed"
       }
     }
   },
@@ -3426,7 +3430,7 @@
       "path": "docs/integration/receipts/changqing-main-thread-receipt-20261002.json",
       "state": "added",
       "bytes": 49721,
-      "sha256": "46ed2646d58fca910b0b69ed9250d81330c46adaf55784dcafd2e2e15fb3493b",
+      "sha256": "7b9e65f567811d9814159badf9ece0c6792015b186c9364578ae7a93eb209231",
       "previous_payloads": [
         {
           "sha256": "f78eca3a68bcd653ea8f7cccd301bc89f7117752e957802845bd45ecc5e0da44",
@@ -3451,6 +3455,10 @@
         {
           "sha256": "ce498351d085abb48e9c04e8e07997222ac6c8b7ef24a5f2aa7c1db0a0e8b579",
           "prepared_before_head": "1f33bd5cf1072666f0e769cf7a88c812ccae96f0"
+        },
+        {
+          "sha256": "46ed2646d58fca910b0b69ed9250d81330c46adaf55784dcafd2e2e15fb3493b",
+          "prepared_before_head": "c8cfd5c902f155486ab09f14a8a1fb0da135c420"
         }
       ]
     },
@@ -3495,8 +3503,8 @@
     {
       "path": "docs/integration/receipts/composed-main-thread-20261002.json",
       "state": "added",
-      "bytes": 49736,
-      "sha256": "df07e4234761a36d0b0906b6f546d97cc5ade3254de064fbf02b6e11d7ed4d48",
+      "bytes": 49965,
+      "sha256": "f5f0476206d7d61a421d89e56ea2b5b50d24c1ccac9784c2f09bf1ea3021da35",
       "previous_payloads": [
         {
           "sha256": "5a94e1405242f2f7f93a58e2923dc09928031d55351f190d61d6a40ac276964b",
@@ -3517,6 +3525,10 @@
         {
           "sha256": "d2736cf1c9115b952bd13b71438834a53374e2e18df3c0cac87ddbe42dc0369c",
           "prepared_before_head": "1f33bd5cf1072666f0e769cf7a88c812ccae96f0"
+        },
+        {
+          "sha256": "df07e4234761a36d0b0906b6f546d97cc5ade3254de064fbf02b6e11d7ed4d48",
+          "prepared_before_head": "c8cfd5c902f155486ab09f14a8a1fb0da135c420"
         }
       ]
     },
@@ -4973,8 +4985,14 @@
     {
       "state": "modified",
       "path": "scripts/lib/source_hotspot_budget.mjs",
-      "bytes": 19246,
-      "sha256": "feecb50e9f2b843c8c0523b2fd8b86faaec0231b9451c708969bb8082e31dafb"
+      "bytes": 19676,
+      "sha256": "c131b1166db14c63dc3e266bc8a31058dc178ee2d57ebba9b00db535d8025ea8",
+      "previous_payloads": [
+        {
+          "sha256": "feecb50e9f2b843c8c0523b2fd8b86faaec0231b9451c708969bb8082e31dafb",
+          "prepared_before_head": "c8cfd5c902f155486ab09f14a8a1fb0da135c420"
+        }
+      ]
     },
     {
       "state": "added",

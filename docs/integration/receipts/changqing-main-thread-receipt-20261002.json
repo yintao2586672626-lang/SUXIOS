@@ -1364,8 +1364,8 @@
     "shared_files_and_generated_assets": "semantic integration and target rebuild still pending"
   },
   "composed_acceptance": {
-    "at": "2026-10-02T13:06:36.589Z",
-    "prepared_against_head": "1f33bd5cf1072666f0e769cf7a88c812ccae96f0",
+    "at": "2026-10-02T13:09:33.495Z",
+    "prepared_against_head": "c8cfd5c902f155486ab09f14a8a1fb0da135c420",
     "receipt": "docs/integration/receipts/composed-main-thread-20261002.json",
     "verification": {
       "scope": "explicit composed target files including latest main; isolated synthetic fixtures",

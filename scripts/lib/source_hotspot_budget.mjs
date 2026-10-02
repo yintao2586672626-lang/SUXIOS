@@ -15,6 +15,8 @@ export const SOURCE_HOTSPOT_BUDGETS = Object.freeze([
   { path: 'app/service/concern/AiDailyReportStorageReadConcern.php', max_lines: 244, boundary: 'hotel tenant scope and stored AI report decoding' },
   { path: 'app/service/concern/AiDailyReportEvidenceConcern.php', max_lines: 189, boundary: 'AI report evidence identity, shape and projection integrity' },
   { path: 'app/service/concern/RevenueAiOverviewMarketStructureConcern.php', max_lines: 314, boundary: 'scope-bound market structure and confidence extraction' },
+  { path: 'app/service/concern/RevenueAiOverviewPricingEvidenceConcern.php', max_lines: 133, boundary: 'scope-bound pricing evidence and full saved readback gates; freeze the extracted boundary without parent growth' },
+  { path: 'scripts/lib/business_chain_p0_scope.php', max_lines: 742, boundary: 'business-chain P0 hotel date readback and manual-review closure boundaries; freeze the extracted helper without parent growth' },
   { path: 'tests/Support/OnlineData/CtripSourceDateEvidenceTestCases.php', max_lines: 213, boundary: 'Ctrip response-date evidence and cumulative snapshot test contracts' },
   { path: 'tests/Support/OnlineData/AutoFetchReceiptTestCases.php', max_lines: 116, boundary: 'auto-fetch failure actions and exact receipt cardinality test contracts' },
   { path: 'public/ota-fetch-flow-static.js', max_lines: 576, boundary: 'existing OTA fetch batch processing and failure guidance extracted unchanged' },
