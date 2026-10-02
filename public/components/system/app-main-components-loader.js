@@ -22,6 +22,15 @@
                 .then(() => window.SUXI_LOAD_DEFERRED_AUTHENTICATED_ASSET(fullScriptAsset))
                 .then(requireFullFactory)
                 .catch(error => {
+                    if (!window.SUXI_APP_MAIN_COMPONENTS_FULL?.create) {
+                        const expectedAsset = new URL(fullScriptAsset, document.baseURI);
+                        for (const script of [...document.scripts]) {
+                            try {
+                                const loadedAsset = new URL(script.src, document.baseURI);
+                                if (loadedAsset.origin === expectedAsset.origin && loadedAsset.pathname === expectedAsset.pathname) script.remove();
+                            } catch { /* Ignore unrelated inline or invalid script URLs. */ }
+                        }
+                    }
                     fullScriptPromise = null;
                     throw error;
                 });

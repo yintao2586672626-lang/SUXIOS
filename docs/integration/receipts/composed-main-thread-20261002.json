@@ -1,8 +1,8 @@
 {
   "contract": "suxios.composed_delivery.v1",
-  "at": "2026-10-02T12:51:43.955Z",
+  "at": "2026-10-02T13:04:20.169Z",
   "phase": "final",
-  "prepared_against_head": "53616ba858b29cad9c8a63c2fcbd091c98b055c7",
+  "prepared_against_head": "03541c067e53d54e8eb84edbc461dec44e216c10",
   "main_thread": "01a0eed4-02fb-7240-84ea-10ba830bae5c",
   "target_branch": "codex/integrate-suxios-20260930",
   "baseline_main_integrated": "51a512e6bd552c9553dca81a0d1670fc116fd327",
@@ -138,7 +138,7 @@
           "source_state": "M",
           "disposition": "exclude_generated_rebuild",
           "source_sha256": "34c701643a7ee5720e21a8bdad33a88c81055e3bcad687ead87a1c8260df6ddd",
-          "target_sha256": "556d5c85be3c60947c468840f261c5d0834187ec6949bae2a44c2ba4306dc063"
+          "target_sha256": "ad428db08edc4f234342b4e846794e0e0b3b206a5ac9c88ca5f514fa27a704d9"
         },
         {
           "path": "public/components/system/business-closure-loader.js",
@@ -187,7 +187,7 @@
           "source_state": "M",
           "disposition": "exclude_generated_rebuild",
           "source_sha256": "46ed4596a2951ca690637e584b998c8e14a85f89c0915348a33c8d01b290e1c4",
-          "target_sha256": "4d0f74f61f8616fa132ed308a48e9f58569de35a35ce7935b85ee78b47d84314"
+          "target_sha256": "02c8fc7e0d2b7016d52b9ccb3056ae3b5ceaf8f8009d4d4e8fcef2a2b4d30e93"
         },
         {
           "path": "public/style-startup.min.css",
@@ -650,7 +650,7 @@
           "source_state": "M",
           "disposition": "exclude_generated_rebuild",
           "source_sha256": "8d63ff91c462ba7427ce85f742f09a3b296353ab3214ef57a817276eb45993de",
-          "target_sha256": "556d5c85be3c60947c468840f261c5d0834187ec6949bae2a44c2ba4306dc063"
+          "target_sha256": "ad428db08edc4f234342b4e846794e0e0b3b206a5ac9c88ca5f514fa27a704d9"
         },
         {
           "path": "public/components/system/ai-daily-report-delivery.js",
@@ -664,7 +664,7 @@
           "source_state": "M",
           "disposition": "apply_exact_delta_to_unchanged_base",
           "source_sha256": "6e4bffe6fb1403138f9f7062bc6efcfb9aece2930b513e573c5fdd425760e91f",
-          "target_sha256": "a81a57fef04af1cffe2ebd131f3916f1c00300c46b37fda596ebf9b30b000e1c"
+          "target_sha256": "b4d48a8eb238aaa27a22bc1ab9ae11aae0c84b7b8b848ea985965566593e7571"
         },
         {
           "path": "public/components/system/app-main-components.js",
@@ -727,7 +727,7 @@
           "source_state": "M",
           "disposition": "exclude_generated_rebuild",
           "source_sha256": "3a51bed96f86ec3567f8a1bb1a10557a97645bd37b75090f1d7f033279097932",
-          "target_sha256": "4d0f74f61f8616fa132ed308a48e9f58569de35a35ce7935b85ee78b47d84314"
+          "target_sha256": "02c8fc7e0d2b7016d52b9ccb3056ae3b5ceaf8f8009d4d4e8fcef2a2b4d30e93"
         },
         {
           "path": "resources/frontend/templates/fragments/16-page-ai-daily-report.html",
@@ -901,33 +901,35 @@
     "portable PHP fixture resolution for Linux CI",
     "isolate four missing-optional-module cases in fresh processes while retaining original failure/readback oracles",
     "verify installed reference capabilities in the composed target",
-    "mount real Meituan stale-scope clearing helper in the navigation fixture"
+    "mount real Meituan stale-scope clearing helper in the navigation fixture",
+    "remove completed full-factory script only for matching origin/path when registration is absent, so authenticated deferred loading can recover on retry; preserve broker and manifest identity"
   ],
   "verification": {
     "scope": "explicit composed target files including latest main; isolated synthetic fixtures",
     "php": {
       "deduplicated": true,
-      "files": 53,
-      "assertions": 7667,
+      "files": 54,
+      "assertions": 7692,
       "skipped": 0,
-      "tests": 851
+      "tests": 856
     },
     "node": {
-      "files": 23,
-      "tests": 267,
-      "passed": 267,
+      "deduplicated": true,
       "skipped": 0,
-      "components": "19 files 207 + learning 35 + route 2 + legacy finance browser 1 + hotel migration 22"
+      "tests": 286,
+      "passed": 286,
+      "files": 26,
+      "components": "19files207 + learning35 + route2 + legacyfinance1 + hotelmigration22 + ctrip11 + ownership8"
     },
     "browser_probes": {
-      "original_composed": 3,
-      "latest_main_deferred_learning": 1,
-      "passed": true
+      "scope": "finance facade, learning, investment/import/scenario, review exact readback/export, deferred network/factory retry",
+      "passed": true,
+      "final_generated": 7
     },
     "frontend_build": "npm run build:frontend passed after latest main composition",
     "public_entry": {
       "target": 620000,
-      "startup_gzip_bytes": 619474,
+      "startup_gzip_bytes": 619534,
       "passed": true
     },
     "routes": {
@@ -935,7 +937,7 @@
       "public_actions": 787,
       "covered": true
     },
-    "integration_gate": "staged exact-index gate and clean post-merge worktree gate required before delivery",
+    "integration_gate": "mandatory staged exact-index pre-commit gate; clean final worktree gate recorded after merge commit",
     "real_business_database_writes": false,
     "real_account_acceptance": false,
     "production_migration": false,
@@ -954,6 +956,12 @@
       "a55d53c5"
     ],
     "scope": "OTA numeric overflow, platform canonical metrics, exact pricing readback, P0 scope and manual review; root composition retained; authenticated deferred loader protocol merged"
+  },
+  "latest_remote_test_followups": {
+    "commit": "b8c647c3c07ed036f4d11fcab868d406a73540a5",
+    "parent": "f4013310ec20c1ae38feab8194f6b25be660b9e1",
+    "scope": "Meituan report extracted-source check; monthly/on-books save ownership sibling registration",
+    "target_completion": "four composed sibling components registered only in isolated ownership fixtures; original save, readback and warning assertions retained"
   },
   "dos_introduction": {
     "source_commit": "61554d9aa1081a39e242f95f66a9d721bc68b006",

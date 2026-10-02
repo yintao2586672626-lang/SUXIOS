@@ -1417,7 +1417,7 @@
       }
     },
     "delivery_20261002": {
-      "prepared_against_head": "53616ba858b29cad9c8a63c2fcbd091c98b055c7",
+      "prepared_against_head": "03541c067e53d54e8eb84edbc461dec44e216c10",
       "dos_introduction": {
         "source_commit": "61554d9aa1081a39e242f95f66a9d721bc68b006",
         "source_blob": "72aca9496737bad552726935934d19cf2a0f4b12",
@@ -1482,27 +1482,28 @@
           "scope": "explicit composed target files including latest main; isolated synthetic fixtures",
           "php": {
             "deduplicated": true,
-            "files": 53,
-            "assertions": 7667,
+            "files": 54,
+            "assertions": 7692,
             "skipped": 0,
-            "tests": 851
+            "tests": 856
           },
           "node": {
-            "files": 23,
-            "tests": 267,
-            "passed": 267,
+            "deduplicated": true,
             "skipped": 0,
-            "components": "19 files 207 + learning 35 + route 2 + legacy finance browser 1 + hotel migration 22"
+            "tests": 286,
+            "passed": 286,
+            "files": 26,
+            "components": "19files207 + learning35 + route2 + legacyfinance1 + hotelmigration22 + ctrip11 + ownership8"
           },
           "browser_probes": {
-            "original_composed": 3,
-            "latest_main_deferred_learning": 1,
-            "passed": true
+            "scope": "finance facade, learning, investment/import/scenario, review exact readback/export, deferred network/factory retry",
+            "passed": true,
+            "final_generated": 7
           },
           "frontend_build": "npm run build:frontend passed after latest main composition",
           "public_entry": {
             "target": 620000,
-            "startup_gzip_bytes": 619474,
+            "startup_gzip_bytes": 619534,
             "passed": true
           },
           "routes": {
@@ -1510,7 +1511,7 @@
             "public_actions": 787,
             "covered": true
           },
-          "integration_gate": "staged exact-index gate and clean post-merge worktree gate required before delivery",
+          "integration_gate": "mandatory staged exact-index pre-commit gate; clean final worktree gate recorded after merge commit",
           "real_business_database_writes": false,
           "real_account_acceptance": false,
           "production_migration": false,
@@ -1544,6 +1545,12 @@
           "a55d53c5"
         ],
         "scope": "OTA numeric overflow, platform canonical metrics, exact pricing readback, P0 scope and manual review; root composition retained; authenticated deferred loader protocol merged"
+      },
+      "latest_remote_test_followups": {
+        "commit": "b8c647c3c07ed036f4d11fcab868d406a73540a5",
+        "parent": "f4013310ec20c1ae38feab8194f6b25be660b9e1",
+        "scope": "Meituan report extracted-source check; monthly/on-books save ownership sibling registration",
+        "target_completion": "four composed sibling components registered only in isolated ownership fixtures; original save, readback and warning assertions retained"
       }
     }
   },
@@ -2008,12 +2015,12 @@
     "external_material": "reference_only_with_publication_limits",
     "raw_material_and_runtime": "retained_locally_excluded_from_commit",
     "changed_file_accounting": {
-      "base_to_candidate_git_paths": 1058,
-      "hashed_payload_files": 1057,
+      "base_to_candidate_git_paths": 1059,
+      "hashed_payload_files": 1058,
       "manifest_path": "docs/integration/suxios-integration-20260930.json",
       "manifest_included_in_git_paths": true,
       "manifest_excluded_from_payload_hashes": true,
-      "reconciliation": "1058 = 1057 current payload paths + 1 self-excluded manifest",
+      "reconciliation": "1059 = 1058 current payload paths + 1 self-excluded manifest",
       "coverage": "all original mappings retained; every current base-to-HEAD/owned dirty payload reconciled; exact committed coverage verified after commit"
     }
   },
@@ -3362,7 +3369,7 @@
       "path": "docs/integration/composed-delivery-20261002.md",
       "state": "added",
       "bytes": 2440,
-      "sha256": "00a3f83de736b99f29d47eaa7b1620270289d7648f833750c60f9110fdb5a418",
+      "sha256": "2cbbe557dd7e13bb242dd4050041c00ddab51cd5ebdf868e41a16bc86a2d4b95",
       "previous_payloads": [
         {
           "sha256": "d933ea39c62b783342fa5b6c15d0f1e85cc8c0a8d7f6085899f1cf56388dfca0",
@@ -3375,6 +3382,10 @@
         {
           "sha256": "6b9395a0394334525a42c46dd8658c961384754cb807f60ad5ba930d485738de",
           "prepared_before_head": "53616ba858b29cad9c8a63c2fcbd091c98b055c7"
+        },
+        {
+          "sha256": "00a3f83de736b99f29d47eaa7b1620270289d7648f833750c60f9110fdb5a418",
+          "prepared_before_head": "03541c067e53d54e8eb84edbc461dec44e216c10"
         }
       ]
     },
@@ -3399,8 +3410,8 @@
     {
       "path": "docs/integration/receipts/changqing-main-thread-receipt-20261002.json",
       "state": "added",
-      "bytes": 49281,
-      "sha256": "042979a9c262a29bd39ec603e33689e4b0af673e4bb0d0ffe70b6dcb8ca49dec",
+      "bytes": 49423,
+      "sha256": "ce498351d085abb48e9c04e8e07997222ac6c8b7ef24a5f2aa7c1db0a0e8b579",
       "previous_payloads": [
         {
           "sha256": "f78eca3a68bcd653ea8f7cccd301bc89f7117752e957802845bd45ecc5e0da44",
@@ -3417,6 +3428,10 @@
         {
           "sha256": "037c7b639b19d81a62a929e78d0b787badc3e2c4fb31b5c31761c3df9a542481",
           "prepared_before_head": "53616ba858b29cad9c8a63c2fcbd091c98b055c7"
+        },
+        {
+          "sha256": "042979a9c262a29bd39ec603e33689e4b0af673e4bb0d0ffe70b6dcb8ca49dec",
+          "prepared_before_head": "03541c067e53d54e8eb84edbc461dec44e216c10"
         }
       ]
     },
@@ -3424,7 +3439,7 @@
       "path": "docs/integration/receipts/changqing-main-thread-receipt-20261002.md",
       "state": "added",
       "bytes": 9005,
-      "sha256": "67b1cc83ea85a0435a1b5bfb3cc005454ab8598bce68a6fc04e52ea3bda0041b",
+      "sha256": "f1758779dc7b51e69104c842e1f534e5c31261ee3d985493c3e9e0b71872e240",
       "previous_payloads": [
         {
           "sha256": "94f5593f4fd7b33f07f88e8cfed06839a60d81c0670f8c53ed52eccf9ab06af9",
@@ -3441,6 +3456,10 @@
         {
           "sha256": "15a8f8888aa10003e952bba3fccdc4f1b95d721747e1c29f7ce6a24f6cec311e",
           "prepared_before_head": "53616ba858b29cad9c8a63c2fcbd091c98b055c7"
+        },
+        {
+          "sha256": "67b1cc83ea85a0435a1b5bfb3cc005454ab8598bce68a6fc04e52ea3bda0041b",
+          "prepared_before_head": "03541c067e53d54e8eb84edbc461dec44e216c10"
         }
       ]
     },
@@ -3453,8 +3472,8 @@
     {
       "path": "docs/integration/receipts/composed-main-thread-20261002.json",
       "state": "added",
-      "bytes": 48694,
-      "sha256": "107dfc2698c8f357aff79000cf137914a8a3429d1e6893198cbd4fedb2525ab9",
+      "bytes": 49460,
+      "sha256": "d2736cf1c9115b952bd13b71438834a53374e2e18df3c0cac87ddbe42dc0369c",
       "previous_payloads": [
         {
           "sha256": "5a94e1405242f2f7f93a58e2923dc09928031d55351f190d61d6a40ac276964b",
@@ -3467,6 +3486,10 @@
         {
           "sha256": "fad6e1fe9e77019b5feccf014f616ea20e64e32dc4249b325c731fec9406bfac",
           "prepared_before_head": "53616ba858b29cad9c8a63c2fcbd091c98b055c7"
+        },
+        {
+          "sha256": "107dfc2698c8f357aff79000cf137914a8a3429d1e6893198cbd4fedb2525ab9",
+          "prepared_before_head": "03541c067e53d54e8eb84edbc461dec44e216c10"
         }
       ]
     },
@@ -3957,8 +3980,8 @@
     {
       "path": "public/app-startup-helpers.min.js",
       "state": "modified",
-      "bytes": 270574,
-      "sha256": "556d5c85be3c60947c468840f261c5d0834187ec6949bae2a44c2ba4306dc063",
+      "bytes": 270805,
+      "sha256": "ad428db08edc4f234342b4e846794e0e0b3b206a5ac9c88ca5f514fa27a704d9",
       "previous_payloads": [
         {
           "sha256": "3d85ac4fedccb04d47d7b526aa6433c22fa21f77e598edbba275a7981654e1cd",
@@ -3971,6 +3994,10 @@
         {
           "sha256": "cf2706cc9a31088686b05f7e7075bd011535629694a91eba177137f3b0cb8920",
           "prepared_before_head": "53616ba858b29cad9c8a63c2fcbd091c98b055c7"
+        },
+        {
+          "sha256": "556d5c85be3c60947c468840f261c5d0834187ec6949bae2a44c2ba4306dc063",
+          "prepared_before_head": "03541c067e53d54e8eb84edbc461dec44e216c10"
         }
       ]
     },
@@ -4031,8 +4058,8 @@
     {
       "state": "modified",
       "path": "public/components/system/app-main-components-loader.js",
-      "bytes": 11491,
-      "sha256": "a81a57fef04af1cffe2ebd131f3916f1c00300c46b37fda596ebf9b30b000e1c",
+      "bytes": 12140,
+      "sha256": "b4d48a8eb238aaa27a22bc1ab9ae11aae0c84b7b8b848ea985965566593e7571",
       "previous_payloads": [
         {
           "sha256": "25a13fe784ae9016ba3a8bc575ae3f2612de09ceba55ab4002d36791704d2608",
@@ -4045,6 +4072,10 @@
         {
           "sha256": "4e630fad6f0ef8f38ab8ab05d999baace385972e960fa059de4f9aa051ed0e74",
           "prepared_before_head": "53616ba858b29cad9c8a63c2fcbd091c98b055c7"
+        },
+        {
+          "sha256": "a81a57fef04af1cffe2ebd131f3916f1c00300c46b37fda596ebf9b30b000e1c",
+          "prepared_before_head": "03541c067e53d54e8eb84edbc461dec44e216c10"
         }
       ]
     },
@@ -4289,7 +4320,7 @@
     {
       "path": "public/index.html",
       "bytes": 8588,
-      "sha256": "4d0f74f61f8616fa132ed308a48e9f58569de35a35ce7935b85ee78b47d84314",
+      "sha256": "02c8fc7e0d2b7016d52b9ccb3056ae3b5ceaf8f8009d4d4e8fcef2a2b4d30e93",
       "state": "modified",
       "previous_payloads": [
         {
@@ -4303,6 +4334,10 @@
         {
           "sha256": "e957625f1ac8a98a93458ac8ede5ded57c9a3333a3764595b7e5defdb14554b0",
           "prepared_before_head": "53616ba858b29cad9c8a63c2fcbd091c98b055c7"
+        },
+        {
+          "sha256": "4d0f74f61f8616fa132ed308a48e9f58569de35a35ce7935b85ee78b47d84314",
+          "prepared_before_head": "03541c067e53d54e8eb84edbc461dec44e216c10"
         }
       ]
     },
@@ -5565,12 +5600,16 @@
     {
       "path": "tests/automation/ctrip_order_analysis_panel.test.mjs",
       "state": "modified",
-      "bytes": 28399,
-      "sha256": "c23beee3deeb38d7b7b79331ebe1c09c0cfb4df405678098abebef1f184dabc2",
+      "bytes": 34164,
+      "sha256": "e3a7527aa003b4e7b56dbdb555225af49254b097c3cc72e0bad0537b0ee44598",
       "previous_payloads": [
         {
           "sha256": "b2f2f783767e8e8049130c6b6fd141348c2609a080828f4d87e56eb95333639a",
           "prepared_before_head": "53616ba858b29cad9c8a63c2fcbd091c98b055c7"
+        },
+        {
+          "sha256": "c23beee3deeb38d7b7b79331ebe1c09c0cfb4df405678098abebef1f184dabc2",
+          "prepared_before_head": "03541c067e53d54e8eb84edbc461dec44e216c10"
         }
       ]
     },
@@ -6501,8 +6540,14 @@
     {
       "state": "added",
       "path": "tests/automation/monthly_finance_save_ownership.test.mjs",
-      "bytes": 25087,
-      "sha256": "eb2a8a002e9f5d6ae8bbc72583f02027f8e94acb2022deb1e9cdadffe6b25336"
+      "bytes": 25570,
+      "sha256": "2d6fb06f7d1b8fe562db61f81229a473ee7d27c26df7288586980ca5ffebe40b",
+      "previous_payloads": [
+        {
+          "sha256": "eb2a8a002e9f5d6ae8bbc72583f02027f8e94acb2022deb1e9cdadffe6b25336",
+          "prepared_before_head": "03541c067e53d54e8eb84edbc461dec44e216c10"
+        }
+      ]
     },
     {
       "state": "modified",
@@ -6519,8 +6564,14 @@
     {
       "state": "added",
       "path": "tests/automation/onbooks_snapshot_save_ownership.test.mjs",
-      "bytes": 27466,
-      "sha256": "7929e567dc9d1bad8743526ae39e24dcd881fcdfca435f04eb55225ee3e48003"
+      "bytes": 27942,
+      "sha256": "cc257eb9ab6ee7fd59a3756f8e7a39a59d9894254a385af6cdb4ec48661804a7",
+      "previous_payloads": [
+        {
+          "sha256": "7929e567dc9d1bad8743526ae39e24dcd881fcdfca435f04eb55225ee3e48003",
+          "prepared_before_head": "03541c067e53d54e8eb84edbc461dec44e216c10"
+        }
+      ]
     },
     {
       "path": "tests/automation/online_analysis_cache_runtime.test.mjs",
@@ -8207,6 +8258,12 @@
       "path": "tests/MeituanPublicPageFieldSourceTest.php",
       "bytes": 16407,
       "sha256": "42f0aed98bcaf81996ed11c1fb2e8629e503b643df850863328fab83993a7111"
+    },
+    {
+      "path": "tests/MeituanSinglePointWiringTest.php",
+      "state": "modified",
+      "bytes": 4598,
+      "sha256": "f53fb6cf66a1125f62306f963baff09c23267815bb0ad3a22d3ef27cd335d3a7"
     },
     {
       "state": "modified",
