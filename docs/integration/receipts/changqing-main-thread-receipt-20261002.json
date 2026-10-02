@@ -1364,8 +1364,8 @@
     "shared_files_and_generated_assets": "semantic integration and target rebuild still pending"
   },
   "composed_acceptance": {
-    "at": "2026-10-02T13:40:11.591Z",
-    "prepared_against_head": "e91bb7110de1d7b957ff012b9fd4511886ac8daf",
+    "at": "2026-10-02T13:45:04.851Z",
+    "prepared_against_head": "981728c820078f1a1c7dc2159110d7387b5a01eb",
     "receipt": "docs/integration/receipts/composed-main-thread-20261002.json",
     "verification": {
       "scope": "explicit composed target files including latest main; isolated synthetic fixtures",
@@ -1379,20 +1379,20 @@
       "node": {
         "deduplicated": true,
         "skipped": 0,
-        "tests": 317,
-        "passed": 317,
+        "tests": 318,
+        "passed": 318,
         "files": 29,
-        "components": "prior267 + ctrip11 + monthly/onbooks8 + demand/settlement28 + operating asset build3; repeats not counted",
+        "components": "prior267 + ctrip11 + monthly/onbooks8 + demand/settlement28 + operating asset build4; repeats not counted",
         "runner_breakdown": {
           "playwright": {
             "tests": 1,
             "files": 1
           },
           "node": {
-            "tests": 316,
+            "tests": 317,
             "files": 28
           },
-          "caliber": "29files317 automation tests; separate seven mounted probes; full focused runs deduplicated by file"
+          "caliber": "29files318 automation tests; separate seven mounted probes; full focused runs deduplicated by file"
         }
       },
       "browser_probes": {

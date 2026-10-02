@@ -1,8 +1,8 @@
 {
   "contract": "suxios.composed_delivery.v1",
-  "at": "2026-10-02T13:40:11.591Z",
+  "at": "2026-10-02T13:45:04.851Z",
   "phase": "final",
-  "prepared_against_head": "e91bb7110de1d7b957ff012b9fd4511886ac8daf",
+  "prepared_against_head": "981728c820078f1a1c7dc2159110d7387b5a01eb",
   "main_thread": "01a0eed4-02fb-7240-84ea-10ba830bae5c",
   "target_branch": "codex/integrate-suxios-20260930",
   "baseline_main_integrated": "51a512e6bd552c9553dca81a0d1670fc116fd327",
@@ -904,6 +904,7 @@
     "mount real Meituan stale-scope clearing helper in the navigation fixture",
     "inventory all four direct finance ownership fixtures and register unrelated composed sibling fixtures; all original save/readback/scope/error oracles retained; demand and settlement repairs add28 unique passing cases",
     "closed operating-component build fixture explicitly provides composed source/dependency assets and compressor options; preserves original three asset identity, idempotency and fail-before-publish oracles and adds economics/booking hash assertions",
+    "real Terser bridge-content change propagates finance bundle, parent, loader and entry identities; repeat content produces zero writes; deliberate omission of bridge fails the new independent inclusion oracle",
     "remove completed full-factory script only for matching origin/path when registration is absent, so authenticated deferred loading can recover on retry; preserve broker and manifest identity"
   ],
   "verification": {
@@ -918,20 +919,20 @@
     "node": {
       "deduplicated": true,
       "skipped": 0,
-      "tests": 317,
-      "passed": 317,
+      "tests": 318,
+      "passed": 318,
       "files": 29,
-      "components": "prior267 + ctrip11 + monthly/onbooks8 + demand/settlement28 + operating asset build3; repeats not counted",
+      "components": "prior267 + ctrip11 + monthly/onbooks8 + demand/settlement28 + operating asset build4; repeats not counted",
       "runner_breakdown": {
         "playwright": {
           "tests": 1,
           "files": 1
         },
         "node": {
-          "tests": 316,
+          "tests": 317,
           "files": 28
         },
-        "caliber": "29files317 automation tests; separate seven mounted probes; full focused runs deduplicated by file"
+        "caliber": "29files318 automation tests; separate seven mounted probes; full focused runs deduplicated by file"
       }
     },
     "browser_probes": {
