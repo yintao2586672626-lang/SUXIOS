@@ -8,7 +8,7 @@ use InvalidArgumentException;
 /** Pure scenario arithmetic. It does not load hotel facts or write business data. */
 final class InvestmentScenarioCalculator
 {
-    public const MODEL_VERSION = 'investment-scenario-v1.1';
+    public const MODEL_VERSION = 'investment-scenario-v1.3';
     private const MAX_CASH = 1000000000000.0;
     private const CASH_KEYS = ['tax_cash', 'financing_net_cash', 'maintenance_capex', 'working_capital_change', 'deposit_refund', 'salvage_cash'];
     private const MONEY_TOTALS = ['revenue', 'operating_cost', 'rent', 'depreciation', 'management_fee', 'pretax_profit', 'pretax_cash_proxy'];
@@ -81,6 +81,26 @@ final class InvestmentScenarioCalculator
         $out['operating_cost_basis'] = $basis;
         $out['rent_escalations'] = $this->normalizeEscalations($input['rent_escalations'] ?? []);
         $out['cash_adjustments'] = $this->normalizeCashAdjustments($input['cash_adjustments'] ?? []);
+        if (isset($input['consumables_cost']) && !is_array($input['consumables_cost'])) {
+            throw new InvalidArgumentException('consumables_cost must be an object or null');
+        }
+        $out['consumables_cost'] = !isset($input['consumables_cost']) ? null : (new ConsumablesCostCalculator())->normalize($input['consumables_cost']);
+        foreach (['cash_plan', 'decision_constraints'] as $key) {
+            if (isset($input[$key]) && !is_array($input[$key])) throw new InvalidArgumentException($key . ' must be an object or null');
+        }
+        $planner = new InvestmentScenarioCashPlanner();
+        $out['cash_plan'] = $planner->normalize($input['cash_plan'] ?? null);
+        $out['decision_constraints'] = $planner->normalizeConstraints($input['decision_constraints'] ?? null);
+        $evidenceId = $input['cost_evidence_snapshot_id'] ?? null;
+        if ($evidenceId !== null && (!is_numeric($evidenceId) || (int)$evidenceId != $evidenceId || $evidenceId < 1)) throw new InvalidArgumentException('cost_evidence_snapshot_id must be a positive identifier');
+        $evidenceDigest = $input['cost_evidence_digest'] ?? null;
+        if ($evidenceDigest === '') $evidenceDigest = null;
+        if ($evidenceDigest !== null && (!is_string($evidenceDigest) || !preg_match('/^[a-f0-9]{64}$/Di', $evidenceDigest))) throw new InvalidArgumentException('cost_evidence_digest must be SHA256');
+        $confirmed = $input['cost_evidence_confirmed'] ?? false;
+        if (!is_bool($confirmed)) throw new InvalidArgumentException('cost_evidence_confirmed must be boolean');
+        $out['cost_evidence_snapshot_id'] = $evidenceId === null ? null : (int)$evidenceId;
+        $out['cost_evidence_digest'] = $evidenceDigest === null ? null : strtolower($evidenceDigest);
+        $out['cost_evidence_confirmed'] = $confirmed;
         return $out;
     }
 
@@ -109,6 +129,13 @@ final class InvestmentScenarioCalculator
     public function calculate(array $input): array
     {
         $in = $this->normalize($input);
+        $consumables = $in['consumables_cost'] === null ? null : (new ConsumablesCostCalculator())->evaluate($in['consumables_cost']);
+        $calculationInput = $in;
+        $derived = ($in['consumables_cost']['mode'] ?? 'manual') === 'derived';
+        if ($derived) {
+            // Preserve the manual aggregate in the saved input; only the explicit selected breakdown enters arithmetic.
+            $calculationInput['operating_cost_per_night'] = $this->number($consumables['effective_operating_cost_per_night'], 'consumables_cost.effective_operating_cost_per_night', 0, self::MAX_CASH);
+        }
         $missing = [];
         $required = ['rooms', 'leased_rooms', 'years', 'adr_first_year', 'occupancy_first_year', 'occupancy_mature',
             'mature_from_year', 'adr_growth_rate', 'adr_growth_from_year', 'operating_cost_basis',
@@ -119,10 +146,20 @@ final class InvestmentScenarioCalculator
             $required[] = 'fixed_annual_operating_cost';
         }
         foreach ($required as $key) {
-            if ($in[$key] === null) {
+            if ($derived && $key === 'operating_cost_per_night') {
+                continue; // A missing selected breakdown is explained by its own fields, not the retained manual aggregate.
+            }
+            if ($calculationInput[$key] === null) {
                 $missing[] = $key;
             }
         }
+        if ($derived) {
+            $missing = array_merge($missing, $consumables['missing_fields']);
+            if (!in_array($in['operating_cost_basis'], ['occupied_room_night', 'fixed_variable'], true)) {
+                $missing[] = 'consumables_cost.occupied_room_night_basis';
+            }
+        }
+        $missing = array_values(array_unique($missing));
         $missingIdentity = [];
         $identityWarnings = [];
         foreach (['as_of' => '测算基准日', 'scenario_name' => '方案名称'] as $key => $label) {
@@ -138,18 +175,28 @@ final class InvestmentScenarioCalculator
             'annual_rows' => [], 'totals' => null, 'initial_cash_total' => null, 'construction_rent_cash' => null,
             'payback' => null, 'scenario_payback' => null, 'break_even' => null,
             'warnings' => $identityWarnings, 'exclusions' => [], 'sensitivity_rows' => [],
+            'consumables_cost' => $consumables,
+            'effective_operating_cost_per_night' => $derived && !in_array($in['operating_cost_basis'], ['occupied_room_night', 'fixed_variable'], true) ? null : $calculationInput['operating_cost_per_night'],
+            'cash_pressure' => (new InvestmentScenarioCashPlanner())->evaluate($in['cash_plan']),
+            'decision_constraints' => null,
         ];
         if ($missing !== []) {
+            $base['decision_constraints'] = (new InvestmentScenarioCashPlanner())->constraints($in['decision_constraints'], $base);
             return $base;
         }
-        $calculated = $this->annualCalculation($in);
+        $calculated = $this->annualCalculation($calculationInput);
         $base = array_replace($base, $calculated);
-        $base['break_even'] = $this->breakEven($in, $base['annual_rows'][0]);
-        $base['sensitivity_rows'] = $this->sensitivity($in);
-        $base['warnings'] = array_merge($identityWarnings, $this->warnings($in, $base));
+        $base['break_even'] = $this->breakEven($calculationInput, $base['annual_rows'][0]);
+        $base['sensitivity_rows'] = $this->sensitivity($calculationInput);
+        $base['warnings'] = array_merge($identityWarnings, $this->warnings($calculationInput, $base));
+        if ($consumables !== null) {
+            $base['warnings'][] = ['code' => $derived ? 'consumables_applied' : 'consumables_not_applied',
+                'message' => $derived ? '已采用易耗品明细加其他变动成本；原手填汇总仍保留。用品、租金、固定成本、管理费和折旧须分别列示，勿重复计入。' : '易耗品明细仅供核对，当前仍采用手填单位经营成本。'];
+        }
         if ($missingIdentity !== []) {
             $base['status'] = 'partial';
         }
+        $base['decision_constraints'] = (new InvestmentScenarioCashPlanner())->constraints($in['decision_constraints'], $base);
         return $base;
     }
 

@@ -1,4 +1,10 @@
                     <div v-if="currentPage === 'online-data'" class="online-data-page suxi-dashboard-scope">
+    <!-- SUXI_HOTEL_LEARNING_BEGIN -->
+    <details class="my-4 rounded-xl border border-slate-200 bg-white p-4" data-testid="hotel-learning-ota-entry">
+        <summary class="cursor-pointer py-2 text-base font-semibold text-slate-800">搜索价格观测与商圈样本比较</summary>
+        <hotel-learning-workbench module="ota" :request="managerCapabilityRequest" :hotels="hotels" :selected-hotel-id="filterReportHotel" :can-execute="operationFinanceCanExecute"></hotel-learning-workbench>
+    </details>
+    <!-- SUXI_HOTEL_LEARNING_END -->
                         <div>
                             <section data-testid="online-data-page-header" class="online-data-hero">
                                 <div class="online-data-hero-layout">

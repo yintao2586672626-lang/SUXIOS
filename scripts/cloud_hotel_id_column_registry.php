@@ -179,6 +179,8 @@ function cloudHotelIdColumnRegistry(): array
         ['investment_payback_projects', 'hotel_id', 'hotel_id'],
         ['manager_coaching_plans', 'hotel_id', 'hotel_id'],
         ['manager_coaching_events', 'hotel_id', 'hotel_id'],
+        ['hotel_operating_evidence_snapshots', 'hotel_id', 'hotel_id'],
+
         // Both sides of a controlled SOP replication are system-hotel aliases.
         ['hotel_operating_sop_replications', 'source_hotel_id', 'source_hotel_id'],
         ['hotel_operating_sop_replications', 'target_hotel_id', 'target_hotel_id'],
@@ -197,6 +199,7 @@ function cloudHotelIdColumnRegistry(): array
         ['hotel_on_books_snapshots', 'source_hotel_id', 'immutable_source_hotel_id_evidence'],
         ['hotel_demand_event_facts', 'source_hotel_id', 'immutable_source_hotel_id_evidence'],
         ['hotel_monthly_operating_finance_snapshots', 'source_hotel_id', 'immutable_source_hotel_id_evidence'],
+        ['hotel_operating_evidence_snapshots', 'source_hotel_id', 'immutable_source_hotel_id_evidence'],
         // OTA/competitor/provider identifiers are not SUXIOS system hotel IDs.
         ['promotion_experiment_versions', 'platform_store_id', 'ota_platform_hotel_id'],
         ['online_daily_data', 'hotel_id', 'ota_platform_hotel_id'],
