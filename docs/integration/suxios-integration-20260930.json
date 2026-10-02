@@ -1419,12 +1419,13 @@
     "delivery_20261002": {
       "prepared_against_head": "30cac6f8c37c66dbe14aecc87366e9c901b36dec",
       "dos_introduction": {
-        "source_commit": "42dc614ddee58fc303072c80202c7da299e7bf9d",
-        "integrated_commit": "30cac6f8c37c66dbe14aecc87366e9c901b36dec",
+        "source_commit": "ab3aa5fd04303ec19b48dda81354217e3923a619",
+        "integrated_commit": "6f9bf58090582ac5aa0bdef3250f696544134585",
         "path": "docs/collaboration/dos-boss-introduction-20261001.md",
-        "sha256": "4599ea2850a4f3a9ef4de18e490a42a8b6cb6f5086829d4a8f7652fafd5bc08a",
+        "sha256": "3010da845ac5a2d26facea4f8d49706d263a89bdd9b12d44114881e9302d8634",
         "items": 18,
-        "lines": 59
+        "lines": 80,
+        "language_context_examples": 10
       },
       "changqing_workspace": {
         "status": "received_but_source_deep_review_in_progress_not_product_integrated",
@@ -2840,8 +2841,8 @@
     {
       "path": "docs/collaboration/dos-boss-introduction-20261001.md",
       "state": "added",
-      "bytes": 7317,
-      "sha256": "4599ea2850a4f3a9ef4de18e490a42a8b6cb6f5086829d4a8f7652fafd5bc08a"
+      "bytes": 10870,
+      "sha256": "3010da845ac5a2d26facea4f8d49706d263a89bdd9b12d44114881e9302d8634"
     },
     {
       "state": "added",
