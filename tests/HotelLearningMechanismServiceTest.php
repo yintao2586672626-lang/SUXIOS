@@ -15,6 +15,22 @@ final class HotelLearningMechanismServiceTest extends TestCase
         ]]], 'request' => ['solve_for' => 'adr', 'target_payback_months' => 12]]);
     }
     private function service(): HotelLearningMechanismService { return new HotelLearningMechanismService(); }
+
+    public function testFractionalRoomNightsCannotBecomeComparableReviewFacts(): void
+    {
+        $input = $this->review();
+        $input['actual']['sold_room_nights'] = 0.5;
+        $this->expectException(InvalidArgumentException::class);
+        $this->service()->calculate('operating_review', $input);
+    }
+
+    public function testNonFiniteCostRatioIsRejectedBeforeSerialization(): void
+    {
+        $input = $this->review();
+        $input['actual']['revenue'] = 1e-320;
+        $this->expectException(InvalidArgumentException::class);
+        $this->service()->calculate('operating_review', $input);
+    }
     private function ota(): array { return ['scene'=>['keyword'=>'测试地区酒店','location'=>'测试城市','device'=>'desktop','login_state'=>'anonymous','sort'=>'推荐','filters'=>'无','observed_at'=>'2026-10-02 12:00','source_ref'=>'synthetic-screen-1','platform_store_id'=>'80','check_in'=>'2026-10-10','check_out'=>'2026-10-11','page_capacity'=>20],'visibility'=>'observed','rank_min'=>3,'rank_max'=>5,'conversion_rate'=>1,'rate_unit'=>'percentage_point','price'=>100,'price_terms'=>['room_type'=>'标准双床','cancellation'=>'免费取消','breakfast'=>'双早','guest_count'=>'2','membership'=>'非会员','tax_basis'=>'含税','payment'=>'预付']]; }
     private function review(): array { $data=['period_start'=>'2026-10-01','period_end'=>'2026-10-31','source_ref'=>'synthetic-finance','basis'=>'whole_hotel_actual_cash','available_room_nights'=>1000,'sold_room_nights'=>800,'revenue'=>100000,'operating_cost'=>70000,'debt_service'=>2000,'project_net_cash'=>28000,'investor_received_cash'=>0]; return ['period_start'=>'2026-10-01','period_end'=>'2026-10-31','actual'=>$data,'plan'=>array_replace($data,['source_ref'=>'synthetic-plan','revenue'=>120000])]; }
     private function market(): array { return ['weights'=>['traffic'=>0.4,'conversion'=>0.3,'revenue'=>0.3],'model_version'=>'manual-v1','sample_ref'=>'synthetic-same-scene','comparison_key'=>'same-window','hotels'=>[['platform_store_id'=>'80','comparison_key'=>'same-window','traffic'=>100,'conversion'=>1,'rate_unit'=>'percentage_point','revenue'=>1000],['platform_store_id'=>'81','comparison_key'=>'same-window','traffic'=>200,'conversion'=>2,'rate_unit'=>'percentage_point','revenue'=>2000]]]; }
