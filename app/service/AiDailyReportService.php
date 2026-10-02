@@ -806,10 +806,15 @@ class AiDailyReportService
             return null;
         }
         $linkedId = (int)($action['execution_intent_id'] ?? 0);
+        $intentTable = '`' . str_replace('`', '', Db::name('operation_execution_intents')->getTable()) . '`';
+        $hotelTable = '`' . str_replace('`', '', Db::name('hotels')->getTable()) . '`';
         $query = Db::name('operation_execution_intents')
             ->where('source_module', 'ai_daily_report')
             ->where('source_record_id', $reportId)
             ->where('hotel_id', $hotelId)
+            ->where('tenant_id', '>', 0)
+            ->whereRaw($intentTable . '.tenant_id = (SELECT tenant_id FROM ' . $hotelTable
+                . ' WHERE ' . $hotelTable . '.id = ' . $intentTable . '.hotel_id)')
             ->whereNull('deleted_at');
         if ($linkedId > 0) {
             $linked = (clone $query)->where('id', $linkedId)->find();
@@ -4951,11 +4956,12 @@ class AiDailyReportService
 
     private function tableExists(string $table): bool
     {
+        $physicalTable = str_replace('`', '', Db::name($table)->getTable());
         try {
-            Db::query('SELECT 1 FROM `' . str_replace('`', '', $table) . '` LIMIT 1');
+            Db::query('SELECT 1 FROM `' . $physicalTable . '` LIMIT 1');
             return true;
         } catch (Throwable $e) {
-            if ($this->isMissingTableException($e, $table)) {
+            if ($this->isMissingTableException($e, $physicalTable)) {
                 return false;
             }
             throw new \RuntimeException(

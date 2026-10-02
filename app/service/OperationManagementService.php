@@ -5404,7 +5404,7 @@ class OperationManagementService
 
     public function tableExists(string $table): bool
     {
-        $inspection = DatabaseSchemaRequirement::inspectTable($table);
+        $inspection = DatabaseSchemaRequirement::inspectTable(str_replace('`', '', Db::name($table)->getTable()));
         if ($inspection['status'] === DatabaseSchemaRequirement::STATUS_UNREADABLE) {
             throw new \RuntimeException('database_table_probe_failed:' . $table, 503);
         }
@@ -5464,7 +5464,7 @@ class OperationManagementService
 
     private function tableHasColumn(string $table, string $column): bool
     {
-        $inspection = DatabaseSchemaRequirement::inspectTableColumns($table);
+        $inspection = DatabaseSchemaRequirement::inspectTableColumns(str_replace('`', '', Db::name($table)->getTable()));
         if ($inspection['status'] === DatabaseSchemaRequirement::STATUS_UNREADABLE) {
             throw new \RuntimeException('database_table_columns_probe_failed:' . $table, 503);
         }

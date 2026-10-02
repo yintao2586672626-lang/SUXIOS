@@ -141,4 +141,41 @@ final class ManagerCoachingIntegrationTest extends TestCase
         $this->rejects(fn() => $refs->save(20, 7, array_replace($revision, ['title' => '旧稿覆盖新稿', 'idempotency_key' => 'different-request'])), '版本冲突');
         self::assertSame('superseded', Db::name('knowledge_chunks')->where('chunk_id', $reference['chunk']['chunk_id'])->value('lifecycle_status'));
     }
+
+    public function testTrustedAccessContextIsRequiredForOtherOwnersKnowledge(): void
+    {
+        $content = ['raw_text' => "私有操作标准\n管理员可用于带教引用", 'lifecycle_status' => 'active'];
+        $unitId = (int)Db::name('knowledge_units')->insertGetId([
+            'hotel_id' => 20, 'name' => '其他作者的私有知识', 'source' => 'manual', 'status' => 'done',
+            'description' => 'synthetic only', 'tags' => '[]', 'created_by' => 8,
+            'stable_key' => 'synthetic-private-' . bin2hex(random_bytes(5)), 'lifecycle_status' => 'active',
+        ]);
+        $chunkId = (int)Db::name('knowledge_chunks')->insertGetId([
+            'unit_id' => $unitId, 'type' => 'manual', 'content' => json_encode($content, JSON_THROW_ON_ERROR),
+            'content_digest' => (new \app\service\KnowledgeContentDigestService())->digest($content),
+            'lifecycle_status' => 'active', 'created_by' => 8,
+        ]);
+        Db::name('knowledge_units')->where('unit_id', $unitId)->update(['current_chunk_id' => $chunkId]);
+
+        $input = array_replace(CoachingKnowledgeFixture::planInput((int)$this->case['id']), [
+            'cause' => 'knowledge', 'knowledge_chunk_ids' => [$chunkId],
+            'idempotency_key' => 'private-' . bin2hex(random_bytes(5)),
+            'super_admin' => true, 'access_context' => ['tenant_id' => 10, 'super_admin' => true],
+        ]);
+        $this->rejects(fn() => $this->service()->create(10, 20, 7, 7, $input), '无权');
+        self::assertSame(0, Db::name('manager_coaching_plans')->count());
+
+        $created = $this->service()->create(
+            10,
+            20,
+            7,
+            7,
+            $input,
+            ['tenant_id' => 10, 'super_admin' => true]
+        );
+        $snapshot = $created['plan']['content']['knowledge_snapshots'][0];
+        self::assertSame($chunkId, $snapshot['chunk_id']);
+        self::assertSame('manager_coaching.knowledge_excerpt.v1', $snapshot['snapshot_schema_version']);
+        self::assertSame('readback_verified', $created['persistence_status']);
+    }
 }
