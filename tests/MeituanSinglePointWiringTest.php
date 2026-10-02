@@ -47,6 +47,10 @@ final class MeituanSinglePointWiringTest extends TestCase
         $report = (string)file_get_contents(
             dirname(__DIR__) . '/scripts/report_business_chain_status.php'
         );
+        self::assertStringContainsString("require_once __DIR__ . '/lib/business_chain_p0_scope.php';", $report);
+        $report .= (string)file_get_contents(
+            dirname(__DIR__) . '/scripts/lib/business_chain_p0_scope.php'
+        );
 
         self::assertStringContainsString("'source' => 'meituan'", $capture);
         self::assertStringContainsString("'target_date' => \$targetDataDate", $capture);

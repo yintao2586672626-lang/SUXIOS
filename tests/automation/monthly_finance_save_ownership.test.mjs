@@ -153,6 +153,9 @@ function harness(attempt) {
     operationFinanceCanExecute: sandbox.canFinance, setHotel: sandbox.selectHotel,
     showToast: (message, type) => notices.push({ message, type }) }), render: renderParent });
   app.component('OperatingFinanceControlCenter', sandbox.wrapper);
+  // The production root owns this sibling's async registration. Keep the
+  // monthly-finance ownership fixture isolated without suppressing Vue warnings.
+  app.component('HotelLearningWorkbench', { name: 'HotelLearningWorkbenchFixture', render: () => null });
   app.mixin({ mounted() { if (this.$options.name === 'OperatingFinanceControlCenterBody') component = this; } });
   app.config.warnHandler = msg => warnings.push(msg); app.config.errorHandler = e => errors.push(e.stack || String(e));
   const walk = n => [n, ...n.children.flatMap(walk)], text = n => n.type === 'comment' ? '' : n.text + n.children.map(text).join('');
