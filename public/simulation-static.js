@@ -445,7 +445,7 @@ window.SUXI_SIMULATION_STATIC = (() => {
 
     const simulationStateStorage = {
         save(input, result, scenarios, modelAnalysis = null) {
-            localStorage.setItem('suxios_simulation_input', JSON.stringify(input));
+            simulationStateStorage.saveInputOnly(input);
             localStorage.setItem('suxios_simulation_result', JSON.stringify(result));
             localStorage.setItem('suxios_simulation_scenarios', JSON.stringify(scenarios));
             if (modelAnalysis) {
@@ -468,19 +468,23 @@ window.SUXI_SIMULATION_STATIC = (() => {
             }));
         },
         saveInputOnly(input) {
-            localStorage.setItem('suxios_simulation_input', JSON.stringify(input));
             localStorage.removeItem('suxios_simulation_result');
             localStorage.removeItem('suxios_simulation_scenarios');
             localStorage.removeItem('suxios_simulation_model_analysis');
             localStorage.removeItem('suxios_report_simulation_seed');
+            localStorage.setItem('suxios_simulation_input', JSON.stringify(input));
         },
         load(defaultInput, normalizeInput, normalizeModelAnalysis) {
             let input = { ...defaultInput };
             try {
                 const savedInput = JSON.parse(localStorage.getItem('suxios_simulation_input') || 'null');
-                if (savedInput) input = { ...input, ...normalizeInput(savedInput) };
-                const seed = JSON.parse(localStorage.getItem('suxios_simulation_seed') || 'null');
-                if (seed) {
+                const normalizedSavedInput = savedInput && typeof savedInput === 'object' && !Array.isArray(savedInput)
+                    ? normalizeInput(savedInput) : null;
+                const hasSavedDraft = normalizedSavedInput && (normalizedSavedInput.operatingScenario
+                    || Object.keys(normalizedSavedInput).some(key => key !== 'operatingScenario'));
+                if (hasSavedDraft) input = { ...input, ...normalizedSavedInput };
+                const seed = !hasSavedDraft ? JSON.parse(localStorage.getItem('suxios_simulation_seed') || 'null') : null;
+                if (seed && typeof seed === 'object' && !Array.isArray(seed)) {
                     input = {
                         ...input,
                         ...normalizeInput(seed),
@@ -492,9 +496,11 @@ window.SUXI_SIMULATION_STATIC = (() => {
                 const savedResult = JSON.parse(localStorage.getItem('suxios_simulation_result') || 'null');
                 const savedScenarios = JSON.parse(localStorage.getItem('suxios_simulation_scenarios') || 'null');
                 const savedModelAnalysis = JSON.parse(localStorage.getItem('suxios_simulation_model_analysis') || 'null');
-                const result = savedResult && Object.prototype.hasOwnProperty.call(savedResult, 'monthlyRevenue') ? savedResult : null;
-                const scenarios = Array.isArray(savedScenarios) && savedScenarios[0] && Object.prototype.hasOwnProperty.call(savedScenarios[0], 'monthlyRevenue') ? savedScenarios : null;
-                const modelAnalysis = normalizeModelAnalysis(savedModelAnalysis || result?.modelAnalysis || result?.model_analysis);
+                const hasSavedResults = hasSavedDraft && savedResult && Object.prototype.hasOwnProperty.call(savedResult, 'monthlyRevenue')
+                    && Array.isArray(savedScenarios) && savedScenarios[0] && Object.prototype.hasOwnProperty.call(savedScenarios[0], 'monthlyRevenue');
+                const result = hasSavedResults ? savedResult : null;
+                const scenarios = hasSavedResults ? savedScenarios : null;
+                const modelAnalysis = result && scenarios ? normalizeModelAnalysis(savedModelAnalysis || result?.modelAnalysis || result?.model_analysis) : null;
                 return { input, result, scenarios, modelAnalysis };
             } catch (err) {
                 return { input, result: null, scenarios: null, modelAnalysis: null };
@@ -803,6 +809,32 @@ window.SUXI_SIMULATION_STATIC = (() => {
         }
     }
 
+    function simulationInputReadbackMatches(submitted, readback) {
+        if (!readback || typeof readback !== 'object' || Array.isArray(readback)) return false;
+        const expected = normalizeSimulationInput(submitted);
+        const groups = [...simulationInvestmentFieldGroups, ...simulationCostFieldGroups];
+        const keys = ['roomCount', ...groups.flatMap(group => group.fields.map(field => field.key)),
+            ...simulationRoomRevenueDefinitions.flatMap(row => [row.daysKey, row.adrKey, row.occupancyKey]),
+            ...simulationOtherIncomeFields.map(field => field.key),
+            ...simulationOtaCommissionChannelDefinitions.flatMap(row => [row.shareKey, row.rateKey])];
+        const numeric = value => ['number', 'string'].includes(typeof value)
+            && String(value).trim() !== '' && Number.isFinite(Number(value));
+        // QuantSimulationService::number and investmentGroup/costGroup round
+        // primitive values and group totals to four decimal places. Derived ADR
+        // and occupancy summaries may change during the formal normalization.
+        const rounded = value => {
+            const [mantissa, exponent = '0'] = String(Number(value)).split('e');
+            return Math.round(Number(`${mantissa}e${Number(exponent) + 4}`)) / 10000;
+        };
+        if (!keys.every(key => numeric(expected[key]) && numeric(readback[key])
+            && Number(readback[key]) === rounded(expected[key]))) return false;
+        if (!groups.every(group => numeric(readback[group.totalKey])
+            && Number(readback[group.totalKey]) === rounded(group.fields.reduce(
+                (total, field) => total + rounded(expected[field.key]), 0)))) return false;
+        return String(readback.input_source_status || '') === String(submitted.input_source_status || 'manual_unverified').trim()
+            && (Boolean(submitted.operatingScenario) || readback.operatingScenario == null);
+    }
+
     async function runSimulationCalculationFlow({ input = {}, projectName = '', request, applyRecord, loadRecords, isCurrent = () => true, clientRequestId } = {}) {
         const payloadInput = JSON.parse(JSON.stringify(input));
         const hotelId = Number(payloadInput.hotel_id || 0);
@@ -817,6 +849,17 @@ window.SUXI_SIMULATION_STATIC = (() => {
         });
         if (res.code !== 200) throw new Error(res.message || '量化模拟保存失败');
         if (!isCurrent()) return null;
+        const record = res.data;
+        if (!Number.isSafeInteger(record?.id) || record.id <= 0
+            || Number(record?.truth_context?.hotel_id) !== hotelId
+            || Number(record?.input?.hotel_id ?? record?.input?.system_hotel_id) !== hotelId
+            || (record?.input?.system_hotel_id !== undefined && Number(record.input.system_hotel_id) !== hotelId)
+            || record?.truth_context?.persistence?.readback_verified !== true) {
+            throw new Error('保存回读的记录、酒店或确认状态与本次输入不一致');
+        }
+        if (!simulationInputReadbackMatches(payloadInput, record.input)) {
+            throw new Error('保存回读的测算输入与本次输入不一致');
+        }
         if (payloadInput.operatingScenario) {
             const expected = normalizedOperatingScenario(payloadInput.operatingScenario);
             const readback = res.data?.input?.operatingScenario;

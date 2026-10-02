@@ -5,7 +5,6 @@ namespace app\controller;
 
 use app\middleware\RetiredFeatureReadOnly;
 
-use app\model\StrategySimulationRecord;
 use app\service\SimulationExecutionBridgeService;
 use app\service\SimulationExecutionReadinessService;
 use think\facade\Db;
@@ -31,7 +30,8 @@ class StrategySimulation extends Base
             $list = [];
             $beforeId = null;
             do {
-                $query = StrategySimulationRecord::whereNull('deleted_at');
+                // Raw saved JSON must survive until scope validation; model casts erase corrupt identities.
+                $query = Db::name('strategy_simulation_records')->whereNull('deleted_at');
                 $this->applyTenantScope($query);
                 if (!$this->currentUser->isSuperAdmin()) {
                     $query->where('created_by', (int)($this->currentUser->id ?? 0));
@@ -66,7 +66,7 @@ class StrategySimulation extends Base
                 return $this->error('战略推演记录ID无效', 422);
             }
 
-            $query = StrategySimulationRecord::where('id', $id)->whereNull('deleted_at');
+            $query = Db::name('strategy_simulation_records')->where('id', $id)->whereNull('deleted_at');
             $this->applyTenantScope($query);
             if (!$this->currentUser->isSuperAdmin()) {
                 $query->where('created_by', (int)($this->currentUser->id ?? 0));
@@ -77,7 +77,6 @@ class StrategySimulation extends Base
                 return $this->error('战略推演记录不存在或无权访问', 404);
             }
 
-            $row = $row->toArray();
             if (!$this->canReadHistoryHotel($row)) {
                 return $this->error('战略推演记录不存在或无权访问', 404);
             }
@@ -214,10 +213,24 @@ class StrategySimulation extends Base
     /** Historical unbound plans retain tenant/creator access; explicit hotel identity must be authorized. */
     private function canReadHistoryHotel(array $row): bool
     {
-        $record = ['input' => $this->decodeJson($row['input_json'] ?? []),
-            'data_snapshot' => $this->decodeJson($row['data_snapshot_json'] ?? [])];
-        $hasHotel = false;
-        foreach ($record as $container) {
+        $containers = [];
+        foreach (['input_json', 'data_snapshot_json', 'score_json', 'recommendation_json', 'risk_json'] as $field) {
+            $raw = $row[$field] ?? null;
+            if ($raw === null || (is_string($raw) && trim($raw) === '')) continue;
+            $payload = is_array($raw) ? $raw : (is_string($raw) ? json_decode($raw, true) : false);
+            if (!is_array($raw) && is_string($raw) && json_last_error() !== JSON_ERROR_NONE) return false;
+            if ($payload === null) continue;
+            // A valid JSON exponent can decode to INF; reject it before score casts or HTTP serialization.
+            if (!is_array($payload) || json_encode($payload) === false) return false;
+            if (!in_array($field, ['input_json', 'data_snapshot_json'], true)) continue;
+            $containers[] = $payload;
+            if (isset($payload['source_identity'])) {
+                if (!is_array($payload['source_identity'])) return false;
+                $containers[] = $payload['source_identity'];
+            }
+        }
+        $hotelIds = [];
+        foreach ($containers as $container) {
             foreach (['hotel_id', 'system_hotel_id', 'target_hotel_id'] as $field) {
                 $value = $container[$field] ?? null;
                 if (in_array($value, [null, '', 0, '0'], true)) continue;
@@ -225,12 +238,24 @@ class StrategySimulation extends Base
                     || filter_var($value, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]) === false) {
                     return false;
                 }
-                $hasHotel = true;
+                $hotelIds[] = (int)$value;
+            }
+            $tenantId = $container['tenant_id'] ?? null;
+            if (!in_array($tenantId, [null, '', 0, '0'], true)) {
+                if ((!is_int($tenantId) && !is_string($tenantId))
+                    || filter_var($tenantId, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]) === false
+                    || (int)$tenantId !== (int)($row['tenant_id'] ?? 0)) return false;
             }
         }
-        if (!$hasHotel) return true;
+        $hotelIds = array_values(array_unique($hotelIds));
+        if ($hotelIds === []) return true;
+        if (count($hotelIds) !== 1) return false;
         try {
-            $hotelId = (new SimulationExecutionReadinessService())->strategyExecutionHotelId($record);
+            $hotelId = $hotelIds[0];
+            $tenantId = (int)($row['tenant_id'] ?? 0);
+            if ($tenantId <= 0 || !Db::name('hotels')->where('id', $hotelId)->where('tenant_id', $tenantId)->find()) {
+                return false;
+            }
             $requestedHotelId = (int)$this->request->param('hotel_id', 0);
             if ($requestedHotelId > 0 && $requestedHotelId !== $hotelId) return false;
             if ($this->currentUser->isSuperAdmin()) return true;

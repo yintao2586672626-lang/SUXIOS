@@ -116,8 +116,9 @@ function Assert-NoReparsePoints {
     if (($cursor.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
       throw "Refusing linked cleanup path: $($cursor.FullName)"
     }
-    if ($cursor.FullName -eq $workspace) { break }
-    $cursor = Get-Item -LiteralPath ([IO.Path]::GetDirectoryName($cursor.FullName)) -Force
+    $parentPath = [IO.Path]::GetDirectoryName($cursor.FullName)
+    if ([string]::IsNullOrEmpty($parentPath)) { break }
+    $cursor = Get-Item -LiteralPath $parentPath -Force
   }
   $pending = New-Object 'System.Collections.Generic.Stack[string]'
   $pending.Push($Path)

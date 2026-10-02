@@ -53,8 +53,14 @@ function input(name = '合成方案 A', amount = 12345.67) {
   assert.equal(api.validateSimulationInput(value), ''); return value;
 }
 function record(value, id) {
+  // The service saves canonical group totals, rather than the stale summary
+  // still present in an edited request. Decimal/zero and selection oracles stay.
+  const canonicalInput = clone(value);
+  for (const group of [...api.buildSimulationInvestmentGroups(value), ...api.buildSimulationCostGroups(value)]) {
+    canonicalInput[group.totalKey] = Math.round(group.total * 10000) / 10000;
+  }
   return { id, project_name: value.operatingScenario.case_name,
-    input: { ...clone(value), operatingScenario: clone(api.normalizedOperatingScenario(value.operatingScenario)) },
+    input: { ...canonicalInput, operatingScenario: clone(api.normalizedOperatingScenario(value.operatingScenario)) },
     result: { operatingScenario: { case_name: value.operatingScenario.case_name, additional_cash_gap: 0 }, monthlyNetCashflow: 0 },
     scenarios: [], risk_hints: [],
     truth_context: { hotel_id: Number(value.hotel_id), tenant_id: 1, persistence: { readback_verified: true } },

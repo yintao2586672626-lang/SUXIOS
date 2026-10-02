@@ -423,8 +423,19 @@ class TransferDecisionService
                 return [];
             }
 
-            $query = $this->currentTenantTransferRecordQuery($hotelIds);
-            $rows = $query->order('transfer_record.id', 'desc')->limit(80)->select()->toArray();
+            $rows = [];
+            $beforeId = null;
+            do {
+                $query = $this->currentTenantTransferRecordQuery($hotelIds);
+                if ($beforeId !== null) $query->where('transfer_record.id', '<', $beforeId);
+                $batch = $query->order('transfer_record.id', 'desc')->limit(100)->select()->toArray();
+                foreach ($batch as $row) {
+                    $beforeId = (int)$row['id'];
+                    if (!$this->historySourceIdentityMatchesRow($row)) continue;
+                    $rows[] = $row;
+                    if (count($rows) >= 80) break 2;
+                }
+            } while (count($batch) === 100 && $beforeId > 0);
         } catch (Throwable $exception) {
             throw $this->transferRecordMigrationRequired($exception);
         }
@@ -448,7 +459,7 @@ class TransferDecisionService
         } catch (Throwable $exception) {
             throw $this->transferRecordMigrationRequired($exception);
         }
-        if (!$row) {
+        if (!$row || !$this->historySourceIdentityMatchesRow($row)) {
             throw new RuntimeException(self::TRANSFER_RECORD_SCOPE_MISSING);
         }
 
@@ -677,6 +688,36 @@ class TransferDecisionService
             $query->where('transfer_record.id', $recordId);
         }
         return $query;
+    }
+
+    /** Missing legacy identities are compatible; explicit saved identities must match the authoritative row. */
+    private function historySourceIdentityMatchesRow(array $row): bool
+    {
+        foreach (['input_json', 'result_json', 'snapshot_json'] as $field) {
+            $raw = $row[$field] ?? null;
+            if ($raw === null || (is_string($raw) && trim($raw) === '')) continue;
+            $payload = is_array($raw) ? $raw : (is_string($raw) ? json_decode($raw, true) : false);
+            if (!is_array($raw) && is_string($raw) && json_last_error() !== JSON_ERROR_NONE) return false;
+            if ($payload === null) continue;
+            // A valid JSON exponent can decode to INF; do not expose an unserializable success response.
+            if (!is_array($payload) || json_encode($payload) === false) return false;
+            $containers = [$payload];
+            if (isset($payload['source_identity'])) {
+                if (!is_array($payload['source_identity'])) return false;
+                $containers[] = $payload['source_identity'];
+            }
+            foreach ($containers as $container) {
+                foreach (['hotel_id', 'system_hotel_id', 'target_hotel_id', 'tenant_id'] as $identityField) {
+                    $value = $container[$identityField] ?? null;
+                    if (in_array($value, [null, '', 0, '0'], true)) continue;
+                    $rowField = $identityField === 'tenant_id' ? 'tenant_id' : 'hotel_id';
+                    if ((!is_int($value) && !is_string($value))
+                        || filter_var($value, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]) === false
+                        || (int)$value !== (int)($row[$rowField] ?? 0)) return false;
+                }
+            }
+        }
+        return true;
     }
 
     /** @return array<string,mixed> */

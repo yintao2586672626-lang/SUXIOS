@@ -52256,7 +52256,7 @@
                 target_grade: ''
             });
             const simulationStaticScript = 'simulation-static.js';
-            const simulationStaticScriptVersion = '20260830-hotspot-extraction-hd77835f2c4';
+            const simulationStaticScriptVersion = '20260830-hotspot-extraction-hbf98488380';
             const simulationStatic = ref(window.SUXI_SIMULATION_STATIC && typeof window.SUXI_SIMULATION_STATIC === 'object' ? window.SUXI_SIMULATION_STATIC : null);
             const simulationStaticLoadError = ref('');
             let simulationStaticLoadPromise = null;

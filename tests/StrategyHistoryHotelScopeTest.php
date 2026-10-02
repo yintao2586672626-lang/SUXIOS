@@ -119,6 +119,92 @@ final class StrategyHistoryHotelScopeTest extends TestCase
         self::assertSame([41, 38], array_column($response->getData()['data']['list'], 'id'));
     }
 
+    public function testBoundHistoryCannotOutliveTheAuthoritativeHotelTenantOrHotel(): void
+    {
+        $controller = $this->controller($this->user([7]));
+        Db::name('hotels')->where('id', 7)->update(['tenant_id' => 10]);
+        self::assertSame(404, $controller->detail(38)->getCode());
+        self::assertSame([41], array_column($controller->records()->getData()['data']['list'], 'id'));
+        Db::name('hotels')->where('id', 7)->delete();
+        self::assertSame(404, $controller->detail(38)->getCode());
+        self::assertSame(200, $controller->detail(41)->getCode(), 'Genuinely unbound legacy records remain readable.');
+        self::assertNull(Db::name('strategy_simulation_records')->where('id', 38)->value('deleted_at'));
+    }
+
+    public function testSavedSourceIdentityAndCorruptScopeCannotBecomeUnboundLegacyAccess(): void
+    {
+        $controller = $this->controller($this->user([7, 8]));
+        $this->put(70, ['hotel_id' => 7], 9, 3, ['source_identity' => ['hotel_id' => 8, 'tenant_id' => 9]]);
+        $this->put(71, ['hotel_id' => 7], 9, 3, ['tenant_id' => 10]);
+        $this->put(72, []);
+        Db::name('strategy_simulation_records')->where('id', 72)->update(['input_json' => '{"hotel_id":8']);
+        foreach ([70, 71, 72] as $id) {
+            $response = $controller->detail($id);
+            self::assertSame(404, $response->getCode(), (string)$id);
+            self::assertNull($response->getData()['data']);
+        }
+        self::assertSame([41, 38], array_column($controller->records()->getData()['data']['list'], 'id'));
+    }
+
+    public function testSourceIdentityOnlyBindingAndZeroLegacyIdentityKeepExactReadback(): void
+    {
+        $this->put(70, [], 9, 3, ['source_identity' => ['hotel_id' => '7', 'tenant_id' => '9'],
+            'data_date' => '2026-08-13', 'source' => 'ctrip', 'status' => 'unverified']);
+        $this->put(71, ['hotel_id' => 0, 'tenant_id' => 0]);
+        $controller = $this->controller($this->user([7]));
+        $detail = $controller->detail(70)->getData()['data'];
+        self::assertSame(['hotel_id' => '7', 'tenant_id' => '9'], $detail['data_snapshot']['source_identity']);
+        self::assertSame('2026-08-13', $detail['data_snapshot']['data_date']);
+        self::assertSame('ctrip', $detail['data_snapshot']['source']);
+        self::assertSame('unverified', $detail['data_snapshot']['status']);
+        self::assertSame(200, $controller->detail(71)->getCode());
+        self::assertSame(404, $this->controller($this->user([8]), 8)->detail(70)->getCode());
+    }
+
+    public function testLegacyNullAndEmptyJsonRemainReadableButScalarJsonCannotMasqueradeAsUnbound(): void
+    {
+        $controller = $this->controller($this->user([7]));
+        foreach ([null, 'null', ''] as $offset => $raw) {
+            $id = 70 + $offset;
+            $this->put($id, []);
+            Db::name('strategy_simulation_records')->where('id', $id)->update(['input_json' => $raw, 'data_snapshot_json' => $raw]);
+            $response = $controller->detail($id);
+            self::assertSame(200, $response->getCode());
+            self::assertSame(0, $response->getData()['data']['total_score']);
+            self::assertSame([], $response->getData()['data']['data_snapshot']);
+        }
+        foreach (['true', '7', '"scope"'] as $offset => $raw) {
+            $id = 80 + $offset;
+            $this->put($id, []);
+            Db::name('strategy_simulation_records')->where('id', $id)->update(['input_json' => $raw]);
+            $response = $controller->detail($id);
+            self::assertSame(404, $response->getCode());
+            self::assertNull($response->getData()['data']);
+        }
+        self::assertSame([72, 71, 70, 41, 38], array_column($controller->records()->getData()['data']['list'], 'id'));
+    }
+
+    public function testNonFiniteSavedValuesCannotProduceSuccessfulOrZeroHistoricalReadback(): void
+    {
+        $controller = $this->controller($this->user([7]));
+        foreach ([
+            ['input_json' => '{"hotel_id":7,"monthly_rent":1e999}'],
+            ['data_snapshot_json' => '{"hotel_id":7,"reference_value":1e999}'],
+            ['score_json' => '{"total_score":1e999}'],
+        ] as $offset => $override) {
+            $id = 70 + $offset;
+            $this->put($id, ['hotel_id' => 7]);
+            Db::name('strategy_simulation_records')->where('id', $id)->update($override);
+            $response = $controller->detail($id);
+            $serializationError = '';
+            try { $response->getContent(); } catch (\Throwable $exception) { $serializationError = $exception->getMessage(); }
+            self::assertSame(404, $response->getCode(), 'Rejected JSON must remain serializable; existing serializer error: ' . $serializationError);
+            self::assertNull($response->getData()['data']);
+        }
+        self::assertSame([41, 38], array_column($controller->records()->getData()['data']['list'], 'id'));
+        self::assertSame(0, $controller->detail(38)->getData()['data']['total_score']);
+    }
+
     private function put(int $id, array $input, int $tenant = 9, int $creator = 3, array $snapshot = []): void
     {
         Db::name('strategy_simulation_records')->insert([
