@@ -6,6 +6,7 @@
     "catalog_sha256": "5f54ae729f2742c307e819a76014b5152bfa2279e21b5d719a6ab0536244bcf8"
   },
   "migrations": {
+    "20261001_create_investment_payback_ledger.sql": "fd77dc4751665cefc02112ca95fcb1b4e614a1f680b0c8850e8a98a4f3f789de",
     "20250402_create_agent_tables.sql": "d684895c7aac7bb43495fdc568d410938cfdda8fd4ec4b10b2fc18f600b32f48",
     "20250402_enhance_agent_tables.sql": "b7c49299e8e4d668f3a496099d68f251fca6b08d9260bf9eb48286fb93209491",
     "20260509_create_strategy_simulation_tables.sql": "eeec6de19faf6a72f39cfdf3cb9e8ecb4e223bf7c34485d4b3dcf1cd11037b40",
