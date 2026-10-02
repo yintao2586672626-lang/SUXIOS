@@ -333,8 +333,6 @@
             return activeRender.apply(this, renderArgs);
         },
         components: {
-            ChartRenderFeedback,
-            OperationExecutionEvidenceViewer: appMainComponents.OperationExecutionEvidenceViewer,
             // SUXI_HOTEL_LEARNING_BEGIN
             HotelLearningWorkbench: Vue.defineAsyncComponent({
                 loader: () => loadOnlineDataComponentScript('components/system/hotel-learning-workbench.min.js?v=hotel-learning-h254727d5a3')
@@ -343,6 +341,8 @@
                 delay: 150,
             }),
             // SUXI_HOTEL_LEARNING_END
+            ChartRenderFeedback,
+            OperationExecutionEvidenceViewer: appMainComponents.OperationExecutionEvidenceViewer,
             OperationTaskWorkflowPanel: appMainComponents.OperationTaskWorkflowPanel || Vue.defineAsyncComponent(() => loadOnlineDataComponentScript('components/operations/task-workflow-panel.js?v=20260908-workflow-v1').then(() => window.SUXI_TASK_WORKFLOW_PANEL.create({ Vue, h }))),
             CompassCardHeader,
             MetricCard,
