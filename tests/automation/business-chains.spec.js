@@ -687,6 +687,13 @@ test('business chain: OTA import to revenue, operation task, and tracking', asyn
 
       await goModule(page, MODULE.AI_DAILY_REPORT);
       await goModule(page, MODULE.EXECUTION_TRACKING);
+      await Promise.all([
+        page.waitForResponse((response) => (
+          response.url().includes('/api/operation/execution-flow')
+          && response.request().method() === 'GET'
+        )),
+        page.locator('#operation-execution-view').selectOption('all'),
+      ]);
       const closedLoopRow = page.getByTestId('page-ops-track').locator('tbody tr').filter({
         hasText: observingSummary,
       }).first();
