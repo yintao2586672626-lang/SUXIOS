@@ -141,7 +141,7 @@ final class InvestmentScenarioPersistenceTest extends TestCase
             }
             self::assertSame($before, $this->ledgerRows(), $action);
         }
-        self::assertSame(['procurement_reference' => false, 'actual_consumables_reference' => false], $service->detail($id)['capabilities']);
+        self::assertSame(['procurement_reference' => false, 'actual_consumables_reference' => true], $service->detail($id)['capabilities']);
     }
 
     public function testPreviewHasNoWritesAndChangedStaleSaveIsRejected(): void
@@ -185,9 +185,9 @@ final class InvestmentScenarioPersistenceTest extends TestCase
         self::assertSame(0, Db::name('investment_payback_entries')->count());
     }
 
-    public function testEmptyActualEvidenceFieldsSaveAndReadBackWithoutRequiringTheOptionalModule(): void
+    public function testEmptyActualEvidenceFieldsSaveAndReadBackWithTheIntegratedEvidenceModule(): void
     {
-        self::assertFalse(class_exists(\app\service\ActualConsumablesScenarioReferenceService::class));
+        self::assertTrue(class_exists(\app\service\ActualConsumablesScenarioReferenceService::class));
         $id = Fixture::ledger()->saveProject(Fixture::project())['project']['id'];
         $service = Fixture::scenarios();
         $input = (new InvestmentScenarioCalculator())->referenceExample();
@@ -204,15 +204,19 @@ final class InvestmentScenarioPersistenceTest extends TestCase
         self::assertNull($read['input']['cost_evidence_snapshot_id']);
         self::assertNull($read['input']['cost_evidence_digest']);
         self::assertFalse($read['input']['cost_evidence_confirmed']);
-        self::assertFalse($read['capabilities']['actual_consumables_reference']);
+        self::assertTrue($read['capabilities']['actual_consumables_reference']);
         $before = $this->ledgerRows();
         self::assertSame('unchanged', $service->save($id, ['expected_version' => 1, 'scenario' => $input])['action']);
         self::assertSame($before, $this->ledgerRows());
     }
 
-    public function testAnySubmittedActualEvidenceBindingRejectsWithoutChangingTheSavedScenarioOrCash(): void
+    public function testInvalidOrUnresolvedActualEvidenceBindingRejectsWithoutChangingTheSavedScenarioOrCash(): void
     {
-        self::assertFalse(class_exists(\app\service\ActualConsumablesScenarioReferenceService::class));
+        self::assertTrue(class_exists(\app\service\ActualConsumablesScenarioReferenceService::class));
+        // This isolated ledger fixture has no operating evidence. A complete binding
+        // must reach the integrated evidence lookup and fail explicitly as missing.
+        Db::execute('CREATE TABLE ' . \app\service\OperatingEvidenceSnapshotStore::TABLE . ' (id INTEGER PRIMARY KEY, tenant_id INTEGER NOT NULL, '
+            . 'hotel_id INTEGER NOT NULL, kind TEXT NOT NULL, period_month TEXT NOT NULL)');
         $ledger = Fixture::ledger();
         $id = $ledger->saveProject(Fixture::project())['project']['id'];
         $cash = $ledger->saveEntry($id, ['kind' => 'investment', 'amount' => '1000.01', 'date' => '2026-10-01',
@@ -227,9 +231,14 @@ final class InvestmentScenarioPersistenceTest extends TestCase
             foreach (['preview', 'save'] as $action) {
                 try {
                     $service->{$action}($id, ['expected_version' => $saved['project_version'], 'scenario' => array_replace($input, $binding)]);
-                    self::fail('An unavailable actual-cost evidence binding must fail explicitly');
+                    self::fail('An invalid or unresolved actual-cost evidence binding must fail explicitly');
                 } catch (InvalidArgumentException $error) {
-                    self::assertStringContainsString('实际耗材证据尚未接入', $error->getMessage());
+                    self::assertNotCount(3, $binding, 'A complete binding must reach the scoped evidence lookup');
+                    self::assertStringContainsString('实际耗材引用须提供完整快照与明确采用确认', $error->getMessage());
+                } catch (RuntimeException $error) {
+                    self::assertCount(3, $binding);
+                    self::assertSame(404, $error->getCode());
+                    self::assertStringContainsString('实际耗材证据不存在或与当前项目酒店不一致', $error->getMessage());
                 }
                 self::assertSame($before, $this->ledgerRows(), $action . ':' . implode(',', array_keys($binding)));
                 self::assertSame($saved['content_digest'], $service->detail($id)['content_digest']);
