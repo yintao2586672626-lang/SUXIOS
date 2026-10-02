@@ -1364,8 +1364,8 @@
     "shared_files_and_generated_assets": "semantic integration and target rebuild still pending"
   },
   "composed_acceptance": {
-    "at": "2026-10-02T13:04:20.169Z",
-    "prepared_against_head": "03541c067e53d54e8eb84edbc461dec44e216c10",
+    "at": "2026-10-02T13:06:36.589Z",
+    "prepared_against_head": "1f33bd5cf1072666f0e769cf7a88c812ccae96f0",
     "receipt": "docs/integration/receipts/composed-main-thread-20261002.json",
     "verification": {
       "scope": "explicit composed target files including latest main; isolated synthetic fixtures",
@@ -1382,7 +1382,18 @@
         "tests": 286,
         "passed": 286,
         "files": 26,
-        "components": "19files207 + learning35 + route2 + legacyfinance1 + hotelmigration22 + ctrip11 + ownership8"
+        "components": "19files207 + learning35 + route2 + legacyfinance1 + hotelmigration22 + ctrip11 + ownership8",
+        "runner_breakdown": {
+          "playwright": {
+            "tests": 1,
+            "files": 1
+          },
+          "node": {
+            "tests": 285,
+            "files": 25
+          },
+          "caliber": "26files286 automation tests; separate seven mounted probes"
+        }
       },
       "browser_probes": {
         "scope": "finance facade, learning, investment/import/scenario, review exact readback/export, deferred network/factory retry",
@@ -1400,7 +1411,7 @@
         "public_actions": 787,
         "covered": true
       },
-      "integration_gate": "mandatory staged exact-index pre-commit gate; clean final worktree gate recorded after merge commit",
+      "integration_gate": "passed by mandatory exact-index pre-commit; final clean worktree gate separately verified before delivery",
       "real_business_database_writes": false,
       "real_account_acceptance": false,
       "production_migration": false,

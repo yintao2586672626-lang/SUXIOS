@@ -1417,7 +1417,7 @@
       }
     },
     "delivery_20261002": {
-      "prepared_against_head": "03541c067e53d54e8eb84edbc461dec44e216c10",
+      "prepared_against_head": "1f33bd5cf1072666f0e769cf7a88c812ccae96f0",
       "dos_introduction": {
         "source_commit": "61554d9aa1081a39e242f95f66a9d721bc68b006",
         "source_blob": "72aca9496737bad552726935934d19cf2a0f4b12",
@@ -1493,7 +1493,18 @@
             "tests": 286,
             "passed": 286,
             "files": 26,
-            "components": "19files207 + learning35 + route2 + legacyfinance1 + hotelmigration22 + ctrip11 + ownership8"
+            "components": "19files207 + learning35 + route2 + legacyfinance1 + hotelmigration22 + ctrip11 + ownership8",
+            "runner_breakdown": {
+              "playwright": {
+                "tests": 1,
+                "files": 1
+              },
+              "node": {
+                "tests": 285,
+                "files": 25
+              },
+              "caliber": "26files286 automation tests; separate seven mounted probes"
+            }
           },
           "browser_probes": {
             "scope": "finance facade, learning, investment/import/scenario, review exact readback/export, deferred network/factory retry",
@@ -1511,7 +1522,7 @@
             "public_actions": 787,
             "covered": true
           },
-          "integration_gate": "mandatory staged exact-index pre-commit gate; clean final worktree gate recorded after merge commit",
+          "integration_gate": "passed by mandatory exact-index pre-commit; final clean worktree gate separately verified before delivery",
           "real_business_database_writes": false,
           "real_account_acceptance": false,
           "production_migration": false,
@@ -3368,8 +3379,8 @@
     {
       "path": "docs/integration/composed-delivery-20261002.md",
       "state": "added",
-      "bytes": 2440,
-      "sha256": "2cbbe557dd7e13bb242dd4050041c00ddab51cd5ebdf868e41a16bc86a2d4b95",
+      "bytes": 2445,
+      "sha256": "9e9e94f58e2b49e594fa2dc15f36de0d1c4af0d53d7e69221cc706b254a98713",
       "previous_payloads": [
         {
           "sha256": "d933ea39c62b783342fa5b6c15d0f1e85cc8c0a8d7f6085899f1cf56388dfca0",
@@ -3386,6 +3397,10 @@
         {
           "sha256": "00a3f83de736b99f29d47eaa7b1620270289d7648f833750c60f9110fdb5a418",
           "prepared_before_head": "03541c067e53d54e8eb84edbc461dec44e216c10"
+        },
+        {
+          "sha256": "2cbbe557dd7e13bb242dd4050041c00ddab51cd5ebdf868e41a16bc86a2d4b95",
+          "prepared_before_head": "1f33bd5cf1072666f0e769cf7a88c812ccae96f0"
         }
       ]
     },
@@ -3410,8 +3425,8 @@
     {
       "path": "docs/integration/receipts/changqing-main-thread-receipt-20261002.json",
       "state": "added",
-      "bytes": 49423,
-      "sha256": "ce498351d085abb48e9c04e8e07997222ac6c8b7ef24a5f2aa7c1db0a0e8b579",
+      "bytes": 49721,
+      "sha256": "46ed2646d58fca910b0b69ed9250d81330c46adaf55784dcafd2e2e15fb3493b",
       "previous_payloads": [
         {
           "sha256": "f78eca3a68bcd653ea8f7cccd301bc89f7117752e957802845bd45ecc5e0da44",
@@ -3432,14 +3447,18 @@
         {
           "sha256": "042979a9c262a29bd39ec603e33689e4b0af673e4bb0d0ffe70b6dcb8ca49dec",
           "prepared_before_head": "03541c067e53d54e8eb84edbc461dec44e216c10"
+        },
+        {
+          "sha256": "ce498351d085abb48e9c04e8e07997222ac6c8b7ef24a5f2aa7c1db0a0e8b579",
+          "prepared_before_head": "1f33bd5cf1072666f0e769cf7a88c812ccae96f0"
         }
       ]
     },
     {
       "path": "docs/integration/receipts/changqing-main-thread-receipt-20261002.md",
       "state": "added",
-      "bytes": 9005,
-      "sha256": "f1758779dc7b51e69104c842e1f534e5c31261ee3d985493c3e9e0b71872e240",
+      "bytes": 9018,
+      "sha256": "12fd49f6ad290313fe00ea69e865716898787a6b2421bce5f1aa9b33955f953f",
       "previous_payloads": [
         {
           "sha256": "94f5593f4fd7b33f07f88e8cfed06839a60d81c0670f8c53ed52eccf9ab06af9",
@@ -3460,6 +3479,10 @@
         {
           "sha256": "67b1cc83ea85a0435a1b5bfb3cc005454ab8598bce68a6fc04e52ea3bda0041b",
           "prepared_before_head": "03541c067e53d54e8eb84edbc461dec44e216c10"
+        },
+        {
+          "sha256": "f1758779dc7b51e69104c842e1f534e5c31261ee3d985493c3e9e0b71872e240",
+          "prepared_before_head": "1f33bd5cf1072666f0e769cf7a88c812ccae96f0"
         }
       ]
     },
@@ -3472,8 +3495,8 @@
     {
       "path": "docs/integration/receipts/composed-main-thread-20261002.json",
       "state": "added",
-      "bytes": 49460,
-      "sha256": "d2736cf1c9115b952bd13b71438834a53374e2e18df3c0cac87ddbe42dc0369c",
+      "bytes": 49736,
+      "sha256": "df07e4234761a36d0b0906b6f546d97cc5ade3254de064fbf02b6e11d7ed4d48",
       "previous_payloads": [
         {
           "sha256": "5a94e1405242f2f7f93a58e2923dc09928031d55351f190d61d6a40ac276964b",
@@ -3490,6 +3513,10 @@
         {
           "sha256": "107dfc2698c8f357aff79000cf137914a8a3429d1e6893198cbd4fedb2525ab9",
           "prepared_before_head": "03541c067e53d54e8eb84edbc461dec44e216c10"
+        },
+        {
+          "sha256": "d2736cf1c9115b952bd13b71438834a53374e2e18df3c0cac87ddbe42dc0369c",
+          "prepared_before_head": "1f33bd5cf1072666f0e769cf7a88c812ccae96f0"
         }
       ]
     },
