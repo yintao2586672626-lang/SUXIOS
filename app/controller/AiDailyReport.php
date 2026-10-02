@@ -6,6 +6,7 @@ namespace app\controller;
 use app\service\AiDailyReportService;
 use app\service\AiDailyReportPresentationArtifactService;
 use app\service\AiDailyReportPresentationSpecService;
+use app\service\AiDailyReportPresentationReviewService;
 use app\service\AiReportGenerationTaskService;
 use app\service\ApiExceptionMapper;
 use app\service\OtaCompetitionAnalysisBundleService;
@@ -23,6 +24,10 @@ class AiDailyReport extends Base
         'flagship_generation_requires_admin' => 403,
         'AI daily report not found' => 404,
         'presentation spec stale; refresh the report and retry' => 409,
+        'presentation_review_stale' => 409,
+        'presentation_review_idempotency_conflict' => 409,
+        'presentation_review_required_before_formal_export' => 409,
+        'presentation_review_hotel_not_permitted' => 403,
     ];
 
     private AiDailyReportService $service;
@@ -299,11 +304,56 @@ class AiDailyReport extends Base
             return $this->success($this->presentationArtifactService->saveAndReadback(
                 $storedSpec,
                 $userId,
-                true
+                true,
+                trim((string)($input['export_mode'] ?? 'draft')),
+                strtolower(trim((string)($input['expected_review_fingerprint'] ?? '')))
             ));
         } catch (Throwable $e) {
             return ApiExceptionMapper::response($e, 'AI daily report presentation artifact save failed', self::API_BUSINESS_EXCEPTIONS);
         }
+    }
+
+    public function presentationReview(int $id): Response
+    {
+        try {
+            [$storedSpec, $hotelIds] = $this->presentationReviewScope($id, $this->request->get());
+            return $this->success((new AiDailyReportPresentationReviewService())->readForSpec($storedSpec, $hotelIds));
+        } catch (Throwable $e) {
+            return ApiExceptionMapper::response($e, 'AI daily report presentation review read failed', self::API_BUSINESS_EXCEPTIONS);
+        }
+    }
+
+    public function savePresentationReview(int $id): Response
+    {
+        try {
+            $input = $this->requestData();
+            [$storedSpec, $hotelIds] = $this->presentationReviewScope($id, $input);
+            return $this->success((new AiDailyReportPresentationReviewService())->saveAndReadback(
+                $storedSpec, $hotelIds, $input, (int)($this->currentUser->id ?? 0)
+            ));
+        } catch (Throwable $e) {
+            return ApiExceptionMapper::response($e, 'AI daily report presentation review save failed', self::API_BUSINESS_EXCEPTIONS);
+        }
+    }
+
+    private function presentationReviewScope(int $id, array $input): array
+    {
+        [$hotelIds] = $this->resolveHotelScope();
+        $report = $this->service->read($id, $hotelIds);
+        if (!is_array($report)) throw new \RuntimeException('AI daily report not found');
+        $hotelId = (int)($report['hotel_id'] ?? 0);
+        if (($denied = $this->hotelCapabilityDeniedResponse($hotelId, 'report.export', 'report.export permission is required for this hotel')) !== null) {
+            throw new \think\exception\HttpException(403, 'report.export permission is required for this hotel');
+        }
+        $audience = trim((string)($input['audience'] ?? 'owner'));
+        $stored = $this->presentationSpecService->readLatest($id, $hotelIds, $this->presentationSpecService->resolveTenantScope($report), $audience);
+        $currentFingerprint = $this->presentationSpecService->build($report, $audience)['spec_fingerprint'];
+        if (!$stored || (int)($input['presentation_spec_id'] ?? 0) !== (int)$stored['record_id']
+            || (string)($input['expected_spec_fingerprint'] ?? '') !== $stored['spec_fingerprint']
+            || !hash_equals($currentFingerprint, $stored['spec_fingerprint'])) {
+            throw new \RuntimeException('presentation spec stale; refresh the report and retry');
+        }
+        return [$stored, $hotelIds];
     }
 
     public function presentationArtifact(int $id): Response
@@ -347,6 +397,9 @@ class AiDailyReport extends Base
             }
             $currentSpecId = (int)($currentSpec['record_id'] ?? 0);
             $currentSpecFingerprint = strtolower(trim((string)($currentSpec['spec_fingerprint'] ?? '')));
+            if (!hash_equals($this->presentationSpecService->build($report, $audience)['spec_fingerprint'], $currentSpecFingerprint)) {
+                return $this->success($this->emptyPresentationArtifactState($report, $audience, 'presentation_spec_changed_review_pending'));
+            }
             $stored = $this->presentationArtifactService->readLatest(
                 $id,
                 $hotelIds,
@@ -489,6 +542,8 @@ class AiDailyReport extends Base
             'spec_fingerprint' => strtolower(trim((string)($spec['spec_fingerprint'] ?? ''))) ?: null,
             'artifact_id' => null,
             'artifact_readback_verified' => false,
+            'human_review_status' => 'pending',
+            'export_mode' => 'draft',
             'bundle_base64' => null,
         ];
     }

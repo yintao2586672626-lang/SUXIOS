@@ -1094,7 +1094,7 @@
                 'online-data',
                 'revenue-research-center',
                 'operation-optimizer',
-                'operating-opportunities',
+                'operating-opportunities', 'operating-finance', 'investment-payback',
                 'operating-targets',
                 'ai-daily-report',
                 'ctrip-ebooking',
@@ -17610,7 +17610,7 @@
                                 testid: 'nav-core-operations-loop',
                             },
                         },
-                        { type: 'source', sourcePath: 'revenue-research-center', overrides: { name: '收益诊断' } },
+                        { type: 'source', sourcePath: 'revenue-research-center', overrides: { name: '收益诊断' } }, { type: 'source', sourcePath: 'investment-payback', overrides: { name: '投资回本' } },
                         { type: 'source', sourcePath: 'operation-optimizer', overrides: { name: '运营优化台' } },
                         { type: 'source', sourcePath: 'operating-opportunities', overrides: { name: '经营机会' } },
                         { type: 'source', sourcePath: 'operating-finance', overrides: { name: '净收与恢复' } },
@@ -34448,7 +34448,7 @@
                         }
                         loginError.value = '';
                         beginAuthSession(res.data.token);
-                        user.value = res.data.user;
+                        user.value = res.data.user; initialPageOverride = resolveInitialPageOverride(requestedInitialPage, res.data.user);
                         applyAuthContext(res.data.context || res.data.user?.context || {});
                         saveCachedAuthUser(res.data.user);
                         const permittedHotelSnapshot = res.data.user?.permitted_hotels;

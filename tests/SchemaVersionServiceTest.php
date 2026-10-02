@@ -59,6 +59,45 @@ final class SchemaVersionServiceTest extends TestCase
         $this->removeTree($this->root);
     }
 
+    public function testSelectedMigrationLeavesOtherPendingFilesUntouchedAndStatusNotReady(): void
+    {
+        $this->service->initializeFreshFromInitFull();
+        file_put_contents($this->root . '/database/migrations/20260703_create_beta.sql', 'CREATE TABLE beta (id INTEGER PRIMARY KEY);');
+        file_put_contents($this->root . '/database/migrations/20260704_create_gamma.sql', 'CREATE TABLE gamma (id INTEGER PRIMARY KEY);');
+
+        $result = $this->service->migrate(['20260703_create_beta.sql']);
+        self::assertSame(['20260703_create_beta.sql'], $result['executed']);
+        self::assertFalse($result['status']['ready']);
+        self::assertSame(['20260704_create_gamma.sql'], $result['status']['pending']);
+        self::assertSame(0, (int)$this->pdo->query("SELECT COUNT(*) FROM sqlite_master WHERE name = 'gamma'")->fetchColumn());
+        self::assertSame(0, (int)$this->pdo->query("SELECT COUNT(*) FROM schema_versions WHERE migration = '20260704_create_gamma.sql'")->fetchColumn());
+        $full = $this->service->migrate();
+        self::assertSame(['20260704_create_gamma.sql'], $full['executed']);
+        self::assertTrue($full['status']['ready']);
+    }
+
+    public function testInvalidExplicitMigrationSelectionNeverExpandsToAllPending(): void
+    {
+        $this->service->initializeFreshFromInitFull();
+        file_put_contents($this->root . '/database/migrations/20260703_create_beta.sql', 'CREATE TABLE beta (id INTEGER PRIMARY KEY);');
+        foreach ([[], ['20260799_unknown.sql'], ['../20260703_create_beta.sql'], [false]] as $selection) {
+            try { $this->service->migrate($selection); self::fail('Invalid explicit selection was accepted'); }
+            catch (RuntimeException $error) { self::assertStringContainsString('migration selection', $error->getMessage()); }
+            self::assertSame(0, (int)$this->pdo->query("SELECT COUNT(*) FROM sqlite_master WHERE name = 'beta'")->fetchColumn());
+        }
+    }
+
+    public function testSelectedMigrationStillRejectsChecksumDriftOutsideSelection(): void
+    {
+        $this->service->initializeFreshFromInitFull();
+        file_put_contents($this->root . '/database/migrations/20260703_create_beta.sql', 'CREATE TABLE beta (id INTEGER PRIMARY KEY);');
+        file_put_contents($this->root . '/database/migrations/20260702_seed_alpha.sql', '-- changed applied file');
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('registered checksums');
+        try { $this->service->migrate(['20260703_create_beta.sql']); }
+        finally { self::assertSame(0, (int)$this->pdo->query("SELECT COUNT(*) FROM sqlite_master WHERE name = 'beta'")->fetchColumn()); }
+    }
+
     public function testFreshInitializationRegistersBaselineAndPendingMigrations(): void
     {
         $result = $this->service->initializeFreshFromInitFull();

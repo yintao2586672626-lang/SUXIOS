@@ -21,3 +21,5 @@ docs/knowledge/semantic-glossary/exports/*.csv whitespace=trailing-space,cr-at-e
 database/migrations/20260825_add_wecom_inbound_processing_lease.sql whitespace=-blank-at-eof
 plugins/suxi-os-toolkit/.codex-plugin/plugin.json whitespace=trailing-space,cr-at-eol
 docs/knowledge/hkos-workbench/sources/controlled-source-policy.cjs.txt whitespace=-blank-at-eof
+# The procurement reference service verifies these original files byte for byte.
+docs/knowledge/consumables-price-list-20261001/** -text whitespace=trailing-space,cr-at-eol

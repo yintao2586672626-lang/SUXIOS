@@ -11,6 +11,11 @@
         return `${values.year}-${values.month}-${values.day}`;
     };
     const currentMonth = () => shanghaiDate().slice(0, 7);
+    const feedbackEntryRequest = () => {
+        const query = new URLSearchParams(window.location?.search || '');
+        if (query.get('page') !== 'operating-finance' || query.get('workspace') !== 'guests' || !query.has('feedback_entry')) return null;
+        return { hotelId: Number(query.get('hotel_id')), key: String(query.get('feedback_entry') || '').slice(0, 128) };
+    };
     const monthEndDate = periodMonth => {
         const match = /^(\d{4})-(\d{2})$/.exec(String(periodMonth || ''));
         if (!match) throw new Error('账期格式无效');
@@ -182,10 +187,12 @@
             selectedHotelId: { type: [String, Number], default: '' },
             canExecute: { type: Boolean, default: false },
         },
-        emits: ['update:selected-hotel-id'],
+        components: { OperatingEconomicsWorkbench: components.OperatingEconomicsWorkbench, BookingMonitoringPanel: components.BookingMonitoringPanel, InvestmentOperatingBridgePanel: components.InvestmentOperatingBridgePanel, BusinessFeatureWorkspace: components.BusinessFeatureWorkspace },
+        emits: ['update:selected-hotel-id', 'open-investment-ledger', 'business-navigate'],
         data: () => ({
             hotelId: '', businessDate: shanghaiDate(), periodMonth: currentMonth(), stayDate: shanghaiDate(1), platform: 'ctrip',
-            activeTab: 'settlement', loading: false, error: '', overview: null, requestSeq: 0,
+            activeTab: 'settlement', loading: false, error: '', overview: null, requestSeq: 0, businessWorkspaceSettings: null,
+            feedbackEntryRequest: feedbackEntryRequest(), feedbackEntryResolved: false, feedbackEntryError: '',
             settlementText: '', settlementUploadFile: null, settlementFileName: '', settlementVerified: false,
             settlementInputKey: 0, settlementParserVersion: 'canonical_settlement_json.v1', savingSettlement: false,
             settlementImportNotice: null, settlementSaveSeq: 0, settlementScopeSeq: 0,
@@ -213,8 +220,9 @@
             },
             tabs() {
                 return [
+                    ['workspace', '三批功能与自定义'],
                     ['settlement', '净收入对账'], ['recovery', '阻塞恢复'], ['booking', '预订节奏'],
-                    ['demand', '需求日历'], ['wecom', '企微回执'], ['finance', '月度经营贡献'], ['portfolio', '多店组合'],
+                    ['demand', '需求日历'], ['wecom', '企微回执'], ['finance', '月度经营贡献'], ['economics', '渠道贡献与耗材'], ['portfolio', '多店组合'],
                 ];
             },
             currentSettlement() { return this.overview?.settlement || {}; },
@@ -230,7 +238,9 @@
             currentDemand() { return this.overview?.demand_calendar || {}; },
             currentWecom() { return this.overview?.wecom_task_receipt || {}; },
             currentFinance() { return this.overview?.monthly_finance || {}; },
+            currentInvestmentBridge() { return this.overview?.investment_bridge || {}; },
             currentPortfolio() { return this.overview?.portfolio || {}; },
+            feedbackEntryKey() { return Number(this.hotelId) === this.feedbackEntryRequest?.hotelId ? this.feedbackEntryRequest.key : ''; },
             visibleFinanceFields() {
                 return financeFields.filter(field => field.scopes.includes(this.financeForm.fact_scope));
             },
@@ -276,6 +286,18 @@
                 }
             } },
             hotels: { immediate: true, handler() {
+                if (this.feedbackEntryRequest && !this.feedbackEntryResolved) {
+                    if (!this.normalizedHotels.length) return;
+                    this.feedbackEntryResolved = true;
+                    const requested = this.feedbackEntryRequest;
+                    if (!requested.key || !this.normalizedHotels.some(hotel => hotel.id === requested.hotelId)) {
+                        this.hotelId = ''; this.overview = null; this.requestSeq += 1;
+                        this.feedbackEntryError = '反馈入口酒店不在当前权限范围，请检查登录账号和入口地址。';
+                        return;
+                    }
+                    this.hotelId = String(requested.hotelId); this.activeTab = 'workspace';
+                    this.$emit('update:selected-hotel-id', this.hotelId);
+                }
                 if (!this.normalizedHotels.some(hotel => String(hotel.id) === String(this.hotelId))) {
                     const preferred = String(this.selectedHotelId || '');
                     this.hotelId = this.normalizedHotels.some(hotel => String(hotel.id) === preferred)
@@ -287,6 +309,7 @@
                 if (previous != null && String(value) !== String(previous)) {
                     this.resetAllWriteDrafts();
                     this.resetSettlementHistory();
+                    this.businessWorkspaceSettings = null;
                 }
             },
             businessDate() { if (this.hotelId) void this.loadOverview(); },
@@ -324,6 +347,12 @@
             discrepancyText,
             gapText,
             money(value) { return value == null || value === '' ? '未取得' : `¥${Number(value).toLocaleString('zh-CN', { maximumFractionDigits: 2 })}`; },
+            openWorkspaceFinance(event) {
+                if (!['booking', 'portfolio', 'economics', 'finance'].includes(event?.tab)) return;
+                this.businessWorkspaceSettings = event.settings || null;
+                this.activeTab = event.tab;
+                if (event.settings?.preferred_platform) this.platform = event.settings.preferred_platform;
+            },
             async loadOverview() {
                 const hotelId = Number(this.hotelId || 0);
                 const seq = ++this.requestSeq;
@@ -888,6 +917,9 @@
                     <button v-for="tab in tabs" :key="tab[0]" type="button" @click="activeTab = tab[0]" :data-testid="'operating-finance-tab-' + tab[0]" :class="['whitespace-nowrap rounded-xl px-4 py-2 text-sm font-medium', activeTab === tab[0] ? 'operating-finance-tab-active' : 'text-slate-600 hover:bg-slate-50']">{{ tab[1] }}</button>
                 </nav>
 
+                <p v-if="feedbackEntryError" role="alert" class="rounded-xl bg-red-50 p-3 text-sm text-red-700">{{ feedbackEntryError }}</p>
+                <business-feature-workspace v-if="activeTab === 'workspace' && hotelId && !feedbackEntryError" :key="hotelId" :request="request" :hotels="hotels" :hotel-id="hotelId" :can-execute="canExecute" :initial-section="feedbackEntryKey ? 'guests' : 'configuration'" :entry-key="feedbackEntryKey" @navigate="$emit('business-navigate', $event)" @finance-tab="openWorkspaceFinance" @settings-applied="businessWorkspaceSettings = $event" @update:selected-hotel-id="hotelId = String($event); $emit('update:selected-hotel-id', String($event))"></business-feature-workspace>
+
                 <section v-if="activeTab === 'settlement'" class="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(360px,.75fr)]" data-testid="operating-finance-settlement">
                     <div class="min-w-0 rounded-2xl border border-slate-200 bg-white p-5">
                         <div class="flex items-center justify-between"><h3 class="font-bold text-slate-900">OTA净收入与差异</h3><span class="rounded-full border px-2 py-1 text-xs">{{ statusText(currentSettlement.batch_status || currentSettlement.status) }}</span></div>
@@ -989,6 +1021,9 @@
 
                 <section v-if="activeTab === 'portfolio'" class="rounded-2xl border border-slate-200 bg-white p-5" data-testid="operating-finance-portfolio"><div class="flex items-center justify-between"><h3 class="font-bold text-slate-900">多店老板组合视图</h3><span class="rounded-full border px-2 py-1 text-xs">{{ statusText(currentPortfolio.ranking_status || currentPortfolio.status) }}</span></div><div class="mt-4 overflow-x-auto"><table class="min-w-full text-left text-sm"><thead class="text-xs text-slate-400"><tr><th class="px-3 py-2">酒店</th><th class="px-3 py-2">范围</th><th class="px-3 py-2">来源</th><th class="px-3 py-2">税口径</th><th class="px-3 py-2">状态</th><th class="px-3 py-2">GOP</th><th class="px-3 py-2">GOP率</th><th class="px-3 py-2">同口径排名</th></tr></thead><tbody><tr v-for="item in currentPortfolio.items || []" :key="item.hotel_id" class="border-t border-slate-100"><td class="px-3 py-3 font-medium">{{ item.hotel_name }}</td><td class="px-3 py-3">{{ scopeText(item.fact_scope) }}</td><td class="px-3 py-3">{{ statusText(item.source_quality_status) }}</td><td class="px-3 py-3">{{ item.tax_basis === 'tax_inclusive' ? '含税' : (item.tax_basis === 'tax_exclusive' ? '不含税' : '未确认') }}</td><td class="px-3 py-3">{{ statusText(item.status) }}</td><td class="px-3 py-3">{{ money(item.gop) }}</td><td class="px-3 py-3">{{ item.gop_margin_percent ?? '未取得' }}</td><td class="px-3 py-3">{{ item.rank ?? '不可比' }}</td></tr></tbody></table></div><p class="mt-3 text-xs text-slate-500">只有所有授权酒店都具备同账期、全酒店口径、完整成本、CNY、相同含税/不含税口径、同一指标版本且已人工核对来源时才显示人工快照排名；排名不等于会计审计，也不授权员工奖惩或跨店数据外发。</p></section>
             </section>
+            <operating-economics-workbench v-if="activeTab === 'economics' && hotelId" :request="request" :hotel-id="hotelId" :period-month="periodMonth" :platform="platform" :can-execute="canExecute"></operating-economics-workbench>
+            <booking-monitoring-panel v-if="activeTab === 'booking'" :request="request" :hotels="hotels" :selected-hotel-id="hotelId" :can-execute="canExecute" :workspace-settings="businessWorkspaceSettings"></booking-monitoring-panel>
+            <investment-operating-bridge-panel v-if="activeTab === 'finance' || activeTab === 'portfolio'" :bridge="currentInvestmentBridge" :loading="loading" @open-ledger="$emit('open-investment-ledger')"></investment-operating-bridge-panel>
         `,
     };
 })();

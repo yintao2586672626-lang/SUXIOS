@@ -3,7 +3,7 @@
   "date": "2026-09-30",
   "branch": "codex/integrate-suxios-20260930",
   "base": "703dd68db8908b23a8d084868196f72318e586d7",
-  "origin_main": "703dd68db8908b23a8d084868196f72318e586d7",
+  "origin_main": "71a57340b663c504f4f193a242a70a372b6050cd",
   "status": "local_integration_and_full_acceptance_complete",
   "scope": {
     "worktrees": 102,
@@ -1417,7 +1417,7 @@
       }
     },
     "delivery_20261002": {
-      "prepared_against_head": "30cac6f8c37c66dbe14aecc87366e9c901b36dec",
+      "prepared_against_head": "d342b73c3ed80f619d746f9ffecb6044db59015f",
       "dos_introduction": {
         "source_commit": "ab3aa5fd04303ec19b48dda81354217e3923a619",
         "integrated_commit": "6f9bf58090582ac5aa0bdef3250f696544134585",
@@ -1428,12 +1428,15 @@
         "language_context_examples": 10
       },
       "changqing_workspace": {
-        "status": "received_but_source_deep_review_in_progress_not_product_integrated",
+        "status": "final_product_integrated_and_composed_target_verified",
         "receipt": "docs/integration/receipts/changqing-main-thread-receipt-20261002.json",
         "modules": 31
       },
       "five_enhancements": {
-        "status": "source_preparing_scoped_isolated_delivery_not_integrated"
+        "status": "final_product_integrated_and_composed_target_verified",
+        "source_commit": "deb01ee834c6da70b4adb15c69f7da1bd9391f0b",
+        "dependency_commit": "5386eadc610dbd469523fbfeb6ee48f1e37a90a6",
+        "receipt": "docs/integration/receipts/five-enhancements-source-20261002.json"
       },
       "remote_acceptance": "NOT RUN for new delivery head; exact-head CI and readback required after push",
       "dependency_security": {
@@ -1456,6 +1459,45 @@
         "official_release": "https://github.com/axios/axios/releases/tag/v1.20.0",
         "advisory": "https://github.com/advisories/GHSA-vh66-26gq-q6x8",
         "initial_global_header_pollution": "one initial failure reproduced in native Node24 fetch and retained as host limitation; actual SDK path uses Node HTTP"
+      },
+      "investment_payback": {
+        "source_commit": "5386eadc610dbd469523fbfeb6ee48f1e37a90a6",
+        "status": "integrated_with_scenario_and_reference_capabilities_verified"
+      },
+      "composed_target": {
+        "phase": "checkpoint",
+        "receipt": "docs/integration/receipts/composed-main-thread-20261002.json",
+        "verification": {
+          "scope": "explicit composed target files; isolated synthetic fixtures",
+          "php": {
+            "files": 34,
+            "tests": 527,
+            "assertions": 3805,
+            "skipped": 0
+          },
+          "node": {
+            "files": 19,
+            "tests": 207,
+            "passed": 207,
+            "skipped": 0
+          },
+          "frontend_build": "npm run build:frontend passed",
+          "public_entry": {
+            "passed": true,
+            "startup_gzip_bytes": 619375,
+            "target": 620000
+          },
+          "routes": {
+            "controllers": 68,
+            "public_actions": 783,
+            "covered": true
+          },
+          "integration_gate": "npm run verify:integration passed",
+          "real_business_database_writes": false,
+          "real_account_acceptance": false,
+          "production_migration": false,
+          "deployment": false
+        }
       }
     }
   },
@@ -1921,11 +1963,12 @@
     "raw_material_and_runtime": "retained_locally_excluded_from_commit",
     "changed_file_accounting": {
       "base_to_candidate_git_paths": 881,
-      "hashed_payload_files": 880,
+      "hashed_payload_files": 1016,
       "manifest_path": "docs/integration/suxios-integration-20260930.json",
       "manifest_included_in_git_paths": true,
       "manifest_excluded_from_payload_hashes": true,
-      "reconciliation": "881 = 880 payload files + 1 self-excluded manifest"
+      "reconciliation": "881 = 880 payload files + 1 self-excluded manifest",
+      "coverage": "all original mappings retained; every current base-to-HEAD/owned dirty payload reconciled; exact committed coverage verified after commit"
     }
   },
   "files": [
@@ -1962,8 +2005,14 @@
     {
       "state": "modified",
       "path": ".gitattributes",
-      "bytes": 1248,
-      "sha256": "1282629d7fd562bbe44eb86a706b9e1c0f2b8a4cd6751d0aa5f5d5c883ccc975"
+      "bytes": 1421,
+      "sha256": "5d111ec7490587d98d41626d57c5090cde95bab5f2fc99eee69ec1f7d14172be",
+      "previous_payloads": [
+        {
+          "sha256": "1282629d7fd562bbe44eb86a706b9e1c0f2b8a4cd6751d0aa5f5d5c883ccc975",
+          "prepared_before_head": "d342b73c3ed80f619d746f9ffecb6044db59015f"
+        }
+      ]
     },
     {
       "state": "modified",
@@ -1986,14 +2035,38 @@
     {
       "state": "modified",
       "path": "app/controller/AiDailyReport.php",
-      "bytes": 20195,
-      "sha256": "e3265fc8987760c7f10d32d734ee13de43351abd912419bcc5dafbad4fc7148a"
+      "bytes": 23450,
+      "sha256": "81b2dc5dccbae9272c183a5a43dfebcd7ff87f6ec9408453503eb67faf86f44f",
+      "previous_payloads": [
+        {
+          "sha256": "e3265fc8987760c7f10d32d734ee13de43351abd912419bcc5dafbad4fc7148a",
+          "prepared_before_head": "d342b73c3ed80f619d746f9ffecb6044db59015f"
+        }
+      ]
     },
     {
       "state": "modified",
       "path": "app/controller/AiGovernance.php",
       "bytes": 24489,
       "sha256": "5299cbaf49dcdbbf5bee87488b296124e73aff550b880f07fc8a408a9cb8cb3d"
+    },
+    {
+      "path": "app/controller/BookingMonitoring.php",
+      "state": "added",
+      "bytes": 6458,
+      "sha256": "3c79d1f7dda93d68079b463986b939b6a114658b41fb213a8583561c7d3dcd0b"
+    },
+    {
+      "path": "app/controller/BusinessWorkspace.php",
+      "state": "added",
+      "bytes": 3448,
+      "sha256": "178a9caca76930de1ae0635695bf47fd1a3c5817af38c7e05889def3960f884a"
+    },
+    {
+      "path": "app/controller/CampaignOperations.php",
+      "state": "added",
+      "bytes": 3555,
+      "sha256": "91bbb76136c25629bd917a3cd8548184955c11cd3135ef105323277c049d043b"
     },
     {
       "state": "modified",
@@ -2116,6 +2189,24 @@
       "sha256": "69dfc778d9365c67d744b35a06feaae95df255b6f8a82a59f9558f4c7db9a73f"
     },
     {
+      "path": "app/controller/GuestOperations.php",
+      "state": "added",
+      "bytes": 3508,
+      "sha256": "6d37c13eebc4cc46a6b2b44ac2058fb52bd581d8422ea98da2de9bf282a99e1f"
+    },
+    {
+      "path": "app/controller/InvestmentPayback.php",
+      "state": "added",
+      "bytes": 3422,
+      "sha256": "abb8046d2b4a4e33a45a4afbb2ef6d448bb39db39af8ceaa31032cea130cd847"
+    },
+    {
+      "path": "app/controller/InvestmentScenario.php",
+      "state": "added",
+      "bytes": 3256,
+      "sha256": "e016adda31e7adf6cdf46f8da3466803a340d0659bcbd49aeaaffd2650b0e108"
+    },
+    {
       "path": "app/controller/Knowledge.php",
       "bytes": 58880,
       "sha256": "eb9cec3cf4b58433648ad02023f195f4c0ccf9002c210abbe5ec50b99aa898f7",
@@ -2142,8 +2233,14 @@
     {
       "state": "modified",
       "path": "app/controller/OperatingFinance.php",
-      "bytes": 30483,
-      "sha256": "c3d32f47c6a06eaf9d0f1e7de56027487d9904d0422f06ba75cd6916d81ebf7b"
+      "bytes": 35225,
+      "sha256": "6c9bea6a4d6b4fca60c9740b45c859daa90de0e5a4e810751f8775eaad4b88e0",
+      "previous_payloads": [
+        {
+          "sha256": "c3d32f47c6a06eaf9d0f1e7de56027487d9904d0422f06ba75cd6916d81ebf7b",
+          "prepared_before_head": "d342b73c3ed80f619d746f9ffecb6044db59015f"
+        }
+      ]
     },
     {
       "state": "modified",
@@ -2176,6 +2273,12 @@
       "sha256": "4f955cbb9f7e291a387ea387c22b7ebabc3479ad645d0947888ae44890c5d747"
     },
     {
+      "path": "app/service/ActualConsumablesScenarioReferenceService.php",
+      "state": "added",
+      "bytes": 3748,
+      "sha256": "70934e48e66774a9fa848a4c379862c86682c2a3e2ccf9e46288f5add39a83d5"
+    },
+    {
       "state": "modified",
       "path": "app/service/AiDailyCompetitionBundlePersistenceService.php",
       "bytes": 13188,
@@ -2188,16 +2291,40 @@
       "sha256": "8cbed37c735a2e6283e88af0b3c084ecc4717f96e033e45b5f889902a1370a69"
     },
     {
+      "path": "app/service/AiDailyReportPresentationArtifactService.php",
+      "state": "modified",
+      "bytes": 21297,
+      "sha256": "92855c67fba659ddae765abf7270474dfc0e482c581279f5b0570f0b42e284cc"
+    },
+    {
       "state": "modified",
       "path": "app/service/AiDailyReportPresentationRendererService.php",
-      "bytes": 58191,
-      "sha256": "3b3f8ac950e112f0821fc2fd206e35751f4ddaa5021d43591a2bbb5fa01f3672"
+      "bytes": 62620,
+      "sha256": "4cf78c038d36f4adb06cf262cc1ce2c3be4be7a9aea4009033e4580ee209b733",
+      "previous_payloads": [
+        {
+          "sha256": "3b3f8ac950e112f0821fc2fd206e35751f4ddaa5021d43591a2bbb5fa01f3672",
+          "prepared_before_head": "d342b73c3ed80f619d746f9ffecb6044db59015f"
+        }
+      ]
+    },
+    {
+      "path": "app/service/AiDailyReportPresentationReviewService.php",
+      "state": "added",
+      "bytes": 15882,
+      "sha256": "07665e62de2c4838a160980f89f98d0ccae63ff0c16ed98de17d39204c89e7b5"
     },
     {
       "state": "modified",
       "path": "app/service/AiDailyReportPresentationSpecService.php",
-      "bytes": 57969,
-      "sha256": "7ce898e44f50cda0f1fc6569e400bca3aaad700721653cfa7633144a0ce91269"
+      "bytes": 58211,
+      "sha256": "f5d6e1c0cff98646a403dc85aff2db2fbdd42e2b4d5ae8d3c35b0e9d39bed2ba",
+      "previous_payloads": [
+        {
+          "sha256": "7ce898e44f50cda0f1fc6569e400bca3aaad700721653cfa7633144a0ce91269",
+          "prepared_before_head": "d342b73c3ed80f619d746f9ffecb6044db59015f"
+        }
+      ]
     },
     {
       "state": "modified",
@@ -2226,8 +2353,44 @@
     {
       "state": "modified",
       "path": "app/service/BookingDemandPlanningService.php",
-      "bytes": 48257,
-      "sha256": "6cd0dbcd07db4374fe40ea97dc03bc636317de79323ee4eddf7b013fc4f435b6"
+      "bytes": 48849,
+      "sha256": "a46358aa2ee4690c3cb80b08ca104b3363ed8fc578c760c1af40c9834a723774",
+      "previous_payloads": [
+        {
+          "sha256": "6cd0dbcd07db4374fe40ea97dc03bc636317de79323ee4eddf7b013fc4f435b6",
+          "prepared_before_head": "d342b73c3ed80f619d746f9ffecb6044db59015f"
+        }
+      ]
+    },
+    {
+      "path": "app/service/BookingMonitoringService.php",
+      "state": "added",
+      "bytes": 22043,
+      "sha256": "0b5ab41ff77f36dfdcf22b1d9fd67fa99ef5635d0d038fe56bfe57bcfba5c3ee"
+    },
+    {
+      "path": "app/service/BusinessFeatureCatalog.php",
+      "state": "added",
+      "bytes": 5130,
+      "sha256": "ff0a3350c5f9bf1a95e04e1f5a4d40ad9faaf59742e93a62025f99947d6a1156"
+    },
+    {
+      "path": "app/service/BusinessWorkspaceService.php",
+      "state": "added",
+      "bytes": 11344,
+      "sha256": "83e6e64d736dc26e96ca7ea93f3f348b346e7ad9d994a7fb41044a967e697b78"
+    },
+    {
+      "path": "app/service/CampaignOperationsService.php",
+      "state": "added",
+      "bytes": 30740,
+      "sha256": "f9d74173003dcc486a080e72fced4cfe772fb17ea74da69d1123cb6c1a92d61f"
+    },
+    {
+      "path": "app/service/ChannelEconomicsService.php",
+      "state": "added",
+      "bytes": 10227,
+      "sha256": "a38403f12b8b6cf99f7b566ff09398227f5962aeaaaf1d95e507193be53992bc"
     },
     {
       "state": "added",
@@ -2282,6 +2445,24 @@
       "path": "app/service/concern/RevenueAiOverviewMarketStructureConcern.php",
       "bytes": 16287,
       "sha256": "209450caa6c334aa8b84261c83b45d4d6cd44c3b0540e9c9d0301758f4cfb0b2"
+    },
+    {
+      "path": "app/service/ConsumablesActualCostService.php",
+      "state": "added",
+      "bytes": 7963,
+      "sha256": "ddd26918f8b1e42c1636bf61b6f721d6a72424600b413f52d6cfb1b76cf44561"
+    },
+    {
+      "path": "app/service/ConsumablesCostCalculator.php",
+      "state": "added",
+      "bytes": 9773,
+      "sha256": "6768d173f1668e9c4c38a622045290d81435b5b7d31ec2645e2cdbc9447f700d"
+    },
+    {
+      "path": "app/service/ConsumablesProcurementReferenceService.php",
+      "state": "added",
+      "bytes": 8427,
+      "sha256": "13b16ea0c2099f5567ef1b0c6718c0e4e2e0f5fb2af4025f85c8ff3bf899670a"
     },
     {
       "state": "modified",
@@ -2356,10 +2537,58 @@
       "sha256": "6d08c455ec33998f084dfd19d721dda0786a3d7848bf8f75012a4dd0a258caef"
     },
     {
+      "path": "app/service/GuestOperationsService.php",
+      "state": "added",
+      "bytes": 29965,
+      "sha256": "e7598f145aca23aecc221692be920ace966a394e52973df942d764f535225e4f"
+    },
+    {
       "state": "modified",
       "path": "app/service/InvestmentDecisionSupportService.php",
       "bytes": 66395,
       "sha256": "8f07b43aedffee49258b2809db19d60524f0808bf60dfd0d381d137248dfd9f1"
+    },
+    {
+      "path": "app/service/InvestmentOperatingBridgeService.php",
+      "state": "added",
+      "bytes": 13411,
+      "sha256": "9c78fb178e11703f3577abc862f54904c8065fc7d1ba12fab525aadb9d311c63"
+    },
+    {
+      "path": "app/service/InvestmentPaybackCalculator.php",
+      "state": "added",
+      "bytes": 14046,
+      "sha256": "82a43c181a35c0afde00be3f6818e9a3f650a7ba86a4f10eeaee486510c0d51f"
+    },
+    {
+      "path": "app/service/InvestmentPaybackImportService.php",
+      "state": "added",
+      "bytes": 51004,
+      "sha256": "70cfe378e89297699e6ee01180be093803b755964445f0134ef9b4a28c7f55e8"
+    },
+    {
+      "path": "app/service/InvestmentPaybackService.php",
+      "state": "added",
+      "bytes": 43723,
+      "sha256": "674511541270beb2be7bcf7c84f667804a7d5c27153374e0de2997b8ca544f04"
+    },
+    {
+      "path": "app/service/InvestmentScenarioCalculator.php",
+      "state": "added",
+      "bytes": 28582,
+      "sha256": "6e62161cab781811c1c32955edfed645f7f5743cdce5eaf82934aeea6dbb22bf"
+    },
+    {
+      "path": "app/service/InvestmentScenarioCashPlanner.php",
+      "state": "added",
+      "bytes": 17280,
+      "sha256": "02d489640b94f4da142380e57f945076b89c21404e028ae3cb1e7cca50ec5f29"
+    },
+    {
+      "path": "app/service/InvestmentScenarioService.php",
+      "state": "added",
+      "bytes": 20840,
+      "sha256": "dbc97b5e37b14bf694ae460d4c970cea2ef5c6d62ee3a4612c89dd174dddc0c8"
     },
     {
       "state": "modified",
@@ -2408,6 +2637,12 @@
       "path": "app/service/LlmUsageObservation.php",
       "bytes": 4314,
       "sha256": "6e2f48c2a151e6f4e00c4093f4272d171b9e94ef43da393e671f30412750cdb9"
+    },
+    {
+      "path": "app/service/LocalImageOcrService.php",
+      "state": "added",
+      "bytes": 9325,
+      "sha256": "c98051be273b5eb1a2777e3750cfd52a0fe60725f19dfe5eb8a864b03d9c42a1"
     },
     {
       "state": "modified",
@@ -2498,6 +2733,12 @@
       "path": "app/service/OperatingDailyReportPayloadService.php",
       "bytes": 87897,
       "sha256": "08002073ec486ac790c9a1a850f11864dbb00eb7cf0f6eec8b7c6ae9a108f130"
+    },
+    {
+      "path": "app/service/OperatingEvidenceSnapshotStore.php",
+      "state": "added",
+      "bytes": 5205,
+      "sha256": "b16bb06e922bbab7b8221042c812fa13c522b80b8a3f50cd0fd110dc890ce4b1"
     },
     {
       "state": "modified",
@@ -2752,6 +2993,12 @@
       "sha256": "3819e4289cdc7ef5056562f38990a95439573a0864516446e281529b5f310a84"
     },
     {
+      "path": "app/service/SchemaVersionService.php",
+      "state": "modified",
+      "bytes": 68903,
+      "sha256": "c027113b248835d9e1e7cdf48fd1428e4dd02c7278b1f9ab0fb392bfd63e1d06"
+    },
+    {
       "state": "added",
       "path": "app/service/SingleHotelBaseOperatingFactsBriefService.php",
       "bytes": 9359,
@@ -2802,8 +3049,14 @@
     {
       "path": "database/migration_checksums.lock.json",
       "state": "modified",
-      "bytes": 28496,
-      "sha256": "b9a88b20dd1530ddd2b4c14beaf4a92d334ca56824a19753db1ce6527cdc9082"
+      "bytes": 29344,
+      "sha256": "8b68497e9107abde6f5d0a109ce2786e37eddc1ab09781755d974f1590286006",
+      "previous_payloads": [
+        {
+          "sha256": "b9a88b20dd1530ddd2b4c14beaf4a92d334ca56824a19753db1ce6527cdc9082",
+          "prepared_before_head": "d342b73c3ed80f619d746f9ffecb6044db59015f"
+        }
+      ]
     },
     {
       "state": "added",
@@ -2822,6 +3075,48 @@
       "state": "added",
       "bytes": 2000,
       "sha256": "b089130d278d4b05544a0b8ba106e757fdda1e87fd7587593342f1929a3798f2"
+    },
+    {
+      "path": "database/migrations/20261001_create_investment_payback_ledger.sql",
+      "state": "added",
+      "bytes": 3368,
+      "sha256": "fd77dc4751665cefc02112ca95fcb1b4e614a1f680b0c8850e8a98a4f3f789de"
+    },
+    {
+      "path": "database/migrations/20261002_create_ai_report_presentation_reviews.sql",
+      "state": "added",
+      "bytes": 1180,
+      "sha256": "32dadf8990bf355050f601972e36defa0fb9da625b64f388f923b869a57edb23"
+    },
+    {
+      "path": "database/migrations/20261002_create_campaign_operation_versions.sql",
+      "state": "added",
+      "bytes": 1311,
+      "sha256": "14b8b42a053aa0dd5727f4179d08f5e36fdad4b4045358255bc700365b2dd4a7"
+    },
+    {
+      "path": "database/migrations/20261002_create_operating_evidence_snapshots.sql",
+      "state": "added",
+      "bytes": 950,
+      "sha256": "87bb58c2d139b12f9abd9cdf195c8b03c4d843d193b5611a26593b6992b200f3"
+    },
+    {
+      "path": "database/migrations/20261002_create_room_type_on_books_snapshots.sql",
+      "state": "added",
+      "bytes": 3780,
+      "sha256": "9dc6db2d06d14655b381265abc20fb077c11ae4b4d0d6caa92ccfa79834ba779"
+    },
+    {
+      "path": "database/migrations/20261002_z_create_business_workspace.sql",
+      "state": "added",
+      "bytes": 835,
+      "sha256": "ac3790578902ebaee967679297a70b71a2fde42fc8c08d109ead6e80dc892bd5"
+    },
+    {
+      "path": "database/migrations/20261002_z_create_guest_operations.sql",
+      "state": "added",
+      "bytes": 4353,
+      "sha256": "55f3c81977025ebd84ac010cf7596a10afecf70936fe0805b684ed5bed9f76e8"
     },
     {
       "state": "added",
@@ -2852,6 +3147,36 @@
       "path": "docs/capability-absorption/2026-09-30-daily-operating-diagnosis.md",
       "bytes": 5104,
       "sha256": "b620366ad2c23e40f6ba609d7e28815867cd65c32fdaacb2e725f2776b5f059d"
+    },
+    {
+      "path": "docs/capability-absorption/2026-10-02-changqing-feature-priorities.md",
+      "state": "added",
+      "bytes": 19693,
+      "sha256": "b328b0a820b54c9768d4bd83a976e2cf662f069391b7f2433bb4a4f61467a100"
+    },
+    {
+      "path": "docs/capability-absorption/2026-10-02-changqing-integration.md",
+      "state": "added",
+      "bytes": 6704,
+      "sha256": "e600ea424b79a3d8fda2134c7a64aedba1ec17511469f0305e3f8974b994753b"
+    },
+    {
+      "path": "docs/capability-absorption/2026-10-02-deep-hardening-followup.md",
+      "state": "added",
+      "bytes": 6208,
+      "sha256": "9326d20627cce4e13510fd2d114ce6d2f48bc6e90dc3b2b9ce04f90dc0048028"
+    },
+    {
+      "path": "docs/capability-absorption/2026-10-02-three-phase-custom-workspace.md",
+      "state": "added",
+      "bytes": 8027,
+      "sha256": "50d5626b51dd066ae336d30279a7028cb3baf5ae0098ea8799d652cf61449a2b"
+    },
+    {
+      "path": "docs/capability-absorption/2026-10-02-three-round-hardening.md",
+      "state": "added",
+      "bytes": 7534,
+      "sha256": "4ffc038731ec113754aa945a4163c82f13169568049909e19e844e6f89c3b944"
     },
     {
       "state": "added",
@@ -2890,6 +3215,24 @@
       "sha256": "6d310f8a81f84876979571aa84bfa9c63af3782a6e1106c4baed01da8efcc713"
     },
     {
+      "path": "docs/integration/composed-delivery-20261002.md",
+      "state": "added",
+      "bytes": 2087,
+      "sha256": "d933ea39c62b783342fa5b6c15d0f1e85cc8c0a8d7f6085899f1cf56388dfca0"
+    },
+    {
+      "path": "docs/integration/five-enhancements-20261002.md",
+      "state": "added",
+      "bytes": 4357,
+      "sha256": "2a7d5a31ff8ea0fc3ee5167992e5f5da8fd99b2255126b80c72fc3bad69e9d22"
+    },
+    {
+      "path": "docs/integration/receipts/changqing-deep-hardening-source-evidence-20261002.json",
+      "state": "added",
+      "bytes": 6121,
+      "sha256": "ceaf03dca41b719f5e695ef9af0cd29108a88d83fc1de5c966354c42e98f1953"
+    },
+    {
       "path": "docs/integration/receipts/changqing-main-thread-receipt-20261002.initial.json",
       "state": "added",
       "bytes": 36465,
@@ -2898,14 +3241,26 @@
     {
       "path": "docs/integration/receipts/changqing-main-thread-receipt-20261002.json",
       "state": "added",
-      "bytes": 38369,
-      "sha256": "f78eca3a68bcd653ea8f7cccd301bc89f7117752e957802845bd45ecc5e0da44"
+      "bytes": 48748,
+      "sha256": "a4d1c2a3b3b037f6be2b1b236536e2ad026e1ddc84f8f120ad482095691fc8fd",
+      "previous_payloads": [
+        {
+          "sha256": "f78eca3a68bcd653ea8f7cccd301bc89f7117752e957802845bd45ecc5e0da44",
+          "prepared_before_head": "d342b73c3ed80f619d746f9ffecb6044db59015f"
+        }
+      ]
     },
     {
       "path": "docs/integration/receipts/changqing-main-thread-receipt-20261002.md",
       "state": "added",
-      "bytes": 7291,
-      "sha256": "94f5593f4fd7b33f07f88e8cfed06839a60d81c0670f8c53ed52eccf9ab06af9"
+      "bytes": 9005,
+      "sha256": "38929880deac3e33194a98558ebc3d6afef6eda24d126f3019b35004b0157f8e",
+      "previous_payloads": [
+        {
+          "sha256": "94f5593f4fd7b33f07f88e8cfed06839a60d81c0670f8c53ed52eccf9ab06af9",
+          "prepared_before_head": "d342b73c3ed80f619d746f9ffecb6044db59015f"
+        }
+      ]
     },
     {
       "path": "docs/integration/receipts/changqing-source-progress-20261002.json",
@@ -2914,10 +3269,28 @@
       "sha256": "69352a239760e909053e306b2e9a7801de269db3b17839d3fb9f545690daa765"
     },
     {
+      "path": "docs/integration/receipts/composed-main-thread-20261002.json",
+      "state": "added",
+      "bytes": 47358,
+      "sha256": "5a94e1405242f2f7f93a58e2923dc09928031d55351f190d61d6a40ac276964b"
+    },
+    {
+      "path": "docs/integration/receipts/five-enhancements-source-20261002.json",
+      "state": "added",
+      "bytes": 11678,
+      "sha256": "d64411c818e4b4f788a14d545094a782735cee725798424fe11afe1267ec34f7"
+    },
+    {
       "path": "docs/integration/suxios-integration-20260930.md",
       "bytes": 17143,
       "sha256": "93452709fac276af4e8494a54d822e6a925d58484937c55a4a8fa9baae6d828a",
       "state": "added"
+    },
+    {
+      "path": "docs/investment-payback-github-delivery-20261002.md",
+      "state": "added",
+      "bytes": 3311,
+      "sha256": "b3d44b0622c527a343398005b2de7343cade4c075cf72e97d81a1c0ecdeaeac8"
     },
     {
       "state": "added",
@@ -2936,6 +3309,60 @@
       "path": "docs/knowledge/codex-execution-v32-20260930/verification.json",
       "bytes": 2273,
       "sha256": "15678df4a6117f4d4a32fe520ae378e8ab55033adae46ac5ec4d0ac9e1fae398"
+    },
+    {
+      "path": "docs/knowledge/consumables-price-list-20261001/catalog.json",
+      "state": "added",
+      "bytes": 87487,
+      "sha256": "d129a820408654fc79b9e9345037590dc6bfdd27ad2baff7a80c24eee1eb8053"
+    },
+    {
+      "path": "docs/knowledge/consumables-price-list-20261001/extracted.json",
+      "state": "added",
+      "bytes": 28617,
+      "sha256": "3b33b841af2c0e1361cfd29100c37e4393155da4c09093151b43807fdf9ebd67"
+    },
+    {
+      "path": "docs/knowledge/consumables-price-list-20261001/item-corrections-v2.json",
+      "state": "added",
+      "bytes": 5643,
+      "sha256": "0a42d319057b08456514337a9b2c8deeca2c1e3fb212fca3695a0f8c93ef4ced"
+    },
+    {
+      "path": "docs/knowledge/consumables-price-list-20261001/item-knowledge-pack.json",
+      "state": "added",
+      "bytes": 51931,
+      "sha256": "e24533560bc55c2cd532af807cd80117aec5f4ed46b998fd31825f09903c8347"
+    },
+    {
+      "path": "docs/knowledge/consumables-price-list-20261001/item-source-manifest.json",
+      "state": "added",
+      "bytes": 643,
+      "sha256": "82c839660963a85bb99c472454186f43d16e1697ddaa37285397e7fbf144e66d"
+    },
+    {
+      "path": "docs/knowledge/consumables-price-list-20261001/knowledge-pack.json",
+      "state": "added",
+      "bytes": 15077,
+      "sha256": "bf6ee05962c3d6684e5e9f8ade9db399b1cc1e331771760d3f5f8f40bec57178"
+    },
+    {
+      "path": "docs/knowledge/consumables-price-list-20261001/README.md",
+      "state": "added",
+      "bytes": 3011,
+      "sha256": "4c864367955f5e0cba2fe43654a9a1340c4d7f418e253bcc7f46f13b3e16ee08"
+    },
+    {
+      "path": "docs/knowledge/consumables-price-list-20261001/source-manifest.json",
+      "state": "added",
+      "bytes": 1294,
+      "sha256": "732ddce9174b0883e370a7d87228bb915727097c5964f08ef2eef8e921af605c"
+    },
+    {
+      "path": "docs/knowledge/consumables-price-list-20261001/source.xlsx",
+      "state": "added",
+      "bytes": 13207,
+      "sha256": "bf8aa1e0290bcf7f6464d6ffa63bdb653c1e11745a816ea53f517e2fc3eba4f0"
     },
     {
       "state": "added",
@@ -3234,8 +3661,14 @@
     {
       "state": "modified",
       "path": "package.json",
-      "bytes": 27424,
-      "sha256": "8fb028dd49dce4d5c02dcc8b27a0a387fa7d6732c2ca8e872f08caab4ebeb5ce"
+      "bytes": 28075,
+      "sha256": "a4ac53d181b0905a6a9df24406df401ca50d21f1c21c26472f040415ff9ae906",
+      "previous_payloads": [
+        {
+          "sha256": "8fb028dd49dce4d5c02dcc8b27a0a387fa7d6732c2ca8e872f08caab4ebeb5ce",
+          "prepared_before_head": "d342b73c3ed80f619d746f9ffecb6044db59015f"
+        }
+      ]
     },
     {
       "state": "modified",
@@ -3263,27 +3696,51 @@
     },
     {
       "path": "public/app-main.js",
-      "bytes": 3422602,
-      "sha256": "8339047c884b23a611faccf6a527907486bc4b9d211cb7c9c00283bd2ddb6b1b",
-      "state": "modified"
+      "bytes": 3422823,
+      "sha256": "e0e5989b002a04aa4cf6acd1a5403a7e093252a6c24748a26fb6d22dd6afa282",
+      "state": "modified",
+      "previous_payloads": [
+        {
+          "sha256": "8339047c884b23a611faccf6a527907486bc4b9d211cb7c9c00283bd2ddb6b1b",
+          "prepared_before_head": "d342b73c3ed80f619d746f9ffecb6044db59015f"
+        }
+      ]
     },
     {
       "path": "public/app-main.min.js",
-      "bytes": 1330100,
-      "sha256": "5a4dfd1431351ac79f3b78b5c1b3fce3c4f692562b4f1cd52ec73c3d09b88b76",
-      "state": "modified"
+      "bytes": 1330243,
+      "sha256": "a2dcf841753ca5275cadfb41b90339acba56c532e0626ac3ac428f36b28062d0",
+      "state": "modified",
+      "previous_payloads": [
+        {
+          "sha256": "5a4dfd1431351ac79f3b78b5c1b3fce3c4f692562b4f1cd52ec73c3d09b88b76",
+          "prepared_before_head": "d342b73c3ed80f619d746f9ffecb6044db59015f"
+        }
+      ]
     },
     {
       "path": "public/app-render.min.js",
-      "bytes": 1286913,
-      "sha256": "90fed7cb9b70e8103f645fec0607a960a3444db2bf39c286305a17cbb8b8c5fa",
-      "state": "modified"
+      "bytes": 1303588,
+      "sha256": "6d990ad3a95af09c9abb6b6707fe4933c1cef1db6d79c1c82755303ece1b7045",
+      "state": "modified",
+      "previous_payloads": [
+        {
+          "sha256": "90fed7cb9b70e8103f645fec0607a960a3444db2bf39c286305a17cbb8b8c5fa",
+          "prepared_before_head": "d342b73c3ed80f619d746f9ffecb6044db59015f"
+        }
+      ]
     },
     {
       "path": "public/app-startup-helpers.min.js",
       "state": "modified",
-      "bytes": 270166,
-      "sha256": "3d85ac4fedccb04d47d7b526aa6433c22fa21f77e598edbba275a7981654e1cd"
+      "bytes": 270298,
+      "sha256": "3f272c5dae47690e8c8258a4682c6cd20a7df0641fda44d7a9c8847cf91cd6f3",
+      "previous_payloads": [
+        {
+          "sha256": "3d85ac4fedccb04d47d7b526aa6433c22fa21f77e598edbba275a7981654e1cd",
+          "prepared_before_head": "d342b73c3ed80f619d746f9ffecb6044db59015f"
+        }
+      ]
     },
     {
       "state": "modified",
@@ -3330,32 +3787,80 @@
     {
       "state": "modified",
       "path": "public/components/system/ai-daily-report-delivery.js",
-      "bytes": 69977,
-      "sha256": "0f012d00cb3913b020516fdaa80aac3df03b1cefa03edc623f91d85cb715fdea"
+      "bytes": 77759,
+      "sha256": "63af6fece1f156ef5bfc51b98834da2bd75e6d882a0b3b405805c686810b0a9c",
+      "previous_payloads": [
+        {
+          "sha256": "0f012d00cb3913b020516fdaa80aac3df03b1cefa03edc623f91d85cb715fdea",
+          "prepared_before_head": "d342b73c3ed80f619d746f9ffecb6044db59015f"
+        }
+      ]
     },
     {
       "state": "modified",
       "path": "public/components/system/app-main-components-loader.js",
       "bytes": 10781,
-      "sha256": "25a13fe784ae9016ba3a8bc575ae3f2612de09ceba55ab4002d36791704d2608"
+      "sha256": "7a4009e2b6d7261ac194c60755a7d6c7e8bada8809f5b07a75355b7652f3a684",
+      "previous_payloads": [
+        {
+          "sha256": "25a13fe784ae9016ba3a8bc575ae3f2612de09ceba55ab4002d36791704d2608",
+          "prepared_before_head": "d342b73c3ed80f619d746f9ffecb6044db59015f"
+        }
+      ]
     },
     {
       "state": "modified",
       "path": "public/components/system/app-main-components.js",
-      "bytes": 221083,
-      "sha256": "a488dcdfa0faa884ee548b84776ceadb54db9a73a758ac958ce6faefc0c5c00e"
+      "bytes": 221346,
+      "sha256": "d6707a60203e5bcd6ea1c485e06193313343457f14602f3bff006d2e78754b0e",
+      "previous_payloads": [
+        {
+          "sha256": "a488dcdfa0faa884ee548b84776ceadb54db9a73a758ac958ce6faefc0c5c00e",
+          "prepared_before_head": "d342b73c3ed80f619d746f9ffecb6044db59015f"
+        }
+      ]
+    },
+    {
+      "path": "public/components/system/booking-monitoring-panel.js",
+      "state": "added",
+      "bytes": 32594,
+      "sha256": "c1723e52752f1e3d02ccd961909659c653c5830db91290d78c610c711ffbe31e"
     },
     {
       "state": "modified",
       "path": "public/components/system/business-closure-loader.js",
-      "bytes": 3186,
-      "sha256": "a6ae1827456452284ace325cd6168e444e726b8b02e3c1aa8ce3e74e4a611a42"
+      "bytes": 4206,
+      "sha256": "9f29f62722e23f3d395592b1234a6c284c08856dc0e92aec944bdad0f1a47698",
+      "previous_payloads": [
+        {
+          "sha256": "a6ae1827456452284ace325cd6168e444e726b8b02e3c1aa8ce3e74e4a611a42",
+          "prepared_before_head": "d342b73c3ed80f619d746f9ffecb6044db59015f"
+        }
+      ]
     },
     {
       "state": "modified",
       "path": "public/components/system/business-closure-views.js",
-      "bytes": 133852,
-      "sha256": "81815879c7a6c403d6e1ee59ea804a62d07f1b683ab6ff90203ec5eec765078d"
+      "bytes": 138530,
+      "sha256": "f5eadefa7d39fd535b53754c2cfbd8d54c36dc4265acac58448dac4ee4eda0fa",
+      "previous_payloads": [
+        {
+          "sha256": "81815879c7a6c403d6e1ee59ea804a62d07f1b683ab6ff90203ec5eec765078d",
+          "prepared_before_head": "d342b73c3ed80f619d746f9ffecb6044db59015f"
+        }
+      ]
+    },
+    {
+      "path": "public/components/system/business-feature-workspace.js",
+      "state": "added",
+      "bytes": 25688,
+      "sha256": "87ee8cbfc4fc38d3264ab44ecfe2cf6036135ea6afdd5791cda0be5a742a6609"
+    },
+    {
+      "path": "public/components/system/campaign-operations-panel.js",
+      "state": "added",
+      "bytes": 31246,
+      "sha256": "9938ae2ac74a1b7da816cdc2d5361fbeb0af5fca5b3ad457a335adb69a147022"
     },
     {
       "state": "modified",
@@ -3364,10 +3869,58 @@
       "sha256": "97fc70fed0aed4d9a30e23526b555f5c402bee2a5ff5c9b73c3839dfa21d483c"
     },
     {
+      "path": "public/components/system/guest-feedback-qr.js",
+      "state": "added",
+      "bytes": 4840,
+      "sha256": "47ec679dc1ec46b5fa9b695fe03003603d6c17ae9f100a42fc136ad469c1cdbf"
+    },
+    {
+      "path": "public/components/system/guest-operations-panel.js",
+      "state": "added",
+      "bytes": 26286,
+      "sha256": "bc503590643df09037664bd0dbc21f534ca4b66f309f3c5c6729ab784437ac81"
+    },
+    {
       "state": "modified",
       "path": "public/components/system/hotel-data-analyst-components.js",
       "bytes": 62467,
       "sha256": "6b9ed47fc8955e64df322647d4475b4586ef79b006322b706310ee438469d7ae"
+    },
+    {
+      "path": "public/components/system/investment-operating-bridge-panel.js",
+      "state": "added",
+      "bytes": 5317,
+      "sha256": "1e6f61b1dc1a8245633ca8d824987f865eaa6f6d143b19dba4775bd1af429007"
+    },
+    {
+      "path": "public/components/system/investment-payback-import.js",
+      "state": "added",
+      "bytes": 42048,
+      "sha256": "3ba72b80e8a81297527672f8a34ad694704ee1de7ec2d58edffd3bb1da150a93"
+    },
+    {
+      "path": "public/components/system/investment-payback.js",
+      "state": "added",
+      "bytes": 105416,
+      "sha256": "c231e1ca7043ab0ad88da8d3e49c929e5f925e669a08b6c1c5f0e223d0e567cb"
+    },
+    {
+      "path": "public/components/system/investment-payback.min.js",
+      "state": "added",
+      "bytes": 115151,
+      "sha256": "08207c0f84749fd88716e10ceff60dac6e9b7efd08452d6ce602860abfbf38cb"
+    },
+    {
+      "path": "public/components/system/investment-scenario.js",
+      "state": "added",
+      "bytes": 106408,
+      "sha256": "87e4b6b688729c092af0e3df2479bd38e84c54d378a6d1d181f3a242c54c650c"
+    },
+    {
+      "path": "public/components/system/investment-scenario.min.js",
+      "state": "added",
+      "bytes": 84693,
+      "sha256": "bd86fc0366d2b2a5dbb9e17aa86fb6b45e563661d2d5fe6509722ed9cc1d078d"
     },
     {
       "state": "modified",
@@ -3382,6 +3935,18 @@
       "sha256": "c843641d350199a83d56ec3bb9fea4c59eb51c74b5250717ff19cbfcf2bc7d51"
     },
     {
+      "path": "public/components/system/operating-economics-workbench.js",
+      "state": "added",
+      "bytes": 18562,
+      "sha256": "af1b580105b605bc115c62cc4311daf705b09ee3cace18614e12e55ee01fd192"
+    },
+    {
+      "path": "public/components/system/operating-economics-workbench.min.js",
+      "state": "added",
+      "bytes": 18814,
+      "sha256": "bbff37786c38cd78b8c893a4362cdb847152e2e2bab8412f5ca831ec444b3446"
+    },
+    {
       "state": "added",
       "path": "public/components/system/operating-evidence-navigation.js",
       "bytes": 5681,
@@ -3390,14 +3955,26 @@
     {
       "state": "modified",
       "path": "public/components/system/operating-finance-control-center.js",
-      "bytes": 98787,
-      "sha256": "319532bdf2ada37adadae78c2c76bd62f0f02f6a83cb29aa7c3ef803bd65e51f"
+      "bytes": 102696,
+      "sha256": "adc20cfa54465c74b5426bd5e36ccaffaa22d3cd7824a3b08a53af0203c1083c",
+      "previous_payloads": [
+        {
+          "sha256": "319532bdf2ada37adadae78c2c76bd62f0f02f6a83cb29aa7c3ef803bd65e51f",
+          "prepared_before_head": "d342b73c3ed80f619d746f9ffecb6044db59015f"
+        }
+      ]
     },
     {
       "state": "modified",
       "path": "public/components/system/operating-finance-control-center.min.js",
-      "bytes": 72997,
-      "sha256": "faed748ae46cc8dd981a5ff9a4089a15081071e6cbefbfd048b95476526ee1d0"
+      "bytes": 142623,
+      "sha256": "d38019bcc201595e8f5f3f6436f8a3816a4cf755740977d989162f3c3b29b0bd",
+      "previous_payloads": [
+        {
+          "sha256": "faed748ae46cc8dd981a5ff9a4089a15081071e6cbefbfd048b95476526ee1d0",
+          "prepared_before_head": "d342b73c3ed80f619d746f9ffecb6044db59015f"
+        }
+      ]
     },
     {
       "state": "modified",
@@ -3456,8 +4033,14 @@
     {
       "path": "public/index.html",
       "bytes": 8588,
-      "sha256": "1a042b404ade2c505c02f5232a86db58daaa5a09350252b4d40b581c2994a9be",
-      "state": "modified"
+      "sha256": "3d05efb36b4a77b7120ef5f828ba07d535a07ddf3e816e666f4c08ba74a805a5",
+      "state": "modified",
+      "previous_payloads": [
+        {
+          "sha256": "1a042b404ade2c505c02f5232a86db58daaa5a09350252b4d40b581c2994a9be",
+          "prepared_before_head": "d342b73c3ed80f619d746f9ffecb6044db59015f"
+        }
+      ]
     },
     {
       "state": "modified",
@@ -3510,20 +4093,38 @@
     {
       "state": "modified",
       "path": "public/style-startup.min.css",
-      "bytes": 151186,
-      "sha256": "479c8f6fbc1b505e6fdb1150ed6282c67c6f03235c93fb2a18cfef00014de95e"
+      "bytes": 151248,
+      "sha256": "fe7e4f669fe0c2eb4f323b2b997ae88f23d11fc873e0ce02991404fe409ae9bc",
+      "previous_payloads": [
+        {
+          "sha256": "479c8f6fbc1b505e6fdb1150ed6282c67c6f03235c93fb2a18cfef00014de95e",
+          "prepared_before_head": "d342b73c3ed80f619d746f9ffecb6044db59015f"
+        }
+      ]
     },
     {
       "state": "modified",
       "path": "public/style.css",
-      "bytes": 533417,
-      "sha256": "adac16a9f1f061473a102869b165a15a1dcf7a2700b5545ff06c070fad4844bd"
+      "bytes": 533479,
+      "sha256": "1546c2a7919323df7ed51f49616c97deea5d242a47f2989d9da6e02821e48d25",
+      "previous_payloads": [
+        {
+          "sha256": "adac16a9f1f061473a102869b165a15a1dcf7a2700b5545ff06c070fad4844bd",
+          "prepared_before_head": "d342b73c3ed80f619d746f9ffecb6044db59015f"
+        }
+      ]
     },
     {
       "state": "modified",
       "path": "public/style.min.css",
-      "bytes": 454034,
-      "sha256": "9b384709439f3317970e15adfefbb40f5f47bdd20078b0e62dd69da0cf961c5e"
+      "bytes": 454096,
+      "sha256": "7c096b408f90bf43345a82d9c9afa947cd27e64df3069a21551508809ebdf814",
+      "previous_payloads": [
+        {
+          "sha256": "9b384709439f3317970e15adfefbb40f5f47bdd20078b0e62dd69da0cf961c5e",
+          "prepared_before_head": "d342b73c3ed80f619d746f9ffecb6044db59015f"
+        }
+      ]
     },
     {
       "state": "added",
@@ -3534,14 +4135,26 @@
     {
       "state": "modified",
       "path": "public/system-static.js",
-      "bytes": 170306,
-      "sha256": "5b1bef07b6fd9be4d8ee409ff2b909fc02d4704a1313462198c718606c5146a6"
+      "bytes": 170466,
+      "sha256": "12376367ec91adf039be2d6f7b43a165fc390a8d8a7dd9c6183d8684f238066a",
+      "previous_payloads": [
+        {
+          "sha256": "5b1bef07b6fd9be4d8ee409ff2b909fc02d4704a1313462198c718606c5146a6",
+          "prepared_before_head": "d342b73c3ed80f619d746f9ffecb6044db59015f"
+        }
+      ]
     },
     {
       "state": "modified",
       "path": "public/tailwind.min.css",
-      "bytes": 54957,
-      "sha256": "646c40c2cb8867db36603ac25ecf140bdc6470d08ff86655531fb8ef6f243238"
+      "bytes": 55086,
+      "sha256": "641c76fdbc3d40f2c56970741331fcfe3ddbe7572f46ffa39a2a72683f025a2a",
+      "previous_payloads": [
+        {
+          "sha256": "646c40c2cb8867db36603ac25ecf140bdc6470d08ff86655531fb8ef6f243238",
+          "prepared_before_head": "d342b73c3ed80f619d746f9ffecb6044db59015f"
+        }
+      ]
     },
     {
       "state": "modified",
@@ -3551,9 +4164,15 @@
     },
     {
       "path": "resources/frontend/app-template.html",
-      "bytes": 2064558,
-      "sha256": "00be50ab7764edc69a748cc9b765b818d12b4b574f3e8483c8f420e252606f18",
-      "state": "modified"
+      "bytes": 2084212,
+      "sha256": "a2cd8442fd62e70c9c87e17351a386a11f8d121265dd748cfbeda64e785f9da4",
+      "state": "modified",
+      "previous_payloads": [
+        {
+          "sha256": "00be50ab7764edc69a748cc9b765b818d12b4b574f3e8483c8f420e252606f18",
+          "prepared_before_head": "d342b73c3ed80f619d746f9ffecb6044db59015f"
+        }
+      ]
     },
     {
       "state": "modified",
@@ -3600,8 +4219,14 @@
     {
       "state": "modified",
       "path": "resources/frontend/templates/fragments/16-page-ai-daily-report.html",
-      "bytes": 66796,
-      "sha256": "ccef868769a223619d7c0c871249d52cc7bcc7f2b94dc95150e49e90a5bf2ada"
+      "bytes": 72681,
+      "sha256": "3e1b59dada7274af73c68960439985712fdb01c55e93208cbe5011adc3008925",
+      "previous_payloads": [
+        {
+          "sha256": "ccef868769a223619d7c0c871249d52cc7bcc7f2b94dc95150e49e90a5bf2ada",
+          "prepared_before_head": "d342b73c3ed80f619d746f9ffecb6044db59015f"
+        }
+      ]
     },
     {
       "state": "modified",
@@ -3614,6 +4239,12 @@
       "path": "resources/frontend/templates/fragments/19-page-revenue-research-center.html",
       "bytes": 29447,
       "sha256": "2d2ae39d368cbbb8db33cfd37fc30ba8acd4ed1c8e5295c0a4b267e413e7da22"
+    },
+    {
+      "path": "resources/frontend/templates/fragments/19c-page-operating-finance.html",
+      "state": "modified",
+      "bytes": 19833,
+      "sha256": "bb3969628fbe13e77b974095f8a3fce59d32eef4ca140217e8694804f18427a8"
     },
     {
       "path": "resources/frontend/templates/fragments/20-page-knowledge-center.html",
@@ -3658,6 +4289,12 @@
       "sha256": "8a6170f192ed50788cbbf869911658811563538bda518927fd7136153e8a290c"
     },
     {
+      "path": "resources/frontend/templates/fragments/28a-page-investment-payback.html",
+      "state": "added",
+      "bytes": 290,
+      "sha256": "1b070d210dd34075c31e9e25e88e1053c0f8d3c82b5de962a778f577d1e97da8"
+    },
+    {
       "state": "modified",
       "path": "resources/frontend/templates/fragments/33-page-ai-governance.html",
       "bytes": 21615,
@@ -3695,21 +4332,75 @@
     },
     {
       "path": "resources/frontend/templates/manifest.json",
-      "bytes": 15365,
-      "sha256": "f48b9425e398066d9300be61497e4366aac094d3ba95d97959afab7deed8c627",
-      "state": "modified"
+      "bytes": 15661,
+      "sha256": "e0f94ee6f8902cbf4e1ac3497c6b3e94c0e670124bf34e5e28c7436ce0fbc7a6",
+      "state": "modified",
+      "previous_payloads": [
+        {
+          "sha256": "f48b9425e398066d9300be61497e4366aac094d3ba95d97959afab7deed8c627",
+          "prepared_before_head": "d342b73c3ed80f619d746f9ffecb6044db59015f"
+        }
+      ]
     },
     {
       "state": "modified",
       "path": "route/app.php",
-      "bytes": 46560,
-      "sha256": "c203f5dc7ae80e3585ffdbfda5fcf838a9a807e6526a07bc167707866741f200"
+      "bytes": 46566,
+      "sha256": "71de21ae0f477ea66c015c69cd4e042b47686c24b0720a7a0a546c8dbecadfb1",
+      "previous_payloads": [
+        {
+          "sha256": "c203f5dc7ae80e3585ffdbfda5fcf838a9a807e6526a07bc167707866741f200",
+          "prepared_before_head": "d342b73c3ed80f619d746f9ffecb6044db59015f"
+        }
+      ]
+    },
+    {
+      "path": "route/domain/ai_daily_reports.php",
+      "state": "modified",
+      "bytes": 644,
+      "sha256": "a4e41b95b6e14da93239df0a02eb52576bc2345a448086092330873f83c0c7c3"
+    },
+    {
+      "path": "route/domain/business_workspace.php",
+      "state": "added",
+      "bytes": 478,
+      "sha256": "345f72abdc4caf5acd7f49078cde882fc0e64d984bcdc66662f927bc56017c0a"
+    },
+    {
+      "path": "route/domain/campaign_operations.php",
+      "state": "added",
+      "bytes": 674,
+      "sha256": "2d0672e4444e38aa28f53184093e69e8d4066fedd46bd07038e982209273c4f9"
+    },
+    {
+      "path": "route/domain/guest_operations.php",
+      "state": "added",
+      "bytes": 797,
+      "sha256": "9817ada28a785ee33bffd55a0674f54d60bf214a4b2cf02e3c6200d581f5a0cc"
+    },
+    {
+      "path": "route/domain/investment_payback.php",
+      "state": "added",
+      "bytes": 2354,
+      "sha256": "c9b1648912fec5e961d41f168cb6792d19b7e2507d163063167e1a054ed65d1c"
     },
     {
       "state": "modified",
       "path": "route/domain/operations.php",
-      "bytes": 10814,
-      "sha256": "bedf28e19cc30d76d88398b6d8340c7af706484658b713fc80189fff3c9a90b0"
+      "bytes": 11551,
+      "sha256": "0096ddf9fc27638fd0ce9b4ff27e298fb15886c6020cc35a5562c8f6217cb065",
+      "previous_payloads": [
+        {
+          "sha256": "bedf28e19cc30d76d88398b6d8340c7af706484658b713fc80189fff3c9a90b0",
+          "prepared_before_head": "d342b73c3ed80f619d746f9ffecb6044db59015f"
+        }
+      ]
+    },
+    {
+      "path": "rules/business-page-contract-registry.json",
+      "state": "modified",
+      "bytes": 34058,
+      "sha256": "6add1e05c7423966eb1b1472b70efda49b225a7c8ea993b29a9dd71bda504db7"
     },
     {
       "state": "modified",
@@ -3748,6 +4439,18 @@
       "sha256": "0c0164877dd1dfc2584b21256c904538c2ded0b9394b3de748cefd06bb889fed"
     },
     {
+      "path": "scripts/backup_local_database_encrypted.php",
+      "state": "added",
+      "bytes": 5987,
+      "sha256": "755eb9f23ed424555c9b7b3271a3ac1f5c31b5047553b935065aa200929d71d2"
+    },
+    {
+      "path": "scripts/backup_local_database_encrypted.ps1",
+      "state": "added",
+      "bytes": 3521,
+      "sha256": "a8f4d56e7da5fcac6e9e18f25492d2940a478eaa669764726d714abd76617499"
+    },
+    {
       "state": "modified",
       "path": "scripts/build_frontend_entry.mjs",
       "bytes": 5813,
@@ -3760,16 +4463,46 @@
       "sha256": "0ce6664762c046f7dfa8e62c9234d4e3dfccd6dd9b9a388ff3eed2847b8a6077"
     },
     {
+      "path": "scripts/build_investment_payback_component.mjs",
+      "state": "added",
+      "bytes": 3336,
+      "sha256": "ad7631599087e329bc446bba44f4084feaa915a5f2b26c771f992e1f4d9babc1"
+    },
+    {
+      "path": "scripts/build_investment_scenario_component.mjs",
+      "state": "added",
+      "bytes": 2771,
+      "sha256": "1a41c54d3b6c3f3b378456ac8a0793411ce803ee78a63541f04f2769bbcfc822"
+    },
+    {
+      "path": "scripts/build_operating_economics_component.mjs",
+      "state": "added",
+      "bytes": 1285,
+      "sha256": "9e5d557ed12d02970eb443302ef8941211e58caa561e91faef4b9191ffc93218"
+    },
+    {
       "state": "modified",
       "path": "scripts/build_operating_finance_component.mjs",
-      "bytes": 5029,
-      "sha256": "4221adf639615a6d78511baad9e1a2ceb61f4fd20b121cd2d5284afe6e0f0307"
+      "bytes": 6162,
+      "sha256": "59522573cdbb831999b66d26dcd183c9d907c8315fdcac946dc787de7b5d3349",
+      "previous_payloads": [
+        {
+          "sha256": "4221adf639615a6d78511baad9e1a2ceb61f4fd20b121cd2d5284afe6e0f0307",
+          "prepared_before_head": "d342b73c3ed80f619d746f9ffecb6044db59015f"
+        }
+      ]
     },
     {
       "state": "modified",
       "path": "scripts/cloud_hotel_id_column_registry.php",
-      "bytes": 25511,
-      "sha256": "8d3bb82dbc6e78b756db5a64e69d724b3e9701fef50d581602734d61e36fb580"
+      "bytes": 27090,
+      "sha256": "e49c4e8a0b549682746276288ce06f3a0195cb1268ac052b21c8d2ea0380beba",
+      "previous_payloads": [
+        {
+          "sha256": "8d3bb82dbc6e78b756db5a64e69d724b3e9701fef50d581602734d61e36fb580",
+          "prepared_before_head": "d342b73c3ed80f619d746f9ffecb6044db59015f"
+        }
+      ]
     },
     {
       "state": "added",
@@ -3808,10 +4541,22 @@
       "sha256": "b5b06e6d4db21b06d4f700c188de3fa28a22a7c88406a65fd3aa4493bef3d89d"
     },
     {
+      "path": "scripts/lib/frontend_template_source.mjs",
+      "state": "modified",
+      "bytes": 25501,
+      "sha256": "2bb1392f47f21da53d7b1ced0f39302d95fc4b7afcede90be4fe6d139664cac0"
+    },
+    {
       "state": "added",
       "path": "scripts/lib/knowledge_coaching_asset_versions.mjs",
       "bytes": 1674,
       "sha256": "6f936d3ea4f1fe5ec8bd3f550a9ec63d801e442c73ef8fa56cfb25e42075d761"
+    },
+    {
+      "path": "scripts/lib/local_database_encrypted_backup.ps1",
+      "state": "added",
+      "bytes": 12737,
+      "sha256": "d78de4c37de2a088fd14ad514245429f3e5b5c13427b746e76721f7c128c5a94"
     },
     {
       "state": "modified",
@@ -3842,6 +4587,12 @@
       "path": "scripts/prepare_hkos_workbench_sources.py",
       "bytes": 3820,
       "sha256": "9da0d11839e7380252f3e13d4960f0a9ba15b5a78443061536c592f6dd312a2e"
+    },
+    {
+      "path": "scripts/recognize_payback_image.ps1",
+      "state": "added",
+      "bytes": 6081,
+      "sha256": "f0827d4c6115e3518469f283a49da0ffa858a8b0e0290e421b5e9a949cc6b684"
     },
     {
       "state": "added",
@@ -3928,6 +4679,12 @@
       "sha256": "dca68c16518e58f73518580f5b080b539e3ca5d2369cfb6fb43deb94212b4a42"
     },
     {
+      "path": "scripts/verify_five_snapshot_migrations_mariadb.php",
+      "state": "added",
+      "bytes": 6028,
+      "sha256": "b8bd048919d345b85f8fd1a38dc84fe60e5a694154b5071b9a55e3672c75b768"
+    },
+    {
       "state": "modified",
       "path": "scripts/verify_frontend_entry_build.mjs",
       "bytes": 2686,
@@ -3938,6 +4695,12 @@
       "path": "scripts/verify_home_visual_hierarchy_contract.mjs",
       "bytes": 15070,
       "sha256": "d97d8da4ac602c794fd9e240449f21ad1d6cb2440c1e59d222c053f75abaf69e"
+    },
+    {
+      "path": "scripts/verify_local_database_encrypted_backup.php",
+      "state": "added",
+      "bytes": 1799,
+      "sha256": "5db74c003c71c03ac545ae58ae5ebf1b8a38991919c4560c9f2ad7cc1016bb21"
     },
     {
       "state": "added",
@@ -3980,6 +4743,12 @@
       "path": "scripts/verify_worktree_guard.mjs",
       "bytes": 5084,
       "sha256": "b9b0333fa1dea6e59183d06c56af9517b7e4add4797512dced27ff4664a6f9aa"
+    },
+    {
+      "path": "tests/ActualConsumablesScenarioReferenceTest.php",
+      "state": "added",
+      "bytes": 12442,
+      "sha256": "56d3ffd15f194bdff4482e2f19021443c878bfd22d5b04cbc1d278d7bc604f26"
     },
     {
       "state": "added",
@@ -4042,6 +4811,18 @@
       "sha256": "a3074cabd2aaa40df82eb437040249f250be781fdf670cfaf9b42f6b0a08b8b4"
     },
     {
+      "path": "tests/AiDailyReportPresentationReviewRoutingTest.php",
+      "state": "added",
+      "bytes": 2670,
+      "sha256": "1ea3aa717d04df7dec2c417f6283e3651880c7bee34b2f33b700ea2ecf8179f8"
+    },
+    {
+      "path": "tests/AiDailyReportPresentationReviewServiceTest.php",
+      "state": "added",
+      "bytes": 20580,
+      "sha256": "dc9adbff36026696207256d456ae7eb59f52a13877d4d48345a7b37e76caf50d"
+    },
+    {
       "path": "tests/AiDailyReportReadFailureTest.php",
       "state": "modified",
       "bytes": 8297,
@@ -4102,6 +4883,12 @@
       "sha256": "d9989806524d7565fe1ada5edd476ff7282505298baf83d6a00b67d37f81313b"
     },
     {
+      "path": "tests/automation/ai_daily_report_delivery_boundary.test.mjs",
+      "state": "modified",
+      "bytes": 3715,
+      "sha256": "cad42a853ac5b0c49971452096e53824cac2fe1df91706b3c4536d297483c68c"
+    },
+    {
       "state": "added",
       "path": "tests/automation/ai_daily_report_evidence_refresh_race.test.mjs",
       "bytes": 10129,
@@ -4140,8 +4927,20 @@
     {
       "state": "modified",
       "path": "tests/automation/ai_daily_report_presentation_artifact_ui.test.mjs",
-      "bytes": 23346,
-      "sha256": "298b9bb6b5acb1752d4646de6581eef41d7f31b2eaadd60bf58993973a7650c1"
+      "bytes": 26562,
+      "sha256": "5af60828d31b0727dfb5903dbb2fa78a45fe0c8ef28494a1fd78ccce4a2704a0",
+      "previous_payloads": [
+        {
+          "sha256": "298b9bb6b5acb1752d4646de6581eef41d7f31b2eaadd60bf58993973a7650c1",
+          "prepared_before_head": "d342b73c3ed80f619d746f9ffecb6044db59015f"
+        }
+      ]
+    },
+    {
+      "path": "tests/automation/ai_daily_report_presentation_review_ui.test.mjs",
+      "state": "added",
+      "bytes": 8385,
+      "sha256": "058a42cc63bb3f07b10d8cff3501b9a7784668c569464ac7e496a52083f835a7"
     },
     {
       "state": "added",
@@ -4210,6 +5009,12 @@
       "sha256": "6406f91a54cbb2838efad2ef65b418b546af4a3186063387ae17fdffaedaf305"
     },
     {
+      "path": "tests/automation/booking_monitoring_panel.test.mjs",
+      "state": "added",
+      "bytes": 13286,
+      "sha256": "f39e29eca375fe27edc7980943fcb620afa146c3ce4e234f51899490f3726743"
+    },
+    {
       "state": "added",
       "path": "tests/automation/browser_assist_import_receipt.test.mjs",
       "bytes": 13918,
@@ -4228,10 +5033,40 @@
       "sha256": "b39f09d73f34dd80b6f98a66239f994299129137213567b01351ac752bab2a04"
     },
     {
+      "path": "tests/automation/business_feature_workspace_async_state.test.mjs",
+      "state": "added",
+      "bytes": 7617,
+      "sha256": "416fb6aca3f94424af0a612c2e9f9c16af1a5fb4ad70dbb247cdb40da925a5e9"
+    },
+    {
+      "path": "tests/automation/business_feature_workspace_browser.test.mjs",
+      "state": "added",
+      "bytes": 17985,
+      "sha256": "d1eb008873bd5867e28671a9b5a58f56caca8a0889bb45407187438262e10679"
+    },
+    {
+      "path": "tests/automation/business_workspace_migrations_contract.test.mjs",
+      "state": "added",
+      "bytes": 4405,
+      "sha256": "e597d318780e5919a532908d740064cfeb19c9fb19072ac8c6d5b87fd4f82bdd"
+    },
+    {
       "path": "tests/automation/business-chains.spec.js",
       "state": "modified",
       "bytes": 36105,
       "sha256": "cb9e979a63449b11c66ba25aea5f70654398081cc26f6b8bee0eb77810cefea5"
+    },
+    {
+      "path": "tests/automation/campaign_operations_browser.test.mjs",
+      "state": "added",
+      "bytes": 13955,
+      "sha256": "622228b99cc53dc74fe5adbee6cdaa5c10929a219b38bdf3d02aa23e688ac805"
+    },
+    {
+      "path": "tests/automation/changqing_operating_hub.test.mjs",
+      "state": "added",
+      "bytes": 19180,
+      "sha256": "189a01fc8dae5ade0668c098fa36b7f2aa71bf04ccb2a72ac1e4f0ed58c0aabc"
     },
     {
       "state": "added",
@@ -4630,6 +5465,12 @@
       "sha256": "602c2ec3f56dea0f7b4258b764569b0253fa9ca6924ab588a4385268256a74e2"
     },
     {
+      "path": "tests/automation/frontend_login_destination.test.mjs",
+      "state": "added",
+      "bytes": 3193,
+      "sha256": "8cc7d949794fc6f097e670c5691cbcd6ba877606471d115ea564bdc04392ed2b"
+    },
+    {
       "state": "modified",
       "path": "tests/automation/frontend_login_entry_failure_regression.test.mjs",
       "bytes": 3686,
@@ -4646,6 +5487,12 @@
       "path": "tests/automation/frontend_template_optimizations.test.mjs",
       "bytes": 4088,
       "sha256": "405a356441920a8ac9971acaf4bad02e4f5694479a985aba6896f5ef74762003"
+    },
+    {
+      "path": "tests/automation/guest_operations_panel.test.mjs",
+      "state": "added",
+      "bytes": 19566,
+      "sha256": "00fc00c2153a203fe66e0301cd8767535d41dd18cb7dd8d6b43eb152f677c976"
     },
     {
       "state": "modified",
@@ -4816,6 +5663,36 @@
       "sha256": "65449dcd44152114fb4d0b5c45aef25323c8f38b1be5cf2fc3c0b7516bf1d2e5"
     },
     {
+      "path": "tests/automation/investment_operating_bridge_browser.test.mjs",
+      "state": "added",
+      "bytes": 6655,
+      "sha256": "775cf424033ad80e57d07b17f6a7c593f8fe90062b20c1162d87bb676ecbef14"
+    },
+    {
+      "path": "tests/automation/investment_operating_bridge_panel.test.mjs",
+      "state": "added",
+      "bytes": 2708,
+      "sha256": "d0b617ea84f63af642a7bb6d2249f66263a67b2a4247d553b84968757f000c9d"
+    },
+    {
+      "path": "tests/automation/investment_payback_import.test.mjs",
+      "state": "added",
+      "bytes": 21682,
+      "sha256": "4386d4e6b0857b3e4f3f21319d8650d92b519e9f16b0baf74bee358c3aa73767"
+    },
+    {
+      "path": "tests/automation/investment_payback_workbench.test.mjs",
+      "state": "added",
+      "bytes": 42078,
+      "sha256": "e81c212a26538e6ed9b3bccd93154bfd92128be9ed7e40657948bd98b59700d8"
+    },
+    {
+      "path": "tests/automation/investment_scenario_workbench.test.mjs",
+      "state": "added",
+      "bytes": 51347,
+      "sha256": "517cf78e63c389bc8d1330fb83974e65b1fbf539f6dd2b344995b279f5d19532"
+    },
+    {
       "state": "added",
       "path": "tests/automation/knowledge_batch_delete_refresh_feedback.test.mjs",
       "bytes": 15679,
@@ -4922,6 +5799,12 @@
       "path": "tests/automation/knowledge_sop_candidate_context.test.mjs",
       "bytes": 22852,
       "sha256": "51f018a9c4c3c828f0c4894e80911bf7c29db888d2ce6ca6f21e0960999444b4"
+    },
+    {
+      "path": "tests/automation/local_database_encrypted_backup.test.mjs",
+      "state": "added",
+      "bytes": 9985,
+      "sha256": "3937f099dbd0da808177bf8d31a29e3ff344cb183e75d2fbe0cf7fd9f73c12cf"
     },
     {
       "state": "added",
@@ -5372,6 +6255,12 @@
       "path": "tests/automation/operating_display_projections.test.mjs",
       "bytes": 5364,
       "sha256": "f10daaf2794a3ef78e791e6c0e64fb9be97385beac5a2ac62dfe7f342554915e"
+    },
+    {
+      "path": "tests/automation/operating_economics_workbench.test.mjs",
+      "state": "added",
+      "bytes": 7491,
+      "sha256": "11e211457edccda174a703557aeb9c5bc7fff108a0c9050b50b2a00960c5c6a4"
     },
     {
       "state": "modified",
@@ -6202,6 +7091,30 @@
       "sha256": "308c1934aa6b97a40c01e5709b79126f5bc0f05bc8c3d1d6887fe2d1ca93bd9c"
     },
     {
+      "path": "tests/BookingMonitoringRoutingTest.php",
+      "state": "added",
+      "bytes": 3464,
+      "sha256": "b94e1340a641cb8f75defcb942e8015905508ec3358c2965339b6e56a6a3fc61"
+    },
+    {
+      "path": "tests/BookingMonitoringServiceTest.php",
+      "state": "added",
+      "bytes": 20361,
+      "sha256": "450271d65cd6187d3f324aa55b28a54e709512780ad9c30c25b34cf59665f094"
+    },
+    {
+      "path": "tests/BusinessWorkspaceServiceTest.php",
+      "state": "added",
+      "bytes": 12859,
+      "sha256": "b201deb07555e45cbdd08b82769a8d07559cbd46190b32d52e5f57f9484973eb"
+    },
+    {
+      "path": "tests/CampaignOperationsServiceTest.php",
+      "state": "added",
+      "bytes": 30133,
+      "sha256": "72f53f2da564d9269776ed784df15456c4164a67fcd8b5d4479bf84fb83daebd"
+    },
+    {
       "state": "added",
       "path": "tests/CloudBrowserReceiptChainVerifierTest.php",
       "bytes": 8779,
@@ -6212,6 +7125,18 @@
       "path": "tests/CloudHealthTaskDateAuditTest.php",
       "bytes": 6479,
       "sha256": "0cfae602ff9a31c110d9767b3881cf5469e55092235e6e0dcb30e0164daaeeef"
+    },
+    {
+      "path": "tests/ConsumablesCostCalculatorTest.php",
+      "state": "added",
+      "bytes": 16247,
+      "sha256": "e048be7b159c4d9c30b974d0e0d65d4e79e9bd91cc87ef54a6cba0e1aa9cba21"
+    },
+    {
+      "path": "tests/ConsumablesProcurementReferenceServiceTest.php",
+      "state": "added",
+      "bytes": 3980,
+      "sha256": "55f3df1afa0429b9433a66c1f2e9bef6c85cb2a069952dfca98045c6a09b8cdc"
     },
     {
       "state": "modified",
@@ -6454,6 +7379,18 @@
       "sha256": "cce557d0b6d0736bd9145368f29703ebd0e6afb2b11351f0115eaf10c69f3dc0"
     },
     {
+      "path": "tests/fixtures/generate_payback_ocr_image.ps1",
+      "state": "added",
+      "bytes": 2022,
+      "sha256": "ce9c0d15ffc2390590e9aabbc7b35de955ef3561b0e0e7e30aaf46c520abcb23"
+    },
+    {
+      "path": "tests/fixtures/guest_operations_http_bridge.php",
+      "state": "added",
+      "bytes": 2593,
+      "sha256": "4e2b99065e7bae4fc44fa3abb7276d557d2ad4f40a63bd5a6fa2a2c517264673"
+    },
+    {
       "state": "added",
       "path": "tests/fixtures/historical-cloud-binding/cloud_browser_gateway_bridge.php.txt",
       "bytes": 13520,
@@ -6496,6 +7433,12 @@
       "sha256": "6ab1c204e6b7f511ab958b38f4ddf639a47e84ed8a724a15d6425ca6dd293627"
     },
     {
+      "path": "tests/GuestOperationsServiceTest.php",
+      "state": "added",
+      "bytes": 23362,
+      "sha256": "cbcb7ad143104577c52161ea991fdfc4b0ddf98a394aec9888bd0e3746fe528c"
+    },
+    {
       "state": "modified",
       "path": "tests/HotelPermissionSecurityClosureTest.php",
       "bytes": 16930,
@@ -6506,6 +7449,78 @@
       "path": "tests/InvestmentDecisionSupportServiceTest.php",
       "bytes": 31938,
       "sha256": "d041b3f1fb17a2926096bdaf150b562d986cfca830f1fc186c31308461cb9fe5"
+    },
+    {
+      "path": "tests/InvestmentOperatingBridgeControllerTest.php",
+      "state": "added",
+      "bytes": 2846,
+      "sha256": "ae7b8885afe01f8135b3fab0b3be55bebab307e339080c2297ef3918013acb33"
+    },
+    {
+      "path": "tests/InvestmentOperatingBridgeLedgerTest.php",
+      "state": "added",
+      "bytes": 4849,
+      "sha256": "d36c05ccfb7df6e5ac97adf4e197c2c5622e35e838ddac5b51f871b4dc45e79f"
+    },
+    {
+      "path": "tests/InvestmentOperatingBridgeServiceTest.php",
+      "state": "added",
+      "bytes": 10765,
+      "sha256": "77cd59655336591bdfad1ec1ac6e91777d3719145fb29ee2aed1a42643fbac1b"
+    },
+    {
+      "path": "tests/InvestmentPaybackCalculatorTest.php",
+      "state": "added",
+      "bytes": 13413,
+      "sha256": "641fb909e9f44bd6faea6c7fcc7748b881af2c28c17373df3cadb0e58e37c384"
+    },
+    {
+      "path": "tests/InvestmentPaybackImportTest.php",
+      "state": "added",
+      "bytes": 50431,
+      "sha256": "dba4109dae164fe66f4222ca295f10f7e62cdc8177243739f6a1179e68699522"
+    },
+    {
+      "path": "tests/InvestmentPaybackPersistenceTest.php",
+      "state": "added",
+      "bytes": 63417,
+      "sha256": "ed8c6d865bbd0a4152007a458ed58a4e956878e8f258e9a09ff63a9e1e3f45bd"
+    },
+    {
+      "path": "tests/InvestmentPaybackRoutingTest.php",
+      "state": "added",
+      "bytes": 6017,
+      "sha256": "259ea19688c3b77ff2641bab5db8eab5aabd1e0ad4b07fb9fcdc19c87b201944"
+    },
+    {
+      "path": "tests/InvestmentScenarioCalculatorTest.php",
+      "state": "added",
+      "bytes": 26040,
+      "sha256": "c652e6b2357f5025d5d317ef689d770d996fca52a37bd5a134fdc20645d549a6"
+    },
+    {
+      "path": "tests/InvestmentScenarioCashPlannerTest.php",
+      "state": "added",
+      "bytes": 11010,
+      "sha256": "ccde509afa7c4260ea1ae98096ff3e8d08e54a388615c115385d60e471b9ace6"
+    },
+    {
+      "path": "tests/InvestmentScenarioPersistenceTest.php",
+      "state": "added",
+      "bytes": 24593,
+      "sha256": "408862345f6b2ab28bbc4ef7fe6a0a8e03b16bc3014c24c79c14dc503b8e4719"
+    },
+    {
+      "path": "tests/InvestmentScenarioPortfolioTest.php",
+      "state": "added",
+      "bytes": 8320,
+      "sha256": "69de0fb2f2b896bd650128297f9ebfb8d2d248e8a2f94e6283b3ee8f43dba0b7"
+    },
+    {
+      "path": "tests/InvestmentScenarioRoutingTest.php",
+      "state": "added",
+      "bytes": 10912,
+      "sha256": "abed407a38446110f362cefecf1af0e7a7a0c43766857f3dc0be1fa17961c5ca"
     },
     {
       "state": "added",
@@ -6794,6 +7809,18 @@
       "path": "tests/OperatingDailyReportPayloadServiceTest.php",
       "bytes": 59084,
       "sha256": "69d454399a42f7107c5c8158054127f66851c5305b66fc8611130b0d0b7130a8"
+    },
+    {
+      "path": "tests/OperatingEvidenceChainTest.php",
+      "state": "added",
+      "bytes": 13853,
+      "sha256": "3c30b49397113d671af7fd88c894c10823a8c9f319fdb66bea060dd5291a4101"
+    },
+    {
+      "path": "tests/OperatingEvidenceRoutingTest.php",
+      "state": "added",
+      "bytes": 17954,
+      "sha256": "79581fd6a65cefafa10a940a60771feeca0e4ee9386b186fd0ab0b8580b8b722"
     },
     {
       "state": "modified",
@@ -7102,6 +8129,12 @@
       "sha256": "98e873a93bf6b83e9556d4d7effa3ee0b9886fd190a6e016c2da13c9fa786efe"
     },
     {
+      "path": "tests/SchemaVersionServiceTest.php",
+      "state": "modified",
+      "bytes": 31335,
+      "sha256": "cc853c293fa69cab49f1da53ffa792e85c7a486dbcdd325e6b7f77374df56201"
+    },
+    {
       "state": "added",
       "path": "tests/SingleHotelBaseOperatingFactsBriefServiceTest.php",
       "bytes": 7819,
@@ -7120,6 +8153,12 @@
       "sha256": "b408a2d4bde5a9b4070e25770f6fbec0282a7d60f5c4bacf4aad01219cc885ab"
     },
     {
+      "path": "tests/Support/business_workspace_fixture_rpc.php",
+      "state": "added",
+      "bytes": 3158,
+      "sha256": "0774bcde2cb1436da3812065b174e8f18a12e01d566bd96a2663cb528f4bc3b2"
+    },
+    {
       "state": "added",
       "path": "tests/Support/coaching_fixture_router.php",
       "bytes": 7289,
@@ -7130,6 +8169,24 @@
       "path": "tests/Support/CoachingKnowledgeFixture.php",
       "bytes": 6149,
       "sha256": "b35639d7daef8237f6b4b4e1c9c8e69260bd968c6412b5018982427ebe8835b5"
+    },
+    {
+      "path": "tests/Support/GuestOperationsSqliteFixture.php",
+      "state": "added",
+      "bytes": 2810,
+      "sha256": "573a38afd2e5d4eb2b4c6f828f872078521d55705a4b618604f0a5fa2ab4c5ef"
+    },
+    {
+      "path": "tests/Support/investment_scenario_fixture_router.php",
+      "state": "added",
+      "bytes": 6706,
+      "sha256": "56a1471759505a58cdc049ded2e8fce2172cb2192eecfb4ce4e5d43dfaf2514a"
+    },
+    {
+      "path": "tests/Support/InvestmentScenarioFixture.php",
+      "state": "added",
+      "bytes": 6520,
+      "sha256": "f0ffb1e3a274469d7c3050ab71f6a5e598a78fd19026f26a2792e8752cf1eecf"
     },
     {
       "state": "added",
@@ -7154,6 +8211,18 @@
       "state": "modified",
       "bytes": 165745,
       "sha256": "88e8d20a8826f4c1f5b5a409111e02b0e5945d589839dfef71f2a64c52cb2dc5"
+    },
+    {
+      "path": "tests/Support/payback_import_fixture_router.php",
+      "state": "added",
+      "bytes": 6630,
+      "sha256": "b42bb82e967c2587d01e41921e06d597c2c846cfe19a4341a9aaa754f26e8d3e"
+    },
+    {
+      "path": "tests/Support/payback_import_mysql_isolation_probe.php",
+      "state": "added",
+      "bytes": 2821,
+      "sha256": "1ab334ae40bc71e19cb0a53a95e8841660dee0cb42b11f2f241cba6fe44f3f17"
     },
     {
       "state": "modified",
