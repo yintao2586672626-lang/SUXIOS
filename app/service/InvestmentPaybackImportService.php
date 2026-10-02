@@ -117,11 +117,13 @@ class InvestmentPaybackImportService
             throw new InvalidArgumentException('每次预览须包含1至500行');
         }
         $projectId = $mode === 'entries' ? self::positiveInt($input['project_id'] ?? null, '目标项目编号') : null;
+        $asOf = InvestmentPaybackCalculator::today();
         $project = null;
         $existing = [];
+        $inaccessibleProjectKeys = [];
         if ($projectId !== null) {
             // detail reuses the ledger's tenant and hotel access checks.
-            $detail = $this->ledger->detail($projectId, InvestmentPaybackCalculator::today());
+            $detail = $this->ledger->detail($projectId, $asOf);
             $project = $detail['project'];
             if ($currentRead) {
                 // Under MySQL RR, use current reads after the project lock rather
@@ -150,6 +152,9 @@ class InvestmentPaybackImportService
                     if ($exception->getCode() !== 403) {
                         throw $exception;
                     }
+                    // Full-tenant uniqueness still applies, but no private
+                    // candidate ID, hotel, balance or source is returned.
+                    $inaccessibleProjectKeys[$candidate['project_name'] . "\0" . $candidate['investor_name']] = true;
                 }
             }
             $snapshot = [];
@@ -179,6 +184,10 @@ class InvestmentPaybackImportService
                         'opening_as_of' => $date, 'forecast_as_of' => $date, 'opening_source' => '人工导入预览，待核对',
                     ]);
                     $key = mb_strtolower($data['project_name']) . "\0" . mb_strtolower($data['investor_name']);
+                    if (isset($inaccessibleProjectKeys[$data['project_name'] . "\0" . $data['investor_name']])) {
+                        $result['errors'][] = '当前租户已存在同名且同投资主体的项目，当前账号无权查看；请核对项目归属后处理';
+                        $result['impact_excluded_reason'] = 'inaccessible_project_duplicate';
+                    }
                 } else {
                     if (!in_array($row['kind'] ?? null, ['investment', 'recovery'], true)) {
                         throw new InvalidArgumentException('类型须为实际投入或实际收回');
@@ -199,7 +208,7 @@ class InvestmentPaybackImportService
                     if ($project['opening_as_of'] !== null && $start <= $project['opening_as_of']) {
                         $result['errors'][] = '此日期已包含在期初汇总内，请修正或排除';
                         $result['impact_excluded_reason'] = 'opening_overlap';
-                    } elseif ($end > InvestmentPaybackCalculator::today()) {
+                    } elseif ($end > $asOf) {
                         $result['impact_excluded_reason'] = 'period_after_today';
                     }
                     if ($data['kind'] === 'investment' && $project['first_invested_on'] !== null && $end < $project['first_invested_on']) {
@@ -294,13 +303,16 @@ class InvestmentPaybackImportService
                 }
             }
         }
+        $impact = ['actual_invested_delta' => InvestmentPaybackCalculator::yuan($invested), 'actual_net_recovered_delta' => InvestmentPaybackCalculator::yuan($recovered),
+            'opening_invested_total' => InvestmentPaybackCalculator::yuan($openingInvested), 'opening_net_recovered_total' => InvestmentPaybackCalculator::yuan($openingRecovered)];
         return [
-            'review_token' => hash('sha256', json_encode([$this->tenantId, $mode, $projectId, $snapshot, $tokenRows], JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR)),
-            'mode' => $mode, 'project_id' => $projectId, 'project_version' => $project['version'] ?? null, 'as_of' => InvestmentPaybackCalculator::today(),
+            // A month crossing its end date changes actual cash impact even
+            // when the rows and project version have not changed.
+            'review_token' => hash('sha256', json_encode([$this->tenantId, $mode, $projectId, $asOf, $snapshot, $tokenRows, $impact], JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR)),
+            'mode' => $mode, 'project_id' => $projectId, 'project_version' => $project['version'] ?? null, 'as_of' => $asOf,
             'rows' => $reviewed, 'selected_count' => $selectedCount, 'invalid_count' => $invalidCount, 'exact_count' => $exactCount, 'similar_count' => $similarCount,
             'can_confirm' => $selectedCount > 0 && $selectedCount <= 200 && $invalidCount === 0 && $exactCount === 0,
-            'impact' => ['actual_invested_delta' => InvestmentPaybackCalculator::yuan($invested), 'actual_net_recovered_delta' => InvestmentPaybackCalculator::yuan($recovered),
-                'opening_invested_total' => InvestmentPaybackCalculator::yuan($openingInvested), 'opening_net_recovered_total' => InvestmentPaybackCalculator::yuan($openingRecovered)],
+            'impact' => $impact,
             'data_status' => 'manual_preview_unverified',
         ];
     }
