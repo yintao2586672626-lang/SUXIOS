@@ -1364,17 +1364,17 @@
     "shared_files_and_generated_assets": "semantic integration and target rebuild still pending"
   },
   "composed_acceptance": {
-    "at": "2026-10-02T12:44:04.920Z",
-    "prepared_against_head": "6a371dc58de1653d83aaabdc5f2ed9063f4cc6ee",
+    "at": "2026-10-02T12:51:43.955Z",
+    "prepared_against_head": "53616ba858b29cad9c8a63c2fcbd091c98b055c7",
     "receipt": "docs/integration/receipts/composed-main-thread-20261002.json",
     "verification": {
       "scope": "explicit composed target files including latest main; isolated synthetic fixtures",
       "php": {
-        "files": 42,
-        "tests": 690,
-        "assertions": 6396,
+        "deduplicated": true,
+        "files": 53,
+        "assertions": 7667,
         "skipped": 0,
-        "deduplicated": true
+        "tests": 851
       },
       "node": {
         "files": 23,
@@ -1390,20 +1390,24 @@
       },
       "frontend_build": "npm run build:frontend passed after latest main composition",
       "public_entry": {
-        "passed": true,
-        "startup_gzip_bytes": 619406,
-        "target": 620000
+        "target": 620000,
+        "startup_gzip_bytes": 619474,
+        "passed": true
       },
       "routes": {
         "controllers": 69,
         "public_actions": 787,
         "covered": true
       },
-      "integration_gate": "npm run verify:integration passed after semantic conflict resolution",
+      "integration_gate": "staged exact-index gate and clean post-merge worktree gate required before delivery",
       "real_business_database_writes": false,
       "real_account_acceptance": false,
       "production_migration": false,
-      "deployment": false
+      "deployment": false,
+      "business_chain_local": {
+        "runtime": "not locally accepted; final CI isolated database required",
+        "static_contract": "passed"
+      }
     },
     "shared_files_and_generated_assets": "semantic integration and complete target-source rebuild passed",
     "github": "remote acceptance recorded separately"

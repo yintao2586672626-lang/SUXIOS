@@ -1417,15 +1417,26 @@
       }
     },
     "delivery_20261002": {
-      "prepared_against_head": "6a371dc58de1653d83aaabdc5f2ed9063f4cc6ee",
+      "prepared_against_head": "53616ba858b29cad9c8a63c2fcbd091c98b055c7",
       "dos_introduction": {
-        "source_commit": "ab3aa5fd04303ec19b48dda81354217e3923a619",
-        "integrated_commit": "6f9bf58090582ac5aa0bdef3250f696544134585",
+        "source_commit": "61554d9aa1081a39e242f95f66a9d721bc68b006",
+        "source_blob": "72aca9496737bad552726935934d19cf2a0f4b12",
         "path": "docs/collaboration/dos-boss-introduction-20261001.md",
-        "sha256": "3010da845ac5a2d26facea4f8d49706d263a89bdd9b12d44114881e9302d8634",
-        "items": 18,
-        "lines": 80,
-        "language_context_examples": 10
+        "sha256": "fdfc91c09ca5bc0160a66ef4781deed510bbeeb68b56be9433dd1d4f3c2ebb14",
+        "understanding_angles": 13,
+        "language_context_examples": 11,
+        "evidence": "source Git blob and SHA256 identical; actual DOS loading/use not verified",
+        "items": 13,
+        "lines": 107,
+        "previous_delivery": {
+          "source_commit": "ab3aa5fd04303ec19b48dda81354217e3923a619",
+          "integrated_commit": "6f9bf58090582ac5aa0bdef3250f696544134585",
+          "path": "docs/collaboration/dos-boss-introduction-20261001.md",
+          "sha256": "3010da845ac5a2d26facea4f8d49706d263a89bdd9b12d44114881e9302d8634",
+          "items": 18,
+          "lines": 80,
+          "language_context_examples": 10
+        }
       },
       "changqing_workspace": {
         "status": "final_product_integrated_and_composed_target_verified",
@@ -1470,11 +1481,11 @@
         "verification": {
           "scope": "explicit composed target files including latest main; isolated synthetic fixtures",
           "php": {
-            "files": 42,
-            "tests": 690,
-            "assertions": 6396,
+            "deduplicated": true,
+            "files": 53,
+            "assertions": 7667,
             "skipped": 0,
-            "deduplicated": true
+            "tests": 851
           },
           "node": {
             "files": 23,
@@ -1490,20 +1501,24 @@
           },
           "frontend_build": "npm run build:frontend passed after latest main composition",
           "public_entry": {
-            "passed": true,
-            "startup_gzip_bytes": 619406,
-            "target": 620000
+            "target": 620000,
+            "startup_gzip_bytes": 619474,
+            "passed": true
           },
           "routes": {
             "controllers": 69,
             "public_actions": 787,
             "covered": true
           },
-          "integration_gate": "npm run verify:integration passed after semantic conflict resolution",
+          "integration_gate": "staged exact-index gate and clean post-merge worktree gate required before delivery",
           "real_business_database_writes": false,
           "real_account_acceptance": false,
           "production_migration": false,
-          "deployment": false
+          "deployment": false,
+          "business_chain_local": {
+            "runtime": "not locally accepted; final CI isolated database required",
+            "static_contract": "passed"
+          }
         }
       },
       "latest_main": {
@@ -1520,6 +1535,15 @@
         "added_oracles": "four missing-module cases retained; two installed-module and one procurement-missing/actual-present cases added",
         "canonical_hotel_rule": "investment_payback_projects.hotel_id registered and cloud hotel migration contracts passed",
         "proof": "target default bootstrap; three changed PHP files 42 tests / 450 assertions; final 42-file Map union 690 tests / 6396 assertions"
+      },
+      "latest_remote_ota": {
+        "commit": "94f246e2beb3d640a5da254e5c7554514fb438a3",
+        "repair_commits": [
+          "58bff00a",
+          "5192e26a",
+          "a55d53c5"
+        ],
+        "scope": "OTA numeric overflow, platform canonical metrics, exact pricing readback, P0 scope and manual review; root composition retained; authenticated deferred loader protocol merged"
       }
     }
   },
@@ -1984,12 +2008,12 @@
     "external_material": "reference_only_with_publication_limits",
     "raw_material_and_runtime": "retained_locally_excluded_from_commit",
     "changed_file_accounting": {
-      "base_to_candidate_git_paths": 1042,
-      "hashed_payload_files": 1041,
+      "base_to_candidate_git_paths": 1058,
+      "hashed_payload_files": 1057,
       "manifest_path": "docs/integration/suxios-integration-20260930.json",
       "manifest_included_in_git_paths": true,
       "manifest_excluded_from_payload_hashes": true,
-      "reconciliation": "1042 = 1041 current payload paths + 1 self-excluded manifest",
+      "reconciliation": "1058 = 1057 current payload paths + 1 self-excluded manifest",
       "coverage": "all original mappings retained; every current base-to-HEAD/owned dirty payload reconciled; exact committed coverage verified after commit"
     }
   },
@@ -2477,8 +2501,20 @@
     {
       "state": "added",
       "path": "app/service/concern/RevenueAiOverviewMarketStructureConcern.php",
-      "bytes": 16287,
-      "sha256": "209450caa6c334aa8b84261c83b45d4d6cd44c3b0540e9c9d0301758f4cfb0b2"
+      "bytes": 16567,
+      "sha256": "8d9773e89ce6430dc478f85c4528859f8487e1181f95a3429680b206f5c5f8ba",
+      "previous_payloads": [
+        {
+          "sha256": "209450caa6c334aa8b84261c83b45d4d6cd44c3b0540e9c9d0301758f4cfb0b2",
+          "prepared_before_head": "53616ba858b29cad9c8a63c2fcbd091c98b055c7"
+        }
+      ]
+    },
+    {
+      "path": "app/service/concern/RevenueAiOverviewPricingEvidenceConcern.php",
+      "state": "added",
+      "bytes": 7148,
+      "sha256": "c819f7c263af53c1d93edce83392898c0be15c44568b2ca8dc4d1e233c5d0dc3"
     },
     {
       "path": "app/service/ConsumablesActualCostService.php",
@@ -2951,8 +2987,14 @@
     {
       "state": "modified",
       "path": "app/service/OtaRevenueMetricService.php",
-      "bytes": 140593,
-      "sha256": "f8a70e15212022bc2b74a283b2a5c56d3b477395a68c053dcc4fe17f1edab588"
+      "bytes": 144937,
+      "sha256": "8d8f213022d5bd56253adde47e82c75558fe727fca4b88ce18e9199b7ad88e86",
+      "previous_payloads": [
+        {
+          "sha256": "f8a70e15212022bc2b74a283b2a5c56d3b477395a68c053dcc4fe17f1edab588",
+          "prepared_before_head": "53616ba858b29cad9c8a63c2fcbd091c98b055c7"
+        }
+      ]
     },
     {
       "state": "modified",
@@ -2963,8 +3005,14 @@
     {
       "state": "modified",
       "path": "app/service/OtaStandardEtlService.php",
-      "bytes": 154302,
-      "sha256": "ee7fe41760c1ea1a22db7a2a7a0d2331ba626ab89735d908114eb05b8830490e"
+      "bytes": 155250,
+      "sha256": "a6042884d6ff468c0e3f2700864e162cdcca5b9514d5a8d47105fec4ecff1396",
+      "previous_payloads": [
+        {
+          "sha256": "ee7fe41760c1ea1a22db7a2a7a0d2331ba626ab89735d908114eb05b8830490e",
+          "prepared_before_head": "53616ba858b29cad9c8a63c2fcbd091c98b055c7"
+        }
+      ]
     },
     {
       "state": "modified",
@@ -3011,8 +3059,14 @@
     {
       "state": "modified",
       "path": "app/service/RevenueAiOverviewService.php",
-      "bytes": 306174,
-      "sha256": "9b082a8faf8637dd514d0816f55cb56e6519daa66f6dbc0d84985bc59d029873"
+      "bytes": 306918,
+      "sha256": "da7a27d42a75908825afd699f49ede2fe4d377ca3f26796667ca66e67ea7c1bb",
+      "previous_payloads": [
+        {
+          "sha256": "9b082a8faf8637dd514d0816f55cb56e6519daa66f6dbc0d84985bc59d029873",
+          "prepared_before_head": "53616ba858b29cad9c8a63c2fcbd091c98b055c7"
+        }
+      ]
     },
     {
       "state": "added",
@@ -3027,10 +3081,22 @@
       "sha256": "7b0cf1b9dfa6ce011c51e20266d4973128abfe82922692604dd897bcfd3a113b"
     },
     {
+      "path": "app/service/RevenueDecisionViewModelAttestationService.php",
+      "state": "modified",
+      "bytes": 107161,
+      "sha256": "685af39e90724d05e249f094e9dbd61a91d60fc312576c9013c35688c12a1cb2"
+    },
+    {
       "state": "modified",
       "path": "app/service/RevenueFactLayerService.php",
-      "bytes": 151071,
-      "sha256": "eb2fcff59e1ad2e316f5798f36868394ab687eaae9eb1e6ae746b4f6f61bed99"
+      "bytes": 155031,
+      "sha256": "62214a56c856d0a53d4d12fd15773f618d3f56832b5c9e85c481ca8190a34882",
+      "previous_payloads": [
+        {
+          "sha256": "eb2fcff59e1ad2e316f5798f36868394ab687eaae9eb1e6ae746b4f6f61bed99",
+          "prepared_before_head": "53616ba858b29cad9c8a63c2fcbd091c98b055c7"
+        }
+      ]
     },
     {
       "state": "modified",
@@ -3113,8 +3179,8 @@
     {
       "path": "database/migration_checksums.lock.json",
       "state": "modified",
-      "bytes": 29465,
-      "sha256": "9c45c0a601d568f276661f2e40a9d5b7598c7b74b6bac67538c611f0b8e971fb",
+      "bytes": 29344,
+      "sha256": "eb4e853d12ff1caac9a67b4d6016713700adf7e7ec4f759f14be729c6593ef71",
       "previous_payloads": [
         {
           "sha256": "b9a88b20dd1530ddd2b4c14beaf4a92d334ca56824a19753db1ce6527cdc9082",
@@ -3123,6 +3189,10 @@
         {
           "sha256": "8b68497e9107abde6f5d0a109ce2786e37eddc1ab09781755d974f1590286006",
           "prepared_before_head": "6a371dc58de1653d83aaabdc5f2ed9063f4cc6ee"
+        },
+        {
+          "sha256": "9c45c0a601d568f276661f2e40a9d5b7598c7b74b6bac67538c611f0b8e971fb",
+          "prepared_before_head": "53616ba858b29cad9c8a63c2fcbd091c98b055c7"
         }
       ]
     },
@@ -3255,8 +3325,14 @@
     {
       "path": "docs/collaboration/dos-boss-introduction-20261001.md",
       "state": "added",
-      "bytes": 10870,
-      "sha256": "3010da845ac5a2d26facea4f8d49706d263a89bdd9b12d44114881e9302d8634"
+      "bytes": 10238,
+      "sha256": "fdfc91c09ca5bc0160a66ef4781deed510bbeeb68b56be9433dd1d4f3c2ebb14",
+      "previous_payloads": [
+        {
+          "sha256": "3010da845ac5a2d26facea4f8d49706d263a89bdd9b12d44114881e9302d8634",
+          "prepared_before_head": "53616ba858b29cad9c8a63c2fcbd091c98b055c7"
+        }
+      ]
     },
     {
       "state": "added",
@@ -3285,8 +3361,8 @@
     {
       "path": "docs/integration/composed-delivery-20261002.md",
       "state": "added",
-      "bytes": 2250,
-      "sha256": "6b9395a0394334525a42c46dd8658c961384754cb807f60ad5ba930d485738de",
+      "bytes": 2440,
+      "sha256": "00a3f83de736b99f29d47eaa7b1620270289d7648f833750c60f9110fdb5a418",
       "previous_payloads": [
         {
           "sha256": "d933ea39c62b783342fa5b6c15d0f1e85cc8c0a8d7f6085899f1cf56388dfca0",
@@ -3295,6 +3371,10 @@
         {
           "sha256": "5d8695f11eed62747db1a7ac172ab6adf557d6ea205f7f37778bc5fc9886e735",
           "prepared_before_head": "6a371dc58de1653d83aaabdc5f2ed9063f4cc6ee"
+        },
+        {
+          "sha256": "6b9395a0394334525a42c46dd8658c961384754cb807f60ad5ba930d485738de",
+          "prepared_before_head": "53616ba858b29cad9c8a63c2fcbd091c98b055c7"
         }
       ]
     },
@@ -3319,8 +3399,8 @@
     {
       "path": "docs/integration/receipts/changqing-main-thread-receipt-20261002.json",
       "state": "added",
-      "bytes": 49109,
-      "sha256": "037c7b639b19d81a62a929e78d0b787badc3e2c4fb31b5c31761c3df9a542481",
+      "bytes": 49281,
+      "sha256": "042979a9c262a29bd39ec603e33689e4b0af673e4bb0d0ffe70b6dcb8ca49dec",
       "previous_payloads": [
         {
           "sha256": "f78eca3a68bcd653ea8f7cccd301bc89f7117752e957802845bd45ecc5e0da44",
@@ -3333,6 +3413,10 @@
         {
           "sha256": "b926dac2aeb6fce13e104c036c4e3c62d1e56577aaaa86d84d2b7a563dea5a2f",
           "prepared_before_head": "6a371dc58de1653d83aaabdc5f2ed9063f4cc6ee"
+        },
+        {
+          "sha256": "037c7b639b19d81a62a929e78d0b787badc3e2c4fb31b5c31761c3df9a542481",
+          "prepared_before_head": "53616ba858b29cad9c8a63c2fcbd091c98b055c7"
         }
       ]
     },
@@ -3340,7 +3424,7 @@
       "path": "docs/integration/receipts/changqing-main-thread-receipt-20261002.md",
       "state": "added",
       "bytes": 9005,
-      "sha256": "15a8f8888aa10003e952bba3fccdc4f1b95d721747e1c29f7ce6a24f6cec311e",
+      "sha256": "67b1cc83ea85a0435a1b5bfb3cc005454ab8598bce68a6fc04e52ea3bda0041b",
       "previous_payloads": [
         {
           "sha256": "94f5593f4fd7b33f07f88e8cfed06839a60d81c0670f8c53ed52eccf9ab06af9",
@@ -3353,6 +3437,10 @@
         {
           "sha256": "775599da7090f38fd81de5cafd08af12d2c6fb8454336d1aac67e949b619ba38",
           "prepared_before_head": "6a371dc58de1653d83aaabdc5f2ed9063f4cc6ee"
+        },
+        {
+          "sha256": "15a8f8888aa10003e952bba3fccdc4f1b95d721747e1c29f7ce6a24f6cec311e",
+          "prepared_before_head": "53616ba858b29cad9c8a63c2fcbd091c98b055c7"
         }
       ]
     },
@@ -3365,8 +3453,8 @@
     {
       "path": "docs/integration/receipts/composed-main-thread-20261002.json",
       "state": "added",
-      "bytes": 47700,
-      "sha256": "fad6e1fe9e77019b5feccf014f616ea20e64e32dc4249b325c731fec9406bfac",
+      "bytes": 48694,
+      "sha256": "107dfc2698c8f357aff79000cf137914a8a3429d1e6893198cbd4fedb2525ab9",
       "previous_payloads": [
         {
           "sha256": "5a94e1405242f2f7f93a58e2923dc09928031d55351f190d61d6a40ac276964b",
@@ -3375,6 +3463,10 @@
         {
           "sha256": "ab9af39eb5cfc267358900f997eb8be5f2dcc89f1929265bdda976ee874bbc4c",
           "prepared_before_head": "6a371dc58de1653d83aaabdc5f2ed9063f4cc6ee"
+        },
+        {
+          "sha256": "fad6e1fe9e77019b5feccf014f616ea20e64e32dc4249b325c731fec9406bfac",
+          "prepared_before_head": "53616ba858b29cad9c8a63c2fcbd091c98b055c7"
         }
       ]
     },
@@ -3865,8 +3957,8 @@
     {
       "path": "public/app-startup-helpers.min.js",
       "state": "modified",
-      "bytes": 270323,
-      "sha256": "cf2706cc9a31088686b05f7e7075bd011535629694a91eba177137f3b0cb8920",
+      "bytes": 270574,
+      "sha256": "556d5c85be3c60947c468840f261c5d0834187ec6949bae2a44c2ba4306dc063",
       "previous_payloads": [
         {
           "sha256": "3d85ac4fedccb04d47d7b526aa6433c22fa21f77e598edbba275a7981654e1cd",
@@ -3875,6 +3967,10 @@
         {
           "sha256": "3f272c5dae47690e8c8258a4682c6cd20a7df0641fda44d7a9c8847cf91cd6f3",
           "prepared_before_head": "66f04671fda8aaeea04d7e8948a387a4934f0fa0"
+        },
+        {
+          "sha256": "cf2706cc9a31088686b05f7e7075bd011535629694a91eba177137f3b0cb8920",
+          "prepared_before_head": "53616ba858b29cad9c8a63c2fcbd091c98b055c7"
         }
       ]
     },
@@ -3935,8 +4031,8 @@
     {
       "state": "modified",
       "path": "public/components/system/app-main-components-loader.js",
-      "bytes": 10807,
-      "sha256": "4e630fad6f0ef8f38ab8ab05d999baace385972e960fa059de4f9aa051ed0e74",
+      "bytes": 11491,
+      "sha256": "a81a57fef04af1cffe2ebd131f3916f1c00300c46b37fda596ebf9b30b000e1c",
       "previous_payloads": [
         {
           "sha256": "25a13fe784ae9016ba3a8bc575ae3f2612de09ceba55ab4002d36791704d2608",
@@ -3945,6 +4041,10 @@
         {
           "sha256": "7a4009e2b6d7261ac194c60755a7d6c7e8bada8809f5b07a75355b7652f3a684",
           "prepared_before_head": "66f04671fda8aaeea04d7e8948a387a4934f0fa0"
+        },
+        {
+          "sha256": "4e630fad6f0ef8f38ab8ab05d999baace385972e960fa059de4f9aa051ed0e74",
+          "prepared_before_head": "53616ba858b29cad9c8a63c2fcbd091c98b055c7"
         }
       ]
     },
@@ -4189,7 +4289,7 @@
     {
       "path": "public/index.html",
       "bytes": 8588,
-      "sha256": "e957625f1ac8a98a93458ac8ede5ded57c9a3333a3764595b7e5defdb14554b0",
+      "sha256": "4d0f74f61f8616fa132ed308a48e9f58569de35a35ce7935b85ee78b47d84314",
       "state": "modified",
       "previous_payloads": [
         {
@@ -4199,6 +4299,10 @@
         {
           "sha256": "3d05efb36b4a77b7120ef5f828ba07d535a07ddf3e816e666f4c08ba74a805a5",
           "prepared_before_head": "66f04671fda8aaeea04d7e8948a387a4934f0fa0"
+        },
+        {
+          "sha256": "e957625f1ac8a98a93458ac8ede5ded57c9a3333a3764595b7e5defdb14554b0",
+          "prepared_before_head": "53616ba858b29cad9c8a63c2fcbd091c98b055c7"
         }
       ]
     },
@@ -4613,8 +4717,14 @@
     {
       "state": "modified",
       "path": "rules/source-concern-contract-registry.json",
-      "bytes": 5257,
-      "sha256": "463450cf0ad1ca56d1e7ae79c8da934986c0e7ed061ca6d01763fd8c46979d12"
+      "bytes": 5435,
+      "sha256": "e7e73e7fecc9e69e047a554ebe8c32cbcf81afc8c3199e9d9e683e9966df59f3",
+      "previous_payloads": [
+        {
+          "sha256": "463450cf0ad1ca56d1e7ae79c8da934986c0e7ed061ca6d01763fd8c46979d12",
+          "prepared_before_head": "53616ba858b29cad9c8a63c2fcbd091c98b055c7"
+        }
+      ]
     },
     {
       "state": "added",
@@ -4685,12 +4795,16 @@
     {
       "state": "modified",
       "path": "scripts/build_operating_finance_component.mjs",
-      "bytes": 6162,
-      "sha256": "59522573cdbb831999b66d26dcd183c9d907c8315fdcac946dc787de7b5d3349",
+      "bytes": 6186,
+      "sha256": "56affdd8cce88f053e8b84d41ddbd5a50b103d3a5b6c04b144fe759bcb819102",
       "previous_payloads": [
         {
           "sha256": "4221adf639615a6d78511baad9e1a2ceb61f4fd20b121cd2d5284afe6e0f0307",
           "prepared_before_head": "d342b73c3ed80f619d746f9ffecb6044db59015f"
+        },
+        {
+          "sha256": "59522573cdbb831999b66d26dcd183c9d907c8315fdcac946dc787de7b5d3349",
+          "prepared_before_head": "53616ba858b29cad9c8a63c2fcbd091c98b055c7"
         }
       ]
     },
@@ -4733,6 +4847,12 @@
       "state": "added",
       "bytes": 5790,
       "sha256": "cf6630b3530301556c830548bad1d00a119c070d1eb41f566c45bcd02fcdb26f"
+    },
+    {
+      "path": "scripts/lib/business_chain_p0_scope.php",
+      "state": "added",
+      "bytes": 38848,
+      "sha256": "3a943196f364dac5da5b272d5529586f86a7c7e4edc87014e062ee9b030659ba"
     },
     {
       "state": "modified",
@@ -4825,6 +4945,12 @@
       "sha256": "e5f1611a5a791680e625910aaa2c715dc4d47d1807ceb255ceb8669728aa730a"
     },
     {
+      "path": "scripts/report_business_chain_status.php",
+      "state": "modified",
+      "bytes": 141968,
+      "sha256": "14dd7e3514d50e5c61e9ca3c9ddc8071b594e6ae9f937afc7dd4ae2c878fef6b"
+    },
+    {
       "state": "modified",
       "path": "scripts/run_molanxin_collection_preview.php",
       "bytes": 10624,
@@ -4853,6 +4979,12 @@
       "path": "scripts/sync_qiansu_talent_growth_knowledge.php",
       "bytes": 14752,
       "sha256": "21390bc8a16189248dff60b93976a4c5a320f410d2b61e82388ee80dc7706dbb"
+    },
+    {
+      "path": "scripts/verify_business_chain_report_contract.mjs",
+      "state": "modified",
+      "bytes": 13809,
+      "sha256": "2a8e8a516e04aea969cfe800086561a7fdb0ca5b45bf61c6d9a795ed38fde941"
     },
     {
       "state": "added",
@@ -5245,6 +5377,12 @@
       "sha256": "937033a244ce57d727dbd37bde12292bdbf868f6afc759725cb2454be8f39311"
     },
     {
+      "path": "tests/automation/business_chain_status_report.test.mjs",
+      "state": "modified",
+      "bytes": 37006,
+      "sha256": "d834aeff28c84339b7d9534005e1f5c12b19c9c0a86f4ec22c8b7f362c64c9ea"
+    },
+    {
       "state": "modified",
       "path": "tests/automation/business_date_defaults.test.mjs",
       "bytes": 11723,
@@ -5427,8 +5565,14 @@
     {
       "path": "tests/automation/ctrip_order_analysis_panel.test.mjs",
       "state": "modified",
-      "bytes": 27116,
-      "sha256": "b2f2f783767e8e8049130c6b6fd141348c2609a080828f4d87e56eb95333639a"
+      "bytes": 28399,
+      "sha256": "c23beee3deeb38d7b7b79331ebe1c09c0cfb4df405678098abebef1f184dabc2",
+      "previous_payloads": [
+        {
+          "sha256": "b2f2f783767e8e8049130c6b6fd141348c2609a080828f4d87e56eb95333639a",
+          "prepared_before_head": "53616ba858b29cad9c8a63c2fcbd091c98b055c7"
+        }
+      ]
     },
     {
       "state": "added",
@@ -7333,6 +7477,48 @@
       "sha256": "450271d65cd6187d3f324aa55b28a54e709512780ad9c30c25b34cf59665f094"
     },
     {
+      "path": "tests/BusinessChainDownstreamQualityScopeTest.php",
+      "state": "added",
+      "bytes": 17153,
+      "sha256": "d6716282c4596117c073d9205818d3cfa6e0972ddb31adee9062378df76a3ca4"
+    },
+    {
+      "path": "tests/BusinessChainP0DateIdentityTest.php",
+      "state": "added",
+      "bytes": 8887,
+      "sha256": "237c3c3e6c5594dabd97cc88aa9fb2aa6fac5a42c405e96eba570b5c27ab1f59"
+    },
+    {
+      "path": "tests/BusinessChainP0ExecutionPlanTest.php",
+      "state": "modified",
+      "bytes": 21253,
+      "sha256": "9c6cb7166895b350d91825c45c45761c1119468abb279c7847c921c5f873472b"
+    },
+    {
+      "path": "tests/BusinessChainP0HotelIdentityTest.php",
+      "state": "added",
+      "bytes": 11681,
+      "sha256": "743439996106e472897b4b151ca061eb7fc0dd981f4cbd2729494b8e83390419"
+    },
+    {
+      "path": "tests/BusinessChainP0ReadbackCoverageTest.php",
+      "state": "added",
+      "bytes": 8507,
+      "sha256": "809be8098377dfc910fdb3d259547280505de73c8e29e7dc479b0f5051d9ec64"
+    },
+    {
+      "path": "tests/BusinessChainReviewGateTest.php",
+      "state": "added",
+      "bytes": 10032,
+      "sha256": "43abedcc99f356ccf72250918d2defc0c1b323a993944163cbea2e134dc14d8b"
+    },
+    {
+      "path": "tests/BusinessChainSourceDateQualityScopeTest.php",
+      "state": "added",
+      "bytes": 6347,
+      "sha256": "f3c6899d424636f56c9a83ff9f9fa838521df381a1af2c737b7b1171b94e1cc2"
+    },
+    {
       "path": "tests/BusinessWorkspaceServiceTest.php",
       "state": "added",
       "bytes": 12859,
@@ -8263,6 +8449,12 @@
       "sha256": "e430e508ba3651f80b2ffcd1d2c15f144d38b65192db0a0ef87ca2db8999da7f"
     },
     {
+      "path": "tests/OtaRevenueAggregateOverflowTest.php",
+      "state": "added",
+      "bytes": 19180,
+      "sha256": "b2b465cd9171228a36e2dccce7dac417648cd9ecc849de399029d9696d9e85bd"
+    },
+    {
       "state": "added",
       "path": "tests/OtaRoomNightCancellationBoundaryTest.php",
       "bytes": 7366,
@@ -8341,6 +8533,12 @@
       "state": "added"
     },
     {
+      "path": "tests/RevenueAiCanonicalRequestedPlatformScopeTest.php",
+      "state": "added",
+      "bytes": 9668,
+      "sha256": "389881d1c74aae7419ebd74c80aaf05b61d9361e9f536761cb1f3c0f4120a7f9"
+    },
+    {
       "state": "added",
       "path": "tests/RevenueAiDecisionBasisNavigationScopeTest.php",
       "bytes": 12792,
@@ -8351,6 +8549,12 @@
       "path": "tests/RevenueAiOverviewServiceTest.php",
       "bytes": 141241,
       "sha256": "d7a1dd1cd3170a910012bd1fa10f47c84ede34a50d1ea79bca790c8be6551fb5"
+    },
+    {
+      "path": "tests/RevenueAiPricingMetricEvidenceGateTest.php",
+      "state": "added",
+      "bytes": 14256,
+      "sha256": "a8b88092f040daf87e55fd841b76c501fd4e1af50ac0a3734dd949facb7ceeaa"
     },
     {
       "state": "modified",
@@ -8373,8 +8577,14 @@
     {
       "state": "modified",
       "path": "tests/RevenueFactLayerServiceTest.php",
-      "bytes": 60956,
-      "sha256": "8f5c4c14406898806dab48dc5ae7aefbf3414d8e4c4f84b069592513b89b252d"
+      "bytes": 64784,
+      "sha256": "a6664305cea49796e5f66c668fafa9ba472a896dc8bcc0628910ca29ca2f5790",
+      "previous_payloads": [
+        {
+          "sha256": "8f5c4c14406898806dab48dc5ae7aefbf3414d8e4c4f84b069592513b89b252d",
+          "prepared_before_head": "53616ba858b29cad9c8a63c2fcbd091c98b055c7"
+        }
+      ]
     },
     {
       "state": "modified",

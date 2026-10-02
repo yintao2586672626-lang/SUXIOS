@@ -15,7 +15,7 @@ const artifactPath = path.join(repoRoot, 'public/components/system/operating-fin
 const bridgePanelPath = path.join(repoRoot, 'public/components/system/investment-operating-bridge-panel.js');
 const workspacePaths = ['guest-feedback-qr.js', 'guest-operations-panel.js', 'campaign-operations-panel.js', 'business-feature-workspace.js']
   .map(name => path.join(repoRoot, 'public/components/system', name));
-const source = [bridgePanelPath, ...workspacePaths, sourcePath].map(file => fs.readFileSync(file, 'utf8')).join('\n');
+const source = [bridgePanelPath, ...workspacePaths, sourcePath].map(file => fs.readFileSync(file, 'utf8').replace(/\r\n?/g, '\n')).join('\n');
 const startMarker = '        template: `';
 const closingMarker = '\n        `,';
 const endMarker = `${closingMarker}\n    };`;

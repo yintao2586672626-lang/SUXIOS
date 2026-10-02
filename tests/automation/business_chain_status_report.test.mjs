@@ -164,10 +164,12 @@ test('Business-chain report keeps operator-skipped Meituan read-only and action-
   assert.equal(workflow.ai_advice_draft.auto_write_ota, false);
   assert.equal(workflow.revenue_to_ai_handoff.manual_review_packet.review_mode, 'manual_review_only');
   assert.equal(workflow.revenue_to_ai_handoff.manual_review_packet.primary_action.auto_write_ota, false);
-  assert.equal(workflow.revenue_to_ai_handoff.ai_action_count, 1);
+  // This invocation intentionally has no hotel scope; do not invent a usable diagnosis.
+  assert.equal(workflow.revenue_to_ai_handoff.ai_action_count, 0);
   assert.equal(workflow.revenue_to_ai_handoff.can_auto_write_ota, false);
   assert.equal(workflow.revenue_to_ai_handoff.can_create_operation_execution, false);
-  assert(workflow.revenue_to_ai_handoff.revenue_metric_keys.includes('ota_adr'));
+  assert.deepEqual(workflow.revenue_to_ai_handoff.revenue_metric_keys, []);
+  assert.equal(workflow.revenue_to_ai_handoff.manual_review_packet.ai_decision_review_contract.approval_allowed, false);
   assert(workflow.revenue_to_ai_handoff.required_before_execution.includes('all_required_p0_platforms_ready'));
   assert.deepEqual(
     readyCtripSequenceHotelIds,
@@ -196,7 +198,7 @@ test('Business-chain report keeps operator-skipped Meituan read-only and action-
     assert.notEqual(workflow.revenue_diagnosis.status, 'partial_reference_only');
     assert.equal(workflow.ai_advice_draft.status, 'requires_p0');
     assert.equal(workflow.revenue_to_ai_handoff.status, 'handoff_blocked');
-    assert.equal(workflow.revenue_to_ai_handoff.source_scope, 'ota_channel_reference');
+    assert.equal(workflow.revenue_to_ai_handoff.source_scope, 'ota_channel_blocked_unverified');
     assert.deepEqual([...workflow.revenue_to_ai_handoff.target_blocked_platforms].sort(), ['ctrip', 'meituan']);
     assert.equal(workflow.revenue_to_ai_handoff.ai_draft_status, 'requires_p0');
     assert(sequence.every((item) => !item.startsWith('meituan:') || item === 'meituan:operator_skip'));
@@ -252,11 +254,12 @@ test('Operation execution statistics apply date/platform scope before limit and 
   assert.doesNotMatch(helper, /array_filter|buildExecutionFlowSummary/, 'report must not re-filter or rebuild the DB-scoped execution flow');
 });
 
-test('Business-chain report keeps the Ctrip path truthful at either ready or blocked P0 state', (t) => {
+function assertCtripReportPath(t, systemHotelId = null, expectedActionReason = 'available_room_nights_missing') {
   const result = spawnSync(php, [
     'scripts/report_business_chain_status.php',
     '--date=2026-06-28',
     '--platform=ctrip',
+    ...(systemHotelId === null ? [] : [`--system-hotel-id=${systemHotelId}`]),
   ], {
     cwd: process.cwd(),
     encoding: 'utf8',
@@ -280,12 +283,20 @@ test('Business-chain report keeps the Ctrip path truthful at either ready or blo
 
   assert.ok([0, 2].includes(result.status), `unexpected report exit ${result.status}: ${output.slice(0, 1000)}`);
   assert.deepEqual(payload.scope.platforms, ['ctrip']);
-  if (result.status === 2) {
+  assert.equal(payload.scope.system_hotel_id, systemHotelId);
+  assert.equal(payload.scope.target_date, '2026-06-28');
+  if (result.status === 2 && payload.p0_downstream_gate.status !== 'ready') {
     assert.equal(payload.status, 'incomplete');
     assert.equal(payload.claim_allowed, false);
     assert.equal(payload.p0_downstream_gate.status, 'blocked_by_p0_ota_gate');
     assert.equal(payload.p0_execution_plan.status, 'incomplete');
     assert.equal(handoff.can_auto_write_ota, false);
+    assert.equal(packet.status, 'blocked_ready_for_manual_review');
+    assert.equal(reviewContract.approval_allowed, false);
+    assert.equal(reviewContract.operation_intake_allowed, false);
+    assert.equal(resolutionPlan.approval_allowed_after_resolution, false);
+    assert(packet.blockers.some((item) => item.reason === 'diagnosis_scope_unverified'));
+    assert.deepEqual(packet.revenue_metrics, []);
     assert.equal(operationHandoff.operation_intake_packet.operation_intake_preflight_contract.would_call_create_endpoint, false);
     const stages = Object.fromEntries(payload.stages.map((stage) => [stage.key, stage]));
     assert.equal(stages.ota_data.status, 'blocked_by_p0_ota_gate');
@@ -299,13 +310,18 @@ test('Business-chain report keeps the Ctrip path truthful at either ready or blo
     assert.deepEqual(payload.operation_summary.scope.platforms, ['ctrip']);
     return;
   }
+  assert.equal(result.status, 2, 'pending manual-review inputs must keep the report incomplete');
+  assert.equal(payload.status, 'incomplete');
+  assert.equal(payload.claim_allowed, false);
   assert.equal(payload.p0_downstream_gate.status, 'ready');
   assert.equal(payload.p0_execution_plan.status, 'passed');
-  assert.equal(payload.focused_chain.status, 'scoped_ai_review_ready');
-  assert.equal(payload.focused_chain.claim_allowed, true);
+  assert.equal(payload.focused_chain.status, 'not_ready');
+  assert.equal(payload.focused_chain.claim_allowed, false);
   assert.equal(payload.downstream_reference_workflow.status, 'scoped_workflow_ready_for_manual_review');
   assert.equal(payload.downstream_reference_workflow.source_policy, 'use_scoped_target_date_ota_rows_for_ai_review');
   assert.deepEqual(payload.downstream_reference_workflow.revenue_diagnosis.source_channels, ['ctrip']);
+  assert.equal(payload.downstream_reference_workflow.revenue_diagnosis.system_hotel_id, systemHotelId);
+  assert.equal(payload.downstream_reference_workflow.revenue_diagnosis.business_date, '2026-06-28');
   assert.equal(handoff.status, 'handoff_ready_for_manual_review');
   assert.equal(handoff.source_scope, 'ctrip_target_date_ota_channel');
   assert.deepEqual(handoff.source_platforms, ['ctrip']);
@@ -317,7 +333,9 @@ test('Business-chain report keeps the Ctrip path truthful at either ready or blo
   assert.equal(packet.review_mode, 'manual_review_only');
   assert.equal(packet.source_scope, 'ctrip_target_date_ota_channel');
   assert.deepEqual(packet.source_platforms, ['ctrip']);
-  assert.equal(packet.primary_action.reason, 'available_room_nights_missing');
+  assert.equal(packet.primary_action.key, 'pricing_review');
+  assert.equal(packet.primary_action.status, 'blocked');
+  assert.equal(packet.primary_action.reason, expectedActionReason);
   assert.equal(packet.primary_action.auto_write_ota, false);
   assert.equal(packet.primary_blocker.reason, 'available_room_nights_missing');
   assert(packet.blockers.some((item) => item.reason === 'available_room_nights_missing'));
@@ -331,7 +349,7 @@ test('Business-chain report keeps the Ctrip path truthful at either ready or blo
   assert.equal(reviewContract.source_scope, 'ctrip_target_date_ota_channel');
   assert.deepEqual(reviewContract.source_platforms, ['ctrip']);
   assert.equal(reviewContract.manual_review_packet_status, 'blocked_ready_for_manual_review');
-  assert.equal(reviewContract.candidate_action_reason, 'available_room_nights_missing');
+  assert.equal(reviewContract.candidate_action_reason, expectedActionReason);
   assert.equal(reviewContract.approval_allowed, false);
   assert.equal(reviewContract.operation_intake_allowed, false);
   assert.equal(reviewContract.auto_apply_ai_advice, false);
@@ -359,7 +377,7 @@ test('Business-chain report keeps the Ctrip path truthful at either ready or blo
   assert(resolutionPlan.forbidden_actions.includes('fill_missing_evidence_with_defaults'));
   assert(resolutionPlan.forbidden_actions.includes('approve_ai_advice_without_resolving_inputs'));
   assert(resolutionPlan.items.some((item) => item.code === 'revpar_denominator' && item.resolution_action === 'provide_available_room_nights_or_mark_metric_unusable' && item.forbidden_shortcut === 'default_available_room_nights'));
-  assert(resolutionPlan.items.some((item) => item.code === 'manual_review_workflow' && item.acceptance_check.includes('manual review record has reviewer')));
+  assert(resolutionPlan.items.some((item) => item.code === 'manual_review_workflow' && item.resolution_action === 'persist_or_attach_manual_review_record' && item.acceptance_check.includes('manual review record has reviewer')));
   if (resolutionPlan.items.some((item) => item.code === 'ota_metrics')) {
     assert(resolutionPlan.items.some((item) => item.code === 'ota_metrics' && item.resolution_action === 'verify_zero_room_nights_or_correct_ota_room_nights'));
   } else {
@@ -429,15 +447,45 @@ test('Business-chain report keeps the Ctrip path truthful at either ready or blo
   assert.equal(ctripActionsByCode.resolve_revenue_metric_gap.stage, 'revenue_analysis');
   assert.equal(ctripActionsByCode.resolve_revenue_metric_gap.evidence_code, 'available_room_nights_missing');
   assert.equal(ctripActionsByCode.approve_ai_manual_review.stage, 'ai_decision');
-  assert.equal(ctripActionsByCode.approve_ai_manual_review.evidence_code, 'manual_review_workflow_not_connected');
+  assert.equal(ctripActionsByCode.approve_ai_manual_review.evidence_code, 'blocked_ready_for_manual_review');
   assert.equal(ctripActionsByCode.create_operation_intent_after_review.target_entry, '/api/operation/execution-intents');
-  assert.equal(ctripActionsByCode.create_operation_intent_after_review.evidence_code, 'operation_intake_not_approved');
+  assert.equal(ctripActionsByCode.create_operation_intent_after_review.evidence_code, 'operation_intake_blocked_by_manual_review');
   assert.equal(ctripActionsByCode.attach_operation_execution_evidence.target_entry, 'ops-track');
   assert.equal(ctripActionsByCode.attach_operation_execution_evidence.evidence_code, 'operation_execution.evidence_and_effect_review');
-  assert.equal(action.reason, 'available_room_nights_missing');
+  assert.equal(action.key, 'pricing_review');
+  assert.equal(action.status, 'blocked');
+  assert.equal(action.reason, expectedActionReason);
+  assert(action.blocking_reasons.includes(expectedActionReason));
   assert(action.blocking_reasons.includes('available_room_nights_missing'));
   assert(!action.blocking_reasons.includes('online_daily_data_empty'));
-  assert.doesNotMatch(output, /meituan/);
+  assert.deepEqual(payload.diagnosis_input.platforms, ['ctrip']);
+  assert.deepEqual(payload.source_rows.map((row) => row.source), ['ctrip']);
+  assert.deepEqual(payload.focused_chain.platforms, ['ctrip']);
+  assert.deepEqual(action.pricing_generation_preflight.source_channels, ['ctrip']);
+  assert.equal(action.pricing_generation_preflight.source_scope, 'ctrip_ota_channel');
+  assert.equal(action.pricing_generation_preflight.hotel_id, systemHotelId);
+  assert.equal(action.pricing_generation_preflight.business_date, '2026-06-28');
+  assert.equal(action.ai_to_operation_handoff.operation_intake_packet.candidate_payload_template.platform, 'ctrip');
+  assert.equal(payload.three_source_fact_layer.status, 'blocked');
+  assert.equal(payload.three_source_fact_layer.all_three_sources_readback_verified, false);
+  assert.equal(payload.three_source_fact_layer.sources.meituan_ota.data_status, 'missing');
+  assert.equal(payload.three_source_fact_layer.sources.meituan_ota.actual_business_date, null);
+  assert.equal(payload.three_source_fact_layer.sources.meituan_ota.analysis_readiness.allowed, false);
+  assert.equal(payload.three_source_fact_layer.sources.meituan_ota.analysis_readiness.status, 'blocked');
+}
+
+test('Business-chain report keeps the Ctrip path truthful at either ready or blocked P0 state', (t) => {
+  assertCtripReportPath(t);
+});
+
+test('Business-chain synthetic scoped runtime keeps P0 ready and manual-review blockers separate', (t) => {
+  const hotelId = process.env.SUXI_BUSINESS_CHAIN_SYNTHETIC_HOTEL_ID;
+  if (hotelId === undefined) {
+    t.skip('dedicated synthetic hotel fixture is not configured');
+    return;
+  }
+  assert.match(hotelId, /^[1-9]\d*$/);
+  assertCtripReportPath(t, Number(hotelId), 'competitor_price_fields_missing');
 });
 
 test('Business-chain markdown exposes Ctrip manual review packet without hiding a blocked P0 gate', (t) => {
@@ -467,9 +515,10 @@ test('Business-chain markdown exposes Ctrip manual review packet without hiding 
   assert.match(output, /release_ready: `not_evaluated`/);
   assert.match(output, /manual_review_packet: `blocked_ready_for_manual_review`/);
   assert.match(output, /mode=`manual_review_only`/);
-  assert.match(output, /primary_action=`(?:available_room_nights_missing|ota_room_nights_zero|ota_revenue_metrics_missing|online_daily_data_empty)`/);
-  assert.match(output, /primary_blocker=`available_room_nights_missing`/);
-  assert.match(output, /manual_review_next_blockers: `available_room_nights_missing/);
+  // Without --system-hotel-id, the upstream scope must be repaired before metric advice exists.
+  assert.match(output, /primary_action=``/);
+  assert.match(output, /primary_blocker=`diagnosis_scope_unverified`/);
+  assert.match(output, /manual_review_next_blockers: `diagnosis_scope_unverified,upstream_manual_review_not_ready,scoped_ai_action_missing`/);
   assert.match(output, /manual_review_forbidden_actions: `auto_write_ota/);
   assert.match(output, /create_operation_execution_without_human_approval/);
   const reviewCount = output.match(/ai_decision_review_contract: `blocked_by_review_inputs`, approval_allowed=`false`, operation_intake_allowed=`false`, required_inputs=`(\d+)`/);
@@ -479,9 +528,9 @@ test('Business-chain markdown exposes Ctrip manual review packet without hiding 
   assert(Number(reviewCount[1]) > 0, 'blocked AI review must expose at least one required input');
   assert.equal(Number(resolutionCount[1]), Number(reviewCount[1]));
   assert.equal(Number(resolutionCount[2]), Number(reviewCount[1]));
-  assert.match(output, /ai_decision_required_inputs: `revpar_denominator:available_room_nights_missing,floor_price:floor_price_missing,manual_review_workflow:manual_review_workflow_not_connected/);
+  assert.match(output, /ai_decision_required_inputs: `diagnosis_scope:diagnosis_scope_unverified,upstream_gate:upstream_manual_review_not_ready,ai_action:scoped_ai_action_missing`/);
   assert.match(output, /ai_decision_allowed_outputs: `request_revenue_metric_evidence:allowed,record_manual_review_note:allowed,reject_ai_advice:allowed,approve_ai_advice_for_operation_intake:blocked`/);
-  assert.match(output, /ai_decision_resolution_items: `revpar_denominator:provide_available_room_nights_or_mark_metric_unusable,floor_price:provide_floor_price_or_min_rate_guard,manual_review_workflow:persist_or_attach_manual_review_record/);
+  assert.match(output, /ai_decision_resolution_items: `diagnosis_scope:resolve_diagnosis_scope,upstream_gate:resolve_upstream_gate,ai_action:resolve_ai_action`/);
   assert.match(output, /ai_to_operation_handoff: `operation_intake_blocked_by_manual_review`/);
   assert.match(output, /target=`\/api\/operation\/execution-intents`/);
   assert.match(output, /persisted=`false`/);
@@ -489,14 +538,14 @@ test('Business-chain markdown exposes Ctrip manual review packet without hiding 
   assert.match(output, /operation_intake_packet: `blocked_by_manual_review_packet`/);
   assert.match(output, /source_module=`ota_revenue_ai_manual_review`/);
   assert.match(output, /object_type=`ota_pricing`/);
-  assert.match(output, /blocked_reason=`available_room_nights_missing`/);
-  assert.match(output, /operation_intake_preflight_contract: `blocked_by_ai_review_contract`, create_allowed=`false`, would_call_create=`false`, missing_fields=`9`/);
+  assert.match(output, /blocked_reason=`diagnosis_scope_unverified`/);
+  assert.match(output, /operation_intake_preflight_contract: `blocked_by_ai_review_contract`, create_allowed=`false`, would_call_create=`false`, missing_fields=`10`/);
   assert.match(output, /operation_intake_missing_fields: `approved_ai_advice:ai_decision_review_inputs_pending,operation_intake_allowed:operation_intake_gate_closed,hotel_id:operator_selected_hotel_missing/);
   assert.match(output, /ctrip_chain_action_queue: `has_blocking_actions`, items=`4`, blocking=`4`/);
-  assert.match(output, /ctrip_chain_next_action: action=`resolve_revenue_metric_gap`, stage=`revenue_analysis`, evidence=`available_room_nights_missing`/);
+  assert.match(output, /ctrip_chain_next_action: action=`resolve_revenue_metric_gap`, stage=`revenue_analysis`, evidence=`diagnosis_scope_unverified`/);
   assert.match(output, /ctrip_chain_next_action: action=`approve_ai_manual_review`, stage=`ai_decision`, evidence=`blocked_ready_for_manual_review`/);
   assert.match(output, /ctrip_chain_next_action: action=`create_operation_intent_after_review`, stage=`operation_management`, evidence=`operation_intake_blocked_by_manual_review`, target=`\/api\/operation\/execution-intents`/);
   assert.match(output, /ctrip_chain_next_action: action=`attach_operation_execution_evidence`, stage=`operation_management`, evidence=`operation_execution\.evidence_and_effect_review`, target=`ops-track`/);
   assert.match(output, /ctrip_chain_forbidden_actions: `auto_write_ota,auto_create_operation_execution_intent,claim_ai_decision_final,claim_operation_roi_ready,promote_ota_scope_to_whole_hotel_truth`/);
-  assert.doesNotMatch(output, /meituan/);
+  assert.match(output, /focused_chain: `not_ready`, platforms=`ctrip`/);
 });

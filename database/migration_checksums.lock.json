@@ -229,7 +229,6 @@
     "20261002_create_campaign_operation_versions.sql": "14b8b42a053aa0dd5727f4179d08f5e36fdad4b4045358255bc700365b2dd4a7",
     "20261002_z_create_business_workspace.sql": "ac3790578902ebaee967679297a70b71a2fde42fc8c08d109ead6e80dc892bd5",
     "20261002_z_create_guest_operations.sql": "55f3c81977025ebd84ac010cf7596a10afecf70936fe0805b684ed5bed9f76e8",
-    "20261001_create_investment_payback_ledger.sql": "fd77dc4751665cefc02112ca95fcb1b4e614a1f680b0c8850e8a98a4f3f789de",
     "20261002_create_operating_evidence_snapshots.sql": "87bb58c2d139b12f9abd9cdf195c8b03c4d843d193b5611a26593b6992b200f3",
     "20261002_create_room_type_on_books_snapshots.sql": "9dc6db2d06d14655b381265abc20fb077c11ae4b4d0d6caa92ccfa79834ba779",
     "20261002_create_ai_report_presentation_reviews.sql": "32dadf8990bf355050f601972e36defa0fb9da625b64f388f923b869a57edb23"

@@ -2039,6 +2039,7 @@ final class RevenueDecisionViewModelAttestationService
     {
         return match ($reason) {
             '' => '数据已命中当前口径。',
+            'numeric_aggregate_nonfinite' => '同范围数值累计或计算超出可表示范围，当前指标不可计算；原始事实仍保留。',
             'online_daily_data_empty' => '目标经营日期没有可用 OTA 入库数据。',
             'source_not_loaded' => '未找到对应渠道的数据源或入库状态。',
             'metric_scope_mismatch' => '指标事实与当前酒店、平台或业务日期不一致。',
@@ -2209,7 +2210,8 @@ final class RevenueDecisionViewModelAttestationService
 
     private function canonicalize(mixed $value): mixed
     {
-        if (is_float($value) && is_finite($value) && floor($value) === $value) {
+        if (is_float($value) && is_finite($value) && floor($value) === $value
+            && $value >= (float)PHP_INT_MIN && $value < (float)PHP_INT_MAX) {
             return (int)$value;
         }
         if (!is_array($value)) {

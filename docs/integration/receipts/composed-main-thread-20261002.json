@@ -1,8 +1,8 @@
 {
   "contract": "suxios.composed_delivery.v1",
-  "at": "2026-10-02T12:44:04.920Z",
+  "at": "2026-10-02T12:51:43.955Z",
   "phase": "final",
-  "prepared_against_head": "6a371dc58de1653d83aaabdc5f2ed9063f4cc6ee",
+  "prepared_against_head": "53616ba858b29cad9c8a63c2fcbd091c98b055c7",
   "main_thread": "01a0eed4-02fb-7240-84ea-10ba830bae5c",
   "target_branch": "codex/integrate-suxios-20260930",
   "baseline_main_integrated": "51a512e6bd552c9553dca81a0d1670fc116fd327",
@@ -89,7 +89,7 @@
           "source_state": "M",
           "disposition": "merge_only_added_migration_identities",
           "source_sha256": "be879e49ceac8aa363400882446e47ecddfafa8ba43ffc2f57288664efddb45d",
-          "target_sha256": "9c45c0a601d568f276661f2e40a9d5b7598c7b74b6bac67538c611f0b8e971fb"
+          "target_sha256": "eb4e853d12ff1caac9a67b4d6016713700adf7e7ec4f759f14be729c6593ef71"
         },
         {
           "path": "database/migrations/20261001_create_investment_payback_ledger.sql",
@@ -138,7 +138,7 @@
           "source_state": "M",
           "disposition": "exclude_generated_rebuild",
           "source_sha256": "34c701643a7ee5720e21a8bdad33a88c81055e3bcad687ead87a1c8260df6ddd",
-          "target_sha256": "cf2706cc9a31088686b05f7e7075bd011535629694a91eba177137f3b0cb8920"
+          "target_sha256": "556d5c85be3c60947c468840f261c5d0834187ec6949bae2a44c2ba4306dc063"
         },
         {
           "path": "public/components/system/business-closure-loader.js",
@@ -187,7 +187,7 @@
           "source_state": "M",
           "disposition": "exclude_generated_rebuild",
           "source_sha256": "46ed4596a2951ca690637e584b998c8e14a85f89c0915348a33c8d01b290e1c4",
-          "target_sha256": "e957625f1ac8a98a93458ac8ede5ded57c9a3333a3764595b7e5defdb14554b0"
+          "target_sha256": "4d0f74f61f8616fa132ed308a48e9f58569de35a35ce7935b85ee78b47d84314"
         },
         {
           "path": "public/style-startup.min.css",
@@ -545,7 +545,7 @@
           "source_state": "M",
           "disposition": "merge_only_added_migration_identities",
           "source_sha256": "5147570b3c5e69e1473804ec23c33540d7148c304ec3ec09b63b1b3ad7f5ae41",
-          "target_sha256": "9c45c0a601d568f276661f2e40a9d5b7598c7b74b6bac67538c611f0b8e971fb"
+          "target_sha256": "eb4e853d12ff1caac9a67b4d6016713700adf7e7ec4f759f14be729c6593ef71"
         },
         {
           "path": "database/migrations/20261002_create_ai_report_presentation_reviews.sql",
@@ -650,7 +650,7 @@
           "source_state": "M",
           "disposition": "exclude_generated_rebuild",
           "source_sha256": "8d63ff91c462ba7427ce85f742f09a3b296353ab3214ef57a817276eb45993de",
-          "target_sha256": "cf2706cc9a31088686b05f7e7075bd011535629694a91eba177137f3b0cb8920"
+          "target_sha256": "556d5c85be3c60947c468840f261c5d0834187ec6949bae2a44c2ba4306dc063"
         },
         {
           "path": "public/components/system/ai-daily-report-delivery.js",
@@ -664,7 +664,7 @@
           "source_state": "M",
           "disposition": "apply_exact_delta_to_unchanged_base",
           "source_sha256": "6e4bffe6fb1403138f9f7062bc6efcfb9aece2930b513e573c5fdd425760e91f",
-          "target_sha256": "4e630fad6f0ef8f38ab8ab05d999baace385972e960fa059de4f9aa051ed0e74"
+          "target_sha256": "a81a57fef04af1cffe2ebd131f3916f1c00300c46b37fda596ebf9b30b000e1c"
         },
         {
           "path": "public/components/system/app-main-components.js",
@@ -727,7 +727,7 @@
           "source_state": "M",
           "disposition": "exclude_generated_rebuild",
           "source_sha256": "3a51bed96f86ec3567f8a1bb1a10557a97645bd37b75090f1d7f033279097932",
-          "target_sha256": "e957625f1ac8a98a93458ac8ede5ded57c9a3333a3764595b7e5defdb14554b0"
+          "target_sha256": "4d0f74f61f8616fa132ed308a48e9f58569de35a35ce7935b85ee78b47d84314"
         },
         {
           "path": "resources/frontend/templates/fragments/16-page-ai-daily-report.html",
@@ -762,7 +762,7 @@
           "source_state": "M",
           "disposition": "manual_semantic_hunk",
           "source_sha256": "514021a409261465c6a1cba5c524ba7a2858f5a30be5306b94f2386fe0e68a33",
-          "target_sha256": "59522573cdbb831999b66d26dcd183c9d907c8315fdcac946dc787de7b5d3349"
+          "target_sha256": "56affdd8cce88f053e8b84d41ddbd5a50b103d3a5b6c04b144fe759bcb819102"
         },
         {
           "path": "scripts/cloud_hotel_id_column_registry.php",
@@ -906,11 +906,11 @@
   "verification": {
     "scope": "explicit composed target files including latest main; isolated synthetic fixtures",
     "php": {
-      "files": 42,
-      "tests": 690,
-      "assertions": 6396,
+      "deduplicated": true,
+      "files": 53,
+      "assertions": 7667,
       "skipped": 0,
-      "deduplicated": true
+      "tests": 851
     },
     "node": {
       "files": 23,
@@ -926,20 +926,42 @@
     },
     "frontend_build": "npm run build:frontend passed after latest main composition",
     "public_entry": {
-      "passed": true,
-      "startup_gzip_bytes": 619406,
-      "target": 620000
+      "target": 620000,
+      "startup_gzip_bytes": 619474,
+      "passed": true
     },
     "routes": {
       "controllers": 69,
       "public_actions": 787,
       "covered": true
     },
-    "integration_gate": "npm run verify:integration passed after semantic conflict resolution",
+    "integration_gate": "staged exact-index gate and clean post-merge worktree gate required before delivery",
     "real_business_database_writes": false,
     "real_account_acceptance": false,
     "production_migration": false,
-    "deployment": false
+    "deployment": false,
+    "business_chain_local": {
+      "runtime": "not locally accepted; final CI isolated database required",
+      "static_contract": "passed"
+    }
   },
-  "github": "final composed head not yet pushed; exact-head remote readback and CI tracked separately"
+  "github": "final composed head not yet pushed; exact-head remote readback and CI tracked separately",
+  "latest_remote_ota": {
+    "commit": "94f246e2beb3d640a5da254e5c7554514fb438a3",
+    "repair_commits": [
+      "58bff00a",
+      "5192e26a",
+      "a55d53c5"
+    ],
+    "scope": "OTA numeric overflow, platform canonical metrics, exact pricing readback, P0 scope and manual review; root composition retained; authenticated deferred loader protocol merged"
+  },
+  "dos_introduction": {
+    "source_commit": "61554d9aa1081a39e242f95f66a9d721bc68b006",
+    "source_blob": "72aca9496737bad552726935934d19cf2a0f4b12",
+    "path": "docs/collaboration/dos-boss-introduction-20261001.md",
+    "sha256": "fdfc91c09ca5bc0160a66ef4781deed510bbeeb68b56be9433dd1d4f3c2ebb14",
+    "understanding_angles": 13,
+    "language_context_examples": 11,
+    "evidence": "source Git blob and SHA256 identical; actual DOS loading/use not verified"
+  }
 }

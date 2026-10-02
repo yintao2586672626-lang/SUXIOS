@@ -1259,6 +1259,68 @@ final class RevenueFactLayerServiceTest extends TestCase
     }
 
     /** @return array<string,mixed> */
+    public function testFiniteChannelFactsWithOverflowedCombinedRevenueStaySerializable(): void
+    {
+        $ota = $this->otaResult();
+        foreach ($ota['rows'] as &$row) {
+            $row['amount'] = 1e308;
+            $row['quantity'] = 1.0;
+        }
+        unset($row);
+        $layer = (new RevenueFactLayerService())->assemble($this->hotel(), '2026-07-30', $this->pmsCapture(), $ota, []);
+        self::assertNull($layer['facts']['ota_channel']['combined']['revenue']);
+        foreach (['ctrip', 'meituan'] as $platform) {
+            self::assertSame(1e308, $layer['facts']['ota_channel'][$platform]['revenue']);
+        }
+        foreach (['revenue', 'adr'] as $key) {
+            self::assertSame('numeric_aggregate_nonfinite', $layer['facts']['ota_channel']['combined_status']['fact_statuses'][$key]['reason']);
+        }
+        self::assertSame(2, $layer['facts']['ota_channel']['combined']['room_nights']);
+        self::assertSame('numeric_aggregate_nonfinite', $layer['analysis_metrics']['ota_room_revenue']['reason']);
+        self::assertNotSame('verified', $layer['analysis_metrics']['ota_room_revenue']['truth']['status']);
+        $overview = (new \app\service\RevenueAiOverviewService())->buildOverviewFromDataset([], [], [],
+            ['hotel_id' => 80, 'business_date' => '2026-07-30', 'enabled_channels' => ['ctrip', 'meituan'], 'revenue_fact_layer' => $layer]);
+        json_encode($overview, JSON_THROW_ON_ERROR);
+        self::assertNull($overview['metrics']['ota_room_revenue']['value']);
+        self::assertSame('numeric_aggregate_nonfinite', $overview['metrics']['ota_room_revenue']['reason']);
+    }
+
+    public function testSingleChannelCumulativeOverflowDoesNotUseOperationalFallback(): void
+    {
+        $ota = $this->otaResult();
+        $ota['rows'][0]['amount'] = 1e308;
+        $ota['rows'][] = array_replace($ota['rows'][0], ['row_id' => 66157]);
+        $layer = (new RevenueFactLayerService())->assemble($this->hotel(), '2026-07-30', $this->pmsCapture(), $ota, [], $this->otaOperationalMetrics());
+        self::assertNull($layer['facts']['ota_channel']['ctrip']['revenue']);
+        self::assertSame('numeric_aggregate_nonfinite', $layer['sources']['ctrip_ota']['fact_statuses']['revenue']['reason']);
+        self::assertSame('numeric_aggregate_nonfinite', $layer['analysis_metrics']['ota_room_revenue']['reason']);
+        self::assertSame(1032.39, $layer['facts']['ota_channel']['meituan']['revenue']);
+        $cardMethod = new \ReflectionMethod(\app\service\RevenueDecisionViewModelAttestationService::class, 'metricCard');
+        $card = $cardMethod->invoke(new \app\service\RevenueDecisionViewModelAttestationService(),
+            $layer['sources']['ctrip_ota'], 'ctrip_ota', 'revenue', '携程房费', 'CNY', '2026-07-30', [], false);
+        self::assertSame('不可计算', $card['statusLabel']);
+        self::assertSame('—', $card['display']);
+        self::assertStringContainsString('超出可表示范围', $card['reasonText']);
+        json_encode($layer, JSON_THROW_ON_ERROR);
+    }
+
+    public function testFiniteLargeOrderAndRoomNightCountsCannotWrapToZero(): void
+    {
+        $ota = $this->otaResult();
+        foreach ($ota['rows'] as &$row) {
+            $row['quantity'] = 1e20;
+            $row['book_order_num'] = 1e20;
+        }
+        unset($row);
+        $layer = (new RevenueFactLayerService())->assemble($this->hotel(), '2026-07-30', $this->pmsCapture(), $ota, []);
+        foreach (['ctrip', 'meituan', 'combined'] as $key) {
+            $expected = $key === 'combined' ? 2e20 : 1e20;
+            self::assertSame($expected, $layer['facts']['ota_channel'][$key]['orders']);
+            self::assertSame($expected, $layer['facts']['ota_channel'][$key]['room_nights']);
+        }
+        json_encode($layer, JSON_THROW_ON_ERROR);
+    }
+
     private function hotel(): array
     {
         return [

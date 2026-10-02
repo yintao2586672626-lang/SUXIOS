@@ -67,7 +67,11 @@
     ],
     "app/service/RevenueAiOverviewService.php": [
       "app/service/concern/RevenueAiOverviewLabelConcern.php",
-      "app/service/concern/RevenueAiOverviewMarketStructureConcern.php"
+      "app/service/concern/RevenueAiOverviewMarketStructureConcern.php",
+      "app/service/concern/RevenueAiOverviewPricingEvidenceConcern.php"
+    ],
+    "scripts/report_business_chain_status.php": [
+      "scripts/lib/business_chain_p0_scope.php"
     ],
     "tests/OnlineDataTest.php": [
       "tests/Support/OnlineData/CtripTestCases.php",
