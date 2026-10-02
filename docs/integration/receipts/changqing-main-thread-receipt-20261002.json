@@ -1364,24 +1364,24 @@
     "shared_files_and_generated_assets": "semantic integration and target rebuild still pending"
   },
   "composed_acceptance": {
-    "at": "2026-10-02T12:19:53.925Z",
-    "prepared_against_head": "66f04671fda8aaeea04d7e8948a387a4934f0fa0",
+    "at": "2026-10-02T12:44:04.920Z",
+    "prepared_against_head": "6a371dc58de1653d83aaabdc5f2ed9063f4cc6ee",
     "receipt": "docs/integration/receipts/composed-main-thread-20261002.json",
     "verification": {
       "scope": "explicit composed target files including latest main; isolated synthetic fixtures",
       "php": {
         "files": 42,
-        "tests": 687,
-        "assertions": 6338,
+        "tests": 690,
+        "assertions": 6396,
         "skipped": 0,
         "deduplicated": true
       },
       "node": {
-        "files": 22,
-        "tests": 245,
-        "passed": 245,
+        "files": 23,
+        "tests": 267,
+        "passed": 267,
         "skipped": 0,
-        "components": "19 files 207 + learning 35 + route 2 + legacy finance browser 1"
+        "components": "19 files 207 + learning 35 + route 2 + legacy finance browser 1 + hotel migration 22"
       },
       "browser_probes": {
         "original_composed": 3,

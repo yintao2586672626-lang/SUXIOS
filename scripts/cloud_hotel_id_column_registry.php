@@ -173,6 +173,7 @@ function cloudHotelIdColumnRegistry(): array
         ['wecom_inbound_sender_bindings', 'hotel_id', 'hotel_id'],
         ['wecom_task_receipts', 'hotel_id', 'hotel_id'],
         ['ota_settlement_import_batches', 'hotel_id', 'hotel_id'],
+        ['investment_payback_projects', 'hotel_id', 'hotel_id'],
         ['hotel_on_books_snapshots', 'hotel_id', 'hotel_id'],
         ['hotel_room_type_on_books_snapshots', 'hotel_id', 'hotel_id'],
         ['hotel_operating_evidence_snapshots', 'hotel_id', 'hotel_id'],

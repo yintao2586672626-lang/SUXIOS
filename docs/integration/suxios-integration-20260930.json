@@ -1417,7 +1417,7 @@
       }
     },
     "delivery_20261002": {
-      "prepared_against_head": "66f04671fda8aaeea04d7e8948a387a4934f0fa0",
+      "prepared_against_head": "6a371dc58de1653d83aaabdc5f2ed9063f4cc6ee",
       "dos_introduction": {
         "source_commit": "ab3aa5fd04303ec19b48dda81354217e3923a619",
         "integrated_commit": "6f9bf58090582ac5aa0bdef3250f696544134585",
@@ -1471,17 +1471,17 @@
           "scope": "explicit composed target files including latest main; isolated synthetic fixtures",
           "php": {
             "files": 42,
-            "tests": 687,
-            "assertions": 6338,
+            "tests": 690,
+            "assertions": 6396,
             "skipped": 0,
             "deduplicated": true
           },
           "node": {
-            "files": 22,
-            "tests": 245,
-            "passed": 245,
+            "files": 23,
+            "tests": 267,
+            "passed": 267,
             "skipped": 0,
-            "components": "19 files 207 + learning 35 + route 2 + legacy finance browser 1"
+            "components": "19 files 207 + learning 35 + route 2 + legacy finance browser 1 + hotel migration 22"
           },
           "browser_probes": {
             "original_composed": 3,
@@ -1512,6 +1512,14 @@
         "same_name_service_review": "six exact blobs; three-line explicit missing-procurement-module guard retained in calculator",
         "async_component": "existing deferred component factory and startup facade",
         "reviewed_merge_conflicts": 10
+      },
+      "latest_main_payback": {
+        "commit": "535ffcc156bf434c32993f1279b28c1b024a3c45",
+        "status": "composed_and_target_verified",
+        "product_service_comparison": "ten investment controllers/services exact blobs",
+        "added_oracles": "four missing-module cases retained; two installed-module and one procurement-missing/actual-present cases added",
+        "canonical_hotel_rule": "investment_payback_projects.hotel_id registered and cloud hotel migration contracts passed",
+        "proof": "target default bootstrap; three changed PHP files 42 tests / 450 assertions; final 42-file Map union 690 tests / 6396 assertions"
       }
     }
   },
@@ -1976,12 +1984,12 @@
     "external_material": "reference_only_with_publication_limits",
     "raw_material_and_runtime": "retained_locally_excluded_from_commit",
     "changed_file_accounting": {
-      "base_to_candidate_git_paths": 1041,
-      "hashed_payload_files": 1040,
+      "base_to_candidate_git_paths": 1042,
+      "hashed_payload_files": 1041,
       "manifest_path": "docs/integration/suxios-integration-20260930.json",
       "manifest_included_in_git_paths": true,
       "manifest_excluded_from_payload_hashes": true,
-      "reconciliation": "1041 = 1040 current payload paths + 1 self-excluded manifest",
+      "reconciliation": "1042 = 1041 current payload paths + 1 self-excluded manifest",
       "coverage": "all original mappings retained; every current base-to-HEAD/owned dirty payload reconciled; exact committed coverage verified after commit"
     }
   },
@@ -3105,12 +3113,16 @@
     {
       "path": "database/migration_checksums.lock.json",
       "state": "modified",
-      "bytes": 29344,
-      "sha256": "8b68497e9107abde6f5d0a109ce2786e37eddc1ab09781755d974f1590286006",
+      "bytes": 29465,
+      "sha256": "9c45c0a601d568f276661f2e40a9d5b7598c7b74b6bac67538c611f0b8e971fb",
       "previous_payloads": [
         {
           "sha256": "b9a88b20dd1530ddd2b4c14beaf4a92d334ca56824a19753db1ce6527cdc9082",
           "prepared_before_head": "d342b73c3ed80f619d746f9ffecb6044db59015f"
+        },
+        {
+          "sha256": "8b68497e9107abde6f5d0a109ce2786e37eddc1ab09781755d974f1590286006",
+          "prepared_before_head": "6a371dc58de1653d83aaabdc5f2ed9063f4cc6ee"
         }
       ]
     },
@@ -3274,11 +3286,15 @@
       "path": "docs/integration/composed-delivery-20261002.md",
       "state": "added",
       "bytes": 2250,
-      "sha256": "5d8695f11eed62747db1a7ac172ab6adf557d6ea205f7f37778bc5fc9886e735",
+      "sha256": "6b9395a0394334525a42c46dd8658c961384754cb807f60ad5ba930d485738de",
       "previous_payloads": [
         {
           "sha256": "d933ea39c62b783342fa5b6c15d0f1e85cc8c0a8d7f6085899f1cf56388dfca0",
           "prepared_before_head": "66f04671fda8aaeea04d7e8948a387a4934f0fa0"
+        },
+        {
+          "sha256": "5d8695f11eed62747db1a7ac172ab6adf557d6ea205f7f37778bc5fc9886e735",
+          "prepared_before_head": "6a371dc58de1653d83aaabdc5f2ed9063f4cc6ee"
         }
       ]
     },
@@ -3303,8 +3319,8 @@
     {
       "path": "docs/integration/receipts/changqing-main-thread-receipt-20261002.json",
       "state": "added",
-      "bytes": 49088,
-      "sha256": "b926dac2aeb6fce13e104c036c4e3c62d1e56577aaaa86d84d2b7a563dea5a2f",
+      "bytes": 49109,
+      "sha256": "037c7b639b19d81a62a929e78d0b787badc3e2c4fb31b5c31761c3df9a542481",
       "previous_payloads": [
         {
           "sha256": "f78eca3a68bcd653ea8f7cccd301bc89f7117752e957802845bd45ecc5e0da44",
@@ -3313,6 +3329,10 @@
         {
           "sha256": "a4d1c2a3b3b037f6be2b1b236536e2ad026e1ddc84f8f120ad482095691fc8fd",
           "prepared_before_head": "66f04671fda8aaeea04d7e8948a387a4934f0fa0"
+        },
+        {
+          "sha256": "b926dac2aeb6fce13e104c036c4e3c62d1e56577aaaa86d84d2b7a563dea5a2f",
+          "prepared_before_head": "6a371dc58de1653d83aaabdc5f2ed9063f4cc6ee"
         }
       ]
     },
@@ -3320,7 +3340,7 @@
       "path": "docs/integration/receipts/changqing-main-thread-receipt-20261002.md",
       "state": "added",
       "bytes": 9005,
-      "sha256": "775599da7090f38fd81de5cafd08af12d2c6fb8454336d1aac67e949b619ba38",
+      "sha256": "15a8f8888aa10003e952bba3fccdc4f1b95d721747e1c29f7ce6a24f6cec311e",
       "previous_payloads": [
         {
           "sha256": "94f5593f4fd7b33f07f88e8cfed06839a60d81c0670f8c53ed52eccf9ab06af9",
@@ -3329,6 +3349,10 @@
         {
           "sha256": "38929880deac3e33194a98558ebc3d6afef6eda24d126f3019b35004b0157f8e",
           "prepared_before_head": "66f04671fda8aaeea04d7e8948a387a4934f0fa0"
+        },
+        {
+          "sha256": "775599da7090f38fd81de5cafd08af12d2c6fb8454336d1aac67e949b619ba38",
+          "prepared_before_head": "6a371dc58de1653d83aaabdc5f2ed9063f4cc6ee"
         }
       ]
     },
@@ -3341,12 +3365,16 @@
     {
       "path": "docs/integration/receipts/composed-main-thread-20261002.json",
       "state": "added",
-      "bytes": 47679,
-      "sha256": "ab9af39eb5cfc267358900f997eb8be5f2dcc89f1929265bdda976ee874bbc4c",
+      "bytes": 47700,
+      "sha256": "fad6e1fe9e77019b5feccf014f616ea20e64e32dc4249b325c731fec9406bfac",
       "previous_payloads": [
         {
           "sha256": "5a94e1405242f2f7f93a58e2923dc09928031d55351f190d61d6a40ac276964b",
           "prepared_before_head": "66f04671fda8aaeea04d7e8948a387a4934f0fa0"
+        },
+        {
+          "sha256": "ab9af39eb5cfc267358900f997eb8be5f2dcc89f1929265bdda976ee874bbc4c",
+          "prepared_before_head": "6a371dc58de1653d83aaabdc5f2ed9063f4cc6ee"
         }
       ]
     },
@@ -3365,8 +3393,14 @@
     {
       "path": "docs/investment-payback-github-delivery-20261002.md",
       "state": "added",
-      "bytes": 3311,
-      "sha256": "b3d44b0622c527a343398005b2de7343cade4c075cf72e97d81a1c0ecdeaeac8"
+      "bytes": 4065,
+      "sha256": "ddb7df99e4e346a6c81cf64c2f18c641a522e20a764a1883c64ced8785d516c9",
+      "previous_payloads": [
+        {
+          "sha256": "b3d44b0622c527a343398005b2de7343cade4c075cf72e97d81a1c0ecdeaeac8",
+          "prepared_before_head": "6a371dc58de1653d83aaabdc5f2ed9063f4cc6ee"
+        }
+      ]
     },
     {
       "state": "added",
@@ -4663,12 +4697,16 @@
     {
       "state": "modified",
       "path": "scripts/cloud_hotel_id_column_registry.php",
-      "bytes": 27090,
-      "sha256": "e49c4e8a0b549682746276288ce06f3a0195cb1268ac052b21c8d2ea0380beba",
+      "bytes": 27155,
+      "sha256": "64641e3e1d1d4990454bac7c6de626a112464c7a0d6bac3dc90bf26de01c3609",
       "previous_payloads": [
         {
           "sha256": "8d3bb82dbc6e78b756db5a64e69d724b3e9701fef50d581602734d61e36fb580",
           "prepared_before_head": "d342b73c3ed80f619d746f9ffecb6044db59015f"
+        },
+        {
+          "sha256": "e49c4e8a0b549682746276288ce06f3a0195cb1268ac052b21c8d2ea0380beba",
+          "prepared_before_head": "6a371dc58de1653d83aaabdc5f2ed9063f4cc6ee"
         }
       ]
     },
@@ -5259,6 +5297,12 @@
       "path": "tests/automation/chart_render_failure_recovery.test.mjs",
       "bytes": 7307,
       "sha256": "e16f1c022cf1c6adf0bae4aa82e93f4111838f8b11e16674775f5f5e5e942cac"
+    },
+    {
+      "path": "tests/automation/cloud_hotel_id_migration_contract.test.mjs",
+      "state": "modified",
+      "bytes": 27312,
+      "sha256": "dcb757d23c4a2a95d7d30c4b4e9c742dd091c58fd7c3e7dac319b614cef55567"
     },
     {
       "state": "added",
@@ -7747,8 +7791,14 @@
     {
       "path": "tests/InvestmentScenarioPersistenceTest.php",
       "state": "added",
-      "bytes": 24593,
-      "sha256": "408862345f6b2ab28bbc4ef7fe6a0a8e03b16bc3014c24c79c14dc503b8e4719"
+      "bytes": 31176,
+      "sha256": "e8620cf885dbb3492f9adc5c78cfa676423a40cc84d6d68a334b283f94b26ec9",
+      "previous_payloads": [
+        {
+          "sha256": "408862345f6b2ab28bbc4ef7fe6a0a8e03b16bc3014c24c79c14dc503b8e4719",
+          "prepared_before_head": "6a371dc58de1653d83aaabdc5f2ed9063f4cc6ee"
+        }
+      ]
     },
     {
       "path": "tests/InvestmentScenarioPortfolioTest.php",
@@ -8437,8 +8487,14 @@
     {
       "path": "tests/Support/InvestmentScenarioFixture.php",
       "state": "added",
-      "bytes": 6520,
-      "sha256": "f0ffb1e3a274469d7c3050ab71f6a5e598a78fd19026f26a2792e8752cf1eecf"
+      "bytes": 6512,
+      "sha256": "39c055c89200e4b7409a1a83edd905069fc8859592d4b060cc60d18cfed1e41b",
+      "previous_payloads": [
+        {
+          "sha256": "f0ffb1e3a274469d7c3050ab71f6a5e598a78fd19026f26a2792e8752cf1eecf",
+          "prepared_before_head": "6a371dc58de1653d83aaabdc5f2ed9063f4cc6ee"
+        }
+      ]
     },
     {
       "state": "added",

@@ -1,8 +1,8 @@
 {
   "contract": "suxios.composed_delivery.v1",
-  "at": "2026-10-02T12:19:53.925Z",
+  "at": "2026-10-02T12:44:04.920Z",
   "phase": "final",
-  "prepared_against_head": "66f04671fda8aaeea04d7e8948a387a4934f0fa0",
+  "prepared_against_head": "6a371dc58de1653d83aaabdc5f2ed9063f4cc6ee",
   "main_thread": "01a0eed4-02fb-7240-84ea-10ba830bae5c",
   "target_branch": "codex/integrate-suxios-20260930",
   "baseline_main_integrated": "51a512e6bd552c9553dca81a0d1670fc116fd327",
@@ -89,7 +89,7 @@
           "source_state": "M",
           "disposition": "merge_only_added_migration_identities",
           "source_sha256": "be879e49ceac8aa363400882446e47ecddfafa8ba43ffc2f57288664efddb45d",
-          "target_sha256": "8b68497e9107abde6f5d0a109ce2786e37eddc1ab09781755d974f1590286006"
+          "target_sha256": "9c45c0a601d568f276661f2e40a9d5b7598c7b74b6bac67538c611f0b8e971fb"
         },
         {
           "path": "database/migrations/20261001_create_investment_payback_ledger.sql",
@@ -103,7 +103,7 @@
           "source_state": "A",
           "disposition": "add_exact_committed_blob",
           "source_sha256": "b3d44b0622c527a343398005b2de7343cade4c075cf72e97d81a1c0ecdeaeac8",
-          "target_sha256": "b3d44b0622c527a343398005b2de7343cade4c075cf72e97d81a1c0ecdeaeac8"
+          "target_sha256": "ddb7df99e4e346a6c81cf64c2f18c641a522e20a764a1883c64ced8785d516c9"
         },
         {
           "path": "package.json",
@@ -348,7 +348,7 @@
           "source_state": "A",
           "disposition": "add_exact_committed_blob",
           "source_sha256": "747ed9ffd8b84f8df46f8ee29c76753ec8be8a7fc3d2b1e37cbec4b99ad10129",
-          "target_sha256": "408862345f6b2ab28bbc4ef7fe6a0a8e03b16bc3014c24c79c14dc503b8e4719"
+          "target_sha256": "e8620cf885dbb3492f9adc5c78cfa676423a40cc84d6d68a334b283f94b26ec9"
         },
         {
           "path": "tests/InvestmentScenarioPortfolioTest.php",
@@ -369,7 +369,7 @@
           "source_state": "A",
           "disposition": "add_exact_committed_blob",
           "source_sha256": "66d0333e1ac04cf341e2a9e631ad19c0e9e33dc1f23b9f77675f512e8f853525",
-          "target_sha256": "f0ffb1e3a274469d7c3050ab71f6a5e598a78fd19026f26a2792e8752cf1eecf"
+          "target_sha256": "39c055c89200e4b7409a1a83edd905069fc8859592d4b060cc60d18cfed1e41b"
         },
         {
           "path": "tests/Support/investment_scenario_fixture_router.php",
@@ -545,7 +545,7 @@
           "source_state": "M",
           "disposition": "merge_only_added_migration_identities",
           "source_sha256": "5147570b3c5e69e1473804ec23c33540d7148c304ec3ec09b63b1b3ad7f5ae41",
-          "target_sha256": "8b68497e9107abde6f5d0a109ce2786e37eddc1ab09781755d974f1590286006"
+          "target_sha256": "9c45c0a601d568f276661f2e40a9d5b7598c7b74b6bac67538c611f0b8e971fb"
         },
         {
           "path": "database/migrations/20261002_create_ai_report_presentation_reviews.sql",
@@ -769,7 +769,7 @@
           "source_state": "M",
           "disposition": "manual_semantic_hunk",
           "source_sha256": "ae8715f4c1c13e1755392de3cded793e03a6b9796b60863978ce9a72d2c3fc9a",
-          "target_sha256": "e49c4e8a0b549682746276288ce06f3a0195cb1268ac052b21c8d2ea0380beba"
+          "target_sha256": "64641e3e1d1d4990454bac7c6de626a112464c7a0d6bac3dc90bf26de01c3609"
         },
         {
           "path": "scripts/verify_five_snapshot_migrations_mariadb.php",
@@ -907,17 +907,17 @@
     "scope": "explicit composed target files including latest main; isolated synthetic fixtures",
     "php": {
       "files": 42,
-      "tests": 687,
-      "assertions": 6338,
+      "tests": 690,
+      "assertions": 6396,
       "skipped": 0,
       "deduplicated": true
     },
     "node": {
-      "files": 22,
-      "tests": 245,
-      "passed": 245,
+      "files": 23,
+      "tests": 267,
+      "passed": 267,
       "skipped": 0,
-      "components": "19 files 207 + learning 35 + route 2 + legacy finance browser 1"
+      "components": "19 files 207 + learning 35 + route 2 + legacy finance browser 1 + hotel migration 22"
     },
     "browser_probes": {
       "original_composed": 3,

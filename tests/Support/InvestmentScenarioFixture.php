@@ -17,10 +17,9 @@ use think\facade\Db;
 final class InvestmentScenarioFixture
 {
     /** Only call in a fresh isolated test process to exercise missing optional modules. */
-    public static function withoutOptionalModules(): void
+    public static function withoutOptionalModules(array $unavailable = [\app\service\ConsumablesProcurementReferenceService::class,
+        \app\service\ActualConsumablesScenarioReferenceService::class]): void
     {
-        $unavailable = [\app\service\ConsumablesProcurementReferenceService::class,
-            \app\service\ActualConsumablesScenarioReferenceService::class];
         foreach ($unavailable as $class) {
             if (class_exists($class, false)) {
                 throw new RuntimeException('Missing-module fixture requires a fresh isolated process');
