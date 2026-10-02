@@ -216,6 +216,12 @@ jobs:
           DB_PASS: suxi-ci-root
         run: npm run test:node
 
+      - name: Verify hotel learning workbench and host artifacts
+        run: |
+          node scripts/build_hotel_learning_component.mjs --verify
+          node scripts/integrate_hotel_learning_workbench.mjs --verify
+          node --test tests/hotel-learning-workbench.test.cjs
+
       - name: Verify OTA to revenue to operations business chain
         timeout-minutes: 5
         env:
