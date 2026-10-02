@@ -609,7 +609,7 @@ class RevenueAiOverviewService
             $displaySourceChannels,
             $pricingGenerationPreflight,
             $revenueFactLayer,
-            ['hotel_id' => $hotelId, 'business_date' => $businessDate, 'source_channels' => $scopeChannels, 'data_status' => $dataStatus],
+            ['hotel_id' => $hotelId, 'business_date' => $businessDate, 'source_channels' => $scopeChannels, 'data_status' => $dataStatus, 'channel_metric_statuses' => $channelMetricCoverage['statuses']],
             $metrics
         );
         $pricingReadiness['ai_to_operation_handoff'] = $this->pricingAiToOperationHandoff($pricingReadiness, $executionSummary, $businessDate, $hotelId, $displaySourceChannels);

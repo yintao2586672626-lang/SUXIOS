@@ -36,6 +36,28 @@ trait RevenueAiOverviewPricingEvidenceConcern
                 $reason = 'metric_truth_collection_failed';
             }
         }
+        // Explicit foreign canonical evidence takes precedence over any fallback data.
+        if ($reason === '' && (($roomRevenueMetric['reason'] ?? '') === 'metric_scope_mismatch'
+            || ($roomNightsMetric['reason'] ?? '') === 'metric_scope_mismatch')) {
+            $reason = 'metric_scope_mismatch';
+        }
+        // Preserve channel-specific blockers: another channel's total cannot fill a gap.
+        if ($reason === '' && ($roomRevenue !== null || $roomNights !== null)
+            && ($roomNights === null || $roomNights > 0)) {
+            foreach (($context['channel_metric_statuses'] ?? []) as $channel => $channelStatus) {
+                foreach (['room_revenue', 'room_nights'] as $metricKey) {
+                    if (($channelStatus['metrics'][$metricKey]['status'] ?? 'missing') !== 'ready') {
+                        $metricLabel = $metricKey === 'room_revenue' ? '房费收入' : '间夜';
+                        return $this->pricingGate('ota_metrics', '目标日 OTA 收入和间夜', false, 'ok',
+                            'ota_revenue_metrics_missing', $this->channelLabel((string)$channel)
+                            . '目标日' . $metricLabel . '尚未通过同酒店、同渠道、同日期的指标核验；不能用其他渠道合计值补齐。');
+                    }
+                }
+            }
+        }
+        if ($reason === '' && $roomNights !== null && $roomNights <= 0) {
+            $reason = 'ota_room_nights_zero';
+        }
         foreach ([$roomRevenueMetric, $roomNightsMetric] as $metric) {
             if ($reason !== '') {
                 break;
