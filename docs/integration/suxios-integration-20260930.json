@@ -1435,7 +1435,28 @@
       "five_enhancements": {
         "status": "source_preparing_scoped_isolated_delivery_not_integrated"
       },
-      "remote_acceptance": "NOT RUN for new delivery head; exact-head CI and readback required after push"
+      "remote_acceptance": "NOT RUN for new delivery head; exact-head CI and readback required after push",
+      "dependency_security": {
+        "product_commit": "35b9aadbebbd99949bb6f8bada6e8396b5775fd2",
+        "axios": "1.20.0",
+        "only_package_node_changed": "axios",
+        "moderate_audit": {
+          "exit_code": 0,
+          "vulnerabilities": 0
+        },
+        "existing_wecom_tests": 8,
+        "isolated_patched_sdk_node_http_cases": 4,
+        "axios_foreign_fetch_options_tests": 1,
+        "scope": "locked dependency and isolated patched SDK; shared node_modules and existing workers not restarted",
+        "original_github_failure": {
+          "head": "50e6acc824bb09e52f382c8c4b44ad549e11e99e",
+          "run": "36999520414",
+          "job": "110813764358"
+        },
+        "official_release": "https://github.com/axios/axios/releases/tag/v1.20.0",
+        "advisory": "https://github.com/advisories/GHSA-vh66-26gq-q6x8",
+        "initial_global_header_pollution": "one initial failure reproduced in native Node24 fetch and retained as host limitation; actual SDK path uses Node HTTP"
+      }
     }
   },
   "evidence_fingerprints": [
@@ -1899,12 +1920,12 @@
     "external_material": "reference_only_with_publication_limits",
     "raw_material_and_runtime": "retained_locally_excluded_from_commit",
     "changed_file_accounting": {
-      "base_to_candidate_git_paths": 880,
-      "hashed_payload_files": 879,
+      "base_to_candidate_git_paths": 881,
+      "hashed_payload_files": 880,
       "manifest_path": "docs/integration/suxios-integration-20260930.json",
       "manifest_included_in_git_paths": true,
       "manifest_excluded_from_payload_hashes": true,
-      "reconciliation": "880 = 879 payload files + 1 self-excluded manifest"
+      "reconciliation": "881 = 880 payload files + 1 self-excluded manifest"
     }
   },
   "files": [
@@ -3203,6 +3224,12 @@
       "path": "hooks/verify-context-assets.mjs",
       "bytes": 22664,
       "sha256": "4cd98affdd9ced64eb00fae099aa64b2d120583da2276df9601fa2a58fd6037a"
+    },
+    {
+      "path": "package-lock.json",
+      "state": "modified",
+      "bytes": 44984,
+      "sha256": "7272ae2cfd4830bb2b5553b5ea9840a677421133c3c236b663c7581a467fd2cd"
     },
     {
       "state": "modified",
