@@ -5,6 +5,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright';
+import vm from 'node:vm';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const panel = path.join(root, 'public/components/system/campaign-operations-panel.js');
@@ -41,6 +42,7 @@ async function mount(page, initialTab = 'video') {
             const id = Number(/records\/(\d+)/.exec(url)?.[1]);
             const row = window.fixtureRows.find(row => row.id === id && row.hotel_id === hotel);
             if (!row) return { code: 404, message: 'synthetic 当前酒店记录不存在' };
+            if (window.deferRecordReads) await new Promise((resolve, reject) => { window.pendingRecordReads.push({ id, resolve, reject }); });
             if (url.includes('/artifact')) {
                 const content = `<svg xmlns="http://www.w3.org/2000/svg" width="1080" height="1440"><rect width="1080" height="1440" fill="${row.payload.brand_color}"/><text x="40" y="80" fill="white">synthetic ${row.payload.title} #${row.id} v${row.version_no}</text></svg>`;
                 return { code: 200, data: { ...row, content, mime_type: 'image/svg+xml', filename: `poster-${id}-v1.svg` } };
@@ -72,6 +74,55 @@ test('synthetic campaign scope changes clear unsaved handover and closure drafts
         assert.equal(await page.getByLabel('未结事项', { exact: true }).inputValue(), '');
         assert.deepEqual(await page.evaluate(() => window.fixturePanel.$refs.panel.closureEvidence), {});
     } finally { await browser.close(); }
+});
+
+test('mounted campaign edit keeps the last selected record and its draft when an older read succeeds or fails', async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+        const page = await browser.newPage(); await mount(page, 'campaign');
+        await page.evaluate(async () => {
+            const panel = window.fixturePanel.$refs.panel;
+            window.fixtureRows = [1, 2].map(id => ({ id, hotel_id: 11, business_date: panel.businessDate, kind: 'marketing', record_key: `synthetic_record_${id}`, source_label: 'synthetic', version_no: 1, schema_version: 'campaign_operations.v1', payload: { title: `synthetic title ${id}` } }));
+            await panel.load(); window.deferRecordReads = true; window.pendingRecordReads = [];
+        });
+        const reads = page.getByRole('button', { name: '回读并编辑新版本', exact: true });
+        await reads.nth(0).click(); await reads.nth(1).click();
+        await page.waitForFunction(() => window.pendingRecordReads.length === 2);
+        await page.evaluate(() => window.pendingRecordReads[1].resolve());
+        await page.waitForFunction(() => window.fixturePanel.$refs.panel.form.expected_id === 2);
+        await page.locator('input[name="title"]').fill('synthetic latest selected draft');
+        await page.evaluate(() => window.pendingRecordReads[0].resolve());
+        await new Promise(resolve => setTimeout(resolve, 50));
+        assert.equal(await page.evaluate(() => window.fixturePanel.$refs.panel.form.expected_id), 2);
+        assert.equal(await page.locator('input[name="title"]').inputValue(), 'synthetic latest selected draft');
+        await reads.nth(0).click(); await reads.nth(1).click();
+        await page.waitForFunction(() => window.pendingRecordReads.length === 4);
+        await page.evaluate(() => window.pendingRecordReads[3].resolve());
+        await page.waitForFunction(() => window.fixturePanel.$refs.panel.form.expected_id === 2);
+        await page.evaluate(() => window.pendingRecordReads[2].reject(new Error('synthetic old read failed')));
+        await new Promise(resolve => setTimeout(resolve, 50));
+        assert.equal(await page.evaluate(() => window.fixturePanel.$refs.panel.error), '');
+        // A deliberate new-record choice invalidates any older edit response.
+        await reads.nth(0).click(); await page.getByRole('button', { name: '新记录', exact: true }).click();
+        await page.evaluate(() => window.pendingRecordReads[4].resolve());
+        await new Promise(resolve => setTimeout(resolve, 50));
+        assert.equal(await page.evaluate(() => window.fixturePanel.$refs.panel.form.expected_id), 0);
+    } finally { await browser.close(); }
+});
+
+test('campaign edit ignores success and failure after unmount', async () => {
+    const text = await fs.readFile(panel, 'utf8'), context = { window: { crypto: globalThis.crypto }, Intl, Date };
+    vm.runInNewContext(text, context);
+    const component = context.window.SUXI_SYSTEM_COMPONENTS.CampaignOperationsPanel;
+    for (const failure of [false, true]) {
+        let resolve, reject;
+        const result = new Promise((done, fail) => { resolve = done; reject = fail; });
+        const state = { ...component.data(), hotelId: '11', businessDate: '2026-10-02', request: () => result };
+        for (const [key, value] of Object.entries(component.methods)) state[key] = value.bind(state);
+        const waiting = state.edit({ id: 1 }); component.beforeUnmount.call(state);
+        failure ? reject(new Error('synthetic old failure')) : resolve({ code: 200, data: { id: 1, hotel_id: 11, business_date: '2026-10-02', schema_version: 'campaign_operations.v1', payload: {} } });
+        await waiting; assert.equal(state.saved, null); assert.equal(state.error, '');
+    }
 });
 
 test('synthetic campaign tab switch during overview does not strand loading', async () => {

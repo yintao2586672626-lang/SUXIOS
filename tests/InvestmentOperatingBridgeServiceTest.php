@@ -32,6 +32,35 @@ final class InvestmentOperatingBridgeServiceTest extends TestCase
         }, static fn(): string => '2026-10-02');
     }
 
+    public function testCumulativeAmountsAboveTheEntryLimitKeepExactFen(): void
+    {
+        $result = $this->service([$this->project(1, [], [
+            'invested_amount' => '1999999999999.98', 'net_recovered_amount' => '-1000000000000.01',
+            'unrecovered_amount' => '3000000000000.00',
+        ])])->overview(2, [80], 80, '2026-09');
+        self::assertSame('ready', $result['status']);
+        self::assertSame('1999999999999.98', $result['totals']['actual_invested']);
+        self::assertSame('-1000000000000.01', $result['totals']['net_actual_recovered']);
+        self::assertSame('manual_unverified', $result['quality']['source_quality_status']);
+    }
+
+    public function testCumulativeParserKeepsIntegerBoundariesAndFailsClosed(): void
+    {
+        $atLimit = Calculator::yuan(PHP_INT_MAX);
+        $result = $this->service([$this->project(1, [], ['invested_amount' => $atLimit])])->overview(2, [80], 80, '2026-09');
+        self::assertSame('ready', $result['status']);
+        self::assertSame($atLimit, $result['totals']['actual_invested']);
+        foreach (['92233720368547758.08', '1999999999999.981', '1e13', '-1.00', true, []] as $invalid) {
+            $failed = $this->service([$this->project(1, [], ['invested_amount' => $invalid])])->overview(2, [80], 80, '2026-09');
+            self::assertSame('read_failed', $failed['status']);
+            self::assertNull($failed['totals']);
+        }
+        $overflow = $this->service([$this->project(1, [], ['invested_amount' => $atLimit]), $this->project(2)])
+            ->overview(2, [80], 80, '2026-09');
+        self::assertSame('read_failed', $overflow['status']);
+        self::assertNull($overflow['totals']);
+    }
+
     public function testExactFenTotalsAndHotelFilteringNeverAddProfitOrScenario(): void
     {
         $projects = [$this->project(1), $this->project(2, ['archived_at' => '2026-09-29'], [

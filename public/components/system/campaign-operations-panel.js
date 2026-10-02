@@ -102,7 +102,7 @@
         name: 'CampaignOperationsPanel',
         props: { hotels: { type: Array, default: () => [] }, request: { type: Function, required: true }, selectedHotelId: { type: [String, Number], default: '' }, canExecute: { type: Boolean, default: false }, initialTab: { type: String, default: 'shift' }, settings: { type: Object, default: () => ({}) } },
         emits: ['update:selected-hotel-id', 'navigate'],
-        data: () => ({ hotelId: '', businessDate: day(), activeKind: 'handover', form: newForm('handover'), pendingItem: itemForm(), overview: null, saved: null, loading: false, busy: false, error: '', success: '', seq: 0, opSeq: 0, videoProgress: 0, closureEvidence: {}, inheritPrevious: true }),
+        data: () => ({ hotelId: '', businessDate: day(), activeKind: 'handover', form: newForm('handover'), pendingItem: itemForm(), overview: null, saved: null, loading: false, busy: false, error: '', success: '', seq: 0, opSeq: 0, editSeq: 0, videoProgress: 0, closureEvidence: {}, inheritPrevious: true }),
         computed: {
             visibleRecords() { return (this.overview?.records || []).filter(row => row.kind === this.activeKind); },
             previousHandover() { return this.overview?.previous_handover || null; },
@@ -120,7 +120,7 @@
             initialTab(value) { this.activeKind = initialKinds[value] || 'handover'; },
         },
         mounted() { this.activeKind = initialKinds[this.initialTab] || 'handover'; this.hotelId = String(this.selectedHotelId || ''); },
-        beforeUnmount() { this.seq += 1; this._videoAbort?.abort(); },
+        beforeUnmount() { this.seq += 1; this.opSeq += 1; this.editSeq += 1; this._videoAbort?.abort(); },
         methods: {
             reset() {
                 this.seq += 1; this.opSeq += 1; this._videoAbort?.abort(); this.overview = this.saved = null;
@@ -148,21 +148,24 @@
                 return record;
             },
             async edit(record) {
-                const seq = this.seq;
+                const seq = this.seq, requestId = ++this.editSeq;
+                const current = () => seq === this.seq && requestId === this.editSeq;
                 try {
                     const result = await this.request(`/campaign-operations/records/${record.id}?hotel_id=${this.hotelId}`, { businessContext: { hotelId: Number(this.hotelId) } });
-                    if (seq !== this.seq) return;
+                    if (!current()) return;
                     if (result.code !== 200) throw new Error(result.message);
                     const exact = this.checkRecord(result.data);
+                    if (exact.id !== record.id || exact.kind !== record.kind) throw new Error('回读版本与选中的记录不一致');
                     this.saved = exact;
                     this.form = { kind: exact.kind, record_key: exact.record_key, expected_id: exact.id, source_label: exact.source_label, payload: JSON.parse(JSON.stringify(exact.payload)) };
                     if (exact.kind === 'handover') this.form.payload.new_items = [];
                     this.success = `已回读 #${exact.id} / v${exact.version_no}`;
-                } catch (error) { this.error = error.message || '回读失败'; }
+                } catch (error) { if (current()) this.error = error.message || '回读失败'; }
             },
             async save() {
                 if (!this.canExecute || this.busy) return;
                 if (this.activeKind === 'handover' && this.pendingItem.title) { this.error = '先点击加入交接清单，再保存'; return; }
+                this.editSeq += 1;
                 const seq = this.seq; const op = ++this.opSeq; this.busy = true; this.error = this.success = '';
                 const input = JSON.parse(JSON.stringify(this.form));
                 input.hotel_id = Number(this.hotelId); input.business_date = this.businessDate;
@@ -182,6 +185,7 @@
             },
             async handoverAction(record, action, item) {
                 if (!this.canExecute || this.busy) return;
+                this.editSeq += 1;
                 const seq = this.seq; const op = ++this.opSeq; this.busy = true; this.error = '';
                 try {
                     const result = await this.request(`/campaign-operations/records/${record.id}/handover-action`, { method: 'POST', businessContext: { hotelId: Number(this.hotelId) }, body: JSON.stringify({ hotel_id: Number(this.hotelId), action, item_id: item?.item_id, closure_evidence: item ? this.closureEvidence[item.item_id] : undefined }) });
@@ -251,7 +255,7 @@
                 this.success ? h('p', { role: 'status', class: 'rounded-lg bg-emerald-50 p-3 text-emerald-900' }, this.success) : null,
                 this.loading ? h('p', { role: 'status', class: 'text-sm text-slate-600' }, '正在读取当前酒店/日期…') : null,
                 !this.hotelId ? h('p', { class: 'rounded-lg border border-slate-200 p-5' }, '请选择一个酒店开始。') : h('div', { class: 'grid gap-4 xl:grid-cols-2' }, [
-                    h('form', { class: 'space-y-3 rounded-xl border border-slate-200 bg-white p-4', onSubmit: event => { event.preventDefault(); void this.save(); } }, [h('h3', { class: 'font-semibold text-slate-900' }, `${labels[this.activeKind]}${this.form.expected_id ? ` · 编辑 #${this.form.expected_id}` : ' · 新记录'}`), field('来源说明', 'source_label', 'text', this.form), ...inputs, h('p', { class: 'text-xs text-slate-600' }, '未知数值留空；人工记录不会升级为平台或全酒店核验事实。'), h('div', { class: 'flex flex-wrap gap-2' }, [button(this.busy ? (this.videoProgress ? `视频生成 ${this.videoProgress}%` : '保存中…') : '保存并回读', this.save, !this.canExecute || this.busy || this.loading, true), button('新记录', () => { this.form = newForm(this.activeKind); this.saved = null; }, this.busy)]), !this.canExecute ? h('p', { class: 'text-sm text-slate-600' }, '当前账号只有查看权限。') : null]),
+                    h('form', { class: 'space-y-3 rounded-xl border border-slate-200 bg-white p-4', onSubmit: event => { event.preventDefault(); void this.save(); } }, [h('h3', { class: 'font-semibold text-slate-900' }, `${labels[this.activeKind]}${this.form.expected_id ? ` · 编辑 #${this.form.expected_id}` : ' · 新记录'}`), field('来源说明', 'source_label', 'text', this.form), ...inputs, h('p', { class: 'text-xs text-slate-600' }, '未知数值留空；人工记录不会升级为平台或全酒店核验事实。'), h('div', { class: 'flex flex-wrap gap-2' }, [button(this.busy ? (this.videoProgress ? `视频生成 ${this.videoProgress}%` : '保存中…') : '保存并回读', this.save, !this.canExecute || this.busy || this.loading, true), button('新记录', () => { this.editSeq += 1; this.form = newForm(this.activeKind); this.saved = null; }, this.busy)]), !this.canExecute ? h('p', { class: 'text-sm text-slate-600' }, '当前账号只有查看权限。') : null]),
                     h('div', { class: 'space-y-3 min-w-0' }, [h('h3', { class: 'font-semibold text-slate-900' }, '当前日期保存版本'), this.overview?.data_status === 'partial' ? h('p', { class: 'text-sm text-amber-800' }, `共有${this.overview.total}条，仅展示最近100条。`) : null, ...this.visibleRecords.map(record => h('article', { key: record.id, class: 'space-y-3 rounded-xl border border-slate-200 bg-white p-4', 'data-record-id': record.id }, [
                         h('div', { class: 'flex flex-wrap justify-between gap-2' }, [h('strong', { class: 'text-slate-900' }, record.payload.title || record.payload.shift_label || `日报核对 #${record.payload.daily_report_id}`), h('span', { class: 'text-xs text-slate-600' }, `#${record.id} / v${record.version_no} · 人工录入未核验`)]), h('p', { class: 'text-xs text-slate-600 break-words' }, `${record.business_date} · 当前酒店${record.hotel_id} / 来源酒店${record.source_hotel_id || record.hotel_id} · 来源：${record.source_label}`),
                         h('p', { class: 'text-xs text-slate-600 break-words' }, record.integrity_status === 'immutable_metadata_verified'

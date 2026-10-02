@@ -58,6 +58,42 @@ test('QR link follows current hotel scope after renumber without changing source
     assert.match(context.window.SUXI_SYSTEM_COMPONENTS.GuestOperationsPanel.methods.qrData.call({ hotelId: '80' }, record).error, /酒店范围/);
 });
 
+test('guest history keeps the last selected case and discards old failures, reloads and unmount responses', async () => {
+    const context = { window: {}, Intl, Date, URLSearchParams }; vm.runInNewContext(source, context);
+    const component = context.window.SUXI_SYSTEM_COMPONENTS.GuestOperationsPanel;
+    const make = () => {
+        const pending = [], state = { selectedHotelId: 80, hotels: [{ id: 80 }], settings: {}, request: () => new Promise((resolve, reject) => pending.push({ resolve, reject })) };
+        Object.assign(state, component.data.call(state));
+        Object.defineProperty(state, 'scopeKey', { get: () => component.computed.scopeKey.call(state) });
+        for (const [key, method] of Object.entries(component.methods)) state[key] = method.bind(state);
+        return { pending, state };
+    };
+    const record = key => ({ kind: 'feedback', record_key: key, hotel_id: 80, readback_verified: true });
+    for (const failure of [false, true]) {
+        const { state, pending } = make(); const older = state.history(record('case_A')), newer = state.history(record('case_B'));
+        pending[1].resolve({ code: 200, data: { records: [record('case_B')] } }); await newer;
+        failure ? pending[0].reject(new Error('synthetic old failure')) : pending[0].resolve({ code: 200, data: { records: [record('case_A')] } });
+        await older; assert.equal(state.historyRows[0].record_key, 'case_B'); assert.equal(state.error, '');
+    }
+    for (const failure of [false, true]) {
+        const { state, pending } = make(); const waiting = state.history(record('case_A'));
+        component.beforeUnmount?.call(state);
+        failure ? pending[0].reject(new Error('synthetic after unmount')) : pending[0].resolve({ code: 200, data: { records: [record('case_A')] } });
+        await waiting; assert.equal(state.historyRows.length, 0); assert.equal(state.error, '');
+    }
+    const { state, pending } = make(); const waiting = state.history(record('case_A'));
+    state.resetDrafts(); pending[0].resolve({ code: 200, data: { records: [record('case_A')] } }); await waiting;
+    assert.equal(state.historyRows.length, 0);
+    const reload = make(), oldHistory = reload.state.history(record('case_A')), loading = reload.state.load();
+    reload.pending[0].resolve({ code: 200, data: { records: [record('case_A')] } }); await oldHistory;
+    assert.equal(reload.state.historyRows.length, 0);
+    reload.pending[1].reject(new Error('synthetic current reload failed')); await loading;
+    assert.equal(reload.state.error, 'synthetic current reload failed');
+    const wrongKind = make(), exact = wrongKind.state.history(record('case_A'));
+    wrongKind.pending[0].resolve({ code: 200, data: { records: [{ ...record('case_A'), kind: 'feedback_entry' }] } }); await exact;
+    assert.equal(wrongKind.state.historyRows.length, 0); assert.match(wrongKind.state.error, /历史范围回读失败/);
+});
+
 test('mounted Vue component persists and reads real isolated controller/SQLite guest workflows', { timeout: 90000 }, async () => {
     const directory = mkdtempSync(join(tmpdir(), 'suxios-guest-operations-test-'));
     const database = join(directory, 'guest.sqlite');

@@ -56,7 +56,7 @@
                         :can-execute="operationFinanceCanExecute"
                         @update:selected-hotel-id="setHotel"
                         @open-investment-ledger="currentPage = 'investment-payback'"
-                        @business-navigate="currentPage = $event.page; if ($event.page === 'ctrip-ebooking' &amp;&amp; $event.tab) openCtripManualTab($event.tab); if ($event.page === 'meituan-ebooking' &amp;&amp; $event.tab) { if ($event.stored) openMeituanStoredDataTab($event.tab); else openMeituanManualTab($event.tab); }"
+                        @business-navigate="if (['ctrip-ebooking', 'meituan-ebooking'].includes($event.page)) { currentPage = $event.page; if ($event.page === 'ctrip-ebooking' &amp;&amp; $event.tab) openCtripManualTab($event.tab); if ($event.page === 'meituan-ebooking' &amp;&amp; $event.tab) { if ($event.stored) openMeituanStoredDataTab($event.tab); else openMeituanManualTab($event.tab); } } else handleMenuClick({ path: $event.page, tab: $event.tab })"
                     ></operating-finance-control-center>
 </div>
     <!-- SUXI_HOTEL_LEARNING_BEGIN -->

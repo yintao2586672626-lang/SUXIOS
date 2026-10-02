@@ -26,7 +26,7 @@
             overview: null, loading: false, busy: false, error: '', notice: '', sequence: 0, retryKeys: {},
             stayText: '', staySource: '', coverage: { expected_guests: '', source_quality: 'unverified', source_reference: '', expected_revision: 0 },
             caseForm: emptyCase(date), selectedCase: '', fact: { action: 'handling', occurred_at: `${date}T12:00`, note: '', evidence: '', confirmation: false, confirmed_by_role: '' },
-            entry: { entry_key: '', room_label: '', label: '', enabled: true, expected_revision: 0 }, historyRows: [],
+            entry: { entry_key: '', room_label: '', label: '', enabled: true, expected_revision: 0 }, historyRows: [], historySequence: 0,
         }; },
         computed: {
             scopeKey() { return `${this.hotelId}|${this.start}|${this.end}|${this.platform}`; },
@@ -41,14 +41,16 @@
             scopeKey() { this.resetDrafts(); void this.load(); },
         },
         mounted() { void this.load(); },
+        beforeUnmount() { this.sequence += 1; this.historySequence += 1; },
         methods: {
             resetDrafts() {
-                this.sequence += 1; this.overview = null; this.error = ''; this.notice = ''; this.historyRows = []; this.retryKeys = {};
+                this.sequence += 1; this.historySequence += 1; this.overview = null; this.error = ''; this.notice = ''; this.historyRows = []; this.retryKeys = {};
                 this.stayText = ''; this.staySource = ''; this.coverage = { expected_guests: '', source_quality: 'unverified', source_reference: '', expected_revision: 0 };
                 this.caseForm = emptyCase(this.end); this.selectedCase = ''; this.fact.note = ''; this.fact.evidence = ''; this.fact.confirmation = false; this.fact.confirmed_by_role = '';
                 this.entry = { entry_key: '', room_label: '', label: '', enabled: true, expected_revision: 0 };
             },
             async load() {
+                this.historySequence += 1;
                 const scope = this.scopeKey, seq = ++this.sequence;
                 this.overview = null; this.error = ''; this.loading = true;
                 try {
@@ -117,14 +119,16 @@
             async saveEntry() { if (await this.write('entries', { ...this.entry })) this.entry = { entry_key: '', room_label: '', label: '', enabled: true, expected_revision: 0 }; },
             editEntry(record) { this.entry = { entry_key: record.document.entry_key, room_label: record.document.room_label, label: record.document.label, enabled: record.document.enabled, expected_revision: record.revision }; },
             async history(record) {
-                const scope = this.scopeKey; this.historyRows = []; this.error = '';
+                const scope = this.scopeKey, sequence = ++this.historySequence, kind = record.kind, key = record.record_key;
+                const current = () => scope === this.scopeKey && sequence === this.historySequence;
+                this.historyRows = []; this.error = '';
                 try {
-                    const query = new URLSearchParams({ hotel_id: this.hotelId, kind: record.kind, record_key: record.record_key });
+                    const query = new URLSearchParams({ hotel_id: this.hotelId, kind, record_key: key });
                     const response = await this.request(`/guest-operations/history?${query}`, { businessContext: { hotelId: Number(this.hotelId) } });
-                    if (scope !== this.scopeKey) return;
-                    if (response.code !== 200 || !Array.isArray(response.data?.records) || response.data.records.some(row => Number(row.hotel_id) !== Number(this.hotelId) || row.record_key !== record.record_key || !row.readback_verified)) throw new Error(response.message || '历史范围回读失败');
+                    if (!current()) return;
+                    if (response.code !== 200 || !Array.isArray(response.data?.records) || response.data.records.some(row => Number(row.hotel_id) !== Number(this.hotelId) || row.kind !== kind || row.record_key !== key || !row.readback_verified)) throw new Error(response.message || '历史范围回读失败');
                     this.historyRows = response.data.records;
-                } catch (error) { if (scope === this.scopeKey) this.error = error.message || '历史回读失败'; }
+                } catch (error) { if (current()) this.error = error.message || '历史回读失败'; }
             },
             qrData(record) {
                 if (!record.document.enabled) return { error: '入口已停用' };

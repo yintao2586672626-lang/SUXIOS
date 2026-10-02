@@ -1,0 +1,261 @@
+{
+  "contract": "suxios.functional_hardening.v1",
+  "date": "2026-10-03",
+  "baseline": "b4116a62480342ad26e97dc16f51e374b16e458a",
+  "prepared_against_head": "b4116a62480342ad26e97dc16f51e374b16e458a",
+  "pull_request": 58,
+  "scope": "31工作区、客诉/活动、OTA收益/预订、投资/耗材/报告审核及直接生成入口",
+  "findings": [
+    {
+      "id": "navigation",
+      "problem": "收益驾驶舱别名绕过已有导航解析",
+      "change": "复用现有handleMenuClick；携程/美团保留精确stored/manual标签",
+      "evidence": "实际Vue挂载验证16个原生目录入口",
+      "status": "fixed_and_scoped_verified"
+    },
+    {
+      "id": "campaign_edit",
+      "problem": "先选活动记录的迟到响应覆盖最后选择",
+      "change": "独立编辑序号；成功、失败、新记录、保存和卸载均校验当前操作",
+      "evidence": "真实挂载连续选择与记录身份断言",
+      "status": "fixed_and_scoped_verified"
+    },
+    {
+      "id": "guest_history",
+      "problem": "旧客诉历史覆盖最后选择",
+      "change": "独立历史序号与kind/key校验，刷新/范围/卸载失效",
+      "evidence": "同范围先后响应与错误回归",
+      "status": "fixed_and_scoped_verified"
+    },
+    {
+      "id": "workspace_draft",
+      "problem": "配置保存回包会替换较新响应式草稿",
+      "change": "提交版本用于receipt/applied；较新草稿保留未提交",
+      "evidence": "7提交/14草稿回归；保存时表单隐藏，证据限响应式状态",
+      "status": "fixed_and_scoped_verified"
+    },
+    {
+      "id": "handover_limit",
+      "problem": "合并前校验导致保存101项且旧150项无法编辑",
+      "change": "合并去重后限制100；封存超限旧版本可编辑/关闭且不能增长",
+      "evidence": "SQLite100/101、150编辑/关闭、151拒绝与零副作用",
+      "status": "fixed_and_scoped_verified"
+    },
+    {
+      "id": "booking_file",
+      "problem": "旧文件读取覆盖新文件或手改导入文本，返回原范围时复活",
+      "change": "文件序号、范围、当前导入草稿共同决定回包所有权",
+      "evidence": "迟到成功/失败、ABA范围、手改文本与实际文件选择",
+      "status": "fixed_and_scoped_verified"
+    },
+    {
+      "id": "booking_correction",
+      "problem": "旧更正回读覆盖新酒店、记录或同酒店较新草稿",
+      "change": "更正序号、酒店/记录/范围与整份草稿指纹；保存使旧读取失效",
+      "evidence": "迟到成功/失败、同酒店编辑、实际DOM输入与切店",
+      "status": "fixed_and_scoped_verified"
+    },
+    {
+      "id": "investment_totals",
+      "problem": "累计金额误用单笔上限且大额显示丢分",
+      "change": "累计字符串精确转整数分；保留单笔上限和溢出拒绝；页面用BigInt分组",
+      "evidence": "真实保存两笔999999999999.99回读1999999999999.98；整数上限/溢出/精确分",
+      "status": "fixed_and_scoped_verified"
+    },
+    {
+      "id": "actual_cost_dates",
+      "problem": "未来库存被保存和采用为已发生实际成本",
+      "change": "上海今日校验；采用旧快照时再次校验未来核算月/启用来源日",
+      "evidence": "未来422/409不写入；今天/历史/禁用参考与方案精确回读",
+      "status": "fixed_and_scoped_verified"
+    }
+  ],
+  "verification": {
+    "public_entry": {
+      "startup_gzip_bytes": 619534,
+      "passed": true,
+      "target": 620000
+    },
+    "node": {
+      "files": 16,
+      "proof": "final16file run197pass with only new browser locator fixture failure; unchanged197 retained; browser1passed after clicking actual collapsed summary",
+      "file_list": [
+        "tests/automation/investment_payback_workbench.test.mjs",
+        "tests/automation/investment_payback_import.test.mjs",
+        "tests/automation/investment_scenario_workbench.test.mjs",
+        "tests/automation/investment_operating_bridge_panel.test.mjs",
+        "tests/automation/ai_daily_report_presentation_review_ui.test.mjs",
+        "tests/automation/operating_economics_workbench.test.mjs",
+        "tests/automation/business_feature_workspace_async_state.test.mjs",
+        "tests/automation/campaign_operations_browser.test.mjs",
+        "tests/automation/business_feature_workspace_browser.test.mjs",
+        "tests/automation/guest_operations_panel.test.mjs",
+        "tests/automation/booking_monitoring_panel.test.mjs",
+        "tests/automation/booking_monitoring_async_browser.test.mjs",
+        "tests/automation/investment_operating_bridge_browser.test.mjs",
+        "tests/automation/operating_component_asset_build.test.mjs",
+        "tests/automation/startup_lazy_component_versions.test.mjs",
+        "tests/automation/runtime_asset_identity.test.mjs"
+      ],
+      "skipped": 0,
+      "passed": true,
+      "tests": 198
+    },
+    "source_context": "isolated SQLite and synthetic browser/GET-only or test-only mocks; no real account/DB or OTA/PMS",
+    "frontend_build": "npm run build:frontend passed",
+    "github_ci": "pending exact final commit push",
+    "php": {
+      "files": 17,
+      "passed": true,
+      "proof": "54/453 booking+OTA;18/131 bridge;123/894 actual/scenario;51/368 workspace, disjoint files; no repeat counts",
+      "file_list": [
+        "tests/BookingMonitoringServiceTest.php",
+        "tests/BookingDemandPlanningServiceTest.php",
+        "tests/BookingDemandEventAsOfTest.php",
+        "tests/OtaRevenueAggregateOverflowTest.php",
+        "tests/InvestmentOperatingBridgeServiceTest.php",
+        "tests/InvestmentOperatingBridgeLedgerTest.php",
+        "tests/InvestmentOperatingBridgeControllerTest.php",
+        "tests/ActualConsumablesScenarioReferenceTest.php",
+        "tests/ConsumablesCostCalculatorTest.php",
+        "tests/ConsumablesProcurementReferenceServiceTest.php",
+        "tests/ConsumablesOperationalReconciliationServiceTest.php",
+        "tests/InvestmentScenarioPersistenceTest.php",
+        "tests/InvestmentScenarioCalculatorTest.php",
+        "tests/OperatingEvidenceChainTest.php",
+        "tests/BusinessWorkspaceServiceTest.php",
+        "tests/GuestOperationsServiceTest.php",
+        "tests/CampaignOperationsServiceTest.php"
+      ],
+      "skipped": 0,
+      "assertions": 1846,
+      "tests": 246
+    }
+  },
+  "source_files": [
+    {
+      "path": "app/service/ActualConsumablesScenarioReferenceService.php",
+      "sha256": "92f9f3bf67758e5e25a2715115ceb7797e9587708136fc06808e68b611ab4f47"
+    },
+    {
+      "path": "app/service/CampaignOperationsService.php",
+      "sha256": "6127754ac1941ab86edb65c664e5f9662450c98662b1ee53361c0580f78ef5b4"
+    },
+    {
+      "path": "app/service/ConsumablesActualCostService.php",
+      "sha256": "50f0913e090884d07f7b1b5822260f2e0e3cbd8fdc65e0d6869b0d6e86f5b43b"
+    },
+    {
+      "path": "app/service/InvestmentOperatingBridgeService.php",
+      "sha256": "5c123f878efdcb72d89d46ef619c36b19bf1e89d2fcea5e53d376fd7b291dcc6"
+    },
+    {
+      "path": "public/app-render.min.js",
+      "sha256": "2ca28cb64046bdc9e0d24fb9aa7836712788718fedf053598dcaa544d1ada4a1"
+    },
+    {
+      "path": "public/app-startup-helpers.min.js",
+      "sha256": "b47e07c4ad41ea0eee3bfb8477d349ca642e9576b6c53bdf025f9b36205ce8e2"
+    },
+    {
+      "path": "public/components/system/app-main-components-loader.js",
+      "sha256": "e1b92d1ba09227c15473a04fcb740b61f5aace92cab2e788101e5d49ce1f6af0"
+    },
+    {
+      "path": "public/components/system/app-main-components.js",
+      "sha256": "95878c1bf6bb82f819ca0b309aa1bae448a6db50bb7b21ea7f11bc140fb795c7"
+    },
+    {
+      "path": "public/components/system/booking-monitoring-panel.js",
+      "sha256": "2031838e484241727a3e845edbaab4ca4642274704fcecdbfaffcd24072d9d1f"
+    },
+    {
+      "path": "public/components/system/business-feature-workspace.js",
+      "sha256": "fc55bb0639228b009ab14d0d452c99c3da833ddec5e822bb1f2b853e51aa1908"
+    },
+    {
+      "path": "public/components/system/campaign-operations-panel.js",
+      "sha256": "99f57f71ec3e16651cbb1cfc9b09129a4ed77cb1681b44b75baeff44b226bda4"
+    },
+    {
+      "path": "public/components/system/guest-operations-panel.js",
+      "sha256": "1c5ef74ad597603b637a381900d342bbb4d31ba322d0996929fc4edfabf8add3"
+    },
+    {
+      "path": "public/components/system/investment-operating-bridge-panel.js",
+      "sha256": "83ab872c78bb8848a909ce15baefe74e6cee97e809c94ea6482683f8a7ce7018"
+    },
+    {
+      "path": "public/components/system/operating-finance-control-center.min.js",
+      "sha256": "f7b3852f428c1974d829be470c0c81e36f27b7ef279780d2453ead44c2a9d255"
+    },
+    {
+      "path": "public/index.html",
+      "sha256": "53a14eadc5b88b5e287044461e026d3c5fcc0cb9800990b5ac70c6a195900fa8"
+    },
+    {
+      "path": "resources/frontend/app-template.html",
+      "sha256": "8c7d716c8e29ef14a6d51873db9d26d8b6569a0ccf856ee588bbc267d193a327"
+    },
+    {
+      "path": "resources/frontend/templates/fragments/19c-page-operating-finance.html",
+      "sha256": "2812b18a5e1b1937ec1c3aa9f7a8e1cc267885be796c07ca716bcbc8458b4d44"
+    },
+    {
+      "path": "resources/frontend/templates/manifest.json",
+      "sha256": "d3ea3284a35ca24bd2e9a242a859b93d993b0492fca01bc428300ffb056529b7"
+    },
+    {
+      "path": "tests/ActualConsumablesScenarioReferenceTest.php",
+      "sha256": "9c0fc34385e0bc37cac0cc895f46864288b9e758e2f263e0b5f88bb70be955a5"
+    },
+    {
+      "path": "tests/CampaignOperationsServiceTest.php",
+      "sha256": "168ce7fe44b16bbe08501afec52d62921726623e6974b71841e0953d3f002994"
+    },
+    {
+      "path": "tests/InvestmentOperatingBridgeLedgerTest.php",
+      "sha256": "0e9e95ff7af165c6810d10d4959790e50bef245a2849f14a78845230ce0e3d69"
+    },
+    {
+      "path": "tests/InvestmentOperatingBridgeServiceTest.php",
+      "sha256": "3cd6406ca9a53c93149d0aa2b9f3e74e83c2ea97768da9f66ff253cf2d73ad99"
+    },
+    {
+      "path": "tests/OperatingEvidenceChainTest.php",
+      "sha256": "0a2cb9bc3bdae1854e36097bfed508332ff904120bc80b8d6b0e8bb25a1dbaeb"
+    },
+    {
+      "path": "tests/automation/booking_monitoring_panel.test.mjs",
+      "sha256": "5e708df4cfecf1317d4efcd1b49be44d13fd62a05830b285089350aa7ea6ba12"
+    },
+    {
+      "path": "tests/automation/business_feature_workspace_async_state.test.mjs",
+      "sha256": "514a97e91779eec245b24d511c2381570d6a4eede26efd9d6227a566364e3f98"
+    },
+    {
+      "path": "tests/automation/campaign_operations_browser.test.mjs",
+      "sha256": "7fedc9cf0ea7d1e27aa6f933f44e0c38d6b0016d149c08b5f112ed1bcd4a8461"
+    },
+    {
+      "path": "tests/automation/guest_operations_panel.test.mjs",
+      "sha256": "e9eb1bdba46f7ef4324ec1217d7bb102de1764951d0b0e423919e356efc12012"
+    },
+    {
+      "path": "tests/automation/investment_operating_bridge_panel.test.mjs",
+      "sha256": "d804122802e63294b0084a170d9cdc13a6b0b9e9a8a6b232521a0f897d36925a"
+    },
+    {
+      "path": "tests/automation/booking_monitoring_async_browser.test.mjs",
+      "sha256": "fc3224c15fab84c5808eac8b7ea25b679815417045130e88cb9de2aa30b9bc52"
+    }
+  ],
+  "boundaries": {
+    "real_business_writes": false,
+    "real_account_acceptance": false,
+    "deployment": false,
+    "github_main_merged": false,
+    "investment_permission": "existing investment.view plus investment.simulate ledger gate retained",
+    "github_ci": "exact final commit checked after push; separate GitHub acceptance receipt"
+  }
+}

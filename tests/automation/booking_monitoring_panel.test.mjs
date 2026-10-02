@@ -42,6 +42,92 @@ function component(request = async () => fixture(), canExecute = true) {
     return { definition, ctx };
 }
 
+test('latest file selection owns the import draft even when an older read succeeds or fails late', async () => {
+    for (const failOld of [false, true]) {
+        const old = deferred();
+        const { ctx } = component();
+        const event = (name, read) => ({ target: { files: [{ name, size: 10, text: read }], value: name } });
+        const pending = ctx.readFile(event('old.json', () => old.promise));
+        const latest = JSON.stringify({ rows: [submittedRow()], marker: 'latest' });
+        await ctx.readFile(event('latest.json', async () => latest));
+        if (failOld) old.reject(new Error('old file failure')); else old.resolve('{"marker":"old"}');
+        await pending;
+        assert.equal(ctx.importText, latest);
+        assert.equal(ctx.importedFileName, 'latest.json');
+        assert.equal(ctx.error, '');
+    }
+});
+
+test('returning to the same scope cannot revive a file selected before the draft reset', async () => {
+    const old = deferred();
+    const { ctx } = component();
+    const pending = ctx.readFile({ target: { files: [{ name: 'old.json', size: 10, text: () => old.promise }], value: 'old.json' } });
+    ctx.selectedIds = ['82']; ctx.resetDrafts();
+    ctx.selectedIds = ['80']; ctx.resetDrafts();
+    old.resolve('{"marker":"old"}'); await pending;
+    assert.equal(ctx.importText, '');
+    assert.equal(ctx.importedFileName, '');
+    assert.equal(ctx.error, '');
+});
+
+test('correction response and errors cannot overwrite a different editing hotel within a multi-hotel scope', async () => {
+    for (const failOld of [false, true]) {
+        const old = deferred();
+        const { ctx } = component(() => old.promise);
+        ctx.selectedIds = ['80', '82']; ctx.form.correctionId = '9';
+        const pending = ctx.loadCorrection();
+        ctx.form.hotelId = '82'; ctx.form.sourceRef = 'new-hotel-draft';
+        if (failOld) old.reject(new Error('old hotel failure')); else old.resolve(snapshotRead(receipt()));
+        await pending;
+        assert.equal(ctx.form.hotelId, '82');
+        assert.equal(ctx.form.sourceRef, 'new-hotel-draft');
+        assert.equal(ctx.error, '');
+        assert.equal(ctx.notice, '');
+    }
+});
+
+test('latest correction read owns the draft and is not cleared by an older request error', async () => {
+    const old = deferred();
+    const { ctx } = component(url => url.includes('/snapshots/9?') ? old.promise : Promise.resolve(snapshotRead(receipt(submittedRow(), 10))));
+    ctx.form.correctionId = '9';
+    const pending = ctx.loadCorrection();
+    ctx.form.correctionId = '10'; await ctx.loadCorrection();
+    const latestForm = structuredClone(ctx.form), latestNotice = ctx.notice;
+    old.reject(new Error('old correction failure')); await pending;
+    assert.deepEqual(ctx.form, latestForm);
+    assert.equal(ctx.notice, latestNotice);
+    assert.equal(ctx.error, '');
+});
+
+test('correction reads preserve newer fields in the same hotel draft on both success and failure', async () => {
+    for (const failOld of [false, true]) {
+        const old = deferred();
+        const { ctx } = component(() => old.promise);
+        ctx.form.correctionId = '9';
+        const pending = ctx.loadCorrection();
+        ctx.form.sourceRef = 'new-source'; ctx.form.rooms = '99';
+        const draft = structuredClone(ctx.form);
+        if (failOld) old.reject(new Error('obsolete error')); else old.resolve(snapshotRead(receipt()));
+        await pending;
+        assert.deepEqual(ctx.form, draft);
+        assert.equal(ctx.error, '');
+        if (!failOld) assert.match(ctx.notice, /草稿/);
+    }
+});
+
+test('a pending file read cannot replace or clear manually edited import text', async () => {
+    for (const failOld of [false, true]) {
+        const old = deferred();
+        const { ctx } = component();
+        const pending = ctx.readFile({ target: { files: [{ name: 'pending.json', size: 10, text: () => old.promise }], value: 'pending.json' } });
+        ctx.importText = '{"marker":"manual-latest"}';
+        if (failOld) old.reject(new Error('obsolete error')); else old.resolve('{"marker":"old"}');
+        await pending;
+        assert.equal(ctx.importText, '{"marker":"manual-latest"}');
+        assert.equal(ctx.error, '');
+    }
+});
+
 test('runtime render exposes exact scope, true zero, missing baseline, legal import and corrections', async () => {
     const { definition, ctx } = component();
     await ctx.load();

@@ -1,7 +1,12 @@
 (() => {
     'use strict';
     const components = window.SUXI_SYSTEM_COMPONENTS || (window.SUXI_SYSTEM_COMPONENTS = {});
-    const money = value => value == null || value === '' ? '未取得' : `¥${Number(value).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    const money = value => {
+        if (value == null || value === '') return '未取得';
+        const match = /^(-?)(\d+)(?:\.(\d{1,2}))?$/.exec(String(value));
+        if (!match) return '金额异常';
+        return `¥${match[1]}${BigInt(match[2]).toLocaleString('zh-CN')}.${(match[3] || '').padEnd(2, '0')}`;
+    };
     const statusText = value => ({ ready: '人工账目已核对完整', partial: '账目或覆盖不完整', blocked: '口径不可汇总', missing: '未关联投资项目', read_failed: '资金台账读取失败', error: '资金台账读取失败', not_started: '未来账期尚未开始' })[value] || '尚未取得资金台账';
     const amountFields = [['actual_invested', '累计实际投入'], ['net_actual_recovered', '累计净实收'], ['unrecovered', '逐项目未回本金'], ['excess_return', '超额收回']];
     components.InvestmentOperatingBridgePanel = {

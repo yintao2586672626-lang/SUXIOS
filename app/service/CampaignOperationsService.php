@@ -226,7 +226,8 @@ final class CampaignOperationsService
                 if ($source['business_date'] > $businessDate) throw new InvalidArgumentException('不能继承未来业务日的交班');
             }
             $newItems = $p['new_items'] ?? [];
-            if (!is_array($newItems) || count($newItems) > 50 || count($items) > 100) throw new InvalidArgumentException('交接事项超出单次上限');
+            $existingCount = count($items);
+            if (!is_array($newItems) || count($newItems) > 50) throw new InvalidArgumentException('交接事项超出单次上限');
             foreach ($newItems as $item) {
                 if (!is_array($item)) throw new InvalidArgumentException('交接事项格式错误');
                 $taskId = (int)($item['task_id'] ?? 0);
@@ -245,6 +246,8 @@ final class CampaignOperationsService
                 $items[] = ['item_id' => $itemId, 'title' => $title, 'task_id' => $taskId ?: null, 'owner' => $owner, 'due_at' => $due,
                     'status' => 'open', 'closure_evidence' => null, 'closed_by' => null, 'closed_at' => null, 'inherited_from_id' => null];
             }
+            // Older sealed versions may already exceed 100. Preserve their authentic items, but never grow beyond the limit.
+            if (count($items) > 100 && (!is_array($latest) || count($items) > $existingCount)) throw new InvalidArgumentException('交接事项超出单次上限');
             return ['shift_label' => $this->text($p['shift_label'] ?? '', 120, true), 'notes' => $this->text($p['notes'] ?? '', 1000),
                 'previous_id' => $previousId ?: null, 'items' => $items, 'acknowledged_by' => is_array($latest) ? ($prior['acknowledged_by'] ?? null) : null,
                 'acknowledged_at' => is_array($latest) ? ($prior['acknowledged_at'] ?? null) : null];

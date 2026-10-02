@@ -204,6 +204,60 @@ final class CampaignOperationsServiceTest extends TestCase
         self::assertSame($first['payload']['items'][1]['item_id'], $inherited['payload']['items'][0]['item_id']);
     }
 
+    public function testHandoverMergedItemLimitRejectsOverflowWithoutWritingAndAllows100ItemEdits(): void
+    {
+        $input = $this->base('handover', ['shift_label' => 'synthetic limit', 'notes' => '', 'new_items' => []]);
+        for ($batch = 0; $batch < 2; $batch++) {
+            $input['payload']['new_items'] = [];
+            for ($i = 0; $i < 50; $i++) $input['payload']['new_items'][] = ['title' => 'synthetic item ' . ($batch * 50 + $i), 'owner' => 'synthetic owner', 'due_at' => '2026-10-02T18:00'];
+            $saved = $this->save($input)['record']; $input['expected_id'] = $saved['id'];
+        }
+        self::assertCount(100, $saved['payload']['items']);
+        $input['payload']['new_items'] = [['title' => 'synthetic overflow', 'owner' => 'synthetic owner', 'due_at' => '2026-10-02T18:00']];
+        $error = null;
+        try { $this->save($input); } catch (InvalidArgumentException $caught) { $error = $caught; }
+        self::assertInstanceOf(InvalidArgumentException::class, $error, 'Merged 101st item must be rejected');
+        self::assertSame(2, Db::name(CampaignOperationsService::TABLE)->count());
+        self::assertCount(100, $this->service->read(101, 11, $saved['id'])['payload']['items']);
+        // Repeating an existing item must not count as growth; normal edits at 100 remain possible.
+        $input['payload']['new_items'] = [['title' => 'synthetic item 0', 'owner' => 'synthetic owner', 'due_at' => '2026-10-02T18:00']];
+        $input['payload']['notes'] = 'synthetic normal edit at the limit';
+        $edited = $this->save($input)['record'];
+        self::assertCount(100, $edited['payload']['items']); self::assertSame(3, $edited['version_no']);
+        self::assertSame($saved['id'], $edited['parent_id']); self::assertSame(3, Db::name(CampaignOperationsService::TABLE)->count());
+    }
+
+    public function testExistingSealed150ItemHandoverKeepsHistoryAndAllowsNotesClosureButCannotGrow(): void
+    {
+        $input = $this->base('handover', ['shift_label' => 'synthetic legacy', 'notes' => '', 'new_items' => [['title' => 'synthetic 0', 'owner' => 'synthetic owner', 'due_at' => '2026-10-02T18:00']]]);
+        $initial = $this->save($input)['record'];
+        $row = Db::name(CampaignOperationsService::TABLE)->where('id', $initial['id'])->find();
+        unset($row['id'], $row['payload_json'], $row['content_sha256']);
+        $row['version_no'] = 2; $row['parent_id'] = $initial['id'];
+        $payload = $initial['payload'];
+        for ($i = 1; $i < 150; $i++) {
+            $item = $payload['items'][0]; $item['title'] = 'synthetic ' . $i; $item['item_id'] = hash('sha256', 'synthetic legacy ' . $i); $payload['items'][] = $item;
+        }
+        // Emulate an authentic sealed row accepted by the prior implementation, without changing its provenance on read.
+        $sealed = (new \ReflectionMethod($this->service, 'sealedRow'))->invoke($this->service, $row, $payload);
+        $legacyId = (int)Db::name(CampaignOperationsService::TABLE)->insertGetId($sealed);
+        $legacy = $this->service->read(101, 11, $legacyId); self::assertCount(150, $legacy['payload']['items']);
+        $input['expected_id'] = $legacyId; $input['payload']['new_items'] = []; $input['payload']['notes'] = 'synthetic legacy note edit';
+        $edited = $this->save($input)['record']; self::assertCount(150, $edited['payload']['items']);
+        $ack = $this->service->handoverAction(101, 11, 6, $edited['id'], ['action' => 'acknowledge'])['record'];
+        $closed = $this->service->handoverAction(101, 11, 6, $ack['id'], ['action' => 'close_item', 'item_id' => $legacy['payload']['items'][0]['item_id'], 'closure_evidence' => 'synthetic closure receipt'])['record'];
+        self::assertCount(150, $closed['payload']['items']); self::assertSame('closed', $closed['payload']['items'][0]['status']);
+        self::assertSame('open', $this->service->read(101, 11, $legacyId)['payload']['items'][0]['status']);
+        self::assertSame($sealed['payload_json'], Db::name(CampaignOperationsService::TABLE)->where('id', $legacyId)->value('payload_json'));
+        $count = Db::name(CampaignOperationsService::TABLE)->count();
+        $input['expected_id'] = $closed['id']; $input['payload']['new_items'] = [['title' => 'synthetic 151st', 'owner' => 'synthetic owner', 'due_at' => '2026-10-02T18:00']];
+        $error = null; try { $this->save($input); } catch (InvalidArgumentException $caught) { $error = $caught; }
+        self::assertInstanceOf(InvalidArgumentException::class, $error); self::assertSame($count, Db::name(CampaignOperationsService::TABLE)->count());
+        // Submitted old-item arrays cannot invent capacity or discard authentic retained items.
+        $input['payload']['new_items'] = []; $input['payload']['items'] = [['item_id' => 'invented']];
+        self::assertCount(150, $this->save($input)['record']['payload']['items']);
+    }
+
     public function testCrossHotelTaskReferenceIsRejected(): void
     {
         $input = $this->base('handover', ['shift_label' => '早班', 'new_items' => [['title' => '事项', 'owner' => '责任人', 'task_id' => 8, 'due_at' => '2026-10-02T12:00']]]);

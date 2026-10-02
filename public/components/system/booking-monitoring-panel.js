@@ -62,7 +62,7 @@
         props: { hotels: { type: Array, default: () => [] }, selectedHotelId: { type: [String, Number], default: '' },
             request: { type: Function, required: true }, canExecute: { type: Boolean, default: false }, workspaceSettings: { type: Object, default: () => ({}) } },
         data() { return { selectedIds: [], businessDate: today(), platform: this.workspaceSettings?.preferred_platform || 'ctrip', fixedTime: this.workspaceSettings?.booking_fixed_time || '09:00', horizonDays: String(this.workspaceSettings?.booking_horizon_days || 7),
-            overview: null, loading: false, error: '', saving: false, notice: '', receipt: null, seq: 0, writeSeq: 0,
+            overview: null, loading: false, error: '', saving: false, notice: '', receipt: null, seq: 0, writeSeq: 0, fileSeq: 0, correctionSeq: 0,
             form: blankForm(), importText: '', importedFileName: '', expandedHistory: '' }; },
         computed: {
             normalizedHotels() { return this.hotels.filter(hotel => Number(hotel?.id) > 0); },
@@ -89,7 +89,7 @@
             scopeKey(value, previous) { if (value !== previous) { this.seq += 1; this.overview = null; this.resetDrafts(); void this.load(); } },
         },
         methods: {
-            resetDrafts() { this.writeSeq += 1; this.form = blankForm(); this.form.hotelId = String(this.selectedIds[0] || '');
+            resetDrafts() { this.writeSeq += 1; this.fileSeq += 1; this.correctionSeq += 1; this.form = blankForm(); this.form.hotelId = String(this.selectedIds[0] || '');
                 this.form.stayDate = this.businessDate ? dateAfter(this.businessDate, 1) : ''; this.importText = ''; this.importedFileName = '';
                 this.receipt = null; this.notice = ''; this.error = ''; this.expandedHistory = ''; },
             statusText(value) { return statuses[value] || value || '未取得'; },
@@ -152,13 +152,16 @@
                 const file = event?.target?.files?.[0];
                 if (!file) return;
                 const key = this.scopeKey;
+                const seq = ++this.fileSeq;
+                const importDraft = this.importText;
+                const ownsImport = () => seq === this.fileSeq && key === this.scopeKey && importDraft === this.importText;
                 try {
                     if (file.size > 262144) throw new Error('快照文件须小于256KB。');
                     const value = await file.text();
-                    if (key !== this.scopeKey) return;
+                    if (!ownsImport()) return;
                     JSON.parse(value); this.importText = value; this.importedFileName = file.name; this.error = '';
-                } catch (error) { if (key === this.scopeKey) { this.importText = ''; this.importedFileName = ''; this.error = error.message; } }
-                finally { if (event.target) event.target.value = ''; }
+                } catch (error) { if (ownsImport()) { this.importText = ''; this.importedFileName = ''; this.error = error.message; } }
+                finally { if (seq === this.fileSeq && event.target) event.target.value = ''; }
             },
             async saveRows(rows) {
                 if (!this.canExecute || this.saving) return;
@@ -166,6 +169,7 @@
                 if (rows.some(row => !row || !ids.includes(Number(row.hotel_id)) || row.platform !== this.platform)) throw new Error('导入酒店或平台与当前选择不一致，请先切换到对应范围。');
                 const key = this.scopeKey;
                 const seq = ++this.writeSeq;
+                this.correctionSeq += 1; this.fileSeq += 1;
                 this.saving = true; this.error = ''; this.notice = ''; this.receipt = null;
                 let postCompleted = false;
                 try {
@@ -206,20 +210,26 @@
                 this.notice = '已载入更正草稿；请填写新的来源引用并核对。原快照保留，更正另存一条。';
             },
             async loadCorrection() {
+                const seq = ++this.correctionSeq;
                 const id = Number(this.form.correctionId);
                 const hotelId = Number(this.form.hotelId);
                 if (!Number.isSafeInteger(id) || id <= 0 || !this.selectedIds.map(Number).includes(hotelId)) { this.error = '请填写当前酒店的快照ID。'; return; }
                 const key = this.scopeKey;
+                const draftSignature = JSON.stringify(this.form);
+                const ownsRequest = () => seq === this.correctionSeq && key === this.scopeKey
+                    && Number(this.form.correctionId) === id && Number(this.form.hotelId) === hotelId;
+                const ownsDraft = () => ownsRequest() && draftSignature === JSON.stringify(this.form);
                 try {
                     const response = await this.request(`/booking-monitoring/snapshots/${id}?hotel_id=${hotelId}`, { businessContext: { hotelId } });
-                    if (key !== this.scopeKey || Number(this.form.correctionId) !== id) return;
+                    if (!ownsRequest()) return;
+                    if (!ownsDraft()) { this.notice = '读取期间你编辑了草稿，已保留；如需载入该版本，请再次回读。'; return; }
                     const snapshot = response?.data;
                     if (response?.code !== 200) throw new Error(response?.message || '快照回读失败。');
                     if (snapshot?.contract_version !== 'room_type_on_books_snapshot.v1'
                         || snapshot.id !== id || snapshot.hotel_id !== hotelId || snapshot.platform !== this.platform
                         || snapshot.external_write_count !== 0 || Number(snapshot.readback_verified) !== 1) throw new Error('快照回读范围不匹配。');
                     this.correct(snapshot); this.error = '';
-                } catch (error) { if (key === this.scopeKey) this.error = error.message; }
+                } catch (error) { if (ownsDraft()) this.error = error.message; }
             },
             downloadTemplate() {
                 const payload = { contract_version: 'booking_fixed_baseline_monitor.v1', rows: [{ hotel_id: Number(this.form.hotelId || this.selectedIds[0]),

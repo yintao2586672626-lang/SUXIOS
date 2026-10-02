@@ -23,6 +23,36 @@ final class OperatingEvidenceChainTest extends TestCase
     private function actual(): array { return ['occupied_room_nights'=>100,'occupied_room_nights_source_ref'=>'synthetic-pms-room-nights','denominator_scope'=>'whole_hotel','operator_attested'=>true,'items'=>[['id'=>'towel','name'=>'测试合成耗材','enabled'=>true,'unit'=>'piece','source_ref'=>'synthetic-count#1','source_date'=>'2026-10-02','opening_quantity'=>30,'purchased_quantity'=>100,'transfer_in_quantity'=>0,'closing_quantity'=>20,'transfer_out_quantity'=>0,'returned_quantity'=>0,'written_off_quantity'=>10,'unit_price'=>2,'budget_unit_price'=>1.5,'budget_usage_per_room_night'=>0.8]]]; }
     private function channel(): array { return ['net_revenue'=>1000,'advertising_spend'=>100,'attributed_order_amount'=>400,'effective_order_amount'=>1200,'refund_amount'=>50,'attribution_basis'=>'same-day-platform-attribution','advertising_included_in_net_revenue'=>false,'advertising_in_direct_costs'=>false,'cost_coverage_complete'=>true,'operator_attested'=>true,'source_refs'=>['synthetic-monthly-order#1'],'costs'=>[['label'=>'履约','amount'=>200,'source_ref'=>'synthetic-cost#1','included_in_net_revenue'=>false],['label'=>'佣金已扣','amount'=>99,'source_ref'=>'synthetic-settlement#1','included_in_net_revenue'=>true]]]; }
     public function testActualInventoryAndBudgetVarianceAreNotPurchaseCash(): void { $r=(new ConsumablesActualCostService())->calculate($this->actual()); self::assertSame(100.0,$r['items'][0]['consumed_quantity']); self::assertSame(200.0,$r['actual_consumed_cost']); self::assertSame(20.0,$r['separate_loss_cost']); self::assertSame(2.0,$r['actual_consumables_cost_per_room_night']); self::assertSame(50.0,$r['items'][0]['price_variance']); self::assertSame(30.0,$r['items'][0]['usage_variance']); self::assertSame(80.0,$r['items'][0]['total_variance']); }
+    public function testFutureActualSourceIsRejectedBeforeSnapshotSave(): void
+    {
+        $input = $this->actual();
+        $input['items'][0]['source_date'] = '2099-01-31';
+        $before = Db::name(OperatingEvidenceSnapshotStore::TABLE)->count();
+        try {
+            $result = (new ConsumablesActualCostService())->calculate($input);
+            $store = new OperatingEvidenceSnapshotStore();
+            $scope = $store->scope(7, [80], 80, '2099-01', 'whole_hotel', 'consumables_actual');
+            $store->save($scope, ['inputs' => $result['inputs'], 'result' => $result, 'source_quality' => $result['source_quality']], 'future-source-proof', 1);
+            self::fail('A future inventory source must not be saved as actual consumption');
+        } catch (InvalidArgumentException $error) {
+            self::assertSame('consumables_actual_source_date_in_future', $error->getMessage());
+        }
+        self::assertSame($before, Db::name(OperatingEvidenceSnapshotStore::TABLE)->count());
+    }
+    public function testShanghaiTodayAndExcludedFutureReferenceRemainCompatible(): void
+    {
+        $input = $this->actual();
+        $today = (new DateTimeImmutable('now', new DateTimeZone('Asia/Shanghai')))->format('Y-m-d');
+        $input['items'][0]['source_date'] = $today;
+        $input['items'][] = array_replace($input['items'][0], ['id' => 'excluded-future-reference', 'enabled' => false, 'source_date' => '2099-01-31']);
+        $result = (new ConsumablesActualCostService())->calculate($input);
+        self::assertSame('calculated', $result['status']);
+        self::assertSame(200.0, $result['actual_consumed_cost']);
+        self::assertSame(2.0, $result['actual_consumables_cost_per_room_night']);
+        self::assertSame($today, $result['items'][0]['source_date']);
+        self::assertSame('excluded', $result['items'][1]['status']);
+        self::assertSame('2099-01-31', $result['items'][1]['source_date']);
+    }
     public function testMissingInventoryAndRoomNightsNeverBecomeZero(): void { $i=$this->actual(); $i['items'][0]['closing_quantity']=''; $i['occupied_room_nights']=''; $r=(new ConsumablesActualCostService())->calculate($i); self::assertNull($r['actual_consumed_cost']); self::assertNull($r['actual_consumables_cost_per_room_night']); self::assertSame('partial',$r['status']); }
     public function testOtaRoomNightsCannotBecomeHotelDenominator(): void { $i=$this->actual(); $i['denominator_scope']='ota_channel'; $this->expectException(InvalidArgumentException::class); (new ConsumablesActualCostService())->calculate($i); }
     public function testNegativeInventoryBalanceIsExplicitGap(): void { $i=$this->actual(); $i['items'][0]['closing_quantity']=1000; $r=(new ConsumablesActualCostService())->calculate($i); self::assertNull($r['actual_consumed_cost']); self::assertContains('towel:inventory_balance_negative',$r['missing_items']); }

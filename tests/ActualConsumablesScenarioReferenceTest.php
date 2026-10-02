@@ -58,12 +58,12 @@ final class ActualConsumablesScenarioReferenceTest extends TestCase
                 array_replace($row, ['id' => 'disabled', 'enabled' => false, 'source_date' => '2099-01-01'])]];
     }
 
-    private function evidence(array $inputChanges = [], int $tenant = 10, int $hotel = 80): array
+    private function evidence(array $inputChanges = [], int $tenant = 10, int $hotel = 80, string $month = '2026-09'): array
     {
         $input = array_replace($this->actualInput(), $inputChanges);
         $result = (new ConsumablesActualCostService())->calculate($input);
         $store = new OperatingEvidenceSnapshotStore();
-        $scope = $store->scope($tenant, [$hotel], $hotel, '2026-09', 'whole_hotel', 'consumables_actual');
+        $scope = $store->scope($tenant, [$hotel], $hotel, $month, 'whole_hotel', 'consumables_actual');
         return $store->save($scope, ['inputs' => $result['inputs'], 'result' => $result, 'source_quality' => $result['source_quality']], 'synthetic-actual-reference', 7);
     }
 
@@ -180,5 +180,58 @@ final class ActualConsumablesScenarioReferenceTest extends TestCase
         self::assertNotSame('2099-01-01', $saved['input']['consumables_cost']['items'][0]['as_of']);
         self::assertSame($original, Db::name(OperatingEvidenceSnapshotStore::TABLE)->where('id', $snapshot['snapshot_id'])->find());
         self::assertSame($saved['input'], Fixture::scenarios()->detail($id)['input']);
+    }
+
+    public function testShanghaiTodayEvidenceSavesAdoptsAndReadsBackWhileExcludedFutureRowsStayExcluded(): void
+    {
+        $today = (new \DateTimeImmutable('now', new \DateTimeZone('Asia/Shanghai')))->format('Y-m-d');
+        $items = $this->actualInput()['items'];
+        foreach ($items as &$item) if ($item['enabled']) $item['source_date'] = $today;
+        unset($item);
+        $snapshot = $this->evidence(['items' => $items], 10, 80, substr($today, 0, 7));
+        $id = Fixture::ledger()->saveProject(Fixture::project())['project']['id'];
+        $input = $this->scenario($snapshot); $input['as_of'] = $today;
+        $before = Db::name(OperatingEvidenceSnapshotStore::TABLE)->where('id', $snapshot['snapshot_id'])->find();
+        $saved = Fixture::scenarios()->save($id, ['expected_version' => 1, 'scenario' => $input]);
+        $read = Fixture::scenarios()->detail($id);
+        self::assertSame('exact', $saved['readback']);
+        self::assertSame($saved['input'], $read['input']); self::assertSame($saved['result'], $read['result']);
+        self::assertSame($today, $read['input']['consumables_cost']['items'][0]['as_of']);
+        self::assertSame($snapshot['snapshot_id'], $read['input']['cost_evidence_snapshot_id']);
+        self::assertEqualsWithDelta(4.0, $read['result']['effective_operating_cost_per_night'], 1e-12);
+        self::assertSame($before, Db::name(OperatingEvidenceSnapshotStore::TABLE)->where('id', $snapshot['snapshot_id'])->find());
+        self::assertSame(0, Db::name('investment_payback_entries')->count());
+    }
+
+    public static function legacyFutureEvidence(): array
+    {
+        return ['future source' => ['2026-09', '2099-01-31'], 'future period' => ['2099-01', '2026-09-28'],
+            'future source and period' => ['2099-01', '2099-01-31']];
+    }
+
+    #[DataProvider('legacyFutureEvidence')]
+    public function testPreviouslySavedFutureActualEvidenceCannotEnterPreviewOrSave(string $month, string $sourceDate): void
+    {
+        // A valid immutable historical snapshot models data already saved by the earlier service.
+        $result = (new ConsumablesActualCostService())->calculate($this->actualInput());
+        foreach ($result['items'] as &$item) if ($item['enabled']) $item['source_date'] = $sourceDate;
+        unset($item);
+        foreach ($result['inputs']['items'] as &$item) if ($item['enabled']) $item['source_date'] = $sourceDate;
+        unset($item);
+        $store = new OperatingEvidenceSnapshotStore();
+        $scope = $store->scope(10, [80], 80, $month, 'whole_hotel', 'consumables_actual');
+        $snapshot = $store->save($scope, ['inputs' => $result['inputs'], 'result' => $result, 'source_quality' => $result['source_quality']], 'synthetic-legacy-future', 7);
+        $id = Fixture::ledger()->saveProject(Fixture::project())['project']['id'];
+        $input = $this->scenario($snapshot); $service = Fixture::scenarios();
+        $snapshotBefore = Db::name(OperatingEvidenceSnapshotStore::TABLE)->where('id', $snapshot['snapshot_id'])->find();
+        $eventsBefore = Db::name('investment_payback_events')->count();
+        foreach ([fn() => $service->preview($id, ['scenario' => $input]), fn() => $service->save($id, ['expected_version' => 1, 'scenario' => $input])] as $action) {
+            try { $action(); self::fail('Previously saved future inventory must not become an adopted actual reference'); }
+            catch (RuntimeException $error) { self::assertSame(409, $error->getCode(), $error->getMessage()); self::assertStringContainsString('未来', $error->getMessage()); }
+        }
+        self::assertSame($eventsBefore, Db::name('investment_payback_events')->count());
+        self::assertSame(0, Db::name('investment_payback_entries')->count());
+        self::assertSame(1, $service->detail($id)['project_version']); self::assertNull($service->detail($id)['result']);
+        self::assertSame($snapshotBefore, Db::name(OperatingEvidenceSnapshotStore::TABLE)->where('id', $snapshot['snapshot_id'])->find());
     }
 }

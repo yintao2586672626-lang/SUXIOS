@@ -16,6 +16,7 @@ final class ConsumablesActualCostService
         $attested = ($input['operator_attested'] ?? false) === true;
         $rows = $input['items'] ?? [];
         if (!is_array($rows) || count($rows) > 100) throw new InvalidArgumentException('consumables_items_invalid');
+        $today = (new \DateTimeImmutable('now', new \DateTimeZone('Asia/Shanghai')))->format('Y-m-d');
         $normalized = []; $missing = []; $known = 0.0; $loss = 0.0; $complete = true;
         foreach ($rows as $index => $raw) {
             if (!is_array($raw) || !is_bool($raw['enabled'] ?? null)) throw new InvalidArgumentException('consumables_enabled_required');
@@ -28,6 +29,9 @@ final class ConsumablesActualCostService
             $gaps = [];
             foreach (['opening_quantity','purchased_quantity','transfer_in_quantity','closing_quantity','transfer_out_quantity','returned_quantity','written_off_quantity','unit_price'] as $key) if ($item[$key] === null) $gaps[] = $key;
             if ($item['source_ref'] === '' || !$this->validDate($item['source_date'])) $gaps[] = 'source_evidence';
+            if ($item['enabled'] && $this->validDate($item['source_date']) && $item['source_date'] > $today) {
+                throw new InvalidArgumentException('consumables_actual_source_date_in_future');
+            }
             $quantity = $gaps === [] ? round($item['opening_quantity'] + $item['purchased_quantity'] + $item['transfer_in_quantity']
                 - $item['closing_quantity'] - $item['transfer_out_quantity'] - $item['returned_quantity'] - $item['written_off_quantity'], 6) : null;
             if ($quantity !== null && $quantity < 0) { $gaps[] = 'inventory_balance_negative'; $quantity = null; }

@@ -39,3 +39,16 @@ test('opening ledger is a navigation event and never an accounting write', () =>
   nodes.find(node => node.tag === 'button').props.onClick();
   assert.deepEqual(events, ['open-ledger']);
 });
+
+test('large cumulative currency strings preserve exact cents and invalid values stay explicit', () => {
+  const tree = render({ contract_version: 'investment_operating_bridge.v1', status: 'ready', totals: {
+    actual_invested: '92233720368547758.07', net_actual_recovered: '-1000000000000.01',
+    unrecovered: null, excess_return: 'bad amount',
+  } });
+  const serialized = JSON.stringify(tree);
+  assert.match(serialized, /¥92,233,720,368,547,758\.07/);
+  assert.match(serialized, /¥-1,000,000,000,000\.01/);
+  assert.match(serialized, /未取得/);
+  assert.match(serialized, /金额异常/);
+  assert.doesNotMatch(serialized, /NaN/);
+});

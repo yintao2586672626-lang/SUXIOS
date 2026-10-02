@@ -68,6 +68,7 @@
                 try {
                     const input = clone(kind === 'configuration' ? this.configuration : this.review);
                     if (kind === 'source_mapping') input.field_mapping = JSON.parse(this.mappingText);
+                    const draftSignature = JSON.stringify([kind === 'configuration' ? this.configuration : this.review, kind === 'source_mapping' ? this.mappingText : null]);
                     const signature = JSON.stringify([this.hotelId, kind, this.latestId, input]);
                     if (this.pendingSave?.signature !== signature) this.pendingSave = { signature, key: `business_${crypto.randomUUID()}` };
                     const data = await this.call('/business-workspace/snapshots', { method: 'POST', body: {
@@ -80,9 +81,10 @@
                     this.displayedRecord = clone(data);
                     this.preview = null;
                     this.overview = { ...this.overview, latest: data, history: [data, ...(this.overview.history || [])] };
-                    if (kind === 'configuration') { this.configuration = clone(data.inputs); this.applied = clone(data.inputs); this.configurationId = this.latestId; this.$emit('settings-applied', clone(this.applied)); }
-                    else this.review = clone(data.inputs);
-                    this.notice = `版本 #${data.snapshot_id} 已保存并精确回读`;
+                    const draftUnchanged = draftSignature === JSON.stringify([kind === 'configuration' ? this.configuration : this.review, kind === 'source_mapping' ? this.mappingText : null]);
+                    if (kind === 'configuration') { if (draftUnchanged) this.configuration = clone(data.inputs); this.applied = clone(data.inputs); this.configurationId = this.latestId; this.$emit('settings-applied', clone(this.applied)); }
+                    else if (draftUnchanged) { this.review = clone(data.inputs); if (kind === 'source_mapping') this.mappingText = JSON.stringify(data.inputs.field_mapping || {}, null, 2); }
+                    this.notice = `版本 #${data.snapshot_id} 已保存并精确回读${draftUnchanged ? '' : '；当前较新的草稿尚未提交，已保留'}`;
                     this.pendingSave = null;
                 } catch (error) { if (sequence === this.seq) this.error = error.message; }
                 finally { if (sequence === this.seq) this.busy = false; }
