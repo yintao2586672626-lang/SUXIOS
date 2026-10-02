@@ -495,7 +495,7 @@ final class AiDailyReportTrustedInputTest extends TestCase
 
     public function testReportTenantIsResolvedFromTheHotelRecord(): void
     {
-        $source = (string)file_get_contents(__DIR__ . '/../app/service/AiDailyReportService.php');
+        $source = \Tests\Support\SourceAggregate::read(dirname(__DIR__), 'app/service/AiDailyReportService.php');
         self::assertStringContainsString("Db::name('hotels')->where('id', \$hotelId)->value('tenant_id')", $source);
         self::assertStringNotContainsString("\$data['tenant_id'] = \$hotelId", $source);
     }

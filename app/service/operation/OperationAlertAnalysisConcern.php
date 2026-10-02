@@ -256,73 +256,105 @@ trait OperationAlertAnalysisConcern
         ];
     }
 
-    private function extractRevenue(array $row, array $reportData): float
+    private function extractRevenue(array $row, array $reportData): ?float
     {
-        $revenue = $this->metricNumber($row['revenue'] ?? 0);
-        if ($revenue > 0) {
-            return $revenue;
-        }
-        foreach (['day_revenue', 'total_revenue', 'revenue', 'room_revenue'] as $key) {
-            $value = $this->metricNumber($reportData[$key] ?? 0);
-            if ($value > 0) {
-                return $value;
+        $explicitTotalKeys = ['revenue', 'day_revenue', 'day_total_revenue', 'total_revenue'];
+        foreach ($explicitTotalKeys as $key) {
+            if (array_key_exists($key, $reportData)) {
+                return $this->dailyNonnegativeNumber($reportData[$key]);
             }
         }
-        return $this->sumReportFields($reportData, [
-            'xb_revenue', 'mt_revenue', 'fliggy_revenue', 'dy_revenue', 'tc_revenue', 'qn_revenue', 'zx_revenue',
-            'booking_revenue', 'agoda_revenue', 'expedia_revenue',
-            'walkin_revenue', 'member_exp_revenue', 'web_exp_revenue', 'group_revenue', 'protocol_revenue', 'wechat_revenue',
-            'free_revenue', 'gold_card_revenue', 'black_gold_revenue', 'hourly_revenue',
-            'parking_revenue', 'dining_revenue', 'meeting_revenue', 'goods_revenue', 'member_card_revenue', 'other_revenue',
-        ]);
+        $legacyTotal = $this->dailyNonnegativeNumber($row['revenue'] ?? null);
+        if ($legacyTotal !== null) {
+            return $legacyTotal;
+        }
+        $roomRevenue = $this->dailyNonnegativeNumber($reportData['room_revenue'] ?? null)
+            ?? $this->dailyNonnegativeNumber($reportData['day_room_revenue'] ?? null);
+        if ($roomRevenue === null) {
+            $onlineRevenue = $this->dailyNonnegativeNumber($reportData['online_revenue'] ?? null)
+                ?? $this->sumCompleteDailyReportFields($reportData, [
+                    'xb_revenue', 'mt_revenue', 'fliggy_revenue', 'dy_revenue', 'tc_revenue',
+                    'qn_revenue', 'zx_revenue', 'booking_revenue', 'agoda_revenue', 'expedia_revenue',
+                ]);
+            $offlineRevenue = $this->dailyNonnegativeNumber($reportData['offline_revenue'] ?? null)
+                ?? $this->sumCompleteDailyReportFields($reportData, [
+                    'walkin_revenue', 'member_exp_revenue', 'web_exp_revenue', 'group_revenue',
+                    'protocol_revenue', 'wechat_revenue', 'free_revenue', 'gold_card_revenue',
+                    'black_gold_revenue', 'hourly_revenue',
+                ]);
+            if ($onlineRevenue !== null && $offlineRevenue !== null) {
+                $roomRevenue = $onlineRevenue + $offlineRevenue;
+            }
+        }
+        $otherRevenue = $this->dailyNonnegativeNumber($reportData['other_revenue_total'] ?? null)
+            ?? $this->sumCompleteDailyReportFields($reportData, [
+                'parking_revenue', 'dining_revenue', 'meeting_revenue', 'goods_revenue',
+                'member_card_revenue', 'other_revenue',
+            ]);
+        return $roomRevenue !== null && $otherRevenue !== null
+            ? round($roomRevenue + $otherRevenue, 2)
+            : null;
     }
 
-    private function extractRoomNights(array $row, array $reportData): float
+    private function dailyNonnegativeNumber(mixed $value): ?float
+    {
+        $number = $this->numericMetricValue($value);
+        return $number !== null && is_finite($number) && $number >= 0 ? $number : null;
+    }
+
+    private function sumCompleteDailyReportFields(array $reportData, array $keys): ?float
+    {
+        $total = 0.0;
+        foreach ($keys as $key) {
+            $value = $this->dailyNonnegativeNumber($reportData[$key] ?? null);
+            if ($value === null) {
+                return null;
+            }
+            $total += $value;
+        }
+        return round($total, 2);
+    }
+
+    private function extractRoomNights(array $row, array $reportData): ?float
     {
         foreach (['room_nights', 'occupied_rooms', 'day_total_rooms', 'total_rooms'] as $key) {
-            $value = $this->numericMetricValue($reportData[$key] ?? null);
-            if ($value !== null) {
-                return $value;
+            if (array_key_exists($key, $reportData)) {
+                return $this->dailyRoomNightNumber($reportData[$key]);
             }
         }
-
-        $roomFields = [
-            'xb_rooms', 'mt_rooms', 'fliggy_rooms', 'dy_rooms', 'tc_rooms', 'qn_rooms', 'zx_rooms',
-            'booking_rooms', 'agoda_rooms', 'expedia_rooms',
-            'walkin_rooms', 'member_exp_rooms', 'web_exp_rooms', 'group_rooms', 'protocol_rooms', 'wechat_rooms',
-            'free_rooms', 'gold_card_rooms', 'black_gold_rooms', 'hourly_rooms',
-        ];
-        if ($this->hasAnyNumericMetric($reportData, $roomFields)) {
-            return $this->sumReportFields($reportData, $roomFields);
-        }
-
-        return 0.0;
-    }
-
-    /** @param array<string, mixed> $row @param array<string, mixed> $reportData */
-    private function dailyRevenueIsPresent(array $row, array $reportData): bool
-    {
-        return $this->hasAnyNumericMetric($row, ['revenue'])
-            || $this->hasAnyNumericMetric($reportData, [
-                'day_revenue', 'total_revenue', 'revenue', 'room_revenue',
-                'xb_revenue', 'mt_revenue', 'fliggy_revenue', 'dy_revenue', 'tc_revenue', 'qn_revenue', 'zx_revenue',
-                'booking_revenue', 'agoda_revenue', 'expedia_revenue',
-                'walkin_revenue', 'member_exp_revenue', 'web_exp_revenue', 'group_revenue', 'protocol_revenue', 'wechat_revenue',
-                'free_revenue', 'gold_card_revenue', 'black_gold_revenue', 'hourly_revenue',
-                'parking_revenue', 'dining_revenue', 'meeting_revenue', 'goods_revenue', 'member_card_revenue', 'other_revenue',
+        $onlineRooms = $this->dailyRoomNightNumber($reportData['online_rooms'] ?? null)
+            ?? $this->sumCompleteDailyRoomFields($reportData, [
+                'xb_rooms', 'mt_rooms', 'fliggy_rooms', 'dy_rooms', 'tc_rooms',
+                'qn_rooms', 'zx_rooms', 'booking_rooms', 'agoda_rooms', 'expedia_rooms',
             ]);
+        $offlineRooms = $this->dailyRoomNightNumber($reportData['offline_rooms'] ?? null)
+            ?? $this->sumCompleteDailyRoomFields($reportData, [
+                'walkin_rooms', 'member_exp_rooms', 'web_exp_rooms', 'group_rooms',
+                'protocol_rooms', 'wechat_rooms', 'free_rooms', 'gold_card_rooms',
+                'black_gold_rooms', 'hourly_rooms',
+            ]);
+        return $onlineRooms !== null && $offlineRooms !== null
+            ? $onlineRooms + $offlineRooms
+            : null;
     }
 
-    /** @param array<string, mixed> $reportData */
-    private function dailyRoomNightsArePresent(array $reportData): bool
+    private function dailyRoomNightNumber(mixed $value): ?float
     {
-        return $this->hasAnyNumericMetric($reportData, [
-            'room_nights', 'occupied_rooms', 'day_total_rooms', 'total_rooms',
-            'xb_rooms', 'mt_rooms', 'fliggy_rooms', 'dy_rooms', 'tc_rooms', 'qn_rooms', 'zx_rooms',
-            'booking_rooms', 'agoda_rooms', 'expedia_rooms',
-            'walkin_rooms', 'member_exp_rooms', 'web_exp_rooms', 'group_rooms', 'protocol_rooms', 'wechat_rooms',
-            'free_rooms', 'gold_card_rooms', 'black_gold_rooms', 'hourly_rooms',
-        ]);
+        $number = $this->dailyNonnegativeNumber($value);
+        return $number !== null && floor($number) === $number ? $number : null;
+    }
+
+    private function sumCompleteDailyRoomFields(array $reportData, array $keys): ?float
+    {
+        $total = 0.0;
+        foreach ($keys as $key) {
+            $value = $this->dailyRoomNightNumber($reportData[$key] ?? null);
+            if ($value === null) {
+                return null;
+            }
+            $total += $value;
+        }
+        return $total;
     }
 
     /** @param array<string, mixed> $row @param array<string, mixed> $reportData */
@@ -397,22 +429,14 @@ trait OperationAlertAnalysisConcern
         return isset($coverage[$date]);
     }
 
-    private function extractSalableRoomCount(array $row, array $reportData): float
+    private function extractSalableRoomCount(array $row, array $reportData): ?float
     {
-        foreach ([
-            $row['room_count'] ?? null,
-            $reportData['salable_rooms'] ?? null,
-            $reportData['salable_rooms_total'] ?? null,
-            $reportData['total_rooms_count'] ?? null,
-            $reportData['room_count'] ?? null,
-            $reportData['rooms_total'] ?? null,
-        ] as $value) {
-            $number = $this->metricNumber($value);
-            if ($number > 0) {
-                return $number;
+        foreach (['salable_rooms', 'salable_rooms_total', 'total_rooms_count', 'room_count', 'rooms_total'] as $key) {
+            if (array_key_exists($key, $reportData)) {
+                return $this->dailyRoomNightNumber($reportData[$key]);
             }
         }
-        return 0.0;
+        return $this->dailyRoomNightNumber($row['room_count'] ?? null);
     }
 
     private function sumReportFields(array $reportData, array $fields): float

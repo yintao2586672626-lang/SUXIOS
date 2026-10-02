@@ -35,6 +35,87 @@ final class OtaAdrScopeBoundaryTest extends TestCase
         self::assertSame(200.0, $result['totals']['adr']);
     }
 
+    public function testAnotherDayCannotHideRevenueWithZeroRoomNights(): void
+    {
+        $result = (new OtaRevenueMetricService())->summarizeDataset(['fact_ota_daily' => [
+            $this->fact('2026-08-01', 1000, 5),
+            $this->fact('2026-08-02', 500, 0),
+        ]]);
+
+        self::assertNull($result['totals']['adr']);
+        self::assertNull($result['by_platform'][0]['adr']);
+        self::assertSame(1500.0, $result['totals']['room_revenue']);
+        self::assertSame(5.0, $result['totals']['room_nights']);
+        self::assertContains('adr_denominator_zero', array_column($result['data_gaps'], 'code'));
+        self::assertContains('adr_denominator_zero', $result['metric_trust']['totals.adr']['failure_reasons']);
+    }
+
+    public function testAnotherHotelOrPlatformCannotHideAZeroDenominator(): void
+    {
+        foreach ([['hotel_key' => 'system:81'], ['platform_key' => 'ctrip']] as $scope) {
+            $result = (new OtaRevenueMetricService())->summarizeDataset(['fact_ota_daily' => [
+                $this->fact('2026-08-01', 1000, 5),
+                $this->fact('2026-08-01', 500, 0, $scope),
+            ]]);
+
+            self::assertNull($result['totals']['adr']);
+            self::assertContains('adr_denominator_zero', $result['metric_trust']['totals.adr']['failure_reasons']);
+            if (isset($scope['platform_key'])) {
+                $platforms = array_column($result['by_platform'], null, 'key');
+                self::assertSame(200.0, $platforms['meituan']['adr']);
+                self::assertNull($platforms['ctrip']['adr']);
+            }
+        }
+    }
+
+    public function testConfirmedZeroRevenueAndNightsDoNotBlockOtherDays(): void
+    {
+        $result = (new OtaRevenueMetricService())->summarizeDataset(['fact_ota_daily' => [
+            $this->fact('2026-08-01', 1000, 5),
+            $this->fact('2026-08-02', 0, 0),
+        ]]);
+
+        self::assertSame(200.0, $result['totals']['adr']);
+        self::assertNotContains('adr_denominator_zero', $result['metric_trust']['totals.adr']['failure_reasons']);
+    }
+
+    public function testSameScopeRoomNightAdjustmentCanCompleteAZeroDenominator(): void
+    {
+        $result = (new OtaRevenueMetricService())->summarizeDataset(['fact_ota_daily' => [
+            $this->fact('2026-08-01', 1000, 0),
+            $this->fact('2026-08-01', null, 5, ['dimension' => 'room_nights_adjustment']),
+        ]]);
+
+        self::assertSame(200.0, $result['totals']['adr']);
+        self::assertNotContains('adr_denominator_zero', array_column($result['data_gaps'], 'code'));
+    }
+
+    public function testEtlAndRevenueClosurePreserveTheZeroDenominatorFailure(): void
+    {
+        foreach (['ctrip', 'meituan'] as $platform) {
+            $rows = [
+                ['id' => 1, 'system_hotel_id' => 80, 'hotel_id' => 'fixture-hotel', 'source' => $platform,
+                    'data_type' => 'business', 'data_date' => '2026-08-01', 'room_revenue' => 1000, 'quantity' => 5],
+                ['id' => 2, 'system_hotel_id' => 80, 'hotel_id' => 'fixture-hotel', 'source' => $platform,
+                    'data_type' => 'business', 'data_date' => '2026-08-02', 'room_revenue' => 500, 'quantity' => 0],
+            ];
+            $dataset = (new OtaStandardEtlService())->buildDatasetFromRows($rows);
+            $originalDataset = $dataset;
+            $metrics = (new OtaRevenueMetricService())->summarizeDataset($dataset);
+            $result = json_decode(json_encode($metrics, JSON_THROW_ON_ERROR), true, 512, JSON_THROW_ON_ERROR);
+
+            self::assertSame($originalDataset, $dataset, 'The read projection must preserve source facts.');
+            self::assertNull($result['totals']['adr']);
+            self::assertNull($result['by_hotel'][0]['adr']);
+            self::assertContains('adr_denominator_zero', $result['metric_trust']['totals.adr']['failure_reasons']);
+            self::assertFalse($result['metric_trust']['totals.adr']['saved_success']);
+            self::assertSame([1, 2], $result['metric_trust']['totals.adr']['source']['row_ids']);
+            $adr = $result['p1_revenue_closure']['sections']['adr_conversion']['metrics']['adr'];
+            self::assertNull($adr['value']);
+            self::assertContains('adr_denominator_zero', $adr['failure_reasons']);
+        }
+    }
+
     public function testDifferentHotelsAndPlatformsCannotFillEachOthersMissingRoomFacts(): void
     {
         foreach ([['hotel_key' => 'system:81'], ['platform_key' => 'ctrip']] as $scope) {

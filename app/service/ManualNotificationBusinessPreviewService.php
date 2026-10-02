@@ -768,7 +768,15 @@ final class ManualNotificationBusinessPreviewService
             && (string)($source['provider'] ?? '') === $sourceKey
             && (string)($source['readback_status'] ?? '')
                 === 'readback_verified';
+        $adrNotCalculable = self::numeric($values['sold_room_nights'] ?? null) === 0
+            && self::numeric($values['adr'] ?? null) === null
+            && ($statuses['adr']['status'] ?? '') === 'not_calculable'
+            && ($statuses['adr']['reason'] ?? '') === 'pms_sold_room_nights_denominator_zero';
+        $adrNote = '出租房晚为0，ADR不可计算；其他已核验的住宿事实仍保留。';
         foreach ($required as $key) {
+            if ($key === 'adr' && $adrNotCalculable) {
+                continue;
+            }
             $trusted = $trusted && self::numeric($values[$key] ?? null) !== null;
         }
         $sold = self::numeric($values['sold_room_nights'] ?? null);
@@ -792,7 +800,7 @@ final class ManualNotificationBusinessPreviewService
         $facts = [];
         foreach ($map as $key => [$factLabel, $unit, $field]) {
             $status = (string)($statuses[$field]['status'] ?? '');
-            $facts[] = self::factField(
+            $fact = self::factField(
                 $key,
                 $factLabel,
                 $trusted ? self::numeric($values[$field] ?? null) : null,
@@ -801,6 +809,11 @@ final class ManualNotificationBusinessPreviewService
                 (string)($envelope['business_scope'] ?? 'whole_hotel_accommodation'),
                 $source
             );
+            if ($trusted && $field === 'adr' && $adrNotCalculable) {
+                $fact['status'] = 'not_calculable';
+                $fact['note'] = $adrNote;
+            }
+            $facts[] = $fact;
         }
         $facts[] = self::factField(
             'pms_remaining_sellable_room_nights',
@@ -830,7 +843,14 @@ final class ManualNotificationBusinessPreviewService
         return [
             'source_key' => $sourceKey,
             'facts' => $facts,
-            'gaps' => $trusted ? [] : [self::gap(
+            'gaps' => $trusted ? ($adrNotCalculable ? [self::gap(
+                'pms_sold_room_nights_denominator_zero',
+                $adrNote,
+                'not_calculable',
+                $selection['expected_table'],
+                $hotelId,
+                $businessDate
+            )] : []) : [self::gap(
                 $sourceKey . '_today_capture_readback_not_verified',
                 $label . '当天住宿事实尚未通过同酒店、同日期、来源身份和数据库回读门禁。',
                 $status,
@@ -844,6 +864,7 @@ final class ManualNotificationBusinessPreviewService
                 'business_scope' => $envelope['business_scope'] ?? null,
                 'business_date' => $businessDate,
                 'facts' => $messageFacts,
+                'fact_statuses' => $statuses,
                 'source' => $source,
                 'allowed_uses' => $trusted
                     ? ['notification_preview', 'cross_source_comparison_without_addition']

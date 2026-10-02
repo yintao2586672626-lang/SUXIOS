@@ -83,20 +83,20 @@ test('GET failure after save retries only GET of the same ID, including refresh 
   fail = false; await refreshed.api.ask();
   assert.equal(calls.filter(call => call[1] === 'POST').length, 1);
   assert.equal(refreshed.state.turns[0].result.id, 41);
-  const again = harness(transport, stores); await again.api.restorePreciseQueryReadback();
+  const again = harness(transport, stores); again.state.query = ''; await again.api.restorePreciseQueryReadback();
   assert.equal(again.state.turns[0].result.id, 41);
 });
 test('refresh and hotel change cannot replay another scope pointer or pending request', async () => {
   const stores = { local: storage(), session: storage() }; let reads = 0;
   const transport = () => { reads++; return response(record(7)); };
   const h = harness(transport, stores); h.api.savePreciseQueryPointer(record(7));
-  h.ctx.filterReportHotel = '8'; await h.api.restorePreciseQueryReadback();
+  h.ctx.filterReportHotel = '8'; h.state.query = ''; await h.api.restorePreciseQueryReadback();
   assert.equal(reads, 0); assert.equal(h.state.turns.length, 0);
 });
 test('legacy same-scope pointer is readable but different scope stays visibly blocked', async () => {
   for (const hotel of ['7', '8']) {
     const local = storage(); local.setItem('suxios_precise_query_last_v1:901', JSON.stringify({ version: 1, id: 7, content_digest: 'a'.repeat(64) }));
-    const h = harness(() => response(record(7)), { local }); h.ctx.filterReportHotel = hotel;
+    const h = harness(() => response(record(7)), { local }); h.ctx.filterReportHotel = hotel; h.state.query = '';
     const restored = await h.api.restorePreciseQueryReadback();
     assert.equal(restored, hotel === '7');
     if (hotel === '8') assert.match(h.state.error, /范围与当前/);
@@ -104,7 +104,8 @@ test('legacy same-scope pointer is readable but different scope stays visibly bl
 });
 test('new query supersedes delayed restore and old finally does not clear the new loading flag', async () => {
   const restore = deferred(), save = deferred(); const h = harness((path, options) => options ? save.promise : restore.promise);
-  h.api.savePreciseQueryPointer(record(1)); const old = h.api.restorePreciseQueryReadback();
+  h.api.savePreciseQueryPointer(record(1)); h.state.query = ''; const old = h.api.restorePreciseQueryReadback();
+  h.state.query = '查询曝光人数';
   const current = h.api.ask(); restore.resolve(response(record(1))); await old;
   assert.equal(h.state.turns.length, 0); assert.equal(h.state.loading, true);
   save.reject(new Error('synthetic timeout')); await current;
@@ -135,4 +136,27 @@ test('cleared homepage hotel/date stay missing rather than falling back to the u
   assert.equal(payload.current_scope.hotel_id, 0);
   assert.equal(payload.current_scope.date_start, ''); assert.equal(payload.current_scope.date_end, '');
   assert.equal(h.state.turns.length, 0);
+});
+
+test('delayed mount recovery preserves a new draft and its next submit uses a new request', async () => {
+  const stores = { local: storage(), session: storage() };
+  const bodies = [];
+  const failed = harness((path, options) => {
+    bodies.push(JSON.parse(options.body));
+    throw new Error('synthetic previous query timeout');
+  }, stores);
+  assert.equal(await failed.api.ask(), false);
+  const next = harness((path, options) => {
+    if (options) bodies.push(JSON.parse(options.body));
+    return response(record(61, '查询间夜'));
+  }, stores);
+  next.state.query = '查询间夜';
+  assert.equal(await next.api.restorePreciseQueryReadback(), false);
+  assert.equal(next.state.query, '查询间夜', 'the delayed mount timer must not replace a draft with the old pending question');
+  assert.equal(next.state.error, '');
+  assert.equal(next.state.turns.length, 0);
+  assert.equal(await next.api.ask(), true);
+  assert.equal(bodies[1].query, '查询间夜');
+  assert.notEqual(bodies[1].client_request_key, bodies[0].client_request_key);
+  assert.equal(next.state.turns[0].query, '查询间夜');
 });

@@ -8,12 +8,14 @@ function harness() {
     const functionStart = source.indexOf('const loadSimulationDetail = async (id) => {');
     const guardStart = source.indexOf('let simulationDetailRequestId = 0;');
     const start = guardStart >= 0 ? guardStart : functionStart;
-    const end = source.indexOf('\n            const reuseSimulationRecord', start);
+    const exportStart = source.indexOf('\n            const simulationExportLoadingId', start);
+    const end = exportStart >= 0 ? exportStart : source.indexOf('\n            const reuseSimulationRecord', start);
     assert.ok(start >= 0 && end > start);
     const pending = [], applied = [], toasts = [], watchers = [];
     const state = {
         currentPage: { value: 'ai-simulation' }, session: 1,
         ensureSimulationStaticReady: async () => {},
+        invalidateSimulationCalculation: () => {},
         request: url => new Promise((resolve, reject) => pending.push({ url, resolve, reject })),
         applySimulationRecord: record => applied.push(record.id),
         showToast: (...args) => toasts.push(args),

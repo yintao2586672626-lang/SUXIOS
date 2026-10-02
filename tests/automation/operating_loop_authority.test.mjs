@@ -43,9 +43,9 @@ test('Compass projects the kernel answers and reconciles only against an explici
   assert.match(style, /\.compass-hero-core[\s\S]*?#fffdf9/);
   assert.match(style, /\.compass-temporal-fold[\s\S]*?background: #f6f8f5/);
   assert.match(style, /\.home-facts-loading-state[\s\S]*?min-height: 88px/);
-  assert.match(appMain, /params\.append\('business_date', operationYesterday\)/);
+  assert.match(appMain, /params\.append\('business_date', operatingLoopYesterday\)/);
   assert.match(appMain, /request\('\/operating-loop\/reconcile'/);
-  assert.match(appMain, /business_date: operationYesterday/);
+  assert.match(appMain, /business_date: operatingLoopYesterday/);
   assert.match(routes, /Route::get\('\/current', 'OperatingLoop\/current'\)/);
   assert.match(routes, /Route::post\('\/reconcile', 'OperatingLoop\/reconcile'\)/);
 });
@@ -56,6 +56,6 @@ test('Professional drilldowns cannot label their component result as the authori
   assert.match(detail, /P1 收益分析诊断（不决定权威闭环）/);
   assert.doesNotMatch(detail, /P1 收益分析闭环/);
   assert.doesNotMatch(detail, /数据缺口闭环/);
-  assert.match(appMain, /investmentParams\.set\('business_date', operationYesterday\)/);
-  assert.match(appMain, /closureParams\.set\('business_date', operationYesterday\)/);
+  assert.match(appMain, /investmentParams\.set\('business_date', shanghaiBusinessYesterday\)/);
+  assert.match(appMain, /closureParams\.set\('business_date', shanghaiBusinessYesterday\)/);
 });

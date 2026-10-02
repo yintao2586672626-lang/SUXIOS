@@ -2,6 +2,258 @@
     'use strict';
 
     const create = ({ Vue, h }) => {
+    const OperationExecutionEvidenceViewer = {
+        name: 'OperationExecutionEvidenceViewer',
+        props: {
+            item: { type: Object, required: true }, hotelId: [Number, String],
+            readTask: { type: Function, required: true }, captureContext: { type: Function, required: true },
+        },
+        setup(props) {
+            const opened = Vue.ref(false), status = Vue.ref('idle'), error = Vue.ref(''), records = Vue.ref([]);
+            const target = Vue.shallowRef(null);
+            let epoch = 0, contextCurrent = () => false;
+            const positive = value => (typeof value === 'number' || (typeof value === 'string' && /^\d+$/.test(value)))
+                && Number.isSafeInteger(Number(value)) && Number(value) > 0 ? Number(value) : null;
+            const text = value => {
+                if (value === undefined || value === null || value === '') return '未记录';
+                if (typeof value !== 'string' && typeof value !== 'number') return '该字段格式暂不支持';
+                const result = String(value).trim();
+                if (!result) return '未记录';
+                if (result === '[redacted]') return '已脱敏';
+                if (/^[\[{]/.test(result)) return '该字段格式暂不支持';
+                return result;
+            };
+            const snapshot = () => {
+                const row = props.item, hotelId = positive(row?.hotel_id), taskId = positive(row?.execution?.task_id), intentId = positive(row?.id);
+                const selectedHotel = String(props.hotelId ?? '').trim();
+                if (!hotelId || !taskId || !intentId || (selectedHotel && positive(selectedHotel) !== hotelId)) return null;
+                if (row.execution.hotel_id !== undefined && positive(row.execution.hotel_id) !== hotelId) return null;
+                return { row, hotelId, taskId, intentId, selectedHotel,
+                    platform: row.recommendation?.platform, businessDate: row.recommendation?.date_start };
+            };
+            const sameTarget = expected => {
+                const current = snapshot();
+                return current && current.row === expected.row && current.hotelId === expected.hotelId && current.taskId === expected.taskId
+                    && current.intentId === expected.intentId && current.selectedHotel === expected.selectedHotel
+                    && current.platform === expected.platform && current.businessDate === expected.businessDate;
+            };
+            const close = () => {
+                epoch++; opened.value = false; status.value = 'idle'; error.value = ''; records.value = []; target.value = null;
+                contextCurrent = () => false;
+            };
+            Vue.watch(() => [props.item, props.item?.id, props.item?.hotel_id, props.item?.execution?.task_id,
+                props.item?.execution?.hotel_id, props.item?.recommendation?.platform, props.item?.recommendation?.date_start, props.hotelId], close);
+            Vue.watchEffect(() => { if (opened.value && !contextCurrent()) close(); });
+            Vue.onBeforeUnmount(close);
+            const project = (task, expected) => {
+                if (positive(task?.id) !== expected.taskId || positive(task?.hotel_id) !== expected.hotelId
+                    || positive(task?.intent_id) !== expected.intentId) throw new Error('执行证据返回的任务、酒店或行动身份不一致');
+                const list = Object.hasOwn(task, 'execution_evidence') ? task.execution_evidence : task.evidence;
+                if (!Array.isArray(list)) throw new Error('执行证据详情未返回，请重试');
+                const ids = new Set(), tenantId = positive(task.tenant_id);
+                return list.map(record => {
+                    const id = positive(record?.id);
+                    if (!id || ids.has(id) || positive(record?.task_id) !== expected.taskId
+                        || (record.tenant_id !== undefined && (!tenantId || positive(record.tenant_id) !== tenantId))) {
+                        throw new Error('执行证据记录身份不一致，请重试');
+                    }
+                    ids.add(id);
+                    const type = typeof record.evidence_type === 'string' ? record.evidence_type.trim() : '';
+                    const result = { id, type: text(type), createdAt: text(record.created_at), fields: null, detailUnsupported: false };
+                    if (type !== 'manual_operation_execution') return result;
+                    if (Object.hasOwn(record, 'platform_response') && (!record.platform_response
+                        || typeof record.platform_response !== 'object' || Array.isArray(record.platform_response))) {
+                        result.detailUnsupported = true;
+                        return result;
+                    }
+                    const response = record.platform_response || {};
+                    const statusLabel = response.execution_status === 'executed' ? '已执行'
+                        : response.execution_status === 'failed' ? '执行失败'
+                            : response.execution_status === undefined || response.execution_status === null || response.execution_status === ''
+                                ? '未记录' : '原执行结果格式暂不支持';
+                    result.fields = [
+                        ['已完成动作', text(response.completed_action)], ['原执行结果', statusLabel], ['失败原因', text(response.failure_reason)],
+                        ['登记的执行人', text(response.executed_by)], ['执行时间', text(response.executed_at)],
+                        ['平台回执编号', text(response.platform_receipt_id)], ['正式记录引用', text(response.formal_record_ref)],
+                        ['截图或附件引用', text(record.attachment_path || response.screenshot_ref)],
+                        ['事实回读日期', text(response.next_review_date)], ['记录创建者 ID', positive(record.created_by) ? String(positive(record.created_by)) : '未记录'],
+                    ];
+                    return result;
+                });
+            };
+            const open = async () => {
+                const expected = snapshot();
+                if (!expected) { close(); return; }
+                const isContextCurrent = props.captureContext(expected.hotelId);
+                if (typeof isContextCurrent !== 'function' || !isContextCurrent()) { close(); return; }
+                const owner = ++epoch;
+                contextCurrent = isContextCurrent; target.value = expected; opened.value = true;
+                records.value = []; error.value = ''; status.value = 'loading';
+                const current = () => owner === epoch && opened.value && target.value === expected && sameTarget(expected) && isContextCurrent();
+                try {
+                    const task = await props.readTask(expected.taskId, expected.hotelId);
+                    if (!current()) return;
+                    records.value = project(task, expected); status.value = 'ready';
+                } catch {
+                    if (!current()) return;
+                    records.value = []; status.value = 'error';
+                    error.value = '未能确认本任务的执行证据，请重试。';
+                } finally {
+                    if (owner === epoch && opened.value && !current()) close();
+                }
+            };
+            const buttonClass = 'min-h-[44px] rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50';
+            return () => h('div', { 'data-testid': 'operation-evidence-viewer', class: 'contents' }, [
+                h('button', { type: 'button', class: buttonClass, disabled: !snapshot(), 'data-testid': 'operation-evidence-view', onClick: open }, '查看证据'),
+                opened.value && target.value ? h('div', {
+                    role: 'dialog', 'aria-modal': 'true', 'aria-label': '已保存执行证据', 'data-testid': 'operation-evidence-view-dialog',
+                    class: 'fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4 text-left',
+                    onClick: event => { if (event.target === event.currentTarget) close(); },
+                    onKeydown: event => { if (event.key === 'Escape') close(); },
+                }, [h('section', { class: 'flex max-h-[85vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl' }, [
+                    h('header', { class: 'border-b border-slate-100 px-5 py-4' }, [
+                        h('h3', { class: 'text-lg font-semibold text-slate-900' }, '已保存执行证据'),
+                        h('p', { class: 'mt-1 text-sm text-slate-700', 'data-testid': 'operation-evidence-view-identity' },
+                            `酒店 #${target.value.hotelId} · 任务 #${target.value.taskId} · 行动 #${target.value.intentId}`),
+                        h('p', { class: 'mt-1 text-xs text-slate-500' }, `任务口径：${text(target.value.platform)} · ${text(target.value.businessDate)}`),
+                        h('p', { class: 'mt-2 text-xs text-amber-800' }, '这里只查看已保存记录；人工记录不等同 OTA 来源事实或经营效果核验。'),
+                    ]),
+                    h('div', { class: 'min-h-0 space-y-3 overflow-y-auto p-5' }, [
+                        status.value === 'loading' ? h('p', { role: 'status', class: 'text-sm text-slate-600' }, '正在读取本任务执行证据…') : null,
+                        status.value === 'error' ? h('div', { role: 'alert', 'data-testid': 'operation-evidence-view-error', class: 'space-y-3 text-sm text-red-700' }, [
+                            h('p', {}, `证据读取失败，未展示旧详情：${error.value}`),
+                            h('button', { type: 'button', class: buttonClass, 'data-testid': 'operation-evidence-view-retry', onClick: open }, '重试'),
+                        ]) : null,
+                        status.value === 'ready' && records.value.length === 0
+                            ? h('p', { role: 'status', 'data-testid': 'operation-evidence-view-empty', class: 'text-sm text-slate-600' }, '本任务暂无可展示的执行证据记录。') : null,
+                        status.value === 'ready' ? records.value.map(record => h('article', {
+                            key: record.id, 'data-evidence-id': record.id, class: 'rounded-xl border border-slate-200 p-4',
+                        }, [
+                            h('h4', { class: 'break-words text-sm font-semibold text-slate-800' }, `记录 #${record.id} · ${record.type}`),
+                            h('p', { class: 'mt-1 text-xs text-slate-500' }, `保存时间：${record.createdAt}`),
+                            record.fields ? h('dl', { class: 'mt-3 space-y-2 text-sm' }, record.fields.map(([label, value]) => h('div', { key: label }, [
+                                h('dt', { class: 'text-xs text-slate-500' }, label), h('dd', { class: 'whitespace-pre-wrap break-words text-slate-800' }, value),
+                            ]))) : h('p', { class: 'mt-2 text-sm text-slate-600' }, record.detailUnsupported ? '人工证据详情格式暂不支持。' : '此类证据详情暂不支持。'),
+                        ])) : null,
+                    ]),
+                    h('footer', { class: 'flex justify-end border-t border-slate-100 px-5 py-3' }, [
+                        h('button', { type: 'button', class: buttonClass, 'data-testid': 'operation-evidence-view-close', onClick: close }, '关闭'),
+                    ]),
+                ])]) : null,
+            ]);
+        },
+    };
+    const AiDailyReportHistoryPanel = {
+        name: 'AiDailyReportHistoryPanel',
+        props: {
+            hotelId: [Number, String], reportId: [Number, String], busy: Boolean,
+            request: { type: Function, required: true }, captureContext: { type: Function, required: true },
+            openReport: { type: Function, required: true },
+        },
+        setup(props) {
+            const expanded = Vue.ref(false), date = Vue.ref(''), rows = Vue.ref([]), page = Vue.ref(1);
+            const pagination = Vue.ref(null), status = Vue.ref('idle'), error = Vue.ref(''), opening = Vue.ref(0);
+            let epoch = 0;
+            const integer = value => (typeof value === 'number' || (typeof value === 'string' && /^\d+$/.test(value)))
+                && Number.isSafeInteger(Number(value)) && Number(value) >= 0 ? Number(value) : null;
+            const validDate = value => typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)
+                && Number.isFinite(Date.parse(value)) && new Date(value).toISOString().slice(0, 10) === value;
+            const hotel = () => integer(props.hotelId) || 0;
+            const reset = () => { epoch++; rows.value = []; pagination.value = null; page.value = 1; status.value = 'idle'; error.value = ''; opening.value = 0; };
+            Vue.watch(() => hotel(), () => { reset(); date.value = ''; });
+            Vue.onBeforeUnmount(reset);
+            const load = async (nextPage = 1) => {
+                if (props.busy || opening.value) return;
+                const hotelId = hotel(), requestedDate = date.value, isContextCurrent = props.captureContext();
+                const owner = ++epoch, current = () => owner === epoch && hotel() === hotelId && isContextCurrent();
+                rows.value = []; pagination.value = null; error.value = ''; page.value = nextPage;
+                if (!hotelId) { status.value = 'idle'; return; }
+                if (!isContextCurrent()) { status.value = 'idle'; return; }
+                status.value = 'loading';
+                try {
+                    if (requestedDate && !validDate(requestedDate)) throw new Error('请选择有效的历史报告日期');
+                    const query = new URLSearchParams({ hotel_id: String(hotelId), page: String(nextPage), page_size: '10' });
+                    if (requestedDate) query.set('report_date', requestedDate);
+                    const response = await props.request(`/ai-daily-reports?${query}`);
+                    if (!current()) return;
+                    if (response?.code !== 200) throw new Error(response?.message || '历史日报列表读取失败');
+                    const data = response.data, p = data?.pagination;
+                    const total = integer(p?.total), actualPage = integer(p?.page), pageSize = integer(p?.page_size), totalPage = integer(p?.total_page);
+                    if (data?.data_status !== 'ok' || !Array.isArray(data.list) || total === null || actualPage !== nextPage
+                        || pageSize !== 10 || totalPage !== Math.ceil(total / 10) || data.list.length > 10 || data.list.length > total
+                        || (nextPage <= totalPage && data.list.length === 0)) throw new Error('历史日报列表响应不完整，请重试');
+                    const ids = new Set();
+                    for (const row of data.list) {
+                        const id = integer(row?.id);
+                        if (!id || ids.has(id) || integer(row?.hotel_id) !== hotelId || !validDate(row?.report_date)
+                            || (requestedDate && row.report_date !== requestedDate)) throw new Error('历史日报列表范围不一致，请重试');
+                        ids.add(id);
+                    }
+                    rows.value = data.list; pagination.value = { total, totalPage }; status.value = 'ready';
+                } catch (cause) {
+                    if (current()) { status.value = 'error'; error.value = cause?.message || '历史日报列表读取失败'; }
+                }
+            };
+            const open = async row => {
+                if (props.busy || opening.value || status.value !== 'ready') return;
+                const owner = ++epoch, isContextCurrent = props.captureContext();
+                const current = () => owner === epoch && isContextCurrent();
+                if (!current()) return;
+                opening.value = Number(row.id); error.value = '';
+                try { await props.openReport({ id: row.id, hotel_id: row.hotel_id, report_date: row.report_date }, current); }
+                catch (cause) { if (current()) error.value = '该历史日报未能读取，当前显示未替换：' + (cause?.message || '历史日报详情读取失败，请重试'); }
+                finally { if (owner === epoch) opening.value = 0; }
+            };
+            const sourceLabel = row => {
+                const refs = Array.isArray(row.source_refs) ? row.source_refs : [];
+                const platforms = [...new Set(refs.map(ref => ref?.platform).filter(value => typeof value === 'string' && value.trim()))];
+                const names = platforms.map(value => ({ ctrip: '携程', meituan: '美团', pms: 'PMS' }[value] || value));
+                return `${names.length ? names.join('、') : '平台未记录'} · ${refs.length ? `保存的来源引用 ${refs.length} 项` : '来源未记录'}`;
+            };
+            const qualityLabel = row => row.evidence_readback_status === 'exact_readback_verified'
+                ? '保存内容已精确回读（不等同来源事实核验）'
+                : row.evidence_readback_status === 'legacy_unverified' ? '旧版报告·保存证据未核验' : '保存证据核验状态未记录';
+            const buttonClass = 'min-h-[44px] rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-600';
+            return () => h('section', { 'data-testid': 'ai-daily-history', class: 'mb-4 rounded-xl border border-gray-200 bg-white p-4' }, [
+                h('button', { type: 'button', 'data-testid': 'ai-history-toggle', class: buttonClass, 'aria-expanded': String(expanded.value), onClick: () => {
+                    expanded.value = !expanded.value;
+                    if (expanded.value && status.value === 'idle') void load(1);
+                } }, expanded.value ? '收起历史日报' : '查看本酒店历史日报'),
+                expanded.value ? h('div', { class: 'mt-3 space-y-3' }, [
+                    h('p', { class: 'text-xs text-gray-500' }, hotel() ? `酒店 #${hotel()} · 查找已保存的日报；读取历史不会重新生成报告。` : '请先在上方选择一个酒店。'),
+                    h('div', { class: 'flex flex-wrap items-end gap-2' }, [
+                        h('label', { class: 'grid gap-1 text-xs text-gray-600' }, ['历史报告日期（留空查看全部）', h('input', {
+                            type: 'date', 'data-testid': 'ai-history-date', value: date.value, disabled: props.busy || !!opening.value,
+                            class: 'min-h-[44px] rounded-lg border border-gray-200 px-3 py-2 text-sm',
+                            onInput: event => { date.value = event.target.value; reset(); },
+                        })]),
+                        h('button', { type: 'button', 'data-testid': 'ai-history-search', class: buttonClass, disabled: !hotel() || props.busy || !!opening.value, onClick: () => load(1) }, '查询 / 刷新历史'),
+                    ]),
+                    status.value === 'loading' ? h('p', { role: 'status', class: 'text-sm text-gray-600' }, '正在读取历史日报…') : null,
+                    error.value ? h('p', { role: 'alert', 'data-testid': 'ai-history-error', class: 'text-sm text-red-700' }, error.value) : null,
+                    status.value === 'idle' && hotel() ? h('p', { class: 'text-sm text-gray-500' }, '点击查询读取当前酒店的历史日报。') : null,
+                    status.value === 'ready' && !rows.value.length ? h('p', { 'data-testid': 'ai-history-empty', class: 'text-sm text-gray-500' }, pagination.value.total === 0 ? '该范围内没有已保存的日报。' : '该页暂无记录，请返回上一页。') : null,
+                    status.value === 'ready' ? h('ul', { class: 'space-y-2' }, rows.value.map(row => h('li', {
+                        key: row.id, 'data-history-report-id': String(row.id), class: 'min-w-0 rounded-lg border border-gray-200 p-3',
+                    }, [
+                        h('div', { class: 'flex flex-wrap items-center justify-between gap-2' }, [
+                            h('strong', { class: 'text-sm text-gray-800' }, `${row.report_date} · 日报 #${row.id}`),
+                            h('button', { type: 'button', 'data-testid': `ai-history-open-${row.id}`, class: buttonClass,
+                                disabled: props.busy || !!opening.value, onClick: () => open(row) }, opening.value === Number(row.id) ? '正在读取…' : Number(props.reportId) === Number(row.id) ? '正在查看 · 重新读取' : '读取此日报'),
+                        ]),
+                        h('p', { class: 'mt-1 text-xs text-gray-500' }, `${sourceLabel(row)} · ${row.status === 'archived' ? '已归档' : row.status === 'generated' ? '已保存' : '保存状态未记录'}`),
+                        h('p', { class: 'mt-1 text-xs text-amber-800' }, qualityLabel(row)),
+                        h('p', { class: 'mt-2 whitespace-pre-wrap break-words text-sm text-gray-700' }, typeof row.summary === 'string' && row.summary.trim() ? row.summary : '摘要未记录'),
+                    ]))) : null,
+                    status.value === 'ready' ? h('div', { class: 'flex flex-wrap items-center gap-2' }, [
+                        h('span', { class: 'text-xs text-gray-500' }, `共 ${pagination.value.total} 份 · 第 ${page.value} 页`),
+                        h('button', { type: 'button', 'data-testid': 'ai-history-prev', class: buttonClass, disabled: page.value <= 1 || props.busy || !!opening.value, onClick: () => load(page.value - 1) }, '上一页'),
+                        h('button', { type: 'button', 'data-testid': 'ai-history-next', class: buttonClass, disabled: page.value >= pagination.value.totalPage || props.busy || !!opening.value, onClick: () => load(page.value + 1) }, '下一页'),
+                    ]) : null,
+                ]) : null,
+            ]);
+        },
+    };
     const resolveRevenueCockpitIntentLifecycle = (intent = {}) => {
         const tasks = Array.isArray(intent?.tasks) ? intent.tasks : [];
         const latestTask = tasks.length ? tasks[tasks.length - 1] : {};
@@ -145,14 +397,14 @@
         },
         render() {
             if (this.snapshot) {
-                const stale = this.status === 'stale_current_evidence';
+                const stale = ['stale_current_evidence', 'stale_current_model', 'stale_current_as_of_date'].includes(this.status);
                 return h('div', {
                     class: 'mt-3 rounded-lg border px-3 py-2 text-xs leading-5',
                     style: stale
                         ? 'border-color:rgba(251,191,36,.45);background:rgba(120,53,15,.2);color:#fde68a'
                         : 'border-color:rgba(52,211,153,.35);background:rgba(6,78,59,.22);color:#d1fae5',
                     'data-testid': 'revenue-cockpit-snapshot-readback',
-                }, `快照 #${this.snapshot.id} 已精确回读 · 内容 ${String(this.snapshot.content_digest || '').slice(0, 12)} · 证据 ${String(this.snapshot.evidence_digest || '').slice(0, 12)}${stale ? ' · 当前事实身份已变化，页面保留原快照；点击“刷新事实”可查看当前模型' : ''}`);
+                }, `快照 #${this.snapshot.id} 已精确回读 · 内容 ${String(this.snapshot.content_digest || '').slice(0, 12)} · 证据 ${String(this.snapshot.evidence_digest || '').slice(0, 12)}${stale ? ' · 当前事实、日期或页面模型已变化，页面保留原快照；请保存当前模型后再送审' : ''}`);
             }
             if (this.error) {
                 return h('div', {
@@ -512,7 +764,7 @@
     };
     const systemComponents = window.SUXI_SYSTEM_COMPONENTS || (window.SUXI_SYSTEM_COMPONENTS = {});
     const ctripOrderAnalysisPanelBodyKey = 'CtripOrderAnalysisPanelBody';
-    const ctripOrderAnalysisPanelBodyScript = 'components/online-data/ctrip-order-analysis-panel.js?v=20260813-order-analysis-ha0c2e7ec24';
+    const ctripOrderAnalysisPanelBodyScript = 'components/online-data/ctrip-order-analysis-panel.js?v=20260813-order-analysis-he75f0db23e';
     let ctripOrderAnalysisPanelBodyPromise = null;
     const loadCtripOrderAnalysisPanelBody = () => {
         if (systemComponents[ctripOrderAnalysisPanelBodyKey]) {
@@ -577,7 +829,7 @@
         }
         return component;
     };
-    const operatingOpportunityLabScript = 'components/system/operating-opportunity-lab.js?v=20260831-impact-estimate-h020e449a2b';
+    const operatingOpportunityLabScript = 'components/system/operating-opportunity-lab.js?v=20260831-impact-estimate-he8b0e22ffe';
     const OperatingOpportunityLabAsync = systemComponents.OperatingOpportunityLabBody || Vue.defineAsyncComponent({
         loader: () => loadOnlineDataComponentScript(operatingOpportunityLabScript)
             .then(() => requireSystemComponent('OperatingOpportunityLabBody')),
@@ -620,7 +872,7 @@
             });
         },
     };
-    const operatingFinanceControlCenterScript = 'components/system/operating-finance-control-center.min.js?v=20260830-operating-finance-h67105dd64e';
+    const operatingFinanceControlCenterScript = 'components/system/operating-finance-control-center.min.js?v=20260830-operating-finance-hfaed748ae4';
     const OperatingFinanceControlCenterAsync = systemComponents.OperatingFinanceControlCenterBody || Vue.defineAsyncComponent({
         loader: () => loadOnlineDataComponentScript(operatingFinanceControlCenterScript)
             .then(() => requireSystemComponent('OperatingFinanceControlCenterBody')),
@@ -803,7 +1055,7 @@
             || status === 'failed'
             || status === 'invalid_output';
     };
-    const normalizeAiDailyReportGenerationTask = (payload = {}, expectedHotelId = null, expectedTaskId = '') => {
+    const normalizeAiDailyReportGenerationTask = (payload = {}, expectedHotelId = null, expectedTaskId = '', expectedReportDate = '') => {
         if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
             throw new Error('AI日报任务响应格式无效');
         }
@@ -821,6 +1073,10 @@
         if (normalizedExpectedTaskId && taskId !== normalizedExpectedTaskId) {
             throw new Error('AI日报任务标识不一致');
         }
+        const reportDate = String(payload.report_date ?? payload.reportDate ?? '').trim();
+        if (String(expectedReportDate || '').trim() && reportDate !== String(expectedReportDate).trim()) {
+            throw new Error('AI日报任务业务日期不一致');
+        }
 
         const rawProgress = Number(payload.progress_percent ?? payload.progressPercent);
         const progressPercent = Number.isFinite(rawProgress)
@@ -833,7 +1089,7 @@
         return {
             taskId,
             hotelId,
-            reportDate: String(payload.report_date ?? payload.reportDate ?? '').trim(),
+            reportDate,
             status,
             stage,
             progressPercent,
@@ -914,6 +1170,7 @@
     const pollAiDailyReportGenerationTask = async ({
         taskId,
         expectedHotelId,
+        expectedReportDate = '',
         initialTask = null,
         requestTask,
         wait,
@@ -939,7 +1196,7 @@
                 }
                 taskPayload = response.data;
             }
-            const task = normalizeAiDailyReportGenerationTask(taskPayload, expectedHotelId, normalizedTaskId);
+            const task = normalizeAiDailyReportGenerationTask(taskPayload, expectedHotelId, normalizedTaskId, expectedReportDate);
             onProgress(task);
             const outcome = resolveAiDailyReportGenerationOutcome(task);
             if (outcome.kind !== 'pending') return { task, outcome };
@@ -1141,8 +1398,9 @@
                     ]);
                     const renderHotelStep = () => {
                         const pmsSelected = ['dingdandao_pms', 'meituan_cloud_pms'].includes(ctx.hotelForm.pms_provider);
-                        return h('section', {
-                            class: 'space-y-4',
+                        return h('fieldset', {
+                            class: 'm-0 min-w-0 border-0 p-0 space-y-4',
+                            disabled: ctx.hotelSaving,
                             'data-testid': 'hotel-onboarding-hotel-step',
                         }, [
                             renderInput({
@@ -1482,7 +1740,9 @@
                 : (firstIncompleteStageIndex >= 0 ? firstIncompleteStageIndex : 0);
             const currentStage = stages[currentStageIndex] || { label: '身份与业务日期确认', status: 'missing' };
             const hasKernelRecord = Boolean(loop.kernel_id) || Number(loop.record_id || 0) > 0;
+            const readUnconfirmed = Boolean(ctx.operatingLoopReadUnconfirmed);
             const isUnstarted = hasLoopPayload
+                && !readUnconfirmed
                 && !hasKernelRecord
                 && Number(loop.revision || 0) === 0
                 && loop.readback_verified !== true
@@ -1515,6 +1775,30 @@
                     ? '正在检查正式记录'
                     : (isUnstarted ? '建立并检查闭环' : '同步权威状态')),
                 h('i', { class: ctx.operatingLoopSyncing ? 'fas fa-spinner fa-spin' : 'fas fa-arrow-right', 'aria-hidden': 'true' }),
+            ]) : null;
+            const readFailure = readUnconfirmed ? h('div', {
+                class: 'operating-loop-empty',
+                'data-testid': 'operating-loop-read-unconfirmed',
+            }, [
+                h('div', { class: 'operating-loop-empty-main' }, [
+                    h('div', { class: 'min-w-0' }, [
+                        h('h3', null, '经营闭环状态尚未确认 · 读取失败'),
+                        h('p', null, ({
+                            kernel_readback_failed: '权威记录精确回读失败，暂不能判断已保存的闭环状态。',
+                            kernel_schema_missing: '经营闭环存储结构尚未就绪，暂不能读取权威状态。',
+                            kernel_scope_invalid: '酒店或租户范围未确认，暂不能读取权威状态。',
+                        }[issue.code] || '暂不能读取权威状态。')),
+                    ]),
+                ]),
+                h('div', { class: 'operating-loop-empty-action' }, [
+                    h('p', null, '请重新读取正式记录，确认当前状态后再处理闭环。'),
+                    h('button', {
+                        type: 'button', class: 'operating-loop-secondary-action',
+                        'data-testid': 'operating-loop-read-retry',
+                        disabled: Boolean(ctx.compassLoading) || !ctx.filterReportHotel,
+                        onClick: () => ctx.refreshCompassDashboard?.(),
+                    }, ctx.compassLoading ? '正在读取正式记录' : '重新读取权威状态'),
+                ]),
             ]) : null;
             const compactUnavailable = isUnstarted ? h('div', {
                 class: 'operating-loop-empty',
@@ -1567,17 +1851,17 @@
                             ]),
                             h('p', { class: 'mt-1 text-sm leading-6 text-slate-600' }, '当前门店、业务日与指标版本的唯一权威状态。'),
                         ]),
-                        isUnstarted ? null : renderSyncButton(),
+                        isUnstarted || readUnconfirmed ? null : renderSyncButton(),
                     ]),
                     h('div', { class: 'operating-loop-scope mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-500' }, [
                         h('span', `酒店：${scopedHotelName || (scopedHotelId ? `ID ${scopedHotelId}` : '未确认')}`),
-                        h('span', `业务日：${scope.business_date || ctx.operationYesterday || '未确认'}`),
+                        h('span', `业务日：${scope.business_date || '未确认'}`),
                         h('span', `指标版本：${scope.metric_version || '未冻结'}`),
-                        h('span', `Kernel：${loop.kernel_id || '未建立'} · revision ${Number(loop.revision || 0)}`),
+                        h('span', readUnconfirmed ? 'Kernel / revision：尚未确认' : `Kernel：${loop.kernel_id || '未建立'} · revision ${Number(loop.revision || 0)}`),
                     ]),
                     ctx.operatingLoopError ? h('div', { class: 'mt-3 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700' }, ctx.operatingLoopError) : null,
                 ]),
-                compactUnavailable || h(Vue.Fragment, null, [
+                readFailure || compactUnavailable || h(Vue.Fragment, null, [
                     h('div', { class: 'operating-loop-answer-grid grid grid-cols-1 gap-3 p-4 sm:px-5 lg:grid-cols-2 xl:grid-cols-4' }, [
                         answer('什么是真的', loop.what_is_true || '尚无通过权威证据链成立的经营事实。'),
                         answer('最重要的问题', issue.title || '等待权威事实形成后判断。', issue.detail || ''),
@@ -1663,6 +1947,12 @@
         ['execution_prevention', '执行与预防'],
         ['closure', '闭环能力'],
     ];
+    const managerCoachingScript = 'components/system/manager-coaching-panel.js?v=20260926-v1-hc843641d35';
+    const ManagerCoachingPanel = Vue.defineAsyncComponent({
+        loader: () => loadOnlineDataComponentScript(managerCoachingScript).then(() => requireSystemComponent('ManagerCoachingPanel')),
+        timeout: 15000,
+        errorComponent: { render: () => h('p', { role: 'alert' }, '带教组件加载失败，请刷新重试。') },
+    });
     const ManagerCapabilityPanel = {
         name: 'ManagerCapabilityPanel',
         props: {
@@ -1771,6 +2061,10 @@
                 const hotelId = this.normalizedHotelId;
                 const managerUserId = Number(this.selectedManagerId || 0);
                 const requestSeq = ++this.profileRequestSeq;
+                // Cases and permissions belong to the profile identity, not the selector.
+                this.profile = null;
+                this.queueRequestSeq++;
+                this.queueLoading = false;
                 this.selectedFollowupCaseId = '';
                 this.selectedCaseRecord = null;
                 this.followupForm = managerCapabilityFollowupForm();
@@ -1855,6 +2149,11 @@
                 const hotelId = this.normalizedHotelId;
                 const requestSeq = ++this.managerRequestSeq;
                 this.profileRequestSeq++;
+                this.queueRequestSeq++;
+                this.managers = [];
+                this.profile = null;
+                this.followupQueue = null;
+                this.queueLoading = false;
                 if (hotelId <= 0) {
                     this.managers = [];
                     this.selectedManagerId = '';
@@ -2514,6 +2813,11 @@
                                     ]),
                                 ]),
                             ]) : null,
+                            this.canViewEvidenceDetail && this.profile ? h(ManagerCoachingPanel, {
+                                key: `${this.normalizedHotelId}:${this.selectedManagerId}`,
+                                hotelId: this.normalizedHotelId, managerId: this.selectedManagerId,
+                                request: this.request, cases: this.recentCases, canManage: this.canManageEvidence,
+                            }) : null,
                             h('div', { class: 'rounded-xl border border-slate-200 bg-slate-50 p-4' }, [
                                 h('div', { class: 'flex items-center justify-between gap-3' }, [h('h4', { class: 'text-sm font-semibold text-slate-800' }, '最近评分案例'), h('span', { class: 'text-xs text-slate-500' }, '按案例 ID 精确回读')]),
                                 !this.canViewEvidenceDetail && this.profile ? h('p', { class: 'mt-3 text-sm text-slate-500' }, '当前为汇总视图，案例与证据明细不展示。') : null,
@@ -2684,10 +2988,58 @@
         },
     };
 
+    const MeituanStoredRecordDetail = {
+        name: 'MeituanStoredRecordDetail',
+        props: { record: { type: Object, default: null } },
+        render() {
+            const item = this.record;
+            if (!item || item.source !== 'meituan') return h('span', { role: 'status' }, '记录不可用，请重新查询');
+            const text = value => value === null || value === undefined || value === '' ? '未返回'
+                : typeof value === 'string' ? value.trim() || '未返回'
+                : typeof value === 'number' && Number.isFinite(value) ? String(value) : '格式异常';
+            const types = { advertising: '广告', ads: '广告', search_keyword: '搜索词', peer_rank: '同行榜单', traffic: '流量', traffic_analysis: '流量分析', order: '订单', order_flow: '订单流向', review: '点评' };
+            const fields = [
+                ['记录 ID', item.id], ['归属系统酒店', item.system_hotel_name || item.hotel_name],
+                ['系统酒店 ID', item.system_hotel_id], ['平台酒店 ID', item.hotel_id],
+                ['平台', '美团'], ['业务日期', item.data_date], ['获取 / 入库时间', item.create_time],
+                ['来源采集时间', item.truth?.collected_at], ['记录更新时间', item.update_time],
+                ['数据类型', types[item.data_type] || item.data_type], ['维度', item.review_dimension_label || item.dimension || item.keyword_label || item.rank_metric],
+                ['采集对象', item.captured_hotel_name || item.overview_hotel_name],
+                ['保存状态', item.storage_status_label || item.storage_status],
+                ['精确回读', [true, 1, '1'].includes(item.readback_verified) ? '已验证' : [false, 0, '0'].includes(item.readback_verified) ? '未验证' : '未返回'],
+                ['来源真实性', item.truth?.status_label || item.truth?.status || '未验证'],
+                ['来源方式', item.truth?.source?.method || item.ingestion_method], ['验证状态', item.validation_status],
+                ['字段事实状态', item.truth?.field_fact?.status || item.field_fact_status?.status || item.field_fact_status],
+                ['指标状态', item.metric_status], ['字段检查', item.data_quality?.status_label || item.data_quality?.status],
+                ['来源失败原因', item.truth?.failure_reason],
+            ];
+            const metrics = { data_value: '平台值', amount: '金额', quantity: '数量', book_order_num: '预订订单数', comment_score: '评分', rank: '排名', rank_percent: '排名百分比', keyword_value: '搜索词平台值', keyword_impressions: '搜索词曝光', keyword_clicks: '搜索词点击', review_score_value: '点评分值', review_count_value: '点评数量', bad_review_count_value: '低分 / 差评数量' };
+            const isReview = ['review', 'comment', 'comments'].includes(item.data_type);
+            for (const [key, label] of Object.entries(metrics)) {
+                if (isReview && ['comment_score', 'review_score_value'].includes(key)) continue;
+                if (Object.prototype.hasOwnProperty.call(item, key)) fields.push([label, item[key]]);
+            }
+            if (isReview) {
+                const score = window.SUXI_MEITUAN_STATIC?.getMeituanReviewScoreFact?.(item);
+                fields.push(['点评分值', score?.status === 'invalid'
+                    ? `评分异常：已读值 ${score.sourceValue}，未计入均值` : score?.value]);
+            }
+            if (['traffic', 'traffic_analysis', 'advertising', 'ads'].includes(item.data_type)) {
+                const api = window.SUXI_MEITUAN_STATIC;
+                fields.push(['列表曝光', api?.getMeituanExposureMetricValue?.(item)], ['详情曝光', api?.getMeituanClickMetricValue?.(item)], ['页面转化率（%）', api?.getMeituanFlowRateMetricValue?.(item)]);
+                if (['traffic', 'traffic_analysis'].includes(item.data_type)) fields.push(['详情访客', api?.getMeituanVisitorMetricValue?.(item)], ['下单用户', api?.getMeituanSubmitMetricValue?.(item)]);
+            }
+            return h('details', { key: [item.source, item.system_hotel_id, item.id, item.data_date].join(':'), class: 'text-left text-sm', 'data-testid': 'meituan-stored-record-detail' }, [
+                h('summary', { class: 'cursor-pointer py-2 text-blue-600' }, '详情'),
+                h('p', { class: 'mt-2 text-xs text-gray-500' }, '本页已读取记录 · 美团渠道口径。精确回读只证明保存一致，字段检查通过不代表来源已验证。刷新列表可重新读取。'),
+                h('dl', { class: 'mt-2 grid grid-cols-1 gap-2 whitespace-normal break-words' }, fields.map(([label, value]) => h('div', { key: label }, [h('dt', { class: 'text-xs text-gray-500' }, label), h('dd', { class: 'break-all' }, text(value))]))),
+            ]);
+        },
+    };
+
     const MeituanSearchKeywordWorkbench = {
         name: 'MeituanSearchKeywordWorkbench',
         inheritAttrs: false,
-        emits: ['view'],
         props: {
             rows: { type: Array, default: () => [] },
             formatRow: { type: Function, default: null },
@@ -2695,17 +3047,16 @@
         render() {
             const rows = Array.isArray(this.rows) ? this.rows : [];
             return h('div', { 'data-testid': 'meituan-search-keyword-workbench' }, rows.length
-                ? rows.map(item => h('button', {
+                ? rows.map(item => h('div', {
                     key: item?.id,
-                    type: 'button',
-                    onClick: () => this.$emit('view', item),
-                }, this.formatRow ? this.formatRow(item) : String(item?.dimension || '搜索词')))
+                    class: 'border-b py-2',
+                }, [h('p', this.formatRow ? this.formatRow(item) : String(item?.dimension || '搜索词')), h(MeituanStoredRecordDetail, { record: item })]))
                 : [h('p', '暂无搜索词事实')]);
         },
     };
 
     const ForecastDecisionWorkbench = Vue.defineAsyncComponent({
-        loader: () => loadOnlineDataComponentScript('components/revenue/forecast-decision-workbench.js?v=20260908-v6')
+        loader: () => loadOnlineDataComponentScript('components/revenue/forecast-decision-workbench.js?v=20260908-v7')
             .then(() => requireSystemComponent('ForecastDecisionWorkbench')),
         loadingComponent: { render: () => h('p', { role: 'status' }, '正在加载时点回测…') },
         errorComponent: { render: () => h('p', { role: 'alert' }, '回测工具加载失败，请刷新后重试。') },
@@ -2714,8 +3065,8 @@
     const CommissionAcquisitionCalculatorPanel = Vue.defineAsyncComponent({
         loader: () => loadOnlineDataComponentScript('components/revenue/commission-calculator-core.js?v=20260904-acquisition-v1')
             .then(() => loadOnlineDataComponentScript('components/revenue/commission-paid-traffic-core.js?v=20260904-acquisition-v1'))
-            .then(() => loadOnlineDataComponentScript('components/revenue/promotion-experiment-panel.js?v=20260908-promotion-v1'))
-            .then(() => loadOnlineDataComponentScript('components/revenue/commission-acquisition-panel.js?v=20260908-acquisition-v3'))
+            .then(() => loadOnlineDataComponentScript('components/revenue/promotion-experiment-panel.js?v=20260908-promotion-v2'))
+            .then(() => loadOnlineDataComponentScript('components/revenue/commission-acquisition-panel.js?v=20260908-acquisition-v4'))
             .then(() => requireSystemComponent('CommissionAcquisitionCalculatorPanel')),
         loadingComponent: { render: () => h('p', { class: 'p-4 text-sm text-white', role: 'status' }, '正在加载佣金与付费流量测算…') },
         errorComponent: { render: () => h('p', { class: 'rounded-lg bg-red-50 p-4 text-sm text-red-700', role: 'alert' }, '佣金测算组件加载失败，请刷新后重试；未生成测算结果。') },
@@ -2778,7 +3129,7 @@
         },
     };
 
-        return Object.freeze({ AiDecisionQualityDetails, OnlineTruthSummary, DualOtaAcceptanceReceipt, DualOtaPageVerificationPanel, resolveRevenueCockpitIntentLifecycle, parseOperationEvidenceNumber, parseOptionalOperationEvidenceNumber, operationEvidenceFirstText, operationEvidenceCleanObject, operationEvidenceLocalTimestamp, normalizeOperationEvidenceDateTime, normalizeOperationReviewStatus, RevenueCockpitOpportunityDetails, RevenueCockpitSnapshotStatus, RevenueCockpitActionRestoreStatus, onlineDataComponents, loadOnlineDataComponentScript, readOnlineDataComponent, requireOnlineDataComponent, systemComponents, CtripOrderAnalysisPanel, requireSystemComponent, operatingOpportunityLabScript, OperatingOpportunityLab, operatingFinanceControlCenterScript, OperatingFinanceControlCenter, platformAutoPanelsScript, ctripProfileFieldConfigPanelScript, competitorDeviceManagementScript, dataConfigDialogsScript, automationCollectionContractScript, PlatformAutoSettingsPanels, PlatformAutoSecondaryPanels, CtripProfileFieldConfigPanel, CompetitorDeviceManagement, DataConfigDialogs, aiDailyReportTaskPositiveInteger, aiDailyReportModelIsLimited, normalizeAiDailyReportGenerationTask, formatAiDailyReportGenerationStage, resolveAiDailyReportGenerationOutcome, pollAiDailyReportGenerationTask, SessionProofNotice, LocalCollectorLoginHandoff, PmsRealtimeSyncResult, HotelThreeSourceOnboardingPanel, OperatingLoopAuthority, ManagerCapabilityPanel, OperatingNetworkReplicationList, MeituanSearchKeywordWorkbench, SimulationHeroActions, ForecastDecisionWorkbench });
+        return Object.freeze({ OperationExecutionEvidenceViewer, AiDailyReportHistoryPanel, AiDecisionQualityDetails, OnlineTruthSummary, DualOtaAcceptanceReceipt, DualOtaPageVerificationPanel, resolveRevenueCockpitIntentLifecycle, parseOperationEvidenceNumber, parseOptionalOperationEvidenceNumber, operationEvidenceFirstText, operationEvidenceCleanObject, operationEvidenceLocalTimestamp, normalizeOperationEvidenceDateTime, normalizeOperationReviewStatus, RevenueCockpitOpportunityDetails, RevenueCockpitSnapshotStatus, RevenueCockpitActionRestoreStatus, onlineDataComponents, loadOnlineDataComponentScript, readOnlineDataComponent, requireOnlineDataComponent, systemComponents, CtripOrderAnalysisPanel, requireSystemComponent, operatingOpportunityLabScript, OperatingOpportunityLab, operatingFinanceControlCenterScript, OperatingFinanceControlCenter, platformAutoPanelsScript, ctripProfileFieldConfigPanelScript, competitorDeviceManagementScript, dataConfigDialogsScript, automationCollectionContractScript, PlatformAutoSettingsPanels, PlatformAutoSecondaryPanels, CtripProfileFieldConfigPanel, CompetitorDeviceManagement, DataConfigDialogs, aiDailyReportTaskPositiveInteger, aiDailyReportModelIsLimited, normalizeAiDailyReportGenerationTask, formatAiDailyReportGenerationStage, resolveAiDailyReportGenerationOutcome, pollAiDailyReportGenerationTask, SessionProofNotice, LocalCollectorLoginHandoff, PmsRealtimeSyncResult, HotelThreeSourceOnboardingPanel, OperatingLoopAuthority, ManagerCapabilityPanel, OperatingNetworkReplicationList, MeituanStoredRecordDetail, MeituanSearchKeywordWorkbench, SimulationHeroActions, ForecastDecisionWorkbench });
     };
 
     const exportedFactory = Object.freeze({ create });

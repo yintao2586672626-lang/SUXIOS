@@ -19,7 +19,7 @@
                     <div v-if="hotelUserAuthorizationError" class="mb-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700" role="alert">{{ hotelUserAuthorizationError }}</div>
                     <div class="space-y-2 rounded-xl border border-gray-200 bg-white p-2">
                         <label v-for="candidate in filteredHotelAuthorizationUsers" :key="candidate.id" class="flex items-center gap-3 rounded-lg px-3 py-2" :class="hotelAuthorizationCandidateDisabled(candidate) ? 'cursor-not-allowed bg-gray-50 opacity-60' : 'cursor-pointer hover:bg-blue-50'">
-                            <input v-model="hotelUserAuthorizationUserIds" type="checkbox" :value="String(candidate.id)" :disabled="hotelAuthorizationCandidateDisabled(candidate)" class="rounded border-gray-300 text-blue-600 focus:ring-blue-500 disabled:cursor-not-allowed">
+                            <input v-model="hotelUserAuthorizationUserIds" type="checkbox" :value="String(candidate.id)" :disabled="hotelUserAuthorizationSaving || hotelAuthorizationCandidateDisabled(candidate)" class="rounded border-gray-300 text-blue-600 focus:ring-blue-500 disabled:cursor-not-allowed">
                             <span class="min-w-0 flex-1">
                                 <span class="block truncate text-sm font-medium text-gray-800">{{ candidate.realname || candidate.username }}</span>
                                 <span class="block truncate text-xs text-gray-500" :title="userHotelScopeSummary(candidate).full">{{ candidate.username }} · {{ userHotelScopeSummary(candidate).summary }}</span>

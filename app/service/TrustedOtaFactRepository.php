@@ -571,6 +571,16 @@ class TrustedOtaFactRepository
     private function rejectionReason(array $row): string
     {
         $raw = $this->decodeRaw($row['raw_data'] ?? null);
+        $storageSource = $this->normalizedSource($this->scalarText($row['source'] ?? null));
+        $businessPlatform = $this->normalizedSource($this->scalarText($row['platform'] ?? null));
+        $knownPlatforms = ['ctrip', 'meituan', 'qunar'];
+        if (in_array($storageSource, $knownPlatforms, true)
+            && in_array($businessPlatform, $knownPlatforms, true)
+            && $storageSource !== $businessPlatform
+            && !($storageSource === 'ctrip' && $businessPlatform === 'qunar')
+        ) {
+            return 'source_platform_conflict';
+        }
         $ingestionMethod = strtolower($this->scalarText($row['ingestion_method'] ?? null));
         if (!in_array($ingestionMethod, self::TRUSTED_INGESTION_METHODS, true)) {
             return 'ingestion_method_untrusted';

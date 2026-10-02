@@ -962,7 +962,7 @@ final class OtaLocalCollectorService
 
         $dataDate = in_array($taskType, ['login', 'session_probe'], true)
             ? null
-            : $this->normalizeDate((string)($input['data_date'] ?? date('Y-m-d', strtotime('-1 day'))));
+            : $this->normalizeDate((string)($input['data_date'] ?? (new \DateTimeImmutable('yesterday', new \DateTimeZone('Asia/Shanghai')))->format('Y-m-d')));
         if (!in_array($taskType, ['login', 'session_probe'], true) && $dataDate === '') {
             throw new RuntimeException('采集日期格式不正确。', 422);
         }

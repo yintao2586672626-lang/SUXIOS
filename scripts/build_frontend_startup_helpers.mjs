@@ -1,7 +1,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { syncStartupLazyComponentVersions } from './lib/frontend_lazy_asset_versions.mjs';
+import { syncStartupLazyComponentVersions, syncStartupLazyHtmlVersions } from './lib/frontend_lazy_asset_versions.mjs';
+import { syncKnowledgeCoachingAssetVersions } from './lib/knowledge_coaching_asset_versions.mjs';
 import {
   buildFrontendBootstrap,
   buildFrontendDeferredHelpers,
@@ -20,6 +21,7 @@ import {
 } from './lib/frontend_template_lock.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+await syncKnowledgeCoachingAssetVersions(repoRoot);
 const publicRoot = path.join(repoRoot, 'public');
 const indexPath = path.join(publicRoot, 'index.html');
 const releaseLock = await acquireFrontendTemplateLock(repoRoot, {
@@ -46,12 +48,12 @@ try {
     buildFrontendStartupHelpers(helperSources),
     buildFrontendDeferredHelpers(deferredHelperSources),
   ]);
-  const nextIndex = updateFrontendStartupArtifactReferences(
+  const nextIndex = syncStartupLazyHtmlVersions(updateFrontendStartupArtifactReferences(
     indexSource,
     bootstrapArtifact,
     helperArtifact,
     deferredHelperArtifact,
-  );
+  ), lazyPlan);
 
   if (fs.readFileSync(bootstrapPath, 'utf8') !== bootstrapSource) {
     throw new Error(
@@ -83,7 +85,9 @@ try {
     return true;
   };
 
-  const lazyLoadersChanged = helperSources.filter(source => writeFileIfChanged(source.path, source.source)).map(source => source.name);
+  const lazyLoadersChanged = [...lazyPlan.dependencySources, ...helperSources]
+    .filter(source => writeFileIfChanged(source.path || path.join(publicRoot, source.name), source.source))
+    .map(source => source.name);
   const bootstrapChanged = writeFileIfChanged(
     path.join(publicRoot, FRONTEND_BOOTSTRAP_ARTIFACT),
     bootstrapArtifact,

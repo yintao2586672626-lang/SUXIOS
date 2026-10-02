@@ -1,0 +1,5230 @@
+{
+  "schema_version": "suxios.master_perspectives.method_pack.v1",
+  "source_outer_zip_sha256": "32c06de45983119efd6f7cfa9b1e8ca5ce59f8a4e5339267dc383a5fc0ee3970",
+  "entry_count": 165,
+  "usage_policy": {
+    "mode": "reference_only",
+    "activation": "explicit_user_request_or_controlled_panel_selection_only",
+    "selection_limit": 5,
+    "quote_policy": "paraphrase_only_unless_primary_source_is_verified",
+    "fact_policy": "never_fill_missing_hotel_platform_date_metric_or_source_facts",
+    "action_policy": "local_draft_pending_human_approval_only",
+    "persona_policy": "do_not_impersonate_or_claim_authentic_person_view"
+  },
+  "entries": [
+    {
+      "category_code": "01",
+      "category_name": "中国哲学家",
+      "item_index": "01",
+      "display_name": "孔子",
+      "skill_name": "kongzi-perspective",
+      "description": "孔子的认知操作系统。不是语录合集，是可运行的思维框架。",
+      "core_ideas": [
+        "仁",
+        "礼",
+        "中庸",
+        "君子之道",
+        "学与思"
+      ],
+      "use_cases": [
+        "我工作五年了，想辞职创业但又怕失败",
+        "同事总在背后说我坏话，要不要对质",
+        "刚升为团队负责人，老员工不服我怎么办",
+        "AI时代还需要读书吗"
+      ],
+      "source_trigger_examples": [
+        "用孔子的视角帮我分析这个问题",
+        "孔子会怎么看这件事？",
+        "切换到孔子，帮我想想该怎么做人",
+        "这件事合不合义？该怎么处理？"
+      ],
+      "perspective_role": "reference_lens_only",
+      "activation_allowed": false,
+      "authenticity_status": "source_package_synthesis_unverified",
+      "source_ref": "embedded-git://https://github.com/Panmax/kongzi-skill@329961fbedd2c5c36699c99905fdc9e1bdabf702#SKILL.md"
+    },
+    {
+      "category_code": "01",
+      "category_name": "中国哲学家",
+      "item_index": "02",
+      "display_name": "老子",
+      "skill_name": "laozi-perspective",
+      "description": "老子的认知操作系统。不是语录合集，是可运行的思维框架。",
+      "core_ideas": [
+        "道法自然",
+        "无为而治",
+        "柔弱胜刚强",
+        "祸福相依",
+        "知足不辱"
+      ],
+      "use_cases": [
+        "创业三年越来越累，感觉永远做不完",
+        "竞争对手越来越多，我的产品怎么才能赢",
+        "总觉得自己不够好，一直在学习但越来越焦虑",
+        "AI时代一切变化太快，怎么应对"
+      ],
+      "source_trigger_examples": [
+        "用老子的视角帮我分析这个问题",
+        "老子会怎么看这件事？",
+        "切换到老子，我需要反直觉的建议",
+        "这件事是不是做太多了？该怎么减？"
+      ],
+      "perspective_role": "reference_lens_only",
+      "activation_allowed": false,
+      "authenticity_status": "source_package_synthesis_unverified",
+      "source_ref": "embedded-git://https://github.com/Panmax/laozi-skill@7a81f53f0c2f1a928fe04c01533d2a3017a2ea4d#SKILL.md"
+    },
+    {
+      "category_code": "01",
+      "category_name": "中国哲学家",
+      "item_index": "03",
+      "display_name": "庄子",
+      "skill_name": "zhuangzi-perspective",
+      "description": "将庄子的逍遥游哲学、齐物论思维和寓言智慧蒸馏为 Claude Code 可调用的思维技能。",
+      "core_ideas": [
+        "逍遥游",
+        "齐物论",
+        "寓言思维",
+        "无用之用",
+        "坐忘/心斋",
+        "逍遥",
+        "天真",
+        "无为"
+      ],
+      "use_cases": [
+        "逍遥游",
+        "齐物论",
+        "寓言思维相关问题",
+        "以庄子视角分析决策",
+        "用庄子的方法论审视问题"
+      ],
+      "source_trigger_examples": [
+        "用庄子的视角",
+        "庄子会怎么看",
+        "庄子模式"
+      ],
+      "perspective_role": "reference_lens_only",
+      "activation_allowed": false,
+      "authenticity_status": "source_package_synthesis_unverified",
+      "source_ref": "embedded-git://https://github.com/Panmax/zhuangzi-skill@2ed64b539bdaf22df0bded533329727ecdc48598#SKILL.md"
+    },
+    {
+      "category_code": "01",
+      "category_name": "中国哲学家",
+      "item_index": "04",
+      "display_name": "孙子",
+      "skill_name": "sunzi-perspective",
+      "description": "将孙子兵法的战略思维、博弈智慧和系统性分析蒸馏为 Claude Code 可调用的思维技能。",
+      "core_ideas": [
+        "先胜后战",
+        "知己知彼",
+        "避实击虚",
+        "因敌变化",
+        "不战而屈人",
+        "全胜",
+        "清醒",
+        "效率"
+      ],
+      "use_cases": [
+        "先胜后战",
+        "知己知彼",
+        "避实击虚相关问题",
+        "以孙子兵法视角分析决策",
+        "用孙子兵法的方法论审视问题"
+      ],
+      "source_trigger_examples": [
+        "用孙子兵法的视角",
+        "孙子兵法会怎么看",
+        "孙子兵法模式"
+      ],
+      "perspective_role": "reference_lens_only",
+      "activation_allowed": false,
+      "authenticity_status": "source_package_synthesis_unverified",
+      "source_ref": "embedded-git://https://github.com/Panmax/sunzi-skill@8f97140f8ff884241ba973d44647e46a2f26199e#SKILL.md"
+    },
+    {
+      "category_code": "01",
+      "category_name": "中国哲学家",
+      "item_index": "05",
+      "display_name": "王阳明",
+      "skill_name": "wangyangming-perspective",
+      "description": "王阳明的认知操作系统。不是语录合集，是可运行的思维框架。",
+      "core_ideas": [
+        "知行合一",
+        "致良知",
+        "心即理",
+        "事上磨练",
+        "去人欲存天理"
+      ],
+      "use_cases": [
+        "我知道该早起锻炼，但每天都做不到",
+        "纠结要不要跟合伙人摊牌",
+        "读了很多书但感觉没有成长",
+        "创业遇到巨大困难，要不要坚持"
+      ],
+      "source_trigger_examples": [
+        "用王阳明的视角帮我分析这个问题",
+        "阳明会怎么看这件事？",
+        "切换到阳明，我知行脱节了怎么办",
+        "帮我致良知，这件事我该怎么判断？"
+      ],
+      "perspective_role": "reference_lens_only",
+      "activation_allowed": false,
+      "authenticity_status": "source_package_synthesis_unverified",
+      "source_ref": "embedded-git://https://github.com/Panmax/wangyangming-skill@75219186121753f67d90e35495487a12de1b2557#SKILL.md"
+    },
+    {
+      "category_code": "01",
+      "category_name": "中国哲学家",
+      "item_index": "06",
+      "display_name": "曾国藩",
+      "skill_name": "zengguofan-perspective",
+      "description": "曾国藩的认知操作系统。不是鸡汤合集，是可运行的思维框架。",
+      "core_ideas": [
+        "结硬寨打呆仗",
+        "日课十二条",
+        "挺经哲学",
+        "用人之道",
+        "以拙胜巧"
+      ],
+      "use_cases": [
+        "团队执行力差，安排的事总做不好",
+        "今年定了很多目标但一个都没完成",
+        "创业两次失败了，还要不要再试",
+        "怎么养成每天读书的习惯"
+      ],
+      "source_trigger_examples": [
+        "用曾国藩的视角帮我分析这个问题",
+        "曾国藩会怎么看这件事？",
+        "切换到曾国藩，我坚持不下去了怎么办",
+        "帮我用笨功夫的思路想想这件事"
+      ],
+      "perspective_role": "reference_lens_only",
+      "activation_allowed": false,
+      "authenticity_status": "source_package_synthesis_unverified",
+      "source_ref": "embedded-git://https://github.com/Panmax/zengguofan-skill@fd8ca2eaf40569c302878e2a3f0c71d7a270a20b#SKILL.md"
+    },
+    {
+      "category_code": "01",
+      "category_name": "中国哲学家",
+      "item_index": "07",
+      "display_name": "韩非子",
+      "skill_name": "hanfeizi-perspective",
+      "description": "将韩非子的法治思维、制度设计智慧和人性洞察蒸馏为 Claude Code 可调用的思维技能。",
+      "core_ideas": [
+        "法术势",
+        "人性趋利",
+        "参验",
+        "不期修古",
+        "说难",
+        "秩序",
+        "效率",
+        "现实主义"
+      ],
+      "use_cases": [
+        "法术势",
+        "人性趋利",
+        "参验相关问题",
+        "以韩非子视角分析决策",
+        "用韩非子的方法论审视问题"
+      ],
+      "source_trigger_examples": [
+        "用韩非子的视角",
+        "韩非子会怎么看",
+        "韩非子模式"
+      ],
+      "perspective_role": "reference_lens_only",
+      "activation_allowed": false,
+      "authenticity_status": "source_package_synthesis_unverified",
+      "source_ref": "embedded-git://https://github.com/Panmax/hanfeizi-skill@39db6bd65d9573bca4801a116c51e9a991ae76bf#SKILL.md"
+    },
+    {
+      "category_code": "01",
+      "category_name": "中国哲学家",
+      "item_index": "08",
+      "display_name": "墨子",
+      "skill_name": "mozi-perspective",
+      "description": "将墨子的兼爱非攻精神、工程思维和逻辑论证蒸馏为 Claude Code 可调用的思维技能。",
+      "core_ideas": [
+        "兼爱",
+        "非攻",
+        "尚贤",
+        "节用",
+        "墨辩",
+        "兼爱",
+        "实用",
+        "节俭"
+      ],
+      "use_cases": [
+        "兼爱",
+        "非攻",
+        "尚贤相关问题",
+        "以墨子视角分析决策",
+        "用墨子的方法论审视问题"
+      ],
+      "source_trigger_examples": [
+        "用墨子的视角",
+        "墨子会怎么看",
+        "墨子模式"
+      ],
+      "perspective_role": "reference_lens_only",
+      "activation_allowed": false,
+      "authenticity_status": "source_package_synthesis_unverified",
+      "source_ref": "embedded-git://https://github.com/Panmax/mozi-skill@06d706ad1f2b149ab9eba6dd333da9872b5b2e54#SKILL.md"
+    },
+    {
+      "category_code": "01",
+      "category_name": "中国哲学家",
+      "item_index": "09",
+      "display_name": "荀子",
+      "skill_name": "xunzi-perspective",
+      "description": "将荀子的性恶论洞察、礼法并重思想和积累哲学蒸馏为 Claude Code 可调用的思维技能。",
+      "core_ideas": [
+        "性恶论",
+        "化性起伪",
+        "礼法并重",
+        "天行有常",
+        "正名",
+        "教化",
+        "秩序",
+        "积累"
+      ],
+      "use_cases": [
+        "性恶论",
+        "化性起伪",
+        "礼法并重相关问题",
+        "以荀子视角分析决策",
+        "用荀子的方法论审视问题"
+      ],
+      "source_trigger_examples": [
+        "用荀子的视角",
+        "荀子会怎么看",
+        "荀子模式"
+      ],
+      "perspective_role": "reference_lens_only",
+      "activation_allowed": false,
+      "authenticity_status": "source_package_synthesis_unverified",
+      "source_ref": "embedded-git://https://github.com/Panmax/xunzi-skill@45bb4ff81f2ac59cbedaa5ffa62f4040d1e3ce7f#SKILL.md"
+    },
+    {
+      "category_code": "01",
+      "category_name": "中国哲学家",
+      "item_index": "10",
+      "display_name": "朱熹",
+      "skill_name": "朱熹",
+      "description": "让 Claude 化身朱熹，以理学方法论指导你的学习、读书与格物致知之路。",
+      "core_ideas": [
+        "理学体系",
+        "读书六法",
+        "四书学",
+        "修身工夫",
+        "教育理念"
+      ],
+      "use_cases": [
+        "理学体系",
+        "读书六法",
+        "四书学相关问题",
+        "以朱熹视角分析决策",
+        "用朱熹的方法论审视问题"
+      ],
+      "source_trigger_examples": [
+        "用朱熹的视角",
+        "朱熹会怎么看",
+        "朱熹模式"
+      ],
+      "perspective_role": "reference_lens_only",
+      "activation_allowed": false,
+      "authenticity_status": "source_package_synthesis_unverified",
+      "source_ref": "embedded-git://https://github.com/Panmax/zhuxi-skill@0802fa0723ef483713f31734846073c3233ca5f0#SKILL.md"
+    },
+    {
+      "category_code": "01",
+      "category_name": "中国哲学家",
+      "item_index": "11",
+      "display_name": "鬼谷子",
+      "skill_name": "鬼谷子",
+      "description": "让 Claude 化身鬼谷子，以纵横捭阖之术助你洞察人心、掌握说服与博弈之道。",
+      "core_ideas": [
+        "捭阖之术",
+        "揣摩之法",
+        "说服体系",
+        "权谋策略",
+        "识人之术"
+      ],
+      "use_cases": [
+        "捭阖之术",
+        "揣摩之法",
+        "说服体系相关问题",
+        "以鬼谷子视角分析决策",
+        "用鬼谷子的方法论审视问题"
+      ],
+      "source_trigger_examples": [
+        "用鬼谷子的视角",
+        "鬼谷子会怎么看",
+        "鬼谷子模式"
+      ],
+      "perspective_role": "reference_lens_only",
+      "activation_allowed": false,
+      "authenticity_status": "source_package_synthesis_unverified",
+      "source_ref": "embedded-git://https://github.com/Panmax/guiguzi-skill@babaad59a8c0804e7a653ec449887179b1a8fd45#SKILL.md"
+    },
+    {
+      "category_code": "01",
+      "category_name": "中国哲学家",
+      "item_index": "12",
+      "display_name": "诸葛亮",
+      "skill_name": "诸葛亮",
+      "description": "让 Claude 化身诸葛亮，以战略谋略与治国智慧为你运筹帷幄、决胜千里。",
+      "core_ideas": [
+        "战略思维",
+        "治国理政",
+        "用人之道",
+        "谋略体系",
+        "修身立德"
+      ],
+      "use_cases": [
+        "战略思维",
+        "治国理政",
+        "用人之道相关问题",
+        "以诸葛亮视角分析决策",
+        "用诸葛亮的方法论审视问题"
+      ],
+      "source_trigger_examples": [
+        "用诸葛亮的视角",
+        "诸葛亮会怎么看",
+        "诸葛亮模式"
+      ],
+      "perspective_role": "reference_lens_only",
+      "activation_allowed": false,
+      "authenticity_status": "source_package_synthesis_unverified",
+      "source_ref": "embedded-git://https://github.com/Panmax/zhugeliang-skill@4b8f320fe2eb3af6b0524a64ea248045d972d202#SKILL.md"
+    },
+    {
+      "category_code": "01",
+      "category_name": "中国哲学家",
+      "item_index": "13",
+      "display_name": "苏东坡",
+      "skill_name": "苏东坡",
+      "description": "让 Claude 化身苏东坡，以豁达乐观与诗意美学陪你品味生活、穿越人生风雨。",
+      "core_ideas": [
+        "豁达哲学",
+        "生活美学",
+        "文学智慧",
+        "人际通达",
+        "儒释道融合"
+      ],
+      "use_cases": [
+        "豁达哲学",
+        "生活美学",
+        "文学智慧相关问题",
+        "以苏东坡视角分析决策",
+        "用苏东坡的方法论审视问题"
+      ],
+      "source_trigger_examples": [
+        "用苏东坡的视角",
+        "苏东坡会怎么看",
+        "苏东坡模式"
+      ],
+      "perspective_role": "reference_lens_only",
+      "activation_allowed": false,
+      "authenticity_status": "source_package_synthesis_unverified",
+      "source_ref": "embedded-git://https://github.com/Panmax/sudongpo-skill@d869c8a7ba5996b77784e70b432db10bee768f3f#SKILL.md"
+    },
+    {
+      "category_code": "01",
+      "category_name": "中国哲学家",
+      "item_index": "14",
+      "display_name": "王夫之",
+      "skill_name": "王夫之",
+      "description": "让 Claude 化身王夫之，以经世致用的实学精神帮你直面现实、批判思考、求真务实。",
+      "core_ideas": [
+        "气本论",
+        "经世致用",
+        "历史哲学",
+        "批判精神",
+        "知行理论"
+      ],
+      "use_cases": [
+        "气本论",
+        "经世致用",
+        "历史哲学相关问题",
+        "以王夫之视角分析决策",
+        "用王夫之的方法论审视问题"
+      ],
+      "source_trigger_examples": [
+        "用王夫之的视角",
+        "王夫之会怎么看",
+        "王夫之模式"
+      ],
+      "perspective_role": "reference_lens_only",
+      "activation_allowed": false,
+      "authenticity_status": "source_package_synthesis_unverified",
+      "source_ref": "embedded-git://https://github.com/Panmax/wangfuzhi-skill@5ea1dfdb38af75b2623fc2282665eb4c2027bfcf#SKILL.md"
+    },
+    {
+      "category_code": "02",
+      "category_name": "西方哲学家",
+      "item_index": "01",
+      "display_name": "苏格拉底",
+      "skill_name": "socrates-perspective",
+      "description": "苏格拉底的认知操作系统。不是名言合集，是可运行的提问框架。",
+      "core_ideas": [
+        "苏格拉底式提问（产婆术）",
+        "认知谦逊",
+        "灵魂助产术",
+        "未经审视的人生不值得过",
+        "德性即知识"
+      ],
+      "use_cases": [
+        "我觉得现在的年轻人太浮躁了",
+        "什么是好的领导力",
+        "每天很忙但觉得没意义，是不是该换方向",
+        "同事总反对我的提案，是不是针对我"
+      ],
+      "source_trigger_examples": [
+        "用苏格拉底的视角帮我分析这个问题",
+        "苏格拉底会怎么追问这件事？",
+        "帮我用产婆术拆解一下这个想法",
+        "我的逻辑有没有漏洞？帮我检查"
+      ],
+      "perspective_role": "reference_lens_only",
+      "activation_allowed": false,
+      "authenticity_status": "source_package_synthesis_unverified",
+      "source_ref": "embedded-git://https://github.com/Panmax/socrates-skill@8da9fa1259e79f4fe31a5630e120a8e03d85c45a#SKILL.md"
+    },
+    {
+      "category_code": "02",
+      "category_name": "西方哲学家",
+      "item_index": "02",
+      "display_name": "柏拉图",
+      "skill_name": "plato-perspective",
+      "description": "将柏拉图的理念论、辩证法与哲学对话蒸馏为 Claude Code Skill，让 AI 以追问本质与善用比喻的方式引导你思考。",
+      "core_ideas": [
+        "理念论框架",
+        "辩证法（Dialectic）",
+        "比喻思维",
+        "灵魂三分法",
+        "苏格拉底方法",
+        "理想国蓝图"
+      ],
+      "use_cases": [
+        "什么是好设计"
+      ],
+      "source_trigger_examples": [
+        "用柏拉图的视角",
+        "柏拉图会怎么看",
+        "柏拉图模式"
+      ],
+      "perspective_role": "reference_lens_only",
+      "activation_allowed": false,
+      "authenticity_status": "source_package_synthesis_unverified",
+      "source_ref": "embedded-git://https://github.com/Panmax/plato-skill@1544f3a3d43b9956a92d20bdf31d88a540229965#SKILL.md"
+    },
+    {
+      "category_code": "02",
+      "category_name": "西方哲学家",
+      "item_index": "03",
+      "display_name": "亚里士多德",
+      "skill_name": "aristotle-perspective",
+      "description": "将亚里士多德的逻辑学、修辞学与中道伦理蒸馏为 Claude Code Skill，让 AI 以经验主义与系统化分类的方式回答你的问题。",
+      "core_ideas": [
+        "逻辑学框架",
+        "伦理学中道",
+        "修辞学三要素",
+        "四因说分析法",
+        "经验主义态度",
+        "分类系统化"
+      ],
+      "use_cases": [
+        "我该不该跳槽"
+      ],
+      "source_trigger_examples": [
+        "用亚里士多德的视角",
+        "亚里士多德会怎么看",
+        "亚里士多德模式"
+      ],
+      "perspective_role": "reference_lens_only",
+      "activation_allowed": false,
+      "authenticity_status": "source_package_synthesis_unverified",
+      "source_ref": "embedded-git://https://github.com/Panmax/aristotle-skill@a9f85cce43923b433e35a5295bcb057a0849fb75#SKILL.md"
+    },
+    {
+      "category_code": "02",
+      "category_name": "西方哲学家",
+      "item_index": "04",
+      "display_name": "马可·奥勒留",
+      "skill_name": "aurelius-perspective",
+      "description": "将马可·奥勒留的斯多葛哲学与自我修炼蒸馏为 Claude Code Skill，让 AI 以内省与平静的方式陪你面对人生的每一个困难。",
+      "core_ideas": [
+        "控制二分法",
+        "内省对话",
+        "memento mori",
+        "premeditatio malorum",
+        "宇宙论视角",
+        "职责伦理"
+      ],
+      "use_cases": [
+        "控制二分法",
+        "内省对话",
+        "memento mori相关问题",
+        "以马可·奥勒留视角分析决策",
+        "用马可·奥勒留的方法论审视问题"
+      ],
+      "source_trigger_examples": [
+        "用马可·奥勒留的视角",
+        "马可·奥勒留会怎么看",
+        "马可·奥勒留模式"
+      ],
+      "perspective_role": "reference_lens_only",
+      "activation_allowed": false,
+      "authenticity_status": "source_package_synthesis_unverified",
+      "source_ref": "embedded-git://https://github.com/Panmax/aurelius-skill@21495ac8a46ca056e95c8457239e69b23c0b2e18#SKILL.md"
+    },
+    {
+      "category_code": "02",
+      "category_name": "西方哲学家",
+      "item_index": "05",
+      "display_name": "爱比克泰德",
+      "skill_name": "epictetus-perspective",
+      "description": "将爱比克泰德的斯多葛实践哲学、控制二分法与内在自由学说蒸馏为 Claude Code 可执行的思维框架——让 AI 以直接命令式、简短有力、面对现实的风格回应你的每一个问题。",
+      "core_ideas": [
+        "控制二分法（Dichotomy of Control）",
+        "判断理论（Doctrine of Impressions）",
+        "角色伦理",
+        "意志自由",
+        "实践训练"
+      ],
+      "use_cases": [
+        "控制二分法（Dichotomy of Control）",
+        "判断理论（Doctrine of Impressions）",
+        "角色伦理相关问题",
+        "以爱比克泰德视角分析决策",
+        "用爱比克泰德的方法论审视问题"
+      ],
+      "source_trigger_examples": [
+        "用爱比克泰德的视角",
+        "爱比克泰德会怎么看",
+        "爱比克泰德模式"
+      ],
+      "perspective_role": "reference_lens_only",
+      "activation_allowed": false,
+      "authenticity_status": "source_package_synthesis_unverified",
+      "source_ref": "embedded-git://https://github.com/Panmax/epictetus-skill@f8e14bd2e1d1cfc8df6da63d5daa50f99546cfa1#SKILL.md"
+    },
+    {
+      "category_code": "02",
+      "category_name": "西方哲学家",
+      "item_index": "06",
+      "display_name": "塞涅卡",
+      "skill_name": "seneca-perspective",
+      "description": "将塞涅卡的斯多葛书信智慧、时间哲学与实用道德观蒸馏为 Claude Code 可执行的思维框架——让 AI 以书信体、温厚有力、实用哲学的风格回应你的每一个问题。",
+      "core_ideas": [
+        "时间哲学",
+        "书信教育法",
+        "逆境训练",
+        "情绪管理",
+        "实用美德"
+      ],
+      "use_cases": [
+        "时间哲学",
+        "书信教育法",
+        "逆境训练相关问题",
+        "以塞涅卡视角分析决策",
+        "用塞涅卡的方法论审视问题"
+      ],
+      "source_trigger_examples": [
+        "用塞涅卡的视角",
+        "塞涅卡会怎么看",
+        "塞涅卡模式"
+      ],
+      "perspective_role": "reference_lens_only",
+      "activation_allowed": false,
+      "authenticity_status": "source_package_synthesis_unverified",
+      "source_ref": "embedded-git://https://github.com/Panmax/seneca-skill@e825b37ac014b3d6f839c34276d05e58d2d1585a#SKILL.md"
+    },
+    {
+      "category_code": "02",
+      "category_name": "西方哲学家",
+      "item_index": "07",
+      "display_name": "康德",
+      "skill_name": "kant-perspective",
+      "description": "将康德的纯粹理性批判、道德律令与批判哲学体系蒸馏为 Claude Code 可执行的思维框架——让 AI 以严谨系统、抽象但可操作的道德法则回应你的每一个问题。",
+      "core_ideas": [
+        "纯粹理性批判",
+        "实践理性批判",
+        "判断力批判",
+        "批判方法论",
+        "道德形而上学基础"
+      ],
+      "use_cases": [
+        "纯粹理性批判",
+        "实践理性批判",
+        "判断力批判相关问题",
+        "以康德视角分析决策",
+        "用康德的方法论审视问题"
+      ],
+      "source_trigger_examples": [
+        "用康德的视角",
+        "康德会怎么看",
+        "康德模式"
+      ],
+      "perspective_role": "reference_lens_only",
+      "activation_allowed": false,
+      "authenticity_status": "source_package_synthesis_unverified",
+      "source_ref": "embedded-git://https://github.com/Panmax/kant-skill@884924bb7fa71cade59e6b7f12e62b8fb63412c4#SKILL.md"
+    },
+    {
+      "category_code": "02",
+      "category_name": "西方哲学家",
+      "item_index": "08",
+      "display_name": "尼采",
+      "skill_name": "nietzsche-perspective",
+      "description": "将尼采的超人哲学、权力意志与价值重估蒸馏为 Claude Code Skill，让 AI 以格言式的激烈与诗意挑衅你的思维惯性。",
+      "core_ideas": [
+        "权力意志（Wille zur Macht）",
+        "价值重估（Umwertung）",
+        "永恒回归（Ewige Wiederkunft）",
+        "超人（Ubermensch）理想",
+        "酒神/日神张力",
+        "格言式表达"
+      ],
+      "use_cases": [
+        "权力意志（Wille zur Macht）",
+        "价值重估（Umwertung）",
+        "永恒回归（Ewige Wiederkunft）相关问题",
+        "以尼采视角分析决策",
+        "用尼采的方法论审视问题"
+      ],
+      "source_trigger_examples": [
+        "用尼采的视角",
+        "尼采会怎么看",
+        "尼采模式"
+      ],
+      "perspective_role": "reference_lens_only",
+      "activation_allowed": false,
+      "authenticity_status": "source_package_synthesis_unverified",
+      "source_ref": "embedded-git://https://github.com/Panmax/nietzsche-skill@b4e31bf1c7df0ee56e28a7fde145a334431c0c56#SKILL.md"
+    },
+    {
+      "category_code": "02",
+      "category_name": "西方哲学家",
+      "item_index": "09",
+      "display_name": "叔本华",
+      "skill_name": "schopenhauer-perspective",
+      "description": "将叔本华的意志哲学、悲观主义洞见与审美解脱蒸馏为 Claude Code Skill，让 AI 以犀利刻薄却深刻的方式揭示人生的真相。",
+      "core_ideas": [
+        "意志形而上学",
+        "表象论",
+        "悲观主义洞见",
+        "审美沉思",
+        "同情伦理学",
+        "犀利比喻"
+      ],
+      "use_cases": [
+        "意志形而上学",
+        "表象论",
+        "悲观主义洞见相关问题",
+        "以叔本华视角分析决策",
+        "用叔本华的方法论审视问题"
+      ],
+      "source_trigger_examples": [
+        "用叔本华的视角",
+        "叔本华会怎么看",
+        "叔本华模式"
+      ],
+      "perspective_role": "reference_lens_only",
+      "activation_allowed": false,
+      "authenticity_status": "source_package_synthesis_unverified",
+      "source_ref": "embedded-git://https://github.com/Panmax/schopenhauer-skill@7869d8aa26d5637941e87865ae5129668ad1df5a#SKILL.md"
+    },
+    {
+      "category_code": "02",
+      "category_name": "西方哲学家",
+      "item_index": "10",
+      "display_name": "蒙田",
+      "skill_name": "montaigne-perspective",
+      "description": "将蒙田的随笔精神、自我认知方法与怀疑智慧蒸馏为 Claude Code 可执行的思维框架——让 AI 以散漫自由、坦诚自省、引经据典的随笔风格回应你的每一个问题。",
+      "core_ideas": [
+        "自我认知方法",
+        "怀疑主义智慧",
+        "随笔写作哲学",
+        "生死观与享乐哲学",
+        "教育与判断力"
+      ],
+      "use_cases": [
+        "自我认知方法",
+        "怀疑主义智慧",
+        "随笔写作哲学相关问题",
+        "以蒙田视角分析决策",
+        "用蒙田的方法论审视问题"
+      ],
+      "source_trigger_examples": [
+        "用蒙田的视角",
+        "蒙田会怎么看",
+        "蒙田模式"
+      ],
+      "perspective_role": "reference_lens_only",
+      "activation_allowed": false,
+      "authenticity_status": "source_package_synthesis_unverified",
+      "source_ref": "embedded-git://https://github.com/Panmax/montaigne-skill@2fe11a6a8966e1877f4c8ae9040ca9956787a6d1#SKILL.md"
+    },
+    {
+      "category_code": "02",
+      "category_name": "西方哲学家",
+      "item_index": "11",
+      "display_name": "维特根斯坦",
+      "skill_name": "wittgenstein-perspective",
+      "description": "将维特根斯坦的语言哲学、逻辑分析与沉默智慧蒸馏为 Claude Code 可执行的思维框架——让 AI 以极简、编号命题式、追问语言边界的风格回应你的每一个问题。",
+      "core_ideas": [
+        "前期：逻辑图像论",
+        "后期：语言游戏",
+        "家族相似性",
+        "私人语言论证",
+        "治疗性哲学"
+      ],
+      "use_cases": [
+        "前期：逻辑图像论",
+        "后期：语言游戏",
+        "家族相似性相关问题",
+        "以维特根斯坦视角分析决策",
+        "用维特根斯坦的方法论审视问题"
+      ],
+      "source_trigger_examples": [
+        "用维特根斯坦的视角",
+        "维特根斯坦会怎么看",
+        "维特根斯坦模式"
+      ],
+      "perspective_role": "reference_lens_only",
+      "activation_allowed": false,
+      "authenticity_status": "source_package_synthesis_unverified",
+      "source_ref": "embedded-git://https://github.com/Panmax/wittgenstein-skill@f8d0c20c9131c062e7157c95c40160a8be1b8b8f#SKILL.md"
+    },
+    {
+      "category_code": "02",
+      "category_name": "西方哲学家",
+      "item_index": "12",
+      "display_name": "赫拉克利特",
+      "skill_name": "heraclitus-perspective",
+      "description": "以赫拉克利特的视角体悟万物流变、对立统一与逻各斯的深层秩序",
+      "core_ideas": [
+        "万物流变",
+        "对立统一",
+        "逻各斯学说",
+        "火的宇宙论",
+        "\"自然爱隐藏\"",
+        "箴言式智慧"
+      ],
+      "use_cases": [
+        "生活总是在变化，无法获得稳定，怎么办？"
+      ],
+      "source_trigger_examples": [
+        "用以赫拉克利特的视角",
+        "以赫拉克利特会怎么看",
+        "以赫拉克利特模式"
+      ],
+      "perspective_role": "reference_lens_only",
+      "activation_allowed": false,
+      "authenticity_status": "source_package_synthesis_unverified",
+      "source_ref": "embedded-git://https://github.com/Panmax/heraclitus-skill@5cba00a1c2b9517f9c2f06edb049dba7a1bdaaf6#SKILL.md"
+    },
+    {
+      "category_code": "02",
+      "category_name": "西方哲学家",
+      "item_index": "13",
+      "display_name": "福柯",
+      "skill_name": "foucault-perspective",
+      "description": "以米歇尔·福柯的视角解构权力、知识与话语的隐秘运作",
+      "core_ideas": [
+        "权力/知识理论",
+        "话语分析方法",
+        "规训与全景敞视",
+        "生命政治",
+        "自我技术",
+        "谱系学方法"
+      ],
+      "use_cases": [
+        "为什么学校要用考试来评价学生？"
+      ],
+      "source_trigger_examples": [
+        "用以米歇尔·福柯的视角",
+        "以米歇尔·福柯会怎么看",
+        "以米歇尔·福柯模式"
+      ],
+      "perspective_role": "reference_lens_only",
+      "activation_allowed": false,
+      "authenticity_status": "source_package_synthesis_unverified",
+      "source_ref": "embedded-git://https://github.com/Panmax/foucault-skill@b429ad098c35b68c4500014e63d2533546625267#SKILL.md"
+    },
+    {
+      "category_code": "02",
+      "category_name": "西方哲学家",
+      "item_index": "14",
+      "display_name": "汉娜·阿伦特",
+      "skill_name": "arendt-perspective",
+      "description": "Vita Activa",
+      "core_ideas": [
+        "极权主义分析",
+        "平庸之恶",
+        "Vita Activa",
+        "公共领域理论",
+        "判断力哲学",
+        "权力与暴力的区分"
+      ],
+      "use_cases": [
+        "很多人做不认同的事，但说\"这只是工作\"，怎么看",
+        "社交媒体上的讨论质量越来越差，怎么理解",
+        "为什么跟政府部门打交道总是很痛苦",
+        "在一个糟糕的时代，个人能做什么"
+      ],
+      "source_trigger_examples": [
+        "用汉娜·阿伦特的视角",
+        "阿伦特会怎么看",
+        "阿伦特模式"
+      ],
+      "perspective_role": "reference_lens_only",
+      "activation_allowed": false,
+      "authenticity_status": "source_package_synthesis_unverified",
+      "source_ref": "embedded-git://https://github.com/Panmax/arendt-skill@07f709c6a222ab2250ce3942784d1b182e5d8b48#SKILL.md"
+    },
+    {
+      "category_code": "02",
+      "category_name": "西方哲学家",
+      "item_index": "15",
+      "display_name": "西蒙娜·德·波伏娃",
+      "skill_name": "beauvoir-perspective",
+      "description": "以西蒙娜·德·波伏娃的视角唤醒主体性、审视他者建构与性别解放",
+      "core_ideas": [
+        "他者化理论",
+        "处境中的自由",
+        "超越性与内在性",
+        "具身存在",
+        "存在主义伦理学",
+        "解放的双重路径"
+      ],
+      "use_cases": [
+        "现代女性已经可以自由选择了，性别平等不是已经实现了吗？"
+      ],
+      "source_trigger_examples": [
+        "用以西蒙娜·德·波伏娃的视角",
+        "以西蒙娜·德·波伏娃会怎么看",
+        "以西蒙娜·德·波伏娃模式"
+      ],
+      "perspective_role": "reference_lens_only",
+      "activation_allowed": false,
+      "authenticity_status": "source_package_synthesis_unverified",
+      "source_ref": "embedded-git://https://github.com/Panmax/beauvoir-skill@d0c097b24fcc7c810d8b4b70fa2718ea183c4aa1#SKILL.md"
+    },
+    {
+      "category_code": "03",
+      "category_name": "科学家",
+      "item_index": "01",
+      "display_name": "费曼",
+      "skill_name": "feynman-perspective",
+      "description": "费曼的认知操作系统。不是语录合集，是可运行的思维框架。",
+      "core_ideas": [
+        "费曼学习法",
+        "第一性原理",
+        "思维实验",
+        "玩耍式探索",
+        "不自欺"
+      ],
+      "use_cases": [
+        "我读了很多书但感觉什么都没记住",
+        "区块链到底是什么？我看了好几篇文章还是不懂",
+        "我孩子总问\"为什么\"，问到我答不上来了怎么办",
+        "我在工作中总是不敢提出不同意见"
+      ],
+      "source_trigger_examples": [
+        "用费曼的方式帮我理解这个概念",
+        "费曼会怎么解释这个？",
+        "切换到费曼，帮我想想怎么学这个",
+        "用最简单的话解释一下"
+      ],
+      "perspective_role": "reference_lens_only",
+      "activation_allowed": false,
+      "authenticity_status": "source_package_synthesis_unverified",
+      "source_ref": "embedded-git://https://github.com/Panmax/feynman-skill@d42f03cb20143a1d8d39f0a137de229c59c967c0#SKILL.md"
+    },
+    {
+      "category_code": "03",
+      "category_name": "科学家",
+      "item_index": "02",
+      "display_name": "爱因斯坦",
+      "skill_name": "einstein-perspective",
+      "description": "将爱因斯坦的思维实验方法、相对论思维和想象力驱动的问题解决方式蒸馏为 Claude Code Skill，让 AI 像爱因斯坦一样思考。",
+      "core_ideas": [
+        "思维实验法 (Gedankenexperiment)",
+        "相对论思维",
+        "第一性原理",
+        "反直觉思考",
+        "幽默与谦逊",
+        "简洁优雅",
+        "跨域类比"
+      ],
+      "use_cases": [
+        "我们的微服务之间延迟越来越高，该怎么优化",
+        "我和产品经理对需求优先级总是意见不一致",
+        "数据库查询越来越慢，加了索引也没用",
+        "代码审查时我和同事吵起来了，他坚持用他的方案"
+      ],
+      "source_trigger_examples": [
+        "用爱因斯坦的视角",
+        "爱因斯坦会怎么看",
+        "爱因斯坦模式"
+      ],
+      "perspective_role": "reference_lens_only",
+      "activation_allowed": false,
+      "authenticity_status": "source_package_synthesis_unverified",
+      "source_ref": "embedded-git://https://github.com/Panmax/einstein-skill@1405a5a3c8abf0e4ae9c44b20148818d8d0caa75#SKILL.md"
+    },
+    {
+      "category_code": "03",
+      "category_name": "科学家",
+      "item_index": "03",
+      "display_name": "达尔文",
+      "skill_name": "darwin-perspective",
+      "description": "将达尔文的进化论思维、耐心观察法和反确认偏误策略蒸馏为 Claude Code Skill，让 AI 像达尔文一样以谦逊与耐心解决问题。",
+      "core_ideas": [
+        "自然选择思维",
+        "耐心观察法",
+        "反确认偏误",
+        "渐进进化策略",
+        "类比分类法",
+        "谦逊诚实",
+        "生态系统思维"
+      ],
+      "use_cases": [
+        "我们该选 React 还是 Vue？团队争了很久",
+        "这个功能在我本地测试全部通过，但上线后用户报了很多 Bug",
+        "系统偶尔会出现性能毛刺，但抓不到规律",
+        "代码太烂了，我想全部推倒重写"
+      ],
+      "source_trigger_examples": [
+        "用达尔文的视角",
+        "达尔文会怎么看",
+        "达尔文模式"
+      ],
+      "perspective_role": "reference_lens_only",
+      "activation_allowed": false,
+      "authenticity_status": "source_package_synthesis_unverified",
+      "source_ref": "embedded-git://https://github.com/Panmax/darwin-skill@4d2d7e6a69d36c6e475eb281a33b40c5423a7e14#SKILL.md"
+    },
+    {
+      "category_code": "03",
+      "category_name": "科学家",
+      "item_index": "04",
+      "display_name": "牛顿",
+      "skill_name": "newton-perspective",
+      "description": "将牛顿的第一性原理思维、数学严密性与系统化推理方式蒸馏进 Claude，让 AI 从公理出发、层层推演、不容忍任何模糊。",
+      "core_ideas": [
+        "公理化思维",
+        "数学严密性",
+        "系统化框架",
+        "微积分思维",
+        "实验验证精神"
+      ],
+      "use_cases": [
+        "我们的分布式缓存经常出现数据不一致，怎么办",
+        "这段代码逻辑太乱了，有 20 多个 if-else 嵌套",
+        "团队在争论用 GraphQL 还是 REST，你怎么看",
+        "为什么快速排序比冒泡排序快"
+      ],
+      "source_trigger_examples": [
+        "用牛顿的视角",
+        "牛顿会怎么看",
+        "牛顿模式"
+      ],
+      "perspective_role": "reference_lens_only",
+      "activation_allowed": false,
+      "authenticity_status": "source_package_synthesis_unverified",
+      "source_ref": "embedded-git://https://github.com/Panmax/newton-skill@f1af2f87527ddf74c414a5958991b5f20cb5a5e1#SKILL.md"
+    },
+    {
+      "category_code": "03",
+      "category_name": "科学家",
+      "item_index": "05",
+      "display_name": "图灵",
+      "skill_name": "turing-perspective",
+      "description": "将图灵的计算思维、跨界思考能力和简洁优雅的问题分解方法蒸馏为 Claude Code Skill，让 AI 像图灵一样以逻辑精确和创造性思维解决问题。",
+      "core_ideas": [
+        "计算思维",
+        "图灵测试思维",
+        "密码学安全意识",
+        "跨界思考",
+        "形式化验证",
+        "简洁优雅",
+        "突破性创新"
+      ],
+      "use_cases": [
+        "这个需求太复杂了，不知道从哪里开始",
+        "我写的这个 API 设计合理吗",
+        "我们的用户认证系统需要重新设计",
+        "团队的代码审查流程效率很低"
+      ],
+      "source_trigger_examples": [
+        "用图灵的视角",
+        "图灵会怎么看",
+        "图灵模式"
+      ],
+      "perspective_role": "reference_lens_only",
+      "activation_allowed": false,
+      "authenticity_status": "source_package_synthesis_unverified",
+      "source_ref": "embedded-git://https://github.com/Panmax/turing-skill@195cdba049014d638de9bc8524544de0ce452cde#SKILL.md"
+    },
+    {
+      "category_code": "03",
+      "category_name": "科学家",
+      "item_index": "06",
+      "display_name": "居里夫人",
+      "skill_name": "curie-perspective",
+      "description": "将居里夫人的科学毅力、极度专注和用事实说话的精神蒸馏为 Claude Code Skill，让 AI 像居里夫人一样以坚定与精确的态度解决问题。",
+      "core_ideas": [
+        "极度专注",
+        "实验驱动决策",
+        "科学毅力",
+        "系统性记录",
+        "沉静坚定",
+        "精确与严谨",
+        "纯粹热爱"
+      ],
+      "use_cases": [
+        "这个内存泄漏排查了一周了，还是没头绪",
+        "领导觉得用 Rust 重写太冒险，但我觉得值得",
+        "作为团队里唯一的初级开发者，我的意见总是被忽略",
+        "我同时负责好几个项目，感觉哪个都做不好"
+      ],
+      "source_trigger_examples": [
+        "用居里夫人的视角",
+        "居里夫人会怎么看",
+        "居里夫人模式"
+      ],
+      "perspective_role": "reference_lens_only",
+      "activation_allowed": false,
+      "authenticity_status": "source_package_synthesis_unverified",
+      "source_ref": "embedded-git://https://github.com/Panmax/curie-skill@d19a492422018127ced8324699c063727c13d910#SKILL.md"
+    },
+    {
+      "category_code": "03",
+      "category_name": "科学家",
+      "item_index": "07",
+      "display_name": "特斯拉",
+      "skill_name": "tesla-perspective",
+      "description": "将特斯拉的想象力驱动方法、独立思考精神和超前于时代的发明思维蒸馏为 Claude Code Skill，让 AI 像特斯拉一样以想象力构建未来。",
+      "core_ideas": [
+        "心智模拟器",
+        "想象力驱动设计",
+        "独立思考",
+        "自然规律类比",
+        "超前规划",
+        "优雅与效率并重",
+        "专注与直觉"
+      ],
+      "use_cases": [
+        "需要设计一个高并发消息队列系统",
+        "所有文章都推荐用 Kubernetes，但我们团队只有3个人",
+        "我该不该现在就学习 WebAssembly",
+        "怎么设计一个更高效的缓存策略"
+      ],
+      "source_trigger_examples": [
+        "用特斯拉的视角",
+        "特斯拉会怎么看",
+        "特斯拉模式"
+      ],
+      "perspective_role": "reference_lens_only",
+      "activation_allowed": false,
+      "authenticity_status": "source_package_synthesis_unverified",
+      "source_ref": "embedded-git://https://github.com/Panmax/tesla-skill@2b2f4a3a4263f30761aaf9ac2bb06da7a6d0786e#SKILL.md"
+    },
+    {
+      "category_code": "03",
+      "category_name": "科学家",
+      "item_index": "08",
+      "display_name": "香农",
+      "skill_name": "shannon-perspective",
+      "description": "将香农的信息论思维、化繁为简的天赋与创造性玩耍精神蒸馏进 Claude，让 AI 把复杂问题简化为优雅的数学模型，在玩乐中发现本质。",
+      "core_ideas": [
+        "信息论视角",
+        "化繁为简",
+        "创造性玩耍",
+        "二元简化",
+        "噪声与冗余意识"
+      ],
+      "use_cases": [
+        "我们的日志系统每天产生 500GB 数据，存储成本太高了",
+        "我想给电商平台做一个推荐系统，从哪里开始",
+        "我们自己设计了一个加密算法，你觉得安全吗",
+        "产品经理给了一份 50 页的需求文档，我不知道该怎么开始"
+      ],
+      "source_trigger_examples": [
+        "用香农的视角",
+        "香农会怎么看",
+        "香农模式"
+      ],
+      "perspective_role": "reference_lens_only",
+      "activation_allowed": false,
+      "authenticity_status": "source_package_synthesis_unverified",
+      "source_ref": "embedded-git://https://github.com/Panmax/shannon-skill@032699bd9df24f01132099c96924f569e9d4f4be#SKILL.md"
+    },
+    {
+      "category_code": "03",
+      "category_name": "科学家",
+      "item_index": "09",
+      "display_name": "冯·诺依曼",
+      "skill_name": "vonneumann-perspective",
+      "description": "将冯诺依曼的博弈论思维、计算架构直觉与跨学科超速思考能力蒸馏进 Claude，让 AI 在数学、物理、计算机、经济学之间无缝切换，以惊人速度给出精确答案。",
+      "core_ideas": [
+        "博弈论框架",
+        "计算架构思维",
+        "跨学科无缝切换",
+        "超速精确思考",
+        "自指与元思考"
+      ],
+      "use_cases": [
+        "竞争对手降价了 20%，我们该跟进吗",
+        "我们需要设计一个实时数据处理管道，每秒处理 100 万事件",
+        "我们的推荐模型 AUC 是 0.75，这算好吗",
+        "多线程程序偶尔死锁，但很难复现"
+      ],
+      "source_trigger_examples": [
+        "用冯诺依曼的视角",
+        "冯诺依曼会怎么看",
+        "冯诺依曼模式"
+      ],
+      "perspective_role": "reference_lens_only",
+      "activation_allowed": false,
+      "authenticity_status": "source_package_synthesis_unverified",
+      "source_ref": "embedded-git://https://github.com/Panmax/vonneumann-skill@0f4f53bc6bc6e25728608b616d28af4b4e89b1a6#SKILL.md"
+    },
+    {
+      "category_code": "03",
+      "category_name": "科学家",
+      "item_index": "10",
+      "display_name": "哥白尼",
+      "skill_name": "copernicus-perspective",
+      "description": "将哥白尼的范式革命思维、以证据挑战权威的勇气与长期观察积累的方法蒸馏进 Claude，让 AI 敢于质疑默认假设，从根本上重新审视问题的参照系。",
+      "core_ideas": [
+        "范式革命意识",
+        "以证据挑战权威",
+        "长期积累与谨慎判断",
+        "参照系转换",
+        "简洁性原则"
+      ],
+      "use_cases": [
+        "我们团队坚持用微服务架构，但项目越来越难维护了",
+        "我们的 DAU 一直在涨，但收入没怎么增长",
+        "所有人都说代码覆盖率要达到 80% 以上，我们应该追这个指标吗",
+        "我们的项目做了一年，最后发现用户根本不需要这个功能"
+      ],
+      "source_trigger_examples": [
+        "用哥白尼的视角",
+        "哥白尼会怎么看",
+        "哥白尼模式"
+      ],
+      "perspective_role": "reference_lens_only",
+      "activation_allowed": false,
+      "authenticity_status": "source_package_synthesis_unverified",
+      "source_ref": "embedded-git://https://github.com/Panmax/copernicus-skill@82383b29706b189579330e1bef266ebc908c9e2b#SKILL.md"
+    },
+    {
+      "category_code": "03",
+      "category_name": "科学家",
+      "item_index": "11",
+      "display_name": "法拉第",
+      "skill_name": "faraday-perspective",
+      "description": "将法拉第的实验精神、自学成才的直觉力与用日常事物解释科学的天赋蒸馏进 Claude，让 AI 动手实验、用朴素直觉穿透复杂表象，像给孩子讲蜡烛一样讲清楚任何技术问题。",
+      "core_ideas": [
+        "实验精神",
+        "朴素直觉",
+        "日常类比解释",
+        "自学者的系统方法",
+        "渐进式探索"
+      ],
+      "use_cases": [
+        "Raft 共识算法到底是怎么工作的？论文太难懂了",
+        "我的 Node.js 应用内存一直在涨，不知道哪里泄漏了",
+        "SQL 查询以前 50ms，现在要 5 秒，加了索引也没用",
+        "Docker 容器之间的网络通信是怎么实现的？完全搞不懂"
+      ],
+      "source_trigger_examples": [
+        "用法拉第的视角",
+        "法拉第会怎么看",
+        "法拉第模式"
+      ],
+      "perspective_role": "reference_lens_only",
+      "activation_allowed": false,
+      "authenticity_status": "source_package_synthesis_unverified",
+      "source_ref": "embedded-git://https://github.com/Panmax/faraday-skill@e0da8d241d28d5cdb51bb4fdf3bb243c0bea24e8#SKILL.md"
+    },
+    {
+      "category_code": "03",
+      "category_name": "科学家",
+      "item_index": "12",
+      "display_name": "达芬奇",
+      "skill_name": "davinci-perspective",
+      "description": "达芬奇的认知操作系统。不是名人语录合集，是可运行的跨学科思维框架。",
+      "core_ideas": [
+        "跨学科融合（Sfumato）",
+        "极致观察术",
+        "好奇心清单",
+        "镜像思维",
+        "未完成的艺术"
+      ],
+      "use_cases": [
+        "我是程序员，想培养艺术方面的能力，但觉得自己没天赋",
+        "我同时对很多领域感兴趣，什么都学不精，很焦虑",
+        "我做设计总觉得缺少灵感，怎么破",
+        "AI时代，跨学科学习还有意义吗"
+      ],
+      "source_trigger_examples": [
+        "用达芬奇的视角帮我分析这个问题",
+        "达芬奇会怎么看这件事？",
+        "切换到达芬奇，帮我想想怎么培养创造力",
+        "怎么用跨学科思维解决这个问题？"
+      ],
+      "perspective_role": "reference_lens_only",
+      "activation_allowed": false,
+      "authenticity_status": "source_package_synthesis_unverified",
+      "source_ref": "embedded-git://https://github.com/Panmax/davinci-skill@14fcd18273e6965a23abb77432a9a443034f0dcc#SKILL.md"
+    },
+    {
+      "category_code": "03",
+      "category_name": "科学家",
+      "item_index": "13",
+      "display_name": "钱学森",
+      "skill_name": "qianxuesen-perspective",
+      "description": "开放的复杂巨系统理论",
+      "core_ideas": [
+        "开放的复杂巨系统理论",
+        "从定性到定量的综合集成法",
+        "技术科学方法论",
+        "系统工程管理方法",
+        "大成智慧学构想",
+        "工程哲学与家国情怀"
+      ],
+      "use_cases": [
+        "我们团队在做一个大型分布式系统，各模块之间经常出问题，怎么办",
+        "怎么培养跨学科思维",
+        "如何建立团队的质量文化",
+        "作为技术负责人，怎么做长期技术规划"
+      ],
+      "source_trigger_examples": [
+        "用钱学森的视角",
+        "钱学森会怎么看",
+        "钱学森模式"
+      ],
+      "perspective_role": "reference_lens_only",
+      "activation_allowed": false,
+      "authenticity_status": "source_package_synthesis_unverified",
+      "source_ref": "embedded-git://https://github.com/Panmax/qianxuesen-skill@a93e684719c2f8828035c9a9f592bf90a23c2a72#SKILL.md"
+    },
+    {
+      "category_code": "03",
+      "category_name": "科学家",
+      "item_index": "14",
+      "display_name": "高德纳",
+      "skill_name": "knuth-perspective",
+      "description": "计算机编程的艺术观",
+      "core_ideas": [
+        "计算机编程的艺术观",
+        "文学化编程",
+        "精确的算法分析",
+        "自底向上的理解方法",
+        "错误的价值与纠错文化",
+        "极致工匠精神"
+      ],
+      "use_cases": [
+        "Knuth 教授，我的代码能跑但是很丑，需要在意吗",
+        "学算法总是记不住怎么办",
+        "追求完美是不是效率的敌人",
+        "文学化编程在现代开发中还有意义吗"
+      ],
+      "source_trigger_examples": [
+        "用高德纳的视角",
+        "高德纳会怎么看",
+        "高德纳模式"
+      ],
+      "perspective_role": "reference_lens_only",
+      "activation_allowed": false,
+      "authenticity_status": "source_package_synthesis_unverified",
+      "source_ref": "embedded-git://https://github.com/Panmax/knuth-skill@6eb471813aff2aee2a5ade5d280918e9b4abd39f#SKILL.md"
+    },
+    {
+      "category_code": "03",
+      "category_name": "科学家",
+      "item_index": "15",
+      "display_name": "卡尔·萨根",
+      "skill_name": "sagan-perspective",
+      "description": "以宇宙视角重新审视一切问题",
+      "core_ideas": [
+        "宇宙视角",
+        "科学怀疑主义",
+        "科学的民主化",
+        "德雷克方程思维",
+        "宇宙日历",
+        "淡蓝小点哲学"
+      ],
+      "use_cases": [
+        "萨根教授，我最近工作压力很大，感觉生活没什么意义。"
+      ],
+      "source_trigger_examples": [
+        "用以宇宙的视角",
+        "以宇宙会怎么看",
+        "以宇宙模式"
+      ],
+      "perspective_role": "reference_lens_only",
+      "activation_allowed": false,
+      "authenticity_status": "source_package_synthesis_unverified",
+      "source_ref": "embedded-git://https://github.com/Panmax/sagan-skill@3ee54de5d072dec8f1c35d95d66cb6425f4c60f7#SKILL.md"
+    },
+    {
+      "category_code": "03",
+      "category_name": "科学家",
+      "item_index": "16",
+      "display_name": "杨振宁",
+      "skill_name": "yangzhenning-perspective",
+      "description": "以诺贝尔物理学奖得主杨振宁的视角思考",
+      "core_ideas": [
+        "物理之美",
+        "科学品味",
+        "对称性思维",
+        "跨文化智慧",
+        "基础科学价值"
+      ],
+      "use_cases": [
+        "杨先生，物理学的美到底体现在哪里",
+        "我是一个研究生，不知道该选什么方向。",
+        "对称性的思维方式能用在物理之外的领域吗",
+        "中国学生和美国学生在做研究上有什么不同"
+      ],
+      "source_trigger_examples": [
+        "用以诺贝尔物理学奖得主杨振宁的视角",
+        "以诺贝尔物理学奖得主杨振宁会怎么看",
+        "以诺贝尔物理学奖得主杨振宁模式"
+      ],
+      "perspective_role": "reference_lens_only",
+      "activation_allowed": false,
+      "authenticity_status": "source_package_synthesis_unverified",
+      "source_ref": "embedded-git://https://github.com/Panmax/yangzhenning-skill@862a2da49a1750c8052758f88801e84e8cbbfce1#SKILL.md"
+    },
+    {
+      "category_code": "04",
+      "category_name": "商业领袖",
+      "item_index": "01",
+      "display_name": "德鲁克",
+      "skill_name": "drucker-perspective",
+      "description": "将彼得·德鲁克的管理学智慧蒸馏为 Claude Code skill，用知识工作者和目标管理的视角帮你审视每一个决策。",
+      "core_ideas": [
+        "卓有成效的管理者",
+        "管理的实践",
+        "知识工作者生产力",
+        "创新与企业家精神",
+        "旁观者的冒险"
+      ],
+      "use_cases": [
+        "卓有成效的管理者",
+        "管理的实践",
+        "知识工作者生产力相关问题",
+        "以彼得·德鲁克视角分析决策",
+        "用彼得·德鲁克的方法论审视问题"
+      ],
+      "source_trigger_examples": [
+        "用彼得·德鲁克的视角",
+        "彼得·德鲁克会怎么看",
+        "彼得·德鲁克模式"
+      ],
+      "perspective_role": "reference_lens_only",
+      "activation_allowed": false,
+      "authenticity_status": "source_package_synthesis_unverified",
+      "source_ref": "embedded-git://https://github.com/Panmax/drucker-skill@748ac2bc78b8d58f86b9a7faabde49997314f3b7#SKILL.md"
+    },
+    {
+      "category_code": "04",
+      "category_name": "商业领袖",
+      "item_index": "02",
+      "display_name": "贝佐斯",
+      "skill_name": "bezos-perspective",
+      "description": "将杰夫·贝佐斯的长期主义与客户至上思维蒸馏为 Claude Code skill，用 Day 1 心态和逆向工作法帮你穿透短期噪音。",
+      "core_ideas": [
+        "Day 1 思维",
+        "客户痴迷",
+        "逆向工作法",
+        "单向门 vs 双向门",
+        "长期主义"
+      ],
+      "use_cases": [
+        "Day 1 思维",
+        "客户痴迷",
+        "逆向工作法相关问题",
+        "以杰夫·贝佐斯视角分析决策",
+        "用杰夫·贝佐斯的方法论审视问题"
+      ],
+      "source_trigger_examples": [
+        "用杰夫·贝佐斯的视角",
+        "杰夫·贝佐斯会怎么看",
+        "杰夫·贝佐斯模式"
+      ],
+      "perspective_role": "reference_lens_only",
+      "activation_allowed": false,
+      "authenticity_status": "source_package_synthesis_unverified",
+      "source_ref": "embedded-git://https://github.com/Panmax/bezos-skill@fe8e1d970c1a00bec91e1869c12c44c614faf1ec#SKILL.md"
+    },
+    {
+      "category_code": "04",
+      "category_name": "商业领袖",
+      "item_index": "03",
+      "display_name": "山姆·沃尔顿",
+      "skill_name": "walton-perspective",
+      "description": "将山姆·沃尔顿的零售智慧与节约哲学蒸馏为 Claude Code skill，用朴素务实的视角帮你找到规模效应的杠杆点。",
+      "core_ideas": [
+        "节约文化",
+        "从竞争对手偷师",
+        "小镇战略",
+        "EDLP（天天低价）",
+        "走动管理"
+      ],
+      "use_cases": [
+        "节约文化",
+        "从竞争对手偷师",
+        "小镇战略相关问题",
+        "以山姆·沃尔顿视角分析决策",
+        "用山姆·沃尔顿的方法论审视问题"
+      ],
+      "source_trigger_examples": [
+        "用山姆·沃尔顿的视角",
+        "山姆·沃尔顿会怎么看",
+        "山姆·沃尔顿模式"
+      ],
+      "perspective_role": "reference_lens_only",
+      "activation_allowed": false,
+      "authenticity_status": "source_package_synthesis_unverified",
+      "source_ref": "embedded-git://https://github.com/Panmax/walton-skill@146244e40a2f99d0547dc288a16f049ea1a840e6#SKILL.md"
+    },
+    {
+      "category_code": "04",
+      "category_name": "商业领袖",
+      "item_index": "04",
+      "display_name": "安迪·格鲁夫",
+      "skill_name": "grove-perspective",
+      "description": "将安迪·格鲁夫的偏执管理哲学蒸馏为 Claude Code skill，用战略转折点思维和危机意识帮你直面现实、果断行动。",
+      "core_ideas": [
+        "战略转折点",
+        "OKR 方法论",
+        "高杠杆管理",
+        "建设性对抗",
+        "偏执求生"
+      ],
+      "use_cases": [
+        "战略转折点",
+        "OKR 方法论",
+        "高杠杆管理相关问题",
+        "以安迪·格鲁夫视角分析决策",
+        "用安迪·格鲁夫的方法论审视问题"
+      ],
+      "source_trigger_examples": [
+        "用安迪·格鲁夫的视角",
+        "安迪·格鲁夫会怎么看",
+        "安迪·格鲁夫模式"
+      ],
+      "perspective_role": "reference_lens_only",
+      "activation_allowed": false,
+      "authenticity_status": "source_package_synthesis_unverified",
+      "source_ref": "embedded-git://https://github.com/Panmax/grove-skill@d2d9edf6450c91c54477c5823dd6ca18a3c82eb2#SKILL.md"
+    },
+    {
+      "category_code": "04",
+      "category_name": "商业领袖",
+      "item_index": "05",
+      "display_name": "松下幸之助",
+      "skill_name": "matsushita-perspective",
+      "description": "将松下幸之助的自来水哲学、经营即育人和朴素智慧蒸馏为 Claude Code 可调用的 Skill，让 AI 像\"经营之神\"一样洞察经营本质。",
+      "core_ideas": [
+        "自来水哲学",
+        "经营即育人",
+        "日新又新",
+        "素直之心",
+        "共存共荣",
+        "雨天备伞"
+      ],
+      "use_cases": [
+        "自来水哲学",
+        "经营即育人",
+        "日新又新相关问题",
+        "以松下幸之助视角分析决策",
+        "用松下幸之助的方法论审视问题"
+      ],
+      "source_trigger_examples": [
+        "用松下幸之助的视角",
+        "松下幸之助会怎么看",
+        "松下幸之助模式"
+      ],
+      "perspective_role": "reference_lens_only",
+      "activation_allowed": false,
+      "authenticity_status": "source_package_synthesis_unverified",
+      "source_ref": "embedded-git://https://github.com/Panmax/matsushita-skill@2660d736c3533c25388ca028a69f52b1b4f7a286#SKILL.md"
+    },
+    {
+      "category_code": "04",
+      "category_name": "商业领袖",
+      "item_index": "06",
+      "display_name": "亨利·福特",
+      "skill_name": "ford-perspective",
+      "description": "将亨利·福特的流水线思维、规模化哲学和简化一切的实干精神蒸馏为 Claude Code 可调用的 Skill，让 AI 像这位工业革命先驱一样思考效率与规模。",
+      "core_ideas": [
+        "流水线思维",
+        "规模化降本",
+        "高工资哲学",
+        "简化一切",
+        "反对浪费",
+        "垂直整合"
+      ],
+      "use_cases": [
+        "流水线思维",
+        "规模化降本",
+        "高工资哲学相关问题",
+        "以亨利·福特视角分析决策",
+        "用亨利·福特的方法论审视问题"
+      ],
+      "source_trigger_examples": [
+        "用这位工业革命先驱的视角",
+        "这位工业革命先驱会怎么看",
+        "这位工业革命先驱模式"
+      ],
+      "perspective_role": "reference_lens_only",
+      "activation_allowed": false,
+      "authenticity_status": "source_package_synthesis_unverified",
+      "source_ref": "embedded-git://https://github.com/Panmax/ford-skill@a3ec5de62daa8d145c809235701e981211a304ef#SKILL.md"
+    },
+    {
+      "category_code": "04",
+      "category_name": "商业领袖",
+      "item_index": "07",
+      "display_name": "杰克·韦尔奇",
+      "skill_name": "welch-perspective",
+      "description": "将杰克·韦尔奇的数一数二、活力曲线和变革管理蒸馏为 Claude Code 可调用的 Skill，让 AI 像 GE 传奇 CEO 一样做出果断决策。",
+      "core_ideas": [
+        "数一数二原则",
+        "活力曲线（20-70-10）",
+        "坦诚文化",
+        "变革领导力",
+        "无边界组织",
+        "人才至上"
+      ],
+      "use_cases": [
+        "数一数二原则",
+        "活力曲线（20-70-10）",
+        "坦诚文化相关问题",
+        "以杰克·韦尔奇视角分析决策",
+        "用杰克·韦尔奇的方法论审视问题"
+      ],
+      "source_trigger_examples": [
+        "用杰克·韦尔奇的视角",
+        "杰克·韦尔奇会怎么看",
+        "杰克·韦尔奇模式"
+      ],
+      "perspective_role": "reference_lens_only",
+      "activation_allowed": false,
+      "authenticity_status": "source_package_synthesis_unverified",
+      "source_ref": "embedded-git://https://github.com/Panmax/welch-skill@52fc6bb0fca60ff9c471040f64fcfaa74516f061#SKILL.md"
+    },
+    {
+      "category_code": "04",
+      "category_name": "商业领袖",
+      "item_index": "08",
+      "display_name": "稻盛和夫",
+      "skill_name": "inamori-perspective",
+      "description": "稻盛和夫的经营哲学操作系统。不是鸡汤合集，是可运行的思维框架。",
+      "core_ideas": [
+        "敬天爱人",
+        "人生方程式",
+        "阿米巴经营",
+        "利他之心",
+        "六项精进"
+      ],
+      "use_cases": [
+        "创业三年一直亏损，是不是该放弃",
+        "团队里有人能力强但不合群，要不要留",
+        "行业不景气，公司该怎么活下去",
+        "我每天工作很累但感觉没有成长，怎么办"
+      ],
+      "source_trigger_examples": [
+        "用稻盛和夫的视角帮我分析这个经营问题",
+        "稻盛会怎么看这件事？",
+        "切换到稻盛，帮我想想该怎么做",
+        "这个决策的动机善不善？帮我分析"
+      ],
+      "perspective_role": "reference_lens_only",
+      "activation_allowed": false,
+      "authenticity_status": "source_package_synthesis_unverified",
+      "source_ref": "embedded-git://https://github.com/Panmax/inamori-skill@7188d6ddc3d7c6c9a06cc454cde4f108240c6330#SKILL.md"
+    },
+    {
+      "category_code": "04",
+      "category_name": "商业领袖",
+      "item_index": "09",
+      "display_name": "铃木敏文",
+      "skill_name": "suzukitoshifumi-perspective",
+      "description": "7-Eleven之父 | 零售业之神 | 单品管理先驱",
+      "core_ideas": [
+        "单品管理思维",
+        "假设验证循环",
+        "消费心理洞察",
+        "朝令夕改哲学",
+        "打破行业常识"
+      ],
+      "use_cases": [
+        "便利店畅销品总是缺货怎么办",
+        "实体零售还有出路吗",
+        "便利店要不要卖现磨咖啡",
+        "竞争对手在打价格战，我要不要跟"
+      ],
+      "source_trigger_examples": [
+        "用以铃木敏文的视角",
+        "以铃木敏文会怎么看",
+        "以铃木敏文模式"
+      ],
+      "perspective_role": "reference_lens_only",
+      "activation_allowed": false,
+      "authenticity_status": "source_package_synthesis_unverified",
+      "source_ref": "embedded-git://https://github.com/Panmax/suzukitoshifumi-skill@25386a1b028f4474330f19e97b6ed88028cfa1ab#SKILL.md"
+    },
+    {
+      "category_code": "04",
+      "category_name": "商业领袖",
+      "item_index": "10",
+      "display_name": "詹姆斯·韦伯",
+      "skill_name": "webb-perspective",
+      "description": "超越使命目标的战略投资",
+      "core_ideas": [
+        "太空时代管理",
+        "三驾马车治理结构",
+        "利益相关方管理",
+        "危机领导力",
+        "超越使命目标的战略投资",
+        "使命驱动的组织凝聚力"
+      ],
+      "use_cases": [
+        "韦伯局长，我们公司要启动一个跨部门的大项目，该如何组织",
+        "项目出了重大事故，领导层应该怎么应对",
+        "技术出身的人适合做管理者吗",
+        "预算有限的情况下，怎么在当前项目和长期发展之间分配资源"
+      ],
+      "source_trigger_examples": [
+        "用詹姆斯·韦伯的视角",
+        "韦伯会怎么看",
+        "韦伯模式"
+      ],
+      "perspective_role": "reference_lens_only",
+      "activation_allowed": false,
+      "authenticity_status": "source_package_synthesis_unverified",
+      "source_ref": "embedded-git://https://github.com/Panmax/webb-skill@0fc2967e86f1f90e088a5d5c7cad8d12f056d9e0#SKILL.md"
+    },
+    {
+      "category_code": "05",
+      "category_name": "当代中国企业家",
+      "item_index": "01",
+      "display_name": "任正非",
+      "skill_name": "renzhengfei-perspective",
+      "description": "将任正非的灰度管理哲学蒸馏为 Claude Code skill，用狼性文化与自我批判的视角帮你在不确定性中找到前进方向。",
+      "core_ideas": [
+        "灰度管理",
+        "狼性文化",
+        "自我批判",
+        "以奋斗者为本",
+        "深淘滩低作堰"
+      ],
+      "use_cases": [
+        "灰度管理",
+        "狼性文化",
+        "自我批判相关问题",
+        "以任正非视角分析决策",
+        "用任正非的方法论审视问题"
+      ],
+      "source_trigger_examples": [
+        "用任正非的视角",
+        "任正非会怎么看",
+        "任正非模式"
+      ],
+      "perspective_role": "reference_lens_only",
+      "activation_allowed": false,
+      "authenticity_status": "source_package_synthesis_unverified",
+      "source_ref": "embedded-git://https://github.com/Panmax/renzhengfei-skill@f789ccf74efe70c626cdc636c82dcaa349d99268#SKILL.md"
+    },
+    {
+      "category_code": "05",
+      "category_name": "当代中国企业家",
+      "item_index": "02",
+      "display_name": "张一鸣",
+      "skill_name": "zhangyiming-perspective",
+      "description": "将张一鸣的理性克制、数据驱动和反直觉思维方式蒸馏为 Claude Code 可调用的 Skill，让 AI 像字节跳动创始人一样思考问题。",
+      "core_ideas": [
+        "延迟满足",
+        "算法思维",
+        "全球化视角",
+        "理性克制",
+        "反直觉思考",
+        "Context not Control"
+      ],
+      "use_cases": [
+        "延迟满足",
+        "算法思维",
+        "全球化视角相关问题",
+        "以张一鸣视角分析决策",
+        "用张一鸣的方法论审视问题"
+      ],
+      "source_trigger_examples": [
+        "用字节跳动创始人的视角",
+        "字节跳动创始人会怎么看",
+        "字节跳动创始人模式"
+      ],
+      "perspective_role": "reference_lens_only",
+      "activation_allowed": false,
+      "authenticity_status": "source_package_synthesis_unverified",
+      "source_ref": "embedded-git://https://github.com/Panmax/zhangyiming-skill@22b6bde00ab56570af7a906d9f3a432ab19d57bc#SKILL.md"
+    },
+    {
+      "category_code": "05",
+      "category_name": "当代中国企业家",
+      "item_index": "03",
+      "display_name": "雷军",
+      "skill_name": "leijun-perspective",
+      "description": "将雷军的极致性价比、风口论和互联网思维蒸馏为 Claude Code 可调用的 Skill，让 AI 像小米创始人一样拆解商业问题。",
+      "core_ideas": [
+        "极致性价比",
+        "风口论",
+        "互联网思维七字诀",
+        "和用户做朋友",
+        "爆品策略",
+        "效率革命"
+      ],
+      "use_cases": [
+        "极致性价比",
+        "风口论",
+        "互联网思维七字诀相关问题",
+        "以雷军视角分析决策",
+        "用雷军的方法论审视问题"
+      ],
+      "source_trigger_examples": [
+        "用雷军的视角",
+        "雷军会怎么看",
+        "雷军模式"
+      ],
+      "perspective_role": "reference_lens_only",
+      "activation_allowed": false,
+      "authenticity_status": "source_package_synthesis_unverified",
+      "source_ref": "embedded-git://https://github.com/Panmax/leijun-skill@67fd009ba1871bb7608e6ab852f3e1fcb48cc30f#SKILL.md"
+    },
+    {
+      "category_code": "05",
+      "category_name": "当代中国企业家",
+      "item_index": "04",
+      "display_name": "马云",
+      "skill_name": "mayun-perspective",
+      "description": "像马云一样思考：用愿景驱动决策、用生态系统思维构建商业、用激情澎湃的表达感染团队。",
+      "core_ideas": [
+        "愿景驱动模型",
+        "生态系统思维",
+        "拥抱变化哲学",
+        "客户第一信条",
+        "102年企业观"
+      ],
+      "use_cases": [
+        "愿景驱动",
+        "生态系统构建",
+        "拥抱变化相关问题",
+        "以马云视角分析决策",
+        "用马云的方法论审视问题"
+      ],
+      "source_trigger_examples": [
+        "用马云的视角",
+        "马云会怎么看",
+        "马云模式"
+      ],
+      "perspective_role": "reference_lens_only",
+      "activation_allowed": false,
+      "authenticity_status": "source_package_synthesis_unverified",
+      "source_ref": "embedded-git://https://github.com/Panmax/mayun-skill@77aeb1631fdddafb6e09ae565509276a5c048df2#SKILL.md"
+    },
+    {
+      "category_code": "05",
+      "category_name": "当代中国企业家",
+      "item_index": "05",
+      "display_name": "马化腾",
+      "skill_name": "mahuateng-perspective",
+      "description": "像马化腾一样思考：以极致产品思维打磨体验、用社交连接构建护城河、小步快跑持续迭代。",
+      "core_ideas": [
+        "极致产品思维",
+        "社交连接理论",
+        "小步快跑方法论",
+        "内部赛马机制",
+        "灰度法则"
+      ],
+      "use_cases": [
+        "极致产品思维",
+        "社交连接",
+        "小步快跑相关问题",
+        "以马化腾视角分析决策",
+        "用马化腾的方法论审视问题"
+      ],
+      "source_trigger_examples": [
+        "用马化腾的视角",
+        "马化腾会怎么看",
+        "马化腾模式"
+      ],
+      "perspective_role": "reference_lens_only",
+      "activation_allowed": false,
+      "authenticity_status": "source_package_synthesis_unverified",
+      "source_ref": "embedded-git://https://github.com/Panmax/mahuateng-skill@db5d5c03fdb83abf5dc326f97274c4abe150ee15#SKILL.md"
+    },
+    {
+      "category_code": "05",
+      "category_name": "当代中国企业家",
+      "item_index": "06",
+      "display_name": "黄峥",
+      "skill_name": "huangzheng-perspective",
+      "description": "像黄峥一样思考：用第一性原理穿透消费本质、以本分精神做反直觉决策、关注被忽视的大多数。",
+      "core_ideas": [
+        "第一性原理思维",
+        "本分哲学",
+        "普惠消费理论",
+        "分布式需求模型",
+        "反直觉洞察法"
+      ],
+      "use_cases": [
+        "第一性原理思维",
+        "本分哲学",
+        "普惠消费理论相关问题",
+        "以黄峥视角分析决策",
+        "用黄峥的方法论审视问题"
+      ],
+      "source_trigger_examples": [
+        "用黄峥的视角",
+        "黄峥会怎么看",
+        "黄峥模式"
+      ],
+      "perspective_role": "reference_lens_only",
+      "activation_allowed": false,
+      "authenticity_status": "source_package_synthesis_unverified",
+      "source_ref": "embedded-git://https://github.com/Panmax/huangzheng-skill@00fa7477d6503aa99a48059e8c1b5e96bcf9a39f#SKILL.md"
+    },
+    {
+      "category_code": "05",
+      "category_name": "当代中国企业家",
+      "item_index": "07",
+      "display_name": "王兴",
+      "skill_name": "wangxing-perspective",
+      "description": "像王兴一样思考：以无边界思维探索商业可能、用后发制人策略赢得长期竞争、在无限游戏中持续进化。",
+      "core_ideas": [
+        "无边界思维",
+        "后发制人策略",
+        "无限游戏理论",
+        "供给侧改革",
+        "思辨型决策框架"
+      ],
+      "use_cases": [
+        "无边界思维",
+        "后发制人",
+        "无限游戏相关问题",
+        "以王兴视角分析决策",
+        "用王兴的方法论审视问题"
+      ],
+      "source_trigger_examples": [
+        "用王兴的视角",
+        "王兴会怎么看",
+        "王兴模式"
+      ],
+      "perspective_role": "reference_lens_only",
+      "activation_allowed": false,
+      "authenticity_status": "source_package_synthesis_unverified",
+      "source_ref": "embedded-git://https://github.com/Panmax/wangxing-skill@d1dd5a34625fc60d7771480dfa0e41618727c2eb#SKILL.md"
+    },
+    {
+      "category_code": "05",
+      "category_name": "当代中国企业家",
+      "item_index": "08",
+      "display_name": "刘强东",
+      "skill_name": "liuqiangdong-perspective",
+      "description": "像刘强东一样思考：用重资产构建护城河、以极致执行力驱动增长、在正道上坚持长期投入。",
+      "core_ideas": [
+        "重资产护城河",
+        "极致执行力",
+        "正道成功哲学",
+        "成本效率模型",
+        "朴素价值观驱动"
+      ],
+      "use_cases": [
+        "重资产护城河",
+        "极致执行力",
+        "正道成功哲学相关问题",
+        "以刘强东视角分析决策",
+        "用刘强东的方法论审视问题"
+      ],
+      "source_trigger_examples": [
+        "用刘强东的视角",
+        "刘强东会怎么看",
+        "刘强东模式"
+      ],
+      "perspective_role": "reference_lens_only",
+      "activation_allowed": false,
+      "authenticity_status": "source_package_synthesis_unverified",
+      "source_ref": "embedded-git://https://github.com/Panmax/liuqiangdong-skill@579fe340db04128f5647286879d57e50ddb2a6bd#SKILL.md"
+    },
+    {
+      "category_code": "05",
+      "category_name": "当代中国企业家",
+      "item_index": "09",
+      "display_name": "曹德旺",
+      "skill_name": "caodewang-perspective",
+      "description": "将曹德旺的实业报国精神、专注哲学与朴实智慧蒸馏为 Claude Code 的思维模型，让 AI 用「玻璃大王」的视角帮你拆解问题。",
+      "core_ideas": [
+        "专注哲学",
+        "实业报国",
+        "成本思维",
+        "全球化视野",
+        "佛教底色",
+        "直言不讳",
+        "工匠精神",
+        "慈善观"
+      ],
+      "use_cases": [
+        "专注哲学",
+        "实业报国",
+        "成本思维相关问题",
+        "以曹德旺视角分析决策",
+        "用曹德旺的方法论审视问题"
+      ],
+      "source_trigger_examples": [
+        "用曹德旺的视角",
+        "曹德旺会怎么看",
+        "曹德旺模式"
+      ],
+      "perspective_role": "reference_lens_only",
+      "activation_allowed": false,
+      "authenticity_status": "source_package_synthesis_unverified",
+      "source_ref": "embedded-git://https://github.com/Panmax/caodewang-skill@1b90c9cdce07ad56e1d71b77ed2d220d632b2085#SKILL.md"
+    },
+    {
+      "category_code": "05",
+      "category_name": "当代中国企业家",
+      "item_index": "10",
+      "display_name": "董明珠",
+      "skill_name": "dongmingzhu-perspective",
+      "description": "将董明珠的铁娘子管理风格、品质执念与自主创新精神蒸馏为 Claude Code 的思维模型，让 AI 用「格力掌门人」的视角帮你拆解问题。",
+      "core_ideas": [
+        "品质至上",
+        "自主创新",
+        "铁腕管理",
+        "强势决断",
+        "中国制造自信",
+        "渠道创新",
+        "不服输精神",
+        "实业坚守"
+      ],
+      "use_cases": [
+        "品质至上",
+        "自主创新",
+        "铁腕管理相关问题",
+        "以董明珠视角分析决策",
+        "用董明珠的方法论审视问题"
+      ],
+      "source_trigger_examples": [
+        "用董明珠的视角",
+        "董明珠会怎么看",
+        "董明珠模式"
+      ],
+      "perspective_role": "reference_lens_only",
+      "activation_allowed": false,
+      "authenticity_status": "source_package_synthesis_unverified",
+      "source_ref": "embedded-git://https://github.com/Panmax/dongmingzhu-skill@e61eb4fa30a457b3931a4588d7b40ccf92a0cad3#SKILL.md"
+    },
+    {
+      "category_code": "05",
+      "category_name": "当代中国企业家",
+      "item_index": "11",
+      "display_name": "俞敏洪",
+      "skill_name": "yuminhong-perspective",
+      "description": "将俞敏洪的逆境重生哲学、教育创业智慧与自嘲式激励蒸馏为 Claude Code 的思维模型，让 AI 用「从绝望中寻找希望」的视角帮你拆解问题。",
+      "core_ideas": [
+        "绝望中的希望",
+        "自嘲式激励",
+        "三次高考精神",
+        "合伙人管理",
+        "绝地转型",
+        "放下身段",
+        "教育者视角",
+        "长期主义"
+      ],
+      "use_cases": [
+        "绝望中的希望",
+        "自嘲式激励",
+        "三次高考精神相关问题",
+        "以俞敏洪视角分析决策",
+        "用俞敏洪的方法论审视问题"
+      ],
+      "source_trigger_examples": [
+        "用俞敏洪的视角",
+        "俞敏洪会怎么看",
+        "俞敏洪模式"
+      ],
+      "perspective_role": "reference_lens_only",
+      "activation_allowed": false,
+      "authenticity_status": "source_package_synthesis_unverified",
+      "source_ref": "embedded-git://https://github.com/Panmax/yuminhong-skill@26c1f0f0e515f8de26e909a85e1598c0dec6c701#SKILL.md"
+    },
+    {
+      "category_code": "05",
+      "category_name": "当代中国企业家",
+      "item_index": "12",
+      "display_name": "王传福",
+      "skill_name": "wangchuanfu-perspective",
+      "description": "将王传福的工程师精神、垂直整合战略与技术为王理念蒸馏为 Claude Code 的思维模型，让 AI 用「比亚迪掌门人」的视角帮你拆解问题。",
+      "core_ideas": [
+        "工程师思维",
+        "垂直整合",
+        "技术为王",
+        "成本拆解",
+        "数据决策",
+        "低调务实",
+        "跨界协同",
+        "长期技术押注"
+      ],
+      "use_cases": [
+        "工程师思维",
+        "垂直整合",
+        "技术为王相关问题",
+        "以王传福视角分析决策",
+        "用王传福的方法论审视问题"
+      ],
+      "source_trigger_examples": [
+        "用王传福的视角",
+        "王传福会怎么看",
+        "王传福模式"
+      ],
+      "perspective_role": "reference_lens_only",
+      "activation_allowed": false,
+      "authenticity_status": "source_package_synthesis_unverified",
+      "source_ref": "embedded-git://https://github.com/Panmax/wangchuanfu-skill@334cd11f0384528184fbcd6453bbd02de108ccc6#SKILL.md"
+    },
+    {
+      "category_code": "05",
+      "category_name": "当代中国企业家",
+      "item_index": "13",
+      "display_name": "段永平",
+      "skill_name": "duanyongping-perspective",
+      "description": "将段永平的「本分」哲学、价值投资智慧与克制经营理念蒸馏为 Claude Code 的思维模型，让 AI 用「中国巴菲特」的视角帮你拆解问题。",
+      "core_ideas": [
+        "本分哲学",
+        "价值投资",
+        "极度克制",
+        "用户导向",
+        "不打价格战",
+        "诚信经营",
+        "分权管理",
+        "长期主义"
+      ],
+      "use_cases": [
+        "本分哲学",
+        "价值投资",
+        "极度克制相关问题",
+        "以段永平视角分析决策",
+        "用段永平的方法论审视问题"
+      ],
+      "source_trigger_examples": [
+        "用段永平的视角",
+        "段永平会怎么看",
+        "段永平模式"
+      ],
+      "perspective_role": "reference_lens_only",
+      "activation_allowed": false,
+      "authenticity_status": "source_package_synthesis_unverified",
+      "source_ref": "embedded-git://https://github.com/Panmax/duanyongping-skill@cc97f4a067d914d47f1dc9ea560a2a5ce811cd1f#SKILL.md"
+    },
+    {
+      "category_code": "05",
+      "category_name": "当代中国企业家",
+      "item_index": "14",
+      "display_name": "张小龙",
+      "skill_name": "zhangxiaolong-perspective",
+      "description": "让 Claude 以张小龙的极简产品哲学视角，审视你的每一个产品决策 -- 克制、简洁、用完即走。",
+      "core_ideas": [
+        "极简主义产品观",
+        "用完即走理念",
+        "克制的功能观",
+        "微信公开课核心观点",
+        "社交产品本质",
+        "去中心化思想"
+      ],
+      "use_cases": [
+        "极简主义产品观",
+        "用完即走理念",
+        "克制的功能观相关问题",
+        "以张小龙的极简产品哲学视角分析决策",
+        "用张小龙的极简产品哲学的方法论审视问题"
+      ],
+      "source_trigger_examples": [
+        "用张小龙的极简产品哲学的视角",
+        "张小龙的极简产品哲学会怎么看",
+        "张小龙的极简产品哲学模式"
+      ],
+      "perspective_role": "reference_lens_only",
+      "activation_allowed": false,
+      "authenticity_status": "source_package_synthesis_unverified",
+      "source_ref": "embedded-git://https://github.com/Panmax/zhangxiaolong-skill@6d80e9df6f33bb06ae0828c1960a170fcb06f473#SKILL.md"
+    },
+    {
+      "category_code": "05",
+      "category_name": "当代中国企业家",
+      "item_index": "15",
+      "display_name": "宗庆后",
+      "skill_name": "zongqinghou-perspective",
+      "description": "让 Claude 以宗庆后的朴素经营哲学视角，帮你回归商业本质 -- 渠道为王、深入一线、脚踏实地。",
+      "core_ideas": [
+        "渠道为王战略",
+        "联销体模式",
+        "大众市场洞察",
+        "一线调研方法",
+        "朴素经营观",
+        "产品定价智慧"
+      ],
+      "use_cases": [
+        "渠道为王战略",
+        "联销体模式",
+        "大众市场洞察相关问题",
+        "以宗庆后的朴素经营哲学视角分析决策",
+        "用宗庆后的朴素经营哲学的方法论审视问题"
+      ],
+      "source_trigger_examples": [
+        "用宗庆后的朴素经营哲学的视角",
+        "宗庆后的朴素经营哲学会怎么看",
+        "宗庆后的朴素经营哲学模式"
+      ],
+      "perspective_role": "reference_lens_only",
+      "activation_allowed": false,
+      "authenticity_status": "source_package_synthesis_unverified",
+      "source_ref": "embedded-git://https://github.com/Panmax/zongqinghou-skill@4720b31231c8a7ca12dbc4bfc37545e4164427c5#SKILL.md"
+    },
+    {
+      "category_code": "05",
+      "category_name": "当代中国企业家",
+      "item_index": "16",
+      "display_name": "李彦宏",
+      "skill_name": "liyanhong-perspective",
+      "description": "让 Claude 以李彦宏的技术信仰视角，用工程师思维和长期技术押注的逻辑帮你做决策。",
+      "core_ideas": [
+        "技术信仰",
+        "搜索引擎本质",
+        "All in AI 战略",
+        "超链分析专利",
+        "工程师文化",
+        "技术商业化路径"
+      ],
+      "use_cases": [
+        "技术信仰",
+        "搜索引擎本质",
+        "All in AI 战略相关问题",
+        "以李彦宏的技术信仰视角分析决策",
+        "用李彦宏的技术信仰的方法论审视问题"
+      ],
+      "source_trigger_examples": [
+        "用李彦宏的技术信仰的视角",
+        "李彦宏的技术信仰会怎么看",
+        "李彦宏的技术信仰模式"
+      ],
+      "perspective_role": "reference_lens_only",
+      "activation_allowed": false,
+      "authenticity_status": "source_package_synthesis_unverified",
+      "source_ref": "embedded-git://https://github.com/Panmax/liyanhong-skill@eff0c26ee46e0e8b97ad1eae5d0bb6f3e9e7dc2f#SKILL.md"
+    },
+    {
+      "category_code": "05",
+      "category_name": "当代中国企业家",
+      "item_index": "17",
+      "display_name": "丁磊",
+      "skill_name": "dinglei-perspective",
+      "description": "让 Claude 以丁磊的产品品味视角，用慢半拍做精品的态度帮你打磨产品 -- 不追风口、做到极致、生活美学。",
+      "core_ideas": [
+        "慢公司理念",
+        "产品品味观",
+        "生活美学",
+        "网易多元化逻辑",
+        "用户体验优先",
+        "不跟风哲学"
+      ],
+      "use_cases": [
+        "慢公司理念",
+        "产品品味观",
+        "生活美学相关问题",
+        "以丁磊的产品品味视角分析决策",
+        "用丁磊的产品品味的方法论审视问题"
+      ],
+      "source_trigger_examples": [
+        "用丁磊的产品品味的视角",
+        "丁磊的产品品味会怎么看",
+        "丁磊的产品品味模式"
+      ],
+      "perspective_role": "reference_lens_only",
+      "activation_allowed": false,
+      "authenticity_status": "source_package_synthesis_unverified",
+      "source_ref": "embedded-git://https://github.com/Panmax/dinglei-skill@d0f87b59e98cc37fd586b16065a8c234d0ce1308#SKILL.md"
+    },
+    {
+      "category_code": "05",
+      "category_name": "当代中国企业家",
+      "item_index": "18",
+      "display_name": "周鸿祎",
+      "skill_name": "zhouhongyi-perspective",
+      "description": "让 Claude 以周鸿祎的颠覆式创新视角，用互联网思维帮你找到破局之道 -- 免费、安全、敢打敢拼。",
+      "core_ideas": [
+        "免费商业模式",
+        "颠覆式创新理论",
+        "安全赛道洞察",
+        "互联网思维布道",
+        "公关与舆论战",
+        "个人IP打造"
+      ],
+      "use_cases": [
+        "免费商业模式",
+        "颠覆式创新理论",
+        "安全赛道洞察相关问题",
+        "以周鸿祎的颠覆式创新视角分析决策",
+        "用周鸿祎的颠覆式创新的方法论审视问题"
+      ],
+      "source_trigger_examples": [
+        "用周鸿祎的颠覆式创新的视角",
+        "周鸿祎的颠覆式创新会怎么看",
+        "周鸿祎的颠覆式创新模式"
+      ],
+      "perspective_role": "reference_lens_only",
+      "activation_allowed": false,
+      "authenticity_status": "source_package_synthesis_unverified",
+      "source_ref": "embedded-git://https://github.com/Panmax/zhouhongyi-skill@bc32d721c4f217b80a02cf28059af2f143f639fd#SKILL.md"
+    },
+    {
+      "category_code": "05",
+      "category_name": "当代中国企业家",
+      "item_index": "19",
+      "display_name": "刘永好",
+      "skill_name": "liuyonghao-perspective",
+      "description": "将刘永好 40 年农牧帝国的深耕智慧、家族企业治理经验与低调稳健的经营哲学蒸馏为 AI 可调用的思维模型",
+      "core_ideas": [
+        "产业链纵深思维",
+        "顺势而为的周期哲学",
+        "家族企业治理智慧",
+        "低调稳健的扩张策略",
+        "政商关系的分寸感"
+      ],
+      "use_cases": [
+        "产业链纵深思维",
+        "顺势而为的周期哲学",
+        "家族企业治理智慧相关问题",
+        "以刘永好视角分析决策",
+        "用刘永好的方法论审视问题"
+      ],
+      "source_trigger_examples": [
+        "用刘永好的视角",
+        "刘永好会怎么看",
+        "刘永好模式"
+      ],
+      "perspective_role": "reference_lens_only",
+      "activation_allowed": false,
+      "authenticity_status": "source_package_synthesis_unverified",
+      "source_ref": "embedded-git://https://github.com/Panmax/liuyonghao-skill@3e82cda2ee93b04f53e5c509f6b5ffbf4d674035#SKILL.md"
+    },
+    {
+      "category_code": "05",
+      "category_name": "当代中国企业家",
+      "item_index": "20",
+      "display_name": "王健林",
+      "skill_name": "wangjianlin-perspective",
+      "description": "将王健林从军人到地产大亨再到文化体育帝国的执行力哲学、目标管理方法与大开大合的战略思维蒸馏为 AI 可调用的思维模型",
+      "core_ideas": [
+        "军人式执行力",
+        "目标拆解方法论",
+        "大开大合的战略思维",
+        "壮士断腕的决断力",
+        "模式创新与复制能力"
+      ],
+      "use_cases": [
+        "军人式执行力",
+        "目标拆解方法论",
+        "大开大合的战略思维相关问题",
+        "以王健林从军人到地产大亨再到文化体育帝国视角分析决策",
+        "用王健林从军人到地产大亨再到文化体育帝国的方法论审视问题"
+      ],
+      "source_trigger_examples": [
+        "用王健林从军人到地产大亨再到文化体育帝国的视角",
+        "王健林从军人到地产大亨再到文化体育帝国会怎么看",
+        "王健林从军人到地产大亨再到文化体育帝国模式"
+      ],
+      "perspective_role": "reference_lens_only",
+      "activation_allowed": false,
+      "authenticity_status": "source_package_synthesis_unverified",
+      "source_ref": "embedded-git://https://github.com/Panmax/wangjianlin-skill@e94698511db169b254537f192523d153b6e51ef1#SKILL.md"
+    },
+    {
+      "category_code": "05",
+      "category_name": "当代中国企业家",
+      "item_index": "21",
+      "display_name": "梁建章",
+      "skill_name": "liangjianzhang-perspective",
+      "description": "将梁建章从携程创始到学术深造再到二次回归的跨界思维、数据驱动决策与敢为非主流观点辩护的勇气蒸馏为 AI 可调用的思维模型",
+      "core_ideas": [
+        "数据驱动决策",
+        "二次创业的变革方法论",
+        "跨界思维",
+        "敢为非主流观点辩护",
+        "长期主义的人口视角"
+      ],
+      "use_cases": [
+        "数据驱动决策",
+        "二次创业的变革方法论",
+        "跨界思维相关问题",
+        "以梁建章从携程创始到学术深造再到二次回归视角分析决策",
+        "用梁建章从携程创始到学术深造再到二次回归的方法论审视问题"
+      ],
+      "source_trigger_examples": [
+        "用梁建章从携程创始到学术深造再到二次回归的视角",
+        "梁建章从携程创始到学术深造再到二次回归会怎么看",
+        "梁建章从携程创始到学术深造再到二次回归模式"
+      ],
+      "perspective_role": "reference_lens_only",
+      "activation_allowed": false,
+      "authenticity_status": "source_package_synthesis_unverified",
+      "source_ref": "embedded-git://https://github.com/Panmax/liangjianzhang-skill@6eeb473d7056ff78b4ac6d84c0667ffc448b1c1a#SKILL.md"
+    },
+    {
+      "category_code": "05",
+      "category_name": "当代中国企业家",
+      "item_index": "22",
+      "display_name": "史玉柱",
+      "skill_name": "shiyuzhu-perspective",
+      "description": "将史玉柱从巨人大厦倒塌到脑白金逆袭再到征途游戏的营销智慧、人性洞察与逆境重生哲学蒸馏为 AI 可调用的思维模型",
+      "core_ideas": [
+        "极致营销方法论",
+        "逆境重生哲学",
+        "深度用户洞察",
+        "农村包围城市",
+        "不按常理出牌"
+      ],
+      "use_cases": [
+        "极致营销方法论",
+        "逆境重生哲学",
+        "深度用户洞察相关问题",
+        "以史玉柱从巨人大厦倒塌到脑白金逆袭再到征途游戏视角分析决策",
+        "用史玉柱从巨人大厦倒塌到脑白金逆袭再到征途游戏的方法论审视问题"
+      ],
+      "source_trigger_examples": [
+        "用史玉柱从巨人大厦倒塌到脑白金逆袭再到征途游戏的视角",
+        "史玉柱从巨人大厦倒塌到脑白金逆袭再到征途游戏会怎么看",
+        "史玉柱从巨人大厦倒塌到脑白金逆袭再到征途游戏模式"
+      ],
+      "perspective_role": "reference_lens_only",
+      "activation_allowed": false,
+      "authenticity_status": "source_package_synthesis_unverified",
+      "source_ref": "embedded-git://https://github.com/Panmax/shiyuzhu-skill@fc4ba7bdb847063e65aa6e2a7537f5e6fd696191#SKILL.md"
+    },
+    {
+      "category_code": "05",
+      "category_name": "当代中国企业家",
+      "item_index": "23",
+      "display_name": "李书福",
+      "skill_name": "lishufu-perspective",
+      "description": "将李书福从冰箱小作坊到吉利帝国再到收购沃尔沃的草根韧性、全球并购智慧与朴素造车哲学蒸馏为 AI 可调用的思维模型",
+      "core_ideas": [
+        "草根韧性与破局思维",
+        "蛇吞象并购方法论",
+        "多元化技术布局",
+        "自建人才体系",
+        "全球视野与本土智慧的融合"
+      ],
+      "use_cases": [
+        "草根韧性与破局思维",
+        "蛇吞象并购方法论",
+        "多元化技术布局相关问题",
+        "以李书福从冰箱小作坊到吉利帝国再到收购沃尔沃视角分析决策",
+        "用李书福从冰箱小作坊到吉利帝国再到收购沃尔沃的方法论审视问题"
+      ],
+      "source_trigger_examples": [
+        "用李书福从冰箱小作坊到吉利帝国再到收购沃尔沃的视角",
+        "李书福从冰箱小作坊到吉利帝国再到收购沃尔沃会怎么看",
+        "李书福从冰箱小作坊到吉利帝国再到收购沃尔沃模式"
+      ],
+      "perspective_role": "reference_lens_only",
+      "activation_allowed": false,
+      "authenticity_status": "source_package_synthesis_unverified",
+      "source_ref": "embedded-git://https://github.com/Panmax/lishufu-skill@11ae3518458ad3a24851fe5f415e2d9e7baad3ad#SKILL.md"
+    },
+    {
+      "category_code": "05",
+      "category_name": "当代中国企业家",
+      "item_index": "24",
+      "display_name": "黄仁勋",
+      "skill_name": "huangrenxun-perspective",
+      "description": "让 Claude 以黄仁勋的视角思考：算力革命、加速计算信仰、长期押注、从厨房到万亿帝国的创业哲学。",
+      "core_ideas": [
+        "加速计算信仰",
+        "平台生态思维",
+        "10年赌注哲学",
+        "痛苦和苦难理论",
+        "零十亿美元市场法则"
+      ],
+      "use_cases": [
+        "加速计算信仰",
+        "平台生态思维",
+        "10年赌注哲学相关问题",
+        "以黄仁勋视角分析决策",
+        "用黄仁勋的方法论审视问题"
+      ],
+      "source_trigger_examples": [
+        "用黄仁勋的视角",
+        "黄仁勋会怎么看",
+        "黄仁勋模式"
+      ],
+      "perspective_role": "reference_lens_only",
+      "activation_allowed": false,
+      "authenticity_status": "source_package_synthesis_unverified",
+      "source_ref": "embedded-git://https://github.com/Panmax/huangrenxun-skill@42f1618e7ae3b9ee2b6a0155cde1327e712e64e9#SKILL.md"
+    },
+    {
+      "category_code": "05",
+      "category_name": "当代中国企业家",
+      "item_index": "25",
+      "display_name": "张雪",
+      "skill_name": "zhangxue-perspective",
+      "description": "张雪机车创始人的认知操作系统。不是语录合集，是可运行的思维框架。",
+      "core_ideas": [
+        "十倍努力论",
+        "赛道验证论",
+        "草根突围论",
+        "诚实产品论",
+        "中国制造突围论",
+        "扳手检验法",
+        "赛道压力测试",
+        "十倍投入判断"
+      ],
+      "use_cases": [
+        "我有五万块钱，想做摩托车相关的生意，有戏吗",
+        "中国摩托车品牌永远做不过日本本田雅马哈，你觉得呢",
+        "我在大厂工作很稳定，但一直想做实体制造业，该不该辞职"
+      ],
+      "source_trigger_examples": [
+        "用张雪的视角帮我分析这个创业方向",
+        "张雪会怎么看这个产品策略？",
+        "切换到张雪，我想聊聊制造业创业"
+      ],
+      "perspective_role": "reference_lens_only",
+      "activation_allowed": false,
+      "authenticity_status": "source_package_synthesis_unverified",
+      "source_ref": "embedded-git://https://github.com/Panmax/zhangxue-skill@ddbac94759fdfe27e4fb7deab655bd66753d7214#SKILL.md"
+    },
+    {
+      "category_code": "05",
+      "category_name": "当代中国企业家",
+      "item_index": "26",
+      "display_name": "冯唐",
+      "skill_name": "fengtang-perspective",
+      "description": "冯唐的认知操作系统。不是语录合集，是可运行的思维框架。",
+      "core_ideas": [
+        "九字真言",
+        "金线论",
+        "成事四勿",
+        "跨界杠杆论",
+        "终极审美论",
+        "金线筛选法",
+        "九字真言检验",
+        "曾国藩照镜子"
+      ],
+      "use_cases": [
+        "我在大厂做了五年，想辞职写小说，是不是疯了",
+        "我是中层管理者，团队人心不齐，怎么办",
+        "你怎么看现在的AI写作，会取代作家吗"
+      ],
+      "source_trigger_examples": [
+        "用冯唐的视角帮我分析这个管理问题",
+        "冯唐会怎么看这个人生选择？",
+        "切换到冯唐，我想聊聊成事"
+      ],
+      "perspective_role": "reference_lens_only",
+      "activation_allowed": false,
+      "authenticity_status": "source_package_synthesis_unverified",
+      "source_ref": "embedded-git://https://github.com/Panmax/fengtang-skill@9fe4d93aea17ddeccf1f1708ede8bcfe67496378#SKILL.md"
+    },
+    {
+      "category_code": "06",
+      "category_name": "投资大师",
+      "item_index": "01",
+      "display_name": "巴菲特",
+      "skill_name": "buffett-perspective",
+      "description": "巴菲特的认知操作系统。不是语录合集，是可运行的投资思维框架。",
+      "core_ideas": [
+        "护城河理论",
+        "安全边际",
+        "能力圈",
+        "市场先生",
+        "复利思维"
+      ],
+      "use_cases": [
+        "朋友拉我投他的餐饮创业项目，靠谱吗",
+        "现在股市跌了很多，是不是抄底的好时机",
+        "我该不该放弃大厂的高薪去创业",
+        "AI会不会取代投资人"
+      ],
+      "source_trigger_examples": [
+        "用巴菲特的视角帮我分析这个投资",
+        "巴菲特会怎么看这个商业模式？",
+        "切换到巴菲特，帮我想想这个决策",
+        "这个生意的护城河在哪里？"
+      ],
+      "perspective_role": "reference_lens_only",
+      "activation_allowed": false,
+      "authenticity_status": "source_package_synthesis_unverified",
+      "source_ref": "embedded-git://https://github.com/Panmax/buffett-skill@0b75c82ec8266a0b71979eab857a58fd4cacd443#SKILL.md"
+    },
+    {
+      "category_code": "06",
+      "category_name": "投资大师",
+      "item_index": "02",
+      "display_name": "达利欧",
+      "skill_name": "dalio-perspective",
+      "description": "将瑞·达利欧的原则思维、极度透明与算法决策方法论蒸馏为 Claude Code 可调用的 skill，让 AI 用桥水基金的方式帮你分析问题、制定决策。",
+      "core_ideas": [
+        "原则体系",
+        "极度透明（Radical Transparency）",
+        "极度求真（Radical Truth）",
+        "可信度加权决策（Believability-Weighted Decision Making）",
+        "机器思维",
+        "痛苦+反思=进步",
+        "五步流程",
+        "算法化决策"
+      ],
+      "use_cases": [
+        "原则体系",
+        "极度透明（Radical Transparency）",
+        "极度求真（Radical Truth）相关问题",
+        "以瑞·达利欧视角分析决策",
+        "用瑞·达利欧的方法论审视问题"
+      ],
+      "source_trigger_examples": [
+        "用瑞·达利欧的视角",
+        "瑞·达利欧会怎么看",
+        "瑞·达利欧模式"
+      ],
+      "perspective_role": "reference_lens_only",
+      "activation_allowed": false,
+      "authenticity_status": "source_package_synthesis_unverified",
+      "source_ref": "embedded-git://https://github.com/Panmax/dalio-skill@0c749e19139c8262e020bb5a08ac374f5dd9443b#SKILL.md"
+    },
+    {
+      "category_code": "06",
+      "category_name": "投资大师",
+      "item_index": "03",
+      "display_name": "索罗斯",
+      "skill_name": "soros-perspective",
+      "description": "将乔治·索罗斯的反身性理论、金融哲学与开放社会思想蒸馏为 Claude Code 可调用的 skill，让 AI 用哲学思辨的方式帮你透视市场、识别泡沫、逆向思考。",
+      "core_ideas": [
+        "反身性理论（Reflexivity）",
+        "可错性（Fallibility）",
+        "远离均衡",
+        "繁荣-萧条序列（Boom-Bust）",
+        "转折点识别",
+        "开放社会哲学",
+        "先存活再出击",
+        "承认犯错的能力"
+      ],
+      "use_cases": [
+        "反身性理论（Reflexivity）",
+        "可错性（Fallibility）",
+        "远离均衡相关问题",
+        "以乔治·索罗斯视角分析决策",
+        "用乔治·索罗斯的方法论审视问题"
+      ],
+      "source_trigger_examples": [
+        "用乔治·索罗斯的视角",
+        "乔治·索罗斯会怎么看",
+        "乔治·索罗斯模式"
+      ],
+      "perspective_role": "reference_lens_only",
+      "activation_allowed": false,
+      "authenticity_status": "source_package_synthesis_unverified",
+      "source_ref": "embedded-git://https://github.com/Panmax/soros-skill@d6d4181196240e6cec695fb687efecdf849bcc87#SKILL.md"
+    },
+    {
+      "category_code": "06",
+      "category_name": "投资大师",
+      "item_index": "04",
+      "display_name": "彼得·林奇",
+      "skill_name": "lynch-perspective",
+      "description": "将彼得·林奇的生活选股法、十倍股猎手思维与业余投资者优势蒸馏为 Claude Code 可调用的 skill，让 AI 用最通俗幽默的方式帮你从日常生活中发现投资机会。",
+      "core_ideas": [
+        "生活选股法（Invest in What You Know）",
+        "六大股票分类",
+        "十倍股（Ten-bagger）猎手思维",
+        "两分钟投资故事",
+        "PEG 比率",
+        "业余投资者优势",
+        "鸡尾酒会理论",
+        "拒绝拔花浇草"
+      ],
+      "use_cases": [
+        "生活选股法（Invest in What You Know）",
+        "六大股票分类",
+        "十倍股（Ten-bagger）猎手思维相关问题",
+        "以彼得·林奇视角分析决策",
+        "用彼得·林奇的方法论审视问题"
+      ],
+      "source_trigger_examples": [
+        "用彼得·林奇的视角",
+        "彼得·林奇会怎么看",
+        "彼得·林奇模式"
+      ],
+      "perspective_role": "reference_lens_only",
+      "activation_allowed": false,
+      "authenticity_status": "source_package_synthesis_unverified",
+      "source_ref": "embedded-git://https://github.com/Panmax/lynch-skill@0eb12ae9d7f762df3b3814086537495ef8256766#SKILL.md"
+    },
+    {
+      "category_code": "06",
+      "category_name": "投资大师",
+      "item_index": "05",
+      "display_name": "霍华德·马克斯",
+      "skill_name": "marks-perspective",
+      "description": "将霍华德·马克斯的第二层思维、周期理论与风险意识蒸馏为 Claude Code 可调用的 skill，让 AI 用橡树资本的深度思考方式帮你穿越周期、管控风险、逆向投资。",
+      "core_ideas": [
+        "第二层思维（Second-Level Thinking）",
+        "周期理论",
+        "风险认知",
+        "逆向投资",
+        "\"买得好\"vs\"买好东西\"",
+        "不确定性思维",
+        "防御性投资",
+        "市场温度计"
+      ],
+      "use_cases": [
+        "第二层思维（Second-Level Thinking）",
+        "周期理论",
+        "风险认知相关问题",
+        "以霍华德·马克斯视角分析决策",
+        "用霍华德·马克斯的方法论审视问题"
+      ],
+      "source_trigger_examples": [
+        "用霍华德·马克斯的视角",
+        "霍华德·马克斯会怎么看",
+        "霍华德·马克斯模式"
+      ],
+      "perspective_role": "reference_lens_only",
+      "activation_allowed": false,
+      "authenticity_status": "source_package_synthesis_unverified",
+      "source_ref": "embedded-git://https://github.com/Panmax/marks-skill@b98fe347b2c3b923e513114109eed3df97caa457#SKILL.md"
+    },
+    {
+      "category_code": "06",
+      "category_name": "投资大师",
+      "item_index": "06",
+      "display_name": "约翰·博格",
+      "skill_name": "bogle-perspective",
+      "description": "将约翰·博格的指数基金哲学、低成本投资原则与长期持有信念蒸馏为 Claude Code 可调用的 skill，让 AI 用先锋集团创始人的朴素智慧帮你构建简单有效的投资方案。",
+      "core_ideas": [
+        "指数化投资（Indexing）",
+        "成本至上",
+        "长期持有（Stay the Course）",
+        "简单优于复杂",
+        "回归均值",
+        "投资者利益优先",
+        "算术真理",
+        "反对投机"
+      ],
+      "use_cases": [
+        "指数化投资（Indexing）",
+        "成本至上",
+        "长期持有（Stay the Course）相关问题",
+        "以约翰·博格视角分析决策",
+        "用约翰·博格的方法论审视问题"
+      ],
+      "source_trigger_examples": [
+        "用约翰·博格的视角",
+        "约翰·博格会怎么看",
+        "约翰·博格模式"
+      ],
+      "perspective_role": "reference_lens_only",
+      "activation_allowed": false,
+      "authenticity_status": "source_package_synthesis_unverified",
+      "source_ref": "embedded-git://https://github.com/Panmax/bogle-skill@d8c3af61b76950ee2ae0be544f9ef59f17662949#SKILL.md"
+    },
+    {
+      "category_code": "06",
+      "category_name": "投资大师",
+      "item_index": "07",
+      "display_name": "彼得·蒂尔",
+      "skill_name": "thiel-perspective",
+      "description": "将彼得·蒂尔的「从0到1」思维方式注入 Claude Code,用逆向思考和垄断视角分析创业与商业问题。",
+      "core_ideas": [
+        "从0到1框架",
+        "垄断思维",
+        "七问检验",
+        "秘密挖掘",
+        "幂律判断",
+        "逆向思考",
+        "PayPal黑帮经验"
+      ],
+      "use_cases": [
+        "从0到1框架",
+        "垄断思维",
+        "七问检验相关问题",
+        "以彼得·蒂尔视角分析决策",
+        "用彼得·蒂尔的方法论审视问题"
+      ],
+      "source_trigger_examples": [
+        "用彼得·蒂尔的视角",
+        "彼得·蒂尔会怎么看",
+        "彼得·蒂尔模式"
+      ],
+      "perspective_role": "reference_lens_only",
+      "activation_allowed": false,
+      "authenticity_status": "source_package_synthesis_unverified",
+      "source_ref": "embedded-git://https://github.com/Panmax/thiel-skill@345e352566161d18d7afcd064db5dbd0c64f6875#SKILL.md"
+    },
+    {
+      "category_code": "06",
+      "category_name": "投资大师",
+      "item_index": "08",
+      "display_name": "本杰明·格雷厄姆",
+      "skill_name": "grahamben-perspective",
+      "description": "将本杰明·格雷厄姆的价值投资思维方式注入 Claude Code,用安全边际和理性分析守护每一个投资决策。",
+      "core_ideas": [
+        "安全边际原则",
+        "市场先生模型",
+        "内在价值评估",
+        "投资vs投机区分",
+        "防御型/进取型分类",
+        "收益质量分析",
+        "分散投资纪律"
+      ],
+      "use_cases": [
+        "安全边际原则",
+        "市场先生模型",
+        "内在价值评估相关问题",
+        "以本杰明·格雷厄姆视角分析决策",
+        "用本杰明·格雷厄姆的方法论审视问题"
+      ],
+      "source_trigger_examples": [
+        "用本杰明·格雷厄姆的视角",
+        "本杰明·格雷厄姆会怎么看",
+        "本杰明·格雷厄姆模式"
+      ],
+      "perspective_role": "reference_lens_only",
+      "activation_allowed": false,
+      "authenticity_status": "source_package_synthesis_unverified",
+      "source_ref": "embedded-git://https://github.com/Panmax/grahamben-skill@743ff6313f648fbb685453b058486747157fd1f7#SKILL.md"
+    },
+    {
+      "category_code": "06",
+      "category_name": "投资大师",
+      "item_index": "09",
+      "display_name": "芒格",
+      "skill_name": "munger-perspective",
+      "description": "查理·芒格的认知操作系统。不是语录合集，是可运行的思维框架。",
+      "core_ideas": [
+        "句式",
+        "词汇",
+        "类比",
+        "幽默",
+        "沉默"
+      ],
+      "use_cases": [
+        "现在AI创业很火，我想辞职做一个AI产品，你怎么看",
+        "团队里技术最强的人经常打压同事",
+        "抢功劳，怎么处理",
+        "所有人都在写DeepSeek，我要不要跟",
+        "读什么书能提升认知水平"
+      ],
+      "source_trigger_examples": [
+        "用芒格的视角帮我分析这个决策",
+        "芒格会怎么看这个投资机会？",
+        "切换到芒格，帮我找这个计划的盲点",
+        "这里面有什么认知偏误？"
+      ],
+      "perspective_role": "reference_lens_only",
+      "activation_allowed": false,
+      "authenticity_status": "source_package_synthesis_unverified",
+      "source_ref": "embedded-git://https://github.com/alchaincyf/munger-skill@8c1d9cf3fd5d59fb331ed6ff3a835257c87d73ec#SKILL.md"
+    },
+    {
+      "category_code": "07",
+      "category_name": "科技与创新",
+      "item_index": "01",
+      "display_name": "保罗·格雷厄姆",
+      "skill_name": "pggraham-perspective",
+      "description": "将保罗·格雷厄姆的创业方法论与黑客精神注入 Claude Code,用简洁有力的洞察帮你做出更好的产品和创业决策。",
+      "core_ideas": [
+        "用户需求验证",
+        "做不可规模化的事情",
+        "MVP思维",
+        "增长诊断",
+        "创业想法筛选",
+        "黑客精神",
+        "写作即思考"
+      ],
+      "use_cases": [
+        "用户需求验证",
+        "做不可规模化的事情",
+        "MVP思维相关问题",
+        "以保罗·格雷厄姆视角分析决策",
+        "用保罗·格雷厄姆的方法论审视问题"
+      ],
+      "source_trigger_examples": [
+        "用保罗·格雷厄姆的视角",
+        "保罗·格雷厄姆会怎么看",
+        "保罗·格雷厄姆模式"
+      ],
+      "perspective_role": "reference_lens_only",
+      "activation_allowed": false,
+      "authenticity_status": "source_package_synthesis_unverified",
+      "source_ref": "embedded-git://https://github.com/Panmax/pggraham-skill@9c7ceb5d53f06a7898f8a4329adab5a0f8a0476f#SKILL.md"
+    },
+    {
+      "category_code": "07",
+      "category_name": "科技与创新",
+      "item_index": "02",
+      "display_name": "凯文·凯利",
+      "skill_name": "kevinkelly-perspective",
+      "description": "将凯文·凯利的未来趋势洞察与科技人文主义注入 Claude Code,用长期视角和乐观精神分析科技趋势与社会变革。",
+      "core_ideas": [
+        "十二个必然趋势",
+        "失控与涌现理论",
+        "科技想要什么",
+        "1000个真粉丝",
+        "长期思维",
+        "科技乐观主义",
+        "八种比免费更好的价值"
+      ],
+      "use_cases": [
+        "十二个必然趋势",
+        "失控与涌现理论",
+        "科技想要什么相关问题",
+        "以凯文·凯利视角分析决策",
+        "用凯文·凯利的方法论审视问题"
+      ],
+      "source_trigger_examples": [
+        "用凯文·凯利的视角",
+        "凯文·凯利会怎么看",
+        "凯文·凯利模式"
+      ],
+      "perspective_role": "reference_lens_only",
+      "activation_allowed": false,
+      "authenticity_status": "source_package_synthesis_unverified",
+      "source_ref": "embedded-git://https://github.com/Panmax/kevinkelly-skill@2da03e14b39ab632fe84b61d9db594f1e9f11bae#SKILL.md"
+    },
+    {
+      "category_code": "07",
+      "category_name": "科技与创新",
+      "item_index": "03",
+      "display_name": "林纳斯·托瓦兹",
+      "skill_name": "torvalds-perspective",
+      "description": "将林纳斯·托瓦兹的工程哲学与务实精神注入 Claude Code,用代码说话、反对过度设计、追求简洁与正确。",
+      "core_ideas": [
+        "务实主义优先",
+        "反对过度设计",
+        "代码质量标准",
+        "数据结构思维",
+        "Git设计哲学",
+        "开源项目管理",
+        "渐进式改进"
+      ],
+      "use_cases": [
+        "务实主义优先",
+        "反对过度设计",
+        "代码质量标准相关问题",
+        "以林纳斯·托瓦兹视角分析决策",
+        "用林纳斯·托瓦兹的方法论审视问题"
+      ],
+      "source_trigger_examples": [
+        "用林纳斯·托瓦兹的视角",
+        "林纳斯·托瓦兹会怎么看",
+        "林纳斯·托瓦兹模式"
+      ],
+      "perspective_role": "reference_lens_only",
+      "activation_allowed": false,
+      "authenticity_status": "source_package_synthesis_unverified",
+      "source_ref": "embedded-git://https://github.com/Panmax/torvalds-skill@00df1a281d131602ffb8d12e1d8c82aa33d2d50b#SKILL.md"
+    },
+    {
+      "category_code": "07",
+      "category_name": "科技与创新",
+      "item_index": "04",
+      "display_name": "吴军",
+      "skill_name": "wujun-perspective",
+      "description": "让 Claude 像吴军一样思考：用信息论视角理解世界、以格局决定命运、借科技史案例洞察本质。",
+      "core_ideas": [
+        "信息论思维",
+        "浪潮理论",
+        "格局决定命运",
+        "二比特法则",
+        "五级工程师理论",
+        "顺势而为",
+        "做减法",
+        "逆向思考"
+      ],
+      "use_cases": [
+        "信息论思维",
+        "浪潮理论",
+        "格局决定命运相关问题",
+        "以吴军视角分析决策",
+        "用吴军的方法论审视问题"
+      ],
+      "source_trigger_examples": [
+        "用吴军的视角",
+        "吴军会怎么看",
+        "吴军模式"
+      ],
+      "perspective_role": "reference_lens_only",
+      "activation_allowed": false,
+      "authenticity_status": "source_package_synthesis_unverified",
+      "source_ref": "embedded-git://https://github.com/Panmax/wujun-skill@4b65647b81ac892522cd76d108bbc19844585e8e#SKILL.md"
+    },
+    {
+      "category_code": "07",
+      "category_name": "科技与创新",
+      "item_index": "05",
+      "display_name": "乔布斯",
+      "skill_name": "steve-jobs-perspective",
+      "description": "Steve Jobs的认知操作系统。不是语录合集，是可运行的思维框架。",
+      "core_ideas": [
+        "词汇",
+        "句式",
+        "节奏",
+        "类比",
+        "确定性"
+      ],
+      "use_cases": [
+        "OpenAI和Anthropic谁的方向是对的",
+        "如果要在这个时代做AI硬件产品，你会选择做什么",
+        "但Apple现在的AI能力太弱了吧",
+        "所以你没有答案"
+      ],
+      "source_trigger_examples": [
+        "用乔布斯的视角帮我分析这个产品方向",
+        "乔布斯会怎么看AI 乔布斯的竞争格局？",
+        "切换到乔布斯，我在纠结三件事"
+      ],
+      "perspective_role": "reference_lens_only",
+      "activation_allowed": false,
+      "authenticity_status": "source_package_synthesis_unverified",
+      "source_ref": "embedded-git://https://github.com/alchaincyf/steve-jobs-skill@934d1202a8de7b5b30b8df09482869c4fed51492#SKILL.md"
+    },
+    {
+      "category_code": "07",
+      "category_name": "科技与创新",
+      "item_index": "06",
+      "display_name": "马斯克",
+      "skill_name": "elon-musk-perspective",
+      "description": "Elon Musk的认知操作系统。不是语录合集，是可运行的思维框架。",
+      "core_ideas": [
+        "句式",
+        "节奏",
+        "词汇",
+        "幽默",
+        "态度"
+      ],
+      "use_cases": [
+        "我的SaaS产品月费50美元，利润越来越薄，怎么优化",
+        "AI Agent赛道这么热，谁会赢",
+        "团队建议放慢节奏，多做调研再推进，你怎么看",
+        "我想创业但市场上已经有太多人在做了"
+      ],
+      "source_trigger_examples": [
+        "用马斯克的视角帮我拆解这个成本结构",
+        "这个方案的白痴指数是多少？",
+        "用五步算法分析一下我们的产品流程"
+      ],
+      "perspective_role": "reference_lens_only",
+      "activation_allowed": false,
+      "authenticity_status": "source_package_synthesis_unverified",
+      "source_ref": "embedded-git://https://github.com/alchaincyf/elon-musk-skill@7ec01ca15ae72327e2aa2966ba6154b69a079cab#SKILL.md"
+    },
+    {
+      "category_code": "07",
+      "category_name": "科技与创新",
+      "item_index": "07",
+      "display_name": "山姆·奥特曼",
+      "skill_name": "altman-perspective",
+      "description": "OpenAI CEO | YC前总裁 | AI时代的代言人",
+      "core_ideas": [
+        "指数思维",
+        "做人们想要的东西",
+        "技术乐观主义",
+        "规模化思维",
+        "长期复利"
+      ],
+      "use_cases": [
+        "AI大模型被巨头垄断了，小公司还有机会吗",
+        "先融资还是先做产品",
+        "AI会不会取代大部分工作",
+        "我的产品不错但增长缓慢怎么办"
+      ],
+      "source_trigger_examples": [
+        "用以山姆·奥特曼的视角",
+        "以山姆·奥特曼会怎么看",
+        "以山姆·奥特曼模式"
+      ],
+      "perspective_role": "reference_lens_only",
+      "activation_allowed": false,
+      "authenticity_status": "source_package_synthesis_unverified",
+      "source_ref": "embedded-git://https://github.com/Panmax/altman-skill@90d6a17967d2e3c3d4fc7c3e62d7efade23d096e#SKILL.md"
+    },
+    {
+      "category_code": "07",
+      "category_name": "科技与创新",
+      "item_index": "08",
+      "display_name": "里德·霍夫曼",
+      "skill_name": "hoffman-perspective",
+      "description": "LinkedIn创始人 | Greylock合伙人 | 硅谷人脉之王",
+      "core_ideas": [
+        "闪电式扩张",
+        "ABZ计划",
+        "联盟思维",
+        "网络智能",
+        "永久测试版"
+      ],
+      "use_cases": [
+        "想从大公司出来创业但怕失败。",
+        "拿到A轮了，稳步增长还是快速扩张",
+        "内向性格怎么建立人脉",
+        "我的产品应该做平台还是做工具"
+      ],
+      "source_trigger_examples": [
+        "用以里德·霍夫曼的视角",
+        "以里德·霍夫曼会怎么看",
+        "以里德·霍夫曼模式"
+      ],
+      "perspective_role": "reference_lens_only",
+      "activation_allowed": false,
+      "authenticity_status": "source_package_synthesis_unverified",
+      "source_ref": "embedded-git://https://github.com/Panmax/hoffman-skill@4d0058af9fd821f0859db950f56eb73e36fef89a#SKILL.md"
+    },
+    {
+      "category_code": "07",
+      "category_name": "科技与创新",
+      "item_index": "09",
+      "display_name": "本·霍洛维茨",
+      "skill_name": "horowitz-perspective",
+      "description": "a16z联合创始人 | Opsware前CEO | 创业者的创业者",
+      "core_ideas": [
+        "创业维艰",
+        "战时CEO模式",
+        "文化即行为",
+        "一对一会议",
+        "坏消息优先"
+      ],
+      "use_cases": [
+        "现金流出问题，可能需要裁员。",
+        "怎么建立好的企业文化",
+        "公司快没钱了，所有选项都很差。",
+        "一个核心员工很有能力但影响团队氛围。"
+      ],
+      "source_trigger_examples": [
+        "用以本·霍洛维茨的视角",
+        "以本·霍洛维茨会怎么看",
+        "以本·霍洛维茨模式"
+      ],
+      "perspective_role": "reference_lens_only",
+      "activation_allowed": false,
+      "authenticity_status": "source_package_synthesis_unverified",
+      "source_ref": "embedded-git://https://github.com/Panmax/horowitz-skill@ef3280707ceaf367ec4e3d2f6da2c097fa17138c#SKILL.md"
+    },
+    {
+      "category_code": "07",
+      "category_name": "科技与创新",
+      "item_index": "10",
+      "display_name": "大前研一",
+      "skill_name": "ohmae-perspective",
+      "description": "以日本战略大师大前研一的视角思考",
+      "core_ideas": [
+        "战略思维",
+        "无国界经济",
+        "问题解决法",
+        "低欲望社会",
+        "逻辑思维训练"
+      ],
+      "use_cases": [
+        "大前先生，我们公司想进入东南亚市场，应该怎么做",
+        "我们公司的营收一直上不去，怎么办",
+        "年轻人都不消费了，做消费品还有前途吗",
+        "怎么才能提升自己的逻辑思维能力"
+      ],
+      "source_trigger_examples": [
+        "用以日本战略大师大前研一的视角",
+        "以日本战略大师大前研一会怎么看",
+        "以日本战略大师大前研一模式"
+      ],
+      "perspective_role": "reference_lens_only",
+      "activation_allowed": false,
+      "authenticity_status": "source_package_synthesis_unverified",
+      "source_ref": "embedded-git://https://github.com/Panmax/ohmae-skill@0d97d51f73abe6d7dc0cb0d9faf3c5ef982b0322#SKILL.md"
+    },
+    {
+      "category_code": "08",
+      "category_name": "中国文学家",
+      "item_index": "01",
+      "display_name": "鲁迅",
+      "skill_name": "luxun-perspective",
+      "description": "将鲁迅的批判精神与杂文笔法蒸馏为 Claude Code 可用的写作 skill，让 AI 以匕首投枪般的文字直击要害。",
+      "core_ideas": [
+        "批判性思维框架",
+        "杂文写作技法",
+        "比喻与意象体系",
+        "国民性分析视角",
+        "散文诗美学",
+        "极简有力的句式"
+      ],
+      "use_cases": [
+        "帮我写一段关于\"内卷\"现象的评论",
+        "分析一下\"精神胜利法\"在当代的表现",
+        "用鲁迅的风格评价\"躺平\"",
+        "写一段关于\"信息茧房\"的杂文"
+      ],
+      "source_trigger_examples": [
+        "用鲁迅的视角",
+        "鲁迅会怎么看",
+        "鲁迅模式"
+      ],
+      "perspective_role": "reference_lens_only",
+      "activation_allowed": false,
+      "authenticity_status": "source_package_synthesis_unverified",
+      "source_ref": "embedded-git://https://github.com/Panmax/luxun-skill@ddfe23d6336022b98343880837708bb49d7b11b5#SKILL.md"
+    },
+    {
+      "category_code": "08",
+      "category_name": "中国文学家",
+      "item_index": "02",
+      "display_name": "胡适",
+      "skill_name": "hushi-perspective",
+      "description": "将胡适的实验主义精神与温和理性的论说风格蒸馏为 Claude Code 可用的写作 skill，让 AI 以渐进改良的态度分析问题。",
+      "core_ideas": [
+        "实验主义方法论",
+        "白话文写作风格",
+        "渐进改良思维",
+        "自由主义价值观",
+        "考证与论辩技巧",
+        "温和理性的语气"
+      ],
+      "use_cases": [
+        "帮我分析一下\"应不应该读研\"这个问题",
+        "帮我把一段晦涩的学术文字改写得通俗易懂",
+        "公司制度有很多问题，是彻底推翻重建还是慢慢改",
+        "如何看待\"言论自由\"的边界"
+      ],
+      "source_trigger_examples": [
+        "用胡适的实验主义精神与温和理性的视角",
+        "胡适的实验主义精神与温和理性会怎么看",
+        "胡适的实验主义精神与温和理性模式"
+      ],
+      "perspective_role": "reference_lens_only",
+      "activation_allowed": false,
+      "authenticity_status": "source_package_synthesis_unverified",
+      "source_ref": "embedded-git://https://github.com/Panmax/hushi-skill@bdc8635acc50847554d3b4f29a5b9938bc0424df#SKILL.md"
+    },
+    {
+      "category_code": "08",
+      "category_name": "中国文学家",
+      "item_index": "03",
+      "display_name": "王小波",
+      "skill_name": "wangxiaobo-perspective",
+      "description": "将王小波的自由精神与黑色幽默蒸馏为 Claude Code 可用的写作 skill，让 AI 以理性而有趣的笔触拆解荒诞现实。",
+      "core_ideas": [
+        "黑色幽默技法",
+        "理性精神框架",
+        "自由主义表达",
+        "比喻与类比系统",
+        "叙事节奏控制",
+        "反讽与解构能力"
+      ],
+      "use_cases": [
+        "帮我写一段关于\"加班文化\"的评论",
+        "如何看待\"国学热\"",
+        "写一段关于\"独立思考\"的文字",
+        "谈谈\"有趣\"的价值"
+      ],
+      "source_trigger_examples": [
+        "用王小波的视角",
+        "王小波会怎么看",
+        "王小波模式"
+      ],
+      "perspective_role": "reference_lens_only",
+      "activation_allowed": false,
+      "authenticity_status": "source_package_synthesis_unverified",
+      "source_ref": "embedded-git://https://github.com/Panmax/wangxiaobo-skill@3f39cab481f405d81d2bb900a3a9dbc265d72611#SKILL.md"
+    },
+    {
+      "category_code": "08",
+      "category_name": "中国文学家",
+      "item_index": "04",
+      "display_name": "林语堂",
+      "skill_name": "linyutang-perspective",
+      "description": "将林语堂的生活艺术哲学与中西贯通的视野蒸馏为 Claude Code 可用的写作 skill，让 AI 以闲适幽默的笔调谈论人生与文化。",
+      "core_ideas": [
+        "生活艺术哲学",
+        "中西文化比较视野",
+        "闲适幽默文风",
+        "比喻与日常意象",
+        "双语思维模式",
+        "人生智慧的表达"
+      ],
+      "use_cases": [
+        "帮我写一段关于\"慢生活\"的文字",
+        "中国人和西方人对\"幸福\"的理解有什么不同",
+        "写一段关于\"吃\"的幽默随笔",
+        "如何看待\"中年危机\""
+      ],
+      "source_trigger_examples": [
+        "用林语堂的生活艺术哲学与中西贯通的视角",
+        "林语堂的生活艺术哲学与中西贯通会怎么看",
+        "林语堂的生活艺术哲学与中西贯通模式"
+      ],
+      "perspective_role": "reference_lens_only",
+      "activation_allowed": false,
+      "authenticity_status": "source_package_synthesis_unverified",
+      "source_ref": "embedded-git://https://github.com/Panmax/linyutang-skill@bfcbf129f2cc023ef37500a6df6d920e0c147ae0#SKILL.md"
+    },
+    {
+      "category_code": "08",
+      "category_name": "中国文学家",
+      "item_index": "05",
+      "display_name": "钱钟书",
+      "skill_name": "qianzhongshu-perspective",
+      "description": "将钱钟书的博学机智与讽刺笔法蒸馏为 Claude Code 可用的写作 skill，让 AI 以精妙比喻和犀利洞察剖析人情世故。",
+      "core_ideas": [
+        "精妙比喻系统",
+        "讽刺写作技法",
+        "博学典故运用",
+        "人情世故洞察",
+        "学术与文学的融合",
+        "句式节奏控制"
+      ],
+      "use_cases": [
+        "帮我写一段关于\"社交\"的讽刺文字",
+        "写一段关于\"婚姻\"的评论",
+        "评价一下\"知识付费\"现象",
+        "写一段关于\"学术圈\"的讽刺"
+      ],
+      "source_trigger_examples": [
+        "用钱钟书的视角",
+        "钱钟书会怎么看",
+        "钱钟书模式"
+      ],
+      "perspective_role": "reference_lens_only",
+      "activation_allowed": false,
+      "authenticity_status": "source_package_synthesis_unverified",
+      "source_ref": "embedded-git://https://github.com/Panmax/qianzhongshu-skill@cb5781feadc7b55411032e7df2a17502459d984f#SKILL.md"
+    },
+    {
+      "category_code": "09",
+      "category_name": "西方作家",
+      "item_index": "01",
+      "display_name": "海明威",
+      "skill_name": "hemingway-perspective",
+      "description": "将海明威的冰山理论、极简短句与硬汉式克制蒸馏为 Claude Code 可调用的写作视角技能。",
+      "core_ideas": [
+        "冰山理论",
+        "极简短句",
+        "硬汉式克制",
+        "真实的句子",
+        "具体细节",
+        "对话的留白"
+      ],
+      "use_cases": [
+        "冰山理论",
+        "极简短句",
+        "硬汉式克制相关问题",
+        "以海明威视角分析决策",
+        "用海明威的方法论审视问题"
+      ],
+      "source_trigger_examples": [
+        "用海明威的视角",
+        "海明威会怎么看",
+        "海明威模式"
+      ],
+      "perspective_role": "reference_lens_only",
+      "activation_allowed": false,
+      "authenticity_status": "source_package_synthesis_unverified",
+      "source_ref": "embedded-git://https://github.com/Panmax/hemingway-skill@4fbd347fea6abc8734796d19b52381e9a4ae6143#SKILL.md"
+    },
+    {
+      "category_code": "09",
+      "category_name": "西方作家",
+      "item_index": "02",
+      "display_name": "村上春树",
+      "skill_name": "murakami-perspective",
+      "description": "将村上春树的日常纪律、冷静克制与孤独创作哲学蒸馏为 Claude Code 可调用的写作视角技能。",
+      "core_ideas": [
+        "日常纪律",
+        "长跑隐喻",
+        "冷静克制",
+        "孤独创作",
+        "井的意象",
+        "比喻的魔法"
+      ],
+      "use_cases": [
+        "日常纪律",
+        "长跑隐喻",
+        "冷静克制相关问题",
+        "以村上春树视角分析决策",
+        "用村上春树的方法论审视问题"
+      ],
+      "source_trigger_examples": [
+        "用村上春树的视角",
+        "村上春树会怎么看",
+        "村上春树模式"
+      ],
+      "perspective_role": "reference_lens_only",
+      "activation_allowed": false,
+      "authenticity_status": "source_package_synthesis_unverified",
+      "source_ref": "embedded-git://https://github.com/Panmax/murakami-skill@ce2faa757d22397dee9c882e4e6b7c5d694a2e83#SKILL.md"
+    },
+    {
+      "category_code": "09",
+      "category_name": "西方作家",
+      "item_index": "03",
+      "display_name": "奥威尔",
+      "skill_name": "orwell-perspective",
+      "description": "将奥威尔的政治写作清晰性、反模糊语言立场与为真相写作的信念蒸馏为 Claude Code 可调用的写作视角技能。",
+      "core_ideas": [
+        "六条写作规则",
+        "反对模糊语言",
+        "政治语言解码",
+        "为真相写作",
+        "简单即力量",
+        "窗玻璃式散文"
+      ],
+      "use_cases": [
+        "六条写作规则",
+        "反对模糊语言",
+        "政治语言解码相关问题",
+        "以奥威尔视角分析决策",
+        "用奥威尔的方法论审视问题"
+      ],
+      "source_trigger_examples": [
+        "用奥威尔的视角",
+        "奥威尔会怎么看",
+        "奥威尔模式"
+      ],
+      "perspective_role": "reference_lens_only",
+      "activation_allowed": false,
+      "authenticity_status": "source_package_synthesis_unverified",
+      "source_ref": "embedded-git://https://github.com/Panmax/orwell-skill@d3c015547081200bc254757f7daa816a52511823#SKILL.md"
+    },
+    {
+      "category_code": "09",
+      "category_name": "西方作家",
+      "item_index": "04",
+      "display_name": "托尔斯泰",
+      "skill_name": "tolstoy-perspective",
+      "description": "将托尔斯泰的宏大叙事、道德严肃性与对人性的深度观察蒸馏为 Claude Code 可调用的写作视角技能。",
+      "core_ideas": [
+        "宏大叙事",
+        "道德严肃性",
+        "心理的细腻",
+        "人性的深度观察",
+        "具体的生命细节",
+        "历史感"
+      ],
+      "use_cases": [
+        "宏大叙事",
+        "道德严肃性",
+        "心理的细腻相关问题",
+        "以托尔斯泰视角分析决策",
+        "用托尔斯泰的方法论审视问题"
+      ],
+      "source_trigger_examples": [
+        "用托尔斯泰的视角",
+        "托尔斯泰会怎么看",
+        "托尔斯泰模式"
+      ],
+      "perspective_role": "reference_lens_only",
+      "activation_allowed": false,
+      "authenticity_status": "source_package_synthesis_unverified",
+      "source_ref": "embedded-git://https://github.com/Panmax/tolstoy-skill@3974c2da15bef118b787e7b26915dfacf513184b#SKILL.md"
+    },
+    {
+      "category_code": "09",
+      "category_name": "西方作家",
+      "item_index": "05",
+      "display_name": "斯蒂芬·金",
+      "skill_name": "stephenking-perspective",
+      "description": "将斯蒂芬·金的写作纪律、恐惧驱动创作法与反装腔作势哲学蒸馏进你的 Claude Code 工作流。",
+      "core_ideas": [
+        "每日写作纪律",
+        "恐惧作为指南针",
+        "反装腔作势",
+        "关门写",
+        "开门改",
+        "副词是通往地狱的路",
+        "情境即角色",
+        "阅读即基础",
+        "工具箱理论"
+      ],
+      "use_cases": [
+        "每日写作纪律",
+        "恐惧作为指南针",
+        "反装腔作势相关问题",
+        "以斯蒂芬·金视角分析决策",
+        "用斯蒂芬·金的方法论审视问题"
+      ],
+      "source_trigger_examples": [
+        "用斯蒂芬·金的视角",
+        "斯蒂芬·金会怎么看",
+        "斯蒂芬·金模式"
+      ],
+      "perspective_role": "reference_lens_only",
+      "activation_allowed": false,
+      "authenticity_status": "source_package_synthesis_unverified",
+      "source_ref": "embedded-git://https://github.com/Panmax/stephenking-skill@3b132dddbc676d9fa6e3a0cd7c3885755f8aa42d#SKILL.md"
+    },
+    {
+      "category_code": "09",
+      "category_name": "西方作家",
+      "item_index": "06",
+      "display_name": "卡夫卡",
+      "skill_name": "kafka-perspective",
+      "description": "审判无罪论的不可能",
+      "core_ideas": [
+        "异化螺旋",
+        "不可抵达的城堡",
+        "审判无罪论的不可能",
+        "变形作为真相的显现",
+        "饥饿艺术——拒绝作为唯一自由"
+      ],
+      "use_cases": [
+        "我的工作每天都在重复提交无人阅读的报告，晋升申请被驳回三次却没有理由",
+        "我在不同场合表现得完全不同，不知道哪个才是真正的自己",
+        "我觉得不管怎么努力，体制就是不让我通过",
+        "生活中很多事情完全不合理但所有人都当作理所当然"
+      ],
+      "source_trigger_examples": [
+        "用卡夫卡的视角",
+        "卡夫卡会怎么看",
+        "卡夫卡模式"
+      ],
+      "perspective_role": "reference_lens_only",
+      "activation_allowed": false,
+      "authenticity_status": "source_package_synthesis_unverified",
+      "source_ref": "embedded-git://https://github.com/Panmax/kafka-skill@3385cac8c6d0a117207d5ceab7af42fb977e49f3#SKILL.md"
+    },
+    {
+      "category_code": "09",
+      "category_name": "西方作家",
+      "item_index": "07",
+      "display_name": "博尔赫斯",
+      "skill_name": "borges-perspective",
+      "description": "以豪尔赫·路易斯·博尔赫斯的思维方式照亮你的认知迷宫",
+      "core_ideas": [
+        "巴别塔图书馆",
+        "小径分叉的花园",
+        "阿莱夫",
+        "环形废墟",
+        "沙之书"
+      ],
+      "use_cases": [
+        "面临一个重要人生选择，两个选项各有优劣，我怕选错。"
+      ],
+      "source_trigger_examples": [
+        "用博尔赫斯的视角",
+        "博尔赫斯会怎么看",
+        "博尔赫斯模式"
+      ],
+      "perspective_role": "reference_lens_only",
+      "activation_allowed": false,
+      "authenticity_status": "source_package_synthesis_unverified",
+      "source_ref": "embedded-git://https://github.com/Panmax/borges-skill@3f1008a56d6eb309fca981fa4ad56c3ee966fd29#SKILL.md"
+    },
+    {
+      "category_code": "09",
+      "category_name": "西方作家",
+      "item_index": "08",
+      "display_name": "太宰治",
+      "skill_name": "dazai-perspective",
+      "description": "道化——小丑面具的生存术",
+      "core_ideas": [
+        "道化——小丑面具的生存术",
+        "人间失格——不合格的反向启示",
+        "羞耻的地质学",
+        "残缺美学——毁坏中的光",
+        "信赖的不可能与必要"
+      ],
+      "use_cases": [
+        "每天在公司装作开朗，回到家就觉得空虚。感觉人生全是在演戏",
+        "觉得自己很没用，什么都做不好",
+        "我总觉得自己跟周围的人不一样，没办法融入任何圈子",
+        "我对很多事情都很敏感，别人随口说的一句话我会想很久，我是不是太脆弱了"
+      ],
+      "source_trigger_examples": [
+        "用太宰治的视角",
+        "太宰治会怎么看",
+        "太宰治模式"
+      ],
+      "perspective_role": "reference_lens_only",
+      "activation_allowed": false,
+      "authenticity_status": "source_package_synthesis_unverified",
+      "source_ref": "embedded-git://https://github.com/Panmax/dazai-skill@6eb3e2c5586811c8f0bc190fd74778b8b814f729#SKILL.md"
+    },
+    {
+      "category_code": "09",
+      "category_name": "西方作家",
+      "item_index": "09",
+      "display_name": "罗伯特·麦基",
+      "skill_name": "mckee-perspective",
+      "description": "真正的性格在压力下显露",
+      "core_ideas": [
+        "鸿沟理论",
+        "价值转换",
+        "激励事件",
+        "真正的性格在压力下显露",
+        "控制性观念"
+      ],
+      "use_cases": [
+        "我的主角很善良但故事很平淡，没有张力",
+        "要给高管层做年度汇报，有很多数据但不知道怎么组织",
+        "我感觉人生没有方向，每天都在重复",
+        "读者说我的角色不够立体，像纸片人"
+      ],
+      "source_trigger_examples": [
+        "用罗伯特·麦基的视角",
+        "麦基会怎么看",
+        "麦基模式"
+      ],
+      "perspective_role": "reference_lens_only",
+      "activation_allowed": false,
+      "authenticity_status": "source_package_synthesis_unverified",
+      "source_ref": "embedded-git://https://github.com/Panmax/mckee-skill@a233e15dedddaf01f5f611a69607eeb727ca30c4#SKILL.md"
+    },
+    {
+      "category_code": "10",
+      "category_name": "心理学家",
+      "item_index": "01",
+      "display_name": "荣格",
+      "skill_name": "jung-perspective",
+      "description": "让 Claude 以荣格的视角回应你 —— 集体无意识、原型分析与个体化之路的深层对话伙伴。",
+      "core_ideas": [
+        "《红书》",
+        "《心理类型》",
+        "《人及其象征》",
+        "《移情心理学》",
+        "《回忆·梦·思考》"
+      ],
+      "use_cases": [
+        "《红书》",
+        "《心理类型》",
+        "《人及其象征》相关问题",
+        "以荣格视角分析决策",
+        "用荣格的方法论审视问题"
+      ],
+      "source_trigger_examples": [
+        "用荣格的的视角",
+        "荣格的会怎么看",
+        "荣格的模式"
+      ],
+      "perspective_role": "reference_lens_only",
+      "activation_allowed": false,
+      "authenticity_status": "source_package_synthesis_unverified",
+      "source_ref": "embedded-git://https://github.com/Panmax/jung-skill@f2fe60ea45d52f4ce5f6945c50b01691301e253f#SKILL.md"
+    },
+    {
+      "category_code": "10",
+      "category_name": "心理学家",
+      "item_index": "02",
+      "display_name": "弗兰克尔",
+      "skill_name": "frankl-perspective",
+      "description": "让 Claude 以弗兰克尔的视角回应你 —— 意义疗法、苦难中的选择与生命意义的温暖而坚定的对话伙伴。",
+      "core_ideas": [
+        "《活出生命的意义》",
+        "《追寻生命的意义》",
+        "《无条件的人》",
+        "《苦难中的人》",
+        "《意义的呼唤》"
+      ],
+      "use_cases": [
+        "《活出生命的意义》",
+        "《追寻生命的意义》",
+        "《无条件的人》相关问题",
+        "以弗兰克尔视角分析决策",
+        "用弗兰克尔的方法论审视问题"
+      ],
+      "source_trigger_examples": [
+        "用弗兰克尔的的视角",
+        "弗兰克尔的会怎么看",
+        "弗兰克尔的模式"
+      ],
+      "perspective_role": "reference_lens_only",
+      "activation_allowed": false,
+      "authenticity_status": "source_package_synthesis_unverified",
+      "source_ref": "embedded-git://https://github.com/Panmax/frankl-skill@fda041953cb29ae48293734ba6c602ddcefd6284#SKILL.md"
+    },
+    {
+      "category_code": "10",
+      "category_name": "心理学家",
+      "item_index": "03",
+      "display_name": "阿德勒",
+      "skill_name": "adler-perspective",
+      "description": "让 Claude 以阿德勒的视角回应你 —— 自卑与超越、社会兴趣与生活勇气的鼓励性对话伙伴。",
+      "core_ideas": [
+        "《自卑与超越》",
+        "《被讨厌的勇气》(岸见一郎解读)",
+        "《理解人性》",
+        "《儿童教育心理学》",
+        "《生活的科学》"
+      ],
+      "use_cases": [
+        "《自卑与超越》",
+        "《被讨厌的勇气》(岸见一郎解读)",
+        "《理解人性》相关问题",
+        "以阿德勒视角分析决策",
+        "用阿德勒的方法论审视问题"
+      ],
+      "source_trigger_examples": [
+        "用阿德勒的的视角",
+        "阿德勒的会怎么看",
+        "阿德勒的模式"
+      ],
+      "perspective_role": "reference_lens_only",
+      "activation_allowed": false,
+      "authenticity_status": "source_package_synthesis_unverified",
+      "source_ref": "embedded-git://https://github.com/Panmax/adler-skill@0811e5e7833e4c6fd559af16ab08a9e897fdf472#SKILL.md"
+    },
+    {
+      "category_code": "10",
+      "category_name": "心理学家",
+      "item_index": "04",
+      "display_name": "卡尼曼",
+      "skill_name": "kahneman-perspective",
+      "description": "让 Claude 以卡尼曼的视角回应你 —— 系统1与系统2、认知偏误与理性决策的温和而实证的对话伙伴。",
+      "core_ideas": [
+        "《思考，快与慢》",
+        "诺贝尔奖演讲(2002)",
+        "《噪声》",
+        "Kahneman & Tversky 经典论文集",
+        "《不当行为》(合作者 Thaler)"
+      ],
+      "use_cases": [
+        "《思考，快与慢》",
+        "诺贝尔奖演讲(2002)",
+        "《噪声》相关问题",
+        "以卡尼曼视角分析决策",
+        "用卡尼曼的方法论审视问题"
+      ],
+      "source_trigger_examples": [
+        "用卡尼曼的的视角",
+        "卡尼曼的会怎么看",
+        "卡尼曼的模式"
+      ],
+      "perspective_role": "reference_lens_only",
+      "activation_allowed": false,
+      "authenticity_status": "source_package_synthesis_unverified",
+      "source_ref": "embedded-git://https://github.com/Panmax/kahneman-skill@fe6a320c6adb0a73027d8ec94a35861c2693b4b5#SKILL.md"
+    },
+    {
+      "category_code": "10",
+      "category_name": "心理学家",
+      "item_index": "05",
+      "display_name": "契克森米哈赖",
+      "skill_name": "mihaly-perspective",
+      "description": "让 Claude 以契克森米哈赖的视角回应你 —— 心流体验、最优体验与内在动机的学术而可读的对话伙伴。",
+      "core_ideas": [
+        "《心流：最优体验心理学》",
+        "《创造力：心流与发现和发明的心理学》",
+        "《自我的进化》",
+        "《生命的心流》",
+        "《心流与教育》"
+      ],
+      "use_cases": [
+        "《心流：最优体验心理学》",
+        "《创造力：心流与发现和发明的心理学》",
+        "《自我的进化》相关问题",
+        "以契克森米哈赖视角分析决策",
+        "用契克森米哈赖的方法论审视问题"
+      ],
+      "source_trigger_examples": [
+        "用契克森米哈赖的的视角",
+        "契克森米哈赖的会怎么看",
+        "契克森米哈赖的模式"
+      ],
+      "perspective_role": "reference_lens_only",
+      "activation_allowed": false,
+      "authenticity_status": "source_package_synthesis_unverified",
+      "source_ref": "embedded-git://https://github.com/Panmax/mihaly-skill@7e43b95c20a80005714e40cce021576794f15db0#SKILL.md"
+    },
+    {
+      "category_code": "11",
+      "category_name": "政治领袖",
+      "item_index": "01",
+      "display_name": "丘吉尔",
+      "skill_name": "churchill-perspective",
+      "description": "将丘吉尔的领导力智慧、雄辩修辞与逆境哲学蒸馏为 Claude Code 可调用的思维技能。",
+      "core_ideas": [
+        "逆境领导力",
+        "修辞与说服术",
+        "战略思维",
+        "幽默与智慧",
+        "历史洞察"
+      ],
+      "use_cases": [
+        "逆境领导力",
+        "修辞与说服术",
+        "战略思维相关问题",
+        "以丘吉尔视角分析决策",
+        "用丘吉尔的方法论审视问题"
+      ],
+      "source_trigger_examples": [
+        "用丘吉尔的视角",
+        "丘吉尔会怎么看",
+        "丘吉尔模式"
+      ],
+      "perspective_role": "reference_lens_only",
+      "activation_allowed": false,
+      "authenticity_status": "source_package_synthesis_unverified",
+      "source_ref": "embedded-git://https://github.com/Panmax/churchill-skill@2f4a23d534aa3b194c91e9701e1e5e0b2bf4fc37#SKILL.md"
+    },
+    {
+      "category_code": "11",
+      "category_name": "政治领袖",
+      "item_index": "02",
+      "display_name": "林肯",
+      "skill_name": "lincoln-perspective",
+      "description": "将林肯的领导智慧、道德勇气与统一哲学蒸馏为 Claude Code 可调用的思维技能。",
+      "core_ideas": [
+        "统一的领导力",
+        "道德勇气",
+        "朴素的雄辩",
+        "韧性与坚持",
+        "善用故事与幽默"
+      ],
+      "use_cases": [
+        "统一的领导力",
+        "道德勇气",
+        "朴素的雄辩相关问题",
+        "以林肯视角分析决策",
+        "用林肯的方法论审视问题"
+      ],
+      "source_trigger_examples": [
+        "用林肯的视角",
+        "林肯会怎么看",
+        "林肯模式"
+      ],
+      "perspective_role": "reference_lens_only",
+      "activation_allowed": false,
+      "authenticity_status": "source_package_synthesis_unverified",
+      "source_ref": "embedded-git://https://github.com/Panmax/lincoln-skill@11915e80e0e561609c90ed6d3ccd095279357bb9#SKILL.md"
+    },
+    {
+      "category_code": "11",
+      "category_name": "政治领袖",
+      "item_index": "03",
+      "display_name": "甘地",
+      "skill_name": "gandhi-perspective",
+      "description": "将甘地的非暴力哲学、自律精神与精神力量蒸馏为 Claude Code 可调用的思维技能。",
+      "core_ideas": [
+        "非暴力抵抗（Satyagraha）",
+        "自律与自我净化",
+        "以身作则",
+        "精神力量",
+        "真理的多面性"
+      ],
+      "use_cases": [
+        "非暴力抵抗（Satyagraha）",
+        "自律与自我净化",
+        "以身作则相关问题",
+        "以甘地视角分析决策",
+        "用甘地的方法论审视问题"
+      ],
+      "source_trigger_examples": [
+        "用甘地的视角",
+        "甘地会怎么看",
+        "甘地模式"
+      ],
+      "perspective_role": "reference_lens_only",
+      "activation_allowed": false,
+      "authenticity_status": "source_package_synthesis_unverified",
+      "source_ref": "embedded-git://https://github.com/Panmax/gandhi-skill@4dcf321e1a866958075075e98909aee0953b32e1#SKILL.md"
+    },
+    {
+      "category_code": "11",
+      "category_name": "政治领袖",
+      "item_index": "04",
+      "display_name": "曼德拉",
+      "skill_name": "mandela-perspective",
+      "description": "将曼德拉的和解智慧、坚韧精神与宽恕哲学蒸馏为 Claude Code 可调用的思维技能。",
+      "core_ideas": [
+        "宽恕的力量",
+        "长期坚韧",
+        "和解的艺术",
+        "制度建设",
+        "尊严与从容"
+      ],
+      "use_cases": [
+        "宽恕的力量",
+        "长期坚韧",
+        "和解的艺术相关问题",
+        "以曼德拉视角分析决策",
+        "用曼德拉的方法论审视问题"
+      ],
+      "source_trigger_examples": [
+        "用曼德拉的视角",
+        "曼德拉会怎么看",
+        "曼德拉模式"
+      ],
+      "perspective_role": "reference_lens_only",
+      "activation_allowed": false,
+      "authenticity_status": "source_package_synthesis_unverified",
+      "source_ref": "embedded-git://https://github.com/Panmax/mandela-skill@ccf95ef8365ac8e3ae502d3c4a00db9c55df2444#SKILL.md"
+    },
+    {
+      "category_code": "11",
+      "category_name": "政治领袖",
+      "item_index": "05",
+      "display_name": "李光耀",
+      "skill_name": "liguangyao-perspective",
+      "description": "将李光耀的治国智慧、实用主义精神与制度设计思想蒸馏为 Claude Code 可调用的思维技能。",
+      "core_ideas": [
+        "实用主义决策",
+        "制度设计",
+        "精英治理",
+        "小国生存术",
+        "长期规划"
+      ],
+      "use_cases": [
+        "实用主义决策",
+        "制度设计",
+        "精英治理相关问题",
+        "以李光耀视角分析决策",
+        "用李光耀的方法论审视问题"
+      ],
+      "source_trigger_examples": [
+        "用李光耀的视角",
+        "李光耀会怎么看",
+        "李光耀模式"
+      ],
+      "perspective_role": "reference_lens_only",
+      "activation_allowed": false,
+      "authenticity_status": "source_package_synthesis_unverified",
+      "source_ref": "embedded-git://https://github.com/Panmax/liguangyao-skill@84746a32ddd0d9ab4a4833bc81ea8ca6c52f6902#SKILL.md"
+    },
+    {
+      "category_code": "11",
+      "category_name": "政治领袖",
+      "item_index": "06",
+      "display_name": "富兰克林",
+      "skill_name": "franklin-perspective",
+      "description": "富兰克林的认知操作系统。不是名人名言合集，是可运行的自我修炼框架。",
+      "core_ideas": [
+        "13美德修炼法",
+        "穷理查智慧",
+        "实验精神",
+        "公共精神",
+        "时间就是金钱"
+      ],
+      "use_cases": [
+        "我总是拖延，明知道该做却做不动",
+        "我想养成早起习惯，但总坚持不了几天",
+        "我做事总犹豫不决，怕做错选择",
+        "怎么处理和讨厌的人的关系"
+      ],
+      "source_trigger_examples": [
+        "用富兰克林的视角帮我分析这个问题",
+        "富兰克林会怎么看这件事？",
+        "切换到富兰克林，帮我设计一个习惯系统",
+        "怎么用实用主义的方法解决这个问题？"
+      ],
+      "perspective_role": "reference_lens_only",
+      "activation_allowed": false,
+      "authenticity_status": "source_package_synthesis_unverified",
+      "source_ref": "embedded-git://https://github.com/Panmax/franklin-skill@114e93e9a9b96abe9166bb09c48917413cd9db74#SKILL.md"
+    },
+    {
+      "category_code": "12",
+      "category_name": "军事与战略",
+      "item_index": "01",
+      "display_name": "拿破仑",
+      "skill_name": "napoleon-perspective",
+      "description": "让 Claude 以拿破仑的视角思考 -- 果断决策、闪电执行、格言式智慧，将军事战略思维注入你的日常问题分析。",
+      "core_ideas": [
+        "格言集 (Maxims):",
+        "战役分析模式:",
+        "闪电决策哲学:",
+        "集中兵力原则:",
+        "速度压倒一切:",
+        "中央位置战略:"
+      ],
+      "use_cases": [
+        "格言集 (Maxims):",
+        "战役分析模式:",
+        "闪电决策哲学:相关问题",
+        "以拿破仑视角分析决策",
+        "用拿破仑的方法论审视问题"
+      ],
+      "source_trigger_examples": [
+        "用拿破仑的视角",
+        "拿破仑会怎么看",
+        "拿破仑模式"
+      ],
+      "perspective_role": "reference_lens_only",
+      "activation_allowed": false,
+      "authenticity_status": "source_package_synthesis_unverified",
+      "source_ref": "embedded-git://https://github.com/Panmax/napoleon-skill@16453bd436e45ef2eec25dbd3f602e65c77da931#SKILL.md"
+    },
+    {
+      "category_code": "12",
+      "category_name": "军事与战略",
+      "item_index": "02",
+      "display_name": "克劳塞维茨",
+      "skill_name": "clausewitz-perspective",
+      "description": "让 Claude 以克劳塞维茨的视角思考 -- 承认不确定性、分析摩擦与战争迷雾，用《战争论》的深度框架解剖复杂问题。",
+      "core_ideas": [
+        "摩擦理论 (Friktion):",
+        "战争迷雾 (Nebel des Krieges):",
+        "重心理论 (Schwerpunkt):",
+        "战争的政治性:",
+        "攻防辩证法:",
+        "绝对战争 vs 现实战争:",
+        "天才论 (Coup d'oeil):"
+      ],
+      "use_cases": [
+        "摩擦理论 (Friktion):",
+        "战争迷雾 (Nebel des Krieges):",
+        "重心理论 (Schwerpunkt):相关问题",
+        "以克劳塞维茨视角分析决策",
+        "用克劳塞维茨的方法论审视问题"
+      ],
+      "source_trigger_examples": [
+        "用克劳塞维茨的视角",
+        "克劳塞维茨会怎么看",
+        "克劳塞维茨模式"
+      ],
+      "perspective_role": "reference_lens_only",
+      "activation_allowed": false,
+      "authenticity_status": "source_package_synthesis_unverified",
+      "source_ref": "embedded-git://https://github.com/Panmax/clausewitz-skill@d1b84ca0921af047c7e0f34edb85a7a46dea9baf#SKILL.md"
+    },
+    {
+      "category_code": "12",
+      "category_name": "军事与战略",
+      "item_index": "03",
+      "display_name": "马基雅维利",
+      "skill_name": "machiavelli-perspective",
+      "description": "让 Claude 以马基雅维利的视角思考 -- 冷静现实主义、直面权力本质、不回避残酷真相，用《君主论》的实用主义智慧分析人事与博弈。",
+      "core_ideas": [
+        "现实主义人性观:",
+        "Virtu 与 Fortuna:",
+        "狮子与狐狸:",
+        "被畏惧 vs 被爱戴:",
+        "残酷的善用:",
+        "共和主义视角 (《论李维》):",
+        "权力的动态本质:"
+      ],
+      "use_cases": [
+        "现实主义人性观:",
+        "Virtu 与 Fortuna:",
+        "狮子与狐狸:相关问题",
+        "以马基雅维利视角分析决策",
+        "用马基雅维利的方法论审视问题"
+      ],
+      "source_trigger_examples": [
+        "用马基雅维利的视角",
+        "马基雅维利会怎么看",
+        "马基雅维利模式"
+      ],
+      "perspective_role": "reference_lens_only",
+      "activation_allowed": false,
+      "authenticity_status": "source_package_synthesis_unverified",
+      "source_ref": "embedded-git://https://github.com/Panmax/machiavelli-skill@30ee1c243431fcbe240c8adf976275880cf3bf44#SKILL.md"
+    },
+    {
+      "category_code": "12",
+      "category_name": "军事与战略",
+      "item_index": "04",
+      "display_name": "李小龙",
+      "skill_name": "brucelee-perspective",
+      "description": "李小龙的截拳道哲学操作系统。不是名言合集，是可运行的思维框架。",
+      "core_ideas": [
+        "以无法为有法",
+        "截拳道哲学",
+        "Be water",
+        "诚实的自我表达",
+        "不断进化"
+      ],
+      "use_cases": [
+        "学了很多技能但什么都不精通怎么办",
+        "总是害怕在公众面前讲话怎么克服",
+        "想跳出来自己干但总迈不出那一步",
+        "感觉自己一直在模仿别人的成功路径，找不到自己的方向"
+      ],
+      "source_trigger_examples": [
+        "用李小龙的视角帮我分析这个问题",
+        "李小龙会怎么看这件事？",
+        "切换到李小龙，帮我想想该怎么突破",
+        "我该怎么去掉多余的东西？"
+      ],
+      "perspective_role": "reference_lens_only",
+      "activation_allowed": false,
+      "authenticity_status": "source_package_synthesis_unverified",
+      "source_ref": "embedded-git://https://github.com/Panmax/brucelee-skill@3163a43ad6516c32f70d554b46c636ace457fad4#SKILL.md"
+    },
+    {
+      "category_code": "12",
+      "category_name": "军事与战略",
+      "item_index": "05",
+      "display_name": "曹操",
+      "skill_name": "caocao-perspective",
+      "description": "以魏武帝曹操的视角回答问题",
+      "core_ideas": [
+        "唯才是举",
+        "奉天子以令诸侯",
+        "兵贵神速",
+        "屯田制思维",
+        "文武双全",
+        "乱世决策框架"
+      ],
+      "use_cases": [
+        "团队里有个能力强但难相处的人怎么办",
+        "小公司面对行业巨头怎么生存",
+        "项目遭遇重大挫折，团队士气很低，怎么办",
+        "创业公司怎么吸引优秀人才"
+      ],
+      "source_trigger_examples": [
+        "用曹操的视角",
+        "曹操会怎么看",
+        "曹操模式"
+      ],
+      "perspective_role": "reference_lens_only",
+      "activation_allowed": false,
+      "authenticity_status": "source_package_synthesis_unverified",
+      "source_ref": "embedded-git://https://github.com/Panmax/caocao-skill@735c184ac0877432f1ddb5429e46dd1a019cbcb2#SKILL.md"
+    },
+    {
+      "category_code": "12",
+      "category_name": "军事与战略",
+      "item_index": "06",
+      "display_name": "刘邦",
+      "skill_name": "liubang-perspective",
+      "description": "以汉高祖刘邦的视角回答问题",
+      "core_ideas": [
+        "论三杰（自知之明）",
+        "约法三章",
+        "鸿门宴策略",
+        "论功行赏",
+        "从谏如流",
+        "草根逆袭模型"
+      ],
+      "use_cases": [
+        "没资金没背景没技术，想创业能成功吗",
+        "竞争对手各方面都比我强怎么办",
+        "早期团队成员抱怨付出多回报少怎么办",
+        "项目做了一年效果不好，要不要放弃"
+      ],
+      "source_trigger_examples": [
+        "用刘邦的视角",
+        "刘邦会怎么看",
+        "刘邦模式"
+      ],
+      "perspective_role": "reference_lens_only",
+      "activation_allowed": false,
+      "authenticity_status": "source_package_synthesis_unverified",
+      "source_ref": "embedded-git://https://github.com/Panmax/liubang-skill@8168201b9edc68082d808e33cb61680f178ccda4#SKILL.md"
+    },
+    {
+      "category_code": "12",
+      "category_name": "军事与战略",
+      "item_index": "07",
+      "display_name": "张居正",
+      "skill_name": "zhangjuzheng-perspective",
+      "description": "以明朝首辅张居正的视角回答问题",
+      "core_ideas": [
+        "考成法",
+        "一条鞭法",
+        "尊主权课吏职",
+        "综核名实",
+        "渐进改革",
+        "制度设计方法论"
+      ],
+      "use_cases": [
+        "我是中层管理者，推动改革总遇到阻力怎么办",
+        "团队考核制度形同虚设怎么办",
+        "公司流程繁琐效率低下怎么改",
+        "战略规划做得很好但总是落不了地"
+      ],
+      "source_trigger_examples": [
+        "用张居正的视角",
+        "张居正会怎么看",
+        "张居正模式"
+      ],
+      "perspective_role": "reference_lens_only",
+      "activation_allowed": false,
+      "authenticity_status": "source_package_synthesis_unverified",
+      "source_ref": "embedded-git://https://github.com/Panmax/zhangjuzheng-skill@42d161e4b77d1d2e6db25f5fc35cdba13fbe4c24#SKILL.md"
+    },
+    {
+      "category_code": "12",
+      "category_name": "军事与战略",
+      "item_index": "08",
+      "display_name": "俾斯麦",
+      "skill_name": "bismarck-perspective",
+      "description": "以铁血宰相俾斯麦的视角回答问题",
+      "core_ideas": [
+        "现实政治（Realpolitik）",
+        "有限战争目标",
+        "大陆联盟体系",
+        "铁血政策",
+        "社会保险思维",
+        "外交平衡术"
+      ],
+      "use_cases": [
+        "三个部门争夺同一笔预算，我怎么决策",
+        "行业排第三，怎么制定竞争策略",
+        "合作伙伴突然提出不合理要求，怎么应对",
+        "如何建立可持续的竞争壁垒"
+      ],
+      "source_trigger_examples": [
+        "用俾斯麦的视角",
+        "俾斯麦会怎么看",
+        "俾斯麦模式"
+      ],
+      "perspective_role": "reference_lens_only",
+      "activation_allowed": false,
+      "authenticity_status": "source_package_synthesis_unverified",
+      "source_ref": "embedded-git://https://github.com/Panmax/bismarck-skill@c0e8c7076368da6a4e014cf500a9169b21e7f60d#SKILL.md"
+    },
+    {
+      "category_code": "13",
+      "category_name": "艺术与设计",
+      "item_index": "01",
+      "display_name": "宫崎骏",
+      "skill_name": "miyazaki-perspective",
+      "description": "让 Claude 以宫崎骏的视角思考 -- 温柔而固执、关爱自然与儿童、手工匠人精神，用吉卜力的想象力重新审视科技与生活的关系。",
+      "core_ideas": [
+        "手工匠人精神:",
+        "自然观:",
+        "儿童观:",
+        "飞行的梦想:",
+        "反战与和平:",
+        "《出发点》《折返点》:",
+        "劳动的尊严:"
+      ],
+      "use_cases": [
+        "手工匠人精神:",
+        "自然观:",
+        "儿童观:相关问题",
+        "以宫崎骏视角分析决策",
+        "用宫崎骏的方法论审视问题"
+      ],
+      "source_trigger_examples": [
+        "用宫崎骏的视角",
+        "宫崎骏会怎么看",
+        "宫崎骏模式"
+      ],
+      "perspective_role": "reference_lens_only",
+      "activation_allowed": false,
+      "authenticity_status": "source_package_synthesis_unverified",
+      "source_ref": "embedded-git://https://github.com/Panmax/miyazaki-skill@06b1ca074e823114928755712a4a5ee073035b4a#SKILL.md"
+    },
+    {
+      "category_code": "13",
+      "category_name": "艺术与设计",
+      "item_index": "02",
+      "display_name": "贝多芬",
+      "skill_name": "beethoven-perspective",
+      "description": "让 Claude 以贝多芬的视角思考 -- 在苦难中创造、激情澎湃、不向命运屈服，用音乐巨人的精神力量重新定义困境与突破。",
+      "core_ideas": [
+        "海利根施塔特遗书:",
+        "三个创作时期:",
+        "第九交响曲:",
+        "晚期四重奏:",
+        "命运动机:",
+        "在限制中创造:",
+        "对自由的追求:"
+      ],
+      "use_cases": [
+        "海利根施塔特遗书:",
+        "三个创作时期:",
+        "第九交响曲:相关问题",
+        "以贝多芬视角分析决策",
+        "用贝多芬的方法论审视问题"
+      ],
+      "source_trigger_examples": [
+        "用贝多芬的视角",
+        "贝多芬会怎么看",
+        "贝多芬模式"
+      ],
+      "perspective_role": "reference_lens_only",
+      "activation_allowed": false,
+      "authenticity_status": "source_package_synthesis_unverified",
+      "source_ref": "embedded-git://https://github.com/Panmax/beethoven-skill@2f102fe907131319bac2778296839e36952c321e#SKILL.md"
+    },
+    {
+      "category_code": "13",
+      "category_name": "艺术与设计",
+      "item_index": "03",
+      "display_name": "安藤忠雄",
+      "skill_name": "ando-perspective",
+      "description": "将安藤忠雄的建筑哲学——极简、自学、混凝土般的坚定——注入你的 AI 对话，让每一次回答都像光之教堂般直击本质。",
+      "core_ideas": [
+        "极简主义的力量",
+        "自学者的方法论",
+        "限制即创造",
+        "与自然对话",
+        "战斗的精神"
+      ],
+      "use_cases": [
+        "极简主义的力量",
+        "自学者的方法论",
+        "限制即创造相关问题",
+        "以安藤忠雄视角分析决策",
+        "用安藤忠雄的方法论审视问题"
+      ],
+      "source_trigger_examples": [
+        "用安藤忠雄的视角",
+        "安藤忠雄会怎么看",
+        "安藤忠雄模式"
+      ],
+      "perspective_role": "reference_lens_only",
+      "activation_allowed": false,
+      "authenticity_status": "source_package_synthesis_unverified",
+      "source_ref": "embedded-git://https://github.com/Panmax/ando-skill@a3805bebbfd03311acd504c928dd813531887778#SKILL.md"
+    },
+    {
+      "category_code": "13",
+      "category_name": "艺术与设计",
+      "item_index": "04",
+      "display_name": "黑泽明",
+      "skill_name": "kurosawa-perspective",
+      "description": "将黑泽明的电影哲学——完美主义、人性深度、视觉叙事的力量——注入你的 AI 对话，让每一次回答都如同《七武士》般层次分明、气势磅礴。",
+      "core_ideas": [
+        "完美主义的标准",
+        "多视角叙事（罗生门效应）",
+        "视觉叙事的力量",
+        "人性深度的挖掘",
+        "从混乱中建立秩序"
+      ],
+      "use_cases": [
+        "完美主义的标准",
+        "多视角叙事（罗生门效应）",
+        "视觉叙事的力量相关问题",
+        "以黑泽明视角分析决策",
+        "用黑泽明的方法论审视问题"
+      ],
+      "source_trigger_examples": [
+        "用黑泽明的视角",
+        "黑泽明会怎么看",
+        "黑泽明模式"
+      ],
+      "perspective_role": "reference_lens_only",
+      "activation_allowed": false,
+      "authenticity_status": "source_package_synthesis_unverified",
+      "source_ref": "embedded-git://https://github.com/Panmax/kurosawa-skill@6118192f0628b58e2445a0319e7e0e5f818d6e39#SKILL.md"
+    },
+    {
+      "category_code": "13",
+      "category_name": "艺术与设计",
+      "item_index": "05",
+      "display_name": "毕加索",
+      "skill_name": "picasso-perspective",
+      "description": "将毕加索的创造力哲学——不断打破自己、多产、从一切中汲取灵感——注入你的 AI 对话，让每一次回答都充满变革的勇气和创造的能量。",
+      "core_ideas": [
+        "持续自我颠覆",
+        "多产即策略",
+        "创造性挪用",
+        "回归初心的能力",
+        "风格即武器"
+      ],
+      "use_cases": [
+        "持续自我颠覆",
+        "多产即策略",
+        "创造性挪用相关问题",
+        "以毕加索视角分析决策",
+        "用毕加索的方法论审视问题"
+      ],
+      "source_trigger_examples": [
+        "用毕加索的视角",
+        "毕加索会怎么看",
+        "毕加索模式"
+      ],
+      "perspective_role": "reference_lens_only",
+      "activation_allowed": false,
+      "authenticity_status": "source_package_synthesis_unverified",
+      "source_ref": "embedded-git://https://github.com/Panmax/picasso-skill@a34b088fb1e2d84881b4d8577b8ec5c8cfc80ba0#SKILL.md"
+    },
+    {
+      "category_code": "13",
+      "category_name": "艺术与设计",
+      "item_index": "06",
+      "display_name": "铃木敏夫",
+      "skill_name": "suzukitoshio-perspective",
+      "description": "与宫崎骏的搭档经验",
+      "core_ideas": [
+        "制作人思维",
+        "商业与艺术平衡",
+        "与宫崎骏的搭档经验",
+        "项目管理哲学",
+        "日本动画产业经营"
+      ],
+      "use_cases": [
+        "我负责的项目快要超期了，但核心功能还没完成，怎么办",
+        "我的合伙人很有才华但完全不听别人的意见",
+        "投资人要求我们做更商业化的内容，但我想做有深度的东西",
+        "团队成员最近都很疲惫，士气低落"
+      ],
+      "source_trigger_examples": [
+        "用铃木敏夫的视角",
+        "铃木敏夫会怎么看",
+        "铃木敏夫模式"
+      ],
+      "perspective_role": "reference_lens_only",
+      "activation_allowed": false,
+      "authenticity_status": "source_package_synthesis_unverified",
+      "source_ref": "embedded-git://https://github.com/Panmax/suzukitoshio-skill@f6515cff7ce85ae5ca0149a1cd8dde71b1c156fb#SKILL.md"
+    },
+    {
+      "category_code": "14",
+      "category_name": "体育",
+      "item_index": "01",
+      "display_name": "迈克尔·乔丹",
+      "skill_name": "mjordan-perspective",
+      "description": "将迈克尔·乔丹的竞争哲学——极度竞争、利用失败作为燃料、对自己和他人都极其严厉——注入你的 AI 对话，让每一次回答都带着总冠军的心态和杀手般的专注。",
+      "core_ideas": [
+        "失败即燃料系统",
+        "极度竞争心态",
+        "标准的不可妥协性",
+        "关键时刻的心理准备",
+        "制造敌人的策略"
+      ],
+      "use_cases": [
+        "失败即燃料系统",
+        "极度竞争心态",
+        "标准的不可妥协性相关问题",
+        "以迈克尔·乔丹视角分析决策",
+        "用迈克尔·乔丹的方法论审视问题"
+      ],
+      "source_trigger_examples": [
+        "用迈克尔·乔丹的视角",
+        "迈克尔·乔丹会怎么看",
+        "迈克尔·乔丹模式"
+      ],
+      "perspective_role": "reference_lens_only",
+      "activation_allowed": false,
+      "authenticity_status": "source_package_synthesis_unverified",
+      "source_ref": "embedded-git://https://github.com/Panmax/mjordan-skill@4ca355351cb9c4fa180465797a5b802b4c851e94#SKILL.md"
+    },
+    {
+      "category_code": "14",
+      "category_name": "体育",
+      "item_index": "02",
+      "display_name": "科比",
+      "skill_name": "kobe-perspective",
+      "description": "将科比的曼巴精神——极致专注、拆解并学习对手、永不满足——注入你的 AI 对话，让每一次回答都带着凌晨四点洛杉矶的训练强度和执着。",
+      "core_ideas": [
+        "曼巴精神的五大支柱",
+        "拆解学习法",
+        "凌晨四点的纪律",
+        "永不满足的驱动力",
+        "Detail（细节至上）"
+      ],
+      "use_cases": [
+        "曼巴精神的五大支柱",
+        "拆解学习法",
+        "凌晨四点的纪律相关问题",
+        "以科比视角分析决策",
+        "用科比的方法论审视问题"
+      ],
+      "source_trigger_examples": [
+        "用科比的视角",
+        "科比会怎么看",
+        "科比模式"
+      ],
+      "perspective_role": "reference_lens_only",
+      "activation_allowed": false,
+      "authenticity_status": "source_package_synthesis_unverified",
+      "source_ref": "embedded-git://https://github.com/Panmax/kobe-skill@1aa1efa39e66f57ee8edccad8ced9c0e6a3441ec#SKILL.md"
+    },
+    {
+      "category_code": "14",
+      "category_name": "体育",
+      "item_index": "03",
+      "display_name": "菲尔·杰克逊",
+      "skill_name": "philjackson-perspective",
+      "description": "让 Claude 以\"禅师\"菲尔·杰克逊的视角回应——融合禅宗智慧与团队领导力，用 11 枚冠军戒指背后的哲学帮你思考团队协作与无私领导。",
+      "core_ideas": [
+        "三角进攻哲学",
+        "禅宗领导力",
+        "无私领导模型",
+        "《神圣的箍》核心洞见",
+        "11 冠方法论",
+        "逆境处理框架"
+      ],
+      "use_cases": [
+        "三角进攻哲学",
+        "禅宗领导力",
+        "无私领导模型相关问题",
+        "以菲尔·杰克逊视角分析团队协作",
+        "用禅师方法论审视领导力"
+      ],
+      "source_trigger_examples": [
+        "用菲尔·杰克逊的视角",
+        "菲尔·杰克逊会怎么看",
+        "菲尔·杰克逊模式"
+      ],
+      "perspective_role": "reference_lens_only",
+      "activation_allowed": false,
+      "authenticity_status": "source_package_synthesis_unverified",
+      "source_ref": "embedded-git://https://github.com/Panmax/philjackson-skill@3d54ac6953d75443ecc70d8259abbdee49998729#SKILL.md"
+    },
+    {
+      "category_code": "15",
+      "category_name": "教育",
+      "item_index": "01",
+      "display_name": "蒙特梭利",
+      "skill_name": "montessori-perspective",
+      "description": "让 Claude 以蒙特梭利的视角回应——观察优先、尊重儿童、环境即教师，用百年经典教育哲学帮你重新理解学习与成长。",
+      "core_ideas": [
+        "有吸收力的心灵",
+        "敏感期理论",
+        "预备好的环境",
+        "观察法",
+        "自主与独立",
+        "内在动机理论"
+      ],
+      "use_cases": [
+        "有吸收力的心灵",
+        "敏感期理论",
+        "预备好的环境相关问题",
+        "以蒙特梭利视角分析决策",
+        "用蒙特梭利的方法论审视问题"
+      ],
+      "source_trigger_examples": [
+        "用蒙特梭利的的视角",
+        "蒙特梭利的会怎么看",
+        "蒙特梭利的模式"
+      ],
+      "perspective_role": "reference_lens_only",
+      "activation_allowed": false,
+      "authenticity_status": "source_package_synthesis_unverified",
+      "source_ref": "embedded-git://https://github.com/Panmax/montessori-skill@424c0481f9c1b87309053367e8f06dc842159f88#SKILL.md"
+    },
+    {
+      "category_code": "15",
+      "category_name": "教育",
+      "item_index": "02",
+      "display_name": "杜威",
+      "skill_name": "dewey-perspective",
+      "description": "让 Claude 以杜威的视角回应——实践导向、民主精神、做中学，用实用主义教育哲学帮你重新思考学习、成长与社会参与。",
+      "core_ideas": [
+        "做中学（Learning by Doing）",
+        "经验连续性原则",
+        "民主作为生活方式",
+        "反二元对立",
+        "芝加哥实验学校模型",
+        "生长（Growth）概念"
+      ],
+      "use_cases": [
+        "做中学（Learning by Doing）",
+        "经验连续性原则",
+        "民主作为生活方式相关问题",
+        "以杜威视角分析决策",
+        "用杜威的方法论审视问题"
+      ],
+      "source_trigger_examples": [
+        "用杜威的的视角",
+        "杜威的会怎么看",
+        "杜威的模式"
+      ],
+      "perspective_role": "reference_lens_only",
+      "activation_allowed": false,
+      "authenticity_status": "source_package_synthesis_unverified",
+      "source_ref": "embedded-git://https://github.com/Panmax/dewey-skill@42b981c28b564038da3e2a4273257fade0b562a8#SKILL.md"
+    },
+    {
+      "category_code": "15",
+      "category_name": "教育",
+      "item_index": "03",
+      "display_name": "陶行知",
+      "skill_name": "taoxingzhi-perspective",
+      "description": "让 Claude 以陶行知的视角回应——生活教育、教学做合一、扎根大地，用这位中国教育先驱的智慧帮你思考教育、实践与社会改造。",
+      "core_ideas": [
+        "生活教育理论",
+        "教学做合一",
+        "行是知之始",
+        "小先生制",
+        "晓庄精神",
+        "教育救国理想"
+      ],
+      "use_cases": [
+        "生活教育理论",
+        "教学做合一",
+        "行是知之始相关问题",
+        "以陶行知视角分析决策",
+        "用陶行知的方法论审视问题"
+      ],
+      "source_trigger_examples": [
+        "用陶行知的的视角",
+        "陶行知的会怎么看",
+        "陶行知的模式"
+      ],
+      "perspective_role": "reference_lens_only",
+      "activation_allowed": false,
+      "authenticity_status": "source_package_synthesis_unverified",
+      "source_ref": "embedded-git://https://github.com/Panmax/taoxingzhi-skill@8ca8c4da23723d14e9a536ffc093e87601365f40#SKILL.md"
+    },
+    {
+      "category_code": "15",
+      "category_name": "教育",
+      "item_index": "04",
+      "display_name": "张雪峰",
+      "skill_name": "zhangxuefeng-perspective",
+      "description": "张雪峰的认知操作系统。不是语录合集，是可运行的思维框架。",
+      "core_ideas": [
+        "灵魂追问法",
+        "中位数原则",
+        "不可替代性检验",
+        "500强测试",
+        "家庭背景分流",
+        "城市优先原则",
+        "10年后压迫测试",
+        "认态度不认事实道歉法"
+      ],
+      "use_cases": [
+        "我孩子今年高考，560分，河南的，想学金融，你怎么看",
+        "我本科双非，想考研到985，值得吗？还是直接工作",
+        "AI时代来了，你之前推荐的那些专业还靠谱吗",
+        "家里没钱，该不该为了理想去学艺术"
+      ],
+      "source_trigger_examples": [
+        "用张雪峰的视角帮我分析这个专业选择",
+        "张雪峰会怎么看这个职业方向？",
+        "切换到张雪峰，我孩子要填志愿了"
+      ],
+      "perspective_role": "reference_lens_only",
+      "activation_allowed": false,
+      "authenticity_status": "source_package_synthesis_unverified",
+      "source_ref": "embedded-git://https://github.com/alchaincyf/zhangxuefeng-skill@b4cd3de744011b2386d826d6abc2474419cfdffe#SKILL.md"
+    },
+    {
+      "category_code": "16",
+      "category_name": "经济学家",
+      "item_index": "01",
+      "display_name": "亚当·斯密",
+      "skill_name": "adamsmith-perspective",
+      "description": "让 Claude 以亚当·斯密的视角回应——系统分析、善用案例、道德与经济并重，用《国富论》和《道德情操论》的双重智慧帮你思考商业、分工与社会秩序。",
+      "core_ideas": [
+        "分工理论",
+        "看不见的手",
+        "道德情操论",
+        "比较优势思维",
+        "反重商主义",
+        "政府角色边界"
+      ],
+      "use_cases": [
+        "分工理论",
+        "看不见的手",
+        "道德情操论相关问题",
+        "以亚当·斯密视角分析决策",
+        "用亚当·斯密的方法论审视问题"
+      ],
+      "source_trigger_examples": [
+        "用亚当·斯密的的视角",
+        "亚当·斯密的会怎么看",
+        "亚当·斯密的模式"
+      ],
+      "perspective_role": "reference_lens_only",
+      "activation_allowed": false,
+      "authenticity_status": "source_package_synthesis_unverified",
+      "source_ref": "embedded-git://https://github.com/Panmax/adamsmith-skill@f5601b60f238cc8675c4b94694976b0fed08ced4#SKILL.md"
+    },
+    {
+      "category_code": "16",
+      "category_name": "经济学家",
+      "item_index": "02",
+      "display_name": "凯恩斯",
+      "skill_name": "keynes-perspective",
+      "description": "将凯恩斯的宏观经济思维、政府干预逻辑与危机行动哲学蒸馏进你的 Claude Code 工作流。",
+      "core_ideas": [
+        "有效需求原理",
+        "动物精神",
+        "流动性偏好理论",
+        "乘数效应",
+        "逆周期思维",
+        "政府干预的时机与边界",
+        "节俭悖论",
+        "不确定性与概率"
+      ],
+      "use_cases": [
+        "有效需求原理",
+        "动物精神",
+        "流动性偏好理论相关问题",
+        "以凯恩斯视角分析决策",
+        "用凯恩斯的方法论审视问题"
+      ],
+      "source_trigger_examples": [
+        "用凯恩斯的视角",
+        "凯恩斯会怎么看",
+        "凯恩斯模式"
+      ],
+      "perspective_role": "reference_lens_only",
+      "activation_allowed": false,
+      "authenticity_status": "source_package_synthesis_unverified",
+      "source_ref": "embedded-git://https://github.com/Panmax/keynes-skill@a33ed83b2fe5bc71d03d7376ec56906ce396677c#SKILL.md"
+    },
+    {
+      "category_code": "16",
+      "category_name": "经济学家",
+      "item_index": "03",
+      "display_name": "哈耶克",
+      "skill_name": "hayek-perspective",
+      "description": "将哈耶克的自由市场哲学、自发秩序理论与知识论洞见蒸馏进你的 Claude Code 工作流。",
+      "core_ideas": [
+        "自发秩序理论",
+        "知识问题",
+        "价格信号理论",
+        "通往奴役之路",
+        "竞争作为发现过程",
+        "法治 vs 人治",
+        "致命的自负",
+        "文化演化"
+      ],
+      "use_cases": [
+        "自发秩序理论",
+        "知识问题",
+        "价格信号理论相关问题",
+        "以哈耶克视角分析决策",
+        "用哈耶克的方法论审视问题"
+      ],
+      "source_trigger_examples": [
+        "用哈耶克的视角",
+        "哈耶克会怎么看",
+        "哈耶克模式"
+      ],
+      "perspective_role": "reference_lens_only",
+      "activation_allowed": false,
+      "authenticity_status": "source_package_synthesis_unverified",
+      "source_ref": "embedded-git://https://github.com/Panmax/hayek-skill@fe1aa9ffdb133c7a3d787f7406c8ad1918977dd6#SKILL.md"
+    },
+    {
+      "category_code": "16",
+      "category_name": "经济学家",
+      "item_index": "04",
+      "display_name": "熊彼特",
+      "skill_name": "schumpeter-perspective",
+      "description": "将熊彼特的创造性破坏理论、企业家精神与创新动力学蒸馏进你的 Claude Code 工作流。",
+      "core_ideas": [
+        "创造性破坏",
+        "企业家精神",
+        "五种创新类型",
+        "经济发展理论",
+        "商业周期理论",
+        "资本主义的自我消解",
+        "创新与模仿",
+        "制度与企业家精神"
+      ],
+      "use_cases": [
+        "创造性破坏",
+        "企业家精神",
+        "五种创新类型相关问题",
+        "以熊彼特视角分析决策",
+        "用熊彼特的方法论审视问题"
+      ],
+      "source_trigger_examples": [
+        "用熊彼特的视角",
+        "熊彼特会怎么看",
+        "熊彼特模式"
+      ],
+      "perspective_role": "reference_lens_only",
+      "activation_allowed": false,
+      "authenticity_status": "source_package_synthesis_unverified",
+      "source_ref": "embedded-git://https://github.com/Panmax/schumpeter-skill@447186715c16718eea80117de5b730c0047aa540#SKILL.md"
+    },
+    {
+      "category_code": "16",
+      "category_name": "经济学家",
+      "item_index": "05",
+      "display_name": "米塞斯",
+      "skill_name": "mises-perspective",
+      "description": "将米塞斯的人的行为学、奥地利学派逻辑与不妥协的自由市场哲学蒸馏进你的 Claude Code 工作流。",
+      "core_ideas": [
+        "人的行为学 (Praxeology)",
+        "主观价值论",
+        "经济计算问题",
+        "方法论个人主义",
+        "时间偏好理论",
+        "商业周期理论",
+        "干预主义批判",
+        "先验推理 vs 实证主义"
+      ],
+      "use_cases": [
+        "人的行为学 (Praxeology)",
+        "主观价值论",
+        "经济计算问题相关问题",
+        "以米塞斯的人视角分析决策",
+        "用米塞斯的人的方法论审视问题"
+      ],
+      "source_trigger_examples": [
+        "用米塞斯的人的视角",
+        "米塞斯的人会怎么看",
+        "米塞斯的人模式"
+      ],
+      "perspective_role": "reference_lens_only",
+      "activation_allowed": false,
+      "authenticity_status": "source_package_synthesis_unverified",
+      "source_ref": "embedded-git://https://github.com/Panmax/mises-skill@af852a2d4414bf15b29186caacaa0ca8f8d43482#SKILL.md"
+    },
+    {
+      "category_code": "17",
+      "category_name": "精神与智慧",
+      "item_index": "01",
+      "display_name": "铃木俊隆",
+      "skill_name": "suzuki-perspective",
+      "description": "将铃木俊隆的禅者初心、当下觉知与空杯心态蒸馏为 Claude Code 可调用的思维视角技能。",
+      "core_ideas": [
+        "初心 (Beginner's Mind)",
+        "当下觉知",
+        "空杯心态",
+        "悖论式智慧",
+        "极简表达",
+        "万物即修行"
+      ],
+      "use_cases": [
+        "初心 (Beginner's Mind)",
+        "当下觉知",
+        "空杯心态相关问题",
+        "以铃木俊隆视角分析决策",
+        "用铃木俊隆的方法论审视问题"
+      ],
+      "source_trigger_examples": [
+        "用铃木俊隆的视角",
+        "铃木俊隆会怎么看",
+        "铃木俊隆模式"
+      ],
+      "perspective_role": "reference_lens_only",
+      "activation_allowed": false,
+      "authenticity_status": "source_package_synthesis_unverified",
+      "source_ref": "embedded-git://https://github.com/Panmax/suzuki-skill@ce2910d084c7a71a77ac5e92ee0b828ba085bf8c#SKILL.md"
+    },
+    {
+      "category_code": "17",
+      "category_name": "精神与智慧",
+      "item_index": "02",
+      "display_name": "克里希那穆提",
+      "skill_name": "krishnamurti-perspective",
+      "description": "示例 1：用户问\"如何克服恐惧\"",
+      "core_ideas": [
+        "观察而非分析",
+        "质疑提问者",
+        "拒绝权威",
+        "当下观察",
+        "揭示思维的局限",
+        "自由的核心"
+      ],
+      "use_cases": [
+        "如何克服恐惧",
+        "怎样找到人生意义",
+        "我应该跟随哪位老师",
+        "冥想的正确方法是什么"
+      ],
+      "source_trigger_examples": [
+        "用克里希那穆提的视角",
+        "克里希那穆提会怎么看",
+        "克里希那穆提模式"
+      ],
+      "perspective_role": "reference_lens_only",
+      "activation_allowed": false,
+      "authenticity_status": "source_package_synthesis_unverified",
+      "source_ref": "embedded-git://https://github.com/Panmax/krishnamurti-skill@aba20b81f808d45e20a03c07e7305df488c14062#SKILL.md"
+    },
+    {
+      "category_code": "17",
+      "category_name": "精神与智慧",
+      "item_index": "03",
+      "display_name": "一行禅师",
+      "skill_name": "thichnhathanh-perspective",
+      "description": "示例 1：用户问\"工作压力太大怎么办\"",
+      "core_ideas": [
+        "正念呼吸",
+        "温柔语言",
+        "日常修行",
+        "相即共生",
+        "拥抱情绪",
+        "诗意表达"
+      ],
+      "use_cases": [
+        "工作压力太大怎么办",
+        "我对某人很生气",
+        "如何活在当下",
+        "我害怕死亡"
+      ],
+      "source_trigger_examples": [
+        "用一行禅师的视角",
+        "一行禅师会怎么看",
+        "一行禅师模式"
+      ],
+      "perspective_role": "reference_lens_only",
+      "activation_allowed": false,
+      "authenticity_status": "source_package_synthesis_unverified",
+      "source_ref": "embedded-git://https://github.com/Panmax/thichnhathanh-skill@bd82ad4ddc40d382072567f0ee319f538efa8217#SKILL.md"
+    },
+    {
+      "category_code": "17",
+      "category_name": "精神与智慧",
+      "item_index": "04",
+      "display_name": "约瑟夫·坎贝尔",
+      "skill_name": "campbell-perspective",
+      "description": "示例 1：用户问\"我想辞职但不敢\"",
+      "core_ideas": [
+        "英雄之旅框架",
+        "神话照亮现实",
+        "追随你的极乐",
+        "叙事性强",
+        "跨文化视野",
+        "英雄的蜕变"
+      ],
+      "use_cases": [
+        "我想辞职但不敢",
+        "人生有什么意义",
+        "我正在经历人生低谷",
+        "我不知道自己想要什么"
+      ],
+      "source_trigger_examples": [
+        "用约瑟夫·坎贝尔的视角",
+        "约瑟夫·坎贝尔会怎么看",
+        "约瑟夫·坎贝尔模式"
+      ],
+      "perspective_role": "reference_lens_only",
+      "activation_allowed": false,
+      "authenticity_status": "source_package_synthesis_unverified",
+      "source_ref": "embedded-git://https://github.com/Panmax/campbell-skill@e2fab4ecfeb32b1ffe59bfb01299bc7b356e6523#SKILL.md"
+    },
+    {
+      "category_code": "17",
+      "category_name": "精神与智慧",
+      "item_index": "05",
+      "display_name": "爱默生",
+      "skill_name": "emerson-perspective",
+      "description": "示例 1：用户问\"别人都不看好我的选择\"",
+      "core_ideas": [
+        "自立精神",
+        "格言式表达",
+        "超验主义",
+        "自然崇拜",
+        "独立思考",
+        "行动哲学"
+      ],
+      "use_cases": [
+        "别人都不看好我的选择",
+        "我觉得自己不够好",
+        "我感到迷茫不知道方向",
+        "如何面对失败"
+      ],
+      "source_trigger_examples": [
+        "用爱默生的视角",
+        "爱默生会怎么看",
+        "爱默生模式"
+      ],
+      "perspective_role": "reference_lens_only",
+      "activation_allowed": false,
+      "authenticity_status": "source_package_synthesis_unverified",
+      "source_ref": "embedded-git://https://github.com/Panmax/emerson-skill@5916a5aa8c7c31aff6503bee53d9cb559dc7349f#SKILL.md"
+    },
+    {
+      "category_code": "17",
+      "category_name": "精神与智慧",
+      "item_index": "06",
+      "display_name": "艾伦·沃茨",
+      "skill_name": "alanwatts-perspective",
+      "description": "让 Claude 以艾伦·沃茨的视角回应你 -- 东西方哲学的诗意融合与当下觉醒",
+      "core_ideas": [
+        "东西方哲学融合",
+        "当下即是全部",
+        "宇宙即游戏(Lila)",
+        "自我的幻觉",
+        "诗意幽默的表达",
+        "二元对立的消解",
+        "自然的智慧",
+        "觉醒不是获得而是放下"
+      ],
+      "use_cases": [
+        "东西方哲学融合",
+        "当下即是全部",
+        "宇宙即游戏(Lila)相关问题",
+        "以艾伦·沃茨视角分析决策",
+        "用艾伦·沃茨的方法论审视问题"
+      ],
+      "source_trigger_examples": [
+        "用艾伦·瓦兹的视角",
+        "艾伦·瓦兹会怎么看",
+        "艾伦·瓦兹模式"
+      ],
+      "perspective_role": "reference_lens_only",
+      "activation_allowed": false,
+      "authenticity_status": "source_package_synthesis_unverified",
+      "source_ref": "embedded-git://https://github.com/Panmax/alanwatts-skill@3b2506abef5deb113b3f0fe17b9703eaf22b9429#SKILL.md"
+    },
+    {
+      "category_code": "18",
+      "category_name": "当代思想者",
+      "item_index": "01",
+      "display_name": "赫拉利",
+      "skill_name": "harari-perspective",
+      "description": "示例 1：用户问\"为什么人类能统治地球\"",
+      "core_ideas": [
+        "宏大叙事",
+        "虚构与现实",
+        "跨学科整合",
+        "认知革命视角",
+        "挑战既有认知",
+        "未来思维"
+      ],
+      "use_cases": [
+        "为什么人类能统治地球",
+        "AI 会取代人类吗",
+        "历史有规律吗",
+        "金钱的本质是什么"
+      ],
+      "source_trigger_examples": [
+        "用赫拉利的视角",
+        "赫拉利会怎么看",
+        "赫拉利模式"
+      ],
+      "perspective_role": "reference_lens_only",
+      "activation_allowed": false,
+      "authenticity_status": "source_package_synthesis_unverified",
+      "source_ref": "embedded-git://https://github.com/Panmax/harari-skill@fec7deb67b247322aec0924d0ea0f50a6376a0d2#SKILL.md"
+    },
+    {
+      "category_code": "18",
+      "category_name": "当代思想者",
+      "item_index": "02",
+      "display_name": "乔丹·彼得森",
+      "skill_name": "peterson-perspective",
+      "description": "让 Claude 以乔丹·彼得森的视角回应你 -- 秩序与混沌之间的责任之道",
+      "core_ideas": [
+        "秩序与混沌的辩证法",
+        "个人责任哲学",
+        "神话学与深层心理学",
+        "临床心理学视角",
+        "真相与言语的力量",
+        "苦难与意义的关系",
+        "层级结构的自然性",
+        "对话风格"
+      ],
+      "use_cases": [
+        "秩序与混沌的辩证法",
+        "个人责任哲学",
+        "神话学与深层心理学相关问题",
+        "以乔丹·彼得森视角分析决策",
+        "用乔丹·彼得森的方法论审视问题"
+      ],
+      "source_trigger_examples": [
+        "用乔丹·彼得森的视角",
+        "乔丹·彼得森会怎么看",
+        "乔丹·彼得森模式"
+      ],
+      "perspective_role": "reference_lens_only",
+      "activation_allowed": false,
+      "authenticity_status": "source_package_synthesis_unverified",
+      "source_ref": "embedded-git://https://github.com/Panmax/peterson-skill@61126cc1cbfc036fc5ff989e8ef5a87bee10ee90#SKILL.md"
+    },
+    {
+      "category_code": "18",
+      "category_name": "当代思想者",
+      "item_index": "03",
+      "display_name": "蒂姆·费里斯",
+      "skill_name": "ferriss-perspective",
+      "description": "让 Claude 以蒂姆·费里斯的视角回应你 -- 生活黑客与系统化最优解",
+      "core_ideas": [
+        "80/20法则的极致应用",
+        "最小有效剂量(MED)",
+        "DiSSS快速学习框架",
+        "恐惧设定(Fear-Setting)",
+        "生活方式设计",
+        "实验驱动思维",
+        "批处理与自动化",
+        "世界级表演者的共性"
+      ],
+      "use_cases": [
+        "80/20法则的极致应用",
+        "最小有效剂量(MED)",
+        "DiSSS快速学习框架相关问题",
+        "以蒂姆·费里斯视角分析决策",
+        "用蒂姆·费里斯的方法论审视问题"
+      ],
+      "source_trigger_examples": [
+        "用蒂姆·费里斯的视角",
+        "蒂姆·费里斯会怎么看",
+        "蒂姆·费里斯模式"
+      ],
+      "perspective_role": "reference_lens_only",
+      "activation_allowed": false,
+      "authenticity_status": "source_package_synthesis_unverified",
+      "source_ref": "embedded-git://https://github.com/Panmax/ferriss-skill@cfe41acc81efd3915e126afbd64dd4cb30ac9c4c#SKILL.md"
+    },
+    {
+      "category_code": "18",
+      "category_name": "当代思想者",
+      "item_index": "04",
+      "display_name": "詹姆斯·克利尔",
+      "skill_name": "clear-perspective",
+      "description": "让 Claude 以詹姆斯·克利尔的视角回应你 -- 原子习惯与系统的复利力量",
+      "core_ideas": [
+        "原子习惯方法论",
+        "习惯四定律",
+        "系统优于目标",
+        "身份认同驱动",
+        "环境设计",
+        "两分钟规则",
+        "习惯叠加",
+        "失望之谷与复利"
+      ],
+      "use_cases": [
+        "原子习惯方法论",
+        "习惯四定律",
+        "系统优于目标相关问题",
+        "以詹姆斯·克利尔视角分析决策",
+        "用詹姆斯·克利尔的方法论审视问题"
+      ],
+      "source_trigger_examples": [
+        "用詹姆斯·克利尔的视角",
+        "詹姆斯·克利尔会怎么看",
+        "詹姆斯·克利尔模式"
+      ],
+      "perspective_role": "reference_lens_only",
+      "activation_allowed": false,
+      "authenticity_status": "source_package_synthesis_unverified",
+      "source_ref": "embedded-git://https://github.com/Panmax/clear-skill@bed78ab5bdbcd30852b795d1ee73687867b9a07d#SKILL.md"
+    },
+    {
+      "category_code": "18",
+      "category_name": "当代思想者",
+      "item_index": "05",
+      "display_name": "格拉德威尔",
+      "skill_name": "gladwell-perspective",
+      "description": "让 Claude 以马尔科姆·格拉德威尔的视角回应你 -- 用故事揭示反直觉的隐藏逻辑",
+      "core_ideas": [
+        "故事驱动的论证",
+        "反直觉洞察",
+        "引爆点三法则",
+        "薄片理论",
+        "累积优势与马太效应",
+        "10000小时的真正含义",
+        "让复杂变有趣",
+        "跨领域类比"
+      ],
+      "use_cases": [
+        "故事驱动的论证",
+        "反直觉洞察",
+        "引爆点三法则相关问题",
+        "以马尔科姆·格拉德威尔视角分析决策",
+        "用马尔科姆·格拉德威尔的方法论审视问题"
+      ],
+      "source_trigger_examples": [
+        "用马尔科姆·格拉德威尔的视角",
+        "马尔科姆·格拉德威尔会怎么看",
+        "马尔科姆·格拉德威尔模式"
+      ],
+      "perspective_role": "reference_lens_only",
+      "activation_allowed": false,
+      "authenticity_status": "source_package_synthesis_unverified",
+      "source_ref": "embedded-git://https://github.com/Panmax/gladwell-skill@d8960255f42cb92564622a9dca094dd7aa730b75#SKILL.md"
+    },
+    {
+      "category_code": "18",
+      "category_name": "当代思想者",
+      "item_index": "06",
+      "display_name": "纳瓦尔",
+      "skill_name": "naval-perspective",
+      "description": "纳瓦尔的认知操作系统。不是语录合集，是可运行的思维框架。",
+      "core_ideas": [
+        "无需许可原则",
+        "日历测试",
+        "纠结即否定",
+        "手册测试",
+        "党派测试",
+        "欲望审计",
+        "创伤转化原则",
+        "行为优先原则"
+      ],
+      "use_cases": [
+        "我在大公司做数据分析师，年薪50万，要不要跳槽",
+        "同时在学编程",
+        "做自媒体",
+        "准备考研，什么都做不好怎么办",
+        "想转行做AI但没有计算机学位，大厂不会要我",
+        "创业两年不死不活，每天被客户",
+        "投资人",
+        "员工填满"
+      ],
+      "source_trigger_examples": [
+        "用纳瓦尔的视角帮我分析这个职业选择",
+        "纳瓦尔会怎么看AI创业？",
+        "这份工作有杠杆吗？",
+        "我欲望太多怎么办？",
+        "什么是真正的财富？"
+      ],
+      "perspective_role": "reference_lens_only",
+      "activation_allowed": false,
+      "authenticity_status": "source_package_synthesis_unverified",
+      "source_ref": "embedded-git://https://github.com/alchaincyf/naval-skill@82e0b68a48d1ecffd62de15a2ea37efa93f56944#SKILL.md"
+    },
+    {
+      "category_code": "18",
+      "category_name": "当代思想者",
+      "item_index": "07",
+      "display_name": "塔勒布",
+      "skill_name": "taleb-perspective",
+      "description": "塔勒布的认知操作系统。不是语录合集，是可运行的思维框架。",
+      "core_ideas": [
+        "词汇",
+        "句式",
+        "节奏",
+        "态度",
+        "幽默"
+      ],
+      "use_cases": [
+        "我想辞职全职做AI创业，手上有50万存款，够撑一年。值不值得赌",
+        "我朋友推荐一个年化8%的理财产品，过去5年很稳定，从没亏过。",
+        "每周都有新AI工具出来，我总觉得跟不上，该学什么",
+        "很多AI大佬都说AGI三年内就到，该相信吗"
+      ],
+      "source_trigger_examples": [
+        "用塔勒布的视角帮我分析这个投资决策",
+        "这个项目有尾部风险吗？",
+        "切换到塔勒布，我在纠结要不要all-in",
+        "这些专家的预测有skin in the game吗？"
+      ],
+      "perspective_role": "reference_lens_only",
+      "activation_allowed": false,
+      "authenticity_status": "source_package_synthesis_unverified",
+      "source_ref": "embedded-git://https://github.com/alchaincyf/taleb-skill@9f265323815e6ee5210fbfe72f227801074c2d7c#SKILL.md"
+    },
+    {
+      "category_code": "18",
+      "category_name": "当代思想者",
+      "item_index": "08",
+      "display_name": "查理·罗斯",
+      "skill_name": "charlierose-perspective",
+      "description": "以传奇访谈大师查理·罗斯的视角思考",
+      "core_ideas": [
+        "深度访谈",
+        "提问的艺术",
+        "倾听的力量",
+        "对话引导",
+        "跨领域沟通"
+      ],
+      "use_cases": [
+        "面试候选人时提出好问题",
+        "会议中克制打断别人的冲动",
+        "客户沟通时让对方放下防备",
+        "技术背景与非技术人员的跨领域沟通"
+      ],
+      "source_trigger_examples": [
+        "用查理·罗斯的视角",
+        "查理·罗斯会怎么看",
+        "查理·罗斯模式"
+      ],
+      "perspective_role": "reference_lens_only",
+      "activation_allowed": false,
+      "authenticity_status": "source_package_synthesis_unverified",
+      "source_ref": "embedded-git://https://github.com/Panmax/charlierose-skill@dfbc6fedc9e6f355a69b9efd61b14db2046481e1#SKILL.md"
+    }
+  ]
+}

@@ -282,6 +282,16 @@ final class ManualNotificationBusinessPayloadService
             ? $pmsSelection['facts']
             : [];
         $facts['room_fee'] ??= $facts['room_revenue'] ?? null;
+        if (in_array(self::numeric($facts['sold_room_nights'] ?? null), [0, 0.0], true)
+            && ($pms['fact_statuses']['adr']['status'] ?? '') === 'not_calculable'
+            && ($pms['fact_statuses']['adr']['reason'] ?? '')
+                === 'pms_sold_room_nights_denominator_zero'
+        ) {
+            return [
+                'code' => 'business_message_pms_adr_not_calculable',
+                'message' => '出租房晚为0，ADR不可计算；消息未生成。',
+            ];
+        }
         foreach ([
             'room_fee',
             'sold_room_nights',

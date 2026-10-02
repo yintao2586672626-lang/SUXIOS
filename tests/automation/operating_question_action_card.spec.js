@@ -24,6 +24,14 @@ const actionDigest = 'b'.repeat(64);
 const actionCardDigest = 'c'.repeat(64);
 const approvalTargetDigest = 'd'.repeat(64);
 const metricDefinitionDigest = 'e'.repeat(64);
+const strictScopeBoundary = {
+  silent_date_fallback: false,
+  source_scope: 'ota_channel',
+  strict_gate: 'dual_ota_field_closure.v1:revenue_analysis_consumable',
+  fact_authority: 'trusted_ota_daily_fact_consumer.v1',
+  pms_included: false,
+  whole_hotel_conclusion: false,
+};
 const reviewDate = (() => {
   const value = new Date(`${businessDate}T12:00:00`);
   value.setDate(value.getDate() + 1);
@@ -138,8 +146,10 @@ const question = {
   date_end: businessDate,
   answer_status: 'answered_by_grounded_ai',
   answer_summary: '目标日携程流量事实已严格回读，可先进行人工链路复核。',
+  readback_verified: true,
   answer: {
     status: 'answered_by_grounded_ai',
+    scope: { tenant_id: 7, hotel_id: 7, platform: 'ctrip', date_start: businessDate, date_end: businessDate },
     confidence: 'medium',
     ai_runtime: {
       status: 'ready',
@@ -149,7 +159,7 @@ const question = {
       prompt_version: 'operating_question_grounded_ai.zh-CN.v4',
       finish_reason: 'stop',
       external_llm_called: true,
-      external_llm_call_status: 'confirmed_success',
+      external_llm_call_status: 'confirmed_direct_deepseek_v4_pro',
       fallback_used: false,
       cache_hit: false,
       degraded: false,
@@ -335,6 +345,7 @@ const installAuthenticatedMocks = async (page, calls, {
   scopeResponse = null,
   historyResponse = [],
   initialIntent = null,
+  questionIntentReadback = null,
 } = {}) => {
   const mockState = {
     created: Boolean(initialIntent),
@@ -351,9 +362,9 @@ const installAuthenticatedMocks = async (page, calls, {
         list: [{ action_index: 0, execution_intent: structuredClone(mockState.intent) }],
         data_gaps: [],
       };
-    } else {
-      delete exact.action_intent_readback;
-    }
+    } else exact.action_intent_readback = structuredClone(questionIntentReadback || {
+      data_status: 'ok', list: [], data_gaps: [],
+    });
     return exact;
   };
   await page.addInitScript((profile) => {
@@ -389,7 +400,7 @@ const installAuthenticatedMocks = async (page, calls, {
         hotel_id: 7,
         recommended: null,
         platforms: [],
-        boundary: { silent_date_fallback: false, source_scope: 'ota_channel' },
+        boundary: strictScopeBoundary,
         data_gaps: [{ code: 'strict_readback_fact_scope_missing' }],
       };
     }
@@ -451,14 +462,33 @@ const installAuthenticatedMocks = async (page, calls, {
     }
     if (pathname === '/api/operation/execution-flow' && request.method() === 'GET') {
       const list = mockState.created ? [buildExecutionFlowItem(mockState.intent)] : [];
+      const hotelId = Number(requestUrl.searchParams.get('hotel_id') || 0) || null;
       data = {
         data_status: 'ok',
-        capabilities: { hotel_id: user.hotel_id, can_view: true, can_generate_diagnosis: true,
+        capabilities: { hotel_id: hotelId, can_view: true, can_generate_diagnosis: true,
           can_execute: true, can_collect_ota: true },
         summary: { total: list.length, stage_counts: {} },
         stages: [],
         list,
         data_gaps: [],
+        returned_count: list.length,
+        matched_total: list.length,
+        truncated: false,
+        statistics: { execution_total_loaded: true },
+      };
+    }
+    if (pathname === '/api/operation/action-tracking' && request.method() === 'GET') {
+      data = {
+        hotel_id: Number(requestUrl.searchParams.get('hotel_id') || 0) || null,
+        data_status: 'ok', actions: [], data_gaps: [],
+        returned_count: 0, matched_total: 0, truncated: false,
+        effect_validation: { status: 'data_gap', metrics: [], data_gaps: [] },
+      };
+    }
+    if (pathname === '/api/operation/closure-overview' && request.method() === 'GET') {
+      data = {
+        hotel_id: Number(requestUrl.searchParams.get('hotel_id') || 0) || null,
+        data_status: 'data_gap', summary: {}, modules: [], weak_modules: [], data_gaps: [],
       };
     }
     if (pathname === '/api/operation/execution-intents/901' && request.method() === 'GET') {
@@ -520,7 +550,7 @@ test('operating question action stays pending until double-confirmed approval, r
     { timeout: 5000 },
   ).toBeGreaterThan(flowReadsBeforeOpen);
   expect(consoleErrors, `console errors: ${consoleErrors.join(' | ')}`).toEqual([]);
-  const actionRow = page.locator('[data-operation-execution-intent-id="901"]');
+  const actionRow = page.locator('[data-operation-execution-intent-id="901"]:visible');
   await expect(actionRow).toBeVisible({ timeout: 15000 });
   expect(calls.some(call => call.pathname === '/api/operation/execution-flow'
     && call.query.hotel_id === '7' && call.query.system_hotel_id === '7'
@@ -574,7 +604,7 @@ test('operating question action stays pending until double-confirmed approval, r
   expect(mockState.approvalRequests).toHaveLength(1);
 
   await restoredAction.click();
-  const restoredRow = page.locator('[data-operation-execution-intent-id="901"]');
+  const restoredRow = page.locator('[data-operation-execution-intent-id="901"]:visible');
   await expect(restoredRow).toBeVisible({ timeout: 15000 });
   await expect(restoredRow.getByTestId('operation-approve')).toHaveCount(0);
   expect(mockState.intent.tasks).toHaveLength(1);
@@ -688,7 +718,7 @@ test('latest strict scope and saved question restore without creating a new inte
         available_dates: ['2026-08-09'],
         available_date_count: 1,
       }],
-      boundary: { silent_date_fallback: false, source_scope: 'ota_channel' },
+      boundary: strictScopeBoundary,
       data_gaps: [],
     },
   });
@@ -706,6 +736,28 @@ test('latest strict scope and saved question restore without creating a new inte
   await expect(page.getByTestId('operating-question-action-open')).toContainText('approved');
   await expect(page.getByTestId('operating-question-platform')).toHaveValue('ctrip');
   expect(calls.filter(call => call.method === 'POST')).toEqual([]);
+});
+
+test('unavailable action intent history does not appear as a fresh submit opportunity', async ({ page }) => {
+  test.setTimeout(45000);
+  const calls = [];
+  await installAuthenticatedMocks(page, calls, {
+    historyResponse: [question],
+    questionIntentReadback: {
+      data_status: 'unavailable',
+      list: [],
+      data_gaps: [{ code: 'operation_execution_intent_readback_unavailable' }],
+    },
+  });
+  await page.goto(appUrl, { waitUntil: 'domcontentloaded' });
+  await page.getByTestId('nav-lean-more').click();
+  await page.getByTestId('nav-agent-center').click();
+  await page.getByTestId('operating-question-history').locator('summary').click();
+  await page.getByTestId('operating-question-history-71').click();
+  await expect(page.getByTestId('operating-question-readback')).toBeVisible();
+  await expect(page.getByTestId('operating-question-action-readback-error')).toContainText('意图历史读取失败');
+  await expect(page.getByTestId('operating-question-action-submit')).toHaveCount(0);
+  expect(calls.some(call => call.pathname.includes('/execution-intent') && call.method === 'POST')).toBe(false);
 });
 
 test('grounded operating answer submits one evidence-locked action for human approval only', async ({ page }) => {

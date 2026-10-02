@@ -53,6 +53,24 @@ CREATE TABLE online_daily_data (
     update_time DATETIME
 )
 SQL);
+        Db::execute('CREATE TABLE hotels (id INTEGER PRIMARY KEY, tenant_id INTEGER NOT NULL)');
+        Db::execute(<<<'SQL'
+CREATE TABLE online_data_correction_ledger (
+    id INTEGER PRIMARY KEY,
+    online_data_id INTEGER NOT NULL,
+    tenant_id INTEGER NULL,
+    system_hotel_id INTEGER NOT NULL,
+    operator_id INTEGER NOT NULL,
+    operation TEXT NOT NULL,
+    changed_fields_json TEXT NULL,
+    before_json TEXT NULL,
+    reason TEXT NULL,
+    restorable INTEGER NOT NULL DEFAULT 0,
+    restored_at TEXT NULL,
+    restored_by INTEGER NULL,
+    created_at TEXT NOT NULL
+)
+SQL);
     }
 
     public static function tearDownAfterClass(): void
@@ -66,6 +84,12 @@ SQL);
     {
         parent::setUp();
         Db::name('online_daily_data')->delete(true);
+        Db::name('online_data_correction_ledger')->delete(true);
+        Db::name('hotels')->delete(true);
+        Db::name('hotels')->insertAll([
+            ['id' => 80, 'tenant_id' => 101],
+            ['id' => 81, 'tenant_id' => 101],
+        ]);
         Db::name('online_daily_data')->insert([
             'id' => 200,
             'tenant_id' => 101,
@@ -121,6 +145,191 @@ SQL);
             fn() => $this->controller($userWithoutCurrentHotel, [])->saveDailyData(),
             '缺失当前酒店必须失败'
         );
+    }
+
+    public function testWrongTenantRecordIsNotExposedByNoChangeUpdateOrDeletePreRead(): void
+    {
+        Db::name('online_daily_data')->insert([
+            'id' => 201,
+            'tenant_id' => 202,
+            'system_hotel_id' => 80,
+            'amount' => 30,
+            'validation_status' => 'verified',
+            'validation_flags' => '[]',
+        ]);
+        $user = $this->hotelAOnlyUser();
+
+        $unchanged = $this->controller($user, ['id' => 201, 'amount' => 30])->updateData();
+        self::assertSame(400, $unchanged->getCode());
+        self::assertSame('数据不存在', json_decode((string)$unchanged->getContent(), true)['message']);
+
+        $delete = $this->controller($user, ['id' => 201])->deleteData();
+        self::assertSame(400, $delete->getCode());
+        self::assertSame('数据不存在', json_decode((string)$delete->getContent(), true)['message']);
+        self::assertSame(30.0, (float)Db::name('online_daily_data')->where('id', 201)->value('amount'));
+    }
+
+    public function testCorrectionLedgerCountPagesAndRestoreHintRespectTenantAndHotelScope(): void
+    {
+        foreach ([
+            [501, 101, 80, 'delete', 1],
+            [502, 202, 80, 'delete', 1],
+            [503, null, 80, 'delete', 1],
+            [504, 101, 81, 'delete', 1],
+            [506, 101, 80, 'update', 0],
+        ] as [$id, $tenantId, $hotelId, $operation, $restorable]) {
+            Db::name('online_data_correction_ledger')->insert([
+                'id' => $id,
+                'online_data_id' => $id + 100,
+                'tenant_id' => $tenantId,
+                'system_hotel_id' => $hotelId,
+                'operator_id' => 7,
+                'operation' => $operation,
+                'changed_fields_json' => '["amount"]',
+                'before_json' => json_encode([
+                    'id' => $id + 100,
+                    'tenant_id' => $tenantId,
+                    'system_hotel_id' => $hotelId,
+                ], JSON_THROW_ON_ERROR),
+                'reason' => 'synthetic correction',
+                'restorable' => $restorable,
+                'created_at' => '2026-07-15 12:00:00',
+            ]);
+        }
+
+        $user = $this->hotelAOnlyUser();
+        $first = json_decode((string)$this->controller($user, ['page' => 1, 'page_size' => 1])->correctionLedger()->getContent(), true)['data'];
+        self::assertSame(2, $first['total']);
+        self::assertSame([506], array_map('intval', array_column($first['list'], 'id')));
+        self::assertFalse($first['list'][0]['can_restore']);
+
+        $second = json_decode((string)$this->controller($user, ['page' => 2, 'page_size' => 1])->correctionLedger()->getContent(), true)['data'];
+        self::assertSame(2, $second['total']);
+        self::assertSame([501], array_map('intval', array_column($second['list'], 'id')));
+        self::assertTrue($second['list'][0]['can_restore']);
+
+        $superUser = new class {
+            public int $id = 1;
+            public ?int $hotel_id = null;
+
+            public function isSuperAdmin(): bool
+            {
+                return true;
+            }
+        };
+        $superList = json_decode((string)$this->controller($superUser, ['page_size' => 10])->correctionLedger()->getContent(), true)['data'];
+        self::assertSame(5, $superList['total']);
+    }
+
+    public function testCorrectionLedgerKeepsHotelPermissionWhenLegacyHotelTableHasNoTenantColumn(): void
+    {
+        Db::name('online_data_correction_ledger')->insert([
+            'id' => 507,
+            'online_data_id' => 607,
+            'tenant_id' => 101,
+            'system_hotel_id' => 80,
+            'operator_id' => 7,
+            'operation' => 'update',
+            'changed_fields_json' => '["amount"]',
+            'before_json' => '{}',
+            'reason' => 'legacy hotel schema',
+            'restorable' => 0,
+            'created_at' => '2026-07-15 12:00:00',
+        ]);
+        Db::execute('ALTER TABLE hotels DROP COLUMN tenant_id');
+        Db::connect(null, true);
+        try {
+            $response = $this->controller($this->hotelAOnlyUser(), [])->correctionLedger();
+            self::assertSame(200, $response->getCode());
+            $data = json_decode((string)$response->getContent(), true)['data'];
+            self::assertSame(1, $data['total']);
+            self::assertSame(507, (int)$data['list'][0]['id']);
+        } finally {
+            Db::execute('ALTER TABLE hotels ADD COLUMN tenant_id INTEGER');
+            Db::name('hotels')->whereIn('id', [80, 81])->update(['tenant_id' => 101]);
+            Db::connect(null, true);
+        }
+    }
+
+    public function testCorrectionLedgerRestoreHintMatchesSnapshotAndTargetAvailability(): void
+    {
+        foreach ([
+            [511, 101, 80, 611],
+            [512, 101, 81, 612],
+            [513, 202, 80, 613],
+            [514, 101, 80, 614],
+        ] as [$ledgerId, $snapshotTenantId, $snapshotHotelId, $dataId]) {
+            Db::name('online_data_correction_ledger')->insert([
+                'id' => $ledgerId,
+                'online_data_id' => $dataId,
+                'tenant_id' => 101,
+                'system_hotel_id' => 80,
+                'operator_id' => 7,
+                'operation' => 'delete',
+                'changed_fields_json' => '["amount"]',
+                'before_json' => json_encode([
+                    'id' => $dataId,
+                    'tenant_id' => $snapshotTenantId,
+                    'system_hotel_id' => $snapshotHotelId,
+                ], JSON_THROW_ON_ERROR),
+                'reason' => 'synthetic restore state',
+                'restorable' => 1,
+                'created_at' => '2026-07-15 12:00:00',
+            ]);
+        }
+        foreach ([
+            [515, 615, '{'],
+            [516, 616, json_encode(['id' => 617, 'tenant_id' => 101, 'system_hotel_id' => 80], JSON_THROW_ON_ERROR)],
+        ] as [$ledgerId, $dataId, $snapshot]) {
+            Db::name('online_data_correction_ledger')->insert([
+                'id' => $ledgerId,
+                'online_data_id' => $dataId,
+                'tenant_id' => 101,
+                'system_hotel_id' => 80,
+                'operator_id' => 7,
+                'operation' => 'delete',
+                'changed_fields_json' => '["amount"]',
+                'before_json' => $snapshot,
+                'reason' => 'synthetic invalid snapshot',
+                'restorable' => 1,
+                'created_at' => '2026-07-15 12:00:00',
+            ]);
+        }
+        Db::name('online_daily_data')->insert([
+            'id' => 614,
+            'tenant_id' => 101,
+            'system_hotel_id' => 80,
+            'amount' => 40,
+        ]);
+
+        $response = $this->controller($this->hotelAOnlyUser(), ['page_size' => 10])->correctionLedger();
+        self::assertSame(200, $response->getCode());
+        $list = json_decode((string)$response->getContent(), true)['data']['list'];
+        $byId = array_column($list, null, 'id');
+        self::assertTrue($byId[511]['can_restore']);
+        self::assertFalse($byId[512]['can_restore']);
+        self::assertFalse($byId[513]['can_restore']);
+        self::assertFalse($byId[514]['can_restore']);
+        self::assertFalse($byId[515]['can_restore']);
+        self::assertFalse($byId[516]['can_restore']);
+        foreach ($list as $row) {
+            self::assertArrayNotHasKey('before_json', $row);
+        }
+
+        $superUser = new class {
+            public int $id = 1;
+            public ?int $hotel_id = null;
+
+            public function isSuperAdmin(): bool
+            {
+                return true;
+            }
+        };
+        $superResponse = $this->controller($superUser, ['page_size' => 10])->correctionLedger();
+        $superRows = array_column(json_decode((string)$superResponse->getContent(), true)['data']['list'], null, 'id');
+        self::assertTrue($superRows[511]['can_restore']);
+        self::assertFalse($superRows[512]['can_restore']);
+        self::assertFalse($superRows[513]['can_restore']);
     }
 
     private function controller(object $user, array $requestData): object

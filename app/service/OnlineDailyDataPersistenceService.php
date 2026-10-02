@@ -9,19 +9,16 @@ final class OnlineDailyDataPersistenceService
 {
     public static function getColumns(): array
     {
-        static $columns = null;
-        if ($columns !== null) {
-            return $columns;
-        }
-
+        // Workers may switch database connections or survive a schema upgrade.
+        // A process-wide cache can drop newly migrated facts or require columns
+        // belonging to another database during exact readback.
         $inspection = DatabaseSchemaRequirement::inspectTableColumns('online_daily_data');
         if (($inspection['status'] ?? '') !== DatabaseSchemaRequirement::STATUS_PRESENT) {
             throw new \RuntimeException(
                 'online_daily_data_schema_unavailable:' . (string)($inspection['error_code'] ?? 'unknown')
             );
         }
-        $columns = array_fill_keys((array)($inspection['columns'] ?? []), true);
-        return $columns;
+        return array_fill_keys((array)($inspection['columns'] ?? []), true);
     }
 
     /**
@@ -451,7 +448,7 @@ final class OnlineDailyDataPersistenceService
             || self::isFutureTargetRow($data, $sourceRow)
         ) {
             $period = 'next_30_days';
-        } elseif ($dataDate === date('Y-m-d') && $period === 'historical_daily') {
+        } elseif ($dataDate === self::businessNow()->format('Y-m-d') && $period === 'historical_daily') {
             $period = 'realtime_snapshot';
         }
         $snapshotTime = null;
@@ -464,7 +461,7 @@ final class OnlineDailyDataPersistenceService
                 ?? $merged['captured_at']
                 ?? $merged['capturedAt']
                 ?? null
-            ) ?? date('Y-m-d H:i:s');
+            ) ?? self::businessNow()->format('Y-m-d H:i:s');
             $providedBucket = trim((string)(
                 $merged['snapshot_bucket']
                 ?? $merged['snapshotBucket']
@@ -588,7 +585,8 @@ final class OnlineDailyDataPersistenceService
         }
         $query->where('data_period', $period);
 
-        if ($period === 'realtime_snapshot' && isset($columns['snapshot_bucket'])) {
+        if (in_array($period, ['realtime_snapshot', 'next_30_days', 'future_on_books'], true)
+            && isset($columns['snapshot_bucket'])) {
             $query->where('snapshot_bucket', (string)($data['snapshot_bucket'] ?? ''));
         }
     }
@@ -629,7 +627,7 @@ final class OnlineDailyDataPersistenceService
         return is_array($decoded) ? $decoded : [];
     }
 
-    public function parseAndSaveTrafficData($responseData, $startDate, $endDate, string $source, ?int $systemHotelId = null, ?string $platform = null, ?string $expectedPlatformHotelId = null, ?string $ingestionMethod = null): int
+    public function parseAndSaveTrafficData($responseData, $startDate, $endDate, string $source, ?int $systemHotelId = null, ?string $platform = null, ?string $expectedPlatformHotelId = null, ?string $ingestionMethod = null, bool $strictSnapshot = false): int
     {
         try {
             $source = strtolower(trim($source));
@@ -639,21 +637,31 @@ final class OnlineDailyDataPersistenceService
                 && ($platform === '' || $ingestionMethod === '')) {
                 throw new \InvalidArgumentException('traffic_source_identity_incomplete');
             }
+            $rangeStart = \DateTimeImmutable::createFromFormat('!Y-m-d', (string)$startDate);
+            $rangeEnd = \DateTimeImmutable::createFromFormat('!Y-m-d', (string)$endDate);
+            if (!$rangeStart || $rangeStart->format('Y-m-d') !== (string)$startDate
+                || !$rangeEnd || $rangeEnd->format('Y-m-d') !== (string)$endDate
+                || $rangeStart > $rangeEnd) {
+                throw new \InvalidArgumentException('traffic_request_date_range_invalid');
+            }
             if (in_array($source, ['ctrip', 'qunar'], true)) {
                 return $this->parseAndSaveCtripTrafficData(
                     $responseData,
                     (string)$startDate,
+                    (string)$endDate,
                     $source,
                     $systemHotelId,
                     $platform,
                     $expectedPlatformHotelId,
-                    $ingestionMethod
+                    $ingestionMethod,
+                    $strictSnapshot
                 );
             }
 
             return $this->parseAndSaveGenericTrafficData(
                 $responseData,
                 (string)$startDate,
+                (string)$endDate,
                 $source,
                 $systemHotelId,
                 $platform,
@@ -665,7 +673,7 @@ final class OnlineDailyDataPersistenceService
         }
     }
 
-    private function parseAndSaveCtripTrafficData($responseData, string $startDate, string $source, ?int $systemHotelId, string $platform, ?string $expectedPlatformHotelId, string $ingestionMethod): int
+    private function parseAndSaveCtripTrafficData($responseData, string $startDate, string $endDate, string $source, ?int $systemHotelId, string $platform, ?string $expectedPlatformHotelId, string $ingestionMethod, bool $strictSnapshot): int
     {
         $dataList = OnlineTrafficDataExtractionService::extractCtripTrafficRows($responseData);
         if (empty($dataList)) {
@@ -718,8 +726,12 @@ final class OnlineDailyDataPersistenceService
                 }
             }
 
-            $itemDate = $item['date'] ?? $item['dataDate'] ?? $item['statDate'] ?? $item['stat_date'] ?? $item['data_date'] ?? $item['reportDate'] ?? $item['day'] ?? $startDate;
-            if (!$itemDate || strtotime((string)$itemDate) === false) {
+            $explicitDate = $item['date'] ?? $item['dataDate'] ?? $item['statDate'] ?? $item['stat_date'] ?? $item['data_date'] ?? $item['reportDate'] ?? $item['day'] ?? null;
+            if ($explicitDate === null && $startDate !== $endDate) {
+                continue;
+            }
+            $itemDate = $explicitDate ?? $startDate;
+            if (!self::trafficDateWithinRequestedRange($itemDate, $startDate, $endDate)) {
                 continue;
             }
             $itemDate = date('Y-m-d', strtotime((string)$itemDate));
@@ -745,6 +757,9 @@ final class OnlineDailyDataPersistenceService
                 ->where('data_type', 'traffic')
                 ->where('hotel_id', (string)$hotelId);
             self::applyPeriodQuery($query, $periodFilter, $columns);
+            if (isset($columns['tenant_id'])) {
+                $query->where('tenant_id', self::resolveTenantIdForSystemHotel($systemHotelId));
+            }
 
             if (isset($columns['platform'])) {
                 $query->where('platform', $platform);
@@ -780,7 +795,7 @@ final class OnlineDailyDataPersistenceService
                 $base,
                 $trafficMetrics,
                 self::trafficMetricFields(),
-                !$exists
+                !$exists || $strictSnapshot
             );
             $data = self::applyValidationFields($payload);
             $data = OnlineDataFieldFactService::attachToOnlineDailyRow($data, $item);
@@ -793,8 +808,13 @@ final class OnlineDailyDataPersistenceService
             } else {
                 $rowId = (int)Db::name('online_daily_data')->insertGetId($data);
             }
+            // Strict snapshots replace absent metrics with null; verify those
+            // nulls too, so stale stored values cannot earn readback proof.
+            $readbackMetricFields = $strictSnapshot
+                ? array_values(array_intersect(self::trafficMetricFields(), array_keys($data)))
+                : array_keys($trafficMetrics);
             $readbackRow = $rowId > 0
-                ? $this->verifiedTrafficRowReadback($rowId, $data, array_keys($trafficMetrics))
+                ? $this->verifiedTrafficRowReadback($rowId, $data, $readbackMetricFields)
                 : null;
             if (is_array($readbackRow)
                 && self::markRowsReadbackVerified([$readbackRow], $columns)) {
@@ -833,7 +853,7 @@ final class OnlineDailyDataPersistenceService
         return array_values(array_map('strval', array_keys($returnedIds)));
     }
 
-    private function parseAndSaveGenericTrafficData($responseData, string $startDate, string $source, ?int $systemHotelId, string $platform, ?string $expectedPlatformHotelId, string $ingestionMethod): int
+    private function parseAndSaveGenericTrafficData($responseData, string $startDate, string $endDate, string $source, ?int $systemHotelId, string $platform, ?string $expectedPlatformHotelId, string $ingestionMethod): int
     {
         $dataList = $this->resolveGenericTrafficDataList($responseData);
         if (empty($dataList)) {
@@ -865,7 +885,14 @@ final class OnlineDailyDataPersistenceService
             } elseif (array_key_exists('list_exposure', $trafficMetrics)) {
                 $trafficMetrics['data_value'] = (float)$trafficMetrics['list_exposure'];
             }
-            $itemDate = $item['dataDate'] ?? $item['date'] ?? $item['statDate'] ?? $item['stat_date'] ?? $item['data_date'] ?? $dataDate;
+            $explicitDate = $item['dataDate'] ?? $item['date'] ?? $item['statDate'] ?? $item['stat_date'] ?? $item['data_date'] ?? null;
+            if ($explicitDate === null && $startDate !== $endDate) {
+                continue;
+            }
+            $itemDate = $explicitDate ?? $dataDate;
+            if (!self::trafficDateWithinRequestedRange($itemDate, $startDate, $endDate)) {
+                continue;
+            }
             $dimension = $item['metric'] ?? $item['metricName'] ?? $item['dimension'] ?? $item['_metric'] ?? 'traffic';
             $columns = self::getColumns();
             $trafficMetrics = array_intersect_key($trafficMetrics, $columns);
@@ -883,6 +910,9 @@ final class OnlineDailyDataPersistenceService
                 ->where('source', $source)
                 ->where('data_type', 'traffic');
             self::applyPeriodQuery($query, $periodFilter, $columns);
+            if (isset($columns['tenant_id'])) {
+                $query->where('tenant_id', self::resolveTenantIdForSystemHotel($systemHotelId));
+            }
 
             if (!empty($hotelId)) {
                 $query->where('hotel_id', (string)$hotelId);
@@ -941,6 +971,16 @@ final class OnlineDailyDataPersistenceService
         }
 
         return $savedCount;
+    }
+
+    private static function trafficDateWithinRequestedRange(mixed $itemDate, string $startDate, string $endDate): bool
+    {
+        $timestamp = strtotime((string)$itemDate);
+        if ($timestamp === false) {
+            return false;
+        }
+        $businessDate = date('Y-m-d', $timestamp);
+        return $businessDate >= $startDate && $businessDate <= $endDate;
     }
 
     /** @param array<int, string> $observedMetricFields */
@@ -1101,7 +1141,7 @@ final class OnlineDailyDataPersistenceService
     private static function looksLikeRealtimeRow(array $row): bool
     {
         $dataDate = self::normalizeDate($row['data_date'] ?? $row['dataDate'] ?? '');
-        if ($dataDate !== date('Y-m-d')) {
+        if ($dataDate !== self::businessNow()->format('Y-m-d')) {
             return false;
         }
 
@@ -1121,6 +1161,11 @@ final class OnlineDailyDataPersistenceService
         }
 
         return false;
+    }
+
+    private static function businessNow(): \DateTimeImmutable
+    {
+        return new \DateTimeImmutable('now', new \DateTimeZone('Asia/Shanghai'));
     }
 
     private static function normalizeDate($value): string

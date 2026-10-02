@@ -522,6 +522,8 @@ final class TransferDecisionServiceTest extends TestCase
     {
         $benchmark = $this->invokeNonPublic(new TransferDecisionService(), 'annualThirtyDayBenchmark', [[
             'actual_days' => 60,
+            'daily_report_days' => 60,
+            'revenue_observed_days' => 60,
             'revenue' => 600000,
             'orders' => 120,
             'adr' => 300,

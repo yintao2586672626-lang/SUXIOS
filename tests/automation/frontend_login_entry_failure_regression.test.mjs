@@ -44,7 +44,7 @@ test('login entry waits for deferred data-health helpers before restoring the sa
   assert.match(restoreSource, /const dataHealthStatic = window\.SUXI_DATA_HEALTH_STATIC;/);
   assert.match(restoreSource, /if \(typeof normalizeStoredRows !== 'function'\) return false;/);
   assert.match(restoreSource, /normalizeStoredRows\.call\(dataHealthStatic, snapshot\?\.rows\)/);
-  assert.match(restoreSource, /watch\(dataHealthStaticVersion, restoreManualOneClickFetchSnapshot, \{ immediate: true \}\);/);
+  assert.match(restoreSource, /watch\(\[dataHealthStaticVersion, \(\) => manualOneClickFetchOwnerKey\(\)\], restoreManualOneClickFetchSnapshot, \{ immediate: true \}\);/);
   assert.doesNotMatch(restoreSource, /^\s*restoreManualOneClickFetchSnapshot\(\);\s*$/m);
 });
 

@@ -47,7 +47,7 @@ final class OperatingGoalInterventionContractTest extends TestCase
     public function testSourceUiExposesGoalInterventionAndOnlyThreeLearningVerdicts(): void
     {
         $template = $this->read('resources/frontend/templates/fragments/17-page-ops-track.html');
-        $app = $this->read('public/app-main.js');
+        $app = $this->read('public/app-main.js') . "\n" . $this->read('public/operation-static.js');
 
         self::assertStringContainsString('data-testid="operating-goal-intervention-learning"', $template);
         self::assertStringContainsString('data-testid="operating-goal-monitor-status"', $template);

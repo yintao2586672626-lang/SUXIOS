@@ -88,6 +88,499 @@ final class MacroSignalServiceTest extends TestCase
         self::assertFalse($series['rows'][1]['has_sample']);
     }
 
+    public function testTrendSeriesDoesNotReplaceExplicitZeroDailyRevenueWithOtaRevenue(): void
+    {
+        $series = $this->invokeNonPublic(new MacroSignalService(), 'buildTrendSeries', [
+            [[
+                'hotel_id' => 121,
+                'report_date' => '2026-05-01',
+                'status' => 2,
+                'revenue' => 0,
+                'room_count' => 10,
+                'report_data' => json_encode(['day_total_revenue' => 0, 'day_total_rooms' => 0]),
+            ]],
+            [[
+                'system_hotel_id' => 121,
+                'data_date' => '2026-05-01',
+                'hotel_name' => '我的酒店',
+                'amount' => 800,
+                'quantity' => 4,
+                'book_order_num' => 3,
+                'dimension' => '',
+                'raw_data' => json_encode(['hotelName' => '我的酒店']),
+            ]],
+            [], '2026-05-01', '2026-05-01',
+        ]);
+
+        self::assertSame(0.0, $series['rows'][0]['revenue']);
+        self::assertSame(0.0, $series['rows'][0]['room_nights']);
+        self::assertSame(0.0, $series['rows'][0]['occupancy']);
+        self::assertSame(0.0, $series['rows'][0]['revpar']);
+        self::assertTrue($series['rows'][0]['has_sample']);
+    }
+
+    public function testDraftDailyReportDoesNotSuppressRecordedOtaSample(): void
+    {
+        $series = $this->invokeNonPublic(new MacroSignalService(), 'buildTrendSeries', [
+            [[
+                'hotel_id' => 121, 'report_date' => '2026-05-01', 'status' => 1,
+                'revenue' => 0, 'report_data' => json_encode(['day_total_revenue' => 0, 'day_total_rooms' => 0]),
+            ]],
+            [[
+                'system_hotel_id' => 121, 'data_date' => '2026-05-01',
+                'hotel_name' => '我的酒店', 'amount' => 800, 'quantity' => 4,
+                'book_order_num' => 3, 'raw_data' => json_encode(['hotelName' => '我的酒店']),
+            ]],
+            [], '2026-05-01', '2026-05-01',
+        ]);
+
+        self::assertSame(800.0, $series['rows'][0]['revenue']);
+        self::assertSame(4.0, $series['rows'][0]['room_nights']);
+    }
+
+    public function testDraftDailyReportDoesNotAlterPriceSignalAdrOrOccupancy(): void
+    {
+        $service = new MacroSignalService();
+        $daily = [
+            ['status' => 1, 'report_data' => json_encode(['day_adr' => 900, 'day_occ_rate' => 99])],
+            ['status' => 2, 'report_data' => json_encode(['day_adr' => 100, 'day_occ_rate' => 80])],
+        ];
+
+        self::assertSame(100.0, $this->invokeNonPublic($service, 'avgAdr', [[], $daily]));
+        self::assertSame(80.0, $this->invokeNonPublic($service, 'avgOccupancy', [$daily]));
+        self::assertFalse($this->invokeNonPublic($service, 'isSubmittedOrLegacyDailyRow', [['status' => 1]]));
+        self::assertTrue($this->invokeNonPublic($service, 'isSubmittedOrLegacyDailyRow', [['status' => 2]]));
+        self::assertTrue($this->invokeNonPublic($service, 'isSubmittedOrLegacyDailyRow', [[]]));
+    }
+
+    public function testTrendSeriesHonorsExplicitZeroDailyTotalsDespitePositiveChannelBreakdown(): void
+    {
+        $series = $this->invokeNonPublic(new MacroSignalService(), 'buildTrendSeries', [
+            [[
+                'hotel_id' => 121, 'report_date' => '2026-05-01', 'revenue' => 0,
+                'report_data' => json_encode([
+                    'day_total_revenue' => 0, 'day_total_rooms' => 0,
+                    'tc_revenue' => 800, 'tc_rooms' => 4,
+                ]),
+            ]],
+            [], [], '2026-05-01', '2026-05-01',
+        ]);
+
+        self::assertSame(0.0, $series['rows'][0]['revenue']);
+        self::assertSame(0.0, $series['rows'][0]['room_nights']);
+    }
+
+    public function testEditedDailyRevenueTotalOverridesStaleLegacySummaryColumn(): void
+    {
+        $service = new MacroSignalService();
+        self::assertSame(0.0, $this->invokeNonPublic($service, 'dailyReportRevenue', [
+            ['revenue' => 800], ['day_revenue' => 0, 'tc_revenue' => 800],
+        ]));
+        self::assertSame(100.0, $this->invokeNonPublic($service, 'dailyReportRevenue', [
+            ['revenue' => 800], ['day_revenue' => 100, 'tc_revenue' => 800],
+        ]));
+        self::assertSame(800.0, $this->invokeNonPublic($service, 'dailyReportRevenue', [
+            ['revenue' => 800], [],
+        ]));
+
+        $series = $this->invokeNonPublic($service, 'buildTrendSeries', [
+            [[
+                'hotel_id' => 121, 'report_date' => '2026-05-01', 'status' => 2,
+                'revenue' => 800, 'report_data' => json_encode(['day_revenue' => 0]),
+            ]],
+            [[
+                'system_hotel_id' => 121, 'data_date' => '2026-05-01',
+                'hotel_name' => '我的酒店', 'amount' => 900,
+                'raw_data' => json_encode(['hotelName' => '我的酒店']),
+            ]],
+            [], '2026-05-01', '2026-05-01',
+        ]);
+        self::assertSame(0.0, $series['rows'][0]['revenue']);
+    }
+
+    public function testDailyRevenueFallbackRequiresCompleteRoomAndOtherIncome(): void
+    {
+        $service = new MacroSignalService();
+        self::assertSame(120.0, $this->invokeNonPublic($service, 'dailyReportRevenue', [
+            ['revenue' => null], ['room_revenue' => 100, 'other_revenue_total' => 20],
+        ]));
+        self::assertSame(20.0, $this->invokeNonPublic($service, 'dailyReportRevenue', [
+            ['revenue' => null], ['room_revenue' => 0, 'other_revenue_total' => 20],
+        ]));
+        self::assertNull($this->invokeNonPublic($service, 'dailyReportRevenue', [
+            ['revenue' => null], ['room_revenue' => 100],
+        ]));
+
+        $daily = static fn (array $data): array => [
+            'hotel_id' => 121, 'report_date' => '2026-05-01', 'status' => 2,
+            'revenue' => null, 'report_data' => json_encode($data),
+        ];
+        $online = [[
+            'system_hotel_id' => 121, 'data_date' => '2026-05-01',
+            'hotel_name' => '我的酒店', 'amount' => 800,
+            'raw_data' => json_encode(['hotelName' => '我的酒店']),
+        ]];
+        $incomplete = $this->invokeNonPublic($service, 'buildTrendSeries', [
+            [$daily(['room_revenue' => 100])], $online, [], '2026-05-01', '2026-05-01',
+        ]);
+        $complete = $this->invokeNonPublic($service, 'buildTrendSeries', [
+            [$daily(['room_revenue' => 100, 'other_revenue_total' => 20])], $online, [], '2026-05-01', '2026-05-01',
+        ]);
+        self::assertSame(800.0, $incomplete['rows'][0]['revenue']);
+        self::assertSame(120.0, $complete['rows'][0]['revenue']);
+    }
+
+    public function testDailyRoomNightsRequireCompleteOnlineAndOfflineEvidence(): void
+    {
+        $service = new MacroSignalService();
+        self::assertSame(6.0, $this->invokeNonPublic($service, 'dailyReportRoomNights', [
+            ['online_rooms' => 4, 'offline_rooms' => 2],
+        ]));
+        self::assertNull($this->invokeNonPublic($service, 'dailyReportRoomNights', [
+            ['online_rooms' => 4],
+        ]));
+        self::assertSame(0.0, $this->invokeNonPublic($service, 'dailyReportRoomNights', [
+            ['day_total_rooms' => 0, 'online_rooms' => 4, 'offline_rooms' => 2],
+        ]));
+
+        $daily = static fn (array $data): array => [
+            'hotel_id' => 121, 'report_date' => '2026-05-01', 'status' => 2,
+            'report_data' => json_encode($data),
+        ];
+        $online = [[
+            'system_hotel_id' => 121, 'data_date' => '2026-05-01',
+            'hotel_name' => '我的酒店', 'quantity' => 8,
+            'raw_data' => json_encode(['hotelName' => '我的酒店']),
+        ]];
+        $partial = $this->invokeNonPublic($service, 'buildTrendSeries', [
+            [$daily(['online_rooms' => 4])], $online, [], '2026-05-01', '2026-05-01',
+        ]);
+        $complete = $this->invokeNonPublic($service, 'buildTrendSeries', [
+            [$daily(['online_rooms' => 4, 'offline_rooms' => 2])], $online, [], '2026-05-01', '2026-05-01',
+        ]);
+        self::assertSame(8.0, $partial['rows'][0]['room_nights']);
+        self::assertSame(6.0, $complete['rows'][0]['room_nights']);
+    }
+
+    public function testTrendSeriesFallsBackToOtaOnlyWhenDailyRevenueIsMissing(): void
+    {
+        $series = $this->invokeNonPublic(new MacroSignalService(), 'buildTrendSeries', [
+            [[
+                'hotel_id' => 121, 'report_date' => '2026-05-01',
+                'revenue' => null, 'report_data' => '{}',
+            ]],
+            [[
+                'system_hotel_id' => 121, 'data_date' => '2026-05-01',
+                'hotel_name' => '我的酒店', 'amount' => 800, 'quantity' => 4,
+                'book_order_num' => 3, 'dimension' => '',
+                'raw_data' => json_encode(['hotelName' => '我的酒店']),
+            ]],
+            [], '2026-05-01', '2026-05-01',
+        ]);
+
+        self::assertSame(800.0, $series['rows'][0]['revenue']);
+        self::assertSame(4.0, $series['rows'][0]['room_nights']);
+    }
+
+    public function testRevenueTrendCardDistinguishesRecordedZeroFromMissingSamples(): void
+    {
+        $service = new MacroSignalService();
+        $card = $this->invokeNonPublic($service, 'buildRevenueTrendCard', [[
+            ['revenue' => 0.0], ['revenue' => 0.0],
+        ], '近2日']);
+
+        self::assertSame('available', $card['status']);
+        self::assertSame('¥0', $card['value']);
+        self::assertStringContainsString('零收入', $card['note']);
+        self::assertStringNotContainsString('数据不足', $card['impact']);
+    }
+
+    public function testRevenueTrendCardDoesNotCompareTwoOldSamplesAsCurrentGrowth(): void
+    {
+        $card = $this->invokeNonPublic(new MacroSignalService(), 'buildRevenueTrendCard', [[
+            ['revenue' => 100.0], ['revenue' => 120.0],
+            ['revenue' => null], ['revenue' => null],
+        ], '近4日']);
+
+        self::assertSame('available', $card['status']);
+        self::assertNull($card['change_rate']);
+        self::assertStringNotContainsString('上升', $card['direction']);
+        self::assertStringContainsString('缺少可比样本', $card['note']);
+
+        $currentOnly = $this->invokeNonPublic(new MacroSignalService(), 'buildRevenueTrendCard', [[
+            ['revenue' => null], ['revenue' => null],
+            ['revenue' => 100.0], ['revenue' => 120.0],
+        ], '近4日']);
+        self::assertNull($currentOnly['change_rate']);
+        self::assertStringContainsString('缺少可比样本', $currentOnly['note']);
+    }
+
+    public function testRevenueTrendComparesObservedValuesWithinTheirDateSegments(): void
+    {
+        $service = new MacroSignalService();
+        $series = $this->invokeNonPublic($service, 'buildTrendSeries', [
+            [
+                ['hotel_id' => 121, 'report_date' => '2026-05-01', 'status' => 2, 'revenue' => 100, 'report_data' => '{}'],
+                ['hotel_id' => 121, 'report_date' => '2026-05-04', 'status' => 2, 'revenue' => 1000, 'report_data' => '{}'],
+                ['hotel_id' => 121, 'report_date' => '2026-05-05', 'status' => 2, 'revenue' => 10, 'report_data' => '{}'],
+                ['hotel_id' => 121, 'report_date' => '2026-05-06', 'status' => 2, 'revenue' => 10, 'report_data' => '{}'],
+            ],
+            [], [], '2026-05-01', '2026-05-06',
+        ]);
+
+        self::assertNull($series['rows'][1]['revenue']);
+        self::assertNull($series['rows'][2]['revenue']);
+        $card = $this->invokeNonPublic($service, 'buildRevenueTrendCard', [$series['rows'], '近6日']);
+
+        self::assertSame('上升', $card['direction']);
+        self::assertSame(240.0, $card['change_rate']);
+        self::assertStringContainsString('前段1/3日', $card['note']);
+        self::assertStringContainsString('后段3/3日', $card['note']);
+    }
+
+    public function testDemandTrendCardDoesNotCompareOnlyEarlyOrdersAsCurrentGrowth(): void
+    {
+        $card = $this->invokeNonPublic(new MacroSignalService(), 'buildDemandTrendCard', [[
+            ['orders' => 2.0], ['orders' => 4.0],
+            ['orders' => 0.0], ['orders' => 0.0],
+        ], [], '近4日']);
+
+        self::assertSame('available', $card['status']);
+        self::assertNull($card['change_rate']);
+        self::assertSame('不可比', $card['direction']);
+        self::assertStringContainsString('缺少可比样本', $card['note']);
+        self::assertStringNotContainsString('平稳', $card['impact']);
+
+        $currentOnly = $this->invokeNonPublic(new MacroSignalService(), 'buildDemandTrendCard', [[
+            ['orders' => 0.0], ['orders' => 0.0],
+            ['orders' => 2.0], ['orders' => 4.0],
+        ], [], '近4日']);
+        self::assertNull($currentOnly['change_rate']);
+        self::assertSame('不可比', $currentOnly['direction']);
+    }
+
+    public function testDemandTrendComparesObservedOrdersWithinTheirDateSegments(): void
+    {
+        $service = new MacroSignalService();
+        $onlineRows = [];
+        foreach ([
+            '2026-05-01' => 1,
+            '2026-05-04' => 10,
+            '2026-05-05' => 1,
+            '2026-05-06' => 1,
+        ] as $date => $orders) {
+            $onlineRows[] = [
+                'system_hotel_id' => 121,
+                'data_date' => $date,
+                'hotel_name' => '我的酒店',
+                'book_order_num' => $orders,
+                'amount' => 0,
+                'quantity' => 0,
+                'raw_data' => json_encode(['hotelName' => '我的酒店']),
+            ];
+        }
+        $series = $this->invokeNonPublic($service, 'buildTrendSeries', [
+            [], $onlineRows, [], '2026-05-01', '2026-05-06',
+        ]);
+
+        self::assertSame([1.0, 0.0, 0.0, 10.0, 1.0, 1.0], array_column($series['rows'], 'orders'));
+        $card = $this->invokeNonPublic($service, 'buildDemandTrendCard', [$series['rows'], [], '近6日']);
+
+        self::assertSame('上升', $card['direction']);
+        self::assertSame(300.0, $card['change_rate']);
+        self::assertStringContainsString('前段1/3日', $card['note']);
+        self::assertStringContainsString('后段3/3日', $card['note']);
+    }
+
+    public function testPriceTrendCardDoesNotCompareOnlyEarlyAdrAsCurrentGrowth(): void
+    {
+        $rows = [
+            ['adr' => 100.0], ['adr' => 120.0],
+            ['adr' => null], ['adr' => null],
+        ];
+        $service = new MacroSignalService();
+        $card = $this->invokeNonPublic($service, 'buildPriceTrendCard', [$rows, 0.0, '近4日']);
+        self::assertNull($card['change_rate']);
+        self::assertSame('数据不足', $card['trend_direction']);
+        self::assertStringContainsString('缺少可比样本', $card['note']);
+        self::assertStringContainsString('暂不判断价格趋势', $card['impact']);
+
+        $withCompetitor = $this->invokeNonPublic($service, 'buildPriceTrendCard', [$rows, 90.0, '近4日']);
+        self::assertNull($withCompetitor['change_rate']);
+        self::assertSame('数据不足', $withCompetitor['trend_direction']);
+        self::assertStringContainsString('竞对均价', $withCompetitor['note']);
+        self::assertStringContainsString('ADR记录日覆盖：前段2/2日、后段0/2日', $withCompetitor['note']);
+    }
+
+    public function testPriceTrendComparesObservedAdrWithinItsDateSegments(): void
+    {
+        $dailyRows = [];
+        foreach ([
+            '2026-05-01' => 100,
+            '2026-05-04' => 1000,
+            '2026-05-05' => 10,
+            '2026-05-06' => 10,
+        ] as $date => $adr) {
+            $dailyRows[] = [
+                'hotel_id' => 121,
+                'report_date' => $date,
+                'report_data' => json_encode(['day_adr' => $adr], JSON_UNESCAPED_UNICODE),
+            ];
+        }
+
+        $service = new MacroSignalService();
+        $series = $this->invokeNonPublic($service, 'buildTrendSeries', [
+            $dailyRows, [], [], '2026-05-01', '2026-05-06',
+        ]);
+        self::assertSame([100.0, null, null, 1000.0, 10.0, 10.0], array_column($series['rows'], 'adr'));
+
+        $card = $this->invokeNonPublic($service, 'buildPriceTrendCard', [$series['rows'], 0.0, '近6日']);
+        self::assertSame('上升', $card['trend_direction']);
+        self::assertSame(240.0, $card['change_rate']);
+        self::assertStringContainsString('前段1/3日', $card['note']);
+        self::assertStringContainsString('后段3/3日', $card['note']);
+    }
+
+    public function testChannelTrendCardDoesNotCompareSingleSidedConversionOrOrders(): void
+    {
+        $service = new MacroSignalService();
+        $conversion = $this->invokeNonPublic($service, 'buildChannelTrendCard', [[
+            ['channel_conversion' => 2.0, 'orders' => 1.0, 'exposure' => 100.0],
+            ['channel_conversion' => 4.0, 'orders' => 2.0, 'exposure' => 100.0],
+            ['channel_conversion' => null, 'orders' => 0.0, 'exposure' => 0.0],
+            ['channel_conversion' => null, 'orders' => 0.0, 'exposure' => 0.0],
+        ], '近4日']);
+        self::assertNull($conversion['change_rate']);
+        self::assertSame('不可比', $conversion['direction']);
+        self::assertStringContainsString('缺少可比样本', $conversion['note']);
+
+        $orders = $this->invokeNonPublic($service, 'buildChannelTrendCard', [[
+            ['channel_conversion' => null, 'orders' => 2.0, 'exposure' => 0.0],
+            ['channel_conversion' => null, 'orders' => 4.0, 'exposure' => 0.0],
+            ['channel_conversion' => null, 'orders' => 0.0, 'exposure' => 0.0],
+            ['channel_conversion' => null, 'orders' => 0.0, 'exposure' => 0.0],
+        ], '近4日']);
+        self::assertNull($orders['change_rate']);
+        self::assertSame('不可比', $orders['direction']);
+    }
+
+    public function testChannelOrderOnlyTrendComparesOrdersWithinTheirDateSegments(): void
+    {
+        $onlineRows = [];
+        foreach ([
+            '2026-05-01' => 1,
+            '2026-05-04' => 10,
+            '2026-05-05' => 1,
+            '2026-05-06' => 1,
+        ] as $date => $orders) {
+            $onlineRows[] = [
+                'system_hotel_id' => 121,
+                'data_date' => $date,
+                'hotel_name' => '我的酒店',
+                'source' => 'meituan',
+                'book_order_num' => $orders,
+                'amount' => 0,
+                'quantity' => 0,
+                'raw_data' => json_encode([
+                    'hotelName' => '我的酒店',
+                    'platform' => 'meituan',
+                ], JSON_UNESCAPED_UNICODE),
+            ];
+        }
+
+        $service = new MacroSignalService();
+        $series = $this->invokeNonPublic($service, 'buildTrendSeries', [
+            [], $onlineRows, [], '2026-05-01', '2026-05-06',
+        ]);
+        self::assertSame([1.0, 0.0, 0.0, 10.0, 1.0, 1.0], array_column($series['rows'], 'orders'));
+        self::assertSame([null, null, null, null, null, null], array_column($series['rows'], 'channel_conversion'));
+
+        $card = $this->invokeNonPublic($service, 'buildChannelTrendCard', [$series['rows'], '近6日']);
+        self::assertSame('上升', $card['direction']);
+        self::assertSame(300.0, $card['change_rate']);
+        self::assertStringContainsString('前段1/3日', $card['note']);
+        self::assertStringContainsString('后段3/3日', $card['note']);
+    }
+
+    public function testChannelConversionTrendComparesObservedValuesWithinTheirDateSegments(): void
+    {
+        $onlineRows = [];
+        foreach ([
+            '2026-05-01' => 5,
+            '2026-05-04' => 50,
+            '2026-05-05' => 10,
+            '2026-05-06' => 10,
+        ] as $date => $conversionRate) {
+            $onlineRows[] = [
+                'system_hotel_id' => 121,
+                'data_date' => $date,
+                'hotel_name' => '我的酒店',
+                'source' => 'meituan',
+                'book_order_num' => 1,
+                'amount' => 0,
+                'quantity' => 0,
+                'raw_data' => json_encode([
+                    'hotelName' => '我的酒店',
+                    'platform' => 'meituan',
+                    'conversionRate' => $conversionRate,
+                ], JSON_UNESCAPED_UNICODE),
+            ];
+        }
+
+        $service = new MacroSignalService();
+        $series = $this->invokeNonPublic($service, 'buildTrendSeries', [
+            [], $onlineRows, [], '2026-05-01', '2026-05-06',
+        ]);
+        self::assertSame([5.0, null, null, 50.0, 10.0, 10.0], array_column($series['rows'], 'channel_conversion'));
+
+        $card = $this->invokeNonPublic($service, 'buildChannelTrendCard', [$series['rows'], '近6日']);
+        self::assertSame('上升', $card['direction']);
+        self::assertSame(366.7, $card['change_rate']);
+        self::assertSame('18.8%', $card['value']);
+        self::assertStringContainsString('转化率记录日覆盖：前段1/3日、后段3/3日', $card['note']);
+    }
+
+    public function testTrendSeriesKeepsAnotherHotelsOtaSampleWhenOneHotelReportsZero(): void
+    {
+        $series = $this->invokeNonPublic(new MacroSignalService(), 'buildTrendSeries', [
+            [[
+                'hotel_id' => 121, 'report_date' => '2026-05-01', 'revenue' => 0,
+                'report_data' => json_encode(['day_total_revenue' => 0, 'day_total_rooms' => 0]),
+            ]],
+            [[
+                'system_hotel_id' => 122, 'data_date' => '2026-05-01',
+                'hotel_name' => '我的酒店', 'amount' => 800, 'quantity' => 4,
+                'book_order_num' => 3, 'dimension' => '',
+                'raw_data' => json_encode(['hotelName' => '我的酒店']),
+            ]],
+            [], '2026-05-01', '2026-05-01',
+        ]);
+
+        self::assertSame(800.0, $series['rows'][0]['revenue']);
+        self::assertSame(4.0, $series['rows'][0]['room_nights']);
+    }
+
+    public function testTrendSeriesChoosesDailyOrOtaPerHotelWithoutDoubleCounting(): void
+    {
+        $online = static fn (int $hotelId, int $amount): array => [
+            'system_hotel_id' => $hotelId, 'data_date' => '2026-05-01',
+            'hotel_name' => '我的酒店', 'amount' => $amount, 'quantity' => 4,
+            'book_order_num' => 3, 'dimension' => '',
+            'raw_data' => json_encode(['hotelName' => '我的酒店']),
+        ];
+        $series = $this->invokeNonPublic(new MacroSignalService(), 'buildTrendSeries', [
+            [[
+                'hotel_id' => 121, 'report_date' => '2026-05-01', 'revenue' => 100,
+                'report_data' => json_encode(['day_total_revenue' => 100, 'day_total_rooms' => 2]),
+            ]],
+            [$online(121, 900), $online(122, 800)],
+            [], '2026-05-01', '2026-05-01',
+        ]);
+
+        self::assertSame(900.0, $series['rows'][0]['revenue']);
+        self::assertSame(6.0, $series['rows'][0]['room_nights']);
+    }
+
     public function testChannelAggregatesUseOnlyOwnOperatingOnlineRows(): void
     {
         $service = new MacroSignalService();
@@ -176,6 +669,9 @@ final class MacroSignalServiceTest extends TestCase
         self::assertSame('available', $channel['status']);
         self::assertStringContainsString('曝光', $channel['impact']);
         self::assertStringContainsString('订单', $channel['impact']);
+        self::assertSame('5.5%', $channel['value']);
+        self::assertSame('上升', $channel['direction']);
+        self::assertSame(20.0, $channel['change_rate']);
     }
 
     public function testTrendInterpretationUsesObservedResultToExplainContinuingImpact(): void

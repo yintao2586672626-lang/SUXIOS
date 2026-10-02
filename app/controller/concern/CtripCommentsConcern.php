@@ -54,6 +54,25 @@ trait CtripCommentsConcern
         return $timestamp === false ? '' : date('Y-m-d', $timestamp);
     }
 
+    private function normalizeCtripCaptureBusinessDate(mixed $value): string
+    {
+        if ($value !== null && !is_string($value) && !is_int($value)) {
+            throw new \InvalidArgumentException('携程业务日期无效，请填写明确的日历日期');
+        }
+        $text = trim((string)($value ?? ''));
+        if ($text === '') return '';
+        if (preg_match('/^(\d{4})(\d{2})(\d{2})$/D', $text, $parts) !== 1) {
+            if (preg_match('/^(\d{4})([-\/.])(\d{1,2})\2(\d{1,2})$/D', $text, $separated) !== 1) {
+                throw new \InvalidArgumentException('携程业务日期无效，请填写明确的日历日期');
+            }
+            $parts = [$text, $separated[1], $separated[3], $separated[4]];
+        }
+        if (!checkdate((int)$parts[2], (int)$parts[3], (int)$parts[1])) {
+            throw new \InvalidArgumentException('携程业务日期无效，请选择真实日历日期');
+        }
+        return sprintf('%04d-%02d-%02d', (int)$parts[1], (int)$parts[2], (int)$parts[3]);
+    }
+
     private function extractCtripCommentScore(array $comment): float
     {
         foreach (['score', 'rating', 'rate', 'totalScore', 'overallScore', 'commentScore', 'star'] as $field) {

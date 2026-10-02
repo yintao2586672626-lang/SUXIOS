@@ -9,6 +9,16 @@ use PHPUnit\Framework\TestCase;
 
 final class AiDailyReportReadinessServiceTest extends TestCase
 {
+    public function testReportDateNormalizationRejectsCalendarRollover(): void
+    {
+        $service = new AiDailyReportService();
+        $normalizeDate = new \ReflectionMethod($service, 'normalizeDate');
+        self::assertSame('2026-02-28', $normalizeDate->invoke($service, '2026-02-28'));
+
+        $this->expectException(\InvalidArgumentException::class);
+        $normalizeDate->invoke($service, '2026-02-30');
+    }
+
     public function testSyntheticFunnelMetricsAreDisplayedAndDerivedWithoutClaimingRealEvidence(): void
     {
         $service = new AiDailyReportService();
@@ -46,7 +56,8 @@ final class AiDailyReportReadinessServiceTest extends TestCase
         $service = new AiDailyReportService();
         $collect = new \ReflectionMethod($service, 'collectYesterdayResult');
         $collect->setAccessible(true);
-        $today = date('Y-m-d');
+        $today = (new \DateTimeImmutable('now', new \DateTimeZone('Asia/Shanghai')))
+            ->format('Y-m-d');
 
         $result = $collect->invoke($service, [
             'revenue' => 5939,
@@ -83,6 +94,40 @@ final class AiDailyReportReadinessServiceTest extends TestCase
         $summary = $buildSummary->invoke($service, $result, [], []);
         self::assertStringContainsString('当日过程快照', $summary);
         self::assertStringNotContainsString('Yesterday result', $summary);
+    }
+
+    public function testChinaBusinessTodayRemainsCurrentProcessUnderAnotherServerTimezone(): void
+    {
+        $today = (new \DateTimeImmutable('now', new \DateTimeZone('Asia/Shanghai')))
+            ->format('Y-m-d');
+        $alternateZone = 'Pacific/Honolulu';
+        if ((new \DateTimeImmutable('now', new \DateTimeZone($alternateZone)))
+            ->format('Y-m-d') === $today) {
+            $alternateZone = 'Pacific/Kiritimati';
+        }
+        self::assertNotSame(
+            $today,
+            (new \DateTimeImmutable('now', new \DateTimeZone($alternateZone)))->format('Y-m-d')
+        );
+        $originalZone = date_default_timezone_get();
+        date_default_timezone_set($alternateZone);
+        try {
+            $service = new AiDailyReportService();
+            $collect = new \ReflectionMethod($service, 'collectYesterdayResult');
+            $result = $collect->invoke($service, [
+                'evidence_refs' => [[
+                    'data_date' => $today,
+                    'data_period' => 'realtime_snapshot',
+                    'is_final' => 0,
+                ]],
+            ], [], $today);
+            self::assertSame('current_day_process', $result['time_scope']);
+            self::assertSame('当日过程快照', $result['time_label']);
+            self::assertSame('verified_realtime_snapshot', $result['time_evidence_status']);
+            self::assertFalse($result['is_final']);
+        } finally {
+            date_default_timezone_set($originalZone);
+        }
     }
 
     public function testHistoricalFinalSnapshotKeepsYesterdaySummaryCompatibility(): void
@@ -491,8 +536,10 @@ final class AiDailyReportReadinessServiceTest extends TestCase
         ]]);
 
         self::assertSame('unverified', $rows[0]['report_readiness']['stage']);
-        self::assertSame('pending_execution_transfer', $rows[0]['report_readiness']['component_stage']);
-        self::assertSame('pending_transfer', $rows[0]['recommended_actions'][0]['action_readiness']['stage']);
+        self::assertSame('blocked', $rows[0]['report_readiness']['component_stage']);
+        self::assertSame('blocked_by_data_gap', $rows[0]['recommended_actions'][0]['action_readiness']['stage']);
+        self::assertFalse($rows[0]['recommended_actions'][0]['can_create_execution_intent']);
+        self::assertStringContainsString('执行日期已过期', $rows[0]['recommended_actions'][0]['blocked_reason']);
         self::assertSame(8, $rows[0]['yesterday_result']['metrics'][0]['value']);
         self::assertSame([], $rows[0]['owner_communication_brief']);
     }

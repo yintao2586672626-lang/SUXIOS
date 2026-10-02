@@ -454,6 +454,8 @@ class RevenueResearchService
             return;
         }
 
+        $today = (new \DateTimeImmutable('now', new \DateTimeZone('Asia/Shanghai')))->format('Y-m-d');
+
         foreach ($existingRows as $row) {
             if (!is_array($row)) {
                 continue;
@@ -466,6 +468,15 @@ class RevenueResearchService
                 || (int)($row['source_record_id'] ?? 0) !== $sourceRecordId
                 || (int)($row['hotel_id'] ?? 0) !== $hotelId
             ) {
+                continue;
+            }
+
+            $end = trim((string)($row['date_end'] ?? ''));
+            if (preg_match('/^\d{4}-\d{2}-\d{2}$/D', $end) !== 1
+                || !checkdate((int)substr($end, 5, 2), (int)substr($end, 8, 2), (int)substr($end, 0, 4))
+                || $end < $today
+            ) {
+                // An expired or invalid action window cannot be approved, so it cannot block fresh research.
                 continue;
             }
 
@@ -592,7 +603,7 @@ class RevenueResearchService
     {
         $dateStart = trim((string)($overrides['date_start'] ?? ''));
         if ($dateStart === '') {
-            $dateStart = date('Y-m-d');
+            $dateStart = (new \DateTimeImmutable('now', new \DateTimeZone('Asia/Shanghai')))->format('Y-m-d');
         }
 
         $dateEnd = trim((string)($overrides['date_end'] ?? ''));
@@ -1349,7 +1360,7 @@ class RevenueResearchService
             return;
         }
         if ($dateColumn !== '' && isset($columns[$dateColumn])) {
-            $query->where($dateColumn, '<=', date('Y-m-d', strtotime('-1 day')));
+            $query->where($dateColumn, '<=', RevenueOverviewDateContract::businessDate(null));
         }
         if (isset($columns['system_hotel_id'])) {
             $query->where('system_hotel_id', '>', 0);
@@ -1477,7 +1488,7 @@ class RevenueResearchService
             'create_time',
         ], array_keys($columns)));
         $fieldSql = implode(',', array_map(static fn(string $field): string => '`' . $field . '`', $fields));
-        $forecastEndDate = date('Y-m-d', strtotime('-1 day'));
+        $forecastEndDate = RevenueOverviewDateContract::businessDate(null);
         $forecastStartDate = date('Y-m-d', strtotime($forecastEndDate . ' -119 days'));
         $query = $this->scopedQuery('online_daily_data', $columns, $hotelIds)
             ->field($fieldSql)
@@ -2356,7 +2367,7 @@ class RevenueResearchService
         $baseRevenue = $forecastRevenue === null ? null : $forecastRevenue / $forecastDays;
         $baseRoomNights = $forecastRoomNights === null ? null : $forecastRoomNights / $forecastDays;
         $baseOrders = $forecastOrders === null ? null : $forecastOrders / $forecastDays;
-        $today = strtotime(date('Y-m-d'));
+        $today = new \DateTimeImmutable('today', new \DateTimeZone('Asia/Shanghai'));
         for ($i = 1; $i <= 7; $i++) {
             $factor = $trend === null ? 1.0 : 1 + $trend * ($i - 4) / 28;
             $roomNights = $baseRoomNights === null ? null : max(0, $baseRoomNights * $factor);
@@ -2369,7 +2380,7 @@ class RevenueResearchService
                 ? round($revenue / $roomNights, 2)
                 : null;
             $daily[] = [
-                'date' => date('Y-m-d', (int)$today + 86400 * $i),
+                'date' => $today->modify('+' . $i . ' days')->format('Y-m-d'),
                 'revenue' => $revenue === null ? null : round($revenue, 2),
                 'room_nights' => $roomNights === null ? null : round($roomNights, 0),
                 'orders' => $orders === null ? null : round($orders, 0),
@@ -2853,6 +2864,13 @@ class RevenueResearchService
             $product,
             $knowledgeContext
         );
+        $rawReviewDate = $result['next_review_date'] ?? null;
+        $reviewDate = is_string($rawReviewDate) ? trim($rawReviewDate) : '';
+        if (preg_match('/^\d{4}-\d{2}-\d{2}$/D', $reviewDate) !== 1
+            || !checkdate((int)substr($reviewDate, 5, 2), (int)substr($reviewDate, 8, 2), (int)substr($reviewDate, 0, 4))
+        ) {
+            $reviewDate = (new \DateTimeImmutable('tomorrow', new \DateTimeZone('Asia/Shanghai')))->format('Y-m-d');
+        }
 
         return [
             'title' => $decisionReady ? $product['name'] . ' OTA渠道经营预测' : $product['name'] . '数据准备状态',
@@ -2881,7 +2899,7 @@ class RevenueResearchService
             'confidence_note' => $decisionReady
                 ? (string)($result['confidence_note'] ?? ('预测置信度：' . (string)($businessForecast['confidence'] ?? 'unknown')))
                 : '数据不完整，未形成可用预测置信度。',
-            'next_review_date' => (string)($result['next_review_date'] ?? date('Y-m-d', strtotime('+1 day'))),
+            'next_review_date' => $reviewDate,
             'module' => (string)$product['module'],
             'metric_scope' => 'ota_channel',
             'decision_ready' => $decisionReady,
@@ -3068,6 +3086,7 @@ class RevenueResearchService
             'summary' => trim((string)($businessForecast['message'] ?? '')),
         ];
 
+        $reviewDate = (new \DateTimeImmutable('tomorrow', new \DateTimeZone('Asia/Shanghai')))->format('Y-m-d');
         $expectedMetric = match ((string)($product['key'] ?? '')) {
             'demand-forecast' => 'orders',
             'cancellation-risk' => 'cancellation_rate',
@@ -3090,14 +3109,14 @@ class RevenueResearchService
             'evidence_sources' => $evidenceSources,
             'default_priority' => $decisionReady ? 'P1' : 'P0',
             'default_risk_level' => $decisionReady ? 'medium' : 'high',
-            'review_window' => '最迟于 ' . date('Y-m-d', strtotime('+1 day')) . ' 按同酒店、同OTA渠道和同指标口径复核',
+            'review_window' => '最迟于 ' . $reviewDate . ' 按同酒店、同OTA渠道和同指标口径复核',
             'expected_metric' => $expectedMetric,
             'expected_effect_policy' => [
                 'status' => 'verification_target',
                 'metric' => $expectedMetric,
                 'direction' => 'verify',
                 'summary' => '预期验证该动作对' . (string)($product['name'] ?? '目标OTA渠道指标') . '的影响；完成同口径复盘前不承诺改善幅度。',
-                'review_window' => '最迟于 ' . date('Y-m-d', strtotime('+1 day')) . ' 按同酒店、同OTA渠道和同指标口径复核',
+                'review_window' => '最迟于 ' . $reviewDate . ' 按同酒店、同OTA渠道和同指标口径复核',
             ],
         ];
     }

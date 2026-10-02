@@ -593,6 +593,160 @@ SQL);
         self::assertSame('missing', $otherHotel['read_status']);
     }
 
+    public function testHistoryReturnsExactScopedItemsAndDetailReturnsFullPersistedBatch(): void
+    {
+        $service = $this->service();
+        $saved = $service->importAndReadback($this->scope('a'), $this->availableLines());
+
+        $history = $service->historyForScope(8, 80, 'ctrip', '2026-08-01', '2026-08-31');
+        self::assertSame('ota_settlement_history.v1', $history['contract_version']);
+        self::assertSame([
+            'tenant_id' => 8,
+            'hotel_id' => 80,
+            'platform' => 'ctrip',
+            'period_start' => '2026-08-01',
+            'period_end' => '2026-08-31',
+        ], $history['scope']);
+        self::assertSame('available', $history['read_status']);
+        self::assertSame(1, $history['total']);
+        self::assertSame(1, $history['page']);
+        self::assertSame(20, $history['page_size']);
+        self::assertSame(1, $history['pages']);
+        self::assertSame([[
+            'batch_id' => $saved['batch_id'],
+            'batch_fingerprint' => $saved['batch_fingerprint'],
+            'batch_status' => $saved['batch_status'],
+            'imported_at' => '2026-08-30 10:00:00',
+            'supersedes_batch_id' => null,
+            'source' => [
+                'source_method' => $saved['source']['source_method'],
+                'source_quality_status' => $saved['source']['source_quality_status'],
+                'file_sha256' => $saved['source']['file_sha256'],
+                'parser_version' => $saved['source']['parser_version'],
+            ],
+            'counts' => $saved['counts'],
+            'totals' => ['net_revenue' => $saved['totals']['net_revenue']],
+        ]], $history['items']);
+
+        $detail = $service->readForScope(8, 80, 'ctrip', '2026-08-01', '2026-08-31', $saved['batch_id']);
+        self::assertIsArray($detail);
+        self::assertSame('available', $detail['read_status']);
+        self::assertTrue($detail['readback_verified']);
+        self::assertSame('2026-08-30 10:00:00', $detail['imported_at']);
+        self::assertSame($saved['batch_fingerprint'], $detail['batch_fingerprint']);
+        self::assertSame($saved['lines'], $detail['lines']);
+        self::assertSame($saved['totals'], $detail['totals']);
+    }
+
+    public function testHistoryListsBothVersionsAndReadsEarlierIdWithoutLatestProjection(): void
+    {
+        $firstScope = $this->scope('b');
+        $first = $this->service('2026-08-30 10:00:00')->importAndReadback($firstScope, $this->availableLines());
+        $secondScope = $firstScope;
+        $secondScope['parser_version'] = 'settlement-fixture.v2';
+        $second = $this->service('2026-08-30 11:00:00')->importAndReadback($secondScope, $this->availableLines());
+
+        $history = $this->service()->historyForScope(8, 80, 'ctrip', '2026-08-01', '2026-08-31');
+        self::assertSame(2, $history['total']);
+        self::assertSame(2, count($history['items']));
+        self::assertSame($second['batch_id'], $history['items'][0]['batch_id']);
+        self::assertSame($first['batch_id'], $history['items'][0]['supersedes_batch_id']);
+        self::assertSame($first['batch_id'], $history['items'][1]['batch_id']);
+        self::assertNull($history['items'][1]['supersedes_batch_id']);
+        $earlier = $this->service()->readForScope(8, 80, 'ctrip', '2026-08-01', '2026-08-31', $first['batch_id']);
+        self::assertIsArray($earlier);
+        self::assertSame($first['batch_fingerprint'], $earlier['batch_fingerprint']);
+        self::assertSame('settlement-fixture.v1', $earlier['source']['parser_version']);
+    }
+
+    public function testHistoryEmptyAndOutOfRangePageDoNotInventBatches(): void
+    {
+        $service = $this->service();
+        $empty = $service->historyForScope(8, 80, 'ctrip', '2026-08-01', '2026-08-31');
+        self::assertSame('empty', $empty['read_status']);
+        self::assertSame(0, $empty['total']);
+        self::assertSame(0, $empty['pages']);
+        self::assertSame([], $empty['items']);
+
+        $service->importAndReadback($this->scope('c'), $this->availableLines());
+        $service->importAndReadback($this->scope('d'), $this->availableLines());
+        $pageOne = $service->historyForScope(8, 80, 'ctrip', '2026-08-01', '2026-08-31', 1, 1);
+        $pageTwo = $service->historyForScope(8, 80, 'ctrip', '2026-08-01', '2026-08-31', 2, 1);
+        $pastEnd = $service->historyForScope(8, 80, 'ctrip', '2026-08-01', '2026-08-31', 3, 1);
+        self::assertSame(2, $pageOne['total']);
+        self::assertSame(2, $pageOne['pages']);
+        self::assertCount(1, $pageOne['items']);
+        self::assertCount(1, $pageTwo['items']);
+        self::assertNotSame($pageOne['items'][0]['batch_id'], $pageTwo['items'][0]['batch_id']);
+        self::assertSame('empty', $pastEnd['read_status']);
+        self::assertSame(2, $pastEnd['total']);
+        self::assertSame(2, $pastEnd['pages']);
+        self::assertSame([], $pastEnd['items']);
+    }
+
+    public function testHistoryRejectsUnboundedPageSize(): void
+    {
+        $this->expectExceptionMessage('ota_settlement_pagination_invalid');
+        $this->service()->historyForScope(8, 80, 'ctrip', '2026-08-01', '2026-08-31', 1, 51);
+    }
+
+    public function testHistoryAndDetailEnforceTenantHotelPlatformAndMonth(): void
+    {
+        $saved = $this->service()->importAndReadback($this->scope('e'), $this->availableLines());
+        foreach ([
+            [9, 80, 'ctrip', '2026-08-01', '2026-08-31'],
+            [8, 81, 'ctrip', '2026-08-01', '2026-08-31'],
+            [8, 80, 'meituan', '2026-08-01', '2026-08-31'],
+            [8, 80, 'ctrip', '2026-07-01', '2026-07-31'],
+        ] as [$tenantId, $hotelId, $platform, $periodStart, $periodEnd]) {
+            $history = $this->service()->historyForScope($tenantId, $hotelId, $platform, $periodStart, $periodEnd);
+            self::assertSame('empty', $history['read_status']);
+            self::assertSame(0, $history['total']);
+            self::assertNull($this->service()->readForScope(
+                $tenantId, $hotelId, $platform, $periodStart, $periodEnd, $saved['batch_id']
+            ));
+        }
+        self::assertNull($this->service()->readForScope(
+            8, 80, 'ctrip', '2026-08-01', '2026-08-31', $saved['batch_id'] + 1000
+        ));
+    }
+
+    public function testHistoryAndDetailRespectMigratedCanonicalHotelId(): void
+    {
+        $saved = $this->service()->importAndReadback($this->scope('f'), $this->availableLines());
+        Db::name('ota_settlement_import_batches')->where('id', $saved['batch_id'])->update(['hotel_id' => 90]);
+
+        $history = $this->service()->historyForScope(8, 90, 'ctrip', '2026-08-01', '2026-08-31');
+        $detail = $this->service()->readForScope(8, 90, 'ctrip', '2026-08-01', '2026-08-31', $saved['batch_id']);
+        self::assertSame($saved['batch_id'], $history['items'][0]['batch_id']);
+        self::assertSame(90, $history['scope']['hotel_id']);
+        self::assertIsArray($detail);
+        self::assertSame(90, $detail['scope']['hotel_id']);
+        self::assertSame(80, $detail['scope']['source_hotel_id']);
+        self::assertNull($this->service()->readForScope(
+            8, 80, 'ctrip', '2026-08-01', '2026-08-31', $saved['batch_id']
+        ));
+    }
+
+    public function testHistoryAndDetailRejectCorruptedPersistedLines(): void
+    {
+        $saved = $this->service()->importAndReadback($this->scope('7'), $this->availableLines());
+        Db::name('ota_settlement_line_facts')->where('batch_id', $saved['batch_id'])->delete();
+
+        foreach (['history', 'detail'] as $read) {
+            try {
+                if ($read === 'history') {
+                    $this->service()->historyForScope(8, 80, 'ctrip', '2026-08-01', '2026-08-31');
+                } else {
+                    $this->service()->readForScope(8, 80, 'ctrip', '2026-08-01', '2026-08-31', $saved['batch_id']);
+                }
+                self::fail($read . ' must reject corrupted persisted lines');
+            } catch (RuntimeException $error) {
+                self::assertSame('ota_settlement_readback_line_count_mismatch', $error->getMessage());
+            }
+        }
+    }
+
     public function testLatestInvalidAttemptDoesNotHideLastNonInvalidFacts(): void
     {
         $available = $this->service('2026-08-30 10:00:00')->importAndReadback(

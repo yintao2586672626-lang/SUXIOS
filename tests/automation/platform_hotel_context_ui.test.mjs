@@ -1,3 +1,4 @@
+import { readSourceAggregate as readStaticContractSource } from '../../scripts/lib/source_aggregate.mjs';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
@@ -8,7 +9,7 @@ const appShell = readFileSync('resources/frontend/templates/fragments/00-app-she
 const ctripTemplate = readFileSync('resources/frontend/templates/fragments/24-page-ctrip-ebooking.html', 'utf8');
 const meituanTemplate = readFileSync('resources/frontend/templates/fragments/26-page-meituan-ebooking.html', 'utf8');
 const ctripStaticSource = readFileSync('public/ctrip-static.js', 'utf8');
-const meituanStaticSource = readFileSync('public/meituan-static.js', 'utf8');
+const meituanStaticSource = readStaticContractSource('public/meituan-static.js');
 const reviewMatchStaticSource = readFileSync('public/review-match-static.js', 'utf8');
 
 const sliceFrom = (source, start, end) => {
@@ -477,6 +478,126 @@ test('Ctrip traffic ignores an old hotel response after the shared context switc
   assert.match(bundleSource, /if \(historyResult\?\.status === 'stale'\) return historyResult;/);
 });
 
+test('Ctrip browser capture ignores late old-hotel results and refreshes after the shared context switches', async () => {
+  const sandbox = { window: {} };
+  vm.runInNewContext(ctripStaticSource, sandbox, { filename: 'public/ctrip-static.js' });
+  const flow = sandbox.window.SUXI_CTRIP_STATIC.runCtripBrowserCaptureFlow;
+  const captureRequest = deferred();
+  const captureStarted = deferred();
+  let currentHotelId = '64';
+  const captureResults = [];
+  const onlineResults = [];
+  const refreshes = [];
+  const notices = [];
+  const pending = flow({
+    getSelectedCtripHotelId: () => currentHotelId,
+    hasCtripConfigList: () => true,
+    getActiveCtripConfig: () => ({ id: 'config-64', hotel_id: '64', ota_hotel_id: 'ctrip-64' }),
+    getBrowserCaptureForm: () => ({}),
+    getOverviewForm: () => ({ dataDate: '2026-09-28' }),
+    resolveProfileId: () => 'profile-64',
+    requestCapture: payload => {
+      assert.equal(payload.system_hotel_id, '64');
+      captureStarted.resolve();
+      return captureRequest.promise;
+    },
+    setCaptureResult: value => captureResults.push(value),
+    setOnlineDataResult: value => onlineResults.push(value),
+    notify: (...args) => notices.push(args),
+    refreshLatestCtripData: () => refreshes.push('latest'),
+    refreshOnlineHistory: () => refreshes.push('history'),
+    refreshPlatformProfileStatus: () => refreshes.push('profile'),
+    refreshPlatformDataSources: () => refreshes.push('sources'),
+  });
+
+  await captureStarted.promise;
+  currentHotelId = '80';
+  captureRequest.resolve({ code: 200, data: {
+    status: 'success', saved_count: 1, readback_verified: true,
+    rows: [{ system_hotel_id: 64, data_date: '2026-09-28' }],
+  } });
+  const result = await pending;
+
+  assert.deepEqual(captureResults.filter(Boolean), []);
+  assert.deepEqual(onlineResults, []);
+  assert.deepEqual(refreshes, []);
+  assert.equal(result.ui_scope_status, 'stale');
+  assert.equal(result.code, 200, 'preserve the server receipt for its original hotel-scoped caller');
+  assert.equal(notices[0][1], 'warning');
+});
+
+test('Ctrip browser capture cancels after the selected hotel changes during config-list loading', async () => {
+  const sandbox = { window: {} };
+  vm.runInNewContext(ctripStaticSource, sandbox, { filename: 'public/ctrip-static.js' });
+  const flow = sandbox.window.SUXI_CTRIP_STATIC.runCtripBrowserCaptureFlow;
+  const configLoad = deferred();
+  const configLoadStarted = deferred();
+  let currentHotelId = '64';
+  let captureRequestCount = 0;
+  const captureResults = [];
+  const onlineResults = [];
+  const pending = flow({
+    getSelectedCtripHotelId: () => currentHotelId,
+    hasCtripConfigList: () => false,
+    loadCtripConfigList: () => { configLoadStarted.resolve(); return configLoad.promise; },
+    getActiveCtripConfig: () => ({ id: 'config-64', hotel_id: '64', ota_hotel_id: 'ctrip-64' }),
+    getBrowserCaptureForm: () => ({}),
+    getOverviewForm: () => ({ dataDate: '2026-09-28' }),
+    resolveProfileId: () => 'profile-64',
+    requestCapture: async () => {
+      captureRequestCount += 1;
+      return { code: 200, data: { saved_count: 1, readback_verified: true } };
+    },
+    setCaptureResult: value => captureResults.push(value),
+    setOnlineDataResult: value => onlineResults.push(value),
+  });
+
+  await configLoadStarted.promise;
+  currentHotelId = '80';
+  configLoad.resolve();
+  const result = await pending;
+
+  assert.equal(result.status, 'stale');
+  assert.equal(captureRequestCount, 0);
+  assert.deepEqual(captureResults, []);
+  assert.deepEqual(onlineResults, []);
+});
+
+test('Ctrip browser capture does not show an old-hotel failure after the selected hotel changes', async () => {
+  const sandbox = { window: {} };
+  vm.runInNewContext(ctripStaticSource, sandbox, { filename: 'public/ctrip-static.js' });
+  const flow = sandbox.window.SUXI_CTRIP_STATIC.runCtripBrowserCaptureFlow;
+  const captureRequest = deferred();
+  const captureStarted = deferred();
+  let currentHotelId = '64';
+  const captureResults = [];
+  const notifications = [];
+  const refreshes = [];
+  const pending = flow({
+    getSelectedCtripHotelId: () => currentHotelId,
+    hasCtripConfigList: () => true,
+    getActiveCtripConfig: () => ({ id: 'config-64', hotel_id: '64', ota_hotel_id: 'ctrip-64' }),
+    getBrowserCaptureForm: () => ({}),
+    getOverviewForm: () => ({ dataDate: '2026-09-28' }),
+    resolveProfileId: () => 'profile-64',
+    requestCapture: () => { captureStarted.resolve(); return captureRequest.promise; },
+    setCaptureResult: value => captureResults.push(value),
+    notify: (...args) => notifications.push(args),
+    refreshLatestCtripData: () => refreshes.push('latest'),
+    refreshOnlineHistory: () => refreshes.push('history'),
+  });
+
+  await captureStarted.promise;
+  currentHotelId = '80';
+  captureRequest.reject(new Error('synthetic request failure for prior hotel'));
+  const result = await pending;
+
+  assert.equal(result.status, 'stale');
+  assert.deepEqual(captureResults.filter(Boolean), []);
+  assert.deepEqual(refreshes, []);
+  assert.equal(notifications[0][1], 'warning');
+});
+
 test('Ctrip comment browser and diagnosis responses cannot overwrite a newly selected hotel', async () => {
   const contextSource = platformRequestContextSource();
   const browserSource = sliceFrom(
@@ -573,6 +694,8 @@ test('Meituan comment response cannot overwrite a newly selected Meituan hotel',
     meituanCommentResult: { value: null },
     onlineDataResult: { value: null },
     showRawData: { value: false },
+    captureAuthSession: () => 'synthetic-session',
+    isAuthSessionCurrent: session => session === 'synthetic-session',
     firstDataConfigValue: (...values) => values.find(value => String(value || '').trim()) || '',
     request: () => requestState.promise,
     scheduleOnlineDataRefresh: () => writes.push('data'),
@@ -595,6 +718,95 @@ test('Meituan comment response cannot overwrite a newly selected Meituan hotel',
   assert.equal(sandbox.onlineDataResult.value, null);
   assert.deepEqual(writes, []);
 });
+
+test('older same-hotel Meituan comment response cannot overwrite a newer request', async () => {
+  const contextSource = platformRequestContextSource();
+  const commentSource = sliceFrom(
+    appMain,
+    'const fetchMeituanComments = async () => {',
+    '\n\n            // 获取评分样式类',
+  );
+  const oldRequest = deferred();
+  const newRequest = deferred();
+  const writes = [];
+  let requestCount = 0;
+  const sandbox = {
+    selectedCtripHotelId: { value: '64' },
+    meituanForm: { value: { hotelId: '7' } },
+    meituanCommentForm: { value: { partnerId: 'p7', poiId: 'poi7', requestUrl: '/reviews', replyType: '2', tag: '', limit: 50 } },
+    meituanBrowserCaptureForm: { value: { storeId: 'poi7' } },
+    fetchingCommentData: { value: false },
+    meituanCommentSuccess: { value: false },
+    meituanCommentResult: { value: null },
+    onlineDataResult: { value: null },
+    showRawData: { value: false },
+    captureAuthSession: () => 'synthetic-session',
+    isAuthSessionCurrent: session => session === 'synthetic-session',
+    firstDataConfigValue: (...values) => values.find(value => String(value || '').trim()) || '',
+    request: () => (++requestCount === 1 ? oldRequest.promise : newRequest.promise),
+    scheduleOnlineDataRefresh: () => writes.push('data'),
+    scheduleOnlineHistoryRefresh: () => writes.push('history'),
+    showToast: (...args) => writes.push(['toast', ...args]),
+  };
+  const api = vm.runInNewContext(`(() => {
+    ${contextSource}
+    ${commentSource}
+    return { fetchMeituanComments };
+  })()`, sandbox, { filename: 'meituan-comments-replacement.js' });
+  const oldPending = api.fetchMeituanComments();
+  const newPending = api.fetchMeituanComments();
+  newRequest.resolve({ code: 200, data: { marker: 'new' }, message: 'new result' });
+  await newPending;
+  oldRequest.resolve({ code: 200, data: { marker: 'old' }, message: 'old result' });
+  assert.equal((await oldPending).status, 'stale');
+  assert.equal(sandbox.meituanCommentResult.value.marker, 'new');
+  assert.equal(sandbox.onlineDataResult.value.marker, 'new');
+  assert.equal(sandbox.fetchingCommentData.value, false);
+  assert.equal(writes.filter(item => Array.isArray(item) && item[1] === 'old result').length, 0);
+});
+
+for (const throws of [false, true]) {
+  test(`Meituan comment ${throws ? 'exception' : 'HTTP failure'} replaces old shared success`, async () => {
+    const contextSource = platformRequestContextSource();
+    const commentSource = sliceFrom(
+      appMain,
+      'const fetchMeituanComments = async () => {',
+      '\n\n            // 获取评分样式类',
+    );
+    const sandbox = {
+      selectedCtripHotelId: { value: '64' },
+      meituanForm: { value: { hotelId: '7' } },
+      meituanCommentForm: { value: { partnerId: 'p7', poiId: 'poi7', requestUrl: '/reviews', replyType: '2', tag: '', limit: 50 } },
+      meituanBrowserCaptureForm: { value: { storeId: 'poi7' } },
+      fetchingCommentData: { value: false },
+      meituanCommentSuccess: { value: true },
+      meituanCommentResult: { value: { saved_count: 4, readback_verified: true } },
+      onlineDataResult: { value: { saved_count: 4, readback_verified: true } },
+      showRawData: { value: true },
+      captureAuthSession: () => 'synthetic-session',
+      isAuthSessionCurrent: session => session === 'synthetic-session',
+      firstDataConfigValue: (...values) => values.find(value => String(value || '').trim()) || '',
+      request: async () => {
+        if (throws) throw new Error('synthetic failure');
+        return { code: 500, message: 'synthetic failure', data: { saved_count: 1, row_count: 2 } };
+      },
+      scheduleOnlineDataRefresh: () => {},
+      scheduleOnlineHistoryRefresh: () => {},
+      showToast: () => {},
+    };
+    const api = vm.runInNewContext(`(() => {
+      ${contextSource}
+      ${commentSource}
+      return { fetchMeituanComments };
+    })()`, sandbox, { filename: 'meituan-comments-failure.js' });
+    await api.fetchMeituanComments();
+    assert.equal(sandbox.meituanCommentSuccess.value, false);
+    assert.equal(sandbox.onlineDataResult.value.readback_verified, false);
+    assert.equal(sandbox.onlineDataResult.value.ui_flow_status, throws ? 'exception' : 'failed');
+    assert.equal(sandbox.meituanCommentResult.value.ui_flow_status, throws ? 'exception' : 'failed');
+    assert.equal(sandbox.showRawData.value, false);
+  });
+}
 
 test('delayed Meituan saved-config reads cannot apply an old hotel config to a new hotel form', async () => {
   const specs = [

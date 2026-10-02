@@ -34,8 +34,8 @@ test('PMS operating data page shows only the hotel-selected PMS while binding li
   assert.match(hotelDialog, /value="dingdandao_pms"/);
   assert.doesNotMatch(hotelDialog, /一家门店只启用一套 PMS/);
   assert.doesNotMatch(hotelDialog, /hotelPmsBinding\.binding_status_label/);
-  assert.doesNotMatch(hotelDialog, /data-testid="hotel-pms-provider-hotel-id"/);
-  assert.doesNotMatch(hotelDialog, /data-testid="hotel-pms-provider-hotel-name"/);
+  assert.match(hotelDialog, /v-if="\['dingdandao_pms', 'meituan_cloud_pms'\]\.includes\(hotelForm\.pms_provider\)"[\s\S]*?v-model="hotelForm\.pms_provider_hotel_id"[\s\S]*?:disabled="hotelPmsBindingLoading \|\| !!hotelPmsBindingError"[\s\S]*?aria-label="PMS 公开门店 ID"[\s\S]*?data-testid="hotel-pms-provider-hotel-id"/);
+  assert.match(hotelDialog, /v-if="\['dingdandao_pms', 'meituan_cloud_pms'\]\.includes\(hotelForm\.pms_provider\)"[\s\S]*?v-model="hotelForm\.pms_provider_hotel_name"[\s\S]*?:disabled="hotelPmsBindingLoading \|\| !!hotelPmsBindingError"[\s\S]*?aria-label="PMS 公开门店名称"[\s\S]*?data-testid="hotel-pms-provider-hotel-name"/);
   assert.doesNotMatch(hotelDialog, /切换 PMS 会停用另一来源/);
   assert.match(hotelDialog, />最近登录<\/div>/);
   assert.doesNotMatch(hotelDialog, />最近采集<\/div>/);

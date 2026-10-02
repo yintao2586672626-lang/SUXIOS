@@ -73,4 +73,71 @@ final class OtaTrafficAggregationBoundaryTest extends TestCase
         $result = (new OtaRevenueMetricService())->summarizeDataset(['fact_ota_traffic' => $rows]);
         self::assertNull($result['traffic']['list_exposure']);
     }
+
+    public function testMeituanDefaultDateTrafficCannotBecomeRevenueMetricOrBorrowOlderBatch(): void
+    {
+        $rows = [
+            $this->traffic('2026-08-01', [
+                'list_exposure' => 300,
+                'dimension' => 'flow_conversion',
+                'source_trace' => ['row_id' => 11, 'sync_task_id' => 11],
+                'raw_data' => ['date_source' => 'page.business_period_selection.readback',
+                    'row' => ['_capture_source' => 'xhr:traffic:traffic', '_source_path' => 'data.myHotel']],
+            ]),
+            $this->traffic('2026-08-01', [
+                'list_exposure' => 900,
+                'dimension' => 'flow_conversion',
+                'source_trace' => ['row_id' => 12, 'sync_task_id' => 12],
+                'raw_data' => ['date_source' => 'capture_context.default_data_date',
+                    'row' => ['_capture_source' => 'xhr:traffic:traffic', '_source_path' => 'data.myHotel']],
+            ]),
+        ];
+
+        $service = new OtaRevenueMetricService();
+        self::assertNull($service->summarizeDataset(['fact_ota_traffic' => $rows])['traffic']['list_exposure']);
+
+        $rows[1]['raw_data']['date_source'] = 'page.business_period_selection.readback';
+        self::assertSame(900, $service->summarizeDataset(['fact_ota_traffic' => $rows])['traffic']['list_exposure']);
+    }
+
+    public function testInvalidDateSourceDayCannotMakeMultiDayTrafficLookComplete(): void
+    {
+        $rows = [
+            $this->traffic('2026-08-01', [
+                'list_exposure' => 100, 'detail_exposure' => 10, 'flow_rate' => 10,
+                'raw_data' => ['date_source' => 'page.business_period_selection.readback'],
+            ]),
+            $this->traffic('2026-08-02', [
+                'list_exposure' => 200, 'detail_exposure' => 40, 'flow_rate' => 20,
+                'raw_data' => ['date_source' => 'capture_context.default_data_date'],
+            ]),
+        ];
+        $traffic = (new OtaRevenueMetricService())->summarizeDataset(['fact_ota_traffic' => $rows])['traffic'];
+        self::assertNull($traffic['list_exposure']);
+        self::assertNull($traffic['avg_flow_rate']);
+    }
+
+    public function testBadMeituanDateDoesNotHideIndependentCtripChannelMetric(): void
+    {
+        $ctrip = $this->traffic('2026-08-01', [
+            'platform_key' => 'ctrip', 'list_exposure' => 70,
+            'raw_data' => ['date_source' => 'row.statDate'],
+        ]);
+        $meituan = $this->traffic('2026-08-01', [
+            'list_exposure' => 900,
+            'raw_data' => ['date_source' => 'capture_context.default_data_date'],
+        ]);
+        $summary = (new OtaRevenueMetricService())->summarizeDataset([
+            'fact_ota_traffic' => [$ctrip, $meituan],
+        ]);
+        self::assertNull($summary['traffic']['list_exposure']);
+        $trafficMetrics = array_values(array_filter(
+            $summary['channel_metrics'],
+            static fn(array $metric): bool => $metric['resource'] === 'traffic'
+                && $metric['metric_key'] === 'list_exposure'
+        ));
+        self::assertCount(1, $trafficMetrics);
+        self::assertSame('ctrip', $trafficMetrics[0]['platform']);
+        self::assertSame(70.0, $trafficMetrics[0]['value']);
+    }
 }

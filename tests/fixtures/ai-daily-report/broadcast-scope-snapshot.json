@@ -1,0 +1,140 @@
+{
+    "snapshot_id": 1,
+    "version_no": 1,
+    "tenant_id": 80,
+    "hotel_id": 80,
+    "hotel_name": "敦煌漠蓝新",
+    "business_date": "2026-08-23",
+    "generated_at": "2026-08-25 09:00:00",
+    "data_cutoff_at": "2026-08-24 23:17:33",
+    "facts_broadcast_status": "facts_broadcast_ready",
+    "analysis_status": "analysis_blocked",
+    "status_label": "严格事实可播报",
+    "view_status": "ready",
+    "generation_trigger": "manual",
+    "template_version": "trusted_operations_broadcast.v1",
+    "facts_fingerprint": "e25c3df024852d6d381201d74d4e7f19afab2eafd90d0b29d407669c661fabd5",
+    "snapshot_fingerprint": "da33e437b2844b0c3a2dc8d70dcd76098d259d87cc8d4ee75a71b638051a0842",
+    "facts": [
+        {
+            "label": "曝光人数",
+            "metric_key": "exposure",
+            "platform": "meituan",
+            "platform_label": "美团",
+            "revenue_analysis_consumable": true,
+            "source_refs": [
+                "online_daily_data#102476"
+            ],
+            "status": "strict_readback",
+            "unit": "users",
+            "value": 1422
+        },
+        {
+            "label": "商详访客",
+            "metric_key": "visits",
+            "platform": "meituan",
+            "platform_label": "美团",
+            "revenue_analysis_consumable": true,
+            "source_refs": [
+                "online_daily_data#102476"
+            ],
+            "status": "strict_readback",
+            "unit": "users",
+            "value": 206
+        },
+        {
+            "label": "曝光到访率",
+            "metric_key": "conversion",
+            "platform": "meituan",
+            "platform_label": "美团",
+            "revenue_analysis_consumable": true,
+            "source_refs": [
+                "online_daily_data#102476"
+            ],
+            "status": "verified_calculation",
+            "unit": "percent",
+            "value": 14.49
+        }
+    ],
+    "fact_refs": [
+        "online_daily_data#102476"
+    ],
+    "missing_items": [
+        {
+            "code": "ctrip_exposure_missing",
+            "label": "曝光人数",
+            "message": "携程曝光人数事实缺失",
+            "metric_key": "exposure",
+            "platform": "ctrip",
+            "platform_label": "携程",
+            "status": "missing"
+        },
+        {
+            "code": "ctrip_conversion_missing",
+            "label": "曝光到访率",
+            "message": "携程曝光到访率事实缺失",
+            "metric_key": "conversion",
+            "platform": "ctrip",
+            "platform_label": "携程",
+            "status": "missing"
+        },
+        {
+            "code": "meituan_revenue_caliber_uncertain",
+            "label": "收入",
+            "message": "美团收入口径未确认",
+            "metric_key": "revenue",
+            "platform": "meituan",
+            "platform_label": "美团",
+            "status": "caliber_uncertain"
+        },
+        {
+            "code": "meituan_adr_caliber_uncertain",
+            "label": "ADR",
+            "message": "美团ADR口径未确认",
+            "metric_key": "adr",
+            "platform": "meituan",
+            "platform_label": "美团",
+            "status": "caliber_uncertain"
+        }
+    ],
+    "source_status": {
+        "ctrip": {
+            "analysis_status": "blocked",
+            "closure_status": "partial",
+            "collection_failed": false,
+            "exact_run_readback_status": "verified",
+            "identity_status": "verified",
+            "label": "携程",
+            "platform_status": "verified",
+            "selected_fact_count": 0,
+            "target_date_status": "matched"
+        },
+        "meituan": {
+            "analysis_status": "blocked",
+            "closure_status": "partial",
+            "collection_failed": false,
+            "exact_run_readback_status": "verified",
+            "identity_status": "verified",
+            "label": "美团",
+            "platform_status": "verified",
+            "selected_fact_count": 3,
+            "target_date_status": "matched"
+        }
+    },
+    "final_text": "可信经营播报\n门店：敦煌漠蓝新（Hotel 80）\n业务日期：2026-08-23\n已确认事实：美团曝光人数 1,422、商详访客 206、曝光到访率 14.49%。\n异常/缺失：携程曝光人数事实缺失、收入口径未确认，因此暂不生成双平台竞争和收益结论。\n今天最需要关注的一件事：优先补齐携程曝光人数事实并核对收入口径；补齐前只跟踪已确认的美团渠道事实。\n数据截止时间：2026-08-24 23:17:33。\n来源状态：美团严格回读事实可用；携程关键事实不完整；竞争分析仍受阻。",
+    "final_text_sha256": "399ee9d900d96def37c21e0d96e8407794493fc724791a5ad57a2b8e173e7846",
+    "can_generate": true,
+    "can_use": true,
+    "persisted": true,
+    "created": false,
+    "reused": false,
+    "authorization": {
+        "local_snapshot_write_authorized": true,
+        "external_delivery_authorized": false,
+        "wecom_send_authorized": false,
+        "ota_write_authorized": false,
+        "pms_write_authorized": false,
+        "scheduled_push_authorized": false
+    },
+    "readback_verified": true
+}

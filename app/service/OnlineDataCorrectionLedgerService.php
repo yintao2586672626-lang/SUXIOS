@@ -110,6 +110,7 @@ final class OnlineDataCorrectionLedgerService
             $query = Db::name(self::DATA_TABLE)->whereIn('id', $ids)->lock(true);
             if ($permittedHotelIds !== null) {
                 $query->whereIn('system_hotel_id', $this->normalizeHotelIds($permittedHotelIds));
+                $this->applyTenantBinding($query, self::DATA_TABLE);
             }
             $rows = $query->select()->toArray();
             $foundIds = array_map('intval', array_column($rows, 'id'));
@@ -186,6 +187,20 @@ final class OnlineDataCorrectionLedgerService
             $before = json_decode((string)($ledger['before_json'] ?? ''), true);
             if (!is_array($before) || (int)($before['id'] ?? 0) <= 0) {
                 throw new RuntimeException('online_data_restore_snapshot_invalid');
+            }
+            if ((int)($before['system_hotel_id'] ?? 0) !== $hotelId
+                || (int)$before['id'] !== (int)($ledger['online_data_id'] ?? 0)) {
+                throw new RuntimeException('online_data_restore_forbidden');
+            }
+            if ($this->tenantBindingAvailable(self::DATA_TABLE)) {
+                $hotelTenantId = (int)Db::name('hotels')->where('id', $hotelId)->value('tenant_id');
+                $snapshotTenantId = (int)($before['tenant_id'] ?? 0);
+                if ($hotelTenantId <= 0
+                    || $snapshotTenantId !== $hotelTenantId
+                    || ($this->tableHasField(self::LEDGER_TABLE, 'tenant_id')
+                        && (int)($ledger['tenant_id'] ?? 0) !== $hotelTenantId)) {
+                    throw new RuntimeException('online_data_restore_forbidden');
+                }
             }
             $onlineDataId = (int)$before['id'];
             if (Db::name(self::DATA_TABLE)->where('id', $onlineDataId)->find()) {
@@ -272,6 +287,7 @@ final class OnlineDataCorrectionLedgerService
         $query = Db::name(self::DATA_TABLE)->where('id', $onlineDataId);
         if ($permittedHotelIds !== null) {
             $query->whereIn('system_hotel_id', $this->normalizeHotelIds($permittedHotelIds));
+            $this->applyTenantBinding($query, self::DATA_TABLE);
         }
         if ($lock) {
             $query->lock(true);
@@ -281,6 +297,36 @@ final class OnlineDataCorrectionLedgerService
             throw new RuntimeException('online_data_missing_or_forbidden');
         }
         return $row;
+    }
+
+    private function tableHasField(string $table, string $field): bool
+    {
+        $fields = Db::name($table)->getTableFields();
+        return in_array($field, $fields, true) || array_key_exists($field, $fields);
+    }
+
+    private function tenantBindingAvailable(string $table): bool
+    {
+        return $this->tableHasField($table, 'tenant_id')
+            && $this->tableHasField($table, 'system_hotel_id')
+            && $this->tableHasField('hotels', 'tenant_id');
+    }
+
+    private function applyTenantBinding($query, string $table): void
+    {
+        if (!$this->tenantBindingAvailable($table)) {
+            return;
+        }
+        $dataTable = (string)$query->getTable();
+        $hotelTable = (string)Db::name('hotels')->getTable();
+        $query->where('tenant_id', '>', 0)->whereExists(
+            static function ($hotelQuery) use ($dataTable, $hotelTable): void {
+                $hotelQuery->table([$hotelTable => 'correction_owner_hotel'])
+                    ->field('correction_owner_hotel.id')
+                    ->whereColumn('correction_owner_hotel.id', $dataTable . '.system_hotel_id')
+                    ->whereColumn('correction_owner_hotel.tenant_id', $dataTable . '.tenant_id');
+            }
+        );
     }
 
     /**

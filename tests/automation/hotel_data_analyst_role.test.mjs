@@ -27,7 +27,7 @@ const sliceBetween = (source, startMarker, endMarker) => {
 };
 
 const preciseMetricHelpers = sliceBetween(
-  operatingComponents,
+  hotelDataAnalystComponents,
   '// PRECISE_METRIC_SET_HELPERS_START',
   '// PRECISE_METRIC_SET_HELPERS_END',
 );

@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace app\controller;
 
+use DateTimeImmutable;
+use DateTimeZone;
 use app\model\Hotel;
 use app\service\AutomationRunMonitorService;
 use app\service\CloudMessageTaskOverviewService;
@@ -42,7 +44,11 @@ final class ManualNotification extends Base
             abort(401, '请先登录');
         }
 
-        $businessDate = (string)$this->request->get('business_date', date('Y-m-d'));
+        $businessDate = (string)$this->request->get(
+            'business_date',
+            (new DateTimeImmutable('now', new DateTimeZone('Asia/Shanghai')))
+                ->format('Y-m-d')
+        );
         $hotelIds = array_values(array_unique(array_filter(
             array_map('intval', $this->currentUser->getPermittedHotelIds()),
             fn(int $hotelId): bool => $hotelId > 0

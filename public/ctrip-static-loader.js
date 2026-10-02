@@ -811,6 +811,12 @@
         const competitorFutureWindowLoading = ref(false);
         const competitorFutureWindowError = ref('');
         let requestSeq = 0;
+        const resetCompetitorFutureWindow = () => {
+            requestSeq++;
+            competitorFutureWindow.value = null;
+            competitorFutureWindowLoading.value = false;
+            competitorFutureWindowError.value = '';
+        };
         const competitorFutureWindowRows = computed(() => (
             Array.isArray(competitorFutureWindow.value?.matrix) ? competitorFutureWindow.value.matrix : []
         ));
@@ -848,17 +854,14 @@
             dayText: competitorFutureWindowDayText.value,
         }));
         const loadCompetitorFutureWindow = async (options = {}) => {
-            const currentSeq = ++requestSeq;
+            resetCompetitorFutureWindow();
+            const currentSeq = requestSeq;
             const systemHotelId = String(options.systemHotelId || getSystemHotelId() || '').trim();
             const platform = String(options.platform || 'ctrip');
             const startDate = String(options.startDate || getToday()).trim();
-            competitorFutureWindowError.value = '';
             if (!systemHotelId || !/^\d{4}-\d{2}-\d{2}$/.test(startDate)) {
-                competitorFutureWindow.value = null;
-                competitorFutureWindowLoading.value = false;
                 return null;
             }
-            competitorFutureWindow.value = null;
             competitorFutureWindowLoading.value = true;
             try {
                 const params = new URLSearchParams({
@@ -899,6 +902,7 @@
             competitorFutureWindowDayText,
             competitorFutureWindowPanelModel,
             loadCompetitorFutureWindow,
+            resetCompetitorFutureWindow,
         };
     };
     const api = {
@@ -999,6 +1003,8 @@
         'runCtripAdsFetchFlow',
         'buildCtripCookieApiFetchRequestBody',
         'runCtripCookieApiCaptureFlow',
+        'ctripTrafficFetchFailureMessage',
+        'runCtripTrafficBundleStep',
         'ctripSortMetricValue',
         'buildCtripSortedHotelRows',
         'buildCtripOverviewMetricCards',

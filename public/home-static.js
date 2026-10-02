@@ -1,7 +1,6 @@
 window.SUXI_HOME_STATIC = (() => {
     const buildHomeClosedLoopStages = ({
         readiness = {},
-        compassLastSyncedAt = '',
         trendReady = false,
         forecastStatus = '',
         homeMarketForecastAction = '',
@@ -24,7 +23,7 @@ window.SUXI_HOME_STATIC = (() => {
                 statusText: coreReady ? '核心就绪' : (readyPercent > 0 ? safeReadiness.summaryText : '待同步'),
                 statusClass: coreReady ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : (readyPercent > 0 ? 'bg-amber-50 text-amber-700 border-amber-100' : 'bg-gray-50 text-gray-500 border-gray-200'),
                 desc: safeReadiness.missingText || '等待授权 OTA 数据形成可验证输入。',
-                evidence: `最近同步 ${compassLastSyncedAt || '--'}`,
+                evidence: '详情见数据健康',
                 actionLabel: coreReady ? '查看数据状态' : '去补数据',
                 entry: { page: 'online-data', tab: coreReady ? 'data-health' : 'platform-auto' },
                 icon: 'fas fa-shield-alt',
@@ -593,7 +592,25 @@ window.SUXI_HOME_STATIC = (() => {
         const reconciliation = factLayer.reconciliation && typeof factLayer.reconciliation === 'object'
             ? factLayer.reconciliation
             : {};
-        const wholeHotelSource = factLayer.sources?.dingdandao_pms || {};
+        const factSourceLabels = {
+            dingdandao_pms: 'PMS',
+            meituan_cloud_pms: '美团云 PMS',
+            pms: 'PMS',
+            ctrip_ota: '携程',
+            meituan_ota: '美团',
+        };
+        const pmsSourceKeys = ['dingdandao_pms', 'meituan_cloud_pms'];
+        const legacyPmsKeys = pmsSourceKeys.filter(key => (
+            [factLayer.sources, factLayer.source_completeness, dateAlignment.sources, factLayer.facts]
+                .some(rows => Object.prototype.hasOwnProperty.call(rows || {}, key))
+        ));
+        const pmsProvider = Object.prototype.hasOwnProperty.call(factLayer.pms_binding || {}, 'effective_provider')
+            ? String(factLayer.pms_binding.effective_provider || '').trim()
+            : (legacyPmsKeys.length === 1 ? legacyPmsKeys[0] : '');
+        const pmsSourceKey = pmsSourceKeys.includes(pmsProvider) ? pmsProvider : 'pms';
+        const wholeHotelSource = pmsSourceKey === 'pms' ? {} : (factLayer.sources?.[pmsSourceKey] || {});
+        const meituanCloudPms = pmsSourceKey === 'meituan_cloud_pms';
+        const pmsLabel = factSourceLabels[pmsSourceKey];
         const wholeHotelValues = factLayer.facts?.whole_hotel_accommodation || {};
         const otaChannelValues = factLayer.facts?.ota_channel || {};
         const combinedOtaValues = otaChannelValues.combined || {};
@@ -660,130 +677,56 @@ window.SUXI_HOME_STATIC = (() => {
                 statusClass: homeBusinessStatusClass(status),
                 ready: valueReady,
                 detail: valueReady
-                    ? detail
+                    ? `${targetDate} · ${detail}`
                     : (factLayerError
                         ? '基础事实接口未返回可核验结果；具体原因见上方根因，不使用旧数据或 0 补齐。'
                         : `${targetDate || '目标日待确认'}未取得${label}${reason ? `：${reason}` : ''}；不使用0、旧日期或另一口径补齐。`),
             };
         };
+        const derivedFact = (key, label, format, ready, detail) => factCard({
+            key, label, format, value: derivedValues[key]?.value,
+            ready: ready && derivedValues[key]?.status === 'ready',
+            detail,
+        });
         const wholeHotelFacts = [
-            factCard({
-                key: 'sold_room_nights',
-                label: '出租房晚',
-                value: wholeHotelValues.sold_room_nights,
-                format: 'room_nights',
-                ready: wholeHotelMetricReady('sold_room_nights'),
-                detail: `${targetDate} · PMS全酒店住宿口径 · 精确回读`,
-            }),
-            factCard({
-                key: 'sellable_room_nights',
-                label: '可售房晚（推导校验）',
-                value: wholeHotelValues.sellable_room_nights,
-                format: 'room_nights',
-                ready: wholeHotelMetricReady('sellable_room_nights', true),
-                detail: `${targetDate} · PMS全酒店住宿口径 · 由出租房晚与入住率交叉校验`,
-            }),
-            factCard({
-                key: 'payment_collected_amount',
-                label: '支付实收（非会计收入）',
-                value: wholeHotelValues.payment_collected_amount,
-                format: 'money',
-                ready: wholeHotelMetricReady('payment_collected_amount'),
-                detail: `${targetDate} · PMS支付通道实收`,
-                reason: '当前PMS合同只有住宿房费，支付实收字段未接入',
-            }),
-            factCard({
-                key: 'occupancy_rate_percent',
-                label: '入住率',
-                value: wholeHotelValues.occupancy_rate_percent,
-                format: 'percent',
-                ready: wholeHotelMetricReady('occupancy_rate_percent'),
-                detail: `${targetDate} · 出租房晚 / 可售房晚`,
-            }),
-        ];
+            ['sold_room_nights', '出租房晚', 'room_nights', 'PMS全酒店住宿口径 · 精确回读'],
+            ['sellable_room_nights', meituanCloudPms ? '可售房晚（首页总房量）' : '可售房晚（推导校验）', 'room_nights',
+                `${pmsLabel}全酒店住宿口径 · ${meituanCloudPms ? '工作台首页总房量已回读' : '由出租房晚与入住率交叉校验'}`],
+            ['payment_collected_amount', '支付实收（非会计收入）', 'money', 'PMS支付通道实收',
+                '当前PMS合同只有住宿房费，支付实收字段未接入'],
+            ['occupancy_rate_percent', '入住率', 'percent', '出租房晚 / 可售房晚'],
+        ].map(([key, label, format, detail, reason]) => factCard({
+            key, label, format, detail, reason,
+            value: wholeHotelValues[key], ready: wholeHotelMetricReady(key, key === 'sellable_room_nights'),
+        }));
         const wholeHotelDerivedFacts = [
             factCard({
                 key: 'room_revenue',
-                label: '住宿房费（非实收）',
+                label: meituanCloudPms ? '预计住宿房费（非实收）' : '住宿房费（非实收）',
                 value: wholeHotelValues.room_revenue,
                 format: 'money',
                 ready: wholeHotelMetricReady('room_revenue'),
-                detail: `${targetDate} · PMS住宿房费，不等同支付实收`,
+                detail: `${pmsLabel}${meituanCloudPms ? '当日实时预计' : ''}住宿房费，不等同支付实收`,
             }),
-            factCard({
-                key: 'whole_hotel_adr',
-                label: 'ADR',
-                value: derivedValues.whole_hotel_adr?.value,
-                format: 'money',
-                ready: wholeHotelMetricReady('adr', true)
-                    && derivedValues.whole_hotel_adr?.status === 'ready',
-                detail: `${targetDate} · PMS住宿房费 / 出租房晚`,
-            }),
-            factCard({
-                key: 'whole_hotel_revpar',
-                label: 'RevPAR',
-                value: derivedValues.whole_hotel_revpar?.value,
-                format: 'money',
-                ready: wholeHotelMetricReady('revpar', true)
-                    && derivedValues.whole_hotel_revpar?.status === 'ready',
-                detail: `${targetDate} · PMS住宿房费 / 可售房晚`,
-            }),
+            ...[['adr', 'ADR', '出租房晚'], ['revpar', 'RevPAR', '可售房晚']].map(([metric, label, denominator]) =>
+                derivedFact(`whole_hotel_${metric}`, label, 'money', wholeHotelMetricReady(metric, true),
+                    `${pmsLabel}${meituanCloudPms ? '预计' : ''}住宿房费 / ${denominator}`)),
         ];
         const otaChannelFacts = [
-            factCard({
-                key: 'ota_orders',
-                label: '渠道订单',
-                value: combinedOtaValues.orders,
-                format: 'orders',
-                ready: combinedOtaMetricReady('orders'),
-                detail: `${targetDate} · 携程+美团OTA渠道，不代表全酒店订单`,
-            }),
-            factCard({
-                key: 'ota_room_nights',
-                label: '渠道房晚',
-                value: combinedOtaValues.room_nights,
-                format: 'room_nights',
-                ready: combinedOtaMetricReady('room_nights'),
-                detail: `${targetDate} · 携程+美团OTA渠道`,
-            }),
-            factCard({
-                key: 'ota_adr',
-                label: '渠道ADR',
-                value: derivedValues.ota_adr?.value,
-                format: 'money',
-                ready: combinedOtaMetricReady('adr')
-                    && derivedValues.ota_adr?.status === 'ready',
-                detail: `${targetDate} · OTA房费 / OTA房晚`,
-            }),
-            factCard({
-                key: 'ota_room_night_share_percent',
-                label: '渠道房晚占比',
-                value: derivedValues.ota_room_night_share_percent?.value,
-                format: 'percent',
-                ready: factLayerMatchesTarget
-                    && !exactDateBlocked
-                    && derivedValues.ota_room_night_share_percent?.status === 'ready',
-                detail: `${targetDate} · OTA房晚 / PMS全酒店出租房晚`,
-            }),
-            factCard({
-                key: 'ota_room_revenue_share_percent',
-                label: '渠道房费结构占比',
-                value: derivedValues.ota_room_revenue_share_percent?.value,
-                format: 'percent',
-                ready: factLayerMatchesTarget
-                    && !exactDateBlocked
-                    && derivedValues.ota_room_revenue_share_percent?.status === 'ready',
-                detail: `${targetDate} · OTA房费 / PMS住宿房费；不是全酒店总营收或支付实收占比`,
-            }),
-            factCard({
-                key: 'ota_cancellation_rate_percent',
-                label: '取消率',
-                value: derivedValues.ota_cancellation_rate_percent?.value,
-                format: 'percent',
-                ready: otaPlatformDatesMatch
-                    && derivedValues.ota_cancellation_rate_percent?.status === 'ready',
-                detail: `${targetDate} · 按携程/美团已完整分类的总订单数加权，仅OTA渠道口径`,
-            }),
+            ...[
+                ['orders', '渠道订单', 'orders', '携程+美团OTA渠道，不代表全酒店订单'],
+                ['room_nights', '渠道房晚', 'room_nights', '携程+美团OTA渠道'],
+            ].map(([metric, label, format, detail]) => factCard({
+                key: `ota_${metric}`, label, format, value: combinedOtaValues[metric],
+                ready: combinedOtaMetricReady(metric), detail,
+            })),
+            derivedFact('ota_adr', '渠道ADR', 'money', combinedOtaMetricReady('adr'), 'OTA房费 / OTA房晚'),
+            ...[
+                ['ota_room_night_share_percent', '渠道房晚占比', 'OTA房晚 / PMS全酒店出租房晚'],
+                ['ota_room_revenue_share_percent', '渠道房费结构占比', 'OTA房费 / PMS住宿房费；不是全酒店总营收或支付实收占比'],
+            ].map(([key, label, detail]) => derivedFact(key, label, 'percent', factLayerMatchesTarget && !exactDateBlocked, detail)),
+            derivedFact('ota_cancellation_rate_percent', '取消率', 'percent', otaPlatformDatesMatch,
+                '按携程/美团已完整分类的总订单数加权，仅OTA渠道口径'),
         ];
         const otaPlatformRows = ['ctrip', 'meituan'].map((platform) => {
             const source = factLayer.sources?.[`${platform}_ota`] || {};
@@ -804,17 +747,18 @@ window.SUXI_HOME_STATIC = (() => {
                     )
                 );
             };
-            const readyMetricCount = [
-                'revenue',
-                'orders',
-                'room_nights',
-                'adr',
-                'list_exposure',
-                'detail_exposure',
-                'flow_rate_percent',
-                'submit_rate_percent',
-                'cancellation_rate_percent',
-            ].filter(metricReady).length;
+            const platformFactDefinitions = [
+                ['revenue', 'revenue', '渠道成交额', 'money', '渠道成交额；不代表全酒店收入'],
+                ['orders', 'orders', '订单', 'orders', '渠道'],
+                ['room_nights', 'room-nights', '房晚', 'room_nights', '渠道'],
+                ['adr', 'adr', 'ADR', 'money', '渠道'],
+                ['list_exposure', 'list-exposure', '列表曝光', 'visits', '列表流量事实'],
+                ['detail_exposure', 'detail-exposure', '详情曝光', 'visits', '流量事实'],
+                ['flow_rate_percent', 'flow-rate', '流量转化', 'percent', '流量转化口径'],
+                ['submit_rate_percent', 'submit-rate', '提交转化', 'percent', '提交转化口径'],
+                ['cancellation_rate_percent', 'cancel-rate', '取消率', 'percent', '订单取消口径'],
+            ];
+            const readyMetricCount = platformFactDefinitions.filter(([metric]) => metricReady(metric)).length;
             const platformStatus = factLayerLoading
                 ? '正在读取'
                 : (factLayerError
@@ -835,25 +779,14 @@ window.SUXI_HOME_STATIC = (() => {
                 status: platformStatus,
                 statusClass: homeBusinessStatusClass(platformStatus),
                 date: String(source.actual_business_date || source.business_date || ''),
-                facts: [
-                    factCard({ key: `${platform}-revenue`, label: '渠道成交额', value: values.revenue, format: 'money', ready: metricReady('revenue'), detail: `${targetDate} · ${platformLabel}渠道成交额；不代表全酒店收入` }),
-                    factCard({ key: `${platform}-orders`, label: '订单', value: values.orders, format: 'orders', ready: metricReady('orders'), detail: `${targetDate} · ${platformLabel}渠道` }),
-                    factCard({ key: `${platform}-room-nights`, label: '房晚', value: values.room_nights, format: 'room_nights', ready: metricReady('room_nights'), detail: `${targetDate} · ${platformLabel}渠道` }),
-                    factCard({ key: `${platform}-adr`, label: 'ADR', value: values.adr, format: 'money', ready: metricReady('adr'), detail: `${targetDate} · ${platformLabel}渠道` }),
-                    factCard({ key: `${platform}-list-exposure`, label: '列表曝光', value: values.list_exposure, format: 'visits', ready: metricReady('list_exposure'), detail: `${targetDate} · ${platformLabel}列表流量事实` }),
-                    factCard({ key: `${platform}-detail-exposure`, label: '详情曝光', value: values.detail_exposure, format: 'visits', ready: metricReady('detail_exposure'), detail: `${targetDate} · ${platformLabel}流量事实` }),
-                    factCard({ key: `${platform}-flow-rate`, label: '流量转化', value: values.flow_rate_percent, format: 'percent', ready: metricReady('flow_rate_percent'), detail: `${targetDate} · ${platformLabel}流量转化口径` }),
-                    factCard({ key: `${platform}-submit-rate`, label: '提交转化', value: values.submit_rate_percent, format: 'percent', ready: metricReady('submit_rate_percent'), detail: `${targetDate} · ${platformLabel}提交转化口径` }),
-                    factCard({ key: `${platform}-cancel-rate`, label: '取消率', value: values.cancellation_rate_percent, format: 'percent', ready: metricReady('cancellation_rate_percent'), detail: `${targetDate} · ${platformLabel}订单取消口径` }),
-                ],
+                facts: platformFactDefinitions.map(([metric, suffix, label, format, detail]) => factCard({
+                    key: `${platform}-${suffix}`, label, value: values[metric], format,
+                    ready: metricReady(metric), detail: `${platformLabel}${detail}`,
+                })),
             };
         });
-        const dateSourceLabels = {
-            dingdandao_pms: 'PMS实际业务日',
-            ctrip_ota: '携程实际业务日',
-            meituan_ota: '美团实际业务日',
-        };
-        const dateSourceRows = Object.entries(dateSourceLabels).map(([key, label]) => {
+        const dateSourceRows = [pmsSourceKey, 'ctrip_ota', 'meituan_ota'].map(key => {
+            const label = factSourceLabels[key] + '实际业务日';
             const source = dateAlignment.sources?.[key] || factLayer.sources?.[key] || {};
             const actualDate = String(
                 source.observed_date || source.actual_business_date || source.business_date || ''
@@ -988,9 +921,7 @@ window.SUXI_HOME_STATIC = (() => {
             ? factLayer.analysis_gaps.filter((gap) => gap && typeof gap === 'object')
             : [];
         const sourceLabelMap = {
-            dingdandao_pms: 'PMS',
-            ctrip_ota: '携程',
-            meituan_ota: '美团',
+            ...factSourceLabels,
             pms_ota_reconciliation: 'PMS 与 OTA 对账',
         };
         const blockedSourceLabels = [...new Set(analysisGaps.map((gap) => (
@@ -1051,9 +982,7 @@ window.SUXI_HOME_STATIC = (() => {
 
         const blockingIssues = [];
         const sourceLabels = {
-            dingdandao_pms: 'PMS',
-            ctrip_ota: '携程',
-            meituan_ota: '美团',
+            ...factSourceLabels,
             pricing_guard: '最低保护价',
             hotel: '酒店',
         };
@@ -1659,9 +1588,13 @@ window.SUXI_HOME_STATIC = (() => {
             weeklyPlan: { type: Object, default: null },
             weeklyLoading: { type: Boolean, default: false },
             weeklyError: { type: String, default: '' },
+            weeklyDownloading: { type: Boolean, default: false },
+            weeklyDownloadError: { type: String, default: '' },
+            weeklyWeekEnd: String, weeklyMaxWeekEnd: String, weeklyReadStatus: String,
+            weeklyNavigation: { type: Object, default: null },
             currentClockText: { type: String, default: '' },
         },
-        emits: ['refresh', 'open', 'openAll'],
+        emits: ['refresh', 'open', 'openAll', 'downloadWeekly', 'selectWeeklyWeekEnd', 'readWeekly', 'latestWeekly'],
         render() {
             const h = window.Vue?.h;
             if (typeof h !== 'function') return null;
@@ -1719,28 +1652,63 @@ window.SUXI_HOME_STATIC = (() => {
                     : '未返回'
             );
             const weeklySnapshotId = Number(weeklyPlan?.snapshot_id || 0);
+            const weeklyControls = h('div', { class: 'mb-3 space-y-2', 'data-testid': 'home-weekly-history-controls' }, [
+                h('div', { class: 'flex flex-wrap items-end gap-2' }, [
+                    h('label', { class: 'space-y-1 text-xs text-emerald-950' }, [
+                        h('span', { class: 'block' }, '周截止日'),
+                        h('input', { type: 'date', value: this.weeklyWeekEnd, max: this.weeklyMaxWeekEnd || undefined,
+                            class: 'rounded-lg border border-emerald-200 bg-white px-3 py-2',
+                            'aria-label': '周计划截止日', 'data-testid': 'home-weekly-plan-week-end', disabled: this.weeklyDownloading,
+                            onChange: event => this.$emit('selectWeeklyWeekEnd', event.target.value) }),
+                    ]),
+                    h('button', { type: 'button', class: 'rounded-lg border border-emerald-300 bg-white px-3 py-2 text-xs disabled:opacity-50',
+                        'data-testid': 'home-weekly-plan-read', disabled: this.weeklyLoading || this.weeklyDownloading || !this.weeklyWeekEnd,
+                        onClick: () => this.$emit('readWeekly') }, '读取所选周'),
+                    h('button', { type: 'button', class: 'rounded-lg border border-emerald-300 bg-white px-3 py-2 text-xs disabled:opacity-50',
+                        'data-testid': 'home-weekly-plan-latest', disabled: this.weeklyDownloading,
+                        onClick: () => this.$emit('latestWeekly') }, '最近完整周'),
+                ]),
+                h('p', { class: 'text-xs leading-5 text-emerald-800' }, '截止日及此前六天为一周期；这里只读取已保存快照，不生成计划或运营任务。'),
+                this.weeklyLoading && weeklyPlan ? h('p', { role: 'status', class: 'text-xs text-emerald-800' }, '正在刷新所选周期；下方仍为上次已保存快照。') : null,
+            ]);
             const weeklyPanel = h('div', {
                 class: 'mx-4 mt-4 rounded-2xl border border-emerald-200 bg-emerald-50/60 p-4',
                 'data-testid': 'home-weekly-operating-plan',
-            }, this.weeklyLoading && !weeklyPlan
+            }, [weeklyControls, this.weeklyLoading && !weeklyPlan
                 ? [h('p', { class: 'text-sm text-emerald-800' }, '正在读取已保存周度经营计划…')]
                 : (weeklyPlan?.readback_verified === true && weeklyFocus
                     ? [
                         h('div', { class: 'flex flex-wrap items-center justify-between gap-2' }, [
-                            h('strong', { class: 'text-sm text-emerald-950' }, '本周复盘 · 下周唯一重点'),
-                            pill(String(weeklyPlan.status || 'partial'), 'border-emerald-200 bg-white text-emerald-700'),
+                            h('strong', { class: 'text-sm text-emerald-950' }, '已保存周计划 · 当时选定的下周重点'),
+                            pill(`保存时状态：${String(weeklyPlan.status || '未返回')}`, 'border-emerald-200 bg-white text-emerald-700'),
+                            h('button', { type: 'button', 'data-testid': 'home-weekly-plan-download',
+                                class: 'rounded-lg border border-emerald-300 bg-white px-3 py-1.5 text-xs text-emerald-900 disabled:opacity-50',
+                                disabled: this.weeklyLoading || this.weeklyDownloading || !Number.isSafeInteger(weeklySnapshotId) || weeklySnapshotId <= 0,
+                                onClick: () => this.$emit('downloadWeekly'),
+                            }, this.weeklyDownloading ? '读取该版本…' : '下载该版本周计划'),
                         ]),
                         h('h3', { class: 'mt-2 text-base font-semibold text-slate-900' }, weeklyFocus.title || '等待可确认事项'),
                         h('p', { class: 'mt-1 text-sm leading-6 text-slate-700' }, weeklyFocus.reason || '选择依据未返回。'),
-                        h('p', { class: 'mt-2 text-xs text-slate-600' }, `周期 ${weeklyPlan.week_start || '未返回'} 至 ${weeklyPlan.week_end || '未返回'} · 待审批 ${weeklyCount(weeklyLifecycle.pending_approval)} · 待复盘 ${weeklyCount(weeklyLifecycle.review_pending)} · 已复盘 ${weeklyCount(weeklyLifecycle.reviewed)} · ${weeklySnapshotId > 0 ? `快照 #${weeklySnapshotId}` : '快照未返回'}`),
+                        this.weeklyNavigation?.target
+                            ? h('button', { type: 'button', 'data-testid': 'home-weekly-focus-open',
+                                class: 'mt-2 min-h-[44px] rounded-lg border border-emerald-300 bg-white px-3 py-2 text-sm text-emerald-900 disabled:opacity-50',
+                                disabled: !this.weeklyNavigation.target.enabled,
+                                onClick: () => this.weeklyNavigation.open(),
+                            }, this.weeklyNavigation.status.busy ? '正在读取所属行动…' : this.weeklyNavigation.target.label)
+                            : h('p', { class: 'mt-2 text-xs text-slate-600', 'data-testid': 'home-weekly-focus-unlinked' }, '该重点未关联可定位的行动。'),
+                        this.weeklyNavigation?.status.error
+                            ? h('p', { role: 'alert', class: 'mt-2 text-xs text-red-700' }, this.weeklyNavigation.status.error) : null,
+                        this.weeklyDownloadError ? h('p', { role: 'alert', class: 'mt-2 text-xs text-red-700' }, this.weeklyDownloadError) : null,
+                        h('p', { class: 'mt-2 text-xs text-slate-600' }, `原周期 ${weeklyPlan.week_start || '未返回'} 至 ${weeklyPlan.week_end || '未返回'} · 快照 #${weeklySnapshotId} · 版本 ${weeklyPlan.version_no || '未返回'}`),
+                        h('p', { class: 'mt-1 text-xs text-slate-600' }, `保存时汇总：待审批 ${weeklyCount(weeklyLifecycle.pending_approval)} · 待执行 ${weeklyCount(weeklyLifecycle.pending_execute)} · 执行中 ${weeklyCount(weeklyLifecycle.executing)} · 待复盘 ${weeklyCount(weeklyLifecycle.review_pending)} · 已复盘 ${weeklyCount(weeklyLifecycle.reviewed)}；不代表当前实时任务进度。`),
                         this.weeklyError
                             ? h('p', { class: 'mt-2 text-xs leading-5 text-amber-700', 'data-testid': 'home-weekly-operating-plan-refresh-error' }, this.weeklyError)
                             : null,
                     ]
                     : [
-                        h('strong', { class: 'text-sm text-slate-800' }, this.weeklyError ? '周度经营计划读取失败' : '周度经营计划尚未生成'),
-                        h('p', { class: 'mt-1 text-xs leading-5 text-slate-600' }, this.weeklyError || '等待后台完成一周事实、每日事项和生命周期汇总；不会从临时文案猜测下周重点。'),
-                    ]));
+                        h('strong', { class: 'text-sm text-slate-800' }, this.weeklyError ? '周度经营计划读取失败' : (this.weeklyReadStatus === 'not_generated' ? '所选周期暂无已保存周计划' : '所选周尚未读取')),
+                        h('p', { class: 'mt-1 text-xs leading-5 text-slate-600' }, this.weeklyError || (this.weeklyReadStatus === 'not_generated' ? '该酒店该周期没有保存快照；未替换为其他周期。' : '选择截止日后点击读取，缺失不会用其他周数据补齐。')),
+                    ])]);
             const anomalyItems = Array.isArray(model.anomalyItems) ? model.anomalyItems : [];
             const followupItems = Array.isArray(model.followupItems) ? model.followupItems : [];
             const anomalyScopeUnknown = ['loading', 'refreshing', 'waiting', 'partial', 'refresh_failed', 'failed'].includes(String(model.stateCode || ''));
@@ -1909,7 +1877,7 @@ window.SUXI_HOME_STATIC = (() => {
                 this.compact ? null : weeklyPanel,
                 body,
                 this.compact ? h('details', { class: 'home-weekly-fold' }, [
-                    h('summary', null, `周度计划 · ${this.weeklyLoading ? '读取中' : (this.weeklyError ? '读取失败' : (weeklyPlan?.readback_verified ? '已保存' : '尚未生成'))}`),
+                    h('summary', null, `周度计划 · ${this.weeklyLoading ? '读取中' : (this.weeklyError ? '读取失败' : (weeklyPlan?.readback_verified ? '已保存' : (this.weeklyReadStatus === 'not_generated' ? '所选周期暂无保存' : '尚未读取')))}`),
                     weeklyPanel,
                 ]) : null,
             ]);
@@ -2289,23 +2257,38 @@ window.SUXI_HOME_STATIC = (() => {
         sampleDays = 0,
         trendReady = false,
         trendUpdatedAt = '',
-        channelSignal = null,
         priceSignal = null,
         weatherSignal = null,
         weatherCount = 0,
         nearestHoliday = null,
         holidayUpdatedAt = '',
         compassLastSyncedAt = '',
+        otaPlatformRows = [],
+        selectedBusinessDate = '',
+        otaFactLayerLoading = false,
+        otaFactLayerError = '',
     } = {}) => {
         const normalizedSampleDays = Number(sampleDays || 0);
-        const channelReady = isHomeSignalReady(channelSignal);
+        const businessDate = String(selectedBusinessDate || '').trim();
+        const safeOtaRows = Array.isArray(otaPlatformRows) ? otaPlatformRows : [];
+        const otaRows = ['ctrip', 'meituan'].map(platform =>
+            safeOtaRows.find(row => row?.key === platform) || {});
+        const otaState = row => otaFactLayerLoading || otaFactLayerError ? '未核验' : row.status || '未取得';
+        const otaVerified = otaRows.map(row => !otaFactLayerLoading && !otaFactLayerError
+            && businessDate !== '' && row.date === businessDate && row.status === '已验证');
+        const verifiedOtaCount = otaVerified.filter(Boolean).length;
+        const channelReady = verifiedOtaCount === 2;
+        const channelStatus = otaFactLayerLoading ? '读取中'
+            : (otaFactLayerError ? '读取失败'
+                : (channelReady ? '同日已回读'
+                    : (verifiedOtaCount ? '同日部分回读' : '尚未就绪')));
         const priceReady = isHomeSignalReady(priceSignal);
         const weatherReady = Number(weatherCount || 0) > 0;
         const holidayReady = !!nearestHoliday;
         return [
             {
                 name: '经营趋势样本',
-                status: trendReady ? `可用 ${normalizedSampleDays}天` : '样本不足',
+                status: trendReady === null ? '读取失败' : (trendReady ? `可用 ${normalizedSampleDays}天` : '样本不足'),
                 updatedAt: trendUpdatedAt || '--',
                 impact: '会影响收益、入住、ADR、RevPAR 等趋势判断',
                 role: 'core',
@@ -2314,9 +2297,9 @@ window.SUXI_HOME_STATIC = (() => {
             },
             {
                 name: 'OTA 渠道数据',
-                status: channelReady ? '已同步' : '未同步',
-                updatedAt: channelSignal?.updated_at || '--',
-                impact: '会影响曝光、访客、转化和订单质量判断',
+                status: channelStatus,
+                updatedAt: businessDate || '--',
+                impact: `携程${otaState(otaRows[0])} / 美团${otaState(otaRows[1])}；仅限 OTA 渠道`,
                 role: 'core',
                 ready: channelReady,
                 className: channelReady ? 'bg-green-50 text-green-700 border-green-200' : 'bg-gray-50 text-gray-500 border-gray-200',
@@ -2805,77 +2788,333 @@ window.SUXI_HOME_STATIC = (() => {
         return cursor.toISOString().slice(0, 10);
     };
 
+    const homeWeeklyPlanIdentity = plan => Object.fromEntries([
+        'snapshot_id', 'tenant_id', 'hotel_id', 'week_start', 'week_end', 'version_no',
+        'contract_version', 'status', 'generated_at', 'source_digest', 'snapshot_fingerprint', 'final_text_sha256',
+    ].map(key => [key, String(plan?.[key] ?? '')]));
+    const buildHomeWeeklyPlanDownload = async (plan, expected) => {
+        const identity = homeWeeklyPlanIdentity(plan);
+        if (plan?.readback_verified !== true
+            || !['snapshot_id', 'tenant_id', 'hotel_id', 'version_no'].every(key => Number.isSafeInteger(Number(identity[key])) && Number(identity[key]) > 0)
+            || !['week_start', 'week_end'].every(key => /^\d{4}-\d{2}-\d{2}$/.test(identity[key]))
+            || !['source_digest', 'snapshot_fingerprint', 'final_text_sha256'].every(key => /^[a-f0-9]{64}$/.test(identity[key]))
+            || !Object.keys(identity).every(key => identity[key] === expected[key])
+            || typeof plan.final_text !== 'string' || !plan.final_text.trim()
+            || !globalThis.crypto?.subtle || typeof TextEncoder !== 'function') {
+            throw new Error('weekly_plan_download_not_verified');
+        }
+        const digest = await globalThis.crypto.subtle.digest('SHA-256', new TextEncoder().encode(plan.final_text));
+        const actual = Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, '0')).join('');
+        if (actual !== identity.final_text_sha256) throw new Error('weekly_plan_download_text_mismatch');
+        const labels = { ready: '来源覆盖完整', partial: '来源覆盖不完整', missing: '来源缺失', blocked_by_source_errors: '来源读取错误，已阻断' };
+        const text = value => String(value || '未记录').replace(/[\r\n]/g, ' ');
+        return {
+            filename: `周计划-酒店${identity.hotel_id}-${identity.week_start}_${identity.week_end}-快照${identity.snapshot_id}-v${identity.version_no}.txt`,
+            content: [
+                '已保存周度经营计划 · 店长交接阅读件',
+                `酒店 ID：${identity.hotel_id}；快照 ID：${identity.snapshot_id}；版本：${identity.version_no}`,
+                `覆盖周：${identity.week_start} 至 ${identity.week_end}`,
+                `生成时间：${text(plan.generated_at)}`,
+                `保存时状态：${text(labels[plan.status] || plan.status)}`,
+                '本文件为该版本保存时的流程状态，不代表下载时的实时任务或员工排班。',
+                '读取及下载不会重新生成、保存、审批、执行或发送计划。',
+                '', '----- 以下为已保存原正文 -----', '', plan.final_text,
+            ].join('\n'),
+        };
+    };
+
+    const createHomeWeeklyPlanFocusNavigation = ({
+        ref, watchEffect, nextTick, getNavigationContext, readExecutionTask, openAction,
+        getPlan, getWeekEnd, isReading, selectWeekEnd, loadPlan,
+    }) => {
+        const state = ref({ busy: false, error: '' });
+        let ticket = null;
+        const positiveId = value => Number.isSafeInteger(Number(value)) && Number(value) > 0;
+        const reference = plan => {
+            const focus = plan?.selected_focus;
+            if (plan?.readback_verified !== true || !positiveId(plan.snapshot_id)
+                || !positiveId(plan.hotel_id) || !positiveId(plan.tenant_id) || !positiveId(plan.version_no)) return null;
+            const refs = Array.isArray(focus?.evidence_refs) ? [...new Set(focus.evidence_refs)] : [];
+            if (refs.length !== 1 || typeof refs[0] !== 'string') return null;
+            const match = refs[0].match(/^operation_execution_(intents|tasks)#([1-9]\d*)$/);
+            if (!match || !positiveId(match[2])) return null;
+            const kind = match[1], id = Number(match[2]);
+            if ((kind === 'intents' && focus.type !== 'oldest_pending_approval')
+                || (kind === 'tasks' && !['task_workflow_next_step', 'execution_pending', 'review_pending'].includes(focus.type))) return null;
+            return { kind, id, label: kind === 'tasks' ? `查看任务 #${id} 所属行动` : `查看行动 #${id}` };
+        };
+        const contextAllows = (ctx, hotelId) => ctx.authContext.value.permissionStatus === 'allowed'
+            && String(ctx.filterReportHotel.value || '') === String(hotelId)
+            && ctx.isOperationHotelPermitted(hotelId)
+            && ctx.discoverablePagePathsForUser(ctx.user.value).has('ops-track');
+        const current = active => {
+            if (!active || ticket !== active) return false;
+            const ctx = getNavigationContext();
+            if (!ctx.isAuthSessionCurrent(active.session) || !contextAllows(ctx, active.hotelId)) return false;
+            if (active.phase === 'resolve') return ctx.currentPage.value === 'compass'
+                && getPlan() === active.plan && getWeekEnd() === active.weekEnd;
+            if (active.phase === 'action') return ctx.currentPage.value === 'ops-track'
+                && String(ctx.operationFilters.value.hotel_id || '') === String(active.hotelId);
+            return ctx.currentPage.value === 'compass' && getWeekEnd() === active.weekEnd;
+        };
+        const clear = () => { ticket = null; state.value = { busy: false, error: '' }; };
+        watchEffect(() => {
+            state.value;
+            if (!ticket) return;
+            if (!current(ticket)) clear();
+        });
+        const open = async () => {
+            if (state.value.busy || isReading()) return false;
+            const plan = getPlan(), target = reference(plan);
+            if (!target) return false;
+            const ctx = getNavigationContext();
+            if (ctx.currentPage.value !== 'compass' || !contextAllows(ctx, plan.hotel_id)
+                || getWeekEnd() !== plan.week_end) return false;
+            if (ctx.document.documentElement.dataset.suxiRenderPhase !== 'full') {
+                state.value = { busy: false, error: '页面仍在准备，请稍后重试；已保存计划未改变。' };
+                return false;
+            }
+            const active = { plan, hotelId: Number(plan.hotel_id), weekEnd: plan.week_end,
+                snapshotId: Number(plan.snapshot_id), version: Number(plan.version_no), target,
+                session: ctx.captureAuthSession(), phase: 'resolve', intentId: target.id };
+            ticket = active;
+            state.value = { busy: true, error: '' };
+            try {
+                if (target.kind === 'tasks') {
+                    const task = await readExecutionTask(target.id, active.hotelId);
+                    if (!current(active)) return false;
+                    if (Number(task?.id) !== target.id || Number(task?.hotel_id) !== active.hotelId
+                        || !positiveId(task?.intent_id)
+                        || (task.tenant_id != null && Number(task.tenant_id) !== Number(plan.tenant_id))) {
+                        throw new Error('原任务的酒店或所属行动身份不一致，请重试。');
+                    }
+                    active.intentId = Number(task.intent_id);
+                }
+                if (!current(active)) return false;
+                active.phase = 'action';
+                await openAction({ hotelId: active.hotelId, intentId: active.intentId });
+                if (!current(active)) return false;
+                const opened = getNavigationContext().operationExecutionFilteredItems.value.some(row =>
+                    Number(row?.id) === active.intentId && Number(row?.hotel_id) === active.hotelId);
+                if (!opened) state.value = { busy: false, error: '所属行动未能按当前权限回读；可在原列表重试或返回所选周计划。' };
+                return opened;
+            } catch (_) {
+                if (current(active)) state.value = { busy: false, error: '原任务或所属行动读取失败，请重试；已保存周计划未修改。' };
+                return false;
+            } finally {
+                if (ticket === active) state.value = { ...state.value, busy: false };
+            }
+        };
+        const returnToPlan = async () => {
+            const active = ticket;
+            if (!active || active.phase !== 'action' || !current(active) || state.value.busy) return false;
+            const ctx = getNavigationContext();
+            if (!ctx.discoverablePagePathsForUser(ctx.user.value).has('compass')) return false;
+            active.phase = 'returning';
+            selectWeekEnd(active.weekEnd);
+            ctx.handleMenuClick({ path: 'compass' });
+            state.value = { busy: true, error: '' };
+            await nextTick();
+            if (!current(active)) return false;
+            try {
+                return await loadPlan({ hotelId: active.hotelId, weekEnd: active.weekEnd });
+            } finally {
+                if (ticket === active) {
+                    active.phase = 'returned';
+                    state.value = { ...state.value, busy: false };
+                }
+            }
+        };
+        return {
+            open, returnToPlan,
+            get target() {
+                const plan = getPlan(), target = reference(plan);
+                if (!target || typeof getNavigationContext !== 'function') return null;
+                const ctx = getNavigationContext();
+                return { ...target, enabled: ctx.currentPage.value === 'compass' && contextAllows(ctx, plan.hotel_id)
+                    && plan.week_end === getWeekEnd() && !isReading() && !state.value.busy };
+            },
+            get status() { return state.value; },
+            get returnOrigin() {
+                state.value;
+                if (!ticket || ticket.phase !== 'action' || !current(ticket)) return null;
+                return { hotelId: ticket.hotelId, weekEnd: ticket.weekEnd, snapshotId: ticket.snapshotId,
+                    version: ticket.version, taskId: ticket.target.kind === 'tasks' ? ticket.target.id : null,
+                    intentId: ticket.intentId };
+            },
+            returningWeekEnd: () => ticket && ['returning', 'returned'].includes(ticket.phase)
+                && current(ticket) ? ticket.weekEnd : '',
+        };
+    };
     const createHomeWeeklyOperatingPlanController = ({
         ref,
         apiRequest,
         getHotelId,
         getToday,
         errorMessage,
+        downloadBlob,
+        captureDownloadContext,
+        watchEffect, captureReadContext, nextTick, getNavigationContext, readExecutionTask, openAction,
     } = {}) => {
         if (typeof ref !== 'function' || typeof apiRequest !== 'function'
-            || typeof getHotelId !== 'function' || typeof getToday !== 'function') {
+            || typeof getHotelId !== 'function' || typeof getToday !== 'function'
+            || typeof watchEffect !== 'function' || typeof captureReadContext !== 'function') {
             throw new Error('首页周计划控制器依赖不完整');
         }
+        const latestHistoricalWeekEnd = () => {
+            const day = new Date(`${String(getToday() || '')}T00:00:00Z`);
+            if (Number.isNaN(day.getTime())) return '';
+            day.setUTCDate(day.getUTCDate() - 1);
+            return day.toISOString().slice(0, 10);
+        };
         const homeWeeklyOperatingPlan = ref(null);
         const homeWeeklyOperatingPlanLoading = ref(false);
         const homeWeeklyOperatingPlanError = ref('');
+        const homeWeeklyOperatingPlanDownloading = ref(false);
+        const homeWeeklyOperatingPlanDownloadError = ref('');
+        const homeWeeklyOperatingPlanWeekEnd = ref(latestCompletedWeekEnd(getToday()));
+        const homeWeeklyOperatingPlanMaxWeekEnd = ref(latestHistoricalWeekEnd());
+        const homeWeeklyOperatingPlanReadStatus = ref('idle');
+        const readContextCurrent = ref(null);
+        let focusNavigation = null;
+        let downloadSeq = 0;
         let requestSeq = 0;
         const resetHomeWeeklyOperatingPlan = () => {
+            downloadSeq += 1;
+            homeWeeklyOperatingPlanDownloading.value = false;
+            homeWeeklyOperatingPlanDownloadError.value = '';
             requestSeq += 1;
+            readContextCurrent.value = null;
             homeWeeklyOperatingPlan.value = null;
             homeWeeklyOperatingPlanLoading.value = false;
             homeWeeklyOperatingPlanError.value = '';
+            homeWeeklyOperatingPlanReadStatus.value = 'idle';
+            homeWeeklyOperatingPlanMaxWeekEnd.value = latestHistoricalWeekEnd();
+            homeWeeklyOperatingPlanWeekEnd.value = focusNavigation?.returningWeekEnd() || latestCompletedWeekEnd(getToday());
+        };
+        watchEffect(() => {
+            const isCurrent = readContextCurrent.value;
+            if (typeof isCurrent === 'function' && !isCurrent()) resetHomeWeeklyOperatingPlan();
+        });
+        const selectHomeWeeklyOperatingPlanWeekEnd = value => {
+            resetHomeWeeklyOperatingPlan();
+            homeWeeklyOperatingPlanWeekEnd.value = String(value || '').trim();
         };
         const loadHomeWeeklyOperatingPlan = async (options = {}) => {
             const currentSeq = ++requestSeq;
             const hotelId = String(options.hotelId || getHotelId() || '').trim();
-            const weekEnd = String(options.weekEnd || latestCompletedWeekEnd(getToday()) || '').slice(0, 10);
+            const weekEnd = String(options.weekEnd ?? homeWeeklyOperatingPlanWeekEnd.value).trim();
             const previousPlan = homeWeeklyOperatingPlan.value;
-            if (!hotelId || !/^\d{4}-\d{2}-\d{2}$/.test(weekEnd)) {
-                homeWeeklyOperatingPlan.value = null;
-                homeWeeklyOperatingPlanError.value = '等待选择单个酒店和有效周截止日。';
+            const contextCurrent = captureReadContext();
+            const isCurrent = () => currentSeq === requestSeq && contextCurrent()
+                && hotelId === String(getHotelId() || '').trim()
+                && weekEnd === homeWeeklyOperatingPlanWeekEnd.value;
+            homeWeeklyOperatingPlanMaxWeekEnd.value = latestHistoricalWeekEnd();
+            const end = new Date(`${weekEnd}T00:00:00Z`);
+            if (!hotelId || typeof contextCurrent !== 'function' || !contextCurrent()) {
+                resetHomeWeeklyOperatingPlan();
+                homeWeeklyOperatingPlanError.value = '请选择当前有权限的酒店后读取周计划。';
+                homeWeeklyOperatingPlanReadStatus.value = 'error';
                 return false;
             }
+            if (!/^\d{4}-\d{2}-\d{2}$/.test(weekEnd) || Number.isNaN(end.getTime())
+                || end.toISOString().slice(0, 10) !== weekEnd || weekEnd > homeWeeklyOperatingPlanMaxWeekEnd.value) {
+                homeWeeklyOperatingPlan.value = null;
+                homeWeeklyOperatingPlanLoading.value = false;
+                homeWeeklyOperatingPlanError.value = '请选择有效且不晚于昨天的截止日。';
+                homeWeeklyOperatingPlanReadStatus.value = 'error';
+                return false;
+            }
+            end.setUTCDate(end.getUTCDate() - 6);
+            const weekStart = end.toISOString().slice(0, 10);
+            homeWeeklyOperatingPlanWeekEnd.value = weekEnd;
+            readContextCurrent.value = contextCurrent;
+            if (Number(previousPlan?.hotel_id || 0) !== Number(hotelId) || previousPlan?.week_end !== weekEnd) homeWeeklyOperatingPlan.value = null;
             homeWeeklyOperatingPlanLoading.value = true;
+            homeWeeklyOperatingPlanReadStatus.value = 'loading';
             homeWeeklyOperatingPlanError.value = '';
             try {
                 const params = new URLSearchParams({ hotel_id: hotelId, week_end: weekEnd });
                 const res = await apiRequest(`/operating-opportunities/weekly-plan/latest?${params.toString()}`);
-                if (currentSeq !== requestSeq || hotelId !== String(getHotelId() || '').trim()) return false;
-                if (res.code !== 200) {
-                    throw new Error(res.message || '读取周度经营计划失败');
-                }
+                if (!isCurrent()) return false;
+                if (res.code !== 200) throw new Error('读取周度经营计划失败');
                 if (Number(res.data?.hotel_id || 0) !== Number(hotelId)
-                    || String(res.data?.week_end || '') !== weekEnd) {
+                    || res.data?.week_end !== weekEnd || res.data?.week_start !== weekStart) {
                     throw new Error('周度经营计划返回的酒店或周期身份不一致');
                 }
                 if (res.data.status === 'not_generated' && res.data.readback_verified === false) {
                     homeWeeklyOperatingPlan.value = null;
+                    homeWeeklyOperatingPlanReadStatus.value = 'not_generated';
                     return true;
                 }
-                if (res.data?.readback_verified !== true) {
+                if (res.data?.readback_verified !== true
+                    || !['snapshot_id', 'tenant_id', 'version_no'].every(key => Number.isSafeInteger(Number(res.data[key])) && Number(res.data[key]) > 0)
+                    || !res.data.selected_focus || typeof res.data.selected_focus !== 'object' || Array.isArray(res.data.selected_focus)) {
                     throw new Error('周度经营计划尚未通过精确回读');
                 }
                 homeWeeklyOperatingPlan.value = res.data;
+                homeWeeklyOperatingPlanReadStatus.value = 'ready';
                 return true;
             } catch (error) {
-                if (currentSeq !== requestSeq || hotelId !== String(getHotelId() || '').trim()) return false;
+                if (!isCurrent()) return false;
                 const previousMatches = previousPlan?.readback_verified === true
                     && Number(previousPlan?.hotel_id || 0) === Number(hotelId)
-                    && String(previousPlan?.week_end || '') === weekEnd;
+                    && previousPlan?.week_end === weekEnd && previousPlan?.week_start === weekStart;
                 if (!previousMatches) homeWeeklyOperatingPlan.value = null;
-                const message = typeof errorMessage === 'function'
-                    ? errorMessage(error, '读取周度经营计划失败')
-                    : (error?.message || '读取周度经营计划失败');
+                homeWeeklyOperatingPlanReadStatus.value = 'error';
                 homeWeeklyOperatingPlanError.value = previousMatches
-                    ? `刷新失败，保留上次已验证周计划：${message}`
-                    : message;
+                    ? '刷新失败，保留同周期上次已保存快照；请重试。'
+                    : '所选周计划读取失败，请重试；未显示其他周期快照。';
                 return false;
             } finally {
                 if (currentSeq === requestSeq) homeWeeklyOperatingPlanLoading.value = false;
             }
         };
+        const readLatestHomeWeeklyOperatingPlan = () => {
+            selectHomeWeeklyOperatingPlanWeekEnd(latestCompletedWeekEnd(getToday()));
+            return loadHomeWeeklyOperatingPlan();
+        };
+        const downloadHomeWeeklyOperatingPlan = async () => {
+            if (homeWeeklyOperatingPlanDownloading.value || homeWeeklyOperatingPlanLoading.value) return false;
+            const plan = homeWeeklyOperatingPlan.value;
+            if (plan?.readback_verified !== true || !Number.isSafeInteger(Number(plan.snapshot_id)) || Number(plan.snapshot_id) <= 0) return false;
+            const expected = homeWeeklyPlanIdentity(plan);
+            const seq = ++downloadSeq;
+            const contextCurrent = typeof captureDownloadContext === 'function' ? captureDownloadContext() : () => false;
+            const isCurrent = () => seq === downloadSeq && contextCurrent()
+                && expected.hotel_id === String(getHotelId() || '').trim()
+                && Object.entries(expected).every(([key, value]) => homeWeeklyPlanIdentity(homeWeeklyOperatingPlan.value)[key] === value);
+            homeWeeklyOperatingPlanDownloading.value = true;
+            homeWeeklyOperatingPlanDownloadError.value = '';
+            try {
+                if (!isCurrent() || typeof downloadBlob !== 'function') return false;
+                const params = new URLSearchParams({ hotel_id: expected.hotel_id });
+                const res = await apiRequest(`/operating-opportunities/weekly-plan/snapshots/${expected.snapshot_id}?${params.toString()}`);
+                if (!isCurrent()) return false;
+                if (res?.code !== 200) throw new Error('weekly_plan_download_read_failed');
+                const file = await buildHomeWeeklyPlanDownload(res.data, expected);
+                if (!isCurrent()) return false;
+                downloadBlob(new Blob(['\ufeff', file.content], { type: 'text/plain;charset=utf-8' }), file.filename);
+                return true;
+            } catch (_) {
+                if (isCurrent()) homeWeeklyOperatingPlanDownloadError.value = '该版本周计划下载失败，请重试；原快照仍保留。';
+                return false;
+            } finally {
+                if (seq === downloadSeq) homeWeeklyOperatingPlanDownloading.value = false;
+            }
+        };
+        focusNavigation = createHomeWeeklyPlanFocusNavigation({
+            ref, watchEffect, nextTick, getNavigationContext, readExecutionTask, openAction,
+            getPlan: () => homeWeeklyOperatingPlan.value,
+            getWeekEnd: () => homeWeeklyOperatingPlanWeekEnd.value,
+            isReading: () => homeWeeklyOperatingPlanLoading.value || homeWeeklyOperatingPlanDownloading.value,
+            selectWeekEnd: selectHomeWeeklyOperatingPlanWeekEnd, loadPlan: loadHomeWeeklyOperatingPlan,
+        });
         return {
+            focusNavigation,
+            homeWeeklyOperatingPlanWeekEnd, homeWeeklyOperatingPlanMaxWeekEnd, homeWeeklyOperatingPlanReadStatus,
+            selectHomeWeeklyOperatingPlanWeekEnd, readLatestHomeWeeklyOperatingPlan,
+            homeWeeklyOperatingPlanDownloading, homeWeeklyOperatingPlanDownloadError, downloadHomeWeeklyOperatingPlan,
             homeWeeklyOperatingPlan,
             homeWeeklyOperatingPlanLoading,
             homeWeeklyOperatingPlanError,

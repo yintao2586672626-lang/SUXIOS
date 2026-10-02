@@ -52,7 +52,8 @@ test('weekly plan has authenticated exact APIs and a truthful home readback', ()
   assert.match(routes, /weekly-plan\/snapshots\/:id/);
   assert.match(template, /:weekly-plan="homeWeeklyOperatingPlan"/);
   assert.match(home, /home-weekly-operating-plan/);
-  assert.match(home, /周度经营计划尚未生成/);
+  assert.match(home, /所选周尚未读取/);
+  assert.match(home, /所选周期暂无已保存周计划/);
   assert.match(appMain, /createHomeWeeklyOperatingPlanController/);
   assert.match(home, /operating-opportunities\/weekly-plan\/latest/);
   assert.match(home, /readback_verified !== true/);

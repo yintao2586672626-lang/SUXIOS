@@ -935,7 +935,7 @@ class RevenuePricingRecommendationService
 
         $forecast = $signals['demand_forecast'] ?? [];
         $occupancy = $this->toNullableFloat($forecast['predicted_occupancy'] ?? null);
-        if ($occupancy !== null && $occupancy > 0) {
+        if ($occupancy !== null && $occupancy >= 0 && $occupancy <= 100 && ($forecast['data_status'] ?? '') === 'ok') {
             if ($occupancy >= 90) {
                 $changeRate += 0.14;
                 $factorNotes[] = 'demand_forecast:occupancy>=90';
@@ -1126,13 +1126,25 @@ class RevenuePricingRecommendationService
         $signals = is_array($factors['signals'] ?? null) ? $factors['signals'] : [];
         $dataGaps = array_values(array_filter(array_map('strval', (array)($signals['data_gaps'] ?? []))));
         $status = (int)($suggestion['status'] ?? 0);
-        $riskLevel = strtolower((string)($factors['risk_level'] ?? $suggestion['risk_level'] ?? ''));
-        $confidence = $this->toNullableFloat($factors['confidence_score'] ?? $suggestion['confidence_score'] ?? null);
+        $storedRisk = $factors['risk_level'] ?? $suggestion['risk_level'] ?? null;
+        $riskLevel = is_string($storedRisk) ? strtolower(trim($storedRisk)) : '';
+        $storedConfidence = $factors['confidence_score'] ?? $suggestion['confidence_score'] ?? null;
+        $isPercent = is_string($storedConfidence) && str_ends_with(trim($storedConfidence), '%');
+        if ($isPercent) {
+            $storedConfidence = trim(substr(trim($storedConfidence), 0, -1));
+        }
+        $confidence = (is_int($storedConfidence) || is_float($storedConfidence)
+            || (is_string($storedConfidence) && is_numeric($storedConfidence)))
+            ? (float)$storedConfidence : null;
+        // Saved legacy percentages and current fractions share the same risk threshold.
+        if ($confidence !== null && ($isPercent || ($confidence > 1 && $confidence <= 100))) {
+            $confidence /= 100;
+        }
         $primarySignalCount = (int)($factors['primary_signal_count'] ?? $suggestion['primary_signal_count'] ?? 0);
         $advisoryBoundary = (string)($factors['decision_boundary'] ?? '') === 'manual_review_required_no_auto_rate_write';
         $sourceReady = $primarySignalCount >= self::MIN_PRIMARY_SIGNAL_COUNT && empty($dataGaps);
-        $riskClear = !in_array($riskLevel, ['high', 'medium_high'], true)
-            && ($confidence === null || $confidence >= 0.6);
+        $riskClear = in_array($riskLevel, ['low', 'medium'], true)
+            && $confidence !== null && is_finite($confidence) && $confidence >= 0.6 && $confidence <= 1;
         $approved = in_array($status, [2, 4], true);
         $appliedLocal = $status === 4;
         $executionLinked = is_array($executionItem) && !empty($executionItem);
@@ -1143,7 +1155,7 @@ class RevenuePricingRecommendationService
         $checks = [
             $this->readinessCheck('pricing_signal', '调价信号', $sourceReady, '已满足主信号数量且无阻断性数据缺口', '先补齐需求预测、拾取、竞价、库存或弹性样本。', 20),
             $this->readinessCheck('advisory_boundary', '人工边界', $advisoryBoundary, '已标记为仅建议、禁止自动写 OTA 房价', '保留 manual_review_required_no_auto_rate_write 边界。', 10),
-            $this->readinessCheck('risk_recheck', '风险复核', $riskClear, '置信度和风险等级未触发阻断', '先复核高风险、低置信度或数据缺口后再审批。', 15),
+            $this->readinessCheck('risk_recheck', '风险复核', $riskClear, '置信度和风险等级未触发阻断', '先补齐并复核有效置信度、风险等级及数据缺口后再审批。', 15),
             $this->readinessCheck('manual_approval', '人工审批', $approved, '建议已通过人工审批或进入应用状态', '先完成批准/拒绝，不把待审建议当作执行动作。', 15),
             $this->readinessCheck('execution_intent', '执行意图', $executionLinked, '已关联运营执行意图', '创建执行意图，进入审批、执行、证据、复盘链路。', 15),
             $this->readinessCheck('local_price_applied', '本地价格应用', $appliedLocal, '已更新本地房型基础价', '如确认执行，先应用到本地房型价；OTA 仍需人工执行证据。', 10),
@@ -1747,7 +1759,7 @@ class RevenuePricingRecommendationService
 
     public function buildEffectReviewReadiness(array $suggestion, array $before, array $after, ?string $today = null): array
     {
-        $today = $today ?: date('Y-m-d');
+        $today = $today ?: (new \DateTimeImmutable('now', new \DateTimeZone('Asia/Shanghai')))->format('Y-m-d');
         $status = (int)($suggestion['status'] ?? 0);
         $applied = $status === 4 || trim((string)($suggestion['applied_time'] ?? '')) !== '';
         $beforeStatus = (string)($before['data_status'] ?? 'unknown');
@@ -2106,7 +2118,7 @@ class RevenuePricingRecommendationService
             return $this->hotelSignalCache[$cacheKey];
         }
 
-        $asOfDate = min($targetDate, date('Y-m-d'));
+        $asOfDate = min($targetDate, (new \DateTimeImmutable('now', new \DateTimeZone('Asia/Shanghai')))->format('Y-m-d'));
         $historyStart = date('Y-m-d', strtotime($asOfDate . ' -60 days'));
         $history = $this->trustedOtaFacts->pricingHistory($hotelId, $historyStart, $asOfDate);
 
@@ -2132,7 +2144,7 @@ class RevenuePricingRecommendationService
             return;
         }
 
-        $today = date('Y-m-d');
+        $today = (new \DateTimeImmutable('now', new \DateTimeZone('Asia/Shanghai')))->format('Y-m-d');
         $asOfDates = [];
         foreach ($missingDates as $targetDate) {
             $asOfDates[$targetDate] = min($targetDate, $today);
@@ -2349,19 +2361,23 @@ class RevenuePricingRecommendationService
             $forecast->historical_data ?? null,
             'manual_demand_forecast'
         );
+        $stored = $forecast->getData();
+        $occupancy = $this->toNullableFloat($stored['predicted_occupancy'] ?? null);
+        $demand = $this->toNullableFloat($stored['predicted_demand'] ?? null);
+        $hasMetric = $occupancy !== null || $demand !== null;
         return [
-            'data_status' => 'ok',
+            'data_status' => $hasMetric ? 'ok' : 'missing',
             'source' => 'demand_forecasts',
             'id' => (int)$forecast->id,
             'room_type_id' => (int)$forecast->room_type_id,
             'forecast_date' => (string)$forecast->forecast_date,
-            'predicted_occupancy' => $this->toFloat($forecast->predicted_occupancy ?? 0),
-            'predicted_demand' => (int)($forecast->predicted_demand ?? 0),
-            'confidence_score' => $this->toFloat($forecast->confidence_score ?? 0),
+            'predicted_occupancy' => $occupancy,
+            'predicted_demand' => $demand,
+            'confidence_score' => $this->toNullableFloat($stored['confidence_score'] ?? null),
             'event_type' => (int)($forecast->event_type ?? 0),
             'is_event_driven' => (int)($forecast->is_event_driven ?? 0),
             'source_metadata' => $sourceMetadata,
-            'data_gaps' => [],
+            'data_gaps' => $hasMetric ? [] : ['demand_forecast_missing'],
         ];
     }
 
@@ -2914,11 +2930,11 @@ class RevenuePricingRecommendationService
 
         $predictedDemand = $this->toNullableFloat($forecast['predicted_demand'] ?? null);
         $occupancy = $this->toNullableFloat($forecast['predicted_occupancy'] ?? null);
-        if (($predictedDemand === null || $predictedDemand <= 0) && $occupancy !== null && $occupancy > 0) {
+        if ($predictedDemand === null && $occupancy !== null && $occupancy >= 0 && $occupancy <= 100) {
             $predictedDemand = $roomCount * $occupancy / 100;
         }
 
-        if ($predictedDemand === null || $predictedDemand <= 0) {
+        if ($predictedDemand === null || $predictedDemand < 0) {
             return [
                 'data_status' => 'missing',
                 'capacity' => $roomCount,
@@ -3296,7 +3312,7 @@ class RevenuePricingRecommendationService
         }
 
         $forecastConfidence = $this->toNullableFloat($signals['demand_forecast']['confidence_score'] ?? null);
-        if ($forecastConfidence !== null && $forecastConfidence > 0) {
+        if ($forecastConfidence !== null && $forecastConfidence >= 0) {
             $score = ($score + min(0.95, $forecastConfidence)) / 2;
         }
 

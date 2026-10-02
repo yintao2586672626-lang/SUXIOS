@@ -168,8 +168,53 @@ const compileCoordinator = (fetchImpl) => {
       coordinatedGetQueue,
       setHotel: (hotelId) => { filterReportHotel.value = String(hotelId || ''); },
     };`, context);
-  return { context, ...context.__coordinator };
+  return { context, ...context.__coordinator, setBusinessDate: value => { contextBusinessDate.value = value; } };
 };
+
+const compileHomeSchedule = fetchImpl => {
+  const harness = compileCoordinator(fetchImpl);
+  const ref = value => ({ value });
+  Object.assign(harness.context, {
+    ensureOperationStaticReady: async () => ({}),
+    currentCompassReadPolicy: () => ({ ...harness.context.currentPageReadPolicy(), businessDate: '' }),
+    homeOperatingScheduleFlow: ref(null),
+    homeOperatingScheduleLoading: ref(false),
+    homeOperatingScheduleError: ref(''),
+    homeOperatingScheduleScopeHotelId: ref('80'),
+    homeOperatingScheduleLastReadAt: ref(''),
+    resetHomeWeeklyOperatingPlan: () => {},
+    loadHomeWeeklyOperatingPlan: async () => true,
+    operationErrorMessage: error => error.message,
+  });
+  vm.runInContext(sliceBetween('let homeOperatingScheduleRequestSeq = 0;', 'const openHomeOperatingScheduleItem = async')
+    + '\nglobalThis.loadHomeSchedule = loadHomeOperatingSchedule;', harness.context);
+  return harness;
+};
+
+test('home tasks survive unrelated Revenue AI date hydration while an actual GET is pending', async () => {
+  const transport = deferred();
+  const harness = compileHomeSchedule(() => transport.promise);
+  harness.setBusinessDate('2026-09-07');
+  const reading = harness.context.loadHomeSchedule();
+  await flushCoordinator();
+  harness.setBusinessDate('2026-09-08');
+  transport.resolve(jsonResponse({ code: 200, data: { capabilities: { hotel_id: 80 }, list: [{ id: 41, hotel_id: 80 }] } }));
+  assert.equal(await reading, true);
+  assert.equal(harness.context.homeOperatingScheduleFlow.value.list[0].id, 41);
+  assert.equal(harness.context.homeOperatingScheduleError.value, '');
+  assert.equal(harness.context.homeOperatingScheduleLoading.value, false);
+});
+
+test('home task reads still reject a hotel change while the request is pending', async () => {
+  const transport = deferred();
+  const harness = compileHomeSchedule(() => transport.promise);
+  const reading = harness.context.loadHomeSchedule();
+  await flushCoordinator();
+  harness.setHotel('81');
+  transport.resolve(jsonResponse({ code: 200, data: { capabilities: { hotel_id: 80 }, list: [{ id: 41, hotel_id: 80 }] } }));
+  assert.equal(await reading, false);
+  assert.equal(harness.context.homeOperatingScheduleFlow.value, null);
+});
 
 const compilePageLoadHarness = ({ businessContext = { tenant_id: 'tenant-a', system_hotel_id: '80' } } = {}) => {
   const pageLoadSource = sliceBetween(
@@ -214,6 +259,45 @@ const compilePageLoadHarness = ({ businessContext = { tenant_id: 'tenant-a', sys
     };`, context);
   return context.__pageLoad;
 };
+
+test('source-list force refresh keeps loading until the actual replacement GET settles', async () => {
+  const responses = [];
+  const coordinator = compileCoordinator((_url, options) => {
+    const response = deferred();
+    options.signal.addEventListener('abort', () => response.reject(abortError()), { once: true });
+    responses.push(response);
+    return response.promise;
+  });
+  vm.runInContext(`
+    const platformDataSources = { value: [] };
+    const platformDataSourceLoading = { value: false };
+    const platformDataSourceLoadFailed = { value: false };
+    const platformDataSourceSnapshotReady = { value: false };
+    const platformDataSourceLoadError = { value: '' };
+    const platformDataSourcesRequestPromises = new Map();
+    const platformDataSourcesResultCache = new Map();
+    const normalizeRequestCacheOptions = value => value;
+    const readRequestCache = () => false;
+    const writeRequestCache = (cache, key) => cache.set(key, true);
+    ${sliceBetween('const loadPlatformDataSources =', 'const loadPlatformSyncTasks =')}
+    globalThis.__sources = { load: loadPlatformDataSources, busy: platformDataSourceLoading,
+      rows: platformDataSources, failed: platformDataSourceLoadFailed };
+  `, coordinator.context);
+  const view = coordinator.context.__sources;
+  const old = view.load({ force: true });
+  await flushCoordinator();
+  assert.equal(responses.length, 1);
+  const current = view.load({ force: true });
+  await old;
+  await flushCoordinator();
+  assert.equal(responses.length, 2);
+  assert.equal(view.busy.value, true, 'an aborted predecessor must not end the current loading state');
+  responses[1].resolve(jsonResponse({ code: 200, data: [{ id: 10, name: 'Synthetic saved source' }] }));
+  await current;
+  assert.equal(view.busy.value, false);
+  assert.equal(view.rows.value[0].name, 'Synthetic saved source');
+  assert.equal(view.failed.value, false);
+});
 
 test('page read policy tolerates the brief post-login interval before business context hydration', () => {
   const harness = compilePageLoadHarness({ businessContext: null });

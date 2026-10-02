@@ -1,9 +1,10 @@
+import { readSourceAggregate as readStaticContractSource } from '../../scripts/lib/source_aggregate.mjs';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import vm from 'node:vm';
 
-const source = readFileSync('public/meituan-static.js', 'utf8');
+const source = readStaticContractSource('public/meituan-static.js');
 const appMain = readFileSync('public/app-main.js', 'utf8');
 const onlineDataQualityConcern = readFileSync('app/controller/concern/OnlineDataQualityConcern.php', 'utf8');
 const meituanTemplate = readFileSync('resources/frontend/templates/fragments/26-page-meituan-ebooking.html', 'utf8');
@@ -65,7 +66,7 @@ test('Meituan stored-data download keeps each data type in its own tab', () => {
   assert.deepEqual(Array.from(result.keywordRows, row => row.id), [8]);
   assert.equal(result.trafficExposure, 100);
   assert.equal(result.trafficClick, 20);
-  assert.equal(result.trafficAvgFlowRate, 10);
+  assert.equal(result.trafficAvgFlowRate, 20, '20 clicks / 100 exposures, not the average of 0% and 20%');
   assert.equal(result.orderBookOrder, 0);
   assert.equal(result.orderQuantity, 0);
   assert.equal(result.orderAmount, 0);
@@ -127,7 +128,9 @@ test('Meituan current-page CSV separates ads and keywords while preserving null 
   assert.doesNotMatch(ads.csv, /机场酒店/);
   assert.match(keywords.csv, /机场酒店,,0,,/);
   assert.doesNotMatch(keywords.csv, /campaign-a/);
-  assert.equal(keywords.fileName, 'meituan-search-keywords-80-2026-07-11-page-2.csv');
+  assert.equal(keywords.fileName, 'meituan-search-keywords-80-2026-07-11-all-page-2.csv');
+  assert.match(keywords.csv, /查询平台,查询酒店编号,查询开始日期,查询结束日期,导出范围,查询页码/);
+  assert.match(keywords.csv, /meituan,80,2026-07-11,,当前页,2/);
 });
 
 test('Meituan CSV neutralizes spreadsheet formula prefixes from OTA text', () => {
@@ -244,10 +247,10 @@ test('peer-rank rows keep captured competitor names separate from the bound syst
   assert.deepEqual(Array.from(result.overviewRows, row => row.hotel_name), ['敦煌漠蓝新', '敦煌漠蓝新']);
 });
 
-test('stored ads empty state loads and checks all Profile evidence for the selected hotel', () => {
+test('stored ads empty state loads Profile evidence for the loaded result hotel', () => {
   assert.match(appMain, /context\.source === 'meituan'[\s\S]*loadPlatformDataSources\(\{ cacheMs: PLATFORM_SOURCE_PANEL_CACHE_TTL_MS \}\)/);
   assert.match(appMain, /resolveMeituanAdsApplicability\(platformDataSources\.value, hotelId\)/);
-  assert.match(meituanTemplate, /onlineDataFilter\.hotel_id \|\| meituanForm\.hotelId/);
+  assert.match(meituanTemplate, /isMeituanAdsNotApplicableForHotel\(onlineDataLoadedQuery\?\.params\?\.system_hotel_id\)/);
   assert.match(meituanTemplate, /isMeituanAdsNotApplicableForHotel/);
   assert.match(meituanTemplate, /当前酒店未开通美团广告服务（不适用）/);
   assert.match(meituanTemplate, /源记录共[\s\S]*本页显示[\s\S]*条去重事实/);

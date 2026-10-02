@@ -12,6 +12,9 @@ use app\service\KnowledgeChunkGateSummaryService;
 use app\service\KnowledgeContentDigestService;
 use app\service\KnowledgeDistillationService;
 use app\service\KnowledgeMaterialIngestionService;
+use app\service\KnowledgeReferenceService;
+use app\service\KnowledgeSourceAccessPolicy;
+use app\service\KnowledgeSourceImportService;
 use app\service\KnowledgePayloadMapper;
 use app\service\KnowledgeApplicabilityService;
 use app\service\KnowledgeRevisionService;
@@ -206,8 +209,21 @@ class Knowledge extends Base
 
             $uploadedFile = $this->request->file('file') ?: $this->request->file('document');
             if ($uploadedFile) {
-                $extracted = $this->extractUploadedXlsxImport($uploadedFile);
-                $mode = 'xlsx';
+                $hotelId = $this->resolveKnowledgeImportHotelId((int)($data['hotel_id'] ?? 0));
+                try {
+                    $extracted = $this->extractUploadedXlsxImport($uploadedFile);
+                } catch (\Throwable $parseError) {
+                    $path = $uploadedFile->getPathname();
+                    $filename = basename($uploadedFile->getOriginalName());
+                    $extension = strtolower(pathinfo($filename, PATHINFO_EXTENSION));
+                    $context = ['source_document' => ['sha256' => hash_file('sha256', $path), 'filename' => $filename, 'extension' => $extension],
+                        'failure_stage' => 'parsing_failed', 'failure_code' => 'DOCUMENT_PARSE_FAILED'];
+                    $failed = $this->persistImportedKnowledgeMaterial([], '', $extension, 'manual_template', $tags, $hotelId,
+                        $this->resolveKnowledgeHotelName($hotelId), $this->currentUserId(), $modelKey, 'error',
+                        $this->shortErrorMessage($parseError->getMessage()), $context);
+                    return $this->fail('文档解析失败，请检查文件后重试', 422, ['failure_stage' => 'parsing_failed', 'created' => [$failed]]);
+                }
+                $mode = (string)$extracted['extension'];
                 $source = 'manual_template';
                 $raw = (string)$extracted['text'];
                 $importContext = [
@@ -252,6 +268,13 @@ class Knowledge extends Base
             $errors = [];
             foreach ($materials as $material) {
                 try {
+                    $sourceStore = new KnowledgeSourceImportService();
+                    $sourceKey = $sourceStore->identity($hotelId, $userId, $material, $mode, $modelKey, $importContext);
+                    $existing = $sourceStore->completed($sourceKey);
+                    if ($existing) {
+                        $created[] = $this->formatImportedSourceResult($existing);
+                        continue;
+                    }
                     $distilled = $service->distillMaterial(array_merge([
                         'mode' => $mode,
                         'source' => $source,
@@ -332,9 +355,30 @@ class Knowledge extends Base
 
             return $this->ok($result, 'extracted');
         } catch (InvalidArgumentException|ValidateException $e) {
-            return $this->fail($e->getMessage(), 422);
+            return $this->fail($e->getMessage(), 422, ['failure_stage' => 'parsing_failed', 'failure_code' => 'DOCUMENT_PARSE_FAILED']);
         } catch (\Throwable $e) {
             return $this->fail('读取文档失败: ' . $e->getMessage(), 500);
+        }
+    }
+
+    public function referenceSource(int $chunk_id): Response
+    {
+        try {
+            $hotelId = $this->resolveKnowledgeImportHotelId((int)$this->request->param('hotel_id', 0));
+            return $this->success((new KnowledgeReferenceService())->source($chunk_id, $hotelId, $this->currentUserId(), $this->knowledgeReferenceAccessContext()));
+        } catch (\Throwable $e) {
+            return $this->error($e instanceof InvalidArgumentException || $e instanceof \RuntimeException ? $e->getMessage() : '读取知识来源失败', 422);
+        }
+    }
+
+    public function saveReference(): Response
+    {
+        try {
+            $input = $this->requestData();
+            $hotelId = $this->resolveKnowledgeImportHotelId((int)($input['hotel_id'] ?? 0));
+            return $this->success((new KnowledgeReferenceService())->save($hotelId, $this->currentUserId(), $input, $this->knowledgeReferenceAccessContext()));
+        } catch (\Throwable $e) {
+            return $this->error($e instanceof InvalidArgumentException || $e instanceof \RuntimeException ? $e->getMessage() : '保存参考稿失败', str_contains($e->getMessage(), '版本冲突') ? 409 : 422);
         }
     }
 
@@ -358,19 +402,14 @@ class Knowledge extends Base
         $filename = method_exists($file, 'getOriginalName')
             ? trim((string)$file->getOriginalName())
             : '';
-        if (strtolower((string)pathinfo($filename, PATHINFO_EXTENSION)) !== 'xlsx') {
-            throw new ValidateException('知识导入上传目前仅支持 xlsx 文件');
-        }
-
         $path = method_exists($file, 'getPathname') ? (string)$file->getPathname() : '';
         $result = (new KnowledgeDocumentTextExtractor())->extractFromPath($path, $filename);
         $sourceDocument = is_array($result['source_document'] ?? null)
             ? $result['source_document']
             : [];
-        if (($result['extension'] ?? '') !== 'xlsx'
-            || trim((string)($result['text'] ?? '')) === ''
+        if (trim((string)($result['text'] ?? '')) === ''
             || preg_match('/^[a-f0-9]{64}$/', (string)($sourceDocument['sha256'] ?? '')) !== 1
-            || !is_array($sourceDocument['sheets'] ?? null)
+            || (($result['extension'] ?? '') === 'xlsx' && !is_array($sourceDocument['sheets'] ?? null))
         ) {
             throw new ValidateException('xlsx 服务端解析结果缺少可验证的来源元数据');
         }
@@ -733,57 +772,31 @@ class Knowledge extends Base
             $content['ai_error'] = $errorMessage;
         }
 
-        $unitSnapshot = null;
-        $chunkSnapshot = null;
-        $readback = null;
-        Db::transaction(function () use (&$unitSnapshot, &$chunkSnapshot, &$readback, $title, $source, $status, $description, $tags, $hotelId, $userId, $content): void {
-            $unitData = [
-                'name' => $title,
-                'source' => $source,
-                'status' => $status,
-                'description' => mb_substr($description, 0, 1000),
-                'tags' => $tags,
-                'created_by' => $userId,
-            ];
-            if ($this->knowledgeUnitHasHotelColumn()) {
-                $unitData['hotel_id'] = $hotelId;
-            }
+        $content['source_document'] ??= ['text_sha256' => hash('sha256', $material), 'source_kind' => 'user_text'];
+        if (isset($importContext['failure_stage'])) $content['failure_stage'] = $importContext['failure_stage'];
+        if (isset($importContext['failure_code'])) $content['failure_code'] = $importContext['failure_code'];
+        // AI summaries remain reference material until each claim is reviewed.
+        $content['scope'] = 'reference_only';
+        $content['evidence_level'] ??= 'user_provided_unverified';
+        $content['source_refs'] = ['source_sha256:' . ($content['source_document']['sha256'] ?? hash('sha256', $material))];
+        $content['blocked_uses'] ??= ['operation_task_creation', 'operation_execution', 'automatic_ota_write'];
+        $store = new KnowledgeSourceImportService();
+        return $this->formatImportedSourceResult($store->persist([
+            'name' => $title, 'source' => $source, 'status' => $status, 'description' => mb_substr($description, 0, 1000),
+            'tags' => $tags, 'hotel_id' => $hotelId, 'created_by' => $userId,
+        ], $content, $store->identity($hotelId, $userId, $material, $mode, $modelKey, $importContext)));
+    }
 
-            $unit = KnowledgeUnit::create($unitData);
-            $chunkData = [
-                'unit_id' => (int)$unit->unit_id,
-                'type' => 'AI资料蒸馏',
-                'content' => $content,
-                'created_by' => $userId,
-            ];
-            $chunk = KnowledgeChunk::create($chunkData);
-
-            $unitReadback = KnowledgeUnit::where('unit_id', (int)$unit->unit_id)->find();
-            $chunkReadback = KnowledgeChunk::where('unit_id', (int)$unit->unit_id)
-                ->where('chunk_id', (int)$chunk->chunk_id)
-                ->find();
-            if (!$unitReadback || !$chunkReadback) {
-                throw new \RuntimeException('Imported knowledge exact readback is missing');
-            }
-
-            $unitSnapshot = $unitReadback->toArray();
-            $chunkSnapshot = $chunkReadback->toArray();
-            $readback = $this->verifyImportedKnowledgeReadbackRows(
-                array_merge($unitData, ['unit_id' => (int)$unit->unit_id]),
-                array_merge($chunkData, ['chunk_id' => (int)$chunk->chunk_id]),
-                $unitSnapshot,
-                $chunkSnapshot
-            );
-        });
-
-        if (!is_array($unitSnapshot) || !is_array($chunkSnapshot) || !is_array($readback)) {
-            throw new \RuntimeException('Failed to persist imported knowledge material');
-        }
-
+    private function formatImportedSourceResult(array $saved): array
+    {
+        $unitSnapshot = $saved['unit'];
+        $chunkSnapshot = $saved['chunk'];
+        $readback = $this->verifyImportedKnowledgeReadbackRows($unitSnapshot, $chunkSnapshot, $unitSnapshot, $chunkSnapshot);
         return [
             'unit' => $this->formatUnitRow($unitSnapshot, 1),
             'chunk' => $this->formatChunkRow($chunkSnapshot),
             'readback_verified' => true,
+            'reused' => $saved['reused'] ?? false,
             'readback' => array_merge($readback, [
                 'unit_snapshot' => $this->formatUnitRow($unitSnapshot, 1),
                 'chunk_snapshot' => $this->formatChunkRow($chunkSnapshot),
@@ -1019,7 +1032,7 @@ class Knowledge extends Base
                 });
                 if ($permittedHotelIds !== []) {
                     $scope->whereOr(function ($formal) use ($permittedHotelIds): void {
-                        $formal->where('source', 'formal_operating_sop')
+                        $formal->where('source', KnowledgeSourceAccessPolicy::FORMAL_SOURCE)
                             ->whereIn('hotel_id', $permittedHotelIds)
                             ->where('status', 'done');
                     });
@@ -1030,20 +1043,14 @@ class Knowledge extends Base
 
     private function canAccessOwnedRow(array $row): bool
     {
-        if (!$this->isSuperAdmin() && (int)($row['tenant_id'] ?? 0) > 0 && (int)$row['tenant_id'] !== (int)($this->currentUser->tenant_id ?? 0)) return false;
-        if ($this->isSuperAdmin() || $this->isGlobalSystemKnowledgeRow($row)) {
-            return true;
-        }
-        if ($this->isFormalKnowledgeUnitRow($row)) {
-            $hotelId = (int)($row['hotel_id'] ?? 0);
-            return $hotelId > 0 && in_array($hotelId, $this->permittedKnowledgeHotelIds(), true);
-        }
-        if ((int)($row['created_by'] ?? 0) !== $this->currentUserId()) {
-            return false;
-        }
+        return (new KnowledgeSourceAccessPolicy())->canReadUnit($row, $this->currentUserId(),
+            $this->permittedKnowledgeHotelIds(), (int)($this->currentUser->tenant_id ?? 0), $this->isSuperAdmin());
+    }
 
-        $hotelId = (int)($row['hotel_id'] ?? 0);
-        return $hotelId > 0 && in_array($hotelId, $this->permittedKnowledgeHotelIds(), true);
+    /** Authentication supplies reference privileges; submitted flags are not authority. */
+    private function knowledgeReferenceAccessContext(): array
+    {
+        return ['tenant_id' => (int)($this->currentUser->tenant_id ?? 0), 'super_admin' => $this->isSuperAdmin()];
     }
 
     private function canModifyOwnedRow(array $row): bool
@@ -1094,9 +1101,7 @@ class Knowledge extends Base
 
     private function isGlobalSystemKnowledgeRow(array $row): bool
     {
-        return (int)($row['created_by'] ?? 0) === 0
-            && (int)($row['hotel_id'] ?? 0) === 0
-            && (string)($row['status'] ?? '') === 'done';
+        return (new KnowledgeSourceAccessPolicy())->isGlobalSystemUnit($row);
     }
 
     private function isFormalKnowledgeUnitRow(array $row): bool
@@ -1274,6 +1279,10 @@ class Knowledge extends Base
         $formatted = $this->payloadMapper()->formatUnitRow($row, $chunkCount);
         $formatted['system_read_only'] = $this->isGlobalSystemKnowledgeRow($row);
         $formatted['can_edit'] = $this->canModifyOwnedRow($row);
+        $formatted['can_select_reference'] = ($row['status'] ?? '') === 'done'
+            && $this->canAccessOwnedRow($row)
+            && (new KnowledgeReferenceService())->canReferenceSource((int)($row['current_chunk_id'] ?? 0),
+                (int)($row['hotel_id'] ?? 0), $this->currentUserId(), $this->knowledgeReferenceAccessContext(), $unitId);
         return $formatted;
     }
 

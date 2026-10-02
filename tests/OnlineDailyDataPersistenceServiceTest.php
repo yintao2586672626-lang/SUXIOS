@@ -33,6 +33,52 @@ final class OnlineDailyDataPersistenceServiceTest extends TestCase
         self::assertSame(0, $row['is_final']);
     }
 
+    public function testTodayTrafficPeriodUsesHotelTimezone(): void
+    {
+        $today = (new \DateTimeImmutable('now', new \DateTimeZone('Asia/Shanghai')))
+            ->format('Y-m-d');
+        $yesterday = (new \DateTimeImmutable('yesterday', new \DateTimeZone('Asia/Shanghai')))
+            ->format('Y-m-d');
+        $alternateZone = 'Pacific/Honolulu';
+        if ((new \DateTimeImmutable('now', new \DateTimeZone($alternateZone)))
+            ->format('Y-m-d') === $today) {
+            $alternateZone = 'Pacific/Kiritimati';
+        }
+        self::assertNotSame(
+            $today,
+            (new \DateTimeImmutable('now', new \DateTimeZone($alternateZone)))->format('Y-m-d')
+        );
+        $columns = ['data_period' => true, 'snapshot_time' => true, 'is_final' => true];
+        $originalZone = date_default_timezone_get();
+        date_default_timezone_set($alternateZone);
+        try {
+            $todayRow = OnlineDailyDataPersistenceService::applyPeriodFields([
+                'data_date' => $today, 'data_type' => 'traffic',
+                'data_period' => 'historical_daily',
+            ], $columns);
+            self::assertSame('realtime_snapshot', $todayRow['data_period']);
+            self::assertSame(0, $todayRow['is_final']);
+            self::assertStringStartsWith($today . ' ', $todayRow['snapshot_time']);
+
+            $inferred = OnlineDailyDataPersistenceService::applyPeriodFields([
+                'data_date' => $today, 'data_type' => 'traffic',
+                'dimension' => 'realtime:ctrip',
+            ], $columns);
+            self::assertSame('realtime_snapshot', $inferred['data_period']);
+            self::assertSame(0, $inferred['is_final']);
+            self::assertStringStartsWith($today . ' ', $inferred['snapshot_time']);
+
+            $past = OnlineDailyDataPersistenceService::applyPeriodFields([
+                'data_date' => $yesterday, 'data_type' => 'traffic',
+                'data_period' => 'historical_daily',
+            ], $columns);
+            self::assertSame('historical_daily', $past['data_period']);
+            self::assertSame(1, $past['is_final']);
+        } finally {
+            date_default_timezone_set($originalZone);
+        }
+    }
+
     public function testCtripTargetDateSearchTrafficCannotBecomeFinalHistoricalData(): void
     {
         $columns = [

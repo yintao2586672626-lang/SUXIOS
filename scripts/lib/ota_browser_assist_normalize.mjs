@@ -26,13 +26,16 @@ const DATA_TYPE_LABELS = {
 export function normalizeBrowserAssistCapturePayload(input, options = {}) {
   const payload = unwrapPayload(input);
   const generatedAt = normalizeDateTime(options.generatedAt || options.now || new Date().toISOString());
+  const snapshotTimeInput = firstWithValue(options.snapshotTime, options.snapshot_time, payload.snapshot_time, payload.snapshotTime);
   const context = {
     generatedAt,
     systemHotelId: toInteger(firstDefined(options.systemHotelId, options.system_hotel_id, payload.system_hotel_id, payload.systemHotelId)),
     hotelId: cleanText(firstDefined(options.hotelId, options.hotel_id, payload.hotel_id, payload.hotelId, payload.external_hotel_id)),
     hotelName: cleanText(firstDefined(options.hotelName, options.hotel_name, payload.hotel_name, payload.hotelName)),
-    dataDate: normalizeDate(firstDefined(options.dataDate, options.data_date, payload.data_date, payload.dataDate)),
-    snapshotTime: normalizeDateTime(firstDefined(options.snapshotTime, options.snapshot_time, payload.snapshot_time, payload.snapshotTime)),
+    dataDate: firstWithValue(options.dataDate, options.data_date,
+      input?.data_date, input?.dataDate, payload.data_date, payload.dataDate),
+    snapshotTime: normalizeDateTime(snapshotTimeInput),
+    snapshotTimeInput,
   };
 
   const warnings = [];
@@ -120,14 +123,18 @@ function normalizeInventorySection(section, platform, moduleKey, context, warnin
 
     days.forEach((day, dayIndex) => {
       const sourcePath = `${moduleKey}.rooms.${roomIndex}.days.${dayIndex}`;
-      const dataDate = normalizeDate(firstDefined(day.date, day.data_date, day.dataDate, section.data_date, section.dataDate, context.dataDate));
+      const dateValue = firstWithValue(day.date, day.data_date, day.dataDate, section.data_date, section.dataDate, context.dataDate);
+      const dataDate = normalizeDate(dateValue);
       if (!dataDate) {
+        const invalidDate = hasValue(dateValue);
         warnings.push({
           platform,
           module: moduleKey,
-          code: 'data_date_missing',
+          code: invalidDate ? 'data_date_invalid' : 'data_date_missing',
           source_path: sourcePath,
-          message: 'Inventory row skipped because no data_date could be proven.',
+          message: invalidDate
+            ? 'Inventory row skipped because the explicit business date is invalid; snapshot time was not used as a fallback.'
+            : 'Inventory row skipped because no data_date could be proven.',
         });
         return;
       }
@@ -209,12 +216,13 @@ function normalizeCtripStatsSection(section, context, warnings) {
     const snapshot = resolveSnapshot(section, context);
     const dataDate = resolveRealtimeDate(section, context, snapshot);
     if (!dataDate) {
+      const warningCode = realtimeDateWarningCode(section, context);
       warnings.push({
         platform: sourcePlatform,
         module: 'ctrip_stats',
-        code: 'data_date_missing',
+        code: warningCode,
         source_path: `ctrip_stats.metrics.${channel}`,
-        message: `${channel} realtime metrics skipped because no data_date could be proven.`,
+        message: realtimeDateWarningMessage(channel, warningCode),
       });
       continue;
     }
@@ -319,12 +327,13 @@ function normalizeMeituanStatsSection(section, context, warnings) {
   const snapshot = resolveSnapshot(section, context);
   const dataDate = resolveRealtimeDate(section, context, snapshot);
   if (!dataDate) {
+    const warningCode = realtimeDateWarningCode(section, context);
     warnings.push({
       platform: 'meituan',
       module: 'meituan_stats',
-      code: 'data_date_missing',
+      code: warningCode,
       source_path: 'meituan_stats.metrics',
-      message: 'Meituan realtime metrics skipped because no data_date could be proven.',
+      message: realtimeDateWarningMessage('Meituan', warningCode),
     });
     return [];
   }
@@ -426,7 +435,40 @@ function normalizeMeituanHookSection(section, context, warnings) {
     }
   }
 
-  if (rows.length === 0 && hasMeituanHookShape(root)) {
+  const importableRows = rows.filter((row) => {
+    if (row.data_date) return true;
+    const sourcePath = row.capture_evidence.source_path;
+    let code = 'data_date_missing';
+    let invalidForecastTargetDate = false;
+    const hookItemMatch = sourcePath.match(/^meituan_hook\.([^.]+)\.data(?:\.|$)/);
+    if (hookItemMatch && root[hookItemMatch[1]] && typeof root[hookItemMatch[1]] === 'object') {
+      code = meituanHookDateWarningCode(root[hookItemMatch[1]], context);
+    }
+    if (row.raw_data.module === 'meituan_hook_traffic_forecast'
+      && /^meituan_hook\.[^.]+\.data(?:\.detail\.\d+)?$/.test(sourcePath)) {
+      const forecastSourceRow = row.raw_data.data;
+      const forecastDate = firstDefined(forecastSourceRow?.dateTime, forecastSourceRow?.date,
+        forecastSourceRow?.dataDate, forecastSourceRow?.statDate);
+      invalidForecastTargetDate = hasValue(forecastDate) && !normalizeDate(forecastDate);
+      if (invalidForecastTargetDate) code = 'data_date_invalid';
+    }
+    const message = invalidForecastTargetDate
+      ? 'Meituan forecast row skipped because the explicit target date is invalid; snapshot time was not used as a fallback.'
+      : code === 'data_date_invalid'
+      ? 'Meituan hook row skipped because the explicit business date is invalid; snapshot time was not used as a fallback.'
+      : code === 'source_timestamp_invalid'
+        ? 'Meituan hook row skipped because the source timestamp is invalid; normalizer-generated time was not used as a business date.'
+        : 'Meituan hook row skipped because no data_date could be proven.';
+    warnings.push({
+      platform: 'meituan',
+      module: row.raw_data.module,
+      code,
+      source_path: sourcePath,
+      message,
+    });
+    return false;
+  });
+  if (importableRows.length === 0 && hasMeituanHookShape(root)) {
     warnings.push({
       platform: 'meituan',
       module: 'meituan_hook',
@@ -434,7 +476,20 @@ function normalizeMeituanHookSection(section, context, warnings) {
       message: 'Meituan hook payload was detected but no importable rows were found.',
     });
   }
-  return rows;
+  return importableRows;
+}
+
+function meituanHookDateWarningCode(item, context) {
+  const explicitDate = firstWithValue(item.data_date, item.dataDate, context.dataDate);
+  if (hasValue(explicitDate) && !normalizeDate(explicitDate)) {
+    return 'data_date_invalid';
+  }
+  const sourceTimestamp = firstWithValue(item.updatedAt, item.updated_at, item.capturedAt, item.captured_at,
+    item.snapshot_time, item.snapshotTime, context.snapshotTimeInput, context.snapshotTime);
+  if (hasValue(sourceTimestamp) && !normalizeDateTime(sourceTimestamp)) {
+    return 'source_timestamp_invalid';
+  }
+  return 'data_date_missing';
 }
 
 function normalizePlatformIdentitySection(section, context, warnings) {
@@ -688,8 +743,10 @@ function normalizeMeituanHookForecastItem(key, item, context) {
   const rows = detail.length ? detail : [data];
   return rows.map((row, index) => {
     const sourcePath = detail.length ? `meituan_hook.${key}.data.detail.${index}` : `meituan_hook.${key}.data`;
-    const dataDate = normalizeDate(firstDefined(row.dateTime, row.date, row.dataDate, row.statDate))
-      || hookDataDate(item, context, snapshot, '');
+    const explicitDate = firstDefined(row.dateTime, row.date, row.dataDate, row.statDate);
+    const dataDate = hasValue(explicitDate)
+      ? normalizeDate(explicitDate)
+      : hookDataDate(item, context, snapshot, '');
     return attachEvidence(compactObject({
       source: 'meituan',
       platform: 'meituan',
@@ -894,9 +951,7 @@ function hookFlowType(key, item) {
 }
 
 function hookDataDate(item, context, snapshot, dateRange) {
-  return normalizeDate(firstDefined(item.data_date, item.dataDate, context.dataDate))
-    || dateFromDateTime(snapshot.snapshotTime)
-    || (String(dateRange || '') === '0' ? normalizeDate(context.generatedAt) : '');
+  return resolveRealtimeDate(item, context, snapshot);
 }
 
 function hookPeriod(dateRange) {
@@ -947,7 +1002,7 @@ function missingInventoryFields({ roomName, remain, state }) {
 }
 
 function resolveSnapshot(section, context) {
-  const explicit = normalizeDateTime(firstDefined(section.updatedAt, section.updated_at, section.capturedAt, section.captured_at, section.snapshot_time, section.snapshotTime, context.snapshotTime));
+  const explicit = normalizeDateTime(firstWithValue(section.updatedAt, section.updated_at, section.capturedAt, section.captured_at, section.snapshot_time, section.snapshotTime, context.snapshotTime));
   if (explicit) {
     return {
       snapshotTime: explicit,
@@ -963,7 +1018,32 @@ function resolveSnapshot(section, context) {
 }
 
 function resolveRealtimeDate(section, context, snapshot) {
-  return normalizeDate(firstDefined(section.data_date, section.dataDate, context.dataDate)) || dateFromDateTime(snapshot.snapshotTime);
+  const explicitDate = firstWithValue(section.data_date, section.dataDate, context.dataDate);
+  if (hasValue(explicitDate)) return normalizeDate(explicitDate);
+  return snapshot.source === 'source_timestamp' ? dateFromDateTime(snapshot.snapshotTime) : '';
+}
+
+function realtimeDateWarningCode(section, context) {
+  const explicitDate = firstWithValue(section.data_date, section.dataDate, context.dataDate);
+  if (hasValue(explicitDate) && !normalizeDate(explicitDate)) {
+    return 'data_date_invalid';
+  }
+  const sourceTimestamp = firstWithValue(section.updatedAt, section.updated_at, section.capturedAt,
+    section.captured_at, section.snapshot_time, section.snapshotTime, context.snapshotTimeInput, context.snapshotTime);
+  if (hasValue(sourceTimestamp) && !normalizeDateTime(sourceTimestamp)) {
+    return 'source_timestamp_invalid';
+  }
+  return 'data_date_missing';
+}
+
+function realtimeDateWarningMessage(source, code) {
+  if (code === 'data_date_invalid') {
+    return `${source} realtime metrics skipped because the explicit business date is invalid; snapshot time was not used as a fallback.`;
+  }
+  if (code === 'source_timestamp_invalid') {
+    return `${source} realtime metrics skipped because the source timestamp is invalid; normalizer-generated time was not used as a business date.`;
+  }
+  return `${source} realtime metrics skipped because no business date could be proven.`;
 }
 
 function unwrapPayload(input) {
@@ -1027,11 +1107,20 @@ function normalizeDate(value) {
     return '';
   }
   const text = String(value).trim();
-  let match = text.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})/);
+  let match = text.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})([ T].+)?$/);
   if (!match) {
     match = text.match(/^(\d{4})(\d{2})(\d{2})$/);
   }
   if (!match) {
+    return '';
+  }
+  const yearValue = Number(match[1]);
+  const monthValue = Number(match[2]);
+  const dayValue = Number(match[3]);
+  const leapYear = yearValue % 4 === 0 && (yearValue % 100 !== 0 || yearValue % 400 === 0);
+  const monthDays = [31, leapYear ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+  if (yearValue < 1 || monthValue < 1 || monthValue > 12 || dayValue < 1 || dayValue > monthDays[monthValue - 1]
+    || (match[4] && !normalizeDateTime(text))) {
     return '';
   }
   const month = String(Number(match[2])).padStart(2, '0');
@@ -1046,18 +1135,29 @@ function normalizeDateTime(value) {
   if (value instanceof Date) {
     return formatDateTime(value);
   }
-  if (typeof value === 'number' && Number.isFinite(value)) {
-    return formatDateTime(new Date(value > 100000000000 ? value : value * 1000));
-  }
   const text = String(value).trim();
-  const match = text.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})(?:[ T](\d{1,2}):(\d{1,2})(?::(\d{1,2}))?)?/);
+  if (typeof value === 'number' || (typeof value === 'string' && /^[+-]?\d+(?:\.\d+)?$/.test(text))) {
+    const timestamp = Number(value);
+    if (!Number.isFinite(timestamp)) return '';
+    return formatDateTime(new Date(timestamp > 100000000000 ? timestamp : timestamp * 1000));
+  }
+  const match = text.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})(?:[ T](\d{1,2}):(\d{1,2})(?::(\d{1,2})(?:\.\d+)?)?(?<offset>[Zz]|(?<offsetSign>[+-])(?<offsetHour>\d{2})(?::?(?<offsetMinute>\d{2}))?)?)?$/);
   if (!match) {
     return '';
   }
   const date = normalizeDate(`${match[1]}-${match[2]}-${match[3]}`);
+  if (!date || Number(match[4] || 0) > 23 || Number(match[5] || 0) > 59 || Number(match[6] || 0) > 59
+    || Number(match.groups.offsetHour || 0) > 23 || Number(match.groups.offsetMinute || 0) > 59) {
+    return '';
+  }
   const hour = String(Number(match[4] || 0)).padStart(2, '0');
   const minute = String(Number(match[5] || 0)).padStart(2, '0');
   const second = String(Number(match[6] || 0)).padStart(2, '0');
+  if (match.groups.offset) {
+    const offset = match.groups.offset.toUpperCase() === 'Z' ? 'Z'
+      : `${match.groups.offsetSign}${match.groups.offsetHour}:${match.groups.offsetMinute || '00'}`;
+    return formatDateTime(new Date(`${date}T${hour}:${minute}:${second}${offset}`));
+  }
   return `${date} ${hour}:${minute}:${second}`;
 }
 
@@ -1117,6 +1217,15 @@ function cleanText(value) {
 function firstDefined(...values) {
   for (const value of values) {
     if (value !== undefined && value !== null && value !== '') {
+      return value;
+    }
+  }
+  return undefined;
+}
+
+function firstWithValue(...values) {
+  for (const value of values) {
+    if (hasValue(value)) {
       return value;
     }
   }

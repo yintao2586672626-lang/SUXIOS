@@ -1,3 +1,4 @@
+import { lineNumberForOffset, openTagStackBefore, hasOpenVueRoot } from './lib/public_entry_template_boundary.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 import vm from 'node:vm';
@@ -41,56 +42,6 @@ const loginBgPngPath = path.join(repoRoot, 'public/images/login-hotel-lobby-bg.p
 const loginBgWebpPath = path.join(repoRoot, 'public/images/login-hotel-lobby-bg.webp');
 const loginBgAvifPath = path.join(repoRoot, 'public/images/login-hotel-lobby-bg.avif');
 const failures = [];
-
-const lineNumberForOffset = (content, offset) => content.slice(0, offset).split(/\r?\n/).length;
-
-const openTagStackBefore = (content, endOffset) => {
-  const voidTags = new Set([
-    'area',
-    'base',
-    'br',
-    'col',
-    'embed',
-    'hr',
-    'img',
-    'input',
-    'link',
-    'meta',
-    'param',
-    'source',
-    'track',
-    'wbr',
-  ]);
-  const stack = [];
-  const tagPattern = /<!--[\s\S]*?-->|<![^>]*>|<\/?([a-zA-Z][\w:-]*)([^>]*)>/g;
-  let match;
-
-  while ((match = tagPattern.exec(content)) && match.index < endOffset) {
-    const raw = match[0];
-    if (raw.startsWith('<!--') || raw.startsWith('<!')) continue;
-
-    const tag = match[1].toLowerCase();
-    if (raw.startsWith('</')) {
-      let matchingIndex = -1;
-      for (let i = stack.length - 1; i >= 0; i -= 1) {
-        if (stack[i].tag === tag) {
-          matchingIndex = i;
-          break;
-        }
-      }
-      if (matchingIndex >= 0) stack.splice(matchingIndex);
-      continue;
-    }
-
-    if (!voidTags.has(tag) && !/\/\s*>$/.test(raw)) {
-      stack.push({ tag, raw });
-    }
-  }
-
-  return stack;
-};
-
-const hasOpenVueRoot = (stack) => stack.some((entry) => entry.tag === 'div' && /\bid\s*=\s*["']app["']/.test(entry.raw));
 
 const coreFetchFlowFiles = [
   'public/auto-fetch-static.js',
@@ -165,7 +116,8 @@ if (!fs.existsSync(indexPath)) {
     content += "\nshowToast(res.data?.message || '旧版携程 Cookie 书签已禁用', 'warning')";
   }
   const meituanStaticPath = path.join(repoRoot, 'public/meituan-static.js');
-  const meituanStaticContent = fs.existsSync(meituanStaticPath) ? fs.readFileSync(meituanStaticPath, 'utf8') : '';
+  const meituanStaticContent = fs.existsSync(meituanStaticPath) ? fs.readFileSync(meituanStaticPath, 'utf8')
+    + '\n' + fs.readFileSync(path.join(repoRoot, 'public/ota-fetch-flow-static.js'), 'utf8') : '';
   const reviewMatchStaticPath = path.join(repoRoot, 'public/review-match-static.js');
   const reviewMatchStaticContent = fs.existsSync(reviewMatchStaticPath) ? fs.readFileSync(reviewMatchStaticPath, 'utf8') : '';
   if (meituanStaticContent.includes('const buildMeituanBookmarkletSuccessState = (response = {}) => ({')
@@ -540,8 +492,8 @@ if (!runtimeAssetPaths.includes('app-startup-helpers.min.js')
     || !content.includes("buildRevenueAiGapSummary: () => ({ status: 'not_loaded', total: null")
     || !/status:\s*'not_loaded',\s*statusLabel:\s*'未加载'/.test(content)
     || !content.includes("runPageLoadOnce(newPage, 'revenue-ai-static', () => ensureRevenueAiStaticReady());")
-    || !content.includes('await ensureRevenueAiStaticReady();\n                        return loadAiDailyReport();')
-    || !content.includes("await loadDeferredAsset('app-deferred-helpers.min.js');") || !/void ensureHomeSecondaryStaticRuntimeReady\(\)[\s\S]{0,180}?ensureRevenueAiStaticReady\(\)[\s\S]{0,220}?homeSecondaryPanelsReady\.value = isCompassDataPage\(\)/.test(content)) {
+    || !/const activationGeneration = pageRequestGeneration, activationSession = captureAuthSession\(\);\s*await ensureRevenueAiStaticReady\(\);\s*if \(currentPage\.value !== 'ai-daily-report' \|\| activationGeneration !== pageRequestGeneration \|\| !isAuthSessionCurrent\(activationSession\)\) return;\s*return loadAiDailyReport\(\);/.test(content)
+    || !content.includes("await loadDeferredAsset('app-deferred-helpers.min.js');") || !/await ensureHomeSecondaryStaticRuntimeReady\(\);\s*if \(!isCurrent\(\)\) return;\s*await ensureRevenueAiStaticReady\(\);\s*if \(!isCurrent\(\)\) return;\s*homeSecondaryPanelsReady\.value = true;/.test(content)) {
     failures.push('Revenue AI static helpers must stay out of the startup chain and load through a versioned, retryable, page-gated loader with truthful not-loaded fallbacks.');
   }
   if (!content.includes('// AI_DAILY_REPORT_TASK_HELPERS_START')
@@ -550,13 +502,13 @@ if (!runtimeAssetPaths.includes('app-startup-helpers.min.js')
     || !content.includes("kind: 'limited'")
     || !content.includes('background: true,')
     || !content.includes('`/ai-daily-reports/tasks/${encodeURIComponent(taskId)}`')
-    || !content.includes('const readAiDailyReportById = async (reportId, expectedHotelId) => {')
+    || !content.includes('const readAiDailyReportById = async (reportId, expectedHotelId, expectedReportDate) => {')
     || !content.includes('`/ai-daily-reports/${normalizedReportId}`')
     || !content.includes('pollResult.task.resultReportId')
-    || !content.includes('AI经营日报回读酒店范围不一致')
+    || !['AI经营日报回读酒店范围不一致', 'AI经营日报回读业务日期不一致', 'AI日报任务业务日期不一致', 'expectedReportDate: reportDate,', 'readAiDailyReportById(pollResult.task.resultReportId, expectedHotelId, reportDate)'].every(marker => content.includes(marker))
     || !content.includes('if (!responseTaskId) {')
     || /aiDailyReport\.value = res\.data \|\| null;\s*showToast\('AI经营日报已生成'\)/.test(content)) {
-    failures.push('AI daily report generation must use a hotel-scoped background task, truthful terminal states, exact result_report_id readback, and a guarded legacy sync response path.');
+    failures.push('AI daily report generation must preserve the requested hotel and business date through the background task, truthful terminal states, exact result_report_id readback, and guarded legacy sync response.');
   }
   if (!revenueAiStaticContent.includes('window.SUXI_REVENUE_AI_STATIC')
     || !revenueAiStaticContent.includes('buildRevenueAiBusinessClosure')
@@ -671,7 +623,8 @@ if (!runtimeAssetPaths.includes('app-startup-helpers.min.js')
     || !content.includes('const overviewRequest = revenueAiResolveOverviewRequest({')
     || !/await request\(overviewRequest\.endpoint(?:,\s*\{[\s\S]{0,240}?requestPolicy(?:\s*:|\s*[,}])[\s\S]{0,160}?\})?\);/.test(content)
     || !revenueAiStaticContent.includes('const resolveRevenueAiOverviewResponse =')
-    || !content.includes('const overviewResult = revenueAiResolveOverviewResponse({ response: res });')
+    || !/const overviewResult = revenueAiResolveOverviewResponse\(\{\s*response:\s*res,\s*expectedScope:\s*\{\s*businessDate:\s*requestPolicy\.businessDate,\s*hotelId\s*\},\s*\}\);/.test(content)
+    || !/const overviewResult = revenueAiResolveOverviewResponse\(\{\s*response:\s*\{\s*code:\s*200,\s*data:\s*payload\.overview\s*\|\|\s*null\s*\},\s*expectedScope:\s*\{\s*businessDate,\s*hotelId:\s*requestContext\.hotelId\s*\},\s*\}\);/.test(content)
     || !content.includes('const overviewResult = revenueAiResolveOverviewResponse({ error: e });')
     || content.includes("revenueAiOverviewError.value = res.message || 'Revenue AI 总览接口返回失败';")
     || content.includes("revenueAiOverviewError.value = e.message || 'Revenue AI 总览接口请求失败';")
@@ -764,7 +717,8 @@ if (!runtimeAssetPaths.includes('app-startup-helpers.min.js')
     || content.includes("source: 'revenue_ai_effect_review_input'")
     || content.includes("evidence_boundary: 'local_manual_roi_evidence_no_ota_write'")
     || !content.includes('result_status: resultStatus')
-    || !content.includes('result_summary: resultSummary || \'继续观察，等待次日收益或ROI证据\'')
+    || !appMainContent.includes("requireOperationStatic(window.SUXI_OPERATION_STATIC, 'runSubmitOperationExecutionReview')")
+    || !/const submittedSummary = resultSummary \|\| '继续观察，等待次日收益或ROI证据';[\s\S]*?result_summary: submittedSummary\b/.test(operationStaticContent.match(/const runSubmitOperationExecutionReview = async ([\s\S]*?)\n    return \{/)?.[1] || '')
     || !content.includes('复盘结论为达成/接近达成/未达成时必须填写说明')
     || !content.includes("evidence_type: 'manual_price_execution'")
     || !content.includes("evidence_boundary: 'local_manual_evidence_no_ota_write'")
@@ -834,7 +788,7 @@ if (!runtimeAssetPaths.includes('app-startup-helpers.min.js')
   if (!/const\s+revenueResearchStaticScript\s*=\s*["']revenue-research-static\.js["']/.test(content) || !/const\s+loadRevenueResearchStatic\s*=\s*\(\)\s*=>/.test(content)) {
     failures.push('public/index.html must keep an explicit lazy loader for revenue-research-static.js.');
   }
-  if (!/newPage === ['"]revenue-research-center['"]/.test(content) || !/ensureRevenueResearchReady\(\)/.test(content)) {
+  if (!/watch\(\[currentPage, isLoggedIn\], \(\[page, loggedIn\]\) => \{\s*if \(page === ['"]revenue-research-center['"] && loggedIn && !revenueResearchProducts\.value\.length\) \{\s*void retryRevenueResearchCatalog\(\);/.test(content) || !/const retryRevenueResearchCatalog = \(\) => ensureRevenueResearchReady\(\)/.test(content)) {
     failures.push('public/index.html must load revenue research static data only when revenue-research-center is opened.');
   }
   if (/<script\s+src=["']ai-analysis-static\.js["']/.test(content)) {
@@ -1183,7 +1137,8 @@ if (!runtimeAssetPaths.includes('app-startup-helpers.min.js')
     || !content.includes('const homeSecondaryPanelsReady = ref(false);')
     || !content.includes('const scheduleHomeSecondaryPanelsReady = (delayMs = HOME_SECONDARY_PANEL_DELAY_MS) => {')
     || !/clearHomeSecondaryPanelsReadyTimer\(\);[\s\S]{0,200}?homeSecondaryPanelsReady\.value = false;[\s\S]{0,120}?destroyHomeTrendChart\(\);/.test(content)
-    || !/homeSecondaryPanelsReady\.value = false;\s+scheduleHomeSecondaryPanelsReady\(\);[\s\S]{0,620}?const requestPolicy = currentCompassReadPolicy\(newPage, 'current'\);[\s\S]{0,220}?runPageLoadOnce\(\s*newPage,\s*'main',\s*\(\) => loadCompassData\(\{\s*skipOtaBackground:\s*true,\s*requestPolicy\s*\}\),\s*\{\s*ttlMs:\s*DASHBOARD_PAGE_CACHE_TTL_MS,\s*requestPolicy\s*\}\s*\);/.test(content)
+    || !/const requestSeq = clearHomeSecondaryPanelsReadyTimer\(\);\s*homeSecondaryPanelsReady\.value = false;/.test(content)
+    || !/scheduleHomeSecondaryPanelsReady\(\);[\s\S]{0,620}?const requestPolicy = currentCompassReadPolicy\(newPage, 'current'\);[\s\S]{0,220}?runPageLoadOnce\(\s*newPage,\s*'main',\s*\(\) => loadCompassData\(\{\s*skipOtaBackground:\s*true,\s*requestPolicy\s*\}\),\s*\{\s*ttlMs:\s*DASHBOARD_PAGE_CACHE_TTL_MS,\s*requestPolicy\s*\}\s*\);/.test(content)
     || !/<div v-if="homeSecondaryPanelsReady"[^>]*data-testid="daily-ops-monitor-card"/.test(content)
     || !/<div v-if="homeSecondaryPanelsReady"[^>]*data-testid="home-weather-demand-card"/.test(content)
     || !/<div v-if="homeSecondaryPanelsReady"[^>]*data-testid="home-market-signal-card"/.test(content)
@@ -1414,7 +1369,7 @@ if (!runtimeAssetPaths.includes('app-startup-helpers.min.js')
     content.indexOf('const runCtripOverviewFetchActionInternal = async'),
     content.indexOf('const refreshCtripHotelConfigOptions =')
   );
-  if (!ctripOverviewFetchRunnerSource.includes("scheduleDataHealthPanelRefresh('light', { force: true });")
+  if (!ctripOverviewFetchRunnerSource.includes("scheduleDataHealthPanelRefresh('light', { force: true }, isCurrent);")
     || ctripOverviewFetchRunnerSource.includes("await loadDataHealthPanel('light', { force: true });")) {
     failures.push('public/index.html Ctrip overview fetch completion must schedule data-health refresh instead of waiting before releasing loading state.');
   }
@@ -1692,7 +1647,13 @@ if (!runtimeAssetPaths.includes('app-startup-helpers.min.js')
   );
   const meituanStaticFallbackStart = appMainContent.indexOf('const meituanStaticFallbackFor = (key) => {');
   const meituanStaticFallbackEnd = appMainContent.indexOf('const requireMeituanStatic = (key) => {');
-  const meituanStaticFallbackSource = meituanStaticFallbackStart >= 0 && meituanStaticFallbackEnd > meituanStaticFallbackStart ? appMainContent.slice(meituanStaticFallbackStart, meituanStaticFallbackEnd) : '';
+  const extractedMeituanFallbackStart = systemStaticContent.indexOf('const buildMeituanStaticFallbackFor =');
+  const extractedMeituanFallbackEnd = systemStaticContent.indexOf('const buildPlatformProfileFlowRows =', extractedMeituanFallbackStart);
+  const meituanStaticFallbackSource = meituanStaticFallbackStart >= 0 && meituanStaticFallbackEnd > meituanStaticFallbackStart
+    ? appMainContent.slice(meituanStaticFallbackStart, meituanStaticFallbackEnd)
+    : appMainContent.includes('const meituanStaticFallbackFor = (key) => appSystemStatic.buildMeituanStaticFallbackFor({ meituanDeferredRuntimePending, meituanStaticUnavailableResult, showToast: (...args) => showToast(...args) }, key);')
+      && extractedMeituanFallbackStart >= 0 && extractedMeituanFallbackEnd > extractedMeituanFallbackStart
+      ? systemStaticContent.slice(extractedMeituanFallbackStart, extractedMeituanFallbackEnd) : '';
   const meituanConfigSaveGateIndex = saveMeituanConfigItemSource.indexOf('if (!helperAvailability.available) {');
   const meituanConfigSaveRequestIndex = saveMeituanConfigItemSource.indexOf("request('/online-data/save-meituan-config-item', {");
   if (!appMainContent.includes('const meituanConfigSaveHelperKeys = Object.freeze([')
@@ -2254,7 +2215,9 @@ if (!runtimeAssetPaths.includes('app-startup-helpers.min.js')
     || !/loadPlatformSyncTasks\s*\(\s*\{?/.test(platformSyncLogPanelSource)
     || !/loadPlatformSyncLogs\s*\(\s*\{?/.test(platformSyncLogPanelSource)
     || !platformSyncLogPanelSource.includes('cacheMs: options.force ? 0 : PLATFORM_PROFILE_STATUS_PANEL_CACHE_TTL_MS,')
-    || !content.includes('@click="schedulePlatformSyncLogPanelRefresh({ force: true })"')) {
+    || !(content.includes('@click="schedulePlatformSyncLogPanelRefresh({ force: true })"')
+      || (platformSyncLogPanelSource.includes('const refreshPlatformSyncHistory = () => schedulePlatformSyncLogPanelRefresh({ force: true });')
+        && content.includes('@click="refreshPlatformSyncHistory"')))) {
     failures.push('public/index.html must route platform sync-log refreshes through the shared visible-tab scheduler instead of inline requests.');
   }
   if (content.includes("onlineDataTab = 'platform-sources'; loadPlatformDataSourcePanel()")
@@ -2678,7 +2641,7 @@ if (!runtimeAssetPaths.includes('app-startup-helpers.min.js')
     || content.includes("const jobs = [loadBackendGlobalNotifications()];\n                    if (!options.backendOnly) {\n                        jobs.push(loadDataHealthPanel('light'));\n                    }")) {
     failures.push('public/index.html global notification refresh must not block on data-health light status; it should schedule the visible-tab refresh instead.');
   }
-  if (!content.includes("currentPage.value = 'online-data';\n                onlineDataTab.value = 'data-health';\n                dataHealthSecondaryPanelsReady.value = false;\n                scheduleDataHealthSecondaryPanelsReady();\n                dataHealthDetailPanelsReady.value = false;\n                scheduleDataHealthDetailPanelsReady();\n                dataHealthEmployeePanelsReady.value = false;\n                scheduleDataHealthEmployeePanelsReady();\n                scheduleDataHealthPanelRefresh('light');")
+  if (!content.includes("currentPage.value = 'online-data';\n                onlineDataTab.value = 'data-health';\n                dataHealthSecondaryPanelsReady.value = false;\n                scheduleDataHealthSecondaryPanelsReady();\n                dataHealthDetailPanelsReady.value = false;\n                scheduleDataHealthDetailPanelsReady();\n                dataHealthEmployeePanelsReady.value = false;\n                scheduleDataHealthEmployeePanelsReady();\n                scheduleDataHealthPanelRefresh('light', { force: true });")
     || content.includes("currentPage.value = 'online-data';\n                onlineDataTab.value = 'data-health';\n                await loadDataHealthPanel('light');")) {
     failures.push('public/index.html AI daily report data-gap navigation must switch immediately and schedule data-health light refresh/readiness.');
   }
@@ -2753,7 +2716,7 @@ if (!runtimeAssetPaths.includes('app-startup-helpers.min.js')
     || !content.includes('let onlineHistoryHotelListLoadingPromise = null;')
     || !content.includes('const onlineHistoryHotelListLoaded = ref(false);')
     || !content.includes('const refreshOnlineHistory = async (options = {}) => {')
-    || !/const scheduleOnlineHistoryRefresh = \(\) => schedulePostFetchRefresh\('online-history',[\s\S]{0,240}?refreshOnlineHistory\(\{ refreshHotels: false \}\)[\s\S]{0,100}?, 340\);/.test(content)
+    || !/const scheduleOnlineHistoryRefresh = \(isCurrent = \(\) => true\) => schedulePostFetchRefresh\('online-history',[\s\S]{0,240}?refreshOnlineHistory\(\{ refreshHotels: false \}\)[\s\S]{0,100}?, 340, isCurrent\);/.test(content)
     || content.includes('await Promise.all([loadOnlineHistory(), loadOnlineHistoryHotelList()]);')
     || content.includes("schedulePostFetchRefresh('online-history', () => refreshOnlineHistory(), 340)")
     || onlineHistorySource.includes('const params = new URLSearchParams({')
@@ -3095,7 +3058,7 @@ if (!runtimeAssetPaths.includes('app-startup-helpers.min.js')
     }
   }
   if (!content.includes("const isDataHealthPanelVisible = () => ['online-data', 'ctrip-ebooking'].includes(currentPage.value) && onlineDataTab.value === 'data-health';")
-    || !content.includes("const scheduleDataHealthPanelRefresh = (mode = 'light', params = {}) => schedulePostFetchRefresh('data-health-panel', () => {")
+    || !content.includes("const scheduleDataHealthPanelRefresh = (mode = 'light', params = {}, isCurrent = () => true) => schedulePostFetchRefresh('data-health-panel', () => {")
     || !content.includes('if (!isDataHealthPanelVisible()) return null;')
     || content.includes("const scheduleDataHealthPanelRefresh = (mode = 'light', params = {}) => schedulePostFetchRefresh('data-health-panel', () => loadDataHealthPanel(mode, params), 560);")) {
     failures.push('public/index.html post-fetch data-health refreshes must not run after the user leaves the visible data-health tab.');
@@ -3441,7 +3404,11 @@ if (!runtimeAssetPaths.includes('app-startup-helpers.min.js')
     || !content.includes('scheduleFormOperationSupportLoad();')) {
     failures.push('public/index.html must lazy-load form-operation-support.js after the first core OTA interaction window.');
   }
-  if (!/const renderHomeTrendChart = \(retryCount = 0\) => \{\n\s+if \(!homeTrendHasSamples\.value\) \{\n\s+destroyHomeTrendChart\(\);\n\s+return;\n\s+\}\n\s+const ChartLib = window\.Chart;/.test(content)) {
+  const homeTrendChartSource = appMainContent.slice(appMainContent.indexOf('const renderHomeTrendChart ='), appMainContent.indexOf('const renderHomeTrendChart =') + 5000);
+  const homeTrendSamplesGuard = homeTrendChartSource.indexOf('if (!homeTrendHasSamples.value) {');
+  const homeTrendChartLibrary = homeTrendChartSource.indexOf('const ChartLib = window.Chart;');
+  if (homeTrendSamplesGuard < 0 || homeTrendChartLibrary < homeTrendSamplesGuard
+    || !/if \(!homeTrendHasSamples\.value\) \{\s+destroyHomeTrendChart\(\);\s+return;\s+\}/.test(homeTrendChartSource)) {
     failures.push('public/index.html must not load Chart.js for the home trend chart before confirming there are usable trend samples.');
   }
   if (!/data-testid=\\?"ctrip-profile-field-modal\\?"/.test(ctripProfileFieldConfigPanelContent)) {

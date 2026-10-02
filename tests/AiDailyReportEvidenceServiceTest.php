@@ -52,6 +52,33 @@ final class AiDailyReportEvidenceServiceTest extends TestCase
         $service->assertProjection($projection, $snapshot);
     }
 
+    public function testEvidenceProjectionPreservesExactOtaReadbackFailureGap(): void
+    {
+        $pack = $this->pack();
+        $diagnosis = (new AiDailyReportEvidenceService())->diagnose($pack);
+        $inputGap = [
+            'code' => 'ota_evidence_readback_unverified',
+            'message' => 'Referenced OTA evidence has not passed database readback verification.',
+            'source_ref' => 'online_daily_data#42',
+        ];
+        $project = new \ReflectionMethod(AiDailyReportService::class, 'projectEvidenceReport');
+        $report = $project->invoke(new AiDailyReportService(), [
+            'data_gaps' => [$inputGap],
+        ], $pack, $diagnosis, [$inputGap]);
+
+        self::assertContains('ota_evidence_readback_unverified', array_column($report['data_gaps'], 'code'));
+        self::assertSame('online_daily_data#42', array_column($report['data_gaps'], null, 'code')['ota_evidence_readback_unverified']['source_ref']);
+        self::assertSame('已保存渠道事实与待验证解释；变化不证明因果。', $report['summary']);
+        self::assertCount(20, $report['yesterday_result']['metrics']);
+        (new AiDailyReportEvidenceService())->assertProjection(
+            $report,
+            (new AiDailyReportEvidenceService())->seal($pack, $diagnosis, ['status' => 'not_requested'])
+        );
+
+        $recovered = $project->invoke(new AiDailyReportService(), [], $pack, $diagnosis, []);
+        self::assertNotContains('ota_evidence_readback_unverified', array_column($recovered['data_gaps'], 'code'));
+    }
+
     #[\PHPUnit\Framework\Attributes\DataProvider('semanticIdentityMutations')]
     public function testSemanticAliasesCannotChangeMetricPlatformOrUnit(string $field, string $value): void
     {

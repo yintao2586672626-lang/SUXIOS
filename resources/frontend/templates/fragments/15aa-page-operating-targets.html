@@ -18,8 +18,8 @@
                                         <span class="mb-1 block text-xs text-gray-500">经营日期</span>
                                         <input v-model="operatingTargetForm.target_date" data-testid="operating-target-date" type="date" class="rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-700">
                                     </label>
-                                    <button type="button" data-testid="operating-target-load" @click="loadOperatingTarget" :disabled="operatingTargetLoading.current" class="rounded-lg bg-emerald-800 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-900 disabled:cursor-wait disabled:opacity-60">
-                                        <i :class="[operatingTargetLoading.current ? 'fas fa-spinner fa-spin' : 'fas fa-sync-alt', 'mr-1.5']"></i>{{ operatingTargetLoading.current ? '读取中...' : '读取记录' }}
+                                    <button type="button" data-testid="operating-target-load" @click="loadOperatingTarget" :disabled="operatingTargetLoading.current" class="rounded-lg bg-gray-900 px-4 py-2 text-sm font-medium text-white hover:bg-gray-800 disabled:cursor-wait disabled:opacity-60">
+                                        <i :class="[operatingTargetLoading.current ? 'fas fa-spinner fa-spin' : 'fas fa-sync-alt', 'mr-1.5']"></i><span :class="{ 'text-gray-700': operatingTargetLoading.current }">{{ operatingTargetLoading.current ? '读取中...' : '读取记录' }}</span>
                                     </button>
                                 </div>
                             </div>
@@ -36,7 +36,7 @@
                                 <section class="rounded-xl border border-gray-100 bg-white p-4 shadow-sm sm:p-5">
                                     <div class="flex flex-col gap-3 border-b border-gray-100 pb-4 lg:flex-row lg:items-start lg:justify-between">
                                         <div>
-                                            <h3 class="font-bold text-gray-900">设置当日住宿房费总目标</h3>
+                                            <h3 class="font-bold text-gray-900">设置当日经营总目标</h3>
                                             <p class="mt-1 text-xs leading-5 text-gray-500">只设置一个总目标；实际房费、间夜、入住率、ADR 和 <term-help term="revpar" /> 统一从同店当天 PMS 事实核对，不再重复手工填写。</p>
                                         </div>
                                         <div class="flex flex-wrap gap-2">
@@ -54,9 +54,10 @@
 
                                     <div class="mt-4 grid gap-4 lg:grid-cols-[minmax(240px,0.55fr)_minmax(0,1.45fr)] lg:items-start">
                                         <label class="block rounded-xl border border-[#d8c49f] bg-[#fffaf0] p-4">
-                                            <span class="mb-2 block text-xs font-medium text-[#826333]">当日住宿房费总目标（元）</span>
+                                            <span class="mb-2 block text-xs font-medium text-[#826333]">{{ operatingTargetForm.fact_scope === 'whole_hotel' ? '当日全酒店营收总目标（元）' : '当日住宿房费总目标（元）' }}</span>
                                             <input v-model="operatingTargetForm.target_revenue" data-testid="operating-target-revenue" inputmode="decimal" type="number" min="0" step="0.01" placeholder="例如 10000" class="w-full rounded-lg border border-[#d8c49f] bg-white px-3 py-2.5 text-lg font-semibold text-gray-900 focus:border-[#ad8b52] focus:outline-none focus:ring-2 focus:ring-[#ad8b52]/15">
-                                            <span class="mt-2 block text-xs leading-5 text-gray-500">目标只保存住宿房费总额；不再单独设入住率或 RevPAR 目标。</span>
+                                            <span class="mt-2 block text-xs leading-5 text-gray-500">目标沿用当前记录口径；不再单独设入住率或 RevPAR 目标。</span>
+                                            <span v-if="operatingTargetForm.fact_scope === 'whole_hotel'" data-testid="operating-target-legacy-scope" class="mt-2 block text-xs leading-5 text-amber-800">历史记录为全酒店营收，保存保留原口径。核对新的 PMS 住宿房费后，需要重新填写房费目标。</span>
                                         </label>
 
                                         <section class="rounded-xl border border-gray-100 bg-gray-50/70 p-4" data-testid="operating-target-pms-facts">
@@ -76,7 +77,7 @@
                                                 </article>
                                             </div>
                                             <p class="mt-3 break-all text-xs leading-5 text-gray-500">
-                                                核对依据：{{ operatingTargetForm.source_reference || '尚未取得同店当天 PMS 回读证据' }}
+                                                PMS 核对依据：{{ operatingTargetForm.source_type === 'pms' && operatingTargetForm.source_reference || '尚未取得同店当天 PMS 回读证据' }}
                                             </p>
                                         </section>
                                     </div>
@@ -89,6 +90,7 @@
                                     </section>
 
                                     <section v-if="operatingTargetResult" class="grid grid-cols-2 gap-3 md:grid-cols-4" data-testid="operating-target-metrics">
+                                        <p class="col-span-2 break-all text-xs leading-5 text-gray-500 md:col-span-4" data-testid="operating-target-record-provenance">记录来源：{{ operatingTargetSourceText(operatingTargetResult.facts?.source_type) }} / {{ operatingTargetQualityText(operatingTargetResult.facts?.quality_status) }} · {{ operatingTargetResult.target_date }}<br>依据：{{ operatingTargetResult.facts?.source_reference || '未说明来源依据' }}</p>
                                         <div v-for="item in operatingTargetMetricRows" :key="item.key" class="rounded-xl border border-gray-100 bg-white p-4 shadow-sm">
                                             <div class="text-xs text-gray-500">{{ item.label }}</div>
                                             <div class="mt-2 text-2xl font-bold text-gray-900">{{ item.value }}</div>
@@ -98,14 +100,14 @@
 
                                 <section v-if="operatingTargetResult" class="rounded-xl border border-gray-100 bg-white p-4 shadow-sm" data-testid="operating-target-task-draft-actions">
                                     <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                                        <p class="text-xs leading-5 text-gray-500">当住宿房费尚未达到总目标时，可把已保存的金额差距生成待人工审批任务；不会自动修改 OTA。</p>
+                                        <p class="text-xs leading-5 text-gray-500">当同口径实际营收尚未达到总目标时，可把已保存的金额差距生成待人工审批任务；不会自动修改 OTA。</p>
                                         <button type="button" data-testid="operating-target-create-task-draft" @click="createOperatingTargetTaskDraft" :disabled="operatingTargetTaskDraftLoading" class="shrink-0 rounded-lg bg-gray-900 px-4 py-2 text-sm font-medium text-white hover:bg-gray-700 disabled:cursor-wait disabled:opacity-60">
                                             <i :class="[operatingTargetTaskDraftLoading ? 'fas fa-spinner fa-spin' : 'fas fa-tasks', 'mr-1.5']"></i>{{ operatingTargetTaskDraftLoading ? '生成中...' : '根据金额差距生成任务' }}
                                         </button>
                                     </div>
                                     <div v-if="operatingTargetTaskDraftError" data-testid="operating-target-task-draft-error" class="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm leading-6 text-amber-800">{{ operatingTargetTaskDraftError }}</div>
                                     <div v-if="operatingTargetTaskDraft" data-testid="operating-target-task-draft-success" class="mt-3 flex flex-col gap-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-3 text-sm text-emerald-800 sm:flex-row sm:items-center sm:justify-between">
-                                        <span>{{ operatingTargetTaskDraft.reused_existing_intent ? '已回读同一目标版本的待审批任务' : '待审批任务已生成' }} #{{ operatingTargetTaskDraft.execution_intent?.id || '未取得编号' }}</span>
+                                        <span>{{ operatingTargetTaskDraft.status_message || '已回读目标任务' }} #{{ operatingTargetTaskDraft.execution_intent?.id || '未取得编号' }}</span>
                                         <button type="button" @click="openOperatingTargetTaskDraft" class="rounded-lg border border-emerald-300 bg-white px-3 py-1.5 text-xs font-medium text-emerald-800 hover:bg-emerald-100">进入任务执行与复盘</button>
                                     </div>
                                 </section>
@@ -176,8 +178,34 @@
                             </div>
                         </section>
 
+                        <section class="rounded-xl border border-gray-100 bg-white p-5 shadow-sm" data-testid="operating-target-snapshots">
+                            <div class="flex items-center justify-between gap-3">
+                                <div><h3 class="font-bold text-gray-900">当日历史版本</h3><p class="mt-1 text-xs leading-5 text-gray-500">{{ operatingTargetForm.target_date }} · 最近 {{ operatingTargetSnapshots.limit || 20 }} 个保存版本。仅供回看，当前编辑内容保持不变。</p></div>
+                                <button type="button" data-testid="operating-target-snapshots-refresh" @click="loadOperatingTargetSnapshots" :disabled="operatingTargetLoading.snapshots" class="shrink-0 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50">{{ operatingTargetLoading.snapshots ? '读取中...' : '刷新版本' }}</button>
+                            </div>
+                            <div v-if="operatingTargetSnapshots.error" data-testid="operating-target-snapshots-error" role="alert" class="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">{{ operatingTargetSnapshots.error }} 下方如有记录，是上次成功读取的版本；可刷新重试。</div>
+                            <div v-if="operatingTargetLoading.snapshots" class="mt-3 text-sm text-gray-500">正在读取历史版本...</div>
+                            <div v-else-if="(operatingTargetSnapshots.list || []).length" class="mt-4 space-y-4">
+                                <div class="flex flex-wrap gap-2" aria-label="选择经营目标历史版本">
+                                    <button v-for="item in operatingTargetSnapshots.list" :key="item.id" type="button" data-testid="operating-target-snapshot-choice" :aria-pressed="operatingTargetSelectedSnapshot?.id === item.id" @click="operatingTargetSelectedSnapshot = item" :class="['rounded-lg border px-3 py-2 text-left text-xs', operatingTargetSelectedSnapshot?.id === item.id ? 'border-gray-800 bg-gray-100 text-gray-900' : 'border-gray-200 bg-white text-gray-700']">v{{ item.revision_no }} · {{ item.created_at || '保存时间未取得' }}</button>
+                                </div>
+                                <div v-if="operatingTargetSelectedSnapshot" data-testid="operating-target-snapshot-detail" class="rounded-xl border border-gray-200 bg-gray-50 p-4">
+                                    <p class="text-sm font-semibold text-gray-900">{{ operatingTargetSelectedSnapshot.target_date }} · v{{ operatingTargetSelectedSnapshot.revision_no }} · 门店 #{{ operatingTargetSelectedSnapshot.hotel_id }}</p>
+                                    <p class="mt-1 break-all text-xs leading-5 text-gray-600">保存于 {{ operatingTargetSelectedSnapshot.created_at || '未取得' }} · {{ operatingTargetSelectedSnapshot.change_reason || '未填写变更原因' }}</p>
+                                    <template v-if="operatingTargetSelectedSnapshot.readback_status === 'readback_verified' && operatingTargetSelectedSnapshot.record">
+                                        <p class="mt-3 break-all text-xs leading-5 text-gray-600">来源：{{ operatingTargetSourceText(operatingTargetSelectedSnapshot.record.facts?.source_type) }} / {{ operatingTargetQualityText(operatingTargetSelectedSnapshot.record.facts?.quality_status) }}<br>依据：{{ operatingTargetSelectedSnapshot.record.facts?.source_reference || '未说明来源依据' }}<br>事实时间：{{ operatingTargetSelectedSnapshot.record.facts?.fact_captured_at || '未取得' }}</p>
+                                        <div class="mt-3 grid grid-cols-2 gap-3 md:grid-cols-4" data-testid="operating-target-snapshot-metrics">
+                                            <article v-for="item in operatingTargetSnapshotMetricRows" :key="item.key" class="rounded-lg border border-gray-100 bg-white p-3"><div class="text-xs text-gray-500">{{ item.label }}</div><div class="mt-2 text-xl font-semibold text-gray-900">{{ item.value }}</div><div class="mt-1 text-xs text-gray-400">{{ item.hint }}</div></article>
+                                        </div>
+                                    </template>
+                                    <div v-else data-testid="operating-target-snapshot-blocked" class="mt-3 text-sm leading-6 text-amber-800">该版本无法可靠回读，未展示为可用事实。<p v-for="gap in (operatingTargetSelectedSnapshot.gaps || [])" :key="gap.code">{{ gap.message }}</p></div>
+                                </div>
+                            </div>
+                            <div v-else-if="!operatingTargetSnapshots.error" data-testid="operating-target-snapshots-empty" class="mt-4 text-sm text-gray-500">尚无已读取的当日历史版本，可点击刷新版本核对。</div>
+                        </section>
+
                         <section class="rounded-xl border border-gray-100 bg-white p-5 shadow-sm">
-                            <div class="flex items-center justify-between gap-3"><div><h3 class="font-bold text-gray-900">历史快照</h3><p class="mt-1 text-xs text-gray-500">每次保存保留一个可回读版本，便于复盘目标和事实口径的变化。</p></div><button type="button" @click="loadOperatingTargetHistory" class="rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50">刷新历史</button></div>
+                            <div class="flex items-center justify-between gap-3"><div><h3 class="font-bold text-gray-900">每日记录</h3><p class="mt-1 text-xs text-gray-500">每个经营日期的最新记录；查看某日旧版本时，请在上方选择该日期并读取。</p></div><button type="button" @click="loadOperatingTargetHistory" class="rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50">刷新历史</button></div>
                             <div v-if="operatingTargetLoading.history" class="mt-4 text-sm text-gray-500"><i class="fas fa-spinner fa-spin mr-2"></i>读取历史中...</div>
                             <div v-else-if="(operatingTargetHistory.list || []).length" class="mt-4 overflow-x-auto"><table class="min-w-full text-sm"><thead class="border-b border-gray-100 text-left text-xs text-gray-500"><tr><th class="px-2 py-2">日期</th><th class="px-2 py-2">版本</th><th class="px-2 py-2">状态</th><th class="px-2 py-2">来源</th><th class="px-2 py-2">更新时间</th></tr></thead><tbody><tr v-for="item in operatingTargetHistory.list" :key="item.id" class="border-b border-gray-50 text-gray-700"><td class="px-2 py-2">{{ item.target_date }}</td><td class="px-2 py-2">v{{ item.revision_no || 1 }}</td><td class="px-2 py-2">{{ operatingTargetStatusText(item.calculation?.status) }}</td><td class="px-2 py-2">{{ item.facts?.source_type || '未说明' }}</td><td class="px-2 py-2">{{ item.updated_at || '未取得' }}</td></tr></tbody></table></div>
                             <div v-else class="mt-4 rounded-lg border border-dashed border-gray-200 p-5 text-center text-sm text-gray-500">该门店暂未保存经营目标历史。</div>

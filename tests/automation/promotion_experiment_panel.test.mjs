@@ -159,3 +159,74 @@ test('manual daily record preserves its own subperiod and unknown costs before s
     assert.equal(submitted.input.records[0].commission, null);
     assert.equal(submitted.input.records[0].spend, '0');
 });
+
+test('listing versions preserves the current calculation and exact saved snapshot through success or failure', async t => {
+    for (const initial of ['save', 'preview']) for (const outcome of ['ready', 'empty', 'failed', 'wrong-scope', 'malformed']) await t.test(initial + ' / ' + outcome, async () => {
+        const listing = deferred();
+        const saved = savedVersion();
+        const m = mount(async (path, options) => options.method === 'POST'
+            ? (initial === 'save' ? saved : { code: 200, data: saved.data.result }) : listing.promise);
+        await m.by('pe-' + initial).props.onClick();
+        const original = m.by('pe-result-json').props.value;
+        const reading = m.by('pe-history').props.onClick();
+        assert.equal(m.by('pe-result-json')?.props.value, original, 'history loading must not remove the current calculation');
+        assert.equal(m.by('pe-history').props.disabled, true);
+        if (outcome === 'failed') listing.reject(new Error('SYNTHETIC history temporarily unavailable'));
+        else listing.resolve({ code: 200, data: {
+            scope: scope(outcome === 'wrong-scope' ? 'OTHER' : 'SYNTHETIC'),
+            items: outcome === 'malformed' ? null : outcome === 'ready' ? [{ id: 1, name: 'SAVED', version_no: 1 }] : [], truncated: false,
+        } });
+        await reading;
+        assert.equal(m.by('pe-result-json')?.props.value, original);
+        assert.equal(m.by('pe-download').props.disabled, initial !== 'save', 'only an exact saved snapshot is downloadable');
+        assert.equal(m.by('pe-history').props.disabled, false);
+        assert.equal(!!m.by('pe-error'), !['ready', 'empty'].includes(outcome));
+        assert.equal(!!m.by('pe-read-1'), outcome === 'ready');
+    });
+});
+
+test('editing or changing scope during history loading invalidates the previous saved result permanently', async t => {
+    for (const change of ['input', 'scope-aba']) await t.test(change, async () => {
+        const listing = deferred(); let savedCalls = 0;
+        const m = mount(async (path, options) => options.method === 'POST' ? savedVersion({ records: [], plan: { name: 'SAVED-' + ++savedCalls } }) : listing.promise);
+        await m.by('pe-save').props.onClick();
+        const reading = m.by('pe-history').props.onClick();
+        if (change === 'input') m.fill('name', 'EDITED');
+        else { m.fill('platform_store_id', 'OTHER'); m.fill('platform_store_id', 'SYNTHETIC'); }
+        assert.equal(m.by('pe-result'), undefined);
+        assert.equal(m.by('pe-download').props.disabled, true);
+        await m.by('pe-save').props.onClick();
+        const current = m.by('pe-result-json').props.value;
+        listing.resolve({ code: 200, data: { scope: scope('SYNTHETIC'), items: [{ id: 99 }], truncated: false } });
+        await reading;
+        assert.equal(m.by('pe-result-json').props.value, current);
+        assert.equal(m.by('pe-name').props.value, 'SAVED-2');
+        assert.equal(m.by('pe-read-99'), undefined);
+        assert.equal(m.by('pe-download').props.disabled, false);
+    });
+});
+
+test('history retry preserves save identity while an explicit failed version read clears the displayed result', async () => {
+    const bodies = []; let historyCalls = 0, saved = false;
+    const m = mount(async (path, options) => {
+        if (options.method === 'POST') {
+            bodies.push(JSON.parse(options.body));
+            return saved ? savedVersion() : { code: 503, message: 'SYNTHETIC save response lost' };
+        }
+        if (path.includes('/versions/')) return { code: 404, message: 'SYNTHETIC missing exact version' };
+        return ++historyCalls === 1 ? { code: 503, message: 'SYNTHETIC list failure' }
+            : { code: 200, data: { scope: scope('SYNTHETIC'), items: [{ id: 8, name: 'OLD', version_no: 1 }] } };
+    });
+    await m.by('pe-save').props.onClick();
+    await m.by('pe-history').props.onClick();
+    await m.by('pe-history').props.onClick();
+    saved = true;
+    await m.by('pe-save').props.onClick();
+    assert.equal(bodies[0].idempotency_key, bodies[1].idempotency_key);
+    assert.equal(bodies[0].experiment_key, bodies[1].experiment_key);
+    assert.equal(m.by('pe-download').props.disabled, false);
+    await m.by('pe-read-8').props.onClick();
+    assert.equal(m.by('pe-result'), undefined);
+    assert.equal(m.by('pe-download').props.disabled, true);
+    assert.match(m.by('pe-error').children, /missing exact version/);
+});

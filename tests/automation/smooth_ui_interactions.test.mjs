@@ -45,7 +45,7 @@ test('first-load placeholders preserve layout without inventing business values'
 });
 
 test('manual notification validation is attached to the actual fields before API calls', () => {
-  assert.match(appMain, /const manualNotificationFieldErrors = computed\(\(\) => \{/);
+  assert.match(appMain, /const manualNotificationFieldErrors = computed\(\(\) => appSystemStatic\.buildManualNotificationFieldErrors\(\{/);
   assert.match(appMain, /const validateManualNotificationForm = \(\) => \{/);
   assert.match(appMain, /const previewManualNotification = async \(\) => \{\s*if \(!validateManualNotificationForm\(\)\) return/);
   assert.match(appMain, /const saveManualNotification = async \(\) => \{\s*if \(!validateManualNotificationForm\(\)\) return/);

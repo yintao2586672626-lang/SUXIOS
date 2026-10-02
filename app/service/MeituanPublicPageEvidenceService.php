@@ -16,7 +16,7 @@ final class MeituanPublicPageEvidenceService
     public const PLATFORM = 'meituan';
     public const DATA_TYPE = 'public_profile';
     public const DIMENSION = 'public_hotel_profile';
-    public const PROFILE_SCHEMA_VERSION = 1;
+    public const PROFILE_SCHEMA_VERSION = 2;
 
     private const MAX_TEXT_LENGTH = 2000;
     private const MAX_LIST_ITEMS = 200;
@@ -88,6 +88,13 @@ final class MeituanPublicPageEvidenceService
             'fields' => $fields,
             'field_statuses' => $fieldStatuses,
             'evidence_paths' => $evidencePaths,
+            'field_sources' => array_fill_keys(array_keys($fields), [
+                'collected_at' => $collectedAt,
+                'source_url' => $sourceUrl,
+                'screenshot_ref' => $screenshotRef,
+                'captured_by' => $actorId > 0 ? $actorId : null,
+                'provenance_status' => 'field_observation',
+            ]),
             'screenshot_ref' => $screenshotRef,
             'captured_by' => $actorId > 0 ? $actorId : null,
         ];
@@ -129,14 +136,13 @@ final class MeituanPublicPageEvidenceService
             if (is_array($existing)) {
                 $previous = $this->profileFromRawData((string)($existing['raw_data'] ?? ''));
                 if ($previous !== null) {
+                    if ((string)($previous['collected_at'] ?? '') > (string)$profile['collected_at']) {
+                        throw new \InvalidArgumentException('已有更晚采集时间的公开页资料，请核对采集时间后重新保存');
+                    }
                     $mergedProfile['fields'] = array_merge((array)($previous['fields'] ?? []), $profile['fields']);
                     $mergedProfile['evidence_paths'] = array_merge((array)($previous['evidence_paths'] ?? []), $profile['evidence_paths']);
+                    $mergedProfile['field_sources'] = array_merge($this->fieldSources($previous), $profile['field_sources']);
                     $mergedProfile['field_statuses'] = array_fill_keys(array_keys($mergedProfile['fields']), 'available');
-                    if ((string)($previous['collected_at'] ?? '') > (string)$profile['collected_at']) {
-                        foreach (['collected_at', 'source_url', 'screenshot_ref'] as $field) {
-                            $mergedProfile[$field] = $previous[$field] ?? $mergedProfile[$field];
-                        }
-                    }
                 }
             }
 
@@ -336,6 +342,24 @@ final class MeituanPublicPageEvidenceService
         $profile['source_validation_status'] = 'source_observed';
         $profile['capture_status'] = 'available';
         return $profile;
+    }
+
+    /** Preserve the old snapshot context without inventing per-field history. */
+    private function fieldSources(array $profile): array
+    {
+        $sources = [];
+        foreach ((array)($profile['fields'] ?? []) as $key => $_value) {
+            $sources[$key] = is_array($profile['field_sources'][$key] ?? null)
+                ? $profile['field_sources'][$key]
+                : [
+                    'collected_at' => (string)($profile['collected_at'] ?? ''),
+                    'source_url' => (string)($profile['source_url'] ?? ''),
+                    'screenshot_ref' => (string)($profile['screenshot_ref'] ?? ''),
+                    'captured_by' => $profile['captured_by'] ?? null,
+                    'provenance_status' => 'legacy_profile',
+                ];
+        }
+        return $sources;
     }
 
     /** @return array<string, mixed>|null */

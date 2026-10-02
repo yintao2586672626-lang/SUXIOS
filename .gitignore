@@ -140,3 +140,13 @@ public/tailwind-custom.css
 public/tailwind.min.css.bak
 public/nginx.htaccess
 .gstack/
+
+# Locally retained original references; public repository contains reviewed
+# summaries, contracts and source fingerprints rather than these originals.
+/docs/knowledge/daily-diagnosis-20260930/sources/report.html.txt
+/docs/knowledge/codex-execution-v32-20260930/source-extracted.redacted.txt
+
+# Inert historical test backups; canonical executable regressions are retained.
+/tests/manual_fetch_task_progress.test.mjs.snapshot
+/tests/MacroSignalServiceTest.php.snapshot
+/tests/automation/ai_daily_report_presentation_artifact_ui.test.mjs.snapshot

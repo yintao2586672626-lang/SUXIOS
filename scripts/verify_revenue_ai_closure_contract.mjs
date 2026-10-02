@@ -2055,7 +2055,7 @@ includesAll('public/index.html', 'Revenue AI homepage keeps execution evidence l
   'agentPricingGenerationPreflightSummary.candidateSkipReasons',
   'agentPricingGenerationPreflightSummary.candidateDataGaps',
   'agentPricingGenerationPreflightSummary.hotelChecks',
-  "const loadPriceSuggestionWorkbench = async () => {",
+  "const loadPriceSuggestionWorkbench = () => loadRevenueAnalysisBundle();",
   'handlePriceSuggestionDateChange',
   'demandForecastForm.value.forecast_date = date',
   'competitorPriceForm.value.analysis_date = date',

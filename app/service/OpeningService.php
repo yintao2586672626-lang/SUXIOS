@@ -383,7 +383,9 @@ class OpeningService
                 if ($data['progress_percent'] >= 100) {
                     $data['status'] = self::STATUS_DONE;
                     $data['progress_percent'] = 100;
-                } elseif ($data['progress_percent'] > 0 && $currentStatus === self::STATUS_TODO) {
+                } elseif ($data['progress_percent'] > 0
+                    && in_array($currentStatus, [self::STATUS_TODO, self::STATUS_DONE], true)
+                ) {
                     $data['status'] = self::STATUS_DOING;
                 } elseif ($data['progress_percent'] <= 0 && $currentStatus !== self::STATUS_BLOCKED) {
                     $data['status'] = self::STATUS_TODO;

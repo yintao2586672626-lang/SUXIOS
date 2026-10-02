@@ -1,7 +1,7 @@
 (() => {
     const components = window.SUXI_SYSTEM_COMPONENTS || (window.SUXI_SYSTEM_COMPONENTS = {});
     const bodyKey = 'CtripOrderAnalysisPanelBody';
-    const scriptSrc = 'components/online-data/ctrip-order-analysis-panel.js?v=20260813-order-analysis-h7ec5d31239';
+    const scriptSrc = 'components/online-data/ctrip-order-analysis-panel.js?v=20260813-order-analysis-he75f0db23e';
     let loadPromise = null;
 
     const loadBody = () => {

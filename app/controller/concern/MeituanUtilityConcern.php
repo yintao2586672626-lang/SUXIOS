@@ -300,13 +300,19 @@ trait MeituanUtilityConcern
         if ($value === null || $value === '') {
             return null;
         }
+        $hasPercentUnit = false;
         if (is_string($value)) {
-            $value = str_replace([',', '%'], '', trim($value));
+            $value = trim($value);
+            $hasPercentUnit = str_ends_with($value, '%');
+            if ($hasPercentUnit) {
+                $value = rtrim(substr($value, 0, -1));
+            }
+            $value = str_replace(',', '', $value);
         }
-        if (!is_numeric($value)) {
+        if (!is_numeric($value) || !is_finite((float)$value)) {
             return null;
         }
-        return round(CtripTrafficDisplayService::normalizeTrafficPercent((float)$value), 2);
+        return round($hasPercentUnit ? (float)$value : CtripTrafficDisplayService::normalizeTrafficPercent((float)$value), 2);
     }
 
     private function normalizeMeituanScore($value): float

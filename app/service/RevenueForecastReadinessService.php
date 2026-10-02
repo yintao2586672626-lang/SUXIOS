@@ -38,12 +38,21 @@ final class RevenueForecastReadinessService
         $occupancy = $this->floatValue($row, 'predicted_occupancy');
         $demand = $this->floatValue($row, 'predicted_demand');
         $confidence = $this->normalizedConfidence($this->floatValue($row, 'confidence_score'));
-        $actualOccupancy = $this->floatValue($row, 'actual_occupancy');
+        $actualOccupancy = $row['actual_occupancy'] ?? null;
+        $actualOccupancyWasProvided = array_key_exists('actual_occupancy', $row)
+            && $actualOccupancy !== null
+            && (!is_string($actualOccupancy) || trim($actualOccupancy) !== '');
+        $hasActualOccupancy = $actualOccupancyWasProvided
+            && is_numeric($actualOccupancy)
+            && is_finite((float)$actualOccupancy)
+            && (float)$actualOccupancy >= 0
+            && (float)$actualOccupancy <= 100;
+        $invalidActualOccupancy = $actualOccupancyWasProvided && !$hasActualOccupancy;
         $suggestionCount = $this->intValue($suggestionStats, 'suggestion_count');
         $approvedCount = $this->intValue($suggestionStats, 'approved_count');
         $appliedCount = $this->intValue($suggestionStats, 'applied_count');
         $latestSuggestionAt = $this->stringValue($suggestionStats, 'latest_suggestion_at');
-        $today = date('Y-m-d');
+        $today = (new \DateTimeImmutable('now', new \DateTimeZone('Asia/Shanghai')))->format('Y-m-d');
 
         if ($forecastDate === '' || $occupancy <= 0 || $occupancy > 100) {
             $readiness = $this->readiness('forecast_metric_missing', '预测值待核', 25, false, false, '补齐有效预测日期和入住率', [
@@ -53,7 +62,9 @@ final class RevenueForecastReadinessService
             $readiness = $this->readiness('forecast_low_confidence', '低置信预测', 40, false, false, '补充样本或人工复核后再用于调价', [
                 $this->missing('confidence_score', '预测置信度', '补充样本或人工复核预测口径'),
             ]);
-        } elseif ($forecastDate < $today && $actualOccupancy <= 0) {
+        } elseif ($forecastDate < $today && $invalidActualOccupancy) {
+            $readiness = $this->readiness('forecast_backtest_missing', '实绩待核', 45, false, false, '核对已记录的实际入住率是否为 0–100 的有效来源事实');
+        } elseif ($forecastDate < $today && !$hasActualOccupancy) {
             $readiness = $this->readiness('forecast_backtest_missing', '缺回测', 45, false, false, '回填实际入住率后复盘预测误差', [
                 $this->missing('actual_occupancy', '实际入住率回测', '回填实际入住率并计算预测误差'),
             ]);
@@ -61,7 +72,7 @@ final class RevenueForecastReadinessService
             $readiness = $this->readiness('forecast_not_priced', '未转定价', 65, false, false, '用该预测生成或关联定价建议', [
                 $this->missing('price_suggestion', '定价建议引用', '生成预测驱动的定价建议并关联该预测'),
             ]);
-        } elseif ($appliedCount > 0 && ($forecastDate >= $today || $actualOccupancy <= 0)) {
+        } elseif ($appliedCount > 0 && ($forecastDate >= $today || !$hasActualOccupancy)) {
             $readiness = $this->readiness('forecast_pricing_applied', '已转定价', 90, false, true, '等待入住结果回填后复盘定价效果', [
                 $this->missing('actual_result', '入住结果复盘', '入住日后回填实际入住率并复盘调价效果'),
             ]);
@@ -83,6 +94,9 @@ final class RevenueForecastReadinessService
         $readiness['latest_suggestion_at'] = $latestSuggestionAt;
         $readiness['confidence_percent'] = $confidence;
         $readiness['predicted_demand'] = $demand;
+        $readiness['invalid_evidence'] = $invalidActualOccupancy
+            ? [$this->missing('actual_occupancy_invalid', '已记录实际入住率无效', '核对已记录的实际入住率是否为 0–100 的有效来源事实')]
+            : [];
 
         return $this->withNotice($readiness);
     }
@@ -100,6 +114,7 @@ final class RevenueForecastReadinessService
             'execution_ready' => $executionReady,
             'next_action' => $nextAction,
             'missing_evidence' => $missingEvidence,
+            'invalid_evidence' => [],
         ];
     }
 
@@ -115,13 +130,23 @@ final class RevenueForecastReadinessService
     private function withNotice(array $readiness): array
     {
         $missing = $readiness['missing_evidence'] ?? [];
-        if (!$missing) {
+        $invalid = $readiness['invalid_evidence'] ?? [];
+        if (!$missing && !$invalid) {
             $readiness['notice'] = '已具备预测、定价执行和结果复盘证据';
             return $readiness;
         }
 
-        $labels = array_map(static fn(array $item): string => (string)($item['label'] ?? $item['code'] ?? '未命名缺口'), $missing);
-        $readiness['notice'] = '仍缺：' . implode('、', array_slice($labels, 0, 4));
+        $labels = static fn(array $items): string => implode('、', array_slice(array_map(
+            static fn(array $item): string => (string)($item['label'] ?? $item['code'] ?? '未命名证据'),
+            $items
+        ), 0, 4));
+        if ($invalid && $missing) {
+            $readiness['notice'] = '已记录数据待核：' . $labels($invalid) . '；仍缺：' . $labels($missing);
+        } elseif ($invalid) {
+            $readiness['notice'] = '已记录数据待核：' . $labels($invalid);
+        } else {
+            $readiness['notice'] = '仍缺：' . $labels($missing);
+        }
 
         return $readiness;
     }

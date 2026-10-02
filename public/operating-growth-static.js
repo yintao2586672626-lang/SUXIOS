@@ -271,7 +271,13 @@ window.SUXI_OPERATING_GROWTH_STATIC = (() => {
             showEventForm: { type: Boolean, default: false },
             eventDraft: { type: Object, default: () => ({}) },
             saving: { type: Boolean, default: false },
+            saveNeedsConfirmation: { type: Boolean, default: false },
+            pendingSaveTitle: { type: String, default: '' },
             busyActionId: { type: [String, Number], default: '' },
+            annotationStates: { type: Object, default: () => ({}) },
+            annotationSaving: { type: Boolean, default: false },
+            milestoneStates: { type: Object, default: () => ({}) },
+            milestoneSaving: { type: Boolean, default: false },
         },
         emits: [
             'refresh',
@@ -462,10 +468,14 @@ window.SUXI_OPERATING_GROWTH_STATIC = (() => {
                         () => this.$emit('open-source', record),
                         !record.sourceAvailable || !model.canOpenSource || isBusy(record),
                     ),
-                    actionButton('补充批注', () => this.$emit('add-note', record), !record.canAnnotate || isBusy(record)),
+                    actionButton(this.annotationStates[String(record.id)] === 'pending' ? '确认上次批注'
+                        : (this.annotationStates[String(record.id)] === 'draft' ? '继续编辑批注' : '补充批注'),
+                        () => this.$emit('add-note', record), !record.canAnnotate || isBusy(record) || this.annotationSaving),
                     record.isMilestone
                         ? pill(h, '已设为里程碑', 'border-[#d4bc83] bg-[#fff8e7] text-[#6f572f]')
-                        : actionButton('设为里程碑', () => this.$emit('set-milestone', record), !record.canSetMilestone || isBusy(record)),
+                        : actionButton(this.milestoneStates[String(record.id)] === 'pending' ? '确认上次里程碑'
+                            : (this.milestoneStates[String(record.id)] === 'draft' ? '继续编辑里程碑' : '设为里程碑'),
+                            () => this.$emit('set-milestone', record), !record.canSetMilestone || isBusy(record) || this.milestoneSaving),
                 ]),
             ]);
 
@@ -593,7 +603,10 @@ window.SUXI_OPERATING_GROWTH_STATIC = (() => {
                 ]),
                 h('div', { class: 'mt-5 flex min-w-0 flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-4' }, [
                     h('p', { class: 'min-w-0 flex-1 break-words text-xs text-slate-500' }, '未附证据的人工记录应由保存接口标记为“人工记录、未核验”。'),
-                    actionButton(this.saving ? '正在保存并回读…' : '保存并严格回读', () => this.$emit('submit-event'), this.saving || !model.canCreate, true),
+                    this.saveNeedsConfirmation ? h('p', { class: 'w-full break-words text-sm text-amber-700', role: 'status' }, `“${this.pendingSaveTitle || '上次事件'}”的保存结果尚未确认。新修改会保留；本次只确认上次保存，确认后可继续保存新修改。`) : null,
+                    actionButton(this.saveNeedsConfirmation
+                        ? (this.saving ? '正在确认上次保存…' : '确认上次保存')
+                        : (this.saving ? '正在保存并回读…' : '保存并严格回读'), () => this.$emit('submit-event'), this.saving || !model.canCreate, true),
                 ]),
             ]);
 

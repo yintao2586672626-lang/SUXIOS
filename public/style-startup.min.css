@@ -7,7 +7,9 @@
 }.sidebar-item:hover i{transform:scale(1.15)
 }.card{background:#ffffff;border-radius:16px;box-shadow:0 4px 6px -1px rgba(0,0,0,0.05), 0 2px 4px -1px rgba(0,0,0,0.03);transition:all 0.3s ease
 }.card:hover{box-shadow:0 20px 25px -5px rgba(0,0,0,0.08), 0 10px 10px -5px rgba(0,0,0,0.04)
-}button:disabled{background:#e5e7eb !important;color:#9ca3af !important;cursor:not-allowed;box-shadow:none !important;border-color:#d1d5db !important
+}.btn-secondary{background:transparent;color:#6b7280;padding:0.5rem 1rem;border-radius:10px;font-weight:500;transition:all 0.3s ease;border:2px solid #d1d5db
+}.btn-secondary:hover{background:#f3f4f6;border-color:#9ca3af;color:#374151
+}.btn-secondary:active{background:#e5e7eb }button:disabled{background:#e5e7eb !important;color:#9ca3af !important;cursor:not-allowed;box-shadow:none !important;border-color:#d1d5db !important
 }button:disabled:hover{transform:none;box-shadow:none
 }.input-field{border:2px solid #e2e8f0;border-radius:10px;padding:0.625rem 1rem;transition:all 0.3s ease;background:#fafafa
 }.input-field:focus{outline:none;border-color:#3b82f6;background:#ffffff;box-shadow:0 0 0 4px rgba(59,130,246,0.1)
@@ -30,6 +32,9 @@
 }.sidebar-item:hover i{transform:scale(1.15)
 }.card{background:#ffffff;border-radius:16px;box-shadow:0 4px 6px -1px rgba(0,0,0,0.05), 0 2px 4px -1px rgba(0,0,0,0.03);transition:all 0.3s ease
 }.card:hover{box-shadow:0 20px 25px -5px rgba(0,0,0,0.08), 0 10px 10px -5px rgba(0,0,0,0.04)
+}.btn-secondary{background:transparent;color:#6b7280;padding:0.5rem 1rem;border-radius:10px;font-weight:500;transition:all 0.3s ease;border:2px solid #d1d5db
+}.btn-secondary:hover{background:#f3f4f6;border-color:#9ca3af;color:#374151
+}.btn-secondary:active{background:#e5e7eb
 }button:disabled{background:#e5e7eb !important;color:#9ca3af !important;cursor:not-allowed;box-shadow:none !important;border-color:#d1d5db !important
 }button:disabled:hover{transform:none;box-shadow:none
 }.input-field{border:2px solid #e2e8f0;border-radius:10px;padding:0.625rem 1rem;transition:all 0.3s ease;background:#fafafa
@@ -104,7 +109,8 @@ h1, h2, h3, h4{color:var(--sx-title);letter-spacing:0
 [class*="bg-indigo-"]{background-color:#f1f5ff !important;border-color:#d8e2ee !important
 }.page-enter [class*="bg-purple-"][class*="text-white"],
 .page-enter [class*="bg-indigo-"][class*="text-white"]{background:var(--sx-brand) !important;background-image:none !important;color:#ffffff !important;border-color:var(--sx-brand) !important;box-shadow:0 8px 18px rgba(18, 58, 99, 0.14) !important
-}button[class*="bg-gray-100"]{background:#ffffff !important;color:var(--sx-text) !important;border:1px solid var(--sx-border) !important;box-shadow:none !important
+}.btn-secondary,
+button[class*="bg-gray-100"]{background:#ffffff !important;color:var(--sx-text) !important;border:1px solid var(--sx-border) !important;box-shadow:none !important
 }input,
 select,
 textarea,
@@ -140,12 +146,6 @@ input[type="time"]{color-scheme:light
 input[type="time"]::-webkit-calendar-picker-indicator{cursor:pointer;opacity:0.64;transition:opacity 0.18s ease
 }input[type="date"]::-webkit-calendar-picker-indicator:hover,
 input[type="time"]::-webkit-calendar-picker-indicator:hover{opacity:0.92
-}input[type="checkbox"].sr-only:not(.peer) + div[class*="h-6"][class*="rounded-full"]{width:2.75rem !important;height:1.5rem !important;border:1px solid #cbd5e1 !important;background:#cbd5e1 !important;box-shadow:inset 0 1px 2px rgba(15, 23, 42, 0.08) !important
-}input[type="checkbox"].sr-only:not(.peer) + div[class*="h-6"][class*="rounded-full"] + div{top:3px !important;left:3px !important;width:1.125rem !important;height:1.125rem !important;background:#ffffff !important;border-radius:999px !important;box-shadow:0 2px 5px rgba(15, 23, 42, 0.2) !important;transform:translateX(0) !important;transition:transform 0.18s ease !important
-}input[type="checkbox"].sr-only:not(.peer):checked + div[class*="h-6"][class*="rounded-full"]{border-color:var(--sx-blue) !important;background:var(--sx-blue) !important
-}input[type="checkbox"].sr-only:not(.peer):checked + div[class*="h-6"][class*="rounded-full"] + div{transform:translateX(1.25rem) !important
-}input[type="checkbox"].sr-only:not(.peer):focus-visible + div[class*="h-6"][class*="rounded-full"]{box-shadow:0 0 0 3px rgba(47, 128, 237, 0.16) !important
-}input[type="checkbox"].sr-only:not(.peer):disabled + div[class*="h-6"][class*="rounded-full"]{border-color:#cbd5e1 !important;background:#e2e8f0 !important;box-shadow:none !important
 }aside.sidebar{width:205px;min-width:205px;max-width:205px;flex:0 0 205px;overflow:visible;isolation:isolate;z-index:20;background:radial-gradient(circle at 50% -8%, rgba(20, 184, 166, 0.18) 0%, transparent 30%),
         linear-gradient(180deg, #102a4c 0%, #0b213d 52%, #08192e 100%) !important;box-shadow:inset -1px 0 0 rgba(216, 226, 238, 0.1),
         12px 0 30px rgba(15, 42, 76, 0.08) !important
@@ -311,6 +311,8 @@ aside.sidebar .text-blue-300,
 }.card:hover,
 .bg-white.rounded-xl:hover,
 .bg-white.rounded-2xl:hover{border-color:var(--sx-border-strong) !important;box-shadow:0 12px 34px rgba(15, 23, 42, 0.1) !important;transform:translateY(-1px) !important
+}.btn-secondary{background:#ffffff !important;color:#344054 !important;border:1px solid var(--sx-border) !important;border-radius:var(--sx-radius-md) !important;box-shadow:0 4px 12px rgba(15, 23, 42, 0.04) !important
+}.btn-secondary:hover{background:var(--sx-surface-soft) !important;border-color:var(--sx-border-strong) !important;color:var(--sx-text) !important;transform:translateY(-1px) !important
 }.input-field,
 input.input-field,
 select.input-field,
@@ -344,7 +346,6 @@ textarea.input-field{background:#ffffff !important;border:1px solid var(--sx-bor
 main[data-current-page="agent-center"] .card{border-color:rgba(56, 189, 248, 0.22) !important;box-shadow:0 10px 30px rgba(15, 23, 42, 0.08) !important
 }main[data-current-page^="ai-"] .card:hover,
 main[data-current-page="agent-center"] .card:hover{border-color:rgba(56, 189, 248, 0.36) !important
-}.divide-y > :not([hidden]) ~ :not([hidden]){border-color:#e6edf5 !important
 }:root{--sx-dashboard-bg:#edf2f7;--sx-dashboard-card:#f8fbff;--sx-dashboard-panel:#eef4fb;--sx-dashboard-panel-strong:#ffffff;--sx-dashboard-border:#cbd8e6;--sx-dashboard-soft:#eef4fb;--sx-dashboard-title:#111827;--sx-dashboard-text:#334155;--sx-dashboard-muted:#64748b;--sx-dashboard-shadow:0 14px 32px rgba(15, 23, 42, 0.08);--sx-dashboard-shadow-sm:0 8px 20px rgba(15, 23, 42, 0.06)
 }main[data-current-page="compass"],
 main[data-current-page="compass"] > .page-enter,
@@ -675,10 +676,9 @@ main[data-current-page="compass"] .macro-signal-card .macro-signal-metric{backgr
 }.suxi-app-shell main :where(button, a)[class*="bg-green-500"],
 .suxi-app-shell main :where(button, a)[class*="bg-green-600"]{border-color:var(--sx-success) !important;background:var(--sx-success) !important;color:#fff !important
 }.suxi-app-shell main button:disabled{cursor:not-allowed;opacity:.58
-}.suxi-app-shell main :where( button[class~="bg-gray-100"], button[class~="bg-white"], a[class~="bg-white"]){border:1px solid var(--sx-border) !important;background:#fff !important;color:#334155 !important
-}.suxi-app-shell main :where( button[class~="bg-gray-100"], button[class~="bg-white"], a[class~="bg-white"]):hover{border-color:var(--sx-border-strong) !important;background:#f8fafc !important;color:#0f172a !important
+}.suxi-app-shell main :where(.btn-secondary, button[class~="bg-gray-100"], button[class~="bg-white"], a[class~="bg-white"]){border:1px solid var(--sx-border) !important;background:#fff !important;color:#334155 !important
+}.suxi-app-shell main :where(.btn-secondary, button[class~="bg-gray-100"], button[class~="bg-white"], a[class~="bg-white"]):hover{border-color:var(--sx-border-strong) !important;background:#f8fafc !important;color:#0f172a !important
 }.suxi-app-shell main table{width:100%;border-collapse:separate;border-spacing:0
-}.suxi-app-shell main :where(.divide-y > :not([hidden]) ~ :not([hidden])){border-color:#eef2f6 !important
 }.suxi-app-shell main :where(.text-gray-400, .text-gray-500, .text-slate-500){color:var(--sx-text-muted) !important
 }.suxi-app-shell main :where(.text-blue-500, .text-blue-600, .text-blue-700){color:var(--sx-page-accent) !important
 }.suxi-app-shell main :where(.text-green-500, .text-green-600, .text-green-700){color:var(--sx-success) !important
@@ -733,6 +733,9 @@ main[data-current-page="compass"] .macro-signal-card .macro-signal-metric{backgr
 }.suxi-dashboard-scope .suxi-metric-card:hover{border-color:#b7c6d7;background:#f8fafc;transform:translateY(-1px)
 }.suxi-dashboard-scope .suxi-issue-card{min-width:0;border:1px solid #d9e2ec;border-left:3px solid #64748b;border-radius:8px;background:#fff;padding:12px
 }.suxi-dashboard-scope .suxi-chart-shell{position:relative;min-height:288px;overflow:hidden;border:1px solid #d9e2ec;border-radius:8px;background:#f8fafc
+}.suxi-dashboard-scope .suxi-chart-feedback{position:absolute;inset:0;z-index:20;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;padding:0 24px;background:var(--sx-dashboard-panel-strong, #fff);color:var(--sx-dashboard-text, #334155);text-align:center;font-size:14px
+}.suxi-dashboard-scope .suxi-chart-feedback .btn-secondary{min-height:44px
+}.suxi-dashboard-scope .home-trend-range{padding:6px 12px;border-width:1px;border-radius:8px
 }.suxi-dashboard-scope .suxi-chart-grid{position:absolute;inset:0;opacity:.9;background-image:linear-gradient(#e5eaf0 1px, transparent 1px),
         linear-gradient(90deg, #edf2f7 1px, transparent 1px);background-size:100% 25%, 64px 100%
 }.suxi-dashboard-scope .suxi-spark-bar{flex:1;border-radius:4px 4px 0 0;background:#93c5fd
@@ -884,8 +887,7 @@ main[data-current-page="compass"] .macro-signal-card .macro-signal-metric{backgr
 }.suxi-app-shell main :where(.bg-white.rounded-xl, .bg-white.rounded-lg, .bg-white.rounded-2xl, .card):hover{border-color:var(--color-border-strong) !important;box-shadow:var(--shadow-card-hover) !important
 }.suxi-app-shell main :where(.bg-gray-50.rounded-xl, .bg-gray-50.rounded-lg, .bg-slate-50.rounded-xl, .bg-slate-50.rounded-lg),
 .suxi-app-shell main :where(.bg-gray-50, .bg-slate-50){border-color:rgba(226, 213, 195, .70) !important;background:var(--color-surface-warm) !important
-}.suxi-app-shell main :where(.border-gray-100, .border-gray-200, .border-slate-100, .border-slate-200),
-.suxi-app-shell main :where(.divide-y > :not([hidden]) ~ :not([hidden])){border-color:var(--color-border) !important
+}.suxi-app-shell main :where(.border-gray-100, .border-gray-200, .border-slate-100, .border-slate-200){border-color:var(--color-border) !important
 }.suxi-app-shell main :where(.text-gray-400, .text-gray-500, .text-slate-500){color:var(--color-text-muted) !important
 }.suxi-app-shell main :where(.text-gray-600, .text-slate-600){color:var(--color-text-subtle) !important
 }.suxi-app-shell main :where(.text-gray-800, .text-gray-900, .text-slate-900){color:var(--color-text) !important
@@ -913,12 +915,11 @@ main[data-current-page="compass"] .macro-signal-card .macro-signal-metric{backgr
 .suxi-app-shell main :where(button, a)[class*="bg-blue-700"]:hover{border-color:#17464d !important;background:#17464d !important;box-shadow:var(--shadow-card-hover) !important
 }.suxi-app-shell main :where(button, a)[class*="bg-green-500"],
 .suxi-app-shell main :where(button, a)[class*="bg-green-600"],
-.suxi-app-shell main :where(button, a)[class*="bg-emerald-500"],
-.suxi-app-shell main :where(button, a)[class*="bg-emerald-600"]{border-color:var(--color-success) !important;background:var(--color-success) !important;color:#FFFFFF !important
+.suxi-app-shell main :where(button, a)[class*="bg-emerald-500"]{border-color:var(--color-success) !important;background:var(--color-success) !important;color:#FFFFFF !important
 }.suxi-app-shell main :where(button, a)[class*="bg-yellow-500"],
 .suxi-app-shell main :where(button, a)[class*="bg-amber-500"]{border-color:var(--color-gold) !important;background:var(--color-gold) !important;color:var(--color-obsidian) !important
-}.suxi-app-shell main :where( button[class~="bg-gray-100"], button[class~="bg-white"], a[class~="bg-white"]){border-color:var(--color-border) !important;background:var(--color-surface) !important;color:var(--color-text) !important
-}.suxi-app-shell main :where( button[class~="bg-gray-100"], button[class~="bg-white"], a[class~="bg-white"]):hover{border-color:var(--color-border-strong) !important;background:var(--color-bg-soft) !important;color:var(--color-text) !important;box-shadow:var(--shadow-card) !important
+}.suxi-app-shell main :where(.btn-secondary, button[class~="bg-gray-100"], button[class~="bg-white"], a[class~="bg-white"]){border-color:var(--color-border) !important;background:var(--color-surface) !important;color:var(--color-text) !important
+}.suxi-app-shell main :where(.btn-secondary, button[class~="bg-gray-100"], button[class~="bg-white"], a[class~="bg-white"]):hover{border-color:var(--color-border-strong) !important;background:var(--color-bg-soft) !important;color:var(--color-text) !important;box-shadow:var(--shadow-card) !important
 }.suxi-dashboard-scope .compass-shell-card,
 .suxi-dashboard-scope > .bg-white.rounded-xl{border-color:var(--color-border) !important;border-radius:var(--radius-lg) !important;background:rgba(255, 255, 255, .86) !important;box-shadow:var(--shadow-luxury) !important
 }.suxi-dashboard-scope .compass-shell-card > .flex.flex-col,

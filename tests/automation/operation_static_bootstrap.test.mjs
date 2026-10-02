@@ -4,12 +4,12 @@ import test from 'node:test';
 import vm from 'node:vm';
 import { readFrontendContractSource } from './helpers/frontend_source.mjs';
 
-const html = readFrontendContractSource();
+const html = `${readFrontendContractSource()}\n${fs.readFileSync('public/operation-static.js', 'utf8')}`;
 const operationStatic = fs.readFileSync('public/operation-static.js', 'utf8');
 const systemStatic = fs.readFileSync('public/system-static.js', 'utf8');
 
 const loadOperationStaticApi = () => {
-  const context = { window: {}, console };
+  const context = { window: {}, console, URLSearchParams };
   vm.runInNewContext(operationStatic, context, { filename: 'public/operation-static.js' });
   return context.window.SUXI_OPERATION_STATIC;
 };
@@ -153,6 +153,27 @@ test('execution review action stays unavailable until the recorded review date',
   assert.equal(api.operationCanReviewExecution(item), true);
 });
 
+test('legacy terminal claims cannot expose a review action after display truth is downgraded', () => {
+  const api = loadOperationStaticApi();
+  for (const reported_status of ['success', 'near_success', 'failed']) {
+    const item = {
+      recommendation: { source_module: 'operating_question' },
+      execution: { status: 'executed', task_id: 35 },
+      evidence_truth: { source_verified: false },
+      review: { status: 'unverified', reported_status, is_available: true },
+    };
+    assert.equal(api.operationCanReviewExecution(item), false);
+    assert.equal(api.operationCanReconcileExecution(item), false);
+  }
+});
+
+test('an absent or empty workflow cannot be described as having no bottleneck', () => {
+  const api = loadOperationStaticApi();
+  assert.match(api.operationExecutionBottleneckText({}), /尚未读取|暂不能判断/);
+  assert.match(api.operationExecutionBottleneckText({ total: 0 }), /暂无流程|暂不能判断/);
+  assert.equal(api.operationExecutionBottleneckText({ total: 2, bottleneck: { stage: 'evidence', count: 2, label: '执行证据' } }), '执行证据 2 单');
+});
+
 test('saved OTA task exposes source readback only after the exact review window', () => {
   const api = loadOperationStaticApi();
   const item = {
@@ -188,7 +209,11 @@ test('an executed non-price task can add more manual evidence', () => {
   assert.equal(api.operationCanExecuteWithEvidence(item), false);
   assert.match(html, /supplementingExecutedTask/);
   assert.match(html, /`\/operation\/execution-tasks\/\$\{taskId\}\/evidence`/);
-  assert.match(html, /operationExecutionEvidenceCount\(persistedTask\) <= previousEvidenceCount/);
+  assert.match(html, /readOperationExecutionTask\(\s*responseTaskId,\s*executionHotelId,\s*supplementingExecutedTask \? res\.data\?\.evidence_write \|\| \{\} : null/);
+  assert.match(html, /supplementingExecutedTask \? res\.data\?\.evidence_write \|\| \{\} : null/);
+  assert.match(operationStatic, /const operationExecutionEvidenceWriteConfirmed = \(task, evidenceWrite, evidenceType\) =>/);
+  assert.match(operationStatic, /evidenceWrite\?\.created === true && evidenceWrite\?\.replayed === false/);
+  assert.match(operationStatic, /evidenceWrite\?\.created === false && evidenceWrite\?\.replayed === true/);
   assert.match(html, /&& item\?\.next_action\?\.key === 'record_evidence';/);
   assert.match(html, /item\?\.execution\?\.status === 'executed' \|\| operationExecutionAssignedToCurrentUser\(item\)/);
 });

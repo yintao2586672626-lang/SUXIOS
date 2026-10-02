@@ -439,6 +439,9 @@ class P0OtaDownstreamGateService
             if ($factPlatform === $platform
                 && (string)($fact['date_key'] ?? '') === $businessDate
                 && (string)($fact['hotel_key'] ?? '') === $hotelKey
+                && ($fact['source_trace']['stored'] ?? false) === true
+                && ($fact['source_trace']['readback_verified'] ?? false) === true
+                && ($fact['source_trace']['saved_success'] ?? false) === true
             ) {
                 return true;
             }

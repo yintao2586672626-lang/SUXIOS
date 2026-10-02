@@ -156,10 +156,13 @@ test('settlement import separates request persistence from usable business facts
   assert.match(controller, /'business_success'\] = \$batchStatus === 'available'/);
   assert.match(controller, /settlement_attempt_invalid_no_usable_fact/);
   assert.match(controller, /结算失败尝试已留痕并精确回读；未形成可用净收入事实/);
-  assert.match(component, /response\.data\?\.request_status !== 'saved_and_readback_verified'/);
+  assert.match(component, /const saved = response\.data/);
+  assert.match(component, /saved\.request_status !== 'saved_and_readback_verified'/);
   assert.match(component, /data-testid="operating-finance-settlement-import-notice"/);
   assert.match(component, /未形成可用净收入事实/);
-  assert.match(component, /batchStatus === 'available' \? 'success' : 'warning'/);
+  assert.match(component, /!\['partial', 'invalid'\]\.includes\(batchStatus\)/);
+  assert.match(component, /saved\.business_success !== false/);
+  assert.match(component, /this\.notify\(notice\.message, 'warning'\)/);
   assert.match(settlement, /ota_settlement_financial_basis_ledger\.v1/);
   assert.match(settlement, /platform_subsidy_only/);
   assert.match(settlement, /settlement_amount_is_net_revenue' => false/);

@@ -4,6 +4,8 @@ declare(strict_types=1);
 namespace tests;
 
 use app\service\AiDailyReportService;
+use app\controller\AiDailyReport;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use think\App;
 use think\facade\Config;
@@ -66,6 +68,46 @@ final class AiDailyReportReadFailureTest extends TestCase
         self::assertArrayNotHasKey('status', $result);
     }
 
+    #[DataProvider('invalidLatestDates')]
+    public function testInvalidLatestDateReturnsCorrectable422(string $date): void
+    {
+        $response = $this->latestController($date)->latest();
+        self::assertSame(422, $response->getCode());
+        self::assertSame(422, $response->getData()['code']);
+        self::assertSame('date is invalid', $response->getData()['message']);
+    }
+
+    public static function invalidLatestDates(): array
+    {
+        return array_map(static fn($date) => [$date], ['tomorrow', '2026-02-30', '2026-13-01', 'not-a-date', '2026-9-30']);
+    }
+
+    public function testBlankOrValidLatestDateKeepsMissingReportPending(): void
+    {
+        foreach (['', '2026-09-30'] as $date) {
+            $response = $this->latestController($date)->latest();
+            self::assertSame(200, $response->getCode());
+            self::assertSame('pending', $response->getData()['data']['data_status']);
+            self::assertNull($response->getData()['data']['report']);
+        }
+    }
+
+    private function latestController(string $date): AiDailyReport
+    {
+        $reflection = new \ReflectionClass(AiDailyReport::class);
+        $controller = $reflection->newInstanceWithoutConstructor();
+        $reflection->getProperty('service')->setValue($controller, new AiDailyReportService());
+        $reflection->getProperty('currentUser')->setValue($controller, new class {
+            public function getPermittedHotelIds(): array { return [80]; }
+        });
+        $reflection->getProperty('request')->setValue($controller, new class($date) {
+            public function __construct(private string $date) {}
+            public function param(string $key, mixed $default = null): mixed
+            { return match ($key) { 'hotel_id' => 80, 'report_date' => $this->date, default => $default }; }
+        });
+        return $controller;
+    }
+
     public function testBrokenReportViewReturnsBlockedReadFailureForListLatestAndRead(): void
     {
         Db::execute('ALTER TABLE "ai_daily_reports" RENAME TO "ai_daily_reports_healthy"');
@@ -75,6 +117,9 @@ final class AiDailyReportReadFailureTest extends TestCase
             $list = $service->list([80], 80);
             $latest = $service->latest([80], 80);
             $read = $service->read(1, [80]);
+            $response = $this->latestController('2026-09-30')->latest();
+            self::assertSame(503, $response->getCode());
+            self::assertSame('read_failed', $response->getData()['data']['data_status']);
         } finally {
             Db::execute('DROP VIEW "ai_daily_reports"');
             Db::execute('ALTER TABLE "ai_daily_reports_healthy" RENAME TO "ai_daily_reports"');

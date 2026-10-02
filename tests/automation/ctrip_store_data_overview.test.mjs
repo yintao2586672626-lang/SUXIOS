@@ -1,3 +1,4 @@
+import { readSourceAggregate as readStaticContractSource } from '../../scripts/lib/source_aggregate.mjs';
 import assert from 'node:assert/strict';
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import test from 'node:test';
@@ -17,7 +18,7 @@ const readBackendSource = () => {
 
 const html = readFrontendContractSource();
 const ctripStatic = readFileSync('public/ctrip-static.js', 'utf8');
-const dataHealthStatic = readFileSync('public/data-health-static.js', 'utf8');
+const dataHealthStatic = readStaticContractSource('public/data-health-static.js');
 const otaProfileStatic = readFileSync('public/ota-profile-static.js', 'utf8');
 const systemStatic = readFileSync('public/system-static.js', 'utf8');
 const autoFetchStatic = readFileSync('public/auto-fetch-static.js', 'utf8');
@@ -319,8 +320,8 @@ test('Ctrip overview batch capture runs competition circle only for every ready 
     'const executeCtripCompetitionBatchTarget = async (target) =>'
   );
   assert.match(html, /const prepareCtripOverviewFetchAction = async \(tabName\) =>/);
-  assert.match(quickActionRunner, /await prepareCtripOverviewFetchAction\(tabName\)/);
-  assert.match(quickActionRunner, /scheduleDataHealthPanelRefresh\('light', \{ force: true \}\)/);
+  assert.match(quickActionRunner, /const preparation = prepareCtripOverviewFetchAction\(tabName\);[\s\S]*await preparation;/);
+  assert.match(quickActionRunner, /scheduleDataHealthPanelRefresh\('light', \{ force: true \}, isCurrent\)/);
   assert.doesNotMatch(quickActionRunner, /await loadDataHealthPanel\('light', \{ force: true \}\)/);
   assert.doesNotMatch(quickActionRunner, /openCtripOverviewFetchTab/);
   assert.doesNotMatch(quickActionRunner, /onlineDataTab\.value\s*=\s*tabName/);
@@ -867,11 +868,11 @@ test('Ctrip flow overview hides technical interface misses while retaining inter
   assert.match(ctripStatic, /接口已自动加入请求清单，但未收到接口响应/);
   assert.match(ctripStatic, /接口有响应但未解析到可入库行/);
   assert.match(ctripStatic, /接口请求失败/);
-  assert.match(html, /requireCtripStatic\('buildCtripOverviewMetricCards'\)/);
-  assert.match(html, /requireCtripStatic\('buildCtripOverviewTopRankTables'\)/);
+  assert.equal(typeof loadCtripStaticApi().buildCtripOverviewMetricCards, 'function');
+  assert.equal(typeof loadCtripStaticApi().buildCtripOverviewTopRankTables, 'function');
   assert.match(html, /requireCtripStatic\('buildCtripFlowOverviewMetricCards'\)/);
   assert.match(html, /requireCtripStatic\('buildCtripSortedHotelRows'\)/);
-  assert.match(html, /requireCtripStatic\('buildCtripFlowOverviewInterfaceRows'\)/);
+  assert.equal(typeof loadCtripStaticApi().buildCtripFlowOverviewInterfaceRows, 'function');
   assert.doesNotMatch(flowOverview, /row\.reasonText/);
   assert.doesNotMatch(html, /const normalizeCtripTopRankItems = /);
   assert.doesNotMatch(html, /const field = ctripSortField\.value;/);

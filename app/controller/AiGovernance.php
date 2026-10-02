@@ -10,6 +10,7 @@ use app\model\OperationLog;
 use app\service\AiEvaluationBatchReplayService;
 use app\service\AiEvaluationRunService;
 use app\service\LocalAiRuntimeService;
+use app\service\LlmUsageObservation;
 use InvalidArgumentException;
 use RuntimeException;
 use think\exception\HttpException;
@@ -462,7 +463,9 @@ class AiGovernance extends Base
             'prompt_version' => (string)($row['prompt_version'] ?? ''),
             'status' => (string)($row['status'] ?? ''),
             'http_status' => (int)($row['http_status'] ?? 0),
-            'latency_ms' => (int)($row['latency_ms'] ?? 0),
+            'latency_ms' => isset($row['latency_ms']) ? (int)$row['latency_ms'] : null,
+            'usage_observation' => is_array($governance['usage_observation'] ?? null)
+                ? $governance['usage_observation'] : LlmUsageObservation::legacy(),
             'confidence_score' => $row['confidence_score'] ?? null,
             'low_confidence' => !empty($row['low_confidence']),
             'low_confidence_reason' => (string)($governance['low_confidence_reason'] ?? ''),

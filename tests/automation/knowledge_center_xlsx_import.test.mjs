@@ -14,6 +14,7 @@ const dialogTemplate = fs.readFileSync(
   'utf8',
 );
 const knowledgeController = fs.readFileSync(path.join(root, 'app/controller/Knowledge.php'), 'utf8');
+const sourceImportService = fs.readFileSync(path.join(root, 'app/service/KnowledgeSourceImportService.php'), 'utf8');
 const ingestionService = fs.readFileSync(
   path.join(root, 'app/service/KnowledgeMaterialIngestionService.php'),
   'utf8',
@@ -42,11 +43,12 @@ test('knowledge import makes XLSX discoverable and displays its truthful generic
     dialogTemplate,
     /<input[^>]+ref="knowledgeDocumentFileInput"[^>]+accept="[^"]*\.xlsx[^"]*"[^>]*>/,
   );
-  assert.match(dialogTemplate, /XLSX 来源已锁定，提交时由服务端重新解析/);
+  assert.match(dialogTemplate, /knowledgeCenterImportSourceDocument\.extension\.toUpperCase\(\) \}\} 来源已锁定，提交时由服务端重新解析/);
   assert.match(dialogTemplate, /SHA-256 \{\{ knowledgeCenterImportSourceDocument\.sha256 \}\}/);
   assert.match(dialogTemplate, /knowledgeCenterImportSourceDocument\.sheets/);
   assert.match(dialogTemplate, /人工模板 \/ 行业通用 \/ 未核验/);
-  assert.match(dialogTemplate, /所选门店仅用于授权隔离，不代表表格内容是该店事实/);
+  assert.match(dialogTemplate, /所选门店仅用于授权隔离，不代表资料内容是该店事实/);
+  assert.match(dialogTemplate, /v-if="knowledgeCenterImportSourceDocument\.extension === 'xlsx'"/);
 });
 
 test('XLSX preview accepts one workbook, keeps the same File, and locks server provenance', () => {
@@ -73,17 +75,17 @@ test('XLSX preview accepts one workbook, keeps the same File, and locks server p
   assert.match(fileHandler, /XLSX 必须单独选择；每次导入一个工作簿/);
   assert.match(fileHandler, /parsed\.push\(\{ name: file\.name, file, \.\.\.extracted \}\)/);
   assert.match(fileHandler, /normalizeKnowledgeSourceDocumentForReadback/);
-  assert.match(fileHandler, /'XLSX 预览 source_document'/);
+  assert.match(fileHandler, /'文档预览 source_document'/);
   assert.match(fileHandler, /knowledgeCenterImportSelectedFile\.value = workbook\.file/);
   assert.match(fileHandler, /knowledgeCenterImportSourceDocument\.value = sourceDocument/);
-  assert.match(fileHandler, /mode: 'xlsx'/);
+  assert.match(fileHandler, /mode: sourceDocument\.extension/);
   assert.match(fileHandler, /source: 'manual_template'/);
 });
 
 test('XLSX submission sends only multipart file metadata and closes after exact visible readback', () => {
   const loader = sliceBetween(
     appMain,
-    "const loadKnowledgeCenter = async ({ hotelId = '' } = {}) => {",
+    "const loadKnowledgeCenter = async ({ hotelId = '', page = knowledgeCenterPagination.value.page || 1 } = {}) => {",
     '\n\n            const reloadKnowledgeCenter',
   );
   const verifier = sliceBetween(
@@ -273,8 +275,14 @@ test('server re-extracts uploaded XLSX bytes, persists provenance, and fails clo
   assert.match(serverExtractor, /\$sourceDocument\['sheets'\]/);
 
   assert.match(persistence, /\$content\['source_document'\] = \$importContext\['source_document'\]/);
-  assert.match(persistence, /KnowledgeUnit::where\('unit_id', \(int\)\$unit->unit_id\)->find\(\)/);
-  assert.match(persistence, /KnowledgeChunk::where\('unit_id', \(int\)\$unit->unit_id\)/);
+  assert.match(persistence, /new KnowledgeSourceImportService\(\)/);
+  assert.match(persistence, /\$this->formatImportedSourceResult\(\$store->persist\(/);
+  assert.match(sourceImportService, /\$actualUnit = KnowledgeUnit::find\(\$unit->unit_id\)/);
+  assert.match(sourceImportService, /\$actualChunk = KnowledgeChunk::where\('unit_id', \$unit->unit_id\)->where\('chunk_id', \$chunk->chunk_id\)->find\(\)/);
+  assert.match(sourceImportService, /!hash_equals\(\$digest->digest\(\$content\), \(string\)\$actualChunk->content_digest\)/);
+  assert.match(sourceImportService, /!\$digest->matches\(\(string\)\$actualChunk->content_digest, \$actualChunk->content\)/);
+  assert.match(sourceImportService, /资料保存独立回读不一致/);
+  assert.match(sourceImportService, /资料单元保存回读不一致/);
   assert.match(persistence, /verifyImportedKnowledgeReadbackRows/);
   assert.match(persistence, /'readback_verified' => true/);
   assert.match(exactVerifier, /Imported knowledge unit readback mismatch/);

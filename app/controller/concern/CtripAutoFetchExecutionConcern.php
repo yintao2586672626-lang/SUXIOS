@@ -396,11 +396,13 @@ trait CtripAutoFetchExecutionConcern
 
             $savedCount = (int)($saveResult['saved_count'] ?? 0);
             $standardRows = (int)($capturedCounts['standard_rows'] ?? 0);
-            $success = $autoSave ? $savedCount > 0 : $standardRows > 0;
+            $success = $autoSave ? $this->ctripProfileReadbackComplete($saveResult) : $standardRows > 0;
             $payloadErrors = is_array($payload['errors'] ?? null) ? $payload['errors'] : [];
             $message = $success
                 ? 'ok'
-                : ($standardRows > 0 ? 'captured rows but not saved' : 'no standard diagnosis rows');
+                : ($standardRows > 0
+                    ? ($savedCount > 0 ? 'captured rows but readback incomplete' : 'captured rows but not saved')
+                    : 'no standard diagnosis rows');
             $readiness = $this->buildCtripCookieApiReadiness($payload, $capturedCounts, $saveResult, $autoSave);
 
             $taskResult = [
@@ -413,6 +415,9 @@ trait CtripAutoFetchExecutionConcern
                 'next_action' => $readiness['is_ready'] ? '' : $readiness['next_action'],
                 'warning' => $readiness['warning'],
                 'row_count' => $standardRows,
+                'standard_expected_count' => (int)($saveResult['standard_expected_count'] ?? 0),
+                'standard_readback_count' => (int)($saveResult['standard_saved'] ?? 0),
+                'persistence_status' => !$autoSave ? 'display_only' : ($success ? 'readback_verified' : 'readback_not_verified'),
                 'counts' => [
                     'business' => (int)($saveResult['business_saved'] ?? 0),
                     'traffic' => (int)($saveResult['traffic_saved'] ?? 0),
@@ -427,7 +432,7 @@ trait CtripAutoFetchExecutionConcern
             $runReadback = method_exists($this, 'lastCtripStructuredRunReadback')
                 ? $this->lastCtripStructuredRunReadback()
                 : [];
-            if ($savedCount > 0 && !empty($runReadback['write_success'])) {
+            if ($success && $autoSave && !empty($runReadback['write_success'])) {
                 $taskResult['run_readback'] = $runReadback;
             }
             return $taskResult;
@@ -512,11 +517,10 @@ trait CtripAutoFetchExecutionConcern
     private function buildCtripCookieApiReadiness(array $payload, array $capturedCounts, array $saveResult, bool $autoSave): array
     {
         $standardRows = (int)($capturedCounts['standard_rows'] ?? 0);
-        $savedCount = (int)($saveResult['saved_count'] ?? 0);
         $authStatus = is_array($payload['auth_status'] ?? null) ? $payload['auth_status'] : [];
         $authOk = (bool)($authStatus['ok'] ?? false);
         $errors = is_array($payload['errors'] ?? null) ? $payload['errors'] : [];
-        $ready = $autoSave ? $savedCount > 0 : $standardRows > 0;
+        $ready = $autoSave ? $this->ctripProfileReadbackComplete($saveResult) : $standardRows > 0;
         if ($ready) {
             return [
                 'status' => 'ready',
@@ -532,6 +536,9 @@ trait CtripAutoFetchExecutionConcern
             $nextAction = '检查携程 Cookie、Request URL、Payload 和账号权限';
         } elseif ($standardRows === 0) {
             $nextAction = '补充可返回业务 JSON 的携程诊断接口';
+        } elseif ($autoSave && (int)($saveResult['standard_saved'] ?? 0) < (int)($saveResult['standard_expected_count'] ?? 0)) {
+            $nextAction = '标准诊断行仅回读 ' . (int)($saveResult['standard_saved'] ?? 0)
+                . '/' . (int)($saveResult['standard_expected_count'] ?? 0) . '，请先核对历史记录和入库日志';
         } else {
             $nextAction = '已抓到标准诊断行但未入库，请检查 system_hotel_id、携程酒店 ID 和入库日志';
         }
@@ -730,7 +737,8 @@ trait CtripAutoFetchExecutionConcern
         );
         $savedCount = (int)$saveResult['saved_count'];
         $capturedCounts = $this->buildCtripCaptureCounts($payload);
-        if ($savedCount > 0) {
+        $readbackComplete = $this->ctripProfileReadbackComplete($saveResult);
+        if ($readbackComplete) {
             $authStatus = is_array($payload['auth_status'] ?? null)
                 ? $payload['auth_status']
                 : ['ok' => true, 'status' => 'logged_in'];
@@ -757,13 +765,19 @@ trait CtripAutoFetchExecutionConcern
 
         $rowCount = (int)$capturedCounts['business'] + (int)$capturedCounts['traffic'] + (int)$capturedCounts['standard_rows'] + (int)$capturedCounts['catalog_facts'];
         return array_merge([
-            'success' => $savedCount > 0,
-            'message' => $savedCount > 0
+            'success' => $readbackComplete,
+            'message' => $readbackComplete
                 ? "Profile 真实采集已确认 {$savedCount} 次数据库写入（" . implode('，', $detailParts) . "）" . ($captureGateWarning !== null ? '；字段覆盖率未达阈值，已保留诊断告警' : '')
-                : ($rowCount > 0 ? 'Profile 已解析到业务行，但数据库回读未通过' : 'Profile 真实采集未解析到可入库数据'),
+                : ($rowCount > 0
+                    ? ((int)($saveResult['standard_saved'] ?? 0) < (int)($saveResult['standard_expected_count'] ?? 0)
+                        ? "Profile 已解析到业务行，但标准字段未完整回读（{$saveResult['standard_saved']}/{$saveResult['standard_expected_count']}）"
+                        : 'Profile 已解析到业务行，但数据库回读未通过')
+                    : 'Profile 真实采集未解析到可入库数据'),
             'saved_count' => $savedCount,
             'row_count' => $rowCount,
-            'persistence_status' => $savedCount > 0 ? 'readback_verified' : ($rowCount > 0 ? 'readback_not_verified' : 'no_parsed_rows'),
+            'standard_expected_count' => (int)($saveResult['standard_expected_count'] ?? 0),
+            'standard_readback_count' => (int)($saveResult['standard_saved'] ?? 0),
+            'persistence_status' => $readbackComplete ? 'readback_verified' : ($rowCount > 0 ? 'readback_not_verified' : 'no_parsed_rows'),
         ], $this->buildCtripCaptureFactRowCountPayload($capturedCounts, $savedCount, $rowCount), [
             'captured_counts' => $capturedCounts,
             'diagnosis_summary' => $this->buildCtripCaptureDiagnosisSummary($payload),
@@ -863,6 +877,12 @@ trait CtripAutoFetchExecutionConcern
             'standard_expected_count' => $standardExpectedCount,
             'modules' => $modules,
         ];
+    }
+
+    private function ctripProfileReadbackComplete(array $saveResult): bool
+    {
+        return (int)($saveResult['saved_count'] ?? 0) > 0
+            && (int)($saveResult['standard_saved'] ?? 0) >= (int)($saveResult['standard_expected_count'] ?? 0);
     }
 
     private function validateCtripPayloadHotelIdentity(array $payload, int $systemHotelId, array $config = []): array
@@ -1173,7 +1193,8 @@ trait CtripAutoFetchExecutionConcern
             }
             $row = $this->reconcileCtripCatalogStandardRowMetricFacts($row);
 
-            $rowDataDate = $this->normalizeOnlineDataDate($row['data_date'] ?? '') ?: $dataDate;
+            $observedDate = $this->normalizeOnlineDataDate($row['data_date'] ?? $row['dataDate'] ?? $row['date'] ?? '');
+            $rowDataDate = $observedDate ?: $dataDate;
             $dimension = trim((string)($row['dimension'] ?? '')) ?: 'catalog:' . ($captureSection ?: 'unknown');
             $platform = $this->normalizeCtripProfileTrafficPlatform((string)($row['platform'] ?? ''));
             $source = $this->sourceForCtripProfileTrafficPlatform((string)($row['source'] ?? ''), $platform);
@@ -1184,6 +1205,14 @@ trait CtripAutoFetchExecutionConcern
             );
             $rawDataForTrace = is_array($rawData) ? $rawData : [];
             if (is_array($rawData)) {
+                // Keep the observed row date separate from the request-date fallback.
+                if (!isset($rawData['data_date']) && !isset($rawData['dataDate']) && $observedDate !== '') {
+                    $rawData['data_date'] = $observedDate;
+                }
+                $dateSource = trim((string)($row['date_source'] ?? $row['dateSource'] ?? ''));
+                if (!isset($rawData['date_source']) && !isset($rawData['dateSource']) && $dateSource !== '') {
+                    $rawData['date_source'] = $dateSource;
+                }
                 $rawData['capture_section'] = $captureSection;
                 $rawData['endpoint_id'] = (string)($row['endpoint_id'] ?? ($rawData['endpoint_id'] ?? ''));
                 if ($observedTrafficMetricKeys !== []) {
@@ -1655,6 +1684,7 @@ trait CtripAutoFetchExecutionConcern
                 $row['update_time'] = $now;
             }
             $row = $this->applyOnlineDailyDataPeriodFields($row, $columns, $row);
+            $row = OnlineDailyDataPersistenceService::applyTenantScope($row, $columns);
 
             $query = Db::name('online_daily_data')
                 ->where('source', (string)($row['source'] ?? 'ctrip'))
@@ -1662,6 +1692,9 @@ trait CtripAutoFetchExecutionConcern
                 ->where('data_date', (string)$row['data_date'])
                 ->where('dimension', (string)($row['dimension'] ?? ''));
             $this->applyOnlineDailyDataPeriodQuery($query, $row, $columns);
+            if (isset($columns['tenant_id'])) {
+                $query->where('tenant_id', (int)$row['tenant_id']);
+            }
 
             if (!empty($row['hotel_id'])) {
                 $query->where('hotel_id', (string)$row['hotel_id']);

@@ -509,6 +509,7 @@ final class RevenueResearchServiceTest extends TestCase
     public function testAssertNoDuplicateExecutionIntentRejectsExistingRevenueResearchIntent(): void
     {
         $service = new RevenueResearchService();
+        $today = (new \DateTimeImmutable('now', new \DateTimeZone('Asia/Shanghai')))->format('Y-m-d');
         self::assertTrue(
             method_exists($service, 'assertNoDuplicateExecutionIntent'),
             'Revenue research bridge must reject duplicate execution intent linkage.'
@@ -529,9 +530,149 @@ final class RevenueResearchServiceTest extends TestCase
                 'source_record_id' => 903,
                 'hotel_id' => 7,
                 'status' => 'pending_approval',
+                'date_end' => $today,
                 'deleted_at' => null,
             ],
         ]);
+    }
+
+    public function testExpiredOrUndatedResearchIntentDoesNotBlockFreshResearchRecovery(): void
+    {
+        $service = new RevenueResearchService();
+        $yesterday = (new \DateTimeImmutable('now', new \DateTimeZone('Asia/Shanghai')))
+            ->modify('-1 day')->format('Y-m-d');
+        $input = ['source_module' => 'revenue_research', 'source_record_id' => 903,
+            'hotel_id' => 7];
+        $old = ['id' => 8801, 'source_module' => 'revenue_research',
+            'source_record_id' => 903, 'hotel_id' => 7,
+            'status' => 'pending_approval', 'deleted_at' => null];
+        $service->assertNoDuplicateExecutionIntent($input, [$old + ['date_end' => $yesterday]]);
+        $service->assertNoDuplicateExecutionIntent($input, [$old + ['date_end' => '']]);
+        self::assertTrue(true);
+    }
+
+    public function testDefaultResearchExecutionDateUsesShanghaiBusinessDay(): void
+    {
+        $originalTimezone = date_default_timezone_get();
+        try {
+            date_default_timezone_set('UTC');
+            $dates = (new \ReflectionMethod(RevenueResearchService::class, 'executionIntentDates'))
+                ->invoke(new RevenueResearchService(), []);
+            $today = (new \DateTimeImmutable('now', new \DateTimeZone('Asia/Shanghai')))
+                ->format('Y-m-d');
+            self::assertSame($today, $dates['date_start']);
+            self::assertSame($today, $dates['date_end']);
+        } finally {
+            date_default_timezone_set($originalTimezone);
+        }
+    }
+
+    public function testDailyResearchForecastStartsTomorrowInShanghaiAcrossProcessTimezones(): void
+    {
+        $shanghaiNow = new \DateTimeImmutable('now', new \DateTimeZone('Asia/Shanghai'));
+        $today = $shanghaiNow->format('Y-m-d');
+        $originalTimezone = date_default_timezone_get();
+        try {
+            foreach (['Pacific/Honolulu', 'Pacific/Kiritimati'] as $timezone) {
+                date_default_timezone_set($timezone);
+                if (date('Y-m-d') !== $today) {
+                    break;
+                }
+            }
+            self::assertNotSame($today, date('Y-m-d'));
+
+            $daily = (new \ReflectionMethod(RevenueResearchService::class, 'buildDailyForecast'))
+                ->invoke(new RevenueResearchService(), [
+                    'days' => 7,
+                    'revenue' => 700,
+                    'room_nights' => 7,
+                    'orders' => 7,
+                    'adr' => 100,
+                ], null);
+            self::assertSame($shanghaiNow->modify('+1 day')->format('Y-m-d'), $daily[0]['date']);
+            self::assertSame($shanghaiNow->modify('+7 days')->format('Y-m-d'), $daily[6]['date']);
+        } finally {
+            date_default_timezone_set($originalTimezone);
+        }
+    }
+
+    public function testResearchSummaryHistoryStopsAtShanghaiYesterdayAcrossProcessTimezones(): void
+    {
+        $shanghaiNow = new \DateTimeImmutable('now', new \DateTimeZone('Asia/Shanghai'));
+        $today = $shanghaiNow->format('Y-m-d');
+        $yesterday = $shanghaiNow->modify('-1 day')->format('Y-m-d');
+        $originalTimezone = date_default_timezone_get();
+        $query = new class {
+            public array $whereCalls = [];
+
+            public function where(string $column, string $operator, mixed $value): static
+            {
+                $this->whereCalls[] = [$column, $operator, $value];
+                return $this;
+            }
+        };
+        try {
+            foreach (['Pacific/Honolulu', 'Pacific/Kiritimati'] as $timezone) {
+                date_default_timezone_set($timezone);
+                if (date('Y-m-d') !== $today) {
+                    break;
+                }
+            }
+            self::assertNotSame($today, date('Y-m-d'));
+
+            (new \ReflectionMethod(RevenueResearchService::class, 'applyDecisionEligibleSummaryScope'))
+                ->invoke(new RevenueResearchService(), $query, 'online_daily_data', ['data_date' => true], 'data_date');
+            self::assertSame([['data_date', '<=', $yesterday]], $query->whereCalls);
+        } finally {
+            date_default_timezone_set($originalTimezone);
+        }
+    }
+
+    public function testResearchDefaultReviewDatesUseShanghaiTomorrowAcrossProcessTimezones(): void
+    {
+        $shanghaiNow = new \DateTimeImmutable('now', new \DateTimeZone('Asia/Shanghai'));
+        $today = $shanghaiNow->format('Y-m-d');
+        $tomorrow = $shanghaiNow->modify('+1 day')->format('Y-m-d');
+        $originalTimezone = date_default_timezone_get();
+        try {
+            foreach (['Pacific/Honolulu', 'Pacific/Kiritimati'] as $timezone) {
+                date_default_timezone_set($timezone);
+                if (date('Y-m-d') !== $today) {
+                    break;
+                }
+            }
+            self::assertNotSame($today, date('Y-m-d'));
+
+            $service = new RevenueResearchService();
+            $product = ['key' => 'demand-forecast', 'name' => '需求预测', 'module' => '收益研究'];
+            $normalized = (new \ReflectionMethod($service, 'normalizeAiResult'))
+                ->invoke($service, [], $product, [], ['decision_ready' => false]);
+            self::assertSame($tomorrow, $normalized['next_review_date']);
+
+            $quality = (new \ReflectionMethod($service, 'revenueResearchDecisionQualityContext'))
+                ->invoke($service, $product, [], [], 80, false);
+            self::assertStringContainsString($tomorrow, $quality['review_window']);
+            self::assertSame($quality['review_window'], $quality['expected_effect_policy']['review_window']);
+        } finally {
+            date_default_timezone_set($originalTimezone);
+        }
+    }
+
+    public function testResearchReviewDateFallsBackForBlankOrInvalidModelDate(): void
+    {
+        $service = new RevenueResearchService();
+        $product = ['key' => 'demand-forecast', 'name' => '需求预测', 'module' => '收益研究'];
+        $tomorrow = (new \DateTimeImmutable('tomorrow', new \DateTimeZone('Asia/Shanghai')))->format('Y-m-d');
+        $explicit = (new \DateTimeImmutable('now', new \DateTimeZone('Asia/Shanghai')))
+            ->modify('+3 days')->format('Y-m-d');
+        $method = new \ReflectionMethod($service, 'normalizeAiResult');
+
+        foreach (['', '2026-02-30', 'tomorrow'] as $invalid) {
+            $result = $method->invoke($service, ['next_review_date' => $invalid], $product, [], ['decision_ready' => false]);
+            self::assertSame($tomorrow, $result['next_review_date']);
+        }
+        $result = $method->invoke($service, ['next_review_date' => $explicit], $product, [], ['decision_ready' => false]);
+        self::assertSame($explicit, $result['next_review_date']);
     }
 
     public function testAssertNoDuplicateExecutionIntentIgnoresDifferentHotelOrDeletedRows(): void
@@ -1009,6 +1150,8 @@ final class RevenueResearchServiceTest extends TestCase
                 'sync_task_id' => 2042,
                 'source_trace_id' => $ctripCheckoutTrace,
                 'raw_data' => json_encode([
+                    'data_date' => '2026-07-29',
+                    'date_source' => 'page.business_period_selection.readback',
                     'row' => [
                         'endpoint_id' => 'business_market_overview',
                         'amount' => 2168,
@@ -1033,6 +1176,8 @@ final class RevenueResearchServiceTest extends TestCase
                 'sync_task_id' => 2042,
                 'source_trace_id' => $ctripCapacityTrace,
                 'raw_data' => json_encode([
+                    'data_date' => '2026-07-29',
+                    'date_source' => 'page.business_period_selection.readback',
                     'row' => [
                         'endpoint_id' => 'business_capacity',
                         'quantity' => 2,

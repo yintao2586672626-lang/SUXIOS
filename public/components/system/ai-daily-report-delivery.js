@@ -362,6 +362,7 @@
         let activeUtterance = null;
         let requestSequence = 0;
         let requestedSnapshotIdentity = null;
+        let loadedSessionEpoch = null;
 
         const context = () => props.ctx || {};
         const notify = (message, type) => context().showToast?.(message, type);
@@ -373,15 +374,17 @@
             return handler(...args);
         };
         const currentIdentity = () => {
-            const form = context().aiDailyReportForm && typeof context().aiDailyReportForm === 'object'
-                ? context().aiDailyReportForm
-                : {};
             const report = context().aiDailyReport && typeof context().aiDailyReport === 'object'
                 ? context().aiDailyReport
                 : {};
+            const form = context().aiDailyReportForm && typeof context().aiDailyReportForm === 'object'
+                ? context().aiDailyReportForm
+                : report;
             return {
-                hotelId: Number(form.hotel_id || report.hotel_id || 0),
-                businessDate: String(form.report_date || report.report_date || '').slice(0, 10),
+                hotelId: Number(form.hotel_id || 0),
+                businessDate: String(form.report_date || '').slice(0, 10),
+                sessionEpoch: typeof context().assistantSessionEpoch === 'function'
+                    ? String(context().assistantSessionEpoch() ?? '') : '',
             };
         };
         const hydrateBroadcastIdentityFromUrl = () => {
@@ -442,7 +445,8 @@
             const current = currentIdentity();
             return sequence === requestSequence
                 && current.hotelId === identity.hotelId
-                && current.businessDate === identity.businessDate;
+                && current.businessDate === identity.businessDate
+                && current.sessionEpoch === identity.sessionEpoch;
         };
         const assertPayloadScope = (payload, identity) => {
             if (Number(payload.hotel_id || 0) !== identity.hotelId
@@ -497,10 +501,13 @@
         const loadAiDailyTrustedBroadcast = async () => {
             const identity = currentIdentity();
             const sequence = ++requestSequence;
+            // This read supersedes any generation; its stale finally cannot release the busy state.
+            aiDailyTrustedBroadcastGenerating.value = false;
             stopAiDailyTrustedBroadcast();
             aiDailyTrustedBroadcastError.value = '';
             if (!identity.hotelId || !/^\d{4}-\d{2}-\d{2}$/.test(identity.businessDate)) {
                 aiDailyTrustedBroadcastLoading.value = false;
+                loadedSessionEpoch = null;
                 aiDailyTrustedBroadcast.value = emptyTrustedBroadcast({
                     hotel_id: identity.hotelId,
                     business_date: identity.businessDate,
@@ -529,8 +536,10 @@
                     assertRequestedSnapshot(payload, requestedSnapshot);
                 }
                 aiDailyTrustedBroadcast.value = payload;
+                loadedSessionEpoch = identity.sessionEpoch;
             } catch (error) {
                 if (!identityMatches(identity, sequence)) return;
+                loadedSessionEpoch = null;
                 aiDailyTrustedBroadcast.value = emptyTrustedBroadcast({
                     hotel_id: identity.hotelId,
                     business_date: identity.businessDate,
@@ -570,6 +579,7 @@
                 assertPayloadScope(saved, identity);
                 if (!saved.persisted) {
                     aiDailyTrustedBroadcast.value = saved;
+                    loadedSessionEpoch = null;
                     notify(saved.status_message || '当前没有可保存的严格事实', 'warning');
                     return false;
                 }
@@ -592,6 +602,7 @@
                     throw new Error('可信经营播报保存结果与精确回读不一致');
                 }
                 aiDailyTrustedBroadcast.value = exact;
+                loadedSessionEpoch = identity.sessionEpoch;
                 persistBroadcastIdentityInUrl(exact);
                 notify(`可信经营播报快照 #${exact.snapshot_id} 已保存并精确回读`, 'success');
                 return true;
@@ -607,9 +618,18 @@
             }
         };
 
+        const usableBroadcastText = snapshot => {
+            const identity = currentIdentity();
+            return snapshot?.can_use
+                && loadedSessionEpoch === identity.sessionEpoch
+                && Number(snapshot.hotel_id) === identity.hotelId
+                && String(snapshot.business_date || '') === identity.businessDate
+                ? String(snapshot.final_text || '') : '';
+        };
+
         const copyAiDailyTrustedBroadcast = async () => {
             const snapshot = aiDailyTrustedBroadcast.value;
-            const text = snapshot.can_use ? String(snapshot.final_text || '') : '';
+            const text = usableBroadcastText(snapshot);
             if (!text) {
                 notify('请先生成并精确回读可信经营播报', 'warning');
                 return false;
@@ -643,7 +663,7 @@
                 return false;
             }
             const snapshot = aiDailyTrustedBroadcast.value;
-            const text = snapshot.can_use ? String(snapshot.final_text || '') : '';
+            const text = usableBroadcastText(snapshot);
             if (!text) {
                 notify('请先生成并精确回读可信经营播报', 'warning');
                 return false;
@@ -676,6 +696,7 @@
             [
                 () => Number(currentIdentity().hotelId || 0),
                 () => String(currentIdentity().businessDate || ''),
+                () => currentIdentity().sessionEpoch,
             ],
             () => { void loadAiDailyTrustedBroadcast(); },
             { flush: 'post', immediate: true },
@@ -830,7 +851,7 @@
                     throw new Error('运营提议范围或精确回读未通过校验');
                 }
                 const message = `已关联意图 #${intent.id}（${intent.status === 'pending_approval' ? '待人工审批' : intent.status}）；尚未证明执行或效果。`;
-                aiEvidenceProposals.value[key] = { status: 'saved', message, intent_id: intent.id,
+                aiEvidenceProposals.value[key] = { status: 'saved', message, intent_id: intent.id, hotel_id: intent.hotel_id,
                     task_ids: (intent.tasks || []).map(task => task.id), readback_verified: true };
                 if (aiDailyEvidenceDelivery().identity === delivery.identity) notify(message, 'success');
                 return true;
@@ -838,6 +859,29 @@
                 aiEvidenceProposals.value[key] = { status: 'error', message: error.message || '保存提议失败，可以重试' };
                 if (aiDailyEvidenceDelivery().identity === delivery.identity) notify(error.message || '保存提议失败', 'warning');
                 return false;
+            }
+        };
+        const openAiEvidenceProposal = async (recommendation) => {
+            const delivery = aiDailyEvidenceDelivery();
+            const stored = delivery.snapshot?.diagnosis?.recommendations?.find(item => item.recommendation_id === recommendation?.recommendation_id);
+            const key = `${delivery.identity}:${stored?.recommendation_id}`;
+            const saved = aiEvidenceProposals.value[key];
+            const hotelId = Number(saved?.hotel_id);
+            const intentId = Number(saved?.intent_id);
+            if (!delivery.ready || !stored || saved?.status !== 'saved' || saved.readback_verified !== true || saved.opening
+                || !Number.isSafeInteger(hotelId) || hotelId <= 0 || !Number.isSafeInteger(intentId) || intentId <= 0
+                || hotelId !== Number(stored.scope?.hotel_id)) return false;
+            aiEvidenceProposals.value[key] = { ...saved, opening: true };
+            try {
+                const open = context().openHomeOperatingScheduleItem;
+                if (typeof open !== 'function') throw new Error('行动定位入口未就绪');
+                await open({ hotelId, intentId });
+                return true;
+            } catch (error) {
+                if (aiDailyEvidenceDelivery().identity === delivery.identity) notify('行动已保存，但打开失败，请重试', 'warning');
+                return false;
+            } finally {
+                aiEvidenceProposals.value[key] = { ...aiEvidenceProposals.value[key], opening: false };
             }
         };
         const aiDailyOperationsBroadcast = () => buildAiDailyOperationsBroadcast(context());
@@ -920,11 +964,20 @@
             return handler(...args);
         };
 
-        const currentIdentity = () => ({
-            reportId: Number(report().id || 0),
-            hotelId: Number(report().hotel_id || 0),
-            audience: String(aiDailyReportAudience.value || 'owner'),
-        });
+        const currentIdentity = () => {
+            const currentReport = report();
+            const ctx = context();
+            return {
+                reportId: Number(currentReport.id || 0),
+                hotelId: Number(currentReport.hotel_id || 0),
+                reportDate: String(currentReport.report_date || '').slice(0, 10),
+                reportVersion: String(currentReport.result_contract?.result_version || currentReport.updated_at || ''),
+                audience: String(aiDailyReportAudience.value || 'owner'),
+                sessionEpoch: typeof ctx.assistantSessionEpoch === 'function'
+                    ? String(ctx.assistantSessionEpoch() ?? '')
+                    : '',
+            };
+        };
 
         const identityMatches = (expected, sequence, kind) => {
             const current = currentIdentity();
@@ -934,7 +987,10 @@
             return sequence === activeSequence
                 && current.reportId === expected.reportId
                 && current.hotelId === expected.hotelId
-                && current.audience === expected.audience;
+                && current.reportDate === expected.reportDate
+                && current.reportVersion === expected.reportVersion
+                && current.audience === expected.audience
+                && current.sessionEpoch === expected.sessionEpoch;
         };
 
         const loadAiDailyReportPresentationArtifact = async () => {
@@ -994,7 +1050,7 @@
                     message: errorMessage(error, '演示包回读失败'),
                 };
             } finally {
-                if (identityMatches(identity, sequence, 'read')) {
+                if (sequence === presentationReadSequence) {
                     aiDailyReportPresentationLoading.value = false;
                 }
             }
@@ -1240,6 +1296,7 @@
             [
                 () => Number(report().id || 0),
                 () => Number(report().hotel_id || 0),
+                () => String(report().report_date || '').slice(0, 10),
                 () => String(report().result_contract?.result_version || report().updated_at || ''),
                 () => String(aiDailyReportAudience.value || 'owner'),
             ],
@@ -1266,6 +1323,7 @@
             downloadAiDailyEvidenceSnapshot,
             aiEvidenceProposalState,
             proposeAiEvidenceTask,
+            openAiEvidenceProposal,
             aiDailyReportAudience,
             aiDailyReportPresentationGenerating,
             aiDailyReportPresentationLoading,

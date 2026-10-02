@@ -159,6 +159,84 @@ final class OperatingOpportunityApprovalServiceTest extends TestCase
         self::assertSame('manual_unverified', $links[(string)$runId]['fact_status']);
     }
 
+    #[\PHPUnit\Framework\Attributes\DataProvider('conflictingLinkedTaskStates')]
+    public function testLinkedApprovalRejectsConflictingTaskReadback(string $status, int $taskCount, int $taskTenant): void
+    {
+        [$service, $run, $intent] = $this->pendingApprovalFixture();
+        Db::name('operation_execution_intents')->where('id', (int)$intent['id'])->update([
+            'status' => $status,
+            'approved_by' => 7,
+            'approved_at' => '2026-08-23 10:00:00',
+        ]);
+        for ($index = 0; $index < $taskCount; $index++) {
+            $this->insertTaskFixture((int)$intent['id'], $taskTenant);
+        }
+        $conflict = null;
+        try {
+            $service->linkedApprovals(10, 20, [$run]);
+        } catch (RuntimeException $exception) {
+            $conflict = $exception;
+        }
+        self::assertNotNull($conflict, 'Conflicting approval/task state must not be reported as verified readback.');
+        self::assertSame(409, $conflict->getCode());
+        self::assertSame($taskCount, (int)Db::name('operation_execution_tasks')->count());
+        self::assertSame($status, Db::name('operation_execution_intents')->where('id', (int)$intent['id'])->value('status'));
+    }
+
+    public static function conflictingLinkedTaskStates(): array
+    {
+        return [
+            'approved without task' => ['approved', 0, 10],
+            'approved with duplicate tasks' => ['approved', 2, 10],
+            'approved with wrong tenant task' => ['approved', 1, 11],
+            'rejected with task' => ['rejected', 1, 10],
+        ];
+    }
+
+    public function testLinkedApprovedTaskRemainsStableAcrossRepeatedReadback(): void
+    {
+        [$service, $run, $intent] = $this->pendingApprovalFixture();
+        Db::name('operation_execution_intents')->where('id', (int)$intent['id'])->update([
+            'status' => 'approved', 'approved_by' => 7, 'approved_at' => '2026-08-23 10:00:00',
+        ]);
+        $taskId = $this->insertTaskFixture((int)$intent['id']);
+        Db::name('operation_execution_tasks')->where('id', $taskId)->update([
+            'status' => 'executed', 'executed_at' => '2026-08-23 11:00:00',
+        ]);
+        $first = $service->linkedApprovals(10, 20, [$run]);
+        $second = $service->linkedApprovals(10, 20, [$run]);
+        self::assertSame($first, $second);
+        self::assertSame('approved', $first[(string)$run['id']]['status']);
+        self::assertSame(1, $first[(string)$run['id']]['task_count']);
+        self::assertSame('readback_verified', $first[(string)$run['id']]['persistence_status']);
+        self::assertFalse($first[(string)$run['id']]['automatic_external_action']);
+        self::assertSame(1, (int)Db::name('operation_execution_tasks')->count());
+        $conflict = null;
+        try {
+            $service->createPendingApproval(10, 20, (int)$run['id'], 7, '2026-08-23',
+                (string)$run['input_digest'], (string)$run['result_digest']);
+        } catch (RuntimeException $exception) {
+            $conflict = $exception;
+        }
+        self::assertNotNull($conflict, 'Retrying a reviewed intent must preserve the original human decision.');
+        self::assertSame(409, $conflict->getCode());
+        self::assertSame(1, (int)Db::name('operation_execution_intents')->count());
+        self::assertSame(1, (int)Db::name('operation_execution_tasks')->count());
+        self::assertSame($first, $service->linkedApprovals(10, 20, [$run]));
+    }
+
+    public function testRejectedApprovalWithoutTaskRemainsReadable(): void
+    {
+        [$service, $run, $intent] = $this->pendingApprovalFixture();
+        Db::name('operation_execution_intents')->where('id', (int)$intent['id'])->update([
+            'status' => 'rejected', 'approved_by' => 7, 'approved_at' => '2026-08-23 10:00:00',
+        ]);
+        $links = $service->linkedApprovals(10, 20, [$run]);
+        self::assertSame('rejected', $links[(string)$run['id']]['status']);
+        self::assertSame(0, $links[(string)$run['id']]['task_count']);
+        self::assertSame('readback_verified', $links[(string)$run['id']]['persistence_status']);
+    }
+
     public function testRejectsStaleRunBeforeCreatingIntent(): void
     {
         $oldId = $this->insertRun(
@@ -288,6 +366,29 @@ final class OperatingOpportunityApprovalServiceTest extends TestCase
             self::assertStringContainsString('统一优先事项保存链', $exception->getMessage());
         }
         self::assertSame(0, (int)Db::name('operation_execution_intents')->count());
+    }
+
+    private function pendingApprovalFixture(): array
+    {
+        $runId = $this->insertRun('service_promise_risk', 'manual_unverified',
+            ['business_date' => '2026-08-23', 'promised_quantity' => 8, 'fulfillable_capacity' => 5],
+            ['status' => 'blocked_by_missing_facts', 'provisional_metrics' => ['shortage_quantity' => 3],
+                'decision_eligible' => false, 'can_execute' => false]);
+        $lab = new OperatingOpportunityLabService();
+        $run = $lab->readRun(10, 20, $runId);
+        $service = new OperatingOpportunityApprovalService($lab);
+        $created = $service->createPendingApproval(10, 20, $runId, 7, '2026-08-23',
+            (string)$run['input_digest'], (string)$run['result_digest']);
+        return [$service, $run, $created['execution_intent']];
+    }
+
+    private function insertTaskFixture(int $intentId, int $tenantId = 10): int
+    {
+        return (int)Db::name('operation_execution_tasks')->insertGetId([
+            'tenant_id' => $tenantId, 'hotel_id' => 20, 'intent_id' => $intentId,
+            'execution_mode' => 'manual', 'operator_id' => 7, 'status' => 'pending_execute',
+            'created_at' => '2026-08-23 10:00:00', 'updated_at' => '2026-08-23 10:00:00',
+        ]);
     }
 
     /** @param array<string,mixed> $input @param array<string,mixed> $result */

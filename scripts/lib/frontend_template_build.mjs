@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { gzipSync } from 'node:zlib';
-import { compile } from '@vue/compiler-dom';
+import { compile, ConstantTypes, createSimpleExpression, NodeTypes } from '@vue/compiler-dom';
 import { minify } from 'terser';
 import { readFrontendAssetVersion } from './frontend_asset_version.mjs';
 import {
@@ -54,6 +54,45 @@ export const FRONTEND_TEMPLATE_MINIFY_OPTIONS = Object.freeze({
   }),
 });
 
+function createStaticClassHoistTransform() {
+  const counts = new Map();
+  const hoisted = new Map();
+  function countClasses(node) {
+    for (const prop of node.props || []) {
+      if (prop.type === NodeTypes.ATTRIBUTE && prop.name === 'class' && prop.value) {
+        const value = prop.value.content;
+        counts.set(value, (counts.get(value) || 0) + 1);
+      }
+    }
+    for (const child of node.children || []) countClasses(child);
+  }
+  return (node, context) => {
+    if (node.type === NodeTypes.ROOT) countClasses(node);
+    if (node.type !== NodeTypes.ELEMENT) return;
+    node.props = node.props.map((prop) => {
+      if (prop.type !== NodeTypes.ATTRIBUTE || prop.name !== 'class' || !prop.value) return prop;
+      const value = prop.value.content;
+      const count = counts.get(value) || 0;
+      // Pool only repeated, worthwhile immutable strings. Dynamic classes, VNodes,
+      // event handlers and render caches retain the normal compiler behavior.
+      if (count < 3 || (count - 1) * JSON.stringify(value).length - count * 12 - 24 <= 64) return prop;
+      if (!hoisted.has(value)) {
+        hoisted.set(value, context.hoist(createSimpleExpression(
+          JSON.stringify(value), false, prop.loc, ConstantTypes.CAN_STRINGIFY,
+        )));
+      }
+      return {
+        type: NodeTypes.DIRECTIVE,
+        name: 'bind',
+        arg: createSimpleExpression('class', true, prop.loc),
+        exp: hoisted.get(value),
+        modifiers: [],
+        loc: prop.loc,
+      };
+    });
+  };
+}
+
 export function compileFrontendTemplate(template) {
   const errors = [];
   const result = compile(String(template || ''), {
@@ -61,6 +100,7 @@ export function compileFrontendTemplate(template) {
     prefixIdentifiers: true,
     hoistStatic: false,
     comments: false,
+    nodeTransforms: [createStaticClassHoistTransform()],
     onError: (error) => errors.push(error),
   });
   if (errors.length) {

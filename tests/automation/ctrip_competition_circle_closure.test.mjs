@@ -104,12 +104,16 @@ test('OTA pages can read one exact stored business date without triggering colle
   assert.match(appMain, /const loadSelectedCtripStoredBusinessDate = async \(\) => \{/);
   assert.match(appMain, /if \(selectedHotelId\) \{[\s\S]{0,180}params\.append\('hotel_id', selectedHotelId\);[\s\S]{0,180}params\.append\('system_hotel_id', selectedHotelId\);/);
   assert.match(appMain, /businessContext: \{ hotelId: selectedHotelId, platform: 'ctrip' \}/);
-  assert.match(appMain, /onlineHistoryFilter\.value\?\.hotel_id[\s\S]{0,500}businessContext: \{ hotelId: scopedHotelId, platform: scopedPlatform \}/);
+  const historyRead = sourceDeclaration(appMain, 'loadOnlineHistory');
+  assert.match(historyRead, /requestedFilter = \{ \.\.\.\(onlineHistoryFilter\.value \|\| \{\}\) \}/);
+  assert.match(historyRead, /hotelScope = String\(requestedFilter\.hotel_scope \|\| ''\)/);
+  assert.match(historyRead, /businessContext: \{ hotelId: scopedHotelId, platform: scopedPlatform \}/);
   assert.match(appMain, /hydrateDisplay: true,[\s\S]{0,80}range: startDate/);
   assert.match(appMain, /未使用其他日期填充/);
   assert.match(appMain, /const targetSelfRows = targetRows\.filter\(row => ctripTrafficRowRole\(row\) === 'self'\)/);
   assert.match(appMain, /仅回读竞争圈数据，本店携程流量事实未返回/);
-  assert.match(appMain, /const scopedRows = selfRows;/);
+  const storedTrafficRead = sourceDeclaration(appMain, 'loadSelectedCtripStoredBusinessDate');
+  assert.match(storedTrafficRead, /if \(targetSelfRows\.length <= 0\) \{[\s\S]*?return false;/);
   assert.doesNotMatch(appMain, /const scopedRows = selfRows\.length \? selfRows : rows;/);
   assert.match(appMain, /const formatCtripTrafficSummaryMetric = \(role, metric\) => \{[\s\S]{0,220}return '未返回'/);
   assert.match(ctripTemplate, /formatCtripTrafficSummaryMetric\('self', metric\)/);
@@ -267,7 +271,7 @@ test('traffic persistence keeps system hotel ownership separate from the OTA hot
   const ctripParser = persistence.match(/private function parseAndSaveCtripTrafficData[\s\S]*?private function parseAndSaveGenericTrafficData/);
 
   assert.ok(ctripParser, 'expected isolated Ctrip traffic parser');
-  assert.match(persistence, /parseAndSaveCtripTrafficData\([^;]*\$expectedPlatformHotelId,\s*\$ingestionMethod\s*\)/);
+  assert.match(persistence, /parseAndSaveCtripTrafficData\([^;]*\$expectedPlatformHotelId,\s*\$ingestionMethod,\s*\$strictSnapshot\s*\)/);
   assert.match(ctripParser[0], /hash_equals\(\$expectedPlatformHotelId, \(string\)\$hotelId\)/);
   assert.match(ctripParser[0], /explicit self row with a different platform ID[\s\S]*?continue;/i);
   assert.match(ctripParser[0], /\$compareType = \$isAverage \? 'competitor_avg' : \(\$isCompetitor \? 'competitor' : 'self'\)/);
@@ -278,3 +282,4 @@ test('traffic persistence keeps system hotel ownership separate from the OTA hot
   assert.match(autoFetch, /parseAndSaveTrafficData\(\s*\['data' => \['list' => \$trafficRows\]\][^;]*\$requestHotelId,\s*'browser_profile'\s*\)/);
   assert.match(persistence, /'platform' => \$platform,[\s\S]*?'ingestion_method' => \$ingestionMethod/);
 });
+import { sourceDeclaration } from './helpers/source_declaration.mjs';

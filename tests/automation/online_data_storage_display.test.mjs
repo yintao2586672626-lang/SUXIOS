@@ -1,3 +1,4 @@
+import { readSourceAggregate as readStaticContractSource } from '../../scripts/lib/source_aggregate.mjs';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
@@ -9,7 +10,7 @@ const analyticsConcern = readFileSync('app/controller/concern/OnlineDataAnalytic
 const summaryConcern = readFileSync('app/controller/concern/OnlineDataSummaryConcern.php', 'utf8');
 const qualityConcern = readFileSync('app/controller/concern/OnlineDataQualityConcern.php', 'utf8');
 const trustStatusService = readFileSync('app/service/OnlineDataTrustStatusService.php', 'utf8');
-const dataHealthStatic = readFileSync('public/data-health-static.js', 'utf8');
+const dataHealthStatic = readStaticContractSource('public/data-health-static.js');
 
 test('stored OTA data types remain selectable in history', () => {
   for (const option of [

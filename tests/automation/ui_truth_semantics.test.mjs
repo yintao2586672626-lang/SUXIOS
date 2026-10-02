@@ -211,9 +211,13 @@ test('transfer source metrics keep whole-hotel reports separate from per-metric 
     current: {
       daily_report_days: 1,
       revenue: 0,
+      revenue_observed: true,
       room_nights: 10,
+      room_nights_observed: true,
       adr: 0,
+      adr_observed: true,
       occupancy_rate: 0,
+      occupancy_rate_observed: true,
       ota_channel_revenue: 0,
       ota_channel_revenue_observed: true,
       ota_channel_orders: 0,

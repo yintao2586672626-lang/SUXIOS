@@ -8,6 +8,36 @@ use PHPUnit\Framework\TestCase;
 
 final class CtripCollectorWorkflowServiceTest extends TestCase
 {
+    public function testRealtimeAndFutureFlowsDefaultToShanghaiBusinessDate(): void
+    {
+        $service = new CtripCollectorWorkflowService();
+        $shanghaiToday = (new \DateTimeImmutable('now', new \DateTimeZone('Asia/Shanghai')))->format('Y-m-d');
+        $originalTimezone = date_default_timezone_get();
+
+        try {
+            foreach (['Pacific/Honolulu', 'Pacific/Kiritimati'] as $timezone) {
+                date_default_timezone_set($timezone);
+                if (date('Y-m-d') !== $shanghaiToday) {
+                    break;
+                }
+            }
+            self::assertNotSame($shanghaiToday, date('Y-m-d'));
+
+            foreach (['realtime', 'intraday_trend', 'future_demand'] as $flow) {
+                $options = $service->applyFlowOptions(['collector_flow' => $flow]);
+                self::assertSame($shanghaiToday, $options['data_date'], $flow);
+
+                $explicit = $service->applyFlowOptions([
+                    'collector_flow' => $flow,
+                    'data_date' => '2026-07-15',
+                ]);
+                self::assertSame('2026-07-15', $explicit['data_date'], $flow);
+            }
+        } finally {
+            date_default_timezone_set($originalTimezone);
+        }
+    }
+
     public function testCollectorFlowOptionsMapSkillFlowsToSuxiosCaptureSections(): void
     {
         $service = new CtripCollectorWorkflowService();

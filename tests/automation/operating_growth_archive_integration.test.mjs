@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
+import vm from 'node:vm';
 
 const read = path => readFileSync(path, 'utf8');
 
@@ -17,6 +18,89 @@ const operationTaskSourceRecord = {
     },
   },
 };
+
+test('switching archive date range hides the previous range before a failed read', async () => {
+  const ref = value => ({ value });
+  const payload = { data_status: 'ok', hotel_id: 80, date_start: '2026-07-01', date_end: '2026-09-28', list: [{ id: 61, hotel_id: 80 }], count: 1, returned_count: 1, matched_total: 1, truncated: false, overview: { archive_count: 1 }, data_gaps: [] };
+  const selectedRange = ref('90d');
+  const archive = ref({ data_status: '', hotel_id: 0, list: [], overview: {}, data_gaps: [] });
+  const replies = [
+    { code: 200, data: payload },
+    { code: 503, message: 'synthetic same-range failure' },
+    { code: 503, message: 'synthetic new-range failure' },
+    { code: 200, data: { ...payload, date_start: '2026-08-30', list: [{ id: 62, hotel_id: 80 }] } },
+    { code: 503, message: 'synthetic new-hotel failure' },
+  ];
+  const selectedHotel = ref({ hotel_id: '80' });
+  const context = vm.createContext({
+    URLSearchParams, Date,
+    operatingGrowthRequestSeq: 0,
+    operationFilters: selectedHotel,
+    operatingGrowthDateRangeKey: selectedRange,
+    operatingGrowthArchivePayload: archive,
+    operatingGrowthLastReadAt: ref(''),
+    operatingGrowthLoading: ref(false),
+    operatingGrowthError: ref(''),
+    ensureOperatingGrowthStaticReady: async () => {},
+    operatingGrowthRange: () => selectedRange.value === '90d'
+      ? { key: '90d', dateStart: '2026-07-01', dateEnd: '2026-09-28' }
+      : { key: '30d', dateStart: '2026-08-30', dateEnd: '2026-09-28' },
+    currentPageReadPolicy: () => ({}),
+    apiRequest: async () => replies.shift(),
+    operationErrorMessage: error => error.message,
+  });
+  const section = appMain.slice(appMain.indexOf('let operatingGrowthRequestSeq = 0;'),
+    appMain.indexOf('const verifyOperatingGrowthWriteReadback ='));
+  vm.runInContext(`${section}\nglobalThis.readArchive = loadOperatingGrowthArchive;`, context);
+  assert.equal(await context.readArchive(), true);
+  assert.equal(archive.value.list[0].id, 61);
+  assert.equal(await context.readArchive(), false);
+  assert.equal(archive.value.list[0].id, 61, 'same-scope refresh can retain a labeled previous snapshot');
+  selectedRange.value = '30d';
+  assert.equal(await context.readArchive(), false);
+  assert.deepEqual(Array.from(archive.value.list), []);
+  assert.match(context.operatingGrowthError.value, /synthetic new-range failure/);
+  assert.equal(await context.readArchive(), true);
+  assert.equal(archive.value.list[0].id, 62);
+  selectedHotel.value.hotel_id = '81';
+  assert.equal(await context.readArchive(), false);
+  assert.deepEqual(Array.from(archive.value.list), []);
+  assert.match(context.operatingGrowthError.value, /synthetic new-hotel failure/);
+});
+
+test('timeline rejects successful responses with wrong scope or incomplete quality counts', async () => {
+  const section = appMain.slice(appMain.indexOf('let operatingGrowthRequestSeq = 0;'),
+    appMain.indexOf('const verifyOperatingGrowthWriteReadback ='));
+  const complete = {
+    data_status: 'ok', hotel_id: 80, date_start: '2026-08-30', date_end: '2026-09-28',
+    list: [{ id: 91, hotel_id: 80 }], count: 1, returned_count: 1,
+    matched_total: 1, truncated: false, overview: { archive_count: 1 }, data_gaps: [],
+  };
+  for (const [label, data] of [
+    ['wrong range', { ...complete, date_start: '2026-08-29' }],
+    ['missing quality', { ...complete, data_status: undefined }],
+    ['missing count', { ...complete, count: undefined }],
+    ['wrong count', { ...complete, count: 0 }],
+    ['wrong overview', { ...complete, overview: { archive_count: 0 } }],
+  ]) {
+    const ref = value => ({ value });
+    const archive = ref({ data_status: '', hotel_id: 0, list: [], overview: {}, data_gaps: [] });
+    const error = ref('');
+    const context = vm.createContext({
+      URLSearchParams, Date, operatingGrowthRequestSeq: 0,
+      operationFilters: ref({ hotel_id: '80' }), operatingGrowthArchivePayload: archive,
+      operatingGrowthLastReadAt: ref(''), operatingGrowthLoading: ref(false), operatingGrowthError: error,
+      ensureOperatingGrowthStaticReady: async () => {},
+      operatingGrowthRange: () => ({ dateStart: '2026-08-30', dateEnd: '2026-09-28' }),
+      currentPageReadPolicy: () => ({}), apiRequest: async () => ({ code: 200, data }),
+      operationErrorMessage: err => err.message,
+    });
+    vm.runInContext(`${section}\nglobalThis.readArchive = loadOperatingGrowthArchive;`, context);
+    assert.equal(await context.readArchive(), false, label);
+    assert.deepEqual(Array.from(archive.value.list), [], label);
+    assert.notEqual(error.value, '', label);
+  }
+});
 
 const operatingGrowthSourceHandlerSource = () => {
   const match = appMain.match(
