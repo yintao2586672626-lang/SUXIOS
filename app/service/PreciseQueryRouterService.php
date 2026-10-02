@@ -285,6 +285,7 @@ final class PreciseQueryRouterService
         if (!hash_equals((string)($row['content_digest'] ?? ''), $digest)) {
             throw new RuntimeException('精准查数保存内容摘要与回读不一致');
         }
+        $this->assertReadbackColumns($row, $answer);
 
         return $this->unifiedReadback(
             $row,
@@ -2172,6 +2173,34 @@ final class PreciseQueryRouterService
             throw new RuntimeException('精准查数问题保存失败');
         }
         return $this->read($id, $tenantId, $accessibleHotelIds);
+    }
+
+    /** The legacy digest protects the payload; mirrored storage columns must agree with it. */
+    private function assertReadbackColumns(array $row, array $answer): void
+    {
+        if ((string)($row['answer_status'] ?? '') !== (string)($answer['status'] ?? '')
+            || (string)($row['answer_summary'] ?? '') !== (string)($answer['summary'] ?? '')
+            || $this->canonicalize($this->decode($row['data_gaps_json'] ?? null))
+                !== $this->canonicalize((array)($answer['data_gaps'] ?? []))) {
+            throw new RuntimeException('精准查数保存内容摘要与回读不一致');
+        }
+        $router = (array)($answer['query_router'] ?? []);
+        foreach ([(array)($answer['scope'] ?? []), (array)($router['parsed_scope'] ?? [])] as $scope) {
+            foreach (['hotel_id', 'tenant_id'] as $field) {
+                if ((int)($scope[$field] ?? 0) > 0 && (int)$scope[$field] !== (int)($row[$field] ?? 0)) {
+                    throw new RuntimeException('精准查数问题不存在或无权访问');
+                }
+            }
+            if (($router['route_type'] ?? '') !== 'operating_query') continue;
+            $day = (string)($scope['business_date'] ?? '');
+            foreach (['platform' => (string)($scope['platform'] ?? ''),
+                'date_start' => (string)($scope['date_start'] ?? $day),
+                'date_end' => (string)($scope['date_end'] ?? $day)] as $field => $expected) {
+                if ($expected !== '' && $expected !== (string)($row[$field] ?? '')) {
+                    throw new RuntimeException('精准查数保存内容摘要与回读不一致');
+                }
+            }
+        }
     }
 
     /**

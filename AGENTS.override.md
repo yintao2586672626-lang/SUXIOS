@@ -4,7 +4,7 @@ This file intentionally overrides `HOTEL/AGENTS.md` for automatic discovery. It 
 
 ## Business outcome
 
-- Deliver one trustworthy vertical slice in the chain: verified Ctrip/Meituan OTA data → revenue analysis → AI decisions → operations management → investment decisions.
+- Deliver the complete requested outcome in the chain: verified Ctrip/Meituan OTA data → revenue analysis → AI decisions → operations management → investment decisions. Quality and completeness take priority over token savings; necessary dependencies belong in acceptance.
 - Optimize for a function the user can find, operate, save, read back, and verify. Do not expand beyond the requested link in the chain.
 - Keep facts, assumptions, decisions, and unknowns separate. Missing, stale, partial, failed, synthetic, imported, and unverified data must remain visibly distinct.
 - OTA evidence is channel-scoped and never proves whole-hotel performance by itself.
@@ -13,11 +13,13 @@ This file intentionally overrides `HOTEL/AGENTS.md` for automatic discovery. It 
 
 1. Define one outcome, affected files, non-goals, verification method, and stop condition.
 2. Inspect the target path and direct dependencies only. Check target-file Git status/diff before writing; preserve unrelated dirty/concurrent changes.
-3. Implement the smallest usable closure, including essential validation, truthful failure state, and save/readback where needed.
-4. Verify the changed path proportionally. Prefer one focused automated check plus the actual page/API path when applicable.
+3. Complete the in-scope behavior, including relevant validation, compatibility, recovery, truthful failure state, and save/readback. Handle ordinary technical problems autonomously.
+4. Verify the changed path and its actual risk. Focused checks are the starting point, not a maximum; add dependencies, integration and actual page/API evidence when acceptance needs them.
 5. Follow `rules/codex-execution-status-contract.md` for status and final output, then stop.
 
-For a bug: reproduce → locate → minimal fix → verify. After three targeted inspections without new decisive evidence, stop investigating and take the smallest safe action or report the one blocker.
+For a bug: reproduce → locate → scoped complete fix → verify. If investigation stalls, change the hypothesis or observation method; do not guess a fix or stop at a fixed inspection count. Report difficult decisions with evidence, impact, a recommended solution and all remaining acceptance gaps.
+
+For broad scans and issue handling, use `rules/quality-completeness-and-issue-handling.md`. Cover every requested module, distinguish inspected/tested/blocked/not-run evidence, and retain all material findings. Existing process rules guide execution; they do not override the user's current outcome or authorize external effects.
 
 ## Context, agents, and tools
 
@@ -53,6 +55,8 @@ For a bug: reproduce → locate → minimal fix → verify. After three targeted
 - OTA collection/import/login: use the matching `suxi-ota-ops` or `scrapling` instructions only for an authorized source.
 - OTA metric/storage/UI closure: use `suxi-ctrip-field-table-closure` and the semantic-layer boundary only when their objects are touched.
 - AI reports/diagnostics: use `suxi-ai-report`; investment formulas use `suxi-investment-calculation`; UI uses `suxi-dashboard-ui`; explicit bug repair uses `suxi-test-guard`.
+- For monthly hotel occupancy/revenue analysis or “吉店分析格式”, read `.agents/skills/suxi-ai-report/references/occupancy-analysis-format.md` and `occupancy-revenue-methods.md` in the same directory; use `docs/report-formats/occupancy-analysis-template.md`. These are authoring and reasoning references, not permission to reuse sample figures or execute operating recommendations.
+- For visual UI changes, apply `rules/interface-design-standard.md` to the affected page and shared shell; verify actual states and responsive layout.
 - External material requested for learning/replication/integration uses `suxi-capability-absorption`; do not stop at a summary when the request requires a usable feature.
 - For collaboration preferences, local-material study, or review of learning claims, read `docs/collaboration_learning_contract.md`; report evidence coverage and apply only supported, task-relevant conclusions.
 - Voice correction runs only for real Mandarin transcription ambiguity; coherent text is unchanged.

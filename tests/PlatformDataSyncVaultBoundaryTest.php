@@ -320,6 +320,60 @@ final class PlatformDataSyncVaultBoundaryTest extends TestCase
         self::assertSame('{}', (string)$stored['secret_json']);
     }
 
+    #[\PHPUnit\Framework\Attributes\DataProvider('localCollectorTransactionOutcomes')]
+    public function testRealLocalCollectorAdapterPreservesCallerTransaction(bool $commit, bool $invalidIdentity): void
+    {
+        // This uses the production adapter and sync path, not the replaceable
+        // OtaLocalCollectorService importer that missed the connection reset.
+        $service = $this->service(new \app\service\platform\LocalCollectorDataSourceAdapter());
+        $sourceId = (int)Db::name('platform_data_sources')->insertGetId([
+            'tenant_id' => 7, 'system_hotel_id' => 101, 'name' => 'Transaction fixture',
+            'platform' => 'ctrip', 'data_type' => 'business',
+            'ingestion_method' => 'local_collector', 'status' => 'ready', 'enabled' => 1,
+            'config_json' => json_encode([
+                'local_collector_account_id' => 31,
+                'collector_device_id_hash' => str_repeat('a', 64),
+                'profile_key_hash' => str_repeat('b', 64),
+                'platform_hotel_id' => 'CTRIP-101',
+                'current_session_verified' => true,
+            ], JSON_THROW_ON_ERROR),
+            'secret_json' => '{}',
+        ]);
+        $connection = Db::connect();
+        Db::startTrans();
+        try {
+            Db::name('platform_data_sources')->where('id', $sourceId)->update(['name' => 'Inside transaction']);
+            // An explicit empty result exercises real adapter failure/receipt
+            // persistence without any external request or invented OTA fact.
+            $result = $service->syncDataSource($this->user(), $sourceId, [
+                'trigger_type' => 'local_collector_upload',
+                'local_collector_verified' => true,
+                'local_collector_task_id' => 701,
+                'data_date' => '2026-09-04',
+                'payload' => ['rows' => $invalidIdentity ? [['data_date' => '2026-09-04']] : []],
+            ]);
+            self::assertSame($connection, Db::connect(), 'Local result import must not replace the caller connection.');
+            self::assertSame('failed', $result['status']);
+            self::assertSame(1, Db::name('platform_data_sync_tasks')->count());
+            self::assertSame('Inside transaction', Db::name('platform_data_sources')->where('id', $sourceId)->value('name'));
+            $commit ? Db::commit() : Db::rollback();
+            self::assertSame($commit ? 1 : 0, Db::name('platform_data_sync_tasks')->count());
+            self::assertSame($commit ? 'Inside transaction' : 'Transaction fixture', Db::name('platform_data_sources')->where('id', $sourceId)->value('name'));
+        } finally {
+            Db::rollback();
+        }
+    }
+
+    public static function localCollectorTransactionOutcomes(): array
+    {
+        return [
+            'commit adapter failure' => [true, false],
+            'rollback adapter failure' => [false, false],
+            'commit caught identity failure' => [true, true],
+            'rollback caught identity failure' => [false, true],
+        ];
+    }
+
     public function testLocalCollectorSourceRejectsCookieCustody(): void
     {
         $this->expectException(\RuntimeException::class);
@@ -1296,6 +1350,252 @@ final class PlatformDataSyncVaultBoundaryTest extends TestCase
         self::assertSame([1], array_map('intval', array_column($service->listSyncLogs($this->tenantUser()), 'id')));
         self::assertSame([4, 3, 2, 1], array_map('intval', array_column($service->listSyncTasks($this->user()), 'id')));
         self::assertSame([4, 3, 2, 1], array_map('intval', array_column($service->listSyncLogs($this->user()), 'id')));
+    }
+
+    public function testCustomSourceScopeChangeClearsOldSyncConclusionAndKeepsTaskScope(): void
+    {
+        $service = $this->service();
+        $saved = $service->saveDataSource($this->user(), [
+            'name' => 'Custom source before rebind',
+            'system_hotel_id' => 101,
+            'platform' => 'custom',
+            'data_type' => 'business',
+            'ingestion_method' => 'api',
+            'config' => ['url' => 'https://example.com/custom'],
+            'secret' => ['token' => 'synthetic-custom-secret'],
+        ]);
+        $sourceId = (int)$saved['id'];
+        Db::name('platform_data_sources')->where('id', $sourceId)->update([
+            'last_sync_time' => '2026-09-28 10:00:00',
+            'last_sync_status' => 'failed',
+            'last_error' => 'synthetic previous-hotel failure',
+        ]);
+        $sameScopeUpdate = $service->saveDataSource($this->user(), [
+            'id' => $sourceId,
+            'name' => 'Custom source renamed in same scope',
+            'system_hotel_id' => 101,
+            'platform' => 'custom',
+            'data_type' => 'business',
+            'ingestion_method' => 'api',
+            'config' => ['url' => 'https://example.com/custom'],
+        ]);
+        $sameScopeRow = Db::name('platform_data_sources')->where('id', $sourceId)->find();
+        self::assertSame('2026-09-28 10:00:00', $sameScopeUpdate['last_sync_time']);
+        self::assertSame('failed', $sameScopeUpdate['last_sync_status']);
+        self::assertSame('synthetic previous-hotel failure', $sameScopeRow['last_error']);
+        $taskId = (int)Db::name('platform_data_sync_tasks')->insertGetId([
+            'tenant_id' => 7,
+            'data_source_id' => $sourceId,
+            'system_hotel_id' => 101,
+            'platform' => 'custom',
+            'data_type' => 'business',
+            'ingestion_method' => 'api',
+            'trigger_type' => 'manual',
+            'status' => 'failed',
+            'attempt_count' => 1,
+            'max_attempts' => 3,
+            'message' => 'synthetic previous-hotel failure',
+            'stats_json' => '{}',
+        ]);
+
+        $updated = $service->saveDataSource($this->user(), [
+            'id' => $sourceId,
+            'name' => 'Custom source after rebind',
+            'system_hotel_id' => 102,
+            'platform' => 'custom',
+            'data_type' => 'business',
+            'ingestion_method' => 'api',
+            'config' => ['url' => 'https://example.com/custom'],
+        ]);
+        $source = Db::name('platform_data_sources')->where('id', $sourceId)->find();
+        $task = Db::name('platform_data_sync_tasks')->where('id', $taskId)->find();
+
+        self::assertSame(102, (int)$updated['system_hotel_id']);
+        self::assertSame(8, (int)$updated['tenant_id']);
+        self::assertArrayHasKey('last_sync_time', $updated);
+        self::assertArrayHasKey('last_sync_status', $updated);
+        self::assertNull($updated['last_sync_time']);
+        self::assertNull($updated['last_sync_status']);
+        self::assertNull($source['last_sync_time']);
+        self::assertNull($source['last_sync_status']);
+        self::assertNull($source['last_error']);
+        self::assertSame(101, (int)$task['system_hotel_id']);
+        self::assertSame(7, (int)$task['tenant_id']);
+        self::assertSame('custom', $task['platform']);
+        self::assertSame('failed', $task['status']);
+    }
+
+    public function testOtaPlatformChangeClearsOldSyncConclusionAndKeepsTaskScope(): void
+    {
+        $service = $this->service();
+        $saved = $service->saveDataSource($this->user(), [
+            'name' => 'Ctrip source before platform change',
+            'system_hotel_id' => 101,
+            'platform' => 'ctrip',
+            'data_type' => 'traffic',
+            'ingestion_method' => 'api',
+            'config' => ['config_id' => 'ctrip-rebind-101', 'url' => 'https://ebooking.ctrip.com/traffic'],
+            'secret' => ['cookies' => 'synthetic-ctrip-cookie'],
+        ]);
+        $sourceId = (int)$saved['id'];
+        Db::name('platform_data_sources')->where('id', $sourceId)->update([
+            'last_sync_time' => '2026-09-28 10:00:00',
+            'last_sync_status' => 'success',
+            'last_error' => 'synthetic previous-platform diagnostic',
+        ]);
+        $taskId = (int)Db::name('platform_data_sync_tasks')->insertGetId([
+            'tenant_id' => 7,
+            'data_source_id' => $sourceId,
+            'system_hotel_id' => 101,
+            'platform' => 'ctrip',
+            'data_type' => 'traffic',
+            'ingestion_method' => 'api',
+            'trigger_type' => 'manual',
+            'status' => 'success',
+            'attempt_count' => 1,
+            'max_attempts' => 3,
+            'message' => 'synthetic previous-platform success',
+            'stats_json' => '{}',
+        ]);
+
+        $updated = $service->saveDataSource($this->user(), [
+            'id' => $sourceId,
+            'name' => 'Meituan source after platform change',
+            'system_hotel_id' => 101,
+            'platform' => 'meituan',
+            'data_type' => 'business',
+            'ingestion_method' => 'api',
+            'config' => ['config_id' => 'meituan-rebind-101', 'url' => 'https://eb.meituan.com/business'],
+            'secret' => ['cookies' => 'synthetic-meituan-cookie'],
+        ]);
+        $source = Db::name('platform_data_sources')->where('id', $sourceId)->find();
+        $task = Db::name('platform_data_sync_tasks')->where('id', $taskId)->find();
+
+        self::assertSame('meituan', $updated['platform']);
+        self::assertSame('business', $updated['data_type']);
+        self::assertArrayHasKey('last_sync_time', $updated);
+        self::assertArrayHasKey('last_sync_status', $updated);
+        self::assertNull($updated['last_sync_time']);
+        self::assertNull($updated['last_sync_status']);
+        self::assertNull($source['last_sync_time']);
+        self::assertNull($source['last_sync_status']);
+        self::assertNull($source['last_error']);
+        self::assertSame(101, (int)$task['system_hotel_id']);
+        self::assertSame(7, (int)$task['tenant_id']);
+        self::assertSame('ctrip', $task['platform']);
+        self::assertSame('traffic', $task['data_type']);
+        self::assertSame('success', $task['status']);
+    }
+
+    public function testScopedSyncHistoryUsesStableOlderCursorWithoutChangingArrayContract(): void
+    {
+        $taskRows = [
+            ['id' => 801, 'tenant_id' => 7, 'data_source_id' => 91, 'system_hotel_id' => 101, 'platform' => 'ctrip'],
+            ['id' => 800, 'tenant_id' => 7, 'data_source_id' => 91, 'system_hotel_id' => 101, 'platform' => 'ctrip'],
+            ['id' => 799, 'tenant_id' => 7, 'data_source_id' => 92, 'system_hotel_id' => 101, 'platform' => 'meituan'],
+            ['id' => 798, 'tenant_id' => 8, 'data_source_id' => 93, 'system_hotel_id' => 101, 'platform' => 'ctrip'],
+            ['id' => 797, 'tenant_id' => 7, 'data_source_id' => 94, 'system_hotel_id' => 102, 'platform' => 'ctrip'],
+        ];
+        foreach ($taskRows as &$task) {
+            $task += [
+                'data_type' => 'business',
+                'ingestion_method' => 'api',
+                'trigger_type' => 'manual',
+                'status' => 'failed',
+                'attempt_count' => 1,
+                'max_attempts' => 3,
+                'message' => 'synthetic task history',
+                'stats_json' => '{}',
+            ];
+        }
+        unset($task);
+        Db::name('platform_data_sync_tasks')->insertAll($taskRows);
+        Db::name('platform_data_sync_logs')->insertAll(array_map(
+            static fn(array $task): array => [
+                'id' => (int)$task['id'] + 1000,
+                'tenant_id' => $task['tenant_id'],
+                'sync_task_id' => $task['id'],
+                'data_source_id' => $task['data_source_id'],
+                'system_hotel_id' => $task['system_hotel_id'],
+                'level' => 'error',
+                'event' => 'failed',
+                'message' => 'synthetic log history',
+                'context_json' => '{}',
+            ],
+            $taskRows
+        ));
+
+        $service = $this->service();
+        $filters = ['system_hotel_id' => 101, 'platform' => 'ctrip', 'limit' => 1];
+        $firstTasks = $service->listSyncTasks($this->tenantUser(), $filters);
+        self::assertSame([801], array_map('intval', array_column($firstTasks, 'id')));
+        $olderTasks = $service->listSyncTasks($this->tenantUser(), $filters + ['before_id' => 801]);
+        self::assertSame([800], array_map('intval', array_column($olderTasks, 'id')));
+        self::assertSame('failed', $olderTasks[0]['status']);
+
+        $firstLogs = $service->listSyncLogs($this->tenantUser(), $filters);
+        self::assertSame([1801], array_map('intval', array_column($firstLogs, 'id')));
+        self::assertSame('ctrip', $firstLogs[0]['platform']);
+        $olderLogs = $service->listSyncLogs($this->tenantUser(), $filters + ['before_id' => 1801]);
+        self::assertSame([1800], array_map('intval', array_column($olderLogs, 'id')));
+        self::assertSame(101, (int)$olderLogs[0]['system_hotel_id']);
+        self::assertSame('ctrip', $olderLogs[0]['platform']);
+    }
+
+    public function testSyncLogListsFilterSelectedHotelAndPlatformAndReturnVisibleIdentity(): void
+    {
+        $taskRows = [
+            ['id' => 501, 'tenant_id' => 7, 'data_source_id' => 61, 'system_hotel_id' => 101, 'platform' => 'ctrip'],
+            ['id' => 502, 'tenant_id' => 7, 'data_source_id' => 62, 'system_hotel_id' => 102, 'platform' => 'meituan'],
+            ['id' => 503, 'tenant_id' => 8, 'data_source_id' => 63, 'system_hotel_id' => 101, 'platform' => 'ctrip'],
+        ];
+        foreach ($taskRows as &$task) {
+            $task += [
+                'data_type' => 'business',
+                'ingestion_method' => 'api',
+                'trigger_type' => 'manual',
+                'status' => 'success',
+                'attempt_count' => 1,
+                'max_attempts' => 1,
+                'message' => 'ok',
+                'stats_json' => '{}',
+            ];
+        }
+        unset($task);
+        Db::name('platform_data_sync_tasks')->insertAll($taskRows);
+        Db::name('platform_data_sync_logs')->insertAll(array_map(
+            static fn(array $task): array => [
+                'id' => $task['id'],
+                'tenant_id' => $task['tenant_id'],
+                'sync_task_id' => $task['id'],
+                'data_source_id' => $task['data_source_id'],
+                'system_hotel_id' => $task['system_hotel_id'],
+                'level' => 'info',
+                'event' => 'completed',
+                'message' => 'ok',
+                'context_json' => '{}',
+            ],
+            $taskRows
+        ));
+
+        $service = $this->service();
+        $allLogs = $service->listSyncLogs($this->user());
+        self::assertSame([503, 502, 501], array_map('intval', array_column($allLogs, 'id')));
+        self::assertSame(['ctrip', 'meituan', 'ctrip'], array_column($allLogs, 'platform'));
+
+        $scopedLogs = $service->listSyncLogs($this->tenantUser(), [
+            'system_hotel_id' => 101,
+            'platform' => 'ctrip',
+        ]);
+        self::assertSame([501], array_map('intval', array_column($scopedLogs, 'id')));
+        self::assertSame(101, (int)$scopedLogs[0]['system_hotel_id']);
+        self::assertSame('ctrip', $scopedLogs[0]['platform']);
+
+        $scopedTasks = $service->listSyncTasks($this->tenantUser(), [
+            'system_hotel_id' => 101,
+            'platform' => 'ctrip',
+        ]);
+        self::assertSame([501], array_map('intval', array_column($scopedTasks, 'id')));
     }
 
     public function testReversePollutionIsHiddenAsNotFoundForTenantActorButVisibleAsConflictToAdmin(): void

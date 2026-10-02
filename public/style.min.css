@@ -1852,6 +1852,9 @@ main[data-current-page="compass"] .macro-signal-card .macro-signal-metric{backgr
 }.suxi-dashboard-scope .suxi-quick-card{min-height:82px;border:1px solid #d9e2ec;border-radius:8px;background:#fff
 }.suxi-dashboard-scope .suxi-quick-card:hover{border-color:#9fb2c7;background:#f8fafc
 }.suxi-dashboard-scope .suxi-chart-shell{position:relative;min-height:288px;overflow:hidden;border:1px solid #d9e2ec;border-radius:8px;background:#f8fafc
+}.suxi-dashboard-scope .suxi-chart-feedback{position:absolute;inset:0;z-index:20;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;padding:0 24px;background:var(--sx-dashboard-panel-strong, #fff);color:var(--sx-dashboard-text, #334155);text-align:center;font-size:14px
+}.suxi-dashboard-scope .suxi-chart-feedback .btn-secondary{min-height:44px
+}.suxi-dashboard-scope .home-trend-range{padding:6px 12px;border-width:1px;border-radius:8px
 }.suxi-dashboard-scope .suxi-chart-grid{position:absolute;inset:0;opacity:.9;background-image:linear-gradient(#e5eaf0 1px, transparent 1px),
         linear-gradient(90deg, #edf2f7 1px, transparent 1px);background-size:100% 25%, 64px 100%
 }.suxi-dashboard-scope .suxi-spark-bar{flex:1;border-radius:4px 4px 0 0;background:#93c5fd
@@ -3300,7 +3303,7 @@ main[data-current-page="ai-workbench"] .holiday-advice-card{position:relative;mi
 .suxi-cpp-panel h5,
 .suxi-cpp-compare h5,
 .suxi-cpp-profile h6{margin:0;font-weight:700
-}.suxi-cpp-hero h4{margin-top:7px;font-size:20px
+}.suxi-cpp-hero h4{color:inherit;margin-top:7px;font-size:20px
 }.suxi-cpp-hero > div:first-child > p{max-width:760px;margin:7px 0 0;color:#cbd5e1;font-size:13px;line-height:1.65
 }.suxi-cpp-actions,
 .suxi-cpp-row-actions{display:flex;gap:8px

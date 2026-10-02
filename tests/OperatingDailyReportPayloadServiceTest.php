@@ -7,10 +7,18 @@ use app\service\ManualNotificationService;
 use app\service\OperatingDailyReportPayloadService;
 use PHPUnit\Framework\TestCase;
 use Tests\Support\ReflectionHelper;
+use think\App;
+use think\facade\Config;
+use think\facade\Db;
 
 final class OperatingDailyReportPayloadServiceTest extends TestCase
 {
     use ReflectionHelper;
+
+    public static function setUpBeforeClass(): void
+    {
+        (new App(dirname(__DIR__)))->initialize();
+    }
 
     public function testBuildsOnlySelectedSameDayPmsAndOtaFactsWithTruthLabels(): void
     {
@@ -578,6 +586,297 @@ final class OperatingDailyReportPayloadServiceTest extends TestCase
             'operating_daily_meituan_traffic_untrusted',
             array_column($today['formal_send_gate']['blockers'], 'code')
         );
+    }
+
+    public function testMeituanTrafficWithDefaultedBusinessDateCannotEnterDailyReport(): void
+    {
+        $date = (new \DateTimeImmutable('yesterday'))->format('Y-m-d');
+        $rowResolver = static function (
+            int $tenantId,
+            int $hotelId,
+            string $businessDate,
+            string $source,
+            string $dataType,
+            ?string $dimension
+        ): ?array {
+            if ($source !== 'meituan' || $dataType !== 'traffic') {
+                return null;
+            }
+            return self::trustedOtaFixture([
+                'id' => 9011,
+                'data_source_id' => 8,
+                'sync_task_id' => 13,
+                'readback_verified' => 1,
+                'data_period' => 'historical_daily',
+                'is_final' => 1,
+                'list_exposure' => 991,
+                'detail_exposure' => 125,
+                'raw_data' => ['date_source' => 'capture_context.default_data_date'],
+            ], $businessDate, $source, $dataType, $dimension, ['list_exposure', 'detail_exposure']);
+        };
+        $result = (new OperatingDailyReportPayloadService(null, null, $rowResolver))->build(
+            80, 80, '敦煌漠蓝新', $date, 'immediate_test', 'meituan', ['meituan_traffic']
+        );
+        self::assertSame('blocked', $result['status']);
+        self::assertContains('operating_daily_meituan_traffic_untrusted',
+            array_column($result['formal_send_gate']['blockers'], 'code'));
+    }
+
+    public function testMeituanBusinessWithDefaultedDateCannotEnterDailyReport(): void
+    {
+        $date = (new \DateTimeImmutable('yesterday'))->format('Y-m-d');
+        foreach ([
+            'page.business_period_selection.readback' => true,
+            'capture_context.default_data_date' => false,
+        ] as $dateSource => $businessTrusted) {
+            $rowResolver = static function (
+                int $tenantId,
+                int $hotelId,
+                string $businessDate,
+                string $source,
+                string $dataType,
+                ?string $dimension
+            ) use ($dateSource): ?array {
+                if ($source !== 'meituan') {
+                    return null;
+                }
+                $common = [
+                    'data_source_id' => 8, 'sync_task_id' => 13,
+                    'snapshot_time' => $businessDate . ' 12:00:00',
+                    'readback_verified' => 1,
+                    'data_period' => 'historical_daily', 'is_final' => 1,
+                ];
+                if ($dataType === 'business') {
+                    return self::trustedOtaFixture($common + [
+                        'id' => 9012, 'amount' => 700, 'quantity' => 2,
+                        'data_value' => 350,
+                        'raw_data' => ['date_source' => $dateSource, 'lead_price' => 400],
+                    ], $businessDate, $source, $dataType, $dimension, [
+                        'lead_price', 'sales_room_nights', 'sales_amount', 'sales_avg_price',
+                    ]);
+                }
+                if ($dataType === 'traffic') {
+                    return self::trustedOtaFixture($common + [
+                        'id' => 9013, 'list_exposure' => 120,
+                        'detail_exposure' => 30,
+                        'raw_data' => [
+                            'date_source' => 'page.business_date',
+                            'exposure_to_browse_rate' => 25,
+                        ],
+                    ], $businessDate, $source, $dataType, $dimension, [
+                        'list_exposure', 'detail_exposure',
+                    ]);
+                }
+                return null;
+            };
+            $result = (new OperatingDailyReportPayloadService(null, null, $rowResolver))->build(
+                80, 80, '敦煌漠蓝新', $date, 'immediate_test', 'meituan', ['meituan_traffic']
+            );
+            self::assertSame('ready', $result['status']);
+            if ($businessTrusted) {
+                self::assertSame(9012, $result['source_snapshot_ids']['meituan_business_row_id']);
+                self::assertStringContainsString('- 销售额：¥700.00', $result['payload']['text']['content']);
+            } else {
+                self::assertArrayNotHasKey('meituan_business_row_id', $result['source_snapshot_ids']);
+                self::assertStringContainsString('- 销售额：未返回', $result['payload']['text']['content']);
+            }
+        }
+    }
+
+    public function testNewerUntrustedMeituanTrafficDoesNotFallBackToOlderSnapshot(): void
+    {
+        $original = Config::get('database');
+        $connection = 'operating_daily_latest_' . getmypid() . '_' . bin2hex(random_bytes(4));
+        $databasePath = sys_get_temp_dir() . DIRECTORY_SEPARATOR . $connection . '.sqlite';
+        $database = $original;
+        $database['default'] = $connection;
+        $database['connections'][$connection] = [
+            'type' => 'sqlite', 'database' => $databasePath,
+            'prefix' => '', 'fields_strict' => false,
+        ];
+        Config::set($database, 'database');
+        Db::connect(null, true);
+        try {
+            Db::execute('CREATE TABLE online_daily_data (
+                id INTEGER PRIMARY KEY, tenant_id INTEGER, system_hotel_id INTEGER,
+                hotel_id TEXT, source TEXT, platform TEXT, data_date TEXT,
+                data_type TEXT, dimension TEXT, validation_status TEXT,
+                validation_flags TEXT, ingestion_method TEXT, source_trace_id TEXT,
+                raw_data TEXT, data_source_id INTEGER, sync_task_id INTEGER,
+                snapshot_time TEXT, readback_verified INTEGER, data_period TEXT,
+                is_final INTEGER, list_exposure INTEGER, detail_exposure INTEGER
+            )');
+            $date = (new \DateTimeImmutable('yesterday'))->format('Y-m-d');
+            foreach ([
+                [9014, 13, '10:00:00', 'page.business_date'],
+                [9015, 14, '12:00:00', 'capture_context.default_data_date'],
+            ] as [$id, $taskId, $time, $dateSource]) {
+                $row = self::trustedOtaFixture([
+                    'id' => $id, 'data_source_id' => 8, 'sync_task_id' => $taskId,
+                    'snapshot_time' => $date . ' ' . $time,
+                    'readback_verified' => 1, 'data_period' => 'historical_daily',
+                    'is_final' => 1, 'list_exposure' => 120,
+                    'detail_exposure' => 30,
+                    'raw_data' => [
+                        'date_source' => $dateSource,
+                        'exposure_to_browse_rate' => 25,
+                    ],
+                ], $date, 'meituan', 'traffic', null, ['list_exposure', 'detail_exposure']);
+                $row['raw_data'] = json_encode($row['raw_data'], JSON_THROW_ON_ERROR);
+                Db::name('online_daily_data')->insert($row);
+            }
+            $result = (new OperatingDailyReportPayloadService())->build(
+                80, 80, '敦煌漠蓝新', $date, 'immediate_test', 'meituan', ['meituan_traffic']
+            );
+            self::assertSame('blocked', $result['status']);
+            self::assertContains('operating_daily_meituan_traffic_untrusted',
+                array_column($result['formal_send_gate']['blockers'], 'code'));
+            self::assertSame(0, $result['source_snapshot_ids']['meituan_traffic_row_id']);
+
+            $recovered = self::trustedOtaFixture([
+                'id' => 9016, 'data_source_id' => 8, 'sync_task_id' => 15,
+                'snapshot_time' => $date . ' 14:00:00',
+                'readback_verified' => 1, 'data_period' => 'historical_daily',
+                'is_final' => 1, 'list_exposure' => 140,
+                'detail_exposure' => 35,
+                'raw_data' => [
+                    'date_source' => 'page.business_date',
+                    'exposure_to_browse_rate' => 25,
+                ],
+            ], $date, 'meituan', 'traffic', null, ['list_exposure', 'detail_exposure']);
+            $recovered['raw_data'] = json_encode($recovered['raw_data'], JSON_THROW_ON_ERROR);
+            Db::name('online_daily_data')->insert($recovered);
+            $afterRecovery = (new OperatingDailyReportPayloadService())->build(
+                80, 80, '敦煌漠蓝新', $date, 'immediate_test', 'meituan', ['meituan_traffic']
+            );
+            self::assertSame('ready', $afterRecovery['status']);
+            self::assertSame(9016, $afterRecovery['source_snapshot_ids']['meituan_traffic_row_id']);
+
+            $pending = self::trustedOtaFixture([
+                'id' => 9017, 'data_source_id' => 8, 'sync_task_id' => 16,
+                'snapshot_time' => $date . ' 16:00:00',
+                'readback_verified' => 0, 'data_period' => 'historical_daily',
+                'is_final' => 1, 'list_exposure' => 160,
+                'detail_exposure' => 40,
+                'raw_data' => [
+                    'date_source' => 'page.business_date',
+                    'exposure_to_browse_rate' => 25,
+                ],
+            ], $date, 'meituan', 'traffic', null, ['list_exposure', 'detail_exposure']);
+            $pending['raw_data'] = json_encode($pending['raw_data'], JSON_THROW_ON_ERROR);
+            Db::name('online_daily_data')->insert($pending);
+            $whilePending = (new OperatingDailyReportPayloadService())->build(
+                80, 80, '敦煌漠蓝新', $date, 'immediate_test', 'meituan', ['meituan_traffic']
+            );
+            self::assertSame('blocked', $whilePending['status']);
+            self::assertSame(0, $whilePending['source_snapshot_ids']['meituan_traffic_row_id']);
+
+            Db::name('online_daily_data')->where('id', 9017)->update(['readback_verified' => 1]);
+            $afterReadback = (new OperatingDailyReportPayloadService())->build(
+                80, 80, '敦煌漠蓝新', $date, 'immediate_test', 'meituan', ['meituan_traffic']
+            );
+            self::assertSame('ready', $afterReadback['status']);
+            self::assertSame(9017, $afterReadback['source_snapshot_ids']['meituan_traffic_row_id']);
+
+            $failed = self::trustedOtaFixture([
+                'id' => 9018, 'data_source_id' => 8, 'sync_task_id' => 17,
+                'snapshot_time' => $date . ' 18:00:00',
+                'readback_verified' => 1,
+                'data_period' => 'historical_daily', 'is_final' => 1,
+                'list_exposure' => 180, 'detail_exposure' => 45,
+                'raw_data' => [
+                    'date_source' => 'page.business_date',
+                    'exposure_to_browse_rate' => 25,
+                ],
+            ], $date, 'meituan', 'traffic', null, ['list_exposure', 'detail_exposure']);
+            $failed['validation_status'] = 'abnormal';
+            $failed['raw_data'] = json_encode($failed['raw_data'], JSON_THROW_ON_ERROR);
+            Db::name('online_daily_data')->insert($failed);
+            $afterFailure = (new OperatingDailyReportPayloadService())->build(
+                80, 80, '敦煌漠蓝新', $date, 'immediate_test', 'meituan', ['meituan_traffic']
+            );
+            self::assertSame('blocked', $afterFailure['status']);
+            self::assertSame(0, $afterFailure['source_snapshot_ids']['meituan_traffic_row_id']);
+
+            Db::name('online_daily_data')->where('id', 9018)->update(['validation_status' => 'verified']);
+            $afterQualityRecovery = (new OperatingDailyReportPayloadService())->build(
+                80, 80, '敦煌漠蓝新', $date, 'immediate_test', 'meituan', ['meituan_traffic']
+            );
+            self::assertSame('ready', $afterQualityRecovery['status']);
+            self::assertSame(9018, $afterQualityRecovery['source_snapshot_ids']['meituan_traffic_row_id']);
+
+            $flagged = self::trustedOtaFixture([
+                'id' => 9019, 'data_source_id' => 8, 'sync_task_id' => 18,
+                'snapshot_time' => $date . ' 20:00:00',
+                'readback_verified' => 1, 'data_period' => 'historical_daily',
+                'is_final' => 1, 'list_exposure' => 200,
+                'detail_exposure' => 50,
+                'raw_data' => [
+                    'date_source' => 'page.business_date',
+                    'exposure_to_browse_rate' => 25,
+                ],
+            ], $date, 'meituan', 'traffic', null, ['list_exposure', 'detail_exposure']);
+            $flagged['validation_flags'] = json_encode(['parse_failed'], JSON_THROW_ON_ERROR);
+            $flagged['raw_data'] = json_encode($flagged['raw_data'], JSON_THROW_ON_ERROR);
+            Db::name('online_daily_data')->insert($flagged);
+            $afterFlag = (new OperatingDailyReportPayloadService())->build(
+                80, 80, '敦煌漠蓝新', $date, 'immediate_test', 'meituan', ['meituan_traffic']
+            );
+            self::assertSame('blocked', $afterFlag['status']);
+            self::assertSame(0, $afterFlag['source_snapshot_ids']['meituan_traffic_row_id']);
+
+            Db::name('online_daily_data')->where('id', 9019)->update(['validation_flags' => '[]']);
+            $afterFlagRecovery = (new OperatingDailyReportPayloadService())->build(
+                80, 80, '敦煌漠蓝新', $date, 'immediate_test', 'meituan', ['meituan_traffic']
+            );
+            self::assertSame('ready', $afterFlagRecovery['status']);
+            self::assertSame(9019, $afterFlagRecovery['source_snapshot_ids']['meituan_traffic_row_id']);
+        } finally {
+            try { Db::connect()->close(); } catch (\Throwable) {}
+            Config::set($original, 'database');
+            Db::connect(null, true);
+            if (is_file($databasePath)) {
+                unlink($databasePath);
+            }
+        }
+    }
+
+    public function testTodayRealtimeOtaReportUsesHotelBusinessTimezone(): void
+    {
+        $businessDate = (new \DateTimeImmutable('now', new \DateTimeZone('Asia/Shanghai')))
+            ->format('Y-m-d');
+        $alternateZone = 'Pacific/Honolulu';
+        if ((new \DateTimeImmutable('now', new \DateTimeZone($alternateZone)))
+            ->format('Y-m-d') === $businessDate) {
+            $alternateZone = 'Pacific/Kiritimati';
+        }
+        self::assertNotSame(
+            $businessDate,
+            (new \DateTimeImmutable('now', new \DateTimeZone($alternateZone)))->format('Y-m-d')
+        );
+        $row = self::trustedOtaFixture([
+            'id' => 9020, 'data_source_id' => 8, 'sync_task_id' => 19,
+            'snapshot_time' => $businessDate . ' 10:00:00',
+            'readback_verified' => 1, 'data_period' => 'realtime_snapshot',
+            'is_final' => 0, 'list_exposure' => 200, 'detail_exposure' => 50,
+            'raw_data' => [
+                'date_source' => 'page.business_date',
+                'exposure_to_browse_rate' => 25,
+            ],
+        ], $businessDate, 'meituan', 'traffic', null, ['list_exposure', 'detail_exposure']);
+        $originalZone = date_default_timezone_get();
+        date_default_timezone_set($alternateZone);
+        try {
+            $resolver = static fn(): array => $row;
+            $result = (new OperatingDailyReportPayloadService(null, null, $resolver))->build(
+                80, 80, '敦煌漠蓝新', $businessDate, 'immediate_test',
+                'meituan', ['meituan_traffic']
+            );
+            self::assertSame('ready', $result['status']);
+            self::assertSame(9020, $result['source_snapshot_ids']['meituan_traffic_row_id']);
+        } finally {
+            date_default_timezone_set($originalZone);
+        }
     }
 
     public function testMeituanCompactReportDoesNotTurnMissingBusinessFactsIntoZero(): void

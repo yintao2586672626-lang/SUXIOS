@@ -3,10 +3,14 @@ declare(strict_types=1);
 
 use app\service\CtripOrderExportImportService;
 use app\service\OtaStandardEtlService;
+use app\service\PlatformDataSyncService;
+use app\service\PlatformNormalizedRowPersistenceService;
 use PhpOffice\PhpSpreadsheet\Cell\DataType;
 use PhpOffice\PhpSpreadsheet\Spreadsheet;
 use PhpOffice\PhpSpreadsheet\Writer\Xls;
 use PHPUnit\Framework\TestCase;
+use think\facade\Config;
+use think\facade\Db;
 
 final class CtripOrderExportImportServiceTest extends TestCase
 {
@@ -489,6 +493,247 @@ final class CtripOrderExportImportServiceTest extends TestCase
         foreach (['ANON-V2-1', 'ANON-V2-2', 'ANON-V2-3', 'ANON-V2-4', 'ANON-V2-5', 'ANON-V2-6'] as $orderId) {
             self::assertStringNotContainsString($orderId, $storedJson);
         }
+    }
+
+    public function testImpossibleStayDatesUseOnlyTheExplicitValidBookingDateFallback(): void
+    {
+        $service = new CtripOrderExportImportService();
+        foreach (['2026-02-30', '2026/02/29', '2026年04月31日'] as $invalidDate) {
+            $rows = $service->normalizeRows([$this->syntheticDateOrder([
+                '入住日期' => $invalidDate,
+                '预订时间' => '2026-02-20 10:00:00',
+            ])], ['system_hotel_id' => 80, 'hotel_name' => '合成日期测试酒店']);
+            self::assertCount(1, $rows);
+            self::assertSame('2026-02-20', $rows[0]['data_date'], $invalidDate);
+            self::assertSame('booking_date_fallback', $rows[0]['raw_data']['date_source']);
+            self::assertNull($rows[0]['avg_lead_days']);
+            self::assertSame(1, $rows[0]['raw_data']['lead_time_distribution']['missing_order_count']);
+        }
+
+        $rows = $service->normalizeRows([
+            $this->syntheticDateOrder(),
+            $this->syntheticDateOrder([
+                '订单号' => 'SYNTHETIC-INVALID-DATES', '入住日期' => '2026-02-30',
+                '预订时间' => '2026-02-29 10:00:00',
+            ]),
+        ], ['system_hotel_id' => 80, 'hotel_name' => '合成日期测试酒店']);
+        self::assertCount(1, $rows);
+        self::assertSame('2026-02-28', $rows[0]['data_date']);
+        self::assertSame(1, $rows[0]['gross_order_num']);
+        self::assertSame(1, $rows[0]['raw_data']['dataset_receipt']['missing_business_date_count']);
+    }
+
+    public function testImpossibleNotificationTimeCannotResurrectAnOlderActiveOrderVersion(): void
+    {
+        $active = $this->syntheticDateOrder(['通知时间' => '2026-02-30 10:00:00']);
+        $cancelled = $this->syntheticDateOrder([
+            '订单状态' => '已取消', '通知时间' => '2026-03-01 10:00:00', '底价' => '-100',
+        ]);
+        foreach ([[$active, $cancelled], [$cancelled, $active]] as $versions) {
+            $rows = (new CtripOrderExportImportService())->normalizeRows($versions, [
+                'system_hotel_id' => 80, 'hotel_name' => '合成日期测试酒店',
+            ]);
+            self::assertCount(1, $rows);
+            self::assertSame(0, $rows[0]['book_order_num']);
+            self::assertSame(1, $rows[0]['cancel_order_num']);
+            self::assertSame(0.0, $rows[0]['quantity']);
+            self::assertNull($rows[0]['amount']);
+            self::assertSame(1, $rows[0]['raw_data']['dataset_receipt']['duplicate_version_count']);
+        }
+    }
+
+    public function testValidLeapDayAndExistingDateFormatsKeepKnownZeroAndMissingPriceDistinct(): void
+    {
+        foreach (['2024-02-29', '2024/02/29', '2024年02月29日', '2024-02-29 12:30:00'] as $date) {
+            $rows = (new CtripOrderExportImportService())->normalizeRows([
+                $this->syntheticDateOrder([
+                    '入住日期' => $date, '预订时间' => '2024-02-28 10:00:00', '底价' => '0',
+                ]),
+                $this->syntheticDateOrder([
+                    '订单号' => 'SYNTHETIC-MISSING-PRICE', '入住日期' => $date,
+                    '预订时间' => '2024-02-28 10:00:00', '底价' => '',
+                ]),
+            ], ['system_hotel_id' => 80, 'hotel_name' => '合成日期测试酒店']);
+            self::assertSame('2024-02-29', $rows[0]['data_date']);
+            self::assertSame('stay_date', $rows[0]['raw_data']['date_source']);
+            self::assertSame(1.0, $rows[0]['avg_lead_days']);
+            self::assertSame(0.0, $rows[0]['raw_data']['bottom_price_sum']);
+            self::assertSame(1, $rows[0]['raw_data']['bottom_price_valid_order_count']);
+            self::assertSame(1, $rows[0]['raw_data']['bottom_price_missing_order_count']);
+            self::assertSame('partial', $rows[0]['raw_data']['bottom_price_completeness']);
+        }
+    }
+
+    public function testCorrectedDateZeroAndCancellationSurviveDuplicateSaveAndExactReadback(): void
+    {
+        $original = ['database' => Config::get('database', []), 'cache' => Config::get('cache', []), 'log' => Config::get('log', [])];
+        $connection = 'ctrip_order_date_synthetic_' . bin2hex(random_bytes(4));
+        $testPath = sys_get_temp_dir() . '/suxios-ctrip-order-test/' . $connection . '/';
+        Config::set(['default' => 'file', 'stores' => ['file' => ['type' => 'File', 'path' => $testPath . 'cache/']]], 'cache');
+        Config::set(['default' => 'file', 'channels' => ['file' => ['type' => 'File', 'path' => $testPath . 'log/']]], 'log');
+        Config::set(['default' => $connection, 'connections' => [$connection => [
+            'type' => 'sqlite', 'database' => ':memory:', 'prefix' => '', 'fields_strict' => false,
+        ]]], 'database');
+        Db::connect(null, true);
+        try {
+            Db::execute('CREATE TABLE hotels (id INTEGER PRIMARY KEY, tenant_id INTEGER NOT NULL)');
+            Db::execute('INSERT INTO hotels VALUES (80, 1)');
+            Db::execute('CREATE TABLE online_daily_data (
+                id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER, system_hotel_id INTEGER,
+                source TEXT, platform TEXT, hotel_id TEXT, data_type TEXT, data_date TEXT,
+                dimension TEXT, compare_type TEXT, data_period TEXT, sync_task_id INTEGER,
+                source_trace_id TEXT, persistence_identity_hash TEXT NOT NULL UNIQUE,
+                amount REAL, quantity REAL, book_order_num INTEGER, validation_status TEXT,
+                raw_data TEXT, readback_verified INTEGER DEFAULT 0,
+                readback_verified_at TEXT, create_time TEXT, update_time TEXT
+            )');
+            $columns = array_fill_keys(array_column(Db::query('PRAGMA table_info(online_daily_data)'), 'name'), true);
+            $orders = [
+                $this->syntheticDateOrder(['入住日期' => '2026-02-30', '底价' => '0']),
+                $this->syntheticDateOrder([
+                    '订单号' => 'SYNTHETIC-CANCELLED', '入住日期' => '2026-02-20',
+                    '订单状态' => '已取消', '底价' => '-100',
+                ]),
+                $this->syntheticDateOrder([
+                    '订单号' => 'SYNTHETIC-UNKNOWN', '入住日期' => '2026-02-20',
+                    '订单状态' => '退款处理中', '底价' => '',
+                ]),
+            ];
+            $import = new CtripOrderExportImportService();
+            $sync = new PlatformDataSyncService([]);
+            $persistence = new PlatformNormalizedRowPersistenceService();
+            $source = [
+                'id' => 5, 'tenant_id' => 1, 'system_hotel_id' => 80, 'platform' => 'ctrip',
+                'data_type' => 'order', 'ingestion_method' => 'import_excel',
+            ];
+            $rowIds = null;
+            foreach ([101, 102] as $taskId) {
+                $aggregates = $import->normalizeRows($orders, [
+                    'system_hotel_id' => 80, 'hotel_name' => '合成日期测试酒店',
+                    'observed_at' => '2026-03-03 12:00:00',
+                ]);
+                $normalized = $sync->normalizeRowsFromPayload(['rows' => $aggregates], $source, $taskId);
+                $receipt = $persistence->save($normalized, $columns);
+                self::assertTrue($receipt['readback_verified']);
+                self::assertSame(1, $receipt['saved_count']);
+                self::assertSame(1, $receipt['readback_count']);
+                self::assertSame($taskId === 101 ? 1 : 0, $receipt['inserted_count']);
+                self::assertSame($taskId === 101 ? 0 : 1, $receipt['updated_count']);
+                if ($rowIds !== null) self::assertSame($rowIds, $receipt['row_ids']);
+                $rowIds = $receipt['row_ids'];
+                $saved = Db::name('online_daily_data')->where('id', $rowIds[0])->find();
+                self::assertSame(1, Db::name('online_daily_data')->count());
+                self::assertSame('2026-02-20', $saved['data_date']);
+                self::assertSame(80, (int)$saved['system_hotel_id']);
+                self::assertSame(1, (int)$saved['tenant_id']);
+                self::assertSame($taskId, (int)$saved['sync_task_id']);
+                self::assertNull($saved['amount']);
+                self::assertSame('unverified', $saved['validation_status']);
+                self::assertSame(1, (int)$saved['readback_verified']);
+                self::assertSame(
+                    json_decode($normalized[0]['raw_data'], true, 512, JSON_THROW_ON_ERROR),
+                    json_decode($saved['raw_data'], true, 512, JSON_THROW_ON_ERROR)
+                );
+                $readback = json_decode($saved['raw_data'], true, 512, JSON_THROW_ON_ERROR)['row'];
+                self::assertSame(1, $readback['book_order_num']);
+                self::assertSame(1, $readback['cancel_order_num']);
+                self::assertSame(1, $readback['unknown_status_order_num']);
+                self::assertNull($readback['cancel_rate']);
+                self::assertSame(0.0, (float)$readback['raw_data']['bottom_price_sum']);
+                self::assertSame('mixed', $readback['raw_data']['date_source']);
+            }
+        } finally {
+            Db::connect()->close();
+            foreach ($original as $key => $value) Config::set($value, $key);
+        }
+    }
+
+    public function testRelativeAndIncompleteStayDatesNeverBecomeRuntimeDependentBusinessDates(): void
+    {
+        $service = new CtripOrderExportImportService();
+        foreach (['tomorrow', 'today', 'now', '12:00', 'September 15', '2026-09',
+            '2026/09', '2026年09月', 'September 2026', '2026Sep', 'September 2026 12:00',
+            '2026-09Z', '2026-09+08:00', 'Sep2026GMT',
+            '2026-09-15 +1 day', '2026-09-15 +0 days', 'next Tuesday 2026-09-15'] as $date) {
+            $rows = $service->normalizeRows([$this->syntheticDateOrder(['入住日期' => $date])], [
+                'system_hotel_id' => 80, 'hotel_name' => '合成日期测试酒店',
+            ]);
+            self::assertCount(1, $rows, $date);
+            self::assertSame('2026-02-20', $rows[0]['data_date'], $date);
+            self::assertSame('booking_date_fallback', $rows[0]['raw_data']['date_source'], $date);
+            self::assertNull($rows[0]['avg_lead_days'], $date);
+        }
+        self::assertSame([], $service->normalizeRows([$this->syntheticDateOrder([
+            '入住日期' => 'today', '预订时间' => 'yesterday',
+        ])], ['system_hotel_id' => 80, 'hotel_name' => '合成日期测试酒店']));
+    }
+
+    public function testRelativeNotificationCannotOverrideTheLatestAbsoluteCancellation(): void
+    {
+        foreach (['tomorrow', '12:00', '2026-03-01 +1 day', 'March 2026'] as $time) {
+            $active = $this->syntheticDateOrder(['通知时间' => $time]);
+            $cancelled = $this->syntheticDateOrder([
+                '订单状态' => '已取消', '通知时间' => '2026-03-01 10:00:00',
+            ]);
+            foreach ([[$active, $cancelled], [$cancelled, $active]] as $versions) {
+                $rows = (new CtripOrderExportImportService())->normalizeRows($versions, [
+                    'system_hotel_id' => 80, 'hotel_name' => '合成日期测试酒店',
+                ]);
+                self::assertSame(0, $rows[0]['book_order_num'], $time);
+                self::assertSame(1, $rows[0]['cancel_order_num'], $time);
+            }
+        }
+    }
+
+    public function testAbsoluteEnglishMonthDatesAndMatchingWeekdaysRemainCompatible(): void
+    {
+        foreach (['September 15, 2026', '15 September 2026', '15-Sep-2026',
+            'Tue, 15 Sep 2026 10:00:00 +0800', 'Tuesday, September 15, 2026',
+            '20260915', '2026年09月15日'] as $stayDate) {
+            $older = $this->syntheticDateOrder([
+                '入住日期' => $stayDate, '预订时间' => '14 September 2026 10:00:00',
+                '通知时间' => '14 September 2026 11:00:00', '订单状态' => '已取消',
+            ]);
+            $newer = array_replace($older, [
+                '通知时间' => 'Tue, 15 Sep 2026 12:00:00 +0800', '订单状态' => '已入住', '底价' => 0,
+            ]);
+            $rows = (new CtripOrderExportImportService())->normalizeRows([$newer, $older], [
+                'system_hotel_id' => 80, 'hotel_name' => '合成日期测试酒店',
+                'observed_at' => '15 September 2026 13:00:00',
+            ]);
+            self::assertSame('2026-09-15', $rows[0]['data_date'], $stayDate);
+            self::assertSame('stay_date', $rows[0]['raw_data']['date_source'], $stayDate);
+            self::assertSame(1.0, $rows[0]['avg_lead_days'], $stayDate);
+            self::assertSame(1, $rows[0]['book_order_num'], $stayDate);
+            self::assertSame(0, $rows[0]['cancel_order_num'], $stayDate);
+            self::assertSame(0.0, $rows[0]['raw_data']['bottom_price_sum'], $stayDate);
+        }
+    }
+
+    public function testCompleteFirstDayDatesKeepTheirTimezoneAndEnglishMonthCompatibility(): void
+    {
+        foreach (['2026-09-01Z', '2026-09-01+08:00', 'Sep 1 2026GMT', 'Sep 1 2026'] as $date) {
+            $rows = (new CtripOrderExportImportService())->normalizeRows([
+                $this->syntheticDateOrder([
+                    '入住日期' => $date, '预订时间' => '2026-08-31 10:00:00', '底价' => 0,
+                ]),
+            ], ['system_hotel_id' => 80, 'hotel_name' => '合成日期测试酒店']);
+            self::assertSame('2026-09-01', $rows[0]['data_date'], $date);
+            self::assertSame('stay_date', $rows[0]['raw_data']['date_source'], $date);
+            self::assertSame(1.0, $rows[0]['avg_lead_days'], $date);
+            self::assertSame(0.0, $rows[0]['raw_data']['bottom_price_sum'], $date);
+        }
+    }
+
+    private function syntheticDateOrder(array $overrides = []): array
+    {
+        return array_replace([
+            '酒店名称' => '合成日期测试酒店', '订单号' => 'SYNTHETIC-DATE-ORDER',
+            '订单状态' => '已入住', '入住日期' => '2026-02-28', '离店日期' => '2026-03-01',
+            '预订时间' => '2026-02-20 10:00:00', '通知时间' => '2026-02-28 10:00:00',
+            '晚数' => '1', '房间数' => '1', '底价' => '100', '币种' => 'CNY',
+            '预订网站' => '携程',
+        ], $overrides);
     }
 
     private function legacyFixturePath(): string

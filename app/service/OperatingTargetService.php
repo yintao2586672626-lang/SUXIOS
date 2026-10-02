@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace app\service;
 
+use app\model\DailyReport as DailyReportModel;
 use DateTimeImmutable;
 use think\facade\Db;
 
@@ -184,20 +185,92 @@ final class OperatingTargetService
         if (!is_array($row)) {
             return $this->prefillGap('daily_report_missing', '该门店、该日期没有可复用的全酒店经营日报。');
         }
+        if (isset($row['status']) && (int)$row['status'] !== DailyReportModel::STATUS_SUBMITTED) {
+            return $this->prefillGap('daily_report_draft', '该门店、该日期的经营日报尚未提交，不能预填经营目标事实。');
+        }
 
         $reportData = $this->decodeJson($row['report_data'] ?? null);
-        $actualRevenue = $this->firstNumeric($row, $reportData, ['revenue', 'day_revenue']);
+        $reportedRevenueKeys = ['revenue', 'day_revenue'];
+        $hasReportedRevenue = array_key_exists('revenue', $reportData)
+            || array_key_exists('day_revenue', $reportData);
+        $actualRevenue = $this->firstNumeric([], $reportData, $reportedRevenueKeys);
+        $reportedRevenueInvalid = $hasReportedRevenue && $actualRevenue === null
+            && array_filter($reportedRevenueKeys, static function (string $key) use ($reportData): bool {
+                $value = $reportData[$key] ?? null;
+                return $value !== null && $value !== ''
+                    && (!is_numeric($value) || !is_finite((float)$value) || (float)$value < 0);
+            }) !== [];
+        if ($actualRevenue === null && !$hasReportedRevenue) {
+            $actualRevenue = $this->firstNumeric($row, [], $reportedRevenueKeys);
+        }
+        if ($actualRevenue === null) {
+            $roomRevenue = $this->firstNumeric([], $reportData, ['room_revenue', 'day_room_revenue']);
+            if ($roomRevenue === null) {
+                $onlineRevenue = $this->firstNumeric([], $reportData, ['online_revenue'])
+                    ?? $this->sumCompleteReportFields($reportData, [
+                        'xb_revenue', 'mt_revenue', 'fliggy_revenue', 'dy_revenue', 'tc_revenue',
+                        'qn_revenue', 'zx_revenue', 'booking_revenue', 'agoda_revenue', 'expedia_revenue',
+                    ]);
+                $offlineRevenue = $this->firstNumeric([], $reportData, ['offline_revenue'])
+                    ?? $this->sumCompleteReportFields($reportData, [
+                        'walkin_revenue', 'member_exp_revenue', 'web_exp_revenue', 'group_revenue',
+                        'protocol_revenue', 'wechat_revenue', 'free_revenue', 'gold_card_revenue',
+                        'black_gold_revenue', 'hourly_revenue',
+                    ]);
+                if ($onlineRevenue !== null && $offlineRevenue !== null) {
+                    $roomRevenue = $onlineRevenue + $offlineRevenue;
+                }
+            }
+            $otherRevenue = $this->firstNumeric([], $reportData, ['other_revenue_total'])
+                ?? $this->sumCompleteReportFields($reportData, [
+                    'parking_revenue', 'dining_revenue', 'meeting_revenue', 'goods_revenue',
+                    'member_card_revenue', 'other_revenue',
+                ]);
+            if ($roomRevenue !== null && $otherRevenue !== null) {
+                $actualRevenue = round($roomRevenue + $otherRevenue, 2);
+            }
+        }
         $soldRoomNights = $this->firstInteger($row, $reportData, ['total_rooms', 'day_total_rooms']);
+        if ($soldRoomNights === null) {
+            $onlineRoomNights = $this->firstInteger([], $reportData, ['online_rooms'])
+                ?? $this->sumCompleteReportIntegerFields($reportData, [
+                    'xb_rooms', 'mt_rooms', 'fliggy_rooms', 'dy_rooms', 'tc_rooms',
+                    'qn_rooms', 'zx_rooms', 'booking_rooms', 'agoda_rooms', 'expedia_rooms',
+                ]);
+            $offlineRoomNights = $this->firstInteger([], $reportData, ['offline_rooms'])
+                ?? $this->sumCompleteReportIntegerFields($reportData, [
+                    'walkin_rooms', 'member_exp_rooms', 'web_exp_rooms', 'group_rooms',
+                    'protocol_rooms', 'wechat_rooms', 'free_rooms', 'gold_card_rooms',
+                    'black_gold_rooms', 'hourly_rooms',
+                ]);
+            if ($onlineRoomNights !== null && $offlineRoomNights !== null) {
+                $soldRoomNights = $onlineRoomNights + $offlineRoomNights;
+            }
+        }
         $sellableRoomNights = $this->firstInteger($row, $reportData, ['salable_rooms']);
         $gaps = [];
         if ($actualRevenue === null) {
-            $gaps[] = ['code' => 'daily_report_actual_revenue_missing', 'message' => '日报未提供全酒店总营收，未预填实际完成额。'];
+            $gaps[] = $reportedRevenueInvalid
+                ? ['code' => 'daily_report_actual_revenue_invalid', 'message' => '日报总营收不是有效数字，未采用旧值预填实际完成额。']
+                : ['code' => 'daily_report_actual_revenue_missing', 'message' => '日报未提供全酒店总营收，未预填实际完成额。'];
         }
         if ($soldRoomNights === null) {
-            $gaps[] = ['code' => 'daily_report_sold_room_nights_missing', 'message' => '日报未提供总出租间夜，未预填销售进度。'];
+            $soldRoomNightsInvalid = $this->hasInvalidReportIntegerFields($reportData, [
+                'total_rooms', 'day_total_rooms', 'online_rooms', 'offline_rooms',
+                'xb_rooms', 'mt_rooms', 'fliggy_rooms', 'dy_rooms', 'tc_rooms',
+                'qn_rooms', 'zx_rooms', 'booking_rooms', 'agoda_rooms', 'expedia_rooms',
+                'walkin_rooms', 'member_exp_rooms', 'web_exp_rooms', 'group_rooms',
+                'protocol_rooms', 'wechat_rooms', 'free_rooms', 'gold_card_rooms',
+                'black_gold_rooms', 'hourly_rooms',
+            ]);
+            $gaps[] = $soldRoomNightsInvalid
+                ? ['code' => 'daily_report_sold_room_nights_invalid', 'message' => '日报间夜不是有效非负整数，未预填销售进度。']
+                : ['code' => 'daily_report_sold_room_nights_missing', 'message' => '日报未提供总出租间夜，未预填销售进度。'];
         }
         if ($sellableRoomNights === null) {
-            $gaps[] = ['code' => 'daily_report_sellable_room_nights_missing', 'message' => '日报未提供可售房夜，未预填所需均价。'];
+            $gaps[] = $this->hasInvalidReportIntegerFields($reportData, ['salable_rooms'])
+                ? ['code' => 'daily_report_sellable_room_nights_invalid', 'message' => '日报可售房夜不是有效非负整数，未预填所需均价。']
+                : ['code' => 'daily_report_sellable_room_nights_missing', 'message' => '日报未提供可售房夜，未预填所需均价。'];
         }
 
         return [
@@ -702,20 +775,66 @@ final class OperatingTargetService
 
     private function firstNumeric(array $row, array $reportData, array $keys): ?float
     {
-        foreach ($keys as $key) {
-            $value = $reportData[$key] ?? $row[$key] ?? null;
-            if ($value !== null && $value !== '' && is_numeric($value)) {
-                return $this->decimalOrNull($value, $key);
+        foreach ([$reportData, $row] as $source) {
+            foreach ($keys as $key) {
+                $value = $source[$key] ?? null;
+                if ($value !== null && $value !== '' && is_numeric($value)
+                    && is_finite((float)$value) && (float)$value >= 0) {
+                    return $this->decimalOrNull($value, $key);
+                }
             }
         }
         return null;
+    }
+
+    private function sumCompleteReportFields(array $reportData, array $keys): ?float
+    {
+        $total = 0.0;
+        foreach ($keys as $key) {
+            $value = $this->firstNumeric([], $reportData, [$key]);
+            if ($value === null) {
+                return null;
+            }
+            $total += $value;
+        }
+        return round($total, 2);
+    }
+
+    private function sumCompleteReportIntegerFields(array $reportData, array $keys): ?int
+    {
+        $total = 0;
+        foreach ($keys as $key) {
+            $value = $this->firstInteger([], $reportData, [$key]);
+            if ($value === null) {
+                return null;
+            }
+            $total += $value;
+        }
+        return $total;
+    }
+
+    private function hasInvalidReportIntegerFields(array $reportData, array $keys): bool
+    {
+        foreach ($keys as $key) {
+            $value = $reportData[$key] ?? null;
+            if ($value === null || $value === '') {
+                continue;
+            }
+            if (!is_numeric($value) || !is_finite((float)$value) || (float)$value < 0
+                || floor((float)$value) !== (float)$value) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private function firstInteger(array $row, array $reportData, array $keys): ?int
     {
         foreach ($keys as $key) {
             $value = $reportData[$key] ?? $row[$key] ?? null;
-            if ($value !== null && $value !== '' && is_numeric($value)) {
+            if ($value !== null && $value !== '' && is_numeric($value)
+                && is_finite((float)$value) && (float)$value >= 0
+                && floor((float)$value) === (float)$value) {
                 return $this->integerOrNull($value, $key);
             }
         }

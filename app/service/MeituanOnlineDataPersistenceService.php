@@ -158,6 +158,10 @@ final class MeituanOnlineDataPersistenceService
                 }
                 OnlineDailyDataPersistenceService::applyPeriodQuery($query, $periodFilter, $columns);
 
+                if (isset($columns['tenant_id'])) {
+                    $query->where('tenant_id', OnlineDailyDataPersistenceService::resolveTenantIdForSystemHotel($systemHotelId));
+                }
+
                 if ($systemHotelId !== null) {
                     $query->where('system_hotel_id', $systemHotelId);
                 }

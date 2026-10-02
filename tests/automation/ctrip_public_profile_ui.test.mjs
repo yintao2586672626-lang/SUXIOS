@@ -46,7 +46,7 @@ test('Ctrip public profile follows SUXIOS comparison, evidence and master-data b
   assert.match(panel, /单独刷新重试/);
   assert.match(panel, /class="suxi-cpp-compact-detail"/);
   assert.match(source, /const ctripPublicProfileNeedsAttention =/);
-  assert.match(source, /captureStatus !== 'available'/);
+  assert.match(source, /ctripPublicProfileCaptureStatus\(profile\) !== 'available'/);
   assert.match(source, /persistence_readback_status/);
   assert.match(source, /source_verified: '来源已验证'/);
   assert.match(source, /readback_verified: '保存已回读'/);
@@ -79,7 +79,7 @@ test('Ctrip public profile UI calls scoped add, read, and refresh endpoints', ()
   assert.match(source, /const options = ctripPublicProfileHotelOptions\.value;/);
   assert.match(source, /\['ctrip-public-profiles', 'ctrip-market-competition'\]\.includes\(onlineDataTab\.value\)\s*\? ctripPublicProfileHotelOptions\.value\s*: ctripTargetHotelOptions\.value/);
   assert.match(read('resources/frontend/templates/fragments/00-app-shell.html'), /\|\| !platformHotelOptions\.length/);
-  assert.match(source, /mutationSeq !== ctripPublicProfileMutationSeq[\s\S]*systemHotelId !== String\(selectedCtripHotelId\.value/);
+  assert.ok(/mutationSeq === ctripPublicProfileMutationSeq\s*&& systemHotelId === String\(selectedCtripHotelId\.value/.test(source), 'Public profile mutations must retain sequence and hotel ownership checks.');
   assert.match(source, /const ctripPublicProfileBusy = computed\(\(\) => ctripPublicProfileLoading\.value[\s\S]*ctripPublicProfileArchivingId\.value\)/);
   assert.doesNotMatch(template, /ctrip-public-profile-hotel-select/);
   assert.doesNotMatch(template, /v-model="selectedCtripHotelId"/);
@@ -168,7 +168,7 @@ test('public-page diagnosis exposes platform/date controls and truthful twelve-d
   assert.match(source, /bridgeState === 'create_blocked'/);
   assert.match(source, /module_not_entitled: '当前租户未开通运营模块/);
   assert.match(source, /identity_version.*legacy_v1/);
-  assert.match(source, /requestSeq !== otaPublicPageDiagnosisExecutionRequestSeq/);
+  assert.ok(source.includes('requestSeq === otaPublicPageDiagnosisExecutionRequestSeq'), 'Task responses must retain execution ownership checks.');
   assert.match(source, /Number\(summary\?\.hotel_id \|\| 0\) !== expectedHotelId/);
   assert.match(source, /String\(summary\?\.platform \|\| ''\)\.toLowerCase\(\) !== expectedPlatform/);
   assert.match(source, /status: String\(summary\.approval_status \|\| ''\)/);

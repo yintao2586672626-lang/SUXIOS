@@ -113,7 +113,7 @@ test('Meituan schedule shortcut creates a disabled daily fixed-time WeCom preset
   assert.match(opener, /\['meituan_traffic', 'meituan_conversion'\]/);
   assert.match(opener, /send_method:\s*'wecom_formal'/);
   assert.match(opener, /trigger_type:\s*'daily_fixed_time'/);
-  assert.match(opener, /planned_send_at:\s*`\$\{operationToday\}T09:15`/);
+  assert.match(opener, /planned_send_at:\s*`\$\{shanghaiBusinessToday\}T09:15`/);
   assert.doesNotMatch(opener, /trigger_type:\s*'interval_minutes'/);
   assert.match(opener, /hourly_start_time:\s*'09:15'/);
   assert.match(opener, /enabled:\s*false/);

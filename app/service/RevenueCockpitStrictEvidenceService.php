@@ -69,6 +69,8 @@ final class RevenueCockpitStrictEvidenceService
             $fields = is_array($source['fields'] ?? null) ? $source['fields'] : [];
             $requestedIds = [];
             $acceptedIds = [];
+            $rejectedIds = [];
+            $allConsumerFieldsStrict = true;
             $metrics = [];
             foreach ($fields as $field) {
                 if (!is_array($field)) {
@@ -90,6 +92,9 @@ final class RevenueCockpitStrictEvidenceService
                     && $ids !== [];
                 if ($ready) {
                     $acceptedIds = array_merge($acceptedIds, $ids);
+                } else {
+                    $allConsumerFieldsStrict = false;
+                    $rejectedIds = array_merge($rejectedIds, $ids);
                 }
                 foreach ($consumerKeys as $consumerKey) {
                     $metrics[$consumerKey] = [
@@ -106,7 +111,7 @@ final class RevenueCockpitStrictEvidenceService
 
             $requestedIds = $this->positiveIds($requestedIds);
             $acceptedIds = $this->positiveIds($acceptedIds);
-            $rejectedIds = array_values(array_diff($requestedIds, $acceptedIds));
+            $rejectedIds = $this->positiveIds($rejectedIds);
             $platformEvidence[$selectedPlatform] = [
                 'source_key' => $sourceKey,
                 'source_status' => (string)($source['status'] ?? 'partial'),
@@ -119,8 +124,8 @@ final class RevenueCockpitStrictEvidenceService
                     $acceptedIds
                 ),
                 'source_strict_readback' => (string)($source['revenue_analysis']['status'] ?? '') === 'ready'
+                    && $allConsumerFieldsStrict
                     && $requestedIds !== []
-                    && $rejectedIds === []
                     && count($acceptedIds) === count($requestedIds),
                 'metrics' => $metrics,
             ];

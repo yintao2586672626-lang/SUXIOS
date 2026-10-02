@@ -42,6 +42,15 @@ class OtaInsightAnalysisService
                 $modules[] = $optionalModule;
             }
         }
+        $modules = $this->blockModulesWithUntrustedMetrics($modules, $metrics);
+        if ($status === 'ready' && count(array_filter(
+            $modules,
+            static fn(array $module): bool => in_array(
+                $module['status'] ?? '', ['blocked_by_metric_truth', 'partial_data'], true
+            )
+        )) > 0) {
+            $status = 'ready_with_data_warnings';
+        }
         if ($gateStatus === 'blocked') {
             $modules = $this->blockModulesByCredibilityGate($modules, $credibilityGate);
         }
@@ -189,6 +198,20 @@ class OtaInsightAnalysisService
                 'Traffic conversion cannot be evaluated without traffic facts.',
                 'Backfill exposure, detail visit, order filling, and order submit counts.'
             );
+        }
+        if ($flowRate === null || $submitRate === null) {
+            $missingStage = $flowRate === null ? 'traffic_flow_rate_missing' : 'traffic_submit_rate_missing';
+            $module = $this->module(
+                'traffic_conversion',
+                'partial_data',
+                'P1',
+                'Only one OTA traffic funnel stage is calculable; the full conversion path is incomplete.',
+                'Verify and backfill the missing funnel stage before using this as a full conversion insight.',
+                ['avg_flow_rate' => $flowRate, 'avg_submit_rate' => $submitRate],
+                [$missingStage]
+            );
+            $module['actionable'] = false;
+            return $module;
         }
 
         $watch = ($flowRate !== null && (float)$flowRate < 15) || ($submitRate !== null && (float)$submitRate < 20);
@@ -351,6 +374,86 @@ class OtaInsightAnalysisService
             'metrics' => $metrics,
             'data_gaps' => array_values(array_unique($dataGaps)),
         ];
+    }
+
+    /**
+     * The overall gate covers critical revenue facts. Optional traffic, price,
+     * advertising and quality facts still need their own saved-source proof.
+     *
+     * @param array<int, array<string, mixed>> $modules
+     * @param array<string, mixed> $metrics
+     * @return array<int, array<string, mixed>>
+     */
+    private function blockModulesWithUntrustedMetrics(array $modules, array $metrics): array
+    {
+        $trustByKey = is_array($metrics['metric_trust'] ?? null) ? $metrics['metric_trust'] : [];
+        $metricKeys = [
+            'adr' => ['adr' => 'totals.adr'],
+            'revpar' => ['revpar' => 'totals.revpar'],
+            'net_revpar' => ['net_revpar' => 'totals.net_revpar'],
+            'cancellation_rate' => ['cancellation_rate' => 'totals.cancellation_rate'],
+            'traffic_conversion' => [
+                'avg_flow_rate' => 'traffic.avg_flow_rate',
+                'avg_submit_rate' => 'traffic.avg_submit_rate',
+            ],
+            'competitor_price_gap' => [
+                'avg_price_gap' => 'competitor_price.avg_price_gap',
+                'avg_price_gap_rate' => 'competitor_price.avg_competitor_price',
+            ],
+            'advertising_efficiency' => [
+                'spend' => 'advertising.spend',
+                'roas' => 'advertising.roas',
+            ],
+            'service_quality' => [
+                'avg_psi_score' => 'quality.avg_psi_score',
+                'avg_service_score' => 'quality.avg_service_score',
+            ],
+        ];
+
+        foreach ($modules as &$module) {
+            if (!in_array($module['status'] ?? '', ['available', 'watch', 'partial_data'], true)) {
+                continue;
+            }
+            $untrustedKeys = [];
+            $reasons = [];
+            $values = is_array($module['metrics'] ?? null) ? $module['metrics'] : [];
+            foreach ($metricKeys[$module['key'] ?? ''] ?? [] as $valueKey => $trustKey) {
+                if (!isset($values[$valueKey])) {
+                    continue;
+                }
+                $trust = is_array($trustByKey[$trustKey] ?? null) ? $trustByKey[$trustKey] : [];
+                $truth = is_array($trust['truth'] ?? null) ? $trust['truth'] : [];
+                if (($trust['saved_success'] ?? false) === true
+                    && ($truth['status'] ?? '') === 'verified'
+                    && (array)($trust['failure_reasons'] ?? []) === []) {
+                    continue;
+                }
+                $untrustedKeys[] = $trustKey;
+                $reasons[] = 'metric_truth_unverified:' . $trustKey;
+                foreach ((array)($trust['failure_reasons'] ?? []) as $reason) {
+                    $reason = trim((string)$reason);
+                    if ($reason !== '') {
+                        $reasons[] = $reason;
+                    }
+                }
+            }
+            if ($untrustedKeys === []) {
+                continue;
+            }
+            $module['original_status'] = (string)$module['status'];
+            $module['status'] = 'blocked_by_metric_truth';
+            $module['actionable'] = false;
+            $module['untrusted_metric_keys'] = array_values(array_unique($untrustedKeys));
+            $module['blocking_reason_codes'] = array_values(array_unique($reasons));
+            $module['data_gaps'] = array_values(array_unique(array_merge(
+                (array)($module['data_gaps'] ?? []),
+                $module['blocking_reason_codes']
+            )));
+            $module['recommended_action'] = 'Verify the module\'s exact OTA source fields, scope, and saved readback before using this insight for an operating action.';
+        }
+        unset($module);
+
+        return $modules;
     }
 
     /**

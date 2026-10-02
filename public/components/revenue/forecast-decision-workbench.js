@@ -76,12 +76,13 @@
             const form = reactive({ hotel_id: props.hotelId || '', platform: 'ctrip', platform_store_id: '', room_scope: '', horizon_days: 7, current_price: '', proposed_price: '', elasticity: '', inventory_room_nights: '' });
             const evidence = ref('');
             const controller = createController((...args) => props.request(...args));
-            onBeforeUnmount(() => controller.invalidate(true));
+            let evidenceEpoch = 0;
+            onBeforeUnmount(() => { evidenceEpoch++; controller.invalidate(true); });
             const revision = ref(0);
             const redraw = () => revision.value++;
             const scope = () => ({ hotel_id: Number(form.hotel_id), platform: form.platform, platform_store_id: form.platform_store_id.trim(), room_scope: form.room_scope.trim() });
             const inputKey = () => JSON.stringify([form, evidence.value]);
-            watch(inputKey, () => { controller.invalidate(); redraw(); }, { flush: 'sync' });
+            watch(inputKey, () => { evidenceEpoch++; controller.invalidate(); redraw(); }, { flush: 'sync' });
             watch(() => JSON.stringify(scope()), () => { controller.invalidate(true); redraw(); }, { flush: 'sync' });
             watch(() => props.hotelId, value => { form.hotel_id = value || ''; });
             const field = (label, key, type = 'text') => h('label', { class: 'fw-field' }, [label, h('input', { type, value: form[key], 'data-testid': `forecast-${key}`, onInput: e => { form[key] = e.target.value; } })]);
@@ -96,6 +97,7 @@
                 return value;
             };
             async function run(kind, id) {
+                evidenceEpoch++;
                 let p;
                 try { p = kind === 'read' ? scope() : payload(); }
                 catch (e) { controller.invalidate(); controller.state.error = e.message; redraw(); return; }
@@ -115,15 +117,32 @@
             }
             async function sample() {
                 controller.invalidate(); redraw();
-                const before = inputKey();
+                const ticket = ++evidenceEpoch;
                 try {
                     if (!form.hotel_id || !form.platform_store_id || !form.room_scope) throw new Error('先选择酒店，并声明门店和房型范围。');
                     const res = await props.request(`${endpoint}/context?${new URLSearchParams(scope())}`, { method: 'GET', businessContext: { hotelId: Number(form.hotel_id) } });
-                    if (before !== inputKey()) return;
+                    if (ticket !== evidenceEpoch) return;
                     if (res?.code !== 200) throw new Error(res?.message || '酒店范围读取失败。');
                     evidence.value = JSON.stringify(syntheticEvidence(res.data.scope), null, 2);
-                } catch (e) { if (before === inputKey()) controller.state.error = e.message; }
+                } catch (e) { if (ticket !== evidenceEpoch) return; controller.state.error = e.message; }
                 redraw();
+            }
+            async function importEvidence(event) {
+                const target = event.target, file = target.files?.[0];
+                if (!file) return;
+                const ticket = ++evidenceEpoch;
+                controller.invalidate(); redraw();
+                try {
+                    if (file.size > 2000000) throw new Error('文件超过2MB');
+                    const value = await file.text();
+                    if (ticket !== evidenceEpoch) return;
+                    target.value = '';
+                    evidence.value = value;
+                } catch (e) {
+                    if (ticket === evidenceEpoch) controller.state.error = e.message || '证据文件读取失败，请重新选择文件。';
+                } finally {
+                    if (ticket === evidenceEpoch) { target.value = ''; redraw(); }
+                }
             }
             const display = value => value === null || value === undefined ? '缺失' : Number(value).toLocaleString('zh-CN', { maximumFractionDigits: 2 });
             const labels = { insufficient_samples: '样本不足', better_on_this_sample: '本样本优于两基线', not_better_than_baseline: '未优于基线' };
@@ -144,7 +163,7 @@
                     h('p', { 'data-testid': 'forecast-scope-guidance' }, '门店标识和房型范围仅接受字母、数字、下划线及连字符，支持中文，每项最多100字节。填写脱敏业务编号，不要填写网址、请求头或凭证。'),
                     h('div', { class: 'fw-actions' }, [button('载入 synthetic 验收示例', sample, 'forecast-sample'), button(current.historyStatus === 'loading' ? '正在读取历史…' : '读取历史方案', () => loadHistory(), 'forecast-history', current.historyStatus === 'loading')]),
                     h('label', { class: 'fw-field' }, ['证据 JSON（含带时区 available_at、入住日、净间夜、质量状态；synthetic 来源用 synthetic- 编号，manual_unverified 用 manual- 编号，仅接受字母数字/下划线/连字符，禁止URL及凭证；证据范围编号不得含首尾空白）', h('textarea', { value: evidence.value, 'data-testid': 'forecast-evidence', onInput: e => { evidence.value = e.target.value; } })]),
-                    h('label', { class: 'fw-field' }, ['导入证据 JSON 文件', h('input', { type: 'file', accept: '.json,application/json', onChange: async e => { const file = e.target.files?.[0]; if (!file) return; if (file.size > 2000000) { controller.state.error = '文件超过2MB'; redraw(); return; } const before = inputKey(); const value = await file.text(); if (before === inputKey()) evidence.value = value; } })]),
+                    h('label', { class: 'fw-field' }, ['导入证据 JSON 文件', h('input', { type: 'file', accept: '.json,application/json', onChange: importEvidence })]),
                     h('p', '情景可选：全部留空只回测。填写后四项均必填；弹性是人工假设，库存为同渠道同房型全周期可用间夜。'),
                     h('div', { class: 'fw-grid' }, [h('label', { class: 'fw-field' }, ['情景周期', h('select', { value: form.horizon_days, onChange: e => { form.horizon_days = Number(e.target.value); } }, [7, 14, 30].map(n => h('option', { value: n }, `${n}天`)))]), field('当前房价（元/间夜）', 'current_price', 'number'), field('方案房价（元/间夜）', 'proposed_price', 'number'), field('价格弹性假设（-5至0）', 'elasticity', 'number'), field('全周期渠道库存（间夜）', 'inventory_room_nights', 'number')]),
                     h('div', { class: 'fw-actions' }, [button(current.busy ? '处理中…' : '运行回测和情景', () => run('preview'), 'forecast-run', !evidence.value.trim()), button('保存并精确回读', () => run('save'), 'forecast-save', !evidence.value.trim())]),

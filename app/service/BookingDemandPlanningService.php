@@ -212,7 +212,8 @@ final class BookingDemandPlanningService
             $permittedHotelIds,
             $hotelId,
             $startDate,
-            $endDate
+            $endDate,
+            $asOf->format('Y-m-d H:i:s.u')
         );
         $definitions = [
             ['tomorrow', '明天', 1],
@@ -743,7 +744,8 @@ final class BookingDemandPlanningService
         array $permittedHotelIds,
         int $hotelId,
         string $startDate,
-        string $endDate
+        string $endDate,
+        ?string $asOfTime = null
     ): array {
         $tenantId = $this->resolveScope($tenantId, $permittedHotelIds, $hotelId);
         $startDate = $this->date($startDate, 'start_date');
@@ -751,11 +753,15 @@ final class BookingDemandPlanningService
         if ($startDate > $endDate) {
             throw new InvalidArgumentException('demand_calendar_date_range_invalid');
         }
-        $rows = Db::name(self::EVENT_TABLE)
+        $query = Db::name(self::EVENT_TABLE)
             ->where('tenant_id', $tenantId)
             ->where('hotel_id', $hotelId)
             ->where('event_start_date', '<=', $endDate)
-            ->where('event_end_date', '>=', $startDate)
+            ->where('event_end_date', '>=', $startDate);
+        if ($asOfTime !== null) {
+            $query->where('observed_at', '<=', $this->dateTime($asOfTime, 'as_of_time'));
+        }
+        $rows = $query
             ->order('event_start_date', 'asc')
             ->order('id', 'asc')
             ->select()

@@ -1,0 +1,83 @@
+{
+  "schema_version": 1,
+  "id": "codex-execution-v32-20260930",
+  "recorded_on": "2026-09-30",
+  "repository_publication": "summary_contracts_and_source_fingerprint_only",
+  "user_request": "学习吸纳",
+  "display_identity": "Codex 全局执行规则 V3.2（系统开发与酒店业务交付版）",
+  "source": {
+    "type": "user_provided_local_rtf",
+    "filename": "提示词0930.rtf",
+    "sha256": "97F5333D9825F0E947B7DF5C6364333AB2A4596406217AFA446CBC12418AAF62",
+    "size_bytes": 63128,
+    "version": "V3.2 (self-described)",
+    "author": "unknown",
+    "publication_date": "unknown",
+    "license": "unverified",
+    "original_copied": false,
+    "extraction": "System.Windows.Forms.RichTextBox.LoadFile; plain text only",
+    "extracted_original_characters": 10485,
+    "source_line_count": 262,
+    "source_file": "source-extracted.redacted.txt",
+    "format_or_hidden_objects_verified": false
+  },
+  "redactions": [
+    {
+      "source_line": 11,
+      "type": "external_device_reference_path"
+    },
+    {
+      "source_line": 198,
+      "type": "external_account_email"
+    }
+  ],
+  "scope": {
+    "task_mode": "classify",
+    "disposition": "store_only",
+    "workflow_changes_disposition": "absorption_candidate",
+    "maturity": "understood",
+    "reference_only": true,
+    "active_instruction": false,
+    "decision_safe": false,
+    "task_draft_safe": false,
+    "external_write_authorized": false,
+    "instruction_files_modified": false,
+    "memory_updated": false,
+    "business_knowledge_database_written": false
+  },
+  "retrieval": {
+    "kind": "existing_repo_local_absorption_documents",
+    "entry": "../../capability-absorption/2026-09-30-codex-execution-v32.md",
+    "knowledge_center_indexed": false
+  },
+  "evidence": {
+    "mechanism": "understood",
+    "value": "mostly_existing_project_rules_with_reference_value",
+    "reproduction": "not_verified_for_workflow_or_product_capability",
+    "static_examples_only": true,
+    "automatic_loading_verified": false,
+    "effectiveness": "unknown"
+  },
+  "protected_baseline": [
+    {
+      "path": "AGENTS.override.md",
+      "sha256": "1B1CE4D4E6D0EAF29F7B9CE5B74FFC823331A68FDE002121EA54CFEF0EB06DE9"
+    },
+    {
+      "path": "AGENTS.md",
+      "sha256": "537A83FF6ACAD0BD13475087C6A8393650247E24E7FD3A89FB23FE1A46311C2B"
+    },
+    {
+      "path": "rules/codex-execution-status-contract.md",
+      "sha256": "3FCF9936E9EB5C12F09E0FDFD9B540461F66D6EAB81CBADCF37B8F6EA531078A"
+    },
+    {
+      "path": "rules/quality-completeness-and-issue-handling.md",
+      "sha256": "995955E28E2243F7B923B7A9AD9F8F765D31875362F2539FBB4D269796D94981"
+    },
+    {
+      "path": ".codex/config.toml",
+      "sha256": "5C521A96DD59E5C1F56CCF7D68DA628D7B3A6A3EDE9341A52308B65DFB4D8EB8"
+    }
+  ]
+}

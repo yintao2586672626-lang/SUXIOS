@@ -63,118 +63,7 @@
             ].filter(Boolean)),
         ]);
     };
-    // PRECISE_METRIC_SET_HELPERS_START
-    const preciseMetricHasValue = (value) => value !== null && value !== undefined && value !== '';
-    const preciseMetricUnitLabel = (value) => {
-        const unit = String(value || '').trim();
-        const labels = {
-            people: '人', users: '人', impressions: '次',
-            percent: '%', orders: '单', room_nights: '间夜',
-        };
-        return labels[unit.toLowerCase()] || unit;
-    };
-    const preciseMetricGapRows = (value) => [
-        ...(Array.isArray(value?.data_gaps) ? value.data_gaps : []),
-        ...(Array.isArray(value?.gaps) ? value.gaps : []),
-    ].filter((gap) => gap !== null && gap !== undefined && gap !== '');
-    const normalizePreciseMetricSet = (answer = {}) => {
-        const precise = answer?.precise_result && typeof answer.precise_result === 'object'
-            ? answer.precise_result
-            : null;
-        if (!precise) {
-            return {
-                contractVersion: '', kind: '', isMetricSet: false, items: [],
-                totalCount: 0, readyCount: 0, blockedCount: 0,
-                isPartial: false, allBlocked: false,
-            };
-        }
-        const nestedMetricSet = precise.metric_set && typeof precise.metric_set === 'object'
-            ? precise.metric_set
-            : null;
-        const contractVersion = String(nestedMetricSet?.contract_version || precise.contract_version || '');
-        const kind = String(nestedMetricSet?.kind || precise.kind || '');
-        const declaredMetricSet = contractVersion === 'suxios.precise_metric_set.v1'
-            || kind === 'operating_metric_set'
-            || Boolean(nestedMetricSet)
-            || Array.isArray(precise.precise_results)
-            || Array.isArray(answer.precise_results);
-        let rawItems = Array.isArray(nestedMetricSet?.items)
-            ? nestedMetricSet.items
-            : (Array.isArray(precise.items)
-                ? precise.items
-                : (Array.isArray(precise.precise_results)
-                    ? precise.precise_results
-                    : (Array.isArray(answer.precise_results) ? answer.precise_results : [])));
-        if (!rawItems.length && !declaredMetricSet) rawItems = [precise];
-        const items = rawItems
-            .filter((entry) => entry && typeof entry === 'object')
-            .map((entry, index) => {
-                const raw = entry.result && typeof entry.result === 'object'
-                    ? { ...entry, ...entry.result }
-                    : entry;
-                const metric = raw.metric && typeof raw.metric === 'object' ? raw.metric : {};
-                const metricKey = String(metric.key || raw.metric_key || `metric_${index + 1}`);
-                const metricName = String(metric.name || raw.metric_name || raw.canonical_term || metricKey);
-                const status = String(raw.status || raw.result_status || '');
-                const value = raw.value ?? null;
-                const hasValue = preciseMetricHasValue(value);
-                const verificationStatus = String(raw.verification_status || '').trim().toLowerCase();
-                const readbackStatus = String(raw.readback_status || '').trim().toLowerCase();
-                const statusBlocked = /^(?:blocked|missing|unavailable|failed|error|not_)/i.test(status);
-                const sourceRecords = Array.from(new Set([
-                    String(raw.source_record || ''),
-                    ...(Array.isArray(raw.source_records) ? raw.source_records.map((item) => String(item || '')) : []),
-                ].filter(Boolean)));
-                const strictEvidenceReady = ['verified', 'derived_verified'].includes(verificationStatus)
-                    && readbackStatus === 'readback_verified'
-                    && sourceRecords.length > 0;
-                const blockedReason = String(raw.blocked_reason || (
-                    !strictEvidenceReady ? '指标缺少 verified/derived_verified、readback_verified 或来源记录凭证' : ''
-                ));
-                const blocked = statusBlocked || blockedReason !== '' || !hasValue || !strictEvidenceReady;
-                const inputs = Array.isArray(raw.calculation_inputs)
-                    ? raw.calculation_inputs
-                    : (Array.isArray(raw.inputs) ? raw.inputs : []);
-                return {
-                    raw,
-                    index,
-                    metricKey,
-                    metricName,
-                    status: status || (blocked ? 'blocked_by_missing_metric' : 'ready'),
-                    value,
-                    unit: String(raw.unit || ''),
-                    unitLabel: preciseMetricUnitLabel(raw.unit),
-                    blockedReason,
-                    blocked,
-                    ready: !blocked,
-                    sourceRecords,
-                    collectedAt: raw.collected_at ?? null,
-                    verificationStatus,
-                    readbackStatus,
-                    formula: String(raw.formula || ''),
-                    inputs,
-                    gaps: preciseMetricGapRows(raw),
-                };
-            });
-        const readyCount = items.filter((item) => item.ready).length;
-        const blockedCount = items.length - readyCount;
-        const overallStatus = String(precise.status || nestedMetricSet?.status || answer.status || '');
-        const isMetricSet = declaredMetricSet || items.length > 1;
-        const isPartial = isMetricSet
-            && (readyCount > 0 && blockedCount > 0 || overallStatus.toLowerCase().includes('partial'));
-        return {
-            contractVersion,
-            kind,
-            isMetricSet,
-            items,
-            totalCount: items.length,
-            readyCount,
-            blockedCount,
-            isPartial,
-            allBlocked: items.length > 0 && readyCount === 0,
-        };
-    };
-    // PRECISE_METRIC_SET_HELPERS_END
+    const { preciseMetricHasValue, preciseMetricUnitLabel, preciseMetricGapRows, normalizePreciseMetricSet } = analystComponents;
     const preciseMetricGapText = (gap) => String(
         gap && typeof gap === 'object' ? (gap.message || gap.reason || gap.code || '') : (gap || '')
     ).trim();
@@ -352,6 +241,7 @@
             };
             const qualityFeedbackUi = createHotelDataAnalystFeedbackUi({
                 getState: currentState,
+                getSessionEpoch: () => ui?.sessionEpoch?.(),
                 request,
             });
             const loadLocalAiCapabilities = async () => {
@@ -386,17 +276,33 @@
                 state.media_error = '';
                 state.media_result = null;
             };
+            const mediaHistoryLoading = ref(false);
+            const mediaHistoryError = ref('');
+            let mediaHistoryRequestId = 0;
+            const panelScopeOwner = (state, hotelId) => {
+                const epoch = ui?.sessionEpoch?.();
+                return () => currentState() === state
+                    && Number(valueOf(ui?.form).hotel_id || 0) === hotelId
+                    && ui?.sessionEpoch?.() === epoch;
+            };
             const selectedMediaIds = () => Array.from(new Set((Array.isArray(currentState().media_selected_ids)
                 ? currentState().media_selected_ids
                 : [])
                 .map(item => Number(item || 0))
                 .filter(item => Number.isInteger(item) && item > 0)))
                 .slice(0, 10);
+            const mediaSelectionReason = (row) => {
+                if (!Number(row?.id || 0) || Number(row?.hotel_id || 0) !== currentHotelId()) return '媒体记录不属于当前门店';
+                const userId = Number(valueOf(ui?.user).id || 0);
+                if (!Number.isInteger(userId) || userId <= 0) return '当前账号未确认，暂不能用于问答';
+                if (Number(row?.created_by || 0) !== userId) return '仅提取者本人可用于问答';
+                if (!['ready', 'partial'].includes(String(row?.extraction_status || ''))) return '提取未就绪，暂不能用于问答';
+                return '';
+            };
             const toggleMediaEvidence = (row) => {
                 const state = currentState();
                 const id = Number(row?.id || 0);
-                const status = String(row?.extraction_status || '');
-                if (!id || !['ready', 'partial'].includes(status)) return false;
+                if (mediaSelectionReason(row)) return false;
                 const selected = selectedMediaIds();
                 state.media_selected_ids = selected.includes(id)
                     ? selected.filter(item => item !== id)
@@ -407,23 +313,33 @@
             const loadMediaHistory = async () => {
                 const state = currentState();
                 const hotelId = currentHotelId();
+                const requestId = ++mediaHistoryRequestId;
+                const ownsScope = panelScopeOwner(state, hotelId);
+                const isCurrent = () => requestId === mediaHistoryRequestId && ownsScope();
+                mediaHistoryError.value = '';
+                state.media_history = [];
+                mediaHistoryLoading.value = Boolean(hotelId);
                 if (!hotelId) {
-                    state.media_history = [];
                     return [];
                 }
                 try {
                     const response = await request(`/agent/local-media-extractions?hotel_id=${hotelId}&limit=10`);
+                    if (!isCurrent()) return null;
                     if (response.code !== 200) throw new Error(response.message || '本地媒体记录读取失败');
-                    const list = Array.isArray(response.data?.list) ? response.data.list : [];
+                    if (!Array.isArray(response.data?.list)) throw new Error('本地媒体记录列表未正确返回');
+                    const list = response.data.list;
                     if (list.some((item) => Number(item?.hotel_id || 0) !== hotelId)) {
                         throw new Error('本地媒体记录返回了其他门店数据');
                     }
                     state.media_history = list;
                     return list;
                 } catch (error) {
+                    if (!isCurrent()) return null;
                     state.media_history = [];
-                    state.media_error = error?.message || '本地媒体记录读取失败';
+                    mediaHistoryError.value = error?.message || '本地媒体记录读取失败';
                     return [];
+                } finally {
+                    if (requestId === mediaHistoryRequestId) mediaHistoryLoading.value = false;
                 }
             };
             const extractLocalMedia = async () => {
@@ -435,6 +351,8 @@
                     state.media_error = '请先选择酒店和图片、音频或视频文件。';
                     return null;
                 }
+                const ownsScope = panelScopeOwner(state, hotelId);
+                const isCurrent = () => ownsScope() && state.media_file === file;
                 state.media_loading = true;
                 state.media_error = '';
                 state.media_result = null;
@@ -443,6 +361,7 @@
                     body.append('hotel_id', String(hotelId));
                     body.append('file', file, file.name);
                     const saved = await request('/agent/local-media-extractions', { method: 'POST', body });
+                    if (!isCurrent()) return null;
                     if (saved.code !== 200 || !saved.data) throw new Error(saved.message || '本地媒体提取失败');
                     const savedResult = saved.data;
                     const resultId = Number(savedResult.id || 0);
@@ -450,6 +369,7 @@
                         throw new Error('本地媒体提取没有返回保存回读凭证');
                     }
                     const readback = await request(`/agent/local-media-extractions/${resultId}`);
+                    if (!isCurrent()) return null;
                     if (readback.code !== 200 || !readback.data) throw new Error(readback.message || '本地媒体提取回读失败');
                     const exact = readback.data;
                     if (Number(exact.id || 0) !== resultId
@@ -461,25 +381,40 @@
                         || exact?.boundaries?.source_file_retained !== false
                         || exact?.boundaries?.hotel_fact_created !== false
                     ) throw new Error('本地媒体提取保存与精确回读不一致');
-                    if (currentHotelId() !== hotelId) {
-                        throw new Error('酒店范围已变化，本次媒体提取结果不再展示。');
-                    }
                     state.media_result = exact;
                     await loadMediaHistory();
-                    return exact;
+                    return isCurrent() ? exact : null;
                 } catch (error) {
+                    if (!isCurrent()) return null;
                     state.media_error = error?.message || '本地媒体提取失败';
                     return null;
                 } finally {
                     state.media_loading = false;
                 }
             };
-            const loadWecom = async () => {
+            let wecomLoadingOwner = null;
+            let wecomReplyOwner = null;
+            const wecomBusy = () => {
+                const state = currentState();
+                return Boolean((state.wecom_loading && wecomLoadingOwner?.())
+                    || (state.wecom_reply_loading_id && wecomReplyOwner?.()));
+            };
+            const loadWecom = async (options = {}) => {
                 const state = currentState();
                 const hotelId = currentHotelId();
-                if (state.wecom_loading) return null;
+                if (wecomBusy() && options.afterMutation !== wecomReplyOwner) return null;
+                const ownsScope = panelScopeOwner(state, hotelId);
+                const isCurrent = () => wecomLoadingOwner === isCurrent && ownsScope();
+                wecomLoadingOwner = isCurrent;
+                if (!wecomReplyOwner?.()) {
+                    wecomReplyOwner = null;
+                    state.wecom_reply_loading_id = 0;
+                }
                 state.wecom_loading = true;
                 state.wecom_error = '';
+                state.wecom_capabilities = null;
+                state.wecom_bindings = [];
+                state.wecom_events = [];
                 try {
                     const eventUrl = hotelId > 0
                         ? `/agent/wecom-inbound/events?hotel_id=${hotelId}&limit=10`
@@ -489,9 +424,13 @@
                         request('/agent/wecom-inbound/bindings'),
                         request(eventUrl),
                     ]);
+                    if (!isCurrent()) return null;
                     for (const [label, response] of [['能力', capability], ['绑定', bindings], ['事件', events]]) {
                         if (response.code !== 200) throw new Error(response.message || `企业微信${label}读取失败`);
                     }
+                    if (!capability.data || typeof capability.data !== 'object'
+                        || !Array.isArray(bindings.data?.list) || !Array.isArray(events.data?.list)
+                    ) throw new Error('企业微信工作台数据未完整返回，请刷新重试');
                     state.wecom_capabilities = capability.data || null;
                     state.wecom_bindings = (Array.isArray(bindings.data?.list) ? bindings.data.list : [])
                         .filter((item) => !hotelId || Number(item?.hotel_id || 0) === hotelId);
@@ -499,20 +438,28 @@
                         .filter((item) => !hotelId || Number(item?.hotel_id || 0) === hotelId);
                     return state.wecom_capabilities;
                 } catch (error) {
+                    if (!isCurrent()) return null;
                     state.wecom_error = error?.message || '企业微信智能机器人工作台读取失败';
                     return null;
                 } finally {
-                    state.wecom_loading = false;
+                    if (wecomLoadingOwner === isCurrent) {
+                        state.wecom_loading = false;
+                        wecomLoadingOwner = null;
+                    }
                 }
             };
             const createWecomBindingCode = async () => {
                 const state = currentState();
                 const hotelId = currentHotelId();
-                if (!hotelId || state.wecom_loading) return null;
+                if (!hotelId || wecomBusy()) return null;
                 if (String(state.wecom_capabilities?.aibot_websocket?.status || '') !== 'ready') {
                     state.wecom_error = `企业微信 WebSocket 尚未就绪：${String(state.wecom_capabilities?.aibot_websocket?.error_code || '请先完成 Bot ID、Secret、中继令牌与 Worker 认证')}`;
                     return null;
                 }
+                const ownsScope = panelScopeOwner(state, hotelId);
+                const isCurrent = () => wecomLoadingOwner === isCurrent && ownsScope();
+                wecomLoadingOwner = isCurrent;
+                state.wecom_reply_loading_id = 0;
                 state.wecom_loading = true;
                 state.wecom_error = '';
                 state.wecom_binding_code = null;
@@ -521,6 +468,7 @@
                         method: 'POST',
                         body: JSON.stringify({ hotel_id: hotelId, label: '宿析经营追问' }),
                     });
+                    if (!isCurrent()) return null;
                     if (response.code !== 200 || !response.data) throw new Error(response.message || '企微绑定码创建失败');
                     const code = response.data;
                     if (Number(code.hotel_id || 0) !== hotelId
@@ -531,17 +479,26 @@
                     state.wecom_binding_code = code;
                     return code;
                 } catch (error) {
+                    if (!isCurrent()) return null;
                     state.wecom_error = error?.message || '企微绑定码创建失败';
                     return null;
                 } finally {
-                    state.wecom_loading = false;
+                    if (wecomLoadingOwner === isCurrent) {
+                        state.wecom_loading = false;
+                        wecomLoadingOwner = null;
+                    }
                 }
             };
             const setWecomReply = async (binding, enabled) => {
                 const state = currentState();
                 const bindingId = Number(binding?.id || 0);
-                if (!bindingId || state.wecom_reply_loading_id) return null;
+                const hotelId = currentHotelId();
+                if (!bindingId || Number(binding?.hotel_id || 0) !== hotelId || wecomBusy()) return null;
                 if (enabled && !window.confirm('确认允许该企微会话接收宿析回答？这只发送只读 OTA 经营问答，不会审批或执行经营动作。')) return null;
+                const ownsScope = panelScopeOwner(state, hotelId);
+                const isCurrent = () => wecomReplyOwner === isCurrent && ownsScope();
+                wecomReplyOwner = isCurrent;
+                state.wecom_loading = false;
                 state.wecom_reply_loading_id = bindingId;
                 state.wecom_error = '';
                 try {
@@ -549,28 +506,39 @@
                         method: 'POST',
                         body: JSON.stringify({ enabled: Boolean(enabled) }),
                     });
+                    if (!isCurrent()) return null;
                     if (response.code !== 200 || !response.data) throw new Error(response.message || '企微回复开关保存失败');
                     const exact = response.data;
                     if (Number(exact.id || 0) !== bindingId
+                        || Number(exact.hotel_id || 0) !== hotelId
                         || exact.reply_enabled !== Boolean(enabled)
                         || exact.persistence_status !== 'readback_verified'
                         || exact.automatic_execution !== false
                         || exact.ota_write !== false
                     ) throw new Error('企微回复开关保存与回读不一致');
-                    await loadWecom();
-                    return exact;
+                    await loadWecom({ afterMutation: isCurrent });
+                    return isCurrent() ? exact : null;
                 } catch (error) {
+                    if (!isCurrent()) return null;
                     state.wecom_error = error?.message || '企微回复开关保存失败';
                     return null;
                 } finally {
-                    state.wecom_reply_loading_id = 0;
+                    if (wecomReplyOwner === isCurrent) {
+                        state.wecom_reply_loading_id = 0;
+                        wecomReplyOwner = null;
+                    }
                 }
             };
             const disableWecomBinding = async (binding) => {
                 const state = currentState();
                 const bindingId = Number(binding?.id || 0);
-                if (!bindingId || state.wecom_reply_loading_id) return null;
+                const hotelId = currentHotelId();
+                if (!bindingId || Number(binding?.hotel_id || 0) !== hotelId || wecomBusy()) return null;
                 if (!window.confirm('确认停用并解绑该企微会话？历史事件会保留，但该会话将不能继续收发宿析回答。')) return null;
+                const ownsScope = panelScopeOwner(state, hotelId);
+                const isCurrent = () => wecomReplyOwner === isCurrent && ownsScope();
+                wecomReplyOwner = isCurrent;
+                state.wecom_loading = false;
                 state.wecom_reply_loading_id = bindingId;
                 state.wecom_error = '';
                 try {
@@ -578,22 +546,28 @@
                         method: 'POST',
                         body: JSON.stringify({}),
                     });
+                    if (!isCurrent()) return null;
                     if (response.code !== 200 || !response.data) throw new Error(response.message || '企微会话解绑失败');
                     const exact = response.data;
                     if (Number(exact.id || 0) !== bindingId
+                        || Number(exact.hotel_id || 0) !== hotelId
                         || String(exact.status || '') !== 'disabled'
                         || exact.reply_enabled !== false
                         || exact.conversation_reference_released !== true
                         || exact.historical_events_retained !== true
                         || exact.persistence_status !== 'readback_verified'
                     ) throw new Error('企微会话解绑与回读不一致');
-                    await loadWecom();
-                    return exact;
+                    await loadWecom({ afterMutation: isCurrent });
+                    return isCurrent() ? exact : null;
                 } catch (error) {
+                    if (!isCurrent()) return null;
                     state.wecom_error = error?.message || '企微会话解绑失败';
                     return null;
                 } finally {
-                    state.wecom_reply_loading_id = 0;
+                    if (wecomReplyOwner === isCurrent) {
+                        state.wecom_reply_loading_id = 0;
+                        wecomReplyOwner = null;
+                    }
                 }
             };
             onMounted(() => {
@@ -804,22 +778,36 @@
                                         ? 'border-emerald-300 bg-emerald-100 text-emerald-800'
                                         : 'border-slate-300 bg-white text-slate-700'],
                                     'data-testid': 'local-media-use-in-question',
+                                    disabled: Boolean(mediaSelectionReason(state.media_result)),
                                     onClick: () => toggleMediaEvidence(state.media_result),
                                 }, selectedMediaIds().includes(Number(state.media_result.id || 0)) ? '已绑定到下一次问答' : '用于下一次问答'),
+                                mediaSelectionReason(state.media_result) ? h('p', { class: 'mt-1 text-[11px] text-slate-500' }, mediaSelectionReason(state.media_result)) : null,
                             ]) : null,
+                            h('button', {
+                                type: 'button',
+                                disabled: mediaHistoryLoading.value || !form.hotel_id,
+                                class: 'mt-2 rounded border border-slate-300 px-2 py-1 text-xs text-slate-700 disabled:opacity-50',
+                                'data-testid': 'local-media-history-refresh',
+                                onClick: () => loadMediaHistory(),
+                            }, mediaHistoryLoading.value ? '正在读取媒体记录…' : '刷新媒体记录'),
+                            mediaHistoryError.value ? h('p', {
+                                role: 'alert',
+                                class: 'mt-2 text-xs text-red-700',
+                                'data-testid': 'local-media-history-error',
+                            }, mediaHistoryError.value) : null,
                             Array.isArray(state.media_history) && state.media_history.length
                                 ? h('div', { class: 'mt-2 space-y-1', 'data-testid': 'local-media-evidence-picker' }, [
                                     h('p', { class: 'text-[11px] text-slate-500' }, `该门店已保存并校验 ${state.media_history.length} 条本机提取记录；仅显式勾选的记录进入下一次问答。`),
-                                    ...state.media_history.slice(0, 5).map(item => h('button', {
+                                    ...state.media_history.map(item => h('button', {
                                         key: `media-evidence-${Number(item?.id || 0)}`,
                                         type: 'button',
-                                        disabled: !['ready', 'partial'].includes(String(item?.extraction_status || '')),
+                                        disabled: Boolean(mediaSelectionReason(item)),
                                         class: ['block w-full rounded border px-2 py-1.5 text-left text-[11px] disabled:opacity-50', selectedMediaIds().includes(Number(item?.id || 0))
                                             ? 'border-emerald-300 bg-emerald-50 text-emerald-800'
                                             : 'border-slate-200 bg-white text-slate-600'],
                                         'data-testid': `local-media-evidence-${Number(item?.id || 0)}`,
                                         onClick: () => toggleMediaEvidence(item),
-                                    }, `${selectedMediaIds().includes(Number(item?.id || 0)) ? '✓ ' : ''}#${Number(item?.id || 0)} · ${String(item?.original_name || item?.media_kind || '媒体')} · ${String(item?.extraction_status || '')}`)),
+                                    }, `${selectedMediaIds().includes(Number(item?.id || 0)) ? '✓ ' : ''}#${Number(item?.id || 0)} · ${String(item?.original_name || item?.media_kind || '媒体')} · ${String(item?.extraction_status || '')}${mediaSelectionReason(item) ? ` · ${mediaSelectionReason(item)}` : ''}`)),
                                 ])
                                 : null,
                         ].filter(Boolean)),
@@ -835,10 +823,10 @@
                             ]),
                             h('button', {
                                 type: 'button',
-                                disabled: Boolean(state.wecom_loading),
+                                disabled: wecomBusy(),
                                 class: 'rounded border border-sky-200 px-2 py-1 text-xs text-sky-700 disabled:opacity-50',
                                 onClick: () => loadWecom(),
-                            }, state.wecom_loading ? '读取中…' : '刷新'),
+                            }, wecomBusy() ? '处理中…' : '刷新'),
                         ]),
                         h('div', { class: 'mt-2 rounded-lg bg-sky-50 px-2 py-2 text-xs text-sky-800' }, [
                             h('strong', String(wecom?.aibot_websocket?.status || '未读取')),
@@ -848,7 +836,7 @@
                         ]),
                         h('button', {
                             type: 'button',
-                            disabled: Boolean(state.wecom_loading || !form.hotel_id || !wecomRuntimeReady),
+                            disabled: Boolean(wecomBusy() || !form.hotel_id || !wecomRuntimeReady),
                             class: 'mt-2 rounded-lg bg-sky-600 px-3 py-2 text-xs font-medium text-white disabled:opacity-50',
                             'data-testid': 'wecom-aibot-binding-code',
                             onClick: () => createWecomBindingCode(),
@@ -874,20 +862,23 @@
                                     ? h('div', { class: 'flex shrink-0 items-center gap-1' }, [
                                         h('button', {
                                             type: 'button',
-                                            disabled: Number(state.wecom_reply_loading_id || 0) > 0,
+                                            disabled: wecomBusy(),
                                             class: ['rounded px-2 py-1 text-[11px] font-medium', binding?.reply_enabled ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800'],
                                             onClick: () => setWecomReply(binding, !binding.reply_enabled),
                                         }, binding?.reply_enabled ? '关闭回复' : '主动开启回复'),
                                         h('button', {
                                             type: 'button',
-                                            disabled: Number(state.wecom_reply_loading_id || 0) > 0,
+                                            disabled: wecomBusy(),
                                             class: 'rounded bg-red-50 px-2 py-1 text-[11px] font-medium text-red-700 disabled:opacity-50',
                                             onClick: () => disableWecomBinding(binding),
                                         }, '停用解绑'),
                                     ])
                                     : null,
                             ].filter(Boolean))))
-                            : h('p', { class: 'mt-3 text-xs text-slate-500' }, '当前门店尚无已验证企微会话绑定。'),
+                            : h('p', { class: 'mt-3 text-xs text-slate-500' }, wecomBusy()
+                                ? '正在处理企微工作台，请稍候。'
+                                : state.wecom_error ? '企微绑定读取失败，刷新后重试。'
+                                    : !wecom ? '企微绑定状态尚未读取。' : '当前门店尚无已验证企微会话绑定。'),
                         Array.isArray(state.wecom_events) && state.wecom_events.length
                             ? h('details', { class: 'mt-3 text-xs text-slate-600' }, [
                                 h('summary', { class: 'cursor-pointer font-medium' }, `最近事件（${state.wecom_events.length}）`),
@@ -910,12 +901,21 @@
                 }, [
                     h('summary', { class: 'cursor-pointer text-xs font-semibold text-indigo-800' }, `最近保存问答${state.history_loading ? '（读取中…）' : `（${history.length}）`}`),
                     state.history_error
-                        ? h('p', { class: 'mt-2 text-xs text-red-700' }, String(state.history_error))
+                        ? h('div', { class: 'mt-2 flex flex-wrap items-center gap-2' }, [
+                            h('p', { class: 'text-xs text-red-700' }, String(state.history_error)),
+                            h('button', {
+                                type: 'button',
+                                disabled: Boolean(state.history_loading),
+                                class: 'rounded border border-indigo-200 px-2 py-1 text-xs text-indigo-800 disabled:opacity-50',
+                                'data-testid': 'operating-question-history-retry',
+                                onClick: () => ui?.loadHistory?.({ force: true }),
+                            }, '重试读取'),
+                        ])
                         : (history.length
                             ? h('div', { class: 'mt-2 grid gap-2' }, history.map((item) => h('button', {
                                 key: Number(item?.id || 0),
                                 type: 'button',
-                                disabled: Boolean(state.history_opening_id),
+                                disabled: Number(state.history_opening_id || 0) === Number(item?.id || 0),
                                 class: ['rounded-lg border px-3 py-2 text-left text-xs transition hover:border-indigo-300 hover:bg-indigo-50 disabled:opacity-50', Number(result?.id || 0) === Number(item?.id || 0) ? 'border-indigo-300 bg-indigo-50' : 'border-slate-200 bg-white'],
                                 'data-testid': `operating-question-history-${Number(item?.id || 0)}`,
                                 onClick: () => ui?.openHistory?.(item),
@@ -1105,6 +1105,8 @@
                     const actionDrafts = Array.isArray(result.answer?.action_drafts)
                         ? result.answer.action_drafts.slice(0, 1)
                         : [];
+                    const intentReadbackReady = result.action_intent_readback?.data_status === 'ok'
+                        && Array.isArray(result.action_intent_readback?.list);
                     actionDrafts.forEach((action, actionIndex) => {
                         const actionKey = `${Number(result.id || 0)}:${actionIndex}`;
                         const intent = state.action_intents?.[actionKey] || null;
@@ -1156,6 +1158,11 @@
                                 class: 'mt-3 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800',
                                 'data-testid': 'operating-question-action-blocked',
                             }, String(action?.blocked_reason || '行动草案缺少完整证据、步骤或停止条件，暂不能提交。')));
+                        } else if (!intent && !intentReadbackReady) {
+                            actionChildren.push(h('p', {
+                                class: 'mt-3 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800',
+                                'data-testid': 'operating-question-action-readback-error',
+                            }, '意图历史读取失败，无法确认该草案是否已提交；请重新打开保存问答后重试。'));
                         } else {
                             actionChildren.push(h('div', { class: 'mt-3 flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 pt-3' }, [
                                 h('div', { class: 'text-[11px] leading-5 text-slate-500' }, [
@@ -2473,6 +2480,7 @@
                 preference_saving_key: '',
                 feedback_status: {},
                 journey_transition_status: '',
+                evidence_errors: {},
             });
             const journeyStorageVersion = 1;
             const widgetStorageVersion = 1;
@@ -2542,6 +2550,7 @@
             let coachRequestId = 0;
             const icon = (name) => h('i', { class: `fas ${name}`, 'aria-hidden': 'true' });
             const qualityFeedbackUi = createHotelDataAnalystFeedbackUi({
+                getSessionEpoch: () => props.ctx?.assistantSessionEpoch?.(),
                 getState: () => {
                     const current = props.ctx?.operatingQuestionState;
                     return current && typeof current === 'object' && 'value' in current
@@ -4012,7 +4021,8 @@
                 return true;
             };
             const restorePreciseQueryReadback = async () => {
-                if (state.value.turns.length || state.value.loading || state.value.restoring_precise_query) return false;
+                if (state.value.turns.length || state.value.loading || state.value.restoring_precise_query
+                    || String(state.value.query || '').trim()) return false;
                 if (restorePendingPreciseQuery()) return false;
                 const pointer = readPreciseQueryPointer();
                 if (!pointer || typeof props.ctx?.managerCapabilityRequest !== 'function') return false;
@@ -4128,27 +4138,17 @@
                         : '没有使用历史偏好改变本次结果。'),
                 ]);
             };
-            const openOperatingWorkspace = async () => {
-                const ctx = props.ctx || {};
-                ctx.currentPage = 'agent-center';
-                await nextTick();
-                return focusTopicAnchor(topicByKey('agent-toolbox'));
-            };
-            const operatingScopeText = (result) => {
-                const hotelId = Number(result?.hotel_id || 0);
-                const hotel = (Array.isArray(props.ctx?.otaDiagnosisHotelOptions) ? props.ctx.otaDiagnosisHotelOptions : [])
-                    .find((item) => Number(item?.value || 0) === hotelId);
-                const hotelText = String(hotel?.name || (hotelId > 0 ? `酒店 #${hotelId}` : '未锁定酒店'));
-                const platformText = String(props.ctx?.operatingQuestionPlatformText?.(result?.platform) || result?.platform || '未锁定平台');
-                const dateStart = String(result?.date_start || '');
-                const dateEnd = String(result?.date_end || '');
-                const dateText = dateStart ? `${dateStart}${dateEnd && dateEnd !== dateStart ? ` 至 ${dateEnd}` : ''}` : '未锁定日期';
-                return `${hotelText} · ${platformText} · ${dateText}`;
-            };
+            const { operatingEvidenceTarget, renderEvidenceButton, operatingScopeText } =
+                window.SUXI_OPERATING_INTELLIGENCE_COMPONENTS.createEvidenceNavigation({
+                    state, getContext: () => props.ctx || {}, canOpen: () => canOpenTopic(topicByKey('agent-toolbox')),
+                    nextTick, focus: () => focusTopicAnchor(topicByKey('agent-toolbox')), h, icon,
+                });
             const renderOperatingResult = (guideResult, turn, isLatest = false) => {
                 const assistantMode = String(guideResult?.assistant_mode || 'guide');
                 if (!['report', 'action'].includes(assistantMode)) return null;
                 const exact = guideResult?.operating_result || null;
+                const evidenceTarget = operatingEvidenceTarget(guideResult, turn);
+                const evidenceError = evidenceTarget.error || state.value.evidence_errors[evidenceTarget.key] || '';
                 if (!exact) {
                     return h('section', {
                         class: 'sx-ai-consultant-operating-result is-blocked',
@@ -4164,10 +4164,11 @@
                                 type: 'button',
                                 onClick: (event) => openTopic(event, topicByKey('data-health'), turn),
                             }, [icon('fa-shield-alt'), h('span', '去数据健康查阻塞')]),
-                            h('button', { type: 'button', onClick: openOperatingWorkspace }, [
-                                icon('fa-arrow-right'), h('span', '打开专业问答'),
+                            h('button', { type: 'button', disabled: true }, [
+                                icon('fa-arrow-right'), h('span', '暂无已保存回答可查看'),
                             ]),
                         ]),
+                        h('p', { class: 'sx-ai-consultant-error', role: 'status' }, evidenceError),
                     ]);
                 }
                 const answer = exact.answer && typeof exact.answer === 'object' ? exact.answer : {};
@@ -4286,12 +4287,13 @@
                             onClick: (event) => openTopic(event, topicByKey('data-health'), turn),
                         }, [icon('fa-shield-alt'), h('span', partial ? '补齐阻塞指标' : '补齐可信事实')])
                         : null,
-                    h('button', {
-                        type: 'button',
-                        'data-testid': isLatest ? 'system-guide-open-operating-workspace' : undefined,
-                        onClick: openOperatingWorkspace,
-                    }, [icon('fa-arrow-right'), h('span', assistantMode === 'action' ? '到专业页面复核草案' : '查看完整证据与引用')]),
+                    renderEvidenceButton(guideResult, turn, isLatest, assistantMode, evidenceTarget),
                 ].filter(Boolean)));
+                if (evidenceError) children.push(h('p', {
+                    class: 'sx-ai-consultant-error',
+                    role: 'alert',
+                    'data-testid': `system-guide-evidence-error-${turn?.id || exact.id}`,
+                }, evidenceError));
                 return h('section', {
                     class: ['sx-ai-consultant-operating-result', blocked ? 'is-blocked' : 'is-ready', partial ? 'is-partial' : ''],
                     'data-testid': isLatest ? 'system-guide-operating-result' : undefined,
@@ -4987,10 +4989,8 @@
             };
         },
     };
-
         return Object.freeze({ operatingQuestionPanel, operatingQuestionConsultant, hotelDataAnalystProfile });
     };
-
     const exportedFactory = Object.freeze({ create });
     window.SUXI_OPERATING_INTELLIGENCE_COMPONENTS_FULL = exportedFactory;
     if (!window.SUXI_OPERATING_INTELLIGENCE_COMPONENTS) {

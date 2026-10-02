@@ -285,6 +285,83 @@ final class OperatingFinance extends Base
         }
     }
 
+    public function settlementHistory(): Response
+    {
+        try {
+            [$tenantId, $hotelId, $platform, $periodStart, $periodEnd] = $this->settlementReadScope();
+            $page = $this->positiveQueryInt($this->request->param('page', 1), 'page');
+            $pageSize = $this->positiveQueryInt($this->request->param('page_size', 20), 'page_size');
+            $history = (new OtaSettlementReconciliationService())->historyForScope(
+                $tenantId,
+                $hotelId,
+                $platform,
+                $periodStart,
+                $periodEnd,
+                $page,
+                $pageSize
+            );
+            return $this->success($history, 'OTA结算批次历史已按范围回读');
+        } catch (Throwable $e) {
+            return $this->error($this->safeMessage($e, 'OTA结算批次历史回读失败'), $this->statusCode($e));
+        }
+    }
+
+    public function settlementRead(mixed $batchId): Response
+    {
+        try {
+            [$tenantId, $hotelId, $platform, $periodStart, $periodEnd] = $this->settlementReadScope();
+            $batchId = $this->positiveQueryInt($batchId, 'batch_id');
+            $readback = (new OtaSettlementReconciliationService())->readForScope(
+                $tenantId,
+                $hotelId,
+                $platform,
+                $periodStart,
+                $periodEnd,
+                $batchId
+            );
+            if ($readback === null) {
+                throw new RuntimeException('ota_settlement_batch_not_found', 404);
+            }
+            return $this->success($readback, 'OTA结算批次已按ID精确回读');
+        } catch (Throwable $e) {
+            return $this->error($this->safeMessage($e, 'OTA结算批次回读失败'), $this->statusCode($e));
+        }
+    }
+
+    /** @return array{0:int,1:int,2:string,3:string,4:string} */
+    private function settlementReadScope(): array
+    {
+        $hotelId = $this->positiveQueryInt($this->request->param('hotel_id'), 'hotel_id');
+        [$tenantId] = $this->resolveHotelScope($hotelId, 'operation.view');
+        $platformValue = $this->request->param('platform');
+        $platform = is_string($platformValue) ? strtolower(trim($platformValue)) : '';
+        if (!in_array($platform, ['ctrip', 'meituan'], true)) {
+            throw new InvalidArgumentException('ota_settlement_platform_invalid');
+        }
+        $monthValue = $this->request->param('period_month');
+        if (!is_string($monthValue)
+            || preg_match('/^[1-9][0-9]{3}-(0[1-9]|1[0-2])$/D', $monthValue) !== 1
+        ) {
+            throw new InvalidArgumentException('period_month_invalid');
+        }
+        [$periodStart, $periodEnd] = $this->monthWindow($this->month($monthValue));
+        return [$tenantId, $hotelId, $platform, $periodStart, $periodEnd];
+    }
+
+    private function positiveQueryInt(mixed $value, string $field): int
+    {
+        if ((!is_int($value) && !is_string($value))
+            || preg_match('/^[1-9][0-9]*$/D', (string)$value) !== 1
+        ) {
+            throw new InvalidArgumentException($field . '_invalid');
+        }
+        $parsed = filter_var($value, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
+        if ($parsed === false) {
+            throw new InvalidArgumentException($field . '_invalid');
+        }
+        return $parsed;
+    }
+
     /** @param array<string,mixed> $saved */
     private function settlementImportResponse(array $saved, string $availableMessage): Response
     {

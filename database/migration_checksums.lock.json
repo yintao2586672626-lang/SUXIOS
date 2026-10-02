@@ -223,6 +223,9 @@
     "20260908_create_operation_task_workflow.sql": "455fe679ff17860256ff9bac515ae0977edac17f322806d37b3f324a3f232b18",
     "20260908_create_promotion_experiment_versions.sql": "3a6f9dbd9afdd12b6eb35db99a220a358d0a47e7488de2564e2485fcc2f78954",
     "20260908_remove_duplicate_online_daily_trust_index.sql": "4fa93f160c3d8f8e0a0626c8239254401c3f5e94263cc1f9bf156128c27be556",
+    "20260820_b_absorb_master_perspectives_multi_lens_knowledge.sql": "e88440daa037a93a9cd11114a5b6f79b08e7dfe8348ce0d1b81a2159313270d4",
+    "20260926_create_manager_coaching.sql": "e396d540f0dc2978b10fc819478cf18c796151ec4936b670ff412b56539a121d",
+    "20260930_repair_master_perspectives_reference_current_version.sql": "b089130d278d4b05544a0b8ba106e757fdda1e87fd7587593342f1929a3798f2",
     "20261002_create_operating_evidence_snapshots.sql": "87bb58c2d139b12f9abd9cdf195c8b03c4d843d193b5611a26593b6992b200f3"
   },
   "frozen_sources": {

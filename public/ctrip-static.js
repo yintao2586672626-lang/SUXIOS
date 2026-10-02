@@ -1472,8 +1472,28 @@ window.SUXI_CTRIP_STATIC = window.SUXI_CTRIP_STATIC_FULL = (() => {
         if (!getSelectedCtripHotelId()) {
             setSelectedCtripHotelId(String(systemHotelId));
         }
+        const isCurrentTarget = () => {
+            const currentTarget = buildCtripBrowserCaptureTargetContext({
+                selectedCtripHotelId: getSelectedCtripHotelId(),
+                autoFetchHotelId: getAutoFetchHotelId(),
+                userHotelId: getUserHotelId(),
+            });
+            return currentTarget.ok && String(currentTarget.systemHotelId) === String(systemHotelId);
+        };
+        const staleTargetResponse = (response = null) => {
+            const message = '当前酒店已切换，旧酒店的携程采集结果不会显示在新酒店下';
+            if (response && typeof response === 'object' && !Array.isArray(response)) {
+                return { ...response, ui_scope_status: 'stale', ui_scope_message: message };
+            }
+            return { code: 409, status: 'stale', ui_scope_status: 'stale', message };
+        };
         if (!hasCtripConfigList()) {
             await loadCtripConfigList();
+            if (!isCurrentTarget()) {
+                const result = staleTargetResponse();
+                if (!silent) notify(result.message, 'warning');
+                return result;
+            }
         }
         let activeConfig = getActiveCtripConfig();
         if (!activeConfig || String(activeConfig.hotel_id || activeConfig.system_hotel_id || '') !== String(systemHotelId)) {
@@ -1503,6 +1523,11 @@ window.SUXI_CTRIP_STATIC = window.SUXI_CTRIP_STATIC_FULL = (() => {
         setCaptureResult(null);
         try {
             const res = await requestCapture(capturePayload);
+            if (!isCurrentTarget()) {
+                const result = staleTargetResponse(res);
+                if (!silent) notify(result.ui_scope_message, 'warning');
+                return result;
+            }
             if (res.code === 200) {
                 const captureData = res.data || {};
                 const resultProofNotice = buildCtripSessionProofNotice(captureData);
@@ -1555,6 +1580,11 @@ window.SUXI_CTRIP_STATIC = window.SUXI_CTRIP_STATIC_FULL = (() => {
             if (!silent) notify(res.message || '携程 Profile 采集失败', 'error');
             return res;
         } catch (error) {
+            if (!isCurrentTarget()) {
+                const result = staleTargetResponse();
+                if (!silent) notify(result.message, 'warning');
+                return result;
+            }
             const detail = error?.data?.data?.stderr || error?.data?.data?.stdout || '';
             if (!silent) notify('携程 Profile 采集失败: ' + error.message + (detail ? '，请查看结果详情' : ''), 'error');
             const normalizedError = normalizeError(error);
@@ -2306,6 +2336,7 @@ window.SUXI_CTRIP_STATIC = window.SUXI_CTRIP_STATIC_FULL = (() => {
         requestFetch = async () => ({}),
         useCtripTrafficDisplayRows = rows => rows,
         setOnlineDataResult = () => {},
+        getOnlineDataResult = () => null,
         refreshOnlineHistory = async () => {},
         getOnlineDataTab = () => '',
         refreshOnlineData = () => {},
@@ -2378,7 +2409,6 @@ window.SUXI_CTRIP_STATIC = window.SUXI_CTRIP_STATIC_FULL = (() => {
                     trafficModel.trafficRows,
                     trafficModel.derivedAnalysis
                 );
-                setOnlineDataResult(trafficModel.onlineResult);
                 const savedCount = trafficModel.savedCount;
                 const notice = buildCtripPersistenceNotice({
                     label: '携程流量数据',
@@ -2386,10 +2416,22 @@ window.SUXI_CTRIP_STATIC = window.SUXI_CTRIP_STATIC_FULL = (() => {
                     hasDisplayRows: rows.length > 0,
                     failureMessage: res.message || '',
                 });
+                const flowStatus = notice.businessFailed ? 'business_failed'
+                    : (rows.length === 0 ? 'empty'
+                        : (notice.readbackVerified && notice.savedCount > 0 ? 'success'
+                            : (notice.savedCount > 0 ? 'readback_unverified' : 'display_only')));
+                setOnlineDataResult({
+                    ...trafficModel.onlineResult,
+                    ui_flow_status: flowStatus,
+                    persistence_status: data.persistence_status || 'not_confirmed',
+                    persisted: notice.persisted,
+                    readback_verified: notice.readbackVerified,
+                    system_hotel_id: selectedCtripHotelId,
+                });
                 notify(notice.message, notice.level);
                 if (rows.length === 0) {
                     return {
-                        status: notice.businessFailed ? 'business_failed' : 'empty',
+                        status: flowStatus,
                         response: res,
                         requestBody: directRequestBody,
                         trafficModel,
@@ -2403,7 +2445,7 @@ window.SUXI_CTRIP_STATIC = window.SUXI_CTRIP_STATIC_FULL = (() => {
                     refreshOnlineData();
                 }
                 return {
-                    status: notice.businessFailed ? 'business_failed' : 'success',
+                    status: flowStatus,
                     response: res,
                     requestBody: directRequestBody,
                     trafficModel,
@@ -2414,16 +2456,63 @@ window.SUXI_CTRIP_STATIC = window.SUXI_CTRIP_STATIC_FULL = (() => {
                 };
             }
 
-            await handleFetchFailure(res.message || '获取失败', isCurrent);
+            const failureMessage = res.message || '获取失败';
+            await handleFetchFailure(failureMessage, isCurrent);
             if (!isCurrent()) return { status: 'stale' };
-            return { status: 'failed', response: res, requestBody: directRequestBody };
+            const recovered = getOnlineDataResult();
+            const historicalSnapshot = recovered?.source === 'latest' ? { source: 'latest' } : {};
+            const failureData = res.data && typeof res.data === 'object' ? res.data : {};
+            const reportedSavedCount = Number(failureData.saved_count);
+            const reportedRowCount = Number(failureData.row_count);
+            const failedResult = {
+                ...historicalSnapshot,
+                ...failureData,
+                platform: 'ctrip',
+                system_hotel_id: selectedCtripHotelId,
+                request_start_date: requestBody.start_date || '',
+                request_end_date: requestBody.end_date || '',
+                saved_count: failureData.saved_count != null && failureData.saved_count !== ''
+                    && Number.isSafeInteger(reportedSavedCount) && reportedSavedCount >= 0 ? reportedSavedCount : null,
+                row_count: failureData.row_count != null && failureData.row_count !== ''
+                    && Number.isSafeInteger(reportedRowCount) && reportedRowCount >= 0 ? reportedRowCount : null,
+                ui_flow_status: 'failed',
+                persistence_status: failureData.persistence_status || 'not_confirmed',
+                readback_verified: false,
+                persisted: false,
+                error: failureMessage,
+            };
+            setOnlineDataResult(failedResult);
+            return { status: 'failed', response: res, requestBody: directRequestBody, data: failedResult };
         } catch (error) {
             if (!isCurrent()) {
                 return { status: 'stale' };
             }
             await handleFetchFailure('请求失败: ' + error.message, isCurrent);
             if (!isCurrent()) return { status: 'stale' };
-            return { status: 'exception', error, requestBody: directRequestBody };
+            const recovered = getOnlineDataResult();
+            const historicalSnapshot = recovered?.source === 'latest' ? { source: 'latest' } : {};
+            const failureData = error?.data?.data && typeof error.data.data === 'object' ? error.data.data : {};
+            const reportedSavedCount = Number(failureData.saved_count);
+            const reportedRowCount = Number(failureData.row_count);
+            const failedResult = {
+                ...historicalSnapshot,
+                ...failureData,
+                platform: 'ctrip',
+                system_hotel_id: selectedCtripHotelId,
+                request_start_date: requestBody.start_date || '',
+                request_end_date: requestBody.end_date || '',
+                saved_count: failureData.saved_count != null && failureData.saved_count !== ''
+                    && Number.isSafeInteger(reportedSavedCount) && reportedSavedCount >= 0 ? reportedSavedCount : null,
+                row_count: failureData.row_count != null && failureData.row_count !== ''
+                    && Number.isSafeInteger(reportedRowCount) && reportedRowCount >= 0 ? reportedRowCount : null,
+                ui_flow_status: 'exception',
+                persistence_status: failureData.persistence_status || 'not_confirmed',
+                readback_verified: false,
+                persisted: false,
+                error: error?.data?.message || error.message,
+            };
+            setOnlineDataResult(failedResult);
+            return { status: 'exception', error, requestBody: directRequestBody, data: failedResult };
         } finally {
             if (isActive()) setFetching(false);
         }
@@ -2435,19 +2524,26 @@ window.SUXI_CTRIP_STATIC = window.SUXI_CTRIP_STATIC_FULL = (() => {
         hotelId = '',
         hotelName = '',
         requestUrls = [],
+        requestSource = '',
         form = {},
         defaultMethod = 'POST',
     } = {}) => ({
         config_id: String(configId || '').trim(),
         system_hotel_id: systemHotelId,
         hotel_id: hotelId,
-        hotel_name: hotelName,
-        request_urls: normalizeCtripExecutionRequestUrls(requestUrls),
-        method: form.method || defaultMethod,
+        ...(requestSource ? { request_source: requestSource } : {
+            hotel_name: hotelName,
+            request_urls: normalizeCtripExecutionRequestUrls(requestUrls),
+            method: form.method || defaultMethod,
+        }),
         data_date: form.dataDate,
     });
 
     const runCtripOverviewFetchFlow = async ({
+        requestSource = '',
+        captureRequestContext = () => null,
+        isRequestContextCurrent = () => true,
+        isRunning = () => false,
         getSystemHotelId = () => null,
         notify = () => {},
         getActiveCtripConfig = () => null,
@@ -2466,6 +2562,7 @@ window.SUXI_CTRIP_STATIC = window.SUXI_CTRIP_STATIC_FULL = (() => {
         defaultMethod = 'POST',
         messages = {},
     } = {}) => {
+        if (isRunning()) return { status: 'busy' };
         const systemHotelId = getSystemHotelId();
         if (!systemHotelId) {
             notify(messages.missingHotel || '请选择目标酒店', 'error');
@@ -2492,28 +2589,37 @@ window.SUXI_CTRIP_STATIC = window.SUXI_CTRIP_STATIC_FULL = (() => {
             return { status: 'missing_data_date', form };
         }
         const requestUrls = normalizeCtripExecutionRequestUrls(form.requestUrls || getFallbackRequestUrls());
-        if (requestUrls.length === 0) {
+        if (!requestSource && requestUrls.length === 0) {
             notify(messages.missingRequestUrls || '请填写接口 Request URL', 'error');
             return { status: 'missing_request_urls', form };
         }
-        if (requestUrls.some(url => url.includes('/datacenter/inland/businessreport/outline'))) {
+        if (!requestSource && requestUrls.some(url => url.includes('/datacenter/inland/businessreport/outline'))) {
             notify(messages.invalidPageUrl || '请填写 Network 中的 JSON 接口 URL，不是页面地址', 'error');
             return { status: 'invalid_page_url', form, requestUrls };
         }
+        const requestContext = captureRequestContext();
+        const isCurrent = () => isRequestContextCurrent(requestContext);
+        const refreshIfCurrent = (callback, ...args) => runPostFetchRefresh(() => {
+            if (isCurrent()) return callback(...args, isCurrent);
+        });
+        if (!isCurrent()) return { status: 'stale' };
         setFetching(true);
         setGlobalFetching(true);
         setResult(null);
+        setOnlineDataResult(null);
         try {
             const requestBody = buildCtripOverviewFetchRequestBody({
                 configId,
                 systemHotelId,
-                hotelId: form.hotelId,
+                hotelId: requestSource ? hotelId : form.hotelId,
                 hotelName: getHotelNameById(systemHotelId),
                 requestUrls,
+                requestSource,
                 form,
                 defaultMethod,
             });
             const res = await requestFetch(requestBody);
+            if (!isCurrent()) return { status: 'stale' };
             if (res.code === 200) {
                 const data = res.data || {};
                 const hasDisplayRows = ['rows', 'data', 'display_rows', 'traffic_rows'].some(key => Array.isArray(data[key]) && data[key].length > 0)
@@ -2526,9 +2632,14 @@ window.SUXI_CTRIP_STATIC = window.SUXI_CTRIP_STATIC_FULL = (() => {
                 });
                 const responseStatus = String(data.status || '').trim().toLowerCase();
                 const responseRunning = ['accepted', 'running', 'queued', 'pending', 'processing', 'in_progress'].includes(responseStatus);
+                const partialFlow = requestSource === 'flow_overview' && (responseStatus === 'partial' || (Array.isArray(data.gaps) && data.gaps.length > 0));
+                if (partialFlow && !notice.businessFailed && !responseRunning) {
+                    notice.level = 'warning';
+                    notice.message += '；部分指标未返回或不可计算，缺失不计零';
+                }
                 const flowStatus = notice.businessFailed
                     ? 'business_failed'
-                    : (responseRunning ? responseStatus : ((notice.savedCount > 0 || notice.businessCompleted || hasDisplayRows) ? 'success' : 'incomplete'));
+                    : (responseRunning ? responseStatus : (partialFlow ? 'partial' : ((notice.savedCount > 0 || notice.businessCompleted || hasDisplayRows) ? 'success' : 'incomplete')));
                 const visibleData = {
                     ...data,
                     ui_flow_status: flowStatus,
@@ -2540,8 +2651,8 @@ window.SUXI_CTRIP_STATIC = window.SUXI_CTRIP_STATIC_FULL = (() => {
                 setOnlineDataResult(visibleData);
                 setShowRawData(false);
                 notify(notice.message, notice.level);
-                runPostFetchRefresh(refreshLatestCtripData, { silent: true });
-                runPostFetchRefresh(refreshOnlineHistory);
+                refreshIfCurrent(refreshLatestCtripData, { silent: true });
+                refreshIfCurrent(refreshOnlineHistory);
                 return {
                     status: flowStatus,
                     response: res,
@@ -2553,24 +2664,36 @@ window.SUXI_CTRIP_STATIC = window.SUXI_CTRIP_STATIC_FULL = (() => {
             }
 
             const failureMessage = res.message || messages.failure || '携程概览抓取失败';
-            setResult({ ...(res.data || {}), ui_flow_status: 'failed', error: failureMessage });
+            const failedResult = { ...(res.data || {}), ui_flow_status: 'failed',
+                readback_verified: false, persisted: false, error: failureMessage };
+            setResult(failedResult);
+            setOnlineDataResult(failedResult);
+            setShowRawData(false);
             notify(failureMessage, 'error');
             return { status: 'failed', response: res };
         } catch (error) {
+            if (!isCurrent()) return { status: 'stale' };
             const detail = error?.data?.data?.stderr || error?.data?.data?.stdout || '';
             notify(`${messages.exceptionPrefix || '携程概览获取失败'}: ${error.message}${detail ? '，请查看结果详情' : ''}`, 'error');
             const errorResult = error?.data?.data && typeof error.data.data === 'object'
                 ? error.data.data
                 : {};
-            setResult({
+            const failedResult = {
                 ...errorResult,
                 ui_flow_status: 'exception',
-                error: errorResult.error || error.message || messages.failure || '携程概览抓取失败',
-            });
+                readback_verified: false,
+                persisted: false,
+                error: errorResult.error || error?.data?.message || error.message || messages.failure || '携程概览抓取失败',
+            };
+            setResult(failedResult);
+            setOnlineDataResult(failedResult);
+            setShowRawData(false);
             return { status: 'exception', error };
         } finally {
-            setFetching(false);
-            setGlobalFetching(false);
+            if (isCurrent()) {
+                setFetching(false);
+                setGlobalFetching(false);
+            }
         }
     };
 
@@ -2595,6 +2718,9 @@ window.SUXI_CTRIP_STATIC = window.SUXI_CTRIP_STATIC_FULL = (() => {
     });
 
     const runCtripAdsFetchFlow = async ({
+        captureRequestContext = () => null,
+        isRequestContextCurrent = () => true,
+        isRunning = () => false,
         getSystemHotelId = () => null,
         notify = () => {},
         getActiveCtripConfig = () => null,
@@ -2613,45 +2739,54 @@ window.SUXI_CTRIP_STATIC = window.SUXI_CTRIP_STATIC_FULL = (() => {
         refreshLatestCtripData = async () => {},
         refreshOnlineHistory = async () => {},
     } = {}) => {
+        if (isRunning()) return { status: 'busy' };
         const systemHotelId = getSystemHotelId();
         if (!systemHotelId) {
             notify('请选择目标酒店', 'error');
             return { status: 'missing_hotel' };
         }
 
-        const activeConfig = getActiveCtripConfig();
-        if (!isCtripExecutionConfigReady(activeConfig)) {
-            notify('当前酒店未配置携程数据源', 'warning');
-            return { status: 'missing_config' };
-        }
-        const configId = resolveCtripExecutionConfigId(activeConfig);
-        if (!configId) {
-            notify('当前酒店携程配置缺少可执行标识', 'warning');
-            return { status: 'missing_config' };
-        }
-        applyCtripConfigObject(activeConfig);
-        await syncAdsDirectConfig(false);
-
-        const form = getForm() || {};
-        const hotelId = String(activeConfig?.ota_hotel_id || activeConfig?.ctrip_hotel_id || activeConfig?.hotel_id || '').trim();
-        const url = String(form.url || defaultAdsUrl).trim();
-        if (url.includes('/toolcenter/cpc/pyramid')) {
-            notify('请填写 Network 中 queryCampaignReportList 的 JSON 接口 URL，不是广告页面地址', 'error');
-            return { status: 'invalid_page_url', url };
-        }
-        if (!isCtripAdsApiUrl(url)) {
-            notify(adsUrlHint, 'error');
-            return { status: 'invalid_api_url', url };
-        }
-        if (form.dateRange === 'custom' && (!form.startDate || !form.endDate)) {
-            notify('请选择自定义开始日期和结束日期', 'error');
-            return { status: 'missing_custom_dates', url };
-        }
-
-        setRunning(true);
-        setGlobalFetching(true);
-        setResult(null);
+        const requestContext = captureRequestContext();
+        const isCurrent = () => isRequestContextCurrent(requestContext);
+        const refreshIfCurrent = (callback, ...args) => runPostFetchRefresh(() => {
+            if (isCurrent()) return callback(...args, isCurrent);
+        });
         try {
+            if (!isCurrent()) return { status: 'stale' };
+            setRunning(true);
+            setGlobalFetching(true);
+            setResult(null);
+            setOnlineDataResult(null);
+            const activeConfig = getActiveCtripConfig();
+            if (!isCtripExecutionConfigReady(activeConfig)) {
+                notify('当前酒店未配置携程数据源', 'warning');
+                return { status: 'missing_config' };
+            }
+            const configId = resolveCtripExecutionConfigId(activeConfig);
+            if (!configId) {
+                notify('当前酒店携程配置缺少可执行标识', 'warning');
+                return { status: 'missing_config' };
+            }
+            applyCtripConfigObject(activeConfig);
+            await syncAdsDirectConfig(false);
+            if (!isCurrent()) return { status: 'stale' };
+
+            const form = getForm() || {};
+            const hotelId = String(activeConfig?.ota_hotel_id || activeConfig?.ctrip_hotel_id || activeConfig?.hotel_id || '').trim();
+            const url = String(form.url || defaultAdsUrl).trim();
+            if (url.includes('/toolcenter/cpc/pyramid')) {
+                notify('请填写 Network 中 queryCampaignReportList 的 JSON 接口 URL，不是广告页面地址', 'error');
+                return { status: 'invalid_page_url', url };
+            }
+            if (!isCtripAdsApiUrl(url)) {
+                notify(adsUrlHint, 'error');
+                return { status: 'invalid_api_url', url };
+            }
+            if (form.dateRange === 'custom' && (!form.startDate || !form.endDate)) {
+                notify('请选择自定义开始日期和结束日期', 'error');
+                return { status: 'missing_custom_dates', url };
+            }
+
             const requestBody = buildCtripAdsFetchRequestBody({
                 configId,
                 systemHotelId,
@@ -2662,6 +2797,7 @@ window.SUXI_CTRIP_STATIC = window.SUXI_CTRIP_STATIC_FULL = (() => {
             });
             const directRequestBody = { ...requestBody, async: false, background: false };
             const res = await requestFetch(directRequestBody);
+            if (!isCurrent()) return { status: 'stale' };
             if (isCtripBackgroundAcceptedResponse(res)) {
                 const data = res.data || {};
                 const runningPayload = {
@@ -2678,8 +2814,8 @@ window.SUXI_CTRIP_STATIC = window.SUXI_CTRIP_STATIC_FULL = (() => {
                 setOnlineDataResult(runningPayload);
                 setShowRawData(false);
                 notify(res.message || '携程广告手动获取已提交后台执行，完成后会更新数据列表和通知', 'info');
-                runPostFetchRefresh(refreshLatestCtripData, { silent: true });
-                runPostFetchRefresh(refreshOnlineHistory);
+                refreshIfCurrent(refreshLatestCtripData, { silent: true });
+                refreshIfCurrent(refreshOnlineHistory);
                 return { status: 'accepted', response: res, requestBody: directRequestBody, data: runningPayload };
             }
             if (res.code === 200) {
@@ -2706,8 +2842,8 @@ window.SUXI_CTRIP_STATIC = window.SUXI_CTRIP_STATIC_FULL = (() => {
                 setOnlineDataResult(visibleData);
                 setShowRawData(false);
                 notify(notice.message, notice.level);
-                runPostFetchRefresh(refreshLatestCtripData, { silent: true });
-                runPostFetchRefresh(refreshOnlineHistory);
+                refreshIfCurrent(refreshLatestCtripData, { silent: true });
+                refreshIfCurrent(refreshOnlineHistory);
                 return {
                     status: flowStatus,
                     response: res,
@@ -2719,16 +2855,28 @@ window.SUXI_CTRIP_STATIC = window.SUXI_CTRIP_STATIC_FULL = (() => {
             }
 
             const failureMessage = res.message || '广告数据获取失败';
-            setResult({ ...(res.data || {}), ui_flow_status: 'failed', error: failureMessage });
+            const failedResult = { ...(res.data || {}), ui_flow_status: 'failed',
+                readback_verified: false, persisted: false, error: failureMessage };
+            setResult(failedResult);
+            setOnlineDataResult(failedResult);
+            setShowRawData(false);
             notify(failureMessage, 'error');
             return { status: 'failed', response: res, requestBody: directRequestBody };
         } catch (error) {
+            if (!isCurrent()) return { status: 'stale' };
             notify('广告数据获取失败: ' + error.message, 'error');
-            setResult({ ...(error?.data?.data || {}), ui_flow_status: 'exception', error: error.message });
+            const failedResult = { ...(error?.data?.data || {}), ui_flow_status: 'exception',
+                readback_verified: false, persisted: false,
+                error: error?.data?.message || error.message };
+            setResult(failedResult);
+            setOnlineDataResult(failedResult);
+            setShowRawData(false);
             return { status: 'exception', error };
         } finally {
-            setRunning(false);
-            setGlobalFetching(false);
+            if (isCurrent()) {
+                setRunning(false);
+                setGlobalFetching(false);
+            }
         }
     };
 
@@ -2778,7 +2926,44 @@ window.SUXI_CTRIP_STATIC = window.SUXI_CTRIP_STATIC_FULL = (() => {
         };
     };
 
+    const runCtripTrafficBundleStep = async (notify, label, action, isCurrent = () => true) => {
+        try {
+            if (!isCurrent()) return { status: 'stale' };
+            return await action();
+        } catch (error) {
+            if (!isCurrent()) return { status: 'stale' };
+            notify(`${label}更新失败：${error.message || '未知错误'}`, 'error');
+            return { status: 'exception', error };
+        }
+    };
+
+    const ctripTrafficFetchFailureMessage = (cookieResult = null) => {
+        const directMessage = String(cookieResult?.message || '').trim();
+        if (directMessage) {
+            return directMessage;
+        }
+        const detail = JSON.stringify([
+            cookieResult?.response?.message,
+            cookieResult?.response?.data?.warning,
+            cookieResult?.response?.data?.auth_status?.message,
+            cookieResult?.error?.message,
+        ].filter(Boolean)).toLowerCase();
+        if (/cookie|login|session|403|登录|会话|授权/.test(detail)) {
+            return '当前酒店携程授权已失效，请更新授权后重试';
+        }
+        if (/config|binding|配置|绑定/.test(detail) || cookieResult?.status === 'missing_config') {
+            return '当前门店未绑定携程授权配置，请到“数据抓取设置”选择门店并保存配置';
+        }
+        if (/spider|signature|签名/.test(detail)) {
+            return '携程接口签名已失效，请更新授权后重试';
+        }
+        return '本次接口未返回可入库的流量数据';
+    };
+
     const runCtripCookieApiCaptureFlow = async ({
+        captureRequestContext = () => null,
+        isRequestContextCurrent = () => true,
+        isRunning = () => false,
         getSelectedCtripHotelId = () => '',
         setSelectedCtripHotelId = () => {},
         getAutoFetchHotelId = () => '',
@@ -2806,6 +2991,7 @@ window.SUXI_CTRIP_STATIC = window.SUXI_CTRIP_STATIC_FULL = (() => {
         shouldRefreshDataHealthPanel = () => false,
         refreshDataHealthPanel = async () => {},
     } = {}) => {
+        if (isRunning()) return { status: 'busy' };
         const form = getForm() || {};
         const targetContext = buildCtripBrowserCaptureTargetContext({
             selectedCtripHotelId: getSelectedCtripHotelId(),
@@ -2828,48 +3014,57 @@ window.SUXI_CTRIP_STATIC = window.SUXI_CTRIP_STATIC_FULL = (() => {
         if (!getSelectedCtripHotelId()) {
             setSelectedCtripHotelId(String(systemHotelId));
         }
-        if (!hasCtripConfigList()) {
-            await loadCtripConfigList();
-        }
-        let activeConfig = getActiveCtripConfig();
-        if (!activeConfig || String(activeConfig.hotel_id || activeConfig.system_hotel_id || '') !== String(systemHotelId)) {
-            activeConfig = findCtripConfigByHotelId(systemHotelId);
-        }
-        const configReadiness = buildCtripCookieApiConfigReadiness(activeConfig);
-        if (!configReadiness.ok) {
-            notify(configReadiness.message, 'warning');
-            return {
-                status: configReadiness.status,
-                message: configReadiness.message,
-                missing_fields: configReadiness.missing_fields,
-            };
-        }
-        const configId = configReadiness.configId;
-        applyCtripConfigObject(activeConfig, false);
-
-        const profileId = resolveProfileId(systemHotelId, activeConfig);
-        setProfileId(profileId);
-
-        const overviewForm = getOverviewForm() || {};
-        const requestHotelId = resolveRequestHotelId(systemHotelId, activeConfig);
-        const requestBody = buildCtripCookieApiFetchRequestBody({
-            configId,
-            systemHotelId,
-            hotelId: requestHotelId,
-            hotelName: getHotelNameById(systemHotelId),
-            profileId,
-            dataDate: overviewForm.dataDate,
-            requestUrl,
-            form,
-            endpointsJson,
-            requestSource,
+        const requestContext = captureRequestContext();
+        const isCurrent = () => isRequestContextCurrent(requestContext);
+        const refreshIfCurrent = (callback, ...args) => runPostFetchRefresh(() => {
+            if (isCurrent()) return callback(...args, isCurrent);
         });
-
-        setRunning(true);
-        setFetching(true);
-        setCaptureResult(null);
+        let requestBody;
         try {
+            if (!isCurrent()) return { status: 'stale' };
+            setRunning(true);
+            setFetching(true);
+            setCaptureResult(null);
+            if (!hasCtripConfigList()) {
+                await loadCtripConfigList();
+                if (!isCurrent()) return { status: 'stale' };
+            }
+            let activeConfig = getActiveCtripConfig();
+            if (!activeConfig || String(activeConfig.hotel_id || activeConfig.system_hotel_id || '') !== String(systemHotelId)) {
+                activeConfig = findCtripConfigByHotelId(systemHotelId);
+            }
+            const configReadiness = buildCtripCookieApiConfigReadiness(activeConfig);
+            if (!configReadiness.ok) {
+                notify(configReadiness.message, 'warning');
+                return {
+                    status: configReadiness.status,
+                    message: configReadiness.message,
+                    missing_fields: configReadiness.missing_fields,
+                };
+            }
+            const configId = configReadiness.configId;
+            applyCtripConfigObject(activeConfig, false);
+
+            const profileId = resolveProfileId(systemHotelId, activeConfig);
+            setProfileId(profileId);
+
+            const overviewForm = getOverviewForm() || {};
+            const requestHotelId = resolveRequestHotelId(systemHotelId, activeConfig);
+            requestBody = buildCtripCookieApiFetchRequestBody({
+                configId,
+                systemHotelId,
+                hotelId: requestHotelId,
+                hotelName: getHotelNameById(systemHotelId),
+                profileId,
+                dataDate: overviewForm.dataDate,
+                requestUrl,
+                form,
+                endpointsJson,
+                requestSource,
+            });
+
             const res = await requestCapture(requestBody);
+            if (!isCurrent()) return { status: 'stale' };
             if (res.code === 200) {
                 const data = res.data || {};
                 setCaptureResult(data);
@@ -2888,10 +3083,10 @@ window.SUXI_CTRIP_STATIC = window.SUXI_CTRIP_STATIC_FULL = (() => {
                 } else {
                     notify(notice.message, notice.level);
                 }
-                runPostFetchRefresh(refreshLatestCtripData, { silent: true });
-                runPostFetchRefresh(refreshOnlineHistory);
+                refreshIfCurrent(refreshLatestCtripData, { silent: true });
+                refreshIfCurrent(refreshOnlineHistory);
                 if (shouldRefreshDataHealthPanel()) {
-                    runPostFetchRefresh(refreshDataHealthPanel, 'light', { force: true });
+                    refreshIfCurrent(refreshDataHealthPanel, 'light', { force: true });
                 }
                 return {
                     status: data.is_ready === false
@@ -2912,6 +3107,7 @@ window.SUXI_CTRIP_STATIC = window.SUXI_CTRIP_STATIC_FULL = (() => {
             notify(identityMessage || res.message || '携程 Cookie API 采集失败', 'error');
             return { status: 'error_response', response: res, requestBody };
         } catch (error) {
+            if (!isCurrent()) return { status: 'stale' };
             const errorData = error?.data?.data || error?.data || {};
             const failureResult = errorData && Object.keys(errorData).length ? errorData : { error: error.message };
             setCaptureResult(failureResult);
@@ -2919,8 +3115,10 @@ window.SUXI_CTRIP_STATIC = window.SUXI_CTRIP_STATIC_FULL = (() => {
             notify(identityMessage || ('携程 Cookie API 采集失败: ' + error.message), 'error');
             return { status: 'exception', error, requestBody };
         } finally {
-            setRunning(false);
-            setFetching(false);
+            if (isCurrent()) {
+                setRunning(false);
+                setFetching(false);
+            }
         }
     };
 
@@ -3102,6 +3300,24 @@ window.SUXI_CTRIP_STATIC = window.SUXI_CTRIP_STATIC_FULL = (() => {
     };
 
     const buildCtripChannelOrderBreakdown = (row = {}, options = {}) => {
+        if (options.sourceReady === false) {
+            return {
+                totalOrdersIncludingCancelled: null,
+                totalOrderConversionRatio: null,
+                ctripOrders: null,
+                qunarOrders: null,
+                ctripUndistributedOrders: null,
+                ctripEstimateExcessOrders: null,
+                status: 'source_unverified',
+                displayLabel: '未核验',
+                sourceLabel: '当前门店、来源业务日期或回读证据未核验；仅保留已存字段供审计，不推算渠道订单。',
+                formulas: {},
+                inputs: {},
+                missingInputs: [],
+                provenance: {},
+                identity: ctripChannelOrderIdentity(row, options),
+            };
+        }
         const metricStatus = row?.metricSourceStatus && typeof row.metricSourceStatus === 'object'
             ? row.metricSourceStatus
             : {};
@@ -3469,6 +3685,7 @@ window.SUXI_CTRIP_STATIC = window.SUXI_CTRIP_STATIC_FULL = (() => {
             { key: 'competitor_amount', label: '竞品收入', value: metrics.competitor_amount, type: 'currency2' },
             { key: 'competitor_list_exposure', label: '竞圈列表曝光', value: metrics.competitor_list_exposure },
             { key: 'competitor_detail_exposure', label: '竞圈详情访客', value: metrics.competitor_detail_exposure },
+            { key: 'competitor_flow_rate', label: '竞圈曝光转化率', value: metrics.competitor_flow_rate, type: 'percent' },
             { key: 'competitor_order_filling_num', label: '竞圈订单页访客', value: metrics.competitor_order_filling_num },
             { key: 'competitor_order_submit_num', label: '竞圈订单提交', value: metrics.competitor_order_submit_num },
             { key: 'competitor_order_fill_rate', label: '竞圈下单转化率', value: metrics.competitor_order_fill_rate, type: 'percent' },
@@ -4335,6 +4552,8 @@ window.SUXI_CTRIP_STATIC = window.SUXI_CTRIP_STATIC_FULL = (() => {
         runCtripAdsFetchFlow,
         buildCtripCookieApiFetchRequestBody,
         runCtripCookieApiCaptureFlow,
+        ctripTrafficFetchFailureMessage,
+        runCtripTrafficBundleStep,
         ctripSortMetricValue,
         buildCtripSortedHotelRows,
         ctripRankEligibilityText,

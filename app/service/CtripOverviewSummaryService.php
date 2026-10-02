@@ -5,6 +5,97 @@ namespace app\service;
 
 final class CtripOverviewSummaryService
 {
+    /**
+     * Strict projection for queryFlowTransforNewV1. Unlike the legacy overview,
+     * this task does not infer a missing row identity/date or fill absent counts.
+     */
+    public static function projectFlowOverview(mixed $response, string $hotelId, string $date): array
+    {
+        $countFields = ['listExposure' => 'list_exposure', 'detailExposure' => 'detail_exposure',
+            'orderFillingNum' => 'order_filling_num', 'orderSubmitNum' => 'order_submit_num'];
+        $rateFields = ['flow_rate' => ['detailExposure', 'listExposure'],
+            'order_fill_rate' => ['orderFillingNum', 'detailExposure'],
+            'deal_rate' => ['orderSubmitNum', 'orderFillingNum']];
+        $metrics = [];
+        foreach (['self', 'competitor'] as $scope) {
+            foreach (array_merge(array_values($countFields), array_keys($rateFields)) as $field) {
+                $metrics[$scope . '_' . $field] = null;
+            }
+        }
+        $gaps = [];
+        $rows = [];
+        $conflicts = [];
+        $blocked = false;
+        $visit = static function (mixed $node, int $depth = 0, array $path = []) use (&$visit, &$rows, &$gaps, &$blocked, &$conflicts, $hotelId, $date, $countFields): void {
+            if (!is_array($node) || $depth > 8) return;
+            if (OtaUpstreamFailureService::ctripBusinessFailure($node) !== null
+                || (isset($node['rcode']) && (string)$node['rcode'] !== '0')) {
+                $blocked = true;
+                return;
+            }
+            $hasMetric = false;
+            foreach ($countFields as $camel => $snake) {
+                if (array_key_exists($camel, $node) || array_key_exists($snake, $node)) $hasMetric = true;
+            }
+            if (!$hasMetric) {
+                foreach ($node as $key => $value) if (is_array($value)) $visit($value, $depth + 1, [...$path, $key]);
+                return;
+            }
+            $rowHotel = (string)($node['hotelId'] ?? $node['hotel_id'] ?? '');
+            $rowDate = (string)($node['date'] ?? $node['dataDate'] ?? $node['data_date'] ?? '');
+            if (!in_array($rowHotel, [$hotelId, '-1'], true) || $rowDate !== $date
+                || (isset($node['platform']) && strtolower((string)$node['platform']) !== 'ctrip')) {
+                $gaps[] = 'row_scope_mismatch';
+                return;
+            }
+            $scope = $rowHotel === $hotelId ? 'self' : 'competitor';
+            $row = ['hotelId' => $rowHotel, 'date' => $date, 'platform' => 'ctrip',
+                'compareType' => $scope === 'self' ? 'self' : 'competitor_avg'];
+            $available = 0;
+            foreach ($countFields as $camel => $snake) {
+                $raw = $node[$camel] ?? $node[$snake] ?? null;
+                $value = (is_int($raw) || is_float($raw) || is_string($raw)) && is_numeric($raw) ? (float)$raw : null;
+                // These persisted metrics are integer counts. Do not silently truncate a source value.
+                if ($value === null || !is_finite($value) || $value < 0 || $value >= PHP_INT_MAX || floor($value) !== $value) {
+                    $row[$camel] = null;
+                    $gaps[] = $scope . '_' . $snake . '_unavailable';
+                } else {
+                    $row[$camel] = (int)$value;
+                    $available++;
+                }
+            }
+            if ($available === 0) return;
+            if (isset($rows[$scope]) && array_intersect_key($rows[$scope], $row) !== $row) {
+                $conflicts[$scope] = true;
+                $gaps[] = $scope . '_conflicting_rows';
+            } else {
+                $rows[$scope] = $row + ['request_source' => 'flow_overview', '_endpoint_id' => 'queryFlowTransforNewV1',
+                    '_source_path' => $path === [] ? '$' : implode('.', $path)];
+            }
+        };
+        $visit($response);
+        if ($blocked) return ['rows' => [], 'metrics' => $metrics, 'status' => 'blocked', 'gaps' => ['upstream_business_failure']];
+        foreach (array_keys($conflicts) as $scope) unset($rows[$scope]);
+        foreach (['self', 'competitor'] as $scope) {
+            if (!isset($rows[$scope])) {
+                $gaps[] = $scope . '_row_missing';
+                continue;
+            }
+            $row = $rows[$scope];
+            foreach ($countFields as $camel => $snake) $metrics[$scope . '_' . $snake] = $row[$camel];
+            foreach ($rateFields as $field => [$numerator, $denominator]) {
+                if ($row[$numerator] !== null && $row[$denominator] !== null && $row[$denominator] > 0) {
+                    $metrics[$scope . '_' . $field] = round($row[$numerator] / $row[$denominator] * 100, 2);
+                } else {
+                    $gaps[] = $scope . '_' . $field . '_not_calculable';
+                }
+            }
+        }
+        return ['rows' => array_values($rows), 'metrics' => $metrics,
+            'status' => $rows === [] ? 'empty' : ($gaps === [] ? 'ready' : 'partial'),
+            'gaps' => array_values(array_unique($gaps))];
+    }
+
     public static function summarizeRows(array $rows): array
     {
         $summary = [

@@ -104,6 +104,56 @@ final class DualOtaContinuousTrustServiceTest extends TestCase
         }
     }
 
+    public function testCtripCatalogTrafficWithoutObservedDateCannotCloseContinuousTrust(): void
+    {
+        [$hotel, $sources, $rows, $tasks, $rawRecords, $bindings] = $this->fixture(['2026-07-22']);
+        foreach ($rows as &$row) {
+            if (($row['source'] ?? '') !== 'ctrip') {
+                continue;
+            }
+            $row['dimension'] = 'catalog:ctrip:business_flow_transform:v1';
+            $raw = json_decode((string)$row['raw_data'], true, 512, JSON_THROW_ON_ERROR);
+            $raw['source'] = 'ctrip_catalog_facts';
+            $row['raw_data'] = json_encode($raw, JSON_THROW_ON_ERROR);
+        }
+        unset($row);
+
+        $service = static fn(array $candidateRows): array => DualOtaContinuousTrustService::evaluate(
+            $hotel, '2026-07-22', '2026-07-22', $candidateRows,
+            $sources, $tasks, true, true, $rawRecords, $bindings
+        );
+        $missing = $service($rows);
+        self::assertSame('partial', $missing['status']);
+        self::assertNotSame('verified', $missing['acceptance_status']);
+
+        foreach ($rows as &$row) {
+            if (($row['source'] ?? '') !== 'ctrip') {
+                continue;
+            }
+            $raw = json_decode((string)$row['raw_data'], true, 512, JSON_THROW_ON_ERROR);
+            $raw['data_date'] = '2026-07-21';
+            $raw['date_source'] = 'page.business_date';
+            $row['raw_data'] = json_encode($raw, JSON_THROW_ON_ERROR);
+        }
+        unset($row);
+        $mismatched = $service($rows);
+        self::assertSame('partial', $mismatched['status']);
+
+        foreach ($rows as &$row) {
+            if (($row['source'] ?? '') !== 'ctrip') {
+                continue;
+            }
+            $raw = json_decode((string)$row['raw_data'], true, 512, JSON_THROW_ON_ERROR);
+            $raw['data_date'] = '2026-07-22';
+            $raw['date_source'] = 'page.business_date';
+            $row['raw_data'] = json_encode($raw, JSON_THROW_ON_ERROR);
+        }
+        unset($row);
+        $observed = $service($rows);
+        self::assertSame('verified', $observed['status']);
+        self::assertSame('verified', $observed['acceptance_status']);
+    }
+
     public function testExplicitZeroMetricsRemainVerifiedWithCompleteCaptureEvidence(): void
     {
         [$hotel, $sources, $rows, $tasks, $rawRecords, $bindings] = $this->fixture(['2026-07-22']);

@@ -1,3 +1,4 @@
+import { readSourceAggregate as readStaticContractSource } from '../../scripts/lib/source_aggregate.mjs';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
@@ -5,7 +6,7 @@ import test from 'node:test';
 import { readFrontendContractSource } from './helpers/frontend_source.mjs';
 
 const html = readFrontendContractSource();
-const meituanStatic = readFileSync('public/meituan-static.js', 'utf8');
+const meituanStatic = readStaticContractSource('public/meituan-static.js');
 
 const sliceFrom = (source, needle, endNeedle) => {
   const start = source.indexOf(needle);
@@ -69,7 +70,7 @@ test('Meituan ranking fetch uses a vault locator in direct mode and keeps truthf
   assert.match(acceptedBranch, /'info'/);
   assert.match(acceptedBranch, /runPostFetchRefresh\(refreshOnlineHistory\)/);
   assert.match(acceptedBranch, /refreshOnlineData\(\)/);
-  assert.match(acceptedBranch, /return \{ status: 'accepted', results, acceptedCount, totalSavedCount \};/);
+  assert.match(acceptedBranch, /return \{ status: 'accepted', results, acceptedCount, totalSavedCount, unverifiedSavedCount \};/);
   assert.doesNotMatch(acceptedBranch, /unexpected_background/);
 });
 

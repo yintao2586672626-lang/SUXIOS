@@ -5,6 +5,7 @@ namespace app\controller\concern;
 
 use app\service\OnlineDataFieldFactService;
 use app\service\OnlineDataTrustStatusService;
+use app\service\OtaReadDateRangeService;
 use think\Response;
 use think\facade\Db;
 
@@ -17,8 +18,14 @@ trait OnlineDataSummaryConcern
     {
         $this->checkPermission();
 
-        $startDate = $this->request->get('start_date', date('Y-m-d', strtotime('-7 days')));
-        $endDate = $this->request->get('end_date', date('Y-m-d'));
+        try {
+            [$startDate, $endDate] = OtaReadDateRangeService::normalize(
+                $this->request->get('start_date', date('Y-m-d', strtotime('-7 days'))),
+                $this->request->get('end_date', date('Y-m-d'))
+            );
+        } catch (\InvalidArgumentException $e) {
+            return $this->error($e->getMessage(), 422);
+        }
         $source = trim((string)$this->request->get('source', ''));
         $dataType = $this->request->get('data_type', '');
         $requestedSystemHotelId = trim((string)$this->request->get('system_hotel_id', ''));
@@ -29,7 +36,8 @@ trait OnlineDataSummaryConcern
         if (!$this->currentUser->isSuperAdmin()) {
             $permittedHotelIds = array_values(array_unique(array_filter(
                 array_map('intval', $this->currentUser->getPermittedHotelIds()),
-                static fn(int $id): bool => $id > 0
+                fn(int $id): bool => $id > 0
+                    && $this->currentUser->hasHotelPermission($id, 'can_view_online_data')
             )));
             if (empty($permittedHotelIds)) {
                 return $this->error('No permitted hotel scope.', 403, [
@@ -59,6 +67,7 @@ trait OnlineDataSummaryConcern
         }
         if (!$this->currentUser->isSuperAdmin()) {
             $rowsQuery->whereIn('system_hotel_id', $permittedHotelIds);
+            $this->applyOnlineDailyDataTenantBinding($rowsQuery);
         }
         $rows = $rowsQuery->order('data_date', 'desc')->order('id', 'desc')->select()->toArray();
         $truthRows = $this->buildDailySummaryTruthRows($rows);

@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>宿析 OS · 产品能力与使用步骤</title>
+<style>
+:root{color-scheme:light;--ink:#143a31;--deep:#06110d;--gold:#dcc591;--paper:#f6f7f3;--line:#dce3dc;--muted:#53625a}
+*{box-sizing:border-box}body{margin:0;background:var(--paper);color:var(--deep);font:16px/1.75 "Microsoft YaHei","PingFang SC",system-ui,sans-serif}
+a{color:var(--ink);text-underline-offset:4px}a:focus-visible,summary:focus-visible{outline:3px solid #a88a52;outline-offset:5px}
+.wrap{max-width:1120px;margin:auto;padding:0 28px}header{background:var(--deep);color:#f8fafc;padding:30px 0 52px}
+nav{display:flex;align-items:center;justify-content:space-between;gap:20px}nav a{color:#f8fafc;text-decoration:none}.brand{font-size:23px;font-weight:700;display:flex;gap:12px;align-items:center;white-space:nowrap}.brand img{width:34px;height:34px;flex-shrink:0}
+.eyebrow{font-size:13px;letter-spacing:2px;color:var(--gold);margin:42px 0 12px}h1{font-size:clamp(29px,4.5vw,49px);line-height:1.35;letter-spacing:-1px;margin:0 0 18px}
+.lead{max-width:750px;color:#dce6df;font-size:18px}.actions{display:flex;gap:14px;flex-wrap:wrap;margin-top:27px}.button{display:inline-block;padding:11px 19px;border-radius:9px;text-decoration:none;font-weight:700;background:var(--gold);color:var(--deep)}.button.secondary{background:transparent;border:1px solid #597369;color:#fff}
+.note{font-size:13px;color:var(--muted)}header .note{color:#b8c8bf;margin-top:20px}main{padding:34px 0 45px}section{margin-bottom:38px}h2{font-size:25px;line-height:1.5;margin:0 0 10px}h3{font-size:19px;line-height:1.5;margin:0 0 9px}p{margin:0 0 12px}
+.steps{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:18px;margin-top:20px}.step{border-top:3px solid var(--ink);background:white;padding:22px;border-radius:4px 4px 12px 12px}.number{display:inline-grid;place-items:center;width:34px;height:34px;border-radius:50%;background:#e8eee8;color:var(--ink);font-weight:700;margin-bottom:15px}.step p{font-size:14px;color:var(--muted)}
+.features{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:15px;margin-top:18px}.feature{background:white;border:1px solid var(--line);border-radius:12px;padding:20px 22px;display:flex;flex-direction:column}.feature .condition{font-size:13px;color:var(--muted);margin-top:auto;padding-top:6px}.feature a{font-size:14px;font-weight:700;margin-top:9px;align-self:flex-start}
+.box{background:white;border:1px solid var(--line);border-radius:12px;padding:23px}.states{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px;margin-top:18px}.state strong{display:block;color:var(--ink)}.state p{font-size:14px;color:var(--muted)}
+details{border-top:1px solid var(--line);padding:15px 0}summary{cursor:pointer;font-weight:700}details p{margin-top:9px;color:var(--muted)}.scope{border-left:4px solid #a88a52;padding:14px 20px;background:#f1ece1;color:#4e4636;font-size:14px;margin:20px 0}
+footer{border-top:1px solid var(--line);padding:20px 0 32px;color:var(--muted);font-size:13px}.closing{display:flex;align-items:center;justify-content:space-between;gap:22px;background:var(--ink);color:#fff;border-radius:13px;padding:24px}.closing h2{font-size:23px}.closing p{color:#dce6df;font-size:14px}
+@media(max-width:720px){.wrap{padding:0 20px}.steps,.states{grid-template-columns:1fr}.eyebrow{margin-top:28px}.lead{font-size:16px}.closing{align-items:flex-start;flex-direction:column}.features{grid-template-columns:1fr}nav>a{font-size:14px}h2{font-size:23px}.step{padding:20px}.feature{padding:19px}}
+@media(max-width:380px){nav{gap:10px}.brand{gap:8px;font-size:19px}nav>a:last-child{font-size:12px}.brand img{width:28px;height:28px}}
+@media(prefers-reduced-motion:reduce){*{scroll-behavior:auto}}
+</style>
+</head>
+<body>
+<header><div class="wrap">
+<nav><a class="brand" href="/"><img src="/images/logo.svg" alt="">宿析 OS</a><a href="/?page=compass">进入经营工作台 →</a></nav>
+<p class="eyebrow">酒店 OTA 经营分析与行动工作台</p>
+<h1>今天重点看哪里，<br>下一步先做什么？</h1>
+<p class="lead">把携程、美团的经营数据，整理成可核对的分析与可跟进的任务。数值有出处，判断有边界，关键动作由人确认。</p>
+<div class="actions"><a class="button" href="#start">先看使用步骤</a><a class="button secondary" href="#capabilities">查看功能与使用条件</a></div>
+<p class="note">本页说明产品能力。具体门店的数据是否可用，请进入系统查看来源、日期与核验状态。</p>
+</div></header>
+<main class="wrap">
+<section id="start" aria-labelledby="start-title">
+<h2 id="start-title">从一家店、一天数据开始</h2>
+<p>先把一个范围查清楚，再逐步建立日常经营流程。</p>
+<div class="steps">
+<article class="step"><span class="number">1</span><h3>查清数据</h3><p>选择有权限的门店与业务日期，查看已保存记录。需要补数时，按平台页面提供的授权采集或导入方式处理。</p><a href="/?page=online-data">打开数据中心 →</a></article>
+<article class="step"><span class="number">2</span><h3>找到重点</h3><p>确认来源与指标口径，结合渠道销售、流量转化和竞争圈，查看异常线索。数据不足时，先补齐影响判断的部分。</p><a href="/?page=compass">查看今日经营重点 →</a></article>
+<article class="step"><span class="number">3</span><h3>跟进结果</h3><p>审阅建议并由人确认，记录负责人、期限和执行证据。取得后续同口径数据后，再进行复盘。</p><a href="/?page=ops-track">查看任务与复盘 →</a></article>
+</div>
+<div class="scope">初次使用需要管理员建立门店、分配访问权限并配置数据来源。已有历史数据与当前平台登录状态分别管理；当前采集失败，不表示历史记录不存在。</div>
+</section>
+<section id="capabilities" aria-labelledby="cap-title">
+<h2 id="cap-title">八项能力，明确能看什么、需要什么</h2>
+<p class="note">以下入口需要登录及相应权限。打开入口不会自动批准或执行经营动作。</p>
+<div class="features">
+<article class="feature" data-capability="channel-data"><h3>渠道数据</h3><p>查看已接入的携程、美团经营数据，按平台区分来源与日期。</p><p class="condition">条件：门店绑定、数据来源可用；未取得或未核验的数据保留缺失状态。</p><a href="/?page=online-data">数据中心 →</a></article>
+<article class="feature" data-capability="history"><h3>历史记录</h3><p>回查已经保存的记录，核对业务日期、数据状态与来源。</p><p class="condition">条件：该门店和日期有历史记录；没有记录时不能用其他日期替代。</p><a href="/?page=ctrip-ebooking">携程历史入口 →</a><a href="/?page=meituan-ebooking">美团历史入口 →</a></article>
+<article class="feature" data-capability="analysis"><h3>渠道经营分析</h3><p>查看销售、流量与转化表现，辅助识别异常和排查重点。</p><p class="condition">条件：同范围指标足够且口径可比；OTA 数据不能自动代表全酒店经营。</p><a href="/?page=revenue-research-center">收益分析中心 →</a></article>
+<article class="feature" data-capability="competitors"><h3>竞争圈对比</h3><p>查看平台可取得的竞争圈、同行榜单与历史对比。</p><p class="condition">条件：平台提供对应样本；不同平台的排名与竞争圈定义分别看待。</p><a href="/?page=ctrip-ebooking">携程竞争圈 →</a><a href="/?page=meituan-ebooking">美团同行数据 →</a></article>
+<article class="feature" data-capability="quality"><h3>平台服务质量</h3><p>查看平台服务质量与点评相关指标，作为经营排查线索。</p><p class="condition">范围：平台数据；不代表客房巡检、员工质检或全酒店服务管理。</p><a href="/?page=ctrip-ebooking">携程服务质量 →</a></article>
+<article class="feature" data-capability="advertising"><h3>广告效果数据</h3><p>查看已接入的广告效果记录，在口径一致时辅助人工评估。</p><p class="condition">条件：广告服务适用、消费与归因字段完整；不自动调整预算、出价或投放。</p><a href="/?page=ctrip-ebooking">携程广告数据 →</a><a href="/?page=meituan-ebooking">美团广告数据 →</a></article>
+<article class="feature" data-capability="daily-report"><h3>AI 经营日报</h3><p>根据可用数据辅助整理诊断与建议，留存日报供后续查看。</p><p class="condition">条件：所需事实可核对，AI 配置可用；生成、保存和回读分别确认。</p><a href="/?page=ai-daily-report">AI 经营日报 →</a></article>
+<article class="feature" data-capability="tasks"><h3>任务与复盘</h3><p>记录建议、人工确认、负责人、执行证据与后续观察。</p><p class="condition">条件：执行和复盘各有对应证据；完成复盘不等于收益改善或因果成立。</p><a href="/?page=ops-track">任务执行与复盘 →</a></article>
+</div>
+</section>
+<section class="box" id="states" aria-labelledby="states-title">
+<h2 id="states-title">看到数据状态后，下一步怎么做</h2>
+<div class="states">
+<div class="state"><strong>已有记录 / 已核验</strong><p>先核对酒店、平台和日期。已返回记录与已核验保存状态分别确认。</p></div>
+<div class="state"><strong>部分数据 / 缺少数据</strong><p>查看缺失项，补齐所需范围。部分金额不等于全期间金额，空缺不等于零。</p></div>
+<div class="state"><strong>人工导入 / 未核验</strong><p>核对来源、字段和保存结果；人工输入不能直接升级为平台已核验事实。</p></div>
+<div class="state"><strong>历史记录 / 日期不符</strong><p>保留原业务日期，按目标日期重新查询；历史记录不充当今天的数据。</p></div>
+<div class="state"><strong>读取失败 / 条件未满足</strong><p>查看原因并重新读取。来源或权限需要维护时，先处理对应问题。</p></div>
+<div class="state"><strong>等待执行 / 等待复盘</strong><p>由人确认关键动作，记录执行；有后续同口径数据后再复盘。</p></div>
+</div>
+</section>
+<section aria-labelledby="faq-title">
+<h2 id="faq-title">使用前，先说清楚</h2>
+<details><summary>这是完整的前台 PMS 或自动经营系统吗？</summary><p>当前重点是酒店 OTA 数据、经营分析、建议与任务复盘。不能由渠道数据推断已覆盖全酒店房态、收入与利润；关键经营动作需要人工确认和相应授权。</p></details>
+<details><summary>商旅订单是否代表有独立的商旅分析模块？</summary><p>订单记录可能包含商旅渠道分类。当前不将其作为独立已验收的商旅分析模块宣传。</p></details>
+<details><summary>为什么有些数据能看到，仍然不能得出结论？</summary><p>日期、来源或指标口径不一致时，直接比较容易误导判断。系统需要分别核对事实、缺口与建议适用条件。</p></details>
+<details><summary>首次接入后，怎样确认可以开始日常使用？</summary><p>用同一门店、同一日期完成一次数据取得、保存、回读与页面核对，再查看诊断和任务。后续取得同口径数据后补做复盘；接入完成不等于经营效果已经验证。</p></details>
+</section>
+<section class="closing"><div><h2>从一份可核对的数据开始</h2><p>登录后选定门店和日期，看看已有记录，以及下一步需要补齐什么。</p></div><a class="button" href="/?page=online-data">进入系统核对数据 →</a></section>
+</main>
+<footer><div class="wrap">宿析 OS · 产品能力与使用步骤 · 2026-09-08<br>具体功能与数据以门店授权、实际接入及验证状态为准。</div></footer>
+</body>
+</html>

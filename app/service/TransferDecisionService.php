@@ -622,6 +622,27 @@ class TransferDecisionService
             : ($hasOnlineRows
                 ? '已读取OTA渠道记录；该口径不能替代全酒店经营收入，当前不足以进行转让估值。'
                 : '未读取到可用于转让测算的经营记录。');
+        $hasMetricCoverageGap = false;
+        foreach (['current' => $current, 'annual' => $annual] as $window => $metrics) {
+            $reportDays = (int)$metrics['daily_report_days'];
+            $coverageNotes = [];
+            foreach ([
+                'revenue' => ['revenue_observed_days', '收入'],
+                'room_nights' => ['room_nights_observed_days', '间夜'],
+                'adr_pairs' => ['adr_paired_days', 'ADR同日配对'],
+            ] as $key => [$field, $label]) {
+                $observedDays = (int)$metrics[$field];
+                if ($observedDays < $reportDays) {
+                    $dataGaps[] = $window . '_daily_' . $key . '_coverage_incomplete';
+                    $coverageNotes[] = $label . ' ' . $observedDays . '/' . $reportDays . ' 天';
+                }
+            }
+            if ($coverageNotes !== []) {
+                $hasMetricCoverageGap = true;
+                $dataStatus .= ($window === 'current' ? '当前30天' : '年度365天')
+                    . '日报字段覆盖不足（' . implode('；', $coverageNotes) . '），指标仅按已观测日期计算。';
+            }
+        }
 
         $snapshot = [
             'hotel_id' => $targetHotelId,
@@ -672,10 +693,10 @@ class TransferDecisionService
                 'hotel_name' => $hotelName,
                 'location' => (string)($hotel['address'] ?? ''),
                 'room_count' => $current['room_count'] > 0 ? $current['room_count'] : null,
-                'monthly_revenue' => $hasDailyReports && $current['revenue'] > 0 ? round($current['revenue'] / 10000, 2) : null,
+                'monthly_revenue' => $current['revenue_observed'] ? round($current['revenue'] / 10000, 2) : null,
                 'ota_channel_revenue' => !empty($current['ota_channel_revenue_observed']) ? round($current['ota_channel_revenue'] / 10000, 2) : null,
-                'occupancy_rate' => $current['occupancy_rate'] > 0 ? $current['occupancy_rate'] : null,
-                'adr' => $current['adr'] > 0 ? $current['adr'] : null,
+                'occupancy_rate' => $current['occupancy_rate_observed'] ? $current['occupancy_rate'] : null,
+                'adr' => $current['adr_observed'] ? $current['adr'] : null,
                 'rating' => $current['rating'] > 0 ? $current['rating'] : null,
                 'order_count' => null,
                 'ota_channel_order_count' => !empty($current['ota_channel_orders_observed']) ? $current['ota_channel_orders'] : null,
@@ -684,18 +705,18 @@ class TransferDecisionService
             ],
             'timing_input' => [
                 'hotel_id' => $targetHotelId,
-                'current_revenue' => $hasDailyReports && $current['revenue'] > 0 ? round($current['revenue'] / 10000, 2) : null,
-                'previous_revenue' => count($annualDaily) > 0 && $annualBenchmark['revenue'] > 0 ? round($annualBenchmark['revenue'] / 10000, 2) : null,
+                'current_revenue' => $current['revenue_observed'] ? round($current['revenue'] / 10000, 2) : null,
+                'previous_revenue' => $annualBenchmark['revenue_observed'] ? round($annualBenchmark['revenue'] / 10000, 2) : null,
                 'current_orders' => null,
                 'previous_orders' => null,
                 'ota_channel_orders' => !empty($current['ota_channel_orders_observed']) ? $current['ota_channel_orders'] : null,
-                'current_adr' => $current['adr'] > 0 ? $current['adr'] : null,
-                'previous_adr' => $annualBenchmark['adr'] > 0 ? $annualBenchmark['adr'] : null,
-                'current_occupancy_rate' => $current['occupancy_rate'] > 0 ? $current['occupancy_rate'] : null,
-                'previous_occupancy_rate' => $annualBenchmark['occupancy_rate'] > 0 ? $annualBenchmark['occupancy_rate'] : null,
+                'current_adr' => $current['adr_observed'] ? $current['adr'] : null,
+                'previous_adr' => $annualBenchmark['adr_observed'] ? $annualBenchmark['adr'] : null,
+                'current_occupancy_rate' => $current['occupancy_rate_observed'] ? $current['occupancy_rate'] : null,
+                'previous_occupancy_rate' => $annualBenchmark['occupancy_rate_observed'] ? $annualBenchmark['occupancy_rate'] : null,
                 'rating' => $current['rating'] > 0 ? $current['rating'] : null,
                 'has_data_anomaly' => $current['has_data_anomaly'],
-                'has_data_gap' => $current['actual_days'] > 0 && $current['actual_days'] < 7,
+                'has_data_gap' => ($current['actual_days'] > 0 && $current['actual_days'] < 7) || $hasMetricCoverageGap,
                 'exposure' => $current['exposure'] > 0 ? $current['exposure'] : null,
                 'visitors' => $current['visitors'] > 0 ? $current['visitors'] : null,
                 'conversion_rate' => $current['conversion_rate'] > 0 ? $current['conversion_rate'] : null,
@@ -2191,13 +2212,16 @@ class TransferDecisionService
         $onlineRows = $otaTruth['verified_rows'];
         $dates = [];
         $dailyDates = [];
+        $dailyMetricValues = [];
         $onlineDates = [];
         $revenue = 0.0;
+        $revenueObserved = false;
         $otaChannelRevenue = 0.0;
         $otaChannelOrders = 0;
         $otaChannelRevenueObserved = false;
         $otaChannelOrdersObserved = false;
         $roomNights = 0.0;
+        $roomNightsObserved = false;
         $otaChannelRoomNights = 0.0;
         $otaChannelRoomNightsObserved = false;
         $roomCount = 0;
@@ -2208,14 +2232,25 @@ class TransferDecisionService
         $hotelName = '';
 
         foreach ($dailyRows as $row) {
-            $dates[(string)$row['report_date']] = true;
-            $dailyDates[(string)$row['report_date']] = true;
+            $date = (string)$row['report_date'];
+            $dates[$date] = true;
+            $dailyDates[$date] = true;
             $reportData = $this->decodeJson($row['report_data'] ?? '');
-            $revenue += $this->extractRevenue($row, $reportData);
+            $dailyRevenue = $this->extractRevenue($row, $reportData);
+            $revenueObserved = $revenueObserved || $dailyRevenue !== null;
+            $revenue += $dailyRevenue ?? 0;
+            if ($dailyRevenue !== null) {
+                $dailyMetricValues[$date]['revenue'] = ($dailyMetricValues[$date]['revenue'] ?? 0) + $dailyRevenue;
+            }
             $roomCount = max($roomCount, (int)$this->extractSalableRoomCount($row, $reportData));
-            $roomNights += $this->extractRoomNights($row, $reportData);
-            $occ = (float)($row['occupancy_rate'] ?? $reportData['occ'] ?? $reportData['occupancy_rate'] ?? 0);
-            if ($occ > 0) {
+            $dailyRoomNights = $this->extractRoomNights($row, $reportData);
+            $roomNightsObserved = $roomNightsObserved || $dailyRoomNights !== null;
+            $roomNights += $dailyRoomNights ?? 0;
+            if ($dailyRoomNights !== null) {
+                $dailyMetricValues[$date]['room_nights'] = ($dailyMetricValues[$date]['room_nights'] ?? 0) + $dailyRoomNights;
+            }
+            $occ = $this->numberOrNull(['value' => $row['occupancy_rate'] ?? $reportData['occ'] ?? $reportData['occupancy_rate'] ?? null], ['value']);
+            if ($occ !== null && $occ >= 0) {
                 $occValues[] = $occ > 1 ? $occ : $occ * 100;
             }
         }
@@ -2249,10 +2284,30 @@ class TransferDecisionService
         }
 
         $actualDays = count($dates);
-        $adr = $roomNights > 0 ? $revenue / $roomNights : 0;
-        $occupancyRate = $this->avg($occValues);
-        if ($occupancyRate <= 0 && $roomCount > 0 && $roomNights > 0 && $actualDays > 0) {
-            $occupancyRate = $roomNights / ($roomCount * $actualDays) * 100;
+        $dailyReportDays = count($dailyDates);
+        $revenueDays = 0;
+        $roomNightDays = 0;
+        $adrPairedDays = 0;
+        $pairedRevenue = 0.0;
+        $pairedRoomNights = 0.0;
+        foreach ($dailyMetricValues as $values) {
+            $hasRevenue = array_key_exists('revenue', $values);
+            $hasRoomNights = array_key_exists('room_nights', $values);
+            $revenueDays += $hasRevenue ? 1 : 0;
+            $roomNightDays += $hasRoomNights ? 1 : 0;
+            if ($hasRevenue && $hasRoomNights) {
+                $adrPairedDays++;
+                $pairedRevenue += $values['revenue'];
+                $pairedRoomNights += $values['room_nights'];
+            }
+        }
+        $adrObserved = $adrPairedDays > 0 && $pairedRoomNights > 0;
+        $adr = $adrObserved ? $pairedRevenue / $pairedRoomNights : 0;
+        $occupancyRateObserved = $occValues !== [];
+        $occupancyRate = $occupancyRateObserved ? array_sum($occValues) / count($occValues) : 0;
+        if (!$occupancyRateObserved && $roomCount > 0 && $roomNightsObserved && $roomNights >= 0 && $roomNightDays > 0) {
+            $occupancyRate = $roomNights / ($roomCount * $roomNightDays) * 100;
+            $occupancyRateObserved = true;
         }
 
         $conversionRate = $visitors > 0 ? $otaChannelOrders / $visitors * 100 : 0;
@@ -2260,20 +2315,27 @@ class TransferDecisionService
         return [
             'hotel_name' => $hotelName,
             'actual_days' => $actualDays,
-            'daily_report_days' => count($dailyDates),
+            'daily_report_days' => $dailyReportDays,
+            'revenue_observed_days' => $revenueDays,
+            'room_nights_observed_days' => $roomNightDays,
+            'adr_paired_days' => $adrPairedDays,
             'ota_channel_days' => count($onlineDates),
             'revenue' => round($revenue, 2),
+            'revenue_observed' => $revenueObserved,
             'ota_channel_revenue' => round($otaChannelRevenue, 2),
             'ota_channel_revenue_observed' => $otaChannelRevenueObserved,
             'orders' => $otaChannelOrders,
             'ota_channel_orders' => $otaChannelOrders,
             'ota_channel_orders_observed' => $otaChannelOrdersObserved,
             'room_nights' => round($roomNights, 2),
+            'room_nights_observed' => $roomNightsObserved,
             'ota_channel_room_nights' => round($otaChannelRoomNights, 2),
             'ota_channel_room_nights_observed' => $otaChannelRoomNightsObserved,
             'room_count' => $roomCount,
             'adr' => round($adr, 2),
+            'adr_observed' => $adrObserved,
             'occupancy_rate' => round($occupancyRate, 2),
+            'occupancy_rate_observed' => $occupancyRateObserved,
             'rating' => $this->avg($ratingValues),
             'exposure' => $exposure,
             'visitors' => $visitors,
@@ -2289,22 +2351,27 @@ class TransferDecisionService
     {
         $actualDays = (int)($annual['actual_days'] ?? 0);
         $scale = $actualDays > 0 ? 30 / $actualDays : 0;
+        $revenueDays = (int)($annual['revenue_observed_days'] ?? 0);
+        $revenueScale = $revenueDays > 0 ? 30 / $revenueDays : 0;
 
         return [
             'actual_days' => $actualDays,
-            'revenue' => round((float)($annual['revenue'] ?? 0) * $scale, 2),
+            'revenue' => round((float)($annual['revenue'] ?? 0) * $revenueScale, 2),
+            'revenue_observed' => $revenueDays > 0 && ($annual['revenue_observed'] ?? false) === true,
             'orders' => (int)round((float)($annual['orders'] ?? 0) * $scale),
             'adr' => round((float)($annual['adr'] ?? 0), 2),
+            'adr_observed' => ($annual['adr_observed'] ?? false) === true,
             'occupancy_rate' => round((float)($annual['occupancy_rate'] ?? 0), 2),
+            'occupancy_rate_observed' => ($annual['occupancy_rate_observed'] ?? false) === true,
         ];
     }
 
-    private function extractRevenue(array $row, array $reportData): float
+    private function extractRevenue(array $row, array $reportData): ?float
     {
         foreach (['revenue', 'day_revenue', 'room_revenue', 'ctrip_revenue', 'meituan_revenue'] as $key) {
-            $value = $row[$key] ?? $reportData[$key] ?? null;
-            if (is_numeric($value) && (float)$value > 0) {
-                return (float)$value;
+            $value = $this->numberOrNull(['value' => $row[$key] ?? $reportData[$key] ?? null], ['value']);
+            if ($value !== null) {
+                return $value;
             }
         }
         return $this->sumReportFields($reportData, [
@@ -2316,12 +2383,12 @@ class TransferDecisionService
         ]);
     }
 
-    private function extractRoomNights(array $row, array $reportData): float
+    private function extractRoomNights(array $row, array $reportData): ?float
     {
         foreach (['room_nights', 'occupied_rooms', 'day_total_rooms', 'total_rooms'] as $key) {
-            $value = $reportData[$key] ?? null;
-            if (is_numeric($value) && (float)$value > 0) {
-                return (float)$value;
+            $value = $this->numberOrNull($reportData, [$key]);
+            if ($value !== null) {
+                return $value;
             }
         }
 
@@ -2331,11 +2398,11 @@ class TransferDecisionService
             'walkin_rooms', 'member_exp_rooms', 'web_exp_rooms', 'group_rooms', 'protocol_rooms', 'wechat_rooms',
             'free_rooms', 'gold_card_rooms', 'black_gold_rooms', 'hourly_rooms',
         ]);
-        if ($rooms > 0) {
+        if ($rooms !== null) {
             return $rooms;
         }
 
-        return (float)($row['guest_count'] ?? 0);
+        return $this->numberOrNull($row, ['guest_count']);
     }
 
     private function extractSalableRoomCount(array $row, array $reportData): float
@@ -2355,11 +2422,14 @@ class TransferDecisionService
         return 0.0;
     }
 
-    private function sumReportFields(array $reportData, array $fields): float
+    private function sumReportFields(array $reportData, array $fields): ?float
     {
-        $total = 0.0;
+        $total = null;
         foreach ($fields as $field) {
-            $total += (float)($reportData[$field] ?? 0);
+            $value = $this->numberOrNull($reportData, [$field]);
+            if ($value !== null) {
+                $total = ($total ?? 0) + $value;
+            }
         }
         return $total;
     }

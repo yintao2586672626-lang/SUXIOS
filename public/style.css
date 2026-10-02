@@ -8755,6 +8755,32 @@ aside.sidebar:not(.collapsed) {
     background: #f8fafc;
 }
 
+.suxi-dashboard-scope .suxi-chart-feedback {
+    position: absolute;
+    inset: 0;
+    z-index: 20;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    padding: 0 24px;
+    background: var(--sx-dashboard-panel-strong, #fff);
+    color: var(--sx-dashboard-text, #334155);
+    text-align: center;
+    font-size: 14px;
+}
+
+.suxi-dashboard-scope .suxi-chart-feedback .btn-secondary {
+    min-height: 44px;
+}
+
+.suxi-dashboard-scope .home-trend-range {
+    padding: 6px 12px;
+    border-width: 1px;
+    border-radius: 8px;
+}
+
 .suxi-dashboard-scope .suxi-chart-grid {
     position: absolute;
     inset: 0;
@@ -15368,6 +15394,7 @@ main[data-current-page="ai-workbench"] .dual-ota-current-data-state-action:hover
 }
 
 .suxi-cpp-hero h4 {
+    color: inherit;
     margin-top: 7px;
     font-size: 20px;
 }

@@ -8,6 +8,8 @@ use Throwable;
 
 class AiEvaluationBatchReplayService
 {
+    public const SCORING_CONTRACT_VERSION = 'expected_subset.v2_empty_is_exact';
+
     private object $llmClient;
     private Closure $localCapabilityProbe;
 
@@ -128,7 +130,7 @@ class AiEvaluationBatchReplayService
                 $planned['blockers'][] = 'model_call_failed';
                 $planned['error'] = [
                     'type' => get_class($e),
-                    'message' => mb_substr($e->getMessage(), 0, 300),
+                    'message' => '模型调用失败，本次评估未取得可验证结果。',
                 ];
                 $summary['blocked']++;
             }
@@ -137,6 +139,7 @@ class AiEvaluationBatchReplayService
         }
 
         return [
+            'scoring_contract_version' => self::SCORING_CONTRACT_VERSION,
             'dry_run' => $dryRun,
             'allow_external_model_call' => $allowExternalModelCall,
             'local_model_call' => $localModelCall,
@@ -339,6 +342,14 @@ class AiEvaluationBatchReplayService
 
         if (is_array($expected)) {
             if (!is_array($actual)) {
+                $mismatches[] = $this->mismatch($path, $expected, $actual);
+                return;
+            }
+            // An explicit empty result is an assertion, not a wildcard. Object
+            // subsets still allow unrelated metadata for existing evaluation cases.
+            if (($expected === [] && $actual !== [])
+                || ($expected !== [] && array_is_list($expected) !== array_is_list($actual))
+            ) {
                 $mismatches[] = $this->mismatch($path, $expected, $actual);
                 return;
             }

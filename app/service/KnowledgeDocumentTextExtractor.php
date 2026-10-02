@@ -654,6 +654,17 @@ class KnowledgeDocumentTextExtractor
             throw new InvalidArgumentException('docx 文档 XML 内容与压缩元数据不一致');
         }
 
+        $previousUseErrors = libxml_use_internal_errors(true);
+        try {
+            $document = simplexml_load_string($xml, SimpleXMLElement::class, LIBXML_NONET | LIBXML_COMPACT | LIBXML_NOCDATA);
+        } finally {
+            libxml_clear_errors();
+            libxml_use_internal_errors($previousUseErrors);
+        }
+        if (!$document instanceof SimpleXMLElement) {
+            throw new InvalidArgumentException('docx 文档 XML 格式错误，无法读取');
+        }
+
         return $xml;
     }
 

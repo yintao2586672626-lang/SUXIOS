@@ -54,7 +54,7 @@
         blocked_by_operation_roi: 'ROI门禁未过',
     }[String(status || '').toLowerCase()] || '状态未知');
 
-    const revenueAiReasonText = (reason) => ({
+    const revenueAiReasonTexts = {
         '': '数据已命中当前口径。',
         online_daily_data_empty: '目标经营日期没有可用 OTA 入库数据。',
         source_not_loaded: '未找到对应渠道的数据源或入库状态。',
@@ -79,6 +79,8 @@
         cancellation_order_base_missing: '已有取消字段，但缺少同口径订单基数。',
         cancel_room_nights_missing: '暂缺取消订单对应的真实取消间夜。',
         cancel_room_nights_partial: '只有部分 OTA 事实具备取消间夜。',
+        cancel_room_nights_invalid: '取消间夜或间夜总数无效，请核对同范围计数；取消间夜不能为负或超过间夜总数。',
+        cancel_room_nights_denominator_zero: '间夜总数已确认为 0，无法计算取消间夜率；请核对所选业务日期的间夜记录。',
         competitor_price_fields_missing: '暂缺竞对价格字段。',
         competitor_price_fields_partial: '只有部分 OTA 事实具备条件对齐的本店价与竞对价。',
         source_status_missing: '未找到平台数据源状态。',
@@ -111,6 +113,9 @@
         demand_forecasts_read_failed: '未来 7 天需求预测读取失败。',
         demand_forecasts_empty: '未来 7 天暂无需求预测记录。',
         demand_forecasts_metric_missing: '需求预测记录缺少可计算指标。',
+        demand_forecasts_invalid_metrics: '需求预测存在无效指标，需核对已记录数值。',
+        demand_forecasts_partial_metrics: '部分预测记录缺少指标，当前合计仅覆盖有效样本。',
+        demand_forecasts_confidence_missing: '部分预测记录缺少置信度，尚不能确认信号可靠性。',
         demand_forecasts_low_confidence: '未来 7 天需求预测置信度偏低。',
         demand_forecasts_high_demand: '未来 7 天存在高需求日期。',
         demand_forecasts_available: '已读取未来 7 天需求预测。',
@@ -175,6 +180,10 @@
         blocked_by_data_credibility: 'OTA 数据可信门未通过，收益计算被阻断。',
         source_rows_missing: '缺少可追溯的 OTA 来源行。',
         source_update_time_missing: '缺少 OTA 来源更新时间。',
+        source_collection_time_missing: '部分来源未记录采集时间，请补齐对应记录的采集与回读证据。',
+        collected_at_missing: '缺少来源采集时间，请重新采集并回读对应记录。',
+        source_update_time_invalid: '来源更新时间格式无效，请核对时间后重新回读记录。',
+        source_collection_time_invalid: '来源采集时间格式无效，请重新采集并回读对应记录。',
         metric_value_missing: '指标值缺失。',
         whole_hotel_scope_not_proved: '尚未证明全酒店口径，只能保留 OTA 渠道边界。',
         dingdandao_pms_not_readback_verified: 'PMS 全酒店住宿事实尚未完成同店同日回读验证。',
@@ -185,7 +194,17 @@
         revenue_positive_room_nights_zero: 'OTA 收入大于 0 但间夜为 0，需复核来源字段。',
         data_not_complete: '当前数据未达到完整口径。',
         ZERO_CONFIRMED: '渠道明确确认目标经营日期无数据。',
-    }[String(reason || '')] || String(reason || '数据缺口待确认。'));
+    };
+    const revenueAiReasonText = (reason) => {
+        const text = String(reason || '');
+        if (!text) return revenueAiReasonTexts[''];
+        return text.split(/([;；])/).map((part) => {
+            const code = part.trim();
+            return code && Object.prototype.hasOwnProperty.call(revenueAiReasonTexts, code)
+                ? part.replace(code, revenueAiReasonTexts[code])
+                : part;
+        }).join('');
+    };
 
     const revenueAiScopeLabel = (scope) => ({
         ota: 'OTA渠道口径',
@@ -288,7 +307,7 @@
         };
     };
 
-    const resolveRevenueAiOverviewResponse = ({ response = null, error = null } = {}) => {
+    const resolveRevenueAiOverviewResponse = ({ response = null, error = null, expectedScope = null } = {}) => {
         if (error) {
             return {
                 overview: null,
@@ -305,6 +324,24 @@
                 return {
                     overview: null,
                     errorMessage: asOfDate.message,
+                    status: 'blocked',
+                    ok: false,
+                };
+            }
+            const expectedDate = String(expectedScope?.businessDate || '').trim();
+            if (expectedDate && String(overview.business_date || '').trim() !== expectedDate) {
+                return {
+                    overview: null,
+                    errorMessage: 'Revenue AI 总览业务日期与当前请求不一致，已阻止展示',
+                    status: 'blocked',
+                    ok: false,
+                };
+            }
+            const expectedHotelId = String(expectedScope?.hotelId || '').trim();
+            if (expectedHotelId && String(overview.hotel_id ?? '').trim() !== expectedHotelId) {
+                return {
+                    overview: null,
+                    errorMessage: 'Revenue AI 总览酒店与当前请求不一致，已阻止展示',
                     status: 'blocked',
                     ok: false,
                 };
@@ -405,7 +442,7 @@
             { key: 'source', label: '来源', value: sourceText },
             { key: 'collected', label: '采集时间', value: revenueAiTruthRangeText(truth?.collected_at_range) },
             { key: 'persistence', label: '入库', value: storedText },
-            { key: 'failure', label: '失败原因', value: failureReason || '无' },
+            { key: 'failure', label: '失败原因', value: failureReason ? revenueAiReasonText(failureReason) : '无' },
             { key: 'scope', label: '口径', value: String(truth?.scope_label || 'OTA渠道指标，不代表全酒店经营') },
         ];
     };
@@ -805,7 +842,8 @@
     };
 
     const buildRevenueAiMetricCards = ({ overview = null, overviewError = '' } = {}) => {
-        const metrics = overview?.metrics || {};
+        const visibleOverview = overviewError ? null : overview;
+        const metrics = visibleOverview?.metrics || {};
         return revenueAiMetricDefinitions.map((definition) => {
             const metric = metrics[definition.key] || {};
             const reason = overviewError ? 'overview_request_failed' : (metric.reason || (overview ? '' : 'overview_not_loaded'));
@@ -820,9 +858,11 @@
                 statusLabel: overviewError || hasTruthStatus ? revenueAiTruthStatusLabel(truthStatus) : revenueAiStatusLabel(status),
                 className: revenueAiStatusClass(overviewError || hasTruthStatus ? revenueAiTruthStatusTone(truthStatus) : status),
                 metricStatusLabel: revenueAiStatusLabel(status),
-                reasonText: truth?.failure_reason || metric.display_reason || revenueAiReasonText(reason),
-                scopeLabel: revenueAiScopeLabel(metric.scope || definition.scope || overview?.scope || 'ota'),
-                dateBasisLabel: revenueAiDateBasisLabel(metric.date_basis || definition.dateBasis || overview?.date_basis || 'data_date'),
+                reasonText: truth?.failure_reason
+                    ? revenueAiReasonText(truth.failure_reason)
+                    : metric.display_reason || revenueAiReasonText(reason),
+                scopeLabel: revenueAiScopeLabel(metric.scope || definition.scope || visibleOverview?.scope || 'ota'),
+                dateBasisLabel: revenueAiDateBasisLabel(metric.date_basis || definition.dateBasis || visibleOverview?.date_basis || 'data_date'),
                 truth,
                 truthStatus,
                 truthLines: revenueAiMetricTruthLines(truth),
@@ -937,15 +977,24 @@
         };
     };
 
-    const resolveRevenueAiDecisionBasisNavigation = (basis = {}) => ({
-        targetPage: String(basis.targetPage || basis.target_page || '').trim(),
-        targetTab: String(basis.targetTab || basis.target_tab || '').trim(),
-        targetAgentTab: String(basis.targetAgentTab || basis.target_agent_tab || '').trim(),
-        targetRevenueTab: String(basis.targetRevenueTab || basis.target_revenue_tab || '').trim(),
-        targetFilter: basis.targetFilter || basis.target_filter || {},
-        nextAction: String(basis.nextAction || basis.next_action || '').trim(),
-        label: String(basis.label || '').trim(),
-    });
+    const resolveRevenueAiDecisionBasisNavigation = (basis = {}) => {
+        const targetFilter = basis.targetFilter || basis.target_filter || {};
+        const hotelId = String(targetFilter.hotel_id ?? '').trim();
+        const businessDate = revenueAiIsoDate(targetFilter.business_date);
+        const source = String(targetFilter.source || '').trim().toLowerCase();
+        return {
+            targetPage: String(basis.targetPage || basis.target_page || '').trim(),
+            targetTab: String(basis.targetTab || basis.target_tab || '').trim(),
+            targetAgentTab: String(basis.targetAgentTab || basis.target_agent_tab || '').trim(),
+            targetRevenueTab: String(basis.targetRevenueTab || basis.target_revenue_tab || '').trim(),
+            targetFilter,
+            dataHealthScope: /^\d+$/.test(hotelId) && Number.isSafeInteger(Number(hotelId)) && Number(hotelId) > 0
+                && businessDate && ['ctrip', 'meituan', 'all'].includes(source)
+                ? { hotelId, businessDate, source } : null,
+            nextAction: String(basis.nextAction || basis.next_action || '').trim(),
+            label: String(basis.label || '').trim(),
+        };
+    };
 
     const buildRevenueAiStatusRows = ({
         readiness = {},
@@ -1063,8 +1112,9 @@
         ];
     };
 
-    const buildRevenueAiSignalRows = ({ overview = null } = {}) => {
-        const signals = overview?.signals || {};
+    const buildRevenueAiSignalRows = ({ overview = null, overviewError = '' } = {}) => {
+        const visibleOverview = overviewError ? null : overview;
+        const signals = visibleOverview?.signals || {};
         const definitions = [
             { key: 'holiday_event', label: '事件/节假日影响' },
             { key: 'demand_7d', label: '未来7天需求信号' },
@@ -1075,15 +1125,15 @@
         ];
         return definitions.map((definition) => {
             const signal = signals[definition.key] || {};
-            const status = signal.status || (overview ? 'unknown' : 'not_loaded');
-            const reason = signal.reason || (overview ? '' : 'overview_not_loaded');
+            const status = overviewError ? 'failed' : (signal.status || (visibleOverview ? 'unknown' : 'not_loaded'));
+            const reason = overviewError ? 'overview_request_failed' : (signal.reason || (visibleOverview ? '' : 'overview_not_loaded'));
             return {
                 key: definition.key,
                 label: signal.label || definition.label,
-                value: signal.value || '--',
+                value: signal.value === null || signal.value === undefined || signal.value === '' ? '--' : String(signal.value),
                 statusLabel: revenueAiStatusLabel(status),
                 className: revenueAiStatusClass(status),
-                reasonText: signal.detail || revenueAiReasonText(reason),
+                reasonText: overviewError || signal.detail || revenueAiReasonText(reason),
             };
         });
     };
@@ -1320,6 +1370,7 @@
                 targetPlatform: String(item?.target_platform || ''),
                 targetAgentTab: String(item?.target_agent_tab || ''),
                 targetRevenueTab: String(item?.target_revenue_tab || ''),
+                targetFilter: item?.target_filter || {},
                 canOpenTarget: Boolean(item?.target_page),
             };
         });
@@ -1361,7 +1412,30 @@
         price_suggestions_pending_review: '存在待人工审核调价建议。',
     }[String(reason || '')] || revenueAiReasonText(reason || 'overview_not_loaded'));
 
-    const buildRevenueAiPricingGenerationPreflightSummary = ({ overview = null, action = null } = {}) => {
+    const buildRevenueAiPricingGenerationPreflightSummary = ({ overview = null, action = null, overviewError = '', overviewLoading = false } = {}) => {
+        const errorMessage = String(overviewError || '');
+        if (overviewLoading || errorMessage) {
+            return {
+                visible: true,
+                factsAvailable: false,
+                status: overviewLoading ? 'loading' : 'failed',
+                statusLabel: overviewLoading ? '读取中' : '读取失败',
+                className: revenueAiStatusClass(overviewLoading ? 'unknown' : 'failed'),
+                title: '携程调价建议生成预检',
+                detailText: overviewLoading ? '正在读取当前酒店和业务日期的预检依据。' : errorMessage,
+                reasonText: '本次尚未取得可核验的结果，暂不展示上次预检结论和数量。',
+                nextAction: overviewLoading ? '' : '请再次点击“远期定价台账”重新读取。',
+                readOnly: true,
+                autoWriteOta: false,
+                advisoryOnly: true,
+                canGeneratePendingSuggestions: false,
+                canOpenTarget: false,
+                candidateSkipReasons: [],
+                candidateDataGaps: [],
+                requiredInputs: [],
+                hotelChecks: [],
+            };
+        }
         const candidates = [
             action?.pricing_generation_preflight,
             overview?.pricing_generation_preflight,
@@ -1644,6 +1718,7 @@
                         targetPlatform: item.target_platform || '',
                         targetAgentTab: item.target_agent_tab || '',
                         targetRevenueTab: item.target_revenue_tab || '',
+                        targetFilter: item.target_filter || {},
                         canOpenTarget: Boolean(item.target_page),
                     }));
             const reviewQueueItems = buildRevenueAiReviewQueueItems(reviewQueue);
@@ -2427,6 +2502,68 @@
         };
     };
 
+    const aiDailyReportExpandScope = (scope) => {
+        const value = String(scope || '').trim().toLowerCase();
+        if (!value || value === 'unknown') return [];
+        if (value === 'mixed_whole_hotel_and_ota_channel') return ['whole_hotel_daily_report', 'ota_channel'];
+        if (['whole_hotel', 'whole_hotel_daily_report'].includes(value) || value.includes('whole_hotel')) {
+            return ['whole_hotel_daily_report'];
+        }
+        if (value === 'ota' || value === 'ota_channel' || value.includes('ota channel')) return ['ota_channel'];
+        if (['manual_input', 'user_input'].includes(value) || value.includes('manual')) return ['manual_input'];
+        if (value === 'local_operating_source' || value.includes('local_operating')) return ['local_operating_source'];
+        if (value === 'derived' || value === 'derived_metric') return ['derived'];
+        return [value];
+    };
+    const aiDailyReportMetricScopeMembers = (metric = {}) => {
+        const rawScopes = Array.isArray(metric.metric_scopes)
+            ? metric.metric_scopes
+            : [metric.metric_scope];
+        return Array.from(new Set(rawScopes.flatMap(aiDailyReportExpandScope)));
+    };
+    const aiDailyReportSourceRefKey = (source = {}) => String(
+        source.ref || source.key || source.source_ref || source.source || ''
+    ).trim();
+    const aiDailyReportSourceScope = (source = {}) => {
+        const key = aiDailyReportSourceRefKey(source).toLowerCase();
+        const sourceName = String(source.source || '').trim().toLowerCase();
+        const dataType = String(source.data_type || '').trim().toLowerCase();
+        const ingestionMethod = String(source.ingestion_method || '').trim().toLowerCase();
+        if (/^online_daily_data#\d+$/.test(key) || sourceName === 'online_daily_data') return 'ota_channel';
+        if (/^daily_reports#\d+$/.test(key) || sourceName === 'daily_reports' || dataType === 'whole_hotel_daily_report') {
+            return 'whole_hotel_daily_report';
+        }
+        if (sourceName.includes('manual') || ingestionMethod.includes('manual')) return 'manual_input';
+        if (sourceName.includes('local') || ingestionMethod.includes('local')) return 'local_operating_source';
+        const explicit = aiDailyReportExpandScope(source.metric_scope || source.scope);
+        if (explicit.length === 1) return explicit[0];
+        if (explicit.includes('ota_channel') && explicit.includes('whole_hotel_daily_report')) {
+            return 'mixed_whole_hotel_and_ota_channel';
+        }
+        const platform = String(source.platform || sourceName).trim().toLowerCase();
+        if (['ctrip', 'meituan', 'qunar'].includes(platform)) return 'ota_channel';
+        return explicit[0] || 'unknown';
+    };
+    const aiDailyReportMetricScopeContext = (metric = {}, sources = []) => {
+        const members = aiDailyReportMetricScopeMembers(metric);
+        if (!members.length) {
+            sources.forEach(source => members.push(...aiDailyReportExpandScope(aiDailyReportSourceScope(source))));
+        }
+        const unique = Array.from(new Set(members));
+        const hasWholeHotel = unique.includes('whole_hotel_daily_report');
+        const hasOta = unique.includes('ota_channel');
+        const hasUserInput = unique.includes('manual_input');
+        const hasLocal = unique.includes('local_operating_source');
+        if (hasWholeHotel && hasOta) {
+            return { code: 'mixed', text: '混合来源', label: '混合口径：全酒店经营日报 + OTA渠道，不可按单一口径解读' };
+        }
+        if (hasWholeHotel) return { code: 'whole_hotel', text: '全酒店', label: '全酒店经营日报口径' };
+        if (hasOta) return { code: 'ota_channel', text: 'OTA渠道', label: 'OTA渠道指标，不代表全酒店经营' };
+        if (hasUserInput) return { code: 'user_input', text: '用户输入', label: '用户/人工输入口径，不代表已通过外部来源验证' };
+        if (hasLocal) return { code: 'local_operating_source', text: '本地经营来源', label: '本地经营来源，验证范围以当前来源记录为准' };
+        return { code: 'unprovided', text: '口径未提供', label: '指标口径未提供' };
+    };
+
     const aiDailyReportActionSources = (action) => {
         const refs = action?.source_refs;
         if (Array.isArray(refs)) return refs.filter(Boolean).join(' / ');
@@ -2512,8 +2649,8 @@
     };
 
     const aiDailyReportActionButtonText = (action) => {
+        if (action?.execution_intent_id) return '查看对应任务';
         if (aiDailyReportActionIsInvestigationOnly(action)) return '查看证据';
-        if (action?.execution_intent_id) return '已转单';
         if (!aiDailyReportActionExecutionReady(action)) return '处理缺口';
         if (aiDailyReportActionBlockedText(action)) return '待处理';
         return '转单';
@@ -3094,6 +3231,25 @@
         if (!/^\d{4}-\d{2}-\d{2}$/.test(String(date || ''))) return '';
         const [year, month, day] = String(date).split('-').map(Number);
         return new Date(Date.UTC(year, month - 1, day) + offsetDays * 86400000).toISOString().slice(0, 10);
+    };
+
+    const isValidCompetitorPriceMatrix = (matrix) => {
+        const isRecord = value => value !== null && typeof value === 'object' && !Array.isArray(value);
+        const isContainer = value => value !== null && typeof value === 'object';
+        return isContainer(matrix) && !Object.values(matrix).some(group => !isContainer(group)
+            || Object.values(group).some(row => !isRecord(row)));
+    };
+
+    const normalizeCtripCompetitorPrice = (payload, expectedHotelId, expectedDate) => {
+        const hotelId = String(payload?.query_scope?.hotel_id || '').trim();
+        const date = String(payload?.query_scope?.date || payload?.date || '').trim();
+        if (hotelId !== expectedHotelId || date !== expectedDate) {
+            return { accepted: false, errorMessage: '携程竞对价格响应与当前酒店或日期不一致' };
+        }
+        if (!isValidCompetitorPriceMatrix(payload.price_matrix)) {
+            return { accepted: false, errorMessage: '携程竞对价格响应缺少有效价格矩阵，请刷新重试' };
+        }
+        return { accepted: true, payload };
     };
 
     const normalizeMeituanCompetitionCircle = (payload = {}, expectedHotelId = '', expectedDate = '', requestedRange = 'yesterday') => {
@@ -3683,7 +3839,7 @@
         'restoreRevenueCockpitPendingApprovalWithReadback',
     ]);
     const revenueCockpitStaticScript = 'revenue-cockpit-static.js';
-    const revenueCockpitStaticVersion = '20260831-cockpit-domain-h6dd6fa56dc';
+    const revenueCockpitStaticVersion = '20260831-cockpit-domain-h576cce6203';
     let revenueCockpitStaticHelpers = null;
     let revenueCockpitStaticLoadPromise = null;
 
@@ -3848,6 +4004,11 @@
         validateRevenueAiApprovedPrice,
         buildRevenueAiReviewConfirmText,
         buildRevenueAiReviewRequestBody,
+        aiDailyReportExpandScope,
+        aiDailyReportMetricScopeMembers,
+        aiDailyReportSourceRefKey,
+        aiDailyReportSourceScope,
+        aiDailyReportMetricScopeContext,
         aiDailyReportActionSources,
         aiDailyReportEvidenceTarget,
         aiDailyReportActionIsInvestigationOnly,
@@ -3862,6 +4023,7 @@
         buildRevenueAiExecutionIntentOpenRow,
         resolveRevenueAiReviewNavigation,
         buildRevenueAiReviewNavigationState,
+        normalizeCtripCompetitorPrice,
         normalizeMeituanCompetitionCircle,
         buildCompetitorMicroscope,
         loadRevenueCockpitStatic,

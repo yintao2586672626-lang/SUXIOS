@@ -92,6 +92,97 @@ final class OperationEffectReviewServiceTest extends TestCase
         self::assertSame($first['review']['content_digest'], $list['list'][0]['content_digest']);
     }
 
+    #[\PHPUnit\Framework\Attributes\DataProvider('invalidatedEffectSourceEvidence')]
+    public function testInvalidatedSourceEvidenceKeepsHistoryButCannotRemainAnActiveVerifiedEffect(string $mutation): void
+    {
+        $this->insertManualExecutionEvidence();
+        $service = new OperationEffectReviewService();
+        $saved = $service->create(42, 7, 1, 1, $this->effectInput(), 3);
+        $reviewId = (int)$saved['review']['id'];
+        $before = (new OperationManagementService())->readExecutionTask(1, [7]);
+        self::assertNotNull($before['active_effect_review']);
+        self::assertTrue($before['outcome_truth']['positive_outcome_verified']);
+        $evidence = Db::name('operation_execution_evidence')->where('id', 1)->find();
+        if ($mutation === 'missing') {
+            Db::name('operation_execution_evidence')->where('id', 1)->delete();
+        } elseif ($mutation === 'deleted') {
+            Db::name('operation_execution_evidence')->where('id', 1)->update(['deleted_at' => '2026-08-10 10:00:00']);
+        } elseif ($mutation === 'task') {
+            Db::name('operation_execution_evidence')->where('id', 1)->update(['task_id' => 2]);
+        } elseif ($mutation === 'tenant') {
+            Db::name('operation_execution_evidence')->where('id', 1)->update(['tenant_id' => 43]);
+        } elseif ($mutation === 'value_changed') {
+            Db::name('operation_execution_evidence')->where('id', 1)->update(['after_json' => '{"orders":14}']);
+        } else {
+            $context = json_decode((string)$evidence['platform_response_json'], true, 512, JSON_THROW_ON_ERROR);
+            if ($mutation === 'hotel') $context['system_hotel_id'] = 8;
+            if ($mutation === 'readback_revoked') $context['readback_verified'] = false;
+            if ($mutation === 'required_proof_missing') unset($context['validation_status']);
+            Db::name('operation_execution_evidence')->where('id', 1)->update([
+                'platform_response_json' => json_encode($context, JSON_THROW_ON_ERROR),
+            ]);
+        }
+
+        $list = $service->listForTask(42, 7, 1, 1);
+        self::assertSame(1, $list['count']);
+        self::assertSame('source_readback_unverified', $list['persistence_status']);
+        self::assertSame(0, $list['source_readback_verified_count']);
+        self::assertSame($saved['review']['content_digest'], $list['list'][0]['content_digest']);
+        self::assertTrue($list['list'][0]['approval_contract_verified']);
+        self::assertFalse($list['list'][0]['source_readback_verified']);
+        self::assertFalse($list['list'][0]['readback_verified']);
+        self::assertFalse($list['list'][0]['active_eligible']);
+        try {
+            $service->readVerified($reviewId, 42, 7, 1, 1);
+            self::fail('An unavailable or mismatched source must not pass verified effect readback.');
+        } catch (RuntimeException $error) {
+            self::assertStringContainsString('来源回读', $error->getMessage());
+        }
+        $after = (new OperationManagementService())->readExecutionTask(1, [7]);
+        self::assertCount(1, $after['effect_reviews']);
+        self::assertNull($after['active_effect_review']);
+        self::assertFalse($after['effect_review_summary']['current_result_bound']);
+        self::assertNotSame('readback_verified', $after['effect_review_summary']['persistence_status']);
+        self::assertFalse($after['outcome_truth']['source_verified']);
+        self::assertFalse($after['outcome_truth']['outcome_verified']);
+        self::assertFalse($after['outcome_truth']['positive_outcome_verified']);
+        self::assertSame('not_ready', $after['sop_candidate']['status']);
+        self::assertSame(1, (int)Db::name('operation_effect_reviews')->count());
+    }
+
+    public static function invalidatedEffectSourceEvidence(): array
+    {
+        return array_combine(
+            ['missing', 'deleted', 'task', 'tenant', 'hotel', 'readback_revoked', 'required_proof_missing', 'value_changed'],
+            array_map(static fn(string $mutation): array => [$mutation], ['missing', 'deleted', 'task', 'tenant', 'hotel', 'readback_revoked', 'required_proof_missing', 'value_changed'])
+        );
+    }
+
+    public function testSourceReadbackBindingKeepsValidLegacyOptionalContextFieldsCompatible(): void
+    {
+        $this->insertManualExecutionEvidence();
+        $evidence = Db::name('operation_execution_evidence')->where('id', 1)->find();
+        $context = json_decode((string)$evidence['platform_response_json'], true, 512, JSON_THROW_ON_ERROR);
+        unset($context['tenant_id']);
+        Db::name('operation_execution_evidence')->where('id', 1)->update([
+            'platform_response_json' => json_encode($context, JSON_THROW_ON_ERROR),
+        ]);
+        $service = new OperationEffectReviewService();
+        $saved = $service->create(42, 7, 1, 1, $this->effectInput(), 3);
+        $read = $service->readVerified((int)$saved['review']['id'], 42, 7, 1, 1);
+        self::assertTrue($read['source_readback_verified']);
+        self::assertSame('verified', $read['source_readback_validation_status']);
+        self::assertTrue($read['active_eligible']);
+        self::assertTrue($read['readback_verified']);
+        $list = $service->listForTask(42, 7, 1, 1);
+        self::assertSame(1, $list['source_readback_verified_count']);
+        self::assertSame('readback_verified', $list['persistence_status']);
+        $task = (new OperationManagementService())->readExecutionTask(1, [7]);
+        self::assertSame($read['id'], $task['active_effect_review']['id']);
+        self::assertTrue($task['outcome_truth']['source_verified']);
+        self::assertTrue($task['outcome_truth']['positive_outcome_verified']);
+    }
+
     public function testFrozenApprovalBaselineWinsForMultiDayIntent(): void
     {
         Db::name('operation_execution_intents')->where('id', 1)->update([
@@ -194,6 +285,125 @@ final class OperationEffectReviewServiceTest extends TestCase
         $this->expectException(InvalidArgumentException::class);
         $this->expectExceptionMessage('来源回读复盘值断言不匹配');
         (new OperationEffectReviewService())->create(42, 7, 1, 1, $input, 3);
+    }
+
+    public function testLegacyTextMetricDefinitionKeepsFrozenApprovalAndExactReadback(): void
+    {
+        $definition = '同酒店同平台已保存并严格回读的日订单数，按人工冻结日期比较。';
+        $this->freezeMetricDefinition($definition);
+        $service = new OperationEffectReviewService();
+        $saved = $service->create(42, 7, 1, 1, $this->effectInput(), 3);
+        $replayed = $service->create(42, 7, 1, 1, $this->effectInput(), 3);
+        $readback = $service->readVerified((int)$saved['review']['id'], 42, 7, 1, 1);
+        self::assertTrue($saved['created']);
+        self::assertFalse($replayed['created']);
+        self::assertSame($definition, $readback['metric_definition']['definition']);
+        self::assertSame(hash('sha256', self::canonicalJson(['metric_key' => 'orders', 'definition' => $definition])), $readback['metric_definition_digest']);
+        self::assertTrue($readback['readback_verified']);
+        self::assertTrue($readback['approval_contract_verified']);
+        self::assertTrue($readback['active_eligible']);
+        self::assertSame('10.000000', $readback['before_value']);
+        self::assertSame('13.000000', $readback['after_value']);
+        self::assertSame('ctrip', $readback['platform']);
+        self::assertFalse($readback['causality_claimed']);
+        self::assertSame($readback['content_digest'], $service->listForTask(42, 7, 1, 1)['list'][0]['content_digest']);
+    }
+
+    public function testCreateRejectsSourceUnitThatDiffersFromFrozenMetricDefinition(): void
+    {
+        $this->freezeMetricUnit('orders');
+        $context = $this->sourceReadbackContext();
+        $context['metric_unit'] = 'percent';
+        Db::name('operation_execution_evidence')->where('id', 1)->update([
+            'platform_response_json' => json_encode($context, JSON_THROW_ON_ERROR),
+        ]);
+        try {
+            (new OperationEffectReviewService())->create(42, 7, 1, 1, $this->effectInput(), 3);
+            self::fail('Different source and approved metric units must not become a verified effect.');
+        } catch (InvalidArgumentException $exception) {
+            self::assertStringContainsString('单位', $exception->getMessage());
+        }
+        self::assertSame(0, (int)Db::name('operation_effect_reviews')->count());
+    }
+
+    public function testCreateRejectsMissingSourceUnitWhenApprovalFreezesAnExplicitUnit(): void
+    {
+        $this->freezeMetricUnit('orders');
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('单位');
+        (new OperationEffectReviewService())->create(42, 7, 1, 1, $this->effectInput(), 3);
+    }
+
+    public function testMatchingUnitsKeepZeroBaselineAndChannelScopeThroughExactReadback(): void
+    {
+        $this->freezeMetricUnit('orders');
+        $context = $this->sourceReadbackContext();
+        $context['metric_unit'] = 'orders';
+        Db::name('operation_execution_evidence')->where('id', 1)->update([
+            'before_json' => json_encode(['orders' => 0], JSON_THROW_ON_ERROR),
+            'after_json' => json_encode(['orders' => 3], JSON_THROW_ON_ERROR),
+            'platform_response_json' => json_encode($context, JSON_THROW_ON_ERROR),
+        ]);
+        $service = new OperationEffectReviewService();
+        $saved = $service->create(42, 7, 1, 1, $this->effectInput(), 3);
+        $readback = $service->readVerified((int)$saved['review']['id'], 42, 7, 1, 1);
+        self::assertSame('0.000000', $readback['before_value']);
+        self::assertSame('3.000000', $readback['after_value']);
+        self::assertSame('orders', $readback['metric_definition']['definition']['unit']);
+        self::assertSame('ctrip', $readback['platform']);
+        self::assertSame(7, $readback['hotel_id']);
+        self::assertSame('2026-08-07', $readback['baseline_business_date']);
+        self::assertSame('2026-08-08', $readback['review_business_date']);
+        self::assertSame('met', $readback['outcome_status']);
+        self::assertTrue($readback['readback_verified']);
+        self::assertFalse($readback['causality_claimed']);
+    }
+
+    public function testMatchingUnitsKeepZeroFollowupAsAdverseInsteadOfPositiveEffect(): void
+    {
+        $this->freezeMetricUnit('orders');
+        $context = $this->sourceReadbackContext();
+        $context['metric_unit'] = 'orders';
+        Db::name('operation_execution_evidence')->where('id', 1)->update([
+            'after_json' => json_encode(['orders' => 0], JSON_THROW_ON_ERROR),
+            'platform_response_json' => json_encode($context, JSON_THROW_ON_ERROR),
+        ]);
+        $input = $this->effectInput();
+        $input['result_status'] = 'failed';
+        $input['result_summary'] = '同酒店携程订单回读为零，未达到冻结目标；未声明因果。';
+        Db::name('operation_execution_tasks')->where('id', 1)->update([
+            'result_status' => $input['result_status'],
+            'result_summary' => $input['result_summary'],
+        ]);
+        $saved = (new OperationEffectReviewService())->create(42, 7, 1, 1, $input, 3);
+        self::assertSame('0.000000', $saved['review']['after_value']);
+        self::assertSame('adverse', $saved['review']['outcome_status']);
+        self::assertSame('failed', $saved['review']['result_status']);
+        self::assertFalse($saved['review']['outcome']['positive_outcome_verified']);
+        self::assertTrue($saved['review']['readback_verified']);
+        self::assertFalse($saved['review']['causality_claimed']);
+    }
+
+    public function testMissingSourceValuesAreNeverZeroFilledEvenWithMatchingUnits(): void
+    {
+        $this->freezeMetricUnit('orders');
+        $context = $this->sourceReadbackContext();
+        $context['metric_unit'] = 'orders';
+        foreach ([[[], ['orders' => 13]], [['orders' => null], ['orders' => 13]],
+            [['orders' => 10], []], [['orders' => 10], ['orders' => null]]] as [$before, $after]) {
+            Db::name('operation_execution_evidence')->where('id', 1)->update([
+                'before_json' => json_encode($before, JSON_THROW_ON_ERROR),
+                'after_json' => json_encode($after, JSON_THROW_ON_ERROR),
+                'platform_response_json' => json_encode($context, JSON_THROW_ON_ERROR),
+            ]);
+            try {
+                (new OperationEffectReviewService())->create(42, 7, 1, 1, $this->effectInput(), 3);
+                self::fail('Missing source values must never be converted into an observed zero.');
+            } catch (InvalidArgumentException $exception) {
+                self::assertStringContainsString('缺少同口径前后指标值', $exception->getMessage());
+            }
+        }
+        self::assertSame(0, (int)Db::name('operation_effect_reviews')->count());
     }
 
     public function testCreateRejectsApprovalContractTampering(): void
@@ -775,6 +985,44 @@ final class OperationEffectReviewServiceTest extends TestCase
         ]);
 
         return $contract['content_digest'];
+    }
+
+    private function sourceReadbackContext(): array
+    {
+        return json_decode((string)Db::name('operation_execution_evidence')->where('id', 1)
+            ->value('platform_response_json'), true, 512, JSON_THROW_ON_ERROR);
+    }
+
+    private function freezeMetricUnit(string $unit): void
+    {
+        $intent = Db::name('operation_execution_intents')->where('id', 1)->find();
+        $target = json_decode((string)$intent['target_value_json'], true, 512, JSON_THROW_ON_ERROR);
+        $definition = $target['metric_definition'];
+        $definition['unit'] = $unit;
+        $this->freezeMetricDefinition($definition);
+    }
+
+    private function freezeMetricDefinition(array|string $definition): void
+    {
+        $intent = Db::name('operation_execution_intents')->where('id', 1)->find();
+        $target = json_decode((string)$intent['target_value_json'], true, 512, JSON_THROW_ON_ERROR);
+        $evidence = json_decode((string)$intent['evidence_json'], true, 512, JSON_THROW_ON_ERROR);
+        $definitionDigest = hash('sha256', self::canonicalJson(['metric_key' => 'orders', 'definition' => $definition]));
+        $contract = $evidence['approval_target'];
+        $contract['metric_definition'] = $definition;
+        $contract['metric_definition_digest'] = $definitionDigest;
+        unset($contract['content_digest']);
+        $contract['content_digest'] = hash('sha256', self::canonicalJson($contract));
+        foreach (['metric_definition' => $definition, 'metric_definition_digest' => $definitionDigest,
+            'approval_target_digest' => $contract['content_digest']] as $key => $value) {
+            $target[$key] = $value;
+            $evidence[$key] = $value;
+        }
+        $evidence['approval_target'] = $contract;
+        Db::name('operation_execution_intents')->where('id', 1)->update([
+            'target_value_json' => json_encode($target, JSON_THROW_ON_ERROR),
+            'evidence_json' => json_encode($evidence, JSON_THROW_ON_ERROR),
+        ]);
     }
 
     private function seedApprovedExecution(): void

@@ -14,7 +14,7 @@ use ZipArchive;
 final class AiDailyReportPresentationRendererService
 {
     public const ARTIFACT_SCHEMA_VERSION = 'suxios.ai_daily_report.presentation_artifact.v1';
-    public const RENDERER_VERSION = '2026-08-24.5';
+    public const RENDERER_VERSION = '2026-09-27.2';
 
     private const ZIP_MTIME = 315532800; // 1980-01-01T00:00:00Z, the ZIP epoch.
     private const MAX_ARTIFACT_BYTES = 4_194_304;
@@ -810,7 +810,10 @@ JS;
             $gapCode = trim((string)($row['gap_code'] ?? ''));
             $lines[] = '- ' . $id . ' [' . (string)($row['class'] ?? 'UNKNOWN') . ']'
                 . ($gapCode !== '' ? ' code=' . $this->text($gapCode, 120) : '') . ' '
-                . $this->text((string)($row['statement'] ?? ''), 500);
+                . $this->text((string)($row['statement'] ?? ''), ($row['class'] ?? '') === 'HUMAN_DECISION' ? 2100 : 500);
+            if (($row['class'] ?? '') === 'HUMAN_DECISION' && trim((string)($row['target_key'] ?? '')) !== '') {
+                $lines[] = '  - 判断对象：' . $this->text((string)$row['target_key'], 120);
+            }
             foreach (array_values(array_filter((array)($row['source_refs'] ?? []), 'is_string')) as $sourceRef) {
                 $lines[] = '  - ref: ' . $this->text((string)$sourceRef, 240);
             }

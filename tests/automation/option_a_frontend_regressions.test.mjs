@@ -1,3 +1,4 @@
+import { readSourceAggregate as readStaticContractSource } from '../../scripts/lib/source_aggregate.mjs';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 import { readFileSync } from 'node:fs';
@@ -11,7 +12,7 @@ const frozenAiWorkbenchTemplate = readFileSync('resources/frontend/templates/fra
 const frozenFeasibilityTemplate = readFileSync('resources/frontend/templates/fragments/03-page-ai-feasibility.html', 'utf8');
 const ctripStaticSource = readFileSync('public/ctrip-static.js', 'utf8');
 const dualOtaStaticSource = readFileSync('public/dual-ota-home-static.js', 'utf8');
-const meituanStaticSource = readFileSync('public/meituan-static.js', 'utf8');
+const meituanStaticSource = readStaticContractSource('public/meituan-static.js');
 
 const loadWindowApi = (source, key, filename) => {
   const context = { window: {}, console };

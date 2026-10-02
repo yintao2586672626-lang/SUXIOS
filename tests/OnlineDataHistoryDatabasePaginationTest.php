@@ -95,19 +95,54 @@ final class OnlineDataHistoryDatabasePaginationTest extends TestCase
         self::assertSame([10, 9, 8], $ids);
     }
 
+    public function testRealtimeHistoryKeepsSeparateCaptureTasksAndHydratesWholeSnapshots(): void
+    {
+        Db::name('online_daily_data')->delete(true);
+        Db::name('online_daily_data')->insertAll([
+            array_replace($this->row(21, '2026-07-16 09:00:00', 'traffic', 'traffic', '{}'), [
+                'data_period' => 'realtime_snapshot', 'sync_task_id' => 901,
+            ]),
+            array_replace($this->row(22, '2026-07-16 09:00:01', 'traffic', 'traffic', '{}'), [
+                'data_period' => 'realtime_snapshot', 'sync_task_id' => 901,
+            ]),
+            array_replace($this->row(23, '2026-07-16 10:00:00', 'traffic', 'traffic', '{}'), [
+                'data_period' => 'realtime_snapshot', 'sync_task_id' => 902,
+            ]),
+            array_replace($this->row(24, '2026-07-16 11:00:00', 'traffic', 'traffic', '{}'), [
+                'data_period' => 'historical_daily', 'sync_task_id' => null,
+            ]),
+        ]);
+        $subject = new class { use OnlineDataHistoryConcern; };
+        $paginate = new ReflectionMethod($subject, 'buildOnlineHistoryDatabasePagination');
+        $page = $paginate->invoke($subject, Db::name('online_daily_data'), self::columns(), 3, 1);
+        self::assertSame(3, $page['total']);
+        $scope = new ReflectionMethod($subject, 'applyOnlineHistoryGroupKeyScope');
+        $rows = $scope->invoke($subject, Db::name('online_daily_data'),
+            $page['group_key_expression'], $page['group_keys'])->select()->toArray();
+        self::assertSame([21, 22], array_column($rows, 'id'));
+        $merge = new ReflectionMethod($subject, 'mergeOnlineHistoryRows');
+        $merged = $merge->invoke($subject, $rows, [7 => 'Fixture hotel']);
+        self::assertCount(1, $merged);
+        $key = new ReflectionMethod($subject, 'buildOnlineHistoryMergeKey');
+        self::assertSame($page['group_keys'][0], $key->invoke($subject, $merged[0]));
+    }
+
     public function testHistoryEndpointNoLongerLoadsEveryLightweightRowBeforePaging(): void
     {
         $source = (string)file_get_contents(__DIR__ . '/../app/controller/concern/OnlineDataHistoryConcern.php');
         self::assertStringContainsString('buildOnlineHistoryDatabasePagination(', $source);
         self::assertStringNotContainsString('$lightweightRows = $lightweightQuery->select()->toArray();', $source);
-        self::assertStringContainsString("->group('history_group_key')", $source);
+        // The alias must not shadow MySQL's physical history_group_key column.
+        // The oracle remains SQL grouping before pagination, not a particular alias.
+        self::assertTrue(str_contains($source, "->group('history_page_group_key')"));
         self::assertStringContainsString('->limit(($page - 1) * $pageSize, $pageSize)', $source);
     }
 
     public function testDatabaseSummaryCountsTodayByFetchTimeInsteadOfBusinessDate(): void
     {
         Db::name('online_daily_data')->delete(true);
-        $today = date('Y-m-d');
+        $today = (new \DateTimeImmutable('now', new \DateTimeZone('Asia/Shanghai')))
+            ->format('Y-m-d');
         $fetchedToday = $this->row(2, $today . ' 09:00:00', 'traffic', 'traffic', '{}');
         $fetchedToday['data_date'] = '2026-01-01';
         $oldFetchWithTodayBusinessDate = $this->row(1, '2026-01-01 09:00:00', 'business', '', '{}');
@@ -118,15 +153,31 @@ final class OnlineDataHistoryDatabasePaginationTest extends TestCase
             use OnlineDataHistoryConcern;
         };
         $method = new ReflectionMethod($subject, 'buildOnlineHistoryDatabasePagination');
-        $result = $method->invoke(
-            $subject,
-            Db::name('online_daily_data'),
-            self::columns(),
-            1,
-            20
-        );
-
-        self::assertSame(1, $result['summary']['today_records'], var_export($result, true));
+        $alternateZone = 'Pacific/Honolulu';
+        if ((new \DateTimeImmutable('now', new \DateTimeZone($alternateZone)))
+            ->format('Y-m-d') === $today) {
+            $alternateZone = 'Pacific/Kiritimati';
+        }
+        $originalZone = date_default_timezone_get();
+        date_default_timezone_set($alternateZone);
+        try {
+            $result = $method->invoke(
+                $subject,
+                Db::name('online_daily_data'),
+                self::columns(),
+                1,
+                20
+            );
+            self::assertSame(1, $result['summary']['today_records'], var_export($result, true));
+            $resolveDate = new ReflectionMethod($subject, 'resolveCtripLatestTargetDate');
+            self::assertSame($today, $resolveDate->invoke($subject, 'realtime'));
+            self::assertSame(
+                (new \DateTimeImmutable('yesterday', new \DateTimeZone('Asia/Shanghai')))->format('Y-m-d'),
+                $resolveDate->invoke($subject, 'yesterday')
+            );
+        } finally {
+            date_default_timezone_set($originalZone);
+        }
     }
 
     public function testLightweightHistoryStatusNeverPromotesStaleOrBindingFailureToSuccess(): void
@@ -254,6 +305,10 @@ CREATE TABLE online_daily_data (
     status TEXT NOT NULL DEFAULT '',
     validation_status TEXT NOT NULL DEFAULT 'normal',
     readback_verified INTEGER NOT NULL DEFAULT 0,
+    data_period TEXT NOT NULL DEFAULT 'historical_daily',
+    sync_task_id INTEGER DEFAULT NULL,
+    snapshot_bucket TEXT DEFAULT NULL,
+    snapshot_time TEXT DEFAULT NULL,
     raw_data TEXT DEFAULT NULL,
     amount REAL DEFAULT 0,
     quantity REAL DEFAULT 0,

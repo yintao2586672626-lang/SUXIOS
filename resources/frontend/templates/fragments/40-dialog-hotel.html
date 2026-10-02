@@ -1,5 +1,5 @@
         <!-- 酒店模态框 -->
-        <div v-if="showHotelModal" class="fixed inset-0 z-50 flex items-start sm:items-center justify-center modal-overlay overflow-y-auto px-3 py-4 sm:p-4" @click.self="showHotelModal = false">
+        <div v-if="showHotelModal" class="fixed inset-0 z-50 flex items-start sm:items-center justify-center modal-overlay overflow-y-auto px-3 py-4 sm:p-4" @click.self="!hotelSaving && (showHotelModal = false)">
             <div class="bg-white rounded-xl shadow-2xl w-full max-w-2xl transform transition-all max-h-[calc(100vh-2rem)] overflow-hidden flex flex-col">
                 <!-- 头部 -->
                 <div class="px-4 sm:px-6 py-4 border-b border-gray-100 flex justify-between items-center bg-gradient-to-r from-blue-50 to-white shrink-0">
@@ -12,7 +12,7 @@
                             <p class="text-xs text-gray-500">{{ hotelOnboardingActive ? '创建后继续完成三源身份与云端登录' : '修改门店资料与平台范围' }}</p>
                         </div>
                     </div>
-                    <button @click="showHotelModal = false" class="text-gray-400 hover:text-gray-600 w-8 h-8 flex items-center justify-center rounded-lg hover:bg-gray-100 transition-colors">
+                    <button @click="showHotelModal = false" :disabled="hotelSaving" class="text-gray-400 hover:text-gray-600 w-8 h-8 flex items-center justify-center rounded-lg hover:bg-gray-100 transition-colors">
                         <i class="fas fa-times"></i>
                     </button>
                 </div>
@@ -21,6 +21,7 @@
 
                 <!-- 表单 -->
                 <form v-else @submit.prevent="saveHotel" class="p-4 sm:p-6 overflow-y-auto">
+                    <fieldset :disabled="hotelSaving" class="m-0 min-w-0 border-0 p-0">
                     <!-- 基本信息 -->
                     <div class="space-y-4">
                         <div>
@@ -70,6 +71,17 @@
                                         <option value="dingdandao_pms">订单来了 PMS</option>
                                         <option value="meituan_cloud_pms">美团云 PMS</option>
                                     </select>
+                                </div>
+
+                                <div v-if="['dingdandao_pms', 'meituan_cloud_pms'].includes(hotelForm.pms_provider)" class="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2" data-testid="hotel-pms-public-identity">
+                                    <label class="block text-xs font-medium text-slate-700">
+                                        <span>平台公开门店 ID</span>
+                                        <input v-model="hotelForm.pms_provider_hotel_id" :disabled="hotelPmsBindingLoading || !!hotelPmsBindingError" type="text" maxlength="120" autocomplete="off" aria-label="PMS 公开门店 ID" data-testid="hotel-pms-provider-hotel-id" placeholder="页面显示的公开 ID" class="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm focus:border-[#ad8b52] focus:outline-none focus:ring-2 focus:ring-[#eadfc9] disabled:bg-slate-100">
+                                    </label>
+                                    <label class="block text-xs font-medium text-slate-700">
+                                        <span>平台公开门店名称</span>
+                                        <input v-model="hotelForm.pms_provider_hotel_name" :disabled="hotelPmsBindingLoading || !!hotelPmsBindingError" type="text" maxlength="160" autocomplete="off" aria-label="PMS 公开门店名称" data-testid="hotel-pms-provider-hotel-name" placeholder="与 PMS 页面完全一致" class="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm focus:border-[#ad8b52] focus:outline-none focus:ring-2 focus:ring-[#eadfc9] disabled:bg-slate-100">
+                                    </label>
                                 </div>
 
                                 <div v-if="hotelPmsBindingLoading" class="mt-2 text-xs text-slate-500">
@@ -152,6 +164,7 @@
                             <span>{{ hotelSaving ? '保存中' : (hotelForm.id ? '保存修改' : '创建门店') }}</span>
                         </button>
                     </div>
+                    </fieldset>
                 </form>
             </div>
         </div>

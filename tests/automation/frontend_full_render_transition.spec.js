@@ -73,11 +73,17 @@ test('remembered compass session stays startup-safe while secondary panels becom
     }
     if (pathname === '/api/operating-opportunities/weekly-plan/latest') {
       weeklyReads += 1;
+      const weekEnd = requestUrl.searchParams.get('week_end');
+      const weekStart = new Date(`${weekEnd}T00:00:00Z`);
+      expect(Number(requestUrl.searchParams.get('hotel_id'))).toBe(user.hotel_id);
+      expect(weekEnd).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+      weekStart.setUTCDate(weekStart.getUTCDate() - 6);
       status = weeklyFailure ? 503 : 200;
       data = weeklyFailure ? null : {
         tenant_id: 7,
         hotel_id: Number(requestUrl.searchParams.get('hotel_id')),
-        week_end: requestUrl.searchParams.get('week_end'),
+        week_start: weekStart.toISOString().slice(0, 10),
+        week_end: weekEnd,
         status: 'not_generated',
         readback_verified: false,
       };
@@ -108,12 +114,19 @@ test('remembered compass session stays startup-safe while secondary panels becom
   expect(pageErrors.filter(message => /缺少数据健康静态展示工具项|Revenue AI 数据基准日合同工具尚未加载/.test(message))).toEqual([]);
   await expect.poll(() => weeklyReads).toBeGreaterThan(0);
   const weeklySummary = page.locator('.home-weekly-fold > summary');
-  await expect(weeklySummary).toContainText('尚未生成');
+  await expect(weeklySummary).toContainText('所选周期暂无保存');
+  await expect(weeklySummary).not.toContainText('读取失败');
   await weeklySummary.click();
-  await expect(page.getByTestId('home-weekly-operating-plan')).toContainText('周度经营计划尚未生成');
+  await expect(page.getByTestId('home-weekly-operating-plan')).toContainText('所选周期暂无已保存周计划');
+  const confirmedEmptyReads = weeklyReads;
   weeklyFailure = true;
   await page.reload({ waitUntil: 'domcontentloaded' });
+  await expect.poll(() => weeklyReads).toBeGreaterThan(confirmedEmptyReads);
   await expect(page.locator('.home-weekly-fold > summary')).toContainText('读取失败', { timeout: 15000 });
+  await expect(page.locator('.home-weekly-fold > summary')).not.toContainText('暂无保存');
+  await page.locator('.home-weekly-fold > summary').click();
+  await expect(page.getByTestId('home-weekly-operating-plan')).toContainText('所选周计划读取失败，请重试；未显示其他周期快照。');
+  await expect(page.getByTestId('home-weekly-operating-plan')).not.toContainText('所选周期暂无已保存周计划');
 });
 
 test('remembered authenticated deep link waits for the full render before page work starts', async ({ page }) => {

@@ -597,6 +597,9 @@ trait PlatformSyncTaskConcern
         } else {
             $sourceUpdateQuery = Db::name('platform_data_sources');
             $this->applyStoredSourceIdentity($sourceUpdateQuery, $source);
+            $sourceUpdateQuery
+                ->where('platform', (string)($source['platform'] ?? ''))
+                ->where('data_type', (string)($source['data_type'] ?? ''));
             $sourceUpdateQuery->update([
                 'last_sync_time' => $now,
                 'last_sync_status' => $status,
@@ -948,6 +951,58 @@ trait PlatformSyncTaskConcern
         return is_array($decoded) ? $decoded : [];
     }
 
+    private function safeSyncTaskMessage(string $status, string $message): string
+    {
+        $message = strtolower(trim($message));
+        if ($message === '' && in_array(strtolower(trim($status)), ['ready', 'waiting_config'], true)) {
+            return '';
+        }
+        if (preg_match('/^cloud_ota_[a-z0-9_]{1,100}$/D', $message) === 1) {
+            return $message;
+        }
+        $knownMessages = [
+            'platform data synchronized.' => 'platform_data_synchronized',
+            'platform_data_synchronized' => 'platform_data_synchronized',
+            'platform_returned_authoritative_empty' => 'platform_returned_authoritative_empty',
+            'no business rows were found in payload.' => 'sync_completed_without_saved_rows',
+            'sync_completed_without_saved_rows' => 'sync_completed_without_saved_rows',
+            'target_date_traffic_ready' => 'target_date_traffic_ready',
+            'manual_login_state_not_verified' => 'manual_login_state_not_verified',
+            'profile_reused_no_target_date_traffic_rows' => 'profile_reused_no_target_date_traffic_rows',
+            'traffic_field_facts_missing' => 'traffic_field_facts_missing',
+            'permission_denied' => 'permission_denied',
+            'profile_session_probe_failed' => 'profile_session_probe_failed',
+            'credential_execution_failed' => 'credential_execution_failed',
+            'credential_locator_missing' => 'credential_locator_missing',
+            'credential_not_ready' => 'credential_not_ready',
+            'credential_not_found' => 'credential_not_found',
+            'credential_revoked' => 'credential_revoked',
+            'credential_scope_invalid' => 'credential_scope_invalid',
+            'ota_source_url_not_allowed' => 'ota_source_url_not_allowed',
+            'ota_source_inline_secret_requires_migration' => 'ota_source_inline_secret_requires_migration',
+            'collection_failed' => 'collection_failed',
+            'collection_partial' => 'collection_partial',
+            'ads_service_not_opened' => 'ads_service_not_opened',
+            'ads_collection_failed' => 'ads_collection_failed',
+            'profile_session_unverified' => 'profile_session_unverified',
+            'profile_session_expired' => 'profile_session_expired',
+            'stale_running_task' => 'stale_running_task',
+        ];
+        if (isset($knownMessages[$message])) {
+            return $knownMessages[$message];
+        }
+
+        return match (strtolower(trim($status))) {
+            'success' => 'platform_data_synchronized',
+            'partial_success' => 'collection_partial',
+            'not_applicable' => $message === 'ads_service_not_opened' ? 'ads_service_not_opened' : 'not_applicable',
+            'permission_denied', 'unauthorized', 'forbidden' => 'permission_denied',
+            'login_expired', 'waiting_login', 'session_expired' => 'login_state_unverified',
+            'stale_running' => 'stale_running_task',
+            default => 'collection_failed',
+        };
+    }
+
     private function failSafeFinalizationCode(mixed $value): string
     {
         if (!is_string($value)) {
@@ -985,6 +1040,9 @@ trait PlatformSyncTaskConcern
         Db::transaction(function () use ($expectedSource, $moduleStatus, $module, $checkedAt): void {
             $sourceQuery = Db::name('platform_data_sources')->field('id,tenant_id,system_hotel_id,config_json');
             $this->applyStoredSourceIdentity($sourceQuery, $expectedSource);
+            $sourceQuery
+                ->where('platform', (string)($expectedSource['platform'] ?? ''))
+                ->where('data_type', (string)($expectedSource['data_type'] ?? ''));
             $source = $sourceQuery->lock(true)->find();
             if (!is_array($source)) {
                 return;
@@ -1015,6 +1073,9 @@ trait PlatformSyncTaskConcern
 
             $updateQuery = Db::name('platform_data_sources');
             $this->applyStoredSourceIdentity($updateQuery, $source);
+            $updateQuery
+                ->where('platform', (string)($expectedSource['platform'] ?? ''))
+                ->where('data_type', (string)($expectedSource['data_type'] ?? ''));
             $updateQuery->update([
                 'config_json' => json_encode($config, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR),
                 'update_time' => $checkedAt,
@@ -1676,6 +1737,83 @@ trait PlatformSyncTaskConcern
             'platform_hotel_identifier_ready' => $allIdentifiersReady,
             'ui_status_ready' => $trafficRows !== [] && $missingMetricKeys === [],
         ];
+    }
+
+
+    /**
+     * @param array<string, mixed>|null $task
+     */
+    public static function effectiveSyncTaskStatus(?array $task): string
+    {
+        $status = strtolower(trim((string)($task['status'] ?? '')));
+        if ($status === '') {
+            return '';
+        }
+
+        return self::isStaleRunningSyncTask($task) ? 'stale_running' : $status;
+    }
+
+    /**
+     * @param array<string, mixed>|null $task
+     */
+    public static function isStaleRunningSyncTask(?array $task, int $staleSeconds = self::STALE_RUNNING_TASK_SECONDS): bool
+    {
+        if (empty($task)) {
+            return false;
+        }
+
+        $status = strtolower(trim((string)($task['status'] ?? '')));
+        if (!in_array($status, self::ACTIVE_SYNC_TASK_STATUSES, true)) {
+            return false;
+        }
+
+        $ageSeconds = self::syncTaskAgeSeconds($task);
+        return $ageSeconds !== null && $ageSeconds > max(60, $staleSeconds);
+    }
+
+    /**
+     * @param array<string, mixed>|null $task
+     */
+    public static function syncTaskAgeSeconds(?array $task): ?int
+    {
+        if (empty($task)) {
+            return null;
+        }
+
+        $timestamp = self::syncTaskLatestTimestamp($task, ['update_time', 'updated_at', 'started_at', 'create_time', 'created_at']);
+        if ($timestamp === null) {
+            return null;
+        }
+
+        return max(0, time() - $timestamp);
+    }
+
+    /**
+     * @param array<string, mixed>|null $task
+     * @param array<int, string> $keys
+     */
+    private static function syncTaskLatestTimestamp(?array $task, array $keys): ?int
+    {
+        if (empty($task)) {
+            return null;
+        }
+
+        $latest = null;
+        foreach ($keys as $key) {
+            $timeText = trim((string)($task[$key] ?? ''));
+            if ($timeText === '') {
+                continue;
+            }
+            $timestamp = strtotime($timeText);
+            if ($timestamp === false) {
+                continue;
+            }
+            if ($latest === null || $timestamp > $latest) {
+                $latest = $timestamp;
+            }
+        }
+
+        return $latest;
     }
 
 }

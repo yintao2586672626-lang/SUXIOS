@@ -9,30 +9,98 @@ test('operating finance control center renders all seven truthful modules with r
   page.on('pageerror', error => errors.push(error.message));
   page.on('console', message => { if (message.type() === 'error') errors.push(message.text()); });
   await page.setViewportSize({ width: 1280, height: 900 });
-  await page.setContent('<div id="app"></div>');
+  await page.route('http://localhost/__suxi_operating_finance_test__', route => route.fulfill({
+    status: 200, contentType: 'text/html', body: '<div id="app"></div>',
+  }));
+  await page.goto('http://localhost/__suxi_operating_finance_test__');
+  await page.addStyleTag({ path: path.join(root, 'public/tailwind.min.css') });
   await page.addScriptTag({ path: path.join(root, 'public/vue.runtime.global.prod.js') });
   await page.addScriptTag({ path: path.join(root, 'public/components/system/operating-finance-control-center.min.js') });
   await page.evaluate(() => {
     window.__financeOverviewRequests = [];
     window.__deferFinanceHotel80 = false;
     window.__releaseFinanceHotel80 = null;
-    const request = async (url) => {
+    const request = async (url, options = {}) => {
+      const endpoint = new URL(String(url), 'http://local.test');
+      if (endpoint.pathname === '/operating-finance/settlements/history'
+        || /^\/operating-finance\/settlements\/\d+$/.test(endpoint.pathname)) {
+        if (endpoint.pathname.endsWith('/history') && window.__settlementHistoryMode === 'error') {
+          return { code: 500, message: '合成历史读取失败' };
+        }
+        const hotelId = Number(endpoint.searchParams.get('hotel_id'));
+        const platform = endpoint.searchParams.get('platform');
+        const month = endpoint.searchParams.get('period_month');
+        const periodEnd = new Date(Date.UTC(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0))
+          .toISOString().slice(0, 10);
+        const scoped = { tenant_id: 7, hotel_id: hotelId, platform,
+          period_start: `${month}-01`, period_end: periodEnd };
+        const makeBatch = (batchId, status) => ({
+          batch_id: batchId, batch_fingerprint: (batchId === 501 ? 'b' : 'c').repeat(64),
+          batch_status: status, imported_at: '2026-09-15 12:00:00', supersedes_batch_id: null,
+          source: { source_method: 'manual_export', source_quality_status: 'operator_attested',
+            file_sha256: (batchId === 501 ? 'a' : 'd').repeat(64),
+            parser_version: 'canonical_settlement_json.v1' },
+          counts: { line_count: 1, available: 0, partial: status === 'invalid' ? 0 : 1,
+            invalid: status === 'invalid' ? 1 : 0 },
+          totals: { net_revenue: { value: null, basis: 'missing' } },
+        });
+        const batches = [makeBatch(502, 'partial'), makeBatch(501, 'invalid')];
+        if (endpoint.pathname.endsWith('/history')) return { code: 200, data: {
+          contract_version: 'ota_settlement_history.v1', scope: scoped, read_status: 'available',
+          total: 2, page: 1, page_size: 20, pages: 1, items: batches,
+          ...(window.__settlementHistoryMode === 'empty'
+            ? { read_status: 'empty', total: 0, pages: 0, items: [] } : {}),
+        } };
+        const batch = batches.find(row => endpoint.pathname.endsWith(`/${row.batch_id}`));
+        return { code: 200, data: {
+          ...batch, contract_version: 'ota_settlement_reconciliation.v1', read_status: 'available',
+          readback_verified: true, scope: { ...scoped, source_hotel_id: 71 },
+          lines: [{ batch_id: batch.batch_id, source_line_no: 1, business_date: `${month}-01`,
+            quality_status: batch.batch_status, gap_codes: ['net_revenue_missing'],
+            gross_amount: 1000, commission_amount: 150, net_revenue: null, discrepancy_amount: null }],
+          authorization: { external_write_authorized: false, ota_write_authorized: false,
+            pms_write_authorized: false, accounting_write_authorized: false },
+        } };
+      }
       if (String(url).startsWith('/operating-finance/settlements/import')) {
         const batchStatus = String(window.__settlementImportStatus || 'partial');
         const invalid = batchStatus === 'invalid';
+        const form = options.body;
+        const file = form.get('file');
+        const fileHash = [...new Uint8Array(await crypto.subtle.digest('SHA-256', await file.arrayBuffer()))]
+          .map(value => value.toString(16).padStart(2, '0')).join('');
+        const parserVersion = `canonical_settlement_${file.name.split('.').pop().toLowerCase()}.v1`;
         return {
           code: 200,
           message: invalid
             ? '结算失败尝试已留痕并精确回读；未形成可用净收入事实，也未写入OTA、PMS或财务系统'
             : '结算批次已保存并精确回读，但仅部分可用；请按缺口修正后再用于经营判断',
           data: {
+            contract_version: 'ota_settlement_reconciliation.v1',
+            batch_id: 501,
+            batch_fingerprint: 'b'.repeat(64),
+            read_status: 'available',
             readback_verified: true,
             request_status: 'saved_and_readback_verified',
             business_result_status: batchStatus,
             business_success: false,
             batch_status: batchStatus,
-            totals: { net_revenue: { value: invalid ? null : 850 } },
-            lines: invalid ? [{ gap_codes: ['commission_amount_basis_invalid'] }] : [],
+            usable_net_revenue_fact_created: false,
+            warning_code: invalid ? 'settlement_attempt_invalid_no_usable_fact' : 'settlement_batch_partial_review_required',
+            scope: { tenant_id: 7, hotel_id: Number(form.get('hotel_id')),
+              source_hotel_id: Number(form.get('hotel_id')), platform: form.get('platform'),
+              period_start: form.get('period_start'), period_end: form.get('period_end') },
+            source: { file_sha256: fileHash, source_evidence_sha256: null, source_method: 'manual_export',
+              source_quality_status: form.get('operator_attested') === '1' ? 'operator_attested' : 'unverified',
+              parser_version: parserVersion },
+            file_parser: { contract_version: 'ota_settlement_file_parser.v1', parser_version: parserVersion,
+              row_count: 1, file_sha256: fileHash, original_filename_retained: false },
+            counts: { line_count: 1, available: 0, partial: invalid ? 0 : 1, invalid: invalid ? 1 : 0 },
+            totals: { net_revenue: { value: null, basis: 'missing' } },
+            lines: [{ batch_id: 501, gap_codes: invalid
+              ? ['commission_amount_basis_invalid'] : ['net_revenue_missing'] }],
+            authorization: { external_write_authorized: false, ota_write_authorized: false,
+              pms_write_authorized: false, accounting_write_authorized: false },
           },
         };
       }
@@ -133,6 +201,25 @@ test('operating finance control center renders all seven truthful modules with r
   await expect(page.getByTestId('operating-finance-settlement')).toContainText('结算金额不自动等于净收入');
   await expect(page.getByTestId('operating-finance-settlement')).toContainText('仅当前OTA渠道，不代表全酒店GOP');
   await expect(page.getByTestId('operating-finance-settlement-recovery-candidate')).toContainText('唯一恢复事项');
+  await page.getByTestId('operating-finance-settlement-history-load').click();
+  await expect(page.getByTestId('operating-finance-settlement-history')).toContainText('批次 #501');
+  await expect(page.getByTestId('operating-finance-settlement-history')).toContainText('无效批次');
+  await page.getByTestId('operating-finance-settlement-history').locator('[data-batch-id="501"]').click();
+  await expect(page.getByTestId('operating-finance-settlement-detail')).toContainText('原始来源酒店 #71');
+  await expect(page.getByTestId('operating-finance-settlement-detail')).toContainText('未形成可用净收入事实');
+  await expect(page.getByTestId('operating-finance-settlement')).toContainText('¥850');
+  await page.setViewportSize({ width: 393, height: 734 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(1);
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.evaluate(() => { window.__settlementHistoryMode = 'empty'; });
+  await page.getByTestId('operating-finance-settlement-history-load').click();
+  await expect(page.getByTestId('operating-finance-settlement-history-empty')).toBeVisible();
+  await page.evaluate(() => { window.__settlementHistoryMode = 'error'; });
+  await page.getByTestId('operating-finance-settlement-history-load').click();
+  await expect(page.getByTestId('operating-finance-settlement-history-error')).toContainText('结算历史范围或分页回读不一致');
+  await page.evaluate(() => { window.__settlementHistoryMode = 'available'; });
+  await page.getByTestId('operating-finance-settlement-history-error').getByRole('button', { name: '重试读取' }).click();
+  await expect(page.getByTestId('operating-finance-settlement-history')).toContainText('批次 #502');
   await page.getByTestId('operating-finance-tab-recovery').click();
   await expect(page.getByTestId('operating-finance-recovery')).toContainText('原设备完成登录');
   await page.getByTestId('operating-finance-tab-booking').click();
@@ -171,6 +258,8 @@ test('operating finance control center renders all seven truthful modules with r
 
   await page.getByTestId('operating-finance-tab-settlement').click();
   const settlement = page.getByTestId('operating-finance-settlement');
+  await page.getByTestId('operating-finance-settlement-history-load').click();
+  await expect(page.getByTestId('operating-finance-settlement-history')).toContainText('批次 #501');
   await settlement.locator('input[type="file"]').setInputFiles({
     name: 'settlement.csv',
     mimeType: 'text/csv',
@@ -198,6 +287,7 @@ test('operating finance control center renders all seven truthful modules with r
   await page.evaluate(() => { window.__settlementImportStatus = 'partial'; });
   await settlement.getByRole('button', { name: '导入结算批次' }).click();
   await expect(page.getByTestId('operating-finance-settlement-import-notice')).toContainText('结算数据仅部分可用');
+  await expect(page.getByTestId('operating-finance-settlement-history')).toContainText('批次 #501');
 
   await page.getByTestId('operating-finance-tab-portfolio').click();
   await page.setViewportSize({ width: 393, height: 734 });
@@ -223,6 +313,8 @@ test('operating finance control center renders all seven truthful modules with r
   });
   await expect(page.getByTestId('operating-finance-view-only')).toContainText('只有查看权限');
   await expect(page.getByTestId('operating-finance-settlement').locator('form')).toHaveCount(0);
+  await page.getByTestId('operating-finance-settlement-history-load').click();
+  await expect(page.getByTestId('operating-finance-settlement-history')).toContainText('批次 #502');
   await page.getByTestId('operating-finance-tab-booking').click();
   await expect(page.getByTestId('operating-finance-booking').locator('form')).toHaveCount(0);
   await page.getByTestId('operating-finance-tab-demand').click();

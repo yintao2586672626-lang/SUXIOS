@@ -137,6 +137,7 @@
         const scopes = ['self', 'competitor_avg', 'self_reference'];
         const chartScopes = ['self', 'competitor_avg'];
         const metrics = ['pv', 'uv', 'conversion_rate', 'estimated_order_count'];
+        const referenceRows = new Map();
         const rows = sourceDates.map(sourceRow => {
             const row = { target_date: String(sourceRow?.target_date || ''), windows: {} };
             windows.forEach(windowKey => {
@@ -163,6 +164,22 @@
                             : uv * conversionRate / 100,
                         browse_intensity: pv === null || uv === null || uv === 0 ? null : pv / uv,
                     };
+                    if (normalized[scopeKey].metric_status === 'historical_reference') {
+                        const referenceValues = {};
+                        [...metrics, 'order_count', 'browse_intensity'].forEach(key => {
+                            referenceValues[key] = normalized[scopeKey][key];
+                            normalized[scopeKey][key] = null;
+                        });
+                        normalized[scopeKey].reference_values = referenceValues;
+                        const reference = {
+                            target_date: row.target_date,
+                            window: windowKey,
+                            scope: scopeKey === 'self_reference' ? 'self' : scopeKey,
+                            reference_capture_date: normalized[scopeKey].reference_capture_date,
+                            values: referenceValues,
+                        };
+                        referenceRows.set(JSON.stringify(reference), reference);
+                    }
                 });
                 normalized.pv_gap_rate = gapRate(normalized.self.pv, normalized.competitor_avg.pv);
                 normalized.uv_gap_rate = gapRate(normalized.self.uv, normalized.competitor_avg.uv);
@@ -285,6 +302,7 @@
             missing_scopes: Array.isArray(safePayload.missing_scopes) ? safePayload.missing_scopes : [],
             date_gaps: Array.isArray(safePayload.date_gaps) ? safePayload.date_gaps : [],
             rows,
+            reference_rows: [...referenceRows.values()],
             window_ranges: windowRanges,
             maxima,
             category_counts: categoryCounts,

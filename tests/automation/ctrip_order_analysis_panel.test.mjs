@@ -155,6 +155,40 @@ test('a dynamically loaded component script remains reusable by the deferred man
   await deferredManifestReuse;
 });
 
+test('the full component bridge waits for the authenticated after-first-paint loader', async () => {
+  const deferredLoads = [];
+  const window = {
+    SUXI_LOAD_DEFERRED_AUTHENTICATED_ASSET: async asset => {
+      deferredLoads.push(asset);
+      window.SUXI_APP_MAIN_COMPONENTS_FULL = {
+        create: () => ({
+          OperatingLoopAuthority: { name: 'OperatingLoopAuthority' },
+        }),
+      };
+    },
+  };
+  const document = {
+    baseURI: 'https://hotel.example.test/',
+    scripts: [],
+    head: { appendChild: () => assert.fail('the bridge must not bypass the authenticated asset loader') },
+    createElement: () => assert.fail('the bridge must not create a script before first paint'),
+  };
+  vm.runInNewContext(appMainComponentsLoader, { window, document, URL }, {
+    filename: 'app-main-components-loader.js',
+  });
+  const Vue = {
+    defineAsyncComponent: definition => (
+      typeof definition === 'function' ? { loader: definition } : definition
+    ),
+  };
+  const components = window.SUXI_APP_MAIN_COMPONENTS.create({ Vue, h: () => null });
+
+  const component = await components.OperatingLoopAuthority.loader();
+
+  assert.deepEqual(deferredLoads, ['components/system/app-main-components.js']);
+  assert.equal(component.name, 'OperatingLoopAuthority');
+});
+
 test('floating operating consultant loads only after the user opens it and opens on the first click', async () => {
   const scripts = [];
   const createScript = () => {
@@ -179,6 +213,7 @@ test('floating operating consultant loads only after the user opens it and opens
     addEventListener: () => {},
     removeEventListener: () => {},
     dispatchEvent: () => {},
+    SUXI_OPERATING_EVIDENCE_NAVIGATION: { createEvidenceNavigation: () => ({}) },
   };
   const CustomEvent = class {
     constructor(type) { this.type = type; }
@@ -206,7 +241,7 @@ test('floating operating consultant loads only after the user opens it and opens
   assert.doesNotMatch(gate.props.class, /\bz-40\b/, 'the Tailwind z-40 utility must not override the mobile-safe assistant layer');
   assert.equal(gate.props.style, 'z-index:75', 'the lightweight entry must remain above the mobile navigation before deferred styles load');
   const componentPromise = gate.props.onClick();
-  await Promise.resolve();
+  await new Promise(resolve => setImmediate(resolve));
   assert.equal(scripts.length, 1, 'the first explicit click starts the analyst dependency load');
   const analystScript = scripts.find(script => script.src.includes('hotel-data-analyst-components.js'));
   assert.ok(analystScript, 'the analyst dependency must load before the full assistant');
@@ -276,6 +311,7 @@ test('deferred component bridges replace a completed script that did not registe
     };
     if (contract.filename === 'operating-intelligence-loader.js') {
       window.SUXI_HOTEL_DATA_ANALYST_COMPONENTS = { create: () => ({}) };
+      window.SUXI_OPERATING_EVIDENCE_NAVIGATION = { createEvidenceNavigation: () => ({}) };
     }
     const CustomEvent = class {
       constructor(type) { this.type = type; }
@@ -363,6 +399,7 @@ test('deferred component bridges discard a failed manifest script before retryin
     };
     if (contract.filename === 'operating-intelligence-loader.js') {
       window.SUXI_HOTEL_DATA_ANALYST_COMPONENTS = { create: () => ({}) };
+      window.SUXI_OPERATING_EVIDENCE_NAVIGATION = { createEvidenceNavigation: () => ({}) };
     }
     const CustomEvent = class {
       constructor(type) { this.type = type; }

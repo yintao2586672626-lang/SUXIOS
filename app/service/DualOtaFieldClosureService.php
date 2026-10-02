@@ -812,6 +812,7 @@ final class DualOtaFieldClosureService
             && $roomNights > 0
                 ? round($currentOrderRevenue / $roomNights, 2)
                 : null;
+        $currentAdrRow = $currentOrderAdr !== null ? $orders : $business;
         $businessAdr = $businessRevenue !== null
             && ($businessNights = self::numeric($businessForConflict['quantity'] ?? null)) !== null
             && $businessNights > 0
@@ -845,24 +846,24 @@ final class DualOtaFieldClosureService
                         ? 'readback_failed'
                         : 'caliber_uncertain',
                     null,
-                    array_values(array_filter((array)($revenueField['_rows'] ?? []), 'is_array')),
+                    array_values(array_filter(array_merge((array)($revenueField['_rows'] ?? []), [$currentAdrRow]), 'is_array')),
                     'strict revenue / room_nights',
                     '收入字段本身尚未成为严格事实，因此不生成 ADR 主值。下一步：先解决收入口径、重复记录或回读问题。',
                     self::observedValues([[
                         $currentOrderAdr ?? $currentBusinessAdr,
                         'revenue / room_nights (candidate)',
-                        is_array($orders) ? $orders : $business,
+                        $currentAdrRow,
                     ]]),
                     ['adr_blocked_by_non_strict_revenue']
                 )
                 : (($currentOrderAdr ?? $currentBusinessAdr) !== null
-                    && is_array(is_array($orders) ? $orders : $business)
-                    && self::rowStrictFinalEligible(is_array($orders) ? $orders : $business)
+                    && is_array($currentAdrRow)
+                    && self::rowStrictFinalEligible($currentAdrRow)
                 ? self::field(
                     'adr',
                     'verified_calculation',
                     $currentOrderAdr ?? $currentBusinessAdr,
-                    [is_array($orders) ? $orders : $business],
+                    [$currentAdrRow],
                     $currentOrderAdr !== null
                         ? 'order_summary_amount / room_nights'
                         : 'business_card_amount / room_nights',
@@ -871,11 +872,11 @@ final class DualOtaFieldClosureService
                 : (($currentOrderAdr ?? $currentBusinessAdr) !== null
                     ? self::field(
                         'adr',
-                        self::rowReadbackIdentityReady(is_array($orders) ? $orders : $business)
+                        self::rowReadbackIdentityReady($currentAdrRow)
                             ? 'caliber_uncertain'
                             : 'readback_failed',
                         null,
-                        [is_array($orders) ? $orders : $business],
+                        [$currentAdrRow],
                         $currentOrderAdr !== null
                             ? 'order_summary_amount / room_nights'
                             : 'business_card_amount / room_nights',
@@ -883,7 +884,7 @@ final class DualOtaFieldClosureService
                         self::observedValues([[
                             $currentOrderAdr ?? $currentBusinessAdr,
                             'revenue / room_nights (candidate)',
-                            is_array($orders) ? $orders : $business,
+                            $currentAdrRow,
                         ]]),
                         ['adr_inputs_not_strict_final']
                     )
@@ -1642,6 +1643,11 @@ final class DualOtaFieldClosureService
         if ((int)($row['readback_verified'] ?? 0) !== 1) {
             return false;
         }
+        if (strtolower(trim((string)($row['source'] ?? ''))) === 'meituan'
+            && in_array(strtolower(trim((string)($row['data_type'] ?? ''))), ['traffic', 'flow', 'conversion', 'order', 'business'], true)
+            && !OtaTrafficAttributionService::rowDateScopeIsAuthoritative($row, 'meituan')) {
+            return false;
+        }
         $status = strtolower(trim((string)($row['validation_status'] ?? '')));
         if (in_array($status, self::BLOCKING_VALIDATION_STATUSES, true)) {
             return false;
@@ -2063,12 +2069,26 @@ final class DualOtaFieldClosureService
     /** @param array<string,mixed> $row */
     private static function rowPlatform(array $row): string
     {
-        $value = strtolower(trim((string)($row['platform'] ?? $row['source'] ?? '')));
-        return match (true) {
-            in_array($value, ['ctrip', 'ctrip_ebooking', 'xiecheng'], true) => 'ctrip',
-            in_array($value, ['meituan', 'meituan_ebooking'], true) => 'meituan',
-            default => $value,
+        $normalize = static function (mixed $value): string {
+            $value = strtolower(trim((string)$value));
+            return match (true) {
+                in_array($value, ['ctrip', 'ctrip_ebooking', 'xiecheng', '携程'], true) => 'ctrip',
+                in_array($value, ['meituan', 'meituan_ebooking', '美团'], true) => 'meituan',
+                in_array($value, ['qunar', '去哪儿'], true) => 'qunar',
+                default => $value,
+            };
         };
+        $platform = $normalize($row['platform'] ?? '');
+        $source = $normalize($row['source'] ?? '');
+        $known = ['ctrip', 'meituan', 'qunar'];
+        if (in_array($platform, $known, true)
+            && in_array($source, $known, true)
+            && $platform !== $source
+            && !($source === 'ctrip' && $platform === 'qunar')
+        ) {
+            return '';
+        }
+        return $platform !== '' ? $platform : $source;
     }
 
     /** @return array<string,mixed> */

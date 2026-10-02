@@ -6,6 +6,7 @@ namespace app\service\operation;
 use app\service\KnowledgeSopExecutionProvenanceService;
 use app\service\OperatingOpportunityLabService;
 use app\service\OperatingQuestionExecutionBridgeService;
+use app\service\OperatingTargetExecutionProvenanceService;
 use app\service\OperationActionLifecycleService;
 use app\service\RevenueCockpitActionContract;
 use app\service\SourceBackedExecutionIntentIdentityService;
@@ -23,7 +24,13 @@ trait OperationExecutionPersistenceConcern
     private function executionIntentBlockedReasons(string $objectType, array $input, array $targetValue, array $evidence): array
     {
         $reasons = [];
+        $operatingTarget = $objectType === 'operating_target'
+            && ($input['source_module'] ?? '') === 'operating_target'
+            && ($input['action_type'] ?? '') === 'close_target_gap';
         foreach (['platform', 'object_type', 'action_type'] as $field) {
+            if ($field === 'platform' && $operatingTarget) {
+                continue;
+            }
             if (trim((string)($input[$field] ?? '')) === '') {
                 $reasons[] = $field . ' missing';
             }
@@ -35,7 +42,23 @@ trait OperationExecutionPersistenceConcern
             $reasons[] = 'evidence missing';
         }
 
-        if ($objectType === 'price') {
+        if ($objectType === 'operating_target') {
+            $metric = (string)($targetValue['target_metric'] ?? '');
+            $targetField = ['revenue' => 'target_revenue', 'occupancy_rate' => 'target_occupancy_rate_percent', 'revpar' => 'target_revpar'][$metric] ?? '';
+            $basis = is_array($evidence['analysis']['fact_basis'] ?? null) ? $evidence['analysis']['fact_basis'] : [];
+            if (!$operatingTarget || trim((string)($input['platform'] ?? '')) !== ''
+                || (int)($input['source_record_id'] ?? 0) <= 0
+                || $targetField === '' || !is_numeric($targetValue[$targetField] ?? null)
+                || !is_finite((float)$targetValue[$targetField]) || (float)$targetValue[$targetField] <= 0
+                || ($evidence['operating_target_provenance_contract'] ?? '') !== OperatingTargetExecutionProvenanceService::CONTRACT_VERSION
+                || preg_match('/^[a-f0-9]{64}$/D', (string)($evidence['operating_target_source_digest'] ?? '')) !== 1
+                || !in_array($basis['scope'] ?? '', ['whole_hotel', 'accommodation_room_fee'], true)
+                || !in_array($basis['quality_status'] ?? '', ['verified', 'manual_confirmed'], true)
+                || ($evidence['auto_write_ota'] ?? null) !== false
+            ) {
+                $reasons[] = 'operating target source or metric is not actionable';
+            }
+        } elseif ($objectType === 'price') {
             foreach (['room_type_key', 'rate_plan_key', 'target_price'] as $field) {
                 if (!array_key_exists($field, $targetValue) || trim((string)$targetValue[$field]) === '') {
                     $reasons[] = $field . ' missing';
@@ -537,8 +560,60 @@ trait OperationExecutionPersistenceConcern
                 throw new \InvalidArgumentException('source-backed execution snapshot changed; create a new execution intent');
             }
         }
+        if (($payload['source_module'] ?? '') === 'operating_target') {
+            $intent = $this->recoverLegacyOperatingTargetDraft($intent, $payload, $hotelIds);
+        }
         $intent['idempotent_replay'] = true;
         return $intent;
+    }
+
+    /** Recover only the historical type/platform false block, never a human decision. */
+    private function recoverLegacyOperatingTargetDraft(array $intent, array $payload, array $hotelIds): array
+    {
+        if (($payload['status'] ?? '') !== 'pending_approval' || ($payload['blocked_reason'] ?? '') !== '') {
+            return $intent;
+        }
+        return Db::transaction(function () use ($intent, $payload, $hotelIds): array {
+            // Match approval's hotel-before-intent lock order.
+            $hotel = Db::name('hotels')->where('id', (int)$payload['hotel_id'])->lock(true)->find();
+            $row = Db::name('operation_execution_intents')->where('id', (int)$intent['id'])->lock(true)->find();
+            if (($row['status'] ?? '') !== 'blocked'
+                || ($row['blocked_reason'] ?? '') !== 'platform missing; object_type not supported'
+                || (int)($row['approved_by'] ?? 0) !== 0 || !empty($row['approved_at']) || !empty($row['review_remark'])
+            ) {
+                return $this->executionIntentDetail((int)$intent['id'], $hotelIds);
+            }
+            // Acquire the source lock before a consistent read can establish a stale snapshot.
+            $source = Db::name('operating_target_daily_records')
+                ->where('id', (int)$payload['source_record_id'])->where('tenant_id', (int)$payload['tenant_id'])
+                ->where('hotel_id', (int)$payload['hotel_id'])->where('target_date', $payload['date_start'])
+                ->lock(true)->find();
+            if (!is_array($source)) {
+                throw new \RuntimeException('operating target draft source is unavailable', 409);
+            }
+            $current = $this->executionIntentDetail((int)$intent['id'], $hotelIds);
+            if (Db::name('operation_execution_tasks')->where('intent_id', (int)$intent['id'])->count() > 0) {
+                return $current;
+            }
+            foreach (['tenant_id', 'hotel_id', 'source_module', 'source_record_id', 'object_type', 'action_type', 'platform', 'date_start', 'date_end'] as $field) {
+                if ((string)($current[$field] ?? '') !== (string)($payload[$field] ?? '')) {
+                    throw new \RuntimeException('operating target draft scope changed; read the current target again', 409);
+                }
+            }
+            foreach (['operating_target_provenance_contract', 'operating_target_source_digest'] as $field) {
+                if (!hash_equals((string)($current['evidence'][$field] ?? ''), (string)($payload['evidence'][$field] ?? ''))) {
+                    throw new \RuntimeException('operating target draft source changed; read the current target again', 409);
+                }
+            }
+            if ((int)($hotel['tenant_id'] ?? 0) !== (int)$current['tenant_id']) {
+                throw new \RuntimeException('operating target draft tenant changed', 409);
+            }
+            $this->assertOperatingTargetIntentSourceIsCurrent($current);
+            Db::name('operation_execution_intents')->where('id', (int)$current['id'])->update([
+                'status' => 'pending_approval', 'blocked_reason' => '', 'updated_at' => date('Y-m-d H:i:s'),
+            ]);
+            return $this->executionIntentDetail((int)$current['id'], $hotelIds);
+        });
     }
 
     /** @param array<string,mixed> $payload @param array<int,int|string> $hotelIds */
@@ -843,65 +918,6 @@ trait OperationExecutionPersistenceConcern
         return preg_match('/^\d{4}-\d{2}-\d{2}$/D', $availableOn) === 1
             ? $availableOn . ' 00:00:00'
             : '';
-    }
-
-    /**
-     * Keep a non-sensitive receipt visible after protected-response redaction removes
-     * the raw evidence payload for non-super-admin operators.
-     *
-     * @param array<int, array<string, mixed>> $rows
-     * @return array{count: int, types: array<int, string>, latest_type: string, latest_at: string}
-     */
-    private function buildSafeExecutionEvidenceSummary(array $rows, array $task = [], array $intent = []): array
-    {
-        return $this->executionFlowReadService->buildSafeEvidenceSummary($rows, $task, $intent);
-    }
-
-    private function normalizeExecutionIntentRow(array $row): array
-    {
-        $row['id'] = (int)$row['id'];
-        $row['source_module'] = $this->canonicalExecutionSourceModule($row['source_module'] ?? '');
-        $row['hotel_id'] = (int)$row['hotel_id'];
-        $row['source_record_id'] = (int)($row['source_record_id'] ?? 0);
-        $row['expected_delta'] = ($row['expected_delta'] ?? null) === null
-            ? null
-            : (float)$row['expected_delta'];
-        $row['current_value'] = $this->decodeJson((string)($row['current_value_json'] ?? ''));
-        $row['target_value'] = $this->decodeJson((string)($row['target_value_json'] ?? ''));
-        $row['evidence'] = $this->decodeJson((string)($row['evidence_json'] ?? ''));
-        unset($row['idempotency_key'], $row['current_value_json'], $row['target_value_json'], $row['evidence_json']);
-
-        $sanitized = $this->sanitizeLegacyExecutionValue($row);
-        return is_array($sanitized) ? $sanitized : [];
-    }
-
-    private function normalizeExecutionTaskRow(array $row): array
-    {
-        $row['id'] = (int)$row['id'];
-        $row['intent_id'] = (int)$row['intent_id'];
-        $row['hotel_id'] = (int)$row['hotel_id'];
-        $row['operator_id'] = (int)($row['operator_id'] ?? 0);
-        $row['action_track_id'] = (int)($row['action_track_id'] ?? 0);
-        $row['current_value'] = $this->decodeJson((string)($row['current_value_json'] ?? ''));
-        $row['target_value'] = $this->decodeJson((string)($row['target_value_json'] ?? ''));
-        unset($row['current_value_json'], $row['target_value_json']);
-
-        $sanitized = $this->sanitizeLegacyExecutionValue($row);
-        return is_array($sanitized) ? $sanitized : [];
-    }
-
-    private function normalizeExecutionEvidenceRow(array $row): array
-    {
-        $row['id'] = (int)$row['id'];
-        $row['task_id'] = (int)$row['task_id'];
-        $row['created_by'] = (int)($row['created_by'] ?? 0);
-        $row['before'] = $this->decodeJson((string)($row['before_json'] ?? ''));
-        $row['after'] = $this->decodeJson((string)($row['after_json'] ?? ''));
-        $row['platform_response'] = $this->decodeJson((string)($row['platform_response_json'] ?? ''));
-        unset($row['before_json'], $row['after_json'], $row['platform_response_json']);
-
-        $sanitized = $this->sanitizeLegacyExecutionValue($row);
-        return is_array($sanitized) ? $sanitized : [];
     }
 
     private function insertExecutionEvidence(array $payload, ?int $authorizedTenantId = null): int

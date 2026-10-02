@@ -134,7 +134,7 @@ final class OtaPublicPageDiagnosisService
 
         foreach ($selected as $profile) {
             $snapshotId = (int)($profile['snapshot_id'] ?? 0);
-            $sources[] = [
+            $source = [
                 'platform' => $platform,
                 'platform_hotel_id' => trim((string)($profile['ota_hotel_id'] ?? '')),
                 'role' => trim((string)($profile['role'] ?? 'unknown')),
@@ -148,6 +148,31 @@ final class OtaPublicPageDiagnosisService
                     : 'unverified',
                 'source_validation_status' => $this->sourceValidationStatus($profile),
             ];
+            if ($platform !== 'meituan') {
+                $sources[] = $source;
+                continue;
+            }
+            $fieldSources = [];
+            foreach ($dimensions as $dimension) {
+                foreach ($dimension['facts'] as $fact) {
+                    if ($fact['evidence_ref'] !== $source['response_ref']) {
+                        continue;
+                    }
+                    $context = [
+                        'source_url' => $fact['source_url'],
+                        'collected_at' => $fact['source_context_at'] ?? $fact['captured_at'],
+                        'screenshot_ref' => $fact['screenshot_ref'],
+                        'provenance_status' => $fact['source_provenance_status'],
+                    ];
+                    $key = json_encode($context, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+                    $fieldSources[$key] ??= array_replace($source, $context, ['field_keys' => []]);
+                    $fieldSources[$key]['field_keys'][] = $fact['field_key'];
+                }
+            }
+            array_push($sources, ...($fieldSources !== [] ? array_values($fieldSources) : [$source + [
+                'provenance_status' => !empty($profile['field_sources']) ? 'profile_context' : 'legacy_profile',
+                'field_keys' => [],
+            ]]));
         }
 
         $observedFieldCount = count($observedFieldKeys);
@@ -432,7 +457,7 @@ final class OtaPublicPageDiagnosisService
             if (!is_array($source)) {
                 continue;
             }
-            $rows[] = [
+            $row = [
                 'platform_hotel_id' => trim((string)($source['platform_hotel_id'] ?? '')),
                 'role' => trim((string)($source['role'] ?? 'unknown')),
                 'source_url' => $this->safeSourceUrl((string)($source['source_url'] ?? '')),
@@ -442,6 +467,12 @@ final class OtaPublicPageDiagnosisService
                 'persistence_readback_status' => trim((string)($source['persistence_readback_status'] ?? 'unverified')),
                 'source_validation_status' => trim((string)($source['source_validation_status'] ?? 'unverified')),
             ];
+            if (isset($source['provenance_status'])) {
+                $row['provenance_status'] = (string)$source['provenance_status'];
+                $row['field_keys'] = array_values((array)($source['field_keys'] ?? []));
+                $row['screenshot_ref'] = trim((string)($source['screenshot_ref'] ?? '')) ?: null;
+            }
+            $rows[] = $row;
         }
         return $rows;
     }
@@ -462,7 +493,8 @@ final class OtaPublicPageDiagnosisService
         $value = $this->fieldValue($fields, $fieldKey);
         $paths = is_array($profile['evidence_paths'] ?? null) ? $profile['evidence_paths'] : [];
         $locator = trim((string)($paths[$fieldKey] ?? ''));
-        $sourceUrl = $this->safeSourceUrl((string)($profile['source_url'] ?? ''));
+        $fieldSource = $this->fieldSource($profile, $platform, $fieldKey);
+        $sourceUrl = $this->safeSourceUrl((string)($fieldSource['source_url'] ?? ''));
         if ($value === null || $value === '' || $locator === '' || $sourceUrl === '') {
             return null;
         }
@@ -485,13 +517,13 @@ final class OtaPublicPageDiagnosisService
             default => 'unverified',
         };
 
-        return [
+        $fact = [
             'platform' => $platform,
             'system_hotel_id' => $systemHotelId,
             'platform_hotel_id' => trim((string)($profile['ota_hotel_id'] ?? '')),
             'business_date' => $businessDate,
             'stay_date' => null,
-            'captured_at' => trim((string)($profile['collected_at'] ?? $profile['last_seen_at'] ?? '')),
+            'captured_at' => trim((string)($fieldSource['collected_at'] ?? $fieldSource['last_seen_at'] ?? '')),
             'dimension' => $dimension,
             'field_key' => $fieldKey,
             'observed_value' => $value,
@@ -504,6 +536,29 @@ final class OtaPublicPageDiagnosisService
             'persistence_readback_status' => 'readback_verified',
             'source_validation_status' => $sourceValidationStatus,
         ];
+        if ($platform === 'meituan') {
+            $fact['source_provenance_status'] = $fieldSource['provenance_status'];
+            $fact['screenshot_ref'] = trim((string)($fieldSource['screenshot_ref'] ?? '')) ?: null;
+            if ($fieldSource['provenance_status'] !== 'field_observation') {
+                $fact['source_context_at'] = $fact['captured_at'];
+                $fact['captured_at'] = '';
+            }
+        }
+        return $fact;
+    }
+
+    private function fieldSource(array $profile, string $platform, string $fieldKey): array
+    {
+        if ($platform !== 'meituan') {
+            return $profile;
+        }
+        $source = $profile['field_sources'][$fieldKey] ?? null;
+        if (!is_array($source)) {
+            return array_replace($profile, ['provenance_status' => 'legacy_profile']);
+        }
+        $source['provenance_status'] = ($source['provenance_status'] ?? '') === 'field_observation'
+            ? 'field_observation' : 'legacy_profile';
+        return $source;
     }
 
     private function sourceValidationStatus(array $profile): string

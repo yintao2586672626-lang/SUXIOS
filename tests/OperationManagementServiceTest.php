@@ -471,6 +471,29 @@ final class OperationManagementServiceTest extends TestCase
         self::assertStringContainsString('不改变采集字段', $payload['evidence']['protected_boundary']);
     }
 
+    public function testExecutionIntentRejectsReversedBusinessDateWindow(): void
+    {
+        $service = new OperationManagementService();
+        $base = [
+            'hotel_id' => 7,
+            'source_module' => 'revenue_research',
+            'source_record_id' => 903,
+            'platform' => 'ota',
+            'object_type' => 'revenue_research',
+            'action_type' => 'demand-forecast',
+            'date_start' => '2026-09-29',
+            'date_end' => '2026-09-30',
+            'target_value' => ['target_metric' => 'revenue_research_closure'],
+        ];
+        $forward = $service->buildExecutionIntentPayload([7], 7, $base, 3);
+        self::assertSame('2026-09-30', $forward['date_end']);
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('date_end must not precede date_start');
+
+        $service->buildExecutionIntentPayload([7], 7, array_replace($base, ['date_end' => '2026-09-28']), 3);
+    }
+
     public function testExecutionIntentBlocksDataCollectionWithoutOtaEvidence(): void
     {
         $service = new OperationManagementService();
@@ -490,7 +513,7 @@ final class OperationManagementServiceTest extends TestCase
         self::assertStringContainsString('ota evidence refs or data_gaps missing', $payload['blocked_reason']);
     }
 
-    public function testDailyFinancialExtractorsUseFallbackFieldsWithoutInventingValues(): void
+    public function testDailyFinancialExtractorsRequireCompleteTotalsWithoutInventingValues(): void
     {
         $service = new OperationManagementService();
         $reportData = [
@@ -502,10 +525,16 @@ final class OperationManagementServiceTest extends TestCase
             'salable_rooms' => 20,
         ];
 
-        self::assertSame(2050.0, $this->invokeNonPublic($service, 'extractRevenue', [[], $reportData]));
-        self::assertSame(7.0, $this->invokeNonPublic($service, 'extractRoomNights', [[], $reportData]));
+        self::assertNull($this->invokeNonPublic($service, 'extractRevenue', [[], $reportData]));
+        self::assertNull($this->invokeNonPublic($service, 'extractRoomNights', [[], $reportData]));
         self::assertSame(20.0, $this->invokeNonPublic($service, 'extractSalableRoomCount', [[], $reportData]));
-        self::assertSame(0.0, $this->invokeNonPublic($service, 'extractRevenue', [[], ['xb_revenue' => 'bad']]));
+        self::assertSame(2050.0, $this->invokeNonPublic($service, 'extractRevenue', [[], [
+            'revenue' => 2050, 'xb_revenue' => '1,200', 'mt_revenue' => 800,
+        ]]));
+        self::assertSame(7.0, $this->invokeNonPublic($service, 'extractRoomNights', [[], [
+            'room_nights' => 7, 'xb_rooms' => 4, 'mt_rooms' => 3,
+        ]]));
+        self::assertNull($this->invokeNonPublic($service, 'extractRevenue', [[], ['xb_revenue' => 'bad']]));
     }
 
     public function testDashboardSummaryAggregatesDailyAndOnlineRowsWithoutDoubleCountingRevenue(): void
@@ -518,6 +547,8 @@ final class OperationManagementServiceTest extends TestCase
                 'report_date' => '2026-05-18',
                 'status' => 2,
                 'report_data' => json_encode([
+                    'revenue' => 1500,
+                    'room_nights' => 5,
                     'xb_revenue' => '1,200',
                     'mt_revenue' => 300,
                     'xb_rooms' => 4,
@@ -2479,6 +2510,7 @@ final class OperationManagementServiceTest extends TestCase
     {
         return array_replace([
             'id' => 6,
+            'tenant_id' => 1,
             'system_hotel_id' => 7,
             'data_source_id' => 11,
             'hotel_id' => 130079194,

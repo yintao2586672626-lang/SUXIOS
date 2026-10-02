@@ -55,7 +55,7 @@ final class OperatingTargetContractTest extends TestCase
         Db::execute('CREATE UNIQUE INDEX IF NOT EXISTS uq_operating_target_contract ON operating_target_daily_records (tenant_id, hotel_id, target_date)');
         Db::execute('CREATE TABLE IF NOT EXISTS operating_target_daily_snapshots (id INTEGER PRIMARY KEY AUTOINCREMENT, record_id INTEGER NOT NULL, tenant_id INTEGER NOT NULL, hotel_id INTEGER NOT NULL, target_date VARCHAR(10) NOT NULL, revision_no INTEGER NOT NULL, change_reason VARCHAR(500) NULL, snapshot_json TEXT NOT NULL, created_by INTEGER NULL, create_time DATETIME NOT NULL)');
         Db::execute('CREATE UNIQUE INDEX IF NOT EXISTS uq_operating_target_snapshot_contract ON operating_target_daily_snapshots (record_id, revision_no)');
-        Db::execute('CREATE TABLE IF NOT EXISTS daily_reports (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER NULL, hotel_id INTEGER NOT NULL, report_date VARCHAR(10) NOT NULL, report_data TEXT NULL, revenue NUMERIC NULL)');
+        Db::execute('CREATE TABLE IF NOT EXISTS daily_reports (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER NULL, hotel_id INTEGER NOT NULL, report_date VARCHAR(10) NOT NULL, status INTEGER NULL, report_data TEXT NULL, revenue NUMERIC NULL)');
 
         Db::name('operating_target_daily_snapshots')->delete(true);
         Db::name('operating_target_daily_records')->delete(true);
@@ -135,6 +135,7 @@ final class OperatingTargetContractTest extends TestCase
             'tenant_id' => 9,
             'hotel_id' => 80,
             'report_date' => '2026-07-28',
+            'status' => 2,
             'report_data' => json_encode(['revenue' => 3200, 'total_rooms' => 8, 'salable_rooms' => 20]),
             'revenue' => 3200,
         ]);
@@ -146,6 +147,198 @@ final class OperatingTargetContractTest extends TestCase
         self::assertSame(20, $prefill['prefill']['sellable_room_nights']);
         self::assertSame('whole_hotel', $prefill['prefill']['fact_scope']);
         self::assertSame('unverified', $prefill['prefill']['quality_status']);
+    }
+
+    public function testDraftDailyReportCannotPrefillOperatingTargetFacts(): void
+    {
+        Db::name('daily_reports')->insert([
+            'tenant_id' => 9, 'hotel_id' => 80, 'report_date' => '2026-07-28',
+            'status' => 1,
+            'report_data' => json_encode(['revenue' => 3200, 'total_rooms' => 8, 'salable_rooms' => 20]),
+            'revenue' => 3200,
+        ]);
+
+        $prefill = (new OperatingTargetService())->prefillFromDailyReport(9, 80, '2026-07-28');
+
+        self::assertSame('missing', $prefill['status']);
+        self::assertNull($prefill['prefill']);
+        self::assertContains('daily_report_draft', array_column($prefill['gaps'], 'code'));
+    }
+
+    public function testEditedDailyReportRevenueOverridesLegacyColumnIncludingZero(): void
+    {
+        Db::name('daily_reports')->insert([
+            'tenant_id' => 9, 'hotel_id' => 80, 'report_date' => '2026-07-28',
+            'status' => 2, 'revenue' => 800,
+            'report_data' => json_encode(['day_revenue' => 0, 'total_rooms' => 8, 'salable_rooms' => 20]),
+        ]);
+
+        $prefill = (new OperatingTargetService())->prefillFromDailyReport(9, 80, '2026-07-28');
+
+        self::assertSame('unverified', $prefill['status']);
+        self::assertSame(0.0, $prefill['prefill']['actual_revenue']);
+    }
+
+    public function testCompleteRoomAndOtherRevenueCanPrefillWithoutExplicitTotal(): void
+    {
+        Db::name('daily_reports')->insert([
+            'tenant_id' => 9, 'hotel_id' => 80, 'report_date' => '2026-07-28',
+            'status' => 2,
+            'report_data' => json_encode([
+                'room_revenue' => 100, 'other_revenue_total' => 20,
+                'total_rooms' => 8, 'salable_rooms' => 20,
+            ]),
+        ]);
+
+        $prefill = (new OperatingTargetService())->prefillFromDailyReport(9, 80, '2026-07-28');
+
+        self::assertSame('unverified', $prefill['status']);
+        self::assertSame(120.0, $prefill['prefill']['actual_revenue']);
+    }
+
+    public function testPartialRevenueCompositionStaysMissingForPrefill(): void
+    {
+        Db::name('daily_reports')->insert([
+            'tenant_id' => 9, 'hotel_id' => 80, 'report_date' => '2026-07-28',
+            'status' => 2,
+            'report_data' => json_encode(['room_revenue' => 100, 'total_rooms' => 8, 'salable_rooms' => 20]),
+        ]);
+
+        $prefill = (new OperatingTargetService())->prefillFromDailyReport(9, 80, '2026-07-28');
+
+        self::assertSame('partial', $prefill['status']);
+        self::assertNull($prefill['prefill']['actual_revenue']);
+        self::assertContains('daily_report_actual_revenue_missing', array_column($prefill['gaps'], 'code'));
+    }
+
+    public function testCompleteOnlineAndOfflineRoomNightsCanPrefillSoldNights(): void
+    {
+        Db::name('daily_reports')->insert([
+            'tenant_id' => 9, 'hotel_id' => 80, 'report_date' => '2026-07-28',
+            'status' => 2,
+            'report_data' => json_encode([
+                'revenue' => 3200, 'online_rooms' => 4, 'offline_rooms' => 2, 'salable_rooms' => 20,
+            ]),
+        ]);
+
+        $prefill = (new OperatingTargetService())->prefillFromDailyReport(9, 80, '2026-07-28');
+
+        self::assertSame('unverified', $prefill['status']);
+        self::assertSame(6, $prefill['prefill']['sold_room_nights']);
+    }
+
+    public function testPartialRoomNightCompositionStaysMissingForPrefill(): void
+    {
+        Db::name('daily_reports')->insert([
+            'tenant_id' => 9, 'hotel_id' => 80, 'report_date' => '2026-07-28',
+            'status' => 2,
+            'report_data' => json_encode(['revenue' => 3200, 'online_rooms' => 4, 'salable_rooms' => 20]),
+        ]);
+
+        $prefill = (new OperatingTargetService())->prefillFromDailyReport(9, 80, '2026-07-28');
+
+        self::assertSame('partial', $prefill['status']);
+        self::assertNull($prefill['prefill']['sold_room_nights']);
+        self::assertContains('daily_report_sold_room_nights_missing', array_column($prefill['gaps'], 'code'));
+    }
+
+    public function testConfiguredDailyRevenueDetailsCanPrefillOnlyWhenComplete(): void
+    {
+        $detail = [
+            'online_revenue' => 100, 'offline_revenue' => 50,
+            'parking_revenue' => 20, 'dining_revenue' => 0, 'meeting_revenue' => 0,
+            'goods_revenue' => 0, 'member_card_revenue' => 0, 'other_revenue' => 0,
+            'total_rooms' => 8, 'salable_rooms' => 20,
+        ];
+        Db::name('daily_reports')->insert([
+            'tenant_id' => 9, 'hotel_id' => 80, 'report_date' => '2026-07-28',
+            'status' => 2, 'report_data' => json_encode($detail),
+        ]);
+
+        $service = new OperatingTargetService();
+        $complete = $service->prefillFromDailyReport(9, 80, '2026-07-28');
+        self::assertSame('unverified', $complete['status']);
+        self::assertSame(170.0, $complete['prefill']['actual_revenue']);
+
+        unset($detail['other_revenue']);
+        Db::name('daily_reports')->where('tenant_id', 9)->where('hotel_id', 80)
+            ->where('report_date', '2026-07-28')->update(['report_data' => json_encode($detail)]);
+        $partial = $service->prefillFromDailyReport(9, 80, '2026-07-28');
+        self::assertSame('partial', $partial['status']);
+        self::assertNull($partial['prefill']['actual_revenue']);
+    }
+
+    public function testConfiguredOnlineRoomDetailsRequireEveryChannelForPrefill(): void
+    {
+        $detail = [
+            'revenue' => 3200, 'offline_rooms' => 2, 'salable_rooms' => 20,
+            'xb_rooms' => 4, 'mt_rooms' => 0, 'fliggy_rooms' => 0, 'dy_rooms' => 0,
+            'tc_rooms' => 0, 'qn_rooms' => 0, 'zx_rooms' => 0, 'booking_rooms' => 0,
+            'agoda_rooms' => 0, 'expedia_rooms' => 0,
+        ];
+        Db::name('daily_reports')->insert([
+            'tenant_id' => 9, 'hotel_id' => 80, 'report_date' => '2026-07-28',
+            'status' => 2, 'report_data' => json_encode($detail),
+        ]);
+
+        $service = new OperatingTargetService();
+        $complete = $service->prefillFromDailyReport(9, 80, '2026-07-28');
+        self::assertSame('unverified', $complete['status']);
+        self::assertSame(6, $complete['prefill']['sold_room_nights']);
+
+        unset($detail['expedia_rooms']);
+        Db::name('daily_reports')->where('tenant_id', 9)->where('hotel_id', 80)
+            ->where('report_date', '2026-07-28')->update(['report_data' => json_encode($detail)]);
+        $partial = $service->prefillFromDailyReport(9, 80, '2026-07-28');
+        self::assertSame('partial', $partial['status']);
+        self::assertNull($partial['prefill']['sold_room_nights']);
+    }
+
+    public function testExplicitInvalidEditedRevenueDoesNotResurrectLegacyColumn(): void
+    {
+        Db::name('daily_reports')->insert([
+            'tenant_id' => 9, 'hotel_id' => 80, 'report_date' => '2026-07-28',
+            'status' => 2, 'revenue' => 800,
+            'report_data' => json_encode(['revenue' => '待核实', 'total_rooms' => 8, 'salable_rooms' => 20]),
+        ]);
+
+        $prefill = (new OperatingTargetService())->prefillFromDailyReport(9, 80, '2026-07-28');
+
+        self::assertSame('partial', $prefill['status']);
+        self::assertNull($prefill['prefill']['actual_revenue']);
+        self::assertContains('daily_report_actual_revenue_invalid', array_column($prefill['gaps'], 'code'));
+
+        Db::name('daily_reports')->where('tenant_id', 9)->where('hotel_id', 80)
+            ->where('report_date', '2026-07-28')->update([
+                'report_data' => json_encode(['revenue' => -5, 'total_rooms' => 8, 'salable_rooms' => 20]),
+            ]);
+        $negative = (new OperatingTargetService())->prefillFromDailyReport(9, 80, '2026-07-28');
+        self::assertSame('partial', $negative['status']);
+        self::assertNull($negative['prefill']['actual_revenue']);
+        self::assertContains('daily_report_actual_revenue_invalid', array_column($negative['gaps'], 'code'));
+    }
+
+    public function testInvalidDailyRoomNightsProduceFactGapsInsteadOfDateError(): void
+    {
+        Db::name('daily_reports')->insert([
+            'tenant_id' => 9, 'hotel_id' => 80, 'report_date' => '2026-07-28',
+            'status' => 2,
+            'report_data' => json_encode(['revenue' => 3200, 'total_rooms' => -1, 'salable_rooms' => 20]),
+        ]);
+        $service = new OperatingTargetService();
+        $invalidSold = $service->prefillFromDailyReport(9, 80, '2026-07-28');
+        self::assertSame('partial', $invalidSold['status']);
+        self::assertNull($invalidSold['prefill']['sold_room_nights']);
+        self::assertContains('daily_report_sold_room_nights_invalid', array_column($invalidSold['gaps'], 'code'));
+
+        Db::name('daily_reports')->where('tenant_id', 9)->where('hotel_id', 80)
+            ->where('report_date', '2026-07-28')->update([
+                'report_data' => json_encode(['revenue' => 3200, 'total_rooms' => 8, 'salable_rooms' => 1.5]),
+            ]);
+        $invalidSellable = $service->prefillFromDailyReport(9, 80, '2026-07-28');
+        self::assertSame('partial', $invalidSellable['status']);
+        self::assertNull($invalidSellable['prefill']['sellable_room_nights']);
+        self::assertContains('daily_report_sellable_room_nights_invalid', array_column($invalidSellable['gaps'], 'code'));
     }
 
     public function testOtaScopeCannotBeSavedAsWholeHotelOperatingFact(): void

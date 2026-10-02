@@ -5,6 +5,7 @@ namespace Tests;
 
 use app\service\LongitudinalEvidenceLearningService;
 use app\service\WeeklyOperatingPlanSnapshotService;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 
 final class WeeklyOperatingPlanSnapshotServiceTest extends TestCase
@@ -135,6 +136,7 @@ final class WeeklyOperatingPlanSnapshotServiceTest extends TestCase
         $second = $service->generateAndReadback(80, 80, '2026-08-28');
         $exact = $service->readExact(80, 80, (int)$first['snapshot_id']);
         $latest = $service->readLatest(80, 80, '2026-08-28');
+        self::assertSame($latest, $service->readLatestAvailability(80, 80, '2026-08-28'));
 
         self::assertTrue($first['created']);
         self::assertSame('weekly_operating_plan.v2', $first['contract_version']);
@@ -492,6 +494,157 @@ final class WeeklyOperatingPlanSnapshotServiceTest extends TestCase
         self::assertTrue($result['created']);
         self::assertFalse($result['idempotent_replay']);
         self::assertTrue($result['readback_verified']);
+    }
+
+    #[DataProvider('mismatchedReadbackCases')]
+    public function testSaveRejectsAnInternallyValidSnapshotThatDoesNotMatchTheWrite(array $other): void
+    {
+        $unexpected = $this->storedSnapshot($other);
+        $rows = [];
+        $service = new WeeklyOperatingPlanSnapshotService(
+            sourceReader: static fn(): array => [],
+            snapshotReader: static fn(string $action): mixed => match ($action) {
+                'next_version' => 1,
+                'exact' => $unexpected,
+                default => null,
+            },
+            snapshotWriter: static function (array $row) use (&$rows): int {
+                $rows[] = $row;
+                return 1;
+            },
+            scopeVerifier: static fn(): bool => true,
+            snapshotTransaction: static function (callable $operation) use (&$rows): array {
+                $before = $rows;
+                try {
+                    return $operation();
+                } catch (\Throwable $error) {
+                    $rows = $before;
+                    throw $error;
+                }
+            }
+        );
+
+        try {
+            $service->generateAndReadback(80, 80, '2026-08-28');
+            self::fail('self-consistent foreign content must not verify the requested write');
+        } catch (\RuntimeException $error) {
+            self::assertSame('weekly_plan_snapshot_readback_failed', $error->getMessage());
+        }
+        self::assertSame([], $rows, 'the mismatched write must roll back');
+    }
+
+    public static function mismatchedReadbackCases(): array
+    {
+        return [
+            'snapshot id' => [['id' => 99]],
+            'tenant' => [['tenant_id' => 81]],
+            'hotel' => [['hotel_id' => 81]],
+            'week' => [['week_end' => '2026-08-21']],
+            'version' => [['version_no' => 2]],
+            'trigger' => [['generation_trigger' => 'manual']],
+            'content with same source digest' => [['sources' => ['hotel_name' => '另一份周计划']]],
+        ];
+    }
+
+    #[DataProvider('mismatchedLatestScopeCases')]
+    public function testLatestRejectsAnInternallyValidSnapshotOutsideTheRequestedScope(array $other): void
+    {
+        $unexpected = $this->storedSnapshot($other);
+        $service = new WeeklyOperatingPlanSnapshotService(
+            snapshotReader: static fn(): array => $unexpected,
+            scopeVerifier: static fn(): bool => true
+        );
+
+        $this->expectExceptionMessage('weekly_plan_snapshot_readback_failed');
+        $service->readLatestAvailability(80, 80, '2026-08-28');
+    }
+
+    public static function mismatchedLatestScopeCases(): array
+    {
+        return [
+            'tenant' => [['tenant_id' => 81]],
+            'hotel' => [['hotel_id' => 81]],
+            'week' => [['week_end' => '2026-08-21']],
+        ];
+    }
+
+    public function testExactRejectsAnInternallyValidSnapshotWithADifferentId(): void
+    {
+        $unexpected = $this->storedSnapshot(['id' => 99]);
+        $service = new WeeklyOperatingPlanSnapshotService(
+            snapshotReader: static fn(): array => $unexpected,
+            scopeVerifier: static fn(): bool => true
+        );
+
+        $this->expectExceptionMessage('weekly_plan_snapshot_not_found');
+        $this->expectExceptionCode(404);
+        $service->readExact(80, 80, 1);
+    }
+
+    #[DataProvider('mismatchedReplayCases')]
+    public function testReplayRejectsAValidSnapshotWithADifferentSourceOrScope(array $other, bool $concurrent): void
+    {
+        $unexpected = $this->storedSnapshot($other);
+        $bySourceReads = 0;
+        $service = new WeeklyOperatingPlanSnapshotService(
+            sourceReader: static fn(): array => [],
+            snapshotReader: static function (string $action) use ($unexpected, $concurrent, &$bySourceReads): mixed {
+                if ($action === 'next_version') return 1;
+                if ($action === 'by_source') {
+                    $bySourceReads++;
+                    return $concurrent && $bySourceReads === 1 ? null : $unexpected;
+                }
+                return null;
+            },
+            snapshotWriter: static fn(): never => throw new \RuntimeException('duplicate entry'),
+            scopeVerifier: static fn(): bool => true
+        );
+
+        $this->expectExceptionMessage('weekly_plan_snapshot_readback_failed');
+        $service->generateAndReadback(80, 80, '2026-08-28');
+    }
+
+    public static function mismatchedReplayCases(): array
+    {
+        $cases = [];
+        foreach ([false, true] as $concurrent) {
+            foreach (self::mismatchedLatestScopeCases() + [
+                'source' => [['sources' => ['source_errors' => ['daily_runs_unavailable']]]],
+                'trigger' => [['generation_trigger' => 'manual']],
+            ] as $name => [$other]) {
+                $cases[($concurrent ? 'concurrent ' : 'existing ') . $name] = [$other, $concurrent];
+            }
+        }
+        return $cases;
+    }
+
+    /** Generate a real service row using only an in-memory source and store. */
+    private function storedSnapshot(array $overrides): array
+    {
+        $stored = [];
+        $service = new WeeklyOperatingPlanSnapshotService(
+            sourceReader: static fn(): array => $overrides['sources'] ?? [],
+            snapshotReader: static function (string $action) use (&$stored, $overrides): mixed {
+                return match ($action) {
+                    'next_version' => $overrides['version_no'] ?? 1,
+                    'exact' => $stored,
+                    default => null,
+                };
+            },
+            snapshotWriter: static function (array $row) use (&$stored, $overrides): int {
+                $stored = ['id' => $overrides['id'] ?? 1] + $row;
+                return $stored['id'];
+            },
+            scopeVerifier: static fn(): bool => true
+        );
+        $saved = $service->generateAndReadback(
+            $overrides['tenant_id'] ?? 80,
+            $overrides['hotel_id'] ?? 80,
+            $overrides['week_end'] ?? '2026-08-28',
+            generationTrigger: $overrides['generation_trigger'] ?? 'background'
+        );
+        self::assertTrue($saved['readback_verified'], 'the alternative snapshot must itself be valid');
+        return $stored;
     }
 
     /** @return array<string,mixed> */

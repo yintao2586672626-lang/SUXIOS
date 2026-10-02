@@ -623,11 +623,11 @@
             <div class="login-glow-purple"></div>
             <div class="login-stage relative z-10">
                 <section class="login-context-panel" aria-label="宿析OS登录主视觉">
-                    <div class="login-context-topline"><span class="login-context-kicker">酒店全周期经营决策系统</span></div>
+                    <div class="login-context-topline"><span class="login-context-kicker">酒店 OTA 经营分析与行动工作台</span></div>
                     <p class="login-brand-mark">宿析OS</p>
-                    <h2 class="login-hero-lines"><span>看见数据</span><span>看懂经营</span><span>评估未来情景</span></h2>
-                    <p class="login-hero-lead">让酒店每个关键决策，都有数据依据</p>
-                    <p class="login-hero-subcopy">以数据采集、经营分析、策略推演、结果追踪为核心，帮助酒店从经验判断走向数据决策。</p>
+                    <h2 class="login-hero-lines"><span>查清数据</span><span>找到重点</span><span>跟进结果</span></h2>
+                    <p class="login-hero-lead">今天重点看哪里，下一步先做什么？</p>
+                    <p class="login-hero-subcopy">按酒店、渠道与日期核对已接入的数据，辅助识别经营重点，跟进任务与复盘。关键经营动作由人确认。</p>
                 </section>
                 <div class="login-card rounded-2xl p-10 w-full max-w-md relative">
                     <div class="flex justify-end mb-3">
@@ -647,6 +647,7 @@
                         <h1 class="login-title text-3xl font-bold mb-2">宿析OS</h1>
                         <p class="login-slogan text-base font-medium tracking-wide">进入宿析OS经营系统</p>
                         <p class="login-copy">让酒店经营从经验判断走向数据决策</p>
+                        <p class="login-copy"><a href="/product-guide.html" class="login-product-guide">查看产品能力与使用步骤 →</a></p>
                     </div>
                     <form id="public-login-form" class="space-y-5" novalidate>
                         <div class="input-group">

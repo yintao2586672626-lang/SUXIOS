@@ -1,0 +1,44 @@
+{
+  "schema": "suxios.integration_source_progress_notice.v1",
+  "received_on": "2026-10-02",
+  "recorded_at": "2026-10-02T10:53:13.915Z",
+  "source_thread_id": "01a0f621-a613-7382-827e-ac02395f7693",
+  "package_id": "changqing-three-phase-31-20261002",
+  "status": "source_self_review_in_progress_waiting_final_delta",
+  "previous_handoff": "2026-10-02 18:24 Asia/Shanghai",
+  "previous_handoff_fingerprints_are_final": false,
+  "receiver_reproduced_new_fixes": false,
+  "source_reported_red_green_fixes": [
+    "Workspace mapping/raw-row drafts remaining across hotel changes",
+    "Source hotel identifier truncation",
+    "Cross-operator idempotent replay of shared reviews"
+  ],
+  "source_reported_in_progress": [
+    "Guest path idempotency",
+    "Role permissions",
+    "Date validation",
+    "Handover record validation"
+  ],
+  "source_declared_change_scope": [
+    "This workflow service/controller/test files",
+    "Operating-finance component and cache artifacts"
+  ],
+  "source_declared_exclusions": [
+    "No real business writes to shared database",
+    "No User/PermissionService changes",
+    "No other task source changes"
+  ],
+  "final_delta_sha_and_acceptance_pending": true,
+  "initial_receipt": {
+    "file": "changqing-main-thread-receipt-20261002.initial.json",
+    "sha256": "6cd78c17a24bc265b85332eced84323f512fff6a08c738ee281b4f924b3e1b53"
+  },
+  "receiver_actions": {
+    "source_files_modified": false,
+    "source_tests_repeated": false,
+    "package_integrated": false,
+    "git_committed": false,
+    "github_pushed": false,
+    "external_message_sent": false
+  }
+}

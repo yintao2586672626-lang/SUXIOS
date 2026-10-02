@@ -11,6 +11,7 @@ use DateTimeImmutable;
 use DateTimeZone;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
+use Tests\Support\PreciseQuerySyntheticFixture as Fixture;
 use think\App;
 use think\facade\Config;
 use think\facade\Db;
@@ -534,6 +535,104 @@ final class PreciseQueryRouterServiceTest extends TestCase
             $saved['analysis_quality_receipt']['receipt_digest'],
             $saved['operating_question']['analysis_quality_receipt']['receipt_digest']
         );
+    }
+
+    #[DataProvider('persistedMetadataDrift')]
+    public function testReadbackAndRetryRejectMetadataDriftOnBlockedResults(string $field, mixed $value): void
+    {
+        foreach (['day' => '携程昨天订单额', 'period' => '携程最近三天订单额'] as $kind => $query) {
+            $calls = 0;
+            $router = Fixture::router(static function (int $hotel, string $date) use (&$calls): array {
+                $calls++;
+                $closure = Fixture::closure($hotel, $date);
+                $closure['platforms']['ctrip']['fields'] = [];
+                return $closure;
+            });
+            $payload = ['query' => $query, 'current_scope' => ['hotel_id' => 80],
+                'client_request_key' => 'integrity-' . $kind . '-' . $field];
+            $saved = $router->route(10, [80, 81], 7, $payload);
+            self::assertSame($kind === 'day' ? 'blocked_by_canonical_fact_status' : 'blocked_by_period_facts', $saved['status']);
+            self::assertNull($saved['answer']['value']);
+            self::assertNotEmpty($saved['data_gaps']);
+            self::assertSame($saved, $router->read($saved['id'], 10, [80, 81]));
+            $sourceCalls = $calls;
+            Db::name('hotel_operating_questions')->where('id', $saved['id'])->update([$field => $value]);
+            $allowed = $field === 'hotel_id' && $value === 0 ? [81] : [80, 81];
+
+            foreach ([
+                'read' => static fn(): array => $router->read($saved['id'], 10, $allowed),
+                'retry' => static fn(): array => $router->route(10, $allowed, 7, $payload),
+            ] as $operation => $invoke) {
+                $failure = null;
+                try { $invoke(); } catch (\RuntimeException $error) { $failure = $error; }
+                self::assertInstanceOf(\RuntimeException::class, $failure, $kind . ' ' . $operation . ' must reject drift in ' . $field);
+                self::assertSame($sourceCalls, $calls, 'Readback and replay must not replace the saved blocked result with fresh facts.');
+            }
+        }
+    }
+
+    public static function persistedMetadataDrift(): array
+    {
+        return [
+            'wrong platform' => ['platform', 'meituan'],
+            'wrong start date' => ['date_start', '2026-09-01'],
+            'wrong end date' => ['date_end', '2026-09-08'],
+            'blocked status promoted to success' => ['answer_status', 'answered_from_canonical_closure'],
+            'summary promoted to success' => ['answer_summary', '完整期间已核验，订单额1000元。'],
+            'missing evidence removed' => ['data_gaps_json', '[]'],
+            'different tenant' => ['tenant_id', 11],
+            'different hotel' => ['hotel_id', 81],
+            'hotel reset to unscoped' => ['hotel_id', 0],
+        ];
+    }
+
+    #[DataProvider('immutablePeriodStates')]
+    public function testUnchangedSavedStateSurvivesReadbackAndRetryAfterSourceChanges(array $missing, string $status, ?float $value, ?float $partialValue): void
+    {
+        $calls = 0;
+        $router = Fixture::router(static function (int $hotel, string $date) use (&$missing, &$calls): array {
+            $calls++;
+            $closure = Fixture::closure($hotel, $date);
+            if (in_array('all', $missing, true) || in_array($date, $missing, true)) $closure['platforms']['ctrip']['fields'] = [];
+            return $closure;
+        });
+        $payload = ['query' => '携程最近三天订单额', 'current_scope' => ['hotel_id' => 80],
+            'client_request_key' => 'stable-' . $status];
+        $saved = $router->route(10, [80], 7, $payload);
+        self::assertSame($status, $saved['status']);
+        self::assertSame($value, $saved['answer']['value'] === null ? null : (float)$saved['answer']['value']);
+        self::assertSame($partialValue, $saved['answer']['partial_value'] === null ? null : (float)$saved['answer']['partial_value']);
+        self::assertSame($status, $saved['operating_question']['answer_status']);
+        self::assertSame('ctrip', $saved['operating_question']['platform']);
+        self::assertSame('2026-09-05', $saved['operating_question']['date_start']);
+        self::assertSame('2026-09-07', $saved['operating_question']['date_end']);
+        $sourceCalls = $calls;
+        $missing = $missing === [] ? ['all'] : [];
+        self::assertSame($saved, $router->read($saved['id'], 10, [80]));
+        self::assertSame($saved, $router->route(10, [80], 7, $payload));
+        self::assertSame($sourceCalls, $calls);
+    }
+
+    public static function immutablePeriodStates(): array
+    {
+        return [
+            'complete result stays complete' => [[], 'answered_from_period_facts', 318.0, null],
+            'partial result stays partial' => [['2026-09-06'], 'partial_period', null, 212.0],
+            'blocked result stays blocked' => [['all'], 'blocked_by_period_facts', null, null],
+        ];
+    }
+
+    public function testLegitimateUnscopedNavigationRetainsTenantIsolation(): void
+    {
+        $router = $this->router();
+        $saved = $router->route(10, [], 7, ['query' => '数据健康在哪里', 'current_scope' => ['hotel_id' => 0]]);
+        self::assertSame('navigation_ready', $saved['status']);
+        self::assertNull($saved['parsed_scope']['hotel_id']);
+        self::assertSame(0, (int)Db::name('hotel_operating_questions')->where('id', $saved['id'])->value('hotel_id'));
+        self::assertSame($saved, $router->read($saved['id'], 10, []));
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('精准查数问题不存在或无权访问');
+        $router->read($saved['id'], 11, []);
     }
 
     public function testMultiMetricQueryKeepsOrderPartialStatusAndExactReadback(): void

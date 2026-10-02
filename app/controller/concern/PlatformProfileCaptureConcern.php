@@ -605,9 +605,10 @@ trait PlatformProfileCaptureConcern
         array $credentialPayload = []
     ): array
     {
-        $dataDate = $this->normalizeOnlineDataDate($requestData['data_date'] ?? $requestData['dataDate'] ?? '');
+        $requestedDate = $requestData['data_date'] ?? $requestData['dataDate'] ?? '';
+        $dataDate = $this->normalizeCtripCaptureBusinessDate($requestedDate);
         if ($dataDate === '') {
-            $dataDate = date('Y-m-d');
+            $dataDate = (new \DateTimeImmutable('now', new \DateTimeZone('Asia/Shanghai')))->format('Y-m-d');
         }
         $hotelId = trim((string)(
             $requestData['hotel_id']

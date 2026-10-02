@@ -24,6 +24,8 @@ final class DailyWorkbenchOperationSyncTest extends TestCase
     private string $patrolLatestPath = '';
     private bool $patrolLatestExisted = false;
     private string $patrolLatestContents = '';
+    private string $originalRuntimePath = '';
+    private string $temporaryRuntimePath = '';
     /** @var array<int, string> */
     private array $createdPatrolPaths = [];
 
@@ -63,6 +65,10 @@ final class DailyWorkbenchOperationSyncTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
+        $this->originalRuntimePath = app()->getRuntimePath();
+        $this->temporaryRuntimePath = sys_get_temp_dir() . DIRECTORY_SEPARATOR
+            . 'synthetic_patrol_sync_' . getmypid() . '_' . bin2hex(random_bytes(4)) . DIRECTORY_SEPARATOR;
+        app()->setRuntimePath($this->temporaryRuntimePath);
         $this->patrolBaseDir = rtrim(runtime_path(), DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR . 'phase2_daily_workbench_patrol';
         $this->patrolLatestPath = $this->patrolBaseDir . DIRECTORY_SEPARATOR . 'latest.json';
         $this->patrolLatestExisted = is_file($this->patrolLatestPath);
@@ -101,7 +107,138 @@ final class DailyWorkbenchOperationSyncTest extends TestCase
         } elseif (is_file($this->patrolLatestPath)) {
             unlink($this->patrolLatestPath);
         }
+        if (is_dir($this->patrolBaseDir) && count(scandir($this->patrolBaseDir)) === 2) {
+            rmdir($this->patrolBaseDir);
+        }
+        app()->setRuntimePath($this->originalRuntimePath);
+        if (is_dir($this->temporaryRuntimePath) && count(scandir($this->temporaryRuntimePath)) === 2) {
+            rmdir($this->temporaryRuntimePath);
+        }
         parent::tearDown();
+    }
+
+    public function testPatrolControllerSourceMetadataSurvivesIntentSaveAndReplay(): void
+    {
+        [$input, $sync, $snapshot] = $this->createPatrolIntentFromSnapshot([
+            'target_date' => '2026-07-18', 'platform' => 'meituan', 'priority' => 'high',
+            'action_text' => 'Synthetic replaced action.', 'entry' => '/synthetic-replacement',
+            'data_gaps' => ['synthetic_replaced_gap'],
+        ]);
+        $service = new OperationManagementService();
+        $read = $service->readExecutionIntent((int)$sync['intent_id'], [7]);
+        self::assertSame('pending_approval', $read['status']);
+        self::assertSame('2026-07-17', $read['date_start']);
+        self::assertSame($read['date_start'], $read['date_end']);
+        self::assertSame('ota', $read['platform']);
+        self::assertSame('medium', $read['risk_level']);
+        self::assertSame('Refresh OTA evidence.', $read['target_value']['action_text']);
+        self::assertSame('', $read['target_value']['entry']);
+        self::assertSame(['refresh_ota_inventory'], $read['evidence']['data_gaps']);
+        self::assertContains('daily_workbench_patrol#' . $snapshot['run_id'], $read['evidence']['evidence_refs']);
+        $replay = $service->syncDailyWorkbenchPatrolAction([7], $input, 3);
+        self::assertSame($sync['intent_id'], $replay['intent_id']);
+        self::assertSame(1, (int)Db::name('operation_execution_intents')->count());
+        self::assertSame(0, (int)Db::name('operation_execution_tasks')->count());
+        self::assertSame(0, (int)Db::name('operation_execution_evidence')->count());
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('persistedPatrolSourceDrifts')]
+    public function testPatrolReplayRejectsDeclaredSourceDriftWithoutRewritingHistory(string $field): void
+    {
+        [$input, $sync] = $this->createPatrolIntentFromSnapshot();
+        $id = (int)$sync['intent_id'];
+        $row = Db::name('operation_execution_intents')->where('id', $id)->find();
+        if (in_array($field, ['date_start', 'date_end', 'platform', 'action_type', 'risk_level'], true)) {
+            $value = match ($field) {
+                'date_start', 'date_end' => '2026-07-18', 'platform' => 'meituan',
+                'action_type' => 'synthetic_other_action', 'risk_level' => 'high',
+            };
+            Db::name('operation_execution_intents')->where('id', $id)->update([$field => $value]);
+        } elseif ($field === 'data_gaps') {
+            $evidence = json_decode($row['evidence_json'], true, 512, JSON_THROW_ON_ERROR);
+            $evidence['data_gaps'] = ['synthetic_other_gap'];
+            Db::name('operation_execution_intents')->where('id', $id)->update(['evidence_json' => json_encode($evidence, JSON_THROW_ON_ERROR)]);
+        } else {
+            $target = json_decode($row['target_value_json'], true, 512, JSON_THROW_ON_ERROR);
+            $target[$field] = $field === 'target_date' ? '2026-07-18' : 'synthetic_other_value';
+            Db::name('operation_execution_intents')->where('id', $id)->update(['target_value_json' => json_encode($target, JSON_THROW_ON_ERROR)]);
+        }
+        $before = Db::name('operation_execution_intents')->where('id', $id)->find();
+        $snapshotBefore = (new DailyWorkbenchPatrolService())->findByRunIdForHotel($input['run_id'], 7);
+        try {
+            (new OperationManagementService())->syncDailyWorkbenchPatrolAction([7], $input, 3);
+            self::fail('A valid source retry must not silently reuse a polluted patrol intent.');
+        } catch (\InvalidArgumentException $error) {
+            self::assertStringContainsString('stored patrol source', $error->getMessage());
+        }
+        self::assertSame($before, Db::name('operation_execution_intents')->where('id', $id)->find());
+        self::assertSame($snapshotBefore, (new DailyWorkbenchPatrolService())->findByRunIdForHotel($input['run_id'], 7));
+        self::assertSame(1, (int)Db::name('operation_execution_intents')->count());
+        self::assertSame(0, (int)Db::name('operation_execution_tasks')->count());
+        self::assertSame(0, (int)Db::name('operation_execution_evidence')->count());
+    }
+
+    public static function persistedPatrolSourceDrifts(): array
+    {
+        return array_map(static fn(string $field): array => [$field], [
+            'date_start', 'date_end', 'platform', 'action_type', 'risk_level',
+            'target_date', 'question_key', 'action_text', 'entry', 'data_gaps',
+        ]);
+    }
+
+    public function testPatrolReplayPreservesLegacyOptionalFieldsAndGapSetOrdering(): void
+    {
+        [$input, $sync] = $this->createPatrolIntentFromSnapshot();
+        $id = (int)$sync['intent_id'];
+        $row = Db::name('operation_execution_intents')->where('id', $id)->find();
+        $target = json_decode($row['target_value_json'], true, 512, JSON_THROW_ON_ERROR);
+        unset($target['target_date'], $target['action_text'], $target['entry']);
+        $evidence = json_decode($row['evidence_json'], true, 512, JSON_THROW_ON_ERROR);
+        $evidence['data_gaps'] = ['synthetic_b', 'synthetic_a'];
+        Db::name('operation_execution_intents')->where('id', $id)->update([
+            'target_value_json' => json_encode($target, JSON_THROW_ON_ERROR),
+            'evidence_json' => json_encode($evidence, JSON_THROW_ON_ERROR),
+        ]);
+        $input['data_gaps'] = ['synthetic_a', 'synthetic_b', 'synthetic_a'];
+        $before = Db::name('operation_execution_intents')->where('id', $id)->find();
+        $replay = (new OperationManagementService())->syncDailyWorkbenchPatrolAction([7], $input, 3);
+        self::assertSame($id, $replay['intent_id']);
+        self::assertSame($before, Db::name('operation_execution_intents')->where('id', $id)->find());
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('singleOrPairedPatrolIdentities')]
+    public function testPatrolSingleAndPairedIdentitiesKeepTheirExistingSourceRecordIds(string $actionCode, string $questionKey): void
+    {
+        $snapshot = $this->writePatrolSnapshot('synthetic_ota_gap');
+        $request = ['run_id' => $snapshot['run_id'], 'hotel_id' => 7, 'status' => 'in_progress',
+            'action_code' => $actionCode, 'question_key' => $questionKey];
+        $controller = (new \ReflectionClass(\app\controller\OnlineData::class))->newInstanceWithoutConstructor();
+        $input = (new ReflectionMethod($controller, 'dailyWorkbenchPatrolActionInput'))->invoke($controller, $snapshot, $request);
+        $service = new OperationManagementService();
+        $sync = $service->syncDailyWorkbenchPatrolAction([7], $input, 3);
+        $read = $service->readExecutionIntent((int)$sync['intent_id'], [7]);
+        self::assertSame((int)sprintf('%u', crc32($snapshot['run_id'] . '|7|' . $actionCode . '|' . $questionKey)), $read['source_record_id']);
+        self::assertSame($actionCode !== '' ? $actionCode : $questionKey, $read['action_type']);
+        self::assertSame($questionKey, $read['target_value']['question_key']);
+        self::assertSame($sync['intent_id'], $service->syncDailyWorkbenchPatrolAction([7], $input, 3)['intent_id']);
+        self::assertSame(1, (int)Db::name('operation_execution_intents')->count());
+        self::assertSame(0, (int)Db::name('operation_execution_tasks')->count());
+    }
+
+    public static function singleOrPairedPatrolIdentities(): array
+    {
+        return [['refresh_ota_inventory', ''], ['', 'synthetic_ota_gap'], ['refresh_ota_inventory', 'synthetic_ota_gap']];
+    }
+
+    private function createPatrolIntentFromSnapshot(array $requestOverrides = []): array
+    {
+        $snapshot = $this->writePatrolSnapshot();
+        $request = array_replace($this->doneInput(), ['run_id' => $snapshot['run_id'], 'status' => 'in_progress'], $requestOverrides);
+        $controller = (new \ReflectionClass(\app\controller\OnlineData::class))->newInstanceWithoutConstructor();
+        $input = (new ReflectionMethod($controller, 'dailyWorkbenchPatrolActionInput'))->invoke($controller, $snapshot, $request);
+        $sync = (new OperationManagementService())->syncDailyWorkbenchPatrolAction([7], $input, 3);
+        (new DailyWorkbenchPatrolService())->updateActionStatusForHotel($input + ['operation_execution' => $sync], 7, 3);
+        return [$input, $sync, $snapshot];
     }
 
     public function testDoneCreatesNoApprovalTaskOrExecutionEvidence(): void
@@ -282,6 +419,56 @@ final class DailyWorkbenchOperationSyncTest extends TestCase
                 self::assertStringContainsString('cannot transition', $e->getMessage());
             }
         }
+
+        // Follow the controller's real bridge/save order using only synthetic SQLite/runtime evidence.
+        $patrol = new DailyWorkbenchPatrolService();
+        $management = new OperationManagementService();
+        $doneInput = array_replace($this->doneInput(), ['run_id' => $runId]);
+        $sync = $management->syncDailyWorkbenchPatrolAction([7], $doneInput, 3);
+        self::assertSame($taskId, $sync['task_id']);
+        $patrol->updateActionStatusForHotel($doneInput + ['operation_execution' => $sync], 7, 3);
+        $done = $patrol->findByRunIdForHotel($runId, 7);
+        $reviewInput = $doneInput + [
+            'result_status' => $reviewed['result_status'],
+            'result_summary' => $reviewed['result_summary'],
+            'operation_execution' => array_replace($sync, [
+                'task_status' => $reviewed['status'],
+                'review_status' => $reviewed['result_status'],
+                'review_summary' => $reviewed['result_summary'],
+            ]),
+        ];
+        $invalidInput = $reviewInput;
+        $invalidInput['operation_execution']['synthetic_invalid_utf8'] = "\xB1";
+        try {
+            $patrol->updateActionReviewForHotel($invalidInput, 7, 3);
+            self::fail('A failed runtime serialization must not claim the review snapshot was saved.');
+        } catch (RuntimeException $error) {
+            self::assertStringContainsString('snapshot update failed', $error->getMessage());
+        }
+        self::assertSame($done['action_tracking'], $patrol->findByRunIdForHotel($runId, 7)['action_tracking']);
+        $retried = $management->reviewExecutionTask($taskId, [7], [
+            'result_status' => $reviewed['result_status'], 'result_summary' => $reviewed['result_summary'],
+        ], 3);
+        self::assertSame($reviewed['result_status'], $retried['result_status']);
+        $saved = $patrol->updateActionReviewForHotel($reviewInput, 7, 3);
+        $before = $saved['action_tracking']['items']['7|refresh_ota_inventory'];
+        self::assertSame('reviewed', $before['review_state']);
+
+        $repeatedSync = $management->syncDailyWorkbenchPatrolAction([7], $doneInput, 3);
+        $patrol->updateActionStatusForHotel($doneInput + ['operation_execution' => $repeatedSync], 7, 3);
+        $read = $patrol->findByRunIdForHotel($runId, 7);
+        $after = $read['action_tracking']['items']['7|refresh_ota_inventory'];
+        self::assertSame($before['review_result'], $after['review_result']);
+        self::assertSame($before['review_state'], $after['review_state']);
+        self::assertSame($before['reviewed_at'], $after['reviewed_at']);
+        self::assertSame($before['operation_execution']['task_id'], $after['operation_execution']['task_id']);
+        self::assertSame('success', $after['operation_execution']['review_status']);
+        self::assertSame(1, $read['action_tracking']['review_summary']['reviewed_count']);
+        self::assertSame($after, $patrol->latestForHotel(7)['action_tracking']['items']['7|refresh_ota_inventory']);
+        self::assertSame('success', $management->readExecutionTask($taskId, [7])['result_status']);
+        self::assertSame(1, (int)Db::name('operation_execution_intents')->count());
+        self::assertSame(1, (int)Db::name('operation_execution_tasks')->count());
+        self::assertSame($evidenceCount, (int)Db::name('operation_execution_evidence')->where('task_id', $taskId)->count());
     }
 
     public function testFreshUpdateTimeCannotPromoteStaleCapturedFact(): void
@@ -460,9 +647,10 @@ final class DailyWorkbenchOperationSyncTest extends TestCase
         self::assertSame('pending_approval', Db::name('operation_execution_intents')->where('id', $legacyId)->value('status'));
         self::assertSame(0, (int)Db::name('operation_execution_tasks')->where('intent_id', $legacyId)->count());
 
+        $executionDate = (new \DateTimeImmutable('now', new \DateTimeZone('Asia/Shanghai')))->format('Y-m-d');
         $recommendation = [
             'title' => '复核携程收益研究动作',
-            'action' => '在2026-07-17复核携程目标房型价格，并于7天后按渠道收入记录前后结果',
+            'action' => '在' . $executionDate . '复核携程目标房型价格，并于7天后按渠道收入记录前后结果',
             'expected_metric' => 'ota_revenue',
             'can_create_execution_intent' => true,
             'decision_quality' => [
@@ -477,8 +665,8 @@ final class DailyWorkbenchOperationSyncTest extends TestCase
             'platform' => 'ctrip',
             'object_type' => 'revenue_research',
             'action_type' => 'pricing_review',
-            'date_start' => '2026-07-17',
-            'date_end' => '2026-07-17',
+            'date_start' => $executionDate,
+            'date_end' => $executionDate,
             'target_value' => [
                 'research_product' => 'pricing_review',
                 'action_text' => $recommendation['action'],
@@ -1770,7 +1958,7 @@ final class DailyWorkbenchOperationSyncTest extends TestCase
     }
 
     /** @return array<string, mixed> */
-    private function writePatrolSnapshot(): array
+    private function writePatrolSnapshot(string $questionKey = ''): array
     {
         $snapshot = (new DailyWorkbenchPatrolService())->write([
             'scope' => [
@@ -1783,7 +1971,7 @@ final class DailyWorkbenchOperationSyncTest extends TestCase
             'next_actions' => [[
                 'hotel_id' => 7,
                 'action_code' => 'refresh_ota_inventory',
-                'question_key' => '',
+                'question_key' => $questionKey,
                 'action' => 'Refresh OTA evidence.',
             ]],
         ], ['trigger_type' => 'test', 'user_id' => 3]);

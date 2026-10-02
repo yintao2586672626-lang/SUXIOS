@@ -11,6 +11,12 @@ const routes = readRouteContractSource();
 const dailyReport = readFileSync('app/service/AiDailyReportService.php', 'utf8');
 const frontend = readOperationLifecycleContractSource();
 const operationStatic = readFileSync('public/operation-static.js', 'utf8');
+const delegated = name => {
+  const wrapper = sourceDeclaration(readFileSync('public/app-main.js', 'utf8'), name);
+  const handler = `run${name[0].toUpperCase()}${name.slice(1)}`;
+  assert.ok(wrapper.includes(`requireOperationStatic(window.SUXI_OPERATION_STATIC, '${handler}')`), 'entry delegates to the verified runtime body');
+  return sourceDeclaration(operationStatic, handler);
+};
 
 const block = (source, start, end) => {
   const startIndex = source.indexOf(start);
@@ -110,7 +116,7 @@ test('AI daily create verifies pending and unblocked intent before success toast
 });
 
 test('approval verifies intent status and generated task before success toast', () => {
-  const fn = block(frontend, 'const approveOperationExecutionIntent', 'const recordOperationExecutionEvidence');
+  const fn = delegated('approveOperationExecutionIntent');
   assertBefore(
     fn,
     'await readOperationExecutionIntent',
@@ -122,12 +128,12 @@ test('approval verifies intent status and generated task before success toast', 
 });
 
 test('both execution submit paths verify executed task with evidence before success toast', () => {
-  const priceFn = block(frontend, 'const recordOperationExecutionEvidence', 'const submitOperationExecutionEvidence');
+  const priceFn = delegated('recordOperationExecutionEvidence');
   const generalFn = block(frontend, 'const submitOperationExecutionEvidence', 'const recordOperationRoiEvidence');
   assertBefore(priceFn, 'await readOperationExecutionTask', "showToast('调价执行证据已保存", 'price execution readback must happen before success toast');
   assertMatches(
     generalFn,
-    /await readOperationExecutionTask\(responseTaskId, executionHotelId\)[\s\S]*operationEvidenceModalOpen\.value = false;\s*operationEvidenceModalItem\.value = null;\s*showToast\(/,
+    /await readOperationExecutionTask\(\s*responseTaskId,\s*executionHotelId,\s*supplementingExecutedTask \? res\.data\?\.evidence_write \|\| \{\} : null\s*\)[\s\S]*operationEvidenceModalOpen\.value = false;\s*operationEvidenceModalItem\.value = null;\s*showToast\(/,
     'general execution readback must happen before success toast'
   );
   for (const fn of [priceFn, generalFn]) {
@@ -137,7 +143,7 @@ test('both execution submit paths verify executed task with evidence before succ
 });
 
 test('review verifies persisted result status before success toast', () => {
-  const fn = block(frontend, 'const submitOperationExecutionReview', 'const finishOperationAction');
+  const fn = delegated('submitOperationExecutionReview');
   assertBefore(
     fn,
     'const persistedTask = await readOperationExecutionTask(responseTaskId, mutationContext.hotelId);',
@@ -153,11 +159,11 @@ test('review verifies persisted result status before success toast', () => {
 });
 
 test('mutation readbacks use and cross-check the resource id returned by POST', () => {
-  const approval = block(frontend, 'const approveOperationExecutionIntent', 'const recordOperationExecutionEvidence');
-  const priceExecution = block(frontend, 'const recordOperationExecutionEvidence', 'const submitOperationExecutionEvidence');
+  const approval = delegated('approveOperationExecutionIntent');
+  const priceExecution = delegated('recordOperationExecutionEvidence');
   const generalExecution = block(frontend, 'const submitOperationExecutionEvidence', 'const recordOperationRoiEvidence');
   const reconcile = block(operationStatic, 'const reconcileOperationExecutionReviewMutation', '    return {');
-  const review = block(frontend, 'const submitOperationExecutionReview', 'const finishOperationAction');
+  const review = delegated('submitOperationExecutionReview');
 
   assertMatches(
     approval,
@@ -175,7 +181,7 @@ test('mutation readbacks use and cross-check the resource id returned by POST', 
     'approval must cross-check and read the returned intent id in the frozen hotel context'
   );
   for (const fn of [priceExecution, generalExecution]) {
-    assertMatches(fn, /res\.data\?\.id[\s\S]*?readOperationExecutionTask\(responseTaskId(?:,\s*executionHotelId)?\)/, 'task mutation must read the returned task id');
+    assertMatches(fn, /res\.data\?\.id[\s\S]*?readOperationExecutionTask\(\s*responseTaskId,\s*executionHotelId(?:,\s*supplementingExecutedTask \? res\.data\?\.evidence_write \|\| \{\} : null)?\s*\)/, 'task mutation must read the returned task id in the original hotel scope');
     assertMatches(fn, /responseTaskId\s*!==\s*taskId/, 'task mutation must reject a mismatched returned id');
   }
   assertMatches(
@@ -189,3 +195,4 @@ test('mutation readbacks use and cross-check the resource id returned by POST', 
     'reconcile must cross-check returned task_id before exact task and hotel readback'
   );
 });
+import { sourceDeclaration } from '../../tests/automation/helpers/source_declaration.mjs';

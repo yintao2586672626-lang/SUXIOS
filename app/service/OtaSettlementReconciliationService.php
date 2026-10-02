@@ -18,6 +18,7 @@ use think\facade\Db;
 final class OtaSettlementReconciliationService
 {
     public const CONTRACT_VERSION = 'ota_settlement_reconciliation.v1';
+    public const HISTORY_CONTRACT_VERSION = 'ota_settlement_history.v1';
 
     private const BATCH_TABLE = 'ota_settlement_import_batches';
     private const LINE_TABLE = 'ota_settlement_line_facts';
@@ -223,6 +224,141 @@ final class OtaSettlementReconciliationService
             'readback_verified' => true,
         ];
         return $result;
+    }
+
+    /**
+     * Lists saved attempts in one exact tenant/hotel/channel/month scope,
+     * including invalid attempts that the latest projection may not display.
+     * Every returned item is checked against its persisted lines and fingerprint.
+     *
+     * @return array<string,mixed>
+     */
+    public function historyForScope(
+        int $tenantId,
+        int $hotelId,
+        string $platform,
+        string $periodStart,
+        string $periodEnd,
+        int $page = 1,
+        int $pageSize = 20
+    ): array {
+        $scope = $this->normalizeReadScope($tenantId, $hotelId, $platform, $periodStart, $periodEnd);
+        if ($page < 1 || $pageSize < 1 || $pageSize > 50) {
+            throw new InvalidArgumentException('ota_settlement_pagination_invalid');
+        }
+
+        $total = (int)Db::name(self::BATCH_TABLE)
+            ->where('tenant_id', $scope['tenant_id'])
+            ->where('hotel_id', $scope['hotel_id'])
+            ->where('platform', $scope['platform'])
+            ->where('period_start', $scope['period_start'])
+            ->where('period_end', $scope['period_end'])
+            ->count();
+        $pages = (int)ceil($total / $pageSize);
+        $items = [];
+        if ($page <= $pages) {
+            $rows = Db::name(self::BATCH_TABLE)
+                ->where('tenant_id', $scope['tenant_id'])
+                ->where('hotel_id', $scope['hotel_id'])
+                ->where('platform', $scope['platform'])
+                ->where('period_start', $scope['period_start'])
+                ->where('period_end', $scope['period_end'])
+                ->order('imported_at', 'desc')
+                ->order('id', 'desc')
+                ->limit(($page - 1) * $pageSize, $pageSize)
+                ->select()
+                ->toArray();
+            foreach ($rows as $row) {
+                $stored = $this->readBatch((int)$row['id']);
+                if (!is_array($stored)) {
+                    throw new RuntimeException('ota_settlement_readback_failed');
+                }
+                $this->assertReadScopeMatches($stored['batch'], $scope);
+                $this->assertStoredIntegrity($stored);
+                $batch = $stored['batch'];
+                $items[] = [
+                    'batch_id' => (int)$batch['id'],
+                    'batch_fingerprint' => (string)$batch['batch_fingerprint'],
+                    'batch_status' => (string)$batch['batch_status'],
+                    'imported_at' => (string)$batch['imported_at'],
+                    'supersedes_batch_id' => $batch['supersedes_batch_id'],
+                    'source' => [
+                        'source_method' => (string)$batch['source_method'],
+                        'source_quality_status' => (string)$batch['source_quality_status'],
+                        'file_sha256' => (string)$batch['file_sha256'],
+                        'parser_version' => (string)$batch['parser_version'],
+                    ],
+                    'counts' => [
+                        'line_count' => (int)$batch['line_count'],
+                        'available' => (int)$batch['available_line_count'],
+                        'partial' => (int)$batch['partial_line_count'],
+                        'invalid' => (int)$batch['invalid_line_count'],
+                    ],
+                    'totals' => [
+                        'net_revenue' => [
+                            'value' => $batch['net_revenue_total'],
+                            'basis' => (string)$batch['net_revenue_total_basis'],
+                        ],
+                    ],
+                ];
+            }
+        }
+
+        return [
+            'contract_version' => self::HISTORY_CONTRACT_VERSION,
+            'scope' => $scope,
+            'read_status' => $items === [] ? 'empty' : 'available',
+            'total' => $total,
+            'page' => $page,
+            'page_size' => $pageSize,
+            'pages' => $pages,
+            'items' => $items,
+        ];
+    }
+
+    /** Returns null only when the ID does not exist in the exact requested scope. */
+    public function readForScope(
+        int $tenantId,
+        int $hotelId,
+        string $platform,
+        string $periodStart,
+        string $periodEnd,
+        int $batchId
+    ): ?array {
+        $scope = $this->normalizeReadScope($tenantId, $hotelId, $platform, $periodStart, $periodEnd);
+        if ($batchId <= 0) {
+            throw new InvalidArgumentException('ota_settlement_batch_id_invalid');
+        }
+        $row = Db::name(self::BATCH_TABLE)
+            ->where('id', $batchId)
+            ->where('tenant_id', $scope['tenant_id'])
+            ->where('hotel_id', $scope['hotel_id'])
+            ->where('platform', $scope['platform'])
+            ->where('period_start', $scope['period_start'])
+            ->where('period_end', $scope['period_end'])
+            ->find();
+        if (!is_array($row)) {
+            return null;
+        }
+        $stored = $this->readBatch($batchId);
+        if (!is_array($stored)) {
+            throw new RuntimeException('ota_settlement_readback_failed');
+        }
+        $this->assertReadScopeMatches($stored['batch'], $scope);
+        $this->assertStoredIntegrity($stored);
+        $result = $this->presentReadback($stored, false);
+        $result['imported_at'] = (string)$stored['batch']['imported_at'];
+        return $result;
+    }
+
+    /** @param array<string,mixed> $batch @param array<string,mixed> $scope */
+    private function assertReadScopeMatches(array $batch, array $scope): void
+    {
+        foreach (['tenant_id', 'hotel_id', 'platform', 'period_start', 'period_end'] as $field) {
+            if ((string)($batch[$field] ?? '') !== (string)$scope[$field]) {
+                throw new RuntimeException('ota_settlement_readback_scope_mismatch');
+            }
+        }
     }
 
     /** @param array<string,mixed> $scope */

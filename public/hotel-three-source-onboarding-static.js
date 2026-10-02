@@ -5,6 +5,8 @@
         computed,
         runtimeWindow,
         request,
+        captureAuthSession,
+        isAuthSessionCurrent,
         showToast,
         hotelForm,
         hotelFormChannelSelected,
@@ -38,6 +40,11 @@
             meituan_cloud: 'meituan_cloud_pms',
         })[String(platform || '').trim().toLowerCase()] || String(platform || '').trim().toLowerCase();
         const resetHotelOnboarding = ({ active = false, hotelId = '', step = 'hotel' } = {}) => {
+            hotelOnboardingReadEpoch += 1;
+            hotelOnboardingBindingEpoch += 1;
+            hotelOnboardingPlanEpoch += 1;
+            hotelOnboardingCompleteEpoch += 1;
+            hotelOnboardingOpenEpoch += 1;
             hotelOnboardingActive.value = active;
             hotelOnboardingStep.value = step;
             hotelOnboardingHotelId.value = String(hotelId || '').trim();
@@ -50,6 +57,11 @@
             hotelOnboardingCollectionPlanStatus.value = 'idle';
             hotelOnboardingCollectionPlanError.value = '';
         };
+        let hotelOnboardingReadEpoch = 0;
+        let hotelOnboardingBindingEpoch = 0;
+        let hotelOnboardingPlanEpoch = 0;
+        let hotelOnboardingCompleteEpoch = 0;
+        let hotelOnboardingOpenEpoch = 0;
         const hotelOnboardingExpectedPlatforms = computed(() => {
             const platforms = [];
             if (hotelFormChannelSelected('ctrip')) platforms.push('ctrip');
@@ -185,16 +197,29 @@
         });
         const loadHotelThreeSourceOnboarding = async ({ hotelId = hotelOnboardingHotelId.value, silent = false } = {}) => {
             const exactHotelId = String(hotelId || '').trim();
+            const matchesCurrentHotel = () => showHotelModal.value
+                && hotelOnboardingActive.value
+                && String(hotelOnboardingHotelId.value || '').trim() === exactHotelId
+                && String(hotelForm.value.id || '').trim() === exactHotelId;
+            if (!matchesCurrentHotel()) return false;
             if (!exactHotelId) {
                 hotelOnboardingError.value = '缺少刚创建门店的精确 ID，已停止回读。';
                 return false;
             }
+            const readEpoch = ++hotelOnboardingReadEpoch;
+            const readSession = captureAuthSession();
+            const readPage = String(currentPage.value || '');
+            const ownsRead = () => readEpoch === hotelOnboardingReadEpoch;
+            const isCurrent = () => ownsRead() && matchesCurrentHotel()
+                && String(currentPage.value || '') === readPage
+                && isAuthSessionCurrent(readSession);
             hotelOnboardingLoading.value = true;
             if (!silent) hotelOnboardingError.value = '';
             try {
                 const response = await request(`/hotels/${encodeURIComponent(exactHotelId)}/three-source-onboarding`, {
                     requestPolicy: { scope: 'hotel', priority: 'action', force: true },
                 });
+                if (!isCurrent()) return false;
                 if (response.code !== 200 || !response.data) {
                     throw new Error(response.message || '三源接入状态回读失败');
                 }
@@ -227,11 +252,12 @@
                 hotelOnboardingError.value = '';
                 return true;
             } catch (error) {
+                if (!isCurrent()) return false;
                 hotelOnboardingError.value = error?.message || '三源接入状态回读失败';
                 if (!silent) showToast(hotelOnboardingError.value, 'error');
                 return false;
             } finally {
-                hotelOnboardingLoading.value = false;
+                if (ownsRead()) hotelOnboardingLoading.value = false;
             }
         };
         const hotelOnboardingViewerUrl = (value) => {
@@ -247,13 +273,27 @@
         const openHotelOnboardingCloudLogin = async (row = {}) => {
             const platform = normalizeHotelOnboardingPlatform(row.platform);
             const exactHotelId = String(hotelOnboardingHotelId.value || '').trim();
-            if (!platform || !exactHotelId || hotelOnboardingBusyPlatform.value) return false;
+            const matchesCurrentHotel = () => showHotelModal.value
+                && hotelOnboardingActive.value
+                && exactHotelId !== ''
+                && String(hotelOnboardingHotelId.value || '').trim() === exactHotelId
+                && String(hotelForm.value.id || '').trim() === exactHotelId
+                && hotelOnboardingExpectedPlatforms.value.includes(platform);
+            if (!platform || !matchesCurrentHotel() || hotelOnboardingBusyPlatform.value) return false;
             const viewerWindow = runtimeWindow.open('about:blank', '_blank');
             if (!viewerWindow) {
                 showToast('浏览器阻止了云端登录窗口，请允许弹窗后重试', 'warning');
                 return false;
             }
             try { viewerWindow.opener = null; } catch (error) { /* Browser-owned protection. */ }
+            const openEpoch = ++hotelOnboardingOpenEpoch;
+            const openSession = captureAuthSession();
+            const openPage = String(currentPage.value || '');
+            const ownsOpen = () => openEpoch === hotelOnboardingOpenEpoch;
+            const isCurrent = () => ownsOpen() && matchesCurrentHotel()
+                && String(currentPage.value || '') === openPage
+                && isAuthSessionCurrent(openSession);
+            let keepLoginBusy = false;
             hotelOnboardingBusyPlatform.value = platform;
             hotelOnboardingError.value = '';
             try {
@@ -261,6 +301,10 @@
                     method: 'POST',
                     body: JSON.stringify({ hotel_id: Number(exactHotelId), platform }),
                 });
+                if (!isCurrent()) {
+                    try { viewerWindow.close(); } catch (closeError) { /* Window may already be gone. */ }
+                    return false;
+                }
                 const data = response.data || {};
                 if (response.code !== 200 || data.browser_started !== true) {
                     throw new Error(response.message || '云端可视浏览器未启动');
@@ -269,26 +313,63 @@
                 const profileId = String(data.profile_id || data.profile?.id || data.profile || '').trim();
                 const sessionId = String(data.session_id || data.session?.id || data.session || '').trim();
                 if (!profileId || !sessionId) throw new Error('云端登录会话标识不完整');
+                viewerWindow.location.replace(viewerUrl);
                 hotelOnboardingLoginSessions.value = {
                     ...hotelOnboardingLoginSessions.value,
                     [platform]: { profile_id: profileId, session_id: sessionId },
                 };
-                viewerWindow.location.replace(viewerUrl);
                 showToast(`已打开${hotelOnboardingPlatformMeta[platform]?.label || platform}云端可视登录页，请在该页面完成登录`, 'info');
+                keepLoginBusy = true;
                 return true;
             } catch (error) {
                 try { viewerWindow.close(); } catch (closeError) { /* Window may already be gone. */ }
-                hotelOnboardingBusyPlatform.value = '';
+                if (!isCurrent()) return false;
                 hotelOnboardingError.value = error?.message || '云端登录入口创建失败';
                 showToast(hotelOnboardingError.value, 'error');
                 return false;
+            } finally {
+                if (!keepLoginBusy && ownsOpen() && hotelOnboardingBusyPlatform.value === platform) {
+                    hotelOnboardingBusyPlatform.value = '';
+                }
             }
         };
         const completeHotelOnboardingCloudLogin = async (row = {}) => {
             const platform = normalizeHotelOnboardingPlatform(row.platform);
             const exactHotelId = String(hotelOnboardingHotelId.value || '').trim();
             const session = hotelOnboardingLoginSessions.value[platform];
-            if (!platform || !exactHotelId || !session) return false;
+            const matchesCurrentHotel = () => showHotelModal.value
+                && hotelOnboardingActive.value
+                && exactHotelId !== ''
+                && String(hotelOnboardingHotelId.value || '').trim() === exactHotelId
+                && String(hotelForm.value.id || '').trim() === exactHotelId;
+            if (!platform || !session || !matchesCurrentHotel()) return false;
+            const profileId = session.profile_id;
+            const sessionId = session.session_id;
+            const completeEpoch = ++hotelOnboardingCompleteEpoch;
+            let expectedReadEpoch = hotelOnboardingReadEpoch;
+            let releasedOwnSession = false;
+            const completeAuth = captureAuthSession();
+            const completePage = String(currentPage.value || '');
+            const ownsSession = () => {
+                if (completeEpoch !== hotelOnboardingCompleteEpoch) return false;
+                const currentSession = hotelOnboardingLoginSessions.value[platform];
+                return releasedOwnSession ? !currentSession : currentSession?.profile_id === profileId
+                    && currentSession?.session_id === sessionId;
+            };
+            const ownsRead = () => ownsSession() && expectedReadEpoch === hotelOnboardingReadEpoch;
+            const isCurrent = () => ownsRead() && matchesCurrentHotel()
+                && String(currentPage.value || '') === completePage
+                && isAuthSessionCurrent(completeAuth);
+            const releaseOwnSession = () => {
+                if (!ownsSession()) return;
+                if (!releasedOwnSession) {
+                    const nextSessions = { ...hotelOnboardingLoginSessions.value };
+                    delete nextSessions[platform];
+                    hotelOnboardingLoginSessions.value = nextSessions;
+                    releasedOwnSession = true;
+                }
+                if (hotelOnboardingBusyPlatform.value === platform) hotelOnboardingBusyPlatform.value = '';
+            };
             hotelOnboardingLoading.value = true;
             hotelOnboardingError.value = '';
             try {
@@ -297,34 +378,41 @@
                     body: JSON.stringify({
                         hotel_id: Number(exactHotelId),
                         platform,
-                        profile_id: session.profile_id,
-                        session_id: session.session_id,
+                        profile_id: profileId,
+                        session_id: sessionId,
                     }),
                 });
+                if (!isCurrent()) return false;
                 if (response.code !== 200) throw new Error(response.message || '平台登录完成确认失败');
-                const nextSessions = { ...hotelOnboardingLoginSessions.value };
-                delete nextSessions[platform];
-                hotelOnboardingLoginSessions.value = nextSessions;
-                hotelOnboardingBusyPlatform.value = '';
-                const refreshed = await loadHotelThreeSourceOnboarding({ hotelId: exactHotelId, silent: true });
+                releaseOwnSession();
+                const readbackPromise = loadHotelThreeSourceOnboarding({ hotelId: exactHotelId, silent: true });
+                expectedReadEpoch = hotelOnboardingReadEpoch;
+                const refreshed = await readbackPromise;
+                if (!isCurrent()) return false;
                 if (!refreshed) throw new Error(hotelOnboardingError.value || '登录完成，但状态回读失败');
                 showToast(`${hotelOnboardingPlatformMeta[platform]?.label || platform}登录状态已回读`, 'success');
                 return true;
             } catch (error) {
-                const nextSessions = { ...hotelOnboardingLoginSessions.value };
-                delete nextSessions[platform];
-                hotelOnboardingLoginSessions.value = nextSessions;
-                hotelOnboardingBusyPlatform.value = '';
+                if (!isCurrent()) return false;
+                releaseOwnSession();
                 hotelOnboardingError.value = error?.message || '平台登录完成确认失败';
                 showToast(hotelOnboardingError.value, 'error');
                 return false;
             } finally {
-                hotelOnboardingLoading.value = false;
+                const releaseLoading = ownsRead();
+                releaseOwnSession();
+                if (releaseLoading) hotelOnboardingLoading.value = false;
             }
         };
         const saveHotelOnboardingBinding = async (row = {}) => {
             const platform = normalizeHotelOnboardingPlatform(row.platform);
             const exactHotelId = String(hotelOnboardingHotelId.value || '').trim();
+            const matchesCurrentHotel = () => showHotelModal.value
+                && hotelOnboardingActive.value
+                && exactHotelId !== ''
+                && String(hotelOnboardingHotelId.value || '').trim() === exactHotelId
+                && String(hotelForm.value.id || '').trim() === exactHotelId;
+            if (!matchesCurrentHotel()) return false;
             const form = hotelOnboardingBindingForms.value[platform] || {};
             const platformHotelId = String(form.platform_hotel_id || '').trim();
             const platformHotelName = String(form.platform_hotel_name || '').trim();
@@ -332,6 +420,15 @@
                 showToast('请同时填写平台公开门店 ID 和名称，再保存并回读', 'warning');
                 return false;
             }
+            const bindingEpoch = ++hotelOnboardingBindingEpoch;
+            let expectedReadEpoch = hotelOnboardingReadEpoch;
+            const bindingSession = captureAuthSession();
+            const bindingPage = String(currentPage.value || '');
+            const ownsSave = () => bindingEpoch === hotelOnboardingBindingEpoch
+                && expectedReadEpoch === hotelOnboardingReadEpoch;
+            const isCurrent = () => ownsSave() && matchesCurrentHotel()
+                && String(currentPage.value || '') === bindingPage
+                && isAuthSessionCurrent(bindingSession);
             hotelOnboardingLoading.value = true;
             hotelOnboardingError.value = '';
             try {
@@ -349,8 +446,12 @@
                         platform_hotel_name: platformHotelName,
                     }),
                 });
+                if (!isCurrent()) return false;
                 if (response.code !== 200) throw new Error(response.message || '平台门店身份保存失败');
-                const refreshed = await loadHotelThreeSourceOnboarding({ hotelId: exactHotelId, silent: true });
+                const readbackPromise = loadHotelThreeSourceOnboarding({ hotelId: exactHotelId, silent: true });
+                expectedReadEpoch = hotelOnboardingReadEpoch;
+                const refreshed = await readbackPromise;
+                if (!isCurrent()) return false;
                 if (!refreshed) throw new Error(hotelOnboardingError.value || '平台门店身份保存后回读失败');
                 const readback = hotelOnboardingSourceRows.value.find(item => item.platform === platform);
                 const readbackBinding = readback?.binding || readback?.platform_binding || readback || {};
@@ -364,11 +465,12 @@
                 showToast(`${hotelOnboardingPlatformMeta[platform]?.label || platform}门店身份已保存并回读`, 'success');
                 return true;
             } catch (error) {
+                if (!isCurrent()) return false;
                 hotelOnboardingError.value = error?.message || '平台门店身份保存失败';
                 showToast(hotelOnboardingError.value, 'error');
                 return false;
             } finally {
-                hotelOnboardingLoading.value = false;
+                if (ownsSave()) hotelOnboardingLoading.value = false;
             }
         };
         const goToHotelOnboardingVerification = async () => {
@@ -386,12 +488,26 @@
         };
         const enableHotelOnboardingHourlyCollection = async () => {
             const exactHotelId = String(hotelOnboardingHotelId.value || '').trim();
+            const matchesCurrentHotel = () => showHotelModal.value
+                && hotelOnboardingActive.value
+                && exactHotelId !== ''
+                && String(hotelOnboardingHotelId.value || '').trim() === exactHotelId
+                && String(hotelForm.value.id || '').trim() === exactHotelId;
+            if (!matchesCurrentHotel()) return false;
             if (!exactHotelId || !hotelOnboardingCollectionPlanEligible.value) {
                 hotelOnboardingCollectionPlanError.value = '当前统一三源队列要求携程+美团+PMS，且三个来源、Profile 与门店绑定均已就绪。';
                 showToast(hotelOnboardingCollectionPlanError.value, 'warning');
                 return false;
             }
             if (hotelOnboardingCollectionPlanStatus.value === 'saving') return false;
+            const planEpoch = ++hotelOnboardingPlanEpoch;
+            let expectedReadEpoch = hotelOnboardingReadEpoch;
+            const planSession = captureAuthSession();
+            const planPage = String(currentPage.value || '');
+            const ownsPlan = () => planEpoch === hotelOnboardingPlanEpoch;
+            const isCurrent = () => ownsPlan() && expectedReadEpoch === hotelOnboardingReadEpoch
+                && matchesCurrentHotel() && String(currentPage.value || '') === planPage
+                && isAuthSessionCurrent(planSession);
             const rows = new Map(hotelOnboardingSourceRows.value.map(row => [row.platform, row]));
             const pmsRow = hotelOnboardingSourceRows.value.find(row => ['dingdandao', 'meituan_cloud_pms'].includes(row.platform));
             hotelOnboardingCollectionPlanStatus.value = 'saving';
@@ -413,6 +529,7 @@
                         },
                     }),
                 });
+                if (!isCurrent()) return false;
                 const data = response.data || {};
                 if (response.code !== 200
                     || data.readback_verified !== true
@@ -422,17 +539,25 @@
                     throw new Error(response.message || '采集计划写入后未通过启用回读');
                 }
                 hotelOnboardingCollectionPlanStatus.value = 'active';
-                const refreshed = await loadHotelThreeSourceOnboarding({ hotelId: exactHotelId, silent: true });
+                const readbackPromise = loadHotelThreeSourceOnboarding({ hotelId: exactHotelId, silent: true });
+                expectedReadEpoch = hotelOnboardingReadEpoch;
+                const refreshed = await readbackPromise;
+                if (!isCurrent()) return false;
                 if (!refreshed || !hotelOnboardingReady.value) {
                     throw new Error(hotelOnboardingError.value || '采集计划已写入，但三源接入整体状态尚未通过精确回读');
                 }
                 showToast('三源采集计划已启用并完成精确回读；云端定时器由系统运行状态单独确认', 'success');
                 return true;
             } catch (error) {
+                if (!isCurrent()) return false;
                 hotelOnboardingCollectionPlanStatus.value = 'failed';
                 hotelOnboardingCollectionPlanError.value = error?.message || '每小时三源采集启用失败';
                 showToast(hotelOnboardingCollectionPlanError.value, 'error');
                 return false;
+            } finally {
+                if (ownsPlan() && hotelOnboardingCollectionPlanStatus.value === 'saving') {
+                    hotelOnboardingCollectionPlanStatus.value = 'idle';
+                }
             }
         };
         const openHotelOnboardingWechatConfig = () => {

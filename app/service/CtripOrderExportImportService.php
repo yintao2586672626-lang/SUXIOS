@@ -989,11 +989,7 @@ final class CtripOrderExportImportService
             return '';
         }
         $text = str_replace(['年', '月', '日', '/'], ['-', '-', '', '-'], $text);
-        try {
-            return (new DateTimeImmutable($text))->format('Y-m-d');
-        } catch (\Throwable) {
-            return '';
-        }
+        return $this->parseAbsoluteDateTime($text)?->format('Y-m-d') ?? '';
     }
 
     private function dateTime(mixed $value): string
@@ -1002,10 +998,59 @@ final class CtripOrderExportImportService
         if ($text === '') {
             return '';
         }
+        return $this->parseAbsoluteDateTime($text)?->format('Y-m-d H:i:s') ?? '';
+    }
+
+    private function parseAbsoluteDateTime(string $text): ?DateTimeImmutable
+    {
+        $calendarText = $text;
+        $parts = date_parse($calendarText);
+        if (isset($parts['relative']['weekday'])) {
+            // A matching weekday in an absolute RFC/English date is an annotation.
+            // Removing it must leave a complete date without relative instructions.
+            $calendarText = trim((string)preg_replace(
+                '/\b(?:Mon(?:day)?|Tue(?:sday)?|Wed(?:nesday)?|Thu(?:rsday)?|Fri(?:day)?|Sat(?:urday)?|Sun(?:day)?)\b,?\s*/i',
+                '',
+                $calendarText
+            ));
+            $parts = date_parse($calendarText);
+        }
+        if ($parts['warning_count'] > 0 || $parts['error_count'] > 0
+            || $parts['year'] === false || $parts['month'] === false || $parts['day'] === false
+            || isset($parts['relative'])
+        ) {
+            return null;
+        }
+        $calendarWithoutTimezone = $calendarText;
+        if ($parts['is_localtime']) {
+            // Inspect completeness without the parser-proven timezone suffix, while
+            // leaving the original absolute timestamp unchanged for construction.
+            $timezone = (string)($parts['tz_abbr'] ?? $parts['tz_id'] ?? '');
+            $timezonePattern = ($parts['zone_type'] ?? 0) === 1
+                ? '/(?:GMT|UTC)?[+-]\d{1,2}(?::?\d{2}){0,2}$/iD'
+                : ($timezone !== '' ? '/' . preg_quote($timezone, '/') . '$/iD' : null);
+            if ($timezonePattern !== null) {
+                $calendarWithoutTimezone = trim((string)preg_replace($timezonePattern, '', $calendarText));
+            }
+        }
+        // date_parse silently supplies day 1 for numeric or English month/year inputs.
+        if ($parts['day'] === 1 && preg_match(
+            '/^(?:\d{4}-\d{1,2}|[a-z]+\.?[\s,]*\d{4}|\d{4}\s*[a-z]+\.?)(?:$|[T\s])/i',
+            $calendarWithoutTimezone
+        ) === 1) {
+            return null;
+        }
         try {
-            return (new DateTimeImmutable($text))->format('Y-m-d H:i:s');
+            $date = new DateTimeImmutable($text);
+            $errors = DateTimeImmutable::getLastErrors();
+            if (($errors !== false && ($errors['warning_count'] > 0 || $errors['error_count'] > 0))
+                || $date->format('Y-m-d') !== sprintf('%04d-%02d-%02d', $parts['year'], $parts['month'], $parts['day'])
+            ) {
+                return null;
+            }
+            return $date;
         } catch (\Throwable) {
-            return '';
+            return null;
         }
     }
 

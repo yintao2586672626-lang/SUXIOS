@@ -69,9 +69,9 @@
             openTask: { type: Function, default: null },
         },
         data: () => ({
-            hotelId: '', businessDate: today(), loading: false, savingScope: '',
-            error: '', overview: null, requestSeq: 0, loadedScope: '',
-            feedbackSavingScope: '', feedbackStatus: '',
+            hotelId: '', businessDate: today(), loading: false, savingScope: '', priorityRequestSeq: 0,
+            error: '', overview: null, requestSeq: 0, loadedScope: '', loadedSessionEpoch: undefined,
+            feedbackPending: {}, feedbackStatus: '', feedbackRequestSeq: 0, feedbackConfirmed: null,
             feedbackReadbackBlocked: false, feedbackReadbackReason: '',
         }),
         computed: {
@@ -99,7 +99,15 @@
                         !== String(this.selected.candidate_key || ''));
             },
             saving() { return this.savingScope === scopeKey(this.hotelId, this.businessDate); },
-            feedbackSaving() { return this.feedbackSavingScope === scopeKey(this.hotelId, this.businessDate); },
+            priorityScopeKey() { return scopeKey(this.hotelId, this.businessDate); },
+            feedbackPreviewKey() {
+                const material = String(this.personalizedSelected?.material_identity_digest || '');
+                const scope = this.personalizationReceipt?.scope || {};
+                const userId = Number(scope.user_id || 0), tenantId = Number(scope.tenant_id || 0);
+                if (!/^[a-f0-9]{64}$/i.test(material) || !Number.isSafeInteger(userId) || userId <= 0 || !Number.isSafeInteger(tenantId) || tenantId <= 0) return '';
+                return [scopeKey(this.hotelId, this.businessDate), tenantId, userId, material.toLowerCase()].join('|');
+            },
+            feedbackSaving() { return Boolean(this.feedbackPending[this.feedbackPreviewKey]); },
             intent() { return this.overview?.today_execution_intent || null; },
             intentId() { return Number(this.overview?.today_execution_intent_id || this.todayResult?.execution_intent_id || 0); },
             taskId() { return Number(this.overview?.today_execution_task_id || this.todayResult?.execution_task_id || 0); },
@@ -117,6 +125,10 @@
             },
         },
         watch: {
+            priorityScopeKey: { flush: 'sync', handler() {
+                this.priorityRequestSeq += 1;
+                this.savingScope = '';
+            } },
             selectedHotelId: { immediate: true, handler(value) {
                 const candidate = String(value || '');
                 if (candidate && this.normalizedHotels.some(item => String(item.id) === candidate)
@@ -133,9 +145,16 @@
                         ? preferred
                         : (this.normalizedHotels[0]?.id ? String(this.normalizedHotels[0].id) : '');
                 }
-                if (this.hotelId) void this.loadOverview();
+                void this.loadOverview();
             } },
-            businessDate() { if (this.hotelId) void this.loadOverview(); },
+            businessDate() { void this.loadOverview(); },
+        },
+        beforeUnmount() {
+            this.priorityRequestSeq += 1;
+            this.savingScope = '';
+            this.requestSeq += 1;
+            this.feedbackRequestSeq += 1;
+            this.feedbackPending = {};
         },
         methods: {
             notify(message, type = 'success') { this.$root?.showToast?.(message, type); },
@@ -150,21 +169,53 @@
             scoreLabel(key) {
                 return ({ impact: '影响', urgency: '紧迫性', evidence_strength: '证据强度', execution_cost: '执行成本' })[key] || key;
             },
-            async loadOverview() {
+            async loadOverview(options = {}) {
                 const hotelId = Number(this.hotelId || 0);
                 const businessDate = String(this.businessDate || '');
-                if (hotelId <= 0 || !/^\d{4}-\d{2}-\d{2}$/.test(businessDate)) return null;
-                const requestScope = scopeKey(hotelId, businessDate);
                 const seq = ++this.requestSeq;
-                if (this.loadedScope !== requestScope) this.overview = null;
+                const sessionEpoch = this.$root?.assistantSessionEpoch?.();
+                if (!Number.isSafeInteger(hotelId) || hotelId <= 0 || !/^\d{4}-\d{2}-\d{2}$/.test(businessDate)) {
+                    this.overview = null;
+                    this.loadedScope = '';
+                    this.loadedSessionEpoch = undefined;
+                    this.loading = false;
+                    this.feedbackConfirmed = null;
+                    this.feedbackStatus = '';
+                    this.feedbackReadbackBlocked = false;
+                    this.feedbackReadbackReason = '';
+                    this.error = hotelId > 0 ? '请选择营业日后读取事项' : '请选择门店后读取事项';
+                    return null;
+                }
+                const requestScope = scopeKey(hotelId, businessDate);
+                const sameSession = () => sessionEpoch === this.$root?.assistantSessionEpoch?.();
+                const discardPreviousSession = () => {
+                    if (seq !== this.requestSeq || sameSession()) return false;
+                    this.overview = null;
+                    this.loadedScope = '';
+                    this.loadedSessionEpoch = undefined;
+                    this.feedbackConfirmed = null;
+                    this.feedbackStatus = '';
+                    this.feedbackReadbackBlocked = false;
+                    this.feedbackReadbackReason = '';
+                    this.error = '登录状态已变化，请重新读取每日事项';
+                    return true;
+                };
+                if (this.loadedScope !== requestScope || this.loadedSessionEpoch !== sessionEpoch) {
+                    this.overview = null;
+                    this.loadedScope = '';
+                    this.feedbackConfirmed = null;
+                    this.feedbackStatus = '';
+                }
                 this.loading = true;
                 this.error = '';
                 try {
                     const params = new URLSearchParams({ hotel_id: String(hotelId), business_date: businessDate });
                     const res = await this.request(`/operating-opportunities/overview?${params}`, {
                         businessContext: { hotelId },
+                        ...(options.force === true ? { requestPolicy: { force: true } } : {}),
                     });
-                    if (seq !== this.requestSeq || requestScope !== scopeKey(this.hotelId, this.businessDate)) return null;
+                    if (seq !== this.requestSeq || requestScope !== scopeKey(this.hotelId, this.businessDate)
+                        || discardPreviousSession()) return null;
                     if (res.code !== 200) throw new Error(res.message || '每日一件事读取失败');
                     const data = res.data || {};
                     if (Number(data.system_hotel_id || 0) !== hotelId
@@ -183,16 +234,20 @@
                     ) throw new Error('每日一件事个性化预览没有通过服务端范围与边界回读');
                     this.overview = data;
                     this.loadedScope = requestScope;
+                    this.loadedSessionEpoch = sessionEpoch;
                     const currentFeedback = data.personalized_today_preview
                         ?.personalization_receipt?.current_feedback
                         || data.personalization_receipt?.current_feedback
                         || null;
                     const feedbackStatus = String(currentFeedback?.status || '');
                     const feedbackVerified = currentFeedback?.readback_verified === true;
-                    this.feedbackStatus = feedbackStatus === 'recorded' && feedbackVerified
+                    const confirmed = this.feedbackConfirmed;
+                    const keepConfirmed = Boolean(confirmed && confirmed.key === this.feedbackPreviewKey && seq <= confirmed.readSeq);
+                    this.feedbackStatus = keepConfirmed ? confirmed.reasonCode : (feedbackStatus === 'recorded' && feedbackVerified
                         ? String(currentFeedback.reason_code || '')
-                        : '';
-                    this.feedbackReadbackBlocked = Boolean(currentFeedback)
+                        : '');
+                    if (!keepConfirmed) this.feedbackConfirmed = null;
+                    this.feedbackReadbackBlocked = !keepConfirmed && Boolean(currentFeedback)
                         && !(
                             (feedbackStatus === 'recorded' || feedbackStatus === 'not_recorded')
                             && feedbackVerified
@@ -202,9 +257,15 @@
                         : '';
                     return data;
                 } catch (error) {
-                    if (seq !== this.requestSeq) return null;
+                    if (seq !== this.requestSeq || discardPreviousSession()) return null;
+                    if (this.feedbackConfirmed && this.feedbackConfirmed.key === this.feedbackPreviewKey && seq <= this.feedbackConfirmed.readSeq) {
+                        this.error = error?.message || '每日一件事读取失败';
+                        return null;
+                    }
+                    this.feedbackConfirmed = null;
                     this.overview = null;
                     this.loadedScope = '';
+                    this.loadedSessionEpoch = undefined;
                     this.error = error?.message || '每日一件事读取失败';
                     return null;
                 } finally {
@@ -216,9 +277,20 @@
                 const businessDate = String(this.businessDate || '');
                 const mutationScope = scopeKey(hotelId, businessDate);
                 if (!this.canSave) return;
+                const receiptInteger = value => (
+                    (typeof value === 'number' || (typeof value === 'string' && /^\d+$/.test(value.trim())))
+                    && Number.isSafeInteger(Number(value)) && Number(value) >= 0 ? Number(value) : null
+                );
+                const tenantId = receiptInteger(this.overview?.tenant_id);
+                const requestSeq = ++this.priorityRequestSeq;
+                const sessionEpoch = this.$root?.assistantSessionEpoch?.();
+                const isCurrentRequest = () => requestSeq === this.priorityRequestSeq
+                    && mutationScope === scopeKey(this.hotelId, this.businessDate)
+                    && sessionEpoch === this.$root?.assistantSessionEpoch?.();
                 this.savingScope = mutationScope;
                 this.error = '';
                 try {
+                    if (tenantId === null || tenantId <= 0) throw new Error('当前每日事项的归属尚未确认，请刷新事实后再保存');
                     const res = await this.request('/operating-opportunities/priority', {
                         method: 'POST', businessContext: { hotelId }, body: JSON.stringify({
                             hotel_id: hotelId,
@@ -226,38 +298,59 @@
                             idempotency_key: `daily-one-thing-${hotelId}-${businessDate}`,
                         }),
                     });
-                    if (mutationScope !== scopeKey(this.hotelId, this.businessDate)) return null;
+                    if (!isCurrentRequest()) return null;
                     const run = res.data?.run || {};
                     const intent = res.data?.execution_intent || {};
+                    const runId = receiptInteger(run.id), intentId = receiptInteger(intent.id);
+                    const matchesRun = value => value?.record_readback_status === 'readback_verified'
+                        && receiptInteger(value.id) === runId
+                        && receiptInteger(value.tenant_id) === tenantId
+                        && receiptInteger(value.system_hotel_id) === hotelId
+                        && value.business_date === businessDate && value.feature_key === 'daily_one_thing'
+                        && value.input_digest === run.input_digest && value.result_digest === run.result_digest;
+                    const matchesIntent = value => receiptInteger(value?.id) === intentId
+                        && receiptInteger(value?.tenant_id) === tenantId
+                        && receiptInteger(value?.hotel_id) === hotelId
+                        && receiptInteger(value?.source_record_id) === runId
+                        && value?.source_module === 'daily_one_thing'
+                        && value?.action_management?.contract_version === 'operation_action_card.v2';
                     if (res.code !== 200
                         || res.data?.readback_verified !== true
-                        || Number(run.id || 0) <= 0
-                        || Number(run.system_hotel_id || 0) !== hotelId
-                        || String(run.business_date || '') !== businessDate
-                        || run.feature_key !== 'daily_one_thing'
+                        || runId === null || runId <= 0 || intentId === null || intentId <= 0
                         || !/^[a-f0-9]{64}$/i.test(String(run.input_digest || ''))
                         || !/^[a-f0-9]{64}$/i.test(String(run.result_digest || ''))
-                        || Number(intent.id || 0) <= 0
-                        || intent.source_module !== 'daily_one_thing'
-                        || intent.action_management?.contract_version !== 'operation_action_card.v2'
+                        || !matchesRun(run) || !matchesIntent(intent)
                         || res.data?.external_action_triggered !== false
-                        || Number(res.data?.external_write_count ?? -1) !== 0
+                        || receiptInteger(res.data?.external_write_count) !== 0
                     ) throw new Error(res.message || '每日一件事保存后未完成行动与事实精确回读');
-                    const reloaded = await this.loadOverview();
-                    if (!reloaded
-                        || Number(reloaded.today_saved_run?.id || 0) !== Number(run.id)
-                        || Number(reloaded.today_execution_intent_id || 0) !== Number(intent.id)
-                        || reloaded.today_state !== 'saved_current'
-                    ) throw new Error('每日一件事刷新后没有恢复同一行动');
-                    this.notify('每日一件事已保存为待人工审批；未执行任何外部写入');
-                    return intent;
+                    const reloaded = await this.loadOverview({ force: true });
+                    if (!isCurrentRequest()) return null;
+                    if (!reloaded) throw new Error(`每日一件事保存回执已确认，但概览暂未完成回读；${this.error || '请刷新事实读取原行动'}`);
+                    if (reloaded.today_state === 'source_unavailable') {
+                        throw new Error('每日一件事保存回执已确认，但当前严格事实来源暂不可用；请刷新事实后查看原行动');
+                    }
+                    if (receiptInteger(reloaded.tenant_id) !== tenantId
+                        || !matchesRun(reloaded.today_saved_run)
+                        || receiptInteger(reloaded.today_execution_intent_id) !== intentId
+                        || !matchesIntent(reloaded.today_execution_intent)
+                        || !['saved_current', 'saved_stale'].includes(reloaded.today_state)
+                    ) throw new Error('每日一件事保存回执已确认，但刷新结果没有精确对应同一行动；请刷新事实读取原行动');
+                    const lifecycleStatus = String(reloaded.today_lifecycle_status || intent.action_management?.lifecycle?.status || 'pending_approval');
+                    if (reloaded.today_state === 'saved_stale') {
+                        this.notify('每日事项已保存，当前事实已变化，原行动已保留；请查看原任务，未执行任何外部写入');
+                    } else if (res.data?.replayed === true || lifecycleStatus !== 'pending_approval') {
+                        this.notify(`已恢复原每日事项，当前状态：${this.statusText(lifecycleStatus)}；未执行任何外部写入`);
+                    } else {
+                        this.notify('每日一件事已保存为待人工审批；未执行任何外部写入');
+                    }
+                    return reloaded.today_execution_intent;
                 } catch (error) {
-                    if (mutationScope !== scopeKey(this.hotelId, this.businessDate)) return null;
+                    if (!isCurrentRequest()) return null;
                     this.error = error?.message || '每日一件事保存失败';
                     this.notify(this.error, 'error');
                     return null;
                 } finally {
-                    if (this.savingScope === mutationScope) this.savingScope = '';
+                    if (requestSeq === this.priorityRequestSeq) this.savingScope = '';
                 }
             },
             async submitPreviewFeedback(feedbackStatus, reasonCode) {
@@ -265,17 +358,27 @@
                 const businessDate = String(this.businessDate || '');
                 const selected = this.personalizedSelected;
                 const receipt = this.personalizationReceipt;
-                const mutationScope = scopeKey(hotelId, businessDate);
+                const mutationKey = this.feedbackPreviewKey;
+                const candidateKey = String(selected?.candidate_key || '');
+                const materialDigest = String(selected?.material_identity_digest || '');
+                const tenantId = Number(receipt?.scope?.tenant_id || 0), userId = Number(receipt?.scope?.user_id || 0);
+                const positiveId = value => (typeof value === 'number' || (typeof value === 'string' && /^\d+$/.test(value)))
+                    && Number.isSafeInteger(Number(value)) && Number(value) > 0;
                 if (!selected || !receipt || this.feedbackSaving || this.feedbackStatus
                     || this.feedbackReadbackBlocked) return null;
                 const selectionDigest = String(selected.content_digest || '');
                 const contextDigest = String(receipt.context_digest || '');
                 const decisionDigest = String(receipt.decision_digest || '');
-                if (![selectionDigest, contextDigest, decisionDigest].every(value => /^[a-f0-9]{64}$/i.test(value))) {
+                if (!mutationKey || ![selectionDigest, contextDigest, decisionDigest].every(value => /^[a-f0-9]{64}$/i.test(value))) {
                     this.error = '个人预览摘要未完成精确回读，不能保存反馈';
                     return null;
                 }
-                this.feedbackSavingScope = mutationScope;
+                const seq = ++this.feedbackRequestSeq;
+                const sessionEpoch = this.$root?.assistantSessionEpoch?.();
+                const isCurrent = () => this.feedbackPending[mutationKey] === seq
+                    && mutationKey === this.feedbackPreviewKey
+                    && sessionEpoch === this.$root?.assistantSessionEpoch?.();
+                this.feedbackPending[mutationKey] = seq;
                 this.error = '';
                 try {
                     const res = await this.request('/operating-opportunities/daily-preview/feedback', {
@@ -292,8 +395,26 @@
                             idempotency_key: `daily_preview_feedback_${hotelId}_${businessDate.replaceAll('-', '')}_${selectionDigest.slice(0, 24)}`,
                         }),
                     });
-                    if (mutationScope !== scopeKey(this.hotelId, this.businessDate)) return null;
+                    if (!isCurrent()) return null;
+                    const feedback = res.data?.feedback;
+                    const snapshot = res.data?.snapshot;
                     if (res.code !== 200
+                        || res.data?.contract_version !== 'daily_one_thing_personalization_feedback.v1'
+                        || !positiveId(feedback?.id) || feedback?.readback_verified !== true
+                        || !positiveId(feedback?.tenant_id) || Number(feedback.tenant_id) !== tenantId
+                        || !positiveId(feedback?.user_id) || Number(feedback.user_id) !== userId
+                        || !positiveId(feedback?.hotel_id) || Number(feedback.hotel_id) !== hotelId
+                        || feedback?.feedback_status !== feedbackStatus || feedback?.reason_code !== reasonCode
+                        || feedback?.feedback_payload?.business_date !== businessDate
+                        || !positiveId(snapshot?.id) || !positiveId(feedback?.suggestion_id)
+                        || Number(snapshot.id) !== Number(feedback.suggestion_id)
+                        || snapshot?.suggestion_payload?.business_date !== businessDate
+                        || snapshot?.suggestion_payload?.candidate_key !== candidateKey
+                        || snapshot?.suggestion_payload?.candidate_material_digest !== materialDigest
+                        || res.data?.selected_candidate_key !== candidateKey
+                        || res.data?.selection_digest !== selectionDigest
+                        || res.data?.context_digest !== contextDigest
+                        || res.data?.decision_digest !== decisionDigest
                         || res.data?.readback_verified !== true
                         || Number(res.data?.system_hotel_id || 0) !== hotelId
                         || String(res.data?.business_date || '') !== businessDate
@@ -301,16 +422,17 @@
                         || res.data?.execution_intent_created !== false
                         || Number(res.data?.external_write_count ?? -1) !== 0
                     ) throw new Error(res.message || '个人预览反馈未完成精确回读');
+                    this.feedbackConfirmed = { key: mutationKey, reasonCode, readSeq: this.requestSeq };
                     this.feedbackStatus = reasonCode;
                     this.notify('反馈已保存；只用于你的个人预览学习，不改写酒店正式事项');
                     return res.data;
                 } catch (error) {
-                    if (mutationScope !== scopeKey(this.hotelId, this.businessDate)) return null;
+                    if (!isCurrent()) return null;
                     this.error = error?.message || '个人预览反馈保存失败';
                     this.notify(this.error, 'error');
                     return null;
                 } finally {
-                    if (this.feedbackSavingScope === mutationScope) this.feedbackSavingScope = '';
+                    if (this.feedbackPending[mutationKey] === seq) delete this.feedbackPending[mutationKey];
                 }
             },
             openOriginalAction() {

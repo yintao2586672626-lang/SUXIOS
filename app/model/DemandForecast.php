@@ -365,7 +365,8 @@ class DemandForecast extends BaseTenantModel
         
         $forecasts = self::where('hotel_id', $hotelId)
             ->whereBetween('forecast_date', [$startDate, $endDate])
-            ->where('actual_occupancy', '>', 0)
+            ->whereBetween('actual_occupancy', [0, 100])
+            ->whereBetween('predicted_occupancy', [0, 100])
             ->field([
                 'AVG(ABS(predicted_occupancy - actual_occupancy)) as avg_error',
                 'COUNT(*) as total_count',

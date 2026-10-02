@@ -12,6 +12,8 @@ final class CtripTrafficDisplayService
         }
 
         $daily = [];
+        $coverage = [];
+        $strictRateGaps = [];
         foreach ($rows as $row) {
             $normalized = self::normalizeAppTrafficRow(is_array($row) ? $row : []);
             if ($normalized === null) {
@@ -26,6 +28,14 @@ final class CtripTrafficDisplayService
                 ];
             }
             $daily[$date][$normalized['compare_type']] = $normalized['metrics'];
+            $coverage[$date][$normalized['compare_type']] = $normalized['observed'];
+            if (!empty($normalized['strict_snapshot'])) {
+                foreach (['exposure_rate', 'order_rate', 'deal_rate'] as $metric) {
+                    if (!$normalized['observed'][$metric]) {
+                        $strictRateGaps[] = $date . ':' . $normalized['compare_type'] . ':' . $metric;
+                    }
+                }
+            }
         }
 
         if (empty($daily)) {
@@ -33,6 +43,33 @@ final class CtripTrafficDisplayService
         }
 
         ksort($daily);
+        $dataGaps = $strictRateGaps;
+        foreach ($daily as $date => $item) {
+            foreach (['self', 'competitor'] as $role) {
+                if (!isset($coverage[$date][$role])) {
+                    $dataGaps[] = "{$date}:{$role}";
+                    continue;
+                }
+                foreach (['exposure', 'detail_visitors', 'order_visitors', 'submit_users'] as $metric) {
+                    if (($coverage[$date][$role][$metric] ?? false) !== true) {
+                        $dataGaps[] = "{$date}:{$role}:{$metric}";
+                    }
+                }
+            }
+        }
+        if ($dataGaps !== []) {
+            return [
+                'status' => 'partial',
+                'data_gaps' => $dataGaps,
+                'summary' => null,
+                'rows' => [],
+                'diagnosis' => $strictRateGaps !== []
+                    ? '本店或竞争圈的同日流量转化率不可计算，暂不生成衍生分析和运营建议。'
+                    : '本店或竞争圈的同日流量指标缺失，暂不生成衍生分析和运营建议。',
+                'main_problem_stage' => '证据不足',
+                'recommendations' => [],
+            ];
+        }
         $summaryBase = [
             'date' => '',
             'self' => self::emptyAppTrafficMetrics(),
@@ -53,6 +90,8 @@ final class CtripTrafficDisplayService
         }
 
         return [
+            'status' => 'ready',
+            'data_gaps' => [],
             'summary' => $summary,
             'rows' => $derivedRows,
             'diagnosis' => $summary['diagnosis'],
@@ -75,20 +114,23 @@ final class CtripTrafficDisplayService
             }
 
             $metrics = $normalized['metrics'];
+            $observed = $normalized['observed'];
             $hotelId = self::readTrafficNumber($row, ['hotelId', 'hotel_id', 'HotelId', 'hotelID', 'nodeId', 'node_id'], null);
             $compareType = $normalized['compare_type'] === 'self' ? 'self' : 'competitor_avg';
-            $displayRows[] = [
+            $displayRow = [
                 'date' => $normalized['date'],
                 'hotelId' => $hotelId !== null ? (int)$hotelId : ($compareType === 'competitor_avg' ? -1 : null),
                 'compareType' => $compareType,
-                'listExposure' => (float)$metrics['exposure'],
-                'detailExposure' => (float)$metrics['detail_visitors'],
-                'flowRate' => (float)$metrics['exposure_rate'],
-                'orderFillingNum' => (float)$metrics['order_visitors'],
-                'orderSubmitNum' => (float)$metrics['submit_users'],
-                'orderFillRate' => (float)$metrics['order_rate'],
-                'submitRate' => (float)$metrics['deal_rate'],
+                'listExposure' => $observed['exposure'] ? (float)$metrics['exposure'] : null,
+                'detailExposure' => $observed['detail_visitors'] ? (float)$metrics['detail_visitors'] : null,
+                'flowRate' => $observed['exposure_rate'] ? (float)$metrics['exposure_rate'] : null,
+                'orderFillingNum' => $observed['order_visitors'] ? (float)$metrics['order_visitors'] : null,
+                'orderSubmitNum' => $observed['submit_users'] ? (float)$metrics['submit_users'] : null,
+                'orderFillRate' => $observed['order_rate'] ? (float)$metrics['order_rate'] : null,
+                'submitRate' => $observed['deal_rate'] ? (float)$metrics['deal_rate'] : null,
             ];
+            if (!empty($normalized['strict_snapshot'])) $displayRow['request_source'] = 'flow_overview';
+            $displayRows[] = $displayRow;
         }
 
         usort($displayRows, function (array $left, array $right): int {
@@ -108,22 +150,56 @@ final class CtripTrafficDisplayService
     public static function buildCtripTrafficDisplaySummary(array $rows): array
     {
         $summary = self::emptyCtripTrafficDisplaySummary();
+        $coverage = [];
+        $roleRows = [];
+        $roleRowCounts = [];
+        $strictRoles = [];
         foreach ($rows as $row) {
             if (!is_array($row)) {
                 continue;
             }
             $targetKey = ($row['compareType'] ?? '') === 'self' ? 'self' : 'avg';
-            $summary[$targetKey]['listExposure'] += (float)($row['listExposure'] ?? 0);
-            $summary[$targetKey]['detailExposure'] += (float)($row['detailExposure'] ?? 0);
-            $summary[$targetKey]['orderFillingNum'] += (float)($row['orderFillingNum'] ?? 0);
-            $summary[$targetKey]['orderSubmitNum'] += (float)($row['orderSubmitNum'] ?? 0);
+            if (($row['request_source'] ?? '') === 'flow_overview') $strictRoles[$targetKey] = true;
+            $roleRows[$targetKey] = $row;
+            $roleRowCounts[$targetKey] = ($roleRowCounts[$targetKey] ?? 0) + 1;
+            foreach (['listExposure', 'detailExposure', 'orderFillingNum', 'orderSubmitNum'] as $key) {
+                if (!isset($row[$key]) || !is_numeric($row[$key])) {
+                    $coverage[$targetKey][$key] = false;
+                    continue;
+                }
+                $coverage[$targetKey][$key] ??= true;
+                $summary[$targetKey][$key] += (float)$row[$key];
+            }
         }
 
         foreach (['self', 'avg'] as $targetKey) {
+            foreach (['listExposure', 'detailExposure', 'orderFillingNum', 'orderSubmitNum'] as $key) {
+                if (($coverage[$targetKey][$key] ?? null) === false) {
+                    $summary[$targetKey][$key] = null;
+                }
+            }
             $item = $summary[$targetKey];
-            $summary[$targetKey]['flowRate'] = self::trafficRate($item['detailExposure'], $item['listExposure']);
-            $summary[$targetKey]['orderFillRate'] = self::trafficRate($item['orderFillingNum'], $item['detailExposure']);
-            $summary[$targetKey]['submitRate'] = self::trafficRate($item['orderSubmitNum'], $item['orderFillingNum']);
+            $singleRow = ($roleRowCounts[$targetKey] ?? 0) === 1 ? $roleRows[$targetKey] : null;
+            $summary[$targetKey]['flowRate'] = $singleRow !== null && is_numeric($singleRow['flowRate'] ?? null)
+                ? (float)$singleRow['flowRate']
+                : ($item['detailExposure'] !== null && $item['listExposure'] !== null
+                    ? self::trafficRate($item['detailExposure'], $item['listExposure']) : null);
+            $summary[$targetKey]['orderFillRate'] = $singleRow !== null && is_numeric($singleRow['orderFillRate'] ?? null)
+                ? (float)$singleRow['orderFillRate']
+                : ($item['orderFillingNum'] !== null && $item['detailExposure'] !== null
+                    ? self::trafficRate($item['orderFillingNum'], $item['detailExposure']) : null);
+            $summary[$targetKey]['submitRate'] = $singleRow !== null && is_numeric($singleRow['submitRate'] ?? null)
+                ? (float)$singleRow['submitRate']
+                : ($item['orderSubmitNum'] !== null && $item['orderFillingNum'] !== null
+                    ? self::trafficRate($item['orderSubmitNum'], $item['orderFillingNum']) : null);
+            if (!empty($strictRoles[$targetKey])) {
+                foreach (['flowRate' => ['detailExposure', 'listExposure'],
+                    'orderFillRate' => ['orderFillingNum', 'detailExposure'],
+                    'submitRate' => ['orderSubmitNum', 'orderFillingNum']] as $rate => [$numerator, $denominator]) {
+                    $summary[$targetKey][$rate] = $item[$numerator] !== null && $item[$denominator] !== null && $item[$denominator] > 0
+                        ? self::trafficRate($item[$numerator], $item[$denominator]) : null;
+                }
+            }
         }
 
         return $summary;
@@ -140,29 +216,26 @@ final class CtripTrafficDisplayService
     public static function emptyCtripTrafficDisplayMetrics(): array
     {
         return [
-            'listExposure' => 0.0,
-            'detailExposure' => 0.0,
-            'flowRate' => 0.0,
-            'orderFillingNum' => 0.0,
-            'orderFillRate' => 0.0,
-            'orderSubmitNum' => 0.0,
-            'submitRate' => 0.0,
+            'listExposure' => null,
+            'detailExposure' => null,
+            'flowRate' => null,
+            'orderFillingNum' => null,
+            'orderFillRate' => null,
+            'orderSubmitNum' => null,
+            'submitRate' => null,
         ];
     }
 
     public static function emptyAppTrafficDerivedAnalysis(): array
     {
-        $base = self::calculateAppTrafficDerivedMetrics([
-            'date' => '',
-            'self' => self::emptyAppTrafficMetrics(),
-            'competitor' => self::emptyAppTrafficMetrics(),
-        ]);
         return [
-            'summary' => $base,
+            'status' => 'missing',
+            'data_gaps' => ['traffic_rows'],
+            'summary' => null,
             'rows' => [],
-            'diagnosis' => $base['diagnosis'],
-            'main_problem_stage' => $base['main_problem_stage'],
-            'recommendations' => $base['recommendations'],
+            'diagnosis' => '未返回可分析的携程 APP 流量记录。',
+            'main_problem_stage' => '证据不足',
+            'recommendations' => [],
         ];
     }
 
@@ -197,28 +270,57 @@ final class CtripTrafficDisplayService
         $compareType = in_array($compareType, ['self', 'my'], true) ? 'self' : 'competitor';
         $prefix = $compareType === 'self' ? 'self' : 'competitor';
 
-        $exposure = self::readTrafficNumber($row, ['listExposure', 'list_exposure', "{$prefix}_exposure", 'exposure', 'exposureCount', 'impressions', 'showCount', 'PV', 'pv', 'pageView', 'pageViews', 'page_view', 'data_value']);
-        $detailVisitors = self::readTrafficNumber($row, ['detailExposure', 'detail_exposure', "{$prefix}_detail_visitors", 'detail_visitors', 'detailVisitors', 'detailUv', 'visitorCount', 'UV', 'uv', 'uniqueVisitors', 'unique_visitors', 'views']);
-        $orderVisitors = self::readTrafficNumber($row, ['orderFillingNum', 'order_filling_num', "{$prefix}_order_visitors", 'order_visitors', 'orderVisitors', 'clickCount', 'click_count', 'clickNum', 'clicks']);
-        $submitUsers = self::readTrafficNumber($row, ['orderSubmitNum', 'order_submit_num', "{$prefix}_submit_users", 'submit_users', 'submitUsers', 'submitNum', 'orderCount', 'order_count', 'orderNum', 'bookOrderNum', 'dealNum', 'orders']);
+        $sourceExposure = self::readTrafficNumber($row, ['listExposure', 'list_exposure', "{$prefix}_exposure", 'exposure', 'exposureCount', 'impressions', 'showCount', 'PV', 'pv', 'pageView', 'pageViews', 'page_view', 'data_value'], null);
+        $sourceDetailVisitors = self::readTrafficNumber($row, ['detailExposure', 'detail_exposure', "{$prefix}_detail_visitors", 'detail_visitors', 'detailVisitors', 'detailUv', 'visitorCount', 'UV', 'uv', 'uniqueVisitors', 'unique_visitors', 'views'], null);
+        $sourceOrderVisitors = self::readTrafficNumber($row, ['orderFillingNum', 'order_filling_num', "{$prefix}_order_visitors", 'order_visitors', 'orderVisitors', 'clickCount', 'click_count', 'clickNum', 'clicks'], null);
+        $sourceSubmitUsers = self::readTrafficNumber($row, ['orderSubmitNum', 'order_submit_num', "{$prefix}_submit_users", 'submit_users', 'submitUsers', 'submitNum', 'orderCount', 'order_count', 'orderNum', 'bookOrderNum', 'dealNum', 'orders'], null);
+        $exposure = $sourceExposure ?? 0.0;
+        $detailVisitors = $sourceDetailVisitors ?? 0.0;
+        $orderVisitors = $sourceOrderVisitors ?? 0.0;
+        $submitUsers = $sourceSubmitUsers ?? 0.0;
 
-        $exposureRate = self::normalizeTrafficPercent(self::readTrafficNumber($row, ['flowRate', 'flow_rate', "{$prefix}_exposure_rate", 'exposure_rate', 'conversionRate', 'conversion_rate', 'convertionRate', 'convertRate', 'transforRate', 'transferRate', 'transRate', 'cvr'], null));
-        $orderRate = self::normalizeTrafficPercent(self::readTrafficNumber($row, ['orderFillRate', 'order_rate', "{$prefix}_order_rate", 'orderConversionRate'], null));
-        $dealRate = self::normalizeTrafficPercent(self::readTrafficNumber($row, ['submitRate', 'deal_rate', "{$prefix}_deal_rate", 'submitConversionRate', 'dealRate'], null));
+        $sourceExposureRate = self::readTrafficNumber($row, ['flowRate', 'flow_rate', "{$prefix}_exposure_rate", 'exposure_rate', 'conversionRate', 'conversion_rate', 'convertionRate', 'convertRate', 'transforRate', 'transferRate', 'transRate', 'cvr'], null);
+        $sourceOrderRate = self::readTrafficNumber($row, ['orderFillRate', 'order_rate', "{$prefix}_order_rate", 'orderConversionRate'], null);
+        $sourceDealRate = self::readTrafficNumber($row, ['submitRate', 'deal_rate', "{$prefix}_deal_rate", 'submitConversionRate', 'dealRate'], null);
+        $exposureRate = self::normalizeTrafficPercent($sourceExposureRate);
+        $orderRate = self::normalizeTrafficPercent($sourceOrderRate);
+        $dealRate = self::normalizeTrafficPercent($sourceDealRate);
 
-        return [
+        $normalized = [
             'date' => date('Y-m-d', strtotime((string)$date)),
             'compare_type' => $compareType,
+            'observed' => [
+                'exposure' => $sourceExposure !== null,
+                'detail_visitors' => $sourceDetailVisitors !== null,
+                'order_visitors' => $sourceOrderVisitors !== null,
+                'submit_users' => $sourceSubmitUsers !== null,
+                'exposure_rate' => $sourceExposureRate !== null || ($sourceExposure !== null && $sourceDetailVisitors !== null),
+                'order_rate' => $sourceOrderRate !== null || ($sourceDetailVisitors !== null && $sourceOrderVisitors !== null),
+                'deal_rate' => $sourceDealRate !== null || ($sourceOrderVisitors !== null && $sourceSubmitUsers !== null),
+            ],
             'metrics' => [
                 'exposure' => $exposure,
                 'detail_visitors' => $detailVisitors,
                 'order_visitors' => $orderVisitors,
                 'submit_users' => $submitUsers,
-                'exposure_rate' => $exposureRate > 0 ? $exposureRate : self::trafficRate($detailVisitors, $exposure),
-                'order_rate' => $orderRate > 0 ? $orderRate : self::trafficRate($orderVisitors, $detailVisitors),
-                'deal_rate' => $dealRate > 0 ? $dealRate : self::trafficRate($submitUsers, $orderVisitors),
+                'exposure_rate' => $sourceExposureRate !== null ? $exposureRate : self::trafficRate($detailVisitors, $exposure),
+                'order_rate' => $sourceOrderRate !== null ? $orderRate : self::trafficRate($orderVisitors, $detailVisitors),
+                'deal_rate' => $sourceDealRate !== null ? $dealRate : self::trafficRate($submitUsers, $orderVisitors),
             ],
         ];
+        $raw = $row['raw_data'] ?? [];
+        if (is_string($raw)) $raw = json_decode($raw, true) ?: [];
+        if (($row['request_source'] ?? (is_array($raw) ? ($raw['request_source'] ?? '') : '')) === 'flow_overview') {
+            $normalized['strict_snapshot'] = true;
+            foreach (['exposure_rate' => [$sourceDetailVisitors, $sourceExposure],
+                'order_rate' => [$sourceOrderVisitors, $sourceDetailVisitors],
+                'deal_rate' => [$sourceSubmitUsers, $sourceOrderVisitors]] as $rate => [$numerator, $denominator]) {
+                $available = $numerator !== null && $denominator !== null && $denominator > 0;
+                $normalized['observed'][$rate] = $available;
+                $normalized['metrics'][$rate] = $available ? self::trafficRate($numerator, $denominator) : null;
+            }
+        }
+        return $normalized;
     }
 
     public static function calculateAppTrafficDerivedMetrics(array $base): array

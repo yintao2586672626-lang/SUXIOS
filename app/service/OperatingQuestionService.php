@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace app\service;
 
+use app\service\concern\OperatingQuestionFactPacketConcern;
 use Closure;
 use InvalidArgumentException;
 use RuntimeException;
@@ -16,6 +17,8 @@ use think\facade\Db;
  */
 final class OperatingQuestionService
 {
+    use OperatingQuestionFactPacketConcern;
+
     public const TABLE = 'hotel_operating_questions';
     public const MODEL_RESPONSE_REGISTRY_TABLE = 'hotel_operating_question_model_responses';
     public const CONTRACT_VERSION = 'hotel_operating_question.v2';
@@ -290,6 +293,10 @@ final class OperatingQuestionService
                 : $factPlatform === $platform;
             })
         ));
+        $this->assertFactPacket($facts, [
+            'tenant_id' => $tenantId, 'hotel_id' => $hotelId,
+            'platform' => $platform, 'date_start' => $dateStart, 'date_end' => $dateEnd,
+        ], false);
         $diagnoses = [];
         $diagnosisRejectionCodes = [];
         foreach ($evidence['diagnoses'] as $diagnosis) {
@@ -551,6 +558,9 @@ final class OperatingQuestionService
                 )), static fn(string $ref): bool => isset($allowedFactRefs[$ref])));
             }
         }
+        // Failed sources may explain a deterministic blocked result, but must
+        // never reach model-assisted tools or become a successful fact answer.
+        $this->assertFactPacket($facts, $answer['scope'], !$this->isBlockedFactExplanation($answer));
         // The idempotency identity is resolved before model-assisted tool
         // planning. A retry of the same scoped question must not rerun tools.
         if ($deterministicRequestKey !== '' && ($this->deterministicAnswerFinalizer === null
@@ -607,9 +617,11 @@ final class OperatingQuestionService
             $question,
             $modelKey,
             $mediaEvidenceIds,
-            $factCount > 0
-                && (string)($answer['status'] ?? '') !== 'blocked_by_missing_facts'
-                && (string)($answer['mode'] ?? '') !== 'deterministic_precise_query'
+            // Knowledge and memory are mandatory; explicitly selected media is
+            // mandatory too. A model plan cannot change this tool set, so do not
+            // spend another inference call selecting it. Answer generation below
+            // still uses the caller's selected model and verified evidence.
+            false
         );
         $evidencePlane = is_array($toolCalling['evidence_plane'] ?? null)
             ? $toolCalling['evidence_plane']
@@ -1865,6 +1877,9 @@ final class OperatingQuestionService
             ->where('history_status', 'success')
             ->where('readback_verified', 1)
             ->where('validation_status', 'verified');
+        // Ctrip storage also carries its Qunar sub-channel. Other conflicting
+        // identities cannot enter either channel's answer or report evidence.
+        $query->whereRaw("(`platform` IS NULL OR TRIM(`platform`) = '' OR `source` IS NULL OR TRIM(`source`) = '' OR LOWER(TRIM(`platform`)) = LOWER(TRIM(`source`)) OR (LOWER(TRIM(`source`)) = 'ctrip' AND LOWER(TRIM(`platform`)) = 'qunar'))");
         if ($platform === 'all_ota') {
             $query->whereRaw(
                 "LOWER(COALESCE(NULLIF(`platform`, ''), `source`, '')) IN ('ctrip','meituan')"
@@ -2490,7 +2505,7 @@ final class OperatingQuestionService
         }
         $remaining = preg_replace('/(?<!\\d)\\d{4}(?:[-\\/.．]\\d{1,2}[-\\/.．]\\d{1,2}|年\\d{1,2}月\\d{1,2}[日号]|\\d{4})(?!\\d)/u', ' ', $remaining) ?? $remaining;
         $remaining = str_replace([
-            '请问', '帮我', '帮忙', '查一下', '查询', '看看', '看下', '告诉我',
+            '请问', '帮我', '帮忙', '查一下', '查询', '看看', '看下', '告诉我', '分析',
             '是多少', '有多少', '多少', '怎么样', '如何', '情况', '数据', '指标',
             '今天', '今日', '当天', '指定业务日', '业务日',
             '分别', '各自', '还有', '以及', '并且', '和', '与', '及', '的', '是',
@@ -3837,6 +3852,11 @@ final class OperatingQuestionService
         ) {
             throw new RuntimeException('operating_question_readback_digest_drift: 经营问题按ID回读内容摘要校验失败');
         }
+        $this->assertFactPacket(
+            (array)($answer['fact_samples'] ?? []),
+            $scope,
+            !$this->isBlockedFactExplanation($answer)
+        );
         $row['readback_verified'] = true;
         $row['persistence_status'] = 'readback_verified';
         $row['analysis_quality_receipt'] = (new HotelDataAnalystQualityReceiptService())->evaluate($row);

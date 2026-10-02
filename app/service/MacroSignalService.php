@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace app\service;
 
+use app\model\DailyReport as DailyReportModel;
 use InvalidArgumentException;
 use think\facade\Db;
 use Throwable;
@@ -486,6 +487,7 @@ class MacroSignalService
                 'online_revenue' => 0.0,
                 'daily_room_nights' => 0.0,
                 'online_room_nights' => 0.0,
+                'hotel_sources' => [],
                 'orders' => 0.0,
                 'salable_rooms' => 0.0,
                 'occupancy_sum' => 0.0,
@@ -510,6 +512,9 @@ class MacroSignalService
         }
 
         foreach ($dailyRows as $row) {
+            if (!$this->isSubmittedOrLegacyDailyRow($row)) {
+                continue;
+            }
             $date = (string)($row['report_date'] ?? '');
             if (!isset($rows[$date])) {
                 continue;
@@ -525,8 +530,19 @@ class MacroSignalService
             $adr = $this->firstPositiveNumber($data, ['day_adr', 'adr', 'ADR', 'avg_room_price', 'day_avg_price']);
             $revpar = $this->firstPositiveNumber($data, ['day_revpar', 'revpar', 'RevPAR']);
 
-            $rows[$date]['daily_revenue'] += $revenue;
-            $rows[$date]['daily_room_nights'] += $roomNights;
+            $rows[$date]['daily_revenue'] += $revenue ?? 0.0;
+            $rows[$date]['daily_room_nights'] += $roomNights ?? 0.0;
+            $hotelKey = (string)($row['hotel_id'] ?? 0);
+            $source = &$rows[$date]['hotel_sources'][$hotelKey];
+            $source ??= ['daily_revenue' => 0.0, 'daily_rooms' => 0.0,
+                'daily_revenue_known' => false, 'daily_rooms_known' => false,
+                'online_revenue' => 0.0, 'online_rooms' => 0.0,
+                'online_revenue_known' => false, 'online_rooms_known' => false];
+            $source['daily_revenue'] += $revenue ?? 0.0;
+            $source['daily_rooms'] += $roomNights ?? 0.0;
+            $source['daily_revenue_known'] = $source['daily_revenue_known'] || $revenue !== null;
+            $source['daily_rooms_known'] = $source['daily_rooms_known'] || $roomNights !== null;
+            unset($source);
             $rows[$date]['salable_rooms'] += $salableRooms;
             if ($occupancy !== null) {
                 $rows[$date]['occupancy_sum'] += $occupancy <= 1 ? $occupancy * 100 : $occupancy;
@@ -551,8 +567,15 @@ class MacroSignalService
             if (!$this->isOwnOperatingOnlineRow($row, $raw)) {
                 continue;
             }
-            $amount = $this->toPositiveFloat($row['amount'] ?? null) ?? 0.0;
-            $quantity = $this->toPositiveFloat($row['quantity'] ?? null) ?? 0.0;
+            $amount = $this->toFloat($row['amount'] ?? null);
+            $quantity = $this->toFloat($row['quantity'] ?? null);
+            $dataType = strtolower(trim((string)($row['data_type'] ?? $raw['data_type'] ?? '')));
+            $salesRow = OtaOperatingScope::isCoreBusinessDataType($dataType)
+                || ($dataType === '' && !preg_match('/曝光|点击|浏览|访客|转化|exposure|click|visitor|traffic|conversion|(?:^|:)uv$/i', (string)($row['dimension'] ?? '')));
+            $amountKnown = $amount !== null && is_finite($amount) && $amount >= 0 && ($amount > 0 || $salesRow);
+            $quantityKnown = $quantity !== null && is_finite($quantity) && $quantity >= 0 && ($quantity > 0 || $salesRow);
+            $amount = $amountKnown ? $amount : 0.0;
+            $quantity = $quantityKnown ? $quantity : 0.0;
             $orders = $this->toPositiveFloat($row['book_order_num'] ?? null)
                 ?? $this->firstPositiveNumber($raw, ['bookOrderNum', 'orderCount', 'orders', 'order_submit_num'])
                 ?? 0.0;
@@ -561,6 +584,17 @@ class MacroSignalService
 
             $rows[$date]['online_revenue'] += $amount;
             $rows[$date]['online_room_nights'] += $quantity;
+            $hotelKey = (string)($row['system_hotel_id'] ?? 0);
+            $source = &$rows[$date]['hotel_sources'][$hotelKey];
+            $source ??= ['daily_revenue' => 0.0, 'daily_rooms' => 0.0,
+                'daily_revenue_known' => false, 'daily_rooms_known' => false,
+                'online_revenue' => 0.0, 'online_rooms' => 0.0,
+                'online_revenue_known' => false, 'online_rooms_known' => false];
+            $source['online_revenue'] += $amount;
+            $source['online_rooms'] += $quantity;
+            $source['online_revenue_known'] = $source['online_revenue_known'] || $amountKnown;
+            $source['online_rooms_known'] = $source['online_rooms_known'] || $quantityKnown;
+            unset($source);
             $rows[$date]['orders'] += $orders;
             $rows[$date]['exposure'] += $this->firstPositiveNumber($raw, ['exposure', 'exposureNum', 'showCount', 'impression', 'displayNum']) ?? 0.0;
             $rows[$date]['clicks'] += $this->firstPositiveNumber($raw, ['clicks', 'clickNum', 'detailClickNum']) ?? 0.0;
@@ -586,17 +620,25 @@ class MacroSignalService
         }
 
         foreach ($rows as &$row) {
-            $revenue = $row['daily_revenue'] > 0 ? $row['daily_revenue'] : $row['online_revenue'];
-            $roomNights = $row['daily_room_nights'] > 0 ? $row['daily_room_nights'] : $row['online_room_nights'];
-            $row['revenue'] = $revenue > 0 ? round($revenue, 2) : null;
-            $row['room_nights'] = $roomNights > 0 ? round($roomNights, 2) : null;
-            $row['occupancy'] = $row['salable_rooms'] > 0 && $roomNights > 0
+            $revenue = null;
+            $roomNights = null;
+            foreach ($row['hotel_sources'] as $source) {
+                $hotelRevenue = $source['daily_revenue_known'] ? $source['daily_revenue']
+                    : ($source['online_revenue_known'] ? $source['online_revenue'] : null);
+                $hotelRooms = $source['daily_rooms_known'] ? $source['daily_rooms']
+                    : ($source['online_rooms_known'] ? $source['online_rooms'] : null);
+                if ($hotelRevenue !== null) $revenue = ($revenue ?? 0.0) + $hotelRevenue;
+                if ($hotelRooms !== null) $roomNights = ($roomNights ?? 0.0) + $hotelRooms;
+            }
+            $row['revenue'] = $revenue !== null ? round($revenue, 2) : null;
+            $row['room_nights'] = $roomNights !== null ? round($roomNights, 2) : null;
+            $row['occupancy'] = $row['salable_rooms'] > 0 && $roomNights !== null
                 ? round(min(100, $roomNights / $row['salable_rooms'] * 100), 2)
                 : ($row['occupancy_count'] > 0 ? round($row['occupancy_sum'] / $row['occupancy_count'], 2) : null);
-            $row['adr'] = $roomNights > 0 && $revenue > 0
+            $row['adr'] = $roomNights !== null && $roomNights > 0 && $revenue !== null
                 ? round($revenue / $roomNights, 2)
                 : ($row['adr_count'] > 0 ? round($row['adr_sum'] / $row['adr_count'], 2) : null);
-            $row['revpar'] = $row['salable_rooms'] > 0 && $revenue > 0
+            $row['revpar'] = $row['salable_rooms'] > 0 && $revenue !== null
                 ? round($revenue / $row['salable_rooms'], 2)
                 : ($row['revpar_count'] > 0 ? round($row['revpar_sum'] / $row['revpar_count'], 2) : null);
 
@@ -626,58 +668,114 @@ class MacroSignalService
         return OtaOperatingScope::isOwnOperatingRow($row, $raw);
     }
 
-    private function dailyReportRevenue(array $row, array $data): float
+    private function dailyReportRevenue(array $row, array $data): ?float
     {
-        $revenue = $this->toPositiveFloat($row['revenue'] ?? null)
-            ?? $this->firstPositiveNumber($data, ['day_total_revenue', 'total_revenue', 'room_revenue', 'day_room_revenue']);
-        if ($revenue !== null) {
-            return $revenue;
+        $reportedTotal = $this->firstNumber($data, ['revenue', 'day_revenue', 'day_total_revenue', 'total_revenue']);
+        if ($reportedTotal !== null && $reportedTotal >= 0) {
+            return $reportedTotal;
         }
-
-        return $this->sumReportFields($data, [
-            'xb_revenue', 'mt_revenue', 'fliggy_revenue', 'dy_revenue', 'tc_revenue', 'qn_revenue', 'zx_revenue',
-            'booking_revenue', 'agoda_revenue', 'expedia_revenue',
-            'walkin_revenue', 'member_exp_revenue', 'web_exp_revenue', 'group_revenue', 'protocol_revenue', 'wechat_revenue',
-            'free_revenue', 'gold_card_revenue', 'black_gold_revenue', 'hourly_revenue',
-            'parking_revenue', 'dining_revenue', 'meeting_revenue', 'goods_revenue', 'member_card_revenue', 'other_revenue',
-        ]);
+        $legacyTotal = $this->toFloat($row['revenue'] ?? null);
+        if ($legacyTotal !== null && $legacyTotal >= 0) {
+            return $legacyTotal;
+        }
+        $roomRevenue = $this->firstNumber($data, ['room_revenue', 'day_room_revenue']);
+        if ($roomRevenue === null) {
+            $onlineRevenue = $this->firstNumber($data, ['online_revenue'])
+                ?? $this->sumKnownReportFields($data, ['xb_revenue', 'mt_revenue', 'fliggy_revenue', 'dy_revenue', 'tc_revenue', 'qn_revenue', 'zx_revenue', 'booking_revenue', 'agoda_revenue', 'expedia_revenue']);
+            $offlineRevenue = $this->firstNumber($data, ['offline_revenue'])
+                ?? $this->sumKnownReportFields($data, ['walkin_revenue', 'member_exp_revenue', 'web_exp_revenue', 'group_revenue', 'protocol_revenue', 'wechat_revenue', 'free_revenue', 'gold_card_revenue', 'black_gold_revenue', 'hourly_revenue']);
+            if ($onlineRevenue !== null && $offlineRevenue !== null) {
+                $roomRevenue = $onlineRevenue + $offlineRevenue;
+            }
+        }
+        $otherRevenue = $this->firstNumber($data, ['other_revenue_total'])
+            ?? $this->sumKnownReportFields($data, ['parking_revenue', 'dining_revenue', 'meeting_revenue', 'goods_revenue', 'member_card_revenue', 'other_revenue']);
+        return $roomRevenue !== null && $roomRevenue >= 0 && $otherRevenue !== null && $otherRevenue >= 0
+            ? $roomRevenue + $otherRevenue
+            : null;
     }
 
-    private function dailyReportRoomNights(array $data): float
-    {
-        $rooms = $this->firstPositiveNumber($data, ['day_total_rooms', 'total_rooms', 'room_nights']);
-        if ($rooms !== null) {
-            return $rooms;
-        }
-
-        return $this->sumReportFields($data, [
-            'xb_rooms', 'mt_rooms', 'fliggy_rooms', 'dy_rooms', 'tc_rooms', 'qn_rooms', 'zx_rooms',
-            'booking_rooms', 'agoda_rooms', 'expedia_rooms',
-            'walkin_rooms', 'member_exp_rooms', 'web_exp_rooms', 'group_rooms', 'protocol_rooms', 'wechat_rooms',
-            'free_rooms', 'gold_card_rooms', 'black_gold_rooms', 'hourly_rooms',
-        ]);
-    }
-
-    private function sumReportFields(array $data, array $fields): float
+    private function sumKnownReportFields(array $data, array $fields): ?float
     {
         $total = 0.0;
         foreach ($fields as $field) {
-            $total += $this->toPositiveFloat($data[$field] ?? null) ?? 0.0;
+            $value = $this->toFloat($data[$field] ?? null);
+            if ($value === null || $value < 0) {
+                return null;
+            }
+            $total += $value;
         }
-
         return $total;
+    }
+
+    private function dailyReportRoomNights(array $data): ?float
+    {
+        $rooms = $this->firstNumber($data, ['total_rooms', 'day_total_rooms', 'room_nights']);
+        if ($rooms !== null && $rooms >= 0) {
+            return $rooms;
+        }
+        $onlineRooms = $this->firstNumber($data, ['online_rooms'])
+            ?? $this->sumKnownReportFields($data, ['xb_rooms', 'mt_rooms', 'fliggy_rooms', 'dy_rooms', 'tc_rooms', 'qn_rooms', 'zx_rooms', 'booking_rooms', 'agoda_rooms', 'expedia_rooms']);
+        $offlineRooms = $this->firstNumber($data, ['offline_rooms'])
+            ?? $this->sumKnownReportFields($data, ['walkin_rooms', 'member_exp_rooms', 'web_exp_rooms', 'group_rooms', 'protocol_rooms', 'wechat_rooms', 'free_rooms', 'gold_card_rooms', 'black_gold_rooms', 'hourly_rooms']);
+        return $onlineRooms !== null && $onlineRooms >= 0 && $offlineRooms !== null && $offlineRooms >= 0
+            ? $onlineRooms + $offlineRooms
+            : null;
     }
 
     private function buildRevenueTrendCard(array $rows, string $rangeLabel): array
     {
-        $values = $this->positiveNumericValues(array_column($rows, 'revenue'));
+        $values = array_values(array_map('floatval', array_filter(
+            array_column($rows, 'revenue'),
+            static fn ($value): bool => is_numeric($value) && (float)$value >= 0
+        )));
         if (count($values) < 2) {
             return $this->trendPendingCard('revenue', '收益趋势', '等待线上数据或经营日报同步后生成收益趋势');
         }
 
-        $trend = $this->compareSeries($values);
+        $half = max(1, intdiv(count($rows), 2));
+        $hasRecordedRevenue = static fn (array $row): bool => is_numeric($row['revenue'] ?? null)
+            && (float)$row['revenue'] >= 0;
+        if (!array_filter(array_slice($rows, 0, $half), $hasRecordedRevenue)
+            || !array_filter(array_slice($rows, $half), $hasRecordedRevenue)) {
+            return [
+                'key' => 'revenue', 'status' => 'available', 'name' => '收益趋势',
+                'value' => $this->formatMoneyShort(array_sum($values)),
+                'direction' => '不可比', 'level' => 'gray',
+                'note' => "{$rangeLabel}仅汇总已记录日期，前后段缺少可比样本",
+                'source' => '来源：逐店优先经营日报；缺日报门店仅取 OTA 渠道成交额',
+                'spark' => $this->sparkline($values), 'change_rate' => null,
+                'impact' => '补齐缺失日期的数据后再判断营收变化。',
+            ];
+        }
+
+        if (in_array(0.0, $values, true)) {
+            return [
+                'key' => 'revenue', 'status' => 'available', 'name' => '收益趋势',
+                'value' => $this->formatMoneyShort(array_sum($values)),
+                'direction' => '含零收入日', 'level' => 'gray',
+                'note' => "{$rangeLabel}含已记录零收入，变化率不可比",
+                'source' => '来源：逐店优先经营日报；缺日报门店仅取 OTA 渠道成交额',
+                'spark' => $this->sparkline($values), 'change_rate' => null,
+                'impact' => '已记录零收入日，需核对营业状态和数据来源。',
+            ];
+        }
+
+        $previousRows = array_slice($rows, 0, $half);
+        $currentRows = array_slice($rows, $half);
+        $previousValues = $this->positiveNumericValues(array_column($previousRows, 'revenue'));
+        $currentValues = $this->positiveNumericValues(array_column($currentRows, 'revenue'));
+        $trend = $this->compareNumericSegments($previousValues, $currentValues);
         $total = array_sum($values);
         $direction = $this->trendDirectionText($trend);
+        $note = "{$rangeLabel}营收{$direction}，较前段" . $this->formatChangeRate($trend['change_rate']);
+        $previousObservedDays = count(array_filter($previousRows, $hasRecordedRevenue));
+        $currentObservedDays = count(array_filter($currentRows, $hasRecordedRevenue));
+        if ($previousObservedDays < count($previousRows) || $currentObservedDays < count($currentRows)) {
+            $note = "{$rangeLabel}已记录日均营收{$direction}，较前段" . $this->formatChangeRate($trend['change_rate'])
+                . "；收益数据覆盖：前段{$previousObservedDays}/" . count($previousRows)
+                . '日、后段' . $currentObservedDays . '/' . count($currentRows) . '日';
+        }
         return $this->withTrendImpact([
             'key' => 'revenue',
             'status' => 'available',
@@ -685,8 +783,8 @@ class MacroSignalService
             'value' => $this->formatMoneyShort($total),
             'direction' => $direction,
             'level' => $trend['level'],
-            'note' => "{$rangeLabel}营收{$direction}，较前段" . $this->formatChangeRate($trend['change_rate']),
-            'source' => '来源：经营日报收入；无日报时取 OTA 成交额',
+            'note' => $note,
+            'source' => '来源：逐店优先经营日报；缺日报门店仅取 OTA 渠道成交额',
             'spark' => $this->sparkline($values),
             'change_rate' => $trend['change_rate'],
         ]);
@@ -702,12 +800,47 @@ class MacroSignalService
         }
 
         $trend = $this->compareSeries($orderValues);
+        $previousRows = [];
+        $currentRows = [];
+        $previousPositiveOrderDays = 0;
+        $currentPositiveOrderDays = 0;
+        if ($orderValues !== []) {
+            $half = max(1, intdiv(count($rows), 2));
+            $previousRows = array_slice($rows, 0, $half);
+            $currentRows = array_slice($rows, $half);
+            $hasOrderSample = static fn (array $row): bool => is_numeric($row['orders'] ?? null)
+                && (float)$row['orders'] > 0;
+            $previousPositiveOrderDays = count(array_filter($previousRows, $hasOrderSample));
+            $currentPositiveOrderDays = count(array_filter($currentRows, $hasOrderSample));
+            if ($previousPositiveOrderDays === 0 || $currentPositiveOrderDays === 0) {
+                return [
+                    'key' => 'demand', 'status' => 'available', 'name' => '市场需求',
+                    'value' => (int)round(array_sum($orderValues)) . '单',
+                    'direction' => '不可比', 'level' => 'gray',
+                    'note' => "{$rangeLabel}仅汇总已记录订单，前后段缺少可比样本",
+                    'source' => '来源：OTA 订单数；无订单时取需求预测',
+                    'spark' => $this->sparkline($orderValues), 'change_rate' => null,
+                    'impact' => '补齐缺失日期的订单依据后再判断需求变化。',
+                ];
+            }
+            $trend = $this->compareNumericSegments(
+                $this->positiveNumericValues(array_column($previousRows, 'orders')),
+                $this->positiveNumericValues(array_column($currentRows, 'orders'))
+            );
+        }
+
         $orders = array_sum($orderValues);
         $direction = $this->trendDirectionText($trend);
         $value = $orders > 0 ? (int)round($orders) . '单' : $forecastDemand . '间夜';
         $note = $orders > 0
             ? "{$rangeLabel}订单{$direction}，较前段" . $this->formatChangeRate($trend['change_rate'])
             : '已读取未来需求预测，等待订单样本校准';
+        if ($orderValues !== []
+            && ($previousPositiveOrderDays < count($previousRows) || $currentPositiveOrderDays < count($currentRows))) {
+            $note = "{$rangeLabel}已记录正订单日均值{$direction}，较前段" . $this->formatChangeRate($trend['change_rate'])
+                . "；正订单日覆盖：前段{$previousPositiveOrderDays}/" . count($previousRows)
+                . '日、后段' . $currentPositiveOrderDays . '/' . count($currentRows) . '日';
+        }
 
         return $this->withTrendImpact([
             'key' => 'demand',
@@ -735,10 +868,34 @@ class MacroSignalService
         }
 
         $priceBand = $this->priceBandFromSamples($values, $competitorAvg);
-        $trend = $this->compareSeries($values);
+        $half = max(1, intdiv(count($rows), 2));
+        $previousRows = array_slice($rows, 0, $half);
+        $currentRows = array_slice($rows, $half);
+        $previousAdrValues = $this->positiveNumericValues(array_column($previousRows, 'adr'));
+        $currentAdrValues = $this->positiveNumericValues(array_column($currentRows, 'adr'));
+        $previousAdrDays = count($previousAdrValues);
+        $currentAdrDays = count($currentAdrValues);
+        $hasComparableWindows = $previousAdrDays > 0 && $currentAdrDays > 0;
+        $hasPartialAdrCoverage = $previousAdrDays < count($previousRows)
+            || $currentAdrDays < count($currentRows);
+        $coverageNote = $hasPartialAdrCoverage
+            ? "；ADR记录日覆盖：前段{$previousAdrDays}/" . count($previousRows)
+                . '日、后段' . $currentAdrDays . '/' . count($currentRows) . '日'
+            : '';
+        $trend = $hasComparableWindows
+            ? $this->compareNumericSegments($previousAdrValues, $currentAdrValues)
+            : ['change_rate' => null, 'direction' => 'pending', 'level' => 'gray'];
         $direction = $this->trendDirectionText($trend);
         $level = $trend['level'];
-        $note = "{$rangeLabel}ADR{$direction}，较前段" . $this->formatChangeRate($trend['change_rate']);
+        $note = $hasComparableWindows
+            ? "{$rangeLabel}ADR{$direction}，较前段" . $this->formatChangeRate($trend['change_rate'])
+            : "{$rangeLabel}仅汇总已记录ADR，前后段缺少可比样本";
+        if ($hasPartialAdrCoverage && $hasComparableWindows) {
+            $note = "{$rangeLabel}按已记录ADR日均值{$direction}，较前段"
+                . $this->formatChangeRate($trend['change_rate']) . $coverageNote;
+        } elseif ($hasPartialAdrCoverage) {
+            $note .= $coverageNote;
+        }
         $badge = $priceBand['label'];
 
         if ($competitorAvg > 0) {
@@ -754,7 +911,8 @@ class MacroSignalService
                 $badge = '接近竞对';
                 $level = 'green';
             }
-            $note = '本店ADR较竞对均价' . ($gap >= 0 ? '高' : '低') . '¥' . abs((int)round($gap)) . '，价格区间已纳入竞对均价校准';
+            $note = '本店ADR较竞对均价' . ($gap >= 0 ? '高' : '低') . '¥' . abs((int)round($gap)) . '，价格区间已纳入竞对均价校准'
+                . $coverageNote;
         }
 
         $card = $this->withTrendImpact([
@@ -774,9 +932,14 @@ class MacroSignalService
             'price_sample_count' => $priceBand['sample_count'],
         ]);
 
+        if (!$hasComparableWindows && $competitorAvg <= 0) {
+            $card['impact'] = '前后段缺少可比 ADR 样本，暂不判断价格趋势。';
+        }
+
         if (($competitorSummary['comparison_status'] ?? '') === 'reference_only') {
             $card['source'] = '来源：经营日报/OTA 推算 ADR；不完整竞对原始价仅作参考，未参与价差比较';
-            $card['note'] = "{$rangeLabel}ADR{$direction}，竞对原始价因可比字段或验证回读不完整未参与比较";
+            $card['note'] = "{$rangeLabel}ADR{$direction}，竞对原始价因可比字段或验证回读不完整未参与比较"
+                . $coverageNote;
         }
 
         return $this->appendCompetitorPriceEvidence($card, $competitorSummary);
@@ -792,9 +955,27 @@ class MacroSignalService
             return $this->trendPendingCard('channel', '渠道表现', '等待 OTA 曝光、访客、转化和订单数据同步');
         }
 
-        $trend = $this->compareSeries($avgConversion > 0 ? $conversionValues : array_map(static fn (array $row): ?float => $row['orders'] > 0 ? (float)$row['orders'] : null, $rows));
-        $direction = $this->trendDirectionText($trend);
+        $half = max(1, intdiv(count($rows), 2));
+        $previousRows = array_slice($rows, 0, $half);
+        $currentRows = array_slice($rows, $half);
+        $trendField = $avgConversion > 0 ? 'channel_conversion' : 'orders';
+        $previousTrendValues = $this->positiveNumericValues(array_column($previousRows, $trendField));
+        $currentTrendValues = $this->positiveNumericValues(array_column($currentRows, $trendField));
+        $previousTrendDays = count($previousTrendValues);
+        $currentTrendDays = count($currentTrendValues);
+        $hasComparableWindows = $previousTrendDays > 0 && $currentTrendDays > 0;
+        $trend = $hasComparableWindows
+            ? $this->compareNumericSegments($previousTrendValues, $currentTrendValues)
+            : ['change_rate' => null, 'direction' => 'pending', 'level' => 'gray'];
+        $direction = $hasComparableWindows ? $this->trendDirectionText($trend) : '不可比';
         $level = $trend['level'];
+        $hasPartialTrendCoverage = $previousTrendDays < count($previousRows)
+            || $currentTrendDays < count($currentRows);
+        $trendCoverageNote = $hasPartialTrendCoverage
+            ? "；" . ($avgConversion > 0 ? '转化率记录日覆盖' : '正订单日覆盖')
+                . "：前段{$previousTrendDays}/" . count($previousRows)
+                . '日、后段' . $currentTrendDays . '/' . count($currentRows) . '日'
+            : '';
         if ($avgConversion > 0) {
             $value = round($avgConversion, 1) . '%';
         } elseif ($orders > 0) {
@@ -804,27 +985,44 @@ class MacroSignalService
             $direction = '曝光已同步';
             $level = 'blue';
         }
-        if ($avgConversion > 0 && $avgConversion < 3) {
+        if ($hasComparableWindows && $avgConversion > 0 && $avgConversion < 3) {
             $level = 'yellow';
             $direction = '转化偏低';
         }
 
-        return $this->withTrendImpact([
+        $card = $this->withTrendImpact([
             'key' => 'channel',
             'status' => 'available',
             'name' => '渠道表现',
             'value' => $value,
             'direction' => $direction,
             'level' => $level,
-            'note' => $avgConversion > 0
+            'note' => !$hasComparableWindows && ($avgConversion > 0 || $orders > 0)
+                ? "{$rangeLabel}仅汇总已记录渠道样本，前后段缺少可比样本"
+                : ($avgConversion > 0
                 ? "{$rangeLabel}OTA平均转化率{$value}，持续跟踪曝光到订单效率"
                 : ($orders > 0
                     ? "{$rangeLabel}OTA订单{$direction}，较前段" . $this->formatChangeRate($trend['change_rate'])
-                    : "{$rangeLabel}OTA曝光已同步，等待访客、转化和订单样本"),
+                    : "{$rangeLabel}OTA曝光已同步，等待访客、转化和订单样本")),
             'source' => '来源：OTA 曝光、访客、转化和订单数据',
             'spark' => $this->sparkline($avgConversion > 0 ? $conversionValues : array_column($rows, 'orders')),
             'change_rate' => $trend['change_rate'],
         ]);
+        if (!$hasComparableWindows && ($avgConversion > 0 || $orders > 0)) {
+            $card['impact'] = '前后段缺少可比渠道样本，暂不判断转化或订单变化。';
+        }
+        if ($trendCoverageNote !== '' && $avgConversion > 0) {
+            $card['note'] = $hasComparableWindows
+                ? "{$rangeLabel}按已记录转化率日均值较前段"
+                    . $this->formatChangeRate($trend['change_rate']) . "；OTA平均转化率{$value}{$trendCoverageNote}"
+                : "{$rangeLabel}OTA平均转化率{$value}，前后段缺少可比样本（转化率）{$trendCoverageNote}";
+        } elseif ($trendCoverageNote !== '' && $orders > 0) {
+            $card['note'] = $hasComparableWindows
+                ? "{$rangeLabel}按已记录正订单日均值{$direction}，较前段"
+                    . $this->formatChangeRate($trend['change_rate']) . $trendCoverageNote
+                : $card['note'] . $trendCoverageNote;
+        }
+        return $card;
     }
 
     private function buildTrendInterpretation(array $cards, int $sampleDays, string $rangeLabel): array
@@ -950,8 +1148,19 @@ class MacroSignalService
         }
 
         $half = max(1, intdiv(count($values), 2));
-        $previous = $this->avgNumeric(array_slice($values, 0, $half));
-        $current = $this->avgNumeric(array_slice($values, -$half));
+        return $this->compareNumericSegments(array_slice($values, 0, $half), array_slice($values, -$half));
+    }
+
+    private function compareNumericSegments(array $previousValues, array $currentValues): array
+    {
+        $previousValues = array_values(array_filter($previousValues, static fn ($value): bool => is_numeric($value) && (float)$value > 0));
+        $currentValues = array_values(array_filter($currentValues, static fn ($value): bool => is_numeric($value) && (float)$value > 0));
+        if ($previousValues === [] || $currentValues === []) {
+            return ['change_rate' => null, 'direction' => 'pending', 'level' => 'gray'];
+        }
+
+        $previous = $this->avgNumeric($previousValues);
+        $current = $this->avgNumeric($currentValues);
         if ($previous <= 0) {
             return ['change_rate' => null, 'direction' => 'stable', 'level' => 'green'];
         }
@@ -1168,13 +1377,19 @@ class MacroSignalService
     {
         $start = date('Y-m-d', strtotime('-' . max(1, $days - 1) . ' days'));
 
-        return $this->safeRows(fn () => $this->withHotelIds(
+        $rows = $this->safeRows(fn () => $this->withHotelIds(
             Db::name('daily_reports')
-                ->field('hotel_id,report_date,report_data,occupancy_rate,room_count,revenue')
+                ->field('hotel_id,report_date,status,report_data,occupancy_rate,room_count,revenue')
                 ->where('report_date', '>=', $start),
             'hotel_id',
             $hotelIds
         )->order('report_date', 'desc')->select()->toArray(), 'daily_reports');
+        return array_values(array_filter($rows, fn (array $row): bool => $this->isSubmittedOrLegacyDailyRow($row)));
+    }
+
+    private function isSubmittedOrLegacyDailyRow(array $row): bool
+    {
+        return !isset($row['status']) || (int)$row['status'] === DailyReportModel::STATUS_SUBMITTED;
     }
 
     private function readOnlineRows(array $hotelIds, int $days): array
@@ -1223,7 +1438,7 @@ class MacroSignalService
     {
         return $this->safeRows(fn () => $this->withHotelIds(
             Db::name('daily_reports')
-                ->field('hotel_id,report_date,report_data,occupancy_rate,room_count,revenue')
+                ->field('hotel_id,report_date,status,report_data,occupancy_rate,room_count,revenue')
                 ->whereBetween('report_date', [$startDate, $endDate]),
             'hotel_id',
             $hotelIds
@@ -1403,6 +1618,9 @@ class MacroSignalService
 
         $samples = [];
         foreach ($daily as $row) {
+            if (!$this->isSubmittedOrLegacyDailyRow($row)) {
+                continue;
+            }
             $data = $this->decodeJson($row['report_data'] ?? null);
             $adr = $this->firstNumber($data, ['adr', 'ADR', 'avg_room_price', 'day_adr']);
             if ($adr !== null && $adr > 0) {
@@ -1417,6 +1635,9 @@ class MacroSignalService
     {
         $samples = [];
         foreach ($daily as $row) {
+            if (!$this->isSubmittedOrLegacyDailyRow($row)) {
+                continue;
+            }
             $data = $this->decodeJson($row['report_data'] ?? null);
             $value = $this->toFloat($row['occupancy_rate'] ?? null)
                 ?? $this->firstNumber($data, ['occupancy_rate', 'occ', 'day_occ_rate']);

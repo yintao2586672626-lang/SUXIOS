@@ -37,6 +37,15 @@ final class KnowledgeOwnerScopeTest extends TestCase
         ]]));
     }
 
+    public function testPrivateStableKeyDoesNotTurnAnotherCreatorsSourceIntoSharedFormalKnowledge(): void
+    {
+        $controller = $this->controllerWithUser(7, false, [11]);
+        self::assertFalse($this->invokeNonPublic($controller, 'canAccessOwnedRow', [[
+            'created_by' => 8, 'hotel_id' => 11, 'source' => 'reference_sop', 'status' => 'done', 'stable_key' => 'reference:11:8:synthetic']]));
+        self::assertFalse($this->invokeNonPublic($controller, 'canAccessOwnedRow', [[
+            'created_by' => 8, 'hotel_id' => 11, 'source' => 'formal_operating_sop', 'status' => 'pending']]));
+    }
+
     public function testKnowledgeScopeAllowsEverythingForSuperAdmin(): void
     {
         $controller = $this->controllerWithUser(7, true);

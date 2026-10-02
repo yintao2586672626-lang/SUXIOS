@@ -44,7 +44,7 @@ trait OperationWorkbenchConcern
 
         try {
             $targetDate = $this->resolveDailyWorkbenchPatrolTargetDate(
-                $this->request->get('target_date', date('Y-m-d', strtotime('-1 day')))
+                $this->request->get('target_date', (new \DateTimeImmutable('yesterday', new \DateTimeZone('Asia/Shanghai')))->format('Y-m-d'))
             );
             $hotels = $this->loadDashboardHotels(null);
             $hotelIds = array_values(array_filter(array_map(
@@ -93,14 +93,17 @@ trait OperationWorkbenchConcern
                 true
             );
             $this->requireOperationHotelCapability($hotelId, 'operation.view');
-            $targetDate = $this->resolveDailyWorkbenchPatrolTargetDate(
-                $this->request->get('target_date', $this->request->get('end_date', date('Y-m-d')))
-            );
+            $requestedDate = $this->request->get('target_date', $this->request->get('end_date'));
+            $targetDate = $this->resolveDailyWorkbenchPatrolTargetDate($requestedDate ?? date('Y-m-d'));
+            $dateView = trim((string)$requestedDate) !== '' ? $service->readForHotelDate($hotelId, $targetDate) : [
+                'latest' => $service->latestForHotel($hotelId),
+                'health' => $service->healthForHotel($hotelId, $targetDate),
+            ];
 
             return $this->success([
-                'latest' => $service->latestForHotel($hotelId),
+                'latest' => $dateView['latest'],
                 'list' => $service->listForHotel($hotelId, $limit),
-                'health' => $service->healthForHotel($hotelId, $targetDate),
+                'health' => $dateView['health'],
                 'scope' => [
                     'metric_scope' => 'ota_channel',
                     'hotel_id' => $hotelId,
@@ -110,6 +113,8 @@ trait OperationWorkbenchConcern
                     'raw_data_exposed' => false,
                 ],
             ]);
+        } catch (\InvalidArgumentException $e) {
+            return $this->error($e->getMessage());
         } catch (HttpException $e) {
             return $this->error($e->getMessage(), $this->safeHttpCode($e->getCode()));
         } catch (\Throwable $e) {
@@ -248,10 +253,10 @@ trait OperationWorkbenchConcern
                 throw new \RuntimeException('Daily workbench patrol snapshot not found.');
             }
 
-            $actionContext = $this->dailyWorkbenchPatrolActionContext($sourceSnapshot, $data);
+            $data = $this->dailyWorkbenchPatrolActionInput($sourceSnapshot, $data);
             $operationSync = (new OperationManagementService())->syncDailyWorkbenchPatrolAction(
                 [$hotelId],
-                array_merge($actionContext, $data),
+                $data,
                 $userId
             );
             $data['operation_execution'] = $operationSync;
@@ -554,6 +559,11 @@ trait OperationWorkbenchConcern
         ]);
     }
 
+    private function dailyWorkbenchPatrolActionInput(array $snapshot, array $data): array
+    {
+        return array_merge($data, $this->dailyWorkbenchPatrolActionContext($snapshot, $data));
+    }
+
     private function dailyWorkbenchPatrolActionContext(array $snapshot, array $data): array
     {
         $hotelId = isset($data['hotel_id']) && is_numeric($data['hotel_id']) ? (int)$data['hotel_id'] : 0;
@@ -569,8 +579,8 @@ trait OperationWorkbenchConcern
             $candidateActionCode = trim((string)($action['action_code'] ?? ''));
             $candidateQuestionKey = trim((string)($action['question_key'] ?? ''));
 
-            return ($actionCode !== '' && $candidateActionCode === $actionCode)
-                || ($questionKey !== '' && $candidateQuestionKey === $questionKey);
+            return ($actionCode === '' || $candidateActionCode === $actionCode)
+                && ($questionKey === '' || $candidateQuestionKey === $questionKey);
         };
         $buildContext = static function (array $action, array $row = []) use ($targetDate, $actionCode, $questionKey): array {
             $dataGaps = [];
@@ -998,7 +1008,9 @@ trait OperationWorkbenchConcern
         if ($targetDate === '') {
             $targetDate = date('Y-m-d');
         }
-        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $targetDate) || strtotime($targetDate) === false) {
+        if (!preg_match('/^(\d{4})-(\d{2})-(\d{2})$/', $targetDate, $parts)
+            || !checkdate((int)$parts[2], (int)$parts[3], (int)$parts[1])
+        ) {
             throw new \InvalidArgumentException('Daily workbench patrol target_date must use YYYY-MM-DD.');
         }
 

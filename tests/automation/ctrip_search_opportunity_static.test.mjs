@@ -360,7 +360,7 @@ test('one-click traffic action hydrates every traffic view without a second hist
   assert.match(hotelChangeFlow, /ctripTrafficSummary\.value = ctripTrafficAnalysis\.value = ctripTrafficHistoryResult\.value = ctripRealtimeTrafficRecord\.value = null;/);
   assert.match(trafficTab, /data-testid="ctrip-traffic-history-quality"/);
   assert.match(html, /title: '历史流量部分可用'/);
-  assert.match(html, /目标日期 \$\{targetDataDate\} 尚未返回/);
+  assert.match(html, /最新仅到 \$\{latestDataDate \|\| '未知'\}，目标 \$\{targetDataDate\} 未返回/);
   assert.match(html, /不会沿用历史值冒充今日数据/);
 });
 

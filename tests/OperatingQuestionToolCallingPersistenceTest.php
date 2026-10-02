@@ -139,6 +139,8 @@ final class OperatingQuestionToolCallingPersistenceTest extends TestCase
         self::assertSame($first['question']['id'], $second['question']['id']);
         self::assertSame($first['question']['content_digest'], $readback['content_digest']);
         self::assertSame($answer, $readback['answer']);
+        self::assertSame('deterministic_policy', $answer['tool_calling']['selection_mode']);
+        self::assertFalse($answer['tool_calling']['planner_meta']['llm_client_invoked']);
         self::assertSame(3, count($answer['tool_calling']['tool_call_receipts']));
         self::assertSame(1, $answer['evidence_counts']['local_media']);
         self::assertSame(['local_media_extractions#31'], $answer['media_evidence_refs']);

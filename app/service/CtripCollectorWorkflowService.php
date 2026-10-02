@@ -124,7 +124,7 @@ final class CtripCollectorWorkflowService
         $options['data_period'] = $definition['data_period'];
         if (in_array($flow, ['realtime', 'intraday_trend', 'future_demand'], true)
             && $this->firstValue($options, [], ['data_date', 'dataDate']) === null) {
-            $options['data_date'] = date('Y-m-d');
+            $options['data_date'] = (new \DateTimeImmutable('now', new \DateTimeZone('Asia/Shanghai')))->format('Y-m-d');
         }
 
         return $options;

@@ -766,11 +766,10 @@ class InvestmentDecisionSupportService
 
     private function readExpansionRecords(int $userId, bool $isSuperAdmin): array
     {
-        if (!$this->tableExists('expansion_records')) {
-            return $this->tableGap('expansion_records');
-        }
-
         try {
+            if (!$this->tableExists('expansion_records')) {
+                return $this->tableGap('expansion_records');
+            }
             $query = Db::name('expansion_records')->whereNull('deleted_at');
             if (!$isSuperAdmin) {
                 $query->where('created_by', $userId > 0 ? $userId : -1);
@@ -788,11 +787,10 @@ class InvestmentDecisionSupportService
 
     private function readTransferRecords(array $hotelIds, ?int $hotelId): array
     {
-        if (!$this->tableExists('transfer_records')) {
-            return $this->tableGap('transfer_records');
-        }
-
         try {
+            if (!$this->tableExists('transfer_records')) {
+                return $this->tableGap('transfer_records');
+            }
             $query = Db::name('transfer_records')->whereNull('deleted_at');
             $this->applyHotelScope($query, $hotelIds, $hotelId, 'hotel_id');
             $rows = $query->order('id', 'desc')->limit(30)->select()->toArray();
@@ -808,11 +806,10 @@ class InvestmentDecisionSupportService
 
     private function readFeasibilityRecords(int $userId, bool $isSuperAdmin): array
     {
-        if (!$this->tableExists('feasibility_reports')) {
-            return $this->tableGap('feasibility_reports');
-        }
-
         try {
+            if (!$this->tableExists('feasibility_reports')) {
+                return $this->tableGap('feasibility_reports');
+            }
             $query = Db::name('feasibility_reports')->whereNull('deleted_at');
             if (!$isSuperAdmin) {
                 $query->where('created_by', $userId > 0 ? $userId : -1);
@@ -861,13 +858,12 @@ class InvestmentDecisionSupportService
             ],
         ] as $source) {
             $table = $source['table'];
-            if (!$this->tableExists($table)) {
-                $tableStatuses[$table] = 'missing_table';
-                $gaps[] = ['code' => $table . '_missing', 'message' => $table . ' table missing.'];
-                continue;
-            }
-
             try {
+                if (!$this->tableExists($table)) {
+                    $tableStatuses[$table] = 'missing_table';
+                    $gaps[] = ['code' => $table . '_missing', 'message' => $table . ' table missing.'];
+                    continue;
+                }
                 $columns = $this->tableColumns($table);
                 $query = Db::name($table);
                 $this->applyHotelScope($query, $hotelIds, $hotelId, (string)$source['field']);
@@ -1090,7 +1086,7 @@ class InvestmentDecisionSupportService
             if ($field === '' || !isset($columns[$field])) {
                 continue;
             }
-            $value = trim((string)((clone $query)->max($field) ?: ''));
+            $value = trim((string)((clone $query)->max($field, false) ?: ''));
             if ($value !== '') {
                 return $value;
             }
@@ -1272,8 +1268,22 @@ class InvestmentDecisionSupportService
             Db::query('SELECT 1 FROM `' . str_replace('`', '', $table) . '` LIMIT 1');
             return true;
         } catch (Throwable $e) {
-            return false;
+            if ($this->isMissingTableException($e, $table)) return false;
+            throw $e;
         }
+    }
+
+    private function isMissingTableException(Throwable $exception, string $table): bool
+    {
+        $tablePattern = preg_quote(strtolower(str_replace('`', '', $table)), '/');
+        do {
+            $message = strtolower($exception->getMessage());
+            if (preg_match('/(?:table|relation)\s+[\'`"](?:[a-z0-9_]+\.)?' . $tablePattern . '[\'`"]\s+(?:doesn.t|does not)\s+exist/i', $message) === 1
+                || preg_match('/no such table:\s*(?:[a-z0-9_]+\.)?[`"\[]?' . $tablePattern . '[`"\]]?(?:\s|$)/i', $message) === 1
+            ) return true;
+            $exception = $exception->getPrevious();
+        } while ($exception instanceof Throwable);
+        return false;
     }
 
     /** @return array<string, bool> */

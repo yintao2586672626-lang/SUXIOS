@@ -35,14 +35,14 @@
                             <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3 mb-4">
                                 <div>
                                     <div class="font-medium text-gray-900">项目进度展示</div>
-                                    <div class="text-xs text-gray-500 mt-1">按每个检查项保存的进度百分比计算</div>
+                                    <div class="text-xs text-gray-500 mt-1">{{ openingTaskProgressCards[0]?.hint ?? '进度尚未加载' }}</div>
                                 </div>
                                 <div class="text-right">
-                                    <div class="text-2xl font-bold text-blue-600">{{ openingTaskStats.averageProgress }}%</div>
+                                    <div class="text-2xl font-bold text-blue-600">{{ openingTaskProgressCards[0]?.value ?? '—' }}</div>
                                     <div class="text-xs text-gray-500">任务进度均值</div>
                                 </div>
                             </div>
-                            <div class="h-3 bg-gray-100 rounded-full overflow-hidden">
+                            <div v-if="openingTaskStats.averageProgress !== null" class="h-3 bg-gray-100 rounded-full overflow-hidden">
                                 <div class="h-full rounded-full bg-blue-600" :style="{ width: openingTaskStats.averageProgress + '%' }"></div>
                             </div>
                             <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mt-4">
@@ -96,7 +96,7 @@
                                             <div class="flex items-start justify-between gap-3">
                                                 <div class="min-w-0">
                                                     <div class="text-sm font-medium text-gray-900 truncate">{{ task.task_name }}</div>
-                                                    <div class="text-xs text-gray-500 mt-1">{{ task.category }} · {{ task.owner_name || '未分配负责人' }} · {{ task.progress }}%</div>
+                                                    <div class="text-xs text-gray-500 mt-1">{{ task.category }} · {{ task.owner_name || '未分配负责人' }} · {{ task.progress === null ? '进度未填报' : task.progress + '%' }}</div>
                                                 </div>
                                                 <div :class="task.className" class="text-xs font-semibold flex-shrink-0">{{ task.reason }}</div>
                                             </div>
@@ -226,14 +226,15 @@
                                             </td>
                                             <td class="px-4 py-4 min-w-[190px]">
                                                 <div class="flex items-center justify-between text-xs mb-2">
-                                                    <span :class="openingTaskProgressTextClass(task)" class="font-semibold">{{ openingTaskProgressPercent(task) }}%</span>
+                                                    <span :class="openingTaskProgressTextClass(task)" class="font-semibold">{{ openingTaskProgressPercent(task) === null ? '未填报' : openingTaskProgressPercent(task) + '%' }}</span>
                                                     <span class="text-gray-500">{{ openingTaskProgressStage(task) }}</span>
                                                 </div>
-                                                <input v-model.number="task.progress_percent" @input="handleOpeningTaskProgressInput(task)" type="range" min="0" max="100" step="5" class="w-full">
+                                                <input v-if="openingTaskProgressPercent(task) !== null" v-model.number="task.progress_percent" @input="handleOpeningTaskProgressInput(task)" type="range" min="0" max="100" step="5" class="w-full">
+                                                <div v-else class="text-xs text-gray-500">选择百分比后可保存</div>
                                                 <div class="flex flex-wrap gap-1 mt-2">
                                                     <button v-for="value in openingProgressQuickValues" :key="value" @click.stop="setOpeningTaskProgress(task, value)" :class="openingTaskProgressPercent(task) === value ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'" class="px-2 py-1 rounded border text-xs">{{ value }}%</button>
                                                 </div>
-                                                <button @click.stop="saveOpeningTaskProgress(task)" class="mt-2 w-full px-2 py-1.5 rounded-lg bg-blue-600 text-white text-xs hover:bg-blue-700">
+                                                <button @click.stop="saveOpeningTaskProgress(task)" :disabled="openingTaskProgressPercent(task) === null" class="mt-2 w-full px-2 py-1.5 rounded-lg bg-blue-600 text-white text-xs hover:bg-blue-700 disabled:opacity-50">
                                                     <i class="fas fa-save mr-1"></i>保存进度
                                                 </button>
                                             </td>

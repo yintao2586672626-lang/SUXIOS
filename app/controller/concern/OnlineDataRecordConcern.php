@@ -22,7 +22,11 @@ trait OnlineDataRecordConcern
         }
 
         // 查询数据
-        $data = Db::name('online_daily_data')->where('id', $id)->find();
+        $query = Db::name('online_daily_data')->where('id', $id);
+        if (!$this->currentUser->isSuperAdmin()) {
+            $this->applyOnlineDailyDataTenantBinding($query);
+        }
+        $data = $query->find();
         if (!$data) {
             return $this->error('数据不存在');
         }
@@ -121,7 +125,11 @@ trait OnlineDataRecordConcern
         }
 
         // 查询数据
-        $data = Db::name('online_daily_data')->where('id', $id)->find();
+        $query = Db::name('online_daily_data')->where('id', $id);
+        if (!$this->currentUser->isSuperAdmin()) {
+            $this->applyOnlineDailyDataTenantBinding($query);
+        }
+        $data = $query->find();
         if (!$data) {
             return $this->error('数据不存在');
         }
@@ -214,6 +222,7 @@ trait OnlineDataRecordConcern
             } else {
                 $query->whereIn('system_hotel_id', $permittedHotelIds);
             }
+            $this->applyCorrectionLedgerTenantBinding($query);
         }
         $total = (int)(clone $query)->count();
         $rows = $query
@@ -222,12 +231,66 @@ trait OnlineDataRecordConcern
             ->page($page, $pageSize)
             ->select()
             ->toArray();
+        $restorableRows = array_values(array_filter($rows, static fn(array $row): bool =>
+            (string)($row['operation'] ?? '') === 'delete'
+            && (int)($row['restorable'] ?? 0) === 1
+            && trim((string)($row['restored_at'] ?? '')) === ''
+        ));
+        $snapshots = [];
+        if ($restorableRows !== []) {
+            foreach (Db::name('online_data_correction_ledger')
+                ->field('id,before_json')
+                ->whereIn('id', array_column($restorableRows, 'id'))
+                ->select()->toArray() as $ledger) {
+                $snapshots[(int)$ledger['id']] = (string)($ledger['before_json'] ?? '');
+            }
+        }
+        $dataFields = Db::name('online_daily_data')->getTableFields();
+        $hotelFields = Db::name('hotels')->getTableFields();
+        $modernTenantBinding = (in_array('tenant_id', $dataFields, true) || array_key_exists('tenant_id', $dataFields))
+            && (in_array('system_hotel_id', $dataFields, true) || array_key_exists('system_hotel_id', $dataFields))
+            && (in_array('tenant_id', $hotelFields, true) || array_key_exists('tenant_id', $hotelFields));
+        $hotelTenants = [];
+        if ($modernTenantBinding && $restorableRows !== []) {
+            $hotelIds = array_values(array_unique(array_map('intval', array_column($restorableRows, 'system_hotel_id'))));
+            foreach (Db::name('hotels')->field('id,tenant_id')->whereIn('id', $hotelIds)->select()->toArray() as $hotel) {
+                $hotelTenants[(int)$hotel['id']] = (int)$hotel['tenant_id'];
+            }
+        }
+        $candidateIds = [];
+        $restorableSnapshots = [];
+        foreach ($restorableRows as $row) {
+            $snapshot = json_decode($snapshots[(int)$row['id']] ?? '', true);
+            $dataId = (int)($snapshot['id'] ?? 0);
+            $hotelId = (int)($row['system_hotel_id'] ?? 0);
+            if (!is_array($snapshot) || $dataId <= 0
+                || $dataId !== (int)($row['online_data_id'] ?? 0)
+                || (int)($snapshot['system_hotel_id'] ?? 0) !== $hotelId) {
+                continue;
+            }
+            if ($modernTenantBinding) {
+                $hotelTenantId = $hotelTenants[$hotelId] ?? 0;
+                if ($hotelTenantId <= 0
+                    || (int)($snapshot['tenant_id'] ?? 0) !== $hotelTenantId
+                    || (int)($row['tenant_id'] ?? 0) !== $hotelTenantId) {
+                    continue;
+                }
+            }
+            $restorableSnapshots[(int)$row['id']] = $dataId;
+            $candidateIds[] = $dataId;
+        }
+        $occupiedIds = [];
+        if ($candidateIds !== []) {
+            foreach (Db::name('online_daily_data')->whereIn('id', array_values(array_unique($candidateIds)))->column('id') as $occupiedId) {
+                $occupiedIds[(int)$occupiedId] = true;
+            }
+        }
         foreach ($rows as &$row) {
             $fields = json_decode((string)($row['changed_fields_json'] ?? '[]'), true);
             $row['changed_fields'] = is_array($fields) ? $fields : [];
             unset($row['changed_fields_json']);
-            $row['can_restore'] = (int)($row['restorable'] ?? 0) === 1
-                && trim((string)($row['restored_at'] ?? '')) === '';
+            $dataId = $restorableSnapshots[(int)$row['id']] ?? 0;
+            $row['can_restore'] = $dataId > 0 && !isset($occupiedIds[$dataId]);
         }
         unset($row);
 
@@ -237,6 +300,30 @@ trait OnlineDataRecordConcern
             'page' => $page,
             'page_size' => $pageSize,
         ]);
+    }
+
+    private function applyCorrectionLedgerTenantBinding($query): void
+    {
+        $ledgerFields = Db::name('online_data_correction_ledger')->getTableFields();
+        if ((!in_array('tenant_id', $ledgerFields, true) && !array_key_exists('tenant_id', $ledgerFields))
+            || (!in_array('system_hotel_id', $ledgerFields, true) && !array_key_exists('system_hotel_id', $ledgerFields))) {
+            return;
+        }
+        $hotelFields = Db::name('hotels')->getTableFields();
+        if (!in_array('tenant_id', $hotelFields, true) && !array_key_exists('tenant_id', $hotelFields)) {
+            return;
+        }
+
+        $ledgerTable = (string)$query->getTable();
+        $hotelTable = (string)Db::name('hotels')->getTable();
+        $query->where('tenant_id', '>', 0)->whereExists(
+            static function ($hotelQuery) use ($ledgerTable, $hotelTable): void {
+                $hotelQuery->table([$hotelTable => 'correction_ledger_owner_hotel'])
+                    ->field('correction_ledger_owner_hotel.id')
+                    ->whereColumn('correction_ledger_owner_hotel.id', $ledgerTable . '.system_hotel_id')
+                    ->whereColumn('correction_ledger_owner_hotel.tenant_id', $ledgerTable . '.tenant_id');
+            }
+        );
     }
 
     public function restoreData(): Response

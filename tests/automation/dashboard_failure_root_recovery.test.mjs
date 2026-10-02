@@ -49,11 +49,12 @@ test('dashboard reads the base fact layer without changing Revenue AI permission
   const factBridge = sliceBetween(
     appMain,
     'homeRevenueFactLayerController = createHomeRevenueFactLayerController',
-    'const loadRevenueAiOverview = async',
+    'const applyRevenueAiOverviewReadback =',
   );
   assert.match(factBridge, /active: !!token\.value && isCompassDataPage\(\)/);
   assert.match(factBridge, /businessDate: homeRevenueFactBusinessDate\.value/);
   assert.match(factBridge, /homeRevenueFactLayer\.value = state\.layer/);
+  assert.match(factBridge, /const loadHomeRevenueFactLayer = \(options = \{\}\) => homeRevenueFactLayerController\.load\(options\)/);
   assert.doesNotMatch(factBridge, /canUseRevenueAi|revenueAiOverview/);
   assert.match(appMain, /revenueFactLayer: homeRevenueFactLayer\.value/);
   assert.match(appMain, /revenueFactLayerError: homeRevenueFactLayerError\.value/);

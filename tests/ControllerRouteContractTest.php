@@ -98,7 +98,8 @@ final class ControllerRouteContractTest extends TestCase
         $method = substr($source, (int)$start, (int)$end - (int)$start);
 
         self::assertStringContainsString("\$data['research_artifact_id']", $method);
-        self::assertStringContainsString('$artifactService->consume(', $method);
+        self::assertStringContainsString('$artifactService->resolveExecutionIntent(', $method);
+        self::assertStringContainsString('readExecutionIntentByIdempotencyKey($key, $hotelIds)', $method);
         self::assertStringNotContainsString("\$data['research']", $method);
         self::assertStringNotContainsString("'action_text'", $method);
     }

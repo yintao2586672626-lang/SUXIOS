@@ -10,7 +10,12 @@ const notificationSource = fs.readFileSync(
   'resources/frontend/templates/fragments/15ab-page-manual-notifications.html',
   'utf8',
 );
-const appMainSource = fs.readFileSync('public/app-main.js', 'utf8');
+const appMainSource = [
+  fs.readFileSync('public/app-main.js', 'utf8'),
+  fs.readFileSync('public/system-static.js', 'utf8'),
+  fs.readFileSync('public/system-page-projections.js', 'utf8'),
+  fs.readFileSync('public/manual-notification-orchestration-static.js', 'utf8'),
+].join('\n');
 
 test('authenticated header omits the unused language switch', () => {
   assert.doesNotMatch(shellSource, /data-testid="header-locale-switch"/);

@@ -82,6 +82,14 @@
                 const value = Number(this.ctx?.platformHotelSelectedId || 0);
                 return Number.isInteger(value) && value > 0 ? value : 0;
             },
+            authScopeKey() {
+                return JSON.stringify([
+                    this.ctx?.user?.id ?? null,
+                    this.ctx?.authContext?.tenantId ?? this.ctx?.user?.tenant_id ?? null,
+                    this.ctx?.token || '',
+                    this.ctx?.isLoggedIn !== false,
+                ]);
+            },
             showCtripDetail() {
                 return this.detailMode !== 'summary';
             },
@@ -179,13 +187,21 @@
                 ].join(':');
             },
             uploadReceiptKey() {
+                if (!this.uploadResultMatchesCurrentHotel) return '';
                 const result = this.ctx?.ctripChannelOrderUploadResult || {};
                 return [result.task_id || '', result.import_readback?.readback_count || '', result.status || ''].join(':');
+            },
+            uploadResultMatchesCurrentHotel() {
+                const scope = this.ctx?.ctripChannelOrderUploadScope;
+                const targetHotelId = Number(scope?.systemHotelId || 0);
+                return targetHotelId > 0 && this.systemHotelId > 0 && targetHotelId === this.systemHotelId;
             },
             status() {
                 return String(this.analysis?.status || 'no_data');
             },
             statusLabel() {
+                if (this.loading) return '读取中';
+                if (this.error) return '读取失败';
                 return ({
                     available_unverified: '已保存 · 来源待核验',
                     available_partial: '部分可分析',
@@ -195,6 +211,8 @@
                 })[this.status] || '状态待确认';
             },
             statusClass() {
+                if (this.loading) return 'border-blue-200 bg-blue-50 text-blue-700';
+                if (this.error) return 'border-red-200 bg-red-50 text-red-700';
                 return ({
                     available_unverified: 'border-amber-200 bg-amber-50 text-amber-800',
                     available_partial: 'border-amber-200 bg-amber-50 text-amber-800',
@@ -224,6 +242,7 @@
                 return this.analysis?.room_types || { status: 'evidence_missing', rows: [] };
             },
             uploadPreview() {
+                if (!this.uploadResultMatchesCurrentHotel) return null;
                 const preview = this.ctx?.ctripChannelOrderUploadPreview;
                 return preview && typeof preview === 'object' ? preview : null;
             },
@@ -231,13 +250,17 @@
                 return safeRows(this.ctx?.ctripChannelOrderUploadChannels);
             },
             importContract() {
-                return String(this.analysis?.batch?.import_contract || '');
+                return String(this.analysis?.batch?.import_contract || this.analysis?.batch?.read_adapter || '');
             },
             isLegacyAggregate() {
-                return this.importContract === 'ctrip_order_aggregate_v1';
+                return ['ctrip_order_aggregate_v1', 'ctrip_order_legacy_saved_aggregate'].includes(this.importContract);
             },
             contractLabel() {
+                if (this.importContract === 'ctrip_order_legacy_saved_aggregate') return '旧版已存汇总';
                 return this.isLegacyAggregate ? '旧聚合 v1' : (this.importContract === 'ctrip_order_aggregate_v2' ? '原始订单 v2' : '契约待确认');
+            },
+            sourceBoundaryText() {
+                return `${this.analysis?.quality_label || '人工文件来源仍为待核验'}；参考底价不是确认收入，也不扩大为全酒店经营口径。`;
             },
             contractClass() {
                 return this.isLegacyAggregate
@@ -267,15 +290,11 @@
             systemHotelId: {
                 immediate: true,
                 handler() {
-                    this.quickAnalysis = null;
-                    this.quickStale = false;
-                    this.setQuickRangePreset('30d', false);
-                    this.loadQuickAnalysis();
-                    this.analysis = null;
-                    this.dateFrom = '';
-                    this.dateTo = '';
-                    if (this.showCtripDetail) this.loadAnalysis();
+                    this.handleScopeChange();
                 },
+            },
+            authScopeKey(next, previous) {
+                if (previous !== undefined && next !== previous) this.handleScopeChange();
             },
             uploadReceiptKey(next, previous) {
                 if (next && next !== previous && next !== '::') {
@@ -294,6 +313,23 @@
             moneyText,
             percentText,
             safeRows,
+            handleScopeChange() {
+                this.quickRequestSequence += 1;
+                this.requestSequence += 1;
+                this.quickAnalysis = null;
+                this.quickLoading = false;
+                this.quickError = '';
+                this.quickStale = false;
+                this.analysis = null;
+                this.loading = false;
+                this.error = '';
+                this.dateFrom = '';
+                this.dateTo = '';
+                this.setQuickRangePreset('30d', false);
+                if (this.ctx?.isLoggedIn === false) return;
+                this.loadQuickAnalysis();
+                if (this.showCtripDetail) this.loadAnalysis();
+            },
             quickMetric(platform, key) {
                 const metric = platform?.metrics?.[key];
                 const direct = metric !== undefined ? metric : platform?.[key];
@@ -446,6 +482,7 @@
             },
             async loadQuickAnalysis() {
                 const hotelId = this.systemHotelId;
+                const authScopeKey = this.authScopeKey;
                 const sequence = ++this.quickRequestSequence;
                 this.quickError = '';
                 this.quickStale = false;
@@ -455,10 +492,14 @@
                     return;
                 }
                 if ((this.quickDateFrom && !this.quickDateTo) || (!this.quickDateFrom && this.quickDateTo)) {
+                    this.quickLoading = false;
+                    this.quickStale = !!this.quickAnalysis;
                     this.quickError = '开始日期和结束日期需要同时填写。';
                     return;
                 }
                 if (this.quickDateFrom && this.quickDateTo && this.quickDateFrom > this.quickDateTo) {
+                    this.quickLoading = false;
+                    this.quickStale = !!this.quickAnalysis;
                     this.quickError = '开始日期不能晚于结束日期。';
                     return;
                 }
@@ -486,15 +527,33 @@
                     if (!response.ok || !payload || Number(payload.code) !== 200) {
                         throw new Error(payload?.message || `双平台订单快析读取失败（HTTP ${response.status}）`);
                     }
-                    if (sequence !== this.quickRequestSequence) return;
-                    this.quickAnalysis = payload.data || {};
+                    if (sequence !== this.quickRequestSequence || authScopeKey !== this.authScopeKey) return;
+                    const returned = payload.data;
+                    const range = returned?.date_range;
+                    const platforms = returned?.platforms;
+                    const rangeMatches = range && typeof range === 'object'
+                        && (this.quickDateFrom && this.quickDateTo
+                            ? range.requested_from === this.quickDateFrom && range.requested_to === this.quickDateTo
+                            : !range.requested_from && !range.requested_to);
+                    const scopeMatches = Number.isSafeInteger(Number(returned?.hotel?.id))
+                        && Number(returned.hotel.id) === hotelId
+                        && returned?.metric_scope === 'ota_channel'
+                        && platforms?.ctrip?.platform === 'ctrip'
+                        && platforms.ctrip.metric_scope === 'ota_channel'
+                        && platforms?.meituan?.platform === 'meituan'
+                        && platforms.meituan.metric_scope === 'ota_channel';
+                    if (!scopeMatches || !rangeMatches) {
+                        this.quickAnalysis = null;
+                        throw new Error('双平台订单快析返回的酒店、平台、指标或日期范围与当前筛选不一致，已停止展示。');
+                    }
+                    this.quickAnalysis = returned;
                     this.quickStale = false;
                 } catch (error) {
-                    if (sequence !== this.quickRequestSequence) return;
+                    if (sequence !== this.quickRequestSequence || authScopeKey !== this.authScopeKey) return;
                     this.quickError = error?.message || '双平台订单快析读取失败。';
                     this.quickStale = !!this.quickAnalysis;
                 } finally {
-                    if (sequence === this.quickRequestSequence) this.quickLoading = false;
+                    if (sequence === this.quickRequestSequence && authScopeKey === this.authScopeKey) this.quickLoading = false;
                 }
             },
             resetRange() {
@@ -508,18 +567,30 @@
             },
             async loadAnalysis() {
                 const hotelId = this.systemHotelId;
+                const dateFrom = this.dateFrom;
+                const dateTo = this.dateTo;
+                const authScopeKey = this.authScopeKey;
                 const sequence = ++this.requestSequence;
+                const isCurrentRequest = () => sequence === this.requestSequence
+                    && hotelId === this.systemHotelId
+                    && dateFrom === this.dateFrom
+                    && dateTo === this.dateTo && authScopeKey === this.authScopeKey;
                 this.error = '';
+                this.loading = false;
                 if (!hotelId) {
                     this.analysis = null;
                     this.loading = false;
                     return;
                 }
                 if ((this.dateFrom && !this.dateTo) || (!this.dateFrom && this.dateTo)) {
+                    this.analysis = null;
+                    this.loading = false;
                     this.error = '开始日期和结束日期需要同时填写。';
                     return;
                 }
                 if (this.dateFrom && this.dateTo && this.dateFrom > this.dateTo) {
+                    this.analysis = null;
+                    this.loading = false;
                     this.error = '开始日期不能晚于结束日期。';
                     return;
                 }
@@ -547,19 +618,34 @@
                     if (!response.ok || !payload || Number(payload.code) !== 200) {
                         throw new Error(payload?.message || `订单分析读取失败（HTTP ${response.status}）`);
                     }
-                    if (sequence !== this.requestSequence) return;
-                    this.analysis = payload.data || {};
+                    if (!isCurrentRequest() || authScopeKey !== this.authScopeKey) return;
+                    const returnedAnalysis = payload.data;
+                    const returnedHotelId = Number(returnedAnalysis?.hotel?.id);
+                    const returnedRange = returnedAnalysis?.date_range;
+                    const returnedPlatform = String(returnedAnalysis?.source?.platform || '').trim().toLowerCase();
+                    const identityMatches = Number.isSafeInteger(returnedHotelId)
+                        && returnedHotelId === hotelId
+                        && returnedAnalysis?.metric_scope === 'ota_channel'
+                        && (!returnedPlatform || returnedPlatform === 'ctrip');
+                    const rangeMatches = returnedRange && typeof returnedRange === 'object'
+                        && (!this.dateFrom && !this.dateTo
+                            || returnedRange.requested_from === this.dateFrom
+                                && returnedRange.requested_to === this.dateTo);
+                    if (!identityMatches || !rangeMatches) {
+                        throw new Error('订单分析返回的酒店、平台或日期范围与当前筛选不一致，已停止展示。');
+                    }
+                    this.analysis = returnedAnalysis;
                     const range = this.analysis?.date_range || {};
                     if (!this.dateFrom && !this.dateTo) {
                         this.dateFrom = String(range.from || range.date_from || '');
                         this.dateTo = String(range.to || range.date_to || '');
                     }
                 } catch (error) {
-                    if (sequence !== this.requestSequence) return;
+                    if (!isCurrentRequest() || authScopeKey !== this.authScopeKey) return;
                     this.analysis = null;
                     this.error = error?.message || '订单分析读取失败。';
                 } finally {
-                    if (sequence === this.requestSequence) this.loading = false;
+                    if (sequence === this.requestSequence && authScopeKey === this.authScopeKey) this.loading = false;
                 }
             },
             renderQuickAnalysis() {
@@ -818,6 +904,7 @@
                 h('input', {
                     type: 'date',
                     value,
+                    disabled: this.loading || !this.systemHotelId,
                     onInput: (event) => update(event.target.value),
                     class: 'mt-1 block rounded-lg border border-slate-200 px-2 py-1.5 text-sm text-slate-700',
                 }),
@@ -834,7 +921,7 @@
                             this.analysis ? badge(this.contractLabel, this.contractClass) : null,
                         ]),
                         h('p', { class: 'mt-1 text-xs leading-5 text-slate-500' }, `${this.analysis?.hotel?.name || this.ctx?.platformHotelSelectedName || '当前酒店'} · 携程系 OTA 渠道 · ${this.dateRangeLabel}`),
-                        h('p', { class: 'text-xs leading-5 text-amber-700' }, '人工文件来源仍为待核验；参考底价不是确认收入，也不扩大为全酒店经营口径。'),
+                        h('p', { class: 'text-xs leading-5 text-amber-700' }, this.sourceBoundaryText),
                         h('p', { class: 'text-xs leading-5 text-blue-700' }, '已保存订单分析与实时 Cookie 采集相互独立；顶部授权告警只影响实时抓取。'),
                     ]),
                     h('div', { class: 'flex flex-wrap items-end gap-2' }, [
@@ -857,7 +944,7 @@
                 body = h('div', { class: 'p-5' }, [h('div', {
                     class: 'rounded-lg border border-dashed border-slate-300 bg-slate-50 p-4 text-sm text-slate-600',
                 }, [
-                    h('p', {}, '当前酒店没有可用的携程订单聚合。请上传同一门店的原始携程 XLS；系统会去重、保存并精确回读。'),
+                    h('p', {}, '当前酒店在所选日期范围内没有可用的携程订单汇总。可点击“全部已存范围”查找其他日期的历史记录；需要补充新数据时，再上传同一门店的原始携程 XLS。'),
                     h('button', {
                         type: 'button',
                         'data-testid': 'ctrip-order-analysis-open-upload',
@@ -990,12 +1077,12 @@
                                 <span v-if="analysis" :class="['rounded-full border px-2 py-0.5 text-xs font-semibold', contractClass]">{{ contractLabel }}</span>
                             </div>
                             <p class="mt-1 text-xs leading-5 text-slate-500">{{ analysis?.hotel?.name || ctx?.platformHotelSelectedName || '当前酒店' }} · 携程系 OTA 渠道 · {{ dateRangeLabel }}</p>
-                            <p class="text-xs leading-5 text-amber-700">人工文件来源仍为待核验；参考底价不是确认收入，也不扩大为全酒店经营口径。</p>
+                            <p class="text-xs leading-5 text-amber-700">{{ sourceBoundaryText }}</p>
                             <p class="text-xs leading-5 text-blue-700">已保存订单分析与实时 Cookie 采集相互独立；顶部授权告警只影响实时抓取。</p>
                         </div>
                         <div class="flex flex-wrap items-end gap-2">
-                            <label class="text-xs text-slate-500">开始日期<input v-model="dateFrom" type="date" class="mt-1 block rounded-lg border border-slate-200 px-2 py-1.5 text-sm text-slate-700"></label>
-                            <label class="text-xs text-slate-500">结束日期<input v-model="dateTo" type="date" class="mt-1 block rounded-lg border border-slate-200 px-2 py-1.5 text-sm text-slate-700"></label>
+                            <label class="text-xs text-slate-500">开始日期<input v-model="dateFrom" type="date" :disabled="loading || !systemHotelId" class="mt-1 block rounded-lg border border-slate-200 px-2 py-1.5 text-sm text-slate-700"></label>
+                            <label class="text-xs text-slate-500">结束日期<input v-model="dateTo" type="date" :disabled="loading || !systemHotelId" class="mt-1 block rounded-lg border border-slate-200 px-2 py-1.5 text-sm text-slate-700"></label>
                             <button type="button" @click="loadAnalysis" :disabled="loading || !systemHotelId" class="rounded-lg bg-slate-900 px-3 py-2 text-xs font-semibold text-white disabled:opacity-50">{{ loading ? '读取中' : '查询' }}</button>
                             <button type="button" @click="resetRange" :disabled="loading || !systemHotelId" class="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 disabled:opacity-50">全部已存范围</button>
                         </div>
@@ -1006,7 +1093,7 @@
                 <div v-else-if="error" class="m-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">{{ error }}</div>
                 <div v-else-if="loading && !analysis" class="p-5 text-sm text-slate-500">正在按酒店、来源与日期范围读取已保存订单…</div>
                 <div v-else-if="!analysis || status === 'no_data'" class="p-5">
-                    <div class="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-4 text-sm text-slate-600"><p>当前酒店没有可用的携程订单聚合。请上传同一门店的原始携程 XLS；系统会去重、保存并精确回读。</p><button type="button" data-testid="ctrip-order-analysis-open-upload" @click="openEvidenceUpload" class="mt-3 rounded-lg bg-[#65502f] px-4 py-2 text-xs font-semibold text-white">上传原始 XLS</button></div>
+                    <div class="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-4 text-sm text-slate-600"><p>当前酒店在所选日期范围内没有可用的携程订单汇总。可点击“全部已存范围”查找其他日期的历史记录；需要补充新数据时，再上传同一门店的原始携程 XLS。</p><button type="button" data-testid="ctrip-order-analysis-open-upload" @click="openEvidenceUpload" class="mt-3 rounded-lg bg-[#65502f] px-4 py-2 text-xs font-semibold text-white">上传原始 XLS</button></div>
                 </div>
                 <div v-else class="space-y-5 p-4 lg:p-5">
                     <div v-if="uploadPreview" data-testid="ctrip-channel-order-upload-preview" class="space-y-3 rounded-lg border border-emerald-200 bg-emerald-50 p-3">

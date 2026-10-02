@@ -1,11 +1,21 @@
 (() => {
     'use strict';
 
-    const fullScript = 'components/system/operating-intelligence-components.js?v=20260902-dirty-merge-h4e7d569d33';
-    const analystScript = 'components/system/hotel-data-analyst-components.js?v=20260831-precise-range-hfa596d333c';
+    const fullScript = 'components/system/operating-intelligence-components.js?v=20260902-dirty-merge-hfa5690baeb';
+    const analystScript = 'components/system/hotel-data-analyst-components.js?v=20260831-precise-range-h6b9ed47fc8';
     const fullStyle = 'style.min.css';
     let fullScriptPromise = null;
     let analystScriptPromise = null;
+
+    const loadEvidenceNavigationRuntime = async () => {
+        if (typeof window.SUXI_OPERATING_EVIDENCE_NAVIGATION?.createEvidenceNavigation === 'function') return;
+        const loadAsset = window.SUXI_LOAD_DEFERRED_AUTHENTICATED_ASSET;
+        if (typeof loadAsset !== 'function') throw new Error('经营证据导航组件尚未加载');
+        await loadAsset('app-deferred-helpers.min.js');
+        if (typeof window.SUXI_OPERATING_EVIDENCE_NAVIGATION?.createEvidenceNavigation !== 'function') {
+            throw new Error('经营证据导航组件尚未加载');
+        }
+    };
 
     const loadAnalystScript = async () => {
         if (window.SUXI_HOTEL_DATA_ANALYST_COMPONENTS?.create) {
@@ -50,6 +60,7 @@
 
     const loadFullScript = async () => {
         if (window.SUXI_OPERATING_INTELLIGENCE_COMPONENTS_FULL?.create) {
+            await loadEvidenceNavigationRuntime();
             return window.SUXI_OPERATING_INTELLIGENCE_COMPONENTS_FULL;
         }
         if (fullScriptPromise) return fullScriptPromise;
@@ -87,7 +98,8 @@
         const styleReady = typeof styleLoader === 'function'
             ? Promise.resolve(styleLoader(fullStyle))
             : Promise.resolve();
-        fullScriptPromise = styleReady.then(loadAnalystScript).then(startScriptLoad);
+        fullScriptPromise = Promise.all([styleReady, loadEvidenceNavigationRuntime()])
+            .then(loadAnalystScript).then(startScriptLoad);
         fullScriptPromise.catch(() => {
             fullScriptPromise = null;
         });
@@ -323,7 +335,14 @@
         });
     };
 
+    const createEvidenceNavigation = options => {
+        const factory = window.SUXI_OPERATING_EVIDENCE_NAVIGATION;
+        if (!factory?.createEvidenceNavigation) throw new Error('经营证据导航组件尚未加载');
+        return factory.createEvidenceNavigation(options);
+    };
+
     window.SUXI_OPERATING_INTELLIGENCE_COMPONENTS = Object.freeze({
+        createEvidenceNavigation,
         create, submitCouncilRun, pollCouncilRun, councilReadbackIntegrityMatches,
     });
 })();

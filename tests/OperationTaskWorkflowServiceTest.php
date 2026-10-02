@@ -14,16 +14,17 @@ final class OperationTaskWorkflowServiceTest extends TestCase
     private string $path;
     private OperationTaskWorkflowService $service;
     private int $sequence = 0;
-    private array $originalConfig;
+    private \think\Container $originalContainer;
 
     protected function setUp(): void
     {
         $this->path = tempnam(sys_get_temp_dir(), 'l06-workflow-');
-        $this->originalConfig = ['database' => Config::get('database', []), 'cache' => Config::get('cache', []), 'log' => Config::get('log', [])];
+        $this->originalContainer = \think\Container::getInstance();
+        new \think\App(dirname(__DIR__));
         Fixture::connect($this->path); Fixture::schema(); Fixture::seed();
         $this->service = Fixture::service();
     }
-    protected function tearDown(): void { Db::connect()->close(); unlink($this->path); foreach ($this->originalConfig as $key => $value) Config::set($value, $key); }
+    protected function tearDown(): void { Db::connect()->close(); unlink($this->path); \think\Container::setInstance($this->originalContainer); }
 
     private function act(string $action, array $extra = [], int $id = 1): array
     {
@@ -136,6 +137,55 @@ final class OperationTaskWorkflowServiceTest extends TestCase
         $input['due_date'] = '2026-09-10';
         $this->expectExceptionMessage('重复提交内容不同'); $this->service->mutate(1, [7], $input, 3);
     }
+
+    #[DataProvider('newCycleActions')]
+    public function testNewCycleClearsCurrentCompletionTimeAndPreservesPriorCompletedHistory(string $action): void
+    {
+        $completed = $this->complete();
+        self::assertSame('2026-09-16 12:00:00', $completed['completed_at']);
+        $this->service = Fixture::service('2026-09-17 12:00:00');
+
+        $newCycle = $this->act($action, ['reason' => 'synthetic:上一轮完成后发现新问题']);
+
+        self::assertSame($action === 'reopen' ? 'reopened' : 'returned', $newCycle['task_status']);
+        self::assertSame(2, $newCycle['cycle']);
+        self::assertNull($newCycle['completed_at'] ?? null, 'an unfinished cycle cannot retain the prior cycle completion time');
+        self::assertSame([], $newCycle['execution_records']);
+        self::assertSame('pending', $newCycle['verification']['status']);
+        self::assertSame($completed['completed_at'], $this->service->read(1, [7], $completed['version'])['completed_at']);
+
+        try {
+            $this->act('complete', ['completed_criteria' => Fixture::configure()['completion_criteria']]);
+            self::fail('a reopened or returned task must be started before completing its new cycle');
+        } catch (\InvalidArgumentException $error) {
+            self::assertStringContainsString('仅进行中的任务可以完成填报', $error->getMessage());
+        }
+        self::assertSame($newCycle, $this->service->read(1, [7]));
+        self::assertSame($newCycle['version'], (int)Db::name(OperationTaskWorkflowService::EVENTS)->count());
+
+        $this->act('start');
+        $this->act('record', ['record' => Fixture::record()]);
+        $completedAgain = $this->act('complete', ['completed_criteria' => Fixture::configure()['completion_criteria']]);
+        self::assertSame('completed', $completedAgain['task_status']);
+        self::assertSame('2026-09-17 12:00:00', $completedAgain['completed_at']);
+        self::assertSame(2, $completedAgain['cycle']);
+        self::assertSame($completedAgain, $this->service->read(1, [7]));
+        self::assertSame('2026-09-16 12:00:00', $this->service->read(1, [7], $completed['version'])['completed_at']);
+
+        $this->service = Fixture::service('2026-09-18 12:00:00');
+        $verified = $this->act('verify', ['human_confirmed' => true, 'reason' => 'synthetic:核实新轮次执行']);
+        self::assertSame('completed', $verified['task_status']);
+        self::assertSame('2026-09-17 12:00:00', $verified['completed_at']);
+        $reviewed = $this->act('review', ['review' => ['note' => 'synthetic:保留执行时间，不据此声明效果']]);
+        self::assertSame('completed', $reviewed['task_status']);
+        self::assertSame('2026-09-17 12:00:00', $reviewed['completed_at']);
+    }
+
+    public static function newCycleActions(): array
+    {
+        return [['return'], ['reopen']];
+    }
+
     public function testScreenshotRemainsWeakAndReturnReopenPreserveOldEvidence(): void
     {
         $this->complete(1, 'screenshot');
@@ -351,7 +401,7 @@ final class OperationTaskWorkflowServiceTest extends TestCase
         self::assertSame(422, $controller->mutateTaskWorkflow(1)->getCode());
         $request->setValue($controller, (new \think\Request())->withPost(['hotel_id' => 7, 'action' => 'start', 'request_id' => 'controller-stale', 'expected_version' => 0]));
         $conflict = $controller->mutateTaskWorkflow(1);
-        self::assertSame(409, $conflict->getCode()); self::assertSame(409, json_decode($conflict->getContent(), true)['code']);
+        self::assertSame(409, $conflict->getCode(), $conflict->getContent()); self::assertSame(409, json_decode($conflict->getContent(), true)['code']);
         $user->writeAllowed = false;
         self::assertSame(403, $controller->mutateTaskWorkflow(1)->getCode());
         $request->setValue($controller, (new \think\Request())->withGet(['hotel_id' => 8]));

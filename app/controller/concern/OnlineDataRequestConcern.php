@@ -342,6 +342,14 @@ trait OnlineDataRequestConcern
      */
     private function sanitizeCtripOverviewExecutionRequestData(array $requestData): array
     {
+        if (array_key_exists('request_source', $requestData)) {
+            if ($requestData['request_source'] !== 'flow_overview') {
+                throw new \InvalidArgumentException('Unsupported Ctrip overview task.');
+            }
+            return $this->sanitizePrimaryManualFetchRequestData($requestData, [
+                'request_source', 'config_id', 'system_hotel_id', 'hotel_id', 'data_date',
+            ]);
+        }
         return $this->sanitizePrimaryManualFetchRequestData($requestData, [
             'config_id',
             'system_hotel_id',
@@ -462,6 +470,23 @@ trait OnlineDataRequestConcern
         }
         $rows = $this->uniqueMeituanCapturedRowsForPersistence($rows);
         $savedCount = $this->saveMeituanCapturedDailyRows($rows);
+        $persistenceState = $this->buildMeituanDirectPersistenceState(
+            true,
+            count($rows),
+            $savedCount,
+            'meituan_capture'
+        );
+        if (!$persistenceState['persisted']) {
+            return $this->error(
+                '美团采集数据数据库回读不完整；请先核对历史记录。',
+                (int)$persistenceState['http_code'],
+                array_merge($persistenceState, [
+                    'row_count' => count($rows),
+                    'target_date' => $targetDataDate,
+                    'ingestion_method' => $manualImport ? 'manual_import' : 'browser_profile',
+                ])
+            );
+        }
         if ($this->currentUser && isset($this->currentUser->id)) {
             OperationLog::record(
                 'online_data',
@@ -475,6 +500,9 @@ trait OnlineDataRequestConcern
         return $this->success([
             'saved_count' => $savedCount,
             'row_count' => count($rows),
+            'persistence_status' => $persistenceState['persistence_status'],
+            'persisted' => true,
+            'readback_verified' => true,
             'counts' => $this->summarizeMeituanCapturedRows($rows),
             'ingestion_method' => $manualImport ? 'manual_import' : 'browser_profile',
         ]);
@@ -1280,6 +1308,7 @@ trait OnlineDataRequestConcern
         $requestHotelId = $hotelId !== '' ? $hotelId : (string)($payload['hotel_id'] ?? '');
         $saveResult = $this->saveCtripBrowserProfilePayload($payload, (int)$systemHotelId, $dataDate, $requestHotelId, $dataSourceId);
         $savedCount = (int)$saveResult['saved_count'];
+        $readbackComplete = $this->ctripProfileReadbackComplete($saveResult);
         $capturedCounts = $this->buildCtripCaptureCounts($payload);
 
         if ($this->currentUser && isset($this->currentUser->id)) {
@@ -1291,15 +1320,11 @@ trait OnlineDataRequestConcern
                 (int)$systemHotelId
             );
         }
-        if ($savedCount > 0) {
-            $this->updateCtripLatestFetchStatus((int)$systemHotelId, date('Y-m-d H:i:s'), $dataDate, $savedCount);
-        }
-
         $rowCount = (int)$capturedCounts['business'] + (int)$capturedCounts['traffic'] + (int)$capturedCounts['standard_rows'];
         $responsePayload = array_merge([
             'saved_count' => $savedCount,
             'readback_count' => $savedCount,
-            'readback_verified' => $savedCount > 0,
+            'readback_verified' => $readbackComplete,
             'server_identity' => [
                 'verified' => true,
                 'platform' => 'ctrip',
@@ -1307,6 +1332,8 @@ trait OnlineDataRequestConcern
                 'store_id' => null,
             ],
             'row_count' => $rowCount,
+            'standard_expected_count' => (int)($saveResult['standard_expected_count'] ?? 0),
+            'standard_readback_count' => (int)($saveResult['standard_saved'] ?? 0),
         ], $this->buildCtripCaptureFactRowCountPayload($capturedCounts, $savedCount, $rowCount), [
             'counts' => [
                 'business' => (int)$saveResult['business_saved'],
@@ -1343,16 +1370,19 @@ trait OnlineDataRequestConcern
             $responsePayload['data_source_binding'] = ['status' => 'failed', 'message' => $dataSourceBindingError];
         }
 
-        if ($rowCount > 0 && $savedCount <= 0) {
+        if ($rowCount > 0 && !$readbackComplete) {
             $responsePayload['persistence_status'] = 'readback_not_verified';
             return json([
                 'code' => 500,
-                'message' => '携程浏览器 Profile 已解析到数据，但未确认数据库入库；请检查回读结果后重试。',
+                'message' => '携程浏览器 Profile 已解析到数据，但数据库回读不完整；请核对历史记录后重试。',
                 'data' => $responsePayload,
             ], 500);
         }
 
-        $responsePayload['persistence_status'] = $savedCount > 0 ? 'readback_verified' : 'no_parsed_rows';
+        $responsePayload['persistence_status'] = $readbackComplete ? 'readback_verified' : 'no_parsed_rows';
+        if ($readbackComplete) {
+            $this->updateCtripLatestFetchStatus((int)$systemHotelId, date('Y-m-d H:i:s'), $dataDate, $savedCount);
+        }
         $validatedHotelIds = array_values(array_intersect(
             array_map('strval', is_array($identityCheck['captured_hotel_ids'] ?? null) ? $identityCheck['captured_hotel_ids'] : []),
             array_map('strval', is_array($identityCheck['expected_hotel_ids'] ?? null) ? $identityCheck['expected_hotel_ids'] : [])
@@ -1366,10 +1396,10 @@ trait OnlineDataRequestConcern
             trim((string)($validatedHotelIds[0] ?? '')),
             $savedCount,
             $rowCount,
-            $savedCount > 0
+            $readbackComplete
         );
         $responsePayload = array_merge($responsePayload, $sessionProof);
-        return $this->success($responsePayload, $savedCount > 0 ? '携程浏览器 Profile 采集完成并已确认入库' : '携程浏览器 Profile 采集完成，但未解析到可入库数据');
+        return $this->success($responsePayload, $readbackComplete ? '携程浏览器 Profile 采集完成并已确认入库' : '携程浏览器 Profile 采集完成，但未解析到可入库数据');
     }
 
     public function validateCtripEndpointEvidence(): Response
@@ -2591,11 +2621,25 @@ trait OnlineDataRequestConcern
      * @param array<string, mixed> $requestData
      * @param array<string, mixed> $credentialPayload
      */
+    private function resolveCtripOverviewDataDate(array $requestData): string
+    {
+        $requestedDate = $requestData['data_date'] ?? $requestData['dataDate'] ?? '';
+        $dataDate = $this->normalizeCtripCaptureBusinessDate($requestedDate);
+        return $dataDate !== ''
+            ? $dataDate
+            : (new \DateTimeImmutable('now', new \DateTimeZone('Asia/Shanghai')))->modify('-1 day')->format('Y-m-d');
+    }
+
     private function executeCtripOverviewDataFetch(
         array $requestData,
         array $credentialPayload,
         int $systemHotelId
     ): Response {
+        if (($requestData['request_source'] ?? '') === 'flow_overview') {
+            $storedConfig = $this->findStoredCtripExecutionConfig((string)$requestData['config_id'], $systemHotelId);
+            $task = $this->buildCtripFlowOverviewTask($requestData, $storedConfig, $systemHotelId);
+            return $this->executeCtripFlowOverviewTask($task, $credentialPayload, $systemHotelId);
+        }
         $hotelId = trim((string)($requestData['hotel_id'] ?? $requestData['hotelId'] ?? $requestData['ctrip_hotel_id'] ?? $requestData['ctripHotelId'] ?? ''));
         $hotelName = trim((string)($requestData['hotel_name'] ?? $requestData['hotelName'] ?? ''));
         $cookies = trim((string)($credentialPayload['cookies'] ?? $credentialPayload['cookie'] ?? ''));
@@ -2610,10 +2654,7 @@ trait OnlineDataRequestConcern
             ?? $credentialPayload['spider_token']
             ?? (is_array($authData) ? ($authData['spidertoken'] ?? $authData['spider_token'] ?? $authData['token'] ?? '') : '')
         ));
-        $dataDate = $this->normalizeOnlineDataDate($requestData['data_date'] ?? $requestData['dataDate'] ?? '');
-        if ($dataDate === '') {
-            $dataDate = date('Y-m-d', strtotime('-1 day'));
-        }
+        $dataDate = $this->resolveCtripOverviewDataDate($requestData);
 
         if ($cookies === '') {
             return $this->error('请提供携程 Cookie');
@@ -2687,6 +2728,7 @@ trait OnlineDataRequestConcern
         ];
         $overviewRows = $this->collectCtripOverviewRows($payload, $overviewHotelId, $dataDate);
         $savedCount = $this->saveCtripOverviewRows($overviewRows, $dataDate, $systemHotelId ? (int)$systemHotelId : null);
+        $readbackComplete = $this->ctripOverviewReadbackComplete(count($overviewRows), $savedCount);
 
         if ($this->currentUser && isset($this->currentUser->id)) {
             OperationLog::record(
@@ -2703,7 +2745,8 @@ trait OnlineDataRequestConcern
             'total' => count($overviewRows),
             'saved_count' => $savedCount,
             'row_count' => count($overviewRows),
-            'persistence_status' => $savedCount > 0 ? 'readback_verified' : (count($overviewRows) > 0 ? 'readback_not_verified' : 'no_parsed_rows'),
+            'readback_verified' => $readbackComplete,
+            'persistence_status' => $readbackComplete ? 'readback_verified' : (count($overviewRows) > 0 ? 'readback_not_verified' : 'no_parsed_rows'),
             'counts' => ['overview' => count($overviewRows)],
             'metrics' => $this->summarizeCtripOverviewRows($overviewRows),
             'payload_counts' => [
@@ -2716,15 +2759,15 @@ trait OnlineDataRequestConcern
             'errors' => $errors,
         ];
 
-        if (count($overviewRows) > 0 && $savedCount <= 0) {
+        if (count($overviewRows) > 0 && !$readbackComplete) {
             return json([
                 'code' => 500,
-                'message' => '携程今日概况已解析到数据，但数据库回读未通过；本次不标记为入库成功。',
+                'message' => '携程今日概况已解析到数据，但数据库回读不完整；请先核对历史记录。',
                 'data' => $responsePayload,
             ], 500);
         }
 
-        return $this->success($responsePayload, $savedCount > 0 ? '携程今日概况获取完成并已确认入库' : '携程今日概况获取完成，但未解析到可入库概况数据');
+        return $this->success($responsePayload, $readbackComplete ? '携程今日概况获取完成并已确认入库' : '携程今日概况获取完成，但未解析到可入库概况数据');
     }
 
     public function fetchCustom(): Response

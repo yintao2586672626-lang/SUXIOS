@@ -99,6 +99,12 @@ final class ManualFetchPersistenceStateTest extends TestCase
         self::assertSame(422, $empty['http_code']);
         self::assertSame('meituan_orders_persistence_empty', $empty['reason']);
 
+        $zeroReadback = $method->invoke($harness, true, 3, 0, 'meituan_capture');
+        self::assertSame(500, $zeroReadback['http_code']);
+        self::assertSame('readback_failed', $zeroReadback['persistence_status']);
+        self::assertSame('meituan_capture_readback_failed', $zeroReadback['reason']);
+        self::assertSame(0, $zeroReadback['saved_count']);
+
         $partial = $method->invoke($harness, true, 3, 2, 'meituan_ads');
         self::assertSame(500, $partial['http_code']);
         self::assertSame('readback_failed', $partial['persistence_status']);

@@ -306,7 +306,11 @@ final class DualOtaContinuousTrustService
                 && OtaTrafficAttributionService::rowBelongsToAuthoritativeP0Traffic(
                     self::attributionRow($row),
                     $platform
-                );
+                )
+                && ($platform !== 'ctrip'
+                    || OtaTrafficAttributionService::ctripCatalogDateScopeIsAuthoritative(
+                        self::attributionRow($row)
+                    ));
         }));
 
         $task = self::latestExactDateTask($tasks, $platform, $date, $hotelId, $tenantId, $sourceIds);

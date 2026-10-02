@@ -437,7 +437,7 @@
                                                 </ol>
                                             </div>
 
-                                            <div v-if="['draft', 'changes_requested'].includes(knowledgePromotionSelectedCandidate.workflow_status)" class="mt-4 rounded-lg border border-gray-200 p-3 space-y-3">
+                                            <fieldset v-if="['draft', 'changes_requested'].includes(knowledgePromotionSelectedCandidate.workflow_status)" :disabled="knowledgePromotionAction === 'revision'" data-testid="knowledge-promotion-revision-fields" class="min-w-0 mt-4 rounded-lg border border-gray-200 p-3 space-y-3">
                                                 <div class="text-sm font-medium text-gray-800">内容修订</div>
                                                 <input v-model="knowledgePromotionForm.title" type="text" placeholder="SOP标题" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm">
                                                 <textarea v-model="knowledgePromotionForm.objective" rows="2" placeholder="目标" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm"></textarea>
@@ -462,13 +462,13 @@
                                                     </div>
                                                 </details>
                                                 <button @click="saveKnowledgePromotionRevision" :disabled="!!knowledgePromotionAction" class="btn-secondary text-sm disabled:opacity-50">保存新修订并独立回读</button>
-                                            </div>
+                                            </fieldset>
 
                                             <div class="mt-4 space-y-3">
-                                                <textarea v-model="knowledgePromotionForm.note" rows="2" placeholder="人工说明（退回、拒绝、批准、撤回或停用时必填）" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm"></textarea>
+                                                <textarea v-model="knowledgePromotionForm.note" :disabled="knowledgePromotionAction === 'revision'" rows="2" placeholder="人工说明（退回、拒绝、批准、撤回或停用时必填）" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm"></textarea>
 
                                                 <div v-if="knowledgePromotionSelectedCandidate.workflow_status === 'draft'" class="flex flex-col sm:flex-row gap-2 sm:items-center">
-                                                    <input v-model="knowledgePromotionForm.review_due_at" type="datetime-local" class="px-3 py-2 border border-gray-200 rounded-lg text-sm" aria-label="审核截止时间">
+                                                    <input v-model="knowledgePromotionForm.review_due_at" :disabled="knowledgePromotionAction === 'revision'" type="datetime-local" class="px-3 py-2 border border-gray-200 rounded-lg text-sm" aria-label="审核截止时间">
                                                     <button @click="submitKnowledgePromotionCandidate" :disabled="!!knowledgePromotionAction" class="btn-primary text-sm disabled:opacity-50">送审并独立回读</button>
                                                 </div>
 
@@ -600,6 +600,7 @@
 
                                         <details data-testid="operating-network-profile-editor" class="mt-3 rounded-lg border border-blue-100 bg-blue-50/40 p-3">
                                             <summary class="cursor-pointer text-sm font-medium text-blue-900">编辑并保存画像版本</summary>
+                                            <fieldset :disabled="!!operatingNetworkAction" class="m-0 min-w-0 border-0 p-0">
                                             <div class="mt-3 flex flex-wrap items-center gap-2">
                                                 <button type="button" data-testid="operating-network-generate-profile-preview" @click="generateOperatingNetworkProfilePreview" :disabled="!!operatingNetworkAction || operatingNetworkData?.data_status !== 'ok'" class="rounded-lg border border-blue-200 bg-white px-3 py-2 text-xs font-medium text-blue-700 hover:bg-blue-50 disabled:opacity-50">{{ operatingNetworkAction === 'profile_preview' ? '正在读取可信证据…' : '生成待核验草稿预览' }}</button>
                                                 <span class="text-[11px] text-blue-700">只读生成，不保存、不自动核验，也不会覆盖编辑器。</span>
@@ -649,6 +650,7 @@
                                                 <label class="text-xs text-gray-600 md:col-span-2">备注<textarea v-model="operatingNetworkProfileForm.notes" rows="2" class="mt-1 w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm"></textarea></label>
                                             </div>
                                             <button type="button" data-testid="operating-network-save-profile" @click="saveOperatingNetworkProfile" :disabled="!!operatingNetworkAction || operatingNetworkData?.data_status !== 'ok'" class="btn-primary mt-3 text-sm disabled:opacity-50">{{ operatingNetworkAction === 'profile' ? '保存并回读中…' : '保存画像新版本' }}</button>
+                                        </fieldset>
                                         </details>
                                     </div>
                                 </div>
@@ -727,7 +729,11 @@
                                                     <label class="text-xs text-gray-600">证据引用<textarea v-model="operatingNetworkReviewForm.evidence_refs_text" rows="2" placeholder="成功/失败：operation_effect_reviews#ID；停止：operation_execution_evidence#ID" class="mt-1 w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm"></textarea><span class="mt-1 block text-[11px] text-gray-500">引用必须来自本草稿生成并经人工审批的同一执行任务，且已进入完成、可回读的 hotel_operating_cycles 权威经营闭环；其他动作的同店同日结果不会计入。</span></label>
                                                 </div>
                                                 <button type="button" @click="saveOperatingNetworkReview" :disabled="!!operatingNetworkAction" class="btn-secondary mt-3 text-sm disabled:opacity-50">{{ operatingNetworkAction === 'review' ? '保存并回读中…' : '保存复制复盘' }}</button>
-                                                <div v-if="operatingNetworkReviews.length" class="mt-3 space-y-2">
+                                                <p v-if="operatingNetworkReviewState.replication_id !== Number(operatingNetworkLastReplication.id) || operatingNetworkReviewState.status === 'idle'" data-testid="operating-network-reviews-idle" class="mt-3 text-xs text-gray-600">当前草稿的复盘列表尚未读取。</p>
+                                                <p v-else-if="operatingNetworkReviewState.status === 'loading'" data-testid="operating-network-reviews-loading" class="mt-3 text-xs text-gray-600">正在读取草稿 #{{ operatingNetworkLastReplication.id }} 的复盘…</p>
+                                                <p v-else-if="operatingNetworkReviewState.status === 'error'" data-testid="operating-network-reviews-error" class="mt-3 text-xs text-red-700">草稿 #{{ operatingNetworkLastReplication.id }} 已回读，复盘列表读取失败，尚未确认。请刷新试验列表后重新读取本草稿。{{ operatingNetworkReviewState.error }}</p>
+                                                <p v-else-if="operatingNetworkReviewState.status === 'ready' && !operatingNetworkReviews.length" data-testid="operating-network-reviews-empty" class="mt-3 text-xs text-gray-600">已确认草稿 #{{ operatingNetworkLastReplication.id }} 暂无复盘记录。</p>
+                                                <div v-else-if="operatingNetworkReviewState.status === 'ready'" data-testid="operating-network-reviews-ready" class="mt-3 space-y-2">
                                                     <div v-for="review in operatingNetworkReviews" :key="'network-review-' + review.id" class="rounded-lg border border-gray-100 bg-white p-2 text-xs text-gray-600">#{{ review.review_no }} · {{ review.outcome }} · {{ review.review?.evidence_verification?.status || '历史证据未核验' }} · {{ (review.review?.evidence_verification?.verified_operating_cycle_refs || []).join('、') || '未绑定权威闭环' }} · {{ review.review?.reviewed_business_date || '日期未填' }} · {{ review.review?.note || '无说明' }}</div>
                                                 </div>
                                             </details>
@@ -753,11 +759,13 @@
                                 <button @click="loadKnowledgeCenter" class="btn-secondary text-sm flex items-center justify-center gap-2">
                                     <i class="fas fa-sync-alt" :class="{ 'fa-spin': knowledgeCenterLoading }"></i>刷新
                                 </button>
+                                <button type="button" data-testid="knowledge-reference-merge" @click="editKnowledgeReference()" :disabled="selectedKnowledgeCenterUnitIds.length === 0 || !canWriteKnowledgeReference()" class="min-h-[44px] rounded-lg border border-emerald-200 px-3 py-2 text-sm text-emerald-800 disabled:opacity-50">合并整理参考 SOP</button>
                                 <button @click="batchDeleteKnowledgeUnits" :disabled="selectedKnowledgeCenterUnitIds.length === 0 || knowledgeCenterBatchDeleting" class="px-4 py-2 rounded-lg border border-red-200 text-sm text-red-600 hover:bg-red-50 disabled:opacity-50 disabled:hover:bg-transparent flex items-center justify-center gap-2">
                                     <i class="fas fa-trash-alt"></i>
                                     批量删除<span v-if="selectedKnowledgeCenterUnitIds.length">({{ selectedKnowledgeCenterUnitIds.length }})</span>
                                 </button>
                             </div>
+                            <p v-if="!canWriteKnowledgeReference()" data-testid="knowledge-reference-permission-notice" class="mt-2 text-xs text-amber-700">需开通知识管理权限才能保存参考 SOP；已授权的资料仍可阅读。</p>
                             <div class="mt-3 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3">
                                 <select v-model="knowledgeCenterFilter.module" @change="reloadKnowledgeCenter" class="px-3 py-2 border border-gray-200 rounded-lg text-sm">
                                     <option value="">全部SOP模块</option>
@@ -797,7 +805,7 @@
                             </div>
                         </div>
 
-                        <div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+                        <div v-if="!knowledgeCenterListError || knowledgeCenterUnits.length &gt; 0" class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
                             <div class="overflow-x-auto">
                                 <table class="w-full">
                                     <thead>
@@ -820,7 +828,7 @@
                                         </tr>
                                         <tr v-for="unit in knowledgeCenterUnits" :key="unit.unit_id" class="border-b border-gray-100 hover:bg-blue-50/30 transition-colors" :class="selectedKnowledgeCenterUnitIds.includes(String(unit.unit_id)) ? 'bg-blue-50/60' : ''">
                                             <td class="px-4 py-4">
-                                                <input type="checkbox" v-model="selectedKnowledgeCenterUnitIds" :value="String(unit.unit_id)" :disabled="unit.can_edit === false" :aria-label="`选择知识：${unit.name || unit.unit_id}`" class="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500 disabled:opacity-40">
+                                                <input type="checkbox" v-model="selectedKnowledgeCenterUnitIds" :value="String(unit.unit_id)" :disabled="unit.can_edit === false && !unit.can_select_reference" :aria-label="`选择知识：${unit.name || unit.unit_id}`" class="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500 disabled:opacity-40">
                                             </td>
                                             <td class="px-6 py-4">
                                                 <div class="text-sm font-semibold text-gray-800">{{ unit.name }}</div>
@@ -873,7 +881,14 @@
                             </div>
                         </div>
 
-                        <div v-if="!knowledgeCenterLoading &amp;&amp; knowledgeCenterUnits.length === 0" class="bg-white rounded-xl shadow-sm border border-gray-100 p-12 text-center">
+                        <div v-if="knowledgeCenterListError" role="alert" data-testid="knowledge-center-list-error" class="bg-white rounded-xl border border-red-200 p-6">
+                            <h3 class="font-semibold text-red-700">知识读取失败</h3>
+                            <p class="mt-2 text-sm text-gray-700">{{ knowledgeCenterListError }}</p>
+                            <p class="mt-2 text-sm text-gray-500">当前无法判断匹配结果，请重试读取。</p>
+                            <p v-if="knowledgeCenterUnits.length &gt; 0" class="mt-2 text-sm text-gray-500">上方保留本范围内上次确认的结果，本次刷新尚未确认。</p>
+                            <button type="button" @click="reloadKnowledgeCenter" class="btn-secondary mt-3 text-sm">重试读取知识</button>
+                        </div>
+                        <div v-if="!knowledgeCenterLoading &amp;&amp; !knowledgeCenterListError &amp;&amp; knowledgeCenterUnits.length === 0" class="bg-white rounded-xl shadow-sm border border-gray-100 p-12 text-center">
                             <div class="w-20 h-20 bg-gray-50 rounded-full flex items-center justify-center mx-auto mb-4">
                                 <i class="fas fa-brain text-gray-300 text-3xl"></i>
                             </div>
@@ -885,7 +900,7 @@
                             </div>
                         </div>
 
-                        <div class="flex items-center justify-between bg-white rounded-xl shadow-sm border border-gray-100 p-4">
+                        <div v-if="!knowledgeCenterLoading &amp;&amp; (!knowledgeCenterListError || knowledgeCenterUnits.length &gt; 0)" class="flex items-center justify-between bg-white rounded-xl shadow-sm border border-gray-100 p-4">
                             <div class="text-sm text-gray-500">共 {{ knowledgeCenterPagination.total }} 条，每页 {{ knowledgeCenterPagination.page_size }} 条</div>
                             <div class="flex items-center gap-2">
                                 <button @click="changeKnowledgeCenterPage(knowledgeCenterPagination.page - 1)" :disabled="knowledgeCenterPagination.page &lt;= 1" class="btn-secondary text-sm">上一页</button>

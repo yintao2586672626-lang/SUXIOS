@@ -84,7 +84,7 @@ if (!exists('AGENTS.md')) {
   requireIncludes('project AGENTS.md', projectAgents, '不作为 OTA 功能的默认前置门禁');
   requireIncludes('project AGENTS.md', projectAgents, '当前阶段交付主线');
   requireIncludes('project AGENTS.md', projectAgents, '工作树不要求全局干净');
-  requireIncludes('project AGENTS.md', projectAgents, '连续三轮定向检查');
+  requireIncludes('project AGENTS.md', projectAgents, '不按固定检查次数放弃');
   requireIncludes('project AGENTS.md', projectAgents, 'Passkey');
   requireIncludes('project AGENTS.md', projectAgents, '经营页面合同（适当严格执行）');
   requireIncludes('project AGENTS.md', projectAgents, 'rules/business-page-contract.md');

@@ -82,3 +82,48 @@ test('future window controller rejects hotel drift and keeps missing terms missi
   assert.match(controller.competitorFutureWindowDayText.value, /事件 未取得 · 可售 未取得 · 可比价 未取得/);
   assert.doesNotMatch(controller.competitorFutureWindowDayText.value, /1晚|CNY 299/);
 });
+
+test('future window reset invalidates pending success and cleared selection recovers without stale facts', async () => {
+  const sandbox = { window: {}, URL, URLSearchParams, console };
+  vm.runInNewContext(ctripStaticLoader, sandbox);
+  let hotel = '80'; const requests = [];
+  const view = sandbox.window.SUXI_CTRIP_STATIC.createCompetitorFutureWindowController({
+    ref: value => ({ value }), computed: getter => ({ get value() { return getter(); } }),
+    request: () => new Promise(resolve => requests.push(resolve)), getSystemHotelId: () => hotel, getToday: () => '2026-09-27',
+  });
+  const response = { code: 200, data: { system_hotel_id: 80, platform: 'ctrip', start_date: '2026-09-27', days: 21, matrix: [{ stay_date: '2026-09-27', cells: [] }] } };
+  const pending = view.loadCompetitorFutureWindow();
+  hotel = ''; await view.loadCompetitorFutureWindow();
+  assert.equal(requests.length, 1, 'cleared hotel cannot read an old scope');
+  requests[0](response); await pending;
+  assert.equal(view.competitorFutureWindow.value, null);
+  assert.equal(view.competitorFutureWindowLoading.value, false);
+  assert.equal(view.competitorFutureWindowError.value, '');
+  hotel = '80'; const recovered = view.loadCompetitorFutureWindow(); requests[1](response); await recovered;
+  assert.equal(view.competitorFutureWindow.value.system_hotel_id, 80);
+  const invalidDate = await view.loadCompetitorFutureWindow({ startDate: 'invalid' });
+  assert.equal(invalidDate, null); assert.equal(requests.length, 2);
+  assert.equal(view.competitorFutureWindowEmpty.value, true);
+});
+
+for (const mismatch of [{ system_hotel_id: 81 }, { platform: 'meituan' }, { start_date: '2026-09-28' }, { days: 20 }]) {
+  test(`future window rejects mismatched ${Object.keys(mismatch)[0]} and preserves recoverable errors`, async () => {
+    const sandbox = { window: {}, URL, URLSearchParams, console };
+    vm.runInNewContext(ctripStaticLoader, sandbox);
+    let response = { code: 200, data: { system_hotel_id: 80, platform: 'ctrip', start_date: '2026-09-27', days: 21, matrix: [] } };
+    const view = sandbox.window.SUXI_CTRIP_STATIC.createCompetitorFutureWindowController({
+      ref: value => ({ value }), computed: getter => ({ get value() { return getter(); } }),
+      request: async () => response, getSystemHotelId: () => '80', getToday: () => '2026-09-27',
+    });
+    const good = response; response = { ...good, data: { ...good.data, ...mismatch } };
+    assert.equal(await view.loadCompetitorFutureWindow(), null);
+    assert.match(view.competitorFutureWindowError.value, /范围不一致/);
+    assert.equal(view.competitorFutureWindow.value, null);
+    response = { code: 503, message: '合成来源不可用' };
+    await view.loadCompetitorFutureWindow(); assert.equal(view.competitorFutureWindowError.value, '合成来源不可用');
+    response = good; await view.loadCompetitorFutureWindow();
+    assert.equal(view.competitorFutureWindowError.value, '');
+    assert.equal(view.competitorFutureWindowLoading.value, false);
+    assert.equal(view.competitorFutureWindow.value.system_hotel_id, 80);
+  });
+}
