@@ -260,4 +260,125 @@ final class ConsumablesOperationalReconciliationServiceTest extends TestCase
         self::assertSame(0.0, $result['actual_consumed_cost']);
         self::assertSame('calculated', $result['status']);
     }
+
+    public function testPositiveSubMicroConsumptionRetainsItsValuedIssueDifference(): void
+    {
+        $input = $this->input();
+        $input['items'][0] = array_replace($input['items'][0], ['opening_quantity'=>0,'purchased_quantity'=>1e-7,'closing_quantity'=>0,'written_off_quantity'=>0,'issued_quantity'=>0,'book_closing_quantity'=>0,'unit_price'=>1e12,'budget_unit_price'=>null,'budget_usage_per_room_night'=>null]);
+        $result = (new ConsumablesOperationalReconciliationService())->calculate($input);
+        self::assertSame(1e-7, $result['items'][0]['consumed_quantity']);
+        self::assertSame(100000.0, $result['actual_consumed_cost']);
+        self::assertSame(1e-7, $result['items'][0]['inventory_balance_minus_issued_quantity']);
+        self::assertSame(100000.0, $result['reconciliation']['inventory_balance_minus_issued_cost']);
+        self::assertSame('calculated', $result['reconciliation']['status']);
+    }
+
+    public function testSubMicroCountDifferenceIsValuedWithoutCreatingWriteoff(): void
+    {
+        $input = $this->input();
+        $input['items'][0] = array_replace($input['items'][0], ['opening_quantity'=>1e-7,'purchased_quantity'=>0,'closing_quantity'=>1e-7,'written_off_quantity'=>0,'issued_quantity'=>0,'book_closing_quantity'=>0,'unit_price'=>1e12,'budget_unit_price'=>null,'budget_usage_per_room_night'=>null]);
+        $result = (new ConsumablesOperationalReconciliationService())->calculate($input);
+        self::assertSame(1e-7, $result['items'][0]['counted_minus_book_closing_quantity']);
+        self::assertSame(100000.0, $result['reconciliation']['counted_minus_book_closing_cost']);
+        self::assertSame(0.0, $result['actual_consumed_cost']);
+        self::assertSame(0.0, $result['separate_loss_cost']);
+        self::assertTrue($result['reconciliation']['boundaries']['inventory_count_difference_is_not_automatic_loss']);
+    }
+
+    public function testSubMicroIssueDifferenceKeepsItsSignedAmount(): void
+    {
+        $input = $this->input();
+        $input['items'][0] = array_replace($input['items'][0], ['opening_quantity'=>0,'purchased_quantity'=>0,'closing_quantity'=>0,'written_off_quantity'=>0,'issued_quantity'=>1e-7,'book_closing_quantity'=>0,'unit_price'=>1e12,'budget_unit_price'=>null,'budget_usage_per_room_night'=>null]);
+        $result = (new ConsumablesOperationalReconciliationService())->calculate($input);
+        self::assertSame(100000.0, $result['reconciliation']['issued_cost']);
+        self::assertSame(-1e-7, $result['items'][0]['inventory_balance_minus_issued_quantity']);
+        self::assertSame(-100000.0, $result['reconciliation']['inventory_balance_minus_issued_cost']);
+        self::assertSame(0.0, $result['actual_consumed_cost']);
+    }
+
+    public function testNegativeTinyFlowBesideLargeEqualStocksIsRejected(): void
+    {
+        $input = $this->input();
+        $input['items'][0] = array_replace($input['items'][0], ['opening_quantity'=>1e12,'purchased_quantity'=>0,'closing_quantity'=>1e12,'transfer_out_quantity'=>1e-7,'written_off_quantity'=>0,'issued_quantity'=>0,'book_closing_quantity'=>1e12,'unit_price'=>1e12,'budget_unit_price'=>null,'budget_usage_per_room_night'=>null]);
+        $this->expectException(InvalidArgumentException::class);
+        (new ConsumablesOperationalReconciliationService())->calculate($input);
+    }
+
+    public function testDisabledInventoryAndIssueOverflowCannotBlockActiveRows(): void
+    {
+        $input = $this->input();
+        $input['items'][] = array_replace($input['items'][0], ['id'=>'excluded','enabled'=>false,'opening_quantity'=>1e12,'purchased_quantity'=>0,'closing_quantity'=>0,'written_off_quantity'=>0,'issued_quantity'=>1e12]);
+        $result = (new ConsumablesOperationalReconciliationService())->calculate($input);
+        self::assertSame(200.0, $result['actual_consumed_cost']);
+        self::assertSame(180.0, $result['reconciliation']['issued_cost']);
+        self::assertNull($result['items'][1]['consumed_quantity']);
+        self::assertNull($result['items'][1]['consumed_cost']);
+        self::assertNull($result['items'][1]['issued_cost']);
+        self::assertSame(1e12, $result['inputs']['items'][1]['opening_quantity']);
+        self::assertSame('excluded', $result['items'][1]['reconciliation_status']);
+    }
+
+    public function testMissingUnitPriceKeepsSourcedQuantitiesButNoKnownMoney(): void
+    {
+        $input = $this->input();
+        $input['items'][0]['unit_price'] = null;
+        $result = (new ConsumablesOperationalReconciliationService())->calculate($input);
+        self::assertSame(100.0, $result['items'][0]['consumed_quantity']);
+        self::assertSame(10.0, $result['items'][0]['inventory_balance_minus_issued_quantity']);
+        self::assertSame(2.0, $result['items'][0]['counted_minus_book_closing_quantity']);
+        foreach (['actual_consumed_cost','known_consumed_cost'] as $field) self::assertNull($result[$field]);
+        foreach (['issued_cost','known_issued_cost','inventory_balance_minus_issued_cost','counted_minus_book_closing_cost'] as $field) self::assertNull($result['reconciliation'][$field]);
+        self::assertSame('partial', $result['reconciliation']['status']);
+    }
+
+    public function testFractionalCleaningCountCannotBecomeAUnitCost(): void
+    {
+        $input = $this->input();
+        $input['cleaning_count'] = 0.5;
+        $this->expectException(InvalidArgumentException::class);
+        (new ConsumablesOperationalReconciliationService())->calculate($input);
+    }
+
+    public function testMissingCleaningCountIsNullAndDoesNotConsumeAFalseZero(): void
+    {
+        $input = $this->input();
+        $input['cleaning_count'] = null;
+        $result = (new ConsumablesOperationalReconciliationService())->calculate($input);
+        self::assertNull($result['inputs']['cleaning_count']);
+        self::assertNull($result['reconciliation']['inventory_balance_cost_per_cleaning']);
+        self::assertFalse($result['reconciliation']['coverage']['cleaning_denominator_ready']);
+        self::assertSame(200.0, $result['actual_consumed_cost']);
+        self::assertSame('partial', $result['reconciliation']['status']);
+    }
+
+    public function testSmallPositiveUnitCostsAndEvidenceSurviveJsonReadback(): void
+    {
+        $input = $this->input();
+        $input['occupied_room_nights'] = 100000;
+        $input['cleaning_count'] = 100000;
+        $input['items'][0] = array_replace($input['items'][0], ['opening_quantity'=>0,'purchased_quantity'=>0.01,'closing_quantity'=>0,'written_off_quantity'=>0,'issued_quantity'=>0.01,'book_closing_quantity'=>0,'unit_price'=>1,'budget_unit_price'=>null,'budget_usage_per_room_night'=>null]);
+        $service = new ConsumablesOperationalReconciliationService();
+        $result = $service->calculate($input);
+        self::assertSame(1e-7, $result['actual_consumables_cost_per_room_night']);
+        self::assertSame(1e-7, $result['reconciliation']['issued_cost_per_room_night']);
+        self::assertSame(1e-7, $result['reconciliation']['inventory_balance_cost_per_cleaning']);
+        $readback = json_decode(json_encode($result['inputs'], JSON_THROW_ON_ERROR), true, 512, JSON_THROW_ON_ERROR);
+        self::assertSame($result, $service->calculate($readback));
+    }
+
+    public static function unrepresentableEvidence(): array
+    {
+        return ['issue product'=>[['opening_quantity'=>0,'closing_quantity'=>0,'issued_quantity'=>1e-200,'book_closing_quantity'=>0]],
+            'count product'=>[['opening_quantity'=>1e-200,'closing_quantity'=>1e-200,'issued_quantity'=>0,'book_closing_quantity'=>0]],
+            'raw issue quantity'=>[['opening_quantity'=>0,'closing_quantity'=>0,'issued_quantity'=>'1e-400','book_closing_quantity'=>0]]];
+    }
+
+    #[DataProvider('unrepresentableEvidence')]
+    public function testNonzeroEvidenceUnderflowCannotBecomeCalculatedZero(array $changes): void
+    {
+        $input = $this->input();
+        $input['items'][0] = array_replace($input['items'][0], ['purchased_quantity'=>0,'written_off_quantity'=>0,'unit_price'=>1e-200,'budget_unit_price'=>null,'budget_usage_per_room_night'=>null], $changes);
+        $this->expectException(InvalidArgumentException::class);
+        (new ConsumablesOperationalReconciliationService())->calculate($input);
+    }
 }
